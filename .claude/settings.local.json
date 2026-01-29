@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run dev)",
+      "Bash(npx next dev:*)",
+      "Bash(npx vercel --yes)",
+      "Bash(npx vercel --yes --prod)",
+      "Bash(npm run build:*)",
+      "Bash(npx next build)",
+      "Bash(npx vercel --prod --yes)",
+      "Bash(vercel ls:*)",
+      "WebFetch(domain:waplace.co.kr)",
+      "Bash(vercel:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
