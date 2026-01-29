@@ -59,24 +59,30 @@ export default function CTA() {
   }, []);
 
   return (
-    <section className="py-24 bg-white relative overflow-hidden">
+    <section className="py-24 bg-[#030014] relative overflow-hidden">
+      {/* Background Effects */}
+      <div className="absolute inset-0">
+        <div className="absolute top-1/4 left-0 w-[500px] h-[500px] bg-emerald-500/10 rounded-full blur-[150px]" />
+        <div className="absolute bottom-1/4 right-0 w-[400px] h-[400px] bg-cyan-500/10 rounded-full blur-[150px]" />
+      </div>
+
       {/* Live Signup Notification - 모바일에서는 하단 중앙, 데스크탑에서는 좌측 하단 */}
       <motion.div
         initial={{ y: 100, opacity: 0 }}
         animate={showNotification ? { y: 0, opacity: 1 } : { y: 100, opacity: 0 }}
         transition={{ duration: 0.5 }}
-        className="fixed bottom-4 left-4 right-4 sm:left-6 sm:right-auto z-50 bg-white rounded-xl sm:rounded-2xl shadow-2xl border border-gray-200 p-3 sm:p-4 sm:max-w-sm"
+        className="fixed bottom-4 left-4 right-4 sm:left-6 sm:right-auto z-50 bg-[#0a0a1a] rounded-xl sm:rounded-2xl shadow-2xl border border-white/10 p-3 sm:p-4 sm:max-w-sm"
       >
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
-            <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
+          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+            <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
           </div>
           <div className="min-w-0">
-            <p className="text-xs sm:text-sm font-medium text-gray-900 truncate">
+            <p className="text-xs sm:text-sm font-medium text-white truncate">
               {recentSignups[currentSignup].location}에서
             </p>
-            <p className="text-xs sm:text-sm text-gray-600">
-              <strong className="text-purple-600">{recentSignups[currentSignup].plan}</strong> 가입 · {recentSignups[currentSignup].time}
+            <p className="text-xs sm:text-sm text-white/60">
+              <strong className="text-cyan-400">{recentSignups[currentSignup].plan}</strong> 가입 · {recentSignups[currentSignup].time}
             </p>
           </div>
         </div>
@@ -259,16 +265,16 @@ export default function CTA() {
             transition={{ duration: 0.6, delay: 0.5 }}
             className="mt-12 text-center"
           >
-            <p className="text-gray-600 text-lg mb-4">
+            <p className="text-white/50 text-lg mb-4">
               아직 고민되시나요?
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <a href="#" className="text-purple-600 font-semibold hover:underline flex items-center gap-2">
+              <a href="#" className="text-cyan-400 font-semibold hover:underline flex items-center gap-2">
                 <Users className="w-5 h-5" />
                 실제 사용자 후기 더 보기
               </a>
-              <span className="text-gray-300 hidden sm:inline">|</span>
-              <a href="#" className="text-purple-600 font-semibold hover:underline">
+              <span className="text-white/20 hidden sm:inline">|</span>
+              <a href="#" className="text-cyan-400 font-semibold hover:underline">
                 카카오톡 실시간 문의 (평균 응답 3분)
               </a>
             </div>

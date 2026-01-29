@@ -46,8 +46,14 @@ export default function FAQ() {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
 
   return (
-    <section id="faq" className="py-24 bg-gradient-to-b from-gray-50 to-white relative overflow-hidden">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+    <section id="faq" className="py-24 bg-[#030014] relative overflow-hidden">
+      {/* Background Effects */}
+      <div className="absolute inset-0">
+        <div className="absolute top-1/4 right-0 w-[400px] h-[400px] bg-blue-500/10 rounded-full blur-[150px]" />
+        <div className="absolute bottom-1/4 left-0 w-[400px] h-[400px] bg-cyan-500/10 rounded-full blur-[150px]" />
+      </div>
+
+      <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <motion.div
           ref={ref}
@@ -59,17 +65,17 @@ export default function FAQ() {
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={isInView ? { opacity: 1, scale: 1 } : {}}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 border border-blue-200 mb-6"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-500/10 border border-blue-500/20 mb-6"
           >
-            <HelpCircle className="w-4 h-4 text-blue-600" />
-            <span className="text-sm font-medium text-blue-700">자주 묻는 질문</span>
+            <HelpCircle className="w-4 h-4 text-blue-400" />
+            <span className="text-sm font-medium text-blue-300">자주 묻는 질문</span>
           </motion.div>
 
-          <h2 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-6">
+          <h2 className="text-4xl sm:text-5xl font-bold text-white mb-6">
             궁금한 점이 있으신가요?
           </h2>
 
-          <p className="text-xl text-gray-600">
+          <p className="text-xl text-white/60">
             가장 많이 묻는 질문들을 모았습니다
           </p>
         </motion.div>
@@ -89,17 +95,17 @@ export default function FAQ() {
               transition={{ duration: 0.4, delay: 0.3 + index * 0.05 }}
             >
               <div
-                className={`bg-white rounded-2xl border transition-all duration-300 ${
+                className={`bg-white/[0.03] backdrop-blur-sm rounded-2xl border transition-all duration-300 ${
                   openIndex === index
-                    ? 'border-purple-200 shadow-lg shadow-purple-100'
-                    : 'border-gray-100 hover:border-gray-200'
+                    ? 'border-cyan-500/30'
+                    : 'border-white/10 hover:border-white/20'
                 }`}
               >
                 <button
                   onClick={() => setOpenIndex(openIndex === index ? null : index)}
                   className="w-full px-6 py-5 flex items-center justify-between text-left"
                 >
-                  <span className="font-semibold text-gray-900 pr-4">
+                  <span className="font-semibold text-white pr-4">
                     {faq.question}
                   </span>
                   <motion.div
@@ -108,7 +114,7 @@ export default function FAQ() {
                     className="flex-shrink-0"
                   >
                     <ChevronDown className={`w-5 h-5 ${
-                      openIndex === index ? 'text-purple-600' : 'text-gray-500'
+                      openIndex === index ? 'text-cyan-400' : 'text-white/50'
                     }`} />
                   </motion.div>
                 </button>
@@ -122,7 +128,7 @@ export default function FAQ() {
                       transition={{ duration: 0.2 }}
                       className="overflow-hidden"
                     >
-                      <div className="px-6 pb-5 text-gray-600 leading-relaxed">
+                      <div className="px-6 pb-5 text-white/60 leading-relaxed">
                         {faq.answer}
                       </div>
                     </motion.div>
@@ -140,11 +146,11 @@ export default function FAQ() {
           transition={{ duration: 0.6, delay: 0.8 }}
           className="mt-16 text-center"
         >
-          <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-3xl p-8 sm:p-12 border border-gray-200">
-            <h3 className="text-2xl font-bold text-gray-900 mb-3">
+          <div className="bg-gradient-to-br from-white/[0.05] to-white/[0.02] rounded-3xl p-8 sm:p-12 border border-white/10">
+            <h3 className="text-2xl font-bold text-white mb-3">
               원하는 답을 찾지 못하셨나요?
             </h3>
-            <p className="text-gray-600 mb-6">
+            <p className="text-white/60 mb-6">
               고객 지원팀이 친절하게 답변해드립니다
             </p>
             <Button

@@ -32,8 +32,14 @@ export default function Automation() {
   const [activeStep, setActiveStep] = useState(0);
 
   return (
-    <section id="automation" className="py-24 bg-white relative overflow-hidden">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <section id="automation" className="py-24 bg-[#030014] relative overflow-hidden">
+      {/* Background Effects */}
+      <div className="absolute inset-0">
+        <div className="absolute top-1/4 left-0 w-[500px] h-[500px] bg-emerald-500/10 rounded-full blur-[150px]" />
+        <div className="absolute bottom-1/4 right-0 w-[400px] h-[400px] bg-teal-500/10 rounded-full blur-[150px]" />
+      </div>
+
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <motion.div
           ref={ref}
@@ -45,18 +51,18 @@ export default function Automation() {
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={isInView ? { opacity: 1, scale: 1 } : {}}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50 border border-emerald-200 mb-6"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20 mb-6"
           >
-            <Zap className="w-4 h-4 text-emerald-600" />
-            <span className="text-sm font-medium text-emerald-700">완전 자동화</span>
+            <Zap className="w-4 h-4 text-emerald-400" />
+            <span className="text-sm font-medium text-emerald-300">완전 자동화</span>
           </motion.div>
 
-          <h2 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-6">
-            <span className="text-gradient-blue">업로드 한 번</span>으로
+          <h2 className="text-4xl sm:text-5xl font-bold text-white mb-6">
+            <span className="bg-gradient-to-r from-cyan-400 to-emerald-400 bg-clip-text text-transparent">업로드 한 번</span>으로
             <br />쿠팡까지 자동 등록
           </h2>
 
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+          <p className="text-xl text-white/60 max-w-3xl mx-auto">
             R2 스토리지에 상품 폴더만 업로드하세요.
             <br />
             8단계 자동화 파이프라인이 모든 것을 처리합니다.
@@ -72,7 +78,7 @@ export default function Automation() {
         >
           {/* Progress Bar */}
           <div className="relative mb-8">
-            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+            <div className="h-2 bg-white/5 rounded-full overflow-hidden">
               <motion.div
                 initial={{ width: 0 }}
                 animate={isInView ? { width: `${pipelineSteps[activeStep].percent}%` } : {}}
@@ -80,7 +86,7 @@ export default function Automation() {
                 className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full"
               />
             </div>
-            <div className="absolute right-0 -top-6 text-sm font-semibold text-emerald-600">
+            <div className="absolute right-0 -top-6 text-sm font-semibold text-emerald-400">
               {pipelineSteps[activeStep].percent}%
             </div>
           </div>
@@ -96,9 +102,9 @@ export default function Automation() {
                 onClick={() => setActiveStep(index)}
                 className={`relative p-3 sm:p-4 rounded-2xl transition-all duration-300 ${
                   index <= activeStep
-                    ? 'bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-200'
-                    : 'bg-gray-50 border-2 border-transparent'
-                } ${index === activeStep ? 'ring-2 ring-emerald-400 ring-offset-2' : ''}`}
+                    ? 'bg-gradient-to-br from-emerald-500/10 to-teal-500/10 border border-emerald-500/30'
+                    : 'bg-white/5 border border-white/10'
+                } ${index === activeStep ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-[#030014]' : ''}`}
               >
                 {/* Completion Check */}
                 {index < activeStep && (
@@ -110,18 +116,18 @@ export default function Automation() {
                 <div className={`w-10 h-10 sm:w-12 sm:h-12 mx-auto rounded-xl flex items-center justify-center mb-2 ${
                   index <= activeStep
                     ? 'bg-gradient-to-br from-emerald-500 to-teal-500 text-white'
-                    : 'bg-gray-200 text-gray-400'
+                    : 'bg-white/10 text-white/40'
                 }`}>
                   <step.icon className="w-5 h-5 sm:w-6 sm:h-6" />
                 </div>
 
                 <div className="text-center">
                   <div className={`text-xs sm:text-sm font-semibold ${
-                    index <= activeStep ? 'text-gray-900' : 'text-gray-400'
+                    index <= activeStep ? 'text-white' : 'text-white/40'
                   }`}>
                     {step.name}
                   </div>
-                  <div className="text-xs text-gray-600 mt-0.5 hidden sm:block">
+                  <div className="text-xs text-white/50 mt-0.5 hidden sm:block">
                     {step.description}
                   </div>
                 </div>
@@ -136,15 +142,15 @@ export default function Automation() {
             initial={{ opacity: 0, y: 30 }}
             animate={isInView ? { opacity: 1, y: 0 } : {}}
             transition={{ duration: 0.6, delay: 0.6 }}
-            className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-3xl p-8 border border-purple-100"
+            className="bg-gradient-to-br from-purple-500/10 to-indigo-500/10 rounded-3xl p-8 border border-purple-500/20"
           >
             <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-2xl flex items-center justify-center mb-6">
               <Upload className="w-7 h-7 text-white" />
             </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-3">
+            <h3 className="text-xl font-bold text-white mb-3">
               폴더 업로드만으로 끝
             </h3>
-            <p className="text-gray-600 leading-relaxed">
+            <p className="text-white/60 leading-relaxed">
               R2 스토리지에 상품 폴더를 업로드하세요.
               이미지와 상품 정보를 자동으로 인식합니다.
             </p>
@@ -154,15 +160,15 @@ export default function Automation() {
             initial={{ opacity: 0, y: 30 }}
             animate={isInView ? { opacity: 1, y: 0 } : {}}
             transition={{ duration: 0.6, delay: 0.7 }}
-            className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-3xl p-8 border border-emerald-100"
+            className="bg-gradient-to-br from-emerald-500/10 to-teal-500/10 rounded-3xl p-8 border border-emerald-500/20"
           >
             <div className="w-14 h-14 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-2xl flex items-center justify-center mb-6">
               <Zap className="w-7 h-7 text-white" />
             </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-3">
+            <h3 className="text-xl font-bold text-white mb-3">
               24시간 무인 운영
             </h3>
-            <p className="text-gray-600 leading-relaxed">
+            <p className="text-white/60 leading-relaxed">
               자는 동안에도 상품이 자동으로 등록됩니다.
               실시간 진행 상황 모니터링 가능.
             </p>
@@ -172,15 +178,15 @@ export default function Automation() {
             initial={{ opacity: 0, y: 30 }}
             animate={isInView ? { opacity: 1, y: 0 } : {}}
             transition={{ duration: 0.6, delay: 0.8 }}
-            className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-3xl p-8 border border-blue-100"
+            className="bg-gradient-to-br from-blue-500/10 to-cyan-500/10 rounded-3xl p-8 border border-blue-500/20"
           >
             <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl flex items-center justify-center mb-6">
               <Rocket className="w-7 h-7 text-white" />
             </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-3">
+            <h3 className="text-xl font-bold text-white mb-3">
               대량 등록 최적화
             </h3>
-            <p className="text-gray-600 leading-relaxed">
+            <p className="text-white/60 leading-relaxed">
               수백 개 상품도 한 번에 처리.
               병렬 처리로 빠른 등록 속도.
             </p>

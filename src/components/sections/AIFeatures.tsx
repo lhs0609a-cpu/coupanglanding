@@ -61,31 +61,31 @@ const aiFeatures = [
 
 const colorVariants = {
   purple: {
-    bg: 'bg-purple-50',
-    icon: 'bg-purple-100 text-purple-600',
-    badge: 'bg-purple-100 text-purple-700',
-    border: 'border-purple-200',
+    bg: 'bg-purple-500/10',
+    icon: 'bg-purple-500/20 text-purple-400',
+    badge: 'bg-purple-500/20 text-purple-300',
+    border: 'border-purple-500/20',
     gradient: 'from-purple-500 to-purple-600',
   },
   indigo: {
-    bg: 'bg-indigo-50',
-    icon: 'bg-indigo-100 text-indigo-600',
-    badge: 'bg-indigo-100 text-indigo-700',
-    border: 'border-indigo-200',
+    bg: 'bg-indigo-500/10',
+    icon: 'bg-indigo-500/20 text-indigo-400',
+    badge: 'bg-indigo-500/20 text-indigo-300',
+    border: 'border-indigo-500/20',
     gradient: 'from-indigo-500 to-indigo-600',
   },
   blue: {
-    bg: 'bg-blue-50',
-    icon: 'bg-blue-100 text-blue-600',
-    badge: 'bg-blue-100 text-blue-700',
-    border: 'border-blue-200',
+    bg: 'bg-blue-500/10',
+    icon: 'bg-blue-500/20 text-blue-400',
+    badge: 'bg-blue-500/20 text-blue-300',
+    border: 'border-blue-500/20',
     gradient: 'from-blue-500 to-blue-600',
   },
   cyan: {
-    bg: 'bg-cyan-50',
-    icon: 'bg-cyan-100 text-cyan-600',
-    badge: 'bg-cyan-100 text-cyan-700',
-    border: 'border-cyan-200',
+    bg: 'bg-cyan-500/10',
+    icon: 'bg-cyan-500/20 text-cyan-400',
+    badge: 'bg-cyan-500/20 text-cyan-300',
+    border: 'border-cyan-500/20',
     gradient: 'from-cyan-500 to-cyan-600',
   },
 };
@@ -95,10 +95,10 @@ export default function AIFeatures() {
   const isInView = useInView(ref, { once: true, amount: 0.1 });
 
   return (
-    <section id="ai-features" className="py-24 bg-gradient-to-b from-gray-50 to-white relative overflow-hidden">
+    <section id="ai-features" className="py-24 bg-[#030014] relative overflow-hidden">
       {/* Background decoration */}
-      <div className="absolute top-0 left-1/4 w-96 h-96 bg-purple-100 rounded-full mix-blend-multiply filter blur-3xl opacity-20" />
-      <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-indigo-100 rounded-full mix-blend-multiply filter blur-3xl opacity-20" />
+      <div className="absolute top-0 left-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-[150px]" />
+      <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-[150px]" />
 
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
@@ -112,18 +112,18 @@ export default function AIFeatures() {
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={isInView ? { opacity: 1, scale: 1 } : {}}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-100 to-indigo-100 border border-purple-200 mb-6"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-500/10 to-indigo-500/10 border border-purple-500/20 mb-6"
           >
-            <Sparkles className="w-4 h-4 text-purple-600" />
-            <span className="text-sm font-medium text-purple-700">AI 파워</span>
+            <Sparkles className="w-4 h-4 text-purple-400" />
+            <span className="text-sm font-medium text-purple-300">AI 파워</span>
           </motion.div>
 
-          <h2 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-6">
-            <span className="text-gradient">AI가 일하는 동안</span>
+          <h2 className="text-4xl sm:text-5xl font-bold text-white mb-6">
+            <span className="bg-gradient-to-r from-purple-400 to-indigo-400 bg-clip-text text-transparent">AI가 일하는 동안</span>
             <br />당신은 쉬세요
           </h2>
 
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+          <p className="text-xl text-white/60 max-w-3xl mx-auto">
             복잡하고 반복적인 작업은 AI에게 맡기세요.
             <br />
             상품명, 리뷰, 카테고리, 태그까지 모든 것을 자동으로 처리합니다.
@@ -142,7 +142,7 @@ export default function AIFeatures() {
                 transition={{ duration: 0.6, delay: index * 0.15 }}
                 className="group"
               >
-                <div className={`h-full bg-white rounded-3xl p-8 border ${colors.border} shadow-sm hover:shadow-xl transition-all duration-300`}>
+                <div className={`h-full bg-white/[0.03] backdrop-blur-sm rounded-3xl p-8 border ${colors.border} hover:border-white/20 transition-all duration-300`}>
                   <div className="flex items-start gap-6">
                     {/* Icon */}
                     <div className={`flex-shrink-0 w-16 h-16 rounded-2xl ${colors.icon} flex items-center justify-center group-hover:scale-110 transition-transform duration-300`}>
@@ -152,7 +152,7 @@ export default function AIFeatures() {
                     {/* Content */}
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-xl font-bold text-gray-900">
+                        <h3 className="text-xl font-bold text-white">
                           {feature.title}
                         </h3>
                         <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${colors.badge}`}>
@@ -160,15 +160,15 @@ export default function AIFeatures() {
                         </span>
                       </div>
 
-                      <p className="text-gray-600 mb-5 leading-relaxed">
+                      <p className="text-white/60 mb-5 leading-relaxed">
                         {feature.description}
                       </p>
 
                       {/* Benefits */}
                       <ul className="space-y-2 mb-6">
                         {feature.benefits.map((benefit) => (
-                          <li key={benefit} className="flex items-center gap-2 text-sm text-gray-700">
-                            <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                          <li key={benefit} className="flex items-center gap-2 text-sm text-white/70">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
                             {benefit}
                           </li>
                         ))}
@@ -178,23 +178,23 @@ export default function AIFeatures() {
                       <div className={`${colors.bg} rounded-2xl p-4`}>
                         <div className="flex items-center justify-between">
                           <div className="text-center">
-                            <div className="text-xs sm:text-sm text-gray-600 mb-1">이전</div>
-                            <div className="text-sm font-semibold text-gray-700 line-through decoration-red-400">
+                            <div className="text-xs sm:text-sm text-white/50 mb-1">이전</div>
+                            <div className="text-sm font-semibold text-white/70 line-through decoration-red-400">
                               {feature.stats.before}
                             </div>
                           </div>
 
                           <div className="flex items-center gap-2">
-                            <div className="w-8 h-px bg-gray-300" />
+                            <div className="w-8 h-px bg-white/20" />
                             <div className={`w-10 h-10 rounded-full bg-gradient-to-r ${colors.gradient} flex items-center justify-center text-white text-xs font-bold`}>
                               {feature.stats.improvement}
                             </div>
-                            <div className="w-8 h-px bg-gray-300" />
+                            <div className="w-8 h-px bg-white/20" />
                           </div>
 
                           <div className="text-center">
-                            <div className="text-xs sm:text-sm text-gray-600 mb-1">이후</div>
-                            <div className="text-sm font-bold text-gray-900">
+                            <div className="text-xs sm:text-sm text-white/50 mb-1">이후</div>
+                            <div className="text-sm font-bold text-white">
                               {feature.stats.after}
                             </div>
                           </div>

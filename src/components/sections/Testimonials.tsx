@@ -84,9 +84,12 @@ export default function Testimonials() {
   const isInView = useInView(ref, { once: true, amount: 0.2 });
 
   return (
-    <section className="py-24 bg-white relative overflow-hidden">
+    <section className="py-24 bg-[#030014] relative overflow-hidden">
       {/* Background */}
-      <div className="absolute inset-0 bg-gradient-to-b from-gray-50 to-white" />
+      <div className="absolute inset-0">
+        <div className="absolute top-1/4 left-0 w-[500px] h-[500px] bg-yellow-500/10 rounded-full blur-[150px]" />
+        <div className="absolute bottom-1/4 right-0 w-[400px] h-[400px] bg-purple-500/10 rounded-full blur-[150px]" />
+      </div>
 
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
@@ -100,19 +103,19 @@ export default function Testimonials() {
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={isInView ? { opacity: 1, scale: 1 } : {}}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-yellow-50 border border-yellow-200 mb-6"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-yellow-500/10 border border-yellow-500/20 mb-6"
           >
-            <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-            <span className="text-sm font-medium text-yellow-700">실제 사용자 인터뷰</span>
+            <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+            <span className="text-sm font-medium text-yellow-300">실제 사용자 인터뷰</span>
           </motion.div>
 
-          <h2 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-6">
+          <h2 className="text-4xl sm:text-5xl font-bold text-white mb-6">
             이 분들도 처음엔
-            <br /><span className="text-gradient">"진짜야?"</span> 했습니다
+            <br /><span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">"진짜야?"</span> 했습니다
           </h2>
 
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            지금은 <strong className="text-purple-600">연매출 10억 이상</strong> 셀러들입니다.
+          <p className="text-xl text-white/60 max-w-2xl mx-auto">
+            지금은 <strong className="text-purple-400">연매출 10억 이상</strong> 셀러들입니다.
             <br />
             Before/After 숫자로 증명합니다.
           </p>
@@ -128,10 +131,10 @@ export default function Testimonials() {
               transition={{ duration: 0.5, delay: index * 0.1 }}
               className="group"
             >
-              <div className="h-full bg-white rounded-3xl p-6 border border-gray-100 shadow-sm hover:shadow-xl hover:border-purple-100 transition-all duration-300">
+              <div className="h-full bg-white/[0.03] backdrop-blur-sm rounded-3xl p-6 border border-white/10 hover:border-purple-500/30 transition-all duration-300">
                 {/* Quote Icon */}
                 <div className="mb-4">
-                  <Quote className="w-8 h-8 text-purple-200" />
+                  <Quote className="w-8 h-8 text-purple-500/30" />
                 </div>
 
                 {/* Rating */}
@@ -142,42 +145,42 @@ export default function Testimonials() {
                 </div>
 
                 {/* Content */}
-                <p className="text-gray-700 leading-relaxed mb-6">
+                <p className="text-white/80 leading-relaxed mb-6">
                   "{testimonial.content}"
                 </p>
 
                 {/* Before/After Stats */}
-                <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-2xl p-4 mb-6">
+                <div className="bg-gradient-to-r from-white/5 to-white/[0.02] rounded-2xl p-4 mb-6">
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <div className="text-center flex-1">
-                      <p className="text-xs sm:text-sm text-gray-600 mb-1">BEFORE</p>
-                      <p className="text-sm font-semibold text-red-600">{testimonial.before}</p>
+                      <p className="text-xs sm:text-sm text-white/50 mb-1">BEFORE</p>
+                      <p className="text-sm font-semibold text-red-400">{testimonial.before}</p>
                     </div>
-                    <div className="text-gray-400">→</div>
+                    <div className="text-white/30">→</div>
                     <div className="text-center flex-1">
-                      <p className="text-xs sm:text-sm text-gray-600 mb-1">AFTER</p>
-                      <p className="text-sm font-semibold text-green-600">{testimonial.after}</p>
+                      <p className="text-xs sm:text-sm text-white/50 mb-1">AFTER</p>
+                      <p className="text-sm font-semibold text-emerald-400">{testimonial.after}</p>
                     </div>
                   </div>
-                  <div className="flex items-center justify-center gap-2 pt-2 border-t border-gray-200">
-                    <TrendingUp className="w-4 h-4 text-purple-600" />
-                    <span className="text-sm font-bold text-purple-700">{testimonial.highlight}</span>
+                  <div className="flex items-center justify-center gap-2 pt-2 border-t border-white/10">
+                    <TrendingUp className="w-4 h-4 text-purple-400" />
+                    <span className="text-sm font-bold text-purple-300">{testimonial.highlight}</span>
                   </div>
                 </div>
 
                 {/* Author */}
-                <div className="flex items-center gap-3 pt-4 border-t border-gray-100">
+                <div className="flex items-center gap-3 pt-4 border-t border-white/10">
                   <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-400 to-indigo-500 flex items-center justify-center text-white font-semibold">
                     {testimonial.avatar}
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-gray-900">{testimonial.name}</span>
+                      <span className="font-semibold text-white">{testimonial.name}</span>
                       {testimonial.verified && (
-                        <BadgeCheck className="w-4 h-4 text-blue-500" />
+                        <BadgeCheck className="w-4 h-4 text-blue-400" />
                       )}
                     </div>
-                    <div className="text-sm text-gray-600">{testimonial.company} · {testimonial.storeType}</div>
+                    <div className="text-sm text-white/50">{testimonial.company} · {testimonial.storeType}</div>
                   </div>
                 </div>
               </div>
@@ -192,9 +195,9 @@ export default function Testimonials() {
           transition={{ duration: 0.6, delay: 0.7 }}
           className="mt-12 text-center"
         >
-          <div className="inline-flex items-center gap-2 px-6 py-3 bg-purple-50 rounded-full border border-purple-200 hover:bg-purple-100 transition-colors cursor-pointer">
-            <span className="text-purple-700 font-medium">실제 사용자 인터뷰 영상 보기</span>
-            <ExternalLink className="w-4 h-4 text-purple-600" />
+          <div className="inline-flex items-center gap-2 px-6 py-3 bg-purple-500/10 rounded-full border border-purple-500/20 hover:bg-purple-500/20 transition-colors cursor-pointer">
+            <span className="text-purple-300 font-medium">실제 사용자 인터뷰 영상 보기</span>
+            <ExternalLink className="w-4 h-4 text-purple-400" />
           </div>
         </motion.div>
 
@@ -224,7 +227,7 @@ export default function Testimonials() {
                   숫자가 증명합니다
                 </h3>
                 <p className="text-purple-200">
-                  실제 셀러허브 사용자 데이터 (2024년 1월 기준)
+                  실제 셀러허브 사용자 데이터 (2025년 1월 기준)
                 </p>
               </div>
 
