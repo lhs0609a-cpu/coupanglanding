@@ -4,6 +4,9 @@ import { motion, useInView } from 'framer-motion';
 import { useRef, useState } from 'react';
 import { Check, X, Sparkles, Zap, Crown, Building2, ArrowRight } from 'lucide-react';
 
+// 쿠팡 브랜드 색상
+const COUPANG_RED = '#E3192F';
+
 const plans = [
   {
     name: 'Free',
@@ -32,12 +35,12 @@ const plans = [
       { text: '자동 등록', included: true },
       { text: 'Google Sheets 연동', included: true },
     ],
-    cta: '시작하기',
+    cta: '7일 무료 체험',
     popular: false,
   },
   {
     name: 'Pro',
-    description: '월 300개 이상, 진지한 셀러용',
+    description: '진지하게 수익 내는 셀러',
     price: { monthly: 79000, yearly: 66000 },
     icon: Crown,
     features: [
@@ -90,20 +93,21 @@ export default function Pricing() {
           transition={{ duration: 0.6 }}
           className="text-center mb-12"
         >
-          <p className="text-blue-600 font-semibold mb-4">PRICING</p>
-          <h2 className="text-4xl sm:text-5xl font-bold text-black mb-6">
-            알바 월급보다 저렴합니다
+          <p className="font-semibold mb-4" style={{ color: COUPANG_RED }}>PRICING</p>
+          <h2 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-6">
+            알바 3일 월급 = 1년 자동화
           </h2>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto mb-8">
-            연간 결제 시 2개월 무료
+          <p className="text-xl text-gray-600 max-w-2xl mx-auto mb-4">
+            월 ₩7.9만으로 연간 <strong className="text-gray-900">₩1,068만원</strong> 인건비 절감
           </p>
+          <p className="text-gray-500 mb-8">연간 결제 시 2개월 무료</p>
 
           {/* Billing Toggle */}
           <div className="inline-flex items-center gap-4 p-1.5 bg-gray-100 rounded-full">
             <button
               onClick={() => setIsYearly(false)}
               className={`px-6 py-2.5 rounded-full text-sm font-medium transition-all ${
-                !isYearly ? 'bg-white shadow-sm text-black' : 'text-gray-600'
+                !isYearly ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600'
               }`}
             >
               월간
@@ -111,11 +115,14 @@ export default function Pricing() {
             <button
               onClick={() => setIsYearly(true)}
               className={`px-6 py-2.5 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${
-                isYearly ? 'bg-white shadow-sm text-black' : 'text-gray-600'
+                isYearly ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600'
               }`}
             >
               연간
-              <span className="px-2 py-0.5 bg-blue-600 text-white text-xs font-bold rounded-full">
+              <span
+                className="px-2 py-0.5 text-white text-xs font-bold rounded-full"
+                style={{ backgroundColor: COUPANG_RED }}
+              >
                 -17%
               </span>
             </button>
@@ -137,47 +144,60 @@ export default function Pricing() {
               >
                 {plan.popular && (
                   <div className="absolute -top-4 left-1/2 -translate-x-1/2 z-10">
-                    <div className="px-4 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-full">
+                    <div
+                      className="px-4 py-1.5 text-white text-sm font-semibold rounded-full"
+                      style={{ backgroundColor: COUPANG_RED }}
+                    >
                       가장 인기
                     </div>
                   </div>
                 )}
 
-                <div className={`h-full bg-white rounded-2xl p-6 border-2 transition-all ${
-                  plan.popular ? 'border-blue-600 shadow-lg' : 'border-gray-100 hover:border-gray-200'
-                }`}>
+                <div
+                  className={`h-full bg-white rounded-2xl p-6 border-2 transition-all ${
+                    plan.popular ? 'shadow-lg' : 'border-gray-100 hover:border-gray-200'
+                  }`}
+                  style={plan.popular ? { borderColor: COUPANG_RED } : {}}
+                >
                   <div className="flex items-center gap-3 mb-4">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                      plan.popular ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
-                    }`}>
+                    <div
+                      className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                        plan.popular ? 'text-white' : 'bg-gray-100 text-gray-600'
+                      }`}
+                      style={plan.popular ? { backgroundColor: COUPANG_RED } : {}}
+                    >
                       <plan.icon className="w-5 h-5" />
                     </div>
                     <div>
-                      <h3 className="font-bold text-black">{plan.name}</h3>
+                      <h3 className="font-bold text-gray-900">{plan.name}</h3>
                       <p className="text-sm text-gray-500">{plan.description}</p>
                     </div>
                   </div>
 
                   <div className="mb-6">
-                    <span className="text-4xl font-bold text-black">{formatPrice(price)}</span>
+                    <span className="text-4xl font-bold text-gray-900">{formatPrice(price)}</span>
                     {price !== null && price > 0 && <span className="text-gray-500">/월</span>}
                   </div>
 
-                  <button className={`w-full py-3 rounded-full font-medium mb-6 transition-colors ${
-                    plan.popular
-                      ? 'bg-blue-600 text-white hover:bg-blue-700'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}>
+                  <button
+                    className={`w-full py-3 rounded-full font-medium mb-6 transition-colors ${
+                      plan.popular ? 'text-white hover:opacity-90' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                    style={plan.popular ? { backgroundColor: COUPANG_RED } : {}}
+                  >
                     {plan.cta}
                   </button>
 
                   <ul className="space-y-3">
                     {plan.features.map((feature) => (
-                      <li key={feature.text} className={`flex items-center gap-3 text-sm ${
-                        feature.included ? 'text-gray-700' : 'text-gray-400'
-                      }`}>
+                      <li
+                        key={feature.text}
+                        className={`flex items-center gap-3 text-sm ${
+                          feature.included ? 'text-gray-700' : 'text-gray-400'
+                        }`}
+                      >
                         {feature.included ? (
-                          <Check className="w-5 h-5 text-blue-600 flex-shrink-0" />
+                          <Check className="w-5 h-5 flex-shrink-0" style={{ color: COUPANG_RED }} />
                         ) : (
                           <X className="w-5 h-5 text-gray-300 flex-shrink-0" />
                         )}
@@ -191,12 +211,34 @@ export default function Pricing() {
           })}
         </div>
 
+        {/* ROI Calculator Note */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={isInView ? { opacity: 1 } : {}}
+          transition={{ duration: 0.6, delay: 0.6 }}
+          className="mt-12 p-6 bg-gray-50 rounded-2xl border border-gray-100 max-w-3xl mx-auto"
+        >
+          <div className="flex items-start gap-4">
+            <div className="text-4xl">💡</div>
+            <div>
+              <h4 className="font-bold text-gray-900 mb-2">투자 대비 수익 계산</h4>
+              <p className="text-gray-600 text-sm">
+                Pro 플랜(₩7.9만/월) vs 알바 1명(₩89만/월) 비교:
+                <br />
+                <span className="font-semibold text-gray-900">
+                  연간 ₩972만원 절감 + 24시간 자동화 + 실수 0건
+                </span>
+              </p>
+            </div>
+          </div>
+        </motion.div>
+
         {/* Bottom Note */}
         <motion.p
           initial={{ opacity: 0 }}
           animate={isInView ? { opacity: 1 } : {}}
-          transition={{ duration: 0.6, delay: 0.6 }}
-          className="mt-12 text-center text-gray-500"
+          transition={{ duration: 0.6, delay: 0.7 }}
+          className="mt-8 text-center text-gray-500"
         >
           모든 플랜 7일 무료 · 카드 등록 없이 시작 · 30일 환불 보장
         </motion.p>

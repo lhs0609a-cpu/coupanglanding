@@ -1,38 +1,46 @@
 'use client';
 
 import { motion, useInView } from 'framer-motion';
-import { useRef, useState } from 'react';
-import {
-  Upload,
-  Calculator,
-  Layers,
-  FileText,
-  MessageSquare,
-  Settings2,
-  ClipboardCheck,
-  Rocket,
-  CheckCircle,
-} from 'lucide-react';
+import { useRef } from 'react';
+import { Upload, Sparkles, Clock, CheckCircle } from 'lucide-react';
 
-const pipelineSteps = [
-  { icon: Upload, name: '스캔', percent: 5, description: '폴더/이미지 인식' },
-  { icon: Calculator, name: '가격', percent: 15, description: '마진율 자동 적용' },
-  { icon: Layers, name: '카테고리', percent: 30, description: 'AI 자동 매칭' },
-  { icon: FileText, name: '상품명', percent: 50, description: 'AI 8종 생성' },
-  { icon: MessageSquare, name: '리뷰', percent: 65, description: 'AI 5종 생성' },
-  { icon: Settings2, name: '옵션', percent: 75, description: '옵션 정규화' },
-  { icon: ClipboardCheck, name: '필드', percent: 85, description: '필수 정보 입력' },
-  { icon: Rocket, name: '등록', percent: 100, description: 'API 전송 완료' },
+// 쿠팡 브랜드 색상
+const COUPANG_RED = '#E3192F';
+
+const steps = [
+  {
+    icon: Upload,
+    title: '이미지 폴더에 넣기',
+    description: '상품 이미지를 폴더에 드래그 & 드롭',
+    time: '30초',
+  },
+  {
+    icon: Sparkles,
+    title: 'AI가 상품명 생성',
+    description: '클릭되는 상품명 8종 자동 생성',
+    time: '3초',
+  },
+  {
+    icon: Clock,
+    title: '예약 시간 설정',
+    description: '새벽 4시? 원하는 시간에 자동 등록',
+    time: '10초',
+  },
+  {
+    icon: CheckCircle,
+    title: '아침에 확인만',
+    description: '자고 일어나면 쿠팡에 전부 등록 완료',
+    time: '0초',
+  },
 ];
 
 export default function Automation() {
   const ref = useRef(null);
   const isInView = useInView(ref, { once: true, amount: 0.2 });
-  const [activeStep, setActiveStep] = useState(7);
 
   return (
-    <section id="automation" className="py-24 bg-gray-50">
-      <div className="max-w-7xl mx-auto px-6">
+    <section className="py-24 bg-gray-50">
+      <div className="max-w-6xl mx-auto px-6">
         {/* Section Header */}
         <motion.div
           ref={ref}
@@ -41,92 +49,82 @@ export default function Automation() {
           transition={{ duration: 0.6 }}
           className="text-center mb-16"
         >
-          <p className="text-blue-600 font-semibold mb-4">AUTOMATION</p>
-          <h2 className="text-4xl sm:text-5xl font-bold text-black mb-6">
-            업로드 한 번으로 쿠팡까지
+          <p className="font-semibold mb-4" style={{ color: COUPANG_RED }}>AUTOMATION</p>
+          <h2 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-6">
+            자는 동안 상품이 올라갑니다
           </h2>
           <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            8단계 자동화 파이프라인이 모든 것을 처리합니다.
+            새벽 4시에 알람 맞춰서 등록? 그런 거 없습니다.
+            <br />
+            <span className="font-medium text-gray-900">이미지 넣고 자면 끝.</span>
           </p>
         </motion.div>
 
-        {/* Pipeline */}
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={isInView ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.6, delay: 0.2 }}
-          className="mb-16"
-        >
-          {/* Progress Bar */}
-          <div className="relative mb-8">
-            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={isInView ? { width: `${pipelineSteps[activeStep].percent}%` } : {}}
-                transition={{ duration: 1, delay: 0.5 }}
-                className="h-full bg-blue-600 rounded-full"
-              />
-            </div>
-          </div>
-
-          {/* Steps */}
-          <div className="grid grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-4">
-            {pipelineSteps.map((step, index) => (
-              <motion.button
-                key={step.name}
-                initial={{ opacity: 0, y: 20 }}
-                animate={isInView ? { opacity: 1, y: 0 } : {}}
-                transition={{ duration: 0.4, delay: 0.3 + index * 0.05 }}
-                onClick={() => setActiveStep(index)}
-                className={`relative p-3 sm:p-4 rounded-xl transition-all ${
-                  index <= activeStep
-                    ? 'bg-white border-2 border-blue-100'
-                    : 'bg-gray-100 border-2 border-transparent'
-                } ${index === activeStep ? 'ring-2 ring-blue-600 ring-offset-2' : ''}`}
-              >
-                {index < activeStep && (
-                  <div className="absolute -top-1 -right-1 w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center">
-                    <CheckCircle className="w-3 h-3 text-white" />
-                  </div>
-                )}
-
-                <div className={`w-10 h-10 mx-auto rounded-lg flex items-center justify-center mb-2 ${
-                  index <= activeStep ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-400'
-                }`}>
-                  <step.icon className="w-5 h-5" />
-                </div>
-
-                <div className="text-center">
-                  <div className={`text-xs sm:text-sm font-semibold ${
-                    index <= activeStep ? 'text-black' : 'text-gray-400'
-                  }`}>
-                    {step.name}
-                  </div>
-                </div>
-              </motion.button>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Feature Cards */}
-        <div className="grid md:grid-cols-3 gap-6">
-          {[
-            { title: '폴더 업로드만으로 끝', desc: 'R2 스토리지에 상품 폴더를 업로드하세요.' },
-            { title: '24시간 무인 운영', desc: '자는 동안에도 상품이 자동으로 등록됩니다.' },
-            { title: '대량 등록 최적화', desc: '수백 개 상품도 한 번에 처리합니다.' },
-          ].map((item, index) => (
+        {/* Steps */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          {steps.map((step, index) => (
             <motion.div
-              key={item.title}
+              key={step.title}
               initial={{ opacity: 0, y: 30 }}
               animate={isInView ? { opacity: 1, y: 0 } : {}}
-              transition={{ duration: 0.5, delay: 0.5 + index * 0.1 }}
-              className="bg-white rounded-2xl p-8 border border-gray-100"
+              transition={{ duration: 0.5, delay: index * 0.15 }}
+              className="relative"
             >
-              <h3 className="text-xl font-bold text-black mb-3">{item.title}</h3>
-              <p className="text-gray-600">{item.desc}</p>
+              <div className="bg-white rounded-2xl p-6 border border-gray-100 text-center h-full shadow-sm">
+                {/* Step Number */}
+                <div
+                  className="absolute -top-3 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm"
+                  style={{ backgroundColor: COUPANG_RED }}
+                >
+                  {index + 1}
+                </div>
+
+                {/* Icon */}
+                <div
+                  className="w-14 h-14 rounded-xl flex items-center justify-center mx-auto mt-4 mb-4"
+                  style={{ backgroundColor: `${COUPANG_RED}10` }}
+                >
+                  <step.icon className="w-7 h-7" style={{ color: COUPANG_RED }} />
+                </div>
+
+                {/* Content */}
+                <h3 className="text-lg font-bold text-gray-900 mb-2">{step.title}</h3>
+                <p className="text-gray-500 text-sm mb-3">{step.description}</p>
+
+                {/* Time Badge */}
+                <span
+                  className="inline-block px-3 py-1 rounded-full text-xs font-semibold"
+                  style={{ backgroundColor: `${COUPANG_RED}08`, color: COUPANG_RED }}
+                >
+                  소요: {step.time}
+                </span>
+              </div>
+
+              {/* Connector */}
+              {index < steps.length - 1 && (
+                <div className="hidden md:block absolute top-1/2 -right-3 w-6 h-0.5 bg-gray-200" />
+              )}
             </motion.div>
           ))}
         </div>
+
+        {/* Bottom CTA */}
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={isInView ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.6, delay: 0.6 }}
+          className="mt-16 text-center"
+        >
+          <div className="inline-flex items-center gap-4 p-4 bg-white rounded-2xl border border-gray-200 shadow-sm">
+            <div className="text-4xl">⏱️</div>
+            <div className="text-left">
+              <p className="font-bold text-gray-900">100개 상품 등록에 총 소요 시간</p>
+              <p className="text-2xl font-black" style={{ color: COUPANG_RED }}>
+                10분 (vs 수작업 48시간)
+              </p>
+            </div>
+          </div>
+        </motion.div>
       </div>
     </section>
   );

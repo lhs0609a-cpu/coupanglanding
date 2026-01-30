@@ -2,35 +2,32 @@
 
 import { motion, useInView } from 'framer-motion';
 import { useRef } from 'react';
-import { Star, Quote, TrendingUp, BadgeCheck } from 'lucide-react';
+import { Star, TrendingUp, ArrowRight } from 'lucide-react';
+
+// 쿠팡 브랜드 색상
+const COUPANG_RED = '#E3192F';
 
 const testimonials = [
   {
-    name: '김태현 대표',
-    company: '태현상회',
+    name: '김*훈',
+    role: '의류 셀러',
     avatar: 'K',
-    content: '하루 8시간 상품 등록 노가다가 15분으로 줄었습니다. 한 달 만에 신규 상품 847개 등록.',
-    before: '월 매출 3,200만원',
-    after: '월 매출 1억 800만원',
-    highlight: '매출 340% 증가',
+    content: '상품명 바꾸니까 클릭률이 진짜 다르더라고요. 같은 상품인데 매출이 2배 됐어요.',
+    metric: { before: '월 320만', after: '월 680만', growth: '112%' },
   },
   {
-    name: '이수진 대표',
-    company: '수진이네 패션',
+    name: '이*영',
+    role: '생활용품 셀러',
     avatar: 'L',
-    content: '네이버에서 쿠팡으로 확장하는데 3일 만에 끝났습니다. 500개 상품 이전 완료.',
-    before: '3개월 예상',
-    after: '3일 완료',
-    highlight: '500개 상품 3일 이전',
+    content: '알바 쓰던 거 그만두고 이걸로 바꿨어요. 월 80만원 아끼면서 더 많이 등록해요.',
+    metric: { before: '월 450만', after: '월 920만', growth: '104%' },
   },
   {
-    name: '박준혁 대표',
-    company: '준혁유통',
+    name: '박*수',
+    role: '주방용품 셀러',
     avatar: 'P',
-    content: '밤 11시에 폴더 올려놓고 자면 아침 7시에 300개 상품이 쿠팡에 등록되어 있습니다.',
-    before: '알바 3명 고용',
-    after: '혼자서 처리',
-    highlight: '인건비 월 267만원 절감',
+    content: '새벽에 일어나서 등록하던 게 지옥이었는데, 이제 자고 일어나면 다 되어있어요.',
+    metric: { before: '월 180만', after: '월 540만', growth: '200%' },
   },
 ];
 
@@ -39,7 +36,7 @@ export default function Testimonials() {
   const isInView = useInView(ref, { once: true, amount: 0.2 });
 
   return (
-    <section className="py-24 bg-gray-50">
+    <section className="py-24 bg-white">
       <div className="max-w-7xl mx-auto px-6">
         {/* Section Header */}
         <motion.div
@@ -49,66 +46,66 @@ export default function Testimonials() {
           transition={{ duration: 0.6 }}
           className="text-center mb-16"
         >
-          <p className="text-blue-600 font-semibold mb-4">TESTIMONIALS</p>
-          <h2 className="text-4xl sm:text-5xl font-bold text-black mb-6">
-            실제 사용자들의 이야기
+          <p className="font-semibold mb-4" style={{ color: COUPANG_RED }}>TESTIMONIALS</p>
+          <h2 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-6">
+            실제 셀러들의 후기
           </h2>
           <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            Before/After 숫자로 증명합니다.
+            "진작 할 걸" 후기만 있습니다.
           </p>
         </motion.div>
 
         {/* Testimonials Grid */}
-        <div className="grid md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {testimonials.map((testimonial, index) => (
             <motion.div
               key={testimonial.name}
               initial={{ opacity: 0, y: 30 }}
               animate={isInView ? { opacity: 1, y: 0 } : {}}
               transition={{ duration: 0.5, delay: index * 0.1 }}
+              className="bg-gray-50 rounded-2xl p-6 border border-gray-100"
             >
-              <div className="h-full bg-white rounded-2xl p-6 border border-gray-100">
-                <Quote className="w-8 h-8 text-blue-100 mb-4" />
-
-                <div className="flex gap-1 mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                  ))}
+              {/* Header */}
+              <div className="flex items-center gap-4 mb-4">
+                <div
+                  className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold text-white"
+                  style={{ backgroundColor: COUPANG_RED }}
+                >
+                  {testimonial.avatar}
                 </div>
-
-                <p className="text-gray-700 leading-relaxed mb-6">
-                  "{testimonial.content}"
-                </p>
-
-                <div className="bg-gray-50 rounded-xl p-4 mb-6">
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <div className="text-center flex-1">
-                      <p className="text-xs text-gray-500 mb-1">BEFORE</p>
-                      <p className="text-sm font-medium text-gray-400">{testimonial.before}</p>
-                    </div>
-                    <div className="text-gray-300">→</div>
-                    <div className="text-center flex-1">
-                      <p className="text-xs text-gray-500 mb-1">AFTER</p>
-                      <p className="text-sm font-medium text-black">{testimonial.after}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-center gap-2 pt-2 border-t border-gray-200">
-                    <TrendingUp className="w-4 h-4 text-blue-600" />
-                    <span className="text-sm font-bold text-blue-700">{testimonial.highlight}</span>
-                  </div>
+                <div>
+                  <p className="font-semibold text-gray-900">{testimonial.name}</p>
+                  <p className="text-sm text-gray-500">{testimonial.role}</p>
                 </div>
+              </div>
 
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold">
-                    {testimonial.avatar}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-black">{testimonial.name}</span>
-                      <BadgeCheck className="w-4 h-4 text-blue-600" />
-                    </div>
-                    <span className="text-sm text-gray-500">{testimonial.company}</span>
-                  </div>
+              {/* Stars */}
+              <div className="flex gap-1 mb-4">
+                {[...Array(5)].map((_, i) => (
+                  <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                ))}
+              </div>
+
+              {/* Content */}
+              <p className="text-gray-600 mb-6 leading-relaxed">"{testimonial.content}"</p>
+
+              {/* Metrics */}
+              <div
+                className="rounded-xl p-4 border"
+                style={{ backgroundColor: `${COUPANG_RED}05`, borderColor: `${COUPANG_RED}15` }}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <TrendingUp className="w-4 h-4" style={{ color: COUPANG_RED }} />
+                  <span className="text-sm font-medium" style={{ color: COUPANG_RED }}>
+                    {testimonial.metric.growth} 성장
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-400 line-through">{testimonial.metric.before}</span>
+                  <ArrowRight className="w-3 h-3 text-gray-400" />
+                  <span className="font-bold" style={{ color: COUPANG_RED }}>
+                    {testimonial.metric.after}
+                  </span>
                 </div>
               </div>
             </motion.div>

@@ -1,11 +1,14 @@
 'use client';
 
 import { motion, useInView } from 'framer-motion';
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import { CheckCircle2, TrendingUp, Users, Award, Sparkles } from 'lucide-react';
 
+// 쿠팡 브랜드 색상
+const COUPANG_RED = '#E3192F';
+
 const stats = [
-  { icon: Users, value: '2,847+', label: '활성 셀러' },
+  { icon: Users, value: '2,847+', label: '사용 중인 셀러' },
   { icon: TrendingUp, value: '127만+', label: '등록된 상품' },
   { icon: Award, value: '4.9/5.0', label: '고객 만족도' },
 ];
@@ -44,71 +47,83 @@ export default function SocialProof() {
               transition={{ duration: 0.5, delay: index * 0.1 }}
               className="text-center p-8 rounded-2xl bg-gray-50 border border-gray-100"
             >
-              <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center mx-auto mb-4">
-                <stat.icon className="w-6 h-6 text-blue-600" />
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-4"
+                style={{ backgroundColor: `${COUPANG_RED}10` }}
+              >
+                <stat.icon className="w-6 h-6" style={{ color: COUPANG_RED }} />
               </div>
-              <p className="text-4xl font-bold text-black mb-2">{stat.value}</p>
+              <p className="text-4xl font-bold text-gray-900 mb-2">{stat.value}</p>
               <p className="text-gray-500">{stat.label}</p>
             </motion.div>
           ))}
         </motion.div>
 
-        {/* AI Demo */}
+        {/* AI Demo - "이게 진짜 되나?" 의심 제거 */}
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={isInView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.6, delay: 0.3 }}
         >
           <div className="text-center mb-12">
-            <p className="text-blue-600 font-semibold mb-4">AI DEMO</p>
-            <h2 className="text-3xl sm:text-4xl font-bold text-black mb-4">
-              AI가 만든 상품명, 직접 확인하세요
+            <p className="font-semibold mb-4" style={{ color: COUPANG_RED }}>AI DEMO</p>
+            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
+              "진짜 3초 만에 됨?"
+              <br />
+              <span className="text-gray-500 font-normal text-2xl">직접 확인하세요.</span>
             </h2>
-            <p className="text-gray-600 max-w-xl mx-auto">
-              평범한 상품명을 검색 최적화된 상품명으로 변환합니다.
-            </p>
           </div>
 
           <div className="max-w-3xl mx-auto">
             {/* Original */}
             <div className="bg-gray-50 rounded-t-2xl p-6 border border-gray-200 border-b-0">
-              <p className="text-sm font-medium text-gray-500 mb-2">원본 상품명</p>
+              <p className="text-sm font-medium text-gray-500 mb-2">🙁 원본 상품명 (클릭 안 됨)</p>
               <p className="text-lg text-gray-700 bg-white p-4 rounded-lg border border-gray-200">
                 {aiExamples[0].original}
               </p>
             </div>
 
             {/* AI Generated */}
-            <div className="bg-blue-50 rounded-b-2xl p-6 border border-blue-100">
+            <div
+              className="rounded-b-2xl p-6 border"
+              style={{ backgroundColor: `${COUPANG_RED}05`, borderColor: `${COUPANG_RED}20` }}
+            >
               <div className="flex items-center gap-2 mb-4">
-                <Sparkles className="w-5 h-5 text-blue-600" />
-                <p className="text-sm font-medium text-blue-700">AI 생성 상품명</p>
+                <Sparkles className="w-5 h-5" style={{ color: COUPANG_RED }} />
+                <p className="text-sm font-medium" style={{ color: COUPANG_RED }}>
+                  🔥 AI가 3초 만에 만든 상품명 (클릭됨)
+                </p>
               </div>
               <div className="space-y-3">
                 {aiExamples[0].generated.map((name, i) => (
-                  <div
-                    key={i}
-                    className="flex items-start gap-3"
-                  >
-                    <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-sm font-bold flex items-center justify-center flex-shrink-0">
+                  <div key={i} className="flex items-start gap-3">
+                    <span
+                      className="w-6 h-6 rounded-full text-white text-sm font-bold flex items-center justify-center flex-shrink-0"
+                      style={{ backgroundColor: COUPANG_RED }}
+                    >
                       {i + 1}
                     </span>
-                    <p className="text-gray-800 bg-white p-3 rounded-lg border border-blue-100 flex-1">
+                    <p className="text-gray-800 bg-white p-3 rounded-lg border border-gray-100 flex-1 shadow-sm">
                       {name}
                     </p>
                   </div>
                 ))}
               </div>
 
-              <div className="mt-6 flex items-center justify-center gap-2 p-4 bg-blue-100 rounded-xl">
-                <TrendingUp className="w-5 h-5 text-blue-600" />
-                <span className="font-bold text-blue-700">검색 노출 340% 상승, 클릭률 2.3배 증가</span>
+              <div
+                className="mt-6 flex items-center justify-center gap-2 p-4 rounded-xl"
+                style={{ backgroundColor: `${COUPANG_RED}10` }}
+              >
+                <TrendingUp className="w-5 h-5" style={{ color: COUPANG_RED }} />
+                <span className="font-bold" style={{ color: COUPANG_RED }}>
+                  검색 노출 340% ↑ / 클릭률 2.3배 ↑
+                </span>
               </div>
             </div>
           </div>
         </motion.div>
 
-        {/* Guarantee */}
+        {/* Guarantee - 마지막 의심 제거 */}
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={isInView ? { opacity: 1, y: 0 } : {}}
@@ -118,23 +133,25 @@ export default function SocialProof() {
           <div className="flex flex-col md:flex-row items-center gap-8">
             <div className="text-6xl">🛡️</div>
             <div className="text-center md:text-left flex-1">
-              <h3 className="text-2xl font-bold text-black mb-2">
-                30일 무조건 환불 보장
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                효과 없으면 100% 환불
               </h3>
               <p className="text-gray-600 mb-4">
-                30일간 사용해보시고, 효과가 없으면 100% 환불해드립니다.
+                30일간 써보세요. "돈 아깝다" 싶으면 카톡 한 마디로 전액 환불.
+                <br />
+                <span className="font-medium text-gray-800">사유 안 물어봅니다. 3영업일 내 입금.</span>
               </p>
               <div className="flex flex-wrap gap-4 text-sm text-gray-500 justify-center md:justify-start">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                  <CheckCircle2 className="w-4 h-4" style={{ color: COUPANG_RED }} />
                   <span>카카오톡 한 마디면 끝</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                  <CheckCircle2 className="w-4 h-4" style={{ color: COUPANG_RED }} />
                   <span>사유 묻지 않음</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                  <CheckCircle2 className="w-4 h-4" style={{ color: COUPANG_RED }} />
                   <span>3영업일 내 입금</span>
                 </div>
               </div>
