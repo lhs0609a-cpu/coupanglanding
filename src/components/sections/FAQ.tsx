@@ -2,10 +2,7 @@
 
 import { motion, useInView, AnimatePresence } from 'framer-motion';
 import { useRef, useState } from 'react';
-import { Plus, Minus } from 'lucide-react';
-
-// 쿠팡 브랜드 색상
-const COUPANG_RED = '#E3192F';
+import { Plus, Minus, MessageCircle, HelpCircle } from 'lucide-react';
 
 const faqs = [
   {
@@ -46,8 +43,14 @@ export default function FAQ() {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
 
   return (
-    <section id="faq" className="py-24 bg-gray-50">
-      <div className="max-w-3xl mx-auto px-6">
+    <section id="faq" className="py-24 bg-gradient-to-b from-gray-50/50 to-white relative overflow-hidden">
+      {/* Background decorations */}
+      <div className="absolute inset-0">
+        <div className="absolute top-0 right-1/4 w-80 h-80 bg-rose-100/30 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 left-1/4 w-72 h-72 bg-violet-100/20 rounded-full blur-3xl" />
+      </div>
+
+      <div className="max-w-3xl mx-auto px-6 relative z-10">
         {/* Section Header */}
         <motion.div
           ref={ref}
@@ -56,11 +59,18 @@ export default function FAQ() {
           transition={{ duration: 0.6 }}
           className="text-center mb-12"
         >
-          <p className="font-semibold mb-4" style={{ color: COUPANG_RED }}>FAQ</p>
-          <h2 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-6">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={isInView ? { opacity: 1, scale: 1 } : {}}
+            className="inline-flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-rose-50 to-white border border-rose-100 rounded-full text-sm font-semibold text-[#E31837] mb-6"
+          >
+            <HelpCircle className="w-4 h-4" />
+            FAQ
+          </motion.div>
+          <h2 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-4 tracking-tight">
             자주 묻는 질문
           </h2>
-          <p className="text-xl text-gray-600">
+          <p className="text-xl text-gray-500">
             아직 망설여지시나요? 궁금한 점을 확인하세요.
           </p>
         </motion.div>
@@ -73,25 +83,35 @@ export default function FAQ() {
           className="space-y-4"
         >
           {faqs.map((faq, index) => (
-            <div
+            <motion.div
               key={index}
-              className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm"
+              initial={{ opacity: 0, y: 20 }}
+              animate={isInView ? { opacity: 1, y: 0 } : {}}
+              transition={{ delay: index * 0.05 }}
+              className={`bg-white rounded-2xl border overflow-hidden shadow-sm hover:shadow-lg transition-all ${
+                openIndex === index ? 'border-rose-200 shadow-lg shadow-rose-100/50' : 'border-gray-100'
+              }`}
             >
               <button
                 onClick={() => setOpenIndex(openIndex === index ? null : index)}
                 className="w-full px-6 py-5 flex items-center justify-between text-left"
               >
-                <span className="font-semibold text-gray-900 pr-4">{faq.question}</span>
+                <span className={`font-semibold pr-4 transition-colors ${
+                  openIndex === index ? 'text-[#E31837]' : 'text-gray-900'
+                }`}>
+                  {faq.question}
+                </span>
                 <div
-                  className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-colors"
-                  style={{
-                    backgroundColor: openIndex === index ? COUPANG_RED : '#f3f4f6',
-                  }}
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${
+                    openIndex === index
+                      ? 'bg-gradient-to-br from-[#E31837] to-[#ff4d6a] shadow-lg shadow-rose-200/50'
+                      : 'bg-gray-100'
+                  }`}
                 >
                   {openIndex === index ? (
                     <Minus className="w-4 h-4 text-white" />
                   ) : (
-                    <Plus className="w-4 h-4 text-gray-600" />
+                    <Plus className="w-4 h-4 text-gray-500" />
                   )}
                 </div>
               </button>
@@ -105,13 +125,15 @@ export default function FAQ() {
                     transition={{ duration: 0.3 }}
                     className="overflow-hidden"
                   >
-                    <div className="px-6 pb-5 text-gray-600 leading-relaxed">
-                      {faq.answer}
+                    <div className="px-6 pb-6 text-gray-600 leading-relaxed">
+                      <div className="pt-2 border-t border-gray-100">
+                        <p className="pt-4">{faq.answer}</p>
+                      </div>
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
-            </div>
+            </motion.div>
           ))}
         </motion.div>
 
@@ -122,13 +144,15 @@ export default function FAQ() {
           transition={{ duration: 0.6, delay: 0.4 }}
           className="mt-12 text-center"
         >
-          <p className="text-gray-500 mb-4">더 궁금한 점이 있으신가요?</p>
-          <button
-            className="px-6 py-3 rounded-full font-medium transition-all"
-            style={{ backgroundColor: `${COUPANG_RED}10`, color: COUPANG_RED }}
+          <p className="text-gray-500 mb-5">더 궁금한 점이 있으신가요?</p>
+          <motion.button
+            whileHover={{ scale: 1.02, y: -2 }}
+            whileTap={{ scale: 0.98 }}
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-[#E31837]/10 to-rose-100 border border-rose-200 font-semibold text-[#E31837] hover:shadow-lg hover:shadow-rose-100/50 transition-all"
           >
+            <MessageCircle className="w-5 h-5" />
             카카오톡으로 문의하기
-          </button>
+          </motion.button>
         </motion.div>
       </div>
     </section>
