@@ -15,7 +15,19 @@
       "Bash(vercel:*)",
       "Bash(git init:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(gh repo create:*)",
+      "Bash(git push)",
+      "Bash(git push:*)",
+      "Bash(node:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx next lint:*)",
+      "Bash(wc:*)",
+      "WebFetch(domain:coupang-sellerhub-new.vercel.app)",
+      "Bash(curl:*)",
+      "Bash(if not exist \"C:\\\\Temp\\\\coupanglanding\" mkdir \"C:\\\\Temp\\\\coupanglanding\")",
+      "Bash(robocopy:*)",
+      "Bash(powershell -Command:*)"
     ]
   }
 }
