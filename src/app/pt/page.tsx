@@ -292,21 +292,21 @@ export default function PTPage() {
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#E31837] to-[#ff4d6a] flex items-center justify-center shadow-lg shadow-rose-200/30 group-hover:shadow-rose-300/50 transition-shadow">
                 <span className="text-white font-bold text-sm">S</span>
               </div>
-              <span className="font-bold text-gray-900 text-lg tracking-tight">셀러허브</span>
+              <span className={`font-bold text-lg tracking-tight transition-colors duration-500 ${scrolled ? 'text-gray-900' : 'text-white'}`}>셀러허브</span>
             </Link>
             <nav className="hidden md:flex items-center gap-1">
               {navLinks.map((link) => (
-                <a key={link.href} href={link.href} className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-all">{link.label}</a>
+                <a key={link.href} href={link.href} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${scrolled ? 'text-gray-600 hover:text-gray-900 hover:bg-gray-50' : 'text-white/80 hover:text-white hover:bg-white/10'}`}>{link.label}</a>
               ))}
             </nav>
             <div className="hidden md:flex items-center gap-3">
-              <a href={CTA_URL} target="_blank" rel="noopener noreferrer" className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-all flex items-center gap-1.5">
+              <a href={CTA_URL} target="_blank" rel="noopener noreferrer" className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5 ${scrolled ? 'text-gray-600 hover:text-gray-900 hover:bg-gray-50' : 'text-white/80 hover:text-white hover:bg-white/10'}`}>
                 <LogIn className="w-4 h-4" />로그인
               </a>
               <CTAButton href={CTA_URL} size="sm">무료 상담 <ArrowRight className="w-4 h-4" /></CTAButton>
             </div>
-            <button type="button" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors" aria-label="메뉴">
-              {mobileMenuOpen ? <X className="w-5 h-5 text-gray-700" /> : <Menu className="w-5 h-5 text-gray-700" />}
+            <button type="button" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className={`md:hidden p-2 rounded-lg transition-colors ${scrolled ? 'hover:bg-gray-100' : 'hover:bg-white/10'}`} aria-label="메뉴">
+              {mobileMenuOpen ? <X className={`w-5 h-5 ${scrolled ? 'text-gray-700' : 'text-white'}`} /> : <Menu className={`w-5 h-5 ${scrolled ? 'text-gray-700' : 'text-white'}`} />}
             </button>
           </div>
         </div>
@@ -327,95 +327,76 @@ export default function PTPage() {
       </header>
 
       {/* ================================================================ */}
-      {/* HERO SECTION                                                     */}
+      {/* HERO SECTION — Fullbleed Background                              */}
       {/* ================================================================ */}
-      <section className="relative pt-28 sm:pt-36 pb-20 sm:pb-28 px-5 sm:px-8 overflow-hidden">
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-[10%] left-[-5%] w-[500px] h-[500px] bg-rose-100/50 rounded-full blur-[120px]" />
-          <div className="absolute bottom-[10%] right-[-5%] w-[400px] h-[400px] bg-violet-100/40 rounded-full blur-[100px]" />
+      <section className="relative min-h-[90vh] sm:min-h-screen flex items-center overflow-hidden">
+        {/* Background Image */}
+        <div className="absolute inset-0">
+          <img
+            src={IMAGES.hero}
+            alt="쿠팡 셀러 성공"
+            className="w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/50 to-black/30" />
         </div>
 
-        <div className="max-w-7xl mx-auto relative z-10">
-          <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-            {/* Left: Copy */}
-            <motion.div initial="hidden" animate="visible" variants={stagger}>
-              <motion.div variants={fadeUp} custom={0} className="mb-8">
-                <span className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-rose-50 to-white border border-rose-200/60 shadow-sm">
-                  <Handshake className="w-4 h-4 text-[#E31837]" />
-                  <span className="text-sm font-semibold text-[#E31837]">쿠팡 전문가 파트너십</span>
-                </span>
-              </motion.div>
-
-              <motion.h1 variants={fadeUp} custom={1} className="text-[2.75rem] sm:text-6xl lg:text-7xl font-extrabold leading-[1.1] tracking-tight mb-5">
-                <span className="text-gray-900">94%가 3개월 안에</span><br />
-                <span className="text-gray-900">매출을 만듭니다.</span>
-              </motion.h1>
-
-              <motion.p variants={fadeUp} custom={2} className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-6">
-                <span className="bg-gradient-to-r from-[#E31837] to-[#ff4d6a] bg-clip-text text-transparent">못 만들면? 0원.</span>
-              </motion.p>
-
-              <motion.p variants={fadeUp} custom={3} className="text-lg sm:text-xl text-gray-500 max-w-xl leading-relaxed mb-10">
-                검증된 <span className="font-semibold text-gray-800">월 1억+ 셀러</span>가 1:1로 붙어서,<br className="hidden sm:block" />
-                상품 선정부터 광고까지 <span className="font-semibold text-gray-800">전부 같이 합니다.</span>
-              </motion.p>
-
-              <motion.div variants={fadeUp} custom={4} className="flex flex-col sm:flex-row items-start gap-4 mb-10">
-                <CTAButton href={CTA_URL} size="lg"><Phone className="w-5 h-5" />무료 상담 신청<ArrowRight className="w-5 h-5" /></CTAButton>
-                <CTAButton href="#process" variant="secondary" size="lg">어떻게 진행되나요?<ChevronDown className="w-5 h-5" /></CTAButton>
-              </motion.div>
-
-              <motion.div variants={fadeUp} custom={5} className="flex items-center gap-3">
-                <div className="flex -space-x-2">
-                  {[IMAGES.person1, IMAGES.person2, IMAGES.person3].map((src, i) => (
-                    <img key={i} src={src} alt="" className="w-10 h-10 rounded-full border-2 border-white object-cover shadow-md" />
-                  ))}
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#E31837] to-[#ff4d6a] border-2 border-white flex items-center justify-center text-white text-xs font-bold shadow-md">+134</div>
-                </div>
-                <div className="text-left">
-                  <p className="text-sm font-semibold text-gray-800">137명의 파트너</p>
-                  <p className="text-xs text-gray-500">전문가와 함께 매출을 만들었습니다</p>
-                </div>
-              </motion.div>
+        <div className="relative max-w-7xl mx-auto px-5 sm:px-8 pt-28 sm:pt-36 pb-20 sm:pb-28 z-10 w-full">
+          <motion.div initial="hidden" animate="visible" variants={stagger} className="max-w-3xl">
+            <motion.div variants={fadeUp} custom={0} className="mb-8">
+              <span className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full glass-card">
+                <Handshake className="w-4 h-4 text-rose-300" />
+                <span className="text-sm font-semibold text-white/90">쿠팡 전문가 파트너십</span>
+              </span>
             </motion.div>
 
-            {/* Right: Hero Image */}
-            <motion.div initial={{ opacity: 0, x: 50, scale: 0.95 }} animate={{ opacity: 1, x: 0, scale: 1 }} transition={{ duration: 0.9, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
-              className="relative hidden lg:block">
-              <div className="relative rounded-3xl overflow-hidden shadow-2xl shadow-gray-300/40">
-                <img src={IMAGES.hero} alt="쿠팡 셀러 성공" className="w-full h-[520px] object-cover" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
+            <motion.h1 variants={fadeUp} custom={1} className="text-[2.75rem] sm:text-6xl lg:text-7xl font-extrabold leading-[1.1] tracking-tight mb-5 text-shadow">
+              <span className="text-white">94%가 3개월 안에</span><br />
+              <span className="text-white">매출을 만듭니다.</span>
+            </motion.h1>
+
+            <motion.p variants={fadeUp} custom={2} className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-6">
+              <span className="bg-gradient-to-r from-[#ff6b81] to-[#ffb3c1] bg-clip-text text-transparent">못 만들면? 0원.</span>
+            </motion.p>
+
+            <motion.p variants={fadeUp} custom={3} className="text-lg sm:text-xl text-white/70 max-w-xl leading-relaxed mb-10 text-shadow-sm">
+              검증된 <span className="font-semibold text-white">월 1억+ 셀러</span>가 1:1로 붙어서,<br className="hidden sm:block" />
+              상품 선정부터 광고까지 <span className="font-semibold text-white">전부 같이 합니다.</span>
+            </motion.p>
+
+            <motion.div variants={fadeUp} custom={4} className="flex flex-col sm:flex-row items-start gap-4 mb-10">
+              <CTAButton href={CTA_URL} size="lg"><Phone className="w-5 h-5" />무료 상담 신청<ArrowRight className="w-5 h-5" /></CTAButton>
+              <CTAButton href="#process" variant="ghost" size="lg">어떻게 진행되나요?<ChevronDown className="w-5 h-5" /></CTAButton>
+            </motion.div>
+
+            {/* Glass stat cards */}
+            <motion.div variants={fadeUp} custom={5} className="flex flex-wrap gap-4">
+              {heroStats.map((stat) => (
+                <div key={stat.label} className="glass-card rounded-2xl px-5 py-4 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
+                    <stat.icon className="w-5 h-5 text-white/80" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-extrabold text-white">{stat.value}</p>
+                    <p className="text-xs text-white/60">{stat.label}</p>
+                  </div>
+                </div>
+              ))}
+            </motion.div>
+
+            {/* Social proof */}
+            <motion.div variants={fadeUp} custom={6} className="flex items-center gap-3 mt-8">
+              <div className="flex -space-x-2">
+                {[IMAGES.person1, IMAGES.person2, IMAGES.person3].map((src, i) => (
+                  <img key={i} src={src} alt="" className="w-10 h-10 rounded-full border-2 border-white/20 object-cover shadow-md" />
+                ))}
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#E31837] to-[#ff4d6a] border-2 border-white/20 flex items-center justify-center text-white text-xs font-bold shadow-md">+134</div>
               </div>
-
-              {/* Floating stat card 1 */}
-              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.2, duration: 0.5 }}
-                className="absolute -left-6 top-16 bg-white rounded-2xl shadow-xl shadow-gray-200/50 p-4 border border-gray-100">
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-lg">
-                    <TrendingUp className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <p className="text-2xl font-extrabold text-gray-900">+280%</p>
-                    <p className="text-xs text-gray-500">평균 매출 성장률</p>
-                  </div>
-                </div>
-              </motion.div>
-
-              {/* Floating stat card 2 */}
-              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.6, duration: 0.5 }}
-                className="absolute -right-4 bottom-20 bg-white rounded-2xl shadow-xl shadow-gray-200/50 p-4 border border-gray-100">
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#E31837] to-[#ff4d6a] flex items-center justify-center shadow-lg">
-                    <Shield className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <p className="text-2xl font-extrabold text-gray-900">0원</p>
-                    <p className="text-xs text-gray-500">초기 비용 보장</p>
-                  </div>
-                </div>
-              </motion.div>
+              <div className="text-left">
+                <p className="text-sm font-semibold text-white/90">137명의 파트너</p>
+                <p className="text-xs text-white/50">전문가와 함께 매출을 만들었습니다</p>
+              </div>
             </motion.div>
-          </div>
+          </motion.div>
         </div>
       </section>
 

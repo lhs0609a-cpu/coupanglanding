@@ -100,19 +100,19 @@ function Header() {
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#E31837] to-[#ff4d6a] flex items-center justify-center shadow-lg shadow-red-200/50">
                 <Zap className="w-[18px] h-[18px] text-white" strokeWidth={2.5} />
               </div>
-              <span className="text-lg font-bold text-gray-900 tracking-tight">쿠팡 자동화</span>
+              <span className={`text-lg font-bold tracking-tight transition-colors duration-300 ${isScrolled ? 'text-gray-900' : 'text-white'}`}>쿠팡 자동화</span>
             </a>
             <nav className="hidden md:flex items-center gap-1">
               {[{ label: '기능', href: '#features' }, { label: '요금제', href: '#pricing' }, { label: 'FAQ', href: '#faq' }].map((item) => (
-                <a key={item.href} href={item.href} className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-50 transition-all duration-200">{item.label}</a>
+                <a key={item.href} href={item.href} className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${isScrolled ? 'text-gray-600 hover:text-gray-900 hover:bg-gray-50' : 'text-white/80 hover:text-white hover:bg-white/10'}`}>{item.label}</a>
               ))}
             </nav>
             <div className="hidden md:flex items-center gap-3">
-              <a href={CTA_URL} className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">로그인</a>
+              <a href={CTA_URL} className={`px-4 py-2 text-sm font-medium transition-colors ${isScrolled ? 'text-gray-700 hover:text-gray-900' : 'text-white/80 hover:text-white'}`}>로그인</a>
               <a href={CTA_URL} className="px-5 py-2.5 text-sm font-semibold text-white rounded-xl bg-[#E31837] hover:bg-[#c81530] shadow-lg shadow-red-200/40 transition-all duration-200 hover:-translate-y-0.5">무료 체험하기</a>
             </div>
-            <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors" aria-label="메뉴">
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className={`md:hidden p-2 rounded-lg transition-colors ${isScrolled ? 'hover:bg-gray-100' : 'hover:bg-white/10'}`} aria-label="메뉴">
+              {mobileMenuOpen ? <X className={`w-5 h-5 ${isScrolled ? 'text-gray-700' : 'text-white'}`} /> : <Menu className={`w-5 h-5 ${isScrolled ? 'text-gray-700' : 'text-white'}`} />}
             </button>
           </div>
         </div>
@@ -241,67 +241,70 @@ function DashboardMockup() {
 // ============================================================================
 function HeroSection() {
   return (
-    <section className="relative min-h-screen flex items-center overflow-hidden pt-16">
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute inset-0 bg-[linear-gradient(rgba(0,0,0,0.012)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.012)_1px,transparent_1px)] bg-[size:64px_64px]" />
-        <div className="absolute top-20 -right-40 w-[700px] h-[700px] rounded-full bg-gradient-to-br from-red-50 to-orange-50/80 blur-3xl opacity-60" />
-        <div className="absolute -bottom-32 -left-40 w-[600px] h-[600px] rounded-full bg-gradient-to-tr from-blue-50 to-indigo-50/80 blur-3xl opacity-50" />
+    <section className="relative min-h-[90vh] sm:min-h-screen flex items-end overflow-hidden pt-16">
+      {/* Background Image */}
+      <div className="absolute inset-0">
+        <img
+          src={IMAGES.server}
+          alt="서버 기술"
+          className="w-full h-full object-cover"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/55 to-black/35" />
       </div>
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24 w-full">
-        <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
+
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24 w-full z-10">
+        <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-end">
+          {/* Left: Copy */}
           <div className="max-w-xl">
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }}
-              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-red-50 border border-red-100 mb-6">
+              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass-card mb-6">
               <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#E31837] opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-[#E31837]" /></span>
-              <span className="text-sm font-medium text-[#E31837]">쿠팡 셀러 필수 자동화 도구</span>
+              <span className="text-sm font-medium text-white/90">쿠팡 셀러 필수 자동화 도구</span>
             </motion.div>
             <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.2 }}
-              className="text-4xl sm:text-5xl lg:text-[3.5rem] font-extrabold leading-[1.12] tracking-tight text-gray-900 mb-6">
+              className="text-4xl sm:text-5xl lg:text-[3.5rem] font-extrabold leading-[1.12] tracking-tight text-white mb-6 text-shadow">
               100개 상품 등록,<br />
-              <span className="bg-gradient-to-r from-[#E31837] to-[#ff6b81] bg-clip-text text-transparent">10분이면 끝.</span>
+              <span className="bg-gradient-to-r from-[#ff6b81] to-[#ffb3c1] bg-clip-text text-transparent">10분이면 끝.</span>
             </motion.h1>
             <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.3 }}
-              className="text-lg sm:text-xl text-gray-500 leading-relaxed mb-8">
+              className="text-lg sm:text-xl text-white/70 leading-relaxed mb-8 text-shadow-sm">
               AI가 카테고리 매칭, 상품명 생성, 가격 계산, 검색태그까지 전부 자동으로.<br className="hidden sm:block" />
               네이버 스마트스토어 상품도 쿠팡으로 원클릭 변환.
             </motion.p>
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.4 }}
               className="flex flex-col sm:flex-row gap-3 mb-8">
-              <a href={CTA_URL} className="group inline-flex items-center justify-center gap-2.5 px-7 py-3.5 text-base font-semibold text-white bg-[#E31837] rounded-2xl shadow-xl shadow-red-200/50 hover:bg-[#c81530] transition-all duration-300 hover:-translate-y-0.5">
+              <a href={CTA_URL} className="group inline-flex items-center justify-center gap-2.5 px-7 py-3.5 text-base font-semibold text-white bg-[#E31837] rounded-2xl shadow-xl shadow-red-900/30 hover:bg-[#c81530] transition-all duration-300 hover:-translate-y-0.5">
                 무료 체험 시작하기<ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </a>
-              <a href="#solution" className="group inline-flex items-center justify-center gap-2.5 px-7 py-3.5 text-base font-semibold text-gray-700 bg-white border border-gray-200 rounded-2xl hover:border-gray-300 hover:bg-gray-50/80 transition-all shadow-sm">
-                <Play className="w-4 h-4 text-[#E31837]" />작동 방식 보기
+              <a href="#solution" className="group inline-flex items-center justify-center gap-2.5 px-7 py-3.5 text-base font-semibold text-white/90 glass-card rounded-2xl hover:bg-white/15 transition-all">
+                <Play className="w-4 h-4 text-[#ff6b81]" />작동 방식 보기
               </a>
             </motion.div>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6, delay: 0.55 }}
-              className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-gray-400">
+              className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-white/50 mb-10">
               {['1일 무료 체험', '카드 등록 불필요', '언제든 해지'].map((text) => (
-                <span key={text} className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-green-500" />{text}</span>
+                <span key={text} className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-green-400" />{text}</span>
               ))}
             </motion.div>
+
+            {/* Stats in glass cards */}
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.65 }}
-              className="grid grid-cols-3 gap-6 mt-10 pt-8 border-t border-gray-100">
+              className="grid grid-cols-3 gap-3">
               {[
-                { value: '48h', arrow: true, value2: '10min', label: '등록 시간 단축' },
-                { value: '3.4', suffix: '배', label: '검색 노출 증가' },
-                { prefix: '~', value: '80', suffix: '만원', label: '월 인건비 절감' },
+                { value: '48h → 10min', label: '등록 시간 단축' },
+                { value: '3.4배', label: '검색 노출 증가' },
+                { value: '~80만원', label: '월 인건비 절감' },
               ].map((stat, i) => (
-                <div key={i}>
-                  <div className="text-xl sm:text-2xl font-extrabold text-gray-900 flex items-center gap-1">
-                    {stat.prefix && <span className="text-gray-400 font-bold">{stat.prefix}</span>}
-                    {stat.arrow ? (
-                      <><span className="text-gray-400 line-through decoration-2">{stat.value}</span><ArrowRight className="w-4 h-4 text-[#E31837] mx-0.5" /><span className="text-[#E31837]">{stat.value2}</span></>
-                    ) : (
-                      <><span>{stat.value}</span>{stat.suffix && <span className="text-base font-bold text-gray-500">{stat.suffix}</span>}</>
-                    )}
-                  </div>
-                  <div className="text-xs sm:text-sm text-gray-400 mt-1">{stat.label}</div>
+                <div key={i} className="glass-card rounded-xl px-4 py-3 text-center">
+                  <div className="text-base sm:text-lg font-extrabold text-white">{stat.value}</div>
+                  <div className="text-[11px] text-white/50 mt-0.5">{stat.label}</div>
                 </div>
               ))}
             </motion.div>
           </div>
-          <motion.div initial={{ opacity: 0, x: 50, scale: 0.95 }} animate={{ opacity: 1, x: 0, scale: 1 }} transition={{ duration: 0.9, delay: 0.35 }}
+
+          {/* Right: Dashboard Mockup - floating style */}
+          <motion.div initial={{ opacity: 0, y: 40, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.9, delay: 0.35 }}
             className="relative hidden lg:block">
             <DashboardMockup />
           </motion.div>
