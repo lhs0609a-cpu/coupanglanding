@@ -320,6 +320,41 @@ function KakaoChat({ messages }: { messages: ChatMsg[] }) {
 }
 
 // ============================================================
+// MOCKUP: 폰 알림 (다크 배경용)
+// ============================================================
+function PhoneNotif({ icon, app, title, lines, time = '방금', className = '' }: { icon: string; app: string; title: string; lines: string[]; time?: string; className?: string }) {
+  return (
+    <div className={`rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10 p-3 max-w-[260px] ${className}`}>
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="text-xs">{icon}</span>
+        <span className="text-[10px] text-gray-400 font-medium">{app}</span>
+        <span className="text-[10px] text-gray-500 ml-auto">{time}</span>
+      </div>
+      <p className="text-[12px] font-bold text-white mb-0.5">{title}</p>
+      {lines.map((line, i) => (<p key={i} className="text-[11px] text-gray-400 leading-snug">{line}</p>))}
+    </div>
+  );
+}
+
+// ============================================================
+// MOCKUP: 통장 입금 알림 (라이트 배경용)
+// ============================================================
+function BankDeposit({ amount, memo, balance }: { amount: string; memo: string; balance?: string }) {
+  return (
+    <div className="rounded-xl bg-white border border-gray-200 shadow-md p-3 max-w-[240px]">
+      <div className="flex items-center gap-2 mb-2">
+        <div className="w-6 h-6 rounded-md bg-[#FFCC00] flex items-center justify-center"><span className="text-[10px] font-bold text-gray-900">KB</span></div>
+        <span className="text-[10px] text-gray-500 font-medium">KB국민은행</span>
+        <span className="text-[10px] text-gray-400 ml-auto">방금</span>
+      </div>
+      <p className="text-[13px] font-extrabold text-[#E31837] mb-0.5">입금 {amount}</p>
+      <p className="text-[11px] text-gray-500">{memo}</p>
+      {balance && <p className="text-[10px] text-gray-400 mt-1">잔액 {balance}</p>}
+    </div>
+  );
+}
+
+// ============================================================
 // MOCKUP: 쿠팡 셀러 매출 대시보드
 // ============================================================
 function CoupangSellerDashboard() {
@@ -496,6 +531,24 @@ export default function PTPage() {
               </motion.div>
             ))}
           </motion.div>
+          <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-40px' }} variants={scaleIn} className="flex justify-center mb-10">
+            <div className="rounded-2xl border border-gray-200 bg-white shadow-lg overflow-hidden max-w-xs w-full">
+              <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                <div className="w-4 h-4 rounded bg-gradient-to-br from-[#E31837] to-[#ff4d6a]" />
+                <span className="text-[11px] text-gray-400 font-medium">쿠팡 윙 - 주문관리</span>
+              </div>
+              <div className="px-6 py-10 text-center">
+                <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
+                  <Search className="w-6 h-6 text-gray-300" />
+                </div>
+                <p className="text-2xl font-extrabold text-gray-200 mb-1">주문 0건</p>
+                <p className="text-xs text-gray-400">최근 30일간 접수된 주문이 없습니다</p>
+              </div>
+              <div className="px-4 py-2.5 bg-gray-50 border-t border-gray-100">
+                <p className="text-[10px] text-gray-400 text-center">상품 32개 등록됨 · 광고 진행 중</p>
+              </div>
+            </div>
+          </motion.div>
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeUp} className="text-center">
             <p className="text-lg font-semibold text-[#E31837]">저희도 똑같았습니다. 그리고 답을 찾았습니다.</p>
           </motion.div>
@@ -535,6 +588,11 @@ export default function PTPage() {
                     <div className={`absolute left-[18px] sm:left-[26px] top-1 w-4 h-4 rounded-full border-2 ${s.dot} z-10`} />
                     <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border mb-2.5 ${s.badge}`}>{item.phase}</div>
                     <p className={`text-[15px] sm:text-base leading-relaxed ${s.text} ${item.emotion === 'peak' ? 'font-semibold' : ''}`}>{item.text}</p>
+                    {i === 2 && (
+                      <motion.div initial={{ opacity: 0, scale: 0.95 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ delay: 0.3 }} className="mt-3">
+                        <PhoneNotif icon="📊" app="쿠팡 광고" title="광고 리포트" time="월간" lines={['광고비 지출: ₩870,000', '발생 매출: ₩28,000', 'ROAS: 0.03']} />
+                      </motion.div>
+                    )}
                     {item.emotion === 'success' && i === 4 && (
                       <motion.div initial={{ opacity: 0, scale: 0.9 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ delay: 0.3 }}
                         className="mt-4 bg-white/10 backdrop-blur-sm rounded-xl border border-white/10 p-4">
@@ -543,6 +601,25 @@ export default function PTPage() {
                           <div><div className="text-sm font-bold text-white">하루 415건 판매 · &#8361;16,803,220 일 매출</div><div className="text-xs text-gray-400">실제 쿠팡 윙 판매분석 데이터</div></div>
                         </div>
                         <p className="text-xs text-gray-500 mt-1">이 숫자는 마케팅 이미지가 아닙니다. 저희의 실제 판매 데이터입니다.</p>
+                      </motion.div>
+                    )}
+                    {i === 4 && (
+                      <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: 0.6 }} className="mt-3 space-y-2">
+                        <PhoneNotif icon="📦" app="쿠팡 윙" title="주문 접수" time="방금" lines={['프리미엄 주방도구 세트 5종 · ₩34,900']} />
+                        <PhoneNotif icon="📦" app="쿠팡 윙" title="주문 접수" time="3분 전" lines={['생활용품 세트 3종 · ₩24,900']} className="opacity-70 scale-[0.97] origin-left" />
+                        <PhoneNotif icon="📦" app="쿠팡 윙" title="주문 접수" time="7분 전" lines={['인테리어 소품 · ₩19,800']} className="opacity-40 scale-[0.94] origin-left" />
+                      </motion.div>
+                    )}
+                    {i === 5 && (
+                      <motion.div initial={{ opacity: 0, scale: 0.95 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ delay: 0.3 }}>
+                        <KakaoChat messages={[
+                          { text: '아버지 쿠팡 판매 해보세요. 제가 다 세팅해 드릴게요', time: '오후 8:12', isMine: true },
+                          { name: '아버지', text: '그게 되겠냐', time: '오후 8:15' },
+                          { text: '2개월 후', isSystem: true, time: '' },
+                          { name: '아버지', text: '아들아', time: '오후 9:31' },
+                          { name: '아버지', text: '주문이 또 들어왔다', time: '오후 9:31' },
+                          { name: '아버지', text: '이거 진짜구나!!', time: '오후 9:32' },
+                        ]} />
                       </motion.div>
                     )}
                     {i === 6 && (
@@ -767,6 +844,9 @@ export default function PTPage() {
                       <div className="px-4 py-2.5 rounded-xl bg-gray-50 border border-gray-100"><p className="text-xs text-gray-500 mb-0.5">Before</p><p className="text-sm font-bold text-gray-700">{t.before}</p></div>
                       <ArrowRight className="w-5 h-5 text-gray-300 flex-shrink-0" />
                       <div className="px-4 py-2.5 rounded-xl bg-red-50 border border-red-100"><p className="text-xs text-[#E31837] mb-0.5">After ({t.period})</p><p className="text-sm font-bold text-red-700">{t.after}</p></div>
+                    </div>
+                    <div className="mt-4">
+                      <BankDeposit amount={t.after.replace('월 ', '')} memo="쿠팡 정산금" />
                     </div>
                   </div>
                   <div className={`lg:w-56 p-7 bg-gradient-to-br ${t.gradient} flex flex-col justify-center items-center text-center text-white relative overflow-hidden`}>
