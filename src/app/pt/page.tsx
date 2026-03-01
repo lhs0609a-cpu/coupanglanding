@@ -748,12 +748,12 @@ export default function PTPage() {
                     )}
                     {i === 5 && (
                       <motion.div initial={{ opacity: 0, scale: 0.9 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ delay: 0.5 }}
-                        className="mt-4 bg-white/10 backdrop-blur-sm rounded-xl border border-white/10 p-4">
-                        <div className="flex items-center gap-3 mb-2">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#E31837] to-[#ff4d6a] flex items-center justify-center flex-shrink-0"><TrendingUp className="w-5 h-5 text-white" /></div>
-                          <div><div className="text-sm font-bold text-white">하루 415건 판매 · &#8361;16,803,220 일 매출</div><div className="text-xs text-gray-400">자동화 이후 실제 판매 데이터</div></div>
+                        className="mt-4 rounded-xl border border-white/10 overflow-hidden max-w-sm">
+                        <div className="bg-white/10 backdrop-blur-sm px-4 py-2.5 flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#E31837] to-[#ff4d6a] flex items-center justify-center flex-shrink-0"><TrendingUp className="w-4 h-4 text-white" /></div>
+                          <div><div className="text-xs font-bold text-white">실제 쿠팡 윙 판매분석</div><div className="text-[10px] text-gray-400">하루 415건 · ₩16,803,220</div></div>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">자동화 프로그램을 돌린 이후, 매출이 폭발적으로 올랐습니다.</p>
+                        <img src="/images/screenshots/20260112_094546.png" alt="쿠팡 윙 판매분석 - 일 판매량 415건, 일 매출 ₩16,803,220" className="w-full" />
                       </motion.div>
                     )}
                     {i === 5 && (
