@@ -23,7 +23,18 @@ export default function LoginForm() {
     setSuccess('');
     setLoading(true);
 
-    const supabase = createClient();
+    let supabase;
+    try {
+      supabase = createClient();
+    } catch (err) {
+      if (err instanceof Error && err.message === 'SUPABASE_NOT_CONFIGURED') {
+        setError('서버 설정이 완료되지 않았습니다. 관리자에게 문의해주세요.');
+      } else {
+        setError('연결 오류가 발생했습니다.');
+      }
+      setLoading(false);
+      return;
+    }
 
     const { data, error: authError } = await supabase.auth.signInWithPassword({
       email,
@@ -66,7 +77,18 @@ export default function LoginForm() {
       return;
     }
 
-    const supabase = createClient();
+    let supabase;
+    try {
+      supabase = createClient();
+    } catch (err) {
+      if (err instanceof Error && err.message === 'SUPABASE_NOT_CONFIGURED') {
+        setError('서버 설정이 완료되지 않았습니다. 관리자에게 문의해주세요.');
+      } else {
+        setError('연결 오류가 발생했습니다.');
+      }
+      setLoading(false);
+      return;
+    }
 
     const { error: signupError } = await supabase.auth.signUp({
       email,
