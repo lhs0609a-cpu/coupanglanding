@@ -39,6 +39,38 @@ export const PT_STATUS_COLORS: Record<string, string> = {
   terminated: 'bg-red-100 text-red-700',
 };
 
+export const APPLICATION_STATUS_LABELS: Record<string, string> = {
+  new: '신규',
+  contacted: '연락완료',
+  consulting: '상담중',
+  converted: '전환',
+  rejected: '거절',
+};
+
+export const APPLICATION_STATUS_COLORS: Record<string, string> = {
+  new: 'bg-blue-100 text-blue-700',
+  contacted: 'bg-yellow-100 text-yellow-700',
+  consulting: 'bg-purple-100 text-purple-700',
+  converted: 'bg-green-100 text-green-700',
+  rejected: 'bg-red-100 text-red-700',
+};
+
+export const CONTRACT_STATUS_LABELS: Record<string, string> = {
+  draft: '초안',
+  sent: '발송됨',
+  signed: '서명완료',
+  expired: '만료',
+  terminated: '해지',
+};
+
+export const CONTRACT_STATUS_COLORS: Record<string, string> = {
+  draft: 'bg-gray-100 text-gray-700',
+  sent: 'bg-blue-100 text-blue-700',
+  signed: 'bg-green-100 text-green-700',
+  expired: 'bg-yellow-100 text-yellow-700',
+  terminated: 'bg-red-100 text-red-700',
+};
+
 export const DEFAULT_SHARE_PERCENTAGE = 30;
 export const DEFAULT_DISTRIBUTION_RATIO = [5, 3, 2]; // 메인:서브1:서브2
 

@@ -9,14 +9,18 @@ import {
   PieChart,
   Users,
   Settings,
+  FileText,
+  ClipboardList,
   X,
 } from 'lucide-react';
 
 const navItems = [
   { href: '/admin/dashboard', label: '대시보드', icon: LayoutDashboard },
+  { href: '/admin/applications', label: '신청 관리', icon: ClipboardList },
   { href: '/admin/revenue', label: '수익 관리', icon: TrendingUp },
   { href: '/admin/expenses', label: '비용 관리', icon: CreditCard },
   { href: '/admin/distribution', label: '수익 분배', icon: PieChart },
+  { href: '/admin/contracts', label: '계약 관리', icon: FileText },
   { href: '/admin/pt-users', label: 'PT 사용자 관리', icon: Users },
   { href: '/admin/settings', label: '설정', icon: Settings },
 ];

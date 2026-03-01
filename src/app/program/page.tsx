@@ -114,18 +114,13 @@ function DashboardMockup() {
     <div className="relative">
       <div className="absolute -inset-6 bg-gradient-to-r from-red-100/50 via-red-100/25 to-red-100/50 rounded-[32px] blur-2xl" />
       <div className="relative bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
-        <WindowChrome title="쿠팡 윙 판매자센터" />
-        <img
-          src="https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/688c1ad3f839e5aa4618a9ef_%EC%9C%99-%EC%BD%98%ED%85%90%EC%B8%A0-%EC%9D%B4%EB%AF%B8%EC%A7%80.jpg"
-          alt="쿠팡 윙 판매자센터 대시보드 - 매출 현황, 주문 관리, 상품 등록 화면"
-          className="w-full"
-          loading="eager"
-        />
+        <WindowChrome title="쿠팡 자동화 - 대시보드" />
+        <img src="/images/screenshots/chrome_GHfSYZNoVf.png" alt="쿠팡 자동화 대시보드 - 전체 상품 300개, 등록 추이, 상품 상태 분포" className="w-full" />
       </div>
       <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 1.2 }}
         className="absolute -right-3 top-14 bg-white rounded-xl border border-gray-200 shadow-xl p-3 flex items-center gap-2.5 z-10">
         <div className="w-8 h-8 rounded-full bg-red-50 border border-red-100 flex items-center justify-center"><Check className="w-4 h-4 text-[#E31837]" /></div>
-        <div><div className="text-[11px] font-bold text-gray-800">등록 완료!</div><div className="text-[10px] text-gray-400">147개 상품 쿠팡 등록</div></div>
+        <div><div className="text-[11px] font-bold text-gray-800">등록 완료!</div><div className="text-[10px] text-gray-400">847개 상품 쿠팡 등록</div></div>
       </motion.div>
       <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 1.6 }}
         className="absolute -left-3 bottom-24 bg-white rounded-xl border border-gray-200 shadow-xl p-3 flex items-center gap-2.5 z-10">
@@ -345,7 +340,7 @@ function SolutionSection() {
 // ============================================================================
 function ScreenMockupsSection() {
   const [activeTab, setActiveTab] = useState(0);
-  const tabs = ['상품 등록', '매출 관리', '정산 분석'];
+  const tabs = ['상품 등록', '자동 등록', '가격 정책'];
 
   return (
     <AnimatedSection id="screenshots" className="py-24 md:py-32 bg-gray-50/80 relative overflow-hidden">
@@ -364,39 +359,24 @@ function ScreenMockupsSection() {
           ))}
         </motion.div>
 
-        {/* Tab content */}
+        {/* Tab content - Real screenshots */}
         <motion.div variants={fadeInUp} className="max-w-4xl mx-auto">
           {activeTab === 0 && (
             <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
-              <WindowChrome title="쿠팡 윙 - 상품 등록" />
-              <img
-                src="https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/688c1b7587ddf90a97421004_%EC%9C%99-%EC%BD%98%ED%85%90%EC%B8%A0-%EC%9D%B4%EB%AF%B8%EC%A7%80-4.jpg"
-                alt="쿠팡 윙 상품 등록 메뉴 - 상품관리, 주문배송, 정산, 광고 등 전체 메뉴 구조"
-                className="w-full"
-                loading="lazy"
-              />
+              <WindowChrome title="쿠팡 자동화 - 상품 등록" />
+              <img src="/images/screenshots/chrome_hVDXr3wvNP.png" alt="쿠팡 자동화 상품 등록 - 폴더 대량 업로드, 사용 가이드" className="w-full" />
             </div>
           )}
           {activeTab === 1 && (
             <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
-              <WindowChrome title="쿠팡 윙 - 상품 관리 대시보드" />
-              <img
-                src="https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/688c1b4c10d8b8b95b6a5e88_49a5058d60e0b02956a24c15e42be2fb_%EC%9C%99-%EC%BD%98%ED%85%90%EC%B8%A0-%EC%9D%B4%EB%AF%B8%EC%A7%80-2.jpg"
-                alt="쿠팡 윙 상품 관리 대시보드 - 실시간 매출, 주문현황, 상품 목록 관리 화면"
-                className="w-full"
-                loading="lazy"
-              />
+              <WindowChrome title="쿠팡 자동화 - 자동 등록" />
+              <img src="/images/screenshots/chrome_6MyaK5awma.png" alt="쿠팡 자동화 자동 등록 - 1,004건 대기, 122건 처리중" className="w-full" />
             </div>
           )}
           {activeTab === 2 && (
             <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
-              <WindowChrome title="쿠팡 윙 - 정산 & 매출 분석" />
-              <img
-                src="https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/688c1b86eb717de97ea44fc8_%EC%9C%99-%EC%BD%98%ED%85%90%EC%B8%A0-%EC%9D%B4%EB%AF%B8%EC%A7%80-6.jpg"
-                alt="쿠팡 윙 정산 화면 - 매출 분석, 정산 내역, 수익 그래프"
-                className="w-full"
-                loading="lazy"
-              />
+              <WindowChrome title="쿠팡 자동화 - 가격 정책" />
+              <img src="/images/screenshots/chrome_C93UkbvoWu.png" alt="쿠팡 자동화 마진율 설정 - 100원 절삭, 마크업, 마진 적용" className="w-full" />
             </div>
           )}
         </motion.div>
@@ -406,16 +386,25 @@ function ScreenMockupsSection() {
 }
 
 // ============================================================================
-// COMPONENT: Feature Showcase (CSS gradients, no images)
+// COMPONENT: Feature Showcase — Real screenshot images
 // ============================================================================
+const FEATURE_IMAGES = [
+  { src: '/images/screenshots/chrome_yY1HHQucse.png', alt: 'AI 프롬프트 설정 - 상품명, 검색태그 자동 생성' },
+  { src: '/images/screenshots/chrome_yY1HHQucse.png', alt: 'AI 상품명 & 검색태그 생성 프롬프트' },
+  { src: '/images/screenshots/chrome_C93UkbvoWu.png', alt: '마진율 설정 - 자동 가격 계산' },
+  { src: '/images/screenshots/chrome_hVDXr3wvNP.png', alt: '상품 등록 - 네이버에서 쿠팡으로 변환' },
+  { src: '/images/screenshots/chrome_6MyaK5awma.png', alt: '자동 등록 - 24시간 자동 등록 현황' },
+  { src: '/images/screenshots/chrome_GHfSYZNoVf.png', alt: '대시보드 - 데스크탑 & 모바일 지원' },
+];
+
 function FeatureShowcase() {
   const features = [
-    { title: 'AI 카테고리 매칭', subtitle: 'GPT-4 기반 · 90%+ 정확도', desc: '상품 데이터를 분석해 쿠팡 카테고리를 자동 매칭합니다.', highlights: ['GPT-4 기반 분석', '90% 이상 정확도', '신뢰도 점수 표시', '수동 보정 가능'], image: 'https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/68895f8b540d8d54b67a058b_66a93326dacdbd6b666e69d5_6626184df365a0990b8a103a_Group20(1).png' },
-    { title: 'AI 상품명 & 검색태그', subtitle: '검색 최적화 · SEO 특화', desc: '쿠팡 검색 알고리즘에 최적화된 상품명과 태그를 자동 생성합니다.', highlights: ['검색 키워드 분석', 'SEO 최적화 타이틀', '자동 검색태그 생성', '카테고리별 포맷'], image: 'https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/688a16d6ce92585d6988e48d_66a93326dacdbd6b666e69e5_6626184df365a0990b8a103b_Group20(2).png' },
-    { title: '자동 가격 계산', subtitle: '마진율 · 100원 절삭 · 마크업', desc: '마진 규칙에 따라 판매가를 자동 계산합니다.', highlights: ['퍼센트/고정 마진', '100원 단위 절삭', '정가 자동 마크업', '카테고리별 규칙'], image: 'https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/6889617fa7993f43caae4164_66a93326dacdbd6b666e6a06_6626184df365a0990b8a1061_Group206.png' },
-    { title: '네이버 → 쿠팡 변환', subtitle: 'URL 입력만으로 완료', desc: '네이버 스마트스토어 상품을 쿠팡 형식으로 자동 변환합니다.', highlights: ['URL 또는 Excel', '상품 정보 추출', '쿠팡 형식 변환', '일괄 등록 가능'], image: 'https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/688c1b5cfb8f71f70f51d8d0_3bc3efc07ca7c5ba4719ecff87180d69_%EC%9C%99-%EC%BD%98%ED%85%90%EC%B8%A0-%EC%9D%B4%EB%AF%B8%EC%A7%80-3.jpg' },
-    { title: '24시간 자동 등록', subtitle: '9단계 파이프라인', desc: '9단계 자동화 파이프라인으로 등록을 완전 자동화합니다.', highlights: ['스케줄링 설정', 'R2 이미지 스토리지', 'Wing API 연동', '실시간 추적'], image: 'https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/68832b42342aae3aefa2074d_wing--5.jpg' },
-    { title: '데스크탑 & 모바일', subtitle: 'PC + 모바일 지원', desc: 'PC 프로그램과 모바일 앱으로 언제 어디서나 관리합니다.', highlights: ['데스크탑 프로그램', '모바일 앱 지원', '실시간 알림', '원격 관리'], image: 'https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/6883245de95303da938b7703_wing-2.jpg' },
+    { title: 'AI 카테고리 매칭', subtitle: 'GPT-4 기반 · 90%+ 정확도', desc: '상품 데이터를 분석해 쿠팡 카테고리를 자동 매칭합니다.', highlights: ['GPT-4 기반 분석', '90% 이상 정확도', '신뢰도 점수 표시', '수동 보정 가능'] },
+    { title: 'AI 상품명 & 검색태그', subtitle: '검색 최적화 · SEO 특화', desc: '쿠팡 검색 알고리즘에 최적화된 상품명과 태그를 자동 생성합니다.', highlights: ['검색 키워드 분석', 'SEO 최적화 타이틀', '자동 검색태그 생성', '카테고리별 포맷'] },
+    { title: '자동 가격 계산', subtitle: '마진율 · 100원 절삭 · 마크업', desc: '마진 규칙에 따라 판매가를 자동 계산합니다.', highlights: ['퍼센트/고정 마진', '100원 단위 절삭', '정가 자동 마크업', '카테고리별 규칙'] },
+    { title: '네이버 → 쿠팡 변환', subtitle: 'URL 입력만으로 완료', desc: '네이버 스마트스토어 상품을 쿠팡 형식으로 자동 변환합니다.', highlights: ['URL 또는 Excel', '상품 정보 추출', '쿠팡 형식 변환', '일괄 등록 가능'] },
+    { title: '24시간 자동 등록', subtitle: '9단계 파이프라인', desc: '9단계 자동화 파이프라인으로 등록을 완전 자동화합니다.', highlights: ['스케줄링 설정', 'R2 이미지 스토리지', 'Wing API 연동', '실시간 추적'] },
+    { title: '데스크탑 & 모바일', subtitle: 'PC + 모바일 지원', desc: 'PC 프로그램과 모바일 앱으로 언제 어디서나 관리합니다.', highlights: ['데스크탑 프로그램', '모바일 앱 지원', '실시간 알림', '원격 관리'] },
   ];
 
   return (
@@ -427,21 +416,24 @@ function FeatureShowcase() {
           <p className="text-lg text-gray-500 max-w-2xl mx-auto">AI 기반 자동화로 상품 등록의 모든 과정을 혁신합니다.</p>
         </motion.div>
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {features.map((f, i) => (
-            <motion.div key={i} variants={fadeInUp} className="group bg-white rounded-2xl border border-gray-100 hover:border-gray-200 shadow-sm hover:shadow-xl transition-all hover:-translate-y-1 overflow-hidden">
-              <div className="h-44 overflow-hidden bg-gray-50">
-                <img src={f.image} alt={f.title} className="w-full h-full object-cover" loading="lazy" />
-              </div>
-              <div className="p-7">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-50 mb-3"><span className="text-[11px] font-bold text-gray-600">{f.subtitle}</span></div>
-                <h3 className="text-xl font-bold text-gray-900 mb-2">{f.title}</h3>
-                <p className="text-sm text-gray-500 leading-relaxed mb-5">{f.desc}</p>
-                <div className="space-y-2.5">
-                  {f.highlights.map((h, j) => (<div key={j} className="flex items-center gap-2.5"><div className="w-4 h-4 rounded-full bg-red-50 flex items-center justify-center flex-shrink-0"><Check className="w-2.5 h-2.5 text-[#E31837]" /></div><span className="text-sm text-gray-600">{h}</span></div>))}
+          {features.map((f, i) => {
+            const img = FEATURE_IMAGES[i];
+            return (
+              <motion.div key={i} variants={fadeInUp} className="group bg-white rounded-2xl border border-gray-100 hover:border-gray-200 shadow-sm hover:shadow-xl transition-all hover:-translate-y-1 overflow-hidden">
+                <div className="h-44 overflow-hidden">
+                  <img src={img.src} alt={img.alt} className="w-full h-full object-cover object-top" />
                 </div>
-              </div>
-            </motion.div>
-          ))}
+                <div className="p-7">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-50 mb-3"><span className="text-[11px] font-bold text-gray-600">{f.subtitle}</span></div>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">{f.title}</h3>
+                  <p className="text-sm text-gray-500 leading-relaxed mb-5">{f.desc}</p>
+                  <div className="space-y-2.5">
+                    {f.highlights.map((h, j) => (<div key={j} className="flex items-center gap-2.5"><div className="w-4 h-4 rounded-full bg-red-50 flex items-center justify-center flex-shrink-0"><Check className="w-2.5 h-2.5 text-[#E31837]" /></div><span className="text-sm text-gray-600">{h}</span></div>))}
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
         </div>
       </div>
     </AnimatedSection>
@@ -621,7 +613,15 @@ function Footer() {
           </div>
           <div className="md:col-span-2"><h4 className="text-sm font-bold text-gray-900 mb-4">제품</h4><ul className="space-y-3">{[{ label: '기능', href: '#features' }, { label: '요금제', href: '#pricing' }, { label: 'FAQ', href: '#faq' }].map((item) => (<li key={item.label}><a href={item.href} className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{item.label}</a></li>))}</ul></div>
           <div className="md:col-span-2"><h4 className="text-sm font-bold text-gray-900 mb-4">지원</h4><ul className="space-y-3">{['고객센터', '가이드', 'API 문서', '제휴 문의'].map((label) => (<li key={label}><a href="#" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{label}</a></li>))}</ul></div>
-          <div className="md:col-span-3"><h4 className="text-sm font-bold text-gray-900 mb-4">법적 고지</h4><ul className="space-y-3">{['이용약관', '개인정보처리방침', '서비스 수준 계약(SLA)'].map((label) => (<li key={label}><a href="#" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{label}</a></li>))}</ul></div>
+          <div className="md:col-span-3">
+            <h4 className="text-sm font-bold text-gray-900 mb-4">계정</h4>
+            <ul className="space-y-3">
+              <li><a href="/auth/login?type=signup" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">파트너 회원가입</a></li>
+              <li><a href="/auth/login" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">관리자 로그인</a></li>
+            </ul>
+            <h4 className="text-sm font-bold text-gray-900 mt-6 mb-4">법적 고지</h4>
+            <ul className="space-y-3">{['이용약관', '개인정보처리방침'].map((label) => (<li key={label}><a href="#" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{label}</a></li>))}</ul>
+          </div>
         </div>
         <div className="mt-12 pt-8 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
           <p className="text-xs text-gray-400">&copy; {new Date().getFullYear()} 쿠팡 자동화. All rights reserved.</p>

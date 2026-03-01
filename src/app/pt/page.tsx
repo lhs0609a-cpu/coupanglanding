@@ -38,7 +38,7 @@ import {
 // ============================================================
 // CONSTANTS & CONFIG
 // ============================================================
-const CTA_URL = 'https://coupang-sellerhub-new.vercel.app/auth/login';
+const CTA_URL = '/apply';
 
 // ============================================================
 // ANIMATION VARIANTS
@@ -118,14 +118,14 @@ const revenueModelItems = [
 ];
 
 const storyTimeline = [
-  { phase: '시작', text: '우리도 직장인이었습니다. 월급 230만원. 세후 192만원. 25일만 되면 통장 잔고가 한 자릿수. "이대로 10년, 20년을 더 살 수 있을까?" 새벽에 천장만 보며 생각했습니다.', emotion: 'dark' as const },
-  { phase: '도전', text: '쿠팡을 시작했습니다. 퇴근 후 아이 재우고, 새벽 2시까지 상품을 올렸습니다. 눈이 빠질 것 같아도 "이번엔 될 거야"라고 되뇌었습니다. 매일 아침 6시에 눈 뜨자마자 폰부터 확인했습니다. 주문 알림: 없음. 3개월 동안 매출: 0원.', emotion: 'hope' as const },
-  { phase: '좌절', text: '광고비만 87만원 날렸습니다. 유튜브에서 배운 대로 했습니다. 결과는 참담했습니다. "야, 그거 해봤자 안 돼" — 주변의 말이 맞는 것 같았습니다. 아내한테도 미안하고, 자존심도 무너지고. 포기 직전이었습니다.', emotion: 'crisis' as const },
-  { phase: '전환점', text: '추측을 멈추고 데이터를 봤습니다. 새벽 3시, 카테고리 분석 데이터를 뒤지다 소름이 끼쳤습니다. 우리가 들어간 카테고리는 경쟁 상위 3%였고, 바로 옆에 경쟁 1/10인 카테고리가 있었습니다. 잘못된 것 3가지: 카테고리 매칭, 상품명 키워드, 가격 구조.', emotion: 'turning' as const },
-  { phase: '돌파', text: '시스템을 만들었습니다. 반복 작업을 자동화하는 AI 도구를 직접 개발했습니다. 카테고리를 바꾸고, 상품명을 바꾸고, 가격을 바꿨습니다. 그리고 일주일 후 — 폰이 울렸습니다.', emotion: 'success' as const },
-  { phase: '가족', text: '진짜 돈이 되는 걸 확신했을 때, 가장 먼저 생각난 건 가족이었습니다. 부모님에게 권했습니다. 형제에게 권했습니다. "사기 아니야?" 반신반의하던 그들도, 통장에 돈이 들어오자 목소리가 달라졌습니다.', emotion: 'success' as const },
-  { phase: '그 전화', text: '출산 후 4년째 일을 못 하던 친구가 물었습니다. "나 같은 사람도 돼?" 3개월 후, 아이 재우고 새벽에 하는 쿠팡이 월급보다 많아졌습니다. "처음으로 내 이름으로 된 통장에 돈이 들어왔다"고 울면서 전화했습니다. 그날, 이 일을 절대 멈추면 안 되겠다고 결심했습니다.', emotion: 'turning' as const },
-  { phase: '지금', text: '그래서 이 서비스를 만들었습니다. 혼자 삽질할 필요 없습니다. 우리가 직접 검증한 방법, 우리가 직접 만든 도구, 우리가 지금도 매일 사용하는 시스템을 함께 씁니다.', emotion: 'peak' as const },
+  { phase: '33세', text: '돈이 필요했습니다. 모아놓은 돈도 없고, 집도 차도 아무것도 없었습니다. 일은 꾸준히 했습니다. 그냥 돈 쓰는 감각이 안 좋았던 겁니다. 미래에 대한 막연한 두려움이 매일 밤 밀려왔습니다.', emotion: 'dark' as const },
+  { phase: '위기', text: '그렇게 뭔가를 알아보던 중, 가족이 빚을 졌습니다. 큰 돈이 필요했습니다. 이건 진짜 안 되겠다 싶어서 부업을 빨리 알아봤습니다.', emotion: 'crisis' as const },
+  { phase: '도전', text: '쿠팡 브랜드리스를 알게 됐습니다. 강의 들을 돈도 없어서 3개월 동안 독학했습니다. 진짜 열심히 했습니다. 매출이 나오긴 했습니다. 하지만 이 상황을 타개할 만한 매출은 아니었습니다.', emotion: 'hope' as const },
+  { phase: '한계', text: '손으로 해봤자 한계가 있었습니다. 하루에 올릴 수 있는 상품 수가 정해져 있었고, 시간은 부족했고, 매출은 제자리였습니다.', emotion: 'struggle' as const },
+  { phase: '전환점', text: '주변에 아는 개발자분과 함께 자동화 프로그램을 만들기 시작했습니다. 상품 등록을 자동화하고, AI로 카테고리를 매칭하고, 가격을 자동 계산했습니다. 그리고 돌렸습니다.', emotion: 'turning' as const },
+  { phase: '돌파', text: '매출이 말도 안 되게 올라갔습니다. 안 좋은 상황을 해결했습니다. 빚을 갚았습니다. 처음으로 숨통이 트였습니다.', emotion: 'success' as const },
+  { phase: '확산', text: '누나에게 알려줬습니다. 누나 친구분 중 상황이 힘든 분도 이 프로그램을 시작했습니다. 지금 거의 다 해결되어 가고 있습니다.', emotion: 'success' as const },
+  { phase: '지금', text: '돈이 간절하신 분들한테 정말 좋을 것 같습니다. 인풋 대비 아웃풋이 정말 좋습니다. 4, 50대 60대 분도 충분히 할 수 있게 만들어 드리겠습니다.', emotion: 'peak' as const },
 ];
 
 const testimonials = [
@@ -193,10 +193,10 @@ const faqData = [
 // KAKAO CHAT DATA — 각 섹션별 대화
 // ============================================================
 const empathyKakao: ChatMsg[] = [
-  { name: '아내', text: '오늘도 쿠팡이야?', time: '오후 11:42' },
-  { text: '상품 올리고 있어 금방 들어갈게', time: '오후 11:43', isMine: true },
-  { name: '아내', text: '그거 3개월째잖아', time: '오후 11:43' },
-  { name: '아내', text: '한 건도 안 팔렸잖아...', time: '오후 11:44' },
+  { name: '누나', text: '야 그거 아직도 해?', time: '오후 11:42' },
+  { text: '상품 올리고 있어', time: '오후 11:43', isMine: true },
+  { name: '누나', text: '그거 3개월째잖아', time: '오후 11:43' },
+  { name: '누나', text: '한 건도 안 팔렸다며...', time: '오후 11:44' },
   { text: '...', time: '오후 11:50', isMine: true },
 ];
 
@@ -208,40 +208,46 @@ const empathyKakao2: ChatMsg[] = [
   { text: '읽음', isSystem: true, time: '' },
 ];
 
-const storyDojeonKakao: ChatMsg[] = [
-  { name: '아내', text: '몇시야 지금', time: '오전 1:47' },
-  { name: '아내', text: '또 쿠팡이야?', time: '오전 1:47' },
-  { text: '상품 10개만 더 올리면 돼', time: '오전 1:48', isMine: true },
-  { name: '아내', text: '매일 그러잖아... 제발 좀 자', time: '오전 1:48' },
-  { text: '...내일까지만', time: '오전 1:52', isMine: true },
+const storyWigiKakao: ChatMsg[] = [
+  { name: '누나', text: '야... 얘기 좀 해야돼', time: '오후 10:22' },
+  { text: '무슨 일이야', time: '오후 10:23', isMine: true },
+  { name: '누나', text: '집에 빚이 좀 생겼어', time: '오후 10:24' },
+  { name: '누나', text: '큰 돈이야', time: '오후 10:24' },
+  { text: '...얼마나', time: '오후 10:30', isMine: true },
 ];
 
-const storyJwaCheolKakao: ChatMsg[] = [
-  { text: '형 나 쿠팡 접을까', time: '오후 10:11', isMine: true },
-  { text: '3개월째 매출 0원이야', time: '오후 10:11', isMine: true },
-  { text: '광고비만 87만원 날렸어', time: '오후 10:12', isMine: true },
-  { name: '형', text: '...그래 좀 쉬어', time: '오후 10:15' },
-  { name: '형', text: '그거 아무나 하는 거 아니래', time: '오후 10:15' },
+const storyDojeonKakao: ChatMsg[] = [
+  { text: '3개월째 독학 중인데', time: '오전 1:42', isMine: true },
+  { text: '매출은 나오긴 하는데', time: '오전 1:42', isMine: true },
+  { text: '이걸로는 턱없이 부족해', time: '오전 1:43', isMine: true },
+  { name: '친구', text: '너 새벽에 또 그거야?', time: '오전 1:50' },
+  { name: '친구', text: '좀 자라 진짜', time: '오전 1:50' },
+];
+
+const storyHangyeKakao: ChatMsg[] = [
+  { text: '하루에 올릴 수 있는 상품이 한계야', time: '오후 11:38', isMine: true },
+  { text: '시간은 없고 매출은 제자리', time: '오후 11:38', isMine: true },
+  { text: '손으로 하는 건 진짜 한계다', time: '오후 11:39', isMine: true },
+  { name: '친구', text: '그래서 어쩔 건데', time: '오후 11:42' },
+  { text: '...방법을 찾아야 해', time: '오후 11:45', isMine: true },
 ];
 
 const storyJeonHwanKakao: ChatMsg[] = [
-  { text: '야 이거 봐봐', time: '오전 3:22', isMine: true },
-  { text: '카테고리 데이터 분석해봤는데', time: '오전 3:22', isMine: true },
-  { text: '우리가 완전 잘못 들어간 거야', time: '오전 3:23', isMine: true },
-  { name: '파트너', text: '새벽 3시에 뭐야ㅋㅋ', time: '오전 3:25' },
-  { name: '파트너', text: '뭐?? 어떻게?', time: '오전 3:25' },
-  { text: '경쟁 1/10인 카테고리 찾았어', time: '오전 3:26', isMine: true },
-  { text: '여기로 바꾸면 돼', time: '오전 3:26', isMine: true },
-  { name: '파트너', text: '미쳤다 진짜', time: '오전 3:27' },
+  { text: '형 자동화 프로그램 만들 수 있어요?', time: '오후 3:22', isMine: true },
+  { name: '개발자', text: '어떤 거?', time: '오후 3:25' },
+  { text: '상품 등록이랑 카테고리 매칭', time: '오후 3:26', isMine: true },
+  { text: '가격 계산도 자동으로', time: '오후 3:26', isMine: true },
+  { name: '개발자', text: '해볼 수 있을 것 같은데', time: '오후 3:28' },
+  { text: '꼭 좀 부탁드립니다 진짜', time: '오후 3:28', isMine: true },
 ];
 
 const storyDolPaKakao: ChatMsg[] = [
-  { text: '주문 알림이 울렸다', isSystem: true, time: '' },
-  { text: '야!!!!!! 주문 들어왔어!!!!', time: '오전 6:03', isMine: true },
-  { name: '파트너', text: '뭐???? 진짜???', time: '오전 6:05' },
-  { text: '진짜ㅠㅠㅠㅠㅠ 손 떨려', time: '오전 6:05', isMine: true },
-  { text: '카테고리 바꾸고 일주일 만에', time: '오전 6:06', isMine: true },
-  { name: '파트너', text: '시작이다 ㅠㅠ', time: '오전 6:06' },
+  { text: '주문 알림 폭주', isSystem: true, time: '' },
+  { text: '!!!!!!!!!!!', time: '오전 5:47', isMine: true },
+  { text: '매출이 말도 안 되게 올라가고 있어', time: '오전 5:47', isMine: true },
+  { name: '친구', text: '뭐?? 얼마나?', time: '오전 5:50' },
+  { text: '빚 갚을 수 있을 것 같아', time: '오전 5:51', isMine: true },
+  { text: '처음으로 숨통이 트인다', time: '오전 5:51', isMine: true },
 ];
 
 const beforeKakao: ChatMsg[] = [
@@ -385,7 +391,7 @@ function CTAButton({ children, href = CTA_URL, variant = 'primary', size = 'lg',
   const sizeClasses = { sm: 'px-5 py-2.5 text-sm', md: 'px-6 py-3 text-sm', lg: 'px-8 py-4 text-base' };
   const variantClasses = { primary: 'bg-gradient-to-r from-[#E31837] to-[#ff4d6a] text-white shadow-xl shadow-rose-200/40 hover:shadow-2xl hover:shadow-rose-300/40', secondary: 'bg-white text-gray-900 border border-gray-200 shadow-lg', ghost: 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200' };
   return (
-    <motion.a href={href} target="_blank" rel="noopener noreferrer" whileHover={{ scale: 1.02, y: -1 }} whileTap={{ scale: 0.98 }}
+    <motion.a href={href} whileHover={{ scale: 1.02, y: -1 }} whileTap={{ scale: 0.98 }}
       className={`inline-flex items-center justify-center gap-2 rounded-full font-semibold transition-all duration-300 ${sizeClasses[size]} ${variantClasses[variant]} ${className}`}>{children}</motion.a>
   );
 }
@@ -479,20 +485,15 @@ function BankDeposit({ amount, memo, balance }: { amount: string; memo: string; 
 }
 
 // ============================================================
-// MOCKUP: 쿠팡 셀러 매출 대시보드
+// SCREENSHOT IMAGE: 쿠팡 셀러 매출 대시보드
 // ============================================================
 function CoupangSellerDashboard() {
   return (
     <div className="relative">
       <div className="absolute -inset-6 bg-gradient-to-r from-rose-100/50 via-red-100/30 to-red-100/50 rounded-[32px] blur-2xl" />
       <div className="relative bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
-        <WindowChrome title="쿠팡 윙 판매자센터" />
-        <img
-          src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1200&q=80&auto=format&fit=crop"
-          alt="쿠팡 윙 판매자센터 - 매출 현황, 정산 분석, 수익 그래프 실제 화면"
-          className="w-full"
-          loading="eager"
-        />
+        <WindowChrome title="쿠팡 윙 - 판매분석" />
+        <img src="/images/screenshots/20260112_094546.png" alt="쿠팡 윙 판매분석 - 일 판매량 415건, 일 매출 ₩16,803,220" className="w-full" />
       </div>
       <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 1.2 }}
         className="absolute -right-3 top-14 bg-white rounded-xl border border-gray-200 shadow-xl p-3 flex items-center gap-2.5 z-10 hidden sm:flex">
@@ -509,20 +510,15 @@ function CoupangSellerDashboard() {
 }
 
 // ============================================================
-// MOCKUP: 쿠팡 자동화 대시보드
+// SCREENSHOT IMAGE: 쿠팡 자동화 대시보드
 // ============================================================
 function CoupangAutomationDashboard() {
   return (
     <div className="relative">
       <div className="absolute -inset-4 bg-gradient-to-r from-red-100/40 via-red-100/20 to-red-100/40 rounded-[28px] blur-xl" />
       <div className="relative bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
-        <WindowChrome title="쿠팡 윙 - 상품 관리" />
-        <img
-          src="https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1200&q=80&auto=format&fit=crop"
-          alt="쿠팡 윙 상품 관리 대시보드 - 주문 현황, 상품 목록, 실시간 매출 관리 화면"
-          className="w-full"
-          loading="lazy"
-        />
+        <WindowChrome title="쿠팡 자동화 - 자동 등록" />
+        <img src="/images/screenshots/chrome_6MyaK5awma.png" alt="쿠팡 자동화 - 자동 등록 화면 (1,004건 대기, 122건 처리중)" className="w-full" />
       </div>
     </div>
   );
@@ -563,7 +559,7 @@ export default function PTPage() {
               {navLinks.map((link) => (<a key={link.href} href={link.href} className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-all">{link.label}</a>))}
             </nav>
             <div className="hidden md:flex items-center gap-3">
-              <a href={CTA_URL} target="_blank" rel="noopener noreferrer" className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-all flex items-center gap-1.5"><LogIn className="w-4 h-4" />로그인</a>
+              <a href={CTA_URL} className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-all flex items-center gap-1.5"><LogIn className="w-4 h-4" />로그인</a>
               <CTAButton href={CTA_URL} size="sm">무료 상담 <ArrowRight className="w-4 h-4" /></CTAButton>
             </div>
             <button type="button" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors" aria-label="메뉴">
@@ -577,7 +573,7 @@ export default function PTPage() {
               <div className="px-5 py-4 space-y-1">
                 {navLinks.map((link) => (<a key={link.href} href={link.href} onClick={handleNavClick} className="block px-4 py-3 rounded-xl text-base font-medium text-gray-700 hover:bg-gray-50">{link.label}</a>))}
                 <div className="pt-3 border-t border-gray-100 mt-2">
-                  <a href={CTA_URL} target="_blank" rel="noopener noreferrer" onClick={handleNavClick} className="block px-4 py-3.5 rounded-xl text-base font-semibold text-white bg-gradient-to-r from-[#E31837] to-[#ff4d6a] text-center shadow-lg">무료 상담 신청</a>
+                  <a href={CTA_URL} onClick={handleNavClick} className="block px-4 py-3.5 rounded-xl text-base font-semibold text-white bg-gradient-to-r from-[#E31837] to-[#ff4d6a] text-center shadow-lg">무료 상담 신청</a>
                 </div>
               </div>
             </motion.div>
@@ -726,64 +722,59 @@ export default function PTPage() {
                     <p className={`text-[15px] sm:text-base leading-relaxed ${s.text} ${item.emotion === 'peak' ? 'font-semibold' : ''}`}>{item.text}</p>
                     {i === 1 && (
                       <motion.div initial={{ opacity: 0, scale: 0.95 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ delay: 0.3 }}>
-                        <KakaoChat messages={storyDojeonKakao} />
+                        <KakaoChat messages={storyWigiKakao} />
                       </motion.div>
                     )}
                     {i === 2 && (
                       <motion.div initial={{ opacity: 0, scale: 0.95 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ delay: 0.3 }} className="mt-3 space-y-3">
-                        <PhoneNotif icon="📊" app="쿠팡 광고" title="광고 리포트" time="월간" lines={['광고비 지출: ₩870,000', '발생 매출: ₩28,000', 'ROAS: 0.03']} />
-                        <KakaoChat messages={storyJwaCheolKakao} />
+                        <PhoneNotif icon="📊" app="쿠팡 윙" title="판매 현황" time="오늘" lines={['이번 달 매출: ₩380,000', '목표 대비: 3.8%', '남은 빚: ₩42,000,000']} />
+                        <KakaoChat messages={storyDojeonKakao} />
                       </motion.div>
                     )}
                     {i === 3 && (
                       <motion.div initial={{ opacity: 0, scale: 0.95 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ delay: 0.3 }}>
-                        <KakaoChat messages={storyJeonHwanKakao} />
+                        <KakaoChat messages={storyHangyeKakao} />
                       </motion.div>
                     )}
                     {i === 4 && (
                       <motion.div initial={{ opacity: 0, scale: 0.95 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ delay: 0.3 }}>
+                        <KakaoChat messages={storyJeonHwanKakao} />
+                      </motion.div>
+                    )}
+                    {i === 5 && (
+                      <motion.div initial={{ opacity: 0, scale: 0.95 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ delay: 0.3 }}>
                         <KakaoChat messages={storyDolPaKakao} />
                       </motion.div>
                     )}
-                    {item.emotion === 'success' && i === 4 && (
+                    {i === 5 && (
                       <motion.div initial={{ opacity: 0, scale: 0.9 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ delay: 0.5 }}
                         className="mt-4 bg-white/10 backdrop-blur-sm rounded-xl border border-white/10 p-4">
                         <div className="flex items-center gap-3 mb-2">
                           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#E31837] to-[#ff4d6a] flex items-center justify-center flex-shrink-0"><TrendingUp className="w-5 h-5 text-white" /></div>
-                          <div><div className="text-sm font-bold text-white">하루 415건 판매 · &#8361;16,803,220 일 매출</div><div className="text-xs text-gray-400">실제 쿠팡 윙 판매분석 데이터</div></div>
+                          <div><div className="text-sm font-bold text-white">하루 415건 판매 · &#8361;16,803,220 일 매출</div><div className="text-xs text-gray-400">자동화 이후 실제 판매 데이터</div></div>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">이 숫자는 마케팅 이미지가 아닙니다. 저희의 실제 판매 데이터입니다.</p>
+                        <p className="text-xs text-gray-500 mt-1">자동화 프로그램을 돌린 이후, 매출이 폭발적으로 올랐습니다.</p>
                       </motion.div>
                     )}
-                    {i === 4 && (
+                    {i === 5 && (
                       <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: 0.8 }} className="mt-3 space-y-2">
                         <PhoneNotif icon="📦" app="쿠팡 윙" title="주문 접수" time="방금" lines={['프리미엄 주방도구 세트 5종 · ₩34,900']} />
                         <PhoneNotif icon="📦" app="쿠팡 윙" title="주문 접수" time="3분 전" lines={['생활용품 세트 3종 · ₩24,900']} className="opacity-70 scale-[0.97] origin-left" />
                         <PhoneNotif icon="📦" app="쿠팡 윙" title="주문 접수" time="7분 전" lines={['인테리어 소품 · ₩19,800']} className="opacity-40 scale-[0.94] origin-left" />
                       </motion.div>
                     )}
-                    {i === 5 && (
-                      <motion.div initial={{ opacity: 0, scale: 0.95 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ delay: 0.3 }}>
-                        <KakaoChat messages={[
-                          { text: '아버지 쿠팡 판매 해보세요. 제가 다 세팅해 드릴게요', time: '오후 8:12', isMine: true },
-                          { name: '아버지', text: '그게 되겠냐', time: '오후 8:15' },
-                          { text: '2개월 후', isSystem: true, time: '' },
-                          { name: '아버지', text: '아들아', time: '오후 9:31' },
-                          { name: '아버지', text: '주문이 또 들어왔다', time: '오후 9:31' },
-                          { name: '아버지', text: '이거 진짜구나!!', time: '오후 9:32' },
-                        ]} />
-                      </motion.div>
-                    )}
                     {i === 6 && (
                       <motion.div initial={{ opacity: 0, scale: 0.95 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ delay: 0.3 }}>
                         <KakaoChat messages={[
-                          { name: '수진', text: '나 같은 사람도 될까..?', time: '오후 11:32' },
-                          { text: '당연하지. 내가 다 알려줄게', time: '오후 11:32', isMine: true },
+                          { text: '누나 이거 한번 해봐', time: '오후 8:12', isMine: true },
+                          { text: '내가 다 세팅해줄게', time: '오후 8:12', isMine: true },
+                          { name: '누나', text: '나 같은 사람도 돼?', time: '오후 8:15' },
+                          { text: '당연하지', time: '오후 8:15', isMine: true },
                           { text: '3개월 후', isSystem: true, time: '' },
-                          { name: '수진', text: '야ㅠㅠㅠㅠ', time: '오전 1:47' },
-                          { name: '수진', text: '나 통장에 돈 들어왔어', time: '오전 1:47' },
-                          { name: '수진', text: '내 이름으로 된 통장에 처음이야...', time: '오전 1:48' },
-                          { text: 'ㅠㅠㅠ 축하해 진짜', time: '오전 1:48', isMine: true },
+                          { name: '누나', text: '야ㅠㅠ 나 통장에 돈 들어왔어', time: '오전 11:47' },
+                          { name: '누나', text: '내 친구도 알려줘도 돼?', time: '오전 11:48' },
+                          { name: '누나', text: '그 친구도 상황이 좀 힘들거든...', time: '오전 11:48' },
+                          { text: '당연하지. 알려줘', time: '오전 11:49', isMine: true },
                         ]} />
                       </motion.div>
                     )}
@@ -803,8 +794,8 @@ export default function PTPage() {
             </div>
           </div>
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeUp} className="text-center mt-10 pt-10 border-t border-white/10">
-            <p className="text-lg text-gray-400 mb-4">저희가 가장 먼저 권한 사람은, <span className="text-white font-bold">부모님</span>이었습니다.</p>
-            <p className="text-xl sm:text-2xl font-extrabold text-white mb-3">우리가 먼저 해봤습니다.</p>
+            <p className="text-lg text-gray-400 mb-4">가장 먼저 알려준 사람은, <span className="text-white font-bold">누나</span>였습니다.</p>
+            <p className="text-xl sm:text-2xl font-extrabold text-white mb-3">직접 해봤고, 가족에게 알려줬고, 지금은 당신에게.</p>
             <p className="text-xl sm:text-2xl font-extrabold bg-gradient-to-r from-[#E31837] to-[#ff4d6a] bg-clip-text text-transparent mb-8">이제, 당신 차례입니다.</p>
             <CTAButton href={CTA_URL} size="lg"><Phone className="w-5 h-5" />나도 시작하기<ArrowRight className="w-5 h-5" /></CTAButton>
           </motion.div>
@@ -829,13 +820,8 @@ export default function PTPage() {
               <div className="relative">
                 <div className="absolute -inset-4 bg-gradient-to-r from-red-100/40 via-red-100/20 to-red-100/40 rounded-[28px] blur-xl" />
                 <div className="relative bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
-                  <WindowChrome title="쿠팡 윙 - 정산 & 분석" />
-                  <img
-                    src="https://images.unsplash.com/photo-1553877522-43269d4ea984?w=1200&q=80&auto=format&fit=crop"
-                    alt="쿠팡 윙 매출 분석 리포트 - 총 매출, 순이익, 카테고리별 매출 분석"
-                    className="w-full"
-                    loading="lazy"
-                  />
+                  <WindowChrome title="쿠팡 자동화 - 대시보드" />
+                  <img src="/images/screenshots/chrome_GHfSYZNoVf.png" alt="쿠팡 자동화 대시보드 - 전체 상품 300개, 등록 추이 차트" className="w-full" />
                 </div>
               </div>
             </motion.div>
@@ -1116,7 +1102,12 @@ export default function PTPage() {
         <div className="max-w-6xl mx-auto">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
             <Link href="/" className="flex items-center gap-2.5"><div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#E31837] to-[#ff4d6a] flex items-center justify-center shadow-md"><span className="text-white font-bold text-sm">S</span></div><span className="font-bold text-gray-900">쿠팡 셀러허브</span></Link>
-            <nav className="flex items-center gap-6">{navLinks.map((link) => (<a key={link.href} href={link.href} className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{link.label}</a>))}</nav>
+            <nav className="flex items-center gap-6">
+              {navLinks.map((link) => (<a key={link.href} href={link.href} className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{link.label}</a>))}
+              <span className="hidden sm:block w-px h-4 bg-gray-200" />
+              <Link href="/auth/login?type=signup" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">파트너 회원가입</Link>
+              <Link href="/auth/login" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">관리자 로그인</Link>
+            </nav>
             <p className="text-sm text-gray-500">&copy; {new Date().getFullYear()} 쿠팡 셀러허브</p>
           </div>
         </div>
@@ -1126,7 +1117,7 @@ export default function PTPage() {
       <div className="fixed bottom-0 left-0 right-0 z-50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-white/95 backdrop-blur-xl border-t border-gray-200 shadow-2xl shadow-gray-900/10 md:hidden">
         <div className="flex items-center gap-3">
           <div className="flex-1 min-w-0"><p className="text-xs font-semibold text-[#E31837] truncate">이번 달 잔여 3자리 &middot; 초기비용 0원</p><p className="text-sm font-bold text-gray-900 truncate">전문가와 함께 매출 만들기</p></div>
-          <motion.a href={CTA_URL} target="_blank" rel="noopener noreferrer" whileTap={{ scale: 0.95 }} className="flex-shrink-0 px-5 py-3 rounded-full bg-gradient-to-r from-[#E31837] to-[#ff4d6a] text-white font-bold text-sm shadow-lg shadow-rose-200/50">무료 상담</motion.a>
+          <motion.a href={CTA_URL} whileTap={{ scale: 0.95 }} className="flex-shrink-0 px-5 py-3 rounded-full bg-gradient-to-r from-[#E31837] to-[#ff4d6a] text-white font-bold text-sm shadow-lg shadow-rose-200/50">무료 상담</motion.a>
         </div>
       </div>
       <div className="h-20 md:hidden" />

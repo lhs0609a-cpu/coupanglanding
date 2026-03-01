@@ -3,6 +3,8 @@ export type PtStatus = 'active' | 'paused' | 'terminated';
 export type PaymentStatus = 'pending' | 'submitted' | 'confirmed' | 'rejected';
 export type RevenueSource = 'pt' | 'program' | 'other';
 export type ExpenseCategory = 'server' | 'ai_usage' | 'fixed' | 'tax' | 'marketing' | 'other';
+export type ApplicationStatus = 'new' | 'contacted' | 'consulting' | 'converted' | 'rejected';
+export type ContractStatus = 'draft' | 'sent' | 'signed' | 'expired' | 'terminated';
 
 export interface Profile {
   id: string;
@@ -99,6 +101,40 @@ export interface PartnerDistribution {
   after_tax: number;
 }
 
+export interface Application {
+  id: string;
+  name: string;
+  phone: string;
+  email: string | null;
+  category_interest: string | null;
+  current_situation: string | null;
+  coupang_experience: string | null;
+  message: string | null;
+  source: string;
+  status: ApplicationStatus;
+  admin_note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Contract {
+  id: string;
+  pt_user_id: string;
+  contract_type: string;
+  terms: Record<string, unknown>;
+  start_date: string;
+  end_date: string | null;
+  share_percentage: number;
+  status: ContractStatus;
+  signed_at: string | null;
+  signed_ip: string | null;
+  admin_note: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  pt_user?: PtUser;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -136,6 +172,16 @@ export interface Database {
         Row: DistributionSnapshot;
         Insert: Omit<DistributionSnapshot, 'id' | 'created_at'>;
         Update: Partial<Omit<DistributionSnapshot, 'id' | 'created_at'>>;
+      };
+      applications: {
+        Row: Application;
+        Insert: Omit<Application, 'id' | 'created_at' | 'updated_at' | 'status'>;
+        Update: Partial<Omit<Application, 'id' | 'created_at'>>;
+      };
+      contracts: {
+        Row: Contract;
+        Insert: Omit<Contract, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<Contract, 'id' | 'created_at'>>;
       };
     };
   };

@@ -3,12 +3,216 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, TrendingUp, Shield, Zap, Bot } from 'lucide-react';
+import { ArrowRight, TrendingUp, Shield, Zap, Bot, Check, Package, BarChart3, DollarSign, Sparkles } from 'lucide-react';
 
-const IMAGES = {
-  pt: 'https://images.unsplash.com/photo-1600880292203-757bb62b4baf?w=1920&q=80&auto=format&fit=crop',
-  program: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1920&q=80&auto=format&fit=crop',
-};
+// ─── PT Side CSS Mockup Background ───
+function PTMockupBG() {
+  return (
+    <div className="absolute inset-0 overflow-hidden">
+      {/* Base gradient */}
+      <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-gray-900 to-slate-800" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_40%,rgba(227,24,55,0.12)_0%,transparent_60%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_80%,rgba(227,24,55,0.06)_0%,transparent_50%)]" />
+
+      {/* Floating mockup elements */}
+      <div className="absolute inset-0 flex items-center justify-center opacity-30 pointer-events-none">
+        {/* Revenue Chart Card */}
+        <div className="absolute top-[18%] right-[8%] w-[220px] bg-white/10 backdrop-blur-sm rounded-xl border border-white/10 p-4 transform rotate-3">
+          <div className="text-[10px] text-white/50 mb-2">월 매출 추이</div>
+          <div className="flex items-end gap-1 h-12">
+            {[20, 35, 28, 45, 38, 55, 48, 65, 72, 85, 78, 92].map((h, i) => (
+              <div key={i} className="flex-1 rounded-sm" style={{ height: `${h}%`, background: i >= 10 ? '#E31837' : 'rgba(227,24,55,0.4)' }} />
+            ))}
+          </div>
+          <div className="flex justify-between mt-2">
+            <span className="text-[9px] text-white/30">1월</span>
+            <span className="text-[9px] text-white/30">12월</span>
+          </div>
+        </div>
+
+        {/* Revenue Number */}
+        <div className="absolute top-[12%] left-[12%] bg-white/10 backdrop-blur-sm rounded-xl border border-white/10 p-4 transform -rotate-2">
+          <div className="text-[10px] text-white/50 mb-1">이번 달 순이익</div>
+          <div className="text-xl font-bold text-white/80">₩16,803,220</div>
+          <div className="flex items-center gap-1 mt-1">
+            <TrendingUp className="w-3 h-3 text-green-400/80" />
+            <span className="text-[10px] text-green-400/80">+23.4%</span>
+          </div>
+        </div>
+
+        {/* 통장 Notification */}
+        <div className="absolute bottom-[28%] left-[6%] w-[200px] bg-white/10 backdrop-blur-sm rounded-xl border border-white/10 p-3 transform rotate-1">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-6 h-6 rounded-full bg-yellow-400/80 flex items-center justify-center">
+              <DollarSign className="w-3 h-3 text-yellow-900" />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold text-white/70">KB국민은행</div>
+              <div className="text-[9px] text-white/40">입금 알림</div>
+            </div>
+          </div>
+          <div className="text-sm font-bold text-white/80">+5,040,966원</div>
+          <div className="text-[9px] text-white/40 mt-0.5">쿠팡 정산금</div>
+        </div>
+
+        {/* KakaoTalk Snippet */}
+        <div className="absolute bottom-[15%] right-[10%] w-[190px] bg-[#2C2C2C]/90 rounded-xl border border-white/5 overflow-hidden transform -rotate-2">
+          <div className="px-3 py-1.5 bg-[#2C2C2C] text-center">
+            <span className="text-[10px] text-gray-400">카카오톡</span>
+          </div>
+          <div className="p-2.5 space-y-1.5">
+            <div className="flex gap-1.5">
+              <div className="w-5 h-5 rounded-full bg-gray-600 flex-shrink-0" />
+              <div className="bg-white/15 rounded-lg rounded-tl-none px-2.5 py-1.5">
+                <div className="text-[9px] text-white/70">이번달 매출 얼마야?</div>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <div className="bg-[#FEE500]/90 rounded-lg rounded-tr-none px-2.5 py-1.5">
+                <div className="text-[9px] text-gray-900">1,680만원 나왔어 ㅋㅋ</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Coaching Session Badge */}
+        <div className="absolute top-[42%] right-[25%] bg-white/10 backdrop-blur-sm rounded-lg border border-white/10 px-3 py-2 transform rotate-2">
+          <div className="flex items-center gap-2">
+            <div className="w-5 h-5 rounded-full bg-green-500/70 flex items-center justify-center">
+              <Check className="w-3 h-3 text-white" />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold text-white/70">PT 코칭 완료</div>
+              <div className="text-[9px] text-white/40">12회 / 12회</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Program Side CSS Mockup Background ───
+function ProgramMockupBG() {
+  return (
+    <div className="absolute inset-0 overflow-hidden">
+      {/* Base gradient */}
+      <div className="absolute inset-0 bg-gradient-to-bl from-gray-900 via-slate-900 to-gray-800" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_30%,rgba(59,130,246,0.08)_0%,transparent_50%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_70%,rgba(227,24,55,0.08)_0%,transparent_50%)]" />
+
+      {/* Floating mockup elements */}
+      <div className="absolute inset-0 flex items-center justify-center opacity-30 pointer-events-none">
+        {/* Mini Dashboard */}
+        <div className="absolute top-[10%] left-[8%] w-[260px] bg-white/10 backdrop-blur-sm rounded-xl border border-white/10 overflow-hidden transform -rotate-1">
+          {/* Sidebar + Content */}
+          <div className="flex">
+            {/* Mini sidebar */}
+            <div className="w-12 bg-white/5 border-r border-white/5 py-3 px-2 space-y-2">
+              <div className="w-full h-1.5 rounded bg-blue-400/50" />
+              <div className="w-full h-1 rounded bg-white/15" />
+              <div className="w-full h-1 rounded bg-white/15" />
+              <div className="w-full h-1 rounded bg-white/15" />
+              <div className="w-full h-1 rounded bg-white/15" />
+            </div>
+            {/* Content */}
+            <div className="flex-1 p-3">
+              <div className="text-[9px] font-bold text-white/60 mb-2">쿠팡 자동화</div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <div className="bg-white/10 rounded-lg p-2">
+                  <div className="text-[8px] text-white/40">전체 상품</div>
+                  <div className="text-sm font-bold text-blue-400/80">1,004</div>
+                </div>
+                <div className="bg-white/10 rounded-lg p-2">
+                  <div className="text-[8px] text-white/40">등록 완료</div>
+                  <div className="text-sm font-bold text-green-400/80">847</div>
+                </div>
+                <div className="bg-white/10 rounded-lg p-2">
+                  <div className="text-[8px] text-white/40">처리중</div>
+                  <div className="text-sm font-bold text-yellow-400/80">122</div>
+                </div>
+                <div className="bg-white/10 rounded-lg p-2">
+                  <div className="text-[8px] text-white/40">대기중</div>
+                  <div className="text-sm font-bold text-white/60">35</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Auto Registration Progress */}
+        <div className="absolute top-[22%] right-[6%] w-[200px] bg-white/10 backdrop-blur-sm rounded-xl border border-white/10 p-3 transform rotate-2">
+          <div className="flex items-center gap-2 mb-2">
+            <Package className="w-4 h-4 text-blue-400/70" />
+            <span className="text-[10px] font-bold text-white/60">자동 등록</span>
+          </div>
+          <div className="space-y-1.5">
+            {[
+              { name: '여성 원피스 세트', status: '완료', color: 'bg-green-400/70' },
+              { name: 'LED 무드등 조명', status: '처리중', color: 'bg-yellow-400/70' },
+              { name: '실리콘 주방매트', status: '대기중', color: 'bg-gray-400/50' },
+            ].map((item, i) => (
+              <div key={i} className="flex items-center justify-between bg-white/5 rounded-lg px-2 py-1.5">
+                <span className="text-[9px] text-white/50 truncate flex-1">{item.name}</span>
+                <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded ${item.color} text-white/90`}>{item.status}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* AI Matching */}
+        <div className="absolute bottom-[30%] left-[10%] bg-white/10 backdrop-blur-sm rounded-xl border border-white/10 p-3 transform -rotate-1">
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkles className="w-4 h-4 text-purple-400/70" />
+            <span className="text-[10px] font-bold text-white/60">AI 카테고리 매칭</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-center">
+              <div className="text-lg font-bold text-white/70">94.2%</div>
+              <div className="text-[8px] text-white/40">정확도</div>
+            </div>
+            <div className="w-10 h-10 rounded-full border-2 border-purple-400/50 flex items-center justify-center">
+              <Check className="w-4 h-4 text-purple-400/70" />
+            </div>
+          </div>
+        </div>
+
+        {/* Price Calculator */}
+        <div className="absolute bottom-[12%] right-[12%] w-[180px] bg-white/10 backdrop-blur-sm rounded-xl border border-white/10 p-3 transform rotate-1">
+          <div className="text-[9px] text-white/50 mb-1.5">자동 가격 계산</div>
+          <div className="space-y-1">
+            <div className="flex justify-between text-[9px]">
+              <span className="text-white/40">원가</span>
+              <span className="text-white/60">₩12,000</span>
+            </div>
+            <div className="flex justify-between text-[9px]">
+              <span className="text-white/40">마진 20%</span>
+              <span className="text-white/60">₩2,400</span>
+            </div>
+            <div className="h-px bg-white/10 my-1" />
+            <div className="flex justify-between text-[10px]">
+              <span className="text-white/50 font-bold">판매가</span>
+              <span className="text-white/80 font-bold">₩14,400</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Stats Bar Chart */}
+        <div className="absolute top-[50%] right-[35%] bg-white/10 backdrop-blur-sm rounded-lg border border-white/10 p-3 transform -rotate-3">
+          <div className="flex items-center gap-2 mb-2">
+            <BarChart3 className="w-3 h-3 text-blue-400/70" />
+            <span className="text-[9px] text-white/50">7일 등록 추이</span>
+          </div>
+          <div className="flex items-end gap-1 h-8">
+            {[30, 60, 45, 80, 55, 90, 100].map((h, i) => (
+              <div key={i} className="w-3 rounded-t-sm" style={{ height: `${h}%`, background: i === 6 ? 'rgba(59,130,246,0.6)' : 'rgba(59,130,246,0.3)' }} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function SplitHero() {
   const [activeSection, setActiveSection] = useState<'left' | 'right' | null>(null);
@@ -43,24 +247,13 @@ export default function SplitHero() {
         onMouseEnter={() => !isNavigating && setActiveSection('left')}
         onMouseLeave={() => !isNavigating && setActiveSection(null)}
       >
-        {/* Background Image */}
-        <div className="absolute inset-0">
-          <img
-            src={IMAGES.pt}
-            alt="비즈니스 미팅"
-            className="w-full h-full object-cover transition-transform duration-700 ease-out"
-            style={{ transform: activeSection === 'left' ? 'scale(1.05)' : 'scale(1)' }}
-          />
-        </div>
+        {/* CSS Mockup Background */}
+        <PTMockupBG />
 
-        {/* Dark Overlay */}
+        {/* Hover brightness */}
         <div
-          className="absolute inset-0 transition-all duration-700"
-          style={{
-            background: activeSection === 'left'
-              ? 'linear-gradient(to top, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0.2) 100%)'
-              : 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.5) 50%, rgba(0,0,0,0.35) 100%)',
-          }}
+          className="absolute inset-0 transition-opacity duration-700 bg-black/20"
+          style={{ opacity: activeSection === 'left' ? 0 : activeSection === 'right' ? 0.4 : 0.15 }}
         />
 
         {/* Red accent line at bottom */}
@@ -93,7 +286,7 @@ export default function SplitHero() {
           <motion.h2
             animate={{ y: activeSection === 'left' ? -4 : 0 }}
             transition={{ duration: 0.4 }}
-            className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-extrabold text-white mb-3 tracking-tight text-shadow"
+            className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-extrabold text-white mb-3 text-shadow"
           >
             쿠팡 PT
           </motion.h2>
@@ -106,7 +299,7 @@ export default function SplitHero() {
             전문가가 함께 매출을 만듭니다
           </motion.p>
 
-          {/* Stats - always visible */}
+          {/* Stats */}
           <div className="flex flex-wrap gap-4 mb-6">
             {[
               { icon: TrendingUp, label: '직접 검증 매출', color: 'text-red-400' },
@@ -119,7 +312,7 @@ export default function SplitHero() {
             ))}
           </div>
 
-          {/* CTA Button - on hover */}
+          {/* CTA Button */}
           <AnimatePresence>
             {activeSection === 'left' && (
               <motion.div
@@ -167,27 +360,16 @@ export default function SplitHero() {
         onMouseEnter={() => !isNavigating && setActiveSection('right')}
         onMouseLeave={() => !isNavigating && setActiveSection(null)}
       >
-        {/* Background Image */}
-        <div className="absolute inset-0">
-          <img
-            src={IMAGES.program}
-            alt="데이터 분석 대시보드"
-            className="w-full h-full object-cover transition-transform duration-700 ease-out"
-            style={{ transform: activeSection === 'right' ? 'scale(1.05)' : 'scale(1)' }}
-          />
-        </div>
+        {/* CSS Mockup Background */}
+        <ProgramMockupBG />
 
-        {/* Dark Overlay */}
+        {/* Hover brightness */}
         <div
-          className="absolute inset-0 transition-all duration-700"
-          style={{
-            background: activeSection === 'right'
-              ? 'linear-gradient(to top, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0.2) 100%)'
-              : 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.5) 50%, rgba(0,0,0,0.35) 100%)',
-          }}
+          className="absolute inset-0 transition-opacity duration-700 bg-black/20"
+          style={{ opacity: activeSection === 'right' ? 0 : activeSection === 'left' ? 0.4 : 0.15 }}
         />
 
-        {/* Blue accent line at bottom */}
+        {/* Accent line at bottom */}
         <motion.div
           animate={{ scaleX: activeSection === 'right' ? 1 : 0 }}
           transition={{ duration: 0.5 }}
@@ -217,7 +399,7 @@ export default function SplitHero() {
           <motion.h2
             animate={{ y: activeSection === 'right' ? -4 : 0 }}
             transition={{ duration: 0.4 }}
-            className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-extrabold text-white mb-3 tracking-tight text-shadow"
+            className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-extrabold text-white mb-3 text-shadow"
           >
             쿠팡 프로그램
           </motion.h2>
@@ -243,7 +425,7 @@ export default function SplitHero() {
             ))}
           </div>
 
-          {/* CTA Button - on hover */}
+          {/* CTA Button */}
           <AnimatePresence>
             {activeSection === 'right' && (
               <motion.div
@@ -280,7 +462,7 @@ export default function SplitHero() {
         </div>
       </motion.div>
 
-      {/* Center Logo - glass style */}
+      {/* Center Logo */}
       {mounted && (
         <motion.div
           initial={{ scale: 0, opacity: 0 }}

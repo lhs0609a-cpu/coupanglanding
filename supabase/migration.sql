@@ -215,6 +215,89 @@ CREATE POLICY "Public can view screenshots" ON storage.objects
 CREATE POLICY "Authenticated users can update screenshots" ON storage.objects
   FOR UPDATE USING (bucket_id = 'revenue-screenshots' AND auth.role() = 'authenticated');
 
+-- 8. applications 테이블 (PT 신청)
+CREATE TABLE IF NOT EXISTS public.applications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  email TEXT,
+  category_interest TEXT,
+  current_situation TEXT,
+  coupang_experience TEXT,
+  message TEXT,
+  source TEXT DEFAULT 'pt',
+  status TEXT NOT NULL DEFAULT 'new'
+    CHECK (status IN ('new', 'contacted', 'consulting', 'converted', 'rejected')),
+  admin_note TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TRIGGER applications_updated_at
+  BEFORE UPDATE ON public.applications
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+-- 9. contracts 테이블 (계약서)
+CREATE TABLE IF NOT EXISTS public.contracts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  pt_user_id UUID NOT NULL REFERENCES public.pt_users(id) ON DELETE CASCADE,
+  contract_type TEXT NOT NULL DEFAULT 'standard',
+  terms JSONB NOT NULL DEFAULT '{}'::jsonb,
+  start_date DATE NOT NULL,
+  end_date DATE,
+  share_percentage NUMERIC NOT NULL DEFAULT 30,
+  status TEXT NOT NULL DEFAULT 'draft'
+    CHECK (status IN ('draft', 'sent', 'signed', 'expired', 'terminated')),
+  signed_at TIMESTAMPTZ,
+  signed_ip TEXT,
+  admin_note TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(pt_user_id, start_date)
+);
+
+CREATE TRIGGER contracts_updated_at
+  BEFORE UPDATE ON public.contracts
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+-- RLS: applications
+ALTER TABLE public.applications ENABLE ROW LEVEL SECURITY;
+
+-- 누구나 INSERT 가능 (비로그인 신청)
+CREATE POLICY "Anyone can insert applications" ON public.applications
+  FOR INSERT WITH CHECK (true);
+
+-- admin/partner만 SELECT/UPDATE
+CREATE POLICY "Admin can view applications" ON public.applications
+  FOR SELECT USING (
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'partner'))
+  );
+
+CREATE POLICY "Admin can update applications" ON public.applications
+  FOR UPDATE USING (
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'partner'))
+  );
+
+-- RLS: contracts
+ALTER TABLE public.contracts ENABLE ROW LEVEL SECURITY;
+
+-- PT 사용자는 자기 계약만 조회/서명(UPDATE) 가능
+CREATE POLICY "PT users can view own contracts" ON public.contracts
+  FOR SELECT USING (
+    pt_user_id IN (SELECT id FROM public.pt_users WHERE profile_id = auth.uid())
+  );
+
+CREATE POLICY "PT users can sign own contracts" ON public.contracts
+  FOR UPDATE USING (
+    pt_user_id IN (SELECT id FROM public.pt_users WHERE profile_id = auth.uid())
+  );
+
+-- admin 전체 관리
+CREATE POLICY "Admin can manage contracts" ON public.contracts
+  FOR ALL USING (
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'partner'))
+  );
+
 -- ============================================
 -- 인덱스
 -- ============================================
@@ -224,3 +307,7 @@ CREATE INDEX IF NOT EXISTS idx_monthly_reports_pt_user ON public.monthly_reports
 CREATE INDEX IF NOT EXISTS idx_revenue_entries_year_month ON public.revenue_entries(year_month);
 CREATE INDEX IF NOT EXISTS idx_expense_entries_year_month ON public.expense_entries(year_month);
 CREATE INDEX IF NOT EXISTS idx_pt_users_profile ON public.pt_users(profile_id);
+CREATE INDEX IF NOT EXISTS idx_applications_status ON public.applications(status);
+CREATE INDEX IF NOT EXISTS idx_applications_created ON public.applications(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_contracts_pt_user ON public.contracts(pt_user_id);
+CREATE INDEX IF NOT EXISTS idx_contracts_status ON public.contracts(status);
