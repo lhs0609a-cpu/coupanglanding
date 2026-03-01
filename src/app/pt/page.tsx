@@ -123,7 +123,8 @@ const storyTimeline = [
   { phase: '좌절', text: '광고비만 87만원 날렸습니다. 유튜브에서 배운 대로 했습니다. 결과는 참담했습니다. "우리 같은 사람은 안 되는 건가..." 포기하려 했습니다.', emotion: 'crisis' as const },
   { phase: '전환점', text: '추측을 멈추고 데이터를 봤습니다. 카테고리 분석, 키워드 데이터, 마진 구조를 처음부터 다시 파헤쳤습니다. 잘못된 것 3가지: 카테고리 매칭, 상품명 키워드, 가격 구조.', emotion: 'turning' as const },
   { phase: '돌파', text: '시스템을 만들었습니다. 반복 작업을 자동화하는 AI 도구를 직접 개발했습니다. 그리고 결과가 나왔습니다.', emotion: 'success' as const },
-  { phase: '확장', text: '"너 어떻게 한 거야?" 친구와 지인에게 알려주기 시작했습니다. 그들도 같은 실수를 하고 있었고, 같은 방법으로 매출이 나기 시작했습니다.', emotion: 'success' as const },
+  { phase: '가족', text: '진짜 돈이 되는 걸 알았을 때, 가장 먼저 생각난 건 가족이었습니다. 부모님에게 권했습니다. 형제에게 권했습니다. 가장 가까운 친구에게 권했습니다. 그리고 그들도 매출이 나기 시작했습니다.', emotion: 'success' as const },
+  { phase: '구명정', text: '삶이 어려운 사람, 돈 벌기 힘든 사람들에게 하나씩 알려줬습니다. 구명정 같은 마음이었습니다. 이건 강의가 아닙니다. 진짜 매출을 함께 만드는 겁니다. 저희가 가족으로 먼저 검증한 방법이니까요.', emotion: 'success' as const },
   { phase: '지금', text: '그래서 이 서비스를 만들었습니다. 혼자 삽질할 필요 없습니다. 우리가 직접 검증한 방법, 우리가 직접 만든 도구, 우리가 지금도 매일 사용하는 시스템을 함께 씁니다.', emotion: 'peak' as const },
 ];
 
@@ -512,6 +513,7 @@ export default function PTPage() {
             </div>
           </div>
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeUp} className="text-center mt-10 pt-10 border-t border-white/10">
+            <p className="text-lg text-gray-400 mb-4">저희가 가장 먼저 권한 사람은, <span className="text-white font-bold">부모님</span>이었습니다.</p>
             <p className="text-xl sm:text-2xl font-extrabold text-white mb-3">우리가 먼저 해봤습니다.</p>
             <p className="text-xl sm:text-2xl font-extrabold bg-gradient-to-r from-[#E31837] to-[#ff4d6a] bg-clip-text text-transparent mb-8">이제, 당신 차례입니다.</p>
             <CTAButton href={CTA_URL} size="lg"><Phone className="w-5 h-5" />나도 시작하기<ArrowRight className="w-5 h-5" /></CTAButton>
