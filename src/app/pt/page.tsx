@@ -185,7 +185,7 @@ const faqData = [
   { q: '부업으로도 가능한가요?', a: '네, 충분히 가능합니다. 실제로 직장 다니시면서 시작하시는 분이 많습니다. 주 5-10시간 정도만 투자하시면 됩니다. 시간이 많이 드는 작업은 PT사가 도와드리거나 대행합니다.' },
   { q: '해외에서도 가능한가요?', a: '쿠팡 판매를 위해서는 한국 사업자등록증이 필요합니다. 해외 거주라도 한국 사업자가 있으시면 진행 가능합니다.' },
   { q: '정산은 어떻게 하나요?', a: '매월 1회 정산합니다. 해당 월의 쿠팡 정산금에서 상품 원가, 배송비, 광고비 등을 차감한 순이익의 30%를 정산합니다. 상세한 엑셀 리포트를 함께 제공합니다.' },
-  { q: 'PT사분들은 직접 쿠팡에서 판매하시나요?', a: '네, 저희 파트너 전원이 현재도 쿠팡에서 직접 판매하고 있습니다. 월 1,680만원 이상의 매출을 직접 만들고 있고, 그 과정에서 사용하는 도구와 방법을 그대로 공유합니다.' },
+  { q: 'PT사분들은 직접 쿠팡에서 판매하시나요?', a: '네, 저희 파트너 전원이 현재도 쿠팡에서 직접 판매하고 있습니다. 하루 매출 1,680만원 이상을 직접 만들고 있고, 그 과정에서 사용하는 도구와 방법을 그대로 공유합니다.' },
   { q: '왜 소수만 모집하나요?', a: '저희도 직접 판매를 병행하고 있어서, 한 번에 많은 분을 케어하기 어렵습니다. 대신 함께하는 분께는 100% 집중해서 결과를 만들어 드립니다.' },
 ];
 
@@ -338,7 +338,7 @@ function CoupangSellerDashboard() {
       <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 1.2 }}
         className="absolute -right-3 top-14 bg-white rounded-xl border border-gray-200 shadow-xl p-3 flex items-center gap-2.5 z-10 hidden sm:flex">
         <div className="w-8 h-8 rounded-full bg-red-50 border border-red-100 flex items-center justify-center"><CheckCircle className="w-4 h-4 text-[#E31837]" /></div>
-        <div><div className="text-[11px] font-bold text-gray-800">매출 달성!</div><div className="text-[10px] text-gray-400">월 1,680만원 돌파</div></div>
+        <div><div className="text-[11px] font-bold text-gray-800">매출 달성!</div><div className="text-[10px] text-gray-400">일 매출 1,680만원 돌파</div></div>
       </motion.div>
       <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 1.6 }}
         className="absolute -left-3 bottom-24 bg-white rounded-xl border border-gray-200 shadow-xl p-3 flex items-center gap-2.5 z-10 hidden sm:flex">
@@ -446,7 +446,7 @@ export default function PTPage() {
                 <span className="bg-gradient-to-r from-[#E31837] to-[#ff4d6a] bg-clip-text text-transparent">혼자 만들지 마세요.</span>
               </motion.h1>
               <motion.p variants={fadeUp} custom={2} className="text-lg sm:text-xl text-gray-500 max-w-xl leading-relaxed mb-10">
-                직접 월 1,680만원을 만든 전문가가<br className="hidden sm:block" />당신 옆에서 <span className="font-semibold text-gray-800">같이 합니다.</span>
+                하루 매출 1,680만원을 만든 전문가가<br className="hidden sm:block" />당신 옆에서 <span className="font-semibold text-gray-800">같이 합니다.</span>
               </motion.p>
               <motion.div variants={fadeUp} custom={3} className="flex flex-col sm:flex-row items-start gap-4 mb-10">
                 <CTAButton href={CTA_URL} size="lg"><Phone className="w-5 h-5" />무료 상담 신청<ArrowRight className="w-5 h-5" /></CTAButton>
@@ -470,8 +470,8 @@ export default function PTPage() {
       <section className="py-16 sm:py-20 px-5 sm:px-8 bg-gray-50/60 border-y border-gray-100">
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-3 gap-6 sm:gap-12">
-            <div className="text-center" ref={stat1.ref}><div className="flex items-center justify-center mb-2"><HandCoins className="w-5 h-5 text-[#E31837] mr-2" /><span className="text-3xl sm:text-4xl font-extrabold text-gray-900">&#8361;{stat1.count.toLocaleString()}만</span></div><span className="text-sm text-gray-500 font-medium">직접 검증 월 매출</span></div>
-            <div className="text-center" ref={stat2.ref}><div className="flex items-center justify-center mb-2"><BarChart3 className="w-5 h-5 text-[#E31837] mr-2" /><span className="text-3xl sm:text-4xl font-extrabold text-gray-900">{stat2.count}건</span></div><span className="text-sm text-gray-500 font-medium">월간 판매 건수</span></div>
+            <div className="text-center" ref={stat1.ref}><div className="flex items-center justify-center mb-2"><HandCoins className="w-5 h-5 text-[#E31837] mr-2" /><span className="text-3xl sm:text-4xl font-extrabold text-gray-900">&#8361;{stat1.count.toLocaleString()}만</span></div><span className="text-sm text-gray-500 font-medium">직접 검증 일 매출</span></div>
+            <div className="text-center" ref={stat2.ref}><div className="flex items-center justify-center mb-2"><BarChart3 className="w-5 h-5 text-[#E31837] mr-2" /><span className="text-3xl sm:text-4xl font-extrabold text-gray-900">{stat2.count}건</span></div><span className="text-sm text-gray-500 font-medium">일간 판매 건수</span></div>
             <div className="text-center"><div className="flex items-center justify-center mb-2"><UserCheck className="w-5 h-5 text-[#E31837] mr-2" /><span className="text-3xl sm:text-4xl font-extrabold text-gray-900">1:1 전담</span></div><span className="text-sm text-gray-500 font-medium">소수 정예 코칭</span></div>
           </div>
         </div>
@@ -540,7 +540,7 @@ export default function PTPage() {
                         className="mt-4 bg-white/10 backdrop-blur-sm rounded-xl border border-white/10 p-4">
                         <div className="flex items-center gap-3 mb-2">
                           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#E31837] to-[#ff4d6a] flex items-center justify-center flex-shrink-0"><TrendingUp className="w-5 h-5 text-white" /></div>
-                          <div><div className="text-sm font-bold text-white">415건 판매 · &#8361;16,803,220 매출</div><div className="text-xs text-gray-400">실제 쿠팡 윙 판매분석 데이터</div></div>
+                          <div><div className="text-sm font-bold text-white">하루 415건 판매 · &#8361;16,803,220 일 매출</div><div className="text-xs text-gray-400">실제 쿠팡 윙 판매분석 데이터</div></div>
                         </div>
                         <p className="text-xs text-gray-500 mt-1">이 숫자는 마케팅 이미지가 아닙니다. 저희의 실제 판매 데이터입니다.</p>
                       </motion.div>
@@ -560,7 +560,7 @@ export default function PTPage() {
                     )}
                     {item.emotion === 'peak' && (
                       <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: 0.3 }} className="mt-5 grid grid-cols-3 gap-3">
-                        {[{ label: '직접 검증 매출', value: '&#8361;1,680만', c: 'from-[#E31837] to-[#ff4d6a]' }, { label: '월간 판매', value: '415건', c: 'from-[#E31837] to-red-700' }, { label: '코칭 방식', value: '1:1 전담', c: 'from-[#E31837] to-red-700' }].map((stat) => (
+                        {[{ label: '직접 검증 일 매출', value: '&#8361;1,680만', c: 'from-[#E31837] to-[#ff4d6a]' }, { label: '일간 판매', value: '415건', c: 'from-[#E31837] to-red-700' }, { label: '코칭 방식', value: '1:1 전담', c: 'from-[#E31837] to-red-700' }].map((stat) => (
                           <div key={stat.label} className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-3 text-center">
                             <div className={`text-lg font-extrabold bg-gradient-to-r ${stat.c} bg-clip-text text-transparent`} dangerouslySetInnerHTML={{ __html: stat.value }} />
                             <div className="text-[10px] text-gray-500 mt-0.5">{stat.label}</div>
