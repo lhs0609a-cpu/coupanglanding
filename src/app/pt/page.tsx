@@ -272,6 +272,54 @@ function InitialAvatar({ initial, size = 'md' }: { initial: string; size?: 'sm' 
 }
 
 // ============================================================
+// MOCKUP: 카카오톡 채팅
+// ============================================================
+type ChatMsg = { name?: string; text: string; time: string; isMine?: boolean; isSystem?: boolean };
+
+function KakaoChat({ messages }: { messages: ChatMsg[] }) {
+  return (
+    <div className="mt-4 rounded-2xl overflow-hidden border border-white/15 max-w-[280px] shadow-xl">
+      <div className="flex items-center justify-between px-4 py-2 bg-[#2C2C2C]">
+        <span className="text-[11px] text-gray-500">&#9664;</span>
+        <span className="text-[11px] text-gray-300 font-medium">카카오톡</span>
+        <span className="text-[11px] text-gray-500">&#8942;</span>
+      </div>
+      <div className="bg-[#B2C7D9] px-3 py-3 space-y-2">
+        {messages.map((msg, i) => {
+          if (msg.isSystem) return (
+            <div key={i} className="text-center my-1">
+              <span className="inline-block px-3 py-0.5 rounded-full bg-black/10 text-[10px] text-gray-600">{msg.text}</span>
+            </div>
+          );
+          if (msg.isMine) return (
+            <div key={i} className="flex justify-end items-end gap-1">
+              <span className="text-[9px] text-gray-500 flex-shrink-0 mb-0.5">{msg.time}</span>
+              <div className="bg-[#FEE500] text-gray-900 text-[12px] leading-snug rounded-xl rounded-tr-sm px-2.5 py-1.5 max-w-[180px]">{msg.text}</div>
+            </div>
+          );
+          return (
+            <div key={i} className="flex items-start gap-1.5">
+              {i === 0 || messages[i - 1]?.isMine || messages[i - 1]?.isSystem
+                ? <div className="w-7 h-7 rounded-lg bg-gray-400/50 flex-shrink-0 mt-0.5" />
+                : <div className="w-7 flex-shrink-0" />}
+              <div>
+                {(i === 0 || messages[i - 1]?.isMine || messages[i - 1]?.isSystem) && msg.name && (
+                  <span className="text-[10px] text-gray-700 font-medium mb-0.5 block">{msg.name}</span>
+                )}
+                <div className="flex items-end gap-1">
+                  <div className="bg-white text-gray-900 text-[12px] leading-snug rounded-xl rounded-tl-sm px-2.5 py-1.5 max-w-[180px]">{msg.text}</div>
+                  <span className="text-[9px] text-gray-500 flex-shrink-0 mb-0.5">{msg.time}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // MOCKUP: 쿠팡 셀러 매출 대시보드
 // ============================================================
 function CoupangSellerDashboard() {
@@ -495,6 +543,19 @@ export default function PTPage() {
                           <div><div className="text-sm font-bold text-white">415건 판매 · &#8361;16,803,220 매출</div><div className="text-xs text-gray-400">실제 쿠팡 윙 판매분석 데이터</div></div>
                         </div>
                         <p className="text-xs text-gray-500 mt-1">이 숫자는 마케팅 이미지가 아닙니다. 저희의 실제 판매 데이터입니다.</p>
+                      </motion.div>
+                    )}
+                    {i === 6 && (
+                      <motion.div initial={{ opacity: 0, scale: 0.95 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ delay: 0.3 }}>
+                        <KakaoChat messages={[
+                          { name: '수진', text: '나 같은 사람도 될까..?', time: '오후 11:32' },
+                          { text: '당연하지. 내가 다 알려줄게', time: '오후 11:32', isMine: true },
+                          { text: '3개월 후', isSystem: true, time: '' },
+                          { name: '수진', text: '야ㅠㅠㅠㅠ', time: '오전 1:47' },
+                          { name: '수진', text: '나 통장에 돈 들어왔어', time: '오전 1:47' },
+                          { name: '수진', text: '내 이름으로 된 통장에 처음이야...', time: '오전 1:48' },
+                          { text: 'ㅠㅠㅠ 축하해 진짜', time: '오전 1:48', isMine: true },
+                        ]} />
                       </motion.div>
                     )}
                     {item.emotion === 'peak' && (
