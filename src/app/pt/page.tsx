@@ -8,7 +8,6 @@ import {
   ArrowRight,
   BarChart3,
   Bell,
-  BookOpen,
   Briefcase,
   Calculator,
   CheckCircle,
@@ -16,15 +15,12 @@ import {
   Clock,
   FileText,
   HandCoins,
-  Heart,
   HelpCircle,
-  ImageIcon,
   Lightbulb,
   LogIn,
   Menu,
   MessageSquareText,
   Minus,
-  Package,
   Phone,
   Plus,
   Quote,
@@ -34,13 +30,11 @@ import {
   ShieldCheck,
   Sparkles,
   Star,
-  Target,
   TrendingUp,
   UserCheck,
   Users,
   X,
   XCircle,
-  Zap,
 } from 'lucide-react';
 
 // ============================================================
@@ -314,65 +308,18 @@ function CoupangSellerDashboard() {
 // MOCKUP: 쿠팡 자동화 대시보드
 // ============================================================
 function CoupangAutomationDashboard() {
-  const steps = [
-    { label: '스캔', done: true }, { label: '가격', done: true }, { label: '카테고리', done: true },
-    { label: '상품명', done: true }, { label: '리뷰', active: true }, { label: '옵션', done: false },
-    { label: '필드', done: false }, { label: '이미지', done: false }, { label: '등록', done: false },
-  ];
   return (
     <div className="relative">
       <div className="absolute -inset-4 bg-gradient-to-r from-rose-100/40 via-purple-100/20 to-blue-100/40 rounded-[28px] blur-xl" />
       <div className="relative bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
-        <WindowChrome title="쿠팡 자동화 대시보드" />
-        <div className="p-5 space-y-4">
-          <div className="grid grid-cols-3 gap-3">
-            {[{ label: '오늘 등록', value: '147', change: '+32' }, { label: '대기중', value: '80', change: '' }, { label: '성공률', value: '98.2%', change: '+0.4%' }].map((s) => (
-              <div key={s.label} className="bg-gray-50/80 rounded-xl p-3 border border-gray-100/50">
-                <div className="text-[10px] font-medium text-gray-400 mb-1">{s.label}</div>
-                <div className="text-lg font-bold text-gray-900 leading-none">{s.value}</div>
-                {s.change && <div className="flex items-center gap-0.5 mt-1"><TrendingUp className="w-2.5 h-2.5 text-green-500" /><span className="text-[10px] font-semibold text-green-600">{s.change}</span></div>}
-              </div>
-            ))}
-          </div>
-          <div className="bg-gradient-to-r from-red-50/80 to-orange-50/60 rounded-xl p-4 border border-red-100/60">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-[#E31837] animate-pulse" /><span className="text-sm font-semibold text-gray-800">자동 등록 진행중</span></div>
-              <span className="text-[11px] font-bold text-[#E31837] bg-white px-2.5 py-0.5 rounded-full border border-red-100">5/9 단계</span>
-            </div>
-            <div className="flex gap-1">
-              {steps.map((step, i) => (
-                <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
-                  <div className={`w-full h-1.5 rounded-full ${step.done ? 'bg-[#E31837]' : step.active ? 'bg-[#E31837]/70 animate-pulse' : 'bg-gray-200/80'}`} />
-                  <span className="text-[7px] font-medium text-gray-400 leading-none whitespace-nowrap">{step.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">최근 등록</div>
-            <div className="space-y-1.5">
-              {[{ name: '도브 컨디셔너 인텐스 리페어 660ml', cat: '헤어케어', price: '₩46,300' }, { name: '꽃을든남자 레드플로로 동백 헤어 컨디셔너', cat: '헤어케어', price: '₩19,400' }, { name: '모로칸샴푸 모이스처 리페어 컨디셔너 1L', cat: '헤어케어', price: '₩98,000' }].map((p, i) => (
-                <div key={i} className="flex items-center gap-3 p-2.5 bg-white rounded-lg border border-gray-100">
-                  <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center flex-shrink-0 border border-gray-100"><ImageIcon className="w-4 h-4 text-gray-300" /></div>
-                  <div className="flex-1 min-w-0"><div className="text-[11px] font-medium text-gray-800 truncate">{p.name}</div><div className="text-[10px] text-gray-400 mt-0.5">{p.cat}</div></div>
-                  <div className="text-[11px] font-bold text-gray-700 flex-shrink-0">{p.price}</div>
-                  <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <WindowChrome title="쿠팡 윙 - 상품 관리" />
+        <img
+          src="https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/688c1b4c10d8b8b95b6a5e88_49a5058d60e0b02956a24c15e42be2fb_%EC%9C%99-%EC%BD%98%ED%85%90%EC%B8%A0-%EC%9D%B4%EB%AF%B8%EC%A7%80-2.jpg"
+          alt="쿠팡 윙 상품 관리 대시보드 - 주문 현황, 상품 목록, 실시간 매출 관리 화면"
+          className="w-full"
+          loading="lazy"
+        />
       </div>
-      <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 1.2 }}
-        className="absolute -right-3 top-14 bg-white rounded-xl border border-gray-200 shadow-xl p-3 flex items-center gap-2.5 z-10">
-        <div className="w-8 h-8 rounded-full bg-green-50 border border-green-100 flex items-center justify-center"><CheckCircle className="w-4 h-4 text-green-600" /></div>
-        <div><div className="text-[11px] font-bold text-gray-800">등록 완료!</div><div className="text-[10px] text-gray-400">147개 상품 쿠팡 등록</div></div>
-      </motion.div>
-      <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 1.6 }}
-        className="absolute -left-3 bottom-24 bg-white rounded-xl border border-gray-200 shadow-xl p-3 flex items-center gap-2.5 z-10">
-        <div className="w-8 h-8 rounded-full bg-purple-50 border border-purple-100 flex items-center justify-center"><Sparkles className="w-4 h-4 text-purple-600" /></div>
-        <div><div className="text-[11px] font-bold text-gray-800">AI 매칭 완료</div><div className="text-[10px] text-gray-400">정확도 94.2%</div></div>
-      </motion.div>
     </div>
   );
 }
@@ -491,7 +438,7 @@ export default function PTPage() {
       <section className="relative py-20 sm:py-28 px-5 sm:px-8 overflow-hidden">
         <div className="max-w-5xl mx-auto relative z-10">
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }} variants={stagger} className="text-center mb-14">
-            <SectionBadge className="bg-rose-50 border-rose-200/60 text-[#E31837] mb-6"><MessageSquareText className="w-4 h-4" />공감</SectionBadge>
+            <SectionBadge className="bg-rose-50 border-rose-200/60 text-[#E31837] mb-6">공감</SectionBadge>
             <motion.h2 variants={fadeUp} className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-gray-900 mb-4">혹시 이런 상황이신가요?</motion.h2>
             <motion.p variants={fadeUp} custom={1} className="text-gray-500 text-lg max-w-lg mx-auto">혼자 하다 보면 누구나 겪는 일입니다.</motion.p>
           </motion.div>
@@ -520,7 +467,7 @@ export default function PTPage() {
         </div>
         <div className="max-w-4xl mx-auto relative z-10">
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }} variants={stagger} className="text-center mb-16">
-            <SectionBadge className="bg-white/10 border-white/10 text-rose-300 mb-6"><Heart className="w-4 h-4" />REAL STORY</SectionBadge>
+            <SectionBadge className="bg-white/10 border-white/10 text-rose-300 mb-6">REAL STORY</SectionBadge>
             <motion.h2 variants={fadeUp} className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white mb-5">간절함에서 시작된 이야기</motion.h2>
             <motion.p variants={fadeUp} custom={1} className="text-gray-400 text-lg max-w-2xl mx-auto">이것은 실제 파트너 김*훈 님의 이야기입니다.<br className="hidden sm:block" />당신의 이야기가 될 수도 있습니다.</motion.p>
           </motion.div>
@@ -579,7 +526,7 @@ export default function PTPage() {
       <section className="relative py-20 sm:py-28 px-5 sm:px-8 bg-gradient-to-b from-gray-50/60 to-white overflow-hidden">
         <div className="max-w-5xl mx-auto relative z-10">
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }} variants={stagger} className="text-center mb-14">
-            <SectionBadge className="bg-emerald-50 border-emerald-200/60 text-emerald-700 mb-6"><Zap className="w-4 h-4" />COMPARE</SectionBadge>
+            <SectionBadge className="bg-emerald-50 border-emerald-200/60 text-emerald-700 mb-6">COMPARE</SectionBadge>
             <motion.h2 variants={fadeUp} className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-gray-900 mb-4">혼자 vs 전문가와 함께</motion.h2>
             <motion.p variants={fadeUp} custom={1} className="text-gray-500 text-lg max-w-xl mx-auto">같은 시간, 같은 노력. 결과는 완전히 다릅니다.</motion.p>
           </motion.div>
@@ -601,7 +548,7 @@ export default function PTPage() {
       <section className="relative py-20 sm:py-28 px-5 sm:px-8 overflow-hidden">
         <div className="max-w-6xl mx-auto relative z-10">
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }} variants={stagger} className="text-center mb-16">
-            <SectionBadge className="bg-indigo-50 border-indigo-200/60 text-indigo-700 mb-6"><Sparkles className="w-4 h-4" />OUR TOOLS</SectionBadge>
+            <SectionBadge className="bg-indigo-50 border-indigo-200/60 text-indigo-700 mb-6">OUR TOOLS</SectionBadge>
             <motion.h2 variants={fadeUp} className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-gray-900 mb-4">이것이 당신이 사용하게 될<br className="hidden sm:block" /> 프로그램입니다</motion.h2>
             <motion.p variants={fadeUp} custom={1} className="text-gray-500 text-lg max-w-xl mx-auto">전문가와 함께, AI 자동화로 매출을 만듭니다.</motion.p>
           </motion.div>
@@ -615,21 +562,15 @@ export default function PTPage() {
               <div className="relative">
                 <div className="absolute -inset-4 bg-gradient-to-r from-blue-100/40 via-indigo-100/20 to-violet-100/40 rounded-[28px] blur-xl" />
                 <div className="relative bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
-                  <WindowChrome title="매출 분석 리포트 — 2026년 2월" />
-                  <div className="p-5 space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-gradient-to-br from-blue-50 to-indigo-50/50 rounded-xl p-3.5 border border-blue-100/50">
-                        <div className="text-[10px] font-medium text-gray-400 mb-1">총 매출</div>
-                        <div className="text-lg font-extrabold text-gray-900">₩12,450,000</div>
-                        <div className="h-1.5 bg-gray-100 rounded-full mt-2 overflow-hidden"><div className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full" style={{ width: '78%' }} /></div>
-                        <div className="text-[9px] text-gray-400 mt-1">목표 대비 78%</div>
-                      </div>
-                      <div className="bg-gradient-to-br from-emerald-50 to-green-50/50 rounded-xl p-3.5 border border-emerald-100/50">
-                        <div className="text-[10px] font-medium text-gray-400 mb-1">순이익</div>
-                        <div className="text-lg font-extrabold text-emerald-700">₩5,230,000</div>
-                        <div className="flex items-center gap-1 mt-2"><TrendingUp className="w-3 h-3 text-emerald-500" /><span className="text-[10px] font-bold text-emerald-600">마진율 42%</span></div>
-                      </div>
-                    </div>
+                  <WindowChrome title="쿠팡 윙 - 정산 & 분석" />
+                  <img
+                    src="https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/688c1ad3f839e5aa4618a9ef_%EC%9C%99-%EC%BD%98%ED%85%90%EC%B8%A0-%EC%9D%B4%EB%AF%B8%EC%A7%80.jpg"
+                    alt="쿠팡 윙 매출 분석 리포트 - 총 매출, 순이익, 카테고리별 매출 분석"
+                    className="w-full"
+                    loading="lazy"
+                  />
+                </div>
+              </div>
                     <div className="bg-gray-50/60 rounded-xl p-4 border border-gray-100/50">
                       <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-3">카테고리별 매출</div>
                       <div className="space-y-2.5">
@@ -660,7 +601,7 @@ export default function PTPage() {
       <section id="process" className="relative py-20 sm:py-28 px-5 sm:px-8 bg-gradient-to-b from-white via-gray-50/40 to-white overflow-hidden scroll-mt-20">
         <div className="max-w-5xl mx-auto relative z-10">
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }} variants={stagger} className="text-center mb-16">
-            <SectionBadge className="bg-violet-50 border-violet-200/60 text-violet-700 mb-6"><Rocket className="w-4 h-4" />PROCESS</SectionBadge>
+            <SectionBadge className="bg-violet-50 border-violet-200/60 text-violet-700 mb-6">PROCESS</SectionBadge>
             <motion.h2 variants={fadeUp} className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-gray-900 mb-4">상담부터 매출까지, 6단계</motion.h2>
             <motion.p variants={fadeUp} custom={1} className="text-gray-500 text-lg max-w-xl mx-auto">매출이 나올 때까지 전 과정을 함께 합니다.</motion.p>
           </motion.div>
@@ -698,7 +639,7 @@ export default function PTPage() {
       <section className="relative py-20 sm:py-28 px-5 sm:px-8 bg-gradient-to-b from-gray-50/60 to-white overflow-hidden">
         <div className="max-w-5xl mx-auto relative z-10">
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }} variants={stagger} className="text-center mb-16">
-            <SectionBadge className="bg-rose-50 border-rose-200/60 text-[#E31837] mb-6"><Calculator className="w-4 h-4" />PRICING</SectionBadge>
+            <SectionBadge className="bg-rose-50 border-rose-200/60 text-[#E31837] mb-6">PRICING</SectionBadge>
             <motion.h2 variants={fadeUp} className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-gray-900 mb-4">0원으로 시작합니다</motion.h2>
             <motion.p variants={fadeUp} custom={1} className="text-gray-500 text-lg max-w-xl mx-auto">왜 0원이 가능할까요? — <span className="font-semibold text-gray-700">당신이 못 벌면 저희도 못 법니다.</span></motion.p>
           </motion.div>
@@ -743,7 +684,7 @@ export default function PTPage() {
       <section className="relative py-20 sm:py-28 px-5 sm:px-8 overflow-hidden">
         <div className="max-w-5xl mx-auto relative z-10">
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }} variants={stagger} className="text-center mb-14">
-            <SectionBadge className="bg-violet-50 border-violet-200/60 text-violet-700 mb-6"><Star className="w-4 h-4" />SUCCESS STORIES</SectionBadge>
+            <SectionBadge className="bg-violet-50 border-violet-200/60 text-violet-700 mb-6">SUCCESS STORIES</SectionBadge>
             <motion.h2 variants={fadeUp} className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-gray-900 mb-4">실제 성공 사례</motion.h2>
             <motion.p variants={fadeUp} custom={1} className="text-gray-500 text-lg">숫자 뒤에 숨겨진 <span className="font-semibold text-gray-700">진짜 이야기</span></motion.p>
           </motion.div>
@@ -811,7 +752,7 @@ export default function PTPage() {
         <div className="absolute inset-0 pointer-events-none"><div className="absolute top-0 left-[20%] w-[500px] h-[500px] bg-[#E31837]/10 rounded-full blur-[120px]" /></div>
         <div className="max-w-4xl mx-auto relative z-10">
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }} variants={stagger} className="text-center mb-14">
-            <SectionBadge className="bg-white/10 border-white/10 text-rose-300 mb-6"><ShieldCheck className="w-4 h-4" />GUARANTEE</SectionBadge>
+            <SectionBadge className="bg-white/10 border-white/10 text-rose-300 mb-6">GUARANTEE</SectionBadge>
             <motion.h2 variants={fadeUp} className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white mb-5">매출이 안 나오면<br /><span className="bg-gradient-to-r from-[#E31837] to-[#ff4d6a] bg-clip-text text-transparent">0원입니다</span></motion.h2>
             <motion.p variants={fadeUp} custom={1} className="text-gray-400 text-lg max-w-xl mx-auto">약속 아닌 보장입니다. 서면으로 계약합니다.</motion.p>
           </motion.div>
@@ -846,7 +787,7 @@ export default function PTPage() {
       <section id="faq" className="relative py-20 sm:py-28 px-5 sm:px-8 bg-gradient-to-b from-gray-50/60 to-white overflow-hidden scroll-mt-20">
         <div className="max-w-3xl mx-auto relative z-10">
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }} variants={stagger} className="text-center mb-12">
-            <SectionBadge className="bg-sky-50 border-sky-200/60 text-sky-700 mb-6"><HelpCircle className="w-4 h-4" />FAQ</SectionBadge>
+            <SectionBadge className="bg-sky-50 border-sky-200/60 text-sky-700 mb-6">FAQ</SectionBadge>
             <motion.h2 variants={fadeUp} className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-gray-900 mb-4">자주 묻는 질문</motion.h2>
             <motion.p variants={fadeUp} custom={1} className="text-gray-500 text-lg">궁금한 점이 더 있으시면 상담에서 편하게 물어보세요.</motion.p>
           </motion.div>

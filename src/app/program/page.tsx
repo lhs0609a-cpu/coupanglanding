@@ -3,12 +3,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, useInView, AnimatePresence } from 'framer-motion';
 import {
-  ArrowRight, Check, ChevronDown, Star, Zap, Shield, Clock,
+  ArrowRight, Check, ChevronDown, Zap, Shield, Clock,
   FolderUp, Tag, Calculator, Users,
-  Sparkles, Menu, X, Play, TrendingUp, AlertCircle, Search, ImageIcon,
-  CheckCircle2, ArrowDown, MonitorSmartphone, Layers, RefreshCw,
-  Brain, DollarSign, Globe, Cpu, Download,
-  Heart, CheckCircle,
+  Sparkles, Menu, X, Play, Search,
+  ArrowDown, MonitorSmartphone, RefreshCw,
+  Brain, Globe, Cpu, CheckCircle,
 } from 'lucide-react';
 
 // ============================================================================
@@ -224,7 +223,7 @@ function PainPointsSection() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(227,24,55,0.03),transparent_50%)]" />
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div variants={fadeInUp} className="text-center mb-16">
-          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-red-50 border border-red-100 text-[#E31837] text-sm font-medium mb-4"><AlertCircle className="w-3.5 h-3.5" />셀러의 현실</span>
+          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-red-50 border border-red-100 text-[#E31837] text-sm font-medium mb-4">셀러의 현실</span>
           <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold text-gray-900 mb-4">이런 고민, 있으시죠?</h2>
           <p className="text-lg text-gray-500 max-w-2xl mx-auto">매일 반복되는 단순 노동에 지치셨다면, 이제 AI에게 맡기세요.</p>
         </motion.div>
@@ -261,7 +260,7 @@ function StorytellingSection() {
       </div>
       <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div variants={fadeInUp} className="text-center mb-16">
-          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-white/10 border border-white/10 text-rose-300 text-sm font-medium mb-4"><Heart className="w-3.5 h-3.5" />REAL STORY</span>
+          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-white/10 border border-white/10 text-rose-300 text-sm font-medium mb-4">REAL STORY</span>
           <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold text-white mb-4">셀러의 하루가 바뀌는 순간</h2>
           <p className="text-lg text-gray-400 max-w-2xl mx-auto">수많은 셀러들이 겪은 진짜 이야기입니다.</p>
         </motion.div>
@@ -315,7 +314,7 @@ function SolutionSection() {
     <AnimatedSection id="solution" className="py-24 md:py-32 relative overflow-hidden">
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div variants={fadeInUp} className="text-center mb-16">
-          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 text-sm font-medium mb-4"><Layers className="w-3.5 h-3.5" />4단계로 끝</span>
+          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 text-sm font-medium mb-4">4단계로 끝</span>
           <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold text-gray-900 mb-4">폴더 하나 넣으면, <span className="bg-gradient-to-r from-[#E31837] to-[#ff6b81] bg-clip-text text-transparent">나머지는 AI가</span></h2>
           <p className="text-lg text-gray-500 max-w-2xl mx-auto">기존 48시간 걸리던 100개 상품 등록, 이제 10분이면 완료됩니다.</p>
         </motion.div>
@@ -352,7 +351,7 @@ function ScreenMockupsSection() {
     <AnimatedSection id="screenshots" className="py-24 md:py-32 bg-gray-50/80 relative overflow-hidden">
       <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div variants={fadeInUp} className="text-center mb-14">
-          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-violet-50 border border-violet-100 text-violet-600 text-sm font-medium mb-4"><MonitorSmartphone className="w-3.5 h-3.5" />화면 미리보기</span>
+          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-violet-50 border border-violet-100 text-violet-600 text-sm font-medium mb-4">화면 미리보기</span>
           <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold text-gray-900 mb-4">프로그램 화면을 직접 확인하세요</h2>
           <p className="text-lg text-gray-500 max-w-2xl mx-auto">실제 사용하게 될 핵심 기능들을 미리 확인해 보세요.</p>
         </motion.div>
@@ -411,27 +410,27 @@ function ScreenMockupsSection() {
 // ============================================================================
 function FeatureShowcase() {
   const features = [
-    { icon: <Brain className="w-7 h-7" />, title: 'AI 카테고리 매칭', subtitle: 'GPT-4 기반 · 90%+ 정확도', desc: '상품 데이터를 분석해 쿠팡 카테고리를 자동 매칭합니다.', highlights: ['GPT-4 기반 분석', '90% 이상 정확도', '신뢰도 점수 표시', '수동 보정 가능'], gradient: 'from-purple-500 to-violet-600', headerGrad: 'from-purple-100 via-violet-50 to-indigo-100' },
-    { icon: <Sparkles className="w-7 h-7" />, title: 'AI 상품명 & 검색태그', subtitle: '검색 최적화 · SEO 특화', desc: '쿠팡 검색 알고리즘에 최적화된 상품명과 태그를 자동 생성합니다.', highlights: ['검색 키워드 분석', 'SEO 최적화 타이틀', '자동 검색태그 생성', '카테고리별 포맷'], gradient: 'from-blue-500 to-cyan-600', headerGrad: 'from-blue-100 via-cyan-50 to-sky-100' },
-    { icon: <Calculator className="w-7 h-7" />, title: '자동 가격 계산', subtitle: '마진율 · 100원 절삭 · 마크업', desc: '마진 규칙에 따라 판매가를 자동 계산합니다.', highlights: ['퍼센트/고정 마진', '100원 단위 절삭', '정가 자동 마크업', '카테고리별 규칙'], gradient: 'from-emerald-500 to-green-600', headerGrad: 'from-emerald-100 via-green-50 to-teal-100' },
-    { icon: <RefreshCw className="w-7 h-7" />, title: '네이버 → 쿠팡 변환', subtitle: 'URL 입력만으로 완료', desc: '네이버 스마트스토어 상품을 쿠팡 형식으로 자동 변환합니다.', highlights: ['URL 또는 Excel', '상품 정보 추출', '쿠팡 형식 변환', '일괄 등록 가능'], gradient: 'from-orange-500 to-amber-600', headerGrad: 'from-orange-100 via-amber-50 to-yellow-100' },
-    { icon: <Cpu className="w-7 h-7" />, title: '24시간 자동 등록', subtitle: '9단계 파이프라인', desc: '9단계 자동화 파이프라인으로 등록을 완전 자동화합니다.', highlights: ['스케줄링 설정', 'R2 이미지 스토리지', 'Wing API 연동', '실시간 추적'], gradient: 'from-[#E31837] to-[#ff4d6a]', headerGrad: 'from-rose-100 via-red-50 to-pink-100' },
-    { icon: <Download className="w-7 h-7" />, title: '데스크탑 프로그램', subtitle: '상세페이지 · 전처리', desc: '상세페이지 이미지 자동 생성과 네이버 전처리 프로그램을 제공합니다.', highlights: ['상세페이지 생성기', '전처리 프로그램', '원클릭 다운로드', '자동 업데이트'], gradient: 'from-teal-500 to-cyan-600', headerGrad: 'from-teal-100 via-cyan-50 to-blue-100' },
+    { title: 'AI 카테고리 매칭', subtitle: 'GPT-4 기반 · 90%+ 정확도', desc: '상품 데이터를 분석해 쿠팡 카테고리를 자동 매칭합니다.', highlights: ['GPT-4 기반 분석', '90% 이상 정확도', '신뢰도 점수 표시', '수동 보정 가능'], image: 'https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/68895f8b540d8d54b67a058b_66a93326dacdbd6b666e69d5_6626184df365a0990b8a103a_Group20(1).png' },
+    { title: 'AI 상품명 & 검색태그', subtitle: '검색 최적화 · SEO 특화', desc: '쿠팡 검색 알고리즘에 최적화된 상품명과 태그를 자동 생성합니다.', highlights: ['검색 키워드 분석', 'SEO 최적화 타이틀', '자동 검색태그 생성', '카테고리별 포맷'], image: 'https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/688a16d6ce92585d6988e48d_66a93326dacdbd6b666e69e5_6626184df365a0990b8a103b_Group20(2).png' },
+    { title: '자동 가격 계산', subtitle: '마진율 · 100원 절삭 · 마크업', desc: '마진 규칙에 따라 판매가를 자동 계산합니다.', highlights: ['퍼센트/고정 마진', '100원 단위 절삭', '정가 자동 마크업', '카테고리별 규칙'], image: 'https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/6889617fa7993f43caae4164_66a93326dacdbd6b666e6a06_6626184df365a0990b8a1061_Group206.png' },
+    { title: '네이버 → 쿠팡 변환', subtitle: 'URL 입력만으로 완료', desc: '네이버 스마트스토어 상품을 쿠팡 형식으로 자동 변환합니다.', highlights: ['URL 또는 Excel', '상품 정보 추출', '쿠팡 형식 변환', '일괄 등록 가능'], image: 'https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/688c1b5cfb8f71f70f51d8d0_3bc3efc07ca7c5ba4719ecff87180d69_%EC%9C%99-%EC%BD%98%ED%85%90%EC%B8%A0-%EC%9D%B4%EB%AF%B8%EC%A7%80-3.jpg' },
+    { title: '24시간 자동 등록', subtitle: '9단계 파이프라인', desc: '9단계 자동화 파이프라인으로 등록을 완전 자동화합니다.', highlights: ['스케줄링 설정', 'R2 이미지 스토리지', 'Wing API 연동', '실시간 추적'], image: 'https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/68832b42342aae3aefa2074d_wing--5.jpg' },
+    { title: '데스크탑 & 모바일', subtitle: 'PC + 모바일 지원', desc: 'PC 프로그램과 모바일 앱으로 언제 어디서나 관리합니다.', highlights: ['데스크탑 프로그램', '모바일 앱 지원', '실시간 알림', '원격 관리'], image: 'https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/6883245de95303da938b7703_wing-2.jpg' },
   ];
 
   return (
     <AnimatedSection id="features" className="py-24 md:py-32 relative overflow-hidden">
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div variants={fadeInUp} className="text-center mb-16">
-          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 text-sm font-medium mb-4"><Zap className="w-3.5 h-3.5" />핵심 기능</span>
+          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 text-sm font-medium mb-4">핵심 기능</span>
           <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold text-gray-900 mb-4">셀러에게 필요한 <span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">모든 자동화</span></h2>
           <p className="text-lg text-gray-500 max-w-2xl mx-auto">AI 기반 자동화로 상품 등록의 모든 과정을 혁신합니다.</p>
         </motion.div>
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {features.map((f, i) => (
             <motion.div key={i} variants={fadeInUp} className="group bg-white rounded-2xl border border-gray-100 hover:border-gray-200 shadow-sm hover:shadow-xl transition-all hover:-translate-y-1 overflow-hidden">
-              <div className={`h-32 bg-gradient-to-br ${f.headerGrad} flex items-center justify-center relative`}>
-                <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${f.gradient} flex items-center justify-center text-white shadow-xl group-hover:scale-110 transition-transform`}>{f.icon}</div>
+              <div className="h-44 overflow-hidden bg-gray-50">
+                <img src={f.image} alt={f.title} className="w-full h-full object-cover" loading="lazy" />
               </div>
               <div className="p-7">
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-50 mb-3"><span className="text-[11px] font-bold text-gray-600">{f.subtitle}</span></div>
@@ -465,7 +464,7 @@ function PricingSection() {
       <div className="absolute inset-0 bg-gradient-to-b from-white via-gray-50/50 to-white" />
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div variants={fadeInUp} className="text-center mb-12">
-          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-green-50 border border-green-100 text-green-600 text-sm font-medium mb-4"><DollarSign className="w-3.5 h-3.5" />투명한 요금제</span>
+          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-green-50 border border-green-100 text-green-600 text-sm font-medium mb-4">투명한 요금제</span>
           <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold text-gray-900 mb-4">알바비보다 <span className="bg-gradient-to-r from-[#E31837] to-[#ff6b81] bg-clip-text text-transparent">훨씬 효율적인</span> 자동화</h2>
           <p className="text-lg text-gray-500 max-w-2xl mx-auto">1일 무료 체험 후 결정하세요. 결제 후 즉시 이용 가능합니다.</p>
         </motion.div>
@@ -487,7 +486,7 @@ function PricingSection() {
         </div>
         <motion.div variants={fadeIn} className="text-center mt-10">
           <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm text-gray-400">
-            {['구독은 결제일부터 30일간 유효', '결제 후 즉시 이용 가능', '플랜 변경은 고객센터 문의', '결제 취소는 마이페이지에서 가능'].map((t) => (<span key={t} className="flex items-center gap-1.5"><Check className="w-3 h-3 text-gray-300" />{t}</span>))}
+            {['구독은 결제일부터 30일간 유효', '결제 후 즉시 이용 가능', '플랜 변경은 고객센터 문의', '결제 취소는 마이페이지에서 가능'].map((t) => (<span key={t} className="flex items-center gap-1.5">·{t}</span>))}
           </div>
         </motion.div>
       </div>
@@ -509,7 +508,7 @@ function TestimonialsSection() {
     <AnimatedSection className="py-24 md:py-32 bg-gray-50/80 relative overflow-hidden">
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div variants={fadeInUp} className="text-center mb-16">
-          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-yellow-50 border border-yellow-100 text-yellow-600 text-sm font-medium mb-4"><Star className="w-3.5 h-3.5 fill-yellow-500" />셀러 후기</span>
+          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-yellow-50 border border-yellow-100 text-yellow-600 text-sm font-medium mb-4">셀러 후기</span>
           <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold text-gray-900 mb-4">실제 셀러들의 <span className="bg-gradient-to-r from-yellow-500 to-orange-500 bg-clip-text text-transparent">성장 스토리</span></h2>
         </motion.div>
         <div className="grid md:grid-cols-3 gap-6">
@@ -519,9 +518,9 @@ function TestimonialsSection() {
                 <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-white text-xl font-bold border-2 border-white/30">{t.name[0]}</div>
               </div>
               <div className="p-7 flex flex-col flex-1">
-                <div className="flex gap-0.5 mb-4">{Array.from({ length: t.stars }).map((_, j) => (<Star key={j} className="w-[18px] h-[18px] text-yellow-400 fill-yellow-400" />))}</div>
+                
                 <p className="text-[15px] text-gray-600 leading-relaxed flex-1 mb-6">&ldquo;{t.quote}&rdquo;</p>
-                <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg ${t.metricBg} ${t.metricColor} text-sm font-bold mb-6 w-fit`}><TrendingUp className="w-4 h-4" />{t.metric}</div>
+                <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg ${t.metricBg} ${t.metricColor} text-sm font-bold mb-6 w-fit`}>{t.metric}</div>
                 <div className="flex items-center gap-3 pt-5 border-t border-gray-100">
                   <div className={`w-11 h-11 rounded-full bg-gradient-to-br ${t.gradient} flex items-center justify-center text-white text-sm font-bold shadow-sm`}>{t.name[0]}</div>
                   <div><div className="text-sm font-bold text-gray-900">{t.name}</div><div className="text-xs text-gray-500">{t.role} · {t.detail}</div></div>
