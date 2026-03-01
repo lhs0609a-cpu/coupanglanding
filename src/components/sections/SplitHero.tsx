@@ -6,8 +6,8 @@ import { useRouter } from 'next/navigation';
 import { ArrowRight, TrendingUp, Shield, Zap, Bot } from 'lucide-react';
 
 const IMAGES = {
-  pt: 'https://images.unsplash.com/photo-1600880292203-757bb62b4baf?w=1200&q=80',
-  program: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1200&q=80',
+  pt: 'https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/689198e84fd303cd2a129604_img-rocket1.jpg',
+  program: 'https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/688c1ad3f839e5aa4618a9ef_%EC%9C%99-%EC%BD%98%ED%85%90%EC%B8%A0-%EC%9D%B4%EB%AF%B8%EC%A7%80.jpg',
 };
 
 export default function SplitHero() {
@@ -109,8 +109,8 @@ export default function SplitHero() {
           {/* Stats - always visible */}
           <div className="flex flex-wrap gap-4 mb-6">
             {[
-              { icon: TrendingUp, label: '94% 성공률', color: 'text-emerald-400' },
-              { icon: Shield, label: '0원 시작', color: 'text-sky-400' },
+              { icon: TrendingUp, label: '94% 성공률', color: 'text-red-400' },
+              { icon: Shield, label: '0원 시작', color: 'text-red-300' },
             ].map((stat) => (
               <div key={stat.label} className="flex items-center gap-2 glass-card rounded-xl px-4 py-2.5">
                 <stat.icon className={`w-4 h-4 ${stat.color}`} />
@@ -191,7 +191,7 @@ export default function SplitHero() {
         <motion.div
           animate={{ scaleX: activeSection === 'right' ? 1 : 0 }}
           transition={{ duration: 0.5 }}
-          className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 to-indigo-500 z-10 origin-right"
+          className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#E31837] to-red-700 z-10 origin-right"
         />
 
         {/* Content */}
@@ -233,8 +233,8 @@ export default function SplitHero() {
           {/* Stats */}
           <div className="flex flex-wrap gap-4 mb-6">
             {[
-              { icon: Zap, label: '10분 대량등록', color: 'text-amber-400' },
-              { icon: Bot, label: 'AI 자동화', color: 'text-violet-400' },
+              { icon: Zap, label: '10분 대량등록', color: 'text-red-400' },
+              { icon: Bot, label: 'AI 자동화', color: 'text-red-400' },
             ].map((stat) => (
               <div key={stat.label} className="flex items-center gap-2 glass-card rounded-xl px-4 py-2.5">
                 <stat.icon className={`w-4 h-4 ${stat.color}`} />
@@ -255,7 +255,7 @@ export default function SplitHero() {
                 <motion.button
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
-                  className="inline-flex items-center gap-2.5 px-7 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-2xl font-semibold shadow-xl shadow-blue-500/30 hover:shadow-2xl hover:shadow-blue-500/40 transition-shadow text-base"
+                  className="inline-flex items-center gap-2.5 px-7 py-3.5 bg-[#E31837] text-white rounded-2xl font-semibold shadow-xl shadow-red-500/30 hover:shadow-2xl hover:shadow-red-500/40 transition-shadow text-base"
                 >
                   자세히 보기
                   <ArrowRight className="w-4 h-4" />

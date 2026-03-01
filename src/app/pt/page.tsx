@@ -93,10 +93,10 @@ const navLinks = [
 ];
 
 const empathyCards = [
-  { icon: AlertTriangle, text: '쿠팡에 상품 올렸는데 주문이 0건...', color: 'from-rose-500 to-red-600' },
-  { icon: Search, text: '유튜브 보고 따라했는데 안 됨...', color: 'from-amber-500 to-orange-600' },
-  { icon: BarChart3, text: '광고비만 날리고 매출은 제자리...', color: 'from-violet-500 to-purple-600' },
-  { icon: Briefcase, text: '직장 다니면서 부업 하고 싶은데 뭐부터?', color: 'from-sky-500 to-blue-600' },
+  { icon: AlertTriangle, text: '쿠팡에 상품 올렸는데 주문이 0건...', color: 'from-[#E31837] to-red-700' },
+  { icon: Search, text: '유튜브 보고 따라했는데 안 됨...', color: 'from-[#E31837] to-red-700' },
+  { icon: BarChart3, text: '광고비만 날리고 매출은 제자리...', color: 'from-[#E31837] to-red-700' },
+  { icon: Briefcase, text: '직장 다니면서 부업 하고 싶은데 뭐부터?', color: 'from-[#E31837] to-red-700' },
 ];
 
 const beforeAfterData = {
@@ -105,12 +105,12 @@ const beforeAfterData = {
 };
 
 const processSteps = [
-  { step: 1, title: '무료 상담', desc: '현재 상황 파악, 목표 설정', detail: '전화 또는 화상으로 15분 상담. 쿠팡 경험, 예산, 목표를 함께 정리합니다.', icon: Phone, color: 'from-sky-500 to-blue-600' },
-  { step: 2, title: '전문가 매칭', desc: '카테고리 맞는 PT사 배정', detail: '희망 카테고리에 월 1억+ 경험이 있는 전문가를 배정합니다.', icon: UserCheck, color: 'from-violet-500 to-purple-600' },
-  { step: 3, title: '상품 선정 & 소싱', desc: '함께 시장 분석, 상품 발굴', detail: '데이터 기반으로 경쟁 강도, 마진율, 트렌드를 분석해 상품을 선정합니다.', icon: Search, color: 'from-emerald-500 to-teal-600' },
-  { step: 4, title: '상품 등록 & 최적화', desc: 'SEO 최적화, 이미지, 상세페이지', detail: 'AI 상품명 생성, 키워드 최적화, 전환율 높은 상세페이지를 함께 제작합니다.', icon: FileText, color: 'from-amber-500 to-orange-600' },
-  { step: 5, title: '광고 & 매출 관리', desc: '로켓그로스, 키워드 광고', detail: '쿠팡 광고 세팅부터 ROAS 최적화까지. 예산 대비 최고 효율을 만듭니다.', icon: Rocket, color: 'from-rose-500 to-red-600' },
-  { step: 6, title: '수익 정산', desc: '월 정산, 투명 리포트', detail: '매월 상세 정산 리포트를 공유하고, 순이익의 30%만 정산합니다.', icon: HandCoins, color: 'from-indigo-500 to-blue-600' },
+  { step: 1, title: '무료 상담', desc: '현재 상황 파악, 목표 설정', detail: '전화 또는 화상으로 15분 상담. 쿠팡 경험, 예산, 목표를 함께 정리합니다.', icon: Phone, color: 'from-[#E31837] to-red-700' },
+  { step: 2, title: '전문가 매칭', desc: '카테고리 맞는 PT사 배정', detail: '희망 카테고리에 월 1억+ 경험이 있는 전문가를 배정합니다.', icon: UserCheck, color: 'from-[#E31837] to-red-700' },
+  { step: 3, title: '상품 선정 & 소싱', desc: '함께 시장 분석, 상품 발굴', detail: '데이터 기반으로 경쟁 강도, 마진율, 트렌드를 분석해 상품을 선정합니다.', icon: Search, color: 'from-[#E31837] to-red-700' },
+  { step: 4, title: '상품 등록 & 최적화', desc: 'SEO 최적화, 이미지, 상세페이지', detail: 'AI 상품명 생성, 키워드 최적화, 전환율 높은 상세페이지를 함께 제작합니다.', icon: FileText, color: 'from-[#E31837] to-red-700' },
+  { step: 5, title: '광고 & 매출 관리', desc: '로켓그로스, 키워드 광고', detail: '쿠팡 광고 세팅부터 ROAS 최적화까지. 예산 대비 최고 효율을 만듭니다.', icon: Rocket, color: 'from-[#E31837] to-red-700' },
+  { step: 6, title: '수익 정산', desc: '월 정산, 투명 리포트', detail: '매월 상세 정산 리포트를 공유하고, 순이익의 30%만 정산합니다.', icon: HandCoins, color: 'from-[#E31837] to-red-700' },
 ];
 
 const revenueModelItems = [
@@ -127,7 +127,7 @@ const storyTimeline = [
   { phase: '3개월 차', text: '결국 광고비 87만원을 날렸습니다. 매출은 여전히 바닥. "아, 역시 나 같은 사람은 안 되는 건가..." 포기하려고 했습니다.', emotion: 'crisis' as const },
   { phase: '전환점', text: '포기하려던 그 순간, 친구가 말했습니다. "쿠팡 PT 서비스 알아? 전문가가 옆에서 같이 해준대." 반신반의로 무료 상담을 신청했습니다.', emotion: 'turning' as const },
   { phase: '첫 상담', text: 'PT사님이 3개월간의 삽질 이유를 10분 만에 진단했습니다. "카테고리가 잘못 매칭됐고, 상품명에 핵심 키워드가 빠져있고, 마진 구조가 안 맞아서 팔릴수록 손해예요."', emotion: 'turning' as const },
-  { phase: '47일 후', text: '쿠팡 앱에서 알림이 울렸습니다. "주문이 접수되었습니다." 그 작은 알림 소리에 눈물이 났습니다. "진짜 되는 거구나..." 그 달 매출: 187만원.', emotion: 'success' as const },
+  { phase: '2주 후', text: '쿠팡 윙에서 판매분석을 확인했습니다. 415건 판매, 매출 1,680만원. "이게 진짜 내 매출이야?" 숫자를 세 번이나 다시 확인했습니다.', emotion: 'success' as const },
   { phase: '3개월 후', text: '매출 680만원. 회사 월급 230만원보다 훨씬 많아졌습니다. 퇴근 후 카페에서 주문 현황을 확인하는 게 세상에서 가장 행복한 시간이 됐습니다.', emotion: 'success' as const },
   { phase: '6개월 후', text: '회사에 사직서를 냈습니다. "사장님, 저 개인 사업 시작합니다." 떨리는 목소리로 말하면서도, 쿠팡 대시보드의 숫자가 용기를 줬습니다.', emotion: 'success' as const },
   { phase: '지금', text: '월 매출 2,340만원. 순이익 약 820만원. 원룸에서 투베드룸 아파트로 이사했습니다. 부모님께 첫 용돈을 드렸습니다. 이 모든 것의 시작은, "혼자 하지 않기로 결심한 것"이었습니다.', emotion: 'peak' as const },
@@ -136,8 +136,8 @@ const storyTimeline = [
 const testimonials = [
   {
     name: '김*훈', initial: '김', category: '의류', period: '3개월', before: '0원', after: '월 680만원',
-    quote: '처음에는 반신반의했어요. 근데 PT사님이 데이터로 하나하나 보여주시면서 "이 카테고리는 지금이 적기"라고 하시는데 설득력이 달랐어요. 2개월 차에 첫 매출이 터지고, 3개월 차에 680만원까지 왔습니다.',
-    gradient: 'from-rose-500 to-red-600',
+    quote: '처음에는 반신반의했어요. 근데 PT사님이 데이터로 하나하나 보여주시면서 "이 카테고리는 지금이 적기"라고 하시는데 설득력이 달랐어요. 시작 2주 만에 415건 판매, 월 매출 1,680만원을 달성했습니다.',
+    gradient: 'from-[#E31837] to-red-700',
     journey: [
       { phase: '신청 전', text: '"진짜 될까?" 반신반의로 상담 신청', emotion: 'doubt' as const },
       { phase: '1개월', text: 'PT사님이 데이터로 카테고리 분석', emotion: 'learn' as const },
@@ -148,7 +148,7 @@ const testimonials = [
   {
     name: '이*영', initial: '이', category: '생활용품', period: '4개월', before: '월 120만원', after: '월 920만원',
     quote: '혼자 하다가 한계를 느끼고 신청했어요. PT사님이 제 상품 분석해주시는데 "이건 마진이 안 나오는 구조에요"라고 정확하게 짚어주시더라고요. 상품 라인을 바꾸니까 매출이 7배 이상 뛰었습니다.',
-    gradient: 'from-violet-500 to-purple-600',
+    gradient: 'from-[#E31837] to-red-700',
     journey: [
       { phase: '신청 전', text: '"혼자 하다 한계... 도움이 필요하다"', emotion: 'doubt' as const },
       { phase: '1개월', text: '마진 구조 분석 → 상품 라인 교체', emotion: 'learn' as const },
@@ -159,7 +159,7 @@ const testimonials = [
   {
     name: '박*수', initial: '박', category: '주방용품', period: '3개월', before: '부업 시작', after: '월 540만원',
     quote: '직장 다니면서 시간이 없어서 엄두를 못 냈는데, PT사님이 시간 많이 드는 건 대행해주시고 제가 결정만 하면 되니까 가능하더라고요. 주 5시간 정도만 투자하고 있습니다.',
-    gradient: 'from-amber-500 to-orange-600',
+    gradient: 'from-[#E31837] to-red-700',
     journey: [
       { phase: '신청 전', text: '"직장 다니면서 가능할까?" 시간 걱정', emotion: 'doubt' as const },
       { phase: '1개월', text: '핵심 결정만 내가, 나머지는 PT사님이', emotion: 'learn' as const },
@@ -280,7 +280,7 @@ function InitialAvatar({ initial, size = 'md' }: { initial: string; size?: 'sm' 
 function CoupangSellerDashboard() {
   return (
     <div className="relative">
-      <div className="absolute -inset-6 bg-gradient-to-r from-rose-100/50 via-purple-100/30 to-blue-100/50 rounded-[32px] blur-2xl" />
+      <div className="absolute -inset-6 bg-gradient-to-r from-rose-100/50 via-red-100/30 to-red-100/50 rounded-[32px] blur-2xl" />
       <div className="relative bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
         <WindowChrome title="쿠팡 윙 판매자센터" />
         <img
@@ -292,12 +292,12 @@ function CoupangSellerDashboard() {
       </div>
       <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 1.2 }}
         className="absolute -right-3 top-14 bg-white rounded-xl border border-gray-200 shadow-xl p-3 flex items-center gap-2.5 z-10 hidden sm:flex">
-        <div className="w-8 h-8 rounded-full bg-green-50 border border-green-100 flex items-center justify-center"><CheckCircle className="w-4 h-4 text-green-600" /></div>
-        <div><div className="text-[11px] font-bold text-gray-800">매출 달성!</div><div className="text-[10px] text-gray-400">월 1,245만원 돌파</div></div>
+        <div className="w-8 h-8 rounded-full bg-red-50 border border-red-100 flex items-center justify-center"><CheckCircle className="w-4 h-4 text-[#E31837]" /></div>
+        <div><div className="text-[11px] font-bold text-gray-800">매출 달성!</div><div className="text-[10px] text-gray-400">월 1,680만원 돌파</div></div>
       </motion.div>
       <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 1.6 }}
         className="absolute -left-3 bottom-24 bg-white rounded-xl border border-gray-200 shadow-xl p-3 flex items-center gap-2.5 z-10 hidden sm:flex">
-        <div className="w-8 h-8 rounded-full bg-purple-50 border border-purple-100 flex items-center justify-center"><Star className="w-4 h-4 text-purple-600" /></div>
+        <div className="w-8 h-8 rounded-full bg-red-50 border border-red-100 flex items-center justify-center"><Star className="w-4 h-4 text-[#E31837]" /></div>
         <div><div className="text-[11px] font-bold text-gray-800">PT 효과</div><div className="text-[10px] text-gray-400">47일 만에 첫 매출</div></div>
       </motion.div>
     </div>
@@ -310,7 +310,7 @@ function CoupangSellerDashboard() {
 function CoupangAutomationDashboard() {
   return (
     <div className="relative">
-      <div className="absolute -inset-4 bg-gradient-to-r from-rose-100/40 via-purple-100/20 to-blue-100/40 rounded-[28px] blur-xl" />
+      <div className="absolute -inset-4 bg-gradient-to-r from-red-100/40 via-red-100/20 to-red-100/40 rounded-[28px] blur-xl" />
       <div className="relative bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
         <WindowChrome title="쿠팡 윙 - 상품 관리" />
         <img
@@ -473,16 +473,16 @@ export default function PTPage() {
           </motion.div>
 
           <div className="relative">
-            <div className="absolute left-6 sm:left-8 top-0 bottom-0 w-px bg-gradient-to-b from-gray-700 via-gray-600 to-emerald-500/50" />
+            <div className="absolute left-6 sm:left-8 top-0 bottom-0 w-px bg-gradient-to-b from-gray-700 via-gray-600 to-[#E31837]/50" />
             <div className="space-y-0">
               {storyTimeline.map((item, i) => {
                 const styles = {
                   dark: { dot: 'bg-gray-600 border-gray-500', badge: 'bg-gray-800 text-gray-400 border-gray-700', text: 'text-gray-400' },
-                  hope: { dot: 'bg-sky-500 border-sky-400', badge: 'bg-sky-900/50 text-sky-300 border-sky-700', text: 'text-gray-300' },
-                  struggle: { dot: 'bg-amber-500 border-amber-400', badge: 'bg-amber-900/50 text-amber-300 border-amber-700', text: 'text-gray-400' },
+                  hope: { dot: 'bg-[#E31837] border-red-400', badge: 'bg-red-900/50 text-red-300 border-red-700', text: 'text-gray-300' },
+                  struggle: { dot: 'bg-red-400 border-red-400', badge: 'bg-red-900/50 text-red-300 border-red-700', text: 'text-gray-400' },
                   crisis: { dot: 'bg-red-500 border-red-400 animate-pulse', badge: 'bg-red-900/50 text-red-300 border-red-700', text: 'text-gray-300' },
-                  turning: { dot: 'bg-violet-500 border-violet-400', badge: 'bg-violet-900/50 text-violet-300 border-violet-700', text: 'text-gray-300' },
-                  success: { dot: 'bg-emerald-500 border-emerald-400', badge: 'bg-emerald-900/50 text-emerald-300 border-emerald-700', text: 'text-emerald-200/80' },
+                  turning: { dot: 'bg-[#E31837] border-red-400', badge: 'bg-red-900/50 text-red-300 border-red-700', text: 'text-gray-300' },
+                  success: { dot: 'bg-red-500 border-red-400', badge: 'bg-red-900/50 text-red-300 border-red-700', text: 'text-red-200/80' },
                   peak: { dot: 'bg-gradient-to-r from-[#E31837] to-[#ff4d6a] border-rose-400 animate-pulse', badge: 'bg-rose-900/50 text-rose-300 border-rose-700', text: 'text-white' },
                 };
                 const s = styles[item.emotion];
@@ -496,12 +496,12 @@ export default function PTPage() {
                       <motion.div initial={{ opacity: 0, scale: 0.9 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ delay: 0.3 }}
                         className="mt-4 inline-flex items-center gap-3 bg-white/10 backdrop-blur-sm rounded-xl border border-white/10 p-3.5">
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#E31837] to-[#ff4d6a] flex items-center justify-center flex-shrink-0"><Bell className="w-5 h-5 text-white" /></div>
-                        <div><div className="text-sm font-bold text-white">쿠팡 주문 알림</div><div className="text-xs text-gray-400">프리미엄 주방도구 세트 5종 · ₩24,900</div><div className="text-[10px] text-emerald-400 mt-0.5 font-semibold">주문이 접수되었습니다</div></div>
+                        <div><div className="text-sm font-bold text-white">쿠팡 주문 알림</div><div className="text-xs text-gray-400">프리미엄 주방도구 세트 5종 · ₩24,900</div><div className="text-[10px] text-red-400 mt-0.5 font-semibold">주문이 접수되었습니다</div></div>
                       </motion.div>
                     )}
                     {item.emotion === 'peak' && (
                       <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: 0.3 }} className="mt-5 grid grid-cols-3 gap-3">
-                        {[{ label: '월 매출', value: '₩2,340만', c: 'from-[#E31837] to-[#ff4d6a]' }, { label: '순이익', value: '₩820만', c: 'from-emerald-500 to-emerald-600' }, { label: '성장률', value: '+1,017%', c: 'from-violet-500 to-purple-600' }].map((stat) => (
+                        {[{ label: '월 매출', value: '₩2,340만', c: 'from-[#E31837] to-[#ff4d6a]' }, { label: '순이익', value: '₩820만', c: 'from-[#E31837] to-red-700' }, { label: '성장률', value: '+1,017%', c: 'from-[#E31837] to-red-700' }].map((stat) => (
                           <div key={stat.label} className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-3 text-center">
                             <div className={`text-lg font-extrabold bg-gradient-to-r ${stat.c} bg-clip-text text-transparent`}>{stat.value}</div>
                             <div className="text-[10px] text-gray-500 mt-0.5">{stat.label}</div>
@@ -526,7 +526,7 @@ export default function PTPage() {
       <section className="relative py-20 sm:py-28 px-5 sm:px-8 bg-gradient-to-b from-gray-50/60 to-white overflow-hidden">
         <div className="max-w-5xl mx-auto relative z-10">
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }} variants={stagger} className="text-center mb-14">
-            <SectionBadge className="bg-emerald-50 border-emerald-200/60 text-emerald-700 mb-6">COMPARE</SectionBadge>
+            <SectionBadge className="bg-red-50 border-red-200/60 text-[#E31837] mb-6">COMPARE</SectionBadge>
             <motion.h2 variants={fadeUp} className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-gray-900 mb-4">혼자 vs 전문가와 함께</motion.h2>
             <motion.p variants={fadeUp} custom={1} className="text-gray-500 text-lg max-w-xl mx-auto">같은 시간, 같은 노력. 결과는 완전히 다릅니다.</motion.p>
           </motion.div>
@@ -535,10 +535,10 @@ export default function PTPage() {
               <div className="flex items-center gap-3 mb-7"><div className="w-10 h-10 rounded-xl bg-gray-200 flex items-center justify-center"><X className="w-5 h-5 text-gray-400" /></div><h3 className="text-xl font-bold text-gray-400">혼자 할 때</h3></div>
               <div className="space-y-5">{beforeAfterData.before.map((item, i) => (<div key={i} className="flex items-start gap-3"><XCircle className="w-5 h-5 text-gray-300 flex-shrink-0 mt-0.5" /><span className="text-gray-400 line-through text-base leading-relaxed">{item}</span></div>))}</div>
             </motion.div>
-            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-40px' }} variants={slideInRight} className="rounded-2xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-7 sm:p-9 relative">
-              <div className="absolute -top-3 right-6"><span className="inline-flex items-center px-3 py-1 rounded-full bg-emerald-500 text-white text-xs font-bold shadow-lg">추천</span></div>
-              <div className="flex items-center gap-3 mb-7"><div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg"><CheckCircle className="w-5 h-5 text-white" /></div><h3 className="text-xl font-bold text-gray-900">PT와 함께</h3></div>
-              <div className="space-y-5">{beforeAfterData.after.map((item, i) => (<div key={i} className="flex items-start gap-3"><CheckCircle className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" /><span className="text-gray-800 font-medium text-base leading-relaxed">{item}</span></div>))}</div>
+            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-40px' }} variants={slideInRight} className="rounded-2xl border-2 border-red-200 bg-gradient-to-br from-red-50 to-white p-7 sm:p-9 relative">
+              <div className="absolute -top-3 right-6"><span className="inline-flex items-center px-3 py-1 rounded-full bg-[#E31837] text-white text-xs font-bold shadow-lg">추천</span></div>
+              <div className="flex items-center gap-3 mb-7"><div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#E31837] to-red-700 flex items-center justify-center shadow-lg"><CheckCircle className="w-5 h-5 text-white" /></div><h3 className="text-xl font-bold text-gray-900">PT와 함께</h3></div>
+              <div className="space-y-5">{beforeAfterData.after.map((item, i) => (<div key={i} className="flex items-start gap-3"><CheckCircle className="w-5 h-5 text-[#E31837] flex-shrink-0 mt-0.5" /><span className="text-gray-800 font-medium text-base leading-relaxed">{item}</span></div>))}</div>
             </motion.div>
           </div>
         </div>
@@ -548,7 +548,7 @@ export default function PTPage() {
       <section className="relative py-20 sm:py-28 px-5 sm:px-8 overflow-hidden">
         <div className="max-w-6xl mx-auto relative z-10">
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }} variants={stagger} className="text-center mb-16">
-            <SectionBadge className="bg-indigo-50 border-indigo-200/60 text-indigo-700 mb-6">OUR TOOLS</SectionBadge>
+            <SectionBadge className="bg-red-50 border-red-200/60 text-[#E31837] mb-6">OUR TOOLS</SectionBadge>
             <motion.h2 variants={fadeUp} className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-gray-900 mb-4">이것이 당신이 사용하게 될<br className="hidden sm:block" /> 프로그램입니다</motion.h2>
             <motion.p variants={fadeUp} custom={1} className="text-gray-500 text-lg max-w-xl mx-auto">전문가와 함께, AI 자동화로 매출을 만듭니다.</motion.p>
           </motion.div>
@@ -560,7 +560,7 @@ export default function PTPage() {
             <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-40px' }} variants={slideInRight}>
               <div className="mb-5"><h3 className="text-xl font-bold text-gray-900 mb-1">매출 분석 리포트</h3><p className="text-sm text-gray-500">투명한 매출/순이익 추적, 월별 성장 리포트</p></div>
               <div className="relative">
-                <div className="absolute -inset-4 bg-gradient-to-r from-blue-100/40 via-indigo-100/20 to-violet-100/40 rounded-[28px] blur-xl" />
+                <div className="absolute -inset-4 bg-gradient-to-r from-red-100/40 via-red-100/20 to-red-100/40 rounded-[28px] blur-xl" />
                 <div className="relative bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
                   <WindowChrome title="쿠팡 윙 - 정산 & 분석" />
                   <img
@@ -580,7 +580,7 @@ export default function PTPage() {
       <section id="process" className="relative py-20 sm:py-28 px-5 sm:px-8 bg-gradient-to-b from-white via-gray-50/40 to-white overflow-hidden scroll-mt-20">
         <div className="max-w-5xl mx-auto relative z-10">
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }} variants={stagger} className="text-center mb-16">
-            <SectionBadge className="bg-violet-50 border-violet-200/60 text-violet-700 mb-6">PROCESS</SectionBadge>
+            <SectionBadge className="bg-red-50 border-red-200/60 text-[#E31837] mb-6">PROCESS</SectionBadge>
             <motion.h2 variants={fadeUp} className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-gray-900 mb-4">상담부터 매출까지, 6단계</motion.h2>
             <motion.p variants={fadeUp} custom={1} className="text-gray-500 text-lg max-w-xl mx-auto">매출이 나올 때까지 전 과정을 함께 합니다.</motion.p>
           </motion.div>
@@ -649,10 +649,10 @@ export default function PTPage() {
               </div>
               <div className="space-y-4">
                 <div className="flex items-center justify-between py-3 border-b border-gray-100"><span className="text-sm text-gray-500">PT사 수수료 (30%)</span><span className="text-base font-bold text-rose-500">{ptShare}만원</span></div>
-                <div className="flex items-center justify-between py-3"><span className="text-sm font-medium text-gray-700">내 순수익 (70%)</span><span className="text-2xl font-extrabold text-emerald-600">{myShare}만원</span></div>
+                <div className="flex items-center justify-between py-3"><span className="text-sm font-medium text-gray-700">내 순수익 (70%)</span><span className="text-2xl font-extrabold text-[#E31837]">{myShare}만원</span></div>
               </div>
               <div className="mt-6 p-4 rounded-xl bg-gray-50 border border-gray-100">
-                <p className="text-sm text-gray-500 leading-relaxed">혼자 했으면? <span className="font-semibold text-gray-700">3개월째 매출 0원</span>일 확률 90%.<br /><span className="font-semibold text-emerald-600">{myShare}만원은 전문가가 만들어준 수익</span>입니다.</p>
+                <p className="text-sm text-gray-500 leading-relaxed">혼자 했으면? <span className="font-semibold text-gray-700">3개월째 매출 0원</span>일 확률 90%.<br /><span className="font-semibold text-[#E31837]">{myShare}만원은 전문가가 만들어준 수익</span>입니다.</p>
               </div>
             </div>
           </motion.div>
@@ -663,7 +663,7 @@ export default function PTPage() {
       <section className="relative py-20 sm:py-28 px-5 sm:px-8 overflow-hidden">
         <div className="max-w-5xl mx-auto relative z-10">
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }} variants={stagger} className="text-center mb-14">
-            <SectionBadge className="bg-violet-50 border-violet-200/60 text-violet-700 mb-6">SUCCESS STORIES</SectionBadge>
+            <SectionBadge className="bg-red-50 border-red-200/60 text-[#E31837] mb-6">SUCCESS STORIES</SectionBadge>
             <motion.h2 variants={fadeUp} className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-gray-900 mb-4">실제 성공 사례</motion.h2>
             <motion.p variants={fadeUp} custom={1} className="text-gray-500 text-lg">숫자 뒤에 숨겨진 <span className="font-semibold text-gray-700">진짜 이야기</span></motion.p>
           </motion.div>
@@ -681,7 +681,7 @@ export default function PTPage() {
                         <div className="flex items-start justify-between relative">
                           <div className="absolute top-3 left-3 right-3 h-0.5 bg-gray-200 z-0" />
                           {t.journey.map((j, ji) => {
-                            const es = { doubt: { dot: 'bg-gray-400', text: 'text-gray-500', icon: <HelpCircle className="w-3 h-3 text-white" /> }, learn: { dot: 'bg-blue-500', text: 'text-blue-600', icon: <Lightbulb className="w-3 h-3 text-white" /> }, excited: { dot: 'bg-amber-500', text: 'text-amber-600', icon: <Sparkles className="w-3 h-3 text-white" /> }, success: { dot: 'bg-emerald-500', text: 'text-emerald-600', icon: <TrendingUp className="w-3 h-3 text-white" /> } };
+                            const es = { doubt: { dot: 'bg-gray-400', text: 'text-gray-500', icon: <HelpCircle className="w-3 h-3 text-white" /> }, learn: { dot: 'bg-[#E31837]', text: 'text-[#E31837]', icon: <Lightbulb className="w-3 h-3 text-white" /> }, excited: { dot: 'bg-red-400', text: 'text-red-600', icon: <Sparkles className="w-3 h-3 text-white" /> }, success: { dot: 'bg-red-500', text: 'text-[#E31837]', icon: <TrendingUp className="w-3 h-3 text-white" /> } };
                             const st = es[j.emotion];
                             return (<div key={ji} className="flex flex-col items-center text-center relative z-10 flex-1"><div className={`w-6 h-6 rounded-full ${st.dot} flex items-center justify-center shadow-sm`}>{st.icon}</div><span className={`text-xs font-bold mt-2 ${st.text}`}>{j.phase}</span><span className="text-xs text-gray-500 mt-1 leading-tight max-w-[140px]">{j.text}</span></div>);
                           })}
@@ -689,7 +689,7 @@ export default function PTPage() {
                       </div>
                       <div className="sm:hidden space-y-3">
                         {t.journey.map((j, ji) => {
-                          const es = { doubt: { dot: 'bg-gray-400', text: 'text-gray-500', icon: <HelpCircle className="w-3 h-3 text-white" /> }, learn: { dot: 'bg-blue-500', text: 'text-blue-600', icon: <Lightbulb className="w-3 h-3 text-white" /> }, excited: { dot: 'bg-amber-500', text: 'text-amber-600', icon: <Sparkles className="w-3 h-3 text-white" /> }, success: { dot: 'bg-emerald-500', text: 'text-emerald-600', icon: <TrendingUp className="w-3 h-3 text-white" /> } };
+                          const es = { doubt: { dot: 'bg-gray-400', text: 'text-gray-500', icon: <HelpCircle className="w-3 h-3 text-white" /> }, learn: { dot: 'bg-[#E31837]', text: 'text-[#E31837]', icon: <Lightbulb className="w-3 h-3 text-white" /> }, excited: { dot: 'bg-red-400', text: 'text-red-600', icon: <Sparkles className="w-3 h-3 text-white" /> }, success: { dot: 'bg-red-500', text: 'text-[#E31837]', icon: <TrendingUp className="w-3 h-3 text-white" /> } };
                           const st = es[j.emotion];
                           return (<div key={ji} className="flex items-start gap-3"><div className="flex flex-col items-center flex-shrink-0"><div className={`w-5 h-5 rounded-full ${st.dot} flex items-center justify-center`}>{st.icon}</div>{ji < t.journey.length - 1 && <div className="w-0.5 h-4 bg-gray-200 mt-1" />}</div><div className="min-w-0 -mt-0.5"><span className={`text-xs font-bold ${st.text}`}>{j.phase}</span><p className="text-xs text-gray-500 leading-tight">{j.text}</p></div></div>);
                         })}
@@ -699,7 +699,7 @@ export default function PTPage() {
                     <div className="flex items-center gap-4">
                       <div className="px-4 py-2.5 rounded-xl bg-gray-50 border border-gray-100"><p className="text-xs text-gray-500 mb-0.5">Before</p><p className="text-sm font-bold text-gray-700">{t.before}</p></div>
                       <ArrowRight className="w-5 h-5 text-gray-300 flex-shrink-0" />
-                      <div className="px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-100"><p className="text-xs text-emerald-600 mb-0.5">After ({t.period})</p><p className="text-sm font-bold text-emerald-700">{t.after}</p></div>
+                      <div className="px-4 py-2.5 rounded-xl bg-red-50 border border-red-100"><p className="text-xs text-[#E31837] mb-0.5">After ({t.period})</p><p className="text-sm font-bold text-red-700">{t.after}</p></div>
                     </div>
                   </div>
                   <div className={`lg:w-56 p-7 bg-gradient-to-br ${t.gradient} flex flex-col justify-center items-center text-center text-white relative overflow-hidden`}>
@@ -766,7 +766,7 @@ export default function PTPage() {
       <section id="faq" className="relative py-20 sm:py-28 px-5 sm:px-8 bg-gradient-to-b from-gray-50/60 to-white overflow-hidden scroll-mt-20">
         <div className="max-w-3xl mx-auto relative z-10">
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }} variants={stagger} className="text-center mb-12">
-            <SectionBadge className="bg-sky-50 border-sky-200/60 text-sky-700 mb-6">FAQ</SectionBadge>
+            <SectionBadge className="bg-red-50 border-red-200/60 text-[#E31837] mb-6">FAQ</SectionBadge>
             <motion.h2 variants={fadeUp} className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-gray-900 mb-4">자주 묻는 질문</motion.h2>
             <motion.p variants={fadeUp} custom={1} className="text-gray-500 text-lg">궁금한 점이 더 있으시면 상담에서 편하게 물어보세요.</motion.p>
           </motion.div>
@@ -792,7 +792,7 @@ export default function PTPage() {
               <CTAButton href={CTA_URL} size="lg"><Phone className="w-5 h-5" />무료 상담 신청하기<ArrowRight className="w-5 h-5" /></CTAButton>
             </motion.div>
             <motion.div variants={fadeUp} custom={5} className="mt-12 flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
-              {['초기비용 0원', '최소계약 없음', '94% 성공률', '투명 정산'].map((text) => (<div key={text} className="flex items-center gap-1.5"><CheckCircle className="w-4 h-4 text-emerald-400" /><span className="text-sm text-gray-400">{text}</span></div>))}
+              {['초기비용 0원', '최소계약 없음', '94% 성공률', '투명 정산'].map((text) => (<div key={text} className="flex items-center gap-1.5"><CheckCircle className="w-4 h-4 text-red-400" /><span className="text-sm text-gray-400">{text}</span></div>))}
             </motion.div>
           </motion.div>
         </div>

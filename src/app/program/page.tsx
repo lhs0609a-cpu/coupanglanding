@@ -112,7 +112,7 @@ function Header() {
 function DashboardMockup() {
   return (
     <div className="relative">
-      <div className="absolute -inset-6 bg-gradient-to-r from-red-100/50 via-purple-100/25 to-blue-100/50 rounded-[32px] blur-2xl" />
+      <div className="absolute -inset-6 bg-gradient-to-r from-red-100/50 via-red-100/25 to-red-100/50 rounded-[32px] blur-2xl" />
       <div className="relative bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
         <WindowChrome title="쿠팡 윙 판매자센터" />
         <img
@@ -124,12 +124,12 @@ function DashboardMockup() {
       </div>
       <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 1.2 }}
         className="absolute -right-3 top-14 bg-white rounded-xl border border-gray-200 shadow-xl p-3 flex items-center gap-2.5 z-10">
-        <div className="w-8 h-8 rounded-full bg-green-50 border border-green-100 flex items-center justify-center"><Check className="w-4 h-4 text-green-600" /></div>
+        <div className="w-8 h-8 rounded-full bg-red-50 border border-red-100 flex items-center justify-center"><Check className="w-4 h-4 text-[#E31837]" /></div>
         <div><div className="text-[11px] font-bold text-gray-800">등록 완료!</div><div className="text-[10px] text-gray-400">147개 상품 쿠팡 등록</div></div>
       </motion.div>
       <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 1.6 }}
         className="absolute -left-3 bottom-24 bg-white rounded-xl border border-gray-200 shadow-xl p-3 flex items-center gap-2.5 z-10">
-        <div className="w-8 h-8 rounded-full bg-purple-50 border border-purple-100 flex items-center justify-center"><Sparkles className="w-4 h-4 text-purple-600" /></div>
+        <div className="w-8 h-8 rounded-full bg-red-50 border border-red-100 flex items-center justify-center"><Sparkles className="w-4 h-4 text-[#E31837]" /></div>
         <div><div className="text-[11px] font-bold text-gray-800">AI 매칭 완료</div><div className="text-[10px] text-gray-400">정확도 94.2%</div></div>
       </motion.div>
     </div>
@@ -144,7 +144,7 @@ function HeroSection() {
     <section className="relative min-h-[90vh] sm:min-h-screen flex items-end overflow-hidden pt-16 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-[20%] left-[10%] w-[600px] h-[600px] bg-[#E31837]/10 rounded-full blur-[150px]" />
-        <div className="absolute bottom-[10%] right-[15%] w-[400px] h-[400px] bg-indigo-500/8 rounded-full blur-[120px]" />
+        <div className="absolute bottom-[10%] right-[15%] w-[400px] h-[400px] bg-red-500/8 rounded-full blur-[120px]" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[length:32px_32px]" />
       </div>
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24 w-full z-10">
@@ -172,7 +172,7 @@ function HeroSection() {
               </a>
             </motion.div>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.55 }} className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-white/50 mb-10">
-              {['1일 무료 체험', '카드 등록 불필요', '언제든 해지'].map((t) => (<span key={t} className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-green-400" />{t}</span>))}
+              {['1일 무료 체험', '카드 등록 불필요', '언제든 해지'].map((t) => (<span key={t} className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-red-400" />{t}</span>))}
             </motion.div>
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.65 }} className="grid grid-cols-3 gap-3">
               {[{ value: '48h → 10min', label: '등록 시간 단축' }, { value: '3.4배', label: '검색 노출 증가' }, { value: '~80만원', label: '월 인건비 절감' }].map((stat, i) => (
@@ -197,7 +197,7 @@ function TrustBar() {
     <AnimatedSection className="py-12 bg-gray-50/60 border-y border-gray-100">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div variants={fadeIn} className="flex flex-wrap items-center justify-center gap-x-10 gap-y-4">
-          {[{ icon: <Shield className="w-5 h-5 text-[#E31837]" />, text: '쿠팡 Wing API 공식 연동' }, { icon: <Brain className="w-5 h-5 text-purple-600" />, text: 'GPT-4 기반 AI 엔진' }, { icon: <Globe className="w-5 h-5 text-blue-600" />, text: '네이버 → 쿠팡 자동 변환' }, { icon: <Cpu className="w-5 h-5 text-emerald-600" />, text: '9단계 자동화 파이프라인' }, { icon: <Shield className="w-5 h-5 text-gray-600" />, text: '256-bit SSL 암호화' }].map((item, i) => (
+          {[{ icon: <Shield className="w-5 h-5 text-[#E31837]" />, text: '쿠팡 Wing API 공식 연동' }, { icon: <Brain className="w-5 h-5 text-[#E31837]" />, text: 'GPT-4 기반 AI 엔진' }, { icon: <Globe className="w-5 h-5 text-[#E31837]" />, text: '네이버 → 쿠팡 자동 변환' }, { icon: <Cpu className="w-5 h-5 text-[#E31837]" />, text: '9단계 자동화 파이프라인' }, { icon: <Shield className="w-5 h-5 text-gray-600" />, text: '256-bit SSL 암호화' }].map((item, i) => (
             <div key={i} className="flex items-center gap-2 text-sm font-medium text-gray-600">{item.icon}{item.text}</div>
           ))}
         </motion.div>
@@ -269,7 +269,7 @@ function StorytellingSection() {
           {storySteps.map((step, i) => (
             <motion.div key={i} variants={fadeInUp} className={`p-6 rounded-2xl border ${step.emotion === 'turning' ? 'bg-white/10 border-white/20' : 'bg-white/5 border-white/10'}`}>
               <p className={`text-[15px] sm:text-base leading-relaxed ${step.emotion === 'turning' ? 'text-white font-semibold' : 'text-gray-400'}`}>
-                {step.emotion === 'turning' && <Sparkles className="w-5 h-5 text-amber-400 inline mr-2" />}
+                {step.emotion === 'turning' && <Sparkles className="w-5 h-5 text-red-400 inline mr-2" />}
                 {step.text}
               </p>
             </motion.div>
@@ -286,11 +286,11 @@ function StorytellingSection() {
               ))}
             </div>
           </div>
-          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-950/20 p-6">
-            <div className="flex items-center gap-2 mb-5"><Zap className="w-5 h-5 text-emerald-400" /><span className="text-sm font-bold text-emerald-300">AI 자동화</span></div>
+          <div className="rounded-2xl border border-red-500/20 bg-red-950/20 p-6">
+            <div className="flex items-center gap-2 mb-5"><Zap className="w-5 h-5 text-red-400" /><span className="text-sm font-bold text-red-300">AI 자동화</span></div>
             <div className="space-y-3">
               {['상품 100개 등록 = 10분', 'AI 카테고리 정확도 94%', '인건비 0원', 'SEO 최적화 상품명 자동 생성'].map((t) => (
-                <div key={t} className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" /><span className="text-sm text-emerald-200/80 font-medium">{t}</span></div>
+                <div key={t} className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-red-400 flex-shrink-0" /><span className="text-sm text-red-200/80 font-medium">{t}</span></div>
               ))}
             </div>
           </div>
@@ -305,16 +305,16 @@ function StorytellingSection() {
 // ============================================================================
 function SolutionSection() {
   const steps = [
-    { num: '01', time: '30초', icon: <FolderUp className="w-7 h-7" />, title: '이미지 폴더 업로드', desc: '상품 이미지가 담긴 폴더를 드래그 앤 드롭. 엑셀 데이터도 자동 매칭됩니다.', detail: '폴더 구조 자동 인식 · 엑셀 데이터 매칭', gradient: 'from-blue-500 to-indigo-600', bg: 'bg-blue-50', dotColor: 'bg-blue-400' },
-    { num: '02', time: '3초', icon: <Brain className="w-7 h-7" />, title: 'AI가 자동 처리', desc: 'AI가 카테고리 매칭, SEO 상품명 생성, 마진율 기반 가격 계산, 검색 태그 생성을 동시에 처리합니다.', detail: '카테고리 · 상품명 · 가격 · 태그 동시 생성', gradient: 'from-purple-500 to-violet-600', bg: 'bg-purple-50', dotColor: 'bg-purple-400' },
-    { num: '03', time: '선택', icon: <MonitorSmartphone className="w-7 h-7" />, title: '검수 및 수정', desc: 'AI 결과를 대시보드에서 한눈에 확인. 수정이 필요한 부분만 클릭해서 변경.', detail: '원클릭 수정 · 일괄 승인 가능', gradient: 'from-emerald-500 to-green-600', bg: 'bg-emerald-50', dotColor: 'bg-emerald-400' },
+    { num: '01', time: '30초', icon: <FolderUp className="w-7 h-7" />, title: '이미지 폴더 업로드', desc: '상품 이미지가 담긴 폴더를 드래그 앤 드롭. 엑셀 데이터도 자동 매칭됩니다.', detail: '폴더 구조 자동 인식 · 엑셀 데이터 매칭', gradient: 'from-[#E31837] to-red-700', bg: 'bg-red-50', dotColor: 'bg-red-400' },
+    { num: '02', time: '3초', icon: <Brain className="w-7 h-7" />, title: 'AI가 자동 처리', desc: 'AI가 카테고리 매칭, SEO 상품명 생성, 마진율 기반 가격 계산, 검색 태그 생성을 동시에 처리합니다.', detail: '카테고리 · 상품명 · 가격 · 태그 동시 생성', gradient: 'from-[#E31837] to-red-700', bg: 'bg-red-50', dotColor: 'bg-red-400' },
+    { num: '03', time: '선택', icon: <MonitorSmartphone className="w-7 h-7" />, title: '검수 및 수정', desc: 'AI 결과를 대시보드에서 한눈에 확인. 수정이 필요한 부분만 클릭해서 변경.', detail: '원클릭 수정 · 일괄 승인 가능', gradient: 'from-[#E31837] to-red-700', bg: 'bg-red-50', dotColor: 'bg-red-400' },
     { num: '04', time: '자동', icon: <Cpu className="w-7 h-7" />, title: '쿠팡 자동 등록', desc: 'R2 스토리지에 이미지 업로드 후 쿠팡 Wing API로 자동 등록. Google Sheets에 이력 백업.', detail: '9단계 파이프라인 · R2 스토리지 · Wing API', gradient: 'from-[#E31837] to-[#ff4d6a]', bg: 'bg-red-50', dotColor: 'bg-[#E31837]' },
   ];
   return (
     <AnimatedSection id="solution" className="py-24 md:py-32 relative overflow-hidden">
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div variants={fadeInUp} className="text-center mb-16">
-          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 text-sm font-medium mb-4">4단계로 끝</span>
+          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-red-50 border border-red-100 text-[#E31837] text-sm font-medium mb-4">4단계로 끝</span>
           <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold text-gray-900 mb-4">폴더 하나 넣으면, <span className="bg-gradient-to-r from-[#E31837] to-[#ff6b81] bg-clip-text text-transparent">나머지는 AI가</span></h2>
           <p className="text-lg text-gray-500 max-w-2xl mx-auto">기존 48시간 걸리던 100개 상품 등록, 이제 10분이면 완료됩니다.</p>
         </motion.div>
@@ -351,7 +351,7 @@ function ScreenMockupsSection() {
     <AnimatedSection id="screenshots" className="py-24 md:py-32 bg-gray-50/80 relative overflow-hidden">
       <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div variants={fadeInUp} className="text-center mb-14">
-          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-violet-50 border border-violet-100 text-violet-600 text-sm font-medium mb-4">화면 미리보기</span>
+          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-red-50 border border-red-100 text-[#E31837] text-sm font-medium mb-4">화면 미리보기</span>
           <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold text-gray-900 mb-4">프로그램 화면을 직접 확인하세요</h2>
           <p className="text-lg text-gray-500 max-w-2xl mx-auto">실제 사용하게 될 핵심 기능들을 미리 확인해 보세요.</p>
         </motion.div>
@@ -422,8 +422,8 @@ function FeatureShowcase() {
     <AnimatedSection id="features" className="py-24 md:py-32 relative overflow-hidden">
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div variants={fadeInUp} className="text-center mb-16">
-          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 text-sm font-medium mb-4">핵심 기능</span>
-          <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold text-gray-900 mb-4">셀러에게 필요한 <span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">모든 자동화</span></h2>
+          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-red-50 border border-red-100 text-[#E31837] text-sm font-medium mb-4">핵심 기능</span>
+          <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold text-gray-900 mb-4">셀러에게 필요한 <span className="bg-gradient-to-r from-[#E31837] to-red-700 bg-clip-text text-transparent">모든 자동화</span></h2>
           <p className="text-lg text-gray-500 max-w-2xl mx-auto">AI 기반 자동화로 상품 등록의 모든 과정을 혁신합니다.</p>
         </motion.div>
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -437,7 +437,7 @@ function FeatureShowcase() {
                 <h3 className="text-xl font-bold text-gray-900 mb-2">{f.title}</h3>
                 <p className="text-sm text-gray-500 leading-relaxed mb-5">{f.desc}</p>
                 <div className="space-y-2.5">
-                  {f.highlights.map((h, j) => (<div key={j} className="flex items-center gap-2.5"><div className="w-4 h-4 rounded-full bg-green-50 flex items-center justify-center flex-shrink-0"><Check className="w-2.5 h-2.5 text-green-600" /></div><span className="text-sm text-gray-600">{h}</span></div>))}
+                  {f.highlights.map((h, j) => (<div key={j} className="flex items-center gap-2.5"><div className="w-4 h-4 rounded-full bg-red-50 flex items-center justify-center flex-shrink-0"><Check className="w-2.5 h-2.5 text-[#E31837]" /></div><span className="text-sm text-gray-600">{h}</span></div>))}
                 </div>
               </div>
             </motion.div>
@@ -464,7 +464,7 @@ function PricingSection() {
       <div className="absolute inset-0 bg-gradient-to-b from-white via-gray-50/50 to-white" />
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div variants={fadeInUp} className="text-center mb-12">
-          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-green-50 border border-green-100 text-green-600 text-sm font-medium mb-4">투명한 요금제</span>
+          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-red-50 border border-red-100 text-[#E31837] text-sm font-medium mb-4">투명한 요금제</span>
           <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold text-gray-900 mb-4">알바비보다 <span className="bg-gradient-to-r from-[#E31837] to-[#ff6b81] bg-clip-text text-transparent">훨씬 효율적인</span> 자동화</h2>
           <p className="text-lg text-gray-500 max-w-2xl mx-auto">1일 무료 체험 후 결정하세요. 결제 후 즉시 이용 가능합니다.</p>
         </motion.div>
@@ -499,17 +499,17 @@ function PricingSection() {
 // ============================================================================
 function TestimonialsSection() {
   const testimonials = [
-    { name: '김도현', role: '패션 카테고리 셀러', detail: '월 매출 3억', stars: 5, quote: '혼자서 하루 50개씩 등록하던 걸 이제 500개도 가능합니다. 상품명 품질이 좋아서 검색 노출이 눈에 띄게 올랐어요. 알바 2명 인건비가 그대로 절약됩니다.', metric: '등록 속도 10배 향상', metricColor: 'text-[#E31837]', metricBg: 'bg-red-50', gradient: 'from-rose-500 to-red-600' },
-    { name: '박서연', role: '생활용품 셀러', detail: '월 매출 1.5억', stars: 5, quote: '카테고리 매칭이 정말 정확해요. AI가 생성한 상품명도 제가 직접 쓴 것보다 훨씬 키워드가 풍부하고, 실제로 판매가 늘었습니다.', metric: '월 매출 47% 성장', metricColor: 'text-green-600', metricBg: 'bg-green-50', gradient: 'from-emerald-500 to-green-600' },
-    { name: '이준호', role: '전자제품 셀러', detail: '쿠팡 5개 계정 운영', stars: 5, quote: '계정 5개를 동시에 운영하는데, 하나의 대시보드에서 전부 관리할 수 있어서 혼란이 사라졌어요. Google Sheets 연동도 편합니다.', metric: '운영 시간 80% 절감', metricColor: 'text-blue-600', metricBg: 'bg-blue-50', gradient: 'from-blue-500 to-indigo-600' },
+    { name: '김도현', role: '패션 카테고리 셀러', detail: '월 매출 3억', stars: 5, quote: '혼자서 하루 50개씩 등록하던 걸 이제 500개도 가능합니다. 상품명 품질이 좋아서 검색 노출이 눈에 띄게 올랐어요. 알바 2명 인건비가 그대로 절약됩니다.', metric: '등록 속도 10배 향상', metricColor: 'text-[#E31837]', metricBg: 'bg-red-50', gradient: 'from-[#E31837] to-red-700' },
+    { name: '박서연', role: '생활용품 셀러', detail: '월 매출 1.5억', stars: 5, quote: '카테고리 매칭이 정말 정확해요. AI가 생성한 상품명도 제가 직접 쓴 것보다 훨씬 키워드가 풍부하고, 실제로 판매가 늘었습니다.', metric: '월 매출 47% 성장', metricColor: 'text-[#E31837]', metricBg: 'bg-red-50', gradient: 'from-[#E31837] to-red-700' },
+    { name: '이준호', role: '전자제품 셀러', detail: '쿠팡 5개 계정 운영', stars: 5, quote: '계정 5개를 동시에 운영하는데, 하나의 대시보드에서 전부 관리할 수 있어서 혼란이 사라졌어요. Google Sheets 연동도 편합니다.', metric: '운영 시간 80% 절감', metricColor: 'text-[#E31837]', metricBg: 'bg-red-50', gradient: 'from-[#E31837] to-red-700' },
   ];
 
   return (
     <AnimatedSection className="py-24 md:py-32 bg-gray-50/80 relative overflow-hidden">
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div variants={fadeInUp} className="text-center mb-16">
-          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-yellow-50 border border-yellow-100 text-yellow-600 text-sm font-medium mb-4">셀러 후기</span>
-          <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold text-gray-900 mb-4">실제 셀러들의 <span className="bg-gradient-to-r from-yellow-500 to-orange-500 bg-clip-text text-transparent">성장 스토리</span></h2>
+          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-red-50 border border-red-100 text-[#E31837] text-sm font-medium mb-4">셀러 후기</span>
+          <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold text-gray-900 mb-4">실제 셀러들의 <span className="bg-gradient-to-r from-[#E31837] to-red-700 bg-clip-text text-transparent">성장 스토리</span></h2>
         </motion.div>
         <div className="grid md:grid-cols-3 gap-6">
           {testimonials.map((t, i) => (
@@ -586,11 +586,11 @@ function FinalCTASection() {
     <AnimatedSection className="py-24 md:py-32 relative overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900" />
       <div className="absolute top-0 right-0 w-[600px] h-[600px] rounded-full bg-[#E31837]/8 blur-[150px]" />
-      <div className="absolute bottom-0 left-0 w-[500px] h-[500px] rounded-full bg-indigo-500/8 blur-[120px]" />
+      <div className="absolute bottom-0 left-0 w-[500px] h-[500px] rounded-full bg-red-500/8 blur-[120px]" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.015)_1px,transparent_1px)] bg-[length:40px_40px]" />
       <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
         <motion.div variants={fadeInUp}>
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 mb-8 backdrop-blur-sm"><Zap className="w-4 h-4 text-yellow-400" /><span className="text-sm font-medium text-gray-300">지금 시작하면 오늘부터 자동화</span></div>
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 mb-8 backdrop-blur-sm"><Zap className="w-4 h-4 text-red-400" /><span className="text-sm font-medium text-gray-300">지금 시작하면 오늘부터 자동화</span></div>
         </motion.div>
         <motion.h2 variants={fadeInUp} className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white mb-6 leading-tight">지금 시작하면<br /><span className="bg-gradient-to-r from-[#ff4d6a] via-[#ff8fa3] to-[#ffb3c1] bg-clip-text text-transparent">내일 아침 상품이 올라갑니다</span></motion.h2>
         <motion.p variants={fadeInUp} className="text-lg sm:text-xl text-gray-400 mb-10 max-w-2xl mx-auto">1일 무료 체험 · 카드 등록 불필요 · 5분이면 첫 상품 등록 완료</motion.p>
