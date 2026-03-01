@@ -6,8 +6,8 @@ import { useRouter } from 'next/navigation';
 import { ArrowRight, TrendingUp, Shield, Zap, Bot } from 'lucide-react';
 
 const IMAGES = {
-  pt: 'https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/689198e84fd303cd2a129604_img-rocket1.jpg',
-  program: 'https://cdn.prod.website-files.com/6875ff5707fb9eff8f996368/688c1ad3f839e5aa4618a9ef_%EC%9C%99-%EC%BD%98%ED%85%90%EC%B8%A0-%EC%9D%B4%EB%AF%B8%EC%A7%80.jpg',
+  pt: 'https://images.unsplash.com/photo-1600880292203-757bb62b4baf?w=1920&q=80&auto=format&fit=crop',
+  program: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1920&q=80&auto=format&fit=crop',
 };
 
 export default function SplitHero() {
@@ -109,7 +109,7 @@ export default function SplitHero() {
           {/* Stats - always visible */}
           <div className="flex flex-wrap gap-4 mb-6">
             {[
-              { icon: TrendingUp, label: '94% 성공률', color: 'text-red-400' },
+              { icon: TrendingUp, label: '직접 검증 매출', color: 'text-red-400' },
               { icon: Shield, label: '0원 시작', color: 'text-red-300' },
             ].map((stat) => (
               <div key={stat.label} className="flex items-center gap-2 glass-card rounded-xl px-4 py-2.5">
