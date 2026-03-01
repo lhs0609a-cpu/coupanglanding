@@ -571,27 +571,6 @@ export default function PTPage() {
                   />
                 </div>
               </div>
-                    <div className="bg-gray-50/60 rounded-xl p-4 border border-gray-100/50">
-                      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-3">카테고리별 매출</div>
-                      <div className="space-y-2.5">
-                        {[{ cat: '주방용품', amt: '₩4,200,000', pct: 34, color: 'bg-[#E31837]' }, { cat: '생활용품', amt: '₩3,100,000', pct: 25, color: 'bg-blue-500' }, { cat: '전자제품', amt: '₩2,800,000', pct: 22, color: 'bg-violet-500' }, { cat: '의류/패션', amt: '₩2,350,000', pct: 19, color: 'bg-amber-500' }].map((c) => (
-                          <div key={c.cat}>
-                            <div className="flex items-center justify-between mb-1"><span className="text-[11px] font-medium text-gray-600">{c.cat}</span><span className="text-[11px] font-bold text-gray-800">{c.amt}</span></div>
-                            <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden"><motion.div initial={{ width: 0 }} whileInView={{ width: `${c.pct}%` }} viewport={{ once: true }} transition={{ duration: 0.6, delay: 0.2 }} className={`h-full rounded-full ${c.color}`} /></div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      {[{ label: '총 주문', value: '847건', change: '+23%' }, { label: '반품률', value: '1.2%', change: '-0.3%' }, { label: 'ROAS', value: '3.8배', change: '+0.5' }].map((m) => (
-                        <div key={m.label} className="bg-white rounded-lg p-2.5 border border-gray-100 text-center">
-                          <div className="text-xs font-bold text-gray-900">{m.value}</div><div className="text-[9px] text-gray-400">{m.label}</div><div className="text-[9px] font-semibold text-emerald-600 mt-0.5">{m.change}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
             </motion.div>
           </div>
         </div>
