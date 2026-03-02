@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import AdminLayoutClient from './layout-client';
 
+export const dynamic = 'force-dynamic';
+
 export const metadata = {
   title: '관리자 | 쿠팡 셀러허브',
 };
