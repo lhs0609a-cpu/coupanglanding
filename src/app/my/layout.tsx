@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import MyLayoutClient from './layout-client';
 
+export const dynamic = 'force-dynamic';
+
 export const metadata = {
   title: '내 PT | 쿠팡 셀러허브',
 };
