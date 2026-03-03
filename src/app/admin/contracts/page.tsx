@@ -46,6 +46,42 @@ export default function AdminContractsPage() {
 
   const supabase = createClient();
 
+  const fetchPtUsers = useCallback(async () => {
+    // 1차: profile join 포함
+    const { data, error } = await supabase
+      .from('pt_users')
+      .select('*, profile:profiles(*)');
+
+    if (!error && data) {
+      setPtUsers((data as PtUserWithProfile[]) || []);
+      return;
+    }
+
+    // 2차: join 실패 시 pt_users만 조회 후 profiles 별도 조회
+    console.warn('pt_users join failed, trying fallback:', error?.message);
+    const { data: rawUsers } = await supabase
+      .from('pt_users')
+      .select('*');
+
+    if (rawUsers && rawUsers.length > 0) {
+      const profileIds = rawUsers.map((u) => (u as PtUser).profile_id);
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', profileIds);
+
+      const profileMap = new Map((profiles || []).map((p) => [(p as Profile).id, p as Profile]));
+      const usersWithProfile = rawUsers.map((u) => ({
+        ...(u as PtUser),
+        profile: profileMap.get((u as PtUser).profile_id) || null,
+      })) as PtUserWithProfile[];
+
+      setPtUsers(usersWithProfile);
+    } else {
+      setPtUsers([]);
+    }
+  }, [supabase]);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
 
@@ -61,14 +97,9 @@ export default function AdminContractsPage() {
     const { data: contractsData } = await query;
     setContracts((contractsData as ContractWithUser[]) || []);
 
-    const { data: usersData } = await supabase
-      .from('pt_users')
-      .select('*, profile:profiles(*)')
-      .eq('status', 'active');
-
-    setPtUsers((usersData as PtUserWithProfile[]) || []);
+    await fetchPtUsers();
     setLoading(false);
-  }, [statusFilter, supabase]);
+  }, [statusFilter, supabase, fetchPtUsers]);
 
   useEffect(() => {
     fetchData();
@@ -239,19 +270,40 @@ export default function AdminContractsPage() {
             <label htmlFor="pt-user" className="block text-sm font-medium text-gray-700 mb-1">
               PT 사용자 <span className="text-[#E31837]">*</span>
             </label>
-            <select
-              id="pt-user"
-              value={newPtUserId}
-              onChange={(e) => setNewPtUserId(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
-            >
-              <option value="">선택하세요</option>
-              {ptUsers.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.profile?.full_name || u.profile?.email}
-                </option>
-              ))}
-            </select>
+            {ptUsers.length === 0 ? (
+              <div className="space-y-2">
+                <div className="px-4 py-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-700">
+                  등록된 PT 사용자가 없습니다. 먼저 대시보드에서 사용자를 승인하거나 PT 사용자 관리에서 추가해주세요.
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchPtUsers}
+                  className="text-sm text-[#E31837] hover:underline"
+                >
+                  다시 불러오기
+                </button>
+              </div>
+            ) : (
+              <select
+                id="pt-user"
+                value={newPtUserId}
+                onChange={(e) => {
+                  setNewPtUserId(e.target.value);
+                  const selected = ptUsers.find((u) => u.id === e.target.value);
+                  if (selected) {
+                    setNewSharePercentage(String(selected.share_percentage));
+                  }
+                }}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+              >
+                <option value="">선택하세요</option>
+                {ptUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.profile?.full_name || u.profile?.email || '이름 없음'} ({u.status === 'active' ? '활성' : u.status})
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div>

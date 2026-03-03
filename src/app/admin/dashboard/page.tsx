@@ -121,7 +121,15 @@ export default function AdminDashboardPage() {
 
   const handleApproveUser = async (userId: string) => {
     // 프로필 활성화
-    await supabase.from('profiles').update({ is_active: true }).eq('id', userId);
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({ is_active: true, role: 'pt_user' })
+      .eq('id', userId);
+
+    if (profileError) {
+      alert(`프로필 활성화 실패: ${profileError.message}`);
+      return;
+    }
 
     // pt_users 테이블에 레코드 생성 (이미 있으면 무시)
     const { data: existingPtUser } = await supabase
@@ -131,12 +139,17 @@ export default function AdminDashboardPage() {
       .maybeSingle();
 
     if (!existingPtUser) {
-      await supabase.from('pt_users').insert({
+      const { error: insertError } = await supabase.from('pt_users').insert({
         profile_id: userId,
         share_percentage: 30,
         status: 'active',
         program_access_active: false,
       });
+
+      if (insertError) {
+        alert(`PT 사용자 생성 실패: ${insertError.message}`);
+        return;
+      }
     }
 
     fetchData();
