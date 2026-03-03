@@ -5,6 +5,8 @@ export type RevenueSource = 'pt' | 'program' | 'other';
 export type ExpenseCategory = 'server' | 'ai_usage' | 'fixed' | 'tax' | 'marketing' | 'other';
 export type ApplicationStatus = 'new' | 'contacted' | 'consulting' | 'converted' | 'rejected';
 export type ContractStatus = 'draft' | 'sent' | 'signed' | 'expired' | 'terminated';
+export type OnboardingStepStatus = 'pending' | 'submitted' | 'approved' | 'rejected';
+export type OnboardingVerificationType = 'self_check' | 'evidence_upload' | 'auto_linked';
 
 export interface Profile {
   id: string;
@@ -135,6 +137,28 @@ export interface Contract {
   pt_user?: PtUser;
 }
 
+export interface OnboardingStep {
+  id: string;
+  pt_user_id: string;
+  step_key: string;
+  status: OnboardingStepStatus;
+  evidence_url: string | null;
+  admin_note: string | null;
+  submitted_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OnboardingStepDefinition {
+  key: string;
+  order: number;
+  label: string;
+  description: string;
+  verificationType: OnboardingVerificationType;
+  autoLinkSource?: 'contract' | 'monthly_report';
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -182,6 +206,11 @@ export interface Database {
         Row: Contract;
         Insert: Omit<Contract, 'id' | 'created_at' | 'updated_at'>;
         Update: Partial<Omit<Contract, 'id' | 'created_at'>>;
+      };
+      onboarding_steps: {
+        Row: OnboardingStep;
+        Insert: Omit<OnboardingStep, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<OnboardingStep, 'id' | 'created_at'>>;
       };
     };
   };

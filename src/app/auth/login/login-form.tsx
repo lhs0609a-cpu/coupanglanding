@@ -42,7 +42,15 @@ export default function LoginForm() {
     });
 
     if (authError) {
-      setError('이메일 또는 비밀번호가 올바르지 않습니다.');
+      if (authError.message === 'Email not confirmed') {
+        setError('이메일 인증이 완료되지 않았습니다. 가입 시 받은 이메일의 인증 링크를 클릭해주세요.');
+      } else if (authError.message === 'Invalid login credentials') {
+        setError('이메일 또는 비밀번호가 올바르지 않습니다.');
+      } else if (authError.status === 429) {
+        setError('요청이 너무 많습니다. 잠시 후 다시 시도해주세요.');
+      } else {
+        setError(`로그인 오류: ${authError.message}`);
+      }
       setLoading(false);
       return;
     }
@@ -77,40 +85,46 @@ export default function LoginForm() {
       return;
     }
 
+    // 서버 API로 회원가입 (이메일 인증 자동 완료)
+    const res = await fetch('/api/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, fullName }),
+    });
+
+    const result = await res.json();
+
+    if (!res.ok) {
+      setError(result.error || '회원가입 중 오류가 발생했습니다.');
+      setLoading(false);
+      return;
+    }
+
+    // 가입 성공 → 바로 로그인 시도
     let supabase;
     try {
       supabase = createClient();
-    } catch (err) {
-      if (err instanceof Error && err.message === 'SUPABASE_NOT_CONFIGURED') {
-        setError('서버 설정이 완료되지 않았습니다. 관리자에게 문의해주세요.');
-      } else {
-        setError('연결 오류가 발생했습니다.');
-      }
+    } catch {
+      setSuccess('회원가입이 완료되었습니다. 로그인해주세요.');
       setLoading(false);
+      setIsSignup(false);
       return;
     }
 
-    const { error: signupError } = await supabase.auth.signUp({
+    const { error: loginError } = await supabase.auth.signInWithPassword({
       email,
       password,
-      options: {
-        data: {
-          full_name: fullName,
-          role: 'pt_user',
-        },
-      },
     });
 
-    if (signupError) {
-      setError(signupError.message === 'User already registered'
-        ? '이미 가입된 이메일입니다.'
-        : '회원가입 중 오류가 발생했습니다.');
+    if (loginError) {
+      setSuccess('회원가입이 완료되었습니다. 로그인해주세요.');
       setLoading(false);
+      setIsSignup(false);
       return;
     }
 
-    setSuccess('회원가입이 완료되었습니다. 이메일을 확인해주세요.');
-    setLoading(false);
+    router.push('/my/dashboard');
+    router.refresh();
   };
 
   if (isSignup) {
@@ -126,6 +140,7 @@ export default function LoginForm() {
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
             required
+            autoComplete="name"
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent outline-none transition"
             placeholder="홍길동"
           />
@@ -141,6 +156,7 @@ export default function LoginForm() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
+            autoComplete="email"
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent outline-none transition"
             placeholder="email@example.com"
           />
@@ -157,6 +173,7 @@ export default function LoginForm() {
             onChange={(e) => setPassword(e.target.value)}
             required
             minLength={6}
+            autoComplete="new-password"
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent outline-none transition"
             placeholder="6자 이상 입력"
           />
@@ -204,6 +221,7 @@ export default function LoginForm() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
+          autoComplete="email"
           className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent outline-none transition"
           placeholder="email@example.com"
         />
@@ -219,6 +237,7 @@ export default function LoginForm() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
+          autoComplete="current-password"
           className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent outline-none transition"
           placeholder="비밀번호 입력"
         />

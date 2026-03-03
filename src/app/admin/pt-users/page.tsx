@@ -16,8 +16,11 @@ import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
 import NumberInput from '@/components/ui/NumberInput';
 import Select from '@/components/ui/Select';
-import { Users, CheckCircle2, XCircle, ExternalLink, Eye, UserPlus, AlertTriangle } from 'lucide-react';
-import type { PtUser, MonthlyReport, Profile } from '@/lib/supabase/types';
+import { Users, CheckCircle2, XCircle, ExternalLink, Eye, UserPlus, AlertTriangle, ClipboardList } from 'lucide-react';
+import type { PtUser, MonthlyReport, Profile, OnboardingStep } from '@/lib/supabase/types';
+import OnboardingReviewModal from '@/components/onboarding/OnboardingReviewModal';
+import { ONBOARDING_STEPS } from '@/lib/utils/constants';
+import { computeStepStates, countCompleted } from '@/components/onboarding/onboarding-utils';
 
 interface PtUserWithProfile extends PtUser {
   profile: Profile;
@@ -35,6 +38,12 @@ export default function AdminPtUsersPage() {
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [screenshotModal, setScreenshotModal] = useState<string | null>(null);
   const [noteModal, setNoteModal] = useState<{ reportId: string; note: string } | null>(null);
+
+  // Onboarding
+  const [onboardingSteps, setOnboardingSteps] = useState<Map<string, OnboardingStep[]>>(new Map());
+  const [onboardingContracts, setOnboardingContracts] = useState<Set<string>>(new Set());
+  const [onboardingReports, setOnboardingReports] = useState<Set<string>>(new Set());
+  const [reviewModal, setReviewModal] = useState<{ userId: string; userName: string } | null>(null);
 
   // Add user form
   const [newEmail, setNewEmail] = useState('');
@@ -67,6 +76,38 @@ export default function AdminPtUsersPage() {
         reportMap.set((r as ReportWithScreenshot).pt_user_id, r as ReportWithScreenshot);
       });
       setReports(reportMap);
+
+      // 온보딩 데이터
+      const { data: obSteps } = await supabase
+        .from('onboarding_steps')
+        .select('*')
+        .in('pt_user_id', userIds);
+
+      const stepsMap = new Map<string, OnboardingStep[]>();
+      (obSteps || []).forEach((s) => {
+        const step = s as OnboardingStep;
+        const arr = stepsMap.get(step.pt_user_id) || [];
+        arr.push(step);
+        stepsMap.set(step.pt_user_id, arr);
+      });
+      setOnboardingSteps(stepsMap);
+
+      // 계약 서명 여부
+      const { data: signedContracts } = await supabase
+        .from('contracts')
+        .select('pt_user_id')
+        .eq('status', 'signed')
+        .in('pt_user_id', userIds);
+
+      setOnboardingContracts(new Set((signedContracts || []).map((c) => (c as { pt_user_id: string }).pt_user_id)));
+
+      // 매출 보고 여부
+      const { data: anyReports } = await supabase
+        .from('monthly_reports')
+        .select('pt_user_id')
+        .in('pt_user_id', userIds);
+
+      setOnboardingReports(new Set((anyReports || []).map((r) => (r as { pt_user_id: string }).pt_user_id)));
     }
 
     setLoading(false);
@@ -256,6 +297,71 @@ export default function AdminPtUsersPage() {
                     </div>
                   )}
 
+                  {/* 온보딩 진행률 */}
+                  {(() => {
+                    const userSteps = onboardingSteps.get(user.id) || [];
+                    const computed = computeStepStates(
+                      ONBOARDING_STEPS,
+                      userSteps,
+                      onboardingContracts.has(user.id),
+                      onboardingReports.has(user.id),
+                    );
+                    const completed = countCompleted(computed);
+                    const total = ONBOARDING_STEPS.length;
+                    const percent = Math.round((completed / total) * 100);
+                    const pendingReview = userSteps.filter((s) => s.status === 'submitted').length;
+
+                    return (
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <ClipboardList className="w-4 h-4 text-gray-500" />
+                            <h4 className="text-sm font-medium text-gray-700">온보딩 진행률</h4>
+                            <span className="text-xs text-gray-400">{completed}/{total}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {pendingReview > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setReviewModal({
+                                  userId: user.id,
+                                  userName: user.profile?.full_name || '이름 없음',
+                                })}
+                                className="px-2.5 py-1 text-xs font-medium bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition"
+                              >
+                                {pendingReview}건 검토 대기
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-gray-200 rounded-full h-2">
+                            <div
+                              className="bg-[#E31837] h-2 rounded-full transition-all duration-500"
+                              style={{ width: `${percent}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-gray-400 w-8 text-right">{percent}%</span>
+                        </div>
+                        {/* 도트 인디케이터 */}
+                        <div className="flex gap-1 mt-2">
+                          {computed.map((step) => (
+                            <div
+                              key={step.definition.key}
+                              title={`${step.definition.order}. ${step.definition.label}: ${step.status}`}
+                              className={`w-2 h-2 rounded-full ${
+                                step.status === 'completed' ? 'bg-green-500' :
+                                step.status === 'submitted' ? 'bg-blue-500' :
+                                step.status === 'rejected' ? 'bg-red-500' :
+                                'bg-gray-300'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* 당월 보고 */}
                   <div className="bg-gray-50 rounded-lg p-4">
                     <h4 className="text-sm font-medium text-gray-700 mb-2">
@@ -411,6 +517,17 @@ export default function AdminPtUsersPage() {
           </div>
         )}
       </Modal>
+
+      {/* 온보딩 검토 모달 */}
+      {reviewModal && (
+        <OnboardingReviewModal
+          isOpen={true}
+          onClose={() => setReviewModal(null)}
+          ptUserName={reviewModal.userName}
+          steps={onboardingSteps.get(reviewModal.userId) || []}
+          onUpdated={fetchData}
+        />
+      )}
     </div>
   );
 }

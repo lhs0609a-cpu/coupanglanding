@@ -13,6 +13,7 @@ import Badge from '@/components/ui/Badge';
 import StatCard from '@/components/ui/StatCard';
 import { Send, Calculator, Shield, CheckCircle2 } from 'lucide-react';
 import type { MonthlyReport, PtUser } from '@/lib/supabase/types';
+import OnboardingChecklist from '@/components/onboarding/OnboardingChecklist';
 
 export default function MyDashboardPage() {
   const [yearMonth, setYearMonth] = useState(getCurrentYearMonth());
@@ -156,6 +157,9 @@ export default function MyDashboardPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {/* 온보딩 체크리스트 */}
+      {ptUser && <OnboardingChecklist ptUserId={ptUser.id} />}
+
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">매출 보고</h1>
         <MonthPicker value={yearMonth} onChange={setYearMonth} />

@@ -71,6 +71,86 @@ export const CONTRACT_STATUS_COLORS: Record<string, string> = {
   terminated: 'bg-red-100 text-red-700',
 };
 
+// 온보딩 단계 정의
+import type { OnboardingStepDefinition } from '@/lib/supabase/types';
+
+export const ONBOARDING_STEPS: OnboardingStepDefinition[] = [
+  {
+    key: 'orientation_video',
+    order: 1,
+    label: '오리엔테이션 영상 시청',
+    description: '쿠팡 셀러 활동에 대한 기본 안내 영상을 시청해주세요.',
+    verificationType: 'self_check',
+  },
+  {
+    key: 'business_registration',
+    order: 2,
+    label: '사업자등록',
+    description: '사업자등록증 사본을 업로드해주세요.',
+    verificationType: 'evidence_upload',
+  },
+  {
+    key: 'online_sales_report',
+    order: 3,
+    label: '통신판매업 신고',
+    description: '통신판매업 신고증 사본을 업로드해주세요.',
+    verificationType: 'evidence_upload',
+  },
+  {
+    key: 'coupang_seller_signup',
+    order: 4,
+    label: '쿠팡 입점 회원가입',
+    description: '쿠팡 셀러 가입 완료 화면 캡처를 업로드해주세요.',
+    verificationType: 'evidence_upload',
+  },
+  {
+    key: 'coupang_wing_integration',
+    order: 5,
+    label: '쿠팡 Wing 연동',
+    description: '쿠팡 Wing 연동 완료 화면 캡처를 업로드해주세요.',
+    verificationType: 'evidence_upload',
+  },
+  {
+    key: 'first_product_listing',
+    order: 6,
+    label: '첫 상품 등록',
+    description: '첫 상품 등록 완료 화면 캡처를 업로드해주세요.',
+    verificationType: 'evidence_upload',
+  },
+  {
+    key: 'contract_signing',
+    order: 7,
+    label: '계약서 서명',
+    description: '계약서 서명을 완료해주세요.',
+    verificationType: 'auto_linked',
+    autoLinkSource: 'contract',
+  },
+  {
+    key: 'first_revenue_report',
+    order: 8,
+    label: '첫 매출 보고',
+    description: '첫 매출 보고를 제출해주세요.',
+    verificationType: 'auto_linked',
+    autoLinkSource: 'monthly_report',
+  },
+];
+
+export const ONBOARDING_STATUS_LABELS: Record<string, string> = {
+  pending: '미완료',
+  submitted: '검토 대기',
+  approved: '승인됨',
+  rejected: '반려됨',
+  completed: '완료',
+};
+
+export const ONBOARDING_STATUS_COLORS: Record<string, string> = {
+  pending: 'bg-gray-100 text-gray-500',
+  submitted: 'bg-blue-100 text-blue-700',
+  approved: 'bg-green-100 text-green-700',
+  rejected: 'bg-red-100 text-red-700',
+  completed: 'bg-green-100 text-green-700',
+};
+
 export const DEFAULT_SHARE_PERCENTAGE = 30;
 export const DEFAULT_DISTRIBUTION_RATIO = [5, 3, 2]; // 메인:서브1:서브2
 
