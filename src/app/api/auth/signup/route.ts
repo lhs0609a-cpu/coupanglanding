@@ -43,7 +43,9 @@ export async function POST(request: NextRequest) {
               role: 'pt_user',
             },
           });
-          return NextResponse.json({ success: true, userId: existingUser.id });
+          // 승인 대기 상태로 설정
+          await supabase.from('profiles').update({ is_active: false }).eq('id', existingUser.id);
+          return NextResponse.json({ success: true, pending: true, userId: existingUser.id });
         }
 
         return NextResponse.json({ error: '이미 가입된 이메일입니다. 로그인해주세요.' }, { status: 409 });
@@ -51,7 +53,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true, userId: data.user.id });
+    // 승인 대기 상태로 설정
+    await supabase.from('profiles').update({ is_active: false }).eq('id', data.user.id);
+
+    return NextResponse.json({ success: true, pending: true, userId: data.user.id });
   } catch {
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }

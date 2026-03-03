@@ -54,13 +54,20 @@ export async function updateSession(request: NextRequest) {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, is_active')
       .eq('id', user.id)
       .single();
 
     if (!profile || (profile.role !== 'pt_user' && profile.role !== 'admin')) {
       const url = request.nextUrl.clone();
       url.pathname = '/auth/login';
+      return NextResponse.redirect(url);
+    }
+
+    // 미승인 유저는 pending 페이지로 리다이렉트
+    if (!profile.is_active && profile.role !== 'admin') {
+      const url = request.nextUrl.clone();
+      url.pathname = '/auth/pending';
       return NextResponse.redirect(url);
     }
   }

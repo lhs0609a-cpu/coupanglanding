@@ -8,7 +8,7 @@ import MonthPicker from '@/components/ui/MonthPicker';
 import StatCard from '@/components/ui/StatCard';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import { TrendingUp, TrendingDown, Wallet, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, AlertCircle, CheckCircle2, UserPlus, XCircle } from 'lucide-react';
 import type { MonthlyReport, RevenueEntry, ExpenseEntry } from '@/lib/supabase/types';
 
 export default function AdminDashboardPage() {
@@ -16,6 +16,7 @@ export default function AdminDashboardPage() {
   const [revenues, setRevenues] = useState<RevenueEntry[]>([]);
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
   const [pendingReports, setPendingReports] = useState<(MonthlyReport & { pt_user: { profile: { full_name: string } } })[]>([]);
+  const [pendingUsers, setPendingUsers] = useState<{ id: string; full_name: string; email: string; created_at: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
   const supabase = createClient();
@@ -23,7 +24,7 @@ export default function AdminDashboardPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
 
-    const [revRes, expRes, reportRes] = await Promise.all([
+    const [revRes, expRes, reportRes, pendingUsersRes] = await Promise.all([
       supabase.from('revenue_entries').select('*').eq('year_month', yearMonth),
       supabase.from('expense_entries').select('*').eq('year_month', yearMonth),
       supabase
@@ -31,11 +32,17 @@ export default function AdminDashboardPage() {
         .select('*, pt_user:pt_users(profile:profiles(full_name))')
         .eq('year_month', yearMonth)
         .eq('payment_status', 'submitted'),
+      supabase
+        .from('profiles')
+        .select('id, full_name, email, created_at')
+        .eq('is_active', false)
+        .order('created_at', { ascending: false }),
     ]);
 
     setRevenues((revRes.data as RevenueEntry[]) || []);
     setExpenses((expRes.data as ExpenseEntry[]) || []);
     setPendingReports((reportRes.data as typeof pendingReports) || []);
+    setPendingUsers((pendingUsersRes.data as typeof pendingUsers) || []);
     setLoading(false);
   }, [yearMonth, supabase]);
 
@@ -54,6 +61,21 @@ export default function AdminDashboardPage() {
       .reduce((sum, r) => sum + r.amount, 0);
     return { ...src, amount, percentage: totalRevenue > 0 ? Math.round((amount / totalRevenue) * 100) : 0 };
   });
+
+  const handleApproveUser = async (userId: string) => {
+    await supabase.from('profiles').update({ is_active: true }).eq('id', userId);
+    fetchData();
+  };
+
+  const handleRejectUser = async (userId: string) => {
+    if (!confirm('이 유저를 거절하고 삭제하시겠습니까?')) return;
+    await fetch('/api/auth/reject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    });
+    fetchData();
+  };
 
   const handleQuickConfirm = async (reportId: string) => {
     await supabase
@@ -121,6 +143,56 @@ export default function AdminDashboardPage() {
                         className="bg-[#E31837] h-2 rounded-full transition-all"
                         style={{ width: `${src.percentage}%` }}
                       />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          {/* 가입 승인 대기 */}
+          <Card>
+            <div className="flex items-center gap-2 mb-4">
+              <UserPlus className="w-5 h-5 text-blue-500" />
+              <h2 className="text-lg font-bold text-gray-900">
+                가입 승인 대기 ({pendingUsers.length})
+              </h2>
+            </div>
+
+            {pendingUsers.length === 0 ? (
+              <p className="text-gray-400 text-sm">대기 중인 가입 요청이 없습니다.</p>
+            ) : (
+              <div className="space-y-3">
+                {pendingUsers.map((user) => (
+                  <div
+                    key={user.id}
+                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                  >
+                    <div>
+                      <p className="font-medium text-gray-900">
+                        {user.full_name || '이름 없음'}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        {user.email} · {new Date(user.created_at).toLocaleDateString('ko-KR')}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleApproveUser(user.id)}
+                        className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition"
+                        title="승인"
+                      >
+                        <CheckCircle2 className="w-5 h-5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRejectUser(user.id)}
+                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
+                        title="거절"
+                      >
+                        <XCircle className="w-5 h-5" />
+                      </button>
                     </div>
                   </div>
                 ))}

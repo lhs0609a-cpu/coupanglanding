@@ -55,12 +55,20 @@ export default function LoginForm() {
       return;
     }
 
-    // 역할에 따라 리다이렉트
+    // 역할 및 승인 상태 체크
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, is_active')
       .eq('id', data.user.id)
       .single();
+
+    // 미승인 유저 차단 (admin/partner는 제외)
+    if (profile && profile.role !== 'admin' && profile.role !== 'partner' && !profile.is_active) {
+      await supabase.auth.signOut();
+      setError('관리자 승인 대기 중입니다. 승인 후 로그인할 수 있습니다.');
+      setLoading(false);
+      return;
+    }
 
     if (redirect) {
       router.push(redirect);
@@ -100,31 +108,10 @@ export default function LoginForm() {
       return;
     }
 
-    // 가입 성공 → 바로 로그인 시도
-    let supabase;
-    try {
-      supabase = createClient();
-    } catch {
-      setSuccess('회원가입이 완료되었습니다. 로그인해주세요.');
-      setLoading(false);
-      setIsSignup(false);
-      return;
-    }
-
-    const { error: loginError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (loginError) {
-      setSuccess('회원가입이 완료되었습니다. 로그인해주세요.');
-      setLoading(false);
-      setIsSignup(false);
-      return;
-    }
-
-    router.push('/my/dashboard');
-    router.refresh();
+    // 가입 성공 → 승인 대기 안내
+    setSuccess('회원가입이 완료되었습니다. 관리자 승인 후 로그인할 수 있습니다.');
+    setLoading(false);
+    setIsSignup(false);
   };
 
   if (isSignup) {
