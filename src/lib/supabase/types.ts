@@ -1,6 +1,6 @@
 export type UserRole = 'admin' | 'partner' | 'pt_user';
 export type PtStatus = 'active' | 'paused' | 'terminated';
-export type PaymentStatus = 'pending' | 'submitted' | 'confirmed' | 'rejected';
+export type PaymentStatus = 'pending' | 'submitted' | 'reviewed' | 'deposited' | 'confirmed' | 'rejected';
 export type RevenueSource = 'pt' | 'program' | 'other';
 export type ExpenseCategory = 'server' | 'ai_usage' | 'fixed' | 'tax' | 'marketing' | 'other';
 export type ApplicationStatus = 'new' | 'contacted' | 'consulting' | 'converted' | 'rejected';
@@ -49,7 +49,18 @@ export interface MonthlyReport {
   calculated_deposit: number;
   payment_status: PaymentStatus;
   payment_confirmed_at: string | null;
+  admin_deposit_amount: number | null;
+  reviewed_at: string | null;
+  deposited_at: string | null;
   admin_note: string | null;
+  // 비용 항목
+  cost_product: number;
+  cost_commission: number;
+  cost_advertising: number;
+  cost_returns: number;
+  cost_shipping: number;
+  cost_tax: number;
+  ad_screenshot_url: string | null;
   created_at: string;
   updated_at: string;
   // Joined fields

@@ -8,14 +8,18 @@ import MonthPicker from '@/components/ui/MonthPicker';
 import StatCard from '@/components/ui/StatCard';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import { TrendingUp, TrendingDown, Wallet, AlertCircle, CheckCircle2, UserPlus, XCircle } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, AlertCircle, CheckCircle2, UserPlus, XCircle, Search, Clock, Banknote } from 'lucide-react';
 import type { MonthlyReport, RevenueEntry, ExpenseEntry } from '@/lib/supabase/types';
+
+type ReportWithUser = MonthlyReport & { pt_user: { profile: { full_name: string } } };
 
 export default function AdminDashboardPage() {
   const [yearMonth, setYearMonth] = useState(getCurrentYearMonth());
   const [revenues, setRevenues] = useState<RevenueEntry[]>([]);
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
-  const [pendingReports, setPendingReports] = useState<(MonthlyReport & { pt_user: { profile: { full_name: string } } })[]>([]);
+  const [submittedReports, setSubmittedReports] = useState<ReportWithUser[]>([]);
+  const [reviewedReports, setReviewedReports] = useState<ReportWithUser[]>([]);
+  const [depositedReports, setDepositedReports] = useState<ReportWithUser[]>([]);
   const [pendingUsers, setPendingUsers] = useState<{ id: string; full_name: string; email: string; created_at: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -24,7 +28,7 @@ export default function AdminDashboardPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
 
-    const [revRes, expRes, reportRes, pendingUsersRes] = await Promise.all([
+    const [revRes, expRes, submittedRes, reviewedRes, depositedRes, pendingUsersRes] = await Promise.all([
       supabase.from('revenue_entries').select('*').eq('year_month', yearMonth),
       supabase.from('expense_entries').select('*').eq('year_month', yearMonth),
       supabase
@@ -32,6 +36,16 @@ export default function AdminDashboardPage() {
         .select('*, pt_user:pt_users(profile:profiles(full_name))')
         .eq('year_month', yearMonth)
         .eq('payment_status', 'submitted'),
+      supabase
+        .from('monthly_reports')
+        .select('*, pt_user:pt_users(profile:profiles(full_name))')
+        .eq('year_month', yearMonth)
+        .eq('payment_status', 'reviewed'),
+      supabase
+        .from('monthly_reports')
+        .select('*, pt_user:pt_users(profile:profiles(full_name))')
+        .eq('year_month', yearMonth)
+        .eq('payment_status', 'deposited'),
       supabase
         .from('profiles')
         .select('id, full_name, email, created_at')
@@ -41,7 +55,9 @@ export default function AdminDashboardPage() {
 
     setRevenues((revRes.data as RevenueEntry[]) || []);
     setExpenses((expRes.data as ExpenseEntry[]) || []);
-    setPendingReports((reportRes.data as typeof pendingReports) || []);
+    setSubmittedReports((submittedRes.data as ReportWithUser[]) || []);
+    setReviewedReports((reviewedRes.data as ReportWithUser[]) || []);
+    setDepositedReports((depositedRes.data as ReportWithUser[]) || []);
     setPendingUsers((pendingUsersRes.data as typeof pendingUsers) || []);
     setLoading(false);
   }, [yearMonth, supabase]);
@@ -54,7 +70,6 @@ export default function AdminDashboardPage() {
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
   const netProfit = totalRevenue - totalExpenses;
 
-  // 수익원별 비율
   const revenueBySource = REVENUE_SOURCES.map((src) => {
     const amount = revenues
       .filter((r) => r.source === src.value)
@@ -63,7 +78,25 @@ export default function AdminDashboardPage() {
   });
 
   const handleApproveUser = async (userId: string) => {
+    // 프로필 활성화
     await supabase.from('profiles').update({ is_active: true }).eq('id', userId);
+
+    // pt_users 테이블에 레코드 생성 (이미 있으면 무시)
+    const { data: existingPtUser } = await supabase
+      .from('pt_users')
+      .select('id')
+      .eq('profile_id', userId)
+      .maybeSingle();
+
+    if (!existingPtUser) {
+      await supabase.from('pt_users').insert({
+        profile_id: userId,
+        share_percentage: 30,
+        status: 'active',
+        program_access_active: false,
+      });
+    }
+
     fetchData();
   };
 
@@ -77,15 +110,27 @@ export default function AdminDashboardPage() {
     fetchData();
   };
 
-  const handleQuickConfirm = async (reportId: string) => {
-    await supabase
-      .from('monthly_reports')
-      .update({
-        payment_status: 'confirmed',
-        payment_confirmed_at: new Date().toISOString(),
-      })
-      .eq('id', reportId);
+  const handleQuickConfirmDeposit = async (reportId: string, ptUserId?: string) => {
+    const updates = [
+      supabase
+        .from('monthly_reports')
+        .update({
+          payment_status: 'confirmed',
+          payment_confirmed_at: new Date().toISOString(),
+        })
+        .eq('id', reportId),
+    ];
 
+    if (ptUserId) {
+      updates.push(
+        supabase
+          .from('pt_users')
+          .update({ program_access_active: true })
+          .eq('id', ptUserId)
+      );
+    }
+
+    await Promise.all(updates);
     fetchData();
   };
 
@@ -200,23 +245,23 @@ export default function AdminDashboardPage() {
             )}
           </Card>
 
-          {/* 미확인 입금 */}
+          {/* 매출 확인 대기 (submitted) */}
           <Card>
             <div className="flex items-center gap-2 mb-4">
-              <AlertCircle className="w-5 h-5 text-orange-500" />
+              <Search className="w-5 h-5 text-blue-500" />
               <h2 className="text-lg font-bold text-gray-900">
-                입금 확인 대기 ({pendingReports.length})
+                매출 확인 대기 ({submittedReports.length})
               </h2>
             </div>
 
-            {pendingReports.length === 0 ? (
-              <p className="text-gray-400 text-sm">대기 중인 입금이 없습니다.</p>
+            {submittedReports.length === 0 ? (
+              <p className="text-gray-400 text-sm">매출 확인 대기 중인 보고가 없습니다.</p>
             ) : (
               <div className="space-y-3">
-                {pendingReports.map((report) => (
+                {submittedReports.map((report) => (
                   <div
                     key={report.id}
-                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                    className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border-l-4 border-l-blue-500"
                   >
                     <div>
                       <p className="font-medium text-gray-900">
@@ -226,6 +271,79 @@ export default function AdminDashboardPage() {
                         매출 {formatKRW(report.reported_revenue)} → 입금 {formatKRW(report.calculated_deposit)}
                       </p>
                     </div>
+                    <Badge
+                      label={PAYMENT_STATUS_LABELS[report.payment_status]}
+                      colorClass={PAYMENT_STATUS_COLORS[report.payment_status]}
+                    />
+                  </div>
+                ))}
+                <p className="text-xs text-gray-400">PT 사용자 관리 페이지에서 매출을 확인하세요.</p>
+              </div>
+            )}
+          </Card>
+
+          {/* 입금 대기중 (reviewed) */}
+          <Card>
+            <div className="flex items-center gap-2 mb-4">
+              <Clock className="w-5 h-5 text-purple-500" />
+              <h2 className="text-lg font-bold text-gray-900">
+                입금 대기중 ({reviewedReports.length})
+              </h2>
+            </div>
+
+            {reviewedReports.length === 0 ? (
+              <p className="text-gray-400 text-sm">입금 대기 중인 보고가 없습니다.</p>
+            ) : (
+              <div className="space-y-3">
+                {reviewedReports.map((report) => (
+                  <div
+                    key={report.id}
+                    className="flex items-center justify-between p-3 bg-purple-50 rounded-lg border-l-4 border-l-purple-500"
+                  >
+                    <div>
+                      <p className="font-medium text-gray-900">
+                        {report.pt_user?.profile?.full_name || '사용자'}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        확정 입금액: {formatKRW(report.admin_deposit_amount || report.calculated_deposit)}
+                      </p>
+                    </div>
+                    <Badge
+                      label={PAYMENT_STATUS_LABELS[report.payment_status]}
+                      colorClass={PAYMENT_STATUS_COLORS[report.payment_status]}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          {/* 입금 확인 대기 (deposited) */}
+          <Card>
+            <div className="flex items-center gap-2 mb-4">
+              <Banknote className="w-5 h-5 text-yellow-600" />
+              <h2 className="text-lg font-bold text-gray-900">
+                입금 확인 대기 ({depositedReports.length})
+              </h2>
+            </div>
+
+            {depositedReports.length === 0 ? (
+              <p className="text-gray-400 text-sm">입금 확인 대기 중인 보고가 없습니다.</p>
+            ) : (
+              <div className="space-y-3">
+                {depositedReports.map((report) => (
+                  <div
+                    key={report.id}
+                    className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg border-l-4 border-l-yellow-500"
+                  >
+                    <div>
+                      <p className="font-medium text-gray-900">
+                        {report.pt_user?.profile?.full_name || '사용자'}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        입금액: {formatKRW(report.admin_deposit_amount || report.calculated_deposit)}
+                      </p>
+                    </div>
                     <div className="flex items-center gap-2">
                       <Badge
                         label={PAYMENT_STATUS_LABELS[report.payment_status]}
@@ -233,7 +351,7 @@ export default function AdminDashboardPage() {
                       />
                       <button
                         type="button"
-                        onClick={() => handleQuickConfirm(report.id)}
+                        onClick={() => handleQuickConfirmDeposit(report.id, report.pt_user_id)}
                         className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition"
                         title="입금 확인"
                       >

@@ -1,11 +1,19 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 
 const ADMIN_EMAIL = 'lhs0609a@gmail.com';
 const ADMIN_PASSWORD = 'lhs0609a@gmail.com';
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
+    // 시크릿 키 검증
+    const SEED_SECRET = process.env.SEED_API_SECRET;
+    if (SEED_SECRET) {
+      const body = await request.json().catch(() => ({}));
+      if (body.secret !== SEED_SECRET) {
+        return NextResponse.json({ error: '인증에 실패했습니다.' }, { status: 403 });
+      }
+    }
     const supabase = await createServiceClient();
 
     // 이미 존재하는지 확인

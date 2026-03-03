@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, formatYearMonth, formatDate } from '@/lib/utils/format';
+import { calculateNetProfit } from '@/lib/calculations/deposit';
+import type { CostBreakdown } from '@/lib/calculations/deposit';
 import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS } from '@/lib/utils/constants';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -58,8 +60,9 @@ export default function MyHistoryPage() {
               <thead>
                 <tr className="border-b border-gray-200">
                   <th className="text-left py-3 px-4 font-medium text-gray-500">기간</th>
-                  <th className="text-right py-3 px-4 font-medium text-gray-500">보고 매출</th>
-                  <th className="text-right py-3 px-4 font-medium text-gray-500">입금액</th>
+                  <th className="text-right py-3 px-4 font-medium text-gray-500">총 매출</th>
+                  <th className="text-right py-3 px-4 font-medium text-gray-500">순수익</th>
+                  <th className="text-right py-3 px-4 font-medium text-gray-500">확정 입금액</th>
                   <th className="text-center py-3 px-4 font-medium text-gray-500">상태</th>
                   <th className="text-right py-3 px-4 font-medium text-gray-500">제출일</th>
                 </tr>
@@ -73,8 +76,22 @@ export default function MyHistoryPage() {
                     <td className="py-3 px-4 text-right text-gray-700">
                       {formatKRW(r.reported_revenue)}
                     </td>
+                    <td className="py-3 px-4 text-right text-gray-500">
+                      {(() => {
+                        const costs: CostBreakdown = {
+                          cost_product: r.cost_product || 0,
+                          cost_commission: r.cost_commission || 0,
+                          cost_advertising: r.cost_advertising || 0,
+                          cost_returns: r.cost_returns || 0,
+                          cost_shipping: r.cost_shipping || 0,
+                          cost_tax: r.cost_tax || 0,
+                        };
+                        const net = calculateNetProfit(r.reported_revenue, costs);
+                        return <span className={net < 0 ? 'text-red-600' : ''}>{formatKRW(net)}</span>;
+                      })()}
+                    </td>
                     <td className="py-3 px-4 text-right font-medium text-[#E31837]">
-                      {formatKRW(r.calculated_deposit)}
+                      {r.admin_deposit_amount ? formatKRW(r.admin_deposit_amount) : '-'}
                     </td>
                     <td className="py-3 px-4 text-center">
                       <Badge
