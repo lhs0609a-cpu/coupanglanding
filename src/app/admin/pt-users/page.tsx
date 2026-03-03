@@ -3,11 +3,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, getCurrentYearMonth, formatYearMonth, formatPercent } from '@/lib/utils/format';
+import { calculateDeposit, calculateNetProfit, totalCosts } from '@/lib/calculations/deposit';
+import type { CostBreakdown } from '@/lib/calculations/deposit';
 import {
   PAYMENT_STATUS_LABELS,
   PAYMENT_STATUS_COLORS,
   PT_STATUS_LABELS,
   PT_STATUS_COLORS,
+  COST_CATEGORIES,
+  DEFAULT_COST_RATES,
+  MANUAL_COST_KEY,
 } from '@/lib/utils/constants';
 import MonthPicker from '@/components/ui/MonthPicker';
 import Card from '@/components/ui/Card';
@@ -16,7 +21,8 @@ import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
 import NumberInput from '@/components/ui/NumberInput';
 import Select from '@/components/ui/Select';
-import { Users, CheckCircle2, XCircle, ExternalLink, Eye, UserPlus, AlertTriangle, ClipboardList } from 'lucide-react';
+import PaymentProgress from '@/components/ui/PaymentProgress';
+import { Users, CheckCircle2, XCircle, ExternalLink, Eye, UserPlus, AlertTriangle, ClipboardList, Search, Banknote } from 'lucide-react';
 import type { PtUser, MonthlyReport, Profile, OnboardingStep } from '@/lib/supabase/types';
 import OnboardingReviewModal from '@/components/onboarding/OnboardingReviewModal';
 import { ONBOARDING_STEPS } from '@/lib/utils/constants';
@@ -30,6 +36,23 @@ interface ReportWithScreenshot extends MonthlyReport {
   screenshot_url: string | null;
 }
 
+interface ReviewModalData {
+  report: ReportWithScreenshot;
+  ptUser: PtUserWithProfile;
+  adjustedAmount: number;
+}
+
+function getReportCosts(report: ReportWithScreenshot): CostBreakdown {
+  return {
+    cost_product: report.cost_product || 0,
+    cost_commission: report.cost_commission || 0,
+    cost_advertising: report.cost_advertising || 0,
+    cost_returns: report.cost_returns || 0,
+    cost_shipping: report.cost_shipping || 0,
+    cost_tax: report.cost_tax || 0,
+  };
+}
+
 export default function AdminPtUsersPage() {
   const [yearMonth, setYearMonth] = useState(getCurrentYearMonth());
   const [ptUsers, setPtUsers] = useState<PtUserWithProfile[]>([]);
@@ -37,13 +60,15 @@ export default function AdminPtUsersPage() {
   const [loading, setLoading] = useState(true);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [screenshotModal, setScreenshotModal] = useState<string | null>(null);
-  const [noteModal, setNoteModal] = useState<{ reportId: string; note: string } | null>(null);
+
+  // 매출 확인 모달
+  const [reviewModalData, setReviewModalData] = useState<ReviewModalData | null>(null);
 
   // Onboarding
   const [onboardingSteps, setOnboardingSteps] = useState<Map<string, OnboardingStep[]>>(new Map());
   const [onboardingContracts, setOnboardingContracts] = useState<Set<string>>(new Set());
   const [onboardingReports, setOnboardingReports] = useState<Set<string>>(new Set());
-  const [reviewModal, setReviewModal] = useState<{ userId: string; userName: string } | null>(null);
+  const [obReviewModal, setObReviewModal] = useState<{ userId: string; userName: string } | null>(null);
 
   // Add user form
   const [newEmail, setNewEmail] = useState('');
@@ -117,7 +142,32 @@ export default function AdminPtUsersPage() {
     fetchData();
   }, [fetchData]);
 
-  const handleConfirm = async (report: ReportWithScreenshot, ptUserId: string) => {
+  // 매출 확인 (submitted → reviewed)
+  const handleOpenReviewModal = (report: ReportWithScreenshot, ptUser: PtUserWithProfile) => {
+    const costs = getReportCosts(report);
+    const autoDeposit = calculateDeposit(report.reported_revenue, costs, ptUser.share_percentage);
+    setReviewModalData({ report, ptUser, adjustedAmount: autoDeposit });
+  };
+
+  const handleConfirmReview = async () => {
+    if (!reviewModalData) return;
+    const { report, adjustedAmount } = reviewModalData;
+
+    await supabase
+      .from('monthly_reports')
+      .update({
+        payment_status: 'reviewed',
+        admin_deposit_amount: adjustedAmount,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq('id', report.id);
+
+    setReviewModalData(null);
+    fetchData();
+  };
+
+  // 입금 확인 (deposited → confirmed)
+  const handleConfirmDeposit = async (report: ReportWithScreenshot, ptUserId: string) => {
     await Promise.all([
       supabase
         .from('monthly_reports')
@@ -169,8 +219,6 @@ export default function AdminPtUsersPage() {
   };
 
   const handleAddUser = async () => {
-    // Note: 실제로는 Supabase Auth를 통해 사용자를 초대해야 함
-    // 여기서는 이미 Auth에 등록된 사용자의 profile을 연결하는 방식
     const { data: profile } = await supabase
       .from('profiles')
       .select('id')
@@ -189,7 +237,6 @@ export default function AdminPtUsersPage() {
       program_access_active: false,
     });
 
-    // Update role to pt_user
     await supabase
       .from('profiles')
       .update({ role: 'pt_user', full_name: newName || undefined })
@@ -206,6 +253,16 @@ export default function AdminPtUsersPage() {
     value,
     label,
   }));
+
+  const getBorderColor = (status?: string) => {
+    switch (status) {
+      case 'submitted': return 'border-l-4 border-l-blue-500';
+      case 'reviewed': return 'border-l-4 border-l-purple-500';
+      case 'deposited': return 'border-l-4 border-l-yellow-500';
+      case 'confirmed': return 'border-l-4 border-l-green-500';
+      default: return '';
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -238,9 +295,11 @@ export default function AdminPtUsersPage() {
           {ptUsers.map((user) => {
             const report = reports.get(user.id);
             const needsExternalActivation = report?.payment_status === 'confirmed' && !user.program_access_active;
+            const reportCosts = report ? getReportCosts(report) : null;
+            const reportNetProfit = report && reportCosts ? calculateNetProfit(report.reported_revenue, reportCosts) : null;
 
             return (
-              <Card key={user.id}>
+              <Card key={user.id} className={getBorderColor(report?.payment_status)}>
                 <div className="space-y-4">
                   {/* 사용자 정보 */}
                   <div className="flex items-start justify-between flex-wrap gap-3">
@@ -323,7 +382,7 @@ export default function AdminPtUsersPage() {
                             {pendingReview > 0 && (
                               <button
                                 type="button"
-                                onClick={() => setReviewModal({
+                                onClick={() => setObReviewModal({
                                   userId: user.id,
                                   userName: user.profile?.full_name || '이름 없음',
                                 })}
@@ -343,7 +402,6 @@ export default function AdminPtUsersPage() {
                           </div>
                           <span className="text-xs text-gray-400 w-8 text-right">{percent}%</span>
                         </div>
-                        {/* 도트 인디케이터 */}
                         <div className="flex gap-1 mt-2">
                           {computed.map((step) => (
                             <div
@@ -370,14 +428,31 @@ export default function AdminPtUsersPage() {
 
                     {report ? (
                       <div className="space-y-3">
+                        {/* 진행 상태 바 */}
+                        {report.payment_status !== 'pending' && report.payment_status !== 'rejected' && (
+                          <div className="mb-3">
+                            <PaymentProgress currentStatus={report.payment_status} />
+                          </div>
+                        )}
+
                         <div className="flex items-center justify-between flex-wrap gap-2">
                           <div className="space-y-1">
                             <p className="text-sm text-gray-600">
-                              보고 매출: <span className="font-medium text-gray-900">{formatKRW(report.reported_revenue)}</span>
+                              총 매출: <span className="font-medium text-gray-900">{formatKRW(report.reported_revenue)}</span>
                             </p>
+                            {reportNetProfit !== null && (
+                              <p className="text-sm text-gray-600">
+                                순수익: <span className={`font-medium ${reportNetProfit > 0 ? 'text-gray-900' : 'text-red-600'}`}>{formatKRW(reportNetProfit)}</span>
+                              </p>
+                            )}
                             <p className="text-sm text-gray-600">
-                              입금액: <span className="font-bold text-[#E31837]">{formatKRW(report.calculated_deposit)}</span>
+                              계산 입금액: <span className="font-bold text-[#E31837]">{formatKRW(report.calculated_deposit)}</span>
                             </p>
+                            {report.admin_deposit_amount && (
+                              <p className="text-sm text-gray-600">
+                                확정 입금액: <span className="font-bold text-purple-700">{formatKRW(report.admin_deposit_amount)}</span>
+                              </p>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-2">
@@ -391,7 +466,7 @@ export default function AdminPtUsersPage() {
                                 type="button"
                                 onClick={() => setScreenshotModal(report.screenshot_url)}
                                 className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-white rounded transition"
-                                title="스크린샷 보기"
+                                title="매출 스크린샷 보기"
                               >
                                 <Eye className="w-4 h-4" />
                               </button>
@@ -399,16 +474,16 @@ export default function AdminPtUsersPage() {
                           </div>
                         </div>
 
-                        {/* 입금 확인/거절 버튼 */}
+                        {/* submitted 상태: 매출 확인 + 거절 */}
                         {report.payment_status === 'submitted' && (
                           <div className="flex gap-2">
                             <button
                               type="button"
-                              onClick={() => handleConfirm(report, user.id)}
-                              className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition"
+                              onClick={() => handleOpenReviewModal(report, user)}
+                              className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition"
                             >
-                              <CheckCircle2 className="w-4 h-4" />
-                              입금 확인
+                              <Search className="w-4 h-4" />
+                              매출 확인
                             </button>
                             <button
                               type="button"
@@ -417,6 +492,29 @@ export default function AdminPtUsersPage() {
                             >
                               <XCircle className="w-4 h-4" />
                               거절
+                            </button>
+                          </div>
+                        )}
+
+                        {/* reviewed 상태: 입금 대기 정보 표시 */}
+                        {report.payment_status === 'reviewed' && (
+                          <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                            <p className="text-sm text-purple-700">
+                              입금 대기중 (확정액: <span className="font-bold">{formatKRW(report.admin_deposit_amount || report.calculated_deposit)}</span>)
+                            </p>
+                          </div>
+                        )}
+
+                        {/* deposited 상태: 입금 확인 버튼 */}
+                        {report.payment_status === 'deposited' && (
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleConfirmDeposit(report, user.id)}
+                              className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                              입금 확인
                             </button>
                           </div>
                         )}
@@ -491,6 +589,139 @@ export default function AdminPtUsersPage() {
         </div>
       </Modal>
 
+      {/* 매출 확인 모달 */}
+      <Modal
+        isOpen={!!reviewModalData}
+        onClose={() => setReviewModalData(null)}
+        title="매출 확인"
+        maxWidth="max-w-lg"
+      >
+        {reviewModalData && (() => {
+          const rCosts = getReportCosts(reviewModalData.report);
+          const rNetProfit = calculateNetProfit(reviewModalData.report.reported_revenue, rCosts);
+          const rTotalCosts = totalCosts(rCosts);
+          const autoDeposit = calculateDeposit(reviewModalData.report.reported_revenue, rCosts, reviewModalData.ptUser.share_percentage);
+
+          return (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="text-sm text-gray-600">
+                  사용자: <span className="font-medium text-gray-900">{reviewModalData.ptUser.profile?.full_name}</span>
+                </p>
+              </div>
+
+              {/* 비용 내역 테이블 */}
+              <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">총 매출</span>
+                  <span className="font-medium text-gray-900">{formatKRW(reviewModalData.report.reported_revenue)}</span>
+                </div>
+                {COST_CATEGORIES.map((cat) => {
+                  const val = rCosts[cat.key];
+                  const isAuto = cat.key !== MANUAL_COST_KEY;
+                  const rateInfo = isAuto ? DEFAULT_COST_RATES[cat.key] : null;
+                  return (
+                    <div key={cat.key} className="flex justify-between">
+                      <span className="text-gray-500">
+                        ─ {cat.label}
+                        <span className="text-xs text-gray-400 ml-1">
+                          {rateInfo ? `(자동 ${Math.round(rateInfo.rate * 100)}%)` : '(직접 입력)'}
+                        </span>
+                      </span>
+                      <span className={val > 0 ? 'text-gray-700' : 'text-gray-400'}>{val > 0 ? `-${formatKRW(val)}` : '-'}</span>
+                    </div>
+                  );
+                })}
+                <div className="border-t border-gray-300 pt-2 mt-1">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">비용 합계</span>
+                    <span className="text-gray-700">{formatKRW(rTotalCosts)}</span>
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="font-medium text-gray-700">순수익</span>
+                    <span className={`font-bold ${rNetProfit > 0 ? 'text-gray-900' : 'text-red-600'}`}>{formatKRW(rNetProfit)}</span>
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="font-medium text-[#E31837]">
+                      자동 계산 입금액 ({reviewModalData.ptUser.share_percentage}%)
+                    </span>
+                    <span className="font-bold text-[#E31837]">{formatKRW(autoDeposit)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 스크린샷 미리보기 */}
+              <div className="space-y-3">
+                {reviewModalData.report.screenshot_url && (
+                  <div className="border border-gray-200 rounded-lg overflow-hidden">
+                    <p className="px-3 pt-2 text-xs font-medium text-gray-500">매출 스크린샷</p>
+                    <img
+                      src={reviewModalData.report.screenshot_url}
+                      alt="매출 스크린샷"
+                      className="w-full h-48 object-contain bg-gray-50"
+                    />
+                    <a
+                      href={reviewModalData.report.screenshot_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 p-2 text-sm text-[#E31837] hover:underline"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      새 탭에서 열기
+                    </a>
+                  </div>
+                )}
+                {reviewModalData.report.ad_screenshot_url && (
+                  <div className="border border-gray-200 rounded-lg overflow-hidden">
+                    <p className="px-3 pt-2 text-xs font-medium text-gray-500">광고비 스크린샷</p>
+                    <img
+                      src={reviewModalData.report.ad_screenshot_url}
+                      alt="광고비 스크린샷"
+                      className="w-full h-48 object-contain bg-gray-50"
+                    />
+                    <a
+                      href={reviewModalData.report.ad_screenshot_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 p-2 text-sm text-[#E31837] hover:underline"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      새 탭에서 열기
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              <NumberInput
+                id="adjustedAmount"
+                label="확정 입금액"
+                value={reviewModalData.adjustedAmount}
+                onChange={(val) => setReviewModalData({ ...reviewModalData, adjustedAmount: val })}
+                suffix="원"
+              />
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setReviewModalData(null)}
+                  className="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium transition"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmReview}
+                  className="flex-1 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium transition flex items-center justify-center gap-2"
+                >
+                  <Banknote className="w-4 h-4" />
+                  확인 및 전달
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
+
       {/* 스크린샷 미리보기 모달 */}
       <Modal
         isOpen={!!screenshotModal}
@@ -519,12 +750,12 @@ export default function AdminPtUsersPage() {
       </Modal>
 
       {/* 온보딩 검토 모달 */}
-      {reviewModal && (
+      {obReviewModal && (
         <OnboardingReviewModal
           isOpen={true}
-          onClose={() => setReviewModal(null)}
-          ptUserName={reviewModal.userName}
-          steps={onboardingSteps.get(reviewModal.userId) || []}
+          onClose={() => setObReviewModal(null)}
+          ptUserName={obReviewModal.userName}
+          steps={onboardingSteps.get(obReviewModal.userId) || []}
           onUpdated={fetchData}
         />
       )}

@@ -3,6 +3,10 @@
 import { useState, useRef } from 'react';
 import { Upload, X, Image } from 'lucide-react';
 
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+const MAX_SIZE_MB = 10;
+const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
+
 interface FileUploadProps {
   label?: string;
   accept?: string;
@@ -10,6 +14,8 @@ interface FileUploadProps {
   onClear?: () => void;
   previewUrl?: string | null;
   error?: string;
+  warning?: string;
+  successMessage?: string;
 }
 
 export default function FileUpload({
@@ -19,16 +25,35 @@ export default function FileUpload({
   onClear,
   previewUrl,
   error,
+  warning,
+  successMessage,
 }: FileUploadProps) {
   const [dragOver, setDragOver] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const validateFile = (file: File): string | null => {
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      return 'JPEG, PNG, GIF, WebP 이미지만 업로드할 수 있습니다.';
+    }
+    if (file.size > MAX_SIZE_BYTES) {
+      return `파일 크기는 ${MAX_SIZE_MB}MB 이하여야 합니다. (현재: ${(file.size / 1024 / 1024).toFixed(1)}MB)`;
+    }
+    return null;
+  };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
     const file = e.dataTransfer.files[0];
     if (file) {
+      const err = validateFile(file);
+      if (err) {
+        setValidationError(err);
+        return;
+      }
+      setValidationError(null);
       setFileName(file.name);
       onFileSelect(file);
     }
@@ -37,6 +62,13 @@ export default function FileUpload({
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      const err = validateFile(file);
+      if (err) {
+        setValidationError(err);
+        if (inputRef.current) inputRef.current.value = '';
+        return;
+      }
+      setValidationError(null);
       setFileName(file.name);
       onFileSelect(file);
     }
@@ -102,13 +134,15 @@ export default function FileUpload({
               <p className="text-sm text-gray-500">
                 클릭하거나 파일을 드래그하세요
               </p>
-              <p className="text-xs text-gray-400 mt-1">PNG, JPG 등 이미지 파일</p>
+              <p className="text-xs text-gray-400 mt-1">JPEG, PNG, GIF, WebP (최대 {MAX_SIZE_MB}MB)</p>
             </>
           )}
         </div>
       )}
 
-      {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
+      {(validationError || error) && <p className="mt-1 text-sm text-red-600">{validationError || error}</p>}
+      {warning && !validationError && !error && <p className="mt-1 text-sm text-yellow-600">{warning}</p>}
+      {successMessage && !validationError && !error && !warning && <p className="mt-1 text-sm text-green-600">{successMessage}</p>}
     </div>
   );
 }

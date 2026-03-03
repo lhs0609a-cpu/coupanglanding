@@ -1,0 +1,53 @@
+import exifr from 'exifr';
+
+export interface ExifValidationResult {
+  isValid: boolean;
+  hasSoftware: boolean;
+  hasDateTime: boolean;
+  warningMessage: string | null;
+}
+
+/**
+ * EXIF 메타데이터를 파싱하여 실제 스크린샷 여부를 판별합니다.
+ * AI 생성 이미지는 EXIF 메타데이터가 없으므로 차단됩니다.
+ */
+export async function validateExifMetadata(file: File): Promise<ExifValidationResult> {
+  try {
+    const exifData = await exifr.parse(file, {
+      // 스크린샷 판별에 필요한 태그만 파싱
+      pick: ['Software', 'DateTime', 'DateTimeOriginal', 'Make', 'Model', 'CreateDate'],
+    });
+
+    if (!exifData) {
+      return {
+        isValid: false,
+        hasSoftware: false,
+        hasDateTime: false,
+        warningMessage: 'EXIF 메타데이터가 없습니다. 실제 스크린샷을 업로드해주세요. (AI 생성 이미지 불가)',
+      };
+    }
+
+    const hasSoftware = !!(exifData.Software);
+    const hasDateTime = !!(exifData.DateTime || exifData.DateTimeOriginal || exifData.CreateDate);
+    const hasMakeModel = !!(exifData.Make || exifData.Model);
+
+    // Software 또는 DateTime 중 하나라도 있으면 유효
+    const isValid = hasSoftware || hasDateTime || hasMakeModel;
+
+    return {
+      isValid,
+      hasSoftware,
+      hasDateTime,
+      warningMessage: isValid
+        ? null
+        : 'EXIF 메타데이터가 부족합니다. 실제 스크린샷을 업로드해주세요.',
+    };
+  } catch {
+    return {
+      isValid: false,
+      hasSoftware: false,
+      hasDateTime: false,
+      warningMessage: '이미지 메타데이터를 읽을 수 없습니다. 다른 파일을 시도해주세요.',
+    };
+  }
+}

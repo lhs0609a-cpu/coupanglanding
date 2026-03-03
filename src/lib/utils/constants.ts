@@ -16,16 +16,27 @@ export const REVENUE_SOURCES = [
 export const PAYMENT_STATUS_LABELS: Record<string, string> = {
   pending: '대기중',
   submitted: '제출됨',
-  confirmed: '확인됨',
+  reviewed: '확인완료',
+  deposited: '입금완료',
+  confirmed: '최종승인',
   rejected: '거절됨',
 };
 
 export const PAYMENT_STATUS_COLORS: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-700',
   submitted: 'bg-blue-100 text-blue-700',
+  reviewed: 'bg-purple-100 text-purple-700',
+  deposited: 'bg-yellow-100 text-yellow-700',
   confirmed: 'bg-green-100 text-green-700',
   rejected: 'bg-red-100 text-red-700',
 };
+
+export const PAYMENT_FLOW_STEPS = [
+  { key: 'submitted', label: '매출 제출' },
+  { key: 'reviewed', label: '매출 확인' },
+  { key: 'deposited', label: '입금 완료' },
+  { key: 'confirmed', label: '최종 승인' },
+] as const;
 
 export const PT_STATUS_LABELS: Record<string, string> = {
   active: '활성',
@@ -153,6 +164,37 @@ export const ONBOARDING_STATUS_COLORS: Record<string, string> = {
 
 export const DEFAULT_SHARE_PERCENTAGE = 30;
 export const DEFAULT_DISTRIBUTION_RATIO = [5, 3, 2]; // 메인:서브1:서브2
+
+// 순수익 계산용 비용 항목
+export const COST_CATEGORIES = [
+  { key: 'cost_product', label: '상품원가', description: '상품 매입/제조 원가' },
+  { key: 'cost_commission', label: '쿠팡 수수료', description: '쿠팡 판매수수료' },
+  { key: 'cost_advertising', label: '광고비', description: 'CPC/쿠팡 광고비' },
+  { key: 'cost_returns', label: '반품/환불비', description: '반품·환불 관련 비용' },
+  { key: 'cost_shipping', label: '배송비', description: '배송 관련 비용' },
+  { key: 'cost_tax', label: '세금', description: '부가세 등' },
+] as const;
+
+export type CostKey = typeof COST_CATEGORIES[number]['key'];
+
+// 자동 비용 비율 (매출 대비 %)
+export const DEFAULT_COST_RATES: Record<string, { rate: number; label: string }> = {
+  cost_product: { rate: 0.40, label: '상품원가 (매출×40%)' },
+  cost_commission: { rate: 0.10, label: '쿠팡 수수료 (매출×10%)' },
+  cost_returns: { rate: 0.03, label: '반품/환불비 (매출×3%)' },
+  cost_shipping: { rate: 0.05, label: '배송비 (매출×5%)' },
+  cost_tax: { rate: 0.10, label: '세금 (매출×10%)' },
+};
+
+export const AUTO_COST_KEYS: CostKey[] = [
+  'cost_product',
+  'cost_commission',
+  'cost_returns',
+  'cost_shipping',
+  'cost_tax',
+];
+
+export const MANUAL_COST_KEY: CostKey = 'cost_advertising';
 
 // 종합소득세 구간 (2024년 기준)
 export const TAX_BRACKETS = [
