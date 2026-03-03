@@ -42,9 +42,7 @@ export default function LoginForm() {
     });
 
     if (authError) {
-      if (authError.message === 'Email not confirmed') {
-        setError('이메일 인증이 완료되지 않았습니다. 가입 시 받은 이메일의 인증 링크를 클릭해주세요.');
-      } else if (authError.message === 'Invalid login credentials') {
+      if (authError.message === 'Invalid login credentials') {
         setError('이메일 또는 비밀번호가 올바르지 않습니다.');
       } else if (authError.status === 429) {
         setError('요청이 너무 많습니다. 잠시 후 다시 시도해주세요.');

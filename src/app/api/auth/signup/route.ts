@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createServiceClient();
 
-    // Service role로 유저 생성 → 이메일 인증 자동 완료
+    // Service role로 유저 생성 (이메일 인증 없이 즉시 활성화)
     const { data, error } = await supabase.auth.admin.createUser({
       email,
       password,
@@ -27,27 +27,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (error) {
-      // 이미 가입된 이메일인 경우: 이메일 미인증 유저라면 인증 처리 후 비밀번호 갱신
       if (error.message.includes('already been registered') || error.message.includes('already exists')) {
-        // 기존 유저 조회
-        const { data: listData } = await supabase.auth.admin.listUsers();
-        const existingUser = listData?.users?.find((u) => u.email === email);
-
-        if (existingUser && !existingUser.email_confirmed_at) {
-          // 미인증 유저 → 이메일 인증 + 비밀번호 업데이트
-          await supabase.auth.admin.updateUserById(existingUser.id, {
-            email_confirm: true,
-            password,
-            user_metadata: {
-              full_name: fullName || existingUser.user_metadata?.full_name || '',
-              role: 'pt_user',
-            },
-          });
-          // 승인 대기 상태로 설정
-          await supabase.from('profiles').update({ is_active: false }).eq('id', existingUser.id);
-          return NextResponse.json({ success: true, pending: true, userId: existingUser.id });
-        }
-
         return NextResponse.json({ error: '이미 가입된 이메일입니다. 로그인해주세요.' }, { status: 409 });
       }
       return NextResponse.json({ error: error.message }, { status: 400 });
