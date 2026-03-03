@@ -6,6 +6,7 @@ import { calculateDeposit, calculateNetProfit, totalCosts, buildCostBreakdown } 
 import type { CostBreakdown } from '@/lib/calculations/deposit';
 import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/format';
 import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, COST_CATEGORIES, DEFAULT_COST_RATES, MANUAL_COST_KEY } from '@/lib/utils/constants';
+import { getReportTargetMonth, isEligibleForMonth, getFirstEligibleMonth, getSettlementDDay, formatDDay, getDDayColorClass, formatDeadline } from '@/lib/utils/settlement';
 import { validateExifMetadata } from '@/lib/utils/exif-validation';
 import type { ExifValidationResult } from '@/lib/utils/exif-validation';
 import MonthPicker from '@/components/ui/MonthPicker';
@@ -20,7 +21,7 @@ import type { MonthlyReport, PtUser } from '@/lib/supabase/types';
 import OnboardingChecklist from '@/components/onboarding/OnboardingChecklist';
 
 export default function MyDashboardPage() {
-  const [yearMonth, setYearMonth] = useState(getCurrentYearMonth());
+  const [yearMonth, setYearMonth] = useState(getReportTargetMonth());
   const [revenue, setRevenue] = useState(0);
   const [advertisingCost, setAdvertisingCost] = useState(0);
   const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
@@ -262,6 +263,11 @@ export default function MyDashboardPage() {
   const isEditable = !report || report.payment_status === 'pending' || report.payment_status === 'rejected';
   const hasCosts = totalCosts(costs) > 0;
 
+  // 정산 대상 여부 + D-day
+  const eligible = ptUser ? isEligibleForMonth(ptUser.created_at, yearMonth) : true;
+  const dday = getSettlementDDay(yearMonth);
+  const firstEligible = ptUser ? getFirstEligibleMonth(ptUser.created_at) : null;
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* 온보딩 체크리스트 */}
@@ -271,6 +277,35 @@ export default function MyDashboardPage() {
         <h1 className="text-2xl font-bold text-gray-900">매출 보고</h1>
         <MonthPicker value={yearMonth} onChange={setYearMonth} />
       </div>
+
+      {/* D-day 배너 */}
+      {eligible && (
+        <div className={`rounded-lg p-4 flex items-center justify-between flex-wrap gap-2 ${getDDayColorClass(dday)} border`}>
+          <div>
+            <p className="text-sm font-medium">
+              {formatYearMonth(yearMonth)} 매출 정산 마감
+            </p>
+            <p className="text-xs mt-0.5 opacity-80">
+              마감일: {formatDeadline(yearMonth)}
+            </p>
+          </div>
+          <span className="text-lg font-bold">{formatDDay(dday)}</span>
+        </div>
+      )}
+
+      {/* 미대상월 안내 */}
+      {!eligible && ptUser && (
+        <div className="rounded-lg p-4 bg-gray-50 border border-gray-200">
+          <p className="text-sm font-medium text-gray-700">
+            이 월은 정산 대상이 아닙니다
+          </p>
+          {firstEligible && (
+            <p className="text-xs text-gray-500 mt-1">
+              첫 정산 대상월: {formatYearMonth(firstEligible)}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* 상태 카드 */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -588,15 +623,17 @@ export default function MyDashboardPage() {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={submitLoading || !isEditable}
+              disabled={submitLoading || !isEditable || !eligible}
               className="w-full py-3 bg-[#E31837] text-white font-semibold rounded-lg hover:bg-[#c01530] transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               <Send className="w-4 h-4" />
-              {submitLoading
-                ? '제출 중...'
-                : report
-                  ? isEditable ? '보고 수정' : '이미 확인된 보고입니다'
-                  : '매출 보고 제출'
+              {!eligible
+                ? '정산 대상이 아닌 월입니다'
+                : submitLoading
+                  ? '제출 중...'
+                  : report
+                    ? isEditable ? '보고 수정' : '이미 확인된 보고입니다'
+                    : '매출 보고 제출'
               }
             </button>
           </div>

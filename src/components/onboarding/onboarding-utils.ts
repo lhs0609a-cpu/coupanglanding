@@ -6,6 +6,7 @@ export interface ComputedStep {
   definition: OnboardingStepDefinition;
   dbRow: OnboardingStep | null;
   status: ComputedStepStatus;
+  isLocked: boolean;
 }
 
 export function computeStepStates(
@@ -17,33 +18,35 @@ export function computeStepStates(
   const rowMap = new Map<string, OnboardingStep>();
   dbRows.forEach((row) => rowMap.set(row.step_key, row));
 
+  let allPreviousCompleted = true;
+
   return definitions.map((def) => {
+    const isLocked = !allPreviousCompleted;
+
     // 자동 연동 단계
     if (def.verificationType === 'auto_linked') {
       if (def.autoLinkSource === 'contract') {
-        return {
-          definition: def,
-          dbRow: null,
-          status: hasSignedContract ? 'completed' : 'pending',
-        };
+        const status: ComputedStepStatus = hasSignedContract ? 'completed' : 'pending';
+        if (status !== 'completed') allPreviousCompleted = false;
+        return { definition: def, dbRow: null, status, isLocked };
       }
       if (def.autoLinkSource === 'monthly_report') {
-        return {
-          definition: def,
-          dbRow: null,
-          status: hasMonthlyReport ? 'completed' : 'pending',
-        };
+        const status: ComputedStepStatus = hasMonthlyReport ? 'completed' : 'pending';
+        if (status !== 'completed') allPreviousCompleted = false;
+        return { definition: def, dbRow: null, status, isLocked };
       }
     }
 
     const row = rowMap.get(def.key);
     if (!row) {
-      return { definition: def, dbRow: null, status: 'pending' as ComputedStepStatus };
+      allPreviousCompleted = false;
+      return { definition: def, dbRow: null, status: 'pending' as ComputedStepStatus, isLocked };
     }
 
     // approved -> completed로 표시
     const status: ComputedStepStatus = row.status === 'approved' ? 'completed' : row.status;
-    return { definition: def, dbRow: row, status };
+    if (status !== 'completed') allPreviousCompleted = false;
+    return { definition: def, dbRow: row, status, isLocked };
   });
 }
 

@@ -13,7 +13,10 @@ import {
   COST_CATEGORIES,
   DEFAULT_COST_RATES,
   MANUAL_COST_KEY,
+  SETTLEMENT_STATUS_LABELS,
+  SETTLEMENT_STATUS_COLORS,
 } from '@/lib/utils/constants';
+import { getFirstEligibleMonth, isEligibleForMonth, getSettlementStatus, getSettlementDDay, formatDDay, getDDayColorClass } from '@/lib/utils/settlement';
 import MonthPicker from '@/components/ui/MonthPicker';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -22,7 +25,7 @@ import Input from '@/components/ui/Input';
 import NumberInput from '@/components/ui/NumberInput';
 import Select from '@/components/ui/Select';
 import PaymentProgress from '@/components/ui/PaymentProgress';
-import { Users, CheckCircle2, XCircle, ExternalLink, Eye, UserPlus, AlertTriangle, ClipboardList, Search, Banknote } from 'lucide-react';
+import { Users, CheckCircle2, XCircle, ExternalLink, Eye, UserPlus, AlertTriangle, ClipboardList, Search, Banknote, Calendar, BarChart3 } from 'lucide-react';
 import type { PtUser, MonthlyReport, Profile, OnboardingStep } from '@/lib/supabase/types';
 import OnboardingReviewModal from '@/components/onboarding/OnboardingReviewModal';
 import { ONBOARDING_STEPS } from '@/lib/utils/constants';
@@ -306,6 +309,109 @@ export default function AdminPtUsersPage() {
         </div>
       </div>
 
+      {/* 정산 완료율 요약 */}
+      {!loading && ptUsers.length > 0 && (() => {
+        const reportMap = reports;
+        let eligible = 0;
+        let submitted = 0;
+        let completed = 0;
+        let overdue = 0;
+        const overdueNames: string[] = [];
+
+        ptUsers.forEach((u) => {
+          if (!isEligibleForMonth(u.created_at, yearMonth)) return;
+          eligible++;
+          const r = reportMap.get(u.id);
+          const status = getSettlementStatus(u.created_at, r?.payment_status || null, yearMonth);
+          if (status === 'completed') completed++;
+          else if (status === 'submitted') submitted++;
+          else if (status === 'overdue') {
+            overdue++;
+            overdueNames.push(u.profile?.full_name || '이름 없음');
+          }
+        });
+
+        const completionRate = eligible > 0 ? Math.round(((completed + submitted) / eligible) * 100) : 0;
+        const dday = getSettlementDDay(yearMonth);
+
+        return eligible > 0 ? (
+          <Card>
+            <div className="flex items-center gap-2 mb-4">
+              <BarChart3 className="w-5 h-5 text-[#E31837]" />
+              <h2 className="text-lg font-bold text-gray-900">
+                {formatYearMonth(yearMonth)} 정산 현황
+              </h2>
+              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ml-auto ${getDDayColorClass(dday)}`}>
+                {formatDDay(dday)}
+              </span>
+            </div>
+
+            {/* 완료율 프로그레스 바 */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-sm text-gray-600">전체 진행률</span>
+                <span className="text-sm font-bold text-gray-900">{completionRate}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3">
+                <div className="relative h-3 rounded-full overflow-hidden">
+                  <div
+                    className="absolute inset-y-0 left-0 bg-green-500 transition-all duration-500"
+                    style={{ width: `${eligible > 0 ? (completed / eligible) * 100 : 0}%` }}
+                  />
+                  <div
+                    className="absolute inset-y-0 bg-yellow-400 transition-all duration-500"
+                    style={{
+                      left: `${eligible > 0 ? (completed / eligible) * 100 : 0}%`,
+                      width: `${eligible > 0 ? (submitted / eligible) * 100 : 0}%`,
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-4 mt-1.5 text-xs text-gray-500">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> 완료 {completed}</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400 inline-block" /> 처리중 {submitted}</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-200 inline-block" /> 미제출 {eligible - completed - submitted}</span>
+              </div>
+            </div>
+
+            {/* 통계 그리드 */}
+            <div className="grid grid-cols-4 gap-3">
+              <div className="text-center p-2.5 bg-blue-50 rounded-lg">
+                <p className="text-xl font-bold text-blue-700">{eligible}</p>
+                <p className="text-xs text-blue-600">대상자</p>
+              </div>
+              <div className="text-center p-2.5 bg-yellow-50 rounded-lg">
+                <p className="text-xl font-bold text-yellow-700">{submitted}</p>
+                <p className="text-xs text-yellow-600">처리중</p>
+              </div>
+              <div className="text-center p-2.5 bg-green-50 rounded-lg">
+                <p className="text-xl font-bold text-green-700">{completed}</p>
+                <p className="text-xs text-green-600">완료</p>
+              </div>
+              <div className={`text-center p-2.5 rounded-lg ${overdue > 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
+                <p className={`text-xl font-bold ${overdue > 0 ? 'text-red-700' : 'text-gray-400'}`}>{overdue}</p>
+                <p className={`text-xs ${overdue > 0 ? 'text-red-600' : 'text-gray-400'}`}>지연</p>
+              </div>
+            </div>
+
+            {/* 지연 경고 */}
+            {overdue > 0 && (
+              <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-red-700">
+                    {overdue}명의 사용자가 정산을 지연하고 있습니다
+                  </p>
+                  <p className="text-xs text-red-600 mt-0.5">
+                    {overdueNames.join(', ')}
+                  </p>
+                </div>
+              </div>
+            )}
+          </Card>
+        ) : null;
+      })()}
+
       {loading ? (
         <div className="py-12 text-center text-gray-400">불러오는 중...</div>
       ) : ptUsers.length === 0 ? (
@@ -320,8 +426,14 @@ export default function AdminPtUsersPage() {
             const reportCosts = report ? getReportCosts(report) : null;
             const reportNetProfit = report && reportCosts ? calculateNetProfit(report.reported_revenue, reportCosts) : null;
 
+            // 정산 상태
+            const settlementStatus = getSettlementStatus(user.created_at, report?.payment_status || null, yearMonth);
+            const firstEligible = getFirstEligibleMonth(user.created_at);
+            const dday = getSettlementDDay(yearMonth);
+            const isOverdue = settlementStatus === 'overdue';
+
             return (
-              <Card key={user.id} className={getBorderColor(report?.payment_status)}>
+              <Card key={user.id} className={`${getBorderColor(report?.payment_status)} ${isOverdue ? 'ring-2 ring-red-300' : ''}`}>
                 <div className="space-y-4">
                   {/* 사용자 정보 */}
                   <div className="flex items-start justify-between flex-wrap gap-3">
@@ -330,7 +442,7 @@ export default function AdminPtUsersPage() {
                         {user.profile?.full_name || '이름 없음'}
                       </h3>
                       <p className="text-sm text-gray-500">{user.profile?.email}</p>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <Badge
                           label={PT_STATUS_LABELS[user.status]}
                           colorClass={PT_STATUS_COLORS[user.status]}
@@ -342,6 +454,21 @@ export default function AdminPtUsersPage() {
                           label={user.program_access_active ? '프로그램 활성' : '프로그램 비활성'}
                           colorClass={user.program_access_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}
                         />
+                        <span className="text-xs text-gray-400">
+                          첫 정산월: {formatYearMonth(firstEligible)}
+                        </span>
+                      </div>
+                      {/* 정산 상태 뱃지 */}
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <Badge
+                          label={SETTLEMENT_STATUS_LABELS[settlementStatus]}
+                          colorClass={SETTLEMENT_STATUS_COLORS[settlementStatus]}
+                        />
+                        {settlementStatus !== 'not_eligible' && settlementStatus !== 'completed' && (
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${getDDayColorClass(dday)}`}>
+                            {formatDDay(dday)}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -548,7 +675,24 @@ export default function AdminPtUsersPage() {
                         )}
                       </div>
                     ) : (
-                      <p className="text-sm text-gray-400">아직 보고가 제출되지 않았습니다.</p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm text-gray-400">
+                          {settlementStatus === 'not_eligible'
+                            ? `정산 대상 아님 (첫 대상월: ${formatYearMonth(firstEligible)})`
+                            : '아직 보고가 제출되지 않았습니다.'
+                          }
+                        </p>
+                        {settlementStatus === 'overdue' && (
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${getDDayColorClass(dday)}`}>
+                            {formatDDay(dday)}
+                          </span>
+                        )}
+                        {settlementStatus === 'pending' && (
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${getDDayColorClass(dday)}`}>
+                            {formatDDay(dday)}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>

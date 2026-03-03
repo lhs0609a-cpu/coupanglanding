@@ -9,7 +9,8 @@ import type { OnboardingStep } from '@/lib/supabase/types';
 import OnboardingStepItem from './OnboardingStepItem';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import { ChevronDown, ChevronUp, Award } from 'lucide-react';
+import { ChevronDown, ChevronUp, Trophy } from 'lucide-react';
+import { getTutorialForStep } from '@/lib/data/onboarding-tutorials';
 
 interface OnboardingChecklistProps {
   ptUserId: string;
@@ -67,6 +68,19 @@ export default function OnboardingChecklist({ ptUserId }: OnboardingChecklistPro
   const completedCount = countCompleted(steps);
   const allDone = completedCount === totalSteps;
   const progressPercent = totalSteps > 0 ? Math.round((completedCount / totalSteps) * 100) : 0;
+
+  const levelLabels: Record<number, string> = {
+    0: '입문자',
+    1: '준비 중',
+    2: '사업자 등록 완료',
+    3: '신고 완료',
+    4: '쿠팡 셀러',
+    5: 'Wing 마스터',
+    6: '첫 상품 등록',
+    7: '계약 완료',
+    8: '쿠팡 셀러 마스터',
+  };
+  const currentLevel = levelLabels[completedCount] ?? `${completedCount}단계`;
 
   const handleSelfCheck = async (stepKey: string) => {
     setActionLoading(stepKey);
@@ -132,10 +146,10 @@ export default function OnboardingChecklist({ ptUserId }: OnboardingChecklistPro
     return (
       <Card className="bg-green-50 border-green-200">
         <div className="flex items-center gap-3">
-          <Award className="w-6 h-6 text-green-600" />
+          <Trophy className="w-6 h-6 text-green-600" />
           <div>
-            <span className="text-green-800 font-bold">온보딩 완료</span>
-            <p className="text-sm text-green-600">모든 단계를 완료했습니다.</p>
+            <span className="text-green-800 font-bold">쿠팡 셀러 마스터</span>
+            <p className="text-sm text-green-600">모든 온보딩 단계를 완료했습니다!</p>
           </div>
           <Badge label="8/8 완료" colorClass="bg-green-100 text-green-700" />
         </div>
@@ -148,7 +162,10 @@ export default function OnboardingChecklist({ ptUserId }: OnboardingChecklistPro
       {/* 헤더 */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">온보딩 체크리스트</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-bold text-gray-900">온보딩 체크리스트</h2>
+            <Badge label={currentLevel} colorClass="bg-[#E31837]/10 text-[#E31837]" />
+          </div>
           <p className="text-sm text-gray-500 mt-0.5">
             {completedCount}/{totalSteps} 완료
           </p>
@@ -186,6 +203,8 @@ export default function OnboardingChecklist({ ptUserId }: OnboardingChecklistPro
               onSelfCheck={() => handleSelfCheck(step.definition.key)}
               onEvidenceSubmit={(file) => handleEvidenceSubmit(step.definition.key, file)}
               loading={actionLoading === step.definition.key}
+              tutorialContent={getTutorialForStep(step.definition.key)}
+              isLocked={step.isLocked}
             />
           ))}
         </div>

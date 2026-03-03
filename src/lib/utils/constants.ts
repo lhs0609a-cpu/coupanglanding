@@ -196,6 +196,24 @@ export const AUTO_COST_KEYS: CostKey[] = [
 
 export const MANUAL_COST_KEY: CostKey = 'cost_advertising';
 
+// 정산 상태 라벨
+export const SETTLEMENT_STATUS_LABELS: Record<string, string> = {
+  not_eligible: '정산 대상 아님',
+  pending: '미제출',
+  submitted: '처리 중',
+  completed: '정산 완료',
+  overdue: '지연',
+};
+
+// 정산 상태 색상
+export const SETTLEMENT_STATUS_COLORS: Record<string, string> = {
+  not_eligible: 'bg-gray-100 text-gray-500',
+  pending: 'bg-blue-100 text-blue-700',
+  submitted: 'bg-yellow-100 text-yellow-700',
+  completed: 'bg-green-100 text-green-700',
+  overdue: 'bg-red-100 text-red-700',
+};
+
 // 종합소득세 구간 (2024년 기준)
 export const TAX_BRACKETS = [
   { limit: 14_000_000, rate: 0.06, deduction: 0 },

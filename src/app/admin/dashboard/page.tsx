@@ -3,13 +3,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/format';
-import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, REVENUE_SOURCES } from '@/lib/utils/constants';
+import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, REVENUE_SOURCES, SETTLEMENT_STATUS_LABELS, SETTLEMENT_STATUS_COLORS } from '@/lib/utils/constants';
+import { getReportTargetMonth, getFirstEligibleMonth, isEligibleForMonth, getSettlementStatus, getSettlementDDay, formatDDay, getDDayColorClass, formatDeadline } from '@/lib/utils/settlement';
 import MonthPicker from '@/components/ui/MonthPicker';
 import StatCard from '@/components/ui/StatCard';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import { TrendingUp, TrendingDown, Wallet, AlertCircle, CheckCircle2, UserPlus, XCircle, Search, Clock, Banknote } from 'lucide-react';
-import type { MonthlyReport, RevenueEntry, ExpenseEntry } from '@/lib/supabase/types';
+import { TrendingUp, TrendingDown, Wallet, AlertCircle, CheckCircle2, UserPlus, XCircle, Search, Clock, Banknote, Calendar } from 'lucide-react';
+import type { MonthlyReport, RevenueEntry, ExpenseEntry, PtUser } from '@/lib/supabase/types';
 
 type ReportWithUser = MonthlyReport & { pt_user: { profile: { full_name: string } } };
 
@@ -21,6 +22,8 @@ export default function AdminDashboardPage() {
   const [reviewedReports, setReviewedReports] = useState<ReportWithUser[]>([]);
   const [depositedReports, setDepositedReports] = useState<ReportWithUser[]>([]);
   const [pendingUsers, setPendingUsers] = useState<{ id: string; full_name: string; email: string; created_at: string }[]>([]);
+  const [allPtUsers, setAllPtUsers] = useState<(PtUser & { profile: { full_name: string } })[]>([]);
+  const [allReportsForMonth, setAllReportsForMonth] = useState<MonthlyReport[]>([]);
   const [loading, setLoading] = useState(true);
 
   const supabase = createClient();
@@ -28,7 +31,7 @@ export default function AdminDashboardPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
 
-    const [revRes, expRes, submittedRes, reviewedRes, depositedRes, pendingUsersRes] = await Promise.all([
+    const [revRes, expRes, submittedRes, reviewedRes, depositedRes, pendingUsersRes, ptUsersRes, allReportsRes] = await Promise.all([
       supabase.from('revenue_entries').select('*').eq('year_month', yearMonth),
       supabase.from('expense_entries').select('*').eq('year_month', yearMonth),
       supabase
@@ -51,6 +54,14 @@ export default function AdminDashboardPage() {
         .select('id, full_name, email, created_at')
         .eq('is_active', false)
         .order('created_at', { ascending: false }),
+      supabase
+        .from('pt_users')
+        .select('*, profile:profiles(full_name)')
+        .eq('status', 'active'),
+      supabase
+        .from('monthly_reports')
+        .select('*')
+        .eq('year_month', yearMonth),
     ]);
 
     setRevenues((revRes.data as RevenueEntry[]) || []);
@@ -59,6 +70,8 @@ export default function AdminDashboardPage() {
     setReviewedReports((reviewedRes.data as ReportWithUser[]) || []);
     setDepositedReports((depositedRes.data as ReportWithUser[]) || []);
     setPendingUsers((pendingUsersRes.data as typeof pendingUsers) || []);
+    setAllPtUsers((ptUsersRes.data as typeof allPtUsers) || []);
+    setAllReportsForMonth((allReportsRes.data as MonthlyReport[]) || []);
     setLoading(false);
   }, [yearMonth, supabase]);
 
@@ -76,6 +89,35 @@ export default function AdminDashboardPage() {
       .reduce((sum, r) => sum + r.amount, 0);
     return { ...src, amount, percentage: totalRevenue > 0 ? Math.round((amount / totalRevenue) * 100) : 0 };
   });
+
+  // 정산 현황 계산
+  const reportTargetMonth = getReportTargetMonth();
+  const settlementStats = (() => {
+    const reportMap = new Map<string, MonthlyReport>();
+    allReportsForMonth.forEach((r) => reportMap.set(r.pt_user_id, r));
+
+    let eligible = 0;
+    let inProgress = 0;
+    let completed = 0;
+    const overdueUsers: { name: string; dday: number }[] = [];
+
+    allPtUsers.forEach((u) => {
+      if (!isEligibleForMonth(u.created_at, yearMonth)) return;
+      eligible++;
+      const report = reportMap.get(u.id);
+      const status = getSettlementStatus(u.created_at, report?.payment_status || null, yearMonth);
+      if (status === 'completed') completed++;
+      else if (status === 'submitted') inProgress++;
+      else if (status === 'overdue') {
+        overdueUsers.push({
+          name: u.profile?.full_name || '이름 없음',
+          dday: getSettlementDDay(yearMonth),
+        });
+      }
+    });
+
+    return { eligible, inProgress, completed, overdueUsers };
+  })();
 
   const handleApproveUser = async (userId: string) => {
     // 프로필 활성화
@@ -110,15 +152,19 @@ export default function AdminDashboardPage() {
     fetchData();
   };
 
-  const handleQuickConfirmDeposit = async (reportId: string, ptUserId?: string) => {
-    const updates = [
+  const handleQuickConfirmDeposit = async (report: ReportWithUser) => {
+    const ptUserId = report.pt_user_id;
+    const userName = report.pt_user?.profile?.full_name || '이름없음';
+    const depositAmount = report.admin_deposit_amount || report.calculated_deposit;
+
+    const updates: Promise<unknown>[] = [
       supabase
         .from('monthly_reports')
         .update({
           payment_status: 'confirmed',
           payment_confirmed_at: new Date().toISOString(),
         })
-        .eq('id', reportId),
+        .eq('id', report.id),
     ];
 
     if (ptUserId) {
@@ -131,6 +177,27 @@ export default function AdminDashboardPage() {
     }
 
     await Promise.all(updates);
+
+    // revenue_entries 자동 생성 (중복 방지)
+    if (ptUserId) {
+      const { data: existing } = await supabase
+        .from('revenue_entries')
+        .select('id')
+        .eq('year_month', report.year_month)
+        .ilike('description', `PT:${ptUserId}%`)
+        .maybeSingle();
+
+      if (!existing) {
+        await supabase.from('revenue_entries').insert({
+          year_month: report.year_month,
+          source: 'pt',
+          description: `PT:${ptUserId}:${userName}`,
+          amount: depositAmount,
+          main_partner_id: null,
+        });
+      }
+    }
+
     fetchData();
   };
 
@@ -194,6 +261,52 @@ export default function AdminDashboardPage() {
               </div>
             )}
           </Card>
+
+          {/* 정산 현황 */}
+          {settlementStats.eligible > 0 && (
+            <Card>
+              <div className="flex items-center gap-2 mb-4">
+                <Calendar className="w-5 h-5 text-[#E31837]" />
+                <h2 className="text-lg font-bold text-gray-900">
+                  {formatYearMonth(yearMonth)} 정산 현황
+                </h2>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="text-center p-3 bg-blue-50 rounded-lg">
+                  <p className="text-2xl font-bold text-blue-700">{settlementStats.eligible}</p>
+                  <p className="text-xs text-blue-600">대상자</p>
+                </div>
+                <div className="text-center p-3 bg-yellow-50 rounded-lg">
+                  <p className="text-2xl font-bold text-yellow-700">{settlementStats.inProgress}</p>
+                  <p className="text-xs text-yellow-600">처리중</p>
+                </div>
+                <div className="text-center p-3 bg-green-50 rounded-lg">
+                  <p className="text-2xl font-bold text-green-700">{settlementStats.completed}</p>
+                  <p className="text-xs text-green-600">완료</p>
+                </div>
+              </div>
+
+              {settlementStats.overdueUsers.length > 0 && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertCircle className="w-4 h-4 text-red-600" />
+                    <span className="text-sm font-medium text-red-700">
+                      지연 사용자 ({settlementStats.overdueUsers.length}명)
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    {settlementStats.overdueUsers.map((u, i) => (
+                      <div key={i} className="flex items-center justify-between text-sm">
+                        <span className="text-red-700">{u.name}</span>
+                        <span className="text-red-800 font-medium">{formatDDay(u.dday)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+          )}
 
           {/* 가입 승인 대기 */}
           <Card>
@@ -351,7 +464,7 @@ export default function AdminDashboardPage() {
                       />
                       <button
                         type="button"
-                        onClick={() => handleQuickConfirmDeposit(report.id, report.pt_user_id)}
+                        onClick={() => handleQuickConfirmDeposit(report)}
                         className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition"
                         title="입금 확인"
                       >
