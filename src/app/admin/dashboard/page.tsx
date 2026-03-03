@@ -170,26 +170,20 @@ export default function AdminDashboardPage() {
     const userName = report.pt_user?.profile?.full_name || '이름없음';
     const depositAmount = report.admin_deposit_amount || report.calculated_deposit;
 
-    const updates: Promise<unknown>[] = [
-      supabase
-        .from('monthly_reports')
-        .update({
-          payment_status: 'confirmed',
-          payment_confirmed_at: new Date().toISOString(),
-        })
-        .eq('id', report.id),
-    ];
+    await supabase
+      .from('monthly_reports')
+      .update({
+        payment_status: 'confirmed',
+        payment_confirmed_at: new Date().toISOString(),
+      })
+      .eq('id', report.id);
 
     if (ptUserId) {
-      updates.push(
-        supabase
-          .from('pt_users')
-          .update({ program_access_active: true })
-          .eq('id', ptUserId)
-      );
+      await supabase
+        .from('pt_users')
+        .update({ program_access_active: true })
+        .eq('id', ptUserId);
     }
-
-    await Promise.all(updates);
 
     // revenue_entries 자동 생성 (중복 방지)
     if (ptUserId) {
