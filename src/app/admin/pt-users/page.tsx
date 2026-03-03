@@ -166,8 +166,12 @@ export default function AdminPtUsersPage() {
     fetchData();
   };
 
-  // 입금 확인 (deposited → confirmed)
+  // 입금 확인 (deposited → confirmed) + revenue_entries 자동 생성
   const handleConfirmDeposit = async (report: ReportWithScreenshot, ptUserId: string) => {
+    const ptUser = ptUsers.find((u) => u.id === ptUserId);
+    const userName = ptUser?.profile?.full_name || '이름없음';
+    const depositAmount = report.admin_deposit_amount || report.calculated_deposit;
+
     await Promise.all([
       supabase
         .from('monthly_reports')
@@ -181,6 +185,24 @@ export default function AdminPtUsersPage() {
         .update({ program_access_active: true })
         .eq('id', ptUserId),
     ]);
+
+    // 중복 방지: description에 "PT:{ptUserId}" 포맷으로 조회
+    const { data: existing } = await supabase
+      .from('revenue_entries')
+      .select('id')
+      .eq('year_month', report.year_month)
+      .ilike('description', `PT:${ptUserId}%`)
+      .maybeSingle();
+
+    if (!existing) {
+      await supabase.from('revenue_entries').insert({
+        year_month: report.year_month,
+        source: 'pt',
+        description: `PT:${ptUserId}:${userName}`,
+        amount: depositAmount,
+        main_partner_id: null,
+      });
+    }
 
     fetchData();
   };

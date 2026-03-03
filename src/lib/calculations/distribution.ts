@@ -54,8 +54,9 @@ export function calculateDistribution(input: DistributionInput): DistributionRes
     // 최종 금액
     const finalAmount = revenueShare + expenseSettlement;
 
-    // 연간 예상 세금
+    // 월 예상 세금 (연간 세금을 12로 나눔)
     const { totalTax } = estimateAnnualTax(finalAmount);
+    const monthlyTax = Math.floor(totalTax / 12);
 
     return {
       partner_id: partner.id,
@@ -66,8 +67,8 @@ export function calculateDistribution(input: DistributionInput): DistributionRes
       expense_obligation: expenseObligation,
       expense_settlement: expenseSettlement,
       final_amount: finalAmount,
-      estimated_tax: totalTax,
-      after_tax: finalAmount * 12 - totalTax, // 연간 세후
+      estimated_tax: monthlyTax,
+      after_tax: finalAmount - monthlyTax,
     };
   });
 

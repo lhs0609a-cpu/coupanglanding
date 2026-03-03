@@ -7,8 +7,12 @@ import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/for
 import MonthPicker from '@/components/ui/MonthPicker';
 import Card from '@/components/ui/Card';
 import StatCard from '@/components/ui/StatCard';
-import { PieChart, TrendingUp, TrendingDown, Wallet, Lock, CheckCircle2 } from 'lucide-react';
-import type { Partner, RevenueEntry, ExpenseEntry, DistributionSnapshot } from '@/lib/supabase/types';
+import { PieChart, TrendingUp, TrendingDown, Wallet, Lock, CheckCircle2, Users, AlertTriangle } from 'lucide-react';
+import type { Partner, RevenueEntry, ExpenseEntry, DistributionSnapshot, MonthlyReport, PtUser, Profile } from '@/lib/supabase/types';
+
+interface ConfirmedReport extends MonthlyReport {
+  pt_user?: PtUser & { profile?: Profile };
+}
 
 export default function AdminDistributionPage() {
   const [yearMonth, setYearMonth] = useState(getCurrentYearMonth());
@@ -16,6 +20,8 @@ export default function AdminDistributionPage() {
   const [revenues, setRevenues] = useState<RevenueEntry[]>([]);
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
   const [snapshot, setSnapshot] = useState<DistributionSnapshot | null>(null);
+  const [ptReports, setPtReports] = useState<ConfirmedReport[]>([]);
+  const [pendingPtCount, setPendingPtCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
 
@@ -24,17 +30,27 @@ export default function AdminDistributionPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
 
-    const [partnerRes, revRes, expRes, snapRes] = await Promise.all([
+    const [partnerRes, revRes, expRes, snapRes, ptConfirmedRes, ptPendingRes] = await Promise.all([
       supabase.from('partners').select('*').order('share_ratio', { ascending: false }),
       supabase.from('revenue_entries').select('*').eq('year_month', yearMonth),
       supabase.from('expense_entries').select('*').eq('year_month', yearMonth),
       supabase.from('distribution_snapshots').select('*').eq('year_month', yearMonth).single(),
+      supabase.from('monthly_reports')
+        .select('*, pt_user:pt_users(*, profile:profiles(*))')
+        .eq('year_month', yearMonth)
+        .eq('payment_status', 'confirmed'),
+      supabase.from('monthly_reports')
+        .select('id', { count: 'exact', head: true })
+        .eq('year_month', yearMonth)
+        .in('payment_status', ['submitted', 'reviewed']),
     ]);
 
     setPartners((partnerRes.data as Partner[]) || []);
     setRevenues((revRes.data as RevenueEntry[]) || []);
     setExpenses((expRes.data as ExpenseEntry[]) || []);
     setSnapshot(snapRes.data as DistributionSnapshot | null);
+    setPtReports((ptConfirmedRes.data as ConfirmedReport[]) || []);
+    setPendingPtCount(ptPendingRes.count || 0);
     setLoading(false);
   }, [yearMonth, supabase]);
 
@@ -43,6 +59,10 @@ export default function AdminDistributionPage() {
   }, [fetchData]);
 
   const result = calculateDistribution({ partners, revenues, expenses });
+
+  const ptRevenue = revenues.filter((r) => r.source === 'pt').reduce((sum, r) => sum + r.amount, 0);
+  const otherRevenue = revenues.filter((r) => r.source !== 'pt').reduce((sum, r) => sum + r.amount, 0);
+  const ptEntryCount = revenues.filter((r) => r.source === 'pt').length;
 
   const handleConfirmDistribution = async () => {
     if (!confirm(`${formatYearMonth(yearMonth)} 정산을 확정하시겠습니까? 확정 후에는 수정할 수 없습니다.`)) return;
@@ -107,6 +127,69 @@ export default function AdminDistributionPage() {
             />
           </div>
 
+          {/* 수익원별 분류 */}
+          {(ptRevenue > 0 || otherRevenue > 0) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <StatCard
+                title="PT 수익"
+                value={formatKRW(ptRevenue)}
+                icon={<Users className="w-5 h-5" />}
+              />
+              <StatCard
+                title="기타 수익"
+                value={formatKRW(otherRevenue)}
+                icon={<TrendingUp className="w-5 h-5" />}
+              />
+            </div>
+          )}
+
+          {/* PT 매출 현황 */}
+          {(ptReports.length > 0 || pendingPtCount > 0) && (
+            <Card>
+              <div className="flex items-center gap-2 mb-3">
+                <Users className="w-5 h-5 text-[#E31837]" />
+                <h3 className="font-bold text-gray-900">PT 매출 현황</h3>
+              </div>
+
+              {pendingPtCount > 0 && (
+                <div className="flex items-center gap-2 mb-3 p-2.5 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <AlertTriangle className="w-4 h-4 text-yellow-600 shrink-0" />
+                  <p className="text-sm text-yellow-700">
+                    아직 미확인 매출이 <span className="font-bold">{pendingPtCount}건</span> 있습니다.
+                  </p>
+                </div>
+              )}
+
+              {ptReports.length > 0 ? (
+                <div className="space-y-2">
+                  {ptReports.map((report) => {
+                    const depositAmount = report.admin_deposit_amount || report.calculated_deposit;
+                    const userName = report.pt_user?.profile?.full_name || '이름 없음';
+                    return (
+                      <div key={report.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg text-sm">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-green-500" />
+                          <span className="font-medium text-gray-900">{userName}</span>
+                        </div>
+                        <span className="font-bold text-gray-900">{formatKRW(depositAmount)}</span>
+                      </div>
+                    );
+                  })}
+                  <div className="flex justify-between pt-2 border-t border-gray-200 text-sm">
+                    <span className="text-gray-500">
+                      confirmed {ptReports.length}건 / revenue_entries {ptEntryCount}건
+                    </span>
+                    <span className="font-bold text-[#E31837]">
+                      합계: {formatKRW(ptReports.reduce((sum, r) => sum + (r.admin_deposit_amount || r.calculated_deposit), 0))}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">확인된 PT 매출이 없습니다.</p>
+              )}
+            </Card>
+          )}
+
           {/* 파트너별 분배 카드 */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {result.distributions.map((dist, idx) => (
@@ -146,11 +229,11 @@ export default function AdminDistributionPage() {
                     <span className="text-xl font-bold text-[#E31837]">{formatKRW(dist.final_amount)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">연간 예상 세금</span>
+                    <span className="text-gray-500">월 예상 세금</span>
                     <span className="text-gray-700">{formatKRW(dist.estimated_tax)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">연간 세후 수익</span>
+                    <span className="text-gray-500">세후 수익</span>
                     <span className="font-medium text-green-600">{formatKRW(dist.after_tax)}</span>
                   </div>
                 </div>
