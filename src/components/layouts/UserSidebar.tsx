@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, History, FileText, Settings, X } from 'lucide-react';
+import { LayoutDashboard, History, FileText, BookOpen, Settings, X } from 'lucide-react';
 
 const navItems = [
   { href: '/my/dashboard', label: '대시보드', icon: LayoutDashboard },
   { href: '/my/history', label: '보고 내역', icon: History },
   { href: '/my/contract', label: '계약서', icon: FileText },
+  { href: '/my/guides', label: '운영 가이드', icon: BookOpen },
   { href: '/my/settings', label: '계정 설정', icon: Settings },
 ];
 
@@ -50,7 +51,7 @@ export default function UserSidebar({ isOpen, onClose }: UserSidebarProps) {
 
         <nav className="p-3 space-y-1">
           {navItems.map((item) => {
-            const isActive = pathname === item.href;
+            const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
             const Icon = item.icon;
             return (
               <Link
