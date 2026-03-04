@@ -8,6 +8,7 @@ import { CONTRACT_ARTICLES, renderArticleText } from '@/lib/data/contract-terms'
 import type { ContractVariables } from '@/lib/data/contract-terms';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
+import SignaturePad from '@/components/ui/SignaturePad';
 import { FileText, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
 import type { Contract } from '@/lib/supabase/types';
 
@@ -54,6 +55,7 @@ export default function MyContractPage() {
   const [loading, setLoading] = useState(true);
   const [signing, setSigning] = useState(false);
   const [agreed, setAgreed] = useState(false);
+  const [signatureData, setSignatureData] = useState<string | null>(null);
   const [signError, setSignError] = useState('');
 
   const supabase = useMemo(() => createClient(), []);
@@ -96,6 +98,10 @@ export default function MyContractPage() {
       setSignError('계약 내용에 동의해주세요.');
       return;
     }
+    if (!signatureData) {
+      setSignError('아래 서명란에 자필 서명을 해주세요.');
+      return;
+    }
     setSigning(true);
     setSignError('');
 
@@ -116,6 +122,7 @@ export default function MyContractPage() {
           status: 'signed',
           signed_at: new Date().toISOString(),
           signed_ip: clientIp,
+          signature_data: signatureData,
         })
         .eq('id', contractId);
 
@@ -124,11 +131,18 @@ export default function MyContractPage() {
       setContracts((prev) =>
         prev.map((c) =>
           c.id === contractId
-            ? { ...c, status: 'signed' as const, signed_at: new Date().toISOString(), signed_ip: clientIp }
+            ? {
+                ...c,
+                status: 'signed' as const,
+                signed_at: new Date().toISOString(),
+                signed_ip: clientIp,
+                signature_data: signatureData,
+              }
             : c
         )
       );
       setAgreed(false);
+      setSignatureData(null);
     } catch {
       setSignError('서명 중 오류가 발생했습니다.');
     } finally {
@@ -215,11 +229,22 @@ export default function MyContractPage() {
                       위 계약 내용(총 {CONTRACT_ARTICLES.length}조)을 모두 확인하였으며, 이에 동의합니다.
                     </span>
                   </label>
+
+                  {/* 자필 서명 패드 */}
+                  {agreed && (
+                    <div className="mb-4">
+                      <SignaturePad
+                        onSignatureChange={(data) => { setSignatureData(data); setSignError(''); }}
+                        disabled={signing}
+                      />
+                    </div>
+                  )}
+
                   {signError && <p className="text-sm text-red-600 mb-3">{signError}</p>}
                   <button
                     type="button"
                     onClick={() => handleSign(activeContract.id)}
-                    disabled={signing || !agreed}
+                    disabled={signing || !agreed || !signatureData}
                     className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-[#E31837] text-white rounded-xl font-semibold hover:bg-[#c81530] transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {signing ? (
@@ -233,15 +258,29 @@ export default function MyContractPage() {
               )}
 
               {activeContract.status === 'signed' && (
-                <div className="mt-6 p-5 bg-green-50 border border-green-100 rounded-xl flex items-center gap-3">
-                  <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
-                  <div>
-                    <p className="font-semibold text-green-800">계약서 서명이 완료되었습니다.</p>
-                    <p className="text-sm text-green-600">
-                      서명일: {activeContract.signed_at ? formatDate(activeContract.signed_at) : ''}
-                      {activeContract.signed_ip && ` | IP: ${activeContract.signed_ip}`}
-                    </p>
+                <div className="mt-6 p-5 bg-green-50 border border-green-100 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
+                    <div>
+                      <p className="font-semibold text-green-800">계약서 서명이 완료되었습니다.</p>
+                      <p className="text-sm text-green-600">
+                        서명일: {activeContract.signed_at ? formatDate(activeContract.signed_at) : ''}
+                        {activeContract.signed_ip && ` | IP: ${activeContract.signed_ip}`}
+                      </p>
+                    </div>
                   </div>
+                  {activeContract.signature_data && (
+                    <div className="mt-4 pt-4 border-t border-green-200">
+                      <p className="text-xs text-green-600 mb-2">자필 서명</p>
+                      <div className="inline-block border border-green-200 rounded-lg bg-white p-2">
+                        <img
+                          src={activeContract.signature_data}
+                          alt="자필 서명"
+                          className="max-w-[200px] h-auto"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </Card>

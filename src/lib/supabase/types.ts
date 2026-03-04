@@ -144,6 +144,7 @@ export interface Contract {
   status: ContractStatus;
   signed_at: string | null;
   signed_ip: string | null;
+  signature_data: string | null;
   admin_note: string | null;
   created_at: string;
   updated_at: string;
