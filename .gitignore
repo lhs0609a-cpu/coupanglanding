@@ -41,3 +41,13 @@ yarn-error.log*
 next-env.d.ts
 
 .vercel
+
+# build chunks
+*-chunk*.js
+
+# sensitive / temp
+cookies.txt
+nul
+
+# personal data
+자료/
