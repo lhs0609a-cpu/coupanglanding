@@ -23,13 +23,21 @@ export default function GuideStepSection({ steps, articleId }: GuideStepSectionP
   const [openSteps, setOpenSteps] = useState<Set<number>>(() => new Set([0]));
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const [dbImages, setDbImages] = useState<DbImage[]>([]);
+  const [hiddenSet, setHiddenSet] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!articleId) return;
     fetch(`/api/guide-images?articleId=${articleId}`)
       .then((res) => res.json())
-      .then((data) => setDbImages(data.images || []))
-      .catch(() => setDbImages([]));
+      .then((data) => {
+        setDbImages(data.images || []);
+        const hidden = (data.hiddenStaticImages || []) as { step_index: number; image_index: number }[];
+        setHiddenSet(new Set(hidden.map((h) => `${h.step_index}-${h.image_index}`)));
+      })
+      .catch(() => {
+        setDbImages([]);
+        setHiddenSet(new Set());
+      });
   }, [articleId]);
 
   const dbImagesByStep = useMemo(() => {
@@ -117,7 +125,7 @@ export default function GuideStepSection({ steps, articleId }: GuideStepSectionP
 
                 {/* 이미지 (정적 + DB 업로드) */}
                 {(() => {
-                  const staticImgs = step.images || [];
+                  const staticImgs = (step.images || []).filter((_, j) => !hiddenSet.has(`${i}-${j}`));
                   const uploadedImgs = dbImagesByStep.get(i) || [];
                   const allImages = [
                     ...staticImgs.map((img, j) => ({ key: `s-${j}`, src: img.src, alt: img.alt, caption: img.caption })),

@@ -31,23 +31,41 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 });
     }
 
-    // self_check 완료 처리
-    const { error: upsertError } = await serviceClient
+    // self_check 완료 처리 (SELECT → INSERT or UPDATE 패턴)
+    const now = new Date().toISOString();
+
+    const { data: existing } = await serviceClient
       .from('onboarding_steps')
-      .upsert(
-        {
+      .select('id')
+      .eq('pt_user_id', ptUserId)
+      .eq('step_key', stepKey)
+      .maybeSingle();
+
+    if (existing) {
+      const { error: updateError } = await serviceClient
+        .from('onboarding_steps')
+        .update({ status: 'approved', completed_at: now, submitted_at: now })
+        .eq('id', existing.id);
+
+      if (updateError) {
+        console.error('Onboarding update error:', updateError.message, updateError.details);
+        return NextResponse.json({ error: '저장에 실패했습니다.' }, { status: 500 });
+      }
+    } else {
+      const { error: insertError } = await serviceClient
+        .from('onboarding_steps')
+        .insert({
           pt_user_id: ptUserId,
           step_key: stepKey,
           status: 'approved',
-          completed_at: new Date().toISOString(),
-          submitted_at: new Date().toISOString(),
-        },
-        { onConflict: 'pt_user_id,step_key' },
-      );
+          completed_at: now,
+          submitted_at: now,
+        });
 
-    if (upsertError) {
-      console.error('Onboarding upsert error:', upsertError);
-      return NextResponse.json({ error: '저장에 실패했습니다.' }, { status: 500 });
+      if (insertError) {
+        console.error('Onboarding insert error:', insertError.message, insertError.details);
+        return NextResponse.json({ error: '저장에 실패했습니다.' }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ success: true });

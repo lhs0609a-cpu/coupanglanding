@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { GUIDE_ARTICLES, GUIDE_CATEGORIES } from '@/lib/data/guides';
 import Card from '@/components/ui/Card';
 import FileUpload from '@/components/ui/FileUpload';
-import { BookOpen, Trash2, Plus, Image as ImageIcon } from 'lucide-react';
+import { BookOpen, Trash2, Plus, Image as ImageIcon, RotateCcw } from 'lucide-react';
 
 interface GuideImage {
   id: string;
@@ -21,6 +21,7 @@ interface GuideImage {
 export default function AdminGuideImagesPage() {
   const [selectedArticleId, setSelectedArticleId] = useState('');
   const [images, setImages] = useState<GuideImage[]>([]);
+  const [hiddenStaticImages, setHiddenStaticImages] = useState<{ step_index: number; image_index: number }[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadStepIndex, setUploadStepIndex] = useState<number | null>(null);
@@ -43,8 +44,10 @@ export default function AdminGuideImagesPage() {
       const res = await fetch(`/api/guide-images?articleId=${selectedArticleId}`);
       const data = await res.json();
       setImages(data.images || []);
+      setHiddenStaticImages(data.hiddenStaticImages || []);
     } catch {
       setImages([]);
+      setHiddenStaticImages([]);
     } finally {
       setLoading(false);
     }
@@ -100,6 +103,45 @@ export default function AdminGuideImagesPage() {
       }
     } catch {
       setMessage({ type: 'error', text: '삭제 중 오류가 발생했습니다.' });
+    }
+  };
+
+  const hiddenSet = useMemo(
+    () => new Set(hiddenStaticImages.map((h) => `${h.step_index}-${h.image_index}`)),
+    [hiddenStaticImages]
+  );
+
+  const handleHideStatic = async (stepIndex: number, imageIndex: number) => {
+    if (!confirm('이 기본 이미지를 숨기시겠습니까?')) return;
+    try {
+      const res = await fetch('/api/guide-images/hide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ articleId: selectedArticleId, stepIndex, imageIndex }),
+      });
+      if (res.ok) {
+        setHiddenStaticImages((prev) => [...prev, { step_index: stepIndex, image_index: imageIndex }]);
+        setMessage({ type: 'success', text: '기본 이미지가 숨겨졌습니다.' });
+      }
+    } catch {
+      setMessage({ type: 'error', text: '숨기기 중 오류가 발생했습니다.' });
+    }
+  };
+
+  const handleRestoreStatic = async (stepIndex: number, imageIndex: number) => {
+    try {
+      const res = await fetch(
+        `/api/guide-images/hide?articleId=${selectedArticleId}&stepIndex=${stepIndex}&imageIndex=${imageIndex}`,
+        { method: 'DELETE' }
+      );
+      if (res.ok) {
+        setHiddenStaticImages((prev) =>
+          prev.filter((h) => !(h.step_index === stepIndex && h.image_index === imageIndex))
+        );
+        setMessage({ type: 'success', text: '기본 이미지가 복원되었습니다.' });
+      }
+    } catch {
+      setMessage({ type: 'error', text: '복원 중 오류가 발생했습니다.' });
     }
   };
 
@@ -193,14 +235,42 @@ export default function AdminGuideImagesPage() {
                         <div className="mb-3">
                           <p className="text-xs text-gray-400 mb-2">기본 이미지 (코드 내장)</p>
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                            {staticImages.map((img, j) => (
-                              <div key={`static-${j}`} className="relative border border-gray-200 rounded-lg overflow-hidden">
-                                <img src={img.src} alt={img.alt} className="w-full h-24 object-cover bg-gray-50" loading="lazy" />
-                                {img.caption && (
-                                  <p className="text-[10px] text-gray-500 p-1 truncate">{img.caption}</p>
-                                )}
-                              </div>
-                            ))}
+                            {staticImages.map((img, j) => {
+                              const isHidden = hiddenSet.has(`${stepIdx}-${j}`);
+                              return (
+                                <div
+                                  key={`static-${j}`}
+                                  className={`relative group border rounded-lg overflow-hidden ${isHidden ? 'border-orange-300 opacity-50' : 'border-gray-200'}`}
+                                >
+                                  <img src={img.src} alt={img.alt} className="w-full h-24 object-cover bg-gray-50" loading="lazy" />
+                                  {isHidden ? (
+                                    <>
+                                      <span className="absolute top-1 left-1 px-1.5 py-0.5 bg-orange-500 text-white text-[10px] font-bold rounded">숨김</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRestoreStatic(stepIdx, j)}
+                                        className="absolute top-1 right-1 p-1 bg-green-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition"
+                                        title="복원"
+                                      >
+                                        <RotateCcw className="w-3 h-3" />
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleHideStatic(stepIdx, j)}
+                                      className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition"
+                                      title="숨기기"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                  {img.caption && (
+                                    <p className="text-[10px] text-gray-500 p-1 truncate">{img.caption}</p>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       )}

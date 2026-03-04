@@ -11,7 +11,8 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import { CONTRACT_ARTICLES, renderArticleText } from '@/lib/data/contract-terms';
-import { FileText, Plus, RefreshCw, Send, XCircle, Eye } from 'lucide-react';
+import { FileText, Plus, RefreshCw, Send, XCircle, Eye, Download } from 'lucide-react';
+import { downloadContractPdf } from '@/lib/utils/contract-pdf';
 import type { Contract, PtUser, Profile } from '@/lib/supabase/types';
 
 interface ContractWithUser extends Contract {
@@ -285,6 +286,15 @@ export default function AdminContractsPage() {
                         >
                           <Eye className="w-3.5 h-3.5" />
                           보기
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => downloadContractPdf({ contract, ptUser: contract.pt_user })}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100 transition"
+                          title="PDF 다운로드"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          PDF
                         </button>
                         {contract.status === 'draft' && (
                           <button

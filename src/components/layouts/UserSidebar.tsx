@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, History, FileText, BookOpen, Settings, X } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, X } from 'lucide-react';
 
 const navItems = [
   { href: '/my/dashboard', label: '대시보드', icon: LayoutDashboard },
+  { href: '/my/report', label: '매출 보고', icon: TrendingUp },
   { href: '/my/history', label: '보고 내역', icon: History },
   { href: '/my/contract', label: '계약서', icon: FileText },
   { href: '/my/guides', label: '운영 가이드', icon: BookOpen },

@@ -12,6 +12,7 @@ import {
   FileText,
   ClipboardList,
   BookOpen,
+  ScrollText,
   X,
 } from 'lucide-react';
 
@@ -24,6 +25,7 @@ const navItems = [
   { href: '/admin/contracts', label: '계약 관리', icon: FileText },
   { href: '/admin/pt-users', label: 'PT 사용자 관리', icon: Users },
   { href: '/admin/guide-images', label: '가이드 이미지', icon: BookOpen },
+  { href: '/admin/activity-log', label: '활동 로그', icon: ScrollText },
   { href: '/admin/settings', label: '설정', icon: Settings },
 ];
 
@@ -67,7 +69,7 @@ export default function AdminSidebar({ isOpen, onClose }: AdminSidebarProps) {
 
         <nav className="p-3 space-y-1">
           {navItems.map((item) => {
-            const isActive = pathname === item.href;
+            const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
             const Icon = item.icon;
             return (
               <Link

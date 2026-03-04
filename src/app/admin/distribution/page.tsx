@@ -7,7 +7,8 @@ import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/for
 import MonthPicker from '@/components/ui/MonthPicker';
 import Card from '@/components/ui/Card';
 import StatCard from '@/components/ui/StatCard';
-import { PieChart, TrendingUp, TrendingDown, Wallet, Lock, CheckCircle2, Users, AlertTriangle } from 'lucide-react';
+import { PieChart, TrendingUp, TrendingDown, Wallet, Lock, Unlock, CheckCircle2, Users, AlertTriangle, Download } from 'lucide-react';
+import { exportToCsv } from '@/lib/utils/csv-export';
 import type { Partner, RevenueEntry, ExpenseEntry, DistributionSnapshot, MonthlyReport, PtUser, Profile } from '@/lib/supabase/types';
 
 interface ConfirmedReport extends MonthlyReport {
@@ -24,6 +25,7 @@ export default function AdminDistributionPage() {
   const [pendingPtCount, setPendingPtCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -34,7 +36,7 @@ export default function AdminDistributionPage() {
       supabase.from('partners').select('*').order('share_ratio', { ascending: false }),
       supabase.from('revenue_entries').select('*').eq('year_month', yearMonth),
       supabase.from('expense_entries').select('*').eq('year_month', yearMonth),
-      supabase.from('distribution_snapshots').select('*').eq('year_month', yearMonth).single(),
+      supabase.from('distribution_snapshots').select('*').eq('year_month', yearMonth).eq('is_cancelled', false).single(),
       supabase.from('monthly_reports')
         .select('*, pt_user:pt_users(*, profile:profiles(*))')
         .eq('year_month', yearMonth)
@@ -81,6 +83,36 @@ export default function AdminDistributionPage() {
     setConfirming(false);
   };
 
+  const handleCancelDistribution = async () => {
+    if (!snapshot) return;
+    if (!confirm(`${formatYearMonth(yearMonth)} 정산 확정을 취소하시겠습니까? 수정 후 다시 확정할 수 있습니다.`)) return;
+
+    setCancelling(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase.from('distribution_snapshots').update({
+      is_cancelled: true,
+      cancelled_at: new Date().toISOString(),
+      cancelled_by: user?.id || null,
+    }).eq('id', snapshot.id);
+
+    fetchData();
+    setCancelling(false);
+  };
+
+  const handleExportCsv = () => {
+    exportToCsv(`분배_${yearMonth}`, result.distributions, [
+      { header: '파트너', accessor: (d) => d.partner_name },
+      { header: '비율', accessor: (d) => d.share_ratio },
+      { header: '수익 배분', accessor: (d) => d.revenue_share },
+      { header: '비용 지불', accessor: (d) => d.expense_paid },
+      { header: '비용 의무', accessor: (d) => d.expense_obligation },
+      { header: '비용 정산', accessor: (d) => d.expense_settlement },
+      { header: '최종 금액', accessor: (d) => d.final_amount },
+      { header: '예상 세금', accessor: (d) => d.estimated_tax },
+      { header: '세후 수익', accessor: (d) => d.after_tax },
+    ]);
+  };
+
   const ratioLabels = ['메인(5)', '서브1(3)', '서브2(2)'];
 
   return (
@@ -90,7 +122,13 @@ export default function AdminDistributionPage() {
           <PieChart className="w-6 h-6 text-[#E31837]" />
           <h1 className="text-2xl font-bold text-gray-900">수익 분배</h1>
         </div>
-        <MonthPicker value={yearMonth} onChange={setYearMonth} />
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={handleExportCsv}
+            className="flex items-center gap-1.5 px-3 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition">
+            <Download className="w-4 h-4" /> CSV
+          </button>
+          <MonthPicker value={yearMonth} onChange={setYearMonth} />
+        </div>
       </div>
 
       {loading ? (
@@ -99,11 +137,22 @@ export default function AdminDistributionPage() {
         <>
           {/* 확정 상태 */}
           {snapshot && (
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-3">
-              <Lock className="w-5 h-5 text-green-600" />
-              <p className="text-sm text-green-700 font-medium">
-                {formatYearMonth(yearMonth)} 정산이 확정되었습니다. (확정일: {new Date(snapshot.created_at).toLocaleDateString('ko-KR')})
-              </p>
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Lock className="w-5 h-5 text-green-600" />
+                <p className="text-sm text-green-700 font-medium">
+                  {formatYearMonth(yearMonth)} 정산이 확정되었습니다. (확정일: {new Date(snapshot.created_at).toLocaleDateString('ko-KR')})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCancelDistribution}
+                disabled={cancelling}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 border border-red-300 rounded-lg hover:bg-red-50 transition disabled:opacity-50"
+              >
+                <Unlock className="w-4 h-4" />
+                {cancelling ? '취소 중...' : '확정 취소'}
+              </button>
             </div>
           )}
 

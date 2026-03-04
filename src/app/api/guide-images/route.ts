@@ -15,16 +15,26 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    const { data, error } = await supabase
-      .from('guide_step_images')
-      .select('*')
-      .eq('article_id', articleId)
-      .order('step_index')
-      .order('display_order');
+    const [{ data, error }, { data: hiddenData, error: hiddenError }] = await Promise.all([
+      supabase
+        .from('guide_step_images')
+        .select('*')
+        .eq('article_id', articleId)
+        .order('step_index')
+        .order('display_order'),
+      supabase
+        .from('hidden_guide_images')
+        .select('step_index, image_index')
+        .eq('article_id', articleId),
+    ]);
 
     if (error) throw error;
+    if (hiddenError) throw hiddenError;
 
-    return NextResponse.json({ images: data || [] });
+    return NextResponse.json({
+      images: data || [],
+      hiddenStaticImages: hiddenData || [],
+    });
   } catch {
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }

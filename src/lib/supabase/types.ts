@@ -7,6 +7,8 @@ export type ApplicationStatus = 'new' | 'contacted' | 'consulting' | 'converted'
 export type ContractStatus = 'draft' | 'sent' | 'signed' | 'expired' | 'terminated';
 export type OnboardingStepStatus = 'pending' | 'submitted' | 'approved' | 'rejected';
 export type OnboardingVerificationType = 'self_check' | 'evidence_upload' | 'auto_linked';
+export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system';
+export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense';
 
 export interface Profile {
   id: string;
@@ -25,8 +27,10 @@ export interface Partner {
   display_name: string;
   bank_name: string;
   bank_account: string;
-  share_ratio: number; // 5, 3, or 2
+  share_ratio: number;
+  is_active: boolean;
   created_at: string;
+  updated_at: string | null;
 }
 
 export interface PtUser {
@@ -56,6 +60,7 @@ export interface MonthlyReport {
   reviewed_at: string | null;
   deposited_at: string | null;
   admin_note: string | null;
+  reject_reason: string | null;
   // 비용 항목
   cost_product: number;
   cost_commission: number;
@@ -77,6 +82,7 @@ export interface RevenueEntry {
   description: string;
   amount: number;
   main_partner_id: string | null;
+  receipt_url: string | null;
   created_at: string;
   // Joined fields
   main_partner?: Partner;
@@ -89,6 +95,7 @@ export interface ExpenseEntry {
   description: string;
   amount: number;
   paid_by_partner_id: string | null;
+  receipt_url: string | null;
   created_at: string;
   // Joined fields
   paid_by_partner?: Partner;
@@ -101,6 +108,9 @@ export interface DistributionSnapshot {
   total_expenses: number;
   net_profit: number;
   distribution_data: PartnerDistribution[];
+  is_cancelled: boolean;
+  cancelled_at: string | null;
+  cancelled_by: string | null;
   created_at: string;
 }
 
@@ -172,6 +182,42 @@ export interface OnboardingStepDefinition {
   description: string;
   verificationType: OnboardingVerificationType;
   autoLinkSource?: 'contract' | 'monthly_report';
+}
+
+export interface Notification {
+  id: string;
+  user_id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  link: string | null;
+  is_read: boolean;
+  created_at: string;
+}
+
+export interface AdminActivityLog {
+  id: string;
+  admin_id: string;
+  action: ActivityAction;
+  target_type: string;
+  target_id: string | null;
+  details: Record<string, unknown>;
+  ip_address: string | null;
+  created_at: string;
+  // Joined
+  admin_profile?: Profile;
+}
+
+export interface RecurringExpense {
+  id: string;
+  category: ExpenseCategory;
+  description: string;
+  amount: number;
+  paid_by_partner_id: string | null;
+  is_active: boolean;
+  created_at: string;
+  // Joined
+  paid_by_partner?: Partner;
 }
 
 export interface Database {

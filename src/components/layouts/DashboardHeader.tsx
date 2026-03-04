@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { LogOut, Menu } from 'lucide-react';
+import NotificationBell from '@/components/ui/NotificationBell';
 
 interface DashboardHeaderProps {
   userName: string;
@@ -38,7 +39,8 @@ export default function DashboardHeader({ userName, userRole, onMenuClick }: Das
         <span className="text-sm text-gray-500 hidden sm:block">쿠팡 셀러허브 관리</span>
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
+        <NotificationBell />
         <div className="text-right">
           <p className="text-sm font-medium text-gray-900">{userName}</p>
           <p className="text-xs text-gray-500">{roleLabel}</p>
