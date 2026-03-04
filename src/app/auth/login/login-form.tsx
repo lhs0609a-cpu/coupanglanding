@@ -2,12 +2,14 @@
 
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 
 export default function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
@@ -91,11 +93,18 @@ export default function LoginForm() {
       return;
     }
 
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    if (cleanPhone && !/^01[016789]\d{7,8}$/.test(cleanPhone)) {
+      setError('올바른 휴대폰 번호를 입력해주세요.');
+      setLoading(false);
+      return;
+    }
+
     // 서버 API로 회원가입 (이메일 인증 자동 완료)
     const res = await fetch('/api/auth/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, fullName }),
+      body: JSON.stringify({ email, password, fullName, phone: cleanPhone || null }),
     });
 
     const result = await res.json();
@@ -128,6 +137,21 @@ export default function LoginForm() {
             autoComplete="name"
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent outline-none transition"
             placeholder="홍길동"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
+            연락처
+          </label>
+          <input
+            id="phone"
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            autoComplete="tel"
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent outline-none transition"
+            placeholder="010-1234-5678"
           />
         </div>
 
@@ -241,6 +265,16 @@ export default function LoginForm() {
       >
         {loading ? '로그인 중...' : '로그인'}
       </button>
+
+      <div className="flex justify-center gap-3 text-sm text-gray-500">
+        <Link href="/auth/find-id" className="hover:text-[#E31837] hover:underline">
+          아이디 찾기
+        </Link>
+        <span>|</span>
+        <Link href="/auth/reset-password" className="hover:text-[#E31837] hover:underline">
+          비밀번호 찾기
+        </Link>
+      </div>
 
       <p className="text-center text-sm text-gray-500">
         파트너 계정이 없으신가요?{' '}

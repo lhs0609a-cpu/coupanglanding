@@ -3,7 +3,7 @@ import { createServiceClient } from '@/lib/supabase/server';
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password, fullName } = await request.json();
+    const { email, password, fullName, phone } = await request.json();
 
     if (!email || !password) {
       return NextResponse.json({ error: '이메일과 비밀번호를 입력해주세요.' }, { status: 400 });
@@ -23,6 +23,7 @@ export async function POST(request: NextRequest) {
       user_metadata: {
         full_name: fullName || '',
         role: 'pt_user',
+        phone: phone || null,
       },
     });
 
@@ -33,8 +34,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    // 승인 대기 상태로 설정
-    await supabase.from('profiles').update({ is_active: false }).eq('id', data.user.id);
+    // 승인 대기 상태로 설정 + phone 저장
+    await supabase
+      .from('profiles')
+      .update({ is_active: false, phone: phone || null })
+      .eq('id', data.user.id);
 
     return NextResponse.json({ success: true, pending: true, userId: data.user.id });
   } catch {

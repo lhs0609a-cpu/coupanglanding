@@ -1,13 +1,53 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatDate, formatPercent } from '@/lib/utils/format';
 import { CONTRACT_STATUS_LABELS, CONTRACT_STATUS_COLORS } from '@/lib/utils/constants';
+import { CONTRACT_ARTICLES, renderArticleText } from '@/lib/data/contract-terms';
+import type { ContractVariables } from '@/lib/data/contract-terms';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { FileText, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
 import type { Contract } from '@/lib/supabase/types';
+
+function ContractContent({ vars }: { vars: ContractVariables }) {
+  return (
+    <div className="border border-gray-200 rounded-xl p-6 sm:p-8 space-y-6 bg-white">
+      <div className="text-center border-b border-gray-200 pb-6">
+        <h3 className="text-xl font-bold text-gray-900">쿠팡 셀러허브 PT 코칭 계약서</h3>
+        <p className="text-sm text-gray-500 mt-1">전자계약서 (총 {CONTRACT_ARTICLES.length}조)</p>
+      </div>
+
+      <div className="space-y-5 text-sm leading-relaxed text-gray-700">
+        {CONTRACT_ARTICLES.map((article) => (
+          <div key={article.number}>
+            <h4 className="font-bold text-gray-900 mb-2">
+              제{article.number}조 ({article.title})
+            </h4>
+            {article.paragraphs.map((p, i) => (
+              <p key={i} className={i > 0 ? 'mt-1.5' : ''}>
+                {renderArticleText(p, vars)}
+              </p>
+            ))}
+            {article.subItems && (
+              <ul className="list-disc pl-5 mt-2 space-y-1">
+                {article.subItems.map((item, i) => (
+                  <li key={i}>
+                    {item.label !== String(i + 1) && (
+                      <span className="font-medium">{item.label}: </span>
+                    )}
+                    {renderArticleText(item.text, vars)}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function MyContractPage() {
   const [contracts, setContracts] = useState<Contract[]>([]);
@@ -16,13 +56,15 @@ export default function MyContractPage() {
   const [agreed, setAgreed] = useState(false);
   const [signError, setSignError] = useState('');
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const fetchContracts = useCallback(async () => {
     setLoading(true);
-    // Get current user's pt_user_id
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
 
     const { data: ptUser } = await supabase
       .from('pt_users')
@@ -58,12 +100,22 @@ export default function MyContractPage() {
     setSignError('');
 
     try {
+      // 실제 IP 캡처
+      let clientIp = 'unknown';
+      try {
+        const ipRes = await fetch('/api/ip');
+        const ipData = await ipRes.json();
+        clientIp = ipData.ip || 'unknown';
+      } catch {
+        // IP 캡처 실패 시 계속 진행
+      }
+
       const { error } = await supabase
         .from('contracts')
         .update({
           status: 'signed',
           signed_at: new Date().toISOString(),
-          signed_ip: 'client',
+          signed_ip: clientIp,
         })
         .eq('id', contractId);
 
@@ -72,7 +124,7 @@ export default function MyContractPage() {
       setContracts((prev) =>
         prev.map((c) =>
           c.id === contractId
-            ? { ...c, status: 'signed' as const, signed_at: new Date().toISOString() }
+            ? { ...c, status: 'signed' as const, signed_at: new Date().toISOString(), signed_ip: clientIp }
             : c
         )
       );
@@ -107,7 +159,6 @@ export default function MyContractPage() {
         </Card>
       ) : (
         <>
-          {/* Active Contract */}
           {activeContract && (
             <Card>
               <div className="flex items-center justify-between mb-6">
@@ -135,56 +186,14 @@ export default function MyContractPage() {
                 </div>
               </div>
 
-              {/* Contract Content */}
-              <div className="border border-gray-200 rounded-xl p-6 sm:p-8 space-y-6 bg-white">
-                <div className="text-center border-b border-gray-200 pb-6">
-                  <h3 className="text-xl font-bold text-gray-900">쿠팡 셀러허브 PT 코칭 계약서</h3>
-                  <p className="text-sm text-gray-500 mt-1">전자계약서</p>
-                </div>
-
-                <div className="space-y-5 text-sm leading-relaxed text-gray-700">
-                  <div>
-                    <h4 className="font-bold text-gray-900 mb-2">제1조 (목적)</h4>
-                    <p>본 계약은 쿠팡 셀러허브(이하 &quot;회사&quot;)가 PT 회원(이하 &quot;회원&quot;)에게 쿠팡 온라인 판매 코칭 서비스를 제공함에 있어 양 당사자의 권리와 의무를 규정함을 목적으로 합니다.</p>
-                  </div>
-
-                  <div>
-                    <h4 className="font-bold text-gray-900 mb-2">제2조 (서비스 내용)</h4>
-                    <p>회사는 회원에게 다음 서비스를 제공합니다:</p>
-                    <ul className="list-disc pl-5 mt-2 space-y-1">
-                      <li>데이터 기반 상품 선정 및 소싱 컨설팅</li>
-                      <li>AI 자동화 도구를 활용한 상품 등록 지원</li>
-                      <li>쿠팡 광고 관리 및 최적화 가이드</li>
-                      <li>정기적인 1:1 코칭 세션</li>
-                    </ul>
-                  </div>
-
-                  <div>
-                    <h4 className="font-bold text-gray-900 mb-2">제3조 (비용)</h4>
-                    <p>초기 비용은 <strong>0원</strong>이며, 회원의 쿠팡 순이익 중 <strong>{formatPercent(activeContract.share_percentage)}</strong>를 수수료로 지급합니다. 순이익이 발생하지 않는 달에는 수수료가 없습니다.</p>
-                  </div>
-
-                  <div>
-                    <h4 className="font-bold text-gray-900 mb-2">제4조 (정산)</h4>
-                    <p>정산은 매월 1회 진행되며, 회원은 월별 매출을 보고합니다. 회사는 상세 리포트를 제공하며, 수수료는 순이익 기준으로 계산됩니다.</p>
-                  </div>
-
-                  <div>
-                    <h4 className="font-bold text-gray-900 mb-2">제5조 (계약 기간)</h4>
-                    <p>본 계약은 {activeContract.start_date}부터 시작되며, {activeContract.end_date ? `${activeContract.end_date}까지 유효합니다.` : '별도 해지 통보가 없는 한 자동 연장됩니다.'} 양 당사자는 30일 전 서면 통보로 자유롭게 해지할 수 있습니다.</p>
-                  </div>
-
-                  <div>
-                    <h4 className="font-bold text-gray-900 mb-2">제6조 (보장)</h4>
-                    <p>코칭 시작 후 3개월 내 매출이 발생하지 않을 경우, 수수료는 <strong>0원</strong>입니다. 회원에게 일체의 비용 부담이 없습니다.</p>
-                  </div>
-
-                  <div>
-                    <h4 className="font-bold text-gray-900 mb-2">제7조 (비밀유지)</h4>
-                    <p>양 당사자는 본 계약 과정에서 알게 된 상대방의 사업 정보, 전략, 기술 등을 제3자에게 공개하지 않습니다.</p>
-                  </div>
-                </div>
-              </div>
+              {/* 16조 계약서 내용 */}
+              <ContractContent
+                vars={{
+                  share_percentage: activeContract.share_percentage,
+                  start_date: activeContract.start_date,
+                  end_date: activeContract.end_date,
+                }}
+              />
 
               {/* Sign Section */}
               {activeContract.status === 'sent' && (
@@ -203,7 +212,7 @@ export default function MyContractPage() {
                       className="w-5 h-5 rounded border-gray-300 text-[#E31837] focus:ring-[#E31837]"
                     />
                     <span className="text-sm font-medium text-gray-700">
-                      위 계약 내용을 모두 확인하였으며, 이에 동의합니다.
+                      위 계약 내용(총 {CONTRACT_ARTICLES.length}조)을 모두 확인하였으며, 이에 동의합니다.
                     </span>
                   </label>
                   {signError && <p className="text-sm text-red-600 mb-3">{signError}</p>}
@@ -228,7 +237,10 @@ export default function MyContractPage() {
                   <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
                   <div>
                     <p className="font-semibold text-green-800">계약서 서명이 완료되었습니다.</p>
-                    <p className="text-sm text-green-600">서명일: {activeContract.signed_at ? formatDate(activeContract.signed_at) : ''}</p>
+                    <p className="text-sm text-green-600">
+                      서명일: {activeContract.signed_at ? formatDate(activeContract.signed_at) : ''}
+                      {activeContract.signed_ip && ` | IP: ${activeContract.signed_ip}`}
+                    </p>
                   </div>
                 </div>
               )}

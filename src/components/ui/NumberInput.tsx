@@ -10,6 +10,7 @@ interface NumberInputProps {
   error?: string;
   id?: string;
   suffix?: string;
+  disabled?: boolean;
 }
 
 export default function NumberInput({
@@ -20,6 +21,7 @@ export default function NumberInput({
   error,
   id,
   suffix = '원',
+  disabled = false,
 }: NumberInputProps) {
   const [displayValue, setDisplayValue] = useState('');
 
@@ -58,10 +60,13 @@ export default function NumberInput({
           value={displayValue}
           onChange={handleChange}
           placeholder={placeholder}
+          disabled={disabled}
           className={`w-full px-4 py-2.5 border rounded-lg outline-none transition text-sm pr-10 ${
-            error
-              ? 'border-red-300 focus:ring-2 focus:ring-red-500 focus:border-transparent'
-              : 'border-gray-300 focus:ring-2 focus:ring-[#E31837] focus:border-transparent'
+            disabled
+              ? 'bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200'
+              : error
+                ? 'border-red-300 focus:ring-2 focus:ring-red-500 focus:border-transparent'
+                : 'border-gray-300 focus:ring-2 focus:ring-[#E31837] focus:border-transparent'
           }`}
         />
         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">

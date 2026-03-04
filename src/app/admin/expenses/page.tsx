@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/format';
 import { EXPENSE_CATEGORIES } from '@/lib/utils/constants';
@@ -27,7 +27,7 @@ export default function AdminExpensesPage() {
   const [paidByPartnerId, setPaidByPartnerId] = useState('');
   const [filter, setFilter] = useState('');
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);

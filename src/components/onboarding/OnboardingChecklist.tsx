@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { ONBOARDING_STEPS } from '@/lib/utils/constants';
 import { computeStepStates, countCompleted } from './onboarding-utils';
@@ -21,8 +21,9 @@ export default function OnboardingChecklist({ ptUserId }: OnboardingChecklistPro
   const [collapsed, setCollapsed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const totalSteps = ONBOARDING_STEPS.length;
 
   const fetchSteps = useCallback(async () => {
@@ -84,52 +85,75 @@ export default function OnboardingChecklist({ ptUserId }: OnboardingChecklistPro
 
   const handleSelfCheck = async (stepKey: string) => {
     setActionLoading(stepKey);
-    await supabase.from('onboarding_steps').upsert(
-      {
-        pt_user_id: ptUserId,
-        step_key: stepKey,
-        status: 'approved',
-        completed_at: new Date().toISOString(),
-        submitted_at: new Date().toISOString(),
-      },
-      { onConflict: 'pt_user_id,step_key' },
-    );
-    await fetchSteps();
+    setActionError(null);
+
+    try {
+      const res = await fetch('/api/onboarding/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ptUserId, stepKey }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        setActionError(data.error || '처리에 실패했습니다.');
+        setActionLoading(null);
+        return;
+      }
+
+      await fetchSteps();
+    } catch {
+      setActionError('서버 오류가 발생했습니다.');
+    }
+
     setActionLoading(null);
   };
 
   const handleEvidenceSubmit = async (stepKey: string, file: File) => {
     setActionLoading(stepKey);
+    setActionError(null);
 
-    const fileExt = file.name.split('.').pop();
-    const filePath = `${ptUserId}/${stepKey}.${fileExt}`;
+    try {
+      const fileExt = file.name.split('.').pop();
+      const filePath = `${ptUserId}/${stepKey}.${fileExt}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from('onboarding-evidence')
-      .upload(filePath, file, { upsert: true });
+      const { error: uploadError } = await supabase.storage
+        .from('onboarding-evidence')
+        .upload(filePath, file, { upsert: true });
 
-    if (uploadError) {
-      setActionLoading(null);
-      return;
+      if (uploadError) {
+        setActionError('파일 업로드에 실패했습니다.');
+        setActionLoading(null);
+        return;
+      }
+
+      const { data: urlData } = supabase.storage
+        .from('onboarding-evidence')
+        .getPublicUrl(filePath);
+
+      const { error: upsertError } = await supabase.from('onboarding_steps').upsert(
+        {
+          pt_user_id: ptUserId,
+          step_key: stepKey,
+          status: 'submitted',
+          evidence_url: urlData.publicUrl,
+          submitted_at: new Date().toISOString(),
+          admin_note: null,
+        },
+        { onConflict: 'pt_user_id,step_key' },
+      );
+
+      if (upsertError) {
+        setActionError('증빙 제출에 실패했습니다. 다시 시도해주세요.');
+        setActionLoading(null);
+        return;
+      }
+
+      await fetchSteps();
+    } catch {
+      setActionError('서버 오류가 발생했습니다.');
     }
 
-    const { data: urlData } = supabase.storage
-      .from('onboarding-evidence')
-      .getPublicUrl(filePath);
-
-    await supabase.from('onboarding_steps').upsert(
-      {
-        pt_user_id: ptUserId,
-        step_key: stepKey,
-        status: 'submitted',
-        evidence_url: urlData.publicUrl,
-        submitted_at: new Date().toISOString(),
-        admin_note: null,
-      },
-      { onConflict: 'pt_user_id,step_key' },
-    );
-
-    await fetchSteps();
     setActionLoading(null);
   };
 
@@ -189,6 +213,13 @@ export default function OnboardingChecklist({ ptUserId }: OnboardingChecklistPro
         </div>
         <p className="text-xs text-gray-400 mt-1 text-right">{progressPercent}%</p>
       </div>
+
+      {/* 에러 메시지 */}
+      {actionError && (
+        <div className="mb-4 bg-red-50 text-red-600 px-4 py-3 rounded-lg text-sm" role="alert">
+          {actionError}
+        </div>
+      )}
 
       {/* 단계 목록 */}
       {!collapsed && (

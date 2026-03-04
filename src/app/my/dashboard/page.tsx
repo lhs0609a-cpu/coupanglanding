@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { calculateDeposit, calculateNetProfit, totalCosts, buildCostBreakdown } from '@/lib/calculations/deposit';
 import type { CostBreakdown } from '@/lib/calculations/deposit';
@@ -30,6 +30,8 @@ export default function MyDashboardPage() {
   const [adPreviewUrl, setAdPreviewUrl] = useState<string | null>(null);
   const [adExifResult, setAdExifResult] = useState<ExifValidationResult | null>(null);
   const [adExifChecking, setAdExifChecking] = useState(false);
+  const [revenueExifResult, setRevenueExifResult] = useState<ExifValidationResult | null>(null);
+  const [revenueExifChecking, setRevenueExifChecking] = useState(false);
   const [loading, setLoading] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [depositLoading, setDepositLoading] = useState(false);
@@ -39,7 +41,7 @@ export default function MyDashboardPage() {
   const [guideOpen, setGuideOpen] = useState(false);
   const [costOpen, setCostOpen] = useState(false);
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   // 자동 비용 계산으로 CostBreakdown 파생
   const costs: CostBreakdown = buildCostBreakdown(revenue, advertisingCost);
@@ -49,7 +51,10 @@ export default function MyDashboardPage() {
     setMessage(null);
 
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
 
     // PT 사용자 정보
     const { data: ptUserData } = await supabase
@@ -76,7 +81,10 @@ export default function MyDashboardPage() {
         setPreviewUrl(r.screenshot_url);
         setAdPreviewUrl(r.ad_screenshot_url);
         setAdvertisingCost(r.cost_advertising || 0);
-        // 기존 보고에 광고 스크린샷이 있으면 EXIF 통과 처리
+        // 기존 보고에 스크린샷이 있으면 EXIF 통과 처리
+        if (r.screenshot_url) {
+          setRevenueExifResult({ isValid: true, hasSoftware: true, hasDateTime: true, warningMessage: null });
+        }
         if (r.ad_screenshot_url) {
           setAdExifResult({ isValid: true, hasSoftware: true, hasDateTime: true, warningMessage: null });
         }
@@ -89,6 +97,7 @@ export default function MyDashboardPage() {
         setScreenshotFile(null);
         setAdScreenshotFile(null);
         setAdExifResult(null);
+        setRevenueExifResult(null);
       }
     }
 
@@ -103,9 +112,22 @@ export default function MyDashboardPage() {
   const netProfit = calculateNetProfit(revenue, costs);
   const depositAmount = calculateDeposit(revenue, costs, sharePercentage);
 
-  const handleFileSelect = (file: File) => {
+  const handleFileSelect = async (file: File) => {
     setScreenshotFile(file);
     setPreviewUrl(URL.createObjectURL(file));
+
+    // 즉시 EXIF 검사 실행
+    setRevenueExifChecking(true);
+    setRevenueExifResult(null);
+    const result = await validateExifMetadata(file);
+    setRevenueExifResult(result);
+    setRevenueExifChecking(false);
+  };
+
+  const handleFileClear = () => {
+    setScreenshotFile(null);
+    setPreviewUrl(null);
+    setRevenueExifResult(null);
   };
 
   const handleAdFileSelect = async (file: File) => {
@@ -126,10 +148,43 @@ export default function MyDashboardPage() {
     setAdExifResult(null);
   };
 
+  /** 서버 API를 통해 스크린샷 업로드 (EXIF 서버 검증 포함) */
+  const uploadScreenshot = async (
+    file: File,
+    ptUserId: string,
+    ym: string,
+    type: 'revenue' | 'ad',
+  ): Promise<{ url: string } | { error: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('ptUserId', ptUserId);
+    formData.append('yearMonth', ym);
+    formData.append('type', type);
+
+    const res = await fetch('/api/upload-screenshot', {
+      method: 'POST',
+      body: formData,
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      return { error: data.error || '업로드에 실패했습니다.' };
+    }
+
+    return { url: data.url };
+  };
+
   const handleSubmit = async () => {
     if (!ptUser) return;
     if (revenue <= 0) {
       setMessage({ type: 'error', text: '매출 금액을 입력해주세요.' });
+      return;
+    }
+
+    // 매출 스크린샷 EXIF 검증 통과 확인
+    if (screenshotFile && (!revenueExifResult || !revenueExifResult.isValid)) {
+      setMessage({ type: 'error', text: '매출 스크린샷의 EXIF 검증을 통과해야 합니다. 실제 스크린샷을 업로드해주세요.' });
       return;
     }
 
@@ -151,48 +206,26 @@ export default function MyDashboardPage() {
     let screenshotUrl = report?.screenshot_url || null;
     let adScreenshotUrl = report?.ad_screenshot_url || null;
 
-    // 매출 스크린샷 업로드
+    // 매출 스크린샷 업로드 (서버 경유)
     if (screenshotFile) {
-      const fileExt = screenshotFile.name.split('.').pop();
-      const filePath = `${ptUser.id}/${yearMonth}.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('revenue-screenshots')
-        .upload(filePath, screenshotFile, { upsert: true });
-
-      if (uploadError) {
-        setMessage({ type: 'error', text: '스크린샷 업로드에 실패했습니다.' });
+      const result = await uploadScreenshot(screenshotFile, ptUser.id, yearMonth, 'revenue');
+      if ('error' in result) {
+        setMessage({ type: 'error', text: result.error });
         setSubmitLoading(false);
         return;
       }
-
-      const { data: urlData } = supabase.storage
-        .from('revenue-screenshots')
-        .getPublicUrl(filePath);
-
-      screenshotUrl = urlData.publicUrl;
+      screenshotUrl = result.url;
     }
 
-    // 광고비 스크린샷 업로드
+    // 광고비 스크린샷 업로드 (서버 경유)
     if (adScreenshotFile) {
-      const fileExt = adScreenshotFile.name.split('.').pop();
-      const filePath = `${ptUser.id}/${yearMonth}_ad.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('revenue-screenshots')
-        .upload(filePath, adScreenshotFile, { upsert: true });
-
-      if (uploadError) {
-        setMessage({ type: 'error', text: '광고비 스크린샷 업로드에 실패했습니다.' });
+      const result = await uploadScreenshot(adScreenshotFile, ptUser.id, yearMonth, 'ad');
+      if ('error' in result) {
+        setMessage({ type: 'error', text: result.error });
         setSubmitLoading(false);
         return;
       }
-
-      const { data: urlData } = supabase.storage
-        .from('revenue-screenshots')
-        .getPublicUrl(filePath);
-
-      adScreenshotUrl = urlData.publicUrl;
+      adScreenshotUrl = result.url;
     }
 
     const reportData = {
@@ -462,6 +495,7 @@ export default function MyDashboardPage() {
               onChange={setRevenue}
               placeholder="0"
               suffix="원"
+              disabled={!isEditable}
             />
 
             {/* 비용 섹션 (접이식) */}
@@ -516,6 +550,7 @@ export default function MyDashboardPage() {
                       onChange={setAdvertisingCost}
                       placeholder="0"
                       suffix="원"
+                      disabled={!isEditable}
                     />
                   </div>
                 </div>
@@ -600,12 +635,32 @@ export default function MyDashboardPage() {
               </div>
             )}
 
-            <FileUpload
-              label="매출 스크린샷 (Wing 정산 캡처)"
-              onFileSelect={handleFileSelect}
-              onClear={() => { setScreenshotFile(null); setPreviewUrl(null); }}
-              previewUrl={previewUrl}
-            />
+            {/* 매출 스크린샷 섹션 */}
+            <div className="space-y-3">
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-800">매출 스크린샷 주의사항</p>
+                    <ul className="text-xs text-amber-700 mt-1 space-y-0.5 list-disc list-inside">
+                      <li>쿠팡 Wing 정산관리에서 캡처해주세요</li>
+                      <li>매출 합계가 보이도록 캡처해주세요</li>
+                      <li>AI 생성 이미지는 제출할 수 없습니다</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <FileUpload
+                label="매출 스크린샷 (Wing 정산 캡처)"
+                onFileSelect={handleFileSelect}
+                onClear={handleFileClear}
+                previewUrl={previewUrl}
+                warning={revenueExifResult && !revenueExifResult.isValid ? revenueExifResult.warningMessage || undefined : undefined}
+                successMessage={revenueExifResult?.isValid ? '스크린샷 확인 완료' : undefined}
+                error={revenueExifChecking ? '스크린샷 검증 중...' : undefined}
+              />
+            </div>
 
             {message && (
               <div

@@ -18,7 +18,10 @@ export default function MyHistoryPage() {
     async function fetchHistory() {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) {
+        setLoading(false);
+        return;
+      }
 
       // PT 사용자 ID 조회
       const { data: ptUser } = await supabase

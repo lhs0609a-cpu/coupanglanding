@@ -12,6 +12,7 @@ export interface Profile {
   id: string;
   email: string;
   full_name: string;
+  phone: string | null;
   role: UserRole;
   is_active: boolean;
   created_at: string;
@@ -34,6 +35,8 @@ export interface PtUser {
   share_percentage: number;
   status: PtStatus;
   program_access_active: boolean;
+  coupang_seller_id: string | null;
+  coupang_seller_pw: string | null;
   created_at: string;
   updated_at: string;
   // Joined fields

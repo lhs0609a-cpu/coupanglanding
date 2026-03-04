@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
@@ -23,14 +23,13 @@ export default function AdminSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
-  useEffect(() => {
-    async function fetchPartners() {
-      const { data } = await supabase
-        .from('partners')
-        .select('*')
-        .order('share_ratio', { ascending: false });
+  const fetchPartners = async () => {
+    const { data } = await supabase
+      .from('partners')
+      .select('*')
+      .order('share_ratio', { ascending: false });
 
       if (data && data.length > 0) {
         setPartners(data.map((p: Partner) => ({
@@ -50,10 +49,12 @@ export default function AdminSettingsPage() {
         ]);
       }
       setLoading(false);
-    }
+  };
 
+  useEffect(() => {
     fetchPartners();
-  }, [supabase]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const updatePartner = (index: number, field: keyof PartnerForm, value: string | number) => {
     setPartners((prev) => {
@@ -115,6 +116,8 @@ export default function AdminSettingsPage() {
     }
 
     setMessage({ type: 'success', text: '설정이 저장되었습니다.' });
+    // 저장 후 DB에서 재조회 (ID 포함 데이터 동기화 → 중복 insert 방지)
+    await fetchPartners();
     setSaving(false);
   };
 

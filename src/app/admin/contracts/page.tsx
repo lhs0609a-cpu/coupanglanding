@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatDate, formatPercent } from '@/lib/utils/format';
 import {
@@ -10,7 +10,8 @@ import {
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
-import { FileText, Plus, RefreshCw, Send, XCircle } from 'lucide-react';
+import { CONTRACT_ARTICLES, renderArticleText } from '@/lib/data/contract-terms';
+import { FileText, Plus, RefreshCw, Send, XCircle, Eye } from 'lucide-react';
 import type { Contract, PtUser, Profile } from '@/lib/supabase/types';
 
 interface ContractWithUser extends Contract {
@@ -36,6 +37,7 @@ export default function AdminContractsPage() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
   const [createModal, setCreateModal] = useState(false);
+  const [viewContract, setViewContract] = useState<ContractWithUser | null>(null);
 
   // Create form
   const [newPtUserId, setNewPtUserId] = useState('');
@@ -44,7 +46,7 @@ export default function AdminContractsPage() {
   const [newEndDate, setNewEndDate] = useState('');
   const [creating, setCreating] = useState(false);
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const fetchPtUsers = useCallback(async () => {
     // 1차: profile join 포함
@@ -52,34 +54,62 @@ export default function AdminContractsPage() {
       .from('pt_users')
       .select('*, profile:profiles(*)');
 
-    if (!error && data) {
-      setPtUsers((data as PtUserWithProfile[]) || []);
-      return;
+    let users: PtUserWithProfile[] = [];
+
+    if (!error && data && data.length > 0) {
+      users = data as PtUserWithProfile[];
+    } else if (error) {
+      // join 실패 시 pt_users만 조회 후 profiles 별도 조회
+      console.warn('pt_users join failed, trying fallback:', error.message);
+      const { data: rawUsers } = await supabase
+        .from('pt_users')
+        .select('*');
+
+      if (rawUsers && rawUsers.length > 0) {
+        const profileIds = rawUsers.map((u) => (u as PtUser).profile_id);
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('*')
+          .in('id', profileIds);
+
+        const profileMap = new Map((profiles || []).map((p) => [(p as Profile).id, p as Profile]));
+        users = rawUsers.map((u) => ({
+          ...(u as PtUser),
+          profile: profileMap.get((u as PtUser).profile_id) || null,
+        })) as PtUserWithProfile[];
+      }
     }
 
-    // 2차: join 실패 시 pt_users만 조회 후 profiles 별도 조회
-    console.warn('pt_users join failed, trying fallback:', error?.message);
-    const { data: rawUsers } = await supabase
-      .from('pt_users')
-      .select('*');
+    // 승인된 profiles 중 pt_users 레코드가 없는 사용자 자동 생성
+    const { data: approvedProfiles } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('role', 'pt_user')
+      .eq('is_active', true);
 
-    if (rawUsers && rawUsers.length > 0) {
-      const profileIds = rawUsers.map((u) => (u as PtUser).profile_id);
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('*')
-        .in('id', profileIds);
+    if (approvedProfiles && approvedProfiles.length > 0) {
+      const existingProfileIds = new Set(users.map((u) => u.profile_id));
+      const missing = (approvedProfiles as Profile[]).filter((p) => !existingProfileIds.has(p.id));
 
-      const profileMap = new Map((profiles || []).map((p) => [(p as Profile).id, p as Profile]));
-      const usersWithProfile = rawUsers.map((u) => ({
-        ...(u as PtUser),
-        profile: profileMap.get((u as PtUser).profile_id) || null,
-      })) as PtUserWithProfile[];
+      for (const profile of missing) {
+        const { data: newPtUser } = await supabase
+          .from('pt_users')
+          .insert({
+            profile_id: profile.id,
+            share_percentage: 30,
+            status: 'active',
+            program_access_active: false,
+          })
+          .select('*')
+          .single();
 
-      setPtUsers(usersWithProfile);
-    } else {
-      setPtUsers([]);
+        if (newPtUser) {
+          users.push({ ...(newPtUser as PtUser), profile } as PtUserWithProfile);
+        }
+      }
     }
+
+    setPtUsers(users);
   }, [supabase]);
 
   const fetchData = useCallback(async () => {
@@ -123,7 +153,13 @@ export default function AdminContractsPage() {
       .select('*, pt_user:pt_users(*, profile:profiles(*))')
       .single();
 
-    if (!error && data) {
+    if (error) {
+      alert(`계약 생성 실패: ${error.message}`);
+      setCreating(false);
+      return;
+    }
+
+    if (data) {
       setContracts((prev) => [data as ContractWithUser, ...prev]);
     }
 
@@ -136,14 +172,24 @@ export default function AdminContractsPage() {
   };
 
   const handleSend = async (id: string) => {
-    await supabase.from('contracts').update({ status: 'sent' }).eq('id', id);
+    if (!confirm('이 계약서를 사용자에게 발송하시겠습니까?')) return;
+    const { error } = await supabase.from('contracts').update({ status: 'sent' }).eq('id', id);
+    if (error) {
+      alert(`발송 실패: ${error.message}`);
+      return;
+    }
     setContracts((prev) =>
       prev.map((c) => (c.id === id ? { ...c, status: 'sent' as const } : c))
     );
   };
 
   const handleTerminate = async (id: string) => {
-    await supabase.from('contracts').update({ status: 'terminated' }).eq('id', id);
+    if (!confirm('이 계약을 해지하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+    const { error } = await supabase.from('contracts').update({ status: 'terminated' }).eq('id', id);
+    if (error) {
+      alert(`해지 실패: ${error.message}`);
+      return;
+    }
     setContracts((prev) =>
       prev.map((c) => (c.id === id ? { ...c, status: 'terminated' as const } : c))
     );
@@ -231,6 +277,15 @@ export default function AdminContractsPage() {
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setViewContract(contract)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 transition"
+                          title="상세보기"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          보기
+                        </button>
                         {contract.status === 'draft' && (
                           <button
                             type="button"
@@ -262,6 +317,93 @@ export default function AdminContractsPage() {
           </div>
         )}
       </Card>
+
+      {/* Contract Detail Modal */}
+      <Modal
+        isOpen={!!viewContract}
+        onClose={() => setViewContract(null)}
+        title="계약서 상세보기"
+        maxWidth="max-w-2xl"
+      >
+        {viewContract && (
+          <div className="space-y-4">
+            {/* 계약 정보 요약 */}
+            <div className="grid grid-cols-2 gap-3 p-4 bg-gray-50 rounded-xl text-sm">
+              <div>
+                <span className="text-gray-500">사용자:</span>{' '}
+                <span className="font-medium text-gray-900">
+                  {viewContract.pt_user?.profile?.full_name || '-'}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-500">수수료율:</span>{' '}
+                <span className="font-bold text-[#E31837]">{formatPercent(viewContract.share_percentage)}</span>
+              </div>
+              <div>
+                <span className="text-gray-500">기간:</span>{' '}
+                <span className="font-medium">{viewContract.start_date} ~ {viewContract.end_date || '무기한'}</span>
+              </div>
+              <div>
+                <span className="text-gray-500">상태:</span>{' '}
+                <Badge label={CONTRACT_STATUS_LABELS[viewContract.status]} colorClass={CONTRACT_STATUS_COLORS[viewContract.status]} />
+              </div>
+              {viewContract.signed_at && (
+                <div>
+                  <span className="text-gray-500">서명일:</span>{' '}
+                  <span className="font-medium">{formatDate(viewContract.signed_at)}</span>
+                </div>
+              )}
+              {viewContract.signed_ip && (
+                <div>
+                  <span className="text-gray-500">서명 IP:</span>{' '}
+                  <span className="font-mono text-gray-700">{viewContract.signed_ip}</span>
+                </div>
+              )}
+            </div>
+
+            {/* 16조 계약서 전문 */}
+            <div className="max-h-[60vh] overflow-y-auto border border-gray-200 rounded-xl p-5 space-y-4">
+              <div className="text-center border-b border-gray-200 pb-4">
+                <h3 className="text-lg font-bold text-gray-900">쿠팡 셀러허브 PT 코칭 계약서</h3>
+                <p className="text-xs text-gray-500 mt-1">전자계약서 (총 {CONTRACT_ARTICLES.length}조)</p>
+              </div>
+              <div className="space-y-4 text-sm leading-relaxed text-gray-700">
+                {CONTRACT_ARTICLES.map((article) => {
+                  const vars = {
+                    share_percentage: viewContract.share_percentage,
+                    start_date: viewContract.start_date,
+                    end_date: viewContract.end_date,
+                  };
+                  return (
+                    <div key={article.number}>
+                      <h4 className="font-bold text-gray-900 mb-1.5">
+                        제{article.number}조 ({article.title})
+                      </h4>
+                      {article.paragraphs.map((p, i) => (
+                        <p key={i} className={i > 0 ? 'mt-1' : ''}>
+                          {renderArticleText(p, vars)}
+                        </p>
+                      ))}
+                      {article.subItems && (
+                        <ul className="list-disc pl-5 mt-1.5 space-y-0.5">
+                          {article.subItems.map((item, i) => (
+                            <li key={i}>
+                              {item.label !== String(i + 1) && (
+                                <span className="font-medium">{item.label}: </span>
+                              )}
+                              {renderArticleText(item.text, vars)}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Create Contract Modal */}
       <Modal isOpen={createModal} onClose={() => setCreateModal(false)} title="새 계약 생성" maxWidth="max-w-lg">

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatDate } from '@/lib/utils/format';
 import {
@@ -33,7 +33,7 @@ export default function AdminApplicationsPage() {
   const [noteModal, setNoteModal] = useState<{ id: string; note: string } | null>(null);
   const [noteText, setNoteText] = useState('');
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const fetchApplications = useCallback(async () => {
     setLoading(true);

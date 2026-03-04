@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/format';
-import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, REVENUE_SOURCES, SETTLEMENT_STATUS_LABELS, SETTLEMENT_STATUS_COLORS } from '@/lib/utils/constants';
-import { getReportTargetMonth, getFirstEligibleMonth, isEligibleForMonth, getSettlementStatus, getSettlementDDay, formatDDay, getDDayColorClass, formatDeadline } from '@/lib/utils/settlement';
+import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, REVENUE_SOURCES } from '@/lib/utils/constants';
+import { getReportTargetMonth, isEligibleForMonth, getSettlementStatus, getSettlementDDay, formatDDay } from '@/lib/utils/settlement';
 import MonthPicker from '@/components/ui/MonthPicker';
 import StatCard from '@/components/ui/StatCard';
 import Card from '@/components/ui/Card';
@@ -26,7 +26,7 @@ export default function AdminDashboardPage() {
   const [allReportsForMonth, setAllReportsForMonth] = useState<MonthlyReport[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -91,7 +91,6 @@ export default function AdminDashboardPage() {
   });
 
   // 정산 현황 계산
-  const reportTargetMonth = getReportTargetMonth();
   const settlementStats = (() => {
     const reportMap = new Map<string, MonthlyReport>();
     allReportsForMonth.forEach((r) => reportMap.set(r.pt_user_id, r));
@@ -144,6 +143,8 @@ export default function AdminDashboardPage() {
         share_percentage: 30,
         status: 'active',
         program_access_active: false,
+        coupang_seller_id: null,
+        coupang_seller_pw: null,
       });
 
       if (insertError) {

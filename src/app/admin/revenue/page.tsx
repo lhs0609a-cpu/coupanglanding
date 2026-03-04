@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/format';
 import { REVENUE_SOURCES } from '@/lib/utils/constants';
@@ -28,7 +28,7 @@ export default function AdminRevenuePage() {
   const [mainPartnerId, setMainPartnerId] = useState('');
   const [filter, setFilter] = useState('');
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);

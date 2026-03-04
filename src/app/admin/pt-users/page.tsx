@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, getCurrentYearMonth, formatYearMonth, formatPercent } from '@/lib/utils/format';
 import { calculateDeposit, calculateNetProfit, totalCosts } from '@/lib/calculations/deposit';
@@ -25,7 +25,7 @@ import Input from '@/components/ui/Input';
 import NumberInput from '@/components/ui/NumberInput';
 import Select from '@/components/ui/Select';
 import PaymentProgress from '@/components/ui/PaymentProgress';
-import { Users, CheckCircle2, XCircle, ExternalLink, Eye, UserPlus, AlertTriangle, ClipboardList, Search, Banknote, Calendar, BarChart3 } from 'lucide-react';
+import { Users, CheckCircle2, XCircle, ExternalLink, Eye, EyeOff, UserPlus, AlertTriangle, ClipboardList, Search, Banknote, BarChart3, Key } from 'lucide-react';
 import type { PtUser, MonthlyReport, Profile, OnboardingStep } from '@/lib/supabase/types';
 import OnboardingReviewModal from '@/components/onboarding/OnboardingReviewModal';
 import { ONBOARDING_STEPS } from '@/lib/utils/constants';
@@ -72,13 +72,14 @@ export default function AdminPtUsersPage() {
   const [onboardingContracts, setOnboardingContracts] = useState<Set<string>>(new Set());
   const [onboardingReports, setOnboardingReports] = useState<Set<string>>(new Set());
   const [obReviewModal, setObReviewModal] = useState<{ userId: string; userName: string } | null>(null);
+  const [visiblePwIds, setVisiblePwIds] = useState<Set<string>>(new Set());
 
   // Add user form
   const [newEmail, setNewEmail] = useState('');
   const [newName, setNewName] = useState('');
   const [newSharePercentage, setNewSharePercentage] = useState(30);
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -491,6 +492,50 @@ export default function AdminPtUsersPage() {
                       </button>
                     </div>
                   </div>
+
+                  {/* 쿠팡 계정 정보 */}
+                  {(user.coupang_seller_id || user.coupang_seller_pw) && (
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Key className="w-4 h-4 text-gray-500" />
+                        <h4 className="text-sm font-medium text-gray-700">쿠팡 셀러 계정</h4>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <span className="text-gray-500">ID: </span>
+                          <span className="font-mono text-gray-900">{user.coupang_seller_id || '-'}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-gray-500">PW: </span>
+                          {user.coupang_seller_pw ? (
+                            <>
+                              <span className="font-mono text-gray-900">
+                                {visiblePwIds.has(user.id)
+                                  ? (() => { try { return atob(user.coupang_seller_pw!); } catch { return user.coupang_seller_pw; } })()
+                                  : '••••••••'
+                                }
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setVisiblePwIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(user.id)) next.delete(user.id);
+                                  else next.add(user.id);
+                                  return next;
+                                })}
+                                className="p-0.5 text-gray-400 hover:text-gray-600 transition"
+                                title={visiblePwIds.has(user.id) ? '숨기기' : '보기'}
+                              >
+                                {visiblePwIds.has(user.id) ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* 외부 프로그램 활성화 체크리스트 */}
                   {needsExternalActivation && (
