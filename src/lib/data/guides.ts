@@ -5,10 +5,17 @@ export interface GuideCopyableTemplate {
   text: string;
 }
 
+export interface GuideStepImage {
+  src: string;
+  alt: string;
+  caption?: string;
+}
+
 export interface GuideStep {
   title: string;
   description: string;
   detailedInstructions: string[];
+  images?: GuideStepImage[];
   externalLink?: { url: string; label: string };
   tip?: string;
   warning?: string;
@@ -85,6 +92,22 @@ export const GUIDE_CATEGORIES: GuideCategory[] = [
     order: 5,
     color: 'bg-red-50',
   },
+  {
+    categoryId: 'revenue-settlement',
+    title: '매출/정산',
+    description: '정산 구조 이해와 세금 신고 방법',
+    icon: '💰',
+    order: 6,
+    color: 'bg-yellow-50',
+  },
+  {
+    categoryId: 'account-management',
+    title: '계정관리',
+    description: '판매자 등급 관리와 페널티 방지',
+    icon: '👤',
+    order: 7,
+    color: 'bg-indigo-50',
+  },
 ];
 
 // ── 가이드 콘텐츠 (9개) ──
@@ -112,6 +135,9 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
           '처음 접속하시는 분은 쿠팡 셀러 가입이 먼저 필요해요.',
           '사업자 인증이 완료된 계정이어야 API 키를 발급받을 수 있어요.',
         ],
+        images: [
+          { src: 'https://winselling.co.kr/img/guide/seller/setting/cpg_setting_01.png', alt: '쿠팡 Wing 로그인 화면', caption: '쿠팡 Wing 로그인 페이지' },
+        ],
         externalLink: { url: 'https://wing.coupang.com', label: '쿠팡 Wing 바로가기' },
         tip: '쿠팡 Wing은 PC에서만 정상 동작해요. 모바일 브라우저에서는 일부 기능이 안 될 수 있어요.',
       },
@@ -124,6 +150,10 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
           '"추가판매정보" 항목을 찾아 클릭하세요.',
           '페이지 하단의 "OPEN API 키 발급" 섹션이 보이면 성공!',
         ],
+        images: [
+          { src: 'https://winselling.co.kr/img/guide/seller/setting/cpg_setting_02.png', alt: '마이페이지 추가판매정보 메뉴', caption: '마이페이지 > 추가판매정보 메뉴 위치' },
+          { src: 'https://winselling.co.kr/img/guide/seller/setting/cpg_setting_03.png', alt: 'OPEN API 키 발급 메뉴', caption: '하단의 "OPEN API 키 발급" 섹션' },
+        ],
         tip: '판매자 유형에 따라 메뉴 위치가 다를 수 있어요. "추가판매정보"에서 안 보이면 왼쪽 메뉴 "판매자 정보" 아래에서 찾아보세요.',
       },
       {
@@ -135,6 +165,11 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
           '발급이 완료되면 3가지 값이 화면에 표시됩니다:',
           '① 업체코드 (Vendor Code) ② Access Key ③ Secret Key',
         ],
+        images: [
+          { src: 'https://winselling.co.kr/img/guide/seller/setting/cpg_setting_04.png', alt: 'API 키 사용 목적 선택', caption: '"OPEN API" 선택 화면' },
+          { src: 'https://winselling.co.kr/img/guide/seller/setting/cpg_setting_06.png', alt: '연동 업체 선택 화면', caption: '연동 업체 선택 / 자체개발 입력' },
+          { src: 'https://winselling.co.kr/img/guide/seller/setting/cpg_setting_07.png', alt: 'API 키 발급 완료', caption: 'API 키 발급 완료 팝업' },
+        ],
         warning: 'Secret Key는 발급 직후에만 확인할 수 있어요! 반드시 바로 복사해두세요. 또한 Secret Key는 최대 6개월 유효하므로 만료 시 재발급이 필요해요.',
       },
       {
@@ -145,6 +180,9 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
           'Access Key도 같은 방법으로 복사해주세요.',
           'Secret Key도 반드시 복사해주세요 (이 화면을 나가면 다시 볼 수 없어요!).',
           '세 가지 값 모두 복사했는지 다시 한 번 확인!',
+        ],
+        images: [
+          { src: 'https://winselling.co.kr/img/guide/seller/setting/cpg_setting_08.png', alt: '발급된 OPEN API KEY 확인 화면', caption: '업체코드 / Access Key / Secret Key 확인' },
         ],
         tip: '이미 다른 서비스(사방넷, 이지어드민 등)에서 API 키를 사용 중이면 추가 발급이 안 될 수 있어요. 기존 연동 서비스를 확인해주세요.',
       },
@@ -195,7 +233,7 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
           '① 키 앞뒤에 공백이 없는지 확인, ② Access Key와 Secret Key가 바뀌지 않았는지 확인, ③ Wing에서 키 상태가 "활성"인지 확인, ④ 다른 서비스에서 이미 키를 사용 중이 아닌지 확인해보세요.',
       },
     ],
-    relatedArticleIds: ['coupang-invoice'],
+    relatedArticleIds: ['coupang-invoice', 'coupang-settlement'],
   },
 
   // ━━━━━━━━━━━━━━━━━━━━━━
@@ -220,6 +258,9 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
           '실명인증이 필요하니 본인 명의 휴대폰을 준비해주세요.',
           '문의 전화: 1661-2371',
         ],
+        images: [
+          { src: 'https://edu.khff.or.kr/assets/images/user/guide/guide_22_1_1.jpg', alt: '교육센터 교육신청 버튼', caption: 'STEP 1 - 교육신청 버튼 위치' },
+        ],
         externalLink: { url: 'https://edu.khff.or.kr', label: '건기식 교육센터 바로가기' },
       },
       {
@@ -231,6 +272,10 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
           '"일반판매업" 과정을 선택하세요 (온라인 셀러는 이 과정이에요).',
           '정보를 확인하고 "신청하기"를 클릭하세요.',
         ],
+        images: [
+          { src: 'https://edu.khff.or.kr/assets/images/user/guide/guide_22_1_2.jpg', alt: '신규 교육 선택 화면', caption: 'STEP 2 - 신규 교육 과정 선택' },
+          { src: 'https://edu.khff.or.kr/assets/images/user/guide/guide_22_1_3.jpg', alt: '교육안내 및 신청', caption: 'STEP 3 - 교육안내 확인 후 신청' },
+        ],
         tip: '교육은 연중 상시 수강 가능해요. 원하는 때에 신청하시면 됩니다.',
       },
       {
@@ -240,6 +285,9 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
           '교육비는 약 2만원이에요 (변동될 수 있음).',
           '카드결제 또는 계좌이체 중 선택하세요.',
           '결제 완료 후 바로 수강할 수 있어요.',
+        ],
+        images: [
+          { src: 'https://edu.khff.or.kr/assets/images/user/guide/guide_22_1_9.jpg', alt: '결제 방법 선택 화면', caption: '결제 방법 선택 화면' },
         ],
       },
       {
@@ -273,6 +321,10 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
           'PDF 파일로 다운로드하세요.',
           '출력해서 보관하시면 더 좋아요.',
           '수료증은 발급일로부터 2년 이내에 영업신고를 해야 유효해요.',
+        ],
+        images: [
+          { src: 'https://edu.khff.or.kr/assets/images/user/guide/guide_22_1_8.jpg', alt: '수료증 확인 화면', caption: '수료증 발급 확인' },
+          { src: 'https://edu.khff.or.kr/assets/images/user/guide/guide_22_1_11.jpg', alt: '교육 완료 화면', caption: '교육 이수 완료' },
         ],
       },
       {
@@ -340,6 +392,10 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
           '새로 들어온 주문 목록이 표시됩니다.',
           '주문 상품명, 수량, 배송지를 확인하세요.',
         ],
+        images: [
+          { src: 'https://globalsellers.coupang.com/wp-content/uploads/2022/03/Screenshot-2022-03-10-at-10.10.49-PM.png', alt: 'Wing 주문 확인 화면', caption: 'Wing 포털 메인 - 결제 완료 주문 목록' },
+          { src: 'https://globalsellers.coupang.com/wp-content/uploads/2022/03/Screenshot-2022-03-10-at-10.17.25-PM.png', alt: '주문 상세 조회', caption: '주문 목록 상세 조회 화면' },
+        ],
         tip: '하루에 2~3번은 새 주문을 확인하는 습관을 들이세요. 처리가 늦으면 패널티가 있어요.',
       },
       {
@@ -381,6 +437,11 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
           '택배사를 선택하세요 (CJ대한통운, 한진택배, 롯데택배 등).',
           '운송장 번호를 입력하세요.',
           '"확인" 버튼을 클릭하면 송장 등록 완료!',
+        ],
+        images: [
+          { src: 'https://globalsellers.coupang.com/wp-content/uploads/2022/03/Screenshot-2022-03-10-at-10.21.12-PM.png', alt: '발주 확인 처리', caption: '발주 확인 처리 버튼' },
+          { src: 'https://globalsellers.coupang.com/wp-content/uploads/2022/03/Screenshot-2022-03-10-at-10.30.15-PM.png', alt: '택배사 선택 화면', caption: '택배사 선택' },
+          { src: 'https://globalsellers.coupang.com/wp-content/uploads/2022/03/Screenshot-2022-03-10-at-10.45.53-PM-1024x386.png', alt: '송장번호 입력 화면', caption: '송장번호 입력 및 적용' },
         ],
         warning: '운송장 번호를 잘못 입력하면 배송 추적이 안 돼요. 꼭 다시 한 번 확인해주세요!',
       },
@@ -430,7 +491,7 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
           '고객에게 정중하게 안내하고 주문 취소 처리하세요. "판매자 사유 취소"로 처리하면 됩니다. 다만 잦은 취소는 셀러 점수에 영향을 줘요.',
       },
     ],
-    relatedArticleIds: ['naver-resale-order', 'coupang-return'],
+    relatedArticleIds: ['naver-resale-order', 'coupang-return', 'seller-grade-penalty'],
   },
 
   // ━━━━━━━━━━━━━━━━━━━━━━
@@ -453,6 +514,9 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
           '네이버 스마트스토어 센터에 로그인하세요.',
           '"판매관리" → "신규 주문" 확인하세요.',
           '주문 상품명, 옵션, 수량, 수취인 정보를 메모하세요.',
+        ],
+        images: [
+          { src: 'https://www.sellingkok.com/data/file/guide/1948486138_m2eLKP3l_9b6718e5713adde5be64dcd6ff394ae98a3fcf93.png', alt: '스마트스토어 주문관리 화면', caption: '스마트스토어 주문관리 페이지' },
         ],
         externalLink: { url: 'https://sell.smartstore.naver.com', label: '스마트스토어 센터' },
       },
@@ -504,6 +568,9 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
           '"발송 처리" 버튼을 클릭하세요.',
           '택배사를 선택하고 쿠팡에서 확인한 송장번호를 입력하세요.',
           '"발송 처리 완료"를 클릭하면 끝!',
+        ],
+        images: [
+          { src: 'https://www.sellingkok.com/data/file/guide/1948486138_3dBJc8i7_854b4c1220849b174c71458e52486c84c923d746.png', alt: '주문 수집~발송 추적 워크플로우', caption: '주문 수집 → 발송 처리 → 추적 흐름' },
         ],
       },
       {
@@ -650,6 +717,10 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
           '신규 반품 요청 목록을 확인하세요.',
           '반품 사유, 상품명, 주문번호를 확인하세요.',
         ],
+        images: [
+          { src: 'https://abear-corp.ghost.io/content/images/2025/05/-------------1-.png', alt: '반품요청 건 확인 화면', caption: 'Wing > 주문/배송 > 반품관리 화면' },
+          { src: 'https://abear-corp.ghost.io/content/images/2025/05/------------1.jpg', alt: '반품 프로세스 전체 플로우', caption: '판매자 반품 처리 프로세스 흐름도' },
+        ],
         tip: '반품 요청이 들어오면 최대한 빨리 확인하세요. 방치하면 자동 승인될 수 있어요.',
       },
       {
@@ -699,6 +770,10 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
           '전액 환불 또는 부분 환불을 선택하세요.',
           '부분 환불 시 사유를 명확히 작성하세요.',
           '환불 완료!',
+        ],
+        images: [
+          { src: 'https://abear-corp.ghost.io/content/images/2025/05/---------1-.png', alt: '반품접수 입고완료 처리', caption: '반품접수 → 입고완료 상태 변경' },
+          { src: 'https://abear-corp.ghost.io/content/images/2025/05/--------1.png', alt: '환불완료 정산금 차감', caption: '환불 완료 및 정산금 차감 처리' },
         ],
       },
       {
@@ -1130,6 +1205,465 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
       },
     ],
     relatedArticleIds: ['ip-issue-handling', 'difficult-customer'],
+  },
+
+  // ━━━━━━━━━━━━━━━━━━━━━━
+  // 10. 매출/정산 - 쿠팡 정산 구조 이해
+  // ━━━━━━━━━━━━━━━━━━━━━━
+  {
+    articleId: 'coupang-settlement',
+    categoryId: 'revenue-settlement',
+    title: '쿠팡 정산 구조 이해',
+    subtitle: '판매 대금이 내 통장에 들어오기까지 전체 흐름',
+    icon: '🏦',
+    estimatedTime: '약 15분',
+    overview:
+      '쿠팡에서 상품을 팔면 언제, 얼마가 정산되는지 궁금하셨죠? 정산 주기, 수수료 구조, 정산금 확인 방법, 세금계산서 처리까지 정산의 모든 것을 알려드려요.',
+    steps: [
+      {
+        title: '쿠팡 정산 주기 이해',
+        description: '판매 대금이 언제 입금되는지 정산 주기를 알아봅니다.',
+        detailedInstructions: [
+          '쿠팡 마켓플레이스 정산은 월 2회 진행됩니다.',
+          '1차 정산: 1일~15일 구매확정 건 → 익월 1일 입금',
+          '2차 정산: 16일~말일 구매확정 건 → 익월 16일 입금',
+          '구매확정은 배송완료 후 자동 확정(7일) 또는 고객 수동 확정 시점이에요.',
+          '즉, 판매 → 배송완료 → 구매확정 → 정산 순서로 진행됩니다.',
+        ],
+        images: [
+          { src: 'https://allraproduct.s3.ap-northeast-2.amazonaws.com/blog/img1_1712426591369.webp', alt: '정산 주기 설명', caption: '정산 유형 (월정산/주정산) 안내' },
+          { src: 'https://allraproduct.s3.ap-northeast-2.amazonaws.com/blog/img3_1712426591650.webp', alt: '정산 반영 기간', caption: '배송완료 → 구매확정 → 정산 반영 기간' },
+        ],
+        tip: '구매확정이 빨리 될수록 정산도 빨라져요. 빠른 배송이 정산에도 유리합니다!',
+        warning: '반품·환불이 발생하면 해당 금액은 정산에서 차감돼요. 반품이 많으면 마이너스 정산도 가능하니 주의하세요.',
+      },
+      {
+        title: '수수료 구조 파악',
+        description: '쿠팡이 가져가는 수수료 항목을 이해합니다.',
+        detailedInstructions: [
+          '판매 수수료: 카테고리별로 다릅니다 (보통 7.8%~10.8%).',
+          '주요 카테고리별 수수료율:',
+          '- 식품: 7.8% / 생활용품: 8.8% / 패션: 10.8% / 전자기기: 7.8%',
+          '- 뷰티: 9.8% / 스포츠: 10.8% / 도서: 5.8%',
+          '결제 수수료: 판매 수수료에 포함되어 별도 없음.',
+          '배송비: 유료 배송 설정 시 고객이 부담, 무료배송이면 판매자 부담.',
+          '실제 정산금 = 판매가 - 판매수수료 - 반품/환불 차감액',
+        ],
+        tip: '카테고리를 잘 선택하면 수수료를 절약할 수 있어요. 같은 상품도 카테고리에 따라 수수료가 달라질 수 있습니다.',
+      },
+      {
+        title: 'Wing에서 정산 내역 확인',
+        description: '쿠팡 Wing에서 정산 상세 내역을 확인하는 방법입니다.',
+        detailedInstructions: [
+          '쿠팡 Wing에 로그인하세요.',
+          '"정산관리" → "정산내역" 메뉴를 클릭하세요.',
+          '정산 기간별로 상세 내역을 확인할 수 있어요.',
+          '각 항목별로 판매금액, 수수료, 반품 차감, 최종 정산금이 표시됩니다.',
+          '"정산내역 다운로드"로 엑셀 파일을 받을 수 있어요.',
+        ],
+        externalLink: { url: 'https://wing.coupang.com', label: '쿠팡 Wing 바로가기' },
+      },
+      {
+        title: '정산 상세 항목 분석',
+        description: '정산 내역의 각 항목이 무엇을 의미하는지 알아봅니다.',
+        detailedInstructions: [
+          '상품판매대금: 고객이 결제한 총 금액',
+          '배송비 수입: 유료 배송 시 고객이 낸 배송비',
+          '판매수수료: 카테고리별 수수료 (마이너스 항목)',
+          '반품/환불 차감: 정산 기간 내 반품된 금액 (마이너스 항목)',
+          '기타 차감: 광고비, 과오납 조정 등',
+          '최종정산금: 실제 입금되는 금액',
+        ],
+        images: [
+          { src: 'https://allraproduct.s3.ap-northeast-2.amazonaws.com/blog/img2_1712426591487.webp', alt: '정산 금액 계산 방식', caption: '매출액 - 공제금액 = 정산액 계산 구조' },
+        ],
+        tip: '매번 정산 내역을 꼼꼼히 확인하세요. 간혹 누락이나 오류가 있을 수 있고, 이의제기 기한이 있어요.',
+      },
+      {
+        title: '정산 대금 입금 확인',
+        description: '정산금이 실제로 입금되었는지 확인합니다.',
+        detailedInstructions: [
+          '정산일(1일 또는 16일)에 등록된 은행 계좌를 확인하세요.',
+          '입금자명은 "쿠팡(주)" 또는 "COUPANG"으로 표시됩니다.',
+          '정산 금액과 Wing의 정산내역 금액이 일치하는지 확인하세요.',
+          '불일치 시 "정산관리" → "정산문의"에서 문의하세요.',
+        ],
+        warning: '계좌 정보가 변경되면 반드시 Wing에서 업데이트하세요. 잘못된 계좌로 입금되면 처리가 복잡해져요.',
+      },
+      {
+        title: '세금계산서 확인 및 처리',
+        description: '부가세 신고를 위한 세금계산서를 확인합니다.',
+        detailedInstructions: [
+          '쿠팡은 판매수수료에 대해 세금계산서를 발행합니다.',
+          'Wing "정산관리" → "세금계산서"에서 확인 가능해요.',
+          '매월 초에 전월분 세금계산서가 발행됩니다.',
+          '국세청 홈택스에서도 전자세금계산서를 조회할 수 있어요.',
+          '부가세 신고 시 매입세액 공제를 위해 반드시 확인하세요!',
+        ],
+        externalLink: { url: 'https://www.hometax.go.kr', label: '국세청 홈택스' },
+      },
+      {
+        title: '정산 관련 주의사항',
+        description: '정산 시 자주 발생하는 문제와 주의사항입니다.',
+        detailedInstructions: [
+          '정산 보류: 서류 미비, 사기 의심 등으로 정산이 보류될 수 있어요.',
+          '마이너스 정산: 반품이 많으면 정산금이 마이너스가 될 수 있어요.',
+          '마이너스 정산 시 다음 정산에서 차감되거나, 쿠팡에서 별도 청구할 수 있어요.',
+          '정산 이의제기는 정산일로부터 6개월 이내에 해야 해요.',
+          '월별 정산 내역을 엑셀로 다운받아 보관하는 습관을 들이세요.',
+        ],
+      },
+      {
+        title: '수익성 분석 방법',
+        description: '실제로 얼마를 벌고 있는지 정확히 파악하는 방법입니다.',
+        detailedInstructions: [
+          '순이익 = 정산금 - 상품 매입비 - 배송비(판매자 부담) - 기타 비용',
+          '상품별 수익률을 정기적으로 계산하세요.',
+          '수익률이 낮은 상품은 가격 조정이나 판매 중단을 고려하세요.',
+          '월별로 매출, 비용, 순이익을 정리하면 사업 방향이 보여요.',
+          '엑셀이나 가계부 앱을 활용하면 편해요.',
+        ],
+        tip: '매출이 높아도 순이익이 낮으면 의미가 없어요. 반드시 순이익 기준으로 분석하세요!',
+      },
+    ],
+    faqs: [
+      {
+        question: '정산일인데 입금이 안 돼요.',
+        answer:
+          '정산일이 주말·공휴일이면 다음 영업일에 입금됩니다. 그래도 입금이 안 되면 Wing "정산관리" → "정산문의"에서 문의하세요. 서류 미비로 보류된 경우도 있어요.',
+      },
+      {
+        question: '정산 금액이 예상보다 적어요.',
+        answer:
+          '판매수수료, 반품 차감, 배송비 정산 등을 확인해보세요. Wing "정산내역"에서 항목별 상세 내역을 다운받으면 정확히 파악할 수 있어요.',
+      },
+      {
+        question: '계좌를 변경하고 싶어요.',
+        answer:
+          'Wing "판매자정보" → "정산정보"에서 변경 가능해요. 사업자 명의의 계좌만 등록할 수 있고, 변경 후 다음 정산부터 적용됩니다.',
+      },
+      {
+        question: '마이너스 정산이 되면 어떡하나요?',
+        answer:
+          '다음 정산에서 자동으로 차감되거나, 쿠팡에서 별도 청구서를 보낼 수 있어요. 반품률 관리가 중요한 이유이기도 해요.',
+      },
+    ],
+    relatedArticleIds: ['vat-filing', 'coupang-invoice'],
+  },
+
+  // ━━━━━━━━━━━━━━━━━━━━━━
+  // 11. 매출/정산 - 부가세 신고 방법
+  // ━━━━━━━━━━━━━━━━━━━━━━
+  {
+    articleId: 'vat-filing',
+    categoryId: 'revenue-settlement',
+    title: '부가세 신고 방법',
+    subtitle: '분기별 부가가치세 신고의 모든 것',
+    icon: '📊',
+    estimatedTime: '약 30분~1시간',
+    overview:
+      '사업자라면 반드시 해야 하는 부가가치세(부가세) 신고! 언제, 어떻게, 무엇을 신고해야 하는지 초보자도 따라할 수 있도록 단계별로 알려드려요. 홈택스에서 직접 하는 방법과 세무사에게 맡기는 방법 모두 안내합니다.',
+    steps: [
+      {
+        title: '부가세 신고란?',
+        description: '부가가치세 신고의 기본 개념을 이해합니다.',
+        detailedInstructions: [
+          '부가세는 상품을 팔 때 받은 세금(매출세액)에서 물건을 살 때 낸 세금(매입세액)을 뺀 차액을 납부하는 세금이에요.',
+          '납부 세액 = 매출세액(판매 시 받은 부가세) - 매입세액(구매 시 낸 부가세)',
+          '일반과세자는 매출의 10%가 부가세예요.',
+          '부가세는 별도로 모아둬야 하는 돈이에요! 매출에 포함되어 있어서 내 수익이 아닙니다.',
+        ],
+        warning: '부가세를 매출과 혼동하면 안 돼요! 판매 대금의 약 10%는 나중에 세금으로 내야 할 돈이에요. 미리 별도로 관리하세요.',
+      },
+      {
+        title: '신고 시기 확인',
+        description: '부가세 신고 기한을 확인합니다.',
+        detailedInstructions: [
+          '일반과세자는 1년에 2번 확정 신고 + 2번 예정 신고가 있어요.',
+          '1기 예정: 1~3월분 → 4월 25일까지 신고·납부',
+          '1기 확정: 4~6월분 → 7월 25일까지 신고·납부',
+          '2기 예정: 7~9월분 → 10월 25일까지 신고·납부',
+          '2기 확정: 10~12월분 → 다음 해 1월 25일까지 신고·납부',
+          '개인사업자 예정신고는 보통 세무서에서 고지서로 대체해요 (직접 신고 안 해도 됨).',
+          '실질적으로 개인사업자는 1월, 7월 2번만 신고하면 됩니다!',
+        ],
+        tip: '신고 기한을 절대 놓치지 마세요! 캘린더에 미리 등록해두세요. 늦으면 가산세(무신고 20%, 납부지연 연 8.76%)가 붙어요.',
+      },
+      {
+        title: '신고에 필요한 자료 준비',
+        description: '부가세 신고를 위해 미리 준비해야 할 자료를 정리합니다.',
+        detailedInstructions: [
+          '매출 자료:',
+          '- 쿠팡 Wing "정산관리" → 분기별 매출 내역 다운로드',
+          '- 네이버 스마트스토어 등 다른 채널 매출 내역',
+          '- 현금영수증 발행 내역',
+          '매입 자료:',
+          '- 도매처 구매 세금계산서/신용카드 매입 내역',
+          '- 사업용 지출 영수증 (포장재, 사무용품 등)',
+          '- 쿠팡 판매수수료 세금계산서 (매입세액 공제 가능!)',
+          '기타: 사업자등록증 사본, 통장 사본',
+        ],
+        tip: '쿠팡 판매수수료에 대한 세금계산서는 매입세액 공제가 가능해요! 꼭 챙기세요.',
+      },
+      {
+        title: '홈택스에서 직접 신고하기',
+        description: '국세청 홈택스에서 부가세를 직접 신고하는 방법입니다.',
+        detailedInstructions: [
+          '국세청 홈택스(hometax.go.kr)에 공인인증서로 로그인하세요.',
+          '"신고/납부" → "부가가치세" → "일반과세자 정기신고"를 클릭하세요.',
+          '기본정보(사업자번호, 신고기간)를 확인하세요.',
+          '매출 내역 입력: 과세 매출 금액을 입력하세요.',
+          '매입 내역 입력: 세금계산서, 신용카드 매입액을 입력하세요.',
+          '전자세금계산서는 자동으로 불러와져요. 수기 세금계산서는 직접 입력!',
+          '납부세액을 확인하고 "신고서 제출"을 클릭하세요.',
+          '납부서를 출력하거나 전자납부하세요.',
+        ],
+        images: [
+          { src: 'https://www.korea.kr/newsWeb/resources/attaches/2025.01/21/8e1f64ec3e44dfcf812d73f9bd62c476.jpg', alt: '홈택스 부가세 신고 안내', caption: '홈택스 부가가치세 신고 화면 안내' },
+          { src: 'https://www.korea.kr/newsWeb/resources/attaches/2025.01/21/66529c5a72d90b807fb77a97b1236d48.jpg', alt: '부가세 신고 절차', caption: '부가세 신고 절차 카드뉴스' },
+          { src: 'https://www.korea.kr/newsWeb/resources/attaches/2025.01/21/e8be3094d07dc9a6a5103c5e43400d0b.jpg', alt: '부가세 신고 팁', caption: '신고 시 유의사항' },
+        ],
+        externalLink: { url: 'https://www.hometax.go.kr', label: '국세청 홈택스' },
+        warning: '매출 누락은 가산세 대상이에요! 쿠팡뿐 아니라 모든 판매 채널의 매출을 합산해야 해요.',
+      },
+      {
+        title: '세무사에게 맡기기',
+        description: '직접 하기 어려우면 세무사에게 위임하는 방법입니다.',
+        detailedInstructions: [
+          '세무대리 비용: 월 5~15만원 (기장료) + 신고 대리 비용',
+          '초보 셀러나 매출이 커지면 세무사 이용을 강력 추천해요!',
+          '세무사에게 맡기면: 기장(장부 작성) + 부가세 신고 + 종소세 신고까지 해줘요.',
+          '세무사 찾는 방법: 지인 추천, 국세청 세무사 검색, 세무 플랫폼(삼쩜삼, 세이브택스 등)',
+          '세무사에게 매월 매출·매입 자료를 보내주세요.',
+        ],
+        tip: '연 매출 4,800만원 이상이면 세무사 이용을 추천해요. 절세 효과가 세무사 비용보다 훨씬 클 수 있어요!',
+      },
+      {
+        title: '매입세액 공제 챙기기',
+        description: '사업 관련 지출에서 부가세를 돌려받는 방법입니다.',
+        detailedInstructions: [
+          '사업 관련 물품 구매 시 꼭 세금계산서를 받으세요!',
+          '공제 가능 항목:',
+          '- 상품 매입비 (도매처 구매)',
+          '- 쿠팡/네이버 판매수수료',
+          '- 포장재, 택배비',
+          '- 사무용품, 장비 구매',
+          '- 사업용 차량 유류비',
+          '공제 불가 항목: 개인 용도 지출, 접대비(한도 초과분)',
+          '사업용 신용카드를 등록하면 매입세액이 자동으로 집계돼요.',
+        ],
+        tip: '사업용 신용카드를 홈택스에 등록해두면 매입세액이 자동 집계되어 편리해요!',
+      },
+      {
+        title: '부가세 납부하기',
+        description: '계산된 부가세를 납부하는 방법입니다.',
+        detailedInstructions: [
+          '홈택스에서 바로 전자납부 가능 (계좌이체, 신용카드).',
+          '은행 방문 납부도 가능해요 (납부서 출력 필요).',
+          '신용카드 납부: 납부대행 수수료 0.8% 추가 발생.',
+          '납부 기한: 신고 기한과 동일 (1월 25일, 7월 25일).',
+          '한꺼번에 내기 어려우면 분납 신청도 가능해요 (1,000만원 초과 시).',
+        ],
+        warning: '납부 기한을 넘기면 납부지연 가산세(연 8.76%)가 붙어요. 자금을 미리 준비해두세요!',
+      },
+      {
+        title: '자주 하는 실수 방지',
+        description: '초보 셀러들이 부가세 신고 시 자주 하는 실수를 알아봅니다.',
+        detailedInstructions: [
+          '실수 1: 매출 누락 → 쿠팡 외 다른 채널 매출도 반드시 포함!',
+          '실수 2: 부가세 미적립 → 매출의 약 3~5%를 별도 통장에 적립하세요.',
+          '실수 3: 매입 증빙 미보관 → 세금계산서, 영수증을 꼭 모아두세요.',
+          '실수 4: 기한 초과 → 캘린더에 신고 기한 알림을 설정하세요.',
+          '실수 5: 사업용·개인용 혼용 → 사업용 통장/카드를 따로 쓰세요.',
+        ],
+      },
+    ],
+    faqs: [
+      {
+        question: '매출이 적어도 신고해야 하나요?',
+        answer:
+          '네, 매출이 0원이어도 무실적 신고를 해야 해요. 미신고 시 가산세가 부과될 수 있어요. 홈택스에서 "무실적 신고"를 선택하면 간단히 처리됩니다.',
+      },
+      {
+        question: '부가세를 얼마나 준비해둬야 하나요?',
+        answer:
+          '일반적으로 매출의 3~5% 정도를 별도로 적립해두면 안전해요. 매입이 많으면 실제 납부액은 더 줄어듭니다. 정확한 금액은 "매출세액 - 매입세액"으로 계산하세요.',
+      },
+      {
+        question: '세무사 비용이 부담돼요.',
+        answer:
+          '매출이 적을 때는 홈택스에서 직접 신고해도 괜찮아요. 또는 삼쩜삼 같은 저렴한 세무 플랫폼을 이용할 수도 있어요. 매출이 커지면 세무사 비용보다 절세 효과가 더 크니 투자라고 생각하세요.',
+      },
+      {
+        question: '간이과세자인데 부가세 신고를 어떻게 하나요?',
+        answer:
+          '쿠팡 셀러는 일반과세자여야 해요. 만약 간이과세자라면 일반과세자로 전환 신청을 하셔야 합니다. 홈택스 또는 관할 세무서에서 전환 가능해요.',
+      },
+    ],
+    relatedArticleIds: ['coupang-settlement', 'seller-grade-penalty'],
+  },
+
+  // ━━━━━━━━━━━━━━━━━━━━━━
+  // 12. 계정관리 - 판매자 등급 & 페널티
+  // ━━━━━━━━━━━━━━━━━━━━━━
+  {
+    articleId: 'seller-grade-penalty',
+    categoryId: 'account-management',
+    title: '판매자 등급 & 페널티',
+    subtitle: '쿠팡 판매자 평가 기준과 페널티 방지법',
+    icon: '⭐',
+    estimatedTime: '약 15분',
+    overview:
+      '쿠팡은 판매자의 서비스 품질을 평가하여 등급을 부여하고, 기준 미달 시 페널티를 적용해요. 좋은 등급을 유지하면 검색 노출이 유리하고, 낮은 등급은 판매 제한까지 갈 수 있어요. 평가 기준과 관리 방법을 알려드려요!',
+    steps: [
+      {
+        title: '판매자 등급 체계 이해',
+        description: '쿠팡의 판매자 등급이 어떻게 구성되어 있는지 알아봅니다.',
+        detailedInstructions: [
+          '쿠팡 판매자 등급은 크게 4단계로 나뉩니다:',
+          '- 골드(Gold): 최우수 등급, 검색 노출 최우선',
+          '- 실버(Silver): 우수 등급, 안정적 판매 가능',
+          '- 브론즈(Bronze): 보통 등급, 개선 필요',
+          '- 옐로(Yellow): 경고 등급, 판매 제한 가능',
+          '등급은 최근 60일간의 판매 활동을 기준으로 매주 월요일에 갱신됩니다.',
+          'Wing "판매자 정보" → "판매자 점수"에서 현재 등급을 확인할 수 있어요.',
+        ],
+        tip: '골드 등급을 유지하면 쿠팡 검색 결과에서 상위 노출에 유리해요. 매출에 직접적인 영향을 줍니다!',
+      },
+      {
+        title: '평가 항목별 기준',
+        description: '판매자 등급에 영향을 주는 핵심 평가 항목을 알아봅니다.',
+        detailedInstructions: [
+          '① 24시간 내 출고율: 주문 접수 후 24시간 이내 출고한 비율',
+          '- 목표: 95% 이상 유지',
+          '② 배송 지연율: 약속된 배송일보다 늦게 배송된 비율',
+          '- 목표: 3% 이하 유지',
+          '③ 주문 취소율: 판매자 사유로 취소된 주문 비율',
+          '- 목표: 1.5% 이하 유지 (품절 취소 포함!)',
+          '④ 고객 응답 시간: 고객 문의에 대한 평균 응답 시간',
+          '- 목표: 24시간 이내 응답',
+          '⑤ 반품률: 전체 주문 대비 반품 비율',
+          '- 목표: 5% 이하 유지',
+          '⑥ 고객 리뷰 평점: 상품 리뷰 평균 점수',
+          '- 목표: 4.0 이상 유지',
+        ],
+        warning: '주문 취소율이 가장 치명적이에요! 재고 없는 상품은 즉시 판매 중지하세요.',
+      },
+      {
+        title: '판매자 점수 확인 방법',
+        description: 'Wing에서 현재 판매자 점수와 상세 지표를 확인합니다.',
+        detailedInstructions: [
+          '쿠팡 Wing에 로그인하세요.',
+          '"판매자 정보" → "판매자 점수" 메뉴를 클릭하세요.',
+          '전체 점수와 항목별 세부 점수를 확인할 수 있어요.',
+          '각 항목의 추이(지난 주 대비)도 표시됩니다.',
+          '점수가 떨어지고 있는 항목을 집중적으로 관리하세요.',
+        ],
+        images: [
+          { src: 'https://abear-corp.ghost.io/content/images/2025/05/--------.png', alt: '노출점수 관리 화면', caption: '쿠팡윙 > 상품관리 > 노출점수 관리' },
+          { src: 'https://abear-corp.ghost.io/content/images/2025/05/-----------.png', alt: '상품 주요정보 개선 화면', caption: '상품점수 향상을 위한 주요정보 개선' },
+        ],
+        tip: '매주 월요일에 점수가 갱신되니 주 초에 확인하는 습관을 들이세요.',
+      },
+      {
+        title: '페널티 종류와 단계',
+        description: '쿠팡에서 적용하는 페널티의 종류와 단계를 알아봅니다.',
+        detailedInstructions: [
+          '1단계 - 경고: 개선 요청 알림 발송',
+          '2단계 - 검색 노출 제한: 상품이 검색 결과 하단으로 밀림',
+          '3단계 - 신규 상품 등록 제한: 새 상품을 올릴 수 없음',
+          '4단계 - 판매 일시 중지: 모든 상품 판매가 중지됨',
+          '5단계 - 계정 영구 정지: 더 이상 판매 불가 (최악의 경우)',
+          '추가 과징금: 반복 위반 시 판매 대금에서 과징금 차감 가능',
+        ],
+        warning: '한 번 계정이 영구 정지되면 같은 사업자번호로 재가입이 불가능해요. 절대 이 단계까지 가지 않도록 주의하세요!',
+      },
+      {
+        title: '자주 발생하는 페널티 사유',
+        description: '초보 셀러가 자주 받는 페널티 사유를 알아봅니다.',
+        detailedInstructions: [
+          '① 품절 취소 반복: 재고 관리를 안 해서 주문 취소가 잦은 경우',
+          '→ 대응: 재고 없는 상품 즉시 판매 중지, 재고 수량 보수적으로 설정',
+          '② 출고 지연: 약속된 시간 내에 출고하지 못하는 경우',
+          '→ 대응: 출고 소요일을 여유 있게 설정 (2~3일), 하루 2~3회 주문 확인',
+          '③ 허위/과장 상품 정보: 실물과 다른 이미지, 과장된 설명',
+          '→ 대응: 정확한 상품 정보 기재, 실제 사진 사용',
+          '④ 고객 문의 미응답: 24시간 이상 답변하지 않는 경우',
+          '→ 대응: 하루 2번 이상 문의 확인, 최소 24시간 내 응답',
+          '⑤ 지재권 침해: 위조품 판매, 타 브랜드 도용',
+          '→ 대응: 정품만 판매, 구매 증빙 보관',
+        ],
+      },
+      {
+        title: '등급 올리기 실전 전략',
+        description: '판매자 등급을 올리거나 유지하기 위한 실전 전략입니다.',
+        detailedInstructions: [
+          '전략 1 - 빠른 출고: 오전에 들어온 주문은 당일 처리하세요.',
+          '전략 2 - 재고 안전 관리: 실제 재고보다 적게 등록하세요 (여유분 확보).',
+          '전략 3 - 고객 응대 자동화: 자주 묻는 질문 답변 템플릿을 준비하세요.',
+          '전략 4 - 상품 설명 정확하게: 사이즈, 색상, 소재 등을 정확히 기재하여 반품 감소.',
+          '전략 5 - 포장 꼼꼼하게: 파손 방지 포장으로 불량 반품을 줄이세요.',
+          '전략 6 - 리뷰 관리: 구매 확정 후 리뷰 요청, 불만 리뷰에 빠른 대응.',
+          '전략 7 - 문제 상품 빠른 제거: 반품률 높은 상품은 과감히 판매 중지.',
+        ],
+        tip: '매출 규모를 키우는 것보다 등급을 유지하는 게 더 중요해요. 등급이 떨어지면 노출이 줄어 매출도 함께 떨어집니다.',
+      },
+      {
+        title: '페널티 받았을 때 대처법',
+        description: '페널티를 받았을 때 해결하는 방법입니다.',
+        detailedInstructions: [
+          '1. 페널티 사유를 정확히 파악하세요 (Wing 알림 확인).',
+          '2. 해당 문제를 즉시 시정하세요 (재고 정리, 상품 정보 수정 등).',
+          '3. 부당한 페널티라면 이의제기를 하세요:',
+          '   - Wing "판매자 지원" → "이의제기" 접수',
+          '   - 증빙 자료를 첨부하여 제출',
+          '4. 판매자콜센터(1600-9879)에 전화 상담도 가능해요.',
+          '5. 시정 후 보통 1~2주 내에 페널티가 해제됩니다.',
+          '6. 같은 사유로 반복 페널티를 받지 않도록 근본적으로 개선하세요.',
+        ],
+      },
+      {
+        title: '계정 건강 체크리스트',
+        description: '매주 확인해야 할 계정 건강 체크 항목입니다.',
+        detailedInstructions: [
+          '매주 월요일 체크 항목:',
+          '- 판매자 점수/등급 확인',
+          '- 미처리 주문 0건인지 확인',
+          '- 미응답 고객 문의 0건인지 확인',
+          '- 재고 부족 상품 없는지 확인',
+          '- 반품/교환 요청 처리 상태 확인',
+          '매월 체크 항목:',
+          '- 반품률 5% 이하인지 확인',
+          '- 주문 취소율 1.5% 이하인지 확인',
+          '- 고객 리뷰 평점 4.0 이상인지 확인',
+          '- 판매 중지된 상품 없는지 확인',
+        ],
+        tip: '이 체크리스트를 매주 습관적으로 확인하면 페널티를 미리 방지할 수 있어요!',
+      },
+    ],
+    faqs: [
+      {
+        question: '등급이 갑자기 떨어졌어요. 왜 그런 건가요?',
+        answer:
+          '최근 60일간의 데이터로 매주 갱신되기 때문에, 특정 기간에 주문 취소나 반품이 몰리면 갑자기 떨어질 수 있어요. Wing에서 항목별 점수를 확인하여 어떤 지표가 나빠졌는지 파악하세요.',
+      },
+      {
+        question: '페널티가 해제되는 데 얼마나 걸리나요?',
+        answer:
+          '경고 수준은 문제 시정 후 보통 1~2주 내에 자동 해제돼요. 판매 중지 수준은 이의제기 후 검토 기간(5~10영업일)이 필요하고, 시정 확인 후 해제됩니다.',
+      },
+      {
+        question: '주문이 적어도 등급에 영향을 받나요?',
+        answer:
+          '네, 주문 수가 적으면 한두 건의 취소/반품이 비율에 크게 영향을 줄 수 있어요. 초기에는 소량이라도 품질 높은 판매를 유지하는 게 중요해요.',
+      },
+      {
+        question: '계정이 정지되면 정산금은 어떻게 되나요?',
+        answer:
+          '계정 정지 시 미정산 금액은 일정 기간 보류 후 지급됩니다. 다만 위반 과징금이 차감될 수 있어요. 상세한 내용은 쿠팡 판매자 지원에 문의하세요.',
+      },
+    ],
+    relatedArticleIds: ['coupang-settlement', 'coupang-invoice', 'difficult-customer'],
   },
 ];
 

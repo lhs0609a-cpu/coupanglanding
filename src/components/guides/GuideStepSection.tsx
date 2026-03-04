@@ -1,16 +1,46 @@
 'use client';
 
-import { useState } from 'react';
-import { ChevronDown, ChevronUp, ExternalLink, Lightbulb, AlertTriangle } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { ChevronDown, ChevronUp, ExternalLink, Lightbulb, AlertTriangle, ZoomIn } from 'lucide-react';
 import type { GuideStep } from '@/lib/data/guides';
 import GuideCopyBlock from './GuideCopyBlock';
 
-interface GuideStepSectionProps {
-  steps: GuideStep[];
+interface DbImage {
+  id: string;
+  step_index: number;
+  image_url: string;
+  alt_text: string;
+  caption: string | null;
+  display_order: number;
 }
 
-export default function GuideStepSection({ steps }: GuideStepSectionProps) {
+interface GuideStepSectionProps {
+  steps: GuideStep[];
+  articleId?: string;
+}
+
+export default function GuideStepSection({ steps, articleId }: GuideStepSectionProps) {
   const [openSteps, setOpenSteps] = useState<Set<number>>(() => new Set([0]));
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+  const [dbImages, setDbImages] = useState<DbImage[]>([]);
+
+  useEffect(() => {
+    if (!articleId) return;
+    fetch(`/api/guide-images?articleId=${articleId}`)
+      .then((res) => res.json())
+      .then((data) => setDbImages(data.images || []))
+      .catch(() => setDbImages([]));
+  }, [articleId]);
+
+  const dbImagesByStep = useMemo(() => {
+    const map = new Map<number, DbImage[]>();
+    dbImages.forEach((img) => {
+      const list = map.get(img.step_index) || [];
+      list.push(img);
+      map.set(img.step_index, list);
+    });
+    return map;
+  }, [dbImages]);
 
   const toggle = (index: number) => {
     setOpenSteps((prev) => {
@@ -25,6 +55,29 @@ export default function GuideStepSection({ steps }: GuideStepSectionProps) {
   };
 
   return (
+    <>
+    {/* 이미지 확대 모달 */}
+    {zoomedImage && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+        onClick={() => setZoomedImage(null)}
+      >
+        <div className="relative max-w-4xl max-h-[90vh] w-full">
+          <img
+            src={zoomedImage}
+            alt="확대 이미지"
+            className="w-full h-auto max-h-[85vh] object-contain rounded-lg"
+          />
+          <button
+            type="button"
+            onClick={() => setZoomedImage(null)}
+            className="absolute -top-3 -right-3 w-8 h-8 bg-white text-gray-700 rounded-full shadow-lg flex items-center justify-center hover:bg-gray-100 transition text-lg font-bold"
+          >
+            &times;
+          </button>
+        </div>
+      </div>
+    )}
     <div className="space-y-3">
       {steps.map((step, i) => {
         const isOpen = openSteps.has(i);
@@ -61,6 +114,43 @@ export default function GuideStepSection({ steps }: GuideStepSectionProps) {
                     </li>
                   ))}
                 </ol>
+
+                {/* 이미지 (정적 + DB 업로드) */}
+                {(() => {
+                  const staticImgs = step.images || [];
+                  const uploadedImgs = dbImagesByStep.get(i) || [];
+                  const allImages = [
+                    ...staticImgs.map((img, j) => ({ key: `s-${j}`, src: img.src, alt: img.alt, caption: img.caption })),
+                    ...uploadedImgs.map((img) => ({ key: `db-${img.id}`, src: img.image_url, alt: img.alt_text, caption: img.caption })),
+                  ];
+                  if (allImages.length === 0) return null;
+                  return (
+                    <div className={`grid gap-3 mt-2 ${allImages.length === 1 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
+                      {allImages.map((img) => (
+                        <div key={img.key} className="group relative">
+                          <button
+                            type="button"
+                            onClick={() => setZoomedImage(img.src)}
+                            className="w-full rounded-lg overflow-hidden border border-gray-200 hover:border-gray-400 transition cursor-zoom-in"
+                          >
+                            <img
+                              src={img.src}
+                              alt={img.alt}
+                              className="w-full h-auto object-contain bg-gray-50"
+                              loading="lazy"
+                            />
+                            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition bg-black/50 text-white p-1.5 rounded-lg">
+                              <ZoomIn className="w-4 h-4" />
+                            </div>
+                          </button>
+                          {img.caption && (
+                            <p className="text-xs text-gray-500 mt-1.5 text-center">{img.caption}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
 
                 {/* 외부 링크 */}
                 {step.externalLink && (
@@ -105,5 +195,6 @@ export default function GuideStepSection({ steps }: GuideStepSectionProps) {
         );
       })}
     </div>
+    </>
   );
 }

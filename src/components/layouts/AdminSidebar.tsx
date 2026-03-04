@@ -11,6 +11,7 @@ import {
   Settings,
   FileText,
   ClipboardList,
+  BookOpen,
   X,
 } from 'lucide-react';
 
@@ -22,6 +23,7 @@ const navItems = [
   { href: '/admin/distribution', label: '수익 분배', icon: PieChart },
   { href: '/admin/contracts', label: '계약 관리', icon: FileText },
   { href: '/admin/pt-users', label: 'PT 사용자 관리', icon: Users },
+  { href: '/admin/guide-images', label: '가이드 이미지', icon: BookOpen },
   { href: '/admin/settings', label: '설정', icon: Settings },
 ];
 

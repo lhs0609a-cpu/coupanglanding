@@ -62,7 +62,7 @@ export default function GuideArticlePage({ params }: PageProps) {
       {/* 스텝 섹션 */}
       <div>
         <h2 className="text-lg font-bold text-gray-900 mb-3">단계별 가이드</h2>
-        <GuideStepSection steps={article.steps} />
+        <GuideStepSection steps={article.steps} articleId={articleId} />
       </div>
 
       {/* FAQ */}
