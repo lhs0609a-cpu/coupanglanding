@@ -757,7 +757,17 @@ export default function PTPage() {
                       </motion.div>
                     )}
                     {i === 5 && (
-                      <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: 0.8 }} className="mt-3 space-y-2">
+                      <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: 0.8 }} className="mt-3 space-y-3">
+                        <div className="grid grid-cols-2 gap-2 max-w-sm">
+                          <div className="rounded-xl border border-white/10 overflow-hidden">
+                            <div className="bg-white/10 backdrop-blur-sm px-2 py-1 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" /><span className="text-[9px] text-gray-400">ROAS 951%</span></div>
+                            <img src="/images/results/ad-roi-951pct.png" alt="광고 수익률 951%" className="w-full" />
+                          </div>
+                          <div className="rounded-xl border border-white/10 overflow-hidden">
+                            <div className="bg-white/10 backdrop-blur-sm px-2 py-1 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" /><span className="text-[9px] text-gray-400">ROAS 642%</span></div>
+                            <img src="/images/results/ad-roi-642pct.png" alt="광고 수익률 642%" className="w-full" />
+                          </div>
+                        </div>
                         <PhoneNotif icon="📦" app="쿠팡 윙" title="주문 접수" time="방금" lines={['프리미엄 주방도구 세트 5종 · ₩34,900']} />
                         <PhoneNotif icon="📦" app="쿠팡 윙" title="주문 접수" time="3분 전" lines={['생활용품 세트 3종 · ₩24,900']} className="opacity-70 scale-[0.97] origin-left" />
                         <PhoneNotif icon="📦" app="쿠팡 윙" title="주문 접수" time="7분 전" lines={['인테리어 소품 · ₩19,800']} className="opacity-40 scale-[0.94] origin-left" />
@@ -826,6 +836,35 @@ export default function PTPage() {
               </div>
             </motion.div>
           </div>
+
+          {/* 실제 매출 증거 갤러리 */}
+          <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-40px' }} variants={stagger} className="mt-14">
+            <motion.p variants={fadeUp} className="text-center text-sm font-bold text-gray-400 uppercase tracking-widest mb-8">실제 쿠팡 셀러 대시보드 캡처</motion.p>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {[
+                { src: '/images/results/daily-sales-705m.png', label: '일 매출 705만원', sub: '133건 판매' },
+                { src: '/images/results/ad-roi-642pct.png', label: 'ROAS 642%', sub: '광고 전환매출 211만원' },
+                { src: '/images/results/ad-roi-951pct.png', label: 'ROAS 951%', sub: '광고 전환매출 250만원' },
+                { src: '/images/results/cumulative-sales-4066m.png', label: '3개월 누적', sub: '매출 4,066만원' },
+              ].map((item, i) => (
+                <motion.div key={item.label} variants={scaleIn} custom={i} className="bg-white rounded-xl border border-gray-200 shadow-md overflow-hidden hover:shadow-lg transition-all">
+                  <div className="relative">
+                    <img src={item.src} alt={item.label} className="w-full" />
+                    <div className="absolute top-1.5 right-1.5">
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-green-500/90 text-white text-[9px] font-bold">
+                        <span className="w-1 h-1 rounded-full bg-white animate-pulse" />실제
+                      </span>
+                    </div>
+                  </div>
+                  <div className="px-3 py-2.5">
+                    <p className="text-sm font-bold text-gray-900">{item.label}</p>
+                    <p className="text-xs text-gray-500">{item.sub}</p>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeUp} className="text-center mt-10">
             <p className="text-base font-semibold text-gray-600">이 도구를 당신도 함께 사용하게 됩니다.</p>
           </motion.div>

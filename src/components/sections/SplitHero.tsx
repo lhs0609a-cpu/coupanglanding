@@ -14,65 +14,38 @@ function PTMockupBG() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_40%,rgba(227,24,55,0.12)_0%,transparent_60%)]" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_80%,rgba(227,24,55,0.06)_0%,transparent_50%)]" />
 
-      {/* Floating mockup elements */}
+      {/* Floating real screenshot elements */}
       <div className="absolute inset-0 flex items-center justify-center opacity-30 pointer-events-none">
-        {/* Revenue Chart Card */}
-        <div className="absolute top-[18%] right-[8%] w-[220px] bg-white/10 backdrop-blur-sm rounded-xl border border-white/10 p-4 transform rotate-3">
-          <div className="text-[10px] text-white/50 mb-2">월 매출 추이</div>
-          <div className="flex items-end gap-1 h-12">
-            {[20, 35, 28, 45, 38, 55, 48, 65, 72, 85, 78, 92].map((h, i) => (
-              <div key={i} className="flex-1 rounded-sm" style={{ height: `${h}%`, background: i >= 10 ? '#E31837' : 'rgba(227,24,55,0.4)' }} />
-            ))}
+        {/* Real: 일매출 705만원 판매분석 */}
+        <div className="absolute top-[12%] right-[6%] w-[220px] rounded-xl border border-white/15 overflow-hidden transform rotate-3 shadow-2xl">
+          <div className="bg-white/10 backdrop-blur-sm px-2.5 py-1.5 flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded bg-[#E31837]" />
+            <span className="text-[9px] text-white/60 font-medium">일 매출 705만원</span>
           </div>
-          <div className="flex justify-between mt-2">
-            <span className="text-[9px] text-white/30">1월</span>
-            <span className="text-[9px] text-white/30">12월</span>
-          </div>
+          <img src="/images/results/daily-sales-705m.png" alt="일 매출 705만원, 판매 133건" className="w-full" />
         </div>
 
-        {/* Revenue Number */}
-        <div className="absolute top-[12%] left-[12%] bg-white/10 backdrop-blur-sm rounded-xl border border-white/10 p-4 transform -rotate-2">
-          <div className="text-[10px] text-white/50 mb-1">이번 달 순이익</div>
-          <div className="text-xl font-bold text-white/80">₩16,803,220</div>
-          <div className="flex items-center gap-1 mt-1">
+        {/* Real: 3개월 누적 매출 4066만 */}
+        <div className="absolute top-[14%] left-[8%] rounded-xl border border-white/15 overflow-hidden transform -rotate-2 shadow-2xl">
+          <div className="bg-white/10 backdrop-blur-sm px-2.5 py-1.5 flex items-center gap-1.5">
             <TrendingUp className="w-3 h-3 text-green-400/80" />
-            <span className="text-[10px] text-green-400/80">+23.4%</span>
+            <span className="text-[9px] text-white/60 font-medium">3개월 누적</span>
           </div>
+          <img src="/images/results/cumulative-sales-4066m.png" alt="3개월 누적 매출 4,066만원" className="w-full" />
         </div>
 
-        {/* 통장 Notification */}
-        <div className="absolute bottom-[28%] left-[6%] w-[200px] bg-white/10 backdrop-blur-sm rounded-xl border border-white/10 p-3 transform rotate-1">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-6 h-6 rounded-full bg-yellow-400/80 flex items-center justify-center">
-              <DollarSign className="w-3 h-3 text-yellow-900" />
-            </div>
-            <div>
-              <div className="text-[10px] font-bold text-white/70">KB국민은행</div>
-              <div className="text-[9px] text-white/40">입금 알림</div>
-            </div>
+        {/* Real: 광고 수익률 951% */}
+        <div className="absolute bottom-[28%] left-[6%] w-[180px] rounded-xl border border-white/15 overflow-hidden transform rotate-1 shadow-2xl">
+          <div className="bg-white/10 backdrop-blur-sm px-2.5 py-1.5 flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded bg-green-500/70" />
+            <span className="text-[9px] text-white/60 font-medium">광고 ROAS 951%</span>
           </div>
-          <div className="text-sm font-bold text-white/80">+5,040,966원</div>
-          <div className="text-[9px] text-white/40 mt-0.5">쿠팡 정산금</div>
+          <img src="/images/results/ad-roi-951pct.png" alt="광고 수익률 951%, 전환매출 250만원" className="w-full" />
         </div>
 
-        {/* KakaoTalk Snippet */}
-        <div className="absolute bottom-[15%] right-[10%] w-[190px] bg-[#2C2C2C]/90 rounded-xl border border-white/5 overflow-hidden transform -rotate-2">
-          <div className="px-3 py-1.5 bg-[#2C2C2C] text-center">
-            <span className="text-[10px] text-gray-400">카카오톡</span>
-          </div>
-          <div className="p-2.5 space-y-1.5">
-            <div className="flex gap-1.5">
-              <div className="w-5 h-5 rounded-full bg-gray-600 flex-shrink-0" />
-              <div className="bg-white/15 rounded-lg rounded-tl-none px-2.5 py-1.5">
-                <div className="text-[9px] text-white/70">이번달 매출 얼마야?</div>
-              </div>
-            </div>
-            <div className="flex justify-end">
-              <div className="bg-[#FEE500]/90 rounded-lg rounded-tr-none px-2.5 py-1.5">
-                <div className="text-[9px] text-gray-900">1,680만원 나왔어 ㅋㅋ</div>
-              </div>
-            </div>
-          </div>
+        {/* Real: 쿠팡윙 앱 일매출 89만 */}
+        <div className="absolute bottom-[12%] right-[8%] w-[160px] rounded-xl border border-white/15 overflow-hidden transform -rotate-2 shadow-2xl">
+          <img src="/images/results/wing-app-899k.png" alt="쿠팡 Wing 앱 일 매출 899,700원" className="w-full rounded-xl" />
         </div>
 
         {/* Coaching Session Badge */}

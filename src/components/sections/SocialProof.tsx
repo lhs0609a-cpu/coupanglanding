@@ -2,7 +2,7 @@
 
 import { motion, useInView } from 'framer-motion';
 import { useRef } from 'react';
-import { CheckCircle2, TrendingUp, Users, Award, Sparkles, Zap } from 'lucide-react';
+import { CheckCircle2, TrendingUp, Users, Award, Sparkles, Zap, Camera } from 'lucide-react';
 
 const stats = [
   {
@@ -150,6 +150,63 @@ export default function SocialProof() {
                 </span>
               </motion.div>
             </div>
+          </div>
+        </motion.div>
+
+        {/* Real Results Gallery */}
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={isInView ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.6, delay: 0.4 }}
+          className="mt-20 mb-20"
+        >
+          <div className="text-center mb-10">
+            <motion.span
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={isInView ? { opacity: 1, scale: 1 } : {}}
+              className="inline-flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-rose-50 to-white border border-rose-100 rounded-full text-sm font-semibold text-[#E31837] mb-6"
+            >
+              <Camera className="w-4 h-4" />
+              REAL DATA
+            </motion.span>
+            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4 tracking-tight">
+              실제 매출 데이터
+            </h2>
+            <p className="text-lg text-gray-500">목업이 아닙니다. 실제 쿠팡 셀러 대시보드입니다.</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {[
+              { src: '/images/results/daily-sales-705m.png', label: '일 매출 705만원', sub: '판매량 133건 달성', accent: 'from-rose-500 to-pink-500' },
+              { src: '/images/results/ad-roi-642pct.png', label: '광고 수익률 642%', sub: '광고비 32만원 → 매출 211만원', accent: 'from-violet-500 to-purple-500' },
+              { src: '/images/results/ad-roi-951pct.png', label: '광고 수익률 951%', sub: '광고비 26만원 → 매출 250만원', accent: 'from-amber-500 to-orange-500' },
+              { src: '/images/results/cumulative-sales-4066m.png', label: '3개월 누적 4,066만원', sub: '꾸준한 매출 성장', accent: 'from-emerald-500 to-teal-500' },
+              { src: '/images/results/daily-sales-597k.png', label: '일 매출 59만원', sub: '판매량 6건 (신규 셀러)', accent: 'from-blue-500 to-cyan-500' },
+              { src: '/images/results/ad-roi-762k.png', label: '광고 전환매출 76만원', sub: '광고비 3.1만원 투자 대비', accent: 'from-rose-500 to-red-500' },
+            ].map((item, i) => (
+              <motion.div
+                key={item.label}
+                initial={{ opacity: 0, y: 20 }}
+                animate={isInView ? { opacity: 1, y: 0 } : {}}
+                transition={{ duration: 0.5, delay: 0.5 + i * 0.08 }}
+                whileHover={{ y: -4 }}
+                className="bg-white rounded-2xl border border-gray-100 shadow-lg overflow-hidden hover:shadow-xl transition-all"
+              >
+                <div className="relative">
+                  <img src={item.src} alt={item.label} className="w-full" />
+                  <div className="absolute top-2 right-2">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500/90 text-white text-[10px] font-bold shadow-sm">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                      실제 데이터
+                    </span>
+                  </div>
+                </div>
+                <div className="p-4">
+                  <p className={`text-base font-bold bg-gradient-to-r ${item.accent} bg-clip-text text-transparent`}>{item.label}</p>
+                  <p className="text-sm text-gray-500 mt-0.5">{item.sub}</p>
+                </div>
+              </motion.div>
+            ))}
           </div>
         </motion.div>
 

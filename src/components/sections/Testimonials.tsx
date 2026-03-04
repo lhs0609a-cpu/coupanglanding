@@ -12,6 +12,8 @@ const testimonials = [
     content: '상품명 바꾸니까 클릭률이 진짜 다르더라고요. 같은 상품인데 매출이 2배 됐어요.',
     metric: { before: '월 320만', after: '월 680만', growth: '112%' },
     color: 'from-rose-500 to-pink-500',
+    proofImage: '/images/results/daily-sales-705m.png',
+    proofLabel: '일 매출 705만원 달성',
   },
   {
     name: '이*영',
@@ -20,6 +22,8 @@ const testimonials = [
     content: '알바 쓰던 거 그만두고 이걸로 바꿨어요. 월 80만원 아끼면서 더 많이 등록해요.',
     metric: { before: '월 450만', after: '월 920만', growth: '104%' },
     color: 'from-violet-500 to-purple-500',
+    proofImage: '/images/results/ad-roi-642pct.png',
+    proofLabel: '광고 수익률 642% 달성',
   },
   {
     name: '박*수',
@@ -28,6 +32,8 @@ const testimonials = [
     content: '새벽에 일어나서 등록하던 게 지옥이었는데, 이제 자고 일어나면 다 되어있어요.',
     metric: { before: '월 180만', after: '월 540만', growth: '200%' },
     color: 'from-amber-500 to-orange-500',
+    proofImage: '/images/results/cumulative-sales-4066m.png',
+    proofLabel: '3개월 누적 4,066만원',
   },
 ];
 
@@ -118,6 +124,17 @@ export default function Testimonials() {
                   </span>
                 </div>
               </div>
+
+              {/* Real proof screenshot */}
+              {testimonial.proofImage && (
+                <div className="mt-4 rounded-xl overflow-hidden border border-gray-100 shadow-sm">
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 border-b border-gray-100">
+                    <div className="w-2 h-2 rounded-full bg-green-400" />
+                    <span className="text-[10px] text-gray-500 font-medium">{testimonial.proofLabel}</span>
+                  </div>
+                  <img src={testimonial.proofImage} alt={testimonial.proofLabel} className="w-full" />
+                </div>
+              )}
             </motion.div>
           ))}
         </div>

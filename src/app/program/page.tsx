@@ -340,7 +340,7 @@ function SolutionSection() {
 // ============================================================================
 function ScreenMockupsSection() {
   const [activeTab, setActiveTab] = useState(0);
-  const tabs = ['상품 등록', '자동 등록', '가격 정책'];
+  const tabs = ['상품 등록', '자동 등록', '가격 정책', '실제 매출'];
 
   return (
     <AnimatedSection id="screenshots" className="py-24 md:py-32 bg-gray-50/80 relative overflow-hidden">
@@ -377,6 +377,59 @@ function ScreenMockupsSection() {
             <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
               <WindowChrome title="쿠팡 자동화 - 가격 정책" />
               <img src="/images/screenshots/chrome_C93UkbvoWu.png" alt="쿠팡 자동화 마진율 설정 - 100원 절삭, 마크업, 마진 적용" className="w-full" />
+            </div>
+          )}
+          {activeTab === 3 && (
+            <div className="space-y-6">
+              <div className="text-center mb-2">
+                <p className="text-sm text-gray-500">프로그램을 활용한 실제 셀러 매출 데이터입니다</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xl overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                    <span className="text-xs text-gray-500 font-medium">일 매출 705만원 · 133건</span>
+                  </div>
+                  <img src="/images/results/daily-sales-705m.png" alt="일 매출 705만원, 판매 133건" className="w-full" />
+                </div>
+                <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xl overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                    <span className="text-xs text-gray-500 font-medium">3개월 누적 4,066만원</span>
+                  </div>
+                  <img src="/images/results/cumulative-sales-4066m.png" alt="3개월 누적 매출 4,066만원" className="w-full" />
+                </div>
+                <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xl overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                    <span className="text-xs text-gray-500 font-medium">광고 ROAS 642%</span>
+                  </div>
+                  <img src="/images/results/ad-roi-642pct.png" alt="광고 수익률 642%, 전환매출 211만원" className="w-full" />
+                </div>
+                <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xl overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                    <span className="text-xs text-gray-500 font-medium">광고 ROAS 951%</span>
+                  </div>
+                  <img src="/images/results/ad-roi-951pct.png" alt="광고 수익률 951%, 전환매출 250만원" className="w-full" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xl overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                    <span className="text-xs text-gray-500 font-medium">일 매출 59만원</span>
+                  </div>
+                  <img src="/images/results/daily-sales-597k.png" alt="일 매출 597,850원" className="w-full" />
+                </div>
+                <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xl overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                    <span className="text-xs text-gray-500 font-medium">광고 전환매출 76만원</span>
+                  </div>
+                  <img src="/images/results/ad-roi-762k.png" alt="광고비 3.1만원 → 전환매출 76만원" className="w-full" />
+                </div>
+              </div>
             </div>
           )}
         </motion.div>
