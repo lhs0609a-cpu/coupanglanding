@@ -41,7 +41,7 @@ export default function OnboardingChecklist({ ptUserId }: OnboardingChecklistPro
       .eq('status', 'signed')
       .limit(1);
 
-    // 매출 보고 존재 여부
+    // 매출 정산 존재 여부
     const { data: reports } = await supabase
       .from('monthly_reports')
       .select('id')

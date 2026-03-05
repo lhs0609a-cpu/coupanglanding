@@ -280,7 +280,7 @@ export default function MyReportPage() {
       if (error) {
         setMessage({ type: 'error', text: '보고 수정에 실패했습니다.' });
       } else {
-        setMessage({ type: 'success', text: '매출 보고가 수정되었습니다.' });
+        setMessage({ type: 'success', text: '매출 정산이 수정되었습니다.' });
         fetchData();
       }
     } else {
@@ -291,7 +291,7 @@ export default function MyReportPage() {
       if (error) {
         setMessage({ type: 'error', text: '보고 제출에 실패했습니다.' });
       } else {
-        setMessage({ type: 'success', text: '매출 보고가 제출되었습니다.' });
+        setMessage({ type: 'success', text: '매출 정산이 제출되었습니다.' });
         fetchData();
       }
     }
@@ -330,7 +330,7 @@ export default function MyReportPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">매출 보고</h1>
+        <h1 className="text-2xl font-bold text-gray-900">매출 정산</h1>
         <MonthPicker value={yearMonth} onChange={setYearMonth} />
       </div>
 
@@ -489,7 +489,7 @@ export default function MyReportPage() {
               { step: 2, title: '정산관리 이동', desc: '좌측 메뉴에서 "정산관리"를 클릭합니다.' },
               { step: 3, title: '기간 조회', desc: '해당 월의 정산 내역을 조회합니다.' },
               { step: 4, title: '화면 캡처', desc: '매출 합계가 보이는 화면을 캡처합니다.' },
-              { step: 5, title: '업로드', desc: '아래 매출 보고 폼에서 캡처 이미지를 업로드합니다.' },
+              { step: 5, title: '업로드', desc: '아래 매출 정산 폼에서 캡처 이미지를 업로드합니다.' },
             ].map((item) => (
               <div key={item.step} className="flex items-start gap-3">
                 <span className="flex-shrink-0 w-6 h-6 bg-[#E31837] text-white text-xs font-bold rounded-full flex items-center justify-center">
@@ -537,7 +537,7 @@ export default function MyReportPage() {
       <Card>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-gray-900">
-            {formatYearMonth(yearMonth)} 매출 보고
+            {formatYearMonth(yearMonth)} 매출 정산
           </h2>
           {apiVerified && (
             <div className="flex items-center gap-1.5 px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
@@ -761,7 +761,7 @@ export default function MyReportPage() {
                   ? '제출 중...'
                   : report
                     ? isEditable ? '보고 수정' : '이미 확인된 보고입니다'
-                    : '매출 보고 제출'
+                    : '매출 정산 제출'
               }
             </button>
           </div>

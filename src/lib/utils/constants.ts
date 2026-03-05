@@ -139,8 +139,8 @@ export const ONBOARDING_STEPS: OnboardingStepDefinition[] = [
   {
     key: 'first_revenue_report',
     order: 8,
-    label: '첫 매출 보고',
-    description: '첫 매출 보고를 제출해주세요.',
+    label: '첫 매출 정산',
+    description: '첫 매출 정산을 제출해주세요.',
     verificationType: 'auto_linked',
     autoLinkSource: 'monthly_report',
   },

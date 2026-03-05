@@ -295,7 +295,7 @@ export default function OnboardingStepItem({
                 )}
                 {definition.autoLinkSource === 'contract'
                   ? '계약서 서명이 완료되면 자동으로 반영됩니다.'
-                  : '첫 매출 보고가 제출되면 자동으로 반영됩니다.'
+                  : '첫 매출 정산이 제출되면 자동으로 반영됩니다.'
                 }
               </p>
             </div>

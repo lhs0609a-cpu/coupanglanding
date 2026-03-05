@@ -132,7 +132,7 @@ export default function AdminPtUsersPage() {
 
       setOnboardingContracts(new Set((signedContracts || []).map((c) => (c as { pt_user_id: string }).pt_user_id)));
 
-      // 매출 보고 여부
+      // 매출 정산 여부
       const { data: anyReports } = await supabase
         .from('monthly_reports')
         .select('pt_user_id')

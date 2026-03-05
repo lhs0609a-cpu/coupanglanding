@@ -697,15 +697,15 @@ export const TUTORIAL_CONTENT: TutorialStepContent[] = [
     completionMessage: '계약서 서명 완료!',
   },
 
-  // ── Step 8: 첫 매출 보고 (자동 연동) ──
+  // ── Step 8: 첫 매출 정산 (자동 연동) ──
   {
     stepKey: 'first_revenue_report',
     icon: '💰',
     tagline: '첫 매출을 보고해요!',
-    overview: '첫 매출 보고를 제출하면 자동으로 완료됩니다. "보고 내역" 메뉴에서 매출 보고를 작성해주세요.',
+    overview: '첫 매출 정산을 제출하면 자동으로 완료됩니다. "매출 정산" 메뉴에서 매출 정산을 작성해주세요.',
     estimatedTotalTime: '자동 연동',
     subSteps: [],
-    completionMessage: '첫 매출 보고 완료! 쿠팡 셀러 마스터가 되셨어요! 🎉',
+    completionMessage: '첫 매출 정산 완료! 쿠팡 셀러 마스터가 되셨어요! 🎉',
   },
 ];
 

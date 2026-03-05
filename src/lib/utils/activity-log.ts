@@ -45,7 +45,7 @@ export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
 export const TARGET_TYPE_LABELS: Record<string, string> = {
   profile: '사용자',
   pt_user: 'PT 사용자',
-  monthly_report: '매출 보고',
+  monthly_report: '매출 정산',
   contract: '계약서',
   onboarding_step: '온보딩',
   distribution: '분배',

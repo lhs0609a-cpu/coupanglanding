@@ -39,7 +39,7 @@ export async function createBulkNotifications(
   return supabase.from('notifications').insert(rows);
 }
 
-/** 매출 보고 상태 변경 알림 생성 */
+/** 매출 정산 상태 변경 알림 생성 */
 export async function notifyReportStatusChange(
   supabase: SupabaseClient,
   userId: string,
@@ -52,8 +52,8 @@ export async function notifyReportStatusChange(
       message: `${yearMonth} 매출이 관리자에 의해 확인되었습니다. 확정 송금액을 확인하고 송금완료 신청해주세요.`,
     },
     rejected: {
-      title: '매출 보고 반려',
-      message: `${yearMonth} 매출 보고가 반려되었습니다. 사유를 확인하고 다시 제출해주세요.`,
+      title: '매출 정산 반려',
+      message: `${yearMonth} 매출 정산이 반려되었습니다. 사유를 확인하고 다시 제출해주세요.`,
     },
     confirmed: {
       title: '정산 완료',
@@ -103,7 +103,7 @@ export async function notifySettlementReminder(
     userId,
     type: 'settlement',
     title: '정산 마감 임박',
-    message: `${yearMonth} 매출 보고 마감이 ${daysLeft}일 남았습니다. 아직 제출하지 않으셨다면 서둘러 주세요.`,
+    message: `${yearMonth} 매출 정산 마감이 ${daysLeft}일 남았습니다. 아직 제출하지 않으셨다면 서둘러 주세요.`,
     link: '/my/report',
   });
 }

@@ -460,12 +460,12 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
       <Card>
         <div className="flex items-center gap-2 mb-4">
           <Banknote className="w-5 h-5 text-[#E31837]" />
-          <h2 className="text-lg font-bold text-gray-900">월별 매출 보고</h2>
+          <h2 className="text-lg font-bold text-gray-900">월별 매출 정산</h2>
           <span className="text-sm text-gray-400 ml-1">{reports.length}건</span>
         </div>
 
         {reports.length === 0 ? (
-          <div className="py-6 text-center text-gray-400 text-sm">제출된 매출 보고가 없습니다.</div>
+          <div className="py-6 text-center text-gray-400 text-sm">제출된 매출 정산이 없습니다.</div>
         ) : (
           <div className="space-y-3">
             {reports.map((report) => {
@@ -869,7 +869,7 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
       <Modal
         isOpen={!!rejectModal}
         onClose={() => { setRejectModal(null); setRejectReason(''); setRejectError(''); }}
-        title="매출 보고 거절"
+        title="매출 정산 거절"
       >
         <div className="space-y-4">
           <p className="text-sm text-gray-600">

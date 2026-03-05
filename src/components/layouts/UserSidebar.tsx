@@ -6,7 +6,7 @@ import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, Gra
 
 const baseNavItems = [
   { href: '/my/dashboard', label: '대시보드', icon: LayoutDashboard },
-  { href: '/my/report', label: '매출 보고', icon: TrendingUp },
+  { href: '/my/report', label: '매출 정산', icon: TrendingUp },
   { href: '/my/history', label: '보고 내역', icon: History },
   { href: '/my/contract', label: '계약서', icon: FileText },
   { href: '/my/guides', label: '운영 가이드', icon: BookOpen },
@@ -45,7 +45,7 @@ export default function UserSidebar({ isOpen, onClose, isTrainer }: UserSidebarP
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
           <div>
             <h2 className="font-bold text-gray-900">내 PT</h2>
-            <p className="text-xs text-gray-500">매출 보고 & 관리</p>
+            <p className="text-xs text-gray-500">매출 정산 & 관리</p>
           </div>
           <button
             type="button"

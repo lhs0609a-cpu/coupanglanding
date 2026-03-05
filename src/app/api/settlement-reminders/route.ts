@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
         userId: profile_id,
         type: 'settlement',
         title: '정산 마감 임박 알림',
-        message: `${yearMonth} 매출 보고서를 아직 제출하지 않으셨습니다. ${ddayText} 서둘러 제출해 주세요.`,
+        message: `${yearMonth} 매출 정산을 아직 제출하지 않으셨습니다. ${ddayText} 서둘러 제출해 주세요.`,
         link: '/my/report',
       });
 

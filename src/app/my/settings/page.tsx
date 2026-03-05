@@ -295,7 +295,7 @@ export default function MySettingsPage() {
         </div>
         <p className="text-sm text-gray-500 mb-6">
           쿠팡 Open API를 연동하면 매출 데이터를 자동으로 가져올 수 있습니다.
-          스크린샷 없이 매출 보고가 가능합니다.
+          스크린샷 없이 매출 정산이 가능합니다.
         </p>
 
         {loading ? (
