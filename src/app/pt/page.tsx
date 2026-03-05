@@ -1099,8 +1099,9 @@ export default function PTPage() {
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }} variants={stagger}>
             <motion.h2 variants={fadeUp} className="text-3xl sm:text-4xl font-extrabold text-white mb-6">가벼운 미팅부터<br />시작하겠습니다</motion.h2>
             <motion.p variants={fadeUp} custom={1} className="text-gray-400 text-sm sm:text-base mb-10 leading-relaxed">
-              신청 = 계약이 아닙니다.<br />
-              미팅 후 진행 여부는 자유롭게 결정하실 수 있습니다.
+              신청하신다고 바로 시작되지 않습니다.<br />
+              미팅에서 서로를 확인한 뒤,<br />
+              저희 기준에 부합하시면 먼저 연락드리겠습니다.
             </motion.p>
             <motion.div variants={fadeUp} custom={2}>
               <CTAButton href={CTA_URL} size="lg">
