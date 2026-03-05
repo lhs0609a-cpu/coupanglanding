@@ -151,14 +151,15 @@ const testimonials = [
     ],
   },
   {
-    name: '이*영', initial: '이', category: '생활용품', period: '4개월', before: '월 120만원', after: '월 920만원',
-    quote: '혼자 하다가 한계를 느끼고 신청했어요. PT사님이 제 상품 분석해주시는데 마진이 안 나오는 구조를 정확하게 짚어주시더라고요. 상품 라인을 바꾸니까 매출이 확 뛰었습니다.',
+    name: '정*호', initial: '정', category: '직장인 부업', period: '2개월', before: '0원', after: '월 1,165만원',
+    quote: '스마트스토어, 구매대행, 유튜브... 다 해봤는데 혼자 하니 지속이 안 됐어요. 쿠팡PT는 프로그램으로 업로드가 간편하고, 문제 생기면 바로 소통되고, 같이 하는 분들이랑 노하우 공유도 되니 꾸준히 할 수 있었습니다. 지금까지 한 사이드프로젝트 중 제일 오래 하고 있어요.',
     gradient: 'from-[#E31837] to-red-700',
+    screenshots: ['/images/results/review-muffkitchi-1165m.png', '/images/results/review-blackout-500m.png', '/images/results/review-kakao-testimony.png'],
     journey: [
-      { phase: '신청 전', text: '"혼자 하다 한계... 도움이 필요하다"', emotion: 'doubt' as const },
-      { phase: '1개월', text: '마진 구조 분석 → 상품 라인 교체', emotion: 'learn' as const },
-      { phase: '2개월', text: '매출 상승 시작! 방향이 맞았습니다', emotion: 'excited' as const },
-      { phase: '4개월', text: '월 920만원. 매출이 확 뛰었습니다', emotion: 'success' as const },
+      { phase: '신청 전', text: '"스마트스토어, 구매대행 다 해봤는데 지속이 안 돼"', emotion: 'doubt' as const },
+      { phase: '1개월', text: '프로그램으로 업로드 간편 + 바로바로 소통', emotion: 'learn' as const },
+      { phase: '1.5개월', text: '매출 트렌드 상승! 꾸준히 올라가기 시작', emotion: 'excited' as const },
+      { phase: '2개월', text: '월 1,165만원. 지금까지 한 부업 중 최고', emotion: 'success' as const },
     ],
   },
   {
@@ -289,13 +290,13 @@ const successKakao1: ChatMsg[] = [
 ];
 
 const successKakao2: ChatMsg[] = [
-  { name: 'PT사', text: '이*영님, 현재 마진 구조를 보니까', time: '오후 4:20' },
-  { name: 'PT사', text: '이 상품은 팔아도 남는 게 없어요', time: '오후 4:20' },
-  { text: '네?? 그럼 어쩌죠', time: '오후 4:22', isMine: true },
-  { name: 'PT사', text: '상품 라인을 이쪽으로 바꿔보죠', time: '오후 4:23' },
-  { text: '3개월 후', isSystem: true, time: '' },
-  { text: '이번 달 920만원이에요!!', time: '오후 8:31', isMine: true },
-  { text: 'PT사님 말 듣길 잘했어요ㅠ', time: '오후 8:32', isMine: true },
+  { text: '프로그램 이 부분 좀 불편한데 개선 가능할까요?', time: '오후 7:22', isMine: true },
+  { name: '담당자', text: '어떤 부분이요?', time: '오후 7:25' },
+  { text: '업로드할 때 카테고리 선택이 좀 번거로워요', time: '오후 7:26', isMine: true },
+  { name: '담당자', text: '확인해볼게요. 내일까지 수정해드릴게요', time: '오후 7:28' },
+  { text: '다음 날', isSystem: true, time: '' },
+  { name: '담당자', text: '수정 완료했습니다! 확인해보세요', time: '오전 10:15' },
+  { text: '와 진짜 바로 되네요 감사합니다!!', time: '오전 10:20', isMine: true },
 ];
 
 const successKakao3: ChatMsg[] = [
@@ -985,7 +986,17 @@ export default function PTPage() {
                       <div className="px-4 py-2.5 rounded-xl bg-red-50 border border-red-100"><p className="text-xs text-[#E31837] mb-0.5">After ({t.period})</p><p className="text-sm font-bold text-red-700">{t.after}</p></div>
                     </div>
                     <div className="mt-4">
-                      <BankDeposit amount={t.after.replace('월 ', '')} memo="쿠팡 정산금" />
+                      {'screenshots' in t && t.screenshots ? (
+                        <div className="space-y-3 max-w-sm">
+                          {t.screenshots.map((src: string, si: number) => (
+                            <div key={si} className="rounded-xl border border-gray-200 shadow-md overflow-hidden">
+                              <img src={src} alt={`${t.name} 매출 데이터 ${si + 1}`} className="w-full" />
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <BankDeposit amount={t.after.replace('월 ', '')} memo="쿠팡 정산금" />
+                      )}
                     </div>
                   </div>
                   <div className={`lg:w-56 p-7 bg-gradient-to-br ${t.gradient} flex flex-col justify-center items-center text-center text-white relative overflow-hidden`}>
