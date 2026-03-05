@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { QUIZ_QUESTIONS } from '@/lib/data/legal-education-quiz';
+import { getQuizQuestions } from '@/lib/data/quiz-registry';
 import { CheckCircle2, XCircle, RotateCcw } from 'lucide-react';
 
 interface LegalQuizProps {
   ptUserId: string;
+  stepKey: string;
   onComplete: () => void;
   loading: boolean;
 }
@@ -16,7 +17,7 @@ interface QuizResult {
   explanation: string;
 }
 
-export default function LegalQuiz({ ptUserId, onComplete, loading }: LegalQuizProps) {
+export default function LegalQuiz({ ptUserId, stepKey, onComplete, loading }: LegalQuizProps) {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [submitted, setSubmitted] = useState(false);
@@ -25,8 +26,9 @@ export default function LegalQuiz({ ptUserId, onComplete, loading }: LegalQuizPr
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const question = QUIZ_QUESTIONS[currentQuestion];
-  const totalQuestions = QUIZ_QUESTIONS.length;
+  const quizQuestions = getQuizQuestions(stepKey);
+  const question = quizQuestions[currentQuestion];
+  const totalQuestions = quizQuestions.length;
   const allAnswered = Object.keys(answers).length === totalQuestions;
 
   const handleAnswer = (questionId: number, answer: string) => {
@@ -42,7 +44,7 @@ export default function LegalQuiz({ ptUserId, onComplete, loading }: LegalQuizPr
       const res = await fetch('/api/onboarding/quiz-complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ptUserId, stepKey: 'legal_education', answers }),
+        body: JSON.stringify({ ptUserId, stepKey, answers }),
       });
 
       const data = await res.json();
@@ -101,7 +103,7 @@ export default function LegalQuiz({ ptUserId, onComplete, loading }: LegalQuizPr
           )}
         </div>
 
-        {QUIZ_QUESTIONS.map((q) => {
+        {quizQuestions.map((q) => {
           const result = getResultForQuestion(q.id);
           return (
             <div
@@ -235,7 +237,7 @@ export default function LegalQuiz({ ptUserId, onComplete, loading }: LegalQuizPr
 
       {/* Question dots */}
       <div className="flex items-center justify-center gap-2">
-        {QUIZ_QUESTIONS.map((q, i) => (
+        {quizQuestions.map((q, i) => (
           <button
             key={q.id}
             type="button"

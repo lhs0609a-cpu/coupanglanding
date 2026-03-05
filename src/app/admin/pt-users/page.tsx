@@ -235,7 +235,7 @@ export default function AdminPtUsersPage() {
       .maybeSingle();
 
     if (traineeLink) {
-      const trainer = (traineeLink as { trainer_id: string; trainer: { id: string; status: string; bonus_percentage: number; total_earnings: number } }).trainer;
+      const trainer = (traineeLink as unknown as { trainer_id: string; trainer: { id: string; status: string; bonus_percentage: number; total_earnings: number } }).trainer;
       if (trainer && trainer.status === 'approved') {
         const reportCosts = getReportCosts(report);
         const { netProfit, bonusAmount } = calculateTrainerBonus(

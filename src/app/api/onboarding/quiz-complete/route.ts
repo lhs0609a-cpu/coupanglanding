@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
-import { QUIZ_QUESTIONS } from '@/lib/data/legal-education-quiz';
+import { getQuizQuestions } from '@/lib/data/quiz-registry';
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,7 +32,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 서버에서 정답 검증
-    const results = QUIZ_QUESTIONS.map((q) => ({
+    const quizQuestions = getQuizQuestions(stepKey);
+    const results = quizQuestions.map((q) => ({
       questionId: q.id,
       correct: answers[q.id] === q.correctAnswer,
       explanation: q.explanation,

@@ -242,6 +242,7 @@ export default function OnboardingStepItem({
           {definition.verificationType === 'quiz' && showAction && isLastSubStep && onQuizComplete && ptUserId && (
             <LegalQuiz
               ptUserId={ptUserId}
+              stepKey={definition.key}
               onComplete={onQuizComplete}
               loading={loading}
             />

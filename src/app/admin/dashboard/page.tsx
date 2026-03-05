@@ -230,7 +230,7 @@ export default function AdminDashboardPage() {
         .maybeSingle();
 
       if (traineeLink) {
-        const trainer = (traineeLink as { trainer_id: string; trainer: { id: string; status: string; bonus_percentage: number; total_earnings: number } }).trainer;
+        const trainer = (traineeLink as unknown as { trainer_id: string; trainer: { id: string; status: string; bonus_percentage: number; total_earnings: number } }).trainer;
         if (trainer && trainer.status === 'approved') {
           const netProfit = report.reported_revenue - (report.cost_product + report.cost_commission + report.cost_advertising + report.cost_returns + report.cost_shipping + report.cost_tax);
           const bonusAmount = netProfit > 0 ? Math.floor(netProfit * trainer.bonus_percentage / 100) : 0;

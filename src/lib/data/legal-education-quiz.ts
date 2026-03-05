@@ -1,11 +1,6 @@
-export interface QuizQuestion {
-  id: number;
-  type: 'ox' | 'multiple_choice';
-  question: string;
-  explanation: string;
-  correctAnswer: string;
-  options?: { key: string; label: string }[];
-}
+import type { QuizQuestion } from './quiz-registry';
+
+export type { QuizQuestion };
 
 export const QUIZ_QUESTIONS: QuizQuestion[] = [
   {
