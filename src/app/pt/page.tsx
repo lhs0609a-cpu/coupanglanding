@@ -132,7 +132,7 @@ const curriculumSteps = [
 ];
 
 const reverseFilterItems = [
-  '월 2~3천만원 이상의 매출을 기대하시는 분',
+  '월 2~3천만원 이상의 순수익을 기대하시는 분',
   '노력 없이 수익을 원하시는 분',
   '단기간에 대박을 원하시는 분',
   '교육 내용을 이행하지 않으시는 분',
@@ -176,7 +176,7 @@ const testimonials = [
 
 const guaranteeItems = [
   { icon: Shield, title: '3개월 내 매출 미발생 시 비용 0원', desc: '매출이 안 나오면 한 푼도 받지 않습니다. 저희의 자신감입니다.' },
-  { icon: CheckCircle, title: '중도 해지 자유', desc: '최소 계약 기간 없음. 위약금 없음. 언제든 해지 가능합니다.' },
+  { icon: CheckCircle, title: '보증금 100% 환급', desc: '보증금 300만원은 미션 수행 시 100% 돌려드립니다. 무조건 돌려드릴 거니 걱정하지 마세요. 다만, 하루에 1시간도 투자하지 않으시면 어렵습니다.' },
   { icon: FileText, title: '투명한 정산 리포트', desc: '매월 상세한 엑셀 리포트 제공. 매출, 원가, 광고비, 순이익 모두 공개.' },
 ];
 
@@ -796,7 +796,7 @@ export default function PTPage() {
               ].map((item, i) => (
                 <motion.div key={item.label} variants={scaleIn} custom={i} className="bg-white rounded-xl border border-gray-200 shadow-md overflow-hidden hover:shadow-lg transition-all">
                   <div className="relative">
-                    <img src={item.src} alt={item.label} className="w-full" />
+                    <img src={item.src} alt={item.label} className="w-full h-32 sm:h-40 object-cover object-top" />
                     <div className="absolute top-1.5 right-1.5">
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-green-500/90 text-white text-[9px] font-bold">
                         <span className="w-1 h-1 rounded-full bg-white animate-pulse" />실제
@@ -921,10 +921,10 @@ export default function PTPage() {
               </div>
               <div className="mb-8">
                 <div className="flex items-center justify-between mb-3"><span className="text-sm text-gray-500">월 예상 순이익</span><span className="text-lg font-extrabold text-gray-900">{calcProfit}만원</span></div>
-                <input type="range" min="50" max="1000" step="10" value={calcProfit} onChange={(e) => setCalcProfit(Number(e.target.value))}
+                <input type="range" min="50" max="2000" step="10" value={calcProfit} onChange={(e) => setCalcProfit(Number(e.target.value))}
                   className="w-full h-2 rounded-full appearance-none cursor-pointer bg-gray-200 accent-[#E31837]"
-                  style={{ background: `linear-gradient(to right, #E31837 ${((calcProfit - 50) / 950) * 100}%, #e5e7eb ${((calcProfit - 50) / 950) * 100}%)` }} />
-                <div className="flex justify-between mt-1"><span className="text-xs text-gray-500">50만원</span><span className="text-xs text-gray-500">1,000만원</span></div>
+                  style={{ background: `linear-gradient(to right, #E31837 ${((calcProfit - 50) / 1950) * 100}%, #e5e7eb ${((calcProfit - 50) / 1950) * 100}%)` }} />
+                <div className="flex justify-between mt-1"><span className="text-xs text-gray-500">50만원</span><span className="text-xs text-gray-500">2,000만원</span></div>
               </div>
               <div className="space-y-4">
                 <div className="flex items-center justify-between py-3 border-b border-gray-100"><span className="text-sm text-gray-500">PT사 수수료 (30%)</span><span className="text-base font-bold text-rose-500">{ptShare}만원</span></div>
