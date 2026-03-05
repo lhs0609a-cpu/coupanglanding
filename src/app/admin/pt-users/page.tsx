@@ -3,8 +3,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, getCurrentYearMonth, formatYearMonth, formatPercent } from '@/lib/utils/format';
-import { calculateDeposit, calculateNetProfit, totalCosts } from '@/lib/calculations/deposit';
+import { calculateDeposit, calculateNetProfit, totalCosts, getReportCosts } from '@/lib/calculations/deposit';
 import { calculateTrainerBonus } from '@/lib/calculations/trainer';
+import { lookupAndLinkTrainee } from '@/lib/utils/trainer-link';
+import { logActivity } from '@/lib/utils/activity-log';
+import { notifyTrainerNewTrainee, notifyTrainerBonusEarned } from '@/lib/utils/notifications';
 import type { CostBreakdown } from '@/lib/calculations/deposit';
 import {
   PAYMENT_STATUS_LABELS,
@@ -46,17 +49,6 @@ interface ReviewModalData {
   adjustedAmount: number;
 }
 
-function getReportCosts(report: ReportWithScreenshot): CostBreakdown {
-  return {
-    cost_product: report.cost_product || 0,
-    cost_commission: report.cost_commission || 0,
-    cost_advertising: report.cost_advertising || 0,
-    cost_returns: report.cost_returns || 0,
-    cost_shipping: report.cost_shipping || 0,
-    cost_tax: report.cost_tax || 0,
-  };
-}
-
 export default function AdminPtUsersPage() {
   const [yearMonth, setYearMonth] = useState(getCurrentYearMonth());
   const [ptUsers, setPtUsers] = useState<PtUserWithProfile[]>([]);
@@ -74,7 +66,7 @@ export default function AdminPtUsersPage() {
   const [onboardingReports, setOnboardingReports] = useState<Set<string>>(new Set());
   const [obReviewModal, setObReviewModal] = useState<{ userId: string; userName: string } | null>(null);
   const [visiblePwIds, setVisiblePwIds] = useState<Set<string>>(new Set());
-  const [traineeTrainerMap, setTraineeTrainerMap] = useState<Map<string, { trainer_id: string; bonus_percentage: number }>>(new Map());
+  const [traineeTrainerMap, setTraineeTrainerMap] = useState<Map<string, { trainer_id: string; bonus_percentage: number; trainer_name: string; referral_code: string }>>(new Map());
 
   // Add user form
   const [newEmail, setNewEmail] = useState('');
@@ -143,15 +135,20 @@ export default function AdminPtUsersPage() {
       // 트레이너-교육생 매핑 조회
       const { data: traineeLinks } = await supabase
         .from('trainer_trainees')
-        .select('trainee_pt_user_id, trainer_id, trainer:trainers(bonus_percentage, status)')
+        .select('trainee_pt_user_id, trainer_id, trainer:trainers(bonus_percentage, status, referral_code, pt_user:pt_users(profile:profiles(full_name)))')
         .eq('is_active', true)
         .in('trainee_pt_user_id', userIds);
 
-      const tMap = new Map<string, { trainer_id: string; bonus_percentage: number }>();
+      const tMap = new Map<string, { trainer_id: string; bonus_percentage: number; trainer_name: string; referral_code: string }>();
       (traineeLinks || []).forEach((link) => {
-        const l = link as unknown as { trainee_pt_user_id: string; trainer_id: string; trainer: { bonus_percentage: number; status: string } };
+        const l = link as unknown as { trainee_pt_user_id: string; trainer_id: string; trainer: { bonus_percentage: number; status: string; referral_code: string; pt_user: { profile: { full_name: string } } } };
         if (l.trainer?.status === 'approved') {
-          tMap.set(l.trainee_pt_user_id, { trainer_id: l.trainer_id, bonus_percentage: l.trainer.bonus_percentage });
+          tMap.set(l.trainee_pt_user_id, {
+            trainer_id: l.trainer_id,
+            bonus_percentage: l.trainer.bonus_percentage,
+            trainer_name: l.trainer.pt_user?.profile?.full_name || '이름 없음',
+            referral_code: l.trainer.referral_code || '',
+          });
         }
       });
       setTraineeTrainerMap(tMap);
@@ -229,13 +226,13 @@ export default function AdminPtUsersPage() {
     // 트레이너 보너스 자동 생성
     const { data: traineeLink } = await supabase
       .from('trainer_trainees')
-      .select('trainer_id, trainer:trainers(*)')
+      .select('trainer_id, trainer:trainers(*, pt_user:pt_users(profile_id))')
       .eq('trainee_pt_user_id', ptUserId)
       .eq('is_active', true)
       .maybeSingle();
 
     if (traineeLink) {
-      const trainer = (traineeLink as unknown as { trainer_id: string; trainer: { id: string; status: string; bonus_percentage: number; total_earnings: number } }).trainer;
+      const trainer = (traineeLink as unknown as { trainer_id: string; trainer: { id: string; status: string; bonus_percentage: number; total_earnings: number; pt_user: { profile_id: string } } }).trainer;
       if (trainer && trainer.status === 'approved') {
         const reportCosts = getReportCosts(report);
         const { netProfit, bonusAmount } = calculateTrainerBonus(
@@ -268,9 +265,32 @@ export default function AdminPtUsersPage() {
               .from('trainers')
               .update({ total_earnings: (trainer.total_earnings || 0) + bonusAmount })
               .eq('id', trainer.id);
+
+            // 트레이너에게 보너스 알림
+            if (trainer.pt_user?.profile_id) {
+              await notifyTrainerBonusEarned(
+                supabase,
+                trainer.pt_user.profile_id,
+                userName,
+                report.year_month,
+                bonusAmount,
+              );
+            }
           }
         }
       }
+    }
+
+    // 활동 로그
+    const { data: { user: adminUser } } = await supabase.auth.getUser();
+    if (adminUser) {
+      await logActivity(supabase, {
+        adminId: adminUser.id,
+        action: 'confirm_deposit',
+        targetType: 'monthly_report',
+        targetId: report.id,
+        details: { user_name: userName, deposit_amount: depositAmount },
+      });
     }
 
     fetchData();
@@ -321,17 +341,57 @@ export default function AdminPtUsersPage() {
       return;
     }
 
-    await supabase.from('pt_users').insert({
-      profile_id: profile.id,
-      share_percentage: newSharePercentage,
-      status: 'active',
-      program_access_active: false,
-    });
+    const { data: newPtUser } = await supabase
+      .from('pt_users')
+      .insert({
+        profile_id: profile.id,
+        share_percentage: newSharePercentage,
+        status: 'active',
+        program_access_active: false,
+      })
+      .select('id')
+      .single();
 
     await supabase
       .from('profiles')
       .update({ role: 'pt_user', full_name: newName || undefined })
       .eq('id', profile.id);
+
+    // 추천 코드 확인 + trainer_trainees 생성
+    if (newPtUser) {
+      const linkResult = await lookupAndLinkTrainee(supabase, {
+        userEmail: newEmail,
+        ptUserId: newPtUser.id,
+        profileId: profile.id,
+      });
+
+      if (linkResult.isReferred && newSharePercentage === 30) {
+        await supabase
+          .from('pt_users')
+          .update({ share_percentage: 25 })
+          .eq('id', newPtUser.id);
+      }
+
+      if (linkResult.isReferred && linkResult.trainerProfileId) {
+        await notifyTrainerNewTrainee(
+          supabase,
+          linkResult.trainerProfileId,
+          newName || '이름 없음',
+        );
+      }
+    }
+
+    // 활동 로그
+    const { data: { user: adminUser } } = await supabase.auth.getUser();
+    if (adminUser) {
+      await logActivity(supabase, {
+        adminId: adminUser.id,
+        action: 'approve_user',
+        targetType: 'pt_user',
+        targetId: newPtUser?.id,
+        details: { user_name: newName, email: newEmail },
+      });
+    }
 
     setAddModalOpen(false);
     setNewEmail('');
@@ -533,6 +593,12 @@ export default function AdminPtUsersPage() {
                           <Badge
                             label="API 연동"
                             colorClass="bg-green-100 text-green-700"
+                          />
+                        )}
+                        {traineeTrainerMap.has(user.id) && (
+                          <Badge
+                            label={`추천: ${traineeTrainerMap.get(user.id)!.trainer_name}(${traineeTrainerMap.get(user.id)!.referral_code})`}
+                            colorClass="bg-purple-100 text-purple-700"
                           />
                         )}
                       </div>

@@ -42,6 +42,25 @@ export function calculateNetProfit(revenue: number, costs: CostBreakdown): numbe
   return revenue - totalCosts(costs);
 }
 
+/** 리포트에서 CostBreakdown 추출 */
+export function getReportCosts(report: {
+  cost_product?: number;
+  cost_commission?: number;
+  cost_advertising?: number;
+  cost_returns?: number;
+  cost_shipping?: number;
+  cost_tax?: number;
+}): CostBreakdown {
+  return {
+    cost_product: report.cost_product || 0,
+    cost_commission: report.cost_commission || 0,
+    cost_advertising: report.cost_advertising || 0,
+    cost_returns: report.cost_returns || 0,
+    cost_shipping: report.cost_shipping || 0,
+    cost_tax: report.cost_tax || 0,
+  };
+}
+
 /**
  * 송금액 = 순수익 × share%
  * 순수익 ≤ 0이면 송금액 0

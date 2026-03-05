@@ -10,6 +10,8 @@ import {
   TRAINER_EARNING_STATUS_COLORS,
 } from '@/lib/utils/constants';
 import { generateReferralCode } from '@/lib/calculations/trainer';
+import { logActivity } from '@/lib/utils/activity-log';
+import { notifyTrainerApproved, notifyTrainerBonusDeposited } from '@/lib/utils/notifications';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
@@ -102,12 +104,28 @@ export default function AdminTrainersPage() {
   const handleAddTrainer = async () => {
     if (!selectedPtUserId) return;
 
-    await supabase.from('trainers').insert({
-      pt_user_id: selectedPtUserId,
-      status: 'pending',
-      bonus_percentage: 5,
-      total_earnings: 0,
-    });
+    const { data: newTrainer } = await supabase
+      .from('trainers')
+      .insert({
+        pt_user_id: selectedPtUserId,
+        status: 'pending',
+        bonus_percentage: 5,
+        total_earnings: 0,
+      })
+      .select('id')
+      .single();
+
+    // 활동 로그
+    const { data: { user: adminUser } } = await supabase.auth.getUser();
+    if (adminUser) {
+      await logActivity(supabase, {
+        adminId: adminUser.id,
+        action: 'add_trainer',
+        targetType: 'trainer',
+        targetId: newTrainer?.id,
+        details: { pt_user_id: selectedPtUserId },
+      });
+    }
 
     setAddModalOpen(false);
     setSelectedPtUserId('');
@@ -139,6 +157,25 @@ export default function AdminTrainersPage() {
       })
       .eq('id', trainerId);
 
+    // 트레이너의 프로필 ID 조회 후 알림 발송
+    const trainer = trainers.find((t) => t.id === trainerId);
+    const trainerProfileId = trainer?.pt_user?.profile?.id;
+    if (trainerProfileId) {
+      await notifyTrainerApproved(supabase, trainerProfileId, code);
+    }
+
+    // 활동 로그
+    const { data: { user: adminUser } } = await supabase.auth.getUser();
+    if (adminUser) {
+      await logActivity(supabase, {
+        adminId: adminUser.id,
+        action: 'approve_trainer',
+        targetType: 'trainer',
+        targetId: trainerId,
+        details: { referral_code: code },
+      });
+    }
+
     fetchTrainers();
   };
 
@@ -155,6 +192,18 @@ export default function AdminTrainersPage() {
       .from('trainer_trainees')
       .update({ is_active: false })
       .eq('trainer_id', revokeModal);
+
+    // 활동 로그
+    const { data: { user: adminUser } } = await supabase.auth.getUser();
+    if (adminUser) {
+      await logActivity(supabase, {
+        adminId: adminUser.id,
+        action: 'revoke_trainer',
+        targetType: 'trainer',
+        targetId: revokeModal,
+        details: { reason: revokeReason || undefined },
+      });
+    }
 
     setRevokeModal(null);
     setRevokeReason('');
@@ -181,6 +230,39 @@ export default function AdminTrainersPage() {
     setEarnings((earningsRes.data as TrainerEarning[]) || []);
   };
 
+  const handleUpdateEarningStatus = async (earningId: string, newStatus: 'deposited') => {
+    await supabase
+      .from('trainer_earnings')
+      .update({ payment_status: newStatus })
+      .eq('id', earningId);
+
+    // deposited 전환 시 트레이너에게 알림
+    if (newStatus === 'deposited' && detailTrainer) {
+      const earning = earnings.find((e) => e.id === earningId);
+      const trainerProfileId = detailTrainer.pt_user?.profile?.id;
+      if (earning && trainerProfileId) {
+        await notifyTrainerBonusDeposited(supabase, trainerProfileId, earning.year_month, earning.bonus_amount);
+      }
+    }
+
+    // 로컬 상태 즉시 반영
+    setEarnings((prev) => prev.map((e) => e.id === earningId ? { ...e, payment_status: newStatus } : e));
+
+    // requestedCounts 갱신
+    if (newStatus === 'deposited' && detailTrainer) {
+      setRequestedCounts((prev) => {
+        const next = new Map(prev);
+        const current = next.get(detailTrainer.id) || 0;
+        if (current > 1) {
+          next.set(detailTrainer.id, current - 1);
+        } else {
+          next.delete(detailTrainer.id);
+        }
+        return next;
+      });
+    }
+  };
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
   };
@@ -194,8 +276,31 @@ export default function AdminTrainersPage() {
     return name.toLowerCase().includes(q) || email.toLowerCase().includes(q) || code.toLowerCase().includes(q);
   });
 
+  // 입금요청 건수 조회
+  const [requestedCounts, setRequestedCounts] = useState<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    if (trainers.length === 0) return;
+    const trainerIds = trainers.map((t) => t.id);
+    (async () => {
+      const { data } = await supabase
+        .from('trainer_earnings')
+        .select('trainer_id')
+        .eq('payment_status', 'requested')
+        .in('trainer_id', trainerIds);
+
+      const countMap = new Map<string, number>();
+      (data || []).forEach((row) => {
+        const id = (row as { trainer_id: string }).trainer_id;
+        countMap.set(id, (countMap.get(id) || 0) + 1);
+      });
+      setRequestedCounts(countMap);
+    })();
+  }, [trainers, supabase]);
+
   const pendingCount = trainers.filter((t) => t.status === 'pending').length;
   const approvedCount = trainers.filter((t) => t.status === 'approved').length;
+  const totalRequestedCount = Array.from(requestedCounts.values()).reduce((s, c) => s + c, 0);
 
   return (
     <div className="space-y-6">
@@ -206,6 +311,11 @@ export default function AdminTrainersPage() {
           {pendingCount > 0 && (
             <span className="px-2.5 py-1 bg-yellow-100 text-yellow-700 text-xs font-bold rounded-full">
               {pendingCount}건 대기
+            </span>
+          )}
+          {totalRequestedCount > 0 && (
+            <span className="px-2.5 py-1 bg-orange-100 text-orange-700 text-xs font-bold rounded-full">
+              {totalRequestedCount}건 입금요청
             </span>
           )}
         </div>
@@ -319,6 +429,11 @@ export default function AdminTrainersPage() {
                     <span className="text-xs text-gray-400">
                       보너스: {trainer.bonus_percentage}%
                     </span>
+                    {(requestedCounts.get(trainer.id) || 0) > 0 && (
+                      <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-bold rounded-full">
+                        {requestedCounts.get(trainer.id)}건 입금요청
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
                     <span className="flex items-center gap-1">
@@ -524,6 +639,7 @@ export default function AdminTrainersPage() {
                         <th className="text-right py-2 px-3 font-semibold text-gray-600">순이익</th>
                         <th className="text-right py-2 px-3 font-semibold text-gray-600">보너스</th>
                         <th className="text-center py-2 px-3 font-semibold text-gray-600">상태</th>
+                        <th className="text-center py-2 px-3 font-semibold text-gray-600">관리</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -540,6 +656,26 @@ export default function AdminTrainersPage() {
                               label={TRAINER_EARNING_STATUS_LABELS[e.payment_status]}
                               colorClass={TRAINER_EARNING_STATUS_COLORS[e.payment_status]}
                             />
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            {e.payment_status === 'pending' && (
+                              <span className="text-xs text-gray-400">대기중</span>
+                            )}
+                            {e.payment_status === 'requested' && (
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateEarningStatus(e.id, 'deposited')}
+                                className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition"
+                              >
+                                입금완료
+                              </button>
+                            )}
+                            {e.payment_status === 'deposited' && (
+                              <span className="text-xs text-blue-600">확인 대기</span>
+                            )}
+                            {e.payment_status === 'confirmed' && (
+                              <span className="text-xs text-green-600">완료</span>
+                            )}
                           </td>
                         </tr>
                       ))}

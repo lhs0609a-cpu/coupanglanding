@@ -5,12 +5,19 @@ import DashboardHeader from './DashboardHeader';
 import AdminSidebar from './AdminSidebar';
 import UserSidebar from './UserSidebar';
 
+export interface SettlementBadgeData {
+  dday: number;
+  reportStatus: 'not_eligible' | 'pending' | 'submitted' | 'completed' | 'overdue';
+  eligible: boolean;
+}
+
 interface DashboardLayoutProps {
   children: React.ReactNode;
   userName: string;
   userRole: string;
   variant: 'admin' | 'user';
   isTrainer?: boolean;
+  settlementBadge?: SettlementBadgeData;
 }
 
 export default function DashboardLayout({
@@ -19,6 +26,7 @@ export default function DashboardLayout({
   userRole,
   variant,
   isTrainer,
+  settlementBadge,
 }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -27,7 +35,7 @@ export default function DashboardLayout({
       {variant === 'admin' ? (
         <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       ) : (
-        <UserSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isTrainer={isTrainer} />
+        <UserSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isTrainer={isTrainer} settlementBadge={settlementBadge} />
       )}
 
       <div className="flex-1 flex flex-col min-w-0">

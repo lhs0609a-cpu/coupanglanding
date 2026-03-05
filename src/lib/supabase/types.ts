@@ -8,9 +8,9 @@ export type ContractStatus = 'draft' | 'sent' | 'signed' | 'expired' | 'terminat
 export type OnboardingStepStatus = 'pending' | 'submitted' | 'approved' | 'rejected';
 export type OnboardingVerificationType = 'self_check' | 'evidence_upload' | 'auto_linked' | 'quiz';
 export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system';
-export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense';
+export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee';
 export type TrainerStatus = 'pending' | 'approved' | 'revoked';
-export type TrainerEarningStatus = 'pending' | 'confirmed' | 'paid';
+export type TrainerEarningStatus = 'pending' | 'requested' | 'deposited' | 'confirmed';
 
 export interface Profile {
   id: string;
@@ -166,6 +166,13 @@ export interface Contract {
   signed_ip: string | null;
   signature_data: string | null;
   admin_note: string | null;
+  // 해지 관련 필드
+  terminated_at: string | null;
+  termination_reason: string | null;
+  product_deactivation_deadline: string | null;
+  product_deactivation_confirmed: boolean;
+  product_deactivation_evidence_url: string | null;
+  termination_acknowledged_at: string | null;
   created_at: string;
   updated_at: string;
   // Joined fields

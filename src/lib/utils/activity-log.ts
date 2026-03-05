@@ -39,6 +39,10 @@ export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   create_expense: '비용 등록',
   delete_revenue: '수익 삭제',
   delete_expense: '비용 삭제',
+  approve_trainer: '트레이너 승인',
+  revoke_trainer: '트레이너 취소',
+  add_trainer: '트레이너 추가',
+  link_trainee: '교육생 연결',
 };
 
 /** 대상 타입 한글 라벨 */
@@ -53,4 +57,6 @@ export const TARGET_TYPE_LABELS: Record<string, string> = {
   expense_entry: '비용',
   settings: '설정',
   partner: '파트너',
+  trainer: '트레이너',
+  trainer_trainee: '교육생 연결',
 };

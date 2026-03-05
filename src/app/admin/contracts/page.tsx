@@ -11,8 +11,9 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import { CONTRACT_ARTICLES, renderArticleText } from '@/lib/data/contract-terms';
-import { FileText, Plus, RefreshCw, Send, XCircle, Eye, Download } from 'lucide-react';
+import { FileText, Plus, RefreshCw, Send, XCircle, Eye, Download, CheckCircle2, AlertTriangle, Image } from 'lucide-react';
 import { downloadContractPdf } from '@/lib/utils/contract-pdf';
+import ContractTerminationModal from '@/components/admin/ContractTerminationModal';
 import type { Contract, PtUser, Profile } from '@/lib/supabase/types';
 
 interface ContractWithUser extends Contract {
@@ -39,6 +40,9 @@ export default function AdminContractsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [createModal, setCreateModal] = useState(false);
   const [viewContract, setViewContract] = useState<ContractWithUser | null>(null);
+
+  // Termination modal
+  const [terminateTarget, setTerminateTarget] = useState<ContractWithUser | null>(null);
 
   // Create form
   const [newPtUserId, setNewPtUserId] = useState('');
@@ -184,16 +188,25 @@ export default function AdminContractsPage() {
     );
   };
 
-  const handleTerminate = async (id: string) => {
-    if (!confirm('이 계약을 해지하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
-    const { error } = await supabase.from('contracts').update({ status: 'terminated' }).eq('id', id);
+  const handleTerminate = (contract: ContractWithUser) => {
+    setTerminateTarget(contract);
+  };
+
+  const handleTerminated = () => {
+    fetchData();
+  };
+
+  const handleConfirmDeactivation = async (contractId: string) => {
+    const { error } = await supabase
+      .from('contracts')
+      .update({ product_deactivation_confirmed: true })
+      .eq('id', contractId);
+
     if (error) {
-      alert(`해지 실패: ${error.message}`);
+      alert(`철거 확인 실패: ${error.message}`);
       return;
     }
-    setContracts((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, status: 'terminated' as const } : c))
-    );
+    fetchData();
   };
 
   return (
@@ -271,7 +284,27 @@ export default function AdminContractsPage() {
                     </td>
                     <td className="py-3 px-4 text-gray-600 hidden sm:table-cell">{contract.start_date}</td>
                     <td className="py-3 px-4">
-                      <Badge label={CONTRACT_STATUS_LABELS[contract.status]} colorClass={CONTRACT_STATUS_COLORS[contract.status]} />
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <Badge label={CONTRACT_STATUS_LABELS[contract.status]} colorClass={CONTRACT_STATUS_COLORS[contract.status]} />
+                        {contract.status === 'terminated' && contract.product_deactivation_deadline && !contract.product_deactivation_confirmed && (() => {
+                          const deadline = new Date(contract.product_deactivation_deadline);
+                          const now = new Date();
+                          const diffMs = deadline.getTime() - now.getTime();
+                          const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                          return (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                              daysLeft <= 0 ? 'bg-red-100 text-red-700' : daysLeft <= 3 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'
+                            }`}>
+                              {daysLeft <= 0 ? `D+${Math.abs(daysLeft)}` : `D-${daysLeft}`}
+                            </span>
+                          );
+                        })()}
+                        {contract.status === 'terminated' && contract.product_deactivation_confirmed && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
+                            철거완료
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3 px-4 text-gray-500 hidden md:table-cell">
                       {contract.signed_at ? formatDate(contract.signed_at) : '-'}
@@ -310,13 +343,46 @@ export default function AdminContractsPage() {
                         {(contract.status === 'sent' || contract.status === 'signed') && (
                           <button
                             type="button"
-                            onClick={() => handleTerminate(contract.id)}
+                            onClick={() => handleTerminate(contract)}
                             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100 transition"
                             title="해지"
                           >
                             <XCircle className="w-3.5 h-3.5" />
                             해지
                           </button>
+                        )}
+                        {contract.status === 'terminated' && (
+                          <div className="flex items-center gap-1">
+                            {contract.product_deactivation_confirmed ? (
+                              <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-50 rounded-lg">
+                                <CheckCircle2 className="w-3 h-3" />
+                                철거완료
+                              </span>
+                            ) : (
+                              <>
+                                {contract.product_deactivation_evidence_url && (
+                                  <button
+                                    type="button"
+                                    onClick={() => window.open(contract.product_deactivation_evidence_url!, '_blank')}
+                                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition"
+                                    title="증빙 확인"
+                                  >
+                                    <Image className="w-3 h-3" />
+                                    증빙
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleConfirmDeactivation(contract.id)}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-50 rounded-lg hover:bg-green-100 transition"
+                                  title="철거 확인"
+                                >
+                                  <CheckCircle2 className="w-3 h-3" />
+                                  철거확인
+                                </button>
+                              </>
+                            )}
+                          </div>
                         )}
                       </div>
                     </td>
@@ -414,6 +480,17 @@ export default function AdminContractsPage() {
           </div>
         )}
       </Modal>
+
+      {/* Termination Modal */}
+      {terminateTarget && (
+        <ContractTerminationModal
+          isOpen={!!terminateTarget}
+          onClose={() => setTerminateTarget(null)}
+          contractId={terminateTarget.id}
+          userName={terminateTarget.pt_user?.profile?.full_name || '사용자'}
+          onTerminated={handleTerminated}
+        />
+      )}
 
       {/* Create Contract Modal */}
       <Modal isOpen={createModal} onClose={() => setCreateModal(false)} title="새 계약 생성" maxWidth="max-w-lg">

@@ -256,15 +256,19 @@ export const TRAINER_STATUS_COLORS: Record<string, string> = {
 };
 
 export const TRAINER_EARNING_STATUS_LABELS: Record<string, string> = {
-  pending: '대기',
-  confirmed: '확인',
-  paid: '지급완료',
+  pending: '정산 대기',
+  requested: '입금요청',
+  deposited: '입금완료',
+  confirmed: '입금확인완료',
+  paid: '입금확인완료', // 레거시 호환
 };
 
 export const TRAINER_EARNING_STATUS_COLORS: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-700',
-  confirmed: 'bg-blue-100 text-blue-700',
-  paid: 'bg-green-100 text-green-700',
+  requested: 'bg-yellow-100 text-yellow-700',
+  deposited: 'bg-blue-100 text-blue-700',
+  confirmed: 'bg-green-100 text-green-700',
+  paid: 'bg-green-100 text-green-700', // 레거시 호환
 };
 
 export const DEFAULT_TRAINER_BONUS_PERCENTAGE = 5;

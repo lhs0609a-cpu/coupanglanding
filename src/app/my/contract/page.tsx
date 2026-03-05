@@ -9,7 +9,8 @@ import type { ContractVariables } from '@/lib/data/contract-terms';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import SignaturePad from '@/components/ui/SignaturePad';
-import { FileText, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
+import FileUpload from '@/components/ui/FileUpload';
+import { FileText, CheckCircle, Clock, AlertTriangle, Calendar, Upload } from 'lucide-react';
 import type { Contract } from '@/lib/supabase/types';
 
 function ContractContent({ vars }: { vars: ContractVariables }) {
@@ -57,6 +58,13 @@ export default function MyContractPage() {
   const [agreed, setAgreed] = useState(false);
   const [signatureData, setSignatureData] = useState<string | null>(null);
   const [signError, setSignError] = useState('');
+  // 해지 관련 state
+  const [ackLoading, setAckLoading] = useState(false);
+  const [ackChecked, setAckChecked] = useState(false);
+  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [evidencePreviewUrl, setEvidencePreviewUrl] = useState<string | null>(null);
+  const [evidenceUploading, setEvidenceUploading] = useState(false);
+  const [terminationMessage, setTerminationMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -150,7 +158,91 @@ export default function MyContractPage() {
     }
   };
 
+  const handleAcknowledge = async (contractId: string) => {
+    setAckLoading(true);
+    setTerminationMessage(null);
+    try {
+      const res = await fetch('/api/contracts/acknowledge-termination', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contractId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setTerminationMessage({ type: 'error', text: data.error || '확인 처리에 실패했습니다.' });
+      } else {
+        setContracts((prev) =>
+          prev.map((c) =>
+            c.id === contractId ? { ...c, termination_acknowledged_at: new Date().toISOString() } : c
+          )
+        );
+        setTerminationMessage({ type: 'success', text: '확인이 완료되었습니다.' });
+      }
+    } catch {
+      setTerminationMessage({ type: 'error', text: '서버 오류가 발생했습니다.' });
+    } finally {
+      setAckLoading(false);
+    }
+  };
+
+  const handleEvidenceUpload = async (contractId: string) => {
+    if (!evidenceFile) return;
+    setEvidenceUploading(true);
+    setTerminationMessage(null);
+
+    try {
+      // pt_user 정보 가져오기
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: ptUser } = await supabase
+        .from('pt_users')
+        .select('id')
+        .eq('profile_id', user.id)
+        .single();
+      if (!ptUser) return;
+
+      // 파일 업로드
+      const formData = new FormData();
+      formData.append('file', evidenceFile);
+      formData.append('ptUserId', ptUser.id);
+      formData.append('yearMonth', 'deactivation');
+      formData.append('type', 'revenue');
+      const uploadRes = await fetch('/api/upload-screenshot', {
+        method: 'POST',
+        body: formData,
+      });
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok) {
+        setTerminationMessage({ type: 'error', text: uploadData.error || '업로드에 실패했습니다.' });
+        return;
+      }
+
+      // 증빙 URL 저장
+      const res = await fetch('/api/contracts/submit-deactivation-evidence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contractId, evidenceUrl: uploadData.url }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setTerminationMessage({ type: 'error', text: data.error || '증빙 제출에 실패했습니다.' });
+      } else {
+        setContracts((prev) =>
+          prev.map((c) =>
+            c.id === contractId ? { ...c, product_deactivation_evidence_url: uploadData.url } : c
+          )
+        );
+        setTerminationMessage({ type: 'success', text: '증빙이 제출되었습니다. 관리자가 확인 후 처리합니다.' });
+      }
+    } catch {
+      setTerminationMessage({ type: 'error', text: '서버 오류가 발생했습니다.' });
+    } finally {
+      setEvidenceUploading(false);
+    }
+  };
+
   const activeContract = contracts.find((c) => c.status === 'sent' || c.status === 'signed');
+  const terminatedContract = contracts.find((c) => c.status === 'terminated');
 
   return (
     <div className="space-y-6">
@@ -286,13 +378,162 @@ export default function MyContractPage() {
             </Card>
           )}
 
+          {/* 해지된 계약 안내 */}
+          {terminatedContract && (
+            <Card>
+              <div className="flex items-center gap-2 mb-4">
+                <AlertTriangle className="w-5 h-5 text-red-500" />
+                <h2 className="text-lg font-bold text-red-700">계약이 해지되었습니다</h2>
+              </div>
+
+              <div className="space-y-4">
+                {/* 해지 정보 */}
+                <div className="grid grid-cols-2 gap-3 p-4 bg-red-50 rounded-xl text-sm">
+                  <div>
+                    <span className="text-gray-500">해지일</span>
+                    <p className="font-semibold text-gray-900">
+                      {terminatedContract.terminated_at
+                        ? formatDate(terminatedContract.terminated_at)
+                        : '-'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">사유</span>
+                    <p className="font-semibold text-gray-900">
+                      {terminatedContract.termination_reason || '-'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* 상품 철거 의무 (제11조) */}
+                <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                  <h3 className="text-sm font-bold text-orange-800 mb-2">상품 철거 의무 (제11조)</h3>
+                  <p className="text-sm text-orange-700">
+                    프로그램을 통해 등록한 모든 상품을 아래 기한까지 쿠팡 Wing에서 비활성화(판매중지)해야 합니다.
+                  </p>
+                  {terminatedContract.product_deactivation_deadline && (
+                    <div className="mt-3 flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-orange-600" />
+                      <span className="text-sm font-bold text-orange-800">
+                        철거 기한: {formatDate(terminatedContract.product_deactivation_deadline)}
+                        {(() => {
+                          const deadline = new Date(terminatedContract.product_deactivation_deadline!);
+                          const now = new Date();
+                          const diffMs = deadline.getTime() - now.getTime();
+                          const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                          return ` (${daysLeft <= 0 ? `D+${Math.abs(daysLeft)} 초과` : `D-${daysLeft}`})`;
+                        })()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* 위약금 안내 (제12조) */}
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <h3 className="text-sm font-bold text-red-800 mb-1">위약금 안내 (제12조)</h3>
+                  <p className="text-sm text-red-700">
+                    기한 내 미이행 시 수수료율의 2배에 해당하는 위약금이 부과됩니다.
+                  </p>
+                </div>
+
+                {/* 확인 섹션 */}
+                {!terminatedContract.termination_acknowledged_at ? (
+                  <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                    <label className="flex items-start gap-3 cursor-pointer mb-3">
+                      <input
+                        type="checkbox"
+                        checked={ackChecked}
+                        onChange={(e) => setAckChecked(e.target.checked)}
+                        className="w-5 h-5 rounded border-gray-300 text-[#E31837] focus:ring-[#E31837] mt-0.5"
+                      />
+                      <span className="text-sm text-gray-700">위 내용을 확인했습니다</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handleAcknowledge(terminatedContract.id)}
+                      disabled={!ackChecked || ackLoading}
+                      className="w-full py-2.5 bg-[#E31837] text-white font-semibold rounded-lg hover:bg-[#c01530] transition disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                    >
+                      {ackLoading ? '처리 중...' : '확인 완료'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 p-3 bg-green-50 rounded-lg">
+                    <CheckCircle className="w-4 h-4 text-green-600" />
+                    <span className="text-sm font-medium text-green-700">
+                      확인 완료 ({formatDate(terminatedContract.termination_acknowledged_at)})
+                    </span>
+                  </div>
+                )}
+
+                {/* 상품 철거 증빙 */}
+                {terminatedContract.termination_acknowledged_at && !terminatedContract.product_deactivation_confirmed && (
+                  <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Upload className="w-4 h-4 text-gray-600" />
+                      <h3 className="text-sm font-bold text-gray-800">상품 철거 증빙</h3>
+                    </div>
+                    <p className="text-xs text-gray-600">
+                      쿠팡 Wing에서 모든 상품을 판매중지한 화면을 캡처하여 업로드해주세요.
+                    </p>
+
+                    {terminatedContract.product_deactivation_evidence_url ? (
+                      <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
+                        <CheckCircle className="w-4 h-4 text-blue-600" />
+                        <span className="text-sm text-blue-700">증빙이 제출되었습니다. 관리자 확인 대기 중입니다.</span>
+                      </div>
+                    ) : (
+                      <>
+                        <FileUpload
+                          label="철거 증빙 스크린샷"
+                          onFileSelect={(file) => {
+                            setEvidenceFile(file);
+                            setEvidencePreviewUrl(URL.createObjectURL(file));
+                          }}
+                          onClear={() => {
+                            setEvidenceFile(null);
+                            setEvidencePreviewUrl(null);
+                          }}
+                          previewUrl={evidencePreviewUrl}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleEvidenceUpload(terminatedContract.id)}
+                          disabled={!evidenceFile || evidenceUploading}
+                          className="w-full py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                        >
+                          {evidenceUploading ? '업로드 중...' : '증빙 제출'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {terminatedContract.product_deactivation_confirmed && (
+                  <div className="flex items-center gap-2 p-3 bg-green-50 rounded-lg">
+                    <CheckCircle className="w-4 h-4 text-green-600" />
+                    <span className="text-sm font-medium text-green-700">상품 철거가 확인되었습니다.</span>
+                  </div>
+                )}
+
+                {terminationMessage && (
+                  <div className={`px-4 py-3 rounded-lg text-sm ${
+                    terminationMessage.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'
+                  }`}>
+                    {terminationMessage.text}
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
+
           {/* Past Contracts */}
-          {contracts.filter((c) => c.status !== 'sent' && c.status !== 'signed').length > 0 && (
+          {contracts.filter((c) => c.status !== 'sent' && c.status !== 'signed' && c.status !== 'terminated').length > 0 && (
             <Card>
               <h2 className="text-lg font-bold text-gray-900 mb-4">과거 계약 이력</h2>
               <div className="space-y-3">
                 {contracts
-                  .filter((c) => c.status !== 'sent' && c.status !== 'signed')
+                  .filter((c) => c.status !== 'sent' && c.status !== 'signed' && c.status !== 'terminated')
                   .map((c) => (
                     <div key={c.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
                       <div>

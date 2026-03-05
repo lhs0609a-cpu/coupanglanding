@@ -6,7 +6,9 @@ import { calculateDeposit, calculateNetProfit, totalCosts, buildCostBreakdown } 
 import type { CostBreakdown } from '@/lib/calculations/deposit';
 import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/format';
 import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, COST_CATEGORIES, DEFAULT_COST_RATES, MANUAL_COST_KEY } from '@/lib/utils/constants';
-import { getReportTargetMonth, isEligibleForMonth, getFirstEligibleMonth, getSettlementDDay, formatDDay, getDDayColorClass, formatDeadline } from '@/lib/utils/settlement';
+import { getReportTargetMonth, isEligibleForMonth, getFirstEligibleMonth, getSettlementDDay, formatDDay, getDDayColorClass, formatDeadline, getAdminSettlementStatus } from '@/lib/utils/settlement';
+import type { PaymentStatus as SettlementPaymentStatus } from '@/lib/utils/settlement';
+import AdminPendingBanner from '@/components/settlement/AdminPendingBanner';
 import { validateExifMetadata } from '@/lib/utils/exif-validation';
 import type { ExifValidationResult } from '@/lib/utils/exif-validation';
 import MonthPicker from '@/components/ui/MonthPicker';
@@ -458,6 +460,11 @@ export default function MyReportPage() {
               </p>
             </div>
           )}
+
+          {/* 관리자 처리 지연 배너 */}
+          <AdminPendingBanner
+            adminStatus={getAdminSettlementStatus(yearMonth, report.payment_status as SettlementPaymentStatus)}
+          />
 
           {report.admin_note && (
             <div className="mt-3 p-3 bg-gray-50 rounded-lg">

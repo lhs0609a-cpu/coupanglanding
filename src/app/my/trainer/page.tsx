@@ -1,18 +1,21 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/format';
 import {
   TRAINER_EARNING_STATUS_LABELS,
   TRAINER_EARNING_STATUS_COLORS,
+  PAYMENT_STATUS_LABELS,
+  PAYMENT_STATUS_COLORS,
 } from '@/lib/utils/constants';
+import { notifyAdminBonusRequested, notifyAdminBonusConfirmed } from '@/lib/utils/notifications';
 import Card from '@/components/ui/Card';
 import StatCard from '@/components/ui/StatCard';
 import Badge from '@/components/ui/Badge';
-import { GraduationCap, Copy, Users, Banknote, TrendingUp, Check } from 'lucide-react';
+import { GraduationCap, Copy, Users, Banknote, TrendingUp, Check, Send, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
-import type { Trainer, TrainerTrainee, TrainerEarning, PtUser, Profile } from '@/lib/supabase/types';
+import type { Trainer, TrainerTrainee, TrainerEarning, PtUser, Profile, MonthlyReport } from '@/lib/supabase/types';
 
 interface TraineeWithProfile extends TrainerTrainee {
   trainee_pt_user: PtUser & { profile: Profile };
@@ -26,52 +29,132 @@ export default function TrainerPage() {
   const [trainer, setTrainer] = useState<Trainer | null>(null);
   const [trainees, setTrainees] = useState<TraineeWithProfile[]>([]);
   const [earnings, setEarnings] = useState<EarningWithTrainee[]>([]);
+  const [traineeReports, setTraineeReports] = useState<Map<string, MonthlyReport>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
   const currentMonth = getCurrentYearMonth();
 
-  useEffect(() => {
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
+  const fetchData = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
 
-      const { data: ptUser } = await supabase
-        .from('pt_users')
-        .select('id')
-        .eq('profile_id', user.id)
-        .single();
+    const { data: ptUser } = await supabase
+      .from('pt_users')
+      .select('id')
+      .eq('profile_id', user.id)
+      .single();
 
-      if (!ptUser) { setLoading(false); return; }
+    if (!ptUser) { setLoading(false); return; }
 
-      const { data: trainerData } = await supabase
-        .from('trainers')
+    const { data: trainerData } = await supabase
+      .from('trainers')
+      .select('*, pt_user:pt_users(*, profile:profiles(*))')
+      .eq('pt_user_id', ptUser.id)
+      .single();
+
+    if (!trainerData) { setLoading(false); return; }
+    setTrainer(trainerData as Trainer);
+
+    const [traineesRes, earningsRes] = await Promise.all([
+      supabase
+        .from('trainer_trainees')
+        .select('*, trainee_pt_user:pt_users(*, profile:profiles(*))')
+        .eq('trainer_id', trainerData.id)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('trainer_earnings')
+        .select('*, trainee_pt_user:pt_users(*, profile:profiles(*))')
+        .eq('trainer_id', trainerData.id)
+        .order('year_month', { ascending: false }),
+    ]);
+
+    const traineesList = (traineesRes.data as TraineeWithProfile[]) || [];
+    setTrainees(traineesList);
+    setEarnings((earningsRes.data as EarningWithTrainee[]) || []);
+
+    // 교육생별 당월 정산 상태 조회
+    const traineeIds = traineesList.map((t) => t.trainee_pt_user_id);
+    if (traineeIds.length > 0) {
+      const { data: reportsData } = await supabase
+        .from('monthly_reports')
         .select('*')
-        .eq('pt_user_id', ptUser.id)
-        .single();
+        .eq('year_month', currentMonth)
+        .in('pt_user_id', traineeIds);
 
-      if (!trainerData) { setLoading(false); return; }
-      setTrainer(trainerData as Trainer);
+      const rMap = new Map<string, MonthlyReport>();
+      (reportsData || []).forEach((r) => {
+        const report = r as MonthlyReport;
+        rMap.set(report.pt_user_id, report);
+      });
+      setTraineeReports(rMap);
+    }
 
-      const [traineesRes, earningsRes] = await Promise.all([
-        supabase
-          .from('trainer_trainees')
-          .select('*, trainee_pt_user:pt_users(*, profile:profiles(*))')
-          .eq('trainer_id', trainerData.id)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('trainer_earnings')
-          .select('*, trainee_pt_user:pt_users(*, profile:profiles(*))')
-          .eq('trainer_id', trainerData.id)
-          .order('year_month', { ascending: false }),
-      ]);
+    setLoading(false);
+  }, [supabase, currentMonth]);
 
-      setTrainees((traineesRes.data as TraineeWithProfile[]) || []);
-      setEarnings((earningsRes.data as EarningWithTrainee[]) || []);
-      setLoading(false);
-    })();
-  }, [supabase]);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const getTrainerName = (): string => {
+    const t = trainer as Trainer & { pt_user?: PtUser & { profile?: Profile } };
+    return t?.pt_user?.profile?.full_name || '트레이너';
+  };
+
+  const handleRequestPayment = async (earningId: string) => {
+    setActionLoading(earningId);
+    await supabase
+      .from('trainer_earnings')
+      .update({ payment_status: 'requested' })
+      .eq('id', earningId);
+
+    // 관리자에게 알림
+    const earning = earnings.find((e) => e.id === earningId);
+    const { data: admins } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('role', 'admin');
+
+    const trainerName = getTrainerName();
+
+    if (admins && earning) {
+      for (const admin of admins) {
+        await notifyAdminBonusRequested(supabase, admin.id, trainerName, earning.bonus_amount);
+      }
+    }
+
+    setEarnings((prev) => prev.map((e) => e.id === earningId ? { ...e, payment_status: 'requested' } : e));
+    setActionLoading(null);
+  };
+
+  const handleConfirmPayment = async (earningId: string) => {
+    setActionLoading(earningId);
+    await supabase
+      .from('trainer_earnings')
+      .update({ payment_status: 'confirmed' })
+      .eq('id', earningId);
+
+    // 관리자에게 알림
+    const earning = earnings.find((e) => e.id === earningId);
+    const { data: admins } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('role', 'admin');
+
+    const trainerName = getTrainerName();
+
+    if (admins && earning) {
+      for (const admin of admins) {
+        await notifyAdminBonusConfirmed(supabase, admin.id, trainerName, earning.bonus_amount);
+      }
+    }
+
+    setEarnings((prev) => prev.map((e) => e.id === earningId ? { ...e, payment_status: 'confirmed' } : e));
+    setActionLoading(null);
+  };
 
   const handleCopy = () => {
     if (!trainer?.referral_code) return;
@@ -197,16 +280,28 @@ export default function TrainerPage() {
               const traineeEarnings = thisMonthEarnings.find(
                 (e) => e.trainee_pt_user_id === t.trainee_pt_user_id
               );
+              const traineeReport = traineeReports.get(t.trainee_pt_user_id);
+              const reportStatus = traineeReport?.payment_status;
               return (
                 <div key={t.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <div>
                     <p className="text-sm font-medium text-gray-900">
                       {t.trainee_pt_user?.profile?.full_name || '이름 없음'}
                     </p>
-                    <Badge
-                      label={t.is_active ? '활성' : '비활성'}
-                      colorClass={t.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}
-                    />
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <Badge
+                        label={t.is_active ? '활성' : '비활성'}
+                        colorClass={t.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}
+                      />
+                      {reportStatus ? (
+                        <Badge
+                          label={PAYMENT_STATUS_LABELS[reportStatus] || reportStatus}
+                          colorClass={PAYMENT_STATUS_COLORS[reportStatus] || 'bg-gray-100 text-gray-500'}
+                        />
+                      ) : (
+                        <Badge label="미제출" colorClass="bg-gray-100 text-gray-500" />
+                      )}
+                    </div>
                   </div>
                   <div className="text-right">
                     {traineeEarnings ? (
@@ -271,6 +366,7 @@ export default function TrainerPage() {
                   <th className="text-right py-2 px-3 font-semibold text-gray-600">순이익</th>
                   <th className="text-right py-2 px-3 font-semibold text-gray-600">보너스</th>
                   <th className="text-center py-2 px-3 font-semibold text-gray-600">상태</th>
+                  <th className="text-center py-2 px-3 font-semibold text-gray-600">액션</th>
                 </tr>
               </thead>
               <tbody>
@@ -287,6 +383,36 @@ export default function TrainerPage() {
                         label={TRAINER_EARNING_STATUS_LABELS[e.payment_status]}
                         colorClass={TRAINER_EARNING_STATUS_COLORS[e.payment_status]}
                       />
+                    </td>
+                    <td className="py-2 px-3 text-center">
+                      {e.payment_status === 'pending' && (
+                        <button
+                          type="button"
+                          onClick={() => handleRequestPayment(e.id)}
+                          disabled={actionLoading === e.id}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition disabled:opacity-50"
+                        >
+                          <Send className="w-3 h-3" />
+                          입금요청
+                        </button>
+                      )}
+                      {e.payment_status === 'requested' && (
+                        <span className="text-xs text-yellow-600">요청됨</span>
+                      )}
+                      {e.payment_status === 'deposited' && (
+                        <button
+                          type="button"
+                          onClick={() => handleConfirmPayment(e.id)}
+                          disabled={actionLoading === e.id}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-green-100 text-green-700 rounded hover:bg-green-200 transition disabled:opacity-50"
+                        >
+                          <CheckCircle2 className="w-3 h-3" />
+                          입금확인
+                        </button>
+                      )}
+                      {e.payment_status === 'confirmed' && (
+                        <span className="text-xs text-green-600">완료</span>
+                      )}
                     </td>
                   </tr>
                 ))}

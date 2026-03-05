@@ -4,12 +4,17 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/format';
 import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, REVENUE_SOURCES } from '@/lib/utils/constants';
-import { getReportTargetMonth, isEligibleForMonth, getSettlementStatus, getSettlementDDay, formatDDay } from '@/lib/utils/settlement';
+import { getReportTargetMonth, isEligibleForMonth, getSettlementStatus, getSettlementDDay, formatDDay, getSettlementDeadline } from '@/lib/utils/settlement';
 import MonthPicker from '@/components/ui/MonthPicker';
 import StatCard from '@/components/ui/StatCard';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { TrendingUp, TrendingDown, Wallet, AlertCircle, CheckCircle2, UserPlus, XCircle, Search, Clock, Banknote, Calendar, GraduationCap } from 'lucide-react';
+import { getReportCosts } from '@/lib/calculations/deposit';
+import { calculateTrainerBonus } from '@/lib/calculations/trainer';
+import { lookupAndLinkTrainee } from '@/lib/utils/trainer-link';
+import { logActivity } from '@/lib/utils/activity-log';
+import { notifyTrainerNewTrainee, notifyTrainerBonusEarned } from '@/lib/utils/notifications';
 import type { MonthlyReport, RevenueEntry, ExpenseEntry, PtUser } from '@/lib/supabase/types';
 
 type ReportWithUser = MonthlyReport & { pt_user: { profile: { full_name: string } } };
@@ -133,6 +138,9 @@ export default function AdminDashboardPage() {
   })();
 
   const handleApproveUser = async (userId: string) => {
+    const user = pendingUsers.find((u) => u.id === userId);
+    const userEmail = user?.email || '';
+
     // 프로필 활성화
     const { error: profileError } = await supabase
       .from('profiles')
@@ -145,26 +153,72 @@ export default function AdminDashboardPage() {
     }
 
     // pt_users 테이블에 레코드 생성 (이미 있으면 무시)
+    let ptUserId: string | null = null;
     const { data: existingPtUser } = await supabase
       .from('pt_users')
       .select('id')
       .eq('profile_id', userId)
       .maybeSingle();
 
-    if (!existingPtUser) {
-      const { error: insertError } = await supabase.from('pt_users').insert({
-        profile_id: userId,
-        share_percentage: 30,
-        status: 'active',
-        program_access_active: false,
-        coupang_seller_id: null,
-        coupang_seller_pw: null,
-      });
+    if (existingPtUser) {
+      ptUserId = existingPtUser.id;
+    } else {
+      const { data: newPtUser, error: insertError } = await supabase
+        .from('pt_users')
+        .insert({
+          profile_id: userId,
+          share_percentage: 30,
+          status: 'active',
+          program_access_active: false,
+          coupang_seller_id: null,
+          coupang_seller_pw: null,
+        })
+        .select('id')
+        .single();
 
       if (insertError) {
         alert(`PT 사용자 생성 실패: ${insertError.message}`);
         return;
       }
+      ptUserId = newPtUser.id;
+    }
+
+    // 추천 코드 확인 + trainer_trainees 생성
+    if (ptUserId && userEmail) {
+      const linkResult = await lookupAndLinkTrainee(supabase, {
+        userEmail,
+        ptUserId,
+        profileId: userId,
+      });
+
+      if (linkResult.isReferred) {
+        // 추천 사용자 수수료율 25%로 변경
+        await supabase
+          .from('pt_users')
+          .update({ share_percentage: 25 })
+          .eq('id', ptUserId);
+
+        // 트레이너에게 새 교육생 알림
+        if (linkResult.trainerProfileId) {
+          await notifyTrainerNewTrainee(
+            supabase,
+            linkResult.trainerProfileId,
+            user?.full_name || '이름 없음',
+          );
+        }
+      }
+    }
+
+    // 활동 로그
+    const { data: { user: adminUser } } = await supabase.auth.getUser();
+    if (adminUser) {
+      await logActivity(supabase, {
+        adminId: adminUser.id,
+        action: 'approve_user',
+        targetType: 'profile',
+        targetId: userId,
+        details: { user_name: user?.full_name },
+      });
     }
 
     fetchData();
@@ -224,16 +278,20 @@ export default function AdminDashboardPage() {
     if (ptUserId) {
       const { data: traineeLink } = await supabase
         .from('trainer_trainees')
-        .select('trainer_id, trainer:trainers(*)')
+        .select('trainer_id, trainer:trainers(*, pt_user:pt_users(profile_id))')
         .eq('trainee_pt_user_id', ptUserId)
         .eq('is_active', true)
         .maybeSingle();
 
       if (traineeLink) {
-        const trainer = (traineeLink as unknown as { trainer_id: string; trainer: { id: string; status: string; bonus_percentage: number; total_earnings: number } }).trainer;
+        const trainer = (traineeLink as unknown as { trainer_id: string; trainer: { id: string; status: string; bonus_percentage: number; total_earnings: number; pt_user: { profile_id: string } } }).trainer;
         if (trainer && trainer.status === 'approved') {
-          const netProfit = report.reported_revenue - (report.cost_product + report.cost_commission + report.cost_advertising + report.cost_returns + report.cost_shipping + report.cost_tax);
-          const bonusAmount = netProfit > 0 ? Math.floor(netProfit * trainer.bonus_percentage / 100) : 0;
+          const reportCosts = getReportCosts(report);
+          const { netProfit: trainerNetProfit, bonusAmount } = calculateTrainerBonus(
+            report.reported_revenue,
+            reportCosts,
+            trainer.bonus_percentage,
+          );
 
           if (bonusAmount > 0) {
             const { data: existingEarning } = await supabase
@@ -248,7 +306,7 @@ export default function AdminDashboardPage() {
                 trainee_pt_user_id: ptUserId,
                 monthly_report_id: report.id,
                 year_month: report.year_month,
-                trainee_net_profit: netProfit,
+                trainee_net_profit: trainerNetProfit,
                 bonus_percentage: trainer.bonus_percentage,
                 bonus_amount: bonusAmount,
                 payment_status: 'pending',
@@ -258,10 +316,33 @@ export default function AdminDashboardPage() {
                 .from('trainers')
                 .update({ total_earnings: (trainer.total_earnings || 0) + bonusAmount })
                 .eq('id', trainer.id);
+
+              // 트레이너에게 보너스 알림
+              if (trainer.pt_user?.profile_id) {
+                await notifyTrainerBonusEarned(
+                  supabase,
+                  trainer.pt_user.profile_id,
+                  userName,
+                  report.year_month,
+                  bonusAmount,
+                );
+              }
             }
           }
         }
       }
+    }
+
+    // 활동 로그
+    const { data: { user: adminUser } } = await supabase.auth.getUser();
+    if (adminUser) {
+      await logActivity(supabase, {
+        adminId: adminUser.id,
+        action: 'confirm_deposit',
+        targetType: 'monthly_report',
+        targetId: report.id,
+        details: { user_name: userName, deposit_amount: depositAmount },
+      });
     }
 
     fetchData();
@@ -530,39 +611,82 @@ export default function AdminDashboardPage() {
               </h2>
             </div>
 
+            {/* 지연 건수 경고 */}
+            {(() => {
+              const deadline = getSettlementDeadline(yearMonth);
+              const now = new Date();
+              const overdueDeposited = depositedReports.filter(() => now > deadline);
+              if (overdueDeposited.length > 0) {
+                return (
+                  <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                    <span className="text-sm font-medium text-red-700">
+                      {overdueDeposited.length}건의 정산 확인이 마감일을 초과했습니다
+                    </span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
             {depositedReports.length === 0 ? (
               <p className="text-gray-400 text-sm">송금 확인 대기 중인 보고가 없습니다.</p>
             ) : (
               <div className="space-y-3">
-                {depositedReports.map((report) => (
-                  <div
-                    key={report.id}
-                    className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg border-l-4 border-l-yellow-500"
-                  >
-                    <div>
-                      <p className="font-medium text-gray-900">
-                        {report.pt_user?.profile?.full_name || '사용자'}
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        송금액: {formatKRW(report.admin_deposit_amount || report.calculated_deposit)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        label={PAYMENT_STATUS_LABELS[report.payment_status]}
-                        colorClass={PAYMENT_STATUS_COLORS[report.payment_status]}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleQuickConfirmDeposit(report)}
-                        className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition"
-                        title="송금 확인"
+                {[...depositedReports]
+                  .sort((a, b) => {
+                    // 지연 건을 최상단으로
+                    const deadline = getSettlementDeadline(yearMonth);
+                    const now = new Date();
+                    const aOverdue = now > deadline ? 1 : 0;
+                    const bOverdue = now > deadline ? 1 : 0;
+                    return bOverdue - aOverdue;
+                  })
+                  .map((report) => {
+                    const deadline = getSettlementDeadline(yearMonth);
+                    const now = new Date();
+                    const isOverdue = now > deadline;
+                    const overdueDays = isOverdue ? Math.floor((now.getTime() - deadline.getTime()) / (1000 * 60 * 60 * 24)) : 0;
+
+                    return (
+                      <div
+                        key={report.id}
+                        className={`flex items-center justify-between p-3 rounded-lg border-l-4 ${
+                          isOverdue
+                            ? 'bg-red-50 border-l-red-500'
+                            : 'bg-yellow-50 border-l-yellow-500'
+                        }`}
                       >
-                        <CheckCircle2 className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                        <div>
+                          <p className="font-medium text-gray-900">
+                            {report.pt_user?.profile?.full_name || '사용자'}
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            송금액: {formatKRW(report.admin_deposit_amount || report.calculated_deposit)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {isOverdue && (
+                            <span className="text-xs font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">
+                              D+{overdueDays} 지연
+                            </span>
+                          )}
+                          <Badge
+                            label={PAYMENT_STATUS_LABELS[report.payment_status]}
+                            colorClass={PAYMENT_STATUS_COLORS[report.payment_status]}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleQuickConfirmDeposit(report)}
+                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition"
+                            title="송금 확인"
+                          >
+                            <CheckCircle2 className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
               </div>
             )}
           </Card>

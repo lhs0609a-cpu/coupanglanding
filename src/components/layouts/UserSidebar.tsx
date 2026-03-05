@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X } from 'lucide-react';
+import type { SettlementBadgeData } from './DashboardLayout';
 
 const baseNavItems = [
   { href: '/my/dashboard', label: '대시보드', icon: LayoutDashboard },
@@ -19,14 +20,25 @@ interface UserSidebarProps {
   isOpen: boolean;
   onClose: () => void;
   isTrainer?: boolean;
+  settlementBadge?: SettlementBadgeData;
 }
 
-export default function UserSidebar({ isOpen, onClose, isTrainer }: UserSidebarProps) {
+export default function UserSidebar({ isOpen, onClose, isTrainer, settlementBadge }: UserSidebarProps) {
   const pathname = usePathname();
 
   const navItems = isTrainer
     ? [...baseNavItems.slice(0, 5), trainerNavItem, ...baseNavItems.slice(5)]
     : baseNavItems;
+
+  // D-Day ≤ 7이고 미제출 시 빨간 뱃지 표시
+  const showBadge = settlementBadge
+    && settlementBadge.eligible
+    && settlementBadge.dday <= 7
+    && (settlementBadge.reportStatus === 'pending' || settlementBadge.reportStatus === 'overdue');
+
+  const badgeText = settlementBadge
+    ? (settlementBadge.dday <= 0 ? `+${Math.abs(settlementBadge.dday)}` : String(settlementBadge.dday))
+    : '';
 
   return (
     <>
@@ -61,19 +73,27 @@ export default function UserSidebar({ isOpen, onClose, isTrainer }: UserSidebarP
           {navItems.map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
             const Icon = item.icon;
+            const isReportItem = item.href === '/my/report';
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 onClick={onClose}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${
+                className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition ${
                   isActive
                     ? 'bg-[#E31837] text-white'
                     : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                 }`}
               >
-                <Icon className="w-5 h-5" />
-                {item.label}
+                <span className="flex items-center gap-3">
+                  <Icon className="w-5 h-5" />
+                  {item.label}
+                </span>
+                {isReportItem && showBadge && !isActive && (
+                  <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 text-[10px] font-bold text-white bg-red-500 rounded-full">
+                    {badgeText}
+                  </span>
+                )}
               </Link>
             );
           })}

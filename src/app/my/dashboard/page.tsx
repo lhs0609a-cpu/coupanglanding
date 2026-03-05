@@ -2,8 +2,10 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import type { PtUser } from '@/lib/supabase/types';
+import type { PtUser, MonthlyReport } from '@/lib/supabase/types';
+import { getReportTargetMonth, getSettlementDDay, getSettlementStatus, isEligibleForMonth } from '@/lib/utils/settlement';
 import OnboardingChecklist from '@/components/onboarding/OnboardingChecklist';
+import SettlementDDayBanner from '@/components/settlement/SettlementDDayBanner';
 import Card from '@/components/ui/Card';
 import { ClipboardList, GraduationCap, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
@@ -12,8 +14,16 @@ export default function MyDashboardPage() {
   const [ptUser, setPtUser] = useState<PtUser | null>(null);
   const [isTrainer, setIsTrainer] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [currentReport, setCurrentReport] = useState<MonthlyReport | null>(null);
 
   const supabase = useMemo(() => createClient(), []);
+
+  const targetMonth = getReportTargetMonth();
+  const dday = getSettlementDDay(targetMonth);
+  const eligible = ptUser ? isEligibleForMonth(ptUser.created_at, targetMonth) : false;
+  const reportStatus = ptUser
+    ? getSettlementStatus(ptUser.created_at, currentReport?.payment_status || null, targetMonth)
+    : 'not_eligible';
 
   useEffect(() => {
     (async () => {
@@ -32,11 +42,23 @@ export default function MyDashboardPage() {
       if (ptUserData) {
         setPtUser(ptUserData as PtUser);
 
+        // 현재 보고 대상월 리포트 조회
+        const { data: reportData } = await supabase
+          .from('monthly_reports')
+          .select('*')
+          .eq('pt_user_id', (ptUserData as PtUser).id)
+          .eq('year_month', getReportTargetMonth())
+          .maybeSingle();
+
+        if (reportData) {
+          setCurrentReport(reportData as MonthlyReport);
+        }
+
         // 트레이너 여부 확인
         const { data: trainer } = await supabase
           .from('trainers')
           .select('id')
-          .eq('pt_user_id', ptUserData.id)
+          .eq('pt_user_id', (ptUserData as PtUser).id)
           .eq('status', 'approved')
           .maybeSingle();
 
@@ -58,6 +80,17 @@ export default function MyDashboardPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {/* 정산 D-Day 배너 */}
+      {ptUser && eligible && (
+        <SettlementDDayBanner
+          variant="compact"
+          yearMonth={targetMonth}
+          dday={dday}
+          reportStatus={reportStatus}
+          eligible={eligible}
+        />
+      )}
+
       <div className="flex items-center gap-3">
         <ClipboardList className="w-6 h-6 text-[#E31837]" />
         <h1 className="text-2xl font-bold text-gray-900">온보딩 체크리스트</h1>

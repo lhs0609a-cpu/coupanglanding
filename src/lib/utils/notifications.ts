@@ -107,3 +107,194 @@ export async function notifySettlementReminder(
     link: '/my/report',
   });
 }
+
+/** 정산 마감 지연 리마인더 알림 (D+N) */
+export async function notifySettlementOverdue(
+  supabase: SupabaseClient,
+  userId: string,
+  yearMonth: string,
+  daysOverdue: number,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'settlement',
+    title: '정산 마감 초과',
+    message: `${yearMonth} 매출 정산 마감이 ${daysOverdue}일 지났습니다. 빠르게 제출해주세요.`,
+    link: '/my/report',
+  });
+}
+
+/** 관리자 정산 지연 알림 (사용자에게) */
+export async function notifyAdminSettlementDelay(
+  supabase: SupabaseClient,
+  userId: string,
+  yearMonth: string,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'settlement',
+    title: '정산 처리 안내',
+    message: `${yearMonth} 정산이 관리자 확인 대기 중입니다. 처리가 지연되고 있어 빠르게 확인될 예정입니다.`,
+    link: '/my/report',
+  });
+}
+
+/** 관리자에게 미확인 정산 경고 알림 */
+export async function notifyAdminOverdueAlert(
+  supabase: SupabaseClient,
+  adminId: string,
+  overdueCount: number,
+) {
+  return createNotification(supabase, {
+    userId: adminId,
+    type: 'system',
+    title: '미확인 정산 경고',
+    message: `${overdueCount}건의 정산 확인이 마감일을 초과했습니다. 빠르게 처리해주세요.`,
+    link: '/admin/dashboard',
+  });
+}
+
+/** 계약 해지 알림 (사용자에게) */
+export async function notifyContractTermination(
+  supabase: SupabaseClient,
+  userId: string,
+  terminationDate: string,
+  deadline: string,
+  reason: string,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'contract',
+    title: '계약이 해지되었습니다',
+    message: `계약이 ${terminationDate}부로 해지되었습니다. 사유: ${reason}. 등록한 모든 상품을 ${deadline}까지 비활성화해야 합니다.`,
+    link: '/my/contract',
+  });
+}
+
+/** 상품 철거 리마인더 (사용자에게) */
+export async function notifyDeactivationReminder(
+  supabase: SupabaseClient,
+  userId: string,
+  daysLeft: number,
+  deadline: string,
+) {
+  const urgency = daysLeft <= 0 ? '기한이 초과되었습니다!' : `${daysLeft}일 남았습니다.`;
+  return createNotification(supabase, {
+    userId,
+    type: 'contract',
+    title: '상품 철거 기한 안내',
+    message: `상품 비활성화 기한(${deadline})까지 ${urgency} 쿠팡 Wing에서 모든 상품을 판매중지해주세요.`,
+    link: '/my/contract',
+  });
+}
+
+/** 트레이너에게 새 교육생 연결 알림 */
+export async function notifyTrainerNewTrainee(
+  supabase: SupabaseClient,
+  trainerProfileId: string,
+  traineeName: string,
+) {
+  return createNotification(supabase, {
+    userId: trainerProfileId,
+    type: 'system',
+    title: '새 교육생 연결',
+    message: `새 교육생 "${traineeName}"이(가) 연결되었습니다.`,
+    link: '/my/dashboard',
+  });
+}
+
+/** 관리자에게 트레이너 입금요청 알림 */
+export async function notifyAdminBonusRequested(
+  supabase: SupabaseClient,
+  adminId: string,
+  trainerName: string,
+  amount: number,
+) {
+  return createNotification(supabase, {
+    userId: adminId,
+    type: 'system',
+    title: '트레이너 입금요청',
+    message: `트레이너 "${trainerName}"이(가) 보너스 ${amount.toLocaleString()}원의 입금을 요청했습니다.`,
+    link: '/admin/trainers',
+  });
+}
+
+/** 트레이너에게 입금완료(확인요망) 알림 */
+export async function notifyTrainerBonusDeposited(
+  supabase: SupabaseClient,
+  trainerProfileId: string,
+  yearMonth: string,
+  amount: number,
+) {
+  return createNotification(supabase, {
+    userId: trainerProfileId,
+    type: 'system',
+    title: '보너스 입금완료 - 확인요망',
+    message: `${yearMonth} 보너스 ${amount.toLocaleString()}원이 입금되었습니다. 입금을 확인해주세요.`,
+    link: '/my/trainer',
+  });
+}
+
+/** 관리자에게 트레이너 입금확인 완료 알림 */
+export async function notifyAdminBonusConfirmed(
+  supabase: SupabaseClient,
+  adminId: string,
+  trainerName: string,
+  amount: number,
+) {
+  return createNotification(supabase, {
+    userId: adminId,
+    type: 'system',
+    title: '트레이너 입금확인 완료',
+    message: `트레이너 "${trainerName}"이(가) 보너스 ${amount.toLocaleString()}원의 입금을 확인했습니다.`,
+    link: '/admin/trainers',
+  });
+}
+
+/** 트레이너에게 보너스 발생 알림 */
+export async function notifyTrainerBonusEarned(
+  supabase: SupabaseClient,
+  trainerProfileId: string,
+  traineeName: string,
+  yearMonth: string,
+  bonusAmount: number,
+) {
+  return createNotification(supabase, {
+    userId: trainerProfileId,
+    type: 'system',
+    title: '트레이너 보너스 발생',
+    message: `${yearMonth} "${traineeName}" 교육생의 정산으로 보너스 ${bonusAmount.toLocaleString()}원이 발생했습니다.`,
+    link: '/my/dashboard',
+  });
+}
+
+/** 트레이너 자격 승인 알림 */
+export async function notifyTrainerApproved(
+  supabase: SupabaseClient,
+  trainerProfileId: string,
+  referralCode: string,
+) {
+  return createNotification(supabase, {
+    userId: trainerProfileId,
+    type: 'system',
+    title: '트레이너 자격 승인',
+    message: `트레이너 자격이 승인되었습니다. 추천 코드: ${referralCode}`,
+    link: '/my/dashboard',
+  });
+}
+
+/** 상품 철거 증빙 제출 알림 (관리자에게) */
+export async function notifyDeactivationSubmitted(
+  supabase: SupabaseClient,
+  adminId: string,
+  userId: string,
+  contractId: string,
+) {
+  return createNotification(supabase, {
+    userId: adminId,
+    type: 'contract',
+    title: '상품 철거 증빙 제출됨',
+    message: `사용자가 상품 비활성화 증빙을 제출했습니다. 확인해주세요.`,
+    link: '/admin/contracts',
+  });
+}

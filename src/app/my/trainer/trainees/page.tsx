@@ -1,15 +1,16 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, formatYearMonth } from '@/lib/utils/format';
 import {
   TRAINER_EARNING_STATUS_LABELS,
   TRAINER_EARNING_STATUS_COLORS,
 } from '@/lib/utils/constants';
+import { notifyAdminBonusRequested, notifyAdminBonusConfirmed } from '@/lib/utils/notifications';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import { Users, ArrowLeft, Banknote } from 'lucide-react';
+import { Users, ArrowLeft, Banknote, Send, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
 import type { TrainerTrainee, TrainerEarning, PtUser, Profile } from '@/lib/supabase/types';
 
@@ -25,49 +26,107 @@ export default function TrainerTraineesPage() {
   const [trainees, setTrainees] = useState<TraineeWithProfile[]>([]);
   const [earnings, setEarnings] = useState<EarningWithTrainee[]>([]);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [selectedTrainee, setSelectedTrainee] = useState<string | null>(null);
+  const [trainerInfo, setTrainerInfo] = useState<{ id: string; profileId: string; name: string } | null>(null);
 
   const supabase = useMemo(() => createClient(), []);
 
-  useEffect(() => {
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
+  const fetchData = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
 
-      const { data: ptUser } = await supabase
-        .from('pt_users')
-        .select('id')
-        .eq('profile_id', user.id)
-        .single();
+    const { data: ptUser } = await supabase
+      .from('pt_users')
+      .select('id')
+      .eq('profile_id', user.id)
+      .single();
 
-      if (!ptUser) { setLoading(false); return; }
+    if (!ptUser) { setLoading(false); return; }
 
-      const { data: trainer } = await supabase
-        .from('trainers')
-        .select('id')
-        .eq('pt_user_id', ptUser.id)
-        .single();
+    const { data: trainer } = await supabase
+      .from('trainers')
+      .select('id')
+      .eq('pt_user_id', ptUser.id)
+      .single();
 
-      if (!trainer) { setLoading(false); return; }
+    if (!trainer) { setLoading(false); return; }
 
-      const [traineesRes, earningsRes] = await Promise.all([
-        supabase
-          .from('trainer_trainees')
-          .select('*, trainee_pt_user:pt_users(*, profile:profiles(*))')
-          .eq('trainer_id', trainer.id)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('trainer_earnings')
-          .select('*, trainee_pt_user:pt_users(*, profile:profiles(*))')
-          .eq('trainer_id', trainer.id)
-          .order('year_month', { ascending: false }),
-      ]);
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', user.id)
+      .single();
 
-      setTrainees((traineesRes.data as TraineeWithProfile[]) || []);
-      setEarnings((earningsRes.data as EarningWithTrainee[]) || []);
-      setLoading(false);
-    })();
+    setTrainerInfo({ id: trainer.id, profileId: user.id, name: profile?.full_name || '트레이너' });
+
+    const [traineesRes, earningsRes] = await Promise.all([
+      supabase
+        .from('trainer_trainees')
+        .select('*, trainee_pt_user:pt_users(*, profile:profiles(*))')
+        .eq('trainer_id', trainer.id)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('trainer_earnings')
+        .select('*, trainee_pt_user:pt_users(*, profile:profiles(*))')
+        .eq('trainer_id', trainer.id)
+        .order('year_month', { ascending: false }),
+    ]);
+
+    setTrainees((traineesRes.data as TraineeWithProfile[]) || []);
+    setEarnings((earningsRes.data as EarningWithTrainee[]) || []);
+    setLoading(false);
   }, [supabase]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const handleRequestPayment = async (earningId: string) => {
+    setActionLoading(earningId);
+    await supabase
+      .from('trainer_earnings')
+      .update({ payment_status: 'requested' })
+      .eq('id', earningId);
+
+    const earning = earnings.find((e) => e.id === earningId);
+    const { data: admins } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('role', 'admin');
+
+    if (admins && earning && trainerInfo) {
+      for (const admin of admins) {
+        await notifyAdminBonusRequested(supabase, admin.id, trainerInfo.name, earning.bonus_amount);
+      }
+    }
+
+    setEarnings((prev) => prev.map((e) => e.id === earningId ? { ...e, payment_status: 'requested' } : e));
+    setActionLoading(null);
+  };
+
+  const handleConfirmPayment = async (earningId: string) => {
+    setActionLoading(earningId);
+    await supabase
+      .from('trainer_earnings')
+      .update({ payment_status: 'confirmed' })
+      .eq('id', earningId);
+
+    const earning = earnings.find((e) => e.id === earningId);
+    const { data: admins } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('role', 'admin');
+
+    if (admins && earning && trainerInfo) {
+      for (const admin of admins) {
+        await notifyAdminBonusConfirmed(supabase, admin.id, trainerInfo.name, earning.bonus_amount);
+      }
+    }
+
+    setEarnings((prev) => prev.map((e) => e.id === earningId ? { ...e, payment_status: 'confirmed' } : e));
+    setActionLoading(null);
+  };
 
   if (loading) {
     return (
@@ -154,6 +213,7 @@ export default function TrainerTraineesPage() {
                   <th className="text-right py-2 px-3 font-semibold text-gray-600">보너스율</th>
                   <th className="text-right py-2 px-3 font-semibold text-gray-600">보너스</th>
                   <th className="text-center py-2 px-3 font-semibold text-gray-600">상태</th>
+                  <th className="text-center py-2 px-3 font-semibold text-gray-600">액션</th>
                 </tr>
               </thead>
               <tbody>
@@ -173,6 +233,36 @@ export default function TrainerTraineesPage() {
                         label={TRAINER_EARNING_STATUS_LABELS[e.payment_status]}
                         colorClass={TRAINER_EARNING_STATUS_COLORS[e.payment_status]}
                       />
+                    </td>
+                    <td className="py-2 px-3 text-center">
+                      {e.payment_status === 'pending' && (
+                        <button
+                          type="button"
+                          onClick={() => handleRequestPayment(e.id)}
+                          disabled={actionLoading === e.id}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition disabled:opacity-50"
+                        >
+                          <Send className="w-3 h-3" />
+                          입금요청
+                        </button>
+                      )}
+                      {e.payment_status === 'requested' && (
+                        <span className="text-xs text-yellow-600">요청됨</span>
+                      )}
+                      {e.payment_status === 'deposited' && (
+                        <button
+                          type="button"
+                          onClick={() => handleConfirmPayment(e.id)}
+                          disabled={actionLoading === e.id}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-green-100 text-green-700 rounded hover:bg-green-200 transition disabled:opacity-50"
+                        >
+                          <CheckCircle2 className="w-3 h-3" />
+                          입금확인
+                        </button>
+                      )}
+                      {e.payment_status === 'confirmed' && (
+                        <span className="text-xs text-green-600">완료</span>
+                      )}
                     </td>
                   </tr>
                 ))}

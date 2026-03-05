@@ -27,17 +27,20 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const yearMonth: string = body.yearMonth || getReportTargetMonth();
 
-    // 3. D-day 확인 (3일, 1일, 0일만 리마인더 발송)
+    // 3. D-day 확인 (D-7, D-3, D-1, D-0, D+1, D+3 발송)
     const dday = getSettlementDDay(yearMonth);
-    const shouldRemind = dday === 3 || dday === 1 || dday === 0;
+    const reminderDays = [7, 3, 1, 0, -1, -3];
+    const shouldRemind = reminderDays.includes(dday);
 
     if (!shouldRemind) {
       return NextResponse.json({
         success: true,
         sent: 0,
-        message: `D-day ${dday}일은 리마인더 발송 대상이 아닙니다. (D-3, D-1, D-Day만 발송)`,
+        message: `D-day ${dday}일은 리마인더 발송 대상이 아닙니다. (D-7, D-3, D-1, D-Day, D+1, D+3만 발송)`,
       });
     }
+
+    const isOverdue = dday < 0;
 
     // 4. Service client로 전체 PT 사용자 조회
     const serviceClient = await createServiceClient();
@@ -89,15 +92,19 @@ export async function POST(request: NextRequest) {
     for (const ptUser of unsubmittedUsers) {
       const { profile_id } = ptUser as { id: string; profile_id: string; created_at: string };
 
-      const ddayText =
-        dday === 0 ? '오늘이 마감일입니다!' :
-        `마감까지 ${dday}일 남았습니다.`;
+      const ddayText = isOverdue
+        ? `마감이 ${Math.abs(dday)}일 지났습니다. 빠르게 제출해주세요.`
+        : dday === 0
+          ? '오늘이 마감일입니다!'
+          : `마감까지 ${dday}일 남았습니다.`;
+
+      const title = isOverdue ? '정산 마감 초과 알림' : '정산 마감 임박 알림';
 
       const { error: notifError } = await createNotification(serviceClient, {
         userId: profile_id,
         type: 'settlement',
-        title: '정산 마감 임박 알림',
-        message: `${yearMonth} 매출 정산을 아직 제출하지 않으셨습니다. ${ddayText} 서둘러 제출해 주세요.`,
+        title,
+        message: `${yearMonth} 매출 정산을 아직 제출하지 않으셨습니다. ${ddayText}`,
         link: '/my/report',
       });
 

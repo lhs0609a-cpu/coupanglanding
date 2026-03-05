@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import MyLayoutClient from './layout-client';
+import { getReportTargetMonth, getSettlementDDay, getSettlementStatus, isEligibleForMonth } from '@/lib/utils/settlement';
+import type { PtUser, MonthlyReport } from '@/lib/supabase/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,19 +24,42 @@ export default async function MyLayout({ children }: { children: React.ReactNode
     .eq('id', user.id)
     .single();
 
-  // 트레이너 여부 확인
+  // 트레이너 여부 확인 + 정산 D-Day 뱃지 데이터
   let isTrainer = false;
+  let settlementBadge: { dday: number; reportStatus: 'not_eligible' | 'pending' | 'submitted' | 'completed' | 'overdue'; eligible: boolean } | undefined;
+
   const { data: ptUser } = await supabase
     .from('pt_users')
-    .select('id')
+    .select('id, created_at')
     .eq('profile_id', user.id)
-    .single();
+    .maybeSingle();
 
   if (ptUser) {
+    const ptUserData = ptUser as PtUser;
+    const targetMonth = getReportTargetMonth();
+    const dday = getSettlementDDay(targetMonth);
+    const eligible = isEligibleForMonth(ptUserData.created_at, targetMonth);
+
+    // 현재 보고 대상월 리포트 조회
+    const { data: reportData } = await supabase
+      .from('monthly_reports')
+      .select('payment_status')
+      .eq('pt_user_id', ptUserData.id)
+      .eq('year_month', targetMonth)
+      .maybeSingle();
+
+    const reportStatus = getSettlementStatus(
+      ptUserData.created_at,
+      (reportData as MonthlyReport | null)?.payment_status || null,
+      targetMonth,
+    );
+
+    settlementBadge = { dday, reportStatus, eligible };
+
     const { data: trainer } = await supabase
       .from('trainers')
       .select('id')
-      .eq('pt_user_id', ptUser.id)
+      .eq('pt_user_id', ptUserData.id)
       .eq('status', 'approved')
       .maybeSingle();
 
@@ -46,6 +71,7 @@ export default async function MyLayout({ children }: { children: React.ReactNode
       userName={profile?.full_name || user.email || '사용자'}
       userRole={profile?.role || 'pt_user'}
       isTrainer={isTrainer}
+      settlementBadge={settlementBadge}
     >
       {children}
     </MyLayoutClient>

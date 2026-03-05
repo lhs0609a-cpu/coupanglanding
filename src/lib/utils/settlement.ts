@@ -105,3 +105,31 @@ export function formatDeadline(yearMonth: string): string {
   const d = String(deadline.getDate()).padStart(2, '0');
   return `${y}.${m}.${d}`;
 }
+
+// --- Feature 2: 관리자 정산 지연 상태 ---
+
+export type AdminSettlementStatus =
+  | 'not_applicable'  // 미제출 또는 이미 confirmed
+  | 'on_time'         // 마감일 전, 처리 여유 있음
+  | 'admin_pending'   // 마감일 지남, 아직 미확인 (≤graceDays)
+  | 'admin_overdue';  // 마감일 graceDays+ 초과, 미확인
+
+export function getAdminSettlementStatus(
+  yearMonth: string,
+  reportStatus: PaymentStatus | null,
+  graceDays = 5,
+): AdminSettlementStatus {
+  // 미제출, 반려, 또는 이미 확인된 경우
+  if (!reportStatus || reportStatus === 'pending' || reportStatus === 'rejected' || reportStatus === 'confirmed') {
+    return 'not_applicable';
+  }
+
+  // submitted, reviewed, deposited → 관리자 처리 대기 상태
+  const dday = getSettlementDDay(yearMonth);
+
+  if (dday >= 0) return 'on_time';
+  if (Math.abs(dday) <= graceDays) return 'admin_pending';
+  return 'admin_overdue';
+}
+
+export type PaymentStatus = 'pending' | 'submitted' | 'reviewed' | 'deposited' | 'confirmed' | 'rejected';
