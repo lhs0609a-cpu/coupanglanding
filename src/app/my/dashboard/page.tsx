@@ -27,7 +27,7 @@ export default function MyDashboardPage() {
         .from('pt_users')
         .select('*')
         .eq('profile_id', user.id)
-        .single();
+        .maybeSingle();
 
       if (ptUserData) {
         setPtUser(ptUserData as PtUser);
