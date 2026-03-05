@@ -149,7 +149,7 @@ export default function AdminPtUsersPage() {
 
       const tMap = new Map<string, { trainer_id: string; bonus_percentage: number }>();
       (traineeLinks || []).forEach((link) => {
-        const l = link as { trainee_pt_user_id: string; trainer_id: string; trainer: { bonus_percentage: number; status: string } };
+        const l = link as unknown as { trainee_pt_user_id: string; trainer_id: string; trainer: { bonus_percentage: number; status: string } };
         if (l.trainer?.status === 'approved') {
           tMap.set(l.trainee_pt_user_id, { trainer_id: l.trainer_id, bonus_percentage: l.trainer.bonus_percentage });
         }
