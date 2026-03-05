@@ -392,78 +392,78 @@ export default function MySettingsPage() {
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-900">Vendor ID (업체코드) 확인</p>
                       <p className="text-xs text-gray-500 mt-0.5">
-                        Wing 로그인 후 우측 상단의 <span className="font-medium text-gray-700">업체명</span>을 클릭하면
-                        업체코드(Vendor ID)를 확인할 수 있습니다.
+                        Wing 로그인 후 우측 상단의 <span className="font-medium text-gray-700">프로필 아이콘</span>을 클릭하면
+                        드롭다운 메뉴에서 <span className="font-medium text-gray-700">업체코드</span>를 확인할 수 있습니다.
                       </p>
-                      <div className="mt-2 rounded-lg border border-gray-200 overflow-hidden">
+                      <div className="mt-2 rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
                         <img
                           src="/images/guide/wing-vendor-id.png"
-                          alt="Wing 업체코드 확인 위치"
-                          className="w-full"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          alt="Wing 우측 상단 프로필 클릭 시 업체코드 확인"
+                          className="w-full max-w-sm mx-auto"
                         />
                       </div>
                       <div className="mt-2 p-2.5 bg-gray-50 rounded-lg">
                         <p className="text-xs text-gray-600">
-                          <span className="font-medium">위치:</span> Wing 우측 상단 &gt; 업체명 클릭 &gt; 업체코드 확인
+                          <span className="font-medium">위치:</span> Wing 우측 상단 프로필 클릭 &gt; 드롭다운에서 &quot;업체코드&quot; 확인
                         </p>
                         <p className="text-xs text-gray-500 mt-0.5">
-                          숫자로 된 업체코드 (예: <span className="font-mono bg-gray-200 px-1 rounded">A00123456</span>)를 복사하세요.
+                          업체코드를 복사하여 아래 Vendor ID 란에 입력하세요.
                         </p>
                       </div>
                     </div>
                   </div>
 
-                  {/* Step 3: Open API 메뉴 이동 */}
+                  {/* Step 3: 추가판매정보에서 API 키 발급 */}
                   <div className="flex items-start gap-3">
                     <span className="flex-shrink-0 w-7 h-7 bg-[#E31837] text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
                       3
                     </span>
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-900">Open API 관리 페이지 이동</p>
+                      <p className="text-sm font-medium text-gray-900">Open API 키 발급 페이지 이동</p>
                       <p className="text-xs text-gray-500 mt-0.5">
-                        Wing 좌측 메뉴에서 <span className="font-medium text-gray-700">개발자센터</span> &gt; <span className="font-medium text-gray-700">Open API</span>를 클릭합니다.
+                        드롭다운 메뉴에서 <span className="font-medium text-gray-700">&quot;추가판매정보&quot;</span>를 클릭하면
+                        하단에 <span className="font-medium text-gray-700">OPEN API 키 발급</span> 섹션이 있습니다.
+                        <span className="font-medium text-gray-700"> &quot;API Key 발급 받기&quot;</span> 버튼을 클릭합니다.
                       </p>
-                      <div className="mt-2 rounded-lg border border-gray-200 overflow-hidden">
+                      <div className="mt-2 rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
                         <img
                           src="/images/guide/wing-openapi-menu.png"
-                          alt="Open API 메뉴 위치"
-                          className="w-full"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          alt="API Key 발급 받기 버튼"
+                          className="w-full max-w-md mx-auto"
                         />
                       </div>
                       <div className="mt-2 p-2.5 bg-gray-50 rounded-lg">
                         <p className="text-xs text-gray-600">
-                          <span className="font-medium">경로:</span> Wing 좌측 메뉴 &gt; 개발자센터 &gt; Open API
+                          <span className="font-medium">경로:</span> 프로필 &gt; 추가판매정보 &gt; 하단 &quot;OPEN API 키 발급&quot; &gt; &quot;API Key 발급 받기&quot;
                         </p>
                       </div>
                     </div>
                   </div>
 
-                  {/* Step 4: API 키 생성/확인 */}
+                  {/* Step 4: API 키 확인 */}
                   <div className="flex items-start gap-3">
                     <span className="flex-shrink-0 w-7 h-7 bg-[#E31837] text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
                       4
                     </span>
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-900">Access Key / Secret Key 발급</p>
+                      <p className="text-sm font-medium text-gray-900">Access Key / Secret Key 확인</p>
                       <p className="text-xs text-gray-500 mt-0.5">
-                        Open API 페이지에서 <span className="font-medium text-gray-700">&quot;키 생성&quot;</span> 버튼을 클릭하여
-                        Access Key와 Secret Key를 발급받습니다.
+                        발급이 완료되면 <span className="font-medium text-gray-700">업체코드, Access Key, Secret Key</span>가
+                        표시됩니다. 유효기간은 <span className="font-medium text-gray-700">180일(6개월)</span>이며,
+                        만료 14일 전부터 재발급 버튼이 활성화됩니다.
                       </p>
-                      <div className="mt-2 rounded-lg border border-gray-200 overflow-hidden">
+                      <div className="mt-2 rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
                         <img
                           src="/images/guide/wing-api-keys.png"
-                          alt="API 키 발급 화면"
+                          alt="업체코드, Access Key, Secret Key 표시 화면"
                           className="w-full"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                         />
                       </div>
                       <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
                         <div className="flex items-start gap-1.5">
                           <AlertTriangle className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
                           <div className="text-xs text-amber-700">
-                            <p className="font-medium">Secret Key는 생성 직후에만 확인 가능합니다!</p>
+                            <p className="font-medium">Secret Key는 발급 직후에만 확인 가능합니다!</p>
                             <p className="mt-0.5">반드시 즉시 복사하여 아래 입력란에 붙여넣어 주세요. 페이지를 벗어나면 다시 확인할 수 없습니다.</p>
                           </div>
                         </div>
