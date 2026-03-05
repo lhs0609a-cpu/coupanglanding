@@ -160,6 +160,7 @@ export default function AdminApplicationsPage() {
                   <th className="text-left py-3 px-4 font-semibold text-gray-600">이름</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-600">연락처</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-600 hidden md:table-cell">관심 카테고리</th>
+                  <th className="text-left py-3 px-4 font-semibold text-gray-600 hidden md:table-cell">추천</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-600">상태</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-600 hidden sm:table-cell">신청일</th>
                   <th className="text-right py-3 px-4 font-semibold text-gray-600">관리</th>
@@ -171,6 +172,15 @@ export default function AdminApplicationsPage() {
                     <td className="py-3 px-4 font-medium text-gray-900">{app.name}</td>
                     <td className="py-3 px-4 text-gray-600">{app.phone}</td>
                     <td className="py-3 px-4 text-gray-600 hidden md:table-cell">{app.category_interest || '-'}</td>
+                    <td className="py-3 px-4 hidden md:table-cell">
+                      {app.referral_code ? (
+                        <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">
+                          {app.referral_code}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
                     <td className="py-3 px-4">
                       <select
                         value={app.status}
@@ -231,6 +241,10 @@ export default function AdminApplicationsPage() {
               <div>
                 <div className="text-xs text-gray-500 mb-1">상태</div>
                 <Badge label={APPLICATION_STATUS_LABELS[detailModal.status]} colorClass={APPLICATION_STATUS_COLORS[detailModal.status]} />
+              </div>
+              <div>
+                <div className="text-xs text-gray-500 mb-1">추천 코드</div>
+                <div className="font-medium">{detailModal.referral_code || '-'}</div>
               </div>
               <div>
                 <div className="text-xs text-gray-500 mb-1">관심 카테고리</div>

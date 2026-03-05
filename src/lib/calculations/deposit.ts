@@ -43,8 +43,8 @@ export function calculateNetProfit(revenue: number, costs: CostBreakdown): numbe
 }
 
 /**
- * 입금액 = 순수익 × share%
- * 순수익 ≤ 0이면 입금액 0
+ * 송금액 = 순수익 × share%
+ * 순수익 ≤ 0이면 송금액 0
  */
 export function calculateDeposit(
   revenue: number,

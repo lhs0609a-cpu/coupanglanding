@@ -12,6 +12,7 @@ import Badge from '@/components/ui/Badge';
 import { ONBOARDING_STATUS_LABELS, ONBOARDING_STATUS_COLORS } from '@/lib/utils/constants';
 import SubStepProgress from './SubStepProgress';
 import TutorialSubStepView from './TutorialSubStepView';
+import LegalQuiz from './LegalQuiz';
 
 interface OnboardingStepItemProps {
   definition: OnboardingStepDefinition;
@@ -20,6 +21,8 @@ interface OnboardingStepItemProps {
   evidenceUrl: string | null;
   onSelfCheck: () => Promise<void>;
   onEvidenceSubmit: (file: File) => Promise<void>;
+  onQuizComplete?: () => Promise<void>;
+  ptUserId?: string;
   loading?: boolean;
   tutorialContent?: TutorialStepContent;
   isLocked: boolean;
@@ -40,6 +43,8 @@ export default function OnboardingStepItem({
   evidenceUrl,
   onSelfCheck,
   onEvidenceSubmit,
+  onQuizComplete,
+  ptUserId,
   loading = false,
   tutorialContent,
   isLocked,
@@ -231,6 +236,15 @@ export default function OnboardingStepItem({
               <CheckCircle2 className="w-4 h-4" />
               {loading ? '처리 중...' : '확인 완료'}
             </button>
+          )}
+
+          {/* 퀴즈 */}
+          {definition.verificationType === 'quiz' && showAction && isLastSubStep && onQuizComplete && ptUserId && (
+            <LegalQuiz
+              ptUserId={ptUserId}
+              onComplete={onQuizComplete}
+              loading={loading}
+            />
           )}
 
           {/* 증빙 업로드 */}

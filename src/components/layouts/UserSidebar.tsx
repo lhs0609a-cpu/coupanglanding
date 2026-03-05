@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, X } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X } from 'lucide-react';
 
-const navItems = [
+const baseNavItems = [
   { href: '/my/dashboard', label: '대시보드', icon: LayoutDashboard },
   { href: '/my/report', label: '매출 보고', icon: TrendingUp },
   { href: '/my/history', label: '보고 내역', icon: History },
@@ -13,13 +13,20 @@ const navItems = [
   { href: '/my/settings', label: '계정 설정', icon: Settings },
 ];
 
+const trainerNavItem = { href: '/my/trainer', label: '트레이너', icon: GraduationCap };
+
 interface UserSidebarProps {
   isOpen: boolean;
   onClose: () => void;
+  isTrainer?: boolean;
 }
 
-export default function UserSidebar({ isOpen, onClose }: UserSidebarProps) {
+export default function UserSidebar({ isOpen, onClose, isTrainer }: UserSidebarProps) {
   const pathname = usePathname();
+
+  const navItems = isTrainer
+    ? [...baseNavItems.slice(0, 5), trainerNavItem, ...baseNavItems.slice(5)]
+    : baseNavItems;
 
   return (
     <>

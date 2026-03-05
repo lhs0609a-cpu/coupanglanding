@@ -10,6 +10,7 @@ interface DashboardLayoutProps {
   userName: string;
   userRole: string;
   variant: 'admin' | 'user';
+  isTrainer?: boolean;
 }
 
 export default function DashboardLayout({
@@ -17,6 +18,7 @@ export default function DashboardLayout({
   userName,
   userRole,
   variant,
+  isTrainer,
 }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -25,7 +27,7 @@ export default function DashboardLayout({
       {variant === 'admin' ? (
         <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       ) : (
-        <UserSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <UserSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isTrainer={isTrainer} />
       )}
 
       <div className="flex-1 flex flex-col min-w-0">

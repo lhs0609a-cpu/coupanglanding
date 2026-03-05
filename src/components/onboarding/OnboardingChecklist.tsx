@@ -72,14 +72,15 @@ export default function OnboardingChecklist({ ptUserId }: OnboardingChecklistPro
 
   const levelLabels: Record<number, string> = {
     0: '입문자',
-    1: '준비 중',
-    2: '사업자 등록 완료',
-    3: '신고 완료',
-    4: '쿠팡 셀러',
-    5: 'Wing 마스터',
-    6: '첫 상품 등록',
-    7: '계약 완료',
-    8: '쿠팡 셀러 마스터',
+    1: '법률 이해 완료',
+    2: '준비 중',
+    3: '사업자 등록 완료',
+    4: '신고 완료',
+    5: '쿠팡 셀러',
+    6: 'Wing 마스터',
+    7: '첫 상품 등록',
+    8: '계약 완료',
+    9: '쿠팡 셀러 마스터',
   };
   const currentLevel = levelLabels[completedCount] ?? `${completedCount}단계`;
 
@@ -157,6 +158,10 @@ export default function OnboardingChecklist({ ptUserId }: OnboardingChecklistPro
     setActionLoading(null);
   };
 
+  const handleQuizComplete = async () => {
+    await fetchSteps();
+  };
+
   if (loading) {
     return (
       <Card>
@@ -175,7 +180,7 @@ export default function OnboardingChecklist({ ptUserId }: OnboardingChecklistPro
             <span className="text-green-800 font-bold">쿠팡 셀러 마스터</span>
             <p className="text-sm text-green-600">모든 온보딩 단계를 완료했습니다!</p>
           </div>
-          <Badge label="8/8 완료" colorClass="bg-green-100 text-green-700" />
+          <Badge label="9/9 완료" colorClass="bg-green-100 text-green-700" />
         </div>
       </Card>
     );
@@ -233,6 +238,8 @@ export default function OnboardingChecklist({ ptUserId }: OnboardingChecklistPro
               evidenceUrl={step.dbRow?.evidence_url ?? null}
               onSelfCheck={() => handleSelfCheck(step.definition.key)}
               onEvidenceSubmit={(file) => handleEvidenceSubmit(step.definition.key, file)}
+              onQuizComplete={handleQuizComplete}
+              ptUserId={ptUserId}
               loading={actionLoading === step.definition.key}
               tutorialContent={getTutorialForStep(step.definition.key)}
               isLocked={step.isLocked}

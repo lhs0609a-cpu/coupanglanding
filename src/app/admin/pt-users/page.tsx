@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, getCurrentYearMonth, formatYearMonth, formatPercent } from '@/lib/utils/format';
 import { calculateDeposit, calculateNetProfit, totalCosts } from '@/lib/calculations/deposit';
+import { calculateTrainerBonus } from '@/lib/calculations/trainer';
 import type { CostBreakdown } from '@/lib/calculations/deposit';
 import {
   PAYMENT_STATUS_LABELS,
@@ -25,7 +26,7 @@ import Input from '@/components/ui/Input';
 import NumberInput from '@/components/ui/NumberInput';
 import Select from '@/components/ui/Select';
 import PaymentProgress from '@/components/ui/PaymentProgress';
-import { Users, CheckCircle2, XCircle, ExternalLink, Eye, EyeOff, UserPlus, AlertTriangle, ClipboardList, Search, Banknote, BarChart3, Key } from 'lucide-react';
+import { Users, CheckCircle2, XCircle, ExternalLink, Eye, EyeOff, UserPlus, AlertTriangle, ClipboardList, Search, Banknote, BarChart3, Key, Plug, Shield } from 'lucide-react';
 import type { PtUser, MonthlyReport, Profile, OnboardingStep } from '@/lib/supabase/types';
 import OnboardingReviewModal from '@/components/onboarding/OnboardingReviewModal';
 import { ONBOARDING_STEPS } from '@/lib/utils/constants';
@@ -73,6 +74,7 @@ export default function AdminPtUsersPage() {
   const [onboardingReports, setOnboardingReports] = useState<Set<string>>(new Set());
   const [obReviewModal, setObReviewModal] = useState<{ userId: string; userName: string } | null>(null);
   const [visiblePwIds, setVisiblePwIds] = useState<Set<string>>(new Set());
+  const [traineeTrainerMap, setTraineeTrainerMap] = useState<Map<string, { trainer_id: string; bonus_percentage: number }>>(new Map());
 
   // Add user form
   const [newEmail, setNewEmail] = useState('');
@@ -137,6 +139,22 @@ export default function AdminPtUsersPage() {
         .in('pt_user_id', userIds);
 
       setOnboardingReports(new Set((anyReports || []).map((r) => (r as { pt_user_id: string }).pt_user_id)));
+
+      // 트레이너-교육생 매핑 조회
+      const { data: traineeLinks } = await supabase
+        .from('trainer_trainees')
+        .select('trainee_pt_user_id, trainer_id, trainer:trainers(bonus_percentage, status)')
+        .eq('is_active', true)
+        .in('trainee_pt_user_id', userIds);
+
+      const tMap = new Map<string, { trainer_id: string; bonus_percentage: number }>();
+      (traineeLinks || []).forEach((link) => {
+        const l = link as { trainee_pt_user_id: string; trainer_id: string; trainer: { bonus_percentage: number; status: string } };
+        if (l.trainer?.status === 'approved') {
+          tMap.set(l.trainee_pt_user_id, { trainer_id: l.trainer_id, bonus_percentage: l.trainer.bonus_percentage });
+        }
+      });
+      setTraineeTrainerMap(tMap);
     }
 
     setLoading(false);
@@ -170,7 +188,7 @@ export default function AdminPtUsersPage() {
     fetchData();
   };
 
-  // 입금 확인 (deposited → confirmed) + revenue_entries 자동 생성
+  // 송금 확인 (deposited → confirmed) + revenue_entries 자동 생성 + 트레이너 보너스
   const handleConfirmDeposit = async (report: ReportWithScreenshot, ptUserId: string) => {
     const ptUser = ptUsers.find((u) => u.id === ptUserId);
     const userName = ptUser?.profile?.full_name || '이름없음';
@@ -206,6 +224,53 @@ export default function AdminPtUsersPage() {
         amount: depositAmount,
         main_partner_id: null,
       });
+    }
+
+    // 트레이너 보너스 자동 생성
+    const { data: traineeLink } = await supabase
+      .from('trainer_trainees')
+      .select('trainer_id, trainer:trainers(*)')
+      .eq('trainee_pt_user_id', ptUserId)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (traineeLink) {
+      const trainer = (traineeLink as { trainer_id: string; trainer: { id: string; status: string; bonus_percentage: number; total_earnings: number } }).trainer;
+      if (trainer && trainer.status === 'approved') {
+        const reportCosts = getReportCosts(report);
+        const { netProfit, bonusAmount } = calculateTrainerBonus(
+          report.reported_revenue,
+          reportCosts,
+          trainer.bonus_percentage,
+        );
+
+        if (bonusAmount > 0) {
+          // 중복 방지
+          const { data: existingEarning } = await supabase
+            .from('trainer_earnings')
+            .select('id')
+            .eq('monthly_report_id', report.id)
+            .maybeSingle();
+
+          if (!existingEarning) {
+            await supabase.from('trainer_earnings').insert({
+              trainer_id: trainer.id,
+              trainee_pt_user_id: ptUserId,
+              monthly_report_id: report.id,
+              year_month: report.year_month,
+              trainee_net_profit: netProfit,
+              bonus_percentage: trainer.bonus_percentage,
+              bonus_amount: bonusAmount,
+              payment_status: 'pending',
+            });
+
+            await supabase
+              .from('trainers')
+              .update({ total_earnings: (trainer.total_earnings || 0) + bonusAmount })
+              .eq('id', trainer.id);
+          }
+        }
+      }
     }
 
     fetchData();
@@ -317,9 +382,11 @@ export default function AdminPtUsersPage() {
         let submitted = 0;
         let completed = 0;
         let overdue = 0;
+        let apiConnectedCount = 0;
         const overdueNames: string[] = [];
 
         ptUsers.forEach((u) => {
+          if (u.coupang_api_connected) apiConnectedCount++;
           if (!isEligibleForMonth(u.created_at, yearMonth)) return;
           eligible++;
           const r = reportMap.get(u.id);
@@ -376,7 +443,7 @@ export default function AdminPtUsersPage() {
             </div>
 
             {/* 통계 그리드 */}
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-5 gap-3">
               <div className="text-center p-2.5 bg-blue-50 rounded-lg">
                 <p className="text-xl font-bold text-blue-700">{eligible}</p>
                 <p className="text-xs text-blue-600">대상자</p>
@@ -392,6 +459,10 @@ export default function AdminPtUsersPage() {
               <div className={`text-center p-2.5 rounded-lg ${overdue > 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
                 <p className={`text-xl font-bold ${overdue > 0 ? 'text-red-700' : 'text-gray-400'}`}>{overdue}</p>
                 <p className={`text-xs ${overdue > 0 ? 'text-red-600' : 'text-gray-400'}`}>지연</p>
+              </div>
+              <div className="text-center p-2.5 bg-emerald-50 rounded-lg">
+                <p className="text-xl font-bold text-emerald-700">{apiConnectedCount}</p>
+                <p className="text-xs text-emerald-600">API 연동</p>
               </div>
             </div>
 
@@ -458,6 +529,12 @@ export default function AdminPtUsersPage() {
                         <span className="text-xs text-gray-400">
                           첫 정산월: {formatYearMonth(firstEligible)}
                         </span>
+                        {user.coupang_api_connected && (
+                          <Badge
+                            label="API 연동"
+                            colorClass="bg-green-100 text-green-700"
+                          />
+                        )}
                       </div>
                       {/* 정산 상태 뱃지 */}
                       <div className="flex items-center gap-2 mt-1.5">
@@ -544,7 +621,7 @@ export default function AdminPtUsersPage() {
                       <div>
                         <p className="text-sm font-medium text-yellow-800">외부 프로그램 활성화 필요</p>
                         <p className="text-xs text-yellow-600 mt-0.5">
-                          입금이 확인되었습니다. 외부 프로그램(coupang-sellerhub-new)에서 이 사용자를 수동으로 활성화해주세요.
+                          송금이 확인되었습니다. 외부 프로그램(coupang-sellerhub-new)에서 이 사용자를 수동으로 활성화해주세요.
                         </p>
                       </div>
                     </div>
@@ -640,11 +717,11 @@ export default function AdminPtUsersPage() {
                               </p>
                             )}
                             <p className="text-sm text-gray-600">
-                              계산 입금액: <span className="font-bold text-[#E31837]">{formatKRW(report.calculated_deposit)}</span>
+                              계산 송금액: <span className="font-bold text-[#E31837]">{formatKRW(report.calculated_deposit)}</span>
                             </p>
                             {report.admin_deposit_amount && (
                               <p className="text-sm text-gray-600">
-                                확정 입금액: <span className="font-bold text-purple-700">{formatKRW(report.admin_deposit_amount)}</span>
+                                확정 송금액: <span className="font-bold text-purple-700">{formatKRW(report.admin_deposit_amount)}</span>
                               </p>
                             )}
                           </div>
@@ -654,6 +731,12 @@ export default function AdminPtUsersPage() {
                               label={PAYMENT_STATUS_LABELS[report.payment_status]}
                               colorClass={PAYMENT_STATUS_COLORS[report.payment_status]}
                             />
+                            {report.api_verified && (
+                              <Badge
+                                label="API 검증됨"
+                                colorClass="bg-green-100 text-green-700"
+                              />
+                            )}
 
                             {report.screenshot_url && (
                               <button
@@ -690,16 +773,16 @@ export default function AdminPtUsersPage() {
                           </div>
                         )}
 
-                        {/* reviewed 상태: 입금 대기 정보 표시 */}
+                        {/* reviewed 상태: 송금 대기 정보 표시 */}
                         {report.payment_status === 'reviewed' && (
                           <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
                             <p className="text-sm text-purple-700">
-                              입금 대기중 (확정액: <span className="font-bold">{formatKRW(report.admin_deposit_amount || report.calculated_deposit)}</span>)
+                              송금 대기중 (확정액: <span className="font-bold">{formatKRW(report.admin_deposit_amount || report.calculated_deposit)}</span>)
                             </p>
                           </div>
                         )}
 
-                        {/* deposited 상태: 입금 확인 버튼 */}
+                        {/* deposited 상태: 송금 확인 버튼 */}
                         {report.payment_status === 'deposited' && (
                           <div className="flex gap-2">
                             <button
@@ -708,7 +791,7 @@ export default function AdminPtUsersPage() {
                               className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition"
                             >
                               <CheckCircle2 className="w-4 h-4" />
-                              입금 확인
+                              송금 확인
                             </button>
                           </div>
                         )}
@@ -854,10 +937,20 @@ export default function AdminPtUsersPage() {
                   </div>
                   <div className="flex justify-between mt-1">
                     <span className="font-medium text-[#E31837]">
-                      자동 계산 입금액 ({reviewModalData.ptUser.share_percentage}%)
+                      자동 계산 송금액 ({reviewModalData.ptUser.share_percentage}%)
                     </span>
                     <span className="font-bold text-[#E31837]">{formatKRW(autoDeposit)}</span>
                   </div>
+                  {traineeTrainerMap.has(reviewModalData.ptUser.id) && rNetProfit > 0 && (
+                    <div className="flex justify-between mt-1">
+                      <span className="font-medium text-purple-700">
+                        트레이너 보너스 ({traineeTrainerMap.get(reviewModalData.ptUser.id)!.bonus_percentage}%)
+                      </span>
+                      <span className="font-bold text-purple-700">
+                        {formatKRW(Math.floor(rNetProfit * traineeTrainerMap.get(reviewModalData.ptUser.id)!.bonus_percentage / 100))}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -905,7 +998,7 @@ export default function AdminPtUsersPage() {
 
               <NumberInput
                 id="adjustedAmount"
-                label="확정 입금액"
+                label="확정 송금액"
                 value={reviewModalData.adjustedAmount}
                 onChange={(val) => setReviewModalData({ ...reviewModalData, adjustedAmount: val })}
                 suffix="원"

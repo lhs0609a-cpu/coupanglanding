@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
-import { ArrowLeft, CheckCircle, Phone, Send } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Phone, Send, UserCheck } from 'lucide-react';
 
 const CATEGORY_OPTIONS = [
   { value: '의류', label: '의류/패션' },
@@ -29,7 +30,10 @@ const EXPERIENCE_OPTIONS = [
   { value: '6개월 이상', label: '6개월 이상' },
 ];
 
-export default function ApplyPage() {
+function ApplyForm() {
+  const searchParams = useSearchParams();
+  const ref = searchParams.get('ref') || '';
+
   const [form, setForm] = useState({
     name: '',
     phone: '',
@@ -74,6 +78,7 @@ export default function ApplyPage() {
         coupang_experience: form.coupang_experience || null,
         message: form.message.trim() || null,
         source: 'pt',
+        referral_code: ref || null,
       });
 
       if (error) throw error;
@@ -132,6 +137,14 @@ export default function ApplyPage() {
           {errors.submit && (
             <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
               {errors.submit}
+            </div>
+          )}
+
+          {/* 추천인 코드 뱃지 */}
+          {ref && (
+            <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-xl">
+              <UserCheck className="w-4 h-4 text-green-600" />
+              <span className="text-sm text-green-700 font-medium">추천인 코드: {ref}</span>
             </div>
           )}
 
@@ -289,5 +302,13 @@ export default function ApplyPage() {
       {/* Bottom spacing */}
       <div className="h-16" />
     </div>
+  );
+}
+
+export default function ApplyPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gradient-to-br from-gray-50 to-white flex items-center justify-center"><div className="text-gray-400">불러오는 중...</div></div>}>
+      <ApplyForm />
+    </Suspense>
   );
 }

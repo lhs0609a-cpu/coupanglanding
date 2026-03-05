@@ -140,17 +140,6 @@ const reverseFilterItems = [
 
 const testimonials = [
   {
-    name: '김*훈', initial: '김', category: '의류', period: '3개월', before: '0원', after: '월 680만원',
-    quote: '처음에는 반신반의했어요. 근데 PT사님이 데이터로 하나하나 보여주시면서 방향을 잡아주시더라고요. 혼자 했으면 절대 못 찾았을 카테고리에서 첫 매출이 나왔습니다.',
-    gradient: 'from-[#E31837] to-red-700',
-    journey: [
-      { phase: '신청 전', text: '"진짜 될까?" 반신반의로 상담 신청', emotion: 'doubt' as const },
-      { phase: '1개월', text: 'PT사님이 데이터로 카테고리 분석', emotion: 'learn' as const },
-      { phase: '2개월', text: '첫 주문 알림! 손이 떨렸습니다', emotion: 'excited' as const },
-      { phase: '3개월', text: '월 680만원. 회사 월급보다 많아졌습니다', emotion: 'success' as const },
-    ],
-  },
-  {
     name: '정*호', initial: '정', category: '직장인 부업', period: '2개월', before: '0원', after: '월 1,165만원',
     quote: '스마트스토어, 구매대행, 유튜브... 다 해봤는데 혼자 하니 지속이 안 됐어요. 쿠팡PT는 프로그램으로 업로드가 간편하고, 문제 생기면 바로 소통되고, 같이 하는 분들이랑 노하우 공유도 되니 꾸준히 할 수 있었습니다. 지금까지 한 사이드프로젝트 중 제일 오래 하고 있어요.',
     gradient: 'from-[#E31837] to-red-700',
@@ -163,14 +152,15 @@ const testimonials = [
     ],
   },
   {
-    name: '박*수', initial: '박', category: '주방용품', period: '3개월', before: '부업 시작', after: '월 540만원',
-    quote: '직장 다니면서 시간이 없어서 엄두를 못 냈는데, PT사님이 시간 많이 드는 건 대행해주시고 제가 결정만 하면 되니까 가능하더라고요. 주 5시간 정도만 투자하고 있습니다.',
+    name: '재*지', initial: '재', category: '부업 투자', period: '2개월', before: '반신반의', after: '월 500만원',
+    quote: '솔직히 손해볼 거 없으니까 시작한 건데, 진짜 돈이 되더라고요. 덕분에 부수익으로 주식도 하고 있습니다. 설득할 때 엄청 답답했을 텐데, 고맙습니다.',
     gradient: 'from-[#E31837] to-red-700',
+    screenshots: ['/images/results/review-jaeyeon-kakao.png', '/images/results/review-blackout-500m.png'],
     journey: [
-      { phase: '신청 전', text: '"직장 다니면서 가능할까?" 시간 걱정', emotion: 'doubt' as const },
-      { phase: '1개월', text: '핵심 결정만 내가, 나머지는 PT사님이', emotion: 'learn' as const },
-      { phase: '2개월', text: '주 5시간 투자로 첫 수익 발생', emotion: 'excited' as const },
-      { phase: '3개월', text: '월 540만원. 부업이 본업을 넘었습니다', emotion: 'success' as const },
+      { phase: '신청 전', text: '"이게 진짜 되는 거야?" 반신반의', emotion: 'doubt' as const },
+      { phase: '1개월', text: '손해볼 거 없으니까 일단 시작', emotion: 'learn' as const },
+      { phase: '1.5개월', text: '와 이게 진짜 돈이 되는구나', emotion: 'excited' as const },
+      { phase: '2개월', text: '월 500만원. 부수익으로 주식 투자까지', emotion: 'success' as const },
     ],
   },
 ];
@@ -280,16 +270,6 @@ const processKakao: ChatMsg[] = [
 ];
 
 const successKakao1: ChatMsg[] = [
-  { name: 'PT사', text: '김*훈님, 이 카테고리 데이터 보세요', time: '오후 3:15' },
-  { name: 'PT사', text: '경쟁강도 낮고 수요 꾸준합니다', time: '오후 3:15' },
-  { text: '오 진짜요? 여기 생각도 못했는데', time: '오후 3:17', isMine: true },
-  { text: '2개월 후', isSystem: true, time: '' },
-  { text: 'PT사님!!!! 첫 주문 들어왔어요!!!!', time: '오전 6:12', isMine: true },
-  { name: 'PT사', text: '축하드립니다!!', time: '오전 6:15' },
-  { text: '손이 떨려요 진짜ㅠㅠ', time: '오전 6:15', isMine: true },
-];
-
-const successKakao2: ChatMsg[] = [
   { text: '프로그램 이 부분 좀 불편한데 개선 가능할까요?', time: '오후 7:22', isMine: true },
   { name: '담당자', text: '어떤 부분이요?', time: '오후 7:25' },
   { text: '업로드할 때 카테고리 선택이 좀 번거로워요', time: '오후 7:26', isMine: true },
@@ -299,14 +279,14 @@ const successKakao2: ChatMsg[] = [
   { text: '와 진짜 바로 되네요 감사합니다!!', time: '오전 10:20', isMine: true },
 ];
 
-const successKakao3: ChatMsg[] = [
-  { text: '저 직장 다니면서 가능할까요?', time: '오전 9:05', isMine: true },
-  { text: '하루에 1시간도 힘들 수 있는데...', time: '오전 9:05', isMine: true },
-  { name: 'PT사', text: '충분합니다. 시간 드는 건 제가 대행할게요', time: '오전 9:10' },
-  { name: 'PT사', text: '핵심 결정만 내려주세요', time: '오전 9:10' },
-  { text: '3개월 후', isSystem: true, time: '' },
-  { text: '부업이 본업 월급 넘었습니다...', time: '오후 10:15', isMine: true },
-  { text: '주 5시간밖에 안 쓰는데ㅠㅠ', time: '오후 10:15', isMine: true },
+const successKakao2: ChatMsg[] = [
+  { text: '야 이거 진짜 돈 되냐?', time: '오후 3:10', isMine: true },
+  { name: 'PT사', text: '손해볼 거 없으니까 일단 해보세요', time: '오후 3:12' },
+  { text: '알겠어 일단 해볼게', time: '오후 3:15', isMine: true },
+  { text: '2개월 후', isSystem: true, time: '' },
+  { text: '와 이게 진짜 돈이 되는구나 ㅋㅋ', time: '오후 8:30', isMine: true },
+  { text: '고맙다 부수익으로 주식 잘 하고 있다 ㅋㅋㅋ', time: '오후 8:31', isMine: true },
+  { name: 'PT사', text: '잘 되셔서 다행입니다 ㅎㅎ', time: '오후 8:35' },
 ];
 
 const ctaKakao: ChatMsg[] = [
@@ -319,7 +299,7 @@ const ctaKakao: ChatMsg[] = [
   { text: '아직도 유튜브 보면서 혼자 삽질하고 있었을거야', time: '오후 7:44', isMine: true },
 ];
 
-const successKakaoMap = [successKakao1, successKakao2, successKakao3];
+const successKakaoMap = [successKakao1, successKakao2];
 
 // ============================================================
 // HOOK: useCountUp

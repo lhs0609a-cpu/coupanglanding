@@ -9,7 +9,7 @@ import MonthPicker from '@/components/ui/MonthPicker';
 import StatCard from '@/components/ui/StatCard';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import { TrendingUp, TrendingDown, Wallet, AlertCircle, CheckCircle2, UserPlus, XCircle, Search, Clock, Banknote, Calendar } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, AlertCircle, CheckCircle2, UserPlus, XCircle, Search, Clock, Banknote, Calendar, GraduationCap } from 'lucide-react';
 import type { MonthlyReport, RevenueEntry, ExpenseEntry, PtUser } from '@/lib/supabase/types';
 
 type ReportWithUser = MonthlyReport & { pt_user: { profile: { full_name: string } } };
@@ -24,6 +24,7 @@ export default function AdminDashboardPage() {
   const [pendingUsers, setPendingUsers] = useState<{ id: string; full_name: string; email: string; created_at: string }[]>([]);
   const [allPtUsers, setAllPtUsers] = useState<(PtUser & { profile: { full_name: string } })[]>([]);
   const [allReportsForMonth, setAllReportsForMonth] = useState<MonthlyReport[]>([]);
+  const [trainerStats, setTrainerStats] = useState({ total: 0, approved: 0, totalBonus: 0 });
   const [loading, setLoading] = useState(true);
 
   const supabase = useMemo(() => createClient(), []);
@@ -72,6 +73,19 @@ export default function AdminDashboardPage() {
     setPendingUsers((pendingUsersRes.data as typeof pendingUsers) || []);
     setAllPtUsers((ptUsersRes.data as typeof allPtUsers) || []);
     setAllReportsForMonth((allReportsRes.data as MonthlyReport[]) || []);
+
+    // 트레이너 통계
+    const { data: trainersData } = await supabase
+      .from('trainers')
+      .select('status, total_earnings');
+
+    const trainers = (trainersData || []) as { status: string; total_earnings: number }[];
+    setTrainerStats({
+      total: trainers.length,
+      approved: trainers.filter((t) => t.status === 'approved').length,
+      totalBonus: trainers.reduce((sum, t) => sum + (t.total_earnings || 0), 0),
+    });
+
     setLoading(false);
   }, [yearMonth, supabase]);
 
@@ -206,6 +220,50 @@ export default function AdminDashboardPage() {
       }
     }
 
+    // 트레이너 보너스 자동 생성
+    if (ptUserId) {
+      const { data: traineeLink } = await supabase
+        .from('trainer_trainees')
+        .select('trainer_id, trainer:trainers(*)')
+        .eq('trainee_pt_user_id', ptUserId)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (traineeLink) {
+        const trainer = (traineeLink as { trainer_id: string; trainer: { id: string; status: string; bonus_percentage: number; total_earnings: number } }).trainer;
+        if (trainer && trainer.status === 'approved') {
+          const netProfit = report.reported_revenue - (report.cost_product + report.cost_commission + report.cost_advertising + report.cost_returns + report.cost_shipping + report.cost_tax);
+          const bonusAmount = netProfit > 0 ? Math.floor(netProfit * trainer.bonus_percentage / 100) : 0;
+
+          if (bonusAmount > 0) {
+            const { data: existingEarning } = await supabase
+              .from('trainer_earnings')
+              .select('id')
+              .eq('monthly_report_id', report.id)
+              .maybeSingle();
+
+            if (!existingEarning) {
+              await supabase.from('trainer_earnings').insert({
+                trainer_id: trainer.id,
+                trainee_pt_user_id: ptUserId,
+                monthly_report_id: report.id,
+                year_month: report.year_month,
+                trainee_net_profit: netProfit,
+                bonus_percentage: trainer.bonus_percentage,
+                bonus_amount: bonusAmount,
+                payment_status: 'pending',
+              });
+
+              await supabase
+                .from('trainers')
+                .update({ total_earnings: (trainer.total_earnings || 0) + bonusAmount })
+                .eq('id', trainer.id);
+            }
+          }
+        }
+      }
+    }
+
     fetchData();
   };
 
@@ -316,6 +374,30 @@ export default function AdminDashboardPage() {
             </Card>
           )}
 
+          {/* 트레이너 현황 */}
+          {trainerStats.total > 0 && (
+            <Card>
+              <div className="flex items-center gap-2 mb-4">
+                <GraduationCap className="w-5 h-5 text-[#E31837]" />
+                <h2 className="text-lg font-bold text-gray-900">트레이너 현황</h2>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="text-center p-3 bg-blue-50 rounded-lg">
+                  <p className="text-2xl font-bold text-blue-700">{trainerStats.total}</p>
+                  <p className="text-xs text-blue-600">전체</p>
+                </div>
+                <div className="text-center p-3 bg-green-50 rounded-lg">
+                  <p className="text-2xl font-bold text-green-700">{trainerStats.approved}</p>
+                  <p className="text-xs text-green-600">활성</p>
+                </div>
+                <div className="text-center p-3 bg-purple-50 rounded-lg">
+                  <p className="text-2xl font-bold text-purple-700">{formatKRW(trainerStats.totalBonus)}</p>
+                  <p className="text-xs text-purple-600">총 보너스</p>
+                </div>
+              </div>
+            </Card>
+          )}
+
           {/* 가입 승인 대기 */}
           <Card>
             <div className="flex items-center gap-2 mb-4">
@@ -389,7 +471,7 @@ export default function AdminDashboardPage() {
                         {report.pt_user?.profile?.full_name || '사용자'}
                       </p>
                       <p className="text-sm text-gray-500">
-                        매출 {formatKRW(report.reported_revenue)} → 입금 {formatKRW(report.calculated_deposit)}
+                        매출 {formatKRW(report.reported_revenue)} → 송금 {formatKRW(report.calculated_deposit)}
                       </p>
                     </div>
                     <Badge
@@ -403,17 +485,17 @@ export default function AdminDashboardPage() {
             )}
           </Card>
 
-          {/* 입금 대기중 (reviewed) */}
+          {/* 송금 대기중 (reviewed) */}
           <Card>
             <div className="flex items-center gap-2 mb-4">
               <Clock className="w-5 h-5 text-purple-500" />
               <h2 className="text-lg font-bold text-gray-900">
-                입금 대기중 ({reviewedReports.length})
+                송금 대기중 ({reviewedReports.length})
               </h2>
             </div>
 
             {reviewedReports.length === 0 ? (
-              <p className="text-gray-400 text-sm">입금 대기 중인 보고가 없습니다.</p>
+              <p className="text-gray-400 text-sm">송금 대기 중인 보고가 없습니다.</p>
             ) : (
               <div className="space-y-3">
                 {reviewedReports.map((report) => (
@@ -426,7 +508,7 @@ export default function AdminDashboardPage() {
                         {report.pt_user?.profile?.full_name || '사용자'}
                       </p>
                       <p className="text-sm text-gray-500">
-                        확정 입금액: {formatKRW(report.admin_deposit_amount || report.calculated_deposit)}
+                        확정 송금액: {formatKRW(report.admin_deposit_amount || report.calculated_deposit)}
                       </p>
                     </div>
                     <Badge
@@ -439,17 +521,17 @@ export default function AdminDashboardPage() {
             )}
           </Card>
 
-          {/* 입금 확인 대기 (deposited) */}
+          {/* 송금 확인 대기 (deposited) */}
           <Card>
             <div className="flex items-center gap-2 mb-4">
               <Banknote className="w-5 h-5 text-yellow-600" />
               <h2 className="text-lg font-bold text-gray-900">
-                입금 확인 대기 ({depositedReports.length})
+                송금 확인 대기 ({depositedReports.length})
               </h2>
             </div>
 
             {depositedReports.length === 0 ? (
-              <p className="text-gray-400 text-sm">입금 확인 대기 중인 보고가 없습니다.</p>
+              <p className="text-gray-400 text-sm">송금 확인 대기 중인 보고가 없습니다.</p>
             ) : (
               <div className="space-y-3">
                 {depositedReports.map((report) => (
@@ -462,7 +544,7 @@ export default function AdminDashboardPage() {
                         {report.pt_user?.profile?.full_name || '사용자'}
                       </p>
                       <p className="text-sm text-gray-500">
-                        입금액: {formatKRW(report.admin_deposit_amount || report.calculated_deposit)}
+                        송금액: {formatKRW(report.admin_deposit_amount || report.calculated_deposit)}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -474,7 +556,7 @@ export default function AdminDashboardPage() {
                         type="button"
                         onClick={() => handleQuickConfirmDeposit(report)}
                         className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition"
-                        title="입금 확인"
+                        title="송금 확인"
                       >
                         <CheckCircle2 className="w-5 h-5" />
                       </button>

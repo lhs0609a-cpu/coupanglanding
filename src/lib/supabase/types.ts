@@ -6,9 +6,11 @@ export type ExpenseCategory = 'server' | 'ai_usage' | 'fixed' | 'tax' | 'marketi
 export type ApplicationStatus = 'new' | 'contacted' | 'consulting' | 'converted' | 'rejected';
 export type ContractStatus = 'draft' | 'sent' | 'signed' | 'expired' | 'terminated';
 export type OnboardingStepStatus = 'pending' | 'submitted' | 'approved' | 'rejected';
-export type OnboardingVerificationType = 'self_check' | 'evidence_upload' | 'auto_linked';
+export type OnboardingVerificationType = 'self_check' | 'evidence_upload' | 'auto_linked' | 'quiz';
 export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system';
 export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense';
+export type TrainerStatus = 'pending' | 'approved' | 'revoked';
+export type TrainerEarningStatus = 'pending' | 'confirmed' | 'paid';
 
 export interface Profile {
   id: string;
@@ -41,6 +43,11 @@ export interface PtUser {
   program_access_active: boolean;
   coupang_seller_id: string | null;
   coupang_seller_pw: string | null;
+  coupang_vendor_id: string | null;
+  coupang_access_key: string | null;
+  coupang_secret_key: string | null;
+  coupang_api_connected: boolean;
+  coupang_api_key_expires_at: string | null;
   created_at: string;
   updated_at: string;
   // Joined fields
@@ -69,6 +76,8 @@ export interface MonthlyReport {
   cost_shipping: number;
   cost_tax: number;
   ad_screenshot_url: string | null;
+  api_verified: boolean;
+  api_settlement_data: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
   // Joined fields
@@ -139,6 +148,7 @@ export interface Application {
   source: string;
   status: ApplicationStatus;
   admin_note: string | null;
+  referral_code: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -218,6 +228,48 @@ export interface RecurringExpense {
   created_at: string;
   // Joined
   paid_by_partner?: Partner;
+}
+
+export interface Trainer {
+  id: string;
+  pt_user_id: string;
+  referral_code: string | null;
+  status: TrainerStatus;
+  bonus_percentage: number;
+  approved_at: string | null;
+  total_earnings: number;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  pt_user?: PtUser;
+}
+
+export interface TrainerTrainee {
+  id: string;
+  trainer_id: string;
+  trainee_pt_user_id: string;
+  application_id: string | null;
+  is_active: boolean;
+  created_at: string;
+  // Joined fields
+  trainer?: Trainer;
+  trainee_pt_user?: PtUser;
+}
+
+export interface TrainerEarning {
+  id: string;
+  trainer_id: string;
+  trainee_pt_user_id: string;
+  monthly_report_id: string;
+  year_month: string;
+  trainee_net_profit: number;
+  bonus_percentage: number;
+  bonus_amount: number;
+  payment_status: TrainerEarningStatus;
+  created_at: string;
+  // Joined fields
+  trainer?: Trainer;
+  trainee_pt_user?: PtUser;
 }
 
 export interface Database {

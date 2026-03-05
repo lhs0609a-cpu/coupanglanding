@@ -16,9 +16,9 @@ export const REVENUE_SOURCES = [
 export const PAYMENT_STATUS_LABELS: Record<string, string> = {
   pending: '대기중',
   submitted: '제출됨',
-  reviewed: '확인완료',
-  deposited: '입금완료',
-  confirmed: '최종승인',
+  reviewed: '송금대기중',
+  deposited: '송금완료',
+  confirmed: '정산완료',
   rejected: '거절됨',
 };
 
@@ -33,9 +33,9 @@ export const PAYMENT_STATUS_COLORS: Record<string, string> = {
 
 export const PAYMENT_FLOW_STEPS = [
   { key: 'submitted', label: '매출 제출' },
-  { key: 'reviewed', label: '매출 확인' },
-  { key: 'deposited', label: '입금 완료' },
-  { key: 'confirmed', label: '최종 승인' },
+  { key: 'reviewed', label: '송금 대기' },
+  { key: 'deposited', label: '송금 완료' },
+  { key: 'confirmed', label: '정산 완료' },
 ] as const;
 
 export const PT_STATUS_LABELS: Record<string, string> = {
@@ -87,50 +87,57 @@ import type { OnboardingStepDefinition } from '@/lib/supabase/types';
 
 export const ONBOARDING_STEPS: OnboardingStepDefinition[] = [
   {
-    key: 'orientation_video',
+    key: 'legal_education',
     order: 1,
+    label: '리셀 합법성 교육',
+    description: '리셀(재판매)이 합법임을 이해하고 퀴즈를 통과해주세요.',
+    verificationType: 'quiz',
+  },
+  {
+    key: 'orientation_video',
+    order: 2,
     label: '오리엔테이션 영상 시청',
     description: '쿠팡 셀러 활동에 대한 기본 안내 영상을 시청해주세요.',
     verificationType: 'self_check',
   },
   {
     key: 'business_registration',
-    order: 2,
+    order: 3,
     label: '사업자등록',
     description: '사업자등록증 사본을 업로드해주세요.',
     verificationType: 'evidence_upload',
   },
   {
     key: 'online_sales_report',
-    order: 3,
+    order: 4,
     label: '통신판매업 신고',
     description: '통신판매업 신고증 사본을 업로드해주세요.',
     verificationType: 'evidence_upload',
   },
   {
     key: 'coupang_seller_signup',
-    order: 4,
+    order: 5,
     label: '쿠팡 입점 회원가입',
     description: '쿠팡 셀러 가입 완료 화면 캡처를 업로드해주세요.',
     verificationType: 'evidence_upload',
   },
   {
     key: 'coupang_wing_integration',
-    order: 5,
+    order: 6,
     label: '쿠팡 Wing 연동',
     description: '쿠팡 Wing 연동 완료 화면 캡처를 업로드해주세요.',
     verificationType: 'evidence_upload',
   },
   {
     key: 'first_product_listing',
-    order: 6,
+    order: 7,
     label: '첫 상품 등록',
     description: '첫 상품 등록 완료 화면 캡처를 업로드해주세요.',
     verificationType: 'evidence_upload',
   },
   {
     key: 'contract_signing',
-    order: 7,
+    order: 8,
     label: '계약서 서명',
     description: '계약서 서명을 완료해주세요.',
     verificationType: 'auto_linked',
@@ -138,7 +145,7 @@ export const ONBOARDING_STEPS: OnboardingStepDefinition[] = [
   },
   {
     key: 'first_revenue_report',
-    order: 8,
+    order: 9,
     label: '첫 매출 보고',
     description: '첫 매출 보고를 제출해주세요.',
     verificationType: 'auto_linked',
@@ -212,6 +219,48 @@ export const SETTLEMENT_STATUS_COLORS: Record<string, string> = {
   submitted: 'bg-yellow-100 text-yellow-700',
   completed: 'bg-green-100 text-green-700',
   overdue: 'bg-red-100 text-red-700',
+};
+
+// 트레이너 상태
+export const TRAINER_STATUS_LABELS: Record<string, string> = {
+  pending: '승인 대기',
+  approved: '활성',
+  revoked: '취소',
+};
+
+export const TRAINER_STATUS_COLORS: Record<string, string> = {
+  pending: 'bg-yellow-100 text-yellow-700',
+  approved: 'bg-green-100 text-green-700',
+  revoked: 'bg-red-100 text-red-700',
+};
+
+export const TRAINER_EARNING_STATUS_LABELS: Record<string, string> = {
+  pending: '대기',
+  confirmed: '확인',
+  paid: '지급완료',
+};
+
+export const TRAINER_EARNING_STATUS_COLORS: Record<string, string> = {
+  pending: 'bg-gray-100 text-gray-700',
+  confirmed: 'bg-blue-100 text-blue-700',
+  paid: 'bg-green-100 text-green-700',
+};
+
+export const DEFAULT_TRAINER_BONUS_PERCENTAGE = 5;
+
+// 쿠팡 API 연동 상태
+export const API_STATUS_LABELS: Record<string, string> = {
+  connected: 'API 연동됨',
+  not_connected: '미연동',
+  expiring_soon: '만료 임박',
+  expired: '만료됨',
+};
+
+export const API_STATUS_COLORS: Record<string, string> = {
+  connected: 'bg-green-100 text-green-700',
+  not_connected: 'bg-gray-100 text-gray-500',
+  expiring_soon: 'bg-yellow-100 text-yellow-700',
+  expired: 'bg-red-100 text-red-700',
 };
 
 // 종합소득세 구간 (2024년 기준)

@@ -26,7 +26,7 @@ import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import PaymentProgress from '@/components/ui/PaymentProgress';
 import NumberInput from '@/components/ui/NumberInput';
-import { ArrowLeft, Eye, Check, X, Undo2, User, ClipboardList, FileText, Banknote, Search, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Eye, Check, X, Undo2, User, ClipboardList, FileText, Banknote, Search, ExternalLink, Plug, Shield } from 'lucide-react';
 import type { PtUser, MonthlyReport, Profile, OnboardingStep, Contract } from '@/lib/supabase/types';
 
 interface PtUserWithProfile extends PtUser {
@@ -194,7 +194,7 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
 
   // Undo deposit: deposited -> reviewed
   const handleUndoDeposit = async (reportId: string) => {
-    if (!confirm('입금 상태를 취소하고 확인완료 상태로 되돌리시겠습니까?')) return;
+    if (!confirm('송금완료 상태를 취소하고 송금대기중 상태로 되돌리시겠습니까?')) return;
 
     await supabase
       .from('monthly_reports')
@@ -362,6 +362,28 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
                 <span className="text-xs text-gray-400">셀러 ID</span>
                 <p className="text-sm font-mono font-medium text-gray-900">{ptUser.coupang_seller_id || '-'}</p>
               </div>
+              <div>
+                <span className="text-xs text-gray-400">Vendor ID</span>
+                <p className="text-sm font-mono font-medium text-gray-900">{ptUser.coupang_vendor_id || '-'}</p>
+              </div>
+              <div>
+                <span className="text-xs text-gray-400">API 상태</span>
+                <div className="mt-0.5 flex items-center gap-2">
+                  {ptUser.coupang_api_connected ? (
+                    <Badge label="연동됨" colorClass="bg-green-100 text-green-700" />
+                  ) : (
+                    <Badge label="미연동" colorClass="bg-gray-100 text-gray-500" />
+                  )}
+                </div>
+              </div>
+              {ptUser.coupang_api_key_expires_at && (
+                <div>
+                  <span className="text-xs text-gray-400">API 만료일</span>
+                  <p className="text-sm font-medium text-gray-900">
+                    {new Date(ptUser.coupang_api_key_expires_at).toLocaleDateString('ko-KR')}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -474,6 +496,12 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
                         label={PAYMENT_STATUS_LABELS[report.payment_status]}
                         colorClass={PAYMENT_STATUS_COLORS[report.payment_status]}
                       />
+                      {report.api_verified && (
+                        <Badge
+                          label="API 검증됨"
+                          colorClass="bg-green-100 text-green-700"
+                        />
+                      )}
                     </div>
 
                     {/* Screenshot buttons */}
@@ -527,7 +555,7 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
                       </p>
                     </div>
                     <div className="bg-gray-50 rounded-lg p-3">
-                      <p className="text-xs text-gray-500">입금액</p>
+                      <p className="text-xs text-gray-500">송금액</p>
                       <p className="text-sm font-bold text-[#E31837]">{formatKRW(depositAmount)}</p>
                     </div>
                   </div>
@@ -581,10 +609,10 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
                       <span>확인: {formatDate(report.reviewed_at)}</span>
                     )}
                     {report.deposited_at && (
-                      <span>입금: {formatDate(report.deposited_at)}</span>
+                      <span>송금: {formatDate(report.deposited_at)}</span>
                     )}
                     {report.payment_confirmed_at && (
-                      <span>승인: {formatDate(report.payment_confirmed_at)}</span>
+                      <span>정산: {formatDate(report.payment_confirmed_at)}</span>
                     )}
                   </div>
 
@@ -612,14 +640,14 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
                       </>
                     )}
 
-                    {/* reviewed: Deposit pending info */}
+                    {/* reviewed: 송금대기중 info */}
                     {report.payment_status === 'reviewed' && (
                       <div className="p-2.5 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-700 w-full">
-                        입금 대기중 (확정액: <span className="font-bold">{formatKRW(report.admin_deposit_amount || report.calculated_deposit)}</span>)
+                        송금 대기중 (확정액: <span className="font-bold">{formatKRW(report.admin_deposit_amount || report.calculated_deposit)}</span>)
                       </div>
                     )}
 
-                    {/* deposited: Confirm deposit + Undo deposit */}
+                    {/* deposited: 송금확인 + 취소 */}
                     {report.payment_status === 'deposited' && (
                       <>
                         <button
@@ -628,7 +656,7 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
                           className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition"
                         >
                           <Check className="w-4 h-4" />
-                          입금 확인
+                          송금 확인
                         </button>
                         <button
                           type="button"
@@ -636,7 +664,7 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
                           className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition"
                         >
                           <Undo2 className="w-4 h-4" />
-                          입금 취소
+                          송금 취소
                         </button>
                       </>
                     )}
@@ -758,7 +786,7 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
                   </div>
                   <div className="flex justify-between mt-1">
                     <span className="font-medium text-[#E31837]">
-                      자동 계산 입금액 ({ptUser?.share_percentage || 30}%)
+                      자동 계산 송금액 ({ptUser?.share_percentage || 30}%)
                     </span>
                     <span className="font-bold text-[#E31837]">{formatKRW(autoDeposit)}</span>
                   </div>
@@ -809,7 +837,7 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
 
               <NumberInput
                 id="adjustedAmount"
-                label="확정 입금액"
+                label="확정 송금액"
                 value={reviewModalData.adjustedAmount}
                 onChange={(val) => setReviewModalData({ ...reviewModalData, adjustedAmount: val })}
                 suffix="원"

@@ -16,7 +16,7 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import StatCard from '@/components/ui/StatCard';
 import PaymentProgress from '@/components/ui/PaymentProgress';
-import { Send, Calculator, CheckCircle2, ChevronDown, ChevronUp, Banknote, Minus, AlertTriangle } from 'lucide-react';
+import { Send, Calculator, CheckCircle2, ChevronDown, ChevronUp, Banknote, Minus, AlertTriangle, Plug, Shield } from 'lucide-react';
 import type { MonthlyReport, PtUser } from '@/lib/supabase/types';
 
 export default function MyReportPage() {
@@ -39,6 +39,10 @@ export default function MyReportPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [guideOpen, setGuideOpen] = useState(false);
   const [costOpen, setCostOpen] = useState(false);
+  const [apiConnected, setApiConnected] = useState(false);
+  const [apiFetching, setApiFetching] = useState(false);
+  const [apiVerified, setApiVerified] = useState(false);
+  const [apiSettlementData, setApiSettlementData] = useState<Record<string, unknown> | null>(null);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -62,6 +66,7 @@ export default function MyReportPage() {
 
     if (ptUserData) {
       setPtUser(ptUserData as PtUser);
+      setApiConnected(!!(ptUserData as PtUser).coupang_api_connected);
 
       const { data: reportData } = await supabase
         .from('monthly_reports')
@@ -77,6 +82,8 @@ export default function MyReportPage() {
         setPreviewUrl(r.screenshot_url);
         setAdPreviewUrl(r.ad_screenshot_url);
         setAdvertisingCost(r.cost_advertising || 0);
+        setApiVerified(r.api_verified || false);
+        setApiSettlementData(r.api_settlement_data || null);
         if (r.screenshot_url) {
           setRevenueExifResult({ isValid: true, hasSoftware: true, hasDateTime: true, warningMessage: null });
         }
@@ -93,6 +100,8 @@ export default function MyReportPage() {
         setAdScreenshotFile(null);
         setAdExifResult(null);
         setRevenueExifResult(null);
+        setApiVerified(false);
+        setApiSettlementData(null);
       }
     }
 
@@ -137,6 +146,37 @@ export default function MyReportPage() {
     setAdScreenshotFile(null);
     setAdPreviewUrl(null);
     setAdExifResult(null);
+  };
+
+  // API에서 매출 가져오기
+  const handleApiFetch = async () => {
+    setApiFetching(true);
+    setMessage(null);
+
+    try {
+      const res = await fetch('/api/coupang-settlement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ yearMonth }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setMessage({ type: 'error', text: data.error || 'API 조회에 실패했습니다.' });
+        return;
+      }
+
+      // 매출 자동 입력
+      setRevenue(data.totalSales || 0);
+      setApiVerified(true);
+      setApiSettlementData(data.settlementData || null);
+      setMessage({ type: 'success', text: `API에서 매출 데이터를 가져왔습니다. (총 ${data.itemCount || 0}건)` });
+    } catch {
+      setMessage({ type: 'error', text: 'API 조회 중 오류가 발생했습니다.' });
+    } finally {
+      setApiFetching(false);
+    }
   };
 
   const uploadScreenshot = async (
@@ -227,6 +267,8 @@ export default function MyReportPage() {
       cost_returns: costs.cost_returns,
       cost_shipping: costs.cost_shipping,
       cost_tax: costs.cost_tax,
+      api_verified: apiVerified,
+      api_settlement_data: apiSettlementData,
     };
 
     if (report) {
@@ -270,9 +312,9 @@ export default function MyReportPage() {
       .eq('id', report.id);
 
     if (error) {
-      setMessage({ type: 'error', text: '입금완료 처리에 실패했습니다.' });
+      setMessage({ type: 'error', text: '송금완료 신청에 실패했습니다.' });
     } else {
-      setMessage({ type: 'success', text: '입금완료 처리되었습니다. 관리자 확인을 기다려주세요.' });
+      setMessage({ type: 'success', text: '송금완료 신청되었습니다. 관리자의 송금 확인을 기다려주세요.' });
       fetchData();
     }
     setDepositLoading(false);
@@ -336,7 +378,7 @@ export default function MyReportPage() {
           trend={netProfit > 0 ? 'up' : netProfit < 0 ? 'down' : undefined}
         />
         <StatCard
-          title={report?.admin_deposit_amount ? '관리자 확정 금액' : `입금액 (${sharePercentage}%)`}
+          title={report?.admin_deposit_amount ? '관리자 확정 금액' : `송금액 (${sharePercentage}%)`}
           value={
             report?.admin_deposit_amount
               ? formatKRW(report.admin_deposit_amount)
@@ -367,6 +409,12 @@ export default function MyReportPage() {
                   label={PAYMENT_STATUS_LABELS[report.payment_status]}
                   colorClass={PAYMENT_STATUS_COLORS[report.payment_status]}
                 />
+                {report.api_verified && (
+                  <Badge
+                    label="API 검증됨"
+                    colorClass="bg-green-100 text-green-700"
+                  />
+                )}
                 {report.payment_confirmed_at && (
                   <span className="text-xs text-gray-400">
                     확인: {new Date(report.payment_confirmed_at).toLocaleDateString('ko-KR')}
@@ -383,10 +431,10 @@ export default function MyReportPage() {
             <div className="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <div>
-                  <p className="text-sm font-medium text-purple-800">관리자가 매출을 확인했습니다</p>
+                  <p className="text-sm font-medium text-purple-800">관리자가 매출을 확인했습니다. 송금을 대기 중입니다.</p>
                   {report.admin_deposit_amount && (
                     <p className="text-lg font-bold text-purple-900 mt-1">
-                      확정 입금액: {formatKRW(report.admin_deposit_amount)}
+                      확정 송금액: {formatKRW(report.admin_deposit_amount)}
                     </p>
                   )}
                 </div>
@@ -397,7 +445,7 @@ export default function MyReportPage() {
                   className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
                 >
                   <Banknote className="w-4 h-4" />
-                  {depositLoading ? '처리 중...' : '입금완료'}
+                  {depositLoading ? '처리 중...' : '송금완료 신청'}
                 </button>
               </div>
             </div>
@@ -406,7 +454,7 @@ export default function MyReportPage() {
           {report.payment_status === 'deposited' && (
             <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
               <p className="text-sm font-medium text-yellow-800">
-                입금완료 처리되었습니다. 관리자의 최종 확인을 기다려주세요.
+                송금완료 신청되었습니다. 관리자의 송금 확인을 기다려주세요.
               </p>
             </div>
           )}
@@ -457,11 +505,47 @@ export default function MyReportPage() {
         )}
       </Card>
 
+      {/* API 매출 가져오기 */}
+      {apiConnected && isEditable && (
+        <Card>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-2">
+              <Plug className="w-5 h-5 text-green-600" />
+              <div>
+                <p className="text-sm font-medium text-gray-900">쿠팡 Open API 연동됨</p>
+                <p className="text-xs text-gray-500">API에서 매출 데이터를 자동으로 가져올 수 있습니다.</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleApiFetch}
+              disabled={apiFetching}
+              className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+            >
+              {apiFetching ? (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <Plug className="w-4 h-4" />
+              )}
+              {apiFetching ? '조회 중...' : 'API에서 매출 가져오기'}
+            </button>
+          </div>
+        </Card>
+      )}
+
       {/* 매출 입력 폼 */}
       <Card>
-        <h2 className="text-lg font-bold text-gray-900 mb-4">
-          {formatYearMonth(yearMonth)} 매출 보고
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-gray-900">
+            {formatYearMonth(yearMonth)} 매출 보고
+          </h2>
+          {apiVerified && (
+            <div className="flex items-center gap-1.5 px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+              <Shield className="w-3.5 h-3.5" />
+              API 검증됨
+            </div>
+          )}
+        </div>
 
         {loading ? (
           <div className="py-8 text-center text-gray-400">불러오는 중...</div>
@@ -601,7 +685,7 @@ export default function MyReportPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="font-medium text-[#E31837]">
-                        입금액 ({sharePercentage}%)
+                        송금액 ({sharePercentage}%)
                       </span>
                       <span className="text-xl font-bold text-[#E31837]">
                         {formatKRW(depositAmount)}
@@ -614,22 +698,34 @@ export default function MyReportPage() {
 
             {/* 매출 스크린샷 */}
             <div className="space-y-3">
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-amber-800">매출 스크린샷 주의사항</p>
-                    <ul className="text-xs text-amber-700 mt-1 space-y-0.5 list-disc list-inside">
-                      <li>쿠팡 Wing 정산관리에서 캡처해주세요</li>
-                      <li>매출 합계가 보이도록 캡처해주세요</li>
-                      <li>AI 생성 이미지는 제출할 수 없습니다</li>
-                    </ul>
+              {apiVerified ? (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <Shield className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-green-800">API로 매출이 검증되었습니다</p>
+                      <p className="text-xs text-green-700 mt-0.5">스크린샷은 선택사항입니다. 필요시 추가로 업로드할 수 있습니다.</p>
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-amber-800">매출 스크린샷 주의사항</p>
+                      <ul className="text-xs text-amber-700 mt-1 space-y-0.5 list-disc list-inside">
+                        <li>쿠팡 Wing 정산관리에서 캡처해주세요</li>
+                        <li>매출 합계가 보이도록 캡처해주세요</li>
+                        <li>AI 생성 이미지는 제출할 수 없습니다</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <FileUpload
-                label="매출 스크린샷 (Wing 정산 캡처)"
+                label={apiVerified ? '매출 스크린샷 (선택사항)' : '매출 스크린샷 (Wing 정산 캡처)'}
                 onFileSelect={handleFileSelect}
                 onClear={handleFileClear}
                 previewUrl={previewUrl}

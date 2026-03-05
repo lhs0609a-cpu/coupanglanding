@@ -24,10 +24,10 @@ export async function logActivity(supabase: SupabaseClient, params: LogParams) {
 export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   approve_user: '사용자 승인',
   reject_user: '사용자 거절',
-  confirm_deposit: '입금 확인',
+  confirm_deposit: '송금 확인',
   reject_report: '매출 반려',
   review_report: '매출 검토',
-  undo_deposit: '입금 취소',
+  undo_deposit: '송금 취소',
   send_contract: '계약서 발송',
   terminate_contract: '계약 해지',
   approve_onboarding: '온보딩 승인',

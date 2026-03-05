@@ -65,7 +65,7 @@ export default function MyHistoryPage() {
                   <th className="text-left py-3 px-4 font-medium text-gray-500">기간</th>
                   <th className="text-right py-3 px-4 font-medium text-gray-500">총 매출</th>
                   <th className="text-right py-3 px-4 font-medium text-gray-500">순수익</th>
-                  <th className="text-right py-3 px-4 font-medium text-gray-500">확정 입금액</th>
+                  <th className="text-right py-3 px-4 font-medium text-gray-500">확정 송금액</th>
                   <th className="text-center py-3 px-4 font-medium text-gray-500">상태</th>
                   <th className="text-right py-3 px-4 font-medium text-gray-500">제출일</th>
                 </tr>

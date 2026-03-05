@@ -48,16 +48,16 @@ export async function notifyReportStatusChange(
 ) {
   const statusMessages: Record<string, { title: string; message: string }> = {
     reviewed: {
-      title: '매출 확인 완료',
-      message: `${yearMonth} 매출이 관리자에 의해 확인되었습니다. 확정 입금액을 확인하세요.`,
+      title: '매출 확인 완료 - 송금 대기중',
+      message: `${yearMonth} 매출이 관리자에 의해 확인되었습니다. 확정 송금액을 확인하고 송금완료 신청해주세요.`,
     },
     rejected: {
       title: '매출 보고 반려',
       message: `${yearMonth} 매출 보고가 반려되었습니다. 사유를 확인하고 다시 제출해주세요.`,
     },
     confirmed: {
-      title: '정산 최종 승인',
-      message: `${yearMonth} 정산이 최종 승인되었습니다.`,
+      title: '정산 완료',
+      message: `${yearMonth} 정산이 완료되었습니다.`,
     },
   };
 
