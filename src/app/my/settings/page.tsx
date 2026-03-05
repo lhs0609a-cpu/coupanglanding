@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { API_STATUS_LABELS, API_STATUS_COLORS } from '@/lib/utils/constants';
-import { Settings, Eye, EyeOff, Save, CheckCircle, Plug, AlertTriangle, Shield } from 'lucide-react';
+import { Settings, Eye, EyeOff, Save, CheckCircle, Plug, AlertTriangle, Shield, ChevronDown, ChevronUp, HelpCircle, ExternalLink } from 'lucide-react';
 
 // UTF-8 안전 base64 인코딩/디코딩
 function safeBase64Encode(str: string): string {
@@ -50,6 +50,7 @@ export default function MySettingsPage() {
   const [apiSaving, setApiSaving] = useState(false);
   const [apiTesting, setApiTesting] = useState(false);
   const [apiMessage, setApiMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [apiGuideOpen, setApiGuideOpen] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -341,6 +342,153 @@ export default function MySettingsPage() {
               </div>
             )}
 
+            {/* API 키 발급 가이드 */}
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setApiGuideOpen(!apiGuideOpen)}
+                className="w-full flex items-center justify-between p-4 bg-blue-50 hover:bg-blue-100 transition"
+              >
+                <div className="flex items-center gap-2">
+                  <HelpCircle className="w-4 h-4 text-blue-600" />
+                  <span className="text-sm font-medium text-blue-800">API 키 발급 방법 안내</span>
+                </div>
+                {apiGuideOpen ? (
+                  <ChevronUp className="w-4 h-4 text-blue-600" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-blue-600" />
+                )}
+              </button>
+
+              {apiGuideOpen && (
+                <div className="p-4 space-y-5 border-t border-gray-200 bg-white">
+                  {/* Step 1: Wing 로그인 */}
+                  <div className="flex items-start gap-3">
+                    <span className="flex-shrink-0 w-7 h-7 bg-[#E31837] text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
+                      1
+                    </span>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">쿠팡 Wing에 로그인</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        <a
+                          href="https://wing.coupang.com"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline inline-flex items-center gap-1"
+                        >
+                          wing.coupang.com
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                        에 접속하여 셀러 계정으로 로그인합니다.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Step 2: Vendor ID 확인 */}
+                  <div className="flex items-start gap-3">
+                    <span className="flex-shrink-0 w-7 h-7 bg-[#E31837] text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
+                      2
+                    </span>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">Vendor ID (업체코드) 확인</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Wing 로그인 후 우측 상단의 <span className="font-medium text-gray-700">업체명</span>을 클릭하면
+                        업체코드(Vendor ID)를 확인할 수 있습니다.
+                      </p>
+                      <div className="mt-2 rounded-lg border border-gray-200 overflow-hidden">
+                        <img
+                          src="/images/guide/wing-vendor-id.png"
+                          alt="Wing 업체코드 확인 위치"
+                          className="w-full"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      </div>
+                      <div className="mt-2 p-2.5 bg-gray-50 rounded-lg">
+                        <p className="text-xs text-gray-600">
+                          <span className="font-medium">위치:</span> Wing 우측 상단 &gt; 업체명 클릭 &gt; 업체코드 확인
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          숫자로 된 업체코드 (예: <span className="font-mono bg-gray-200 px-1 rounded">A00123456</span>)를 복사하세요.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step 3: Open API 메뉴 이동 */}
+                  <div className="flex items-start gap-3">
+                    <span className="flex-shrink-0 w-7 h-7 bg-[#E31837] text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
+                      3
+                    </span>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">Open API 관리 페이지 이동</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Wing 좌측 메뉴에서 <span className="font-medium text-gray-700">개발자센터</span> &gt; <span className="font-medium text-gray-700">Open API</span>를 클릭합니다.
+                      </p>
+                      <div className="mt-2 rounded-lg border border-gray-200 overflow-hidden">
+                        <img
+                          src="/images/guide/wing-openapi-menu.png"
+                          alt="Open API 메뉴 위치"
+                          className="w-full"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      </div>
+                      <div className="mt-2 p-2.5 bg-gray-50 rounded-lg">
+                        <p className="text-xs text-gray-600">
+                          <span className="font-medium">경로:</span> Wing 좌측 메뉴 &gt; 개발자센터 &gt; Open API
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step 4: API 키 생성/확인 */}
+                  <div className="flex items-start gap-3">
+                    <span className="flex-shrink-0 w-7 h-7 bg-[#E31837] text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
+                      4
+                    </span>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">Access Key / Secret Key 발급</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Open API 페이지에서 <span className="font-medium text-gray-700">&quot;키 생성&quot;</span> 버튼을 클릭하여
+                        Access Key와 Secret Key를 발급받습니다.
+                      </p>
+                      <div className="mt-2 rounded-lg border border-gray-200 overflow-hidden">
+                        <img
+                          src="/images/guide/wing-api-keys.png"
+                          alt="API 키 발급 화면"
+                          className="w-full"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      </div>
+                      <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+                        <div className="flex items-start gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
+                          <div className="text-xs text-amber-700">
+                            <p className="font-medium">Secret Key는 생성 직후에만 확인 가능합니다!</p>
+                            <p className="mt-0.5">반드시 즉시 복사하여 아래 입력란에 붙여넣어 주세요. 페이지를 벗어나면 다시 확인할 수 없습니다.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step 5: 입력 */}
+                  <div className="flex items-start gap-3">
+                    <span className="flex-shrink-0 w-7 h-7 bg-[#E31837] text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
+                      5
+                    </span>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">아래 입력란에 붙여넣기</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        발급받은 Vendor ID, Access Key, Secret Key를 아래 입력란에 붙여넣고
+                        <span className="font-medium text-gray-700"> &quot;연동 테스트&quot;</span>로 확인 후
+                        <span className="font-medium text-gray-700"> &quot;저장&quot;</span>을 눌러주세요.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div>
               <label htmlFor="api-vendor-id" className="block text-sm font-medium text-gray-700 mb-1">
                 Vendor ID (업체코드)
@@ -350,9 +498,10 @@ export default function MySettingsPage() {
                 type="text"
                 value={apiVendorId}
                 onChange={(e) => setApiVendorId(e.target.value)}
-                placeholder="쿠팡 Wing 업체코드 입력"
+                placeholder="쿠팡 Wing 업체코드 입력 (예: A00123456)"
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
               />
+              <p className="text-xs text-gray-400 mt-1">Wing 우측 상단 업체명 클릭 시 확인 가능</p>
             </div>
 
             <div>
@@ -365,8 +514,9 @@ export default function MySettingsPage() {
                 value={apiAccessKey}
                 onChange={(e) => setApiAccessKey(e.target.value)}
                 placeholder={apiHasCredentials ? '(저장됨 - 변경 시에만 입력)' : 'Access Key 입력'}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent font-mono"
               />
+              <p className="text-xs text-gray-400 mt-1">Wing &gt; 개발자센터 &gt; Open API에서 발급</p>
             </div>
 
             <div>
@@ -379,8 +529,9 @@ export default function MySettingsPage() {
                 value={apiSecretKey}
                 onChange={(e) => setApiSecretKey(e.target.value)}
                 placeholder={apiHasCredentials ? '(저장됨 - 변경 시에만 입력)' : 'Secret Key 입력'}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent font-mono"
               />
+              <p className="text-xs text-gray-400 mt-1">키 생성 직후에만 확인 가능 - 반드시 즉시 복사</p>
             </div>
 
             {apiMessage && (
