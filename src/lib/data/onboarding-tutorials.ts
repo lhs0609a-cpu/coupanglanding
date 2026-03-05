@@ -177,35 +177,6 @@ export const TUTORIAL_CONTENT: TutorialStepContent[] = [
     completionMessage: '리셀 합법성 교육 완료! 이제 확신을 가지고 사업을 시작할 준비가 됐어요!',
   },
 
-  // ── Step 2: 오리엔테이션 영상 ──
-  {
-    stepKey: 'orientation_video',
-    icon: '🎬',
-    tagline: '시작이 반! 먼저 영상을 봐요',
-    overview: '쿠팡 셀러 활동이 어떤 건지 쉽게 알려드리는 영상이에요. 편하게 시청해주세요!',
-    estimatedTotalTime: '약 10분',
-    subSteps: [
-      {
-        title: '안내 영상 시청하기',
-        description: '쿠팡 셀러 활동에 대한 기본 안내 영상을 시청해주세요.',
-        detailedInstructions: [
-          '아래 영상을 끝까지 시청해주세요.',
-          '영상에서 전체 과정의 흐름을 설명해드립니다.',
-          '메모할 필요 없어요. 각 단계에서 다시 안내해드립니다.',
-        ],
-        tip: '영상은 약 5~10분 분량이에요. Wi-Fi 환경에서 시청하시는 걸 추천해요!',
-      },
-      {
-        title: '시청 완료 확인',
-        description: '영상을 끝까지 보셨다면 확인 버튼을 눌러주세요.',
-        detailedInstructions: [
-          '영상 시청을 마치셨으면 아래 "확인 완료" 버튼을 눌러주세요.',
-          '다음 단계로 넘어갈 수 있어요!',
-        ],
-      },
-    ],
-    completionMessage: '영상 시청 완료! 이제 본격적으로 시작해볼까요?',
-  },
 
   // ── Step 2: 사업자등록 ──
   {
