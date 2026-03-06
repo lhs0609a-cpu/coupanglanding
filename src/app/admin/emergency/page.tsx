@@ -17,7 +17,7 @@ import { ShieldAlert, Plus, Search, Trash2 } from 'lucide-react';
 
 type Tab = 'incidents' | 'blacklist';
 
-interface IncidentWithUser extends Incident {
+interface IncidentWithUser extends Omit<Incident, 'pt_user'> {
   pt_user?: {
     id: string;
     profile?: {
