@@ -381,7 +381,7 @@ export default function AdminTrendsPage() {
 
       {/* 추가 모달 */}
       {showAddModal && (
-        <Modal onClose={() => setShowAddModal(false)} title="키워드 추가">
+        <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="키워드 추가">
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">키워드 *</label>
