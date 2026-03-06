@@ -114,7 +114,7 @@ export default function MyTrendsPage() {
                 </div>
 
                 {/* 카테고리 */}
-                <Badge colorClass="bg-blue-100 text-blue-700">{kw.category}</Badge>
+                <Badge label={kw.category} colorClass="bg-blue-100 text-blue-700" />
 
                 {/* 트렌드 점수 바 */}
                 <div>
@@ -145,9 +145,7 @@ export default function MyTrendsPage() {
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-500">경쟁도</span>
-                      <Badge colorClass={getCompBadgeColor(kw.naver_trend_data.compIdx)}>
-                        {kw.naver_trend_data.compIdx}
-                      </Badge>
+                      <Badge label={kw.naver_trend_data.compIdx} colorClass={getCompBadgeColor(kw.naver_trend_data.compIdx)} />
                     </div>
                   </div>
                 )}

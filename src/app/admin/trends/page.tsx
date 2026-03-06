@@ -309,7 +309,7 @@ export default function AdminTrendsPage() {
                   <tr key={kw.id} className={`border-b border-gray-100 hover:bg-gray-50 ${!kw.is_active ? 'opacity-50' : ''}`}>
                     <td className="py-3 px-4 font-semibold text-gray-900">{kw.keyword}</td>
                     <td className="py-3 px-4">
-                      <Badge colorClass="bg-blue-100 text-blue-700">{kw.category}</Badge>
+                      <Badge label={kw.category} colorClass="bg-blue-100 text-blue-700" />
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
@@ -325,9 +325,7 @@ export default function AdminTrendsPage() {
                       </div>
                     </td>
                     <td className="py-3 px-4">
-                      <Badge colorClass={kw.source === 'naver' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}>
-                        {kw.source === 'naver' ? '네이버' : '수동'}
-                      </Badge>
+                      <Badge label={kw.source === 'naver' ? '네이버' : '수동'} colorClass={kw.source === 'naver' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'} />
                     </td>
                     <td className="py-3 px-4 text-gray-600">
                       {kw.naver_trend_data ? (

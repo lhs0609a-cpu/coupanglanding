@@ -74,7 +74,7 @@ export default function TrendingKeywordsWidget() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-gray-900 truncate">{kw.keyword}</span>
-                  <Badge colorClass="bg-blue-100 text-blue-700">{kw.category}</Badge>
+                  <Badge label={kw.category} colorClass="bg-blue-100 text-blue-700" />
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
