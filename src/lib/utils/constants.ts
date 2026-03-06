@@ -536,6 +536,19 @@ export const TAX_INVOICE_STATUS_COLORS: Record<string, string> = {
   cancelled: 'bg-red-100 text-red-700',
 };
 
+// 수동 입력 요청 상태
+export const MANUAL_INPUT_REQUEST_STATUS_LABELS: Record<string, string> = {
+  pending: '승인 대기',
+  approved: '승인됨',
+  rejected: '거절됨',
+};
+
+export const MANUAL_INPUT_REQUEST_STATUS_COLORS: Record<string, string> = {
+  pending: 'bg-yellow-100 text-yellow-700',
+  approved: 'bg-green-100 text-green-700',
+  rejected: 'bg-red-100 text-red-700',
+};
+
 // 종합소득세 구간 (2024년 기준)
 export const TAX_BRACKETS = [
   { limit: 14_000_000, rate: 0.06, deduction: 0 },

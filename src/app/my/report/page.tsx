@@ -19,8 +19,8 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import StatCard from '@/components/ui/StatCard';
 import PaymentProgress from '@/components/ui/PaymentProgress';
-import { Send, Calculator, CheckCircle2, ChevronDown, ChevronUp, Banknote, Minus, AlertTriangle, Plug, Shield, Zap, ArrowRight, Settings, Edit3 } from 'lucide-react';
-import type { MonthlyReport, PtUser } from '@/lib/supabase/types';
+import { Send, Calculator, CheckCircle2, ChevronDown, ChevronUp, Banknote, Minus, AlertTriangle, Plug, Shield, Zap, ArrowRight, Settings, Edit3, Clock, XCircle, MessageSquare } from 'lucide-react';
+import type { MonthlyReport, PtUser, ManualInputRequest } from '@/lib/supabase/types';
 
 export default function MyReportPage() {
   const [yearMonth, setYearMonth] = useState(getReportTargetMonth());
@@ -46,6 +46,9 @@ export default function MyReportPage() {
   const [apiVerified, setApiVerified] = useState(false);
   const [apiSettlementData, setApiSettlementData] = useState<Record<string, unknown> | null>(null);
   const [manualMode, setManualMode] = useState(false);
+  const [manualRequest, setManualRequest] = useState<ManualInputRequest | null>(null);
+  const [manualRequestReason, setManualRequestReason] = useState('');
+  const [manualRequestLoading, setManualRequestLoading] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -69,7 +72,18 @@ export default function MyReportPage() {
 
     if (ptUserData) {
       setPtUser(ptUserData as PtUser);
-      setApiConnected(!!(ptUserData as PtUser).coupang_api_connected);
+      const isConnected = !!(ptUserData as PtUser).coupang_api_connected;
+      setApiConnected(isConnected);
+
+      // 수동 입력 요청 상태 조회
+      const manualRes = await fetch(`/api/manual-input-requests?yearMonth=${yearMonth}`);
+      if (manualRes.ok) {
+        const manualData = await manualRes.json();
+        const req = Array.isArray(manualData) && manualData.length > 0 ? manualData[0] as ManualInputRequest : null;
+        setManualRequest(req);
+      } else {
+        setManualRequest(null);
+      }
 
       const { data: reportData } = await supabase
         .from('monthly_reports')
@@ -172,12 +186,10 @@ export default function MyReportPage() {
       if (!res.ok) {
         // API 키 만료 또는 연동 오류 시 안내
         if (res.status === 400 && data.error?.includes('연동되지 않았')) {
-          setMessage({ type: 'error', text: 'API 키가 만료되었거나 미등록 상태입니다. 설정에서 API 키를 다시 등록해주세요.' });
+          setMessage({ type: 'error', text: 'API 키가 만료되었거나 미등록 상태입니다. 설정에서 API 키를 다시 등록하거나, 수동 입력 승인을 요청해주세요.' });
         } else {
-          setMessage({ type: 'error', text: data.error || 'API 조회에 실패했습니다. 수동으로 입력해주세요.' });
+          setMessage({ type: 'error', text: data.error || 'API 조회에 실패했습니다. 수동 입력 승인을 요청해주세요.' });
         }
-        // API 실패 시 수동 모드 전환 제안
-        setManualMode(true);
         return;
       }
 
@@ -188,8 +200,7 @@ export default function MyReportPage() {
       setManualMode(false);
       setMessage({ type: 'success', text: `API에서 매출 데이터를 가져왔습니다. (총 ${data.itemCount || 0}건)` });
     } catch {
-      setMessage({ type: 'error', text: 'API 조회 중 오류가 발생했습니다. 수동으로 입력해주세요.' });
-      setManualMode(true);
+      setMessage({ type: 'error', text: 'API 조회 중 오류가 발생했습니다. 수동 입력 승인을 요청해주세요.' });
     } finally {
       setApiFetching(false);
     }
@@ -294,6 +305,7 @@ export default function MyReportPage() {
       supply_amount: vatCalc.supplyAmount,
       vat_amount: vatCalc.vatAmount,
       total_with_vat: vatCalc.totalWithVat,
+      input_source: apiVerified ? 'api' as const : 'manual_approved' as const,
     };
 
     if (report) {
@@ -344,6 +356,41 @@ export default function MyReportPage() {
     }
     setDepositLoading(false);
   };
+
+  // 수동 입력 승인 요청
+  const handleManualInputRequest = async () => {
+    if (!manualRequestReason || manualRequestReason.trim().length < 5) {
+      setMessage({ type: 'error', text: '사유를 5자 이상 입력해주세요.' });
+      return;
+    }
+
+    setManualRequestLoading(true);
+    setMessage(null);
+
+    try {
+      const res = await fetch('/api/manual-input-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ yearMonth, reason: manualRequestReason.trim() }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setMessage({ type: 'error', text: data.error || '요청에 실패했습니다.' });
+      } else {
+        setMessage({ type: 'success', text: '수동 입력 승인 요청이 전송되었습니다. 관리자 승인을 기다려주세요.' });
+        setManualRequestReason('');
+        fetchData();
+      }
+    } catch {
+      setMessage({ type: 'error', text: '요청 중 오류가 발생했습니다.' });
+    }
+
+    setManualRequestLoading(false);
+  };
+
+  // 수동 입력이 승인되었는지 확인
+  const isManualApproved = manualRequest?.status === 'approved';
 
   const isEditable = !report || report.payment_status === 'pending' || report.payment_status === 'rejected';
   const hasCosts = totalCosts(costs) > 0;
@@ -498,7 +545,7 @@ export default function MyReportPage() {
         </Card>
       )}
 
-      {/* 5. API 미연동 시 → 온보딩 배너 */}
+      {/* 5. API 미연동 시 → 온보딩 배너 + 수동 입력 승인 요청 */}
       {!apiConnected && isEditable && !manualMode && (
         <Card>
           <div className="text-center py-4">
@@ -532,16 +579,93 @@ export default function MyReportPage() {
               <Settings className="w-4 h-4" />
               API 키 설정하러 가기
             </a>
+          </div>
 
-            <div className="mt-4">
-              <button
-                type="button"
-                onClick={() => setManualMode(true)}
-                className="text-sm text-gray-500 hover:text-gray-700 underline underline-offset-2"
-              >
-                수동으로 입력하기
-              </button>
-            </div>
+          {/* 수동 입력 승인 요청 영역 */}
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            {!manualRequest && (
+              <div className="space-y-3">
+                <p className="text-sm text-gray-600 text-center">
+                  API 연동이 어려운 경우, 관리자 승인을 받아 수동으로 입력할 수 있습니다.
+                </p>
+                <textarea
+                  value={manualRequestReason}
+                  onChange={(e) => setManualRequestReason(e.target.value)}
+                  placeholder="수동 입력이 필요한 사유를 입력해주세요 (예: API 키 발급 지연, 쿠팡 API 오류 등)"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#E31837]/30 focus:border-[#E31837]"
+                  rows={2}
+                />
+                <button
+                  type="button"
+                  onClick={handleManualInputRequest}
+                  disabled={manualRequestLoading || manualRequestReason.trim().length < 5}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 text-white font-semibold rounded-lg hover:bg-amber-600 transition disabled:opacity-50"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  {manualRequestLoading ? '요청 중...' : '수동 입력 승인 요청'}
+                </button>
+              </div>
+            )}
+
+            {manualRequest?.status === 'pending' && (
+              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-yellow-600" />
+                  <p className="text-sm font-medium text-yellow-800">수동 입력 승인 대기 중</p>
+                </div>
+                <p className="text-xs text-yellow-700 mt-1">관리자가 요청을 검토 중입니다. 승인되면 수동으로 매출을 입력할 수 있습니다.</p>
+                <p className="text-xs text-yellow-600 mt-1">요청 사유: {manualRequest.reason}</p>
+              </div>
+            )}
+
+            {manualRequest?.status === 'rejected' && (
+              <div className="space-y-3">
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <XCircle className="w-5 h-5 text-red-600" />
+                    <p className="text-sm font-medium text-red-800">수동 입력 요청이 거절되었습니다</p>
+                  </div>
+                  {manualRequest.admin_note && (
+                    <p className="text-xs text-red-700 mt-1">관리자 메모: {manualRequest.admin_note}</p>
+                  )}
+                  <p className="text-xs text-red-600 mt-1">API 설정을 확인하거나, 새로운 사유로 다시 요청할 수 있습니다.</p>
+                </div>
+                <textarea
+                  value={manualRequestReason}
+                  onChange={(e) => setManualRequestReason(e.target.value)}
+                  placeholder="재요청 사유를 입력해주세요"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#E31837]/30 focus:border-[#E31837]"
+                  rows={2}
+                />
+                <button
+                  type="button"
+                  onClick={handleManualInputRequest}
+                  disabled={manualRequestLoading || manualRequestReason.trim().length < 5}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 text-white font-semibold rounded-lg hover:bg-amber-600 transition disabled:opacity-50"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  {manualRequestLoading ? '요청 중...' : '수동 입력 재요청'}
+                </button>
+              </div>
+            )}
+
+            {manualRequest?.status === 'approved' && (
+              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-green-600" />
+                    <p className="text-sm font-medium text-green-800">수동 입력이 승인되었습니다</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setManualMode(true)}
+                    className="px-3 py-1.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition"
+                  >
+                    수동 입력하기
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </Card>
       )}
@@ -582,30 +706,21 @@ export default function MyReportPage() {
               )}
               {apiFetching ? '매출 조회 중...' : '매출 가져오기'}
             </button>
-
-            <div className="text-center">
-              <button
-                type="button"
-                onClick={() => setManualMode(true)}
-                className="text-sm text-gray-500 hover:text-gray-700 underline underline-offset-2"
-              >
-                수동으로 수정하기
-              </button>
-            </div>
           </div>
         </Card>
       )}
 
-      {/* 7. 수동 매출 입력 (manualMode일 때만) */}
-      {manualMode && isEditable && (
+      {/* 7. 수동 매출 입력 (manualMode + 승인됨일 때만) */}
+      {manualMode && isEditable && (isManualApproved || (report && !report.api_verified)) && (
         <Card>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Edit3 className="w-5 h-5 text-gray-600" />
-                <h2 className="text-sm font-bold text-gray-900">
-                  {apiConnected ? '매출 수동 수정' : '매출 수동 입력'}
-                </h2>
+                <Edit3 className="w-5 h-5 text-amber-600" />
+                <div>
+                  <h2 className="text-sm font-bold text-gray-900">매출 수동 입력 (관리자 승인됨)</h2>
+                  <p className="text-xs text-amber-600">수동 입력이 관리자에 의해 승인되었습니다</p>
+                </div>
               </div>
               {apiConnected && (
                 <button

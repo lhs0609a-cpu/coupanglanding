@@ -60,6 +60,8 @@ export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   terminate_violation: '위반→계약해지',
   issue_tax_invoice: '세금계산서 발행',
   cancel_tax_invoice: '세금계산서 취소',
+  approve_manual_input: '수동 입력 승인',
+  reject_manual_input: '수동 입력 거절',
 };
 
 /** 대상 타입 한글 라벨 */
@@ -82,4 +84,5 @@ export const TARGET_TYPE_LABELS: Record<string, string> = {
   violation_history: '위반 이력',
   tax_invoice: '세금계산서',
   company_settings: '회사 설정',
+  manual_input_request: '수동 입력 요청',
 };

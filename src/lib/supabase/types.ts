@@ -8,7 +8,7 @@ export type ContractStatus = 'draft' | 'sent' | 'signed' | 'expired' | 'terminat
 export type OnboardingStepStatus = 'pending' | 'submitted' | 'approved' | 'rejected';
 export type OnboardingVerificationType = 'self_check' | 'evidence_upload' | 'auto_linked' | 'quiz';
 export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system' | 'emergency' | 'violation';
-export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist' | 'create_violation' | 'update_violation' | 'escalate_violation' | 'resolve_violation' | 'dismiss_violation' | 'terminate_violation' | 'issue_tax_invoice' | 'cancel_tax_invoice';
+export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist' | 'create_violation' | 'update_violation' | 'escalate_violation' | 'resolve_violation' | 'dismiss_violation' | 'terminate_violation' | 'issue_tax_invoice' | 'cancel_tax_invoice' | 'approve_manual_input' | 'reject_manual_input';
 export type WithdrawalStatus = 'pending' | 'approved' | 'rejected';
 export type TrainerStatus = 'pending' | 'approved' | 'revoked';
 export type TrainerEarningStatus = 'pending' | 'requested' | 'deposited' | 'confirmed';
@@ -27,6 +27,7 @@ export type ViolationActionLevel = 'notice' | 'warning' | 'corrective' | 'termin
 
 // Tax Invoice types
 export type TaxInvoiceStatus = 'issued' | 'cancelled';
+export type ManualInputRequestStatus = 'pending' | 'approved' | 'rejected';
 
 export interface Profile {
   id: string;
@@ -105,6 +106,8 @@ export interface MonthlyReport {
   supply_amount: number;
   vat_amount: number;
   total_with_vat: number;
+  // 입력 소스
+  input_source: 'api' | 'manual_approved' | null;
   created_at: string;
   updated_at: string;
   // Joined fields
@@ -487,6 +490,20 @@ export interface CompanySettings {
   email: string;
   phone: string;
   updated_at: string;
+}
+
+export interface ManualInputRequest {
+  id: string;
+  pt_user_id: string;
+  year_month: string;
+  reason: string;
+  status: ManualInputRequestStatus;
+  admin_note: string | null;
+  reviewed_by: string | null;
+  requested_at: string;
+  reviewed_at: string | null;
+  // Joined fields
+  pt_user?: PtUser;
 }
 
 export interface Database {

@@ -382,6 +382,114 @@ export async function notifyBlacklistAdded(
   });
 }
 
+/** 계약위반 등록 알림 (파트너에게) */
+export async function notifyViolationCreated(
+  supabase: SupabaseClient,
+  userId: string,
+  violationTitle: string,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'violation',
+    title: '계약위반 사항이 접수되었습니다',
+    message: `"${violationTitle}" 건이 접수되었습니다. 상세 내용을 확인하고 소명 기회를 활용해주세요.`,
+    link: '/my/violations',
+  });
+}
+
+/** 위반 조사 개시 알림 (파트너에게) */
+export async function notifyViolationInvestigating(
+  supabase: SupabaseClient,
+  userId: string,
+  violationTitle: string,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'violation',
+    title: '위반 건 조사가 시작되었습니다',
+    message: `"${violationTitle}" 건의 조사가 시작되었습니다. 소명서를 제출해주세요.`,
+    link: '/my/violations',
+  });
+}
+
+/** 위반 조치 결정 알림 (파트너에게) */
+export async function notifyViolationActionTaken(
+  supabase: SupabaseClient,
+  userId: string,
+  violationTitle: string,
+  actionLevel: string,
+  correctionDeadline?: string,
+) {
+  const actionLabels: Record<string, string> = {
+    notice: '주의',
+    warning: '경고',
+    corrective: '시정명령',
+    termination: '계약해지',
+  };
+  const action = actionLabels[actionLevel] || actionLevel;
+  const deadlineText = correctionDeadline
+    ? ` 시정 기한: ${new Date(correctionDeadline).toLocaleDateString('ko-KR')}`
+    : '';
+
+  return createNotification(supabase, {
+    userId,
+    type: 'violation',
+    title: `계약위반 조치: ${action}`,
+    message: `"${violationTitle}" 건에 대해 ${action} 조치가 부과되었습니다.${deadlineText}`,
+    link: '/my/violations',
+  });
+}
+
+/** 시정 기한 임박 알림 (파트너에게) */
+export async function notifyViolationDeadlineApproaching(
+  supabase: SupabaseClient,
+  userId: string,
+  violationTitle: string,
+  daysLeft: number,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'violation',
+    title: '시정 기한 임박',
+    message: `"${violationTitle}" 건의 시정 기한이 ${daysLeft}일 남았습니다.`,
+    link: '/my/violations',
+  });
+}
+
+/** 시정 기한 초과 알림 (관리자에게) */
+export async function notifyViolationDeadlineOverdue(
+  supabase: SupabaseClient,
+  adminId: string,
+  partnerName: string,
+  violationTitle: string,
+) {
+  return createNotification(supabase, {
+    userId: adminId,
+    type: 'violation',
+    title: '시정 기한 초과',
+    message: `"${partnerName}" 파트너의 "${violationTitle}" 건 시정 기한이 초과되었습니다.`,
+    link: '/admin/violations',
+  });
+}
+
+/** 위반 무혐의/시정완료 알림 (파트너에게) */
+export async function notifyViolationResolved(
+  supabase: SupabaseClient,
+  userId: string,
+  violationTitle: string,
+  dismissed: boolean,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'violation',
+    title: dismissed ? '위반 건 무혐의 종결' : '시정 완료 확인',
+    message: dismissed
+      ? `"${violationTitle}" 건이 무혐의로 종결되었습니다.`
+      : `"${violationTitle}" 건의 시정이 완료 처리되었습니다.`,
+    link: '/my/violations',
+  });
+}
+
 /** 상품 철거 증빙 제출 알림 (관리자에게) */
 export async function notifyDeactivationSubmitted(
   supabase: SupabaseClient,

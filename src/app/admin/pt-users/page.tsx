@@ -29,8 +29,8 @@ import Input from '@/components/ui/Input';
 import NumberInput from '@/components/ui/NumberInput';
 import Select from '@/components/ui/Select';
 import PaymentProgress from '@/components/ui/PaymentProgress';
-import { Users, CheckCircle2, XCircle, ExternalLink, Eye, EyeOff, UserPlus, AlertTriangle, ClipboardList, Search, Banknote, BarChart3, Key, Plug, Shield } from 'lucide-react';
-import type { PtUser, MonthlyReport, Profile, OnboardingStep } from '@/lib/supabase/types';
+import { Users, CheckCircle2, XCircle, ExternalLink, Eye, EyeOff, UserPlus, AlertTriangle, ClipboardList, Search, Banknote, BarChart3, Key, Plug, Shield, MessageSquare, Clock } from 'lucide-react';
+import type { PtUser, MonthlyReport, Profile, OnboardingStep, ManualInputRequest } from '@/lib/supabase/types';
 import OnboardingReviewModal from '@/components/onboarding/OnboardingReviewModal';
 import { ONBOARDING_STEPS } from '@/lib/utils/constants';
 import { computeStepStates, countCompleted } from '@/components/onboarding/onboarding-utils';
@@ -67,6 +67,7 @@ export default function AdminPtUsersPage() {
   const [obReviewModal, setObReviewModal] = useState<{ userId: string; userName: string } | null>(null);
   const [visiblePwIds, setVisiblePwIds] = useState<Set<string>>(new Set());
   const [traineeTrainerMap, setTraineeTrainerMap] = useState<Map<string, { trainer_id: string; bonus_percentage: number; trainer_name: string; referral_code: string }>>(new Map());
+  const [manualInputRequests, setManualInputRequests] = useState<ManualInputRequest[]>([]);
 
   // Add user form
   const [newEmail, setNewEmail] = useState('');
@@ -152,6 +153,17 @@ export default function AdminPtUsersPage() {
         }
       });
       setTraineeTrainerMap(tMap);
+    }
+
+    // 수동 입력 요청 조회
+    try {
+      const mirRes = await fetch(`/api/manual-input-requests?status=pending`);
+      if (mirRes.ok) {
+        const mirData = await mirRes.json();
+        setManualInputRequests(mirData || []);
+      }
+    } catch {
+      // 무시
     }
 
     setLoading(false);
@@ -318,6 +330,27 @@ export default function AdminPtUsersPage() {
       .eq('id', ptUserId);
 
     fetchData();
+  };
+
+  const handleApproveManualInput = async (requestId: string) => {
+    const res = await fetch(`/api/manual-input-requests/${requestId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'approved' }),
+    });
+    if (res.ok) fetchData();
+  };
+
+  const handleRejectManualInput = async (requestId: string) => {
+    const note = prompt('거절 사유를 입력하세요:');
+    if (note === null) return;
+
+    const res = await fetch(`/api/manual-input-requests/${requestId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'rejected', adminNote: note || '거절됨' }),
+    });
+    if (res.ok) fetchData();
   };
 
   const handleToggleAccess = async (ptUserId: string, current: boolean) => {
@@ -543,6 +576,62 @@ export default function AdminPtUsersPage() {
           </Card>
         ) : null;
       })()}
+
+      {/* 수동 입력 승인 요청 */}
+      {!loading && manualInputRequests.length > 0 && (
+        <Card>
+          <div className="flex items-center gap-2 mb-4">
+            <MessageSquare className="w-5 h-5 text-amber-600" />
+            <h2 className="text-lg font-bold text-gray-900">
+              수동 입력 승인 요청
+            </h2>
+            <span className="ml-auto px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">
+              {manualInputRequests.length}건
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            {manualInputRequests.map((req) => {
+              const reqPtUser = req.pt_user as unknown as { id: string; profile: { full_name: string; email: string } } | undefined;
+              return (
+                <div key={req.id} className="flex items-start justify-between gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <div className="flex items-start gap-2 min-w-0">
+                    <Clock className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900">
+                        {reqPtUser?.profile?.full_name || '이름 없음'}
+                        <span className="text-gray-500 text-xs ml-2">{formatYearMonth(req.year_month)}</span>
+                      </p>
+                      <p className="text-xs text-gray-600 mt-0.5 break-words">사유: {req.reason}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        요청일: {new Date(req.requested_at).toLocaleDateString('ko-KR')}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleApproveManualInput(req.id)}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 transition"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      승인
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRejectManualInput(req.id)}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 transition"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      거절
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
 
       {loading ? (
         <div className="py-12 text-center text-gray-400">불러오는 중...</div>

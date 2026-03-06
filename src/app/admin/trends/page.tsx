@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { TrendingKeyword, NaverKeywordData } from '@/lib/supabase/types';
-import { TREND_CATEGORIES } from '@/lib/utils/constants';
+import { TREND_CATEGORIES, DIFFICULTY_LABELS, SEASONALITY_LABELS } from '@/lib/utils/constants';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
@@ -23,12 +23,23 @@ export default function AdminTrendsPage() {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [message, setMessage] = useState<{ type: string; text: string }>({ type: '', text: '' });
 
-  // Form state
+  // Form state — 기존 필드
   const [formKeyword, setFormKeyword] = useState('');
   const [formCategory, setFormCategory] = useState('기타');
   const [formScore, setFormScore] = useState(50);
   const [formMemo, setFormMemo] = useState('');
   const [formNaverCategoryId, setFormNaverCategoryId] = useState('');
+  // Form state — 인사이트 필드
+  const [formSourcingTip, setFormSourcingTip] = useState('');
+  const [formKeywordTip, setFormKeywordTip] = useState('');
+  const [formSeasonality, setFormSeasonality] = useState('연중');
+  const [formMarginRange, setFormMarginRange] = useState('');
+  const [formDifficulty, setFormDifficulty] = useState('medium');
+  const [formPros, setFormPros] = useState('');
+  const [formCons, setFormCons] = useState('');
+  const [formPriceMin, setFormPriceMin] = useState<number | ''>('');
+  const [formPriceMax, setFormPriceMax] = useState<number | ''>('');
+  const [formRelatedKeywords, setFormRelatedKeywords] = useState('');
   const [formSubmitting, setFormSubmitting] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
@@ -63,7 +74,30 @@ export default function AdminTrendsPage() {
     setFormScore(50);
     setFormMemo('');
     setFormNaverCategoryId('');
+    setFormSourcingTip('');
+    setFormKeywordTip('');
+    setFormSeasonality('연중');
+    setFormMarginRange('');
+    setFormDifficulty('medium');
+    setFormPros('');
+    setFormCons('');
+    setFormPriceMin('');
+    setFormPriceMax('');
+    setFormRelatedKeywords('');
   };
+
+  const buildInsightPayload = () => ({
+    sourcing_tip: formSourcingTip || null,
+    keyword_tip: formKeywordTip || null,
+    seasonality: formSeasonality || '연중',
+    margin_range: formMarginRange || null,
+    difficulty: formDifficulty || 'medium',
+    pros: formPros ? formPros.split(',').map((s) => s.trim()).filter(Boolean) : [],
+    cons: formCons ? formCons.split(',').map((s) => s.trim()).filter(Boolean) : [],
+    recommended_price_min: formPriceMin !== '' ? Number(formPriceMin) : null,
+    recommended_price_max: formPriceMax !== '' ? Number(formPriceMax) : null,
+    related_keywords: formRelatedKeywords ? formRelatedKeywords.split(',').map((s) => s.trim()).filter(Boolean) : [],
+  });
 
   const handleAdd = async () => {
     if (!formKeyword.trim()) return;
@@ -78,6 +112,7 @@ export default function AdminTrendsPage() {
           trend_score: formScore,
           memo: formMemo || null,
           naver_category_id: formNaverCategoryId || null,
+          ...buildInsightPayload(),
         }),
       });
       if (res.ok) {
@@ -108,6 +143,7 @@ export default function AdminTrendsPage() {
           category: formCategory,
           trend_score: formScore,
           memo: formMemo || null,
+          ...buildInsightPayload(),
         }),
       });
       if (res.ok) {
@@ -132,6 +168,16 @@ export default function AdminTrendsPage() {
     setFormScore(kw.trend_score);
     setFormMemo(kw.memo || '');
     setFormNaverCategoryId(kw.naver_category_id || '');
+    setFormSourcingTip(kw.sourcing_tip || '');
+    setFormKeywordTip(kw.keyword_tip || '');
+    setFormSeasonality(kw.seasonality || '연중');
+    setFormMarginRange(kw.margin_range || '');
+    setFormDifficulty(kw.difficulty || 'medium');
+    setFormPros(Array.isArray(kw.pros) ? kw.pros.join(', ') : '');
+    setFormCons(Array.isArray(kw.cons) ? kw.cons.join(', ') : '');
+    setFormPriceMin(kw.recommended_price_min ?? '');
+    setFormPriceMax(kw.recommended_price_max ?? '');
+    setFormRelatedKeywords(Array.isArray(kw.related_keywords) ? kw.related_keywords.join(', ') : '');
   };
 
   const handleDelete = async (id: string) => {
@@ -233,6 +279,123 @@ export default function AdminTrendsPage() {
 
   const categories = ['전체', ...TREND_CATEGORIES];
 
+  // 인사이트 폼 컴포넌트 (추가/수정 공용)
+  const InsightFormFields = () => (
+    <>
+      <div className="border-t border-gray-200 pt-4 mt-4">
+        <h4 className="text-sm font-bold text-gray-700 mb-3">소싱 인사이트</h4>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">소싱 팁</label>
+        <textarea
+          value={formSourcingTip}
+          onChange={(e) => setFormSourcingTip(e.target.value)}
+          rows={2}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent text-sm"
+          placeholder="어디서 소싱하면 좋은지, 단가 정보 등"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">키워드 전략 팁</label>
+        <textarea
+          value={formKeywordTip}
+          onChange={(e) => setFormKeywordTip(e.target.value)}
+          rows={2}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent text-sm"
+          placeholder="키워드 조합 전략, SEO 팁 등"
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">시즌성</label>
+          <select
+            value={formSeasonality}
+            onChange={(e) => setFormSeasonality(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent text-sm"
+          >
+            {SEASONALITY_LABELS.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">진입 난이도</label>
+          <select
+            value={formDifficulty}
+            onChange={(e) => setFormDifficulty(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent text-sm"
+          >
+            {Object.entries(DIFFICULTY_LABELS).map(([val, label]) => (
+              <option key={val} value={val}>{label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">예상 마진 범위</label>
+        <input
+          type="text"
+          value={formMarginRange}
+          onChange={(e) => setFormMarginRange(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent text-sm"
+          placeholder="예: 25~40%"
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">추천 판매가 (최저)</label>
+          <input
+            type="number"
+            value={formPriceMin}
+            onChange={(e) => setFormPriceMin(e.target.value ? Number(e.target.value) : '')}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent text-sm"
+            placeholder="예: 15900"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">추천 판매가 (최고)</label>
+          <input
+            type="number"
+            value={formPriceMax}
+            onChange={(e) => setFormPriceMax(e.target.value ? Number(e.target.value) : '')}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent text-sm"
+            placeholder="예: 29900"
+          />
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">장점 (쉼표 구분)</label>
+        <textarea
+          value={formPros}
+          onChange={(e) => setFormPros(e.target.value)}
+          rows={2}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent text-sm"
+          placeholder="사계절 판매 가능, 반품률 낮음, 재구매율 높음"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">단점 (쉼표 구분)</label>
+        <textarea
+          value={formCons}
+          onChange={(e) => setFormCons(e.target.value)}
+          rows={2}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent text-sm"
+          placeholder="경쟁 셀러 많음, 차별화 어려움"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">관련 키워드 (쉼표 구분)</label>
+        <textarea
+          value={formRelatedKeywords}
+          onChange={(e) => setFormRelatedKeywords(e.target.value)}
+          rows={2}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent text-sm"
+          placeholder="여성 맨투맨, 오버핏 맨투맨 여자, 무지 맨투맨"
+        />
+      </div>
+    </>
+  );
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       {/* 헤더 */}
@@ -298,9 +461,10 @@ export default function AdminTrendsPage() {
                   <th className="text-left py-3 px-4 font-medium text-gray-500">키워드</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-500">카테고리</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-500">트렌드 점수</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">소스</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-500">난이도</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-500">시즌</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-500">월간 검색량</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">메모</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-500">마진</th>
                   <th className="text-right py-3 px-4 font-medium text-gray-500">관리</th>
                 </tr>
               </thead>
@@ -325,7 +489,21 @@ export default function AdminTrendsPage() {
                       </div>
                     </td>
                     <td className="py-3 px-4">
-                      <Badge label={kw.source === 'naver' ? '네이버' : '수동'} colorClass={kw.source === 'naver' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'} />
+                      {kw.difficulty ? (
+                        <Badge
+                          label={DIFFICULTY_LABELS[kw.difficulty] || kw.difficulty}
+                          colorClass={
+                            kw.difficulty === 'easy' ? 'bg-green-100 text-green-700' :
+                            kw.difficulty === 'hard' ? 'bg-red-100 text-red-700' :
+                            'bg-yellow-100 text-yellow-700'
+                          }
+                        />
+                      ) : (
+                        <span className="text-gray-300">-</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-gray-600 text-xs">
+                      {kw.seasonality || '-'}
                     </td>
                     <td className="py-3 px-4 text-gray-600">
                       {kw.naver_trend_data ? (
@@ -336,8 +514,8 @@ export default function AdminTrendsPage() {
                         <span className="text-gray-300">-</span>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-gray-500 max-w-[150px] truncate">
-                      {kw.memo || '-'}
+                    <td className="py-3 px-4 text-green-600 font-medium text-xs">
+                      {kw.margin_range || '-'}
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center justify-end gap-1">
@@ -382,7 +560,7 @@ export default function AdminTrendsPage() {
       {/* 추가 모달 */}
       {showAddModal && (
         <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="키워드 추가">
-          <div className="space-y-4">
+          <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">키워드 *</label>
               <input
@@ -443,6 +621,7 @@ export default function AdminTrendsPage() {
                 placeholder="파트너에게 보여줄 소싱 팁이나 메모"
               />
             </div>
+            <InsightFormFields />
             <div className="flex gap-2 pt-2">
               <button
                 onClick={() => setShowAddModal(false)}
@@ -465,7 +644,7 @@ export default function AdminTrendsPage() {
       {/* 수정 모달 */}
       {editingKeyword && (
         <Modal isOpen={!!editingKeyword} onClose={() => { setEditingKeyword(null); resetForm(); }} title="키워드 수정">
-          <div className="space-y-4">
+          <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">키워드 *</label>
               <input
@@ -509,6 +688,7 @@ export default function AdminTrendsPage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
               />
             </div>
+            <InsightFormFields />
             <div className="flex gap-2 pt-2">
               <button
                 onClick={() => { setEditingKeyword(null); resetForm(); }}

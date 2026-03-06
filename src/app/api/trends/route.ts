@@ -62,7 +62,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { keyword, category, trend_score, memo, naver_category_id } = body;
+    const {
+      keyword, category, trend_score, memo, naver_category_id,
+      sourcing_tip, keyword_tip, seasonality, margin_range, difficulty,
+      pros, cons, recommended_price_min, recommended_price_max, related_keywords,
+    } = body;
 
     if (!keyword || !keyword.trim()) {
       return NextResponse.json({ error: '키워드를 입력해주세요.' }, { status: 400 });
@@ -78,6 +82,16 @@ export async function POST(request: NextRequest) {
         trend_score: trend_score ?? 50,
         memo: memo || null,
         naver_category_id: naver_category_id || null,
+        sourcing_tip: sourcing_tip || null,
+        keyword_tip: keyword_tip || null,
+        seasonality: seasonality || '연중',
+        margin_range: margin_range || null,
+        difficulty: difficulty || 'medium',
+        pros: pros || [],
+        cons: cons || [],
+        recommended_price_min: recommended_price_min ?? null,
+        recommended_price_max: recommended_price_max ?? null,
+        related_keywords: related_keywords || [],
         created_by: user.id,
       })
       .select()
