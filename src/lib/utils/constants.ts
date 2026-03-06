@@ -549,6 +549,52 @@ export const MANUAL_INPUT_REQUEST_STATUS_COLORS: Record<string, string> = {
   rejected: 'bg-red-100 text-red-700',
 };
 
+// 페널티 트래커
+export const PENALTY_CATEGORY_LABELS: Record<string, string> = {
+  delivery_delay: '배송지연',
+  cs_nonresponse: 'CS 미응답',
+  return_rate_excess: '반품률 초과',
+  product_info_mismatch: '상품정보 불일치',
+  false_advertising: '허위과장광고',
+};
+
+export const PENALTY_CATEGORY_COLORS: Record<string, string> = {
+  delivery_delay: 'bg-blue-100 text-blue-700',
+  cs_nonresponse: 'bg-orange-100 text-orange-700',
+  return_rate_excess: 'bg-red-100 text-red-700',
+  product_info_mismatch: 'bg-yellow-100 text-yellow-700',
+  false_advertising: 'bg-purple-100 text-purple-700',
+};
+
+export const PENALTY_DEFAULT_SCORES: Record<string, number> = {
+  delivery_delay: 10,
+  cs_nonresponse: 15,
+  return_rate_excess: 20,
+  product_info_mismatch: 15,
+  false_advertising: 25,
+};
+
+export const PENALTY_RISK_LABELS: Record<string, { label: string; color: string }> = {
+  safe: { label: '안전', color: 'text-green-600' },
+  caution: { label: '주의', color: 'text-yellow-600' },
+  warning: { label: '경고', color: 'text-orange-600' },
+  danger: { label: '위험', color: 'text-red-600' },
+};
+
+// 셀러 아레나 챌린지 타입
+export const CHALLENGE_TYPE_LABELS: Record<string, string> = {
+  weekly: '주간',
+  monthly: '월간',
+  special: '특별',
+};
+
+export const CHALLENGE_METRIC_LABELS: Record<string, string> = {
+  listings: '상품 등록',
+  revenue: '매출',
+  streak: '연속 활동',
+  points: '포인트',
+};
+
 // 종합소득세 구간 (2024년 기준)
 export const TAX_BRACKETS = [
   { limit: 14_000_000, rate: 0.06, deduction: 0 },

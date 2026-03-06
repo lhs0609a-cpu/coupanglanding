@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X, School, Flame, ShieldAlert, Gavel, Receipt } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X, School, Flame, ShieldAlert, Gavel, Receipt, MessageSquare, Map, ShieldCheck, Swords } from 'lucide-react';
 import type { SettlementBadgeData } from './DashboardLayout';
 
 const baseNavItems = [
@@ -14,6 +14,10 @@ const baseNavItems = [
   { href: '/my/emergency', label: '긴급 대응', icon: ShieldAlert },
   { href: '/my/violations', label: '계약위반', icon: Gavel },
   { href: '/my/tax-invoices', label: '세금계산서', icon: Receipt },
+  { href: '/my/cs-templates', label: 'CS 템플릿', icon: MessageSquare },
+  { href: '/my/growth', label: '성장 로드맵', icon: Map },
+  { href: '/my/penalty', label: '페널티 트래커', icon: ShieldCheck },
+  { href: '/my/arena', label: '셀러 아레나', icon: Swords },
   { href: '/my/education', label: '교육', icon: School },
   { href: '/my/guides', label: '운영 가이드', icon: BookOpen },
   { href: '/my/settings', label: '계정 설정', icon: Settings },

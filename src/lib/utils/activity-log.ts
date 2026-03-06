@@ -62,6 +62,11 @@ export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   cancel_tax_invoice: '세금계산서 취소',
   approve_manual_input: '수동 입력 승인',
   reject_manual_input: '수동 입력 거절',
+  create_penalty: '페널티 등록',
+  resolve_penalty: '페널티 해결',
+  create_challenge: '챌린지 생성',
+  update_challenge: '챌린지 수정',
+  award_points: '포인트 부여',
 };
 
 /** 대상 타입 한글 라벨 */
@@ -85,4 +90,8 @@ export const TARGET_TYPE_LABELS: Record<string, string> = {
   tax_invoice: '세금계산서',
   company_settings: '회사 설정',
   manual_input_request: '수동 입력 요청',
+  penalty_record: '페널티 기록',
+  penalty_summary: '페널티 요약',
+  seller_challenge: '아레나 챌린지',
+  seller_points: '아레나 포인트',
 };

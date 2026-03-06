@@ -143,6 +143,25 @@ export async function fetchSettlementData(
   };
 }
 
+/** 상품 목록 조회 (오늘 등록 상품 수 카운트용) */
+export async function fetchProductListings(
+  credentials: CoupangCredentials,
+  dateFrom: string,
+  dateTo: string,
+): Promise<{ count: number; rawResponse: unknown }> {
+  const SELLER_API_PATH = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
+  const path = `${SELLER_API_PATH}?vendorId=${credentials.vendorId}&createdAtFrom=${dateFrom}&createdAtTo=${dateTo}&status=APPROVED`;
+
+  const data = await callCoupangApi(credentials, 'GET', path) as {
+    data?: Array<Record<string, unknown>>;
+    pagination?: { totalElements?: number };
+  };
+
+  const count = data.pagination?.totalElements ?? (data.data?.length ?? 0);
+
+  return { count, rawResponse: data };
+}
+
 /** API 자격증명 유효성 검증 */
 export async function validateApiCredentials(
   credentials: CoupangCredentials,

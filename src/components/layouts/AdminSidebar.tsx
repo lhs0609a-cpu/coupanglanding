@@ -18,6 +18,7 @@ import {
   ShieldAlert,
   Gavel,
   Receipt,
+  Swords,
   X,
 } from 'lucide-react';
 
@@ -34,6 +35,7 @@ const navItems = [
   { href: '/admin/emergency', label: '긴급 대응 관리', icon: ShieldAlert },
   { href: '/admin/violations', label: '계약위반 관리', icon: Gavel },
   { href: '/admin/tax-invoices', label: '세금계산서', icon: Receipt },
+  { href: '/admin/arena', label: '아레나 관리', icon: Swords },
   { href: '/admin/guide-images', label: '가이드 이미지', icon: BookOpen },
   { href: '/admin/activity-log', label: '활동 로그', icon: ScrollText },
   { href: '/admin/settings', label: '설정', icon: Settings },

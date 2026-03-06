@@ -505,3 +505,51 @@ export async function notifyDeactivationSubmitted(
     link: '/admin/contracts',
   });
 }
+
+/** 아레나 업적 달성 알림 */
+export async function notifyAchievementUnlocked(
+  supabase: SupabaseClient,
+  userId: string,
+  achievementTitle: string,
+  achievementEmoji: string,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'arena',
+    title: `${achievementEmoji} 업적 달성!`,
+    message: `"${achievementTitle}" 업적을 달성했습니다! 축하합니다!`,
+    link: '/my/arena',
+  });
+}
+
+/** 아레나 챌린지 완료 알림 */
+export async function notifyChallengeCompleted(
+  supabase: SupabaseClient,
+  userId: string,
+  challengeTitle: string,
+  rewardPoints: number,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'arena',
+    title: '챌린지 완료!',
+    message: `"${challengeTitle}" 챌린지를 완료하여 ${rewardPoints}P를 획득했습니다!`,
+    link: '/my/arena',
+  });
+}
+
+/** 아레나 랭킹 변동 알림 */
+export async function notifyRankChange(
+  supabase: SupabaseClient,
+  userId: string,
+  newRank: number,
+  period: string,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'arena',
+    title: `${period} 랭킹 변동`,
+    message: `${period} 랭킹이 ${newRank}위로 변동되었습니다!`,
+    link: '/my/arena',
+  });
+}

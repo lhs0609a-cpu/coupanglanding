@@ -7,8 +7,8 @@ export type ApplicationStatus = 'new' | 'contacted' | 'consulting' | 'converted'
 export type ContractStatus = 'draft' | 'sent' | 'signed' | 'expired' | 'terminated';
 export type OnboardingStepStatus = 'pending' | 'submitted' | 'approved' | 'rejected';
 export type OnboardingVerificationType = 'self_check' | 'evidence_upload' | 'auto_linked' | 'quiz';
-export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system' | 'emergency' | 'violation';
-export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist' | 'create_violation' | 'update_violation' | 'escalate_violation' | 'resolve_violation' | 'dismiss_violation' | 'terminate_violation' | 'issue_tax_invoice' | 'cancel_tax_invoice' | 'approve_manual_input' | 'reject_manual_input';
+export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system' | 'emergency' | 'violation' | 'arena';
+export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist' | 'create_violation' | 'update_violation' | 'escalate_violation' | 'resolve_violation' | 'dismiss_violation' | 'terminate_violation' | 'issue_tax_invoice' | 'cancel_tax_invoice' | 'approve_manual_input' | 'reject_manual_input' | 'create_penalty' | 'resolve_penalty' | 'create_challenge' | 'update_challenge' | 'award_points';
 export type WithdrawalStatus = 'pending' | 'approved' | 'rejected';
 export type TrainerStatus = 'pending' | 'approved' | 'revoked';
 export type TrainerEarningStatus = 'pending' | 'requested' | 'deposited' | 'confirmed';
@@ -504,6 +504,118 @@ export interface ManualInputRequest {
   reviewed_at: string | null;
   // Joined fields
   pt_user?: PtUser;
+}
+
+// 페널티 트래커 타입
+export type PenaltyCategory = 'delivery_delay' | 'cs_nonresponse' | 'return_rate_excess' | 'product_info_mismatch' | 'false_advertising';
+export type PenaltyRiskLevel = 'safe' | 'caution' | 'warning' | 'danger';
+
+export interface PenaltyRecord {
+  id: string;
+  pt_user_id: string;
+  penalty_category: PenaltyCategory;
+  title: string;
+  description: string | null;
+  occurred_at: string;
+  score_impact: number;
+  evidence_url: string | null;
+  is_resolved: boolean;
+  resolved_at: string | null;
+  resolution_note: string | null;
+  reported_by: 'self' | 'admin';
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  pt_user?: PtUser;
+}
+
+export interface PenaltySummary {
+  pt_user_id: string;
+  total_records: number;
+  active_records: number;
+  delivery_delay_count: number;
+  cs_nonresponse_count: number;
+  return_rate_excess_count: number;
+  product_info_mismatch_count: number;
+  false_advertising_count: number;
+  risk_score: number;
+  risk_level: PenaltyRiskLevel;
+  updated_at: string;
+}
+
+// 셀러 아레나 (게이미피케이션) 타입
+export type ChallengeType = 'weekly' | 'monthly' | 'special';
+export type ChallengeMetric = 'listings' | 'revenue' | 'streak' | 'points';
+export type ActivityDataSource = 'manual' | 'api' | 'admin';
+
+export interface SellerPoints {
+  pt_user_id: string;
+  anonymous_name: string | null;
+  anonymous_emoji: string | null;
+  total_points: number;
+  current_level: number;
+  streak_days: number;
+  longest_streak: number;
+  last_activity_date: string | null;
+  total_listings: number;
+  total_revenue: number;
+  total_days_active: number;
+  weekly_rank: number | null;
+  monthly_rank: number | null;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  pt_user?: PtUser;
+}
+
+export interface SellerDailyActivity {
+  id: string;
+  pt_user_id: string;
+  activity_date: string;
+  listings_count: number;
+  revenue_amount: number;
+  points_listings: number;
+  points_revenue: number;
+  points_streak: number;
+  points_challenge: number;
+  points_total: number;
+  data_source: ActivityDataSource;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SellerAchievement {
+  id: string;
+  pt_user_id: string;
+  achievement_key: string;
+  unlocked_at: string;
+}
+
+export interface SellerChallenge {
+  id: string;
+  title: string;
+  description: string | null;
+  challenge_type: ChallengeType;
+  metric: ChallengeMetric;
+  target_value: number;
+  reward_points: number;
+  reward_badge: string | null;
+  start_date: string;
+  end_date: string;
+  is_active: boolean;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface SellerChallengeProgress {
+  id: string;
+  challenge_id: string;
+  pt_user_id: string;
+  current_value: number;
+  completed: boolean;
+  completed_at: string | null;
+  points_awarded: number;
 }
 
 export interface Database {

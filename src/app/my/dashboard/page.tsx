@@ -7,6 +7,8 @@ import { getReportTargetMonth, getSettlementDDay, getSettlementStatus, isEligibl
 import EducationProgressWidget from '@/components/education/EducationProgressWidget';
 import TrendingKeywordsWidget from '@/components/my/TrendingKeywordsWidget';
 import EmergencyAlertWidget from '@/components/my/EmergencyAlertWidget';
+import GrowthRoadmapWidget from '@/components/my/GrowthRoadmapWidget';
+import ArenaWidget from '@/components/my/ArenaWidget';
 import SettlementDDayBanner from '@/components/settlement/SettlementDDayBanner';
 import Card from '@/components/ui/Card';
 import { ClipboardList, GraduationCap, ArrowRight } from 'lucide-react';
@@ -120,6 +122,12 @@ export default function MyDashboardPage() {
 
       {/* 긴급 대응 위젯 */}
       <EmergencyAlertWidget />
+
+      {/* 셀러 아레나 위젯 */}
+      <ArenaWidget />
+
+      {/* 성장 로드맵 위젯 */}
+      <GrowthRoadmapWidget />
 
       {/* 트렌드 키워드 위젯 */}
       <TrendingKeywordsWidget />
