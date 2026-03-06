@@ -52,6 +52,14 @@ export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   review_incident: '인시던트 리뷰',
   add_blacklist: '블랙리스트 추가',
   remove_blacklist: '블랙리스트 삭제',
+  create_violation: '위반 등록',
+  update_violation: '위반 상태 변경',
+  escalate_violation: '위반 단계 격상',
+  resolve_violation: '위반 시정 완료',
+  dismiss_violation: '위반 무혐의',
+  terminate_violation: '위반→계약해지',
+  issue_tax_invoice: '세금계산서 발행',
+  cancel_tax_invoice: '세금계산서 취소',
 };
 
 /** 대상 타입 한글 라벨 */
@@ -70,4 +78,8 @@ export const TARGET_TYPE_LABELS: Record<string, string> = {
   trainer_trainee: '교육생 연결',
   incident: '인시던트',
   brand_blacklist: '브랜드 블랙리스트',
+  violation: '계약위반',
+  violation_history: '위반 이력',
+  tax_invoice: '세금계산서',
+  company_settings: '회사 설정',
 };

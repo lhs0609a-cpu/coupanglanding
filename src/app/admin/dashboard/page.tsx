@@ -9,7 +9,7 @@ import MonthPicker from '@/components/ui/MonthPicker';
 import StatCard from '@/components/ui/StatCard';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import { TrendingUp, TrendingDown, Wallet, AlertCircle, CheckCircle2, UserPlus, XCircle, Search, Clock, Banknote, Calendar, GraduationCap } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, AlertCircle, CheckCircle2, UserPlus, XCircle, Search, Clock, Banknote, Calendar, GraduationCap, Receipt } from 'lucide-react';
 import { getReportCosts } from '@/lib/calculations/deposit';
 import { calculateTrainerBonus } from '@/lib/calculations/trainer';
 import { lookupAndLinkTrainee } from '@/lib/utils/trainer-link';
@@ -454,6 +454,41 @@ export default function AdminDashboardPage() {
               )}
             </Card>
           )}
+
+          {/* VAT 현황 */}
+          {(() => {
+            const confirmedReports = allReportsForMonth.filter((r) => r.payment_status === 'confirmed');
+            const totalVat = confirmedReports.reduce((sum, r) => sum + (r.vat_amount || 0), 0);
+            const totalSupply = confirmedReports.reduce((sum, r) => sum + (r.supply_amount || 0), 0);
+            const totalWithVat = confirmedReports.reduce((sum, r) => sum + (r.total_with_vat || 0), 0);
+            if (totalVat > 0 || confirmedReports.length > 0) {
+              return (
+                <Card>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Receipt className="w-5 h-5 text-[#E31837]" />
+                    <h2 className="text-lg font-bold text-gray-900">
+                      {formatYearMonth(yearMonth)} VAT 현황
+                    </h2>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="text-center p-3 bg-blue-50 rounded-lg">
+                      <p className="text-lg font-bold text-blue-700">{formatKRW(totalSupply)}</p>
+                      <p className="text-xs text-blue-600">공급가액</p>
+                    </div>
+                    <div className="text-center p-3 bg-purple-50 rounded-lg">
+                      <p className="text-lg font-bold text-purple-700">{formatKRW(totalVat)}</p>
+                      <p className="text-xs text-purple-600">부가세</p>
+                    </div>
+                    <div className="text-center p-3 bg-green-50 rounded-lg">
+                      <p className="text-lg font-bold text-green-700">{formatKRW(totalWithVat)}</p>
+                      <p className="text-xs text-green-600">총납부액</p>
+                    </div>
+                  </div>
+                </Card>
+              );
+            }
+            return null;
+          })()}
 
           {/* 트레이너 현황 */}
           {trainerStats.total > 0 && (

@@ -1,0 +1,121 @@
+'use client';
+
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import { formatKRW, formatYearMonth } from '@/lib/utils/format';
+import { TAX_INVOICE_STATUS_LABELS, TAX_INVOICE_STATUS_COLORS } from '@/lib/utils/constants';
+import Card from '@/components/ui/Card';
+import Badge from '@/components/ui/Badge';
+import StatCard from '@/components/ui/StatCard';
+import MonthPicker from '@/components/ui/MonthPicker';
+import { Receipt, FileText } from 'lucide-react';
+import type { TaxInvoice } from '@/lib/supabase/types';
+
+export default function MyTaxInvoicesPage() {
+  const [invoices, setInvoices] = useState<TaxInvoice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [yearMonth, setYearMonth] = useState('');
+
+  const supabase = useMemo(() => createClient(), []);
+
+  const fetchInvoices = useCallback(async () => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (yearMonth) params.set('yearMonth', yearMonth);
+
+    try {
+      const res = await fetch(`/api/tax-invoices?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setInvoices(data);
+      }
+    } catch {
+      // 무시
+    }
+    setLoading(false);
+  }, [yearMonth]);
+
+  useEffect(() => {
+    fetchInvoices();
+  }, [fetchInvoices]);
+
+  const issuedInvoices = invoices.filter((i) => i.status === 'issued');
+  const totalSupply = issuedInvoices.reduce((s, i) => s + i.supply_amount, 0);
+  const totalVat = issuedInvoices.reduce((s, i) => s + i.vat_amount, 0);
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Receipt className="w-6 h-6 text-[#E31837]" />
+          <h1 className="text-2xl font-bold text-gray-900">세금계산서</h1>
+        </div>
+        <MonthPicker value={yearMonth} onChange={setYearMonth} />
+      </div>
+
+      {/* 통계 */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <StatCard
+          title="공급가액 합계"
+          value={formatKRW(totalSupply)}
+          icon={<FileText className="w-5 h-5" />}
+        />
+        <StatCard
+          title="부가세 합계"
+          value={formatKRW(totalVat)}
+          subtitle={`발행 ${issuedInvoices.length}건`}
+          icon={<Receipt className="w-5 h-5" />}
+        />
+      </div>
+
+      {/* 목록 */}
+      <Card>
+        {loading ? (
+          <div className="py-8 text-center text-gray-400">불러오는 중...</div>
+        ) : invoices.length === 0 ? (
+          <div className="py-8 text-center text-gray-400">
+            <Receipt className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+            <p>발행된 세금계산서가 없습니다.</p>
+            <p className="text-xs text-gray-400 mt-1">정산 완료 후 관리자가 세금계산서를 발행합니다.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="text-left py-2 px-3 font-semibold text-gray-600">번호</th>
+                  <th className="text-left py-2 px-3 font-semibold text-gray-600">정산월</th>
+                  <th className="text-right py-2 px-3 font-semibold text-gray-600">공급가액</th>
+                  <th className="text-right py-2 px-3 font-semibold text-gray-600">VAT</th>
+                  <th className="text-right py-2 px-3 font-semibold text-gray-600">합계</th>
+                  <th className="text-center py-2 px-3 font-semibold text-gray-600">상태</th>
+                  <th className="text-center py-2 px-3 font-semibold text-gray-600">발행일</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invoices.map((inv) => (
+                  <tr key={inv.id} className="border-b border-gray-100 hover:bg-gray-50">
+                    <td className="py-2 px-3 text-gray-700 font-mono text-xs">{inv.invoice_number}</td>
+                    <td className="py-2 px-3 text-gray-700">{formatYearMonth(inv.year_month)}</td>
+                    <td className="py-2 px-3 text-right text-gray-700">{formatKRW(inv.supply_amount)}</td>
+                    <td className="py-2 px-3 text-right text-gray-700">{formatKRW(inv.vat_amount)}</td>
+                    <td className="py-2 px-3 text-right font-medium text-gray-900">{formatKRW(inv.total_amount)}</td>
+                    <td className="py-2 px-3 text-center">
+                      <Badge
+                        label={TAX_INVOICE_STATUS_LABELS[inv.status]}
+                        colorClass={TAX_INVOICE_STATUS_COLORS[inv.status]}
+                      />
+                    </td>
+                    <td className="py-2 px-3 text-center text-gray-500 text-xs">
+                      {new Date(inv.issued_at).toLocaleDateString('ko-KR')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}

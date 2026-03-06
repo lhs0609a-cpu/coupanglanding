@@ -377,7 +377,12 @@ export default function TrainerPage() {
                       {e.trainee_pt_user?.profile?.full_name || '-'}
                     </td>
                     <td className="py-2 px-3 text-right text-gray-700">{formatKRW(e.trainee_net_profit)}</td>
-                    <td className="py-2 px-3 text-right font-medium text-[#E31837]">{formatKRW(e.bonus_amount)}</td>
+                    <td className="py-2 px-3 text-right font-medium text-[#E31837]">
+                      <span>{formatKRW(e.bonus_amount)}</span>
+                      <span className="block text-[10px] text-gray-400">
+                        원천징수 3.3%: -{formatKRW(Math.floor(e.bonus_amount * 0.033))}
+                      </span>
+                    </td>
                     <td className="py-2 px-3 text-center">
                       <Badge
                         label={TRAINER_EARNING_STATUS_LABELS[e.payment_status]}

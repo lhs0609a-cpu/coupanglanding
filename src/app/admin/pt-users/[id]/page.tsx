@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, formatYearMonth, formatPercent, formatDate } from '@/lib/utils/format';
-import { calculateDeposit, calculateNetProfit, totalCosts } from '@/lib/calculations/deposit';
+import { calculateDeposit, calculateNetProfit, totalCosts, calculateDepositWithVat } from '@/lib/calculations/deposit';
 import type { CostBreakdown } from '@/lib/calculations/deposit';
 import {
   PAYMENT_STATUS_LABELS,
@@ -737,6 +737,11 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
             rCosts,
             ptUser?.share_percentage || 30,
           );
+          const rVat = calculateDepositWithVat(
+            reviewModalData.report.reported_revenue,
+            rCosts,
+            ptUser?.share_percentage || 30,
+          );
 
           return (
             <div className="space-y-4">
@@ -786,9 +791,17 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
                   </div>
                   <div className="flex justify-between mt-1">
                     <span className="font-medium text-[#E31837]">
-                      자동 계산 송금액 ({ptUser?.share_percentage || 30}%)
+                      공급가액 (수수료 {ptUser?.share_percentage || 30}%)
                     </span>
                     <span className="font-bold text-[#E31837]">{formatKRW(autoDeposit)}</span>
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-gray-500">부가가치세 (10%)</span>
+                    <span className="text-gray-700">{formatKRW(rVat.vatAmount)}</span>
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="font-medium text-gray-700">납부 합계 (VAT 포함)</span>
+                    <span className="font-bold text-gray-900">{formatKRW(rVat.totalWithVat)}</span>
                   </div>
                 </div>
               </div>

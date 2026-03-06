@@ -307,6 +307,24 @@ export const TREND_CATEGORIES = [
   '생활/건강', '여가/생활편의', '기타',
 ] as const;
 
+// 진입 난이도
+export const DIFFICULTY_LABELS: Record<string, string> = {
+  easy: '쉬움',
+  medium: '보통',
+  hard: '어려움',
+};
+
+export const DIFFICULTY_COLORS: Record<string, string> = {
+  easy: 'bg-green-100 text-green-700',
+  medium: 'bg-yellow-100 text-yellow-700',
+  hard: 'bg-red-100 text-red-700',
+};
+
+// 시즌성 라벨
+export const SEASONALITY_LABELS = [
+  '연중', '봄', '여름', '가을', '겨울', '봄/여름', '가을/겨울', '명절/시즌',
+] as const;
+
 export const TREND_SCORE_COLORS: Record<string, string> = {
   hot: 'text-red-600',
   rising: 'text-orange-500',
@@ -394,6 +412,128 @@ export const COMPLAINT_TYPE_COLORS: Record<string, string> = {
   parallel_import: 'bg-orange-100 text-orange-700',
   price_policy: 'bg-yellow-100 text-yellow-700',
   other: 'bg-gray-100 text-gray-700',
+};
+
+// 계약위반 관리
+export const VIOLATION_CATEGORY_LABELS: Record<string, string> = {
+  settlement: '정산 위반',
+  access_rights: '접근권한 위반',
+  confidentiality: '기밀유출',
+  operation: '운영 위반',
+  other: '기타',
+};
+
+export const VIOLATION_TYPE_LABELS: Record<string, string> = {
+  non_payment_3months: '3개월 이상 미정산',
+  false_revenue_report: '매출 허위/미제출',
+  access_sharing: '접근권한 양도/공유',
+  credential_update_delay: '계정정보 미갱신',
+  confidentiality_breach: '기밀정보 유출',
+  competing_service: '경쟁서비스 이용',
+  product_deactivation_fail: '상품 미비활성화',
+  blacklist_brand_sale: '블랙리스트 브랜드 판매',
+  seller_account_terminated: '셀러 계정 해지',
+  other: '기타',
+};
+
+export const VIOLATION_STATUS_LABELS: Record<string, string> = {
+  reported: '접수됨',
+  investigating: '조사 중',
+  dismissed: '무혐의',
+  action_taken: '조치 완료',
+  resolved: '시정 완료',
+  escalated: '단계 격상',
+  terminated: '계약해지',
+};
+
+export const VIOLATION_STATUS_COLORS: Record<string, string> = {
+  reported: 'bg-blue-100 text-blue-700',
+  investigating: 'bg-yellow-100 text-yellow-700',
+  dismissed: 'bg-gray-100 text-gray-500',
+  action_taken: 'bg-orange-100 text-orange-700',
+  resolved: 'bg-green-100 text-green-700',
+  escalated: 'bg-red-100 text-red-700',
+  terminated: 'bg-red-200 text-red-800',
+};
+
+export const VIOLATION_ACTION_LABELS: Record<string, string> = {
+  notice: '주의',
+  warning: '경고',
+  corrective: '시정명령',
+  termination: '계약해지',
+};
+
+export const VIOLATION_ACTION_COLORS: Record<string, string> = {
+  notice: 'bg-blue-100 text-blue-700',
+  warning: 'bg-yellow-100 text-yellow-700',
+  corrective: 'bg-orange-100 text-orange-700',
+  termination: 'bg-red-100 text-red-700',
+};
+
+export const VIOLATION_CATEGORY_COLORS: Record<string, string> = {
+  settlement: 'bg-purple-100 text-purple-700',
+  access_rights: 'bg-red-100 text-red-700',
+  confidentiality: 'bg-orange-100 text-orange-700',
+  operation: 'bg-yellow-100 text-yellow-700',
+  other: 'bg-gray-100 text-gray-700',
+};
+
+// 위반 유형별 기본 심각도 (즉시해지 사유 판별)
+export const IMMEDIATE_TERMINATION_TYPES = [
+  'non_payment_3months',
+  'access_sharing',
+  'confidentiality_breach',
+  'seller_account_terminated',
+];
+
+// 위반 유형별 관련 계약 조항
+export const VIOLATION_CONTRACT_ARTICLES: Record<string, string> = {
+  non_payment_3months: '제10조 (계약 해지)',
+  false_revenue_report: '제8조 (정산)',
+  access_sharing: '제4조 (프로그램 접근권한)',
+  credential_update_delay: '제3조 (계정정보 관리)',
+  confidentiality_breach: '제13조, 제14조 (기밀유지)',
+  competing_service: '제14조 (영업비밀 보호)',
+  product_deactivation_fail: '제11조 (계약 종료 후 의무)',
+  blacklist_brand_sale: '내부 규정',
+  seller_account_terminated: '제10조 (계약 해지)',
+  other: '-',
+};
+
+// 위험도 점수 계산
+export function calculateRiskScore(summary: {
+  notice_count: number;
+  warning_count: number;
+  corrective_count: number;
+  active_violations: number;
+}): number {
+  const score = (summary.notice_count * 5) + (summary.warning_count * 15) + (summary.corrective_count * 30) + (summary.active_violations * 10);
+  return Math.min(score, 100);
+}
+
+export const RISK_SCORE_LABELS: Record<string, { label: string; color: string }> = {
+  good: { label: '양호', color: 'text-green-600' },
+  caution: { label: '주의', color: 'text-yellow-600' },
+  danger: { label: '위험', color: 'text-orange-600' },
+  critical: { label: '심각', color: 'text-red-600' },
+};
+
+export function getRiskLevel(score: number): 'good' | 'caution' | 'danger' | 'critical' {
+  if (score <= 20) return 'good';
+  if (score <= 40) return 'caution';
+  if (score <= 70) return 'danger';
+  return 'critical';
+}
+
+// 세금계산서 상태
+export const TAX_INVOICE_STATUS_LABELS: Record<string, string> = {
+  issued: '발행됨',
+  cancelled: '취소됨',
+};
+
+export const TAX_INVOICE_STATUS_COLORS: Record<string, string> = {
+  issued: 'bg-green-100 text-green-700',
+  cancelled: 'bg-red-100 text-red-700',
 };
 
 // 종합소득세 구간 (2024년 기준)

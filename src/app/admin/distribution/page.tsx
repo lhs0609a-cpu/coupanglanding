@@ -7,7 +7,7 @@ import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/for
 import MonthPicker from '@/components/ui/MonthPicker';
 import Card from '@/components/ui/Card';
 import StatCard from '@/components/ui/StatCard';
-import { PieChart, TrendingUp, TrendingDown, Wallet, Lock, Unlock, CheckCircle2, Users, AlertTriangle, Download } from 'lucide-react';
+import { PieChart, TrendingUp, TrendingDown, Wallet, Lock, Unlock, CheckCircle2, Users, AlertTriangle, Download, Receipt } from 'lucide-react';
 import { exportToCsv } from '@/lib/utils/csv-export';
 import type { Partner, RevenueEntry, ExpenseEntry, DistributionSnapshot, MonthlyReport, PtUser, Profile } from '@/lib/supabase/types';
 
@@ -232,6 +232,30 @@ export default function AdminDistributionPage() {
                       합계: {formatKRW(ptReports.reduce((sum, r) => sum + (r.admin_deposit_amount || r.calculated_deposit), 0))}
                     </span>
                   </div>
+                  {/* VAT 정보 */}
+                  {(() => {
+                    const totalVat = ptReports.reduce((sum, r) => sum + (r.vat_amount || 0), 0);
+                    const totalWithVat = ptReports.reduce((sum, r) => sum + (r.total_with_vat || 0), 0);
+                    if (totalVat > 0) {
+                      return (
+                        <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Receipt className="w-4 h-4 text-blue-600" />
+                            <span className="text-xs font-medium text-blue-800">VAT 정보</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-blue-700">부가가치세 합계</span>
+                            <span className="font-medium text-blue-800">{formatKRW(totalVat)}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-blue-700">VAT 포함 총액</span>
+                            <span className="font-bold text-blue-900">{formatKRW(totalWithVat)}</span>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
               ) : (
                 <p className="text-sm text-gray-400">확인된 PT 매출이 없습니다.</p>

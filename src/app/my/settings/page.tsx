@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { API_STATUS_LABELS, API_STATUS_COLORS } from '@/lib/utils/constants';
-import { Settings, Eye, EyeOff, Save, CheckCircle, Plug, AlertTriangle, Shield, ChevronDown, ChevronUp, HelpCircle, ExternalLink } from 'lucide-react';
+import { Settings, Eye, EyeOff, Save, CheckCircle, Plug, AlertTriangle, Shield, ChevronDown, ChevronUp, HelpCircle, ExternalLink, Building2 } from 'lucide-react';
 
 // UTF-8 안전 base64 인코딩/디코딩
 function safeBase64Encode(str: string): string {
@@ -41,6 +41,16 @@ export default function MySettingsPage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
 
+  // 사업자 정보
+  const [bizName, setBizName] = useState('');
+  const [bizRegNum, setBizRegNum] = useState('');
+  const [bizRep, setBizRep] = useState('');
+  const [bizAddress, setBizAddress] = useState('');
+  const [bizType, setBizType] = useState('');
+  const [bizCategory, setBizCategory] = useState('');
+  const [bizSaving, setBizSaving] = useState(false);
+  const [bizSaved, setBizSaved] = useState(false);
+
   // API 연동 상태
   const [apiVendorId, setApiVendorId] = useState('');
   const [apiAccessKey, setApiAccessKey] = useState('');
@@ -64,7 +74,7 @@ export default function MySettingsPage() {
 
     const { data: ptUser } = await supabase
       .from('pt_users')
-      .select('coupang_seller_id, coupang_seller_pw')
+      .select('coupang_seller_id, coupang_seller_pw, business_name, business_registration_number, business_representative, business_address, business_type, business_category')
       .eq('profile_id', user.id)
       .single();
 
@@ -73,6 +83,12 @@ export default function MySettingsPage() {
       if (ptUser.coupang_seller_pw) {
         setSellerPw(safeBase64Decode(ptUser.coupang_seller_pw));
       }
+      setBizName(ptUser.business_name || '');
+      setBizRegNum(ptUser.business_registration_number || '');
+      setBizRep(ptUser.business_representative || '');
+      setBizAddress(ptUser.business_address || '');
+      setBizType(ptUser.business_type || '');
+      setBizCategory(ptUser.business_category || '');
     }
 
     // API 연동 상태 조회
@@ -195,6 +211,35 @@ export default function MySettingsPage() {
       setApiMessage({ type: 'error', text: 'API 저장 중 오류가 발생했습니다.' });
     } finally {
       setApiSaving(false);
+    }
+  };
+
+  const handleBizSave = async () => {
+    setBizSaving(true);
+    setBizSaved(false);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error: updateError } = await supabase
+        .from('pt_users')
+        .update({
+          business_name: bizName || null,
+          business_registration_number: bizRegNum || null,
+          business_representative: bizRep || null,
+          business_address: bizAddress || null,
+          business_type: bizType || null,
+          business_category: bizCategory || null,
+        })
+        .eq('profile_id', user.id);
+
+      if (updateError) throw updateError;
+      setBizSaved(true);
+      setTimeout(() => setBizSaved(false), 3000);
+    } catch {
+      setError('사업자 정보 저장 중 오류가 발생했습니다.');
+    } finally {
+      setBizSaving(false);
     }
   };
 
@@ -581,6 +626,114 @@ export default function MySettingsPage() {
                 {apiSaving ? '저장 중...' : '저장'}
               </button>
             </div>
+          </div>
+        )}
+      </Card>
+
+      {/* 사업자 정보 (세금계산서용) */}
+      <Card>
+        <div className="flex items-center gap-2 mb-1">
+          <Building2 className="w-5 h-5 text-[#E31837]" />
+          <h2 className="text-lg font-bold text-gray-900">사업자 정보</h2>
+        </div>
+        <p className="text-sm text-gray-500 mb-6">
+          세금계산서 발행을 위해 사업자 정보를 등록해주세요.
+          미등록 시 세금계산서를 발행받을 수 없습니다.
+        </p>
+
+        {loading ? (
+          <div className="text-center py-8 text-gray-400">불러오는 중...</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="biz-name" className="block text-sm font-medium text-gray-700 mb-1">상호 (법인명)</label>
+                <input
+                  id="biz-name"
+                  type="text"
+                  value={bizName}
+                  onChange={(e) => setBizName(e.target.value)}
+                  placeholder="상호명 입력"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label htmlFor="biz-reg-num" className="block text-sm font-medium text-gray-700 mb-1">사업자등록번호</label>
+                <input
+                  id="biz-reg-num"
+                  type="text"
+                  value={bizRegNum}
+                  onChange={(e) => setBizRegNum(e.target.value)}
+                  placeholder="000-00-00000"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label htmlFor="biz-rep" className="block text-sm font-medium text-gray-700 mb-1">대표자명</label>
+                <input
+                  id="biz-rep"
+                  type="text"
+                  value={bizRep}
+                  onChange={(e) => setBizRep(e.target.value)}
+                  placeholder="대표자 이름"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label htmlFor="biz-address" className="block text-sm font-medium text-gray-700 mb-1">사업장 소재지</label>
+                <input
+                  id="biz-address"
+                  type="text"
+                  value={bizAddress}
+                  onChange={(e) => setBizAddress(e.target.value)}
+                  placeholder="사업장 주소"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label htmlFor="biz-type" className="block text-sm font-medium text-gray-700 mb-1">업태</label>
+                <input
+                  id="biz-type"
+                  type="text"
+                  value={bizType}
+                  onChange={(e) => setBizType(e.target.value)}
+                  placeholder="소매업"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label htmlFor="biz-category" className="block text-sm font-medium text-gray-700 mb-1">종목</label>
+                <input
+                  id="biz-category"
+                  type="text"
+                  value={bizCategory}
+                  onChange={(e) => setBizCategory(e.target.value)}
+                  placeholder="전자상거래"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            {bizSaved && (
+              <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <CheckCircle className="w-4 h-4 text-green-600" />
+                <p className="text-sm text-green-700">사업자 정보가 저장되었습니다.</p>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleBizSave}
+              disabled={bizSaving}
+              className="flex items-center justify-center gap-2 w-full px-6 py-3 bg-[#E31837] text-white rounded-xl font-semibold hover:bg-[#c81530] transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {bizSaving ? (
+                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <Save className="w-5 h-5" />
+              )}
+              {bizSaving ? '저장 중...' : '사업자 정보 저장'}
+            </button>
           </div>
         )}
       </Card>

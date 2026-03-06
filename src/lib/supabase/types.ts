@@ -7,8 +7,8 @@ export type ApplicationStatus = 'new' | 'contacted' | 'consulting' | 'converted'
 export type ContractStatus = 'draft' | 'sent' | 'signed' | 'expired' | 'terminated';
 export type OnboardingStepStatus = 'pending' | 'submitted' | 'approved' | 'rejected';
 export type OnboardingVerificationType = 'self_check' | 'evidence_upload' | 'auto_linked' | 'quiz';
-export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system' | 'emergency';
-export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist';
+export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system' | 'emergency' | 'violation';
+export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist' | 'create_violation' | 'update_violation' | 'escalate_violation' | 'resolve_violation' | 'dismiss_violation' | 'terminate_violation' | 'issue_tax_invoice' | 'cancel_tax_invoice';
 export type WithdrawalStatus = 'pending' | 'approved' | 'rejected';
 export type TrainerStatus = 'pending' | 'approved' | 'revoked';
 export type TrainerEarningStatus = 'pending' | 'requested' | 'deposited' | 'confirmed';
@@ -18,6 +18,15 @@ export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical';
 export type IncidentStatus = 'reported' | 'in_progress' | 'resolved' | 'escalated' | 'closed';
 export type BlacklistRiskLevel = 'low' | 'warning' | 'high' | 'critical';
 export type ComplaintType = 'trademark' | 'copyright' | 'authentic_cert' | 'parallel_import' | 'price_policy' | 'other';
+
+// Violation types
+export type ViolationCategory = 'settlement' | 'access_rights' | 'confidentiality' | 'operation' | 'other';
+export type ViolationType = 'non_payment_3months' | 'false_revenue_report' | 'access_sharing' | 'credential_update_delay' | 'confidentiality_breach' | 'competing_service' | 'product_deactivation_fail' | 'blacklist_brand_sale' | 'seller_account_terminated' | 'other';
+export type ViolationStatus = 'reported' | 'investigating' | 'dismissed' | 'action_taken' | 'resolved' | 'escalated' | 'terminated';
+export type ViolationActionLevel = 'notice' | 'warning' | 'corrective' | 'termination';
+
+// Tax Invoice types
+export type TaxInvoiceStatus = 'issued' | 'cancelled';
 
 export interface Profile {
   id: string;
@@ -57,6 +66,13 @@ export interface PtUser {
   coupang_api_key_expires_at: string | null;
   created_at: string;
   updated_at: string;
+  // 사업자 정보
+  business_name: string | null;
+  business_registration_number: string | null;
+  business_representative: string | null;
+  business_address: string | null;
+  business_type: string | null;
+  business_category: string | null;
   // Joined fields
   profile?: Profile;
 }
@@ -85,6 +101,10 @@ export interface MonthlyReport {
   ad_screenshot_url: string | null;
   api_verified: boolean;
   api_settlement_data: Record<string, unknown> | null;
+  // VAT 관련
+  supply_amount: number;
+  vat_amount: number;
+  total_with_vat: number;
   created_at: string;
   updated_at: string;
   // Joined fields
@@ -316,6 +336,17 @@ export interface TrendingKeyword {
   memo: string | null;
   is_active: boolean;
   created_by: string | null;
+  // 소싱 인사이트 필드
+  sourcing_tip: string | null;
+  keyword_tip: string | null;
+  seasonality: string | null;
+  margin_range: string | null;
+  difficulty: string | null;
+  pros: string[];
+  cons: string[];
+  recommended_price_min: number | null;
+  recommended_price_max: number | null;
+  related_keywords: string[];
   created_at: string;
   updated_at: string;
 }
@@ -356,6 +387,106 @@ export interface Incident {
   updated_at: string;
   // Joined fields
   pt_user?: PtUser;
+}
+
+export interface PartnerViolation {
+  id: string;
+  pt_user_id: string;
+  violation_category: ViolationCategory;
+  violation_type: ViolationType;
+  status: ViolationStatus;
+  action_level: ViolationActionLevel | null;
+  title: string;
+  description: string | null;
+  evidence: string | null;
+  contract_article: string | null;
+  partner_response: string | null;
+  partner_responded_at: string | null;
+  correction_deadline: string | null;
+  correction_completed_at: string | null;
+  admin_notes: string | null;
+  related_incident_id: string | null;
+  reported_by: string | null;
+  reviewed_by: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  pt_user?: PtUser;
+}
+
+export interface ViolationHistory {
+  id: string;
+  violation_id: string;
+  previous_status: string | null;
+  new_status: string;
+  previous_action_level: string | null;
+  new_action_level: string | null;
+  changed_by: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface ViolationSummary {
+  pt_user_id: string;
+  total_violations: number;
+  active_violations: number;
+  notice_count: number;
+  warning_count: number;
+  corrective_count: number;
+  last_violation_at: string | null;
+  risk_score: number;
+  updated_at: string;
+}
+
+export interface TaxInvoice {
+  id: string;
+  invoice_number: string;
+  monthly_report_id: string;
+  pt_user_id: string;
+  year_month: string;
+  // 공급자 (회사)
+  supplier_business_name: string;
+  supplier_registration_number: string;
+  supplier_representative: string;
+  supplier_address: string;
+  supplier_business_type: string;
+  supplier_business_category: string;
+  // 공급받는자 (PT 사용자)
+  buyer_business_name: string;
+  buyer_registration_number: string;
+  buyer_representative: string;
+  buyer_address: string;
+  buyer_business_type: string;
+  buyer_business_category: string;
+  // 금액
+  supply_amount: number;
+  vat_amount: number;
+  total_amount: number;
+  // 상태
+  status: TaxInvoiceStatus;
+  issued_at: string;
+  cancelled_at: string | null;
+  cancelled_reason: string | null;
+  description: string;
+  admin_note: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  pt_user?: PtUser;
+  monthly_report?: MonthlyReport;
+}
+
+export interface CompanySettings {
+  id: string;
+  business_name: string;
+  business_registration_number: string;
+  representative_name: string;
+  business_address: string;
+  business_type: string;
+  business_category: string;
+  email: string;
+  phone: string;
+  updated_at: string;
 }
 
 export interface Database {

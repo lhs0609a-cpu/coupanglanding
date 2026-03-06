@@ -1,5 +1,7 @@
 import type { CostKey } from '@/lib/utils/constants';
 import { DEFAULT_COST_RATES } from '@/lib/utils/constants';
+import { calculateVatOnTop } from '@/lib/calculations/vat';
+import type { VatCalculation } from '@/lib/calculations/vat';
 
 export type CostBreakdown = Record<CostKey, number>;
 
@@ -73,4 +75,17 @@ export function calculateDeposit(
   const netProfit = calculateNetProfit(revenue, costs);
   if (netProfit <= 0) return 0;
   return Math.floor(netProfit * sharePercentage / 100);
+}
+
+/**
+ * 송금액(공급가액) + VAT 계산
+ * @returns VatCalculation (supplyAmount, vatAmount, totalWithVat)
+ */
+export function calculateDepositWithVat(
+  revenue: number,
+  costs: CostBreakdown,
+  sharePercentage: number = 30,
+): VatCalculation {
+  const deposit = calculateDeposit(revenue, costs, sharePercentage);
+  return calculateVatOnTop(deposit);
 }

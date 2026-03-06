@@ -5,8 +5,8 @@ import { createClient } from '@/lib/supabase/client';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import NumberInput from '@/components/ui/NumberInput';
-import { Settings, Save, Users, Plus, Trash2, RefreshCw, FileCheck } from 'lucide-react';
-import type { Partner } from '@/lib/supabase/types';
+import { Settings, Save, Users, Plus, Trash2, RefreshCw, FileCheck, Building2 } from 'lucide-react';
+import type { Partner, CompanySettings } from '@/lib/supabase/types';
 
 interface PartnerForm {
   id?: string;
@@ -24,6 +24,8 @@ export default function AdminSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [checkingExpiry, setCheckingExpiry] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [company, setCompany] = useState<CompanySettings | null>(null);
+  const [companySaving, setCompanySaving] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -53,8 +55,43 @@ export default function AdminSettingsPage() {
     setLoading(false);
   };
 
+  const fetchCompanySettings = async () => {
+    try {
+      const res = await fetch('/api/company-settings');
+      if (res.ok) {
+        const data = await res.json();
+        setCompany(data);
+      }
+    } catch {
+      // 무시
+    }
+  };
+
+  const handleCompanySave = async () => {
+    if (!company) return;
+    setCompanySaving(true);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/company-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(company),
+      });
+      if (res.ok) {
+        setMessage({ type: 'success', text: '회사 사업자 정보가 저장되었습니다.' });
+      } else {
+        const data = await res.json();
+        setMessage({ type: 'error', text: data.error || '저장 실패' });
+      }
+    } catch {
+      setMessage({ type: 'error', text: '저장 중 오류가 발생했습니다.' });
+    }
+    setCompanySaving(false);
+  };
+
   useEffect(() => {
     fetchPartners();
+    fetchCompanySettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -240,6 +277,88 @@ export default function AdminSettingsPage() {
               {totalRatio !== 10 && ' (10이 되어야 합니다)'}
             </div>
           </Card>
+
+          {/* 회사 사업자 정보 (세금계산서 발행용) */}
+          {company && (
+            <Card>
+              <div className="flex items-center gap-2 mb-6">
+                <Building2 className="w-5 h-5 text-gray-600" />
+                <h2 className="text-lg font-bold text-gray-900">회사 사업자 정보</h2>
+              </div>
+              <p className="text-sm text-gray-500 mb-4">세금계산서 발행 시 공급자(회사) 정보로 사용됩니다.</p>
+
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Input
+                    id="company-name"
+                    label="상호 (법인명)"
+                    value={company.business_name}
+                    onChange={(e) => setCompany({ ...company, business_name: e.target.value })}
+                    placeholder="(주)쿠팡 셀러허브"
+                  />
+                  <Input
+                    id="company-reg-num"
+                    label="사업자등록번호"
+                    value={company.business_registration_number}
+                    onChange={(e) => setCompany({ ...company, business_registration_number: e.target.value })}
+                    placeholder="000-00-00000"
+                  />
+                  <Input
+                    id="company-rep"
+                    label="대표자명"
+                    value={company.representative_name}
+                    onChange={(e) => setCompany({ ...company, representative_name: e.target.value })}
+                    placeholder="홍길동"
+                  />
+                  <Input
+                    id="company-address"
+                    label="사업장 소재지"
+                    value={company.business_address}
+                    onChange={(e) => setCompany({ ...company, business_address: e.target.value })}
+                    placeholder="서울특별시 강남구 ..."
+                  />
+                  <Input
+                    id="company-type"
+                    label="업태"
+                    value={company.business_type}
+                    onChange={(e) => setCompany({ ...company, business_type: e.target.value })}
+                    placeholder="서비스업"
+                  />
+                  <Input
+                    id="company-category"
+                    label="종목"
+                    value={company.business_category}
+                    onChange={(e) => setCompany({ ...company, business_category: e.target.value })}
+                    placeholder="교육서비스, 컨설팅"
+                  />
+                  <Input
+                    id="company-email"
+                    label="이메일"
+                    value={company.email || ''}
+                    onChange={(e) => setCompany({ ...company, email: e.target.value })}
+                    placeholder="tax@example.com"
+                  />
+                  <Input
+                    id="company-phone"
+                    label="전화번호"
+                    value={company.phone || ''}
+                    onChange={(e) => setCompany({ ...company, phone: e.target.value })}
+                    placeholder="02-0000-0000"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCompanySave}
+                  disabled={companySaving}
+                  className="w-full py-2.5 bg-[#E31837] text-white font-semibold rounded-lg hover:bg-[#c01530] transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  {companySaving ? '저장 중...' : '사업자 정보 저장'}
+                </button>
+              </div>
+            </Card>
+          )}
 
           {/* 시스템 관리 */}
           <Card>

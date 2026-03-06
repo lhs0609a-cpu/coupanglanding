@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, getCurrentYearMonth, formatYearMonth, formatPercent } from '@/lib/utils/format';
-import { calculateDeposit, calculateNetProfit, totalCosts, getReportCosts } from '@/lib/calculations/deposit';
+import { calculateDeposit, calculateNetProfit, totalCosts, getReportCosts, calculateDepositWithVat } from '@/lib/calculations/deposit';
 import { calculateTrainerBonus } from '@/lib/calculations/trainer';
 import { lookupAndLinkTrainee } from '@/lib/utils/trainer-link';
 import { logActivity } from '@/lib/utils/activity-log';
@@ -1003,10 +1003,29 @@ export default function AdminPtUsersPage() {
                   </div>
                   <div className="flex justify-between mt-1">
                     <span className="font-medium text-[#E31837]">
-                      자동 계산 송금액 ({reviewModalData.ptUser.share_percentage}%)
+                      공급가액 (수수료 {reviewModalData.ptUser.share_percentage}%)
                     </span>
                     <span className="font-bold text-[#E31837]">{formatKRW(autoDeposit)}</span>
                   </div>
+                  {(() => {
+                    const rVat = calculateDepositWithVat(
+                      reviewModalData.report.reported_revenue,
+                      rCosts,
+                      reviewModalData.ptUser.share_percentage,
+                    );
+                    return (
+                      <>
+                        <div className="flex justify-between mt-1">
+                          <span className="text-gray-500">부가가치세 (10%)</span>
+                          <span className="text-gray-700">{formatKRW(rVat.vatAmount)}</span>
+                        </div>
+                        <div className="flex justify-between mt-1">
+                          <span className="font-medium text-gray-700">납부 합계 (VAT 포함)</span>
+                          <span className="font-bold text-gray-900">{formatKRW(rVat.totalWithVat)}</span>
+                        </div>
+                      </>
+                    );
+                  })()}
                   {traineeTrainerMap.has(reviewModalData.ptUser.id) && rNetProfit > 0 && (
                     <div className="flex justify-between mt-1">
                       <span className="font-medium text-purple-700">

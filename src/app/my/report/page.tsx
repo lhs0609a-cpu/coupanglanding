@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { calculateDeposit, calculateNetProfit, totalCosts, buildCostBreakdown } from '@/lib/calculations/deposit';
+import { calculateDeposit, calculateNetProfit, totalCosts, buildCostBreakdown, calculateDepositWithVat } from '@/lib/calculations/deposit';
 import type { CostBreakdown } from '@/lib/calculations/deposit';
+import type { VatCalculation } from '@/lib/calculations/vat';
 import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/format';
 import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, COST_CATEGORIES, DEFAULT_COST_RATES, MANUAL_COST_KEY } from '@/lib/utils/constants';
 import { getReportTargetMonth, isEligibleForMonth, getFirstEligibleMonth, getSettlementDDay, formatDDay, getDDayColorClass, formatDeadline, getAdminSettlementStatus } from '@/lib/utils/settlement';
@@ -18,7 +19,7 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import StatCard from '@/components/ui/StatCard';
 import PaymentProgress from '@/components/ui/PaymentProgress';
-import { Send, Calculator, CheckCircle2, ChevronDown, ChevronUp, Banknote, Minus, AlertTriangle, Plug, Shield } from 'lucide-react';
+import { Send, Calculator, CheckCircle2, ChevronDown, ChevronUp, Banknote, Minus, AlertTriangle, Plug, Shield, Zap, ArrowRight, Settings, Edit3 } from 'lucide-react';
 import type { MonthlyReport, PtUser } from '@/lib/supabase/types';
 
 export default function MyReportPage() {
@@ -39,12 +40,12 @@ export default function MyReportPage() {
   const [report, setReport] = useState<MonthlyReport | null>(null);
   const [ptUser, setPtUser] = useState<PtUser | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [guideOpen, setGuideOpen] = useState(false);
   const [costOpen, setCostOpen] = useState(false);
   const [apiConnected, setApiConnected] = useState(false);
   const [apiFetching, setApiFetching] = useState(false);
   const [apiVerified, setApiVerified] = useState(false);
   const [apiSettlementData, setApiSettlementData] = useState<Record<string, unknown> | null>(null);
+  const [manualMode, setManualMode] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -86,6 +87,8 @@ export default function MyReportPage() {
         setAdvertisingCost(r.cost_advertising || 0);
         setApiVerified(r.api_verified || false);
         setApiSettlementData(r.api_settlement_data || null);
+        // 기존 보고서 편집 시: API 검증된 보고서면 수동모드 OFF, 아니면 ON
+        setManualMode(!r.api_verified);
         if (r.screenshot_url) {
           setRevenueExifResult({ isValid: true, hasSoftware: true, hasDateTime: true, warningMessage: null });
         }
@@ -104,6 +107,7 @@ export default function MyReportPage() {
         setRevenueExifResult(null);
         setApiVerified(false);
         setApiSettlementData(null);
+        setManualMode(false);
       }
     }
 
@@ -117,6 +121,7 @@ export default function MyReportPage() {
   const sharePercentage = ptUser?.share_percentage ?? 30;
   const netProfit = calculateNetProfit(revenue, costs);
   const depositAmount = calculateDeposit(revenue, costs, sharePercentage);
+  const vatCalc: VatCalculation = calculateDepositWithVat(revenue, costs, sharePercentage);
 
   const handleFileSelect = async (file: File) => {
     setScreenshotFile(file);
@@ -165,7 +170,14 @@ export default function MyReportPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        setMessage({ type: 'error', text: data.error || 'API 조회에 실패했습니다.' });
+        // API 키 만료 또는 연동 오류 시 안내
+        if (res.status === 400 && data.error?.includes('연동되지 않았')) {
+          setMessage({ type: 'error', text: 'API 키가 만료되었거나 미등록 상태입니다. 설정에서 API 키를 다시 등록해주세요.' });
+        } else {
+          setMessage({ type: 'error', text: data.error || 'API 조회에 실패했습니다. 수동으로 입력해주세요.' });
+        }
+        // API 실패 시 수동 모드 전환 제안
+        setManualMode(true);
         return;
       }
 
@@ -173,9 +185,11 @@ export default function MyReportPage() {
       setRevenue(data.totalSales || 0);
       setApiVerified(true);
       setApiSettlementData(data.settlementData || null);
+      setManualMode(false);
       setMessage({ type: 'success', text: `API에서 매출 데이터를 가져왔습니다. (총 ${data.itemCount || 0}건)` });
     } catch {
-      setMessage({ type: 'error', text: 'API 조회 중 오류가 발생했습니다.' });
+      setMessage({ type: 'error', text: 'API 조회 중 오류가 발생했습니다. 수동으로 입력해주세요.' });
+      setManualMode(true);
     } finally {
       setApiFetching(false);
     }
@@ -211,6 +225,12 @@ export default function MyReportPage() {
     if (!ptUser) return;
     if (revenue <= 0) {
       setMessage({ type: 'error', text: '매출 금액을 입력해주세요.' });
+      return;
+    }
+
+    // 수동 입력 모드일 때 스크린샷 필수 (API 검증 아닐 때)
+    if (manualMode && !apiVerified && !previewUrl) {
+      setMessage({ type: 'error', text: '수동 입력 시 매출 스크린샷이 필수입니다.' });
       return;
     }
 
@@ -271,6 +291,9 @@ export default function MyReportPage() {
       cost_tax: costs.cost_tax,
       api_verified: apiVerified,
       api_settlement_data: apiSettlementData,
+      supply_amount: vatCalc.supplyAmount,
+      vat_amount: vatCalc.vatAmount,
+      total_with_vat: vatCalc.totalWithVat,
     };
 
     if (report) {
@@ -331,12 +354,13 @@ export default function MyReportPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {/* 1. 헤더 + MonthPicker */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">매출 정산</h1>
         <MonthPicker value={yearMonth} onChange={setYearMonth} />
       </div>
 
-      {/* D-day 배너 */}
+      {/* 2. D-day 배너 */}
       {eligible && (
         <div className={`rounded-lg p-4 flex items-center justify-between flex-wrap gap-2 ${getDDayColorClass(dday)} border`}>
           <div>
@@ -365,7 +389,7 @@ export default function MyReportPage() {
         </div>
       )}
 
-      {/* 상태 카드 */}
+      {/* 3. 통계 카드 */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
           title="이번 달 매출"
@@ -380,7 +404,7 @@ export default function MyReportPage() {
           trend={netProfit > 0 ? 'up' : netProfit < 0 ? 'down' : undefined}
         />
         <StatCard
-          title={report?.admin_deposit_amount ? '관리자 확정 금액' : `송금액 (${sharePercentage}%)`}
+          title={report?.admin_deposit_amount ? '관리자 확정 금액' : `수수료 (${sharePercentage}%)`}
           value={
             report?.admin_deposit_amount
               ? formatKRW(report.admin_deposit_amount)
@@ -388,11 +412,12 @@ export default function MyReportPage() {
                 ? formatKRW(depositAmount)
                 : '-'
           }
+          subtitle={revenue > 0 && vatCalc.vatAmount > 0 ? `+VAT ${formatKRW(vatCalc.vatAmount)} = ${formatKRW(vatCalc.totalWithVat)}` : undefined}
           icon={<Send className="w-5 h-5" />}
         />
       </div>
 
-      {/* 4단계 진행바 */}
+      {/* 4. 정산 진행 상태 */}
       {report && report.payment_status !== 'pending' && report.payment_status !== 'rejected' && (
         <Card>
           <h3 className="text-sm font-medium text-gray-700 mb-4">{formatYearMonth(yearMonth)} 진행 상태</h3>
@@ -461,7 +486,6 @@ export default function MyReportPage() {
             </div>
           )}
 
-          {/* 관리자 처리 지연 배너 */}
           <AdminPendingBanner
             adminStatus={getAdminSettlementStatus(yearMonth, report.payment_status as SettlementPaymentStatus)}
           />
@@ -474,90 +498,126 @@ export default function MyReportPage() {
         </Card>
       )}
 
-      {/* 쿠팡 캡처 가이드 */}
-      <Card>
-        <button
-          type="button"
-          onClick={() => setGuideOpen(!guideOpen)}
-          className="w-full flex items-center justify-between text-left"
-        >
-          <h3 className="text-sm font-bold text-gray-900">쿠팡 매출 캡처 가이드</h3>
-          {guideOpen ? (
-            <ChevronUp className="w-5 h-5 text-gray-400" />
-          ) : (
-            <ChevronDown className="w-5 h-5 text-gray-400" />
-          )}
-        </button>
+      {/* 5. API 미연동 시 → 온보딩 배너 */}
+      {!apiConnected && isEditable && !manualMode && (
+        <Card>
+          <div className="text-center py-4">
+            <div className="inline-flex items-center justify-center w-14 h-14 bg-green-100 rounded-full mb-4">
+              <Plug className="w-7 h-7 text-green-600" />
+            </div>
+            <h2 className="text-lg font-bold text-gray-900 mb-2">쿠팡 Open API를 연동하세요</h2>
+            <p className="text-sm text-gray-500 mb-5 max-w-md mx-auto">
+              API를 연동하면 매출을 자동으로 가져오고, 더 빠른 정산을 받을 수 있습니다.
+            </p>
 
-        {guideOpen && (
-          <div className="mt-4 space-y-3">
-            {[
-              { step: 1, title: 'Wing 로그인', desc: 'wing.coupang.com에 로그인합니다.' },
-              { step: 2, title: '정산관리 이동', desc: '좌측 메뉴에서 "정산관리"를 클릭합니다.' },
-              { step: 3, title: '기간 조회', desc: '해당 월의 정산 내역을 조회합니다.' },
-              { step: 4, title: '화면 캡처', desc: '매출 합계가 보이는 화면을 캡처합니다.' },
-              { step: 5, title: '업로드', desc: '아래 매출 정산 폼에서 캡처 이미지를 업로드합니다.' },
-            ].map((item) => (
-              <div key={item.step} className="flex items-start gap-3">
-                <span className="flex-shrink-0 w-6 h-6 bg-[#E31837] text-white text-xs font-bold rounded-full flex items-center justify-center">
-                  {item.step}
-                </span>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{item.title}</p>
-                  <p className="text-xs text-gray-500">{item.desc}</p>
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6 max-w-lg mx-auto">
+              <div className="flex items-center gap-2 p-3 bg-green-50 rounded-lg">
+                <Zap className="w-4 h-4 text-green-600 shrink-0" />
+                <span className="text-xs text-green-800 font-medium">자동 매출 조회</span>
               </div>
-            ))}
-          </div>
-        )}
-      </Card>
+              <div className="flex items-center gap-2 p-3 bg-green-50 rounded-lg">
+                <Shield className="w-4 h-4 text-green-600 shrink-0" />
+                <span className="text-xs text-green-800 font-medium">API 검증 배지</span>
+              </div>
+              <div className="flex items-center gap-2 p-3 bg-green-50 rounded-lg">
+                <ArrowRight className="w-4 h-4 text-green-600 shrink-0" />
+                <span className="text-xs text-green-800 font-medium">빠른 정산</span>
+              </div>
+            </div>
 
-      {/* API 매출 가져오기 */}
+            <a
+              href="/my/settings"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition"
+            >
+              <Settings className="w-4 h-4" />
+              API 키 설정하러 가기
+            </a>
+
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => setManualMode(true)}
+                className="text-sm text-gray-500 hover:text-gray-700 underline underline-offset-2"
+              >
+                수동으로 입력하기
+              </button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* 6. API 연동됨 → 자동 매출 조회 카드 */}
       {apiConnected && isEditable && (
         <Card>
-          <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="space-y-4">
             <div className="flex items-center gap-2">
               <Plug className="w-5 h-5 text-green-600" />
               <div>
                 <p className="text-sm font-medium text-gray-900">쿠팡 Open API 연동됨</p>
-                <p className="text-xs text-gray-500">API에서 매출 데이터를 자동으로 가져올 수 있습니다.</p>
+                <p className="text-xs text-gray-500">버튼을 눌러 {formatYearMonth(yearMonth)} 매출을 자동으로 가져오세요.</p>
               </div>
             </div>
+
+            {/* API 조회 완료 시: 매출액 + 배지 */}
+            {apiVerified && revenue > 0 && (
+              <div className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-green-600" />
+                  <span className="text-sm font-medium text-green-800">API 검증 매출</span>
+                </div>
+                <span className="text-lg font-bold text-green-800">{formatKRW(revenue)}</span>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={handleApiFetch}
               disabled={apiFetching}
-              className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition disabled:opacity-50"
             >
               {apiFetching ? (
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
                 <Plug className="w-4 h-4" />
               )}
-              {apiFetching ? '조회 중...' : 'API에서 매출 가져오기'}
+              {apiFetching ? '매출 조회 중...' : '매출 가져오기'}
             </button>
+
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={() => setManualMode(true)}
+                className="text-sm text-gray-500 hover:text-gray-700 underline underline-offset-2"
+              >
+                수동으로 수정하기
+              </button>
+            </div>
           </div>
         </Card>
       )}
 
-      {/* 매출 입력 폼 */}
-      <Card>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-gray-900">
-            {formatYearMonth(yearMonth)} 매출 정산
-          </h2>
-          {apiVerified && (
-            <div className="flex items-center gap-1.5 px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
-              <Shield className="w-3.5 h-3.5" />
-              API 검증됨
+      {/* 7. 수동 매출 입력 (manualMode일 때만) */}
+      {manualMode && isEditable && (
+        <Card>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-gray-600" />
+                <h2 className="text-sm font-bold text-gray-900">
+                  {apiConnected ? '매출 수동 수정' : '매출 수동 입력'}
+                </h2>
+              </div>
+              {apiConnected && (
+                <button
+                  type="button"
+                  onClick={() => setManualMode(false)}
+                  className="text-xs text-green-600 hover:text-green-700 font-medium"
+                >
+                  API 조회로 돌아가기
+                </button>
+              )}
             </div>
-          )}
-        </div>
 
-        {loading ? (
-          <div className="py-8 text-center text-gray-400">불러오는 중...</div>
-        ) : (
-          <div className="space-y-5">
             <NumberInput
               id="revenue"
               label="이번 달 총 매출"
@@ -568,64 +628,86 @@ export default function MyReportPage() {
               disabled={!isEditable}
             />
 
-            {/* 비용 섹션 */}
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setCostOpen(!costOpen)}
-                className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 transition"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-700">비용 내역</span>
-                  {hasCosts && (
-                    <span className="text-xs text-gray-500">
-                      (합계: {formatKRW(totalCosts(costs))})
-                    </span>
-                  )}
-                </div>
-                {costOpen ? (
-                  <ChevronUp className="w-4 h-4 text-gray-400" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-gray-400" />
-                )}
-              </button>
-
-              {costOpen && (
-                <div className="p-4 space-y-3 border-t border-gray-200">
-                  {COST_CATEGORIES.filter((cat) => cat.key !== MANUAL_COST_KEY).map((cat) => {
-                    const rateInfo = DEFAULT_COST_RATES[cat.key];
-                    const val = costs[cat.key];
-                    return (
-                      <div key={cat.key} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
-                        <div>
-                          <span className="text-sm text-gray-700">{cat.label}</span>
-                          <span className="text-xs text-gray-400 ml-2">
-                            매출 × {Math.round(rateInfo.rate * 100)}%
-                          </span>
-                        </div>
-                        <span className="text-sm font-medium text-gray-900">
-                          {revenue > 0 ? formatKRW(val) : '-'}
-                        </span>
-                      </div>
-                    );
-                  })}
-
-                  <div className="pt-2 border-t border-gray-200">
-                    <NumberInput
-                      id="advertisingCost"
-                      label="광고비 (직접 입력)"
-                      value={advertisingCost}
-                      onChange={setAdvertisingCost}
-                      placeholder="0"
-                      suffix="원"
-                      disabled={!isEditable}
-                    />
+            {/* 수동 입력 시 스크린샷 필수 (API 미검증 상태) */}
+            {!apiVerified && (
+              <div className="space-y-3">
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-amber-800">매출 스크린샷 필수</p>
+                      <ul className="text-xs text-amber-700 mt-1 space-y-0.5 list-disc list-inside">
+                        <li>쿠팡 Wing 정산관리에서 캡처해주세요</li>
+                        <li>매출 합계가 보이도록 캡처해주세요</li>
+                        <li>AI 생성 이미지는 제출할 수 없습니다</li>
+                      </ul>
+                    </div>
                   </div>
                 </div>
-              )}
+
+                <FileUpload
+                  label="매출 스크린샷 (Wing 정산 캡처)"
+                  onFileSelect={handleFileSelect}
+                  onClear={handleFileClear}
+                  previewUrl={previewUrl}
+                  warning={revenueExifResult && !revenueExifResult.isValid ? revenueExifResult.warningMessage || undefined : undefined}
+                  successMessage={revenueExifResult?.isValid ? '스크린샷 확인 완료' : undefined}
+                  error={revenueExifChecking ? '스크린샷 검증 중...' : undefined}
+                />
+              </div>
+            )}
+
+            {/* API 검증됨 상태에서 수동 수정 시 스크린샷 선택 */}
+            {apiVerified && (
+              <div className="space-y-3">
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <Shield className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-green-800">API로 매출이 검증되었습니다</p>
+                      <p className="text-xs text-green-700 mt-0.5">스크린샷은 선택사항입니다.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <FileUpload
+                  label="매출 스크린샷 (선택사항)"
+                  onFileSelect={handleFileSelect}
+                  onClear={handleFileClear}
+                  previewUrl={previewUrl}
+                  warning={revenueExifResult && !revenueExifResult.isValid ? revenueExifResult.warningMessage || undefined : undefined}
+                  successMessage={revenueExifResult?.isValid ? '스크린샷 확인 완료' : undefined}
+                  error={revenueExifChecking ? '스크린샷 검증 중...' : undefined}
+                />
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* 8. 광고비 입력 (항상 표시) */}
+      {isEditable && (
+        <Card>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Calculator className="w-5 h-5 text-gray-600" />
+              <div>
+                <h2 className="text-sm font-bold text-gray-900">광고비 입력</h2>
+                <p className="text-xs text-gray-500">API로 자동 조회되지 않으므로 직접 입력해주세요.</p>
+              </div>
             </div>
 
-            {/* 광고비 스크린샷 */}
+            <NumberInput
+              id="advertisingCost"
+              label="광고비"
+              value={advertisingCost}
+              onChange={setAdvertisingCost}
+              placeholder="0"
+              suffix="원"
+              disabled={!isEditable}
+            />
+
+            {/* 광고비 > 0이면 스크린샷 업로드 영역 표시 */}
             {advertisingCost > 0 && (
               <div className="space-y-3">
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
@@ -653,127 +735,166 @@ export default function MyReportPage() {
                 />
               </div>
             )}
+          </div>
+        </Card>
+      )}
 
-            {/* 실시간 정산 내역 */}
-            {revenue > 0 && (
-              <div className="bg-[#FFF5F5] border border-[#E31837]/20 rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <Calculator className="w-4 h-4 text-[#E31837]" />
-                  <span className="text-sm font-medium text-[#E31837]">정산 내역</span>
-                </div>
-                <div className="space-y-1 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">총 매출</span>
-                    <span className="font-medium text-gray-900">{formatKRW(revenue)}</span>
-                  </div>
-                  {COST_CATEGORIES.map((cat) => {
-                    const val = costs[cat.key];
-                    if (val <= 0) return null;
-                    const isAuto = cat.key !== MANUAL_COST_KEY;
-                    const rateInfo = isAuto ? DEFAULT_COST_RATES[cat.key] : null;
-                    return (
-                      <div key={cat.key} className="flex justify-between">
-                        <span className="text-gray-500">
-                          ─ {cat.label}
-                          {rateInfo && (
-                            <span className="text-gray-400 text-xs ml-1">({Math.round(rateInfo.rate * 100)}%)</span>
-                          )}
-                        </span>
-                        <span className="text-gray-500">-{formatKRW(val)}</span>
-                      </div>
-                    );
-                  })}
-                  <div className="border-t border-[#E31837]/20 pt-2 mt-2 space-y-1">
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-700">순수익</span>
-                      <span className={`font-bold ${netProfit > 0 ? 'text-gray-900' : 'text-red-600'}`}>
-                        {formatKRW(netProfit)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium text-[#E31837]">
-                        송금액 ({sharePercentage}%)
-                      </span>
-                      <span className="text-xl font-bold text-[#E31837]">
-                        {formatKRW(depositAmount)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+      {/* 9. 비용 내역 (접이식, 자동 계산 항목) */}
+      {revenue > 0 && (
+        <Card>
+          <button
+            type="button"
+            onClick={() => setCostOpen(!costOpen)}
+            className="w-full flex items-center justify-between text-left"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-gray-900">비용 내역</span>
+              {hasCosts && (
+                <span className="text-xs text-gray-500">
+                  (합계: {formatKRW(totalCosts(costs))})
+                </span>
+              )}
+            </div>
+            {costOpen ? (
+              <ChevronUp className="w-4 h-4 text-gray-400" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-gray-400" />
             )}
+          </button>
 
-            {/* 매출 스크린샷 */}
-            <div className="space-y-3">
-              {apiVerified ? (
-                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <div className="flex items-start gap-2">
-                    <Shield className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+          {costOpen && (
+            <div className="mt-4 space-y-3">
+              {COST_CATEGORIES.filter((cat) => cat.key !== MANUAL_COST_KEY).map((cat) => {
+                const rateInfo = DEFAULT_COST_RATES[cat.key];
+                const val = costs[cat.key];
+                return (
+                  <div key={cat.key} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
                     <div>
-                      <p className="text-sm font-medium text-green-800">API로 매출이 검증되었습니다</p>
-                      <p className="text-xs text-green-700 mt-0.5">스크린샷은 선택사항입니다. 필요시 추가로 업로드할 수 있습니다.</p>
+                      <span className="text-sm text-gray-700">{cat.label}</span>
+                      <span className="text-xs text-gray-400 ml-2">
+                        매출 × {Math.round(rateInfo.rate * 100)}%
+                      </span>
                     </div>
+                    <span className="text-sm font-medium text-gray-900">
+                      {revenue > 0 ? formatKRW(val) : '-'}
+                    </span>
                   </div>
-                </div>
-              ) : (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium text-amber-800">매출 스크린샷 주의사항</p>
-                      <ul className="text-xs text-amber-700 mt-1 space-y-0.5 list-disc list-inside">
-                        <li>쿠팡 Wing 정산관리에서 캡처해주세요</li>
-                        <li>매출 합계가 보이도록 캡처해주세요</li>
-                        <li>AI 생성 이미지는 제출할 수 없습니다</li>
-                      </ul>
-                    </div>
-                  </div>
+                );
+              })}
+
+              {advertisingCost > 0 && (
+                <div className="flex items-center justify-between py-2 px-3 bg-amber-50 rounded-lg">
+                  <span className="text-sm text-gray-700">광고비 (직접 입력)</span>
+                  <span className="text-sm font-medium text-gray-900">{formatKRW(advertisingCost)}</span>
                 </div>
               )}
-
-              <FileUpload
-                label={apiVerified ? '매출 스크린샷 (선택사항)' : '매출 스크린샷 (Wing 정산 캡처)'}
-                onFileSelect={handleFileSelect}
-                onClear={handleFileClear}
-                previewUrl={previewUrl}
-                warning={revenueExifResult && !revenueExifResult.isValid ? revenueExifResult.warningMessage || undefined : undefined}
-                successMessage={revenueExifResult?.isValid ? '스크린샷 확인 완료' : undefined}
-                error={revenueExifChecking ? '스크린샷 검증 중...' : undefined}
-              />
             </div>
+          )}
+        </Card>
+      )}
 
-            {message && (
-              <div
-                className={`px-4 py-3 rounded-lg text-sm ${
-                  message.type === 'success'
-                    ? 'bg-green-50 text-green-700'
-                    : 'bg-red-50 text-red-600'
-                }`}
-                role="alert"
-              >
-                {message.text}
+      {/* 10. 정산 내역 요약 */}
+      {revenue > 0 && (
+        <Card>
+          <div className="flex items-center gap-2 mb-3">
+            <Calculator className="w-4 h-4 text-[#E31837]" />
+            <span className="text-sm font-medium text-[#E31837]">정산 내역</span>
+            {apiVerified && (
+              <div className="flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                <Shield className="w-3 h-3" />
+                API 검증됨
               </div>
             )}
-
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={submitLoading || !isEditable || !eligible}
-              className="w-full py-3 bg-[#E31837] text-white font-semibold rounded-lg hover:bg-[#c01530] transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              <Send className="w-4 h-4" />
-              {!eligible
-                ? '정산 대상이 아닌 월입니다'
-                : submitLoading
-                  ? '제출 중...'
-                  : report
-                    ? isEditable ? '보고 수정' : '이미 확인된 보고입니다'
-                    : '매출 정산 제출'
-              }
-            </button>
           </div>
-        )}
-      </Card>
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-600">총 매출</span>
+              <span className="font-medium text-gray-900">{formatKRW(revenue)}</span>
+            </div>
+            {COST_CATEGORIES.map((cat) => {
+              const val = costs[cat.key];
+              if (val <= 0) return null;
+              const isAuto = cat.key !== MANUAL_COST_KEY;
+              const rateInfo = isAuto ? DEFAULT_COST_RATES[cat.key] : null;
+              return (
+                <div key={cat.key} className="flex justify-between">
+                  <span className="text-gray-500">
+                    ─ {cat.label}
+                    {rateInfo && (
+                      <span className="text-gray-400 text-xs ml-1">({Math.round(rateInfo.rate * 100)}%)</span>
+                    )}
+                  </span>
+                  <span className="text-gray-500">-{formatKRW(val)}</span>
+                </div>
+              );
+            })}
+            <div className="border-t border-[#E31837]/20 pt-2 mt-2 space-y-1">
+              <div className="flex justify-between">
+                <span className="font-medium text-gray-700">순수익</span>
+                <span className={`font-bold ${netProfit > 0 ? 'text-gray-900' : 'text-red-600'}`}>
+                  {formatKRW(netProfit)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="font-medium text-gray-700">
+                  공급가액 (수수료 {sharePercentage}%)
+                </span>
+                <span className="font-bold text-gray-900">
+                  {formatKRW(vatCalc.supplyAmount)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">
+                  부가가치세 (10%)
+                </span>
+                <span className="text-gray-700">
+                  {formatKRW(vatCalc.vatAmount)}
+                </span>
+              </div>
+              <div className="flex justify-between border-t border-[#E31837]/20 pt-1 mt-1">
+                <span className="font-medium text-[#E31837]">
+                  납부 합계 (공급가액+VAT)
+                </span>
+                <span className="text-xl font-bold text-[#E31837]">
+                  {formatKRW(vatCalc.totalWithVat)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* 메시지 */}
+      {message && (
+        <div
+          className={`px-4 py-3 rounded-lg text-sm ${
+            message.type === 'success'
+              ? 'bg-green-50 text-green-700'
+              : 'bg-red-50 text-red-600'
+          }`}
+          role="alert"
+        >
+          {message.text}
+        </div>
+      )}
+
+      {/* 11. 제출 버튼 */}
+      <button
+        type="button"
+        onClick={handleSubmit}
+        disabled={submitLoading || !isEditable || !eligible}
+        className="w-full py-3 bg-[#E31837] text-white font-semibold rounded-lg hover:bg-[#c01530] transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+      >
+        <Send className="w-4 h-4" />
+        {!eligible
+          ? '정산 대상이 아닌 월입니다'
+          : submitLoading
+            ? '제출 중...'
+            : report
+              ? isEditable ? '보고 수정' : '이미 확인된 보고입니다'
+              : '매출 정산 제출'
+        }
+      </button>
     </div>
   );
 }
