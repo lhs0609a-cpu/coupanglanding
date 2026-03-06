@@ -4,7 +4,9 @@ import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { PtUser, MonthlyReport } from '@/lib/supabase/types';
 import { getReportTargetMonth, getSettlementDDay, getSettlementStatus, isEligibleForMonth } from '@/lib/utils/settlement';
-import OnboardingChecklist from '@/components/onboarding/OnboardingChecklist';
+import EducationProgressWidget from '@/components/education/EducationProgressWidget';
+import TrendingKeywordsWidget from '@/components/my/TrendingKeywordsWidget';
+import EmergencyAlertWidget from '@/components/my/EmergencyAlertWidget';
 import SettlementDDayBanner from '@/components/settlement/SettlementDDayBanner';
 import Card from '@/components/ui/Card';
 import { ClipboardList, GraduationCap, ArrowRight } from 'lucide-react';
@@ -93,7 +95,7 @@ export default function MyDashboardPage() {
 
       <div className="flex items-center gap-3">
         <ClipboardList className="w-6 h-6 text-[#E31837]" />
-        <h1 className="text-2xl font-bold text-gray-900">온보딩 체크리스트</h1>
+        <h1 className="text-2xl font-bold text-gray-900">대시보드</h1>
       </div>
 
       {/* 트레이너 바로가기 */}
@@ -116,8 +118,14 @@ export default function MyDashboardPage() {
         </Link>
       )}
 
+      {/* 긴급 대응 위젯 */}
+      <EmergencyAlertWidget />
+
+      {/* 트렌드 키워드 위젯 */}
+      <TrendingKeywordsWidget />
+
       {ptUser ? (
-        <OnboardingChecklist ptUserId={ptUser.id} />
+        <EducationProgressWidget ptUserId={ptUser.id} />
       ) : (
         <Card>
           <div className="py-8 text-center text-gray-500">

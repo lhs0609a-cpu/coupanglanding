@@ -43,6 +43,15 @@ export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   revoke_trainer: '트레이너 취소',
   add_trainer: '트레이너 추가',
   link_trainee: '교육생 연결',
+  request_withdrawal: '탈퇴 요청',
+  approve_withdrawal: '탈퇴 승인',
+  reject_withdrawal: '탈퇴 반려',
+  report_incident: '인시던트 신고',
+  resolve_incident: '인시던트 해결',
+  escalate_incident: '인시던트 에스컬레이션',
+  review_incident: '인시던트 리뷰',
+  add_blacklist: '블랙리스트 추가',
+  remove_blacklist: '블랙리스트 삭제',
 };
 
 /** 대상 타입 한글 라벨 */
@@ -59,4 +68,6 @@ export const TARGET_TYPE_LABELS: Record<string, string> = {
   partner: '파트너',
   trainer: '트레이너',
   trainer_trainee: '교육생 연결',
+  incident: '인시던트',
+  brand_blacklist: '브랜드 블랙리스트',
 };

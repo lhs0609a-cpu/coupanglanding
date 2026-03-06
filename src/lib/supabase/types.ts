@@ -7,10 +7,17 @@ export type ApplicationStatus = 'new' | 'contacted' | 'consulting' | 'converted'
 export type ContractStatus = 'draft' | 'sent' | 'signed' | 'expired' | 'terminated';
 export type OnboardingStepStatus = 'pending' | 'submitted' | 'approved' | 'rejected';
 export type OnboardingVerificationType = 'self_check' | 'evidence_upload' | 'auto_linked' | 'quiz';
-export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system';
-export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee';
+export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system' | 'emergency';
+export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist';
+export type WithdrawalStatus = 'pending' | 'approved' | 'rejected';
 export type TrainerStatus = 'pending' | 'approved' | 'revoked';
 export type TrainerEarningStatus = 'pending' | 'requested' | 'deposited' | 'confirmed';
+export type TrendSource = 'manual' | 'naver';
+export type IncidentType = 'brand_complaint' | 'account_penalty';
+export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical';
+export type IncidentStatus = 'reported' | 'in_progress' | 'resolved' | 'escalated' | 'closed';
+export type BlacklistRiskLevel = 'low' | 'warning' | 'high' | 'critical';
+export type ComplaintType = 'trademark' | 'copyright' | 'authentic_cert' | 'parallel_import' | 'price_policy' | 'other';
 
 export interface Profile {
   id: string;
@@ -173,6 +180,14 @@ export interface Contract {
   product_deactivation_confirmed: boolean;
   product_deactivation_evidence_url: string | null;
   termination_acknowledged_at: string | null;
+  // 탈퇴 요청 관련 필드
+  withdrawal_requested_at: string | null;
+  withdrawal_reason: string | null;
+  withdrawal_evidence_url: string | null;
+  withdrawal_status: WithdrawalStatus | null;
+  withdrawal_rejected_reason: string | null;
+  withdrawal_approved_at: string | null;
+  withdrawal_reviewed_by: string | null;
   created_at: string;
   updated_at: string;
   // Joined fields
@@ -277,6 +292,70 @@ export interface TrainerEarning {
   // Joined fields
   trainer?: Trainer;
   trainee_pt_user?: PtUser;
+}
+
+export interface NaverKeywordData {
+  relKeyword: string;
+  monthlyPcQcCnt: number;
+  monthlyMobileQcCnt: number;
+  monthlyAvePcClkCnt: number;
+  monthlyAveMobileClkCnt: number;
+  compIdx: string;
+  plAvgDepth: number;
+}
+
+export interface TrendingKeyword {
+  id: string;
+  keyword: string;
+  category: string;
+  source: TrendSource;
+  trend_score: number;
+  naver_category_id: string | null;
+  naver_trend_data: NaverKeywordData | null;
+  naver_fetched_at: string | null;
+  memo: string | null;
+  is_active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BrandBlacklist {
+  id: string;
+  brand_name: string;
+  brand_name_en: string | null;
+  category: string | null;
+  risk_level: BlacklistRiskLevel;
+  complaint_type: ComplaintType;
+  description: string | null;
+  reported_count: number;
+  added_by: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Incident {
+  id: string;
+  pt_user_id: string;
+  incident_type: IncidentType;
+  sub_type: string;
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  title: string;
+  description: string | null;
+  brand_name: string | null;
+  product_name: string | null;
+  coupang_reference: string | null;
+  actions_taken: string | null;
+  resolution_note: string | null;
+  resolved_at: string | null;
+  admin_note: string | null;
+  reviewed_by: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  pt_user?: PtUser;
 }
 
 export interface Database {

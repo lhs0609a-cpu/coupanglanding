@@ -10,7 +10,8 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import SignaturePad from '@/components/ui/SignaturePad';
 import FileUpload from '@/components/ui/FileUpload';
-import { FileText, CheckCircle, Clock, AlertTriangle, Calendar, Upload } from 'lucide-react';
+import WithdrawalWizard from '@/components/my/WithdrawalWizard';
+import { FileText, CheckCircle, Clock, AlertTriangle, Calendar, Upload, LogOut } from 'lucide-react';
 import type { Contract } from '@/lib/supabase/types';
 
 function ContractContent({ vars }: { vars: ContractVariables }) {
@@ -65,6 +66,8 @@ export default function MyContractPage() {
   const [evidencePreviewUrl, setEvidencePreviewUrl] = useState<string | null>(null);
   const [evidenceUploading, setEvidenceUploading] = useState(false);
   const [terminationMessage, setTerminationMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  // 탈퇴 요청 관련 state
+  const [showWithdrawalWizard, setShowWithdrawalWizard] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -350,30 +353,92 @@ export default function MyContractPage() {
               )}
 
               {activeContract.status === 'signed' && (
-                <div className="mt-6 p-5 bg-green-50 border border-green-100 rounded-xl">
-                  <div className="flex items-center gap-3">
-                    <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
-                    <div>
-                      <p className="font-semibold text-green-800">계약서 서명이 완료되었습니다.</p>
-                      <p className="text-sm text-green-600">
-                        서명일: {activeContract.signed_at ? formatDate(activeContract.signed_at) : ''}
-                        {activeContract.signed_ip && ` | IP: ${activeContract.signed_ip}`}
-                      </p>
+                <>
+                  <div className="mt-6 p-5 bg-green-50 border border-green-100 rounded-xl">
+                    <div className="flex items-center gap-3">
+                      <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
+                      <div>
+                        <p className="font-semibold text-green-800">계약서 서명이 완료되었습니다.</p>
+                        <p className="text-sm text-green-600">
+                          서명일: {activeContract.signed_at ? formatDate(activeContract.signed_at) : ''}
+                          {activeContract.signed_ip && ` | IP: ${activeContract.signed_ip}`}
+                        </p>
+                      </div>
                     </div>
+                    {activeContract.signature_data && (
+                      <div className="mt-4 pt-4 border-t border-green-200">
+                        <p className="text-xs text-green-600 mb-2">자필 서명</p>
+                        <div className="inline-block border border-green-200 rounded-lg bg-white p-2">
+                          <img
+                            src={activeContract.signature_data}
+                            alt="자필 서명"
+                            className="max-w-[200px] h-auto"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  {activeContract.signature_data && (
-                    <div className="mt-4 pt-4 border-t border-green-200">
-                      <p className="text-xs text-green-600 mb-2">자필 서명</p>
-                      <div className="inline-block border border-green-200 rounded-lg bg-white p-2">
-                        <img
-                          src={activeContract.signature_data}
-                          alt="자필 서명"
-                          className="max-w-[200px] h-auto"
-                        />
+
+                  {/* 탈퇴 요청 상태 */}
+                  {activeContract.withdrawal_status === 'pending' && (
+                    <div className="mt-4 p-4 bg-orange-50 border border-orange-200 rounded-xl">
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-5 h-5 text-orange-600 shrink-0" />
+                        <div>
+                          <p className="text-sm font-semibold text-orange-800">탈퇴 요청이 처리 중입니다</p>
+                          <p className="text-xs text-orange-600 mt-0.5">
+                            요청일: {activeContract.withdrawal_requested_at ? formatDate(activeContract.withdrawal_requested_at) : ''} | 관리자 승인 대기중
+                          </p>
+                        </div>
                       </div>
                     </div>
                   )}
-                </div>
+
+                  {activeContract.withdrawal_status === 'rejected' && (
+                    <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-red-800">탈퇴 요청이 반려되었습니다</p>
+                          {activeContract.withdrawal_rejected_reason && (
+                            <p className="text-xs text-red-600 mt-1">
+                              사유: {activeContract.withdrawal_rejected_reason}
+                            </p>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setShowWithdrawalWizard(true)}
+                            className="mt-2 text-xs text-red-700 underline hover:text-red-800"
+                          >
+                            다시 요청하기
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 탈퇴 요청 버튼 (pending이 아닐 때만) */}
+                  {activeContract.withdrawal_status !== 'pending' && (
+                    <div className="mt-4 text-center">
+                      <button
+                        type="button"
+                        onClick={() => setShowWithdrawalWizard(true)}
+                        className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        계약 탈퇴 요청
+                      </button>
+                    </div>
+                  )}
+
+                  {/* 탈퇴 위자드 */}
+                  <WithdrawalWizard
+                    isOpen={showWithdrawalWizard}
+                    onClose={() => setShowWithdrawalWizard(false)}
+                    onSubmitted={() => fetchContracts()}
+                    contract={activeContract}
+                  />
+                </>
               )}
             </Card>
           )}

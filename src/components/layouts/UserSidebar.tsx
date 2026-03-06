@@ -2,14 +2,17 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X, School, Flame, ShieldAlert } from 'lucide-react';
 import type { SettlementBadgeData } from './DashboardLayout';
 
 const baseNavItems = [
   { href: '/my/dashboard', label: '대시보드', icon: LayoutDashboard },
   { href: '/my/report', label: '매출 정산', icon: TrendingUp },
   { href: '/my/history', label: '보고 내역', icon: History },
+  { href: '/my/trends', label: '트렌드', icon: Flame },
   { href: '/my/contract', label: '계약서', icon: FileText },
+  { href: '/my/emergency', label: '긴급 대응', icon: ShieldAlert },
+  { href: '/my/education', label: '교육', icon: School },
   { href: '/my/guides', label: '운영 가이드', icon: BookOpen },
   { href: '/my/settings', label: '계정 설정', icon: Settings },
 ];
@@ -27,7 +30,7 @@ export default function UserSidebar({ isOpen, onClose, isTrainer, settlementBadg
   const pathname = usePathname();
 
   const navItems = isTrainer
-    ? [...baseNavItems.slice(0, 5), trainerNavItem, ...baseNavItems.slice(5)]
+    ? [...baseNavItems.slice(0, 6), trainerNavItem, ...baseNavItems.slice(6)]
     : baseNavItems;
 
   // D-Day ≤ 7이고 미제출 시 빨간 뱃지 표시

@@ -283,6 +283,105 @@ export async function notifyTrainerApproved(
   });
 }
 
+/** 파트너 탈퇴 요청 알림 (관리자에게) */
+export async function notifyWithdrawalRequested(
+  supabase: SupabaseClient,
+  adminId: string,
+  partnerName: string,
+) {
+  return createNotification(supabase, {
+    userId: adminId,
+    type: 'contract',
+    title: '파트너 탈퇴 요청',
+    message: `"${partnerName}" 파트너가 계약 탈퇴를 요청했습니다. 심사가 필요합니다.`,
+    link: '/admin/contracts',
+  });
+}
+
+/** 탈퇴 승인 알림 (파트너에게) */
+export async function notifyWithdrawalApproved(
+  supabase: SupabaseClient,
+  userId: string,
+  deadline: string,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'contract',
+    title: '탈퇴 요청이 승인되었습니다',
+    message: `계약 탈퇴가 승인되었습니다. ${deadline}까지 모든 상품을 비활성화해주세요.`,
+    link: '/my/contract',
+  });
+}
+
+/** 탈퇴 반려 알림 (파트너에게) */
+export async function notifyWithdrawalRejected(
+  supabase: SupabaseClient,
+  userId: string,
+  reason: string,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'contract',
+    title: '탈퇴 요청이 반려되었습니다',
+    message: `탈퇴 요청이 반려되었습니다. 사유: ${reason}`,
+    link: '/my/contract',
+  });
+}
+
+/** 인시던트 신고 알림 (관리자에게) */
+export async function notifyIncidentReported(
+  supabase: SupabaseClient,
+  adminId: string,
+  partnerName: string,
+  incidentTitle: string,
+) {
+  return createNotification(supabase, {
+    userId: adminId,
+    type: 'emergency',
+    title: '긴급 인시던트 신고',
+    message: `"${partnerName}" 파트너가 "${incidentTitle}" 인시던트를 신고했습니다.`,
+    link: '/admin/emergency',
+  });
+}
+
+/** 인시던트 상태 변경 알림 (파트너에게) */
+export async function notifyIncidentStatusChange(
+  supabase: SupabaseClient,
+  userId: string,
+  incidentTitle: string,
+  newStatus: string,
+  note?: string,
+) {
+  const statusLabels: Record<string, string> = {
+    in_progress: '처리 중',
+    resolved: '해결됨',
+    escalated: '에스컬레이션',
+    closed: '종료',
+  };
+  return createNotification(supabase, {
+    userId,
+    type: 'emergency',
+    title: `인시던트 상태 변경: ${statusLabels[newStatus] || newStatus}`,
+    message: `"${incidentTitle}" 인시던트가 ${statusLabels[newStatus] || newStatus} 상태로 변경되었습니다.${note ? ` 메모: ${note}` : ''}`,
+    link: '/my/emergency',
+  });
+}
+
+/** 블랙리스트 추가 알림 (전체 파트너에게) */
+export async function notifyBlacklistAdded(
+  supabase: SupabaseClient,
+  userId: string,
+  brandName: string,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'emergency',
+    title: '브랜드 블랙리스트 추가',
+    message: `"${brandName}" 브랜드가 블랙리스트에 추가되었습니다. 해당 브랜드 상품 판매에 주의해주세요.`,
+    link: '/my/emergency',
+  });
+}
+
 /** 상품 철거 증빙 제출 알림 (관리자에게) */
 export async function notifyDeactivationSubmitted(
   supabase: SupabaseClient,

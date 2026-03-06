@@ -82,6 +82,18 @@ export const CONTRACT_STATUS_COLORS: Record<string, string> = {
   terminated: 'bg-red-100 text-red-700',
 };
 
+export const WITHDRAWAL_STATUS_LABELS: Record<string, string> = {
+  pending: '탈퇴 심사중',
+  approved: '탈퇴 승인',
+  rejected: '탈퇴 반려',
+};
+
+export const WITHDRAWAL_STATUS_COLORS: Record<string, string> = {
+  pending: 'bg-orange-100 text-orange-700',
+  approved: 'bg-red-100 text-red-700',
+  rejected: 'bg-gray-100 text-gray-600',
+};
+
 // 온보딩 단계 정의
 import type { OnboardingStepDefinition } from '@/lib/supabase/types';
 
@@ -286,6 +298,102 @@ export const API_STATUS_COLORS: Record<string, string> = {
   not_connected: 'bg-gray-100 text-gray-500',
   expiring_soon: 'bg-yellow-100 text-yellow-700',
   expired: 'bg-red-100 text-red-700',
+};
+
+// 트렌드 키워드
+export const TREND_CATEGORIES = [
+  '패션의류', '패션잡화', '화장품/미용', '디지털/가전',
+  '가구/인테리어', '출산/육아', '식품', '스포츠/레저',
+  '생활/건강', '여가/생활편의', '기타',
+] as const;
+
+export const TREND_SCORE_COLORS: Record<string, string> = {
+  hot: 'text-red-600',
+  rising: 'text-orange-500',
+  normal: 'text-gray-500',
+};
+
+// 긴급 대응 - 인시던트
+export const INCIDENT_TYPE_LABELS: Record<string, string> = {
+  brand_complaint: '브랜드 클레임',
+  account_penalty: '계정 페널티',
+};
+
+export const INCIDENT_SUBTYPE_LABELS: Record<string, string> = {
+  trademark: '상표권 침해',
+  copyright: '저작권 침해',
+  authentic_cert: '정품 인증 요구',
+  parallel_import: '병행수입 제한',
+  price_policy: '가격 정책 위반',
+  delivery_delay: '배송 지연',
+  cs_nonresponse: 'CS 미응답',
+  false_advertising: '허위/과장 광고',
+  product_info_mismatch: '상품 정보 불일치',
+  temp_suspension: '계정 일시 정지',
+  permanent_suspension: '계정 영구 정지',
+};
+
+export const INCIDENT_SEVERITY_LABELS: Record<string, string> = {
+  low: '낮음',
+  medium: '보통',
+  high: '높음',
+  critical: '긴급',
+};
+
+export const INCIDENT_SEVERITY_COLORS: Record<string, string> = {
+  low: 'bg-gray-100 text-gray-700',
+  medium: 'bg-yellow-100 text-yellow-700',
+  high: 'bg-orange-100 text-orange-700',
+  critical: 'bg-red-100 text-red-700',
+};
+
+export const INCIDENT_STATUS_LABELS: Record<string, string> = {
+  reported: '신고됨',
+  in_progress: '처리 중',
+  resolved: '해결됨',
+  escalated: '에스컬레이션',
+  closed: '종료',
+};
+
+export const INCIDENT_STATUS_COLORS: Record<string, string> = {
+  reported: 'bg-blue-100 text-blue-700',
+  in_progress: 'bg-yellow-100 text-yellow-700',
+  resolved: 'bg-green-100 text-green-700',
+  escalated: 'bg-red-100 text-red-700',
+  closed: 'bg-gray-100 text-gray-500',
+};
+
+// 긴급 대응 - 블랙리스트
+export const BLACKLIST_RISK_LABELS: Record<string, string> = {
+  low: '낮음',
+  warning: '주의',
+  high: '높음',
+  critical: '매우 높음',
+};
+
+export const BLACKLIST_RISK_COLORS: Record<string, string> = {
+  low: 'bg-gray-100 text-gray-700',
+  warning: 'bg-yellow-100 text-yellow-700',
+  high: 'bg-orange-100 text-orange-700',
+  critical: 'bg-red-100 text-red-700',
+};
+
+export const COMPLAINT_TYPE_LABELS: Record<string, string> = {
+  trademark: '상표권',
+  copyright: '저작권',
+  authentic_cert: '정품인증',
+  parallel_import: '병행수입',
+  price_policy: '가격정책',
+  other: '기타',
+};
+
+export const COMPLAINT_TYPE_COLORS: Record<string, string> = {
+  trademark: 'bg-red-100 text-red-700',
+  copyright: 'bg-purple-100 text-purple-700',
+  authentic_cert: 'bg-blue-100 text-blue-700',
+  parallel_import: 'bg-orange-100 text-orange-700',
+  price_policy: 'bg-yellow-100 text-yellow-700',
+  other: 'bg-gray-100 text-gray-700',
 };
 
 // 종합소득세 구간 (2024년 기준)

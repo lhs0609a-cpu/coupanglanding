@@ -14,6 +14,7 @@ import { CONTRACT_ARTICLES, renderArticleText } from '@/lib/data/contract-terms'
 import { FileText, Plus, RefreshCw, Send, XCircle, Eye, Download, CheckCircle2, AlertTriangle, Image } from 'lucide-react';
 import { downloadContractPdf } from '@/lib/utils/contract-pdf';
 import ContractTerminationModal from '@/components/admin/ContractTerminationModal';
+import WithdrawalReviewModal from '@/components/admin/WithdrawalReviewModal';
 import type { Contract, PtUser, Profile } from '@/lib/supabase/types';
 
 interface ContractWithUser extends Contract {
@@ -29,6 +30,7 @@ const STATUS_FILTERS = [
   { value: 'draft', label: '초안' },
   { value: 'sent', label: '발송됨' },
   { value: 'signed', label: '서명완료' },
+  { value: 'withdrawal_pending', label: '탈퇴요청' },
   { value: 'expired', label: '만료' },
   { value: 'terminated', label: '해지' },
 ];
@@ -43,6 +45,8 @@ export default function AdminContractsPage() {
 
   // Termination modal
   const [terminateTarget, setTerminateTarget] = useState<ContractWithUser | null>(null);
+  // Withdrawal review modal
+  const [withdrawalReviewTarget, setWithdrawalReviewTarget] = useState<ContractWithUser | null>(null);
 
   // Create form
   const [newPtUserId, setNewPtUserId] = useState('');
@@ -125,7 +129,9 @@ export default function AdminContractsPage() {
       .select('*, pt_user:pt_users(*, profile:profiles(*))')
       .order('created_at', { ascending: false });
 
-    if (statusFilter) {
+    if (statusFilter === 'withdrawal_pending') {
+      query = query.eq('withdrawal_status', 'pending');
+    } else if (statusFilter) {
       query = query.eq('status', statusFilter);
     }
 
@@ -286,6 +292,9 @@ export default function AdminContractsPage() {
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <Badge label={CONTRACT_STATUS_LABELS[contract.status]} colorClass={CONTRACT_STATUS_COLORS[contract.status]} />
+                        {contract.withdrawal_status === 'pending' && (
+                          <Badge label="탈퇴요청" colorClass="bg-orange-100 text-orange-700" />
+                        )}
                         {contract.status === 'terminated' && contract.product_deactivation_deadline && !contract.product_deactivation_confirmed && (() => {
                           const deadline = new Date(contract.product_deactivation_deadline);
                           const now = new Date();
@@ -340,7 +349,7 @@ export default function AdminContractsPage() {
                             발송
                           </button>
                         )}
-                        {(contract.status === 'sent' || contract.status === 'signed') && (
+                        {(contract.status === 'sent' || contract.status === 'signed') && !contract.withdrawal_status && (
                           <button
                             type="button"
                             onClick={() => handleTerminate(contract)}
@@ -349,6 +358,17 @@ export default function AdminContractsPage() {
                           >
                             <XCircle className="w-3.5 h-3.5" />
                             해지
+                          </button>
+                        )}
+                        {contract.withdrawal_status === 'pending' && (
+                          <button
+                            type="button"
+                            onClick={() => setWithdrawalReviewTarget(contract)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-orange-700 bg-orange-50 rounded-lg hover:bg-orange-100 transition"
+                            title="탈퇴심사"
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            탈퇴심사
                           </button>
                         )}
                         {contract.status === 'terminated' && (
@@ -489,6 +509,16 @@ export default function AdminContractsPage() {
           contractId={terminateTarget.id}
           userName={terminateTarget.pt_user?.profile?.full_name || '사용자'}
           onTerminated={handleTerminated}
+        />
+      )}
+
+      {/* Withdrawal Review Modal */}
+      {withdrawalReviewTarget && (
+        <WithdrawalReviewModal
+          isOpen={!!withdrawalReviewTarget}
+          onClose={() => setWithdrawalReviewTarget(null)}
+          contract={withdrawalReviewTarget}
+          onReviewed={() => { setWithdrawalReviewTarget(null); fetchData(); }}
         />
       )}
 

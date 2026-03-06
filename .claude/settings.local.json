@@ -154,7 +154,28 @@
       "WebFetch(domain:www.mt.co.kr)",
       "Bash(\"G:/내 드라이브/landingpage/coupanglanding/node_modules/.bin/next\" build --no-lint)",
       "Bash(git revert:*)",
-      "Bash(copy:*)"
+      "Bash(copy:*)",
+      "Bash(git status:*)",
+      "WebFetch(domain:developers.coupangcorp.com)",
+      "WebFetch(domain:www.plto.com)",
+      "WebFetch(domain:guide.windly.cc)",
+      "Bash(start \"https://supabase.com/dashboard/project/dwfhcshvkxyokvtbgluw/sql/new\")",
+      "WebFetch(domain:api.ncloud-docs.com)",
+      "WebFetch(domain:developers.naver.com)",
+      "WebFetch(domain:www.dinolabs.ai)",
+      "Bash(where:*)",
+      "Bash(timeout:*)",
+      "Bash(findstr:*)",
+      "Bash(ping:*)",
+      "WebFetch(domain:www.pinepat.com)",
+      "WebFetch(domain:markinfo.kr)",
+      "WebFetch(domain:kiyul.co.kr)",
+      "WebFetch(domain:blog.sugar.legal)",
+      "WebFetch(domain:www.newsis.com)",
+      "WebFetch(domain:blog.refundy.co)",
+      "WebFetch(domain:revertface.com)",
+      "WebFetch(domain:online-financer.com)",
+      "WebFetch(domain:trendhunterclass.com)"
     ]
   }
 }

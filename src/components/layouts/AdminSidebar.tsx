@@ -14,6 +14,8 @@ import {
   BookOpen,
   ScrollText,
   GraduationCap,
+  Flame,
+  ShieldAlert,
   X,
 } from 'lucide-react';
 
@@ -26,6 +28,8 @@ const navItems = [
   { href: '/admin/contracts', label: '계약 관리', icon: FileText },
   { href: '/admin/pt-users', label: 'PT 사용자 관리', icon: Users },
   { href: '/admin/trainers', label: '트레이너 관리', icon: GraduationCap },
+  { href: '/admin/trends', label: '트렌드 관리', icon: Flame },
+  { href: '/admin/emergency', label: '긴급 대응 관리', icon: ShieldAlert },
   { href: '/admin/guide-images', label: '가이드 이미지', icon: BookOpen },
   { href: '/admin/activity-log', label: '활동 로그', icon: ScrollText },
   { href: '/admin/settings', label: '설정', icon: Settings },
