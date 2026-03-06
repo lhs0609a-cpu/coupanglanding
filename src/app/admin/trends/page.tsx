@@ -464,7 +464,7 @@ export default function AdminTrendsPage() {
 
       {/* 수정 모달 */}
       {editingKeyword && (
-        <Modal onClose={() => { setEditingKeyword(null); resetForm(); }} title="키워드 수정">
+        <Modal isOpen={!!editingKeyword} onClose={() => { setEditingKeyword(null); resetForm(); }} title="키워드 수정">
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">키워드 *</label>
@@ -530,7 +530,7 @@ export default function AdminTrendsPage() {
 
       {/* 네이버 트렌드 결과 모달 */}
       {naverResult && (
-        <Modal onClose={() => setNaverResult(null)} title="네이버 키워드 트렌드">
+        <Modal isOpen={!!naverResult} onClose={() => setNaverResult(null)} title="네이버 키워드 트렌드">
           <div className="space-y-4">
             <div className="p-4 bg-gray-50 rounded-lg">
               <h4 className="font-bold text-gray-900 mb-3">{naverResult.data.relKeyword}</h4>
