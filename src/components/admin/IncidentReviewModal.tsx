@@ -11,7 +11,7 @@ import {
 } from '@/lib/utils/constants';
 import { CheckCircle, AlertTriangle, Clock, XCircle } from 'lucide-react';
 
-interface IncidentWithUser extends Incident {
+interface IncidentWithUser extends Omit<Incident, 'pt_user'> {
   pt_user?: {
     id: string;
     profile?: {
