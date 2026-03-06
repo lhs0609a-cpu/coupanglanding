@@ -149,14 +149,10 @@ export default function MyEmergencyPage() {
                     </td>
                     <td className="py-2 px-3 text-gray-900 font-medium">{inc.title}</td>
                     <td className="py-2 px-3">
-                      <Badge className={INCIDENT_SEVERITY_COLORS[inc.severity]}>
-                        {INCIDENT_SEVERITY_LABELS[inc.severity]}
-                      </Badge>
+                      <Badge label={INCIDENT_SEVERITY_LABELS[inc.severity]} colorClass={INCIDENT_SEVERITY_COLORS[inc.severity]} />
                     </td>
                     <td className="py-2 px-3">
-                      <Badge className={INCIDENT_STATUS_COLORS[inc.status]}>
-                        {INCIDENT_STATUS_LABELS[inc.status]}
-                      </Badge>
+                      <Badge label={INCIDENT_STATUS_LABELS[inc.status]} colorClass={INCIDENT_STATUS_COLORS[inc.status]} />
                     </td>
                   </tr>
                 ))}
@@ -211,14 +207,10 @@ export default function MyEmergencyPage() {
                       )}
                     </td>
                     <td className="py-2 px-3">
-                      <Badge className={BLACKLIST_RISK_COLORS[item.risk_level]}>
-                        {BLACKLIST_RISK_LABELS[item.risk_level]}
-                      </Badge>
+                      <Badge label={BLACKLIST_RISK_LABELS[item.risk_level]} colorClass={BLACKLIST_RISK_COLORS[item.risk_level]} />
                     </td>
                     <td className="py-2 px-3">
-                      <Badge className={COMPLAINT_TYPE_COLORS[item.complaint_type]}>
-                        {COMPLAINT_TYPE_LABELS[item.complaint_type]}
-                      </Badge>
+                      <Badge label={COMPLAINT_TYPE_LABELS[item.complaint_type]} colorClass={COMPLAINT_TYPE_COLORS[item.complaint_type]} />
                     </td>
                     <td className="py-2 px-3 text-gray-700">{item.reported_count}건</td>
                     <td className="py-2 px-3 text-gray-500 whitespace-nowrap">{formatDate(item.created_at)}</td>

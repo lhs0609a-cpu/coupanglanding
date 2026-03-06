@@ -99,12 +99,8 @@ export default function IncidentReviewModal({
         {/* 인시던트 상세 */}
         <div className="space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
-            <Badge className={INCIDENT_SEVERITY_COLORS[incident.severity]}>
-              {INCIDENT_SEVERITY_LABELS[incident.severity]}
-            </Badge>
-            <Badge className={INCIDENT_STATUS_COLORS[incident.status]}>
-              {INCIDENT_STATUS_LABELS[incident.status]}
-            </Badge>
+            <Badge label={INCIDENT_SEVERITY_LABELS[incident.severity]} colorClass={INCIDENT_SEVERITY_COLORS[incident.severity]} />
+            <Badge label={INCIDENT_STATUS_LABELS[incident.status]} colorClass={INCIDENT_STATUS_COLORS[incident.status]} />
             <span className="text-xs text-gray-500">
               {INCIDENT_TYPE_LABELS[incident.incident_type]} &gt; {INCIDENT_SUBTYPE_LABELS[incident.sub_type] || incident.sub_type}
             </span>
