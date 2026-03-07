@@ -30,6 +30,7 @@ export default function SellerRankingPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [needsSetup, setNeedsSetup] = useState(false);
+  const [notPtUser, setNotPtUser] = useState(false);
   const [lastSynced, setLastSynced] = useState<string | null>(null);
 
   // ---- 쿠팡 API 자동 동기화 ------------------------------------------------
@@ -44,6 +45,10 @@ export default function SellerRankingPage() {
       if (!res.ok) {
         if (data.needsSetup) {
           setNeedsSetup(true);
+        }
+        if (res.status === 404) {
+          setNotPtUser(true);
+          return false;
         }
         setSyncError(data.error);
         return false;
@@ -147,8 +152,21 @@ export default function SellerRankingPage() {
         </button>
       </div>
 
+      {/* ===== PT 사용자 아닌 경우 안내 ===== */}
+      {notPtUser && (
+        <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+          <Users className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium text-blue-800">랭킹 참여 안내</p>
+            <p className="text-sm text-blue-600 mt-1">
+              PT 서비스에 가입하고 쿠팡 API를 연동하면 자동으로 랭킹에 참여됩니다.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ===== API 연동 필요 안내 ===== */}
-      {needsSetup && (
+      {needsSetup && !notPtUser && (
         <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
           <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
           <div>
@@ -161,7 +179,7 @@ export default function SellerRankingPage() {
       )}
 
       {/* ===== 동기화 에러 ===== */}
-      {syncError && !needsSetup && (
+      {syncError && !needsSetup && !notPtUser && (
         <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl">
           <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
           <div>

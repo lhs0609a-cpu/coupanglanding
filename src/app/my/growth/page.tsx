@@ -119,6 +119,92 @@ export default function GrowthRoadmapPage() {
         </div>
       </div>
 
+      {/* 단계별 핵심 혜택 비교 (맨 위) */}
+      <Card>
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Gift className="w-5 h-5 text-[#E31837]" />
+            <h2 className="text-lg font-bold text-gray-900">단계별 핵심 혜택 비교</h2>
+          </div>
+
+          <div className="overflow-x-auto -mx-5 px-5">
+            <table className="w-full text-xs min-w-[600px]">
+              <thead>
+                <tr className="border-b-2 border-gray-200">
+                  <th className="text-left py-2 px-2 font-semibold text-gray-600 w-24">단계</th>
+                  <th className="text-center py-2 px-2 font-semibold text-gray-600">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <GraduationCap className="w-3.5 h-3.5 text-blue-600" />
+                      <span>코칭</span>
+                    </div>
+                  </th>
+                  <th className="text-center py-2 px-2 font-semibold text-gray-600">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <Wrench className="w-3.5 h-3.5 text-purple-600" />
+                      <span>도구</span>
+                    </div>
+                  </th>
+                  <th className="text-center py-2 px-2 font-semibold text-gray-600">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <Percent className="w-3.5 h-3.5 text-green-600" />
+                      <span>수수료</span>
+                    </div>
+                  </th>
+                  <th className="text-center py-2 px-2 font-semibold text-gray-600">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <Briefcase className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>비즈니스</span>
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {GROWTH_TIERS.map((tier) => {
+                  const isPastRow = tier.tier < currentTier.tier;
+                  const isCurrentRow = tier.tier === currentTier.tier;
+                  const isFutureRow = tier.tier > currentTier.tier;
+
+                  const getBenefitSummary = (cat: BenefitCategory): string => {
+                    const b = tier.benefits.find((x) => x.category === cat);
+                    return b ? b.label : '-';
+                  };
+
+                  return (
+                    <tr
+                      key={tier.tier}
+                      className={`border-b border-gray-100 ${
+                        isCurrentRow ? 'bg-[#E31837]/5 font-medium' : isFutureRow ? 'opacity-50' : ''
+                      }`}
+                    >
+                      <td className="py-2.5 px-2">
+                        <div className="flex items-center gap-1.5">
+                          <span>{tier.badgeEmoji}</span>
+                          <span className={`${isCurrentRow ? 'text-[#E31837] font-bold' : isPastRow ? 'text-green-600' : 'text-gray-500'}`}>
+                            {tier.label}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-2 text-center text-gray-600">
+                        {getBenefitSummary('coaching')}
+                      </td>
+                      <td className="py-2.5 px-2 text-center text-gray-600">
+                        {getBenefitSummary('tools')}
+                      </td>
+                      <td className="py-2.5 px-2 text-center text-gray-600">
+                        {getBenefitSummary('commission')}
+                      </td>
+                      <td className="py-2.5 px-2 text-center text-gray-600">
+                        {getBenefitSummary('business')}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </Card>
+
       {/* 현재 단계 요약 카드 */}
       <Card>
         <div className="space-y-4">
@@ -468,92 +554,6 @@ export default function GrowthRoadmapPage() {
                 </li>
               ))}
             </ul>
-          </div>
-        </div>
-      </Card>
-
-      {/* 전체 혜택 비교표 */}
-      <Card>
-        <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Gift className="w-5 h-5 text-[#E31837]" />
-            <h2 className="text-lg font-bold text-gray-900">단계별 핵심 혜택 비교</h2>
-          </div>
-
-          <div className="overflow-x-auto -mx-5 px-5">
-            <table className="w-full text-xs min-w-[600px]">
-              <thead>
-                <tr className="border-b-2 border-gray-200">
-                  <th className="text-left py-2 px-2 font-semibold text-gray-600 w-24">단계</th>
-                  <th className="text-center py-2 px-2 font-semibold text-gray-600">
-                    <div className="flex flex-col items-center gap-0.5">
-                      <GraduationCap className="w-3.5 h-3.5 text-blue-600" />
-                      <span>코칭</span>
-                    </div>
-                  </th>
-                  <th className="text-center py-2 px-2 font-semibold text-gray-600">
-                    <div className="flex flex-col items-center gap-0.5">
-                      <Wrench className="w-3.5 h-3.5 text-purple-600" />
-                      <span>도구</span>
-                    </div>
-                  </th>
-                  <th className="text-center py-2 px-2 font-semibold text-gray-600">
-                    <div className="flex flex-col items-center gap-0.5">
-                      <Percent className="w-3.5 h-3.5 text-green-600" />
-                      <span>수수료</span>
-                    </div>
-                  </th>
-                  <th className="text-center py-2 px-2 font-semibold text-gray-600">
-                    <div className="flex flex-col items-center gap-0.5">
-                      <Briefcase className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>비즈니스</span>
-                    </div>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {GROWTH_TIERS.map((tier) => {
-                  const isPast = tier.tier < currentTier.tier;
-                  const isCurrent = tier.tier === currentTier.tier;
-                  const isFuture = tier.tier > currentTier.tier;
-
-                  const getBenefitSummary = (cat: BenefitCategory): string => {
-                    const b = tier.benefits.find((x) => x.category === cat);
-                    return b ? b.label : '-';
-                  };
-
-                  return (
-                    <tr
-                      key={tier.tier}
-                      className={`border-b border-gray-100 ${
-                        isCurrent ? 'bg-[#E31837]/5 font-medium' : isFuture ? 'opacity-50' : ''
-                      }`}
-                    >
-                      <td className="py-2.5 px-2">
-                        <div className="flex items-center gap-1.5">
-                          <span>{tier.badgeEmoji}</span>
-                          <span className={`${isCurrent ? 'text-[#E31837] font-bold' : isPast ? 'text-green-600' : 'text-gray-500'}`}>
-                            {tier.label}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-2.5 px-2 text-center text-gray-600">
-                        {getBenefitSummary('coaching')}
-                      </td>
-                      <td className="py-2.5 px-2 text-center text-gray-600">
-                        {getBenefitSummary('tools')}
-                      </td>
-                      <td className="py-2.5 px-2 text-center text-gray-600">
-                        {getBenefitSummary('commission')}
-                      </td>
-                      <td className="py-2.5 px-2 text-center text-gray-600">
-                        {getBenefitSummary('business')}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
           </div>
         </div>
       </Card>

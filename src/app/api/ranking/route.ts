@@ -30,7 +30,13 @@ export async function GET() {
 
     if (error) {
       console.error('Ranking query error:', error);
-      return NextResponse.json({ error: '랭킹 조회에 실패했습니다.' }, { status: 500 });
+      // 테이블이 없을 수 있음 - 빈 결과 반환
+      return NextResponse.json({
+        ranking: [],
+        myRank: null,
+        myListings: null,
+        totalParticipants: 0,
+      });
     }
 
     // 전체 참여자 수
