@@ -20,18 +20,18 @@ export async function GET(request: NextRequest) {
     const yearMonth = getReportTargetMonth();
     const dday = getSettlementDDay(yearMonth);
 
-    // 발송 대상 D-day 목록
-    const reminderSchedule: Record<number, { urgency: 'info' | 'warn' | 'urgent' | 'critical'; title: string; message: string }> = {
-      7:  { urgency: 'info',     title: '정산 마감 안내',     message: `${yearMonth} 매출 정산 마감까지 7일 남았습니다. 매출 보고서를 미리 준비해주세요.` },
-      3:  { urgency: 'warn',     title: '정산 마감 임박',     message: `${yearMonth} 매출 정산 마감까지 3일 남았습니다. 아직 미제출이시면 서둘러주세요.` },
-      1:  { urgency: 'urgent',   title: '내일 마감!',         message: `${yearMonth} 매출 정산이 내일 마감됩니다! 반드시 오늘 중으로 제출해주세요.` },
-      0:  { urgency: 'critical', title: '오늘 마감입니다',    message: `${yearMonth} 매출 정산이 오늘 자정에 마감됩니다. 미제출 시 정산이 지연됩니다.` },
-      -1: { urgency: 'critical', title: '마감일 초과',        message: `${yearMonth} 매출 정산 마감이 1일 지났습니다. 즉시 제출해주세요.` },
-      -3: { urgency: 'critical', title: '마감 3일 초과 경고', message: `${yearMonth} 매출 정산 마감이 3일 지났습니다. 빠르게 제출하지 않으면 불이익이 발생할 수 있습니다.` },
-      -7: { urgency: 'critical', title: '마감 7일 초과 — 관리자 통보', message: `${yearMonth} 매출 정산 마감이 7일 초과되었습니다. 관리자에게 자동 보고되었으며, 즉시 제출해주세요.` },
+    // 발송 대상 D-day 목록 (키를 문자열로 사용 — Turbopack이 음수 키 파싱 불가)
+    const reminderSchedule: Record<string, { urgency: 'info' | 'warn' | 'urgent' | 'critical'; title: string; message: string }> = {
+      '7':  { urgency: 'info',     title: '정산 마감 안내',     message: `${yearMonth} 매출 정산 마감까지 7일 남았습니다. 매출 보고서를 미리 준비해주세요.` },
+      '3':  { urgency: 'warn',     title: '정산 마감 임박',     message: `${yearMonth} 매출 정산 마감까지 3일 남았습니다. 아직 미제출이시면 서둘러주세요.` },
+      '1':  { urgency: 'urgent',   title: '내일 마감!',         message: `${yearMonth} 매출 정산이 내일 마감됩니다! 반드시 오늘 중으로 제출해주세요.` },
+      '0':  { urgency: 'critical', title: '오늘 마감입니다',    message: `${yearMonth} 매출 정산이 오늘 자정에 마감됩니다. 미제출 시 정산이 지연됩니다.` },
+      '-1': { urgency: 'critical', title: '마감일 초과',        message: `${yearMonth} 매출 정산 마감이 1일 지났습니다. 즉시 제출해주세요.` },
+      '-3': { urgency: 'critical', title: '마감 3일 초과 경고', message: `${yearMonth} 매출 정산 마감이 3일 지났습니다. 빠르게 제출하지 않으면 불이익이 발생할 수 있습니다.` },
+      '-7': { urgency: 'critical', title: '마감 7일 초과 — 관리자 통보', message: `${yearMonth} 매출 정산 마감이 7일 초과되었습니다. 관리자에게 자동 보고되었으며, 즉시 제출해주세요.` },
     };
 
-    const schedule = reminderSchedule[dday];
+    const schedule = reminderSchedule[String(dday)];
     if (!schedule) {
       return NextResponse.json({
         success: true,
