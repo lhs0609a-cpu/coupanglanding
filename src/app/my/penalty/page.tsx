@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
-import { ShieldCheck, Plus, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
+import { ShieldCheck, Plus, AlertTriangle, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 
 interface PenaltyRecord {
   id: string;
@@ -76,6 +76,7 @@ export default function MyPenaltyPage() {
   const [records, setRecords] = useState<PenaltyRecord[]>([]);
   const [summary, setSummary] = useState<PenaltySummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -87,11 +88,18 @@ export default function MyPenaltyPage() {
   const [formEvidenceUrl, setFormEvidenceUrl] = useState('');
 
   const fetchData = async () => {
+    setError(null);
     try {
       const res = await fetch('/api/penalty');
+      if (!res.ok) {
+        setError('페널티 정보를 불러오지 못했습니다.');
+        return;
+      }
       const data = await res.json();
       if (data.records) setRecords(data.records);
       if (data.summary) setSummary(data.summary);
+    } catch {
+      setError('페널티 정보를 불러오지 못했습니다.');
     } finally {
       setLoading(false);
     }
@@ -133,7 +141,7 @@ export default function MyPenaltyPage() {
         await fetchData();
       } else {
         const err = await res.json();
-        alert(err.error || '등록에 실패했습니다.');
+        setError(err.error || '등록에 실패했습니다.');
       }
     } finally {
       setSubmitting(false);
@@ -185,6 +193,14 @@ export default function MyPenaltyPage() {
           자가 신고
         </button>
       </div>
+
+      {/* Error Banner */}
+      {error && (
+        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-red-50 text-red-600 text-sm">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
 
       {/* Risk Score Card */}
       <Card>

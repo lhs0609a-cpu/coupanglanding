@@ -1,184 +1,127 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import { ARENA_LEVELS, getArenaLevel, getLevelProgress } from '@/lib/utils/arena-points';
-import { ACHIEVEMENTS, ACHIEVEMENT_CATEGORIES, type Achievement } from '@/lib/data/arena-achievements';
+import { useState, useEffect, useCallback } from 'react';
 import Card from '@/components/ui/Card';
-import Badge from '@/components/ui/Badge';
-import Modal from '@/components/ui/Modal';
-import { Swords, Trophy, Flame, Target, Plus, RefreshCw, Medal } from 'lucide-react';
+import { Trophy, RefreshCw, Crown, TrendingUp, Users, AlertCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface SellerPoints {
-  pt_user_id: string;
-  anonymous_name: string | null;
-  anonymous_emoji: string | null;
-  total_points: number;
-  current_level: number;
-  streak_days: number;
-  longest_streak: number;
-  total_listings: number;
-  total_revenue: number;
-  total_days_active: number;
-  weekly_rank: number | null;
-  monthly_rank: number | null;
-}
-
-interface LeaderboardEntry {
+interface RankingEntry {
   rank: number;
   anonymous_name: string;
   anonymous_emoji: string;
-  total_points: number;
-  current_level: number;
-  streak_days: number;
   total_listings: number;
   isMe: boolean;
-}
-
-interface SellerAchievement {
-  achievement_key: string;
-  unlocked_at: string;
-}
-
-interface Challenge {
-  id: string;
-  title: string;
-  description: string | null;
-  challenge_type: string;
-  metric: string;
-  target_value: number;
-  reward_points: number;
-  start_date: string;
-  end_date: string;
-  progress?: { current_value: number; completed: boolean }[];
 }
 
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
-export default function SellerArenaPage() {
-  const supabase = useMemo(() => createClient(), []);
-
-  const [points, setPoints] = useState<SellerPoints | null>(null);
-  const [achievements, setAchievements] = useState<SellerAchievement[]>([]);
-  const [challenges, setChallenges] = useState<Challenge[]>([]);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+export default function SellerRankingPage() {
+  const [ranking, setRanking] = useState<RankingEntry[]>([]);
   const [myRank, setMyRank] = useState<number | null>(null);
-  const [leaderboardPeriod, setLeaderboardPeriod] = useState<'weekly' | 'monthly' | 'all'>('weekly');
+  const [myListings, setMyListings] = useState<number | null>(null);
+  const [totalParticipants, setTotalParticipants] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [showLogModal, setShowLogModal] = useState(false);
-  const [logForm, setLogForm] = useState({ listings_count: '', revenue_amount: '' });
-  const [submitting, setSubmitting] = useState(false);
-  const [logResult, setLogResult] = useState<{ points_earned: number; breakdown: string[] } | null>(null);
-  const [achievementFilter, setAchievementFilter] = useState<string>('all');
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [lastSynced, setLastSynced] = useState<string | null>(null);
 
-  // ---- Data Fetching -------------------------------------------------------
+  // ---- 쿠팡 API 자동 동기화 ------------------------------------------------
 
-  const fetchArenaData = async () => {
+  const syncFromCoupang = useCallback(async () => {
+    setSyncing(true);
+    setSyncError(null);
     try {
-      const res = await fetch('/api/arena');
-      if (res.ok) {
-        const data = await res.json();
-        setPoints(data.points ?? null);
-        setAchievements(data.achievements ?? []);
-        setChallenges(data.challenges ?? []);
+      const res = await fetch('/api/ranking/sync', { method: 'POST' });
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.needsSetup) {
+          setNeedsSetup(true);
+        }
+        setSyncError(data.error);
+        return false;
       }
-    } catch (e) {
-      console.error('Failed to fetch arena data', e);
-    }
-  };
 
-  const fetchLeaderboard = async (period: string) => {
+      setMyListings(data.total_listings);
+      setLastSynced(data.synced_at);
+      setNeedsSetup(false);
+      return true;
+    } catch {
+      setSyncError('동기화 중 오류가 발생했습니다.');
+      return false;
+    } finally {
+      setSyncing(false);
+    }
+  }, []);
+
+  // ---- 랭킹 데이터 조회 ----------------------------------------------------
+
+  const fetchRanking = useCallback(async () => {
     try {
-      const res = await fetch(`/api/arena/leaderboard?period=${period}`);
+      const res = await fetch('/api/ranking');
       if (res.ok) {
         const data = await res.json();
-        setLeaderboard(data.leaderboard ?? []);
+        setRanking(data.ranking ?? []);
         setMyRank(data.myRank ?? null);
+        if (data.myListings != null) setMyListings(data.myListings);
+        setTotalParticipants(data.totalParticipants ?? 0);
       }
-    } catch (e) {
-      console.error('Failed to fetch leaderboard', e);
+    } catch {
+      console.error('Failed to fetch ranking');
+      setSyncError('랭킹 데이터를 불러오지 못했습니다.');
     }
-  };
+  }, []);
+
+  // ---- 초기 로딩: 동기화 → 랭킹 조회 ----------------------------------------
 
   useEffect(() => {
     const init = async () => {
       setLoading(true);
-      await Promise.all([fetchArenaData(), fetchLeaderboard(leaderboardPeriod)]);
+      await syncFromCoupang();
+      await fetchRanking();
       setLoading(false);
     };
     init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [syncFromCoupang, fetchRanking]);
 
-  useEffect(() => {
-    fetchLeaderboard(leaderboardPeriod);
-  }, [leaderboardPeriod]);
+  // ---- 수동 새로고침 --------------------------------------------------------
 
-  // ---- Log Activity Handler ------------------------------------------------
-
-  const handleLogActivity = async () => {
-    setSubmitting(true);
-    setLogResult(null);
-    try {
-      const res = await fetch('/api/arena/log-activity', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          listings_count: Number(logForm.listings_count) || 0,
-          revenue_amount: Number(logForm.revenue_amount) || 0,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setLogResult({ points_earned: data.points_earned, breakdown: data.breakdown ?? [] });
-        // Refresh data
-        await Promise.all([fetchArenaData(), fetchLeaderboard(leaderboardPeriod)]);
-      } else {
-        const err = await res.json().catch(() => ({}));
-        alert(err.error ?? '활동 기록에 실패했습니다.');
-      }
-    } catch (e) {
-      alert('활동 기록에 실패했습니다.');
-    } finally {
-      setSubmitting(false);
-    }
+  const handleRefresh = async () => {
+    const ok = await syncFromCoupang();
+    if (ok) await fetchRanking();
   };
 
-  const closeLogModal = () => {
-    setShowLogModal(false);
-    setLogForm({ listings_count: '', revenue_amount: '' });
-    setLogResult(null);
+  // ---- 메달 색상 ------------------------------------------------------------
+
+  const getRankMedal = (rank: number) => {
+    if (rank === 1) return { emoji: '🥇', bg: 'bg-yellow-50', border: 'border-yellow-300', text: 'text-yellow-700' };
+    if (rank === 2) return { emoji: '🥈', bg: 'bg-gray-50', border: 'border-gray-300', text: 'text-gray-600' };
+    if (rank === 3) return { emoji: '🥉', bg: 'bg-orange-50', border: 'border-orange-300', text: 'text-orange-700' };
+    return { emoji: String(rank), bg: 'bg-white', border: 'border-gray-200', text: 'text-gray-500' };
   };
-
-  // ---- Derived Data --------------------------------------------------------
-
-  const levelInfo = points ? getLevelProgress(points.total_points) : null;
-  const currentLevel = points ? getArenaLevel(points.total_points) : ARENA_LEVELS[0];
-
-  const unlockedKeys = useMemo(() => new Set(achievements.map((a) => a.achievement_key)), [achievements]);
-
-  const filteredAchievements = useMemo(() => {
-    if (achievementFilter === 'all') return ACHIEVEMENTS;
-    return ACHIEVEMENTS.filter((a) => a.category === achievementFilter);
-  }, [achievementFilter]);
 
   // ---- Loading State -------------------------------------------------------
 
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-3xl mx-auto space-y-6">
         <div className="flex items-center gap-3">
-          <Swords className="w-7 h-7 text-[#E31837]" />
-          <h1 className="text-2xl font-bold text-gray-900">셀러 아레나</h1>
+          <Trophy className="w-7 h-7 text-[#E31837]" />
+          <h1 className="text-2xl font-bold text-gray-900">상품등록 랭킹</h1>
         </div>
         <Card>
-          <p className="text-center text-gray-500 py-12">불러오는 중...</p>
+          <div className="text-center py-16 space-y-3">
+            <RefreshCw className="w-8 h-8 text-[#E31837] animate-spin mx-auto" />
+            <p className="text-gray-500">쿠팡에서 상품 등록 수를 가져오는 중...</p>
+            <p className="text-xs text-gray-400">처음 접속 시 잠시 시간이 걸릴 수 있습니다</p>
+          </div>
         </Card>
       </div>
     );
@@ -187,401 +130,221 @@ export default function SellerArenaPage() {
   // ---- Render --------------------------------------------------------------
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* ===== 1. Header ===== */}
-      <div className="flex items-center gap-3">
-        <Swords className="w-7 h-7 text-[#E31837]" />
-        <h1 className="text-2xl font-bold text-gray-900">셀러 아레나</h1>
-      </div>
-
-      {/* ===== 2. Stats Header Card ===== */}
-      <Card>
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          {/* Name & Level */}
-          <div className="flex items-center gap-3">
-            <span className="text-3xl">
-              {points?.anonymous_emoji ?? '❓'}
-            </span>
-            <div>
-              <p className="text-lg font-bold text-gray-900">
-                {points?.anonymous_name ?? '아레나 참여 전'}
-              </p>
-              <Badge
-                label={`${currentLevel.emoji} ${currentLevel.label}`}
-                colorClass={currentLevel.color}
-              />
-            </div>
-          </div>
-
-          {/* Quick Stats */}
-          <div className="flex items-center gap-6 text-sm">
-            <div className="text-center">
-              <p className="text-2xl font-bold text-[#E31837]">
-                {points?.total_points?.toLocaleString() ?? 0}
-              </p>
-              <p className="text-gray-500">포인트</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-orange-500">
-                {points?.streak_days ?? 0} <span className="text-lg">🔥</span>
-              </p>
-              <p className="text-gray-500">연속 활동</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-gray-700">
-                {points?.total_listings?.toLocaleString() ?? 0}
-              </p>
-              <p className="text-gray-500">등록 상품</p>
-            </div>
-          </div>
+    <div className="max-w-3xl mx-auto space-y-6">
+      {/* ===== Header ===== */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Trophy className="w-7 h-7 text-[#E31837]" />
+          <h1 className="text-2xl font-bold text-gray-900">상품등록 랭킹</h1>
         </div>
-
-        {/* Level Progress Bar */}
-        {levelInfo && (
-          <div className="mt-4">
-            <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-              <span>
-                {currentLevel.emoji} Lv.{currentLevel.level} {currentLevel.label}
-              </span>
-              {levelInfo.next ? (
-                <span>
-                  다음 레벨까지 {levelInfo.pointsNeeded.toLocaleString()}P
-                </span>
-              ) : (
-                <span>최고 레벨 달성!</span>
-              )}
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2.5">
-              <div
-                className="bg-[#E31837] h-2.5 rounded-full transition-all duration-500"
-                style={{ width: `${levelInfo.progress}%` }}
-              />
-            </div>
-          </div>
-        )}
-      </Card>
-
-      {/* ===== 3. Quick Actions ===== */}
-      <div className="flex flex-wrap gap-3">
         <button
-          onClick={() => setShowLogModal(true)}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#E31837] text-white rounded-lg font-medium hover:bg-[#c81530] transition"
+          onClick={handleRefresh}
+          disabled={syncing}
+          className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition disabled:opacity-50"
         >
-          <Plus className="w-4 h-4" />
-          오늘 활동 기록
+          <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+          {syncing ? '동기화 중...' : '새로고침'}
         </button>
       </div>
 
-      {/* ===== 4. Log Activity Modal ===== */}
-      <Modal isOpen={showLogModal} onClose={closeLogModal} title="오늘 활동 기록">
-        {logResult ? (
-          <div className="space-y-4">
-            <div className="text-center py-4">
-              <p className="text-3xl font-bold text-[#E31837]">
-                +{logResult.points_earned}P
-              </p>
-              <p className="text-sm text-gray-500 mt-1">획득 포인트</p>
-            </div>
-            {logResult.breakdown.length > 0 && (
-              <ul className="space-y-1 text-sm text-gray-700 bg-gray-50 rounded-lg p-3">
-                {logResult.breakdown.map((line, i) => (
-                  <li key={i}>• {line}</li>
-                ))}
-              </ul>
-            )}
-            <button
-              onClick={closeLogModal}
-              className="w-full py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition"
-            >
-              확인
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                오늘 등록한 상품 수
-              </label>
-              <input
-                type="number"
-                min={0}
-                value={logForm.listings_count}
-                onChange={(e) => setLogForm((f) => ({ ...f, listings_count: e.target.value }))}
-                placeholder="0"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E31837]/30 focus:border-[#E31837]"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                오늘 매출액 (원)
-              </label>
-              <input
-                type="number"
-                min={0}
-                value={logForm.revenue_amount}
-                onChange={(e) => setLogForm((f) => ({ ...f, revenue_amount: e.target.value }))}
-                placeholder="0"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E31837]/30 focus:border-[#E31837]"
-              />
-            </div>
-            <button
-              onClick={handleLogActivity}
-              disabled={submitting}
-              className="w-full py-2.5 bg-[#E31837] text-white rounded-lg font-medium hover:bg-[#c81530] transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {submitting ? '기록 중...' : '활동 기록하기'}
-            </button>
-          </div>
-        )}
-      </Modal>
-
-      {/* ===== 5. Leaderboard Section ===== */}
-      <Card>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Trophy className="w-5 h-5 text-yellow-500" />
-            <h2 className="text-lg font-bold text-gray-900">리더보드</h2>
-          </div>
-          <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
-            {([
-              { value: 'weekly', label: '주간' },
-              { value: 'monthly', label: '월간' },
-              { value: 'all', label: '전체' },
-            ] as const).map((tab) => (
-              <button
-                key={tab.value}
-                onClick={() => setLeaderboardPeriod(tab.value)}
-                className={`px-3 py-1 text-sm rounded-md font-medium transition ${
-                  leaderboardPeriod === tab.value
-                    ? 'bg-white text-[#E31837] shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+      {/* ===== API 연동 필요 안내 ===== */}
+      {needsSetup && (
+        <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+          <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium text-amber-800">쿠팡 API 연동이 필요합니다</p>
+            <p className="text-sm text-amber-600 mt-1">
+              설정에서 쿠팡 API 키를 등록하면 자동으로 상품 등록 수를 가져옵니다.
+            </p>
           </div>
         </div>
+      )}
 
-        {leaderboard.length === 0 ? (
-          <p className="text-center text-gray-400 py-8">아직 리더보드 데이터가 없습니다.</p>
-        ) : (
-          <div className="space-y-1">
-            {/* Header */}
-            <div className="grid grid-cols-12 gap-2 text-xs font-medium text-gray-400 px-3 py-1">
-              <span className="col-span-1">#</span>
-              <span className="col-span-4">셀러</span>
-              <span className="col-span-2 text-center">레벨</span>
-              <span className="col-span-2 text-right">포인트</span>
-              <span className="col-span-1 text-center">🔥</span>
-              <span className="col-span-2 text-right">등록</span>
-            </div>
-
-            {leaderboard.map((entry) => (
-              <div
-                key={entry.rank}
-                className={`grid grid-cols-12 gap-2 items-center text-sm px-3 py-2 rounded-lg ${
-                  entry.isMe
-                    ? 'bg-[#E31837]/10 border-l-4 border-[#E31837] font-semibold'
-                    : 'hover:bg-gray-50'
-                }`}
-              >
-                <span className="col-span-1 font-bold text-gray-500">
-                  {entry.rank <= 3
-                    ? ['🥇', '🥈', '🥉'][entry.rank - 1]
-                    : entry.rank}
-                </span>
-                <span className="col-span-4 truncate">
-                  {entry.anonymous_emoji} {entry.anonymous_name}
-                </span>
-                <span className="col-span-2 text-center">
-                  {getArenaLevel(entry.total_points).emoji}
-                </span>
-                <span className="col-span-2 text-right text-[#E31837] font-medium">
-                  {entry.total_points.toLocaleString()}
-                </span>
-                <span className="col-span-1 text-center text-orange-500">
-                  {entry.streak_days}
-                </span>
-                <span className="col-span-2 text-right text-gray-500">
-                  {entry.total_listings.toLocaleString()}
-                </span>
-              </div>
-            ))}
-
-            {/* My rank if outside top 50 */}
-            {myRank && myRank > 50 && (
-              <div className="mt-4 pt-3 border-t border-dashed border-gray-200">
-                <p className="text-center text-sm text-gray-500">
-                  내 순위: <span className="font-bold text-[#E31837]">{myRank}위</span>
-                </p>
-              </div>
-            )}
+      {/* ===== 동기화 에러 ===== */}
+      {syncError && !needsSetup && (
+        <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl">
+          <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium text-red-800">동기화 오류</p>
+            <p className="text-sm text-red-600 mt-1">{syncError}</p>
           </div>
+        </div>
+      )}
+
+      {/* ===== 내 현황 카드 ===== */}
+      <Card>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <p className="text-sm text-gray-500 mb-1">내 총 상품등록 수</p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-4xl font-bold text-[#E31837]">
+                {myListings != null ? myListings.toLocaleString() : '—'}
+              </span>
+              <span className="text-lg text-gray-400">건</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-6">
+            <div className="text-center">
+              <div className="flex items-center gap-1.5 justify-center">
+                <Crown className="w-5 h-5 text-yellow-500" />
+                <span className="text-2xl font-bold text-gray-900">
+                  {myRank != null ? `${myRank}위` : '—'}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mt-0.5">내 순위</p>
+            </div>
+            <div className="text-center">
+              <div className="flex items-center gap-1.5 justify-center">
+                <Users className="w-5 h-5 text-blue-500" />
+                <span className="text-2xl font-bold text-gray-900">
+                  {totalParticipants}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mt-0.5">참여 셀러</p>
+            </div>
+          </div>
+        </div>
+        {lastSynced && (
+          <p className="text-xs text-gray-400 mt-3">
+            마지막 동기화: {new Date(lastSynced).toLocaleString('ko-KR')}
+          </p>
         )}
       </Card>
 
-      {/* ===== 6. Achievements Section ===== */}
-      <Card>
-        <div className="flex items-center gap-2 mb-4">
-          <Medal className="w-5 h-5 text-purple-500" />
-          <h2 className="text-lg font-bold text-gray-900">업적</h2>
-          <span className="text-xs text-gray-400 ml-1">
-            {achievements.length} / {ACHIEVEMENTS.length}
-          </span>
-        </div>
-
-        {/* Category Filter Tabs */}
-        <div className="flex flex-wrap gap-1 mb-4">
-          <button
-            onClick={() => setAchievementFilter('all')}
-            className={`px-3 py-1 text-xs rounded-full font-medium transition ${
-              achievementFilter === 'all'
-                ? 'bg-[#E31837] text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            전체
-          </button>
-          {ACHIEVEMENT_CATEGORIES.map((cat) => (
-            <button
-              key={cat.value}
-              onClick={() => setAchievementFilter(cat.value)}
-              className={`px-3 py-1 text-xs rounded-full font-medium transition ${
-                achievementFilter === cat.value
-                  ? 'bg-[#E31837] text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              {cat.emoji} {cat.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Achievement Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {filteredAchievements.map((ach) => {
-            const isUnlocked = unlockedKeys.has(ach.key);
-            const unlockedData = achievements.find((a) => a.achievement_key === ach.key);
-
-            if (isUnlocked) {
-              // Unlocked achievement
-              return (
-                <div
-                  key={ach.key}
-                  className="p-3 rounded-lg border border-gray-200 bg-white hover:shadow-sm transition"
-                >
-                  <div className="text-2xl mb-1">{ach.emoji}</div>
-                  <p className="text-sm font-semibold text-gray-900">{ach.title}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{ach.description}</p>
-                  {unlockedData && (
-                    <p className="text-[10px] text-gray-400 mt-2">
-                      {new Date(unlockedData.unlocked_at).toLocaleDateString('ko-KR')} 달성
-                    </p>
-                  )}
-                </div>
-              );
-            }
-
-            // Locked achievement
-            const isSecret = ach.isSecret;
+      {/* ===== 상위 랭커 TOP 3 하이라이트 ===== */}
+      {ranking.length >= 3 && (
+        <div className="grid grid-cols-3 gap-3">
+          {[ranking[1], ranking[0], ranking[2]].map((entry, visualIdx) => {
+            const isCenter = visualIdx === 1;
+            const medal = getRankMedal(entry.rank);
             return (
-              <div
-                key={ach.key}
-                className="p-3 rounded-lg border border-gray-200 bg-gray-50 opacity-60"
+              <motion.div
+                key={entry.rank}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: visualIdx * 0.1 }}
+                className={`relative flex flex-col items-center p-4 rounded-xl border-2 ${
+                  entry.isMe ? 'border-[#E31837] bg-red-50' : `${medal.border} ${medal.bg}`
+                } ${isCenter ? 'sm:-mt-4 sm:pb-6' : ''}`}
               >
-                <div className="text-2xl mb-1 grayscale">❓</div>
-                <p className="text-sm font-semibold text-gray-400">
-                  {isSecret ? '???' : ach.title}
+                <span className={`text-3xl ${isCenter ? 'text-4xl' : ''}`}>
+                  {medal.emoji}
+                </span>
+                <span className="text-2xl mt-1">{entry.anonymous_emoji}</span>
+                <p className={`text-sm font-bold mt-1 text-center truncate w-full ${
+                  entry.isMe ? 'text-[#E31837]' : 'text-gray-900'
+                }`}>
+                  {entry.anonymous_name}
+                  {entry.isMe && ' (나)'}
                 </p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {isSecret ? '비공개 업적' : ach.condition}
-                </p>
-              </div>
+                <div className="flex items-center gap-1 mt-2">
+                  <TrendingUp className="w-3.5 h-3.5 text-[#E31837]" />
+                  <span className="text-lg font-bold text-[#E31837]">
+                    {entry.total_listings.toLocaleString()}
+                  </span>
+                  <span className="text-xs text-gray-500">건</span>
+                </div>
+              </motion.div>
             );
           })}
         </div>
-      </Card>
+      )}
 
-      {/* ===== 7. Active Challenges Section ===== */}
+      {/* ===== 전체 랭킹 테이블 ===== */}
       <Card>
         <div className="flex items-center gap-2 mb-4">
-          <Target className="w-5 h-5 text-[#E31837]" />
-          <h2 className="text-lg font-bold text-gray-900">활성 챌린지</h2>
+          <TrendingUp className="w-5 h-5 text-[#E31837]" />
+          <h2 className="text-lg font-bold text-gray-900">전체 랭킹</h2>
+          <span className="text-xs text-gray-400 ml-1">
+            총 {totalParticipants}명 참여
+          </span>
         </div>
 
-        {challenges.length === 0 ? (
-          <p className="text-center text-gray-400 py-8">현재 진행 중인 챌린지가 없습니다.</p>
+        {ranking.length === 0 ? (
+          <p className="text-center text-gray-400 py-12">아직 랭킹 데이터가 없습니다.</p>
         ) : (
-          <div className="space-y-3">
-            {challenges.map((ch) => {
-              const progress = ch.progress?.[0];
-              const currentValue = progress?.current_value ?? 0;
-              const isCompleted = progress?.completed ?? false;
-              const pct = Math.min(100, Math.round((currentValue / ch.target_value) * 100));
+          <div className="space-y-1">
+            {/* Header */}
+            <div className="grid grid-cols-12 gap-2 text-xs font-medium text-gray-400 px-3 py-2 border-b border-gray-100">
+              <span className="col-span-2">순위</span>
+              <span className="col-span-6">셀러</span>
+              <span className="col-span-4 text-right">등록 건수</span>
+            </div>
 
-              return (
-                <div
-                  key={ch.id}
-                  className={`p-4 rounded-lg border ${
-                    isCompleted
-                      ? 'border-green-200 bg-green-50'
-                      : 'border-gray-200 bg-white'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-semibold text-gray-900">
-                          {isCompleted && '✅ '}{ch.title}
-                        </p>
-                        <Badge
-                          label={ch.challenge_type === 'individual' ? '개인' : '전체'}
-                          colorClass={
-                            ch.challenge_type === 'individual'
-                              ? 'bg-blue-100 text-blue-700'
-                              : 'bg-purple-100 text-purple-700'
-                          }
-                        />
-                      </div>
-                      {ch.description && (
-                        <p className="text-xs text-gray-500 mt-1">{ch.description}</p>
+            <AnimatePresence>
+              {ranking.map((entry, idx) => {
+                const medal = getRankMedal(entry.rank);
+                return (
+                  <motion.div
+                    key={entry.rank}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: idx * 0.03 }}
+                    className={`grid grid-cols-12 gap-2 items-center text-sm px-3 py-2.5 rounded-lg transition ${
+                      entry.isMe
+                        ? 'bg-[#E31837]/10 border-l-4 border-[#E31837] font-semibold'
+                        : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    {/* Rank */}
+                    <span className={`col-span-2 font-bold ${medal.text}`}>
+                      {entry.rank <= 3 ? (
+                        <span className="text-lg">{medal.emoji}</span>
+                      ) : (
+                        entry.rank
                       )}
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-sm font-bold text-[#E31837]">+{ch.reward_points}P</p>
-                    </div>
-                  </div>
+                    </span>
 
-                  {/* Progress Bar */}
-                  <div className="mt-3">
-                    <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                      <span>
-                        {ch.metric}: {currentValue.toLocaleString()} / {ch.target_value.toLocaleString()}
+                    {/* Name */}
+                    <span className="col-span-6 flex items-center gap-2 truncate">
+                      <span className="text-lg shrink-0">{entry.anonymous_emoji}</span>
+                      <span className={`truncate ${entry.isMe ? 'text-[#E31837]' : 'text-gray-900'}`}>
+                        {entry.anonymous_name}
+                        {entry.isMe && (
+                          <span className="ml-1 text-xs bg-[#E31837] text-white px-1.5 py-0.5 rounded-full">
+                            나
+                          </span>
+                        )}
                       </span>
-                      <span>{pct}%</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className={`h-2 rounded-full transition-all duration-500 ${
-                          isCompleted ? 'bg-green-500' : 'bg-[#E31837]'
-                        }`}
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  </div>
+                    </span>
 
-                  {/* Date Range */}
-                  <p className="text-[10px] text-gray-400 mt-2">
-                    {new Date(ch.start_date).toLocaleDateString('ko-KR')} ~{' '}
-                    {new Date(ch.end_date).toLocaleDateString('ko-KR')}
-                  </p>
+                    {/* Listings count */}
+                    <span className={`col-span-4 text-right font-bold ${
+                      entry.isMe ? 'text-[#E31837]' : 'text-gray-700'
+                    }`}>
+                      {entry.total_listings.toLocaleString()}
+                      <span className="text-xs font-normal text-gray-400 ml-1">건</span>
+                    </span>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+
+            {/* 내 순위가 Top 50 밖인 경우 */}
+            {myRank && myRank > 50 && (
+              <div className="mt-4 pt-3 border-t-2 border-dashed border-gray-200">
+                <div className="grid grid-cols-12 gap-2 items-center text-sm px-3 py-2.5 bg-[#E31837]/10 rounded-lg border-l-4 border-[#E31837] font-semibold">
+                  <span className="col-span-2 text-[#E31837] font-bold">{myRank}</span>
+                  <span className="col-span-6 text-[#E31837]">
+                    나
+                  </span>
+                  <span className="col-span-4 text-right text-[#E31837] font-bold">
+                    {myListings?.toLocaleString() ?? 0}
+                    <span className="text-xs font-normal ml-1">건</span>
+                  </span>
                 </div>
-              );
-            })}
+              </div>
+            )}
           </div>
         )}
       </Card>
+
+      {/* ===== 안내 ===== */}
+      <div className="text-center text-xs text-gray-400 space-y-1 pb-4">
+        <p>랭킹은 쿠팡 API를 통해 자동으로 집계됩니다</p>
+        <p>페이지 진입 시 자동 동기화되며, 새로고침 버튼으로 수동 갱신할 수 있습니다</p>
+        <p>셀러 이름은 익명으로 표시됩니다</p>
+      </div>
     </div>
   );
 }

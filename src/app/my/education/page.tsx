@@ -11,53 +11,60 @@ import { MODULE_CATEGORIES, LEVEL_LABELS, getStepByKey } from '@/lib/utils/educa
 import ModuleCard from '@/components/education/ModuleCard';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import { GraduationCap, Trophy } from 'lucide-react';
+import { AlertCircle, GraduationCap, Trophy } from 'lucide-react';
 
 export default function EducationHubPage() {
   const [steps, setSteps] = useState<ComputedStep[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const supabase = useMemo(() => createClient(), []);
 
   const fetchData = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-    const { data: ptUserData } = await supabase
-      .from('pt_users')
-      .select('id')
-      .eq('profile_id', user.id)
-      .maybeSingle();
+      const { data: ptUserData } = await supabase
+        .from('pt_users')
+        .select('id')
+        .eq('profile_id', user.id)
+        .maybeSingle();
 
-    if (!ptUserData) { setLoading(false); return; }
+      if (!ptUserData) return;
 
-    const { data: dbRows } = await supabase
-      .from('onboarding_steps')
-      .select('*')
-      .eq('pt_user_id', ptUserData.id);
+      const { data: dbRows } = await supabase
+        .from('onboarding_steps')
+        .select('*')
+        .eq('pt_user_id', ptUserData.id);
 
-    const { data: contracts } = await supabase
-      .from('contracts')
-      .select('id')
-      .eq('pt_user_id', ptUserData.id)
-      .eq('status', 'signed')
-      .limit(1);
+      const { data: contracts } = await supabase
+        .from('contracts')
+        .select('id')
+        .eq('pt_user_id', ptUserData.id)
+        .eq('status', 'signed')
+        .limit(1);
 
-    const { data: reports } = await supabase
-      .from('monthly_reports')
-      .select('id')
-      .eq('pt_user_id', ptUserData.id)
-      .limit(1);
+      const { data: reports } = await supabase
+        .from('monthly_reports')
+        .select('id')
+        .eq('pt_user_id', ptUserData.id)
+        .limit(1);
 
-    const computed = computeStepStates(
-      ONBOARDING_STEPS,
-      (dbRows || []) as OnboardingStep[],
-      (contracts?.length ?? 0) > 0,
-      (reports?.length ?? 0) > 0,
-    );
+      const computed = computeStepStates(
+        ONBOARDING_STEPS,
+        (dbRows || []) as OnboardingStep[],
+        (contracts?.length ?? 0) > 0,
+        (reports?.length ?? 0) > 0,
+      );
 
-    setSteps(computed);
-    setLoading(false);
+      setSteps(computed);
+    } catch (err) {
+      setError('교육 정보를 불러오지 못했습니다.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   }, [supabase]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -80,6 +87,13 @@ export default function EducationHubPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
+          <AlertCircle className="h-5 w-5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div>
         <div className="flex items-center gap-3 mb-1">

@@ -1,36 +1,45 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { useState, useEffect, useCallback } from 'react';
 import { formatKRW, formatYearMonth } from '@/lib/utils/format';
 import { TAX_INVOICE_STATUS_LABELS, TAX_INVOICE_STATUS_COLORS } from '@/lib/utils/constants';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import StatCard from '@/components/ui/StatCard';
 import MonthPicker from '@/components/ui/MonthPicker';
-import { Receipt, FileText } from 'lucide-react';
+import { Receipt, FileText, AlertCircle } from 'lucide-react';
 import type { TaxInvoice } from '@/lib/supabase/types';
+
+function getCurrentYearMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
 
 export default function MyTaxInvoicesPage() {
   const [invoices, setInvoices] = useState<TaxInvoice[]>([]);
   const [loading, setLoading] = useState(true);
-  const [yearMonth, setYearMonth] = useState('');
-
-  const supabase = useMemo(() => createClient(), []);
+  const [error, setError] = useState<string | null>(null);
+  const [yearMonth, setYearMonth] = useState(getCurrentYearMonth());
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
+    setError(null);
     const params = new URLSearchParams();
     if (yearMonth) params.set('yearMonth', yearMonth);
 
     try {
       const res = await fetch(`/api/tax-invoices?${params.toString()}`);
-      if (res.ok) {
-        const data = await res.json();
-        setInvoices(data);
+      if (!res.ok) {
+        setError('세금계산서를 불러오지 못했습니다.');
+        setInvoices([]);
+        setLoading(false);
+        return;
       }
+      const data = await res.json();
+      setInvoices(Array.isArray(data) ? data : []);
     } catch {
-      // 무시
+      setError('네트워크 오류가 발생했습니다.');
+      setInvoices([]);
     }
     setLoading(false);
   }, [yearMonth]);
@@ -67,6 +76,14 @@ export default function MyTaxInvoicesPage() {
           icon={<Receipt className="w-5 h-5" />}
         />
       </div>
+
+      {/* 에러 */}
+      {error && (
+        <div className="px-4 py-3 bg-red-50 text-red-600 rounded-lg text-sm flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          {error}
+        </div>
+      )}
 
       {/* 목록 */}
       <Card>

@@ -3,11 +3,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { TrendingKeyword } from '@/lib/supabase/types';
-import { TREND_CATEGORIES, DIFFICULTY_LABELS, DIFFICULTY_COLORS, SEASONALITY_LABELS } from '@/lib/utils/constants';
+import { TREND_CATEGORIES, DIFFICULTY_LABELS, DIFFICULTY_COLORS } from '@/lib/utils/constants';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
-import { Flame, Search, TrendingUp, ShoppingCart, Lightbulb, ThumbsUp, ThumbsDown, Calendar, X, CheckCircle2, XCircle, ChevronRight } from 'lucide-react';
+import KeywordAnalysisPanel from '@/components/my/KeywordAnalysisPanel';
+import { Flame, Search, TrendingUp, ShoppingCart, Lightbulb, Calendar, CheckCircle2, XCircle, ChevronRight, BarChart3, AlertCircle } from 'lucide-react';
 
 const SEASON_ICONS: Record<string, string> = {
   '연중': '📅',
@@ -21,29 +22,41 @@ const SEASON_ICONS: Record<string, string> = {
 };
 
 export default function MyTrendsPage() {
+  const [activeTab, setActiveTab] = useState<'recommend' | 'analysis'>('recommend');
   const [keywords, setKeywords] = useState<TrendingKeyword[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState('전체');
   const [selectedKeyword, setSelectedKeyword] = useState<TrendingKeyword | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [analysisKeyword, setAnalysisKeyword] = useState<string | undefined>(undefined);
 
   const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
-      let query = supabase
-        .from('trending_keywords')
-        .select('*')
-        .eq('is_active', true)
-        .order('trend_score', { ascending: false });
+      setError(null);
+      try {
+        let query = supabase
+          .from('trending_keywords')
+          .select('*')
+          .eq('is_active', true)
+          .order('trend_score', { ascending: false });
 
-      if (activeCategory !== '전체') {
-        query = query.eq('category', activeCategory);
+        if (activeCategory !== '전체') {
+          query = query.eq('category', activeCategory);
+        }
+
+        const { data, error: queryError } = await query;
+        if (queryError) {
+          setError('키워드를 불러오지 못했습니다.');
+        }
+        setKeywords((data as TrendingKeyword[]) || []);
+      } catch {
+        setError('키워드를 불러오지 못했습니다.');
+      } finally {
+        setLoading(false);
       }
-
-      const { data } = await query;
-      setKeywords((data as TrendingKeyword[]) || []);
-      setLoading(false);
     })();
   }, [supabase, activeCategory]);
 
@@ -86,6 +99,11 @@ export default function MyTrendsPage() {
 
   const categories = ['전체', ...TREND_CATEGORIES];
 
+  const tabs = [
+    { key: 'recommend' as const, label: '추천 키워드', icon: Flame },
+    { key: 'analysis' as const, label: '키워드 분석', icon: BarChart3 },
+  ];
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div>
@@ -94,142 +112,190 @@ export default function MyTrendsPage() {
           <h1 className="text-2xl font-bold text-gray-900">트렌드 키워드</h1>
         </div>
         <p className="mt-2 text-sm text-gray-500">
-          프로그램 리셀에 적합한 <span className="font-medium text-gray-700">단일상품(사이즈·색상 옵션 불필요)</span> 키워드를 추천합니다. 카드를 클릭하면 상세 분석을 확인할 수 있습니다.
+          추천 키워드를 확인하거나, 직접 키워드를 검색하여 트렌드를 분석할 수 있습니다.
         </p>
       </div>
 
-      {/* 카테고리 필터 */}
-      <div className="flex flex-wrap gap-2">
-        {categories.map((cat) => (
-          <button
-            key={cat}
-            onClick={() => setActiveCategory(cat)}
-            className={`px-3 py-1.5 text-sm font-medium rounded-full transition ${
-              activeCategory === cat
-                ? 'bg-[#E31837] text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            {cat}
-          </button>
-        ))}
+      {/* 탭 */}
+      <div className="flex border-b border-gray-200">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition ${
+                activeTab === tab.key
+                  ? 'border-[#E31837] text-[#E31837]'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
-      {/* 카드 그리드 */}
-      {loading ? (
-        <Card>
-          <div className="py-8 text-center text-gray-400">불러오는 중...</div>
-        </Card>
-      ) : keywords.length === 0 ? (
-        <Card>
-          <div className="py-12 text-center text-gray-400">
-            아직 등록된 트렌드 키워드가 없습니다.
-          </div>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {keywords.map((kw) => {
-            const totalSearch = getTotalSearch(kw);
-            return (
-              <div
-                key={kw.id}
-                onClick={() => setSelectedKeyword(kw)}
-                className="cursor-pointer group"
+      {/* 추천 키워드 탭 */}
+      {activeTab === 'recommend' && (
+        <>
+          {/* 카테고리 필터 */}
+          <div className="flex flex-wrap gap-2">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                className={`px-3 py-1.5 text-sm font-medium rounded-full transition ${
+                  activeCategory === cat
+                    ? 'bg-[#E31837] text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
               >
-                <Card>
-                  <div className="space-y-3">
-                    {/* 키워드 & 라벨 */}
-                    <div className="flex items-start justify-between">
-                      <h3 className="text-lg font-bold text-gray-900 group-hover:text-[#E31837] transition-colors">
-                        {kw.keyword}
-                      </h3>
-                      <span className={`text-xs font-bold ${getScoreColor(kw.trend_score)}`}>
-                        {getScoreLabel(kw.trend_score)}
-                      </span>
-                    </div>
+                {cat}
+              </button>
+            ))}
+          </div>
 
-                    {/* 배지 행: 카테고리 + 시즌 + 난이도 */}
-                    <div className="flex flex-wrap gap-1.5">
-                      <Badge label={kw.category} colorClass="bg-blue-100 text-blue-700" />
-                      {kw.seasonality && kw.seasonality !== '연중' && (
-                        <Badge
-                          label={`${SEASON_ICONS[kw.seasonality] || ''} ${kw.seasonality}`}
-                          colorClass="bg-purple-100 text-purple-700"
-                        />
-                      )}
-                      {kw.difficulty && (
-                        <Badge
-                          label={DIFFICULTY_LABELS[kw.difficulty] || kw.difficulty}
-                          colorClass={DIFFICULTY_COLORS[kw.difficulty] || 'bg-gray-100 text-gray-600'}
-                        />
-                      )}
-                    </div>
+          {/* 에러 배너 */}
+          {error && (
+            <div className="flex items-center gap-2 p-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
 
-                    {/* 트렌드 점수 바 */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs text-gray-500">트렌드 점수</span>
-                        <span className={`text-sm font-bold ${getScoreColor(kw.trend_score)}`}>
-                          {kw.trend_score}
-                        </span>
-                      </div>
-                      <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all ${getScoreBg(kw.trend_score)}`}
-                          style={{ width: `${kw.trend_score}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* 검색량 + 경쟁도 + 마진 */}
-                    <div className="pt-2 border-t border-gray-100 space-y-1.5">
-                      {totalSearch !== null && (
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-gray-500">월간 검색량</span>
-                          <span className="font-bold text-gray-900">{formatNumber(totalSearch)}</span>
-                        </div>
-                      )}
-                      {kw.naver_trend_data?.compIdx && (
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-gray-500">경쟁강도</span>
-                          <Badge label={kw.naver_trend_data.compIdx} colorClass={getCompBadgeColor(kw.naver_trend_data.compIdx)} />
-                        </div>
-                      )}
-                      {kw.margin_range && (
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-gray-500">예상 마진</span>
-                          <span className="font-semibold text-green-600">{kw.margin_range}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 상세보기 유도 */}
-                    <div className="flex items-center justify-end text-xs text-gray-400 group-hover:text-[#E31837] transition-colors pt-1">
-                      상세 분석 보기 <ChevronRight className="w-3 h-3 ml-0.5" />
-                    </div>
-                  </div>
-                </Card>
+          {/* 카드 그리드 */}
+          {loading ? (
+            <Card>
+              <div className="py-8 text-center text-gray-400">불러오는 중...</div>
+            </Card>
+          ) : keywords.length === 0 ? (
+            <Card>
+              <div className="py-12 text-center text-gray-400">
+                <TrendingUp className="w-10 h-10 mx-auto mb-2 text-gray-300" />
+                아직 등록된 트렌드 키워드가 없습니다.
               </div>
-            );
-          })}
-        </div>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {keywords.map((kw) => {
+                const totalSearch = getTotalSearch(kw);
+                return (
+                  <div
+                    key={kw.id}
+                    onClick={() => setSelectedKeyword(kw)}
+                    className="cursor-pointer group"
+                  >
+                    <Card>
+                      <div className="space-y-3">
+                        {/* 키워드 & 라벨 */}
+                        <div className="flex items-start justify-between">
+                          <h3 className="text-lg font-bold text-gray-900 group-hover:text-[#E31837] transition-colors">
+                            {kw.keyword}
+                          </h3>
+                          <span className={`text-xs font-bold ${getScoreColor(kw.trend_score)}`}>
+                            {getScoreLabel(kw.trend_score)}
+                          </span>
+                        </div>
+
+                        {/* 배지 행: 카테고리 + 시즌 + 난이도 */}
+                        <div className="flex flex-wrap gap-1.5">
+                          <Badge label={kw.category} colorClass="bg-blue-100 text-blue-700" />
+                          {kw.seasonality && kw.seasonality !== '연중' && (
+                            <Badge
+                              label={`${SEASON_ICONS[kw.seasonality] || ''} ${kw.seasonality}`}
+                              colorClass="bg-purple-100 text-purple-700"
+                            />
+                          )}
+                          {kw.difficulty && (
+                            <Badge
+                              label={DIFFICULTY_LABELS[kw.difficulty] || kw.difficulty}
+                              colorClass={DIFFICULTY_COLORS[kw.difficulty] || 'bg-gray-100 text-gray-600'}
+                            />
+                          )}
+                        </div>
+
+                        {/* 트렌드 점수 바 */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs text-gray-500">트렌드 점수</span>
+                            <span className={`text-sm font-bold ${getScoreColor(kw.trend_score)}`}>
+                              {kw.trend_score}
+                            </span>
+                          </div>
+                          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${getScoreBg(kw.trend_score)}`}
+                              style={{ width: `${kw.trend_score}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* 검색량 + 경쟁도 + 마진 */}
+                        <div className="pt-2 border-t border-gray-100 space-y-1.5">
+                          {totalSearch !== null && (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-gray-500">월간 검색량</span>
+                              <span className="font-bold text-gray-900">{formatNumber(totalSearch)}</span>
+                            </div>
+                          )}
+                          {kw.naver_trend_data?.compIdx && (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-gray-500">경쟁강도</span>
+                              <Badge label={kw.naver_trend_data.compIdx} colorClass={getCompBadgeColor(kw.naver_trend_data.compIdx)} />
+                            </div>
+                          )}
+                          {kw.margin_range && (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-gray-500">예상 마진</span>
+                              <span className="font-semibold text-green-600">{kw.margin_range}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 상세보기 유도 */}
+                        <div className="flex items-center justify-end text-xs text-gray-400 group-hover:text-[#E31837] transition-colors pt-1">
+                          상세 분석 보기 <ChevronRight className="w-3 h-3 ml-0.5" />
+                        </div>
+                      </div>
+                    </Card>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* 상세 분석 모달 */}
+          {selectedKeyword && (
+            <Modal
+              isOpen={!!selectedKeyword}
+              onClose={() => setSelectedKeyword(null)}
+              title={`${selectedKeyword.keyword} — 상세 분석`}
+            >
+              <KeywordDetailModal
+                kw={selectedKeyword}
+                onClose={() => setSelectedKeyword(null)}
+                onAnalyze={(kw) => {
+                  setSelectedKeyword(null);
+                  setAnalysisKeyword(kw);
+                  setActiveTab('analysis');
+                }}
+              />
+            </Modal>
+          )}
+        </>
       )}
 
-      {/* 상세 분석 모달 */}
-      {selectedKeyword && (
-        <Modal
-          isOpen={!!selectedKeyword}
-          onClose={() => setSelectedKeyword(null)}
-          title={`${selectedKeyword.keyword} — 상세 분석`}
-        >
-          <KeywordDetailModal kw={selectedKeyword} onClose={() => setSelectedKeyword(null)} />
-        </Modal>
+      {/* 키워드 분석 탭 */}
+      {activeTab === 'analysis' && (
+        <KeywordAnalysisPanel initialKeyword={analysisKeyword} />
       )}
     </div>
   );
 }
 
-function KeywordDetailModal({ kw, onClose }: { kw: TrendingKeyword; onClose: () => void }) {
+function KeywordDetailModal({ kw, onClose, onAnalyze }: { kw: TrendingKeyword; onClose: () => void; onAnalyze: (keyword: string) => void }) {
   const formatNumber = (n: number) => {
     if (typeof n !== 'number' || n < 0) return '< 10';
     return n.toLocaleString();
@@ -469,12 +535,21 @@ function KeywordDetailModal({ kw, onClose }: { kw: TrendingKeyword; onClose: () 
         </section>
       )}
 
-      <button
-        onClick={onClose}
-        className="w-full px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
-      >
-        닫기
-      </button>
+      <div className="flex gap-2">
+        <button
+          onClick={() => onAnalyze(kw.keyword)}
+          className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-[#c81430] flex items-center justify-center gap-2"
+        >
+          <BarChart3 className="w-4 h-4" />
+          키워드 분석
+        </button>
+        <button
+          onClick={onClose}
+          className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+        >
+          닫기
+        </button>
+      </div>
     </div>
   );
 }

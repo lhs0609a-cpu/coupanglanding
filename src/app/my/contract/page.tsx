@@ -552,10 +552,12 @@ export default function MyContractPage() {
                         <FileUpload
                           label="철거 증빙 스크린샷"
                           onFileSelect={(file) => {
+                            if (evidencePreviewUrl) URL.revokeObjectURL(evidencePreviewUrl);
                             setEvidenceFile(file);
                             setEvidencePreviewUrl(URL.createObjectURL(file));
                           }}
                           onClear={() => {
+                            if (evidencePreviewUrl) URL.revokeObjectURL(evidencePreviewUrl);
                             setEvidenceFile(null);
                             setEvidencePreviewUrl(null);
                           }}

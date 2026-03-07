@@ -7,7 +7,10 @@ import { TREND_CATEGORIES, DIFFICULTY_LABELS, SEASONALITY_LABELS } from '@/lib/u
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
-import { Flame, Plus, RefreshCw, Search, Pencil, Trash2, Eye, EyeOff } from 'lucide-react';
+import KeywordTrendChart from '@/components/charts/KeywordTrendChart';
+import type { TrendDataPoint } from '@/lib/supabase/types';
+import type { PeriodOption } from '@/lib/utils/trend-chart';
+import { Flame, Plus, RefreshCw, Search, Pencil, Trash2, Eye, EyeOff, BarChart3 } from 'lucide-react';
 
 export default function AdminTrendsPage() {
   const [keywords, setKeywords] = useState<TrendingKeyword[]>([]);
@@ -22,6 +25,12 @@ export default function AdminTrendsPage() {
   } | null>(null);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [message, setMessage] = useState<{ type: string; text: string }>({ type: '', text: '' });
+  // 차트 모달 상태
+  const [chartKeyword, setChartKeyword] = useState<TrendingKeyword | null>(null);
+  const [chartData, setChartData] = useState<TrendDataPoint[]>([]);
+  const [chartPeriod, setChartPeriod] = useState<PeriodOption>('3m');
+  const [chartLoading, setChartLoading] = useState(false);
+  const [chartError, setChartError] = useState<string | null>(null);
 
   // Form state — 기존 필드
   const [formKeyword, setFormKeyword] = useState('');
@@ -258,6 +267,47 @@ export default function AdminTrendsPage() {
       setMessage({ type: 'error', text: '서버 오류' });
     }
     setBulkLoading(false);
+  };
+
+  const fetchChartData = async (kw: TrendingKeyword, period: PeriodOption) => {
+    setChartLoading(true);
+    setChartError(null);
+    try {
+      const res = await fetch('/api/trends/datalab', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keyword: kw.keyword,
+          period,
+          categoryId: kw.naver_category_id || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || '트렌드 조회 실패');
+      }
+      const result = await res.json();
+      setChartData(result.data || []);
+    } catch (err) {
+      setChartError(err instanceof Error ? err.message : '트렌드 조회 실패');
+      setChartData([]);
+    } finally {
+      setChartLoading(false);
+    }
+  };
+
+  const handleOpenChart = (kw: TrendingKeyword) => {
+    setChartKeyword(kw);
+    setChartPeriod('3m');
+    setChartData([]);
+    fetchChartData(kw, '3m');
+  };
+
+  const handleChartPeriodChange = (period: PeriodOption) => {
+    setChartPeriod(period);
+    if (chartKeyword) {
+      fetchChartData(chartKeyword, period);
+    }
   };
 
   const getScoreColor = (score: number) => {
@@ -520,6 +570,13 @@ export default function AdminTrendsPage() {
                     <td className="py-3 px-4">
                       <div className="flex items-center justify-end gap-1">
                         <button
+                          onClick={() => handleOpenChart(kw)}
+                          className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded"
+                          title="트렌드 차트"
+                        >
+                          <BarChart3 className="w-4 h-4" />
+                        </button>
+                        <button
                           onClick={() => handleNaverCheck(kw)}
                           className="p-1.5 text-green-600 hover:bg-green-50 rounded"
                           title="트렌드 확인"
@@ -704,6 +761,33 @@ export default function AdminTrendsPage() {
                 {formSubmitting ? '수정 중...' : '수정'}
               </button>
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 트렌드 차트 모달 */}
+      {chartKeyword && (
+        <Modal
+          isOpen={!!chartKeyword}
+          onClose={() => setChartKeyword(null)}
+          title={`${chartKeyword.keyword} — 검색 트렌드`}
+          maxWidth="max-w-2xl"
+        >
+          <div className="space-y-4">
+            <KeywordTrendChart
+              keyword={chartKeyword.keyword}
+              data={chartData}
+              period={chartPeriod}
+              onPeriodChange={handleChartPeriodChange}
+              loading={chartLoading}
+              error={chartError}
+            />
+            <button
+              onClick={() => setChartKeyword(null)}
+              className="w-full px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+            >
+              닫기
+            </button>
           </div>
         </Modal>
       )}

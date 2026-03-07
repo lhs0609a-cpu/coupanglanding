@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { useState, useEffect, useCallback } from 'react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import EmergencyResponseWizard from '@/components/my/EmergencyResponseWizard';
@@ -22,21 +21,28 @@ export default function MyEmergencyPage() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardType, setWizardType] = useState<'brand_complaint' | 'account_penalty' | undefined>();
   const [searchTerm, setSearchTerm] = useState('');
-
-  const supabase = useMemo(() => createClient(), []);
+  const [error, setError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
-    // 인시던트 로드
-    const incidentRes = await fetch('/api/emergency/incidents');
-    const incidentData = await incidentRes.json();
-    if (incidentData.data) setIncidents(incidentData.data);
+    try {
+      setError(null);
 
-    // 블랙리스트 로드
-    const blRes = await fetch(`/api/emergency/blacklist${searchTerm ? `?search=${encodeURIComponent(searchTerm)}` : ''}`);
-    const blData = await blRes.json();
-    if (blData.data) setBlacklist(blData.data);
+      // 인시던트 로드
+      const incidentRes = await fetch('/api/emergency/incidents');
+      if (!incidentRes.ok) throw new Error(`인시던트 로드 실패 (${incidentRes.status})`);
+      const incidentData = await incidentRes.json();
+      if (incidentData.data) setIncidents(incidentData.data);
 
-    setLoading(false);
+      // 블랙리스트 로드
+      const blRes = await fetch(`/api/emergency/blacklist${searchTerm ? `?search=${encodeURIComponent(searchTerm)}` : ''}`);
+      if (!blRes.ok) throw new Error(`블랙리스트 로드 실패 (${blRes.status})`);
+      const blData = await blRes.json();
+      if (blData.data) setBlacklist(blData.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '데이터를 불러오는 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
   }, [searchTerm]);
 
   useEffect(() => {
@@ -67,6 +73,15 @@ export default function MyEmergencyPage() {
         <ShieldAlert className="w-6 h-6 text-[#E31837]" />
         <h1 className="text-2xl font-bold text-gray-900">긴급 대응 센터</h1>
       </div>
+
+      {error && (
+        <Card>
+          <div className="py-4 text-center text-red-600 text-sm">
+            <AlertTriangle className="w-5 h-5 inline-block mr-1 -mt-0.5" />
+            {error}
+          </div>
+        </Card>
+      )}
 
       {/* 대응 시작 카드 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

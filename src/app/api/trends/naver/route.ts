@@ -34,9 +34,11 @@ export async function POST(request: NextRequest) {
       .eq('id', user.id)
       .single();
 
-    if (profile?.role !== 'admin') {
-      return NextResponse.json({ error: '관리자 권한이 필요합니다.' }, { status: 403 });
+    if (!profile?.role || !['admin', 'pt_user', 'partner'].includes(profile.role)) {
+      return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 });
     }
+
+    const isAdmin = profile.role === 'admin';
 
     const body = await request.json();
     const { keywordId, keyword } = body;
@@ -105,8 +107,8 @@ export async function POST(request: NextRequest) {
 
     const trendScore = calculateTrendScore(naverData.monthlyPcQcCnt, naverData.monthlyMobileQcCnt);
 
-    // DB 업데이트
-    if (keywordId) {
+    // DB 업데이트 (관리자만)
+    if (keywordId && isAdmin) {
       const serviceClient = await createServiceClient();
       await serviceClient
         .from('trending_keywords')
@@ -120,15 +122,18 @@ export async function POST(request: NextRequest) {
         .eq('id', keywordId);
     }
 
-    // 연관 키워드 (최대 10개)
+    // 연관 키워드 (최대 20개, 전체 데이터 포함)
     const relatedKeywords = keywordList
       .filter((item: Record<string, unknown>) => (item.relKeyword as string)?.toLowerCase() !== keyword.toLowerCase())
-      .slice(0, 10)
+      .slice(0, 20)
       .map((item: Record<string, unknown>) => ({
         relKeyword: item.relKeyword,
         monthlyPcQcCnt: typeof item.monthlyPcQcCnt === 'number' ? item.monthlyPcQcCnt : 0,
         monthlyMobileQcCnt: typeof item.monthlyMobileQcCnt === 'number' ? item.monthlyMobileQcCnt : 0,
+        monthlyAvePcClkCnt: typeof item.monthlyAvePcClkCnt === 'number' ? item.monthlyAvePcClkCnt : 0,
+        monthlyAveMobileClkCnt: typeof item.monthlyAveMobileClkCnt === 'number' ? item.monthlyAveMobileClkCnt : 0,
         compIdx: item.compIdx || '낮음',
+        plAvgDepth: typeof item.plAvgDepth === 'number' ? item.plAvgDepth : 0,
       }));
 
     return NextResponse.json({

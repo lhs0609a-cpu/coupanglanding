@@ -3,10 +3,41 @@
 import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-import { GROWTH_TIERS, getCurrentTier, getProgressToNextTier, formatRevenue } from '@/lib/data/growth-roadmap';
+import {
+  GROWTH_TIERS,
+  BENEFIT_CATEGORY_META,
+  getCurrentTier,
+  getProgressToNextTier,
+  formatRevenue,
+} from '@/lib/data/growth-roadmap';
+import type { BenefitCategory } from '@/lib/data/growth-roadmap';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import { Map, TrendingUp, CheckCircle, ChevronRight } from 'lucide-react';
+import {
+  Map,
+  TrendingUp,
+  CheckCircle,
+  ChevronRight,
+  Gift,
+  Lock,
+  Sparkles,
+  GraduationCap,
+  Wrench,
+  BookOpen,
+  Percent,
+  Briefcase,
+  Users,
+  Star,
+} from 'lucide-react';
+
+const BENEFIT_ICONS: Record<BenefitCategory, React.ComponentType<{ className?: string }>> = {
+  coaching: GraduationCap,
+  tools: Wrench,
+  content: BookOpen,
+  commission: Percent,
+  business: Briefcase,
+  community: Users,
+};
 
 interface RevenueHistoryItem {
   year_month: string;
@@ -22,40 +53,41 @@ export default function GrowthRoadmapPage() {
 
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setLoading(false);
-        return;
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setLoading(false);
+          return;
+        }
+
+        const { data: ptUserData } = await supabase
+          .from('pt_users')
+          .select('id')
+          .eq('profile_id', user.id)
+          .maybeSingle();
+
+        if (!ptUserData) {
+          setLoading(false);
+          return;
+        }
+
+        const ptUserId = ptUserData.id;
+
+        const { data: reports } = await supabase
+          .from('monthly_reports')
+          .select('year_month, reported_revenue')
+          .eq('pt_user_id', ptUserId)
+          .order('year_month', { ascending: false })
+          .limit(12);
+
+        if (reports && reports.length > 0) {
+          setCurrentRevenue((reports[0] as RevenueHistoryItem).reported_revenue);
+          const last6 = (reports as RevenueHistoryItem[]).slice(0, 6).reverse();
+          setRevenueHistory(last6);
+        }
+      } catch (err) {
+        console.error('growth page fetch error:', err);
       }
-
-      const { data: ptUserData } = await supabase
-        .from('pt_users')
-        .select('id')
-        .eq('profile_id', user.id)
-        .maybeSingle();
-
-      if (!ptUserData) {
-        setLoading(false);
-        return;
-      }
-
-      const ptUserId = ptUserData.id;
-
-      const { data: reports } = await supabase
-        .from('monthly_reports')
-        .select('year_month, reported_revenue')
-        .eq('pt_user_id', ptUserId)
-        .order('year_month', { ascending: false })
-        .limit(12);
-
-      if (reports && reports.length > 0) {
-        // 가장 최근 월의 매출을 현재 매출로 사용
-        setCurrentRevenue((reports[0] as RevenueHistoryItem).reported_revenue);
-        // 최근 6개월 데이터를 시간순으로 정렬 (바 차트용)
-        const last6 = (reports as RevenueHistoryItem[]).slice(0, 6).reverse();
-        setRevenueHistory(last6);
-      }
-
       setLoading(false);
     })();
   }, [supabase]);
@@ -133,6 +165,95 @@ export default function GrowthRoadmapPage() {
         </div>
       </Card>
 
+      {/* 나의 현재 혜택 */}
+      <Card>
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Gift className="w-5 h-5 text-[#E31837]" />
+            <h2 className="text-lg font-bold text-gray-900">나의 현재 혜택</h2>
+            <Badge label={currentTier.label} colorClass={currentTier.badgeColor} />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {currentTier.benefits.map((benefit, i) => {
+              const meta = BENEFIT_CATEGORY_META[benefit.category];
+              const Icon = BENEFIT_ICONS[benefit.category];
+              return (
+                <div
+                  key={i}
+                  className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg"
+                >
+                  <div className={`mt-0.5 p-1.5 rounded-lg bg-white border border-gray-200 shrink-0`}>
+                    <Icon className={`w-4 h-4 ${meta.color}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-medium text-gray-800 text-sm">{benefit.label}</p>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500`}>
+                        {meta.label}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5">{benefit.description}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </Card>
+
+      {/* 다음 단계에서 해금되는 혜택 */}
+      {nextTier && (
+        <Card>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-amber-500" />
+              <h2 className="text-lg font-bold text-gray-900">다음 단계 신규 혜택</h2>
+              <Badge label={nextTier.label} colorClass={nextTier.badgeColor} />
+            </div>
+            <p className="text-sm text-gray-500">
+              {nextTier.badgeEmoji} {nextTier.label} 달성 시 <span className="font-semibold text-[#E31837]">새롭게 해금</span>되는 혜택들
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {nextTier.benefits.filter((b) => b.isNew).map((benefit, i) => {
+                const meta = BENEFIT_CATEGORY_META[benefit.category];
+                const Icon = BENEFIT_ICONS[benefit.category];
+                return (
+                  <div
+                    key={i}
+                    className="flex items-start gap-3 p-3 bg-amber-50/50 border border-amber-200/50 rounded-lg"
+                  >
+                    <div className="mt-0.5 p-1.5 rounded-lg bg-white border border-amber-200 shrink-0">
+                      <Icon className={`w-4 h-4 ${meta.color}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="font-medium text-gray-800 text-sm">{benefit.label}</p>
+                        <Star className="w-3 h-3 text-amber-400" />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5">{benefit.description}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="bg-gradient-to-r from-[#E31837]/5 to-amber-50 border border-[#E31837]/20 rounded-lg p-3 flex items-center gap-3">
+              <div className="text-2xl">{nextTier.badgeEmoji}</div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-gray-800">
+                  {formatRevenue(nextTier.revenueMin - currentRevenue)}원만 더 달성하면 {nextTier.label}!
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  위의 혜택들이 모두 해금됩니다
+                </p>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* 세로 타임라인 */}
       <Card>
         <h2 className="text-lg font-bold text-gray-900 mb-6">전체 성장 단계</h2>
@@ -140,14 +261,14 @@ export default function GrowthRoadmapPage() {
           {GROWTH_TIERS.map((tier, index) => {
             const isPast = tier.tier < currentTier.tier;
             const isCurrent = tier.tier === currentTier.tier;
-
+            const isFuture = tier.tier > currentTier.tier;
             const isLast = index === GROWTH_TIERS.length - 1;
+            const newBenefits = tier.benefits.filter((b) => b.isNew);
 
             return (
               <div key={tier.tier} className="relative flex gap-4">
                 {/* 세로 라인 + 노드 */}
                 <div className="flex flex-col items-center">
-                  {/* 노드 */}
                   <div
                     className={`relative z-10 flex items-center justify-center w-10 h-10 rounded-full border-2 shrink-0 ${
                       isPast
@@ -165,10 +286,9 @@ export default function GrowthRoadmapPage() {
                         <span className="relative inline-flex rounded-full h-3 w-3 bg-[#E31837]" />
                       </span>
                     ) : (
-                      <span className="text-gray-400 text-xs">🔒</span>
+                      <Lock className="w-4 h-4 text-gray-400" />
                     )}
                   </div>
-                  {/* 연결 라인 */}
                   {!isLast && (
                     <div
                       className={`w-0.5 grow min-h-[24px] ${
@@ -179,9 +299,7 @@ export default function GrowthRoadmapPage() {
                 </div>
 
                 {/* 단계 내용 */}
-                <div
-                  className={`pb-6 flex-1 ${isLast ? 'pb-0' : ''}`}
-                >
+                <div className={`pb-6 flex-1 ${isLast ? 'pb-0' : ''}`}>
                   <div
                     className={`rounded-lg p-4 transition-all ${
                       isCurrent
@@ -217,6 +335,63 @@ export default function GrowthRoadmapPage() {
                       {formatRevenue(tier.revenueMin)}원
                       {tier.revenueMax ? ` ~ ${formatRevenue(tier.revenueMax)}원` : ' 이상'}
                     </p>
+
+                    {/* 혜택 미리보기 (모든 단계에 표시) */}
+                    {newBenefits.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {newBenefits.slice(0, 4).map((benefit, bi) => {
+                          const meta = BENEFIT_CATEGORY_META[benefit.category];
+                          const Icon = BENEFIT_ICONS[benefit.category];
+                          return (
+                            <div
+                              key={bi}
+                              className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium ${
+                                isFuture
+                                  ? 'bg-gray-100 text-gray-500'
+                                  : isCurrent
+                                    ? 'bg-[#E31837]/10 text-[#E31837]'
+                                    : 'bg-green-50 text-green-600'
+                              }`}
+                            >
+                              <Icon className="w-3 h-3" />
+                              {benefit.label}
+                            </div>
+                          );
+                        })}
+                        {newBenefits.length > 4 && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-[11px] text-gray-400 bg-gray-100">
+                            +{newBenefits.length - 4}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Tier 0은 isNew가 없으므로 전체 혜택 요약 표시 */}
+                    {tier.tier === 0 && newBenefits.length === 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {tier.benefits.slice(0, 4).map((benefit, bi) => {
+                          const Icon = BENEFIT_ICONS[benefit.category];
+                          return (
+                            <div
+                              key={bi}
+                              className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium ${
+                                isCurrent
+                                  ? 'bg-[#E31837]/10 text-[#E31837]'
+                                  : 'bg-green-50 text-green-600'
+                              }`}
+                            >
+                              <Icon className="w-3 h-3" />
+                              {benefit.label}
+                            </div>
+                          );
+                        })}
+                        {tier.benefits.length > 4 && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-[11px] text-gray-400 bg-gray-100">
+                            +{tier.benefits.length - 4}
+                          </span>
+                        )}
+                      </div>
+                    )}
 
                     {/* 현재 단계: 액션 리스트 + 팁 확장 */}
                     {isCurrent && (
@@ -297,6 +472,92 @@ export default function GrowthRoadmapPage() {
         </div>
       </Card>
 
+      {/* 전체 혜택 비교표 */}
+      <Card>
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Gift className="w-5 h-5 text-[#E31837]" />
+            <h2 className="text-lg font-bold text-gray-900">단계별 핵심 혜택 비교</h2>
+          </div>
+
+          <div className="overflow-x-auto -mx-5 px-5">
+            <table className="w-full text-xs min-w-[600px]">
+              <thead>
+                <tr className="border-b-2 border-gray-200">
+                  <th className="text-left py-2 px-2 font-semibold text-gray-600 w-24">단계</th>
+                  <th className="text-center py-2 px-2 font-semibold text-gray-600">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <GraduationCap className="w-3.5 h-3.5 text-blue-600" />
+                      <span>코칭</span>
+                    </div>
+                  </th>
+                  <th className="text-center py-2 px-2 font-semibold text-gray-600">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <Wrench className="w-3.5 h-3.5 text-purple-600" />
+                      <span>도구</span>
+                    </div>
+                  </th>
+                  <th className="text-center py-2 px-2 font-semibold text-gray-600">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <Percent className="w-3.5 h-3.5 text-green-600" />
+                      <span>수수료</span>
+                    </div>
+                  </th>
+                  <th className="text-center py-2 px-2 font-semibold text-gray-600">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <Briefcase className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>비즈니스</span>
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {GROWTH_TIERS.map((tier) => {
+                  const isPast = tier.tier < currentTier.tier;
+                  const isCurrent = tier.tier === currentTier.tier;
+                  const isFuture = tier.tier > currentTier.tier;
+
+                  const getBenefitSummary = (cat: BenefitCategory): string => {
+                    const b = tier.benefits.find((x) => x.category === cat);
+                    return b ? b.label : '-';
+                  };
+
+                  return (
+                    <tr
+                      key={tier.tier}
+                      className={`border-b border-gray-100 ${
+                        isCurrent ? 'bg-[#E31837]/5 font-medium' : isFuture ? 'opacity-50' : ''
+                      }`}
+                    >
+                      <td className="py-2.5 px-2">
+                        <div className="flex items-center gap-1.5">
+                          <span>{tier.badgeEmoji}</span>
+                          <span className={`${isCurrent ? 'text-[#E31837] font-bold' : isPast ? 'text-green-600' : 'text-gray-500'}`}>
+                            {tier.label}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-2 text-center text-gray-600">
+                        {getBenefitSummary('coaching')}
+                      </td>
+                      <td className="py-2.5 px-2 text-center text-gray-600">
+                        {getBenefitSummary('tools')}
+                      </td>
+                      <td className="py-2.5 px-2 text-center text-gray-600">
+                        {getBenefitSummary('commission')}
+                      </td>
+                      <td className="py-2.5 px-2 text-center text-gray-600">
+                        {getBenefitSummary('business')}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </Card>
+
       {/* 매출 추이 차트 */}
       {revenueHistory.length > 0 && (
         <Card>
@@ -328,10 +589,17 @@ export default function GrowthRoadmapPage() {
                 );
               })}
             </div>
+          </div>
+        </Card>
+      )}
 
-            {revenueHistory.length === 0 && (
-              <p className="text-sm text-gray-400 text-center py-4">매출 데이터가 없습니다.</p>
-            )}
+      {/* 매출 데이터 없을 때 안내 */}
+      {revenueHistory.length === 0 && !loading && (
+        <Card>
+          <div className="py-6 text-center">
+            <TrendingUp className="w-10 h-10 mx-auto text-gray-300 mb-3" />
+            <p className="text-sm text-gray-500">아직 매출 데이터가 없습니다.</p>
+            <p className="text-xs text-gray-400 mt-1">첫 매출 정산을 제출하면 성장 추이가 표시됩니다.</p>
           </div>
         </Card>
       )}

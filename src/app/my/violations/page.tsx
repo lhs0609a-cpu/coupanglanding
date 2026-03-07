@@ -12,7 +12,7 @@ import {
   VIOLATION_CATEGORY_COLORS,
   getRiskLevel, RISK_SCORE_LABELS,
 } from '@/lib/utils/constants';
-import { Gavel, Send } from 'lucide-react';
+import { AlertCircle, Gavel, Send } from 'lucide-react';
 
 export default function MyViolationsPage() {
   const [violations, setViolations] = useState<PartnerViolation[]>([]);
@@ -21,13 +21,18 @@ export default function MyViolationsPage() {
   const [selected, setSelected] = useState<PartnerViolation | null>(null);
   const [response, setResponse] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setError(null);
     fetch('/api/violations')
       .then(res => res.json())
       .then(data => {
         if (data.data) setViolations(data.data);
         if (data.summary) setSummary(data.summary);
+      })
+      .catch(() => {
+        setError('계약위반 정보를 불러오지 못했습니다.');
       })
       .finally(() => setLoading(false));
   }, []);
@@ -50,7 +55,7 @@ export default function MyViolationsPage() {
         setResponse('');
       } else {
         const err = await res.json();
-        alert(err.error || '제출에 실패했습니다.');
+        setError(err.error || '제출에 실패했습니다.');
       }
     } finally {
       setSubmitting(false);
@@ -87,6 +92,14 @@ export default function MyViolationsPage() {
         <Gavel className="w-6 h-6 text-[#E31837]" />
         <h1 className="text-2xl font-bold text-gray-900">계약위반 내역</h1>
       </div>
+
+      {/* Error Banner */}
+      {error && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 text-red-600 text-sm">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
 
       {/* Summary */}
       {summary && summary.total_violations > 0 && (

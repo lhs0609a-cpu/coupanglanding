@@ -121,12 +121,32 @@ export default function GrowthRoadmapWidget() {
           </div>
 
           {next && (
-            <p className="text-sm text-gray-500">
-              다음: {next.badgeEmoji} {next.label}
-              <span className="ml-1 text-gray-400">
-                ({formatRevenue(next.revenueMin)} 이상)
-              </span>
-            </p>
+            <div className="space-y-2">
+              <p className="text-sm text-gray-500">
+                다음: {next.badgeEmoji} {next.label}
+                <span className="ml-1 text-gray-400">
+                  ({formatRevenue(next.revenueMin)} 이상)
+                </span>
+              </p>
+              {/* 다음 단계 신규 혜택 미리보기 */}
+              {next.benefits.filter((b) => b.isNew).length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {next.benefits.filter((b) => b.isNew).slice(0, 3).map((b, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center px-2 py-0.5 text-[10px] font-medium rounded-full bg-amber-50 text-amber-700 border border-amber-200"
+                    >
+                      {b.label}
+                    </span>
+                  ))}
+                  {next.benefits.filter((b) => b.isNew).length > 3 && (
+                    <span className="inline-flex items-center px-2 py-0.5 text-[10px] text-gray-400 rounded-full bg-gray-100">
+                      +{next.benefits.filter((b) => b.isNew).length - 3}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

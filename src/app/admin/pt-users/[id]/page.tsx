@@ -26,7 +26,8 @@ import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import PaymentProgress from '@/components/ui/PaymentProgress';
 import NumberInput from '@/components/ui/NumberInput';
-import { ArrowLeft, Eye, Check, X, Undo2, User, ClipboardList, FileText, Banknote, Search, ExternalLink, Plug, Shield } from 'lucide-react';
+import { calculateListingDiscount } from '@/lib/calculations/listing-discount';
+import { ArrowLeft, Eye, Check, X, Undo2, User, ClipboardList, FileText, Banknote, Search, ExternalLink, Plug, Shield, Award } from 'lucide-react';
 import type { PtUser, MonthlyReport, Profile, OnboardingStep, Contract } from '@/lib/supabase/types';
 
 interface PtUserWithProfile extends PtUser {
@@ -71,6 +72,7 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
   const [rejectModal, setRejectModal] = useState<{ reportId: string } | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectError, setRejectError] = useState('');
+  const [totalListings, setTotalListings] = useState(0);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -119,6 +121,14 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
 
     setContract(contractData as Contract | null);
 
+    // Fetch seller_points for listing discount
+    const { data: sellerPoints } = await supabase
+      .from('seller_points')
+      .select('total_listings')
+      .eq('pt_user_id', id)
+      .single();
+    setTotalListings(sellerPoints?.total_listings ?? 0);
+
     setLoading(false);
   }, [id, supabase]);
 
@@ -131,7 +141,9 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
     if (!ptUser) return;
     const costs = getReportCosts(report);
     const autoDeposit = calculateDeposit(report.reported_revenue, costs, ptUser.share_percentage);
-    setReviewModalData({ report, adjustedAmount: autoDeposit });
+    const netProfit = calculateNetProfit(report.reported_revenue, costs);
+    const discount = calculateListingDiscount(totalListings, netProfit);
+    setReviewModalData({ report, adjustedAmount: autoDeposit + discount.discountAmount });
   };
 
   const handleConfirmReview = async () => {
@@ -333,6 +345,24 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
                 <span className="text-xs text-gray-400">수수료율</span>
                 <p className="text-sm font-medium text-gray-900">{formatPercent(ptUser.share_percentage)}</p>
               </div>
+              {totalListings > 0 && (() => {
+                const d = calculateListingDiscount(totalListings, 1000000);
+                return (
+                  <div>
+                    <span className="text-xs text-gray-400">상품등록 할인</span>
+                    <p className="text-sm font-medium text-gray-900">
+                      {d.tierName ? (
+                        <span className="flex items-center gap-1">
+                          <Award className="w-3.5 h-3.5 text-green-600" />
+                          {d.tierName} (+{d.discountRatePercent}, 누적 {totalListings.toLocaleString()}개)
+                        </span>
+                      ) : (
+                        <span className="text-gray-500">미달성 ({totalListings.toLocaleString()}개)</span>
+                      )}
+                    </p>
+                  </div>
+                );
+              })()}
               <div>
                 <span className="text-xs text-gray-400">상태</span>
                 <div className="mt-0.5">
@@ -737,6 +767,7 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
             rCosts,
             ptUser?.share_percentage || 30,
           );
+          const rDiscount = calculateListingDiscount(totalListings, rNetProfit);
           const rVat = calculateDepositWithVat(
             reviewModalData.report.reported_revenue,
             rCosts,
@@ -791,10 +822,20 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
                   </div>
                   <div className="flex justify-between mt-1">
                     <span className="font-medium text-[#E31837]">
-                      공급가액 (수수료 {ptUser?.share_percentage || 30}%)
+                      기본 공급가액 (수수료 {ptUser?.share_percentage || 30}%)
                     </span>
                     <span className="font-bold text-[#E31837]">{formatKRW(autoDeposit)}</span>
                   </div>
+                  {rDiscount.discountAmount > 0 && (
+                    <div className="flex justify-between mt-1">
+                      <span className="text-green-600 font-medium flex items-center gap-1">
+                        <Award className="w-3.5 h-3.5" />
+                        상품등록 할인 ({rDiscount.tierName} +{rDiscount.discountRatePercent})
+                        {rDiscount.capped && <span className="text-xs text-gray-400 font-normal ml-1">캡</span>}
+                      </span>
+                      <span className="font-bold text-green-600">+{formatKRW(rDiscount.discountAmount)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between mt-1">
                     <span className="text-gray-500">부가가치세 (10%)</span>
                     <span className="text-gray-700">{formatKRW(rVat.vatAmount)}</span>

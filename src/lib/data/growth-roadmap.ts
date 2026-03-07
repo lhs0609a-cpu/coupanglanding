@@ -4,6 +4,24 @@ export interface GrowthAction {
   description: string;
 }
 
+export type BenefitCategory = 'coaching' | 'tools' | 'content' | 'commission' | 'business' | 'community';
+
+export interface TierBenefit {
+  category: BenefitCategory;
+  label: string;
+  description: string;
+  isNew?: boolean; // 이전 단계 대비 신규 혜택
+}
+
+export const BENEFIT_CATEGORY_META: Record<BenefitCategory, { label: string; icon: string; color: string }> = {
+  coaching:    { label: '코칭',     icon: 'GraduationCap', color: 'text-blue-600' },
+  tools:       { label: '도구',     icon: 'Wrench',        color: 'text-purple-600' },
+  content:     { label: '콘텐츠',   icon: 'BookOpen',      color: 'text-amber-600' },
+  commission:  { label: '수수료',   icon: 'Percent',       color: 'text-green-600' },
+  business:    { label: '비즈니스', icon: 'Briefcase',     color: 'text-indigo-600' },
+  community:   { label: '커뮤니티', icon: 'Users',         color: 'text-pink-600' },
+};
+
 export interface GrowthTier {
   tier: number;
   revenueMin: number;
@@ -13,6 +31,7 @@ export interface GrowthTier {
   badgeColor: string;
   actions: GrowthAction[];
   tips: string[];
+  benefits: TierBenefit[];
   estimatedTimeMonths: string;
 }
 
@@ -35,6 +54,14 @@ export const GROWTH_TIERS: GrowthTier[] = [
       '반품률이 낮은 카테고리부터 시작하세요',
       '매일 1개 이상 상품을 등록하는 습관을 들이세요',
     ],
+    benefits: [
+      { category: 'coaching',   label: '온보딩 가이드', description: '셀러 시작을 위한 단계별 온보딩 가이드 제공' },
+      { category: 'coaching',   label: '그룹 Q&A 참여', description: '주간 그룹 Q&A 세션 참여 가능' },
+      { category: 'tools',      label: '키워드 분석 일 3회', description: '네이버 키워드 트렌드 분석 하루 3회 이용' },
+      { category: 'tools',      label: 'CS 템플릿 기본 팩', description: '고객 응대용 기본 CS 템플릿 제공' },
+      { category: 'content',    label: '기초 교육 커리큘럼', description: '쿠팡 셀러 기초 교육 영상 및 자료 접근' },
+      { category: 'commission', label: '기본 정산 수수료율', description: '표준 정산 수수료율 적용' },
+    ],
     estimatedTimeMonths: '1~2개월',
   },
   {
@@ -54,6 +81,14 @@ export const GROWTH_TIERS: GrowthTier[] = [
       '잘 팔리는 상품 1~2개를 찾아 집중 육성하세요',
       '고객 리뷰 관리에 신경 쓰면 전환율이 크게 올라갑니다',
       '재고 관리를 위해 엑셀이나 간단한 툴을 활용하세요',
+    ],
+    benefits: [
+      { category: 'coaching',   label: '월 1회 그룹 코칭', description: '전문 코치의 월 1회 그룹 코칭 세션 참여', isNew: true },
+      { category: 'tools',      label: '키워드 분석 일 10회', description: '키워드 분석 하루 10회로 확대', isNew: true },
+      { category: 'tools',      label: '트렌드 알림 주 1회', description: '카테고리별 트렌드 키워드 주간 알림 수신', isNew: true },
+      { category: 'content',    label: '중급 교육 콘텐츠', description: '키워드 최적화, 상세페이지 작성 등 중급 교육 해금', isNew: true },
+      { category: 'community',  label: '셀러 아레나 참여', description: '셀러 아레나에서 다른 셀러와 성과 비교 가능', isNew: true },
+      { category: 'community',  label: '성장 셀러 배지', description: '프로필에 성장 셀러 배지 표시' },
     ],
     estimatedTimeMonths: '2~4개월',
   },
@@ -75,6 +110,14 @@ export const GROWTH_TIERS: GrowthTier[] = [
       '마진이 15% 이상인 상품 위주로 포트폴리오를 구성하세요',
       '시즌 상품을 미리 준비하면 큰 매출을 올릴 수 있습니다',
     ],
+    benefits: [
+      { category: 'coaching',   label: '월 1회 1:1 코칭', description: '전문 코치와 월 1회 1:1 맞춤 코칭 세션', isNew: true },
+      { category: 'tools',      label: '키워드 분석 무제한', description: '키워드 트렌드 분석 횟수 제한 해제', isNew: true },
+      { category: 'tools',      label: '경쟁사 모니터링 3개', description: '경쟁 키워드 3개 실시간 모니터링', isNew: true },
+      { category: 'content',    label: '프리미엄 교육 콘텐츠', description: '광고 운영, 마진 분석 등 프리미엄 교육 해금', isNew: true },
+      { category: 'content',    label: '성공 셀러 사례 분석', description: '월 매출 1천만 이상 달성 셀러들의 성공 사례 자료', isNew: true },
+      { category: 'commission', label: '정산 수수료 0.5% 인하', description: '기본 대비 정산 수수료율 0.5%p 할인 적용', isNew: true },
+    ],
     estimatedTimeMonths: '3~6개월',
   },
   {
@@ -94,6 +137,14 @@ export const GROWTH_TIERS: GrowthTier[] = [
       '매출이 커지면 세무사를 통한 세금 관리가 필수입니다',
       '로켓그로스 입점 시 매출이 2~3배 상승하는 경우가 많습니다',
       '상위 20% 상품이 80% 매출을 만드는 법칙을 활용하세요',
+    ],
+    benefits: [
+      { category: 'coaching',   label: '월 2회 1:1 코칭', description: '전문 코치와 월 2회 1:1 심화 코칭', isNew: true },
+      { category: 'coaching',   label: '분기 1회 세무 상담', description: '제휴 세무사를 통한 분기별 세무 상담 무료 제공', isNew: true },
+      { category: 'tools',      label: '경쟁사 모니터링 10개', description: '경쟁 키워드 10개로 모니터링 확대', isNew: true },
+      { category: 'business',   label: '소싱처 추천 리스트', description: '검증된 도매처 및 제조사 추천 리스트 제공', isNew: true },
+      { category: 'content',    label: '광고 최적화 가이드', description: 'CPA/CPC 광고 운영 고급 전략 가이드', isNew: true },
+      { category: 'commission', label: '정산 수수료 1% 인하', description: '기본 대비 정산 수수료율 1%p 할인 적용', isNew: true },
     ],
     estimatedTimeMonths: '4~8개월',
   },
@@ -115,6 +166,14 @@ export const GROWTH_TIERS: GrowthTier[] = [
       '혼자 모든 걸 하려 하지 말고 시스템화에 투자하세요',
       '광고는 데이터 기반으로 의사결정하세요',
     ],
+    benefits: [
+      { category: 'coaching',   label: '월 4회 1:1 코칭', description: '주 1회 전문 코치 1:1 밀착 코칭', isNew: true },
+      { category: 'coaching',   label: 'PB 기획 컨설팅', description: '자체 브랜드 상품 기획부터 출시까지 전문 컨설팅', isNew: true },
+      { category: 'business',   label: '물류 파트너 할인', description: '제휴 3PL 업체 이용 시 특별 할인 적용', isNew: true },
+      { category: 'business',   label: '도매처 직접 연결', description: '검증된 제조사/도매처 1:1 직접 연결', isNew: true },
+      { category: 'community',  label: '마스터 전용 세미나', description: '월 1회 마스터 등급 이상 전용 전략 세미나', isNew: true },
+      { category: 'commission', label: '정산 수수료 2% 인하', description: '기본 대비 정산 수수료율 2%p 할인 적용', isNew: true },
+    ],
     estimatedTimeMonths: '6~12개월',
   },
   {
@@ -135,6 +194,14 @@ export const GROWTH_TIERS: GrowthTier[] = [
       '브랜드 가치를 높이면 가격 경쟁에서 벗어날 수 있습니다',
       '해외 소싱 시 통관, 인증 등 법적 요건을 반드시 확인하세요',
     ],
+    benefits: [
+      { category: 'coaching',   label: '전담 컨설턴트 배정', description: '전담 성장 컨설턴트가 1:1로 전략 수립 및 실행 지원', isNew: true },
+      { category: 'business',   label: '해외 소싱 지원', description: '알리바바/1688 해외 소싱 통역, 샘플 검수, 통관 지원', isNew: true },
+      { category: 'business',   label: '브랜딩 컨설팅', description: '브랜드 네이밍, 패키지 디자인, 스토어 기획 전문 컨설팅', isNew: true },
+      { category: 'community',  label: '프로 셀러 네트워크', description: '월 매출 5천만 이상 셀러들의 비공개 네트워크 초대', isNew: true },
+      { category: 'commission', label: '정산 수수료 3% 인하', description: '기본 대비 정산 수수료율 3%p 할인 적용', isNew: true },
+      { category: 'content',    label: '멀티채널 전략 가이드', description: '타 플랫폼 동시 운영을 위한 전략 및 운영 가이드', isNew: true },
+    ],
     estimatedTimeMonths: '8~18개월',
   },
   {
@@ -154,6 +221,14 @@ export const GROWTH_TIERS: GrowthTier[] = [
       '매출 규모가 커지면 현금 흐름 관리가 가장 중요합니다',
       '조직 문화와 시스템을 만들어 대표 없이도 돌아가는 구조를 만드세요',
       '장기적 브랜드 가치에 투자하면 안정적인 성장이 가능합니다',
+    ],
+    benefits: [
+      { category: 'coaching',   label: 'VIP 전담 매니저', description: '전담 VIP 매니저가 경영 전반을 밀착 서포트', isNew: true },
+      { category: 'coaching',   label: '법인화 지원', description: '법인 설립, 법무/세무 자문 원스톱 지원', isNew: true },
+      { category: 'business',   label: '연간 성과 보너스', description: '연매출 목표 달성 시 성과 보너스 지급', isNew: true },
+      { category: 'business',   label: '투자 연결', description: '사업 확장을 위한 투자자/VC 네트워크 연결', isNew: true },
+      { category: 'community',  label: '레전드 네트워크', description: '월 매출 1억 이상 셀러들의 최상위 비공개 네트워크', isNew: true },
+      { category: 'commission', label: '최저 수수료율 적용', description: '플랫폼 내 최저 정산 수수료율 적용', isNew: true },
     ],
     estimatedTimeMonths: '12개월 이상',
   },

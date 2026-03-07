@@ -10,8 +10,9 @@ import EmergencyAlertWidget from '@/components/my/EmergencyAlertWidget';
 import GrowthRoadmapWidget from '@/components/my/GrowthRoadmapWidget';
 import ArenaWidget from '@/components/my/ArenaWidget';
 import SettlementDDayBanner from '@/components/settlement/SettlementDDayBanner';
+import ApiConnectionBanner from '@/components/settlement/ApiConnectionBanner';
 import Card from '@/components/ui/Card';
-import { ClipboardList, GraduationCap, ArrowRight } from 'lucide-react';
+import { ClipboardList, GraduationCap, ArrowRight, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 
 export default function MyDashboardPage() {
@@ -19,6 +20,7 @@ export default function MyDashboardPage() {
   const [isTrainer, setIsTrainer] = useState(false);
   const [loading, setLoading] = useState(true);
   const [currentReport, setCurrentReport] = useState<MonthlyReport | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -31,44 +33,50 @@ export default function MyDashboardPage() {
 
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setLoading(false);
-        return;
-      }
-
-      const { data: ptUserData } = await supabase
-        .from('pt_users')
-        .select('*')
-        .eq('profile_id', user.id)
-        .maybeSingle();
-
-      if (ptUserData) {
-        setPtUser(ptUserData as PtUser);
-
-        // 현재 보고 대상월 리포트 조회
-        const { data: reportData } = await supabase
-          .from('monthly_reports')
-          .select('*')
-          .eq('pt_user_id', (ptUserData as PtUser).id)
-          .eq('year_month', getReportTargetMonth())
-          .maybeSingle();
-
-        if (reportData) {
-          setCurrentReport(reportData as MonthlyReport);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setLoading(false);
+          return;
         }
 
-        // 트레이너 여부 확인
-        const { data: trainer } = await supabase
-          .from('trainers')
-          .select('id')
-          .eq('pt_user_id', (ptUserData as PtUser).id)
-          .eq('status', 'approved')
+        const { data: ptUserData } = await supabase
+          .from('pt_users')
+          .select('*')
+          .eq('profile_id', user.id)
           .maybeSingle();
 
-        setIsTrainer(!!trainer);
+        if (ptUserData) {
+          setPtUser(ptUserData as PtUser);
+
+          // 현재 보고 대상월 리포트 조회
+          const { data: reportData } = await supabase
+            .from('monthly_reports')
+            .select('*')
+            .eq('pt_user_id', (ptUserData as PtUser).id)
+            .eq('year_month', getReportTargetMonth())
+            .maybeSingle();
+
+          if (reportData) {
+            setCurrentReport(reportData as MonthlyReport);
+          }
+
+          // 트레이너 여부 확인
+          const { data: trainer } = await supabase
+            .from('trainers')
+            .select('id')
+            .eq('pt_user_id', (ptUserData as PtUser).id)
+            .eq('status', 'approved')
+            .maybeSingle();
+
+          setIsTrainer(!!trainer);
+        }
+      } catch (err) {
+        console.error('Dashboard data fetch error:', err);
+        setError('데이터를 불러오지 못했습니다.');
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     })();
   }, [supabase]);
 
@@ -84,6 +92,22 @@ export default function MyDashboardPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {/* 에러 배너 */}
+      {error && (
+        <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-700">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          <p className="text-sm font-medium">{error}</p>
+        </div>
+      )}
+
+      {/* API 미연동 경고 배너 (dismiss 불가, 항상 표시) */}
+      {ptUser && !ptUser.coupang_api_connected && (
+        <ApiConnectionBanner
+          variant="nudge"
+          daysSinceJoin={Math.floor((Date.now() - new Date(ptUser.created_at).getTime()) / (1000 * 60 * 60 * 24))}
+        />
+      )}
+
       {/* 정산 D-Day 배너 */}
       {ptUser && eligible && (
         <SettlementDDayBanner

@@ -618,6 +618,24 @@ export interface SellerChallengeProgress {
   points_awarded: number;
 }
 
+// 키워드 트렌드 히스토리 (DataLab 캐시)
+export interface TrendDataPoint {
+  period: string;  // 날짜 문자열 (YYYY-MM-DD)
+  ratio: number;   // 검색 비율 (0~100)
+}
+
+export interface KeywordTrendHistory {
+  id: string;
+  keyword: string;
+  period_type: 'day' | 'week' | 'month';
+  start_date: string;
+  end_date: string;
+  data_points: TrendDataPoint[];
+  fetched_at: string;
+  expires_at: string;
+  created_at: string;
+}
+
 export interface Database {
   public: {
     Tables: {

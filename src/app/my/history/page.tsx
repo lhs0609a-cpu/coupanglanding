@@ -6,6 +6,7 @@ import { formatKRW, formatYearMonth, formatDate } from '@/lib/utils/format';
 import { calculateNetProfit } from '@/lib/calculations/deposit';
 import type { CostBreakdown } from '@/lib/calculations/deposit';
 import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS } from '@/lib/utils/constants';
+import { AlertCircle } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import type { MonthlyReport } from '@/lib/supabase/types';
@@ -13,6 +14,7 @@ import type { MonthlyReport } from '@/lib/supabase/types';
 export default function MyHistoryPage() {
   const [reports, setReports] = useState<MonthlyReport[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchHistory() {
@@ -45,12 +47,23 @@ export default function MyHistoryPage() {
       setLoading(false);
     }
 
-    fetchHistory();
+    fetchHistory().catch((err) => {
+      setError('보고 내역을 불러오지 못했습니다.');
+      console.error(err);
+      setLoading(false);
+    });
   }, []);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">보고 내역</h1>
+
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          <AlertCircle className="h-5 w-5 shrink-0" />
+          {error}
+        </div>
+      )}
 
       <Card>
         {loading ? (

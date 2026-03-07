@@ -10,6 +10,7 @@ import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, COST_CATEGORIES, DEFAULT_
 import { getReportTargetMonth, isEligibleForMonth, getFirstEligibleMonth, getSettlementDDay, formatDDay, getDDayColorClass, formatDeadline, getAdminSettlementStatus } from '@/lib/utils/settlement';
 import type { PaymentStatus as SettlementPaymentStatus } from '@/lib/utils/settlement';
 import AdminPendingBanner from '@/components/settlement/AdminPendingBanner';
+import ScreenshotGuide, { FraudWarningBanner } from '@/components/settlement/ScreenshotGuide';
 import { validateExifMetadata } from '@/lib/utils/exif-validation';
 import type { ExifValidationResult } from '@/lib/utils/exif-validation';
 import MonthPicker from '@/components/ui/MonthPicker';
@@ -19,8 +20,10 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import StatCard from '@/components/ui/StatCard';
 import PaymentProgress from '@/components/ui/PaymentProgress';
-import { Send, Calculator, CheckCircle2, ChevronDown, ChevronUp, Banknote, Minus, AlertTriangle, Plug, Shield, Zap, ArrowRight, Settings, Edit3, Clock, XCircle, MessageSquare } from 'lucide-react';
-import type { MonthlyReport, PtUser, ManualInputRequest } from '@/lib/supabase/types';
+import { calculateListingDiscount, type ListingDiscountResult } from '@/lib/calculations/listing-discount';
+import { Send, Calculator, CheckCircle2, ChevronDown, ChevronUp, Banknote, Minus, Plug, Shield, Edit3, Award } from 'lucide-react';
+import ApiConnectionBanner from '@/components/settlement/ApiConnectionBanner';
+import type { MonthlyReport, PtUser } from '@/lib/supabase/types';
 
 export default function MyReportPage() {
   const [yearMonth, setYearMonth] = useState(getReportTargetMonth());
@@ -46,9 +49,7 @@ export default function MyReportPage() {
   const [apiVerified, setApiVerified] = useState(false);
   const [apiSettlementData, setApiSettlementData] = useState<Record<string, unknown> | null>(null);
   const [manualMode, setManualMode] = useState(false);
-  const [manualRequest, setManualRequest] = useState<ManualInputRequest | null>(null);
-  const [manualRequestReason, setManualRequestReason] = useState('');
-  const [manualRequestLoading, setManualRequestLoading] = useState(false);
+  const [totalListings, setTotalListings] = useState(0);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -75,15 +76,13 @@ export default function MyReportPage() {
       const isConnected = !!(ptUserData as PtUser).coupang_api_connected;
       setApiConnected(isConnected);
 
-      // 수동 입력 요청 상태 조회
-      const manualRes = await fetch(`/api/manual-input-requests?yearMonth=${yearMonth}`);
-      if (manualRes.ok) {
-        const manualData = await manualRes.json();
-        const req = Array.isArray(manualData) && manualData.length > 0 ? manualData[0] as ManualInputRequest : null;
-        setManualRequest(req);
-      } else {
-        setManualRequest(null);
-      }
+      // 누적 상품 등록 수 조회 (할인 계산용)
+      const { data: sellerPoints } = await supabase
+        .from('seller_points')
+        .select('total_listings')
+        .eq('pt_user_id', ptUserData.id)
+        .single();
+      setTotalListings(sellerPoints?.total_listings ?? 0);
 
       const { data: reportData } = await supabase
         .from('monthly_reports')
@@ -103,6 +102,8 @@ export default function MyReportPage() {
         setApiSettlementData(r.api_settlement_data || null);
         // 기존 보고서 편집 시: API 검증된 보고서면 수동모드 OFF, 아니면 ON
         setManualMode(!r.api_verified);
+        // 기존 제출된 스크린샷은 이미 검증 완료 상태로 표시
+        // (서버에 저장된 스크린샷 → 재검증 불필요, UI에서 "확인 완료" 배지 표시용)
         if (r.screenshot_url) {
           setRevenueExifResult({ isValid: true, hasSoftware: true, hasDateTime: true, warningMessage: null });
         }
@@ -134,8 +135,18 @@ export default function MyReportPage() {
 
   const sharePercentage = ptUser?.share_percentage ?? 30;
   const netProfit = calculateNetProfit(revenue, costs);
-  const depositAmount = calculateDeposit(revenue, costs, sharePercentage);
+  const baseDepositAmount = calculateDeposit(revenue, costs, sharePercentage);
+  const listingDiscount: ListingDiscountResult = calculateListingDiscount(totalListings, netProfit);
+  const depositAmount = baseDepositAmount + listingDiscount.discountAmount;
   const vatCalc: VatCalculation = calculateDepositWithVat(revenue, costs, sharePercentage);
+  // VAT도 할인 포함 금액 기반으로 재계산
+  const finalVatCalc: VatCalculation = listingDiscount.discountAmount > 0
+    ? {
+        supplyAmount: depositAmount,
+        vatAmount: Math.floor(depositAmount * 0.1),
+        totalWithVat: depositAmount + Math.floor(depositAmount * 0.1),
+      }
+    : vatCalc;
 
   const handleFileSelect = async (file: File) => {
     setScreenshotFile(file);
@@ -302,9 +313,9 @@ export default function MyReportPage() {
       cost_tax: costs.cost_tax,
       api_verified: apiVerified,
       api_settlement_data: apiSettlementData,
-      supply_amount: vatCalc.supplyAmount,
-      vat_amount: vatCalc.vatAmount,
-      total_with_vat: vatCalc.totalWithVat,
+      supply_amount: finalVatCalc.supplyAmount,
+      vat_amount: finalVatCalc.vatAmount,
+      total_with_vat: finalVatCalc.totalWithVat,
       input_source: apiVerified ? 'api' as const : 'manual_approved' as const,
     };
 
@@ -358,40 +369,6 @@ export default function MyReportPage() {
   };
 
   // 수동 입력 승인 요청
-  const handleManualInputRequest = async () => {
-    if (!manualRequestReason || manualRequestReason.trim().length < 5) {
-      setMessage({ type: 'error', text: '사유를 5자 이상 입력해주세요.' });
-      return;
-    }
-
-    setManualRequestLoading(true);
-    setMessage(null);
-
-    try {
-      const res = await fetch('/api/manual-input-requests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ yearMonth, reason: manualRequestReason.trim() }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        setMessage({ type: 'error', text: data.error || '요청에 실패했습니다.' });
-      } else {
-        setMessage({ type: 'success', text: '수동 입력 승인 요청이 전송되었습니다. 관리자 승인을 기다려주세요.' });
-        setManualRequestReason('');
-        fetchData();
-      }
-    } catch {
-      setMessage({ type: 'error', text: '요청 중 오류가 발생했습니다.' });
-    }
-
-    setManualRequestLoading(false);
-  };
-
-  // 수동 입력이 승인되었는지 확인
-  const isManualApproved = manualRequest?.status === 'approved';
-
   const isEditable = !report || report.payment_status === 'pending' || report.payment_status === 'rejected';
   const hasCosts = totalCosts(costs) > 0;
 
@@ -451,7 +428,7 @@ export default function MyReportPage() {
           trend={netProfit > 0 ? 'up' : netProfit < 0 ? 'down' : undefined}
         />
         <StatCard
-          title={report?.admin_deposit_amount ? '관리자 확정 금액' : `수수료 (${sharePercentage}%)`}
+          title={report?.admin_deposit_amount ? '관리자 확정 금액' : `수수료 (${sharePercentage}%${listingDiscount.tierName ? ` +${listingDiscount.discountRatePercent}` : ''})`}
           value={
             report?.admin_deposit_amount
               ? formatKRW(report.admin_deposit_amount)
@@ -459,10 +436,42 @@ export default function MyReportPage() {
                 ? formatKRW(depositAmount)
                 : '-'
           }
-          subtitle={revenue > 0 && vatCalc.vatAmount > 0 ? `+VAT ${formatKRW(vatCalc.vatAmount)} = ${formatKRW(vatCalc.totalWithVat)}` : undefined}
+          subtitle={revenue > 0 && finalVatCalc.vatAmount > 0 ? `+VAT ${formatKRW(finalVatCalc.vatAmount)} = ${formatKRW(finalVatCalc.totalWithVat)}` : undefined}
           icon={<Send className="w-5 h-5" />}
         />
       </div>
+
+      {/* 상품등록 할인 배너 */}
+      {totalListings > 0 && (
+        <div className={`rounded-lg p-4 flex items-center justify-between flex-wrap gap-3 ${
+          listingDiscount.tierName ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'
+        }`}>
+          <div className="flex items-center gap-3">
+            <Award className={`w-5 h-5 ${listingDiscount.tierName ? 'text-green-600' : 'text-gray-400'}`} />
+            <div>
+              <p className="text-sm font-medium text-gray-900">
+                {listingDiscount.tierName
+                  ? `${listingDiscount.tierName} 등급 (누적 ${totalListings.toLocaleString()}개)`
+                  : `누적 등록 ${totalListings.toLocaleString()}개`
+                }
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {listingDiscount.tierName
+                  ? `수수료 +${listingDiscount.discountRatePercent} 할인 적용 (월 최대 ${formatKRW(listingDiscount.monthlyCap)})`
+                  : listingDiscount.nextTier
+                    ? `${listingDiscount.nextTier.minListings.toLocaleString()}개 달성 시 ${listingDiscount.nextTier.name} 등급 할인`
+                    : ''
+                }
+              </p>
+            </div>
+          </div>
+          {listingDiscount.nextTier && (
+            <div className="text-xs text-gray-500">
+              다음 등급까지 <span className="font-bold text-gray-700">{listingDiscount.listingsToNextTier.toLocaleString()}개</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 4. 정산 진행 상태 */}
       {report && report.payment_status !== 'pending' && report.payment_status !== 'rejected' && (
@@ -545,129 +554,9 @@ export default function MyReportPage() {
         </Card>
       )}
 
-      {/* 5. API 미연동 시 → 온보딩 배너 + 수동 입력 승인 요청 */}
-      {!apiConnected && isEditable && !manualMode && (
-        <Card>
-          <div className="text-center py-4">
-            <div className="inline-flex items-center justify-center w-14 h-14 bg-green-100 rounded-full mb-4">
-              <Plug className="w-7 h-7 text-green-600" />
-            </div>
-            <h2 className="text-lg font-bold text-gray-900 mb-2">쿠팡 Open API를 연동하세요</h2>
-            <p className="text-sm text-gray-500 mb-5 max-w-md mx-auto">
-              API를 연동하면 매출을 자동으로 가져오고, 더 빠른 정산을 받을 수 있습니다.
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6 max-w-lg mx-auto">
-              <div className="flex items-center gap-2 p-3 bg-green-50 rounded-lg">
-                <Zap className="w-4 h-4 text-green-600 shrink-0" />
-                <span className="text-xs text-green-800 font-medium">자동 매출 조회</span>
-              </div>
-              <div className="flex items-center gap-2 p-3 bg-green-50 rounded-lg">
-                <Shield className="w-4 h-4 text-green-600 shrink-0" />
-                <span className="text-xs text-green-800 font-medium">API 검증 배지</span>
-              </div>
-              <div className="flex items-center gap-2 p-3 bg-green-50 rounded-lg">
-                <ArrowRight className="w-4 h-4 text-green-600 shrink-0" />
-                <span className="text-xs text-green-800 font-medium">빠른 정산</span>
-              </div>
-            </div>
-
-            <a
-              href="/my/settings"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition"
-            >
-              <Settings className="w-4 h-4" />
-              API 키 설정하러 가기
-            </a>
-          </div>
-
-          {/* 수동 입력 승인 요청 영역 */}
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            {!manualRequest && (
-              <div className="space-y-3">
-                <p className="text-sm text-gray-600 text-center">
-                  API 연동이 어려운 경우, 관리자 승인을 받아 수동으로 입력할 수 있습니다.
-                </p>
-                <textarea
-                  value={manualRequestReason}
-                  onChange={(e) => setManualRequestReason(e.target.value)}
-                  placeholder="수동 입력이 필요한 사유를 입력해주세요 (예: API 키 발급 지연, 쿠팡 API 오류 등)"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#E31837]/30 focus:border-[#E31837]"
-                  rows={2}
-                />
-                <button
-                  type="button"
-                  onClick={handleManualInputRequest}
-                  disabled={manualRequestLoading || manualRequestReason.trim().length < 5}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 text-white font-semibold rounded-lg hover:bg-amber-600 transition disabled:opacity-50"
-                >
-                  <MessageSquare className="w-4 h-4" />
-                  {manualRequestLoading ? '요청 중...' : '수동 입력 승인 요청'}
-                </button>
-              </div>
-            )}
-
-            {manualRequest?.status === 'pending' && (
-              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-yellow-600" />
-                  <p className="text-sm font-medium text-yellow-800">수동 입력 승인 대기 중</p>
-                </div>
-                <p className="text-xs text-yellow-700 mt-1">관리자가 요청을 검토 중입니다. 승인되면 수동으로 매출을 입력할 수 있습니다.</p>
-                <p className="text-xs text-yellow-600 mt-1">요청 사유: {manualRequest.reason}</p>
-              </div>
-            )}
-
-            {manualRequest?.status === 'rejected' && (
-              <div className="space-y-3">
-                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <XCircle className="w-5 h-5 text-red-600" />
-                    <p className="text-sm font-medium text-red-800">수동 입력 요청이 거절되었습니다</p>
-                  </div>
-                  {manualRequest.admin_note && (
-                    <p className="text-xs text-red-700 mt-1">관리자 메모: {manualRequest.admin_note}</p>
-                  )}
-                  <p className="text-xs text-red-600 mt-1">API 설정을 확인하거나, 새로운 사유로 다시 요청할 수 있습니다.</p>
-                </div>
-                <textarea
-                  value={manualRequestReason}
-                  onChange={(e) => setManualRequestReason(e.target.value)}
-                  placeholder="재요청 사유를 입력해주세요"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#E31837]/30 focus:border-[#E31837]"
-                  rows={2}
-                />
-                <button
-                  type="button"
-                  onClick={handleManualInputRequest}
-                  disabled={manualRequestLoading || manualRequestReason.trim().length < 5}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 text-white font-semibold rounded-lg hover:bg-amber-600 transition disabled:opacity-50"
-                >
-                  <MessageSquare className="w-4 h-4" />
-                  {manualRequestLoading ? '요청 중...' : '수동 입력 재요청'}
-                </button>
-              </div>
-            )}
-
-            {manualRequest?.status === 'approved' && (
-              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5 text-green-600" />
-                    <p className="text-sm font-medium text-green-800">수동 입력이 승인되었습니다</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setManualMode(true)}
-                    className="px-3 py-1.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition"
-                  >
-                    수동 입력하기
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </Card>
+      {/* 5. API 미연동 시 → 차단 배너 */}
+      {!apiConnected && isEditable && (
+        <ApiConnectionBanner variant="blocker" />
       )}
 
       {/* 6. API 연동됨 → 자동 매출 조회 카드 */}
@@ -710,16 +599,16 @@ export default function MyReportPage() {
         </Card>
       )}
 
-      {/* 7. 수동 매출 입력 (manualMode + 승인됨일 때만) */}
-      {manualMode && isEditable && (isManualApproved || (report && !report.api_verified)) && (
+      {/* 7. 수동 매출 입력 (기존 비-API 보고서 편집용) */}
+      {manualMode && isEditable && apiConnected && report && !report.api_verified && (
         <Card>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Edit3 className="w-5 h-5 text-amber-600" />
                 <div>
-                  <h2 className="text-sm font-bold text-gray-900">매출 수동 입력 (관리자 승인됨)</h2>
-                  <p className="text-xs text-amber-600">수동 입력이 관리자에 의해 승인되었습니다</p>
+                  <h2 className="text-sm font-bold text-gray-900">매출 수동 입력</h2>
+                  <p className="text-xs text-amber-600">기존 보고서 수정 모드</p>
                 </div>
               </div>
               {apiConnected && (
@@ -746,19 +635,8 @@ export default function MyReportPage() {
             {/* 수동 입력 시 스크린샷 필수 (API 미검증 상태) */}
             {!apiVerified && (
               <div className="space-y-3">
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium text-amber-800">매출 스크린샷 필수</p>
-                      <ul className="text-xs text-amber-700 mt-1 space-y-0.5 list-disc list-inside">
-                        <li>쿠팡 Wing 정산관리에서 캡처해주세요</li>
-                        <li>매출 합계가 보이도록 캡처해주세요</li>
-                        <li>AI 생성 이미지는 제출할 수 없습니다</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
+                <FraudWarningBanner />
+                <ScreenshotGuide type="revenue" />
 
                 <FileUpload
                   label="매출 스크린샷 (Wing 정산 캡처)"
@@ -801,7 +679,7 @@ export default function MyReportPage() {
       )}
 
       {/* 8. 광고비 입력 (항상 표시) */}
-      {isEditable && (
+      {apiConnected && isEditable && (
         <Card>
           <div className="space-y-4">
             <div className="flex items-center gap-2">
@@ -825,19 +703,8 @@ export default function MyReportPage() {
             {/* 광고비 > 0이면 스크린샷 업로드 영역 표시 */}
             {advertisingCost > 0 && (
               <div className="space-y-3">
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium text-amber-800">광고비 스크린샷 필수</p>
-                      <ul className="text-xs text-amber-700 mt-1 space-y-0.5 list-disc list-inside">
-                        <li>쿠팡 Wing 광고관리에서 캡처해주세요</li>
-                        <li>날짜 범위가 보이도록 캡처해주세요</li>
-                        <li>AI 생성 이미지는 제출할 수 없습니다</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
+                <FraudWarningBanner />
+                <ScreenshotGuide type="ad" />
 
                 <FileUpload
                   label="광고비 스크린샷"
@@ -952,18 +819,42 @@ export default function MyReportPage() {
               </div>
               <div className="flex justify-between">
                 <span className="font-medium text-gray-700">
-                  공급가액 (수수료 {sharePercentage}%)
+                  기본 공급가액 (수수료 {sharePercentage}%)
                 </span>
                 <span className="font-bold text-gray-900">
-                  {formatKRW(vatCalc.supplyAmount)}
+                  {formatKRW(baseDepositAmount)}
                 </span>
               </div>
+              {listingDiscount.discountAmount > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-green-600 font-medium flex items-center gap-1">
+                    <Award className="w-3.5 h-3.5" />
+                    상품등록 할인 ({listingDiscount.tierName} +{listingDiscount.discountRatePercent})
+                    {listingDiscount.capped && (
+                      <span className="text-xs text-gray-400 font-normal ml-1">캡 적용</span>
+                    )}
+                  </span>
+                  <span className="font-bold text-green-600">
+                    +{formatKRW(listingDiscount.discountAmount)}
+                  </span>
+                </div>
+              )}
+              {listingDiscount.discountAmount > 0 && (
+                <div className="flex justify-between">
+                  <span className="font-medium text-gray-700">
+                    할인 적용 공급가액
+                  </span>
+                  <span className="font-bold text-gray-900">
+                    {formatKRW(depositAmount)}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-gray-500">
                   부가가치세 (10%)
                 </span>
                 <span className="text-gray-700">
-                  {formatKRW(vatCalc.vatAmount)}
+                  {formatKRW(finalVatCalc.vatAmount)}
                 </span>
               </div>
               <div className="flex justify-between border-t border-[#E31837]/20 pt-1 mt-1">
@@ -971,7 +862,7 @@ export default function MyReportPage() {
                   납부 합계 (공급가액+VAT)
                 </span>
                 <span className="text-xl font-bold text-[#E31837]">
-                  {formatKRW(vatCalc.totalWithVat)}
+                  {formatKRW(finalVatCalc.totalWithVat)}
                 </span>
               </div>
             </div>
@@ -993,23 +884,25 @@ export default function MyReportPage() {
         </div>
       )}
 
-      {/* 11. 제출 버튼 */}
-      <button
-        type="button"
-        onClick={handleSubmit}
-        disabled={submitLoading || !isEditable || !eligible}
-        className="w-full py-3 bg-[#E31837] text-white font-semibold rounded-lg hover:bg-[#c01530] transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-      >
-        <Send className="w-4 h-4" />
-        {!eligible
-          ? '정산 대상이 아닌 월입니다'
-          : submitLoading
-            ? '제출 중...'
-            : report
-              ? isEditable ? '보고 수정' : '이미 확인된 보고입니다'
-              : '매출 정산 제출'
-        }
-      </button>
+      {/* 11. 제출 버튼 (API 연동 필수) */}
+      {apiConnected && (
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={submitLoading || !isEditable || !eligible}
+          className="w-full py-3 bg-[#E31837] text-white font-semibold rounded-lg hover:bg-[#c01530] transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          <Send className="w-4 h-4" />
+          {!eligible
+            ? '정산 대상이 아닌 월입니다'
+            : submitLoading
+              ? '제출 중...'
+              : report
+                ? isEditable ? '보고 수정' : '이미 확인된 보고입니다'
+                : '매출 정산 제출'
+          }
+        </button>
+      )}
     </div>
   );
 }
