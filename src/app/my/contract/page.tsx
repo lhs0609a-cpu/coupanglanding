@@ -11,7 +11,7 @@ import Badge from '@/components/ui/Badge';
 import SignaturePad from '@/components/ui/SignaturePad';
 import FileUpload from '@/components/ui/FileUpload';
 import WithdrawalWizard from '@/components/my/WithdrawalWizard';
-import { FileText, CheckCircle, Clock, AlertTriangle, Calendar, Upload, LogOut } from 'lucide-react';
+import { FileText, CheckCircle, Clock, AlertTriangle, Calendar, Upload, LogOut, Plug, ArrowRight } from 'lucide-react';
 import type { Contract } from '@/lib/supabase/types';
 
 function ContractContent({ vars }: { vars: ContractVariables }) {
@@ -68,6 +68,8 @@ export default function MyContractPage() {
   const [terminationMessage, setTerminationMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   // 탈퇴 요청 관련 state
   const [showWithdrawalWizard, setShowWithdrawalWizard] = useState(false);
+  // 쿠팡 API 연동 상태
+  const [apiConnected, setApiConnected] = useState<boolean | null>(null);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -81,7 +83,7 @@ export default function MyContractPage() {
 
     const { data: ptUser } = await supabase
       .from('pt_users')
-      .select('id')
+      .select('id, coupang_api_connected')
       .eq('profile_id', user.id)
       .single();
 
@@ -89,6 +91,8 @@ export default function MyContractPage() {
       setLoading(false);
       return;
     }
+
+    setApiConnected(!!(ptUser as Record<string, unknown>).coupang_api_connected);
 
     const { data } = await supabase
       .from('contracts')
@@ -111,6 +115,10 @@ export default function MyContractPage() {
     }
     if (!signatureData) {
       setSignError('아래 서명란에 자필 서명을 해주세요.');
+      return;
+    }
+    if (apiConnected === false) {
+      setSignError('쿠팡 Open API 연동 후 서명이 가능합니다. 계정 설정에서 API를 연동해주세요.');
       return;
     }
     setSigning(true);
@@ -306,50 +314,93 @@ export default function MyContractPage() {
 
               {/* Sign Section */}
               {activeContract.status === 'sent' && (
-                <div className="mt-6 p-5 bg-blue-50 border border-blue-100 rounded-xl">
-                  <div className="flex items-start gap-3 mb-4">
-                    <AlertTriangle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm text-blue-800">
-                      계약 내용을 충분히 확인하신 후 서명해주세요. 서명 후에는 변경할 수 없습니다.
-                    </p>
-                  </div>
-                  <label className="flex items-center gap-3 mb-4 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={agreed}
-                      onChange={(e) => { setAgreed(e.target.checked); setSignError(''); }}
-                      className="w-5 h-5 rounded border-gray-300 text-[#E31837] focus:ring-[#E31837]"
-                    />
-                    <span className="text-sm font-medium text-gray-700">
-                      위 계약 내용(총 {CONTRACT_ARTICLES.length}조)을 모두 확인하였으며, 이에 동의합니다.
-                    </span>
-                  </label>
-
-                  {/* 자필 서명 패드 */}
-                  {agreed && (
-                    <div className="mb-4">
-                      <SignaturePad
-                        onSignatureChange={(data) => { setSignatureData(data); setSignError(''); }}
-                        disabled={signing}
-                      />
+                <>
+                  {/* 쿠팡 API 미연동 차단 */}
+                  {apiConnected === false && (
+                    <div className="mt-6 p-5 bg-amber-50 border border-amber-200 rounded-xl">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-shrink-0 w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center mt-0.5">
+                          <Plug className="w-5 h-5 text-amber-600" />
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-sm font-bold text-amber-800">
+                            쿠팡 Open API 연동 후 서명 가능합니다
+                          </h3>
+                          <p className="text-sm text-amber-700 mt-1">
+                            계약서 서명을 위해 먼저 쿠팡 Open API를 연동해주세요.
+                            연동이 완료되면 서명이 활성화됩니다.
+                          </p>
+                          <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                            <a
+                              href="/my/settings"
+                              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-amber-600 rounded-lg hover:bg-amber-700 transition"
+                            >
+                              <Plug className="w-4 h-4" />
+                              API 연동하러 가기
+                              <ArrowRight className="w-4 h-4" />
+                            </a>
+                          </div>
+                          <div className="mt-3 p-3 bg-white/60 rounded-lg">
+                            <p className="text-xs text-amber-600 font-medium mb-1">연동 방법</p>
+                            <ol className="text-xs text-amber-700 space-y-0.5 list-decimal list-inside">
+                              <li>쿠팡 Wing &gt; 판매자정보 &gt; API Key 관리에서 키 발급</li>
+                              <li>계정 설정 페이지에서 업체코드, Access Key, Secret Key 입력</li>
+                              <li>연결 테스트 후 저장</li>
+                            </ol>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
 
-                  {signError && <p className="text-sm text-red-600 mb-3">{signError}</p>}
-                  <button
-                    type="button"
-                    onClick={() => handleSign(activeContract.id)}
-                    disabled={signing || !agreed || !signatureData}
-                    className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-[#E31837] text-white rounded-xl font-semibold hover:bg-[#c81530] transition disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {signing ? (
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    ) : (
-                      <CheckCircle className="w-5 h-5" />
-                    )}
-                    {signing ? '서명 중...' : '전자 서명하기'}
-                  </button>
-                </div>
+                  {/* API 연동 완료 시 서명 가능 */}
+                  {apiConnected !== false && (
+                    <div className="mt-6 p-5 bg-blue-50 border border-blue-100 rounded-xl">
+                      <div className="flex items-start gap-3 mb-4">
+                        <AlertTriangle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                        <p className="text-sm text-blue-800">
+                          계약 내용을 충분히 확인하신 후 서명해주세요. 서명 후에는 변경할 수 없습니다.
+                        </p>
+                      </div>
+                      <label className="flex items-center gap-3 mb-4 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={agreed}
+                          onChange={(e) => { setAgreed(e.target.checked); setSignError(''); }}
+                          className="w-5 h-5 rounded border-gray-300 text-[#E31837] focus:ring-[#E31837]"
+                        />
+                        <span className="text-sm font-medium text-gray-700">
+                          위 계약 내용(총 {CONTRACT_ARTICLES.length}조)을 모두 확인하였으며, 이에 동의합니다.
+                        </span>
+                      </label>
+
+                      {/* 자필 서명 패드 */}
+                      {agreed && (
+                        <div className="mb-4">
+                          <SignaturePad
+                            onSignatureChange={(data) => { setSignatureData(data); setSignError(''); }}
+                            disabled={signing}
+                          />
+                        </div>
+                      )}
+
+                      {signError && <p className="text-sm text-red-600 mb-3">{signError}</p>}
+                      <button
+                        type="button"
+                        onClick={() => handleSign(activeContract.id)}
+                        disabled={signing || !agreed || !signatureData}
+                        className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-[#E31837] text-white rounded-xl font-semibold hover:bg-[#c81530] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {signing ? (
+                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : (
+                          <CheckCircle className="w-5 h-5" />
+                        )}
+                        {signing ? '서명 중...' : '전자 서명하기'}
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
 
               {activeContract.status === 'signed' && (

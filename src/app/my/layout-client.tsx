@@ -9,11 +9,19 @@ interface MyLayoutClientProps {
   userRole: string;
   isTrainer?: boolean;
   settlementBadge?: SettlementBadgeData;
+  coupangApiConnected?: boolean;
 }
 
-export default function MyLayoutClient({ children, userName, userRole, isTrainer, settlementBadge }: MyLayoutClientProps) {
+export default function MyLayoutClient({ children, userName, userRole, isTrainer, settlementBadge, coupangApiConnected }: MyLayoutClientProps) {
   return (
-    <DashboardLayout userName={userName} userRole={userRole} variant="user" isTrainer={isTrainer} settlementBadge={settlementBadge}>
+    <DashboardLayout
+      userName={userName}
+      userRole={userRole}
+      variant="user"
+      isTrainer={isTrainer}
+      settlementBadge={settlementBadge}
+      coupangApiConnected={coupangApiConnected}
+    >
       {children}
     </DashboardLayout>
   );

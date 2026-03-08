@@ -1,23 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
-
-const VALID_CATEGORIES = [
-  'delivery_delay',
-  'cs_nonresponse',
-  'return_rate_excess',
-  'product_info_mismatch',
-  'false_advertising',
-] as const;
-
-type PenaltyCategory = (typeof VALID_CATEGORIES)[number];
-
-const DEFAULT_SCORE_IMPACT: Record<PenaltyCategory, number> = {
-  delivery_delay: 10,
-  cs_nonresponse: 15,
-  return_rate_excess: 20,
-  product_info_mismatch: 15,
-  false_advertising: 25,
-};
+import { VALID_PENALTY_CATEGORIES, DEFAULT_SCORE_IMPACTS } from '@/lib/data/penalty-response-guide';
 
 export async function GET() {
   try {
@@ -92,14 +75,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate penalty_category
-    if (!VALID_CATEGORIES.includes(penalty_category)) {
+    if (!VALID_PENALTY_CATEGORIES.includes(penalty_category)) {
       return NextResponse.json(
-        { error: `유효하지 않은 페널티 유형입니다. 허용 값: ${VALID_CATEGORIES.join(', ')}` },
+        { error: `유효하지 않은 페널티 유형입니다. 허용 값: ${VALID_PENALTY_CATEGORIES.join(', ')}` },
         { status: 400 },
       );
     }
 
-    const score_impact = DEFAULT_SCORE_IMPACT[penalty_category as PenaltyCategory];
+    const score_impact = DEFAULT_SCORE_IMPACTS[penalty_category] ?? 10;
 
     const serviceClient = await createServiceClient();
 

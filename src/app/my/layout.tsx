@@ -30,7 +30,7 @@ export default async function MyLayout({ children }: { children: React.ReactNode
 
   const { data: ptUser } = await supabase
     .from('pt_users')
-    .select('id, created_at')
+    .select('id, created_at, coupang_api_connected')
     .eq('profile_id', user.id)
     .maybeSingle();
 
@@ -66,12 +66,15 @@ export default async function MyLayout({ children }: { children: React.ReactNode
     isTrainer = !!trainer;
   }
 
+  const coupangApiConnected = !!(ptUser as Record<string, unknown> | null)?.coupang_api_connected;
+
   return (
     <MyLayoutClient
       userName={profile?.full_name || user.email || '사용자'}
       userRole={profile?.role || 'pt_user'}
       isTrainer={isTrainer}
       settlementBadge={settlementBadge}
+      coupangApiConnected={coupangApiConnected}
     >
       {children}
     </MyLayoutClient>
