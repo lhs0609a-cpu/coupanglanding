@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
-import { fetchTotalProductCount, fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
+import { fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
 
 /** GET: 쿠팡 연동 현황 (총 상품 수 + 이번 달 매출 요약) */
 export async function GET() {
@@ -15,7 +15,7 @@ export async function GET() {
 
     const { data: ptUser } = await supabase
       .from('pt_users')
-      .select('coupang_vendor_id, coupang_access_key, coupang_secret_key, coupang_api_connected')
+      .select('id, coupang_vendor_id, coupang_access_key, coupang_secret_key, coupang_api_connected')
       .eq('profile_id', user.id)
       .single();
 
@@ -23,22 +23,29 @@ export async function GET() {
       return NextResponse.json({ error: 'API 미연동' }, { status: 400 });
     }
 
+    // 상품 수: DB 캐시(seller_points)에서 조회 (9000+ 상품 매번 API 순회 방지)
+    const { data: sellerPoints } = await supabase
+      .from('seller_points')
+      .select('total_listings')
+      .eq('pt_user_id', ptUser.id)
+      .maybeSingle();
+
+    const productCount = sellerPoints?.total_listings ?? 0;
+
+    // 매출 데이터: API 실시간 조회
     const accessKey = await decryptPassword(ptUser.coupang_access_key);
     const secretKey = await decryptPassword(ptUser.coupang_secret_key);
     const credentials = { vendorId: ptUser.coupang_vendor_id, accessKey, secretKey };
 
-    // 현재 월 계산
     const now = new Date();
     const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    // 상품 수 + 정산 데이터 병렬 조회
-    const [productResult, settlementResult] = await Promise.allSettled([
-      fetchTotalProductCount(credentials),
-      fetchSettlementData(credentials, yearMonth),
-    ]);
-
-    const productCount = productResult.status === 'fulfilled' ? productResult.value.count : 0;
-    const settlement = settlementResult.status === 'fulfilled' ? settlementResult.value : null;
+    let settlement = null;
+    try {
+      settlement = await fetchSettlementData(credentials, yearMonth);
+    } catch {
+      // 매출 조회 실패 시 0으로 표시 (상품 수는 정상 표시)
+    }
 
     return NextResponse.json({
       productCount,

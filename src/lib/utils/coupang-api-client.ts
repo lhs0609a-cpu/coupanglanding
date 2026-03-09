@@ -97,7 +97,7 @@ async function callCoupangApi(
   return response.json();
 }
 
-/** 월별 정산 데이터 조회 */
+/** 월별 정산 데이터 조회 (전체 페이지 순회) */
 export async function fetchSettlementData(
   credentials: CoupangCredentials,
   yearMonth: string,
@@ -108,37 +108,87 @@ export async function fetchSettlementData(
   const lastDay = new Date(year, month, 0).getDate();
   const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
-  const path = `${REVENUE_BASE_PATH}/revenue-history?vendorId=${credentials.vendorId}&recognitionDateFrom=${startDate}&recognitionDateTo=${endDate}`;
+  const allItems: SettlementItem[] = [];
+  let token = '';
+  let lastRaw: unknown = null;
+  const maxPerPage = 100;
+  const maxPages = 100; // 무한루프 방지
 
-  const data = await callCoupangApi(credentials, 'GET', path) as {
-    data?: Array<{
-      settlementDate?: string;
-      orderId?: string;
-      vendorItemName?: string;
-      salePrice?: number;
-      coupangFee?: number;
-      settlementPrice?: number;
-      shippingPrice?: number;
-      returnShippingPrice?: number;
-    }>;
-  };
+  for (let page = 0; page < maxPages; page++) {
+    const path = `${REVENUE_BASE_PATH}/revenue-history?vendorId=${credentials.vendorId}&recognitionDateFrom=${startDate}&recognitionDateTo=${endDate}&token=${encodeURIComponent(token)}&maxPerPage=${maxPerPage}`;
 
-  const items: SettlementItem[] = (data.data || []).map((item) => ({
-    settlementDate: item.settlementDate || '',
-    orderId: item.orderId || '',
-    vendorItemName: item.vendorItemName || '',
-    salePrice: item.salePrice || 0,
-    commission: item.coupangFee || 0,
-    settlementAmount: item.settlementPrice || 0,
-    shippingFee: item.shippingPrice || 0,
-    returnFee: item.returnShippingPrice || 0,
-  }));
+    const data = await callCoupangApi(credentials, 'GET', path) as {
+      data?: Array<{
+        orderId?: string;
+        settlementDate?: string;
+        // 주문 단위 구조 (items 배열 포함)
+        items?: Array<{
+          vendorItemName?: string;
+          salePrice?: number;
+          saleAmount?: number;
+          serviceFee?: number;
+          serviceFeeVat?: number;
+          settlementAmount?: number;
+          quantity?: number;
+        }>;
+        // 플랫 구조 (구버전 호환)
+        vendorItemName?: string;
+        salePrice?: number;
+        coupangFee?: number;
+        settlementPrice?: number;
+        shippingPrice?: number;
+        returnShippingPrice?: number;
+        // 배송비 구조
+        deliveryFee?: {
+          amount?: number;
+          fee?: number;
+          settlementAmount?: number;
+        };
+      }>;
+      nextToken?: string;
+    };
 
-  const totalSales = items.reduce((sum, i) => sum + i.salePrice, 0);
-  const totalCommission = items.reduce((sum, i) => sum + i.commission, 0);
-  const totalShipping = items.reduce((sum, i) => sum + i.shippingFee, 0);
-  const totalReturns = items.reduce((sum, i) => sum + i.returnFee, 0);
-  const totalSettlement = items.reduce((sum, i) => sum + i.settlementAmount, 0);
+    lastRaw = data;
+
+    for (const order of data.data || []) {
+      if (order.items && order.items.length > 0) {
+        // 주문-아이템 중첩 구조
+        for (const item of order.items) {
+          allItems.push({
+            settlementDate: order.settlementDate || '',
+            orderId: order.orderId || '',
+            vendorItemName: item.vendorItemName || '',
+            salePrice: item.saleAmount ?? item.salePrice ?? 0,
+            commission: (item.serviceFee ?? 0) + (item.serviceFeeVat ?? 0),
+            settlementAmount: item.settlementAmount ?? 0,
+            shippingFee: order.deliveryFee?.amount ?? 0,
+            returnFee: 0,
+          });
+        }
+      } else {
+        // 플랫 구조 (폴백)
+        allItems.push({
+          settlementDate: order.settlementDate || '',
+          orderId: order.orderId || '',
+          vendorItemName: order.vendorItemName || '',
+          salePrice: order.salePrice || 0,
+          commission: order.coupangFee || 0,
+          settlementAmount: order.settlementPrice || 0,
+          shippingFee: order.shippingPrice || 0,
+          returnFee: order.returnShippingPrice || 0,
+        });
+      }
+    }
+
+    token = data.nextToken || '';
+    if (!token) break;
+  }
+
+  const totalSales = allItems.reduce((sum, i) => sum + i.salePrice, 0);
+  const totalCommission = allItems.reduce((sum, i) => sum + i.commission, 0);
+  const totalShipping = allItems.reduce((sum, i) => sum + i.shippingFee, 0);
+  const totalReturns = allItems.reduce((sum, i) => sum + i.returnFee, 0);
+  const totalSettlement = allItems.reduce((sum, i) => sum + i.settlementAmount, 0);
 
   return {
     totalSettlement,
@@ -146,43 +196,69 @@ export async function fetchSettlementData(
     totalCommission,
     totalShipping,
     totalReturns,
-    items,
-    rawResponse: data,
+    items: allItems,
+    rawResponse: lastRaw,
   };
 }
 
-/** 상품 목록 조회 (오늘 등록 상품 수 카운트용) */
+/** 상품 목록 조회 (오늘 등록 상품 수 카운트용, 전체 페이지 순회) */
 export async function fetchProductListings(
   credentials: CoupangCredentials,
   dateFrom: string,
   dateTo: string,
 ): Promise<{ count: number; rawResponse: unknown }> {
-  const path = `${SELLER_BASE_PATH}/seller-products?vendorId=${credentials.vendorId}&createdAtFrom=${dateFrom}&createdAtTo=${dateTo}&status=APPROVED`;
+  let totalCount = 0;
+  let nextToken = '';
+  let lastResponse: unknown = null;
+  const maxPerPage = 100;
+  const maxPages = 200;
 
-  const data = await callCoupangApi(credentials, 'GET', path) as {
-    data?: Array<Record<string, unknown>>;
-    pagination?: { totalElements?: number };
-  };
+  for (let page = 0; page < maxPages; page++) {
+    const tokenParam = nextToken ? `&nextToken=${encodeURIComponent(nextToken)}` : '';
+    const path = `${SELLER_BASE_PATH}/seller-products?vendorId=${credentials.vendorId}&createdAtFrom=${dateFrom}&createdAtTo=${dateTo}&status=APPROVED&maxPerPage=${maxPerPage}${tokenParam}`;
 
-  const count = data.pagination?.totalElements ?? (data.data?.length ?? 0);
+    const data = await callCoupangApi(credentials, 'GET', path) as {
+      code?: string;
+      nextToken?: string;
+      data?: Array<Record<string, unknown>>;
+    };
 
-  return { count, rawResponse: data };
+    lastResponse = data;
+    totalCount += data.data?.length ?? 0;
+    nextToken = data.nextToken || '';
+    if (!nextToken) break;
+  }
+
+  return { count: totalCount, rawResponse: lastResponse };
 }
 
-/** 전체 등록 상품 수 조회 (날짜 무관, 총 누적 건수) */
+/** 전체 등록 상품 수 조회 (날짜 무관, 총 누적 건수, nextToken 페이지네이션) */
 export async function fetchTotalProductCount(
   credentials: CoupangCredentials,
 ): Promise<{ count: number; rawResponse: unknown }> {
-  const path = `${SELLER_BASE_PATH}/seller-products?vendorId=${credentials.vendorId}&status=APPROVED`;
+  let totalCount = 0;
+  let nextToken = '';
+  let lastResponse: unknown = null;
+  const maxPerPage = 100;
+  const maxPages = 200; // 최대 20,000개까지
 
-  const data = await callCoupangApi(credentials, 'GET', path) as {
-    data?: Array<Record<string, unknown>>;
-    pagination?: { totalElements?: number };
-  };
+  for (let page = 0; page < maxPages; page++) {
+    const tokenParam = nextToken ? `&nextToken=${encodeURIComponent(nextToken)}` : '';
+    const path = `${SELLER_BASE_PATH}/seller-products?vendorId=${credentials.vendorId}&status=APPROVED&maxPerPage=${maxPerPage}${tokenParam}`;
 
-  const count = data.pagination?.totalElements ?? (data.data?.length ?? 0);
+    const data = await callCoupangApi(credentials, 'GET', path) as {
+      code?: string;
+      nextToken?: string;
+      data?: Array<Record<string, unknown>>;
+    };
 
-  return { count, rawResponse: data };
+    lastResponse = data;
+    totalCount += data.data?.length ?? 0;
+    nextToken = data.nextToken || '';
+    if (!nextToken) break;
+  }
+
+  return { count: totalCount, rawResponse: lastResponse };
 }
 
 /** API 자격증명 유효성 검증 */
