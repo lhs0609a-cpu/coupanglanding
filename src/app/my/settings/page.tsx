@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { API_STATUS_LABELS, API_STATUS_COLORS } from '@/lib/utils/constants';
+import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import { Settings, Eye, EyeOff, Save, CheckCircle, Plug, AlertTriangle, Shield, ChevronDown, ChevronUp, HelpCircle, ExternalLink, Building2 } from 'lucide-react';
 
 // UTF-8 안전 base64 인코딩/디코딩
@@ -247,6 +248,7 @@ export default function MySettingsPage() {
 
   return (
     <div className="space-y-6">
+      <FeatureTutorial featureKey="settings" />
       <div className="flex items-center gap-3">
         <Settings className="w-6 h-6 text-[#E31837]" />
         <h1 className="text-2xl font-bold text-gray-900">계정 설정</h1>

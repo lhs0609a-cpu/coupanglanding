@@ -11,12 +11,16 @@ import { MODULE_CATEGORIES, LEVEL_LABELS, getStepByKey } from '@/lib/utils/educa
 import ModuleCard from '@/components/education/ModuleCard';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
+import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
+import EducationCompleteBridge from '@/components/tutorial/EducationCompleteBridge';
+import TutorialHub from '@/components/tutorial/TutorialHub';
 import { AlertCircle, GraduationCap, Trophy } from 'lucide-react';
 
 export default function EducationHubPage() {
   const [steps, setSteps] = useState<ComputedStep[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [apiConnected, setApiConnected] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -27,11 +31,13 @@ export default function EducationHubPage() {
 
       const { data: ptUserData } = await supabase
         .from('pt_users')
-        .select('id')
+        .select('id, coupang_api_connected')
         .eq('profile_id', user.id)
         .maybeSingle();
 
       if (!ptUserData) return;
+
+      setApiConnected(!!(ptUserData as { coupang_api_connected?: boolean }).coupang_api_connected);
 
       const { data: dbRows } = await supabase
         .from('onboarding_steps')
@@ -87,6 +93,9 @@ export default function EducationHubPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
+      {/* 교육 기능 튜토리얼 */}
+      <FeatureTutorial featureKey="education" />
+
       {error && (
         <div className="flex items-center gap-2 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
           <AlertCircle className="h-5 w-5 shrink-0" />
@@ -132,6 +141,11 @@ export default function EducationHubPage() {
         </Card>
       )}
 
+      {/* 교육 완료 → API 연동 브릿지 */}
+      {allDone && (
+        <EducationCompleteBridge coupangApiConnected={apiConnected} />
+      )}
+
       {/* Category sections */}
       {MODULE_CATEGORIES.map((category) => (
         <div key={category.id}>
@@ -164,6 +178,9 @@ export default function EducationHubPage() {
           </div>
         </div>
       ))}
+
+      {/* 기능 튜토리얼 허브 */}
+      <TutorialHub />
     </div>
   );
 }

@@ -18,6 +18,7 @@ import NumberInput from '@/components/ui/NumberInput';
 import FileUpload from '@/components/ui/FileUpload';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
+import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import StatCard from '@/components/ui/StatCard';
 import PaymentProgress from '@/components/ui/PaymentProgress';
 import { calculateListingDiscount, type ListingDiscountResult } from '@/lib/calculations/listing-discount';
@@ -378,6 +379,7 @@ export default function MyReportPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      <FeatureTutorial featureKey="report" />
       {/* 1. 헤더 + MonthPicker */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">매출 정산</h1>

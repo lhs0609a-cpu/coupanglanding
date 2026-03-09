@@ -13,6 +13,7 @@ import {
 import type { BenefitCategory } from '@/lib/data/growth-roadmap';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
+import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import {
   Map,
   TrendingUp,
@@ -108,6 +109,7 @@ export default function GrowthRoadmapPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      <FeatureTutorial featureKey="growth" />
       {/* 헤더 */}
       <div className="flex items-center gap-3">
         <div className="p-2 bg-[#E31837]/10 rounded-lg">

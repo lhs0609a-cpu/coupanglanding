@@ -12,6 +12,7 @@ import {
   BLACKLIST_RISK_LABELS, BLACKLIST_RISK_COLORS,
   COMPLAINT_TYPE_LABELS, COMPLAINT_TYPE_COLORS,
 } from '@/lib/utils/constants';
+import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import { ShieldAlert, AlertTriangle, Shield, Search, Plus } from 'lucide-react';
 
 export default function MyEmergencyPage() {
@@ -68,6 +69,7 @@ export default function MyEmergencyPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      <FeatureTutorial featureKey="emergency" />
       {/* Header */}
       <div className="flex items-center gap-3">
         <ShieldAlert className="w-6 h-6 text-[#E31837]" />

@@ -8,6 +8,7 @@ import { CONTRACT_ARTICLES, renderArticleText } from '@/lib/data/contract-terms'
 import type { ContractVariables } from '@/lib/data/contract-terms';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
+import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import SignaturePad from '@/components/ui/SignaturePad';
 import FileUpload from '@/components/ui/FileUpload';
 import WithdrawalWizard from '@/components/my/WithdrawalWizard';
@@ -257,6 +258,7 @@ export default function MyContractPage() {
 
   return (
     <div className="space-y-6">
+      <FeatureTutorial featureKey="contract" />
       <div className="flex items-center gap-3">
         <FileText className="w-6 h-6 text-[#E31837]" />
         <h1 className="text-2xl font-bold text-gray-900">계약서</h1>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Card from '@/components/ui/Card';
 import { Trophy, RefreshCw, Crown, TrendingUp, Users, AlertCircle } from 'lucide-react';
+import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // ---------------------------------------------------------------------------
@@ -136,6 +137,7 @@ export default function SellerRankingPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
+      <FeatureTutorial featureKey="arena" />
       {/* ===== Header ===== */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">

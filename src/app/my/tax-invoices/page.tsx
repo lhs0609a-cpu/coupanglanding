@@ -7,6 +7,7 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import StatCard from '@/components/ui/StatCard';
 import MonthPicker from '@/components/ui/MonthPicker';
+import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import { Receipt, FileText, AlertCircle } from 'lucide-react';
 import type { TaxInvoice } from '@/lib/supabase/types';
 
@@ -54,6 +55,7 @@ export default function MyTaxInvoicesPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      <FeatureTutorial featureKey="tax-invoices" />
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Receipt className="w-6 h-6 text-[#E31837]" />

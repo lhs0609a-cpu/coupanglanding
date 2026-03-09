@@ -9,6 +9,7 @@ import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS } from '@/lib/utils/consta
 import { AlertCircle } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
+import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import type { MonthlyReport } from '@/lib/supabase/types';
 
 export default function MyHistoryPage() {
@@ -56,6 +57,7 @@ export default function MyHistoryPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      <FeatureTutorial featureKey="history" />
       <h1 className="text-2xl font-bold text-gray-900">보고 내역</h1>
 
       {error && (

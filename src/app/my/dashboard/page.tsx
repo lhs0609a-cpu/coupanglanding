@@ -12,6 +12,9 @@ import ArenaWidget from '@/components/my/ArenaWidget';
 import SettlementDDayBanner from '@/components/settlement/SettlementDDayBanner';
 import ApiConnectionBanner from '@/components/settlement/ApiConnectionBanner';
 import Card from '@/components/ui/Card';
+import WelcomeTutorial from '@/components/tutorial/WelcomeTutorial';
+import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
+import TutorialHubWidget from '@/components/tutorial/TutorialHubWidget';
 import { ClipboardList, GraduationCap, ArrowRight, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 
@@ -92,6 +95,12 @@ export default function MyDashboardPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {/* 웰컴 튜토리얼 (첫 방문 시) */}
+      <WelcomeTutorial />
+
+      {/* 대시보드 기능 튜토리얼 */}
+      <FeatureTutorial featureKey="dashboard" />
+
       {/* 에러 배너 */}
       {error && (
         <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-700">
@@ -165,6 +174,9 @@ export default function MyDashboardPage() {
           </div>
         </Card>
       )}
+
+      {/* 튜토리얼 허브 위젯 */}
+      <TutorialHubWidget />
     </div>
   );
 }

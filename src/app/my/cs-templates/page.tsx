@@ -5,6 +5,7 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import { MessageSquare, Search, Copy, Check, Lightbulb } from 'lucide-react';
+import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import { CS_TEMPLATES, CS_CATEGORIES, type CsTemplate } from '@/lib/data/cs-templates';
 
 export default function CsTemplatesPage() {
@@ -50,6 +51,7 @@ export default function CsTemplatesPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      <FeatureTutorial featureKey="cs-templates" />
       {/* Header */}
       <div>
         <div className="flex items-center gap-3 mb-1">

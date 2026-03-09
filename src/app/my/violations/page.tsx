@@ -12,6 +12,7 @@ import {
   VIOLATION_CATEGORY_COLORS,
   getRiskLevel, RISK_SCORE_LABELS,
 } from '@/lib/utils/constants';
+import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import { AlertCircle, Gavel, Send } from 'lucide-react';
 
 export default function MyViolationsPage() {
@@ -87,6 +88,7 @@ export default function MyViolationsPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      <FeatureTutorial featureKey="violations" />
       {/* Header */}
       <div className="flex items-center gap-3">
         <Gavel className="w-6 h-6 text-[#E31837]" />

@@ -7,6 +7,7 @@ import { TREND_CATEGORIES, DIFFICULTY_LABELS, DIFFICULTY_COLORS } from '@/lib/ut
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
+import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import KeywordAnalysisPanel from '@/components/my/KeywordAnalysisPanel';
 import { Flame, Search, TrendingUp, ShoppingCart, Lightbulb, Calendar, CheckCircle2, XCircle, ChevronRight, BarChart3, AlertCircle } from 'lucide-react';
 
@@ -106,6 +107,7 @@ export default function MyTrendsPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
+      <FeatureTutorial featureKey="trends" />
       <div>
         <div className="flex items-center gap-3">
           <Flame className="w-6 h-6 text-[#E31837]" />

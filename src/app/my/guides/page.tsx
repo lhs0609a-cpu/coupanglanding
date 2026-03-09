@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Search, Clock } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
+import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import {
   GUIDE_CATEGORIES,
   GUIDE_ARTICLES,
@@ -25,6 +26,7 @@ export default function GuidesHubPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      <FeatureTutorial featureKey="guides" />
       {/* 헤더 */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">운영 가이드</h1>
