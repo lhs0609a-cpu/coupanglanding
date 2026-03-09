@@ -350,6 +350,11 @@ export interface TrendingKeyword {
   recommended_price_min: number | null;
   recommended_price_max: number | null;
   related_keywords: string[];
+  product_count: number;
+  competition_ratio: number;
+  rank_daily: number | null;
+  rank_weekly: number | null;
+  collected_at: string | null;
   created_at: string;
   updated_at: string;
 }

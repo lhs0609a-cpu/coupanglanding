@@ -10,7 +10,7 @@ import Modal from '@/components/ui/Modal';
 import KeywordTrendChart from '@/components/charts/KeywordTrendChart';
 import type { TrendDataPoint } from '@/lib/supabase/types';
 import type { PeriodOption } from '@/lib/utils/trend-chart';
-import { Flame, Plus, RefreshCw, Search, Pencil, Trash2, Eye, EyeOff, BarChart3 } from 'lucide-react';
+import { Flame, Plus, RefreshCw, Search, Pencil, Trash2, Eye, EyeOff, BarChart3, Download } from 'lucide-react';
 
 export default function AdminTrendsPage() {
   const [keywords, setKeywords] = useState<TrendingKeyword[]>([]);
@@ -24,6 +24,8 @@ export default function AdminTrendsPage() {
     relatedKeywords: { relKeyword: string; monthlyPcQcCnt: number; monthlyMobileQcCnt: number; compIdx: string }[];
   } | null>(null);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [collectLoading, setCollectLoading] = useState(false);
+  const [collectProgress, setCollectProgress] = useState('');
   const [message, setMessage] = useState<{ type: string; text: string }>({ type: '', text: '' });
   // 차트 모달 상태
   const [chartKeyword, setChartKeyword] = useState<TrendingKeyword | null>(null);
@@ -269,6 +271,36 @@ export default function AdminTrendsPage() {
     setBulkLoading(false);
   };
 
+  const handleCollect = async () => {
+    if (activeCategory === '전체') {
+      setMessage({ type: 'error', text: '자동 수집할 카테고리를 선택해주세요.' });
+      return;
+    }
+    if (!confirm(`"${activeCategory}" 카테고리의 키워드를 자동 수집하시겠습니까?\n시드 키워드 기반으로 상위 100개를 수집합니다.`)) return;
+    setCollectLoading(true);
+    setCollectProgress(`${activeCategory} 카테고리 수집 중...`);
+    setMessage({ type: '', text: '' });
+    try {
+      const res = await fetch('/api/trends/collect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category: activeCategory }),
+      });
+      if (res.ok) {
+        const result = await res.json();
+        setMessage({ type: 'success', text: result.message });
+        fetchKeywords();
+      } else {
+        const err = await res.json();
+        setMessage({ type: 'error', text: err.error || '자동 수집 실패' });
+      }
+    } catch {
+      setMessage({ type: 'error', text: '서버 오류' });
+    }
+    setCollectLoading(false);
+    setCollectProgress('');
+  };
+
   const fetchChartData = async (kw: TrendingKeyword, period: PeriodOption) => {
     setChartLoading(true);
     setChartError(null);
@@ -454,7 +486,15 @@ export default function AdminTrendsPage() {
           <Flame className="w-6 h-6 text-[#E31837]" />
           <h1 className="text-2xl font-bold text-gray-900">트렌드 키워드 관리</h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={handleCollect}
+            disabled={collectLoading || activeCategory === '전체'}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            <Download className={`w-4 h-4 ${collectLoading ? 'animate-bounce' : ''}`} />
+            {collectLoading ? '수집 중...' : '자동 수집'}
+          </button>
           <button
             onClick={handleBulkUpdate}
             disabled={bulkLoading}
@@ -477,6 +517,14 @@ export default function AdminTrendsPage() {
       {message.text && (
         <div className={`p-3 rounded-lg text-sm ${message.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
           {message.text}
+        </div>
+      )}
+
+      {/* 수집 진행 상태 */}
+      {collectProgress && (
+        <div className="p-3 rounded-lg text-sm bg-blue-50 text-blue-700 flex items-center gap-2">
+          <RefreshCw className="w-4 h-4 animate-spin" />
+          {collectProgress}
         </div>
       )}
 
@@ -511,10 +559,10 @@ export default function AdminTrendsPage() {
                   <th className="text-left py-3 px-4 font-medium text-gray-500">키워드</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-500">카테고리</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-500">트렌드 점수</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">난이도</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">시즌</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-500">월간 검색량</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">마진</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-500">상품수</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-500">경쟁강도</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-500">순위</th>
                   <th className="text-right py-3 px-4 font-medium text-gray-500">관리</th>
                 </tr>
               </thead>
@@ -538,23 +586,6 @@ export default function AdminTrendsPage() {
                         </span>
                       </div>
                     </td>
-                    <td className="py-3 px-4">
-                      {kw.difficulty ? (
-                        <Badge
-                          label={DIFFICULTY_LABELS[kw.difficulty] || kw.difficulty}
-                          colorClass={
-                            kw.difficulty === 'easy' ? 'bg-green-100 text-green-700' :
-                            kw.difficulty === 'hard' ? 'bg-red-100 text-red-700' :
-                            'bg-yellow-100 text-yellow-700'
-                          }
-                        />
-                      ) : (
-                        <span className="text-gray-300">-</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-gray-600 text-xs">
-                      {kw.seasonality || '-'}
-                    </td>
                     <td className="py-3 px-4 text-gray-600">
                       {kw.naver_trend_data ? (
                         <span>
@@ -564,8 +595,20 @@ export default function AdminTrendsPage() {
                         <span className="text-gray-300">-</span>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-green-600 font-medium text-xs">
-                      {kw.margin_range || '-'}
+                    <td className="py-3 px-4 text-gray-600">
+                      {kw.product_count > 0 ? formatNumber(kw.product_count) : <span className="text-gray-300">-</span>}
+                    </td>
+                    <td className="py-3 px-4">
+                      {kw.competition_ratio > 0 ? (
+                        <span className={`font-medium ${kw.competition_ratio > 5 ? 'text-red-600' : kw.competition_ratio > 1 ? 'text-yellow-600' : 'text-green-600'}`}>
+                          {kw.competition_ratio.toFixed(2)}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300">-</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-xs text-gray-500">
+                      {kw.rank_daily ? `D${kw.rank_daily}` : '-'} / {kw.rank_weekly ? `W${kw.rank_weekly}` : '-'}
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center justify-end gap-1">
