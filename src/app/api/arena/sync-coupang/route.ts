@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchProductListings } from '@/lib/utils/coupang-api-client';
 import { calculateDailyPoints } from '@/lib/utils/arena-points';
 
@@ -28,11 +29,15 @@ export async function POST(request: NextRequest) {
 
     const today = new Date().toISOString().split('T')[0];
 
+    // 암호화된 API 키 복호화
+    const accessKey = await decryptPassword(ptUser.coupang_access_key);
+    const secretKey = await decryptPassword(ptUser.coupang_secret_key);
+
     const { count } = await fetchProductListings(
       {
         vendorId: ptUser.coupang_vendor_id,
-        accessKey: ptUser.coupang_access_key,
-        secretKey: ptUser.coupang_secret_key,
+        accessKey,
+        secretKey,
       },
       today,
       today,

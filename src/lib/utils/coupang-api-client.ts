@@ -102,7 +102,6 @@ export async function fetchSettlementData(
   credentials: CoupangCredentials,
   yearMonth: string,
 ): Promise<SettlementResponse> {
-  // yearMonth: "2025-03" -> startDate: "2025-03-01", endDate: "2025-03-31"
   const [year, month] = yearMonth.split('-').map(Number);
   const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
   const lastDay = new Date(year, month, 0).getDate();
@@ -112,75 +111,65 @@ export async function fetchSettlementData(
   let token = '';
   let lastRaw: unknown = null;
   const maxPerPage = 100;
-  const maxPages = 100; // 무한루프 방지
+  const maxPages = 100;
 
   for (let page = 0; page < maxPages; page++) {
     const path = `${REVENUE_BASE_PATH}/revenue-history?vendorId=${credentials.vendorId}&recognitionDateFrom=${startDate}&recognitionDateTo=${endDate}&token=${encodeURIComponent(token)}&maxPerPage=${maxPerPage}`;
 
-    const data = await callCoupangApi(credentials, 'GET', path) as {
-      data?: Array<{
-        orderId?: string;
-        settlementDate?: string;
-        // 주문 단위 구조 (items 배열 포함)
-        items?: Array<{
-          vendorItemName?: string;
-          salePrice?: number;
-          saleAmount?: number;
-          serviceFee?: number;
-          serviceFeeVat?: number;
-          settlementAmount?: number;
-          quantity?: number;
-        }>;
-        // 플랫 구조 (구버전 호환)
-        vendorItemName?: string;
-        salePrice?: number;
-        coupangFee?: number;
-        settlementPrice?: number;
-        shippingPrice?: number;
-        returnShippingPrice?: number;
-        // 배송비 구조
-        deliveryFee?: {
-          amount?: number;
-          fee?: number;
-          settlementAmount?: number;
-        };
-      }>;
-      nextToken?: string;
-    };
-
+    const data = await callCoupangApi(credentials, 'GET', path) as Record<string, unknown>;
     lastRaw = data;
 
-    for (const order of data.data || []) {
-      if (order.items && order.items.length > 0) {
+    // 첫 페이지에서 응답 구조 로깅 (디버그용)
+    if (page === 0) {
+      const topKeys = Object.keys(data);
+      const firstItem = Array.isArray(data.data) && data.data.length > 0 ? data.data[0] : null;
+      console.log('[revenue-history] 응답 top-level keys:', topKeys);
+      console.log('[revenue-history] data 배열 길이:', Array.isArray(data.data) ? data.data.length : 'not array');
+      if (firstItem) {
+        console.log('[revenue-history] 첫 번째 아이템 keys:', Object.keys(firstItem as Record<string, unknown>));
+        console.log('[revenue-history] 첫 번째 아이템 샘플:', JSON.stringify(firstItem).slice(0, 500));
+      }
+    }
+
+    const orders = Array.isArray(data.data) ? data.data as Array<Record<string, unknown>> : [];
+
+    for (const order of orders) {
+      const orderItems = Array.isArray(order.items) ? order.items as Array<Record<string, unknown>> : null;
+
+      if (orderItems && orderItems.length > 0) {
         // 주문-아이템 중첩 구조
-        for (const item of order.items) {
+        const deliveryFee = order.deliveryFee as Record<string, number> | undefined;
+        for (const item of orderItems) {
           allItems.push({
-            settlementDate: order.settlementDate || '',
-            orderId: order.orderId || '',
-            vendorItemName: item.vendorItemName || '',
-            salePrice: item.saleAmount ?? item.salePrice ?? 0,
-            commission: (item.serviceFee ?? 0) + (item.serviceFeeVat ?? 0),
-            settlementAmount: item.settlementAmount ?? 0,
-            shippingFee: order.deliveryFee?.amount ?? 0,
+            settlementDate: String(order.settlementDate || ''),
+            orderId: String(order.orderId || ''),
+            vendorItemName: String(item.vendorItemName || ''),
+            salePrice: Number(item.saleAmount ?? item.salePrice ?? 0),
+            commission: Number(item.serviceFee ?? 0) + Number(item.serviceFeeVat ?? 0),
+            settlementAmount: Number(item.settlementAmount ?? 0),
+            shippingFee: Number(deliveryFee?.amount ?? 0),
             returnFee: 0,
           });
         }
       } else {
         // 플랫 구조 (폴백)
         allItems.push({
-          settlementDate: order.settlementDate || '',
-          orderId: order.orderId || '',
-          vendorItemName: order.vendorItemName || '',
-          salePrice: order.salePrice || 0,
-          commission: order.coupangFee || 0,
-          settlementAmount: order.settlementPrice || 0,
-          shippingFee: order.shippingPrice || 0,
-          returnFee: order.returnShippingPrice || 0,
+          settlementDate: String(order.settlementDate || ''),
+          orderId: String(order.orderId || ''),
+          vendorItemName: String(order.vendorItemName || ''),
+          salePrice: Number(order.salePrice || 0),
+          commission: Number(order.coupangFee || 0),
+          settlementAmount: Number(order.settlementPrice || 0),
+          shippingFee: Number(order.shippingPrice || 0),
+          returnFee: Number(order.returnShippingPrice || 0),
         });
       }
     }
 
-    token = data.nextToken || '';
+    // nextToken 확인 (필드명이 다를 수 있으므로 여러 가능성 체크)
+    const next = data.nextToken ?? data.token ?? '';
+    token = String(next);
+    console.log(`[revenue-history] page ${page}: ${orders.length}건, nextToken=${token ? 'yes' : 'none'}`);
     if (!token) break;
   }
 
@@ -189,6 +178,8 @@ export async function fetchSettlementData(
   const totalShipping = allItems.reduce((sum, i) => sum + i.shippingFee, 0);
   const totalReturns = allItems.reduce((sum, i) => sum + i.returnFee, 0);
   const totalSettlement = allItems.reduce((sum, i) => sum + i.settlementAmount, 0);
+
+  console.log(`[revenue-history] 총 ${allItems.length}건, 매출=${totalSales}, 정산=${totalSettlement}`);
 
   return {
     totalSettlement,
@@ -240,24 +231,30 @@ export async function fetchTotalProductCount(
   let nextToken = '';
   let lastResponse: unknown = null;
   const maxPerPage = 100;
-  const maxPages = 200; // 최대 20,000개까지
+  const maxPages = 200;
 
   for (let page = 0; page < maxPages; page++) {
     const tokenParam = nextToken ? `&nextToken=${encodeURIComponent(nextToken)}` : '';
     const path = `${SELLER_BASE_PATH}/seller-products?vendorId=${credentials.vendorId}&status=APPROVED&maxPerPage=${maxPerPage}${tokenParam}`;
 
-    const data = await callCoupangApi(credentials, 'GET', path) as {
-      code?: string;
-      nextToken?: string;
-      data?: Array<Record<string, unknown>>;
-    };
-
+    const data = await callCoupangApi(credentials, 'GET', path) as Record<string, unknown>;
     lastResponse = data;
-    totalCount += data.data?.length ?? 0;
-    nextToken = data.nextToken || '';
+
+    // 첫 페이지에서 응답 구조 로깅
+    if (page === 0) {
+      console.log('[seller-products] 응답 top-level keys:', Object.keys(data));
+      console.log('[seller-products] data 배열 길이:', Array.isArray(data.data) ? (data.data as unknown[]).length : 'not array');
+      console.log('[seller-products] nextToken:', data.nextToken ?? '(없음)');
+    }
+
+    const items = Array.isArray(data.data) ? data.data as unknown[] : [];
+    totalCount += items.length;
+    nextToken = String(data.nextToken ?? '');
+    console.log(`[seller-products] page ${page}: ${items.length}건, 누적=${totalCount}, nextToken=${nextToken ? 'yes' : 'none'}`);
     if (!nextToken) break;
   }
 
+  console.log(`[seller-products] 총 상품 수: ${totalCount}`);
   return { count: totalCount, rawResponse: lastResponse };
 }
 

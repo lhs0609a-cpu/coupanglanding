@@ -41,10 +41,12 @@ export async function GET() {
     const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
     let settlement = null;
+    let settlementError: string | null = null;
     try {
       settlement = await fetchSettlementData(credentials, yearMonth);
-    } catch {
-      // 매출 조회 실패 시 0으로 표시 (상품 수는 정상 표시)
+    } catch (err) {
+      settlementError = err instanceof Error ? err.message : String(err);
+      console.error('[coupang-overview] 매출 조회 실패:', settlementError);
     }
 
     return NextResponse.json({
@@ -53,6 +55,19 @@ export async function GET() {
       monthlySettlement: settlement?.totalSettlement ?? 0,
       monthlyCommission: settlement?.totalCommission ?? 0,
       yearMonth,
+      // 디버그: 실제 API 응답 구조 확인용 (문제 해결 후 제거)
+      _debug: {
+        settlementError,
+        settlementItemCount: settlement?.items.length ?? 0,
+        rawResponseKeys: settlement?.rawResponse ? Object.keys(settlement.rawResponse as Record<string, unknown>) : null,
+        rawFirstItem: settlement?.rawResponse
+          ? (() => {
+              const raw = settlement.rawResponse as Record<string, unknown>;
+              const arr = Array.isArray(raw.data) ? raw.data : [];
+              return arr.length > 0 ? arr[0] : null;
+            })()
+          : null,
+      },
     });
   } catch (error) {
     if (error instanceof CoupangApiError) {
