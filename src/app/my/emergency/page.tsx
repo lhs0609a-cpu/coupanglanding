@@ -30,15 +30,22 @@ export default function MyEmergencyPage() {
 
       // 인시던트 로드
       const incidentRes = await fetch('/api/emergency/incidents');
-      if (!incidentRes.ok) throw new Error(`인시던트 로드 실패 (${incidentRes.status})`);
       const incidentData = await incidentRes.json();
-      if (incidentData.data) setIncidents(incidentData.data);
+      if (!incidentRes.ok) {
+        console.error('인시던트 API 에러:', incidentData);
+        throw new Error(incidentData.error || `인시던트 로드 실패 (${incidentRes.status})`);
+      }
+      setIncidents(incidentData.data || []);
 
       // 블랙리스트 로드
       const blRes = await fetch(`/api/emergency/blacklist${searchTerm ? `?search=${encodeURIComponent(searchTerm)}` : ''}`);
-      if (!blRes.ok) throw new Error(`블랙리스트 로드 실패 (${blRes.status})`);
       const blData = await blRes.json();
-      if (blData.data) setBlacklist(blData.data);
+      if (!blRes.ok) {
+        console.error('블랙리스트 API 에러:', blData);
+        // 블랙리스트 실패해도 인시던트는 표시
+      } else {
+        setBlacklist(blData.data || []);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '데이터를 불러오는 중 오류가 발생했습니다.');
     } finally {

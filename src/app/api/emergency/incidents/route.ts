@@ -28,12 +28,14 @@ export async function GET() {
       .order('created_at', { ascending: false });
 
     if (error) {
+      console.error('[incidents GET] Supabase error:', error.message, error.code, error.details);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ data });
-  } catch {
-    return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
+    return NextResponse.json({ data: data || [] });
+  } catch (err) {
+    console.error('[incidents GET] Unexpected error:', err);
+    return NextResponse.json({ error: err instanceof Error ? err.message : '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }
 
