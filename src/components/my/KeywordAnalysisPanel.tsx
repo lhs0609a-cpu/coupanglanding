@@ -3,11 +3,100 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { TrendDataPoint } from '@/lib/supabase/types';
 import type { PeriodOption } from '@/lib/utils/trend-chart';
-import { getCompetitionScore, formatProductCount } from '@/lib/utils/competition';
+import type { CompetitionLevel } from '@/lib/utils/competition';
+import {
+  getCompetitionScore,
+  formatProductCount,
+  calculateCTR,
+  calculateShoppingConversion,
+  calculateKeywordQuality,
+  generateKeywordInsight,
+} from '@/lib/utils/competition';
 import KeywordTrendChart from '@/components/charts/KeywordTrendChart';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import { Search, TrendingUp, Loader2, ArrowUpDown, ArrowUp, ArrowDown, Package, BarChart3, MousePointerClick, AlertCircle } from 'lucide-react';
+import { Search, TrendingUp, Loader2, ArrowUpDown, ArrowUp, ArrowDown, Package, BarChart3, MousePointerClick, AlertCircle, Monitor, Smartphone, Zap, ShoppingBag } from 'lucide-react';
+
+/* ─── Inline Sub-components ─── */
+
+/** 5-step horizontal competition gauge */
+function CompetitionGauge({ level, size = 'md' }: { level: CompetitionLevel; size?: 'sm' | 'md' }) {
+  const steps: { key: CompetitionLevel; color: string }[] = [
+    { key: 'very_good', color: 'bg-emerald-500' },
+    { key: 'good', color: 'bg-teal-400' },
+    { key: 'normal', color: 'bg-yellow-400' },
+    { key: 'bad', color: 'bg-orange-400' },
+    { key: 'very_bad', color: 'bg-red-500' },
+  ];
+  const activeIdx = steps.findIndex((s) => s.key === level);
+  const h = size === 'sm' ? 'h-1.5' : 'h-2.5';
+  const gap = size === 'sm' ? 'gap-0.5' : 'gap-1';
+
+  return (
+    <div className={`flex ${gap} w-full`}>
+      {steps.map((step, i) => (
+        <div
+          key={step.key}
+          className={`flex-1 ${h} rounded-full ${i <= activeIdx ? step.color : 'bg-gray-200'}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** PC vs Mobile ratio bar */
+function PCMobileBar({ pcValue, mobileValue, size = 'md' }: { pcValue: number; mobileValue: number; size?: 'sm' | 'md' }) {
+  const total = pcValue + mobileValue;
+  if (total <= 0) return <span className="text-xs text-gray-400">-</span>;
+  const pcPct = Math.round((pcValue / total) * 100);
+  const mobilePct = 100 - pcPct;
+  const h = size === 'sm' ? 'h-2' : 'h-3';
+
+  return (
+    <div>
+      <div className={`flex ${h} rounded-full overflow-hidden`}>
+        <div className="bg-blue-400" style={{ width: `${pcPct}%` }} />
+        <div className="bg-orange-400" style={{ width: `${mobilePct}%` }} />
+      </div>
+      <div className="flex justify-between mt-0.5">
+        <span className="text-[10px] text-blue-600 font-medium">PC {pcPct}%</span>
+        <span className="text-[10px] text-orange-600 font-medium">M {mobilePct}%</span>
+      </div>
+    </div>
+  );
+}
+
+/** Conic-gradient quality score ring */
+function QualityScoreRing({ score, level, label }: { score: number; level: string; label: string }) {
+  const colorMap: Record<string, string> = {
+    S: '#059669',
+    A: '#2563eb',
+    B: '#d97706',
+    C: '#ea580c',
+    D: '#dc2626',
+  };
+  const color = colorMap[level] || '#6b7280';
+  const pct = score;
+
+  return (
+    <div className="flex flex-col items-center">
+      <div
+        className="relative w-20 h-20 rounded-full flex items-center justify-center"
+        style={{
+          background: `conic-gradient(${color} ${pct * 3.6}deg, #e5e7eb ${pct * 3.6}deg)`,
+        }}
+      >
+        <div className="w-14 h-14 bg-white rounded-full flex flex-col items-center justify-center">
+          <span className="text-lg font-bold" style={{ color }}>{score}</span>
+          <span className="text-[10px] font-semibold" style={{ color }}>{level}</span>
+        </div>
+      </div>
+      <span className="text-xs text-gray-500 mt-1">{label}</span>
+    </div>
+  );
+}
+
+/* ─── Types ─── */
 
 interface KeywordRow {
   rank: number;
@@ -23,7 +112,7 @@ interface KeywordRow {
   productCount: number | null; // null = loading
 }
 
-type SortKey = 'rank' | 'totalSearch' | 'productCount' | 'competitionRatio' | 'totalClicks';
+type SortKey = 'rank' | 'totalSearch' | 'pcSearch' | 'mobileSearch' | 'productCount' | 'competitionRatio' | 'ctr' | 'totalClicks';
 type SortDir = 'asc' | 'desc';
 
 interface KeywordAnalysisPanelProps {
@@ -277,6 +366,14 @@ export default function KeywordAnalysisPanel({ initialKeyword }: KeywordAnalysis
           aVal = a.totalSearch;
           bVal = b.totalSearch;
           break;
+        case 'pcSearch':
+          aVal = a.monthlyPcQcCnt;
+          bVal = b.monthlyPcQcCnt;
+          break;
+        case 'mobileSearch':
+          aVal = a.monthlyMobileQcCnt;
+          bVal = b.monthlyMobileQcCnt;
+          break;
         case 'productCount':
           aVal = a.productCount ?? 0;
           bVal = b.productCount ?? 0;
@@ -284,6 +381,10 @@ export default function KeywordAnalysisPanel({ initialKeyword }: KeywordAnalysis
         case 'competitionRatio':
           aVal = a.productCount != null && a.totalSearch > 0 ? a.productCount / a.totalSearch : 999999;
           bVal = b.productCount != null && b.totalSearch > 0 ? b.productCount / b.totalSearch : 999999;
+          break;
+        case 'ctr':
+          aVal = a.totalSearch > 0 ? a.totalClicks / a.totalSearch : 0;
+          bVal = b.totalSearch > 0 ? b.totalClicks / b.totalSearch : 0;
           break;
         case 'totalClicks':
           aVal = a.totalClicks;
@@ -307,6 +408,25 @@ export default function KeywordAnalysisPanel({ initialKeyword }: KeywordAnalysis
   };
 
   const mainRow = keywordRows[0] || null;
+  const maxSearch = Math.max(...keywordRows.map((r) => r.totalSearch), 1);
+
+  // Derived metrics for main row
+  const mainCTR = mainRow ? calculateCTR(mainRow.totalClicks, mainRow.totalSearch) : 0;
+  const mainComp = mainRow && mainRow.productCount != null
+    ? getCompetitionScore(mainRow.productCount, mainRow.totalSearch)
+    : null;
+  const mainConversion = mainRow && mainRow.productCount != null
+    ? calculateShoppingConversion(mainRow.productCount, mainRow.totalSearch)
+    : null;
+  const mainQuality = mainRow && mainComp
+    ? calculateKeywordQuality(mainRow.totalSearch, mainComp.level, mainCTR)
+    : null;
+  const mainPcRatio = mainRow && mainRow.totalSearch > 0
+    ? Math.round((mainRow.monthlyPcQcCnt / mainRow.totalSearch) * 100)
+    : 0;
+  const mainInsight = mainRow && mainComp && mainQuality
+    ? generateKeywordInsight(mainRow.totalSearch, mainCTR, mainComp.level, mainPcRatio, mainQuality.level)
+    : null;
 
   return (
     <div className="space-y-6">
@@ -350,8 +470,9 @@ export default function KeywordAnalysisPanel({ initialKeyword }: KeywordAnalysis
       {/* 결과 영역 */}
       {activeKeyword && mainRow && (
         <>
-          {/* 핵심 통계 카드 */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {/* 핵심 통계 카드 6개 */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {/* 월간 검색수 + PC/Mobile 미니바 */}
             <Card className="!p-4">
               <div className="flex items-center gap-2 mb-1">
                 <Search className="w-3.5 h-3.5 text-blue-500" />
@@ -360,11 +481,12 @@ export default function KeywordAnalysisPanel({ initialKeyword }: KeywordAnalysis
               <p className="text-lg font-bold text-gray-900">
                 {formatNumber(mainRow.totalSearch)}
               </p>
-              <p className="text-xs text-gray-400 mt-0.5">
-                PC {formatNumber(mainRow.monthlyPcQcCnt)} / M {formatNumber(mainRow.monthlyMobileQcCnt)}
-              </p>
+              <div className="mt-1.5">
+                <PCMobileBar pcValue={mainRow.monthlyPcQcCnt} mobileValue={mainRow.monthlyMobileQcCnt} size="sm" />
+              </div>
             </Card>
 
+            {/* 상품수 */}
             <Card className="!p-4">
               <div className="flex items-center gap-2 mb-1">
                 <Package className="w-3.5 h-3.5 text-purple-500" />
@@ -381,22 +503,21 @@ export default function KeywordAnalysisPanel({ initialKeyword }: KeywordAnalysis
               )}
             </Card>
 
+            {/* 경쟁강도 + 5단 게이지 */}
             <Card className="!p-4">
               <div className="flex items-center gap-2 mb-1">
                 <BarChart3 className="w-3.5 h-3.5 text-orange-500" />
                 <p className="text-xs text-gray-500">경쟁강도</p>
               </div>
-              {mainRow.productCount != null ? (
+              {mainComp ? (
                 <>
-                  {(() => {
-                    const comp = getCompetitionScore(mainRow.productCount, mainRow.totalSearch);
-                    return (
-                      <div className="flex items-center gap-2">
-                        <Badge label={comp.label} colorClass={`${comp.bgColor} ${comp.textColor}`} />
-                        <span className="text-xs text-gray-400">{comp.ratio}</span>
-                      </div>
-                    );
-                  })()}
+                  <div className="flex items-center gap-2">
+                    <Badge label={mainComp.label} colorClass={`${mainComp.bgColor} ${mainComp.textColor}`} />
+                    <span className="text-xs text-gray-400">{mainComp.ratio}</span>
+                  </div>
+                  <div className="mt-1.5">
+                    <CompetitionGauge level={mainComp.level} size="sm" />
+                  </div>
                 </>
               ) : (
                 <div className="h-7 flex items-center">
@@ -405,6 +526,7 @@ export default function KeywordAnalysisPanel({ initialKeyword }: KeywordAnalysis
               )}
             </Card>
 
+            {/* 평균 클릭수 */}
             <Card className="!p-4">
               <div className="flex items-center gap-2 mb-1">
                 <MousePointerClick className="w-3.5 h-3.5 text-green-500" />
@@ -414,7 +536,96 @@ export default function KeywordAnalysisPanel({ initialKeyword }: KeywordAnalysis
                 {mainRow.totalClicks > 0 ? formatNumber(Math.round(mainRow.totalClicks * 10) / 10) : '< 10'}
               </p>
             </Card>
+
+            {/* 클릭률(CTR) */}
+            <Card className="!p-4">
+              <div className="flex items-center gap-2 mb-1">
+                <Zap className="w-3.5 h-3.5 text-amber-500" />
+                <p className="text-xs text-gray-500">클릭률 (CTR)</p>
+              </div>
+              <p className={`text-lg font-bold ${mainCTR >= 5 ? 'text-emerald-600' : mainCTR >= 2 ? 'text-yellow-600' : 'text-red-500'}`}>
+                {mainCTR.toFixed(2)}%
+              </p>
+            </Card>
+
+            {/* 쇼핑전환 지표 */}
+            <Card className="!p-4">
+              <div className="flex items-center gap-2 mb-1">
+                <ShoppingBag className="w-3.5 h-3.5 text-indigo-500" />
+                <p className="text-xs text-gray-500">수요/공급</p>
+              </div>
+              {mainConversion ? (
+                <Badge label={mainConversion.label} colorClass={`${mainConversion.bgColor} ${mainConversion.color}`} />
+              ) : (
+                <div className="h-7 flex items-center">
+                  <div className="w-16 h-4 bg-gray-200 rounded animate-pulse" />
+                </div>
+              )}
+            </Card>
           </div>
+
+          {/* 쇼핑 인사이트 섹션 */}
+          {mainComp && mainQuality && (
+            <Card>
+              <div className="flex items-center gap-2 mb-4">
+                <BarChart3 className="w-5 h-5 text-[#E31837]" />
+                <h3 className="text-base font-bold text-gray-900">쇼핑 인사이트</h3>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Left: PC/Mobile ratios */}
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Monitor className="w-3.5 h-3.5 text-blue-500" />
+                      <Smartphone className="w-3.5 h-3.5 text-orange-500" />
+                      <span className="text-xs font-medium text-gray-600">검색 비율</span>
+                    </div>
+                    <PCMobileBar pcValue={mainRow.monthlyPcQcCnt} mobileValue={mainRow.monthlyMobileQcCnt} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Monitor className="w-3.5 h-3.5 text-blue-500" />
+                      <Smartphone className="w-3.5 h-3.5 text-orange-500" />
+                      <span className="text-xs font-medium text-gray-600">클릭 비율</span>
+                    </div>
+                    <PCMobileBar pcValue={mainRow.monthlyAvePcClkCnt} mobileValue={mainRow.monthlyAveMobileClkCnt} />
+                  </div>
+                </div>
+
+                {/* Center: Competition gauge (large) */}
+                <div className="flex flex-col items-center justify-center">
+                  <span className="text-xs font-medium text-gray-600 mb-2">경쟁강도 게이지</span>
+                  <div className="w-full max-w-[200px]">
+                    <CompetitionGauge level={mainComp.level} />
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <Badge label={mainComp.label} colorClass={`${mainComp.bgColor} ${mainComp.textColor}`} />
+                    <span className="text-sm text-gray-500">비율 {mainComp.ratio}</span>
+                  </div>
+                </div>
+
+                {/* Right: Quality score ring */}
+                <div className="flex justify-center">
+                  <QualityScoreRing
+                    score={mainQuality.score}
+                    level={mainQuality.level}
+                    label={`키워드 품질: ${mainQuality.label}`}
+                  />
+                </div>
+              </div>
+
+              {/* Insight text */}
+              {mainInsight && (
+                <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm text-gray-700 leading-relaxed">
+                    <span className="font-medium text-amber-700 mr-1">Insight</span>
+                    {mainInsight}
+                  </p>
+                </div>
+              )}
+            </Card>
+          )}
 
           {/* 트렌드 차트 */}
           <Card>
@@ -446,7 +657,7 @@ export default function KeywordAnalysisPanel({ initialKeyword }: KeywordAnalysis
             </div>
 
             <div className="overflow-x-auto -mx-5 px-5">
-              <table className="w-full text-sm min-w-[700px]">
+              <table className="w-full text-sm min-w-[950px]">
                 <thead>
                   <tr className="border-b-2 border-gray-200">
                     <th
@@ -459,15 +670,31 @@ export default function KeywordAnalysisPanel({ initialKeyword }: KeywordAnalysis
                     </th>
                     <th className="text-left py-2.5 px-3 font-semibold text-gray-600">키워드</th>
                     <th
-                      className="text-right py-2.5 px-3 font-semibold text-gray-600 cursor-pointer hover:text-gray-900"
-                      onClick={() => handleSort('totalSearch')}
+                      className="text-right py-2.5 px-2 font-semibold text-gray-600 cursor-pointer hover:text-gray-900"
+                      onClick={() => handleSort('pcSearch')}
                     >
                       <span className="inline-flex items-center gap-1 justify-end">
-                        검색수 <SortIcon column="totalSearch" />
+                        PC <SortIcon column="pcSearch" />
                       </span>
                     </th>
                     <th
-                      className="text-right py-2.5 px-3 font-semibold text-gray-600 cursor-pointer hover:text-gray-900"
+                      className="text-right py-2.5 px-2 font-semibold text-gray-600 cursor-pointer hover:text-gray-900"
+                      onClick={() => handleSort('mobileSearch')}
+                    >
+                      <span className="inline-flex items-center gap-1 justify-end">
+                        모바일 <SortIcon column="mobileSearch" />
+                      </span>
+                    </th>
+                    <th
+                      className="text-right py-2.5 px-2 font-semibold text-gray-600 cursor-pointer hover:text-gray-900"
+                      onClick={() => handleSort('totalSearch')}
+                    >
+                      <span className="inline-flex items-center gap-1 justify-end">
+                        총 검색수 <SortIcon column="totalSearch" />
+                      </span>
+                    </th>
+                    <th
+                      className="text-right py-2.5 px-2 font-semibold text-gray-600 cursor-pointer hover:text-gray-900"
                       onClick={() => handleSort('productCount')}
                     >
                       <span className="inline-flex items-center gap-1 justify-end">
@@ -475,7 +702,15 @@ export default function KeywordAnalysisPanel({ initialKeyword }: KeywordAnalysis
                       </span>
                     </th>
                     <th
-                      className="text-center py-2.5 px-3 font-semibold text-gray-600 cursor-pointer hover:text-gray-900"
+                      className="text-right py-2.5 px-2 font-semibold text-gray-600 cursor-pointer hover:text-gray-900"
+                      onClick={() => handleSort('ctr')}
+                    >
+                      <span className="inline-flex items-center gap-1 justify-end">
+                        CTR <SortIcon column="ctr" />
+                      </span>
+                    </th>
+                    <th
+                      className="text-center py-2.5 px-2 font-semibold text-gray-600 cursor-pointer hover:text-gray-900"
                       onClick={() => handleSort('competitionRatio')}
                     >
                       <span className="inline-flex items-center gap-1 justify-center">
@@ -483,11 +718,11 @@ export default function KeywordAnalysisPanel({ initialKeyword }: KeywordAnalysis
                       </span>
                     </th>
                     <th
-                      className="text-right py-2.5 px-3 font-semibold text-gray-600 cursor-pointer hover:text-gray-900"
+                      className="text-right py-2.5 px-2 font-semibold text-gray-600 cursor-pointer hover:text-gray-900"
                       onClick={() => handleSort('totalClicks')}
                     >
                       <span className="inline-flex items-center gap-1 justify-end">
-                        평균 클릭수 <SortIcon column="totalClicks" />
+                        클릭수 <SortIcon column="totalClicks" />
                       </span>
                     </th>
                   </tr>
@@ -497,12 +732,14 @@ export default function KeywordAnalysisPanel({ initialKeyword }: KeywordAnalysis
                     const comp = row.productCount != null && row.totalSearch > 0
                       ? getCompetitionScore(row.productCount, row.totalSearch)
                       : null;
+                    const rowCTR = calculateCTR(row.totalClicks, row.totalSearch);
+                    const searchBarWidth = maxSearch > 0 ? Math.round((row.totalSearch / maxSearch) * 100) : 0;
 
                     return (
                       <tr
                         key={row.keyword}
                         className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${
-                          row.rank === 1 ? 'bg-blue-50/50' : ''
+                          row.rank === 1 ? 'bg-blue-50/50 border-l-4 border-l-[#E31837]' : ''
                         }`}
                       >
                         {/* 순위 */}
@@ -520,13 +757,33 @@ export default function KeywordAnalysisPanel({ initialKeyword }: KeywordAnalysis
                           </button>
                         </td>
 
-                        {/* 검색수 */}
-                        <td className="py-2.5 px-3 text-right text-gray-700 font-medium tabular-nums">
-                          {formatNumber(row.totalSearch)}
+                        {/* PC 검색수 */}
+                        <td className="py-2.5 px-2 text-right text-gray-600 tabular-nums text-xs">
+                          {formatNumber(row.monthlyPcQcCnt)}
+                        </td>
+
+                        {/* 모바일 검색수 */}
+                        <td className="py-2.5 px-2 text-right text-gray-600 tabular-nums text-xs">
+                          {formatNumber(row.monthlyMobileQcCnt)}
+                        </td>
+
+                        {/* 총 검색수 + 비례 바 */}
+                        <td className="py-2.5 px-2 text-right">
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className="text-gray-700 font-medium tabular-nums">
+                              {formatNumber(row.totalSearch)}
+                            </span>
+                            <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-blue-400 rounded-full"
+                                style={{ width: `${searchBarWidth}%` }}
+                              />
+                            </div>
+                          </div>
                         </td>
 
                         {/* 상품수 */}
-                        <td className="py-2.5 px-3 text-right text-gray-700 tabular-nums">
+                        <td className="py-2.5 px-2 text-right text-gray-700 tabular-nums">
                           {row.productCount != null ? (
                             formatNumber(row.productCount)
                           ) : (
@@ -534,16 +791,30 @@ export default function KeywordAnalysisPanel({ initialKeyword }: KeywordAnalysis
                           )}
                         </td>
 
-                        {/* 경쟁강도 */}
-                        <td className="py-2.5 px-3 text-center">
+                        {/* CTR */}
+                        <td className="py-2.5 px-2 text-right">
+                          <span className={`font-medium tabular-nums ${
+                            rowCTR >= 5 ? 'text-emerald-600' : rowCTR >= 2 ? 'text-yellow-600' : 'text-red-500'
+                          }`}>
+                            {rowCTR.toFixed(1)}%
+                          </span>
+                        </td>
+
+                        {/* 경쟁강도 + 미니 게이지 */}
+                        <td className="py-2.5 px-2 text-center">
                           {comp ? (
-                            <div className="inline-flex flex-col items-center">
-                              <span className={`text-xs font-bold ${comp.textColor}`}>
-                                {comp.label}
-                              </span>
-                              <span className="text-[10px] text-gray-400">
-                                {comp.ratio}
-                              </span>
+                            <div className="inline-flex flex-col items-center gap-1 min-w-[60px]">
+                              <div className="flex items-center gap-1">
+                                <span className={`text-xs font-bold ${comp.textColor}`}>
+                                  {comp.label}
+                                </span>
+                                <span className="text-[10px] text-gray-400">
+                                  {comp.ratio}
+                                </span>
+                              </div>
+                              <div className="w-full">
+                                <CompetitionGauge level={comp.level} size="sm" />
+                              </div>
                             </div>
                           ) : row.productCount == null ? (
                             <div className="inline-block w-12 h-4 bg-gray-200 rounded animate-pulse" />
@@ -552,8 +823,8 @@ export default function KeywordAnalysisPanel({ initialKeyword }: KeywordAnalysis
                           )}
                         </td>
 
-                        {/* 평균 클릭수 */}
-                        <td className="py-2.5 px-3 text-right text-gray-700 tabular-nums">
+                        {/* 클릭수 */}
+                        <td className="py-2.5 px-2 text-right text-gray-700 tabular-nums">
                           {row.totalClicks > 0
                             ? (Math.round(row.totalClicks * 10) / 10).toLocaleString()
                             : '< 10'}

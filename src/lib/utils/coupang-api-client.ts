@@ -6,7 +6,8 @@
 import { formatSignedDate, buildAuthorizationHeader } from './coupang-hmac';
 
 const API_DOMAIN = 'https://api-gateway.coupang.com';
-const SETTLEMENT_BASE_PATH = '/v2/providers/marketplace_openapi/apis/api/v1';
+const REVENUE_BASE_PATH = '/v2/providers/openapi/apis/api/v1';
+const SELLER_BASE_PATH = '/v2/providers/seller_api/apis/api/v1/marketplace';
 
 export interface CoupangCredentials {
   vendorId: string;
@@ -65,7 +66,7 @@ async function callCoupangApi(
     headers: {
       'Authorization': authorization,
       'Content-Type': 'application/json;charset=UTF-8',
-      'X-Reqeust-ID': crypto.randomUUID(),
+      'X-Requested-By': credentials.vendorId,
     },
   });
 
@@ -100,7 +101,7 @@ export async function fetchSettlementData(
   const lastDay = new Date(year, month, 0).getDate();
   const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
-  const path = `${SETTLEMENT_BASE_PATH}/revenue-history?vendorId=${credentials.vendorId}&recognitionDateFrom=${startDate}&recognitionDateTo=${endDate}`;
+  const path = `${REVENUE_BASE_PATH}/revenue-history?vendorId=${credentials.vendorId}&recognitionDateFrom=${startDate}&recognitionDateTo=${endDate}`;
 
   const data = await callCoupangApi(credentials, 'GET', path) as {
     data?: Array<{
@@ -149,8 +150,7 @@ export async function fetchProductListings(
   dateFrom: string,
   dateTo: string,
 ): Promise<{ count: number; rawResponse: unknown }> {
-  const SELLER_API_PATH = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
-  const path = `${SELLER_API_PATH}?vendorId=${credentials.vendorId}&createdAtFrom=${dateFrom}&createdAtTo=${dateTo}&status=APPROVED`;
+  const path = `${SELLER_BASE_PATH}/seller-products?vendorId=${credentials.vendorId}&createdAtFrom=${dateFrom}&createdAtTo=${dateTo}&status=APPROVED`;
 
   const data = await callCoupangApi(credentials, 'GET', path) as {
     data?: Array<Record<string, unknown>>;
@@ -166,8 +166,7 @@ export async function fetchProductListings(
 export async function fetchTotalProductCount(
   credentials: CoupangCredentials,
 ): Promise<{ count: number; rawResponse: unknown }> {
-  const SELLER_API_PATH = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
-  const path = `${SELLER_API_PATH}?vendorId=${credentials.vendorId}&status=APPROVED`;
+  const path = `${SELLER_BASE_PATH}/seller-products?vendorId=${credentials.vendorId}&status=APPROVED`;
 
   const data = await callCoupangApi(credentials, 'GET', path) as {
     data?: Array<Record<string, unknown>>;
@@ -184,12 +183,18 @@ export async function validateApiCredentials(
   credentials: CoupangCredentials,
 ): Promise<{ valid: boolean; message: string }> {
   try {
-    // 간단한 API 호출로 유효성 검증
-    const path = `${SETTLEMENT_BASE_PATH}/revenue-history?vendorId=${credentials.vendorId}&recognitionDateFrom=2025-01-01&recognitionDateTo=2025-01-01`;
+    // 가벼운 상품 목록 조회로 인증 검증 (maxPerPage=1)
+    const path = `${SELLER_BASE_PATH}/seller-products?vendorId=${credentials.vendorId}&maxPerPage=1`;
     await callCoupangApi(credentials, 'GET', path);
     return { valid: true, message: 'API 연동이 확인되었습니다.' };
   } catch (error) {
     if (error instanceof CoupangApiError) {
+      if (error.statusCode === 401) {
+        return { valid: false, message: 'Access Key 또는 Secret Key가 올바르지 않습니다.' };
+      }
+      if (error.statusCode === 404) {
+        return { valid: false, message: 'Vendor ID가 올바르지 않거나 API 권한이 없습니다.' };
+      }
       return { valid: false, message: error.message };
     }
     return { valid: false, message: 'API 연결에 실패했습니다.' };

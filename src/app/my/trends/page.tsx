@@ -179,94 +179,159 @@ export default function MyTrendsPage() {
                 아직 등록된 트렌드 키워드가 없습니다.
               </div>
             </Card>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {keywords.map((kw) => {
-                const totalSearch = getTotalSearch(kw);
-                return (
-                  <div
-                    key={kw.id}
-                    onClick={() => setSelectedKeyword(kw)}
-                    className="cursor-pointer group"
-                  >
-                    <Card>
-                      <div className="space-y-3">
-                        {/* 키워드 & 라벨 */}
-                        <div className="flex items-start justify-between">
-                          <h3 className="text-lg font-bold text-gray-900 group-hover:text-[#E31837] transition-colors">
-                            {kw.keyword}
-                          </h3>
-                          <span className={`text-xs font-bold ${getScoreColor(kw.trend_score)}`}>
-                            {getScoreLabel(kw.trend_score)}
-                          </span>
-                        </div>
+          ) : (() => {
+            const maxTotalSearch = Math.max(
+              ...keywords.map((kw) => getTotalSearch(kw) || 0),
+              1
+            );
+            const compDotColors = ['bg-emerald-500', 'bg-teal-400', 'bg-yellow-400', 'bg-orange-400', 'bg-red-500'];
+            const getCompDotLevel = (compIdx: string) => {
+              if (compIdx === '낮음') return 1;
+              if (compIdx === '중간') return 3;
+              if (compIdx === '높음') return 5;
+              return 3;
+            };
 
-                        {/* 배지 행: 카테고리 + 시즌 + 난이도 */}
-                        <div className="flex flex-wrap gap-1.5">
-                          <Badge label={kw.category} colorClass="bg-blue-100 text-blue-700" />
-                          {kw.seasonality && kw.seasonality !== '연중' && (
-                            <Badge
-                              label={`${SEASON_ICONS[kw.seasonality] || ''} ${kw.seasonality}`}
-                              colorClass="bg-purple-100 text-purple-700"
-                            />
-                          )}
-                          {kw.difficulty && (
-                            <Badge
-                              label={DIFFICULTY_LABELS[kw.difficulty] || kw.difficulty}
-                              colorClass={DIFFICULTY_COLORS[kw.difficulty] || 'bg-gray-100 text-gray-600'}
-                            />
-                          )}
-                        </div>
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {keywords.map((kw) => {
+                  const totalSearch = getTotalSearch(kw);
+                  const searchBarWidth = totalSearch !== null && maxTotalSearch > 0
+                    ? Math.round((totalSearch / maxTotalSearch) * 100)
+                    : 0;
+                  const nd = kw.naver_trend_data;
+                  const isHot = kw.trend_score >= 80;
+                  const compLevel = nd?.compIdx ? getCompDotLevel(nd.compIdx) : 0;
 
-                        {/* 트렌드 점수 바 */}
-                        <div>
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs text-gray-500">트렌드 점수</span>
-                            <span className={`text-sm font-bold ${getScoreColor(kw.trend_score)}`}>
-                              {kw.trend_score}
+                  return (
+                    <div
+                      key={kw.id}
+                      onClick={() => setSelectedKeyword(kw)}
+                      className="cursor-pointer group"
+                    >
+                      <Card>
+                        <div className="space-y-3">
+                          {/* HOT 키워드 상단 그라디언트 악센트 */}
+                          {isHot && (
+                            <div className="h-1 -mt-5 -mx-5 rounded-t-xl bg-gradient-to-r from-[#E31837] via-orange-400 to-yellow-400" />
+                          )}
+
+                          {/* 키워드 & 라벨 */}
+                          <div className={`flex items-start justify-between ${isHot ? 'mt-1' : ''}`}>
+                            <h3 className="text-lg font-bold text-gray-900 group-hover:text-[#E31837] transition-colors">
+                              {kw.keyword}
+                            </h3>
+                            <span className={`text-xs font-bold ${getScoreColor(kw.trend_score)}`}>
+                              {getScoreLabel(kw.trend_score)}
                             </span>
                           </div>
-                          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all ${getScoreBg(kw.trend_score)}`}
-                              style={{ width: `${kw.trend_score}%` }}
-                            />
+
+                          {/* 배지 행: 카테고리 + 시즌 + 난이도 */}
+                          <div className="flex flex-wrap gap-1.5">
+                            <Badge label={kw.category} colorClass="bg-blue-100 text-blue-700" />
+                            {kw.seasonality && kw.seasonality !== '연중' && (
+                              <Badge
+                                label={`${SEASON_ICONS[kw.seasonality] || ''} ${kw.seasonality}`}
+                                colorClass="bg-purple-100 text-purple-700"
+                              />
+                            )}
+                            {kw.difficulty && (
+                              <Badge
+                                label={DIFFICULTY_LABELS[kw.difficulty] || kw.difficulty}
+                                colorClass={DIFFICULTY_COLORS[kw.difficulty] || 'bg-gray-100 text-gray-600'}
+                              />
+                            )}
+                          </div>
+
+                          {/* 트렌드 점수 바 */}
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs text-gray-500">트렌드 점수</span>
+                              <span className={`text-sm font-bold ${getScoreColor(kw.trend_score)}`}>
+                                {kw.trend_score}
+                              </span>
+                            </div>
+                            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${getScoreBg(kw.trend_score)}`}
+                                style={{ width: `${kw.trend_score}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* 검색량 + 경쟁도 + 마진 */}
+                          <div className="pt-2 border-t border-gray-100 space-y-2">
+                            {totalSearch !== null && (
+                              <div>
+                                <div className="flex items-center justify-between text-sm">
+                                  <span className="text-gray-500">월간 검색량</span>
+                                  <span className="font-bold text-gray-900">{formatNumber(totalSearch)}</span>
+                                </div>
+                                {/* 검색량 비례 바 */}
+                                <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden mt-1">
+                                  <div
+                                    className="h-full bg-blue-400 rounded-full transition-all"
+                                    style={{ width: `${searchBarWidth}%` }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* PC/모바일 미니 비율 바 */}
+                            {nd && typeof nd.monthlyPcQcCnt === 'number' && typeof nd.monthlyMobileQcCnt === 'number' && (nd.monthlyPcQcCnt + nd.monthlyMobileQcCnt) > 0 && (
+                              <div>
+                                <span className="text-[10px] text-gray-400">PC / 모바일</span>
+                                <div className="flex h-1.5 rounded-full overflow-hidden mt-0.5">
+                                  <div
+                                    className="bg-blue-400"
+                                    style={{ width: `${Math.round((nd.monthlyPcQcCnt / (nd.monthlyPcQcCnt + nd.monthlyMobileQcCnt)) * 100)}%` }}
+                                  />
+                                  <div
+                                    className="bg-orange-400"
+                                    style={{ width: `${Math.round((nd.monthlyMobileQcCnt / (nd.monthlyPcQcCnt + nd.monthlyMobileQcCnt)) * 100)}%` }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 경쟁강도 5단 도트 게이지 */}
+                            {nd?.compIdx && (
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-gray-500">경쟁강도</span>
+                                <div className="flex items-center gap-1.5">
+                                  <div className="flex gap-0.5">
+                                    {compDotColors.map((color, i) => (
+                                      <div
+                                        key={i}
+                                        className={`w-2 h-2 rounded-full ${i < compLevel ? color : 'bg-gray-200'}`}
+                                      />
+                                    ))}
+                                  </div>
+                                  <Badge label={nd.compIdx} colorClass={getCompBadgeColor(nd.compIdx)} />
+                                </div>
+                              </div>
+                            )}
+
+                            {kw.margin_range && (
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-gray-500">예상 마진</span>
+                                <span className="font-semibold text-green-600">{kw.margin_range}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* 상세보기 유도 */}
+                          <div className="flex items-center justify-end text-xs text-gray-400 group-hover:text-[#E31837] transition-colors pt-1">
+                            상세 분석 보기 <ChevronRight className="w-3 h-3 ml-0.5" />
                           </div>
                         </div>
-
-                        {/* 검색량 + 경쟁도 + 마진 */}
-                        <div className="pt-2 border-t border-gray-100 space-y-1.5">
-                          {totalSearch !== null && (
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-gray-500">월간 검색량</span>
-                              <span className="font-bold text-gray-900">{formatNumber(totalSearch)}</span>
-                            </div>
-                          )}
-                          {kw.naver_trend_data?.compIdx && (
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-gray-500">경쟁강도</span>
-                              <Badge label={kw.naver_trend_data.compIdx} colorClass={getCompBadgeColor(kw.naver_trend_data.compIdx)} />
-                            </div>
-                          )}
-                          {kw.margin_range && (
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-gray-500">예상 마진</span>
-                              <span className="font-semibold text-green-600">{kw.margin_range}</span>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* 상세보기 유도 */}
-                        <div className="flex items-center justify-end text-xs text-gray-400 group-hover:text-[#E31837] transition-colors pt-1">
-                          상세 분석 보기 <ChevronRight className="w-3 h-3 ml-0.5" />
-                        </div>
-                      </div>
-                    </Card>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                      </Card>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
 
           {/* 상세 분석 모달 */}
           {selectedKeyword && (
