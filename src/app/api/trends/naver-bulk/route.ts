@@ -142,10 +142,75 @@ export async function POST() {
       }
     }
 
+    // Phase 2: 네이버 쇼핑 API로 상품수 + 경쟁강도 업데이트
+    let shoppingUpdated = 0;
+    const shopClientId = process.env.NAVER_DATALAB_CLIENT_ID;
+    const shopClientSecret = process.env.NAVER_DATALAB_CLIENT_SECRET;
+
+    if (shopClientId && shopClientSecret) {
+      // 업데이트된 키워드의 검색수 다시 조회
+      const { data: updatedKeywords } = await serviceClient
+        .from('trending_keywords')
+        .select('id, keyword, naver_trend_data')
+        .eq('is_active', true);
+
+      if (updatedKeywords) {
+        for (let i = 0; i < updatedKeywords.length; i += 5) {
+          const batch = updatedKeywords.slice(i, i + 5);
+
+          const promises = batch.map(async (kw) => {
+            try {
+              const params = new URLSearchParams({ query: kw.keyword, display: '1' });
+              const res = await fetch(
+                `https://openapi.naver.com/v1/search/shop.json?${params.toString()}`,
+                {
+                  headers: {
+                    'X-Naver-Client-Id': shopClientId,
+                    'X-Naver-Client-Secret': shopClientSecret,
+                  },
+                }
+              );
+              if (res.ok) {
+                const data = await res.json();
+                return { id: kw.id, keyword: kw.keyword, productCount: data.total || 0, trendData: kw.naver_trend_data };
+              }
+              return null;
+            } catch {
+              return null;
+            }
+          });
+
+          const results = await Promise.all(promises);
+
+          for (const r of results) {
+            if (!r) continue;
+            const totalSearch = (r.trendData?.monthlyPcQcCnt || 0) + (r.trendData?.monthlyMobileQcCnt || 0);
+            const competitionRatio = totalSearch > 0 ? Math.round((r.productCount / totalSearch) * 100) / 100 : 0;
+
+            await serviceClient
+              .from('trending_keywords')
+              .update({
+                product_count: r.productCount,
+                competition_ratio: competitionRatio,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', r.id);
+
+            shoppingUpdated++;
+          }
+
+          if (i + 5 < updatedKeywords.length) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       total: keywords.length,
       updated: updatedCount,
+      shoppingUpdated,
       errors: errorCount,
     });
   } catch (err) {

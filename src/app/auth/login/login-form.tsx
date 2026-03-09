@@ -25,60 +25,75 @@ export default function LoginForm() {
     setSuccess('');
     setLoading(true);
 
-    let supabase;
     try {
-      supabase = createClient();
+      let supabase;
+      try {
+        supabase = createClient();
+      } catch (err) {
+        if (err instanceof Error && err.message === 'SUPABASE_NOT_CONFIGURED') {
+          setError('서버 설정이 완료되지 않았습니다. 관리자에게 문의해주세요.');
+        } else {
+          setError('연결 오류가 발생했습니다.');
+        }
+        return;
+      }
+
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (authError) {
+        if (authError.message === 'Invalid login credentials') {
+          setError('이메일 또는 비밀번호가 올바르지 않습니다.');
+        } else if (authError.status === 429) {
+          setError('요청이 너무 많습니다. 잠시 후 다시 시도해주세요.');
+        } else {
+          setError(`로그인 오류: ${authError.message}`);
+        }
+        return;
+      }
+
+      if (!data?.user) {
+        setError('로그인 응답이 올바르지 않습니다. 다시 시도해주세요.');
+        return;
+      }
+
+      // 역할 및 승인 상태 체크
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role, is_active')
+        .eq('id', data.user.id)
+        .single();
+
+      if (profileError) {
+        console.error('프로필 조회 오류:', profileError);
+        setError(`프로필 조회 실패: ${profileError.message}`);
+        return;
+      }
+
+      // 미승인 유저 차단 (admin/partner는 제외)
+      if (profile && profile.role !== 'admin' && profile.role !== 'partner' && !profile.is_active) {
+        await supabase.auth.signOut();
+        setError('관리자 승인 대기 중입니다. 승인 후 로그인할 수 있습니다.');
+        return;
+      }
+
+      if (redirect) {
+        router.push(redirect);
+      } else if (profile?.role === 'admin' || profile?.role === 'partner') {
+        router.push('/admin/dashboard');
+      } else {
+        router.push('/my/dashboard');
+      }
+
+      router.refresh();
     } catch (err) {
-      if (err instanceof Error && err.message === 'SUPABASE_NOT_CONFIGURED') {
-        setError('서버 설정이 완료되지 않았습니다. 관리자에게 문의해주세요.');
-      } else {
-        setError('연결 오류가 발생했습니다.');
-      }
+      console.error('로그인 처리 중 오류:', err);
+      setError(err instanceof Error ? `오류: ${err.message}` : '알 수 없는 오류가 발생했습니다.');
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const { data, error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (authError) {
-      if (authError.message === 'Invalid login credentials') {
-        setError('이메일 또는 비밀번호가 올바르지 않습니다.');
-      } else if (authError.status === 429) {
-        setError('요청이 너무 많습니다. 잠시 후 다시 시도해주세요.');
-      } else {
-        setError(`로그인 오류: ${authError.message}`);
-      }
-      setLoading(false);
-      return;
-    }
-
-    // 역할 및 승인 상태 체크
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role, is_active')
-      .eq('id', data.user.id)
-      .single();
-
-    // 미승인 유저 차단 (admin/partner는 제외)
-    if (profile && profile.role !== 'admin' && profile.role !== 'partner' && !profile.is_active) {
-      await supabase.auth.signOut();
-      setError('관리자 승인 대기 중입니다. 승인 후 로그인할 수 있습니다.');
-      setLoading(false);
-      return;
-    }
-
-    if (redirect) {
-      router.push(redirect);
-    } else if (profile?.role === 'admin' || profile?.role === 'partner') {
-      router.push('/admin/dashboard');
-    } else {
-      router.push('/my/dashboard');
-    }
-
-    router.refresh();
   };
 
   const handleSignup = async (e: React.FormEvent) => {
