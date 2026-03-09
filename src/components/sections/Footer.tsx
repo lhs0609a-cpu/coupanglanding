@@ -39,6 +39,8 @@ export default function Footer() {
               { href: '#', label: '이용약관' },
               { href: '#', label: '개인정보처리방침' },
               { href: '#', label: '고객센터' },
+              { href: '/auth/login', label: '파트너 로그인' },
+              { href: '/auth/login?type=signup', label: '파트너 회원가입' },
             ].map((link) => (
               <Link
                 key={link.label}
