@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { encryptPassword } from '@/lib/utils/encryption';
 import { validateApiCredentials } from '@/lib/utils/coupang-api-client';
 
@@ -39,7 +39,9 @@ export async function POST(request: NextRequest) {
     const expiresAt = new Date();
     expiresAt.setMonth(expiresAt.getMonth() + 6);
 
-    const { error: updateError } = await supabase
+    // Service client로 RLS bypass하여 업데이트 (유저 인증은 위에서 완료)
+    const serviceClient = await createServiceClient();
+    const { error: updateError } = await serviceClient
       .from('pt_users')
       .update({
         coupang_vendor_id: vendorId,

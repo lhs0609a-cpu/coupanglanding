@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -64,6 +65,7 @@ export default function MySettingsPage() {
   const [apiGuideOpen, setApiGuideOpen] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
 
+  const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
 
   const fetchCredentials = useCallback(async () => {
@@ -200,6 +202,8 @@ export default function MySettingsPage() {
         setApiSecretKey('');
         setShowCelebration(true);
         setTimeout(() => setShowCelebration(false), 3000);
+        // 서버 레이아웃 재실행 → 배너 즉시 사라짐
+        router.refresh();
       } else {
         setApiMessage({ type: 'error', text: data.error || '저장에 실패했습니다.' });
       }

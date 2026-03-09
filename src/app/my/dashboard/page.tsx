@@ -11,6 +11,7 @@ import GrowthRoadmapWidget from '@/components/my/GrowthRoadmapWidget';
 import ArenaWidget from '@/components/my/ArenaWidget';
 import SettlementDDayBanner from '@/components/settlement/SettlementDDayBanner';
 import ApiConnectionBanner from '@/components/settlement/ApiConnectionBanner';
+import CoupangOverviewWidget from '@/components/my/CoupangOverviewWidget';
 import Card from '@/components/ui/Card';
 import WelcomeTutorial from '@/components/tutorial/WelcomeTutorial';
 import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
@@ -116,6 +117,9 @@ export default function MyDashboardPage() {
           daysSinceJoin={Math.floor((Date.now() - new Date(ptUser.created_at).getTime()) / (1000 * 60 * 60 * 24))}
         />
       )}
+
+      {/* 쿠팡 연동 현황 위젯 (API 연동 완료 시) */}
+      {ptUser?.coupang_api_connected && <CoupangOverviewWidget />}
 
       {/* 정산 D-Day 배너 */}
       {ptUser && eligible && (
