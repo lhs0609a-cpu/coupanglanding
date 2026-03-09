@@ -1,13 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Clock } from 'lucide-react';
 
 export default function PendingPage() {
-  const router = useRouter();
-
   const handleLogout = async () => {
     try {
       const supabase = createClient();
@@ -15,8 +12,7 @@ export default function PendingPage() {
     } catch {
       // ignore
     }
-    router.push('/auth/login');
-    router.refresh();
+    window.location.href = '/auth/login';
   };
 
   return (

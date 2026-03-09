@@ -1,6 +1,5 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { LogOut, Menu } from 'lucide-react';
 import NotificationBell from '@/components/ui/NotificationBell';
@@ -12,13 +11,10 @@ interface DashboardHeaderProps {
 }
 
 export default function DashboardHeader({ userName, userRole, onMenuClick }: DashboardHeaderProps) {
-  const router = useRouter();
-
   const handleLogout = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.push('/auth/login');
-    router.refresh();
+    window.location.href = '/auth/login';
   };
 
   const roleLabel = userRole === 'admin' ? '관리자' : userRole === 'partner' ? '파트너' : 'PT 사용자';
