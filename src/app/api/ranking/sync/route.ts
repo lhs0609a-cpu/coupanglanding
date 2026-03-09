@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchTotalProductCount } from '@/lib/utils/coupang-api-client';
 import { generateAnonymousName } from '@/lib/utils/arena-anonymous';
 
@@ -29,11 +30,14 @@ export async function POST() {
       }, { status: 400 });
     }
 
-    // 쿠팡 API에서 총 등록 상품 수 가져오기
+    // 암호화된 API 키 복호화 후 쿠팡 API 호출
+    const accessKey = await decryptPassword(ptUser.coupang_access_key);
+    const secretKey = await decryptPassword(ptUser.coupang_secret_key);
+
     const { count } = await fetchTotalProductCount({
       vendorId: ptUser.coupang_vendor_id,
-      accessKey: ptUser.coupang_access_key,
-      secretKey: ptUser.coupang_secret_key,
+      accessKey,
+      secretKey,
     });
 
     const serviceClient = await createServiceClient();
