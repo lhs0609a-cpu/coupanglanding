@@ -76,7 +76,7 @@ export default function MySettingsPage() {
 
     const { data: ptUser } = await supabase
       .from('pt_users')
-      .select('coupang_seller_id, coupang_seller_pw, business_name, business_registration_number, business_representative, business_address, business_type, business_category')
+      .select('coupang_seller_id, coupang_seller_pw, business_name, business_registration_number, business_representative, business_address, business_type, business_category, coupang_api_connected, coupang_vendor_id, coupang_api_key_expires_at')
       .eq('profile_id', user.id)
       .single();
 
@@ -91,19 +91,11 @@ export default function MySettingsPage() {
       setBizAddress(ptUser.business_address || '');
       setBizType(ptUser.business_type || '');
       setBizCategory(ptUser.business_category || '');
-    }
 
-    // API 연동 상태 조회
-    try {
-      const res = await fetch('/api/coupang-credentials');
-      if (res.ok) {
-        const data = await res.json();
-        setApiHasCredentials(data.hasCredentials);
-        setApiExpiresAt(data.expiresAt);
-        if (data.vendorId) setApiVendorId(data.vendorId);
-      }
-    } catch {
-      // 조회 실패 시 무시
+      // DB에서 직접 API 연동 상태 로드 (영구 유지)
+      setApiHasCredentials(!!ptUser.coupang_api_connected);
+      if (ptUser.coupang_vendor_id) setApiVendorId(ptUser.coupang_vendor_id);
+      setApiExpiresAt(ptUser.coupang_api_key_expires_at || null);
     }
 
     setLoading(false);
