@@ -204,6 +204,7 @@ export async function validateApiCredentials(
       }
       return { valid: false, message: error.message };
     }
-    return { valid: false, message: 'API 연결에 실패했습니다.' };
+    const msg = error instanceof Error ? error.message : String(error);
+    return { valid: false, message: `API 연결에 실패했습니다: ${msg}` };
   }
 }
