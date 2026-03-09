@@ -105,13 +105,24 @@ export async function fetchSettlementData(
   const [year, month] = yearMonth.split('-').map(Number);
   const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
   const lastDay = new Date(year, month, 0).getDate();
-  const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+  // API는 "전일까지만 조회 가능" → endDate를 어제와 월말 중 빠른 날짜로
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = yesterday.toISOString().split('T')[0];
+  const endDate = monthEnd < yesterdayStr ? monthEnd : yesterdayStr;
+
+  // 시작일이 endDate보다 미래면 아직 데이터 없음
+  if (startDate > endDate) {
+    return { totalSettlement: 0, totalSales: 0, totalCommission: 0, totalShipping: 0, totalReturns: 0, items: [], rawResponse: null };
+  }
 
   const allItems: SettlementItem[] = [];
   let token = '';
   let lastRaw: unknown = null;
-  const maxPerPage = 100;
-  const maxPages = 100;
+  const maxPerPage = 50; // API 최대값 50
+  const maxPages = 200;
 
   for (let page = 0; page < maxPages; page++) {
     const path = `${REVENUE_BASE_PATH}/revenue-history?vendorId=${credentials.vendorId}&recognitionDateFrom=${startDate}&recognitionDateTo=${endDate}&token=${encodeURIComponent(token)}&maxPerPage=${maxPerPage}`;
@@ -223,39 +234,26 @@ export async function fetchProductListings(
   return { count: totalCount, rawResponse: lastResponse };
 }
 
-/** 전체 등록 상품 수 조회 (날짜 무관, 총 누적 건수, nextToken 페이지네이션) */
+/** 전체 등록 상품 수 조회 (inflow-status API 사용 - 단일 호출) */
 export async function fetchTotalProductCount(
   credentials: CoupangCredentials,
 ): Promise<{ count: number; rawResponse: unknown }> {
-  let totalCount = 0;
-  let nextToken = '';
-  let lastResponse: unknown = null;
-  const maxPerPage = 100;
-  const maxPages = 200;
+  const path = `${SELLER_BASE_PATH}/seller-products/inflow-status`;
 
-  for (let page = 0; page < maxPages; page++) {
-    const tokenParam = nextToken ? `&nextToken=${encodeURIComponent(nextToken)}` : '';
-    const path = `${SELLER_BASE_PATH}/seller-products?vendorId=${credentials.vendorId}&status=APPROVED&maxPerPage=${maxPerPage}${tokenParam}`;
+  const data = await callCoupangApi(credentials, 'GET', path) as {
+    code?: string;
+    data?: {
+      vendorId?: string;
+      registeredCount?: number;
+      permittedCount?: number | null;
+      restricted?: boolean;
+    };
+  };
 
-    const data = await callCoupangApi(credentials, 'GET', path) as Record<string, unknown>;
-    lastResponse = data;
+  const count = data.data?.registeredCount ?? 0;
+  console.log(`[inflow-status] 등록 상품 수: ${count}, 최대: ${data.data?.permittedCount ?? '무제한'}`);
 
-    // 첫 페이지에서 응답 구조 로깅
-    if (page === 0) {
-      console.log('[seller-products] 응답 top-level keys:', Object.keys(data));
-      console.log('[seller-products] data 배열 길이:', Array.isArray(data.data) ? (data.data as unknown[]).length : 'not array');
-      console.log('[seller-products] nextToken:', data.nextToken ?? '(없음)');
-    }
-
-    const items = Array.isArray(data.data) ? data.data as unknown[] : [];
-    totalCount += items.length;
-    nextToken = String(data.nextToken ?? '');
-    console.log(`[seller-products] page ${page}: ${items.length}건, 누적=${totalCount}, nextToken=${nextToken ? 'yes' : 'none'}`);
-    if (!nextToken) break;
-  }
-
-  console.log(`[seller-products] 총 상품 수: ${totalCount}`);
-  return { count: totalCount, rawResponse: lastResponse };
+  return { count, rawResponse: data };
 }
 
 /** API 자격증명 유효성 검증 */

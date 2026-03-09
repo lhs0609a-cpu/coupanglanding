@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
-import { fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
+import { fetchTotalProductCount, fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
 
 /** GET: 쿠팡 연동 현황 (총 상품 수 + 이번 달 매출 요약) */
 export async function GET() {
@@ -15,7 +15,7 @@ export async function GET() {
 
     const { data: ptUser } = await supabase
       .from('pt_users')
-      .select('id, coupang_vendor_id, coupang_access_key, coupang_secret_key, coupang_api_connected')
+      .select('coupang_vendor_id, coupang_access_key, coupang_secret_key, coupang_api_connected')
       .eq('profile_id', user.id)
       .single();
 
@@ -23,16 +23,6 @@ export async function GET() {
       return NextResponse.json({ error: 'API 미연동' }, { status: 400 });
     }
 
-    // 상품 수: DB 캐시(seller_points)에서 조회 (9000+ 상품 매번 API 순회 방지)
-    const { data: sellerPoints } = await supabase
-      .from('seller_points')
-      .select('total_listings')
-      .eq('pt_user_id', ptUser.id)
-      .maybeSingle();
-
-    const productCount = sellerPoints?.total_listings ?? 0;
-
-    // 매출 데이터: API 실시간 조회
     const accessKey = await decryptPassword(ptUser.coupang_access_key);
     const secretKey = await decryptPassword(ptUser.coupang_secret_key);
     const credentials = { vendorId: ptUser.coupang_vendor_id, accessKey, secretKey };
@@ -40,14 +30,17 @@ export async function GET() {
     const now = new Date();
     const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    let settlement = null;
-    let settlementError: string | null = null;
-    try {
-      settlement = await fetchSettlementData(credentials, yearMonth);
-    } catch (err) {
-      settlementError = err instanceof Error ? err.message : String(err);
-      console.error('[coupang-overview] 매출 조회 실패:', settlementError);
-    }
+    // 상품 수 + 매출 병렬 조회 (inflow-status는 단일 호출이라 빠름)
+    const [productResult, settlementResult] = await Promise.allSettled([
+      fetchTotalProductCount(credentials),
+      fetchSettlementData(credentials, yearMonth),
+    ]);
+
+    const productCount = productResult.status === 'fulfilled' ? productResult.value.count : 0;
+    const settlement = settlementResult.status === 'fulfilled' ? settlementResult.value : null;
+    const settlementError = settlementResult.status === 'rejected'
+      ? (settlementResult.reason instanceof Error ? settlementResult.reason.message : String(settlementResult.reason))
+      : null;
 
     return NextResponse.json({
       productCount,
@@ -55,18 +48,11 @@ export async function GET() {
       monthlySettlement: settlement?.totalSettlement ?? 0,
       monthlyCommission: settlement?.totalCommission ?? 0,
       yearMonth,
-      // 디버그: 실제 API 응답 구조 확인용 (문제 해결 후 제거)
+      // 디버그 (문제 해결 후 제거)
       _debug: {
+        productError: productResult.status === 'rejected' ? String(productResult.reason) : null,
         settlementError,
         settlementItemCount: settlement?.items.length ?? 0,
-        rawResponseKeys: settlement?.rawResponse ? Object.keys(settlement.rawResponse as Record<string, unknown>) : null,
-        rawFirstItem: settlement?.rawResponse
-          ? (() => {
-              const raw = settlement.rawResponse as Record<string, unknown>;
-              const arr = Array.isArray(raw.data) ? raw.data : [];
-              return arr.length > 0 ? arr[0] : null;
-            })()
-          : null,
       },
     });
   } catch (error) {
