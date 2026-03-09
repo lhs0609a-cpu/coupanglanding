@@ -22,7 +22,11 @@ export async function generateSignature(
   path: string,
   datetime: string,
 ): Promise<string> {
-  const message = `${datetime}${method}${path}`;
+  // 쿠팡 HMAC 스펙: message = datetime + method + path + query (? 제거)
+  const [pathPart, ...queryParts] = path.split('?');
+  const message = queryParts.length > 0
+    ? `${datetime}${method}${pathPart}${queryParts.join('?')}`
+    : `${datetime}${method}${pathPart}`;
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw',
