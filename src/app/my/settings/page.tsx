@@ -62,6 +62,7 @@ export default function MySettingsPage() {
   const [apiTesting, setApiTesting] = useState(false);
   const [apiMessage, setApiMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [apiGuideOpen, setApiGuideOpen] = useState(false);
+  const [showCelebration, setShowCelebration] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -205,6 +206,8 @@ export default function MySettingsPage() {
         setApiExpiresAt(data.expiresAt);
         setApiAccessKey('');
         setApiSecretKey('');
+        setShowCelebration(true);
+        setTimeout(() => setShowCelebration(false), 3000);
       } else {
         setApiMessage({ type: 'error', text: data.error || '저장에 실패했습니다.' });
       }
@@ -248,6 +251,24 @@ export default function MySettingsPage() {
 
   return (
     <div className="space-y-6">
+      {/* API 연동 축하 오버레이 */}
+      {showCelebration && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-in fade-in duration-300">
+          <div className="relative flex flex-col items-center gap-4 p-10 bg-white rounded-2xl shadow-2xl animate-in zoom-in-95 duration-300">
+            {/* 파티클 이모지 */}
+            <span className="absolute -top-6 -left-4 text-3xl animate-bounce" style={{ animationDelay: '0ms' }}>🎉</span>
+            <span className="absolute -top-4 -right-6 text-3xl animate-bounce" style={{ animationDelay: '200ms' }}>🎊</span>
+            <span className="absolute -bottom-5 -left-6 text-2xl animate-bounce" style={{ animationDelay: '400ms' }}>✨</span>
+            <span className="absolute -bottom-4 -right-4 text-2xl animate-bounce" style={{ animationDelay: '300ms' }}>🚀</span>
+            {/* 체크 아이콘 */}
+            <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
+              <CheckCircle className="w-10 h-10 text-green-500" />
+            </div>
+            <p className="text-xl font-bold text-gray-900">API 연동 완료!</p>
+            <p className="text-sm text-gray-500">이제 매출 데이터를 자동으로 가져올 수 있습니다</p>
+          </div>
+        </div>
+      )}
       <FeatureTutorial featureKey="settings" />
       <div className="flex items-center gap-3">
         <Settings className="w-6 h-6 text-[#E31837]" />
