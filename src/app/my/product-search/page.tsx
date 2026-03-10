@@ -164,7 +164,7 @@ export default function ProductSearchPage() {
 
   // Debounced search
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const debounceRef = useRef<NodeJS.Timeout>();
+  const debounceRef = useRef<NodeJS.Timeout>(null);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
