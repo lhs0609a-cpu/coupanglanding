@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getQuizQuestions } from '@/lib/data/quiz-registry';
+import { grantEducationRewards } from '@/lib/utils/education-rewards';
 
 export async function POST(request: NextRequest) {
   try {
@@ -77,6 +78,24 @@ export async function POST(request: NextRequest) {
           console.error('Quiz complete insert error:', insertError.message);
           return NextResponse.json({ error: '저장에 실패했습니다.' }, { status: 500 });
         }
+      }
+    }
+
+    // 교육 완료 보상 지급
+    if (allCorrect) {
+      try {
+        const rewards = await grantEducationRewards(serviceClient, ptUserId, stepKey);
+        return NextResponse.json({
+          passed: true,
+          results,
+          rewards: {
+            pointsAwarded: rewards.pointsAwarded,
+            badgesUnlocked: rewards.badgesUnlocked,
+          },
+        });
+      } catch (rewardErr) {
+        console.error('Education reward error:', rewardErr);
+        // 보상 지급 실패해도 퀴즈 완료는 유지
       }
     }
 

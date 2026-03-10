@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { calculateDeposit, calculateNetProfit, totalCosts, buildCostBreakdown, calculateDepositWithVat } from '@/lib/calculations/deposit';
 import type { CostBreakdown } from '@/lib/calculations/deposit';
@@ -22,11 +23,14 @@ import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import StatCard from '@/components/ui/StatCard';
 import PaymentProgress from '@/components/ui/PaymentProgress';
 import { calculateListingDiscount, type ListingDiscountResult } from '@/lib/calculations/listing-discount';
-import { Send, Calculator, CheckCircle2, ChevronDown, ChevronUp, Banknote, Minus, Plug, Shield, Edit3, Award } from 'lucide-react';
+import { Send, Calculator, CheckCircle2, ChevronDown, ChevronUp, Banknote, Minus, Plug, Shield, Edit3, Award, FlaskConical } from 'lucide-react';
 import ApiConnectionBanner from '@/components/settlement/ApiConnectionBanner';
 import type { MonthlyReport, PtUser } from '@/lib/supabase/types';
 
 export default function MyReportPage() {
+  const searchParams = useSearchParams();
+  const testMode = searchParams.get('test') === '1';
+
   const [yearMonth, setYearMonth] = useState(getReportTargetMonth());
   const [revenue, setRevenue] = useState(0);
   const [advertisingCost, setAdvertisingCost] = useState(0);
@@ -51,6 +55,7 @@ export default function MyReportPage() {
   const [apiSettlementData, setApiSettlementData] = useState<Record<string, unknown> | null>(null);
   const [manualMode, setManualMode] = useState(false);
   const [totalListings, setTotalListings] = useState(0);
+  const [testStep, setTestStep] = useState<string | null>(null);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -251,25 +256,28 @@ export default function MyReportPage() {
       return;
     }
 
-    // 수동 입력 모드일 때 스크린샷 필수 (API 검증 아닐 때)
-    if (manualMode && !apiVerified && !previewUrl) {
-      setMessage({ type: 'error', text: '수동 입력 시 매출 스크린샷이 필수입니다.' });
-      return;
-    }
+    // 테스트 모드에서는 스크린샷/EXIF 검증 건너뜀
+    if (!testMode) {
+      // 수동 입력 모드일 때 스크린샷 필수 (API 검증 아닐 때)
+      if (manualMode && !apiVerified && !previewUrl) {
+        setMessage({ type: 'error', text: '수동 입력 시 매출 스크린샷이 필수입니다.' });
+        return;
+      }
 
-    if (screenshotFile && (!revenueExifResult || !revenueExifResult.isValid)) {
-      setMessage({ type: 'error', text: '매출 스크린샷의 EXIF 검증을 통과해야 합니다. 실제 스크린샷을 업로드해주세요.' });
-      return;
-    }
+      if (screenshotFile && (!revenueExifResult || !revenueExifResult.isValid)) {
+        setMessage({ type: 'error', text: '매출 스크린샷의 EXIF 검증을 통과해야 합니다. 실제 스크린샷을 업로드해주세요.' });
+        return;
+      }
 
-    if (advertisingCost > 0 && !adPreviewUrl) {
-      setMessage({ type: 'error', text: '광고비를 입력한 경우 광고비 스크린샷이 필수입니다.' });
-      return;
-    }
+      if (advertisingCost > 0 && !adPreviewUrl) {
+        setMessage({ type: 'error', text: '광고비를 입력한 경우 광고비 스크린샷이 필수입니다.' });
+        return;
+      }
 
-    if (advertisingCost > 0 && adScreenshotFile && (!adExifResult || !adExifResult.isValid)) {
-      setMessage({ type: 'error', text: '광고비 스크린샷의 EXIF 검증을 통과해야 합니다. 실제 스크린샷을 업로드해주세요.' });
-      return;
+      if (advertisingCost > 0 && adScreenshotFile && (!adExifResult || !adExifResult.isValid)) {
+        setMessage({ type: 'error', text: '광고비 스크린샷의 EXIF 검증을 통과해야 합니다. 실제 스크린샷을 업로드해주세요.' });
+        return;
+      }
     }
 
     setSubmitLoading(true);
@@ -373,7 +381,8 @@ export default function MyReportPage() {
   const isEditable = !report || report.payment_status === 'pending' || report.payment_status === 'rejected';
   const hasCosts = totalCosts(costs) > 0;
 
-  const eligible = ptUser ? isEligibleForMonth(ptUser.created_at, yearMonth) : true;
+  const eligible = testMode ? true : (ptUser ? isEligibleForMonth(ptUser.created_at, yearMonth) : true);
+  const effectiveApiConnected = testMode ? true : apiConnected;
   const dday = getSettlementDDay(yearMonth);
   const firstEligible = ptUser ? getFirstEligibleMonth(ptUser.created_at) : null;
 
@@ -385,6 +394,143 @@ export default function MyReportPage() {
         <h1 className="text-2xl font-bold text-gray-900">매출 정산</h1>
         <MonthPicker value={yearMonth} onChange={setYearMonth} />
       </div>
+
+      {/* 테스트 모드 배너 */}
+      {testMode && (
+        <div className="rounded-lg p-4 bg-amber-50 border-2 border-amber-400">
+          <div className="flex items-center gap-2 mb-3">
+            <FlaskConical className="w-5 h-5 text-amber-600" />
+            <span className="text-sm font-bold text-amber-800">테스트 모드</span>
+            <span className="text-xs text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">가상 정산</span>
+          </div>
+          <p className="text-xs text-amber-700 mb-3">
+            정산 대상 월 제한이 해제되고, API 연동 없이 가상 데이터로 테스트할 수 있습니다.
+          </p>
+
+          {/* 가상 매출 주입 버튼 */}
+          {!revenue && (
+            <button
+              type="button"
+              onClick={() => {
+                setRevenue(4673200);
+                setAdvertisingCost(0);
+                setApiVerified(true);
+                setApiSettlementData({ test: true, itemCount: 89 });
+                setManualMode(false);
+                setMessage({ type: 'success', text: '[테스트] 가상 매출 데이터가 입력되었습니다. (₩4,673,200 / 89건)' });
+              }}
+              className="w-full py-2 bg-amber-500 text-white text-sm font-semibold rounded-lg hover:bg-amber-600 transition mb-2"
+            >
+              가상 매출 데이터 주입 (₩4,673,200)
+            </button>
+          )}
+
+          {/* 정산 플로우 시뮬레이션 */}
+          {report && report.payment_status !== 'confirmed' && (
+            <div className="mt-3 pt-3 border-t border-amber-300">
+              <p className="text-xs font-medium text-amber-800 mb-2">정산 플로우 시뮬레이션</p>
+              <div className="flex flex-wrap gap-2">
+                {report.payment_status === 'submitted' && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setTestStep('reviewing');
+                      const { error } = await supabase
+                        .from('monthly_reports')
+                        .update({
+                          payment_status: 'reviewed',
+                          admin_deposit_amount: depositAmount,
+                          reviewed_at: new Date().toISOString(),
+                        })
+                        .eq('id', report.id);
+                      if (!error) {
+                        setMessage({ type: 'success', text: '[테스트] 관리자 매출 확인 완료 → reviewed' });
+                        fetchData();
+                      }
+                      setTestStep(null);
+                    }}
+                    disabled={testStep === 'reviewing'}
+                    className="px-3 py-1.5 bg-blue-500 text-white text-xs font-medium rounded-lg hover:bg-blue-600 disabled:opacity-50"
+                  >
+                    {testStep === 'reviewing' ? '처리 중...' : '② 관리자 매출 확인 (→reviewed)'}
+                  </button>
+                )}
+                {report.payment_status === 'reviewed' && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setTestStep('depositing');
+                      const { error } = await supabase
+                        .from('monthly_reports')
+                        .update({
+                          payment_status: 'deposited',
+                          deposited_at: new Date().toISOString(),
+                        })
+                        .eq('id', report.id);
+                      if (!error) {
+                        setMessage({ type: 'success', text: '[테스트] 송금완료 신청 → deposited' });
+                        fetchData();
+                      }
+                      setTestStep(null);
+                    }}
+                    disabled={testStep === 'depositing'}
+                    className="px-3 py-1.5 bg-purple-500 text-white text-xs font-medium rounded-lg hover:bg-purple-600 disabled:opacity-50"
+                  >
+                    {testStep === 'depositing' ? '처리 중...' : '③ 송금완료 신청 (→deposited)'}
+                  </button>
+                )}
+                {report.payment_status === 'deposited' && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setTestStep('confirming');
+                      const { error } = await supabase
+                        .from('monthly_reports')
+                        .update({
+                          payment_status: 'confirmed',
+                          payment_confirmed_at: new Date().toISOString(),
+                        })
+                        .eq('id', report.id);
+                      if (!error) {
+                        setMessage({ type: 'success', text: '[테스트] 관리자 송금 확인 완료 → confirmed (정산 완료!)' });
+                        fetchData();
+                      }
+                      setTestStep(null);
+                    }}
+                    disabled={testStep === 'confirming'}
+                    className="px-3 py-1.5 bg-green-500 text-white text-xs font-medium rounded-lg hover:bg-green-600 disabled:opacity-50"
+                  >
+                    {testStep === 'confirming' ? '처리 중...' : '④ 관리자 송금 확인 (→confirmed)'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setTestStep('resetting');
+                    const { error } = await supabase
+                      .from('monthly_reports')
+                      .delete()
+                      .eq('id', report.id);
+                    if (!error) {
+                      setRevenue(0);
+                      setAdvertisingCost(0);
+                      setApiVerified(false);
+                      setApiSettlementData(null);
+                      setMessage({ type: 'success', text: '[테스트] 보고서가 삭제되었습니다. 처음부터 다시 테스트하세요.' });
+                      fetchData();
+                    }
+                    setTestStep(null);
+                  }}
+                  disabled={testStep === 'resetting'}
+                  className="px-3 py-1.5 bg-red-500 text-white text-xs font-medium rounded-lg hover:bg-red-600 disabled:opacity-50"
+                >
+                  초기화 (보고서 삭제)
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 2. D-day 배너 */}
       {eligible && (
@@ -557,12 +703,12 @@ export default function MyReportPage() {
       )}
 
       {/* 5. API 미연동 시 → 차단 배너 */}
-      {!apiConnected && isEditable && (
+      {!effectiveApiConnected && isEditable && (
         <ApiConnectionBanner variant="blocker" />
       )}
 
       {/* 6. API 연동됨 → 자동 매출 조회 카드 */}
-      {apiConnected && isEditable && (
+      {effectiveApiConnected && isEditable && (
         <Card>
           <div className="space-y-4">
             <div className="flex items-center gap-2">
@@ -613,7 +759,7 @@ export default function MyReportPage() {
                   <p className="text-xs text-amber-600">기존 보고서 수정 모드</p>
                 </div>
               </div>
-              {apiConnected && (
+              {effectiveApiConnected && (
                 <button
                   type="button"
                   onClick={() => setManualMode(false)}
@@ -681,7 +827,7 @@ export default function MyReportPage() {
       )}
 
       {/* 8. 광고비 입력 (항상 표시) */}
-      {apiConnected && isEditable && (
+      {effectiveApiConnected && isEditable && (
         <Card>
           <div className="space-y-4">
             <div className="flex items-center gap-2">
@@ -887,7 +1033,7 @@ export default function MyReportPage() {
       )}
 
       {/* 11. 제출 버튼 (API 연동 필수) */}
-      {apiConnected && (
+      {effectiveApiConnected && (
         <button
           type="button"
           onClick={handleSubmit}

@@ -641,6 +641,91 @@ export interface KeywordTrendHistory {
   created_at: string;
 }
 
+// 프로모션 (쿠폰 자동 적용) 타입
+export type CouponType = 'instant' | 'download';
+export type CouponDiscountType = 'RATE' | 'FIXED';
+export type TrackingStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'skipped';
+export type BulkApplyStatus = 'collecting' | 'applying' | 'completed' | 'failed' | 'cancelled';
+
+export interface CouponAutoSyncConfig {
+  id: string;
+  pt_user_id: string;
+  is_enabled: boolean;
+  contract_id: string | null;
+  // 즉시할인
+  instant_coupon_enabled: boolean;
+  instant_coupon_id: string | null;
+  instant_coupon_name: string | null;
+  instant_coupon_auto_create: boolean;
+  instant_coupon_title_template: string | null;
+  instant_coupon_duration_days: number;
+  instant_coupon_discount: number;
+  instant_coupon_discount_type: CouponDiscountType;
+  instant_coupon_max_discount: number;
+  // 다운로드
+  download_coupon_enabled: boolean;
+  download_coupon_id: string | null;
+  download_coupon_name: string | null;
+  download_coupon_auto_create: boolean;
+  download_coupon_title_template: string | null;
+  download_coupon_duration_days: number;
+  download_coupon_policies: Record<string, unknown>[];
+  // 옵션
+  apply_delay_days: number;
+  last_sync_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductCouponTracking {
+  id: string;
+  pt_user_id: string;
+  seller_product_id: string;
+  seller_product_name: string | null;
+  status: TrackingStatus;
+  instant_coupon_applied: boolean;
+  download_coupon_applied: boolean;
+  product_created_at: string | null;
+  coupon_apply_scheduled_at: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CouponApplyLog {
+  id: string;
+  pt_user_id: string;
+  coupon_type: CouponType;
+  coupon_id: string | null;
+  coupon_name: string | null;
+  seller_product_id: string;
+  vendor_item_id: string | null;
+  success: boolean;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface BulkApplyProgress {
+  id: string;
+  pt_user_id: string;
+  status: BulkApplyStatus;
+  collecting_progress: number;
+  applying_progress: number;
+  total_products: number;
+  total_items: number;
+  instant_total: number;
+  instant_success: number;
+  instant_failed: number;
+  download_total: number;
+  download_success: number;
+  download_failed: number;
+  started_at: string;
+  completed_at: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Database {
   public: {
     Tables: {

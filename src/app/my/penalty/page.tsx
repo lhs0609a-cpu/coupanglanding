@@ -74,7 +74,7 @@ const GAUGE_COLORS: Record<string, string> = {
   danger: '#ef4444',
 };
 
-type TabKey = 'guide' | 'tracker';
+type TabKey = 'guide' | 'tracker' | 'coupang';
 
 // ── Page Component ──────────────────────────────────────
 
@@ -176,6 +176,7 @@ export default function MyPenaltyPage() {
   const tabs: { key: TabKey; label: string; icon: typeof BookOpen }[] = [
     { key: 'guide', label: '대응 가이드', icon: BookOpen },
     { key: 'tracker', label: '내 페널티', icon: BarChart3 },
+    { key: 'coupang', label: '쿠팡', icon: ShieldCheck },
   ];
 
   return (
@@ -417,6 +418,19 @@ export default function MyPenaltyPage() {
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* ═══ 쿠팡 탭 ═══ */}
+      {activeTab === 'coupang' && (
+        <div className="w-full -mx-0">
+          <iframe
+            src="https://frontend-theta-virid.vercel.app/"
+            className="w-full border border-gray-200 rounded-xl"
+            style={{ height: 'calc(100vh - 200px)', minHeight: '600px' }}
+            title="쿠팡"
+            allow="clipboard-read; clipboard-write"
+          />
         </div>
       )}
 

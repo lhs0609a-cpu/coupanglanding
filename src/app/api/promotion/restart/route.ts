@@ -1,0 +1,79 @@
+import { NextResponse } from 'next/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
+
+/** POST: 기존 일괄 적용 취소 후 재시작 */
+export async function POST() {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: '인증이 필요합니다.' }, { status: 401 });
+    }
+
+    const { data: ptUser } = await supabase
+      .from('pt_users')
+      .select('id')
+      .eq('profile_id', user.id)
+      .maybeSingle();
+
+    if (!ptUser) {
+      return NextResponse.json({ error: 'PT 사용자 정보를 찾을 수 없습니다.' }, { status: 404 });
+    }
+
+    const serviceClient = await createServiceClient();
+
+    // 1. 기존 활성 진행 상태를 cancelled로 변경
+    const { error: cancelError } = await serviceClient
+      .from('bulk_apply_progress')
+      .update({ status: 'cancelled' })
+      .eq('pt_user_id', ptUser.id)
+      .in('status', ['collecting', 'applying']);
+
+    if (cancelError) {
+      console.error('기존 진행 취소 오류:', cancelError);
+      return NextResponse.json({ error: '기존 작업 취소에 실패했습니다.' }, { status: 500 });
+    }
+
+    // 2. 완료되지 않은 트래킹 레코드를 pending으로 리셋
+    const { error: resetError } = await serviceClient
+      .from('product_coupon_tracking')
+      .update({ status: 'pending' })
+      .eq('pt_user_id', ptUser.id)
+      .not('status', 'eq', 'completed');
+
+    if (resetError) {
+      console.error('트래킹 레코드 리셋 오류:', resetError);
+      return NextResponse.json({ error: '상품 상태 초기화에 실패했습니다.' }, { status: 500 });
+    }
+
+    // pending으로 리셋된 상품 수 조회
+    const { count: totalProducts } = await serviceClient
+      .from('product_coupon_tracking')
+      .select('id', { count: 'exact', head: true })
+      .eq('pt_user_id', ptUser.id)
+      .eq('status', 'pending');
+
+    // 3. 새 진행 상태 생성
+    const { data: newProgress, error: createError } = await serviceClient
+      .from('bulk_apply_progress')
+      .insert({
+        pt_user_id: ptUser.id,
+        status: 'applying',
+        total_products: totalProducts || 0,
+      })
+      .select()
+      .single();
+
+    if (createError || !newProgress) {
+      console.error('새 진행 상태 생성 오류:', createError);
+      return NextResponse.json({ error: '재시작에 실패했습니다.' }, { status: 500 });
+    }
+
+    return NextResponse.json({ progress: newProgress });
+  } catch (err) {
+    console.error('일괄 적용 재시작 서버 오류:', err);
+    const message = err instanceof Error ? err.message : '서버 오류가 발생했습니다.';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

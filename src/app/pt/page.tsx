@@ -1112,7 +1112,8 @@ export default function PTPage() {
               {navLinks.map((link) => (<a key={link.href} href={link.href} className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{link.label}</a>))}
               <span className="hidden sm:block w-px h-4 bg-gray-200" />
               <Link href="/auth/login?type=signup" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">파트너 회원가입</Link>
-              <Link href="/auth/login" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">관리자 로그인</Link>
+              <Link href="/auth/login?loginType=partner" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">파트너 로그인</Link>
+              <Link href="/auth/login?loginType=admin" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">관리자 로그인</Link>
             </nav>
             <p className="text-sm text-gray-500">&copy; {new Date().getFullYear()} 쿠팡 셀러허브</p>
           </div>

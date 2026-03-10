@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { grantEducationRewards } from '@/lib/utils/education-rewards';
 
 export async function POST(request: NextRequest) {
   try {
@@ -68,7 +69,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true });
+    // 교육 완료 보상 지급
+    try {
+      const rewards = await grantEducationRewards(serviceClient, ptUserId, stepKey);
+      return NextResponse.json({
+        success: true,
+        rewards: {
+          pointsAwarded: rewards.pointsAwarded,
+          badgesUnlocked: rewards.badgesUnlocked,
+        },
+      });
+    } catch (rewardErr) {
+      console.error('Education reward error:', rewardErr);
+      // 보상 지급 실패해도 완료 처리는 유지
+      return NextResponse.json({ success: true });
+    }
   } catch (err) {
     console.error('Onboarding complete error:', err);
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });

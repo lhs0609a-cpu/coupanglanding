@@ -1,6 +1,6 @@
 export interface Achievement {
   key: string;
-  category: 'listing' | 'revenue' | 'streak' | 'milestone';
+  category: 'listing' | 'revenue' | 'streak' | 'milestone' | 'education';
   title: string;
   description: string;
   emoji: string;
@@ -13,6 +13,7 @@ export const ACHIEVEMENT_CATEGORIES = [
   { value: 'revenue', label: '매출', color: 'bg-green-100 text-green-700', emoji: '💰' },
   { value: 'streak', label: '연속 활동', color: 'bg-orange-100 text-orange-700', emoji: '🔥' },
   { value: 'milestone', label: '마일스톤', color: 'bg-purple-100 text-purple-700', emoji: '🏅' },
+  { value: 'education', label: '교육', color: 'bg-cyan-100 text-cyan-700', emoji: '📚' },
 ] as const;
 
 export const ACHIEVEMENTS: Achievement[] = [
@@ -162,6 +163,34 @@ export const ACHIEVEMENTS: Achievement[] = [
     description: '아레나 레벨 5를 달성했습니다',
     emoji: '💎',
     condition: '레벨 5 달성',
+    isSecret: true,
+  },
+  // 교육 카테고리 (3개)
+  {
+    key: 'first_education',
+    category: 'education',
+    title: '지식 탐험가',
+    description: '교육 모듈을 처음으로 완료했습니다',
+    emoji: '📚',
+    condition: '교육 모듈 첫 1개 완료',
+    isSecret: false,
+  },
+  {
+    key: 'education_complete',
+    category: 'education',
+    title: '수료생',
+    description: '전체 교육을 모두 완료했습니다',
+    emoji: '🎓',
+    condition: '전체 교육 올클리어',
+    isSecret: false,
+  },
+  {
+    key: 'guide_master',
+    category: 'education',
+    title: '가이드 마스터',
+    description: '운영가이드 5개 카테고리를 열람했습니다',
+    emoji: '📖',
+    condition: '운영가이드 5개 카테고리 열람',
     isSecret: true,
   },
 ];

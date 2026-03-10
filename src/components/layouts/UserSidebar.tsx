@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X, School, Flame, ShieldAlert, Gavel, Receipt, MessageSquare, Map, ShieldCheck, Trophy } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X, School, Flame, ShieldAlert, Gavel, Receipt, MessageSquare, Map, ShieldCheck, Trophy, Search, Megaphone } from 'lucide-react';
 import type { SettlementBadgeData } from './DashboardLayout';
 
 const baseNavItems = [
@@ -18,6 +18,8 @@ const baseNavItems = [
   { href: '/my/growth', label: '성장 로드맵', icon: Map },
   { href: '/my/penalty', label: '페널티 트래커', icon: ShieldCheck },
   { href: '/my/arena', label: '상품등록 랭킹', icon: Trophy },
+  { href: '/my/product-search', label: '상품검색', icon: Search },
+  { href: '/my/promotion', label: '프로모션', icon: Megaphone },
   { href: '/my/education', label: '교육', icon: School },
   { href: '/my/guides', label: '운영 가이드', icon: BookOpen },
   { href: '/my/settings', label: '계정 설정', icon: Settings },

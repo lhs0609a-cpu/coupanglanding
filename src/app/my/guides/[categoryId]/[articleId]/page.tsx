@@ -1,6 +1,6 @@
 'use client';
 
-import { use } from 'react';
+import { use, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { Clock, ArrowRight } from 'lucide-react';
 import Card from '@/components/ui/Card';
@@ -14,6 +14,7 @@ import {
   getRelatedArticles,
 } from '@/lib/data/guides';
 import { notFound } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 
 interface PageProps {
   params: Promise<{ categoryId: string; articleId: string }>;
@@ -29,6 +30,31 @@ export default function GuideArticlePage({ params }: PageProps) {
   }
 
   const relatedArticles = getRelatedArticles(articleId);
+  const supabase = useMemo(() => createClient(), []);
+
+  // 가이드 열람 추적 (포인트 + 배지)
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data: ptUser } = await supabase
+          .from('pt_users')
+          .select('id')
+          .eq('profile_id', user.id)
+          .maybeSingle();
+        if (!ptUser) return;
+
+        await fetch('/api/guides/track-view', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ptUserId: ptUser.id, categoryId }),
+        });
+      } catch {
+        // 추적 실패해도 페이지 열람에 영향 없음
+      }
+    })();
+  }, [supabase, categoryId]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">

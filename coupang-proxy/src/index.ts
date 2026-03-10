@@ -22,23 +22,34 @@ app.all('/proxy/*', async (c) => {
   const targetPath = reqUrl.pathname.replace(/^\/proxy/, '');
   const targetUrl = `${TARGET}${targetPath}${reqUrl.search}`;
 
-  const headers = new Headers(c.req.raw.headers);
-  headers.delete('host');
-  headers.delete('x-proxy-secret');
-
-  const res = await fetch(targetUrl, {
-    method: c.req.method,
-    headers,
+  // Clean up request headers
+  const reqHeaders: Record<string, string> = {};
+  c.req.raw.headers.forEach((value, key) => {
+    const k = key.toLowerCase();
+    if (k !== 'host' && k !== 'x-proxy-secret' && k !== 'connection' && k !== 'accept-encoding') {
+      reqHeaders[key] = value;
+    }
   });
 
-  const body = await res.arrayBuffer();
-  const responseHeaders = new Headers(res.headers);
-  responseHeaders.delete('transfer-encoding');
+  console.log(`[proxy] ${c.req.method} ${targetPath}${reqUrl.search}`);
 
-  return new Response(body, {
-    status: res.status,
-    headers: responseHeaders,
-  });
+  const bodyMethods = ['POST', 'PUT', 'PATCH'];
+  const fetchInit: RequestInit = { method: c.req.method, headers: reqHeaders };
+  if (bodyMethods.includes(c.req.method)) {
+    fetchInit.body = await c.req.text();
+  }
+
+  const res = await fetch(targetUrl, fetchInit);
+
+  const body = await res.text();
+  console.log(`[proxy] -> ${res.status} (${body.length} bytes)`);
+
+  try {
+    return c.json(JSON.parse(body), res.status as 200);
+  } catch {
+    // JSON 파싱 실패 시 원문 텍스트로 에러 반환
+    return c.json({ error: 'Invalid JSON response from upstream', body: body.slice(0, 500) }, res.status as 200);
+  }
 });
 
 const port = Number(process.env.PORT) || 8080;

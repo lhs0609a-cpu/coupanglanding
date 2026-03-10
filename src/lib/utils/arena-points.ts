@@ -17,6 +17,16 @@ export const STREAK_POINTS = {
   days30: 300,
 };
 
+export const EDUCATION_POINTS = {
+  perModule: 30,         // 모듈 1개 완료 시
+  categoryBonus: 50,     // 카테고리(기초/사업자/셀러) 전체 완료 시 보너스
+  allClearBonus: 200,    // 전체 12개 모듈 올클리어 보너스
+};
+
+export const GUIDE_POINTS = {
+  perCategory: 10,       // 가이드 카테고리 1개 첫 열람 시
+};
+
 // 레벨 시스템
 export interface ArenaLevel {
   level: number;
