@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 
 // ── Constants ───────────────────────────────────────────
-const GOOGLE_SHEET_ID = '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms';
+const GOOGLE_SHEET_ID = '1wBxJlm1_p3BJAi16hcgw0XxlnW4Fquk_gfm9dtE4QR0';
 const CACHE_KEY = 'product_search_cache';
 const CACHE_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 const MAX_RESULTS = 50;
