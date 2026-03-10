@@ -84,7 +84,7 @@ export default function PromotionPage() {
   const [cancelling, setCancelling] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [applyingAll, setApplyingAll] = useState(false);
-  const pollingRef = useRef<NodeJS.Timeout>();
+  const pollingRef = useRef<NodeJS.Timeout>(null);
 
   // Tracking tab
   const [trackingItems, setTrackingItems] = useState<ProductCouponTracking[]>([]);
