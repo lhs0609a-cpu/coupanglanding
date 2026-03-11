@@ -548,11 +548,13 @@ export function getRiskLevel(score: number): 'good' | 'caution' | 'danger' | 'cr
 // 세금계산서 상태
 export const TAX_INVOICE_STATUS_LABELS: Record<string, string> = {
   issued: '발행됨',
+  confirmed: '확인됨',
   cancelled: '취소됨',
 };
 
 export const TAX_INVOICE_STATUS_COLORS: Record<string, string> = {
   issued: 'bg-green-100 text-green-700',
+  confirmed: 'bg-blue-100 text-blue-700',
   cancelled: 'bg-red-100 text-red-700',
 };
 

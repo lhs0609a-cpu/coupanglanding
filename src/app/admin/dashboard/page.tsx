@@ -4,13 +4,13 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/format';
 import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, REVENUE_SOURCES } from '@/lib/utils/constants';
-import { getReportTargetMonth, isEligibleForMonth, getSettlementStatus, getSettlementDDay, formatDDay, getSettlementDeadline } from '@/lib/utils/settlement';
+import { getReportTargetMonth, isEligibleForMonth, getSettlementStatus, getSettlementDDay, formatDDay, getSettlementDeadline, formatDeadline } from '@/lib/utils/settlement';
 import MonthPicker from '@/components/ui/MonthPicker';
 import StatCard from '@/components/ui/StatCard';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { TrendingUp, TrendingDown, Wallet, AlertCircle, CheckCircle2, UserPlus, XCircle, Search, Clock, Banknote, Calendar, GraduationCap, Receipt } from 'lucide-react';
-import { getReportCosts } from '@/lib/calculations/deposit';
+import { calculateDeposit, getReportCosts } from '@/lib/calculations/deposit';
 import { calculateTrainerBonus } from '@/lib/calculations/trainer';
 import { lookupAndLinkTrainee } from '@/lib/utils/trainer-link';
 import { logActivity } from '@/lib/utils/activity-log';
@@ -20,7 +20,7 @@ import type { MonthlyReport, RevenueEntry, ExpenseEntry, PtUser } from '@/lib/su
 type ReportWithUser = MonthlyReport & { pt_user: { profile: { full_name: string } } };
 
 export default function AdminDashboardPage() {
-  const [yearMonth, setYearMonth] = useState(getCurrentYearMonth());
+  const [yearMonth, setYearMonth] = useState(getReportTargetMonth());
   const [revenues, setRevenues] = useState<RevenueEntry[]>([]);
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
   const [submittedReports, setSubmittedReports] = useState<ReportWithUser[]>([]);
@@ -234,6 +234,51 @@ export default function AdminDashboardPage() {
     fetchData();
   };
 
+  // 매출 확인 (submitted → reviewed)
+  const handleQuickReview = async (report: ReportWithUser) => {
+    const ptUser = allPtUsers.find((u) => u.id === report.pt_user_id);
+    const sharePercentage = ptUser?.share_percentage ?? 30;
+    const costs = getReportCosts(report);
+    const autoDeposit = calculateDeposit(report.reported_revenue, costs, sharePercentage);
+
+    await supabase
+      .from('monthly_reports')
+      .update({
+        payment_status: 'reviewed',
+        admin_deposit_amount: autoDeposit,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq('id', report.id);
+
+    const { data: { user: adminUser } } = await supabase.auth.getUser();
+    if (adminUser) {
+      await logActivity(supabase, {
+        adminId: adminUser.id,
+        action: 'review_report',
+        targetType: 'monthly_report',
+        targetId: report.id,
+        details: { user_name: report.pt_user?.profile?.full_name, deposit_amount: autoDeposit },
+      });
+    }
+
+    fetchData();
+  };
+
+  const handleQuickReject = async (report: ReportWithUser) => {
+    const note = prompt('거절 사유를 입력하세요:');
+    if (note === null) return;
+
+    await supabase
+      .from('monthly_reports')
+      .update({
+        payment_status: 'rejected',
+        admin_note: note || '거절됨',
+      })
+      .eq('id', report.id);
+
+    fetchData();
+  };
+
   const handleQuickConfirmDeposit = async (report: ReportWithUser) => {
     const ptUserId = report.pt_user_id;
     const userName = report.pt_user?.profile?.full_name || '이름없음';
@@ -344,6 +389,22 @@ export default function AdminDashboardPage() {
         details: { user_name: userName, deposit_amount: depositAmount },
       });
     }
+
+    // 세금계산서 자동 발행
+    try {
+      await fetch('/api/tax-invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          monthly_report_id: report.id,
+          pt_user_id: ptUserId,
+          year_month: report.year_month,
+          supply_amount: report.supply_amount || 0,
+          vat_amount: report.vat_amount || 0,
+          total_amount: report.total_with_vat || 0,
+        }),
+      });
+    } catch { /* 실패해도 정산 확정은 유지 */ }
 
     fetchData();
   };
@@ -580,23 +641,52 @@ export default function AdminDashboardPage() {
                 {submittedReports.map((report) => (
                   <div
                     key={report.id}
-                    className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border-l-4 border-l-blue-500"
+                    className="p-3 bg-blue-50 rounded-lg border-l-4 border-l-blue-500 space-y-2"
                   >
-                    <div>
-                      <p className="font-medium text-gray-900">
-                        {report.pt_user?.profile?.full_name || '사용자'}
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        매출 {formatKRW(report.reported_revenue)} → 송금 {formatKRW(report.calculated_deposit)}
-                      </p>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-gray-900">
+                          {report.pt_user?.profile?.full_name || '사용자'}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          매출 {formatKRW(report.reported_revenue)} → 송금 {formatKRW(report.calculated_deposit)}
+                        </p>
+                      </div>
+                      <Badge
+                        label={PAYMENT_STATUS_LABELS[report.payment_status]}
+                        colorClass={PAYMENT_STATUS_COLORS[report.payment_status]}
+                      />
                     </div>
-                    <Badge
-                      label={PAYMENT_STATUS_LABELS[report.payment_status]}
-                      colorClass={PAYMENT_STATUS_COLORS[report.payment_status]}
-                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleQuickReview(report)}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 text-white text-xs font-medium rounded-lg hover:bg-purple-700 transition"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        매출 확인
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleQuickReject(report)}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 transition"
+                      >
+                        <XCircle className="w-3.5 h-3.5" />
+                        거절
+                      </button>
+                      {report.screenshot_url && (
+                        <a
+                          href={report.screenshot_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-lg hover:bg-white transition"
+                        >
+                          스크린샷
+                        </a>
+                      )}
+                    </div>
                   </div>
                 ))}
-                <p className="text-xs text-gray-400">PT 사용자 관리 페이지에서 매출을 확인하세요.</p>
               </div>
             )}
           </Card>

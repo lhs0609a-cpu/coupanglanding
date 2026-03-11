@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { logActivity } from '@/lib/utils/activity-log';
+import { notifyTaxInvoiceIssued } from '@/lib/utils/notifications';
 import { generateInvoiceNumber } from '@/lib/calculations/vat';
 
 async function requireAdmin(supabase: ReturnType<typeof createClient> extends Promise<infer T> ? T : never) {
@@ -169,6 +170,26 @@ export async function POST(request: NextRequest) {
       targetId: invoice.id,
       details: { invoice_number: invoiceNumber, total_amount, pt_user_id },
     });
+
+    // PT 사용자에게 세금계산서 발행 알림
+    try {
+      const { data: ptUserProfile } = await serviceClient
+        .from('pt_users')
+        .select('profile_id')
+        .eq('id', pt_user_id)
+        .single();
+
+      if (ptUserProfile?.profile_id) {
+        await notifyTaxInvoiceIssued(
+          serviceClient,
+          ptUserProfile.profile_id,
+          year_month,
+          total_amount || 0,
+        );
+      }
+    } catch {
+      // 알림 실패해도 발행은 성공
+    }
 
     return NextResponse.json(invoice);
   } catch {

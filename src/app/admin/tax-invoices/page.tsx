@@ -9,7 +9,7 @@ import Badge from '@/components/ui/Badge';
 import StatCard from '@/components/ui/StatCard';
 import Modal from '@/components/ui/Modal';
 import MonthPicker from '@/components/ui/MonthPicker';
-import { Receipt, FileText, XCircle, Search } from 'lucide-react';
+import { Receipt, FileText, XCircle, Search, CheckCircle2 } from 'lucide-react';
 import type { TaxInvoice } from '@/lib/supabase/types';
 
 export default function AdminTaxInvoicesPage() {
@@ -70,10 +70,11 @@ export default function AdminTaxInvoicesPage() {
     setActionLoading(false);
   };
 
-  const issuedInvoices = invoices.filter((i) => i.status === 'issued');
-  const totalSupply = issuedInvoices.reduce((s, i) => s + i.supply_amount, 0);
-  const totalVat = issuedInvoices.reduce((s, i) => s + i.vat_amount, 0);
-  const totalAmount = issuedInvoices.reduce((s, i) => s + i.total_amount, 0);
+  const activeInvoices = invoices.filter((i) => i.status === 'issued' || i.status === 'confirmed');
+  const totalSupply = activeInvoices.reduce((s, i) => s + i.supply_amount, 0);
+  const totalVat = activeInvoices.reduce((s, i) => s + i.vat_amount, 0);
+  const totalAmount = activeInvoices.reduce((s, i) => s + i.total_amount, 0);
+  const confirmedCount = invoices.filter((i) => i.status === 'confirmed').length;
 
   return (
     <div className="space-y-6">
@@ -90,6 +91,7 @@ export default function AdminTaxInvoicesPage() {
           >
             <option value="">전체 상태</option>
             <option value="issued">발행됨</option>
+            <option value="confirmed">확인됨</option>
             <option value="cancelled">취소됨</option>
           </select>
           <MonthPicker value={yearMonth} onChange={setYearMonth} />
@@ -97,7 +99,7 @@ export default function AdminTaxInvoicesPage() {
       </div>
 
       {/* 통계 */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <StatCard
           title="공급가액 합계"
           value={formatKRW(totalSupply)}
@@ -111,8 +113,14 @@ export default function AdminTaxInvoicesPage() {
         <StatCard
           title="총액 합계"
           value={formatKRW(totalAmount)}
-          subtitle={`발행 ${issuedInvoices.length}건`}
+          subtitle={`발행 ${activeInvoices.length}건`}
           icon={<Search className="w-5 h-5" />}
+        />
+        <StatCard
+          title="확인 완료"
+          value={`${confirmedCount}건`}
+          subtitle={activeInvoices.length > 0 ? `${Math.round((confirmedCount / activeInvoices.length) * 100)}%` : undefined}
+          icon={<CheckCircle2 className="w-5 h-5" />}
         />
       </div>
 
@@ -141,6 +149,7 @@ export default function AdminTaxInvoicesPage() {
                   <th className="text-right py-2 px-3 font-semibold text-gray-600">합계</th>
                   <th className="text-center py-2 px-3 font-semibold text-gray-600">상태</th>
                   <th className="text-center py-2 px-3 font-semibold text-gray-600">발행일</th>
+                  <th className="text-center py-2 px-3 font-semibold text-gray-600">확인일</th>
                   <th className="text-center py-2 px-3 font-semibold text-gray-600">액션</th>
                 </tr>
               </thead>
@@ -164,8 +173,13 @@ export default function AdminTaxInvoicesPage() {
                       <td className="py-2 px-3 text-center text-gray-500 text-xs">
                         {new Date(inv.issued_at).toLocaleDateString('ko-KR')}
                       </td>
+                      <td className="py-2 px-3 text-center text-gray-500 text-xs">
+                        {inv.confirmed_at
+                          ? new Date(inv.confirmed_at).toLocaleDateString('ko-KR')
+                          : '-'}
+                      </td>
                       <td className="py-2 px-3 text-center">
-                        {inv.status === 'issued' && (
+                        {(inv.status === 'issued' || inv.status === 'confirmed') && (
                           <button
                             type="button"
                             onClick={() => setCancelModal(inv)}

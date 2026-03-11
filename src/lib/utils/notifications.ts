@@ -506,6 +506,22 @@ export async function notifyDeactivationSubmitted(
   });
 }
 
+/** 세금계산서 발행 알림 (PT 사용자에게) */
+export async function notifyTaxInvoiceIssued(
+  supabase: SupabaseClient,
+  userId: string,
+  yearMonth: string,
+  totalAmount: number,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'settlement',
+    title: '세금계산서 발행',
+    message: `${yearMonth} 세금계산서가 발행되었습니다. 금액: ${totalAmount.toLocaleString()}원. 확인 버튼을 눌러주세요.`,
+    link: '/my/tax-invoices',
+  });
+}
+
 /** 아레나 업적 달성 알림 */
 export async function notifyAchievementUnlocked(
   supabase: SupabaseClient,

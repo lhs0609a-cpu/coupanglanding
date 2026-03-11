@@ -60,6 +60,7 @@ export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   terminate_violation: '위반→계약해지',
   issue_tax_invoice: '세금계산서 발행',
   cancel_tax_invoice: '세금계산서 취소',
+  confirm_tax_invoice: '세금계산서 확인',
   approve_manual_input: '수동 입력 승인',
   reject_manual_input: '수동 입력 거절',
   create_penalty: '페널티 등록',

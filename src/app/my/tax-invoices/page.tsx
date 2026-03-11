@@ -8,7 +8,7 @@ import Badge from '@/components/ui/Badge';
 import StatCard from '@/components/ui/StatCard';
 import MonthPicker from '@/components/ui/MonthPicker';
 import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
-import { Receipt, FileText, AlertCircle } from 'lucide-react';
+import { Receipt, FileText, AlertCircle, CheckCircle2 } from 'lucide-react';
 import type { TaxInvoice } from '@/lib/supabase/types';
 
 function getCurrentYearMonth(): string {
@@ -21,6 +21,7 @@ export default function MyTaxInvoicesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [yearMonth, setYearMonth] = useState(getCurrentYearMonth());
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
@@ -49,9 +50,29 @@ export default function MyTaxInvoicesPage() {
     fetchInvoices();
   }, [fetchInvoices]);
 
-  const issuedInvoices = invoices.filter((i) => i.status === 'issued');
-  const totalSupply = issuedInvoices.reduce((s, i) => s + i.supply_amount, 0);
-  const totalVat = issuedInvoices.reduce((s, i) => s + i.vat_amount, 0);
+  const handleConfirm = async (invoiceId: string) => {
+    setConfirmingId(invoiceId);
+    try {
+      const res = await fetch(`/api/tax-invoices/${invoiceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'confirmed' }),
+      });
+      if (res.ok) {
+        fetchInvoices();
+      } else {
+        const data = await res.json();
+        setError(data.error || '확인 처리에 실패했습니다.');
+      }
+    } catch {
+      setError('네트워크 오류가 발생했습니다.');
+    }
+    setConfirmingId(null);
+  };
+
+  const activeInvoices = invoices.filter((i) => i.status === 'issued' || i.status === 'confirmed');
+  const totalSupply = activeInvoices.reduce((s, i) => s + i.supply_amount, 0);
+  const totalVat = activeInvoices.reduce((s, i) => s + i.vat_amount, 0);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -74,7 +95,7 @@ export default function MyTaxInvoicesPage() {
         <StatCard
           title="부가세 합계"
           value={formatKRW(totalVat)}
-          subtitle={`발행 ${issuedInvoices.length}건`}
+          subtitle={`발행 ${activeInvoices.length}건`}
           icon={<Receipt className="w-5 h-5" />}
         />
       </div>
@@ -95,7 +116,7 @@ export default function MyTaxInvoicesPage() {
           <div className="py-8 text-center text-gray-400">
             <Receipt className="w-12 h-12 mx-auto text-gray-300 mb-3" />
             <p>발행된 세금계산서가 없습니다.</p>
-            <p className="text-xs text-gray-400 mt-1">정산 완료 후 관리자가 세금계산서를 발행합니다.</p>
+            <p className="text-xs text-gray-400 mt-1">정산 완료 후 세금계산서가 자동 발행됩니다.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -109,6 +130,7 @@ export default function MyTaxInvoicesPage() {
                   <th className="text-right py-2 px-3 font-semibold text-gray-600">합계</th>
                   <th className="text-center py-2 px-3 font-semibold text-gray-600">상태</th>
                   <th className="text-center py-2 px-3 font-semibold text-gray-600">발행일</th>
+                  <th className="text-center py-2 px-3 font-semibold text-gray-600">액션</th>
                 </tr>
               </thead>
               <tbody>
@@ -127,6 +149,24 @@ export default function MyTaxInvoicesPage() {
                     </td>
                     <td className="py-2 px-3 text-center text-gray-500 text-xs">
                       {new Date(inv.issued_at).toLocaleDateString('ko-KR')}
+                    </td>
+                    <td className="py-2 px-3 text-center">
+                      {inv.status === 'issued' && (
+                        <button
+                          type="button"
+                          onClick={() => handleConfirm(inv.id)}
+                          disabled={confirmingId === inv.id}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          {confirmingId === inv.id ? '처리중...' : '확인'}
+                        </button>
+                      )}
+                      {inv.status === 'confirmed' && inv.confirmed_at && (
+                        <span className="text-xs text-blue-600">
+                          {new Date(inv.confirmed_at).toLocaleDateString('ko-KR')} 확인
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

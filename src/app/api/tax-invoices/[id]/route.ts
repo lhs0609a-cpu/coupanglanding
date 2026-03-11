@@ -50,17 +50,69 @@ export async function PATCH(
 ) {
   try {
     const supabase = await createClient();
-    const admin = await requireAdmin(supabase);
-    if (!admin) {
-      return NextResponse.json({ error: '관리자 권한이 필요합니다.' }, { status: 403 });
-    }
-
     const { id } = await params;
     const body = await request.json();
     const serviceClient = await createServiceClient();
 
-    // 취소 처리
+    // PT 사용자의 세금계산서 확인 처리
+    if (body.status === 'confirmed') {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+      }
+
+      // PT 사용자 본인 소유 확인
+      const { data: ptUser } = await serviceClient
+        .from('pt_users')
+        .select('id')
+        .eq('profile_id', user.id)
+        .single();
+
+      if (!ptUser) {
+        return NextResponse.json({ error: 'PT 사용자가 아닙니다.' }, { status: 403 });
+      }
+
+      const { data: invoice } = await serviceClient
+        .from('tax_invoices')
+        .select('id, pt_user_id, status')
+        .eq('id', id)
+        .single();
+
+      if (!invoice) {
+        return NextResponse.json({ error: '세금계산서를 찾을 수 없습니다.' }, { status: 404 });
+      }
+
+      if (invoice.pt_user_id !== ptUser.id) {
+        return NextResponse.json({ error: '본인의 세금계산서만 확인할 수 있습니다.' }, { status: 403 });
+      }
+
+      if (invoice.status !== 'issued') {
+        return NextResponse.json({ error: '발행 상태의 세금계산서만 확인할 수 있습니다.' }, { status: 400 });
+      }
+
+      const { error } = await serviceClient
+        .from('tax_invoices')
+        .update({
+          status: 'confirmed',
+          confirmed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id);
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+
+      return NextResponse.json({ success: true });
+    }
+
+    // 관리자 전용: 취소 처리
     if (body.status === 'cancelled') {
+      const admin = await requireAdmin(supabase);
+      if (!admin) {
+        return NextResponse.json({ error: '관리자 권한이 필요합니다.' }, { status: 403 });
+      }
+
       const { error } = await serviceClient
         .from('tax_invoices')
         .update({
@@ -70,7 +122,7 @@ export async function PATCH(
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
-        .eq('status', 'issued');
+        .in('status', ['issued', 'confirmed']);
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });

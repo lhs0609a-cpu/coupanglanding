@@ -20,7 +20,7 @@ import {
   SETTLEMENT_STATUS_LABELS,
   SETTLEMENT_STATUS_COLORS,
 } from '@/lib/utils/constants';
-import { getFirstEligibleMonth, isEligibleForMonth, getSettlementStatus, getSettlementDDay, formatDDay, getDDayColorClass } from '@/lib/utils/settlement';
+import { getFirstEligibleMonth, getReportTargetMonth, isEligibleForMonth, getSettlementStatus, getSettlementDDay, formatDDay, getDDayColorClass } from '@/lib/utils/settlement';
 import MonthPicker from '@/components/ui/MonthPicker';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -50,7 +50,7 @@ interface ReviewModalData {
 }
 
 export default function AdminPtUsersPage() {
-  const [yearMonth, setYearMonth] = useState(getCurrentYearMonth());
+  const [yearMonth, setYearMonth] = useState(getReportTargetMonth());
   const [ptUsers, setPtUsers] = useState<PtUserWithProfile[]>([]);
   const [reports, setReports] = useState<Map<string, ReportWithScreenshot>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -304,6 +304,22 @@ export default function AdminPtUsersPage() {
         details: { user_name: userName, deposit_amount: depositAmount },
       });
     }
+
+    // 세금계산서 자동 발행
+    try {
+      await fetch('/api/tax-invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          monthly_report_id: report.id,
+          pt_user_id: ptUserId,
+          year_month: report.year_month,
+          supply_amount: report.supply_amount || 0,
+          vat_amount: report.vat_amount || 0,
+          total_amount: report.total_with_vat || 0,
+        }),
+      });
+    } catch { /* 실패해도 정산 확정은 유지 */ }
 
     fetchData();
   };
