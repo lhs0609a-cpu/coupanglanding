@@ -143,7 +143,7 @@ export default function MyReportPage() {
   const netProfit = calculateNetProfit(revenue, costs);
   const baseDepositAmount = calculateDeposit(revenue, costs, sharePercentage);
   const listingDiscount: ListingDiscountResult = calculateListingDiscount(totalListings, netProfit);
-  const depositAmount = baseDepositAmount + listingDiscount.discountAmount;
+  const depositAmount = baseDepositAmount - listingDiscount.discountAmount;
   const vatCalc: VatCalculation = calculateDepositWithVat(revenue, costs, sharePercentage);
   // VAT도 할인 포함 금액 기반으로 재계산
   const finalVatCalc: VatCalculation = listingDiscount.discountAmount > 0
@@ -576,7 +576,7 @@ export default function MyReportPage() {
           trend={netProfit > 0 ? 'up' : netProfit < 0 ? 'down' : undefined}
         />
         <StatCard
-          title={report?.admin_deposit_amount ? '관리자 확정 금액' : `수수료 (${sharePercentage}%${listingDiscount.tierName ? ` +${listingDiscount.discountRatePercent}` : ''})`}
+          title={report?.admin_deposit_amount ? '관리자 확정 금액' : `수수료 (${sharePercentage}%${listingDiscount.tierName ? ` -${listingDiscount.discountRatePercent}` : ''})`}
           value={
             report?.admin_deposit_amount
               ? formatKRW(report.admin_deposit_amount)
@@ -605,7 +605,7 @@ export default function MyReportPage() {
               </p>
               <p className="text-xs text-gray-500 mt-0.5">
                 {listingDiscount.tierName
-                  ? `수수료 +${listingDiscount.discountRatePercent} 할인 적용 (월 최대 ${formatKRW(listingDiscount.monthlyCap)})`
+                  ? `수수료 -${listingDiscount.discountRatePercent} 할인 적용 (월 최대 ${formatKRW(listingDiscount.monthlyCap)})`
                   : listingDiscount.nextTier
                     ? `${listingDiscount.nextTier.minListings.toLocaleString()}개 달성 시 ${listingDiscount.nextTier.name} 등급 할인`
                     : ''
@@ -977,13 +977,13 @@ export default function MyReportPage() {
                 <div className="flex justify-between items-center">
                   <span className="text-green-600 font-medium flex items-center gap-1">
                     <Award className="w-3.5 h-3.5" />
-                    상품등록 할인 ({listingDiscount.tierName} +{listingDiscount.discountRatePercent})
+                    상품등록 할인 ({listingDiscount.tierName} -{listingDiscount.discountRatePercent})
                     {listingDiscount.capped && (
                       <span className="text-xs text-gray-400 font-normal ml-1">캡 적용</span>
                     )}
                   </span>
                   <span className="font-bold text-green-600">
-                    +{formatKRW(listingDiscount.discountAmount)}
+                    -{formatKRW(listingDiscount.discountAmount)}
                   </span>
                 </div>
               )}

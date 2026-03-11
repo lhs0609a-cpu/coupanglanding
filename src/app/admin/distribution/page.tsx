@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { calculateDistribution } from '@/lib/calculations/distribution';
-import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/format';
+import { formatKRW, formatYearMonth } from '@/lib/utils/format';
+import { getReportTargetMonth } from '@/lib/utils/settlement';
 import MonthPicker from '@/components/ui/MonthPicker';
 import Card from '@/components/ui/Card';
 import StatCard from '@/components/ui/StatCard';
@@ -16,7 +17,7 @@ interface ConfirmedReport extends MonthlyReport {
 }
 
 export default function AdminDistributionPage() {
-  const [yearMonth, setYearMonth] = useState(getCurrentYearMonth());
+  const [yearMonth, setYearMonth] = useState(getReportTargetMonth());
   const [partners, setPartners] = useState<Partner[]>([]);
   const [revenues, setRevenues] = useState<RevenueEntry[]>([]);
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
