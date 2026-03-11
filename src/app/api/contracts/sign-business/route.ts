@@ -34,8 +34,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '이미 서명이 완료되었습니다.' }, { status: 409 });
     }
 
-    const ptUser = contract.pt_user as Record<string, unknown> | null;
-    const profile = ptUser?.profile as Record<string, unknown> | null;
+    const ptUserRaw = contract.pt_user as unknown;
+    const ptUser = (Array.isArray(ptUserRaw) ? ptUserRaw[0] : ptUserRaw) as Record<string, unknown> | null;
+    const profileRaw = ptUser?.profile;
+    const profile = (Array.isArray(profileRaw) ? profileRaw[0] : profileRaw) as Record<string, unknown> | null;
 
     return NextResponse.json({
       contractId: contract.id,
