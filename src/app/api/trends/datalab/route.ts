@@ -71,20 +71,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // DataLab Shopping Insight 카테고리별 트렌드
+    // DataLab 검색어 트렌드 API
     const timeUnit = config.periodType === 'day' ? 'date' : config.periodType === 'week' ? 'week' : 'month';
 
     const datalabBody = {
       startDate,
       endDate,
       timeUnit,
-      category: categoryId || '',
-      keyword: [
-        { name: keyword.trim(), param: [keyword.trim()] },
+      keywordGroups: [
+        { groupName: keyword.trim(), keywords: [keyword.trim()] },
       ],
     };
 
-    const response = await fetch('https://openapi.naver.com/v1/datalab/shopping', {
+    const response = await fetch('https://openapi.naver.com/v1/datalab/search', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
