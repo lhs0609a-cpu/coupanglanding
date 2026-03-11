@@ -330,8 +330,10 @@ export default function PromotionPage() {
   const handleRestart = async () => {
     setRestarting(true);
     try {
-      await fetch('/api/promotion/collect-products', { method: 'POST' });
+      // 기존 진행 취소 + 트래킹 초기화 → collecting 상태로 재시작
+      await fetch('/api/promotion/restart', { method: 'POST' });
       await fetchProgress();
+      // polling이 collecting 상태를 감지하고 collect-products 호출
     } catch { /* ignore */ } finally {
       setRestarting(false);
     }
@@ -341,16 +343,14 @@ export default function PromotionPage() {
     setApplyingNewOnly(true);
     setError(null);
     try {
-      const res = await fetch('/api/promotion/bulk-apply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ startNew: true, pendingOnly: true }),
-      });
+      // 새 상품 수집 (기존 completed 항목은 ignoreDuplicates로 유지) → 적용
+      const res = await fetch('/api/promotion/collect-products', { method: 'POST' });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || '신규 상품 적용에 실패했습니다.');
+        throw new Error(data.error || '신규 상품 수집에 실패했습니다.');
       }
       await fetchProgress();
+      // polling이 applying 상태를 감지하고 bulk-apply 호출
     } catch (err) {
       setError(err instanceof Error ? err.message : '신규 상품 적용 실패');
     } finally {

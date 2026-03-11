@@ -54,12 +54,12 @@ export async function POST() {
       .eq('pt_user_id', ptUser.id)
       .eq('status', 'pending');
 
-    // 3. 새 진행 상태 생성
+    // 3. 새 진행 상태 생성 (collecting부터 시작하여 상품 수집 → 적용 2단계 진행)
     const { data: newProgress, error: createError } = await serviceClient
       .from('bulk_apply_progress')
       .insert({
         pt_user_id: ptUser.id,
-        status: 'applying',
+        status: 'collecting',
         total_products: totalProducts || 0,
       })
       .select()

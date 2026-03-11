@@ -27,9 +27,7 @@ export default function ProgressDisplay({
   const isCompleted = progress.status === 'completed';
   const isFailed = progress.status === 'failed' || progress.status === 'cancelled';
 
-  const totalProcessed = progress.instant_success + progress.instant_failed + progress.download_success + progress.download_failed;
-  const totalTarget = progress.instant_total + progress.download_total;
-  const applyPercent = totalTarget > 0 ? Math.round((totalProcessed / totalTarget) * 100) : 0;
+  const applyPercent = progress.applying_progress;
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-4">
