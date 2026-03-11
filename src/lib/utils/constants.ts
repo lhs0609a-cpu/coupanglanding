@@ -634,6 +634,91 @@ export const CHALLENGE_METRIC_LABELS: Record<string, string> = {
   points: '포인트',
 };
 
+// 고객센터 - 공지사항 카테고리
+export const NOTICE_CATEGORY_LABELS: Record<string, string> = {
+  system: '시스템',
+  policy: '정책',
+  promotion: '프로모션',
+  education: '교육',
+  emergency: '긴급',
+};
+
+export const NOTICE_CATEGORY_COLORS: Record<string, string> = {
+  system: 'bg-blue-100 text-blue-700',
+  policy: 'bg-purple-100 text-purple-700',
+  promotion: 'bg-green-100 text-green-700',
+  education: 'bg-yellow-100 text-yellow-700',
+  emergency: 'bg-red-100 text-red-700',
+};
+
+// 고객센터 - 문의 카테고리
+export const TICKET_CATEGORY_LABELS: Record<string, string> = {
+  settlement: '정산',
+  contract: '계약',
+  coupang_api: '쿠팡 API',
+  tax_invoice: '세금계산서',
+  system_error: '시스템 오류',
+  other: '기타',
+};
+
+export const TICKET_CATEGORY_COLORS: Record<string, string> = {
+  settlement: 'bg-purple-100 text-purple-700',
+  contract: 'bg-blue-100 text-blue-700',
+  coupang_api: 'bg-orange-100 text-orange-700',
+  tax_invoice: 'bg-green-100 text-green-700',
+  system_error: 'bg-red-100 text-red-700',
+  other: 'bg-gray-100 text-gray-700',
+};
+
+// 고객센터 - 문의 상태
+export const TICKET_STATUS_LABELS: Record<string, string> = {
+  pending: '대기중',
+  in_progress: '처리중',
+  resolved: '완료',
+  closed: '종료',
+};
+
+export const TICKET_STATUS_COLORS: Record<string, string> = {
+  pending: 'bg-yellow-100 text-yellow-700',
+  in_progress: 'bg-blue-100 text-blue-700',
+  resolved: 'bg-green-100 text-green-700',
+  closed: 'bg-gray-100 text-gray-500',
+};
+
+// 고객센터 - 문의 우선도
+export const TICKET_PRIORITY_LABELS: Record<string, string> = {
+  low: '낮음',
+  normal: '보통',
+  high: '높음',
+};
+
+export const TICKET_PRIORITY_COLORS: Record<string, string> = {
+  low: 'bg-gray-100 text-gray-700',
+  normal: 'bg-blue-100 text-blue-700',
+  high: 'bg-red-100 text-red-700',
+};
+
+// 고객센터 - FAQ 카테고리
+export const FAQ_CATEGORY_LABELS: Record<string, string> = {
+  signup: '가입/시작',
+  settlement: '정산',
+  commission: '수수료',
+  coupang_api: '쿠팡 API',
+  tax_invoice: '세금계산서',
+  penalty: '페널티',
+  other: '기타',
+};
+
+export const FAQ_CATEGORY_COLORS: Record<string, string> = {
+  signup: 'bg-blue-100 text-blue-700',
+  settlement: 'bg-purple-100 text-purple-700',
+  commission: 'bg-orange-100 text-orange-700',
+  coupang_api: 'bg-green-100 text-green-700',
+  tax_invoice: 'bg-teal-100 text-teal-700',
+  penalty: 'bg-red-100 text-red-700',
+  other: 'bg-gray-100 text-gray-700',
+};
+
 // 종합소득세 구간 (2024년 기준)
 export const TAX_BRACKETS = [
   { limit: 14_000_000, rate: 0.06, deduction: 0 },

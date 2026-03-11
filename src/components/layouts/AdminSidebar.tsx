@@ -20,6 +20,9 @@ import {
   Receipt,
   Swords,
   X,
+  Bell,
+  MessageCircle,
+  HelpCircle,
 } from 'lucide-react';
 
 const navItems = [
@@ -37,6 +40,9 @@ const navItems = [
   { href: '/admin/tax-invoices', label: '세금계산서', icon: Receipt },
   { href: '/admin/arena', label: '아레나 관리', icon: Swords },
   { href: '/admin/guide-images', label: '가이드 이미지', icon: BookOpen },
+  { href: '/admin/notices', label: '공지 관리', icon: Bell },
+  { href: '/admin/support', label: '문의 관리', icon: MessageCircle },
+  { href: '/admin/faqs', label: 'FAQ 관리', icon: HelpCircle },
   { href: '/admin/activity-log', label: '활동 로그', icon: ScrollText },
   { href: '/admin/settings', label: '설정', icon: Settings },
 ];

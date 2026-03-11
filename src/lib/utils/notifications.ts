@@ -601,6 +601,52 @@ export async function notifyProgramSuspension(
   });
 }
 
+/** 1:1 문의 생성 알림 (관리자에게) */
+export async function notifyTicketCreated(
+  supabase: SupabaseClient,
+  adminId: string,
+  userName: string,
+  ticketTitle: string,
+) {
+  return createNotification(supabase, {
+    userId: adminId,
+    type: 'support',
+    title: '새 1:1 문의 접수',
+    message: `"${userName}" 파트너가 "${ticketTitle}" 문의를 접수했습니다.`,
+    link: '/admin/support',
+  });
+}
+
+/** 문의 답변 알림 (유저에게) */
+export async function notifyTicketReplied(
+  supabase: SupabaseClient,
+  userId: string,
+  ticketTitle: string,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'support',
+    title: '문의에 답변이 등록되었습니다',
+    message: `"${ticketTitle}" 문의에 관리자 답변이 등록되었습니다. 확인해주세요.`,
+    link: '/my/support',
+  });
+}
+
+/** 문의 해결 알림 (유저에게) */
+export async function notifyTicketResolved(
+  supabase: SupabaseClient,
+  userId: string,
+  ticketTitle: string,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'support',
+    title: '문의가 해결되었습니다',
+    message: `"${ticketTitle}" 문의가 해결 처리되었습니다.`,
+    link: '/my/support',
+  });
+}
+
 /** 아레나 랭킹 변동 알림 */
 export async function notifyRankChange(
   supabase: SupabaseClient,

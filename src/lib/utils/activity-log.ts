@@ -68,6 +68,14 @@ export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   create_challenge: '챌린지 생성',
   update_challenge: '챌린지 수정',
   award_points: '포인트 부여',
+  create_notice: '공지사항 등록',
+  update_notice: '공지사항 수정',
+  delete_notice: '공지사항 삭제',
+  reply_ticket: '문의 답변',
+  close_ticket: '문의 종료',
+  create_faq: 'FAQ 등록',
+  update_faq: 'FAQ 수정',
+  delete_faq: 'FAQ 삭제',
 };
 
 /** 대상 타입 한글 라벨 */
@@ -95,4 +103,8 @@ export const TARGET_TYPE_LABELS: Record<string, string> = {
   penalty_summary: '페널티 요약',
   seller_challenge: '아레나 챌린지',
   seller_points: '아레나 포인트',
+  notice: '공지사항',
+  support_ticket: '1:1 문의',
+  ticket_message: '문의 메시지',
+  faq: 'FAQ',
 };
