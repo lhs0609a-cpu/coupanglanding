@@ -7,8 +7,9 @@ export type ApplicationStatus = 'new' | 'contacted' | 'consulting' | 'converted'
 export type ContractStatus = 'draft' | 'sent' | 'signed' | 'expired' | 'terminated';
 export type OnboardingStepStatus = 'pending' | 'submitted' | 'approved' | 'rejected';
 export type OnboardingVerificationType = 'self_check' | 'evidence_upload' | 'auto_linked' | 'quiz';
-export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system' | 'emergency' | 'violation' | 'arena';
-export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist' | 'create_violation' | 'update_violation' | 'escalate_violation' | 'resolve_violation' | 'dismiss_violation' | 'terminate_violation' | 'issue_tax_invoice' | 'cancel_tax_invoice' | 'confirm_tax_invoice' | 'approve_manual_input' | 'reject_manual_input' | 'create_penalty' | 'resolve_penalty' | 'create_challenge' | 'update_challenge' | 'award_points';
+export type FeePaymentStatus = 'not_applicable' | 'awaiting_payment' | 'paid' | 'overdue' | 'suspended';
+export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system' | 'emergency' | 'violation' | 'arena' | 'fee_payment';
+export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist' | 'create_violation' | 'update_violation' | 'escalate_violation' | 'resolve_violation' | 'dismiss_violation' | 'terminate_violation' | 'issue_tax_invoice' | 'cancel_tax_invoice' | 'confirm_tax_invoice' | 'approve_manual_input' | 'reject_manual_input' | 'create_penalty' | 'resolve_penalty' | 'create_challenge' | 'update_challenge' | 'award_points' | 'suspend_program_access' | 'restore_program_access';
 export type WithdrawalStatus = 'pending' | 'approved' | 'rejected';
 export type TrainerStatus = 'pending' | 'approved' | 'revoked';
 export type TrainerEarningStatus = 'pending' | 'requested' | 'deposited' | 'confirmed';
@@ -111,6 +112,13 @@ export interface MonthlyReport {
   total_with_vat: number;
   // 입력 소스
   input_source: 'api' | 'manual_approved' | null;
+  // 수수료 납부 추적
+  fee_payment_status: FeePaymentStatus;
+  fee_payment_deadline: string | null;
+  fee_paid_at: string | null;
+  fee_confirmed_at: string | null;
+  fee_surcharge_amount: number;
+  fee_interest_amount: number;
   created_at: string;
   updated_at: string;
   // Joined fields

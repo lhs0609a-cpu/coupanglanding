@@ -603,6 +603,23 @@ export const PENALTY_RISK_LABELS: Record<string, { label: string; color: string 
   danger: { label: '위험', color: 'text-red-600' },
 };
 
+// 수수료 납부 상태
+export const FEE_PAYMENT_STATUS_LABELS: Record<string, string> = {
+  not_applicable: '해당없음',
+  awaiting_payment: '납부 대기',
+  paid: '납부 완료',
+  overdue: '연체',
+  suspended: '접근 정지',
+};
+
+export const FEE_PAYMENT_STATUS_COLORS: Record<string, string> = {
+  not_applicable: 'bg-gray-100 text-gray-500',
+  awaiting_payment: 'bg-blue-100 text-blue-700',
+  paid: 'bg-green-100 text-green-700',
+  overdue: 'bg-red-100 text-red-700',
+  suspended: 'bg-red-200 text-red-800',
+};
+
 // 셀러 아레나 챌린지 타입
 export const CHALLENGE_TYPE_LABELS: Record<string, string> = {
   weekly: '주간',

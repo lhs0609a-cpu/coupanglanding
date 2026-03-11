@@ -27,6 +27,7 @@ export default async function MyLayout({ children }: { children: React.ReactNode
   // 트레이너 여부 확인 + 정산 D-Day 뱃지 데이터
   let isTrainer = false;
   let settlementBadge: { dday: number; reportStatus: 'not_eligible' | 'pending' | 'submitted' | 'completed' | 'overdue'; eligible: boolean } | undefined;
+  let feePaymentBadge: { status: string; deadline: string | null; unpaidAmount: number; yearMonth: string } | undefined;
 
   const { data: ptUser } = await supabase
     .from('pt_users')
@@ -43,7 +44,7 @@ export default async function MyLayout({ children }: { children: React.ReactNode
     // 현재 보고 대상월 리포트 조회
     const { data: reportData } = await supabase
       .from('monthly_reports')
-      .select('payment_status')
+      .select('payment_status, fee_payment_status, fee_payment_deadline, total_with_vat')
       .eq('pt_user_id', ptUserData.id)
       .eq('year_month', targetMonth)
       .maybeSingle();
@@ -55,6 +56,18 @@ export default async function MyLayout({ children }: { children: React.ReactNode
     );
 
     settlementBadge = { dday, reportStatus, eligible };
+
+    // 수수료 납부 뱃지 데이터
+    const reportRow = reportData as Record<string, unknown> | null;
+    const feeStatus = (reportRow?.fee_payment_status as string) || 'not_applicable';
+    if (feeStatus !== 'not_applicable' && feeStatus !== 'paid') {
+      feePaymentBadge = {
+        status: feeStatus,
+        deadline: (reportRow?.fee_payment_deadline as string) || null,
+        unpaidAmount: (reportRow?.total_with_vat as number) || 0,
+        yearMonth: targetMonth,
+      };
+    }
 
     const { data: trainer } = await supabase
       .from('trainers')
@@ -74,6 +87,7 @@ export default async function MyLayout({ children }: { children: React.ReactNode
       userRole={profile?.role || 'pt_user'}
       isTrainer={isTrainer}
       settlementBadge={settlementBadge}
+      feePaymentBadge={feePaymentBadge}
       coupangApiConnected={coupangApiConnected}
     >
       {children}

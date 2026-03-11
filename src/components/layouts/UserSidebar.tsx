@@ -2,8 +2,10 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X, School, Flame, ShieldAlert, Gavel, Receipt, MessageSquare, Map, ShieldCheck, Trophy, Search, Megaphone } from 'lucide-react';
-import type { SettlementBadgeData } from './DashboardLayout';
+import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X, School, Flame, ShieldAlert, Gavel, Receipt, MessageSquare, Map, ShieldCheck, Trophy, Search, Megaphone, Lightbulb } from 'lucide-react';
+import type { SettlementBadgeData, FeePaymentBadgeData } from './DashboardLayout';
+import FeePaymentBanner from '@/components/settlement/FeePaymentBanner';
+import type { FeePaymentStatus } from '@/lib/supabase/types';
 
 const baseNavItems = [
   { href: '/my/dashboard', label: '대시보드', icon: LayoutDashboard },
@@ -19,6 +21,7 @@ const baseNavItems = [
   { href: '/my/penalty', label: '페널티 트래커', icon: ShieldCheck },
   { href: '/my/arena', label: '상품등록 랭킹', icon: Trophy },
   { href: '/my/product-search', label: '상품검색', icon: Search },
+  { href: '/my/ad-tips', label: '광고 노하우', icon: Lightbulb },
   { href: '/my/promotion', label: '프로모션', icon: Megaphone },
   { href: '/my/education', label: '교육', icon: School },
   { href: '/my/guides', label: '운영 가이드', icon: BookOpen },
@@ -32,9 +35,10 @@ interface UserSidebarProps {
   onClose: () => void;
   isTrainer?: boolean;
   settlementBadge?: SettlementBadgeData;
+  feePaymentBadge?: FeePaymentBadgeData;
 }
 
-export default function UserSidebar({ isOpen, onClose, isTrainer, settlementBadge }: UserSidebarProps) {
+export default function UserSidebar({ isOpen, onClose, isTrainer, settlementBadge, feePaymentBadge }: UserSidebarProps) {
   const pathname = usePathname();
 
   const navItems = isTrainer
@@ -104,6 +108,15 @@ export default function UserSidebar({ isOpen, onClose, isTrainer, settlementBadg
                   <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 text-[10px] font-bold text-white bg-red-500 rounded-full">
                     {badgeText}
                   </span>
+                )}
+                {isReportItem && !isActive && feePaymentBadge && (
+                  <FeePaymentBanner
+                    variant="inline"
+                    feePaymentStatus={feePaymentBadge.status as FeePaymentStatus}
+                    feePaymentDeadline={feePaymentBadge.deadline}
+                    unpaidAmount={feePaymentBadge.unpaidAmount}
+                    yearMonth={feePaymentBadge.yearMonth}
+                  />
                 )}
               </Link>
             );

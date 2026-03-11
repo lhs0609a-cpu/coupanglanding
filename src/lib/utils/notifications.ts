@@ -554,6 +554,53 @@ export async function notifyChallengeCompleted(
   });
 }
 
+/** 수수료 납부 리마인더 (D-7, D-3, D-1) */
+export async function notifyFeePaymentReminder(
+  supabase: SupabaseClient,
+  userId: string,
+  yearMonth: string,
+  daysLeft: number,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'fee_payment',
+    title: `수수료 납부 마감 ${daysLeft}일 전`,
+    message: `${yearMonth} 수수료 납부 마감이 ${daysLeft}일 남았습니다. 기한 내 미납 시 연체 부과금과 지연이자가 발생합니다.`,
+    link: '/my/report',
+  });
+}
+
+/** 수수료 연체 경고 */
+export async function notifyFeePaymentOverdue(
+  supabase: SupabaseClient,
+  userId: string,
+  yearMonth: string,
+  daysOverdue: number,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'fee_payment',
+    title: '수수료 연체 경고',
+    message: `${yearMonth} 수수료가 ${daysOverdue}일 연체되었습니다. 연체 부과금(5%)과 지연이자(연 15%)가 적용됩니다. ${14 - daysOverdue > 0 ? `${14 - daysOverdue}일 내 미납 시 프로그램 접근이 정지됩니다.` : '프로그램 접근이 정지되었습니다.'}`,
+    link: '/my/report',
+  });
+}
+
+/** 프로그램 접근 정지 알림 */
+export async function notifyProgramSuspension(
+  supabase: SupabaseClient,
+  userId: string,
+  yearMonth: string,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'fee_payment',
+    title: '프로그램 접근 정지',
+    message: `${yearMonth} 수수료 미납으로 인해 자동화 프로그램 접근이 정지되었습니다. 수수료를 완납 후 접근 복구를 요청하세요.`,
+    link: '/my/report',
+  });
+}
+
 /** 아레나 랭킹 변동 알림 */
 export async function notifyRankChange(
   supabase: SupabaseClient,

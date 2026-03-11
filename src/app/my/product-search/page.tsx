@@ -14,7 +14,9 @@ import {
   Package,
   ArrowUpDown,
   ImageOff,
+  Loader2,
 } from 'lucide-react';
+import { calculateSimilarity } from '@/lib/utils/string-similarity';
 
 // ── Constants ───────────────────────────────────────────
 const GOOGLE_SHEET_ID = '1wBxJlm1_p3BJAi16hcgw0XxlnW4Fquk_gfm9dtE4QR0';
@@ -41,9 +43,10 @@ interface PriceResult {
   mallName: string;
   productId: string;
   productType: string;
+  matchScore?: number;
 }
 
-type PriceSort = 'sim' | 'asc' | 'dsc';
+type PriceSort = 'sim' | 'asc' | 'dsc' | 'match';
 
 // ── CSV Parser ──────────────────────────────────────────
 function parseCSVLine(line: string): string[] {
@@ -162,6 +165,10 @@ export default function ProductSearchPage() {
   // Failed images tracking
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
 
+  // Image extraction state
+  const [imageExtracting, setImageExtracting] = useState(false);
+  const imageExtractedRef = useRef(false);
+
   // Debounced search
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const debounceRef = useRef<NodeJS.Timeout>(null);
@@ -227,6 +234,56 @@ export default function ProductSearchPage() {
     syncProducts();
   }, [syncProducts]);
 
+  // 이미지 없는 상품들에 대해 og:image 배치 추출
+  useEffect(() => {
+    if (loading || products.length === 0 || imageExtractedRef.current) return;
+    const needImage = products.filter((p) => !p.image && p.url);
+    if (needImage.length === 0) return;
+
+    imageExtractedRef.current = true;
+    setImageExtracting(true);
+
+    const BATCH_SIZE = 5;
+    let cancelled = false;
+
+    (async () => {
+      for (let i = 0; i < needImage.length; i += BATCH_SIZE) {
+        if (cancelled) break;
+        const batch = needImage.slice(i, i + BATCH_SIZE);
+        const results = await Promise.allSettled(
+          batch.map(async (p) => {
+            const res = await fetch(
+              `/api/naver-shopping/extract-product-image?url=${encodeURIComponent(p.url)}`,
+            );
+            if (!res.ok) return { id: p.id, image: '' };
+            const data = await res.json();
+            return { id: p.id, image: data.image || '' };
+          }),
+        );
+
+        if (cancelled) break;
+
+        const updates = new Map<string, string>();
+        for (const r of results) {
+          if (r.status === 'fulfilled' && r.value.image) {
+            updates.set(r.value.id, r.value.image);
+          }
+        }
+
+        if (updates.size > 0) {
+          setProducts((prev) =>
+            prev.map((p) => (updates.has(p.id) ? { ...p, image: updates.get(p.id)! } : p)),
+          );
+        }
+      }
+      if (!cancelled) setImageExtracting(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, products.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Price comparison error
   const [priceError, setPriceError] = useState<string | null>(null);
 
@@ -254,16 +311,26 @@ export default function ProductSearchPage() {
         } catch { /* 실패 시 기존 이름 사용 */ }
       }
 
+      const apiSort = sort === 'match' ? 'sim' : sort;
       const res = await fetch(
-        `/api/naver-shopping/search?query=${encodeURIComponent(searchQuery)}&display=30&sort=${sort}`,
+        `/api/naver-shopping/search?query=${encodeURIComponent(searchQuery)}&display=30&sort=${apiSort}`,
       );
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || `검색 실패 (${res.status})`);
       }
       const data = await res.json();
-      setPriceResults(data.items || []);
-      if (!data.items?.length) {
+      const items: PriceResult[] = (data.items || []).map((item: PriceResult) => ({
+        ...item,
+        matchScore: calculateSimilarity(product.name, item.title),
+      }));
+
+      if (sort === 'match') {
+        items.sort((a, b) => (b.matchScore ?? 0) - (a.matchScore ?? 0));
+      }
+
+      setPriceResults(items);
+      if (!items.length) {
         setPriceError('네이버 쇼핑에서 일치하는 상품을 찾지 못했습니다.');
       }
     } catch (err) {
@@ -275,9 +342,16 @@ export default function ProductSearchPage() {
   };
 
   const handleSortChange = (sort: PriceSort) => {
-    if (priceModalProduct) {
-      handlePriceCompare(priceModalProduct, sort);
+    if (!priceModalProduct) return;
+    // 'match' 정렬은 기존 결과를 클라이언트에서 재정렬
+    if (sort === 'match' && priceResults.length > 0) {
+      setPriceSort(sort);
+      setPriceResults((prev) =>
+        [...prev].sort((a, b) => (b.matchScore ?? 0) - (a.matchScore ?? 0)),
+      );
+      return;
     }
+    handlePriceCompare(priceModalProduct, sort);
   };
 
   // Clipboard
@@ -302,7 +376,15 @@ export default function ProductSearchPage() {
     { key: 'asc', label: '낮은가격' },
     { key: 'dsc', label: '높은가격' },
     { key: 'sim', label: '정확도' },
+    { key: 'match', label: '이름일치' },
   ];
+
+  const getMatchBadge = (score: number) => {
+    if (score >= 90) return { text: `${score}%`, color: 'bg-green-100 text-green-700' };
+    if (score >= 70) return { text: `${score}%`, color: 'bg-blue-100 text-blue-700' };
+    if (score >= 50) return { text: `${score}%`, color: 'bg-yellow-100 text-yellow-700' };
+    return { text: `${score}%`, color: 'bg-gray-100 text-gray-500' };
+  };
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -315,6 +397,12 @@ export default function ProductSearchPage() {
             <p className="text-sm text-gray-500">등록 상품 검색 및 가격비교</p>
           </div>
           <Badge label={`${products.length}개`} colorClass="bg-gray-100 text-gray-700" />
+          {imageExtracting && (
+            <span className="flex items-center gap-1 text-xs text-gray-400">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              이미지 로딩
+            </span>
+          )}
         </div>
         <button
           type="button"
@@ -519,10 +607,20 @@ export default function ProductSearchPage() {
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <p
-                      className="text-sm font-medium text-gray-900 line-clamp-2 group-hover:text-[#E31837] transition"
-                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(item.title) }}
-                    />
+                    <div className="flex items-start gap-1.5">
+                      <p
+                        className="text-sm font-medium text-gray-900 line-clamp-2 group-hover:text-[#E31837] transition flex-1"
+                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(item.title) }}
+                      />
+                      {item.matchScore != null && (() => {
+                        const badge = getMatchBadge(item.matchScore);
+                        return (
+                          <span className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${badge.color}`}>
+                            {badge.text}
+                          </span>
+                        );
+                      })()}
+                    </div>
                     <div className="flex items-center gap-2 mt-1.5">
                       <span className="text-lg font-bold text-[#E31837]">
                         {formatPrice(item.lprice)}

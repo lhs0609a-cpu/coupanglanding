@@ -184,12 +184,22 @@ export default function AdminPtUsersPage() {
     if (!reviewModalData) return;
     const { report, adjustedAmount } = reviewModalData;
 
+    // 수수료 납부 마감일 계산
+    const now = new Date();
+    const [ry, rm] = report.year_month.split('-').map(Number);
+    const settlementDeadline = new Date(ry, rm, 0, 23, 59, 59);
+    const feeDeadline = settlementDeadline > now
+      ? settlementDeadline.toISOString()
+      : new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
     await supabase
       .from('monthly_reports')
       .update({
         payment_status: 'reviewed',
         admin_deposit_amount: adjustedAmount,
         reviewed_at: new Date().toISOString(),
+        fee_payment_status: 'awaiting_payment',
+        fee_payment_deadline: feeDeadline,
       })
       .eq('id', report.id);
 
@@ -209,6 +219,8 @@ export default function AdminPtUsersPage() {
         .update({
           payment_status: 'confirmed',
           payment_confirmed_at: new Date().toISOString(),
+          fee_payment_status: 'paid',
+          fee_confirmed_at: new Date().toISOString(),
         })
         .eq('id', report.id),
       supabase

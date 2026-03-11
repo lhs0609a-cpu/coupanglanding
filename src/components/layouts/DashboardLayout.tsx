@@ -13,6 +13,13 @@ export interface SettlementBadgeData {
   eligible: boolean;
 }
 
+export interface FeePaymentBadgeData {
+  status: string;          // FeePaymentStatus
+  deadline: string | null;
+  unpaidAmount: number;
+  yearMonth: string;
+}
+
 interface DashboardLayoutProps {
   children: React.ReactNode;
   userName: string;
@@ -20,6 +27,7 @@ interface DashboardLayoutProps {
   variant: 'admin' | 'user';
   isTrainer?: boolean;
   settlementBadge?: SettlementBadgeData;
+  feePaymentBadge?: FeePaymentBadgeData;
   coupangApiConnected?: boolean;
 }
 
@@ -30,6 +38,7 @@ export default function DashboardLayout({
   variant,
   isTrainer,
   settlementBadge,
+  feePaymentBadge,
   coupangApiConnected,
 }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -42,7 +51,7 @@ export default function DashboardLayout({
       {variant === 'admin' ? (
         <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       ) : (
-        <UserSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isTrainer={isTrainer} settlementBadge={settlementBadge} />
+        <UserSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isTrainer={isTrainer} settlementBadge={settlementBadge} feePaymentBadge={feePaymentBadge} />
       )}
 
       <div className="flex-1 flex flex-col min-w-0">

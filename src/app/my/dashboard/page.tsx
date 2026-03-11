@@ -10,6 +10,8 @@ import EmergencyAlertWidget from '@/components/my/EmergencyAlertWidget';
 import GrowthRoadmapWidget from '@/components/my/GrowthRoadmapWidget';
 import ArenaWidget from '@/components/my/ArenaWidget';
 import SettlementDDayBanner from '@/components/settlement/SettlementDDayBanner';
+import FeePaymentBanner from '@/components/settlement/FeePaymentBanner';
+import type { FeePaymentStatus } from '@/lib/supabase/types';
 import ApiConnectionBanner from '@/components/settlement/ApiConnectionBanner';
 import CoupangOverviewWidget from '@/components/my/CoupangOverviewWidget';
 import Card from '@/components/ui/Card';
@@ -129,6 +131,19 @@ export default function MyDashboardPage() {
           dday={dday}
           reportStatus={reportStatus}
           eligible={eligible}
+        />
+      )}
+
+      {/* 수수료 납부 D-Day 배너 */}
+      {currentReport && currentReport.fee_payment_status !== 'not_applicable' && currentReport.fee_payment_status !== 'paid' && (
+        <FeePaymentBanner
+          variant="compact"
+          feePaymentStatus={currentReport.fee_payment_status as FeePaymentStatus}
+          feePaymentDeadline={currentReport.fee_payment_deadline}
+          unpaidAmount={currentReport.total_with_vat}
+          yearMonth={targetMonth}
+          feeSurchargeAmount={currentReport.fee_surcharge_amount}
+          feeInterestAmount={currentReport.fee_interest_amount}
         />
       )}
 

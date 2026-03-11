@@ -25,7 +25,8 @@ import PaymentProgress from '@/components/ui/PaymentProgress';
 import { calculateListingDiscount, type ListingDiscountResult } from '@/lib/calculations/listing-discount';
 import { Send, Calculator, CheckCircle2, ChevronDown, ChevronUp, Banknote, Minus, Plug, Shield, Edit3, Award, FlaskConical } from 'lucide-react';
 import ApiConnectionBanner from '@/components/settlement/ApiConnectionBanner';
-import type { MonthlyReport, PtUser } from '@/lib/supabase/types';
+import FeePaymentBanner from '@/components/settlement/FeePaymentBanner';
+import type { MonthlyReport, PtUser, FeePaymentStatus } from '@/lib/supabase/types';
 
 export default function MyReportPage() {
   const searchParams = useSearchParams();
@@ -545,6 +546,19 @@ export default function MyReportPage() {
           </div>
           <span className="text-lg font-bold">{formatDDay(dday)}</span>
         </div>
+      )}
+
+      {/* 수수료 납부 배너 (reviewed 이상일 때) */}
+      {report && report.fee_payment_status !== 'not_applicable' && report.fee_payment_status !== 'paid' && (
+        <FeePaymentBanner
+          variant="full"
+          feePaymentStatus={report.fee_payment_status as FeePaymentStatus}
+          feePaymentDeadline={report.fee_payment_deadline}
+          unpaidAmount={report.total_with_vat}
+          yearMonth={yearMonth}
+          feeSurchargeAmount={report.fee_surcharge_amount}
+          feeInterestAmount={report.fee_interest_amount}
+        />
       )}
 
       {/* 미대상월 안내 */}
