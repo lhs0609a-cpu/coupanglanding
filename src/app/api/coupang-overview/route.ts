@@ -48,12 +48,7 @@ export async function GET() {
       monthlySettlement: settlement?.totalSettlement ?? 0,
       monthlyCommission: settlement?.totalCommission ?? 0,
       yearMonth,
-      // 디버그 (문제 해결 후 제거)
-      _debug: {
-        productError: productResult.status === 'rejected' ? String(productResult.reason) : null,
-        settlementError,
-        settlementItemCount: settlement?.items.length ?? 0,
-      },
+      syncedAt: new Date().toISOString(),
     });
   } catch (error) {
     if (error instanceof CoupangApiError) {

@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Card from '@/components/ui/Card';
-import { Package, TrendingUp, Wallet, Percent } from 'lucide-react';
+import { Package, TrendingUp, Wallet, Percent, RefreshCw, Clock } from 'lucide-react';
 
 interface OverviewData {
   productCount: number;
@@ -10,6 +10,7 @@ interface OverviewData {
   monthlySettlement: number;
   monthlyCommission: number;
   yearMonth: string;
+  syncedAt: string;
 }
 
 function formatKRW(value: number): string {
@@ -19,28 +20,48 @@ function formatKRW(value: number): string {
   return `${value.toLocaleString()}원`;
 }
 
+function formatSyncTime(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const hh = pad(d.getHours());
+  const mm = pad(d.getMinutes());
+  const MM = pad(d.getMonth() + 1);
+  const DD = pad(d.getDate());
+  return `${MM}.${DD} ${hh}:${mm}`;
+}
+
 export default function CoupangOverviewWidget() {
   const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch('/api/coupang-overview');
-        if (!res.ok) {
-          setError(true);
-          return;
-        }
-        const json = await res.json();
-        setData(json);
-      } catch {
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await fetch('/api/coupang-overview');
+      if (!res.ok) {
         setError(true);
-      } finally {
-        setLoading(false);
+        return;
       }
-    })();
+      const json = await res.json();
+      setData(json);
+      setError(false);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+      setSyncing(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const handleRefresh = () => {
+    setSyncing(true);
+    fetchData();
+  };
 
   if (error) return null;
 
@@ -85,7 +106,26 @@ export default function CoupangOverviewWidget() {
 
   return (
     <Card>
-      <h2 className="text-lg font-bold text-gray-900 mb-4">쿠팡 연동 현황</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-bold text-gray-900">쿠팡 연동 현황</h2>
+        <div className="flex items-center gap-2">
+          {data?.syncedAt && (
+            <span className="flex items-center gap-1 text-xs text-gray-400">
+              <Clock className="w-3 h-3" />
+              {formatSyncTime(data.syncedAt)}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={syncing}
+            className="p-1.5 rounded-lg text-gray-400 hover:text-[#E31837] hover:bg-red-50 transition disabled:opacity-50"
+            title="새로고침"
+          >
+            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
       <div className="grid grid-cols-2 gap-4">
         {stats.map((stat) => (
           <div key={stat.label} className="flex items-start gap-3">
