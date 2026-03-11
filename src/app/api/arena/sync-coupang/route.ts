@@ -39,8 +39,7 @@ export async function POST(request: NextRequest) {
         accessKey,
         secretKey,
       },
-      today,
-      today,
+      { dateFrom: today, dateTo: today },
     );
 
     const { points_listings, points_revenue, points_total } = calculateDailyPoints(count, 0);
