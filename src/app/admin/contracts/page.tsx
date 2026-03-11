@@ -609,7 +609,7 @@ export default function AdminContractsPage() {
                   if (selected) {
                     setNewSharePercentage(String(selected.share_percentage));
                     // 타인 명의 사업자인 경우 자동으로 3자 계약 선택
-                    const selfBiz = (selected as Record<string, unknown>).is_self_business;
+                    const selfBiz = selected.is_self_business;
                     setNewContractMode(selfBiz === false ? 'triple' : 'single');
                   }
                 }}
