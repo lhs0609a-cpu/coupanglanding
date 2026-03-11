@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import { API_STATUS_LABELS, API_STATUS_COLORS } from '@/lib/utils/constants';
+import { API_STATUS_LABELS, API_STATUS_COLORS, BUSINESS_RELATIONS } from '@/lib/utils/constants';
 import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import { Settings, Eye, EyeOff, Save, CheckCircle, Plug, AlertTriangle, Shield, ChevronDown, ChevronUp, HelpCircle, ExternalLink, Building2 } from 'lucide-react';
 
@@ -52,6 +52,8 @@ export default function MySettingsPage() {
   const [bizCategory, setBizCategory] = useState('');
   const [bizSaving, setBizSaving] = useState(false);
   const [bizSaved, setBizSaved] = useState(false);
+  const [isSelfBusiness, setIsSelfBusiness] = useState(true);
+  const [businessRelation, setBusinessRelation] = useState('');
 
   // API 연동 상태
   const [apiVendorId, setApiVendorId] = useState('');
@@ -78,7 +80,7 @@ export default function MySettingsPage() {
 
     const { data: ptUser } = await supabase
       .from('pt_users')
-      .select('coupang_seller_id, coupang_seller_pw, business_name, business_registration_number, business_representative, business_address, business_type, business_category, coupang_api_connected, coupang_vendor_id, coupang_api_key_expires_at')
+      .select('coupang_seller_id, coupang_seller_pw, business_name, business_registration_number, business_representative, business_address, business_type, business_category, coupang_api_connected, coupang_vendor_id, coupang_api_key_expires_at, is_self_business, business_relation')
       .eq('profile_id', user.id)
       .single();
 
@@ -93,6 +95,8 @@ export default function MySettingsPage() {
       setBizAddress(ptUser.business_address || '');
       setBizType(ptUser.business_type || '');
       setBizCategory(ptUser.business_category || '');
+      setIsSelfBusiness(ptUser.is_self_business !== false);
+      setBusinessRelation(ptUser.business_relation || '');
 
       // DB에서 직접 API 연동 상태 로드 (영구 유지)
       setApiHasCredentials(!!ptUser.coupang_api_connected);
@@ -230,6 +234,8 @@ export default function MySettingsPage() {
           business_address: bizAddress || null,
           business_type: bizType || null,
           business_category: bizCategory || null,
+          is_self_business: isSelfBusiness,
+          business_relation: isSelfBusiness ? null : (businessRelation || null),
         })
         .eq('profile_id', user.id);
 
@@ -664,6 +670,55 @@ export default function MySettingsPage() {
           <div className="text-center py-8 text-gray-400">불러오는 중...</div>
         ) : (
           <div className="space-y-4">
+            {/* 본인 명의 사업자 여부 */}
+            <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">본인 명의 사업자입니까?</p>
+                  <p className="text-xs text-gray-500 mt-0.5">타인 명의(배우자, 가족 등)인 경우 &apos;아니오&apos;를 선택해주세요.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setIsSelfBusiness(true); setBusinessRelation(''); }}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-lg transition ${
+                      isSelfBusiness ? 'bg-[#E31837] text-white' : 'bg-white border border-gray-300 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    예
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsSelfBusiness(false)}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-lg transition ${
+                      !isSelfBusiness ? 'bg-[#E31837] text-white' : 'bg-white border border-gray-300 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    아니오
+                  </button>
+                </div>
+              </div>
+
+              {!isSelfBusiness && (
+                <div>
+                  <label htmlFor="biz-relation" className="block text-sm font-medium text-gray-700 mb-1">
+                    사업자 대표와의 관계
+                  </label>
+                  <select
+                    id="biz-relation"
+                    value={businessRelation}
+                    onChange={(e) => setBusinessRelation(e.target.value)}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                  >
+                    <option value="">선택하세요</option>
+                    {BUSINESS_RELATIONS.filter(r => r !== '본인').map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="biz-name" className="block text-sm font-medium text-gray-700 mb-1">상호 (법인명)</label>

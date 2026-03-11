@@ -10,9 +10,12 @@ import {
   AlertCircle,
   CheckCircle,
   Play,
+  ToggleLeft,
+  ToggleRight,
+  Store,
+  X,
 } from 'lucide-react';
 import Card from '@/components/ui/Card';
-import Badge from '@/components/ui/Badge';
 import SetupGuide from '@/components/my/promotion/SetupGuide';
 import ProgressDisplay from '@/components/my/promotion/ProgressDisplay';
 import InstantCouponCard from '@/components/my/promotion/InstantCouponCard';
@@ -20,7 +23,7 @@ import DownloadCouponCard from '@/components/my/promotion/DownloadCouponCard';
 import StatisticsCards from '@/components/my/promotion/StatisticsCards';
 import TrackingList from '@/components/my/promotion/TrackingList';
 import LogsList from '@/components/my/promotion/LogsList';
-import { POLLING_INTERVAL_MS } from '@/lib/data/promotion-constants';
+import { POLLING_INTERVAL_MS, PROMO_DESCRIPTION_BANNER } from '@/lib/data/promotion-constants';
 import type {
   CouponAutoSyncConfig,
   ProductCouponTracking,
@@ -42,11 +45,19 @@ interface Stats {
   skipped: number;
 }
 
+interface AccountInfo {
+  vendorId: string;
+  vendorName: string;
+}
+
 // ── Page Component ──────────────────────────────────────
 export default function PromotionPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('config');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Account info
+  const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null);
 
   // Config state
   const [config, setConfig] = useState<Partial<CouponAutoSyncConfig>>({
@@ -64,7 +75,7 @@ export default function PromotionPage() {
     download_coupon_enabled: false,
     download_coupon_id: '',
     download_coupon_name: '',
-    download_coupon_auto_create: false,
+    download_coupon_auto_create: true,
     download_coupon_title_template: '다운로드쿠폰 {date}',
     download_coupon_duration_days: 30,
     download_coupon_policies: [],
@@ -72,6 +83,9 @@ export default function PromotionPage() {
   });
   const [configLoading, setConfigLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // Apply all checkbox
+  const [applyAllOnSave, setApplyAllOnSave] = useState(false);
 
   // Coupang data
   const [contracts, setContracts] = useState<CoupangContract[]>([]);
@@ -83,7 +97,7 @@ export default function PromotionPage() {
   const [progress, setProgress] = useState<BulkApplyProgress | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [restarting, setRestarting] = useState(false);
-  const [applyingAll, setApplyingAll] = useState(false);
+  const [applyingNewOnly, setApplyingNewOnly] = useState(false);
   const pollingRef = useRef<NodeJS.Timeout>(null);
 
   // Tracking tab
@@ -99,7 +113,7 @@ export default function PromotionPage() {
   const [logsPage, setLogsPage] = useState(0);
   const [logsLoading, setLogsLoading] = useState(false);
 
-  // Stats
+  // Stats (always loaded)
   const [stats, setStats] = useState<Stats>({ total: 0, pending: 0, processing: 0, completed: 0, failed: 0, skipped: 0 });
   const [statsLoading, setStatsLoading] = useState(false);
 
@@ -114,10 +128,23 @@ export default function PromotionPage() {
         if (data.config) {
           setConfig((prev) => ({ ...prev, ...data.config }));
         }
+        if (data.account) {
+          setAccountInfo(data.account);
+        }
       }
     } catch { /* ignore */ } finally {
       setConfigLoading(false);
     }
+  }, []);
+
+  const fetchContracts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/promotion/contracts');
+      if (res.ok) {
+        const data = await res.json();
+        setContracts(data.data || []);
+      }
+    } catch { /* ignore */ }
   }, []);
 
   const fetchCoupangData = useCallback(async () => {
@@ -190,7 +217,8 @@ export default function PromotionPage() {
     fetchConfig();
     fetchCoupangData();
     fetchProgress();
-  }, [fetchConfig, fetchCoupangData, fetchProgress]);
+    fetchStats();
+  }, [fetchConfig, fetchCoupangData, fetchProgress, fetchStats]);
 
   // Tab-specific loading
   useEffect(() => {
@@ -208,10 +236,16 @@ export default function PromotionPage() {
     if (progressStatus === 'collecting' || progressStatus === 'applying') {
       pollingRef.current = setInterval(async () => {
         await fetchProgress();
-        // Trigger next batch
         try {
-          await fetch('/api/promotion/bulk-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+          if (progressStatus === 'collecting') {
+            // 상품 수집 단계: collect-products 호출
+            await fetch('/api/promotion/collect-products', { method: 'POST' });
+          } else {
+            // 쿠폰 적용 단계: bulk-apply 호출
+            await fetch('/api/promotion/bulk-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+          }
         } catch { /* ignore */ }
+        await fetchProgress();
       }, POLLING_INTERVAL_MS);
       return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
     }
@@ -223,7 +257,27 @@ export default function PromotionPage() {
     setConfig((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSave = async () => {
+  const handleToggleSync = async () => {
+    const newEnabled = !config.is_enabled;
+    handleConfigChange('is_enabled', newEnabled);
+    try {
+      const res = await fetch('/api/promotion/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...config, is_enabled: newEnabled }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.config) setConfig((prev) => ({ ...prev, ...data.config }));
+        setSuccess(newEnabled ? '자동연동이 활성화되었습니다.' : '자동연동이 비활성화되었습니다.');
+        setTimeout(() => setSuccess(null), 3000);
+      }
+    } catch {
+      handleConfigChange('is_enabled', !newEnabled); // rollback
+    }
+  };
+
+  const handleSaveAndApply = async () => {
     setSaving(true);
     setError(null);
     setSuccess(null);
@@ -237,37 +291,29 @@ export default function PromotionPage() {
       if (!res.ok) {
         throw new Error(data.error || '설정 저장에 실패했습니다.');
       }
-      // 서버 응답으로 로컬 상태 갱신
       if (data.config) {
         setConfig((prev) => ({ ...prev, ...data.config }));
       }
-      setSuccess('설정이 저장되었습니다.');
+
+      // If "apply all" checkbox is checked, start product collection then apply
+      if (applyAllOnSave) {
+        const collectRes = await fetch('/api/promotion/collect-products', {
+          method: 'POST',
+        });
+        if (!collectRes.ok) {
+          const collectData = await collectRes.json();
+          throw new Error(collectData.error || '상품 수집 시작에 실패했습니다.');
+        }
+        await fetchProgress();
+        setSuccess('설정이 저장되었고 상품 수집 및 쿠폰 적용이 시작되었습니다.');
+      } else {
+        setSuccess('설정이 저장되었습니다.');
+      }
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : '설정 저장 실패');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleApplyAll = async () => {
-    setApplyingAll(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/promotion/bulk-apply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ startNew: true }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || '일괄 적용 시작에 실패했습니다.');
-      }
-      await fetchProgress();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '일괄 적용 실패');
-    } finally {
-      setApplyingAll(false);
     }
   };
 
@@ -284,10 +330,31 @@ export default function PromotionPage() {
   const handleRestart = async () => {
     setRestarting(true);
     try {
-      await fetch('/api/promotion/restart', { method: 'POST' });
+      await fetch('/api/promotion/collect-products', { method: 'POST' });
       await fetchProgress();
     } catch { /* ignore */ } finally {
       setRestarting(false);
+    }
+  };
+
+  const handleApplyNewOnly = async () => {
+    setApplyingNewOnly(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/promotion/bulk-apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startNew: true, pendingOnly: true }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || '신규 상품 적용에 실패했습니다.');
+      }
+      await fetchProgress();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '신규 상품 적용 실패');
+    } finally {
+      setApplyingNewOnly(false);
     }
   };
 
@@ -306,39 +373,72 @@ export default function PromotionPage() {
     }
   };
 
+  const handleRefreshContracts = async () => {
+    await fetchContracts();
+  };
+
+  const handleResetConfig = () => {
+    fetchConfig();
+    setApplyAllOnSave(false);
+  };
+
   // ── Setup guide step count ────────────────────────────
   const completedSteps = useMemo(() => {
     let steps = 0;
-    // Step 1: API connected (check if contracts load)
-    if (contracts.length > 0 || instantCoupons.length > 0) steps = 1;
-    // Step 2: Contract selected
-    if (config.contract_id) steps = 2;
-    // Step 3: At least one coupon type configured
-    if (config.instant_coupon_enabled || config.download_coupon_enabled) steps = 3;
+    // Step 1: Account connected (has vendor ID)
+    if (accountInfo?.vendorId || contracts.length > 0) steps = 1;
+    // Step 2: At least one coupon type enabled
+    if (config.instant_coupon_enabled || config.download_coupon_enabled) steps = 2;
+    // Step 3: Coupon ID configured
+    if (config.instant_coupon_id || config.download_coupon_policies?.length) steps = 3;
     // Step 4: Config saved and enabled
     if (config.is_enabled) steps = 4;
     return steps;
-  }, [contracts, instantCoupons, config]);
+  }, [accountInfo, contracts, config]);
 
   const tabs: { key: TabKey; label: string; icon: typeof Settings2 }[] = [
-    { key: 'config', label: '설정', icon: Settings2 },
-    { key: 'tracking', label: '추적', icon: ListChecks },
-    { key: 'logs', label: '이력', icon: FileText },
+    { key: 'config', label: '쿠폰 설정', icon: Settings2 },
+    { key: 'tracking', label: '추적 목록', icon: ListChecks },
+    { key: 'logs', label: '적용 이력', icon: FileText },
   ];
+
+  // Current config summary
+  const configSummary = useMemo(() => {
+    if (!config.is_enabled) return null;
+    const parts: string[] = [];
+    if (config.instant_coupon_enabled) {
+      parts.push(`즉시할인: ${config.instant_coupon_name || config.instant_coupon_id || '설정됨'}`);
+    }
+    if (config.download_coupon_enabled) {
+      parts.push(`다운로드: ${config.download_coupon_title_template || '설정됨'}`);
+    }
+    return parts;
+  }, [config]);
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
-      {/* Header */}
+      {/* Header with Account Info */}
       <div className="flex items-center gap-3">
         <Megaphone className="w-6 h-6 text-[#E31837]" />
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold text-gray-900">프로모션</h1>
           <p className="text-sm text-gray-500">쿠폰 자동 적용 및 프로모션 관리</p>
         </div>
-        {config.is_enabled && (
-          <Badge label="활성화" colorClass="bg-green-100 text-green-700" />
-        )}
       </div>
+
+      {/* Account Info Header */}
+      {accountInfo && accountInfo.vendorId && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-xl border border-gray-200">
+          <Store className="w-5 h-5 text-gray-500" />
+          <div>
+            <span className="text-sm font-medium text-gray-900">{accountInfo.vendorName}</span>
+            <span className="text-xs text-gray-400 ml-2">({accountInfo.vendorId})</span>
+          </div>
+        </div>
+      )}
+
+      {/* Statistics Cards - Always visible */}
+      <StatisticsCards stats={stats} loading={statsLoading} />
 
       {/* Tabs */}
       <div className="flex border-b border-gray-200">
@@ -365,7 +465,10 @@ export default function PromotionPage() {
       {error && (
         <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-red-50 text-red-600 text-sm">
           <AlertCircle className="w-5 h-5 flex-shrink-0" />
-          <span>{error}</span>
+          <span className="flex-1">{error}</span>
+          <button type="button" onClick={() => setError(null)} className="p-0.5 hover:bg-red-100 rounded">
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
       {success && (
@@ -387,116 +490,133 @@ export default function PromotionPage() {
               {/* Setup Guide */}
               <SetupGuide completedSteps={completedSteps} />
 
-              {/* Progress (if active) */}
-              {progress && progress.status !== 'completed' && (
+              {/* Progress Display */}
+              {progress && (
                 <ProgressDisplay
                   progress={progress}
                   onCancel={handleCancel}
                   onRestart={handleRestart}
+                  onApplyNewOnly={handleApplyNewOnly}
                   cancelling={cancelling}
                   restarting={restarting}
+                  applyingNewOnly={applyingNewOnly}
                 />
               )}
 
-              {/* Contract Selection */}
-              <Card>
-                <h3 className="text-sm font-bold text-gray-900 mb-3">계약서 선택</h3>
-                <select
-                  value={config.contract_id || ''}
-                  onChange={(e) => handleConfigChange('contract_id', e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-[#E31837]/30 focus:border-[#E31837]"
-                >
-                  <option value="">계약서를 선택하세요</option>
-                  {contracts.map((c) => (
-                    <option key={c.contractId} value={String(c.contractId)}>
-                      {c.contractName} ({c.contractStatus})
-                    </option>
-                  ))}
-                </select>
-                {contracts.length === 0 && (
-                  <p className="text-xs text-gray-400 mt-2">
-                    계약서를 불러올 수 없습니다. 쿠팡 API가 연동되어 있는지 확인하세요.
-                  </p>
-                )}
-              </Card>
+              {/* Description Banner */}
+              <div className="px-4 py-3 bg-gradient-to-r from-red-50 to-orange-50 border border-red-100 rounded-xl">
+                <p className="text-sm font-medium text-gray-800">{PROMO_DESCRIPTION_BANNER}</p>
+              </div>
 
-              {/* Instant Coupon */}
-              <InstantCouponCard
-                enabled={config.instant_coupon_enabled ?? false}
-                autoCreate={config.instant_coupon_auto_create ?? false}
-                couponId={config.instant_coupon_id || ''}
-                couponName={config.instant_coupon_name || ''}
-                titleTemplate={config.instant_coupon_title_template || ''}
-                durationDays={config.instant_coupon_duration_days ?? 30}
-                discount={config.instant_coupon_discount ?? 0}
-                discountType={config.instant_coupon_discount_type ?? 'RATE'}
-                maxDiscount={config.instant_coupon_max_discount ?? 0}
-                contracts={contracts}
-                existingCoupons={instantCoupons}
-                onChange={handleConfigChange}
-              />
-
-              {/* Download Coupon */}
-              <DownloadCouponCard
-                enabled={config.download_coupon_enabled ?? false}
-                autoCreate={config.download_coupon_auto_create ?? false}
-                couponId={config.download_coupon_id || ''}
-                couponName={config.download_coupon_name || ''}
-                titleTemplate={config.download_coupon_title_template || ''}
-                durationDays={config.download_coupon_duration_days ?? 30}
-                policies={(config.download_coupon_policies as Record<string, unknown>[]) ?? []}
-                existingCoupons={downloadCoupons}
-                onChange={handleConfigChange}
-                onCopyPolicies={handleCopyPolicies}
-                copyingPolicies={copyingPolicies}
-              />
-
-              {/* Apply delay */}
-              <Card>
-                <h3 className="text-sm font-bold text-gray-900 mb-3">적용 옵션</h3>
-                <div className="flex items-center gap-3">
-                  <label className="text-sm text-gray-700">상품 등록 후 대기일수:</label>
+              {/* Auto Sync Toggle */}
+              <div className="flex items-center justify-between px-4 py-3 bg-white rounded-xl border border-gray-200">
+                <div className="flex items-center gap-2">
+                  {config.is_enabled ? (
+                    <ToggleRight className="w-5 h-5 text-[#E31837]" />
+                  ) : (
+                    <ToggleLeft className="w-5 h-5 text-gray-400" />
+                  )}
+                  <span className="text-sm font-medium text-gray-900">자동연동</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    config.is_enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                  }`}>
+                    {config.is_enabled ? 'ON' : 'OFF'}
+                  </span>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
                   <input
-                    type="number"
-                    value={config.apply_delay_days ?? 0}
-                    onChange={(e) => handleConfigChange('apply_delay_days', Number(e.target.value))}
-                    min={0}
-                    max={30}
-                    className="w-20 px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-[#E31837]/30 focus:border-[#E31837]"
+                    type="checkbox"
+                    checked={config.is_enabled ?? false}
+                    onChange={handleToggleSync}
+                    className="sr-only peer"
                   />
-                  <span className="text-xs text-gray-400">일 (0 = 즉시)</span>
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[#E31837]/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#E31837]" />
+                </label>
+              </div>
+
+              {/* STEP 1: 쿠폰 정보 입력 */}
+              <Card>
+                <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
+                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#E31837] text-white text-xs font-bold">1</span>
+                  쿠폰 정보 입력
+                </h3>
+                <div className="space-y-4">
+                  <InstantCouponCard
+                    enabled={config.instant_coupon_enabled ?? false}
+                    couponId={config.instant_coupon_id || ''}
+                    couponName={config.instant_coupon_name || ''}
+                    existingCoupons={instantCoupons}
+                    onChange={handleConfigChange}
+                  />
+                  <DownloadCouponCard
+                    enabled={config.download_coupon_enabled ?? false}
+                    contractId={config.contract_id || ''}
+                    titleTemplate={config.download_coupon_title_template || ''}
+                    durationDays={config.download_coupon_duration_days ?? 30}
+                    policies={(config.download_coupon_policies as Record<string, unknown>[]) ?? []}
+                    contracts={contracts}
+                    onChange={handleConfigChange}
+                    onCopyPolicies={handleCopyPolicies}
+                    onRefreshContracts={handleRefreshContracts}
+                    copyingPolicies={copyingPolicies}
+                  />
                 </div>
               </Card>
 
-              {/* Save + Apply buttons */}
+              {/* STEP 2: 적용 옵션 */}
+              <Card>
+                <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
+                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#E31837] text-white text-xs font-bold">2</span>
+                  적용 옵션
+                </h3>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={applyAllOnSave}
+                    onChange={(e) => setApplyAllOnSave(e.target.checked)}
+                    className="w-4 h-4 text-[#E31837] border-gray-300 rounded focus:ring-[#E31837]/30"
+                  />
+                  <span className="text-sm text-gray-700">승인된 모든 상품에 일괄 적용</span>
+                </label>
+              </Card>
+
+              {/* Buttons: Cancel + Save & Apply */}
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={handleSave}
-                  disabled={saving}
+                  onClick={handleResetConfig}
+                  className="px-6 py-2.5 text-sm font-medium text-gray-500 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveAndApply}
+                  disabled={saving || (progress?.status === 'collecting' || progress?.status === 'applying')}
                   className="flex items-center gap-2 px-6 py-2.5 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-[#c81530] transition disabled:opacity-50"
                 >
-                  <Save className="w-4 h-4" />
-                  {saving ? '저장 중...' : '설정 저장'}
+                  {applyAllOnSave ? <Play className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                  {saving ? '저장 중...' : applyAllOnSave ? '설정 저장 및 적용' : '설정 저장'}
                 </button>
-
-                {config.is_enabled && (
-                  <button
-                    type="button"
-                    onClick={handleApplyAll}
-                    disabled={applyingAll || (progress?.status === 'collecting' || progress?.status === 'applying')}
-                    className="flex items-center gap-2 px-6 py-2.5 text-sm font-medium text-[#E31837] border border-[#E31837] rounded-lg hover:bg-red-50 transition disabled:opacity-50"
-                  >
-                    <Play className="w-4 h-4" />
-                    {applyingAll ? '시작 중...' : '전체 상품 적용'}
-                  </button>
-                )}
               </div>
 
-              {/* Current status */}
-              {config.is_enabled && config.last_sync_at && (
-                <div className="text-xs text-gray-400">
-                  마지막 동기화: {new Date(config.last_sync_at).toLocaleString('ko-KR')}
+              {/* Current config summary */}
+              {configSummary && configSummary.length > 0 && (
+                <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
+                  <h4 className="text-xs font-medium text-gray-500 mb-2">현재 설정 요약</h4>
+                  <div className="space-y-1">
+                    {configSummary.map((line, i) => (
+                      <p key={i} className="text-sm text-gray-700 flex items-center gap-2">
+                        <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                        {line}
+                      </p>
+                    ))}
+                  </div>
+                  {config.last_sync_at && (
+                    <p className="text-xs text-gray-400 mt-2">
+                      마지막 동기화: {new Date(config.last_sync_at).toLocaleString('ko-KR')}
+                    </p>
+                  )}
                 </div>
               )}
             </>
@@ -507,7 +627,6 @@ export default function PromotionPage() {
       {/* ═══ Tracking Tab ═══ */}
       {activeTab === 'tracking' && (
         <div className="space-y-6">
-          <StatisticsCards stats={stats} loading={statsLoading} />
           <TrackingList
             items={trackingItems}
             total={trackingTotal}

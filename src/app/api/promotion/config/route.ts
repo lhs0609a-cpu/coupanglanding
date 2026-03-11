@@ -11,16 +11,23 @@ export async function GET() {
       return NextResponse.json({ error: '인증이 필요합니다.' }, { status: 401 });
     }
 
-    // Get pt_user
+    // Get pt_user with business info
     const { data: ptUser } = await supabase
       .from('pt_users')
-      .select('id')
+      .select('id, business_name, coupang_vendor_id')
       .eq('profile_id', user.id)
       .maybeSingle();
 
     if (!ptUser) {
       return NextResponse.json({ error: 'PT 사용자 정보를 찾을 수 없습니다.' }, { status: 404 });
     }
+
+    // Get profile full_name
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', user.id)
+      .maybeSingle();
 
     const serviceClient = await createServiceClient();
     const { data: config, error } = await serviceClient
@@ -34,7 +41,12 @@ export async function GET() {
       return NextResponse.json({ error: '설정 조회에 실패했습니다.' }, { status: 500 });
     }
 
-    return NextResponse.json({ config: config || null });
+    const account = {
+      vendorId: ptUser.coupang_vendor_id || '',
+      vendorName: ptUser.business_name || profile?.full_name || '',
+    };
+
+    return NextResponse.json({ config: config || null, account });
   } catch (err) {
     console.error('쿠폰 설정 조회 서버 오류:', err);
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });

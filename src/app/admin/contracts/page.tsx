@@ -6,12 +6,14 @@ import { formatDate, formatPercent } from '@/lib/utils/format';
 import {
   CONTRACT_STATUS_LABELS,
   CONTRACT_STATUS_COLORS,
+  CONTRACT_MODE_LABELS,
+  CONTRACT_MODE_COLORS,
 } from '@/lib/utils/constants';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
-import { CONTRACT_ARTICLES, renderArticleText } from '@/lib/data/contract-terms';
-import { FileText, Plus, RefreshCw, Send, XCircle, Eye, Download, CheckCircle2, AlertTriangle, Image } from 'lucide-react';
+import { renderArticleText, getContractArticles } from '@/lib/data/contract-terms';
+import { FileText, Plus, RefreshCw, Send, XCircle, Eye, Download, CheckCircle2, AlertTriangle, Image, Copy, Link2 } from 'lucide-react';
 import { downloadContractPdf } from '@/lib/utils/contract-pdf';
 import ContractTerminationModal from '@/components/admin/ContractTerminationModal';
 import WithdrawalReviewModal from '@/components/admin/WithdrawalReviewModal';
@@ -53,7 +55,9 @@ export default function AdminContractsPage() {
   const [newSharePercentage, setNewSharePercentage] = useState('30');
   const [newStartDate, setNewStartDate] = useState('');
   const [newEndDate, setNewEndDate] = useState('');
+  const [newContractMode, setNewContractMode] = useState<'single' | 'triple'>('single');
   const [creating, setCreating] = useState(false);
+  const [linkCopied, setLinkCopied] = useState<string | null>(null);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -159,6 +163,7 @@ export default function AdminContractsPage() {
         end_date: newEndDate || null,
         status: 'draft',
         contract_type: 'standard',
+        contract_mode: newContractMode,
         terms: {},
       })
       .select('*, pt_user:pt_users(*, profile:profiles(*))')
@@ -179,6 +184,7 @@ export default function AdminContractsPage() {
     setNewSharePercentage('30');
     setNewStartDate('');
     setNewEndDate('');
+    setNewContractMode('single');
     setCreating(false);
   };
 
@@ -274,6 +280,7 @@ export default function AdminContractsPage() {
                   <th className="text-left py-3 px-4 font-semibold text-gray-600">PT 사용자</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-600">수수료율</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-600 hidden sm:table-cell">시작일</th>
+                  <th className="text-left py-3 px-4 font-semibold text-gray-600 hidden lg:table-cell">모드</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-600">상태</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-600 hidden md:table-cell">서명일</th>
                   <th className="text-right py-3 px-4 font-semibold text-gray-600">관리</th>
@@ -289,9 +296,18 @@ export default function AdminContractsPage() {
                       {formatPercent(contract.share_percentage)}
                     </td>
                     <td className="py-3 px-4 text-gray-600 hidden sm:table-cell">{contract.start_date}</td>
+                    <td className="py-3 px-4 hidden lg:table-cell">
+                      <Badge
+                        label={CONTRACT_MODE_LABELS[contract.contract_mode || 'single']}
+                        colorClass={CONTRACT_MODE_COLORS[contract.contract_mode || 'single']}
+                      />
+                    </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <Badge label={CONTRACT_STATUS_LABELS[contract.status]} colorClass={CONTRACT_STATUS_COLORS[contract.status]} />
+                        {contract.contract_mode === 'triple' && contract.signed_at && !contract.business_signed_at && (
+                          <Badge label="을 서명대기" colorClass="bg-purple-100 text-purple-700" />
+                        )}
                         {contract.withdrawal_status === 'pending' && (
                           <Badge label="탈퇴요청" colorClass="bg-orange-100 text-orange-700" />
                         )}
@@ -358,6 +374,22 @@ export default function AdminContractsPage() {
                           >
                             <XCircle className="w-3.5 h-3.5" />
                             해지
+                          </button>
+                        )}
+                        {contract.contract_mode === 'triple' && contract.business_sign_token && !contract.business_signed_at && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const url = `${window.location.origin}/sign/business/${contract.business_sign_token}`;
+                              navigator.clipboard.writeText(url);
+                              setLinkCopied(contract.id);
+                              setTimeout(() => setLinkCopied(null), 2000);
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100 transition"
+                            title="사업자 서명 링크 복사"
+                          >
+                            {linkCopied === contract.id ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Link2 className="w-3.5 h-3.5" />}
+                            {linkCopied === contract.id ? '복사됨' : '서명링크'}
                           </button>
                         )}
                         {contract.withdrawal_status === 'pending' && (
@@ -443,60 +475,85 @@ export default function AdminContractsPage() {
                 <span className="text-gray-500">상태:</span>{' '}
                 <Badge label={CONTRACT_STATUS_LABELS[viewContract.status]} colorClass={CONTRACT_STATUS_COLORS[viewContract.status]} />
               </div>
+              <div>
+                <span className="text-gray-500">모드:</span>{' '}
+                <Badge label={CONTRACT_MODE_LABELS[viewContract.contract_mode || 'single']} colorClass={CONTRACT_MODE_COLORS[viewContract.contract_mode || 'single']} />
+              </div>
               {viewContract.signed_at && (
                 <div>
-                  <span className="text-gray-500">서명일:</span>{' '}
+                  <span className="text-gray-500">{viewContract.contract_mode === 'triple' ? '운영자 서명일' : '서명일'}:</span>{' '}
                   <span className="font-medium">{formatDate(viewContract.signed_at)}</span>
                 </div>
               )}
               {viewContract.signed_ip && (
                 <div>
-                  <span className="text-gray-500">서명 IP:</span>{' '}
+                  <span className="text-gray-500">{viewContract.contract_mode === 'triple' ? '운영자 서명 IP' : '서명 IP'}:</span>{' '}
                   <span className="font-mono text-gray-700">{viewContract.signed_ip}</span>
                 </div>
               )}
+              {viewContract.contract_mode === 'triple' && viewContract.business_signed_at && (
+                <>
+                  <div>
+                    <span className="text-gray-500">사업자 서명일:</span>{' '}
+                    <span className="font-medium">{formatDate(viewContract.business_signed_at)}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">사업자 서명자:</span>{' '}
+                    <span className="font-medium">{viewContract.business_signer_name || '-'}</span>
+                  </div>
+                </>
+              )}
             </div>
 
-            {/* 16조 계약서 전문 */}
-            <div className="max-h-[60vh] overflow-y-auto border border-gray-200 rounded-xl p-5 space-y-4">
-              <div className="text-center border-b border-gray-200 pb-4">
-                <h3 className="text-lg font-bold text-gray-900">쿠팡 셀러허브 PT 코칭 계약서</h3>
-                <p className="text-xs text-gray-500 mt-1">전자계약서 (총 {CONTRACT_ARTICLES.length}조)</p>
-              </div>
-              <div className="space-y-4 text-sm leading-relaxed text-gray-700">
-                {CONTRACT_ARTICLES.map((article) => {
-                  const vars = {
-                    share_percentage: viewContract.share_percentage,
-                    start_date: viewContract.start_date,
-                    end_date: viewContract.end_date,
-                  };
-                  return (
-                    <div key={article.number}>
-                      <h4 className="font-bold text-gray-900 mb-1.5">
-                        제{article.number}조 ({article.title})
-                      </h4>
-                      {article.paragraphs.map((p, i) => (
-                        <p key={i} className={i > 0 ? 'mt-1' : ''}>
-                          {renderArticleText(p, vars)}
-                        </p>
-                      ))}
-                      {article.subItems && (
-                        <ul className="list-disc pl-5 mt-1.5 space-y-0.5">
-                          {article.subItems.map((item, i) => (
-                            <li key={i}>
-                              {item.label !== String(i + 1) && (
-                                <span className="font-medium">{item.label}: </span>
-                              )}
-                              {renderArticleText(item.text, vars)}
-                            </li>
+            {/* 계약서 전문 */}
+            {(() => {
+              const contractMode = (viewContract.contract_mode || 'single') as 'single' | 'triple';
+              const articles = getContractArticles(contractMode);
+              const title = contractMode === 'triple'
+                ? '쿠팡 셀러허브 PT 코칭 3자 계약서'
+                : '쿠팡 셀러허브 PT 코칭 계약서';
+              return (
+                <div className="max-h-[60vh] overflow-y-auto border border-gray-200 rounded-xl p-5 space-y-4">
+                  <div className="text-center border-b border-gray-200 pb-4">
+                    <h3 className="text-lg font-bold text-gray-900">{title}</h3>
+                    <p className="text-xs text-gray-500 mt-1">전자계약서 (총 {articles.length}조)</p>
+                  </div>
+                  <div className="space-y-4 text-sm leading-relaxed text-gray-700">
+                    {articles.map((article) => {
+                      const vars = {
+                        share_percentage: viewContract.share_percentage,
+                        start_date: viewContract.start_date,
+                        end_date: viewContract.end_date,
+                      };
+                      return (
+                        <div key={article.number}>
+                          <h4 className="font-bold text-gray-900 mb-1.5">
+                            제{article.number}조 ({article.title})
+                          </h4>
+                          {article.paragraphs.map((p, i) => (
+                            <p key={i} className={i > 0 ? 'mt-1' : ''}>
+                              {renderArticleText(p, vars)}
+                            </p>
                           ))}
-                        </ul>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+                          {article.subItems && (
+                            <ul className="list-disc pl-5 mt-1.5 space-y-0.5">
+                              {article.subItems.map((item, i) => (
+                                <li key={i}>
+                                  {item.label !== String(i + 1) && (
+                                    <span className="font-medium">{item.label}: </span>
+                                  )}
+                                  {renderArticleText(item.text, vars)}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
       </Modal>
@@ -551,6 +608,9 @@ export default function AdminContractsPage() {
                   const selected = ptUsers.find((u) => u.id === e.target.value);
                   if (selected) {
                     setNewSharePercentage(String(selected.share_percentage));
+                    // 타인 명의 사업자인 경우 자동으로 3자 계약 선택
+                    const selfBiz = (selected as Record<string, unknown>).is_self_business;
+                    setNewContractMode(selfBiz === false ? 'triple' : 'single');
                   }
                 }}
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
@@ -604,6 +664,26 @@ export default function AdminContractsPage() {
               onChange={(e) => setNewEndDate(e.target.value)}
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
             />
+          </div>
+
+          <div>
+            <label htmlFor="contract-mode" className="block text-sm font-medium text-gray-700 mb-1">
+              계약 모드
+            </label>
+            <select
+              id="contract-mode"
+              value={newContractMode}
+              onChange={(e) => setNewContractMode(e.target.value as 'single' | 'triple')}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+            >
+              <option value="single">2자 계약 (갑-을)</option>
+              <option value="triple">3자 계약 (갑-을-병)</option>
+            </select>
+            <p className="text-xs text-gray-400 mt-1">
+              {newContractMode === 'triple'
+                ? '사업자 명의인과 실운영자가 다른 경우 (연대책임)'
+                : '본인 명의 사업자인 경우'}
+            </p>
           </div>
 
           <div className="flex gap-2 justify-end pt-2">

@@ -103,6 +103,8 @@ export async function POST(request: NextRequest) {
 
     // 배치 처리
     for (const product of (batch || [])) {
+      const itemId = product.vendor_item_id || product.seller_product_id;
+
       try {
         // 처리 중 상태
         await serviceClient
@@ -113,10 +115,10 @@ export async function POST(request: NextRequest) {
         let instantOk = true;
         let downloadOk = true;
 
-        // 즉시할인 쿠폰 적용
+        // 즉시할인 쿠폰 적용 (vendorItemId 사용)
         if (config.instant_coupon_enabled && config.instant_coupon_id) {
           try {
-            await applyInstantCoupon(credentials, Number(config.instant_coupon_id), [product.seller_product_id]);
+            await applyInstantCoupon(credentials, Number(config.instant_coupon_id), [itemId]);
             batchInstantSuccess++;
           } catch (err) {
             instantOk = false;
@@ -127,6 +129,7 @@ export async function POST(request: NextRequest) {
               coupon_id: config.instant_coupon_id,
               coupon_name: config.instant_coupon_name,
               seller_product_id: product.seller_product_id,
+              vendor_item_id: product.vendor_item_id,
               success: false,
               error_message: err instanceof Error ? err.message : String(err),
             });
@@ -139,15 +142,16 @@ export async function POST(request: NextRequest) {
               coupon_id: config.instant_coupon_id,
               coupon_name: config.instant_coupon_name,
               seller_product_id: product.seller_product_id,
+              vendor_item_id: product.vendor_item_id,
               success: true,
             });
           }
         }
 
-        // 다운로드 쿠폰 적용
+        // 다운로드 쿠폰 적용 (vendorItemId 사용)
         if (config.download_coupon_enabled && config.download_coupon_id) {
           try {
-            await applyDownloadCoupon(credentials, Number(config.download_coupon_id), [product.seller_product_id]);
+            await applyDownloadCoupon(credentials, Number(config.download_coupon_id), [itemId]);
             batchDownloadSuccess++;
           } catch (err) {
             downloadOk = false;
@@ -158,6 +162,7 @@ export async function POST(request: NextRequest) {
               coupon_id: config.download_coupon_id,
               coupon_name: config.download_coupon_name,
               seller_product_id: product.seller_product_id,
+              vendor_item_id: product.vendor_item_id,
               success: false,
               error_message: err instanceof Error ? err.message : String(err),
             });
@@ -170,6 +175,7 @@ export async function POST(request: NextRequest) {
               coupon_id: config.download_coupon_id,
               coupon_name: config.download_coupon_name,
               seller_product_id: product.seller_product_id,
+              vendor_item_id: product.vendor_item_id,
               success: true,
             });
           }
@@ -185,7 +191,7 @@ export async function POST(request: NextRequest) {
         }).eq('id', product.id);
 
       } catch (err) {
-        console.error(`상품 처리 중 오류 (${product.seller_product_id}):`, err);
+        console.error(`상품 처리 중 오류 (${itemId}):`, err);
         await serviceClient.from('product_coupon_tracking').update({
           status: 'failed',
           error_message: err instanceof Error ? err.message : String(err),

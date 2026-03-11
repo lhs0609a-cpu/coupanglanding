@@ -4,7 +4,7 @@
  */
 
 import type { Contract, PtUser, Profile } from '@/lib/supabase/types';
-import { CONTRACT_ARTICLES, renderArticleText } from '@/lib/data/contract-terms';
+import { renderArticleText, getContractArticles } from '@/lib/data/contract-terms';
 
 interface ContractPdfParams {
   contract: Contract;
@@ -12,18 +12,27 @@ interface ContractPdfParams {
 }
 
 export function downloadContractPdf({ contract, ptUser }: ContractPdfParams) {
+  const contractMode = (contract.contract_mode || 'single') as 'single' | 'triple';
+  const articles = getContractArticles(contractMode);
+
   const vars = {
     share_percentage: contract.share_percentage,
     start_date: contract.start_date,
     end_date: contract.end_date,
+    contract_mode: contractMode,
+    operator_name: ptUser.profile?.full_name || '(실운영자)',
+    business_rep_name: contract.business_signer_name || ptUser.business_representative || '(사업자 대표)',
   };
 
   const userName = ptUser.profile?.full_name || '이름 없음';
   const signedDate = contract.signed_at
     ? new Date(contract.signed_at).toLocaleDateString('ko-KR')
     : '';
+  const businessSignedDate = contract.business_signed_at
+    ? new Date(contract.business_signed_at).toLocaleDateString('ko-KR')
+    : '';
 
-  const articlesHtml = CONTRACT_ARTICLES.map((article) => {
+  const articlesHtml = articles.map((article) => {
     const paragraphsHtml = article.paragraphs
       .map((p) => `<p>${renderArticleText(p, vars)}</p>`)
       .join('');
@@ -77,7 +86,7 @@ export function downloadContractPdf({ contract, ptUser }: ContractPdfParams) {
       </style>
     </head>
     <body>
-      <h1>쿠팡 셀러 PT 파트너십 계약서</h1>
+      <h1>쿠팡 셀러 PT 파트너십 ${contractMode === 'triple' ? '3자 ' : ''}계약서</h1>
 
       <div class="info-box">
         <div class="info-row"><span class="info-label">계약자:</span><span class="info-value">${userName}</span></div>
@@ -94,6 +103,32 @@ export function downloadContractPdf({ contract, ptUser }: ContractPdfParams) {
         <p style="text-align: center; font-weight: bold; font-size: 15px; margin-bottom: 15px;">
           위 계약 내용에 동의하며 서명합니다.
         </p>
+        ${contractMode === 'triple' ? `
+        <div style="display: flex; justify-content: space-between; margin-top: 20px; gap: 10px;">
+          <div class="sig-box" style="width: 30%;">
+            <p><strong>갑 (회사)</strong></p>
+            <p>셀러허브</p>
+          </div>
+          <div class="sig-box" style="width: 30%;">
+            <p><strong>을 (사업자)</strong></p>
+            <p>${contract.business_signer_name || ptUser.business_representative || '(사업자 대표)'}</p>
+            ${contract.business_signature_data
+              ? '<img src="' + contract.business_signature_data + '" alt="사업자 서명" class="sig-img" />'
+              : '<p style="color: #999;">(미서명)</p>'
+            }
+            ${businessSignedDate ? '<p style="font-size: 11px; color: #888;">' + businessSignedDate + '</p>' : ''}
+          </div>
+          <div class="sig-box" style="width: 30%;">
+            <p><strong>병 (운영자)</strong></p>
+            <p>${userName}</p>
+            ${contract.signature_data
+              ? '<img src="' + contract.signature_data + '" alt="운영자 서명" class="sig-img" />'
+              : '<p style="color: #999;">(미서명)</p>'
+            }
+            ${signedDate ? '<p style="font-size: 11px; color: #888;">' + signedDate + '</p>' : ''}
+          </div>
+        </div>
+        ` : `
         <div class="sig-row">
           <div class="sig-box">
             <p><strong>갑 (서비스 제공자)</strong></p>
@@ -103,12 +138,13 @@ export function downloadContractPdf({ contract, ptUser }: ContractPdfParams) {
             <p><strong>을 (PT 사용자)</strong></p>
             <p>${userName}</p>
             ${contract.signature_data
-              ? `<img src="${contract.signature_data}" alt="서명" class="sig-img" />`
+              ? '<img src="' + contract.signature_data + '" alt="서명" class="sig-img" />'
               : '<p style="color: #999;">(미서명)</p>'
             }
-            ${signedDate ? `<p style="font-size: 11px; color: #888;">${signedDate}</p>` : ''}
+            ${signedDate ? '<p style="font-size: 11px; color: #888;">' + signedDate + '</p>' : ''}
           </div>
         </div>
+        `}
       </div>
     </body>
     </html>

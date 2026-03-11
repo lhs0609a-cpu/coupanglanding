@@ -16,9 +16,9 @@ interface StatisticsCardsProps {
 
 export default function StatisticsCards({ stats, loading }: StatisticsCardsProps) {
   const items = [
-    { label: '총 추적', value: stats.total, icon: Package, color: 'text-gray-900', bg: 'bg-gray-50' },
-    { label: '대기', value: stats.pending, icon: Clock, color: 'text-yellow-600', bg: 'bg-yellow-50' },
-    { label: '완료', value: stats.completed, icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50' },
+    { label: '총 추적 상품', value: stats.total, icon: Package, color: 'text-gray-900', bg: 'bg-gray-50' },
+    { label: '대기 중', value: stats.pending, icon: Clock, color: 'text-yellow-600', bg: 'bg-yellow-50' },
+    { label: '적용 완료', value: stats.completed, icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50' },
     { label: '실패', value: stats.failed, icon: XCircle, color: 'text-red-600', bg: 'bg-red-50' },
   ];
 

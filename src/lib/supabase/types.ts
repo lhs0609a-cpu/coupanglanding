@@ -74,6 +74,9 @@ export interface PtUser {
   business_address: string | null;
   business_type: string | null;
   business_category: string | null;
+  // 사업자 관계 (3자 계약)
+  is_self_business: boolean;
+  business_relation: string | null;
   // Joined fields
   profile?: Profile;
 }
@@ -196,6 +199,14 @@ export interface Contract {
   signed_ip: string | null;
   signature_data: string | null;
   admin_note: string | null;
+  // 3자 계약 관련 필드
+  contract_mode: 'single' | 'triple';
+  business_signed_at: string | null;
+  business_signature_data: string | null;
+  business_signed_ip: string | null;
+  business_signer_name: string | null;
+  business_sign_token: string | null;
+  business_sign_token_expires_at: string | null;
   // 해지 관련 필드
   terminated_at: string | null;
   termination_reason: string | null;
@@ -682,6 +693,7 @@ export interface ProductCouponTracking {
   pt_user_id: string;
   seller_product_id: string;
   seller_product_name: string | null;
+  vendor_item_id: string | null;
   status: TrackingStatus;
   instant_coupon_applied: boolean;
   download_coupon_applied: boolean;

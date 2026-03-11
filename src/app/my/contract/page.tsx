@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatDate, formatPercent } from '@/lib/utils/format';
-import { CONTRACT_STATUS_LABELS, CONTRACT_STATUS_COLORS } from '@/lib/utils/constants';
-import { CONTRACT_ARTICLES, renderArticleText } from '@/lib/data/contract-terms';
+import { CONTRACT_STATUS_LABELS, CONTRACT_STATUS_COLORS, CONTRACT_MODE_LABELS } from '@/lib/utils/constants';
+import { renderArticleText, getContractArticles } from '@/lib/data/contract-terms';
 import type { ContractVariables } from '@/lib/data/contract-terms';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -12,19 +12,24 @@ import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import SignaturePad from '@/components/ui/SignaturePad';
 import FileUpload from '@/components/ui/FileUpload';
 import WithdrawalWizard from '@/components/my/WithdrawalWizard';
-import { FileText, CheckCircle, Clock, AlertTriangle, Calendar, Upload, LogOut, Plug, ArrowRight } from 'lucide-react';
+import { FileText, CheckCircle, Clock, AlertTriangle, Calendar, Upload, LogOut, Plug, ArrowRight, Copy, Link2 } from 'lucide-react';
 import type { Contract } from '@/lib/supabase/types';
 
-function ContractContent({ vars }: { vars: ContractVariables }) {
+function ContractContent({ vars, mode = 'single' }: { vars: ContractVariables; mode?: 'single' | 'triple' }) {
+  const articles = getContractArticles(mode);
+  const title = mode === 'triple'
+    ? '쿠팡 셀러허브 PT 코칭 3자 계약서'
+    : '쿠팡 셀러허브 PT 코칭 계약서';
+
   return (
     <div className="border border-gray-200 rounded-xl p-6 sm:p-8 space-y-6 bg-white">
       <div className="text-center border-b border-gray-200 pb-6">
-        <h3 className="text-xl font-bold text-gray-900">쿠팡 셀러허브 PT 코칭 계약서</h3>
-        <p className="text-sm text-gray-500 mt-1">전자계약서 (총 {CONTRACT_ARTICLES.length}조)</p>
+        <h3 className="text-xl font-bold text-gray-900">{title}</h3>
+        <p className="text-sm text-gray-500 mt-1">전자계약서 (총 {articles.length}조)</p>
       </div>
 
       <div className="space-y-5 text-sm leading-relaxed text-gray-700">
-        {CONTRACT_ARTICLES.map((article) => (
+        {articles.map((article) => (
           <div key={article.number}>
             <h4 className="font-bold text-gray-900 mb-2">
               제{article.number}조 ({article.title})
@@ -71,6 +76,9 @@ export default function MyContractPage() {
   const [showWithdrawalWizard, setShowWithdrawalWizard] = useState(false);
   // 쿠팡 API 연동 상태
   const [apiConnected, setApiConnected] = useState<boolean | null>(null);
+  // 3자 계약 사업자 서명 토큰
+  const [businessSignToken, setBusinessSignToken] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -136,31 +144,50 @@ export default function MyContractPage() {
         // IP 캡처 실패 시 계속 진행
       }
 
-      const { error } = await supabase
-        .from('contracts')
-        .update({
-          status: 'signed',
-          signed_at: new Date().toISOString(),
-          signed_ip: clientIp,
-          signature_data: signatureData,
-        })
-        .eq('id', contractId);
+      const res = await fetch('/api/contracts/sign-operator', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contractId, signatureData, clientIp }),
+      });
 
-      if (error) throw error;
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '서명 실패');
 
-      setContracts((prev) =>
-        prev.map((c) =>
-          c.id === contractId
-            ? {
-                ...c,
-                status: 'signed' as const,
-                signed_at: new Date().toISOString(),
-                signed_ip: clientIp,
-                signature_data: signatureData,
-              }
-            : c
-        )
-      );
+      const contract = contracts.find(c => c.id === contractId);
+      const contractMode = contract?.contract_mode || 'single';
+
+      if (contractMode === 'triple' && data.businessSignToken) {
+        // 3자 계약: 사업자 서명 대기 상태
+        setBusinessSignToken(data.businessSignToken);
+        setContracts((prev) =>
+          prev.map((c) =>
+            c.id === contractId
+              ? {
+                  ...c,
+                  signed_at: new Date().toISOString(),
+                  signed_ip: clientIp,
+                  signature_data: signatureData,
+                  business_sign_token: data.businessSignToken,
+                }
+              : c
+          )
+        );
+      } else {
+        // 2자 계약: 서명 완료
+        setContracts((prev) =>
+          prev.map((c) =>
+            c.id === contractId
+              ? {
+                  ...c,
+                  status: 'signed' as const,
+                  signed_at: new Date().toISOString(),
+                  signed_ip: clientIp,
+                  signature_data: signatureData,
+                }
+              : c
+          )
+        );
+      }
       setAgreed(false);
       setSignatureData(null);
     } catch {
@@ -169,6 +196,24 @@ export default function MyContractPage() {
       setSigning(false);
     }
   };
+
+  const getBusinessSignUrl = (token: string) => {
+    if (typeof window === 'undefined') return '';
+    return `${window.location.origin}/sign/business/${token}`;
+  };
+
+  const handleCopyLink = (token: string) => {
+    navigator.clipboard.writeText(getBusinessSignUrl(token));
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  };
+
+  // 3자 계약 서명 상태 판별
+  const isTripleWaitingBusiness = (c: Contract) =>
+    (c.contract_mode === 'triple') && c.signed_at && !c.business_signed_at;
+
+  const isFullySigned = (c: Contract) =>
+    c.signed_at && (c.contract_mode !== 'triple' || c.business_signed_at);
 
   const handleAcknowledge = async (contractId: string) => {
     setAckLoading(true);
@@ -282,7 +327,12 @@ export default function MyContractPage() {
             <Card>
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-lg font-bold text-gray-900">현재 계약</h2>
-                <Badge label={CONTRACT_STATUS_LABELS[activeContract.status]} colorClass={CONTRACT_STATUS_COLORS[activeContract.status]} />
+                <div className="flex items-center gap-2">
+                  {activeContract.contract_mode === 'triple' && (
+                    <Badge label={CONTRACT_MODE_LABELS['triple']} colorClass="bg-purple-100 text-purple-700" />
+                  )}
+                  <Badge label={CONTRACT_STATUS_LABELS[activeContract.status]} colorClass={CONTRACT_STATUS_COLORS[activeContract.status]} />
+                </div>
               </div>
 
               {/* Contract Summary */}
@@ -305,17 +355,18 @@ export default function MyContractPage() {
                 </div>
               </div>
 
-              {/* 16조 계약서 내용 */}
+              {/* 계약서 내용 */}
               <ContractContent
                 vars={{
                   share_percentage: activeContract.share_percentage,
                   start_date: activeContract.start_date,
                   end_date: activeContract.end_date,
                 }}
+                mode={activeContract.contract_mode || 'single'}
               />
 
               {/* Sign Section */}
-              {activeContract.status === 'sent' && (
+              {activeContract.status === 'sent' && !isTripleWaitingBusiness(activeContract) && (
                 <>
                   {/* 쿠팡 API 미연동 차단 */}
                   {apiConnected === false && (
@@ -372,7 +423,7 @@ export default function MyContractPage() {
                           className="w-5 h-5 rounded border-gray-300 text-[#E31837] focus:ring-[#E31837]"
                         />
                         <span className="text-sm font-medium text-gray-700">
-                          위 계약 내용(총 {CONTRACT_ARTICLES.length}조)을 모두 확인하였으며, 이에 동의합니다.
+                          위 계약 내용(총 {getContractArticles(activeContract.contract_mode || 'single').length}조)을 모두 확인하였으며, 이에 동의합니다.
                         </span>
                       </label>
 
@@ -405,7 +456,59 @@ export default function MyContractPage() {
                 </>
               )}
 
-              {activeContract.status === 'signed' && (
+              {/* 3자 계약 — 운영자 서명 완료, 사업자 서명 대기 */}
+              {activeContract.status === 'sent' && isTripleWaitingBusiness(activeContract) && (
+                <div className="mt-6 space-y-4">
+                  <div className="p-5 bg-purple-50 border border-purple-200 rounded-xl">
+                    <div className="flex items-center gap-3 mb-3">
+                      <Link2 className="w-6 h-6 text-purple-600 flex-shrink-0" />
+                      <div>
+                        <p className="font-semibold text-purple-800">운영자 서명 완료 — 사업자 대표 서명 대기 중</p>
+                        <p className="text-sm text-purple-600">
+                          서명일: {activeContract.signed_at ? formatDate(activeContract.signed_at) : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-sm text-purple-700 mb-3">
+                      아래 링크를 사업자 대표에게 공유하여 서명을 요청해주세요.
+                      카카오톡, 문자 등으로 링크를 전달하면 됩니다.
+                    </p>
+                    {(activeContract.business_sign_token || businessSignToken) && (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          readOnly
+                          value={getBusinessSignUrl(activeContract.business_sign_token || businessSignToken!)}
+                          className="flex-1 px-3 py-2 text-sm bg-white border border-purple-200 rounded-lg text-gray-700 font-mono"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleCopyLink(activeContract.business_sign_token || businessSignToken!)}
+                          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition"
+                        >
+                          <Copy className="w-4 h-4" />
+                          {linkCopied ? '복사됨!' : '복사'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {activeContract.signature_data && (
+                    <div className="p-4 bg-green-50 border border-green-100 rounded-xl">
+                      <p className="text-xs text-green-600 mb-2">운영자 자필 서명</p>
+                      <div className="inline-block border border-green-200 rounded-lg bg-white p-2">
+                        <img
+                          src={activeContract.signature_data}
+                          alt="운영자 서명"
+                          className="max-w-[200px] h-auto"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {(activeContract.status === 'signed' || (activeContract.status === 'sent' && isTripleWaitingBusiness(activeContract))) && isFullySigned(activeContract) && (
                 <>
                   <div className="mt-6 p-5 bg-green-50 border border-green-100 rounded-xl">
                     <div className="flex items-center gap-3">
@@ -413,14 +516,20 @@ export default function MyContractPage() {
                       <div>
                         <p className="font-semibold text-green-800">계약서 서명이 완료되었습니다.</p>
                         <p className="text-sm text-green-600">
-                          서명일: {activeContract.signed_at ? formatDate(activeContract.signed_at) : ''}
+                          {activeContract.contract_mode === 'triple' ? '운영자 ' : ''}서명일: {activeContract.signed_at ? formatDate(activeContract.signed_at) : ''}
                           {activeContract.signed_ip && ` | IP: ${activeContract.signed_ip}`}
                         </p>
+                        {activeContract.contract_mode === 'triple' && activeContract.business_signed_at && (
+                          <p className="text-sm text-green-600">
+                            사업자 서명일: {formatDate(activeContract.business_signed_at)}
+                            {activeContract.business_signer_name && ` | ${activeContract.business_signer_name}`}
+                          </p>
+                        )}
                       </div>
                     </div>
                     {activeContract.signature_data && (
                       <div className="mt-4 pt-4 border-t border-green-200">
-                        <p className="text-xs text-green-600 mb-2">자필 서명</p>
+                        <p className="text-xs text-green-600 mb-2">{activeContract.contract_mode === 'triple' ? '운영자 자필 서명' : '자필 서명'}</p>
                         <div className="inline-block border border-green-200 rounded-lg bg-white p-2">
                           <img
                             src={activeContract.signature_data}

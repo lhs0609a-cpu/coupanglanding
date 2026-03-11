@@ -42,25 +42,28 @@ export const BULK_STATUS_LABELS: Record<string, string> = {
 export const SETUP_GUIDE_STEPS = [
   {
     step: 1,
-    title: 'API 연동',
-    description: 'WING에서 Open API Access Key/Secret Key를 발급받고 계정 설정에서 등록하세요.',
+    title: '계정 선택',
+    description: '쿠팡 WING API가 연동된 계정을 확인하세요.',
   },
   {
     step: 2,
-    title: '계약서 선택',
-    description: '쿠폰을 적용할 계약서(Contract)를 선택하세요.',
+    title: '쿠폰 종류 선택',
+    description: '즉시할인 또는 다운로드 쿠폰 중 사용할 유형을 활성화하세요.',
   },
   {
     step: 3,
-    title: '쿠폰 설정',
-    description: '즉시할인 / 다운로드 쿠폰 유형별 설정을 완료하세요.',
+    title: '쿠폰 선택',
+    description: '쿠폰 ID를 직접 입력하거나 기존 쿠폰에서 불러오세요.',
   },
   {
     step: 4,
-    title: '적용 시작',
-    description: '설정을 저장하면 전체 상품에 쿠폰이 일괄 적용됩니다.',
+    title: '옵션 설정',
+    description: '적용 옵션을 설정하고 저장하면 자동으로 적용됩니다.',
   },
 ];
+
+// ── 배너 ────────────────────────────────────────────────
+export const PROMO_DESCRIPTION_BANNER = '즉시할인쿠폰과 다운로드쿠폰으로 매출을 10배 늘려보세요!';
 
 // ── 할인 타입 라벨 ──────────────────────────────────────
 export const DISCOUNT_TYPE_LABELS: Record<string, string> = {

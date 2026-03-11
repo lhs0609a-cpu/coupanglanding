@@ -248,21 +248,38 @@ export async function fetchSettlementData(
   };
 }
 
-/** 상품 목록 조회 (오늘 등록 상품 수 카운트용, 전체 페이지 순회) */
+/** 상품-아이템 정보 */
+export interface CoupangProductItem {
+  sellerProductId: string;
+  sellerProductName: string;
+  vendorItemId: string;
+  vendorItemName: string;
+  createdAt: string | null;
+}
+
+/** 상품 목록 조회 (전체 페이지 순회, vendorItemId 포함) */
 export async function fetchProductListings(
   credentials: CoupangCredentials,
-  dateFrom: string,
-  dateTo: string,
-): Promise<{ count: number; rawResponse: unknown }> {
-  let totalCount = 0;
+  options?: {
+    dateFrom?: string;
+    dateTo?: string;
+    status?: string;
+    maxPages?: number;
+  },
+): Promise<{ count: number; items: CoupangProductItem[]; rawResponse: unknown }> {
+  const allItems: CoupangProductItem[] = [];
   let nextToken = '';
   let lastResponse: unknown = null;
   const maxPerPage = 100;
-  const maxPages = 200;
+  const maxPages = options?.maxPages ?? 200;
+  const status = options?.status ?? 'APPROVED';
 
   for (let page = 0; page < maxPages; page++) {
     const tokenParam = nextToken ? `&nextToken=${encodeURIComponent(nextToken)}` : '';
-    const path = `${SELLER_BASE_PATH}/seller-products?vendorId=${credentials.vendorId}&createdAtFrom=${dateFrom}&createdAtTo=${dateTo}&status=APPROVED&maxPerPage=${maxPerPage}${tokenParam}`;
+    const dateParams = options?.dateFrom && options?.dateTo
+      ? `&createdAtFrom=${options.dateFrom}&createdAtTo=${options.dateTo}`
+      : '';
+    const path = `${SELLER_BASE_PATH}/seller-products?vendorId=${credentials.vendorId}${dateParams}&status=${status}&maxPerPage=${maxPerPage}${tokenParam}`;
 
     const data = await callCoupangApi(credentials, 'GET', path) as {
       code?: string;
@@ -271,12 +288,42 @@ export async function fetchProductListings(
     };
 
     lastResponse = data;
-    totalCount += data.data?.length ?? 0;
+
+    for (const product of (data.data || [])) {
+      const sellerProductId = String(product.sellerProductId || '');
+      const sellerProductName = String(product.sellerProductName || product.productName || '');
+      const createdAt = product.createdAt ? String(product.createdAt) : null;
+
+      // Each product can have multiple vendor items (options/variants)
+      const items = Array.isArray(product.items) ? product.items as Array<Record<string, unknown>> : [];
+
+      if (items.length > 0) {
+        for (const item of items) {
+          allItems.push({
+            sellerProductId,
+            sellerProductName,
+            vendorItemId: String(item.vendorItemId || ''),
+            vendorItemName: String(item.itemName || item.vendorItemName || sellerProductName),
+            createdAt,
+          });
+        }
+      } else {
+        // Fallback: product without items array (use sellerProductId as vendorItemId)
+        allItems.push({
+          sellerProductId,
+          sellerProductName,
+          vendorItemId: sellerProductId,
+          vendorItemName: sellerProductName,
+          createdAt,
+        });
+      }
+    }
+
     nextToken = data.nextToken || '';
     if (!nextToken) break;
   }
 
-  return { count: totalCount, rawResponse: lastResponse };
+  return { count: allItems.length, items: allItems, rawResponse: lastResponse };
 }
 
 /** 전체 등록 상품 수 조회 (inflow-status API 사용 - 단일 호출) */

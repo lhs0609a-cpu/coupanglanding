@@ -82,6 +82,26 @@ export const CONTRACT_STATUS_COLORS: Record<string, string> = {
   terminated: 'bg-red-100 text-red-700',
 };
 
+// 계약 모드 (2자/3자)
+export const CONTRACT_MODE_LABELS: Record<string, string> = {
+  single: '2자 계약',
+  triple: '3자 계약',
+};
+
+export const CONTRACT_MODE_COLORS: Record<string, string> = {
+  single: 'bg-gray-100 text-gray-700',
+  triple: 'bg-purple-100 text-purple-700',
+};
+
+export const BUSINESS_RELATIONS = [
+  '본인',
+  '가족(배우자)',
+  '가족(부모)',
+  '가족(형제)',
+  '지인',
+  '기타',
+] as const;
+
 export const WITHDRAWAL_STATUS_LABELS: Record<string, string> = {
   pending: '탈퇴 심사중',
   approved: '탈퇴 승인',
