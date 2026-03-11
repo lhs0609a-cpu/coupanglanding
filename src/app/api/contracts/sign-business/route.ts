@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '토큰이 필요합니다.' }, { status: 400 });
     }
 
-    const supabase = createServiceClient();
+    const supabase = await createServiceClient();
 
     const { data: contract } = await supabase
       .from('contracts')
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '토큰, 서명자 이름, 서명 데이터가 필요합니다.' }, { status: 400 });
     }
 
-    const supabase = createServiceClient();
+    const supabase = await createServiceClient();
 
     // 계약 조회
     const { data: contract } = await supabase
