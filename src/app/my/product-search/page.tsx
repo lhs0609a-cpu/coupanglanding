@@ -209,7 +209,12 @@ export default function ProductSearchPage() {
       const csv = await res.text();
       const parsed = parseProducts(csv);
       setProducts(parsed);
-      localStorage.setItem(CACHE_KEY, JSON.stringify({ data: parsed, timestamp: Date.now() }));
+      // localStorage 캐싱 시도 (용량 초과 시 무시)
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify({ data: parsed, timestamp: Date.now() }));
+      } catch {
+        try { localStorage.removeItem(CACHE_KEY); } catch { /* ignore */ }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '동기화 실패');
     } finally {
@@ -222,23 +227,48 @@ export default function ProductSearchPage() {
     syncProducts();
   }, [syncProducts]);
 
+  // Price comparison error
+  const [priceError, setPriceError] = useState<string | null>(null);
+
   // Price comparison
-  const handlePriceCompare = async (product: Product, sort: PriceSort = 'sim') => {
+  const handlePriceCompare = async (product: Product, sort: PriceSort = 'asc') => {
     setPriceModalProduct(product);
     setPriceModalOpen(true);
     setPriceLoading(true);
     setPriceSort(sort);
     setPriceResults([]);
+    setPriceError(null);
 
     try {
+      // URL이 있으면 실제 페이지에서 상품명 추출 시도
+      let searchQuery = product.name;
+      if (product.url) {
+        try {
+          const nameRes = await fetch(
+            `/api/naver-shopping/extract-product-name?url=${encodeURIComponent(product.url)}`,
+          );
+          if (nameRes.ok) {
+            const nameData = await nameRes.json();
+            if (nameData.name) searchQuery = nameData.name;
+          }
+        } catch { /* 실패 시 기존 이름 사용 */ }
+      }
+
       const res = await fetch(
-        `/api/naver-shopping/search?query=${encodeURIComponent(product.name)}&display=30&sort=${sort}`,
+        `/api/naver-shopping/search?query=${encodeURIComponent(searchQuery)}&display=30&sort=${sort}`,
       );
-      if (!res.ok) throw new Error('검색 실패');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `검색 실패 (${res.status})`);
+      }
       const data = await res.json();
       setPriceResults(data.items || []);
-    } catch {
+      if (!data.items?.length) {
+        setPriceError('네이버 쇼핑에서 일치하는 상품을 찾지 못했습니다.');
+      }
+    } catch (err) {
       setPriceResults([]);
+      setPriceError(err instanceof Error ? err.message : '검색 중 오류가 발생했습니다.');
     } finally {
       setPriceLoading(false);
     }
@@ -269,9 +299,9 @@ export default function ProductSearchPage() {
   };
 
   const sortTabs: { key: PriceSort; label: string }[] = [
-    { key: 'sim', label: '정확도' },
     { key: 'asc', label: '낮은가격' },
     { key: 'dsc', label: '높은가격' },
+    { key: 'sim', label: '정확도' },
   ];
 
   return (
@@ -452,12 +482,12 @@ export default function ProductSearchPage() {
           {priceLoading ? (
             <div className="py-8 text-center text-gray-400">
               <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
-              <p className="text-sm">검색 중...</p>
+              <p className="text-sm">네이버 쇼핑 검색 중...</p>
             </div>
           ) : priceResults.length === 0 ? (
             <div className="py-8 text-center text-gray-400">
               <Package className="w-8 h-8 mx-auto mb-2" />
-              <p className="text-sm">검색 결과가 없습니다.</p>
+              <p className="text-sm">{priceError || '검색 결과가 없습니다.'}</p>
             </div>
           ) : (
             <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
