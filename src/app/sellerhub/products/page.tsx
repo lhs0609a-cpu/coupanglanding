@@ -4,7 +4,8 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { CHANNELS, CHANNEL_LABELS, CHANNEL_SHORT_LABELS, CHANNEL_BG_COLORS, CHANNEL_STATUS_LABELS } from '@/lib/sellerhub/constants';
 import type { Channel, MasterProduct, ProductChannel } from '@/lib/sellerhub/types';
-import { Package, Search, Filter, RefreshCw, ChevronLeft, ChevronRight, Upload, PlusCircle, MoreHorizontal } from 'lucide-react';
+import { Package, Search, Filter, RefreshCw, ChevronLeft, ChevronRight, Upload, PlusCircle, MoreHorizontal, FolderUp } from 'lucide-react';
+import Link from 'next/link';
 
 export default function ProductsPage() {
   const supabase = useMemo(() => createClient(), []);
@@ -107,6 +108,13 @@ export default function ProductsPage() {
             <RefreshCw className="w-4 h-4" />
             쿠팡 동기화
           </button>
+          <Link
+            href="/sellerhub/products/bulk-register"
+            className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+          >
+            <FolderUp className="w-4 h-4" />
+            대량 등록
+          </Link>
           <button className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition">
             <Upload className="w-4 h-4" />
             엑셀 등록

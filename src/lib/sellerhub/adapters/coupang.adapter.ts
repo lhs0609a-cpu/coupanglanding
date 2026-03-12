@@ -10,6 +10,11 @@ export class CoupangAdapter extends BaseAdapter {
   private accessKey = '';
   private secretKey = '';
 
+  /** vendorId 외부 접근 (페이로드 빌드에 필요) */
+  getVendorId(): string {
+    return this.vendorId;
+  }
+
   private generateSignature(method: string, path: string, query: string): { authorization: string } {
     const datetime = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
     const message = `${datetime}${method}${path}${query}`;
@@ -178,6 +183,84 @@ export class CoupangAdapter extends BaseAdapter {
         id: c.categoryId,
         name: c.categoryName,
         path: c.wholeCategoryName,
+      })),
+    };
+  }
+
+  // ====== 물류 정보 조회 (상품 등록 시 필수) ======
+
+  /** 출고지 목록 조회 */
+  async getOutboundShippingPlaces(): Promise<{
+    items: { outboundShippingPlaceCode: string; placeName: string; placeAddresses: string; usable: boolean }[];
+  }> {
+    const path = `/v2/providers/seller_api/apis/api/v1/vendor/sellers/${this.vendorId}/outboundShippingPlaces`;
+    const data = await this.coupangApi<{
+      data: {
+        content: {
+          outboundShippingPlaceCode: number;
+          placeName: string;
+          placeAddresses: { returnAddress: string }[];
+          usable: boolean;
+        }[];
+      };
+    }>('GET', path);
+    const content = data.data?.content || [];
+    return {
+      items: content.map((p) => ({
+        outboundShippingPlaceCode: String(p.outboundShippingPlaceCode),
+        placeName: p.placeName,
+        placeAddresses: p.placeAddresses?.[0]?.returnAddress || '',
+        usable: p.usable,
+      })),
+    };
+  }
+
+  /** 반품지 목록 조회 */
+  async getReturnShippingCenters(): Promise<{
+    items: { returnCenterCode: string; shippingPlaceName: string; deliverCode: string; returnAddress: string; usable: boolean }[];
+  }> {
+    const path = `/v2/providers/seller_api/apis/api/v1/vendor/sellers/${this.vendorId}/returnShippingCenters`;
+    const data = await this.coupangApi<{
+      data: {
+        content: {
+          returnCenterCode: number;
+          shippingPlaceName: string;
+          deliverCode: string;
+          returnAddress: string;
+          usable: boolean;
+        }[];
+      };
+    }>('GET', path);
+    const content = data.data?.content || [];
+    return {
+      items: content.map((c) => ({
+        returnCenterCode: String(c.returnCenterCode),
+        shippingPlaceName: c.shippingPlaceName,
+        deliverCode: c.deliverCode,
+        returnAddress: c.returnAddress || '',
+        usable: c.usable,
+      })),
+    };
+  }
+
+  /** 카테고리별 상품정보제공고시 항목 조회 */
+  async getNoticeCategoryFields(categoryCode: string): Promise<{
+    items: { noticeCategoryName: string; noticeCategoryDetailNames: { name: string; required: boolean }[] }[];
+  }> {
+    const path = `/v2/providers/seller_api/apis/api/v1/vendor/categories/${categoryCode}/noticeCategories`;
+    const data = await this.coupangApi<{
+      data: {
+        noticeCategoryName: string;
+        noticeCategoryDetailNames: { noticeCategoryDetailName: string; required: boolean }[];
+      }[];
+    }>('GET', path);
+    return {
+      items: (data.data || []).map((nc) => ({
+        noticeCategoryName: nc.noticeCategoryName,
+        noticeCategoryDetailNames: (nc.noticeCategoryDetailNames || []).map((d) => ({
+          name: d.noticeCategoryDetailName,
+          required: d.required,
+        })),
       })),
     };
   }
