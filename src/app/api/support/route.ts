@@ -94,7 +94,8 @@ export async function POST(request: NextRequest) {
       .select('id')
       .eq('role', 'admin');
 
-    const profile = ptUser.profile as { full_name: string } | null;
+    const profileArr = ptUser.profile as unknown as { full_name: string }[] | null;
+    const profile = profileArr?.[0] ?? null;
     const userName = profile?.full_name || '사용자';
 
     if (admins) {
