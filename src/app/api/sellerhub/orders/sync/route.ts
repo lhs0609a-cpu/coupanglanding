@@ -48,12 +48,12 @@ export async function POST() {
           const rawStatus = String(item.status || item.orderStatus || '');
           const orderStatus = normalizeOrderStatus(channel, rawStatus);
 
-          const receiverName = String(item.receiverName || item.receiver?.name || '');
-          const receiverPhone = String(item.receiverPhone || item.receiver?.tel1 || '');
-          const receiverAddress = String(item.receiverAddress || item.receiver?.addr1 || '');
+          const receiverName = String(item.receiverName || (item.receiver as Record<string, unknown>)?.name || '');
+          const receiverPhone = String(item.receiverPhone || (item.receiver as Record<string, unknown>)?.tel1 || '');
+          const receiverAddress = String(item.receiverAddress || (item.receiver as Record<string, unknown>)?.addr1 || '');
           const orderedAt = String(item.orderedAt || item.orderDate || item.paymentDate || new Date().toISOString());
           const totalPrice = Number(item.totalPrice || item.paymentAmount || item.settlePrice || 0);
-          const buyerName = String(item.buyerName || item.orderer?.name || '');
+          const buyerName = String(item.buyerName || (item.orderer as Record<string, unknown>)?.name || '');
 
           // Upsert order
           await serviceClient
