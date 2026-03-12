@@ -570,7 +570,24 @@ export async function notifyFeePaymentReminder(
   });
 }
 
-/** 수수료 연체 경고 */
+/** 수수료 유예 기간 리마인더 (D+3, D+7) */
+export async function notifyFeeGracePeriodReminder(
+  supabase: SupabaseClient,
+  userId: string,
+  yearMonth: string,
+  daysOverdue: number,
+  graceLeft: number,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'fee_payment',
+    title: '수수료 납부 기한 경과',
+    message: `${yearMonth} 수수료 납부 기한이 ${daysOverdue}일 경과했습니다. ${graceLeft}일 이내 미납 시 연체 부과금(5%)과 지연이자(연 15%)가 부과됩니다.`,
+    link: '/my/report',
+  });
+}
+
+/** 수수료 연체 경고 (유예 기간 10일 초과 후) */
 export async function notifyFeePaymentOverdue(
   supabase: SupabaseClient,
   userId: string,
@@ -581,7 +598,7 @@ export async function notifyFeePaymentOverdue(
     userId,
     type: 'fee_payment',
     title: '수수료 연체 경고',
-    message: `${yearMonth} 수수료가 ${daysOverdue}일 연체되었습니다. 연체 부과금(5%)과 지연이자(연 15%)가 적용됩니다. ${14 - daysOverdue > 0 ? `${14 - daysOverdue}일 내 미납 시 프로그램 접근이 정지됩니다.` : '프로그램 접근이 정지되었습니다.'}`,
+    message: `${yearMonth} 수수료가 ${daysOverdue}일 연체되었습니다. 연체 부과금(5%)과 지연이자(연 15%)가 적용 중입니다. ${14 - daysOverdue > 0 ? `${14 - daysOverdue}일 내 미납 시 프로그램 접근이 정지됩니다.` : '프로그램 접근이 정지되었습니다.'}`,
     link: '/my/report',
   });
 }
@@ -644,6 +661,73 @@ export async function notifyTicketResolved(
     title: '문의가 해결되었습니다',
     message: `"${ticketTitle}" 문의가 해결 처리되었습니다.`,
     link: '/my/support',
+  });
+}
+
+/** 트레이너가 트레이니에게 메시지 발송 시 알림 */
+export async function notifyTraineeFromTrainer(
+  supabase: SupabaseClient,
+  traineeProfileId: string,
+  trainerName: string,
+  message: string,
+) {
+  return createNotification(supabase, {
+    userId: traineeProfileId,
+    type: 'trainer_message',
+    title: `트레이너 "${trainerName}" 메시지`,
+    message,
+    link: '/my/dashboard',
+  });
+}
+
+/** 트레이니 증빙 제출 시 트레이너에게 알림 */
+export async function notifyTrainerEvidenceSubmitted(
+  supabase: SupabaseClient,
+  trainerProfileId: string,
+  traineeName: string,
+  stepLabel: string,
+) {
+  return createNotification(supabase, {
+    userId: trainerProfileId,
+    type: 'system',
+    title: '교육생 증빙 제출',
+    message: `"${traineeName}" 교육생이 "${stepLabel}" 증빙을 제출했습니다.`,
+    link: '/my/trainer',
+  });
+}
+
+/** 트레이니 증빙 승인/반려 시 트레이너에게 알림 */
+export async function notifyTrainerEvidenceResult(
+  supabase: SupabaseClient,
+  trainerProfileId: string,
+  traineeName: string,
+  stepLabel: string,
+  approved: boolean,
+) {
+  return createNotification(supabase, {
+    userId: trainerProfileId,
+    type: 'system',
+    title: approved ? '교육생 증빙 승인' : '교육생 증빙 반려',
+    message: approved
+      ? `"${traineeName}" 교육생의 "${stepLabel}" 단계가 승인되었습니다.`
+      : `"${traineeName}" 교육생의 "${stepLabel}" 단계가 반려되었습니다.`,
+    link: '/my/trainer',
+  });
+}
+
+/** 트레이니 장기 미활동 시 트레이너에게 알림 */
+export async function notifyTrainerTraineeStagnant(
+  supabase: SupabaseClient,
+  trainerProfileId: string,
+  traineeName: string,
+  days: number,
+) {
+  return createNotification(supabase, {
+    userId: trainerProfileId,
+    type: 'system',
+    title: '교육생 활동 정체',
+    message: `"${traineeName}" 교육생이 ${days}일 동안 접속하지 않았습니다. 코칭 메시지를 보내보세요.`,
+    link: '/my/trainer',
   });
 }
 

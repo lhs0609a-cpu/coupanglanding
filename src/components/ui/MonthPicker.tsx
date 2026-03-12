@@ -8,7 +8,9 @@ interface MonthPickerProps {
 }
 
 export default function MonthPicker({ value, onChange }: MonthPickerProps) {
-  const [year, month] = value.split('-').map(Number);
+  const now = new Date();
+  const parsed = value ? value.split('-').map(Number) : [now.getFullYear(), now.getMonth() + 1];
+  const [year, month] = parsed[1] ? parsed : [now.getFullYear(), now.getMonth() + 1];
 
   const prev = () => {
     if (month === 1) {

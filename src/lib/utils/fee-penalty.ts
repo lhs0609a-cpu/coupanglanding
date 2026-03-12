@@ -9,6 +9,7 @@
 export const SURCHARGE_RATE = 0.05;        // 연체 부과금 5%
 export const ANNUAL_INTEREST_RATE = 0.15;  // 연 15% 지연이자
 export const SUSPENSION_DAYS = 14;         // 접근 정지까지 유예일
+export const GRACE_PERIOD_DAYS = 10;       // 연체 부과금/이자 유예 기간
 
 /** D-Day 계산 (양수=남은일, 0=당일, 음수=초과) */
 export function getFeePaymentDDay(deadline: string | Date): number {
@@ -29,14 +30,21 @@ export interface FeePenaltyResult {
   daysOverdue: number;       // 연체일수
 }
 
-/** 페널티 계산 */
+/** 페널티 계산 (유예 기간 10일 경과 후부터 부과) */
 export function calculateFeePenalty(unpaidAmount: number, daysOverdue: number): FeePenaltyResult {
   if (daysOverdue <= 0 || unpaidAmount <= 0) {
     return { surchargeAmount: 0, interestAmount: 0, totalPenalty: 0, totalDue: unpaidAmount, daysOverdue: 0 };
   }
 
+  // 유예 기간 이내: 페널티 없음
+  if (daysOverdue <= GRACE_PERIOD_DAYS) {
+    return { surchargeAmount: 0, interestAmount: 0, totalPenalty: 0, totalDue: unpaidAmount, daysOverdue };
+  }
+
+  // 유예 기간 초과: 부과금 + 이자 (이자는 유예 기간 제외한 일수 기준)
+  const interestDays = daysOverdue - GRACE_PERIOD_DAYS;
   const surchargeAmount = Math.floor(unpaidAmount * SURCHARGE_RATE);
-  const interestAmount = Math.floor(unpaidAmount * ANNUAL_INTEREST_RATE * daysOverdue / 365);
+  const interestAmount = Math.floor(unpaidAmount * ANNUAL_INTEREST_RATE * interestDays / 365);
   const totalPenalty = surchargeAmount + interestAmount;
 
   return {
@@ -81,9 +89,20 @@ export function getFeeAlertMessage(dday: number): string {
   if (dday >= 4) return '납부 마감 임박';
   if (dday >= 1) return `납부 마감 ${dday}일 전!`;
   if (dday === 0) return '오늘 납부 마감일!';
-  if (Math.abs(dday) < SUSPENSION_DAYS) {
-    const daysLeft = SUSPENSION_DAYS - Math.abs(dday);
+
+  const daysOverdue = Math.abs(dday);
+
+  // 유예 기간 (D+1 ~ D+10)
+  if (daysOverdue <= GRACE_PERIOD_DAYS) {
+    const graceLeft = GRACE_PERIOD_DAYS - daysOverdue;
+    return `납부 기한 경과 · 연체금 부과까지 ${graceLeft}일`;
+  }
+
+  // 유예 기간 초과, 접근 정지 전
+  if (daysOverdue < SUSPENSION_DAYS) {
+    const daysLeft = SUSPENSION_DAYS - daysOverdue;
     return `연체 중 (접근 정지 ${daysLeft}일 전)`;
   }
+
   return '프로그램 접근 정지';
 }

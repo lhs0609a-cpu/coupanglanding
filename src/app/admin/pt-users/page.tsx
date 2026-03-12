@@ -31,6 +31,7 @@ import Select from '@/components/ui/Select';
 import PaymentProgress from '@/components/ui/PaymentProgress';
 import { Users, CheckCircle2, XCircle, ExternalLink, Eye, EyeOff, UserPlus, AlertTriangle, ClipboardList, Search, Banknote, BarChart3, Key, Plug, Shield, MessageSquare, Clock } from 'lucide-react';
 import type { PtUser, MonthlyReport, Profile, OnboardingStep, ManualInputRequest } from '@/lib/supabase/types';
+import { calculateFeePenalty, getFeePaymentDDay, GRACE_PERIOD_DAYS } from '@/lib/utils/fee-penalty';
 import OnboardingReviewModal from '@/components/onboarding/OnboardingReviewModal';
 import { ONBOARDING_STEPS } from '@/lib/utils/constants';
 import { computeStepStates, countCompleted } from '@/components/onboarding/onboarding-utils';
@@ -64,7 +65,7 @@ export default function AdminPtUsersPage() {
   const [onboardingSteps, setOnboardingSteps] = useState<Map<string, OnboardingStep[]>>(new Map());
   const [onboardingContracts, setOnboardingContracts] = useState<Set<string>>(new Set());
   const [onboardingReports, setOnboardingReports] = useState<Set<string>>(new Set());
-  const [obReviewModal, setObReviewModal] = useState<{ userId: string; userName: string } | null>(null);
+  const [obReviewModal, setObReviewModal] = useState<{ userId: string; userName: string; profileId: string } | null>(null);
   const [visiblePwIds, setVisiblePwIds] = useState<Set<string>>(new Set());
   const [traineeTrainerMap, setTraineeTrainerMap] = useState<Map<string, { trainer_id: string; bonus_percentage: number; trainer_name: string; referral_code: string }>>(new Map());
   const [manualInputRequests, setManualInputRequests] = useState<ManualInputRequest[]>([]);
@@ -213,6 +214,17 @@ export default function AdminPtUsersPage() {
     const userName = ptUser?.profile?.full_name || '이름없음';
     const depositAmount = report.admin_deposit_amount || report.calculated_deposit;
 
+    // 연체금 계산 (fee_paid_at 또는 현재 기준)
+    const feeDeadline = report.fee_payment_deadline;
+    const daysOver = feeDeadline ? (() => {
+      const dd = getFeePaymentDDay(feeDeadline);
+      return dd < 0 ? Math.abs(dd) : 0;
+    })() : 0;
+    const penalty = calculateFeePenalty(report.total_with_vat, daysOver);
+    const surcharge = daysOver > GRACE_PERIOD_DAYS ? penalty.surchargeAmount : 0;
+    const interest = daysOver > GRACE_PERIOD_DAYS ? penalty.interestAmount : 0;
+    const totalPenalty = surcharge + interest;
+
     await Promise.all([
       supabase
         .from('monthly_reports')
@@ -221,6 +233,8 @@ export default function AdminPtUsersPage() {
           payment_confirmed_at: new Date().toISOString(),
           fee_payment_status: 'paid',
           fee_confirmed_at: new Date().toISOString(),
+          fee_surcharge_amount: surcharge,
+          fee_interest_amount: interest,
         })
         .eq('id', report.id),
       supabase
@@ -245,6 +259,26 @@ export default function AdminPtUsersPage() {
         amount: depositAmount,
         main_partner_id: null,
       });
+    }
+
+    // 연체금 revenue_entry (연체금이 있을 때만)
+    if (totalPenalty > 0) {
+      const { data: existingPenalty } = await supabase
+        .from('revenue_entries')
+        .select('id')
+        .eq('year_month', report.year_month)
+        .ilike('description', `PT연체금:${ptUserId}%`)
+        .maybeSingle();
+
+      if (!existingPenalty) {
+        await supabase.from('revenue_entries').insert({
+          year_month: report.year_month,
+          source: 'pt',
+          description: `PT연체금:${ptUserId}:${userName}`,
+          amount: totalPenalty,
+          main_partner_id: null,
+        });
+      }
     }
 
     // 트레이너 보너스 자동 생성
@@ -313,7 +347,12 @@ export default function AdminPtUsersPage() {
         action: 'confirm_deposit',
         targetType: 'monthly_report',
         targetId: report.id,
-        details: { user_name: userName, deposit_amount: depositAmount },
+        details: {
+          user_name: userName,
+          deposit_amount: depositAmount,
+          penalty_amount: totalPenalty,
+          total_due: depositAmount + totalPenalty,
+        },
       });
     }
 
@@ -839,6 +878,7 @@ export default function AdminPtUsersPage() {
                                 onClick={() => setObReviewModal({
                                   userId: user.id,
                                   userName: user.profile?.full_name || '이름 없음',
+                                  profileId: user.profile_id,
                                 })}
                                 className="px-2.5 py-1 text-xs font-medium bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition"
                               >
@@ -965,19 +1005,61 @@ export default function AdminPtUsersPage() {
                           </div>
                         )}
 
-                        {/* deposited 상태: 송금 확인 버튼 */}
-                        {report.payment_status === 'deposited' && (
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => handleConfirmDeposit(report, user.id)}
-                              className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                              송금 확인
-                            </button>
-                          </div>
-                        )}
+                        {/* deposited 상태: 연체금 내역 + 송금 확인 버튼 */}
+                        {report.payment_status === 'deposited' && (() => {
+                          const feeDeadline = report.fee_payment_deadline;
+                          const daysOver = feeDeadline ? (() => {
+                            const dd = getFeePaymentDDay(feeDeadline);
+                            return dd < 0 ? Math.abs(dd) : 0;
+                          })() : 0;
+                          const depositAmt = report.admin_deposit_amount || report.calculated_deposit;
+                          const penalty = calculateFeePenalty(report.total_with_vat, daysOver);
+                          const hasPenalty = daysOver > GRACE_PERIOD_DAYS && penalty.totalPenalty > 0;
+
+                          return (
+                            <div className="space-y-2">
+                              {hasPenalty && (
+                                <div className="p-3 bg-red-50 border border-red-200 rounded-lg space-y-1.5 text-sm">
+                                  <p className="font-medium text-red-800 flex items-center gap-1.5">
+                                    <AlertTriangle className="w-4 h-4" />
+                                    연체금 포함 입금 확인 필요
+                                  </p>
+                                  <div className="space-y-1 text-red-700">
+                                    <div className="flex justify-between">
+                                      <span>수수료 원금</span>
+                                      <span>{formatKRW(report.total_with_vat)}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span>연체 부과금 (5%)</span>
+                                      <span>{formatKRW(penalty.surchargeAmount)}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span>지연이자 (D+{daysOver - GRACE_PERIOD_DAYS})</span>
+                                      <span>{formatKRW(penalty.interestAmount)}</span>
+                                    </div>
+                                    <div className="border-t border-red-300 pt-1.5 flex justify-between font-bold text-red-900">
+                                      <span>총 납부액</span>
+                                      <span>{formatKRW(penalty.totalDue)}</span>
+                                    </div>
+                                  </div>
+                                  <p className="text-xs text-red-600 mt-1">
+                                    연체금 포함 금액이 입금되었는지 확인 후 송금 확인을 눌러주세요.
+                                  </p>
+                                </div>
+                              )}
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleConfirmDeposit(report, user.id)}
+                                  className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition"
+                                >
+                                  <CheckCircle2 className="w-4 h-4" />
+                                  송금 확인
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                         {report.admin_note && (
                           <p className="text-xs text-gray-500 bg-white rounded p-2">
@@ -1261,6 +1343,8 @@ export default function AdminPtUsersPage() {
           isOpen={true}
           onClose={() => setObReviewModal(null)}
           ptUserName={obReviewModal.userName}
+          ptUserId={obReviewModal.userId}
+          profileId={obReviewModal.profileId}
           steps={onboardingSteps.get(obReviewModal.userId) || []}
           onUpdated={fetchData}
         />

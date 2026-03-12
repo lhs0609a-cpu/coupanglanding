@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { ONBOARDING_STEPS, ONBOARDING_STATUS_LABELS, ONBOARDING_STATUS_COLORS } from '@/lib/utils/constants';
+import { notifyOnboardingResult, notifyTrainerEvidenceResult } from '@/lib/utils/notifications';
 import Modal from '@/components/ui/Modal';
 import Badge from '@/components/ui/Badge';
 import { CheckCircle2, XCircle, ExternalLink } from 'lucide-react';
@@ -12,6 +13,8 @@ interface OnboardingReviewModalProps {
   isOpen: boolean;
   onClose: () => void;
   ptUserName: string;
+  ptUserId?: string;
+  profileId?: string;
   steps: OnboardingStep[];
   onUpdated: () => void;
 }
@@ -20,6 +23,8 @@ export default function OnboardingReviewModal({
   isOpen,
   onClose,
   ptUserName,
+  ptUserId,
+  profileId,
   steps,
   onUpdated,
 }: OnboardingReviewModalProps) {
@@ -31,6 +36,27 @@ export default function OnboardingReviewModal({
 
   const stepLabelMap = new Map(ONBOARDING_STEPS.map((s) => [s.key, s]));
 
+  const sendTrainerNotification = async (stepKey: string, approved: boolean) => {
+    if (!ptUserId) return;
+    const def = stepLabelMap.get(stepKey);
+    const stepLabel = def?.label || stepKey;
+    // 트레이니 본인에게 알림
+    if (profileId) {
+      await notifyOnboardingResult(supabase, profileId, stepLabel, approved);
+    }
+    // 트레이너 연결 조회 → 트레이너에게 알림
+    const { data: link } = await supabase
+      .from('trainer_trainees')
+      .select('trainer:trainers(pt_user:pt_users(profile_id))')
+      .eq('trainee_pt_user_id', ptUserId)
+      .eq('is_active', true)
+      .maybeSingle();
+    const trainerProfileId = (link as { trainer?: { pt_user?: { profile_id?: string } } })?.trainer?.pt_user?.profile_id;
+    if (trainerProfileId) {
+      await notifyTrainerEvidenceResult(supabase, trainerProfileId, ptUserName, stepLabel, approved);
+    }
+  };
+
   const handleApprove = async (step: OnboardingStep) => {
     setLoading(step.id);
     await supabase
@@ -41,6 +67,8 @@ export default function OnboardingReviewModal({
         admin_note: null,
       })
       .eq('id', step.id);
+
+    await sendTrainerNotification(step.step_key, true);
 
     setLoading(null);
     onUpdated();
@@ -58,6 +86,11 @@ export default function OnboardingReviewModal({
         completed_at: null,
       })
       .eq('id', stepId);
+
+    const step = steps.find((s) => s.id === stepId);
+    if (step) {
+      await sendTrainerNotification(step.step_key, false);
+    }
 
     setLoading(null);
     setRejectingId(null);

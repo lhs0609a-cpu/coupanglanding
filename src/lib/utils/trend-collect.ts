@@ -6,6 +6,23 @@ function generateSignature(timestamp: number, method: string, path: string, secr
   return crypto.createHmac('sha256', secretKey).update(message).digest('base64');
 }
 
+/**
+ * 네이버 검색광고 API 응답의 검색수 필드 파싱
+ * - 숫자: 그대로 반환
+ * - "< 10": 5로 추정 (10 미만)
+ * - 숫자 문자열 ("50000"): 파싱하여 반환
+ * - 그 외: 0
+ */
+export function parseNaverCount(value: unknown): number {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    if (value.includes('< 10') || value.includes('<10')) return 5;
+    const parsed = parseInt(value.replace(/,/g, ''), 10);
+    if (!isNaN(parsed)) return parsed;
+  }
+  return 0;
+}
+
 export function calculateTrendScore(pcQcCnt: number, mobileQcCnt: number): number {
   const total = pcQcCnt + mobileQcCnt;
   if (total >= 100000) return 95;
@@ -64,17 +81,17 @@ export async function fetchNaverKeywords(
   const keywordList = result.keywordList || [];
 
   return keywordList.map((item: Record<string, unknown>) => {
-    const pc = typeof item.monthlyPcQcCnt === 'number' ? item.monthlyPcQcCnt : 0;
-    const mobile = typeof item.monthlyMobileQcCnt === 'number' ? item.monthlyMobileQcCnt : 0;
+    const pc = parseNaverCount(item.monthlyPcQcCnt);
+    const mobile = parseNaverCount(item.monthlyMobileQcCnt);
     return {
       keyword: item.relKeyword as string,
       pcQcCnt: pc,
       mobileQcCnt: mobile,
       totalSearch: pc + mobile,
       compIdx: (item.compIdx as string) || '낮음',
-      monthlyAvePcClkCnt: typeof item.monthlyAvePcClkCnt === 'number' ? item.monthlyAvePcClkCnt : 0,
-      monthlyAveMobileClkCnt: typeof item.monthlyAveMobileClkCnt === 'number' ? item.monthlyAveMobileClkCnt : 0,
-      plAvgDepth: typeof item.plAvgDepth === 'number' ? item.plAvgDepth : 0,
+      monthlyAvePcClkCnt: parseNaverCount(item.monthlyAvePcClkCnt),
+      monthlyAveMobileClkCnt: parseNaverCount(item.monthlyAveMobileClkCnt),
+      plAvgDepth: parseNaverCount(item.plAvgDepth),
     };
   });
 }

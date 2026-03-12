@@ -36,6 +36,9 @@ export default async function MyLayout({ children }: { children: React.ReactNode
     .maybeSingle();
 
   if (ptUser) {
+    // fire-and-forget: 마지막 활동 시간 업데이트
+    supabase.from('pt_users').update({ last_active_at: new Date().toISOString() }).eq('id', (ptUser as { id: string }).id).then();
+
     const ptUserData = ptUser as PtUser;
     const targetMonth = getReportTargetMonth();
     const dday = getSettlementDDay(targetMonth);

@@ -510,10 +510,47 @@ export default function MySettingsPage() {
                     </div>
                   </div>
 
-                  {/* Step 4: API 키 확인 */}
+                  {/* Step 4: 연동 정보 설정 */}
                   <div className="flex items-start gap-3">
                     <span className="flex-shrink-0 w-7 h-7 bg-[#E31837] text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
                       4
+                    </span>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">연동 정보 설정 (IP주소/URL)</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        OPEN API 키 발급 페이지 하단의 <span className="font-medium text-gray-700">&quot;연동 정보&quot;</span> 섹션에서
+                        <span className="font-medium text-gray-700"> &quot;수정&quot;</span> 버튼을 클릭합니다.
+                        업체명은 기존 그대로 유지하고, IP주소와 URL을 아래 값으로 입력하세요.
+                      </p>
+                      <div className="mt-2 space-y-2">
+                        <div className="p-2.5 bg-gray-50 rounded-lg">
+                          <p className="text-xs font-medium text-gray-700 mb-1">IP주소 (전체 복사하여 입력):</p>
+                          <p className="text-xs font-mono text-gray-800 select-all break-all leading-relaxed">
+                            54.116.7.181, 66.241.125.108, 216.246.19.71, 66.241.124.130, 216.246.19.84, 14.52.102.116, 15.165.113.35, 3.37.67.57, 137.66.13.24, 79.127.159.103
+                          </p>
+                        </div>
+                        <div className="p-2.5 bg-gray-50 rounded-lg">
+                          <p className="text-xs font-medium text-gray-700 mb-1">URL:</p>
+                          <p className="text-xs font-mono text-gray-800 select-all">
+                            https://product-automation-saas.vercel.app/
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+                        <div className="flex items-start gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
+                          <p className="text-xs text-amber-700">
+                            <span className="font-medium">IP주소와 URL이 정확하지 않으면 API가 동작하지 않습니다.</span> 반드시 복사하여 붙여넣기를 권장합니다.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step 5: API 키 확인 */}
+                  <div className="flex items-start gap-3">
+                    <span className="flex-shrink-0 w-7 h-7 bg-[#E31837] text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
+                      5
                     </span>
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-900">Access Key / Secret Key 확인</p>
@@ -541,10 +578,10 @@ export default function MySettingsPage() {
                     </div>
                   </div>
 
-                  {/* Step 5: 입력 */}
+                  {/* Step 6: 입력 */}
                   <div className="flex items-start gap-3">
                     <span className="flex-shrink-0 w-7 h-7 bg-[#E31837] text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
-                      5
+                      6
                     </span>
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-900">아래 입력란에 붙여넣기</p>

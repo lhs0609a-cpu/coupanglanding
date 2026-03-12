@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { formatKRW, formatYearMonth } from '@/lib/utils/format';
+import { formatKRW, formatYearMonth, getCurrentYearMonth } from '@/lib/utils/format';
 import { TAX_INVOICE_STATUS_LABELS, TAX_INVOICE_STATUS_COLORS } from '@/lib/utils/constants';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -15,7 +15,7 @@ import type { TaxInvoice } from '@/lib/supabase/types';
 export default function AdminTaxInvoicesPage() {
   const [invoices, setInvoices] = useState<TaxInvoice[]>([]);
   const [loading, setLoading] = useState(true);
-  const [yearMonth, setYearMonth] = useState('');
+  const [yearMonth, setYearMonth] = useState(getCurrentYearMonth);
   const [statusFilter, setStatusFilter] = useState('');
   const [cancelModal, setCancelModal] = useState<TaxInvoice | null>(null);
   const [cancelReason, setCancelReason] = useState('');
@@ -34,10 +34,14 @@ export default function AdminTaxInvoicesPage() {
       const res = await fetch(`/api/tax-invoices?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
-        setInvoices(data);
+        setInvoices(Array.isArray(data) ? data : []);
+      } else {
+        console.error('tax-invoices fetch error:', res.status, await res.text().catch(() => ''));
+        setInvoices([]);
       }
-    } catch {
-      // 무시
+    } catch (err) {
+      console.error('tax-invoices network error:', err);
+      setInvoices([]);
     }
     setLoading(false);
   }, [yearMonth, statusFilter]);

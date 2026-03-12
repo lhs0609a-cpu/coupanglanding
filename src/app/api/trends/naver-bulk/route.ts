@@ -1,22 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import crypto from 'crypto';
+import { parseNaverCount, calculateTrendScore } from '@/lib/utils/trend-collect';
 
 function generateSignature(timestamp: number, method: string, path: string, secretKey: string): string {
   const message = `${timestamp}.${method}.${path}`;
   return crypto.createHmac('sha256', secretKey).update(message).digest('base64');
-}
-
-function calculateTrendScore(pcQcCnt: number, mobileQcCnt: number): number {
-  const total = pcQcCnt + mobileQcCnt;
-  if (total >= 100000) return 95;
-  if (total >= 50000) return 85;
-  if (total >= 10000) return 75;
-  if (total >= 5000) return 65;
-  if (total >= 1000) return 55;
-  if (total >= 500) return 45;
-  if (total >= 100) return 35;
-  return 20;
 }
 
 export async function POST() {
@@ -106,12 +95,12 @@ export async function POST() {
           if (match) {
             const naverData = {
               relKeyword: match.relKeyword,
-              monthlyPcQcCnt: typeof match.monthlyPcQcCnt === 'number' ? match.monthlyPcQcCnt : 0,
-              monthlyMobileQcCnt: typeof match.monthlyMobileQcCnt === 'number' ? match.monthlyMobileQcCnt : 0,
-              monthlyAvePcClkCnt: typeof match.monthlyAvePcClkCnt === 'number' ? match.monthlyAvePcClkCnt : 0,
-              monthlyAveMobileClkCnt: typeof match.monthlyAveMobileClkCnt === 'number' ? match.monthlyAveMobileClkCnt : 0,
+              monthlyPcQcCnt: parseNaverCount(match.monthlyPcQcCnt),
+              monthlyMobileQcCnt: parseNaverCount(match.monthlyMobileQcCnt),
+              monthlyAvePcClkCnt: parseNaverCount(match.monthlyAvePcClkCnt),
+              monthlyAveMobileClkCnt: parseNaverCount(match.monthlyAveMobileClkCnt),
               compIdx: match.compIdx || '낮음',
-              plAvgDepth: typeof match.plAvgDepth === 'number' ? match.plAvgDepth : 0,
+              plAvgDepth: parseNaverCount(match.plAvgDepth),
             };
 
             const trendScore = calculateTrendScore(naverData.monthlyPcQcCnt, naverData.monthlyMobileQcCnt);

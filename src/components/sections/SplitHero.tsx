@@ -458,6 +458,37 @@ export default function SplitHero() {
       {/* Horizontal Divider (mobile) */}
       <div className="md:hidden absolute left-[10%] right-[10%] top-1/2 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent z-10" />
 
+      {/* SellerHub CTA Fixed Bar */}
+      <motion.div
+        initial={{ y: 60, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 1.5, duration: 0.5, ease: 'easeOut' }}
+        className="fixed bottom-0 left-0 right-0 z-20"
+      >
+        <div className="bg-gradient-to-r from-gray-900/95 via-gray-800/95 to-gray-900/95 backdrop-blur-lg border-t border-white/10">
+          <div className="max-w-screen-xl mx-auto px-4 py-2.5 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-7 h-7 rounded-lg bg-[#E31837]/20 flex items-center justify-center">
+                <Zap className="w-4 h-4 text-[#E31837]" />
+              </div>
+              <div>
+                <span className="text-xs sm:text-sm font-semibold text-white/90">멀티채널 자동화 프로그램</span>
+                <span className="text-[10px] sm:text-xs text-white/50 ml-2 hidden sm:inline">6채널 상품·주문·재고 완전 자동화</span>
+              </div>
+            </div>
+            <motion.a
+              href="/sellerhub/dashboard"
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#E31837] text-white rounded-xl text-xs sm:text-sm font-semibold shadow-lg shadow-[#E31837]/20 hover:shadow-xl hover:shadow-[#E31837]/30 transition-shadow"
+            >
+              SellerHub
+              <ArrowRight className="w-3.5 h-3.5" />
+            </motion.a>
+          </div>
+        </div>
+      </motion.div>
+
       {/* Navigation Overlay */}
       <AnimatePresence>
         {isNavigating && (

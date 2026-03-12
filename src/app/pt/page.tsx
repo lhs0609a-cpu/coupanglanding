@@ -35,6 +35,7 @@ import {
   UserCheck,
   X,
   XCircle,
+  Zap,
 } from 'lucide-react';
 
 // ============================================================
@@ -1114,11 +1115,37 @@ export default function PTPage() {
               <Link href="/auth/login?type=signup" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">파트너 회원가입</Link>
               <Link href="/auth/login?loginType=partner" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">파트너 로그인</Link>
               <Link href="/auth/login?loginType=admin" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">관리자 로그인</Link>
+              <span className="hidden sm:block w-px h-4 bg-gray-200" />
+              <Link href="/sellerhub/dashboard" className="text-sm text-[#E31837] hover:text-red-700 font-semibold transition-colors">멀티채널 자동화</Link>
             </nav>
             <p className="text-sm text-gray-500">&copy; {new Date().getFullYear()} 쿠팡 셀러허브</p>
           </div>
         </div>
       </footer>
+
+      {/* DESKTOP: 멀티채널 자동화 Fixed Bottom Bar */}
+      <div className="hidden md:block fixed bottom-0 left-0 right-0 z-40">
+        <div className="bg-gradient-to-r from-gray-900/95 via-gray-800/95 to-gray-900/95 backdrop-blur-lg border-t border-white/10">
+          <div className="max-w-6xl mx-auto px-6 py-2.5 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-7 h-7 rounded-lg bg-[#E31837]/20 flex items-center justify-center">
+                <Zap className="w-4 h-4 text-[#E31837]" />
+              </div>
+              <div>
+                <span className="text-sm font-semibold text-white/90">멀티채널 자동화 프로그램</span>
+                <span className="text-xs text-white/50 ml-2">6채널 상품·주문·재고 완전 자동화</span>
+              </div>
+            </div>
+            <Link
+              href="/sellerhub/dashboard"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#E31837] text-white rounded-xl text-sm font-semibold shadow-lg shadow-[#E31837]/20 hover:bg-red-700 transition"
+            >
+              SellerHub <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+        </div>
+      </div>
+      <div className="hidden md:block h-12" />
 
       {/* FLOATING MOBILE CTA */}
       <div className="fixed bottom-0 left-0 right-0 z-50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-white/95 backdrop-blur-xl border-t border-gray-200 shadow-2xl shadow-gray-900/10 md:hidden">

@@ -1,22 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import crypto from 'crypto';
+import { parseNaverCount, calculateTrendScore } from '@/lib/utils/trend-collect';
 
 function generateSignature(timestamp: number, method: string, path: string, secretKey: string): string {
   const message = `${timestamp}.${method}.${path}`;
   return crypto.createHmac('sha256', secretKey).update(message).digest('base64');
-}
-
-function calculateTrendScore(pcQcCnt: number, mobileQcCnt: number): number {
-  const total = pcQcCnt + mobileQcCnt;
-  if (total >= 100000) return 95;
-  if (total >= 50000) return 85;
-  if (total >= 10000) return 75;
-  if (total >= 5000) return 65;
-  if (total >= 1000) return 55;
-  if (total >= 500) return 45;
-  if (total >= 100) return 35;
-  return 20;
 }
 
 export async function POST(request: NextRequest) {
@@ -95,14 +84,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '검색 결과가 없습니다.' }, { status: 404 });
     }
 
+    // API 응답 디버깅 (raw 값 확인용)
+    console.log(`[naver] "${keyword}" raw response:`, {
+      monthlyPcQcCnt: matchData.monthlyPcQcCnt,
+      monthlyMobileQcCnt: matchData.monthlyMobileQcCnt,
+      typeofPc: typeof matchData.monthlyPcQcCnt,
+      typeofMobile: typeof matchData.monthlyMobileQcCnt,
+    });
+
     const naverData = {
       relKeyword: matchData.relKeyword,
-      monthlyPcQcCnt: typeof matchData.monthlyPcQcCnt === 'number' ? matchData.monthlyPcQcCnt : 0,
-      monthlyMobileQcCnt: typeof matchData.monthlyMobileQcCnt === 'number' ? matchData.monthlyMobileQcCnt : 0,
-      monthlyAvePcClkCnt: typeof matchData.monthlyAvePcClkCnt === 'number' ? matchData.monthlyAvePcClkCnt : 0,
-      monthlyAveMobileClkCnt: typeof matchData.monthlyAveMobileClkCnt === 'number' ? matchData.monthlyAveMobileClkCnt : 0,
+      monthlyPcQcCnt: parseNaverCount(matchData.monthlyPcQcCnt),
+      monthlyMobileQcCnt: parseNaverCount(matchData.monthlyMobileQcCnt),
+      monthlyAvePcClkCnt: parseNaverCount(matchData.monthlyAvePcClkCnt),
+      monthlyAveMobileClkCnt: parseNaverCount(matchData.monthlyAveMobileClkCnt),
       compIdx: matchData.compIdx || '낮음',
-      plAvgDepth: typeof matchData.plAvgDepth === 'number' ? matchData.plAvgDepth : 0,
+      plAvgDepth: parseNaverCount(matchData.plAvgDepth),
     };
 
     const trendScore = calculateTrendScore(naverData.monthlyPcQcCnt, naverData.monthlyMobileQcCnt);
@@ -128,12 +125,12 @@ export async function POST(request: NextRequest) {
       .slice(0, 20)
       .map((item: Record<string, unknown>) => ({
         relKeyword: item.relKeyword,
-        monthlyPcQcCnt: typeof item.monthlyPcQcCnt === 'number' ? item.monthlyPcQcCnt : 0,
-        monthlyMobileQcCnt: typeof item.monthlyMobileQcCnt === 'number' ? item.monthlyMobileQcCnt : 0,
-        monthlyAvePcClkCnt: typeof item.monthlyAvePcClkCnt === 'number' ? item.monthlyAvePcClkCnt : 0,
-        monthlyAveMobileClkCnt: typeof item.monthlyAveMobileClkCnt === 'number' ? item.monthlyAveMobileClkCnt : 0,
+        monthlyPcQcCnt: parseNaverCount(item.monthlyPcQcCnt),
+        monthlyMobileQcCnt: parseNaverCount(item.monthlyMobileQcCnt),
+        monthlyAvePcClkCnt: parseNaverCount(item.monthlyAvePcClkCnt),
+        monthlyAveMobileClkCnt: parseNaverCount(item.monthlyAveMobileClkCnt),
         compIdx: item.compIdx || '낮음',
-        plAvgDepth: typeof item.plAvgDepth === 'number' ? item.plAvgDepth : 0,
+        plAvgDepth: parseNaverCount(item.plAvgDepth),
       }));
 
     return NextResponse.json({

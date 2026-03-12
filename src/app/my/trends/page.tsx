@@ -86,9 +86,8 @@ export default function MyTrendsPage() {
 
   const getTotalSearch = (kw: TrendingKeyword) => {
     if (!kw.naver_trend_data) return 0;
-    const pc = kw.naver_trend_data.monthlyPcQcCnt;
-    const mobile = kw.naver_trend_data.monthlyMobileQcCnt;
-    if (typeof pc !== 'number' || typeof mobile !== 'number') return 0;
+    const pc = Number(kw.naver_trend_data.monthlyPcQcCnt) || 0;
+    const mobile = Number(kw.naver_trend_data.monthlyMobileQcCnt) || 0;
     return pc + mobile;
   };
 

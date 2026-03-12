@@ -11,6 +11,7 @@ import {
   getFeeAlertLevel,
   calculateFeePenalty,
   SUSPENSION_DAYS,
+  GRACE_PERIOD_DAYS,
 } from '@/lib/utils/fee-penalty';
 import { formatKRW } from '@/lib/utils/format';
 
@@ -88,7 +89,7 @@ export default function FeePaymentBanner({
                 {monthLabel} 수수료 납부 {formatFeeDDay(dday)}
               </p>
               <p className="text-xs mt-0.5 opacity-80">
-                {daysOverdue > 0
+                {daysOverdue > GRACE_PERIOD_DAYS
                   ? `${alertMessage} · 페널티 ${formatKRW(displayTotalPenalty)}`
                   : alertMessage
                 }
@@ -97,7 +98,7 @@ export default function FeePaymentBanner({
           </div>
           <div className="flex items-center gap-3">
             <span className="text-sm font-bold">
-              {formatKRW(daysOverdue > 0 ? displayTotalDue : unpaidAmount)}
+              {formatKRW(daysOverdue > GRACE_PERIOD_DAYS ? displayTotalDue : unpaidAmount)}
             </span>
             {daysOverdue === 0 && (
               <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-white/60">
@@ -134,8 +135,18 @@ export default function FeePaymentBanner({
           <span className="text-xl font-bold">{formatFeeDDay(dday)}</span>
         </div>
 
-        {/* 연체 시 페널티 내역표 */}
-        {daysOverdue > 0 && (
+        {/* 유예 기간 (D+1 ~ D+10): 페널티 없이 안내만 */}
+        {daysOverdue > 0 && daysOverdue <= GRACE_PERIOD_DAYS && (
+          <div className="border-t px-4 py-3 text-sm">
+            <p className="font-medium">미납 금액: {formatKRW(unpaidAmount)}</p>
+            <p className="text-xs mt-1 opacity-80">
+              유예 기간 내 납부 시 연체 부과금 및 지연이자가 부과되지 않습니다.
+            </p>
+          </div>
+        )}
+
+        {/* 유예 기간 초과 (D+11~): 페널티 내역표 */}
+        {daysOverdue > GRACE_PERIOD_DAYS && (
           <div className="border-t px-4 py-3 space-y-2 text-sm">
             <div className="flex justify-between">
               <span>미납 금액</span>
@@ -146,13 +157,16 @@ export default function FeePaymentBanner({
               <span className="font-medium">{formatKRW(displaySurcharge)}</span>
             </div>
             <div className="flex justify-between">
-              <span>지연이자 (D+{daysOverdue})</span>
+              <span>지연이자 (D+{daysOverdue - GRACE_PERIOD_DAYS})</span>
               <span className="font-medium">{formatKRW(displayInterest)}</span>
             </div>
             <div className="border-t pt-2 flex justify-between font-bold">
               <span>총 납부액</span>
               <span className="text-lg">{formatKRW(displayTotalDue)}</span>
             </div>
+            <p className="text-xs opacity-80 pt-1">
+              위 총 납부액을 입금 후 송금완료를 신청해주세요.
+            </p>
           </div>
         )}
 

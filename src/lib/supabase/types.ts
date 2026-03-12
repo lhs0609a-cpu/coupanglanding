@@ -8,7 +8,7 @@ export type ContractStatus = 'draft' | 'sent' | 'signed' | 'expired' | 'terminat
 export type OnboardingStepStatus = 'pending' | 'submitted' | 'approved' | 'rejected';
 export type OnboardingVerificationType = 'self_check' | 'evidence_upload' | 'auto_linked' | 'quiz';
 export type FeePaymentStatus = 'not_applicable' | 'awaiting_payment' | 'paid' | 'overdue' | 'suspended';
-export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system' | 'emergency' | 'violation' | 'arena' | 'fee_payment' | 'support';
+export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system' | 'emergency' | 'violation' | 'arena' | 'fee_payment' | 'support' | 'trainer_message';
 export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist' | 'create_violation' | 'update_violation' | 'escalate_violation' | 'resolve_violation' | 'dismiss_violation' | 'terminate_violation' | 'issue_tax_invoice' | 'cancel_tax_invoice' | 'confirm_tax_invoice' | 'approve_manual_input' | 'reject_manual_input' | 'create_penalty' | 'resolve_penalty' | 'create_challenge' | 'update_challenge' | 'award_points' | 'suspend_program_access' | 'restore_program_access' | 'create_notice' | 'update_notice' | 'delete_notice' | 'reply_ticket' | 'close_ticket' | 'create_faq' | 'update_faq' | 'delete_faq';
 export type WithdrawalStatus = 'pending' | 'approved' | 'rejected';
 export type TrainerStatus = 'pending' | 'approved' | 'revoked';
@@ -66,6 +66,7 @@ export interface PtUser {
   coupang_secret_key: string | null;
   coupang_api_connected: boolean;
   coupang_api_key_expires_at: string | null;
+  last_active_at: string | null;
   created_at: string;
   updated_at: string;
   // 사업자 정보
@@ -334,6 +335,25 @@ export interface TrainerEarning {
   // Joined fields
   trainer?: Trainer;
   trainee_pt_user?: PtUser;
+}
+
+export interface TrainerMessage {
+  id: string;
+  trainer_id: string;
+  trainee_pt_user_id: string;
+  message: string;
+  template_key: string | null;
+  is_read: boolean;
+  sent_at: string;
+}
+
+export interface TrainerNote {
+  id: string;
+  trainer_id: string;
+  trainee_pt_user_id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface NaverKeywordData {

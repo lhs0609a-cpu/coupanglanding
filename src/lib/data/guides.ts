@@ -189,6 +189,19 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
         warning: 'Secret Key는 발급 직후에만 확인할 수 있어요! 반드시 바로 복사해두세요. 또한 Secret Key는 최대 6개월 유효하므로 만료 시 재발급이 필요해요.',
       },
       {
+        title: '연동 정보 설정 (IP주소/URL)',
+        description: 'API 키 발급 후 연동 정보에서 IP주소와 URL을 설정합니다.',
+        detailedInstructions: [
+          'OPEN API 키 발급 섹션 하단의 "연동 정보"에서 "수정" 버튼을 클릭하세요.',
+          '업체명은 기존 이름 그대로 유지합니다.',
+          'IP주소 란에 아래 주소를 모두 입력하세요:',
+          '54.116.7.181, 66.241.125.108, 216.246.19.71, 66.241.124.130, 216.246.19.84, 14.52.102.116, 15.165.113.35, 3.37.67.57, 137.66.13.24, 79.127.159.103',
+          'URL 란에 다음을 입력하세요: https://product-automation-saas.vercel.app/',
+          '"확인" 버튼을 눌러 저장합니다.',
+        ],
+        warning: 'IP주소와 URL을 정확히 입력하지 않으면 API 연동이 동작하지 않습니다. 복사하여 붙여넣기를 권장합니다.',
+      },
+      {
         title: 'API Key 복사하기',
         description: '발급된 업체코드, Access Key, Secret Key를 모두 복사합니다.',
         detailedInstructions: [

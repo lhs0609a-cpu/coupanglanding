@@ -23,9 +23,10 @@ import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import StatCard from '@/components/ui/StatCard';
 import PaymentProgress from '@/components/ui/PaymentProgress';
 import { calculateListingDiscount, type ListingDiscountResult } from '@/lib/calculations/listing-discount';
-import { Send, Calculator, CheckCircle2, ChevronDown, ChevronUp, Banknote, Minus, Plug, Shield, Edit3, Award, FlaskConical } from 'lucide-react';
+import { Send, Calculator, CheckCircle2, ChevronDown, ChevronUp, Banknote, Minus, Plug, Shield, Edit3, Award, FlaskConical, AlertTriangle } from 'lucide-react';
 import ApiConnectionBanner from '@/components/settlement/ApiConnectionBanner';
 import FeePaymentBanner from '@/components/settlement/FeePaymentBanner';
+import { calculateFeePenalty, getFeePaymentDDay, GRACE_PERIOD_DAYS } from '@/lib/utils/fee-penalty';
 import type { MonthlyReport, PtUser, FeePaymentStatus } from '@/lib/supabase/types';
 
 export default function MyReportPage() {
@@ -361,12 +362,20 @@ export default function MyReportPage() {
     if (!report) return;
 
     setDepositLoading(true);
+
+    const updateData: Record<string, unknown> = {
+      payment_status: 'deposited',
+      deposited_at: new Date().toISOString(),
+    };
+
+    // 연체 상태면 납부 시점 기록 (이자 계산 기준)
+    if (report.fee_payment_status === 'overdue' || report.fee_payment_status === 'suspended') {
+      updateData.fee_paid_at = new Date().toISOString();
+    }
+
     const { error } = await supabase
       .from('monthly_reports')
-      .update({
-        payment_status: 'deposited',
-        deposited_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq('id', report.id);
 
     if (error) {
@@ -672,29 +681,69 @@ export default function MyReportPage() {
             )}
           </div>
 
-          {report.payment_status === 'reviewed' && (
-            <div className="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div>
-                  <p className="text-sm font-medium text-purple-800">관리자가 매출을 확인했습니다. 송금을 대기 중입니다.</p>
-                  {report.admin_deposit_amount && (
-                    <p className="text-lg font-bold text-purple-900 mt-1">
-                      확정 송금액: {formatKRW(report.admin_deposit_amount)}
-                    </p>
-                  )}
+          {report.payment_status === 'reviewed' && (() => {
+            // 연체금 계산
+            const feeDeadline = report.fee_payment_deadline;
+            const daysOver = feeDeadline ? (() => {
+              const dd = getFeePaymentDDay(feeDeadline);
+              return dd < 0 ? Math.abs(dd) : 0;
+            })() : 0;
+            const penalty = calculateFeePenalty(report.total_with_vat, daysOver);
+            const baseAmount = report.admin_deposit_amount || report.calculated_deposit;
+            const hasPenalty = daysOver > GRACE_PERIOD_DAYS && penalty.totalPenalty > 0;
+
+            return (
+              <div className="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-purple-800">관리자가 매출을 확인했습니다. 송금을 대기 중입니다.</p>
+                    {report.admin_deposit_amount && (
+                      <p className="text-lg font-bold text-purple-900 mt-1">
+                        확정 수수료: {formatKRW(report.total_with_vat)}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDepositComplete}
+                    disabled={depositLoading}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+                  >
+                    <Banknote className="w-4 h-4" />
+                    {depositLoading ? '처리 중...' : '송금완료 신청'}
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleDepositComplete}
-                  disabled={depositLoading}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
-                >
-                  <Banknote className="w-4 h-4" />
-                  {depositLoading ? '처리 중...' : '송금완료 신청'}
-                </button>
+
+                {/* 연체금 내역 (유예 기간 초과 시) */}
+                {hasPenalty && (
+                  <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg space-y-1.5 text-sm">
+                    <p className="font-medium text-red-800 flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4" />
+                      연체금이 포함된 납부액
+                    </p>
+                    <div className="space-y-1 text-red-700">
+                      <div className="flex justify-between">
+                        <span>수수료 원금</span>
+                        <span>{formatKRW(report.total_with_vat)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>연체 부과금 (5%)</span>
+                        <span>{formatKRW(penalty.surchargeAmount)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>지연이자 (D+{daysOver - GRACE_PERIOD_DAYS})</span>
+                        <span>{formatKRW(penalty.interestAmount)}</span>
+                      </div>
+                      <div className="border-t border-red-300 pt-1.5 flex justify-between font-bold text-red-900">
+                        <span>총 납부액</span>
+                        <span className="text-base">{formatKRW(penalty.totalDue)}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {report.payment_status === 'deposited' && (
             <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">

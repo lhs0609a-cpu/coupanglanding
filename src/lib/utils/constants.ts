@@ -719,6 +719,16 @@ export const FAQ_CATEGORY_COLORS: Record<string, string> = {
   other: 'bg-gray-100 text-gray-700',
 };
 
+// 트레이너 코칭 메시지 템플릿
+export const TRAINER_MESSAGE_TEMPLATES = [
+  { key: 'edu_encourage', label: '교육 독려', message: '교육 진행 중이시죠? 막히는 부분 있으면 연락주세요!' },
+  { key: 'edu_evidence_retry', label: '증빙 재제출 안내', message: '증빙이 반려됐어요. 다시 올려주세요!' },
+  { key: 'report_remind', label: '매출보고 독려', message: '이번 달 매출 보고 기한이 다가오고 있어요!' },
+  { key: 'fee_remind', label: '수수료 납부', message: '수수료 납부 기한 확인해주세요!' },
+  { key: 'praise', label: '칭찬', message: '교육 잘 진행하고 계시네요! 화이팅!' },
+  { key: 'first_sale', label: '첫 매출 축하', message: '첫 매출 축하드려요! 이제 시작입니다!' },
+] as const;
+
 // 종합소득세 구간 (2024년 기준)
 export const TAX_BRACKETS = [
   { limit: 14_000_000, rate: 0.06, deduction: 0 },

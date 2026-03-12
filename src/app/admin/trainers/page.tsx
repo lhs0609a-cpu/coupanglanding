@@ -15,8 +15,9 @@ import { notifyTrainerApproved, notifyTrainerBonusDeposited } from '@/lib/utils/
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
-import { GraduationCap, RefreshCw, UserPlus, CheckCircle2, XCircle, Copy, Users, Banknote, Search } from 'lucide-react';
-import type { Trainer, PtUser, Profile, TrainerTrainee, TrainerEarning } from '@/lib/supabase/types';
+import { GraduationCap, RefreshCw, UserPlus, CheckCircle2, XCircle, Copy, Users, Banknote, Search, MessageSquare, ClipboardList } from 'lucide-react';
+import type { Trainer, PtUser, Profile, TrainerTrainee, TrainerEarning, OnboardingStep } from '@/lib/supabase/types';
+import { ONBOARDING_STEPS } from '@/lib/utils/constants';
 
 interface TrainerWithDetails extends Trainer {
   pt_user: PtUser & { profile: Profile };
@@ -48,6 +49,10 @@ export default function AdminTrainersPage() {
   const [detailTrainer, setDetailTrainer] = useState<TrainerWithDetails | null>(null);
   const [trainees, setTrainees] = useState<TraineeWithProfile[]>([]);
   const [earnings, setEarnings] = useState<TrainerEarning[]>([]);
+
+  // 코칭 활동 통계
+  const [coachingStats, setCoachingStats] = useState<{ messageCount: number; noteCount: number; lastCoachingDate: string | null }>({ messageCount: 0, noteCount: 0, lastCoachingDate: null });
+  const [traineeOnboardingMap, setTraineeOnboardingMap] = useState<Map<string, OnboardingStep[]>>(new Map());
 
   // 취소 모달
   const [revokeModal, setRevokeModal] = useState<string | null>(null);
@@ -213,7 +218,7 @@ export default function AdminTrainersPage() {
   const handleOpenDetail = async (trainer: TrainerWithDetails) => {
     setDetailTrainer(trainer);
 
-    const [traineesRes, earningsRes] = await Promise.all([
+    const [traineesRes, earningsRes, msgCountRes, noteCountRes] = await Promise.all([
       supabase
         .from('trainer_trainees')
         .select('*, trainee_pt_user:pt_users(*, profile:profiles(*))')
@@ -224,10 +229,50 @@ export default function AdminTrainersPage() {
         .select('*, trainee_pt_user:pt_users(*, profile:profiles(*))')
         .eq('trainer_id', trainer.id)
         .order('year_month', { ascending: false }),
+      supabase
+        .from('trainer_messages')
+        .select('id, sent_at')
+        .eq('trainer_id', trainer.id)
+        .order('sent_at', { ascending: false }),
+      supabase
+        .from('trainer_notes')
+        .select('id, created_at')
+        .eq('trainer_id', trainer.id)
+        .order('created_at', { ascending: false }),
     ]);
 
-    setTrainees((traineesRes.data as TraineeWithProfile[]) || []);
+    const traineesList = (traineesRes.data as TraineeWithProfile[]) || [];
+    setTrainees(traineesList);
     setEarnings((earningsRes.data as TrainerEarning[]) || []);
+
+    const msgData = msgCountRes.data || [];
+    const noteData = noteCountRes.data || [];
+    const lastMsg = msgData.length > 0 ? (msgData[0] as { sent_at: string }).sent_at : null;
+    const lastNote = noteData.length > 0 ? (noteData[0] as { created_at: string }).created_at : null;
+    const lastCoaching = [lastMsg, lastNote].filter(Boolean).sort().reverse()[0] || null;
+    setCoachingStats({
+      messageCount: msgData.length,
+      noteCount: noteData.length,
+      lastCoachingDate: lastCoaching,
+    });
+
+    // 트레이니별 온보딩 스텝 조회
+    const traineeIds = traineesList.map((t) => t.trainee_pt_user_id);
+    if (traineeIds.length > 0) {
+      const { data: stepsData } = await supabase
+        .from('onboarding_steps')
+        .select('*')
+        .in('pt_user_id', traineeIds);
+      const sMap = new Map<string, OnboardingStep[]>();
+      (stepsData || []).forEach((s) => {
+        const step = s as OnboardingStep;
+        if (!sMap.has(step.pt_user_id)) sMap.set(step.pt_user_id, []);
+        sMap.get(step.pt_user_id)!.push(step);
+      });
+      setTraineeOnboardingMap(sMap);
+    } else {
+      setTraineeOnboardingMap(new Map());
+    }
   };
 
   const handleUpdateEarningStatus = async (earningId: string, newStatus: 'deposited') => {
@@ -593,6 +638,38 @@ export default function AdminTrainersPage() {
               </div>
             </div>
 
+            {/* 코칭 활동 */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <ClipboardList className="w-4 h-4 text-gray-500" />
+                <h3 className="text-sm font-bold text-gray-900">코칭 활동</h3>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="text-center p-3 bg-blue-50 rounded-lg">
+                  <div className="flex items-center justify-center gap-1 mb-1">
+                    <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                  </div>
+                  <p className="text-lg font-bold text-blue-700">{coachingStats.messageCount}</p>
+                  <p className="text-xs text-blue-600">보낸 메시지</p>
+                </div>
+                <div className="text-center p-3 bg-purple-50 rounded-lg">
+                  <div className="flex items-center justify-center gap-1 mb-1">
+                    <ClipboardList className="w-3.5 h-3.5 text-purple-600" />
+                  </div>
+                  <p className="text-lg font-bold text-purple-700">{coachingStats.noteCount}</p>
+                  <p className="text-xs text-purple-600">코칭 메모</p>
+                </div>
+                <div className="text-center p-3 bg-gray-50 rounded-lg">
+                  <p className="text-sm font-medium text-gray-700 mt-1">
+                    {coachingStats.lastCoachingDate
+                      ? new Date(coachingStats.lastCoachingDate).toLocaleDateString('ko-KR')
+                      : '-'}
+                  </p>
+                  <p className="text-xs text-gray-500">마지막 코칭</p>
+                </div>
+              </div>
+            </div>
+
             {/* 교육생 목록 */}
             <div>
               <div className="flex items-center gap-2 mb-3">
@@ -603,20 +680,48 @@ export default function AdminTrainersPage() {
                 <p className="text-sm text-gray-400">아직 교육생이 없습니다.</p>
               ) : (
                 <div className="space-y-2">
-                  {trainees.map((t) => (
-                    <div key={t.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">
-                          {t.trainee_pt_user?.profile?.full_name || '이름 없음'}
-                        </p>
-                        <p className="text-xs text-gray-500">{t.trainee_pt_user?.profile?.email}</p>
+                  {trainees.map((t) => {
+                    const steps = traineeOnboardingMap.get(t.trainee_pt_user_id) || [];
+                    const completed = steps.filter((s) => s.status === 'approved').length;
+                    const stuckStep = (() => {
+                      for (const def of ONBOARDING_STEPS) {
+                        const step = steps.find((s) => s.step_key === def.key);
+                        if (!step || step.status === 'pending' || step.status === 'rejected' || step.status === 'submitted') {
+                          return def.label;
+                        }
+                      }
+                      return null;
+                    })();
+
+                    return (
+                      <div key={t.id} className="p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">
+                              {t.trainee_pt_user?.profile?.full_name || '이름 없음'}
+                            </p>
+                            <p className="text-xs text-gray-500">{t.trainee_pt_user?.profile?.email}</p>
+                          </div>
+                          <Badge
+                            label={t.is_active ? '활성' : '비활성'}
+                            colorClass={t.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-gray-200 rounded-full h-1.5">
+                            <div
+                              className="bg-[#E31837] h-1.5 rounded-full"
+                              style={{ width: `${(completed / 12) * 100}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-gray-500 whitespace-nowrap">{completed}/12</span>
+                          {stuckStep && completed < 12 && (
+                            <span className="text-xs text-orange-600 whitespace-nowrap">현재: {stuckStep}</span>
+                          )}
+                        </div>
                       </div>
-                      <Badge
-                        label={t.is_active ? '활성' : '비활성'}
-                        colorClass={t.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}
-                      />
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

@@ -4,9 +4,11 @@ import {
   getFeePaymentDDay,
   calculateFeePenalty,
   SUSPENSION_DAYS,
+  GRACE_PERIOD_DAYS,
 } from '@/lib/utils/fee-penalty';
 import {
   notifyFeePaymentReminder,
+  notifyFeeGracePeriodReminder,
   notifyFeePaymentOverdue,
   notifyProgramSuspension,
 } from '@/lib/utils/notifications';
@@ -63,7 +65,7 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // 마감일 초과 → overdue 전환
+      // 마감일 초과 → overdue 전환 (유예 기간 중에는 페널티 0)
       if (dday < 0) {
         const daysOverdue = Math.abs(dday);
         const penalty = calculateFeePenalty(report.total_with_vat || 0, daysOverdue);
@@ -79,20 +81,42 @@ export async function GET(request: NextRequest) {
 
         overdueTransitions++;
 
-        // 연체 경고 알림
-        const { data: ptUser } = await serviceClient
-          .from('pt_users')
-          .select('profile_id')
-          .eq('id', report.pt_user_id)
-          .single();
+        // 유예 기간 리마인더 (D+3, D+7)
+        if ([3, 7].includes(daysOverdue)) {
+          const { data: ptUser } = await serviceClient
+            .from('pt_users')
+            .select('profile_id')
+            .eq('id', report.pt_user_id)
+            .single();
 
-        if (ptUser) {
-          await notifyFeePaymentOverdue(
-            serviceClient,
-            ptUser.profile_id,
-            report.year_month,
-            daysOverdue,
-          );
+          if (ptUser) {
+            await notifyFeeGracePeriodReminder(
+              serviceClient,
+              ptUser.profile_id,
+              report.year_month,
+              daysOverdue,
+              GRACE_PERIOD_DAYS - daysOverdue,
+            );
+            remindersSent++;
+          }
+        }
+
+        // 유예 기간 초과 시 연체 경고 알림
+        if (daysOverdue > GRACE_PERIOD_DAYS) {
+          const { data: ptUser } = await serviceClient
+            .from('pt_users')
+            .select('profile_id')
+            .eq('id', report.pt_user_id)
+            .single();
+
+          if (ptUser) {
+            await notifyFeePaymentOverdue(
+              serviceClient,
+              ptUser.profile_id,
+              report.year_month,
+              daysOverdue,
+            );
+          }
         }
       }
     }
@@ -165,7 +189,7 @@ export async function GET(request: NextRequest) {
           });
         }
       } else {
-        // 페널티 금액만 갱신
+        // 페널티 금액 갱신 (유예 기간 중에는 calculateFeePenalty가 0을 반환)
         await serviceClient
           .from('monthly_reports')
           .update({
@@ -174,21 +198,43 @@ export async function GET(request: NextRequest) {
           })
           .eq('id', report.id);
 
-        // 연체 경고 알림 (매일)
-        const { data: ptUser } = await serviceClient
-          .from('pt_users')
-          .select('profile_id')
-          .eq('id', report.pt_user_id)
-          .single();
+        // 유예 기간 리마인더 (D+3, D+7)
+        if (daysOverdue <= GRACE_PERIOD_DAYS && [3, 7].includes(daysOverdue)) {
+          const { data: ptUser } = await serviceClient
+            .from('pt_users')
+            .select('profile_id')
+            .eq('id', report.pt_user_id)
+            .single();
 
-        if (ptUser) {
-          await notifyFeePaymentOverdue(
-            serviceClient,
-            ptUser.profile_id,
-            report.year_month,
-            daysOverdue,
-          );
-          remindersSent++;
+          if (ptUser) {
+            await notifyFeeGracePeriodReminder(
+              serviceClient,
+              ptUser.profile_id,
+              report.year_month,
+              daysOverdue,
+              GRACE_PERIOD_DAYS - daysOverdue,
+            );
+            remindersSent++;
+          }
+        }
+
+        // 유예 기간 초과 시 연체 경고 알림 (매일)
+        if (daysOverdue > GRACE_PERIOD_DAYS) {
+          const { data: ptUser } = await serviceClient
+            .from('pt_users')
+            .select('profile_id')
+            .eq('id', report.pt_user_id)
+            .single();
+
+          if (ptUser) {
+            await notifyFeePaymentOverdue(
+              serviceClient,
+              ptUser.profile_id,
+              report.year_month,
+              daysOverdue,
+            );
+            remindersSent++;
+          }
         }
       }
     }
