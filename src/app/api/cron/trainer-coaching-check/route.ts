@@ -40,8 +40,8 @@ export async function GET(request: NextRequest) {
     let notifiedCount = 0;
 
     for (const link of activeLinks) {
-      const trainee = link.trainee_pt_user as { last_active_at: string | null; profile: { full_name: string } | null } | null;
-      const trainer = link.trainer as { id: string; pt_user: { profile_id: string; profile: { full_name: string } | null } | null } | null;
+      const trainee = link.trainee_pt_user as unknown as { last_active_at: string | null; profile: { full_name: string } | null } | null;
+      const trainer = link.trainer as unknown as { id: string; pt_user: { profile_id: string; profile: { full_name: string } | null } | null } | null;
 
       if (!trainee || !trainer?.pt_user) continue;
 
