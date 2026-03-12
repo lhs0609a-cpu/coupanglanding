@@ -157,10 +157,10 @@ export default function AdminSupportPage() {
 
       {/* 통계 카드 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard title="대기중" value={stats.pending} subtitle={stats.pending > 0 ? '처리 필요' : ''} trend={stats.pending > 0 ? 'up' : undefined} />
-        <StatCard title="처리중" value={stats.in_progress} />
-        <StatCard title="완료" value={stats.resolved} />
-        <StatCard title="전체" value={stats.total} />
+        <StatCard title="대기중" value={String(stats.pending)} subtitle={stats.pending > 0 ? '처리 필요' : ''} trend={stats.pending > 0 ? 'up' : undefined} />
+        <StatCard title="처리중" value={String(stats.in_progress)} />
+        <StatCard title="완료" value={String(stats.resolved)} />
+        <StatCard title="전체" value={String(stats.total)} />
       </div>
 
       {/* 상태 필터 */}
