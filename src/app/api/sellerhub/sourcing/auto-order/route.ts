@@ -78,11 +78,12 @@ export async function POST(request: Request) {
 
       if (sourcingProduct) {
         const sp = sourcingProduct as Record<string, unknown>;
-        const orderResult = await adapter.createOrder({
-          productId: sp.platform_product_id,
-          skuId: sp.platform_sku_id,
-          quantity: quantity || 1,
-        });
+        const orderResult = await adapter.createOrder(
+          sp.platform_product_id as string,
+          sp.platform_sku_id as string,
+          quantity || 1,
+          {},
+        );
 
         // 발주 상태 업데이트
         await supabase
@@ -106,11 +107,11 @@ export async function POST(request: Request) {
 
       if (sourcingProduct) {
         const sp = sourcingProduct as Record<string, unknown>;
-        const orderResult = await adapter.createOrder({
-          offerId: sp.platform_product_id,
-          skuId: sp.platform_sku_id,
-          quantity: quantity || 1,
-        });
+        const orderResult = await adapter.createOrder(
+          sp.platform_product_id as string,
+          sp.platform_sku_id as string,
+          quantity || 1,
+        );
 
         await supabase
           .from('sh_sourcing_orders')
