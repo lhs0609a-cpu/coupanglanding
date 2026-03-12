@@ -24,7 +24,7 @@ const STATUS_FILTER = [
   { value: 'closed', label: '종료' },
 ];
 
-interface TicketWithUser extends SupportTicket {
+interface TicketWithUser extends Omit<SupportTicket, 'pt_user'> {
   pt_user?: {
     id: string;
     profile_id: string;
