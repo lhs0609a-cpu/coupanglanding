@@ -88,7 +88,8 @@ export async function POST(
 
     // 유저에게 알림
     if (ticket) {
-      const ptUser = ticket.pt_user as { profile_id: string } | null;
+      const ptUserArr = ticket.pt_user as unknown as { profile_id: string }[] | null;
+      const ptUser = ptUserArr?.[0] ?? null;
       if (ptUser) {
         await notifyTicketReplied(serviceClient, ptUser.profile_id, ticket.title);
       }
