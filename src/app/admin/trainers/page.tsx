@@ -121,7 +121,8 @@ export default function AdminTrainersPage() {
       .single();
 
     // 활동 로그
-    const { data: { user: adminUser } } = await supabase.auth.getUser();
+    const { data: { session: adminSession } } = await supabase.auth.getSession();
+    const adminUser = adminSession?.user ?? null;
     if (adminUser) {
       await logActivity(supabase, {
         adminId: adminUser.id,
@@ -170,7 +171,8 @@ export default function AdminTrainersPage() {
     }
 
     // 활동 로그
-    const { data: { user: adminUser } } = await supabase.auth.getUser();
+    const { data: { session: adminSession } } = await supabase.auth.getSession();
+    const adminUser = adminSession?.user ?? null;
     if (adminUser) {
       await logActivity(supabase, {
         adminId: adminUser.id,
@@ -199,7 +201,8 @@ export default function AdminTrainersPage() {
       .eq('trainer_id', revokeModal);
 
     // 활동 로그
-    const { data: { user: adminUser } } = await supabase.auth.getUser();
+    const { data: { session: adminSession } } = await supabase.auth.getSession();
+    const adminUser = adminSession?.user ?? null;
     if (adminUser) {
       await logActivity(supabase, {
         adminId: adminUser.id,

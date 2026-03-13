@@ -84,7 +84,8 @@ export default function MyContractPage() {
 
   const fetchContracts = useCallback(async () => {
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user ?? null;
     if (!user) {
       setLoading(false);
       return;
@@ -249,7 +250,8 @@ export default function MyContractPage() {
 
     try {
       // pt_user 정보 가져오기
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) return;
       const { data: ptUser } = await supabase
         .from('pt_users')

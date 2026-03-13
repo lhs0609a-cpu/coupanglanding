@@ -18,7 +18,8 @@ export default function BarcodeOrdersPage() {
     setError('');
 
     // 바코드 = 송장번호로 간주하여 해당 주문 검색 및 송장 등록
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user ?? null;
     if (!user) return;
 
     const { data: shUser } = await supabase

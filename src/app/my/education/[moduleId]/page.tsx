@@ -29,7 +29,8 @@ export default function EducationModulePage() {
   const supabase = useMemo(() => createClient(), []);
 
   const fetchData = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user ?? null;
     if (!user) { setLoading(false); return; }
 
     const { data: ptUserData } = await supabase

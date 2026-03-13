@@ -89,7 +89,8 @@ export default function AdminDistributionPage() {
     if (!confirm(`${formatYearMonth(yearMonth)} 정산 확정을 취소하시겠습니까? 수정 후 다시 확정할 수 있습니다.`)) return;
 
     setCancelling(true);
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user ?? null;
     await supabase.from('distribution_snapshots').update({
       is_cancelled: true,
       cancelled_at: new Date().toISOString(),

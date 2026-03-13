@@ -16,7 +16,8 @@ export default function GrowthRoadmapWidget() {
   useEffect(() => {
     (async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { session } } = await supabase.auth.getSession();
+        const user = session?.user ?? null;
         if (!user) return;
 
         const { data: ptUser } = await supabase

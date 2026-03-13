@@ -72,7 +72,8 @@ export default function MySettingsPage() {
 
   const fetchCredentials = useCallback(async () => {
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user ?? null;
     if (!user) {
       setLoading(false);
       return;
@@ -117,7 +118,8 @@ export default function MySettingsPage() {
     setSaved(false);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) throw new Error('로그인이 필요합니다.');
 
       const encodedPw = sellerPw ? safeBase64Encode(sellerPw) : null;
@@ -222,7 +224,8 @@ export default function MySettingsPage() {
     setBizSaving(true);
     setBizSaved(false);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) return;
 
       const { error: updateError } = await supabase

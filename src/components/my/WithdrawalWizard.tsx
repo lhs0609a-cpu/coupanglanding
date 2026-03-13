@@ -103,7 +103,8 @@ export default function WithdrawalWizard({
       // 1. 증빙 파일 업로드
       let evidenceUrl: string | null = null;
       if (evidenceFile) {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { session } } = await supabase.auth.getSession();
+        const user = session?.user ?? null;
         if (!user) { setError('인증이 필요합니다.'); setSubmitting(false); return; }
         const { data: ptUser } = await supabase
           .from('pt_users')

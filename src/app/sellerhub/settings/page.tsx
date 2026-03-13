@@ -27,7 +27,8 @@ export default function SettingsPage() {
 
   const fetchSettings = useCallback(async () => {
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user ?? null;
     if (!user) return;
 
     const { data: shUser } = await supabase
@@ -52,7 +53,8 @@ export default function SettingsPage() {
 
   const saveSettings = async () => {
     setSaving(true);
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user ?? null;
     if (user) {
       await supabase
         .from('sellerhub_users')

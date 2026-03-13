@@ -36,7 +36,8 @@ export default function GuideArticlePage({ params }: PageProps) {
   useEffect(() => {
     (async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { session } } = await supabase.auth.getSession();
+        const user = session?.user ?? null;
         if (!user) return;
         const { data: ptUser } = await supabase
           .from('pt_users')

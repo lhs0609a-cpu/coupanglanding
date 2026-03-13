@@ -122,7 +122,8 @@ export default function OnboardingPage() {
 
     if (step === 3) {
       // 기본 설정 저장
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (user) {
         await supabase
           .from('sellerhub_users')
@@ -137,7 +138,8 @@ export default function OnboardingPage() {
     if (step === 4) {
       // 온보딩 완료
       setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (user) {
         await supabase
           .from('sellerhub_users')

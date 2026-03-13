@@ -219,7 +219,8 @@ export default function AdminDashboardPage() {
     }
 
     // 활동 로그
-    const { data: { user: adminUser } } = await supabase.auth.getUser();
+    const { data: { session: adminSession } } = await supabase.auth.getSession();
+    const adminUser = adminSession?.user ?? null;
     if (adminUser) {
       await logActivity(supabase, {
         adminId: adminUser.id,
@@ -269,7 +270,8 @@ export default function AdminDashboardPage() {
       })
       .eq('id', report.id);
 
-    const { data: { user: adminUser } } = await supabase.auth.getUser();
+    const { data: { session: adminSession } } = await supabase.auth.getSession();
+    const adminUser = adminSession?.user ?? null;
     if (adminUser) {
       await logActivity(supabase, {
         adminId: adminUser.id,
@@ -400,7 +402,8 @@ export default function AdminDashboardPage() {
     }
 
     // 활동 로그
-    const { data: { user: adminUser } } = await supabase.auth.getUser();
+    const { data: { session: adminSession } } = await supabase.auth.getSession();
+    const adminUser = adminSession?.user ?? null;
     if (adminUser) {
       await logActivity(supabase, {
         adminId: adminUser.id,

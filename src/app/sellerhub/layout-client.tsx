@@ -23,13 +23,14 @@ export default function SellerHubLayoutClient({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user || cancelled) return;
+      // getSession()은 로컬 JWT 디코딩 (getUser()는 네트워크 요청 → 느림)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user || cancelled) return;
 
       const { data: shUser } = await supabase
         .from('sellerhub_users')
         .select('id')
-        .eq('profile_id', user.id)
+        .eq('profile_id', session.user.id)
         .single();
       if (!shUser || cancelled) return;
 
