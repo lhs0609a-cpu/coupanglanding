@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { updateSession } from '@/lib/supabase/middleware';
 
 export async function middleware(request: NextRequest) {
   try {
@@ -10,8 +11,6 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next();
     }
 
-    // Supabase가 설정된 경우에만 세션 체크
-    const { updateSession } = await import('@/lib/supabase/middleware');
     return await updateSession(request);
   } catch {
     // Supabase 모듈 로드 실패 시 통과

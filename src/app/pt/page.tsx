@@ -957,10 +957,6 @@ export default function PTPage() {
                       </div>
                     </div>
                     <div className="relative pl-5 border-l-[3px] border-[#E31837]/20 mb-6"><Quote className="absolute -left-2.5 -top-1 w-5 h-5 text-[#E31837]/30" /><p className="text-gray-600 leading-relaxed text-[15px] italic">{t.quote}</p></div>
-                    <div className="mb-4">
-                      <p className="text-xs text-gray-400 font-medium mb-2">PT사와의 실제 대화</p>
-                      <KakaoChat messages={successKakaoMap[i]} />
-                    </div>
                     <div className="flex items-center gap-4">
                       <div className="px-4 py-2.5 rounded-xl bg-gray-50 border border-gray-100"><p className="text-xs text-gray-500 mb-0.5">Before</p><p className="text-sm font-bold text-gray-700">{t.before}</p></div>
                       <ArrowRight className="w-5 h-5 text-gray-300 flex-shrink-0" />
