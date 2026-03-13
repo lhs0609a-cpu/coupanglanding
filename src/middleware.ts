@@ -11,14 +11,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next();
     }
 
-    // Vercel Edge 타임아웃 방지: 10초 내 응답 없으면 통과
-    const result = await Promise.race([
-      updateSession(request),
-      new Promise<NextResponse>((resolve) =>
-        setTimeout(() => resolve(NextResponse.next()), 10000),
-      ),
-    ]);
-    return result;
+    return await updateSession(request);
   } catch {
     // Supabase 모듈 로드 실패 시 통과
     return NextResponse.next();
