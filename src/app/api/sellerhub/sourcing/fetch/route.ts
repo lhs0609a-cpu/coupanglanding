@@ -100,13 +100,15 @@ export async function POST(request: NextRequest) {
 
       // 1688 응답 파싱
       const productData = (result as Record<string, unknown>).result as Record<string, unknown> || result;
+      const imageObj = productData.image as Record<string, unknown> | undefined;
+      const imageList = imageObj?.images as string[] | undefined;
 
       const product = {
         id: productId,
         platform: 'ali1688',
         title: String(productData.subject || productData.productName || ''),
         price_cny: Number(productData.referencePrice || productData.price || 0),
-        image_url: String(productData.image?.images?.[0] || ''),
+        image_url: String(imageList?.[0] || ''),
         supplier_name: String(productData.supplierLoginId || ''),
         supplier_rating: Number(productData.supplierScore || 0),
         sales_count: Number(productData.quantitySumMonth || 0),
