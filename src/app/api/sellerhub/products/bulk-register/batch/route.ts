@@ -249,11 +249,14 @@ export async function POST(req: NextRequest) {
       }
 
       // 7. sh_sync_jobs 카운트 업데이트 (매 상품마다)
-      await serviceClient.rpc('increment_sync_job_counts', {
-        p_job_id: jobId,
-        p_processed: 1,
-        p_errors: errorCount > 0 && results[results.length - 1]?.success === false ? 1 : 0,
-      }).then(() => {}).catch(async () => {
+      try {
+        const { error: rpcError } = await serviceClient.rpc('increment_sync_job_counts', {
+          p_job_id: jobId,
+          p_processed: 1,
+          p_errors: errorCount > 0 && results[results.length - 1]?.success === false ? 1 : 0,
+        });
+        if (rpcError) throw rpcError;
+      } catch {
         // rpc 없으면 직접 업데이트 (레이스 컨디션 가능하지만 단일 배치이므로 OK)
         const { data: currentJob } = await serviceClient
           .from('sh_sync_jobs')
@@ -270,7 +273,7 @@ export async function POST(req: NextRequest) {
             })
             .eq('id', jobId);
         }
-      });
+      }
 
       // Rate limit between products
       if (products.indexOf(product) < products.length - 1) {
