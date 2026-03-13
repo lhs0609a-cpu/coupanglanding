@@ -75,17 +75,21 @@ export async function POST(request: NextRequest) {
       // 1688 API 응답 → 프론트 형식으로 변환
       const items = ((result as Record<string, unknown>).result as Record<string, unknown>[]) || [];
 
-      const products = items.map((item) => ({
-        id: String(item.offerId || item.productID || ''),
-        platform: 'ali1688',
-        title: String(item.subject || item.productName || ''),
-        price_cny: Number(item.price || item.referencePrice || 0),
-        image_url: String(item.imageUrl || item.image?.images?.[0] || ''),
-        supplier_name: String(item.supplierLoginId || item.companyName || ''),
-        supplier_rating: Number(item.supplierScore || 0),
-        sales_count: Number(item.quantitySumMonth || 0),
-        url: `https://detail.1688.com/offer/${item.offerId || item.productID}.html`,
-      }));
+      const products = items.map((item) => {
+        const imgObj = item.image as Record<string, unknown> | undefined;
+        const imgList = imgObj?.images as string[] | undefined;
+        return {
+          id: String(item.offerId || item.productID || ''),
+          platform: 'ali1688',
+          title: String(item.subject || item.productName || ''),
+          price_cny: Number(item.price || item.referencePrice || 0),
+          image_url: String(item.imageUrl || imgList?.[0] || ''),
+          supplier_name: String(item.supplierLoginId || item.companyName || ''),
+          supplier_rating: Number(item.supplierScore || 0),
+          sales_count: Number(item.quantitySumMonth || 0),
+          url: `https://detail.1688.com/offer/${item.offerId || item.productID}.html`,
+        };
+      });
 
       return NextResponse.json({ products });
     }
