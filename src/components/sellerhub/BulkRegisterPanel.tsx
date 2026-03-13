@@ -5,8 +5,16 @@ import {
   FolderSearch, ArrowRight, ArrowLeft, Loader2, CheckCircle2, XCircle,
   Search, RefreshCw, Truck, MapPin, Phone, Sparkles, Pause, Play,
   Pencil, ChevronDown, Folder, X, Clock, Plus, FolderOpen,
+  AlertTriangle, Shield, Filter,
 } from 'lucide-react';
 import { pickAndScanFolder, uploadScannedImages, type ScannedImageFile } from '@/lib/sellerhub/services/client-folder-scanner';
+import {
+  validateProductLocal,
+  type ValidationStatus,
+  type ValidationIssue,
+  type ProductValidationResult,
+  type CategoryMetadata,
+} from '@/lib/sellerhub/services/product-validator';
 
 // ---- 타입 ----
 
@@ -51,6 +59,10 @@ interface EditableProduct extends PreviewProduct {
   scannedDetailImages?: ScannedImageFile[];
   scannedInfoImages?: ScannedImageFile[];
   scannedReviewImages?: ScannedImageFile[];
+  // 검증 결과
+  validationStatus?: ValidationStatus;
+  validationErrors?: ValidationIssue[];
+  validationWarnings?: ValidationIssue[];
   // 등록 결과
   status: 'pending' | 'registering' | 'success' | 'error';
   channelProductId?: string;
@@ -179,6 +191,11 @@ export default function BulkRegisterPanel() {
   const [bulkAction, setBulkAction] = useState<'brand' | 'category' | 'price' | null>(null);
   const [bulkBrandValue, setBulkBrandValue] = useState('');
   const [bulkPriceAdjust, setBulkPriceAdjust] = useState(0);
+
+  // ---- 검증 ----
+  const [validating, setValidating] = useState(false);
+  const [categoryMetaCache, setCategoryMetaCache] = useState<Record<string, CategoryMetadata>>({});
+  const [showProblemsOnly, setShowProblemsOnly] = useState(false);
 
   // ---- Step 3: 등록 ----
   const [registering, setRegistering] = useState(false);
@@ -410,6 +427,91 @@ export default function BulkRegisterPanel() {
     }
   }, [brackets, runAutoCategory]);
 
+  // ---- 로컬 검증 자동 실행 (디바운스) ----
+  useEffect(() => {
+    if (products.length === 0 || step !== 2) return;
+    const timer = setTimeout(() => {
+      setProducts((prev) =>
+        prev.map((p) => {
+          const result = validateProductLocal({
+            editedName: p.editedName,
+            editedSellingPrice: p.editedSellingPrice,
+            editedCategoryCode: p.editedCategoryCode,
+            editedBrand: p.editedBrand,
+            sourcePrice: p.sourcePrice,
+            mainImageCount: p.scannedMainImages?.length ?? p.mainImageCount,
+            scannedMainImages: p.scannedMainImages,
+          });
+          return {
+            ...p,
+            validationStatus: result.status,
+            validationErrors: result.errors,
+            validationWarnings: result.warnings,
+          };
+        }),
+      );
+    }, 500);
+    return () => clearTimeout(timer);
+  // products 내용이 바뀔 때 재실행하되, setProducts에 의한 검증 결과 업데이트는 무시
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products.map((p) => `${p.uid}:${p.editedName}:${p.editedSellingPrice}:${p.editedCategoryCode}:${p.editedBrand}:${p.mainImageCount}`).join(','), step]);
+
+  // ---- 딥 검증 핸들러 ----
+  const handleDeepValidation = useCallback(async () => {
+    const targetProducts = products.filter((p) => p.selected);
+    if (targetProducts.length === 0) return;
+
+    setValidating(true);
+    try {
+      const res = await fetch('/api/sellerhub/products/bulk-register/validate-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          products: targetProducts.map((p) => ({
+            uid: p.uid,
+            editedName: p.editedName,
+            editedBrand: p.editedBrand,
+            editedSellingPrice: p.editedSellingPrice,
+            editedCategoryCode: p.editedCategoryCode,
+            sourcePrice: p.sourcePrice,
+            mainImageCount: p.scannedMainImages?.length ?? p.mainImageCount,
+          })),
+          contactNumber,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json() as {
+          results: Record<string, ProductValidationResult>;
+          categoryMeta: Record<string, CategoryMetadata>;
+        };
+
+        // 검증 결과 반영
+        setProducts((prev) =>
+          prev.map((p) => {
+            const r = data.results[p.uid];
+            if (!r) return p;
+            return {
+              ...p,
+              validationStatus: r.status,
+              validationErrors: r.errors,
+              validationWarnings: r.warnings,
+            };
+          }),
+        );
+
+        // categoryMeta 캐시 업데이트
+        if (data.categoryMeta) {
+          setCategoryMetaCache((prev) => ({ ...prev, ...data.categoryMeta }));
+        }
+      }
+    } catch {
+      // 검증 실패 → 무시 (로컬 검증 결과 유지)
+    } finally {
+      setValidating(false);
+    }
+  }, [products, contactNumber]);
+
   // ---- 초기 로드: 출고지/반품지 조회 ----
   useEffect(() => {
     let cancelled = false;
@@ -605,9 +707,12 @@ export default function BulkRegisterPanel() {
 
   // ---- Step 3: 배치 등록 (uid 기반) ----
   const handleRegister = useCallback(async () => {
-    const selectedProducts = products.filter((p) => p.selected && p.editedCategoryCode);
+    // 에러 상품 제외
+    const selectedProducts = products.filter(
+      (p) => p.selected && p.editedCategoryCode && p.validationStatus !== 'error',
+    );
     if (selectedProducts.length === 0) {
-      alert('카테고리가 지정된 선택 상품이 없습니다.');
+      alert('등록 가능한 선택 상품이 없습니다. (카테고리 미지정 또는 검증 오류)');
       return;
     }
 
@@ -627,20 +732,23 @@ export default function BulkRegisterPanel() {
     );
 
     try {
-      // 1. init-job
+      // 1. init-job (캐시된 카테고리 메타는 제외)
       const uniqueCategoryCodes = [...new Set(selectedProducts.map((p) => p.editedCategoryCode))];
+      const uncachedCodes = uniqueCategoryCodes.filter((c) => !categoryMetaCache[c]);
       const initRes = await fetch('/api/sellerhub/products/bulk-register/init-job', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           totalCount: selectedProducts.length,
-          categoryCodes: uniqueCategoryCodes,
+          categoryCodes: uncachedCodes,
         }),
       });
       const initData = await initRes.json();
       if (!initRes.ok) throw new Error(initData.error || 'Job 초기화 실패');
 
-      const { jobId, categoryMeta } = initData;
+      const { jobId } = initData;
+      // 캐시와 신규 메타 병합
+      const categoryMeta = { ...categoryMetaCache, ...(initData.categoryMeta || {}) };
 
       // 2. 배치 분할
       const batches: EditableProduct[][] = [];
@@ -793,7 +901,7 @@ export default function BulkRegisterPanel() {
     } finally {
       setRegistering(false);
     }
-  }, [products, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, generateAiContent, includeReviewImages, noticeOverrides]);
+  }, [products, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, generateAiContent, includeReviewImages, noticeOverrides, categoryMetaCache]);
 
   // ---- 계산 ----
   const selectedProducts = products.filter((p) => p.selected);
@@ -803,6 +911,20 @@ export default function BulkRegisterPanel() {
   const successCount = products.filter((p) => p.status === 'success').length;
   const failCount = products.filter((p) => p.status === 'error').length;
   const pendingCount = products.filter((p) => p.selected && p.status === 'pending').length;
+
+  // 검증 통계
+  const validationReadyCount = products.filter((p) => p.validationStatus === 'ready').length;
+  const validationErrorCount = products.filter((p) => p.validationStatus === 'error').length;
+  const validationWarningCount = products.filter((p) => p.validationStatus === 'warning').length;
+  const registerableProducts = products.filter(
+    (p) => p.selected && p.editedCategoryCode && p.validationStatus !== 'error',
+  );
+  const registerableCount = registerableProducts.length;
+
+  // 문제 필터 적용된 상품 목록
+  const displayedProducts = showProblemsOnly
+    ? products.filter((p) => p.validationStatus === 'error' || p.validationStatus === 'warning')
+    : products;
 
   const elapsed = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
   const processedCount = successCount + failCount;
@@ -1277,6 +1399,48 @@ export default function BulkRegisterPanel() {
             />
           </div>
 
+          {/* 검증 요약바 */}
+          {products.some((p) => p.validationStatus) && (
+            <div className="bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-3 text-sm">
+                <span className="flex items-center gap-1 text-green-600">
+                  <CheckCircle2 className="w-4 h-4" />
+                  등록 가능: {validationReadyCount}개
+                </span>
+                {validationErrorCount > 0 && (
+                  <span className="flex items-center gap-1 text-red-600">
+                    <XCircle className="w-4 h-4" />
+                    오류: {validationErrorCount}개
+                  </span>
+                )}
+                {validationWarningCount > 0 && (
+                  <span className="flex items-center gap-1 text-orange-500">
+                    <AlertTriangle className="w-4 h-4" />
+                    경고: {validationWarningCount}개
+                  </span>
+                )}
+              </div>
+              <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer ml-auto">
+                <input
+                  type="checkbox"
+                  checked={showProblemsOnly}
+                  onChange={(e) => setShowProblemsOnly(e.target.checked)}
+                  className="rounded border-gray-300"
+                />
+                <Filter className="w-3.5 h-3.5" />
+                문제만 보기
+              </label>
+              <button
+                onClick={handleDeepValidation}
+                disabled={validating || selectedCount === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+              >
+                {validating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Shield className="w-3.5 h-3.5" />}
+                {validating ? '검증 중...' : '전체 검증'}
+              </button>
+            </div>
+          )}
+
           {/* 일괄 작업 툴바 */}
           <div className="bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-3 flex-wrap">
             <span className="text-xs font-medium text-gray-500">일괄 작업:</span>
@@ -1423,7 +1587,7 @@ export default function BulkRegisterPanel() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {products.map((p) => (
+                  {displayedProducts.map((p) => (
                     <ProductRow
                       key={p.uid}
                       product={p}
@@ -1446,10 +1610,13 @@ export default function BulkRegisterPanel() {
             </button>
             <button
               onClick={handleRegister}
-              disabled={selectedCount === 0 || products.filter((p) => p.selected && p.editedCategoryCode).length === 0}
+              disabled={registerableCount === 0 || products.some((p) => p.selected && p.validationStatus === 'error')}
               className="flex items-center gap-2 px-6 py-3 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
             >
-              {products.filter((p) => p.selected && p.editedCategoryCode).length}개 등록 시작
+              {registerableCount}개 등록 시작
+              {validationErrorCount > 0 && (
+                <span className="text-xs opacity-75">({validationErrorCount}개 오류 제외)</span>
+              )}
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
@@ -1608,15 +1775,40 @@ interface ProductRowProps {
 }
 
 const ProductRow = memo(function ProductRow({ product: p, onToggle, onUpdate, onCategoryClick }: ProductRowProps) {
+  // 필드별 에러 여부 확인
+  const fieldHasError = (field: string) =>
+    p.validationErrors?.some((e) => e.field === field) || false;
+  const fieldHasWarning = (field: string) =>
+    p.validationWarnings?.some((w) => w.field === field) || false;
+
+  const fieldBorderClass = (field: string, base: string) => {
+    if (fieldHasError(field)) return base.replace('border-transparent', 'border-red-400');
+    if (fieldHasWarning(field)) return base.replace('border-transparent', 'border-orange-300');
+    return base;
+  };
+
+  // 모든 이슈를 툴팁용 텍스트로
+  const allIssues = [...(p.validationErrors || []), ...(p.validationWarnings || [])];
+  const tooltipText = allIssues.map((i) => `${i.severity === 'error' ? '[오류]' : '[경고]'} ${i.message}`).join('\n');
+
   return (
-    <tr className={`hover:bg-gray-50 ${!p.selected ? 'opacity-50' : ''}`}>
+    <tr className={`hover:bg-gray-50 ${!p.selected ? 'opacity-50' : ''} ${p.validationStatus === 'error' ? 'bg-red-50/50' : ''}`}>
       <td className="px-3 py-1.5">
-        <input
-          type="checkbox"
-          checked={p.selected}
-          onChange={() => onToggle(p.uid)}
-          className="rounded border-gray-300"
-        />
+        <div className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={p.selected}
+            onChange={() => onToggle(p.uid)}
+            className="rounded border-gray-300"
+          />
+          {p.validationStatus && (
+            <span title={tooltipText} className="cursor-help">
+              {p.validationStatus === 'ready' && <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />}
+              {p.validationStatus === 'warning' && <AlertTriangle className="w-3.5 h-3.5 text-orange-500" />}
+              {p.validationStatus === 'error' && <XCircle className="w-3.5 h-3.5 text-red-500" />}
+            </span>
+          )}
+        </div>
       </td>
       <td className="px-3 py-1.5 text-xs text-gray-500 font-mono">{p.productCode}</td>
       <td className="px-3 py-1.5">
@@ -1624,7 +1816,8 @@ const ProductRow = memo(function ProductRow({ product: p, onToggle, onUpdate, on
           type="text"
           value={p.editedName}
           onChange={(e) => onUpdate(p.uid, 'editedName', e.target.value)}
-          className="w-full px-1.5 py-0.5 border border-transparent hover:border-gray-300 focus:border-[#E31837] rounded text-sm text-gray-900 focus:ring-1 focus:ring-[#E31837] outline-none transition"
+          title={fieldHasError('name') ? p.validationErrors?.find((e) => e.field === 'name')?.message : undefined}
+          className={fieldBorderClass('name', "w-full px-1.5 py-0.5 border border-transparent hover:border-gray-300 focus:border-[#E31837] rounded text-sm text-gray-900 focus:ring-1 focus:ring-[#E31837] outline-none transition")}
         />
       </td>
       <td className="px-3 py-1.5">
@@ -1632,7 +1825,8 @@ const ProductRow = memo(function ProductRow({ product: p, onToggle, onUpdate, on
           type="text"
           value={p.editedBrand}
           onChange={(e) => onUpdate(p.uid, 'editedBrand', e.target.value)}
-          className="w-full px-1.5 py-0.5 border border-transparent hover:border-gray-300 focus:border-[#E31837] rounded text-xs text-gray-700 focus:ring-1 focus:ring-[#E31837] outline-none transition"
+          title={fieldHasWarning('brand') ? p.validationWarnings?.find((w) => w.field === 'brand')?.message : undefined}
+          className={fieldBorderClass('brand', "w-full px-1.5 py-0.5 border border-transparent hover:border-gray-300 focus:border-[#E31837] rounded text-xs text-gray-700 focus:ring-1 focus:ring-[#E31837] outline-none transition")}
           placeholder="-"
         />
       </td>
@@ -1644,7 +1838,8 @@ const ProductRow = memo(function ProductRow({ product: p, onToggle, onUpdate, on
           type="number"
           value={p.editedSellingPrice}
           onChange={(e) => onUpdate(p.uid, 'editedSellingPrice', Number(e.target.value))}
-          className="w-full px-1.5 py-0.5 border border-transparent hover:border-gray-300 focus:border-[#E31837] rounded text-sm text-[#E31837] font-medium text-right tabular-nums focus:ring-1 focus:ring-[#E31837] outline-none transition"
+          title={fieldHasError('sellingPrice') ? p.validationErrors?.find((e) => e.field === 'sellingPrice')?.message : undefined}
+          className={fieldBorderClass('sellingPrice', "w-full px-1.5 py-0.5 border border-transparent hover:border-gray-300 focus:border-[#E31837] rounded text-sm text-[#E31837] font-medium text-right tabular-nums focus:ring-1 focus:ring-[#E31837] outline-none transition")}
         />
       </td>
       <td className="px-3 py-1.5">

@@ -1,18 +1,23 @@
 'use client';
 
-import { use, useEffect, useMemo } from 'react';
+import { use, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Clock, ArrowRight } from 'lucide-react';
+import { Clock, ArrowRight, Gamepad2 } from 'lucide-react';
 import Card from '@/components/ui/Card';
-import Badge from '@/components/ui/Badge';
 import GuideBreadcrumb from '@/components/guides/GuideBreadcrumb';
 import GuideStepSection from '@/components/guides/GuideStepSection';
 import GuideFAQSection from '@/components/guides/GuideFAQSection';
+import GuideTutorialMode from '@/components/guides/GuideTutorialMode';
 import {
   getArticleById,
   getCategoryById,
   getRelatedArticles,
 } from '@/lib/data/guides';
+import {
+  getPreferredMode,
+  setPreferredMode,
+  type GuideMode,
+} from '@/lib/utils/guide-tutorial-progress';
 import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
@@ -31,6 +36,18 @@ export default function GuideArticlePage({ params }: PageProps) {
 
   const relatedArticles = getRelatedArticles(articleId);
   const supabase = useMemo(() => createClient(), []);
+
+  const [mode, setMode] = useState<GuideMode>('tutorial');
+
+  // 선호 모드 복원
+  useEffect(() => {
+    setMode(getPreferredMode());
+  }, []);
+
+  const handleModeChange = (newMode: GuideMode) => {
+    setMode(newMode);
+    setPreferredMode(newMode);
+  };
 
   // 가이드 열람 추적 (포인트 + 배지)
   useEffect(() => {
@@ -57,6 +74,21 @@ export default function GuideArticlePage({ params }: PageProps) {
     })();
   }, [supabase, categoryId]);
 
+  // 튜토리얼 모드
+  if (mode === 'tutorial') {
+    return (
+      <div className="max-w-4xl mx-auto py-2">
+        <GuideTutorialMode
+          articleId={articleId}
+          title={article.title}
+          steps={article.steps}
+          onSwitchToRead={() => handleModeChange('read')}
+        />
+      </div>
+    );
+  }
+
+  // 읽기 모드 (기존)
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* 브레드크럼 */}
@@ -67,6 +99,16 @@ export default function GuideArticlePage({ params }: PageProps) {
           { label: article.title },
         ]}
       />
+
+      {/* 튜토리얼 모드 전환 버튼 */}
+      <button
+        type="button"
+        onClick={() => handleModeChange('tutorial')}
+        className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-[#E31837] to-[#ff4d6a] text-white font-bold rounded-xl hover:opacity-90 transition shadow-lg"
+      >
+        <Gamepad2 className="w-5 h-5" />
+        튜토리얼 모드로 학습하기
+      </button>
 
       {/* 헤더 카드 */}
       <Card>

@@ -40,7 +40,13 @@
       "WebFetch(domain:onchannelnotice.oopy.io)",
       "WebFetch(domain:domemedb.domeggook.com)",
       "WebFetch(domain:medium.com)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(node test-keywords.mjs:*)",
+      "Bash(npx tsc:*)",
+      "Bash(git checkout:*)",
+      "Bash(node node_modules/typescript/lib/tsc.js:*)",
+      "Bash(npm view:*)",
+      "Bash(npm pack:*)"
     ]
   }
 }

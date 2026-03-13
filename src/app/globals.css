@@ -358,3 +358,92 @@ html {
 .animate-celebration-particle {
   animation: celebrationParticle 0.8s ease-out forwards;
 }
+
+/* ================================================
+   Tutorial Mode Animations
+   ================================================ */
+
+/* 설명 항목이 하나씩 나타나는 애니메이션 */
+@keyframes instructionReveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-instruction-reveal {
+  opacity: 0;
+  animation: instructionReveal 0.4s ease-out forwards;
+}
+
+/* CTA 버튼 미세 펄스 */
+@keyframes stepCompletePulse {
+  0%, 100% {
+    box-shadow: 0 10px 15px -3px rgba(34, 197, 94, 0.3);
+  }
+  50% {
+    box-shadow: 0 10px 25px -3px rgba(34, 197, 94, 0.5);
+  }
+}
+
+.animate-step-complete-pulse {
+  animation: stepCompletePulse 2s ease-in-out infinite;
+}
+
+/* 스텝 번호 등장 */
+@keyframes bounceIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+  70% {
+    transform: scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-bounce-in {
+  animation: bounceIn 0.5s ease-out forwards;
+}
+
+/* 슬라이드 인 (오른쪽에서) */
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.35s ease-out forwards;
+}
+
+/* 슬라이드 인 (왼쪽에서) */
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.35s ease-out forwards;
+}
