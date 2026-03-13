@@ -10,11 +10,14 @@ export const metadata = {
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  // getSession()은 JWT 로컬 디코딩 (네트워크 요청 없음)
+  const { data: { session } } = await supabase.auth.getSession();
 
-  if (!user) {
+  if (!session?.user) {
     redirect('/auth/login?redirect=/admin/dashboard');
   }
+
+  const user = session.user;
 
   const { data: profile } = await supabase
     .from('profiles')

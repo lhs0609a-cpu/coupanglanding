@@ -12,28 +12,25 @@ export const metadata = {
 
 export default async function MyLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  // getSession()은 JWT 로컬 디코딩 (네트워크 요청 없음, getUser() 대비 수백ms 절약)
+  const { data: { session } } = await supabase.auth.getSession();
 
-  if (!user) {
+  if (!session?.user) {
     redirect('/auth/login?redirect=/my/dashboard');
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('full_name, role')
-    .eq('id', user.id)
-    .single();
+  const user = session.user;
+
+  // 1단계: profile + ptUser 병렬 조회
+  const [{ data: profile }, { data: ptUser }] = await Promise.all([
+    supabase.from('profiles').select('full_name, role').eq('id', user.id).single(),
+    supabase.from('pt_users').select('id, created_at, coupang_api_connected').eq('profile_id', user.id).maybeSingle(),
+  ]);
 
   // 트레이너 여부 확인 + 정산 D-Day 뱃지 데이터
   let isTrainer = false;
   let settlementBadge: { dday: number; reportStatus: 'not_eligible' | 'pending' | 'submitted' | 'completed' | 'overdue'; eligible: boolean } | undefined;
   let feePaymentBadge: { status: string; deadline: string | null; unpaidAmount: number; yearMonth: string } | undefined;
-
-  const { data: ptUser } = await supabase
-    .from('pt_users')
-    .select('id, created_at, coupang_api_connected')
-    .eq('profile_id', user.id)
-    .maybeSingle();
 
   if (ptUser) {
     // fire-and-forget: 마지막 활동 시간 업데이트
@@ -44,13 +41,11 @@ export default async function MyLayout({ children }: { children: React.ReactNode
     const dday = getSettlementDDay(targetMonth);
     const eligible = isEligibleForMonth(ptUserData.created_at, targetMonth);
 
-    // 현재 보고 대상월 리포트 조회
-    const { data: reportData } = await supabase
-      .from('monthly_reports')
-      .select('payment_status, fee_payment_status, fee_payment_deadline, total_with_vat')
-      .eq('pt_user_id', ptUserData.id)
-      .eq('year_month', targetMonth)
-      .maybeSingle();
+    // 2단계: reportData + trainer 병렬 조회
+    const [{ data: reportData }, { data: trainer }] = await Promise.all([
+      supabase.from('monthly_reports').select('payment_status, fee_payment_status, fee_payment_deadline, total_with_vat').eq('pt_user_id', ptUserData.id).eq('year_month', targetMonth).maybeSingle(),
+      supabase.from('trainers').select('id').eq('pt_user_id', ptUserData.id).eq('status', 'approved').maybeSingle(),
+    ]);
 
     const reportStatus = getSettlementStatus(
       ptUserData.created_at,
@@ -71,13 +66,6 @@ export default async function MyLayout({ children }: { children: React.ReactNode
         yearMonth: targetMonth,
       };
     }
-
-    const { data: trainer } = await supabase
-      .from('trainers')
-      .select('id')
-      .eq('pt_user_id', ptUserData.id)
-      .eq('status', 'approved')
-      .maybeSingle();
 
     isTrainer = !!trainer;
   }

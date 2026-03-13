@@ -8,24 +8,20 @@ export const metadata = {
 
 export default async function SellerHubLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  // getSession()은 JWT 로컬 디코딩 (네트워크 요청 없음)
+  const { data: { session } } = await supabase.auth.getSession();
 
-  if (!user) {
+  if (!session?.user) {
     redirect('/auth/login?redirect=/sellerhub/dashboard');
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('full_name, role')
-    .eq('id', user.id)
-    .single();
+  const user = session.user;
 
-  // SellerHub 유저 조회 (없으면 생성)
-  const { data: shUser } = await supabase
-    .from('sellerhub_users')
-    .select('id, plan, onboarding_done')
-    .eq('profile_id', user.id)
-    .maybeSingle();
+  // profile + shUser 병렬 조회
+  const [{ data: profile }, { data: shUser }] = await Promise.all([
+    supabase.from('profiles').select('full_name, role').eq('id', user.id).single(),
+    supabase.from('sellerhub_users').select('id, plan, onboarding_done').eq('profile_id', user.id).maybeSingle(),
+  ]);
 
   if (!shUser) {
     await supabase.from('sellerhub_users').insert({
