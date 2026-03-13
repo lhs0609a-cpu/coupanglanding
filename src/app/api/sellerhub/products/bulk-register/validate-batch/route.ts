@@ -6,8 +6,10 @@ import type { NoticeCategoryMeta } from '@/lib/sellerhub/services/notice-field-f
 import type { AttributeMeta } from '@/lib/sellerhub/services/coupang-product-builder';
 import {
   validateProductDeep,
+  validateDryRun,
   type ProductValidationResult,
   type CategoryMetadata,
+  type DryRunResult,
 } from '@/lib/sellerhub/services/product-validator';
 
 interface ValidateProduct {
@@ -18,11 +20,23 @@ interface ValidateProduct {
   editedCategoryCode: string;
   sourcePrice: number;
   mainImageCount: number;
+  detailImageCount?: number;
+  infoImageCount?: number;
+  reviewImageCount?: number;
 }
 
 interface ValidateBatchBody {
   products: ValidateProduct[];
   contactNumber?: string;
+  dryRun?: boolean;
+  deliveryInfo?: {
+    outboundShippingPlaceCode: string;
+    returnCenterCode: string;
+    deliveryChargeType: string;
+    deliveryCharge: number;
+    returnCharge: number;
+  };
+  stock?: number;
 }
 
 interface CategoryMetaMap {
@@ -33,11 +47,12 @@ interface CategoryMetaMap {
 }
 
 /**
- * POST — 딥 검증 (카테고리 메타 기반)
- * 1. products에서 고유 카테고리 코드 추출
- * 2. 각 코드별 notices/attributes 병렬 조회
- * 3. 각 상품별 validateProductDeep() 실행
- * 4. categoryMeta도 함께 반환 (등록 시 init-job에서 재조회 방지)
+ * POST — 딥 검증 + Dry-Run (카테고리 메타 기반)
+ *
+ * 최적화:
+ * - 카테고리 메타 병렬 조회 (5개 동시)
+ * - dryRun=true 시 페이로드 구조 사전 검증
+ * - 100개 상품도 수초 내 처리
  */
 export async function POST(req: NextRequest) {
   try {
@@ -66,7 +81,7 @@ export async function POST(req: NextRequest) {
         .filter((c): c is string => !!c && c !== '0' && c !== 'NaN'),
     )];
 
-    // 2. 카테고리별 메타 조회
+    // 2. 카테고리별 메타 병렬 조회 (5개 동시)
     const categoryMeta: CategoryMetaMap = {};
 
     if (uniqueCodes.length > 0) {
@@ -74,7 +89,11 @@ export async function POST(req: NextRequest) {
       const adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang');
       const coupangAdapter = adapter as CoupangAdapter;
 
-      for (const code of uniqueCodes) {
+      const fetchCategoryMeta = async (code: string): Promise<{
+        code: string;
+        noticeMeta: NoticeCategoryMeta[];
+        attributeMeta: AttributeMeta[];
+      }> => {
         let noticeMeta: NoticeCategoryMeta[] = [];
         let attributeMeta: AttributeMeta[] = [];
 
@@ -98,32 +117,73 @@ export async function POST(req: NextRequest) {
           // attributes 조회 실패 → 빈 배열
         }
 
-        categoryMeta[code] = { noticeMeta, attributeMeta };
+        return { code, noticeMeta, attributeMeta };
+      };
 
-        // 레이트 리밋 방지
-        if (uniqueCodes.indexOf(code) < uniqueCodes.length - 1) {
-          await new Promise((r) => setTimeout(r, 200));
+      // 병렬 조회 (5개 동시)
+      const CONCURRENT = 5;
+      for (let i = 0; i < uniqueCodes.length; i += CONCURRENT) {
+        const chunk = uniqueCodes.slice(i, i + CONCURRENT);
+        const results = await Promise.allSettled(chunk.map(fetchCategoryMeta));
+
+        for (const result of results) {
+          if (result.status === 'fulfilled') {
+            const { code, noticeMeta: nm, attributeMeta: am } = result.value;
+            categoryMeta[code] = { noticeMeta: nm, attributeMeta: am };
+          }
+        }
+
+        // 청크 간 짧은 딜레이 (레이트 리밋 방지)
+        if (i + CONCURRENT < uniqueCodes.length) {
+          await new Promise((r) => setTimeout(r, 300));
         }
       }
     }
 
-    // 3. 각 상품별 딥 검증 실행
-    const results: Record<string, ProductValidationResult> = {};
+    // 3. 각 상품별 검증 실행
+    const results: Record<string, ProductValidationResult | DryRunResult> = {};
 
     for (const p of body.products) {
       const meta: CategoryMetadata | undefined = categoryMeta[p.editedCategoryCode];
-      results[p.uid] = validateProductDeep(
-        {
-          editedName: p.editedName,
-          editedSellingPrice: p.editedSellingPrice,
-          editedCategoryCode: p.editedCategoryCode,
-          editedBrand: p.editedBrand,
-          sourcePrice: p.sourcePrice,
-          mainImageCount: p.mainImageCount,
-        },
-        meta,
-        body.contactNumber,
-      );
+
+      if (body.dryRun && body.deliveryInfo) {
+        // Dry-Run 검증 (페이로드 수준)
+        results[p.uid] = validateDryRun(
+          {
+            editedName: p.editedName,
+            editedSellingPrice: p.editedSellingPrice,
+            editedCategoryCode: p.editedCategoryCode,
+            editedBrand: p.editedBrand,
+            sourcePrice: p.sourcePrice,
+            mainImageCount: p.mainImageCount,
+            detailImageCount: p.detailImageCount,
+            infoImageCount: p.infoImageCount,
+            reviewImageCount: p.reviewImageCount,
+            outboundShippingPlaceCode: body.deliveryInfo.outboundShippingPlaceCode,
+            returnCenterCode: body.deliveryInfo.returnCenterCode,
+            deliveryChargeType: body.deliveryInfo.deliveryChargeType,
+            deliveryCharge: body.deliveryInfo.deliveryCharge,
+            returnCharge: body.deliveryInfo.returnCharge,
+            contactNumber: body.contactNumber,
+            stock: body.stock,
+          },
+          meta,
+        );
+      } else {
+        // 기존 딥 검증
+        results[p.uid] = validateProductDeep(
+          {
+            editedName: p.editedName,
+            editedSellingPrice: p.editedSellingPrice,
+            editedCategoryCode: p.editedCategoryCode,
+            editedBrand: p.editedBrand,
+            sourcePrice: p.sourcePrice,
+            mainImageCount: p.mainImageCount,
+          },
+          meta,
+          body.contactNumber,
+        );
+      }
     }
 
     return NextResponse.json({ results, categoryMeta });

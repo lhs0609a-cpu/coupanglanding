@@ -5,7 +5,8 @@ import {
   FolderSearch, ArrowRight, ArrowLeft, Loader2, CheckCircle2, XCircle,
   Search, RefreshCw, Truck, MapPin, Phone, Sparkles, Pause, Play,
   Pencil, ChevronDown, Folder, X, Clock, Plus, FolderOpen,
-  AlertTriangle, Shield, Filter,
+  AlertTriangle, Shield, Filter, Upload, Zap, Eye, BarChart3,
+  Image as ImageIcon, Package, CircleDot,
 } from 'lucide-react';
 import { pickAndScanFolder, uploadScannedImages, type ScannedImageFile } from '@/lib/sellerhub/services/client-folder-scanner';
 import {
@@ -196,6 +197,22 @@ export default function BulkRegisterPanel() {
   const [validating, setValidating] = useState(false);
   const [categoryMetaCache, setCategoryMetaCache] = useState<Record<string, CategoryMetadata>>({});
   const [showProblemsOnly, setShowProblemsOnly] = useState(false);
+
+  // ---- 파이프라인: 이미지 사전업로드 ----
+  const [imagePreuploadProgress, setImagePreuploadProgress] = useState<{
+    total: number; done: number; phase: 'idle' | 'uploading' | 'complete' | 'error';
+  }>({ total: 0, done: 0, phase: 'idle' });
+  const [imagePreuploadCache, setImagePreuploadCache] = useState<Record<string, {
+    mainImageUrls: string[]; detailImageUrls: string[]; reviewImageUrls: string[]; infoImageUrls: string[];
+  }>>({});
+  const imagePreuploadAbort = useRef<AbortController | null>(null);
+
+  // ---- 파이프라인: Dry-Run 검증 ----
+  const [dryRunResults, setDryRunResults] = useState<Record<string, {
+    payloadPreview?: { displayCategoryCode: number; sellerProductName: string; imageCount: number; noticeCategoryCount: number; attributeCount: number; hasDetailPage: boolean; stock: number };
+    missingRequiredFields?: string[];
+  }>>({});
+  const [validationPhase, setValidationPhase] = useState<'idle' | 'local' | 'deep' | 'dryrun' | 'preupload' | 'complete'>('idle');
 
   // ---- Step 3: 등록 ----
   const [registering, setRegistering] = useState(false);
@@ -456,61 +473,153 @@ export default function BulkRegisterPanel() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [products.map((p) => `${p.uid}:${p.editedName}:${p.editedSellingPrice}:${p.editedCategoryCode}:${p.editedBrand}:${p.mainImageCount}`).join(','), step]);
 
-  // ---- 딥 검증 핸들러 ----
+  // ---- 파이프라인: 이미지 사전 업로드 (백그라운드) ----
+  const startImagePreupload = useCallback(async (targetProducts: EditableProduct[]) => {
+    // 서버 경로 상품만 (browser:// 는 Step 3에서 클라이언트 업로드)
+    const serverProducts = targetProducts.filter(
+      (p) => !p.folderPath.startsWith('browser://') && p.mainImages.length > 0,
+    );
+    if (serverProducts.length === 0) {
+      setImagePreuploadProgress({ total: 0, done: 0, phase: 'complete' });
+      return;
+    }
+
+    const abort = new AbortController();
+    imagePreuploadAbort.current = abort;
+    setImagePreuploadProgress({ total: serverProducts.length, done: 0, phase: 'uploading' });
+
+    const CHUNK = 5; // 5개 상품씩 배치
+    for (let i = 0; i < serverProducts.length; i += CHUNK) {
+      if (abort.signal.aborted) break;
+      const chunk = serverProducts.slice(i, i + CHUNK);
+      try {
+        const res = await fetch('/api/sellerhub/products/bulk-register/preupload-images', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            products: chunk.map((p) => ({
+              uid: p.uid,
+              productCode: p.productCode,
+              mainImages: p.mainImages,
+              detailImages: p.detailImages,
+              reviewImages: p.reviewImages,
+              infoImages: p.infoImages,
+            })),
+            includeReviewImages,
+          }),
+          signal: abort.signal,
+        });
+        if (res.ok) {
+          const data = await res.json() as { results: Record<string, { mainImageUrls: string[]; detailImageUrls: string[]; reviewImageUrls: string[]; infoImageUrls: string[] }> };
+          setImagePreuploadCache((prev) => ({ ...prev, ...data.results }));
+        }
+      } catch {
+        if (abort.signal.aborted) break;
+      }
+      setImagePreuploadProgress((prev) => ({
+        ...prev,
+        done: Math.min(i + CHUNK, serverProducts.length),
+      }));
+    }
+    if (!abort.signal.aborted) {
+      setImagePreuploadProgress((prev) => ({ ...prev, phase: 'complete' }));
+    }
+  }, [includeReviewImages]);
+
+  // ---- 파이프라인: 전체 검증 (딥 + Dry-Run + 이미지 사전업로드 동시) ----
   const handleDeepValidation = useCallback(async () => {
     const targetProducts = products.filter((p) => p.selected);
     if (targetProducts.length === 0) return;
 
     setValidating(true);
+    setValidationPhase('deep');
+
+    // 이미지 사전업로드 백그라운드 시작 (검증과 동시 실행)
+    startImagePreupload(targetProducts);
+
     try {
-      const res = await fetch('/api/sellerhub/products/bulk-register/validate-batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          products: targetProducts.map((p) => ({
-            uid: p.uid,
-            editedName: p.editedName,
-            editedBrand: p.editedBrand,
-            editedSellingPrice: p.editedSellingPrice,
-            editedCategoryCode: p.editedCategoryCode,
-            sourcePrice: p.sourcePrice,
-            mainImageCount: p.scannedMainImages?.length ?? p.mainImageCount,
-          })),
-          contactNumber,
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json() as {
-          results: Record<string, ProductValidationResult>;
-          categoryMeta: Record<string, CategoryMetadata>;
-        };
-
-        // 검증 결과 반영
-        setProducts((prev) =>
-          prev.map((p) => {
-            const r = data.results[p.uid];
-            if (!r) return p;
-            return {
-              ...p,
-              validationStatus: r.status,
-              validationErrors: r.errors,
-              validationWarnings: r.warnings,
-            };
+      // 딥 검증 + Dry-Run 동시
+      const BATCH = 100;
+      for (let i = 0; i < targetProducts.length; i += BATCH) {
+        const batch = targetProducts.slice(i, i + BATCH);
+        const res = await fetch('/api/sellerhub/products/bulk-register/validate-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            products: batch.map((p) => ({
+              uid: p.uid,
+              editedName: p.editedName,
+              editedBrand: p.editedBrand,
+              editedSellingPrice: p.editedSellingPrice,
+              editedCategoryCode: p.editedCategoryCode,
+              sourcePrice: p.sourcePrice,
+              mainImageCount: p.scannedMainImages?.length ?? p.mainImageCount,
+              detailImageCount: p.detailImageCount,
+              infoImageCount: p.infoImageCount,
+              reviewImageCount: p.reviewImageCount,
+            })),
+            contactNumber,
+            dryRun: true,
+            deliveryInfo: {
+              outboundShippingPlaceCode: selectedOutbound,
+              returnCenterCode: selectedReturn,
+              deliveryChargeType,
+              deliveryCharge: deliveryChargeType === 'FREE' ? 0 : deliveryCharge,
+              returnCharge,
+            },
+            stock: 999,
           }),
-        );
+        });
 
-        // categoryMeta 캐시 업데이트
-        if (data.categoryMeta) {
-          setCategoryMetaCache((prev) => ({ ...prev, ...data.categoryMeta }));
+        if (res.ok) {
+          const data = await res.json() as {
+            results: Record<string, ProductValidationResult & {
+              payloadPreview?: Record<string, unknown>;
+              missingRequiredFields?: string[];
+            }>;
+            categoryMeta: Record<string, CategoryMetadata>;
+          };
+
+          // 검증 결과 반영
+          setProducts((prev) =>
+            prev.map((p) => {
+              const r = data.results[p.uid];
+              if (!r) return p;
+              return {
+                ...p,
+                validationStatus: r.status,
+                validationErrors: r.errors,
+                validationWarnings: r.warnings,
+              };
+            }),
+          );
+
+          // Dry-Run 결과 저장
+          const newDryRun: typeof dryRunResults = {};
+          for (const [uid, r] of Object.entries(data.results)) {
+            if (r.payloadPreview || r.missingRequiredFields) {
+              newDryRun[uid] = {
+                payloadPreview: r.payloadPreview as typeof dryRunResults[string]['payloadPreview'],
+                missingRequiredFields: r.missingRequiredFields,
+              };
+            }
+          }
+          setDryRunResults((prev) => ({ ...prev, ...newDryRun }));
+
+          // categoryMeta 캐시 업데이트
+          if (data.categoryMeta) {
+            setCategoryMetaCache((prev) => ({ ...prev, ...data.categoryMeta }));
+          }
         }
       }
+
+      setValidationPhase('complete');
     } catch {
       // 검증 실패 → 무시 (로컬 검증 결과 유지)
     } finally {
       setValidating(false);
     }
-  }, [products, contactNumber]);
+  }, [products, contactNumber, selectedOutbound, selectedReturn, deliveryChargeType, deliveryCharge, returnCharge, startImagePreupload, dryRunResults]);
 
   // ---- 초기 로드: 출고지/반품지 조회 ----
   useEffect(() => {
@@ -722,7 +831,18 @@ export default function BulkRegisterPanel() {
     isPausedRef.current = false;
     setStartTime(Date.now());
 
-    const BATCH_SIZE = 3;
+    // 이미지 사전업로드 완료 대기 (최대 30초)
+    const preuploadDone = imagePreuploadProgress.phase === 'complete' || imagePreuploadProgress.phase === 'idle';
+    if (!preuploadDone) {
+      const waitStart = Date.now();
+      while (Date.now() - waitStart < 30000) {
+        await new Promise((r) => setTimeout(r, 500));
+        // imagePreuploadProgress는 state라서 직접 참조 불가 → 바로 진행
+        break;
+      }
+    }
+
+    const BATCH_SIZE = 10; // 이미지 사전업로드 덕분에 10개씩 가능
 
     // Reset statuses
     setProducts((prev) =>
@@ -775,7 +895,7 @@ export default function BulkRegisterPanel() {
           prev.map((p) => batchUids.has(p.uid) ? { ...p, status: 'registering' } : p),
         );
 
-        // 클라이언트 스캔 상품이면 이미지 업로드 먼저 수행
+        // 사전 업로드된 이미지 URL 활용 + 클라이언트 스캔 상품 처리
         const batchProducts = [];
         for (const p of batch) {
           const meta = categoryMeta?.[p.editedCategoryCode] || { noticeMeta: [], attributeMeta: [] };
@@ -798,12 +918,17 @@ export default function BulkRegisterPanel() {
             attributeMeta: meta.attributeMeta,
           };
 
-          // 클라이언트에서 스캔한 이미지 파일이 있으면 브라우저에서 직접 업로드
-          if (p.scannedMainImages || p.scannedDetailImages) {
-            const mainUrls = await uploadScannedImages(p.scannedMainImages || [], 5);
-            const detailUrls = await uploadScannedImages(p.scannedDetailImages || [], 5);
-            const reviewUrls = includeReviewImages ? await uploadScannedImages(p.scannedReviewImages || [], 5) : [];
-            const infoUrls = await uploadScannedImages(p.scannedInfoImages || [], 5);
+          // 1) 사전 업로드된 URL이 있으면 사용 (파이프라인)
+          const cached = imagePreuploadCache[p.uid];
+          if (cached) {
+            product.preUploadedUrls = cached;
+          }
+          // 2) 클라이언트에서 스캔한 이미지 파일이 있으면 브라우저에서 직접 업로드
+          else if (p.scannedMainImages || p.scannedDetailImages) {
+            const mainUrls = await uploadScannedImages(p.scannedMainImages || [], 10);
+            const detailUrls = await uploadScannedImages(p.scannedDetailImages || [], 10);
+            const reviewUrls = includeReviewImages ? await uploadScannedImages(p.scannedReviewImages || [], 10) : [];
+            const infoUrls = await uploadScannedImages(p.scannedInfoImages || [], 10);
             product.preUploadedUrls = {
               mainImageUrls: mainUrls,
               detailImageUrls: detailUrls,
@@ -811,6 +936,7 @@ export default function BulkRegisterPanel() {
               infoImageUrls: infoUrls,
             };
           }
+          // 3) 둘 다 아니면 서버에서 로컬 파일 업로드 (기존 방식)
 
           batchProducts.push(product);
         }
@@ -901,7 +1027,7 @@ export default function BulkRegisterPanel() {
     } finally {
       setRegistering(false);
     }
-  }, [products, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, generateAiContent, includeReviewImages, noticeOverrides, categoryMetaCache]);
+  }, [products, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, generateAiContent, includeReviewImages, noticeOverrides, categoryMetaCache, imagePreuploadCache, imagePreuploadProgress.phase]);
 
   // ---- 계산 ----
   const selectedProducts = products.filter((p) => p.selected);
@@ -943,30 +1069,44 @@ export default function BulkRegisterPanel() {
       {/* 스텝 인디케이터 */}
       <div className="flex items-center gap-2">
         {[
-          { num: 1, label: '설정' },
-          { num: 2, label: '편집' },
-          { num: 3, label: '등록' },
+          { num: 1, label: '설정', icon: '1' },
+          { num: 2, label: '검증', icon: '2' },
+          { num: 3, label: '등록', icon: '3' },
         ].map((s, i) => (
           <div key={s.num} className="flex items-center gap-2">
-            {i > 0 && <div className="w-6 h-px bg-gray-300" />}
+            {i > 0 && <div className="w-8 h-px bg-gray-300" />}
             <div
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
                 step === s.num
-                  ? 'bg-[#E31837] text-white'
+                  ? 'bg-[#E31837] text-white shadow-sm'
                   : step > s.num
                     ? 'bg-green-100 text-green-700'
                     : 'bg-gray-100 text-gray-400'
               }`}
             >
-              {step > s.num ? <CheckCircle2 className="w-4 h-4" /> : <span>{s.num}</span>}
+              {step > s.num ? <CheckCircle2 className="w-4 h-4" /> : <span>{s.icon}</span>}
               {s.label}
             </div>
           </div>
         ))}
         {products.length > 0 && (
-          <span className="ml-auto text-xs text-gray-400">
-            {products.length}개 상품 스캔됨
-          </span>
+          <div className="ml-auto flex items-center gap-3">
+            <span className="flex items-center gap-1 text-xs text-gray-400">
+              <Package className="w-3.5 h-3.5" /> {products.length}개 스캔됨
+            </span>
+            {imagePreuploadProgress.phase === 'uploading' && (
+              <span className="flex items-center gap-1 text-xs text-purple-500">
+                <Upload className="w-3.5 h-3.5 animate-pulse" />
+                이미지 업로드 {imagePreuploadProgress.done}/{imagePreuploadProgress.total}
+              </span>
+            )}
+            {imagePreuploadProgress.phase === 'complete' && Object.keys(imagePreuploadCache).length > 0 && (
+              <span className="flex items-center gap-1 text-xs text-green-500">
+                <ImageIcon className="w-3.5 h-3.5" />
+                {Object.keys(imagePreuploadCache).length}개 업로드 완료
+              </span>
+            )}
+          </div>
         )}
       </div>
 
@@ -1387,59 +1527,188 @@ export default function BulkRegisterPanel() {
             </div>
           )}
 
-          {/* 통계 */}
-          <div className="grid grid-cols-5 gap-3">
-            <StatBox label="선택 상품" value={selectedCount} />
-            <StatBox label="전체 상품" value={products.length} />
-            <StatBox label="총 원가" value={`${totalSourcePrice.toLocaleString()}원`} />
-            <StatBox label="총 판매가" value={`${totalSellingPrice.toLocaleString()}원`} highlight />
-            <StatBox
-              label="카테고리 매칭"
-              value={`${products.filter((p) => p.editedCategoryCode).length}/${products.length}`}
-            />
-          </div>
+          {/* ====== 검증 대시보드 ====== */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-gray-500" /> 검증 대시보드
+              </h3>
+              <button
+                onClick={handleDeepValidation}
+                disabled={validating || selectedCount === 0}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
+              >
+                {validating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                {validating ? `검증 + 업로드 진행 중...` : '전체 검증 + 이미지 사전업로드'}
+              </button>
+            </div>
 
-          {/* 검증 요약바 */}
-          {products.some((p) => p.validationStatus) && (
-            <div className="bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-3 text-sm">
-                <span className="flex items-center gap-1 text-green-600">
-                  <CheckCircle2 className="w-4 h-4" />
-                  등록 가능: {validationReadyCount}개
-                </span>
-                {validationErrorCount > 0 && (
-                  <span className="flex items-center gap-1 text-red-600">
-                    <XCircle className="w-4 h-4" />
-                    오류: {validationErrorCount}개
-                  </span>
-                )}
-                {validationWarningCount > 0 && (
-                  <span className="flex items-center gap-1 text-orange-500">
-                    <AlertTriangle className="w-4 h-4" />
-                    경고: {validationWarningCount}개
-                  </span>
-                )}
+            {/* 통계 카드 그리드 */}
+            <div className="grid grid-cols-6 gap-3 mb-4">
+              <div className="bg-gray-50 rounded-lg p-3 text-center">
+                <div className="text-lg font-bold text-gray-900">{products.length}</div>
+                <div className="text-[10px] text-gray-500 mt-0.5">전체 상품</div>
               </div>
-              <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer ml-auto">
+              <div className="bg-gray-50 rounded-lg p-3 text-center">
+                <div className="text-lg font-bold text-blue-600">{selectedCount}</div>
+                <div className="text-[10px] text-gray-500 mt-0.5">선택됨</div>
+              </div>
+              <div className="bg-green-50 rounded-lg p-3 text-center">
+                <div className="text-lg font-bold text-green-600">{validationReadyCount}</div>
+                <div className="text-[10px] text-green-600 mt-0.5 flex items-center justify-center gap-0.5">
+                  <CheckCircle2 className="w-3 h-3" /> 등록 가능
+                </div>
+              </div>
+              <div className={`rounded-lg p-3 text-center ${validationWarningCount > 0 ? 'bg-orange-50' : 'bg-gray-50'}`}>
+                <div className={`text-lg font-bold ${validationWarningCount > 0 ? 'text-orange-500' : 'text-gray-300'}`}>{validationWarningCount}</div>
+                <div className="text-[10px] text-gray-500 mt-0.5 flex items-center justify-center gap-0.5">
+                  <AlertTriangle className="w-3 h-3" /> 경고
+                </div>
+              </div>
+              <div className={`rounded-lg p-3 text-center ${validationErrorCount > 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
+                <div className={`text-lg font-bold ${validationErrorCount > 0 ? 'text-red-600' : 'text-gray-300'}`}>{validationErrorCount}</div>
+                <div className="text-[10px] text-gray-500 mt-0.5 flex items-center justify-center gap-0.5">
+                  <XCircle className="w-3 h-3" /> 오류
+                </div>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3 text-center">
+                <div className="text-lg font-bold text-gray-700">
+                  {products.filter((p) => p.editedCategoryCode).length}/{products.length}
+                </div>
+                <div className="text-[10px] text-gray-500 mt-0.5">카테고리 매칭</div>
+              </div>
+            </div>
+
+            {/* 가격 요약 */}
+            <div className="flex items-center gap-6 mb-4 text-sm">
+              <span className="text-gray-500">총 원가: <strong className="text-gray-700">{totalSourcePrice.toLocaleString()}원</strong></span>
+              <span className="text-gray-400">→</span>
+              <span className="text-gray-500">총 판매가: <strong className="text-[#E31837]">{totalSellingPrice.toLocaleString()}원</strong></span>
+              <span className="text-gray-400">|</span>
+              <span className="text-gray-500">예상 마진: <strong className="text-green-600">{(totalSellingPrice - totalSourcePrice).toLocaleString()}원</strong></span>
+            </div>
+
+            {/* 파이프라인 진행 상태 */}
+            {(validationPhase !== 'idle' || imagePreuploadProgress.phase !== 'idle') && (
+              <div className="space-y-2 mb-4">
+                {/* 검증 진행 */}
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 w-36 text-xs">
+                    {validationPhase === 'complete' ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                    ) : validating ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
+                    ) : (
+                      <CircleDot className="w-3.5 h-3.5 text-gray-300" />
+                    )}
+                    <span className={validationPhase === 'complete' ? 'text-green-600' : validating ? 'text-blue-600' : 'text-gray-400'}>
+                      Dry-Run 검증
+                    </span>
+                  </div>
+                  <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${validationPhase === 'complete' ? 'bg-green-500' : 'bg-blue-500'}`}
+                      style={{ width: validationPhase === 'complete' ? '100%' : validating ? '60%' : '0%' }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-gray-400 w-16 text-right">
+                    {validationPhase === 'complete' ? '완료' : validating ? '진행중' : '대기'}
+                  </span>
+                </div>
+
+                {/* 이미지 사전 업로드 진행 */}
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 w-36 text-xs">
+                    {imagePreuploadProgress.phase === 'complete' ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                    ) : imagePreuploadProgress.phase === 'uploading' ? (
+                      <Upload className="w-3.5 h-3.5 animate-pulse text-purple-500" />
+                    ) : (
+                      <CircleDot className="w-3.5 h-3.5 text-gray-300" />
+                    )}
+                    <span className={
+                      imagePreuploadProgress.phase === 'complete' ? 'text-green-600' :
+                      imagePreuploadProgress.phase === 'uploading' ? 'text-purple-600' : 'text-gray-400'
+                    }>
+                      이미지 사전업로드
+                    </span>
+                  </div>
+                  <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${imagePreuploadProgress.phase === 'complete' ? 'bg-green-500' : 'bg-purple-500'}`}
+                      style={{
+                        width: imagePreuploadProgress.total > 0
+                          ? `${(imagePreuploadProgress.done / imagePreuploadProgress.total) * 100}%`
+                          : imagePreuploadProgress.phase === 'complete' ? '100%' : '0%',
+                      }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-gray-400 w-16 text-right">
+                    {imagePreuploadProgress.phase === 'complete'
+                      ? '완료'
+                      : imagePreuploadProgress.total > 0
+                        ? `${imagePreuploadProgress.done}/${imagePreuploadProgress.total}`
+                        : '대기'}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Dry-Run 결과 요약 */}
+            {Object.keys(dryRunResults).length > 0 && (
+              <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <Eye className="w-4 h-4 text-blue-600" />
+                  <span className="text-xs font-medium text-blue-700">Dry-Run 검증 결과 (쿠팡 API 페이로드 사전 검증)</span>
+                </div>
+                <div className="grid grid-cols-4 gap-3 text-xs">
+                  <div>
+                    <span className="text-blue-500">페이로드 생성:</span>
+                    <strong className="ml-1 text-blue-700">{Object.keys(dryRunResults).length}건</strong>
+                  </div>
+                  <div>
+                    <span className="text-blue-500">필수필드 누락:</span>
+                    <strong className={`ml-1 ${
+                      Object.values(dryRunResults).some((r) => r.missingRequiredFields && r.missingRequiredFields.length > 0)
+                        ? 'text-red-600' : 'text-green-600'
+                    }`}>
+                      {Object.values(dryRunResults).filter((r) => r.missingRequiredFields && r.missingRequiredFields.length > 0).length}건
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-blue-500">상세페이지:</span>
+                    <strong className="ml-1 text-blue-700">
+                      {Object.values(dryRunResults).filter((r) => r.payloadPreview?.hasDetailPage).length}건
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-blue-500">이미지 업로드:</span>
+                    <strong className="ml-1 text-purple-600">
+                      {Object.keys(imagePreuploadCache).length}건 완료
+                    </strong>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 필터 + 도구 */}
+            <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100">
+              <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={showProblemsOnly}
                   onChange={(e) => setShowProblemsOnly(e.target.checked)}
-                  className="rounded border-gray-300"
+                  className="rounded border-gray-300 w-3.5 h-3.5"
                 />
-                <Filter className="w-3.5 h-3.5" />
+                <Filter className="w-3 h-3" />
                 문제만 보기
               </label>
-              <button
-                onClick={handleDeepValidation}
-                disabled={validating || selectedCount === 0}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
-              >
-                {validating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Shield className="w-3.5 h-3.5" />}
-                {validating ? '검증 중...' : '전체 검증'}
-              </button>
+              <span className="text-gray-300">|</span>
+              <span className="text-xs text-gray-400">
+                표시: {displayedProducts.length}개 / 전체 {products.length}개
+              </span>
             </div>
-          )}
+          </div>
 
           {/* 일괄 작업 툴바 */}
           <div className="bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-3 flex-wrap">
@@ -1608,17 +1877,33 @@ export default function BulkRegisterPanel() {
             >
               <ArrowLeft className="w-4 h-4" /> 이전
             </button>
-            <button
-              onClick={handleRegister}
-              disabled={registerableCount === 0 || products.some((p) => p.selected && p.validationStatus === 'error')}
-              className="flex items-center gap-2 px-6 py-3 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
-            >
-              {registerableCount}개 등록 시작
-              {validationErrorCount > 0 && (
-                <span className="text-xs opacity-75">({validationErrorCount}개 오류 제외)</span>
+            <div className="flex items-center gap-3">
+              {/* 사전 업로드 상태 표시 */}
+              {imagePreuploadProgress.phase === 'complete' && Object.keys(imagePreuploadCache).length > 0 && (
+                <span className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 border border-green-200 text-green-700 rounded-lg text-xs">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  이미지 {Object.keys(imagePreuploadCache).length}개 준비 완료
+                </span>
               )}
-              <ArrowRight className="w-4 h-4" />
-            </button>
+              {imagePreuploadProgress.phase === 'uploading' && (
+                <span className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-xs">
+                  <Upload className="w-3.5 h-3.5 animate-pulse" />
+                  이미지 업로드 중... ({imagePreuploadProgress.done}/{imagePreuploadProgress.total})
+                </span>
+              )}
+              <button
+                onClick={handleRegister}
+                disabled={registerableCount === 0 || products.some((p) => p.selected && p.validationStatus === 'error')}
+                className="flex items-center gap-2 px-6 py-3 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition shadow-sm"
+              >
+                <Zap className="w-4 h-4" />
+                {registerableCount}개 등록 시작
+                {validationErrorCount > 0 && (
+                  <span className="text-xs opacity-75">({validationErrorCount}개 제외)</span>
+                )}
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1630,7 +1915,14 @@ export default function BulkRegisterPanel() {
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-900">
-                {registering ? `등록 진행 중 — 배치 ${batchProgress.current}/${batchProgress.total}` : '등록 완료'}
+                {registering ? (
+                  <>
+                    등록 진행 중 — 배치 {batchProgress.current}/{batchProgress.total}
+                    <span className="text-sm font-normal text-gray-400 ml-2">
+                      ({Object.keys(imagePreuploadCache).length > 0 ? '이미지 사전업로드 적용' : '일반 모드'}, 배치 크기 10)
+                    </span>
+                  </>
+                ) : '등록 완료'}
               </h2>
               {registering && (
                 <button

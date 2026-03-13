@@ -218,16 +218,143 @@ export function validateProductDeep(
   }
 
   // 최종 상태
-  const status: ValidationStatus = errors.length > 0
+  const deepStatus: ValidationStatus = errors.length > 0
     ? 'error'
     : warnings.length > 0
       ? 'warning'
       : 'ready';
 
   return {
-    status,
+    status: deepStatus,
     errors,
     warnings,
     isRegisterable: errors.length === 0,
+  };
+}
+
+// ---- Dry-Run 검증 (실제 페이로드 수준 사전 검증) ----
+
+/** Dry-Run 검증 입력 */
+export interface DryRunValidationInput extends LocalValidationInput {
+  outboundShippingPlaceCode?: string;
+  returnCenterCode?: string;
+  deliveryChargeType?: string;
+  deliveryCharge?: number;
+  returnCharge?: number;
+  contactNumber?: string;
+  stock?: number;
+  detailImageCount?: number;
+  infoImageCount?: number;
+  reviewImageCount?: number;
+}
+
+export interface PayloadPreview {
+  displayCategoryCode: number;
+  sellerProductName: string;
+  imageCount: number;
+  noticeCategoryCount: number;
+  attributeCount: number;
+  hasDetailPage: boolean;
+  deliveryChargeType: string;
+  stock: number;
+}
+
+export interface DryRunResult extends ProductValidationResult {
+  payloadPreview: PayloadPreview;
+  missingRequiredFields: string[];
+}
+
+/**
+ * Dry-Run 검증: 실제 쿠팡 API 페이로드를 시뮬레이션하여 구조적 문제를 사전 발견
+ *
+ * 검증 항목:
+ * 1. 모든 로컬 + 딥 검증 항목
+ * 2. 배송/반품 설정 누락
+ * 3. notices 필수 필드 충족 여부
+ * 4. attributes 필수 항목 폴백 가능 여부
+ * 5. 이미지 수량 규격 (대표 1-10, 상세 1+)
+ * 6. stock > 0
+ */
+export function validateDryRun(
+  product: DryRunValidationInput,
+  categoryMeta: CategoryMetadata | undefined,
+): DryRunResult {
+  const deepResult = validateProductDeep(product, categoryMeta, product.contactNumber);
+  const errors = [...deepResult.errors];
+  const warnings = [...deepResult.warnings];
+  const missingRequiredFields: string[] = [];
+
+  // 배송 설정 검증
+  if (!product.outboundShippingPlaceCode) {
+    errors.push({ field: 'delivery', severity: 'error', message: '출고지가 설정되지 않았습니다.', fixSuggestion: 'Step 1에서 출고지를 선택해주세요.' });
+    missingRequiredFields.push('outboundShippingPlaceCode');
+  }
+  if (!product.returnCenterCode) {
+    errors.push({ field: 'delivery', severity: 'error', message: '반품지가 설정되지 않았습니다.', fixSuggestion: 'Step 1에서 반품지를 선택해주세요.' });
+    missingRequiredFields.push('returnCenterCode');
+  }
+
+  // 배송비 타입 검증
+  const validChargeTypes = ['FREE', 'NOT_FREE', 'CONDITIONAL_FREE'];
+  if (product.deliveryChargeType && !validChargeTypes.includes(product.deliveryChargeType)) {
+    errors.push({ field: 'delivery', severity: 'error', message: `잘못된 배송비 유형: ${product.deliveryChargeType}` });
+  }
+
+  // stock 검증
+  const stock = product.stock ?? 999;
+  if (stock <= 0) {
+    errors.push({ field: 'stock', severity: 'error', message: '재고 수량이 0입니다.', fixSuggestion: '1 이상의 재고 수량을 설정해주세요.' });
+    missingRequiredFields.push('stock');
+  }
+
+  // 상세이미지 검증
+  const detailCount = product.detailImageCount ?? 0;
+  if (detailCount === 0) {
+    warnings.push({ field: 'detailImages', severity: 'warning', message: '상세 이미지가 없습니다.', fixSuggestion: 'output/ 폴더에 상세 이미지를 추가해주세요.' });
+  }
+
+  // notices 필수 필드
+  if (categoryMeta && categoryMeta.noticeMeta.length > 0) {
+    for (const notice of categoryMeta.noticeMeta) {
+      for (const field of notice.fields.filter((f) => f.required)) {
+        if (field.name.includes('A/S') && !product.contactNumber?.trim()) {
+          missingRequiredFields.push(`고시:${notice.noticeCategoryName}/${field.name}`);
+        }
+      }
+    }
+  }
+
+  // attributes 필수 항목 중 값이 없는 것
+  if (categoryMeta) {
+    for (const attr of categoryMeta.attributeMeta.filter((a) => a.required)) {
+      if (!attr.attributeValues || attr.attributeValues.length === 0) {
+        missingRequiredFields.push(`속성:${attr.attributeTypeName}`);
+      }
+    }
+  }
+
+  const imageCount = product.scannedMainImages?.length ?? product.mainImageCount ?? 0;
+  const catCode = product.editedCategoryCode?.trim() || '0';
+
+  const payloadPreview: PayloadPreview = {
+    displayCategoryCode: Number(catCode) || 0,
+    sellerProductName: (product.editedName || '').trim().slice(0, 100),
+    imageCount: Math.min(imageCount, 10),
+    noticeCategoryCount: categoryMeta?.noticeMeta?.length || 1,
+    attributeCount: categoryMeta?.attributeMeta?.filter((a) => a.required)?.length ?? 0,
+    hasDetailPage: detailCount > 0,
+    deliveryChargeType: product.deliveryChargeType || 'FREE',
+    stock,
+  };
+
+  const finalStatus: ValidationStatus = errors.length > 0 ? 'error' : warnings.length > 0 ? 'warning' : 'ready';
+
+  return {
+    status: finalStatus,
+    errors,
+    warnings,
+    isRegisterable: errors.length === 0,
+    payloadPreview,
+    missingRequiredFields,
   };
 }
