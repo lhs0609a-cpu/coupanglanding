@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { CHANNELS, CHANNEL_LABELS, CHANNEL_BG_COLORS } from '@/lib/sellerhub/constants';
 import type { Channel } from '@/lib/sellerhub/types';
-import { Check, ChevronRight, ChevronLeft, Loader2, Plug, Package, Settings, Rocket } from 'lucide-react';
+import { Check, ChevronRight, ChevronLeft, Loader2, Plug, Package, Settings, Rocket, HelpCircle } from 'lucide-react';
+import ChannelSetupGuide from '@/components/sellerhub/ChannelSetupGuide';
 
 const STEPS = [
   { title: '쿠팡 API 연동', desc: '쿠팡 Wing에서 발급받은 API 키를 입력하세요', icon: Plug },
@@ -27,6 +28,7 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [testSuccess, setTestSuccess] = useState<Record<string, boolean>>({});
+  const [guideChannel, setGuideChannel] = useState<Channel | null>(null);
 
   // Step 1: 쿠팡 API
   const [coupangVendorId, setCoupangVendorId] = useState('');
@@ -227,6 +229,14 @@ export default function OnboardingPage() {
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
         {step === 0 && (
           <div className="space-y-4">
+            <button
+              type="button"
+              onClick={() => setGuideChannel('coupang')}
+              className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 transition"
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+              API 키 발급 방법 보기
+            </button>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Vendor ID</label>
               <input
@@ -274,13 +284,23 @@ export default function OnboardingPage() {
               if (!config) return null;
               return (
                 <div key={ch} className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div
-                      className="w-3 h-3 rounded-full"
-                      style={{ backgroundColor: CHANNEL_BG_COLORS[ch] }}
-                    />
-                    <h3 className="font-medium text-gray-900">{config.label}</h3>
-                    {testSuccess[ch] && <Check className="w-4 h-4 text-green-500" />}
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: CHANNEL_BG_COLORS[ch] }}
+                      />
+                      <h3 className="font-medium text-gray-900">{config.label}</h3>
+                      {testSuccess[ch] && <Check className="w-4 h-4 text-green-500" />}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setGuideChannel(ch)}
+                      className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition"
+                    >
+                      <HelpCircle className="w-3 h-3" />
+                      발급 방법
+                    </button>
                   </div>
                   <div className="space-y-2">
                     {config.fields.map((f) => (
@@ -416,6 +436,15 @@ export default function OnboardingPage() {
           </button>
         </div>
       </div>
+
+      {/* 채널 연동 가이드 모달 */}
+      {guideChannel && (
+        <ChannelSetupGuide
+          channel={guideChannel}
+          isOpen={!!guideChannel}
+          onClose={() => setGuideChannel(null)}
+        />
+      )}
     </div>
   );
 }

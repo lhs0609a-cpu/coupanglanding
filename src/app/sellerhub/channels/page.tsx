@@ -5,12 +5,14 @@ import { createClient } from '@/lib/supabase/client';
 import { CHANNELS, CHANNEL_LABELS, CHANNEL_BG_COLORS, CHANNEL_COMMISSION_RATES } from '@/lib/sellerhub/constants';
 import type { Channel, ChannelCredential } from '@/lib/sellerhub/types';
 import { Link as LinkIcon, Check, X, RefreshCw, Key, AlertTriangle, Loader2 } from 'lucide-react';
+import ChannelSetupGuide from '@/components/sellerhub/ChannelSetupGuide';
 
 export default function ChannelsPage() {
   const supabase = useMemo(() => createClient(), []);
   const [credentials, setCredentials] = useState<ChannelCredential[]>([]);
   const [loading, setLoading] = useState(true);
   const [testingChannel, setTestingChannel] = useState<string | null>(null);
+  const [guideChannel, setGuideChannel] = useState<Channel | null>(null);
 
   const fetchCredentials = useCallback(async () => {
     setLoading(true);
@@ -115,19 +117,28 @@ export default function ChannelsPage() {
                     </button>
                   </>
                 ) : (
-                  <a
-                    href="/sellerhub/onboarding"
+                  <button
+                    onClick={() => setGuideChannel(ch)}
                     className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 transition"
                   >
                     <LinkIcon className="w-3.5 h-3.5" />
                     연동하기
-                  </a>
+                  </button>
                 )}
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* 채널 연동 가이드 모달 */}
+      {guideChannel && (
+        <ChannelSetupGuide
+          channel={guideChannel}
+          isOpen={!!guideChannel}
+          onClose={() => setGuideChannel(null)}
+        />
+      )}
     </div>
   );
 }

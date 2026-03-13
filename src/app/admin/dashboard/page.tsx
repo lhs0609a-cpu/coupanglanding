@@ -9,7 +9,8 @@ import MonthPicker from '@/components/ui/MonthPicker';
 import StatCard from '@/components/ui/StatCard';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import { TrendingUp, TrendingDown, Wallet, AlertCircle, CheckCircle2, UserPlus, XCircle, Search, Clock, Banknote, Calendar, GraduationCap, Receipt } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, AlertCircle, CheckCircle2, UserPlus, XCircle, Search, Clock, Banknote, Calendar, GraduationCap, Receipt, Building2, AlertTriangle, Check } from 'lucide-react';
+import Modal from '@/components/ui/Modal';
 import { calculateDeposit, getReportCosts } from '@/lib/calculations/deposit';
 import { calculateTrainerBonus } from '@/lib/calculations/trainer';
 import { lookupAndLinkTrainee } from '@/lib/utils/trainer-link';
@@ -17,7 +18,14 @@ import { logActivity } from '@/lib/utils/activity-log';
 import { notifyTrainerNewTrainee, notifyTrainerBonusEarned } from '@/lib/utils/notifications';
 import type { MonthlyReport, RevenueEntry, ExpenseEntry, PtUser } from '@/lib/supabase/types';
 
-type ReportWithUser = MonthlyReport & { pt_user: { profile: { full_name: string } } };
+type ReportWithUser = MonthlyReport & {
+  pt_user: {
+    profile: { full_name: string };
+    business_name: string | null;
+    business_registration_number: string | null;
+    business_representative: string | null;
+  };
+};
 
 export default function AdminDashboardPage() {
   const [yearMonth, setYearMonth] = useState(getReportTargetMonth());
@@ -30,6 +38,7 @@ export default function AdminDashboardPage() {
   const [allPtUsers, setAllPtUsers] = useState<(PtUser & { profile: { full_name: string } })[]>([]);
   const [allReportsForMonth, setAllReportsForMonth] = useState<MonthlyReport[]>([]);
   const [trainerStats, setTrainerStats] = useState({ total: 0, approved: 0, totalBonus: 0 });
+  const [depositConfirmModal, setDepositConfirmModal] = useState<{ report: ReportWithUser } | null>(null);
   const [loading, setLoading] = useState(true);
 
   const supabase = useMemo(() => createClient(), []);
@@ -52,7 +61,7 @@ export default function AdminDashboardPage() {
         .eq('payment_status', 'reviewed'),
       supabase
         .from('monthly_reports')
-        .select('*, pt_user:pt_users(profile:profiles(full_name))')
+        .select('*, pt_user:pt_users(profile:profiles(full_name), business_name, business_registration_number, business_representative)')
         .eq('year_month', yearMonth)
         .eq('payment_status', 'deposited'),
       supabase
@@ -814,7 +823,7 @@ export default function AdminDashboardPage() {
                           />
                           <button
                             type="button"
-                            onClick={() => handleQuickConfirmDeposit(report)}
+                            onClick={() => setDepositConfirmModal({ report })}
                             className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition"
                             title="송금 확인"
                           >
@@ -829,6 +838,110 @@ export default function AdminDashboardPage() {
           </Card>
         </>
       )}
+
+      {/* Deposit Confirm Modal */}
+      <Modal
+        isOpen={!!depositConfirmModal}
+        onClose={() => setDepositConfirmModal(null)}
+        title="송금 확인 및 세금계산서 발행"
+        maxWidth="max-w-lg"
+      >
+        {depositConfirmModal && (() => {
+          const report = depositConfirmModal.report;
+          const depositAmount = report.admin_deposit_amount || report.calculated_deposit;
+          const hasBizInfo = !!report.pt_user?.business_registration_number;
+
+          return (
+            <div className="space-y-4">
+              {/* 파트너 정보 */}
+              <div className="space-y-1">
+                <p className="text-sm text-gray-600">
+                  파트너: <span className="font-medium text-gray-900">{report.pt_user?.profile?.full_name || '이름 없음'}</span>
+                </p>
+                <p className="text-sm text-gray-600">
+                  기간: <span className="font-medium text-gray-900">{formatYearMonth(report.year_month)}</span>
+                </p>
+              </div>
+
+              {/* 사업자 정보 */}
+              <div className={`p-4 rounded-lg border ${hasBizInfo ? 'bg-gray-50 border-gray-200' : 'bg-red-50 border-red-200'}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <Building2 className="w-4 h-4 text-gray-500" />
+                  <span className="text-sm font-medium text-gray-700">사업자 정보</span>
+                </div>
+                {hasBizInfo ? (
+                  <div className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">상호</span>
+                      <span className="font-medium text-gray-900">{report.pt_user.business_name || '-'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">사업자번호</span>
+                      <span className="font-mono font-medium text-gray-900">{report.pt_user.business_registration_number}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">대표자명</span>
+                      <span className="font-medium text-gray-900">{report.pt_user.business_representative || '-'}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                    <span className="text-sm text-red-700 font-medium">
+                      사업자 정보가 미등록되어 세금계산서 발행이 불가합니다.
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* 금액 정보 */}
+              <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">확정 송금액</span>
+                  <span className="font-bold text-[#E31837]">{formatKRW(depositAmount)}</span>
+                </div>
+                {(report.supply_amount > 0 || report.vat_amount > 0) && (
+                  <div className="border-t border-gray-200 pt-2 mt-1">
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">공급가액</span>
+                      <span className="font-medium text-gray-900">{formatKRW(report.supply_amount)}</span>
+                    </div>
+                    <div className="flex justify-between mt-1">
+                      <span className="text-gray-500">부가가치세 (10%)</span>
+                      <span className="font-medium text-gray-900">{formatKRW(report.vat_amount)}</span>
+                    </div>
+                    <div className="flex justify-between mt-1">
+                      <span className="font-medium text-gray-700">합계 (VAT 포함)</span>
+                      <span className="font-bold text-gray-900">{formatKRW(report.total_with_vat)}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDepositConfirmModal(null)}
+                  className="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium transition"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDepositConfirmModal(null);
+                    handleQuickConfirmDeposit(report);
+                  }}
+                  className="flex-1 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium transition flex items-center justify-center gap-2"
+                >
+                  <Check className="w-4 h-4" />
+                  확인 후 세금계산서 발행
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
     </div>
   );
 }

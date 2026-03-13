@@ -27,7 +27,7 @@ import Modal from '@/components/ui/Modal';
 import PaymentProgress from '@/components/ui/PaymentProgress';
 import NumberInput from '@/components/ui/NumberInput';
 import { calculateListingDiscount } from '@/lib/calculations/listing-discount';
-import { ArrowLeft, Eye, Check, X, Undo2, User, ClipboardList, FileText, Banknote, Search, ExternalLink, Plug, Shield, Award } from 'lucide-react';
+import { ArrowLeft, Eye, Check, X, Undo2, User, ClipboardList, FileText, Banknote, Search, ExternalLink, Plug, Shield, Award, Building2, AlertTriangle } from 'lucide-react';
 import type { PtUser, MonthlyReport, Profile, OnboardingStep, Contract } from '@/lib/supabase/types';
 
 interface PtUserWithProfile extends PtUser {
@@ -73,6 +73,9 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
   const [rejectReason, setRejectReason] = useState('');
   const [rejectError, setRejectError] = useState('');
   const [totalListings, setTotalListings] = useState(0);
+
+  // Deposit confirm modal (deposited -> confirmed + tax invoice)
+  const [depositConfirmModal, setDepositConfirmModal] = useState<{ report: MonthlyReport } | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -201,6 +204,23 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
       });
     }
 
+    // 세금계산서 자동 발행
+    try {
+      await fetch('/api/tax-invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          monthly_report_id: report.id,
+          pt_user_id: ptUser.id,
+          year_month: report.year_month,
+          supply_amount: report.supply_amount || 0,
+          vat_amount: report.vat_amount || 0,
+          total_amount: report.total_with_vat || 0,
+        }),
+      });
+    } catch { /* 실패해도 정산 확정은 유지 */ }
+
+    setDepositConfirmModal(null);
     fetchData();
   };
 
@@ -416,6 +436,54 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
               )}
             </div>
           </div>
+        </div>
+
+        {/* 사업자 정보 */}
+        <div className="border-t border-gray-200 mt-6 pt-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Building2 className="w-4 h-4 text-[#E31837]" />
+            <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider">사업자 정보</h3>
+            {!ptUser.business_registration_number && (
+              <Badge label="미등록" colorClass="bg-red-100 text-red-700" />
+            )}
+          </div>
+          {ptUser.business_registration_number ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div>
+                <span className="text-xs text-gray-400">상호</span>
+                <p className="text-sm font-medium text-gray-900">{ptUser.business_name || '-'}</p>
+              </div>
+              <div>
+                <span className="text-xs text-gray-400">사업자등록번호</span>
+                <p className="text-sm font-mono font-medium text-gray-900">{ptUser.business_registration_number}</p>
+              </div>
+              <div>
+                <span className="text-xs text-gray-400">대표자명</span>
+                <p className="text-sm font-medium text-gray-900">{ptUser.business_representative || '-'}</p>
+              </div>
+              <div>
+                <span className="text-xs text-gray-400">사업장 주소</span>
+                <p className="text-sm font-medium text-gray-900">{ptUser.business_address || '-'}</p>
+              </div>
+              <div>
+                <span className="text-xs text-gray-400">업태 / 종목</span>
+                <p className="text-sm font-medium text-gray-900">
+                  {ptUser.business_type || '-'} / {ptUser.business_category || '-'}
+                </p>
+              </div>
+              <div>
+                <span className="text-xs text-gray-400">본인명의 여부</span>
+                <p className="text-sm font-medium text-gray-900">
+                  {ptUser.is_self_business ? '본인 사업자' : `타인 사업자 (${ptUser.business_relation || '관계 미입력'})`}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+              <span className="text-sm text-red-700">사업자 정보가 등록되지 않았습니다. 세금계산서 발행이 불가합니다.</span>
+            </div>
+          )}
         </div>
       </Card>
 
@@ -682,7 +750,7 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
                       <>
                         <button
                           type="button"
-                          onClick={() => handleConfirmDeposit(report)}
+                          onClick={() => setDepositConfirmModal({ report })}
                           className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition"
                         >
                           <Check className="w-4 h-4" />
@@ -965,6 +1033,109 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* Deposit Confirm Modal (deposited -> confirmed + tax invoice) */}
+      <Modal
+        isOpen={!!depositConfirmModal}
+        onClose={() => setDepositConfirmModal(null)}
+        title="송금 확인 및 세금계산서 발행"
+        maxWidth="max-w-lg"
+      >
+        {depositConfirmModal && (() => {
+          const report = depositConfirmModal.report;
+          const depositAmount = report.admin_deposit_amount || report.calculated_deposit;
+          const hasBizInfo = !!ptUser.business_registration_number;
+
+          return (
+            <div className="space-y-4">
+              {/* 파트너 정보 */}
+              <div className="space-y-1">
+                <p className="text-sm text-gray-600">
+                  파트너: <span className="font-medium text-gray-900">{ptUser.profile?.full_name || '이름 없음'}</span>
+                </p>
+                <p className="text-sm text-gray-600">
+                  기간: <span className="font-medium text-gray-900">{formatYearMonth(report.year_month)}</span>
+                </p>
+              </div>
+
+              {/* 사업자 정보 요약 */}
+              <div className={`p-4 rounded-lg border ${hasBizInfo ? 'bg-gray-50 border-gray-200' : 'bg-red-50 border-red-200'}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <Building2 className="w-4 h-4 text-gray-500" />
+                  <span className="text-sm font-medium text-gray-700">사업자 정보</span>
+                </div>
+                {hasBizInfo ? (
+                  <div className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">상호</span>
+                      <span className="font-medium text-gray-900">{ptUser.business_name || '-'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">사업자번호</span>
+                      <span className="font-mono font-medium text-gray-900">{ptUser.business_registration_number}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">대표자명</span>
+                      <span className="font-medium text-gray-900">{ptUser.business_representative || '-'}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                    <span className="text-sm text-red-700 font-medium">
+                      사업자 정보가 미등록되어 세금계산서 발행이 불가합니다.
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* 금액 정보 */}
+              <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">확정 송금액</span>
+                  <span className="font-bold text-[#E31837]">{formatKRW(depositAmount)}</span>
+                </div>
+                {(report.supply_amount > 0 || report.vat_amount > 0) && (
+                  <>
+                    <div className="border-t border-gray-200 pt-2 mt-1">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">공급가액</span>
+                        <span className="font-medium text-gray-900">{formatKRW(report.supply_amount)}</span>
+                      </div>
+                      <div className="flex justify-between mt-1">
+                        <span className="text-gray-500">부가가치세 (10%)</span>
+                        <span className="font-medium text-gray-900">{formatKRW(report.vat_amount)}</span>
+                      </div>
+                      <div className="flex justify-between mt-1">
+                        <span className="font-medium text-gray-700">합계 (VAT 포함)</span>
+                        <span className="font-bold text-gray-900">{formatKRW(report.total_with_vat)}</span>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDepositConfirmModal(null)}
+                  className="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium transition"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleConfirmDeposit(depositConfirmModal.report)}
+                  className="flex-1 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium transition flex items-center justify-center gap-2"
+                >
+                  <Check className="w-4 h-4" />
+                  확인 후 세금계산서 발행
+                </button>
+              </div>
+            </div>
+          );
+        })()}
       </Modal>
 
       {/* Screenshot Preview Modal */}
