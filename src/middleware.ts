@@ -1,21 +1,27 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { updateSession } from '@/lib/supabase/middleware';
 
-export async function middleware(request: NextRequest) {
-  try {
-    // Supabase 환경변수가 없으면 모든 경로 통과 (랜딩페이지 전용 모드)
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+export function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
 
-    if (!supabaseUrl || !supabaseAnonKey) {
-      return NextResponse.next();
-    }
+  // Supabase 세션 쿠키 존재 여부만 확인 (네트워크 요청 없음)
+  const hasSession = request.cookies.getAll().some(
+    (c) => c.name.startsWith('sb-') && c.name.endsWith('-auth-token'),
+  );
 
-    return await updateSession(request);
-  } catch {
-    // Supabase 모듈 로드 실패 시 통과
+  // /auth/* → 누구나 접근
+  if (pathname.startsWith('/auth')) {
     return NextResponse.next();
   }
+
+  // /my/*, /admin/* → 쿠키 없으면 로그인 페이지로
+  if (!hasSession) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/auth/login';
+    url.searchParams.set('redirect', pathname);
+    return NextResponse.redirect(url);
+  }
+
+  return NextResponse.next();
 }
 
 export const config = {
@@ -23,7 +29,5 @@ export const config = {
     '/my/:path*',
     '/admin/:path*',
     '/auth/:path*',
-    // /sellerhub/* 제외 — 클라이언트 컴포넌트에서 자체 인증 처리,
-    // 미들웨어의 getUser() 네트워크 호출이 Vercel Edge 타임아웃 유발
   ],
 };
