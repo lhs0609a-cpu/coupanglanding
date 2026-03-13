@@ -5,6 +5,9 @@ import { CoupangAdapter } from '@/lib/sellerhub/adapters/coupang.adapter';
 import { scanProductFolder, uploadLocalImages } from '@/lib/sellerhub/services/local-product-reader';
 import { calculateSellingPrice, DEFAULT_BRACKETS, type PriceBracket } from '@/lib/sellerhub/services/margin-pricing';
 import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo } from '@/lib/sellerhub/services/coupang-product-builder';
+import { fillNoticeFields, type NoticeCategoryMeta } from '@/lib/sellerhub/services/notice-field-filler';
+import { generateProductStory } from '@/lib/sellerhub/services/ai.service';
+import { buildRichDetailPageHtml } from '@/lib/sellerhub/services/detail-page-builder';
 
 /**
  * GET — 폴더 스캔 + 상품 목록 미리보기
@@ -30,11 +33,18 @@ export async function GET(req: NextRequest) {
         productCode: p.productCode,
         name: p.productJson.name || p.productJson.title || `product_${p.productCode}`,
         brand: p.productJson.brand || '',
+        tags: p.productJson.tags || [],
+        description: p.productJson.description || '',
         sourcePrice,
         sellingPrice,
         mainImageCount: p.mainImages.length,
         detailImageCount: p.detailImages.length,
         infoImageCount: p.infoImages.length,
+        reviewImageCount: p.reviewImages.length,
+        mainImages: p.mainImages,
+        detailImages: p.detailImages,
+        infoImages: p.infoImages,
+        reviewImages: p.reviewImages,
         folderPath: p.folderPath,
         hasProductJson: !!(p.productJson.name || p.productJson.title),
       };
@@ -65,19 +75,23 @@ interface BulkRegisterBody {
   deliveryInfo: DeliveryInfo;
   returnInfo: ReturnInfo;
   stock?: number;
+  generateAiContent?: boolean;
+  includeReviewImages?: boolean;
+  noticeOverrides?: Record<string, string>;
 }
 
 /**
  * POST — 선택된 상품 실제 등록
  *
  * 각 상품별 프로세스:
- *  1. product.json에서 이름/가격 읽기
- *  2. 마진율로 판매가 계산
- *  3. main_images → Supabase 업로드 → CDN URL (대표이미지)
- *  4. output/ → Supabase 업로드 → CDN URL (상세페이지)
- *  5. 쿠팡 페이로드 빌드
- *  6. CoupangAdapter.createProduct() 호출
- *  7. sh_products / sh_product_channels / sh_product_options DB 저장
+ *  1. 카테고리 메타데이터 조회 (notices + attributes, 캐시)
+ *  2. 이미지 업로드 (main + detail + review + info)
+ *  3. AI 스토리 생성 (generateAiContent 플래그 true일 때만)
+ *  4. notices 필드 자동채움
+ *  5. 리치 상세페이지 HTML 빌드
+ *  6. 향상된 페이로드 빌드
+ *  7. 쿠팡 API 호출
+ *  8. DB 저장
  */
 export async function POST(req: NextRequest) {
   try {
@@ -103,6 +117,9 @@ export async function POST(req: NextRequest) {
       deliveryInfo,
       returnInfo,
       stock,
+      generateAiContent = false,
+      includeReviewImages = true,
+      noticeOverrides,
     } = body;
 
     if (!folderPath) {
@@ -118,7 +135,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '반품지를 선택해주세요.' }, { status: 400 });
     }
 
-    // 가격 구간 복원 (Infinity는 JSON으로 전송 못하므로 null → Infinity)
     const brackets: PriceBracket[] = rawBrackets
       ? rawBrackets.map((b) => ({
           ...b,
@@ -141,6 +157,30 @@ export async function POST(req: NextRequest) {
 
     if (targetProducts.length === 0) {
       return NextResponse.json({ error: '등록할 상품이 없습니다.' }, { status: 400 });
+    }
+
+    // 카테고리 메타데이터 조회 (1회만 — 같은 카테고리)
+    let noticeMeta: NoticeCategoryMeta[] = [];
+    let attributeMeta: { attributeTypeName: string; required: boolean; dataType: string; attributeValues?: { attributeValueName: string }[] }[] = [];
+
+    try {
+      const noticeResult = await coupangAdapter.getNoticeCategoryFields(categoryCode);
+      noticeMeta = noticeResult.items.map((item) => ({
+        noticeCategoryName: item.noticeCategoryName,
+        fields: item.noticeCategoryDetailNames.map((d) => ({
+          name: d.name,
+          required: d.required,
+        })),
+      }));
+    } catch {
+      // notices 메타 조회 실패 → 기본 "기타 재화" 폴백
+    }
+
+    try {
+      const attrResult = await coupangAdapter.getCategoryAttributes(categoryCode);
+      attributeMeta = attrResult.items;
+    } catch {
+      // attributes 조회 실패 → 빈 배열
     }
 
     // sync job 생성
@@ -172,13 +212,39 @@ export async function POST(req: NextRequest) {
         const sourcePrice = product.productJson.price || 0;
         const sellingPrice = calculateSellingPrice(sourcePrice, brackets);
 
-        // 2. 대표이미지 업로드 (main_images/product_*.jpg)
+        // 2. 이미지 업로드 (main + detail + review + info)
         const mainImageUrls = await uploadLocalImages(product.mainImages, shUserId);
-
-        // 3. 상세페이지 이미지 업로드 (output/*.jpg)
         const detailImageUrls = await uploadLocalImages(product.detailImages, shUserId);
+        const reviewImageUrls = includeReviewImages
+          ? await uploadLocalImages(product.reviewImages, shUserId)
+          : [];
+        const infoImageUrls = await uploadLocalImages(product.infoImages, shUserId);
 
-        // 4. 쿠팡 페이로드 빌드
+        // 3. AI 스토리 생성
+        let aiStoryHtml = '';
+        if (generateAiContent) {
+          try {
+            const storyResult = await generateProductStory(
+              productName,
+              categoryCode,
+              product.productJson.tags || [],
+              product.productJson.description,
+            );
+            aiStoryHtml = storyResult.content;
+          } catch {
+            // AI 실패해도 계속 진행
+          }
+        }
+
+        // 4. notices 필드 자동채움
+        const filledNotices = fillNoticeFields(
+          noticeMeta,
+          product.productJson,
+          returnInfo.afterServiceContactNumber,
+          noticeOverrides,
+        );
+
+        // 5. 페이로드 빌드 (동적 notices + attributes + 리치 HTML)
         const payload = buildCoupangProductPayload({
           vendorId,
           product,
@@ -190,12 +256,17 @@ export async function POST(req: NextRequest) {
           returnInfo,
           stock: stock || 999,
           brand: product.productJson.brand,
+          filledNotices,
+          attributeMeta,
+          reviewImageUrls,
+          infoImageUrls,
+          aiStoryHtml,
         });
 
-        // 5. 쿠팡 API 호출
+        // 6. 쿠팡 API 호출
         const result = await coupangAdapter.createProduct(payload);
 
-        // 6. DB 저장 — sh_products
+        // 7. DB 저장 — sh_products
         const { data: savedProduct } = await serviceClient
           .from('sh_products')
           .insert({
@@ -211,6 +282,13 @@ export async function POST(req: NextRequest) {
               productCode: product.productCode,
               mainImageUrls,
               detailImageUrls,
+              reviewImageUrls,
+              infoImageUrls,
+              aiStoryHtml: aiStoryHtml || undefined,
+              categoryMetadata: {
+                noticeMeta: noticeMeta.length > 0 ? noticeMeta : undefined,
+                attributeMeta: attributeMeta.length > 0 ? attributeMeta : undefined,
+              },
             },
           })
           .select('id')
@@ -219,7 +297,6 @@ export async function POST(req: NextRequest) {
         const savedId = (savedProduct as Record<string, unknown>)?.id as string;
 
         if (savedId) {
-          // sh_product_channels
           await serviceClient.from('sh_product_channels').insert({
             product_id: savedId,
             sellerhub_user_id: shUserId,
@@ -229,7 +306,6 @@ export async function POST(req: NextRequest) {
             last_synced_at: new Date().toISOString(),
           });
 
-          // sh_product_options (단일 옵션)
           await serviceClient.from('sh_product_options').insert({
             product_id: savedId,
             sellerhub_user_id: shUserId,
@@ -266,8 +342,7 @@ export async function POST(req: NextRequest) {
           .eq('id', jobId);
       }
 
-      // Rate limit: 쿠팡 5 calls/sec
-      // 상품 1개당 이미지 업로드 + createProduct + DB 저장 = 여러 호출이므로 200ms 추가 딜레이
+      // Rate limit
       if (i < targetProducts.length - 1) {
         await new Promise((r) => setTimeout(r, 200));
       }

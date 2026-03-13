@@ -35,6 +35,7 @@ export async function POST() {
 
     let totalCollected = 0;
     const channelResults: Record<string, number> = {};
+    const channelErrors: Record<string, string> = {};
 
     for (const { channel, adapter } of adapters) {
       try {
@@ -56,7 +57,7 @@ export async function POST() {
           const buyerName = String(item.buyerName || (item.orderer as Record<string, unknown>)?.name || '');
 
           // Upsert order
-          await serviceClient
+          const { data: upsertedOrder } = await serviceClient
             .from('sh_orders')
             .upsert({
               sellerhub_user_id: shUserId,
@@ -71,29 +72,36 @@ export async function POST() {
               ordered_at: orderedAt,
               raw_data: item,
               updated_at: new Date().toISOString(),
-            }, { onConflict: 'sellerhub_user_id,channel,channel_order_id' });
+            }, { onConflict: 'sellerhub_user_id,channel,channel_order_id' })
+            .select('id')
+            .single();
+
+          const orderId = (upsertedOrder as Record<string, unknown>)?.id as string;
 
           // Upsert order items
-          const items = (item.orderItems || item.productOrderItems || []) as Record<string, unknown>[];
-          for (const orderItem of items) {
-            await serviceClient
-              .from('sh_order_items')
-              .upsert({
-                order_id: channelOrderId,
-                sellerhub_user_id: shUserId,
-                product_name: String(orderItem.productName || orderItem.itemName || ''),
-                option_name: String(orderItem.optionName || orderItem.optionValue || ''),
-                quantity: Number(orderItem.quantity || orderItem.qty || 1),
-                unit_price: Number(orderItem.unitPrice || orderItem.salePrice || 0),
-                channel_product_id: String(orderItem.productId || orderItem.vendorItemId || ''),
-                updated_at: new Date().toISOString(),
-              }, { onConflict: 'order_id,sellerhub_user_id,channel_product_id' });
+          if (orderId) {
+            const items = (item.orderItems || item.productOrderItems || []) as Record<string, unknown>[];
+            for (const orderItem of items) {
+              await serviceClient
+                .from('sh_order_items')
+                .upsert({
+                  order_id: orderId,
+                  sellerhub_user_id: shUserId,
+                  product_name: String(orderItem.productName || orderItem.itemName || ''),
+                  option_name: String(orderItem.optionName || orderItem.optionValue || ''),
+                  quantity: Number(orderItem.quantity || orderItem.qty || 1),
+                  unit_price: Number(orderItem.unitPrice || orderItem.salePrice || 0),
+                  channel_product_id: String(orderItem.productId || orderItem.vendorItemId || ''),
+                  updated_at: new Date().toISOString(),
+                }, { onConflict: 'order_id,sellerhub_user_id,channel_product_id' });
+            }
           }
 
           totalCollected++;
         }
       } catch (err) {
         channelResults[channel] = -1;
+        channelErrors[channel] = err instanceof Error ? err.message : '알 수 없는 오류';
         console.error(`[order-sync] ${channel} error:`, err);
       }
     }
@@ -110,7 +118,12 @@ export async function POST() {
         completed_at: new Date().toISOString(),
       });
 
-    return NextResponse.json({ success: true, totalCollected, channels: channelResults });
+    return NextResponse.json({
+      success: true,
+      totalCollected,
+      channels: channelResults,
+      ...(Object.keys(channelErrors).length > 0 && { errors: channelErrors }),
+    });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : '주문 수집 실패' }, { status: 500 });
   }

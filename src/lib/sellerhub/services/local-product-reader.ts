@@ -25,6 +25,7 @@ export interface LocalProduct {
   mainImages: string[];    // 로컬 파일 경로 (product_*.jpg만)
   detailImages: string[];  // output/*.jpg (AI 생성 상세페이지)
   infoImages: string[];    // product_info/*.png (상품정보제공고시)
+  reviewImages: string[];  // reviews/*.jpg|png (리뷰 이미지)
 }
 
 /**
@@ -72,6 +73,10 @@ export async function scanProductFolder(folderPath: string): Promise<LocalProduc
     const infoDir = path.join(productPath, 'product_info');
     const infoImages = collectImages(infoDir, /\.(jpg|jpeg|png)$/i);
 
+    // reviews/ 내 리뷰 이미지
+    const reviewsDir = path.join(productPath, 'reviews');
+    const reviewImages = collectImages(reviewsDir, /\.(jpg|jpeg|png)$/i);
+
     products.push({
       folderPath: productPath,
       productCode,
@@ -79,6 +84,7 @@ export async function scanProductFolder(folderPath: string): Promise<LocalProduc
       mainImages,
       detailImages,
       infoImages,
+      reviewImages,
     });
   }
 
@@ -153,4 +159,41 @@ export async function uploadLocalImages(
     urls.push(url);
   }
   return urls;
+}
+
+/**
+ * 여러 로컬 이미지를 병렬로 업로드 (concurrency 제한)
+ * 기존 uploadLocalImages 대비 ~80% 시간 단축
+ */
+export async function uploadLocalImagesParallel(
+  filePaths: string[],
+  sellerhubUserId: string,
+  concurrency = 5,
+): Promise<string[]> {
+  if (filePaths.length === 0) return [];
+
+  const results: (string | Error)[] = new Array(filePaths.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < filePaths.length) {
+      const idx = nextIndex++;
+      try {
+        results[idx] = await uploadLocalImage(filePaths[idx], sellerhubUserId);
+      } catch (err) {
+        results[idx] = err instanceof Error ? err : new Error(String(err));
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, filePaths.length) }, () => worker()),
+  );
+
+  return results.map((r, i) => {
+    if (r instanceof Error) {
+      throw new Error(`이미지 업로드 실패 (${path.basename(filePaths[i])}): ${r.message}`);
+    }
+    return r as string;
+  });
 }

@@ -4,6 +4,8 @@
 // ============================================================
 
 import type { LocalProduct } from './local-product-reader';
+import type { FilledNoticeCategory } from './notice-field-filler';
+import { buildRichDetailPageHtml } from './detail-page-builder';
 
 // ---- 입력 타입 ----
 
@@ -24,6 +26,13 @@ export interface ReturnInfo {
   afterServiceInformation: string;     // A/S 안내 문구
 }
 
+export interface AttributeMeta {
+  attributeTypeName: string;
+  required: boolean;
+  dataType: string;
+  attributeValues?: { attributeValueName: string }[];
+}
+
 export interface BuildCoupangPayloadParams {
   vendorId: string;                    // 쿠팡 벤더 ID
   product: LocalProduct;
@@ -38,6 +47,13 @@ export interface BuildCoupangPayloadParams {
   manufacturer?: string;
   maximumBuyForPerson?: number;        // 1인당 구매 제한 (0=무제한)
   outboundShippingTimeDay?: number;    // 출고 소요일
+  // 신규: 동적 notices / attributes / 리치 상세페이지
+  filledNotices?: FilledNoticeCategory[];   // 동적으로 채운 notices
+  attributeMeta?: AttributeMeta[];         // 카테고리 속성 메타
+  attributeValues?: Record<string, string>; // 속성 값 매핑
+  reviewImageUrls?: string[];              // 리뷰 CDN URLs
+  infoImageUrls?: string[];                // 상품정보 CDN URLs
+  aiStoryHtml?: string;                    // AI 스토리 HTML
 }
 
 // ---- 빌드 함수 ----
@@ -49,8 +65,9 @@ export interface BuildCoupangPayloadParams {
  *
  * 핵심 구조:
  * - images[]          → 대표이미지 (REPRESENTATION 타입만, 최대 10장)
- * - contents[]        → 상세페이지 이미지들 (IMAGE_VENDOR 타입 HTML)
- * - noticeCategories  → 상품정보제공고시
+ * - contents[]        → 상세페이지 (IMAGE_VENDOR 타입 HTML)
+ * - noticeCategories  → 상품정보제공고시 (동적)
+ * - attributes[]      → 카테고리 필수 속성 (동적)
  */
 export function buildCoupangProductPayload(
   params: BuildCoupangPayloadParams,
@@ -69,6 +86,12 @@ export function buildCoupangProductPayload(
     manufacturer,
     maximumBuyForPerson = 0,
     outboundShippingTimeDay = 2,
+    filledNotices,
+    attributeMeta,
+    attributeValues,
+    reviewImageUrls,
+    infoImageUrls,
+    aiStoryHtml,
   } = params;
 
   // ---- 1. 상품명 정리 ----
@@ -79,8 +102,6 @@ export function buildCoupangProductPayload(
   const resolvedManufacturer = manufacturer || product.productJson.brand || '';
 
   // ---- 2. 대표이미지 (REPRESENTATION) ----
-  // 쿠팡: images[] 에는 REPRESENTATION 타입만 (상품 리스팅 메인 사진)
-  // 최대 10장, imageOrder 0부터
   const images = mainImageUrls.slice(0, 10).map((url, i) => ({
     imageOrder: i,
     imageType: 'REPRESENTATION',
@@ -89,10 +110,25 @@ export function buildCoupangProductPayload(
   }));
 
   // ---- 3. 상세페이지 (contents) ----
-  // 쿠팡: sellerProductItemList[].contents[] 에 상세 설명 이미지를 넣는다.
-  // contentsType: "IMAGE_VENDOR" → contentDetails[].content = HTML
-  const detailHtml = buildDetailPageHtml(detailImageUrls, productName);
-  const contents = detailImageUrls.length > 0
+  const hasRichContent = aiStoryHtml || (reviewImageUrls && reviewImageUrls.length > 0) || (infoImageUrls && infoImageUrls.length > 0);
+  let detailHtml: string;
+
+  if (hasRichContent) {
+    // 리치 상세페이지
+    detailHtml = buildRichDetailPageHtml({
+      productName,
+      brand: resolvedBrand,
+      aiStoryHtml,
+      reviewImageUrls,
+      detailImageUrls,
+      infoImageUrls,
+    });
+  } else {
+    // 기본: 이미지 나열
+    detailHtml = buildSimpleDetailHtml(detailImageUrls, productName);
+  }
+
+  const contents = detailHtml
     ? [
         {
           contentsType: 'IMAGE_VENDOR',
@@ -107,22 +143,15 @@ export function buildCoupangProductPayload(
     : [];
 
   // ---- 4. 상품정보제공고시 (noticeCategories) ----
-  const noticeCategories = [
-    {
-      noticeCategoryName: '기타 재화',
-      noticeCategoryDetailName: [
-        { noticeCategoryDetailName: '품명 및 모델명', content: productName.slice(0, 50) },
-        { noticeCategoryDetailName: '인증/허가 사항', content: '해당사항 없음' },
-        { noticeCategoryDetailName: '제조국 또는 원산지', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '제조자/수입자', content: resolvedManufacturer || '상세페이지 참조' },
-        { noticeCategoryDetailName: 'A/S 책임자와 전화번호', content: returnInfo.afterServiceContactNumber || '상세페이지 참조' },
-      ],
-    },
-  ];
+  const noticeCategories = filledNotices && filledNotices.length > 0
+    ? filledNotices
+    : buildFallbackNotice(productName, resolvedManufacturer, returnInfo.afterServiceContactNumber);
 
-  // ---- 5. 전체 페이로드 조립 ----
+  // ---- 5. attributes (카테고리 필수 속성) ----
+  const attributes = buildAttributes(attributeMeta, attributeValues);
+
+  // ---- 6. 전체 페이로드 조립 ----
   const payload: Record<string, unknown> = {
-    // 상품 기본 정보
     displayCategoryCode: Number(categoryCode),
     sellerProductName: productName,
     vendorId,
@@ -134,7 +163,6 @@ export function buildCoupangProductPayload(
     productGroup: '',
     manufacture: resolvedManufacturer,
 
-    // 배송 정보
     deliveryMethod: 'SEQUENCIAL',
     deliveryCompanyCode: deliveryInfo.deliveryCompanyCode,
     deliveryChargeType: deliveryInfo.deliveryChargeType,
@@ -145,7 +173,6 @@ export function buildCoupangProductPayload(
     unionDeliveryType: 'NOT_UNION_DELIVERY',
     outboundShippingPlaceCode: deliveryInfo.outboundShippingPlaceCode,
 
-    // 반품 정보
     returnCenterCode: returnInfo.returnCenterCode,
     returnChargeName: '반품배송비',
     returnCharge: returnInfo.returnCharge,
@@ -153,7 +180,6 @@ export function buildCoupangProductPayload(
     afterServiceInformation: returnInfo.afterServiceInformation || '상품 이상 시 고객센터로 연락 바랍니다.',
     afterServiceContactNumber: returnInfo.afterServiceContactNumber,
 
-    // 아이템(SKU) 목록 — 단일 옵션 상품
     sellerProductItemList: [
       {
         itemName: productName,
@@ -175,7 +201,7 @@ export function buildCoupangProductPayload(
         certificationListByItem: [],
         images,
         noticeCategories,
-        attributes: [],
+        attributes,
         contents,
       },
     ],
@@ -189,16 +215,9 @@ export function buildCoupangProductPayload(
 
 // ---- 헬퍼 함수들 ----
 
-/**
- * 상품명에서 키워드 중복 제거 및 정리
- * - 쿠팡 상품명 최대 100자
- * - 연속 공백 제거, trim
- */
 function cleanProductName(name: string): string {
   let cleaned = name.trim();
-  // 연속 공백 → 하나
   cleaned = cleaned.replace(/\s+/g, ' ');
-  // 100자 제한
   if (cleaned.length > 100) {
     cleaned = cleaned.slice(0, 100);
   }
@@ -206,19 +225,68 @@ function cleanProductName(name: string): string {
 }
 
 /**
- * 상세페이지 이미지들을 HTML로 조립
- * - 각 이미지를 <img> 태그로 세로 배치
- * - width 100% 반응형
+ * 기본 상세페이지: 이미지 단순 나열
  */
-function buildDetailPageHtml(imageUrls: string[], productName: string): string {
+function buildSimpleDetailHtml(imageUrls: string[], productName: string): string {
   if (imageUrls.length === 0) return '';
-
   const imgTags = imageUrls
     .map(
       (url, i) =>
         `<img src="${url}" alt="${productName} 상세 ${i + 1}" style="width:100%;display:block;" />`,
     )
     .join('\n');
-
   return `<div style="width:100%;max-width:860px;margin:0 auto;">\n${imgTags}\n</div>`;
+}
+
+/**
+ * 카테고리 속성 빌드
+ * required 속성 중 값이 있는 것만 포함, 없으면 빈 배열
+ */
+function buildAttributes(
+  meta?: AttributeMeta[],
+  values?: Record<string, string>,
+): { attributeTypeName: string; attributeValueName: string }[] {
+  if (!meta || meta.length === 0) return [];
+
+  const attrs: { attributeTypeName: string; attributeValueName: string }[] = [];
+  for (const attr of meta) {
+    if (!attr.required) continue;
+
+    const userValue = values?.[attr.attributeTypeName];
+    if (userValue) {
+      attrs.push({
+        attributeTypeName: attr.attributeTypeName,
+        attributeValueName: userValue,
+      });
+    } else if (attr.attributeValues && attr.attributeValues.length > 0) {
+      // 필수인데 값 미지정 → 첫 번째 선택지로 폴백
+      attrs.push({
+        attributeTypeName: attr.attributeTypeName,
+        attributeValueName: attr.attributeValues[0].attributeValueName,
+      });
+    }
+  }
+  return attrs;
+}
+
+/**
+ * notices 메타 없을 때 기본 "기타 재화" 폴백
+ */
+function buildFallbackNotice(
+  productName: string,
+  manufacturer: string,
+  contactNumber: string,
+): FilledNoticeCategory[] {
+  return [
+    {
+      noticeCategoryName: '기타 재화',
+      noticeCategoryDetailName: [
+        { noticeCategoryDetailName: '품명 및 모델명', content: productName.slice(0, 50) },
+        { noticeCategoryDetailName: '인증/허가 사항', content: '해당사항 없음' },
+        { noticeCategoryDetailName: '제조국 또는 원산지', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '제조자/수입자', content: manufacturer || '상세페이지 참조' },
+        { noticeCategoryDetailName: 'A/S 책임자와 전화번호', content: contactNumber || '상세페이지 참조' },
+      ],
+    },
+  ];
 }

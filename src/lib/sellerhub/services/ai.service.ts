@@ -106,6 +106,73 @@ ${inquiryContent}
   };
 }
 
+export async function generateProductStory(
+  productName: string,
+  category: string,
+  features: string[],
+  description?: string,
+): Promise<AiServiceResult> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return { content: '', creditsUsed: 0, model: 'none' };
+  }
+
+  const featureStr = features.length > 0 ? features.join(', ') : '없음';
+  const descStr = description ? `\n상품 설명: ${description}` : '';
+
+  const prompt = `당신은 쿠팡 상세페이지 전문 카피라이터입니다. 다음 상품의 감성적인 구매유도 스토리를 HTML로 작성해주세요.
+
+상품명: ${productName}
+카테고리: ${category}
+특징/태그: ${featureStr}${descStr}
+
+규칙:
+- 한국어로 작성 (800자 내외)
+- 인라인 스타일만 사용 (외부 CSS 불가)
+- max-width: 860px, 가운데 정렬
+- 3~4개 단락으로 구성
+- 첫 단락: 공감/문제제기 (고객의 고민에 공감)
+- 중간 단락: 솔루션 제시 (이 상품이 왜 좋은지)
+- 마지막 단락: 행동 유도 (지금 구매해야 하는 이유)
+- 감성적이고 신뢰감 있는 톤
+- <script>, <link>, <style> 태그 금지
+- 이미지 태그 금지 (텍스트만)
+- 반드시 <div> 태그로 전체를 감싸기`;
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.7,
+      max_tokens: 1500,
+    }),
+  });
+
+  if (!res.ok) {
+    return { content: '', creditsUsed: 0, model: 'none' };
+  }
+
+  const data = await res.json() as { choices: { message: { content: string } }[] };
+  let html = data.choices?.[0]?.message?.content || '';
+
+  // HTML만 추출 (마크다운 코드블록 제거)
+  const htmlMatch = html.match(/<div[\s\S]*<\/div>/i);
+  if (htmlMatch) {
+    html = htmlMatch[0];
+  }
+
+  return {
+    content: html,
+    creditsUsed: 1200,
+    model: 'gpt-4o-mini',
+  };
+}
+
 export async function mapCategory(
   productTitle: string,
   sourceCategory: string,

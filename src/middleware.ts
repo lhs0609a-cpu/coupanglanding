@@ -23,6 +23,7 @@ export const config = {
     '/my/:path*',
     '/admin/:path*',
     '/auth/:path*',
-    '/sellerhub/:path*',
+    // /sellerhub/* 제외 — 클라이언트 컴포넌트에서 자체 인증 처리,
+    // 미들웨어의 getUser() 네트워크 호출이 Vercel Edge 타임아웃 유발
   ],
 };

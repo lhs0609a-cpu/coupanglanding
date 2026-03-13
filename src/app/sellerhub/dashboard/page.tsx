@@ -6,7 +6,7 @@ import { CHANNELS, CHANNEL_SHORT_LABELS, CHANNEL_COLORS, CHANNEL_BG_COLORS, ORDE
 import type { Channel, Order } from '@/lib/sellerhub/types';
 import {
   ShoppingCart, Package, Truck, TrendingUp, AlertTriangle, RefreshCw,
-  ArrowRight, Key, Box, MessageSquare, Loader2,
+  ArrowRight, Key, Box, MessageSquare, Loader2, CheckCircle2,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -35,6 +35,7 @@ export default function DashboardPage() {
   });
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const fetchDashboard = useCallback(async () => {
     setLoading(true);
@@ -106,9 +107,32 @@ export default function DashboardPage() {
 
   const quickSync = async () => {
     setSyncing(true);
-    await fetch('/api/sellerhub/orders/sync', { method: 'POST' });
+    setSyncResult(null);
+    try {
+      const res = await fetch('/api/sellerhub/orders/sync', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        setSyncResult({ type: 'error', message: data.error || '주문 수집 실패' });
+      } else {
+        const total = data.totalCollected || 0;
+        const channelErrors = Object.entries(data.channels || {})
+          .filter(([, v]) => v === -1)
+          .map(([ch]) => ch);
+        if (channelErrors.length > 0) {
+          setSyncResult({
+            type: 'error',
+            message: `${total}건 수집, ${channelErrors.join(', ')} 채널 오류 발생`,
+          });
+        } else {
+          setSyncResult({ type: 'success', message: `${total}건 수집 완료` });
+        }
+      }
+    } catch {
+      setSyncResult({ type: 'error', message: '네트워크 오류로 수집 실패' });
+    }
     await fetchDashboard();
     setSyncing(false);
+    setTimeout(() => setSyncResult(null), 5000);
   };
 
   const alerts: { message: string; type: 'warning' | 'error'; link: string }[] = [];
@@ -133,6 +157,24 @@ export default function DashboardPage() {
           퀵 수집
         </button>
       </div>
+
+      {/* 수집 결과 */}
+      {syncResult && (
+        <div className={`flex items-center gap-3 p-3 rounded-xl border ${
+          syncResult.type === 'error' ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'
+        }`}>
+          {syncResult.type === 'error' ? (
+            <AlertTriangle className="w-5 h-5 text-red-500" />
+          ) : (
+            <CheckCircle2 className="w-5 h-5 text-green-500" />
+          )}
+          <span className={`text-sm font-medium ${
+            syncResult.type === 'error' ? 'text-red-700' : 'text-green-700'
+          }`}>
+            {syncResult.message}
+          </span>
+        </div>
+      )}
 
       {/* 알림 배너 */}
       {alerts.map((alert, i) => (

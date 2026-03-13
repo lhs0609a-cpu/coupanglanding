@@ -112,7 +112,10 @@ export class CoupangAdapter extends BaseAdapter {
   async getOrders(params: { startDate: string; endDate: string; status?: string; page?: number }) {
     const { startDate, endDate, status, page = 1 } = params;
     const path = `/v2/providers/openapi/apis/api/v4/vendors/${this.vendorId}/ordersheets`;
-    const queryParts = [`createdAtFrom=${startDate}`, `createdAtTo=${endDate}`, `maxPerPage=50`, `page=${page}`];
+    // 쿠팡 ordersheets API는 epoch milliseconds 형식 필요
+    const fromMs = new Date(startDate + 'T00:00:00+09:00').getTime();
+    const toMs = new Date(endDate + 'T23:59:59+09:00').getTime();
+    const queryParts = [`createdAtFrom=${fromMs}`, `createdAtTo=${toMs}`, `maxPerPage=50`, `page=${page}`];
     if (status) queryParts.push(`status=${status}`);
     const query = queryParts.join('&');
 
@@ -263,5 +266,65 @@ export class CoupangAdapter extends BaseAdapter {
         })),
       })),
     };
+  }
+
+  /** 카테고리 자동 매칭 (상품명 기반) */
+  async autoCategorize(productName: string): Promise<{
+    predictedCategoryId: string;
+    predictedCategoryName: string;
+  } | null> {
+    try {
+      const path = '/v2/providers/seller_api/apis/api/v1/vendor/categories/auto-categorization';
+      const data = await this.coupangApi<{
+        data: {
+          autoCategorizationPrediction?: {
+            predictedCategoryId: number;
+            predictedCategoryName: string;
+          };
+        };
+      }>('POST', path, '', { productName });
+      const prediction = data.data?.autoCategorizationPrediction;
+      if (!prediction?.predictedCategoryId) return null;
+      return {
+        predictedCategoryId: String(prediction.predictedCategoryId),
+        predictedCategoryName: prediction.predictedCategoryName,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** 카테고리 속성(구매옵션/필수속성) 조회 */
+  async getCategoryAttributes(categoryCode: string): Promise<{
+    items: {
+      attributeTypeName: string;
+      required: boolean;
+      dataType: string;
+      attributeValues?: { attributeValueName: string }[];
+    }[];
+  }> {
+    try {
+      const path = `/v2/providers/seller_api/apis/api/v1/vendor/categories/${categoryCode}/attributes`;
+      const data = await this.coupangApi<{
+        data: {
+          attributeTypeName: string;
+          required: boolean;
+          dataType: string;
+          attributeValueList?: { attributeValueName: string }[];
+        }[];
+      }>('GET', path);
+      return {
+        items: (data.data || []).map((attr) => ({
+          attributeTypeName: attr.attributeTypeName,
+          required: attr.required,
+          dataType: attr.dataType,
+          attributeValues: attr.attributeValueList?.map((v) => ({
+            attributeValueName: v.attributeValueName,
+          })),
+        })),
+      };
+    } catch {
+      return { items: [] };
+    }
   }
 }

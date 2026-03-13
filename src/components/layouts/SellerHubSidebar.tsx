@@ -5,18 +5,20 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
   Receipt, BarChart3, Zap, Globe, Link as LinkIcon, Settings, X,
+  Upload,
 } from 'lucide-react';
 import type { SellerHubBadgeData } from '@/lib/sellerhub/types';
 
 const iconMap = {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
-  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings,
+  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload,
 } as const;
 
 const navItems = [
   { href: '/sellerhub/dashboard', label: '대시보드', icon: 'LayoutDashboard' as const },
   { href: '/sellerhub/orders', label: '주문관리', icon: 'ShoppingCart' as const, badgeKey: 'pendingOrders' as const },
   { href: '/sellerhub/products', label: '상품관리', icon: 'Package' as const },
+  { href: '/sellerhub/products/bulk-register', label: '상품등록', icon: 'Upload' as const },
   { href: '/sellerhub/inventory', label: '재고관리', icon: 'Warehouse' as const },
   { href: '/sellerhub/cs', label: '문의관리', icon: 'MessageSquare' as const, badgeKey: 'pendingInquiries' as const },
   { href: '/sellerhub/settlement', label: '정산', icon: 'Receipt' as const },

@@ -1,10 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import {
   FolderSearch, ArrowRight, ArrowLeft, Loader2, CheckCircle2, XCircle,
-  Package, Search, RefreshCw, Truck, MapPin, Phone,
+  Search, RefreshCw, Truck, MapPin, Phone, Sparkles, Pause, Play,
+  Pencil, ChevronDown, Folder, X, Clock, Plus, FolderOpen,
 } from 'lucide-react';
+import FolderBrowserModal from '@/components/sellerhub/FolderBrowserModal';
 
 // ---- 타입 ----
 
@@ -18,21 +20,37 @@ interface PreviewProduct {
   productCode: string;
   name: string;
   brand: string;
+  tags: string[];
+  description: string;
   sourcePrice: number;
   sellingPrice: number;
   mainImageCount: number;
   detailImageCount: number;
   infoImageCount: number;
+  reviewImageCount: number;
+  mainImages: string[];
+  detailImages: string[];
+  infoImages: string[];
+  reviewImages: string[];
   folderPath: string;
   hasProductJson: boolean;
 }
 
-interface RegisterResult {
-  productCode: string;
-  name?: string;
-  success: boolean;
+interface EditableProduct extends PreviewProduct {
+  uid: string;
+  editedName: string;
+  editedBrand: string;
+  editedSellingPrice: number;
+  editedCategoryCode: string;
+  editedCategoryName: string;
+  categoryConfidence: number;
+  categorySource: string;
+  selected: boolean;
+  // 등록 결과
+  status: 'pending' | 'registering' | 'success' | 'error';
   channelProductId?: string;
-  error?: string;
+  errorMessage?: string;
+  duration?: number;
 }
 
 interface ShippingPlace {
@@ -54,11 +72,68 @@ interface CategoryItem {
   path: string;
 }
 
+interface CategoryMatchResult {
+  index: number;
+  categoryCode: string;
+  categoryName: string;
+  categoryPath: string;
+  confidence: number;
+  source: string;
+}
+
+interface BatchResult {
+  uid?: string;
+  productCode: string;
+  name: string;
+  success: boolean;
+  channelProductId?: string;
+  error?: string;
+  duration?: number;
+}
+
+// ---- localStorage 최근 경로 ----
+
+const RECENT_PATHS_KEY = 'bulk_register_recent_paths';
+const MAX_RECENT_PATHS = 10;
+
+function getRecentPaths(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_PATHS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentPaths(paths: string[]) {
+  try {
+    // 중복 제거 + 최근 사용 순 + 최대 10개
+    const unique = [...new Set(paths)].slice(0, MAX_RECENT_PATHS);
+    localStorage.setItem(RECENT_PATHS_KEY, JSON.stringify(unique));
+  } catch {
+    // ignore
+  }
+}
+
+function addRecentPath(path: string) {
+  const existing = getRecentPaths().filter((p) => p !== path);
+  saveRecentPaths([path, ...existing]);
+}
+
+// ---- 메인 컴포넌트 ----
+
 export default function BulkRegisterPanel() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
-  // ---- Step 1: 폴더 + 가격 + 배송 설정 ----
-  const [folderPath, setFolderPath] = useState('');
+  // ---- Step 1: 설정 ----
+  const [folderPaths, setFolderPaths] = useState<string[]>([]);
+  const [folderInput, setFolderInput] = useState('');
+  const [showRecentPaths, setShowRecentPaths] = useState(false);
+  const [recentPaths, setRecentPaths] = useState<string[]>([]);
+  const [showFolderBrowser, setShowFolderBrowser] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+
   const [brackets, setBrackets] = useState<PriceBracket[]>([
     { minPrice: 0,      maxPrice: 10000,  marginRate: 35 },
     { minPrice: 10000,  maxPrice: 20000,  marginRate: 30 },
@@ -68,6 +143,9 @@ export default function BulkRegisterPanel() {
   ]);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
+  const [generateAiContent, setGenerateAiContent] = useState(false);
+  const [includeReviewImages, setIncludeReviewImages] = useState(true);
+  const [noticeOverrides, setNoticeOverrides] = useState<Record<string, string>>({});
 
   // 배송 설정
   const [shippingPlaces, setShippingPlaces] = useState<ShippingPlace[]>([]);
@@ -82,20 +160,95 @@ export default function BulkRegisterPanel() {
   const [loadingShipping, setLoadingShipping] = useState(false);
   const [shippingError, setShippingError] = useState('');
 
-  // ---- Step 2: 미리보기 ----
-  const [products, setProducts] = useState<PreviewProduct[]>([]);
-  const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
+  // ---- Step 2: 편집 ----
+  const [products, setProducts] = useState<EditableProduct[]>([]);
+  const [autoMatchingProgress, setAutoMatchingProgress] = useState<{ done: number; total: number } | null>(null);
+
+  // 카테고리 검색 팝업
+  const [categorySearchTarget, setCategorySearchTarget] = useState<string | null>(null); // uid or 'bulk'
   const [categoryKeyword, setCategoryKeyword] = useState('');
-  const [categoryCode, setCategoryCode] = useState('');
   const [categoryResults, setCategoryResults] = useState<CategoryItem[]>([]);
   const [searchingCategory, setSearchingCategory] = useState(false);
 
-  // ---- Step 3: 등록 실행 ----
+  // 일괄 작업
+  const [bulkAction, setBulkAction] = useState<'brand' | 'category' | 'price' | null>(null);
+  const [bulkBrandValue, setBulkBrandValue] = useState('');
+  const [bulkPriceAdjust, setBulkPriceAdjust] = useState(0);
+
+  // ---- Step 3: 등록 ----
   const [registering, setRegistering] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [totalToRegister, setTotalToRegister] = useState(0);
-  const [results, setResults] = useState<RegisterResult[]>([]);
-  const [registerDone, setRegisterDone] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const isPausedRef = useRef(false);
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
+  const [startTime, setStartTime] = useState<number | null>(null);
+
+  // ---- 폴더 경로 관리 ----
+  const addFolderPath = useCallback((pathOrPaths: string) => {
+    // 여러 줄 붙여넣기 지원
+    const lines = pathOrPaths.split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean);
+    setFolderPaths((prev) => {
+      const newPaths = [...prev];
+      for (const line of lines) {
+        if (!newPaths.includes(line)) {
+          newPaths.push(line);
+          addRecentPath(line);
+        }
+      }
+      return newPaths;
+    });
+  }, []);
+
+  const removeFolderPath = useCallback((path: string) => {
+    setFolderPaths((prev) => prev.filter((p) => p !== path));
+  }, []);
+
+  const handleFolderInputAdd = useCallback(() => {
+    if (!folderInput.trim()) return;
+    addFolderPath(folderInput);
+    setFolderInput('');
+  }, [folderInput, addFolderPath]);
+
+  const handleFolderInputPaste = useCallback((e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData('text');
+    if (text.includes('\n')) {
+      e.preventDefault();
+      addFolderPath(text);
+      setFolderInput('');
+    }
+  }, [addFolderPath]);
+
+  // 드래그앤드롭
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // dropZone 영역을 떠날 때만
+    if (dropZoneRef.current && !dropZoneRef.current.contains(e.relatedTarget as Node)) {
+      setIsDragOver(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+
+    const text = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text');
+    if (text) {
+      addFolderPath(text);
+    }
+  }, [addFolderPath]);
+
+  // 최근 경로 로드
+  const handleShowRecentPaths = useCallback(() => {
+    setRecentPaths(getRecentPaths());
+    setShowRecentPaths((prev) => !prev);
+  }, []);
 
   // ---- 초기 로드: 출고지/반품지 조회 ----
   useEffect(() => {
@@ -129,10 +282,10 @@ export default function BulkRegisterPanel() {
     return () => { cancelled = true; };
   }, []);
 
-  // ---- Step 1: 스캔 ----
+  // ---- Step 1: 다중 폴더 스캔 + 카테고리 자동매칭 ----
   const handleScan = useCallback(async () => {
-    if (!folderPath.trim()) {
-      setScanError('폴더 경로를 입력해주세요.');
+    if (folderPaths.length === 0) {
+      setScanError('폴더 경로를 추가해주세요.');
       return;
     }
     if (!selectedOutbound) {
@@ -147,20 +300,90 @@ export default function BulkRegisterPanel() {
     setScanning(true);
     setScanError('');
     try {
-      const res = await fetch(`/api/sellerhub/products/bulk-register?folderPath=${encodeURIComponent(folderPath)}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '스캔 실패');
+      const allEditableProducts: EditableProduct[] = [];
+      let latestBrackets: PriceBracket[] | null = null;
 
-      setProducts(data.products);
-      setSelectedCodes(data.products.map((p: PreviewProduct) => p.productCode));
-      if (data.brackets) setBrackets(data.brackets);
+      for (const fp of folderPaths) {
+        const res = await fetch(`/api/sellerhub/products/bulk-register?folderPath=${encodeURIComponent(fp)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(`[${fp}] ${data.error || '스캔 실패'}`);
+
+        if (data.brackets) latestBrackets = data.brackets;
+
+        const editableProducts: EditableProduct[] = (data.products as PreviewProduct[]).map((p) => ({
+          ...p,
+          uid: `${p.folderPath}::${p.productCode}`,
+          editedName: p.name,
+          editedBrand: p.brand,
+          editedSellingPrice: p.sellingPrice,
+          editedCategoryCode: '',
+          editedCategoryName: '',
+          categoryConfidence: 0,
+          categorySource: '',
+          selected: true,
+          status: 'pending' as const,
+        }));
+
+        allEditableProducts.push(...editableProducts);
+      }
+
+      if (latestBrackets) setBrackets(latestBrackets);
+      setProducts(allEditableProducts);
       setStep(2);
+
+      // 카테고리 자동매칭
+      runAutoCategory(allEditableProducts);
     } catch (err) {
       setScanError(err instanceof Error ? err.message : '스캔 실패');
     } finally {
       setScanning(false);
     }
-  }, [folderPath, selectedOutbound, selectedReturn]);
+  }, [folderPaths, selectedOutbound, selectedReturn]);
+
+  // ---- 카테고리 자동매칭 (배치) ----
+  const runAutoCategory = useCallback(async (prods: EditableProduct[]) => {
+    const BATCH_SIZE = 50;
+    const total = prods.length;
+    setAutoMatchingProgress({ done: 0, total });
+
+    for (let i = 0; i < total; i += BATCH_SIZE) {
+      const batch = prods.slice(i, i + BATCH_SIZE);
+      const names = batch.map((p) => p.editedName);
+
+      try {
+        const res = await fetch('/api/sellerhub/products/bulk-register/auto-category-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ productNames: names }),
+        });
+
+        if (res.ok) {
+          const data = await res.json() as { results: CategoryMatchResult[] };
+          setProducts((prev) => {
+            const updated = [...prev];
+            for (const r of data.results) {
+              const globalIdx = i + r.index;
+              if (globalIdx < updated.length && r.categoryCode) {
+                updated[globalIdx] = {
+                  ...updated[globalIdx],
+                  editedCategoryCode: r.categoryCode,
+                  editedCategoryName: r.categoryPath || r.categoryName,
+                  categoryConfidence: r.confidence,
+                  categorySource: r.source,
+                };
+              }
+            }
+            return updated;
+          });
+        }
+      } catch {
+        // 매칭 실패 → 수동으로
+      }
+
+      setAutoMatchingProgress({ done: Math.min(i + BATCH_SIZE, total), total });
+    }
+    setAutoMatchingProgress(null);
+  }, []);
 
   // ---- 마진율 변경 → 판매가 재계산 ----
   const recalcPrices = useCallback((newBrackets: PriceBracket[]) => {
@@ -172,7 +395,7 @@ export default function BulkRegisterPanel() {
         );
         const rate = bracket ? bracket.marginRate : 25;
         const sellingPrice = Math.ceil((p.sourcePrice * (1 + rate / 100)) / 100) * 100;
-        return { ...p, sellingPrice };
+        return { ...p, editedSellingPrice: sellingPrice, sellingPrice };
       }),
     );
   }, []);
@@ -192,92 +415,284 @@ export default function BulkRegisterPanel() {
     }
   }, [categoryKeyword]);
 
-  // ---- 체크박스 ----
-  const toggleProduct = (code: string) => {
-    setSelectedCodes((prev) =>
-      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
-    );
-  };
-  const toggleAll = () => {
-    setSelectedCodes(
-      selectedCodes.length === products.length ? [] : products.map((p) => p.productCode),
-    );
-  };
+  const selectCategory = useCallback((cat: CategoryItem) => {
+    if (categorySearchTarget === 'bulk') {
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.selected
+            ? { ...p, editedCategoryCode: cat.id, editedCategoryName: cat.path || cat.name, categoryConfidence: 1, categorySource: 'manual' }
+            : p,
+        ),
+      );
+    } else if (categorySearchTarget) {
+      // uid로 매칭
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.uid === categorySearchTarget
+            ? { ...p, editedCategoryCode: cat.id, editedCategoryName: cat.path || cat.name, categoryConfidence: 1, categorySource: 'manual' }
+            : p,
+        ),
+      );
+    }
+    setCategorySearchTarget(null);
+    setCategoryResults([]);
+    setCategoryKeyword('');
+  }, [categorySearchTarget]);
 
-  // ---- Step 3: 등록 실행 ----
+  // ---- 체크박스 (uid 기반) ----
+  const toggleProduct = useCallback((uid: string) => {
+    setProducts((prev) =>
+      prev.map((p) => p.uid === uid ? { ...p, selected: !p.selected } : p),
+    );
+  }, []);
+
+  const toggleAll = useCallback(() => {
+    setProducts((prev) => {
+      const allSelected = prev.every((p) => p.selected);
+      return prev.map((p) => ({ ...p, selected: !allSelected }));
+    });
+  }, []);
+
+  // ---- 인라인 편집 (uid 기반) ----
+  const updateField = useCallback((uid: string, field: string, value: string | number) => {
+    setProducts((prev) =>
+      prev.map((p) =>
+        p.uid === uid ? { ...p, [field]: value } : p,
+      ),
+    );
+  }, []);
+
+  // ---- 일괄 작업 ----
+  const applyBulkBrand = useCallback(() => {
+    if (!bulkBrandValue.trim()) return;
+    setProducts((prev) =>
+      prev.map((p) => p.selected ? { ...p, editedBrand: bulkBrandValue } : p),
+    );
+    setBulkAction(null);
+    setBulkBrandValue('');
+  }, [bulkBrandValue]);
+
+  const applyBulkPrice = useCallback(() => {
+    if (bulkPriceAdjust === 0) return;
+    setProducts((prev) =>
+      prev.map((p) => {
+        if (!p.selected) return p;
+        const adjusted = Math.ceil((p.editedSellingPrice * (1 + bulkPriceAdjust / 100)) / 100) * 100;
+        return { ...p, editedSellingPrice: Math.max(100, adjusted) };
+      }),
+    );
+    setBulkAction(null);
+    setBulkPriceAdjust(0);
+  }, [bulkPriceAdjust]);
+
+  // ---- Step 3: 배치 등록 (uid 기반) ----
   const handleRegister = useCallback(async () => {
-    if (!categoryCode) return alert('카테고리를 선택해주세요.');
-    if (!selectedOutbound) return alert('출고지를 선택해주세요.');
-    if (!selectedReturn) return alert('반품지를 선택해주세요.');
+    const selectedProducts = products.filter((p) => p.selected && p.editedCategoryCode);
+    if (selectedProducts.length === 0) {
+      alert('카테고리가 지정된 선택 상품이 없습니다.');
+      return;
+    }
 
-    setRegistering(true);
-    setRegisterDone(false);
-    setResults([]);
     setStep(3);
+    setRegistering(true);
+    setIsPaused(false);
+    isPausedRef.current = false;
+    setStartTime(Date.now());
 
-    const codesToRegister = selectedCodes.length > 0 ? selectedCodes : products.map((p) => p.productCode);
-    setTotalToRegister(codesToRegister.length);
-    setProgress(0);
+    const BATCH_SIZE = 3;
+
+    // Reset statuses
+    setProducts((prev) =>
+      prev.map((p) =>
+        p.selected && p.editedCategoryCode ? { ...p, status: 'pending' } : p,
+      ),
+    );
 
     try {
-      const res = await fetch('/api/sellerhub/products/bulk-register', {
+      // 1. init-job
+      const uniqueCategoryCodes = [...new Set(selectedProducts.map((p) => p.editedCategoryCode))];
+      const initRes = await fetch('/api/sellerhub/products/bulk-register/init-job', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          folderPath,
-          productCodes: codesToRegister,
-          brackets,
-          categoryCode,
-          deliveryInfo: {
-            deliveryCompanyCode: 'CJGLS',
-            deliveryChargeType,
-            deliveryCharge: deliveryChargeType === 'FREE' ? 0 : deliveryCharge,
-            freeShipOverAmount: deliveryChargeType === 'CONDITIONAL_FREE' ? freeShipOverAmount : 0,
-            deliveryChargeOnReturn: returnCharge,
-            outboundShippingPlaceCode: selectedOutbound,
-          },
-          returnInfo: {
-            returnCenterCode: selectedReturn,
-            returnCharge,
-            companyContactNumber: contactNumber,
-            afterServiceContactNumber: contactNumber,
-            afterServiceInformation: '상품 이상 시 고객센터로 연락 바랍니다.',
-          },
+          totalCount: selectedProducts.length,
+          categoryCodes: uniqueCategoryCodes,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '등록 실패');
+      const initData = await initRes.json();
+      if (!initRes.ok) throw new Error(initData.error || 'Job 초기화 실패');
 
-      setResults(data.results || []);
-      setProgress(data.totalCount || codesToRegister.length);
+      const { jobId, categoryMeta } = initData;
+
+      // 2. 배치 분할
+      const batches: EditableProduct[][] = [];
+      for (let i = 0; i < selectedProducts.length; i += BATCH_SIZE) {
+        batches.push(selectedProducts.slice(i, i + BATCH_SIZE));
+      }
+      setBatchProgress({ current: 0, total: batches.length });
+
+      let totalSuccess = 0;
+      let totalError = 0;
+
+      // 3. 순차 배치 실행
+      for (let i = 0; i < batches.length; i++) {
+        // 일시정지 체크
+        while (isPausedRef.current) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
+
+        const batch = batches[i];
+
+        // 배치 상품 상태를 registering으로 (uid 기반)
+        const batchUids = new Set(batch.map((p) => p.uid));
+        setProducts((prev) =>
+          prev.map((p) => batchUids.has(p.uid) ? { ...p, status: 'registering' } : p),
+        );
+
+        const batchProducts = batch.map((p) => {
+          const meta = categoryMeta?.[p.editedCategoryCode] || { noticeMeta: [], attributeMeta: [] };
+          return {
+            uid: p.uid,
+            productCode: p.productCode,
+            folderPath: p.folderPath,
+            name: p.editedName,
+            brand: p.editedBrand,
+            sellingPrice: p.editedSellingPrice,
+            sourcePrice: p.sourcePrice,
+            categoryCode: p.editedCategoryCode,
+            tags: p.tags,
+            description: p.description,
+            mainImages: p.mainImages,
+            detailImages: p.detailImages,
+            reviewImages: p.reviewImages,
+            infoImages: p.infoImages,
+            noticeMeta: meta.noticeMeta,
+            attributeMeta: meta.attributeMeta,
+          };
+        });
+
+        try {
+          const batchRes = await fetch('/api/sellerhub/products/bulk-register/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jobId,
+              batchIndex: i,
+              deliveryInfo: {
+                deliveryCompanyCode: 'CJGLS',
+                deliveryChargeType,
+                deliveryCharge: deliveryChargeType === 'FREE' ? 0 : deliveryCharge,
+                freeShipOverAmount: deliveryChargeType === 'CONDITIONAL_FREE' ? freeShipOverAmount : 0,
+                deliveryChargeOnReturn: returnCharge,
+                outboundShippingPlaceCode: selectedOutbound,
+              },
+              returnInfo: {
+                returnCenterCode: selectedReturn,
+                returnCharge,
+                companyContactNumber: contactNumber,
+                afterServiceContactNumber: contactNumber,
+                afterServiceInformation: '상품 이상 시 고객센터로 연락 바랍니다.',
+              },
+              stock: 999,
+              generateAiContent,
+              includeReviewImages,
+              noticeOverrides: Object.keys(noticeOverrides).length > 0 ? noticeOverrides : undefined,
+              products: batchProducts,
+            }),
+          });
+          const batchData = await batchRes.json();
+
+          if (batchRes.ok && batchData.results) {
+            const batchResults = batchData.results as BatchResult[];
+            totalSuccess += batchData.successCount || 0;
+            totalError += batchData.errorCount || 0;
+
+            // uid 기반 상태 업데이트
+            setProducts((prev) =>
+              prev.map((p) => {
+                const r = batchResults.find((br) => br.uid === p.uid);
+                if (!r) return p;
+                return {
+                  ...p,
+                  status: r.success ? 'success' : 'error',
+                  channelProductId: r.channelProductId,
+                  errorMessage: r.error,
+                  duration: r.duration,
+                };
+              }),
+            );
+          } else {
+            // 전체 배치 실패
+            totalError += batch.length;
+            setProducts((prev) =>
+              prev.map((p) =>
+                batchUids.has(p.uid)
+                  ? { ...p, status: 'error', errorMessage: batchData.error || '배치 실패' }
+                  : p,
+              ),
+            );
+          }
+        } catch (err) {
+          totalError += batch.length;
+          setProducts((prev) =>
+            prev.map((p) =>
+              batchUids.has(p.uid)
+                ? { ...p, status: 'error', errorMessage: err instanceof Error ? err.message : '네트워크 오류' }
+                : p,
+            ),
+          );
+        }
+
+        setBatchProgress({ current: i + 1, total: batches.length });
+      }
+
+      // 4. complete-job
+      await fetch('/api/sellerhub/products/bulk-register/complete-job', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId, successCount: totalSuccess, errorCount: totalError }),
+      });
     } catch (err) {
-      setResults([{ productCode: 'ALL', success: false, error: err instanceof Error ? err.message : '등록 실패' }]);
+      alert(err instanceof Error ? err.message : '등록 실패');
     } finally {
       setRegistering(false);
-      setRegisterDone(true);
     }
-  }, [folderPath, selectedCodes, products, brackets, categoryCode, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber]);
+  }, [products, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, generateAiContent, includeReviewImages, noticeOverrides]);
 
   // ---- 계산 ----
-  const successCount = results.filter((r) => r.success).length;
-  const failCount = results.filter((r) => !r.success).length;
-  const selectedProducts = products.filter((p) => selectedCodes.includes(p.productCode));
+  const selectedProducts = products.filter((p) => p.selected);
+  const selectedCount = selectedProducts.length;
   const totalSourcePrice = selectedProducts.reduce((s, p) => s + p.sourcePrice, 0);
-  const totalSellingPrice = selectedProducts.reduce((s, p) => s + p.sellingPrice, 0);
+  const totalSellingPrice = selectedProducts.reduce((s, p) => s + p.editedSellingPrice, 0);
+  const successCount = products.filter((p) => p.status === 'success').length;
+  const failCount = products.filter((p) => p.status === 'error').length;
+  const pendingCount = products.filter((p) => p.selected && p.status === 'pending').length;
+
+  const elapsed = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
+  const processedCount = successCount + failCount;
+  const avgPerProduct = processedCount > 0 ? elapsed / processedCount : 0;
+  const remainingEstimate = avgPerProduct > 0 ? Math.ceil(avgPerProduct * pendingCount) : 0;
+
+  const formatTime = (seconds: number) => {
+    if (seconds < 60) return `${seconds}초`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}분 ${s}초`;
+  };
 
   return (
     <div className="space-y-6">
       {/* 스텝 인디케이터 */}
       <div className="flex items-center gap-2">
         {[
-          { num: 1, label: '폴더 & 배송 설정' },
-          { num: 2, label: '상품 미리보기' },
-          { num: 3, label: '등록 실행' },
+          { num: 1, label: '설정' },
+          { num: 2, label: '편집' },
+          { num: 3, label: '등록' },
         ].map((s, i) => (
           <div key={s.num} className="flex items-center gap-2">
-            {i > 0 && <div className="w-8 h-px bg-gray-300" />}
+            {i > 0 && <div className="w-6 h-px bg-gray-300" />}
             <div
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${
                 step === s.num
                   ? 'bg-[#E31837] text-white'
                   : step > s.num
@@ -290,28 +705,136 @@ export default function BulkRegisterPanel() {
             </div>
           </div>
         ))}
+        {products.length > 0 && (
+          <span className="ml-auto text-xs text-gray-400">
+            {products.length}개 상품 스캔됨
+          </span>
+        )}
       </div>
 
-      {/* Step 1 */}
+      {/* ===== Step 1: 설정 ===== */}
       {step === 1 && (
         <div className="space-y-6">
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <FolderSearch className="w-5 h-5 text-gray-500" /> 소싱 폴더 경로
             </h2>
-            <div className="flex gap-3">
-              <input
-                type="text"
-                value={folderPath}
-                onChange={(e) => setFolderPath(e.target.value)}
-                placeholder="예: J:\대량등록 소싱아이템\건기식\비오틴\2026-02-03\100-1"
-                className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
-              />
+
+            {/* 드롭존 */}
+            <div
+              ref={dropZoneRef}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-lg p-4 transition ${
+                isDragOver
+                  ? 'border-blue-400 bg-blue-50'
+                  : 'border-gray-300 bg-gray-50'
+              }`}
+            >
+              {/* 폴더 칩 목록 */}
+              {folderPaths.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {folderPaths.map((fp) => (
+                    <div
+                      key={fp}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-100 text-blue-800 rounded-lg text-sm"
+                    >
+                      <Folder className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate max-w-[400px]">{fp}</span>
+                      <button
+                        onClick={() => removeFolderPath(fp)}
+                        className="p-0.5 hover:bg-blue-200 rounded transition"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 입력 + 버튼 */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={folderInput}
+                  onChange={(e) => setFolderInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleFolderInputAdd();
+                    }
+                  }}
+                  onPaste={handleFolderInputPaste}
+                  placeholder="예: J:\소싱\건기식\비오틴\100-1"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                />
+                <button
+                  onClick={handleFolderInputAdd}
+                  disabled={!folderInput.trim()}
+                  className="flex items-center gap-1 px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition"
+                >
+                  <Plus className="w-4 h-4" /> 추가
+                </button>
+
+                {/* 최근 경로 */}
+                <div className="relative">
+                  <button
+                    onClick={handleShowRecentPaths}
+                    className="flex items-center gap-1 px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+                    title="최근 경로"
+                  >
+                    <Clock className="w-4 h-4 text-gray-500" />
+                  </button>
+                  {showRecentPaths && (
+                    <div className="absolute right-0 top-full mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-64 overflow-y-auto">
+                      {recentPaths.length === 0 ? (
+                        <div className="px-4 py-3 text-sm text-gray-400">최근 사용한 경로가 없습니다.</div>
+                      ) : (
+                        recentPaths.map((rp) => (
+                          <button
+                            key={rp}
+                            onClick={() => {
+                              addFolderPath(rp);
+                              setShowRecentPaths(false);
+                            }}
+                            className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 transition truncate"
+                          >
+                            {rp}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* 폴더 찾기 */}
+                <button
+                  onClick={() => setShowFolderBrowser(true)}
+                  className="flex items-center gap-1 px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+                  title="폴더 찾기"
+                >
+                  <FolderOpen className="w-4 h-4 text-gray-500" />
+                </button>
+              </div>
+
+              {/* 힌트 */}
+              <p className="mt-2 text-xs text-gray-400">
+                탐색기 주소창에서 경로를 끌어다 놓거나, 여러 줄 붙여넣기를 지원합니다.
+              </p>
             </div>
+
             <p className="mt-2 text-xs text-gray-400">
-              product_* 하위 폴더를 자동 인식합니다. (product.json → 상품명/가격, main_images/ → 대표이미지, output/ → 상세페이지)
+              product_* 하위 폴더를 자동 인식합니다. (product.json, main_images/, output/, reviews/, product_info/)
             </p>
           </div>
+
+          {/* 폴더 브라우저 모달 */}
+          <FolderBrowserModal
+            isOpen={showFolderBrowser}
+            onClose={() => setShowFolderBrowser(false)}
+            onSelect={(path) => addFolderPath(path)}
+          />
 
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -435,6 +958,46 @@ export default function BulkRegisterPanel() {
             )}
           </div>
 
+          {/* 옵션 토글 */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-gray-500" /> 등록 옵션
+            </h2>
+            <div className="flex flex-wrap gap-6">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <div className={`relative w-11 h-6 rounded-full transition ${generateAiContent ? 'bg-[#E31837]' : 'bg-gray-200'}`}>
+                  <input
+                    type="checkbox"
+                    checked={generateAiContent}
+                    onChange={(e) => setGenerateAiContent(e.target.checked)}
+                    className="sr-only"
+                  />
+                  <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${generateAiContent ? 'translate-x-5' : ''}`} />
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-gray-700">AI 상세페이지 생성</div>
+                  <div className="text-xs text-gray-400">GPT-4o-mini로 감성 스토리 자동 생성</div>
+                </div>
+              </label>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <div className={`relative w-11 h-6 rounded-full transition ${includeReviewImages ? 'bg-[#E31837]' : 'bg-gray-200'}`}>
+                  <input
+                    type="checkbox"
+                    checked={includeReviewImages}
+                    onChange={(e) => setIncludeReviewImages(e.target.checked)}
+                    className="sr-only"
+                  />
+                  <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${includeReviewImages ? 'translate-x-5' : ''}`} />
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-gray-700">리뷰 이미지 포함</div>
+                  <div className="text-xs text-gray-400">reviews/ 폴더 이미지를 상세페이지에 삽입</div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          {/* 마진율 */}
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">가격대별 마진율 설정</h2>
             <table className="w-full">
@@ -478,6 +1041,43 @@ export default function BulkRegisterPanel() {
             </table>
           </div>
 
+          {/* notices 편집 */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">상품정보제공고시 기본값</h2>
+            <p className="text-xs text-gray-400 mb-4">
+              비어있는 필드는 &quot;상세페이지 참조&quot;로 자동 입력됩니다.
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              {[
+                { key: '품명 및 모델명', placeholder: '상품명에서 자동 입력' },
+                { key: '브랜드', placeholder: '상품 브랜드에서 자동 입력' },
+                { key: '제조국 또는 원산지', placeholder: '상세페이지 참조' },
+                { key: '제조자/수입자', placeholder: '브랜드에서 자동 입력' },
+                { key: 'A/S 책임자와 전화번호', placeholder: '연락처에서 자동 입력' },
+                { key: '인증/허가 사항', placeholder: '해당사항 없음' },
+              ].map(({ key, placeholder }) => (
+                <div key={key}>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{key}</label>
+                  <input
+                    type="text"
+                    value={noticeOverrides[key] || ''}
+                    onChange={(e) => {
+                      const newOverrides = { ...noticeOverrides };
+                      if (e.target.value) {
+                        newOverrides[key] = e.target.value;
+                      } else {
+                        delete newOverrides[key];
+                      }
+                      setNoticeOverrides(newOverrides);
+                    }}
+                    placeholder={placeholder}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
           {scanError && <p className="text-sm text-red-600">{scanError}</p>}
           <div className="flex justify-end">
             <button
@@ -486,150 +1086,198 @@ export default function BulkRegisterPanel() {
               className="flex items-center gap-2 px-6 py-3 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
             >
               {scanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-              폴더 스캔 & 다음
+              {folderPaths.length > 1 ? `${folderPaths.length}개 폴더 스캔 & 다음` : '폴더 스캔 & 다음'}
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
         </div>
       )}
 
-      {/* Step 2 */}
+      {/* ===== Step 2: 편집 테이블 ===== */}
       {step === 2 && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">쿠팡 카테고리 선택 <span className="text-red-500">*</span></h2>
-            <div className="flex gap-3 mb-3">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  value={categoryKeyword}
-                  onChange={(e) => setCategoryKeyword(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearchCategory()}
-                  placeholder="카테고리 검색 (예: 비오틴, 비타민, 건강기능식품)"
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+        <div className="space-y-4">
+          {/* 자동매칭 진행 */}
+          {autoMatchingProgress && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-3">
+              <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+              <span className="text-sm text-blue-700">
+                카테고리 자동매칭 중... {autoMatchingProgress.done}/{autoMatchingProgress.total}
+              </span>
+              <div className="flex-1 h-1.5 bg-blue-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 rounded-full transition-all"
+                  style={{ width: `${(autoMatchingProgress.done / autoMatchingProgress.total) * 100}%` }}
                 />
               </div>
-              <button
-                onClick={handleSearchCategory}
-                disabled={searchingCategory}
-                className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition"
-              >
-                {searchingCategory ? <Loader2 className="w-4 h-4 animate-spin" /> : '검색'}
-              </button>
             </div>
-            {categoryCode && (
-              <p className="text-sm text-green-600 mb-2">
-                선택됨: <span className="font-medium">{categoryCode}</span>
-                {categoryResults.find((c) => c.id === categoryCode) && (
-                  <span className="text-gray-500 ml-1">
-                    ({categoryResults.find((c) => c.id === categoryCode)?.path})
-                  </span>
-                )}
-              </p>
-            )}
-            {categoryResults.length > 0 && (
-              <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
-                {categoryResults.map((cat) => (
-                  <button
-                    key={cat.id}
-                    onClick={() => setCategoryCode(cat.id)}
-                    className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 transition ${
-                      categoryCode === cat.id ? 'bg-red-50 text-[#E31837]' : 'text-gray-700'
-                    }`}
-                  >
-                    <span className="font-medium">{cat.name}</span>
-                    <span className="text-xs text-gray-400 ml-2">{cat.path}</span>
-                    <span className="text-xs text-gray-300 ml-1">({cat.id})</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          )}
 
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold text-gray-900">배송/마진 설정</h2>
-              <button onClick={() => setStep(1)} className="text-sm text-[#E31837] hover:underline">수정</button>
-            </div>
-            <div className="flex gap-3 flex-wrap text-xs">
-              <span className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg">
-                출고지: {shippingPlaces.find((p) => p.outboundShippingPlaceCode === selectedOutbound)?.placeName || selectedOutbound}
-              </span>
-              <span className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg">
-                반품지: {returnCenters.find((c) => c.returnCenterCode === selectedReturn)?.shippingPlaceName || selectedReturn}
-              </span>
-              <span className="px-3 py-1.5 bg-gray-50 text-gray-600 rounded-lg">
-                배송: {deliveryChargeType === 'FREE' ? '무료' : deliveryChargeType === 'CONDITIONAL_FREE' ? `${freeShipOverAmount.toLocaleString()}원 이상 무료` : `${deliveryCharge.toLocaleString()}원`}
-              </span>
-              <span className="px-3 py-1.5 bg-gray-50 text-gray-600 rounded-lg">
-                반품비: {returnCharge.toLocaleString()}원
-              </span>
-              {brackets.map((b, idx) => (
-                <span key={idx} className="px-3 py-1.5 bg-gray-50 text-gray-600 rounded-lg">
-                  {b.minPrice.toLocaleString()}~{b.maxPrice ? b.maxPrice.toLocaleString() : '∞'}: {b.marginRate}%
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-4 gap-4">
-            <StatBox label="선택 상품" value={selectedCodes.length} />
+          {/* 통계 */}
+          <div className="grid grid-cols-5 gap-3">
+            <StatBox label="선택 상품" value={selectedCount} />
             <StatBox label="전체 상품" value={products.length} />
             <StatBox label="총 원가" value={`${totalSourcePrice.toLocaleString()}원`} />
             <StatBox label="총 판매가" value={`${totalSellingPrice.toLocaleString()}원`} highlight />
+            <StatBox
+              label="카테고리 매칭"
+              value={`${products.filter((p) => p.editedCategoryCode).length}/${products.length}`}
+            />
           </div>
 
+          {/* 일괄 작업 툴바 */}
+          <div className="bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-3 flex-wrap">
+            <span className="text-xs font-medium text-gray-500">일괄 작업:</span>
+            <button
+              onClick={() => setBulkAction(bulkAction === 'brand' ? null : 'brand')}
+              className={`px-3 py-1.5 text-xs rounded-lg border transition ${
+                bulkAction === 'brand' ? 'bg-[#E31837] text-white border-[#E31837]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              브랜드 변경
+            </button>
+            <button
+              onClick={() => { setBulkAction(bulkAction === 'category' ? null : 'category'); if (bulkAction !== 'category') { setCategorySearchTarget('bulk'); } }}
+              className={`px-3 py-1.5 text-xs rounded-lg border transition ${
+                bulkAction === 'category' ? 'bg-[#E31837] text-white border-[#E31837]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              카테고리 변경
+            </button>
+            <button
+              onClick={() => setBulkAction(bulkAction === 'price' ? null : 'price')}
+              className={`px-3 py-1.5 text-xs rounded-lg border transition ${
+                bulkAction === 'price' ? 'bg-[#E31837] text-white border-[#E31837]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              가격 조정
+            </button>
+
+            {bulkAction === 'brand' && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={bulkBrandValue}
+                  onChange={(e) => setBulkBrandValue(e.target.value)}
+                  placeholder="브랜드명"
+                  className="px-2 py-1 border border-gray-300 rounded text-xs w-32"
+                />
+                <button onClick={applyBulkBrand} className="px-2 py-1 text-xs bg-[#E31837] text-white rounded">
+                  선택 상품에 적용
+                </button>
+              </div>
+            )}
+            {bulkAction === 'price' && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={bulkPriceAdjust}
+                  onChange={(e) => setBulkPriceAdjust(Number(e.target.value))}
+                  placeholder="조정률 (%)"
+                  className="px-2 py-1 border border-gray-300 rounded text-xs w-24"
+                />
+                <span className="text-xs text-gray-400">%</span>
+                <button onClick={applyBulkPrice} className="px-2 py-1 text-xs bg-[#E31837] text-white rounded">
+                  선택 상품에 적용
+                </button>
+              </div>
+            )}
+
+            <span className="ml-auto text-xs text-gray-400">
+              {selectedCount}개 선택됨
+            </span>
+          </div>
+
+          {/* 카테고리 검색 모달 */}
+          {categorySearchTarget && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-medium text-gray-700">
+                  카테고리 검색 {categorySearchTarget === 'bulk' ? '(선택 상품 일괄)' : ''}
+                </h3>
+                <button onClick={() => { setCategorySearchTarget(null); setCategoryResults([]); setCategoryKeyword(''); }} className="text-xs text-gray-400 hover:text-gray-600">닫기</button>
+              </div>
+              <div className="flex gap-2 mb-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={categoryKeyword}
+                    onChange={(e) => setCategoryKeyword(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearchCategory()}
+                    placeholder="카테고리 검색 (예: 비오틴, 비타민)"
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm"
+                    autoFocus
+                  />
+                </div>
+                <button
+                  onClick={handleSearchCategory}
+                  disabled={searchingCategory}
+                  className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  {searchingCategory ? <Loader2 className="w-4 h-4 animate-spin" /> : '검색'}
+                </button>
+              </div>
+              {categoryResults.length > 0 && (
+                <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
+                  {categoryResults.map((cat) => (
+                    <button
+                      key={cat.id}
+                      onClick={() => selectCategory(cat)}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 transition"
+                    >
+                      <span className="font-medium">{cat.name}</span>
+                      <span className="text-xs text-gray-400 ml-2">{cat.path}</span>
+                      <span className="text-xs text-gray-300 ml-1">({cat.id})</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 상품 편집 테이블 */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
               <label className="flex items-center gap-2 text-sm text-gray-700">
                 <input
                   type="checkbox"
-                  checked={selectedCodes.length === products.length && products.length > 0}
+                  checked={products.length > 0 && products.every((p) => p.selected)}
                   onChange={toggleAll}
                   className="rounded border-gray-300"
                 />
                 전체 선택
               </label>
-              <span className="text-xs text-gray-400">
-                예상 소요: ~{Math.ceil(selectedCodes.length * 3 / 60)}분
-              </span>
+              <div className="flex items-center gap-3 text-xs text-gray-400">
+                <span>배송: {deliveryChargeType === 'FREE' ? '무료' : deliveryChargeType === 'CONDITIONAL_FREE' ? `${freeShipOverAmount.toLocaleString()}원 이상 무료` : `${deliveryCharge.toLocaleString()}원`}</span>
+                <button onClick={() => setStep(1)} className="text-[#E31837] hover:underline">설정 수정</button>
+              </div>
             </div>
-            <div className="max-h-[500px] overflow-y-auto">
+            <div className="max-h-[600px] overflow-y-auto">
               <table className="w-full">
-                <thead className="bg-gray-50 sticky top-0">
+                <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr>
-                    <th className="px-4 py-2 text-left w-10" />
-                    <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">상품코드</th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">상품명</th>
-                    <th className="px-4 py-2 text-right text-xs font-semibold text-gray-500">원가</th>
-                    <th className="px-4 py-2 text-right text-xs font-semibold text-gray-500">판매가</th>
-                    <th className="px-4 py-2 text-center text-xs font-semibold text-gray-500">대표이미지</th>
-                    <th className="px-4 py-2 text-center text-xs font-semibold text-gray-500">상세페이지</th>
+                    <th className="px-3 py-2 text-left w-8" />
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 w-16">코드</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">상품명</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 w-24">브랜드</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 w-20">원가</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 w-24">판매가</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 w-48">카테고리</th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 w-8">대</th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 w-8">상</th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 w-8">리</th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 w-8">정</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {products.map((p) => (
-                    <tr key={p.productCode} className="hover:bg-gray-50">
-                      <td className="px-4 py-2">
-                        <input
-                          type="checkbox"
-                          checked={selectedCodes.includes(p.productCode)}
-                          onChange={() => toggleProduct(p.productCode)}
-                          className="rounded border-gray-300"
-                        />
-                      </td>
-                      <td className="px-4 py-2 text-xs text-gray-500 font-mono">{p.productCode}</td>
-                      <td className="px-4 py-2">
-                        <div className="text-sm text-gray-900 line-clamp-1">{p.name}</div>
-                        {p.brand && <div className="text-xs text-gray-400">{p.brand}</div>}
-                        {!p.hasProductJson && <span className="text-xs text-orange-500">product.json 없음</span>}
-                      </td>
-                      <td className="px-4 py-2 text-sm text-gray-700 text-right">{p.sourcePrice.toLocaleString()}</td>
-                      <td className="px-4 py-2 text-sm font-medium text-[#E31837] text-right">{p.sellingPrice.toLocaleString()}</td>
-                      <td className="px-4 py-2 text-xs text-center text-gray-500">{p.mainImageCount}장</td>
-                      <td className="px-4 py-2 text-xs text-center text-gray-500">{p.detailImageCount}장</td>
-                    </tr>
+                    <ProductRow
+                      key={p.uid}
+                      product={p}
+                      onToggle={toggleProduct}
+                      onUpdate={updateField}
+                      onCategoryClick={(uid) => setCategorySearchTarget(uid)}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -645,46 +1293,76 @@ export default function BulkRegisterPanel() {
             </button>
             <button
               onClick={handleRegister}
-              disabled={selectedCodes.length === 0 || !categoryCode}
+              disabled={selectedCount === 0 || products.filter((p) => p.selected && p.editedCategoryCode).length === 0}
               className="flex items-center gap-2 px-6 py-3 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
             >
-              {selectedCodes.length}개 쿠팡에 등록하기
+              {products.filter((p) => p.selected && p.editedCategoryCode).length}개 등록 시작
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
         </div>
       )}
 
-      {/* Step 3 */}
+      {/* ===== Step 3: 등록 진행 ===== */}
       {step === 3 && (
         <div className="space-y-6">
+          {/* 진행률 카드 */}
           <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-900">
-                {registerDone ? '등록 완료' : '등록 진행 중...'}
+                {registering ? `등록 진행 중 — 배치 ${batchProgress.current}/${batchProgress.total}` : '등록 완료'}
               </h2>
-              {registering && <Loader2 className="w-5 h-5 animate-spin text-[#E31837]" />}
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
-              <div
-                className="bg-[#E31837] h-3 rounded-full transition-all duration-300"
-                style={{ width: `${totalToRegister > 0 ? (progress / totalToRegister) * 100 : 0}%` }}
-              />
-            </div>
-            <div className="flex items-center justify-between text-sm text-gray-500">
-              <span>{progress} / {totalToRegister}</span>
               {registering && (
-                <span className="text-xs text-gray-400">
-                  각 상품: 이미지 업로드 → 쿠팡 등록 → DB 저장
-                </span>
+                <button
+                  onClick={() => {
+                    const next = !isPaused;
+                    setIsPaused(next);
+                    isPausedRef.current = next;
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2 text-sm rounded-lg border transition ${
+                    isPaused
+                      ? 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
+                      : 'bg-orange-50 border-orange-300 text-orange-700 hover:bg-orange-100'
+                  }`}
+                >
+                  {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                  {isPaused ? '재개' : '일시정지'}
+                </button>
               )}
-              {registerDone && <span className="text-green-600 font-medium">완료</span>}
+            </div>
+
+            <div className="w-full bg-gray-200 rounded-full h-4 mb-3">
+              <div
+                className="bg-[#E31837] h-4 rounded-full transition-all duration-300 flex items-center justify-center"
+                style={{ width: `${selectedCount > 0 ? (processedCount / selectedCount) * 100 : 0}%` }}
+              >
+                {processedCount > 0 && (
+                  <span className="text-[10px] text-white font-medium">
+                    {Math.round((processedCount / selectedCount) * 100)}%
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex gap-4">
+                <span className="text-green-600">성공: {successCount}</span>
+                <span className="text-red-600">실패: {failCount}</span>
+                <span className="text-gray-400">대기: {pendingCount}</span>
+              </div>
+              <div className="flex gap-4 text-xs text-gray-400">
+                <span>경과: {formatTime(elapsed)}</span>
+                {registering && remainingEstimate > 0 && (
+                  <span>예상 남은: {formatTime(remainingEstimate)}</span>
+                )}
+              </div>
             </div>
           </div>
 
-          {registerDone && (
+          {/* 완료 통계 */}
+          {!registering && (
             <div className="grid grid-cols-3 gap-4">
-              <StatBox label="전체" value={totalToRegister} />
+              <StatBox label="전체" value={selectedCount} />
               <div className="bg-green-50 rounded-xl border border-green-200 p-4 text-center">
                 <div className="text-2xl font-bold text-green-600">{successCount}</div>
                 <div className="text-xs text-green-600 mt-1">성공</div>
@@ -696,46 +1374,64 @@ export default function BulkRegisterPanel() {
             </div>
           )}
 
-          {results.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-200 text-sm font-medium text-gray-700">
-                등록 결과 상세
-              </div>
-              <div className="max-h-[400px] overflow-y-auto divide-y divide-gray-100">
-                {results.map((r, idx) => (
-                  <div key={idx} className="flex items-center gap-3 px-4 py-2.5">
-                    {r.success ? (
-                      <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
-                    ) : (
-                      <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-                    )}
-                    <span className="text-xs font-mono text-gray-400 w-32 shrink-0">{r.productCode}</span>
-                    <span className="text-sm text-gray-700 line-clamp-1 flex-1">{r.name || ''}</span>
-                    {r.success ? (
-                      <span className="text-xs text-green-600 shrink-0">쿠팡 #{r.channelProductId}</span>
-                    ) : (
-                      <span className="text-xs text-red-600 shrink-0 max-w-xs truncate">{r.error}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
+          {/* 상품별 상태 테이블 */}
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-200 text-sm font-medium text-gray-700">
+              등록 상태
             </div>
-          )}
+            <div className="max-h-[500px] overflow-y-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>
+                    <th className="px-4 py-2 text-center text-xs font-semibold text-gray-500 w-12">상태</th>
+                    <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500 w-16">코드</th>
+                    <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">상품명</th>
+                    <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500 w-32">쿠팡 ID / 오류</th>
+                    <th className="px-4 py-2 text-right text-xs font-semibold text-gray-500 w-16">소요</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {products.filter((p) => p.selected).map((p) => (
+                    <tr key={p.uid} className="hover:bg-gray-50">
+                      <td className="px-4 py-2 text-center">
+                        {p.status === 'success' && <CheckCircle2 className="w-4 h-4 text-green-500 mx-auto" />}
+                        {p.status === 'error' && <XCircle className="w-4 h-4 text-red-500 mx-auto" />}
+                        {p.status === 'registering' && <Loader2 className="w-4 h-4 text-blue-500 animate-spin mx-auto" />}
+                        {p.status === 'pending' && <span className="text-xs text-gray-300">—</span>}
+                      </td>
+                      <td className="px-4 py-2 text-xs font-mono text-gray-500">{p.productCode}</td>
+                      <td className="px-4 py-2 text-sm text-gray-700 line-clamp-1">{p.editedName}</td>
+                      <td className="px-4 py-2 text-xs">
+                        {p.status === 'success' && (
+                          <span className="text-green-600">#{p.channelProductId}</span>
+                        )}
+                        {p.status === 'error' && (
+                          <span className="text-red-600 truncate max-w-[200px] block" title={p.errorMessage}>
+                            {p.errorMessage}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-xs text-gray-400 text-right">
+                        {p.duration ? `${(p.duration / 1000).toFixed(1)}s` : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-          {registerDone && (
+          {!registering && (
             <div className="flex items-center justify-center">
               <button
                 onClick={() => {
                   setStep(1);
-                  setRegisterDone(false);
-                  setResults([]);
-                  setProgress(0);
                   setProducts([]);
-                  setSelectedCodes([]);
-                  setCategoryCode('');
-                  setCategoryResults([]);
-                  setCategoryKeyword('');
-                  setFolderPath('');
+                  setFolderPaths([]);
+                  setFolderInput('');
+                  setBatchProgress({ current: 0, total: 0 });
+                  setStartTime(null);
+                  setAutoMatchingProgress(null);
                 }}
                 className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
               >
@@ -748,6 +1444,94 @@ export default function BulkRegisterPanel() {
     </div>
   );
 }
+
+// ---- 서브 컴포넌트 ----
+
+interface ProductRowProps {
+  product: EditableProduct;
+  onToggle: (uid: string) => void;
+  onUpdate: (uid: string, field: string, value: string | number) => void;
+  onCategoryClick: (uid: string) => void;
+}
+
+const ProductRow = memo(function ProductRow({ product: p, onToggle, onUpdate, onCategoryClick }: ProductRowProps) {
+  return (
+    <tr className={`hover:bg-gray-50 ${!p.selected ? 'opacity-50' : ''}`}>
+      <td className="px-3 py-1.5">
+        <input
+          type="checkbox"
+          checked={p.selected}
+          onChange={() => onToggle(p.uid)}
+          className="rounded border-gray-300"
+        />
+      </td>
+      <td className="px-3 py-1.5 text-xs text-gray-500 font-mono">{p.productCode}</td>
+      <td className="px-3 py-1.5">
+        <input
+          type="text"
+          value={p.editedName}
+          onChange={(e) => onUpdate(p.uid, 'editedName', e.target.value)}
+          className="w-full px-1.5 py-0.5 border border-transparent hover:border-gray-300 focus:border-[#E31837] rounded text-sm text-gray-900 focus:ring-1 focus:ring-[#E31837] outline-none transition"
+        />
+      </td>
+      <td className="px-3 py-1.5">
+        <input
+          type="text"
+          value={p.editedBrand}
+          onChange={(e) => onUpdate(p.uid, 'editedBrand', e.target.value)}
+          className="w-full px-1.5 py-0.5 border border-transparent hover:border-gray-300 focus:border-[#E31837] rounded text-xs text-gray-700 focus:ring-1 focus:ring-[#E31837] outline-none transition"
+          placeholder="-"
+        />
+      </td>
+      <td className="px-3 py-1.5 text-sm text-gray-700 text-right tabular-nums">
+        {p.sourcePrice.toLocaleString()}
+      </td>
+      <td className="px-3 py-1.5">
+        <input
+          type="number"
+          value={p.editedSellingPrice}
+          onChange={(e) => onUpdate(p.uid, 'editedSellingPrice', Number(e.target.value))}
+          className="w-full px-1.5 py-0.5 border border-transparent hover:border-gray-300 focus:border-[#E31837] rounded text-sm text-[#E31837] font-medium text-right tabular-nums focus:ring-1 focus:ring-[#E31837] outline-none transition"
+        />
+      </td>
+      <td className="px-3 py-1.5">
+        <button
+          onClick={() => onCategoryClick(p.uid)}
+          className="w-full text-left flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-gray-100 transition group"
+        >
+          {p.editedCategoryCode ? (
+            <>
+              <span className="text-xs text-gray-700 truncate flex-1">{p.editedCategoryName}</span>
+              {p.categoryConfidence > 0 && (
+                <span className={`text-[10px] px-1 py-0.5 rounded ${
+                  p.categoryConfidence >= 0.8 ? 'bg-green-100 text-green-600' :
+                  p.categoryConfidence >= 0.5 ? 'bg-yellow-100 text-yellow-600' :
+                  'bg-gray-100 text-gray-400'
+                }`}>
+                  {Math.round(p.categoryConfidence * 100)}%
+                </span>
+              )}
+              <Pencil className="w-3 h-3 text-gray-300 group-hover:text-gray-500 shrink-0" />
+            </>
+          ) : (
+            <>
+              <span className="text-xs text-gray-400">카테고리 선택</span>
+              <ChevronDown className="w-3 h-3 text-gray-300 shrink-0" />
+            </>
+          )}
+        </button>
+      </td>
+      <td className="px-3 py-1.5 text-xs text-center text-gray-500">{p.mainImageCount}</td>
+      <td className="px-3 py-1.5 text-xs text-center text-gray-500">{p.detailImageCount}</td>
+      <td className="px-3 py-1.5 text-xs text-center">
+        <span className={p.reviewImageCount > 0 ? 'text-blue-600 font-medium' : 'text-gray-400'}>
+          {p.reviewImageCount}
+        </span>
+      </td>
+      <td className="px-3 py-1.5 text-xs text-center text-gray-500">{p.infoImageCount}</td>
+    </tr>
+  );
+});
 
 function StatBox({ label, value, highlight }: { label: string; value: string | number; highlight?: boolean }) {
   return (
