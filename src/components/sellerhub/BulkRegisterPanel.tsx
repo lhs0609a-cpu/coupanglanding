@@ -233,14 +233,43 @@ export default function BulkRegisterPanel() {
     }
   }, []);
 
+  const [dropMessage, setDropMessage] = useState('');
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
+    setDropMessage('');
 
-    const text = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text');
+    // 여러 dataTransfer 형식 시도
+    const text = e.dataTransfer.getData('text/plain')
+      || e.dataTransfer.getData('text')
+      || e.dataTransfer.getData('text/uri-list')
+      || e.dataTransfer.getData('URL');
+
     if (text) {
-      addFolderPath(text);
+      let path = text.trim();
+      // file:// URI 처리 (예: file:///C:/Users/u/...)
+      if (path.startsWith('file:///')) {
+        path = decodeURIComponent(path.replace('file:///', ''));
+        path = path.replace(/\//g, '\\');
+      } else if (path.startsWith('file://')) {
+        path = decodeURIComponent(path.replace('file://', ''));
+        path = path.replace(/\//g, '\\');
+      }
+      // 줄바꿈이 있으면 첫 번째 유효한 줄만
+      const firstLine = path.split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean)[0];
+      if (firstLine) {
+        addFolderPath(firstLine);
+        return;
+      }
+    }
+
+    // 텍스트 없이 파일/폴더만 드롭된 경우 (탐색기에서 폴더 직접 드래그)
+    if (e.dataTransfer.files.length > 0 || e.dataTransfer.items.length > 0) {
+      setDropMessage('폴더를 직접 끌어다 놓으면 브라우저 보안 정책으로 경로를 읽을 수 없습니다. 아래 방법을 사용해주세요:\n1) 탐색기 주소창의 경로 텍스트를 복사하여 붙여넣기\n2) 📂 찾기 버튼으로 폴더 탐색');
+      // 5초 후 자동 제거
+      setTimeout(() => setDropMessage(''), 6000);
     }
   }, [addFolderPath]);
 
@@ -753,6 +782,17 @@ export default function BulkRegisterPanel() {
                 </div>
               )}
 
+              {/* 폴더 찾기 버튼 (가장 눈에 띄게) */}
+              {folderPaths.length === 0 && (
+                <button
+                  onClick={() => setShowFolderBrowser(true)}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 mb-3 text-sm font-medium text-[#E31837] bg-white border-2 border-[#E31837] rounded-lg hover:bg-red-50 transition"
+                >
+                  <FolderOpen className="w-5 h-5" />
+                  폴더 찾아보기
+                </button>
+              )}
+
               {/* 입력 + 버튼 */}
               <div className="flex gap-2">
                 <input
@@ -766,7 +806,7 @@ export default function BulkRegisterPanel() {
                     }
                   }}
                   onPaste={handleFolderInputPaste}
-                  placeholder="예: J:\소싱\건기식\비오틴\100-1"
+                  placeholder="경로를 붙여넣거나 입력 (예: C:\Users\u\바탕 화면\100-2)"
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
                 />
                 <button
@@ -808,19 +848,28 @@ export default function BulkRegisterPanel() {
                   )}
                 </div>
 
-                {/* 폴더 찾기 */}
-                <button
-                  onClick={() => setShowFolderBrowser(true)}
-                  className="flex items-center gap-1 px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
-                  title="폴더 찾기"
-                >
-                  <FolderOpen className="w-4 h-4 text-gray-500" />
-                </button>
+                {/* 폴더 찾기 (칩이 있을 때 작은 아이콘) */}
+                {folderPaths.length > 0 && (
+                  <button
+                    onClick={() => setShowFolderBrowser(true)}
+                    className="flex items-center gap-1 px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+                    title="폴더 찾기"
+                  >
+                    <FolderOpen className="w-4 h-4 text-gray-500" />
+                  </button>
+                )}
               </div>
+
+              {/* 드롭 안내 메시지 */}
+              {dropMessage && (
+                <div className="mt-2 p-2.5 bg-orange-50 border border-orange-200 rounded-lg text-xs text-orange-700 whitespace-pre-line">
+                  {dropMessage}
+                </div>
+              )}
 
               {/* 힌트 */}
               <p className="mt-2 text-xs text-gray-400">
-                탐색기 주소창에서 경로를 끌어다 놓거나, 여러 줄 붙여넣기를 지원합니다.
+                탐색기 주소창에서 경로 텍스트를 복사하여 붙여넣거나, 위 &quot;폴더 찾아보기&quot;로 선택하세요.
               </p>
             </div>
 
