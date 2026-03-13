@@ -6,7 +6,7 @@ import {
   Search, RefreshCw, Truck, MapPin, Phone, Sparkles, Pause, Play,
   Pencil, ChevronDown, Folder, X, Clock, Plus, FolderOpen,
 } from 'lucide-react';
-import FolderBrowserModal from '@/components/sellerhub/FolderBrowserModal';
+import { pickAndScanFolder, uploadScannedImages, type ScannedImageFile } from '@/lib/sellerhub/services/client-folder-scanner';
 
 // ---- 타입 ----
 
@@ -46,6 +46,11 @@ interface EditableProduct extends PreviewProduct {
   categoryConfidence: number;
   categorySource: string;
   selected: boolean;
+  // 클라이언트 스캔 이미지 핸들 (showDirectoryPicker 사용 시)
+  scannedMainImages?: ScannedImageFile[];
+  scannedDetailImages?: ScannedImageFile[];
+  scannedInfoImages?: ScannedImageFile[];
+  scannedReviewImages?: ScannedImageFile[];
   // 등록 결과
   status: 'pending' | 'registering' | 'success' | 'error';
   channelProductId?: string;
@@ -130,8 +135,8 @@ export default function BulkRegisterPanel() {
   const [folderInput, setFolderInput] = useState('');
   const [showRecentPaths, setShowRecentPaths] = useState(false);
   const [recentPaths, setRecentPaths] = useState<string[]>([]);
-  const [showFolderBrowser, setShowFolderBrowser] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [browsingFolder, setBrowsingFolder] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
   const [brackets, setBrackets] = useState<PriceBracket[]>([
@@ -279,96 +284,6 @@ export default function BulkRegisterPanel() {
     setShowRecentPaths((prev) => !prev);
   }, []);
 
-  // ---- 초기 로드: 출고지/반품지 조회 ----
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoadingShipping(true);
-      setShippingError('');
-      try {
-        const res = await fetch('/api/sellerhub/products/bulk-register/shipping-info');
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '물류 정보 조회 실패');
-        if (cancelled) return;
-
-        setShippingPlaces(data.outboundShippingPlaces || []);
-        setReturnCenters(data.returnShippingCenters || []);
-
-        if (data.outboundShippingPlaces?.length > 0) {
-          setSelectedOutbound(data.outboundShippingPlaces[0].outboundShippingPlaceCode);
-        }
-        if (data.returnShippingCenters?.length > 0) {
-          setSelectedReturn(data.returnShippingCenters[0].returnCenterCode);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setShippingError(err instanceof Error ? err.message : '물류 정보 조회 실패');
-        }
-      } finally {
-        if (!cancelled) setLoadingShipping(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  // ---- Step 1: 다중 폴더 스캔 + 카테고리 자동매칭 ----
-  const handleScan = useCallback(async () => {
-    if (folderPaths.length === 0) {
-      setScanError('폴더 경로를 추가해주세요.');
-      return;
-    }
-    if (!selectedOutbound) {
-      setScanError('출고지를 선택해주세요. (쿠팡 Wing에 등록 필요)');
-      return;
-    }
-    if (!selectedReturn) {
-      setScanError('반품지를 선택해주세요. (쿠팡 Wing에 등록 필요)');
-      return;
-    }
-
-    setScanning(true);
-    setScanError('');
-    try {
-      const allEditableProducts: EditableProduct[] = [];
-      let latestBrackets: PriceBracket[] | null = null;
-
-      for (const fp of folderPaths) {
-        const res = await fetch(`/api/sellerhub/products/bulk-register?folderPath=${encodeURIComponent(fp)}`);
-        const data = await res.json();
-        if (!res.ok) throw new Error(`[${fp}] ${data.error || '스캔 실패'}`);
-
-        if (data.brackets) latestBrackets = data.brackets;
-
-        const editableProducts: EditableProduct[] = (data.products as PreviewProduct[]).map((p) => ({
-          ...p,
-          uid: `${p.folderPath}::${p.productCode}`,
-          editedName: p.name,
-          editedBrand: p.brand,
-          editedSellingPrice: p.sellingPrice,
-          editedCategoryCode: '',
-          editedCategoryName: '',
-          categoryConfidence: 0,
-          categorySource: '',
-          selected: true,
-          status: 'pending' as const,
-        }));
-
-        allEditableProducts.push(...editableProducts);
-      }
-
-      if (latestBrackets) setBrackets(latestBrackets);
-      setProducts(allEditableProducts);
-      setStep(2);
-
-      // 카테고리 자동매칭
-      runAutoCategory(allEditableProducts);
-    } catch (err) {
-      setScanError(err instanceof Error ? err.message : '스캔 실패');
-    } finally {
-      setScanning(false);
-    }
-  }, [folderPaths, selectedOutbound, selectedReturn]);
-
   // ---- 카테고리 자동매칭 (배치) ----
   const runAutoCategory = useCallback(async (prods: EditableProduct[]) => {
     const BATCH_SIZE = 50;
@@ -413,6 +328,180 @@ export default function BulkRegisterPanel() {
     }
     setAutoMatchingProgress(null);
   }, []);
+
+  // ---- 네이티브 폴더 선택 (showDirectoryPicker) ----
+  const handleBrowseFolder = useCallback(async () => {
+    setBrowsingFolder(true);
+    setScanError('');
+    try {
+      const { dirName, products: scanned } = await pickAndScanFolder();
+
+      if (scanned.length === 0) {
+        setScanError(`"${dirName}" 폴더에 product_* 하위 폴더가 없습니다.`);
+        setBrowsingFolder(false);
+        return;
+      }
+
+      // ScannedProduct → EditableProduct 변환
+      const editableProducts: EditableProduct[] = scanned.map((sp) => {
+        const sourcePrice = sp.productJson.price || 0;
+        return {
+          productCode: sp.productCode,
+          name: sp.productJson.name || sp.productJson.title || `product_${sp.productCode}`,
+          brand: sp.productJson.brand || '',
+          tags: sp.productJson.tags || [],
+          description: sp.productJson.description || '',
+          sourcePrice,
+          sellingPrice: sourcePrice,
+          mainImageCount: sp.mainImages.length,
+          detailImageCount: sp.detailImages.length,
+          infoImageCount: sp.infoImages.length,
+          reviewImageCount: sp.reviewImages.length,
+          mainImages: [],
+          detailImages: [],
+          infoImages: [],
+          reviewImages: [],
+          folderPath: `browser://${dirName}/${sp.folderName}`,
+          hasProductJson: !!(sp.productJson.name || sp.productJson.title),
+          uid: `browser://${dirName}/${sp.folderName}::${sp.productCode}`,
+          editedName: sp.productJson.name || sp.productJson.title || `product_${sp.productCode}`,
+          editedBrand: sp.productJson.brand || '',
+          editedSellingPrice: sourcePrice,
+          editedCategoryCode: '',
+          editedCategoryName: '',
+          categoryConfidence: 0,
+          categorySource: '',
+          selected: true,
+          scannedMainImages: sp.mainImages,
+          scannedDetailImages: sp.detailImages,
+          scannedInfoImages: sp.infoImages,
+          scannedReviewImages: sp.reviewImages,
+          status: 'pending' as const,
+        };
+      });
+
+      // 마진율 적용
+      const withPricing = editableProducts.map((p) => {
+        const bracket = brackets.find(
+          (b) => p.sourcePrice >= b.minPrice && p.sourcePrice < (b.maxPrice ?? Infinity),
+        );
+        const rate = bracket ? bracket.marginRate : 25;
+        const sellingPrice = Math.ceil((p.sourcePrice * (1 + rate / 100)) / 100) * 100;
+        return { ...p, sellingPrice, editedSellingPrice: sellingPrice };
+      });
+
+      setProducts(withPricing);
+      // folderPaths에도 추가 (표시용)
+      const browserPath = `browser://${dirName}`;
+      setFolderPaths((prev) => prev.includes(browserPath) ? prev : [...prev, browserPath]);
+      setStep(2);
+
+      // 카테고리 자동매칭
+      runAutoCategory(withPricing);
+    } catch (err) {
+      // 사용자가 취소한 경우 무시
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        // 사용자 취소
+      } else {
+        setScanError(err instanceof Error ? err.message : '폴더 스캔 실패');
+      }
+    } finally {
+      setBrowsingFolder(false);
+    }
+  }, [brackets, runAutoCategory]);
+
+  // ---- 초기 로드: 출고지/반품지 조회 ----
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoadingShipping(true);
+      setShippingError('');
+      try {
+        const res = await fetch('/api/sellerhub/products/bulk-register/shipping-info');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '물류 정보 조회 실패');
+        if (cancelled) return;
+
+        setShippingPlaces(data.outboundShippingPlaces || []);
+        setReturnCenters(data.returnShippingCenters || []);
+
+        if (data.outboundShippingPlaces?.length > 0) {
+          setSelectedOutbound(data.outboundShippingPlaces[0].outboundShippingPlaceCode);
+        }
+        if (data.returnShippingCenters?.length > 0) {
+          setSelectedReturn(data.returnShippingCenters[0].returnCenterCode);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setShippingError(err instanceof Error ? err.message : '물류 정보 조회 실패');
+        }
+      } finally {
+        if (!cancelled) setLoadingShipping(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ---- Step 1: 다중 폴더 스캔 + 카테고리 자동매칭 ----
+  const serverFolderPaths = folderPaths.filter((fp) => !fp.startsWith('browser://'));
+
+  const handleScan = useCallback(async () => {
+    const serverPaths = folderPaths.filter((fp) => !fp.startsWith('browser://'));
+    if (serverPaths.length === 0) {
+      setScanError('서버에서 접근 가능한 폴더 경로를 추가해주세요.');
+      return;
+    }
+    if (!selectedOutbound) {
+      setScanError('출고지를 선택해주세요. (쿠팡 Wing에 등록 필요)');
+      return;
+    }
+    if (!selectedReturn) {
+      setScanError('반품지를 선택해주세요. (쿠팡 Wing에 등록 필요)');
+      return;
+    }
+
+    setScanning(true);
+    setScanError('');
+    try {
+      const allEditableProducts: EditableProduct[] = [];
+      let latestBrackets: PriceBracket[] | null = null;
+
+      for (const fp of serverPaths) {
+        const res = await fetch(`/api/sellerhub/products/bulk-register?folderPath=${encodeURIComponent(fp)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(`[${fp}] ${data.error || '스캔 실패'}`);
+
+        if (data.brackets) latestBrackets = data.brackets;
+
+        const editableProducts: EditableProduct[] = (data.products as PreviewProduct[]).map((p) => ({
+          ...p,
+          uid: `${p.folderPath}::${p.productCode}`,
+          editedName: p.name,
+          editedBrand: p.brand,
+          editedSellingPrice: p.sellingPrice,
+          editedCategoryCode: '',
+          editedCategoryName: '',
+          categoryConfidence: 0,
+          categorySource: '',
+          selected: true,
+          status: 'pending' as const,
+        }));
+
+        allEditableProducts.push(...editableProducts);
+      }
+
+      if (latestBrackets) setBrackets(latestBrackets);
+      setProducts(allEditableProducts);
+      setStep(2);
+
+      // 카테고리 자동매칭
+      runAutoCategory(allEditableProducts);
+    } catch (err) {
+      setScanError(err instanceof Error ? err.message : '스캔 실패');
+    } finally {
+      setScanning(false);
+    }
+  }, [folderPaths, selectedOutbound, selectedReturn, runAutoCategory]);
 
   // ---- 마진율 변경 → 판매가 재계산 ----
   const recalcPrices = useCallback((newBrackets: PriceBracket[]) => {
@@ -578,9 +667,11 @@ export default function BulkRegisterPanel() {
           prev.map((p) => batchUids.has(p.uid) ? { ...p, status: 'registering' } : p),
         );
 
-        const batchProducts = batch.map((p) => {
+        // 클라이언트 스캔 상품이면 이미지 업로드 먼저 수행
+        const batchProducts = [];
+        for (const p of batch) {
           const meta = categoryMeta?.[p.editedCategoryCode] || { noticeMeta: [], attributeMeta: [] };
-          return {
+          const product: Record<string, unknown> = {
             uid: p.uid,
             productCode: p.productCode,
             folderPath: p.folderPath,
@@ -598,7 +689,23 @@ export default function BulkRegisterPanel() {
             noticeMeta: meta.noticeMeta,
             attributeMeta: meta.attributeMeta,
           };
-        });
+
+          // 클라이언트에서 스캔한 이미지 파일이 있으면 브라우저에서 직접 업로드
+          if (p.scannedMainImages || p.scannedDetailImages) {
+            const mainUrls = await uploadScannedImages(p.scannedMainImages || [], 5);
+            const detailUrls = await uploadScannedImages(p.scannedDetailImages || [], 5);
+            const reviewUrls = includeReviewImages ? await uploadScannedImages(p.scannedReviewImages || [], 5) : [];
+            const infoUrls = await uploadScannedImages(p.scannedInfoImages || [], 5);
+            product.preUploadedUrls = {
+              mainImageUrls: mainUrls,
+              detailImageUrls: detailUrls,
+              reviewImageUrls: reviewUrls,
+              infoImageUrls: infoUrls,
+            };
+          }
+
+          batchProducts.push(product);
+        }
 
         try {
           const batchRes = await fetch('/api/sellerhub/products/bulk-register/batch', {
@@ -785,11 +892,12 @@ export default function BulkRegisterPanel() {
               {/* 폴더 찾기 버튼 (가장 눈에 띄게) */}
               {folderPaths.length === 0 && (
                 <button
-                  onClick={() => setShowFolderBrowser(true)}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 mb-3 text-sm font-medium text-[#E31837] bg-white border-2 border-[#E31837] rounded-lg hover:bg-red-50 transition"
+                  onClick={handleBrowseFolder}
+                  disabled={browsingFolder}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 mb-3 text-sm font-medium text-[#E31837] bg-white border-2 border-[#E31837] rounded-lg hover:bg-red-50 disabled:opacity-50 transition"
                 >
-                  <FolderOpen className="w-5 h-5" />
-                  폴더 찾아보기
+                  {browsingFolder ? <Loader2 className="w-5 h-5 animate-spin" /> : <FolderOpen className="w-5 h-5" />}
+                  {browsingFolder ? '폴더 읽는 중...' : '폴더 선택하기'}
                 </button>
               )}
 
@@ -851,11 +959,12 @@ export default function BulkRegisterPanel() {
                 {/* 폴더 찾기 (칩이 있을 때 작은 아이콘) */}
                 {folderPaths.length > 0 && (
                   <button
-                    onClick={() => setShowFolderBrowser(true)}
-                    className="flex items-center gap-1 px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
-                    title="폴더 찾기"
+                    onClick={handleBrowseFolder}
+                    disabled={browsingFolder}
+                    className="flex items-center gap-1 px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition"
+                    title="폴더 선택"
                   >
-                    <FolderOpen className="w-4 h-4 text-gray-500" />
+                    {browsingFolder ? <Loader2 className="w-4 h-4 animate-spin text-gray-500" /> : <FolderOpen className="w-4 h-4 text-gray-500" />}
                   </button>
                 )}
               </div>
@@ -869,7 +978,7 @@ export default function BulkRegisterPanel() {
 
               {/* 힌트 */}
               <p className="mt-2 text-xs text-gray-400">
-                탐색기 주소창에서 경로 텍스트를 복사하여 붙여넣거나, 위 &quot;폴더 찾아보기&quot;로 선택하세요.
+                &quot;폴더 선택하기&quot;를 클릭하면 PC 폴더를 직접 선택할 수 있습니다. (Chrome/Edge 지원)
               </p>
             </div>
 
@@ -877,13 +986,6 @@ export default function BulkRegisterPanel() {
               product_* 하위 폴더를 자동 인식합니다. (product.json, main_images/, output/, reviews/, product_info/)
             </p>
           </div>
-
-          {/* 폴더 브라우저 모달 */}
-          <FolderBrowserModal
-            isOpen={showFolderBrowser}
-            onClose={() => setShowFolderBrowser(false)}
-            onSelect={(path) => addFolderPath(path)}
-          />
 
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -1129,15 +1231,17 @@ export default function BulkRegisterPanel() {
 
           {scanError && <p className="text-sm text-red-600">{scanError}</p>}
           <div className="flex justify-end">
-            <button
-              onClick={handleScan}
-              disabled={scanning || loadingShipping}
-              className="flex items-center gap-2 px-6 py-3 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
-            >
-              {scanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-              {folderPaths.length > 1 ? `${folderPaths.length}개 폴더 스캔 & 다음` : '폴더 스캔 & 다음'}
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            {serverFolderPaths.length > 0 && (
+              <button
+                onClick={handleScan}
+                disabled={scanning || loadingShipping}
+                className="flex items-center gap-2 px-6 py-3 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
+              >
+                {scanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                {serverFolderPaths.length > 1 ? `${serverFolderPaths.length}개 폴더 스캔 & 다음` : '폴더 스캔 & 다음'}
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       )}

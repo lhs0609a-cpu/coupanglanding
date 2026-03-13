@@ -24,6 +24,13 @@ interface BatchProduct {
   infoImages: string[];
   noticeMeta: NoticeCategoryMeta[];
   attributeMeta: AttributeMeta[];
+  // 클라이언트에서 사전 업로드된 이미지 URL (있으면 로컬 파일 업로드 스킵)
+  preUploadedUrls?: {
+    mainImageUrls: string[];
+    detailImageUrls: string[];
+    reviewImageUrls: string[];
+    infoImageUrls: string[];
+  };
 }
 
 interface BatchRegisterBody {
@@ -105,26 +112,38 @@ export async function POST(req: NextRequest) {
       const startTime = Date.now();
 
       try {
-        // 1. 전체 이미지를 하나의 풀로 합쳐 병렬 업로드
-        const reviewPaths = includeReviewImages ? product.reviewImages : [];
-        const allPaths = [
-          ...product.mainImages,
-          ...product.detailImages,
-          ...reviewPaths,
-          ...product.infoImages,
-        ];
+        let mainImageUrls: string[];
+        let detailImageUrls: string[];
+        let reviewImageUrls: string[];
+        let infoImageUrls: string[];
 
-        const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, 5);
+        if (product.preUploadedUrls) {
+          // 클라이언트에서 사전 업로드된 URL 사용
+          mainImageUrls = product.preUploadedUrls.mainImageUrls;
+          detailImageUrls = product.preUploadedUrls.detailImageUrls;
+          reviewImageUrls = includeReviewImages ? product.preUploadedUrls.reviewImageUrls : [];
+          infoImageUrls = product.preUploadedUrls.infoImageUrls;
+        } else {
+          // 서버에서 로컬 파일 읽어 업로드 (기존 방식)
+          const reviewPaths = includeReviewImages ? product.reviewImages : [];
+          const allPaths = [
+            ...product.mainImages,
+            ...product.detailImages,
+            ...reviewPaths,
+            ...product.infoImages,
+          ];
 
-        // 인덱스로 분리
-        let offset = 0;
-        const mainImageUrls = allUrls.slice(offset, offset + product.mainImages.length);
-        offset += product.mainImages.length;
-        const detailImageUrls = allUrls.slice(offset, offset + product.detailImages.length);
-        offset += product.detailImages.length;
-        const reviewImageUrls = allUrls.slice(offset, offset + reviewPaths.length);
-        offset += reviewPaths.length;
-        const infoImageUrls = allUrls.slice(offset, offset + product.infoImages.length);
+          const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, 5);
+
+          let offset = 0;
+          mainImageUrls = allUrls.slice(offset, offset + product.mainImages.length);
+          offset += product.mainImages.length;
+          detailImageUrls = allUrls.slice(offset, offset + product.detailImages.length);
+          offset += product.detailImages.length;
+          reviewImageUrls = allUrls.slice(offset, offset + reviewPaths.length);
+          offset += reviewPaths.length;
+          infoImageUrls = allUrls.slice(offset, offset + product.infoImages.length);
+        }
 
         // 2. AI 스토리 생성 (옵션)
         let aiStoryHtml = '';
