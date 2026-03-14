@@ -41,12 +41,13 @@
       "WebFetch(domain:domemedb.domeggook.com)",
       "WebFetch(domain:medium.com)",
       "Bash(find:*)",
-      "Bash(node test-keywords.mjs:*)",
-      "Bash(npx tsc:*)",
-      "Bash(git checkout:*)",
-      "Bash(node node_modules/typescript/lib/tsc.js:*)",
-      "Bash(npm view:*)",
-      "Bash(npm pack:*)"
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:pypi.org)",
+      "Bash(cd \"/c/Users/lhs06/Downloads\" && unzip -l \"Coupang_Category_20260311_1413.zip\" | head -30)",
+      "Bash(cd \"G:/내 드라이브/landingpage/coupanglanding\" && ls node_modules/xlsx/package.json 2>&1 && node -e \"console.log\\(require.resolve\\('xlsx'\\)\\)\" 2>&1)",
+      "Bash(cd \"G:/내 드라이브/landingpage/coupanglanding\" && npm install xlsx 2>&1)",
+      "Bash(start:*)",
+      "Bash(cd /tmp && npm init -y > /dev/null 2>&1 && npm install xlsx 2>&1 | tail -3)"
     ]
   }
 }
