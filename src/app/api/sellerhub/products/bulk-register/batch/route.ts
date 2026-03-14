@@ -6,6 +6,7 @@ import { uploadLocalImagesParallel } from '@/lib/sellerhub/services/local-produc
 import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo, type AttributeMeta } from '@/lib/sellerhub/services/coupang-product-builder';
 import { fillNoticeFields, type NoticeCategoryMeta } from '@/lib/sellerhub/services/notice-field-filler';
 import { generateProductStory } from '@/lib/sellerhub/services/ai.service';
+import { extractOptions } from '@/lib/sellerhub/services/option-extractor';
 
 interface BatchProduct {
   uid?: string;
@@ -150,6 +151,12 @@ export async function POST(req: NextRequest) {
         noticeOverrides,
       );
 
+      // 구매옵션 자동 추출 (상품명 → 수량/용량/중량/색상/사이즈 등)
+      const extracted = extractOptions(product.name, product.categoryCode);
+      if (extracted.warnings.length > 0) {
+        console.warn(`[batch] 옵션 추출 경고 [${product.name}]:`, extracted.warnings.join(', '));
+      }
+
       // 페이로드 빌드
       const payload = buildCoupangProductPayload({
         vendorId,
@@ -163,6 +170,7 @@ export async function POST(req: NextRequest) {
         mainImageUrls, detailImageUrls, deliveryInfo, returnInfo, stock,
         brand: product.brand, filledNotices, attributeMeta: product.attributeMeta || [],
         reviewImageUrls, infoImageUrls, aiStoryHtml,
+        extractedBuyOptions: extracted.buyOptions,
       });
 
       // 쿠팡 API 호출

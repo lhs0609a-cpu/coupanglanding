@@ -33,6 +33,13 @@ export interface AttributeMeta {
   attributeValues?: { attributeValueName: string }[];
 }
 
+/** 추출된 구매옵션 */
+export interface ExtractedBuyOption {
+  name: string;
+  value: string;
+  unit?: string;
+}
+
 export interface BuildCoupangPayloadParams {
   vendorId: string;                    // 쿠팡 벤더 ID
   product: LocalProduct;
@@ -47,13 +54,15 @@ export interface BuildCoupangPayloadParams {
   manufacturer?: string;
   maximumBuyForPerson?: number;        // 1인당 구매 제한 (0=무제한)
   outboundShippingTimeDay?: number;    // 출고 소요일
-  // 신규: 동적 notices / attributes / 리치 상세페이지
+  // 동적 notices / attributes / 리치 상세페이지
   filledNotices?: FilledNoticeCategory[];   // 동적으로 채운 notices
   attributeMeta?: AttributeMeta[];         // 카테고리 속성 메타
   attributeValues?: Record<string, string>; // 속성 값 매핑
   reviewImageUrls?: string[];              // 리뷰 CDN URLs
   infoImageUrls?: string[];                // 상품정보 CDN URLs
   aiStoryHtml?: string;                    // AI 스토리 HTML
+  // 구매옵션 (option-extractor에서 추출된 값)
+  extractedBuyOptions?: ExtractedBuyOption[];
 }
 
 // ---- 빌드 함수 ----
@@ -92,6 +101,7 @@ export function buildCoupangProductPayload(
     reviewImageUrls,
     infoImageUrls,
     aiStoryHtml,
+    extractedBuyOptions,
   } = params;
 
   // ---- 1. 상품명 정리 ----
@@ -148,9 +158,54 @@ export function buildCoupangProductPayload(
     : buildFallbackNotice(productName, resolvedManufacturer, returnInfo.afterServiceContactNumber);
 
   // ---- 5. attributes (카테고리 필수 속성) ----
-  const attributes = buildAttributes(attributeMeta, attributeValues);
+  // 추출된 구매옵션 값도 attributeValues에 병합
+  const mergedAttributeValues = { ...(attributeValues || {}) };
+  if (extractedBuyOptions) {
+    for (const opt of extractedBuyOptions) {
+      const key = opt.name;
+      if (!mergedAttributeValues[key]) {
+        // 단위가 있으면 "숫자단위" 형태로 (예: "200ml", "500g")
+        mergedAttributeValues[key] = opt.unit ? `${opt.value}${opt.unit}` : opt.value;
+      }
+    }
+  }
+  const attributes = buildAttributes(attributeMeta, mergedAttributeValues);
 
-  // ---- 6. 전체 페이로드 조립 ----
+  // ---- 6. unitCount 계산 ----
+  // 추출된 구매옵션에서 "수량" 값을 가져옴
+  let unitCount = 1;
+  if (extractedBuyOptions) {
+    const countOpt = extractedBuyOptions.find(
+      (o) => o.name === '수량' || o.name.includes('수량'),
+    );
+    if (countOpt) {
+      const parsed = parseInt(countOpt.value, 10);
+      if (!isNaN(parsed) && parsed > 0) unitCount = parsed;
+    }
+  }
+
+  // ---- 7. itemName에 옵션 정보 포함 ----
+  // 쿠팡은 itemName에 옵션 값을 포함하는 것을 권장
+  // 예: "넥크림 50ml, 3개" → 고객이 옵션 구분 가능
+  let itemName = productName;
+  if (extractedBuyOptions && extractedBuyOptions.length > 0) {
+    const optParts: string[] = [];
+    for (const opt of extractedBuyOptions) {
+      if (opt.name === '수량') continue; // 수량은 unitCount로 처리
+      if (opt.unit) {
+        optParts.push(`${opt.value}${opt.unit}`);
+      } else if (opt.name.includes('색상') || opt.name.includes('사이즈')) {
+        optParts.push(opt.value);
+      }
+    }
+    if (optParts.length > 0) {
+      const optStr = optParts.join(', ');
+      itemName = `${productName} (${optStr})`;
+      if (itemName.length > 100) itemName = itemName.slice(0, 100);
+    }
+  }
+
+  // ---- 8. 전체 페이로드 조립 ----
   const payload: Record<string, unknown> = {
     displayCategoryCode: Number(categoryCode),
     sellerProductName: productName,
@@ -182,14 +237,14 @@ export function buildCoupangProductPayload(
 
     sellerProductItemList: [
       {
-        itemName: productName,
+        itemName,
         originalPrice: sellingPrice,
         salePrice: sellingPrice,
         maximumBuyCount: stock,
         maximumBuyForPerson,
         maximumBuyForPersonPeriod: 1,
         outboundShippingTimeDay,
-        unitCount: 1,
+        unitCount,
         adultOnly: 'EVERYONE',
         taxType: 'TAX',
         parallelImported: 'NOT_PARALLEL_IMPORTED',

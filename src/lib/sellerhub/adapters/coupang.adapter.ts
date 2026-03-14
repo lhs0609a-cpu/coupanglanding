@@ -268,28 +268,33 @@ export class CoupangAdapter extends BaseAdapter {
     };
   }
 
-  /** 카테고리 자동 매칭 (상품명 기반) */
+  /** 카테고리 자동 매칭 (상품명 기반) — Predict API */
   async autoCategorize(productName: string): Promise<{
     predictedCategoryId: string;
     predictedCategoryName: string;
   } | null> {
     try {
-      const path = '/v2/providers/seller_api/apis/api/v1/vendor/categories/auto-categorization';
+      const path = '/v2/providers/openapi/apis/api/v1/categorization/predict';
       const data = await this.coupangApi<{
+        code: number;
         data: {
-          autoCategorizationPrediction?: {
-            predictedCategoryId: number;
-            predictedCategoryName: string;
-          };
+          autoCategorizationPredictionResultType?: string;
+          predictedCategoryId?: string;
+          predictedCategoryName?: string;
         };
       }>('POST', path, '', { productName });
-      const prediction = data.data?.autoCategorizationPrediction;
-      if (!prediction?.predictedCategoryId) return null;
+      if (
+        data.data?.autoCategorizationPredictionResultType !== 'SUCCESS' ||
+        !data.data?.predictedCategoryId
+      ) {
+        return null;
+      }
       return {
-        predictedCategoryId: String(prediction.predictedCategoryId),
-        predictedCategoryName: prediction.predictedCategoryName,
+        predictedCategoryId: data.data.predictedCategoryId,
+        predictedCategoryName: data.data.predictedCategoryName || '',
       };
-    } catch {
+    } catch (err) {
+      console.warn('[CoupangAdapter] autoCategorize failed:', err instanceof Error ? err.message : err);
       return null;
     }
   }

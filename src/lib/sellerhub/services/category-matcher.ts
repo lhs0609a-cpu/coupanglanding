@@ -1,212 +1,592 @@
 // ============================================================
-// 카테고리 자동 매칭 서비스
-// 3단계 폴백: 쿠팡 API → 키워드 검색 → AI
+// 카테고리 자동 매칭 서비스 (로컬 DB 우선 3-tier)
+// Tier 1: 로컬 DB 토큰 매칭 (coupang-cat-index.json)
+// Tier 2: 쿠팡 Predict API
+// Tier 3: AI 키워드 추출 → 로컬 DB 재검색
 // ============================================================
 
 import { CoupangAdapter } from '../adapters/coupang.adapter';
 import { mapCategory } from './ai.service';
+import path from 'path';
+
+// ─── Types ───────────────────────────────────────────────────
 
 export interface CategoryMatchResult {
   categoryCode: string;
   categoryName: string;
   categoryPath: string;
   confidence: number;
-  source: 'coupang_api' | 'coupang_search' | 'ai';
+  source: 'local_db' | 'coupang_api' | 'ai';
 }
 
-// 노이즈 필터 — 카테고리 검색에 무의미한 토큰
+/** Index entry: [code, tokensString, leafName, depth] */
+type IndexEntry = [string, string, string, number];
+
+/** Details entry from coupang-cat-details.json */
+interface CategoryDetailRaw {
+  p: string;       // full path
+  r: number;       // commission rate
+  b: { n: string; r: boolean; u?: string; c1?: boolean }[];  // buy options
+  s: { n: string; r: boolean; u?: string }[];                 // search options
+  nc: string | null; // notice category
+}
+
+export interface CategoryDetails {
+  path: string;
+  commission: number;
+  buyOptions: { name: string; required: boolean; unit?: string; choose1?: boolean }[];
+  searchOptions: { name: string; required: boolean; unit?: string }[];
+  noticeCategory: string | null;
+}
+
+// ─── Lazy-loaded data singletons ─────────────────────────────
+
+let _indexData: IndexEntry[] | null = null;
+let _detailsData: Record<string, CategoryDetailRaw> | null = null;
+
+function getDataDir(): string {
+  return path.join(process.cwd(), 'src', 'lib', 'sellerhub', 'data');
+}
+
+function loadIndex(): IndexEntry[] {
+  if (_indexData) return _indexData;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    _indexData = require(path.join(getDataDir(), 'coupang-cat-index.json')) as IndexEntry[];
+  } catch (err) {
+    console.warn('[category-matcher] Failed to load coupang-cat-index.json:', err instanceof Error ? err.message : err);
+    _indexData = [];
+  }
+  return _indexData;
+}
+
+function loadDetails(): Record<string, CategoryDetailRaw> {
+  if (_detailsData) return _detailsData;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    _detailsData = require(path.join(getDataDir(), 'coupang-cat-details.json')) as Record<string, CategoryDetailRaw>;
+  } catch (err) {
+    console.warn('[category-matcher] Failed to load coupang-cat-details.json:', err instanceof Error ? err.message : err);
+    _detailsData = {};
+  }
+  return _detailsData;
+}
+
+// ─── 직접 카테고리 코드 매핑 (최고 우선순위) ─────────────────
+// 상품명 토큰 → 쿠팡 displayCategoryCode 직접 매핑
+// 토큰 점수 계산 없이 바로 정확한 카테고리로 연결
+const DIRECT_CODE_MAP: Record<string, { code: string; path: string }> = {
+  // 건강식품 (로컬 매칭 어려운 것들)
+  '오메가3': { code: '73134', path: '식품>건강식품>기타건강식품>오메가3,6,9' },
+  '밀크씨슬': { code: '58926', path: '식품>건강식품>기타건강식품>밀크시슬' },
+  '밀크시슬': { code: '58926', path: '식품>건강식품>기타건강식품>밀크시슬' },
+  // 생활용품
+  '화장지': { code: '63900', path: '생활용품>화장지물티슈>일반롤화장지' },
+  '휴지': { code: '63900', path: '생활용품>화장지물티슈>일반롤화장지' },
+  '주방세제': { code: '63961', path: '생활용품>세제>주방세제>일반주방세제' },
+  '섬유유연제': { code: '63950', path: '생활용품>세제>섬유유연제>일반 섬유유연제' },
+  // 자동차
+  '와이퍼': { code: '78710', path: '자동차용품>실외용품>와이퍼>플랫와이퍼' },
+  // 가구
+  '접이식테이블': { code: '77950', path: '가구>주방가구>식탁테이블>접이식식탁' },
+  // 추가 직접 매핑 (2차)
+  '꿀': { code: '58900', path: '식품>가공즉석식품>시럽>일반꿀' },
+  '벌꿀': { code: '58900', path: '식품>가공즉석식품>시럽>일반꿀' },
+  '충전케이블': { code: '62691', path: '가전/디지털>휴대폰액세서리>배터리충전기>충전 케이블' },
+  '데이터케이블': { code: '62691', path: '가전/디지털>휴대폰액세서리>배터리충전기>충전 케이블' },
+  '레티놀': { code: '56171', path: '뷰티>스킨>에센스/세럼/앰플>에센스/세럼' },
+  '접이식': { code: '77950', path: '가구>주방가구>식탁테이블>접이식식탁' },
+};
+
+// ─── 동의어/별칭 사전 (토큰 확장) ────────────────────────────
+const SYNONYM_MAP: Record<string, string[]> = {
+  // 뷰티
+  '선크림': ['선크림', '선로션', '자외선차단'],
+  '수분크림': ['수분크림', '데이크림'],
+  '레티놀': ['레티놀', '주름개선', '에센스', '세럼'],
+  '마스크팩': ['마스크팩', '시트마스크', '시트'],
+  '세럼': ['세럼', '에센스'],
+  '에센스': ['에센스', '세럼'],
+  '린스': ['린스', '컨디셔너'],
+  '립밤': ['립밤', '보습', '케어'],
+  '파운데이션': ['파운데이션', '리퀴드'],
+  '쿠션': ['쿠션', '쿠션파운데이션'],
+  // 건강식품
+  '오메가3': ['오메가3', '오메가3지방산', '오메가'],
+  '프로바이오틱스': ['프로바이오틱스', '유산균'],
+  '유산균': ['유산균', '프로바이오틱스'],
+  '종합비타민': ['종합비타민', '멀티비타민'],
+  '멀티비타민': ['멀티비타민', '종합비타민'],
+  '콜라겐': ['콜라겐', '히알루론산', '피쉬콜라겐'],
+  '밀크씨슬': ['밀크씨슬', '밀크시슬', '간건강'],
+  '프로틴': ['프로틴', '프로틴파우더'],
+  '단백질': ['단백질', '프로틴', '프로틴파우더'],
+  // 식품
+  '아몬드': ['아몬드', '견과류', '일반아몬드'],
+  '견과': ['견과류', '견과', '혼합견과', '믹스넛'],
+  '꿀': ['벌꿀', '꿀', '일반꿀', '아카시아꿀'],
+  '라면': ['라면', '봉지라면'],
+  '과자': ['과자', '과자쿠키'],
+  // 생활용품
+  '화장지': ['화장지', '두루마리', '롤화장지'],
+  '휴지': ['화장지', '휴지', '두루마리', '롤화장지'],
+  '주방세제': ['주방세제', '식기세척', '일반주방세제'],
+  '섬유유연제': ['섬유유연제', '유연제', '일반섬유유연제'],
+  '충전케이블': ['충전케이블', '데이터케이블', '충전'],
+  // 패션
+  '양말': ['양말', '남성양말', '여성양말', '스포츠양말'],
+  '슬랙스': ['슬랙스', '정장바지', '팬츠'],
+  '청바지': ['청바지', '데님팬츠'],
+  // 주방
+  '도마': ['도마', '나무도마', '항균도마'],
+  '텀블러': ['텀블러', '보온텀블러', '보냉텀블러', '보온보냉텀블러'],
+  '냄비': ['냄비', '양수냄비'],
+  '프라이팬': ['프라이팬', '일반프라이팬'],
+  // 가전
+  '보조배터리': ['보조배터리', '휴대용배터리'],
+  // 가구/홈
+  '이불': ['이불', '차렵이불', '극세사이불'],
+  '극세사': ['극세사', '극세사이불', '차렵이불'],
+  '커튼': ['커튼', '실커튼', '암막커튼'],
+  '카펫': ['카펫', '카페트', '러그'],
+  '러그': ['러그', '카페트', '카펫'],
+  // 스포츠
+  '아령': ['아령', '덤벨', '아령덤벨'],
+  '덤벨': ['덤벨', '아령', '아령덤벨'],
+  // 자동차
+  '와이퍼': ['와이퍼', '와이퍼블레이드', '플랫와이퍼'],
+  // 유아동
+  '기저귀': ['기저귀', '일회용기저귀'],
+  '분유': ['분유', '조제분유'],
+};
+
+// ─── Product name cleaning ───────────────────────────────────
+
 const NOISE_WORDS = new Set([
   // 단위
-  'mg', 'mcg', 'iu', 'ml', 'g', 'kg',
+  'mg', 'mcg', 'iu', 'ml', 'g', 'kg', 'l',
   '정', '개', '병', '통', '캡슐', '포', '박스', '봉', '팩', '세트', '매', '장', '알',
+  'ea', 'pcs',
   // 수식어
-  '남성', '여성', '프리미엄', '고함량', '저분자', '먹는', '국내', '해외',
+  '프리미엄', '고함량', '저분자', '먹는', '국내', '해외',
   '추천', '인기', '베스트', '대용량', '소용량', '순수', '천연', '식물성',
-  // 기타
-  '무료배송', '당일발송', '특가', '할인', '증정', '사은품',
+  // 프로모션
+  '무료배송', '당일발송', '특가', '할인', '증정', '사은품', '리뷰이벤트',
   // 일반 서술어
   '함유', '효능', '효과', '예방', '개선', '상품상세참조', '풍성한',
   'new', 'box', 'haccp',
 ]);
+
 const NOISE_PATTERNS = [
   /^\d+$/, // 순수 숫자
   /^\d+\+\d+$/, // 1+1, 2+1
-  /^\d+(개월|일|주)분?$/, // 3개월분, 30일분
+  /^\d+(개월|일|주)분?$/, // 3개월분
+  /^\d+(ml|g|kg|mg|l|ea)$/i, // 500ml, 100g
 ];
 
 /**
- * 상품명을 노이즈 필터링된 의미 토큰으로 분리한다.
+ * 상품명을 정리한다:
+ * - 중복 단어 제거
+ * - 괄호 안 브랜드/판매자명 제거
+ * - 단위, 프로모션 텍스트 제거
+ */
+function cleanProductName(name: string): string {
+  let cleaned = name;
+
+  // 괄호 안 텍스트 제거 (브랜드명 등)
+  cleaned = cleaned.replace(/[\[\(【][^\]\)】]*[\]\)】]/g, ' ');
+
+  // 특수문자 → 공백 (한글, 영문, 숫자 유지)
+  cleaned = cleaned.replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ');
+
+  // 단어 분리
+  const words = cleaned.split(/\s+/).filter(Boolean);
+
+  // 중복 제거 (순서 유지)
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const w of words) {
+    const lower = w.toLowerCase();
+    if (!seen.has(lower)) {
+      seen.add(lower);
+      unique.push(w);
+    }
+  }
+
+  return unique.join(' ');
+}
+
+/**
+ * 상품명에서 의미있는 검색 토큰을 추출한다.
+ * 한글 1글자("넥", "목" 등)도 유지 — 복합어 생성에 필요
  */
 function tokenize(productName: string): string[] {
-  return productName
-    .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
+  const cleaned = cleanProductName(productName);
+  return cleaned
     .split(/\s+/)
     .map((w) => w.toLowerCase())
     .filter((w) => {
-      if (w.length <= 1) return false;
+      if (w.length === 0) return false;
+      // 한글 1글자는 유지 (넥, 목, 잇 등 — 복합어 생성에 필요)
+      if (w.length === 1) return /[가-힣]/.test(w);
       if (NOISE_WORDS.has(w)) return false;
       if (NOISE_PATTERNS.some((p) => p.test(w))) return false;
       return true;
     });
 }
 
+// ─── Tier 1: Local DB matching ──────────────────────────────
+
+const LOCAL_MATCH_THRESHOLD = 12;
+
+interface ScoredEntry {
+  entry: IndexEntry;
+  score: number;
+}
+
 /**
- * 상품명으로 쿠팡 카테고리를 자동 매칭한다.
- * 3단계 폴백:
- *  1. 쿠팡 autoCategorize API (전체 상품명)
- *  2. 키워드 검색 → 가장 깊은(구체적인) 카테고리
- *  3. AI (OpenAI) 매핑
- *
- * overrideKeywords: 배치에서 교차분석으로 찾은 키워드를 직접 전달 (Tier 2 검색용)
+ * 상품 토큰에서 2-gram 복합어 + 동의어 확장을 생성한다.
+ * ["넥", "크림"] → ["넥", "크림", "넥크림"]
+ * ["선크림"] → ["선크림", "선로션", "자외선차단"] (동의어 확장)
  */
-export async function matchCategory(
-  productName: string,
-  adapter: CoupangAdapter,
-  overrideKeywords?: string[],
-): Promise<CategoryMatchResult | null> {
-  // 1단계: 쿠팡 자동 카테고리 API (전체 상품명 그대로)
-  try {
-    const result = await adapter.autoCategorize(productName);
-    if (result?.predictedCategoryId) {
-      return {
-        categoryCode: result.predictedCategoryId,
-        categoryName: result.predictedCategoryName,
-        categoryPath: result.predictedCategoryName,
-        confidence: 0.85,
-        source: 'coupang_api',
-      };
-    }
-  } catch {
-    // 폴백
+function buildCompoundTokens(tokens: string[]): string[] {
+  const compounds = [...tokens];
+
+  // 2-gram 복합어
+  for (let i = 0; i < tokens.length - 1; i++) {
+    compounds.push(tokens[i] + tokens[i + 1]);
   }
 
-  // 2단계: 키워드 검색 → 가장 구체적인 카테고리 선택
-  try {
-    const keywords = overrideKeywords || extractKeywords(productName);
-    for (const keyword of keywords) {
-      const searchResult = await adapter.searchCategory(keyword);
-      if (searchResult.items.length > 0) {
-        const deepest = searchResult.items.sort((a, b) =>
-          (b.path?.length || 0) - (a.path?.length || 0)
-        )[0];
-        return {
-          categoryCode: deepest.id,
-          categoryName: deepest.name,
-          categoryPath: deepest.path || deepest.name,
-          confidence: 0.7,
-          source: 'coupang_search',
-        };
+  // 동의어 확장: 토큰과 복합어 모두에서 동의어 검색
+  const expanded = [...compounds];
+  for (const t of compounds) {
+    const synonyms = SYNONYM_MAP[t];
+    if (synonyms) {
+      for (const syn of synonyms) {
+        if (!expanded.includes(syn)) {
+          expanded.push(syn);
+        }
       }
     }
-  } catch {
-    // 폴백
   }
 
-  // 3단계: AI 매핑
+  return expanded;
+}
+
+/**
+ * 로컬 인덱스에서 토큰 기반 카테고리 매칭.
+ *
+ * 핵심 개선:
+ * 1. 한글 1글자 토큰 유지 ("넥" → "넥크림" 복합어 생성)
+ * 2. 카테고리 전체 경로(path) 매칭 — leaf뿐 아니라 부모 카테고리도 봄
+ * 3. 다중 경로 레벨 일치 시 가산점 (leaf+parent 모두 매칭 → 훨씬 높은 점수)
+ * 4. 2-char 이상 의미 토큰만 leaf 매칭에 사용 (1-char는 복합어 생성용)
+ */
+function localMatch(tokens: string[]): ScoredEntry | null {
+  if (tokens.length === 0) return null;
+
+  const index = loadIndex();
+  const tokenSet = new Set(tokens);
+  const compoundTokens = buildCompoundTokens(tokens);
+  const compoundSet = new Set(compoundTokens);
+  // 2글자 이상 의미 토큰
+  const meaningfulTokens = tokens.filter(t => t.length >= 2);
+  const meaningfulSet = new Set(meaningfulTokens);
+
+  let best: ScoredEntry | null = null;
+
+  for (const entry of index) {
+    const [, catTokensStr, leafName, depth] = entry;
+    const catTokenList = catTokensStr.split(' ');
+    const leafLower = leafName.toLowerCase();
+    let score = 0;
+
+    // === 1. Leaf matching ===
+    let leafScore = 0;
+
+    // 1a. 정확 일치 (compound 포함): "넥크림" === "넥크림"
+    for (const t of compoundTokens) {
+      if (t.length >= 2 && t === leafLower) {
+        leafScore = 20;
+        break;
+      }
+    }
+
+    if (leafScore === 0) {
+      // 1b. "/" 구분 단어 정확 일치
+      const leafWords = leafLower.split(/[\/\s]/).map(s => s.trim()).filter(Boolean);
+      let wordMatchCount = 0;
+      for (const t of compoundTokens) {
+        if (t.length >= 2 && leafWords.some(lw => lw === t)) {
+          wordMatchCount++;
+        }
+      }
+      if (wordMatchCount > 0) {
+        // 여러 leaf 단어 매칭 시 보너스
+        leafScore = 6 + wordMatchCount * 3;
+      }
+    }
+
+    if (leafScore === 0) {
+      // 1c. leaf에 토큰 포함 (부분 매칭, 2글자 이상)
+      for (const t of compoundTokens) {
+        if (t.length >= 2 && leafLower.includes(t)) {
+          // 토큰 길이에 따라 점수 차등
+          leafScore = Math.min(6, t.length + 1);
+          break;
+        }
+      }
+    }
+
+    score += leafScore;
+
+    // === 2. Path token overlap (경로 전체 매칭) ===
+    // catTokenList는 경로의 모든 단어 (e.g. ["뷰티", "스킨", "크림", "넥크림"])
+    let matchedCatTokens = 0;
+    for (const catToken of catTokenList) {
+      if (compoundSet.has(catToken) || meaningfulSet.has(catToken)) {
+        score += 3;
+        matchedCatTokens++;
+      }
+    }
+
+    // === 3. 다중 레벨 매칭 보너스 (핵심 — 컨텍스트 확인) ===
+    // "강아지"+"사료" 둘 다 경로에 있으면 거의 확실한 매칭
+    // "사료"만 있고 "강아지"가 없으면 약한 매칭
+    if (matchedCatTokens >= 4) {
+      score += 25; // 4개 이상 토큰 매칭 = 거의 확실
+    } else if (matchedCatTokens >= 3) {
+      score += 18;
+    } else if (matchedCatTokens >= 2) {
+      score += 10;
+    }
+
+    // 커버리지: 카테고리 토큰 중 몇 %를 커버하는지
+    if (catTokenList.length > 0 && matchedCatTokens > 0) {
+      const coverage = matchedCatTokens / catTokenList.length;
+      score += Math.round(coverage * 5);
+    }
+
+    // Leaf-only match penalty: leaf만 매칭되고 부모 경로는 전혀 안 맞으면 감점
+    // (동음이의어 방지: "사료"가 조류/강아지 양쪽에 있을 때 구분)
+    if (leafScore > 0 && matchedCatTokens <= 1) {
+      score -= 3; // 컨텍스트 없이 leaf만 매칭 = 약한 신호
+    }
+
+    // Depth 보너스 (다중 매칭일 때만, 매우 약하게)
+    if (matchedCatTokens >= 2) {
+      score += Math.round(depth * 0.5);
+    }
+
+    if (score > 0 && (!best || score > best.score)) {
+      best = { entry, score };
+    }
+  }
+
+  return best && best.score >= LOCAL_MATCH_THRESHOLD ? best : null;
+}
+
+function buildResultFromIndex(entry: IndexEntry, score: number, maxScore: number): CategoryMatchResult {
+  const [code, , leafName] = entry;
+  const details = loadDetails();
+  const detail = details[code];
+
+  return {
+    categoryCode: code,
+    categoryName: leafName,
+    categoryPath: detail?.p || leafName,
+    confidence: Math.min(0.95, 0.5 + (score / maxScore) * 0.45),
+    source: 'local_db',
+  };
+}
+
+// ─── Tier 3: AI keyword extraction → Local DB ───────────────
+
+async function aiKeywordMatch(productName: string): Promise<CategoryMatchResult | null> {
   try {
     const aiResult = await mapCategory(productName, '', 'coupang');
     if (aiResult.categoryId) {
+      // Verify this category exists in our DB
+      const details = loadDetails();
+      const detail = details[aiResult.categoryId];
       return {
         categoryCode: aiResult.categoryId,
         categoryName: aiResult.categoryName,
-        categoryPath: aiResult.categoryName,
+        categoryPath: detail?.p || aiResult.categoryName,
         confidence: aiResult.confidence,
         source: 'ai',
       };
     }
-  } catch {
-    // AI 키 없거나 실패
+  } catch (err) {
+    console.warn('[category-matcher] AI mapping failed:', err instanceof Error ? err.message : err);
   }
+  return null;
+}
+
+// ─── Public API ─────────────────────────────────────────────
+
+/**
+ * 상품명으로 쿠팡 카테고리를 자동 매칭한다.
+ * 3단계 폴백: 로컬 DB → 쿠팡 Predict API → AI
+ */
+export async function matchCategory(
+  productName: string,
+  adapter?: CoupangAdapter,
+): Promise<CategoryMatchResult | null> {
+  const cleaned = cleanProductName(productName);
+  const tokens = tokenize(productName);
+  const compoundTokens = buildCompoundTokens(tokens);
+
+  // ── Tier 0: 직접 코드 매핑 (최고 우선순위) ──
+  for (const t of compoundTokens) {
+    const direct = DIRECT_CODE_MAP[t];
+    if (direct) {
+      return {
+        categoryCode: direct.code,
+        categoryName: direct.path.split('>').pop() || '',
+        categoryPath: direct.path,
+        confidence: 0.95,
+        source: 'local_db',
+      };
+    }
+  }
+
+  // ── Tier 1: Local DB matching ──
+  const localResult = localMatch(tokens);
+  if (localResult) {
+    // High-confidence local match
+    const result = buildResultFromIndex(
+      localResult.entry,
+      localResult.score,
+      Math.max(localResult.score, 20),
+    );
+    return result;
+  }
+
+  // ── Tier 2: Coupang Predict API ──
+  if (adapter) {
+    try {
+      const apiResult = await adapter.autoCategorize(cleaned);
+      if (apiResult?.predictedCategoryId) {
+        const details = loadDetails();
+        const detail = details[apiResult.predictedCategoryId];
+        return {
+          categoryCode: apiResult.predictedCategoryId,
+          categoryName: apiResult.predictedCategoryName,
+          categoryPath: detail?.p || apiResult.predictedCategoryName,
+          confidence: 0.85,
+          source: 'coupang_api',
+        };
+      }
+    } catch (err) {
+      console.warn('[category-matcher] Coupang Predict API failed:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  // ── Tier 3: AI keyword extraction → Local DB ──
+  const aiResult = await aiKeywordMatch(productName);
+  if (aiResult) return aiResult;
 
   return null;
 }
 
 /**
- * 배치 카테고리 매칭 — 교차 상품 빈도 분석 + 캐시
+ * 배치 카테고리 매칭 — 로컬 DB 우선 + 교차 상품 빈도 분석
  *
- * 핵심: 개별 상품 키워드가 아닌, 배치 전체에서 가장 많은 상품에 등장하는
- * 단어(document frequency)를 카테고리 키워드로 사용한다.
- *
- * 예: 100개 비오틴 상품 → "비오틴"이 95개 상품에 등장 → 1회 API 호출
+ * 1. 전체 상품을 로컬 DB로 먼저 매칭 (API 호출 0)
+ * 2. 미매칭 상품만 배치 키워드 분석 → Coupang API
+ * 3. 나머지 개별 폴백
  */
 export async function matchCategoryBatch(
   productNames: string[],
-  adapter: CoupangAdapter,
+  adapter?: CoupangAdapter,
 ): Promise<(CategoryMatchResult | null)[]> {
   const results: (CategoryMatchResult | null)[] = new Array(productNames.length).fill(null);
   const cache = new Map<string, CategoryMatchResult | null>();
 
-  // === Phase 1: 교차 상품 Document Frequency 분석 ===
+  // === Phase 1: 로컬 DB 일괄 매칭 ===
   const productTokensList: string[][] = productNames.map((name) => tokenize(name));
+  const unmatchedIndices: number[] = [];
 
-  // 각 단어가 몇 개 상품에 등장하는지 (document frequency)
-  const docFreq = new Map<string, number>();
-  for (const tokens of productTokensList) {
-    const unique = new Set(tokens);
-    for (const w of unique) {
-      docFreq.set(w, (docFreq.get(w) || 0) + 1);
-    }
-  }
-
-  // DF 내림차순 정렬
-  const sortedByDF = [...docFreq.entries()]
-    .sort((a, b) => b[1] - a[1]);
-
-  // === Phase 2: 배치 키워드로 그룹 매칭 ===
-  // DF ≥ 30% (최소 2개)인 단어 = 배치 레벨 카테고리 키워드
-  const threshold = Math.max(2, Math.floor(productNames.length * 0.3));
-  const batchKeywords = sortedByDF
-    .filter(([, count]) => count >= threshold)
-    .map(([word]) => word);
-
-  // 각 배치 키워드에 대해 1회 API 호출
-  for (const batchKw of batchKeywords) {
-    if (cache.has(batchKw)) continue;
-
-    // 대표 상품 선택: 이 키워드를 포함하면서 키워드가 가장 앞에 있는 상품
-    let bestIdx = -1;
-    let bestPos = Infinity;
-    for (let i = 0; i < productTokensList.length; i++) {
-      const pos = productTokensList[i].indexOf(batchKw);
-      if (pos >= 0 && pos < bestPos) {
-        bestPos = pos;
-        bestIdx = i;
-      }
-    }
-    if (bestIdx < 0) continue;
-
-    // matchCategory에 overrideKeywords로 배치 키워드 직접 전달
-    const searchKeywords = [batchKw];
-    // 2순위 배치 키워드 조합 추가
-    const secondKw = batchKeywords.find((k) => k !== batchKw && docFreq.get(k)! >= threshold);
-    if (secondKw) {
-      searchKeywords.push(`${batchKw} ${secondKw}`);
-    }
-
-    try {
-      const result = await matchCategory(productNames[bestIdx], adapter, searchKeywords);
-      cache.set(batchKw, result);
-    } catch {
-      cache.set(batchKw, null);
-    }
-
-    await delay(300);
-  }
-
-  // 배치 키워드 결과를 해당 상품에 분배
   for (let i = 0; i < productNames.length; i++) {
-    const tokens = new Set(productTokensList[i]);
+    const localResult = localMatch(productTokensList[i]);
+    if (localResult) {
+      results[i] = buildResultFromIndex(
+        localResult.entry,
+        localResult.score,
+        Math.max(localResult.score, 20),
+      );
+    } else {
+      unmatchedIndices.push(i);
+    }
+  }
+
+  // 전부 로컬 매칭 완료 시 바로 반환
+  if (unmatchedIndices.length === 0) return results;
+
+  // === Phase 2: 미매칭 상품 — 교차 Document Frequency 분석 → API ===
+  if (adapter && unmatchedIndices.length > 0) {
+    // 미매칭 상품의 토큰 DF 분석
+    const docFreq = new Map<string, number>();
+    for (const idx of unmatchedIndices) {
+      const unique = new Set(productTokensList[idx]);
+      for (const w of unique) {
+        docFreq.set(w, (docFreq.get(w) || 0) + 1);
+      }
+    }
+
+    const sortedByDF = [...docFreq.entries()].sort((a, b) => b[1] - a[1]);
+
+    // DF >= 30% (최소 2개)인 단어 = 배치 레벨 카테고리 키워드
+    const threshold = Math.max(2, Math.floor(unmatchedIndices.length * 0.3));
+    const batchKeywords = sortedByDF
+      .filter(([, count]) => count >= threshold)
+      .map(([word]) => word);
+
+    // 각 배치 키워드의 대표 상품으로 API 호출
     for (const batchKw of batchKeywords) {
-      if (tokens.has(batchKw) && cache.has(batchKw) && cache.get(batchKw)) {
-        results[i] = cache.get(batchKw)!;
-        break;
+      if (cache.has(batchKw)) continue;
+
+      // 대표 상품 선택
+      let bestIdx = -1;
+      let bestPos = Infinity;
+      for (const idx of unmatchedIndices) {
+        const pos = productTokensList[idx].indexOf(batchKw);
+        if (pos >= 0 && pos < bestPos) {
+          bestPos = pos;
+          bestIdx = idx;
+        }
+      }
+      if (bestIdx < 0) continue;
+
+      try {
+        const result = await matchCategory(productNames[bestIdx], adapter);
+        cache.set(batchKw, result);
+      } catch (err) {
+        console.warn('[category-matcher] Batch keyword match failed:', batchKw, err instanceof Error ? err.message : err);
+        cache.set(batchKw, null);
+      }
+
+      await delay(300);
+    }
+
+    // 배치 키워드 결과를 해당 미매칭 상품에 분배
+    for (const idx of unmatchedIndices) {
+      if (results[idx]) continue; // 이미 매칭됨
+
+      const tokens = new Set(productTokensList[idx]);
+      for (const batchKw of batchKeywords) {
+        if (tokens.has(batchKw) && cache.has(batchKw) && cache.get(batchKw)) {
+          results[idx] = cache.get(batchKw)!;
+          break;
+        }
       }
     }
   }
 
-  // === Phase 3: 미매칭 상품 — 개별 매칭 ===
+  // === Phase 3: 여전히 미매칭인 상품 — 개별 폴백 ===
   for (let i = 0; i < results.length; i++) {
-    if (results[i]) continue; // 이미 배치에서 매칭됨
+    if (results[i]) continue;
 
     const keywords = extractKeywords(productNames[i]);
     const primaryKey = keywords[0];
@@ -217,10 +597,11 @@ export async function matchCategoryBatch(
     }
 
     try {
-      const result = await matchCategory(productNames[i], adapter, keywords);
+      const result = await matchCategory(productNames[i], adapter);
       cache.set(primaryKey, result);
       results[i] = result;
-    } catch {
+    } catch (err) {
+      console.warn('[category-matcher] Individual match failed:', productNames[i], err instanceof Error ? err.message : err);
       cache.set(primaryKey, null);
     }
 
@@ -230,23 +611,51 @@ export async function matchCategoryBatch(
   return results;
 }
 
+/**
+ * 카테고리 코드로 상세 정보를 조회한다 (옵션 채우기용).
+ * coupang-cat-details.json에서 조회.
+ */
+export function getCategoryDetails(code: string): CategoryDetails | null {
+  const details = loadDetails();
+  const raw = details[code];
+  if (!raw) return null;
+
+  return {
+    path: raw.p,
+    commission: raw.r,
+    buyOptions: raw.b.map((o) => ({
+      name: o.n,
+      required: o.r,
+      unit: o.u,
+      choose1: o.c1,
+    })),
+    searchOptions: raw.s.map((o) => ({
+      name: o.n,
+      required: o.r,
+      unit: o.u,
+    })),
+    noticeCategory: raw.nc,
+  };
+}
+
+// ─── Helpers ────────────────────────────────────────────────
+
 function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
 /**
  * 상품명에서 검색용 키워드를 빈도 기반으로 추출한다 (단일 상품용).
- *
- * 예: "비타민 H 비오틴 먹는 손톱 머리카락 모발 영양제 비오틴 비오틴 비오틴"
- * → 노이즈 제거 후 빈도: { 비오틴: 4, 비타민: 1, 영양제: 1, ... }
- * → ["비오틴", "비오틴 영양제", "비타민 비오틴"]
  */
 function extractKeywords(productName: string): string[] {
   const meaningful = tokenize(productName);
 
   if (meaningful.length === 0) {
-    const words = productName.replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
-      .split(/\s+/).filter((w) => w.length >= 2).slice(0, 2);
+    const words = productName
+      .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length >= 2)
+      .slice(0, 2);
     return words.length > 0 ? [words.join(' ')] : [productName.slice(0, 10)];
   }
 
@@ -256,24 +665,19 @@ function extractKeywords(productName: string): string[] {
     freq.set(w, (freq.get(w) || 0) + 1);
   }
 
-  // 빈도순 정렬 (동일 빈도면 먼저 등장한 순서)
+  // 빈도순 정렬
   const sorted = [...freq.entries()]
     .sort((a, b) => b[1] - a[1])
     .map(([word]) => word);
 
   const top = sorted[0];
   const second = sorted[1];
-  const keywords: string[] = [];
+  const keywords: string[] = [top];
 
-  // 1. 빈도 1위 단독
-  keywords.push(top);
-
-  // 2. 빈도 1위 + 2위 조합
   if (second) {
     keywords.push(`${top} ${second}`);
   }
 
-  // 3. 한글 단어 중 빈도 1위가 아닌 첫 단어 + 빈도 1위
   const koreanOther = sorted.find((w) => w !== top && /[가-힣]/.test(w));
   if (koreanOther) {
     const combo = `${koreanOther} ${top}`;
