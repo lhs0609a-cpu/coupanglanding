@@ -27,6 +27,15 @@ export const GUIDE_POINTS = {
   perCategory: 10,       // 가이드 카테고리 1개 첫 열람 시
 };
 
+export const AD_ACADEMY_POINTS = {
+  perStage: 20,          // 스테이지 1개 클리어 시
+  bossStage: 50,         // 보스 스테이지 클리어 시 (perStage 대신)
+  perfectBonus: 10,      // 올 정답 보너스
+  bonusTip: 5,           // 히든 팁 발견 시
+  allClearBonus: 100,    // 전체 스테이지 올클리어 보너스
+  allPerfectBonus: 50,   // 전체 ★★★ 보너스
+};
+
 // 레벨 시스템
 export interface ArenaLevel {
   level: number;

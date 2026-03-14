@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X, School, Flame, ShieldAlert, Gavel, Receipt, MessageSquare, Map, ShieldCheck, Trophy, Search, Megaphone, Lightbulb, Building2, Bell, MessageCircle, HelpCircle } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X, School, Flame, ShieldAlert, Gavel, Receipt, MessageSquare, Map, ShieldCheck, Trophy, Search, Megaphone, Lightbulb, Building2, Bell, MessageCircle, HelpCircle, Tv } from 'lucide-react';
 import type { SettlementBadgeData, FeePaymentBadgeData } from './DashboardLayout';
 import FeePaymentBanner from '@/components/settlement/FeePaymentBanner';
 import type { FeePaymentStatus } from '@/lib/supabase/types';
@@ -25,6 +25,7 @@ const baseNavItems = [
   { href: '/my/ad-tips', label: '광고 노하우', icon: Lightbulb },
   { href: '/my/promotion', label: '프로모션', icon: Megaphone },
   { href: '/my/education', label: '교육', icon: School },
+  { href: '/my/ad-academy', label: '광고 아카데미', icon: Tv },
   { href: '/my/guides', label: '운영 가이드', icon: BookOpen },
   { href: '/my/notices', label: '공지사항', icon: Bell },
   { href: '/my/support', label: '1:1 문의', icon: MessageCircle },
