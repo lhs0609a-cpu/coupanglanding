@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, ArrowRight, Star, Gift, ChevronRight, CheckCircle2, XCircle, Lightbulb, RotateCcw, Home, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Star, Gift, ChevronRight, CheckCircle2, XCircle, Lightbulb, RotateCcw, Home, Sparkles, Trophy } from 'lucide-react';
 import { AD_ACADEMY_STAGES, STAGE_IDS } from '@/lib/data/ad-academy-stages';
 import type { ConceptCard, QuizQuestion, OXItem, KeywordItem, BidScenario, StrategyScenario } from '@/lib/data/ad-academy-stages';
 import { saveStageResult, isStageUnlocked } from '@/lib/utils/ad-academy-progress';
