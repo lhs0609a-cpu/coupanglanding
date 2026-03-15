@@ -5,6 +5,7 @@
 
 import type { LocalProduct } from './local-product-reader';
 import type { FilledNoticeCategory } from './notice-field-filler';
+import type { ImageVariation } from './image-variation';
 import { buildRichDetailPageHtml } from './detail-page-builder';
 
 // ---- 입력 타입 ----
@@ -63,6 +64,11 @@ export interface BuildCoupangPayloadParams {
   aiStoryHtml?: string;                    // AI 스토리 HTML
   // 구매옵션 (option-extractor에서 추출된 값)
   extractedBuyOptions?: ExtractedBuyOption[];
+  // AI 생성 상품명 (제공 시 기본 상품명 대신 사용)
+  displayProductName?: string;
+  sellerProductName?: string;
+  // 이미지 변형 파라미터 (로깅/추적용)
+  imageVariation?: ImageVariation;
 }
 
 // ---- 빌드 함수 ----
@@ -102,11 +108,19 @@ export function buildCoupangProductPayload(
     infoImageUrls,
     aiStoryHtml,
     extractedBuyOptions,
+    displayProductName,
+    sellerProductName,
+    imageVariation,
   } = params;
 
   // ---- 1. 상품명 정리 ----
   const rawName = product.productJson.name || product.productJson.title || `상품_${product.productCode}`;
-  const productName = cleanProductName(rawName);
+  const productName = displayProductName
+    ? cleanProductName(displayProductName)
+    : cleanProductName(rawName);
+  const resolvedSellerName = sellerProductName
+    ? cleanProductName(sellerProductName)
+    : productName;
 
   const resolvedBrand = brand || product.productJson.brand || '';
   const resolvedManufacturer = manufacturer || product.productJson.brand || '';
@@ -208,7 +222,7 @@ export function buildCoupangProductPayload(
   // ---- 8. 전체 페이로드 조립 ----
   const payload: Record<string, unknown> = {
     displayCategoryCode: Number(categoryCode),
-    sellerProductName: productName,
+    sellerProductName: resolvedSellerName,
     vendorId,
     saleStartedAt: new Date().toISOString().replace('Z', ''),
     saleEndedAt: '2099-01-01T23:59:59',
@@ -263,6 +277,9 @@ export function buildCoupangProductPayload(
 
     requiredDocuments: [],
     extraInfoMessage: '',
+
+    // 내부 추적용 메타데이터 (쿠팡 API에는 전송되지 않음)
+    ...(imageVariation ? { _meta: { imageVariation } } : {}),
   };
 
   return payload;

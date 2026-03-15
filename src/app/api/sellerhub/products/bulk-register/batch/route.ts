@@ -5,7 +5,7 @@ import { CoupangAdapter } from '@/lib/sellerhub/adapters/coupang.adapter';
 import { uploadLocalImagesParallel } from '@/lib/sellerhub/services/local-product-reader';
 import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo, type AttributeMeta } from '@/lib/sellerhub/services/coupang-product-builder';
 import { fillNoticeFields, type NoticeCategoryMeta } from '@/lib/sellerhub/services/notice-field-filler';
-import { generateProductStory } from '@/lib/sellerhub/services/ai.service';
+import { generateProductStoriesBatch, type StoryBatchInput } from '@/lib/sellerhub/services/ai.service';
 import { extractOptions } from '@/lib/sellerhub/services/option-extractor';
 
 interface BatchProduct {
@@ -32,6 +32,9 @@ interface BatchProduct {
     reviewImageUrls: string[];
     infoImageUrls: string[];
   };
+  // AI 제목 (클라이언트에서 미리 생성/확인 후 전달)
+  aiDisplayName?: string;
+  aiSellerName?: string;
 }
 
 interface BatchRegisterBody {
@@ -105,6 +108,28 @@ export async function POST(req: NextRequest) {
     const coupangAdapter = adapter as CoupangAdapter;
     const vendorId = coupangAdapter.getVendorId();
 
+    // ---- AI 스토리 배치 생성 (개별 호출 대신 10개씩 묶어서) ----
+    const batchAiStories = new Map<string, string>();
+    if (generateAiContent) {
+      try {
+        const storyInputs: StoryBatchInput[] = products.map((p) => ({
+          productName: p.aiDisplayName || p.name,
+          categoryPath: p.categoryCode,
+          brand: p.brand,
+          keywords: p.tags || [],
+        }));
+        const stories = await generateProductStoriesBatch(storyInputs);
+        for (let i = 0; i < products.length; i++) {
+          const key = products[i].uid || products[i].productCode;
+          if (stories[i]?.content) {
+            batchAiStories.set(key, stories[i].content);
+          }
+        }
+      } catch (err) {
+        console.warn('[batch] AI 스토리 배치 생성 실패:', err instanceof Error ? err.message : err);
+      }
+    }
+
     // ---- 단일 상품 등록 헬퍼 ----
     async function registerSingleProduct(product: BatchProduct): Promise<ProductResult> {
       const productStart = Date.now();
@@ -134,14 +159,8 @@ export async function POST(req: NextRequest) {
         infoImageUrls = allUrls.slice(offset, offset + product.infoImages.length);
       }
 
-      // AI 스토리 생성 (옵션)
-      let aiStoryHtml = '';
-      if (generateAiContent) {
-        try {
-          const storyResult = await generateProductStory(product.name, product.categoryCode, product.tags || [], product.description);
-          aiStoryHtml = storyResult.content;
-        } catch { /* AI 실패해도 진행 */ }
-      }
+      // AI 스토리는 배치 레벨에서 처리 (아래 batchAiStories 참조)
+      const aiStoryHtml = batchAiStories.get(product.uid || product.productCode) || '';
 
       // notices 자동채움
       const filledNotices = fillNoticeFields(
@@ -171,6 +190,9 @@ export async function POST(req: NextRequest) {
         brand: product.brand, filledNotices, attributeMeta: product.attributeMeta || [],
         reviewImageUrls, infoImageUrls, aiStoryHtml,
         extractedBuyOptions: extracted.buyOptions,
+        // AI 제목 (클라이언트에서 미리 생성/확인 후 전달)
+        displayProductName: product.aiDisplayName,
+        sellerProductName: product.aiSellerName,
       });
 
       // 쿠팡 API 호출
@@ -218,7 +240,7 @@ export async function POST(req: NextRequest) {
     let successCount = 0;
     let errorCount = 0;
 
-    const PARALLEL_REGISTER = 3; // 쿠팡 API 동시 호출 수
+    const PARALLEL_REGISTER = 5; // 쿠팡 API 동시 호출 수 (3→5 성능 개선)
     for (let i = 0; i < products.length; i += PARALLEL_REGISTER) {
       const chunk = products.slice(i, i + PARALLEL_REGISTER);
       const chunkResults = await Promise.allSettled(chunk.map((p) => registerSingleProduct(p)));
