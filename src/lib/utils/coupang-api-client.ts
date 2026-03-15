@@ -94,25 +94,33 @@ async function callCoupangApi(
   path: string,
   body?: unknown,
 ): Promise<unknown> {
-  const datetime = formatSignedDate();
-  const authorization = await buildAuthorizationHeader(
-    credentials.accessKey,
-    credentials.secretKey,
-    method,
-    path,
-    datetime,
-  );
-
   const useProxy = !!PROXY_URL;
   const url = useProxy ? `${PROXY_URL}/proxy${path}` : `${API_DOMAIN}${path}`;
 
   const headers: Record<string, string> = {
-    'Authorization': authorization,
     'Content-Type': 'application/json;charset=UTF-8',
-    'X-Requested-By': credentials.vendorId,
   };
-  if (useProxy && PROXY_SECRET) {
-    headers['X-Proxy-Secret'] = PROXY_SECRET;
+
+  if (useProxy) {
+    // 프록시 모드: 프록시가 자체적으로 HMAC 서명을 생성
+    headers['X-Coupang-Access-Key'] = credentials.accessKey;
+    headers['X-Coupang-Secret-Key'] = credentials.secretKey;
+    headers['X-Coupang-Vendor-Id'] = credentials.vendorId;
+    if (PROXY_SECRET) {
+      headers['X-Proxy-Secret'] = PROXY_SECRET;
+    }
+  } else {
+    // 직접 호출 모드: 클라이언트에서 HMAC 서명 생성
+    const datetime = formatSignedDate();
+    const authorization = await buildAuthorizationHeader(
+      credentials.accessKey,
+      credentials.secretKey,
+      method,
+      path,
+      datetime,
+    );
+    headers['Authorization'] = authorization;
+    headers['X-Requested-By'] = credentials.vendorId;
   }
 
   const fetchInit: RequestInit = { method, headers };
