@@ -1,4 +1,4 @@
-app = "coupang-proxy"
+app = "coupang-api-proxy"
 primary_region = "nrt"
 
 [build]

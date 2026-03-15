@@ -47,7 +47,8 @@
       "Bash(cd \"G:/내 드라이브/landingpage/coupanglanding\" && ls node_modules/xlsx/package.json 2>&1 && node -e \"console.log\\(require.resolve\\('xlsx'\\)\\)\" 2>&1)",
       "Bash(cd \"G:/내 드라이브/landingpage/coupanglanding\" && npm install xlsx 2>&1)",
       "Bash(start:*)",
-      "Bash(cd /tmp && npm init -y > /dev/null 2>&1 && npm install xlsx 2>&1 | tail -3)"
+      "Bash(cd /tmp && npm init -y > /dev/null 2>&1 && npm install xlsx 2>&1 | tail -3)",
+      "Bash(cd \"G:/내 드라이브/landingpage/coupanglanding/proxy\" && fly auth whoami 2>&1)"
     ]
   }
 }

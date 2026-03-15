@@ -51,3 +51,5 @@ nul
 
 # personal data
 자료/
+
+.env*.local
