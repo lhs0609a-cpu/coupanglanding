@@ -114,9 +114,9 @@ export async function POST(req: NextRequest) {
       try {
         const storyInputs: StoryBatchInput[] = products.map((p) => ({
           productName: p.aiDisplayName || p.name,
-          categoryPath: p.categoryCode,
-          brand: p.brand,
-          keywords: p.tags || [],
+          category: p.categoryCode,
+          features: p.tags || [],
+          description: p.description,
         }));
         const stories = await generateProductStoriesBatch(storyInputs);
         for (let i = 0; i < products.length; i++) {
