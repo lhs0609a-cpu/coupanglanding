@@ -20,7 +20,16 @@ export class CoupangAdapter extends BaseAdapter {
   }
 
   private generateSignature(method: string, path: string, query: string): { authorization: string } {
-    const datetime = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    // 쿠팡 공식 스펙: 2자리 연도 (yyMMdd'T'HHmmss'Z')
+    const now = new Date();
+    const yy = String(now.getUTCFullYear()).slice(2);
+    const MM = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(now.getUTCDate()).padStart(2, '0');
+    const HH = String(now.getUTCHours()).padStart(2, '0');
+    const mm = String(now.getUTCMinutes()).padStart(2, '0');
+    const ss = String(now.getUTCSeconds()).padStart(2, '0');
+    const datetime = `${yy}${MM}${dd}T${HH}${mm}${ss}Z`;
+
     const message = `${datetime}${method}${path}${query}`;
     const signature = crypto.createHmac('sha256', this.secretKey).update(message).digest('hex');
     const authorization = `CEA algorithm=HmacSHA256, access-key=${this.accessKey}, signed-date=${datetime}, signature=${signature}`;
