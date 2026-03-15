@@ -7,8 +7,6 @@
 
 import { CoupangAdapter } from '../adapters/coupang.adapter';
 import { mapCategory } from './ai.service';
-import path from 'path';
-import fs from 'fs';
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -44,34 +42,43 @@ export interface CategoryDetails {
 
 let _indexData: IndexEntry[] | null = null;
 let _detailsData: Record<string, CategoryDetailRaw> | null = null;
+let _indexLoading: Promise<IndexEntry[]> | null = null;
+let _detailsLoading: Promise<Record<string, CategoryDetailRaw>> | null = null;
 
-function getDataDir(): string {
-  return path.join(process.cwd(), 'src', 'lib', 'sellerhub', 'data');
+/**
+ * JSON 데이터를 런타임에 fetch로 로드 (Turbopack 호환)
+ * 서버 사이드: file:// 또는 절대 URL로 로드
+ */
+async function fetchJson<T>(filename: string, fallback: T): Promise<T> {
+  try {
+    // Node.js 서버 사이드: fs로 직접 읽기
+    const { readFileSync } = await import('fs');
+    const { join } = await import('path');
+    const filePath = join(process.cwd(), 'public', 'data', filename);
+    const raw = readFileSync(filePath, 'utf-8');
+    return JSON.parse(raw) as T;
+  } catch {
+    // 폴백: 빈 데이터
+    console.warn(`[category-matcher] Failed to load ${filename}`);
+    return fallback;
+  }
 }
 
-function loadIndex(): IndexEntry[] {
+async function loadIndex(): Promise<IndexEntry[]> {
   if (_indexData) return _indexData;
-  try {
-    const filePath = path.join(getDataDir(), 'coupang-cat-index.json');
-    const raw = fs.readFileSync(filePath, 'utf-8');
-    _indexData = JSON.parse(raw) as IndexEntry[];
-  } catch (err) {
-    console.warn('[category-matcher] Failed to load coupang-cat-index.json:', err instanceof Error ? err.message : err);
-    _indexData = [];
-  }
+  if (_indexLoading) return _indexLoading;
+  _indexLoading = fetchJson<IndexEntry[]>('coupang-cat-index.json', []);
+  _indexData = await _indexLoading;
+  _indexLoading = null;
   return _indexData;
 }
 
-function loadDetails(): Record<string, CategoryDetailRaw> {
+async function loadDetails(): Promise<Record<string, CategoryDetailRaw>> {
   if (_detailsData) return _detailsData;
-  try {
-    const filePath = path.join(getDataDir(), 'coupang-cat-details.json');
-    const raw = fs.readFileSync(filePath, 'utf-8');
-    _detailsData = JSON.parse(raw) as Record<string, CategoryDetailRaw>;
-  } catch (err) {
-    console.warn('[category-matcher] Failed to load coupang-cat-details.json:', err instanceof Error ? err.message : err);
-    _detailsData = {};
-  }
+  if (_detailsLoading) return _detailsLoading;
+  _detailsLoading = fetchJson<Record<string, CategoryDetailRaw>>('coupang-cat-details.json', {});
+  _detailsData = await _detailsLoading;
+  _detailsLoading = null;
   return _detailsData;
 }
 
@@ -285,10 +292,10 @@ function buildCompoundTokens(tokens: string[]): string[] {
  * 3. 다중 경로 레벨 일치 시 가산점 (leaf+parent 모두 매칭 → 훨씬 높은 점수)
  * 4. 2-char 이상 의미 토큰만 leaf 매칭에 사용 (1-char는 복합어 생성용)
  */
-function localMatch(tokens: string[]): ScoredEntry | null {
+async function localMatch(tokens: string[]): Promise<ScoredEntry | null> {
   if (tokens.length === 0) return null;
 
-  const index = loadIndex();
+  const index = await loadIndex();
   const tokenSet = new Set(tokens);
   const compoundTokens = buildCompoundTokens(tokens);
   const compoundSet = new Set(compoundTokens);
@@ -389,9 +396,9 @@ function localMatch(tokens: string[]): ScoredEntry | null {
   return best && best.score >= LOCAL_MATCH_THRESHOLD ? best : null;
 }
 
-function buildResultFromIndex(entry: IndexEntry, score: number, maxScore: number): CategoryMatchResult {
+async function buildResultFromIndex(entry: IndexEntry, score: number, maxScore: number): Promise<CategoryMatchResult> {
   const [code, , leafName] = entry;
-  const details = loadDetails();
+  const details = await loadDetails();
   const detail = details[code];
 
   return {
@@ -410,7 +417,7 @@ async function aiKeywordMatch(productName: string): Promise<CategoryMatchResult 
     const aiResult = await mapCategory(productName, '', 'coupang');
     if (aiResult.categoryId) {
       // Verify this category exists in our DB
-      const details = loadDetails();
+      const details = await loadDetails();
       const detail = details[aiResult.categoryId];
       return {
         categoryCode: aiResult.categoryId,
@@ -455,10 +462,10 @@ export async function matchCategory(
   }
 
   // ── Tier 1: Local DB matching ──
-  const localResult = localMatch(tokens);
+  const localResult = await localMatch(tokens);
   if (localResult) {
     // High-confidence local match
-    const result = buildResultFromIndex(
+    const result = await buildResultFromIndex(
       localResult.entry,
       localResult.score,
       Math.max(localResult.score, 20),
@@ -471,7 +478,7 @@ export async function matchCategory(
     try {
       const apiResult = await adapter.autoCategorize(cleaned);
       if (apiResult?.predictedCategoryId) {
-        const details = loadDetails();
+        const details = await loadDetails();
         const detail = details[apiResult.predictedCategoryId];
         return {
           categoryCode: apiResult.predictedCategoryId,
@@ -512,9 +519,9 @@ export async function matchCategoryBatch(
   const unmatchedIndices: number[] = [];
 
   for (let i = 0; i < productNames.length; i++) {
-    const localResult = localMatch(productTokensList[i]);
+    const localResult = await localMatch(productTokensList[i]);
     if (localResult) {
-      results[i] = buildResultFromIndex(
+      results[i] = await buildResultFromIndex(
         localResult.entry,
         localResult.score,
         Math.max(localResult.score, 20),
@@ -618,8 +625,8 @@ export async function matchCategoryBatch(
  * 카테고리 코드로 상세 정보를 조회한다 (옵션 채우기용).
  * coupang-cat-details.json에서 조회.
  */
-export function getCategoryDetails(code: string): CategoryDetails | null {
-  const details = loadDetails();
+export async function getCategoryDetails(code: string): Promise<CategoryDetails | null> {
+  const details = await loadDetails();
   const raw = details[code];
   if (!raw) return null;
 

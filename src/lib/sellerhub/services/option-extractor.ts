@@ -242,8 +242,8 @@ function normalizeOptionName(name: string): string {
  * 카테고리의 buyOptions 정의를 읽고, 각 옵션에 맞는 값을
  * 상품명에서 패턴 매칭으로 추출한다.
  */
-export function extractOptions(productName: string, categoryCode: string): ExtractedOptions {
-  const details = getCategoryDetails(categoryCode);
+export async function extractOptions(productName: string, categoryCode: string): Promise<ExtractedOptions> {
+  const details = await getCategoryDetails(categoryCode);
   if (!details) {
     console.warn(`[option-extractor] Category ${categoryCode} not found in details DB`);
     return { buyOptions: [], confidence: 0, warnings: [`카테고리 ${categoryCode}를 찾을 수 없습니다.`] };

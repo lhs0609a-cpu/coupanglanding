@@ -182,7 +182,7 @@ export async function POST(req: NextRequest) {
       );
 
       // 구매옵션 자동 추출 (상품명 → 수량/용량/중량/색상/사이즈 등)
-      const extracted = extractOptions(product.name, product.categoryCode);
+      const extracted = await extractOptions(product.name, product.categoryCode);
       if (extracted.warnings.length > 0) {
         console.warn(`[batch] 옵션 추출 경고 [${product.name}]:`, extracted.warnings.join(', '));
       }
