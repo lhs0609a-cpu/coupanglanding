@@ -4,6 +4,10 @@ import crypto from 'crypto';
 
 const COUPANG_API_BASE = 'https://api-gateway.coupang.com';
 
+// Fly.io 프록시 URL (설정되어 있으면 프록시 경유, 없으면 직접 호출)
+const COUPANG_PROXY_URL = process.env.COUPANG_PROXY_URL || '';
+const COUPANG_PROXY_SECRET = process.env.COUPANG_PROXY_SECRET || '';
+
 export class CoupangAdapter extends BaseAdapter {
   channel: Channel = 'coupang';
   private vendorId = '';
@@ -23,7 +27,40 @@ export class CoupangAdapter extends BaseAdapter {
     return { authorization };
   }
 
+  /**
+   * 쿠팡 API 호출 — 프록시 모드 / 직접 모드 자동 전환
+   *
+   * COUPANG_PROXY_URL이 설정되면:
+   *   Vercel → Fly.io 프록시 (고정 IP) → 쿠팡 API
+   *   HMAC 서명은 프록시에서 생성
+   *
+   * 설정되지 않으면:
+   *   직접 쿠팡 API 호출 (로컬 개발/고정 IP 서버)
+   */
   private async coupangApi<T>(method: string, path: string, query = '', body?: unknown): Promise<T> {
+    if (COUPANG_PROXY_URL) {
+      // ── 프록시 모드: Fly.io 경유 ──
+      const proxyPath = `/proxy${path}${query ? '?' + query : ''}`;
+      const url = `${COUPANG_PROXY_URL}${proxyPath}`;
+
+      const options: RequestInit = {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Proxy-Secret': COUPANG_PROXY_SECRET,
+          'X-Coupang-Access-Key': this.accessKey,
+          'X-Coupang-Secret-Key': this.secretKey,
+        },
+      };
+
+      if (body) {
+        options.body = JSON.stringify(body);
+      }
+
+      return this.apiCall<T>(url, options);
+    }
+
+    // ── 직접 모드: 쿠팡 API 직접 호출 ──
     const { authorization } = this.generateSignature(method, path, query);
     const url = `${COUPANG_API_BASE}${path}${query ? '?' + query : ''}`;
 
