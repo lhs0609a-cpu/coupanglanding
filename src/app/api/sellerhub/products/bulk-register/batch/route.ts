@@ -159,8 +159,19 @@ export async function POST(req: NextRequest) {
         infoImageUrls = allUrls.slice(offset, offset + product.infoImages.length);
       }
 
-      // AI 스토리는 배치 레벨에서 처리 (아래 batchAiStories 참조)
-      const aiStoryHtml = batchAiStories.get(product.uid || product.productCode) || '';
+      // AI 스토리는 배치 레벨에서 처리 — 블로그 스타일 문단 + 리뷰 텍스트
+      const aiStoryRaw = batchAiStories.get(product.uid || product.productCode) || '';
+      let aiStoryParagraphs: string[] = [];
+      let aiReviewTexts: string[] = [];
+      let aiStoryHtml = '';
+      try {
+        const parsed = JSON.parse(aiStoryRaw);
+        aiStoryParagraphs = Array.isArray(parsed.paragraphs) ? parsed.paragraphs : [];
+        aiReviewTexts = Array.isArray(parsed.reviewTexts) ? parsed.reviewTexts : [];
+      } catch {
+        // 기존 형식 (HTML 문자열) 호환
+        aiStoryHtml = aiStoryRaw;
+      }
 
       // notices 자동채움
       const filledNotices = fillNoticeFields(
@@ -188,9 +199,11 @@ export async function POST(req: NextRequest) {
         sellingPrice: product.sellingPrice, categoryCode: product.categoryCode,
         mainImageUrls, detailImageUrls, deliveryInfo, returnInfo, stock,
         brand: product.brand, filledNotices, attributeMeta: product.attributeMeta || [],
-        reviewImageUrls, infoImageUrls, aiStoryHtml,
+        reviewImageUrls, infoImageUrls,
+        aiStoryHtml,
+        aiStoryParagraphs,
+        aiReviewTexts,
         extractedBuyOptions: extracted.buyOptions,
-        // AI 제목 (클라이언트에서 미리 생성/확인 후 전달)
         displayProductName: product.aiDisplayName,
         sellerProductName: product.aiSellerName,
       });

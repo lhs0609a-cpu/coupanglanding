@@ -218,7 +218,7 @@ export async function generateProductTitles(
 
   const seed = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  const prompt = `당신은 쿠팡 상품명 SEO 전문가입니다. 아래 상품 정보를 바탕으로 고유한 상품명을 생성하세요.
+  const prompt = `당신은 쿠팡 상품 등록 SEO 전문가입니다.
 
 [원본 상품명] ${input.originalName}
 [카테고리] ${input.categoryPath}
@@ -226,15 +226,33 @@ export async function generateProductTitles(
 [키워드] ${input.keywords.join(', ') || '없음'}
 [변형 시드] ${seed}
 
-규칙:
-1. displayName (고객 노출용, 100자 이내):
-   - 핵심 키워드(상품 유형, 주요 효능, 용량/수량) 포함
-   - 매번 다른 단어 순서와 조합 사용
-   - 유사 표현 활용 (보습/수분/촉촉, 탄력/리프팅/탱탱, 대용량/빅사이즈/넉넉한 등)
-   - 자연스러운 한국어, 과도한 특수문자 금지
-   - 같은 구조를 반복하지 말 것
-2. sellerName (판매자 관리용, 짧고 간결, 30자 이내)
-3. keywords: 추천 검색 키워드 5개 (배열)
+## displayName 작성 규칙 (노출상품명, 100자 이내):
+
+### 필수 포함 요소 (순서 매번 변경):
+- 브랜드명 (있으면)
+- 상품 유형 (크림, 세럼, 영양제 등)
+- 핵심 스펙 (용량/중량/수량: 50ml, 120정, 3개 등)
+- 검색 키워드 2~3개 (사용자가 실제 검색할 단어)
+
+### 쿠팡 금지어 (절대 사용 금지):
+- 최고, 최저, 최상, 최대, 1위, 1등, 유일한
+- 무료배송, 당일발송, 특가, 할인, 이벤트, 한정
+- 100% 보장, 완벽, 기적, 놀라운, 충격, 폭발적
+- 의학적 효능 표현: 치료, 완치, 예방, 암, 질병
+- 타사 비교: OO보다, OO 대비, 경쟁사명
+
+### 키워드 배열 전략 (아이템위너 회피):
+- 시드에 따라 키워드 순서를 완전히 바꿀 것
+- 같은 상품이어도 매번 다른 구조로 작성
+- 예시 변형:
+  A) "[브랜드] 넥크림 50ml 목주름 리프팅 보습"
+  B) "목주름 탄력케어 넥 크림 50ml [브랜드] 수분"
+  C) "리프팅 넥케어 크림 [브랜드] 50ml 탄력 보습"
+
+## sellerName (판매자상품명, 30자 이내):
+- 내부 관리용, 간결하게: "[브랜드] 상품유형 스펙"
+
+## keywords: 고객이 실제 검색할 키워드 5개 (배열)
 
 JSON으로만 응답: { "displayName": "...", "sellerName": "...", "keywords": ["..."] }`;
 
@@ -296,25 +314,32 @@ export async function generateProductTitlesBatch(
       .map((p, idx) => `${idx + 1}. 원본: "${p.originalName}" | 카테고리: ${p.categoryPath} | 브랜드: ${p.brand || '없음'} | 키워드: ${p.keywords.join(', ') || '없음'}`)
       .join('\n');
 
-    const prompt = `당신은 쿠팡 상품명 SEO 전문가입니다. 아래 ${chunk.length}개 상품 각각에 대해 고유한 상품명을 생성하세요.
+    const prompt = `당신은 쿠팡 상품 등록 SEO 전문가입니다. ${chunk.length}개 상품 각각에 대해 고유한 상품명을 생성하세요.
 
 [변형 시드] ${seed}
 
 [상품 목록]
 ${productList}
 
-규칙:
-1. displayName (고객 노출용, 100자 이내):
-   - 핵심 키워드(상품 유형, 주요 효능, 용량/수량) 포함
-   - 상품마다 반드시 다른 단어 순서와 조합 사용
-   - 유사 표현 활용 (보습/수분/촉촉, 탄력/리프팅/탱탱, 대용량/빅사이즈/넉넉한 등)
-   - 자연스러운 한국어, 과도한 특수문자 금지
-   - 같은 구조를 반복하지 말 것
-2. sellerName (판매자 관리용, 짧고 간결, 30자 이내)
-3. keywords: 추천 검색 키워드 5개
+## 규칙:
+
+### displayName (노출상품명, 100자 이내):
+- 필수 포함: 브랜드(있으면), 상품유형, 핵심스펙(용량/수량), 검색키워드 2~3개
+- 상품마다 반드시 다른 키워드 순서와 문장 구조 사용
+- 유사 표현 활용 (보습/수분/촉촉, 탄력/리프팅/탱탱 등)
+
+### 쿠팡 금지어 (절대 사용 금지):
+최고/최저/1위/1등/유일/무료배송/당일발송/특가/할인/이벤트/한정/100%보장/완벽/기적/놀라운/치료/완치/예방/암/타사비교
+
+### 아이템위너 회피:
+- 같은 카테고리 상품이어도 키워드 순서를 완전히 다르게 배치
+- 같은 구조 반복 금지 (A: "[브랜드] 상품 스펙", B: "효능 상품 [브랜드] 스펙" 등)
+
+### sellerName (판매자상품명, 30자 이내): 내부 관리용
+### keywords: 실제 검색 키워드 5개
 
 JSON 배열로만 응답: { "results": [{ "displayName": "...", "sellerName": "...", "keywords": ["..."] }, ...] }
-반드시 ${chunk.length}개 항목을 순서대로 반환하세요.`;
+반드시 ${chunk.length}개 항목을 순서대로 반환.`;
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -397,29 +422,40 @@ export async function generateProductStoriesBatch(
       })
       .join('\n');
 
-    const prompt = `당신은 쿠팡 상세페이지 전문 카피라이터입니다. 아래 ${chunk.length}개 상품 각각에 대해 지정된 톤으로 구매유도 스토리를 HTML로 작성하세요.
+    const prompt = `당신은 쿠팡 상세페이지 전문 카피라이터입니다. 네이버 블로그 스타일로 상품 소개 글을 작성합니다.
 
 [상품 목록]
 ${productList}
 
-톤 설명:
-- 감성형: 감정적 공감, 따뜻한 어조, 라이프스타일 연결
+## 톤 설명:
+- 감성형: 따뜻한 공감, 라이프스타일 연결, 감정적 어필
 - 정보형: 객관적 데이터, 성분/스펙 강조, 전문가 관점
-- 후기형: 실제 사용 후기 형태, 체험담, before/after
-- 비교형: 기존 제품과 비교, 차별점 강조, 가성비 어필
-- 스토리텔링형: 서사 구조, 상황 묘사, 몰입형 콘텐츠
+- 후기형: 실제 사용 체험담, before/after, 솔직한 리뷰
+- 비교형: 기존 제품과 차별점, 가성비, 실용적 장점
+- 스토리텔링형: 서사 구조, 상황 묘사, 몰입형
 
-공통 규칙:
-- 한국어로 작성 (각 800자 내외)
-- 인라인 스타일만 사용 (외부 CSS 불가)
-- max-width: 860px, 가운데 정렬
-- 3~4개 단락으로 구성
-- <script>, <link>, <style>, <img> 태그 금지
-- 반드시 <div> 태그로 전체를 감싸기
-- 각 스토리는 서로 다른 구조와 표현을 사용할 것
+## 작성 형식 — 문단 배열 (블로그 스타일 핵심):
+각 상품마다 3~4개 문단을 배열로 반환하세요.
+이 문단들은 상세 이미지 사이사이에 삽입됩니다.
 
-JSON으로만 응답: { "stories": ["<div>...</div>", "<div>...</div>", ...] }
-반드시 ${chunk.length}개의 HTML 스토리를 순서대로 반환하세요.`;
+- paragraphs[0]: 상품 소개 (이 상품이 뭔지, 누구를 위한건지)
+- paragraphs[1]: 핵심 특징/장점 (왜 이 상품이 좋은지)
+- paragraphs[2]: 사용법/활용팁 (어떻게 사용하면 좋은지)
+- paragraphs[3]: (선택) 마무리 한마디
+
+추가로 reviewTexts도 2~3개 생성하세요:
+- 실제 구매자가 쓴 것 같은 자연스러운 후기
+- 각 리뷰는 50~80자, 구어체
+- 매번 다른 관점 (효과, 가성비, 배송, 사용감 등)
+
+## 규칙:
+- 한국어, 각 문단 100~200자
+- 순수 텍스트만 (HTML 태그 불가, 이미지 삽입 불가)
+- 광고법 위반 금지: 최고/1위/완벽/기적/치료 등
+- 각 상품은 반드시 다른 구조와 표현 사용
+
+JSON: { "results": [{ "paragraphs": ["...", "...", "..."], "reviewTexts": ["...", "..."] }, ...] }
+반드시 ${chunk.length}개 항목을 순서대로 반환.`;
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -444,19 +480,23 @@ JSON으로만 응답: { "stories": ["<div>...</div>", "<div>...</div>", ...] }
     const data = await res.json() as { choices: { message: { content: string } }[] };
     try {
       const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
-      const stories: string[] = Array.isArray(parsed.stories) ? parsed.stories : [];
+      const results: { paragraphs?: string[]; reviewTexts?: string[] }[] =
+        Array.isArray(parsed.results) ? parsed.results :
+        Array.isArray(parsed.stories) ? parsed.stories.map((s: string) => ({ paragraphs: [s] })) :
+        [];
 
       for (let i = 0; i < chunk.length; i++) {
-        let html = stories[i] || '';
-        // HTML만 추출 (마크다운 코드블록 제거)
-        const htmlMatch = html.match(/<div[\s\S]*<\/div>/i);
-        if (htmlMatch) {
-          html = htmlMatch[0];
-        }
+        const item = results[i] || {};
+        const paragraphs: string[] = Array.isArray(item.paragraphs) ? item.paragraphs : [];
+        const reviewTexts: string[] = Array.isArray(item.reviewTexts) ? item.reviewTexts : [];
+
+        // content에는 문단을 \n\n으로 합쳐서 저장 (기존 호환)
+        // paragraphs와 reviewTexts는 JSON으로 별도 저장
+        const content = JSON.stringify({ paragraphs, reviewTexts });
         allResults.push({
-          content: html,
-          creditsUsed: html ? 1200 : 0,
-          model: html ? 'gpt-4o-mini' : 'none',
+          content,
+          creditsUsed: paragraphs.length > 0 ? 1200 : 0,
+          model: paragraphs.length > 0 ? 'gpt-4o-mini' : 'none',
         });
       }
     } catch {

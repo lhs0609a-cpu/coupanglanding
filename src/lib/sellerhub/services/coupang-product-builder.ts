@@ -61,7 +61,10 @@ export interface BuildCoupangPayloadParams {
   attributeValues?: Record<string, string>; // 속성 값 매핑
   reviewImageUrls?: string[];              // 리뷰 CDN URLs
   infoImageUrls?: string[];                // 상품정보 CDN URLs
-  aiStoryHtml?: string;                    // AI 스토리 HTML
+  aiStoryHtml?: string;                    // AI 스토리 HTML (기존 호환)
+  aiStoryParagraphs?: string[];            // AI 스토리 문단 배열 (블로그 스타일)
+  aiReviewTexts?: string[];                // AI 리뷰 텍스트 배열
+  consignmentImageUrls?: string[];         // 위탁판매 정보 이미지
   // 구매옵션 (option-extractor에서 추출된 값)
   extractedBuyOptions?: ExtractedBuyOption[];
   // AI 생성 상품명 (제공 시 기본 상품명 대신 사용)
@@ -107,6 +110,9 @@ export function buildCoupangProductPayload(
     reviewImageUrls,
     infoImageUrls,
     aiStoryHtml,
+    aiStoryParagraphs,
+    aiReviewTexts,
+    consignmentImageUrls,
     extractedBuyOptions,
     displayProductName,
     sellerProductName,
@@ -133,19 +139,22 @@ export function buildCoupangProductPayload(
     vendorPath: url,
   }));
 
-  // ---- 3. 상세페이지 (contents) ----
-  const hasRichContent = aiStoryHtml || (reviewImageUrls && reviewImageUrls.length > 0) || (infoImageUrls && infoImageUrls.length > 0);
+  // ---- 3. 상세페이지 (contents) — 블로그 스타일 ----
+  const hasRichContent = aiStoryHtml || aiStoryParagraphs?.length || (reviewImageUrls && reviewImageUrls.length > 0) || (infoImageUrls && infoImageUrls.length > 0);
   let detailHtml: string;
 
   if (hasRichContent) {
-    // 리치 상세페이지
+    // 리치 상세페이지 (블로그 스타일: 이미지→글→이미지→글)
     detailHtml = buildRichDetailPageHtml({
       productName,
       brand: resolvedBrand,
+      aiStoryParagraphs,
       aiStoryHtml,
       reviewImageUrls,
+      reviewTexts: aiReviewTexts,
       detailImageUrls,
       infoImageUrls,
+      consignmentImageUrls,
     });
   } else {
     // 기본: 이미지 나열
