@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { HelpCircle, Search, ChevronDown, ChevronUp, ExternalLink, BookOpen, TrendingUp, Truck, CreditCard, ShieldAlert, Settings, Package, Megaphone, Code, FileText, AlertTriangle, Loader2, MessageCircle } from 'lucide-react';
+import { HelpCircle, Search, ChevronDown, ChevronUp, BookOpen, TrendingUp, CreditCard, ShieldAlert, Settings, Code, FileText, AlertTriangle, Loader2, MessageCircle } from 'lucide-react';
 import Card from '@/components/ui/Card';
 
 type FaqCategory = 'signup' | 'settlement' | 'commission' | 'coupang_api' | 'tax_invoice' | 'penalty' | 'other';

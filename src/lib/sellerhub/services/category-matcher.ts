@@ -8,6 +8,7 @@
 import { CoupangAdapter } from '../adapters/coupang.adapter';
 import { mapCategory } from './ai.service';
 import path from 'path';
+import fs from 'fs';
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -51,8 +52,9 @@ function getDataDir(): string {
 function loadIndex(): IndexEntry[] {
   if (_indexData) return _indexData;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    _indexData = require(path.join(getDataDir(), 'coupang-cat-index.json')) as IndexEntry[];
+    const filePath = path.join(getDataDir(), 'coupang-cat-index.json');
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    _indexData = JSON.parse(raw) as IndexEntry[];
   } catch (err) {
     console.warn('[category-matcher] Failed to load coupang-cat-index.json:', err instanceof Error ? err.message : err);
     _indexData = [];
@@ -63,8 +65,9 @@ function loadIndex(): IndexEntry[] {
 function loadDetails(): Record<string, CategoryDetailRaw> {
   if (_detailsData) return _detailsData;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    _detailsData = require(path.join(getDataDir(), 'coupang-cat-details.json')) as Record<string, CategoryDetailRaw>;
+    const filePath = path.join(getDataDir(), 'coupang-cat-details.json');
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    _detailsData = JSON.parse(raw) as Record<string, CategoryDetailRaw>;
   } catch (err) {
     console.warn('[category-matcher] Failed to load coupang-cat-details.json:', err instanceof Error ? err.message : err);
     _detailsData = {};
