@@ -107,19 +107,19 @@ export class CoupangAdapter extends BaseAdapter {
 
   async getProducts(params: { page?: number; size?: number; status?: string }) {
     const { page = 1, size = 100, status } = params;
-    const path = `/v2/providers/seller_api/apis/api/v1/vendor/sellers/${this.vendorId}/products`;
-    const queryParts = [`nextToken=${page}`, `maxPerPage=${size}`];
+    const path = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
+    const queryParts = [`vendorId=${this.vendorId}`, `nextToken=${page}`, `maxPerPage=${size}`];
     if (status) queryParts.push(`status=${status}`);
     const query = queryParts.join('&');
 
-    const data = await this.coupangApi<{ data: unknown[]; pagination: { totalElements: number } }>('GET', path, query);
-    return { items: (data.data || []) as Record<string, unknown>[], totalCount: data.pagination?.totalElements || 0 };
+    const data = await this.coupangApi<{ data: unknown[]; nextToken?: string }>('GET', path, query);
+    return { items: (data.data || []) as Record<string, unknown>[], totalCount: (data.data || []).length };
   }
 
   async createProduct(product: Record<string, unknown>) {
-    const path = `/v2/providers/seller_api/apis/api/v1/vendor/sellers/${this.vendorId}/products`;
-    const data = await this.coupangApi<{ data: string }>('POST', path, '', product);
-    return { channelProductId: data.data, success: true };
+    const path = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
+    const data = await this.coupangApi<{ code: string; data: string | number }>('POST', path, '', product);
+    return { channelProductId: String(data.data), success: true };
   }
 
   async updateProduct(channelProductId: string, product: Record<string, unknown>) {
@@ -242,22 +242,22 @@ export class CoupangAdapter extends BaseAdapter {
   async getOutboundShippingPlaces(): Promise<{
     items: { outboundShippingPlaceCode: string; placeName: string; placeAddresses: string; usable: boolean }[];
   }> {
-    const path = `/v2/providers/seller_api/apis/api/v1/vendor/sellers/${this.vendorId}/outboundShippingPlaces`;
+    const path = '/v2/providers/marketplace_openapi/apis/api/v1/vendor/shipping-place/outbound';
+    const query = 'pageSize=50&pageNum=1';
     const data = await this.coupangApi<{
-      data: {
-        content: {
-          outboundShippingPlaceCode: number;
-          placeName: string;
-          placeAddresses: { returnAddress: string }[];
-          usable: boolean;
-        }[];
-      };
-    }>('GET', path);
-    const content = data.data?.content || [];
+      content: {
+        outboundShippingPlaceCode: number;
+        shippingPlaceName: string;
+        placeAddresses: { returnAddress: string; returnAddressDetail: string }[];
+        usable: boolean;
+      }[];
+      pagination?: { totalElements: number };
+    }>('GET', path, query);
+    const content = data.content || [];
     return {
       items: content.map((p) => ({
         outboundShippingPlaceCode: String(p.outboundShippingPlaceCode),
-        placeName: p.placeName,
+        placeName: p.shippingPlaceName,
         placeAddresses: p.placeAddresses?.[0]?.returnAddress || '',
         usable: p.usable,
       })),
@@ -268,14 +268,15 @@ export class CoupangAdapter extends BaseAdapter {
   async getReturnShippingCenters(): Promise<{
     items: { returnCenterCode: string; shippingPlaceName: string; deliverCode: string; returnAddress: string; usable: boolean }[];
   }> {
-    const path = `/v2/providers/seller_api/apis/api/v1/vendor/sellers/${this.vendorId}/returnShippingCenters`;
+    const path = `/v2/providers/openapi/apis/api/v5/vendors/${this.vendorId}/returnShippingCenters`;
     const data = await this.coupangApi<{
+      code: number;
       data: {
         content: {
-          returnCenterCode: number;
+          returnCenterCode: string;
           shippingPlaceName: string;
           deliverCode: string;
-          returnAddress: string;
+          placeAddresses?: { returnAddress: string }[];
           usable: boolean;
         }[];
       };
@@ -285,8 +286,8 @@ export class CoupangAdapter extends BaseAdapter {
       items: content.map((c) => ({
         returnCenterCode: String(c.returnCenterCode),
         shippingPlaceName: c.shippingPlaceName,
-        deliverCode: c.deliverCode,
-        returnAddress: c.returnAddress || '',
+        deliverCode: c.deliverCode || '',
+        returnAddress: c.placeAddresses?.[0]?.returnAddress || '',
         usable: c.usable,
       })),
     };
