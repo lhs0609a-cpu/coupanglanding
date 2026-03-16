@@ -158,9 +158,9 @@ export default function MySettingsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          vendorId: apiVendorId,
-          accessKey: apiAccessKey,
-          secretKey: apiSecretKey,
+          vendorId: apiVendorId.trim(),
+          accessKey: apiAccessKey.trim(),
+          secretKey: apiSecretKey.trim(),
           validate: true,
         }),
       });
@@ -193,9 +193,9 @@ export default function MySettingsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          vendorId: apiVendorId,
-          accessKey: apiAccessKey,
-          secretKey: apiSecretKey,
+          vendorId: apiVendorId.trim(),
+          accessKey: apiAccessKey.trim(),
+          secretKey: apiSecretKey.trim(),
         }),
       });
       const data = await res.json();

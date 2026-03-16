@@ -6,7 +6,7 @@
 import { formatSignedDate, buildAuthorizationHeader } from './coupang-hmac';
 
 const PROXY_URL = process.env.COUPANG_PROXY_URL; // e.g. https://coupang-api-proxy.fly.dev
-const PROXY_SECRET = process.env.PROXY_SECRET || '';
+const PROXY_SECRET = process.env.COUPANG_PROXY_SECRET || process.env.PROXY_SECRET || '';
 const API_DOMAIN = 'https://api-gateway.coupang.com';
 const REVENUE_BASE_PATH = '/v2/providers/openapi/apis/api/v1';
 const SELLER_BASE_PATH = '/v2/providers/seller_api/apis/api/v1/marketplace';

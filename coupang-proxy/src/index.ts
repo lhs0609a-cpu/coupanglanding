@@ -8,9 +8,22 @@ const TARGET = 'https://api-gateway.coupang.com';
 // Health check
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
+// Outbound IP check — 쿠팡 Wing 화이트리스트에 등록할 실제 IP 확인
+app.get('/check-ip', async (c) => {
+  try {
+    const res = await fetch('https://api.ipify.org?format=json');
+    const data = await res.json() as { ip: string };
+    return c.json({ outboundIp: data.ip, timestamp: new Date().toISOString() });
+  } catch (e) {
+    return c.json({ error: String(e) }, 500);
+  }
+});
+
 // Auth middleware for /proxy/*
 app.use('/proxy/*', async (c, next) => {
-  if (!PROXY_SECRET || c.req.header('x-proxy-secret') !== PROXY_SECRET) {
+  const received = c.req.header('x-proxy-secret') || '(empty)';
+  if (!PROXY_SECRET || received !== PROXY_SECRET) {
+    console.log(`[proxy-auth] REJECTED - expected length=${PROXY_SECRET.length}, received length=${received.length}, match=${received === PROXY_SECRET}`);
     return c.json({ error: 'Unauthorized' }, 401);
   }
   await next();
