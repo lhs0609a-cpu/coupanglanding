@@ -108,7 +108,6 @@ export async function POST(req: NextRequest) {
     const coupangAdapter = adapter as CoupangAdapter;
     const vendorId = coupangAdapter.getVendorId();
 
-<<<<<<< Updated upstream
     // ---- AI 스토리 배치 생성 (개별 호출 대신 10개씩 묶어서) ----
     const batchAiStories = new Map<string, string>();
     if (generateAiContent) {
@@ -131,8 +130,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-=======
->>>>>>> Stashed changes
     // ---- 단일 상품 등록 헬퍼 ----
     async function registerSingleProduct(product: BatchProduct): Promise<ProductResult> {
       const productStart = Date.now();
@@ -162,7 +159,6 @@ export async function POST(req: NextRequest) {
         infoImageUrls = allUrls.slice(offset, offset + product.infoImages.length);
       }
 
-<<<<<<< Updated upstream
       // AI 스토리는 배치 레벨에서 처리 — 블로그 스타일 문단 + 리뷰 텍스트
       const aiStoryRaw = batchAiStories.get(product.uid || product.productCode) || '';
       let aiStoryParagraphs: string[] = [];
@@ -175,15 +171,6 @@ export async function POST(req: NextRequest) {
       } catch {
         // 기존 형식 (HTML 문자열) 호환
         aiStoryHtml = aiStoryRaw;
-=======
-      // AI 스토리 생성 (옵션)
-      let aiStoryHtml = '';
-      if (generateAiContent) {
-        try {
-          const storyResult = await generateProductStory(product.name, product.categoryCode, product.tags || [], product.description);
-          aiStoryHtml = storyResult.content;
-        } catch { /* AI 실패해도 진행 */ }
->>>>>>> Stashed changes
       }
 
       // notices 자동채움
@@ -194,15 +181,12 @@ export async function POST(req: NextRequest) {
         noticeOverrides,
       );
 
-<<<<<<< Updated upstream
       // 구매옵션 자동 추출 (상품명 → 수량/용량/중량/색상/사이즈 등)
       const extracted = await extractOptions(product.name, product.categoryCode);
       if (extracted.warnings.length > 0) {
         console.warn(`[batch] 옵션 추출 경고 [${product.name}]:`, extracted.warnings.join(', '));
       }
 
-=======
->>>>>>> Stashed changes
       // 페이로드 빌드
       const payload = buildCoupangProductPayload({
         vendorId,
@@ -215,7 +199,6 @@ export async function POST(req: NextRequest) {
         sellingPrice: product.sellingPrice, categoryCode: product.categoryCode,
         mainImageUrls, detailImageUrls, deliveryInfo, returnInfo, stock,
         brand: product.brand, filledNotices, attributeMeta: product.attributeMeta || [],
-<<<<<<< Updated upstream
         reviewImageUrls, infoImageUrls,
         aiStoryHtml,
         aiStoryParagraphs,
@@ -223,9 +206,6 @@ export async function POST(req: NextRequest) {
         extractedBuyOptions: extracted.buyOptions,
         displayProductName: product.aiDisplayName,
         sellerProductName: product.aiSellerName,
-=======
-        reviewImageUrls, infoImageUrls, aiStoryHtml,
->>>>>>> Stashed changes
       });
 
       // 쿠팡 API 호출
@@ -273,11 +253,7 @@ export async function POST(req: NextRequest) {
     let successCount = 0;
     let errorCount = 0;
 
-<<<<<<< Updated upstream
     const PARALLEL_REGISTER = 5; // 쿠팡 API 동시 호출 수 (3→5 성능 개선)
-=======
-    const PARALLEL_REGISTER = 3; // 쿠팡 API 동시 호출 수
->>>>>>> Stashed changes
     for (let i = 0; i < products.length; i += PARALLEL_REGISTER) {
       const chunk = products.slice(i, i + PARALLEL_REGISTER);
       const chunkResults = await Promise.allSettled(chunk.map((p) => registerSingleProduct(p)));

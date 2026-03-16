@@ -7,9 +7,6 @@
 
 import { CoupangAdapter } from '../adapters/coupang.adapter';
 import { mapCategory } from './ai.service';
-import path from 'path';
-
-// ─── Types ───────────────────────────────────────────────────
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -43,7 +40,6 @@ export interface CategoryDetails {
 
 // ─── Lazy-loaded data singletons ─────────────────────────────
 
-<<<<<<< Updated upstream
 // JSON 직접 import (Vercel 서버리스 번들링 보장)
 import indexJson from '../data/coupang-cat-index.json';
 import detailsJson from '../data/coupang-cat-details.json';
@@ -54,30 +50,11 @@ let _detailsData: Record<string, CategoryDetailRaw> | null = null;
 function loadIndex(): IndexEntry[] {
   if (_indexData) return _indexData;
   _indexData = indexJson as IndexEntry[];
-=======
-let _indexData: IndexEntry[] | null = null;
-let _detailsData: Record<string, CategoryDetailRaw> | null = null;
-
-function getDataDir(): string {
-  return path.join(process.cwd(), 'src', 'lib', 'sellerhub', 'data');
-}
-
-function loadIndex(): IndexEntry[] {
-  if (_indexData) return _indexData;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    _indexData = require(path.join(getDataDir(), 'coupang-cat-index.json')) as IndexEntry[];
-  } catch (err) {
-    console.warn('[category-matcher] Failed to load coupang-cat-index.json:', err instanceof Error ? err.message : err);
-    _indexData = [];
-  }
->>>>>>> Stashed changes
   return _indexData;
 }
 
 function loadDetails(): Record<string, CategoryDetailRaw> {
   if (_detailsData) return _detailsData;
-<<<<<<< Updated upstream
   _detailsData = detailsJson as unknown as Record<string, CategoryDetailRaw>;
   return _detailsData;
 }
@@ -170,18 +147,7 @@ const SYNONYM_MAP: Record<string, string[]> = {
   '분유': ['분유', '조제분유'],
 };
 
-=======
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    _detailsData = require(path.join(getDataDir(), 'coupang-cat-details.json')) as Record<string, CategoryDetailRaw>;
-  } catch (err) {
-    console.warn('[category-matcher] Failed to load coupang-cat-details.json:', err instanceof Error ? err.message : err);
-    _detailsData = {};
-  }
-  return _detailsData;
-}
 
->>>>>>> Stashed changes
 // ─── Product name cleaning ───────────────────────────────────
 
 const NOISE_WORDS = new Set([
@@ -258,7 +224,6 @@ function tokenize(productName: string): string[] {
 }
 
 // ─── Tier 1: Local DB matching ──────────────────────────────
-<<<<<<< Updated upstream
 
 const LOCAL_MATCH_THRESHOLD = 12;
 
@@ -410,142 +375,6 @@ async function localMatch(tokens: string[]): Promise<ScoredEntry | null> {
 }
 
 async function buildResultFromIndex(entry: IndexEntry, score: number, maxScore: number): Promise<CategoryMatchResult> {
-=======
-
-const LOCAL_MATCH_THRESHOLD = 12;
-
-interface ScoredEntry {
-  entry: IndexEntry;
-  score: number;
-}
-
-/**
- * 상품 토큰에서 2-gram 복합어도 생성한다.
- * ["넥", "크림"] → ["넥", "크림", "넥크림"]
- * ["아이", "앤", "넥", "크림"] → [..., "아이앤", "앤넥", "넥크림"]
- */
-function buildCompoundTokens(tokens: string[]): string[] {
-  const compounds = [...tokens];
-  for (let i = 0; i < tokens.length - 1; i++) {
-    compounds.push(tokens[i] + tokens[i + 1]);
-  }
-  return compounds;
-}
-
-/**
- * 로컬 인덱스에서 토큰 기반 카테고리 매칭.
- *
- * 핵심 개선:
- * 1. 한글 1글자 토큰 유지 ("넥" → "넥크림" 복합어 생성)
- * 2. 카테고리 전체 경로(path) 매칭 — leaf뿐 아니라 부모 카테고리도 봄
- * 3. 다중 경로 레벨 일치 시 가산점 (leaf+parent 모두 매칭 → 훨씬 높은 점수)
- * 4. 2-char 이상 의미 토큰만 leaf 매칭에 사용 (1-char는 복합어 생성용)
- */
-function localMatch(tokens: string[]): ScoredEntry | null {
-  if (tokens.length === 0) return null;
-
-  const index = loadIndex();
-  const tokenSet = new Set(tokens);
-  const compoundTokens = buildCompoundTokens(tokens);
-  const compoundSet = new Set(compoundTokens);
-  // 2글자 이상 의미 토큰
-  const meaningfulTokens = tokens.filter(t => t.length >= 2);
-  const meaningfulSet = new Set(meaningfulTokens);
-
-  let best: ScoredEntry | null = null;
-
-  for (const entry of index) {
-    const [, catTokensStr, leafName, depth] = entry;
-    const catTokenList = catTokensStr.split(' ');
-    const leafLower = leafName.toLowerCase();
-    let score = 0;
-
-    // === 1. Leaf matching ===
-    let leafScore = 0;
-
-    // 1a. 정확 일치 (compound 포함): "넥크림" === "넥크림"
-    for (const t of compoundTokens) {
-      if (t.length >= 2 && t === leafLower) {
-        leafScore = 20;
-        break;
-      }
-    }
-
-    if (leafScore === 0) {
-      // 1b. "/" 구분 단어 정확 일치
-      const leafWords = leafLower.split(/[\/\s]/).map(s => s.trim()).filter(Boolean);
-      let wordMatchCount = 0;
-      for (const t of compoundTokens) {
-        if (t.length >= 2 && leafWords.some(lw => lw === t)) {
-          wordMatchCount++;
-        }
-      }
-      if (wordMatchCount > 0) {
-        // 여러 leaf 단어 매칭 시 보너스
-        leafScore = 6 + wordMatchCount * 3;
-      }
-    }
-
-    if (leafScore === 0) {
-      // 1c. leaf에 토큰 포함 (느슨한 매칭, 3글자 이상만)
-      for (const t of compoundTokens) {
-        if (t.length >= 3 && leafLower.includes(t)) {
-          leafScore = 4;
-          break;
-        }
-      }
-    }
-
-    score += leafScore;
-
-    // === 2. Path token overlap (경로 전체 매칭) ===
-    // catTokenList는 경로의 모든 단어 (e.g. ["뷰티", "스킨", "크림", "넥크림"])
-    let matchedCatTokens = 0;
-    for (const catToken of catTokenList) {
-      if (compoundSet.has(catToken) || meaningfulSet.has(catToken)) {
-        score += 3;
-        matchedCatTokens++;
-      }
-    }
-
-    // === 3. 다중 레벨 매칭 보너스 (핵심 — 컨텍스트 확인) ===
-    // "강아지"+"사료" 둘 다 경로에 있으면 거의 확실한 매칭
-    // "사료"만 있고 "강아지"가 없으면 약한 매칭
-    if (matchedCatTokens >= 4) {
-      score += 25; // 4개 이상 토큰 매칭 = 거의 확실
-    } else if (matchedCatTokens >= 3) {
-      score += 18;
-    } else if (matchedCatTokens >= 2) {
-      score += 10;
-    }
-
-    // 커버리지: 카테고리 토큰 중 몇 %를 커버하는지
-    if (catTokenList.length > 0 && matchedCatTokens > 0) {
-      const coverage = matchedCatTokens / catTokenList.length;
-      score += Math.round(coverage * 5);
-    }
-
-    // Leaf-only match penalty: leaf만 매칭되고 부모 경로는 전혀 안 맞으면 감점
-    // (동음이의어 방지: "사료"가 조류/강아지 양쪽에 있을 때 구분)
-    if (leafScore > 0 && matchedCatTokens <= 1) {
-      score -= 3; // 컨텍스트 없이 leaf만 매칭 = 약한 신호
-    }
-
-    // Depth 보너스 (다중 매칭일 때만, 매우 약하게)
-    if (matchedCatTokens >= 2) {
-      score += Math.round(depth * 0.5);
-    }
-
-    if (score > 0 && (!best || score > best.score)) {
-      best = { entry, score };
-    }
-  }
-
-  return best && best.score >= LOCAL_MATCH_THRESHOLD ? best : null;
-}
-
-function buildResultFromIndex(entry: IndexEntry, score: number, maxScore: number): CategoryMatchResult {
->>>>>>> Stashed changes
   const [code, , leafName] = entry;
   const details = loadDetails();
   const detail = details[code];
@@ -594,7 +423,6 @@ export async function matchCategory(
 ): Promise<CategoryMatchResult | null> {
   const cleaned = cleanProductName(productName);
   const tokens = tokenize(productName);
-<<<<<<< Updated upstream
   const compoundTokens = buildCompoundTokens(tokens);
 
   // ── Tier 0: 직접 코드 매핑 (최고 우선순위) ──
@@ -616,14 +444,6 @@ export async function matchCategory(
   if (localResult) {
     // High-confidence local match
     const result = await buildResultFromIndex(
-=======
-
-  // ── Tier 1: Local DB matching ──
-  const localResult = localMatch(tokens);
-  if (localResult) {
-    // High-confidence local match
-    const result = buildResultFromIndex(
->>>>>>> Stashed changes
       localResult.entry,
       localResult.score,
       Math.max(localResult.score, 20),
@@ -677,15 +497,9 @@ export async function matchCategoryBatch(
   const unmatchedIndices: number[] = [];
 
   for (let i = 0; i < productNames.length; i++) {
-<<<<<<< Updated upstream
     const localResult = await localMatch(productTokensList[i]);
     if (localResult) {
       results[i] = await buildResultFromIndex(
-=======
-    const localResult = localMatch(productTokensList[i]);
-    if (localResult) {
-      results[i] = buildResultFromIndex(
->>>>>>> Stashed changes
         localResult.entry,
         localResult.score,
         Math.max(localResult.score, 20),
@@ -789,11 +603,7 @@ export async function matchCategoryBatch(
  * 카테고리 코드로 상세 정보를 조회한다 (옵션 채우기용).
  * coupang-cat-details.json에서 조회.
  */
-<<<<<<< Updated upstream
 export async function getCategoryDetails(code: string): Promise<CategoryDetails | null> {
-=======
-export function getCategoryDetails(code: string): CategoryDetails | null {
->>>>>>> Stashed changes
   const details = loadDetails();
   const raw = details[code];
   if (!raw) return null;
