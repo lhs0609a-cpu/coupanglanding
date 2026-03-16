@@ -41,6 +41,7 @@
       "WebFetch(domain:domemedb.domeggook.com)",
       "WebFetch(domain:medium.com)",
       "Bash(find:*)",
+<<<<<<< Updated upstream
       "WebFetch(domain:github.com)",
       "WebFetch(domain:pypi.org)",
       "Bash(cd \"/c/Users/lhs06/Downloads\" && unzip -l \"Coupang_Category_20260311_1413.zip\" | head -30)",
@@ -49,6 +50,20 @@
       "Bash(start:*)",
       "Bash(cd /tmp && npm init -y > /dev/null 2>&1 && npm install xlsx 2>&1 | tail -3)",
       "Bash(cd \"G:/내 드라이브/landingpage/coupanglanding/proxy\" && fly auth whoami 2>&1)"
+=======
+      "Bash(node test-keywords.mjs:*)",
+      "Bash(npx tsc:*)",
+      "Bash(git checkout:*)",
+      "Bash(node node_modules/typescript/lib/tsc.js:*)",
+      "Bash(npm view:*)",
+      "Bash(npm pack:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: 대량 등록 사전 검증 시스템 — 로컬+딥 검증 엔진, 검증 UI\n\n- product-validator.ts: validateProductLocal \\(상품명/가격/카테고리/이미지/브랜드 11개 규칙\\)\n  + validateProductDeep \\(카테고리 메타 기반 필수속성/고시항목 검증\\)\n- validate-batch API: 고유 카테고리별 notices/attributes 조회 후 딥 검증 실행\n- BulkRegisterPanel: 검증 요약바, 상품별 배지\\(ready/warning/error\\),\n  필드 하이라이트, 문제 필터, 에러 상품 등록 차단, categoryMeta 캐시 재사용\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: 가이드 인터랙티브 튜토리얼 모드 + 셀러허브 어댑터 개선\n\n- 튜토리얼 모드: 한 스텝씩 보여주는 위저드 방식 \\(기본 모드\\)\n- 읽기 모드: 기존 아코디언 방식 유지 \\(토글 가능\\)\n- 스텝별 진행상황 localStorage 저장/복원\n- 이미지 캐러셀, 모바일 스와이프, 키보드 네비게이션\n- 팁/경고 기반 자동 퀴즈 생성\n- 격려 메시지 + 완료 축하 화면\n- CSS 애니메이션 \\(instructionReveal, bounceIn, slideIn\\)\n- 셀러허브 채널 어댑터 카테고리 매칭 개선\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(nslookup:*)",
+      "Bash(dig:*)",
+      "Bash(ls:*)",
+      "Bash(fly deploy:*)"
+>>>>>>> Stashed changes
     ]
   }
 }

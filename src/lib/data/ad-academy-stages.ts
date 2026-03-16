@@ -56,14 +56,11 @@ export interface AdAcademyStage {
   title: string;
   subtitle: string;
   emoji: string;
-  monsterEmoji: string;
-  monsterName: string;
   themeColor: string;
   bgGradient: string;
   storyIntro: {
     title: string;
     lines: string[];
-    characterEmoji: string;
   };
   conceptCards: ConceptCard[];
   miniGameType: 'ox' | 'keyword' | 'bid-slider' | 'roas-calc' | 'strategy' | 'comprehensive';
@@ -97,20 +94,16 @@ export const AD_ACADEMY_STAGES: AdAcademyStage[] = [
     title: '광고란 뭘까?',
     subtitle: '쿠팡 광고의 기본 개념을 배워요',
     emoji: '💡',
-    monsterEmoji: '🟢',
-    monsterName: '슬라임',
     themeColor: '#3B82F6',
     bgGradient: 'from-blue-500 to-blue-600',
     storyIntro: {
-      title: '셀러 마을의 고민',
+      title: '광고, 왜 해야 할까?',
       lines: [
-        '셀러 마을에 "꿈꾸는 셀러"가 살고 있었어요.',
-        '열심히 상품을 등록했지만... 아무도 찾아오지 않았죠.',
-        '"내 상품이 이렇게 좋은데, 왜 아무도 모르지?"',
-        '그때! 마을 현자가 나타나 말했어요.',
-        '"광고라는 마법을 배워보렴. 손님이 줄을 서게 될 거야!"',
+        '상품을 등록했는데 조회수가 안 나온다면?',
+        '쿠팡에는 수백만 개 상품이 있어요.',
+        '광고를 하면 검색 상단에 노출되어 클릭과 매출이 올라갑니다.',
+        '이번 스테이지에서 광고의 기본 개념을 알아봐요!',
       ],
-      characterEmoji: '🧙‍♂️',
     },
     conceptCards: [
       {
@@ -162,20 +155,15 @@ export const AD_ACADEMY_STAGES: AdAcademyStage[] = [
     title: '첫 광고 만들어보기',
     subtitle: '실제 광고 세팅 과정을 체험해요',
     emoji: '🚀',
-    monsterEmoji: '👹',
-    monsterName: '고블린',
     themeColor: '#8B5CF6',
     bgGradient: 'from-purple-500 to-purple-600',
     storyIntro: {
-      title: '첫 번째 마법 시전!',
+      title: '직접 광고를 만들어봐요',
       lines: [
-        '슬라임을 물리친 당신! 광고의 기본을 알게 됐어요.',
-        '이제 직접 광고를 만들어볼 시간이에요!',
-        '"어? 생각보다 어려운데...?"',
-        '걱정 마세요! 하나씩 따라하면 누구나 할 수 있어요.',
-        '자, 쿠팡윙을 열어볼까요? 🖥️',
+        '광고의 기본 개념을 배웠으니, 이제 직접 만들어볼 차례!',
+        '캠페인 생성 → 상품 선택 → 예산 설정, 3단계면 끝입니다.',
+        '하나씩 따라하면 누구나 할 수 있어요.',
       ],
-      characterEmoji: '🧙‍♂️',
     },
     conceptCards: [
       {
@@ -226,19 +214,14 @@ export const AD_ACADEMY_STAGES: AdAcademyStage[] = [
     title: '키워드의 비밀',
     subtitle: '좋은 키워드 vs 나쁜 키워드를 구별해요',
     emoji: '🔑',
-    monsterEmoji: '👺',
-    monsterName: '오크',
     themeColor: '#F59E0B',
     bgGradient: 'from-amber-500 to-amber-600',
     storyIntro: {
-      title: '키워드 숲의 모험',
+      title: '키워드가 매출을 좌우한다',
       lines: [
-        '광고를 만들었지만, 효과가 별로 없었어요.',
-        '"같은 광고비를 써도 키워드에 따라 결과가 달라진다고?"',
-        '키워드 숲에는 보물 키워드와 함정 키워드가 섞여 있어요.',
-        '진짜 보물을 찾아내는 눈을 키워봐요!',
+        '같은 광고비를 써도 키워드에 따라 결과가 달라져요.',
+        '구매 의도가 높은 키워드 vs 돈만 나가는 키워드를 구별해봐요!',
       ],
-      characterEmoji: '🗝️',
     },
     conceptCards: [
       {
@@ -293,19 +276,14 @@ export const AD_ACADEMY_STAGES: AdAcademyStage[] = [
     title: '입찰가 시뮬레이터',
     subtitle: '최적의 입찰가를 찾아보세요',
     emoji: '🎰',
-    monsterEmoji: '🧌',
-    monsterName: '트롤',
     themeColor: '#10B981',
     bgGradient: 'from-emerald-500 to-emerald-600',
     storyIntro: {
-      title: '골드 밸런스의 기술',
+      title: '입찰가, 얼마가 적당할까?',
       lines: [
-        '키워드를 찾았지만, 입찰가를 얼마로 해야 할지 모르겠어요.',
-        '"너무 높으면 돈이 팍팍 나가고..."',
-        '"너무 낮으면 아무도 못 보고..."',
-        '딱 좋은 "스위트 스팟"을 찾아봐요! 🎯',
+        '너무 높으면 마진이 깎이고, 너무 낮으면 노출이 안 돼요.',
+        '딱 좋은 "스위트 스팟"을 찾는 방법을 배워봐요!',
       ],
-      characterEmoji: '⚖️',
     },
     conceptCards: [
       {
@@ -357,19 +335,14 @@ export const AD_ACADEMY_STAGES: AdAcademyStage[] = [
     title: 'ROAS 계산기',
     subtitle: '광고 수익률을 계산하고 판단해요',
     emoji: '📊',
-    monsterEmoji: '🐉',
-    monsterName: '드래곤',
     themeColor: '#EF4444',
     bgGradient: 'from-red-500 to-red-600',
     storyIntro: {
-      title: '드래곤의 보물 계산',
+      title: '내 광고, 잘 되고 있을까?',
       lines: [
-        '입찰가도 설정했고, 광고도 돌아가고 있어요!',
-        '그런데... 이게 잘 되고 있는 건지 어떻게 알지?',
-        '"ROAS라는 마법 거울을 보면 알 수 있단다"',
-        '드래곤이 지키는 ROAS의 비밀을 풀어봐요! 🐉',
+        '광고를 돌리고 있는데 이게 이익인지 손해인지 모르겠다면?',
+        'ROAS(광고비 대비 매출)를 계산해서 판단하는 법을 배워봐요!',
       ],
-      characterEmoji: '🪄',
     },
     conceptCards: [
       {
@@ -420,19 +393,14 @@ export const AD_ACADEMY_STAGES: AdAcademyStage[] = [
     title: '광고 최적화 전략',
     subtitle: '실전에서 바로 쓸 수 있는 전략을 배워요',
     emoji: '🛡️',
-    monsterEmoji: '👿',
-    monsterName: '마왕',
     themeColor: '#6366F1',
     bgGradient: 'from-indigo-500 to-indigo-600',
     storyIntro: {
-      title: '마왕의 시험',
+      title: '실전 최적화 전략',
       lines: [
-        '이제 광고의 모든 기초를 배웠어요!',
-        '하지만 실전은 언제나 예상치 못한 상황이 벌어지죠.',
-        '마왕이 여러 가지 상황을 던져줄 거예요.',
-        '올바른 전략으로 대응할 수 있을까요? ⚔️',
+        '기초를 모두 배웠으니, 이제 실전 상황에 대응해봐요.',
+        '시간대별 전략, 주간 루틴, AI+수동 병행까지!',
       ],
-      characterEmoji: '🛡️',
     },
     conceptCards: [
       {
@@ -501,22 +469,17 @@ export const AD_ACADEMY_STAGES: AdAcademyStage[] = [
     id: 'boss',
     stageNumber: 7,
     title: '종합 실전 테스트',
-    subtitle: '모든 것을 총동원하여 최종 보스를 물리쳐요!',
+    subtitle: '지금까지 배운 모든 내용을 종합 테스트!',
     emoji: '👑',
-    monsterEmoji: '🏴‍☠️',
-    monsterName: '최종 보스',
     themeColor: '#DC2626',
     bgGradient: 'from-red-600 to-red-700',
     storyIntro: {
-      title: '최종 결전!',
+      title: '최종 테스트',
       lines: [
-        '드디어 마지막 관문이에요!',
-        '지금까지 배운 모든 것을 시험합니다.',
-        '이 시험을 통과하면...',
-        '당신은 진정한 "광고 마스터"가 됩니다! 👑',
-        '준비됐나요? 시작합니다!',
+        '마지막 관문이에요!',
+        '지금까지 배운 모든 내용을 10문제로 테스트합니다.',
+        '통과하면 광고 마스터 뱃지 획득!',
       ],
-      characterEmoji: '⚔️',
     },
     conceptCards: [
       {

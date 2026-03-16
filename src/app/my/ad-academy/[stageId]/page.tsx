@@ -128,7 +128,7 @@ export default function StagePlayPage({ params }: { params: Promise<{ stageId: s
           <motion.div key="intro" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className={`rounded-2xl bg-gradient-to-br ${stage.bgGradient} p-6 text-white min-h-[300px] flex flex-col`}>
               <div className="text-center mb-4">
-                <span className="text-5xl">{stage.storyIntro.characterEmoji}</span>
+                <span className="text-5xl">{stage.emoji}</span>
                 <h2 className="text-xl font-bold mt-3">{stage.storyIntro.title}</h2>
               </div>
               <div className="flex-1 space-y-3">
@@ -221,7 +221,7 @@ export default function StagePlayPage({ params }: { params: Promise<{ stageId: s
 
         {phase === 'quiz' && quizFinished && submitting && (
           <motion.div key="submitting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-20">
-            <div className="text-5xl mb-4 animate-bounce">⚔️</div>
+            <div className="text-5xl mb-4 animate-bounce">⏳</div>
             <p className="text-gray-500 font-medium">결과를 계산하는 중...</p>
           </motion.div>
         )}
@@ -241,7 +241,7 @@ export default function StagePlayPage({ params }: { params: Promise<{ stageId: s
                     🎉
                   </motion.div>
                   <h2 className="text-2xl font-black text-gray-900 mb-2">STAGE CLEAR!</h2>
-                  <p className="text-gray-500 mb-4">{stage.monsterName}을(를) 물리쳤어요!</p>
+                  <p className="text-gray-500 mb-4">{stage.title} 완료!</p>
 
                   {/* Stars */}
                   <div className="flex justify-center gap-2 mb-6">
@@ -570,7 +570,7 @@ function MiniGameRouter({ stage, onComplete, done }: {
     case 'comprehensive':
       // Boss stage: skip mini-game, go straight to quiz
       if (!done) onComplete(100);
-      return <div className="text-center py-8"><span className="text-5xl">⚔️</span><p className="mt-3 font-bold text-gray-900">최종 보스전 시작!</p><p className="text-sm text-gray-500 mt-1">10문제 종합 퀴즈에 도전하세요</p></div>;
+      return <div className="text-center py-8"><span className="text-5xl">👑</span><p className="mt-3 font-bold text-gray-900">최종 테스트!</p><p className="text-sm text-gray-500 mt-1">10문제 종합 퀴즈에 도전하세요</p></div>;
     default:
       if (!done) onComplete(100);
       return null;

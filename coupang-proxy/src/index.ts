@@ -44,7 +44,14 @@ app.all('/proxy/*', async (c) => {
     }
   });
 
+  // 수신 헤더 전체 덤프
+  const allHeaders: string[] = [];
+  c.req.raw.headers.forEach((value, key) => {
+    allHeaders.push(`${key}: ${value.slice(0, 80)}`);
+  });
   console.log(`[proxy] ${c.req.method} ${targetPath}${reqUrl.search}`);
+  console.log(`[proxy] Incoming headers (${allHeaders.length}): ${allHeaders.join(' | ')}`);
+  console.log(`[proxy] Forwarding headers (${Object.keys(reqHeaders).length}): ${Object.keys(reqHeaders).join(', ')}`);
 
   const bodyMethods = ['POST', 'PUT', 'PATCH'];
   const fetchInit: RequestInit = { method: c.req.method, headers: reqHeaders };
@@ -56,6 +63,9 @@ app.all('/proxy/*', async (c) => {
 
   const body = await res.text();
   console.log(`[proxy] -> ${res.status} (${body.length} bytes)`);
+  if (res.status >= 400) {
+    console.log(`[proxy] ERROR body: ${body.slice(0, 500)}`);
+  }
 
   try {
     return c.json(JSON.parse(body), res.status as 200);

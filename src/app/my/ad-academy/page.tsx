@@ -148,17 +148,12 @@ export default function AdAcademyPage() {
                     )}
                   </div>
 
-                  {/* Monster / Arrow */}
+                  {/* Arrow */}
                   <div className="flex-shrink-0">
                     {!unlocked ? (
                       <Lock className="w-5 h-5 text-gray-300" />
-                    ) : cleared ? (
-                      <span className="text-2xl">{stage.monsterEmoji}</span>
                     ) : (
-                      <div className="flex items-center gap-1">
-                        <span className="text-2xl">{stage.monsterEmoji}</span>
-                        <ChevronRight className="w-5 h-5 text-gray-400" />
-                      </div>
+                      <ChevronRight className={`w-5 h-5 ${cleared ? 'text-green-400' : 'text-gray-400'}`} />
                     )}
                   </div>
                 </div>

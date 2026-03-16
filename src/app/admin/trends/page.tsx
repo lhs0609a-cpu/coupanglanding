@@ -25,6 +25,8 @@ export default function AdminTrendsPage() {
   } | null>(null);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [collectLoading, setCollectLoading] = useState(false);
+  const [collectAllLoading, setCollectAllLoading] = useState(false);
+  const [collectAllProgress, setCollectAllProgress] = useState('');
   const [collectProgress, setCollectProgress] = useState('');
   const [message, setMessage] = useState<{ type: string; text: string }>({ type: '', text: '' });
   // 차트 모달 상태
@@ -301,6 +303,30 @@ export default function AdminTrendsPage() {
     setCollectProgress('');
   };
 
+  const handleCollectAll = async () => {
+    if (!confirm('전체 11개 카테고리의 키워드를 일괄 수집하시겠습니까?\n카테고리당 상위 100개씩, 약 3~5분 소요됩니다.')) return;
+    setCollectAllLoading(true);
+    setCollectAllProgress('전체 카테고리 수집 시작...');
+    setMessage({ type: '', text: '' });
+    try {
+      const res = await fetch('/api/trends/collect-all', {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const result = await res.json();
+        setMessage({ type: 'success', text: result.message });
+        fetchKeywords();
+      } else {
+        const err = await res.json();
+        setMessage({ type: 'error', text: err.error || '전체 수집 실패' });
+      }
+    } catch {
+      setMessage({ type: 'error', text: '서버 오류' });
+    }
+    setCollectAllLoading(false);
+    setCollectAllProgress('');
+  };
+
   const fetchChartData = async (kw: TrendingKeyword, period: PeriodOption) => {
     setChartLoading(true);
     setChartError(null);
@@ -488,8 +514,16 @@ export default function AdminTrendsPage() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button
+            onClick={handleCollectAll}
+            disabled={collectAllLoading || collectLoading}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50"
+          >
+            <Download className={`w-4 h-4 ${collectAllLoading ? 'animate-bounce' : ''}`} />
+            {collectAllLoading ? '수집 중...' : '전체 카테고리 수집'}
+          </button>
+          <button
             onClick={handleCollect}
-            disabled={collectLoading || activeCategory === '전체'}
+            disabled={collectLoading || collectAllLoading || activeCategory === '전체'}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
             <Download className={`w-4 h-4 ${collectLoading ? 'animate-bounce' : ''}`} />
@@ -525,6 +559,12 @@ export default function AdminTrendsPage() {
         <div className="p-3 rounded-lg text-sm bg-blue-50 text-blue-700 flex items-center gap-2">
           <RefreshCw className="w-4 h-4 animate-spin" />
           {collectProgress}
+        </div>
+      )}
+      {collectAllProgress && (
+        <div className="p-3 rounded-lg text-sm bg-green-50 text-green-700 flex items-center gap-2">
+          <RefreshCw className="w-4 h-4 animate-spin" />
+          {collectAllProgress}
         </div>
       )}
 

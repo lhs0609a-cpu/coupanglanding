@@ -581,7 +581,7 @@ export default function MySettingsPage() {
                   <div className="p-3 bg-white rounded-lg border border-red-200">
                     <p className="text-xs font-bold text-gray-700 mb-1.5">IP주소 (전체 복사하여 입력)</p>
                     <p className="text-xs font-mono text-gray-900 select-all break-all leading-relaxed bg-gray-50 p-2 rounded border border-gray-200">
-                      54.116.7.181, 66.241.125.108, 216.246.19.71, 66.241.124.130, 216.246.19.84, 14.52.102.116, 15.165.113.35, 3.37.67.57, 137.66.13.24, 79.127.159.103
+                      66.241.125.108, 216.246.19.71, 66.241.124.130, 216.246.19.84, 14.52.102.116, 54.116.7.181, 3.37.67.57, 137.66.13.24, 79.127.159.103, 137.66.13.24
                     </p>
                   </div>
                   <div className="p-3 bg-white rounded-lg border border-red-200">
