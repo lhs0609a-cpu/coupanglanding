@@ -40,45 +40,22 @@ export interface CategoryDetails {
 
 // ─── Lazy-loaded data singletons ─────────────────────────────
 
+// JSON 직접 import (Vercel 서버리스 번들링 보장)
+import indexJson from '../data/coupang-cat-index.json';
+import detailsJson from '../data/coupang-cat-details.json';
+
 let _indexData: IndexEntry[] | null = null;
 let _detailsData: Record<string, CategoryDetailRaw> | null = null;
-let _indexLoading: Promise<IndexEntry[]> | null = null;
-let _detailsLoading: Promise<Record<string, CategoryDetailRaw>> | null = null;
 
-/**
- * JSON 데이터를 런타임에 fetch로 로드 (Turbopack 호환)
- * 서버 사이드: file:// 또는 절대 URL로 로드
- */
-async function fetchJson<T>(filename: string, fallback: T): Promise<T> {
-  try {
-    // Node.js 서버 사이드: fs로 직접 읽기
-    const { readFileSync } = await import('fs');
-    const { join } = await import('path');
-    const filePath = join(process.cwd(), 'public', 'data', filename);
-    const raw = readFileSync(filePath, 'utf-8');
-    return JSON.parse(raw) as T;
-  } catch {
-    // 폴백: 빈 데이터
-    console.warn(`[category-matcher] Failed to load ${filename}`);
-    return fallback;
-  }
-}
-
-async function loadIndex(): Promise<IndexEntry[]> {
+function loadIndex(): IndexEntry[] {
   if (_indexData) return _indexData;
-  if (_indexLoading) return _indexLoading;
-  _indexLoading = fetchJson<IndexEntry[]>('coupang-cat-index.json', []);
-  _indexData = await _indexLoading;
-  _indexLoading = null;
+  _indexData = indexJson as IndexEntry[];
   return _indexData;
 }
 
-async function loadDetails(): Promise<Record<string, CategoryDetailRaw>> {
+function loadDetails(): Record<string, CategoryDetailRaw> {
   if (_detailsData) return _detailsData;
-  if (_detailsLoading) return _detailsLoading;
-  _detailsLoading = fetchJson<Record<string, CategoryDetailRaw>>('coupang-cat-details.json', {});
-  _detailsData = await _detailsLoading;
-  _detailsLoading = null;
+  _detailsData = detailsJson as unknown as Record<string, CategoryDetailRaw>;
   return _detailsData;
 }
 
@@ -295,7 +272,7 @@ function buildCompoundTokens(tokens: string[]): string[] {
 async function localMatch(tokens: string[]): Promise<ScoredEntry | null> {
   if (tokens.length === 0) return null;
 
-  const index = await loadIndex();
+  const index = loadIndex();
   const tokenSet = new Set(tokens);
   const compoundTokens = buildCompoundTokens(tokens);
   const compoundSet = new Set(compoundTokens);
@@ -398,7 +375,7 @@ async function localMatch(tokens: string[]): Promise<ScoredEntry | null> {
 
 async function buildResultFromIndex(entry: IndexEntry, score: number, maxScore: number): Promise<CategoryMatchResult> {
   const [code, , leafName] = entry;
-  const details = await loadDetails();
+  const details = loadDetails();
   const detail = details[code];
 
   return {
@@ -417,7 +394,7 @@ async function aiKeywordMatch(productName: string): Promise<CategoryMatchResult 
     const aiResult = await mapCategory(productName, '', 'coupang');
     if (aiResult.categoryId) {
       // Verify this category exists in our DB
-      const details = await loadDetails();
+      const details = loadDetails();
       const detail = details[aiResult.categoryId];
       return {
         categoryCode: aiResult.categoryId,
@@ -478,7 +455,7 @@ export async function matchCategory(
     try {
       const apiResult = await adapter.autoCategorize(cleaned);
       if (apiResult?.predictedCategoryId) {
-        const details = await loadDetails();
+        const details = loadDetails();
         const detail = details[apiResult.predictedCategoryId];
         return {
           categoryCode: apiResult.predictedCategoryId,
@@ -626,7 +603,7 @@ export async function matchCategoryBatch(
  * coupang-cat-details.json에서 조회.
  */
 export async function getCategoryDetails(code: string): Promise<CategoryDetails | null> {
-  const details = await loadDetails();
+  const details = loadDetails();
   const raw = details[code];
   if (!raw) return null;
 
