@@ -27,11 +27,22 @@ export interface FilledNoticeCategory {
  * 1. 패턴 매칭으로 알려진 필드 자동 입력
  * 2. 나머지는 "상세페이지 참조" (쿠팡이 대부분 허용)
  */
+/** 옵션 추출 결과 (option-extractor에서 전달) */
+export interface ExtractedNoticeHints {
+  volume?: string;    // "50ml"
+  weight?: string;    // "500g"
+  color?: string;     // "블랙"
+  size?: string;      // "M"
+  count?: string;     // "3개"
+  material?: string;  // 소재 (향후 확장)
+}
+
 export function fillNoticeFields(
   noticeMeta: NoticeCategoryMeta[],
   product: LocalProductJson,
   contactNumber?: string,
   overrides?: Record<string, string>,
+  extractedHints?: ExtractedNoticeHints,
 ): FilledNoticeCategory[] {
   if (noticeMeta.length === 0) {
     // 메타 정보 없으면 기본 "기타 재화" 폴백
@@ -42,7 +53,7 @@ export function fillNoticeFields(
     noticeCategoryName: category.noticeCategoryName,
     noticeCategoryDetailName: category.fields.map((field) => ({
       noticeCategoryDetailName: field.name,
-      content: resolveFieldValue(field.name, product, contactNumber, overrides),
+      content: resolveFieldValue(field.name, product, contactNumber, overrides, extractedHints),
     })),
   }));
 }
@@ -55,6 +66,7 @@ function resolveFieldValue(
   product: LocalProductJson,
   contactNumber?: string,
   overrides?: Record<string, string>,
+  hints?: ExtractedNoticeHints,
 ): string {
   // 사용자가 수동으로 지정한 값 우선
   if (overrides?.[fieldName]) {
@@ -65,7 +77,7 @@ function resolveFieldValue(
   const productName = (product.name || product.title || '').slice(0, 50);
   const brand = product.brand || '';
 
-  // 패턴 매칭 규칙
+  // 패턴 매칭 규칙 (추출된 옵션값 hints 활용)
   if (normalized.includes('품명') || normalized.includes('모델명')) {
     return productName || '상세페이지 참조';
   }
@@ -84,13 +96,29 @@ function resolveFieldValue(
   if (normalized.includes('인증') || normalized.includes('허가')) {
     return '해당사항 없음';
   }
-  if (normalized.includes('크기') || normalized.includes('중량') || normalized.includes('무게') || normalized.includes('용량')) {
+  // 크기/중량/용량: 추출된 값이 있으면 우선 사용
+  if (normalized.includes('용량') || normalized.includes('내용량')) {
+    if (hints?.volume) return hints.volume;
     return '상세페이지 참조';
   }
-  if (normalized.includes('소재') || normalized.includes('재질') || normalized.includes('성분')) {
+  if (normalized.includes('중량') || normalized.includes('무게') || normalized.includes('순중량')) {
+    if (hints?.weight) return hints.weight;
+    return '상세페이지 참조';
+  }
+  if (normalized.includes('크기') || normalized.includes('치수')) {
+    if (hints?.size) return hints.size;
     return '상세페이지 참조';
   }
   if (normalized.includes('색상') || normalized.includes('컬러')) {
+    if (hints?.color) return hints.color;
+    return '상세페이지 참조';
+  }
+  if (normalized.includes('수량') || normalized.includes('구성')) {
+    if (hints?.count) return hints.count;
+    return '상세페이지 참조';
+  }
+  if (normalized.includes('소재') || normalized.includes('재질') || normalized.includes('성분')) {
+    if (hints?.material) return hints.material;
     return '상세페이지 참조';
   }
   if (normalized.includes('주의사항') || normalized.includes('취급')) {

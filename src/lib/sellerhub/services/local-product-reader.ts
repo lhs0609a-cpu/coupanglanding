@@ -6,7 +6,25 @@ import fs from 'fs';
 import path from 'path';
 import { createServiceClient } from '@/lib/supabase/server';
 import { randomUUID } from 'crypto';
-import { detectImageFormat } from './image-processor';
+import { detectImageFormat, getImageDimensions } from './image-processor';
+import { withRetry } from './retry';
+
+// ---- 보안: 허용 경로 + 이미지 크기 제한 ----
+
+const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+
+/** 허용된 소싱 루트 디렉토리 (환경변수 또는 기본값) */
+const ALLOWED_ROOTS = (process.env.ALLOWED_SOURCING_PATHS || 'J:,K:,D:\\sourcing,E:\\sourcing')
+  .split(',')
+  .map((p) => path.resolve(p.trim()).toLowerCase());
+
+/**
+ * 경로가 허용된 루트 디렉토리 하위인지 검증 (Path Traversal 방어)
+ */
+export function isPathAllowed(targetPath: string): boolean {
+  const resolved = path.resolve(targetPath).toLowerCase();
+  return ALLOWED_ROOTS.some((root) => resolved.startsWith(root));
+}
 
 export interface LocalProductJson {
   name?: string;
@@ -15,6 +33,10 @@ export interface LocalProductJson {
   brand?: string;
   tags?: string[];
   description?: string;
+  barcode?: string;
+  originalPrice?: number;     // 정가 (할인가 표시용)
+  certifications?: { certificationType: string; certificationCode?: string }[];
+  options?: { optionName: string; salePrice: number; stock?: number; barcode?: string; sku?: string }[];
   [key: string]: unknown;
 }
 
@@ -33,6 +55,11 @@ export interface LocalProduct {
  */
 export async function scanProductFolder(folderPath: string): Promise<LocalProduct[]> {
   const normalizedPath = path.resolve(folderPath);
+
+  // 보안: Path Traversal 방어
+  if (!isPathAllowed(normalizedPath)) {
+    throw new Error(`허용되지 않은 경로입니다. 허용 경로: ${ALLOWED_ROOTS.join(', ')}`);
+  }
 
   if (!fs.existsSync(normalizedPath)) {
     throw new Error(`폴더가 존재하지 않습니다: ${normalizedPath}`);
@@ -115,35 +142,52 @@ export async function uploadLocalImage(
   filePath: string,
   sellerhubUserId: string,
 ): Promise<string> {
+  // 파일 크기 검증
+  const stat = fs.statSync(filePath);
+  if (stat.size > MAX_IMAGE_SIZE_BYTES) {
+    throw new Error(`이미지 크기 초과 (${path.basename(filePath)}): ${(stat.size / 1024 / 1024).toFixed(1)}MB > 10MB`);
+  }
+
   const buffer = fs.readFileSync(filePath);
   const format = detectImageFormat(buffer);
   const ext = format === 'unknown' ? 'jpg' : format;
+
+  // 이미지 해상도 검증 (쿠팡 최소 500×500, 최대 5000×5000)
+  const dims = getImageDimensions(buffer, format);
+  if (dims.width > 0 && dims.height > 0) {
+    if (dims.width < 500 || dims.height < 500) {
+      console.warn(`[이미지 해상도 경고] ${path.basename(filePath)}: ${dims.width}×${dims.height} — 쿠팡 최소 500×500 미충족`);
+    }
+  }
   const contentType =
     format === 'png' ? 'image/png'
     : format === 'gif' ? 'image/gif'
     : format === 'webp' ? 'image/webp'
     : 'image/jpeg';
 
-  const supabase = await createServiceClient();
-  const storagePath = `sellerhub/${sellerhubUserId}/bulk/${randomUUID()}.${ext}`;
+  // Retry로 일시적 네트워크 장애 대응
+  return withRetry(async () => {
+    const supabase = await createServiceClient();
+    const storagePath = `sellerhub/${sellerhubUserId}/bulk/${randomUUID()}.${ext}`;
 
-  const { data, error } = await supabase.storage
-    .from('product-images')
-    .upload(storagePath, buffer, {
-      contentType,
-      cacheControl: '31536000',
-      upsert: false,
-    });
+    const { data, error } = await supabase.storage
+      .from('product-images')
+      .upload(storagePath, buffer, {
+        contentType,
+        cacheControl: '31536000',
+        upsert: false,
+      });
 
-  if (error || !data) {
-    throw new Error(`이미지 업로드 실패 (${path.basename(filePath)}): ${error?.message}`);
-  }
+    if (error || !data) {
+      throw new Error(`이미지 업로드 실패 (${path.basename(filePath)}): ${error?.message}`);
+    }
 
-  const { data: publicData } = supabase.storage
-    .from('product-images')
-    .getPublicUrl(storagePath);
+    const { data: publicData } = supabase.storage
+      .from('product-images')
+      .getPublicUrl(storagePath);
 
-  return publicData.publicUrl;
+    return publicData.publicUrl;
+  }, { maxRetries: 2, initialDelayMs: 500 });
 }
 
 /**
@@ -164,11 +208,14 @@ export async function uploadLocalImages(
 /**
  * 여러 로컬 이미지를 병렬로 업로드 (concurrency 제한)
  * 기존 uploadLocalImages 대비 ~80% 시간 단축
+ *
+ * allowPartialFailure=true: 일부 이미지 실패해도 성공한 것만 반환 (빈 문자열로 대체)
  */
 export async function uploadLocalImagesParallel(
   filePaths: string[],
   sellerhubUserId: string,
   concurrency = 5,
+  allowPartialFailure = false,
 ): Promise<string[]> {
   if (filePaths.length === 0) return [];
 
@@ -189,6 +236,17 @@ export async function uploadLocalImagesParallel(
   await Promise.all(
     Array.from({ length: Math.min(concurrency, filePaths.length) }, () => worker()),
   );
+
+  if (allowPartialFailure) {
+    // 실패한 이미지는 빈 문자열로 대체, 에러 로그만 출력
+    return results.map((r, i) => {
+      if (r instanceof Error) {
+        console.warn(`[이미지 업로드 부분 실패] ${path.basename(filePaths[i])}: ${r.message}`);
+        return '';
+      }
+      return r as string;
+    });
+  }
 
   return results.map((r, i) => {
     if (r instanceof Error) {

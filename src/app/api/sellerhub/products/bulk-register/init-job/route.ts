@@ -72,7 +72,9 @@ export async function POST(req: NextRequest) {
       const adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang');
       const coupangAdapter = adapter as CoupangAdapter;
 
-      for (const code of uniqueCodes) {
+      // 병렬 조회 (5개 동시) — 순차에서 개선
+      const CONCURRENT = 5;
+      const fetchCategoryMeta = async (code: string) => {
         let noticeMeta: NoticeCategoryMeta[] = [];
         let attributeMeta: AttributeMeta[] = [];
 
@@ -86,7 +88,7 @@ export async function POST(req: NextRequest) {
             })),
           }));
         } catch {
-          // notices 조회 실패 → 빈 배열 (폴백 처리)
+          // notices 조회 실패 → 빈 배열
         }
 
         try {
@@ -96,10 +98,22 @@ export async function POST(req: NextRequest) {
           // attributes 조회 실패 → 빈 배열
         }
 
-        categoryMeta[code] = { noticeMeta, attributeMeta };
+        return { code, noticeMeta, attributeMeta };
+      };
 
-        // 레이트 리밋 방지
-        if (uniqueCodes.indexOf(code) < uniqueCodes.length - 1) {
+      for (let i = 0; i < uniqueCodes.length; i += CONCURRENT) {
+        const chunk = uniqueCodes.slice(i, i + CONCURRENT);
+        const results = await Promise.allSettled(chunk.map(fetchCategoryMeta));
+
+        for (const result of results) {
+          if (result.status === 'fulfilled') {
+            const { code, noticeMeta: nm, attributeMeta: am } = result.value;
+            categoryMeta[code] = { noticeMeta: nm, attributeMeta: am };
+          }
+        }
+
+        // 청크 간 레이트 리밋
+        if (i + CONCURRENT < uniqueCodes.length) {
           await new Promise((r) => setTimeout(r, 200));
         }
       }

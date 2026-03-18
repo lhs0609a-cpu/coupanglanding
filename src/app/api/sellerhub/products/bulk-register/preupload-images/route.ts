@@ -100,10 +100,22 @@ export async function POST(req: NextRequest) {
         }),
       );
 
-      for (const result of chunkResults) {
+      for (let k = 0; k < chunkResults.length; k++) {
+        const result = chunkResults[k];
+        const product = chunk[k];
         if (result.status === 'fulfilled') {
           const { uid, ...urls } = result.value;
           allResults[uid] = { ...urls, success: true };
+        } else {
+          // rejected 상품도 에러 정보와 함께 기록
+          allResults[product.uid] = {
+            mainImageUrls: [],
+            detailImageUrls: [],
+            reviewImageUrls: [],
+            infoImageUrls: [],
+            success: false,
+            error: result.reason instanceof Error ? result.reason.message : '이미지 업로드 실패',
+          };
         }
       }
     }

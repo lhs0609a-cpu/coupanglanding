@@ -12,6 +12,8 @@ export interface ExtractedOptions {
   buyOptions: { name: string; value: string; unit?: string }[];
   confidence: number;
   warnings: string[];  // missing required fields
+  /** 총 수량 (unitCount용): perCount × count 또는 count. 쿠팡의 unitCount는 묶음 내 총 수량. */
+  totalUnitCount?: number;
 }
 
 // ─── Known color list ────────────────────────────────────────
@@ -458,10 +460,19 @@ export function extractOptionsFromDetails(productName: string, details: Category
 
   const confidence = totalRequired > 0 ? filledRequired / totalRequired : 1;
 
+  // totalUnitCount 계산: perCount × count (또는 count만)
+  // 쿠팡의 unitCount는 "묶음 내 총 수량"
+  // 예: "80매 x 10팩" → 80 × 10 = 800 (unitCount)
+  // 예: "3개세트" → 3 (unitCount)
+  const count = composite.count || extractCount(productName, composite);
+  const perCount = composite.perCount || null;
+  const totalUnitCount = perCount ? perCount * count : count;
+
   return {
     buyOptions: result,
     confidence: Math.round(confidence * 100) / 100,
     warnings,
+    totalUnitCount: totalUnitCount > 0 ? totalUnitCount : undefined,
   };
 }
 <<<<<<< Updated upstream

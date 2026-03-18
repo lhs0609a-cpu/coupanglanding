@@ -1,6 +1,14 @@
 // ============================================================
 // 쿠팡 상품 등록 페이로드 빌더
 // 쿠팡 OpenAPI v2 상품 등록 스펙에 맞춰 빌드
+//
+// 개선사항:
+// - buyOptions ↔ attributes 분리 (구매옵션은 item-level, 속성은 attributes)
+// - 멀티옵션 상품 지원 (색상×사이즈 조합 → 여러 item)
+// - KC인증 지원 (certificationListByItem)
+// - 할인가 표시 (originalPrice ≠ salePrice)
+// - 바코드 지원
+// - deliveryMethod 오타 수정
 // ============================================================
 
 import type { LocalProduct } from './local-product-reader';
@@ -11,20 +19,20 @@ import { buildRichDetailPageHtml } from './detail-page-builder';
 // ---- 입력 타입 ----
 
 export interface DeliveryInfo {
-  deliveryCompanyCode: string;         // 택배사 코드 (CJGLS, HANJIN, LOTTE, EPOST, ...)
-  deliveryChargeType: 'FREE' | 'NOT_FREE' | 'CONDITIONAL_FREE'; // 무료/유료/조건부무료
-  deliveryCharge: number;              // 기본 배송비 (FREE면 0)
-  freeShipOverAmount: number;          // 조건부무료 기준 금액
-  deliveryChargeOnReturn: number;      // 반품 편도 배송비
-  outboundShippingPlaceCode: string;   // 출고지 코드 (쿠팡 Wing에서 조회)
+  deliveryCompanyCode: string;
+  deliveryChargeType: 'FREE' | 'NOT_FREE' | 'CONDITIONAL_FREE';
+  deliveryCharge: number;
+  freeShipOverAmount: number;
+  deliveryChargeOnReturn: number;
+  outboundShippingPlaceCode: string;
 }
 
 export interface ReturnInfo {
-  returnCenterCode: string;            // 반품지 코드 (쿠팡 Wing에서 조회)
-  returnCharge: number;                // 반품 편도 배송비
-  companyContactNumber: string;        // 판매자 연락처
-  afterServiceContactNumber: string;   // A/S 연락처
-  afterServiceInformation: string;     // A/S 안내 문구
+  returnCenterCode: string;
+  returnCharge: number;
+  companyContactNumber: string;
+  afterServiceContactNumber: string;
+  afterServiceInformation: string;
 }
 
 export interface AttributeMeta {
@@ -34,59 +42,117 @@ export interface AttributeMeta {
   attributeValues?: { attributeValueName: string }[];
 }
 
-/** 추출된 구매옵션 */
+/** 추출된 구매옵션 (item-level 반영용, attributes와 별도) */
 export interface ExtractedBuyOption {
   name: string;
   value: string;
   unit?: string;
 }
 
+/** option-extractor에서 계산된 총 수량 (perCount × count) */
+// totalUnitCount는 BuildCoupangPayloadParams에서 직접 받음
+
+/** KC인증 정보 */
+export interface CertificationInfo {
+  certificationType: string;     // 'KC_CERTIFICATION' | 'OVERSEAS_CERTIFICATION' | etc.
+  certificationCode?: string;    // 인증번호 (예: SU05016-21001)
+  certificationOrganization?: string; // 인증기관
+}
+
+/** 멀티옵션 변형 (색상×사이즈 등 조합별 item) */
+export interface OptionVariant {
+  optionName: string;      // 옵션 표시명 (예: "블랙 / M")
+  salePrice: number;
+  originalPrice?: number;
+  stock?: number;
+  barcode?: string;
+  sku?: string;            // 개별 SKU (없으면 자동 생성)
+  mainImageUrls?: string[];  // 옵션별 대표이미지 (없으면 공통 사용)
+}
+
 export interface BuildCoupangPayloadParams {
-  vendorId: string;                    // 쿠팡 벤더 ID
+  vendorId: string;
   product: LocalProduct;
   sellingPrice: number;
   categoryCode: string;
-  mainImageUrls: string[];             // 업로드된 대표이미지 CDN URLs
-  detailImageUrls: string[];           // 업로드된 상세페이지 CDN URLs
+  mainImageUrls: string[];
+  detailImageUrls: string[];
   deliveryInfo: DeliveryInfo;
   returnInfo: ReturnInfo;
   stock?: number;
   brand?: string;
   manufacturer?: string;
-  maximumBuyForPerson?: number;        // 1인당 구매 제한 (0=무제한)
-  outboundShippingTimeDay?: number;    // 출고 소요일
+  maximumBuyForPerson?: number;
+  outboundShippingTimeDay?: number;
+  // 가격
+  originalPrice?: number;          // 정가 (할인 태그용, 미설정 시 sellingPrice 사용)
   // 동적 notices / attributes / 리치 상세페이지
-  filledNotices?: FilledNoticeCategory[];   // 동적으로 채운 notices
-  attributeMeta?: AttributeMeta[];         // 카테고리 속성 메타
-  attributeValues?: Record<string, string>; // 속성 값 매핑
-  reviewImageUrls?: string[];              // 리뷰 CDN URLs
-  infoImageUrls?: string[];                // 상품정보 CDN URLs
-  aiStoryHtml?: string;                    // AI 스토리 HTML (기존 호환)
-  aiStoryParagraphs?: string[];            // AI 스토리 문단 배열 (블로그 스타일)
-  aiReviewTexts?: string[];                // AI 리뷰 텍스트 배열
-  consignmentImageUrls?: string[];         // 위탁판매 정보 이미지
-  // 구매옵션 (option-extractor에서 추출된 값)
+  filledNotices?: FilledNoticeCategory[];
+  attributeMeta?: AttributeMeta[];
+  attributeValues?: Record<string, string>;
+  reviewImageUrls?: string[];
+  infoImageUrls?: string[];
+  aiStoryHtml?: string;
+  aiStoryParagraphs?: string[];
+  aiReviewTexts?: string[];
+  consignmentImageUrls?: string[];
+  // 구매옵션 (option-extractor 추출값 — item-level 반영용)
   extractedBuyOptions?: ExtractedBuyOption[];
-  // AI 생성 상품명 (제공 시 기본 상품명 대신 사용)
+  // 총 수량 (option-extractor의 totalUnitCount — perCount × count)
+  totalUnitCount?: number;
+  // AI 생성 상품명
   displayProductName?: string;
   sellerProductName?: string;
-  // 이미지 변형 파라미터 (로깅/추적용)
+  // 이미지 변형 (로깅용, 페이로드에 포함하지 않음)
   imageVariation?: ImageVariation;
+  // KC인증
+  certifications?: CertificationInfo[];
+  // 멀티옵션 (제공 시 sellerProductItemList에 여러 item 생성)
+  optionVariants?: OptionVariant[];
+  // 바코드 (단일 옵션일 때)
+  barcode?: string;
+  // 세금/성인/해외 설정
+  taxType?: 'TAX' | 'FREE' | 'ZERO';
+  adultOnly?: 'EVERYONE' | 'ADULT_ONLY';
+  parallelImported?: 'NOT_PARALLEL_IMPORTED' | 'PARALLEL_IMPORTED';
+  overseasPurchased?: 'NOT_OVERSEAS_PURCHASED' | 'OVERSEAS_PURCHASED';
+  pccNeeded?: boolean;
+}
+
+// ---- HTML 이스케이프 (XSS 방어) ----
+
+function escHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// ---- 쿠팡 상품명 금지어/특수문자 패턴 ----
+
+const FORBIDDEN_NAME_PATTERNS = [
+  /[★☆♥♡▶▷◀◁●○■□◆◇△▽♠♣♦♬♪♩⊙◎]/g,
+  /[!@#$%^&*=+|\\{}[\]<>~`]/g,
+  /최저가|무료배송|할인|특가|한정|베스트|1위|인기|추천/g,
+  /\b(SALE|HOT|BEST|NEW|EVENT|FREE)\b/gi,
+];
+
+function cleanProductName(name: string): string {
+  let cleaned = name.trim();
+  for (const pattern of FORBIDDEN_NAME_PATTERNS) {
+    cleaned = cleaned.replace(pattern, '');
+  }
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  if (cleaned.length > 100) {
+    cleaned = cleaned.slice(0, 100);
+  }
+  return cleaned;
 }
 
 // ---- 빌드 함수 ----
 
-/**
- * 쿠팡 상품 등록 API 페이로드를 빌드한다.
- *
- * POST /v2/providers/seller_api/apis/api/v1/vendor/sellers/{vendorId}/products
- *
- * 핵심 구조:
- * - images[]          → 대표이미지 (REPRESENTATION 타입만, 최대 10장)
- * - contents[]        → 상세페이지 (IMAGE_VENDOR 타입 HTML)
- * - noticeCategories  → 상품정보제공고시 (동적)
- * - attributes[]      → 카테고리 필수 속성 (동적)
- */
 export function buildCoupangProductPayload(
   params: BuildCoupangPayloadParams,
 ): Record<string, unknown> {
@@ -104,6 +170,7 @@ export function buildCoupangProductPayload(
     manufacturer,
     maximumBuyForPerson = 0,
     outboundShippingTimeDay = 2,
+    originalPrice,
     filledNotices,
     attributeMeta,
     attributeValues,
@@ -116,7 +183,14 @@ export function buildCoupangProductPayload(
     extractedBuyOptions,
     displayProductName,
     sellerProductName,
-    imageVariation,
+    certifications,
+    optionVariants,
+    barcode,
+    taxType = 'TAX',
+    adultOnly = 'EVERYONE',
+    parallelImported = 'NOT_PARALLEL_IMPORTED',
+    overseasPurchased = 'NOT_OVERSEAS_PURCHASED',
+    pccNeeded = false,
   } = params;
 
   // ---- 1. 상품명 정리 ----
@@ -128,8 +202,14 @@ export function buildCoupangProductPayload(
     ? cleanProductName(sellerProductName)
     : productName;
 
-  const resolvedBrand = brand || product.productJson.brand || '';
-  const resolvedManufacturer = manufacturer || product.productJson.brand || '';
+  // brand: 빈 문자열이면 안전한 기본값 (일부 카테고리에서 필수)
+  const rawBrand = brand || product.productJson.brand || '';
+  const resolvedBrand = rawBrand || '자체브랜드';
+  // manufacturer: brand와 별개 — product.json에 manufacturer 있으면 사용
+  const resolvedManufacturer = manufacturer
+    || (product.productJson as Record<string, unknown>).manufacturer as string
+    || rawBrand
+    || '자체제조';
 
   // ---- 2. 대표이미지 (REPRESENTATION) ----
   const images = mainImageUrls.slice(0, 10).map((url, i) => ({
@@ -139,12 +219,13 @@ export function buildCoupangProductPayload(
     vendorPath: url,
   }));
 
-  // ---- 3. 상세페이지 (contents) — 블로그 스타일 ----
-  const hasRichContent = aiStoryHtml || aiStoryParagraphs?.length || (reviewImageUrls && reviewImageUrls.length > 0) || (infoImageUrls && infoImageUrls.length > 0);
+  // ---- 3. 상세페이지 (contents) ----
+  const hasRichContent = aiStoryHtml || aiStoryParagraphs?.length
+    || (reviewImageUrls && reviewImageUrls.length > 0)
+    || (infoImageUrls && infoImageUrls.length > 0);
   let detailHtml: string;
 
   if (hasRichContent) {
-    // 리치 상세페이지 (블로그 스타일: 이미지→글→이미지→글)
     detailHtml = buildRichDetailPageHtml({
       productName,
       brand: resolvedBrand,
@@ -157,22 +238,14 @@ export function buildCoupangProductPayload(
       consignmentImageUrls,
     });
   } else {
-    // 기본: 이미지 나열
     detailHtml = buildSimpleDetailHtml(detailImageUrls, productName);
   }
 
   const contents = detailHtml
-    ? [
-        {
-          contentsType: 'IMAGE_VENDOR',
-          contentDetails: [
-            {
-              content: detailHtml,
-              detailType: 'TEXT',
-            },
-          ],
-        },
-      ]
+    ? [{
+        contentsType: 'IMAGE_VENDOR',
+        contentDetails: [{ content: detailHtml, detailType: 'TEXT' }],
+      }]
     : [];
 
   // ---- 4. 상품정보제공고시 (noticeCategories) ----
@@ -180,24 +253,30 @@ export function buildCoupangProductPayload(
     ? filledNotices
     : buildFallbackNotice(productName, resolvedManufacturer, returnInfo.afterServiceContactNumber);
 
-  // ---- 5. attributes (카테고리 필수 속성) ----
-  // 추출된 구매옵션 값도 attributeValues에 병합
-  const mergedAttributeValues = { ...(attributeValues || {}) };
-  if (extractedBuyOptions) {
-    for (const opt of extractedBuyOptions) {
-      const key = opt.name;
-      if (!mergedAttributeValues[key]) {
-        // 단위가 있으면 "숫자단위" 형태로 (예: "200ml", "500g")
-        mergedAttributeValues[key] = opt.unit ? `${opt.value}${opt.unit}` : opt.value;
-      }
-    }
-  }
-  const attributes = buildAttributes(attributeMeta, mergedAttributeValues);
+  // ---- 5. attributes (카테고리 필수 속성 — buyOptions와 분리!) ----
+  // attributes는 카테고리 검색 필터용 메타데이터만 넣는다.
+  // extractedBuyOptions는 여기에 넣지 않는다 (item-level에서 처리).
+  const attributes = buildAttributes(attributeMeta, attributeValues);
 
-  // ---- 6. unitCount 계산 ----
-  // 추출된 구매옵션에서 "수량" 값을 가져옴
+  // ---- 6. KC인증 ----
+  const certificationList = certifications && certifications.length > 0
+    ? certifications.map((cert) => ({
+        certificationType: cert.certificationType,
+        certificationCode: cert.certificationCode || '',
+        ...(cert.certificationOrganization
+          ? { certificationOrganization: cert.certificationOrganization }
+          : {}),
+      }))
+    : [];
+
+  // ---- 7. unitCount (총 수량: perCount × count) ----
+  // 쿠팡의 unitCount는 "묶음 내 총 수량"
+  // 예: "80매 x 10팩" → 800, "3개세트" → 3
   let unitCount = 1;
-  if (extractedBuyOptions) {
+  if (params.totalUnitCount && params.totalUnitCount > 0) {
+    // option-extractor에서 정확히 계산된 값 우선 사용
+    unitCount = params.totalUnitCount;
+  } else if (extractedBuyOptions) {
     const countOpt = extractedBuyOptions.find(
       (o) => o.name === '수량' || o.name.includes('수량'),
     );
@@ -207,14 +286,12 @@ export function buildCoupangProductPayload(
     }
   }
 
-  // ---- 7. itemName에 옵션 정보 포함 ----
-  // 쿠팡은 itemName에 옵션 값을 포함하는 것을 권장
-  // 예: "넥크림 50ml, 3개" → 고객이 옵션 구분 가능
-  let itemName = productName;
+  // ---- 8. itemName에 구매옵션 반영 ----
+  let baseItemName = productName;
   if (extractedBuyOptions && extractedBuyOptions.length > 0) {
     const optParts: string[] = [];
     for (const opt of extractedBuyOptions) {
-      if (opt.name === '수량') continue; // 수량은 unitCount로 처리
+      if (opt.name === '수량') continue;
       if (opt.unit) {
         optParts.push(`${opt.value}${opt.unit}`);
       } else if (opt.name.includes('색상') || opt.name.includes('사이즈')) {
@@ -223,17 +300,94 @@ export function buildCoupangProductPayload(
     }
     if (optParts.length > 0) {
       const optStr = optParts.join(', ');
-      itemName = `${productName} (${optStr})`;
-      if (itemName.length > 100) itemName = itemName.slice(0, 100);
+      baseItemName = `${productName} (${optStr})`;
+      if (baseItemName.length > 100) baseItemName = baseItemName.slice(0, 100);
     }
   }
 
-  // ---- 8. 전체 페이로드 조립 ----
+  // ---- 9. 바코드 처리 ----
+  const resolvedBarcode = barcode || (product.productJson as Record<string, unknown>).barcode as string || '';
+  const hasBarcode = !!resolvedBarcode;
+
+  // ---- 10. 할인가 (originalPrice > salePrice면 할인 태그 표시) ----
+  const resolvedOriginalPrice = originalPrice && originalPrice > sellingPrice
+    ? originalPrice
+    : sellingPrice;
+
+  // ---- 11. sellerProductItemList 조립 ----
+  let sellerProductItemList: Record<string, unknown>[];
+
+  if (optionVariants && optionVariants.length > 0) {
+    // 멀티옵션 상품: 각 변형별 별도 item
+    sellerProductItemList = optionVariants.map((variant, idx) => {
+      const variantBarcode = variant.barcode || '';
+      const variantImages = variant.mainImageUrls
+        ? variant.mainImageUrls.slice(0, 10).map((url, i) => ({
+            imageOrder: i,
+            imageType: 'REPRESENTATION',
+            cdnPath: url,
+            vendorPath: url,
+          }))
+        : images;
+
+      return {
+        itemName: variant.optionName.slice(0, 100),
+        originalPrice: variant.originalPrice || variant.salePrice,
+        salePrice: variant.salePrice,
+        maximumBuyCount: variant.stock || stock,
+        maximumBuyForPerson,
+        maximumBuyForPersonPeriod: 1,
+        outboundShippingTimeDay,
+        unitCount,
+        adultOnly,
+        taxType,
+        parallelImported,
+        overseasPurchased,
+        pccNeeded,
+        externalVendorSku: variant.sku || `${product.productCode}_${idx + 1}`,
+        barcode: variantBarcode,
+        emptyBarcode: !variantBarcode,
+        certificationListByItem: certificationList,
+        images: variantImages,
+        noticeCategories,
+        attributes,
+        contents,
+      };
+    });
+  } else {
+    // 단일 옵션 상품
+    sellerProductItemList = [{
+      itemName: baseItemName,
+      originalPrice: resolvedOriginalPrice,
+      salePrice: sellingPrice,
+      maximumBuyCount: stock,
+      maximumBuyForPerson,
+      maximumBuyForPersonPeriod: 1,
+      outboundShippingTimeDay,
+      unitCount,
+      adultOnly,
+      taxType,
+      parallelImported,
+      overseasPurchased,
+      pccNeeded,
+      externalVendorSku: product.productCode,
+      barcode: resolvedBarcode,
+      emptyBarcode: !hasBarcode,
+      certificationListByItem: certificationList,
+      images,
+      noticeCategories,
+      attributes,
+      contents,
+    }];
+  }
+
+  // ---- 12. 전체 페이로드 조립 ----
+  // 주의: _meta 등 내부 필드를 페이로드에 포함하지 않음 (쿠팡 API 거부 방지)
   const payload: Record<string, unknown> = {
     displayCategoryCode: Number(categoryCode),
     sellerProductName: resolvedSellerName,
     vendorId,
-    saleStartedAt: new Date().toISOString().replace('Z', ''),
+    saleStartedAt: new Date().toISOString().replace(/\.\d{3}Z$/, ''),
     saleEndedAt: '2099-01-01T23:59:59',
     displayProductName: productName,
     brand: resolvedBrand,
@@ -241,11 +395,13 @@ export function buildCoupangProductPayload(
     productGroup: '',
     manufacture: resolvedManufacturer,
 
-    deliveryMethod: 'SEQUENCIAL',
+    deliveryMethod: 'SEQUENTIAL',   // 오타 수정 (SEQUENCIAL → SEQUENTIAL)
     deliveryCompanyCode: deliveryInfo.deliveryCompanyCode,
     deliveryChargeType: deliveryInfo.deliveryChargeType,
     deliveryCharge: deliveryInfo.deliveryCharge,
-    freeShipOverAmount: deliveryInfo.freeShipOverAmount,
+    freeShipOverAmount: deliveryInfo.deliveryChargeType === 'CONDITIONAL_FREE'
+      ? deliveryInfo.freeShipOverAmount
+      : 0,
     deliveryChargeOnReturn: deliveryInfo.deliveryChargeOnReturn,
     remoteAreaDeliverable: 'Y',
     unionDeliveryType: 'NOT_UNION_DELIVERY',
@@ -258,37 +414,10 @@ export function buildCoupangProductPayload(
     afterServiceInformation: returnInfo.afterServiceInformation || '상품 이상 시 고객센터로 연락 바랍니다.',
     afterServiceContactNumber: returnInfo.afterServiceContactNumber,
 
-    sellerProductItemList: [
-      {
-        itemName,
-        originalPrice: sellingPrice,
-        salePrice: sellingPrice,
-        maximumBuyCount: stock,
-        maximumBuyForPerson,
-        maximumBuyForPersonPeriod: 1,
-        outboundShippingTimeDay,
-        unitCount,
-        adultOnly: 'EVERYONE',
-        taxType: 'TAX',
-        parallelImported: 'NOT_PARALLEL_IMPORTED',
-        overseasPurchased: 'NOT_OVERSEAS_PURCHASED',
-        pccNeeded: false,
-        externalVendorSku: product.productCode,
-        barcode: '',
-        emptyBarcode: true,
-        certificationListByItem: [],
-        images,
-        noticeCategories,
-        attributes,
-        contents,
-      },
-    ],
+    sellerProductItemList,
 
     requiredDocuments: [],
     extraInfoMessage: '',
-
-    // 내부 추적용 메타데이터 (쿠팡 API에는 전송되지 않음)
-    ...(imageVariation ? { _meta: { imageVariation } } : {}),
   };
 
   return payload;
@@ -296,24 +425,13 @@ export function buildCoupangProductPayload(
 
 // ---- 헬퍼 함수들 ----
 
-function cleanProductName(name: string): string {
-  let cleaned = name.trim();
-  cleaned = cleaned.replace(/\s+/g, ' ');
-  if (cleaned.length > 100) {
-    cleaned = cleaned.slice(0, 100);
-  }
-  return cleaned;
-}
-
-/**
- * 기본 상세페이지: 이미지 단순 나열
- */
 function buildSimpleDetailHtml(imageUrls: string[], productName: string): string {
   if (imageUrls.length === 0) return '';
+  const safeName = escHtml(productName);
   const imgTags = imageUrls
     .map(
       (url, i) =>
-        `<img src="${url}" alt="${productName} 상세 ${i + 1}" style="width:100%;display:block;" />`,
+        `<img src="${escHtml(url)}" alt="${safeName} 상세 ${i + 1}" style="width:100%;display:block;" />`,
     )
     .join('\n');
   return `<div style="width:100%;max-width:860px;margin:0 auto;">\n${imgTags}\n</div>`;
@@ -321,7 +439,11 @@ function buildSimpleDetailHtml(imageUrls: string[], productName: string): string
 
 /**
  * 카테고리 속성 빌드
- * required 속성 중 값이 있는 것만 포함, 없으면 빈 배열
+ * required 속성 중 값이 있는 것만 포함.
+ *
+ * 주의: buyOptions(구매옵션)는 여기에 넣지 않는다!
+ * buyOptions는 item-level(itemName, unitCount 등)에서 처리.
+ * attributes는 카테고리 검색 필터용 메타데이터만.
  */
 function buildAttributes(
   meta?: AttributeMeta[],
@@ -340,14 +462,37 @@ function buildAttributes(
         attributeValueName: userValue,
       });
     } else if (attr.attributeValues && attr.attributeValues.length > 0) {
-      // 필수인데 값 미지정 → 첫 번째 선택지로 폴백
+      // 선택형 필수: 첫 번째 선택지로 폴백
+      console.warn(`[payload-builder] 필수 속성 "${attr.attributeTypeName}" 미지정 → "${attr.attributeValues[0].attributeValueName}" 폴백`);
       attrs.push({
         attributeTypeName: attr.attributeTypeName,
         attributeValueName: attr.attributeValues[0].attributeValueName,
       });
+    } else if (attr.dataType === 'TEXT' || attr.dataType === 'STRING' || attr.dataType === 'NUMBER') {
+      // 자유입력형(TEXT) 필수 속성: attributeValues가 빈 배열이어도 기본값으로 채움
+      // skip하면 쿠팡 API가 필수 속성 누락으로 등록 거부함
+      const fallbackValue = getAttributeFallback(attr.attributeTypeName);
+      console.warn(`[payload-builder] TEXT형 필수 속성 "${attr.attributeTypeName}" → "${fallbackValue}" 폴백`);
+      attrs.push({
+        attributeTypeName: attr.attributeTypeName,
+        attributeValueName: fallbackValue,
+      });
     }
   }
   return attrs;
+}
+
+/** TEXT/NUMBER형 필수 속성의 안전한 기본값 */
+function getAttributeFallback(attrName: string): string {
+  const n = attrName.toLowerCase();
+  if (n.includes('원산지') || n.includes('제조국')) return '상세페이지 참조';
+  if (n.includes('브랜드')) return '자체브랜드';
+  if (n.includes('모델') || n.includes('품번')) return '자체제작';
+  if (n.includes('소재') || n.includes('재질')) return '상세페이지 참조';
+  if (n.includes('무게') || n.includes('중량')) return '상세페이지 참조';
+  if (n.includes('크기') || n.includes('사이즈')) return '상세페이지 참조';
+  if (n.includes('색상') || n.includes('컬러')) return '상세페이지 참조';
+  return '상세페이지 참조';
 }
 
 /**
@@ -362,7 +507,7 @@ function buildFallbackNotice(
     {
       noticeCategoryName: '기타 재화',
       noticeCategoryDetailName: [
-        { noticeCategoryDetailName: '품명 및 모델명', content: productName.slice(0, 50) },
+        { noticeCategoryDetailName: '품명 및 모델명', content: escHtml(productName.slice(0, 50)) },
         { noticeCategoryDetailName: '인증/허가 사항', content: '해당사항 없음' },
         { noticeCategoryDetailName: '제조국 또는 원산지', content: '상세페이지 참조' },
         { noticeCategoryDetailName: '제조자/수입자', content: manufacturer || '상세페이지 참조' },

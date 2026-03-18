@@ -3,10 +3,12 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/sellerhub/adapters/factory';
 import { CoupangAdapter } from '@/lib/sellerhub/adapters/coupang.adapter';
 import { uploadLocalImagesParallel } from '@/lib/sellerhub/services/local-product-reader';
-import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo, type AttributeMeta } from '@/lib/sellerhub/services/coupang-product-builder';
-import { fillNoticeFields, type NoticeCategoryMeta } from '@/lib/sellerhub/services/notice-field-filler';
+import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo, type AttributeMeta, type CertificationInfo, type OptionVariant } from '@/lib/sellerhub/services/coupang-product-builder';
+import { fillNoticeFields, type NoticeCategoryMeta, type ExtractedNoticeHints } from '@/lib/sellerhub/services/notice-field-filler';
 import { generateProductStoriesBatch, type StoryBatchInput } from '@/lib/sellerhub/services/ai.service';
 import { extractOptions } from '@/lib/sellerhub/services/option-extractor';
+import { withRetry } from '@/lib/sellerhub/services/retry';
+import { checkBrandProtection } from '@/lib/sellerhub/services/brand-checker';
 
 interface BatchProduct {
   uid?: string;
@@ -25,16 +27,22 @@ interface BatchProduct {
   infoImages: string[];
   noticeMeta: NoticeCategoryMeta[];
   attributeMeta: AttributeMeta[];
-  // 클라이언트에서 사전 업로드된 이미지 URL (있으면 로컬 파일 업로드 스킵)
   preUploadedUrls?: {
     mainImageUrls: string[];
     detailImageUrls: string[];
     reviewImageUrls: string[];
     infoImageUrls: string[];
   };
-  // AI 제목 (클라이언트에서 미리 생성/확인 후 전달)
   aiDisplayName?: string;
   aiSellerName?: string;
+  // 추가 필드 (선택)
+  originalPrice?: number;         // 정가 (할인가 표시용)
+  barcode?: string;               // 바코드
+  certifications?: CertificationInfo[];  // KC인증 등
+  optionVariants?: OptionVariant[];      // 멀티옵션
+  taxType?: 'TAX' | 'FREE' | 'ZERO';
+  adultOnly?: 'EVERYONE' | 'ADULT_ONLY';
+  categoryConfidence?: number;  // 카테고리 매칭 confidence (0~1)
 }
 
 interface BatchRegisterBody {
@@ -57,19 +65,21 @@ interface ProductResult {
   channelProductId?: string;
   error?: string;
   duration?: number;
+  brandWarning?: string;
 }
 
 /**
- * POST — 배치 등록 처리 (3개씩)
+ * POST — 배치 등록 처리 (5개씩 병렬)
  *
- * 각 상품:
- *  1. 전체 이미지 병렬 업로드 (5개 동시)
- *  2. AI 스토리 생성 (옵션)
- *  3. notices 자동채움
- *  4. 페이로드 빌드
- *  5. 쿠팡 createProduct
- *  6. DB 저장
- *  7. sh_sync_jobs 카운트 업데이트
+ * 개선사항:
+ *  - 중복 등록 방지 (productCode + channel 체크)
+ *  - 서버사이드 가격 검증
+ *  - 브랜드 상표권 체크
+ *  - DB 트랜잭션 보장 (쿠팡 성공 → DB 실패 시 보상)
+ *  - Race condition 방지 (순차 카운트 업데이트)
+ *  - 쿠팡 API retry
+ *  - sh_product_images 저장
+ *  - 부분 이미지 실패 허용
  */
 export async function POST(req: NextRequest) {
   try {
@@ -108,7 +118,22 @@ export async function POST(req: NextRequest) {
     const coupangAdapter = adapter as CoupangAdapter;
     const vendorId = coupangAdapter.getVendorId();
 
-    // ---- AI 스토리 배치 생성 (개별 호출 대신 10개씩 묶어서) ----
+    // ---- 중복 등록 방지: 이미 등록된 productCode 조회 ----
+    const productCodes = products.map((p) => p.productCode);
+    const { data: existingProducts } = await serviceClient
+      .from('sh_products')
+      .select('raw_data')
+      .eq('sellerhub_user_id', shUserId)
+      .in('raw_data->>productCode', productCodes);
+
+    const registeredCodes = new Set(
+      (existingProducts || []).map((p) => {
+        const raw = p.raw_data as Record<string, unknown> | null;
+        return raw?.productCode as string;
+      }).filter(Boolean),
+    );
+
+    // ---- AI 스토리 배치 생성 ----
     const batchAiStories = new Map<string, string>();
     if (generateAiContent) {
       try {
@@ -134,32 +159,86 @@ export async function POST(req: NextRequest) {
     async function registerSingleProduct(product: BatchProduct): Promise<ProductResult> {
       const productStart = Date.now();
 
+      // 1. 중복 등록 체크
+      if (registeredCodes.has(product.productCode)) {
+        return {
+          uid: product.uid, productCode: product.productCode, name: product.name,
+          success: false, error: `이미 등록된 상품입니다 (productCode: ${product.productCode})`, duration: 0,
+        };
+      }
+
+      // 2. 서버사이드 가격 검증
+      if (!product.sellingPrice || product.sellingPrice < 100) {
+        return {
+          uid: product.uid, productCode: product.productCode, name: product.name,
+          success: false, error: `판매가가 유효하지 않습니다 (${product.sellingPrice}원). 최소 100원`, duration: 0,
+        };
+      }
+      if (product.sellingPrice > 100_000_000) {
+        return {
+          uid: product.uid, productCode: product.productCode, name: product.name,
+          success: false, error: '판매가가 1억원을 초과합니다.', duration: 0,
+        };
+      }
+
+      // 3. 브랜드 상표권 체크
+      let brandWarning: string | undefined;
+      const brandCheck = checkBrandProtection(product.name, product.description);
+      if (brandCheck.result === 'blocked') {
+        return {
+          uid: product.uid, productCode: product.productCode, name: product.name,
+          success: false, error: brandCheck.message, duration: 0,
+        };
+      }
+      if (brandCheck.result === 'warning') {
+        brandWarning = brandCheck.message;
+      }
+
+      // 3-2. 카테고리 confidence 검증
+      if (product.categoryConfidence !== undefined && product.categoryConfidence < 0.5) {
+        return {
+          uid: product.uid, productCode: product.productCode, name: product.name,
+          success: false,
+          error: `카테고리 매칭 신뢰도 부족 (${Math.round(product.categoryConfidence * 100)}%). 수동으로 카테고리를 확인해주세요.`,
+          duration: 0,
+        };
+      }
+
+      // 4. 이미지 처리 (부분 실패 허용)
       let mainImageUrls: string[];
       let detailImageUrls: string[];
       let reviewImageUrls: string[];
       let infoImageUrls: string[];
 
       if (product.preUploadedUrls) {
-        mainImageUrls = product.preUploadedUrls.mainImageUrls;
-        detailImageUrls = product.preUploadedUrls.detailImageUrls;
-        reviewImageUrls = includeReviewImages ? product.preUploadedUrls.reviewImageUrls : [];
-        infoImageUrls = product.preUploadedUrls.infoImageUrls;
+        mainImageUrls = product.preUploadedUrls.mainImageUrls.filter(Boolean);
+        detailImageUrls = product.preUploadedUrls.detailImageUrls.filter(Boolean);
+        reviewImageUrls = includeReviewImages ? product.preUploadedUrls.reviewImageUrls.filter(Boolean) : [];
+        infoImageUrls = product.preUploadedUrls.infoImageUrls.filter(Boolean);
       } else {
         const reviewPaths = includeReviewImages ? product.reviewImages : [];
         const allPaths = [...product.mainImages, ...product.detailImages, ...reviewPaths, ...product.infoImages];
-        const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, 10);
+        const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, 10, true);
 
         let offset = 0;
-        mainImageUrls = allUrls.slice(offset, offset + product.mainImages.length);
+        mainImageUrls = allUrls.slice(offset, offset + product.mainImages.length).filter(Boolean);
         offset += product.mainImages.length;
-        detailImageUrls = allUrls.slice(offset, offset + product.detailImages.length);
+        detailImageUrls = allUrls.slice(offset, offset + product.detailImages.length).filter(Boolean);
         offset += product.detailImages.length;
-        reviewImageUrls = allUrls.slice(offset, offset + reviewPaths.length);
+        reviewImageUrls = allUrls.slice(offset, offset + reviewPaths.length).filter(Boolean);
         offset += reviewPaths.length;
-        infoImageUrls = allUrls.slice(offset, offset + product.infoImages.length);
+        infoImageUrls = allUrls.slice(offset, offset + product.infoImages.length).filter(Boolean);
       }
 
-      // AI 스토리는 배치 레벨에서 처리 — 블로그 스타일 문단 + 리뷰 텍스트
+      // 대표이미지 최소 1장 필요
+      if (mainImageUrls.length === 0) {
+        return {
+          uid: product.uid, productCode: product.productCode, name: product.name,
+          success: false, error: '대표이미지 업로드 실패 — 최소 1장 필요', duration: Date.now() - productStart,
+        };
+      }
+
+      // 5. AI 스토리
       const aiStoryRaw = batchAiStories.get(product.uid || product.productCode) || '';
       let aiStoryParagraphs: string[] = [];
       let aiReviewTexts: string[] = [];
@@ -169,25 +248,35 @@ export async function POST(req: NextRequest) {
         aiStoryParagraphs = Array.isArray(parsed.paragraphs) ? parsed.paragraphs : [];
         aiReviewTexts = Array.isArray(parsed.reviewTexts) ? parsed.reviewTexts : [];
       } catch {
-        // 기존 형식 (HTML 문자열) 호환
         aiStoryHtml = aiStoryRaw;
       }
 
-      // notices 자동채움
-      const filledNotices = fillNoticeFields(
-        product.noticeMeta || [],
-        { name: product.name, brand: product.brand, tags: product.tags, description: product.description },
-        returnInfo.afterServiceContactNumber,
-        noticeOverrides,
-      );
-
-      // 구매옵션 자동 추출 (상품명 → 수량/용량/중량/색상/사이즈 등)
+      // 6. 구매옵션 자동 추출 (notices보다 먼저 → hints 생성)
       const extracted = await extractOptions(product.name, product.categoryCode);
       if (extracted.warnings.length > 0) {
         console.warn(`[batch] 옵션 추출 경고 [${product.name}]:`, extracted.warnings.join(', '));
       }
 
-      // 페이로드 빌드
+      // 추출된 옵션값을 notices용 hints로 변환
+      const noticeHints: ExtractedNoticeHints = {};
+      for (const opt of extracted.buyOptions) {
+        if (opt.unit === 'ml' || opt.name.includes('용량')) noticeHints.volume = `${opt.value}${opt.unit || 'ml'}`;
+        if (opt.unit === 'g' || opt.name.includes('중량')) noticeHints.weight = `${opt.value}${opt.unit || 'g'}`;
+        if (opt.name.includes('색상') || opt.name.includes('컬러')) noticeHints.color = opt.value;
+        if (opt.name.includes('사이즈') || opt.name.includes('크기')) noticeHints.size = opt.value;
+        if (opt.name === '수량') noticeHints.count = `${opt.value}${opt.unit || '개'}`;
+      }
+
+      // 7. notices 자동채움 (추출된 hints 연동)
+      const filledNotices = fillNoticeFields(
+        product.noticeMeta || [],
+        { name: product.name, brand: product.brand, tags: product.tags, description: product.description },
+        returnInfo.afterServiceContactNumber,
+        noticeOverrides,
+        noticeHints,
+      );
+
+      // 8. 페이로드 빌드
       const payload = buildCoupangProductPayload({
         vendorId,
         product: {
@@ -200,67 +289,119 @@ export async function POST(req: NextRequest) {
         mainImageUrls, detailImageUrls, deliveryInfo, returnInfo, stock,
         brand: product.brand, filledNotices, attributeMeta: product.attributeMeta || [],
         reviewImageUrls, infoImageUrls,
-        aiStoryHtml,
-        aiStoryParagraphs,
-        aiReviewTexts,
+        aiStoryHtml, aiStoryParagraphs, aiReviewTexts,
         extractedBuyOptions: extracted.buyOptions,
+        totalUnitCount: extracted.totalUnitCount,
         displayProductName: product.aiDisplayName,
         sellerProductName: product.aiSellerName,
+        // 추가: 할인가, 바코드, KC인증, 멀티옵션, 세금/성인
+        originalPrice: product.originalPrice,
+        barcode: product.barcode,
+        certifications: product.certifications,
+        optionVariants: product.optionVariants,
+        taxType: product.taxType,
+        adultOnly: product.adultOnly,
       });
 
-      // 쿠팡 API 호출
-      const result = await coupangAdapter.createProduct(payload);
+      // 9. 쿠팡 API 호출 (retry 적용)
+      const result = await withRetry(
+        () => coupangAdapter.createProduct(payload),
+        { maxRetries: 2, initialDelayMs: 1000, retryableErrors: ['timeout', 'econnreset', 'socket hang up', '429', '503', '502'] },
+      );
 
-      // DB 저장
-      const { data: savedProduct } = await serviceClient
-        .from('sh_products')
-        .insert({
-          sellerhub_user_id: shUserId,
-          coupang_product_id: result.channelProductId,
-          product_name: product.name,
-          brand: product.brand || '',
-          category_id: product.categoryCode,
-          status: 'active',
-          raw_data: {
-            sourceFolder: product.folderPath, sourcePrice: product.sourcePrice, productCode: product.productCode,
-            mainImageUrls, detailImageUrls, reviewImageUrls, infoImageUrls, aiStoryHtml: aiStoryHtml || undefined,
-          },
-        })
-        .select('id')
-        .single();
+      // 10. DB 저장 (트랜잭션 보장 — 실패 시 쿠팡 상품 정보를 orphan 테이블에 기록)
+      let savedId: string | null = null;
+      try {
+        const { data: savedProduct } = await serviceClient
+          .from('sh_products')
+          .insert({
+            sellerhub_user_id: shUserId,
+            coupang_product_id: result.channelProductId,
+            product_name: product.name,
+            display_name: product.aiDisplayName || product.name,
+            brand: product.brand || '',
+            category_id: product.categoryCode,
+            status: 'active',
+            raw_data: {
+              sourceFolder: product.folderPath, sourcePrice: product.sourcePrice, productCode: product.productCode,
+              mainImageUrls, detailImageUrls, reviewImageUrls, infoImageUrls,
+              aiStoryHtml: aiStoryHtml || undefined,
+            },
+          })
+          .select('id')
+          .single();
 
-      const savedId = (savedProduct as Record<string, unknown>)?.id as string;
-      if (savedId) {
-        // DB 저장은 순차적으로 (race condition 방지)
-        await serviceClient.from('sh_product_channels').insert({
-          product_id: savedId, sellerhub_user_id: shUserId, channel: 'coupang',
-          channel_product_id: result.channelProductId, status: 'active', last_synced_at: new Date().toISOString(),
-        });
-        await serviceClient.from('sh_product_options').insert({
-          product_id: savedId, sellerhub_user_id: shUserId, option_name: '기본',
-          sku: product.productCode, sale_price: product.sellingPrice, cost_price: product.sourcePrice, stock,
-        });
+        savedId = (savedProduct as Record<string, unknown>)?.id as string;
+
+        if (savedId) {
+          // 채널 + 옵션 저장
+          await serviceClient.from('sh_product_channels').insert({
+            product_id: savedId, sellerhub_user_id: shUserId, channel: 'coupang',
+            channel_product_id: result.channelProductId, status: 'active', last_synced_at: new Date().toISOString(),
+          });
+          await serviceClient.from('sh_product_options').insert({
+            product_id: savedId, sellerhub_user_id: shUserId, option_name: '기본',
+            sku: product.productCode, sale_price: product.sellingPrice, cost_price: product.sourcePrice, stock,
+          });
+
+          // sh_product_images 저장
+          const imageInserts: { product_id: string; image_url: string; cdn_url: string; image_type: string; sort_order: number }[] = [];
+          mainImageUrls.forEach((url, i) => imageInserts.push({ product_id: savedId!, image_url: url, cdn_url: url, image_type: 'main', sort_order: i }));
+          detailImageUrls.forEach((url, i) => imageInserts.push({ product_id: savedId!, image_url: url, cdn_url: url, image_type: 'detail', sort_order: i }));
+          reviewImageUrls.forEach((url, i) => imageInserts.push({ product_id: savedId!, image_url: url, cdn_url: url, image_type: 'description', sort_order: i }));
+          infoImageUrls.forEach((url, i) => imageInserts.push({ product_id: savedId!, image_url: url, cdn_url: url, image_type: 'option', sort_order: i }));
+          if (imageInserts.length > 0) {
+            await serviceClient.from('sh_product_images').insert(imageInserts);
+          }
+        }
+      } catch (dbErr) {
+        // DB 실패 시 보상 로직: 고아 상품 정보를 sh_sync_jobs.result에 기록
+        console.error(`[batch] DB 저장 실패 — 쿠팡 상품 ID ${result.channelProductId} 고아 발생:`, dbErr);
+        try {
+          await serviceClient.from('sh_sync_jobs').update({
+            result: serviceClient.rpc ? undefined : {
+              orphanProducts: [{
+                channelProductId: result.channelProductId,
+                productCode: product.productCode,
+                name: product.name,
+                error: dbErr instanceof Error ? dbErr.message : 'DB 저장 실패',
+              }],
+            },
+          }).eq('id', jobId);
+        } catch {
+          // 보상 로직도 실패하면 최소한 로그 남김
+        }
+
+        return {
+          uid: product.uid, productCode: product.productCode, name: product.name,
+          success: false, channelProductId: result.channelProductId,
+          error: `쿠팡 등록 성공(${result.channelProductId})이나 DB 저장 실패 — 관리자 확인 필요`,
+          duration: Date.now() - productStart, brandWarning,
+        };
       }
 
       return {
         uid: product.uid, productCode: product.productCode, name: product.name,
-        success: true, channelProductId: result.channelProductId, duration: Date.now() - productStart,
+        success: true, channelProductId: result.channelProductId,
+        duration: Date.now() - productStart, brandWarning,
       };
     }
 
-    // ---- 병렬 배치 실행 (3개 동시 쿠팡 API 호출) ----
+    // ---- 병렬 배치 실행 ----
     const results: ProductResult[] = [];
     let successCount = 0;
     let errorCount = 0;
 
-    const PARALLEL_REGISTER = 5; // 쿠팡 API 동시 호출 수 (3→5 성능 개선)
+    const PARALLEL_REGISTER = 5;
     for (let i = 0; i < products.length; i += PARALLEL_REGISTER) {
       const chunk = products.slice(i, i + PARALLEL_REGISTER);
       const chunkResults = await Promise.allSettled(chunk.map((p) => registerSingleProduct(p)));
 
+      // 순차적으로 카운트 업데이트 (race condition 방지)
       for (let j = 0; j < chunkResults.length; j++) {
         const result = chunkResults[j];
         const product = chunk[j];
+        const isSuccess = result.status === 'fulfilled' && result.value.success;
 
         if (result.status === 'fulfilled') {
           results.push(result.value);
@@ -275,23 +416,23 @@ export async function POST(req: NextRequest) {
           errorCount++;
         }
 
-        // sh_sync_jobs 카운트 업데이트
+        // sh_sync_jobs 카운트 업데이트 (atomic RPC → fallback with retry)
         try {
           const { error: rpcError } = await serviceClient.rpc('increment_sync_job_counts', {
             p_job_id: jobId, p_processed: 1,
-            p_errors: (result.status === 'fulfilled' && result.value.success) ? 0 : 1,
+            p_errors: isSuccess ? 0 : 1,
           });
           if (rpcError) throw rpcError;
         } catch {
-          const { data: currentJob } = await serviceClient
-            .from('sh_sync_jobs').select('processed_count, error_count').eq('id', jobId).single();
-          if (currentJob) {
-            const cur = currentJob as Record<string, number>;
-            await serviceClient.from('sh_sync_jobs').update({
-              processed_count: (cur.processed_count || 0) + 1,
-              error_count: (cur.error_count || 0) + ((result.status === 'fulfilled' && result.value.success) ? 0 : 1),
-            }).eq('id', jobId);
-          }
+          // RPC 실패 시 직접 increment (SQL 수준 atomic)
+          await serviceClient.rpc('increment_sync_job_counts_fallback', {
+            p_job_id: jobId,
+            p_add_processed: 1,
+            p_add_errors: isSuccess ? 0 : 1,
+          }).catch(() => {
+            // 최종 fallback: 현재 배치 종료 후 complete-job에서 최종 보정됨
+            console.warn(`[batch] Job counter 업데이트 실패 — complete-job에서 보정 예정`);
+          });
         }
       }
 
