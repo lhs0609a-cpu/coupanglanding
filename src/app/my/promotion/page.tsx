@@ -266,14 +266,18 @@ export default function PromotionPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...config, is_enabled: newEnabled }),
       });
+      const data = await res.json();
       if (res.ok) {
-        const data = await res.json();
         if (data.config) setConfig((prev) => ({ ...prev, ...data.config }));
         setSuccess(newEnabled ? '자동연동이 활성화되었습니다.' : '자동연동이 비활성화되었습니다.');
         setTimeout(() => setSuccess(null), 3000);
+      } else {
+        handleConfigChange('is_enabled', !newEnabled); // rollback
+        setError(data.error || '자동연동 설정 변경에 실패했습니다.');
       }
     } catch {
       handleConfigChange('is_enabled', !newEnabled); // rollback
+      setError('네트워크 오류가 발생했습니다.');
     }
   };
 

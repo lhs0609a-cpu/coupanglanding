@@ -131,7 +131,11 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error('쿠폰 자동 동기화 설정 저장 오류:', error);
-      return NextResponse.json({ error: '설정 저장에 실패했습니다.' }, { status: 500 });
+      const detail = error.message || error.code || '';
+      return NextResponse.json(
+        { error: `설정 저장에 실패했습니다.${detail ? ` (${detail})` : ''}` },
+        { status: 500 },
+      );
     }
 
     return NextResponse.json({ config });

@@ -359,7 +359,7 @@ export async function POST(req: NextRequest) {
         console.error(`[batch] DB 저장 실패 — 쿠팡 상품 ID ${result.channelProductId} 고아 발생:`, dbErr);
         try {
           await serviceClient.from('sh_sync_jobs').update({
-            result: serviceClient.rpc ? undefined : {
+            result: {
               orphanProducts: [{
                 channelProductId: result.channelProductId,
                 productCode: product.productCode,
@@ -425,14 +425,16 @@ export async function POST(req: NextRequest) {
           if (rpcError) throw rpcError;
         } catch {
           // RPC 실패 시 직접 increment (SQL 수준 atomic)
-          await serviceClient.rpc('increment_sync_job_counts_fallback', {
-            p_job_id: jobId,
-            p_add_processed: 1,
-            p_add_errors: isSuccess ? 0 : 1,
-          }).catch(() => {
+          try {
+            await serviceClient.rpc('increment_sync_job_counts_fallback', {
+              p_job_id: jobId,
+              p_add_processed: 1,
+              p_add_errors: isSuccess ? 0 : 1,
+            });
+          } catch {
             // 최종 fallback: 현재 배치 종료 후 complete-job에서 최종 보정됨
             console.warn(`[batch] Job counter 업데이트 실패 — complete-job에서 보정 예정`);
-          });
+          }
         }
       }
 

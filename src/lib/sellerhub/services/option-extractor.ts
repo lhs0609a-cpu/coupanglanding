@@ -96,15 +96,9 @@ function extractComposite(name: string): CompositeResult {
 function extractCount(name: string, composite: CompositeResult): number {
   if (composite.count) return composite.count;
 
-<<<<<<< Updated upstream
   // "N개입", "N개월" 제외, "N매 x" 패턴도 제외 (composite에서 처리됨)
   // 수량 단위: 개, 팩, 세트, 박스, 봉, 병, 통, 족, 켤레, 롤, 포, EA, P
   const match = name.match(/(\d+)\s*(개(?!입|월)|팩|세트|박스|봉|병|통|족|켤레|롤|포(?!기)|EA|ea|P)(?!\s*[xX×])/i);
-=======
-  // "N개입"은 제외, "N매 x" 패턴도 제외 (composite에서 처리됨)
-  // 수량 단위: 개, 입, 팩, 세트, 박스, 봉, 병, 통, 족, 켤레, 롤, EA, P
-  const match = name.match(/(\d+)\s*(개(?!입)|팩|세트|박스|봉|병|통|족|켤레|롤|EA|ea|P)(?!\s*[xX×])/i);
->>>>>>> Stashed changes
   if (match) return parseInt(match[1], 10);
 
   // "N입"도 수량이 될 수 있음 — 단, "N개입"과 구분 필요
@@ -193,26 +187,11 @@ function extractPerCount(name: string, composite: CompositeResult): number | nul
  * 정/캡슐 앞의 숫자가 성분 함량 뒤에 오는지 확인
  */
 function extractTabletCount(name: string): number | null {
-<<<<<<< Updated upstream
   // "비타민C 1000mg 120정 3개" → 120 추출
   // "콜라겐 2000mg 30포" → 30 추출
   // mg/mcg는 단위 리스트에 없으므로 자연스럽게 "1000mg"는 매칭 안 됨
   const match = name.match(/(\d+)\s*(정|캡슐|알|타블렛|소프트젤|포(?!기|인))/);
   if (match) return parseInt(match[1], 10);
-=======
-  // "NNN정", "NNN캡슐" — mg/mcg 뒤의 숫자와 분리
-  // "비타민C 1000mg 120정 3개" → 120 추출 (1000 아님)
-  // 패턴: 숫자 + 정/캡슐 단위, 단 바로 앞에 mg/mcg가 아닌 것
-  const match = name.match(/(?:^|[^0-9])(\d+)\s*(정|캡슐|알|타블렛|소프트젤)/);
-  if (match) {
-    const val = parseInt(match[1], 10);
-    // mg/mcg 직후의 숫자가 아닌지 확인 (이미 성분 함량으로 파싱된 값이면 스킵)
-    const pos = name.indexOf(match[0]);
-    const before = name.substring(Math.max(0, pos - 5), pos);
-    if (/\d+\s*(mg|mcg|iu)\s*$/.test(before)) return null;
-    return val;
-  }
->>>>>>> Stashed changes
   return null;
 }
 
@@ -265,13 +244,8 @@ function normalizeOptionName(name: string): string {
  * 카테고리의 buyOptions 정의를 읽고, 각 옵션에 맞는 값을
  * 상품명에서 패턴 매칭으로 추출한다.
  */
-<<<<<<< Updated upstream
 export async function extractOptions(productName: string, categoryCode: string): Promise<ExtractedOptions> {
   const details = await getCategoryDetails(categoryCode);
-=======
-export function extractOptions(productName: string, categoryCode: string): ExtractedOptions {
-  const details = getCategoryDetails(categoryCode);
->>>>>>> Stashed changes
   if (!details) {
     console.warn(`[option-extractor] Category ${categoryCode} not found in details DB`);
     return { buyOptions: [], confidence: 0, warnings: [`카테고리 ${categoryCode}를 찾을 수 없습니다.`] };
@@ -293,7 +267,6 @@ export function extractOptionsFromDetails(productName: string, details: Category
   const result: { name: string; value: string; unit?: string }[] = [];
   const warnings: string[] = [];
 
-<<<<<<< Updated upstream
   // ── 1단계: 모든 옵션의 값을 먼저 추출 (순서 무관하게) ──
   const extracted = new Map<string, { value: string; unit?: string }>();
 
@@ -310,48 +283,6 @@ export function extractOptionsFromDetails(productName: string, details: Category
     } else if (name === '개당 중량' && unit === 'g') {
       const g = extractWeightG(productName, composite);
       if (g !== null) value = String(g);
-=======
-  // 택1 그룹 처리: c1===true인 옵션들은 하나만 값을 채우면 됨
-  const choose1Names = buyOpts.filter((o) => o.choose1).map((o) => normalizeOptionName(o.name));
-  let choose1Filled = false;
-
-  for (const opt of buyOpts) {
-    const rawName = opt.name;
-    const name = normalizeOptionName(rawName);
-    const unit = opt.unit;
-
-    let value: string | null = null;
-
-    // 택1 그룹: 이미 하나가 채워졌으면 나머지 스킵
-    if (opt.choose1 && choose1Filled) {
-      continue;
-    }
-
-    // ── 옵션별 추출 로직 ──
-
-    if (name === '수량' && unit === '개') {
-      const count = extractCount(productName, composite);
-      value = String(count);
-    } else if (name === '개당 용량' && unit === 'ml') {
-      const ml = extractVolumeMl(productName, composite);
-      if (ml !== null) {
-        value = String(ml);
-        if (opt.choose1) choose1Filled = true;
-      }
-    } else if (name === '개당 중량' && unit === 'g') {
-      // 택1인 경우: 용량(ml)이 없을 때만 중량 시도
-      if (opt.choose1 && choose1Names.includes('개당 용량')) {
-        // 용량이 먼저 시도되므로, 여기 도달 = 용량이 없었음
-        const g = extractWeightG(productName, composite);
-        if (g !== null) {
-          value = String(g);
-          choose1Filled = true;
-        }
-      } else {
-        const g = extractWeightG(productName, composite);
-        if (g !== null) value = String(g);
-      }
->>>>>>> Stashed changes
     } else if (name === '개당 수량' && unit === '개') {
       const perCount = extractPerCount(productName, composite);
       if (perCount !== null) value = String(perCount);
@@ -365,7 +296,6 @@ export function extractOptionsFromDetails(productName: string, details: Category
     }
 
     if (value !== null) {
-<<<<<<< Updated upstream
       extracted.set(opt.name, { value, unit });
     }
   }
@@ -424,38 +354,12 @@ export function extractOptionsFromDetails(productName: string, details: Category
   let filledRequired = 0;
 
   if (choose1Opts.some((o) => o.required)) {
-=======
-      result.push({ name: rawName, value, unit });
-    } else if (opt.required && !(opt.choose1 && choose1Filled)) {
-      warnings.push(`필수 옵션 '${rawName}' 값을 추출할 수 없습니다.`);
-    }
-  }
-
-  // Confidence 계산: 필수 옵션 중 채워진 비율
-  const requiredOpts = buyOpts.filter((o) => o.required);
-  // 택1 그룹은 하나만 채우면 됨
-  const choose1Group = buyOpts.filter((o) => o.choose1 && o.required);
-  const nonChoose1Required = requiredOpts.filter((o) => !o.choose1);
-
-  let totalRequired = nonChoose1Required.length;
-  let filledRequired = 0;
-
-  // 택1 그룹이 있으면 1개로 카운트
-  if (choose1Group.length > 0) {
->>>>>>> Stashed changes
     totalRequired += 1;
     if (choose1Filled) filledRequired += 1;
   }
 
   for (const req of nonChoose1Required) {
-<<<<<<< Updated upstream
     if (result.some((r) => r.name === req.name)) filledRequired += 1;
-=======
-    const rawName = req.name;
-    if (result.some((r) => r.name === rawName)) {
-      filledRequired += 1;
-    }
->>>>>>> Stashed changes
   }
 
   const confidence = totalRequired > 0 ? filledRequired / totalRequired : 1;
@@ -475,7 +379,6 @@ export function extractOptionsFromDetails(productName: string, details: Category
     totalUnitCount: totalUnitCount > 0 ? totalUnitCount : undefined,
   };
 }
-<<<<<<< Updated upstream
 
 // ─── 필수 옵션 기본값 (추출 실패 시 쿠팡 등록 거부 방지) ──
 
@@ -489,7 +392,6 @@ function getRequiredFallback(optionName: string, productName: string): string | 
 
   // 색상 계열
   if (n.includes('색상') || n.includes('컬러') || n === '색') {
-    // 상품명에서 다시 한번 색상 시도 (좀 더 넓은 매칭)
     const color = extractColor(productName);
     return color || '상세페이지 참조';
   }
@@ -561,7 +463,6 @@ function getRequiredFallback(optionName: string, productName: string): string | 
 
   // 신발사이즈
   if (n.includes('신발')) {
-    // 숫자 3자리 (230~300) 추출
     const shoeMatch = productName.match(/(\d{3})\s*(mm)?/);
     if (shoeMatch) return shoeMatch[1];
     return '상세페이지 참조';
@@ -618,5 +519,3 @@ function getRequiredFallback(optionName: string, productName: string): string | 
 
   return null;
 }
-=======
->>>>>>> Stashed changes
