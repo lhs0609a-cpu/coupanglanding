@@ -527,19 +527,52 @@ export async function fetchDownloadCoupons(
   }
 }
 
-/** 다운로드 쿠폰 단건 조회
- *  ⚠️ marketplace_openapi v1 폐기(410)됨 — 에러 시 null 반환 */
+/** 쿠폰 단건 조회 (FMS + marketplace_openapi 폴백)
+ *  FMS 쿠폰 목록에서 couponId로 검색 → 실패 시 marketplace_openapi 시도 */
 export async function fetchDownloadCoupon(
   credentials: CoupangCredentials,
   couponId: number,
 ): Promise<CoupangCoupon | null> {
+  // 1차: FMS 쿠폰 목록에서 해당 couponId 찾기 (FMS API는 작동 중)
+  try {
+    const fmsPath = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupons`;
+    const fmsData = await callCoupangApi(credentials, 'GET', fmsPath) as Record<string, unknown>;
+
+    let couponsList: Record<string, unknown>[] = [];
+    if (Array.isArray(fmsData.data)) {
+      couponsList = fmsData.data as Record<string, unknown>[];
+    } else if (typeof fmsData.data === 'object' && fmsData.data !== null) {
+      const inner = fmsData.data as Record<string, unknown>;
+      if (Array.isArray(inner.content)) couponsList = inner.content as Record<string, unknown>[];
+    }
+
+    const found = couponsList.find((c) => Number(c.couponId) === couponId);
+    if (found) {
+      console.log(`[fetchDownloadCoupon] FMS 쿠폰 목록에서 ${couponId} 발견`);
+      console.log('[fetchDownloadCoupon] 쿠폰 데이터:', JSON.stringify(found).slice(0, 500));
+      return {
+        couponId: Number(found.couponId),
+        couponName: String(found.couponName || found.title || ''),
+        couponStatus: String(found.couponStatus || found.status || ''),
+        contractId: Number(found.contractId || 0),
+        startDate: String(found.startDate || ''),
+        endDate: String(found.endDate || ''),
+        policies: (found.couponPolicies || found.policies || []) as unknown[],
+      };
+    }
+    console.log(`[fetchDownloadCoupon] FMS 쿠폰 목록에 ${couponId} 없음 (총 ${couponsList.length}개)`);
+  } catch (err) {
+    console.warn('[fetchDownloadCoupon] FMS 쿠폰 목록 조회 실패:', err instanceof Error ? err.message : err);
+  }
+
+  // 2차: marketplace_openapi 단건 조회 (폐기됐을 수 있음)
   try {
     const path = `${MKT_OPENAPI_BASE}/coupons/${couponId}`;
     const data = await callCoupangApi(credentials, 'GET', path) as { data?: CoupangCoupon };
     return data.data || null;
   } catch (err) {
     if (err instanceof CoupangApiError && (err.statusCode === 410 || err.statusCode === 404)) {
-      console.warn(`[fetchDownloadCoupon] 다운로드 쿠폰 API 폐기됨 (${err.statusCode}), null 반환`);
+      console.warn(`[fetchDownloadCoupon] marketplace_openapi 쿠폰 API 폐기됨 (${err.statusCode})`);
       return null;
     }
     throw err;

@@ -432,15 +432,25 @@ export default function PromotionPage() {
 
   const handleCopyPolicies = async (couponId: number) => {
     setCopyingPolicies(true);
+    setError(null);
     try {
       const res = await fetch(`/api/promotion/coupons/download/${couponId}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.data?.policies) {
-          handleConfigChange('download_coupon_policies', data.data.policies);
+      const data = await res.json();
+      if (res.ok && data.data) {
+        const policies = data.data.policies || data.data.couponPolicies || [];
+        if (policies.length > 0) {
+          handleConfigChange('download_coupon_policies', policies);
+          setSuccess(`정책 ${policies.length}개를 복사했습니다.`);
+          setTimeout(() => setSuccess(null), 3000);
+        } else {
+          setError(`쿠폰 ${couponId}에 정책 데이터가 없습니다. 다른 쿠폰 ID를 시도해주세요.`);
         }
+      } else {
+        setError(data.error || `쿠폰 ${couponId} 조회에 실패했습니다.`);
       }
-    } catch { /* ignore */ } finally {
+    } catch {
+      setError('정책 복사 중 네트워크 오류가 발생했습니다.');
+    } finally {
       setCopyingPolicies(false);
     }
   };

@@ -42,9 +42,8 @@ export async function GET(
 
     if (!coupon) {
       return NextResponse.json({
-        error: '다운로드 쿠폰 API가 폐기(410)되어 조회할 수 없습니다. 쿠팡 WING에서 직접 확인해주세요.',
-        retired: true,
-      }, { status: 410 });
+        error: `쿠폰 ID ${couponId}을(를) 찾을 수 없습니다. 쿠팡 WING에서 정확한 쿠폰 ID를 확인해주세요.`,
+      }, { status: 404 });
     }
 
     return NextResponse.json({ data: coupon });
