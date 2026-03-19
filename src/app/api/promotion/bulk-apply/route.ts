@@ -6,6 +6,7 @@ import {
   createInstantCoupon,
   createDownloadCoupon,
   addDownloadCouponItems,
+  checkDownloadCouponStatus,
 } from '@/lib/utils/coupang-api-client';
 import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -114,27 +115,59 @@ async function createDownloadCouponBatch(
     .replace('{date}', dateStr)
     .replace('{n}', String(batchNumber));
 
+  // policies 검증 — 빈 배열이면 쿠팡 API가 거부함
+  const policies = config.download_coupon_policies || [];
+  if (policies.length === 0) {
+    throw new Error('다운로드 쿠폰 정책(policies)이 설정되지 않았습니다. 기존 쿠폰에서 정책을 복사해주세요.');
+  }
+
   // Step 1: 다운로드 쿠폰 생성 (아이템 없이)
   const newCoupon = await createDownloadCoupon(credentials, {
     title,
     startDate: now.toISOString(),
     endDate: endDate.toISOString(),
-    policies: config.download_coupon_policies || [],
+    policies,
     contractId: config.contract_id,
   });
 
-  const couponId = newCoupon.couponId;
+  let couponId = newCoupon.couponId;
   const couponName = newCoupon.couponName || title;
+
+  // 비동기 API: couponId=0이면 requestTransactionId로 상태 확인하여 couponId 획득
+  if (couponId === 0 && newCoupon.requestTransactionId) {
+    console.log(`[bulk-apply] 다운로드 쿠폰 비동기 생성 — 상태 확인 중 (${newCoupon.requestTransactionId})`);
+    // 최대 3회 폴링 (각 2초 대기)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      try {
+        const statusResult = await checkDownloadCouponStatus(credentials, newCoupon.requestTransactionId) as {
+          data?: { couponId?: number; status?: string };
+          status?: string;
+          couponId?: number;
+        };
+        const resolvedId = statusResult.data?.couponId || statusResult.couponId;
+        if (resolvedId && resolvedId > 0) {
+          couponId = resolvedId;
+          console.log(`[bulk-apply] 비동기 쿠폰 ID 확인: ${couponId} (attempt ${attempt + 1})`);
+          break;
+        }
+        console.log(`[bulk-apply] 비동기 쿠폰 상태: ${statusResult.data?.status || statusResult.status || 'unknown'} (attempt ${attempt + 1})`);
+      } catch (err) {
+        console.warn(`[bulk-apply] 비동기 상태 확인 실패 (attempt ${attempt + 1}):`, err instanceof Error ? err.message : err);
+      }
+    }
+
+    if (couponId === 0) {
+      throw new Error(`다운로드 쿠폰 생성이 비동기 처리 중입니다 (requestTransactionId: ${newCoupon.requestTransactionId}). 잠시 후 다시 시도해주세요.`);
+    }
+  }
 
   console.log(`[bulk-apply] 다운로드 쿠폰 생성 완료: ${couponId} (${couponName})`);
 
   // Step 2: 아이템 등록 (별도 API 호출)
-  if (couponId > 0 && vendorItemIds.length > 0) {
+  if (vendorItemIds.length > 0) {
     console.log(`[bulk-apply] 다운로드 쿠폰 ${couponId}에 ${vendorItemIds.length}개 아이템 등록`);
     await addDownloadCouponItems(credentials, couponId, vendorItemIds);
-  } else if (couponId === 0) {
-    // 비동기 처리 — couponId가 아직 확정 안된 경우
-    console.warn(`[bulk-apply] 다운로드 쿠폰 비동기 생성됨 (requestTransactionId: ${newCoupon.requestTransactionId}). 아이템 등록 보류.`);
   }
 
   console.log(`[bulk-apply] 다운로드 쿠폰 배치 완료: ${couponId}, ${vendorItemIds.length}개 아이템`);
@@ -330,16 +363,22 @@ export async function POST(request: NextRequest) {
     // Phase 2: 다운로드 쿠폰 배치 생성
     // ═══════════════════════════════════════════════════════
     if (config.download_coupon_enabled && config.contract_id) {
-      // 다운로드 쿠폰 미적용 + pending 아이템 (즉시할인만 하는 경우 이미 completed로 바뀜)
-      // 즉시할인+다운로드 모두 활성화 → instant 적용 후 다시 pending이 된 아이템
-      // 즉시할인 비활성화 → 처음부터 pending인 아이템
-      const { data: downloadBatch } = await serviceClient
+      // 다운로드 쿠폰 적용 대상 쿼리:
+      // - 즉시할인 활성 → instant_coupon_applied=true인 pending만 (즉시할인 먼저 완료된 것)
+      // - 즉시할인 비활성 → 모든 pending
+      let downloadQuery = serviceClient
         .from('product_coupon_tracking')
         .select('*')
         .eq('pt_user_id', ptUser.id)
         .eq('status', 'pending')
         .order('created_at', { ascending: true })
         .limit(DOWNLOAD_BATCH_SIZE);
+
+      if (config.instant_coupon_enabled) {
+        downloadQuery = downloadQuery.eq('instant_coupon_applied', true);
+      }
+
+      const { data: downloadBatch } = await downloadQuery;
 
       if (downloadBatch && downloadBatch.length > 0) {
         const validItems = downloadBatch.filter((p) => p.vendor_item_id && !isNaN(Number(p.vendor_item_id)));

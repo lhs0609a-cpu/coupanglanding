@@ -166,6 +166,17 @@ export default function DownloadCouponCard({
             )}
           </div>
 
+          {/* policies 미설정 경고 */}
+          {policies.length === 0 && (
+            <div className="flex items-start gap-2 p-2.5 bg-red-50 rounded-lg text-xs text-red-700">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>
+                <strong>할인 정책이 설정되지 않았습니다.</strong> 아래에서 기존 쿠폰 ID를 입력하고 &quot;정책 복사&quot;를 눌러 정책을 가져오세요.
+                정책 없이는 쿠폰이 생성되지 않습니다.
+              </span>
+            </div>
+          )}
+
           {/* Copy policies from existing coupon by ID */}
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">

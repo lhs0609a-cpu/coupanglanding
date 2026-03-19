@@ -108,6 +108,7 @@ async function callCoupangApi(
     // Access Key / Secret Key를 헤더로 전달
     headers['X-Coupang-Access-Key'] = credentials.accessKey;
     headers['X-Coupang-Secret-Key'] = credentials.secretKey;
+    headers['X-Coupang-Vendor-Id'] = credentials.vendorId; // X-Requested-By용
     if (PROXY_SECRET) {
       headers['X-Proxy-Secret'] = PROXY_SECRET;
     }
@@ -577,30 +578,69 @@ export async function createDownloadCoupon(
   console.log('[createDownloadCoupon] 요청 경로:', mktPath);
   console.log('[createDownloadCoupon] 요청 body:', JSON.stringify(body).slice(0, 500));
 
-  const data = await callCoupangApi(credentials, 'POST', mktPath, body) as {
+  // 1차: marketplace_openapi (공식 다운로드 쿠폰 엔드포인트)
+  try {
+    const data = await callCoupangApi(credentials, 'POST', mktPath, body) as {
+      data?: CoupangCoupon;
+      code?: string;
+      message?: string;
+      requestTransactionId?: string;
+    };
+
+    console.log('[createDownloadCoupon] marketplace_openapi 응답:', JSON.stringify(data).slice(0, 500));
+
+    if (data.data) return data.data;
+
+    if (data.requestTransactionId) {
+      return {
+        couponId: 0,
+        couponName: params.title,
+        couponStatus: 'PENDING',
+        requestTransactionId: data.requestTransactionId,
+      } as CoupangCoupon & { requestTransactionId: string };
+    }
+
+    // 응답은 성공(2xx)이지만 data도 requestTransactionId도 없는 경우
+    console.warn('[createDownloadCoupon] marketplace_openapi 응답에 data/requestTransactionId 없음:', JSON.stringify(data).slice(0, 300));
+  } catch (mktErr) {
+    // 410 RETIRED면 FMS 폴백 시도
+    if (mktErr instanceof CoupangApiError && (mktErr.statusCode === 410 || mktErr.statusCode === 404)) {
+      console.warn(`[createDownloadCoupon] marketplace_openapi ${mktErr.statusCode} — FMS 폴백 시도`);
+    } else {
+      throw mktErr; // 다른 에러(401, 400 등)는 즉시 throw
+    }
+  }
+
+  // 2차 폴백: FMS 프로바이더 (일부 셀러에서 다운로드 쿠폰도 FMS로 처리 가능)
+  const fmsPath = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupon`;
+  const fmsBody = {
+    ...body,
+    couponType: 'DOWNLOAD', // FMS에서는 명시 필요
+  };
+
+  console.log('[createDownloadCoupon] FMS 폴백 시도:', fmsPath);
+  const fmsData = await callCoupangApi(credentials, 'POST', fmsPath, fmsBody) as {
     data?: CoupangCoupon;
     code?: string;
     message?: string;
     requestTransactionId?: string;
   };
 
-  console.log('[createDownloadCoupon] 응답:', JSON.stringify(data).slice(0, 500));
+  console.log('[createDownloadCoupon] FMS 응답:', JSON.stringify(fmsData).slice(0, 500));
 
-  // 비동기 API — couponId가 data에 있거나, requestTransactionId만 반환될 수 있음
-  if (data.data) return data.data;
+  if (fmsData.data) return fmsData.data;
 
-  // requestTransactionId만 반환된 경우 — couponId 추출 불가능하므로 임시 객체 반환
-  if (data.requestTransactionId) {
+  if (fmsData.requestTransactionId) {
     return {
-      couponId: 0, // 아직 확정 안됨 — status check 필요
+      couponId: 0,
       couponName: params.title,
       couponStatus: 'PENDING',
-      requestTransactionId: data.requestTransactionId,
+      requestTransactionId: fmsData.requestTransactionId,
     } as CoupangCoupon & { requestTransactionId: string };
   }
 
   throw new CoupangApiError(
-    `다운로드 쿠폰 생성 실패: ${data.message || JSON.stringify(data).slice(0, 200)}`,
+    `다운로드 쿠폰 생성 실패 (marketplace_openapi + FMS 모두 실패): ${fmsData.message || JSON.stringify(fmsData).slice(0, 200)}`,
     500,
   );
 }
@@ -618,16 +658,36 @@ export async function addDownloadCouponItems(
   vendorItemIds: (string | number)[],
 ): Promise<{ requestTransactionId?: string }> {
   const numericIds = vendorItemIds.map(Number).filter((n) => !isNaN(n));
+  const body = { vendorItemIds: numericIds };
 
-  const path = `${MKT_OPENAPI_BASE}/coupons/${couponId}/items`;
-  console.log(`[addDownloadCouponItems] 쿠폰 ${couponId}에 ${numericIds.length}개 아이템 등록`);
+  // 1차: marketplace_openapi
+  const mktPath = `${MKT_OPENAPI_BASE}/coupons/${couponId}/items`;
+  console.log(`[addDownloadCouponItems] 쿠폰 ${couponId}에 ${numericIds.length}개 아이템 등록 (marketplace_openapi)`);
 
-  const data = await callCoupangApi(credentials, 'POST', path, { vendorItemIds: numericIds }) as {
+  try {
+    const data = await callCoupangApi(credentials, 'POST', mktPath, body) as {
+      requestTransactionId?: string;
+      code?: string;
+    };
+    console.log('[addDownloadCouponItems] 응답:', JSON.stringify(data).slice(0, 300));
+    return { requestTransactionId: data.requestTransactionId };
+  } catch (err) {
+    if (err instanceof CoupangApiError && (err.statusCode === 410 || err.statusCode === 404)) {
+      console.warn(`[addDownloadCouponItems] marketplace_openapi ${err.statusCode} — FMS 폴백 시도`);
+    } else {
+      throw err;
+    }
+  }
+
+  // 2차 폴백: FMS 프로바이더
+  const fmsPath = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/coupons/${couponId}/items`;
+  console.log(`[addDownloadCouponItems] FMS 폴백: ${fmsPath}`);
+
+  const data = await callCoupangApi(credentials, 'POST', fmsPath, body) as {
     requestTransactionId?: string;
     code?: string;
   };
-
-  console.log('[addDownloadCouponItems] 응답:', JSON.stringify(data).slice(0, 300));
+  console.log('[addDownloadCouponItems] FMS 응답:', JSON.stringify(data).slice(0, 300));
   return { requestTransactionId: data.requestTransactionId };
 }
 

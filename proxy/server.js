@@ -42,7 +42,7 @@ function generateCoupangSignature(method, path, query, secretKey, accessKey) {
 
 // ─── 쿠팡 API 호출 ──────────────────────────────────────────
 
-function callCoupangApi(method, path, query, body, accessKey, secretKey) {
+function callCoupangApi(method, path, query, body, accessKey, secretKey, vendorId) {
   return new Promise((resolve, reject) => {
     const authorization = generateCoupangSignature(method, path, query, secretKey, accessKey);
     const url = `${COUPANG_API_BASE}${path}${query ? '?' + query : ''}`;
@@ -55,7 +55,8 @@ function callCoupangApi(method, path, query, body, accessKey, secretKey) {
       method,
       headers: {
         'Authorization': authorization,
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json;charset=UTF-8',
+        'X-Requested-By': vendorId || accessKey, // 쿠팡 API 필수 헤더
       },
     };
 
@@ -91,7 +92,7 @@ const server = http.createServer(async (req, res) => {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Proxy-Secret, X-Coupang-Access-Key, X-Coupang-Secret-Key');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Proxy-Secret, X-Coupang-Access-Key, X-Coupang-Secret-Key, X-Coupang-Vendor-Id');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -117,6 +118,7 @@ const server = http.createServer(async (req, res) => {
   // ── 쿠팡 API 키 (헤더에서 받음) ──
   const accessKey = req.headers['x-coupang-access-key'];
   const secretKey = req.headers['x-coupang-secret-key'];
+  const vendorId = req.headers['x-coupang-vendor-id'] || ''; // X-Requested-By용
 
   if (!accessKey || !secretKey) {
     res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -157,6 +159,7 @@ const server = http.createServer(async (req, res) => {
       body || undefined,
       accessKey,
       secretKey,
+      vendorId,
     );
     const duration = Date.now() - startTime;
 
