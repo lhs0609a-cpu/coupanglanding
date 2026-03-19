@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchContracts } from '@/lib/utils/coupang-api-client';
-import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
+import type { CoupangCredentials, CoupangContract } from '@/lib/utils/coupang-api-client';
 
 export async function GET() {
   try {
@@ -33,7 +33,28 @@ export async function GET() {
       secretKey: await decryptPassword(ptUser.coupang_secret_key),
     };
 
-    const contracts = await fetchContracts(credentials);
+    let contracts = await fetchContracts(credentials);
+
+    // API에서 못 가져왔으면 → DB에 저장된 contract_id를 fallback으로 사용
+    if (contracts.length === 0) {
+      const serviceClient = await createServiceClient();
+      const { data: config } = await serviceClient
+        .from('coupon_auto_sync_config')
+        .select('contract_id')
+        .eq('pt_user_id', ptUser.id)
+        .maybeSingle();
+
+      if (config?.contract_id) {
+        const savedContract: CoupangContract = {
+          contractId: Number(config.contract_id),
+          contractName: `계약서 #${config.contract_id} (저장된 설정)`,
+          startDate: '',
+          endDate: '',
+          contractStatus: 'ACTIVE',
+        };
+        contracts = [savedContract];
+      }
+    }
 
     return NextResponse.json({
       data: contracts,

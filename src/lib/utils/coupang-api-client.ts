@@ -397,18 +397,26 @@ export async function fetchContracts(
   console.warn('[fetchContracts] 계약서 API 모두 실패 — 쿠폰 목록에서 contractId 추출 시도');
   try {
     const couponsPath = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupons`;
-    const couponsData = await callCoupangApi(credentials, 'GET', couponsPath) as { data?: CoupangCoupon[] };
-    const coupons = couponsData.data || [];
+    const rawCouponsData = await callCoupangApi(credentials, 'GET', couponsPath);
+    // 실제 응답 구조 로깅 (디버깅용)
+    const rawData = rawCouponsData as Record<string, unknown>;
+    console.log('[fetchContracts] FMS 쿠폰 API 원본 응답 키:', Object.keys(rawData));
+    const couponsList = (rawData.data || rawData.content || rawData.results || []) as Record<string, unknown>[];
+    if (couponsList.length > 0) {
+      console.log('[fetchContracts] 첫 번째 쿠폰 필드:', Object.keys(couponsList[0]));
+      console.log('[fetchContracts] 첫 번째 쿠폰 데이터:', JSON.stringify(couponsList[0]).slice(0, 500));
+    }
 
-    // 쿠폰들에서 고유 contractId 추출
+    // 쿠폰들에서 고유 contractId 추출 (다양한 필드명 시도)
     const contractMap = new Map<number, CoupangContract>();
-    for (const coupon of coupons) {
-      if (coupon.contractId && !contractMap.has(coupon.contractId)) {
-        contractMap.set(coupon.contractId, {
-          contractId: coupon.contractId,
-          contractName: `계약서 #${coupon.contractId} (쿠폰에서 추출)`,
-          startDate: coupon.startDate || '',
-          endDate: coupon.endDate || '',
+    for (const coupon of couponsList) {
+      const cid = Number(coupon.contractId || coupon.contract_id || coupon.manageContractId || 0);
+      if (cid > 0 && !contractMap.has(cid)) {
+        contractMap.set(cid, {
+          contractId: cid,
+          contractName: `계약서 #${cid} (쿠폰에서 추출)`,
+          startDate: String(coupon.startDate || coupon.start_date || ''),
+          endDate: String(coupon.endDate || coupon.end_date || ''),
           contractStatus: 'ACTIVE',
         });
       }
@@ -423,7 +431,7 @@ export async function fetchContracts(
     console.warn('[fetchContracts] 쿠폰 목록 조회도 실패:', err instanceof Error ? err.message : err);
   }
 
-  console.warn('[fetchContracts] 모든 방법 실패 — 빈 배열 반환');
+  console.warn('[fetchContracts] 모든 방법 실패 — 빈 배열 반환 (DB fallback은 route에서 처리)');
   return [];
 }
 
