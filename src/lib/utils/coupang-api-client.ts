@@ -634,114 +634,39 @@ export async function createDownloadCoupon(
   console.log('[createDownloadCoupon] 요청 경로:', mktPath);
   console.log('[createDownloadCoupon] 요청 body:', JSON.stringify(body).slice(0, 500));
 
-  // 1차: marketplace_openapi (공식 다운로드 쿠폰 엔드포인트)
-  try {
-    const data = await callCoupangApi(credentials, 'POST', mktPath, body) as {
-      data?: CoupangCoupon;
-      code?: string;
-      message?: string;
-      requestTransactionId?: string;
-    };
+  // marketplace_openapi — 다운로드 쿠폰의 유일한 공식 엔드포인트
+  // FMS는 즉시할인 전용이므로 다운로드 쿠폰 생성 불가 (type=RATE/PRICE만 허용)
+  const data = await callCoupangApi(credentials, 'POST', mktPath, body) as Record<string, unknown>;
 
-    console.log('[createDownloadCoupon] marketplace_openapi 응답:', JSON.stringify(data).slice(0, 500));
+  console.log('[createDownloadCoupon] 응답 전체:', JSON.stringify(data).slice(0, 1000));
 
-    if (data.data) return data.data;
-
-    if (data.requestTransactionId) {
-      return {
-        couponId: 0,
-        couponName: params.title,
-        couponStatus: 'PENDING',
-        requestTransactionId: data.requestTransactionId,
-      } as CoupangCoupon & { requestTransactionId: string };
-    }
-
-    // 응답은 성공(2xx)이지만 data도 requestTransactionId도 없는 경우
-    console.warn('[createDownloadCoupon] marketplace_openapi 응답에 data/requestTransactionId 없음:', JSON.stringify(data).slice(0, 300));
-  } catch (mktErr) {
-    // 410 RETIRED면 FMS 폴백 시도
-    if (mktErr instanceof CoupangApiError && (mktErr.statusCode === 410 || mktErr.statusCode === 404)) {
-      console.warn(`[createDownloadCoupon] marketplace_openapi ${mktErr.statusCode} — FMS 폴백 시도`);
-    } else {
-      throw mktErr; // 다른 에러(401, 400 등)는 즉시 throw
-    }
-  }
-
-  // 2차 폴백: FMS 프로바이더
-  // FMS는 필드명이 다름: name, startAt, endAt, type, discount, maxDiscountPrice
-  const fmsPath = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupon`;
-  const normalizedPolicies = normalizePolicies(params.policies);
-  const firstPolicy = normalizedPolicies[0] || {};
-  const fmsBody = {
-    name: params.title,
-    type: 'DOWNLOAD',
-    startAt: toCoupangDateFormat(params.startDate),
-    endAt: toCoupangDateFormat(params.endDate),
-    contractId: String(params.contractId),
-    vendorId: credentials.vendorId,
-    discount: Number(firstPolicy.discount || 0),
-    maxDiscountPrice: Number(firstPolicy.maximumDiscountPrice || 0),
-    minimumPrice: Number(firstPolicy.minimumPrice || 0),
-    typeOfDiscount: String(firstPolicy.typeOfDiscount || 'RATE'),
-    maxPerDaily: Number(firstPolicy.maxPerDaily || 9999),
-    description: String(firstPolicy.description || params.title),
-    policies: normalizedPolicies,
-    couponPolicies: normalizedPolicies,
-  };
-
-  console.log('[createDownloadCoupon] FMS 폴백 시도:', fmsPath);
-  console.log('[createDownloadCoupon] FMS body:', JSON.stringify(fmsBody).slice(0, 800));
-  const fmsData = await callCoupangApi(credentials, 'POST', fmsPath, fmsBody) as {
-    data?: CoupangCoupon;
-    code?: string;
-    message?: string;
-    requestTransactionId?: string;
-  };
-
-  console.log('[createDownloadCoupon] FMS 응답 전체:', JSON.stringify(fmsData).slice(0, 1000));
-
-  // FMS 응답 구조가 다양할 수 있으므로 유연하게 couponId 추출
-  const raw = fmsData as Record<string, unknown>;
-  const nested = (raw.data || raw.content || raw) as Record<string, unknown>;
-  const extractedCouponId = Number(
-    nested.couponId || nested.id || nested.coupon_id ||
-    raw.couponId || raw.id || 0,
-  );
-  const extractedTxId = String(
-    raw.requestTransactionId || raw.requestedId ||
+  // 응답에서 couponId 또는 requestTransactionId 추출 (다양한 구조 대응)
+  const nested = (data.data || data.content || data) as Record<string, unknown>;
+  const couponId = Number(nested.couponId || nested.id || data.couponId || data.id || 0);
+  const txId = String(
+    data.requestTransactionId || data.requestedId ||
     nested.requestTransactionId || nested.requestedId || '',
   );
 
-  if (extractedCouponId > 0) {
+  if (couponId > 0) {
     return {
-      couponId: extractedCouponId,
-      couponName: String(nested.couponName || nested.name || nested.title || params.title),
+      couponId,
+      couponName: String(nested.couponName || nested.title || params.title),
       couponStatus: String(nested.couponStatus || nested.status || 'CREATED'),
     };
   }
 
-  if (extractedTxId) {
+  if (txId) {
     return {
       couponId: 0,
       couponName: params.title,
       couponStatus: 'PENDING',
-      requestTransactionId: extractedTxId,
-    } as CoupangCoupon & { requestTransactionId: string };
-  }
-
-  // 성공 응답이지만 couponId도 txId도 없는 경우 — 응답 자체가 성공일 수 있음
-  if (raw.code === '200' || raw.code === 200 || raw.success === true || nested.success === true) {
-    console.warn('[createDownloadCoupon] FMS 성공이지만 couponId 없음 — 응답으로 임시 처리');
-    return {
-      couponId: 0,
-      couponName: params.title,
-      couponStatus: 'PENDING',
-      requestTransactionId: `fms-${Date.now()}`,
+      requestTransactionId: txId,
     } as CoupangCoupon & { requestTransactionId: string };
   }
 
   throw new CoupangApiError(
-    `다운로드 쿠폰 생성 실패: ${raw.message || raw.errorMessage || JSON.stringify(raw).slice(0, 300)}`,
+    `다운로드 쿠폰 생성 실패: ${data.message || data.errorMessage || JSON.stringify(data).slice(0, 300)}`,
     500,
   );
 }
