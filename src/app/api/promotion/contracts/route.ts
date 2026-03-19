@@ -35,7 +35,14 @@ export async function GET() {
 
     const contracts = await fetchContracts(credentials);
 
-    return NextResponse.json({ data: contracts });
+    return NextResponse.json({
+      data: contracts,
+      // 계약서가 비어있으면 API 폐기 안내 메시지 포함
+      ...(contracts.length === 0 && {
+        message: '계약서 API가 폐기(410)되어 자동 조회가 불가합니다. 쿠팡 WING에서 계약서 ID를 직접 확인 후 입력해주세요.',
+        retired: true,
+      }),
+    });
   } catch (err) {
     console.error('promotion contracts error:', err);
     const message = err instanceof Error ? err.message : '서버 오류가 발생했습니다.';

@@ -89,6 +89,7 @@ export default function PromotionPage() {
 
   // Coupang data
   const [contracts, setContracts] = useState<CoupangContract[]>([]);
+  const [contractsRetired, setContractsRetired] = useState(false);
   const [instantCoupons, setInstantCoupons] = useState<CoupangCoupon[]>([]);
   const [downloadCoupons, setDownloadCoupons] = useState<CoupangCoupon[]>([]);
   const [copyingPolicies, setCopyingPolicies] = useState(false);
@@ -144,6 +145,7 @@ export default function PromotionPage() {
       if (res.ok) {
         const data = await res.json();
         setContracts(data.data || []);
+        if (data.retired) setContractsRetired(true);
       }
     } catch { /* ignore */ }
   }, []);
@@ -156,6 +158,7 @@ export default function PromotionPage() {
         fetch('/api/promotion/coupons/download').then((r) => r.ok ? r.json() : { data: [] }),
       ]);
       setContracts(contractsRes.data || []);
+      if (contractsRes.retired) setContractsRetired(true);
       setInstantCoupons(instantRes.data || []);
       setDownloadCoupons(downloadRes.data || []);
     } catch { /* ignore */ }
@@ -621,6 +624,7 @@ export default function PromotionPage() {
                     durationDays={config.download_coupon_duration_days ?? 30}
                     policies={(config.download_coupon_policies as Record<string, unknown>[]) ?? []}
                     contracts={contracts}
+                    contractsRetired={contractsRetired}
                     onChange={handleConfigChange}
                     onCopyPolicies={handleCopyPolicies}
                     onRefreshContracts={handleRefreshContracts}

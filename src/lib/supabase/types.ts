@@ -702,6 +702,7 @@ export interface CouponAutoSyncConfig {
   instant_coupon_discount: number;
   instant_coupon_discount_type: CouponDiscountType;
   instant_coupon_max_discount: number;
+  instant_coupon_item_count: number; // 현재 쿠폰에 추가된 아이템 수 (로테이션용)
   // 다운로드
   download_coupon_enabled: boolean;
   download_coupon_id: string | null;

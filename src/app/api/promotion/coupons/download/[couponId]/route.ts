@@ -40,6 +40,13 @@ export async function GET(
 
     const coupon = await fetchDownloadCoupon(credentials, Number(couponId));
 
+    if (!coupon) {
+      return NextResponse.json({
+        error: '다운로드 쿠폰 API가 폐기(410)되어 조회할 수 없습니다. 쿠팡 WING에서 직접 확인해주세요.',
+        retired: true,
+      }, { status: 410 });
+    }
+
     return NextResponse.json({ data: coupon });
   } catch (err) {
     console.error('promotion download coupon detail error:', err);

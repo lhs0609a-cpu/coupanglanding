@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Download, ChevronDown, Copy, RefreshCw, Search } from 'lucide-react';
+import { Download, ChevronDown, Copy, RefreshCw, Search, AlertTriangle, Info } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import type { CoupangContract } from '@/lib/utils/coupang-api-client';
 
@@ -12,6 +12,7 @@ interface DownloadCouponCardProps {
   durationDays: number;
   policies: Record<string, unknown>[];
   contracts: CoupangContract[];
+  contractsRetired?: boolean;
   onChange: (field: string, value: unknown) => void;
   onCopyPolicies: (couponId: number) => void;
   onRefreshContracts: () => void;
@@ -25,6 +26,7 @@ export default function DownloadCouponCard({
   durationDays,
   policies,
   contracts,
+  contractsRetired,
   onChange,
   onCopyPolicies,
   onRefreshContracts,
@@ -32,10 +34,16 @@ export default function DownloadCouponCard({
 }: DownloadCouponCardProps) {
   const [expanded, setExpanded] = useState(enabled);
   const [policyCouponId, setPolicyCouponId] = useState('');
+  const [manualContractId, setManualContractId] = useState(contractId || '');
 
   useEffect(() => {
     if (enabled) setExpanded(true);
   }, [enabled]);
+
+  // contractId prop 변경 시 로컬 상태 동기화
+  useEffect(() => {
+    if (contractId) setManualContractId(contractId);
+  }, [contractId]);
 
   const handleCopyPolicies = () => {
     const id = Number(policyCouponId);
@@ -43,6 +51,13 @@ export default function DownloadCouponCard({
       onCopyPolicies(id);
     }
   };
+
+  const handleManualContractIdChange = (value: string) => {
+    setManualContractId(value);
+    onChange('contract_id', value);
+  };
+
+  const showManualInput = contracts.length === 0 || contractsRetired;
 
   return (
     <Card>
@@ -76,6 +91,18 @@ export default function DownloadCouponCard({
 
       {expanded && enabled && (
         <div className="mt-4 space-y-4 border-t border-gray-100 pt-4">
+          {/* 다운로드 쿠폰 안내 */}
+          <div className="flex items-start gap-2 p-3 bg-blue-50 rounded-lg text-xs text-blue-700">
+            <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium">다운로드 쿠폰 자동 생성</p>
+              <p className="mt-1 text-blue-600">
+                다운로드 쿠폰은 상품당 100개씩 묶어 자동 생성됩니다.
+                생성 후 아이템 추가가 불가하므로, 100개 단위로 새 쿠폰이 만들어집니다.
+              </p>
+            </div>
+          </div>
+
           {/* Contract selection */}
           <div>
             <div className="flex items-center justify-between mb-1">
@@ -89,18 +116,42 @@ export default function DownloadCouponCard({
                 새로고침
               </button>
             </div>
-            <select
-              value={contractId}
-              onChange={(e) => onChange('contract_id', e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-[#E31837]/30 focus:border-[#E31837]"
-            >
-              <option value="">계약서를 선택하세요</option>
-              {contracts.map((c) => (
-                <option key={c.contractId} value={String(c.contractId)}>
-                  {c.contractName} ({c.contractStatus})
-                </option>
-              ))}
-            </select>
+
+            {/* API에서 계약서 목록을 가져온 경우 */}
+            {!showManualInput && (
+              <select
+                value={contractId}
+                onChange={(e) => onChange('contract_id', e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-[#E31837]/30 focus:border-[#E31837]"
+              >
+                <option value="">계약서를 선택하세요</option>
+                {contracts.map((c) => (
+                  <option key={c.contractId} value={String(c.contractId)}>
+                    {c.contractName} ({c.contractStatus})
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {/* API 폐기 → 수동 입력 */}
+            {showManualInput && (
+              <>
+                <div className="flex items-start gap-2 p-2.5 mb-2 bg-amber-50 rounded-lg text-xs text-amber-700">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <span>
+                    계약서 API가 폐기되어 자동 조회가 불가합니다.
+                    쿠팡 WING &gt; 프로모션 &gt; 할인쿠폰에서 계약서 ID를 확인 후 직접 입력해주세요.
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  value={manualContractId}
+                  onChange={(e) => handleManualContractIdChange(e.target.value)}
+                  placeholder="계약서 ID 입력 (WING에서 확인)"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-[#E31837]/30 focus:border-[#E31837]"
+                />
+              </>
+            )}
           </div>
 
           {/* Copy policies from existing coupon by ID */}
@@ -148,9 +199,12 @@ export default function DownloadCouponCard({
               type="text"
               value={titleTemplate}
               onChange={(e) => onChange('download_coupon_title_template', e.target.value)}
-              placeholder="다운로드쿠폰 {date}"
+              placeholder="다운로드쿠폰 {date} #{n}"
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-[#E31837]/30 focus:border-[#E31837]"
             />
+            <p className="mt-1 text-[10px] text-gray-400">
+              &#123;date&#125; = 날짜, &#123;n&#125; = 쿠폰 번호 (자동 증가)
+            </p>
           </div>
 
           {/* Duration days */}
