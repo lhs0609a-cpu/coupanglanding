@@ -41,7 +41,7 @@ import {
 
 // ─── 상수 ───
 const TOTAL_STEPS = ROADMAP_STEPS.length;
-const CTA_URL = '/program';
+const CTA_URL = '/pt';
 
 const STEP_ICONS: Record<string, React.ElementType> = {
   FileText,
@@ -146,7 +146,7 @@ function Header() {
         {/* Desktop */}
         <div className="hidden md:flex items-center gap-4">
           <Link
-            href="/program"
+            href="/pt"
             className="text-sm text-gray-300 hover:text-white transition-colors"
           >
             프로그램 소개
@@ -179,7 +179,7 @@ function Header() {
           >
             <div className="px-4 py-4 flex flex-col gap-3">
               <Link
-                href="/program"
+                href="/pt"
                 className="text-gray-300 hover:text-white transition-colors"
                 onClick={() => setMobileOpen(false)}
               >
@@ -757,7 +757,7 @@ function Footer() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-500">
         <span>&copy; {new Date().getFullYear()} 메가로드. All rights reserved.</span>
         <div className="flex items-center gap-4">
-          <Link href="/program" className="hover:text-gray-300 transition-colors">
+          <Link href="/pt" className="hover:text-gray-300 transition-colors">
             프로그램 소개
           </Link>
           <Link href="/terms" className="hover:text-gray-300 transition-colors">
