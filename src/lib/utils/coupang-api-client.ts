@@ -584,6 +584,10 @@ function toCoupangDateFormat(isoDate: string): string {
 function normalizePolicies(policies: unknown[]): Record<string, unknown>[] {
   return policies.map((p, i) => {
     const policy = p as Record<string, unknown>;
+    const perDaily = Math.min(Math.max(
+      Number(policy.maximumPerDaily || policy.maximumPerDay || policy.maxPerDaily || 9999),
+      1,
+    ), 9999);
     return {
       title: policy.title || `할인 정책 ${i + 1}`,
       typeOfDiscount: policy.typeOfDiscount || 'RATE',
@@ -591,12 +595,10 @@ function normalizePolicies(policies: unknown[]): Record<string, unknown>[] {
       minimumPrice: Number(policy.minimumPrice || 0),
       discount: Number(policy.discount || 0),
       maximumDiscountPrice: Number(policy.maximumDiscountPrice || 0),
-      // 쿠팡 API 필수: maximumPerDaily (1~9999)
-      // 응답에서는 maximumPerDay로 오지만 요청에서는 maximumPerDaily
-      maximumPerDaily: Math.min(Math.max(
-        Number(policy.maximumPerDaily || policy.maximumPerDay || 9999),
-        1,
-      ), 9999),
+      // 쿠팡 API 필드명 불일치 대응 — 3가지 이름 모두 전송
+      maximumPerDaily: perDaily,
+      maximumPerDay: perDaily,
+      maxPerDaily: perDaily,
     };
   });
 }
