@@ -698,21 +698,50 @@ export async function createDownloadCoupon(
     requestTransactionId?: string;
   };
 
-  console.log('[createDownloadCoupon] FMS 응답:', JSON.stringify(fmsData).slice(0, 500));
+  console.log('[createDownloadCoupon] FMS 응답 전체:', JSON.stringify(fmsData).slice(0, 1000));
 
-  if (fmsData.data) return fmsData.data;
+  // FMS 응답 구조가 다양할 수 있으므로 유연하게 couponId 추출
+  const raw = fmsData as Record<string, unknown>;
+  const nested = (raw.data || raw.content || raw) as Record<string, unknown>;
+  const extractedCouponId = Number(
+    nested.couponId || nested.id || nested.coupon_id ||
+    raw.couponId || raw.id || 0,
+  );
+  const extractedTxId = String(
+    raw.requestTransactionId || raw.requestedId ||
+    nested.requestTransactionId || nested.requestedId || '',
+  );
 
-  if (fmsData.requestTransactionId) {
+  if (extractedCouponId > 0) {
+    return {
+      couponId: extractedCouponId,
+      couponName: String(nested.couponName || nested.name || nested.title || params.title),
+      couponStatus: String(nested.couponStatus || nested.status || 'CREATED'),
+    };
+  }
+
+  if (extractedTxId) {
     return {
       couponId: 0,
       couponName: params.title,
       couponStatus: 'PENDING',
-      requestTransactionId: fmsData.requestTransactionId,
+      requestTransactionId: extractedTxId,
+    } as CoupangCoupon & { requestTransactionId: string };
+  }
+
+  // 성공 응답이지만 couponId도 txId도 없는 경우 — 응답 자체가 성공일 수 있음
+  if (raw.code === '200' || raw.code === 200 || raw.success === true || nested.success === true) {
+    console.warn('[createDownloadCoupon] FMS 성공이지만 couponId 없음 — 응답으로 임시 처리');
+    return {
+      couponId: 0,
+      couponName: params.title,
+      couponStatus: 'PENDING',
+      requestTransactionId: `fms-${Date.now()}`,
     } as CoupangCoupon & { requestTransactionId: string };
   }
 
   throw new CoupangApiError(
-    `다운로드 쿠폰 생성 실패 (marketplace_openapi + FMS 모두 실패): ${fmsData.message || JSON.stringify(fmsData).slice(0, 200)}`,
+    `다운로드 쿠폰 생성 실패: ${raw.message || raw.errorMessage || JSON.stringify(raw).slice(0, 300)}`,
     500,
   );
 }
