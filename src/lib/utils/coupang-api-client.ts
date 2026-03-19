@@ -457,57 +457,113 @@ export async function applyDownloadCoupon(
   return callCoupangApi(credentials, 'POST', path, { vendorItemIds });
 }
 
-/** API 자격증명 유효성 검증 */
+/** 단일 모드(프록시 또는 직접) API 호출 테스트 */
+async function testApiCall(
+  credentials: CoupangCredentials,
+  mode: 'proxy' | 'direct',
+): Promise<{ ok: boolean; status: number; body: string }> {
+  const path = `${SELLER_BASE_PATH}/seller-products?vendorId=${credentials.vendorId}&maxPerPage=1`;
+  const isProxy = mode === 'proxy' && !!PROXY_URL;
+  const url = isProxy ? `${PROXY_URL}/proxy${path}` : `${API_DOMAIN}${path}`;
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json;charset=UTF-8',
+  };
+
+  if (isProxy) {
+    headers['X-Coupang-Access-Key'] = credentials.accessKey;
+    headers['X-Coupang-Secret-Key'] = credentials.secretKey;
+    if (PROXY_SECRET) headers['X-Proxy-Secret'] = PROXY_SECRET;
+  } else {
+    const datetime = formatSignedDate();
+    const authorization = await buildAuthorizationHeader(
+      credentials.accessKey, credentials.secretKey, 'GET', path, datetime,
+    );
+    headers['Authorization'] = authorization;
+    headers['X-Requested-By'] = credentials.vendorId;
+  }
+
+  const response = await fetch(url, { method: 'GET', headers });
+  const body = await response.text().catch(() => '');
+  return { ok: response.ok, status: response.status, body: body.slice(0, 500) };
+}
+
+/** API 자격증명 유효성 검증 — 프록시/직접 양쪽 진단 */
 export async function validateApiCredentials(
   credentials: CoupangCredentials,
-): Promise<{ valid: boolean; message: string; detail?: string; statusCode?: number }> {
-  try {
-    // 가벼운 상품 목록 조회로 인증 검증 (maxPerPage=1)
-    const path = `${SELLER_BASE_PATH}/seller-products?vendorId=${credentials.vendorId}&maxPerPage=1`;
-    await callCoupangApi(credentials, 'GET', path);
-    return { valid: true, message: 'API 연동이 확인되었습니다.' };
-  } catch (error) {
-    if (error instanceof CoupangApiError) {
-      const useProxy = !!PROXY_URL;
-      const proxyInfo = useProxy ? `[프록시: ${PROXY_URL}]` : '[직접 연결]';
+): Promise<{ valid: boolean; message: string; detail?: string; statusCode?: number; diagnosis?: unknown }> {
+  const useProxy = !!PROXY_URL;
+  const results: Record<string, unknown> = {
+    mode: useProxy ? 'proxy' : 'direct',
+    proxyUrl: PROXY_URL || '(없음)',
+    proxySecretSet: !!PROXY_SECRET,
+  };
 
-      if (error.statusCode === 401) {
-        // 401의 실제 원인을 구분: 프록시 인증 vs 쿠팡 인증
-        const isProxyAuth = error.message.includes('Invalid proxy secret') || error.message.includes('Missing X-Coupang');
-        const summary = isProxyAuth
-          ? '프록시 서버 인증에 실패했습니다. 환경변수(COUPANG_PROXY_SECRET)를 확인하세요.'
-          : 'Access Key 또는 Secret Key가 올바르지 않습니다.';
-        return {
-          valid: false,
-          message: summary,
-          detail: `${proxyInfo} ${error.message}`,
-          statusCode: 401,
-        };
+  // 1) 현재 모드(프록시 or 직접)로 테스트
+  try {
+    const primary = await testApiCall(credentials, useProxy ? 'proxy' : 'direct');
+    results.primaryTest = { mode: useProxy ? 'proxy' : 'direct', ...primary };
+
+    if (primary.ok) {
+      return { valid: true, message: 'API 연동이 확인되었습니다.', diagnosis: results };
+    }
+
+    // 실패 시, 반대 모드로도 테스트하여 원인 구분
+    if (useProxy) {
+      try {
+        const direct = await testApiCall(credentials, 'direct');
+        results.directTest = direct;
+      } catch (e) {
+        results.directTest = { error: e instanceof Error ? e.message : String(e) };
       }
-      if (error.statusCode === 403) {
-        return {
-          valid: false,
-          message: 'API 접근이 거부되었습니다. IP 화이트리스트 또는 API 권한을 확인하세요.',
-          detail: `${proxyInfo} ${error.message}`,
-          statusCode: 403,
-        };
-      }
-      if (error.statusCode === 404) {
-        return {
-          valid: false,
-          message: 'Vendor ID가 올바르지 않거나 API 권한이 없습니다.',
-          detail: `${proxyInfo} ${error.message}`,
-          statusCode: 404,
-        };
-      }
+    }
+
+    // 결과 분석
+    const proxyResult = results.primaryTest as { ok: boolean; status: number; body: string };
+    const directResult = results.directTest as { ok?: boolean; status?: number; body?: string } | undefined;
+
+    // 프록시 실패 + 직접 성공 = 프록시/IP 문제
+    if (useProxy && directResult?.ok) {
       return {
         valid: false,
-        message: error.message,
-        detail: `${proxyInfo} HTTP ${error.statusCode}`,
-        statusCode: error.statusCode,
+        message: '프록시 경유 시 실패하지만, 직접 연결은 성공합니다. 프록시 IP 화이트리스트 또는 프록시 설정 문제입니다.',
+        detail: `프록시(${proxyResult.status}): ${proxyResult.body}\n직접 연결: 성공`,
+        statusCode: proxyResult.status,
+        diagnosis: results,
       };
     }
+
+    // 프록시 실패 + 직접 실패 = 자격증명 자체 문제
+    if (useProxy && directResult && !directResult.ok) {
+      return {
+        valid: false,
+        message: '프록시와 직접 연결 모두 실패합니다. Access Key/Secret Key가 올바른지 확인하세요.',
+        detail: `프록시(${proxyResult.status}): ${proxyResult.body}\n직접(${directResult.status}): ${directResult.body}`,
+        statusCode: proxyResult.status,
+        diagnosis: results,
+      };
+    }
+
+    // 프록시 없이 직접 연결 실패
+    const statusText = proxyResult.status === 401 ? 'Access Key 또는 Secret Key가 올바르지 않습니다.'
+      : proxyResult.status === 403 ? 'API 접근이 거부되었습니다. IP 화이트리스트를 확인하세요.'
+      : proxyResult.status === 404 ? 'Vendor ID가 올바르지 않거나 API 권한이 없습니다.'
+      : `API 요청 실패 (HTTP ${proxyResult.status})`;
+
+    return {
+      valid: false,
+      message: statusText,
+      detail: `[${useProxy ? '프록시' : '직접'}] ${proxyResult.body}`,
+      statusCode: proxyResult.status,
+      diagnosis: results,
+    };
+  } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    return { valid: false, message: `API 연결에 실패했습니다: ${msg}` };
+    results.error = msg;
+    return {
+      valid: false,
+      message: `API 연결에 실패했습니다: ${msg}`,
+      diagnosis: results,
+    };
   }
 }

@@ -169,9 +169,10 @@ export default function MySettingsPage() {
       if (data.valid) {
         setApiMessage({ type: 'success', text: 'API 연동 테스트 성공! 저장 버튼을 눌러 연동을 완료하세요.' });
       } else {
-        const detail = data.detail ? `\n[상세] ${data.detail}` : '';
+        const detail = data.detail ? `\n\n[상세 진단]\n${data.detail}` : '';
         const status = data.statusCode ? ` (HTTP ${data.statusCode})` : '';
-        setApiMessage({ type: 'error', text: `${data.message || 'API 연동 테스트에 실패했습니다.'}${status}${detail}` });
+        const diag = data.diagnosis ? `\n\n[진단 정보] 모드: ${data.diagnosis.mode}, 프록시: ${data.diagnosis.proxyUrl}, Secret 설정: ${data.diagnosis.proxySecretSet ? 'O' : 'X'}` : '';
+        setApiMessage({ type: 'error', text: `${data.message || 'API 연동 테스트에 실패했습니다.'}${status}${detail}${diag}` });
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : '알 수 없는 오류';
