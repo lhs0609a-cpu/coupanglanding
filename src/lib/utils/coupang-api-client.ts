@@ -393,7 +393,7 @@ export async function applyInstantCoupon(
   couponId: number,
   vendorItemIds: (string | number)[],
 ): Promise<unknown> {
-  const path = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/coupons/${couponId}/coupon-items`;
+  const path = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupons/${couponId}/coupon-items`;
   // 쿠팡 FMS API는 vendorItemIds를 숫자 배열로 요구
   const numericIds = vendorItemIds.map(Number).filter((n) => !isNaN(n));
   return callCoupangApi(credentials, 'POST', path, { vendorItemIds: numericIds });
@@ -404,7 +404,7 @@ export async function checkInstantCouponStatus(
   credentials: CoupangCredentials,
   requestedId: string,
 ): Promise<unknown> {
-  const path = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/requested/${requestedId}`;
+  const path = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/requested/${requestedId}`;
   return callCoupangApi(credentials, 'GET', path);
 }
 
