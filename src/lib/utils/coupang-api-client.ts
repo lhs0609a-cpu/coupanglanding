@@ -142,7 +142,7 @@ async function callCoupangApi(
       throw new CoupangApiError('API 호출 한도를 초과했습니다. 잠시 후 다시 시도해주세요.', 429, 'RATE_LIMITED');
     }
     if (response.status >= 500) {
-      throw new CoupangApiError('쿠팡 서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.', response.status, 'SERVER_ERROR');
+      throw new CoupangApiError(`쿠팡 서버 오류 (${response.status}): ${errorBody || 'No response body'}`, response.status, 'SERVER_ERROR');
     }
     throw new CoupangApiError(
       `API 요청 실패 (${response.status}): ${errorBody}`,
