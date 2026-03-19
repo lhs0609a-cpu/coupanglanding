@@ -527,55 +527,46 @@ export async function fetchDownloadCoupons(
   }
 }
 
-/** 쿠폰 단건 조회 (FMS + marketplace_openapi 폴백)
- *  FMS 쿠폰 목록에서 couponId로 검색 → 실패 시 marketplace_openapi 시도 */
+/** 다운로드 쿠폰 단건 조회 (couponId)
+ *
+ *  쿠팡 공식 API:
+ *  GET /v2/providers/marketplace_openapi/apis/api/v1/coupons/{couponId}
+ *  응답: { couponId, title, couponType, couponStatus, couponPolicies, ... } (직접 객체, data 래핑 없음) */
 export async function fetchDownloadCoupon(
   credentials: CoupangCredentials,
   couponId: number,
 ): Promise<CoupangCoupon | null> {
-  // 1차: FMS 쿠폰 목록에서 해당 couponId 찾기 (FMS API는 작동 중)
+  // 1차: marketplace_openapi 단건 조회 (공식 다운로드 쿠폰 조회 엔드포인트)
+  const path = `${MKT_OPENAPI_BASE}/coupons/${couponId}`;
+  console.log(`[fetchDownloadCoupon] 다운로드 쿠폰 조회: ${path}`);
+
   try {
-    const fmsPath = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupons`;
-    const fmsData = await callCoupangApi(credentials, 'GET', fmsPath) as Record<string, unknown>;
+    const raw = await callCoupangApi(credentials, 'GET', path) as Record<string, unknown>;
+    console.log('[fetchDownloadCoupon] 응답:', JSON.stringify(raw).slice(0, 500));
 
-    let couponsList: Record<string, unknown>[] = [];
-    if (Array.isArray(fmsData.data)) {
-      couponsList = fmsData.data as Record<string, unknown>[];
-    } else if (typeof fmsData.data === 'object' && fmsData.data !== null) {
-      const inner = fmsData.data as Record<string, unknown>;
-      if (Array.isArray(inner.content)) couponsList = inner.content as Record<string, unknown>[];
-    }
+    // 쿠팡 API 응답은 직접 객체 또는 { data: { ... } } 형태일 수 있음
+    const couponData = (raw.data || raw) as Record<string, unknown>;
 
-    const found = couponsList.find((c) => Number(c.couponId) === couponId);
-    if (found) {
-      console.log(`[fetchDownloadCoupon] FMS 쿠폰 목록에서 ${couponId} 발견`);
-      console.log('[fetchDownloadCoupon] 쿠폰 데이터:', JSON.stringify(found).slice(0, 500));
+    if (couponData.couponId) {
       return {
-        couponId: Number(found.couponId),
-        couponName: String(found.couponName || found.title || ''),
-        couponStatus: String(found.couponStatus || found.status || ''),
-        contractId: Number(found.contractId || 0),
-        startDate: String(found.startDate || ''),
-        endDate: String(found.endDate || ''),
-        policies: (found.couponPolicies || found.policies || []) as unknown[],
+        couponId: Number(couponData.couponId),
+        couponName: String(couponData.title || ''),
+        couponStatus: String(couponData.couponStatus || ''),
+        contractId: Number(couponData.contractId || 0),
+        startDate: String(couponData.startDate || ''),
+        endDate: String(couponData.endDate || ''),
+        policies: (couponData.couponPolicies || couponData.policies || []) as unknown[],
       };
     }
-    console.log(`[fetchDownloadCoupon] FMS 쿠폰 목록에 ${couponId} 없음 (총 ${couponsList.length}개)`);
-  } catch (err) {
-    console.warn('[fetchDownloadCoupon] FMS 쿠폰 목록 조회 실패:', err instanceof Error ? err.message : err);
-  }
 
-  // 2차: marketplace_openapi 단건 조회 (폐기됐을 수 있음)
-  try {
-    const path = `${MKT_OPENAPI_BASE}/coupons/${couponId}`;
-    const data = await callCoupangApi(credentials, 'GET', path) as { data?: CoupangCoupon };
-    return data.data || null;
+    console.warn('[fetchDownloadCoupon] 응답에 couponId 없음:', Object.keys(couponData));
+    return null;
   } catch (err) {
-    if (err instanceof CoupangApiError && (err.statusCode === 410 || err.statusCode === 404)) {
-      console.warn(`[fetchDownloadCoupon] marketplace_openapi 쿠폰 API 폐기됨 (${err.statusCode})`);
-      return null;
+    console.error('[fetchDownloadCoupon] 조회 실패:', err instanceof Error ? err.message : err);
+    if (err instanceof CoupangApiError) {
+      console.error(`[fetchDownloadCoupon] HTTP ${err.statusCode}`);
     }
-    throw err;
+    return null;
   }
 }
 
