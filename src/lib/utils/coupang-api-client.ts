@@ -667,14 +667,30 @@ export async function createDownloadCoupon(
     }
   }
 
-  // 2차 폴백: FMS 프로바이더 (일부 셀러에서 다운로드 쿠폰도 FMS로 처리 가능)
+  // 2차 폴백: FMS 프로바이더
+  // FMS는 필드명이 다름: name, startAt, endAt, type, discount, maxDiscountPrice
   const fmsPath = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupon`;
+  const normalizedPolicies = normalizePolicies(params.policies);
+  const firstPolicy = normalizedPolicies[0] || {};
   const fmsBody = {
-    ...body,
-    couponType: 'DOWNLOAD', // FMS에서는 명시 필요
+    name: params.title,
+    type: 'DOWNLOAD',
+    startAt: toCoupangDateFormat(params.startDate),
+    endAt: toCoupangDateFormat(params.endDate),
+    contractId: String(params.contractId),
+    vendorId: credentials.vendorId,
+    discount: Number(firstPolicy.discount || 0),
+    maxDiscountPrice: Number(firstPolicy.maximumDiscountPrice || 0),
+    minimumPrice: Number(firstPolicy.minimumPrice || 0),
+    typeOfDiscount: String(firstPolicy.typeOfDiscount || 'RATE'),
+    maxPerDaily: Number(firstPolicy.maxPerDaily || 9999),
+    description: String(firstPolicy.description || params.title),
+    policies: normalizedPolicies,
+    couponPolicies: normalizedPolicies,
   };
 
   console.log('[createDownloadCoupon] FMS 폴백 시도:', fmsPath);
+  console.log('[createDownloadCoupon] FMS body:', JSON.stringify(fmsBody).slice(0, 800));
   const fmsData = await callCoupangApi(credentials, 'POST', fmsPath, fmsBody) as {
     data?: CoupangCoupon;
     code?: string;
