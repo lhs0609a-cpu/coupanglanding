@@ -230,26 +230,36 @@ export default function PromotionPage() {
     }
   }, [activeTab, fetchTracking, fetchLogs, fetchStats]);
 
-  // Polling for active progress
+  // Polling for active progress (setTimeout으로 순차 실행 — 동시 호출 방지)
   const progressStatus = progress?.status;
   useEffect(() => {
     if (progressStatus === 'collecting' || progressStatus === 'applying') {
-      pollingRef.current = setInterval(async () => {
+      let active = true;
+
+      const poll = async () => {
+        if (!active) return;
         await fetchProgress();
         try {
           if (progressStatus === 'collecting') {
-            // 상품 수집 단계: collect-products 호출
             await fetch('/api/promotion/collect-products', { method: 'POST' });
           } else {
-            // 쿠폰 적용 단계: bulk-apply 호출
             await fetch('/api/promotion/bulk-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
           }
         } catch { /* ignore */ }
         await fetchProgress();
-      }, POLLING_INTERVAL_MS);
-      return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
+        // 이전 요청이 완전히 끝난 뒤에만 다음 폴링 예약
+        if (active) {
+          pollingRef.current = setTimeout(poll, POLLING_INTERVAL_MS);
+        }
+      };
+
+      pollingRef.current = setTimeout(poll, POLLING_INTERVAL_MS);
+      return () => {
+        active = false;
+        if (pollingRef.current) clearTimeout(pollingRef.current);
+      };
     }
-    return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
+    return () => { if (pollingRef.current) clearTimeout(pollingRef.current); };
   }, [progressStatus, fetchProgress]);
 
   // ── Handlers ──────────────────────────────────────────
