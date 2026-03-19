@@ -570,14 +570,19 @@ export async function fetchDownloadCoupon(
   }
 }
 
-/** 쿠팡 API 날짜 형식 변환 (ISO → 'YYYY-MM-DD HH:mm:ss') */
-function toCoupangDateFormat(isoDate: string): string {
-  // "2026-03-20T10:30:00.123Z" → "2026-03-20 10:30:00"
-  return isoDate
-    .replace('T', ' ')
-    .replace(/\.\d+/, '') // 밀리초 제거 (.123)
-    .replace('Z', '')
-    .trim();
+/** 쿠팡 API 날짜 형식 변환 (ISO/Date → KST 'YYYY-MM-DD HH:mm:ss')
+ *  쿠팡 API는 KST(UTC+9) 기준 — Vercel은 UTC이므로 변환 필요 */
+function toCoupangDateFormat(isoDate: string | Date): string {
+  const date = typeof isoDate === 'string' ? new Date(isoDate) : isoDate;
+  // KST = UTC + 9시간
+  const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  const y = kst.getUTCFullYear();
+  const M = String(kst.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(kst.getUTCDate()).padStart(2, '0');
+  const H = String(kst.getUTCHours()).padStart(2, '0');
+  const m = String(kst.getUTCMinutes()).padStart(2, '0');
+  const s = String(kst.getUTCSeconds()).padStart(2, '0');
+  return `${y}-${M}-${d} ${H}:${m}:${s}`;
 }
 
 /** 다운로드 쿠폰 정책 배열을 쿠팡 API 형식으로 정규화 */
