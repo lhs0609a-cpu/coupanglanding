@@ -7,7 +7,7 @@ import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
 export const maxDuration = 55; // Vercel 함수 최대 실행 시간 (초)
 
 const COLLECT_BATCH_SIZE = 100; // upsert batch size
-const PAGES_PER_CALL = 2; // 한 호출당 최대 2페이지 (200 상품) — Vercel timeout 방지
+const PAGES_PER_CALL = 10; // 한 호출당 최대 10페이지 (1000 상품) — API 응답 ~300ms/페이지, 총 ~3초
 
 /** POST: 쿠팡 상품 수집 → product_coupon_tracking에 저장 (배치 방식) */
 export async function POST(request: NextRequest) {
@@ -145,10 +145,11 @@ export async function POST(request: NextRequest) {
 
     if (hasMore) {
       // 아직 더 수집할 상품이 있음 — collecting 유지
-      // total_items에 저장된 예상 총 상품 수 사용 (없으면 수집된 수 + 남은 추정치)
       const knownTotal = progress.total_items || 0;
-      const denominator = knownTotal > (totalCollected || 0) ? knownTotal : (totalCollected || 0) + 200;
-      const collectingProgress = Math.min(Math.round(((totalCollected || 0) / denominator) * 100), 99);
+      const collected = totalCollected || 0;
+      // knownTotal이 있으면 그것 사용, 없으면 수집량 + 여유분
+      const denominator = knownTotal > 0 ? Math.max(knownTotal, collected) : collected + 200;
+      const collectingProgress = Math.min(Math.round((collected / denominator) * 100), 99);
       await serviceClient.from('bulk_apply_progress').update({
         collecting_progress: collectingProgress,
         total_products: totalCollected || 0,
