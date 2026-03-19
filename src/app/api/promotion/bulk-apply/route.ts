@@ -4,6 +4,8 @@ import { decryptPassword } from '@/lib/utils/encryption';
 import { applyInstantCoupon, applyDownloadCoupon } from '@/lib/utils/coupang-api-client';
 import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
 
+export const maxDuration = 55;
+
 const BATCH_SIZE = 15;
 
 /** POST: 쿠폰 일괄 적용 시작 또는 계속 (클라이언트 주도 배치 방식) */
@@ -252,7 +254,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ progress: currentProgress, hasMore });
   } catch (err) {
-    console.error('쿠폰 일괄 적용 서버 오류:', err);
-    return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('쿠폰 일괄 적용 서버 오류:', message);
+    return NextResponse.json({ error: `쿠폰 적용 오류: ${message}` }, { status: 500 });
   }
 }

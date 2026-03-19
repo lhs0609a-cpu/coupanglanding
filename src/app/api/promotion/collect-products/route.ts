@@ -4,8 +4,10 @@ import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchProductListings } from '@/lib/utils/coupang-api-client';
 import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
 
+export const maxDuration = 55; // Vercel 함수 최대 실행 시간 (초)
+
 const COLLECT_BATCH_SIZE = 100; // upsert batch size
-const PAGES_PER_CALL = 10; // 한 호출당 최대 10페이지 (1000 상품) — Vercel timeout 방지
+const PAGES_PER_CALL = 5; // 한 호출당 최대 5페이지 (500 상품) — Vercel timeout 방지
 
 /** POST: 쿠팡 상품 수집 → product_coupon_tracking에 저장 (배치 방식) */
 export async function POST(request: NextRequest) {
@@ -176,7 +178,12 @@ export async function POST(request: NextRequest) {
       totalCollected: totalCollected || 0,
     });
   } catch (err) {
-    console.error('상품 수집 서버 오류:', err);
-    return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack?.split('\n').slice(0, 3).join(' | ') : '';
+    console.error('상품 수집 서버 오류:', message, stack);
+    return NextResponse.json({
+      error: `상품 수집 오류: ${message}`,
+      detail: stack,
+    }, { status: 500 });
   }
 }

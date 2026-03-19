@@ -247,12 +247,18 @@ export default function PromotionPage() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ nextToken: collectNextTokenRef.current }),
             });
+            const data = await res.json().catch(() => ({}));
             if (res.ok) {
-              const data = await res.json();
               collectNextTokenRef.current = data.nextToken || '';
+            } else {
+              console.error('[collect-products 오류]', data.error, data.detail);
             }
           } else {
-            await fetch('/api/promotion/bulk-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+            const res = await fetch('/api/promotion/bulk-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+            if (!res.ok) {
+              const data = await res.json().catch(() => ({}));
+              console.error('[bulk-apply 오류]', data.error);
+            }
           }
         } catch { /* ignore */ }
         await fetchProgress();
