@@ -351,14 +351,17 @@ export async function fetchTotalProductCount(
 }
 
 // ── 쿠폰/계약 API 함수들 ───────────────────────────────
+// 즉시할인 쿠폰: fms 프로바이더 (비동기 — requestedId 반환)
+// 다운로드 쿠폰: marketplace_openapi 프로바이더 (비동기 — requestTransactionId 반환)
 
-const COUPON_BASE_PATH = '/v2/providers/seller_api/apis/api/v1/marketplace';
+const FMS_BASE = '/v2/providers/fms/apis/api';
+const MKT_OPENAPI_BASE = '/v2/providers/marketplace_openapi/apis/api/v1';
 
 /** 계약서 목록 조회 */
 export async function fetchContracts(
   credentials: CoupangCredentials,
 ): Promise<CoupangContract[]> {
-  const path = `${COUPON_BASE_PATH}/seller-contracts?vendorId=${credentials.vendorId}`;
+  const path = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/contracts`;
   const data = await callCoupangApi(credentials, 'GET', path) as { data?: CoupangContract[] };
   return data.data || [];
 }
@@ -367,70 +370,89 @@ export async function fetchContracts(
 export async function fetchInstantCoupons(
   credentials: CoupangCredentials,
 ): Promise<CoupangCoupon[]> {
-  const path = `${COUPON_BASE_PATH}/seller-coupons/instant-coupons?vendorId=${credentials.vendorId}`;
+  const path = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupons`;
   const data = await callCoupangApi(credentials, 'GET', path) as { data?: CoupangCoupon[] };
   return data.data || [];
 }
 
-/** 즉시할인 쿠폰 생성 */
+/** 즉시할인 쿠폰 생성 — 비동기 (requestedId 반환) */
 export async function createInstantCoupon(
   credentials: CoupangCredentials,
   params: CreateInstantCouponParams,
 ): Promise<CoupangCoupon> {
-  const path = `${COUPON_BASE_PATH}/seller-coupons/instant-coupons?vendorId=${credentials.vendorId}`;
+  const path = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupon`;
   const data = await callCoupangApi(credentials, 'POST', path, params) as { data?: CoupangCoupon };
   if (!data.data) throw new CoupangApiError('즉시할인 쿠폰 생성 응답에 data가 없습니다.', 500);
   return data.data;
 }
 
-/** 즉시할인 쿠폰 적용 (상품에 쿠폰 연결) */
+/** 즉시할인 쿠폰 아이템 추가 (상품에 쿠폰 연결) — 비동기 (requestedId 반환) */
 export async function applyInstantCoupon(
   credentials: CoupangCredentials,
   couponId: number,
   vendorItemIds: string[],
 ): Promise<unknown> {
-  const path = `${COUPON_BASE_PATH}/seller-coupons/instant-coupons/${couponId}/items?vendorId=${credentials.vendorId}`;
+  const path = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/coupons/${couponId}/coupon-items`;
   return callCoupangApi(credentials, 'POST', path, { vendorItemIds });
+}
+
+/** 즉시할인 쿠폰 요청 상태 확인 */
+export async function checkInstantCouponStatus(
+  credentials: CoupangCredentials,
+  requestedId: string,
+): Promise<unknown> {
+  const path = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/requested/${requestedId}`;
+  return callCoupangApi(credentials, 'GET', path);
 }
 
 /** 다운로드 쿠폰 목록 조회 */
 export async function fetchDownloadCoupons(
   credentials: CoupangCredentials,
 ): Promise<CoupangCoupon[]> {
-  const path = `${COUPON_BASE_PATH}/seller-coupons/download-coupons?vendorId=${credentials.vendorId}`;
+  const path = `${MKT_OPENAPI_BASE}/coupons?vendorId=${credentials.vendorId}`;
   const data = await callCoupangApi(credentials, 'GET', path) as { data?: CoupangCoupon[] };
   return data.data || [];
 }
 
-/** 다운로드 쿠폰 단건 조회 (정책 포함) */
+/** 다운로드 쿠폰 단건 조회 */
 export async function fetchDownloadCoupon(
   credentials: CoupangCredentials,
   couponId: number,
 ): Promise<CoupangCoupon> {
-  const path = `${COUPON_BASE_PATH}/seller-coupons/download-coupons/${couponId}?vendorId=${credentials.vendorId}`;
+  const path = `${MKT_OPENAPI_BASE}/coupons/${couponId}`;
   const data = await callCoupangApi(credentials, 'GET', path) as { data?: CoupangCoupon };
   if (!data.data) throw new CoupangApiError('다운로드 쿠폰 조회 응답에 data가 없습니다.', 500);
   return data.data;
 }
 
-/** 다운로드 쿠폰 생성 */
+/** 다운로드 쿠폰 생성 — 비동기 (requestTransactionId 반환) */
 export async function createDownloadCoupon(
   credentials: CoupangCredentials,
   params: CreateDownloadCouponParams,
 ): Promise<CoupangCoupon> {
-  const path = `${COUPON_BASE_PATH}/seller-coupons/download-coupons?vendorId=${credentials.vendorId}`;
+  const path = `${MKT_OPENAPI_BASE}/coupons`;
   const data = await callCoupangApi(credentials, 'POST', path, params) as { data?: CoupangCoupon };
   if (!data.data) throw new CoupangApiError('다운로드 쿠폰 생성 응답에 data가 없습니다.', 500);
   return data.data;
 }
 
-/** 다운로드 쿠폰 적용 (상품에 쿠폰 연결) */
+/** 다운로드 쿠폰 요청 상태 확인 */
+export async function checkDownloadCouponStatus(
+  credentials: CoupangCredentials,
+  requestTransactionId: string,
+): Promise<unknown> {
+  const path = `${MKT_OPENAPI_BASE}/coupons/transactionStatus?requestTransactionId=${requestTransactionId}`;
+  return callCoupangApi(credentials, 'GET', path);
+}
+
+/** 다운로드 쿠폰 적용 — 주의: 쿠팡 API는 다운로드 쿠폰 아이템 사후 추가 미지원.
+ *  생성 시 vendorItemIds를 포함해야 합니다. 이 함수는 호환성을 위해 유지됩니다. */
 export async function applyDownloadCoupon(
   credentials: CoupangCredentials,
   couponId: number,
   vendorItemIds: string[],
 ): Promise<unknown> {
-  const path = `${COUPON_BASE_PATH}/seller-coupons/download-coupons/${couponId}/items?vendorId=${credentials.vendorId}`;
+  const path = `${MKT_OPENAPI_BASE}/coupons/${couponId}/items`;
   return callCoupangApi(credentials, 'POST', path, { vendorItemIds });
 }
 
