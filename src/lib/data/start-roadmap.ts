@@ -147,7 +147,7 @@ export const ROADMAP_STEPS: RoadmapStep[] = [
         label: '위생교육 수료',
         description: '한국건강기능식품협회에서 온라인 위생교육(약 4시간)을 수료해야 합니다. 수수료 약 28,000원.',
         link: {
-          url: 'https://www.hfoodkorea.or.kr',
+          url: 'https://www.khff.or.kr',
           label: '건강기능식품협회 교육 신청',
         },
         tip: '온라인으로 수료 가능하며, 수료증은 바로 출력됩니다.',
