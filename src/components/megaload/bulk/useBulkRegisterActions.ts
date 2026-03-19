@@ -405,7 +405,7 @@ export function useBulkRegisterActions() {
           signal: abort.signal,
         });
         if (res.ok) {
-          const data = await res.json() as { results: Record<string, { mainImageUrls: string[]; detailImageUrls: string[]; reviewImageUrls: string[]; infoImageUrls: string[] }> };
+          const data = await res.json() as { results: Record<string, { mainImageUrls: string[]; detailImageUrls: string[]; reviewImageUrls: string[]; infoImageUrls: string[]; uploadedAt?: number }> };
           const timestamped: typeof data.results = {};
           for (const [key, val] of Object.entries(data.results)) {
             timestamped[key] = { ...val, uploadedAt: Date.now() };
@@ -730,7 +730,7 @@ export function useBulkRegisterActions() {
             setProducts((prev) => prev.map((p) => {
               const r = batchResults.find((br) => br.uid === p.uid);
               if (!r) return p;
-              return { ...p, status: r.success ? 'success' : 'error', channelProductId: r.channelProductId, errorMessage: r.error, duration: r.duration };
+              return { ...p, status: r.success ? 'success' : 'error', channelProductId: r.channelProductId, errorMessage: r.error, detailedError: r.detailedError, duration: r.duration };
             }));
           } else {
             totalError += batch.length;
