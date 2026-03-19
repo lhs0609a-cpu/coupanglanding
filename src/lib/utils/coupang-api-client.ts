@@ -358,13 +358,23 @@ export async function fetchTotalProductCount(
 const FMS_BASE = '/v2/providers/fms/apis/api';
 const MKT_OPENAPI_BASE = '/v2/providers/marketplace_openapi/apis/api/v1';
 
-/** 계약서 목록 조회 */
+/** 계약서 목록 조회
+ *  문서: /api/v2/vendors/{vendorId}/contract (단수형) */
 export async function fetchContracts(
   credentials: CoupangCredentials,
 ): Promise<CoupangContract[]> {
-  const path = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/contracts`;
-  const data = await callCoupangApi(credentials, 'GET', path) as { data?: CoupangContract[] };
-  return data.data || [];
+  try {
+    const path = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/contract`;
+    const data = await callCoupangApi(credentials, 'GET', path) as { data?: CoupangContract[] };
+    return data.data || [];
+  } catch (err) {
+    // 계약서 API 실패 시 빈 배열 반환 (페이지 로드 방해 방지)
+    if (err instanceof CoupangApiError && (err.statusCode === 404 || err.statusCode === 410)) {
+      console.warn('[fetchContracts] 계약서 API 호출 실패:', err.message);
+      return [];
+    }
+    throw err;
+  }
 }
 
 /** 즉시할인 쿠폰 목록 조회 */
@@ -393,8 +403,9 @@ export async function applyInstantCoupon(
   couponId: number,
   vendorItemIds: (string | number)[],
 ): Promise<unknown> {
-  const path = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupons/${couponId}/coupon-items`;
-  // 쿠팡 FMS API는 vendorItemIds를 숫자 배열로 요구
+  // 쿠팡 FMS coupon-items API는 v1 사용 (coupon list/create는 v2)
+  // 문서: /api/v1/vendors/{vendorId}/coupons/{couponId}/items
+  const path = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/coupons/${couponId}/items`;
   const numericIds = vendorItemIds.map(Number).filter((n) => !isNaN(n));
   return callCoupangApi(credentials, 'POST', path, { vendorItemIds: numericIds });
 }
@@ -404,17 +415,29 @@ export async function checkInstantCouponStatus(
   credentials: CoupangCredentials,
   requestedId: string,
 ): Promise<unknown> {
+  // 문서: /api/v2/vendors/{vendorId}/requested/{requestedId}
   const path = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/requested/${requestedId}`;
   return callCoupangApi(credentials, 'GET', path);
 }
 
-/** 다운로드 쿠폰 목록 조회 */
+/** 다운로드 쿠폰 목록 조회
+ *  ⚠️ marketplace_openapi v1 coupons API가 2025년 폐기(410 RETIRED)됨.
+ *  에러 시 빈 배열 반환하여 페이지 로드를 방해하지 않음. */
 export async function fetchDownloadCoupons(
   credentials: CoupangCredentials,
 ): Promise<CoupangCoupon[]> {
-  const path = `${MKT_OPENAPI_BASE}/coupons?vendorId=${credentials.vendorId}`;
-  const data = await callCoupangApi(credentials, 'GET', path) as { data?: CoupangCoupon[] };
-  return data.data || [];
+  try {
+    const path = `${MKT_OPENAPI_BASE}/coupons?vendorId=${credentials.vendorId}`;
+    const data = await callCoupangApi(credentials, 'GET', path) as { data?: CoupangCoupon[] };
+    return data.data || [];
+  } catch (err) {
+    // 410 RETIRED — API가 폐기됨, 빈 배열 반환
+    if (err instanceof CoupangApiError && (err.statusCode === 410 || err.statusCode === 404)) {
+      console.warn('[fetchDownloadCoupons] marketplace_openapi 쿠폰 API 폐기됨 (410/404), 빈 배열 반환');
+      return [];
+    }
+    throw err;
+  }
 }
 
 /** 다운로드 쿠폰 단건 조회 */
