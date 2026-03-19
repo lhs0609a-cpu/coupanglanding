@@ -271,16 +271,21 @@ export default function PromotionPage() {
             }
           } else {
             const res = await fetch('/api/promotion/bulk-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+            const data = await res.json().catch(() => ({}));
             if (!res.ok) {
               errorRetryRef.current++;
-              const data = await res.json().catch(() => ({}));
               setError(`쿠폰 적용 실패: ${data.error || `HTTP ${res.status}`}`);
               if (errorRetryRef.current >= 5) {
                 setError('쿠폰 적용이 반복 실패하여 중단되었습니다. 취소 후 다시 시도해주세요.');
                 return;
               }
             } else {
-              setError(null);
+              // 배치 내 실패가 있으면 에러 표시 (API는 200이지만 개별 아이템 실패)
+              if (data.lastError) {
+                setError(`쿠폰 적용 오류: ${data.lastError}`);
+              } else {
+                setError(null);
+              }
               errorRetryRef.current = 0;
             }
           }

@@ -260,6 +260,7 @@ export async function POST(request: NextRequest) {
     let batchInstantFailed = 0;
     let batchDownloadSuccess = 0;
     let batchDownloadFailed = 0;
+    let lastError = '';
 
     // ═══════════════════════════════════════════════════════
     // Phase 1: 즉시할인 쿠폰 배치 적용
@@ -333,6 +334,7 @@ export async function POST(request: NextRequest) {
             // 배치 전체 실패
             batchInstantFailed += validItems.length;
             const errMsg = err instanceof Error ? err.message : String(err);
+            lastError = `[즉시할인] ${errMsg}`;
             console.error(`[bulk-apply] 즉시할인 배치 실패 (${validItems.length}건):`, errMsg);
 
             await serviceClient.from('coupon_apply_log').insert(
@@ -423,6 +425,7 @@ export async function POST(request: NextRequest) {
           } catch (err) {
             batchDownloadFailed += validItems.length;
             const errMsg = err instanceof Error ? err.message : String(err);
+            lastError = `[다운로드] ${errMsg}`;
             console.error(`[bulk-apply] 다운로드 쿠폰 배치 생성 실패 (${validItems.length}건):`, errMsg);
 
             await serviceClient.from('coupon_apply_log').insert(
@@ -494,7 +497,7 @@ export async function POST(request: NextRequest) {
       .eq('id', progress.id)
       .single();
 
-    return NextResponse.json({ progress: currentProgress, hasMore });
+    return NextResponse.json({ progress: currentProgress, hasMore, lastError: lastError || undefined });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('쿠폰 일괄 적용 서버 오류:', message);
