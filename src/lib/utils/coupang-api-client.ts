@@ -724,19 +724,20 @@ export async function addDownloadCouponItems(
   return { requestTransactionId: data.requestTransactionId };
 }
 
-/** 다운로드 쿠폰 요청 상태 확인 */
+/** 다운로드 쿠폰 요청 상태 확인
+ *  다운로드 쿠폰은 marketplace_openapi에서 생성하므로 marketplace_openapi를 먼저 시도 */
 export async function checkDownloadCouponStatus(
   credentials: CoupangCredentials,
   requestTransactionId: string,
 ): Promise<unknown> {
-  // FMS 프로바이더로 시도
+  // 1차: marketplace_openapi (다운로드 쿠폰의 공식 상태 확인 경로)
   try {
-    const fmsPath = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/requested/${requestTransactionId}`;
-    return await callCoupangApi(credentials, 'GET', fmsPath);
+    const mktPath = `${MKT_OPENAPI_BASE}/coupons/transactionStatus?requestTransactionId=${requestTransactionId}`;
+    return await callCoupangApi(credentials, 'GET', mktPath);
   } catch {
-    // 폴백: marketplace_openapi
-    const path = `${MKT_OPENAPI_BASE}/coupons/transactionStatus?requestTransactionId=${requestTransactionId}`;
-    return callCoupangApi(credentials, 'GET', path);
+    // 2차 폴백: FMS
+    const fmsPath = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/requested/${requestTransactionId}`;
+    return callCoupangApi(credentials, 'GET', fmsPath);
   }
 }
 

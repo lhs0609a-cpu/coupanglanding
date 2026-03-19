@@ -108,7 +108,9 @@ async function createDownloadCouponBatch(
 ): Promise<{ couponId: number; couponName: string }> {
   const now = new Date();
   const endDate = new Date(now);
-  endDate.setDate(endDate.getDate() + (config.download_coupon_duration_days || 30));
+  // 쿠팡 최대 유효기간 제한 (365일 상한)
+  const durationDays = Math.min(config.download_coupon_duration_days || 30, 365);
+  endDate.setDate(endDate.getDate() + durationDays);
 
   const dateStr = now.toISOString().slice(0, 10);
   const title = (config.download_coupon_title_template || '다운로드쿠폰 {date} #{n}')
