@@ -166,14 +166,109 @@ export default function DownloadCouponCard({
             )}
           </div>
 
-          {/* policies 미설정 경고 */}
+          {/* policies 미설정 → 기본 정책 추가 버튼 */}
           {policies.length === 0 && (
-            <div className="flex items-start gap-2 p-2.5 bg-red-50 rounded-lg text-xs text-red-700">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <span>
-                <strong>할인 정책이 설정되지 않았습니다.</strong> 아래에서 기존 쿠폰 ID를 입력하고 &quot;정책 복사&quot;를 눌러 정책을 가져오세요.
-                정책 없이는 쿠폰이 생성되지 않습니다.
-              </span>
+            <div className="p-3 bg-red-50 rounded-lg space-y-2">
+              <div className="flex items-start gap-2 text-xs text-red-700">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span><strong>할인 정책이 설정되지 않았습니다.</strong> 정책 없이는 쿠폰이 생성되지 않습니다.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => onChange('download_coupon_policies', [
+                  {
+                    title: '할인 정책',
+                    typeOfDiscount: 'PRICE',
+                    description: '다운로드 쿠폰 할인',
+                    minimumPrice: 10000,
+                    discount: 1000,
+                    maximumDiscountPrice: 1000,
+                    maximumPerDaily: 1,
+                  },
+                ])}
+                className="px-3 py-1.5 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-[#c81530] transition"
+              >
+                기본 정책 추가 (1,000원 할인 / 10,000원 이상)
+              </button>
+            </div>
+          )}
+
+          {/* Policies display + 편집 */}
+          {policies.length > 0 && (
+            <div className="p-3 bg-gray-50 rounded-lg space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1 text-xs text-gray-500">
+                  <Copy className="w-3 h-3" />
+                  <span>{policies.length}개 정책 설정됨</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onChange('download_coupon_policies', [])}
+                  className="text-[10px] text-red-400 hover:text-red-600"
+                >
+                  초기화
+                </button>
+              </div>
+              {policies.map((policy, i) => (
+                <div key={i} className="text-xs text-gray-600 space-y-1 border-t border-gray-200 pt-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block">
+                      <span className="text-[10px] text-gray-400">할인 유형</span>
+                      <select
+                        value={String((policy as Record<string, unknown>).typeOfDiscount || 'PRICE')}
+                        onChange={(e) => {
+                          const updated = [...policies];
+                          (updated[i] as Record<string, unknown>).typeOfDiscount = e.target.value;
+                          onChange('download_coupon_policies', updated);
+                        }}
+                        className="w-full px-2 py-1 text-xs border rounded"
+                      >
+                        <option value="PRICE">정액 (원)</option>
+                        <option value="RATE">정률 (%)</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] text-gray-400">할인값</span>
+                      <input
+                        type="number"
+                        value={Number((policy as Record<string, unknown>).discount || 0)}
+                        onChange={(e) => {
+                          const updated = [...policies];
+                          (updated[i] as Record<string, unknown>).discount = Number(e.target.value);
+                          onChange('download_coupon_policies', updated);
+                        }}
+                        className="w-full px-2 py-1 text-xs border rounded"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] text-gray-400">최소 주문금액</span>
+                      <input
+                        type="number"
+                        value={Number((policy as Record<string, unknown>).minimumPrice || 0)}
+                        onChange={(e) => {
+                          const updated = [...policies];
+                          (updated[i] as Record<string, unknown>).minimumPrice = Number(e.target.value);
+                          onChange('download_coupon_policies', updated);
+                        }}
+                        className="w-full px-2 py-1 text-xs border rounded"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] text-gray-400">최대 할인금액</span>
+                      <input
+                        type="number"
+                        value={Number((policy as Record<string, unknown>).maximumDiscountPrice || 0)}
+                        onChange={(e) => {
+                          const updated = [...policies];
+                          (updated[i] as Record<string, unknown>).maximumDiscountPrice = Number(e.target.value);
+                          onChange('download_coupon_policies', updated);
+                        }}
+                        className="w-full px-2 py-1 text-xs border rounded"
+                      />
+                    </label>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
@@ -201,19 +296,6 @@ export default function DownloadCouponCard({
               </button>
             </div>
           </div>
-
-          {/* Policies display */}
-          {policies.length > 0 && (
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <div className="flex items-center gap-1 text-xs text-gray-500 mb-1">
-                <Copy className="w-3 h-3" />
-                <span>{policies.length}개 정책 설정됨</span>
-              </div>
-              <pre className="text-[10px] text-gray-400 max-h-20 overflow-y-auto">
-                {JSON.stringify(policies, null, 2)}
-              </pre>
-            </div>
-          )}
 
           {/* Template name */}
           <div>
