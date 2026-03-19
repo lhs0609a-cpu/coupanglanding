@@ -572,8 +572,33 @@ export async function fetchDownloadCoupon(
 
 /** 쿠팡 API 날짜 형식 변환 (ISO → 'YYYY-MM-DD HH:mm:ss') */
 function toCoupangDateFormat(isoDate: string): string {
-  // "2026-03-20T10:30:00.000" or "2026-03-20T10:30:00" → "2026-03-20 10:30:00"
-  return isoDate.replace('T', ' ').replace(/\.\d+$/, '').replace('Z', '');
+  // "2026-03-20T10:30:00.123Z" → "2026-03-20 10:30:00"
+  return isoDate
+    .replace('T', ' ')
+    .replace(/\.\d+/, '') // 밀리초 제거 (.123)
+    .replace('Z', '')
+    .trim();
+}
+
+/** 다운로드 쿠폰 정책 배열을 쿠팡 API 형식으로 정규화 */
+function normalizePolicies(policies: unknown[]): Record<string, unknown>[] {
+  return policies.map((p, i) => {
+    const policy = p as Record<string, unknown>;
+    return {
+      title: policy.title || `할인 정책 ${i + 1}`,
+      typeOfDiscount: policy.typeOfDiscount || 'RATE',
+      description: policy.description || `할인 정책 ${i + 1}`,
+      minimumPrice: Number(policy.minimumPrice || 0),
+      discount: Number(policy.discount || 0),
+      maximumDiscountPrice: Number(policy.maximumDiscountPrice || 0),
+      // 쿠팡 API 필수: maximumPerDaily (1~9999)
+      // 응답에서는 maximumPerDay로 오지만 요청에서는 maximumPerDaily
+      maximumPerDaily: Math.min(Math.max(
+        Number(policy.maximumPerDaily || policy.maximumPerDay || 9999),
+        1,
+      ), 9999),
+    };
+  });
 }
 
 /** 다운로드 쿠폰 생성 (아이템 없이 — 아이템은 별도 API로 등록)
@@ -596,7 +621,7 @@ export async function createDownloadCoupon(
     startDate: toCoupangDateFormat(params.startDate),
     endDate: toCoupangDateFormat(params.endDate),
     userId: credentials.vendorId, // 쿠팡 API 필수 필드
-    policies: params.policies,
+    policies: normalizePolicies(params.policies), // 필수 필드 보정
   };
 
   console.log('[createDownloadCoupon] 요청 경로:', mktPath);
