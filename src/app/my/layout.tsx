@@ -7,7 +7,7 @@ import type { PtUser, MonthlyReport } from '@/lib/supabase/types';
 export const dynamic = 'force-dynamic';
 
 export const metadata = {
-  title: '내 PT | 쿠팡 셀러허브',
+  title: '내 PT | 쿠팡 메가로드',
 };
 
 export default async function MyLayout({ children }: { children: React.ReactNode }) {

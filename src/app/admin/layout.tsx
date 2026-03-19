@@ -5,7 +5,7 @@ import AdminLayoutClient from './layout-client';
 export const dynamic = 'force-dynamic';
 
 export const metadata = {
-  title: '관리자 | 쿠팡 셀러허브',
+  title: '관리자 | 쿠팡 메가로드',
 };
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {

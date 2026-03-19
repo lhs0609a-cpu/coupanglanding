@@ -73,7 +73,7 @@ export default function AdminSidebar({ isOpen, onClose }: AdminSidebarProps) {
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
           <div>
             <h2 className="font-bold text-gray-900">관리자</h2>
-            <p className="text-xs text-gray-500">셀러허브 관리 시스템</p>
+            <p className="text-xs text-gray-500">메가로드 관리 시스템</p>
           </div>
           <button
             type="button"

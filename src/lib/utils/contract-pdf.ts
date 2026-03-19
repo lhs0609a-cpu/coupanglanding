@@ -107,7 +107,7 @@ export function downloadContractPdf({ contract, ptUser }: ContractPdfParams) {
         <div style="display: flex; justify-content: space-between; margin-top: 20px; gap: 10px;">
           <div class="sig-box" style="width: 30%;">
             <p><strong>갑 (회사)</strong></p>
-            <p>셀러허브</p>
+            <p>메가로드</p>
           </div>
           <div class="sig-box" style="width: 30%;">
             <p><strong>을 (사업자)</strong></p>
@@ -132,7 +132,7 @@ export function downloadContractPdf({ contract, ptUser }: ContractPdfParams) {
         <div class="sig-row">
           <div class="sig-box">
             <p><strong>갑 (서비스 제공자)</strong></p>
-            <p>셀러허브</p>
+            <p>메가로드</p>
           </div>
           <div class="sig-box">
             <p><strong>을 (PT 사용자)</strong></p>

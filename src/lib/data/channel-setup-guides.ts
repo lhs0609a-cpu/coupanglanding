@@ -1,4 +1,4 @@
-import type { Channel } from '@/lib/sellerhub/types';
+import type { Channel } from '@/lib/megaload/types';
 
 export interface ChannelGuideStep {
   stepNumber: number;
@@ -82,7 +82,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
       {
         stepNumber: 5,
         title: '키 입력하기',
-        description: '복사한 키를 SellerHub에 입력합니다.',
+        description: '복사한 키를 Megaload에 입력합니다.',
         detailedInstructions: [
           '아래 "연동하러 가기" 버튼을 클릭하세요.',
           'Vendor ID, Access Key, Secret Key를 각 필드에 붙여넣기하세요.',
@@ -123,7 +123,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         detailedInstructions: [
           '"내 애플리케이션" 메뉴로 이동합니다.',
           '"애플리케이션 등록" 버튼을 클릭하세요.',
-          '애플리케이션 이름: "SellerHub" 또는 원하는 이름 입력',
+          '애플리케이션 이름: "Megaload" 또는 원하는 이름 입력',
           '애플리케이션 유형: "서비스형" 선택',
         ],
         tip: '이름은 본인이 알아볼 수 있는 이름이면 됩니다.',
@@ -168,7 +168,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
       {
         stepNumber: 6,
         title: '키 입력하기',
-        description: '복사한 키를 SellerHub에 입력합니다.',
+        description: '복사한 키를 Megaload에 입력합니다.',
         detailedInstructions: [
           '아래 "연동하러 가기" 버튼을 클릭하세요.',
           'Client ID와 Client Secret을 각 필드에 붙여넣기하세요.',
@@ -225,7 +225,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
       {
         stepNumber: 4,
         title: '키 입력하기',
-        description: '복사한 키를 SellerHub에 입력합니다.',
+        description: '복사한 키를 Megaload에 입력합니다.',
         detailedInstructions: [
           '아래 "연동하러 가기" 버튼을 클릭하세요.',
           'API Key 필드에 복사한 키를 붙여넣기하세요.',
@@ -293,7 +293,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
       {
         stepNumber: 5,
         title: '키 입력하기',
-        description: '복사한 정보를 SellerHub에 입력합니다.',
+        description: '복사한 정보를 Megaload에 입력합니다.',
         detailedInstructions: [
           '아래 "연동하러 가기" 버튼을 클릭하세요.',
           '판매자 ID와 API Key를 각 필드에 입력하세요.',
@@ -360,7 +360,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
       {
         stepNumber: 5,
         title: '키 입력하기',
-        description: '복사한 정보를 SellerHub에 입력합니다.',
+        description: '복사한 정보를 Megaload에 입력합니다.',
         detailedInstructions: [
           '아래 "연동하러 가기" 버튼을 클릭하세요.',
           '판매자 ID와 API Key를 각 필드에 입력하세요.',
@@ -422,12 +422,12 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           '설정 페이지에서 안내하는 IP 주소를 등록하세요.',
           'IP 등록이 없는 경우 이 단계는 건너뛰세요.',
         ],
-        tip: 'IP 등록이 필요한 경우 SellerHub 설정 페이지에서 서버 IP를 확인할 수 있습니다.',
+        tip: 'IP 등록이 필요한 경우 Megaload 설정 페이지에서 서버 IP를 확인할 수 있습니다.',
       },
       {
         stepNumber: 5,
         title: '키 입력하기',
-        description: '복사한 키를 SellerHub에 입력합니다.',
+        description: '복사한 키를 Megaload에 입력합니다.',
         detailedInstructions: [
           '아래 "연동하러 가기" 버튼을 클릭하세요.',
           'API Key와 API Secret을 각 필드에 입력하세요.',
@@ -435,6 +435,6 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         ],
       },
     ],
-    finalNote: '롯데온 API Key는 1년 만료입니다. SellerHub에서 만료 30일 전 알림을 보내드립니다.',
+    finalNote: '롯데온 API Key는 1년 만료입니다. Megaload에서 만료 30일 전 알림을 보내드립니다.',
   },
 };

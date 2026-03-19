@@ -18,8 +18,8 @@ import type { Contract } from '@/lib/supabase/types';
 function ContractContent({ vars, mode = 'single' }: { vars: ContractVariables; mode?: 'single' | 'triple' }) {
   const articles = getContractArticles(mode);
   const title = mode === 'triple'
-    ? '쿠팡 셀러허브 PT 코칭 3자 계약서'
-    : '쿠팡 셀러허브 PT 코칭 계약서';
+    ? '쿠팡 메가로드 PT 코칭 3자 계약서'
+    : '쿠팡 메가로드 PT 코칭 계약서';
 
   return (
     <div className="border border-gray-200 rounded-xl p-6 sm:p-8 space-y-6 bg-white">

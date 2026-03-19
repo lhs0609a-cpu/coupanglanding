@@ -510,8 +510,8 @@ export default function AdminContractsPage() {
               const contractMode = (viewContract.contract_mode || 'single') as 'single' | 'triple';
               const articles = getContractArticles(contractMode);
               const title = contractMode === 'triple'
-                ? '쿠팡 셀러허브 PT 코칭 3자 계약서'
-                : '쿠팡 셀러허브 PT 코칭 계약서';
+                ? '쿠팡 메가로드 PT 코칭 3자 계약서'
+                : '쿠팡 메가로드 PT 코칭 계약서';
               return (
                 <div className="max-h-[60vh] overflow-y-auto border border-gray-200 rounded-xl p-5 space-y-4">
                   <div className="text-center border-b border-gray-200 pb-4">

@@ -103,7 +103,16 @@ export async function POST(request: NextRequest) {
 
     // 배치 처리
     for (const product of (batch || [])) {
-      const itemId = product.vendor_item_id || product.seller_product_id;
+      const itemId = product.vendor_item_id;
+
+      // vendorItemId가 없으면 건너뜀 (sellerProductId는 쿠폰 API에서 사용 불가)
+      if (!itemId) {
+        await serviceClient.from('product_coupon_tracking').update({
+          status: 'skipped',
+          error_message: 'vendorItemId 없음 — 쿠폰 적용 불가',
+        }).eq('id', product.id);
+        continue;
+      }
 
       try {
         // 처리 중 상태

@@ -55,7 +55,7 @@ const STATUS_TABS = [
   { value: 'resolved', label: '완료' },
 ];
 
-const STORAGE_KEY = 'sellerhub_support_tickets';
+const STORAGE_KEY = 'megaload_support_tickets';
 
 function loadTickets(): Ticket[] {
   if (typeof window === 'undefined') return [];
@@ -120,7 +120,7 @@ export default function SupportPage() {
       const autoReply: Message = {
         id: Date.now().toString() + '_auto',
         sender: 'admin',
-        content: `안녕하세요, 셀러허브 고객센터입니다.\n\n문의해 주셔서 감사합니다. 접수된 문의는 담당자 확인 후 순차적으로 답변드리겠습니다.\n\n• 평균 응답 시간: 영업일 기준 1~2일\n• 긴급 문의: 카카오톡 채널 "셀러허브" 이용\n\n감사합니다.`,
+        content: `안녕하세요, 메가로드 고객센터입니다.\n\n문의해 주셔서 감사합니다. 접수된 문의는 담당자 확인 후 순차적으로 답변드리겠습니다.\n\n• 평균 응답 시간: 영업일 기준 1~2일\n• 긴급 문의: 카카오톡 채널 "메가로드" 이용\n\n감사합니다.`,
         created_at: new Date(Date.now() + 1000).toISOString(),
       };
       setTickets(prev => {

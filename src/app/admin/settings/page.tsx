@@ -294,7 +294,7 @@ export default function AdminSettingsPage() {
                     label="상호 (법인명)"
                     value={company.business_name}
                     onChange={(e) => setCompany({ ...company, business_name: e.target.value })}
-                    placeholder="(주)쿠팡 셀러허브"
+                    placeholder="(주)쿠팡 메가로드"
                   />
                   <Input
                     id="company-reg-num"

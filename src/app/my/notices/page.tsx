@@ -35,10 +35,10 @@ const CATEGORY_TABS: { value: string; label: string }[] = [
 const NOTICES: Notice[] = [
   {
     id: '1',
-    title: '🎉 셀러허브 서비스 정식 오픈 안내',
-    content: `안녕하세요, 셀러허브를 이용해 주셔서 감사합니다.
+    title: '🎉 메가로드 서비스 정식 오픈 안내',
+    content: `안녕하세요, 메가로드를 이용해 주셔서 감사합니다.
 
-셀러허브가 정식 오픈되었습니다!
+메가로드가 정식 오픈되었습니다!
 
 ■ 주요 기능 안내
 • 대시보드: 매출 현황, 수익 분석을 한눈에 확인

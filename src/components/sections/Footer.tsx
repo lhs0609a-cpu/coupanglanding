@@ -24,7 +24,7 @@ export default function Footer() {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#E31837] to-[#ff4d6a] flex items-center justify-center shadow-lg shadow-rose-200/30">
               <span className="text-white font-bold">C</span>
             </div>
-            <span className="font-bold text-gray-900 text-lg">셀러허브</span>
+            <span className="font-bold text-gray-900 text-lg">메가로드</span>
           </motion.div>
 
           {/* Links */}
@@ -60,7 +60,7 @@ export default function Footer() {
             transition={{ delay: 0.2 }}
             className="text-gray-400 text-sm"
           >
-            © 2025 셀러허브. All rights reserved.
+            © 2025 메가로드. All rights reserved.
           </motion.p>
         </div>
       </div>

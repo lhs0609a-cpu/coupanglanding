@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     description: "94%가 3개월 안에 매출을 만듭니다. 못 만들면? 0원.",
     type: "website",
     locale: "ko_KR",
-    siteName: "쿠팡 셀러허브",
+    siteName: "쿠팡 메가로드",
   },
   twitter: {
     card: "summary_large_image",

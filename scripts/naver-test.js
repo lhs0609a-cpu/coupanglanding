@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const dataDir = path.join(process.cwd(), 'src', 'lib', 'sellerhub', 'data');
+const dataDir = path.join(process.cwd(), 'src', 'lib', 'megaload', 'data');
 const index = JSON.parse(fs.readFileSync(path.join(dataDir, 'coupang-cat-index.json')));
 const details = JSON.parse(fs.readFileSync(path.join(dataDir, 'coupang-cat-details.json')));
 

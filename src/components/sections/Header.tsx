@@ -51,7 +51,7 @@ export default function Header({ showBackButton = false }: HeaderProps) {
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#E31837] to-[#c41230] flex items-center justify-center shadow-lg shadow-rose-200/30">
                 <span className="text-white font-bold text-sm">C</span>
               </div>
-              <span className="font-bold text-gray-900 text-lg tracking-tight">셀러허브</span>
+              <span className="font-bold text-gray-900 text-lg tracking-tight">메가로드</span>
             </Link>
           )}
 

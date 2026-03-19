@@ -446,7 +446,7 @@ export default function SplitHero() {
           <div className="w-[76px] h-[76px] rounded-2xl glass-card-light flex items-center justify-center shadow-2xl">
             <div className="text-center">
               <p className="text-[9px] font-bold text-white/80 tracking-[0.15em] uppercase">Coupang</p>
-              <p className="text-[13px] font-extrabold text-white -mt-0.5">셀러허브</p>
+              <p className="text-[13px] font-extrabold text-white -mt-0.5">메가로드</p>
             </div>
           </div>
         </motion.div>
@@ -458,7 +458,7 @@ export default function SplitHero() {
       {/* Horizontal Divider (mobile) */}
       <div className="md:hidden absolute left-[10%] right-[10%] top-1/2 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent z-10" />
 
-      {/* SellerHub CTA Fixed Bar */}
+      {/* Megaload CTA Fixed Bar */}
       <motion.div
         initial={{ y: 60, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
@@ -477,12 +477,12 @@ export default function SplitHero() {
               </div>
             </div>
             <motion.a
-              href="/sellerhub/dashboard"
+              href="/megaload/dashboard"
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
               className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#E31837] text-white rounded-xl text-xs sm:text-sm font-semibold shadow-lg shadow-[#E31837]/20 hover:shadow-xl hover:shadow-[#E31837]/30 transition-shadow"
             >
-              SellerHub
+              Megaload
               <ArrowRight className="w-3.5 h-3.5" />
             </motion.a>
           </div>

@@ -24,7 +24,7 @@ export default function PendingPage() {
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#E31837] to-[#ff4d6a] flex items-center justify-center shadow-md">
                 <span className="text-white font-bold text-sm">S</span>
               </div>
-              <span className="font-bold text-gray-900">쿠팡 셀러허브</span>
+              <span className="font-bold text-gray-900">쿠팡 메가로드</span>
             </Link>
           </div>
 

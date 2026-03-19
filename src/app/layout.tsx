@@ -19,19 +19,19 @@ const notoSansKR = Noto_Sans_KR({
 });
 
 export const metadata: Metadata = {
-  title: "쿠팡 셀러허브 | AI 기반 쿠팡 상품 등록 자동화",
+  title: "쿠팡 메가로드 | AI 기반 쿠팡 상품 등록 자동화",
   description: "GPT-4 AI가 카테고리 매칭, 상품명 생성, 가격 계산까지 전부 자동화. 100개 상품 등록 10분이면 끝. 전문가 1:1 PT도 함께.",
-  keywords: "쿠팡 상품 등록, AI 상품명 생성, 쿠팡 자동 등록, 셀러허브, 쿠팡 PT, 쿠팡 판매자 도구, 대량 등록, 카테고리 매칭",
+  keywords: "쿠팡 상품 등록, AI 상품명 생성, 쿠팡 자동 등록, 메가로드, 쿠팡 PT, 쿠팡 판매자 도구, 대량 등록, 카테고리 매칭",
   openGraph: {
-    title: "쿠팡 셀러허브 | AI 기반 쿠팡 상품 등록 자동화",
+    title: "쿠팡 메가로드 | AI 기반 쿠팡 상품 등록 자동화",
     description: "GPT-4 AI가 카테고리 매칭, 상품명 생성, 가격 계산까지 전부 자동화합니다.",
     type: "website",
     locale: "ko_KR",
-    siteName: "쿠팡 셀러허브",
+    siteName: "쿠팡 메가로드",
   },
   twitter: {
     card: "summary_large_image",
-    title: "쿠팡 셀러허브 | AI 기반 쿠팡 상품 등록 자동화",
+    title: "쿠팡 메가로드 | AI 기반 쿠팡 상품 등록 자동화",
     description: "GPT-4 AI가 카테고리 매칭, 상품명 생성, 가격 계산까지 전부 자동화합니다.",
   },
   robots: {

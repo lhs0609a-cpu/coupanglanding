@@ -157,7 +157,7 @@ export default function BusinessSignPage() {
             <FileText className="w-6 h-6 text-[#E31837]" />
             <div>
               <h1 className="text-lg font-bold text-gray-900">사업자 대표 서명</h1>
-              <p className="text-xs text-gray-500">3자 계약서 — 쿠팡 셀러허브 PT 코칭</p>
+              <p className="text-xs text-gray-500">3자 계약서 — 쿠팡 메가로드 PT 코칭</p>
             </div>
           </div>
         </div>
@@ -170,7 +170,7 @@ export default function BusinessSignPage() {
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <span className="text-gray-500">회사</span>
-              <p className="font-semibold text-gray-900">쿠팡 셀러허브</p>
+              <p className="font-semibold text-gray-900">쿠팡 메가로드</p>
             </div>
             <div>
               <span className="text-gray-500">실운영자 (병)</span>
@@ -206,7 +206,7 @@ export default function BusinessSignPage() {
         {/* 3자 계약 전문 */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 sm:p-8 space-y-5">
           <div className="text-center border-b border-gray-200 pb-5">
-            <h3 className="text-xl font-bold text-gray-900">쿠팡 셀러허브 PT 코칭 3자 계약서</h3>
+            <h3 className="text-xl font-bold text-gray-900">쿠팡 메가로드 PT 코칭 3자 계약서</h3>
             <p className="text-sm text-gray-500 mt-1">전자계약서 (총 {articles.length}조)</p>
           </div>
 
@@ -307,7 +307,7 @@ export default function BusinessSignPage() {
 
       {/* Footer */}
       <div className="max-w-3xl mx-auto px-4 py-8 text-center">
-        <p className="text-xs text-gray-400">쿠팡 셀러허브 PT 코칭 서비스</p>
+        <p className="text-xs text-gray-400">쿠팡 메가로드 PT 코칭 서비스</p>
       </div>
     </div>
   );

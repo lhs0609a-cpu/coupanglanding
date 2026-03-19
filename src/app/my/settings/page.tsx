@@ -300,7 +300,7 @@ export default function MySettingsPage() {
                 type="text"
                 value={sellerId}
                 onChange={(e) => setSellerId(e.target.value)}
-                placeholder="쿠팡 셀러허브 아이디 입력"
+                placeholder="쿠팡 메가로드 아이디 입력"
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
               />
             </div>
@@ -315,7 +315,7 @@ export default function MySettingsPage() {
                   type={showPw ? 'text' : 'password'}
                   value={sellerPw}
                   onChange={(e) => setSellerPw(e.target.value)}
-                  placeholder="쿠팡 셀러허브 비밀번호 입력"
+                  placeholder="쿠팡 메가로드 비밀번호 입력"
                   className="w-full px-4 py-2.5 pr-12 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
                 />
                 <button
@@ -581,7 +581,7 @@ export default function MySettingsPage() {
                   <div className="p-3 bg-white rounded-lg border border-red-200">
                     <p className="text-xs font-bold text-gray-700 mb-1.5">IP주소 (전체 복사하여 입력)</p>
                     <p className="text-xs font-mono text-gray-900 select-all break-all leading-relaxed bg-gray-50 p-2 rounded border border-gray-200">
-                      66.241.125.108, 216.246.19.71, 66.241.124.130, 216.246.19.84, 14.52.102.116, 54.116.7.181, 3.37.67.57, 137.66.13.24, 79.127.159.103, 137.66.13.24
+                      66.241.125.108, 216.246.19.71, 66.241.124.130, 216.246.19.84, 14.52.102.116, 54.116.7.181, 3.37.67.57, 137.66.13.24, 79.127.159.103
                     </p>
                   </div>
                   <div className="p-3 bg-white rounded-lg border border-red-200">

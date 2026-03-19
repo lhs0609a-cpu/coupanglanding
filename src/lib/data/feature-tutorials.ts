@@ -68,7 +68,7 @@ export const FEATURE_TUTORIALS: FeatureTutorialData[] = [
       {
         emoji: '📸',
         title: '스크린샷 첨부',
-        description: 'API 미연동 시 쿠팡 셀러허브 매출 스크린샷을 첨부하여 수동으로 보고할 수 있습니다. EXIF 정보로 위변조를 감지합니다.',
+        description: 'API 미연동 시 쿠팡 메가로드 매출 스크린샷을 첨부하여 수동으로 보고할 수 있습니다. EXIF 정보로 위변조를 감지합니다.',
         proTip: '스크린샷은 해당 월의 정산 화면을 캡처하세요.',
       },
       {
@@ -417,7 +417,7 @@ export const FEATURE_TUTORIALS: FeatureTutorialData[] = [
       {
         emoji: '🔑',
         title: '쿠팡 셀러 계정',
-        description: '쿠팡 셀러허브 로그인 정보를 등록하면 관리자가 필요한 지원을 빠르게 제공할 수 있습니다.',
+        description: '쿠팡 메가로드 로그인 정보를 등록하면 관리자가 필요한 지원을 빠르게 제공할 수 있습니다.',
         proTip: '정보는 암호화되어 안전하게 저장됩니다.',
       },
       {

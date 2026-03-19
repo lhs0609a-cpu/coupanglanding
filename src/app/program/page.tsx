@@ -13,7 +13,7 @@ import {
 // ============================================================================
 // CONSTANTS
 // ============================================================================
-const CTA_URL = 'https://coupang-sellerhub-new.vercel.app/auth/login';
+const CTA_URL = 'https://coupang-megaload-new.vercel.app/auth/login';
 
 // ============================================================================
 // ANIMATION VARIANTS

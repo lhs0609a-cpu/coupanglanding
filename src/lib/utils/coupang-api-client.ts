@@ -97,22 +97,30 @@ async function callCoupangApi(
   const useProxy = !!PROXY_URL;
   const url = useProxy ? `${PROXY_URL}/proxy${path}` : `${API_DOMAIN}${path}`;
 
-  const datetime = formatSignedDate();
-  const authorization = await buildAuthorizationHeader(
-    credentials.accessKey,
-    credentials.secretKey,
-    method,
-    path,
-    datetime,
-  );
-
   const headers: Record<string, string> = {
-    'Authorization': authorization,
     'Content-Type': 'application/json;charset=UTF-8',
-    'X-Requested-By': credentials.vendorId,
   };
-  if (useProxy && PROXY_SECRET) {
-    headers['X-Proxy-Secret'] = PROXY_SECRET;
+
+  if (useProxy) {
+    // 프록시 모드: 프록시가 HMAC 서명을 직접 생성하므로
+    // Access Key / Secret Key를 헤더로 전달
+    headers['X-Coupang-Access-Key'] = credentials.accessKey;
+    headers['X-Coupang-Secret-Key'] = credentials.secretKey;
+    if (PROXY_SECRET) {
+      headers['X-Proxy-Secret'] = PROXY_SECRET;
+    }
+  } else {
+    // 직접 모드: 클라이언트에서 HMAC 서명 생성
+    const datetime = formatSignedDate();
+    const authorization = await buildAuthorizationHeader(
+      credentials.accessKey,
+      credentials.secretKey,
+      method,
+      path,
+      datetime,
+    );
+    headers['Authorization'] = authorization;
+    headers['X-Requested-By'] = credentials.vendorId;
   }
 
   const fetchInit: RequestInit = { method, headers };
@@ -308,14 +316,8 @@ export async function fetchProductListings(
           });
         }
       } else {
-        // Fallback: product without items array (use sellerProductId as vendorItemId)
-        allItems.push({
-          sellerProductId,
-          sellerProductName,
-          vendorItemId: sellerProductId,
-          vendorItemName: sellerProductName,
-          createdAt,
-        });
+        // items 배열이 없는 상품은 건너뜀 (vendorItemId 없이는 쿠폰 적용 불가)
+        console.warn(`[fetchProductListings] 상품 ${sellerProductId}에 items 배열 없음 — 건너뜀`);
       }
     }
 

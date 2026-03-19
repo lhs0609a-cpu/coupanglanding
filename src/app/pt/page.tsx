@@ -536,7 +536,7 @@ export default function PTPage() {
           <div className="flex items-center justify-between h-16 sm:h-[72px]">
             <Link href="/" className="flex items-center gap-2.5 group">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#E31837] to-[#ff4d6a] flex items-center justify-center shadow-lg shadow-rose-200/30"><span className="text-white font-bold text-sm">S</span></div>
-              <span className={`font-bold text-lg transition-colors duration-500 ${scrolled ? 'text-gray-900' : 'text-white'}`}>셀러허브</span>
+              <span className={`font-bold text-lg transition-colors duration-500 ${scrolled ? 'text-gray-900' : 'text-white'}`}>메가로드</span>
             </Link>
             <nav className="hidden md:flex items-center gap-1">
               {navLinks.map((link) => (<a key={link.href} href={link.href} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${scrolled ? 'text-gray-600 hover:text-gray-900 hover:bg-gray-50' : 'text-gray-300 hover:text-white'}`}>{link.label}</a>))}
@@ -1104,7 +1104,7 @@ export default function PTPage() {
       <footer className="py-12 sm:py-16 px-5 sm:px-8 border-t border-gray-100 bg-white">
         <div className="max-w-6xl mx-auto">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
-            <Link href="/" className="flex items-center gap-2.5"><div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#E31837] to-[#ff4d6a] flex items-center justify-center shadow-md"><span className="text-white font-bold text-sm">S</span></div><span className="font-bold text-gray-900">쿠팡 셀러허브</span></Link>
+            <Link href="/" className="flex items-center gap-2.5"><div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#E31837] to-[#ff4d6a] flex items-center justify-center shadow-md"><span className="text-white font-bold text-sm">S</span></div><span className="font-bold text-gray-900">쿠팡 메가로드</span></Link>
             <nav className="flex items-center gap-6">
               {navLinks.map((link) => (<a key={link.href} href={link.href} className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{link.label}</a>))}
               <span className="hidden sm:block w-px h-4 bg-gray-200" />
@@ -1112,9 +1112,9 @@ export default function PTPage() {
               <Link href="/auth/login?loginType=partner" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">파트너 로그인</Link>
               <Link href="/auth/login?loginType=admin" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">관리자 로그인</Link>
               <span className="hidden sm:block w-px h-4 bg-gray-200" />
-              <Link href="/sellerhub/dashboard" className="text-sm text-[#E31837] hover:text-red-700 font-semibold transition-colors">멀티채널 자동화</Link>
+              <Link href="/megaload/dashboard" className="text-sm text-[#E31837] hover:text-red-700 font-semibold transition-colors">멀티채널 자동화</Link>
             </nav>
-            <p className="text-sm text-gray-500">&copy; {new Date().getFullYear()} 쿠팡 셀러허브</p>
+            <p className="text-sm text-gray-500">&copy; {new Date().getFullYear()} 쿠팡 메가로드</p>
           </div>
         </div>
       </footer>
@@ -1133,10 +1133,10 @@ export default function PTPage() {
               </div>
             </div>
             <Link
-              href="/sellerhub/dashboard"
+              href="/megaload/dashboard"
               className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#E31837] text-white rounded-xl text-sm font-semibold shadow-lg shadow-[#E31837]/20 hover:bg-red-700 transition"
             >
-              SellerHub <ArrowRight className="w-3.5 h-3.5" />
+              Megaload <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>
         </div>

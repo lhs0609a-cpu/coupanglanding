@@ -845,7 +845,7 @@ export default function AdminPtUsersPage() {
                       <div>
                         <p className="text-sm font-medium text-yellow-800">외부 프로그램 활성화 필요</p>
                         <p className="text-xs text-yellow-600 mt-0.5">
-                          송금이 확인되었습니다. 외부 프로그램(coupang-sellerhub-new)에서 이 사용자를 수동으로 활성화해주세요.
+                          송금이 확인되었습니다. 외부 프로그램(coupang-megaload-new)에서 이 사용자를 수동으로 활성화해주세요.
                         </p>
                       </div>
                     </div>

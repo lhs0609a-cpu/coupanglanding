@@ -32,7 +32,7 @@ export default function DashboardHeader({ userName, userRole, onMenuClick }: Das
             <Menu className="w-5 h-5" />
           </button>
         )}
-        <span className="text-sm text-gray-500 hidden sm:block">쿠팡 셀러허브 관리</span>
+        <span className="text-sm text-gray-500 hidden sm:block">쿠팡 메가로드 관리</span>
       </div>
 
       <div className="flex items-center gap-3">

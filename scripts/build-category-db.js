@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 
 const INPUT = 'C:/Users/lhs06/Downloads/coupang_all_categories.json';
-const OUTPUT = path.join(__dirname, '..', 'src', 'lib', 'sellerhub', 'data', 'coupang-category-db.json');
+const OUTPUT = path.join(__dirname, '..', 'src', 'lib', 'megaload', 'data', 'coupang-category-db.json');
 
 function parseBuyOption(raw) {
   if (!raw || typeof raw !== 'string') return null;

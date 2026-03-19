@@ -124,20 +124,20 @@ export default function Features() {
           className="mt-20"
         >
           <h3 className="text-2xl font-bold text-center text-gray-900 mb-8">
-            수작업 vs 셀러허브
+            수작업 vs 메가로드
           </h3>
 
           <div className="max-w-3xl mx-auto bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-lg">
             <div className="grid grid-cols-3 bg-gradient-to-r from-gray-50 to-white border-b border-gray-100">
               <div className="p-4 text-center text-sm font-medium text-gray-500">비교</div>
               <div className="p-4 text-center text-sm font-bold text-gray-400">수작업</div>
-              <div className="p-4 text-center text-sm font-bold text-[#E31837]">셀러허브</div>
+              <div className="p-4 text-center text-sm font-bold text-[#E31837]">메가로드</div>
             </div>
 
             {[
-              { item: '100개 등록', manual: '48시간', sellerhub: '10분' },
-              { item: '상품명', manual: '30분/개', sellerhub: '3초/개' },
-              { item: '월 비용', manual: '₩89만', sellerhub: '₩7.9만' },
+              { item: '100개 등록', manual: '48시간', megaload: '10분' },
+              { item: '상품명', manual: '30분/개', megaload: '3초/개' },
+              { item: '월 비용', manual: '₩89만', megaload: '₩7.9만' },
             ].map((row, index) => (
               <div
                 key={row.item}
@@ -145,7 +145,7 @@ export default function Features() {
               >
                 <div className="p-4 text-center text-sm font-medium text-gray-700">{row.item}</div>
                 <div className="p-4 text-center text-sm text-gray-400 line-through">{row.manual}</div>
-                <div className="p-4 text-center text-sm font-bold text-[#E31837]">{row.sellerhub}</div>
+                <div className="p-4 text-center text-sm font-bold text-[#E31837]">{row.megaload}</div>
               </div>
             ))}
           </div>
