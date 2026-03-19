@@ -61,9 +61,9 @@ export const ROADMAP_STEPS: RoadmapStep[] = [
       {
         id: 'br-4',
         label: '토스페이먼츠에서 간편 신청',
-        description: '토스페이먼츠 사업자등록 서비스를 이용하면 세무서 방문 없이 온라인으로 간편 신청이 가능합니다.',
+        description: '토스페이먼츠 사업자등록 바로신청 서비스를 이용하면 세무서 방문 없이 5분 만에 온라인으로 간편 신청이 가능합니다.',
         link: {
-          url: 'https://app.tosspayments.com/self-employed/registration',
+          url: 'https://onboarding.tosspayments.com/business-registration/intro',
           label: '토스페이먼츠 바로 신청하기',
         },
       },
@@ -100,10 +100,10 @@ export const ROADMAP_STEPS: RoadmapStep[] = [
       },
       {
         id: 'ts-3',
-        label: '토스페이먼츠에서 간편 신청',
-        description: '토스페이먼츠 통신판매업 신고 서비스를 통해 온라인으로 간편하게 신청할 수 있습니다.',
+        label: '토스페이먼츠에서 간편 신고',
+        description: '토스페이먼츠 통신판매업 바로신청 서비스를 통해 온라인으로 간편하게 신고할 수 있습니다.',
         link: {
-          url: 'https://app.tosspayments.com/self-employed/online-sales',
+          url: 'https://onboarding.tosspayments.com/mail-order-business/intro',
           label: '토스페이먼츠 바로 신청하기',
         },
       },
