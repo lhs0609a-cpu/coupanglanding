@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
-import { fetchProductListings } from '@/lib/utils/coupang-api-client';
+import { fetchProductListings, fetchTotalProductCount } from '@/lib/utils/coupang-api-client';
 import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
 
 export const maxDuration = 55; // Vercel 함수 최대 실행 시간 (초)
 
 const COLLECT_BATCH_SIZE = 100; // upsert batch size
-const PAGES_PER_CALL = 5; // 한 호출당 최대 5페이지 (500 상품) — Vercel timeout 방지
+const PAGES_PER_CALL = 2; // 한 호출당 최대 2페이지 (200 상품) — Vercel timeout 방지
 
 /** POST: 쿠팡 상품 수집 → product_coupon_tracking에 저장 (배치 방식) */
 export async function POST(request: NextRequest) {
@@ -59,6 +59,13 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (!progress) {
+      // 첫 수집: 총 상품 수를 미리 조회 (프로그레스 계산용)
+      let estimatedTotal = 0;
+      try {
+        const { count } = await fetchTotalProductCount(credentials);
+        estimatedTotal = count;
+      } catch { /* 실패 시 0으로 시작 */ }
+
       // 새 진행 생성 (collecting 상태)
       const { data: newProgress, error: createError } = await serviceClient
         .from('bulk_apply_progress')
@@ -66,6 +73,7 @@ export async function POST(request: NextRequest) {
           pt_user_id: ptUser.id,
           status: 'collecting',
           total_products: 0,
+          total_items: estimatedTotal, // 예상 총 상품 수 저장
         })
         .select()
         .single();
@@ -137,14 +145,16 @@ export async function POST(request: NextRequest) {
 
     if (hasMore) {
       // 아직 더 수집할 상품이 있음 — collecting 유지
-      const estimatedTotal = (totalCollected || 0) + 1000; // 대략적 추정
-      const collectingProgress = Math.min(Math.round(((totalCollected || 0) / estimatedTotal) * 100), 95);
+      // total_items에 저장된 예상 총 상품 수 사용 (없으면 수집된 수 + 남은 추정치)
+      const knownTotal = progress.total_items || 0;
+      const denominator = knownTotal > (totalCollected || 0) ? knownTotal : (totalCollected || 0) + 200;
+      const collectingProgress = Math.min(Math.round(((totalCollected || 0) / denominator) * 100), 99);
       await serviceClient.from('bulk_apply_progress').update({
         collecting_progress: collectingProgress,
         total_products: totalCollected || 0,
       }).eq('id', progress.id);
 
-      console.log(`[collect-products] 배치 완료: ${insertedCount}건 삽입, 총 ${totalCollected}건, 계속 수집...`);
+      console.log(`[collect-products] 배치 완료: ${insertedCount}건 삽입, 총 ${totalCollected}/${knownTotal}건, 계속 수집...`);
     } else {
       // 모든 상품 수집 완료 → applying 상태로 전환
       const { count: pendingCount } = await serviceClient

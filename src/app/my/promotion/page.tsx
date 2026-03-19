@@ -233,9 +233,11 @@ export default function PromotionPage() {
 
   // Polling for active progress (setTimeout으로 순차 실행 — 동시 호출 방지)
   const progressStatus = progress?.status;
+  const errorRetryRef = useRef(0);
   useEffect(() => {
     if (progressStatus === 'collecting' || progressStatus === 'applying') {
       let active = true;
+      errorRetryRef.current = 0;
 
       const poll = async () => {
         if (!active) return;
@@ -251,23 +253,46 @@ export default function PromotionPage() {
             if (res.ok) {
               collectNextTokenRef.current = data.nextToken || '';
               setError(null);
+              errorRetryRef.current = 0;
             } else {
+              errorRetryRef.current++;
               setError(`상품 수집 실패: ${data.error || `HTTP ${res.status}`}`);
+              // 연속 5회 실패 시 폴링 중단
+              if (errorRetryRef.current >= 5) {
+                setError('상품 수집이 반복 실패하여 중단되었습니다. 취소 후 다시 시도해주세요.');
+                return;
+              }
             }
           } else {
             const res = await fetch('/api/promotion/bulk-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
             if (!res.ok) {
+              errorRetryRef.current++;
               const data = await res.json().catch(() => ({}));
               setError(`쿠폰 적용 실패: ${data.error || `HTTP ${res.status}`}`);
+              if (errorRetryRef.current >= 5) {
+                setError('쿠폰 적용이 반복 실패하여 중단되었습니다. 취소 후 다시 시도해주세요.');
+                return;
+              }
             } else {
               setError(null);
+              errorRetryRef.current = 0;
             }
           }
-        } catch { /* ignore */ }
+        } catch {
+          errorRetryRef.current++;
+          if (errorRetryRef.current >= 5) {
+            setError('네트워크 오류가 반복되어 중단되었습니다. 취소 후 다시 시도해주세요.');
+            return;
+          }
+        }
         await fetchProgress();
         // 이전 요청이 완전히 끝난 뒤에만 다음 폴링 예약
         if (active) {
-          pollingRef.current = setTimeout(poll, POLLING_INTERVAL_MS);
+          // 에러 시 대기 시간 증가 (backoff)
+          const delay = errorRetryRef.current > 0
+            ? POLLING_INTERVAL_MS * (errorRetryRef.current + 1)
+            : POLLING_INTERVAL_MS;
+          pollingRef.current = setTimeout(poll, delay);
         }
       };
 
