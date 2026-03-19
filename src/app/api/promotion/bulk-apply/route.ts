@@ -313,9 +313,10 @@ export async function POST(request: NextRequest) {
 
             batchInstantSuccess += validItems.length;
 
-            // 성공 로그 + 트래킹 업데이트
-            for (const item of validItems) {
-              await serviceClient.from('coupon_apply_log').insert({
+            // 성공 로그 배치 삽입 + 트래킹 배치 업데이트
+            const newStatus = config.download_coupon_enabled ? 'pending' : 'completed';
+            await serviceClient.from('coupon_apply_log').insert(
+              validItems.map((item) => ({
                 pt_user_id: ptUser.id,
                 coupon_type: 'instant',
                 coupon_id: String(couponId),
@@ -323,23 +324,19 @@ export async function POST(request: NextRequest) {
                 seller_product_id: item.seller_product_id,
                 vendor_item_id: item.vendor_item_id,
                 success: true,
-              });
-
-              // 다운로드 쿠폰이 비활성이면 completed, 아니면 아직 pending으로 유지
-              const newStatus = config.download_coupon_enabled ? 'pending' : 'completed';
-              await serviceClient.from('product_coupon_tracking').update({
-                status: newStatus,
-                instant_coupon_applied: true,
-              }).eq('id', item.id);
-            }
+              })),
+            );
+            await serviceClient.from('product_coupon_tracking')
+              .update({ status: newStatus, instant_coupon_applied: true })
+              .in('id', validItems.map((p) => p.id));
           } catch (err) {
             // 배치 전체 실패
             batchInstantFailed += validItems.length;
             const errMsg = err instanceof Error ? err.message : String(err);
             console.error(`[bulk-apply] 즉시할인 배치 실패 (${validItems.length}건):`, errMsg);
 
-            for (const item of validItems) {
-              await serviceClient.from('coupon_apply_log').insert({
+            await serviceClient.from('coupon_apply_log').insert(
+              validItems.map((item) => ({
                 pt_user_id: ptUser.id,
                 coupon_type: 'instant',
                 coupon_id: config.instant_coupon_id,
@@ -348,14 +345,11 @@ export async function POST(request: NextRequest) {
                 vendor_item_id: item.vendor_item_id,
                 success: false,
                 error_message: errMsg,
-              });
-
-              await serviceClient.from('product_coupon_tracking').update({
-                status: 'failed',
-                instant_coupon_applied: false,
-                error_message: `즉시할인 쿠폰 실패: ${errMsg}`,
-              }).eq('id', item.id);
-            }
+              })),
+            );
+            await serviceClient.from('product_coupon_tracking')
+              .update({ status: 'failed', instant_coupon_applied: false, error_message: `즉시할인 쿠폰 실패: ${errMsg}` })
+              .in('id', validItems.map((p) => p.id));
           }
         }
       }
@@ -411,8 +405,9 @@ export async function POST(request: NextRequest) {
 
             batchDownloadSuccess += validItems.length;
 
-            for (const item of validItems) {
-              await serviceClient.from('coupon_apply_log').insert({
+            // 성공 로그 배치 삽입 + 트래킹 배치 업데이트
+            await serviceClient.from('coupon_apply_log').insert(
+              validItems.map((item) => ({
                 pt_user_id: ptUser.id,
                 coupon_type: 'download',
                 coupon_id: String(couponId),
@@ -420,20 +415,18 @@ export async function POST(request: NextRequest) {
                 seller_product_id: item.seller_product_id,
                 vendor_item_id: item.vendor_item_id,
                 success: true,
-              });
-
-              await serviceClient.from('product_coupon_tracking').update({
-                status: 'completed',
-                download_coupon_applied: true,
-              }).eq('id', item.id);
-            }
+              })),
+            );
+            await serviceClient.from('product_coupon_tracking')
+              .update({ status: 'completed', download_coupon_applied: true })
+              .in('id', validItems.map((p) => p.id));
           } catch (err) {
             batchDownloadFailed += validItems.length;
             const errMsg = err instanceof Error ? err.message : String(err);
             console.error(`[bulk-apply] 다운로드 쿠폰 배치 생성 실패 (${validItems.length}건):`, errMsg);
 
-            for (const item of validItems) {
-              await serviceClient.from('coupon_apply_log').insert({
+            await serviceClient.from('coupon_apply_log').insert(
+              validItems.map((item) => ({
                 pt_user_id: ptUser.id,
                 coupon_type: 'download',
                 coupon_id: '',
@@ -442,14 +435,11 @@ export async function POST(request: NextRequest) {
                 vendor_item_id: item.vendor_item_id,
                 success: false,
                 error_message: errMsg,
-              });
-
-              await serviceClient.from('product_coupon_tracking').update({
-                status: 'failed',
-                download_coupon_applied: false,
-                error_message: `다운로드 쿠폰 실패: ${errMsg}`,
-              }).eq('id', item.id);
-            }
+              })),
+            );
+            await serviceClient.from('product_coupon_tracking')
+              .update({ status: 'failed', download_coupon_applied: false, error_message: `다운로드 쿠폰 실패: ${errMsg}` })
+              .in('id', validItems.map((p) => p.id));
           }
         }
       }
