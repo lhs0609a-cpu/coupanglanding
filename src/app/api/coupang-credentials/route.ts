@@ -60,8 +60,9 @@ export async function POST(request: NextRequest) {
       success: true,
       expiresAt: expiresAt.toISOString(),
     });
-  } catch {
-    return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: `서버 오류: ${message}` }, { status: 500 });
   }
 }
 

@@ -169,10 +169,13 @@ export default function MySettingsPage() {
       if (data.valid) {
         setApiMessage({ type: 'success', text: 'API 연동 테스트 성공! 저장 버튼을 눌러 연동을 완료하세요.' });
       } else {
-        setApiMessage({ type: 'error', text: data.message || 'API 연동 테스트에 실패했습니다.' });
+        const detail = data.detail ? `\n[상세] ${data.detail}` : '';
+        const status = data.statusCode ? ` (HTTP ${data.statusCode})` : '';
+        setApiMessage({ type: 'error', text: `${data.message || 'API 연동 테스트에 실패했습니다.'}${status}${detail}` });
       }
-    } catch {
-      setApiMessage({ type: 'error', text: 'API 테스트 중 오류가 발생했습니다.' });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '알 수 없는 오류';
+      setApiMessage({ type: 'error', text: `API 테스트 중 오류: ${msg}` });
     } finally {
       setApiTesting(false);
     }
@@ -657,7 +660,7 @@ export default function MySettingsPage() {
                 ) : (
                   <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
                 )}
-                <p className={`text-sm ${apiMessage.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>
+                <p className={`text-sm whitespace-pre-wrap ${apiMessage.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>
                   {apiMessage.text}
                 </p>
               </div>

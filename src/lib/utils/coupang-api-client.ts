@@ -460,7 +460,7 @@ export async function applyDownloadCoupon(
 /** API 자격증명 유효성 검증 */
 export async function validateApiCredentials(
   credentials: CoupangCredentials,
-): Promise<{ valid: boolean; message: string }> {
+): Promise<{ valid: boolean; message: string; detail?: string; statusCode?: number }> {
   try {
     // 가벼운 상품 목록 조회로 인증 검증 (maxPerPage=1)
     const path = `${SELLER_BASE_PATH}/seller-products?vendorId=${credentials.vendorId}&maxPerPage=1`;
@@ -468,13 +468,44 @@ export async function validateApiCredentials(
     return { valid: true, message: 'API 연동이 확인되었습니다.' };
   } catch (error) {
     if (error instanceof CoupangApiError) {
+      const useProxy = !!PROXY_URL;
+      const proxyInfo = useProxy ? `[프록시: ${PROXY_URL}]` : '[직접 연결]';
+
       if (error.statusCode === 401) {
-        return { valid: false, message: 'Access Key 또는 Secret Key가 올바르지 않습니다.' };
+        // 401의 실제 원인을 구분: 프록시 인증 vs 쿠팡 인증
+        const isProxyAuth = error.message.includes('Invalid proxy secret') || error.message.includes('Missing X-Coupang');
+        const summary = isProxyAuth
+          ? '프록시 서버 인증에 실패했습니다. 환경변수(COUPANG_PROXY_SECRET)를 확인하세요.'
+          : 'Access Key 또는 Secret Key가 올바르지 않습니다.';
+        return {
+          valid: false,
+          message: summary,
+          detail: `${proxyInfo} ${error.message}`,
+          statusCode: 401,
+        };
+      }
+      if (error.statusCode === 403) {
+        return {
+          valid: false,
+          message: 'API 접근이 거부되었습니다. IP 화이트리스트 또는 API 권한을 확인하세요.',
+          detail: `${proxyInfo} ${error.message}`,
+          statusCode: 403,
+        };
       }
       if (error.statusCode === 404) {
-        return { valid: false, message: 'Vendor ID가 올바르지 않거나 API 권한이 없습니다.' };
+        return {
+          valid: false,
+          message: 'Vendor ID가 올바르지 않거나 API 권한이 없습니다.',
+          detail: `${proxyInfo} ${error.message}`,
+          statusCode: 404,
+        };
       }
-      return { valid: false, message: error.message };
+      return {
+        valid: false,
+        message: error.message,
+        detail: `${proxyInfo} HTTP ${error.statusCode}`,
+        statusCode: error.statusCode,
+      };
     }
     const msg = error instanceof Error ? error.message : String(error);
     return { valid: false, message: `API 연결에 실패했습니다: ${msg}` };

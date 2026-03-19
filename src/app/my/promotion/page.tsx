@@ -250,14 +250,17 @@ export default function PromotionPage() {
             const data = await res.json().catch(() => ({}));
             if (res.ok) {
               collectNextTokenRef.current = data.nextToken || '';
+              setError(null);
             } else {
-              console.error('[collect-products 오류]', data.error, data.detail);
+              setError(`상품 수집 실패: ${data.error || `HTTP ${res.status}`}`);
             }
           } else {
             const res = await fetch('/api/promotion/bulk-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
             if (!res.ok) {
               const data = await res.json().catch(() => ({}));
-              console.error('[bulk-apply 오류]', data.error);
+              setError(`쿠폰 적용 실패: ${data.error || `HTTP ${res.status}`}`);
+            } else {
+              setError(null);
             }
           }
         } catch { /* ignore */ }
