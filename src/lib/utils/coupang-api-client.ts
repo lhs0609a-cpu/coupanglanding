@@ -133,7 +133,7 @@ async function callCoupangApi(
   if (!response.ok) {
     const errorBody = await response.text().catch(() => '');
     if (response.status === 401) {
-      throw new CoupangApiError('API 인증에 실패했습니다. Access Key와 Secret Key를 확인해주세요.', 401, 'AUTH_FAILED');
+      throw new CoupangApiError(`인증 실패 (401): ${errorBody || 'No response body'}`, 401, 'AUTH_FAILED');
     }
     if (response.status === 429) {
       throw new CoupangApiError('API 호출 한도를 초과했습니다. 잠시 후 다시 시도해주세요.', 429, 'RATE_LIMITED');
