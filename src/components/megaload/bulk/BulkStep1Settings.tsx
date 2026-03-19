@@ -6,6 +6,7 @@ import {
   Sparkles, Plus, FolderOpen, Clock, X, Folder,
 } from 'lucide-react';
 import type { PriceBracket, ShippingPlace, ReturnCenter } from './types';
+import IntegrationTestCard from './IntegrationTestCard';
 
 const RECENT_PATHS_KEY = 'bulk_register_recent_paths';
 const MAX_RECENT_PATHS = 10;
@@ -280,6 +281,9 @@ export default function BulkStep1Settings({
           </div>
         )}
       </div>
+
+      {/* Integration Test */}
+      <IntegrationTestCard disabled={loadingShipping} />
 
       {/* Options */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">

@@ -9,6 +9,8 @@ import { generateProductStoriesBatch, type StoryBatchInput } from '@/lib/megaloa
 import { extractOptions } from '@/lib/megaload/services/option-extractor';
 import { withRetry } from '@/lib/megaload/services/retry';
 import { checkBrandProtection } from '@/lib/megaload/services/brand-checker';
+import { classifyError } from '@/lib/megaload/services/error-classifier';
+import type { DetailedError } from '@/components/megaload/bulk/types';
 
 interface BatchProduct {
   uid?: string;
@@ -64,6 +66,7 @@ interface ProductResult {
   success: boolean;
   channelProductId?: string;
   error?: string;
+  detailedError?: DetailedError;
   duration?: number;
   brandWarning?: string;
 }
@@ -161,32 +164,40 @@ export async function POST(req: NextRequest) {
 
       // 1. 중복 등록 체크
       if (registeredCodes.has(product.productCode)) {
+        const error = `이미 등록된 상품입니다 (productCode: ${product.productCode})`;
         return {
           uid: product.uid, productCode: product.productCode, name: product.name,
-          success: false, error: `이미 등록된 상품입니다 (productCode: ${product.productCode})`, duration: 0,
+          success: false, error, duration: 0,
+          detailedError: { message: error, category: 'duplicate', step: '중복 검사', suggestion: '상품 관리에서 확인하거나 선택 해제 후 다시 등록하세요.' },
         };
       }
 
       // 2. 서버사이드 가격 검증
       if (!product.sellingPrice || product.sellingPrice < 100) {
+        const error = `판매가가 유효하지 않습니다 (${product.sellingPrice}원). 최소 100원`;
         return {
           uid: product.uid, productCode: product.productCode, name: product.name,
-          success: false, error: `판매가가 유효하지 않습니다 (${product.sellingPrice}원). 최소 100원`, duration: 0,
+          success: false, error, duration: 0,
+          detailedError: { message: error, category: 'price', field: 'sellingPrice', step: '가격 검증', suggestion: '판매가를 확인해주세요. (100원 ~ 1억원)' },
         };
       }
       if (product.sellingPrice > 100_000_000) {
+        const error = '판매가가 1억원을 초과합니다.';
         return {
           uid: product.uid, productCode: product.productCode, name: product.name,
-          success: false, error: '판매가가 1억원을 초과합니다.', duration: 0,
+          success: false, error, duration: 0,
+          detailedError: { message: error, category: 'price', field: 'sellingPrice', step: '가격 검증', suggestion: '판매가를 확인해주세요. (100원 ~ 1억원)' },
         };
       }
 
       // 2-2. 카테고리 코드 유효성 검증
       const catNum = Number(product.categoryCode);
       if (!product.categoryCode || isNaN(catNum) || catNum <= 0) {
+        const error = `카테고리 코드 유효하지 않음: "${product.categoryCode}"`;
         return {
           uid: product.uid, productCode: product.productCode, name: product.name,
-          success: false, error: `카테고리 코드 유효하지 않음: "${product.categoryCode}"`, duration: 0,
+          success: false, error, duration: 0,
+          detailedError: { message: error, category: 'category', field: 'displayCategoryCode', step: '카테고리 검증', suggestion: 'Step 2에서 카테고리를 다시 선택해주세요.' },
         };
       }
 
@@ -197,6 +208,7 @@ export async function POST(req: NextRequest) {
         return {
           uid: product.uid, productCode: product.productCode, name: product.name,
           success: false, error: brandCheck.message, duration: 0,
+          detailedError: { message: brandCheck.message, category: 'brand', field: 'brand', step: '브랜드 검사', suggestion: '브랜드 관련 상표권 문제입니다. 상품명과 브랜드를 확인해주세요.' },
         };
       }
       if (brandCheck.result === 'warning') {
@@ -205,11 +217,11 @@ export async function POST(req: NextRequest) {
 
       // 3-2. 카테고리 confidence 검증
       if (product.categoryConfidence !== undefined && product.categoryConfidence < 0.5) {
+        const error = `카테고리 매칭 신뢰도 부족 (${Math.round(product.categoryConfidence * 100)}%). 수동으로 카테고리를 확인해주세요.`;
         return {
           uid: product.uid, productCode: product.productCode, name: product.name,
-          success: false,
-          error: `카테고리 매칭 신뢰도 부족 (${Math.round(product.categoryConfidence * 100)}%). 수동으로 카테고리를 확인해주세요.`,
-          duration: 0,
+          success: false, error, duration: 0,
+          detailedError: { message: error, category: 'category', field: 'categoryConfidence', step: '카테고리 검증', suggestion: '카테고리 매칭 신뢰도가 낮습니다. 수동으로 카테고리를 지정해주세요.' },
         };
       }
 
@@ -241,9 +253,11 @@ export async function POST(req: NextRequest) {
 
       // 대표이미지 최소 1장 필요
       if (mainImageUrls.length === 0) {
+        const error = '대표이미지 업로드 실패 — 최소 1장 필요';
         return {
           uid: product.uid, productCode: product.productCode, name: product.name,
-          success: false, error: '대표이미지 업로드 실패 — 최소 1장 필요', duration: Date.now() - productStart,
+          success: false, error, duration: Date.now() - productStart,
+          detailedError: { message: error, category: 'image', field: 'images', step: '이미지 업로드', suggestion: '이미지 파일을 확인해주세요. 대표이미지가 최소 1장 필요합니다.' },
         };
       }
 
@@ -314,10 +328,20 @@ export async function POST(req: NextRequest) {
       });
 
       // 9. 쿠팡 API 호출 (retry 적용)
-      const result = await withRetry(
-        () => coupangAdapter.createProduct(payload),
-        { maxRetries: 2, initialDelayMs: 1000, retryableErrors: ['timeout', 'econnreset', 'socket hang up', '429', '503', '502'] },
-      );
+      let result: { channelProductId: string };
+      try {
+        result = await withRetry(
+          () => coupangAdapter.createProduct(payload),
+          { maxRetries: 2, initialDelayMs: 1000, retryableErrors: ['timeout', 'econnreset', 'socket hang up', '429', '503', '502'] },
+        );
+      } catch (apiErr) {
+        const errMsg = apiErr instanceof Error ? apiErr.message : '쿠팡 API 등록 실패';
+        return {
+          uid: product.uid, productCode: product.productCode, name: product.name,
+          success: false, error: errMsg, duration: Date.now() - productStart, brandWarning,
+          detailedError: classifyError(errMsg, 'API 등록', errMsg),
+        };
+      }
 
       // 10. DB 저장 (트랜잭션 보장 — 실패 시 쿠팡 상품 정보를 orphan 테이블에 기록)
       let savedId: string | null = null;
@@ -382,11 +406,12 @@ export async function POST(req: NextRequest) {
           // 보상 로직도 실패하면 최소한 로그 남김
         }
 
+        const dbError = `쿠팡 등록 성공(${result.channelProductId})이나 DB 저장 실패 — 관리자 확인 필요`;
         return {
           uid: product.uid, productCode: product.productCode, name: product.name,
           success: false, channelProductId: result.channelProductId,
-          error: `쿠팡 등록 성공(${result.channelProductId})이나 DB 저장 실패 — 관리자 확인 필요`,
-          duration: Date.now() - productStart, brandWarning,
+          error: dbError, duration: Date.now() - productStart, brandWarning,
+          detailedError: { message: dbError, category: 'unknown' as const, step: 'DB 저장', suggestion: '관리자에게 문의하세요. 쿠팡에는 등록되었으나 DB 동기화에 실패했습니다.' },
         };
       }
 
@@ -422,6 +447,7 @@ export async function POST(req: NextRequest) {
           results.push({
             uid: product.uid, productCode: product.productCode, name: product.name,
             success: false, error: errMsg, duration: 0,
+            detailedError: classifyError(errMsg, 'API 등록'),
           });
           errorCount++;
         }

@@ -51,6 +51,7 @@ export interface EditableProduct extends PreviewProduct {
   status: 'pending' | 'registering' | 'success' | 'error';
   channelProductId?: string;
   errorMessage?: string;
+  detailedError?: DetailedError;
   duration?: number;
 }
 
@@ -89,7 +90,23 @@ export interface BatchResult {
   success: boolean;
   channelProductId?: string;
   error?: string;
+  detailedError?: DetailedError;
   duration?: number;
+}
+
+export type ErrorCategory =
+  | 'auth' | 'category' | 'image' | 'price' | 'shipping'
+  | 'notice' | 'attribute' | 'brand' | 'duplicate'
+  | 'validation' | 'network' | 'unknown';
+
+export interface DetailedError {
+  message: string;
+  code?: string;
+  category: ErrorCategory;
+  field?: string;
+  step?: string;
+  suggestion: string;
+  rawResponse?: string;
 }
 
 export type FilterMode = 'all' | 'problems' | 'no-category' | 'no-image';

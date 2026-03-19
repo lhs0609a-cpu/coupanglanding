@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   ArrowLeft, ArrowRight, Loader2, CheckCircle2, XCircle, AlertTriangle,
   Search, Zap, Filter, Upload, Eye, BarChart3, CircleDot, Package,
 } from 'lucide-react';
 import BulkProductTable from './BulkProductTable';
-import BulkProductDetailPanel from './BulkProductDetailPanel';
+import BulkProductDetailPanel, { type PayloadPreviewState } from './BulkProductDetailPanel';
+import type { PayloadPreviewData } from './PayloadPreviewPanel';
 import type { EditableProduct, CategoryItem, FilterMode, SortField, SortDirection } from './types';
 
 interface BulkStep2ReviewProps {
@@ -18,7 +19,7 @@ interface BulkStep2ReviewProps {
   validating: boolean;
   validationPhase: string;
   imagePreuploadProgress: { total: number; done: number; phase: string };
-  imagePreuploadCache: Record<string, { mainImageUrls: string[] }>;
+  imagePreuploadCache: Record<string, { mainImageUrls: string[]; detailImageUrls?: string[]; reviewImageUrls?: string[]; infoImageUrls?: string[] }>;
   dryRunResults: Record<string, { payloadPreview?: { hasDetailPage?: boolean }; missingRequiredFields?: string[] }>;
   deliveryChargeType: string;
   deliveryCharge: number;
@@ -56,6 +57,13 @@ interface BulkStep2ReviewProps {
   onRemoveImage: (uid: string, imageIndex: number) => void;
   // Detail panel image URLs
   getDetailImageUrls: (uid: string) => string[];
+  // Payload preview (shipping info needed for preview API)
+  selectedOutbound?: string;
+  selectedReturn?: string;
+  returnCharge?: number;
+  contactNumber?: string;
+  includeReviewImages?: boolean;
+  noticeOverrides?: Record<string, string>;
 }
 
 export default function BulkStep2Review({
@@ -70,6 +78,7 @@ export default function BulkStep2Review({
   onDeepValidation, onRegister, onBack,
   thumbnailCache, onLoadThumbnail,
   onReorderImages, onRemoveImage, getDetailImageUrls,
+  selectedOutbound, selectedReturn, returnCharge, contactNumber, includeReviewImages, noticeOverrides,
 }: BulkStep2ReviewProps) {
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -82,6 +91,99 @@ export default function BulkStep2Review({
   const [bulkAction, setBulkAction] = useState<'brand' | 'category' | 'price' | null>(null);
   const [bulkBrandValue, setBulkBrandValue] = useState('');
   const [bulkPriceAdjust, setBulkPriceAdjust] = useState(0);
+
+  // Payload preview state
+  const [payloadPreview, setPayloadPreview] = useState<PayloadPreviewState>({ loading: false, data: null, error: '' });
+  const previewAbortRef = useRef<AbortController | null>(null);
+
+  // Reset preview when selected product changes
+  useEffect(() => {
+    setPayloadPreview({ loading: false, data: null, error: '' });
+    previewAbortRef.current?.abort();
+  }, [selectedUid]);
+
+  const handleRequestPreview = useCallback(async (uid: string) => {
+    const product = products.find(p => p.uid === uid);
+    if (!product) return;
+    if (!product.editedCategoryCode) {
+      setPayloadPreview({ loading: false, data: null, error: '카테고리가 지정되지 않았습니다.' });
+      return;
+    }
+
+    previewAbortRef.current?.abort();
+    const abort = new AbortController();
+    previewAbortRef.current = abort;
+
+    setPayloadPreview({ loading: true, data: null, error: '' });
+
+    try {
+      const cached = imagePreuploadCache[uid];
+      const preUploadedUrls = cached ? {
+        mainImageUrls: cached.mainImageUrls || [],
+        detailImageUrls: cached.detailImageUrls || [],
+        reviewImageUrls: cached.reviewImageUrls || [],
+        infoImageUrls: cached.infoImageUrls || [],
+      } : undefined;
+
+      const res = await fetch('/api/megaload/products/bulk-register/preview-payload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product: {
+            productCode: product.productCode,
+            folderPath: product.folderPath,
+            name: product.editedName,
+            brand: product.editedBrand,
+            sellingPrice: product.editedSellingPrice,
+            sourcePrice: product.sourcePrice,
+            categoryCode: product.editedCategoryCode,
+            tags: product.tags,
+            description: product.description,
+            mainImages: product.mainImages,
+            detailImages: product.detailImages,
+            reviewImages: product.reviewImages,
+            infoImages: product.infoImages,
+          },
+          deliveryInfo: {
+            deliveryCompanyCode: 'CJGLS',
+            deliveryChargeType,
+            deliveryCharge: deliveryChargeType === 'FREE' ? 0 : deliveryCharge,
+            freeShipOverAmount,
+            deliveryChargeOnReturn: returnCharge || 5000,
+            outboundShippingPlaceCode: selectedOutbound || '',
+          },
+          returnInfo: {
+            returnCenterCode: selectedReturn || '',
+            returnCharge: returnCharge || 5000,
+            companyContactNumber: contactNumber || '',
+            afterServiceContactNumber: contactNumber || '',
+            afterServiceInformation: '상품 수령 후 7일 이내 반품/교환 가능',
+          },
+          stock: 999,
+          includeReviewImages: includeReviewImages ?? true,
+          noticeOverrides,
+          preUploadedUrls,
+        }),
+        signal: abort.signal,
+      });
+
+      if (abort.signal.aborted) return;
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: '서버 오류' }));
+        setPayloadPreview({ loading: false, data: null, error: data.error || `HTTP ${res.status}` });
+        return;
+      }
+
+      const data = await res.json() as PayloadPreviewData;
+      if (!abort.signal.aborted) {
+        setPayloadPreview({ loading: false, data, error: '' });
+      }
+    } catch (err) {
+      if (abort.signal.aborted) return;
+      setPayloadPreview({ loading: false, data: null, error: err instanceof Error ? err.message : '미리보기 실패' });
+    }
+  }, [products, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, includeReviewImages, noticeOverrides, imagePreuploadCache]);
 
   // Debounce search
   useEffect(() => {
@@ -415,6 +517,8 @@ export default function BulkStep2Review({
         onCategoryClick={onCategoryClick}
         onReorderImages={onReorderImages}
         onRemoveImage={onRemoveImage}
+        payloadPreview={payloadPreview}
+        onRequestPreview={handleRequestPreview}
       />
     </div>
   );
