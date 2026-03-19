@@ -7,7 +7,7 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { API_STATUS_LABELS, API_STATUS_COLORS, BUSINESS_RELATIONS } from '@/lib/utils/constants';
 import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
-import { Settings, Eye, EyeOff, Save, CheckCircle, Plug, AlertTriangle, Shield, ChevronDown, ChevronUp, HelpCircle, ExternalLink, Building2 } from 'lucide-react';
+import { Settings, Eye, EyeOff, Save, CheckCircle, Plug, AlertTriangle, Shield, ChevronDown, ChevronUp, HelpCircle, ExternalLink, Building2, RefreshCw } from 'lucide-react';
 
 // UTF-8 안전 base64 인코딩/디코딩
 function safeBase64Encode(str: string): string {
@@ -66,6 +66,9 @@ export default function MySettingsPage() {
   const [apiMessage, setApiMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [apiGuideOpen, setApiGuideOpen] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
+  const [maskedAccessKey, setMaskedAccessKey] = useState<string | null>(null);
+  const [maskedSecretKey, setMaskedSecretKey] = useState<string | null>(null);
+  const [apiReconnecting, setApiReconnecting] = useState(false);
 
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -104,6 +107,16 @@ export default function MySettingsPage() {
       if (ptUser.coupang_vendor_id) setApiVendorId(ptUser.coupang_vendor_id);
       setApiExpiresAt(ptUser.coupang_api_key_expires_at || null);
     }
+
+    // 마스킹된 키 미리보기 로드
+    try {
+      const credRes = await fetch('/api/coupang-credentials');
+      if (credRes.ok) {
+        const credData = await credRes.json();
+        if (credData.maskedAccessKey) setMaskedAccessKey(credData.maskedAccessKey);
+        if (credData.maskedSecretKey) setMaskedSecretKey(credData.maskedSecretKey);
+      }
+    } catch { /* ignore */ }
 
     setLoading(false);
   }, [supabase]);
@@ -144,8 +157,11 @@ export default function MySettingsPage() {
   };
 
   // API 연동 테스트
-  const handleApiTest = async () => {
-    if (!apiVendorId || !apiAccessKey || !apiSecretKey) {
+  const handleApiTest = async (forceUseExisting = false) => {
+    const hasNewKeys = !!apiAccessKey && !!apiSecretKey;
+    const canUseExisting = apiHasCredentials && !!maskedAccessKey;
+
+    if (!apiVendorId || (!hasNewKeys && !canUseExisting && !forceUseExisting)) {
       setApiMessage({ type: 'error', text: '모든 필드를 입력해주세요.' });
       return;
     }
@@ -154,15 +170,21 @@ export default function MySettingsPage() {
     setApiMessage(null);
 
     try {
+      const payload: Record<string, unknown> = {
+        vendorId: apiVendorId.trim(),
+        validate: true,
+      };
+      if (hasNewKeys) {
+        payload.accessKey = apiAccessKey.trim();
+        payload.secretKey = apiSecretKey.trim();
+      } else {
+        payload.useExisting = true;
+      }
+
       const res = await fetch('/api/coupang-credentials', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          vendorId: apiVendorId.trim(),
-          accessKey: apiAccessKey.trim(),
-          secretKey: apiSecretKey.trim(),
-          validate: true,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
 
@@ -183,8 +205,11 @@ export default function MySettingsPage() {
   };
 
   // API 자격증명 저장
-  const handleApiSave = async () => {
-    if (!apiVendorId || !apiAccessKey || !apiSecretKey) {
+  const handleApiSave = async (forceUseExisting = false) => {
+    const hasNewKeys = !!apiAccessKey && !!apiSecretKey;
+    const canUseExisting = apiHasCredentials && !!maskedAccessKey;
+
+    if (!apiVendorId || (!hasNewKeys && !canUseExisting && !forceUseExisting)) {
       setApiMessage({ type: 'error', text: '모든 필드를 입력해주세요.' });
       return;
     }
@@ -193,14 +218,20 @@ export default function MySettingsPage() {
     setApiMessage(null);
 
     try {
+      const payload: Record<string, unknown> = {
+        vendorId: apiVendorId.trim(),
+      };
+      if (hasNewKeys) {
+        payload.accessKey = apiAccessKey.trim();
+        payload.secretKey = apiSecretKey.trim();
+      } else {
+        payload.useExisting = true;
+      }
+
       const res = await fetch('/api/coupang-credentials', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          vendorId: apiVendorId.trim(),
-          accessKey: apiAccessKey.trim(),
-          secretKey: apiSecretKey.trim(),
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
 
@@ -212,7 +243,6 @@ export default function MySettingsPage() {
         setApiSecretKey('');
         setShowCelebration(true);
         setTimeout(() => setShowCelebration(false), 3000);
-        // 서버 레이아웃 재실행 → 배너 즉시 사라짐
         router.refresh();
       } else {
         setApiMessage({ type: 'error', text: data.error || '저장에 실패했습니다.' });
@@ -221,6 +251,55 @@ export default function MySettingsPage() {
       setApiMessage({ type: 'error', text: 'API 저장 중 오류가 발생했습니다.' });
     } finally {
       setApiSaving(false);
+    }
+  };
+
+  // 기존 저장된 키로 재연동
+  const handleReconnect = async () => {
+    setApiReconnecting(true);
+    setApiMessage(null);
+
+    try {
+      // 테스트 먼저
+      const testRes = await fetch('/api/coupang-credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vendorId: apiVendorId.trim(),
+          useExisting: true,
+          validate: true,
+        }),
+      });
+      const testData = await testRes.json();
+
+      if (!testData.valid) {
+        setApiMessage({ type: 'error', text: `재연동 실패: ${testData.message || 'API 키가 유효하지 않습니다.'}` });
+        return;
+      }
+
+      // 테스트 통과 → 저장 (만료일 갱신)
+      const saveRes = await fetch('/api/coupang-credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vendorId: apiVendorId.trim(),
+          useExisting: true,
+        }),
+      });
+      const saveData = await saveRes.json();
+
+      if (saveData.success) {
+        setApiMessage({ type: 'success', text: '기존 API 키로 재연동 완료!' });
+        setApiHasCredentials(true);
+        setApiExpiresAt(saveData.expiresAt);
+        router.refresh();
+      } else {
+        setApiMessage({ type: 'error', text: saveData.error || '재연동 저장에 실패했습니다.' });
+      }
+    } catch {
+      setApiMessage({ type: 'error', text: '재연동 중 오류가 발생했습니다.' });
+    } finally {
+      setApiReconnecting(false);
     }
   };
 
@@ -627,10 +706,10 @@ export default function MySettingsPage() {
                 type="text"
                 value={apiAccessKey}
                 onChange={(e) => setApiAccessKey(e.target.value)}
-                placeholder={apiHasCredentials ? '(저장됨 - 변경 시에만 입력)' : 'Access Key 입력'}
+                placeholder={maskedAccessKey ? `저장됨: ${maskedAccessKey}` : (apiHasCredentials ? '(저장됨 - 변경 시에만 입력)' : 'Access Key 입력')}
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent font-mono"
               />
-              <p className="text-xs text-gray-400 mt-1">Wing &gt; 개발자센터 &gt; Open API에서 발급</p>
+              <p className="text-xs text-gray-400 mt-1">Wing &gt; 개발자센터 &gt; Open API에서 발급{maskedAccessKey && ' (변경하려면 새 키 입력)'}</p>
             </div>
 
             <div>
@@ -642,10 +721,10 @@ export default function MySettingsPage() {
                 type="password"
                 value={apiSecretKey}
                 onChange={(e) => setApiSecretKey(e.target.value)}
-                placeholder={apiHasCredentials ? '(저장됨 - 변경 시에만 입력)' : 'Secret Key 입력'}
+                placeholder={maskedSecretKey ? `저장됨: ${maskedSecretKey}` : (apiHasCredentials ? '(저장됨 - 변경 시에만 입력)' : 'Secret Key 입력')}
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent font-mono"
               />
-              <p className="text-xs text-gray-400 mt-1">키 생성 직후에만 확인 가능 - 반드시 즉시 복사</p>
+              <p className="text-xs text-gray-400 mt-1">키 생성 직후에만 확인 가능{maskedSecretKey && ' (변경하려면 새 키 입력)'}</p>
             </div>
 
             {apiMessage && (
@@ -667,11 +746,28 @@ export default function MySettingsPage() {
               </div>
             )}
 
+            {/* 기존 키로 빠른 재연동 */}
+            {apiHasCredentials && maskedAccessKey && !apiAccessKey && !apiSecretKey && (
+              <button
+                type="button"
+                onClick={handleReconnect}
+                disabled={apiReconnecting || !apiVendorId}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {apiReconnecting ? (
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <RefreshCw className="w-5 h-5" />
+                )}
+                {apiReconnecting ? '재연동 중...' : '저장된 키로 재연동'}
+              </button>
+            )}
+
             <div className="flex gap-3">
               <button
                 type="button"
-                onClick={handleApiTest}
-                disabled={apiTesting || !apiVendorId || !apiAccessKey || !apiSecretKey}
+                onClick={() => handleApiTest()}
+                disabled={apiTesting || !apiVendorId || (!apiAccessKey && !maskedAccessKey) || (!apiSecretKey && !maskedSecretKey)}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border border-[#E31837] text-[#E31837] rounded-xl font-semibold hover:bg-[#FFF5F5] transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {apiTesting ? (
@@ -683,8 +779,8 @@ export default function MySettingsPage() {
               </button>
               <button
                 type="button"
-                onClick={handleApiSave}
-                disabled={apiSaving || !apiVendorId || !apiAccessKey || !apiSecretKey}
+                onClick={() => handleApiSave()}
+                disabled={apiSaving || !apiVendorId || (!apiAccessKey && !maskedAccessKey) || (!apiSecretKey && !maskedSecretKey)}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-[#E31837] text-white rounded-xl font-semibold hover:bg-[#c81530] transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {apiSaving ? (
@@ -692,9 +788,16 @@ export default function MySettingsPage() {
                 ) : (
                   <Save className="w-5 h-5" />
                 )}
-                {apiSaving ? '저장 중...' : '저장'}
+                {apiSaving ? '저장 중...' : apiAccessKey || apiSecretKey ? '새 키로 저장' : '저장'}
               </button>
             </div>
+
+            {apiHasCredentials && maskedAccessKey && (
+              <p className="text-xs text-center text-gray-400">
+                키를 변경하려면 위 입력란에 새 Access Key / Secret Key를 입력하세요.
+                기존 키를 그대로 사용하려면 &quot;저장된 키로 재연동&quot; 버튼을 누르세요.
+              </p>
+            )}
           </div>
         )}
       </Card>

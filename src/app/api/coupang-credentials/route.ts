@@ -1,7 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
-import { encryptPassword } from '@/lib/utils/encryption';
+import { encryptPassword, decryptPassword } from '@/lib/utils/encryption';
 import { validateApiCredentials } from '@/lib/utils/coupang-api-client';
+
+/** 키를 마스킹: 앞 4자 + **** + 뒤 4자 */
+function maskKey(key: string): string {
+  if (key.length <= 8) return '****';
+  return key.slice(0, 4) + '****' + key.slice(-4);
+}
+
+/** DB에서 기존 암호화된 키를 복호화하여 반환 */
+async function getExistingCredentials(profileId: string) {
+  const serviceClient = await createServiceClient();
+  const { data } = await serviceClient
+    .from('pt_users')
+    .select('coupang_vendor_id, coupang_access_key, coupang_secret_key')
+    .eq('profile_id', profileId)
+    .single();
+
+  if (!data?.coupang_access_key || !data?.coupang_secret_key) return null;
+
+  const accessKey = await decryptPassword(data.coupang_access_key);
+  const secretKey = await decryptPassword(data.coupang_secret_key);
+  return { vendorId: data.coupang_vendor_id, accessKey, secretKey };
+}
 
 /** POST: API 자격증명 저장 */
 export async function POST(request: NextRequest) {
@@ -14,26 +36,40 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { vendorId, accessKey, secretKey, validate } = body as {
+    const { vendorId, accessKey, secretKey, validate, useExisting } = body as {
       vendorId: string;
-      accessKey: string;
-      secretKey: string;
+      accessKey?: string;
+      secretKey?: string;
       validate?: boolean;
+      useExisting?: boolean;
     };
 
-    if (!vendorId || !accessKey || !secretKey) {
+    // 기존 저장된 키를 재사용하는 경우
+    let finalAccessKey = accessKey || '';
+    let finalSecretKey = secretKey || '';
+
+    if (useExisting && (!finalAccessKey || !finalSecretKey)) {
+      const existing = await getExistingCredentials(user.id);
+      if (!existing) {
+        return NextResponse.json({ error: '저장된 API 키가 없습니다. 새로 입력해주세요.' }, { status: 400 });
+      }
+      if (!finalAccessKey) finalAccessKey = existing.accessKey;
+      if (!finalSecretKey) finalSecretKey = existing.secretKey;
+    }
+
+    if (!vendorId || !finalAccessKey || !finalSecretKey) {
       return NextResponse.json({ error: 'vendorId, accessKey, secretKey는 필수입니다.' }, { status: 400 });
     }
 
     // 유효성 검증 요청인 경우
     if (validate) {
-      const result = await validateApiCredentials({ vendorId, accessKey, secretKey });
+      const result = await validateApiCredentials({ vendorId, accessKey: finalAccessKey, secretKey: finalSecretKey });
       return NextResponse.json(result);
     }
 
     // API 키 암호화
-    const encryptedAccessKey = await encryptPassword(accessKey);
-    const encryptedSecretKey = await encryptPassword(secretKey);
+    const encryptedAccessKey = await encryptPassword(finalAccessKey);
+    const encryptedSecretKey = await encryptPassword(finalSecretKey);
 
     // 6개월 후 만료일 설정
     const expiresAt = new Date();
@@ -66,7 +102,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/** GET: 자격증명 존재 여부 + 만료일 조회 */
+/** GET: 자격증명 존재 여부 + 만료일 + 마스킹된 키 미리보기 */
 export async function GET() {
   try {
     const supabase = await createClient();
@@ -76,9 +112,11 @@ export async function GET() {
       return NextResponse.json({ error: '인증이 필요합니다.' }, { status: 401 });
     }
 
-    const { data: ptUser } = await supabase
+    // serviceClient로 암호화된 키도 읽기
+    const serviceClient = await createServiceClient();
+    const { data: ptUser } = await serviceClient
       .from('pt_users')
-      .select('coupang_vendor_id, coupang_api_connected, coupang_api_key_expires_at')
+      .select('coupang_vendor_id, coupang_api_connected, coupang_api_key_expires_at, coupang_access_key, coupang_secret_key')
       .eq('profile_id', user.id)
       .single();
 
@@ -86,10 +124,27 @@ export async function GET() {
       return NextResponse.json({ error: 'PT 사용자를 찾을 수 없습니다.' }, { status: 404 });
     }
 
+    // 마스킹된 키 미리보기 생성
+    let maskedAccessKey: string | null = null;
+    let maskedSecretKey: string | null = null;
+
+    if (ptUser.coupang_access_key && ptUser.coupang_secret_key) {
+      try {
+        const ak = await decryptPassword(ptUser.coupang_access_key);
+        const sk = await decryptPassword(ptUser.coupang_secret_key);
+        maskedAccessKey = maskKey(ak);
+        maskedSecretKey = maskKey(sk);
+      } catch {
+        // 복호화 실패 시 마스킹 없이 진행
+      }
+    }
+
     return NextResponse.json({
       hasCredentials: !!ptUser.coupang_api_connected,
       vendorId: ptUser.coupang_vendor_id || null,
       expiresAt: ptUser.coupang_api_key_expires_at || null,
+      maskedAccessKey,
+      maskedSecretKey,
     });
   } catch {
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });

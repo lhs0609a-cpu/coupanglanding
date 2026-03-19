@@ -62,6 +62,7 @@ export interface CoupangCoupon {
   couponId: number;
   couponName: string;
   couponStatus: string;
+  contractId?: number;
   startDate?: string;
   endDate?: string;
   discountType?: string;
@@ -392,7 +393,37 @@ export async function fetchContracts(
     }
   }
 
-  console.warn('[fetchContracts] 모든 계약서 API 경로 실패 — 빈 배열 반환 (WING에서 contractId 직접 확인 필요)');
+  // 계약서 API 모두 실패 → 기존 쿠폰 목록에서 contractId 추출 시도
+  console.warn('[fetchContracts] 계약서 API 모두 실패 — 쿠폰 목록에서 contractId 추출 시도');
+  try {
+    const couponsPath = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupons`;
+    const couponsData = await callCoupangApi(credentials, 'GET', couponsPath) as { data?: CoupangCoupon[] };
+    const coupons = couponsData.data || [];
+
+    // 쿠폰들에서 고유 contractId 추출
+    const contractMap = new Map<number, CoupangContract>();
+    for (const coupon of coupons) {
+      if (coupon.contractId && !contractMap.has(coupon.contractId)) {
+        contractMap.set(coupon.contractId, {
+          contractId: coupon.contractId,
+          contractName: `계약서 #${coupon.contractId} (쿠폰에서 추출)`,
+          startDate: coupon.startDate || '',
+          endDate: coupon.endDate || '',
+          contractStatus: 'ACTIVE',
+        });
+      }
+    }
+
+    if (contractMap.size > 0) {
+      const contracts = Array.from(contractMap.values());
+      console.log(`[fetchContracts] 쿠폰 목록에서 ${contracts.length}개 계약서 ID 추출 성공`);
+      return contracts;
+    }
+  } catch (err) {
+    console.warn('[fetchContracts] 쿠폰 목록 조회도 실패:', err instanceof Error ? err.message : err);
+  }
+
+  console.warn('[fetchContracts] 모든 방법 실패 — 빈 배열 반환');
   return [];
 }
 
