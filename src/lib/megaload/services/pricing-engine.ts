@@ -74,11 +74,11 @@ export async function calculateSalePrice(input: PricingInput): Promise<PricingRe
   const totalCost = costKrw + shippingFee + customsDuty + vat;
 
   // 채널 수수료율
-  const commissionRate = CHANNEL_COMMISSION_RATES[channel] / 100;
+  const commissionRate = (CHANNEL_COMMISSION_RATES[channel] ?? 10) / 100;
 
   // 판매가 계산
   // salePrice = totalCost × (1 + marginRate) / (1 - commissionRate)
-  const salePrice = Math.ceil(totalCost * (1 + marginRate / 100) / (1 - commissionRate) / 10) * 10; // 10원 단위 올림
+  const salePrice = Math.ceil(totalCost * (1 + marginRate / 100) / (1 - commissionRate) / 100) * 100; // 100원 단위 올림
 
   // 채널 수수료
   const channelCommission = Math.round(salePrice * commissionRate);

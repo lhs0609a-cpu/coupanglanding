@@ -130,6 +130,24 @@ function escHtml(str: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * AI 생성 HTML에서 위험한 태그/속성을 제거
+ * <script>, <iframe>, <object>, <embed> 태그 제거
+ * on* 이벤트 핸들러 제거
+ * javascript: URL 제거
+ */
+function sanitizeHtml(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<iframe[\s\S]*?\/?>/gi, '')
+    .replace(/<object[\s\S]*?<\/object>/gi, '')
+    .replace(/<embed[\s\S]*?\/?>/gi, '')
+    .replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/href\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, 'href="#"')
+    .replace(/src\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, 'src=""');
+}
+
 // ---- 쿠팡 상품명 금지어/특수문자 패턴 ----
 
 const FORBIDDEN_NAME_PATTERNS = [
@@ -226,7 +244,7 @@ export function buildCoupangProductPayload(
   let detailHtml: string;
 
   if (hasRichContent) {
-    detailHtml = buildRichDetailPageHtml({
+    detailHtml = sanitizeHtml(buildRichDetailPageHtml({
       productName,
       brand: resolvedBrand,
       aiStoryParagraphs,
@@ -236,7 +254,7 @@ export function buildCoupangProductPayload(
       detailImageUrls,
       infoImageUrls,
       consignmentImageUrls,
-    });
+    }));
   } else {
     detailHtml = buildSimpleDetailHtml(detailImageUrls, productName);
   }
@@ -310,6 +328,9 @@ export function buildCoupangProductPayload(
   const hasBarcode = !!resolvedBarcode;
 
   // ---- 10. 할인가 (originalPrice > salePrice면 할인 태그 표시) ----
+  if (originalPrice && originalPrice > 0 && originalPrice < sellingPrice) {
+    console.warn(`[payload-builder] originalPrice(${originalPrice}) < sellingPrice(${sellingPrice}): 쿠팡에서 할인 태그가 표시되지 않습니다. originalPrice를 sellingPrice로 대체합니다.`);
+  }
   const resolvedOriginalPrice = originalPrice && originalPrice > sellingPrice
     ? originalPrice
     : sellingPrice;
@@ -332,9 +353,9 @@ export function buildCoupangProductPayload(
 
       return {
         itemName: variant.optionName.slice(0, 100),
-        originalPrice: variant.originalPrice || variant.salePrice,
+        originalPrice: variant.originalPrice ?? variant.salePrice,
         salePrice: variant.salePrice,
-        maximumBuyCount: variant.stock || stock,
+        maximumBuyCount: variant.stock ?? stock,
         maximumBuyForPerson,
         maximumBuyForPersonPeriod: 1,
         outboundShippingTimeDay,
@@ -393,7 +414,7 @@ export function buildCoupangProductPayload(
     brand: resolvedBrand,
     generalProductName: productName.slice(0, 100),
     productGroup: '',
-    manufacture: resolvedManufacturer,
+    manufacturer: resolvedManufacturer,
 
     deliveryMethod: 'SEQUENTIAL',   // 오타 수정 (SEQUENCIAL → SEQUENTIAL)
     deliveryCompanyCode: deliveryInfo.deliveryCompanyCode,
@@ -456,17 +477,28 @@ function buildAttributes(
     if (!attr.required) continue;
 
     const userValue = values?.[attr.attributeTypeName];
+    const allowedValues = attr.attributeValues?.map((v) => v.attributeValueName) || [];
+
     if (userValue) {
-      attrs.push({
-        attributeTypeName: attr.attributeTypeName,
-        attributeValueName: userValue,
-      });
-    } else if (attr.attributeValues && attr.attributeValues.length > 0) {
+      // ENUM 타입: 사용자 값이 허용목록에 있는지 검증
+      if (allowedValues.length > 0 && !allowedValues.includes(userValue)) {
+        console.warn(`[payload-builder] 속성 "${attr.attributeTypeName}" 값 "${userValue}"이 ENUM 허용목록에 없음 → "${allowedValues[0]}" 폴백`);
+        attrs.push({
+          attributeTypeName: attr.attributeTypeName,
+          attributeValueName: allowedValues[0],
+        });
+      } else {
+        attrs.push({
+          attributeTypeName: attr.attributeTypeName,
+          attributeValueName: userValue,
+        });
+      }
+    } else if (allowedValues.length > 0) {
       // 선택형 필수: 첫 번째 선택지로 폴백
-      console.warn(`[payload-builder] 필수 속성 "${attr.attributeTypeName}" 미지정 → "${attr.attributeValues[0].attributeValueName}" 폴백`);
+      console.warn(`[payload-builder] 필수 속성 "${attr.attributeTypeName}" 미지정 → "${allowedValues[0]}" 폴백`);
       attrs.push({
         attributeTypeName: attr.attributeTypeName,
-        attributeValueName: attr.attributeValues[0].attributeValueName,
+        attributeValueName: allowedValues[0],
       });
     } else if (attr.dataType === 'TEXT' || attr.dataType === 'STRING' || attr.dataType === 'NUMBER') {
       // 자유입력형(TEXT) 필수 속성: attributeValues가 빈 배열이어도 기본값으로 채움

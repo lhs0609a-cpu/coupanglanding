@@ -181,6 +181,15 @@ export async function POST(req: NextRequest) {
         };
       }
 
+      // 2-2. 카테고리 코드 유효성 검증
+      const catNum = Number(product.categoryCode);
+      if (!product.categoryCode || isNaN(catNum) || catNum <= 0) {
+        return {
+          uid: product.uid, productCode: product.productCode, name: product.name,
+          success: false, error: `카테고리 코드 유효하지 않음: "${product.categoryCode}"`, duration: 0,
+        };
+      }
+
       // 3. 브랜드 상표권 체크
       let brandWarning: string | undefined;
       const brandCheck = checkBrandProtection(product.name, product.description);
@@ -267,13 +276,14 @@ export async function POST(req: NextRequest) {
         if (opt.name === '수량') noticeHints.count = `${opt.value}${opt.unit || '개'}`;
       }
 
-      // 7. notices 자동채움 (추출된 hints 연동)
+      // 7. notices 자동채움 (추출된 hints 연동 + 카테고리 힌트)
       const filledNotices = fillNoticeFields(
         product.noticeMeta || [],
         { name: product.name, brand: product.brand, tags: product.tags, description: product.description },
         returnInfo.afterServiceContactNumber,
         noticeOverrides,
         noticeHints,
+        product.name,
       );
 
       // 8. 페이로드 빌드

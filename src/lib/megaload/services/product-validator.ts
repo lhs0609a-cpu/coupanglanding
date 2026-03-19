@@ -180,6 +180,7 @@ export function validateProductDeep(
   product: LocalValidationInput,
   categoryMeta: CategoryMetadata | undefined,
   contactNumber?: string,
+  userAttributeValues?: Record<string, string>,
 ): ProductValidationResult {
   // 먼저 로컬 검증 실행
   const localResult = validateProductLocal(product);
@@ -191,30 +192,78 @@ export function validateProductDeep(
     return localResult;
   }
 
-  // 필수 속성 검증
+  // 필수 속성 검증 (빌더가 fallback 처리하므로 error → warning)
   const requiredAttributes = categoryMeta.attributeMeta.filter((a) => a.required);
   for (const attr of requiredAttributes) {
-    if (!attr.attributeValues || attr.attributeValues.length === 0) {
-      errors.push({
-        field: 'attributes',
-        severity: 'error',
-        message: `필수 속성 "${attr.attributeTypeName}"의 값이 없습니다.`,
-        fixSuggestion: '카테고리에서 요구하는 속성값을 설정할 수 없습니다.',
-      });
+    const userVal = userAttributeValues?.[attr.attributeTypeName];
+
+    if (attr.dataType === 'ENUM' || (attr.attributeValues && attr.attributeValues.length > 0)) {
+      // ENUM 타입: 사용자 제공값이 허용목록에 있는지 검증
+      const allowedValues = attr.attributeValues?.map((v) => v.attributeValueName) || [];
+      if (userVal) {
+        if (allowedValues.length > 0 && !allowedValues.includes(userVal)) {
+          warnings.push({
+            field: 'attributes',
+            severity: 'warning',
+            message: `속성 "${attr.attributeTypeName}" 값 "${userVal}"이 허용목록에 없습니다. "${allowedValues[0]}"으로 자동 선택됩니다.`,
+            fixSuggestion: `허용값: ${allowedValues.slice(0, 5).join(', ')}${allowedValues.length > 5 ? ' ...' : ''}`,
+          });
+        }
+      } else if (allowedValues.length > 0) {
+        warnings.push({
+          field: 'attributes',
+          severity: 'warning',
+          message: `필수 속성 "${attr.attributeTypeName}" 미지정 → "${allowedValues[0]}" 자동 선택됩니다.`,
+        });
+      } else {
+        warnings.push({
+          field: 'attributes',
+          severity: 'warning',
+          message: `필수 속성 "${attr.attributeTypeName}" 선택지가 없습니다.`,
+          fixSuggestion: '카테고리 메타를 확인해주세요.',
+        });
+      }
+    } else {
+      // TEXT/STRING/NUMBER 타입
+      if (!userVal) {
+        warnings.push({
+          field: 'attributes',
+          severity: 'warning',
+          message: `필수 속성 "${attr.attributeTypeName}" 미입력 → "상세페이지 참조" 자동입력됩니다.`,
+        });
+      }
     }
   }
 
-  // A/S 연락처 확인
-  const hasAsField = categoryMeta.noticeMeta.some((n) =>
-    n.fields.some((f) => f.name.includes('A/S') || f.name.includes('전화번호') || f.name.includes('책임자')),
-  );
-  if (hasAsField && !contactNumber?.trim()) {
-    warnings.push({
-      field: 'contact',
-      severity: 'warning',
-      message: 'A/S 연락처가 필요한 카테고리인데 연락처가 미입력입니다.',
-      fixSuggestion: 'Step 1에서 판매자 연락처를 입력해주세요.',
-    });
+  // 고시정보 필수 필드 전체 검증 (#1)
+  for (const notice of categoryMeta.noticeMeta) {
+    for (const field of notice.fields) {
+      if (!field.required) continue;
+      const fn = field.name.toLowerCase();
+      if (fn.includes('a/s') || fn.includes('전화번호') || fn.includes('책임자')) {
+        if (!contactNumber?.trim()) {
+          warnings.push({
+            field: 'contact',
+            severity: 'warning',
+            message: `고시정보 "${notice.noticeCategoryName}" — A/S 연락처가 미입력입니다.`,
+            fixSuggestion: 'Step 1에서 판매자 연락처를 입력해주세요.',
+          });
+        }
+      } else if (fn.includes('유효기한') || fn.includes('사용기한') || fn.includes('소비기한')) {
+        warnings.push({
+          field: 'notices',
+          severity: 'info' as ValidationSeverity,
+          message: `고시 "${field.name}" — 식품류 유효기한 필드가 "상세페이지 참조"로 자동입력됩니다.`,
+        });
+      } else {
+        // 기타 필수 필드: 자동입력됨 info
+        warnings.push({
+          field: 'notices',
+          severity: 'info' as ValidationSeverity,
+          message: `고시 "${field.name}" — 필수 필드가 자동입력됩니다.`,
+        });
+      }
+    }
   }
 
   // 최종 상태
@@ -313,23 +362,27 @@ export function validateDryRun(
     warnings.push({ field: 'detailImages', severity: 'warning', message: '상세 이미지가 없습니다.', fixSuggestion: 'output/ 폴더에 상세 이미지를 추가해주세요.' });
   }
 
-  // notices 필수 필드
+  // notices 필수 필드 전체 검증
   if (categoryMeta && categoryMeta.noticeMeta.length > 0) {
     for (const notice of categoryMeta.noticeMeta) {
       for (const field of notice.fields.filter((f) => f.required)) {
-        if (field.name.includes('A/S') && !product.contactNumber?.trim()) {
+        const fn = field.name.toLowerCase();
+        if ((fn.includes('a/s') || fn.includes('전화번호') || fn.includes('책임자')) && !product.contactNumber?.trim()) {
           missingRequiredFields.push(`고시:${notice.noticeCategoryName}/${field.name}`);
         }
       }
     }
   }
 
-  // attributes 필수 항목 중 값이 없는 것
+  // attributes 필수 항목 — 폴백 가능 여부 표시
   if (categoryMeta) {
     for (const attr of categoryMeta.attributeMeta.filter((a) => a.required)) {
-      if (!attr.attributeValues || attr.attributeValues.length === 0) {
+      const hasEnum = attr.attributeValues && attr.attributeValues.length > 0;
+      const isText = attr.dataType === 'TEXT' || attr.dataType === 'STRING' || attr.dataType === 'NUMBER';
+      if (!hasEnum && !isText) {
         missingRequiredFields.push(`속성:${attr.attributeTypeName}`);
       }
+      // ENUM과 TEXT는 빌더가 fallback 처리하므로 missing에 추가하지 않음
     }
   }
 

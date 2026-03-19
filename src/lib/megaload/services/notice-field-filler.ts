@@ -43,10 +43,11 @@ export function fillNoticeFields(
   contactNumber?: string,
   overrides?: Record<string, string>,
   extractedHints?: ExtractedNoticeHints,
+  categoryHint?: string,
 ): FilledNoticeCategory[] {
   if (noticeMeta.length === 0) {
-    // 메타 정보 없으면 기본 "기타 재화" 폴백
-    return buildFallbackNotice(product, contactNumber);
+    // 메타 정보 없으면 카테고리별 폴백
+    return buildFallbackNotice(product, contactNumber, categoryHint);
   }
 
   return noticeMeta.map((category) => ({
@@ -136,25 +137,103 @@ function resolveFieldValue(
 }
 
 /**
- * 메타데이터 없을 때 기본 "기타 재화" 폴백
+ * 메타데이터 없을 때 카테고리 힌트 기반 폴백
+ * 식품/의류/화장품/가전 등 카테고리별 필수 고시 템플릿 제공
  */
 function buildFallbackNotice(
   product: LocalProductJson,
   contactNumber?: string,
+  categoryHint?: string,
 ): FilledNoticeCategory[] {
   const productName = (product.name || product.title || '').slice(0, 50);
   const brand = product.brand || '';
+  const hint = (categoryHint || productName).toLowerCase();
 
-  return [
-    {
-      noticeCategoryName: '기타 재화',
+  // 식품류
+  if (/식품|건강|영양|음료|과자|라면|커피|차\b/.test(hint)) {
+    return [{
+      noticeCategoryName: '가공식품',
+      noticeCategoryDetailName: [
+        { noticeCategoryDetailName: '식품의 유형', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '생산자 및 소재지', content: brand || '상세페이지 참조' },
+        { noticeCategoryDetailName: '제조연월일, 유통기한 또는 품질유지기한', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '포장단위별 내용물의 용량(중량), 수량', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '원재료명 및 함량', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '영양성분', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '유전자변형식품 여부', content: '해당사항 없음' },
+        { noticeCategoryDetailName: '소비자 안전을 위한 주의사항', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '수입식품 문구', content: '해당시 상세페이지 참조' },
+        { noticeCategoryDetailName: '소비자상담 관련 전화번호', content: contactNumber || '상세페이지 참조' },
+      ],
+    }];
+  }
+
+  // 의류
+  if (/의류|패션|셔츠|바지|티셔츠|자켓|코트|원피스|스커트/.test(hint)) {
+    return [{
+      noticeCategoryName: '의류',
+      noticeCategoryDetailName: [
+        { noticeCategoryDetailName: '제품 소재', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '색상', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '치수', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '제조자/수입자', content: brand || '상세페이지 참조' },
+        { noticeCategoryDetailName: '제조국', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '세탁방법 및 취급 시 주의사항', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '제조연월', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '품질보증기준', content: '제조사 기준' },
+        { noticeCategoryDetailName: 'A/S 책임자와 전화번호', content: contactNumber || '상세페이지 참조' },
+      ],
+    }];
+  }
+
+  // 화장품
+  if (/화장품|스킨|세럼|로션|크림|마스크팩|선크림|클렌징/.test(hint)) {
+    return [{
+      noticeCategoryName: '화장품',
+      noticeCategoryDetailName: [
+        { noticeCategoryDetailName: '용량 또는 중량', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '제품 주요 사양', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '사용기한 또는 개봉 후 사용기간', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '사용방법', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '제조자/수입자', content: brand || '상세페이지 참조' },
+        { noticeCategoryDetailName: '제조국', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '화장품법에 따라 기재·표시하여야 하는 모든 성분', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '식품의약품안전처 심사 필 유무', content: '해당사항 없음' },
+        { noticeCategoryDetailName: '사용할 때 주의사항', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '품질보증기준', content: '제조사 기준' },
+        { noticeCategoryDetailName: '소비자상담 관련 전화번호', content: contactNumber || '상세페이지 참조' },
+      ],
+    }];
+  }
+
+  // 가전
+  if (/가전|전자|컴퓨터|노트북|모니터|냉장고|세탁기|에어컨|청소기/.test(hint)) {
+    return [{
+      noticeCategoryName: '소형전자',
       noticeCategoryDetailName: [
         { noticeCategoryDetailName: '품명 및 모델명', content: productName || '상세페이지 참조' },
         { noticeCategoryDetailName: '인증/허가 사항', content: '해당사항 없음' },
-        { noticeCategoryDetailName: '제조국 또는 원산지', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '정격전압, 소비전력', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '에너지소비효율등급', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '동일모델의 출시년월', content: '상세페이지 참조' },
         { noticeCategoryDetailName: '제조자/수입자', content: brand || '상세페이지 참조' },
+        { noticeCategoryDetailName: '제조국', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '크기', content: '상세페이지 참조' },
+        { noticeCategoryDetailName: '품질보증기준', content: '제조사 기준' },
         { noticeCategoryDetailName: 'A/S 책임자와 전화번호', content: contactNumber || '상세페이지 참조' },
       ],
-    },
-  ];
+    }];
+  }
+
+  // 기타 재화 (기존 기본값)
+  return [{
+    noticeCategoryName: '기타 재화',
+    noticeCategoryDetailName: [
+      { noticeCategoryDetailName: '품명 및 모델명', content: productName || '상세페이지 참조' },
+      { noticeCategoryDetailName: '인증/허가 사항', content: '해당사항 없음' },
+      { noticeCategoryDetailName: '제조국 또는 원산지', content: '상세페이지 참조' },
+      { noticeCategoryDetailName: '제조자/수입자', content: brand || '상세페이지 참조' },
+      { noticeCategoryDetailName: 'A/S 책임자와 전화번호', content: contactNumber || '상세페이지 참조' },
+    ],
+  }];
 }

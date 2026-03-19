@@ -65,6 +65,8 @@ export function useBulkRegisterActions() {
   const [autoMatchingProgress, setAutoMatchingProgress] = useState<{ done: number; total: number } | null>(null);
   const [autoMatchError, setAutoMatchError] = useState('');
   const [autoMatchStats, setAutoMatchStats] = useState<{ matched: number; failed: number; total: number } | null>(null);
+  const [autoCategoryRetryCount, setAutoCategoryRetryCount] = useState(0);
+  const AUTO_CATEGORY_MAX_RETRIES = 3;
 
   // Category search
   const [categorySearchTarget, setCategorySearchTarget] = useState<string | null>(null);
@@ -83,7 +85,9 @@ export function useBulkRegisterActions() {
   }>({ total: 0, done: 0, phase: 'idle' });
   const [imagePreuploadCache, setImagePreuploadCache] = useState<Record<string, {
     mainImageUrls: string[]; detailImageUrls: string[]; reviewImageUrls: string[]; infoImageUrls: string[];
+    uploadedAt?: number;
   }>>({});
+  const IMAGE_CACHE_TTL_MS = 30 * 60 * 1000; // 30분
   const imagePreuploadAbort = useRef<AbortController | null>(null);
 
   // Dry-Run
@@ -204,10 +208,17 @@ export function useBulkRegisterActions() {
     setAutoMatchingProgress(null);
   }, []);
 
-  // Retry auto-category for unmatched products
-  const retryAutoCategory = useCallback(() => {
+  // Retry auto-category for unmatched products (max 3 retries, exponential backoff)
+  const retryAutoCategory = useCallback(async () => {
+    if (autoCategoryRetryCount >= AUTO_CATEGORY_MAX_RETRIES) {
+      setAutoMatchError(`자동 카테고리 재시도 횟수 초과 (최대 ${AUTO_CATEGORY_MAX_RETRIES}회). 수동으로 지정해주세요.`);
+      return;
+    }
+    const backoffMs = 500 * Math.pow(2, autoCategoryRetryCount);
+    setAutoCategoryRetryCount((c) => c + 1);
+    await new Promise((r) => setTimeout(r, backoffMs));
     runAutoCategory(products, true);
-  }, [products, runAutoCategory]);
+  }, [products, runAutoCategory, autoCategoryRetryCount]);
 
   // ---- Browse folder (showDirectoryPicker) ----
   const handleBrowseFolder = useCallback(async () => {
@@ -278,6 +289,72 @@ export function useBulkRegisterActions() {
     }
   }, [brackets, runAutoCategory]);
 
+  // ---- #16 Session recovery: 자동저장 (2초 debounce, Step 2에서만) ----
+  const SESSION_KEY = 'megaload_bulk_session';
+  const SESSION_TTL_MS = 30 * 60 * 1000; // 30분
+  const [sessionRestoreOffered, setSessionRestoreOffered] = useState(false);
+
+  // 자동저장
+  useEffect(() => {
+    if (step !== 2 || products.length === 0) return;
+    const timer = setTimeout(() => {
+      try {
+        const sessionData = {
+          savedAt: Date.now(),
+          step,
+          brackets,
+          selectedOutbound,
+          selectedReturn,
+          deliveryChargeType,
+          deliveryCharge,
+          freeShipOverAmount,
+          returnCharge,
+          contactNumber,
+          generateAiContent,
+          includeReviewImages,
+          products: products.map(({ scannedMainImages, scannedDetailImages, scannedInfoImages, scannedReviewImages, ...rest }) => rest),
+        };
+        sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
+      } catch { /* sessionStorage full or unavailable */ }
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [step, products, brackets, selectedOutbound, selectedReturn, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, contactNumber, generateAiContent, includeReviewImages]);
+
+  // 마운트 시 세션 복원 제안
+  useEffect(() => {
+    if (sessionRestoreOffered) return;
+    try {
+      const raw = sessionStorage.getItem(SESSION_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      if (!data.savedAt || Date.now() - data.savedAt > SESSION_TTL_MS) {
+        sessionStorage.removeItem(SESSION_KEY);
+        return;
+      }
+      if (data.products?.length > 0 && step === 1 && products.length === 0) {
+        setSessionRestoreOffered(true);
+        const shouldRestore = confirm(`이전 작업 세션이 있습니다 (${data.products.length}개 상품, ${Math.round((Date.now() - data.savedAt) / 60000)}분 전). 복원하시겠습니까?`);
+        if (shouldRestore) {
+          setProducts(data.products);
+          setBrackets(data.brackets || brackets);
+          setSelectedOutbound(data.selectedOutbound || '');
+          setSelectedReturn(data.selectedReturn || '');
+          setDeliveryChargeType(data.deliveryChargeType || 'FREE');
+          setDeliveryCharge(data.deliveryCharge || 0);
+          setFreeShipOverAmount(data.freeShipOverAmount || 0);
+          setReturnCharge(data.returnCharge || 5000);
+          setContactNumber(data.contactNumber || '');
+          setGenerateAiContent(data.generateAiContent || false);
+          setIncludeReviewImages(data.includeReviewImages ?? true);
+          setStep(2);
+        } else {
+          sessionStorage.removeItem(SESSION_KEY);
+        }
+      }
+    } catch { /* ignore parse errors */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ---- Local validation auto-run ----
   useEffect(() => {
     if (products.length === 0 || step !== 2) return;
@@ -329,7 +406,11 @@ export function useBulkRegisterActions() {
         });
         if (res.ok) {
           const data = await res.json() as { results: Record<string, { mainImageUrls: string[]; detailImageUrls: string[]; reviewImageUrls: string[]; infoImageUrls: string[] }> };
-          setImagePreuploadCache((prev) => ({ ...prev, ...data.results }));
+          const timestamped: typeof data.results = {};
+          for (const [key, val] of Object.entries(data.results)) {
+            timestamped[key] = { ...val, uploadedAt: Date.now() };
+          }
+          setImagePreuploadCache((prev) => ({ ...prev, ...timestamped }));
         }
       } catch { if (abort.signal.aborted) break; }
       setImagePreuploadProgress((prev) => ({ ...prev, done: Math.min(i + CHUNK, serverProducts.length) }));
@@ -548,6 +629,12 @@ export function useBulkRegisterActions() {
 
   // ---- Register ----
   const handleRegister = useCallback(async () => {
+    // #15 등록 버튼 가드: 검증 중 또는 자동매칭 진행 중이면 차단
+    if (validating || autoMatchingProgress) {
+      alert(validating ? '검증이 진행 중입니다. 완료 후 다시 시도해주세요.' : '카테고리 자동매칭이 진행 중입니다. 완료 후 다시 시도해주세요.');
+      return;
+    }
+
     const selectedProducts = products.filter((p) => p.selected && p.editedCategoryCode && p.validationStatus !== 'error');
     if (selectedProducts.length === 0) { alert('등록 가능한 선택 상품이 없습니다. (카테고리 미지정 또는 검증 오류)'); return; }
 
@@ -602,7 +689,8 @@ export function useBulkRegisterActions() {
             noticeMeta: meta.noticeMeta, attributeMeta: meta.attributeMeta,
           };
           const cached = imagePreuploadCache[p.uid];
-          if (cached) { product.preUploadedUrls = cached; }
+          const cacheValid = cached && cached.uploadedAt && (Date.now() - cached.uploadedAt < IMAGE_CACHE_TTL_MS);
+          if (cacheValid) { product.preUploadedUrls = cached; }
           else if (p.scannedMainImages || p.scannedDetailImages) {
             const mainUrls = await uploadScannedImages(p.scannedMainImages || [], 10);
             const detailUrls = await uploadScannedImages(p.scannedDetailImages || [], 10);
@@ -661,7 +749,7 @@ export function useBulkRegisterActions() {
       });
     } catch (err) { alert(err instanceof Error ? err.message : '등록 실패'); }
     finally { setRegistering(false); }
-  }, [products, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, generateAiContent, includeReviewImages, noticeOverrides, categoryMetaCache, imagePreuploadCache, imagePreuploadProgress.phase]);
+  }, [products, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, generateAiContent, includeReviewImages, noticeOverrides, categoryMetaCache, imagePreuploadCache, imagePreuploadProgress.phase, validating, autoMatchingProgress]);
 
   // ---- Toggle pause ----
   const togglePause = useCallback(() => {
@@ -675,7 +763,9 @@ export function useBulkRegisterActions() {
     setStep(1); setProducts([]); setFolderPaths([]); setBatchProgress({ current: 0, total: 0 });
     setStartTime(null); setAutoMatchingProgress(null);
     setDryRunResults({}); setImagePreuploadCache({}); setImagePreuploadProgress({ total: 0, done: 0, phase: 'idle' });
-    setValidationPhase('idle');
+    setValidationPhase('idle'); setAutoCategoryRetryCount(0);
+    // #16 세션 삭제
+    try { sessionStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
   }, []);
 
   // ---- Computed values ----
