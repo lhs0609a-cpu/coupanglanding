@@ -391,10 +391,12 @@ export async function createInstantCoupon(
 export async function applyInstantCoupon(
   credentials: CoupangCredentials,
   couponId: number,
-  vendorItemIds: string[],
+  vendorItemIds: (string | number)[],
 ): Promise<unknown> {
   const path = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/coupons/${couponId}/coupon-items`;
-  return callCoupangApi(credentials, 'POST', path, { vendorItemIds });
+  // 쿠팡 FMS API는 vendorItemIds를 숫자 배열로 요구
+  const numericIds = vendorItemIds.map(Number).filter((n) => !isNaN(n));
+  return callCoupangApi(credentials, 'POST', path, { vendorItemIds: numericIds });
 }
 
 /** 즉시할인 쿠폰 요청 상태 확인 */
@@ -451,10 +453,12 @@ export async function checkDownloadCouponStatus(
 export async function applyDownloadCoupon(
   credentials: CoupangCredentials,
   couponId: number,
-  vendorItemIds: string[],
+  vendorItemIds: (string | number)[],
 ): Promise<unknown> {
   const path = `${MKT_OPENAPI_BASE}/coupons/${couponId}/items`;
-  return callCoupangApi(credentials, 'POST', path, { vendorItemIds });
+  // 쿠팡 API는 vendorItemIds를 숫자 배열로 요구
+  const numericIds = vendorItemIds.map(Number).filter((n) => !isNaN(n));
+  return callCoupangApi(credentials, 'POST', path, { vendorItemIds: numericIds });
 }
 
 /** 단일 모드(프록시 또는 직접) API 호출 테스트 */

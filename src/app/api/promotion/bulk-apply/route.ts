@@ -105,10 +105,11 @@ export async function POST(request: NextRequest) {
 
     // 배치 처리
     for (const product of (batch || [])) {
-      const itemId = product.vendor_item_id;
+      const itemIdStr = product.vendor_item_id;
+      const itemId = Number(itemIdStr);
 
-      // vendorItemId가 없으면 건너뜀 (sellerProductId는 쿠폰 API에서 사용 불가)
-      if (!itemId) {
+      // vendorItemId가 없거나 숫자가 아니면 건너뜀
+      if (!itemIdStr || isNaN(itemId)) {
         await serviceClient.from('product_coupon_tracking').update({
           status: 'skipped',
           error_message: 'vendorItemId 없음 — 쿠폰 적용 불가',
