@@ -195,6 +195,12 @@ export default function BulkRegisterPanel() {
           onReorderImages={actions.handleReorderImages}
           onRemoveImage={actions.handleRemoveImage}
           getDetailImageUrls={actions.getDetailImageUrls}
+          selectedOutbound={actions.selectedOutbound}
+          selectedReturn={actions.selectedReturn}
+          returnCharge={actions.returnCharge}
+          contactNumber={actions.contactNumber}
+          includeReviewImages={actions.includeReviewImages}
+          noticeOverrides={actions.noticeOverrides}
         />
       )}
 

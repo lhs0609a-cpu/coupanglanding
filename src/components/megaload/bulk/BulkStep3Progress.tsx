@@ -79,7 +79,7 @@ export default function BulkStep3Progress({
   // Collect all detailed errors
   const errorProducts = products.filter(p => p.status === 'error' && p.detailedError);
   const allErrors = errorProducts.map(p => p.detailedError!);
-  const errorCounts = allErrors.length > 0 ? categorizeErrors(allErrors) : {};
+  const errorCounts: Record<ErrorCategory, number> = allErrors.length > 0 ? categorizeErrors(allErrors) : {} as Record<ErrorCategory, number>;
 
   const toggleErrorExpand = useCallback((uid: string) => {
     setExpandedErrorUids(prev => {

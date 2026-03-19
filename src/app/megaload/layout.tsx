@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import MegaloadLayoutClient from './layout-client';
 
+export const dynamic = 'force-dynamic';
+
 export const metadata = {
   title: 'Megaload | 멀티채널 자동화',
 };
