@@ -106,10 +106,12 @@ async function createDownloadCouponBatch(
   vendorItemIds: number[],
   batchNumber: number,
 ): Promise<{ couponId: number; couponName: string }> {
+  // startDate: 5분 뒤 (현재 시간이 API 도달 시 과거가 되는 것 방지)
   const now = new Date();
-  const endDate = new Date(now);
-  // 쿠팡 최대 유효기간 제한 (365일 상한)
-  const durationDays = Math.min(config.download_coupon_duration_days || 30, 365);
+  const startDate = new Date(now.getTime() + 5 * 60 * 1000);
+  const endDate = new Date(startDate);
+  // 쿠팡 최대 유효기간 제한 (90일 상한 — 365일은 거부될 수 있음)
+  const durationDays = Math.min(config.download_coupon_duration_days || 30, 90);
   endDate.setDate(endDate.getDate() + durationDays);
 
   const dateStr = now.toISOString().slice(0, 10);
@@ -123,10 +125,12 @@ async function createDownloadCouponBatch(
     throw new Error('다운로드 쿠폰 정책(policies)이 설정되지 않았습니다. 기존 쿠폰에서 정책을 복사해주세요.');
   }
 
+  console.log(`[bulk-apply] 다운로드 쿠폰 기간: ${startDate.toISOString()} ~ ${endDate.toISOString()} (${durationDays}일)`);
+
   // Step 1: 다운로드 쿠폰 생성 (아이템 없이)
   const newCoupon = await createDownloadCoupon(credentials, {
     title,
-    startDate: now.toISOString(),
+    startDate: startDate.toISOString(),
     endDate: endDate.toISOString(),
     policies,
     contractId: config.contract_id,
