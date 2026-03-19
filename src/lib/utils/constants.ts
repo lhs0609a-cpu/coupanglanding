@@ -719,6 +719,59 @@ export const FAQ_CATEGORY_COLORS: Record<string, string> = {
   other: 'bg-gray-100 text-gray-700',
 };
 
+// 파트너 스크리닝
+export const SCREENING_STATUS_LABELS: Record<string, string> = {
+  pending: '대기중',
+  completed: '완료',
+  expired: '만료',
+};
+
+export const SCREENING_STATUS_COLORS: Record<string, string> = {
+  pending: 'bg-yellow-100 text-yellow-700',
+  completed: 'bg-green-100 text-green-700',
+  expired: 'bg-gray-100 text-gray-500',
+};
+
+export const SCREENING_GRADE_LABELS: Record<string, string> = {
+  S: 'S등급',
+  A: 'A등급',
+  B: 'B등급',
+  C: 'C등급',
+  D: 'D등급',
+};
+
+export const SCREENING_GRADE_COLORS: Record<string, string> = {
+  S: 'bg-purple-100 text-purple-700',
+  A: 'bg-green-100 text-green-700',
+  B: 'bg-blue-100 text-blue-700',
+  C: 'bg-yellow-100 text-yellow-700',
+  D: 'bg-red-100 text-red-700',
+};
+
+export const SCREENING_DECISION_LABELS: Record<string, string> = {
+  approved: '승인',
+  pending: '미결정',
+  rejected: '거절',
+  hold: '보류',
+};
+
+export const SCREENING_DECISION_COLORS: Record<string, string> = {
+  approved: 'bg-green-100 text-green-700',
+  pending: 'bg-gray-100 text-gray-500',
+  rejected: 'bg-red-100 text-red-700',
+  hold: 'bg-orange-100 text-orange-700',
+};
+
+export const SCREENING_CATEGORY_LABELS: Record<string, string> = {
+  trust: '신뢰도',
+  compliance: '지재권/컴플라이언스',
+  community: '커뮤니티 적합성',
+  desperation: '절실함',
+  readiness: '준비도',
+  coachability: '학습 태도',
+  vision: '비전',
+};
+
 // 트레이너 코칭 메시지 템플릿
 export const TRAINER_MESSAGE_TEMPLATES = [
   { key: 'edu_encourage', label: '교육 독려', message: '교육 진행 중이시죠? 막히는 부분 있으면 연락주세요!' },

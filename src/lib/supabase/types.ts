@@ -9,7 +9,7 @@ export type OnboardingStepStatus = 'pending' | 'submitted' | 'approved' | 'rejec
 export type OnboardingVerificationType = 'self_check' | 'evidence_upload' | 'auto_linked' | 'quiz';
 export type FeePaymentStatus = 'not_applicable' | 'awaiting_payment' | 'paid' | 'overdue' | 'suspended';
 export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system' | 'emergency' | 'violation' | 'arena' | 'fee_payment' | 'support' | 'trainer_message';
-export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist' | 'create_violation' | 'update_violation' | 'escalate_violation' | 'resolve_violation' | 'dismiss_violation' | 'terminate_violation' | 'issue_tax_invoice' | 'cancel_tax_invoice' | 'confirm_tax_invoice' | 'approve_manual_input' | 'reject_manual_input' | 'create_penalty' | 'resolve_penalty' | 'create_challenge' | 'update_challenge' | 'award_points' | 'suspend_program_access' | 'restore_program_access' | 'create_notice' | 'update_notice' | 'delete_notice' | 'reply_ticket' | 'close_ticket' | 'create_faq' | 'update_faq' | 'delete_faq';
+export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist' | 'create_violation' | 'update_violation' | 'escalate_violation' | 'resolve_violation' | 'dismiss_violation' | 'terminate_violation' | 'issue_tax_invoice' | 'cancel_tax_invoice' | 'confirm_tax_invoice' | 'approve_manual_input' | 'reject_manual_input' | 'create_penalty' | 'resolve_penalty' | 'create_challenge' | 'update_challenge' | 'award_points' | 'suspend_program_access' | 'restore_program_access' | 'create_notice' | 'update_notice' | 'delete_notice' | 'reply_ticket' | 'close_ticket' | 'create_faq' | 'update_faq' | 'delete_faq' | 'create_screening' | 'decide_screening';
 export type WithdrawalStatus = 'pending' | 'approved' | 'rejected';
 export type TrainerStatus = 'pending' | 'approved' | 'revoked';
 export type TrainerEarningStatus = 'pending' | 'requested' | 'deposited' | 'confirmed';
@@ -824,6 +824,48 @@ export interface Faq {
   sort_order: number;
   is_published: boolean;
   view_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// 파트너 스크리닝 타입
+export type ScreeningLinkStatus = 'pending' | 'completed' | 'expired';
+export type ScreeningGrade = 'S' | 'A' | 'B' | 'C' | 'D';
+export type ScreeningDecision = 'approved' | 'pending' | 'rejected' | 'hold';
+
+export interface ScreeningLink {
+  id: string;
+  token: string;
+  candidate_name: string;
+  candidate_phone: string | null;
+  candidate_memo: string | null;
+  created_by: string;
+  expires_at: string;
+  status: ScreeningLinkStatus;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  screening_result?: ScreeningResult;
+}
+
+export interface ScreeningResult {
+  id: string;
+  link_id: string;
+  answers: Record<string, string>;
+  total_score: number;
+  grade: ScreeningGrade;
+  category_scores: Record<string, unknown>[];
+  red_flags: Record<string, unknown>[];
+  yellow_flags: Record<string, unknown>[];
+  green_flags: Record<string, unknown>[];
+  consistency_warnings: Record<string, unknown>[];
+  knockout_reasons: string[];
+  time_spent_seconds: number;
+  admin_decision: ScreeningDecision;
+  admin_memo: string | null;
+  respondent_ip: string | null;
+  free_text_answer: string | null;
   created_at: string;
   updated_at: string;
 }

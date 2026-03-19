@@ -145,6 +145,8 @@ export default function BulkRegisterPanel() {
           onSetGenerateAiContent={actions.setGenerateAiContent}
           onSetIncludeReviewImages={actions.setIncludeReviewImages}
           onSetNoticeOverrides={actions.setNoticeOverrides}
+          preventionConfig={actions.preventionConfig}
+          onSetPreventionEnabled={actions.setPreventionEnabled}
           onRecalcPrices={actions.recalcPrices}
           onScan={actions.handleScan}
           onBrowseFolder={actions.handleBrowseFolder}

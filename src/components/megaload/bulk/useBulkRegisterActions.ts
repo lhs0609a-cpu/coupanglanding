@@ -6,8 +6,9 @@ import { validateProductLocal } from '@/lib/megaload/services/product-validator'
 import type {
   EditableProduct, PriceBracket, ShippingPlace, ReturnCenter,
   CategoryItem, CategoryMatchResult, PreviewProduct, BatchResult,
-  CategoryMetadata,
+  CategoryMetadata, PreventionConfig,
 } from './types';
+import { DEFAULT_PREVENTION_CONFIG, DISABLED_PREVENTION_CONFIG } from '@/lib/megaload/services/item-winner-prevention';
 import { addRecentPath } from './BulkStep1Settings';
 
 // ---- 브랜드 자동 추출 (상품명에서) ----
@@ -45,6 +46,7 @@ export function useBulkRegisterActions() {
   const [generateAiContent, setGenerateAiContent] = useState(false);
   const [includeReviewImages, setIncludeReviewImages] = useState(true);
   const [noticeOverrides, setNoticeOverrides] = useState<Record<string, string>>({});
+  const [preventionConfig, setPreventionConfig] = useState<PreventionConfig>(DISABLED_PREVENTION_CONFIG);
   const [browsingFolder, setBrowsingFolder] = useState(false);
 
   // Shipping
@@ -102,6 +104,16 @@ export function useBulkRegisterActions() {
   const isPausedRef = useRef(false);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
   const [startTime, setStartTime] = useState<number | null>(null);
+
+  // ---- Prevention config ----
+  const setPreventionEnabled = useCallback((enabled: boolean) => {
+    if (enabled) {
+      setPreventionConfig(DEFAULT_PREVENTION_CONFIG);
+      setGenerateAiContent(true); // AI 상품명 필수화
+    } else {
+      setPreventionConfig(DISABLED_PREVENTION_CONFIG);
+    }
+  }, []);
 
   // ---- Folder path management ----
   const addFolderPath = useCallback((pathOrPaths: string) => {
@@ -312,13 +324,14 @@ export function useBulkRegisterActions() {
           contactNumber,
           generateAiContent,
           includeReviewImages,
+          preventionConfig,
           products: products.map(({ scannedMainImages, scannedDetailImages, scannedInfoImages, scannedReviewImages, ...rest }) => rest),
         };
         sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
       } catch { /* sessionStorage full or unavailable */ }
     }, 2000);
     return () => clearTimeout(timer);
-  }, [step, products, brackets, selectedOutbound, selectedReturn, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, contactNumber, generateAiContent, includeReviewImages]);
+  }, [step, products, brackets, selectedOutbound, selectedReturn, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, contactNumber, generateAiContent, includeReviewImages, preventionConfig]);
 
   // 마운트 시 세션 복원 제안
   useEffect(() => {
@@ -346,6 +359,7 @@ export function useBulkRegisterActions() {
           setContactNumber(data.contactNumber || '');
           setGenerateAiContent(data.generateAiContent || false);
           setIncludeReviewImages(data.includeReviewImages ?? true);
+          if (data.preventionConfig) setPreventionConfig(data.preventionConfig);
           setStep(2);
         } else {
           sessionStorage.removeItem(SESSION_KEY);
@@ -401,6 +415,7 @@ export function useBulkRegisterActions() {
           body: JSON.stringify({
             products: chunk.map((p) => ({ uid: p.uid, productCode: p.productCode, mainImages: p.mainImages, detailImages: p.detailImages, reviewImages: p.reviewImages, infoImages: p.infoImages })),
             includeReviewImages,
+            preventionSeed: preventionConfig.enabled && preventionConfig.imageVariation ? 'pending' : undefined,
           }),
           signal: abort.signal,
         });
@@ -418,7 +433,7 @@ export function useBulkRegisterActions() {
     if (!abort.signal.aborted) {
       setImagePreuploadProgress((prev) => ({ ...prev, phase: 'complete' }));
     }
-  }, [includeReviewImages]);
+  }, [includeReviewImages, preventionConfig]);
 
   // ---- Deep validation ----
   const handleDeepValidation = useCallback(async () => {
@@ -719,6 +734,7 @@ export function useBulkRegisterActions() {
               },
               stock: 999, generateAiContent, includeReviewImages,
               noticeOverrides: Object.keys(noticeOverrides).length > 0 ? noticeOverrides : undefined,
+              preventionConfig: preventionConfig.enabled ? preventionConfig : undefined,
               products: batchProducts,
             }),
           });
@@ -749,7 +765,7 @@ export function useBulkRegisterActions() {
       });
     } catch (err) { alert(err instanceof Error ? err.message : '등록 실패'); }
     finally { setRegistering(false); }
-  }, [products, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, generateAiContent, includeReviewImages, noticeOverrides, categoryMetaCache, imagePreuploadCache, imagePreuploadProgress.phase, validating, autoMatchingProgress]);
+  }, [products, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, generateAiContent, includeReviewImages, noticeOverrides, categoryMetaCache, imagePreuploadCache, imagePreuploadProgress.phase, validating, autoMatchingProgress, preventionConfig]);
 
   // ---- Toggle pause ----
   const togglePause = useCallback(() => {
@@ -792,6 +808,7 @@ export function useBulkRegisterActions() {
     generateAiContent, setGenerateAiContent,
     includeReviewImages, setIncludeReviewImages,
     noticeOverrides, setNoticeOverrides,
+    preventionConfig, setPreventionEnabled,
     loadingShipping, shippingError,
     scanning, scanError, browsingFolder,
     products, setProducts,

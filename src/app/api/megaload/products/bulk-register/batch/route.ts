@@ -11,6 +11,8 @@ import { withRetry } from '@/lib/megaload/services/retry';
 import { checkBrandProtection } from '@/lib/megaload/services/brand-checker';
 import { classifyError } from '@/lib/megaload/services/error-classifier';
 import type { DetailedError } from '@/components/megaload/bulk/types';
+import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
+import { selectWithSeed } from '@/lib/megaload/services/item-winner-prevention';
 
 interface BatchProduct {
   uid?: string;
@@ -56,6 +58,7 @@ interface BatchRegisterBody {
   generateAiContent?: boolean;
   includeReviewImages?: boolean;
   noticeOverrides?: Record<string, string>;
+  preventionConfig?: PreventionConfig;
   products: BatchProduct[];
 }
 
@@ -108,6 +111,7 @@ export async function POST(req: NextRequest) {
       generateAiContent = false,
       includeReviewImages = true,
       noticeOverrides,
+      preventionConfig,
       products,
     } = body;
 
@@ -300,7 +304,17 @@ export async function POST(req: NextRequest) {
         product.name,
       );
 
-      // 8. 페이로드 빌드
+      // 8. 아이템위너 방지 시드 + 레이아웃 변형 결정
+      const preventionEnabled = preventionConfig?.enabled ?? false;
+      const preventionSeed = preventionEnabled && preventionConfig?.imageOrderShuffle
+        ? `${shUserId}:${product.productCode}`
+        : undefined;
+      const LAYOUT_VARIANTS = ['A', 'B', 'C', 'D'];
+      const detailLayoutVariant = preventionEnabled && preventionConfig?.detailPageVariation
+        ? selectWithSeed(LAYOUT_VARIANTS, shUserId)
+        : undefined;
+
+      // 9. 페이로드 빌드
       const payload = buildCoupangProductPayload({
         vendorId,
         product: {
@@ -325,9 +339,12 @@ export async function POST(req: NextRequest) {
         optionVariants: product.optionVariants,
         taxType: product.taxType,
         adultOnly: product.adultOnly,
+        // 아이템위너 방지
+        preventionSeed,
+        detailLayoutVariant,
       });
 
-      // 9. 쿠팡 API 호출 (retry 적용)
+      // 10. 쿠팡 API 호출 (retry 적용)
       let result: { channelProductId: string };
       try {
         result = await withRetry(
@@ -343,7 +360,7 @@ export async function POST(req: NextRequest) {
         };
       }
 
-      // 10. DB 저장 (트랜잭션 보장 — 실패 시 쿠팡 상품 정보를 orphan 테이블에 기록)
+      // 11. DB 저장 (트랜잭션 보장 — 실패 시 쿠팡 상품 정보를 orphan 테이블에 기록)
       let savedId: string | null = null;
       try {
         const { data: savedProduct } = await serviceClient

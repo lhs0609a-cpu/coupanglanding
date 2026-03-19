@@ -11,6 +11,7 @@ import {
   Settings,
   FileText,
   ClipboardList,
+  UserCheck,
   BookOpen,
   ScrollText,
   GraduationCap,
@@ -28,6 +29,7 @@ import {
 const navItems = [
   { href: '/admin/dashboard', label: '대시보드', icon: LayoutDashboard },
   { href: '/admin/applications', label: '신청 관리', icon: ClipboardList },
+  { href: '/admin/screening', label: '파트너 스크리닝', icon: UserCheck },
   { href: '/admin/revenue', label: '수익 관리', icon: TrendingUp },
   { href: '/admin/expenses', label: '비용 관리', icon: CreditCard },
   { href: '/admin/distribution', label: '수익 분배', icon: PieChart },

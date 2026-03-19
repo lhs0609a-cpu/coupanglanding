@@ -1,3 +1,5 @@
+import { createSeededRandom, stringToSeed } from './seeded-random';
+
 export interface AiServiceResult {
   content: string;
   creditsUsed: number;
@@ -11,6 +13,8 @@ export interface ProductTitleInput {
   categoryPath: string;
   brand: string;
   keywords: string[];
+  /** 아이템위너 방지: 셀러 페르소나 시드 (셀러 ID 등) */
+  personaSeed?: string;
 }
 
 export interface ProductTitleResult {
@@ -31,6 +35,64 @@ export interface StoryBatchInput {
 /** 스토리 톤 타입 — 배치 생성 시 순환 사용 */
 export const STORY_TONES = ['감성형', '정보형', '후기형', '비교형', '스토리텔링형'] as const;
 export type StoryTone = (typeof STORY_TONES)[number];
+
+// ---- 셀러 페르소나 (아이템위너 방지 P2) ----
+
+const SELLER_PERSONAS = [
+  {
+    name: '건강/효능',
+    style: '건강 효능과 성분을 강조하는 전문가 스타일',
+    example: '비오틴 5000mcg 고함량 모발건강 탈모영양제 120정',
+    keywords: '효능, 성분, 함량, 건강, 영양',
+  },
+  {
+    name: '가성비/실용',
+    style: '가성비와 실용성을 강조하는 알뜰살뜰 스타일',
+    example: '대용량 비오틴 120정 가성비 영양제 모발 손톱',
+    keywords: '대용량, 가성비, 실용, 알뜰, 경제적',
+  },
+  {
+    name: '프리미엄/고급',
+    style: '프리미엄 품질과 고급스러움을 강조하는 럭셔리 스타일',
+    example: '프리미엄 비오틴 5000 독일산 영양제 120정',
+    keywords: '프리미엄, 고급, 엄선, 특별, 최상급 원료',
+  },
+  {
+    name: '가족/일상',
+    style: '가족과 일상에서의 편리함을 강조하는 따뜻한 스타일',
+    example: '온가족 비오틴 영양제 120정 간편 데일리 모발',
+    keywords: '가족, 온가족, 데일리, 간편, 일상',
+  },
+  {
+    name: '선물/특별',
+    style: '선물과 특별한 가치를 강조하는 감성 스타일',
+    example: '비오틴 선물세트 120정 건강선물 모발영양',
+    keywords: '선물, 감사, 특별, 마음, 건강케어',
+  },
+] as const;
+
+/**
+ * 셀러 시드로 페르소나를 결정적으로 선택
+ */
+function selectPersona(seed: string): typeof SELLER_PERSONAS[number] {
+  const rng = createSeededRandom(stringToSeed(seed));
+  const idx = Math.floor(rng() * SELLER_PERSONAS.length);
+  return SELLER_PERSONAS[idx];
+}
+
+/**
+ * 페르소나 프롬프트 섹션 생성
+ */
+function buildPersonaSection(seed?: string): string {
+  if (!seed) return '';
+  const persona = selectPersona(seed);
+  return `\n\n[셀러 페르소나]
+당신은 "${persona.name}" 스타일의 판매자입니다.
+- 스타일: ${persona.style}
+- 상품명 예시: ${persona.example}
+- 선호 키워드: ${persona.keywords}
+- 이 페르소나에 맞게 상품명의 키워드 선택과 배열을 결정하세요.`;
+}
 
 export async function generateProductDescription(
   productTitle: string,
@@ -218,7 +280,8 @@ export async function generateProductTitles(
 
   const seed = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  const prompt = `당신은 쿠팡 상품 등록 SEO 전문가입니다.
+  const personaSection = buildPersonaSection(input.personaSeed);
+  const prompt = `당신은 쿠팡 상품 등록 SEO 전문가입니다.${personaSection}
 
 [원본 상품명] ${input.originalName}
 [카테고리] ${input.categoryPath}
@@ -314,7 +377,10 @@ export async function generateProductTitlesBatch(
       .map((p, idx) => `${idx + 1}. 원본: "${p.originalName}" | 카테고리: ${p.categoryPath} | 브랜드: ${p.brand || '없음'} | 키워드: ${p.keywords.join(', ') || '없음'}`)
       .join('\n');
 
-    const prompt = `당신은 쿠팡 상품 등록 SEO 전문가입니다. ${chunk.length}개 상품 각각에 대해 고유한 상품명을 생성하세요.
+    // 배치 내 첫 번째 상품의 페르소나 시드를 대표로 사용
+    const batchPersonaSeed = chunk[0]?.personaSeed;
+    const batchPersonaSection = buildPersonaSection(batchPersonaSeed);
+    const prompt = `당신은 쿠팡 상품 등록 SEO 전문가입니다. ${chunk.length}개 상품 각각에 대해 고유한 상품명을 생성하세요.${batchPersonaSection}
 
 [변형 시드] ${seed}
 

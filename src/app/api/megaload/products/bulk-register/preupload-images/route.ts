@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { uploadLocalImagesParallel } from '@/lib/megaload/services/local-product-reader';
+import { generateVariationParams, type VariationParams } from '@/lib/megaload/services/server-image-variation';
 
 interface PreuploadProduct {
   uid: string;
@@ -14,6 +15,7 @@ interface PreuploadProduct {
 interface PreuploadBody {
   products: PreuploadProduct[];
   includeReviewImages?: boolean;
+  preventionSeed?: string;  // 아이템위너 방지 시드 (셀러 ID)
 }
 
 /**
@@ -50,6 +52,8 @@ export async function POST(req: NextRequest) {
     }
 
     const includeReviewImages = body.includeReviewImages ?? true;
+    // preventionSeed가 truthy이면 shUserId를 실제 시드로 사용
+    const preventionSeed = body.preventionSeed ? shUserId : undefined;
     const IMAGE_CONCURRENCY = 15;
     const PRODUCT_CONCURRENCY = 2;
 
@@ -85,7 +89,14 @@ export async function POST(req: NextRequest) {
             };
           }
 
-          const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, IMAGE_CONCURRENCY);
+          // 아이템위너 방지: preventionSeed가 있으면 각 이미지에 변형 파라미터 생성
+          let variationParamsList: (VariationParams | undefined)[] | undefined;
+          if (preventionSeed) {
+            const imgSeed = `${preventionSeed}:${product.productCode}`;
+            variationParamsList = allPaths.map((_, idx) => generateVariationParams(imgSeed, idx));
+          }
+
+          const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, IMAGE_CONCURRENCY, false, variationParamsList);
 
           let offset = 0;
           const mainImageUrls = allUrls.slice(offset, offset + product.mainImages.length);

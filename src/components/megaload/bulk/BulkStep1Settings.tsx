@@ -3,9 +3,10 @@
 import { useRef, useState, useCallback } from 'react';
 import {
   FolderSearch, ArrowRight, Loader2, Search, Truck, MapPin, Phone,
-  Sparkles, Plus, FolderOpen, Clock, X, Folder,
+  Sparkles, Plus, FolderOpen, Clock, X, Folder, Shield, Check,
 } from 'lucide-react';
-import type { PriceBracket, ShippingPlace, ReturnCenter } from './types';
+import type { PriceBracket, ShippingPlace, ReturnCenter, PreventionConfig } from './types';
+import { getPreventionLevel } from '@/lib/megaload/services/item-winner-prevention';
 import IntegrationTestCard from './IntegrationTestCard';
 
 const RECENT_PATHS_KEY = 'bulk_register_recent_paths';
@@ -62,6 +63,8 @@ interface BulkStep1SettingsProps {
   onSetGenerateAiContent: (v: boolean) => void;
   onSetIncludeReviewImages: (v: boolean) => void;
   onSetNoticeOverrides: (v: Record<string, string>) => void;
+  preventionConfig: PreventionConfig;
+  onSetPreventionEnabled: (v: boolean) => void;
   onRecalcPrices: (brackets: PriceBracket[]) => void;
   onScan: () => void;
   onBrowseFolder: () => void;
@@ -78,6 +81,7 @@ export default function BulkStep1Settings({
   onSetDeliveryChargeType, onSetDeliveryCharge, onSetFreeShipOverAmount,
   onSetReturnCharge, onSetContactNumber,
   onSetGenerateAiContent, onSetIncludeReviewImages, onSetNoticeOverrides,
+  preventionConfig, onSetPreventionEnabled,
   onRecalcPrices, onScan, onBrowseFolder,
 }: BulkStep1SettingsProps) {
   const [folderInput, setFolderInput] = useState('');
@@ -284,6 +288,44 @@ export default function BulkStep1Settings({
 
       {/* Integration Test */}
       <IntegrationTestCard disabled={loadingShipping} />
+
+      {/* Item Winner Prevention */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <Shield className="w-5 h-5 text-gray-500" /> 아이템위너 방지
+        </h2>
+        <div className="space-y-4">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <div className={`relative w-11 h-6 rounded-full transition ${preventionConfig.enabled ? 'bg-[#E31837]' : 'bg-gray-200'}`}>
+              <input type="checkbox" checked={preventionConfig.enabled} onChange={(e) => onSetPreventionEnabled(e.target.checked)} className="sr-only" />
+              <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${preventionConfig.enabled ? 'translate-x-5' : ''}`} />
+            </div>
+            <div>
+              <div className="text-sm font-medium text-gray-700">활성화</div>
+              <div className="text-xs text-gray-400">같은 소싱 폴더를 여러 셀러가 등록할 때 쿠팡의 상품 그룹화를 방지합니다.</div>
+            </div>
+          </label>
+          {preventionConfig.enabled && (
+            <div className="ml-14 space-y-2.5">
+              {[
+                { label: '대표이미지 순서 셔플', key: 'imageOrderShuffle' as const, desc: '셀러마다 대표이미지 순서를 다르게' },
+                { label: '이미지 미세 변형', key: 'imageVariation' as const, desc: '파일 해시를 변경하여 매칭 회피' },
+                { label: 'AI 상품명 자동 생성 (필수)', key: 'mandatoryAiNames' as const, desc: '셀러 페르소나 기반 고유 상품명' },
+                { label: '상세페이지 레이아웃 변형', key: 'detailPageVariation' as const, desc: '셀러별 다른 HTML 구조' },
+              ].map(({ label, key, desc }) => (
+                <div key={key} className="flex items-center gap-2 text-sm">
+                  <Check className={`w-4 h-4 shrink-0 ${preventionConfig[key] ? 'text-green-500' : 'text-gray-300'}`} />
+                  <span className={preventionConfig[key] ? 'text-gray-700' : 'text-gray-400'}>{label}</span>
+                  <span className="text-xs text-gray-400">— {desc}</span>
+                </div>
+              ))}
+              <div className="mt-3 px-3 py-2 bg-gray-50 rounded-lg text-xs text-gray-500">
+                방지 레벨: <span className="font-semibold text-gray-700">{getPreventionLevel(preventionConfig) === 4 ? '높음' : getPreventionLevel(preventionConfig) >= 2 ? '중간' : '낮음'}</span> ({getPreventionLevel(preventionConfig)}/4)
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Options */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">

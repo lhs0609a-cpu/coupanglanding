@@ -15,6 +15,7 @@ import type { LocalProduct } from './local-product-reader';
 import type { FilledNoticeCategory } from './notice-field-filler';
 import type { ImageVariation } from './image-variation';
 import { buildRichDetailPageHtml } from './detail-page-builder';
+import { shuffleWithSeed, selectWithSeed } from './item-winner-prevention';
 
 // ---- 입력 타입 ----
 
@@ -117,6 +118,9 @@ export interface BuildCoupangPayloadParams {
   parallelImported?: 'NOT_PARALLEL_IMPORTED' | 'PARALLEL_IMPORTED';
   overseasPurchased?: 'NOT_OVERSEAS_PURCHASED' | 'OVERSEAS_PURCHASED';
   pccNeeded?: boolean;
+  // 아이템위너 방지
+  preventionSeed?: string;            // 셀러ID 등 — 이미지 셔플 시드
+  detailLayoutVariant?: string;       // 상세페이지 레이아웃 변형 (A/B/C/D)
 }
 
 // ---- HTML 이스케이프 (XSS 방어) ----
@@ -209,6 +213,8 @@ export function buildCoupangProductPayload(
     parallelImported = 'NOT_PARALLEL_IMPORTED',
     overseasPurchased = 'NOT_OVERSEAS_PURCHASED',
     pccNeeded = false,
+    preventionSeed,
+    detailLayoutVariant,
   } = params;
 
   // ---- 1. 상품명 정리 ----
@@ -230,7 +236,11 @@ export function buildCoupangProductPayload(
     || '자체제조';
 
   // ---- 2. 대표이미지 (REPRESENTATION) ----
-  const images = mainImageUrls.slice(0, 10).map((url, i) => ({
+  // 아이템위너 방지: preventionSeed가 있으면 이미지 순서를 셔플
+  const orderedImageUrls = preventionSeed
+    ? shuffleWithSeed(mainImageUrls.slice(0, 10), preventionSeed)
+    : mainImageUrls.slice(0, 10);
+  const images = orderedImageUrls.map((url, i) => ({
     imageOrder: i,
     imageType: 'REPRESENTATION',
     cdnPath: url,
@@ -254,7 +264,7 @@ export function buildCoupangProductPayload(
       detailImageUrls,
       infoImageUrls,
       consignmentImageUrls,
-    }));
+    }, detailLayoutVariant));
   } else {
     detailHtml = buildSimpleDetailHtml(detailImageUrls, productName);
   }

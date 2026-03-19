@@ -76,6 +76,8 @@ export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   create_faq: 'FAQ 등록',
   update_faq: 'FAQ 수정',
   delete_faq: 'FAQ 삭제',
+  create_screening: '스크리닝 링크 생성',
+  decide_screening: '스크리닝 판정',
 };
 
 /** 대상 타입 한글 라벨 */
@@ -107,4 +109,6 @@ export const TARGET_TYPE_LABELS: Record<string, string> = {
   support_ticket: '1:1 문의',
   ticket_message: '문의 메시지',
   faq: 'FAQ',
+  screening_link: '스크리닝 링크',
+  screening_result: '스크리닝 결과',
 };
