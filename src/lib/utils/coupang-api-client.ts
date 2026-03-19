@@ -69,6 +69,7 @@ export interface CoupangCoupon {
   discountValue?: number;
   maxDiscountPrice?: number;
   policies?: unknown[];
+  requestTransactionId?: string;
 }
 
 export interface CreateInstantCouponParams {
@@ -86,7 +87,7 @@ export interface CreateDownloadCouponParams {
   startDate: string;
   endDate: string;
   policies: unknown[];
-  contractId: number;
+  contractId: number | string;
 }
 
 async function callCoupangApi(
@@ -395,40 +396,67 @@ export async function fetchContracts(
 
   // 계약서 API 모두 실패 → 기존 쿠폰 목록에서 contractId 추출 시도
   console.warn('[fetchContracts] 계약서 API 모두 실패 — 쿠폰 목록에서 contractId 추출 시도');
-  try {
-    const couponsPath = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupons`;
-    const rawCouponsData = await callCoupangApi(credentials, 'GET', couponsPath);
-    // 실제 응답 구조 로깅 (디버깅용)
-    const rawData = rawCouponsData as Record<string, unknown>;
-    console.log('[fetchContracts] FMS 쿠폰 API 원본 응답 키:', Object.keys(rawData));
-    const couponsList = (rawData.data || rawData.content || rawData.results || []) as Record<string, unknown>[];
-    if (couponsList.length > 0) {
-      console.log('[fetchContracts] 첫 번째 쿠폰 필드:', Object.keys(couponsList[0]));
-      console.log('[fetchContracts] 첫 번째 쿠폰 데이터:', JSON.stringify(couponsList[0]).slice(0, 500));
-    }
 
-    // 쿠폰들에서 고유 contractId 추출 (다양한 필드명 시도)
-    const contractMap = new Map<number, CoupangContract>();
-    for (const coupon of couponsList) {
-      const cid = Number(coupon.contractId || coupon.contract_id || coupon.manageContractId || 0);
-      if (cid > 0 && !contractMap.has(cid)) {
-        contractMap.set(cid, {
-          contractId: cid,
-          contractName: `계약서 #${cid} (쿠폰에서 추출)`,
-          startDate: String(coupon.startDate || coupon.start_date || ''),
-          endDate: String(coupon.endDate || coupon.end_date || ''),
-          contractStatus: 'ACTIVE',
-        });
+  // 시도 1: FMS 즉시할인 쿠폰 목록
+  // 시도 2: marketplace_openapi 다운로드 쿠폰 목록
+  const couponApiPaths = [
+    `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupons`,
+    `${MKT_OPENAPI_BASE}/coupons?vendorId=${credentials.vendorId}`,
+  ];
+
+  for (const couponsPath of couponApiPaths) {
+    try {
+      const rawCouponsData = await callCoupangApi(credentials, 'GET', couponsPath);
+      const rawData = rawCouponsData as Record<string, unknown>;
+      console.log(`[fetchContracts] 쿠폰 API (${couponsPath}) 응답 키:`, Object.keys(rawData));
+
+      // 응답에서 쿠폰 배열 추출 (다양한 응답 구조 대응)
+      let couponsList: Record<string, unknown>[] = [];
+      if (Array.isArray(rawData.data)) {
+        couponsList = rawData.data as Record<string, unknown>[];
+      } else if (Array.isArray(rawData.content)) {
+        couponsList = rawData.content as Record<string, unknown>[];
+      } else if (Array.isArray(rawData.results)) {
+        couponsList = rawData.results as Record<string, unknown>[];
+      } else if (typeof rawData.data === 'object' && rawData.data !== null) {
+        // data가 배열이 아닌 객체인 경우 (페이징된 응답)
+        const inner = rawData.data as Record<string, unknown>;
+        if (Array.isArray(inner.content)) couponsList = inner.content as Record<string, unknown>[];
+        else if (Array.isArray(inner.coupons)) couponsList = inner.coupons as Record<string, unknown>[];
       }
-    }
 
-    if (contractMap.size > 0) {
-      const contracts = Array.from(contractMap.values());
-      console.log(`[fetchContracts] 쿠폰 목록에서 ${contracts.length}개 계약서 ID 추출 성공`);
-      return contracts;
+      if (couponsList.length > 0) {
+        console.log('[fetchContracts] 첫 번째 쿠폰 필드:', Object.keys(couponsList[0]));
+        console.log('[fetchContracts] 첫 번째 쿠폰 데이터:', JSON.stringify(couponsList[0]).slice(0, 500));
+      }
+
+      // 쿠폰들에서 고유 contractId 추출 (다양한 필드명 시도)
+      const contractMap = new Map<number, CoupangContract>();
+      for (const coupon of couponsList) {
+        const cid = Number(
+          coupon.contractId ?? coupon.contract_id ?? coupon.manageContractId ??
+          coupon.ContractId ?? coupon.contractid ?? 0,
+        );
+        if (cid > 0 && !contractMap.has(cid)) {
+          contractMap.set(cid, {
+            contractId: cid,
+            contractName: `계약서 #${cid} (자동 감지)`,
+            startDate: String(coupon.startDate || coupon.start_date || ''),
+            endDate: String(coupon.endDate || coupon.end_date || ''),
+            contractStatus: 'ACTIVE',
+          });
+        }
+      }
+
+      if (contractMap.size > 0) {
+        const contracts = Array.from(contractMap.values());
+        console.log(`[fetchContracts] 쿠폰 목록에서 ${contracts.length}개 계약서 ID 자동 추출 성공`);
+        return contracts;
+      }
+    } catch (err) {
+      console.warn(`[fetchContracts] 쿠폰 목록 조회 실패 (${couponsPath}):`, err instanceof Error ? err.message : err);
+      continue;
     }
-  } catch (err) {
-    console.warn('[fetchContracts] 쿠폰 목록 조회도 실패:', err instanceof Error ? err.message : err);
   }
 
   console.warn('[fetchContracts] 모든 방법 실패 — 빈 배열 반환 (DB fallback은 route에서 처리)');
@@ -517,38 +545,90 @@ export async function fetchDownloadCoupon(
   }
 }
 
-/** 다운로드 쿠폰 생성 (vendorItemIds 포함)
- *  ⚠️ 다운로드 쿠폰은 생성 후 아이템 추가 불가 — 생성 시 vendorItemIds를 반드시 포함해야 함
- *  marketplace_openapi 폐기 → FMS 프로바이더로 시도 */
+/** 쿠팡 API 날짜 형식 변환 (ISO → 'YYYY-MM-DD HH:mm:ss') */
+function toCoupangDateFormat(isoDate: string): string {
+  // "2026-03-20T10:30:00.000" or "2026-03-20T10:30:00" → "2026-03-20 10:30:00"
+  return isoDate.replace('T', ' ').replace(/\.\d+$/, '').replace('Z', '');
+}
+
+/** 다운로드 쿠폰 생성 (아이템 없이 — 아이템은 별도 API로 등록)
+ *
+ *  쿠팡 공식 API:
+ *  - POST /v2/providers/marketplace_openapi/apis/api/v1/coupons
+ *  - body: { title, contractId(string), couponType:"DOWNLOAD", startDate, endDate, userId, policies }
+ *  - 아이템(vendorItemIds)은 쿠폰 생성 후 별도 item creation API로 등록
+ *  - FMS 프로바이더는 즉시할인 전용이므로 다운로드 쿠폰에 사용 불가 */
 export async function createDownloadCoupon(
   credentials: CoupangCredentials,
-  params: CreateDownloadCouponParams & { vendorItemIds?: (string | number)[] },
+  params: CreateDownloadCouponParams,
 ): Promise<CoupangCoupon> {
-  const numericIds = params.vendorItemIds
-    ? params.vendorItemIds.map(Number).filter((n) => !isNaN(n))
-    : undefined;
-
-  // FMS 프로바이더로 시도 (marketplace_openapi 폐기됨)
-  const fmsPath = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupon`;
+  // 쿠팡 공식 엔드포인트: marketplace_openapi
+  const mktPath = `${MKT_OPENAPI_BASE}/coupons`;
   const body = {
-    ...params,
+    title: params.title,
+    contractId: String(params.contractId), // 반드시 string 타입
     couponType: 'DOWNLOAD',
-    vendorItemIds: numericIds,
+    startDate: toCoupangDateFormat(params.startDate),
+    endDate: toCoupangDateFormat(params.endDate),
+    userId: credentials.vendorId, // 쿠팡 API 필수 필드
+    policies: params.policies,
   };
 
-  try {
-    const data = await callCoupangApi(credentials, 'POST', fmsPath, body) as { data?: CoupangCoupon };
-    if (data.data) return data.data;
-  } catch (fmsErr) {
-    console.warn('[createDownloadCoupon] FMS 경로 실패, marketplace_openapi 폴백 시도:', fmsErr instanceof Error ? fmsErr.message : fmsErr);
+  console.log('[createDownloadCoupon] 요청 경로:', mktPath);
+  console.log('[createDownloadCoupon] 요청 body:', JSON.stringify(body).slice(0, 500));
+
+  const data = await callCoupangApi(credentials, 'POST', mktPath, body) as {
+    data?: CoupangCoupon;
+    code?: string;
+    message?: string;
+    requestTransactionId?: string;
+  };
+
+  console.log('[createDownloadCoupon] 응답:', JSON.stringify(data).slice(0, 500));
+
+  // 비동기 API — couponId가 data에 있거나, requestTransactionId만 반환될 수 있음
+  if (data.data) return data.data;
+
+  // requestTransactionId만 반환된 경우 — couponId 추출 불가능하므로 임시 객체 반환
+  if (data.requestTransactionId) {
+    return {
+      couponId: 0, // 아직 확정 안됨 — status check 필요
+      couponName: params.title,
+      couponStatus: 'PENDING',
+      requestTransactionId: data.requestTransactionId,
+    } as CoupangCoupon & { requestTransactionId: string };
   }
 
-  // 폴백: marketplace_openapi (레거시, 410 반환 가능)
-  const mktPath = `${MKT_OPENAPI_BASE}/coupons`;
-  const mktBody = { ...params, vendorItemIds: numericIds };
-  const data = await callCoupangApi(credentials, 'POST', mktPath, mktBody) as { data?: CoupangCoupon };
-  if (!data.data) throw new CoupangApiError('다운로드 쿠폰 생성 응답에 data가 없습니다.', 500);
-  return data.data;
+  throw new CoupangApiError(
+    `다운로드 쿠폰 생성 실패: ${data.message || JSON.stringify(data).slice(0, 200)}`,
+    500,
+  );
+}
+
+/** 다운로드 쿠폰에 아이템 등록 (쿠폰 생성 후 별도 호출)
+ *
+ *  쿠팡 공식 API:
+ *  - POST /v2/providers/marketplace_openapi/apis/api/v1/coupons/{couponId}/items
+ *  - body: { vendorItemIds: [number, ...] }
+ *  - 최대 10,000개 아이템 등록 가능
+ *  - 등록 후 변경 불가 (변경하려면 기존 쿠폰 중지 후 새 쿠폰 생성) */
+export async function addDownloadCouponItems(
+  credentials: CoupangCredentials,
+  couponId: number,
+  vendorItemIds: (string | number)[],
+): Promise<{ requestTransactionId?: string }> {
+  const numericIds = vendorItemIds.map(Number).filter((n) => !isNaN(n));
+
+  const path = `${MKT_OPENAPI_BASE}/coupons/${couponId}/items`;
+  console.log(`[addDownloadCouponItems] 쿠폰 ${couponId}에 ${numericIds.length}개 아이템 등록`);
+
+  const data = await callCoupangApi(credentials, 'POST', path, { vendorItemIds: numericIds }) as {
+    requestTransactionId?: string;
+    code?: string;
+  };
+
+  console.log('[addDownloadCouponItems] 응답:', JSON.stringify(data).slice(0, 300));
+  return { requestTransactionId: data.requestTransactionId };
 }
 
 /** 다운로드 쿠폰 요청 상태 확인 */
@@ -567,25 +647,13 @@ export async function checkDownloadCouponStatus(
   }
 }
 
-/** 다운로드 쿠폰 적용 (레거시)
- *  ⚠️ 쿠팡 API는 다운로드 쿠폰 아이템 사후 추가 미지원.
- *  createDownloadCoupon에서 vendorItemIds를 포함하여 생성해야 합니다.
- *  이 함수는 호환성을 위해 유지되지만, 새 코드에서는 사용하지 마세요. */
+/** 다운로드 쿠폰 아이템 등록 (레거시 호환 — 새 코드는 addDownloadCouponItems 사용) */
 export async function applyDownloadCoupon(
   credentials: CoupangCredentials,
   couponId: number,
   vendorItemIds: (string | number)[],
 ): Promise<unknown> {
-  const numericIds = vendorItemIds.map(Number).filter((n) => !isNaN(n));
-  // FMS 프로바이더로 시도
-  try {
-    const fmsPath = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/coupons/${couponId}/items`;
-    return await callCoupangApi(credentials, 'POST', fmsPath, { vendorItemIds: numericIds });
-  } catch {
-    // 폴백: marketplace_openapi (레거시)
-    const path = `${MKT_OPENAPI_BASE}/coupons/${couponId}/items`;
-    return callCoupangApi(credentials, 'POST', path, { vendorItemIds: numericIds });
-  }
+  return addDownloadCouponItems(credentials, couponId, vendorItemIds);
 }
 
 /** 즉시할인 쿠폰 아이템 수 조회 */

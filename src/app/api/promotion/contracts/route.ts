@@ -58,10 +58,13 @@ export async function GET() {
 
     return NextResponse.json({
       data: contracts,
-      // 계약서가 비어있으면 API 폐기 안내 메시지 포함
+      // 자동으로 추출된 경우와 완전 실패 구분
       ...(contracts.length === 0 && {
-        message: '계약서 API가 폐기(410)되어 자동 조회가 불가합니다. 쿠팡 WING에서 계약서 ID를 직접 확인 후 입력해주세요.',
+        message: '계약서를 자동 감지하지 못했습니다. 쿠폰을 한 번도 생성한 적이 없는 경우, 쿠팡 WING에서 프로모션 계약을 먼저 체결해주세요.',
         retired: true,
+      }),
+      ...(contracts.length > 0 && contracts[0].contractName.includes('자동 감지') && {
+        autoDetected: true,
       }),
     });
   } catch (err) {

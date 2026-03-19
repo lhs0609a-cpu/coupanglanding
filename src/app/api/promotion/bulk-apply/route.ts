@@ -5,6 +5,7 @@ import {
   applyInstantCoupon,
   createInstantCoupon,
   createDownloadCoupon,
+  addDownloadCouponItems,
 } from '@/lib/utils/coupang-api-client';
 import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -97,7 +98,7 @@ async function ensureInstantCoupon(
   return { couponId: newCouponId, couponName: newCouponName };
 }
 
-// ── 다운로드 쿠폰 배치 생성 ────────────────────────────
+// ── 다운로드 쿠폰 배치 생성 (2단계: 쿠폰 생성 → 아이템 등록) ──
 async function createDownloadCouponBatch(
   credentials: CoupangCredentials,
   config: Config,
@@ -113,17 +114,31 @@ async function createDownloadCouponBatch(
     .replace('{date}', dateStr)
     .replace('{n}', String(batchNumber));
 
+  // Step 1: 다운로드 쿠폰 생성 (아이템 없이)
   const newCoupon = await createDownloadCoupon(credentials, {
     title,
-    startDate: now.toISOString().replace('Z', ''),
-    endDate: endDate.toISOString().replace('Z', ''),
+    startDate: now.toISOString(),
+    endDate: endDate.toISOString(),
     policies: config.download_coupon_policies || [],
-    contractId: Number(config.contract_id) || 0,
-    vendorItemIds,
+    contractId: config.contract_id,
   });
 
-  console.log(`[bulk-apply] 다운로드 쿠폰 생성: ${newCoupon.couponId} (${title}), ${vendorItemIds.length}개 아이템`);
-  return { couponId: newCoupon.couponId, couponName: newCoupon.couponName || title };
+  const couponId = newCoupon.couponId;
+  const couponName = newCoupon.couponName || title;
+
+  console.log(`[bulk-apply] 다운로드 쿠폰 생성 완료: ${couponId} (${couponName})`);
+
+  // Step 2: 아이템 등록 (별도 API 호출)
+  if (couponId > 0 && vendorItemIds.length > 0) {
+    console.log(`[bulk-apply] 다운로드 쿠폰 ${couponId}에 ${vendorItemIds.length}개 아이템 등록`);
+    await addDownloadCouponItems(credentials, couponId, vendorItemIds);
+  } else if (couponId === 0) {
+    // 비동기 처리 — couponId가 아직 확정 안된 경우
+    console.warn(`[bulk-apply] 다운로드 쿠폰 비동기 생성됨 (requestTransactionId: ${newCoupon.requestTransactionId}). 아이템 등록 보류.`);
+  }
+
+  console.log(`[bulk-apply] 다운로드 쿠폰 배치 완료: ${couponId}, ${vendorItemIds.length}개 아이템`);
+  return { couponId, couponName };
 }
 
 /** POST: 쿠폰 일괄 적용 시작 또는 계속 (클라이언트 주도 배치 방식) */

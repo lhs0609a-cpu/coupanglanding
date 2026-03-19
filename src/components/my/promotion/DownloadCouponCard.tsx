@@ -13,6 +13,7 @@ interface DownloadCouponCardProps {
   policies: Record<string, unknown>[];
   contracts: CoupangContract[];
   contractsRetired?: boolean;
+  contractsAutoDetected?: boolean;
   onChange: (field: string, value: unknown) => void;
   onCopyPolicies: (couponId: number) => void;
   onRefreshContracts: () => void;
@@ -27,6 +28,7 @@ export default function DownloadCouponCard({
   policies,
   contracts,
   contractsRetired,
+  contractsAutoDetected,
   onChange,
   onCopyPolicies,
   onRefreshContracts,
@@ -57,7 +59,9 @@ export default function DownloadCouponCard({
     onChange('contract_id', value);
   };
 
-  const showManualInput = contracts.length === 0 || contractsRetired;
+  // 계약서가 자동 감지되었거나 API에서 가져왔으면 드롭다운 표시
+  // 완전 실패(빈 배열 + retired)일 때만 수동 입력
+  const showManualInput = contracts.length === 0 && contractsRetired;
 
   return (
     <Card>
@@ -117,37 +121,45 @@ export default function DownloadCouponCard({
               </button>
             </div>
 
-            {/* API에서 계약서 목록을 가져온 경우 */}
-            {!showManualInput && (
-              <select
-                value={contractId}
-                onChange={(e) => onChange('contract_id', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-[#E31837]/30 focus:border-[#E31837]"
-              >
-                <option value="">계약서를 선택하세요</option>
-                {contracts.map((c) => (
-                  <option key={c.contractId} value={String(c.contractId)}>
-                    {c.contractName} ({c.contractStatus})
-                  </option>
-                ))}
-              </select>
+            {/* 계약서 목록이 있는 경우 (API 또는 자동 감지) */}
+            {!showManualInput && contracts.length > 0 && (
+              <>
+                {contractsAutoDetected && (
+                  <div className="flex items-start gap-2 p-2.5 mb-2 bg-green-50 rounded-lg text-xs text-green-700">
+                    <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <span>기존 쿠폰에서 계약서 ID를 자동 감지했습니다.</span>
+                  </div>
+                )}
+                <select
+                  value={contractId}
+                  onChange={(e) => onChange('contract_id', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-[#E31837]/30 focus:border-[#E31837]"
+                >
+                  <option value="">계약서를 선택하세요</option>
+                  {contracts.map((c) => (
+                    <option key={c.contractId} value={String(c.contractId)}>
+                      {c.contractName} ({c.contractStatus})
+                    </option>
+                  ))}
+                </select>
+              </>
             )}
 
-            {/* API 폐기 → 수동 입력 */}
+            {/* 계약서를 전혀 찾지 못한 경우 → 수동 입력 */}
             {showManualInput && (
               <>
                 <div className="flex items-start gap-2 p-2.5 mb-2 bg-amber-50 rounded-lg text-xs text-amber-700">
                   <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                   <span>
-                    계약서 API가 폐기되어 자동 조회가 불가합니다.
-                    쿠팡 WING &gt; 프로모션 &gt; 할인쿠폰에서 계약서 ID를 확인 후 직접 입력해주세요.
+                    계약서를 자동 감지하지 못했습니다.
+                    쿠팡 WING에서 프로모션 계약을 먼저 체결하거나, 계약서 ID를 직접 입력해주세요.
                   </span>
                 </div>
                 <input
                   type="text"
                   value={manualContractId}
                   onChange={(e) => handleManualContractIdChange(e.target.value)}
-                  placeholder="계약서 ID 입력 (WING에서 확인)"
+                  placeholder="계약서 ID 입력"
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-[#E31837]/30 focus:border-[#E31837]"
                 />
               </>
