@@ -273,10 +273,11 @@ export async function fetchProductListings(
     dateTo?: string;
     status?: string;
     maxPages?: number;
+    nextToken?: string;
   },
-): Promise<{ count: number; items: CoupangProductItem[]; rawResponse: unknown }> {
+): Promise<{ count: number; items: CoupangProductItem[]; rawResponse: unknown; nextToken?: string }> {
   const allItems: CoupangProductItem[] = [];
-  let nextToken = '';
+  let nextToken = options?.nextToken || '';
   let lastResponse: unknown = null;
   const maxPerPage = 100;
   const maxPages = options?.maxPages ?? 200;
@@ -325,7 +326,7 @@ export async function fetchProductListings(
     if (!nextToken) break;
   }
 
-  return { count: allItems.length, items: allItems, rawResponse: lastResponse };
+  return { count: allItems.length, items: allItems, rawResponse: lastResponse, nextToken: nextToken || undefined };
 }
 
 /** 전체 등록 상품 수 조회 (inflow-status API 사용 - 단일 호출) */

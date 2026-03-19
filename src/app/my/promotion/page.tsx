@@ -99,6 +99,7 @@ export default function PromotionPage() {
   const [restarting, setRestarting] = useState(false);
   const [applyingNewOnly, setApplyingNewOnly] = useState(false);
   const pollingRef = useRef<NodeJS.Timeout>(null);
+  const collectNextTokenRef = useRef<string>('');
 
   // Tracking tab
   const [trackingItems, setTrackingItems] = useState<ProductCouponTracking[]>([]);
@@ -241,7 +242,15 @@ export default function PromotionPage() {
         await fetchProgress();
         try {
           if (progressStatus === 'collecting') {
-            await fetch('/api/promotion/collect-products', { method: 'POST' });
+            const res = await fetch('/api/promotion/collect-products', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ nextToken: collectNextTokenRef.current }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              collectNextTokenRef.current = data.nextToken || '';
+            }
           } else {
             await fetch('/api/promotion/bulk-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
           }
@@ -311,8 +320,11 @@ export default function PromotionPage() {
 
       // If "apply all" checkbox is checked, start product collection then apply
       if (applyAllOnSave) {
+        collectNextTokenRef.current = ''; // 수집 시작 시 토큰 리셋
         const collectRes = await fetch('/api/promotion/collect-products', {
           method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
         });
         if (!collectRes.ok) {
           const collectData = await collectRes.json();
@@ -343,6 +355,7 @@ export default function PromotionPage() {
 
   const handleRestart = async () => {
     setRestarting(true);
+    collectNextTokenRef.current = '';
     try {
       // 기존 진행 취소 + 트래킹 초기화 → collecting 상태로 재시작
       await fetch('/api/promotion/restart', { method: 'POST' });
@@ -356,9 +369,14 @@ export default function PromotionPage() {
   const handleApplyNewOnly = async () => {
     setApplyingNewOnly(true);
     setError(null);
+    collectNextTokenRef.current = '';
     try {
       // 새 상품 수집 (기존 completed 항목은 ignoreDuplicates로 유지) → 적용
-      const res = await fetch('/api/promotion/collect-products', { method: 'POST' });
+      const res = await fetch('/api/promotion/collect-products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || '신규 상품 수집에 실패했습니다.');

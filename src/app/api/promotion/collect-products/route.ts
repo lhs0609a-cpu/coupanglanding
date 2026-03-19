@@ -1,13 +1,14 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchProductListings } from '@/lib/utils/coupang-api-client';
 import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
 
 const COLLECT_BATCH_SIZE = 100; // upsert batch size
+const PAGES_PER_CALL = 10; // 한 호출당 최대 10페이지 (1000 상품) — Vercel timeout 방지
 
-/** POST: 쿠팡 상품 수집 → product_coupon_tracking에 저장 */
-export async function POST() {
+/** POST: 쿠팡 상품 수집 → product_coupon_tracking에 저장 (배치 방식) */
+export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -29,6 +30,13 @@ export async function POST() {
     if (!ptUser.coupang_api_connected || !ptUser.coupang_vendor_id || !ptUser.coupang_access_key || !ptUser.coupang_secret_key) {
       return NextResponse.json({ error: '쿠팡 API가 연동되지 않았습니다.' }, { status: 400 });
     }
+
+    // 클라이언트에서 전달한 nextToken (이어서 수집)
+    let resumeToken = '';
+    try {
+      const body = await request.json();
+      resumeToken = body.nextToken || '';
+    } catch { /* empty body */ }
 
     const credentials: CoupangCredentials = {
       vendorId: ptUser.coupang_vendor_id,
@@ -75,13 +83,15 @@ export async function POST() {
       });
     }
 
-    // 쿠팡에서 승인된 전체 상품 조회
-    console.log('[collect-products] 상품 수집 시작...');
-    const { items: productItems } = await fetchProductListings(credentials, {
+    // 쿠팡에서 상품 배치 조회 (PAGES_PER_CALL 페이지만)
+    console.log(`[collect-products] 배치 수집 시작 (resumeToken: ${resumeToken ? '있음' : '없음'})`);
+    const { items: productItems, nextToken } = await fetchProductListings(credentials, {
       status: 'APPROVED',
+      maxPages: PAGES_PER_CALL,
+      nextToken: resumeToken,
     });
 
-    console.log(`[collect-products] 쿠팡에서 ${productItems.length}개 vendorItem 조회 완료`);
+    console.log(`[collect-products] 이번 배치: ${productItems.length}개 vendorItem, nextToken: ${nextToken ? '있음' : '없음'}`);
 
     // product_coupon_tracking에 upsert (batch)
     let insertedCount = 0;
@@ -113,29 +123,43 @@ export async function POST() {
       } else {
         insertedCount += rows.length;
       }
-
-      // 수집 진행률 업데이트
-      const collectingProgress = Math.round(((i + batch.length) / productItems.length) * 100);
-      await serviceClient.from('bulk_apply_progress').update({
-        collecting_progress: Math.min(collectingProgress, 100),
-        total_products: productItems.length,
-      }).eq('id', progress.id);
     }
 
-    // pending 상품 수 카운트
-    const { count: pendingCount } = await serviceClient
+    // 현재까지 수집된 총 상품 수
+    const { count: totalCollected } = await serviceClient
       .from('product_coupon_tracking')
       .select('id', { count: 'exact', head: true })
-      .eq('pt_user_id', ptUser.id)
-      .eq('status', 'pending');
+      .eq('pt_user_id', ptUser.id);
 
-    // 수집 완료 → applying 상태로 전환
-    await serviceClient.from('bulk_apply_progress').update({
-      status: 'applying',
-      collecting_progress: 100,
-      total_products: pendingCount || 0,
-      total_items: productItems.length,
-    }).eq('id', progress.id);
+    const hasMore = !!nextToken;
+
+    if (hasMore) {
+      // 아직 더 수집할 상품이 있음 — collecting 유지
+      const estimatedTotal = (totalCollected || 0) + 1000; // 대략적 추정
+      const collectingProgress = Math.min(Math.round(((totalCollected || 0) / estimatedTotal) * 100), 95);
+      await serviceClient.from('bulk_apply_progress').update({
+        collecting_progress: collectingProgress,
+        total_products: totalCollected || 0,
+      }).eq('id', progress.id);
+
+      console.log(`[collect-products] 배치 완료: ${insertedCount}건 삽입, 총 ${totalCollected}건, 계속 수집...`);
+    } else {
+      // 모든 상품 수집 완료 → applying 상태로 전환
+      const { count: pendingCount } = await serviceClient
+        .from('product_coupon_tracking')
+        .select('id', { count: 'exact', head: true })
+        .eq('pt_user_id', ptUser.id)
+        .eq('status', 'pending');
+
+      await serviceClient.from('bulk_apply_progress').update({
+        status: 'applying',
+        collecting_progress: 100,
+        total_products: pendingCount || 0,
+        total_items: totalCollected || 0,
+      }).eq('id', progress.id);
+
+      console.log(`[collect-products] 수집 완료: 총 ${totalCollected}건, ${pendingCount}건 pending`);
+    }
 
     // 최신 상태 반환
     const { data: currentProgress } = await serviceClient
@@ -144,13 +168,12 @@ export async function POST() {
       .eq('id', progress.id)
       .single();
 
-    console.log(`[collect-products] 수집 완료: ${insertedCount}건 삽입, ${pendingCount}건 pending`);
-
     return NextResponse.json({
       progress: currentProgress,
-      collected: true,
-      totalVendorItems: productItems.length,
-      pendingCount: pendingCount || 0,
+      collected: !hasMore,
+      hasMore,
+      nextToken: nextToken || undefined,
+      totalCollected: totalCollected || 0,
     });
   } catch (err) {
     console.error('상품 수집 서버 오류:', err);
