@@ -740,7 +740,6 @@ export async function matchCategoryBatch(
             source: 'local_db',
           };
           directMatched = true;
-          tier0Count++;
           break;
         }
       }
