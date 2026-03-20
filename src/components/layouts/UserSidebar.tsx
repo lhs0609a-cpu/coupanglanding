@@ -74,7 +74,7 @@ export default function UserSidebar({ isOpen, onClose, isTrainer, settlementBadg
     ? (settlementBadge.dday <= 0 ? `+${Math.abs(settlementBadge.dday)}` : String(settlementBadge.dday))
     : '';
 
-  const renderNavItem = (item: typeof baseNavItems[number]) => {
+  const renderNavItem = (item: { href: string; label: string; icon: React.ComponentType<{ className?: string }> }) => {
     const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
     const Icon = item.icon;
     const isReportItem = item.href === '/my/report';
