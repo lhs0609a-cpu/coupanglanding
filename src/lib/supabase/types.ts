@@ -871,6 +871,12 @@ export interface ScreeningResult {
   updated_at: string;
 }
 
+export interface SystemSetting {
+  key: string;
+  value: string;
+  updated_at: string;
+}
+
 export interface Database {
   public: {
     Tables: {

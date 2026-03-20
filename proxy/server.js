@@ -42,7 +42,7 @@ function generateCoupangSignature(method, path, query, secretKey, accessKey) {
 
 // ─── 쿠팡 API 호출 ──────────────────────────────────────────
 
-function callCoupangApi(method, path, query, body, accessKey, secretKey, vendorId) {
+function callCoupangApi(method, path, query, body, accessKey, secretKey) {
   return new Promise((resolve, reject) => {
     const authorization = generateCoupangSignature(method, path, query, secretKey, accessKey);
     const url = `${COUPANG_API_BASE}${path}${query ? '?' + query : ''}`;
@@ -55,8 +55,7 @@ function callCoupangApi(method, path, query, body, accessKey, secretKey, vendorI
       method,
       headers: {
         'Authorization': authorization,
-        'Content-Type': 'application/json;charset=UTF-8',
-        'X-Requested-By': vendorId || accessKey, // 쿠팡 API 필수 헤더
+        'Content-Type': 'application/json',
       },
     };
 
@@ -92,7 +91,7 @@ const server = http.createServer(async (req, res) => {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Proxy-Secret, X-Coupang-Access-Key, X-Coupang-Secret-Key, X-Coupang-Vendor-Id');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Proxy-Secret, X-Coupang-Access-Key, X-Coupang-Secret-Key');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -107,6 +106,25 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Outbound IP check — 이 서버가 외부로 나갈 때 사용하는 IP 확인
+  if (req.url === '/outbound-ip') {
+    try {
+      const ipRes = await new Promise((resolve, reject) => {
+        https.get('https://api.ipify.org?format=json', (r) => {
+          let d = '';
+          r.on('data', (c) => d += c);
+          r.on('end', () => resolve(JSON.parse(d)));
+        }).on('error', reject);
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ outbound_ip: ipRes.ip, region: process.env.FLY_REGION || 'local' }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   // ── 인증 체크 ──
   const proxySecret = req.headers['x-proxy-secret'];
   if (PROXY_SECRET && proxySecret !== PROXY_SECRET) {
@@ -118,7 +136,6 @@ const server = http.createServer(async (req, res) => {
   // ── 쿠팡 API 키 (헤더에서 받음) ──
   const accessKey = req.headers['x-coupang-access-key'];
   const secretKey = req.headers['x-coupang-secret-key'];
-  const vendorId = req.headers['x-coupang-vendor-id'] || ''; // X-Requested-By용
 
   if (!accessKey || !secretKey) {
     res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -159,7 +176,6 @@ const server = http.createServer(async (req, res) => {
       body || undefined,
       accessKey,
       secretKey,
-      vendorId,
     );
     const duration = Date.now() - startTime;
 
