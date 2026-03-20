@@ -107,6 +107,7 @@ async function createDownloadCouponBatch(
   config: Config,
   vendorItemIds: number[],
   batchNumber: number,
+  isFirstBatch: boolean,
 ): Promise<{ couponId: number; couponName: string }> {
   // startDate: 5분 뒤 (현재 시간이 API 도달 시 과거가 되는 것 방지)
   const now = new Date();
@@ -172,38 +173,33 @@ async function createDownloadCouponBatch(
 
   console.log(`[bulk-apply] 다운로드 쿠폰 생성 완료: ${couponId} (${couponName})`);
 
-  // Step 2: 아이템 등록 (별도 API 호출) + 비동기 결과 확인
+  // Step 2: 아이템 등록 (별도 API 호출) + 첫 배치만 비동기 결과 확인
   if (vendorItemIds.length > 0) {
     console.log(`[bulk-apply] 다운로드 쿠폰 ${couponId}에 ${vendorItemIds.length}개 아이템 등록`);
     const itemResult = await addDownloadCouponItems(credentials, couponId, vendorItemIds);
 
-    // 비동기 결과 폴링 — requestTransactionId가 있으면 실제 등록 결과 확인
-    if (itemResult.requestTransactionId) {
-      let verified = false;
-      for (let attempt = 0; attempt < 5; attempt++) {
+    // 첫 배치만 폴링 (설정 검증)
+    if (itemResult.requestTransactionId && isFirstBatch) {
+      console.log(`[bulk-apply] 첫 다운로드 배치 — 비동기 결과 폴링 시작`);
+      for (let attempt = 0; attempt < 3; attempt++) {
         await new Promise((r) => setTimeout(r, 2000));
         try {
           const statusResult = await checkDownloadCouponStatus(credentials, itemResult.requestTransactionId) as Record<string, unknown>;
           const nested = (statusResult.data || statusResult) as Record<string, unknown>;
           const status = String(nested.status || statusResult.status || '').toUpperCase();
-          console.log(`[bulk-apply] 다운로드 아이템 등록 비동기 상태 (attempt ${attempt + 1}): ${status}`, JSON.stringify(nested).slice(0, 300));
+          console.log(`[bulk-apply] 다운로드 아이템 비동기 상태 (attempt ${attempt + 1}): ${status}`, JSON.stringify(nested).slice(0, 300));
 
           if (status === 'SUCCESS' || status === 'COMPLETED' || status === 'DONE') {
-            verified = true;
             break;
           }
           if (status === 'FAIL' || status === 'FAILED' || status === 'ERROR') {
             const failMsg = String(nested.message || nested.failReason || '비동기 처리 실패');
             throw new Error(`다운로드 쿠폰 아이템 등록 비동기 실패 (${itemResult.requestTransactionId}): ${failMsg}`);
           }
-          // PROCESSING / PENDING → 계속 폴링
         } catch (pollErr) {
           if (pollErr instanceof Error && pollErr.message.includes('비동기 실패')) throw pollErr;
           console.warn(`[bulk-apply] 다운로드 아이템 폴링 실패 (attempt ${attempt + 1}):`, pollErr instanceof Error ? pollErr.message : pollErr);
         }
-      }
-      if (!verified) {
-        console.warn(`[bulk-apply] 다운로드 아이템 비동기 상태 미확인 (txId: ${itemResult.requestTransactionId}) — 성공 추정 처리`);
       }
     }
   }
@@ -341,11 +337,12 @@ export async function POST(request: NextRequest) {
             // 배치 API 호출 (한 번에 여러 vendorItemId 전송)
             const instantResult = await applyInstantCoupon(credentials, couponId, vendorItemIds);
 
-            // 비동기 결과 폴링 — requestedId가 있으면 실제 등록 결과 확인
-            if (instantResult.requestedId) {
-              let verified = false;
-              for (let attempt = 0; attempt < 5; attempt++) {
-                await new Promise((r) => setTimeout(r, 1500));
+            // 첫 배치만 폴링 (설정 검증) — 이후 배치는 callCoupangApi code 체크로 충분
+            const isFirstInstantBatch = (progress.instant_success || 0) === 0 && batchInstantSuccess === 0;
+            if (instantResult.requestedId && isFirstInstantBatch) {
+              console.log(`[bulk-apply] 첫 즉시할인 배치 — 비동기 결과 폴링 시작`);
+              for (let attempt = 0; attempt < 3; attempt++) {
+                await new Promise((r) => setTimeout(r, 2000));
                 try {
                   const statusResult = await checkInstantCouponStatus(credentials, instantResult.requestedId) as Record<string, unknown>;
                   const nested = (statusResult.data || statusResult) as Record<string, unknown>;
@@ -353,21 +350,16 @@ export async function POST(request: NextRequest) {
                   console.log(`[bulk-apply] 즉시할인 비동기 상태 (attempt ${attempt + 1}): ${status}`, JSON.stringify(nested).slice(0, 300));
 
                   if (status === 'SUCCESS' || status === 'COMPLETED' || status === 'DONE') {
-                    verified = true;
                     break;
                   }
                   if (status === 'FAIL' || status === 'FAILED' || status === 'ERROR') {
                     const failMsg = String(nested.message || nested.failReason || '비동기 처리 실패');
                     throw new Error(`즉시할인 비동기 실패 (${instantResult.requestedId}): ${failMsg}`);
                   }
-                  // PROCESSING / PENDING → 계속 폴링
                 } catch (pollErr) {
                   if (pollErr instanceof Error && pollErr.message.includes('비동기 실패')) throw pollErr;
                   console.warn(`[bulk-apply] 즉시할인 폴링 실패 (attempt ${attempt + 1}):`, pollErr instanceof Error ? pollErr.message : pollErr);
                 }
-              }
-              if (!verified) {
-                console.warn(`[bulk-apply] 즉시할인 비동기 상태 미확인 (requestedId: ${instantResult.requestedId}) — 성공 추정 처리`);
               }
             }
 
@@ -467,8 +459,9 @@ export async function POST(request: NextRequest) {
 
           try {
             // 다운로드 쿠폰 생성 (아이템 포함)
+            const isFirstDownloadBatch = (progress.download_success || 0) === 0 && batchDownloadSuccess === 0;
             const { couponId, couponName } = await createDownloadCouponBatch(
-              credentials, config, vendorItemIds, batchNumber,
+              credentials, config, vendorItemIds, batchNumber, isFirstDownloadBatch,
             );
 
             batchDownloadSuccess += validItems.length;
