@@ -1041,7 +1041,7 @@ export default function MyReportPage() {
               const val = costs[cat.key];
               if (val <= 0) return null;
               const isAuto = cat.key !== MANUAL_COST_KEY;
-              const rate = isAuto && dynamicRates ? (dynamicRates as Record<string, number>)[cat.key] ?? 0 : 0;
+              const rate = isAuto && dynamicRates ? (dynamicRates as unknown as Record<string, number>)[cat.key] ?? 0 : 0;
               return (
                 <div key={cat.key} className="flex justify-between">
                   <span className="text-gray-500">
