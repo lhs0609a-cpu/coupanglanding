@@ -29,5 +29,6 @@ export const config = {
     '/my/:path*',
     '/admin/:path*',
     '/auth/:path*',
+    '/megaload/:path*',
   ],
 };

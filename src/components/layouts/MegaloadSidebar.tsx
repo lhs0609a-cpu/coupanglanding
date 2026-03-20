@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
   Receipt, BarChart3, Zap, Globe, Link as LinkIcon, Settings, X,
-  Upload,
+  Upload, User, ArrowRight,
 } from 'lucide-react';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
 
@@ -67,7 +67,24 @@ export default function MegaloadSidebar({ isOpen, onClose, badges }: MegaloadSid
           </button>
         </div>
 
-        <nav className="p-3 space-y-1 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 65px)' }}>
+        <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 65px)' }}>
+          {/* 내 PT 바로가기 카드 */}
+          <div className="px-3 pt-3">
+            <Link
+              href="/my/dashboard"
+              onClick={onClose}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-gradient-to-r from-[#E31837] to-rose-600 text-white hover:from-red-700 hover:to-rose-700 transition-all group"
+            >
+              <User className="w-5 h-5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold">내 PT</p>
+                <p className="text-[11px] text-white/80">매출 정산 & 관리</p>
+              </div>
+              <ArrowRight className="w-4 h-4 shrink-0 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+            </Link>
+          </div>
+
+        <nav className="p-3 space-y-1">
           {navItems.map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
             const Icon = iconMap[item.icon];
@@ -97,6 +114,7 @@ export default function MegaloadSidebar({ isOpen, onClose, badges }: MegaloadSid
             );
           })}
         </nav>
+        </div>
       </aside>
     </>
   );

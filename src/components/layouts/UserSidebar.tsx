@@ -1,11 +1,13 @@
 'use client';
 
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X, School, Flame, ShieldAlert, Gavel, Receipt, MessageSquare, Map, ShieldCheck, Trophy, Search, Megaphone, Lightbulb, Building2, Bell, MessageCircle, HelpCircle, Tv } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X, School, Flame, ShieldAlert, Gavel, Receipt, MessageSquare, Map, ShieldCheck, Trophy, Search, Megaphone, Lightbulb, Building2, Bell, MessageCircle, HelpCircle, Tv, Zap, ArrowRight, ChevronDown } from 'lucide-react';
 import type { SettlementBadgeData, FeePaymentBadgeData } from './DashboardLayout';
 import FeePaymentBanner from '@/components/settlement/FeePaymentBanner';
 import type { FeePaymentStatus } from '@/lib/supabase/types';
+import { useSidebarUsage } from '@/hooks/useSidebarUsage';
 
 const baseNavItems = [
   { href: '/my/dashboard', label: '대시보드', icon: LayoutDashboard },
@@ -46,9 +48,21 @@ interface UserSidebarProps {
 export default function UserSidebar({ isOpen, onClose, isTrainer, settlementBadge, feePaymentBadge }: UserSidebarProps) {
   const pathname = usePathname();
 
-  const navItems = isTrainer
-    ? [...baseNavItems.slice(0, 7), trainerNavItem, ...baseNavItems.slice(7)]
-    : baseNavItems;
+  const navItems = useMemo(() =>
+    isTrainer
+      ? [...baseNavItems.slice(0, 7), trainerNavItem, ...baseNavItems.slice(7)]
+      : baseNavItems,
+    [isTrainer],
+  );
+
+  const { sections, trackClick, hasFrequent } = useSidebarUsage(navItems);
+
+  // "더보기" 자동 펼침: 현재 페이지가 more 섹션에 있으면
+  const currentInMore = sections.more.some(
+    (item) => pathname === item.href || pathname.startsWith(item.href + '/'),
+  );
+  const [moreOpen, setMoreOpen] = useState(false);
+  const showMore = moreOpen || currentInMore;
 
   // D-Day ≤ 7이고 미제출 시 빨간 뱃지 표시
   const showBadge = settlementBadge
@@ -59,6 +73,43 @@ export default function UserSidebar({ isOpen, onClose, isTrainer, settlementBadg
   const badgeText = settlementBadge
     ? (settlementBadge.dday <= 0 ? `+${Math.abs(settlementBadge.dday)}` : String(settlementBadge.dday))
     : '';
+
+  const renderNavItem = (item: typeof baseNavItems[number]) => {
+    const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+    const Icon = item.icon;
+    const isReportItem = item.href === '/my/report';
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        onClick={() => { trackClick(item.href); onClose(); }}
+        className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition ${
+          isActive
+            ? 'bg-[#E31837] text-white'
+            : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+        }`}
+      >
+        <span className="flex items-center gap-3">
+          <Icon className="w-5 h-5" />
+          {item.label}
+        </span>
+        {isReportItem && showBadge && !isActive && (
+          <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 text-[10px] font-bold text-white bg-red-500 rounded-full">
+            {badgeText}
+          </span>
+        )}
+        {isReportItem && !isActive && feePaymentBadge && (
+          <FeePaymentBanner
+            variant="inline"
+            feePaymentStatus={feePaymentBadge.status as FeePaymentStatus}
+            feePaymentDeadline={feePaymentBadge.deadline}
+            unpaidAmount={feePaymentBadge.unpaidAmount}
+            yearMonth={feePaymentBadge.yearMonth}
+          />
+        )}
+      </Link>
+    );
+  };
 
   return (
     <>
@@ -89,44 +140,51 @@ export default function UserSidebar({ isOpen, onClose, isTrainer, settlementBadg
           </button>
         </div>
 
-        <nav className="p-3 space-y-1">
-          {navItems.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
-            const Icon = item.icon;
-            const isReportItem = item.href === '/my/report';
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={onClose}
-                className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition ${
-                  isActive
-                    ? 'bg-[#E31837] text-white'
-                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                }`}
-              >
-                <span className="flex items-center gap-3">
-                  <Icon className="w-5 h-5" />
-                  {item.label}
-                </span>
-                {isReportItem && showBadge && !isActive && (
-                  <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 text-[10px] font-bold text-white bg-red-500 rounded-full">
-                    {badgeText}
-                  </span>
-                )}
-                {isReportItem && !isActive && feePaymentBadge && (
-                  <FeePaymentBanner
-                    variant="inline"
-                    feePaymentStatus={feePaymentBadge.status as FeePaymentStatus}
-                    feePaymentDeadline={feePaymentBadge.deadline}
-                    unpaidAmount={feePaymentBadge.unpaidAmount}
-                    yearMonth={feePaymentBadge.yearMonth}
-                  />
-                )}
-              </Link>
-            );
-          })}
-        </nav>
+        <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 65px)' }}>
+          {/* Megaload 바로가기 카드 */}
+          <div className="px-3 pt-3">
+            <Link
+              href="/megaload/dashboard"
+              onClick={onClose}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-gradient-to-r from-violet-500 to-indigo-600 text-white hover:from-violet-600 hover:to-indigo-700 transition-all group"
+            >
+              <Zap className="w-5 h-5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold">Megaload</p>
+                <p className="text-[11px] text-white/80">멀티채널 자동화</p>
+              </div>
+              <ArrowRight className="w-4 h-4 shrink-0 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+            </Link>
+          </div>
+
+          <nav className="p-3 space-y-1">
+            {/* 고정: 대시보드 */}
+            {sections.pinned.map(renderNavItem)}
+
+            {/* 자주 사용 */}
+            {hasFrequent && (
+              <>
+                <p className="px-3 pt-3 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">자주 사용</p>
+                {sections.frequent.map(renderNavItem)}
+              </>
+            )}
+
+            {/* 더보기 */}
+            {sections.more.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setMoreOpen((v) => !v)}
+                  className="flex items-center gap-2 w-full px-3 pt-3 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600 transition"
+                >
+                  {hasFrequent ? '더보기' : '메뉴'}
+                  <ChevronDown className={`w-3 h-3 transition-transform ${showMore ? 'rotate-180' : ''}`} />
+                </button>
+                {showMore && sections.more.map(renderNavItem)}
+              </>
+            )}
+          </nav>
+        </div>
       </aside>
     </>
   );

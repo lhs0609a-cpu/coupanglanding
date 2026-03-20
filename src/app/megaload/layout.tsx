@@ -19,11 +19,26 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
 
   const user = session.user;
 
-  // profile + shUser 병렬 조회
-  const [{ data: profile }, { data: shUser }] = await Promise.all([
-    supabase.from('profiles').select('full_name, role').eq('id', user.id).single(),
+  // profile + shUser + ptUser 병렬 조회
+  const [{ data: profile }, { data: shUser }, { data: ptUser }] = await Promise.all([
+    supabase.from('profiles').select('full_name, role, is_active').eq('id', user.id).single(),
     supabase.from('megaload_users').select('id, plan, onboarding_done').eq('profile_id', user.id).maybeSingle(),
+    supabase.from('pt_users').select('id').eq('profile_id', user.id).maybeSingle(),
   ]);
+
+  const role = profile?.role;
+
+  // admin/partner → 접근 제어 바이패스
+  if (role !== 'admin' && role !== 'partner') {
+    // 비활성 계정 → 승인 대기 페이지
+    if (!profile?.is_active) {
+      redirect('/auth/pending');
+    }
+    // PT 미등록 → 대시보드로
+    if (!ptUser) {
+      redirect('/my/dashboard');
+    }
+  }
 
   if (!shUser) {
     await supabase.from('megaload_users').insert({
