@@ -20,7 +20,7 @@ interface CoupangFieldsSectionProps {
   previewData: PayloadPreviewData | null;
   previewLoading: boolean;
   previewError: string;
-  onUpdate: (uid: string, field: string, value: string | number | Record<string, string>) => void;
+  onUpdate: (uid: string, field: string, value: string | number | string[] | Record<string, string>) => void;
   onCategoryClick: (uid: string) => void;
   imageItems: ImageItem[];
   onImageReorder: (newOrder: ImageItem[]) => void;
