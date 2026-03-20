@@ -63,26 +63,112 @@ function loadDetails(): Record<string, CategoryDetailRaw> {
 // 상품명 토큰 → 쿠팡 displayCategoryCode 직접 매핑
 // 토큰 점수 계산 없이 바로 정확한 카테고리로 연결
 const DIRECT_CODE_MAP: Record<string, { code: string; path: string }> = {
-  // 건강식품 (로컬 매칭 어려운 것들)
+  // ── 건강식품 > 비타민/미네랄 ──
+  '비오틴': { code: '73132', path: '식품>건강식품>비타민/미네랄>바이오틴' },
+  '바이오틴': { code: '73132', path: '식품>건강식품>비타민/미네랄>바이오틴' },
+  '비타민a': { code: '58907', path: '식품>건강식품>비타민/미네랄>비타민A' },
+  '비타민b': { code: '58908', path: '식품>건강식품>비타민/미네랄>비타민B군' },
+  '비타민b군': { code: '58908', path: '식품>건강식품>비타민/미네랄>비타민B군' },
+  '비타민c': { code: '58909', path: '식품>건강식품>비타민/미네랄>비타민C' },
+  '비타민d': { code: '58910', path: '식품>건강식품>비타민/미네랄>비타민D' },
+  '비타민e': { code: '58911', path: '식품>건강식품>비타민/미네랄>비타민E' },
+  '비타민k': { code: '58912', path: '식품>건강식품>비타민/미네랄>비타민K' },
+  '멀티비타민': { code: '58913', path: '식품>건강식품>비타민/미네랄>멀티비타민' },
+  '종합비타민': { code: '58913', path: '식품>건강식품>비타민/미네랄>멀티비타민' },
+  '마그네슘': { code: '58931', path: '식품>건강식품>비타민/미네랄>마그네슘' },
+  '아연': { code: '58930', path: '식품>건강식품>비타민/미네랄>아연' },
+  '셀레늄': { code: '58934', path: '식품>건강식품>비타민/미네랄>셀레늄' },
+  '엽산': { code: '102535', path: '식품>건강식품>비타민/미네랄>엽산' },
+  '철분': { code: '58922', path: '식품>건강식품>비타민/미네랄>철분' },
+  '칼슘': { code: '58921', path: '식품>건강식품>비타민/미네랄>칼슘' },
+  '요오드': { code: '58933', path: '식품>건강식품>비타민/미네랄>요오드' },
+  '크롬': { code: '102536', path: '식품>건강식품>비타민/미네랄>크롬' },
+  // ── 건강식품 > 기타건강식품 ──
   '오메가3': { code: '73134', path: '식품>건강식품>기타건강식품>오메가3,6,9' },
+  '오메가': { code: '73134', path: '식품>건강식품>기타건강식품>오메가3,6,9' },
   '밀크씨슬': { code: '58926', path: '식품>건강식품>기타건강식품>밀크시슬' },
   '밀크시슬': { code: '58926', path: '식품>건강식품>기타건강식품>밀크시슬' },
-  // 생활용품
+  '루테인': { code: '58920', path: '식품>건강식품>기타건강식품>루테인' },
+  '유산균': { code: '58991', path: '식품>건강식품>기타건강식품>유산균' },
+  '프로바이오틱스': { code: '58991', path: '식품>건강식품>기타건강식품>유산균' },
+  '락토바실러스': { code: '58991', path: '식품>건강식품>기타건강식품>유산균' },
+  '글루코사민': { code: '58927', path: '식품>건강식품>기타건강식품>글루코사민' },
+  '콜라겐': { code: '59163', path: '식품>건강식품>기타건강식품>콜라겐/히알루론산' },
+  '히알루론산': { code: '59163', path: '식품>건강식품>기타건강식품>콜라겐/히알루론산' },
+  '코큐텐': { code: '58972', path: '식품>건강식품>기타건강식품>코엔자임Q10/코큐텐' },
+  '코엔자임': { code: '58972', path: '식품>건강식품>기타건강식품>코엔자임Q10/코큐텐' },
+  '프로폴리스': { code: '58905', path: '식품>건강식품>기타건강식품>프로폴리스' },
+  '스피루리나': { code: '58902', path: '식품>건강식품>기타건강식품>스피루리나' },
+  '클로렐라': { code: '58901', path: '식품>건강식품>기타건강식품>클로렐라' },
+  '쏘팔메토': { code: '58924', path: '식품>건강식품>기타건강식품>쏘팔메토' },
+  '마카': { code: '102530', path: '식품>건강식품>기타건강식품>마카' },
+  '보스웰리아': { code: '112304', path: '식품>건강식품>기타건강식품>보스웰리아' },
+  '크릴오일': { code: '112307', path: '식품>건강식품>기타건강식품>크릴오일' },
+  '폴리코사놀': { code: '58929', path: '식품>건강식품>기타건강식품>폴리코사놀' },
+  '알로에': { code: '58938', path: '식품>건강식품>기타건강식품>알로에정/알로에겔' },
+  '토코페롤': { code: '58982', path: '식품>건강식품>기타건강식품>토코페롤' },
+  '맥주효모': { code: '73132', path: '식품>건강식품>비타민/미네랄>바이오틴' },
+  '감마리놀렌산': { code: '58925', path: '식품>건강식품>기타건강식품>감마리놀렌산' },
+  '초록입홍합': { code: '112306', path: '식품>건강식품>기타건강식품>초록입홍합' },
+  '레시틴': { code: '102522', path: '식품>건강식품>기타건강식품>레시틴' },
+  '레스베라트롤': { code: '102519', path: '식품>건강식품>기타건강식품>레스베라트롤' },
+  // ── 건강식품 > 전통건강식품 ──
+  '홍삼': { code: '58889', path: '식품>건강식품>전통건강식품>홍삼>홍삼농축액/홍삼정' },
+  '홍삼정': { code: '58889', path: '식품>건강식품>전통건강식품>홍삼>홍삼농축액/홍삼정' },
+  // ── 건강식품 > 헬스/다이어트 ──
+  '프로틴': { code: '73141', path: '식품>건강식품>헬스/다이어트식품>헬스보충식품>복합 프로틴 파우더' },
+  '프로틴파우더': { code: '73141', path: '식품>건강식품>헬스/다이어트식품>헬스보충식품>복합 프로틴 파우더' },
+  '크레아틴': { code: '73145', path: '식품>건강식품>헬스/다이어트식품>헬스보충식품>크레아틴' },
+  '아르기닌': { code: '102545', path: '식품>건강식품>헬스/다이어트식품>헬스보충식품>L-아르기닌' },
+  '가르시니아': { code: '102537', path: '식품>건강식품>헬스/다이어트식품>가르시니아' },
+  'bcaa': { code: '102541', path: '식품>건강식품>헬스/다이어트식품>헬스보충식품>BCAA' },
+  '타우린': { code: '102542', path: '식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린' },
+  // ── 생활용품 ──
   '화장지': { code: '63900', path: '생활용품>화장지물티슈>일반롤화장지' },
   '휴지': { code: '63900', path: '생활용품>화장지물티슈>일반롤화장지' },
   '주방세제': { code: '63961', path: '생활용품>세제>주방세제>일반주방세제' },
   '섬유유연제': { code: '63950', path: '생활용품>세제>섬유유연제>일반 섬유유연제' },
-  // 자동차
+  // ── 자동차 ──
   '와이퍼': { code: '78710', path: '자동차용품>실외용품>와이퍼>플랫와이퍼' },
-  // 가구
+  // ── 가구 ──
   '접이식테이블': { code: '77950', path: '가구>주방가구>식탁테이블>접이식식탁' },
-  // 추가 직접 매핑 (2차)
+  '접이식': { code: '77950', path: '가구>주방가구>식탁테이블>접이식식탁' },
+  // ── 식품 ──
   '꿀': { code: '58900', path: '식품>가공즉석식품>시럽>일반꿀' },
   '벌꿀': { code: '58900', path: '식품>가공즉석식품>시럽>일반꿀' },
+  // ── 가전/디지털 ──
   '충전케이블': { code: '62691', path: '가전/디지털>휴대폰액세서리>배터리충전기>충전 케이블' },
   '데이터케이블': { code: '62691', path: '가전/디지털>휴대폰액세서리>배터리충전기>충전 케이블' },
+  // ── 뷰티 ──
   '레티놀': { code: '56171', path: '뷰티>스킨>에센스/세럼/앰플>에센스/세럼' },
-  '접이식': { code: '77950', path: '가구>주방가구>식탁테이블>접이식식탁' },
+  // ── 영문 키워드 (해외직구/영문 상품명 대응) ──
+  'vitamin': { code: '58913', path: '식품>건강식품>비타민/미네랄>멀티비타민' },
+  'vitamina': { code: '58907', path: '식품>건강식품>비타민/미네랄>비타민A' },
+  'vitaminb': { code: '58908', path: '식품>건강식품>비타민/미네랄>비타민B군' },
+  'vitaminc': { code: '58909', path: '식품>건강식품>비타민/미네랄>비타민C' },
+  'vitamind': { code: '58910', path: '식품>건강식품>비타민/미네랄>비타민D' },
+  'vitamind3': { code: '58910', path: '식품>건강식품>비타민/미네랄>비타민D' },
+  'vitamine': { code: '58911', path: '식품>건강식품>비타민/미네랄>비타민E' },
+  'vitamink': { code: '58912', path: '식품>건강식품>비타민/미네랄>비타민K' },
+  'omega': { code: '73134', path: '식품>건강식품>기타건강식품>오메가3,6,9' },
+  'lutein': { code: '58920', path: '식품>건강식품>기타건강식품>루테인' },
+  'probiotics': { code: '58991', path: '식품>건강식품>기타건강식품>유산균' },
+  'collagen': { code: '59163', path: '식품>건강식품>기타건강식품>콜라겐/히알루론산' },
+  'retinol': { code: '56171', path: '뷰티>스킨>에센스/세럼/앰플>에센스/세럼' },
+  // ── 숫자 결합형 변형 ──
+  '비타민d3': { code: '58910', path: '식품>건강식품>비타민/미네랄>비타민D' },
+  '비타민b2': { code: '58908', path: '식품>건강식품>비타민/미네랄>비타민B군' },
+  '비타민b6': { code: '58908', path: '식품>건강식품>비타민/미네랄>비타민B군' },
+  '비타민b12': { code: '58908', path: '식품>건강식품>비타민/미네랄>비타민B군' },
+  '오메가369': { code: '73134', path: '식품>건강식품>기타건강식품>오메가3,6,9' },
+  // ── 한글 복합어 (띄어쓰기 없이 붙어서 쓰는 경우) ──
+  '프로바이오틱': { code: '58991', path: '식품>건강식품>기타건강식품>유산균' },
+  '롤화장지': { code: '63900', path: '생활용품>화장지물티슈>일반롤화장지' },
+  '롤휴지': { code: '63900', path: '생활용품>화장지물티슈>일반롤화장지' },
+  '두루마리': { code: '63900', path: '생활용품>화장지물티슈>일반롤화장지' },
+  '미용티슈': { code: '63900', path: '생활용품>화장지물티슈>일반롤화장지' },
+  '루테인지아잔틴': { code: '58920', path: '식품>건강식품>기타건강식품>루테인' },
+  '비타민b컴플렉스': { code: '58908', path: '식품>건강식품>비타민/미네랄>비타민B군' },
 };
 
 // ─── 동의어/별칭 사전 (토큰 확장) ────────────────────────────
@@ -98,16 +184,24 @@ const SYNONYM_MAP: Record<string, string[]> = {
   '립밤': ['립밤', '보습', '케어'],
   '파운데이션': ['파운데이션', '리퀴드'],
   '쿠션': ['쿠션', '쿠션파운데이션'],
-  // 건강식품
+  // 건강식품 — 비타민/미네랄
+  '비오틴': ['비오틴', '바이오틴'],
+  '바이오틴': ['바이오틴', '비오틴'],
+  '비타민b': ['비타민b', '비타민b군'],
   '오메가3': ['오메가3', '오메가3지방산', '오메가'],
   '프로바이오틱스': ['프로바이오틱스', '유산균'],
   '유산균': ['유산균', '프로바이오틱스'],
+  '프로바이오틱': ['프로바이오틱', '프로바이오틱스', '유산균'],
+  '락토바실러스': ['락토바실러스', '유산균', '프로바이오틱스'],
   '종합비타민': ['종합비타민', '멀티비타민'],
   '멀티비타민': ['멀티비타민', '종합비타민'],
   '콜라겐': ['콜라겐', '히알루론산', '피쉬콜라겐'],
   '밀크씨슬': ['밀크씨슬', '밀크시슬', '간건강'],
   '프로틴': ['프로틴', '프로틴파우더'],
   '단백질': ['단백질', '프로틴', '프로틴파우더'],
+  '코큐텐': ['코큐텐', '코엔자임q10', '코엔자임'],
+  '코엔자임': ['코엔자임', '코큐텐', '코엔자임q10'],
+  '맥주효모': ['맥주효모', '바이오틴', '비오틴'],
   // 식품
   '아몬드': ['아몬드', '견과류', '일반아몬드'],
   '견과': ['견과류', '견과', '혼합견과', '믹스넛'],
@@ -147,6 +241,31 @@ const SYNONYM_MAP: Record<string, string[]> = {
   '분유': ['분유', '조제분유'],
 };
 
+// ─── 상품명→카테고리명 별칭 (토큰 레벨) ─────────────────────
+// 상품명에서 자주 쓰이는 단어 → 쿠팡 카테고리 인덱스의 대응 토큰
+// SYNONYM_MAP은 양방향이지만, 여기는 "상품명 토큰 → 카테고리 검색용 토큰"
+const PRODUCT_TO_CATEGORY_ALIAS: Record<string, string[]> = {
+  '비오틴': ['바이오틴'],
+  '맥주효모': ['바이오틴'],
+  '밀크씨슬': ['밀크시슬'],
+  '코큐텐': ['코엔자임q10'],
+  '코엔자임q10': ['코큐텐'],
+  '프로바이오틱스': ['유산균'],
+  '락토바실러스': ['유산균'],
+  '락토바실루스': ['유산균'],
+  '멀티비타민': ['종합비타민'],
+  '종합비타민': ['멀티비타민'],
+  '히알루론산': ['콜라겐'],
+  '피쉬콜라겐': ['콜라겐'],
+  '어골칼슘': ['칼슘'],
+  '헴철': ['철분'],
+  '눈건강': ['루테인'],
+  '관절': ['글루코사민', '보스웰리아'],
+  '간건강': ['밀크시슬'],
+  '장건강': ['유산균'],
+  '뼈건강': ['칼슘'],
+};
+
 
 // ─── Product name cleaning ───────────────────────────────────
 
@@ -170,6 +289,9 @@ const NOISE_PATTERNS = [
   /^\d+\+\d+$/, // 1+1, 2+1
   /^\d+(개월|일|주)분?$/, // 3개월분
   /^\d+(ml|g|kg|mg|l|ea)$/i, // 500ml, 100g
+  /^\d+(정|개|병|통|캡슐|포|봉|팩|매|장|알|입|갑|회|포기|줄|켤레|롤|겹|소프트젤|베지캡|베지캡슐)$/, // 60정, 80개, 30캡슐, 30롤
+  /^\d+x\d+$/i, // 3x5, 2X3
+  /^\d+%$/, // 3000%
 ];
 
 /**
@@ -207,20 +329,33 @@ function cleanProductName(name: string): string {
 /**
  * 상품명에서 의미있는 검색 토큰을 추출한다.
  * 한글 1글자("넥", "목" 등)도 유지 — 복합어 생성에 필요
+ * 영문 단일문자는 이전 영문 토큰에 병합 ("Vitamin" + "A" → "vitamina")
  */
 function tokenize(productName: string): string[] {
   const cleaned = cleanProductName(productName);
-  return cleaned
-    .split(/\s+/)
-    .map((w) => w.toLowerCase())
-    .filter((w) => {
-      if (w.length === 0) return false;
+  const words = cleaned.split(/\s+/).map((w) => w.toLowerCase());
+  const result: string[] = [];
+
+  for (const w of words) {
+    if (w.length === 0) continue;
+
+    if (w.length === 1) {
       // 한글 1글자는 유지 (넥, 목, 잇 등 — 복합어 생성에 필요)
-      if (w.length === 1) return /[가-힣]/.test(w);
-      if (NOISE_WORDS.has(w)) return false;
-      if (NOISE_PATTERNS.some((p) => p.test(w))) return false;
-      return true;
-    });
+      if (/[가-힣]/.test(w)) {
+        result.push(w);
+      } else if (/[a-z]/i.test(w) && result.length > 0 && /^[a-z]+$/.test(result[result.length - 1])) {
+        // 영문 단일문자 → 이전 영문 토큰에 병합 ("vitamin" + "a" → "vitamina")
+        result[result.length - 1] += w;
+      }
+      continue;
+    }
+
+    if (NOISE_WORDS.has(w)) continue;
+    if (NOISE_PATTERNS.some((p) => p.test(w))) continue;
+    result.push(w);
+  }
+
+  return result;
 }
 
 // ─── Tier 1: Local DB matching ──────────────────────────────
@@ -258,7 +393,20 @@ function buildCompoundTokens(tokens: string[]): string[] {
     }
   }
 
-  return expanded;
+  // 상품명→카테고리명 별칭 확장 (비오틴→바이오틴 등)
+  const withAliases = [...expanded];
+  for (const t of expanded) {
+    const aliases = PRODUCT_TO_CATEGORY_ALIAS[t];
+    if (aliases) {
+      for (const alias of aliases) {
+        if (!withAliases.includes(alias)) {
+          withAliases.push(alias);
+        }
+      }
+    }
+  }
+
+  return withAliases;
 }
 
 /**
@@ -426,7 +574,30 @@ export async function matchCategory(
   const compoundTokens = buildCompoundTokens(tokens);
 
   // ── Tier 0: 직접 코드 매핑 (최고 우선순위) ──
-  for (const t of compoundTokens) {
+  // Pass 1: 원본 토큰 + 2-gram 복합어 우선 (상품명에 직접 등장한 키워드)
+  const baseCompounds = [...tokens];
+  for (let i = 0; i < tokens.length - 1; i++) {
+    baseCompounds.push(tokens[i] + tokens[i + 1]);
+  }
+  const sortedBase = [...baseCompounds].sort((a, b) => b.length - a.length);
+  for (const t of sortedBase) {
+    const direct = DIRECT_CODE_MAP[t];
+    if (direct) {
+      return {
+        categoryCode: direct.code,
+        categoryName: direct.path.split('>').pop() || '',
+        categoryPath: direct.path,
+        confidence: 0.95,
+        source: 'local_db',
+      };
+    }
+  }
+  // Pass 2: 동의어/별칭 확장 토큰 (원본에서 못 찾은 경우만)
+  const baseSet = new Set(baseCompounds);
+  const sortedExpanded = [...compoundTokens]
+    .filter((t) => !baseSet.has(t))
+    .sort((a, b) => b.length - a.length);
+  for (const t of sortedExpanded) {
     const direct = DIRECT_CODE_MAP[t];
     if (direct) {
       return {
@@ -449,6 +620,37 @@ export async function matchCategory(
       Math.max(localResult.score, 20),
     );
     return result;
+  }
+
+  // ── Tier 1.5: Coupang Category Search API ──
+  // 의미있는 토큰으로 쿠팡 카테고리 검색 (Predict API보다 키워드 검색이 더 정확)
+  if (adapter) {
+    const searchTokens = tokens.filter(t => t.length >= 2 && !NOISE_WORDS.has(t));
+    // 가장 의미있는 토큰(길이 기준) 최대 2개로 검색
+    const sortedByLen = [...searchTokens].sort((a, b) => b.length - a.length);
+    const searchKeywords = sortedByLen.slice(0, 2);
+
+    for (const keyword of searchKeywords) {
+      try {
+        const searchResult = await adapter.searchCategory(keyword);
+        if (searchResult.items.length > 0) {
+          const bestMatch = searchResult.items[0];
+          const details = loadDetails();
+          const detail = details[bestMatch.id];
+          if (detail) {
+            return {
+              categoryCode: bestMatch.id,
+              categoryName: bestMatch.name,
+              categoryPath: detail.p || bestMatch.path || bestMatch.name,
+              confidence: 0.88,
+              source: 'coupang_api',
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('[category-matcher] Coupang Search API failed for keyword:', keyword, err instanceof Error ? err.message : err);
+      }
+    }
   }
 
   // ── Tier 2: Coupang Predict API ──
@@ -492,11 +694,59 @@ export async function matchCategoryBatch(
   const results: (CategoryMatchResult | null)[] = new Array(productNames.length).fill(null);
   const cache = new Map<string, CategoryMatchResult | null>();
 
-  // === Phase 1: 로컬 DB 일괄 매칭 ===
+  // === Phase 1: Tier 0 (DIRECT_CODE_MAP) + 로컬 DB 일괄 매칭 ===
   const productTokensList: string[][] = productNames.map((name) => tokenize(name));
   const unmatchedIndices: number[] = [];
 
   for (let i = 0; i < productNames.length; i++) {
+    // Tier 0: 직접 코드 매핑 (배치에서도 최우선 적용)
+    // Pass 1: 원본 토큰 + 2-gram 복합어 우선
+    const toks = productTokensList[i];
+    const baseComps: string[] = [...toks];
+    for (let j = 0; j < toks.length - 1; j++) {
+      baseComps.push(toks[j] + toks[j + 1]);
+    }
+    let directMatched = false;
+    const sortedBase = [...baseComps].sort((a, b) => b.length - a.length);
+    for (const t of sortedBase) {
+      const direct = DIRECT_CODE_MAP[t];
+      if (direct) {
+        results[i] = {
+          categoryCode: direct.code,
+          categoryName: direct.path.split('>').pop() || '',
+          categoryPath: direct.path,
+          confidence: 0.95,
+          source: 'local_db',
+        };
+        directMatched = true;
+        break;
+      }
+    }
+    // Pass 2: 동의어/별칭 확장 토큰
+    if (!directMatched) {
+      const compoundTokens = buildCompoundTokens(toks);
+      const baseSet = new Set(baseComps);
+      const sortedExpanded = [...compoundTokens]
+        .filter((t) => !baseSet.has(t))
+        .sort((a, b) => b.length - a.length);
+      for (const t of sortedExpanded) {
+        const direct = DIRECT_CODE_MAP[t];
+        if (direct) {
+          results[i] = {
+            categoryCode: direct.code,
+            categoryName: direct.path.split('>').pop() || '',
+            categoryPath: direct.path,
+            confidence: 0.95,
+            source: 'local_db',
+          };
+          directMatched = true;
+          break;
+        }
+      }
+    }
+    if (directMatched) continue;
+
+    // Tier 1: 로컬 DB 토큰 매칭
     const localResult = await localMatch(productTokensList[i]);
     if (localResult) {
       results[i] = await buildResultFromIndex(
