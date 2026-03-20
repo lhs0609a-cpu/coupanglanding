@@ -355,33 +355,39 @@ export async function fetchProductListings(
       const sellerProductName = String(product.sellerProductName || product.productName || '');
       const createdAt = product.createdAt ? String(product.createdAt) : null;
 
-      // Each product can have multiple vendor items (options/variants)
-      const items = Array.isArray(product.items) ? product.items as Array<Record<string, unknown>> : [];
+      // 목록 API에는 items가 비어있을 수 있음 → 상세 API로 vendorItemId 조회
+      let items = Array.isArray(product.items) ? product.items as Array<Record<string, unknown>> : [];
 
-      // 첫 상품의 첫 아이템 구조 로그 (디버깅)
+      if (items.length === 0 && sellerProductId) {
+        // 상세 API 호출하여 정확한 vendorItemId 획득
+        try {
+          const detailPath = `${SELLER_BASE_PATH}/seller-products/${sellerProductId}`;
+          const detailData = await callCoupangApi(credentials, 'GET', detailPath) as { data?: Record<string, unknown> };
+          const detail = detailData.data || detailData;
+          items = Array.isArray((detail as Record<string, unknown>).items)
+            ? (detail as Record<string, unknown>).items as Array<Record<string, unknown>>
+            : [];
+        } catch (detailErr) {
+          console.warn(`[fetchProductListings] 상품 ${sellerProductId} 상세 조회 실패:`, detailErr instanceof Error ? detailErr.message : detailErr);
+        }
+      }
+
+      // 첫 상품의 첫 아이템 구조 로그
       if (page === 0 && allItems.length === 0 && items.length > 0) {
-        console.log(`[fetchProductListings] 첫 아이템 전체 keys:`, Object.keys(items[0]));
-        console.log(`[fetchProductListings] 첫 아이템 데이터:`, JSON.stringify(items[0]).slice(0, 1000));
+        console.log(`[fetchProductListings] 첫 아이템 keys:`, Object.keys(items[0]));
+        console.log(`[fetchProductListings] 첫 아이템 vendorItemId:`, items[0].vendorItemId);
       }
 
       if (items.length > 0) {
         for (const item of items) {
-          // vendorItemId 추출: 쿠팡 API에서 옵션ID를 여러 필드명으로 반환할 수 있음
-          const vid = String(
-            item.vendorItemId || item.vendorItemNumber || item.optionId
-            || item.id || item.itemId || '',
-          );
           allItems.push({
             sellerProductId,
             sellerProductName,
-            vendorItemId: vid,
+            vendorItemId: String(item.vendorItemId || ''),
             vendorItemName: String(item.itemName || item.vendorItemName || sellerProductName),
             createdAt,
           });
         }
-      } else {
-        // items 배열이 없는 상품은 건너뜀 (vendorItemId 없이는 쿠폰 적용 불가)
-        console.warn(`[fetchProductListings] 상품 ${sellerProductId}에 items 배열 없음 — 건너뜀`);
       }
     }
 
