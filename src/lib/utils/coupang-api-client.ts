@@ -350,32 +350,49 @@ export async function fetchProductListings(
       }
     }
 
+    // 목록 API의 items가 비어있으면 상세 API 병렬 호출로 vendorItemId 획득
+    const productsNeedingDetail = products.filter(
+      (p) => !Array.isArray(p.items) || (p.items as unknown[]).length === 0,
+    );
+
+    // 10개씩 병렬 호출 (동시 요청 제한)
+    const PARALLEL = 10;
+    const detailMap = new Map<string, Array<Record<string, unknown>>>();
+
+    for (let i = 0; i < productsNeedingDetail.length; i += PARALLEL) {
+      const batch = productsNeedingDetail.slice(i, i + PARALLEL);
+      const results = await Promise.allSettled(
+        batch.map(async (p) => {
+          const spId = String(p.sellerProductId || '');
+          const detailPath = `${SELLER_BASE_PATH}/seller-products/${spId}`;
+          const detailData = await callCoupangApi(credentials, 'GET', detailPath) as Record<string, unknown>;
+          const detail = (detailData.data || detailData) as Record<string, unknown>;
+          return { spId, items: Array.isArray(detail.items) ? detail.items as Array<Record<string, unknown>> : [] };
+        }),
+      );
+      for (const r of results) {
+        if (r.status === 'fulfilled' && r.value.items.length > 0) {
+          detailMap.set(r.value.spId, r.value.items);
+        }
+      }
+    }
+
+    if (page === 0 && detailMap.size > 0) {
+      const firstItems = detailMap.values().next().value;
+      if (firstItems && firstItems.length > 0) {
+        console.log(`[fetchProductListings] 상세API 첫 아이템 vendorItemId:`, firstItems[0].vendorItemId);
+      }
+    }
+
     for (const product of products) {
       const sellerProductId = String(product.sellerProductId || '');
       const sellerProductName = String(product.sellerProductName || product.productName || '');
       const createdAt = product.createdAt ? String(product.createdAt) : null;
 
-      // 목록 API에는 items가 비어있을 수 있음 → 상세 API로 vendorItemId 조회
+      // 목록 API items 또는 상세 API items 사용
       let items = Array.isArray(product.items) ? product.items as Array<Record<string, unknown>> : [];
-
-      if (items.length === 0 && sellerProductId) {
-        // 상세 API 호출하여 정확한 vendorItemId 획득
-        try {
-          const detailPath = `${SELLER_BASE_PATH}/seller-products/${sellerProductId}`;
-          const detailData = await callCoupangApi(credentials, 'GET', detailPath) as { data?: Record<string, unknown> };
-          const detail = detailData.data || detailData;
-          items = Array.isArray((detail as Record<string, unknown>).items)
-            ? (detail as Record<string, unknown>).items as Array<Record<string, unknown>>
-            : [];
-        } catch (detailErr) {
-          console.warn(`[fetchProductListings] 상품 ${sellerProductId} 상세 조회 실패:`, detailErr instanceof Error ? detailErr.message : detailErr);
-        }
-      }
-
-      // 첫 상품의 첫 아이템 구조 로그
-      if (page === 0 && allItems.length === 0 && items.length > 0) {
-        console.log(`[fetchProductListings] 첫 아이템 keys:`, Object.keys(items[0]));
-        console.log(`[fetchProductListings] 첫 아이템 vendorItemId:`, items[0].vendorItemId);
+      if (items.length === 0) {
+        items = detailMap.get(sellerProductId) || [];
       }
 
       if (items.length > 0) {

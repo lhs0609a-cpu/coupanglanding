@@ -7,7 +7,7 @@ import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
 export const maxDuration = 55; // Vercel 함수 최대 실행 시간 (초)
 
 const COLLECT_BATCH_SIZE = 100; // upsert batch size
-const PAGES_PER_CALL = 2; // 한 호출당 2페이지 (200 상품) — 상세 API 호출 포함 시 시간 제한 고려
+const PAGES_PER_CALL = 1; // 한 호출당 1페이지 (100 상품) — 상세 API 병렬 호출 포함
 
 /** POST: 쿠팡 상품 수집 → product_coupon_tracking에 저장 (배치 방식) */
 export async function POST(request: NextRequest) {
