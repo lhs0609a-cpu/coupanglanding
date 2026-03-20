@@ -150,7 +150,17 @@ async function callCoupangApi(
     );
   }
 
-  return response.json();
+  const json = await response.json();
+
+  // 쿠팡 API는 HTTP 200이어도 body에 code:"ERROR" 를 반환할 수 있음
+  const resBody = json as Record<string, unknown>;
+  if (resBody.code === 'ERROR' || resBody.code === 'FAIL') {
+    const msg = String(resBody.message || resBody.errorMessage || JSON.stringify(resBody).slice(0, 300));
+    console.error(`[callCoupangApi] ${method} ${path} — 응답 code=${resBody.code}: ${msg}`);
+    throw new CoupangApiError(`쿠팡 API 오류 (${resBody.code}): ${msg}`, 200, String(resBody.code));
+  }
+
+  return json;
 }
 
 /** 월별 정산 데이터 조회 (전체 페이지 순회) */
@@ -503,12 +513,16 @@ export async function applyInstantCoupon(
   credentials: CoupangCredentials,
   couponId: number,
   vendorItemIds: (string | number)[],
-): Promise<unknown> {
+): Promise<{ requestedId?: string }> {
   // 쿠팡 FMS coupon-items API는 v1 사용 (coupon list/create는 v2)
   // 문서: /api/v1/vendors/{vendorId}/coupons/{couponId}/items
   const path = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/coupons/${couponId}/items`;
   const numericIds = vendorItemIds.map(Number).filter((n) => !isNaN(n));
-  return callCoupangApi(credentials, 'POST', path, { vendorItemIds: numericIds });
+  const result = await callCoupangApi(credentials, 'POST', path, { vendorItemIds: numericIds }) as Record<string, unknown>;
+  const nested = (result.data || result) as Record<string, unknown>;
+  const requestedId = String(nested.requestedId || nested.requestTransactionId || result.requestedId || '');
+  console.log(`[applyInstantCoupon] 쿠폰 ${couponId}에 ${numericIds.length}개 아이템 등록 요청 — requestedId: ${requestedId || '없음'}`);
+  return { requestedId: requestedId || undefined };
 }
 
 /** 즉시할인 쿠폰 요청 상태 확인 */
@@ -586,7 +600,7 @@ export async function fetchDownloadCoupon(
 
 /** 쿠팡 API 날짜 형식 변환 (ISO/Date → KST 'YYYY-MM-DD HH:mm:ss')
  *  쿠팡 API는 KST(UTC+9) 기준 — Vercel은 UTC이므로 변환 필요 */
-function toCoupangDateFormat(isoDate: string | Date): string {
+export function toCoupangDateFormat(isoDate: string | Date): string {
   const date = typeof isoDate === 'string' ? new Date(isoDate) : isoDate;
   // KST = UTC + 9시간
   const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000);

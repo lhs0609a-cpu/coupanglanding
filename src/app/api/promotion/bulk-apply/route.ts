@@ -7,6 +7,8 @@ import {
   createDownloadCoupon,
   addDownloadCouponItems,
   checkDownloadCouponStatus,
+  checkInstantCouponStatus,
+  toCoupangDateFormat,
 } from '@/lib/utils/coupang-api-client';
 import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -73,8 +75,8 @@ async function ensureInstantCoupon(
 
   const newCoupon = await createInstantCoupon(credentials, {
     title,
-    startDate: now.toISOString().replace('Z', ''),
-    endDate: endDate.toISOString().replace('Z', ''),
+    startDate: toCoupangDateFormat(now),
+    endDate: toCoupangDateFormat(endDate),
     discountType: (config.instant_coupon_discount_type as 'RATE' | 'FIXED') || 'RATE',
     discountValue: config.instant_coupon_discount || 0,
     maxDiscountPrice: config.instant_coupon_max_discount || 0,
@@ -170,10 +172,40 @@ async function createDownloadCouponBatch(
 
   console.log(`[bulk-apply] 다운로드 쿠폰 생성 완료: ${couponId} (${couponName})`);
 
-  // Step 2: 아이템 등록 (별도 API 호출)
+  // Step 2: 아이템 등록 (별도 API 호출) + 비동기 결과 확인
   if (vendorItemIds.length > 0) {
     console.log(`[bulk-apply] 다운로드 쿠폰 ${couponId}에 ${vendorItemIds.length}개 아이템 등록`);
-    await addDownloadCouponItems(credentials, couponId, vendorItemIds);
+    const itemResult = await addDownloadCouponItems(credentials, couponId, vendorItemIds);
+
+    // 비동기 결과 폴링 — requestTransactionId가 있으면 실제 등록 결과 확인
+    if (itemResult.requestTransactionId) {
+      let verified = false;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const statusResult = await checkDownloadCouponStatus(credentials, itemResult.requestTransactionId) as Record<string, unknown>;
+          const nested = (statusResult.data || statusResult) as Record<string, unknown>;
+          const status = String(nested.status || statusResult.status || '').toUpperCase();
+          console.log(`[bulk-apply] 다운로드 아이템 등록 비동기 상태 (attempt ${attempt + 1}): ${status}`, JSON.stringify(nested).slice(0, 300));
+
+          if (status === 'SUCCESS' || status === 'COMPLETED' || status === 'DONE') {
+            verified = true;
+            break;
+          }
+          if (status === 'FAIL' || status === 'FAILED' || status === 'ERROR') {
+            const failMsg = String(nested.message || nested.failReason || '비동기 처리 실패');
+            throw new Error(`다운로드 쿠폰 아이템 등록 비동기 실패 (${itemResult.requestTransactionId}): ${failMsg}`);
+          }
+          // PROCESSING / PENDING → 계속 폴링
+        } catch (pollErr) {
+          if (pollErr instanceof Error && pollErr.message.includes('비동기 실패')) throw pollErr;
+          console.warn(`[bulk-apply] 다운로드 아이템 폴링 실패 (attempt ${attempt + 1}):`, pollErr instanceof Error ? pollErr.message : pollErr);
+        }
+      }
+      if (!verified) {
+        console.warn(`[bulk-apply] 다운로드 아이템 비동기 상태 미확인 (txId: ${itemResult.requestTransactionId}) — 성공 추정 처리`);
+      }
+    }
   }
 
   console.log(`[bulk-apply] 다운로드 쿠폰 배치 완료: ${couponId}, ${vendorItemIds.length}개 아이템`);
@@ -307,7 +339,37 @@ export async function POST(request: NextRequest) {
               .in('id', validItems.map((p) => p.id));
 
             // 배치 API 호출 (한 번에 여러 vendorItemId 전송)
-            await applyInstantCoupon(credentials, couponId, vendorItemIds);
+            const instantResult = await applyInstantCoupon(credentials, couponId, vendorItemIds);
+
+            // 비동기 결과 폴링 — requestedId가 있으면 실제 등록 결과 확인
+            if (instantResult.requestedId) {
+              let verified = false;
+              for (let attempt = 0; attempt < 5; attempt++) {
+                await new Promise((r) => setTimeout(r, 1500));
+                try {
+                  const statusResult = await checkInstantCouponStatus(credentials, instantResult.requestedId) as Record<string, unknown>;
+                  const nested = (statusResult.data || statusResult) as Record<string, unknown>;
+                  const status = String(nested.status || nested.couponStatus || statusResult.status || '').toUpperCase();
+                  console.log(`[bulk-apply] 즉시할인 비동기 상태 (attempt ${attempt + 1}): ${status}`, JSON.stringify(nested).slice(0, 300));
+
+                  if (status === 'SUCCESS' || status === 'COMPLETED' || status === 'DONE') {
+                    verified = true;
+                    break;
+                  }
+                  if (status === 'FAIL' || status === 'FAILED' || status === 'ERROR') {
+                    const failMsg = String(nested.message || nested.failReason || '비동기 처리 실패');
+                    throw new Error(`즉시할인 비동기 실패 (${instantResult.requestedId}): ${failMsg}`);
+                  }
+                  // PROCESSING / PENDING → 계속 폴링
+                } catch (pollErr) {
+                  if (pollErr instanceof Error && pollErr.message.includes('비동기 실패')) throw pollErr;
+                  console.warn(`[bulk-apply] 즉시할인 폴링 실패 (attempt ${attempt + 1}):`, pollErr instanceof Error ? pollErr.message : pollErr);
+                }
+              }
+              if (!verified) {
+                console.warn(`[bulk-apply] 즉시할인 비동기 상태 미확인 (requestedId: ${instantResult.requestedId}) — 성공 추정 처리`);
+              }
+            }
 
             // 성공 — 아이템 카운트 업데이트
             const newCount = (config.instant_coupon_item_count || 0) + vendorItemIds.length;
