@@ -529,8 +529,8 @@ export async function createInstantCoupon(
  *
  *  쿠팡 FMS coupon-items API:
  *  - POST /api/v1/vendors/{vendorId}/coupons/{couponId}/items
- *  - body: vendorItemId 배열을 직접 전송 (래핑 없이)
- *  - 쿠팡 FMS는 body가 plain array여야 배치 처리됨 */
+ *  - body: { vendorItemIds: [number, ...] }
+ *  - 쿠팡 Wing "총 1건"은 1 API 배치 요청을 의미 (내부적으로 N개 아이템 처리) */
 export async function applyInstantCoupon(
   credentials: CoupangCredentials,
   couponId: number,
@@ -541,9 +541,7 @@ export async function applyInstantCoupon(
 
   console.log(`[applyInstantCoupon] 쿠폰 ${couponId}에 ${numericIds.length}개 아이템 등록 요청, 샘플: [${numericIds.slice(0, 5).join(',')}...]`);
 
-  // 쿠팡 FMS API는 vendorItemId 배열을 직접 body로 전송해야 배치 처리됨
-  // { vendorItemIds: [...] } 형태는 1건만 처리되는 문제 있음
-  const result = await callCoupangApi(credentials, 'POST', path, numericIds) as Record<string, unknown>;
+  const result = await callCoupangApi(credentials, 'POST', path, { vendorItemIds: numericIds }) as Record<string, unknown>;
   const nested = (result.data || result) as Record<string, unknown>;
   const requestedId = String(nested.requestedId || nested.requestTransactionId || result.requestedId || '');
   console.log(`[applyInstantCoupon] 응답 — requestedId: ${requestedId || '없음'}, 전체: ${JSON.stringify(result).slice(0, 300)}`);
