@@ -367,7 +367,7 @@ export default function BulkStep1Settings({
                 <tr key={idx}>
                   <td className="py-3 text-sm text-gray-700">{b.minPrice.toLocaleString()}원 ~ {b.maxPrice ? `${b.maxPrice.toLocaleString()}원` : '무제한'}</td>
                   <td className="py-3 text-center">
-                    <input type="number" min={0} max={200} value={b.marginRate} onChange={(e) => {
+                    <input type="number" min={0} max={500} value={b.marginRate} onChange={(e) => {
                       const nb = [...brackets];
                       nb[idx] = { ...nb[idx], marginRate: Number(e.target.value) };
                       onRecalcPrices(nb);

@@ -10,11 +10,16 @@ export interface PriceBracket {
 
 /** 기본 가격 구간 (사용자가 UI에서 수정 가능) */
 export const DEFAULT_BRACKETS: PriceBracket[] = [
-  { minPrice: 0,      maxPrice: 10000,    marginRate: 35 },
-  { minPrice: 10000,  maxPrice: 20000,    marginRate: 30 },
-  { minPrice: 20000,  maxPrice: 50000,    marginRate: 25 },
-  { minPrice: 50000,  maxPrice: 100000,   marginRate: 20 },
-  { minPrice: 100000, maxPrice: Infinity, marginRate: 15 },
+  { minPrice: 100,     maxPrice: 5000,      marginRate: 450 },
+  { minPrice: 5001,    maxPrice: 10000,     marginRate: 240 },
+  { minPrice: 10001,   maxPrice: 20000,     marginRate: 160 },
+  { minPrice: 20001,   maxPrice: 30000,     marginRate: 115 },
+  { minPrice: 30001,   maxPrice: 50000,     marginRate: 100 },
+  { minPrice: 50001,   maxPrice: 80000,     marginRate: 90 },
+  { minPrice: 80001,   maxPrice: 150000,    marginRate: 80 },
+  { minPrice: 150001,  maxPrice: 200000,    marginRate: 60 },
+  { minPrice: 200001,  maxPrice: 300000,    marginRate: 55 },
+  { minPrice: 300001,  maxPrice: 9999999,   marginRate: 70 },
 ];
 
 /**
