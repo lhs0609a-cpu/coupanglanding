@@ -573,19 +573,19 @@ export default function PTPage() {
           loop
           muted
           playsInline
-          className="absolute inset-0 w-full h-full object-cover opacity-30"
+          className="absolute inset-0 w-full h-full object-cover opacity-15"
         >
           <source src="/videos/hero-bg.mp4" type="video/mp4" />
         </video>
         {/* Dark overlay for text readability */}
-        <div className="absolute inset-0 bg-gradient-to-b from-gray-950/60 via-gray-950/40 to-gray-950/80" />
+        <div className="absolute inset-0 bg-gradient-to-b from-gray-950/70 via-gray-950/60 to-gray-950/85" />
         <motion.div initial="hidden" animate="visible" variants={stagger} className="relative z-10 text-center px-5 sm:px-8">
-          <motion.h1 variants={fadeUp} custom={0} className="text-2xl sm:text-3xl lg:text-4xl font-bold leading-relaxed text-white max-w-2xl mx-auto">
+          <motion.h1 variants={fadeUp} custom={0} className="text-4xl sm:text-5xl lg:text-7xl font-bold leading-relaxed text-white max-w-4xl mx-auto">
             10년 동안<br />
             회원님들의 몸을 만들어 왔습니다.
           </motion.h1>
-          <motion.div variants={fadeUp} custom={1} className="mt-6 sm:mt-8">
-            <p className="text-2xl sm:text-3xl lg:text-4xl font-bold leading-relaxed text-white max-w-2xl mx-auto">
+          <motion.div variants={fadeUp} custom={1} className="mt-8 sm:mt-10">
+            <p className="text-4xl sm:text-5xl lg:text-7xl font-bold leading-relaxed text-white max-w-4xl mx-auto">
               지금은 쿠팡으로<br />
               <span className="bg-gradient-to-r from-[#E31837] to-[#ff4d6a] bg-clip-text text-transparent">매출</span>을 만들어 드립니다.
             </p>
