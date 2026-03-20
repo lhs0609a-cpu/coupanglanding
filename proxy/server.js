@@ -48,23 +48,40 @@ function callCoupangApi(method, path, query, body, accessKey, secretKey, vendorI
     const url = `${COUPANG_API_BASE}${path}${query ? '?' + query : ''}`;
     const parsed = new URL(url);
 
+    // body를 Buffer로 변환하여 정확한 Content-Length 계산
+    const bodyStr = body ? (typeof body === 'string' ? body : JSON.stringify(body)) : '';
+    const bodyBuffer = bodyStr ? Buffer.from(bodyStr, 'utf-8') : null;
+
+    const headers = {
+      'Authorization': authorization,
+      'Content-Type': 'application/json;charset=UTF-8',
+      'X-Requested-By': vendorId || accessKey, // 쿠팡 API 필수 헤더
+    };
+
+    // Content-Length 명시 (chunked encoding 방지 — 쿠팡 API 호환성)
+    if (bodyBuffer) {
+      headers['Content-Length'] = String(bodyBuffer.length);
+    }
+
     const options = {
       hostname: parsed.hostname,
       port: 443,
       path: parsed.pathname + parsed.search,
       method,
-      headers: {
-        'Authorization': authorization,
-        'Content-Type': 'application/json;charset=UTF-8',
-        'X-Requested-By': vendorId || accessKey, // 쿠팡 API 필수 헤더
-      },
+      headers,
     };
+
+    console.log(`[proxy→coupang] ${method} ${parsed.pathname}${parsed.search} Content-Length: ${bodyBuffer ? bodyBuffer.length : 0}`);
+    if (bodyBuffer && bodyBuffer.length > 0) {
+      console.log(`[proxy→coupang] body: ${bodyStr.slice(0, 500)}`);
+    }
 
     const req = https.request(options, (res) => {
       const chunks = [];
       res.on('data', (chunk) => chunks.push(chunk));
       res.on('end', () => {
         const responseBody = Buffer.concat(chunks).toString();
+        console.log(`[proxy←coupang] ${res.statusCode} ${method} ${path} body: ${responseBody.slice(0, 500)}`);
         resolve({
           statusCode: res.statusCode,
           headers: res.headers,
@@ -79,10 +96,12 @@ function callCoupangApi(method, path, query, body, accessKey, secretKey, vendorI
       reject(new Error('Coupang API timeout (30s)'));
     });
 
-    if (body) {
-      req.write(typeof body === 'string' ? body : JSON.stringify(body));
+    // body를 end()에 직접 전달 (Content-Length와 일치 보장)
+    if (bodyBuffer) {
+      req.end(bodyBuffer);
+    } else {
+      req.end();
     }
-    req.end();
   });
 }
 
@@ -151,6 +170,8 @@ const server = http.createServer(async (req, res) => {
 
   // ── 쿠팡 API 호출 ──
   try {
+    console.log(`[${new Date().toISOString()}] 요청: ${req.method} ${coupangPath}${coupangQuery ? '?' + coupangQuery : ''} body-length=${body ? body.length : 0}`);
+
     const startTime = Date.now();
     const result = await callCoupangApi(
       req.method,
@@ -163,7 +184,7 @@ const server = http.createServer(async (req, res) => {
     );
     const duration = Date.now() - startTime;
 
-    console.log(`[${new Date().toISOString()}] ${req.method} ${coupangPath} → ${result.statusCode} (${duration}ms)`);
+    console.log(`[${new Date().toISOString()}] 응답: ${req.method} ${coupangPath} → ${result.statusCode} (${duration}ms) body: ${result.body.slice(0, 300)}`);
 
     res.writeHead(result.statusCode, {
       'Content-Type': 'application/json',
