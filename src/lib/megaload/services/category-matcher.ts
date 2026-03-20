@@ -691,23 +691,12 @@ export async function matchCategoryBatch(
   productNames: string[],
   adapter?: CoupangAdapter,
 ): Promise<(CategoryMatchResult | null)[]> {
-  console.log('[matchCategoryBatch] START — count:', productNames.length);
   const results: (CategoryMatchResult | null)[] = new Array(productNames.length).fill(null);
   const cache = new Map<string, CategoryMatchResult | null>();
 
   // === Phase 1: Tier 0 (DIRECT_CODE_MAP) + 로컬 DB 일괄 매칭 ===
   const productTokensList: string[][] = productNames.map((name) => tokenize(name));
   const unmatchedIndices: number[] = [];
-
-  // Debug: first product tokenization
-  if (productNames.length > 0) {
-    console.log('[matchCategoryBatch] first product:', productNames[0]);
-    console.log('[matchCategoryBatch] first tokens:', productTokensList[0]);
-    console.log('[matchCategoryBatch] DIRECT_CODE_MAP has 비오틴?', '비오틴' in DIRECT_CODE_MAP, DIRECT_CODE_MAP['비오틴']);
-  }
-
-  let tier0Count = 0;
-  let tier1Count = 0;
 
   for (let i = 0; i < productNames.length; i++) {
     // Tier 0: 직접 코드 매핑 (배치에서도 최우선 적용)
@@ -730,7 +719,6 @@ export async function matchCategoryBatch(
           source: 'local_db',
         };
         directMatched = true;
-        tier0Count++;
         break;
       }
     }
@@ -767,19 +755,13 @@ export async function matchCategoryBatch(
         localResult.score,
         Math.max(localResult.score, 20),
       );
-      tier1Count++;
     } else {
       unmatchedIndices.push(i);
     }
   }
 
-  console.log(`[matchCategoryBatch] Phase 1 done — Tier0: ${tier0Count}, Tier1: ${tier1Count}, unmatched: ${unmatchedIndices.length}`);
-
   // 전부 로컬 매칭 완료 시 바로 반환
-  if (unmatchedIndices.length === 0) {
-    console.log('[matchCategoryBatch] all matched locally, returning');
-    return results;
-  }
+  if (unmatchedIndices.length === 0) return results;
 
   // === Phase 2: 미매칭 상품 — 교차 Document Frequency 분석 → API ===
   if (adapter && unmatchedIndices.length > 0) {

@@ -10,35 +10,25 @@ import { matchCategoryBatch, type CategoryMatchResult } from '@/lib/megaload/ser
  *
  * 내부에서 키워드 중복제거 → 고유 키워드만 API 호출
  * 100개 비오틴 상품 → API 3~5회로 감소
+ *
+ * adapter(쿠팡 API 인증)가 실패해도 Tier 0/1 로컬 매칭은 작동
  */
 export async function POST(req: NextRequest) {
   try {
-    console.log('[auto-category-batch] ===== START =====');
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      console.log('[auto-category-batch] ERROR: Unauthorized');
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    console.log('[auto-category-batch] user:', user.id);
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { data: shUser } = await supabase
       .from('megaload_users')
       .select('id')
       .eq('profile_id', user.id)
       .single();
-    if (!shUser) {
-      console.log('[auto-category-batch] ERROR: Megaload 계정 없음');
-      return NextResponse.json({ error: 'Megaload 계정이 없습니다.' }, { status: 404 });
-    }
+    if (!shUser) return NextResponse.json({ error: 'Megaload 계정이 없습니다.' }, { status: 404 });
 
     const shUserId = (shUser as Record<string, unknown>).id as string;
-    console.log('[auto-category-batch] shUserId:', shUserId);
 
     const body = await req.json() as { productNames: string[] };
-    console.log('[auto-category-batch] productNames count:', body.productNames?.length);
-    console.log('[auto-category-batch] first 3 names:', body.productNames?.slice(0, 3));
-
     if (!body.productNames || body.productNames.length === 0) {
       return NextResponse.json({ error: '상품명 목록이 필요합니다.' }, { status: 400 });
     }
@@ -46,25 +36,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '한 번에 최대 200개까지 가능합니다.' }, { status: 400 });
     }
 
-    const serviceClient = await createServiceClient();
-    console.log('[auto-category-batch] getting adapter...');
-    const adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang');
-    const coupangAdapter = adapter as CoupangAdapter;
-    console.log('[auto-category-batch] adapter obtained');
+    // adapter는 Tier 1.5/2 (쿠팡 API) 호출에만 필요
+    // 실패해도 Tier 0 (DIRECT_CODE_MAP) + Tier 1 (로컬 DB)로 충분히 매칭 가능
+    let coupangAdapter: CoupangAdapter | undefined;
+    try {
+      const serviceClient = await createServiceClient();
+      const adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang');
+      coupangAdapter = adapter as CoupangAdapter;
+    } catch (adapterErr) {
+      console.warn('[auto-category-batch] adapter 미사용 (Tier 0/1만 사용):', adapterErr instanceof Error ? adapterErr.message : adapterErr);
+    }
 
-    // 배치 매칭 — 키워드 중복제거 + 캐시
-    console.log('[auto-category-batch] calling matchCategoryBatch...');
+    // 배치 매칭 — adapter 없으면 로컬 매칭만 수행
     const batchResults = await matchCategoryBatch(body.productNames, coupangAdapter);
-    console.log('[auto-category-batch] matchCategoryBatch returned', batchResults.length, 'results');
-
-    const matched = batchResults.filter(r => r !== null);
-    console.log('[auto-category-batch] matched:', matched.length, '/', batchResults.length);
-    if (matched.length > 0) {
-      console.log('[auto-category-batch] first match:', JSON.stringify(matched[0]));
-    }
-    if (matched.length === 0 && batchResults.length > 0) {
-      console.log('[auto-category-batch] ALL NULL — something is wrong with matching logic');
-    }
 
     const results: (CategoryMatchResult & { index: number })[] = batchResults.map(
       (result, i) => result
@@ -72,10 +56,9 @@ export async function POST(req: NextRequest) {
         : { index: i, categoryCode: '', categoryName: '', categoryPath: '', confidence: 0, source: 'ai' as const },
     );
 
-    console.log('[auto-category-batch] ===== DONE =====');
     return NextResponse.json({ results });
   } catch (err) {
-    console.error('[auto-category-batch] CATCH ERROR:', err);
+    console.error('[auto-category-batch] ERROR:', err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '일괄 카테고리 매칭 실패' },
       { status: 500 },
