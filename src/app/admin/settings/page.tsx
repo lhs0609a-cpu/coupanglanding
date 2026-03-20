@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import NumberInput from '@/components/ui/NumberInput';
-import { Settings, Save, Users, Plus, Trash2, RefreshCw, FileCheck, Building2, Plug, CheckCircle } from 'lucide-react';
+import { Settings, Save, Users, Plus, Trash2, RefreshCw, FileCheck, Building2 } from 'lucide-react';
 import type { Partner, CompanySettings } from '@/lib/supabase/types';
 
 interface PartnerForm {
@@ -26,13 +26,6 @@ export default function AdminSettingsPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [company, setCompany] = useState<CompanySettings | null>(null);
   const [companySaving, setCompanySaving] = useState(false);
-
-  // API 연동 설정
-  const [whitelistIps, setWhitelistIps] = useState('');
-  const [integrationUrl, setIntegrationUrl] = useState('');
-  const [apiSettingsLoading, setApiSettingsLoading] = useState(true);
-  const [apiSettingsSaving, setApiSettingsSaving] = useState(false);
-  const [apiSettingsSaved, setApiSettingsSaved] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -74,51 +67,6 @@ export default function AdminSettingsPage() {
     }
   };
 
-  const fetchApiSettings = async () => {
-    setApiSettingsLoading(true);
-    try {
-      const res = await fetch('/api/admin/system-settings');
-      if (res.ok) {
-        const data = await res.json();
-        for (const item of data) {
-          if (item.key === 'coupang_whitelist_ips') setWhitelistIps(item.value);
-          if (item.key === 'coupang_integration_url') setIntegrationUrl(item.value);
-        }
-      }
-    } catch {
-      // 무시
-    }
-    setApiSettingsLoading(false);
-  };
-
-  const handleApiSettingsSave = async () => {
-    setApiSettingsSaving(true);
-    setApiSettingsSaved(false);
-    setMessage(null);
-    try {
-      const res1 = await fetch('/api/admin/system-settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'coupang_whitelist_ips', value: whitelistIps.trim() }),
-      });
-      const res2 = await fetch('/api/admin/system-settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'coupang_integration_url', value: integrationUrl.trim() }),
-      });
-      if (res1.ok && res2.ok) {
-        setApiSettingsSaved(true);
-        setMessage({ type: 'success', text: 'API 연동 설정이 저장되었습니다.' });
-        setTimeout(() => setApiSettingsSaved(false), 3000);
-      } else {
-        setMessage({ type: 'error', text: 'API 연동 설정 저장에 실패했습니다.' });
-      }
-    } catch {
-      setMessage({ type: 'error', text: 'API 연동 설정 저장 중 오류가 발생했습니다.' });
-    }
-    setApiSettingsSaving(false);
-  };
-
   const handleCompanySave = async () => {
     if (!company) return;
     setCompanySaving(true);
@@ -144,7 +92,6 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     fetchPartners();
     fetchCompanySettings();
-    fetchApiSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -412,70 +359,6 @@ export default function AdminSettingsPage() {
               </div>
             </Card>
           )}
-
-          {/* API 연동 설정 */}
-          <Card>
-            <div className="flex items-center gap-2 mb-6">
-              <Plug className="w-5 h-5 text-gray-600" />
-              <h2 className="text-lg font-bold text-gray-900">API 연동 설정</h2>
-            </div>
-            <p className="text-sm text-gray-500 mb-4">
-              유저 설정 페이지에 표시되는 쿠팡 Wing 연동용 IP주소와 URL을 관리합니다.
-              IP가 변경되면 여기서 수정하세요.
-            </p>
-
-            {apiSettingsLoading ? (
-              <div className="text-center py-6 text-gray-400">불러오는 중...</div>
-            ) : (
-              <div className="space-y-4">
-                <div>
-                  <label htmlFor="whitelist-ips" className="block text-sm font-medium text-gray-700 mb-1">
-                    화이트리스트 IP주소
-                  </label>
-                  <textarea
-                    id="whitelist-ips"
-                    value={whitelistIps}
-                    onChange={(e) => setWhitelistIps(e.target.value)}
-                    placeholder="IP주소를 쉼표로 구분하여 입력"
-                    rows={3}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm font-mono outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent resize-none"
-                  />
-                  <p className="text-xs text-gray-400 mt-1">쉼표(,)로 구분. 유저 설정 페이지에 그대로 표시됩니다.</p>
-                </div>
-
-                <div>
-                  <label htmlFor="integration-url" className="block text-sm font-medium text-gray-700 mb-1">
-                    연동 URL
-                  </label>
-                  <input
-                    id="integration-url"
-                    type="text"
-                    value={integrationUrl}
-                    onChange={(e) => setIntegrationUrl(e.target.value)}
-                    placeholder="https://example.com/"
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm font-mono outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
-                  />
-                </div>
-
-                {apiSettingsSaved && (
-                  <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
-                    <CheckCircle className="w-4 h-4 text-green-600" />
-                    <p className="text-sm text-green-700">API 연동 설정이 저장되었습니다.</p>
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  onClick={handleApiSettingsSave}
-                  disabled={apiSettingsSaving}
-                  className="w-full py-2.5 bg-[#E31837] text-white font-semibold rounded-lg hover:bg-[#c01530] transition disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  <Save className="w-4 h-4" />
-                  {apiSettingsSaving ? '저장 중...' : 'API 연동 설정 저장'}
-                </button>
-              </div>
-            )}
-          </Card>
 
           {/* 시스템 관리 */}
           <Card>

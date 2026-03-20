@@ -336,9 +336,6 @@ export interface InventoryLog {
 
 // --- 문의 ---
 
-export type CsUrgency = 'low' | 'normal' | 'high' | 'urgent';
-export type CsInquirySource = 'product' | 'callcenter';
-
 export interface CsInquiry {
   id: string;
   megaload_user_id: string;
@@ -357,15 +354,6 @@ export interface CsInquiry {
   inquired_at?: string;
   created_at: string;
   updated_at: string;
-  // 확장 필드
-  category_id?: string;
-  urgency?: CsUrgency;
-  inquiry_source?: CsInquirySource;
-  channel_order_id?: string;
-  channel_product_name?: string;
-  template_id?: string;
-  // Joined
-  category?: CsCategory;
 }
 
 export interface CsTemplate {
@@ -377,43 +365,6 @@ export interface CsTemplate {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  // 확장 필드
-  category_id?: string;
-  order_status_condition?: string;
-  variables?: string[];
-  sort_order?: number;
-  use_count?: number;
-  is_default?: boolean;
-}
-
-export interface CsCategory {
-  id: string;
-  name: string;
-  icon?: string;
-  color?: string;
-  priority: number;
-  is_active: boolean;
-  created_at: string;
-}
-
-export interface CsKeywordRule {
-  id: string;
-  category_id: string;
-  keywords: string[];
-  match_mode: 'any' | 'all';
-  is_active: boolean;
-  created_at: string;
-}
-
-export interface CsTemplateContext {
-  고객명?: string;
-  상품명?: string;
-  주문번호?: string;
-  배송상태?: string;
-  택배사?: string;
-  송장번호?: string;
-  주문일?: string;
-  판매자명?: string;
 }
 
 // --- 정산/통계 ---

@@ -193,82 +193,12 @@ export class CoupangAdapter extends BaseAdapter {
   }
 
   async getInquiries(params: { startDate: string; endDate: string; page?: number }) {
-    const { startDate, endDate, page = 1 } = params;
-
-    const allItems: Record<string, unknown>[] = [];
-    let totalCount = 0;
-
-    // 1. 상품문의 (onlineInquiries)
-    try {
-      const onlinePath = `/v2/providers/openapi/apis/api/v4/vendors/${this.vendorId}/onlineInquiries`;
-      const onlineQuery = `createdAtFrom=${startDate}&createdAtTo=${endDate}&page=${page}&pageSize=50&answered=false`;
-      const onlineData = await this.coupangApi<{
-        data: { content: Record<string, unknown>[]; pagination?: { totalElements: number } };
-      }>('GET', onlinePath, onlineQuery);
-
-      const content = onlineData.data?.content || [];
-      for (const item of content) {
-        allItems.push({ ...item, _inquirySource: 'product' });
-      }
-      totalCount += onlineData.data?.pagination?.totalElements || content.length;
-    } catch (err) {
-      console.warn('[CoupangAdapter] onlineInquiries fetch failed:', err instanceof Error ? err.message : err);
-    }
-
-    // 2. 콜센터 문의 (callCenterInquiries)
-    try {
-      const callPath = `/v2/providers/openapi/apis/api/v4/vendors/${this.vendorId}/callCenterInquiries`;
-      const callQuery = `createdAtFrom=${startDate}&createdAtTo=${endDate}&page=${page}&pageSize=50&answered=false`;
-      const callData = await this.coupangApi<{
-        data: { content: Record<string, unknown>[]; pagination?: { totalElements: number } };
-      }>('GET', callPath, callQuery);
-
-      const content = callData.data?.content || [];
-      for (const item of content) {
-        allItems.push({ ...item, _inquirySource: 'callcenter' });
-      }
-      totalCount += callData.data?.pagination?.totalElements || content.length;
-    } catch (err) {
-      console.warn('[CoupangAdapter] callCenterInquiries fetch failed:', err instanceof Error ? err.message : err);
-    }
-
-    return { items: allItems, totalCount };
+    // Coupang doesn't have a dedicated inquiry API through Wing Open API
+    return { items: [], totalCount: 0 };
   }
 
-  async answerInquiry(inquiryId: string, answer: string, source?: string) {
-    try {
-      if (source === 'callcenter') {
-        // 콜센터 문의 답변
-        const path = `/v2/providers/openapi/apis/api/v4/vendors/${this.vendorId}/callCenterInquiries/${inquiryId}/replies`;
-        await this.coupangApi('POST', path, '', {
-          vendorId: this.vendorId,
-          content: answer,
-        });
-      } else {
-        // 상품문의 답변
-        const path = `/v2/providers/openapi/apis/api/v4/vendors/${this.vendorId}/onlineInquiries/${inquiryId}/replies`;
-        await this.coupangApi('POST', path, '', {
-          vendorId: this.vendorId,
-          content: answer,
-        });
-      }
-      return { success: true };
-    } catch (err) {
-      console.error('[CoupangAdapter] answerInquiry failed:', err instanceof Error ? err.message : err);
-      return { success: false };
-    }
-  }
-
-  /** 콜센터 문의 확인 처리 */
-  async acknowledgeInquiry(inquiryId: string) {
-    try {
-      const path = `/v2/providers/openapi/apis/api/v4/vendors/${this.vendorId}/callCenterInquiries/${inquiryId}/confirms`;
-      await this.coupangApi('POST', path, '', { vendorId: this.vendorId });
-      return { success: true };
-    } catch (err) {
-      console.error('[CoupangAdapter] acknowledgeInquiry failed:', err instanceof Error ? err.message : err);
-      return { success: false };
-    }
+  async answerInquiry(_inquiryId: string, _answer: string) {
+    return { success: false };
   }
 
   async getSettlements(params: { startDate: string; endDate: string }) {

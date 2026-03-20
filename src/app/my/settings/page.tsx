@@ -70,27 +70,8 @@ export default function MySettingsPage() {
   const [maskedSecretKey, setMaskedSecretKey] = useState<string | null>(null);
   const [apiReconnecting, setApiReconnecting] = useState(false);
 
-  // 동적 연동 설정 (관리자가 관리)
-  const [whitelistIps, setWhitelistIps] = useState('');
-  const [integrationUrl, setIntegrationUrl] = useState('');
-
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
-
-  // 시스템 설정 (IP/URL) 로드
-  useEffect(() => {
-    fetch('/api/system-settings')
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) {
-          for (const item of data) {
-            if (item.key === 'coupang_whitelist_ips') setWhitelistIps(item.value);
-            if (item.key === 'coupang_integration_url') setIntegrationUrl(item.value);
-          }
-        }
-      })
-      .catch(() => { /* 폴백: 빈 문자열 유지 */ });
-  }, []);
 
   const fetchCredentials = useCallback(async () => {
     setLoading(true);
@@ -683,13 +664,13 @@ export default function MySettingsPage() {
                   <div className="p-3 bg-white rounded-lg border border-red-200">
                     <p className="text-xs font-bold text-gray-700 mb-1.5">IP주소 (전체 복사하여 입력)</p>
                     <p className="text-xs font-mono text-gray-900 select-all break-all leading-relaxed bg-gray-50 p-2 rounded border border-gray-200">
-                      {whitelistIps || '불러오는 중...'}
+                      66.241.125.108, 216.246.19.71, 66.241.124.130, 216.246.19.84, 14.52.102.116, 54.116.7.181, 3.37.67.57, 137.66.13.24, 79.127.159.103
                     </p>
                   </div>
                   <div className="p-3 bg-white rounded-lg border border-red-200">
                     <p className="text-xs font-bold text-gray-700 mb-1.5">URL</p>
                     <p className="text-xs font-mono text-gray-900 select-all bg-gray-50 p-2 rounded border border-gray-200">
-                      {integrationUrl || '불러오는 중...'}
+                      https://product-automation-saas.vercel.app/
                     </p>
                   </div>
                 </div>
