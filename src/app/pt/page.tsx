@@ -566,8 +566,20 @@ export default function PTPage() {
       </header>
 
       {/* S1. HERO — PT의 이중 의미 */}
-      <section className="relative min-h-screen flex items-center justify-center bg-gray-950">
-        <motion.div initial="hidden" animate="visible" variants={stagger} className="text-center px-5 sm:px-8">
+      <section className="relative min-h-screen flex items-center justify-center bg-gray-950 overflow-hidden">
+        {/* Background Video */}
+        <video
+          autoPlay
+          loop
+          muted
+          playsInline
+          className="absolute inset-0 w-full h-full object-cover opacity-30"
+        >
+          <source src="/videos/hero-bg.mp4" type="video/mp4" />
+        </video>
+        {/* Dark overlay for text readability */}
+        <div className="absolute inset-0 bg-gradient-to-b from-gray-950/60 via-gray-950/40 to-gray-950/80" />
+        <motion.div initial="hidden" animate="visible" variants={stagger} className="relative z-10 text-center px-5 sm:px-8">
           <motion.h1 variants={fadeUp} custom={0} className="text-2xl sm:text-3xl lg:text-4xl font-bold leading-relaxed text-white max-w-2xl mx-auto">
             10년 동안<br />
             회원님들의 몸을 만들어 왔습니다.
@@ -583,7 +595,7 @@ export default function PTPage() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 1.2, duration: 0.8 }}
-          className="absolute bottom-10 left-1/2 -translate-x-1/2"
+          className="absolute bottom-10 left-1/2 -translate-x-1/2 z-10"
         >
           <motion.div animate={{ y: [0, 8, 0] }} transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}>
             <ChevronDown className="w-6 h-6 text-gray-500" />
