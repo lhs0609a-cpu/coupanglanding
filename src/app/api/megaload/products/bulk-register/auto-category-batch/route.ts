@@ -8,25 +8,14 @@ import { matchCategoryBatch, type CategoryMatchResult } from '@/lib/megaload/ser
  * POST — 다수 상품명에 대한 일괄 카테고리 자동매칭
  * body: { productNames: string[] }  (최대 200개씩)
  *
- * 내부에서 키워드 중복제거 → 고유 키워드만 API 호출
- * 100개 비오틴 상품 → API 3~5회로 감소
- *
- * adapter(쿠팡 API 인증)가 실패해도 Tier 0/1 로컬 매칭은 작동
+ * 카테고리 매칭은 로컬 DB만으로 가능하므로
+ * megaload 계정/채널 연동이 없어도 Tier 0/1 매칭 수행
  */
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    const { data: shUser } = await supabase
-      .from('megaload_users')
-      .select('id')
-      .eq('profile_id', user.id)
-      .single();
-    if (!shUser) return NextResponse.json({ error: 'Megaload 계정이 없습니다.' }, { status: 404 });
-
-    const shUserId = (shUser as Record<string, unknown>).id as string;
 
     const body = await req.json() as { productNames: string[] };
     if (!body.productNames || body.productNames.length === 0) {
@@ -36,15 +25,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '한 번에 최대 200개까지 가능합니다.' }, { status: 400 });
     }
 
-    // adapter는 Tier 1.5/2 (쿠팡 API) 호출에만 필요
-    // 실패해도 Tier 0 (DIRECT_CODE_MAP) + Tier 1 (로컬 DB)로 충분히 매칭 가능
+    // adapter는 Tier 1.5/2 (쿠팡 API) 호출에만 필요 — 선택적
+    // megaload 계정이나 채널 연동이 없어도 Tier 0/1 로컬 매칭으로 충분
     let coupangAdapter: CoupangAdapter | undefined;
     try {
-      const serviceClient = await createServiceClient();
-      const adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang');
-      coupangAdapter = adapter as CoupangAdapter;
-    } catch (adapterErr) {
-      console.warn('[auto-category-batch] adapter 미사용 (Tier 0/1만 사용):', adapterErr instanceof Error ? adapterErr.message : adapterErr);
+      const { data: shUser } = await supabase
+        .from('megaload_users')
+        .select('id')
+        .eq('profile_id', user.id)
+        .single();
+      if (shUser) {
+        const shUserId = (shUser as Record<string, unknown>).id as string;
+        const serviceClient = await createServiceClient();
+        const adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang');
+        coupangAdapter = adapter as CoupangAdapter;
+      }
+    } catch {
+      // megaload 계정 없거나 채널 미연동 — Tier 0/1만 사용
     }
 
     // 배치 매칭 — adapter 없으면 로컬 매칭만 수행
