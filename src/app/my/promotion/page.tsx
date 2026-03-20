@@ -100,6 +100,8 @@ export default function PromotionPage() {
   const [cancelling, setCancelling] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [applyingNewOnly, setApplyingNewOnly] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<import('@/components/my/promotion/ProgressDisplay').VerifyResult | null>(null);
   const pollingRef = useRef<NodeJS.Timeout>(null);
   const collectNextTokenRef = useRef<string>('');
 
@@ -435,6 +437,35 @@ export default function PromotionPage() {
     }
   };
 
+  const handleVerify = async () => {
+    setVerifying(true);
+    setVerifyResult(null);
+    setError(null);
+    try {
+      const res = await fetch('/api/promotion/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ progressId: progress?.id }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setVerifyResult(data);
+        if (data.verified) {
+          setSuccess('쿠팡에서 모든 쿠폰이 확인되었습니다.');
+          setTimeout(() => setSuccess(null), 5000);
+        } else {
+          setError(data.message || '일부 쿠폰이 쿠팡에서 확인되지 않았습니다.');
+        }
+      } else {
+        setError(data.error || '검증에 실패했습니다.');
+      }
+    } catch {
+      setError('검증 중 네트워크 오류가 발생했습니다.');
+    } finally {
+      setVerifying(false);
+    }
+  };
+
   const handleCopyPolicies = async (couponId: number) => {
     setCopyingPolicies(true);
     setError(null);
@@ -584,9 +615,12 @@ export default function PromotionPage() {
                   onCancel={handleCancel}
                   onRestart={handleRestart}
                   onApplyNewOnly={handleApplyNewOnly}
+                  onVerify={handleVerify}
                   cancelling={cancelling}
                   restarting={restarting}
                   applyingNewOnly={applyingNewOnly}
+                  verifying={verifying}
+                  verifyResult={verifyResult}
                 />
               )}
 

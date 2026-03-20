@@ -154,10 +154,15 @@ async function callCoupangApi(
 
   // 쿠팡 API는 HTTP 200이어도 body에 code:"ERROR" 를 반환할 수 있음
   const resBody = json as Record<string, unknown>;
-  if (resBody.code === 'ERROR' || resBody.code === 'FAIL') {
-    const msg = String(resBody.message || resBody.errorMessage || JSON.stringify(resBody).slice(0, 300));
-    console.error(`[callCoupangApi] ${method} ${path} — 응답 code=${resBody.code}: ${msg}`);
-    throw new CoupangApiError(`쿠팡 API 오류 (${resBody.code}): ${msg}`, 200, String(resBody.code));
+  const resCode = String(resBody.code || '').toUpperCase();
+  const resResultCode = String((resBody as Record<string, unknown>).resultCode || '').toUpperCase();
+  if (resCode === 'ERROR' || resCode === 'FAIL' || resCode === 'INVALID_ARGUMENT'
+    || resCode === 'FORBIDDEN' || resCode === 'NOT_FOUND'
+    || resResultCode === 'FAIL' || resResultCode === 'ERROR') {
+    const msg = String(resBody.message || resBody.errorMessage || resBody.resultMessage || JSON.stringify(resBody).slice(0, 300));
+    const errorCode = resCode || resResultCode;
+    console.error(`[callCoupangApi] ${method} ${path} — 응답 code=${errorCode}: ${msg}`);
+    throw new CoupangApiError(`쿠팡 API 오류 (${errorCode}): ${msg}`, 200, errorCode);
   }
 
   return json;
@@ -793,6 +798,129 @@ export async function getInstantCouponItemCount(
     return data.data?.length || 0;
   } catch {
     return 0;
+  }
+}
+
+// ── 쿠폰 검증 함수들 ────────────────────────────────────
+
+export interface CouponVerifyResult {
+  couponId: string;
+  couponType: 'instant' | 'download';
+  exists: boolean;
+  status: string;         // 쿠팡 상태 (사용중, ACTIVE, etc.)
+  itemCount?: number;     // 등록된 아이템 수
+  message: string;
+}
+
+/** 즉시할인 쿠폰이 쿠팡에 실제 존재하는지 검증 */
+export async function verifyInstantCoupon(
+  credentials: CoupangCredentials,
+  couponId: number,
+): Promise<CouponVerifyResult> {
+  try {
+    // 쿠폰 목록에서 해당 쿠폰 존재 여부 확인
+    const coupons = await fetchInstantCoupons(credentials);
+    const found = coupons.find((c) => c.couponId === couponId);
+
+    if (!found) {
+      return {
+        couponId: String(couponId),
+        couponType: 'instant',
+        exists: false,
+        status: 'NOT_FOUND',
+        message: `즉시할인 쿠폰 ${couponId}가 쿠팡에서 찾을 수 없습니다.`,
+      };
+    }
+
+    // 아이템 수 확인
+    const itemCount = await getInstantCouponItemCount(credentials, couponId);
+
+    return {
+      couponId: String(couponId),
+      couponType: 'instant',
+      exists: true,
+      status: found.couponStatus || 'ACTIVE',
+      itemCount,
+      message: `즉시할인 쿠폰 확인됨: ${found.couponName || couponId} (상태: ${found.couponStatus}, 아이템: ${itemCount}개)`,
+    };
+  } catch (err) {
+    return {
+      couponId: String(couponId),
+      couponType: 'instant',
+      exists: false,
+      status: 'ERROR',
+      message: `즉시할인 쿠폰 검증 실패: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+/** 다운로드 쿠폰이 쿠팡에 실제 존재하는지 검증 */
+export async function verifyDownloadCoupon(
+  credentials: CoupangCredentials,
+  couponId: number,
+): Promise<CouponVerifyResult> {
+  try {
+    // 단건 조회 API로 확인
+    const coupon = await fetchDownloadCoupon(credentials, couponId);
+
+    if (!coupon) {
+      return {
+        couponId: String(couponId),
+        couponType: 'download',
+        exists: false,
+        status: 'NOT_FOUND',
+        message: `다운로드 쿠폰 ${couponId}가 쿠팡에서 찾을 수 없습니다.`,
+      };
+    }
+
+    return {
+      couponId: String(couponId),
+      couponType: 'download',
+      exists: true,
+      status: coupon.couponStatus || 'ACTIVE',
+      message: `다운로드 쿠폰 확인됨: ${coupon.couponName || couponId} (상태: ${coupon.couponStatus})`,
+    };
+  } catch (err) {
+    return {
+      couponId: String(couponId),
+      couponType: 'download',
+      exists: false,
+      status: 'ERROR',
+      message: `다운로드 쿠폰 검증 실패: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+/** 즉시할인 비동기 요청 상태를 최종 확인 (requestedId로 조회) */
+export async function verifyInstantCouponRequest(
+  credentials: CoupangCredentials,
+  requestedId: string,
+): Promise<{ status: string; failReason?: string; raw: unknown }> {
+  try {
+    const result = await checkInstantCouponStatus(credentials, requestedId) as Record<string, unknown>;
+    const nested = (result.data || result) as Record<string, unknown>;
+    const status = String(nested.status || nested.couponStatus || result.status || '').toUpperCase();
+    const failReason = String(nested.message || nested.failReason || '');
+    return { status, failReason: failReason || undefined, raw: result };
+  } catch (err) {
+    return { status: 'ERROR', failReason: err instanceof Error ? err.message : String(err), raw: null };
+  }
+}
+
+/** 다운로드 비동기 요청 상태를 최종 확인 (requestTransactionId로 조회) */
+export async function verifyDownloadCouponRequest(
+  credentials: CoupangCredentials,
+  requestTransactionId: string,
+): Promise<{ status: string; couponId?: number; failReason?: string; raw: unknown }> {
+  try {
+    const result = await checkDownloadCouponStatus(credentials, requestTransactionId) as Record<string, unknown>;
+    const nested = (result.data || result) as Record<string, unknown>;
+    const status = String(nested.status || result.status || '').toUpperCase();
+    const couponId = Number(nested.couponId || result.couponId || 0);
+    const failReason = String(nested.message || nested.failReason || '');
+    return { status, couponId: couponId > 0 ? couponId : undefined, failReason: failReason || undefined, raw: result };
+  } catch (err) {
+    return { status: 'ERROR', failReason: err instanceof Error ? err.message : String(err), raw: null };
   }
 }
 
