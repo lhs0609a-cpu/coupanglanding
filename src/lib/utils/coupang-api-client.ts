@@ -358,12 +358,23 @@ export async function fetchProductListings(
       // Each product can have multiple vendor items (options/variants)
       const items = Array.isArray(product.items) ? product.items as Array<Record<string, unknown>> : [];
 
+      // 첫 상품의 첫 아이템 구조 로그 (디버깅)
+      if (page === 0 && allItems.length === 0 && items.length > 0) {
+        console.log(`[fetchProductListings] 첫 아이템 전체 keys:`, Object.keys(items[0]));
+        console.log(`[fetchProductListings] 첫 아이템 데이터:`, JSON.stringify(items[0]).slice(0, 1000));
+      }
+
       if (items.length > 0) {
         for (const item of items) {
+          // vendorItemId 추출: 쿠팡 API에서 옵션ID를 여러 필드명으로 반환할 수 있음
+          const vid = String(
+            item.vendorItemId || item.vendorItemNumber || item.optionId
+            || item.id || item.itemId || '',
+          );
           allItems.push({
             sellerProductId,
             sellerProductName,
-            vendorItemId: String(item.vendorItemId || ''),
+            vendorItemId: vid,
             vendorItemName: String(item.itemName || item.vendorItemName || sellerProductName),
             createdAt,
           });
