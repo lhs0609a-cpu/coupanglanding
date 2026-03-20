@@ -201,6 +201,7 @@ async function createDownloadCouponBatch(
   console.log(`[bulk-apply] 다운로드 쿠폰 생성 완료: ${couponId} (${couponName})`);
 
   // ── Step 2: 쿠폰 생성 완료 대기 후 아이템 등록 ──
+  // 다운로드 쿠폰 아이템 API는 동기식 (PUT /coupon-items → 즉시 결과)
   if (vendorItemIds.length > 0) {
     // 쿠팡이 쿠폰을 완전히 처리할 시간 확보 (5초 대기)
     console.log(`[bulk-apply] 쿠폰 ${couponId} 준비 대기 5초...`);
@@ -209,37 +210,11 @@ async function createDownloadCouponBatch(
     console.log(`[bulk-apply] 쿠폰 ${couponId}에 ${vendorItemIds.length}개 아이템 등록 시작`);
     const itemResult = await addDownloadCouponItems(credentials, couponId, vendorItemIds);
 
-    if (!itemResult.requestTransactionId) {
-      throw new Error(`다운로드 쿠폰 아이템 등록 실패: requestTransactionId 없음. 쿠팡에서 요청이 접수되지 않았습니다.`);
+    // 동기 API — requestResultStatus로 즉시 결과 확인
+    if (itemResult.requestResultStatus !== 'SUCCESS') {
+      throw new Error(`다운로드 쿠폰 아이템 등록 실패: status=${itemResult.requestResultStatus}`);
     }
-
-    // 아이템 등록 비동기 결과 확인 (최대 5회, 3초 간격)
-    console.log(`[bulk-apply] 다운로드 아이템 등록 폴링 시작 (txId: ${itemResult.requestTransactionId})`);
-    let itemConfirmed = false;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      await new Promise((r) => setTimeout(r, 3000));
-      try {
-        const statusResult = await checkDownloadCouponStatus(credentials, itemResult.requestTransactionId) as Record<string, unknown>;
-        const nested = (statusResult.data || statusResult) as Record<string, unknown>;
-        const status = String(nested.status || statusResult.status || '').toUpperCase();
-        console.log(`[bulk-apply] 다운로드 아이템 상태 (attempt ${attempt + 1}): ${status}`, JSON.stringify(nested).slice(0, 300));
-
-        if (status === 'SUCCESS' || status === 'COMPLETED' || status === 'DONE') {
-          itemConfirmed = true;
-          break;
-        }
-        if (status === 'FAIL' || status === 'FAILED' || status === 'ERROR') {
-          const failMsg = String(nested.message || nested.failReason || '아이템 등록 실패');
-          throw new Error(`다운로드 쿠폰 아이템 등록 실패 (${itemResult.requestTransactionId}): ${failMsg}`);
-        }
-      } catch (pollErr) {
-        if (pollErr instanceof Error && pollErr.message.includes('등록 실패')) throw pollErr;
-        console.warn(`[bulk-apply] 아이템 등록 폴링 실패 (attempt ${attempt + 1}):`, pollErr instanceof Error ? pollErr.message : pollErr);
-      }
-    }
-    if (!itemConfirmed) {
-      throw new Error(`다운로드 쿠폰 아이템 등록 결과 미확인 (txId: ${itemResult.requestTransactionId}). 쿠팡에서 처리되지 않았을 수 있습니다.`);
-    }
+    console.log(`[bulk-apply] 다운로드 쿠폰 아이템 등록 성공: couponId=${itemResult.couponId}`);
   }
 
   console.log(`[bulk-apply] 다운로드 쿠폰 완료: ${couponId} (${couponName}), ${vendorItemIds.length}개 아이템 등록됨`);

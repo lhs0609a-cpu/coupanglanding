@@ -560,7 +560,8 @@ export async function applyInstantCoupon(
 
   console.log(`[applyInstantCoupon] 쿠폰 ${couponId}에 ${numericIds.length}개 아이템 등록 요청, 샘플: [${numericIds.slice(0, 5).join(',')}...]`);
 
-  const result = await callCoupangApi(credentials, 'POST', path, { vendorItemIds: numericIds }) as Record<string, unknown>;
+  // 쿠팡 FMS API 스펙: 필드명은 "vendorItems" (vendorItemIds 아님!)
+  const result = await callCoupangApi(credentials, 'POST', path, { vendorItems: numericIds }) as Record<string, unknown>;
   const nested = (result.data || result) as Record<string, unknown>;
   const requestedId = String(nested.requestedId || nested.requestTransactionId || result.requestedId || '');
   console.log(`[applyInstantCoupon] 응답 — requestedId: ${requestedId || '없음'}, 전체: ${JSON.stringify(result).slice(0, 300)}`);
@@ -693,12 +694,12 @@ export async function createDownloadCoupon(
   const mktPath = `${MKT_OPENAPI_BASE}/coupons`;
   const body: Record<string, unknown> = {
     title: params.title,
-    contractId: String(params.contractId), // 반드시 string 타입
+    contractId: Number(params.contractId), // 쿠팡 API 스펙: Number 타입
     couponType: 'DOWNLOAD',
     startDate: toCoupangDateFormat(params.startDate),
     endDate: toCoupangDateFormat(params.endDate),
-    userId: credentials.vendorId, // 쿠팡 API 필수 필드
-    policies: normalizePolicies(params.policies), // 필수 필드 보정
+    userId: credentials.vendorId, // WING 로그인 ID
+    policies: normalizePolicies(params.policies),
   };
 
   // vendorItemIds가 있으면 생성 시 포함 (별도 item API 대신 한 번에 등록)
@@ -749,47 +750,52 @@ export async function createDownloadCoupon(
 /** 다운로드 쿠폰에 아이템 등록 (쿠폰 생성 후 별도 호출)
  *
  *  쿠팡 공식 API:
- *  - POST /v2/providers/marketplace_openapi/apis/api/v1/coupons/{couponId}/items
- *  - body: { vendorItemIds: [number, ...] }
- *  - 최대 10,000개 아이템 등록 가능
- *  - 등록 후 변경 불가 (변경하려면 기존 쿠폰 중지 후 새 쿠폰 생성) */
+ *  - PUT /v2/providers/marketplace_openapi/apis/api/v1/coupon-items
+ *  - body: { couponItems: [{ couponId, userId, vendorItemIds: [number, ...] }] }
+ *  - 한 번에 100개 초과 불가
+ *  - 상품 추가 실패 시 해당 쿠폰 파기됨 */
 export async function addDownloadCouponItems(
   credentials: CoupangCredentials,
   couponId: number,
   vendorItemIds: (string | number)[],
-): Promise<{ requestTransactionId?: string }> {
+): Promise<{ couponId?: number; requestResultStatus?: string }> {
   const numericIds = vendorItemIds.map(Number).filter((n) => !isNaN(n));
-  const body = { vendorItemIds: numericIds };
 
-  // 1차: marketplace_openapi
-  const mktPath = `${MKT_OPENAPI_BASE}/coupons/${couponId}/items`;
-  console.log(`[addDownloadCouponItems] 쿠폰 ${couponId}에 ${numericIds.length}개 아이템 등록 (marketplace_openapi)`);
+  // 쿠팡 공식 스펙: PUT /coupon-items, body: { couponItems: [...] }
+  const mktPath = `${MKT_OPENAPI_BASE}/coupon-items`;
+  const body = {
+    couponItems: [{
+      couponId: String(couponId),
+      userId: credentials.vendorId,
+      vendorItemIds: numericIds,
+    }],
+  };
 
-  try {
-    const data = await callCoupangApi(credentials, 'POST', mktPath, body) as {
-      requestTransactionId?: string;
-      code?: string;
-    };
-    console.log('[addDownloadCouponItems] 응답:', JSON.stringify(data).slice(0, 300));
-    return { requestTransactionId: data.requestTransactionId };
-  } catch (err) {
-    if (err instanceof CoupangApiError && (err.statusCode === 410 || err.statusCode === 404)) {
-      console.warn(`[addDownloadCouponItems] marketplace_openapi ${err.statusCode} — FMS 폴백 시도`);
-    } else {
-      throw err;
-    }
+  console.log(`[addDownloadCouponItems] PUT ${mktPath} — 쿠폰 ${couponId}에 ${numericIds.length}개 아이템 등록`);
+  console.log(`[addDownloadCouponItems] body: ${JSON.stringify(body).slice(0, 500)}`);
+
+  const data = await callCoupangApi(credentials, 'PUT', mktPath, body) as {
+    requestResultStatus?: string;
+    body?: { couponId?: number };
+    errorCode?: string;
+    errorMessage?: string;
+  };
+
+  console.log('[addDownloadCouponItems] 응답:', JSON.stringify(data).slice(0, 500));
+
+  // 에러 체크
+  if (data.requestResultStatus === 'FAIL') {
+    throw new CoupangApiError(
+      `다운로드 쿠폰 아이템 등록 실패: ${data.errorMessage || data.errorCode || '알 수 없는 오류'}`,
+      400,
+      data.errorCode,
+    );
   }
 
-  // 2차 폴백: FMS 프로바이더
-  const fmsPath = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/coupons/${couponId}/items`;
-  console.log(`[addDownloadCouponItems] FMS 폴백: ${fmsPath}`);
-
-  const data = await callCoupangApi(credentials, 'POST', fmsPath, body) as {
-    requestTransactionId?: string;
-    code?: string;
+  return {
+    couponId: data.body?.couponId,
+    requestResultStatus: data.requestResultStatus,
   };
-  console.log('[addDownloadCouponItems] FMS 응답:', JSON.stringify(data).slice(0, 300));
-  return { requestTransactionId: data.requestTransactionId };
 }
 
 /** 다운로드 쿠폰 요청 상태 확인
