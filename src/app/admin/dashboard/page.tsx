@@ -254,7 +254,7 @@ export default function AdminDashboardPage() {
     // 수수료 납부 마감일 계산: 정산 마감일 (이미 지났으면 reviewed_at + 7일)
     const now = new Date();
     const [ry, rm] = report.year_month.split('-').map(Number);
-    const settlementDeadline = new Date(ry, rm, 0, 23, 59, 59); // 익월 말일
+    const settlementDeadline = new Date(ry, rm, 3, 23, 59, 59); // 익월 3일
     const feeDeadline = settlementDeadline > now
       ? settlementDeadline.toISOString()
       : new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
