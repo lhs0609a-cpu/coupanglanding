@@ -1,6 +1,6 @@
 /**
  * 정산 주기 관리 유틸리티
- * - 전월 매출을 당월 말일까지 보고
+ * - 전월 매출을 익월 3일까지 보고
  * - 등록 월 유예 (등록 월 건너뜀)
  * - D-day 카운트다운
  */
@@ -36,13 +36,12 @@ export function getFirstEligibleMonth(createdAt: string): string {
   return getNextMonth(regMonth);
 }
 
-/** "2026-02" → 2026-03-31 (보고 마감일 = 다음달 말일) */
+/** "2026-02" → 2026-03-03 (보고 마감일 = 다음달 3일) */
 export function getSettlementDeadline(yearMonth: string): Date {
   const next = getNextMonth(yearMonth);
   const [y, m] = next.split('-').map(Number);
-  // new Date(year, month, 0) gives last day of previous month
-  // But we want last day of 'next' month, so: new Date(y, m, 0)
-  return new Date(y, m, 0, 23, 59, 59);
+  // 익월 3일: m은 1-indexed, Date 생성자 month는 0-indexed
+  return new Date(y, m - 1, 3, 23, 59, 59);
 }
 
 /** D-day 계산: 양수=남은일, 0=당일, 음수=지연 */

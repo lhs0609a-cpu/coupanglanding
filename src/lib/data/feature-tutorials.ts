@@ -56,7 +56,7 @@ export const FEATURE_TUTORIALS: FeatureTutorialData[] = [
       {
         emoji: '📋',
         title: '매출 정산이란?',
-        description: '매월 쿠팡에서 발생한 매출을 보고하고, 코칭 비용을 정산하는 페이지입니다. 매월 25일까지 제출해야 합니다.',
+        description: '매월 쿠팡에서 발생한 매출을 보고하고, 코칭 비용을 정산하는 페이지입니다. 매월 3일까지 제출해야 합니다.',
       },
       {
         emoji: '🔗',

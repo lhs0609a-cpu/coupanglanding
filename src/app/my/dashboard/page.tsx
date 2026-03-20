@@ -124,8 +124,8 @@ export default function MyDashboardPage() {
       {/* 쿠팡 연동 현황 위젯 (API 연동 완료 시) */}
       {ptUser?.coupang_api_connected && <CoupangOverviewWidget />}
 
-      {/* 정산 D-Day 배너 */}
-      {ptUser && eligible && (
+      {/* 정산 D-Day 배너 (항상 표시) */}
+      {ptUser && (
         <SettlementDDayBanner
           variant="compact"
           yearMonth={targetMonth}

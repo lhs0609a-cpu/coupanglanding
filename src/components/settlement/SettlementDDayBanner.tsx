@@ -21,6 +21,65 @@ export default function SettlementDDayBanner({
   reportStatus,
   eligible,
 }: SettlementDDayBannerProps) {
+  // compact: eligible 여부와 관계없이 항상 표시 (대시보드용)
+  if (variant === 'compact') {
+    if (eligible) {
+      const statusLabel =
+        reportStatus === 'submitted' ? '처리 중' :
+        reportStatus === 'completed' ? '정산 완료' :
+        reportStatus === 'overdue' ? '마감 초과' :
+        '미제출';
+
+      const showCTA = reportStatus === 'pending' || reportStatus === 'overdue';
+
+      return (
+        <Link href="/my/report" className="block">
+          <div className={`rounded-lg p-4 flex items-center justify-between flex-wrap gap-2 border hover:shadow-md transition ${getDDayColorClass(dday)}`}>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-white/60">
+                <TrendingUp className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">
+                  {formatYearMonth(yearMonth)} 매출 정산
+                </p>
+                <p className="text-xs mt-0.5 opacity-80">
+                  {showCTA ? `마감일: ${formatDeadline(yearMonth)}` : statusLabel}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-lg font-bold">{formatDDay(dday)}</span>
+              {showCTA && (
+                <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-white/60">
+                  제출하기 →
+                </span>
+              )}
+            </div>
+          </div>
+        </Link>
+      );
+    }
+
+    // not eligible: 다음 정산일 카운트다운
+    return (
+      <div className={`rounded-lg p-4 flex items-center justify-between flex-wrap gap-2 border ${getDDayColorClass(dday)}`}>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-white/60">
+            <TrendingUp className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-sm font-medium">다음 정산일</p>
+            <p className="text-xs mt-0.5 opacity-80">
+              마감일: {formatDeadline(yearMonth)}
+            </p>
+          </div>
+        </div>
+        <span className="text-lg font-bold">{formatDDay(dday)}</span>
+      </div>
+    );
+  }
+
   if (!eligible) return null;
 
   // full: 기존 /my/report 배너 (그대로)
@@ -37,45 +96,6 @@ export default function SettlementDDayBanner({
         </div>
         <span className="text-lg font-bold">{formatDDay(dday)}</span>
       </div>
-    );
-  }
-
-  // compact: 대시보드용 — 1줄 배너 + /my/report 링크
-  if (variant === 'compact') {
-    const statusLabel =
-      reportStatus === 'submitted' ? '처리 중' :
-      reportStatus === 'completed' ? '정산 완료' :
-      reportStatus === 'overdue' ? '마감 초과' :
-      '미제출';
-
-    const showCTA = reportStatus === 'pending' || reportStatus === 'overdue';
-
-    return (
-      <Link href="/my/report" className="block">
-        <div className={`rounded-lg p-4 flex items-center justify-between flex-wrap gap-2 border hover:shadow-md transition ${getDDayColorClass(dday)}`}>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-white/60">
-              <TrendingUp className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium">
-                {formatYearMonth(yearMonth)} 매출 정산
-              </p>
-              <p className="text-xs mt-0.5 opacity-80">
-                {showCTA ? `마감일: ${formatDeadline(yearMonth)}` : statusLabel}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-lg font-bold">{formatDDay(dday)}</span>
-            {showCTA && (
-              <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-white/60">
-                제출하기 →
-              </span>
-            )}
-          </div>
-        </div>
-      </Link>
     );
   }
 
