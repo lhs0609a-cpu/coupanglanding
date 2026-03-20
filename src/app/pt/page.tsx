@@ -1130,7 +1130,7 @@ export default function PTPage() {
               <Link href="/auth/login?loginType=partner" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">파트너 로그인</Link>
               <Link href="/auth/login?loginType=admin" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">관리자 로그인</Link>
               <span className="hidden sm:block w-px h-4 bg-gray-200" />
-              <Link href="/start" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">초보 셀러 가이드</Link>
+              <Link href="/guide" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">초보 셀러 가이드</Link>
               <span className="hidden sm:block w-px h-4 bg-gray-200" />
               <Link href="/megaload/dashboard" className="text-sm text-[#E31837] hover:text-red-700 font-semibold transition-colors">멀티채널 자동화</Link>
             </nav>

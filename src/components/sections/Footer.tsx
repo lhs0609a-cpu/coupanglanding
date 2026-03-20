@@ -39,7 +39,7 @@ export default function Footer() {
               { href: '#', label: '이용약관' },
               { href: '#', label: '개인정보처리방침' },
               { href: '#', label: '고객센터' },
-              { href: '/start', label: '초보 셀러 가이드' },
+              { href: '/guide', label: '초보 셀러 가이드' },
               { href: '/auth/login', label: '파트너 로그인' },
               { href: '/auth/login?type=signup', label: '파트너 회원가입' },
             ].map((link) => (
