@@ -78,6 +78,9 @@ export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   delete_faq: 'FAQ 삭제',
   create_screening: '스크리닝 링크 생성',
   decide_screening: '스크리닝 판정',
+  create_pre_registration: '사전등록 생성',
+  cancel_pre_registration: '사전등록 취소',
+  auto_approve_user: '사용자 자동승인',
 };
 
 /** 대상 타입 한글 라벨 */
@@ -111,4 +114,5 @@ export const TARGET_TYPE_LABELS: Record<string, string> = {
   faq: 'FAQ',
   screening_link: '스크리닝 링크',
   screening_result: '스크리닝 결과',
+  pre_registration: '사전등록',
 };

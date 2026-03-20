@@ -1104,9 +1104,10 @@ export default function AdminPtUsersPage() {
         title="PT 사용자 추가"
       >
         <div className="space-y-4">
-          <p className="text-sm text-gray-500">
-            Supabase Auth에 이미 등록된 사용자만 추가할 수 있습니다.
-          </p>
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800">
+            신규 사용자는 <strong>사전등록 관리</strong> 메뉴에서 사전등록 후 회원가입을 안내해주세요.
+            아래는 기존 Auth 사용자를 수동으로 추가하는 레거시 기능입니다.
+          </div>
           <Input
             id="newEmail"
             label="이메일"

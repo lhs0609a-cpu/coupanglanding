@@ -4,12 +4,18 @@ import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { Info } from 'lucide-react';
 
 export default function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
+  // 쿠팡 API 키
+  const [vendorId, setVendorId] = useState('');
+  const [accessKey, setAccessKey] = useState('');
+  const [secretKey, setSecretKey] = useState('');
+
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
@@ -115,25 +121,64 @@ export default function LoginForm() {
       return;
     }
 
-    // 서버 API로 회원가입 (이메일 인증 자동 완료)
-    const res = await fetch('/api/auth/signup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, fullName, phone: cleanPhone || null }),
-    });
-
-    const result = await res.json();
-
-    if (!res.ok) {
-      setError(result.error || '회원가입 중 오류가 발생했습니다.');
+    if (!vendorId.trim() || !accessKey.trim() || !secretKey.trim()) {
+      setError('쿠팡 API 키를 모두 입력해주세요.');
       setLoading(false);
       return;
     }
 
-    // 가입 성공 → 승인 대기 안내
-    setSuccess('회원가입이 완료되었습니다. 관리자 승인 후 로그인할 수 있습니다.');
-    setLoading(false);
-    setIsSignup(false);
+    try {
+      // 서버 API로 회원가입 (사전등록 확인 + API 검증 + 자동승인)
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          password,
+          fullName,
+          phone: cleanPhone || null,
+          vendorId: vendorId.trim(),
+          accessKey: accessKey.trim(),
+          secretKey: secretKey.trim(),
+        }),
+      });
+
+      const result = await res.json();
+
+      if (!res.ok) {
+        setError(result.error || '회원가입 중 오류가 발생했습니다.');
+        setLoading(false);
+        return;
+      }
+
+      // 자동승인 → 바로 로그인
+      if (result.autoApproved) {
+        const supabase = createClient();
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (signInError) {
+          setSuccess('회원가입이 완료되었습니다. 로그인해주세요.');
+          setLoading(false);
+          setIsSignup(false);
+          return;
+        }
+
+        router.push('/my/dashboard');
+        router.refresh();
+        return;
+      }
+
+      // 일반 가입 (레거시 fallback)
+      setSuccess('회원가입이 완료되었습니다. 관리자 승인 후 로그인할 수 있습니다.');
+      setLoading(false);
+      setIsSignup(false);
+    } catch {
+      setError('서버 오류가 발생했습니다.');
+      setLoading(false);
+    }
   };
 
   if (isSignup) {
@@ -203,6 +248,64 @@ export default function LoginForm() {
           />
         </div>
 
+        {/* 쿠팡 API 연동 섹션 */}
+        <div className="border-t border-gray-200 pt-5">
+          <div className="flex items-center gap-2 mb-3">
+            <h3 className="text-sm font-semibold text-gray-900">쿠팡 API 연동 (필수)</h3>
+          </div>
+          <div className="flex items-start gap-2 mb-4 bg-blue-50 rounded-lg p-3">
+            <Info className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
+            <p className="text-xs text-blue-700">
+              쿠팡 Wing(wing.coupang.com) &gt; OPEN API &gt; 인증키 관리에서 확인하세요
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="vendorId" className="block text-sm font-medium text-gray-700 mb-1">
+                Vendor ID (업체코드)
+              </label>
+              <input
+                id="vendorId"
+                type="text"
+                value={vendorId}
+                onChange={(e) => setVendorId(e.target.value)}
+                required
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent outline-none transition"
+                placeholder="예: A00123456"
+              />
+            </div>
+            <div>
+              <label htmlFor="accessKey" className="block text-sm font-medium text-gray-700 mb-1">
+                Access Key
+              </label>
+              <input
+                id="accessKey"
+                type="text"
+                value={accessKey}
+                onChange={(e) => setAccessKey(e.target.value)}
+                required
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent outline-none transition font-mono text-sm"
+                placeholder="Access Key 입력"
+              />
+            </div>
+            <div>
+              <label htmlFor="secretKey" className="block text-sm font-medium text-gray-700 mb-1">
+                Secret Key
+              </label>
+              <input
+                id="secretKey"
+                type="password"
+                value={secretKey}
+                onChange={(e) => setSecretKey(e.target.value)}
+                required
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E31837] focus:border-transparent outline-none transition font-mono text-sm"
+                placeholder="Secret Key 입력"
+              />
+            </div>
+          </div>
+        </div>
+
         {error && (
           <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg text-sm" role="alert">
             {error}
@@ -220,7 +323,7 @@ export default function LoginForm() {
           disabled={loading}
           className="w-full py-3 bg-[#E31837] text-white font-semibold rounded-lg hover:bg-[#c01530] transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? '가입 중...' : '파트너 회원가입'}
+          {loading ? '가입 처리 중...' : '파트너 회원가입'}
         </button>
 
         <p className="text-center text-sm text-gray-500">

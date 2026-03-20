@@ -9,7 +9,7 @@ export type OnboardingStepStatus = 'pending' | 'submitted' | 'approved' | 'rejec
 export type OnboardingVerificationType = 'self_check' | 'evidence_upload' | 'auto_linked' | 'quiz';
 export type FeePaymentStatus = 'not_applicable' | 'awaiting_payment' | 'paid' | 'overdue' | 'suspended';
 export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system' | 'emergency' | 'violation' | 'arena' | 'fee_payment' | 'support' | 'trainer_message';
-export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist' | 'create_violation' | 'update_violation' | 'escalate_violation' | 'resolve_violation' | 'dismiss_violation' | 'terminate_violation' | 'issue_tax_invoice' | 'cancel_tax_invoice' | 'confirm_tax_invoice' | 'approve_manual_input' | 'reject_manual_input' | 'create_penalty' | 'resolve_penalty' | 'create_challenge' | 'update_challenge' | 'award_points' | 'suspend_program_access' | 'restore_program_access' | 'create_notice' | 'update_notice' | 'delete_notice' | 'reply_ticket' | 'close_ticket' | 'create_faq' | 'update_faq' | 'delete_faq' | 'create_screening' | 'decide_screening';
+export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist' | 'create_violation' | 'update_violation' | 'escalate_violation' | 'resolve_violation' | 'dismiss_violation' | 'terminate_violation' | 'issue_tax_invoice' | 'cancel_tax_invoice' | 'confirm_tax_invoice' | 'approve_manual_input' | 'reject_manual_input' | 'create_penalty' | 'resolve_penalty' | 'create_challenge' | 'update_challenge' | 'award_points' | 'suspend_program_access' | 'restore_program_access' | 'create_notice' | 'update_notice' | 'delete_notice' | 'reply_ticket' | 'close_ticket' | 'create_faq' | 'update_faq' | 'delete_faq' | 'create_screening' | 'decide_screening' | 'create_pre_registration' | 'cancel_pre_registration' | 'auto_approve_user';
 export type WithdrawalStatus = 'pending' | 'approved' | 'rejected';
 export type TrainerStatus = 'pending' | 'approved' | 'revoked';
 export type TrainerEarningStatus = 'pending' | 'requested' | 'deposited' | 'confirmed';
@@ -867,6 +867,23 @@ export interface ScreeningResult {
   admin_memo: string | null;
   respondent_ip: string | null;
   free_text_answer: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// 사전등록
+export type PreRegistrationStatus = 'pending' | 'used' | 'cancelled';
+export interface PreRegistration {
+  id: string;
+  email: string;
+  full_name: string;
+  phone: string | null;
+  share_percentage: number;
+  status: PreRegistrationStatus;
+  memo: string | null;
+  created_by: string;
+  used_at: string | null;
+  used_by_profile_id: string | null;
   created_at: string;
   updated_at: string;
 }

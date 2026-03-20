@@ -34,8 +34,9 @@ export default function PendingPage() {
             </div>
             <h2 className="text-xl font-bold text-gray-900">승인 대기 중</h2>
             <p className="text-gray-500 text-sm">
-              관리자 승인 후 서비스를 이용할 수 있습니다.<br />
-              승인이 완료되면 로그인해주세요.
+              계정이 아직 활성화되지 않았습니다.<br />
+              사전등록 후 회원가입하시면 자동 승인됩니다.<br />
+              문의사항은 관리자에게 연락해주세요.
             </p>
           </div>
 

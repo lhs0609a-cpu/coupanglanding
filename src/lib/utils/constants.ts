@@ -719,6 +719,19 @@ export const FAQ_CATEGORY_COLORS: Record<string, string> = {
   other: 'bg-gray-100 text-gray-700',
 };
 
+// 사전등록 상태
+export const PRE_REG_STATUS_LABELS: Record<string, string> = {
+  pending: '대기중',
+  used: '가입완료',
+  cancelled: '취소',
+};
+
+export const PRE_REG_STATUS_COLORS: Record<string, string> = {
+  pending: 'bg-blue-100 text-blue-700',
+  used: 'bg-green-100 text-green-700',
+  cancelled: 'bg-red-100 text-red-700',
+};
+
 // 파트너 스크리닝
 export const SCREENING_STATUS_LABELS: Record<string, string> = {
   pending: '대기중',
