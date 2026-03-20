@@ -35,23 +35,18 @@ export async function POST() {
       return NextResponse.json({ error: '기존 작업 취소에 실패했습니다.' }, { status: 500 });
     }
 
-    // 2. 모든 트래킹 레코드를 pending으로 리셋 (전체 재적용)
-    const { error: resetError } = await serviceClient
+    // 2. 기존 트래킹 레코드 전체 삭제 (새로 수집하여 정확한 vendorItemId 사용)
+    const { error: deleteError } = await serviceClient
       .from('product_coupon_tracking')
-      .update({ status: 'pending' })
+      .delete()
       .eq('pt_user_id', ptUser.id);
 
-    if (resetError) {
-      console.error('트래킹 레코드 리셋 오류:', resetError);
-      return NextResponse.json({ error: '상품 상태 초기화에 실패했습니다.' }, { status: 500 });
+    if (deleteError) {
+      console.error('트래킹 레코드 삭제 오류:', deleteError);
+      return NextResponse.json({ error: '상품 데이터 초기화에 실패했습니다.' }, { status: 500 });
     }
 
-    // pending으로 리셋된 상품 수 조회
-    const { count: totalProducts } = await serviceClient
-      .from('product_coupon_tracking')
-      .select('id', { count: 'exact', head: true })
-      .eq('pt_user_id', ptUser.id)
-      .eq('status', 'pending');
+    const totalProducts = 0; // 새로 수집 예정
 
     // 3. 새 진행 상태 생성 (collecting부터 시작하여 상품 수집 → 적용 2단계 진행)
     const { data: newProgress, error: createError } = await serviceClient
