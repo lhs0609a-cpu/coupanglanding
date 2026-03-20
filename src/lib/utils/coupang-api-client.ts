@@ -136,17 +136,21 @@ async function callCoupangApi(
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => '');
+    // JSON 응답이면 errorMessage 필드에서 상세 원인 추출
+    let detailMsg = errorBody;
+    try {
+      const errJson = JSON.parse(errorBody);
+      detailMsg = errJson.errorMessage || errJson.message || errJson.resultMessage || errorBody;
+    } catch { /* not JSON */ }
+    console.error(`[callCoupangApi] HTTP ${response.status} ${method} ${path} — ${errorBody.slice(0, 500)}`);
     if (response.status === 401) {
-      throw new CoupangApiError(`인증 실패 (401): ${errorBody || 'No response body'}`, 401, 'AUTH_FAILED');
+      throw new CoupangApiError(`인증 실패 (401): ${detailMsg}`, 401, 'AUTH_FAILED');
     }
     if (response.status === 429) {
       throw new CoupangApiError('API 호출 한도를 초과했습니다. 잠시 후 다시 시도해주세요.', 429, 'RATE_LIMITED');
     }
-    if (response.status >= 500) {
-      throw new CoupangApiError(`쿠팡 서버 오류 (${response.status}): ${errorBody || 'No response body'}`, response.status, 'SERVER_ERROR');
-    }
     throw new CoupangApiError(
-      `API 요청 실패 (${response.status}): ${errorBody}`,
+      `API 요청 실패 (${response.status}): ${detailMsg}`,
       response.status,
     );
   }
@@ -169,9 +173,10 @@ async function callCoupangApi(
   const isSuccessFalse = dataObj?.success === false && !dataObj?.content && !dataObj?.requestedId;
 
   if (isErrorCode || isSuccessFalse) {
-    const msg = String(resBody.message || resBody.errorMessage || resBody.resultMessage || JSON.stringify(resBody).slice(0, 500));
+    // errorMessage가 상세 원인 (message는 generic "Bad Request" 등)
+    const msg = String(resBody.errorMessage || resBody.resultMessage || resBody.message || JSON.stringify(resBody).slice(0, 500));
     const errorCode = resCode || resResultCode || 'UNKNOWN_ERROR';
-    console.error(`[callCoupangApi] ${method} ${path} — 응답 code=${errorCode}, success=${dataObj?.success}: ${msg}`);
+    console.error(`[callCoupangApi] ${method} ${path} — code=${errorCode}, success=${dataObj?.success}, 전체응답: ${JSON.stringify(resBody).slice(0, 500)}`);
     throw new CoupangApiError(`쿠팡 API 오류 (${errorCode}): ${msg}`, 200, errorCode);
   }
 
