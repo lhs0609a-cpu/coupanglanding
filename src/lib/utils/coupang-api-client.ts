@@ -497,13 +497,24 @@ export async function fetchInstantCoupons(
   return Array.isArray(data.data) ? data.data : [];
 }
 
-/** 즉시할인 쿠폰 생성 — 비동기 (requestedId 반환) */
+/** 즉시할인 쿠폰 생성 — 비동기 (requestedId 반환)
+ *  쿠팡 FMS API 필드: name, startAt, endAt, type, discount, maxDiscountPrice, contractId */
 export async function createInstantCoupon(
   credentials: CoupangCredentials,
   params: CreateInstantCouponParams,
 ): Promise<CoupangCoupon> {
   const path = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupon`;
-  const data = await callCoupangApi(credentials, 'POST', path, params) as { data?: CoupangCoupon };
+  const body = {
+    name: params.title,
+    startAt: params.startDate,
+    endAt: params.endDate,
+    type: params.discountType,           // 'RATE' | 'FIXED'
+    discount: params.discountValue,
+    maxDiscountPrice: Math.max(params.maxDiscountPrice || 10, 10), // 최소 10원
+    contractId: params.contractId,
+  };
+  console.log('[createInstantCoupon] 요청:', JSON.stringify(body).slice(0, 500));
+  const data = await callCoupangApi(credentials, 'POST', path, body) as { data?: CoupangCoupon };
   if (!data.data) throw new CoupangApiError('즉시할인 쿠폰 생성 응답에 data가 없습니다.', 500);
   return data.data;
 }
