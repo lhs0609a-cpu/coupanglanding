@@ -136,14 +136,14 @@ function DashboardMockup() {
 // ============================================================================
 function HeroSection() {
   return (
-    <section className="relative min-h-[90vh] sm:min-h-screen flex items-end overflow-hidden pt-16 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+    <section className="relative min-h-[90vh] sm:min-h-screen flex items-center overflow-hidden pt-16 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-[20%] left-[10%] w-[600px] h-[600px] bg-[#E31837]/10 rounded-full blur-[150px]" />
         <div className="absolute bottom-[10%] right-[15%] w-[400px] h-[400px] bg-red-500/8 rounded-full blur-[120px]" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[length:32px_32px]" />
       </div>
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24 w-full z-10">
-        <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-end">
+        <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
           <div className="max-w-xl">
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
               className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass-card mb-6">
