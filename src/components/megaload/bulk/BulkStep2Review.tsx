@@ -40,7 +40,7 @@ interface BulkStep2ReviewProps {
   onSetProducts: React.Dispatch<React.SetStateAction<EditableProduct[]>>;
   onToggle: (uid: string) => void;
   onToggleAll: () => void;
-  onUpdate: (uid: string, field: string, value: string | number) => void;
+  onUpdate: (uid: string, field: string, value: string | number | Record<string, string>) => void;
   onCategoryClick: (uid: string) => void;
   onSetCategorySearchTarget: (v: string | null) => void;
   onSetCategoryKeyword: (v: string) => void;
@@ -519,6 +519,7 @@ export default function BulkStep2Review({
         onRemoveImage={onRemoveImage}
         payloadPreview={payloadPreview}
         onRequestPreview={handleRequestPreview}
+        preUploadedUrls={imagePreuploadCache}
       />
     </div>
   );

@@ -591,7 +591,7 @@ export function useBulkRegisterActions() {
     });
   }, []);
 
-  const updateField = useCallback((uid: string, field: string, value: string | number) => {
+  const updateField = useCallback((uid: string, field: string, value: string | number | string[] | Record<string, string>) => {
     setProducts((prev) => prev.map((p) => p.uid === uid ? { ...p, [field]: value } : p));
   }, []);
 
@@ -708,6 +708,24 @@ export function useBulkRegisterActions() {
             mainImages: p.mainImages, detailImages: p.detailImages, reviewImages: p.reviewImages, infoImages: p.infoImages,
             noticeMeta: meta.noticeMeta, attributeMeta: meta.attributeMeta,
           };
+          // per-product overrides
+          if (p.editedDisplayProductName) product.displayProductNameOverride = p.editedDisplayProductName;
+          if (p.editedManufacturer) product.manufacturerOverride = p.editedManufacturer;
+          if (p.editedOriginalPrice) product.originalPrice = p.editedOriginalPrice;
+          if (p.editedItemName) product.itemNameOverride = p.editedItemName;
+          if (p.editedUnitCount !== undefined) product.unitCountOverride = p.editedUnitCount;
+          if (p.editedStock !== undefined) product.stockOverride = p.editedStock;
+          if (p.editedMaxBuyPerPerson) product.maxBuyPerPersonOverride = p.editedMaxBuyPerPerson;
+          if (p.editedShippingDays) product.shippingDaysOverride = p.editedShippingDays;
+          if (p.editedTaxType) product.taxType = p.editedTaxType;
+          if (p.editedAdultOnly) product.adultOnly = p.editedAdultOnly;
+          if (p.editedBarcode) product.barcode = p.editedBarcode;
+          if (p.editedNoticeValues && Object.keys(p.editedNoticeValues).length > 0) product.noticeValuesOverride = p.editedNoticeValues;
+          if (p.editedAttributeValues && Object.keys(p.editedAttributeValues).length > 0) product.attributeValuesOverride = p.editedAttributeValues;
+          // 상세페이지 콘텐츠 오버라이드
+          if (p.editedDescription !== undefined) product.descriptionOverride = p.editedDescription;
+          if (p.editedStoryParagraphs && p.editedStoryParagraphs.length > 0) product.storyParagraphsOverride = p.editedStoryParagraphs;
+          if (p.editedReviewTexts && p.editedReviewTexts.length > 0) product.reviewTextsOverride = p.editedReviewTexts;
           const cached = imagePreuploadCache[p.uid];
           const cacheValid = cached && cached.uploadedAt && (Date.now() - cached.uploadedAt < IMAGE_CACHE_TTL_MS);
           if (cacheValid) { product.preUploadedUrls = cached; }

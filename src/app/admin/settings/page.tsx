@@ -5,8 +5,10 @@ import { createClient } from '@/lib/supabase/client';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import NumberInput from '@/components/ui/NumberInput';
-import { Settings, Save, Users, Plus, Trash2, RefreshCw, FileCheck, Building2 } from 'lucide-react';
+import { Settings, Save, Users, Plus, Trash2, RefreshCw, FileCheck, Building2, DollarSign, CheckCircle } from 'lucide-react';
 import type { Partner, CompanySettings } from '@/lib/supabase/types';
+import { parseCostSettings, DEFAULT_RATES, DEFAULT_OPERATING } from '@/lib/utils/cost-settings';
+import type { CostRateSettings, OperatingCostSettings, OperatingCostItem } from '@/lib/utils/cost-settings';
 
 interface PartnerForm {
   id?: string;
@@ -26,6 +28,14 @@ export default function AdminSettingsPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [company, setCompany] = useState<CompanySettings | null>(null);
   const [companySaving, setCompanySaving] = useState(false);
+
+  // 운영비용 설정
+  const [costRates, setCostRates] = useState<CostRateSettings>({ ...DEFAULT_RATES });
+  const [opCosts, setOpCosts] = useState<OperatingCostSettings>({ ...DEFAULT_OPERATING });
+  const [defaultSharePct, setDefaultSharePct] = useState(30);
+  const [costSettingsLoading, setCostSettingsLoading] = useState(true);
+  const [costSettingsSaving, setCostSettingsSaving] = useState(false);
+  const [costSettingsSaved, setCostSettingsSaved] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -67,6 +77,70 @@ export default function AdminSettingsPage() {
     }
   };
 
+  const fetchCostSettings = async () => {
+    setCostSettingsLoading(true);
+    try {
+      const res = await fetch('/api/admin/system-settings');
+      if (res.ok) {
+        const data = await res.json();
+        const parsed = parseCostSettings(data);
+        setCostRates(parsed.rates);
+        setOpCosts(parsed.operatingCosts);
+        setDefaultSharePct(parsed.defaultSharePercentage);
+      }
+    } catch {
+      // 무시
+    }
+    setCostSettingsLoading(false);
+  };
+
+  const handleCostSettingsSave = async () => {
+    setCostSettingsSaving(true);
+    setCostSettingsSaved(false);
+    setMessage(null);
+    try {
+      const entries: { key: string; value: string }[] = [
+        { key: 'op_cost_server', value: String(opCosts.server.amount) },
+        { key: 'op_cost_ai', value: String(opCosts.ai.amount) },
+        { key: 'op_cost_fixed', value: String(opCosts.fixed.amount) },
+        { key: 'op_cost_marketing', value: String(opCosts.marketing.amount) },
+        { key: 'op_cost_server_partner_id', value: opCosts.server.partnerId || '' },
+        { key: 'op_cost_ai_partner_id', value: opCosts.ai.partnerId || '' },
+        { key: 'op_cost_fixed_partner_id', value: opCosts.fixed.partnerId || '' },
+        { key: 'op_cost_marketing_partner_id', value: opCosts.marketing.partnerId || '' },
+        { key: 'cost_rate_product', value: String(costRates.cost_product) },
+        { key: 'cost_rate_commission', value: String(costRates.cost_commission) },
+        { key: 'cost_rate_returns', value: String(costRates.cost_returns) },
+        { key: 'cost_rate_shipping', value: String(costRates.cost_shipping) },
+        { key: 'cost_rate_tax', value: String(costRates.cost_tax) },
+        { key: 'default_share_percentage', value: String(defaultSharePct) },
+      ];
+
+      const results = await Promise.all(
+        entries.map((e) =>
+          fetch('/api/admin/system-settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(e),
+          })
+        )
+      );
+
+      if (results.every((r) => r.ok)) {
+        setCostSettingsSaved(true);
+        setMessage({ type: 'success', text: '운영비용 설정이 저장되었습니다.' });
+        setTimeout(() => setCostSettingsSaved(false), 3000);
+      } else {
+        setMessage({ type: 'error', text: '운영비용 설정 저장에 실패했습니다.' });
+      }
+    } catch {
+      setMessage({ type: 'error', text: '운영비용 설정 저장 중 오류가 발생했습니다.' });
+    }
+    setCostSettingsSaving(false);
+  };
+
+  const costRateSum = costRates.cost_product + costRates.cost_commission + costRates.cost_returns + costRates.cost_shipping + costRates.cost_tax;
+
   const handleCompanySave = async () => {
     if (!company) return;
     setCompanySaving(true);
@@ -92,6 +166,7 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     fetchPartners();
     fetchCompanySettings();
+    fetchCostSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -359,6 +434,132 @@ export default function AdminSettingsPage() {
               </div>
             </Card>
           )}
+
+          {/* 운영비용 설정 */}
+          <Card>
+            <div className="flex items-center gap-2 mb-6">
+              <DollarSign className="w-5 h-5 text-gray-600" />
+              <h2 className="text-lg font-bold text-gray-900">운영비용 설정</h2>
+            </div>
+
+            {costSettingsLoading ? (
+              <div className="text-center py-6 text-gray-400">불러오는 중...</div>
+            ) : (
+              <div className="space-y-6">
+                {/* 월 고정 운영비 */}
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">월 고정 운영비</h3>
+                  {([
+                    { key: 'server' as const, label: '서버비', id: 'op-server' },
+                    { key: 'ai' as const, label: 'AI 사용비', id: 'op-ai' },
+                    { key: 'fixed' as const, label: '고정비', id: 'op-fixed' },
+                    { key: 'marketing' as const, label: '마케팅비', id: 'op-marketing' },
+                  ]).map(({ key, label, id }) => (
+                    <div key={key} className="flex items-end gap-3 p-3 bg-gray-50 rounded-lg">
+                      <div className="flex-1">
+                        <NumberInput
+                          id={id}
+                          label={label}
+                          value={opCosts[key].amount}
+                          onChange={(val) => setOpCosts((p) => ({ ...p, [key]: { ...p[key], amount: val } }))}
+                          suffix="원"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label htmlFor={`${id}-partner`} className="block text-xs font-medium text-gray-600 mb-1">부담 파트너</label>
+                        <select
+                          id={`${id}-partner`}
+                          value={opCosts[key].partnerId || ''}
+                          onChange={(e) => setOpCosts((p) => ({ ...p, [key]: { ...p[key], partnerId: e.target.value || null } }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E31837]/30 focus:border-[#E31837]"
+                        >
+                          <option value="">미지정</option>
+                          {partners.filter((p) => p.is_active).map((p) => (
+                            <option key={p.id} value={p.id}>{p.display_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 정산 비율 설정 */}
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">정산 비율 설정</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <NumberInput
+                      id="rate-product"
+                      label="상품원가"
+                      value={Math.round(costRates.cost_product * 100)}
+                      onChange={(val) => setCostRates((p) => ({ ...p, cost_product: val / 100 }))}
+                      suffix="%"
+                    />
+                    <NumberInput
+                      id="rate-commission"
+                      label="쿠팡 수수료"
+                      value={Math.round(costRates.cost_commission * 100)}
+                      onChange={(val) => setCostRates((p) => ({ ...p, cost_commission: val / 100 }))}
+                      suffix="%"
+                    />
+                    <NumberInput
+                      id="rate-returns"
+                      label="반품/환불비"
+                      value={Math.round(costRates.cost_returns * 100)}
+                      onChange={(val) => setCostRates((p) => ({ ...p, cost_returns: val / 100 }))}
+                      suffix="%"
+                    />
+                    <NumberInput
+                      id="rate-shipping"
+                      label="배송비"
+                      value={Math.round(costRates.cost_shipping * 100)}
+                      onChange={(val) => setCostRates((p) => ({ ...p, cost_shipping: val / 100 }))}
+                      suffix="%"
+                    />
+                    <NumberInput
+                      id="rate-tax"
+                      label="세금"
+                      value={Math.round(costRates.cost_tax * 100)}
+                      onChange={(val) => setCostRates((p) => ({ ...p, cost_tax: val / 100 }))}
+                      suffix="%"
+                    />
+                  </div>
+                  <p className={`mt-2 text-sm ${Math.abs(costRateSum * 100 - Math.round(costRateSum * 100)) < 0.01 ? 'text-gray-500' : 'text-red-600'}`}>
+                    비율 합계: <span className="font-bold">{Math.round(costRateSum * 100)}%</span>
+                  </p>
+                </div>
+
+                {/* 기본 수수료율 */}
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">기본 수수료율</h3>
+                  <NumberInput
+                    id="default-share"
+                    label="신규 유저 기본 수수료"
+                    value={defaultSharePct}
+                    onChange={setDefaultSharePct}
+                    suffix="%"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">신규 유저 등록 시 적용되는 기본 수수료율입니다.</p>
+                </div>
+
+                {costSettingsSaved && (
+                  <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <CheckCircle className="w-4 h-4 text-green-600" />
+                    <p className="text-sm text-green-700">운영비용 설정이 저장되었습니다.</p>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleCostSettingsSave}
+                  disabled={costSettingsSaving}
+                  className="w-full py-2.5 bg-[#E31837] text-white font-semibold rounded-lg hover:bg-[#c01530] transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  {costSettingsSaving ? '저장 중...' : '운영비용 설정 저장'}
+                </button>
+              </div>
+            )}
+          </Card>
 
           {/* 시스템 관리 */}
           <Card>

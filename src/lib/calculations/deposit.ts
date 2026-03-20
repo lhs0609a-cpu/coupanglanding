@@ -2,8 +2,11 @@ import type { CostKey } from '@/lib/utils/constants';
 import { DEFAULT_COST_RATES } from '@/lib/utils/constants';
 import { calculateVatOnTop } from '@/lib/calculations/vat';
 import type { VatCalculation } from '@/lib/calculations/vat';
+import type { CostRateSettings } from '@/lib/utils/cost-settings';
 
 export type CostBreakdown = Record<CostKey, number>;
+
+export type CustomRates = Partial<CostRateSettings>;
 
 export const EMPTY_COSTS: CostBreakdown = {
   cost_product: 0,
@@ -14,20 +17,27 @@ export const EMPTY_COSTS: CostBreakdown = {
   cost_tax: 0,
 };
 
+function getRate(key: string, customRates?: CustomRates): number {
+  if (customRates && key in customRates) {
+    return (customRates as Record<string, number>)[key];
+  }
+  return DEFAULT_COST_RATES[key]?.rate ?? 0;
+}
+
 /** 매출 기반 5개 자동 비용 계산 */
-export function calculateAutoCosts(revenue: number): Omit<CostBreakdown, 'cost_advertising'> {
+export function calculateAutoCosts(revenue: number, customRates?: CustomRates): Omit<CostBreakdown, 'cost_advertising'> {
   return {
-    cost_product: Math.round(revenue * DEFAULT_COST_RATES.cost_product.rate),
-    cost_commission: Math.round(revenue * DEFAULT_COST_RATES.cost_commission.rate),
-    cost_returns: Math.round(revenue * DEFAULT_COST_RATES.cost_returns.rate),
-    cost_shipping: Math.round(revenue * DEFAULT_COST_RATES.cost_shipping.rate),
-    cost_tax: Math.round(revenue * DEFAULT_COST_RATES.cost_tax.rate),
+    cost_product: Math.round(revenue * getRate('cost_product', customRates)),
+    cost_commission: Math.round(revenue * getRate('cost_commission', customRates)),
+    cost_returns: Math.round(revenue * getRate('cost_returns', customRates)),
+    cost_shipping: Math.round(revenue * getRate('cost_shipping', customRates)),
+    cost_tax: Math.round(revenue * getRate('cost_tax', customRates)),
   };
 }
 
 /** 전체 CostBreakdown 생성 (자동 5개 + 광고비 수동) */
-export function buildCostBreakdown(revenue: number, advertisingCost: number): CostBreakdown {
-  const autoCosts = calculateAutoCosts(revenue);
+export function buildCostBreakdown(revenue: number, advertisingCost: number, customRates?: CustomRates): CostBreakdown {
+  const autoCosts = calculateAutoCosts(revenue, customRates);
   return {
     ...autoCosts,
     cost_advertising: advertisingCost,

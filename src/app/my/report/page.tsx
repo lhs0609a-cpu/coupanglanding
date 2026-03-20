@@ -7,7 +7,9 @@ import { calculateDeposit, calculateNetProfit, totalCosts, buildCostBreakdown, c
 import type { CostBreakdown } from '@/lib/calculations/deposit';
 import type { VatCalculation } from '@/lib/calculations/vat';
 import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/format';
-import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, COST_CATEGORIES, DEFAULT_COST_RATES, MANUAL_COST_KEY } from '@/lib/utils/constants';
+import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, COST_CATEGORIES, MANUAL_COST_KEY } from '@/lib/utils/constants';
+import { loadCostSettings } from '@/lib/utils/cost-settings';
+import type { CostRateSettings } from '@/lib/utils/cost-settings';
 import { getReportTargetMonth, isEligibleForMonth, getFirstEligibleMonth, getSettlementDDay, formatDDay, getDDayColorClass, formatDeadline, getAdminSettlementStatus } from '@/lib/utils/settlement';
 import type { PaymentStatus as SettlementPaymentStatus } from '@/lib/utils/settlement';
 import AdminPendingBanner from '@/components/settlement/AdminPendingBanner';
@@ -58,10 +60,11 @@ export default function MyReportPage() {
   const [manualMode, setManualMode] = useState(false);
   const [totalListings, setTotalListings] = useState(0);
   const [testStep, setTestStep] = useState<string | null>(null);
+  const [dynamicRates, setDynamicRates] = useState<CostRateSettings | null>(null);
 
   const supabase = useMemo(() => createClient(), []);
 
-  const costs: CostBreakdown = buildCostBreakdown(revenue, advertisingCost);
+  const costs: CostBreakdown = buildCostBreakdown(revenue, advertisingCost, dynamicRates ?? undefined);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -141,6 +144,11 @@ export default function MyReportPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // 동적 비율 로드
+  useEffect(() => {
+    loadCostSettings().then((s) => setDynamicRates(s.rates));
+  }, []);
 
   const sharePercentage = ptUser?.share_percentage ?? 30;
   const netProfit = calculateNetProfit(revenue, costs);
@@ -959,14 +967,14 @@ export default function MyReportPage() {
           {costOpen && (
             <div className="mt-4 space-y-3">
               {COST_CATEGORIES.filter((cat) => cat.key !== MANUAL_COST_KEY).map((cat) => {
-                const rateInfo = DEFAULT_COST_RATES[cat.key];
+                const rate = dynamicRates ? (dynamicRates as Record<string, number>)[cat.key] ?? 0 : 0;
                 const val = costs[cat.key];
                 return (
                   <div key={cat.key} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
                     <div>
                       <span className="text-sm text-gray-700">{cat.label}</span>
                       <span className="text-xs text-gray-400 ml-2">
-                        매출 × {Math.round(rateInfo.rate * 100)}%
+                        매출 × {Math.round(rate * 100)}%
                       </span>
                     </div>
                     <span className="text-sm font-medium text-gray-900">
@@ -1009,13 +1017,13 @@ export default function MyReportPage() {
               const val = costs[cat.key];
               if (val <= 0) return null;
               const isAuto = cat.key !== MANUAL_COST_KEY;
-              const rateInfo = isAuto ? DEFAULT_COST_RATES[cat.key] : null;
+              const rate = isAuto && dynamicRates ? (dynamicRates as Record<string, number>)[cat.key] ?? 0 : 0;
               return (
                 <div key={cat.key} className="flex justify-between">
                   <span className="text-gray-500">
                     ─ {cat.label}
-                    {rateInfo && (
-                      <span className="text-gray-400 text-xs ml-1">({Math.round(rateInfo.rate * 100)}%)</span>
+                    {isAuto && (
+                      <span className="text-gray-400 text-xs ml-1">({Math.round(rate * 100)}%)</span>
                     )}
                   </span>
                   <span className="text-gray-500">-{formatKRW(val)}</span>

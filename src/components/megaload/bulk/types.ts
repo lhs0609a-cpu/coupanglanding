@@ -53,6 +53,24 @@ export interface EditableProduct extends PreviewProduct {
   errorMessage?: string;
   detailedError?: DetailedError;
   duration?: number;
+  // 쿠팡 API 필드 오버라이드
+  editedDisplayProductName?: string;
+  editedManufacturer?: string;
+  editedOriginalPrice?: number;
+  editedItemName?: string;
+  editedUnitCount?: number;
+  editedStock?: number;
+  editedMaxBuyPerPerson?: number;
+  editedShippingDays?: number;
+  editedTaxType?: 'TAX' | 'FREE' | 'ZERO';
+  editedAdultOnly?: 'EVERYONE' | 'ADULT_ONLY';
+  editedBarcode?: string;
+  editedNoticeValues?: Record<string, string>;
+  editedAttributeValues?: Record<string, string>;
+  // 상세페이지 콘텐츠 오버라이드
+  editedDescription?: string;
+  editedStoryParagraphs?: string[];
+  editedReviewTexts?: string[];
 }
 
 export interface ShippingPlace {

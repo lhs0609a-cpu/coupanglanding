@@ -47,6 +47,20 @@ interface BatchProduct {
   taxType?: 'TAX' | 'FREE' | 'ZERO';
   adultOnly?: 'EVERYONE' | 'ADULT_ONLY';
   categoryConfidence?: number;  // 카테고리 매칭 confidence (0~1)
+  // per-product 오버라이드 (상세패널에서 수정한 값)
+  displayProductNameOverride?: string;
+  manufacturerOverride?: string;
+  itemNameOverride?: string;
+  unitCountOverride?: number;
+  stockOverride?: number;
+  maxBuyPerPersonOverride?: number;
+  shippingDaysOverride?: number;
+  noticeValuesOverride?: Record<string, string>;
+  attributeValuesOverride?: Record<string, string>;
+  // 상세페이지 콘텐츠 오버라이드
+  descriptionOverride?: string;
+  storyParagraphsOverride?: string[];
+  reviewTextsOverride?: string[];
 }
 
 interface BatchRegisterBody {
@@ -265,18 +279,36 @@ export async function POST(req: NextRequest) {
         };
       }
 
-      // 5. AI 스토리
-      const aiStoryRaw = batchAiStories.get(product.uid || product.productCode) || '';
+      // 5. AI 스토리 (사용자 편집 값 우선)
       let aiStoryParagraphs: string[] = [];
       let aiReviewTexts: string[] = [];
       let aiStoryHtml = '';
-      try {
-        const parsed = JSON.parse(aiStoryRaw);
-        aiStoryParagraphs = Array.isArray(parsed.paragraphs) ? parsed.paragraphs : [];
-        aiReviewTexts = Array.isArray(parsed.reviewTexts) ? parsed.reviewTexts : [];
-      } catch {
-        aiStoryHtml = aiStoryRaw;
+
+      // 사용자가 편집한 스토리/리뷰가 있으면 AI 생성 건너뜀
+      const hasUserStory = Array.isArray(product.storyParagraphsOverride) && product.storyParagraphsOverride.length > 0;
+      const hasUserReview = Array.isArray(product.reviewTextsOverride) && product.reviewTextsOverride.length > 0;
+
+      if (hasUserStory) {
+        aiStoryParagraphs = product.storyParagraphsOverride!;
       }
+      if (hasUserReview) {
+        aiReviewTexts = product.reviewTextsOverride!;
+      }
+
+      // AI 생성 값은 사용자 편집이 없는 필드에만 적용
+      if (!hasUserStory || !hasUserReview) {
+        const aiStoryRaw = batchAiStories.get(product.uid || product.productCode) || '';
+        try {
+          const parsed = JSON.parse(aiStoryRaw);
+          if (!hasUserStory) aiStoryParagraphs = Array.isArray(parsed.paragraphs) ? parsed.paragraphs : [];
+          if (!hasUserReview) aiReviewTexts = Array.isArray(parsed.reviewTexts) ? parsed.reviewTexts : [];
+        } catch {
+          if (!hasUserStory) aiStoryHtml = aiStoryRaw;
+        }
+      }
+
+      // 사용자가 편집한 description 우선 사용
+      const effectiveDescription = product.descriptionOverride ?? product.description;
 
       // 6. 구매옵션 자동 추출 (notices보다 먼저 → hints 생성)
       const extracted = await extractOptions(product.name, product.categoryCode);
@@ -295,11 +327,13 @@ export async function POST(req: NextRequest) {
       }
 
       // 7. notices 자동채움 (추출된 hints 연동 + 카테고리 힌트)
+      // per-product noticeValues 오버라이드를 전역 noticeOverrides에 병합
+      const mergedNoticeOverrides = { ...(noticeOverrides || {}), ...(product.noticeValuesOverride || {}) };
       const filledNotices = fillNoticeFields(
         product.noticeMeta || [],
-        { name: product.name, brand: product.brand, tags: product.tags, description: product.description },
+        { name: product.name, brand: product.brand, tags: product.tags, description: effectiveDescription },
         returnInfo.afterServiceContactNumber,
-        noticeOverrides,
+        Object.keys(mergedNoticeOverrides).length > 0 ? mergedNoticeOverrides : undefined,
         noticeHints,
         product.name,
       );
@@ -314,24 +348,29 @@ export async function POST(req: NextRequest) {
         ? selectWithSeed(LAYOUT_VARIANTS, shUserId)
         : undefined;
 
-      // 9. 페이로드 빌드
+      // 9. 페이로드 빌드 (per-product 오버라이드 반영)
+      const effectiveStock = product.stockOverride ?? stock;
       const payload = buildCoupangProductPayload({
         vendorId,
         product: {
           folderPath: product.folderPath,
           productCode: product.productCode,
-          productJson: { name: product.name, brand: product.brand, tags: product.tags, description: product.description, price: product.sourcePrice },
+          productJson: { name: product.name, brand: product.brand, tags: product.tags, description: effectiveDescription, price: product.sourcePrice },
           mainImages: product.mainImages, detailImages: product.detailImages, infoImages: product.infoImages, reviewImages: product.reviewImages,
         },
         sellingPrice: product.sellingPrice, categoryCode: product.categoryCode,
-        mainImageUrls, detailImageUrls, deliveryInfo, returnInfo, stock,
+        mainImageUrls, detailImageUrls, deliveryInfo, returnInfo, stock: effectiveStock,
         brand: product.brand, filledNotices, attributeMeta: product.attributeMeta || [],
+        attributeValues: product.attributeValuesOverride,
         reviewImageUrls, infoImageUrls,
         aiStoryHtml, aiStoryParagraphs, aiReviewTexts,
         extractedBuyOptions: extracted.buyOptions,
-        totalUnitCount: extracted.totalUnitCount,
-        displayProductName: product.aiDisplayName,
+        totalUnitCount: product.unitCountOverride ?? extracted.totalUnitCount,
+        displayProductName: product.displayProductNameOverride || product.aiDisplayName,
         sellerProductName: product.aiSellerName,
+        manufacturer: product.manufacturerOverride,
+        maximumBuyForPerson: product.maxBuyPerPersonOverride,
+        outboundShippingTimeDay: product.shippingDaysOverride,
         // 추가: 할인가, 바코드, KC인증, 멀티옵션, 세금/성인
         originalPrice: product.originalPrice,
         barcode: product.barcode,
