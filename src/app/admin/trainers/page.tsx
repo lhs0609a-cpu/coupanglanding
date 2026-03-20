@@ -15,7 +15,8 @@ import { notifyTrainerApproved, notifyTrainerBonusDeposited } from '@/lib/utils/
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
-import { GraduationCap, RefreshCw, UserPlus, CheckCircle2, XCircle, Copy, Users, Banknote, Search, MessageSquare, ClipboardList } from 'lucide-react';
+import { GraduationCap, RefreshCw, UserPlus, CheckCircle2, XCircle, Copy, Users, Banknote, Search, MessageSquare, ClipboardList, Link2, Unlink } from 'lucide-react';
+import MonthPicker from '@/components/ui/MonthPicker';
 import type { Trainer, PtUser, Profile, TrainerTrainee, TrainerEarning, OnboardingStep } from '@/lib/supabase/types';
 import { ONBOARDING_STEPS } from '@/lib/utils/constants';
 
@@ -53,6 +54,17 @@ export default function AdminTrainersPage() {
   // 코칭 활동 통계
   const [coachingStats, setCoachingStats] = useState<{ messageCount: number; noteCount: number; lastCoachingDate: string | null }>({ messageCount: 0, noteCount: 0, lastCoachingDate: null });
   const [traineeOnboardingMap, setTraineeOnboardingMap] = useState<Map<string, OnboardingStep[]>>(new Map());
+
+  // 수동 연결 모달
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [linkTrainerId, setLinkTrainerId] = useState<string | null>(null);
+  const [unlinkedPtUsers, setUnlinkedPtUsers] = useState<(PtUser & { profile: Profile })[]>([]);
+  const [linkTargetId, setLinkTargetId] = useState('');
+  const [linkReason, setLinkReason] = useState('');
+  const [linkEffectiveFrom, setLinkEffectiveFrom] = useState('');
+  const [linkRetroactive, setLinkRetroactive] = useState(true);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [unlinkingId, setUnlinkingId] = useState<string | null>(null);
 
   // 취소 모달
   const [revokeModal, setRevokeModal] = useState<string | null>(null);
@@ -216,6 +228,101 @@ export default function AdminTrainersPage() {
     setRevokeModal(null);
     setRevokeReason('');
     fetchTrainers();
+  };
+
+  const handleOpenLinkModal = async (trainerId: string) => {
+    setLinkTrainerId(trainerId);
+    setLinkTargetId('');
+    setLinkReason('');
+    setLinkEffectiveFrom('');
+    setLinkRetroactive(true);
+
+    // 트레이너에 연결되지 않은 활성 PT 유저 조회
+    const { data: allActive } = await supabase
+      .from('pt_users')
+      .select('*, profile:profiles(*)')
+      .eq('status', 'active');
+
+    const { data: linked } = await supabase
+      .from('trainer_trainees')
+      .select('trainee_pt_user_id')
+      .eq('is_active', true);
+
+    const linkedIds = new Set((linked || []).map((l) => (l as { trainee_pt_user_id: string }).trainee_pt_user_id));
+
+    // 트레이너 자신도 제외
+    const trainer = trainers.find((t) => t.id === trainerId);
+    const trainerPtUserId = trainer?.pt_user_id;
+
+    const available = ((allActive || []) as (PtUser & { profile: Profile })[]).filter(
+      (u) => !linkedIds.has(u.id) && u.id !== trainerPtUserId
+    );
+
+    setUnlinkedPtUsers(available);
+    setLinkModalOpen(true);
+  };
+
+  const handleManualLink = async () => {
+    if (!linkTrainerId || !linkTargetId) return;
+    setLinkLoading(true);
+
+    try {
+      const res = await fetch('/api/admin/trainer-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          trainer_id: linkTrainerId,
+          trainee_pt_user_id: linkTargetId,
+          link_reason: linkReason || null,
+          effective_from: linkEffectiveFrom || null,
+          calculate_retroactive: linkRetroactive && !!linkEffectiveFrom,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || '연결에 실패했습니다.');
+      } else {
+        const msg = data.retroactive_count > 0
+          ? `연결 완료! 소급 보너스 ${data.retroactive_count}건 (${data.retroactive_total.toLocaleString()}원) 생성됨`
+          : '연결이 완료되었습니다.';
+        alert(msg);
+        setLinkModalOpen(false);
+        // 상세 모달 열려있으면 새로고침
+        if (detailTrainer && detailTrainer.id === linkTrainerId) {
+          handleOpenDetail(detailTrainer);
+        }
+      }
+    } catch {
+      alert('서버 오류가 발생했습니다.');
+    }
+    setLinkLoading(false);
+  };
+
+  const handleUnlinkTrainee = async (trainerTraineeId: string) => {
+    if (!confirm('이 교육생의 트레이너 연결을 해제하시겠습니까?')) return;
+    setUnlinkingId(trainerTraineeId);
+
+    try {
+      const res = await fetch('/api/admin/trainer-link', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trainer_trainee_id: trainerTraineeId }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || '해제에 실패했습니다.');
+      } else {
+        // 로컬 상태 업데이트
+        setTrainees((prev) => prev.map((t) =>
+          t.id === trainerTraineeId ? { ...t, is_active: false } : t
+        ));
+      }
+    } catch {
+      alert('서버 오류가 발생했습니다.');
+    }
+    setUnlinkingId(null);
   };
 
   const handleOpenDetail = async (trainer: TrainerWithDetails) => {
@@ -601,6 +708,79 @@ export default function AdminTrainersPage() {
         </div>
       </Modal>
 
+      {/* Manual Link Modal */}
+      <Modal isOpen={linkModalOpen} onClose={() => setLinkModalOpen(false)} title="교육생 수동 연결">
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">
+            트레이너에 연결되지 않은 활성 PT 사용자를 선택하여 수동으로 연결합니다.
+          </p>
+          {unlinkedPtUsers.length === 0 ? (
+            <p className="text-sm text-gray-400">연결 가능한 PT 사용자가 없습니다.</p>
+          ) : (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">교육생 선택</label>
+                <select
+                  value={linkTargetId}
+                  onChange={(e) => setLinkTargetId(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                >
+                  <option value="">-- 선택하세요 --</option>
+                  {unlinkedPtUsers.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.profile?.full_name || '이름 없음'} ({u.profile?.email})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">연결 사유</label>
+                <input
+                  type="text"
+                  value={linkReason}
+                  onChange={(e) => setLinkReason(e.target.value)}
+                  placeholder="예: 오프라인 교육 참가자"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">소급 시작월 (선택)</label>
+                <MonthPicker value={linkEffectiveFrom} onChange={setLinkEffectiveFrom} />
+              </div>
+              {linkEffectiveFrom && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={linkRetroactive}
+                    onChange={(e) => setLinkRetroactive(e.target.checked)}
+                    className="w-4 h-4 text-[#E31837] border-gray-300 rounded focus:ring-[#E31837]"
+                  />
+                  <span className="text-sm text-gray-700">과거 확인된 정산 보너스 소급 계산</span>
+                </label>
+              )}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setLinkModalOpen(false)}
+                  className="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium transition"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={handleManualLink}
+                  disabled={!linkTargetId || linkLoading}
+                  className="flex-1 py-2.5 bg-[#E31837] text-white rounded-lg hover:bg-[#c01530] text-sm font-medium transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  <Link2 className="w-4 h-4" />
+                  {linkLoading ? '연결 중...' : '연결하기'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
+
       {/* Detail Modal */}
       <Modal
         isOpen={!!detailTrainer}
@@ -675,9 +855,21 @@ export default function AdminTrainersPage() {
 
             {/* 교육생 목록 */}
             <div>
-              <div className="flex items-center gap-2 mb-3">
-                <Users className="w-4 h-4 text-gray-500" />
-                <h3 className="text-sm font-bold text-gray-900">교육생 ({trainees.length}명)</h3>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-gray-500" />
+                  <h3 className="text-sm font-bold text-gray-900">교육생 ({trainees.length}명)</h3>
+                </div>
+                {detailTrainer.status === 'approved' && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenLinkModal(detailTrainer.id)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-[#c01530] transition"
+                  >
+                    <Link2 className="w-3.5 h-3.5" />
+                    교육생 수동 연결
+                  </button>
+                )}
               </div>
               {trainees.length === 0 ? (
                 <p className="text-sm text-gray-400">아직 교육생이 없습니다.</p>
@@ -699,17 +891,39 @@ export default function AdminTrainersPage() {
                     return (
                       <div key={t.id} className="p-3 bg-gray-50 rounded-lg">
                         <div className="flex items-center justify-between mb-1.5">
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">
-                              {t.trainee_pt_user?.profile?.full_name || '이름 없음'}
-                            </p>
-                            <p className="text-xs text-gray-500">{t.trainee_pt_user?.profile?.email}</p>
+                          <div className="flex items-center gap-2">
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">
+                                {t.trainee_pt_user?.profile?.full_name || '이름 없음'}
+                              </p>
+                              <p className="text-xs text-gray-500">{t.trainee_pt_user?.profile?.email}</p>
+                            </div>
+                            <Badge
+                              label={t.link_type === 'manual' ? '수동연결' : '추천코드'}
+                              colorClass={t.link_type === 'manual' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}
+                            />
                           </div>
-                          <Badge
-                            label={t.is_active ? '활성' : '비활성'}
-                            colorClass={t.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}
-                          />
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              label={t.is_active ? '활성' : '비활성'}
+                              colorClass={t.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}
+                            />
+                            {t.is_active && (
+                              <button
+                                type="button"
+                                onClick={() => handleUnlinkTrainee(t.id)}
+                                disabled={unlinkingId === t.id}
+                                className="p-1 text-gray-400 hover:text-red-600 transition disabled:opacity-50"
+                                title="연결 해제"
+                              >
+                                <Unlink className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </div>
+                        {t.link_type === 'manual' && t.link_reason && (
+                          <p className="text-xs text-gray-500 mb-1">사유: {t.link_reason}</p>
+                        )}
                         <div className="flex items-center gap-2">
                           <div className="flex-1 bg-gray-200 rounded-full h-1.5">
                             <div

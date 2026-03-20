@@ -8,12 +8,32 @@ import { getReportTargetMonth } from '@/lib/utils/settlement';
 import MonthPicker from '@/components/ui/MonthPicker';
 import Card from '@/components/ui/Card';
 import StatCard from '@/components/ui/StatCard';
-import { PieChart, TrendingUp, TrendingDown, Wallet, Lock, Unlock, CheckCircle2, Users, AlertTriangle, Download, Receipt } from 'lucide-react';
+import { PieChart, TrendingUp, TrendingDown, Wallet, Lock, Unlock, CheckCircle2, Users, AlertTriangle, Download, Receipt, DollarSign, GraduationCap } from 'lucide-react';
 import { exportToCsv } from '@/lib/utils/csv-export';
-import type { Partner, RevenueEntry, ExpenseEntry, DistributionSnapshot, MonthlyReport, PtUser, Profile } from '@/lib/supabase/types';
+import { loadCostSettings } from '@/lib/utils/cost-settings';
+import type { OperatingCostSettings } from '@/lib/utils/cost-settings';
+import type { Partner, RevenueEntry, ExpenseEntry, DistributionSnapshot, MonthlyReport, PtUser, Profile, TrainerEarning, Trainer } from '@/lib/supabase/types';
+import Badge from '@/components/ui/Badge';
+import { TRAINER_EARNING_STATUS_LABELS, TRAINER_EARNING_STATUS_COLORS } from '@/lib/utils/constants';
 
 interface ConfirmedReport extends MonthlyReport {
   pt_user?: PtUser & { profile?: Profile };
+}
+
+interface TrainerEarningWithDetails extends TrainerEarning {
+  trainer?: Trainer & { pt_user?: PtUser & { profile?: Profile } };
+  trainee_pt_user?: PtUser & { profile?: Profile };
+}
+
+interface TrainerBonusSummary {
+  trainer_id: string;
+  trainer_name: string;
+  total_bonus: number;
+  count: number;
+  pending: number;
+  requested: number;
+  deposited: number;
+  confirmed: number;
 }
 
 export default function AdminDistributionPage() {
@@ -27,13 +47,18 @@ export default function AdminDistributionPage() {
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [opCosts, setOpCosts] = useState<OperatingCostSettings | null>(null);
+  const [hasOpExpenses, setHasOpExpenses] = useState(false);
+  const [applyingOpCosts, setApplyingOpCosts] = useState(false);
+  const [trainerBonusSummaries, setTrainerBonusSummaries] = useState<TrainerBonusSummary[]>([]);
+  const [trainerBonusTotal, setTrainerBonusTotal] = useState(0);
 
   const supabase = useMemo(() => createClient(), []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
 
-    const [partnerRes, revRes, expRes, snapRes, ptConfirmedRes, ptPendingRes] = await Promise.all([
+    const [partnerRes, revRes, expRes, snapRes, ptConfirmedRes, ptPendingRes, trainerEarningsRes] = await Promise.all([
       supabase.from('partners').select('*').order('share_ratio', { ascending: false }),
       supabase.from('revenue_entries').select('*').eq('year_month', yearMonth),
       supabase.from('expense_entries').select('*').eq('year_month', yearMonth),
@@ -46,14 +71,49 @@ export default function AdminDistributionPage() {
         .select('id', { count: 'exact', head: true })
         .eq('year_month', yearMonth)
         .in('payment_status', ['submitted', 'reviewed']),
+      supabase.from('trainer_earnings')
+        .select('*, trainer:trainers(*, pt_user:pt_users(*, profile:profiles(*))), trainee_pt_user:pt_users(*, profile:profiles(*))')
+        .eq('year_month', yearMonth),
     ]);
 
+    const expenseData = (expRes.data as ExpenseEntry[]) || [];
     setPartners((partnerRes.data as Partner[]) || []);
     setRevenues((revRes.data as RevenueEntry[]) || []);
-    setExpenses((expRes.data as ExpenseEntry[]) || []);
+    setExpenses(expenseData);
     setSnapshot(snapRes.data as DistributionSnapshot | null);
     setPtReports((ptConfirmedRes.data as ConfirmedReport[]) || []);
     setPendingPtCount(ptPendingRes.count || 0);
+
+    // 트레이너 보너스 집계
+    const trainerEarnings = (trainerEarningsRes.data as TrainerEarningWithDetails[]) || [];
+    const summaryMap = new Map<string, TrainerBonusSummary>();
+    let bonusTotal = 0;
+    for (const e of trainerEarnings) {
+      const tid = e.trainer_id;
+      const trainerName = e.trainer?.pt_user?.profile?.full_name || '알 수 없음';
+      if (!summaryMap.has(tid)) {
+        summaryMap.set(tid, { trainer_id: tid, trainer_name: trainerName, total_bonus: 0, count: 0, pending: 0, requested: 0, deposited: 0, confirmed: 0 });
+      }
+      const s = summaryMap.get(tid)!;
+      s.total_bonus += e.bonus_amount;
+      s.count++;
+      s[e.payment_status]++;
+      bonusTotal += e.bonus_amount;
+    }
+    setTrainerBonusSummaries(Array.from(summaryMap.values()));
+    setTrainerBonusTotal(bonusTotal);
+
+    // [운영비] 접두사 항목 존재 여부 체크
+    setHasOpExpenses(expenseData.some((e) => e.description?.startsWith('[운영비]')));
+
+    // 운영비 설정 로드
+    try {
+      const settings = await loadCostSettings();
+      setOpCosts(settings.operatingCosts);
+    } catch {
+      // 무시
+    }
+
     setLoading(false);
   }, [yearMonth, supabase]);
 
@@ -100,6 +160,34 @@ export default function AdminDistributionPage() {
     fetchData();
     setCancelling(false);
   };
+
+  const handleApplyOpCosts = async () => {
+    if (!opCosts) return;
+    setApplyingOpCosts(true);
+
+    const items: { category: string; description: string; amount: number; partnerId: string | null }[] = [];
+    if (opCosts.server.amount > 0) items.push({ category: 'server', description: '[운영비] 서버비', amount: opCosts.server.amount, partnerId: opCosts.server.partnerId });
+    if (opCosts.ai.amount > 0) items.push({ category: 'ai_usage', description: '[운영비] AI 사용비', amount: opCosts.ai.amount, partnerId: opCosts.ai.partnerId });
+    if (opCosts.fixed.amount > 0) items.push({ category: 'fixed', description: '[운영비] 고정비', amount: opCosts.fixed.amount, partnerId: opCosts.fixed.partnerId });
+    if (opCosts.marketing.amount > 0) items.push({ category: 'marketing', description: '[운영비] 마케팅비', amount: opCosts.marketing.amount, partnerId: opCosts.marketing.partnerId });
+
+    if (items.length > 0) {
+      await supabase.from('expense_entries').insert(
+        items.map((item) => ({
+          year_month: yearMonth,
+          category: item.category,
+          description: item.description,
+          amount: item.amount,
+          paid_by_partner_id: item.partnerId,
+        }))
+      );
+    }
+
+    fetchData();
+    setApplyingOpCosts(false);
+  };
+
+  const opCostTotal = opCosts ? (opCosts.server.amount + opCosts.ai.amount + opCosts.fixed.amount + opCosts.marketing.amount) : 0;
 
   const handleExportCsv = () => {
     exportToCsv(`분배_${yearMonth}`, result.distributions, [
@@ -154,6 +242,32 @@ export default function AdminDistributionPage() {
               >
                 <Unlock className="w-4 h-4" />
                 {cancelling ? '취소 중...' : '확정 취소'}
+              </button>
+            </div>
+          )}
+
+          {/* 고정 운영비 자동 적용 배너 */}
+          {!hasOpExpenses && opCostTotal > 0 && !snapshot && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <DollarSign className="w-5 h-5 text-blue-600" />
+                <div>
+                  <p className="text-sm font-medium text-blue-800">
+                    {formatYearMonth(yearMonth)} 고정 운영비가 아직 적용되지 않았습니다.
+                  </p>
+                  <p className="text-xs text-blue-600 mt-0.5">
+                    설정된 월 운영비: {formatKRW(opCostTotal)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleApplyOpCosts}
+                disabled={applyingOpCosts}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+              >
+                <DollarSign className="w-4 h-4" />
+                {applyingOpCosts ? '적용 중...' : '고정 운영비 적용'}
               </button>
             </div>
           )}
@@ -262,6 +376,56 @@ export default function AdminDistributionPage() {
               ) : (
                 <p className="text-sm text-gray-400">확인된 PT 매출이 없습니다.</p>
               )}
+            </Card>
+          )}
+
+          {/* 트레이너 보너스 요약 */}
+          {trainerBonusSummaries.length > 0 && (
+            <Card>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <GraduationCap className="w-5 h-5 text-[#E31837]" />
+                  <h3 className="font-bold text-gray-900">트레이너 보너스</h3>
+                </div>
+                <span className="text-lg font-bold text-[#E31837]">{formatKRW(trainerBonusTotal)}</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 px-3 font-semibold text-gray-600">트레이너</th>
+                      <th className="text-right py-2 px-3 font-semibold text-gray-600">보너스 합계</th>
+                      <th className="text-center py-2 px-3 font-semibold text-gray-600">건수</th>
+                      <th className="text-center py-2 px-3 font-semibold text-gray-600">상태별</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trainerBonusSummaries.map((s) => (
+                      <tr key={s.trainer_id} className="border-b border-gray-100">
+                        <td className="py-2 px-3 font-medium text-gray-900">{s.trainer_name}</td>
+                        <td className="py-2 px-3 text-right font-medium text-[#E31837]">{formatKRW(s.total_bonus)}</td>
+                        <td className="py-2 px-3 text-center text-gray-700">{s.count}건</td>
+                        <td className="py-2 px-3">
+                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                            {s.pending > 0 && (
+                              <Badge label={`대기 ${s.pending}`} colorClass={TRAINER_EARNING_STATUS_COLORS.pending} />
+                            )}
+                            {s.requested > 0 && (
+                              <Badge label={`요청 ${s.requested}`} colorClass={TRAINER_EARNING_STATUS_COLORS.requested} />
+                            )}
+                            {s.deposited > 0 && (
+                              <Badge label={`입금 ${s.deposited}`} colorClass={TRAINER_EARNING_STATUS_COLORS.deposited} />
+                            )}
+                            {s.confirmed > 0 && (
+                              <Badge label={`확인 ${s.confirmed}`} colorClass={TRAINER_EARNING_STATUS_COLORS.confirmed} />
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </Card>
           )}
 
