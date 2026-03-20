@@ -88,6 +88,7 @@ export interface CreateDownloadCouponParams {
   endDate: string;
   policies: unknown[];
   contractId: number | string;
+  vendorItemIds?: number[];  // 생성 시 아이템 포함
 }
 
 async function callCoupangApi(
@@ -524,20 +525,28 @@ export async function createInstantCoupon(
   return data.data;
 }
 
-/** 즉시할인 쿠폰 아이템 추가 (상품에 쿠폰 연결) — 비동기 (requestedId 반환) */
+/** 즉시할인 쿠폰 아이템 추가 (상품에 쿠폰 연결) — 비동기 (requestedId 반환)
+ *
+ *  쿠팡 FMS coupon-items API:
+ *  - POST /api/v1/vendors/{vendorId}/coupons/{couponId}/items
+ *  - body: vendorItemId 배열을 직접 전송 (래핑 없이)
+ *  - 쿠팡 FMS는 body가 plain array여야 배치 처리됨 */
 export async function applyInstantCoupon(
   credentials: CoupangCredentials,
   couponId: number,
   vendorItemIds: (string | number)[],
 ): Promise<{ requestedId?: string }> {
-  // 쿠팡 FMS coupon-items API는 v1 사용 (coupon list/create는 v2)
-  // 문서: /api/v1/vendors/{vendorId}/coupons/{couponId}/items
   const path = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/coupons/${couponId}/items`;
   const numericIds = vendorItemIds.map(Number).filter((n) => !isNaN(n));
-  const result = await callCoupangApi(credentials, 'POST', path, { vendorItemIds: numericIds }) as Record<string, unknown>;
+
+  console.log(`[applyInstantCoupon] 쿠폰 ${couponId}에 ${numericIds.length}개 아이템 등록 요청, 샘플: [${numericIds.slice(0, 5).join(',')}...]`);
+
+  // 쿠팡 FMS API는 vendorItemId 배열을 직접 body로 전송해야 배치 처리됨
+  // { vendorItemIds: [...] } 형태는 1건만 처리되는 문제 있음
+  const result = await callCoupangApi(credentials, 'POST', path, numericIds) as Record<string, unknown>;
   const nested = (result.data || result) as Record<string, unknown>;
   const requestedId = String(nested.requestedId || nested.requestTransactionId || result.requestedId || '');
-  console.log(`[applyInstantCoupon] 쿠폰 ${couponId}에 ${numericIds.length}개 아이템 등록 요청 — requestedId: ${requestedId || '없음'}`);
+  console.log(`[applyInstantCoupon] 응답 — requestedId: ${requestedId || '없음'}, 전체: ${JSON.stringify(result).slice(0, 300)}`);
   return { requestedId: requestedId || undefined };
 }
 
@@ -652,12 +661,12 @@ function normalizePolicies(policies: unknown[]): Record<string, unknown>[] {
   });
 }
 
-/** 다운로드 쿠폰 생성 (아이템 없이 — 아이템은 별도 API로 등록)
+/** 다운로드 쿠폰 생성 (vendorItemIds 포함 — 쿠폰 생성과 아이템 등록을 한 번에)
  *
  *  쿠팡 공식 API:
  *  - POST /v2/providers/marketplace_openapi/apis/api/v1/coupons
- *  - body: { title, contractId(string), couponType:"DOWNLOAD", startDate, endDate, userId, policies }
- *  - 아이템(vendorItemIds)은 쿠폰 생성 후 별도 item creation API로 등록
+ *  - body: { title, contractId(string), couponType:"DOWNLOAD", startDate, endDate, userId, policies, vendorItemIds }
+ *  - vendorItemIds를 생성 시 포함해야 "요청불가" 없이 아이템이 등록됨
  *  - FMS 프로바이더는 즉시할인 전용이므로 다운로드 쿠폰에 사용 불가 */
 export async function createDownloadCoupon(
   credentials: CoupangCredentials,
@@ -665,7 +674,7 @@ export async function createDownloadCoupon(
 ): Promise<CoupangCoupon> {
   // 쿠팡 공식 엔드포인트: marketplace_openapi
   const mktPath = `${MKT_OPENAPI_BASE}/coupons`;
-  const body = {
+  const body: Record<string, unknown> = {
     title: params.title,
     contractId: String(params.contractId), // 반드시 string 타입
     couponType: 'DOWNLOAD',
@@ -675,8 +684,13 @@ export async function createDownloadCoupon(
     policies: normalizePolicies(params.policies), // 필수 필드 보정
   };
 
+  // vendorItemIds가 있으면 생성 시 포함 (별도 item API 대신 한 번에 등록)
+  if (params.vendorItemIds && params.vendorItemIds.length > 0) {
+    body.vendorItemIds = params.vendorItemIds;
+  }
+
   console.log('[createDownloadCoupon] 요청 경로:', mktPath);
-  console.log('[createDownloadCoupon] 요청 body:', JSON.stringify(body).slice(0, 500));
+  console.log(`[createDownloadCoupon] 요청 body (${params.vendorItemIds?.length || 0}개 아이템 포함):`, JSON.stringify(body).slice(0, 800));
 
   // marketplace_openapi — 다운로드 쿠폰의 유일한 공식 엔드포인트
   // FMS는 즉시할인 전용이므로 다운로드 쿠폰 생성 불가 (type=RATE/PRICE만 허용)
