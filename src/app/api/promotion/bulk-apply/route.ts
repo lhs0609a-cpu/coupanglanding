@@ -55,9 +55,14 @@ async function ensureInstantCoupon(
   const currentCount = config.instant_coupon_item_count || 0;
   const couponId = Number(config.instant_coupon_id);
 
-  // 현재 쿠폰에 여유가 있으면 그대로 사용
-  if (couponId > 0 && currentCount + itemsToAdd <= INSTANT_COUPON_MAX_ITEMS) {
+  // 현재 쿠폰에 여유가 있으면 그대로 사용 (auto_create 비활성이면 항상 기존 쿠폰 사용)
+  if (couponId > 0 && (currentCount + itemsToAdd <= INSTANT_COUPON_MAX_ITEMS || !config.instant_coupon_auto_create)) {
     return { couponId, couponName: config.instant_coupon_name };
+  }
+
+  // auto_create 비활성인데 한도 초과 시 에러
+  if (!config.instant_coupon_auto_create) {
+    throw new Error(`즉시할인 쿠폰 ${couponId}의 아이템 한도(${INSTANT_COUPON_MAX_ITEMS})를 초과했습니다. 자동 생성을 활성화하거나 새 쿠폰 ID를 입력해주세요.`);
   }
 
   // 새 쿠폰 생성 필요
@@ -72,13 +77,24 @@ async function ensureInstantCoupon(
     .replace('{date}', dateStr)
     .replace('{n}', String(Date.now()).slice(-4));
 
+  const discountValue = config.instant_coupon_discount || 0;
+  const discountType = (config.instant_coupon_discount_type as 'RATE' | 'FIXED') || 'RATE';
+
+  // 쿠팡 API 요구사항: 퍼센트 1-89, 정액 1원 이상
+  if (discountValue <= 0) {
+    throw new Error(`즉시할인 쿠폰 생성 불가: 할인값이 설정되지 않았습니다 (${discountType}: ${discountValue}). 설정에서 할인값을 입력해주세요.`);
+  }
+  if (discountType === 'RATE' && (discountValue < 1 || discountValue > 89)) {
+    throw new Error(`즉시할인 쿠폰 생성 불가: 퍼센트 할인은 1~89% 범위여야 합니다 (현재: ${discountValue}%).`);
+  }
+
   const newCoupon = await createInstantCoupon(credentials, {
     title,
     startDate: toCoupangDateFormat(now),
     endDate: toCoupangDateFormat(endDate),
-    discountType: (config.instant_coupon_discount_type as 'RATE' | 'FIXED') || 'RATE',
-    discountValue: config.instant_coupon_discount || 0,
-    maxDiscountPrice: config.instant_coupon_max_discount || 0,
+    discountType,
+    discountValue,
+    maxDiscountPrice: Math.max(config.instant_coupon_max_discount || 10, 10), // 최소 10원
     contractId: Number(config.contract_id) || 0,
   });
 
