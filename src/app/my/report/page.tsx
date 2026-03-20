@@ -991,7 +991,7 @@ export default function MyReportPage() {
           {costOpen && (
             <div className="mt-4 space-y-3">
               {COST_CATEGORIES.filter((cat) => cat.key !== MANUAL_COST_KEY).map((cat) => {
-                const rate = dynamicRates ? (dynamicRates as Record<string, number>)[cat.key] ?? 0 : 0;
+                const rate = dynamicRates ? (dynamicRates as unknown as Record<string, number>)[cat.key] ?? 0 : 0;
                 const val = costs[cat.key];
                 return (
                   <div key={cat.key} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
