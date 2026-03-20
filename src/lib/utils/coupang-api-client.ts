@@ -156,14 +156,28 @@ async function callCoupangApi(
   // 쿠팡 API는 HTTP 200이어도 body에 code:"ERROR" 를 반환할 수 있음
   const resBody = json as Record<string, unknown>;
   const resCode = String(resBody.code || '').toUpperCase();
-  const resResultCode = String((resBody as Record<string, unknown>).resultCode || '').toUpperCase();
-  if (resCode === 'ERROR' || resCode === 'FAIL' || resCode === 'INVALID_ARGUMENT'
-    || resCode === 'FORBIDDEN' || resCode === 'NOT_FOUND'
-    || resResultCode === 'FAIL' || resResultCode === 'ERROR') {
-    const msg = String(resBody.message || resBody.errorMessage || resBody.resultMessage || JSON.stringify(resBody).slice(0, 300));
-    const errorCode = resCode || resResultCode;
-    console.error(`[callCoupangApi] ${method} ${path} — 응답 code=${errorCode}: ${msg}`);
+  const resResultCode = String(resBody.resultCode || '').toUpperCase();
+
+  // 에러 코드 패턴 감지 (다양한 쿠팡 API 에러 형태)
+  const isErrorCode = ['ERROR', 'FAIL', 'INVALID_ARGUMENT', 'FORBIDDEN', 'NOT_FOUND',
+    'BAD_REQUEST', 'UNAUTHORIZED', 'DUPLICATE', 'CONFLICT', 'INVALID'].some(
+    (e) => resCode.includes(e) || resResultCode.includes(e),
+  );
+
+  // success: false 패턴 감지
+  const dataObj = resBody.data as Record<string, unknown> | undefined;
+  const isSuccessFalse = dataObj?.success === false && !dataObj?.content && !dataObj?.requestedId;
+
+  if (isErrorCode || isSuccessFalse) {
+    const msg = String(resBody.message || resBody.errorMessage || resBody.resultMessage || JSON.stringify(resBody).slice(0, 500));
+    const errorCode = resCode || resResultCode || 'UNKNOWN_ERROR';
+    console.error(`[callCoupangApi] ${method} ${path} — 응답 code=${errorCode}, success=${dataObj?.success}: ${msg}`);
     throw new CoupangApiError(`쿠팡 API 오류 (${errorCode}): ${msg}`, 200, errorCode);
+  }
+
+  // POST 요청의 경우 응답 로그 (디버깅용)
+  if (method === 'POST') {
+    console.log(`[callCoupangApi] ${method} ${path} — 응답: ${JSON.stringify(resBody).slice(0, 500)}`);
   }
 
   return json;
@@ -774,20 +788,16 @@ export async function addDownloadCouponItems(
 }
 
 /** 다운로드 쿠폰 요청 상태 확인
- *  다운로드 쿠폰은 marketplace_openapi에서 생성하므로 marketplace_openapi를 먼저 시도 */
+ *  다운로드 쿠폰은 marketplace_openapi에서 생성하므로 marketplace_openapi 사용 */
 export async function checkDownloadCouponStatus(
   credentials: CoupangCredentials,
   requestTransactionId: string,
 ): Promise<unknown> {
-  // 1차: marketplace_openapi (다운로드 쿠폰의 공식 상태 확인 경로)
-  try {
-    const mktPath = `${MKT_OPENAPI_BASE}/coupons/transactionStatus?requestTransactionId=${requestTransactionId}`;
-    return await callCoupangApi(credentials, 'GET', mktPath);
-  } catch {
-    // 2차 폴백: FMS
-    const fmsPath = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/requested/${requestTransactionId}`;
-    return callCoupangApi(credentials, 'GET', fmsPath);
-  }
+  const mktPath = `${MKT_OPENAPI_BASE}/coupons/transactionStatus?requestTransactionId=${requestTransactionId}`;
+  console.log(`[checkDownloadCouponStatus] 조회: ${mktPath}`);
+  const result = await callCoupangApi(credentials, 'GET', mktPath);
+  console.log(`[checkDownloadCouponStatus] 응답: ${JSON.stringify(result).slice(0, 500)}`);
+  return result;
 }
 
 /** 다운로드 쿠폰 아이템 등록 (레거시 호환 — 새 코드는 addDownloadCouponItems 사용) */

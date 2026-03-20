@@ -157,6 +157,13 @@ async function createDownloadCouponBatch(
   let couponId = newCoupon.couponId;
   const couponName = newCoupon.couponName || title;
 
+  console.log(`[bulk-apply] createDownloadCoupon 응답: couponId=${couponId}, requestTransactionId=${newCoupon.requestTransactionId || '없음'}, status=${newCoupon.couponStatus}`);
+
+  // couponId=0이고 requestTransactionId도 없으면 생성 자체가 실패
+  if (couponId === 0 && !newCoupon.requestTransactionId) {
+    throw new Error(`다운로드 쿠폰 생성 실패: couponId와 requestTransactionId 모두 없음. 쿠팡 API가 요청을 거부했을 수 있습니다.`);
+  }
+
   // 비동기 API: couponId=0이면 requestTransactionId로 상태 확인하여 couponId 획득
   if (couponId === 0 && newCoupon.requestTransactionId) {
     console.log(`[bulk-apply] 다운로드 쿠폰 비동기 생성 — 상태 확인 중 (${newCoupon.requestTransactionId})`);
@@ -326,40 +333,42 @@ export async function POST(request: NextRequest) {
             // 배치 API 호출 (한 번에 여러 vendorItemId 전송)
             const instantResult = await applyInstantCoupon(credentials, couponId, vendorItemIds);
 
-            // 비동기 결과 폴링 — 모든 배치에서 수행 (최대 5회, 3초 간격)
-            if (instantResult.requestedId) {
-              console.log(`[bulk-apply] 즉시할인 배치 — 비동기 결과 폴링 시작 (requestedId: ${instantResult.requestedId})`);
-              let asyncConfirmed = false;
-              for (let attempt = 0; attempt < 5; attempt++) {
-                await new Promise((r) => setTimeout(r, 3000));
-                try {
-                  const statusResult = await checkInstantCouponStatus(credentials, instantResult.requestedId) as Record<string, unknown>;
-                  const nested = (statusResult.data || statusResult) as Record<string, unknown>;
-                  const status = String(nested.status || nested.couponStatus || statusResult.status || '').toUpperCase();
-                  console.log(`[bulk-apply] 즉시할인 비동기 상태 (attempt ${attempt + 1}): ${status}`, JSON.stringify(nested).slice(0, 300));
+            // requestedId가 없으면 API가 실제로 처리하지 않은 것
+            if (!instantResult.requestedId) {
+              throw new Error(`즉시할인 API가 requestedId를 반환하지 않았습니다. 쿠팡에서 요청이 접수되지 않았을 수 있습니다.`);
+            }
 
-                  if (status === 'SUCCESS' || status === 'COMPLETED' || status === 'DONE') {
-                    asyncConfirmed = true;
-                    break;
-                  }
-                  if (status === 'FAIL' || status === 'FAILED' || status === 'ERROR') {
-                    const failMsg = String(nested.message || nested.failReason || '비동기 처리 실패');
-                    throw new Error(`즉시할인 비동기 실패 (${instantResult.requestedId}): ${failMsg}`);
-                  }
-                  // PARTIAL_SUCCESS 등도 확인
-                  if (status.includes('PARTIAL')) {
-                    console.warn(`[bulk-apply] 즉시할인 부분 성공: ${status}`);
-                    asyncConfirmed = true;
-                    break;
-                  }
-                } catch (pollErr) {
-                  if (pollErr instanceof Error && pollErr.message.includes('비동기 실패')) throw pollErr;
-                  console.warn(`[bulk-apply] 즉시할인 폴링 실패 (attempt ${attempt + 1}):`, pollErr instanceof Error ? pollErr.message : pollErr);
+            // 비동기 결과 폴링 — 반드시 확인 (최대 5회, 3초 간격)
+            console.log(`[bulk-apply] 즉시할인 배치 — 비동기 결과 폴링 시작 (requestedId: ${instantResult.requestedId})`);
+            let asyncConfirmed = false;
+            for (let attempt = 0; attempt < 5; attempt++) {
+              await new Promise((r) => setTimeout(r, 3000));
+              try {
+                const statusResult = await checkInstantCouponStatus(credentials, instantResult.requestedId) as Record<string, unknown>;
+                const nested = (statusResult.data || statusResult) as Record<string, unknown>;
+                const status = String(nested.status || nested.couponStatus || statusResult.status || '').toUpperCase();
+                console.log(`[bulk-apply] 즉시할인 비동기 상태 (attempt ${attempt + 1}): ${status}`, JSON.stringify(nested).slice(0, 500));
+
+                if (status === 'SUCCESS' || status === 'COMPLETED' || status === 'DONE') {
+                  asyncConfirmed = true;
+                  break;
                 }
+                if (status === 'FAIL' || status === 'FAILED' || status === 'ERROR') {
+                  const failMsg = String(nested.message || nested.failReason || '비동기 처리 실패');
+                  throw new Error(`즉시할인 비동기 실패 (${instantResult.requestedId}): ${failMsg}`);
+                }
+                if (status.includes('PARTIAL')) {
+                  console.warn(`[bulk-apply] 즉시할인 부분 성공: ${status}`);
+                  asyncConfirmed = true;
+                  break;
+                }
+              } catch (pollErr) {
+                if (pollErr instanceof Error && pollErr.message.includes('비동기 실패')) throw pollErr;
+                console.warn(`[bulk-apply] 즉시할인 폴링 실패 (attempt ${attempt + 1}):`, pollErr instanceof Error ? pollErr.message : pollErr);
               }
-              if (!asyncConfirmed) {
-                console.warn(`[bulk-apply] 즉시할인 비동기 결과 미확인 — 성공으로 간주하되 검증 필요`);
-              }
+            }
+            if (!asyncConfirmed) {
+              throw new Error(`즉시할인 비동기 처리 결과를 확인할 수 없습니다 (requestedId: ${instantResult.requestedId}). 쿠팡에서 실제 처리되지 않았을 수 있습니다.`);
             }
 
             // 성공 — 아이템 카운트 업데이트
