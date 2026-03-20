@@ -302,7 +302,20 @@ export async function fetchProductListings(
 
     lastResponse = data;
 
-    for (const product of (data.data || [])) {
+    const products = Array.isArray(data.data) ? data.data : [];
+
+    // 첫 페이지 진단 로그
+    if (page === 0) {
+      console.log(`[fetchProductListings] 응답 keys:`, Object.keys(data));
+      console.log(`[fetchProductListings] data.data isArray:`, Array.isArray(data.data), `길이:`, products.length);
+      if (products.length > 0) {
+        console.log(`[fetchProductListings] 첫 상품 keys:`, Object.keys(products[0]));
+      } else if (data.data && !Array.isArray(data.data)) {
+        console.warn(`[fetchProductListings] data.data가 배열이 아님:`, typeof data.data, JSON.stringify(data.data).slice(0, 300));
+      }
+    }
+
+    for (const product of products) {
       const sellerProductId = String(product.sellerProductId || '');
       const sellerProductName = String(product.sellerProductName || product.productName || '');
       const createdAt = product.createdAt ? String(product.createdAt) : null;
@@ -471,7 +484,7 @@ export async function fetchInstantCoupons(
 ): Promise<CoupangCoupon[]> {
   const path = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupons`;
   const data = await callCoupangApi(credentials, 'GET', path) as { data?: CoupangCoupon[] };
-  return data.data || [];
+  return Array.isArray(data.data) ? data.data : [];
 }
 
 /** 즉시할인 쿠폰 생성 — 비동기 (requestedId 반환) */

@@ -33,11 +33,13 @@ export default function InstantCouponCard({
     setManualId(couponId);
   }, [couponId]);
 
+  const coupons = Array.isArray(existingCoupons) ? existingCoupons : [];
+
   const handleLoadCoupon = () => {
     if (!manualId.trim()) return;
     onChange('instant_coupon_id', manualId.trim());
     // Look up the name from existing coupons if available
-    const found = existingCoupons.find((c) => String(c.couponId) === manualId.trim());
+    const found = coupons.find((c) => String(c.couponId) === manualId.trim());
     if (found) {
       onChange('instant_coupon_name', found.couponName);
     }
@@ -45,7 +47,7 @@ export default function InstantCouponCard({
 
   const handleSelectExisting = (selectedId: string) => {
     if (!selectedId) return;
-    const sel = existingCoupons.find((c) => String(c.couponId) === selectedId);
+    const sel = coupons.find((c) => String(c.couponId) === selectedId);
     onChange('instant_coupon_id', selectedId);
     onChange('instant_coupon_name', sel?.couponName || '');
     setManualId(selectedId);
@@ -128,7 +130,7 @@ export default function InstantCouponCard({
           </div>
 
           {/* Select from existing coupons */}
-          {existingCoupons.length > 0 && (
+          {coupons.length > 0 && (
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">기존 쿠폰에서 선택</label>
               <select
@@ -137,7 +139,7 @@ export default function InstantCouponCard({
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-[#E31837]/30 focus:border-[#E31837]"
               >
                 <option value="">기존 쿠폰 선택...</option>
-                {existingCoupons.map((c) => (
+                {coupons.map((c) => (
                   <option key={c.couponId} value={String(c.couponId)}>
                     {c.couponName} ({c.couponStatus})
                   </option>

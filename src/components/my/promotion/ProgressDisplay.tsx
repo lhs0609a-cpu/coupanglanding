@@ -133,6 +133,20 @@ export default function ProgressDisplay({
         </div>
       </div>
 
+      {/* 0건 완료 경고 */}
+      {(isCompleted || isFailed) && progress.total_products === 0 && (
+        <div className="flex items-start gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <span className="text-yellow-600 text-sm mt-0.5">&#9888;</span>
+          <div>
+            <p className="text-sm font-medium text-yellow-800">수집된 상품이 0개입니다</p>
+            <p className="text-xs text-yellow-700 mt-1">
+              쿠팡 Wing에서 승인(APPROVED) 상태의 상품이 있는지 확인해주세요.
+              상품이 있는데도 0건이면 API 응답 형식 문제일 수 있습니다.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Completion buttons */}
       {isCompleted && onApplyNewOnly && (
         <div className="flex gap-3 pt-2 border-t border-gray-100">

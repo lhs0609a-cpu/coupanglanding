@@ -95,13 +95,20 @@ export async function POST(request: NextRequest) {
 
     // 쿠팡에서 상품 배치 조회 (PAGES_PER_CALL 페이지만)
     console.log(`[collect-products] 배치 수집 시작 (resumeToken: ${resumeToken ? '있음' : '없음'})`);
-    const { items: productItems, nextToken } = await fetchProductListings(credentials, {
+    const { items: productItems, nextToken, rawResponse } = await fetchProductListings(credentials, {
       status: 'APPROVED',
       maxPages: PAGES_PER_CALL,
       nextToken: resumeToken,
     });
 
     console.log(`[collect-products] 이번 배치: ${productItems.length}개 vendorItem, nextToken: ${nextToken ? '있음' : '없음'}`);
+
+    // 0건인 경우 rawResponse 로깅
+    if (productItems.length === 0 && !resumeToken) {
+      const { count: inflowCount } = await fetchTotalProductCount(credentials);
+      console.warn(`[collect-products] 상품 0건 수집됨. inflow-status 등록 상품 수: ${inflowCount}`);
+      console.warn(`[collect-products] API 응답 일부:`, JSON.stringify(rawResponse).slice(0, 500));
+    }
 
     // product_coupon_tracking에 upsert (batch)
     let insertedCount = 0;
@@ -125,7 +132,7 @@ export async function POST(request: NextRequest) {
         .from('product_coupon_tracking')
         .upsert(rows, {
           onConflict: 'pt_user_id,vendor_item_id',
-          ignoreDuplicates: true, // 이미 처리된 항목은 건너뜀
+          ignoreDuplicates: true, // 이미 존재하는 항목은 건너뜀 (신규 상품만 적용 시 completed 보존)
         });
 
       if (upsertError) {

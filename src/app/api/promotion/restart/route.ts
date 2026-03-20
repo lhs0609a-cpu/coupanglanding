@@ -35,12 +35,11 @@ export async function POST() {
       return NextResponse.json({ error: '기존 작업 취소에 실패했습니다.' }, { status: 500 });
     }
 
-    // 2. 완료되지 않은 트래킹 레코드를 pending으로 리셋
+    // 2. 모든 트래킹 레코드를 pending으로 리셋 (전체 재적용)
     const { error: resetError } = await serviceClient
       .from('product_coupon_tracking')
       .update({ status: 'pending' })
-      .eq('pt_user_id', ptUser.id)
-      .not('status', 'eq', 'completed');
+      .eq('pt_user_id', ptUser.id);
 
     if (resetError) {
       console.error('트래킹 레코드 리셋 오류:', resetError);
