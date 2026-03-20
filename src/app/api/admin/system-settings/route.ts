@@ -21,7 +21,7 @@ export async function GET() {
     return NextResponse.json({ error: '관리자 권한이 필요합니다.' }, { status: 403 });
   }
 
-  const supabase = createServiceClient();
+  const supabase = await createServiceClient();
   const { data, error } = await supabase
     .from('system_settings')
     .select('*')
@@ -48,7 +48,7 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: 'key와 value가 필요합니다.' }, { status: 400 });
   }
 
-  const supabase = createServiceClient();
+  const supabase = await createServiceClient();
   const { error } = await supabase
     .from('system_settings')
     .upsert(

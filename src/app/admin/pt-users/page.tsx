@@ -20,7 +20,7 @@ import {
   SETTLEMENT_STATUS_LABELS,
   SETTLEMENT_STATUS_COLORS,
 } from '@/lib/utils/constants';
-import { getFirstEligibleMonth, getReportTargetMonth, isEligibleForMonth, getSettlementStatus, getSettlementDDay, formatDDay, getDDayColorClass } from '@/lib/utils/settlement';
+import { getFirstEligibleMonth, getReportTargetMonth, isEligibleForMonth, getSettlementStatus, getSettlementDDay, formatDDay, getDDayColorClass, formatSettlementPeriod } from '@/lib/utils/settlement';
 import MonthPicker from '@/components/ui/MonthPicker';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -960,6 +960,12 @@ export default function AdminPtUsersPage() {
                               <Badge
                                 label="API 검증됨"
                                 colorClass="bg-green-100 text-green-700"
+                              />
+                            )}
+                            {report.period_start && report.period_end && (
+                              <Badge
+                                label={`초기 합산: ${formatSettlementPeriod(report.period_start, report.period_end)}`}
+                                colorClass="bg-blue-100 text-blue-700"
                               />
                             )}
 

@@ -65,6 +65,8 @@ export interface EditableProduct extends PreviewProduct {
   editedTaxType?: 'TAX' | 'FREE' | 'ZERO';
   editedAdultOnly?: 'EVERYONE' | 'ADULT_ONLY';
   editedBarcode?: string;
+  editedParallelImported?: 'NOT_PARALLEL_IMPORTED' | 'PARALLEL_IMPORTED';
+  editedOverseasPurchased?: 'NOT_OVERSEAS_PURCHASED' | 'OVERSEAS_PURCHASED';
   editedNoticeValues?: Record<string, string>;
   editedAttributeValues?: Record<string, string>;
   // 상세페이지 콘텐츠 오버라이드

@@ -10,7 +10,7 @@ import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/for
 import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, COST_CATEGORIES, MANUAL_COST_KEY } from '@/lib/utils/constants';
 import { loadCostSettings } from '@/lib/utils/cost-settings';
 import type { CostRateSettings } from '@/lib/utils/cost-settings';
-import { getReportTargetMonth, isEligibleForMonth, getFirstEligibleMonth, getSettlementDDay, formatDDay, getDDayColorClass, formatDeadline, getAdminSettlementStatus } from '@/lib/utils/settlement';
+import { getReportTargetMonth, isEligibleForMonth, getFirstEligibleMonth, getSettlementDDay, formatDDay, getDDayColorClass, formatDeadline, getAdminSettlementStatus, getSettlementPeriod, formatSettlementPeriod } from '@/lib/utils/settlement';
 import type { PaymentStatus as SettlementPaymentStatus } from '@/lib/utils/settlement';
 import AdminPendingBanner from '@/components/settlement/AdminPendingBanner';
 import ScreenshotGuide, { FraudWarningBanner } from '@/components/settlement/ScreenshotGuide';
@@ -206,7 +206,12 @@ export default function MyReportPage() {
       const res = await fetch('/api/coupang-settlement', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ yearMonth }),
+        body: JSON.stringify({
+          yearMonth,
+          ...(isInitialPeriod && settlementPeriod
+            ? { periodStart: settlementPeriod.start, periodEnd: settlementPeriod.end }
+            : {}),
+        }),
       });
 
       const data = await res.json();
@@ -337,6 +342,8 @@ export default function MyReportPage() {
       vat_amount: finalVatCalc.vatAmount,
       total_with_vat: finalVatCalc.totalWithVat,
       input_source: apiVerified ? 'api' as const : 'manual_approved' as const,
+      period_start: settlementPeriod?.start || null,
+      period_end: settlementPeriod?.end || null,
     };
 
     if (report) {
@@ -404,6 +411,8 @@ export default function MyReportPage() {
   const effectiveApiConnected = testMode ? true : apiConnected;
   const dday = getSettlementDDay(yearMonth);
   const firstEligible = ptUser ? getFirstEligibleMonth(ptUser.created_at) : null;
+  const settlementPeriod = ptUser ? getSettlementPeriod(ptUser.created_at, yearMonth) : null;
+  const isInitialPeriod = settlementPeriod?.isInitial ?? false;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -556,13 +565,28 @@ export default function MyReportPage() {
         <div className={`rounded-lg p-4 flex items-center justify-between flex-wrap gap-2 ${getDDayColorClass(dday)} border`}>
           <div>
             <p className="text-sm font-medium">
-              {formatYearMonth(yearMonth)} 매출 정산 마감
+              {isInitialPeriod && settlementPeriod
+                ? `${formatSettlementPeriod(settlementPeriod.start, settlementPeriod.end)} 매출 합산 정산 마감`
+                : `${formatYearMonth(yearMonth)} 매출 정산 마감`
+              }
             </p>
             <p className="text-xs mt-0.5 opacity-80">
               마감일: {formatDeadline(yearMonth)}
             </p>
           </div>
           <span className="text-lg font-bold">{formatDDay(dday)}</span>
+        </div>
+      )}
+
+      {/* 첫 정산 합산 구간 배너 */}
+      {isInitialPeriod && settlementPeriod && eligible && (
+        <div className="rounded-lg p-4 bg-blue-50 border border-blue-200">
+          <p className="text-sm font-medium text-blue-800">
+            첫 정산: {formatSettlementPeriod(settlementPeriod.start, settlementPeriod.end)} 합산 정산
+          </p>
+          <p className="text-xs text-blue-600 mt-1">
+            등록일부터 첫 대상 월 말일까지의 매출이 합산됩니다.
+          </p>
         </div>
       )}
 
@@ -596,7 +620,7 @@ export default function MyReportPage() {
       {/* 3. 통계 카드 */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
-          title="이번 달 매출"
+          title={isInitialPeriod ? '정산 구간 매출' : '이번 달 매출'}
           value={revenue > 0 ? formatKRW(revenue) : '-'}
           icon={<Calculator className="w-5 h-5" />}
         />

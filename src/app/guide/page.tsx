@@ -134,35 +134,53 @@ const navLinks = [
 ];
 
 const faqData = [
-  { q: '위탁판매는 불법 아닌가요?', a: '아닙니다. 위탁판매는 합법적인 사업 모델입니다. 다만, 반드시 사업자등록을 하고 통신판매업 신고를 해야 합니다. 정식 절차를 밟으면 아무런 문제가 없습니다.' },
-  { q: '초기 투자금이 많이 필요하지 않나요?', a: '0원으로 시작 가능합니다. 사업자등록은 무료이고, 쿠팡 윙 가입도 무료입니다. 상품을 미리 사두는 게 아니라, 주문이 들어온 후 도매처에 발주하기 때문에 선투자가 필요 없습니다.' },
-  { q: '누구나 할 수 있나요?', a: '네, 컴퓨터 기본 사용만 가능하면 됩니다. 다만, 쉽게 시작할 수 있는 만큼 경쟁도 있으므로, 위닝 상품 발굴과 CS(고객 서비스)에 꾸준한 노력이 필요합니다.' },
-  { q: '경쟁이 너무 심하지 않나요?', a: '인기 카테고리는 경쟁이 치열할 수 있지만, 카테고리를 잘 선택하면 틈새시장이 많습니다. 시즌 상품, 니치 키워드, 번들 구성 등 전략적 접근이 핵심입니다.' },
-  { q: '정말 돈이 되나요?', a: '노력에 비례합니다. 상위 10%는 월 300만원 이상의 수익을 올리고, 꾸준히 하시는 분들은 평균적으로 월 50~100만원 수준의 부수입을 만들고 있습니다.' },
-  { q: '본업이 있어도 가능한가요?', a: '충분히 가능합니다. 하루 1~2시간이면 상품 등록, 주문 처리, CS 대응을 할 수 있습니다. 실제로 직장인 부업으로 시작하시는 분이 가장 많습니다.' },
+  {
+    q: '위탁판매는 불법 아닌가요?',
+    a: '위탁판매는 100% 합법적인 사업 모델입니다. 쿠팡, 네이버 등 모든 오픈마켓이 공식적으로 허용하고 있는 판매 방식이에요. 다만, 시작 전에 사업자등록(홈택스에서 무료)과 통신판매업 신고(구청에서 무료)를 꼭 해야 합니다. 이 두 가지만 완료하면 떳떳하게 사업을 운영할 수 있습니다.',
+  },
+  {
+    q: '초기 투자금이 많이 필요하지 않나요?',
+    a: '사실상 0원입니다. 사업자등록(무료), 쿠팡 윙 가입(무료), 상품 등록(무료)이라 돈이 들지 않아요. 핵심은 "고객이 주문한 후에 도매처에 결제"하는 구조라서, 재고를 미리 사놓을 필요가 없다는 점입니다. 결제 시점이 주문 이후이기 때문에 물건이 안 팔려서 손해보는 일이 없습니다.',
+  },
+  {
+    q: '누구나 할 수 있나요?',
+    a: '인터넷 검색과 간단한 문서 작업이 가능한 분이라면 충분합니다. 특별한 기술이나 자격증이 필요하지 않아요. 다만 "쉽게 시작할 수 있다"와 "쉽게 수익을 낼 수 있다"는 다릅니다. 좋은 상품을 찾는 눈과 고객 응대에 대한 성실함이 꾸준한 수익의 핵심입니다.',
+  },
+  {
+    q: '경쟁이 너무 심하지 않나요?',
+    a: '인기 카테고리(예: 휴대폰 케이스)는 경쟁이 치열하지만, 쿠팡에는 수천 개의 카테고리가 있습니다. 시즌 상품(여름 선풍기, 겨울 핫팩), 전문 분야 용품, 세트 구성 등 아직 경쟁이 적은 틈새시장이 많습니다. 남들이 안 보는 곳에서 기회를 찾는 것이 핵심 전략입니다.',
+  },
+  {
+    q: '정말 돈이 되나요?',
+    a: '솔직하게 말씀드리면, 노력에 비례합니다. 등록한 상품이 많을수록, 좋은 상품을 고를수록 수익이 올라갑니다. 꾸준히 하시는 분들은 월 50~100만원 수준의 부수입을, 전업으로 집중하시는 분들은 월 300만원 이상을 만들기도 합니다. 어떤 사업이든 "자동으로 돈이 들어온다"는 건 없고, 꾸준함이 핵심입니다.',
+  },
+  {
+    q: '본업이 있어도 가능한가요?',
+    a: '네, 실제로 직장인 부업으로 시작하시는 분이 가장 많습니다. 퇴근 후 하루 1~2시간이면 상품 등록, 주문 처리, 고객 문의 응대가 가능합니다. 주문이 들어오면 도매처에 발주만 넣으면 되니, 출근 중에도 스마트폰으로 처리할 수 있어요.',
+  },
 ];
 
 const warningCards = [
-  { title: '마진 계산 실수', desc: '쿠팡 수수료, 배송비, 예상 반품비까지 빼야 합니다. 하나라도 빼먹으면 역마진이 발생합니다.' },
-  { title: '배송/CS 책임', desc: '도매처가 배송하더라도 CS 책임은 판매자에게 있습니다. 배송 지연, 불량 등에 대한 대응이 필요합니다.' },
-  { title: '지재권 침해', desc: '브랜드 상품을 무단으로 판매하면 계정 정지 + 법적 문제가 발생합니다. 반드시 판매 가능 여부를 확인하세요.' },
-  { title: '과다 가격 경쟁', desc: '무조건 최저가 경쟁에 빠지면 마진이 0원이 됩니다. 가격 이외의 차별화 포인트를 찾으세요.' },
-  { title: '계정 관리', desc: '배송 지연, CS 미흡 등으로 패널티가 누적되면 판매 제한 또는 영구 정지될 수 있습니다.' },
+  { title: '마진 계산은 꼼꼼하게', desc: '판매가에서 원가만 빼면 안 됩니다. 쿠팡 수수료(약 10%), 배송비, 예상 반품비까지 모두 계산해야 실제 수익이 나옵니다.', tip: '위의 마진 계산기로 미리 확인하세요.' },
+  { title: '고객 응대는 내 몫', desc: '도매처가 배송하지만, 고객이 문의하면 응답하는 건 판매자입니다. 배송 지연이나 불량이 생기면 도매처와 고객 사이에서 중재해야 합니다.', tip: '빠른 응답이 좋은 리뷰로 이어집니다.' },
+  { title: '브랜드 상품은 확인 필수', desc: '나이키, 삼성 등 브랜드 상품은 정식 유통 계약 없이 판매하면 지재권 침해로 계정 정지 + 법적 문제가 생길 수 있습니다.', tip: '브랜드가 없는 일반 생활용품부터 시작하세요.' },
+  { title: '최저가 경쟁은 피하기', desc: '같은 상품을 파는 사람이 많으면 가격을 계속 낮추게 되는데, 이러면 결국 마진이 0원이 됩니다.', tip: '세트 구성, 상세페이지 품질 등으로 차별화하세요.' },
+  { title: '계정 건강 관리', desc: '배송이 자주 늦거나 고객 문의를 무시하면 쿠팡에서 페널티를 부여합니다. 누적되면 판매 제한이 걸릴 수 있어요.', tip: '주문 알림을 켜고, 당일 발주를 습관화하세요.' },
 ];
 
 const glossaryTerms = [
-  { term: '위탁판매', def: '재고 없이 중간에서 판매를 대행하는 사업 모델' },
-  { term: '도매처', def: '상품을 공급해주는 곳 (오너클랜, 도매꾹 등)' },
-  { term: '마진/마진율', def: '판매가 - 원가 - 수수료 = 순수익' },
-  { term: '수수료율', def: '쿠팡이 가져가는 판매 수수료 (카테고리별 상이, 평균 10.8%)' },
-  { term: '위닝 상품', def: '잘 팔리면서 마진이 남는 좋은 상품' },
-  { term: '로켓그로스', def: '쿠팡 물류센터에 입고하는 방식 (위탁판매와는 다름)' },
-  { term: '마켓플레이스', def: '직접 배송하는 일반 판매 방식' },
-  { term: '발주', def: '도매처에 주문을 넣는 것' },
-  { term: 'CS (고객 서비스)', def: '고객 문의 응대, 반품/교환 처리 등' },
-  { term: '패널티', def: '배송 지연/CS 미흡 시 쿠팡이 부여하는 벌점' },
-  { term: '윙 (Wing)', def: '쿠팡 판매자 관리 사이트' },
-  { term: '상품등록', def: '쿠팡에 상품을 올리는 작업' },
+  { term: '위탁판매', def: '재고를 직접 보유하지 않고, 도매처의 상품을 쿠팡에 등록해서 판매하는 합법적인 사업 모델입니다.' },
+  { term: '도매처', def: '상품을 저렴한 가격에 공급해주는 곳. 대표적으로 오너클랜, 도매꾹 등이 있습니다.' },
+  { term: '마진', def: '내 순수익 = 쿠팡 판매가 - 도매 원가 - 쿠팡 수수료. 마진율은 (마진 ÷ 판매가) × 100%입니다.' },
+  { term: '수수료율', def: '쿠팡이 판매 금액에서 가져가는 비율. 카테고리마다 다르며 평균 약 10.8%입니다.' },
+  { term: '위닝 상품', def: '수요가 있고, 경쟁이 적고, 마진이 남는 좋은 상품. 이걸 잘 찾는 게 수익의 핵심입니다.' },
+  { term: '로켓그로스', def: '쿠팡 물류센터에 상품을 직접 입고하는 방식. 위탁판매와는 다른 방식이니 혼동하지 마세요.' },
+  { term: '마켓플레이스', def: '판매자가 직접 배송하는 쿠팡의 일반 판매 방식. 위탁판매는 이 방식을 사용합니다.' },
+  { term: '발주', def: '고객 주문이 들어온 후, 도매처에 해당 상품을 주문하는 것. 고객 주소로 직접 배송을 요청합니다.' },
+  { term: 'CS (고객 서비스)', def: '고객이 문의하거나 반품/교환을 요청할 때 응대하는 것. 판매자의 중요한 역할입니다.' },
+  { term: '패널티', def: '배송 지연, 고객 응대 미흡 등이 반복되면 쿠팡이 부여하는 벌점. 누적 시 판매 제한될 수 있습니다.' },
+  { term: '윙 (Wing)', def: 'wing.coupang.com — 쿠팡 판매자 전용 관리 사이트. 상품 등록, 주문 확인, 정산 등을 합니다.' },
+  { term: '상품등록', def: '도매처 상품의 이미지, 설명, 가격을 쿠팡에 올리는 작업. 한 번 등록하면 고객이 검색해서 주문할 수 있어요.' },
 ];
 
 const presets = [
@@ -296,7 +314,7 @@ function HeroSection() {
         {/* Subtitle */}
         <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
           className="text-lg sm:text-xl text-white/50 leading-relaxed mb-12 max-w-2xl mx-auto">
-          위탁판매가 뭔지 모르는 분을 위한 왕초보 가이드
+          위탁판매가 뭔지, 어떻게 시작하는지 처음부터 끝까지 알려드립니다
         </motion.p>
 
         {/* 3 Glass stat cards */}
@@ -336,7 +354,7 @@ function HeroSection() {
         {/* Trust bar */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }}
           className="mt-12 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-white/30">
-          {['5분 읽기', '사업자등록 불필요', '100% 무료 콘텐츠'].map((t) => (
+          {['5분 읽기', '초보자도 쉽게 이해', '100% 무료 콘텐츠'].map((t) => (
             <span key={t} className="flex items-center gap-1.5">
               <Check className="w-3.5 h-3.5 text-[#ff6b81]/60" />
               {t}
@@ -353,9 +371,9 @@ function HeroSection() {
 // ============================================================================
 function WhatSection() {
   const analogies = [
-    { icon: <ShoppingCart className="w-6 h-6" />, text: '편의점 점원이 물건을 직접 만들지 않아도 팔 수 있듯이', color: 'from-blue-500 to-blue-600' },
-    { icon: <Home className="w-6 h-6" />, text: '부동산 중개인이 집을 소유하지 않아도 거래를 연결하듯이', color: 'from-emerald-500 to-emerald-600' },
-    { icon: <Package className="w-6 h-6" />, text: '위탁판매자는 상품을 직접 보유하지 않고 쿠팡에서 판매합니다', color: 'from-[#E31837] to-[#ff4d6a]' },
+    { icon: <ShoppingCart className="w-6 h-6" />, text: '편의점도 직접 물건을 만들지 않지만 합법적으로 판매하죠? 도매처에서 공급받아 판매하는 것과 같은 구조입니다.', color: 'from-blue-500 to-blue-600' },
+    { icon: <Home className="w-6 h-6" />, text: '부동산 중개인이 집을 소유하지 않아도 매매를 연결해주듯이, 위탁판매자는 도매처와 고객 사이를 연결합니다.', color: 'from-emerald-500 to-emerald-600' },
+    { icon: <Package className="w-6 h-6" />, text: '도매처가 상품과 배송을 담당하고, 나는 쿠팡에서 상품 등록과 고객 응대를 담당합니다. 각자의 역할이 나뉘어 있는 정식 사업 모델이에요.', color: 'from-[#E31837] to-[#ff4d6a]' },
   ];
 
   return (
@@ -408,10 +426,13 @@ function WhatSection() {
             <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl bg-gradient-to-b from-[#E31837] to-[#ff4d6a]" />
             <span className="text-5xl sm:text-6xl font-serif text-[#E31837]/20 leading-none absolute top-4 left-6">&ldquo;</span>
             <p className="relative text-2xl sm:text-3xl font-bold text-gray-900 leading-snug pl-4">
-              남의 물건을 쿠팡에 올리고,{' '}
+              도매처 상품을 쿠팡에 등록하고,{' '}
               <span className="bg-gradient-to-r from-[#E31837] to-[#ff4d6a] bg-clip-text text-transparent">
-                팔리면 차액이 내 수익
+                판매가와 도매가의 차이가 내 수익
               </span>
+            </p>
+            <p className="relative text-sm text-gray-500 mt-3 pl-4">
+              도매처는 판매 채널을 얻고, 나는 수익을 얻는 — 서로 윈윈하는 구조입니다.
             </p>
           </div>
         </motion.div>
@@ -425,10 +446,10 @@ function WhatSection() {
 // ============================================================================
 function FlowSection() {
   const steps = [
-    { icon: <Search className="w-7 h-7" />, title: '상품 등록', desc: '도매 사이트에서 상품을 찾아 쿠팡에 등록', color: 'from-blue-500 to-blue-600' },
-    { icon: <ShoppingCart className="w-7 h-7" />, title: '고객 주문', desc: '쿠팡에서 고객이 내 상품을 주문', color: 'from-emerald-500 to-emerald-600' },
-    { icon: <Truck className="w-7 h-7" />, title: '도매처 발주', desc: '도매처에 고객 배송지로 직접 배송 요청', color: 'from-amber-500 to-amber-600' },
-    { icon: <DollarSign className="w-7 h-7" />, title: '수익 확정', desc: '판매가 - 원가 - 수수료 = 내 수익', color: 'from-[#E31837] to-[#ff4d6a]' },
+    { icon: <Search className="w-7 h-7" />, title: '상품 등록', desc: '도매 사이트(오너클랜 등)에서 마진이 남는 상품을 골라 쿠팡에 등록합니다', color: 'from-blue-500 to-blue-600' },
+    { icon: <ShoppingCart className="w-7 h-7" />, title: '고객 주문', desc: '쿠팡에서 고객이 내가 등록한 상품을 구매합니다 (이 시점까지 내 돈이 나가는 건 없어요)', color: 'from-emerald-500 to-emerald-600' },
+    { icon: <Truck className="w-7 h-7" />, title: '도매처에 발주', desc: '고객의 배송지를 입력해서 도매처에 주문합니다. 도매처가 고객에게 직접 배송해줍니다', color: 'from-amber-500 to-amber-600' },
+    { icon: <DollarSign className="w-7 h-7" />, title: '수익 정산', desc: '쿠팡 판매가 - 도매 원가 - 쿠팡 수수료 = 내 순수익. 쿠팡이 정산일에 입금해줍니다', color: 'from-[#E31837] to-[#ff4d6a]' },
   ];
 
   return (
@@ -531,11 +552,11 @@ function ComparisonSection() {
     { label: '리스크', value: '높음' },
   ];
   const dropshipping = [
-    { label: '초기 자본', value: '0원' },
-    { label: '창고/재고', value: '재고 없음 (도매처 재고 활용)' },
-    { label: '포장/배송', value: '도매처가 대행' },
-    { label: '안 팔리면', value: '상품 내리면 끝' },
-    { label: '리스크', value: '최소' },
+    { label: '초기 자본', value: '0원 (주문 후 결제 구조)' },
+    { label: '창고/재고', value: '필요 없음 — 도매처 재고 활용' },
+    { label: '포장/배송', value: '도매처가 고객에게 직접 배송' },
+    { label: '안 팔리면', value: '쿠팡에서 상품 내리면 끝 (손해 없음)' },
+    { label: '리스크', value: '매우 낮음' },
   ];
 
   return (
@@ -780,7 +801,7 @@ function CalculatorSection() {
                 )}
 
                 <p className="text-xs text-white/20 text-center">
-                  * 실제 수익은 상품/카테고리에 따라 다를 수 있습니다. 배송비, 반품비 등 추가 비용은 포함되지 않은 단순 계산입니다.
+                  * 위 계산은 참고용 단순 시뮬레이션입니다. 실제 수익은 카테고리별 수수료율, 배송비(보통 도매가에 포함), 반품 발생률 등에 따라 달라질 수 있습니다.
                 </p>
               </div>
             </div>
@@ -796,11 +817,11 @@ function CalculatorSection() {
 // ============================================================================
 function StepsSection() {
   const steps = [
-    { title: '사업자등록 + 쿠팡 윙 가입', desc: '무료, 온라인에서 10분이면 완료됩니다. 사업자등록증은 홈택스에서, 쿠팡 윙은 wing.coupang.com에서 가입하세요.', time: '10분', icon: <FileText className="w-5 h-5" /> },
-    { title: '도매 사이트에서 상품 찾기', desc: '오너클랜, 도매꾹 등에서 마진이 남는 위닝 상품을 탐색합니다. 수요가 있고 경쟁이 적은 상품이 핵심입니다.', time: '1시간~', icon: <Search className="w-5 h-5" /> },
-    { title: '마진 계산 후 쿠팡에 등록', desc: '수수료, 배송비를 제하고 남는 금액이 있는지 꼼꼼히 확인한 후 상품을 등록합니다.', time: '30분~', icon: <Calculator className="w-5 h-5" /> },
-    { title: '주문 들어오면 도매처에 발주', desc: '고객이 주문하면 도매처에 고객 배송지로 직접 배송을 요청합니다.', time: '실시간', icon: <Truck className="w-5 h-5" /> },
-    { title: '도매처가 고객에게 배송 → 차액 = 내 수익!', desc: '도매처가 발송을 완료하면 운송장을 입력하고, 정산일에 차액을 수령합니다.', time: '자동', icon: <DollarSign className="w-5 h-5" /> },
+    { title: '사업자등록 + 쿠팡 윙 가입', desc: '홈택스(hometax.go.kr)에서 사업자등록 신청(무료, 당일~2일 발급) → 구청에서 통신판매업 신고 → wing.coupang.com에서 판매자 가입. 모두 온라인으로 가능합니다.', time: '10분', icon: <FileText className="w-5 h-5" /> },
+    { title: '도매 사이트에서 상품 찾기', desc: '오너클랜(onerclean.com), 도매꾹(domeggook.com) 같은 도매 사이트에서 상품을 검색합니다. "쿠팡에서 얼마에 팔 수 있는지"를 기준으로 마진이 남는 상품을 골라보세요.', time: '1시간~', icon: <Search className="w-5 h-5" /> },
+    { title: '마진 계산 후 쿠팡에 등록', desc: '판매가에서 도매가 + 쿠팡 수수료(약 10%) + 배송비를 빼고 남는 금액이 있으면 쿠팡에 등록합니다. 도매 사이트의 상품 이미지와 설명을 활용할 수 있어요.', time: '30분~', icon: <Calculator className="w-5 h-5" /> },
+    { title: '주문이 들어오면 도매처에 발주', desc: '고객이 쿠팡에서 주문하면 알림이 옵니다. 도매 사이트에서 같은 상품을 주문하되, 배송지를 고객의 주소로 입력합니다. 그러면 도매처가 고객에게 직접 보내줍니다.', time: '실시간', icon: <Truck className="w-5 h-5" /> },
+    { title: '배송 완료 → 정산일에 수익 입금', desc: '도매처가 발송하면 운송장 번호를 쿠팡에 입력합니다. 배송이 완료되면 쿠팡이 정산일(보통 다음 달)에 판매 대금을 입금해줍니다. 도매가를 제외한 차액이 내 수익이에요.', time: '자동', icon: <DollarSign className="w-5 h-5" /> },
   ];
 
   return (
@@ -858,7 +879,7 @@ function StepsSection() {
                   {isLast && (
                     <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#E31837]/10 text-[#E31837] text-xs font-bold">
                       <DollarSign className="w-3.5 h-3.5" />
-                      차액 = 내 수익!
+                      판매가 - 도매가 - 수수료 = 순수익
                     </div>
                   )}
                 </motion.div>
@@ -967,7 +988,7 @@ function WarningsSection() {
             이것만은 꼭 기억하세요
           </motion.h2>
           <motion.p variants={fadeUp} custom={1} className="text-lg sm:text-xl text-gray-500 leading-relaxed">
-            초보자가 가장 많이 실수하는 5가지
+            미리 알고 시작하면 피할 수 있는 5가지 실수
           </motion.p>
         </div>
 
@@ -982,6 +1003,12 @@ function WarningsSection() {
               </div>
               <h3 className="text-base font-bold text-white mb-2">{card.title}</h3>
               <p className="text-sm text-gray-400 leading-relaxed">{card.desc}</p>
+              {card.tip && (
+                <p className="mt-3 text-xs text-amber-400/80 flex items-start gap-1.5">
+                  <span className="shrink-0 mt-0.5">💡</span>
+                  <span>{card.tip}</span>
+                </p>
+              )}
             </motion.div>
           ))}
         </div>

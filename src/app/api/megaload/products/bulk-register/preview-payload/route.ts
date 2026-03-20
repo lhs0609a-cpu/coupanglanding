@@ -167,6 +167,7 @@ export async function POST(req: NextRequest) {
         name: a.attributeTypeName,
         required: a.required,
         dataType: a.dataType,
+        attributeValues: a.attributeValues,
       })),
       imageCount: mainImageUrls.length + detailImageUrls.length + reviewImageUrls.length + infoImageUrls.length,
       estimatedPayloadSize: new TextEncoder().encode(payloadJson).length,

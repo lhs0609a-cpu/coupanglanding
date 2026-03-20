@@ -27,6 +27,7 @@ interface AttributeInfo {
   name: string;
   required: boolean;
   dataType: string;
+  attributeValues?: { attributeValueName: string }[];
 }
 
 interface PreviewMeta {

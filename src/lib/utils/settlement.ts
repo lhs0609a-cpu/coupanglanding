@@ -132,3 +132,34 @@ export function getAdminSettlementStatus(
 }
 
 export type PaymentStatus = 'pending' | 'submitted' | 'reviewed' | 'deposited' | 'confirmed' | 'rejected';
+
+// --- Feature 3: 첫 정산 합산 구간 ---
+
+export interface SettlementPeriod {
+  start: string;  // 'YYYY-MM-DD'
+  end: string;    // 'YYYY-MM-DD'
+  isInitial: boolean;
+}
+
+/** 정산 구간 계산 — 첫 대상월이면 등록일~말일, 이후는 1일~말일 */
+export function getSettlementPeriod(createdAt: string, yearMonth: string): SettlementPeriod {
+  const firstEligible = getFirstEligibleMonth(createdAt);
+  const [y, m] = yearMonth.split('-').map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  const end = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+  if (yearMonth === firstEligible) {
+    const d = new Date(createdAt);
+    const start = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { start, end, isInitial: true };
+  }
+
+  return { start: `${y}-${String(m).padStart(2, '0')}-01`, end, isInitial: false };
+}
+
+/** "1/15 ~ 2/28" 포맷 */
+export function formatSettlementPeriod(start: string, end: string): string {
+  const s = new Date(start);
+  const e = new Date(end);
+  return `${s.getMonth() + 1}/${s.getDate()} ~ ${e.getMonth() + 1}/${e.getDate()}`;
+}

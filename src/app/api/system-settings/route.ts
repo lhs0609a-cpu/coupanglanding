@@ -6,7 +6,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const key = searchParams.get('key');
 
-  const supabase = createServiceClient();
+  const supabase = await createServiceClient();
 
   if (key) {
     const { data, error } = await supabase

@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { yearMonth } = body as { yearMonth: string };
+    const { yearMonth, periodStart, periodEnd } = body as { yearMonth: string; periodStart?: string; periodEnd?: string };
 
     if (!yearMonth || !/^\d{4}-\d{2}$/.test(yearMonth)) {
       return NextResponse.json({ error: 'yearMonth 형식이 올바르지 않습니다. (예: 2025-03)' }, { status: 400 });
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     const accessKey = await decryptPassword(ptUser.coupang_access_key);
     const secretKey = await decryptPassword(ptUser.coupang_secret_key);
 
-    // 쿠팡 API 호출
+    // 쿠팡 API 호출 (첫 정산 합산 구간 지원)
     const settlement = await fetchSettlementData(
       {
         vendorId: ptUser.coupang_vendor_id,
@@ -47,6 +47,9 @@ export async function POST(request: NextRequest) {
         secretKey,
       },
       yearMonth,
+      periodStart && periodEnd
+        ? { startDateOverride: periodStart, endDateOverride: periodEnd }
+        : undefined,
     );
 
     return NextResponse.json({

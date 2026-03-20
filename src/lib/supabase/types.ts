@@ -113,6 +113,9 @@ export interface MonthlyReport {
   total_with_vat: number;
   // 입력 소스
   input_source: 'api' | 'manual_approved' | null;
+  // 정산 구간 (첫 정산 합산)
+  period_start: string | null;
+  period_end: string | null;
   // 수수료 납부 추적
   fee_payment_status: FeePaymentStatus;
   fee_payment_deadline: string | null;

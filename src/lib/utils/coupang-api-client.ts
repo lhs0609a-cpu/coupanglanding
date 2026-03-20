@@ -157,11 +157,12 @@ async function callCoupangApi(
 export async function fetchSettlementData(
   credentials: CoupangCredentials,
   yearMonth: string,
+  options?: { startDateOverride?: string; endDateOverride?: string },
 ): Promise<SettlementResponse> {
   const [year, month] = yearMonth.split('-').map(Number);
-  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+  const startDate = options?.startDateOverride || `${year}-${String(month).padStart(2, '0')}-01`;
   const lastDay = new Date(year, month, 0).getDate();
-  const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  const monthEnd = options?.endDateOverride || `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
   // API는 "전일까지만 조회 가능" → endDate를 어제와 월말 중 빠른 날짜로
   const yesterday = new Date();
