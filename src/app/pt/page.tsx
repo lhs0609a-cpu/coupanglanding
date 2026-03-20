@@ -573,21 +573,27 @@ export default function PTPage() {
           loop
           muted
           playsInline
-          className="absolute inset-0 w-full h-full object-cover opacity-15"
+          className="absolute inset-0 w-full h-full object-cover opacity-25"
         >
           <source src="/videos/hero-bg.mp4" type="video/mp4" />
         </video>
         {/* Dark overlay for text readability */}
         <div className="absolute inset-0 bg-gradient-to-b from-gray-950/70 via-gray-950/60 to-gray-950/85" />
         <motion.div initial="hidden" animate="visible" variants={stagger} className="relative z-10 text-center px-5 sm:px-8">
-          <motion.h1 variants={fadeUp} custom={0} className="text-4xl sm:text-5xl lg:text-7xl font-bold leading-relaxed text-white max-w-4xl mx-auto">
-            10년 동안<br />
-            회원님들의 몸을 만들어 왔습니다.
+          <motion.h1 variants={fadeUp} custom={0} className="text-3xl sm:text-4xl lg:text-6xl font-bold leading-snug text-white max-w-4xl mx-auto">
+            당신의 매출 <span className="bg-gradient-to-r from-[#E31837] to-[#ff4d6a] bg-clip-text text-transparent">0원</span>이면,{' '}
+            우리도 <span className="bg-gradient-to-r from-[#E31837] to-[#ff4d6a] bg-clip-text text-transparent">0원.</span>
           </motion.h1>
-          <motion.div variants={fadeUp} custom={1} className="mt-8 sm:mt-10">
-            <p className="text-4xl sm:text-5xl lg:text-7xl font-bold leading-relaxed text-white max-w-4xl mx-auto">
-              지금은 쿠팡으로<br />
-              <span className="bg-gradient-to-r from-[#E31837] to-[#ff4d6a] bg-clip-text text-transparent">매출</span>을 만들어 드립니다.
+          <motion.p variants={fadeUp} custom={1} className="mt-6 sm:mt-8 text-lg sm:text-xl lg:text-2xl text-gray-300 leading-relaxed max-w-2xl mx-auto">
+            10년간 몸을 만들던 트레이너 출신이<br />
+            <span className="text-white font-semibold">멱살 잡고, 1:1로, 끝까지.</span>
+          </motion.p>
+          <motion.div variants={fadeUp} custom={2} className="mt-6 sm:mt-8">
+            <p className="text-xl sm:text-2xl lg:text-3xl font-bold leading-relaxed text-white max-w-3xl mx-auto">
+              쿠팡 순수익 <span className="bg-gradient-to-r from-[#E31837] to-[#ff4d6a] bg-clip-text text-transparent">월 300만 원</span> 직접 만들어 드립니다.
+            </p>
+            <p className="mt-3 text-lg sm:text-xl text-gray-400">
+              초기자금 <span className="text-white font-semibold">0원</span>으로 바로 가능합니다.
             </p>
           </motion.div>
         </motion.div>
