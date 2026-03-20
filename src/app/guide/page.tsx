@@ -957,11 +957,19 @@ function CTASection() {
 // ============================================================================
 function Footer() {
   return (
-    <footer className="bg-gray-950 border-t border-white/5 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-        <p className="text-sm text-white/30">
-          &copy; {new Date().getFullYear()} 메가로드. 모든 권리 보유.
-        </p>
+    <footer className="bg-gray-950 border-t border-white/5 py-10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p className="text-sm text-white/30">
+            &copy; {new Date().getFullYear()} 메가로드. 모든 권리 보유.
+          </p>
+          <nav className="flex flex-wrap items-center justify-center gap-4 text-sm">
+            <Link href="/guide" className="text-white/40 hover:text-white/70 transition-colors">초보 셀러 가이드</Link>
+            <Link href="/start" className="text-white/40 hover:text-white/70 transition-colors">사업자등록 체크리스트</Link>
+            <Link href="/pt" className="text-white/40 hover:text-white/70 transition-colors">1:1 PT</Link>
+            <Link href="/program" className="text-white/40 hover:text-white/70 transition-colors">자동화 프로그램</Link>
+          </nav>
+        </div>
       </div>
     </footer>
   );

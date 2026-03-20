@@ -665,7 +665,7 @@ function Footer() {
             <p className="text-xs text-gray-400">본 서비스는 쿠팡 공식 서비스가 아니며, 쿠팡 Wing API를 활용한 서드파티 솔루션입니다.</p>
           </div>
           <div className="md:col-span-2"><h4 className="text-sm font-bold text-gray-900 mb-4">제품</h4><ul className="space-y-3">{[{ label: '기능', href: '#features' }, { label: '요금제', href: '#pricing' }, { label: 'FAQ', href: '#faq' }].map((item) => (<li key={item.label}><a href={item.href} className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{item.label}</a></li>))}</ul></div>
-          <div className="md:col-span-2"><h4 className="text-sm font-bold text-gray-900 mb-4">지원</h4><ul className="space-y-3"><li><a href="/guide" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">초보 셀러 가이드</a></li>{['고객센터', 'API 문서', '제휴 문의'].map((label) => (<li key={label}><a href="#" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{label}</a></li>))}</ul></div>
+          <div className="md:col-span-2"><h4 className="text-sm font-bold text-gray-900 mb-4">지원</h4><ul className="space-y-3"><li><a href="/guide" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">초보 셀러 가이드</a></li><li><a href="/start" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">사업자등록 체크리스트</a></li>{['고객센터', 'API 문서', '제휴 문의'].map((label) => (<li key={label}><a href="#" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{label}</a></li>))}</ul></div>
           <div className="md:col-span-3">
             <h4 className="text-sm font-bold text-gray-900 mb-4">계정</h4>
             <ul className="space-y-3">
