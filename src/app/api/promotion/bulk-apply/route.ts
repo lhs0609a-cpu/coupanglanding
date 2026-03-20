@@ -388,7 +388,7 @@ export async function POST(request: NextRequest) {
               .update({ status: newStatus, instant_coupon_applied: true })
               .in('id', validItems.map((p) => p.id));
           } catch (err) {
-            // 배치 전체 실패
+            // 즉시할인 실패 — 다운로드 쿠폰은 계속 진행되어야 함
             batchInstantFailed += validItems.length;
             const errMsg = err instanceof Error ? err.message : String(err);
             lastError = `[즉시할인] ${errMsg}`;
@@ -406,9 +406,18 @@ export async function POST(request: NextRequest) {
                 error_message: errMsg,
               })),
             );
-            await serviceClient.from('product_coupon_tracking')
-              .update({ status: 'failed', instant_coupon_applied: false, error_message: `즉시할인 쿠폰 실패: ${errMsg}` })
-              .in('id', validItems.map((p) => p.id));
+
+            // 다운로드 쿠폰이 활성이면 pending 유지 (다운로드 진행 가능)
+            // 다운로드 비활성이면 failed 처리
+            if (config.download_coupon_enabled) {
+              await serviceClient.from('product_coupon_tracking')
+                .update({ status: 'pending', instant_coupon_applied: false, error_message: `즉시할인 실패(다운로드 계속): ${errMsg}` })
+                .in('id', validItems.map((p) => p.id));
+            } else {
+              await serviceClient.from('product_coupon_tracking')
+                .update({ status: 'failed', instant_coupon_applied: false, error_message: `즉시할인 쿠폰 실패: ${errMsg}` })
+                .in('id', validItems.map((p) => p.id));
+            }
           }
         }
       }
@@ -419,19 +428,15 @@ export async function POST(request: NextRequest) {
     // ═══════════════════════════════════════════════════════
     if (config.download_coupon_enabled && config.contract_id) {
       // 다운로드 쿠폰 적용 대상 쿼리:
-      // - 즉시할인 활성 → instant_coupon_applied=true인 pending만 (즉시할인 먼저 완료된 것)
-      // - 즉시할인 비활성 → 모든 pending
-      let downloadQuery = serviceClient
+      // - 모든 pending 아이템 (즉시할인 성공/실패 모두 포함)
+      // - 즉시할인이 실패해도 다운로드는 독립적으로 진행
+      const downloadQuery = serviceClient
         .from('product_coupon_tracking')
         .select('*')
         .eq('pt_user_id', ptUser.id)
         .eq('status', 'pending')
         .order('created_at', { ascending: true })
         .limit(DOWNLOAD_BATCH_SIZE);
-
-      if (config.instant_coupon_enabled) {
-        downloadQuery = downloadQuery.eq('instant_coupon_applied', true);
-      }
 
       const { data: downloadBatch } = await downloadQuery;
 
