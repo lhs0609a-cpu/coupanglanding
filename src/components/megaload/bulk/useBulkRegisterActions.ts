@@ -75,6 +75,11 @@ export function useBulkRegisterActions() {
   const [autoCategoryRetryCount, setAutoCategoryRetryCount] = useState(0);
   const AUTO_CATEGORY_MAX_RETRIES = 3;
 
+  // Auto-fill pipeline progress
+  const [titleGenProgress, setTitleGenProgress] = useState<{ done: number; total: number } | null>(null);
+  const [contentGenProgress, setContentGenProgress] = useState<{ done: number; total: number } | null>(null);
+  const [pipelineRan, setPipelineRan] = useState(false);
+
   // Category search
   const [categorySearchTarget, setCategorySearchTarget] = useState<string | null>(null);
   const [categoryKeyword, setCategoryKeyword] = useState('');
@@ -154,10 +159,15 @@ export function useBulkRegisterActions() {
 
     const processBatch = async (batchStart: number, batchProds: EditableProduct[], allProds: EditableProduct[]) => {
       const names = batchProds.map((p) => p.editedName);
+      const naverCategoryIds = batchProds.map((p) => p.naverCategoryId);
+      const hasNaverIds = naverCategoryIds.some(Boolean);
       const res = await fetch('/api/megaload/products/bulk-register/auto-category-batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productNames: names }),
+        body: JSON.stringify({
+          productNames: names,
+          ...(hasNaverIds ? { naverCategoryIds } : {}),
+        }),
       });
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
@@ -237,6 +247,111 @@ export function useBulkRegisterActions() {
     runAutoCategory(products, true);
   }, [products, runAutoCategory, autoCategoryRetryCount]);
 
+  // ---- Auto-fill pipeline: Title generation ----
+  const runTitleGeneration = useCallback(async (prods: EditableProduct[]) => {
+    const targets = prods.filter(p => p.editedCategoryCode && !p.editedDisplayProductName);
+    if (!targets.length) return;
+    setTitleGenProgress({ done: 0, total: targets.length });
+
+    const BATCH = 100;
+    for (let i = 0; i < targets.length; i += BATCH) {
+      const batch = targets.slice(i, i + BATCH);
+      const inputs = batch.map(p => ({
+        originalName: p.editedName,
+        categoryPath: p.editedCategoryName,
+        brand: p.editedBrand,
+        keywords: p.tags,
+        personaSeed: preventionConfig.enabled ? `${Date.now()}` : undefined,
+      }));
+
+      try {
+        const res = await fetch('/api/megaload/products/bulk-register/generate-titles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ products: inputs }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setProducts(prev => prev.map(p => {
+            const idx = batch.findIndex(b => b.uid === p.uid);
+            if (idx === -1 || !data.results?.[idx]) return p;
+            return { ...p, editedDisplayProductName: data.results[idx].displayName };
+          }));
+        }
+      } catch (err) {
+        console.error('[title-gen] Batch failed:', err);
+      }
+      setTitleGenProgress({ done: Math.min(i + BATCH, targets.length), total: targets.length });
+    }
+    setTitleGenProgress(null);
+  }, [preventionConfig]);
+
+  // ---- Auto-fill pipeline: AI content generation ----
+  const runContentGeneration = useCallback(async (prods: EditableProduct[]) => {
+    if (!generateAiContent) return;
+    const targets = prods.filter(p =>
+      p.editedCategoryCode &&
+      (!p.editedStoryParagraphs || p.editedStoryParagraphs.length === 0)
+    );
+    if (!targets.length) return;
+    setContentGenProgress({ done: 0, total: targets.length });
+
+    const BATCH = 50;
+    for (let i = 0; i < targets.length; i += BATCH) {
+      const batch = targets.slice(i, i + BATCH);
+      try {
+        const res = await fetch('/api/megaload/products/bulk-register/generate-content-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            products: batch.map(p => ({
+              productName: p.editedDisplayProductName || p.editedName,
+              category: p.editedCategoryName,
+              features: p.tags,
+              description: p.description,
+            })),
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setProducts(prev => prev.map(p => {
+            const idx = batch.findIndex(b => b.uid === p.uid);
+            if (idx === -1 || !data.results?.[idx]) return p;
+            const r = data.results[idx];
+            return {
+              ...p,
+              editedStoryParagraphs: r.paragraphs || [],
+              editedReviewTexts: r.reviewTexts || [],
+            };
+          }));
+        }
+      } catch (err) {
+        console.error('[content-gen] Batch failed:', err);
+      }
+      setContentGenProgress({ done: Math.min(i + BATCH, targets.length), total: targets.length });
+    }
+    setContentGenProgress(null);
+  }, [generateAiContent]);
+
+  // ---- Auto-fill pipeline trigger: after category matching completes ----
+  const productsRef = useRef<EditableProduct[]>(products);
+  productsRef.current = products;
+
+  useEffect(() => {
+    if (autoMatchingProgress === null && autoMatchStats && !pipelineRan && step === 2) {
+      setPipelineRan(true);
+      (async () => {
+        const latest = productsRef.current;
+        await runTitleGeneration(latest);
+        // Re-read latest products after title gen for content gen to use updated names
+        await runContentGeneration(productsRef.current);
+      })();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoMatchingProgress, autoMatchStats, pipelineRan, step]);
+
   // ---- Browse folder (showDirectoryPicker) ----
   const handleBrowseFolder = useCallback(async () => {
     setBrowsingFolder(true);
@@ -269,10 +384,14 @@ export function useBulkRegisterActions() {
           reviewImages: [],
           folderPath: `browser://${dirName}/${sp.folderName}`,
           hasProductJson: !!(sp.productJson.name || sp.productJson.title),
+          naverCategoryId: (sp.productJson.naverCategoryId as string)
+            || (sp.productJson.sourceCategory as { categoryId?: string })?.categoryId
+            || undefined,
           uid: `browser://${dirName}/${sp.folderName}::${sp.productCode}`,
           editedName: sp.productJson.name || sp.productJson.title || `product_${sp.productCode}`,
           editedBrand: sp.productJson.brand || extractBrandFromName(sp.productJson.name || sp.productJson.title || ''),
           editedSellingPrice: sourcePrice,
+          editedDisplayProductName: (sp.productJson.name || sp.productJson.title || `product_${sp.productCode}`).replace(/\s+/g, ' ').trim().slice(0, 100),
           editedCategoryCode: '',
           editedCategoryName: '',
           categoryConfidence: 0,
@@ -533,7 +652,8 @@ export function useBulkRegisterActions() {
         if (data.brackets) latestBrackets = data.brackets;
         const editableProducts: EditableProduct[] = (data.products as PreviewProduct[]).map((p) => ({
           ...p, uid: `${p.folderPath}::${p.productCode}`, editedName: p.name, editedBrand: p.brand || extractBrandFromName(p.name),
-          editedSellingPrice: p.sellingPrice, editedCategoryCode: '', editedCategoryName: '',
+          editedSellingPrice: p.sellingPrice, editedDisplayProductName: p.name.replace(/\s+/g, ' ').trim().slice(0, 100),
+          editedCategoryCode: '', editedCategoryName: '',
           categoryConfidence: 0, categorySource: '', selected: true, status: 'pending' as const,
         }));
         allEditableProducts.push(...editableProducts);
@@ -643,7 +763,12 @@ export function useBulkRegisterActions() {
     const cached = imagePreuploadCache[uid];
     if (cached?.mainImageUrls?.length) return cached.mainImageUrls;
     const product = products.find(p => p.uid === uid);
-    if (product?.mainImages?.length) return product.mainImages;
+    if (product?.mainImages?.length) {
+      // 로컬 경로(G:\... 등)는 브라우저에서 직접 표시 불가 → 서버 프록시 URL로 변환
+      return product.mainImages.map(p =>
+        p.startsWith('http') ? p : `/api/megaload/products/bulk-register/serve-image?path=${encodeURIComponent(p)}`
+      );
+    }
     return [];
   }, [imagePreuploadCache, products]);
 
@@ -803,6 +928,7 @@ export function useBulkRegisterActions() {
     setStartTime(null); setAutoMatchingProgress(null);
     setDryRunResults({}); setImagePreuploadCache({}); setImagePreuploadProgress({ total: 0, done: 0, phase: 'idle' });
     setValidationPhase('idle'); setAutoCategoryRetryCount(0);
+    setTitleGenProgress(null); setContentGenProgress(null); setPipelineRan(false);
     // #16 세션 삭제
     try { sessionStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
   }, []);
@@ -842,6 +968,7 @@ export function useBulkRegisterActions() {
     validating, validationPhase,
     imagePreuploadProgress, imagePreuploadCache,
     dryRunResults,
+    titleGenProgress, contentGenProgress,
     registering, isPaused, batchProgress, startTime,
     // Computed
     selectedCount, totalSourcePrice, totalSellingPrice,

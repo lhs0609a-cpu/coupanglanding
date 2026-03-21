@@ -29,6 +29,8 @@ export interface PreviewProduct {
   reviewImages: string[];
   folderPath: string;
   hasProductJson: boolean;
+  /** 네이버 소싱 카테고리 ID (product.json에서 읽음) */
+  naverCategoryId?: string;
 }
 
 export interface EditableProduct extends PreviewProduct {

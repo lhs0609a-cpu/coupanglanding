@@ -44,6 +44,9 @@ export async function GET(req: NextRequest) {
         reviewImages: p.reviewImages,
         folderPath: p.folderPath,
         hasProductJson: !!(p.productJson.name || p.productJson.title),
+        naverCategoryId: p.productJson.naverCategoryId
+          || p.productJson.sourceCategory?.categoryId
+          || undefined,
       };
     });
 

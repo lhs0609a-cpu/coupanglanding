@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const body = await req.json() as { productNames: string[] };
+    const body = await req.json() as { productNames: string[]; naverCategoryIds?: (string | undefined)[] };
     if (!body.productNames || body.productNames.length === 0) {
       return NextResponse.json({ error: '상품명 목록이 필요합니다.' }, { status: 400 });
     }
@@ -44,8 +44,8 @@ export async function POST(req: NextRequest) {
       // megaload 계정 없거나 채널 미연동 — Tier 0/1만 사용
     }
 
-    // 배치 매칭 — adapter 없으면 로컬 매칭만 수행
-    const batchResults = await matchCategoryBatch(body.productNames, coupangAdapter);
+    // 배치 매칭 — 네이버 카테고리 ID가 있으면 매핑 테이블 우선 조회
+    const batchResults = await matchCategoryBatch(body.productNames, coupangAdapter, body.naverCategoryIds);
 
     const results: (CategoryMatchResult & { index: number })[] = batchResults.map(
       (result, i) => result

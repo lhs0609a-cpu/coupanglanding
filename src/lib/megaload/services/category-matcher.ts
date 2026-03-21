@@ -38,6 +38,13 @@ export interface CategoryDetails {
   noticeCategory: string | null;
 }
 
+/** 네이버→쿠팡 매핑 엔트리 (naver-to-coupang-map.json의 map 값) */
+interface NaverMapEntry {
+  c: string;   // coupang code
+  n: number;   // confidence
+  m: string;   // method initial: 'e'|'p'|'c'
+}
+
 // ─── Lazy-loaded data singletons ─────────────────────────────
 
 // JSON 직접 import (Vercel 서버리스 번들링 보장)
@@ -46,6 +53,20 @@ import detailsJson from '../data/coupang-cat-details.json';
 
 let _indexData: IndexEntry[] | null = null;
 let _detailsData: Record<string, CategoryDetailRaw> | null = null;
+let _naverMap: Record<string, NaverMapEntry> | null = null;
+
+/** 네이버→쿠팡 매핑 테이블 로드 (파일 없으면 빈 객체) */
+function loadNaverMap(): Record<string, NaverMapEntry> {
+  if (_naverMap) return _naverMap;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mapJson = require('../data/naver-to-coupang-map.json');
+    _naverMap = (mapJson.map || {}) as Record<string, NaverMapEntry>;
+  } catch {
+    _naverMap = {};
+  }
+  return _naverMap;
+}
 
 function loadIndex(): IndexEntry[] {
   if (_indexData) return _indexData;
@@ -141,6 +162,9 @@ const DIRECT_CODE_MAP: Record<string, { code: string; path: string }> = {
   '데이터케이블': { code: '62691', path: '가전/디지털>휴대폰액세서리>배터리충전기>충전 케이블' },
   // ── 뷰티 ──
   '레티놀': { code: '56171', path: '뷰티>스킨>에센스/세럼/앰플>에센스/세럼' },
+  '넥크림': { code: '56169', path: '뷰티>스킨>크림>넥크림' },
+  '넥케어': { code: '56169', path: '뷰티>스킨>크림>넥크림' },
+  '목크림': { code: '56169', path: '뷰티>스킨>크림>넥크림' },
   // ── 영문 키워드 (해외직구/영문 상품명 대응) ──
   'vitamin': { code: '58913', path: '식품>건강식품>비타민/미네랄>멀티비타민' },
   'vitamina': { code: '58907', path: '식품>건강식품>비타민/미네랄>비타민A' },
@@ -177,6 +201,9 @@ const SYNONYM_MAP: Record<string, string[]> = {
   '선크림': ['선크림', '선로션', '자외선차단'],
   '수분크림': ['수분크림', '데이크림'],
   '레티놀': ['레티놀', '주름개선', '에센스', '세럼'],
+  '넥케어': ['넥케어', '넥크림', '목크림'],
+  '넥크림': ['넥크림', '넥케어', '목크림'],
+  '목크림': ['목크림', '넥크림', '넥케어'],
   '마스크팩': ['마스크팩', '시트마스크', '시트'],
   '세럼': ['세럼', '에센스'],
   '에센스': ['에센스', '세럼'],
@@ -260,12 +287,45 @@ const PRODUCT_TO_CATEGORY_ALIAS: Record<string, string[]> = {
   '어골칼슘': ['칼슘'],
   '헴철': ['철분'],
   '눈건강': ['루테인'],
+  '넥케어': ['넥크림'],
+  '목크림': ['넥크림'],
+  '목주름': ['넥크림'],
   '관절': ['글루코사민', '보스웰리아'],
   '간건강': ['밀크시슬'],
   '장건강': ['유산균'],
   '뼈건강': ['칼슘'],
 };
 
+
+// ─── Tier 0 투표 기반 매칭 헬퍼 ─────────────────────────────
+// 여러 토큰이 서로 다른 카테고리를 가리킬 때, 가장 많은 토큰이 지지하는 카테고리를 선택
+// 예: "콜라겐 넥크림 넥케어" → 콜라겐(59163) 1표 vs 넥크림(56169) 2표 → 넥크림 승
+function voteTier0(candidates: string[]): CategoryMatchResult | null {
+  const votes = new Map<string, { entry: { code: string; path: string }; count: number; longestToken: number }>();
+  for (const t of candidates) {
+    const direct = DIRECT_CODE_MAP[t];
+    if (!direct) continue;
+    const existing = votes.get(direct.code);
+    if (existing) {
+      existing.count++;
+      existing.longestToken = Math.max(existing.longestToken, t.length);
+    } else {
+      votes.set(direct.code, { entry: direct, count: 1, longestToken: t.length });
+    }
+  }
+  if (votes.size === 0) return null;
+  // 가장 많은 표 → 동률이면 가장 긴 토큰 매칭
+  const best = [...votes.values()].sort((a, b) =>
+    b.count - a.count || b.longestToken - a.longestToken
+  )[0];
+  return {
+    categoryCode: best.entry.code,
+    categoryName: best.entry.path.split('>').pop() || '',
+    categoryPath: best.entry.path,
+    confidence: 0.95,
+    source: 'local_db',
+  };
+}
 
 // ─── Product name cleaning ───────────────────────────────────
 
@@ -562,53 +622,55 @@ async function aiKeywordMatch(productName: string): Promise<CategoryMatchResult 
 // ─── Public API ─────────────────────────────────────────────
 
 /**
+ * 네이버 카테고리 ID로 쿠팡 카테고리를 즉시 조회한다.
+ * naver-to-coupang-map.json 매핑 테이블 사용.
+ */
+export function matchByNaverCategory(naverCategoryId: string): CategoryMatchResult | null {
+  const naverMap = loadNaverMap();
+  const entry = naverMap[naverCategoryId];
+  if (!entry) return null;
+
+  const details = loadDetails();
+  const detail = details[entry.c];
+  return {
+    categoryCode: entry.c,
+    categoryName: detail?.p?.split('>').pop() || '',
+    categoryPath: detail?.p || '',
+    confidence: entry.n,
+    source: 'local_db',
+  };
+}
+
+/**
  * 상품명으로 쿠팡 카테고리를 자동 매칭한다.
- * 3단계 폴백: 로컬 DB → 쿠팡 Predict API → AI
+ * 우선순위: 네이버 카테고리 매핑 → Tier 0 투표 → 로컬 DB → 쿠팡 API → AI
  */
 export async function matchCategory(
   productName: string,
   adapter?: CoupangAdapter,
+  naverCategoryId?: string,
 ): Promise<CategoryMatchResult | null> {
+  // ── 최우선: 네이버 카테고리 매핑 테이블 조회 ──
+  if (naverCategoryId) {
+    const naverResult = matchByNaverCategory(naverCategoryId);
+    if (naverResult) return naverResult;
+  }
+
   const cleaned = cleanProductName(productName);
   const tokens = tokenize(productName);
   const compoundTokens = buildCompoundTokens(tokens);
 
-  // ── Tier 0: 직접 코드 매핑 (최고 우선순위) ──
-  // Pass 1: 원본 토큰 + 2-gram 복합어 우선 (상품명에 직접 등장한 키워드)
+  // ── Tier 0: 직접 코드 매핑 (투표 기반 — 가장 많은 토큰이 지지하는 카테고리 선택) ──
   const baseCompounds = [...tokens];
   for (let i = 0; i < tokens.length - 1; i++) {
     baseCompounds.push(tokens[i] + tokens[i + 1]);
   }
-  const sortedBase = [...baseCompounds].sort((a, b) => b.length - a.length);
-  for (const t of sortedBase) {
-    const direct = DIRECT_CODE_MAP[t];
-    if (direct) {
-      return {
-        categoryCode: direct.code,
-        categoryName: direct.path.split('>').pop() || '',
-        categoryPath: direct.path,
-        confidence: 0.95,
-        source: 'local_db',
-      };
-    }
-  }
-  // Pass 2: 동의어/별칭 확장 토큰 (원본에서 못 찾은 경우만)
+  // Pass 1+2 통합: 모든 후보를 모아서 투표
   const baseSet = new Set(baseCompounds);
-  const sortedExpanded = [...compoundTokens]
-    .filter((t) => !baseSet.has(t))
-    .sort((a, b) => b.length - a.length);
-  for (const t of sortedExpanded) {
-    const direct = DIRECT_CODE_MAP[t];
-    if (direct) {
-      return {
-        categoryCode: direct.code,
-        categoryName: direct.path.split('>').pop() || '',
-        categoryPath: direct.path,
-        confidence: 0.95,
-        source: 'local_db',
-      };
-    }
-  }
+  const expandedOnly = compoundTokens.filter((t) => !baseSet.has(t));
+  const allCandidates = [...baseCompounds, ...expandedOnly];
+  const tier0Result = voteTier0(allCandidates);
+  if (tier0Result) return tier0Result;
 
   // ── Tier 1: Local DB matching ──
   const localResult = await localMatch(tokens);
@@ -690,61 +752,43 @@ export async function matchCategory(
 export async function matchCategoryBatch(
   productNames: string[],
   adapter?: CoupangAdapter,
+  naverCategoryIds?: (string | undefined)[],
 ): Promise<(CategoryMatchResult | null)[]> {
   const results: (CategoryMatchResult | null)[] = new Array(productNames.length).fill(null);
   const cache = new Map<string, CategoryMatchResult | null>();
+
+  // === Phase 0: 네이버 카테고리 매핑 테이블 조회 (최우선) ===
+  if (naverCategoryIds) {
+    for (let i = 0; i < productNames.length; i++) {
+      const navId = naverCategoryIds[i];
+      if (navId) {
+        const navResult = matchByNaverCategory(navId);
+        if (navResult) results[i] = navResult;
+      }
+    }
+  }
 
   // === Phase 1: Tier 0 (DIRECT_CODE_MAP) + 로컬 DB 일괄 매칭 ===
   const productTokensList: string[][] = productNames.map((name) => tokenize(name));
   const unmatchedIndices: number[] = [];
 
   for (let i = 0; i < productNames.length; i++) {
-    // Tier 0: 직접 코드 매핑 (배치에서도 최우선 적용)
-    // Pass 1: 원본 토큰 + 2-gram 복합어 우선
+    if (results[i]) continue; // 네이버 매핑으로 이미 매칭됨
+    // Tier 0: 투표 기반 직접 코드 매핑
     const toks = productTokensList[i];
     const baseComps: string[] = [...toks];
     for (let j = 0; j < toks.length - 1; j++) {
       baseComps.push(toks[j] + toks[j + 1]);
     }
-    let directMatched = false;
-    const sortedBase = [...baseComps].sort((a, b) => b.length - a.length);
-    for (const t of sortedBase) {
-      const direct = DIRECT_CODE_MAP[t];
-      if (direct) {
-        results[i] = {
-          categoryCode: direct.code,
-          categoryName: direct.path.split('>').pop() || '',
-          categoryPath: direct.path,
-          confidence: 0.95,
-          source: 'local_db',
-        };
-        directMatched = true;
-        break;
-      }
+    const compoundTokens = buildCompoundTokens(toks);
+    const baseSet = new Set(baseComps);
+    const expandedOnly = compoundTokens.filter((t) => !baseSet.has(t));
+    const allCandidates = [...baseComps, ...expandedOnly];
+    const tier0Result = voteTier0(allCandidates);
+    if (tier0Result) {
+      results[i] = tier0Result;
+      continue;
     }
-    // Pass 2: 동의어/별칭 확장 토큰
-    if (!directMatched) {
-      const compoundTokens = buildCompoundTokens(toks);
-      const baseSet = new Set(baseComps);
-      const sortedExpanded = [...compoundTokens]
-        .filter((t) => !baseSet.has(t))
-        .sort((a, b) => b.length - a.length);
-      for (const t of sortedExpanded) {
-        const direct = DIRECT_CODE_MAP[t];
-        if (direct) {
-          results[i] = {
-            categoryCode: direct.code,
-            categoryName: direct.path.split('>').pop() || '',
-            categoryPath: direct.path,
-            confidence: 0.95,
-            source: 'local_db',
-          };
-          directMatched = true;
-          break;
-        }
-      }
-    }
-    if (directMatched) continue;
 
     // Tier 1: 로컬 DB 토큰 매칭
     const localResult = await localMatch(productTokensList[i]);

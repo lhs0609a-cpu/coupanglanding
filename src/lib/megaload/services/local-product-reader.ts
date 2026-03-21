@@ -38,6 +38,14 @@ export interface LocalProductJson {
   originalPrice?: number;     // 정가 (할인가 표시용)
   certifications?: { certificationType: string; certificationCode?: string }[];
   options?: { optionName: string; salePrice: number; stock?: number; barcode?: string; sku?: string }[];
+  /** 소싱 원본 카테고리 (네이버 등) */
+  sourceCategory?: {
+    platform?: string;      // 'naver' | 'coupang' | etc.
+    categoryId?: string;    // 네이버 cat_id (e.g. '50000806')
+    categoryPath?: string;  // '화장품/미용>스킨케어>크림>넥크림'
+  };
+  /** 네이버 카테고리 ID 단축키 */
+  naverCategoryId?: string;
   [key: string]: unknown;
 }
 
