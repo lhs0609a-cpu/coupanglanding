@@ -99,7 +99,37 @@ async function ensureInstantCoupon(
     contractId: Number(config.contract_id) || 0,
   });
 
-  const newCouponId = newCoupon.couponId;
+  // 비동기 생성 — requestedId로 상태 확인하여 couponId 획득
+  console.log(`[bulk-apply] 즉시할인 쿠폰 비동기 생성 — requestedId: ${newCoupon.requestedId}`);
+  let newCouponId = 0;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    try {
+      const statusResult = await checkInstantCouponStatus(credentials, newCoupon.requestedId) as Record<string, unknown>;
+      const nested = (statusResult.data || statusResult) as Record<string, unknown>;
+      const content = (nested.content || nested) as Record<string, unknown>;
+      const status = String(content.status || nested.status || '').toUpperCase();
+      console.log(`[bulk-apply] 즉시할인 쿠폰 생성 상태 (attempt ${attempt + 1}): ${status}`, JSON.stringify(nested).slice(0, 300));
+
+      // couponId 추출 시도
+      const resolvedId = Number(content.couponId || nested.couponId || 0);
+      if (resolvedId > 0) {
+        newCouponId = resolvedId;
+        break;
+      }
+      if (status === 'FAIL' || status === 'FAILED' || status === 'ERROR') {
+        throw new Error(`즉시할인 쿠폰 생성 실패: ${content.message || nested.message || status}`);
+      }
+    } catch (pollErr) {
+      if (pollErr instanceof Error && pollErr.message.includes('생성 실패')) throw pollErr;
+      console.warn(`[bulk-apply] 즉시할인 생성 상태 확인 실패 (attempt ${attempt + 1}):`, pollErr instanceof Error ? pollErr.message : pollErr);
+    }
+  }
+
+  if (newCouponId === 0) {
+    throw new Error(`즉시할인 쿠폰 생성 비동기 처리 중 — couponId 미확인 (requestedId: ${newCoupon.requestedId})`);
+  }
+
   const newCouponName = newCoupon.couponName || title;
 
   // config 업데이트 (새 쿠폰 ID)
@@ -113,7 +143,7 @@ async function ensureInstantCoupon(
   config.instant_coupon_name = newCouponName;
   config.instant_coupon_item_count = 0;
 
-  console.log(`[bulk-apply] 새 즉시할인 쿠폰 생성: ${newCouponId} (${newCouponName})`);
+  console.log(`[bulk-apply] 새 즉시할인 쿠폰 생성 완료: ${newCouponId} (${newCouponName})`);
   return { couponId: newCouponId, couponName: newCouponName };
 }
 

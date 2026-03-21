@@ -557,25 +557,38 @@ export async function fetchInstantCoupons(
 }
 
 /** 즉시할인 쿠폰 생성 — 비동기 (requestedId 반환)
- *  쿠팡 FMS API 필드: name, startAt, endAt, type, discount, maxDiscountPrice, contractId */
+ *  쿠팡 FMS API 필드: name, startAt, endAt, type, discount, maxDiscountPrice, contractId
+ *  응답: { code:200, data: { success, content: { requestedId } } } */
 export async function createInstantCoupon(
   credentials: CoupangCredentials,
   params: CreateInstantCouponParams,
-): Promise<CoupangCoupon> {
+): Promise<{ requestedId: string; couponName: string }> {
   const path = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupon`;
   const body = {
     name: params.title,
     startAt: params.startDate,
     endAt: params.endDate,
-    type: params.discountType,           // 'RATE' | 'FIXED'
+    type: params.discountType,           // 'RATE' | 'FIXED' | 'FIXED_WITH_QUANTITY' | 'PRICE'
     discount: params.discountValue,
     maxDiscountPrice: Math.max(params.maxDiscountPrice || 10, 10), // 최소 10원
     contractId: params.contractId,
   };
   console.log('[createInstantCoupon] 요청:', JSON.stringify(body).slice(0, 500));
-  const data = await callCoupangApi(credentials, 'POST', path, body) as { data?: CoupangCoupon };
-  if (!data.data) throw new CoupangApiError('즉시할인 쿠폰 생성 응답에 data가 없습니다.', 500);
-  return data.data;
+  const rawData = await callCoupangApi(credentials, 'POST', path, body) as Record<string, unknown>;
+  console.log('[createInstantCoupon] 응답:', JSON.stringify(rawData).slice(0, 500));
+
+  // 응답: { code:200, data: { success, content: { requestedId, success } } }
+  const data = rawData.data as Record<string, unknown> | undefined;
+  if (!data) throw new CoupangApiError('즉시할인 쿠폰 생성 응답에 data가 없습니다.', 500);
+
+  const content = data.content as Record<string, unknown> | undefined;
+  const requestedId = String(content?.requestedId || data.requestedId || '');
+
+  if (!requestedId) {
+    throw new CoupangApiError(`즉시할인 쿠폰 생성 실패: requestedId 없음. 응답: ${JSON.stringify(rawData).slice(0, 300)}`, 500);
+  }
+
+  return { requestedId, couponName: params.title };
 }
 
 /** 즉시할인 쿠폰 아이템 추가 (상품에 쿠폰 연결) — 비동기 (requestedId 반환)
