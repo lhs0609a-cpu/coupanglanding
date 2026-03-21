@@ -808,27 +808,29 @@ export async function addDownloadCouponItems(
   console.log(`[addDownloadCouponItems] PUT ${mktPath} — 쿠폰 ${couponId}에 ${numericIds.length}개 아이템 등록`);
   console.log(`[addDownloadCouponItems] body: ${JSON.stringify(body).slice(0, 500)}`);
 
-  const data = await callCoupangApi(credentials, 'PUT', mktPath, body) as {
-    requestResultStatus?: string;
-    body?: { couponId?: number };
-    errorCode?: string;
-    errorMessage?: string;
-  };
+  const rawData = await callCoupangApi(credentials, 'PUT', mktPath, body) as Record<string, unknown>;
 
-  console.log('[addDownloadCouponItems] 응답:', JSON.stringify(data).slice(0, 500));
+  console.log('[addDownloadCouponItems] 응답 전체:', JSON.stringify(rawData).slice(0, 800));
+
+  // 응답이 { data: { requestResultStatus, body } } 또는 { requestResultStatus, body } 형태일 수 있음
+  const data = (rawData.data || rawData) as Record<string, unknown>;
+  const status = String(data.requestResultStatus || rawData.requestResultStatus || '');
+  const resultBody = (data.body || rawData.body) as Record<string, unknown> | undefined;
+  const errorMsg = String(data.errorMessage || rawData.errorMessage || '');
+  const errorCode = String(data.errorCode || rawData.errorCode || '');
 
   // 에러 체크
-  if (data.requestResultStatus === 'FAIL') {
+  if (status === 'FAIL') {
     throw new CoupangApiError(
-      `다운로드 쿠폰 아이템 등록 실패: ${data.errorMessage || data.errorCode || '알 수 없는 오류'}`,
+      `다운로드 쿠폰 아이템 등록 실패: ${errorMsg || errorCode || '알 수 없는 오류'}`,
       400,
-      data.errorCode,
+      errorCode,
     );
   }
 
   return {
-    couponId: data.body?.couponId,
-    requestResultStatus: data.requestResultStatus,
+    couponId: resultBody?.couponId as number | undefined,
+    requestResultStatus: status || 'SUCCESS', // API가 200 반환했으면 성공으로 간주
   };
 }
 
