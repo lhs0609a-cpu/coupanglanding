@@ -356,7 +356,7 @@ export async function fetchProductListings(
     );
 
     // 10개씩 병렬 호출 (동시 요청 제한)
-    const PARALLEL = 10;
+    const PARALLEL = 20;
     const detailMap = new Map<string, Array<Record<string, unknown>>>();
 
     for (let i = 0; i < productsNeedingDetail.length; i += PARALLEL) {
