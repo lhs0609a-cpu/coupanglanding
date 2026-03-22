@@ -87,7 +87,9 @@ export default function PromotionPage() {
   // Apply all checkbox
   const [applyAllOnSave, setApplyAllOnSave] = useState(false);
   // 수집 범위 (일수) — 0이면 전체
-  const [collectDays, setCollectDays] = useState(0);
+  const [collectDays, setCollectDaysState] = useState(0);
+  const collectDaysRef = useRef(0);
+  const setCollectDays = (v: number) => { collectDaysRef.current = v; setCollectDaysState(v); };
 
   // Coupang data
   const [contracts, setContracts] = useState<CoupangContract[]>([]);
@@ -257,7 +259,7 @@ export default function PromotionPage() {
             const res = await fetch('/api/promotion/collect-products', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ nextToken: collectNextTokenRef.current, collectDays }),
+              body: JSON.stringify({ nextToken: collectNextTokenRef.current, collectDays: collectDaysRef.current }),
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok) {
