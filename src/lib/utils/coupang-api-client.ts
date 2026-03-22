@@ -356,7 +356,7 @@ export async function fetchProductListings(
     );
 
     // 10개씩 병렬 호출 (속도 최적화 — 429 에러 시 자동 재시도)
-    const PARALLEL = 10;
+    const PARALLEL = 7;
     const detailMap = new Map<string, Array<Record<string, unknown>>>();
 
     for (let i = 0; i < productsNeedingDetail.length; i += PARALLEL) {
@@ -386,9 +386,8 @@ export async function fetchProductListings(
           detailMap.set(r.value.spId, r.value.items);
         }
       }
-      // 배치 간 짧은 대기 (200ms — rate limit 여유)
       if (i + PARALLEL < productsNeedingDetail.length) {
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 300));
       }
     }
 
