@@ -356,7 +356,7 @@ export async function fetchProductListings(
     );
 
     // 10개씩 병렬 호출 (동시 요청 제한)
-    const PARALLEL = 20;
+    const PARALLEL = 5;
     const detailMap = new Map<string, Array<Record<string, unknown>>>();
 
     for (let i = 0; i < productsNeedingDetail.length; i += PARALLEL) {
@@ -374,6 +374,10 @@ export async function fetchProductListings(
         if (r.status === 'fulfilled' && r.value.items.length > 0) {
           detailMap.set(r.value.spId, r.value.items);
         }
+      }
+      // 쿠팡 API 속도 제한 방지 (배치 간 500ms 대기)
+      if (i + PARALLEL < productsNeedingDetail.length) {
+        await new Promise((r) => setTimeout(r, 500));
       }
     }
 
