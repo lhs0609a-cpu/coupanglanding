@@ -426,19 +426,16 @@ export default function PromotionPage() {
     setCollectDays(daysToUse);
     collectNextTokenRef.current = '';
     try {
-      const res = await fetch('/api/promotion/collect-products', {
+      // 기존 데이터 삭제 + 새로 수집 시작 (restart와 동일하지만 날짜 필터 적용)
+      await fetch('/api/promotion/restart', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ collectDays: daysToUse }),
       });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || '신규 상품 수집에 실패했습니다.');
-      }
       await fetchProgress();
-      // polling이 applying 상태를 감지하고 bulk-apply 호출
+      // polling이 collecting 상태를 감지하고 collect-products 호출
     } catch (err) {
-      setError(err instanceof Error ? err.message : '신규 상품 적용 실패');
+      setError(err instanceof Error ? err.message : '상품 적용 실패');
     } finally {
       setApplyingNewOnly(false);
     }
