@@ -448,7 +448,7 @@ export function useBulkRegisterActions() {
             || undefined,
           uid: `browser://${dirName}/${sp.folderName}::${sp.productCode}`,
           editedName: `${sp.productJson.brand || extractBrandFromName(sp.productJson.name || sp.productJson.title || '')} ${sp.productCode}`,
-          editedBrand: sp.productJson.brand || extractBrandFromName(sp.productJson.name || sp.productJson.title || ''),
+          editedBrand: '',
           editedSellingPrice: sourcePrice,
           editedDisplayProductName: '', // 비워두면 runTitleGeneration에서 SEO 최적화 상품명 자동 생성
           editedCategoryCode: '',
@@ -710,7 +710,7 @@ export function useBulkRegisterActions() {
         if (!res.ok) throw new Error(`[${fp}] ${data.error || '스캔 실패'}`);
         if (data.brackets) latestBrackets = data.brackets;
         const editableProducts: EditableProduct[] = (data.products as PreviewProduct[]).map((p) => ({
-          ...p, uid: `${p.folderPath}::${p.productCode}`, editedName: `${p.brand || extractBrandFromName(p.name)} ${p.productCode}`, editedBrand: p.brand || extractBrandFromName(p.name),
+          ...p, uid: `${p.folderPath}::${p.productCode}`, editedName: `${p.brand || extractBrandFromName(p.name)} ${p.productCode}`, editedBrand: '',
           editedSellingPrice: p.sellingPrice, editedDisplayProductName: '', // SEO 자동 생성 대기
           editedCategoryCode: '', editedCategoryName: '',
           categoryConfidence: 0, categorySource: '', selected: true, status: 'pending' as const,
