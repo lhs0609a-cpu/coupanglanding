@@ -7,6 +7,8 @@
 export interface ScannedImageFile {
   name: string;
   handle: FileSystemFileHandle;
+  /** 스캔 시점에 생성된 objectURL — 핸들 만료와 무관하게 이미지 표시 가능 */
+  objectUrl?: string;
 }
 
 export interface ScannedProduct {
@@ -115,7 +117,13 @@ async function collectImagesFromSubdir(
     for await (const [name, handle] of subHandle as unknown as AsyncIterable<[string, FileSystemHandle]>) {
       if (handle.kind !== 'file') continue;
       if (!pattern.test(name)) continue;
-      files.push({ name, handle: handle as FileSystemFileHandle });
+      // 스캔 시점에 objectURL 생성 — 핸들 만료 방지
+      let objectUrl: string | undefined;
+      try {
+        const file = await (handle as FileSystemFileHandle).getFile();
+        objectUrl = URL.createObjectURL(file);
+      } catch { /* 파일 읽기 실패 시 핸들만 저장 */ }
+      files.push({ name, handle: handle as FileSystemFileHandle, objectUrl });
     }
 
     files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));

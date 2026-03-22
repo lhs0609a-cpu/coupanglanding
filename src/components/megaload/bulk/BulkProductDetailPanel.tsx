@@ -87,6 +87,17 @@ export default function BulkProductDetailPanel({
       return;
     }
 
+    // objectUrl이 있으면 바로 사용 (핸들 만료 무관)
+    const prebuiltUrls = product.scannedMainImages
+      .map(img => img.objectUrl)
+      .filter((u): u is string => !!u);
+
+    if (prebuiltUrls.length > 0) {
+      setBrowserImageUrls(prebuiltUrls);
+      return;
+    }
+
+    // 폴백: 핸들에서 직접 로드
     let cancelled = false;
     const urls: string[] = [];
 
