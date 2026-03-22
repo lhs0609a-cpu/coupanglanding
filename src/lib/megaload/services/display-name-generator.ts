@@ -53,7 +53,11 @@ function extractKeywords(name: string): { specs: string[]; words: string[] } {
       return true;
     });
 
-  return { specs: specs.slice(0, 2), words };
+  // 갯수 정보가 없으면 "1개" 기본 추가
+  const hasCount = specs.some(s => /\d+\s*(개|입|매|팩|세트|병|통|포|봉|장|알|ea)$/i.test(s));
+  if (!hasCount) specs.push('1개');
+
+  return { specs: specs.slice(0, 3), words };
 }
 
 // ─── 카테고리 매칭 ───────────────────────────────────────────
