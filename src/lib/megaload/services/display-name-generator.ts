@@ -1,106 +1,109 @@
 // ============================================================
-// 노출상품명(displayProductName) 랜덤 템플릿 생성기
+// 노출상품명(displayProductName) SEO 최적화 생성기
 //
-// 아이템 위너 방지: 같은 상품이라도 셀러마다 다른 노출상품명.
-// 쿠팡 SEO 최적화: 카테고리별 검색 키워드 + 형용사 조합.
-// AI 없이 로컬에서 즉시 생성, 결정적 (같은 시드 → 같은 결과).
+// 핵심 원리:
+// 1. 상품명에서 실제 검색 키워드 추출
+// 2. 카테고리별 연관 검색어 추가
+// 3. 동의어 치환으로 변형
+// 4. 순서 셔플로 아이템 위너 방지
+//
+// 모든 단어가 "사람들이 실제로 검색하는 키워드"
+// → 쿠팡 SEO 최적화 + 아이템 위너 방지 동시 달성
 // ============================================================
 
 import { createSeededRandom, stringToSeed } from './seeded-random';
-import poolsData from '../data/display-name-pools.json';
+import seoData from '../data/seo-keyword-pools.json';
 
-// ─── 카테고리별 형용사/수식어 + 효능/특징 풀 (JSON에서 로드) ──
-// 카테고리당 100개씩, 총 1,400+ 형용사 / 1,000+ 효능 키워드
+// ─── 데이터 ──────────────────────────────────────────────────
 
-const ADJECTIVE_POOL: Record<string, string[]> = poolsData.adjectives;
-const FEATURE_POOL: Record<string, string[]> = poolsData.features;
-
-// ─── 템플릿 패턴 ─────────────────────────────────────────────
-
-type TemplateSlot = 'adj' | 'brand' | 'type' | 'spec' | 'kw' | 'feat';
-
-const TEMPLATES: TemplateSlot[][] = [
-  ['adj', 'brand', 'type', 'spec', 'feat'],           // 촉촉한 브랜드 넥크림 200ml 수분충전
-  ['brand', 'adj', 'type', 'spec', 'kw'],              // 브랜드 촉촉한 넥크림 200ml 넥케어
-  ['type', 'spec', 'brand', 'adj', 'feat'],             // 넥크림 200ml 브랜드 촉촉한 수분충전
-  ['adj', 'type', 'spec', 'kw', 'brand'],               // 촉촉한 넥크림 200ml 넥케어 브랜드
-  ['brand', 'type', 'adj', 'feat', 'spec'],             // 브랜드 넥크림 촉촉한 수분충전 200ml
-  ['kw', 'adj', 'brand', 'type', 'spec'],               // 넥케어 촉촉한 브랜드 넥크림 200ml
-  ['adj', 'kw', 'type', 'brand', 'spec'],               // 촉촉한 넥케어 넥크림 브랜드 200ml
-  ['spec', 'brand', 'adj', 'type', 'feat'],             // 200ml 브랜드 촉촉한 넥크림 수분충전
-];
+const KEYWORD_POOLS: Record<string, string[]> = seoData.keywords;
+const SYNONYM_GROUPS: Record<string, string[]> = seoData.synonymGroups;
 
 // ─── 상품명 파서 ─────────────────────────────────────────────
 
-interface ParsedName {
-  brand: string;
-  productType: string;
-  specs: string[];
-  keywords: string[];
-}
-
 const SPEC_PATTERN = /\d+\s*(ml|g|kg|mg|mcg|iu|L|정|개|매|팩|세트|입|병|통|포|봉|캡슐|알|ea|p|장|m|cm|mm|인치|oz|lb)/gi;
 
-const NOISE_WORDS = new Set([
+const NOISE = new Set([
   '무료배송', '당일발송', '특가', '할인', '증정', '사은품', '리뷰이벤트',
-  '국내', '해외', '추천', '인기', '베스트', '상품상세참조',
+  '추천', '인기', '베스트', '상품상세참조', '프리미엄', '고함량', '저분자',
+  '대용량', '국내', '해외', '순수', '천연', '식물성',
 ]);
 
-function parseName(originalName: string, brand: string): ParsedName {
+function extractKeywords(name: string): { specs: string[]; words: string[] } {
   // 괄호 제거
-  let cleaned = originalName.replace(/[\[\(【][^\]\)】]*[\]\)】]/g, ' ');
-  // 특수문자 제거
+  let cleaned = name.replace(/[\[\(【][^\]\)】]*[\]\)】]/g, ' ');
   cleaned = cleaned.replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ');
 
-  // spec 추출
+  // 스펙 추출
   const specs: string[] = [];
   const specMatches = cleaned.match(SPEC_PATTERN);
   if (specMatches) specs.push(...specMatches.map(s => s.trim()));
 
-  // spec 제거한 나머지
+  // 단어 추출 (스펙 제거, 중복 제거)
   const withoutSpecs = cleaned.replace(SPEC_PATTERN, ' ');
-  const words = withoutSpecs.split(/\s+/).filter(w => w.length >= 2 && !NOISE_WORDS.has(w.toLowerCase()));
-
-  // 브랜드 제거
-  const brandLower = brand.toLowerCase();
-  const filtered = words.filter(w => w.toLowerCase() !== brandLower);
-
-  // 중복 제거
   const seen = new Set<string>();
-  const unique = filtered.filter(w => {
-    const l = w.toLowerCase();
-    if (seen.has(l)) return false;
-    seen.add(l);
-    return true;
-  });
+  const words = withoutSpecs
+    .split(/\s+/)
+    .map(w => w.trim().toLowerCase())
+    .filter(w => {
+      if (w.length < 2) return false;
+      if (NOISE.has(w)) return false;
+      if (seen.has(w)) return false;
+      seen.add(w);
+      return true;
+    });
 
-  // 첫 번째 단어를 productType으로, 나머지를 keywords로
-  const productType = unique[0] || '';
-  const keywords = unique.slice(1);
-
-  return { brand: brand || '', productType, specs: specs.slice(0, 2), keywords };
+  return { specs: specs.slice(0, 2), words };
 }
 
-// ─── 카테고리 대분류 추출 ────────────────────────────────────
+// ─── 카테고리 매칭 ───────────────────────────────────────────
 
-function getCategoryTop(categoryPath: string): string {
-  const top = categoryPath.split('>')[0]?.trim() || '';
-  // 풀에 있는 키로 매핑
-  for (const key of Object.keys(ADJECTIVE_POOL)) {
-    if (top === key || top.includes(key.split('/')[0])) return key;
+function findBestPool(categoryPath: string): string[] {
+  // 정확 매칭
+  if (KEYWORD_POOLS[categoryPath]) return KEYWORD_POOLS[categoryPath];
+
+  // 부분 매칭 (가장 긴 매칭)
+  let bestKey = '';
+  let bestLen = 0;
+  for (const key of Object.keys(KEYWORD_POOLS)) {
+    if (categoryPath.includes(key) || key.includes(categoryPath.split('>').slice(0, 3).join('>'))) {
+      if (key.length > bestLen) {
+        bestLen = key.length;
+        bestKey = key;
+      }
+    }
   }
-  return '생활용품'; // 기본값
+  if (bestKey) return KEYWORD_POOLS[bestKey];
+
+  // 대분류 매칭
+  const top = categoryPath.split('>')[0];
+  for (const key of Object.keys(KEYWORD_POOLS)) {
+    if (key.startsWith(top)) return KEYWORD_POOLS[key];
+  }
+
+  return [];
+}
+
+// ─── 동의어 치환 ─────────────────────────────────────────────
+
+function applySynonym(word: string, rng: () => number): string {
+  for (const [, synonyms] of Object.entries(SYNONYM_GROUPS)) {
+    if (synonyms.some(s => s.toLowerCase() === word.toLowerCase())) {
+      // 동의어 그룹에서 랜덤 하나 선택
+      return synonyms[Math.floor(rng() * synonyms.length)];
+    }
+  }
+  return word;
 }
 
 // ─── 공개 API ────────────────────────────────────────────────
 
 /**
- * 랜덤 노출상품명 생성
- * @param originalName 원본 상품명
- * @param brand 브랜드
- * @param categoryPath 쿠팡 카테고리 경로
- * @param sellerSeed 셀러 고유 시드 (같은 시드 → 같은 결과)
- * @param productIndex 상품 인덱스 (배치 내 순번)
+ * 쿠팡 SEO 최적화 노출상품명 생성
+ *
+ * 구조: [핵심키워드] [연관검색어1] [연관검색어2] [브랜드] [스펙]
+ * 모든 단어가 실제 검색되는 키워드.
+ * 셀러마다 순서+동의어가 다름 → 아이템 위너 방지.
  */
 export function generateDisplayName(
   originalName: string,
@@ -109,58 +112,105 @@ export function generateDisplayName(
   sellerSeed: string,
   productIndex: number,
 ): string {
-  const parsed = parseName(originalName, brand);
-  const catTop = getCategoryTop(categoryPath);
-  const adjectives = ADJECTIVE_POOL[catTop] || ADJECTIVE_POOL['생활용품'];
-  const features = FEATURE_POOL[catTop] || FEATURE_POOL['생활용품'] || [];
+  const { specs, words } = extractKeywords(originalName);
 
   // 시드 기반 RNG
   const seed = stringToSeed(`${sellerSeed}::${productIndex}::${originalName}`);
   const rng = createSeededRandom(seed);
 
-  // 템플릿 선택
-  const template = TEMPLATES[Math.floor(rng() * TEMPLATES.length)];
+  // 카테고리 연관 검색어 풀
+  const catKeywords = findBestPool(categoryPath);
 
-  // 형용사 2개 선택 (서로 다른 것)
-  const adjIdx1 = Math.floor(rng() * adjectives.length);
-  let adjIdx2 = Math.floor(rng() * (adjectives.length - 1));
-  if (adjIdx2 >= adjIdx1) adjIdx2++;
-  const adj1 = adjectives[adjIdx1];
-  const adj2 = adjectives[adjIdx2];
+  // 1. 상품명에서 추출한 핵심 키워드 (전부 사용)
+  const coreWords = words.slice(0, 5);
 
-  // 효능 1개 선택
-  const feat = features.length > 0 ? features[Math.floor(rng() * features.length)] : '';
-  // 키워드 1개 선택
-  const kw = parsed.keywords.length > 0 ? parsed.keywords[Math.floor(rng() * parsed.keywords.length)] : '';
-
-  // 템플릿 조합 — adj 슬롯에 형용사 2개 조합
-  const parts: string[] = [];
-  for (const slot of template) {
-    switch (slot) {
-      case 'adj': parts.push(adj1); parts.push(adj2); break;
-      case 'brand': if (parsed.brand) parts.push(parsed.brand); break;
-      case 'type': if (parsed.productType) parts.push(parsed.productType); break;
-      case 'spec': if (parsed.specs.length > 0) parts.push(parsed.specs.join(' ')); break;
-      case 'kw': if (kw) parts.push(kw); break;
-      case 'feat': if (feat) parts.push(feat); break;
+  // 2. 핵심 키워드의 동의어만 추가 (상품과 무관한 키워드 절대 추가 안 함)
+  //    "넥크림" → "목주름크림", "넥라인크림" (같은 제품의 다른 표현)
+  //    "콜라겐" → "저분자콜라겐", "피쉬콜라겐" (같은 성분의 다른 표현)
+  const relatedWords: string[] = [];
+  for (const w of coreWords) {
+    for (const [, synonyms] of Object.entries(SYNONYM_GROUPS)) {
+      if (synonyms.some(s => s.toLowerCase() === w.toLowerCase())) {
+        // 이 키워드의 동의어 중 원본과 다른 것 1개 추가
+        const others = synonyms.filter(s => s.toLowerCase() !== w.toLowerCase());
+        if (others.length > 0) {
+          relatedWords.push(others[Math.floor(rng() * others.length)]);
+        }
+        break;
+      }
     }
   }
 
-  // 빈 슬롯 제거 + 중복 제거 + 100자 제한
+  // 3. 카테고리 풀에서 이 상품과 직접 관련된 키워드만 추가
+  //    (상품명 단어가 카테고리 풀에도 존재하는 경우만)
+  const coreSet = new Set(coreWords.map(w => w.toLowerCase()));
+  const relatedSet = new Set(relatedWords.map(w => w.toLowerCase()));
+  const catRelated = catKeywords.filter(kw => {
+    const kwLower = kw.toLowerCase();
+    if (coreSet.has(kwLower) || relatedSet.has(kwLower)) return false;
+    // 상품명 핵심 키워드와 글자가 2자 이상 겹치는 것만
+    for (const core of coreWords) {
+      if (core.length >= 2 && (kwLower.includes(core) || core.includes(kwLower))) return true;
+    }
+    return false;
+  });
+  const shuffledCatRelated = [...catRelated].sort(() => rng() - 0.5);
+  relatedWords.push(...shuffledCatRelated.slice(0, 1)); // 최대 1개만
+
+  // 4. 전체 키워드 조합
+  const allWords: string[] = [];
+
+  // 핵심 키워드 (일부 동의어 치환)
+  for (const w of coreWords) {
+    // 50% 확률로 동의어 치환 (나머지 50%는 원본 유지)
+    if (rng() > 0.5) {
+      allWords.push(applySynonym(w, rng));
+    } else {
+      allWords.push(w);
+    }
+  }
+
+  // 동의어 기반 연관 키워드
+  for (const w of relatedWords) {
+    allWords.push(w);
+  }
+
+  // 브랜드
+  if (brand && brand.length >= 2) {
+    allWords.push(brand);
+  }
+
+  // 스펙
+  for (const s of specs) {
+    allWords.push(s);
+  }
+
+  // 4. 중복 제거
   const seen = new Set<string>();
-  const deduplicated = parts.filter(p => {
-    const l = p.toLowerCase();
+  const unique = allWords.filter(w => {
+    const l = w.toLowerCase();
     if (seen.has(l)) return false;
     seen.add(l);
     return true;
   });
 
-  let result = deduplicated.join(' ').trim();
+  // 5. 순서 셔플 (시드 기반 — 셀러마다 다른 순서)
+  for (let i = unique.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [unique[i], unique[j]] = [unique[j], unique[i]];
+  }
 
-  // 100자 초과 시 마지막 단어부터 제거
-  while (result.length > 100 && deduplicated.length > 2) {
-    deduplicated.pop();
-    result = deduplicated.join(' ').trim();
+  // 6. 100자 제한
+  let result = unique.join(' ');
+  if (result.length > 100) {
+    const trimmed: string[] = [];
+    let len = 0;
+    for (const w of unique) {
+      if (len + w.length + 1 > 100) break;
+      trimmed.push(w);
+      len += w.length + 1;
+    }
+    result = trimmed.join(' ');
   }
 
   return result || originalName.slice(0, 100);
