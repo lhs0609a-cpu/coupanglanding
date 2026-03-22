@@ -185,14 +185,8 @@ export function generateDisplayName(
   }
 
   // 브랜드는 넣지 않음 — 아이템 위너 묶임 방지
-  // (브랜드 필드에는 별도로 들어가므로 노출상품명에서 제외)
 
-  // 스펙(용량/갯수)은 반드시 포함 — 검색에도 중요하고 구매 결정에도 필수
-  for (const s of specs) {
-    allWords.push(s);
-  }
-
-  // 4. 중복 제거
+  // 4. 중복 제거 (키워드만, 스펙 제외)
   const seen = new Set<string>();
   const unique = allWords.filter(w => {
     const l = w.toLowerCase();
@@ -201,13 +195,18 @@ export function generateDisplayName(
     return true;
   });
 
-  // 5. 순서 셔플 (시드 기반 — 셀러마다 다른 순서)
+  // 5. 키워드만 순서 셔플 (스펙은 셔플 안 함)
   for (let i = unique.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [unique[i], unique[j]] = [unique[j], unique[i]];
   }
 
-  // 6. 100자 제한
+  // 6. 스펙(용량/갯수)은 맨 뒤에 고정
+  for (const s of specs) {
+    if (!seen.has(s.toLowerCase())) unique.push(s);
+  }
+
+  // 7. 100자 제한
   let result = unique.join(' ');
   if (result.length > 100) {
     const trimmed: string[] = [];
