@@ -8,6 +8,7 @@ import {
   addDownloadCouponItems,
   checkDownloadCouponStatus,
   checkInstantCouponStatus,
+  getInstantCouponItemCount,
   toCoupangDateFormat,
 } from '@/lib/utils/coupang-api-client';
 import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
@@ -59,7 +60,6 @@ async function ensureInstantCoupon(
   let currentCount = config.instant_coupon_item_count || 0;
   if (couponId > 0) {
     try {
-      const { getInstantCouponItemCount } = await import('@/lib/utils/coupang-api-client');
       const realCount = await getInstantCouponItemCount(credentials, couponId);
       if (realCount > 0 && realCount !== currentCount) {
         console.log(`[ensureInstantCoupon] DB 카운트 ${currentCount} → 실제 카운트 ${realCount} 동기화`);
