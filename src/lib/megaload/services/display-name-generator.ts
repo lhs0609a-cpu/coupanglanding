@@ -125,11 +125,11 @@ export function generateDisplayName(
   // 카테고리 연관 검색어 풀
   const catKeywords = findBestPool(categoryPath);
 
-  // 1. 상품명에서 추출한 핵심 키워드 (브랜드명 제외)
+  // 1. 상품명에서 추출한 핵심 키워드 (브랜드명 제외, 최대 7개)
   const brandLower = brand.toLowerCase();
   const coreWords = words
     .filter(w => w.toLowerCase() !== brandLower && !brandLower.includes(w.toLowerCase()))
-    .slice(0, 5);
+    .slice(0, 7);
 
   // 2. 핵심 키워드의 동의어만 추가 (상품과 무관한 키워드 절대 추가 안 함)
   //    "넥크림" → "목주름크림", "넥라인크림" (같은 제품의 다른 표현)
@@ -138,10 +138,12 @@ export function generateDisplayName(
   for (const w of coreWords) {
     for (const [, synonyms] of Object.entries(SYNONYM_GROUPS)) {
       if (synonyms.some(s => s.toLowerCase() === w.toLowerCase())) {
-        // 이 키워드의 동의어 중 원본과 다른 것 1개 추가
+        // 이 키워드의 동의어 중 원본과 다른 것 1~2개 추가
         const others = synonyms.filter(s => s.toLowerCase() !== w.toLowerCase());
-        if (others.length > 0) {
-          relatedWords.push(others[Math.floor(rng() * others.length)]);
+        const pickCount = Math.min(others.length, 1 + Math.floor(rng() * 2)); // 1~2개
+        const shuffledOthers = [...others].sort(() => rng() - 0.5);
+        for (let k = 0; k < pickCount; k++) {
+          relatedWords.push(shuffledOthers[k]);
         }
         break;
       }
@@ -162,7 +164,7 @@ export function generateDisplayName(
     return false;
   });
   const shuffledCatRelated = [...catRelated].sort(() => rng() - 0.5);
-  relatedWords.push(...shuffledCatRelated.slice(0, 1)); // 최대 1개만
+  relatedWords.push(...shuffledCatRelated.slice(0, 2 + Math.floor(rng() * 2))); // 2~3개
 
   // 4. 전체 키워드 조합
   const allWords: string[] = [];
