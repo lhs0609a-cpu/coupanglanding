@@ -133,11 +133,11 @@ export function generateStory(
   // 템플릿 셔플 후 타입별로 선택
   const shuffled = [...templates].sort(() => rng() - 0.5);
 
-  // 3~5개 문단 선택 (다양한 타입으로)
+  // 5~7개 문단 선택 (다양한 타입으로, 더 풍부한 상세설명)
   const usedTypes = new Set<string>();
   const selectedParagraphs: StoryTemplate[] = [];
   for (const t of shuffled) {
-    if (selectedParagraphs.length >= 4) break;
+    if (selectedParagraphs.length >= 6) break;
     // 같은 타입은 최대 2개
     const typeCount = selectedParagraphs.filter(s => s.type === t.type).length;
     if (typeCount >= 2) continue;
@@ -145,19 +145,44 @@ export function generateStory(
     usedTypes.add(t.type);
   }
 
-  // 변수 치환 + 톤 적용
+  // 변수 치환 + 문단 확장 + 톤 적용
+  const EXPANSION_SENTENCES = [
+    '꾸준히 사용하면 더 좋은 결과를 기대할 수 있어요.',
+    '주변에 추천하고 싶을 정도로 만족스러워요.',
+    '다른 제품으로 바꿀 생각이 전혀 없어요.',
+    '가격 대비 만족도가 정말 높아요.',
+    '포장도 꼼꼼하고 배송도 빨랐어요.',
+    '하나 더 구매해서 지인에게 선물할 예정이에요.',
+    '온 가족이 함께 사용하고 있어요.',
+    '처음에는 반신반의했는데 결과에 놀랐어요.',
+    '이 가격에 이 퀄리티면 정말 가성비 최고예요.',
+    '앞으로도 계속 재구매할 생각이에요.',
+    '사용법도 간단해서 누구나 쉽게 쓸 수 있어요.',
+    '선물용으로도 정말 좋아요.',
+    '매일 꾸준히 사용하니까 확실히 달라지는 게 느껴져요.',
+    '리뷰 보고 구매했는데 리뷰 그대로예요.',
+    '정기배송으로 구매하고 있어요. 그만큼 만족해요.',
+  ];
+
   const paragraphs = selectedParagraphs.map(t => {
-    const filled = fillTemplate(t.text, vars, cleanName, rng);
+    let filled = fillTemplate(t.text, vars, cleanName, rng);
+    // 문단 확장: 2~3개 추가 문장 붙이기 (총 3~5줄)
+    const extraCount = 1 + Math.floor(rng() * 2); // 1~2개 추가
+    for (let e = 0; e < extraCount; e++) {
+      const extra = EXPANSION_SENTENCES[Math.floor(rng() * EXPANSION_SENTENCES.length)];
+      filled += ' ' + extra;
+    }
     return applyTone(filled, tone);
   });
 
-  // 리뷰 텍스트 (짧은 후기 2~3개)
+  // 리뷰 텍스트 (짧은 후기 3~4개, 각 2~3줄)
   const reviewTemplates = shuffled.filter(t => t.type === 'review' && !selectedParagraphs.includes(t));
-  const reviewTexts = reviewTemplates.slice(0, 3).map(t => {
-    const filled = fillTemplate(t.text, vars, cleanName, rng);
-    // 80자 이내로 자르기
-    const short = filled.length > 80 ? filled.slice(0, 77) + '...' : filled;
-    return short;
+  const reviewTexts = reviewTemplates.slice(0, 4).map(t => {
+    let filled = fillTemplate(t.text, vars, cleanName, rng);
+    // 리뷰도 1줄 추가
+    const extra = EXPANSION_SENTENCES[Math.floor(rng() * EXPANSION_SENTENCES.length)];
+    filled += ' ' + extra;
+    return filled;
   });
 
   return { paragraphs, reviewTexts, tone: tone.name };

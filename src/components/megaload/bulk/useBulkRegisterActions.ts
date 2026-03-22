@@ -253,8 +253,8 @@ export function useBulkRegisterActions() {
     if (!targets.length) return;
     setTitleGenProgress({ done: 0, total: targets.length });
 
-    // 템플릿 기반 즉시 생성 (AI 없이, 아이템위너 방지 활성 시)
-    if (preventionConfig.enabled) {
+    // SEO 최적화 상품명 즉시 생성 (항상 실행, AI 불필요)
+    {
       const { generateDisplayName } = await import('@/lib/megaload/services/display-name-generator');
       const sellerSeed = `seller_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
@@ -282,7 +282,7 @@ export function useBulkRegisterActions() {
       return;
     }
 
-    // AI 기반 생성 (방지 비활성 시 — 기존 로직)
+    // AI 기반 생성 (폴백 — 위에서 항상 return하므로 실행 안 됨)
     const BATCH = 100;
     for (let i = 0; i < targets.length; i += BATCH) {
       const batch = targets.slice(i, i + BATCH);
@@ -325,8 +325,8 @@ export function useBulkRegisterActions() {
     if (!targets.length) return;
     setContentGenProgress({ done: 0, total: targets.length });
 
-    // 템플릿 기반 즉시 생성 (아이템위너 방지 활성 시 또는 AI 비활성 시)
-    if (preventionConfig.enabled || !generateAiContent) {
+    // 템플릿 기반 즉시 생성 (항상 실행 — AI 불필요)
+    {
       const { generateStory } = await import('@/lib/megaload/services/story-generator');
       const sellerSeed = `seller_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
