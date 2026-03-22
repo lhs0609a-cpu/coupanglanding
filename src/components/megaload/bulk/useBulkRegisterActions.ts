@@ -158,7 +158,7 @@ export function useBulkRegisterActions() {
     const failedBatches: number[] = [];
 
     const processBatch = async (batchStart: number, batchProds: EditableProduct[], allProds: EditableProduct[]) => {
-      const names = batchProds.map((p) => p.editedName);
+      const names = batchProds.map((p) => p.name);  // 원본 상품명으로 카테고리 매칭
       const naverCategoryIds = batchProds.map((p) => p.naverCategoryId);
       const hasNaverIds = naverCategoryIds.some(Boolean);
       const res = await fetch('/api/megaload/products/bulk-register/auto-category-batch', {
