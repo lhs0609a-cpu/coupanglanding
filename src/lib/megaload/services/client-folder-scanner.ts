@@ -30,7 +30,8 @@ export interface ScannedProduct {
 }
 
 const IMAGE_PATTERN = /\.(jpg|jpeg|png|webp)$/i;
-const MAIN_IMAGE_PATTERN = /^product_\d+\.(jpg|jpeg|png)$/i;
+// 대표이미지: 모든 jpg/jpeg/png/webp 파일 허용 (product_숫자 패턴 제한 해제)
+const MAIN_IMAGE_PATTERN = /\.(jpg|jpeg|png|webp)$/i;
 
 /**
  * showDirectoryPicker()로 사용자가 폴더를 선택하도록 하고,

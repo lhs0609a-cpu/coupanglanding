@@ -124,8 +124,8 @@ export default function DetailPageContentTab({
 
     return buildRichDetailPageHtml(
       {
-        productName: product.editedName,
-        brand: product.editedBrand,
+        productName: product.editedDisplayProductName || product.name,
+        brand: '',  // 브랜드 비움 (아이템위너 방지)
         aiStoryParagraphs: paragraphs,
         reviewImageUrls: reviewUrls,
         reviewTexts: reviewTexts.length > 0 ? reviewTexts : undefined,
