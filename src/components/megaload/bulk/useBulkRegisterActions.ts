@@ -403,8 +403,17 @@ export function useBulkRegisterActions() {
       setPipelineRan(true);
       (async () => {
         const latest = productsRef.current;
-        await runTitleGeneration(latest);
-        // Re-read latest products after title gen for content gen to use updated names
+
+        // 이미지 순서 셔플 (대표이미지 자동 선택 — 셀러마다 다름)
+        const { shuffleWithSeed } = await import('@/lib/megaload/services/item-winner-prevention');
+        const imgSeed = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        setProducts(prev => prev.map((p, i) => {
+          if (!p.scannedMainImages || p.scannedMainImages.length <= 1) return p;
+          const shuffled = shuffleWithSeed(p.scannedMainImages, `${imgSeed}::${i}`);
+          return { ...p, scannedMainImages: shuffled };
+        }));
+
+        await runTitleGeneration(productsRef.current);
         await runContentGeneration(productsRef.current);
       })();
     }

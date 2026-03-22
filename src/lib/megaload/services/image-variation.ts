@@ -36,12 +36,12 @@ const CROP_DIRECTIONS: CropDirection[] = ['top', 'bottom', 'left', 'right', 'cen
 export function generateImageVariationParams(): ImageVariation {
   const seed = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   return {
-    cropPercent: 1 + Math.random() * 4,                         // 1~5% 크롭
+    cropPercent: 2 + Math.random() * 6,                         // 2~8% 크롭 (더 과감하게)
     cropDirection: CROP_DIRECTIONS[Math.floor(Math.random() * CROP_DIRECTIONS.length)],
-    brightness: 0.97 + Math.random() * 0.06,                    // 97~103% 밝기
-    saturation: 0.90 + Math.random() * 0.20,                    // 90~110% 채도
-    rotation: -2 + Math.random() * 4,                            // -2~+2도 회전
-    quality: 85 + Math.floor(Math.random() * 11),                // 85~95 JPEG 품질
+    brightness: 0.92 + Math.random() * 0.16,                    // 92~108% 밝기 (범위 확대)
+    saturation: 0.85 + Math.random() * 0.30,                    // 85~115% 채도 (범위 확대)
+    rotation: -3 + Math.random() * 6,                            // -3~+3도 회전 (범위 확대)
+    quality: 78 + Math.floor(Math.random() * 18),                // 78~95 JPEG 품질 (범위 확대)
     seed,
   };
 }
