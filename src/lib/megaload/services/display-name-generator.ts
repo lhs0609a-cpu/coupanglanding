@@ -121,8 +121,11 @@ export function generateDisplayName(
   // 카테고리 연관 검색어 풀
   const catKeywords = findBestPool(categoryPath);
 
-  // 1. 상품명에서 추출한 핵심 키워드 (전부 사용)
-  const coreWords = words.slice(0, 5);
+  // 1. 상품명에서 추출한 핵심 키워드 (브랜드명 제외)
+  const brandLower = brand.toLowerCase();
+  const coreWords = words
+    .filter(w => w.toLowerCase() !== brandLower && !brandLower.includes(w.toLowerCase()))
+    .slice(0, 5);
 
   // 2. 핵심 키워드의 동의어만 추가 (상품과 무관한 키워드 절대 추가 안 함)
   //    "넥크림" → "목주름크림", "넥라인크림" (같은 제품의 다른 표현)
@@ -175,12 +178,10 @@ export function generateDisplayName(
     allWords.push(w);
   }
 
-  // 브랜드
-  if (brand && brand.length >= 2) {
-    allWords.push(brand);
-  }
+  // 브랜드는 넣지 않음 — 아이템 위너 묶임 방지
+  // (브랜드 필드에는 별도로 들어가므로 노출상품명에서 제외)
 
-  // 스펙
+  // 스펙(용량/갯수)은 반드시 포함 — 검색에도 중요하고 구매 결정에도 필수
   for (const s of specs) {
     allWords.push(s);
   }
