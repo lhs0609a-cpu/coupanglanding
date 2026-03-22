@@ -60,16 +60,40 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '처리할 카테고리가 없습니다.' }, { status: 404 });
     }
 
-    const seedKeywords = TREND_SEED_KEYWORDS[targetCategory];
-    console.log(`[cron/trends] 카테고리 "${targetCategory}" 수집 시작 (시드 ${seedKeywords.length}개)`);
+    // 가장 오래된 카테고리부터 최대 3개 수집 (2시간마다 실행 → ~8시간에 전체 11개 순환)
+    const categoriesToCollect: string[] = [targetCategory];
 
-    const result = await collectTrendKeywords(targetCategory, seedKeywords);
+    // 2번째, 3번째로 오래된 카테고리 추가
+    const sortedByAge = allCategories
+      .filter((c) => c !== targetCategory)
+      .sort((a, b) => {
+        const aTime = categoryLastCollected.get(a) || '1970-01-01';
+        const bTime = categoryLastCollected.get(b) || '1970-01-01';
+        return aTime.localeCompare(bTime);
+      });
+    if (sortedByAge.length > 0) categoriesToCollect.push(sortedByAge[0]);
+    if (sortedByAge.length > 1) categoriesToCollect.push(sortedByAge[1]);
 
-    console.log(`[cron/trends] 완료: ${result.message}`);
+    const results = [];
+    for (const cat of categoriesToCollect) {
+      const seedKeywords = TREND_SEED_KEYWORDS[cat];
+      if (!seedKeywords || seedKeywords.length === 0) continue;
+
+      console.log(`[cron/trends] 카테고리 "${cat}" 수집 시작 (시드 ${seedKeywords.length}개)`);
+      try {
+        const result = await collectTrendKeywords(cat, seedKeywords);
+        console.log(`[cron/trends] 완료: ${result.message}`);
+        results.push(result);
+      } catch (catErr) {
+        console.error(`[cron/trends] ${cat} 수집 실패:`, catErr instanceof Error ? catErr.message : catErr);
+        results.push({ category: cat, collected: 0, message: `실패: ${catErr instanceof Error ? catErr.message : '알 수 없는 오류'}` });
+      }
+    }
 
     return NextResponse.json({
       success: true,
-      ...result,
+      categoriesProcessed: results.length,
+      results,
     });
   } catch (err) {
     console.error('[cron/trends] error:', err);
