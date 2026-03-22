@@ -86,7 +86,7 @@ export default function ProgressDisplay({
         {isFailed && (
           <button
             type="button"
-            onClick={onRestart}
+            onClick={() => onRestart()}
             disabled={restarting}
             className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-[#c81530] transition disabled:opacity-50"
           >
