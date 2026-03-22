@@ -53,8 +53,23 @@ async function ensureInstantCoupon(
   serviceClient: SupabaseClient,
   itemsToAdd: number,
 ): Promise<{ couponId: number; couponName: string }> {
-  const currentCount = config.instant_coupon_item_count || 0;
   const couponId = Number(config.instant_coupon_id);
+
+  // 실제 쿠팡에서 현재 아이템 수 조회 (DB 카운트가 틀릴 수 있음)
+  let currentCount = config.instant_coupon_item_count || 0;
+  if (couponId > 0) {
+    try {
+      const { getInstantCouponItemCount } = await import('@/lib/utils/coupang-api-client');
+      const realCount = await getInstantCouponItemCount(credentials, couponId);
+      if (realCount > 0 && realCount !== currentCount) {
+        console.log(`[ensureInstantCoupon] DB 카운트 ${currentCount} → 실제 카운트 ${realCount} 동기화`);
+        currentCount = realCount;
+        await serviceClient.from('coupon_auto_sync_config').update({
+          instant_coupon_item_count: realCount,
+        }).eq('pt_user_id', config.pt_user_id);
+      }
+    } catch { /* 실패 시 DB 카운트 사용 */ }
+  }
 
   // 현재 쿠폰에 여유가 있으면 그대로 사용 (auto_create 비활성이면 항상 기존 쿠폰 사용)
   if (couponId > 0 && (currentCount + itemsToAdd <= INSTANT_COUPON_MAX_ITEMS || !config.instant_coupon_auto_create)) {
@@ -242,7 +257,7 @@ async function createDownloadCouponBatch(
 
     // 동기 API — requestResultStatus로 즉시 결과 확인
     if (itemResult.requestResultStatus !== 'SUCCESS') {
-      throw new Error(`다운로드 쿠폰 아이템 등록 실패: status=${itemResult.requestResultStatus}`);
+      throw new Error(`다운로드 쿠폰(${couponId}) 아이템 등록 실패: status=${itemResult.requestResultStatus}, 아이템수=${vendorItemIds.length}`);
     }
     console.log(`[bulk-apply] 다운로드 쿠폰 아이템 등록 성공: couponId=${itemResult.couponId}`);
   }
