@@ -355,8 +355,8 @@ export async function fetchProductListings(
       (p) => !Array.isArray(p.items) || (p.items as unknown[]).length === 0,
     );
 
-    // 10개씩 병렬 호출 (동시 요청 제한)
-    const PARALLEL = 5;
+    // 10개씩 병렬 호출 (속도 최적화 — 429 에러 시 자동 재시도)
+    const PARALLEL = 10;
     const detailMap = new Map<string, Array<Record<string, unknown>>>();
 
     for (let i = 0; i < productsNeedingDetail.length; i += PARALLEL) {
@@ -365,9 +365,20 @@ export async function fetchProductListings(
         batch.map(async (p) => {
           const spId = String(p.sellerProductId || '');
           const detailPath = `${SELLER_BASE_PATH}/seller-products/${spId}`;
-          const detailData = await callCoupangApi(credentials, 'GET', detailPath) as Record<string, unknown>;
-          const detail = (detailData.data || detailData) as Record<string, unknown>;
-          return { spId, items: Array.isArray(detail.items) ? detail.items as Array<Record<string, unknown>> : [] };
+          try {
+            const detailData = await callCoupangApi(credentials, 'GET', detailPath) as Record<string, unknown>;
+            const detail = (detailData.data || detailData) as Record<string, unknown>;
+            return { spId, items: Array.isArray(detail.items) ? detail.items as Array<Record<string, unknown>> : [] };
+          } catch (err) {
+            // 429 rate limit → 1초 대기 후 재시도 1회
+            if (err instanceof CoupangApiError && err.statusCode === 429) {
+              await new Promise((r) => setTimeout(r, 1000));
+              const retryData = await callCoupangApi(credentials, 'GET', detailPath) as Record<string, unknown>;
+              const detail = (retryData.data || retryData) as Record<string, unknown>;
+              return { spId, items: Array.isArray(detail.items) ? detail.items as Array<Record<string, unknown>> : [] };
+            }
+            throw err;
+          }
         }),
       );
       for (const r of results) {
@@ -375,9 +386,9 @@ export async function fetchProductListings(
           detailMap.set(r.value.spId, r.value.items);
         }
       }
-      // 쿠팡 API 속도 제한 방지 (배치 간 500ms 대기)
+      // 배치 간 짧은 대기 (200ms — rate limit 여유)
       if (i + PARALLEL < productsNeedingDetail.length) {
-        await new Promise((r) => setTimeout(r, 500));
+        await new Promise((r) => setTimeout(r, 200));
       }
     }
 
