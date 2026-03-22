@@ -267,8 +267,8 @@ export function useBulkRegisterActions() {
             updated[globalIdx] = {
               ...updated[globalIdx],
               editedDisplayProductName: generateDisplayName(
-                target.editedName,
-                target.editedBrand,
+                target.name,  // 원본 상품명 사용 (editedName은 브랜드+고유번호)
+                target.editedBrand || target.brand,
                 target.editedCategoryName,
                 sellerSeed,
                 i,
@@ -337,7 +337,7 @@ export function useBulkRegisterActions() {
           const globalIdx = updated.findIndex(p => p.uid === target.uid);
           if (globalIdx >= 0) {
             const story = generateStory(
-              target.editedDisplayProductName || target.editedName,
+              target.editedDisplayProductName || target.name,  // 원본 상품명 사용
               target.editedCategoryName,
               sellerSeed,
               i,
