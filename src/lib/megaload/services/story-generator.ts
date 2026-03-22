@@ -108,9 +108,45 @@ export interface StoryResult {
  * @param sellerSeed 셀러 고유 시드
  * @param productIndex 상품 인덱스
  */
-// ─── 완성형 후기 템플릿 ──────────────────────────────────────
+// ─── 완성형 후기 템플릿 (소분류별) ───────────────────────────
 
-const FULL_REVIEWS: Record<string, string[]> = fullReviewData as Record<string, string[]>;
+const FULL_REVIEWS: Record<string, string[]> = fullReviewData as unknown as Record<string, string[]>;
+
+/**
+ * 카테고리 경로에서 가장 구체적인 후기 템플릿 풀을 찾는다.
+ * 소분류 → 중분류 → 대분류 → DEFAULT 순서로 폴백.
+ */
+function findBestReviewPool(categoryPath: string): string[] {
+  // 1. 정확 매칭
+  if (FULL_REVIEWS[categoryPath]?.length > 0) return FULL_REVIEWS[categoryPath];
+
+  // 2. 뒤에서부터 줄여가며 매칭 (소분류→중분류→대분류)
+  const parts = categoryPath.split('>');
+  for (let len = parts.length; len >= 2; len--) {
+    const key = parts.slice(0, len).join('>');
+    if (FULL_REVIEWS[key]?.length > 0) return FULL_REVIEWS[key];
+  }
+
+  // 3. 부분 매칭 (가장 긴 매칭)
+  let bestKey = '';
+  let bestLen = 0;
+  for (const key of Object.keys(FULL_REVIEWS)) {
+    if (!Array.isArray(FULL_REVIEWS[key]) || FULL_REVIEWS[key].length === 0) continue;
+    if (categoryPath.includes(key) || key.includes(parts.slice(0, 3).join('>'))) {
+      if (key.length > bestLen) { bestLen = key.length; bestKey = key; }
+    }
+  }
+  if (bestKey) return FULL_REVIEWS[bestKey];
+
+  // 4. 대분류 매칭
+  const top = parts[0];
+  for (const key of Object.keys(FULL_REVIEWS)) {
+    if (!Array.isArray(FULL_REVIEWS[key]) || FULL_REVIEWS[key].length === 0) continue;
+    if (key.startsWith(top)) return FULL_REVIEWS[key];
+  }
+
+  return FULL_REVIEWS['DEFAULT'] || [];
+}
 
 export function generateStory(
   productName: string,
@@ -134,8 +170,8 @@ export function generateStory(
     .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
     .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ');
 
-  // 완성형 후기 템플릿 선택 (카테고리별)
-  const fullPool = FULL_REVIEWS[catKey] || FULL_REVIEWS['DEFAULT'] || [];
+  // 완성형 후기 템플릿 선택 (소분류 우선 매칭)
+  const fullPool = findBestReviewPool(categoryPath);
   const selectedTemplate = fullPool[Math.floor(rng() * fullPool.length)] || '';
 
   // 변수 치환
