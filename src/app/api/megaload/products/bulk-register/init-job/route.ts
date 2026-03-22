@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
+import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import type { NoticeCategoryMeta } from '@/lib/megaload/services/notice-field-filler';
 import type { AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
 
@@ -28,21 +29,19 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { data: shUser } = await supabase
-      .from('megaload_users')
-      .select('id')
-      .eq('profile_id', user.id)
-      .single();
-    if (!shUser) return NextResponse.json({ error: 'Megaload 계정이 없습니다.' }, { status: 404 });
+    const serviceClient = await createServiceClient();
+    let shUserId: string;
+    try {
+      shUserId = await ensureMegaloadUser(supabase, serviceClient, user.id);
+    } catch (err) {
+      return NextResponse.json({ error: err instanceof Error ? err.message : 'Megaload 계정이 없습니다.' }, { status: 404 });
+    }
 
-    const shUserId = (shUser as Record<string, unknown>).id as string;
     const body = (await req.json()) as InitJobBody;
 
     if (!body.totalCount || body.totalCount <= 0) {
       return NextResponse.json({ error: '등록할 상품 수가 필요합니다.' }, { status: 400 });
     }
-
-    const serviceClient = await createServiceClient();
 
     // 1. sh_sync_jobs 생성
     const { data: job } = await serviceClient

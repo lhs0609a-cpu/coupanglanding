@@ -161,6 +161,8 @@ export default function BulkRegisterPanel() {
           autoMatchError={actions.autoMatchError}
           autoMatchStats={actions.autoMatchStats}
           onRetryAutoCategory={actions.retryAutoCategory}
+          titleGenProgress={actions.titleGenProgress}
+          contentGenProgress={actions.contentGenProgress}
           validating={actions.validating}
           validationPhase={actions.validationPhase}
           imagePreuploadProgress={actions.imagePreuploadProgress}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
+import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { uploadLocalImagesParallel } from '@/lib/megaload/services/local-product-reader';
 import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo, type AttributeMeta, type CertificationInfo, type OptionVariant } from '@/lib/megaload/services/coupang-product-builder';
 import { fillNoticeFields, type NoticeCategoryMeta, type ExtractedNoticeHints } from '@/lib/megaload/services/notice-field-filler';
@@ -107,14 +108,14 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { data: shUser } = await supabase
-      .from('megaload_users')
-      .select('id')
-      .eq('profile_id', user.id)
-      .single();
-    if (!shUser) return NextResponse.json({ error: 'Megaload 계정이 없습니다.' }, { status: 404 });
+    const serviceClient = await createServiceClient();
+    let shUserId: string;
+    try {
+      shUserId = await ensureMegaloadUser(supabase, serviceClient, user.id);
+    } catch (err) {
+      return NextResponse.json({ error: err instanceof Error ? err.message : 'Megaload 계정이 없습니다.' }, { status: 404 });
+    }
 
-    const shUserId = (shUser as Record<string, unknown>).id as string;
     const body = (await req.json()) as BatchRegisterBody;
 
     const {
@@ -133,8 +134,6 @@ export async function POST(req: NextRequest) {
     if (!products || products.length === 0) return NextResponse.json({ error: '상품이 없습니다.' }, { status: 400 });
     if (!deliveryInfo?.outboundShippingPlaceCode) return NextResponse.json({ error: '출고지가 필요합니다.' }, { status: 400 });
     if (!returnInfo?.returnCenterCode) return NextResponse.json({ error: '반품지가 필요합니다.' }, { status: 400 });
-
-    const serviceClient = await createServiceClient();
     const adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang');
     const coupangAdapter = adapter as CoupangAdapter;
     const vendorId = coupangAdapter.getVendorId();

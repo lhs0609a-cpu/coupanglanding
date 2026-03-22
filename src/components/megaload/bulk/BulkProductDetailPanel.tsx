@@ -51,6 +51,9 @@ export default function BulkProductDetailPanel({
   const [activeTab, setActiveTab] = useState<'info' | 'detail' | 'payload'>('info');
   const [issuesExpanded, setIssuesExpanded] = useState(false);
 
+  // Browser mode: load all main images as objectURLs
+  const [browserImageUrls, setBrowserImageUrls] = useState<string[]>([]);
+
   // Keyboard navigation
   useEffect(() => {
     if (!product) return;
@@ -77,6 +80,33 @@ export default function BulkProductDetailPanel({
     }
   }, [product?.uid]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Browser mode: load objectURLs from scannedMainImages
+  useEffect(() => {
+    if (!product?.scannedMainImages?.length || imageUrls.length > 0) {
+      setBrowserImageUrls([]);
+      return;
+    }
+
+    let cancelled = false;
+    const urls: string[] = [];
+
+    (async () => {
+      for (const img of product.scannedMainImages!) {
+        if (cancelled || !img.handle) continue;
+        try {
+          const file = await img.handle.getFile();
+          urls.push(URL.createObjectURL(file));
+        } catch { /* handle may be stale */ }
+      }
+      if (!cancelled) setBrowserImageUrls([...urls]);
+    })();
+
+    return () => {
+      cancelled = true;
+      urls.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [product?.uid, imageUrls.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto-fetch preview when panel opens (if category is set)
   useEffect(() => {
     if (product && product.editedCategoryCode && onRequestPreview && !payloadPreview?.data && !payloadPreview?.loading) {
@@ -91,7 +121,9 @@ export default function BulkProductDetailPanel({
     }
   }, [activeTab, product?.uid]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const imageItems: ImageItem[] = imageUrls.map((url, i) => ({
+  // Display images: CDN/server URLs > browser objectURLs
+  const displayImageUrls = imageUrls.length > 0 ? imageUrls : browserImageUrls;
+  const imageItems: ImageItem[] = displayImageUrls.map((url, i) => ({
     id: `img-${i}`,
     url,
   }));

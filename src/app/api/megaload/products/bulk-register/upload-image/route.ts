@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { randomUUID } from 'crypto';
+import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
 /**
  * POST — 브라우저에서 이미지 파일을 받아 Supabase Storage에 업로드
@@ -13,14 +14,13 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { data: shUser } = await supabase
-      .from('megaload_users')
-      .select('id')
-      .eq('profile_id', user.id)
-      .single();
-    if (!shUser) return NextResponse.json({ error: 'Megaload 계정이 없습니다.' }, { status: 404 });
-
-    const shUserId = (shUser as Record<string, unknown>).id as string;
+    const serviceClient = await createServiceClient();
+    let shUserId: string;
+    try {
+      shUserId = await ensureMegaloadUser(supabase, serviceClient, user.id);
+    } catch (err) {
+      return NextResponse.json({ error: err instanceof Error ? err.message : 'Megaload 계정이 없습니다.' }, { status: 404 });
+    }
 
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
@@ -55,7 +55,6 @@ export async function POST(req: NextRequest) {
       : ext === 'webp' ? 'image/webp'
       : 'image/jpeg';
 
-    const serviceClient = await createServiceClient();
     const storagePath = `megaload/${shUserId}/bulk/${randomUUID()}.${ext}`;
 
     const { data, error } = await serviceClient.storage

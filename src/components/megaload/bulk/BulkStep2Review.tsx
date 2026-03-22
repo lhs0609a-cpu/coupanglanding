@@ -36,6 +36,9 @@ interface BulkStep2ReviewProps {
   categoryKeyword: string;
   categoryResults: CategoryItem[];
   searchingCategory: boolean;
+  // Auto-fill pipeline progress
+  titleGenProgress: { done: number; total: number } | null;
+  contentGenProgress: { done: number; total: number } | null;
   // Bulk actions
   onSetProducts: React.Dispatch<React.SetStateAction<EditableProduct[]>>;
   onToggle: (uid: string) => void;
@@ -69,6 +72,7 @@ interface BulkStep2ReviewProps {
 export default function BulkStep2Review({
   products, autoMatchingProgress, autoMatchError, autoMatchStats, onRetryAutoCategory, validating, validationPhase,
   imagePreuploadProgress, imagePreuploadCache, dryRunResults,
+  titleGenProgress, contentGenProgress,
   deliveryChargeType, deliveryCharge, freeShipOverAmount,
   selectedCount, totalSourcePrice, totalSellingPrice,
   validationReadyCount, validationWarningCount, validationErrorCount, registerableCount,
@@ -300,6 +304,34 @@ export default function BulkStep2Review({
         <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-3">
           <CheckCircle2 className="w-4 h-4 text-green-500" />
           <span className="text-sm text-green-700">카테고리 자동매칭 완료: {autoMatchStats.matched}/{autoMatchStats.total} 성공</span>
+        </div>
+      )}
+
+      {/* 제목 생성 진행 */}
+      {titleGenProgress && (
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 flex items-center gap-3">
+          <Loader2 className="w-4 h-4 animate-spin text-purple-600" />
+          <span className="text-sm text-purple-700">
+            노출상품명 AI 생성 중... {titleGenProgress.done}/{titleGenProgress.total}
+          </span>
+          <div className="flex-1 h-1.5 bg-purple-100 rounded-full overflow-hidden">
+            <div className="h-full bg-purple-500 rounded-full transition-all"
+              style={{ width: `${(titleGenProgress.done / titleGenProgress.total) * 100}%` }} />
+          </div>
+        </div>
+      )}
+
+      {/* AI 콘텐츠 생성 진행 */}
+      {contentGenProgress && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-3">
+          <Loader2 className="w-4 h-4 animate-spin text-green-600" />
+          <span className="text-sm text-green-700">
+            AI 상세페이지 생성 중... {contentGenProgress.done}/{contentGenProgress.total}
+          </span>
+          <div className="flex-1 h-1.5 bg-green-100 rounded-full overflow-hidden">
+            <div className="h-full bg-green-500 rounded-full transition-all"
+              style={{ width: `${(contentGenProgress.done / contentGenProgress.total) * 100}%` }} />
+          </div>
         </div>
       )}
 

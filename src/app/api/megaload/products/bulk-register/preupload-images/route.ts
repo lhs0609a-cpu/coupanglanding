@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { uploadLocalImagesParallel } from '@/lib/megaload/services/local-product-reader';
 import { generateVariationParams, type VariationParams } from '@/lib/megaload/services/server-image-variation';
 
@@ -37,14 +38,13 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { data: shUser } = await supabase
-      .from('megaload_users')
-      .select('id')
-      .eq('profile_id', user.id)
-      .single();
-    if (!shUser) return NextResponse.json({ error: 'Megaload 계정이 없습니다.' }, { status: 404 });
-
-    const shUserId = (shUser as Record<string, unknown>).id as string;
+    const serviceClient = await createServiceClient();
+    let shUserId: string;
+    try {
+      shUserId = await ensureMegaloadUser(supabase, serviceClient, user.id);
+    } catch (err) {
+      return NextResponse.json({ error: err instanceof Error ? err.message : 'Megaload 계정이 없습니다.' }, { status: 404 });
+    }
     const body = (await req.json()) as PreuploadBody;
 
     if (!body.products || body.products.length === 0) {

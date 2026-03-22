@@ -146,7 +146,7 @@ export default function CoupangFieldsSection({
 
   const optionMissing = useMemo(() => {
     let count = 0;
-    const itemName = product.editedItemName ?? (firstItem?.itemName as string || '');
+    const itemName = product.editedItemName ?? (firstItem?.itemName as string) ?? product.editedName;
     if (!itemName) count++;
     return count;
   }, [product.editedItemName, firstItem]);
@@ -381,13 +381,13 @@ export default function CoupangFieldsSection({
         badge={meta?.extractedOptions.length ? `${meta.extractedOptions.length}개 추출` : undefined}
       >
         {/* 아이템명 */}
-        <div className={!(product.editedItemName ?? (firstItem?.itemName as string || '')) ? 'border-l-2 border-l-red-400 pl-3' : ''}>
-          <RequiredLabel empty={!(product.editedItemName ?? (firstItem?.itemName as string || ''))}>아이템명 (itemName)</RequiredLabel>
+        <div className={!(product.editedItemName ?? (firstItem?.itemName as string) ?? product.editedName) ? 'border-l-2 border-l-red-400 pl-3' : ''}>
+          <RequiredLabel empty={!(product.editedItemName ?? (firstItem?.itemName as string) ?? product.editedName)}>아이템명 (itemName)</RequiredLabel>
           <input
             type="text"
-            value={product.editedItemName ?? (firstItem?.itemName as string || '')}
+            value={product.editedItemName ?? (firstItem?.itemName as string) ?? product.editedName}
             onChange={(e) => onUpdate(product.uid, 'editedItemName', e.target.value)}
-            className={inputRequired(!(product.editedItemName ?? (firstItem?.itemName as string || '')))}
+            className={inputRequired(!(product.editedItemName ?? (firstItem?.itemName as string) ?? product.editedName))}
             placeholder="자동 생성"
           />
         </div>
