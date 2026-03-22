@@ -447,7 +447,7 @@ export function useBulkRegisterActions() {
             || (sp.productJson.sourceCategory as { categoryId?: string })?.categoryId
             || undefined,
           uid: `browser://${dirName}/${sp.folderName}::${sp.productCode}`,
-          editedName: sp.productJson.name || sp.productJson.title || `product_${sp.productCode}`,
+          editedName: `${sp.productJson.brand || extractBrandFromName(sp.productJson.name || sp.productJson.title || '')} ${sp.productCode}`,
           editedBrand: sp.productJson.brand || extractBrandFromName(sp.productJson.name || sp.productJson.title || ''),
           editedSellingPrice: sourcePrice,
           editedDisplayProductName: '', // 비워두면 runTitleGeneration에서 SEO 최적화 상품명 자동 생성
@@ -710,7 +710,7 @@ export function useBulkRegisterActions() {
         if (!res.ok) throw new Error(`[${fp}] ${data.error || '스캔 실패'}`);
         if (data.brackets) latestBrackets = data.brackets;
         const editableProducts: EditableProduct[] = (data.products as PreviewProduct[]).map((p) => ({
-          ...p, uid: `${p.folderPath}::${p.productCode}`, editedName: p.name, editedBrand: p.brand || extractBrandFromName(p.name),
+          ...p, uid: `${p.folderPath}::${p.productCode}`, editedName: `${p.brand || extractBrandFromName(p.name)} ${p.productCode}`, editedBrand: p.brand || extractBrandFromName(p.name),
           editedSellingPrice: p.sellingPrice, editedDisplayProductName: '', // SEO 자동 생성 대기
           editedCategoryCode: '', editedCategoryName: '',
           categoryConfidence: 0, categorySource: '', selected: true, status: 'pending' as const,
@@ -885,11 +885,8 @@ export function useBulkRegisterActions() {
         const batchProducts = [];
         for (const p of batch) {
           const meta = categoryMeta?.[p.editedCategoryCode] || { noticeMeta: [], attributeMeta: [] };
-          // 판매자상품명: 브랜드 + 고유번호 (아이템위너 방지 + 브랜드 검색/삭제 용이)
-          const uniqueCode = p.productCode || p.uid.split('::').pop() || Date.now().toString(36);
-          const sellerName = `${p.editedBrand || '상품'} ${uniqueCode}`;
           const product: Record<string, unknown> = {
-            uid: p.uid, productCode: p.productCode, folderPath: p.folderPath, name: sellerName,
+            uid: p.uid, productCode: p.productCode, folderPath: p.folderPath, name: p.editedName,
             brand: p.editedBrand, sellingPrice: p.editedSellingPrice, sourcePrice: p.sourcePrice,
             categoryCode: p.editedCategoryCode, tags: p.tags, description: p.description,
             mainImages: p.mainImages, detailImages: p.detailImages, reviewImages: p.reviewImages, infoImages: p.infoImages,
