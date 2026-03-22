@@ -28,8 +28,8 @@ export interface VerifyResult {
 interface ProgressDisplayProps {
   progress: BulkApplyProgress;
   onCancel: () => void;
-  onRestart: () => void;
-  onApplyNewOnly?: () => void;
+  onRestart: (days?: number) => void;
+  onApplyNewOnly?: (days?: number) => void;
   onVerify?: () => void;
   cancelling: boolean;
   restarting: boolean;
@@ -285,21 +285,35 @@ export default function ProgressDisplay({
         </div>
       )}
 
-      {/* Completion buttons */}
+      {/* Completion buttons with date range options */}
       {isCompleted && onApplyNewOnly && (
-        <div className="flex gap-3 pt-2 border-t border-gray-100">
+        <div className="pt-2 border-t border-gray-100 space-y-3">
+          {/* 기간별 적용 버튼들 */}
+          <div className="flex flex-wrap gap-2">
+            {[
+              { label: '신규 상품만', days: 0, icon: Zap },
+              { label: '7일 이내', days: 7, icon: Zap },
+              { label: '14일 이내', days: 14, icon: Zap },
+              { label: '30일 이내', days: 30, icon: Zap },
+              { label: '60일 이내', days: 60, icon: Zap },
+              { label: '90일 이내', days: 90, icon: Zap },
+            ].map((opt) => (
+              <button
+                key={opt.days}
+                type="button"
+                onClick={() => onApplyNewOnly(opt.days)}
+                disabled={applyingNewOnly}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-[#E31837] border border-[#E31837] rounded-lg hover:bg-red-50 transition disabled:opacity-50"
+              >
+                <opt.icon className="w-3 h-3" />
+                {applyingNewOnly ? '적용 중...' : opt.label}
+              </button>
+            ))}
+          </div>
+          {/* 전체 재적용 */}
           <button
             type="button"
-            onClick={onApplyNewOnly}
-            disabled={applyingNewOnly}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-[#E31837] border border-[#E31837] rounded-lg hover:bg-red-50 transition disabled:opacity-50"
-          >
-            <Zap className="w-3.5 h-3.5" />
-            {applyingNewOnly ? '적용 중...' : '신규 상품만 적용'}
-          </button>
-          <button
-            type="button"
-            onClick={onRestart}
+            onClick={() => onRestart(0)}
             disabled={restarting}
             className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-[#c81530] transition disabled:opacity-50"
           >

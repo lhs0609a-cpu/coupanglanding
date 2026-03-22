@@ -402,33 +402,34 @@ export default function PromotionPage() {
     }
   };
 
-  const handleRestart = async () => {
+  const handleRestart = async (days?: number) => {
     setRestarting(true);
+    const daysToUse = days ?? collectDays;
+    setCollectDays(daysToUse);
     collectNextTokenRef.current = '';
     try {
-      // 기존 진행 취소 + 트래킹 초기화 → collecting 상태로 재시작
       await fetch('/api/promotion/restart', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ collectDays }),
+        body: JSON.stringify({ collectDays: daysToUse }),
       });
       await fetchProgress();
-      // polling이 collecting 상태를 감지하고 collect-products 호출
     } catch { /* ignore */ } finally {
       setRestarting(false);
     }
   };
 
-  const handleApplyNewOnly = async () => {
+  const handleApplyNewOnly = async (days?: number) => {
     setApplyingNewOnly(true);
     setError(null);
+    const daysToUse = days ?? collectDays;
+    setCollectDays(daysToUse);
     collectNextTokenRef.current = '';
     try {
-      // 새 상품 수집 (기존 completed 항목은 ignoreDuplicates로 유지) → 적용
       const res = await fetch('/api/promotion/collect-products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ collectDays: daysToUse }),
       });
       if (!res.ok) {
         const data = await res.json();

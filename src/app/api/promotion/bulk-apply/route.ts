@@ -9,6 +9,7 @@ import {
   checkDownloadCouponStatus,
   checkInstantCouponStatus,
   getInstantCouponItemCount,
+  fetchInstantCoupons,
   toCoupangDateFormat,
 } from '@/lib/utils/coupang-api-client';
 import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
@@ -56,10 +57,19 @@ async function ensureInstantCoupon(
 ): Promise<{ couponId: number; couponName: string }> {
   const couponId = Number(config.instant_coupon_id);
 
-  // 실제 쿠팡에서 현재 아이템 수 조회 (DB 카운트가 틀릴 수 있음)
+  // 즉시할인 쿠폰 검증: 쿠폰 목록에서 해당 ID가 즉시할인인지 확인
   let currentCount = config.instant_coupon_item_count || 0;
   if (couponId > 0) {
     try {
+      // 즉시할인 쿠폰 목록에서 해당 ID 확인
+      const instantCoupons = await fetchInstantCoupons(credentials);
+      const found = instantCoupons.find((c) => c.couponId === couponId);
+      if (!found) {
+        console.error(`[ensureInstantCoupon] 쿠폰 ${couponId}가 즉시할인 쿠폰 목록에 없습니다. 다운로드 쿠폰 ID일 수 있습니다.`);
+        throw new Error(`쿠폰 ID ${couponId}는 즉시할인 쿠폰이 아닙니다. 쿠팡 Wing에서 즉시할인 쿠폰 ID를 확인해주세요.`);
+      }
+
+      // 실제 쿠팡에서 현재 아이템 수 조회
       const realCount = await getInstantCouponItemCount(credentials, couponId);
       if (realCount > 0 && realCount !== currentCount) {
         console.log(`[ensureInstantCoupon] DB 카운트 ${currentCount} → 실제 카운트 ${realCount} 동기화`);
@@ -68,7 +78,10 @@ async function ensureInstantCoupon(
           instant_coupon_item_count: realCount,
         }).eq('pt_user_id', config.pt_user_id);
       }
-    } catch { /* 실패 시 DB 카운트 사용 */ }
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('즉시할인 쿠폰이 아닙니다')) throw err;
+      /* 실패 시 DB 카운트 사용 */
+    }
   }
 
   // 현재 쿠폰에 여유가 있으면 그대로 사용 (auto_create 비활성이면 항상 기존 쿠폰 사용)
