@@ -60,8 +60,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '처리할 카테고리가 없습니다.' }, { status: 404 });
     }
 
-    // Hobby 플랜은 하루 1회만 실행 → 전체 11개 카테고리 한 번에 수집
-    const categoriesToCollect = allCategories;
+    // Hobby 플랜 하루 1회 → 가장 오래된 2개 카테고리 수집 (6일에 전체 순환)
+    const categoriesToCollect: string[] = [targetCategory];
+    const sortedByAge = allCategories
+      .filter((c) => c !== targetCategory)
+      .sort((a, b) => (categoryLastCollected.get(a) || '1970').localeCompare(categoryLastCollected.get(b) || '1970'));
+    if (sortedByAge.length > 0) categoriesToCollect.push(sortedByAge[0]);
 
     const results = [];
     for (const cat of categoriesToCollect) {
