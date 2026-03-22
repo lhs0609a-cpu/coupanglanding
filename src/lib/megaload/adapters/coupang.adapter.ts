@@ -99,7 +99,7 @@ export class CoupangAdapter extends BaseAdapter {
     try {
       await this.authenticate(credentials);
       // 출고지 목록 조회로 연결 테스트 (가장 안정적인 API)
-      await this.coupangApi('GET', '/v2/providers/marketplace_openapi/apis/api/v1/vendor/shipping-place/outbound');
+      await this.coupangApi('GET', '/v2/providers/marketplace_openapi/apis/api/v1/vendor/shipping-place/outbound', 'pageNum=1&pageSize=1');
       return { success: true, message: '쿠팡 API 연결 성공' };
     } catch (err) {
       return { success: false, message: `쿠팡 API 연결 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}` };
