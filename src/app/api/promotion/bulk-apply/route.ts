@@ -57,19 +57,21 @@ async function ensureInstantCoupon(
 ): Promise<{ couponId: number; couponName: string }> {
   const couponId = Number(config.instant_coupon_id);
 
-  // 즉시할인 쿠폰 검증: 쿠폰 목록에서 해당 ID가 즉시할인인지 확인
+  // 즉시할인 쿠폰 검증 + 기존 쿠폰 설정 조회
   let currentCount = config.instant_coupon_item_count || 0;
+  let existingCouponData: Record<string, unknown> | null = null;
+
   if (couponId > 0) {
     try {
-      // 즉시할인 쿠폰 목록에서 해당 ID 확인
       const instantCoupons = await fetchInstantCoupons(credentials);
       const found = instantCoupons.find((c) => c.couponId === couponId);
       if (!found) {
-        console.error(`[ensureInstantCoupon] 쿠폰 ${couponId}가 즉시할인 쿠폰 목록에 없습니다. 다운로드 쿠폰 ID일 수 있습니다.`);
         throw new Error(`쿠폰 ID ${couponId}는 즉시할인 쿠폰이 아닙니다. 쿠팡 Wing에서 즉시할인 쿠폰 ID를 확인해주세요.`);
       }
+      // 기존 쿠폰 설정 저장 (로테이션 시 동일 설정으로 생성용)
+      existingCouponData = found as unknown as Record<string, unknown>;
 
-      // 실제 쿠팡에서 현재 아이템 수 조회
+      // 실제 아이템 수 조회
       const realCount = await getInstantCouponItemCount(credentials, couponId);
       if (realCount > 0 && realCount !== currentCount) {
         console.log(`[ensureInstantCoupon] DB 카운트 ${currentCount} → 실제 카운트 ${realCount} 동기화`);
@@ -80,42 +82,43 @@ async function ensureInstantCoupon(
       }
     } catch (err) {
       if (err instanceof Error && err.message.includes('즉시할인 쿠폰이 아닙니다')) throw err;
-      /* 실패 시 DB 카운트 사용 */
     }
   }
 
-  // 현재 쿠폰에 여유가 있으면 그대로 사용 (auto_create 비활성이면 항상 기존 쿠폰 사용)
-  if (couponId > 0 && (currentCount + itemsToAdd <= INSTANT_COUPON_MAX_ITEMS || !config.instant_coupon_auto_create)) {
+  // 현재 쿠폰에 여유가 있으면 그대로 사용
+  if (couponId > 0 && currentCount + itemsToAdd <= INSTANT_COUPON_MAX_ITEMS) {
     return { couponId, couponName: config.instant_coupon_name };
   }
 
-  // auto_create 비활성인데 한도 초과 시 에러
-  if (!config.instant_coupon_auto_create) {
-    throw new Error(`즉시할인 쿠폰 ${couponId}의 아이템 한도(${INSTANT_COUPON_MAX_ITEMS})를 초과했습니다. 자동 생성을 활성화하거나 새 쿠폰 ID를 입력해주세요.`);
-  }
-
-  // 새 쿠폰 생성 필요
+  // ── 10,000개 초과 → 기존 쿠폰과 동일 설정으로 새 쿠폰 자동 생성 ──
   console.log(`[bulk-apply] 즉시할인 쿠폰 로테이션: 현재 ${currentCount}개 + ${itemsToAdd}개 > ${INSTANT_COUPON_MAX_ITEMS} 한도`);
 
+  // 기존 쿠폰에서 설정 복사 (할인율, 타입, 최대할인금액, 계약서ID)
+  const discountValue = Number(existingCouponData?.discount || config.instant_coupon_discount || 0);
+  const discountType = String(existingCouponData?.type || config.instant_coupon_discount_type || 'RATE') as 'RATE' | 'FIXED';
+  const maxDiscount = Number(existingCouponData?.maxDiscountPrice || config.instant_coupon_max_discount || 10);
+  const contractId = Number(existingCouponData?.contractId || config.contract_id || 0);
+  const existingEndDate = existingCouponData?.endAt ? String(existingCouponData.endAt) : null;
+
+  console.log(`[bulk-apply] 기존 쿠폰 설정 복사: type=${discountType}, discount=${discountValue}, maxDiscount=${maxDiscount}, contractId=${contractId}`);
+
+  if (discountValue <= 0) {
+    throw new Error(`즉시할인 쿠폰 자동 생성 불가: 기존 쿠폰의 할인값을 가져올 수 없습니다. 쿠폰 설정에서 할인값을 입력해주세요.`);
+  }
+
   const now = new Date();
-  const endDate = new Date(now);
-  endDate.setDate(endDate.getDate() + (config.instant_coupon_duration_days || 30));
+  // 기존 쿠폰의 종료일이 있으면 동일하게, 없으면 30일 후
+  const endDate = existingEndDate
+    ? new Date(existingEndDate)
+    : new Date(now.getTime() + (config.instant_coupon_duration_days || 30) * 24 * 60 * 60 * 1000);
+  // 종료일이 과거면 30일 후로 설정
+  if (endDate <= now) {
+    endDate.setTime(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  }
 
   const dateStr = now.toISOString().slice(0, 10);
-  const title = (config.instant_coupon_title_template || '즉시할인 {date}')
-    .replace('{date}', dateStr)
-    .replace('{n}', String(Date.now()).slice(-4));
-
-  const discountValue = config.instant_coupon_discount || 0;
-  const discountType = (config.instant_coupon_discount_type as 'RATE' | 'FIXED') || 'RATE';
-
-  // 쿠팡 API 요구사항: 퍼센트 1-89, 정액 1원 이상
-  if (discountValue <= 0) {
-    throw new Error(`즉시할인 쿠폰 생성 불가: 할인값이 설정되지 않았습니다 (${discountType}: ${discountValue}). 설정에서 할인값을 입력해주세요.`);
-  }
-  if (discountType === 'RATE' && (discountValue < 1 || discountValue > 89)) {
-    throw new Error(`즉시할인 쿠폰 생성 불가: 퍼센트 할인은 1~89% 범위여야 합니다 (현재: ${discountValue}%).`);
-  }
+  const existingName = String(existingCouponData?.name || config.instant_coupon_name || '즉시할인');
+  const title = `${existingName} ${dateStr} #${String(Date.now()).slice(-4)}`;
 
   const newCoupon = await createInstantCoupon(credentials, {
     title,
@@ -123,8 +126,8 @@ async function ensureInstantCoupon(
     endDate: toCoupangDateFormat(endDate),
     discountType,
     discountValue,
-    maxDiscountPrice: Math.max(config.instant_coupon_max_discount || 10, 10), // 최소 10원
-    contractId: Number(config.contract_id) || 0,
+    maxDiscountPrice: Math.max(maxDiscount, 10),
+    contractId,
   });
 
   // 비동기 생성 — requestedId로 상태 확인하여 couponId 획득
