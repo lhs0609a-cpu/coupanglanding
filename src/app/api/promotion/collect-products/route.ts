@@ -33,11 +33,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '쿠팡 API가 연동되지 않았습니다.' }, { status: 400 });
     }
 
-    // 클라이언트에서 전달한 nextToken (이어서 수집)
+    // 클라이언트에서 전달한 nextToken, collectDays
     let resumeToken = '';
+    let collectDays = 0;
     try {
       const body = await request.json();
       resumeToken = body.nextToken || '';
+      collectDays = Number(body.collectDays) || 0;
     } catch { /* empty body */ }
 
     const credentials: CoupangCredentials = {
@@ -93,12 +95,25 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // 수집 범위에 따른 날짜 필터 계산
+    let dateFrom: string | undefined;
+    let dateTo: string | undefined;
+    if (collectDays > 0) {
+      const now = new Date();
+      dateTo = now.toISOString().split('T')[0];
+      const from = new Date(now.getTime() - collectDays * 24 * 60 * 60 * 1000);
+      dateFrom = from.toISOString().split('T')[0];
+      console.log(`[collect-products] 수집 범위: 최근 ${collectDays}일 (${dateFrom} ~ ${dateTo})`);
+    }
+
     // 쿠팡에서 상품 배치 조회 (PAGES_PER_CALL 페이지만)
-    console.log(`[collect-products] 배치 수집 시작 (resumeToken: ${resumeToken ? '있음' : '없음'})`);
+    console.log(`[collect-products] 배치 수집 시작 (resumeToken: ${resumeToken ? '있음' : '없음'}, days: ${collectDays || '전체'})`);
     const { items: productItems, nextToken, rawResponse } = await fetchProductListings(credentials, {
       status: 'APPROVED',
       maxPages: PAGES_PER_CALL,
       nextToken: resumeToken,
+      dateFrom,
+      dateTo,
     });
 
     console.log(`[collect-products] 이번 배치: ${productItems.length}개 vendorItem, nextToken: ${nextToken ? '있음' : '없음'}`);

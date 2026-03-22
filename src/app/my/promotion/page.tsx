@@ -86,6 +86,8 @@ export default function PromotionPage() {
 
   // Apply all checkbox
   const [applyAllOnSave, setApplyAllOnSave] = useState(false);
+  // 수집 범위 (일수) — 0이면 전체
+  const [collectDays, setCollectDays] = useState(0);
 
   // Coupang data
   const [contracts, setContracts] = useState<CoupangContract[]>([]);
@@ -255,7 +257,7 @@ export default function PromotionPage() {
             const res = await fetch('/api/promotion/collect-products', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ nextToken: collectNextTokenRef.current }),
+              body: JSON.stringify({ nextToken: collectNextTokenRef.current, collectDays }),
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok) {
@@ -371,7 +373,7 @@ export default function PromotionPage() {
         const collectRes = await fetch('/api/promotion/collect-products', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ collectDays }),
         });
         if (!collectRes.ok) {
           const collectData = await collectRes.json();
@@ -405,7 +407,11 @@ export default function PromotionPage() {
     collectNextTokenRef.current = '';
     try {
       // 기존 진행 취소 + 트래킹 초기화 → collecting 상태로 재시작
-      await fetch('/api/promotion/restart', { method: 'POST' });
+      await fetch('/api/promotion/restart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ collectDays }),
+      });
       await fetchProgress();
       // polling이 collecting 상태를 감지하고 collect-products 호출
     } catch { /* ignore */ } finally {
@@ -699,8 +705,38 @@ export default function PromotionPage() {
                     onChange={(e) => setApplyAllOnSave(e.target.checked)}
                     className="w-4 h-4 text-[#E31837] border-gray-300 rounded focus:ring-[#E31837]/30"
                   />
-                  <span className="text-sm text-gray-700">승인된 모든 상품에 일괄 적용</span>
+                  <span className="text-sm text-gray-700">승인된 상품에 일괄 적용</span>
                 </label>
+
+                {/* 수집 범위 선택 */}
+                {applyAllOnSave && (
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <p className="text-xs text-gray-500 mb-2">수집 범위 (등록일 기준)</p>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { label: '전체', value: 0 },
+                        { label: '7일', value: 7 },
+                        { label: '14일', value: 14 },
+                        { label: '30일', value: 30 },
+                        { label: '60일', value: 60 },
+                        { label: '90일', value: 90 },
+                      ].map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setCollectDays(opt.value)}
+                          className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition ${
+                            collectDays === opt.value
+                              ? 'bg-[#E31837] text-white border-[#E31837]'
+                              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          {opt.value === 0 ? '전체 상품' : `최근 ${opt.label}`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </Card>
 
               {/* Buttons: Cancel + Save & Apply */}
