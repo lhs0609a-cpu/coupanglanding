@@ -613,9 +613,15 @@ export async function applyInstantCoupon(
 
   // 쿠팡 FMS API 스펙: 필드명은 "vendorItems" (vendorItemIds 아님!)
   const result = await callCoupangApi(credentials, 'POST', path, { vendorItems: numericIds }) as Record<string, unknown>;
-  const nested = (result.data || result) as Record<string, unknown>;
-  const requestedId = String(nested.requestedId || nested.requestTransactionId || result.requestedId || '');
-  console.log(`[applyInstantCoupon] 응답 — requestedId: ${requestedId || '없음'}, 전체: ${JSON.stringify(result).slice(0, 300)}`);
+
+  // 응답: { code:200, data: { success, content: { requestedId } } }
+  const data = (result.data || result) as Record<string, unknown>;
+  const content = (data.content || data) as Record<string, unknown>;
+  const requestedId = String(
+    content.requestedId || data.requestedId || result.requestedId
+    || content.requestTransactionId || data.requestTransactionId || '',
+  );
+  console.log(`[applyInstantCoupon] 응답 — requestedId: ${requestedId || '없음'}, 전체: ${JSON.stringify(result).slice(0, 500)}`);
   return { requestedId: requestedId || undefined };
 }
 
