@@ -316,9 +316,8 @@ export function useBulkRegisterActions() {
     setTitleGenProgress(null);
   }, [preventionConfig]);
 
-  // ---- Auto-fill pipeline: AI content generation ----
+  // ---- Auto-fill pipeline: Story/content generation (template or AI) ----
   const runContentGeneration = useCallback(async (prods: EditableProduct[]) => {
-    if (!generateAiContent) return;
     const targets = prods.filter(p =>
       p.editedCategoryCode &&
       (!p.editedStoryParagraphs || p.editedStoryParagraphs.length === 0)
@@ -326,6 +325,37 @@ export function useBulkRegisterActions() {
     if (!targets.length) return;
     setContentGenProgress({ done: 0, total: targets.length });
 
+    // 템플릿 기반 즉시 생성 (아이템위너 방지 활성 시 또는 AI 비활성 시)
+    if (preventionConfig.enabled || !generateAiContent) {
+      const { generateStory } = await import('@/lib/megaload/services/story-generator');
+      const sellerSeed = `seller_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      setProducts(prev => {
+        const updated = [...prev];
+        for (let i = 0; i < targets.length; i++) {
+          const target = targets[i];
+          const globalIdx = updated.findIndex(p => p.uid === target.uid);
+          if (globalIdx >= 0) {
+            const story = generateStory(
+              target.editedDisplayProductName || target.editedName,
+              target.editedCategoryName,
+              sellerSeed,
+              i,
+            );
+            updated[globalIdx] = {
+              ...updated[globalIdx],
+              editedStoryParagraphs: story.paragraphs,
+              editedReviewTexts: story.reviewTexts,
+            };
+          }
+        }
+        return updated;
+      });
+      setContentGenProgress(null);
+      return;
+    }
+
+    // AI 기반 생성 (방지 비활성 + AI 활성 시)
     const BATCH = 50;
     for (let i = 0; i < targets.length; i += BATCH) {
       const batch = targets.slice(i, i + BATCH);
@@ -362,7 +392,7 @@ export function useBulkRegisterActions() {
       setContentGenProgress({ done: Math.min(i + BATCH, targets.length), total: targets.length });
     }
     setContentGenProgress(null);
-  }, [generateAiContent]);
+  }, [generateAiContent, preventionConfig]);
 
   // ---- Auto-fill pipeline trigger: after category matching completes ----
   const productsRef = useRef<EditableProduct[]>(products);
