@@ -98,9 +98,16 @@ export default function DetailPageContentTab({
   const previewHtml = useMemo(() => {
     if (!previewOpen) return '';
 
-    const detailImageUrls = preUploadedUrls?.detailImageUrls?.filter(Boolean) ?? [];
-    const reviewImageUrls = preUploadedUrls?.reviewImageUrls?.filter(Boolean) ?? [];
-    const infoImageUrls = preUploadedUrls?.infoImageUrls?.filter(Boolean) ?? [];
+    // 서버 업로드 URL > 브라우저 objectURL > 플레이스홀더 순서
+    const detailImageUrls = (preUploadedUrls?.detailImageUrls?.filter(Boolean) ?? []).length > 0
+      ? preUploadedUrls!.detailImageUrls!.filter(Boolean)
+      : (product.scannedDetailImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []);
+    const reviewImageUrls = (preUploadedUrls?.reviewImageUrls?.filter(Boolean) ?? []).length > 0
+      ? preUploadedUrls!.reviewImageUrls!.filter(Boolean)
+      : (product.scannedReviewImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []);
+    const infoImageUrls = (preUploadedUrls?.infoImageUrls?.filter(Boolean) ?? []).length > 0
+      ? preUploadedUrls!.infoImageUrls!.filter(Boolean)
+      : (product.scannedInfoImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []);
 
     // 이미지 없으면 플레이스홀더 SVG 사용
     const placeholderImg = (label: string) =>
