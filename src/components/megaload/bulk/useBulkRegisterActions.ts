@@ -247,12 +247,42 @@ export function useBulkRegisterActions() {
     runAutoCategory(products, true);
   }, [products, runAutoCategory, autoCategoryRetryCount]);
 
-  // ---- Auto-fill pipeline: Title generation ----
+  // ---- Auto-fill pipeline: Title generation (template or AI) ----
   const runTitleGeneration = useCallback(async (prods: EditableProduct[]) => {
     const targets = prods.filter(p => p.editedCategoryCode && !p.editedDisplayProductName);
     if (!targets.length) return;
     setTitleGenProgress({ done: 0, total: targets.length });
 
+    // 템플릿 기반 즉시 생성 (AI 없이, 아이템위너 방지 활성 시)
+    if (preventionConfig.enabled) {
+      const { generateDisplayName } = await import('@/lib/megaload/services/display-name-generator');
+      const sellerSeed = `seller_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      setProducts(prev => {
+        const updated = [...prev];
+        for (let i = 0; i < targets.length; i++) {
+          const target = targets[i];
+          const globalIdx = updated.findIndex(p => p.uid === target.uid);
+          if (globalIdx >= 0) {
+            updated[globalIdx] = {
+              ...updated[globalIdx],
+              editedDisplayProductName: generateDisplayName(
+                target.editedName,
+                target.editedBrand,
+                target.editedCategoryName,
+                sellerSeed,
+                i,
+              ),
+            };
+          }
+        }
+        return updated;
+      });
+      setTitleGenProgress(null);
+      return;
+    }
+
+    // AI 기반 생성 (방지 비활성 시 — 기존 로직)
     const BATCH = 100;
     for (let i = 0; i < targets.length; i += BATCH) {
       const batch = targets.slice(i, i + BATCH);
@@ -261,7 +291,6 @@ export function useBulkRegisterActions() {
         categoryPath: p.editedCategoryName,
         brand: p.editedBrand,
         keywords: p.tags,
-        personaSeed: preventionConfig.enabled ? `${Date.now()}` : undefined,
       }));
 
       try {

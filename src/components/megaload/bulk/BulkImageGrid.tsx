@@ -18,7 +18,7 @@ import {
   rectSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { X, GripVertical } from 'lucide-react';
+import { X, GripVertical, Star } from 'lucide-react';
 
 interface ImageItem {
   id: string;
@@ -29,9 +29,10 @@ interface BulkImageGridProps {
   images: ImageItem[];
   onReorder: (newOrder: ImageItem[]) => void;
   onRemove: (id: string) => void;
+  onSetAsMain?: (id: string) => void;
 }
 
-function SortableImage({ image, onRemove }: { image: ImageItem; onRemove: (id: string) => void }) {
+function SortableImage({ image, onRemove, isMain, onSetAsMain }: { image: ImageItem; onRemove: (id: string) => void; isMain: boolean; onSetAsMain?: (id: string) => void }) {
   const {
     attributes,
     listeners,
@@ -77,15 +78,24 @@ function SortableImage({ image, onRemove }: { image: ImageItem; onRemove: (id: s
       >
         <X className="w-3.5 h-3.5" />
       </button>
-      {/* Index badge */}
-      <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/60 rounded text-[10px] text-white font-medium">
-        {parseInt(image.id.split('-').pop() || '0') + 1}
-      </div>
+      {/* Main badge or set-as-main button */}
+      {isMain ? (
+        <div className="absolute bottom-1 left-1 flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-500 rounded text-[10px] text-white font-bold">
+          <Star className="w-3 h-3 fill-white" /> 대표
+        </div>
+      ) : (
+        <button
+          onClick={(e) => { e.stopPropagation(); onSetAsMain?.(image.id); }}
+          className="absolute bottom-1 left-1 flex items-center gap-0.5 px-1.5 py-0.5 bg-black/50 rounded text-[10px] text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-500"
+        >
+          <Star className="w-3 h-3" /> 대표로
+        </button>
+      )}
     </div>
   );
 }
 
-export default function BulkImageGrid({ images, onReorder, onRemove }: BulkImageGridProps) {
+export default function BulkImageGrid({ images, onReorder, onRemove, onSetAsMain }: BulkImageGridProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -122,11 +132,13 @@ export default function BulkImageGrid({ images, onReorder, onRemove }: BulkImage
     >
       <SortableContext items={images.map(i => i.id)} strategy={rectSortingStrategy}>
         <div className="grid grid-cols-4 gap-2">
-          {images.map((image) => (
+          {images.map((image, idx) => (
             <SortableImage
               key={image.id}
               image={image}
+              isMain={idx === 0}
               onRemove={onRemove}
+              onSetAsMain={onSetAsMain}
             />
           ))}
         </div>

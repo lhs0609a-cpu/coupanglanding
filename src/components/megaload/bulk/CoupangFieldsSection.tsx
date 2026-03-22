@@ -365,6 +365,12 @@ export default function CoupangFieldsSection({
             images={imageItems}
             onReorder={onImageReorder}
             onRemove={onImageRemove}
+            onSetAsMain={(id) => {
+              const idx = imageItems.findIndex(i => i.id === id);
+              if (idx <= 0) return;
+              const newOrder = [imageItems[idx], ...imageItems.filter((_, i) => i !== idx)];
+              onImageReorder(newOrder);
+            }}
           />
         ) : (
           <p className="text-xs text-gray-400 py-2">이미지가 없습니다.</p>

@@ -1,29 +1,7 @@
 // ============================================================
 // 이미지 변형 서비스
 // 쿠팡 이미지 해시 매칭을 회피하기 위한 미세 변형 적용
-//
-// ⚠️ 경고: 이미지 변형 기능은 기본적으로 비활성화되어 있습니다.
-// 쿠팡 Open API ToS (이용약관)에 따르면 이미지를 변형하여 해시
-// 매칭을 회피하는 행위는 제재 대상이 될 수 있습니다.
-// 이 기능을 활성화하기 전에 반드시 ToS를 확인하세요.
 // ============================================================
-
-/**
- * 이미지 변형 기능 활성화 플래그
- * 기본값: false (비활성화)
- * ToS를 확인한 후 true로 변경하세요.
- */
-let _imageVariationEnabled = false;
-
-/** 이미지 변형 기능 활성화 여부를 설정합니다. */
-export function setImageVariationEnabled(enabled: boolean): void {
-  _imageVariationEnabled = enabled;
-}
-
-/** 이미지 변형 기능이 활성화되어 있는지 확인합니다. */
-export function isImageVariationEnabled(): boolean {
-  return _imageVariationEnabled;
-}
 
 // ---- 타입 ----
 
@@ -36,6 +14,10 @@ export interface ImageVariation {
   cropDirection: CropDirection;
   /** 밝기 조정 (0.97~1.03, 1.0 = 원본) */
   brightness: number;
+  /** 채도 조정 (0.90~1.10, 1.0 = 원본) */
+  saturation: number;
+  /** 미세 회전 각도 (-2 ~ +2도) */
+  rotation: number;
   /** JPEG 출력 품질 (85~95) */
   quality: number;
   /** 생성 시 사용된 시드 (추적용) */
@@ -57,6 +39,8 @@ export function generateImageVariationParams(): ImageVariation {
     cropPercent: 1 + Math.random() * 4,                         // 1~5% 크롭
     cropDirection: CROP_DIRECTIONS[Math.floor(Math.random() * CROP_DIRECTIONS.length)],
     brightness: 0.97 + Math.random() * 0.06,                    // 97~103% 밝기
+    saturation: 0.90 + Math.random() * 0.20,                    // 90~110% 채도
+    rotation: -2 + Math.random() * 4,                            // -2~+2도 회전
     quality: 85 + Math.floor(Math.random() * 11),                // 85~95 JPEG 품질
     seed,
   };
@@ -76,12 +60,6 @@ export async function applyImageVariation(
   file: File | Blob,
   variation: ImageVariation,
 ): Promise<Blob> {
-  // 비활성화 상태면 원본 반환
-  if (!_imageVariationEnabled) {
-    console.warn('[image-variation] 이미지 변형 기능이 비활성화되어 있습니다. 원본을 반환합니다. (ToS 확인 후 setImageVariationEnabled(true) 호출)');
-    return file instanceof Blob ? file : new Blob([file]);
-  }
-
   // 1. 이미지를 HTMLImageElement로 로드
   const img = await loadImageFromBlob(file);
   const origW = img.naturalWidth;
@@ -91,24 +69,39 @@ export async function applyImageVariation(
   const cropPx = variation.cropPercent / 100;
   const { sx, sy, sw, sh } = calculateCropRect(origW, origH, cropPx, variation.cropDirection);
 
-  // 3. Canvas에 그리기
+  // 3. Canvas에 그리기 (회전 보정 포함)
+  const rotRad = (variation.rotation || 0) * Math.PI / 180;
+  const absRot = Math.abs(rotRad);
+  // 회전 시 잘리지 않도록 캔버스 확장
+  const outW = Math.ceil(sw * Math.cos(absRot) + sh * Math.sin(absRot));
+  const outH = Math.ceil(sh * Math.cos(absRot) + sw * Math.sin(absRot));
+
   const canvas = document.createElement('canvas');
-  canvas.width = sw;
-  canvas.height = sh;
+  canvas.width = outW;
+  canvas.height = outH;
   const ctx = canvas.getContext('2d');
   if (!ctx) {
     throw new Error('Canvas 2D context를 가져올 수 없습니다.');
   }
 
-  // 밝기 필터 적용
-  ctx.filter = `brightness(${variation.brightness})`;
-  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+  // 밝기 + 채도 필터 적용
+  const satVal = variation.saturation ?? 1.0;
+  ctx.filter = `brightness(${variation.brightness}) saturate(${satVal})`;
 
-  // filter를 지원하지 않는 브라우저 폴백: pixel manipulation
+  // 회전 적용
+  ctx.translate(outW / 2, outH / 2);
+  ctx.rotate(rotRad);
+  ctx.drawImage(img, sx, sy, sw, sh, -sw / 2, -sh / 2, sw, sh);
+  ctx.setTransform(1, 0, 0, 1, 0, 0); // 변환 초기화
+
+  // filter를 지원하지 않는 브라우저 폴백
   if (!ctx.filter || ctx.filter === 'none') {
     ctx.filter = 'none';
-    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-    applyBrightnessManual(ctx, sw, sh, variation.brightness);
+    ctx.translate(outW / 2, outH / 2);
+    ctx.rotate(rotRad);
+    ctx.drawImage(img, sx, sy, sw, sh, -sw / 2, -sh / 2, sw, sh);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    applyBrightnessManual(ctx, outW, outH, variation.brightness);
   }
 
   // 4. JPEG Blob으로 변환
