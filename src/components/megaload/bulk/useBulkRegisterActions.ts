@@ -885,8 +885,11 @@ export function useBulkRegisterActions() {
         const batchProducts = [];
         for (const p of batch) {
           const meta = categoryMeta?.[p.editedCategoryCode] || { noticeMeta: [], attributeMeta: [] };
+          // 판매자상품명: 브랜드 + 고유번호 (아이템위너 방지 + 브랜드 검색/삭제 용이)
+          const uniqueCode = p.productCode || p.uid.split('::').pop() || Date.now().toString(36);
+          const sellerName = `${p.editedBrand || '상품'} ${uniqueCode}`;
           const product: Record<string, unknown> = {
-            uid: p.uid, productCode: p.productCode, folderPath: p.folderPath, name: p.editedName,
+            uid: p.uid, productCode: p.productCode, folderPath: p.folderPath, name: sellerName,
             brand: p.editedBrand, sellingPrice: p.editedSellingPrice, sourcePrice: p.sourcePrice,
             categoryCode: p.editedCategoryCode, tags: p.tags, description: p.description,
             mainImages: p.mainImages, detailImages: p.detailImages, reviewImages: p.reviewImages, infoImages: p.infoImages,
