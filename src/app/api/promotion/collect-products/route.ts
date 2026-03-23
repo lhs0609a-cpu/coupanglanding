@@ -7,8 +7,8 @@ import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
 export const maxDuration = 55; // Vercel 함수 최대 실행 시간 (초)
 
 const COLLECT_BATCH_SIZE = 100; // upsert batch size
-const PAGES_PER_CALL = 1; // 한 호출당 1페이지 (100 상품) — Vercel 55초 한도 내 안전 마진 확보
-const MAX_FETCH_TIME_MS = 40000; // fetchProductListings 최대 실행 시간 (40초)
+const PAGES_PER_CALL = 3; // 한 호출당 3페이지 — 시간 초과 시 자동 중단 (maxTimeMs 보호)
+const MAX_FETCH_TIME_MS = 45000; // fetchProductListings 최대 실행 시간 (45초)
 
 /** POST: 쿠팡 상품 수집 → product_coupon_tracking에 저장 (배치 방식) */
 export async function POST(request: NextRequest) {
@@ -126,6 +126,43 @@ export async function POST(request: NextRequest) {
       console.warn(`[collect-products] API 응답 일부:`, JSON.stringify(rawResponse).slice(0, 500));
     }
 
+    // 이번 배치에서 0건이고 resumeToken이 있었다면 (중간 빈 페이지) → 수집 완료 처리
+    // (쿠팡 API가 빈 페이지 + nextToken을 반환할 수 있으므로 무한 루프 방지)
+    if (productItems.length === 0 && resumeToken && nextToken) {
+      console.log(`[collect-products] 빈 페이지 감지 (resumeToken 있음, 0건) — 수집 강제 완료`);
+      // nextToken을 무시하고 수집 완료 처리
+      const { count: pendingCount } = await serviceClient
+        .from('product_coupon_tracking')
+        .select('id', { count: 'exact', head: true })
+        .eq('pt_user_id', ptUser.id)
+        .eq('status', 'pending');
+
+      const { count: totalItems } = await serviceClient
+        .from('product_coupon_tracking')
+        .select('id', { count: 'exact', head: true })
+        .eq('pt_user_id', ptUser.id);
+
+      await serviceClient.from('bulk_apply_progress').update({
+        status: 'applying',
+        collecting_progress: 100,
+        total_products: pendingCount || 0,
+        total_items: totalItems || 0,
+      }).eq('id', progress.id);
+
+      const { data: currentProgress } = await serviceClient
+        .from('bulk_apply_progress')
+        .select('*')
+        .eq('id', progress.id)
+        .single();
+
+      return NextResponse.json({
+        progress: currentProgress,
+        collected: true,
+        hasMore: false,
+        totalCollected: totalItems || 0,
+      });
+    }
+
     // product_coupon_tracking에 upsert (batch)
     let insertedCount = 0;
     for (let i = 0; i < productItems.length; i += COLLECT_BATCH_SIZE) {
@@ -170,8 +207,12 @@ export async function POST(request: NextRequest) {
       // 아직 더 수집할 상품이 있음 — collecting 유지
       const knownTotal = progress.total_items || 0;
       const collected = totalCollected || 0;
-      // knownTotal이 있으면 그것 사용, 없으면 수집량 + 여유분
-      const denominator = knownTotal > 0 ? Math.max(knownTotal, collected) : collected + 200;
+      // registeredCount는 전체(APPROVED+기타) 포함이므로, 실제 APPROVED는 ~85-90% 수준
+      // 남은 예상치를 50으로 제한하여 진행률이 80%에서 멈추는 것 방지
+      const estimatedRemaining = knownTotal > collected
+        ? Math.min(knownTotal - collected, 100) // 최대 100개만 남은 것으로 추정
+        : 50;
+      const denominator = collected + estimatedRemaining;
       const collectingProgress = Math.min(Math.round((collected / denominator) * 100), 99);
       await serviceClient.from('bulk_apply_progress').update({
         collecting_progress: collectingProgress,
