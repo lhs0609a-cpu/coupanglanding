@@ -38,13 +38,17 @@ export default function EmergencyAlertWidget() {
         .maybeSingle();
 
       if (ptUser) {
-        const { count } = await supabase
-          .from('incidents')
-          .select('*', { count: 'exact', head: true })
-          .eq('pt_user_id', ptUser.id)
-          .in('status', ['reported', 'in_progress', 'escalated']);
+        try {
+          const { count, error } = await supabase
+            .from('incidents')
+            .select('*', { count: 'exact', head: true })
+            .eq('pt_user_id', ptUser.id)
+            .in('status', ['reported', 'in_progress', 'escalated']);
 
-        setActiveIncidents(count || 0);
+          if (!error) setActiveIncidents(count || 0);
+        } catch {
+          // incidents 테이블 미존재 시 무시
+        }
       }
 
       setLoading(false);
