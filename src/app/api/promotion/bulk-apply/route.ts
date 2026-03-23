@@ -66,10 +66,12 @@ async function ensureInstantCoupon(
       const instantCoupons = await fetchInstantCoupons(credentials);
       const found = instantCoupons.find((c) => c.couponId === couponId);
       if (!found) {
-        throw new Error(`쿠폰 ID ${couponId}는 즉시할인 쿠폰이 아닙니다. 쿠팡 Wing에서 즉시할인 쿠폰 ID를 확인해주세요.`);
+        // 목록 API가 페이징/필터 문제로 못 찾을 수 있음 — 경고만 로그
+        console.warn(`[ensureInstantCoupon] 쿠폰 ${couponId}가 즉시할인 목록에 없음 (목록 ${instantCoupons.length}건). 그래도 사용 진행.`);
       }
-      // 기존 쿠폰 설정 저장 (로테이션 시 동일 설정으로 생성용)
-      existingCouponData = found as unknown as Record<string, unknown>;
+      if (found) {
+        existingCouponData = found as unknown as Record<string, unknown>;
+      }
 
       // 실제 아이템 수 조회
       const realCount = await getInstantCouponItemCount(credentials, couponId);
@@ -80,9 +82,7 @@ async function ensureInstantCoupon(
           instant_coupon_item_count: realCount,
         }).eq('pt_user_id', config.pt_user_id);
       }
-    } catch (err) {
-      if (err instanceof Error && err.message.includes('즉시할인 쿠폰이 아닙니다')) throw err;
-    }
+    } catch { /* 검증 실패해도 진행 */ }
   }
 
   // 현재 쿠폰에 여유가 있으면 그대로 사용
