@@ -91,6 +91,8 @@ export interface CreateDownloadCouponParams {
   vendorItemIds?: number[];  // 생성 시 아이템 포함
 }
 
+const API_CALL_TIMEOUT_MS = 30000; // 개별 API 호출 타임아웃 (30초)
+
 async function callCoupangApi(
   credentials: CoupangCredentials,
   method: string,
@@ -132,7 +134,22 @@ async function callCoupangApi(
     fetchInit.body = JSON.stringify(body);
   }
 
-  const response = await fetch(url, fetchInit);
+  // AbortController로 개별 호출 타임아웃 보호
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_CALL_TIMEOUT_MS);
+  fetchInit.signal = controller.signal;
+
+  let response: Response;
+  try {
+    response = await fetch(url, fetchInit);
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new CoupangApiError(`API 요청 타임아웃 (${API_CALL_TIMEOUT_MS / 1000}초)`, 504, 'TIMEOUT');
+    }
+    throw err;
+  }
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => '');
@@ -313,6 +330,7 @@ export async function fetchProductListings(
     status?: string;
     maxPages?: number;
     nextToken?: string;
+    maxTimeMs?: number; // 최대 실행 시간 (ms) — 초과 시 현재까지 결과 + nextToken 반환
   },
 ): Promise<{ count: number; items: CoupangProductItem[]; rawResponse: unknown; nextToken?: string }> {
   const allItems: CoupangProductItem[] = [];
@@ -321,8 +339,15 @@ export async function fetchProductListings(
   const maxPerPage = 100;
   const maxPages = options?.maxPages ?? 200;
   const status = options?.status ?? 'APPROVED';
+  const startTime = Date.now();
+  const maxTimeMs = options?.maxTimeMs ?? 0; // 0 = 무제한
 
   for (let page = 0; page < maxPages; page++) {
+    // 시간 초과 체크 (다음 페이지 시작 전)
+    if (maxTimeMs > 0 && (Date.now() - startTime) > maxTimeMs) {
+      console.log(`[fetchProductListings] 시간 초과 (${Math.round((Date.now() - startTime) / 1000)}초/${maxTimeMs / 1000}초) — ${allItems.length}개 수집 후 중단, nextToken 보존`);
+      break;
+    }
     const tokenParam = nextToken ? `&nextToken=${encodeURIComponent(nextToken)}` : '';
     const dateParams = options?.dateFrom && options?.dateTo
       ? `&createdAtFrom=${options.dateFrom}&createdAtTo=${options.dateTo}`
@@ -336,6 +361,9 @@ export async function fetchProductListings(
     };
 
     lastResponse = data;
+
+    // nextToken을 즉시 캡처 (시간 초과로 중단되어도 보존)
+    nextToken = data.nextToken || '';
 
     const products = Array.isArray(data.data) ? data.data : [];
 
@@ -360,6 +388,11 @@ export async function fetchProductListings(
     const detailMap = new Map<string, Array<Record<string, unknown>>>();
 
     for (let i = 0; i < productsNeedingDetail.length; i += PARALLEL) {
+      // 상세 API 배치 시작 전 시간 체크
+      if (maxTimeMs > 0 && (Date.now() - startTime) > maxTimeMs) {
+        console.log(`[fetchProductListings] 상세 API 중 시간 초과 — ${i}/${productsNeedingDetail.length}개 처리 후 중단`);
+        break;
+      }
       const batch = productsNeedingDetail.slice(i, i + PARALLEL);
       const results = await Promise.allSettled(
         batch.map(async (p) => {
@@ -422,8 +455,12 @@ export async function fetchProductListings(
       }
     }
 
-    nextToken = data.nextToken || '';
+    // nextToken은 루프 상단에서 이미 캡처됨
     if (!nextToken) break;
+  }
+
+  if (maxTimeMs > 0) {
+    console.log(`[fetchProductListings] 완료: ${allItems.length}개 수집, ${Math.round((Date.now() - startTime) / 1000)}초 소요`);
   }
 
   return { count: allItems.length, items: allItems, rawResponse: lastResponse, nextToken: nextToken || undefined };

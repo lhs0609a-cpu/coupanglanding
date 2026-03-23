@@ -73,9 +73,10 @@ async function ensureInstantCoupon(
         existingCouponData = found as unknown as Record<string, unknown>;
       }
 
-      // 실제 아이템 수 조회
+      // 실제 아이템 수 조회 — DB 카운트와 동기화
       const realCount = await getInstantCouponItemCount(credentials, couponId);
-      if (realCount > 0 && realCount !== currentCount) {
+      if (realCount !== currentCount) {
+        // API 결과가 0이어도 동기화 (DB에 누적된 잘못된 카운트 리셋)
         console.log(`[ensureInstantCoupon] DB 카운트 ${currentCount} → 실제 카운트 ${realCount} 동기화`);
         currentCount = realCount;
         await serviceClient.from('coupon_auto_sync_config').update({
@@ -103,6 +104,12 @@ async function ensureInstantCoupon(
   console.log(`[bulk-apply] 기존 쿠폰 설정 복사: type=${discountType}, discount=${discountValue}, maxDiscount=${maxDiscount}, contractId=${contractId}`);
 
   if (discountValue <= 0) {
+    // 할인 설정을 가져올 수 없지만 기존 쿠폰이 있으면 계속 사용
+    // 쿠팡이 10,000개 한도를 초과하면 API에서 직접 에러 반환함
+    if (couponId > 0) {
+      console.warn(`[ensureInstantCoupon] 할인값 미확인 — 기존 쿠폰 ${couponId} 계속 사용 (한도 초과 시 쿠팡에서 거부됨)`);
+      return { couponId, couponName: config.instant_coupon_name };
+    }
     throw new Error(`즉시할인 쿠폰 자동 생성 불가: 기존 쿠폰의 할인값을 가져올 수 없습니다. 쿠폰 설정에서 할인값을 입력해주세요.`);
   }
 
