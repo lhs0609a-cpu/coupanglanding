@@ -253,7 +253,13 @@ export default function PromotionPage() {
 
       const poll = async () => {
         if (!active) return;
-        await fetchProgress();
+        // fetchProgress가 상태를 업데이트하면 useEffect가 재실행되어 폴링 중단
+        const freshProgress = await fetch('/api/promotion/progress').then(r => r.json()).catch(() => null);
+        const currentStatus = freshProgress?.progress?.status;
+        if (currentStatus === 'cancelled' || currentStatus === 'completed' || currentStatus === 'failed') {
+          await fetchProgress(); // UI 업데이트
+          return;
+        }
         try {
           if (progressStatus === 'collecting') {
             const res = await fetch('/api/promotion/collect-products', {
@@ -289,10 +295,12 @@ export default function PromotionPage() {
               // 배치 내 실패가 있으면 에러 표시 (API는 200이지만 개별 아이템 실패)
               if (data.lastError) {
                 setError(`쿠폰 적용 오류: ${data.lastError}`);
+                // 즉시할인 실패 시 다음 폴링 지연 (쿠팡 처리량 제한 방지)
+                errorRetryRef.current = Math.min(errorRetryRef.current + 1, 3);
               } else {
                 setError(null);
+                errorRetryRef.current = 0;
               }
-              errorRetryRef.current = 0;
             }
           }
         } catch {

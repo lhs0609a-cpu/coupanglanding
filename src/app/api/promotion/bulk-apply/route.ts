@@ -21,8 +21,8 @@ export const maxDuration = 55;
 const INSTANT_BATCH_SIZE = 50;     // 즉시할인 쿠폰 1회 API 호출당 아이템 수
 const DOWNLOAD_BATCH_SIZE = 100;   // 다운로드 쿠폰 1개당 최대 아이템 수
 const INSTANT_COUPON_MAX_ITEMS = 10000; // 즉시할인 쿠폰 1개당 최대 아이템 수
-const POLL_INTERVAL_MS = 2000;     // 비동기 상태 확인 간격 (2초)
-const POLL_MAX_ATTEMPTS = 3;       // 비동기 상태 확인 최대 횟수
+const POLL_INTERVAL_MS = 3000;     // 비동기 상태 확인 간격 (3초)
+const POLL_MAX_ATTEMPTS = 5;       // 비동기 상태 확인 최대 횟수 (충분한 대기)
 const TIMEOUT_SAFETY_MS = 40000;   // Phase 전환 안전 한계 (40초)
 
 interface Config {
@@ -345,6 +345,12 @@ export async function POST(request: NextRequest) {
       progress = newProgress;
     }
 
+    // 이전 실행에서 'processing' 상태로 남은 아이템 복구 (중단/타임아웃 방지)
+    await serviceClient.from('product_coupon_tracking')
+      .update({ status: 'pending' })
+      .eq('pt_user_id', ptUser.id)
+      .eq('status', 'processing');
+
     let batchInstantSuccess = 0;
     let batchInstantFailed = 0;
     let batchDownloadSuccess = 0;
@@ -409,34 +415,43 @@ export async function POST(request: NextRequest) {
                 throw new Error('즉시할인 API가 requestedId를 반환하지 않았습니다.');
               }
 
+              // 쿠팡 비동기 처리 시작 대기 (즉시 폴링 시 PROCESSING으로 폴링 횟수 낭비 방지)
+              await new Promise((r) => setTimeout(r, 2000));
+
               // 비동기 결과 폴링
               let asyncConfirmed = false;
               for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
-                await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
                 try {
                   const statusResult = await checkInstantCouponStatus(credentials, instantResult.requestedId) as Record<string, unknown>;
                   const data = (statusResult.data || statusResult) as Record<string, unknown>;
                   const content = (data.content || data) as Record<string, unknown>;
                   const status = String(content.status || data.status || '').toUpperCase();
-                  const dataSuccess = data.success === true;
-                  const contentSuccess = content.success === true;
 
-                  console.log(`[bulk-apply] 즉시할인 폴링 (${attempt + 1}/${POLL_MAX_ATTEMPTS}): status=${status}, success=${data.success}`, JSON.stringify(statusResult).slice(0, 300));
+                  console.log(`[bulk-apply] 즉시할인 폴링 #${attempt + 1}/${POLL_MAX_ATTEMPTS}:`, JSON.stringify(statusResult).slice(0, 800));
 
-                  if (dataSuccess || contentSuccess || status === 'SUCCESS' || status === 'COMPLETED' || status === 'DONE') {
+                  // ★ FAIL 먼저 확인 — data.success는 "API 호출 수신 확인"이지 "쿠폰 적용 결과"가 아님
+                  if (status === 'FAIL' || status === 'FAILED' || status === 'ERROR') {
+                    const failMsg = String(content.message || data.message || '비동기 처리 실패');
+                    const successCnt = Number(content.successCount ?? content.success_count ?? -1);
+                    const failCnt = Number(content.failCount ?? content.fail_count ?? -1);
+                    throw new Error(`즉시할인 비동기 실패: ${failMsg} (성공=${successCnt >= 0 ? successCnt : '?'}건, 실패=${failCnt >= 0 ? failCnt : '?'}건)`);
+                  }
+                  // SUCCESS 확인 — content.status 기반만 사용 (data.success 무시)
+                  if (status === 'SUCCESS' || status === 'COMPLETED' || status === 'DONE') {
                     asyncConfirmed = true;
                     break;
                   }
-                  if (status === 'FAIL' || status === 'FAILED' || status === 'ERROR' || data.success === false) {
-                    const failMsg = String(content.message || data.message || '비동기 처리 실패');
-                    throw new Error(`즉시할인 비동기 실패: ${failMsg}`);
-                  }
+                  // PROCESSING/PENDING → 다음 폴링에서 재확인
                 } catch (pollErr) {
                   if (pollErr instanceof Error && pollErr.message.includes('비동기 실패')) throw pollErr;
                 }
+                if (attempt < POLL_MAX_ATTEMPTS - 1) {
+                  await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+                }
               }
               if (!asyncConfirmed) {
-                console.warn(`[bulk-apply] 즉시할인 폴링 미확인 — requestedId 존재하므로 성공 간주`);
+                // 폴링 시간 초과 — 실패로 처리 (이전: 성공으로 간주하던 버그 수정)
+                throw new Error('즉시할인 비동기 처리 미확인 (폴링 시간 초과) — 재시도 필요');
               }
 
               // 성공 — 카운트 업데이트
