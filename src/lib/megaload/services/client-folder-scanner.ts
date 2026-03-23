@@ -82,9 +82,13 @@ export async function scanDirectoryHandle(dirHandle: FileSystemDirectoryHandle):
 
     // 이미지 파일 수집
     const mainImages = await collectImagesFromSubdir(productDirHandle, 'main_images', MAIN_IMAGE_PATTERN);
-    const detailImages = await collectImagesFromSubdir(productDirHandle, 'output', IMAGE_PATTERN);
+    // detail_images 또는 output 폴더 지원
+    let detailImages = await collectImagesFromSubdir(productDirHandle, 'detail_images', IMAGE_PATTERN);
+    if (detailImages.length === 0) detailImages = await collectImagesFromSubdir(productDirHandle, 'output', IMAGE_PATTERN);
     const infoImages = await collectImagesFromSubdir(productDirHandle, 'product_info', IMAGE_PATTERN);
-    const reviewImages = await collectImagesFromSubdir(productDirHandle, 'reviews', IMAGE_PATTERN);
+    // review_images 또는 reviews 폴더 지원
+    let reviewImages = await collectImagesFromSubdir(productDirHandle, 'review_images', IMAGE_PATTERN);
+    if (reviewImages.length === 0) reviewImages = await collectImagesFromSubdir(productDirHandle, 'reviews', IMAGE_PATTERN);
 
     products.push({
       productCode,

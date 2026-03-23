@@ -70,14 +70,13 @@ function buildLayoutA(params: DetailPageParams): string {
   sections.push(buildHeaderSection(productName, brand));
 
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
-  if (detailImageUrls.length > 0) {
-    sections.push(buildBlogStyleSection(detailImageUrls, paragraphs, productName, style));
+  // 글 → 이미지 → 글 → 이미지 블로그 스타일
+  // detail이미지와 리뷰이미지를 합쳐서 글 사이에 교차 배치
+  const allImages = [...detailImageUrls, ...(reviewImageUrls || [])];
+  if (allImages.length > 0) {
+    sections.push(buildBlogStyleSection(allImages, paragraphs, productName, style));
   } else if (paragraphs.length > 0) {
     for (const p of paragraphs) sections.push(buildParagraphBlock(p, style));
-  }
-
-  if (reviewImageUrls && reviewImageUrls.length > 0) {
-    sections.push(buildBlogReviewSection(reviewImageUrls, reviewTexts, productName, style));
   }
 
   sections.push(buildDivider());
@@ -232,14 +231,15 @@ function buildBlogStyleSection(
   const parts: string[] = [];
   const maxLen = Math.max(imageUrls.length, paragraphs.length);
 
+  // 글 → 이미지 → 글 → 이미지 (블로그 스타일)
   for (let i = 0; i < maxLen; i++) {
-    if (i < imageUrls.length) {
-      parts.push(
-        `<div style="margin:0;"><img src="${esc(imageUrls[i])}" alt="${esc(productName)} ${i + 1}" style="width:100%;display:block;" /></div>`
-      );
-    }
     if (i < paragraphs.length && paragraphs[i].trim()) {
       parts.push(buildParagraphBlock(paragraphs[i], style));
+    }
+    if (i < imageUrls.length) {
+      parts.push(
+        `<div style="margin:8px 0;"><img src="${esc(imageUrls[i])}" alt="${esc(productName)} ${i + 1}" style="width:100%;display:block;border-radius:8px;" /></div>`
+      );
     }
   }
 
