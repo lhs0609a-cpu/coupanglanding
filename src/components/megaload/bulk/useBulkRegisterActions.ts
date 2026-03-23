@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { pickAndScanFolder, uploadScannedImages } from '@/lib/megaload/services/client-folder-scanner';
+import { pickAndScanFolder, uploadScannedImages, uploadScannedImagesWithVariation } from '@/lib/megaload/services/client-folder-scanner';
 import { validateProductLocal } from '@/lib/megaload/services/product-validator';
 import type {
   EditableProduct, PriceBracket, ShippingPlace, ReturnCenter,
@@ -254,9 +254,12 @@ export function useBulkRegisterActions() {
     setTitleGenProgress({ done: 0, total: targets.length });
 
     // SEO 최적화 상품명 즉시 생성 (항상 실행, AI 불필요)
+    // displayProductName과 sellerProductName을 서로 다른 시드로 생성하여
+    // 쿠팡 아이템위너 매칭 시 교차 비교 유사도를 낮춘다.
     {
       const { generateDisplayName } = await import('@/lib/megaload/services/display-name-generator');
-      const sellerSeed = `seller_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const displaySeed = `display_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const sellerNameSeed = `seller_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
       setProducts(prev => {
         const updated = [...prev];
@@ -270,7 +273,14 @@ export function useBulkRegisterActions() {
                 target.name,  // 원본 상품명 사용 (editedName은 브랜드+고유번호)
                 target.editedBrand || target.brand,
                 target.editedCategoryName,
-                sellerSeed,
+                displaySeed,
+                i,
+              ),
+              editedSellerProductName: generateDisplayName(
+                target.name,
+                target.editedBrand || target.brand,
+                target.editedCategoryName,
+                sellerNameSeed,
                 i,
               ),
             };
@@ -404,13 +414,49 @@ export function useBulkRegisterActions() {
       (async () => {
         const latest = productsRef.current;
 
-        // 이미지 순서 셔플 (대표이미지 자동 선택 — 셀러마다 다름)
+        // 대표이미지 품질 스코어링 + 부적합 필터링 → 최고 품질 이미지를 index 0에 고정 후 나머지 셔플
+        const { filterAndScoreMainImages } = await import('@/lib/megaload/services/image-quality-scorer');
         const { shuffleWithSeed } = await import('@/lib/megaload/services/item-winner-prevention');
         const imgSeed = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+        // 각 상품의 대표이미지 스코어링 + 필터링 (병렬)
+        const scoringPromises = latest.map(async (p) => {
+          if (!p.scannedMainImages || p.scannedMainImages.length <= 1) return null;
+          const urls = p.scannedMainImages.map(img => img.objectUrl).filter(Boolean) as string[];
+          if (urls.length <= 1) return null;
+          try {
+            return await filterAndScoreMainImages(urls);
+          } catch { return null; }
+        });
+        const scoringResults = await Promise.all(scoringPromises);
+
         setProducts(prev => prev.map((p, i) => {
           if (!p.scannedMainImages || p.scannedMainImages.length <= 1) return p;
-          const shuffled = shuffleWithSeed(p.scannedMainImages, `${imgSeed}::${i}`);
-          return { ...p, scannedMainImages: shuffled };
+          const scores = scoringResults[i];
+          if (!scores || scores.length === 0) return p;
+
+          // 필터링: filtered=false인 것만 유지
+          const passed = scores.filter(s => !s.filtered);
+          // passed가 0개면 최고점 1장이라도 유지 (빈 배열 방지)
+          const surviving = passed.length > 0 ? passed : [scores[0]];
+
+          const filteredCount = scores.length - surviving.length;
+          if (filteredCount > 0) {
+            console.info(`[image-filter] ${p.productCode}: ${filteredCount}/${scores.length}장 부적합 제거 (skin/empty/low-quality)`);
+          }
+
+          // 스코어 순으로 재배열 (surviving은 이미 점수 내림차순)
+          const sorted = surviving.map(s => p.scannedMainImages![s.index]);
+
+          // index 0 (최고 품질) 보존, 나머지만 셔플
+          const [best, ...rest] = sorted;
+          const shuffledRest = shuffleWithSeed(rest, `${imgSeed}::${i}`);
+          const finalImages = [best, ...shuffledRest];
+          return {
+            ...p,
+            scannedMainImages: finalImages,
+            mainImageCount: finalImages.length,
+          };
         }));
 
         await runTitleGeneration(productsRef.current);
@@ -903,6 +949,7 @@ export function useBulkRegisterActions() {
           };
           // per-product overrides
           if (p.editedDisplayProductName) product.displayProductNameOverride = p.editedDisplayProductName;
+          if (p.editedSellerProductName) product.aiSellerName = p.editedSellerProductName;
           if (p.editedManufacturer) product.manufacturerOverride = p.editedManufacturer;
           if (p.editedOriginalPrice) product.originalPrice = p.editedOriginalPrice;
           if (p.editedItemName) product.itemNameOverride = p.editedItemName;
@@ -923,7 +970,8 @@ export function useBulkRegisterActions() {
           const cacheValid = cached && cached.uploadedAt && (Date.now() - cached.uploadedAt < IMAGE_CACHE_TTL_MS);
           if (cacheValid) { product.preUploadedUrls = cached; }
           else if (p.scannedMainImages || p.scannedDetailImages) {
-            const mainUrls = await uploadScannedImages(p.scannedMainImages || [], 10);
+            const shouldVary = preventionConfig.enabled && preventionConfig.imageVariation;
+            const mainUrls = await uploadScannedImagesWithVariation(p.scannedMainImages || [], shouldVary, 10);
             const detailUrls = await uploadScannedImages(p.scannedDetailImages || [], 10);
             const reviewUrls = includeReviewImages ? await uploadScannedImages(p.scannedReviewImages || [], 10) : [];
             const infoUrls = await uploadScannedImages(p.scannedInfoImages || [], 10);
