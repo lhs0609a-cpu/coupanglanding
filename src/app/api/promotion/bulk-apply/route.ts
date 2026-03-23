@@ -480,6 +480,10 @@ export async function POST(request: NextRequest) {
                 .update({ status: newStatus, instant_coupon_applied: true })
                 .in('id', validItems.map((p) => p.id));
 
+              // ★ 쿠팡 비동기 처리 완료 대기 — 연속 배치 충돌 방지 (핵심!)
+              console.log(`[bulk-apply] 즉시할인 ${validItems.length}건 성공 — 5초 대기 (쿠팡 처리 안정화)`);
+              await new Promise((r) => setTimeout(r, 5000));
+
             } catch (err) {
               batchInstantFailed += validItems.length;
               const errMsg = err instanceof Error ? err.message : String(err);
@@ -499,16 +503,35 @@ export async function POST(request: NextRequest) {
                 })),
               );
 
-              if (hasDownload) {
-                // 즉시할인 실패해도 다운로드 진행 허용 (instant_coupon_applied=true로 설정!)
+              // 재시도 판단: 이전에 이미 실패했던 아이템은 영구 실패로 전환
+              const retryItems = validItems.filter(item => !item.error_message?.startsWith('즉시할인 실패'));
+              const exhaustedItems = validItems.filter(item => item.error_message?.startsWith('즉시할인 실패'));
+
+              if (retryItems.length > 0) {
+                // 첫 실패 → pending 유지하여 다음 호출에서 재시도 (instant_coupon_applied 변경 안 함)
                 await serviceClient.from('product_coupon_tracking')
-                  .update({ status: 'pending', instant_coupon_applied: true, error_message: `즉시할인 실패(다운로드 계속): ${errMsg}` })
-                  .in('id', validItems.map((p) => p.id));
-              } else {
-                await serviceClient.from('product_coupon_tracking')
-                  .update({ status: 'failed', instant_coupon_applied: false, error_message: `즉시할인 실패: ${errMsg}` })
-                  .in('id', validItems.map((p) => p.id));
+                  .update({ status: 'pending', error_message: `즉시할인 실패 (재시도 대기): ${errMsg}` })
+                  .in('id', retryItems.map((p) => p.id));
+                console.log(`[bulk-apply] ${retryItems.length}건 재시도 대기`);
               }
+
+              if (exhaustedItems.length > 0) {
+                // 재시도 후에도 실패 → 영구 실패
+                if (hasDownload) {
+                  // 즉시할인 건너뛰고 다운로드 쿠폰으로 진행
+                  await serviceClient.from('product_coupon_tracking')
+                    .update({ status: 'pending', instant_coupon_applied: true, error_message: `즉시할인 2회 실패→다운로드: ${errMsg}` })
+                    .in('id', exhaustedItems.map((p) => p.id));
+                } else {
+                  await serviceClient.from('product_coupon_tracking')
+                    .update({ status: 'failed', error_message: `즉시할인 영구 실패: ${errMsg}` })
+                    .in('id', exhaustedItems.map((p) => p.id));
+                }
+                console.log(`[bulk-apply] ${exhaustedItems.length}건 영구 실패`);
+              }
+
+              // 실패 후 쿠팡 큐 안정화 대기 (다음 배치 전 여유 확보)
+              await new Promise((r) => setTimeout(r, 3000));
             }
           }
         }
