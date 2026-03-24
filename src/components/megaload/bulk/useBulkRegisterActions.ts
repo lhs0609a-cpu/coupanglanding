@@ -449,8 +449,6 @@ export function useBulkRegisterActions() {
         // 대표이미지 품질 스코어링 + 부적합 필터링 + 이상치 감지
         // → 최고 품질 이미지를 index 0에 고정 후 나머지 셔플
         const { filterAndScoreMainImages, detectOutlierImages } = await import('@/lib/megaload/services/image-quality-scorer');
-        const { shuffleWithSeed } = await import('@/lib/megaload/services/item-winner-prevention');
-        const imgSeed = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
         // Phase 1: 각 상품의 대표이미지 스코어링 + 하드필터 (병렬)
         // objectUrl이 없는 이미지를 건너뛰되, 원본 인덱스를 보존하여 매핑 버그 방지
@@ -532,10 +530,9 @@ export function useBulkRegisterActions() {
           }
 
           // 스코어 순으로 재배열 — index는 원본 scannedMainImages 기준
+          // 점수 순 유지 (최고 점수 = 대표) — 아이템위너 방지 셔플은 빌더 단계에서 수행
           const sorted = final.map(s => p.scannedMainImages![s.index]);
-
-          // 전체 셔플 (대표이미지 포함) — 아이템위너 방지 강화, 최대 10장
-          const finalImages = shuffleWithSeed(sorted, `${imgSeed}::${i}`).slice(0, 10);
+          const finalImages = sorted.slice(0, 10);
           return {
             ...p,
             scannedMainImages: finalImages,
