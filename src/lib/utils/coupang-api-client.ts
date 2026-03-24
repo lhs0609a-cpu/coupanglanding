@@ -185,9 +185,11 @@ async function callCoupangApi(
     (e) => resCode.includes(e) || resResultCode.includes(e),
   );
 
-  // success: false 패턴 감지
+  // success: false 패턴 감지 (비동기 상태 응답 제외)
   const dataObj = resBody.data as Record<string, unknown> | undefined;
-  const isSuccessFalse = dataObj?.success === false && !dataObj?.content && !dataObj?.requestedId;
+  // ★ data.status가 있으면 비동기 상태 확인 응답(PROCESSING 등)이므로 에러 아님
+  const hasAsyncStatus = !!dataObj?.status;
+  const isSuccessFalse = dataObj?.success === false && !dataObj?.content && !dataObj?.requestedId && !hasAsyncStatus;
 
   if (isErrorCode || isSuccessFalse) {
     // errorMessage가 상세 원인 (message는 generic "Bad Request" 등)
