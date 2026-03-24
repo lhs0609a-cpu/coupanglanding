@@ -414,12 +414,13 @@ export function useBulkRegisterActions() {
       (async () => {
         const latest = productsRef.current;
 
-        // 대표이미지 품질 스코어링 + 부적합 필터링 → 최고 품질 이미지를 index 0에 고정 후 나머지 셔플
-        const { filterAndScoreMainImages } = await import('@/lib/megaload/services/image-quality-scorer');
+        // 대표이미지 품질 스코어링 + 부적합 필터링 + 이상치 감지
+        // → 최고 품질 이미지를 index 0에 고정 후 나머지 셔플
+        const { filterAndScoreMainImages, detectOutlierImages } = await import('@/lib/megaload/services/image-quality-scorer');
         const { shuffleWithSeed } = await import('@/lib/megaload/services/item-winner-prevention');
         const imgSeed = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-        // 각 상품의 대표이미지 스코어링 + 필터링 (병렬)
+        // Phase 1: 각 상품의 대표이미지 스코어링 + 하드필터 (병렬)
         const scoringPromises = latest.map(async (p) => {
           if (!p.scannedMainImages || p.scannedMainImages.length <= 1) return null;
           const urls = p.scannedMainImages.map(img => img.objectUrl).filter(Boolean) as string[];
@@ -430,23 +431,62 @@ export function useBulkRegisterActions() {
         });
         const scoringResults = await Promise.all(scoringPromises);
 
+        // Phase 2: 이상치 감지 — 개별 스코어링 통과한 이미지 중 색상 분포가 다른 이미지 제거
+        // (다른 브랜드/상품 이미지 자동 감지)
+        const outlierPromises = latest.map(async (p, i) => {
+          if (!p.scannedMainImages || p.scannedMainImages.length <= 4) return null;
+          const scores = scoringResults[i];
+          if (!scores) return null;
+          // 스코어링 통과한 이미지만 대상
+          const passedIndices = scores.filter(s => !s.filtered).map(s => s.index);
+          if (passedIndices.length <= 4) return null;
+          const urls = passedIndices
+            .map(idx => p.scannedMainImages![idx]?.objectUrl)
+            .filter(Boolean) as string[];
+          if (urls.length <= 4) return null;
+          try {
+            const outliers = await detectOutlierImages(urls);
+            // passedIndices 기준 → 원본 인덱스로 매핑
+            return outliers.map((o, j) => ({
+              originalIndex: passedIndices[j],
+              isOutlier: o.isOutlier,
+              distance: o.distance,
+            }));
+          } catch { return null; }
+        });
+        const outlierResults = await Promise.all(outlierPromises);
+
         setProducts(prev => prev.map((p, i) => {
           if (!p.scannedMainImages || p.scannedMainImages.length <= 1) return p;
           const scores = scoringResults[i];
           if (!scores || scores.length === 0) return p;
 
-          // 필터링: filtered=false인 것만 유지
+          // Phase 1 필터: 하드필터 + 최소 점수 미달 제거
           const passed = scores.filter(s => !s.filtered);
-          // passed가 0개면 최고점 1장이라도 유지 (빈 배열 방지)
           const surviving = passed.length > 0 ? passed : [scores[0]];
 
-          const filteredCount = scores.length - surviving.length;
-          if (filteredCount > 0) {
-            console.info(`[image-filter] ${p.productCode}: ${filteredCount}/${scores.length}장 부적합 제거 (skin/empty/low-quality)`);
+          // Phase 2 필터: 이상치 제거
+          const outliers = outlierResults[i];
+          const outlierIndices = new Set(
+            outliers?.filter(o => o.isOutlier).map(o => o.originalIndex) ?? [],
+          );
+          const afterOutlier = outlierIndices.size > 0
+            ? surviving.filter(s => !outlierIndices.has(s.index))
+            : surviving;
+          // 이상치 제거 후 빈 배열 방지
+          const final = afterOutlier.length > 0 ? afterOutlier : [surviving[0]];
+
+          const hardFilteredCount = scores.length - surviving.length;
+          const outlierCount = surviving.length - afterOutlier.length;
+          if (hardFilteredCount > 0 || outlierCount > 0) {
+            const reasons: string[] = [];
+            if (hardFilteredCount > 0) reasons.push(`하드필터 ${hardFilteredCount}장`);
+            if (outlierCount > 0) reasons.push(`이상치 ${outlierCount}장`);
+            console.info(`[image-filter] ${p.productCode}: ${reasons.join(' + ')} 제거 (${scores.length}→${final.length}장)`);
           }
 
           // 스코어 순으로 재배열 (surviving은 이미 점수 내림차순)
-          const sorted = surviving.map(s => p.scannedMainImages![s.index]);
+          const sorted = final.map(s => p.scannedMainImages![s.index]);
 
           // index 0 (최고 품질) 보존, 나머지만 셔플
           const [best, ...rest] = sorted;
