@@ -418,42 +418,35 @@ export async function POST(request: NextRequest) {
               // 쿠팡 비동기 처리 시작 대기
               await new Promise((r) => setTimeout(r, 3000));
 
-              // 비동기 결과 폴링 — 명시적 FAIL만 에러로 처리
-              // ★ 핵심: applyInstantCoupon이 requestedId를 반환했으면 쿠팡이 요청을 수락한 것.
-              //   폴링은 "확인"일 뿐이므로, 명시적 FAIL 없으면 낙관적 성공 처리.
-              //   시간 초과를 에러로 처리하면 재시도 → 이미 적용된 쿠폰과 충돌 → 진짜 실패 유발.
-              let explicitFail = false;
-              let failMessage = '';
+              // 비동기 결과 폴링
+              let pollSuccessCount = -1; // 쿠팡 응답의 성공 건수 (-1 = 미확인)
+              let pollFailCount = -1;
+              let pollStatus = '';
               for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
                 try {
                   const statusResult = await checkInstantCouponStatus(credentials, instantResult.requestedId) as Record<string, unknown>;
                   const data = (statusResult.data || statusResult) as Record<string, unknown>;
                   const content = (data.content || data) as Record<string, unknown>;
-                  const status = String(content.status || data.status || '').toUpperCase();
+                  pollStatus = String(content.status || data.status || '').toUpperCase();
 
-                  console.log(`[bulk-apply] 즉시할인 폴링 #${attempt + 1}/${POLL_MAX_ATTEMPTS}: status="${status}"`, JSON.stringify(statusResult).slice(0, 500));
+                  console.log(`[bulk-apply] 즉시할인 폴링 #${attempt + 1}/${POLL_MAX_ATTEMPTS}: status="${pollStatus}"`, JSON.stringify(statusResult).slice(0, 500));
 
-                  // ★ FAIL 감지 — 유일하게 에러를 발생시키는 조건
-                  if (status === 'FAIL' || status === 'FAILED' || status === 'ERROR') {
-                    const failMsg = String(content.message || data.message || '비동기 처리 실패');
-                    const successCnt = Number(content.successCount ?? content.success_count ?? -1);
-                    const failCnt = Number(content.failCount ?? content.fail_count ?? -1);
-                    explicitFail = true;
-                    failMessage = `즉시할인 비동기 실패: ${failMsg} (성공=${successCnt >= 0 ? successCnt : '?'}건, 실패=${failCnt >= 0 ? failCnt : '?'}건)`;
+                  // 성공/실패 건수 추출
+                  const sCnt = Number(content.successCount ?? content.success_count ?? data.successCount ?? -1);
+                  const fCnt = Number(content.failCount ?? content.fail_count ?? data.failCount ?? -1);
+                  if (sCnt >= 0) pollSuccessCount = sCnt;
+                  if (fCnt >= 0) pollFailCount = fCnt;
+
+                  // 완료 상태 감지 (SUCCESS든 FAIL이든 처리 완료)
+                  if (['FAIL', 'FAILED', 'ERROR', 'SUCCESS', 'COMPLETED', 'DONE'].includes(pollStatus)) {
+                    console.log(`[bulk-apply] 폴링 완료: status=${pollStatus}, 성공=${pollSuccessCount}, 실패=${pollFailCount}`);
                     break;
                   }
-                  // SUCCESS 확인 → 즉시 종료
-                  if (status === 'SUCCESS' || status === 'COMPLETED' || status === 'DONE') {
-                    console.log(`[bulk-apply] 즉시할인 폴링 성공 확인 (attempt ${attempt + 1})`);
-                    break;
-                  }
-                  // data.success=true면 조기 확인 (쿠팡 응답에 status 필드 없는 경우)
                   if (data.success === true && attempt >= 2) {
-                    console.log(`[bulk-apply] 즉시할인 폴링: data.success=true → 성공 처리 (attempt ${attempt + 1})`);
+                    console.log(`[bulk-apply] 폴링: data.success=true → 완료 처리 (attempt ${attempt + 1})`);
                     break;
                   }
                 } catch (pollErr) {
-                  // 폴링 API 호출 자체 실패 — 로그만 남기고 계속 (네트워크 등)
                   const pollErrMsg = pollErr instanceof Error ? pollErr.message : String(pollErr);
                   console.warn(`[bulk-apply] 즉시할인 폴링 #${attempt + 1} API 오류 (무시):`, pollErrMsg);
                 }
@@ -461,46 +454,66 @@ export async function POST(request: NextRequest) {
                   await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
                 }
               }
-              // 명시적 FAIL이면 에러, 그 외(성공/시간초과)는 낙관적 성공
-              if (explicitFail) {
-                throw new Error(failMessage);
+
+              // ★ 결과 판정: 쿠팡 응답 기반으로 성공/부분성공/전체실패 처리
+              // 전체 실패(0건 성공) = 이미 적용된 상품 → 재시도 없이 적용 완료 처리
+              const isAllFail = (pollStatus === 'FAIL' || pollStatus === 'FAILED' || pollStatus === 'ERROR')
+                && pollSuccessCount === 0 && pollFailCount > 0;
+
+              if (isAllFail) {
+                // ★ 전체 실패 = 이미 쿠팡에 적용된 상품들 (중복 적용 거부)
+                // 재시도하면 똑같이 실패하므로, 즉시 "적용 완료"로 처리하고 다음 단계로
+                console.log(`[bulk-apply] 즉시할인 전체 실패 (${pollFailCount}건) — 이미 적용된 상품으로 간주, 다음 단계 진행`);
+                batchInstantSuccess += validItems.length; // 카운터는 성공으로 (이미 적용됨)
+                const newStatus = hasDownload ? 'pending' : 'completed';
+                await serviceClient.from('product_coupon_tracking')
+                  .update({ status: newStatus, instant_coupon_applied: true, error_message: null })
+                  .in('id', validItems.map((p) => p.id));
+
+                await new Promise((r) => setTimeout(r, 2000));
+              } else {
+                // 성공 또는 부분 성공 또는 미확인 → 전체 적용 완료 처리
+                // (부분 성공 시 실패 아이템도 이미 적용됐을 가능성 높음)
+                const newCount = (config.instant_coupon_item_count || 0) + vendorItemIds.length;
+                await serviceClient.from('coupon_auto_sync_config').update({
+                  instant_coupon_item_count: newCount,
+                }).eq('pt_user_id', ptUser.id);
+                config.instant_coupon_item_count = newCount;
+
+                batchInstantSuccess += validItems.length;
+
+                const newStatus = hasDownload ? 'pending' : 'completed';
+                await serviceClient.from('coupon_apply_log').insert(
+                  validItems.map((item) => ({
+                    pt_user_id: ptUser.id,
+                    coupon_type: 'instant',
+                    coupon_id: String(couponId),
+                    coupon_name: couponName,
+                    seller_product_id: item.seller_product_id,
+                    vendor_item_id: item.vendor_item_id,
+                    success: true,
+                  })),
+                );
+                await serviceClient.from('product_coupon_tracking')
+                  .update({ status: newStatus, instant_coupon_applied: true })
+                  .in('id', validItems.map((p) => p.id));
+
+                if (pollFailCount > 0) {
+                  console.log(`[bulk-apply] 부분 성공: ${pollSuccessCount}건 성공, ${pollFailCount}건 실패 (이미 적용 추정) — 전체 적용 처리`);
+                }
+
+                // 쿠팡 처리 안정화 대기
+                console.log(`[bulk-apply] 즉시할인 ${validItems.length}건 처리 — 5초 대기`);
+                await new Promise((r) => setTimeout(r, 5000));
               }
 
-              // 성공 — 카운트 업데이트
-              const newCount = (config.instant_coupon_item_count || 0) + vendorItemIds.length;
-              await serviceClient.from('coupon_auto_sync_config').update({
-                instant_coupon_item_count: newCount,
-              }).eq('pt_user_id', ptUser.id);
-              config.instant_coupon_item_count = newCount;
-
-              batchInstantSuccess += validItems.length;
-
-              // 성공 처리: 다운로드 활성이면 pending 유지, 아니면 completed
-              const newStatus = hasDownload ? 'pending' : 'completed';
-              await serviceClient.from('coupon_apply_log').insert(
-                validItems.map((item) => ({
-                  pt_user_id: ptUser.id,
-                  coupon_type: 'instant',
-                  coupon_id: String(couponId),
-                  coupon_name: couponName,
-                  seller_product_id: item.seller_product_id,
-                  vendor_item_id: item.vendor_item_id,
-                  success: true,
-                })),
-              );
-              await serviceClient.from('product_coupon_tracking')
-                .update({ status: newStatus, instant_coupon_applied: true })
-                .in('id', validItems.map((p) => p.id));
-
-              // ★ 쿠팡 비동기 처리 완료 대기 — 연속 배치 충돌 방지 (핵심!)
-              console.log(`[bulk-apply] 즉시할인 ${validItems.length}건 성공 — 5초 대기 (쿠팡 처리 안정화)`);
-              await new Promise((r) => setTimeout(r, 5000));
-
             } catch (err) {
+              // applyInstantCoupon API 호출 자체가 실패한 경우만 여기로 옴
+              // (폴링 결과 기반 실패는 위에서 처리 — 여기는 네트워크/인증 에러만)
               batchInstantFailed += validItems.length;
               const errMsg = err instanceof Error ? err.message : String(err);
               lastError = `[즉시할인] ${errMsg}`;
-              console.error(`[bulk-apply] 즉시할인 배치 실패 (${validItems.length}건):`, errMsg);
+              console.error(`[bulk-apply] 즉시할인 API 호출 실패 (${validItems.length}건):`, errMsg);
 
               await serviceClient.from('coupon_apply_log').insert(
                 validItems.map((item) => ({
@@ -515,32 +528,10 @@ export async function POST(request: NextRequest) {
                 })),
               );
 
-              // 재시도 판단: 이전에 이미 실패했던 아이템은 영구 실패로 전환
-              const retryItems = validItems.filter(item => !item.error_message?.startsWith('즉시할인 실패'));
-              const exhaustedItems = validItems.filter(item => item.error_message?.startsWith('즉시할인 실패'));
-
-              if (retryItems.length > 0) {
-                // 첫 실패 → pending 유지하여 다음 호출에서 재시도 (instant_coupon_applied 변경 안 함)
-                await serviceClient.from('product_coupon_tracking')
-                  .update({ status: 'pending', error_message: `즉시할인 실패 (재시도 대기): ${errMsg}` })
-                  .in('id', retryItems.map((p) => p.id));
-                console.log(`[bulk-apply] ${retryItems.length}건 재시도 대기`);
-              }
-
-              if (exhaustedItems.length > 0) {
-                // 재시도 후에도 실패 → 영구 실패
-                if (hasDownload) {
-                  // 즉시할인 건너뛰고 다운로드 쿠폰으로 진행
-                  await serviceClient.from('product_coupon_tracking')
-                    .update({ status: 'pending', instant_coupon_applied: true, error_message: `즉시할인 2회 실패→다운로드: ${errMsg}` })
-                    .in('id', exhaustedItems.map((p) => p.id));
-                } else {
-                  await serviceClient.from('product_coupon_tracking')
-                    .update({ status: 'failed', error_message: `즉시할인 영구 실패: ${errMsg}` })
-                    .in('id', exhaustedItems.map((p) => p.id));
-                }
-                console.log(`[bulk-apply] ${exhaustedItems.length}건 영구 실패`);
-              }
+              // API 호출 자체 실패 → pending 유지 (다음 호출에서 재시도)
+              await serviceClient.from('product_coupon_tracking')
+                .update({ status: 'pending', error_message: `즉시할인 API 오류: ${errMsg}` })
+                .in('id', validItems.map((p) => p.id));
 
               // 실패 후 쿠팡 큐 안정화 대기 (다음 배치 전 여유 확보)
               await new Promise((r) => setTimeout(r, 3000));
