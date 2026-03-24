@@ -57,6 +57,7 @@ export interface EditableProduct extends PreviewProduct {
   duration?: number;
   // 쿠팡 API 필드 오버라이드
   editedDisplayProductName?: string;
+  editedSellerProductName?: string;
   editedManufacturer?: string;
   editedOriginalPrice?: number;
   editedItemName?: string;

@@ -237,8 +237,9 @@ export function buildCoupangProductPayload(
 
   // ---- 2. 대표이미지 (REPRESENTATION) ----
   // 아이템위너 방지: preventionSeed가 있으면 이미지 순서를 셔플
+  // index 0 (품질 최적 대표이미지)은 고정, 나머지만 셔플
   const orderedImageUrls = preventionSeed
-    ? shuffleWithSeed(mainImageUrls.slice(0, 10), preventionSeed)
+    ? [mainImageUrls[0], ...shuffleWithSeed(mainImageUrls.slice(1, 10), preventionSeed)]
     : mainImageUrls.slice(0, 10);
   const images = orderedImageUrls.map((url, i) => ({
     imageOrder: i,

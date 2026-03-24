@@ -71,8 +71,10 @@ function buildLayoutA(params: DetailPageParams): string {
 
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
   // 글 → 이미지 → 글 → 이미지 블로그 스타일
-  // detail이미지와 리뷰이미지를 합쳐서 글 사이에 교차 배치
-  const allImages = [...detailImageUrls, ...(reviewImageUrls || [])];
+  // detail이미지 + 리뷰이미지(중복 없이 최대 5장) 합쳐서 교차 배치
+  const detailSet = new Set(detailImageUrls);
+  const uniqueReviews = (reviewImageUrls || []).filter(url => !detailSet.has(url)).slice(0, 5);
+  const allImages = [...detailImageUrls, ...uniqueReviews];
   if (allImages.length > 0) {
     sections.push(buildBlogStyleSection(allImages, paragraphs, productName, style));
   } else if (paragraphs.length > 0) {

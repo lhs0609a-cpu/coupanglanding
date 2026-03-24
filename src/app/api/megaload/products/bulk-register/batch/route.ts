@@ -14,6 +14,7 @@ import { classifyError } from '@/lib/megaload/services/error-classifier';
 import type { DetailedError } from '@/components/megaload/bulk/types';
 import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import { selectWithSeed } from '@/lib/megaload/services/item-winner-prevention';
+import { generateVariationParams, type VariationParams } from '@/lib/megaload/services/server-image-variation';
 
 interface BatchProduct {
   uid?: string;
@@ -256,7 +257,15 @@ export async function POST(req: NextRequest) {
       } else {
         const reviewPaths = includeReviewImages ? product.reviewImages : [];
         const allPaths = [...product.mainImages, ...product.detailImages, ...reviewPaths, ...product.infoImages];
-        const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, 10, true);
+
+        // 아이템위너 방지: prevention 활성 시 변형 파라미터 생성
+        let variationParamsList: (VariationParams | undefined)[] | undefined;
+        if (preventionEnabled && preventionConfig?.imageVariation) {
+          const imgSeed = `${shUserId}:${product.productCode}`;
+          variationParamsList = allPaths.map((_, idx) => generateVariationParams(imgSeed, idx));
+        }
+
+        const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, 10, true, variationParamsList);
 
         let offset = 0;
         mainImageUrls = allUrls.slice(offset, offset + product.mainImages.length).filter(Boolean);
