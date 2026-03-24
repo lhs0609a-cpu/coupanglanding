@@ -499,6 +499,58 @@ export function useBulkRegisterActions() {
           };
         }));
 
+        // Phase 3: 상세페이지/리뷰 이미지 필터링 — 배송안내, 배너, 빈 이미지 제거
+        const { filterDetailPageImages } = await import('@/lib/megaload/services/image-quality-scorer');
+
+        const detailFilterPromises = productsRef.current.map(async (p) => {
+          const results: { detail?: { index: number; filtered: boolean; reason?: string }[]; review?: { index: number; filtered: boolean; reason?: string }[] } = {};
+          // 상세 이미지 필터
+          if (p.scannedDetailImages && p.scannedDetailImages.length > 0) {
+            const urls = p.scannedDetailImages.map(img => img.objectUrl).filter(Boolean) as string[];
+            if (urls.length > 0) {
+              try { results.detail = await filterDetailPageImages(urls); } catch { /* skip */ }
+            }
+          }
+          // 리뷰 이미지 필터
+          if (p.scannedReviewImages && p.scannedReviewImages.length > 0) {
+            const urls = p.scannedReviewImages.map(img => img.objectUrl).filter(Boolean) as string[];
+            if (urls.length > 0) {
+              try { results.review = await filterDetailPageImages(urls); } catch { /* skip */ }
+            }
+          }
+          return results;
+        });
+        const detailFilterResults = await Promise.all(detailFilterPromises);
+
+        setProducts(prev => prev.map((p, i) => {
+          const filterResult = detailFilterResults[i];
+          let updated = { ...p };
+
+          // 상세 이미지 필터 적용
+          if (filterResult.detail && p.scannedDetailImages) {
+            const passed = filterResult.detail.filter(r => !r.filtered);
+            if (passed.length < p.scannedDetailImages.length) {
+              const removed = filterResult.detail.filter(r => r.filtered).length;
+              console.info(`[detail-filter] ${p.productCode}: 상세이미지 ${removed}장 제거 (${filterResult.detail.filter(r => r.filtered).map(r => r.reason).join(',')})`);
+              const kept = passed.map(r => p.scannedDetailImages![r.index]);
+              updated = { ...updated, scannedDetailImages: kept, detailImageCount: kept.length };
+            }
+          }
+
+          // 리뷰 이미지 필터 적용
+          if (filterResult.review && p.scannedReviewImages) {
+            const passed = filterResult.review.filter(r => !r.filtered);
+            if (passed.length < p.scannedReviewImages.length) {
+              const removed = filterResult.review.filter(r => r.filtered).length;
+              console.info(`[detail-filter] ${p.productCode}: 리뷰이미지 ${removed}장 제거 (${filterResult.review.filter(r => r.filtered).map(r => r.reason).join(',')})`);
+              const kept = passed.map(r => p.scannedReviewImages![r.index]);
+              updated = { ...updated, scannedReviewImages: kept, reviewImageCount: kept.length };
+            }
+          }
+
+          return updated;
+        }));
+
         await runTitleGeneration(productsRef.current);
         await runContentGeneration(productsRef.current);
       })();

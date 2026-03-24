@@ -110,6 +110,82 @@ export async function filterAndScoreMainImages(
 }
 
 /**
+ * 상세페이지/리뷰 이미지용 필터링 (대표이미지보다 관대)
+ *
+ * 명백한 비상품 이미지만 제거:
+ * - 텍스트 배너 (배송안내, 이벤트 배너 등)
+ * - 진한 컬러/어두운 배경 (광고 배너 스타일)
+ * - 빈 이미지
+ *
+ * 대표이미지와 달리 피부톤/중심집중도/종횡비 등은 체크하지 않음
+ * (리뷰 사진은 다양한 환경에서 촬영됨)
+ *
+ * @param objectUrls - 분석할 이미지의 Object URL 배열
+ * @returns { index, filtered, reason }[] 배열
+ */
+export async function filterDetailPageImages(
+  objectUrls: string[],
+): Promise<{ index: number; filtered: boolean; reason?: string }[]> {
+  if (objectUrls.length === 0) return [];
+
+  const results: { index: number; filtered: boolean; reason?: string }[] = [];
+
+  for (let i = 0; i < objectUrls.length; i++) {
+    try {
+      const result = await analyzeDetailImage(objectUrls[i]);
+      results.push({ index: i, ...result });
+    } catch {
+      results.push({ index: i, filtered: false });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * 단일 상세/리뷰 이미지를 분석하여 비상품 이미지 여부를 판별.
+ * 대표이미지 스코어링보다 가벼운 검사만 수행.
+ */
+async function analyzeDetailImage(
+  objectUrl: string,
+): Promise<{ filtered: boolean; reason?: string }> {
+  const img = await loadImage(objectUrl);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = ANALYSIS_SIZE;
+  canvas.height = ANALYSIS_SIZE;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return { filtered: false };
+
+  ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  const data = ctx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE).data;
+
+  // 1. 텍스트 배너 감지 (배송안내, 이벤트 배너 등)
+  if (detectTextBanner(data, ANALYSIS_SIZE, ANALYSIS_SIZE)) {
+    return { filtered: true, reason: 'text_banner' };
+  }
+
+  // 2. 빈 이미지 감지
+  const contentSuf = scoreContentSufficiency(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  if (contentSuf <= 20) {
+    return { filtered: true, reason: 'empty_image' };
+  }
+
+  // 3. 어두운 배경 (배너/광고 스타일) — 밝기 < 120은 일반 상품 사진이 아님
+  const bgResult = scoreBackgroundSaturation(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  if (bgResult.avgLuminance < 120) {
+    return { filtered: true, reason: 'dark_background' };
+  }
+
+  // 4. 매우 진한 컬러 배경 (채도 높고 어두운 — 배너/광고)
+  if (bgResult.avgSaturation > 0.35 && bgResult.avgLuminance < 160) {
+    return { filtered: true, reason: 'colored_banner' };
+  }
+
+  return { filtered: false };
+}
+
+/**
  * 같은 상품의 이미지 세트에서 색상 분포가 크게 다른 이상치를 감지한다.
  * 다른 브랜드/상품 이미지를 자동 제거하는 용도.
  *
