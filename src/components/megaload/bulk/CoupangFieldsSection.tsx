@@ -116,25 +116,20 @@ function ImageSectionWithPreview({
   preventionConfig?: PreventionConfig;
   productCode: string;
 }) {
-  const [showPreview, setShowPreview] = useState(false);
   const isShuffleEnabled = preventionConfig?.enabled && preventionConfig?.imageOrderShuffle;
 
   // 셀러 A/B/C 시드로 각각 다른 셔플 결과 미리보기
-  const previewSeeds = useMemo(() => ['셀러A', '셀러B', '셀러C'], []);
-
-  // 전체 셔플 (대표이미지 포함) — 셀러마다 다른 이미지가 대표로 설정됨
   const shuffledPreviews = useMemo(() => {
     if (imageItems.length <= 1) return [];
-    if (!isShuffleEnabled) {
-      // 방지 비활성 시: 현재 순서 그대로 업로드 (1개 예시만)
-      return [{ sellerLabel: '업로드 순서', images: [...imageItems] }];
-    }
-    return previewSeeds.map(sellerLabel => {
+    const seeds = ['셀러A', '셀러B', '셀러C'];
+    return seeds.map(sellerLabel => {
       const seed = `${sellerLabel}:${productCode}`;
-      const shuffled = shuffleWithSeed(imageItems, seed);
+      const shuffled = isShuffleEnabled
+        ? shuffleWithSeed(imageItems, seed)
+        : [...imageItems]; // 방지 비활성 시 현재 순서 유지
       return { sellerLabel, images: shuffled };
     });
-  }, [isShuffleEnabled, imageItems, productCode, previewSeeds]);
+  }, [isShuffleEnabled, imageItems, productCode]);
 
   return (
     <CollapsibleSection
@@ -159,29 +154,22 @@ function ImageSectionWithPreview({
             }}
           />
 
-          {/* 업로드 순서 미리보기 — 항상 표시 */}
+          {/* 업로드 순서 미리보기 — 이미지 2장 이상이면 항상 표시 (토글 없이 바로 노출) */}
           {imageItems.length > 1 && (
-            <div className="mt-2">
-              <button
-                onClick={() => setShowPreview(!showPreview)}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition ${
-                  showPreview
-                    ? isShuffleEnabled ? 'bg-purple-100 text-purple-700 hover:bg-purple-200' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                {isShuffleEnabled ? <Shuffle className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                {isShuffleEnabled ? '위너 방지 업로드 미리보기' : '업로드 순서 미리보기'}
-              </button>
+            <div className={`mt-3 space-y-2.5 p-3 rounded-lg border ${
+              isShuffleEnabled ? 'bg-purple-50/50 border-purple-200' : 'bg-blue-50/50 border-blue-200'
+            }`}>
+              <div className="flex items-center gap-1.5">
+                {isShuffleEnabled ? <Shuffle className="w-3.5 h-3.5 text-purple-500" /> : <Eye className="w-3.5 h-3.5 text-blue-500" />}
+                <span className={`text-[11px] font-bold ${isShuffleEnabled ? 'text-purple-700' : 'text-blue-700'}`}>
+                  {isShuffleEnabled ? '아이템위너 방지 — 셀러별 업로드 미리보기' : '업로드 순서 미리보기'}
+                </span>
+              </div>
 
-              {showPreview && (
-                <div className={`mt-2 space-y-3 p-3 rounded-lg border ${
-                  isShuffleEnabled ? 'bg-purple-50/50 border-purple-200' : 'bg-blue-50/50 border-blue-200'
-                }`}>
-                  <div className={`text-[10px] font-medium ${isShuffleEnabled ? 'text-purple-600' : 'text-blue-600'}`}>
-                    {isShuffleEnabled
-                      ? '셀러마다 대표이미지 + 순서가 모두 다르게 등록됩니다'
-                      : '현재 순서대로 쿠팡에 업로드됩니다 (1번 = 대표이미지)'}
+              {isShuffleEnabled ? (
+                <>
+                  <div className="text-[10px] text-purple-600">
+                    셀러마다 대표이미지 + 순서가 모두 달라 아이템위너로 묶이지 않습니다
                   </div>
                   {shuffledPreviews.map(({ sellerLabel, images }) => (
                     <div key={sellerLabel}>
@@ -191,7 +179,7 @@ function ImageSectionWithPreview({
                           <div
                             key={img.id}
                             className={`relative shrink-0 w-12 h-12 rounded overflow-hidden border ${
-                              idx === 0 ? 'border-amber-400 ring-1 ring-amber-300' : 'border-gray-200'
+                              idx === 0 ? 'border-amber-400 ring-2 ring-amber-300' : 'border-gray-200'
                             }`}
                           >
                             <img src={img.url} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -208,16 +196,39 @@ function ImageSectionWithPreview({
                       </div>
                     </div>
                   ))}
-                  {isShuffleEnabled ? (
-                    <div className="text-[9px] text-gray-400">
-                      * 실제 등록 시 셀러 ID 기반 시드로 결정되며, 위 예시는 시뮬레이션입니다.
-                    </div>
-                  ) : (
-                    <div className="text-[9px] text-amber-600">
-                      * 위너 방지를 활성화하면 셀러마다 다른 대표이미지로 등록됩니다.
-                    </div>
-                  )}
-                </div>
+                  <div className="text-[9px] text-gray-400">
+                    * 실제 등록 시 셀러 ID 기반 시드로 결정됩니다. 위 예시는 시뮬레이션입니다.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-[10px] text-blue-600">
+                    현재 순서 그대로 쿠팡에 업로드됩니다. 1번 이미지가 대표이미지입니다.
+                  </div>
+                  <div className="flex gap-1 overflow-x-auto pb-1">
+                    {imageItems.slice(0, 10).map((img, idx) => (
+                      <div
+                        key={img.id}
+                        className={`relative shrink-0 w-12 h-12 rounded overflow-hidden border ${
+                          idx === 0 ? 'border-amber-400 ring-2 ring-amber-300' : 'border-gray-200'
+                        }`}
+                      >
+                        <img src={img.url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                        {idx === 0 && (
+                          <div className="absolute bottom-0 left-0 right-0 bg-amber-500 text-white text-[7px] text-center font-bold leading-tight py-px">
+                            대표
+                          </div>
+                        )}
+                        <div className="absolute top-0 right-0 bg-black/50 text-white text-[7px] px-0.5 rounded-bl">
+                          {idx + 1}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-[9px] text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                    아이템위너 방지를 활성화하면 셀러마다 다른 대표이미지로 등록되어 묶임을 방지합니다.
+                  </div>
+                </>
               )}
             </div>
           )}
