@@ -455,7 +455,7 @@ export default function AdminPtUsersPage() {
 
     await supabase
       .from('profiles')
-      .update({ role: 'pt_user', full_name: newName || undefined })
+      .update({ role: 'pt_user', full_name: newName || undefined, is_active: true })
       .eq('id', profile.id);
 
     // 추천 코드 확인 + trainer_trainees 생성
