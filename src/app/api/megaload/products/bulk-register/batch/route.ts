@@ -244,6 +244,7 @@ export async function POST(req: NextRequest) {
       }
 
       // 4. 이미지 처리 (부분 실패 허용)
+      const preventionEnabled = preventionConfig?.enabled ?? false;
       let mainImageUrls: string[];
       let detailImageUrls: string[];
       let reviewImageUrls: string[];
@@ -347,7 +348,6 @@ export async function POST(req: NextRequest) {
       );
 
       // 8. 아이템위너 방지 시드 + 레이아웃 변형 결정
-      const preventionEnabled = preventionConfig?.enabled ?? false;
       const preventionSeed = preventionEnabled && preventionConfig?.imageOrderShuffle
         ? `${shUserId}:${product.productCode}`
         : undefined;
