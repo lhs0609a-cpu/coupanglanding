@@ -37,10 +37,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    // 3. profiles 업데이트 (is_active = false 유지, 관리자 승인 대기)
+    // 3. profiles 업데이트 (is_active = false, 관리자 승인 대기)
     await supabase
       .from('profiles')
       .update({
+        is_active: false,
         phone: phone || null,
       })
       .eq('id', data.user.id);
