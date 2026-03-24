@@ -488,10 +488,10 @@ export function useBulkRegisterActions() {
           // 스코어 순으로 재배열 (surviving은 이미 점수 내림차순)
           const sorted = final.map(s => p.scannedMainImages![s.index]);
 
-          // index 0 (최고 품질) 보존, 나머지만 셔플
+          // index 0 (최고 품질) 보존, 나머지만 셔플, 최대 10장
           const [best, ...rest] = sorted;
           const shuffledRest = shuffleWithSeed(rest, `${imgSeed}::${i}`);
-          const finalImages = [best, ...shuffledRest];
+          const finalImages = [best, ...shuffledRest].slice(0, 10);
           return {
             ...p,
             scannedMainImages: finalImages,

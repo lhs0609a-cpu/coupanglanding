@@ -223,6 +223,8 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
     hardFilterReason = 'empty_image';
   } else if (bgSatResult.isHardFiltered) {
     hardFilterReason = 'colored_background';
+  } else if (detectTextBanner(data, ANALYSIS_SIZE, ANALYSIS_SIZE)) {
+    hardFilterReason = 'text_banner';
   }
 
   if (hardFilterReason) {
@@ -561,6 +563,106 @@ async function buildColorHistogram(objectUrl: string): Promise<Float32Array> {
   // 정규화
   for (let i = 0; i < TOTAL_BINS; i++) hist[i] /= totalPixels;
   return hist;
+}
+
+/**
+ * 텍스트/배너 이미지 감지
+ *
+ * 흰색 배경 위의 텍스트 배너는 배경 채도 필터를 우회하므로 별도 감지 필요.
+ * 텍스트 이미지 특징:
+ *  - 적은 유효 색상 (배경 + 텍스트색 1~2개)
+ *  - 낮은 fill ratio (얇은 글자 획이 바운딩박스를 빈약하게 채움)
+ *  - 높은 수평 전환 밀도 (행 스캔 시 content↔background 전환 잦음)
+ *
+ * 감지 기준 (3단계):
+ *  Tier 1: sigBins ≤ 2 AND fillRatio < 0.45 → 확실한 텍스트/로고
+ *  Tier 2: sigBins ≤ 4 AND fillRatio < 0.35 AND avgTransitions > 8 → 복합 텍스트
+ *  Tier 3: avgTransitions > 15 AND sigBins ≤ 5 → 극단적 전환 밀도
+ */
+function detectTextBanner(data: Uint8ClampedArray, w: number, h: number): boolean {
+  const totalPixels = w * h;
+
+  // 1. 컨텐츠 픽셀 + 바운딩박스
+  let minX = w, maxX = 0, minY = h, maxY = 0;
+  let contentCount = 0;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+      if (lum < 200) {
+        contentCount++;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  // 컨텐츠가 너무 적으면 텍스트 판정 불가 (빈 이미지는 별도 필터)
+  if (contentCount < totalPixels * 0.03) return false;
+
+  // 2. Fill ratio = content pixels / bounding box area
+  const bboxW = maxX - minX + 1;
+  const bboxH = maxY - minY + 1;
+  if (bboxW <= 0 || bboxH <= 0) return false;
+  const fillRatio = contentCount / (bboxW * bboxH);
+
+  // 3. 색상 다양성 (간단 계산)
+  const BINS = 4, TOTAL = BINS ** 3;
+  const colorBins = new Uint32Array(TOTAL);
+  for (let i = 0; i < totalPixels; i++) {
+    const o = i * 4;
+    colorBins[
+      Math.min(3, data[o] >> 6) * 16 +
+      Math.min(3, data[o + 1] >> 6) * 4 +
+      Math.min(3, data[o + 2] >> 6)
+    ]++;
+  }
+  let sigBins = 0;
+  for (let i = 0; i < TOTAL; i++) {
+    if (colorBins[i] >= totalPixels * 0.02) sigBins++;
+  }
+
+  // Tier 1: 매우 적은 색상 + 낮은 fill → 확실한 텍스트/로고
+  if (sigBins <= 2 && fillRatio < 0.45) return true;
+
+  // 4. 수평 전환 밀도 (행별 content↔background 전환 횟수)
+  // 텍스트: 여러 글자를 관통하므로 전환 잦음 (8+/row)
+  // 상품: 한 물체만 관통하므로 전환 적음 (2-5/row)
+  let totalTransitions = 0;
+  let rowsWithContent = 0;
+
+  for (let y = 0; y < h; y++) {
+    let transitions = 0;
+    let prevContent = false;
+    let hasContent = false;
+
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+      const isContent = lum < 200;
+      if (isContent) hasContent = true;
+      if (x > 0 && isContent !== prevContent) transitions++;
+      prevContent = isContent;
+    }
+
+    if (hasContent) {
+      totalTransitions += transitions;
+      rowsWithContent++;
+    }
+  }
+
+  const avgTransitions = rowsWithContent > 0 ? totalTransitions / rowsWithContent : 0;
+
+  // Tier 2: 적은 색상 + 적은 fill + 높은 전환 → 복합 텍스트 배너
+  if (sigBins <= 4 && fillRatio < 0.35 && avgTransitions > 8) return true;
+
+  // Tier 3: 극단적 전환 밀도 + 적은 색상 → 확실한 텍스트
+  if (avgTransitions > 15 && sigBins <= 5) return true;
+
+  return false;
 }
 
 /**
