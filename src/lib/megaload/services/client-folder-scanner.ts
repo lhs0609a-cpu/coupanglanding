@@ -201,3 +201,67 @@ export async function uploadScannedImages(
 
   return results;
 }
+
+/**
+ * 이미지 변형을 적용한 후 업로드한다.
+ * applyVariation이 true이면 각 이미지에 Canvas 변형(crop, 밝기, 채도, 회전)을 적용하여
+ * 파일 해시가 달라진 Blob을 업로드한다.
+ *
+ * @param images - 스캔된 이미지 파일 배열
+ * @param applyVariation - true이면 변형 적용, false이면 원본 업로드
+ * @param concurrency - 동시 업로드 수
+ */
+export async function uploadScannedImagesWithVariation(
+  images: ScannedImageFile[],
+  applyVariation: boolean,
+  concurrency = 5,
+): Promise<string[]> {
+  if (images.length === 0) return [];
+  if (!applyVariation) return uploadScannedImages(images, concurrency);
+
+  const { generateImageVariationParams, applyImageVariation } = await import('./image-variation');
+
+  const results: string[] = new Array(images.length).fill('');
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < images.length) {
+      const idx = nextIndex++;
+      const img = images[idx];
+      const file = await img.handle.getFile();
+
+      // 변형 적용
+      let uploadBlob: Blob = file;
+      try {
+        const variation = generateImageVariationParams();
+        uploadBlob = await applyImageVariation(file, variation);
+      } catch (err) {
+        console.warn(`[variation] ${img.name} 변형 실패, 원본 사용:`, err);
+      }
+
+      const formData = new FormData();
+      const ext = img.name.replace(/.*\./, '');
+      const variedName = img.name.replace(/\.[^.]+$/, `_v.${ext === 'png' ? 'jpg' : ext}`);
+      formData.append('file', uploadBlob, variedName);
+
+      const res = await fetch('/api/megaload/products/bulk-register/upload-image', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: '업로드 실패' }));
+        throw new Error(`${img.name}: ${data.error || '업로드 실패'}`);
+      }
+
+      const data = await res.json();
+      results[idx] = data.url;
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, images.length) }, () => worker()),
+  );
+
+  return results;
+}
