@@ -421,12 +421,24 @@ export function useBulkRegisterActions() {
         const imgSeed = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
         // Phase 1: 각 상품의 대표이미지 스코어링 + 하드필터 (병렬)
+        // objectUrl이 없는 이미지를 건너뛰되, 원본 인덱스를 보존하여 매핑 버그 방지
         const scoringPromises = latest.map(async (p) => {
           if (!p.scannedMainImages || p.scannedMainImages.length <= 1) return null;
-          const urls = p.scannedMainImages.map(img => img.objectUrl).filter(Boolean) as string[];
-          if (urls.length <= 1) return null;
+          // objectUrl이 있는 이미지만 추출 + 원본 인덱스 매핑 보존
+          const validEntries: { origIdx: number; url: string }[] = [];
+          for (let idx = 0; idx < p.scannedMainImages.length; idx++) {
+            const url = p.scannedMainImages[idx].objectUrl;
+            if (url) validEntries.push({ origIdx: idx, url });
+          }
+          if (validEntries.length <= 1) return null;
           try {
-            return await filterAndScoreMainImages(urls);
+            const urls = validEntries.map(e => e.url);
+            const scores = await filterAndScoreMainImages(urls);
+            // scores[].index는 urls 배열 기준 → 원본 인덱스로 변환
+            return scores.map(s => ({
+              ...s,
+              index: validEntries[s.index].origIdx,
+            }));
           } catch { return null; }
         });
         const scoringResults = await Promise.all(scoringPromises);
@@ -437,18 +449,20 @@ export function useBulkRegisterActions() {
           if (!p.scannedMainImages || p.scannedMainImages.length <= 4) return null;
           const scores = scoringResults[i];
           if (!scores) return null;
-          // 스코어링 통과한 이미지만 대상
+          // 스코어링 통과한 이미지만 대상 (index는 이미 원본 기준)
           const passedIndices = scores.filter(s => !s.filtered).map(s => s.index);
           if (passedIndices.length <= 4) return null;
-          const urls = passedIndices
-            .map(idx => p.scannedMainImages![idx]?.objectUrl)
-            .filter(Boolean) as string[];
-          if (urls.length <= 4) return null;
+          const validEntries: { passedIdx: number; origIdx: number; url: string }[] = [];
+          for (let j = 0; j < passedIndices.length; j++) {
+            const url = p.scannedMainImages![passedIndices[j]]?.objectUrl;
+            if (url) validEntries.push({ passedIdx: j, origIdx: passedIndices[j], url });
+          }
+          if (validEntries.length <= 4) return null;
           try {
-            const outliers = await detectOutlierImages(urls);
-            // passedIndices 기준 → 원본 인덱스로 매핑
+            const outliers = await detectOutlierImages(validEntries.map(e => e.url));
+            // 원본 인덱스로 매핑
             return outliers.map((o, j) => ({
-              originalIndex: passedIndices[j],
+              originalIndex: validEntries[j].origIdx,
               isOutlier: o.isOutlier,
               distance: o.distance,
             }));
@@ -485,7 +499,7 @@ export function useBulkRegisterActions() {
             console.info(`[image-filter] ${p.productCode}: ${reasons.join(' + ')} 제거 (${scores.length}→${final.length}장)`);
           }
 
-          // 스코어 순으로 재배열 (surviving은 이미 점수 내림차순)
+          // 스코어 순으로 재배열 — index는 원본 scannedMainImages 기준
           const sorted = final.map(s => p.scannedMainImages![s.index]);
 
           // index 0 (최고 품질) 보존, 나머지만 셔플, 최대 10장
@@ -502,20 +516,38 @@ export function useBulkRegisterActions() {
         // Phase 3: 상세페이지/리뷰 이미지 필터링 — 배송안내, 배너, 빈 이미지 제거
         const { filterDetailPageImages } = await import('@/lib/megaload/services/image-quality-scorer');
 
+        // Phase 3에서도 원본 인덱스 매핑 보존 (objectUrl이 없는 항목 건너뛰기)
         const detailFilterPromises = productsRef.current.map(async (p) => {
-          const results: { detail?: { index: number; filtered: boolean; reason?: string }[]; review?: { index: number; filtered: boolean; reason?: string }[] } = {};
+          const results: {
+            detail?: { origIdx: number; filtered: boolean; reason?: string }[];
+            review?: { origIdx: number; filtered: boolean; reason?: string }[];
+          } = {};
           // 상세 이미지 필터
           if (p.scannedDetailImages && p.scannedDetailImages.length > 0) {
-            const urls = p.scannedDetailImages.map(img => img.objectUrl).filter(Boolean) as string[];
-            if (urls.length > 0) {
-              try { results.detail = await filterDetailPageImages(urls); } catch { /* skip */ }
+            const entries: { origIdx: number; url: string }[] = [];
+            for (let j = 0; j < p.scannedDetailImages.length; j++) {
+              const url = p.scannedDetailImages[j].objectUrl;
+              if (url) entries.push({ origIdx: j, url });
+            }
+            if (entries.length > 0) {
+              try {
+                const raw = await filterDetailPageImages(entries.map(e => e.url));
+                results.detail = raw.map(r => ({ origIdx: entries[r.index].origIdx, filtered: r.filtered, reason: r.reason }));
+              } catch { /* skip */ }
             }
           }
           // 리뷰 이미지 필터
           if (p.scannedReviewImages && p.scannedReviewImages.length > 0) {
-            const urls = p.scannedReviewImages.map(img => img.objectUrl).filter(Boolean) as string[];
-            if (urls.length > 0) {
-              try { results.review = await filterDetailPageImages(urls); } catch { /* skip */ }
+            const entries: { origIdx: number; url: string }[] = [];
+            for (let j = 0; j < p.scannedReviewImages.length; j++) {
+              const url = p.scannedReviewImages[j].objectUrl;
+              if (url) entries.push({ origIdx: j, url });
+            }
+            if (entries.length > 0) {
+              try {
+                const raw = await filterDetailPageImages(entries.map(e => e.url));
+                results.review = raw.map(r => ({ origIdx: entries[r.index].origIdx, filtered: r.filtered, reason: r.reason }));
+              } catch { /* skip */ }
             }
           }
           return results;
@@ -532,7 +564,7 @@ export function useBulkRegisterActions() {
             if (passed.length < p.scannedDetailImages.length) {
               const removed = filterResult.detail.filter(r => r.filtered).length;
               console.info(`[detail-filter] ${p.productCode}: 상세이미지 ${removed}장 제거 (${filterResult.detail.filter(r => r.filtered).map(r => r.reason).join(',')})`);
-              const kept = passed.map(r => p.scannedDetailImages![r.index]);
+              const kept = passed.map(r => p.scannedDetailImages![r.origIdx]);
               updated = { ...updated, scannedDetailImages: kept, detailImageCount: kept.length };
             }
           }
@@ -543,7 +575,7 @@ export function useBulkRegisterActions() {
             if (passed.length < p.scannedReviewImages.length) {
               const removed = filterResult.review.filter(r => r.filtered).length;
               console.info(`[detail-filter] ${p.productCode}: 리뷰이미지 ${removed}장 제거 (${filterResult.review.filter(r => r.filtered).map(r => r.reason).join(',')})`);
-              const kept = passed.map(r => p.scannedReviewImages![r.index]);
+              const kept = passed.map(r => p.scannedReviewImages![r.origIdx]);
               updated = { ...updated, scannedReviewImages: kept, reviewImageCount: kept.length };
             }
           }
@@ -925,16 +957,18 @@ export function useBulkRegisterActions() {
   const handleReorderImages = useCallback((uid: string, newOrder: string[]) => {
     setProducts((prev) => prev.map((p) => {
       if (p.uid !== uid) return p;
-      // If browser mode with scannedMainImages, reorder those too
+      // Browser mode: newOrder는 objectUrl 배열 → scannedMainImages를 URL 순서에 맞게 재배열
       if (p.scannedMainImages && p.scannedMainImages.length > 0) {
-        // newOrder is URLs; we need to map back to scannedMainImages
-        // For browser mode, the URL ordering comes from the detail panel
-        // We can only reorder the scanned array by matching indices
-        return { ...p, mainImages: newOrder };
+        const reordered = newOrder
+          .map(url => p.scannedMainImages!.find(img => img.objectUrl === url))
+          .filter((img): img is NonNullable<typeof img> => !!img);
+        // 매핑 실패 시 (URL 불일치) 기존 순서 유지
+        if (reordered.length === 0) return p;
+        return { ...p, scannedMainImages: reordered, mainImageCount: reordered.length };
       }
       return { ...p, mainImages: newOrder };
     }));
-    // Also update preupload cache
+    // Also update preupload cache (server mode only — browser mode는 cache 없음)
     setImagePreuploadCache((prev) => {
       const cached = prev[uid];
       if (!cached) return prev;
@@ -945,13 +979,20 @@ export function useBulkRegisterActions() {
   const handleRemoveImage = useCallback((uid: string, imageIndex: number) => {
     setProducts((prev) => prev.map((p) => {
       if (p.uid !== uid) return p;
-      const newMainImages = [...p.mainImages];
-      newMainImages.splice(imageIndex, 1);
-      const update: Partial<EditableProduct> = { mainImages: newMainImages, mainImageCount: newMainImages.length };
-      if (p.scannedMainImages) {
+      const update: Partial<EditableProduct> = {};
+      // Browser mode: scannedMainImages 기준으로 제거
+      if (p.scannedMainImages && p.scannedMainImages.length > 0) {
         const newScanned = [...p.scannedMainImages];
         newScanned.splice(imageIndex, 1);
         update.scannedMainImages = newScanned;
+        update.mainImageCount = newScanned.length;
+      }
+      // Server mode: mainImages 기준으로 제거
+      if (p.mainImages && p.mainImages.length > 0) {
+        const newMainImages = [...p.mainImages];
+        newMainImages.splice(imageIndex, 1);
+        update.mainImages = newMainImages;
+        if (!p.scannedMainImages?.length) update.mainImageCount = newMainImages.length;
       }
       return { ...p, ...update };
     }));
@@ -971,8 +1012,9 @@ export function useBulkRegisterActions() {
     const product = products.find(p => p.uid === uid);
     if (product?.mainImages?.length) {
       // 로컬 경로(G:\... 등)는 브라우저에서 직접 표시 불가 → 서버 프록시 URL로 변환
+      // blob: URL은 이미 표시 가능하므로 그대로 반환
       return product.mainImages.map(p =>
-        p.startsWith('http') ? p : `/api/megaload/products/bulk-register/serve-image?path=${encodeURIComponent(p)}`
+        p.startsWith('http') || p.startsWith('blob:') ? p : `/api/megaload/products/bulk-register/serve-image?path=${encodeURIComponent(p)}`
       );
     }
     return [];

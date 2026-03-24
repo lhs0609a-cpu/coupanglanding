@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -33,6 +33,7 @@ interface BulkImageGridProps {
 }
 
 function SortableImage({ image, onRemove, isMain, onSetAsMain }: { image: ImageItem; onRemove: (id: string) => void; isMain: boolean; onSetAsMain?: (id: string) => void }) {
+  const [imgError, setImgError] = useState(false);
   const {
     attributes,
     listeners,
@@ -57,12 +58,19 @@ function SortableImage({ image, onRemove, isMain, onSetAsMain }: { image: ImageI
         isDragging ? 'border-blue-400 shadow-lg' : 'border-gray-200'
       }`}
     >
-      <img
-        src={image.url}
-        alt=""
-        className="w-full aspect-square object-cover bg-gray-100"
-        loading="lazy"
-      />
+      {imgError ? (
+        <div className="w-full aspect-square bg-gray-100 flex items-center justify-center text-xs text-gray-400">
+          로드 실패
+        </div>
+      ) : (
+        <img
+          src={image.url}
+          alt=""
+          className="w-full aspect-square object-cover bg-gray-100"
+          loading="lazy"
+          onError={() => setImgError(true)}
+        />
+      )}
       {/* Drag handle */}
       <button
         {...attributes}

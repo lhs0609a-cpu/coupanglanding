@@ -81,14 +81,17 @@ export default function BulkProductDetailPanel({
   }, [product?.uid]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Browser mode: load objectURLs from scannedMainImages
+  // scannedMainImages 참조를 추적하여 필터링 후 갱신된 이미지 표시
+  const scannedMainImagesRef = product?.scannedMainImages;
+
   useEffect(() => {
-    if (!product?.scannedMainImages?.length || imageUrls.length > 0) {
+    if (!scannedMainImagesRef?.length || imageUrls.length > 0) {
       setBrowserImageUrls([]);
       return;
     }
 
     // objectUrl이 있으면 바로 사용 (핸들 만료 무관)
-    const prebuiltUrls = product.scannedMainImages
+    const prebuiltUrls = scannedMainImagesRef
       .map(img => img.objectUrl)
       .filter((u): u is string => !!u);
 
@@ -102,7 +105,7 @@ export default function BulkProductDetailPanel({
     const urls: string[] = [];
 
     (async () => {
-      for (const img of product.scannedMainImages!) {
+      for (const img of scannedMainImagesRef) {
         if (cancelled || !img.handle) continue;
         try {
           const file = await img.handle.getFile();
@@ -116,7 +119,7 @@ export default function BulkProductDetailPanel({
       cancelled = true;
       urls.forEach(url => URL.revokeObjectURL(url));
     };
-  }, [product?.uid, imageUrls.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [product?.uid, imageUrls.length, scannedMainImagesRef]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-fetch preview when panel opens (if category is set)
   useEffect(() => {
