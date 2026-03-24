@@ -4,9 +4,10 @@ import { useState, useCallback, useMemo } from 'react';
 import {
   ChevronDown, ChevronRight, FileText, Hash, Tag, Truck,
   Settings2, Loader2, AlertTriangle, Package, Image as ImageIcon,
-  DollarSign, Layers, CheckCircle2, Settings,
+  DollarSign, Layers, CheckCircle2, Settings, Shuffle, Eye,
 } from 'lucide-react';
 import BulkImageGrid from './BulkImageGrid';
+import { shuffleWithSeed, type PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import type { PayloadPreviewData } from './PayloadPreviewPanel';
 import type { EditableProduct } from './types';
 
@@ -25,6 +26,7 @@ interface CoupangFieldsSectionProps {
   imageItems: ImageItem[];
   onImageReorder: (newOrder: ImageItem[]) => void;
   onImageRemove: (id: string) => void;
+  preventionConfig?: PreventionConfig;
 }
 
 /* ─── Required field input styling ─── */
@@ -104,6 +106,116 @@ function CollapsibleSection({
   );
 }
 
+/* ─── Image Section with Prevention Preview ─── */
+function ImageSectionWithPreview({
+  imageItems, onImageReorder, onImageRemove, preventionConfig, productCode,
+}: {
+  imageItems: ImageItem[];
+  onImageReorder: (newOrder: ImageItem[]) => void;
+  onImageRemove: (id: string) => void;
+  preventionConfig?: PreventionConfig;
+  productCode: string;
+}) {
+  const [showPreview, setShowPreview] = useState(false);
+  const isShuffleEnabled = preventionConfig?.enabled && preventionConfig?.imageOrderShuffle;
+
+  // 셀러 A/B/C 시드로 각각 다른 셔플 결과 미리보기
+  const previewSeeds = useMemo(() => ['셀러A', '셀러B', '셀러C'], []);
+
+  // 전체 셔플 (대표이미지 포함) — 셀러마다 다른 이미지가 대표로 설정됨
+  const shuffledPreviews = useMemo(() => {
+    if (!isShuffleEnabled || imageItems.length <= 1) return [];
+    return previewSeeds.map(sellerLabel => {
+      const seed = `${sellerLabel}:${productCode}`;
+      const shuffled = shuffleWithSeed(imageItems, seed);
+      return { sellerLabel, images: shuffled };
+    });
+  }, [isShuffleEnabled, imageItems, productCode, previewSeeds]);
+
+  return (
+    <CollapsibleSection
+      title="대표 이미지"
+      icon={<ImageIcon className="w-3.5 h-3.5 text-pink-500" />}
+      defaultOpen={true}
+      badge={`${imageItems.length}장 / 최대 10장`}
+      missingCount={imageItems.length === 0 ? 1 : undefined}
+      allComplete={imageItems.length > 0}
+    >
+      {imageItems.length > 0 ? (
+        <>
+          <BulkImageGrid
+            images={imageItems}
+            onReorder={onImageReorder}
+            onRemove={onImageRemove}
+            onSetAsMain={(id) => {
+              const idx = imageItems.findIndex(i => i.id === id);
+              if (idx <= 0) return;
+              const newOrder = [imageItems[idx], ...imageItems.filter((_, i) => i !== idx)];
+              onImageReorder(newOrder);
+            }}
+          />
+
+          {/* 위너 방지 미리보기 토글 */}
+          {isShuffleEnabled && imageItems.length > 1 && (
+            <div className="mt-2">
+              <button
+                onClick={() => setShowPreview(!showPreview)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition ${
+                  showPreview
+                    ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <Shuffle className="w-3 h-3" />
+                위너 방지 미리보기
+                <Eye className="w-3 h-3" />
+              </button>
+
+              {showPreview && (
+                <div className="mt-2 space-y-3 p-3 bg-purple-50/50 rounded-lg border border-purple-200">
+                  <div className="text-[10px] text-purple-600 font-medium">
+                    셀러마다 대표이미지 + 순서가 모두 다르게 등록됩니다
+                  </div>
+                  {shuffledPreviews.map(({ sellerLabel, images }) => (
+                    <div key={sellerLabel}>
+                      <div className="text-[10px] text-gray-500 mb-1 font-medium">{sellerLabel}</div>
+                      <div className="flex gap-1 overflow-x-auto pb-1">
+                        {images.map((img, idx) => (
+                          <div
+                            key={img.id}
+                            className={`relative shrink-0 w-12 h-12 rounded overflow-hidden border ${
+                              idx === 0 ? 'border-amber-400 ring-1 ring-amber-300' : 'border-gray-200'
+                            }`}
+                          >
+                            <img src={img.url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                            {idx === 0 && (
+                              <div className="absolute bottom-0 left-0 right-0 bg-amber-500 text-white text-[7px] text-center font-bold leading-tight py-px">
+                                대표
+                              </div>
+                            )}
+                            <div className="absolute top-0 right-0 bg-black/50 text-white text-[7px] px-0.5 rounded-bl">
+                              {idx + 1}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <div className="text-[9px] text-gray-400">
+                    * 실제 등록 시 셀러 ID 기반 시드로 결정되며, 위 예시는 시뮬레이션입니다.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      ) : (
+        <p className="text-xs text-gray-400 py-2">이미지가 없습니다.</p>
+      )}
+    </CollapsibleSection>
+  );
+}
+
 /* ─── Main Component ─── */
 export default function CoupangFieldsSection({
   product,
@@ -115,6 +227,7 @@ export default function CoupangFieldsSection({
   imageItems,
   onImageReorder,
   onImageRemove,
+  preventionConfig,
 }: CoupangFieldsSectionProps) {
   const meta = previewData?.meta;
   const payload = previewData?.payload as Record<string, unknown> | undefined;
@@ -254,8 +367,8 @@ export default function CoupangFieldsSection({
           />
         </div>
 
-        {/* 상품군 (읽기전용) */}
-        <ReadonlyField label="상품군 (generalProductName)" value={product.editedName.split(' ').slice(0, 3).join(' ')} />
+        {/* 상품군 (읽기전용 — 노출상품명에서 자동 파생) */}
+        <ReadonlyField label="상품군 (generalProductName)" value={(product.editedDisplayProductName || product.name || product.editedName).slice(0, 100)} />
       </CollapsibleSection>
 
       {/* ❷ 카테고리 */}
@@ -369,30 +482,13 @@ export default function CoupangFieldsSection({
       </CollapsibleSection>
 
       {/* ❹ 이미지 */}
-      <CollapsibleSection
-        title="대표 이미지"
-        icon={<ImageIcon className="w-3.5 h-3.5 text-pink-500" />}
-        defaultOpen={true}
-        badge={`${imageItems.length}장 / 최대 10장`}
-        missingCount={imageItems.length === 0 ? 1 : undefined}
-        allComplete={imageItems.length > 0}
-      >
-        {imageItems.length > 0 ? (
-          <BulkImageGrid
-            images={imageItems}
-            onReorder={onImageReorder}
-            onRemove={onImageRemove}
-            onSetAsMain={(id) => {
-              const idx = imageItems.findIndex(i => i.id === id);
-              if (idx <= 0) return;
-              const newOrder = [imageItems[idx], ...imageItems.filter((_, i) => i !== idx)];
-              onImageReorder(newOrder);
-            }}
-          />
-        ) : (
-          <p className="text-xs text-gray-400 py-2">이미지가 없습니다.</p>
-        )}
-      </CollapsibleSection>
+      <ImageSectionWithPreview
+        imageItems={imageItems}
+        onImageReorder={onImageReorder}
+        onImageRemove={onImageRemove}
+        preventionConfig={preventionConfig}
+        productCode={product.productCode}
+      />
 
       {/* ❺ 옵션/아이템 */}
       <CollapsibleSection

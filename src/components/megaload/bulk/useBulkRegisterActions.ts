@@ -29,6 +29,16 @@ function extractBrandFromName(name: string): string {
   return '';
 }
 
+/** product.json brand 필드가 실제 브랜드인지 검증 (프로모션 태그 제외) */
+function isValidBrand(brand: string | undefined): boolean {
+  if (!brand || brand.length < 2) return false;
+  // "1+1", "2+1" 등 프로모션 태그 제외
+  if (/^\d+\+\d+$/.test(brand)) return false;
+  // 숫자/특수문자만으로 구성된 것 제외
+  if (!/[가-힣a-zA-Z]/.test(brand)) return false;
+  return true;
+}
+
 export function useBulkRegisterActions() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
@@ -287,6 +297,13 @@ export function useBulkRegisterActions() {
           const target = targets[i];
           const globalIdx = updated.findIndex(p => p.uid === target.uid);
           if (globalIdx >= 0) {
+            const sellerName = generateDisplayName(
+              target.name,
+              target.editedBrand || target.brand,
+              target.editedCategoryName,
+              sellerNameSeed,
+              i,
+            );
             updated[globalIdx] = {
               ...updated[globalIdx],
               editedDisplayProductName: generateDisplayName(
@@ -296,13 +313,8 @@ export function useBulkRegisterActions() {
                 displaySeed,
                 i,
               ),
-              editedSellerProductName: generateDisplayName(
-                target.name,
-                target.editedBrand || target.brand,
-                target.editedCategoryName,
-                sellerNameSeed,
-                i,
-              ),
+              editedSellerProductName: sellerName,
+              editedName: sellerName,  // 판매자상품명도 생성된 이름으로 갱신
             };
           }
         }
@@ -622,10 +634,13 @@ export function useBulkRegisterActions() {
 
       const editableProducts: EditableProduct[] = scanned.map((sp) => {
         const sourcePrice = sp.productJson.price || 0;
+        const rawName = sp.productJson.name || sp.productJson.title || '';
+        const rawBrand = sp.productJson.brand || '';
+        const resolvedBrand = isValidBrand(rawBrand) ? rawBrand : extractBrandFromName(rawName);
         return {
           productCode: sp.productCode,
-          name: sp.productJson.name || sp.productJson.title || `product_${sp.productCode}`,
-          brand: sp.productJson.brand || '',
+          name: rawName || `product_${sp.productCode}`,
+          brand: rawBrand,
           tags: sp.productJson.tags || [],
           description: sp.productJson.description || '',
           sourcePrice,
@@ -644,8 +659,8 @@ export function useBulkRegisterActions() {
             || (sp.productJson.sourceCategory as { categoryId?: string })?.categoryId
             || undefined,
           uid: `browser://${dirName}/${sp.folderName}::${sp.productCode}`,
-          editedName: `${sp.productJson.brand || extractBrandFromName(sp.productJson.name || sp.productJson.title || '')} ${sp.productCode}`,
-          editedBrand: '',
+          editedName: `${resolvedBrand} ${sp.productCode}`,
+          editedBrand: resolvedBrand,
           editedSellingPrice: sourcePrice,
           editedDisplayProductName: '', // 비워두면 runTitleGeneration에서 SEO 최적화 상품명 자동 생성
           editedCategoryCode: '',
@@ -906,12 +921,14 @@ export function useBulkRegisterActions() {
         const data = await res.json();
         if (!res.ok) throw new Error(`[${fp}] ${data.error || '스캔 실패'}`);
         if (data.brackets) latestBrackets = data.brackets;
-        const editableProducts: EditableProduct[] = (data.products as PreviewProduct[]).map((p) => ({
-          ...p, uid: `${p.folderPath}::${p.productCode}`, editedName: `${p.brand || extractBrandFromName(p.name)} ${p.productCode}`, editedBrand: '',
+        const editableProducts: EditableProduct[] = (data.products as PreviewProduct[]).map((p) => {
+          const srvBrand = isValidBrand(p.brand) ? p.brand : extractBrandFromName(p.name);
+          return {
+          ...p, uid: `${p.folderPath}::${p.productCode}`, editedName: `${srvBrand} ${p.productCode}`, editedBrand: srvBrand,
           editedSellingPrice: p.sellingPrice, editedDisplayProductName: '', // SEO 자동 생성 대기
           editedCategoryCode: '', editedCategoryName: '',
           categoryConfidence: 0, categorySource: '', selected: true, status: 'pending' as const,
-        }));
+        };});
         allEditableProducts.push(...editableProducts);
       }
 
