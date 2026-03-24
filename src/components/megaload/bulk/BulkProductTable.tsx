@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useMemo, useRef, memo } from 'react';
 import { FixedSizeList, type ListOnItemsRenderedProps } from 'react-window';
 import BulkProductRow, { GRID_TEMPLATE } from './BulkProductRow';
 import type { EditableProduct, SortField, SortDirection } from './types';
@@ -22,6 +22,37 @@ interface BulkProductTableProps {
   onLoadThumbnail: (uid: string) => void;
   onSort: (field: SortField) => void;
 }
+
+/** react-window itemData — 이 참조가 변경되면 모든 visible row가 re-render */
+interface RowData {
+  products: EditableProduct[];
+  selectedUid: string | null;
+  thumbnailCache: Record<string, string | null>;
+  onLoadThumbnail: (uid: string) => void;
+  onToggle: (uid: string) => void;
+  onUpdate: (uid: string, field: string, value: string | number) => void;
+  onCategoryClick: (uid: string) => void;
+  onRowClick: (uid: string) => void;
+}
+
+/** 안정적인 Row 컴포넌트 — useCallback 대신 별도 컴포넌트로 분리하여 react-window가 올바르게 re-render */
+const Row = memo(function Row({ index, style, data }: { index: number; style: React.CSSProperties; data: RowData }) {
+  const p = data.products[index];
+  if (!p) return null;
+  return (
+    <BulkProductRow
+      product={p}
+      style={style}
+      isSelected={data.selectedUid === p.uid}
+      thumbnailUrl={data.thumbnailCache[p.uid] ?? null}
+      onLoadThumbnail={data.onLoadThumbnail}
+      onToggle={data.onToggle}
+      onUpdate={data.onUpdate}
+      onCategoryClick={data.onCategoryClick}
+      onRowClick={data.onRowClick}
+    />
+  );
+});
 
 export default function BulkProductTable({
   products,
@@ -49,7 +80,6 @@ export default function BulkProductTable({
 
   const handleItemsRendered = useCallback(
     ({ visibleStartIndex, visibleStopIndex }: ListOnItemsRenderedProps) => {
-      // Pre-load thumbnails for visible range
       for (let i = visibleStartIndex; i <= visibleStopIndex; i++) {
         const p = products[i];
         if (p && !(p.uid in thumbnailCache)) {
@@ -60,23 +90,17 @@ export default function BulkProductTable({
     [products, thumbnailCache, onLoadThumbnail],
   );
 
-  const Row = useCallback(({ index, style }: { index: number; style: React.CSSProperties }) => {
-    const p = products[index];
-    if (!p) return null;
-    return (
-      <BulkProductRow
-        product={p}
-        style={style}
-        isSelected={selectedUid === p.uid}
-        thumbnailUrl={thumbnailCache[p.uid] ?? null}
-        onLoadThumbnail={onLoadThumbnail}
-        onToggle={onToggle}
-        onUpdate={onUpdate}
-        onCategoryClick={onCategoryClick}
-        onRowClick={onRowClick}
-      />
-    );
-  }, [products, selectedUid, thumbnailCache, onLoadThumbnail, onToggle, onUpdate, onCategoryClick, onRowClick]);
+  // itemData가 변경되면 react-window가 모든 visible row를 갱신한다
+  const itemData: RowData = useMemo(() => ({
+    products,
+    selectedUid,
+    thumbnailCache,
+    onLoadThumbnail,
+    onToggle,
+    onUpdate,
+    onCategoryClick,
+    onRowClick,
+  }), [products, selectedUid, thumbnailCache, onLoadThumbnail, onToggle, onUpdate, onCategoryClick, onRowClick]);
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -109,7 +133,7 @@ export default function BulkProductTable({
         <div className="px-2 text-center">이미지 수</div>
       </div>
 
-      {/* Virtualized list */}
+      {/* Virtualized list — itemData로 데이터 전달, 변경 시 자동 갱신 */}
       <FixedSizeList
         ref={listRef}
         height={Math.min(products.length * ROW_HEIGHT, 600)}
@@ -120,6 +144,7 @@ export default function BulkProductTable({
         width="100%"
         style={{ overflowX: 'hidden' }}
         itemKey={(index) => products[index]?.uid ?? index}
+        itemData={itemData}
       >
         {Row}
       </FixedSizeList>

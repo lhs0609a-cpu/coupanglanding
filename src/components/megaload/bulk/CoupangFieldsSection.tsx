@@ -201,17 +201,34 @@ export default function CoupangFieldsSection({
         </div>
 
         {/* 노출상품명 */}
-        <div className={!(product.editedDisplayProductName ?? '') ? 'border-l-2 border-l-red-400 pl-3' : ''}>
-          <RequiredLabel empty={!(product.editedDisplayProductName ?? '')}>노출상품명 (displayProductName)</RequiredLabel>
-          <input
-            type="text"
-            value={product.editedDisplayProductName ?? ''}
-            onChange={(e) => onUpdate(product.uid, 'editedDisplayProductName', e.target.value)}
-            className={inputRequired(!(product.editedDisplayProductName ?? ''))}
-            placeholder="노출상품명 (비워두면 자동 생성)"
-          />
-          <p className="text-[10px] text-gray-400 mt-0.5">{(product.editedDisplayProductName ?? '').length}자</p>
-        </div>
+        {(() => {
+          const dpn = product.editedDisplayProductName ?? '';
+          const isEmpty = !dpn;
+          // 카테고리 있는데 노출상품명 없으면 → 자동 생성 대기 중
+          const isGenerating = isEmpty && !!product.editedCategoryCode;
+          return (
+            <div className={isEmpty ? (isGenerating ? 'border-l-2 border-l-purple-400 pl-3' : 'border-l-2 border-l-red-400 pl-3') : ''}>
+              <RequiredLabel empty={isEmpty && !isGenerating}>노출상품명 (displayProductName)</RequiredLabel>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={dpn}
+                  onChange={(e) => onUpdate(product.uid, 'editedDisplayProductName', e.target.value)}
+                  className={isGenerating
+                    ? 'w-full px-3 py-2 border border-purple-300 bg-purple-50 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition'
+                    : inputRequired(isEmpty)}
+                  placeholder={isGenerating ? '자동 생성 중...' : '노출상품명 입력'}
+                />
+                {isGenerating && (
+                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-purple-500" />
+                )}
+              </div>
+              <p className="text-[10px] text-gray-400 mt-0.5">
+                {isGenerating ? '카테고리 매칭 완료 후 자동 생성됩니다' : `${dpn.length}자`}
+              </p>
+            </div>
+          );
+        })()}
 
         {/* 브랜드 */}
         <div className={!product.editedBrand ? 'border-l-2 border-l-red-400 pl-3' : ''}>

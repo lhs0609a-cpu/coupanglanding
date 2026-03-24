@@ -7,7 +7,7 @@ import {
 import type { EditableProduct } from './types';
 
 // Shared grid template (matches BulkProductTable header)
-export const GRID_TEMPLATE = '52px 48px 64px 1fr 96px 80px 96px 192px 56px';
+export const GRID_TEMPLATE = '52px 48px 64px 1fr 96px 80px 192px 56px';
 
 interface BulkProductRowProps {
   product: EditableProduct;
