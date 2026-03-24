@@ -124,7 +124,11 @@ function ImageSectionWithPreview({
 
   // 전체 셔플 (대표이미지 포함) — 셀러마다 다른 이미지가 대표로 설정됨
   const shuffledPreviews = useMemo(() => {
-    if (!isShuffleEnabled || imageItems.length <= 1) return [];
+    if (imageItems.length <= 1) return [];
+    if (!isShuffleEnabled) {
+      // 방지 비활성 시: 현재 순서 그대로 업로드 (1개 예시만)
+      return [{ sellerLabel: '업로드 순서', images: [...imageItems] }];
+    }
     return previewSeeds.map(sellerLabel => {
       const seed = `${sellerLabel}:${productCode}`;
       const shuffled = shuffleWithSeed(imageItems, seed);
@@ -155,26 +159,29 @@ function ImageSectionWithPreview({
             }}
           />
 
-          {/* 위너 방지 미리보기 토글 */}
-          {isShuffleEnabled && imageItems.length > 1 && (
+          {/* 업로드 순서 미리보기 — 항상 표시 */}
+          {imageItems.length > 1 && (
             <div className="mt-2">
               <button
                 onClick={() => setShowPreview(!showPreview)}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition ${
                   showPreview
-                    ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                    ? isShuffleEnabled ? 'bg-purple-100 text-purple-700 hover:bg-purple-200' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
-                <Shuffle className="w-3 h-3" />
-                위너 방지 미리보기
-                <Eye className="w-3 h-3" />
+                {isShuffleEnabled ? <Shuffle className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                {isShuffleEnabled ? '위너 방지 업로드 미리보기' : '업로드 순서 미리보기'}
               </button>
 
               {showPreview && (
-                <div className="mt-2 space-y-3 p-3 bg-purple-50/50 rounded-lg border border-purple-200">
-                  <div className="text-[10px] text-purple-600 font-medium">
-                    셀러마다 대표이미지 + 순서가 모두 다르게 등록됩니다
+                <div className={`mt-2 space-y-3 p-3 rounded-lg border ${
+                  isShuffleEnabled ? 'bg-purple-50/50 border-purple-200' : 'bg-blue-50/50 border-blue-200'
+                }`}>
+                  <div className={`text-[10px] font-medium ${isShuffleEnabled ? 'text-purple-600' : 'text-blue-600'}`}>
+                    {isShuffleEnabled
+                      ? '셀러마다 대표이미지 + 순서가 모두 다르게 등록됩니다'
+                      : '현재 순서대로 쿠팡에 업로드됩니다 (1번 = 대표이미지)'}
                   </div>
                   {shuffledPreviews.map(({ sellerLabel, images }) => (
                     <div key={sellerLabel}>
@@ -201,9 +208,15 @@ function ImageSectionWithPreview({
                       </div>
                     </div>
                   ))}
-                  <div className="text-[9px] text-gray-400">
-                    * 실제 등록 시 셀러 ID 기반 시드로 결정되며, 위 예시는 시뮬레이션입니다.
-                  </div>
+                  {isShuffleEnabled ? (
+                    <div className="text-[9px] text-gray-400">
+                      * 실제 등록 시 셀러 ID 기반 시드로 결정되며, 위 예시는 시뮬레이션입니다.
+                    </div>
+                  ) : (
+                    <div className="text-[9px] text-amber-600">
+                      * 위너 방지를 활성화하면 셀러마다 다른 대표이미지로 등록됩니다.
+                    </div>
+                  )}
                 </div>
               )}
             </div>

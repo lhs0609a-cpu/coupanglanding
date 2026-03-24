@@ -534,6 +534,12 @@ export function useBulkRegisterActions() {
             console.info(`[image-filter] ${p.productCode}: ${reasons.join(' + ')} 제거 (${scores.length}→${final.length}장)`);
           }
 
+          // 스코어링 결과 로그 — 대표이미지 선택 근거 확인용
+          console.info(
+            `[image-score] ${p.productCode}: 대표=#${final[0].index} (overall=${final[0].score.overall.toFixed(1)}, sym=${final[0].score.symmetry.toFixed(0)}, bg=${final[0].score.background.toFixed(0)}, center=${final[0].score.centering.toFixed(0)})` +
+            ` | 전체: ${final.slice(0, 5).map((s, j) => `#${s.index}=${s.score.overall.toFixed(1)}`).join(', ')}${final.length > 5 ? '...' : ''}`,
+          );
+
           // 스코어 순으로 재배열 — index는 원본 scannedMainImages 기준
           // 점수 순 유지 (최고 점수 = 대표) — 아이템위너 방지 셔플은 빌더 단계에서 수행
           const sorted = final.map(s => p.scannedMainImages![s.index]);

@@ -32,7 +32,7 @@ interface BulkImageGridProps {
   onSetAsMain?: (id: string) => void;
 }
 
-function SortableImage({ image, onRemove, isMain, onSetAsMain }: { image: ImageItem; onRemove: (id: string) => void; isMain: boolean; onSetAsMain?: (id: string) => void }) {
+function SortableImage({ image, onRemove, isMain, onSetAsMain, idx }: { image: ImageItem; onRemove: (id: string) => void; isMain: boolean; onSetAsMain?: (id: string) => void; idx: number }) {
   const [imgError, setImgError] = useState(false);
   const {
     attributes,
@@ -86,6 +86,10 @@ function SortableImage({ image, onRemove, isMain, onSetAsMain }: { image: ImageI
       >
         <X className="w-3.5 h-3.5" />
       </button>
+      {/* 순서 번호 */}
+      <div className="absolute top-1 right-8 bg-black/50 text-white text-[9px] px-1 py-0.5 rounded font-mono">
+        {idx + 1}
+      </div>
       {/* Main badge or set-as-main button */}
       {isMain ? (
         <div className="absolute bottom-1 left-1 flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-500 rounded text-[10px] text-white font-bold">
@@ -145,6 +149,7 @@ export default function BulkImageGrid({ images, onReorder, onRemove, onSetAsMain
               key={image.id}
               image={image}
               isMain={idx === 0}
+              idx={idx}
               onRemove={onRemove}
               onSetAsMain={onSetAsMain}
             />
