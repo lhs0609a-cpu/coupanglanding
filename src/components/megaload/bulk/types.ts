@@ -137,4 +137,5 @@ export type SortField = 'name' | 'price' | 'confidence' | null;
 export type SortDirection = 'asc' | 'desc';
 
 export type { ValidationStatus, ValidationIssue, CategoryMetadata, ScannedImageFile };
+export type { FailureDiagnostic } from '@/lib/megaload/services/category-matcher';
 export type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';

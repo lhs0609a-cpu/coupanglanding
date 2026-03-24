@@ -160,6 +160,7 @@ export default function BulkRegisterPanel() {
           autoMatchingProgress={actions.autoMatchingProgress}
           autoMatchError={actions.autoMatchError}
           autoMatchStats={actions.autoMatchStats}
+          categoryFailures={actions.categoryFailures}
           onRetryAutoCategory={actions.retryAutoCategory}
           titleGenProgress={actions.titleGenProgress}
           contentGenProgress={actions.contentGenProgress}
@@ -205,6 +206,7 @@ export default function BulkRegisterPanel() {
           contactNumber={actions.contactNumber}
           includeReviewImages={actions.includeReviewImages}
           noticeOverrides={actions.noticeOverrides}
+          preventionConfig={actions.preventionConfig}
         />
       )}
 

@@ -18,6 +18,16 @@ export interface CategoryMatchResult {
   source: 'local_db' | 'coupang_api' | 'ai';
 }
 
+export interface FailureDiagnostic {
+  index: number;
+  productName: string;
+  tokens: string[];
+  bestTier: string;       // 'none' | 'tier0' | 'tier1' | 'tier1.5' | 'tier2' | 'tier3'
+  bestScore: number;
+  bestCandidate?: string;
+  reason: string;
+}
+
 /** Index entry: [code, tokensString, leafName, depth] */
 type IndexEntry = [string, string, string, number];
 
@@ -478,8 +488,8 @@ function buildCompoundTokens(tokens: string[]): string[] {
  * 3. 다중 경로 레벨 일치 시 가산점 (leaf+parent 모두 매칭 → 훨씬 높은 점수)
  * 4. 2-char 이상 의미 토큰만 leaf 매칭에 사용 (1-char는 복합어 생성용)
  */
-async function localMatch(tokens: string[]): Promise<ScoredEntry | null> {
-  if (tokens.length === 0) return null;
+async function localMatch(tokens: string[]): Promise<{ match: ScoredEntry | null; bestCandidate: ScoredEntry | null }> {
+  if (tokens.length === 0) return { match: null, bestCandidate: null };
 
   const index = loadIndex();
   const tokenSet = new Set(tokens);
@@ -579,7 +589,8 @@ async function localMatch(tokens: string[]): Promise<ScoredEntry | null> {
     }
   }
 
-  return best && best.score >= LOCAL_MATCH_THRESHOLD ? best : null;
+  const match = best && best.score >= LOCAL_MATCH_THRESHOLD ? best : null;
+  return { match, bestCandidate: best };
 }
 
 async function buildResultFromIndex(entry: IndexEntry, score: number, maxScore: number): Promise<CategoryMatchResult> {
@@ -673,7 +684,7 @@ export async function matchCategory(
   if (tier0Result) return tier0Result;
 
   // ── Tier 1: Local DB matching ──
-  const localResult = await localMatch(tokens);
+  const { match: localResult } = await localMatch(tokens);
   if (localResult) {
     // High-confidence local match
     const result = await buildResultFromIndex(
@@ -753,7 +764,7 @@ export async function matchCategoryBatch(
   productNames: string[],
   adapter?: CoupangAdapter,
   naverCategoryIds?: (string | undefined)[],
-): Promise<(CategoryMatchResult | null)[]> {
+): Promise<{ results: (CategoryMatchResult | null)[]; failures: FailureDiagnostic[] }> {
   const results: (CategoryMatchResult | null)[] = new Array(productNames.length).fill(null);
   const cache = new Map<string, CategoryMatchResult | null>();
 
@@ -771,6 +782,7 @@ export async function matchCategoryBatch(
   // === Phase 1: Tier 0 (DIRECT_CODE_MAP) + 로컬 DB 일괄 매칭 ===
   const productTokensList: string[][] = productNames.map((name) => tokenize(name));
   const unmatchedIndices: number[] = [];
+  const tier1Diagnostics = new Map<number, { score: number; candidateName: string }>();
 
   for (let i = 0; i < productNames.length; i++) {
     if (results[i]) continue; // 네이버 매핑으로 이미 매칭됨
@@ -791,7 +803,7 @@ export async function matchCategoryBatch(
     }
 
     // Tier 1: 로컬 DB 토큰 매칭
-    const localResult = await localMatch(productTokensList[i]);
+    const { match: localResult, bestCandidate } = await localMatch(productTokensList[i]);
     if (localResult) {
       results[i] = await buildResultFromIndex(
         localResult.entry,
@@ -800,11 +812,14 @@ export async function matchCategoryBatch(
       );
     } else {
       unmatchedIndices.push(i);
+      if (bestCandidate) {
+        tier1Diagnostics.set(i, { score: bestCandidate.score, candidateName: bestCandidate.entry[2] });
+      }
     }
   }
 
   // 전부 로컬 매칭 완료 시 바로 반환
-  if (unmatchedIndices.length === 0) return results;
+  if (unmatchedIndices.length === 0) return { results, failures: [] };
 
   // === Phase 2: 미매칭 상품 — 교차 Document Frequency 분석 → API ===
   if (adapter && unmatchedIndices.length > 0) {
@@ -890,7 +905,25 @@ export async function matchCategoryBatch(
     await delay(300);
   }
 
-  return results;
+  // Collect failure diagnostics for unmatched products
+  const failures: FailureDiagnostic[] = [];
+  for (let i = 0; i < results.length; i++) {
+    if (results[i]) continue;
+    const tier1Info = tier1Diagnostics.get(i);
+    failures.push({
+      index: i,
+      productName: productNames[i],
+      tokens: productTokensList[i],
+      bestTier: tier1Info ? 'tier1' : 'none',
+      bestScore: tier1Info?.score ?? 0,
+      bestCandidate: tier1Info?.candidateName,
+      reason: tier1Info
+        ? `Tier1 점수 미달 (${tier1Info.score}/${LOCAL_MATCH_THRESHOLD})`
+        : '모든 매칭 단계 실패 (Tier0~3)',
+    });
+  }
+
+  return { results, failures };
 }
 
 /**

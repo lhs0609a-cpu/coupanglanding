@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
-import { matchCategoryBatch, type CategoryMatchResult } from '@/lib/megaload/services/category-matcher';
+import { matchCategoryBatch, type CategoryMatchResult, type FailureDiagnostic } from '@/lib/megaload/services/category-matcher';
 
 /**
  * POST — 다수 상품명에 대한 일괄 카테고리 자동매칭
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 배치 매칭 — 네이버 카테고리 ID가 있으면 매핑 테이블 우선 조회
-    const batchResults = await matchCategoryBatch(body.productNames, coupangAdapter, body.naverCategoryIds);
+    const { results: batchResults, failures } = await matchCategoryBatch(body.productNames, coupangAdapter, body.naverCategoryIds);
 
     const results: (CategoryMatchResult & { index: number })[] = batchResults.map(
       (result, i) => result
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
         : { index: i, categoryCode: '', categoryName: '', categoryPath: '', confidence: 0, source: 'ai' as const },
     );
 
-    return NextResponse.json({ results });
+    return NextResponse.json({ results, failures });
   } catch (err) {
     console.error('[auto-category-batch] ERROR:', err);
     return NextResponse.json(

@@ -6,7 +6,7 @@ import { validateProductLocal } from '@/lib/megaload/services/product-validator'
 import type {
   EditableProduct, PriceBracket, ShippingPlace, ReturnCenter,
   CategoryItem, CategoryMatchResult, PreviewProduct, BatchResult,
-  CategoryMetadata, PreventionConfig,
+  CategoryMetadata, PreventionConfig, FailureDiagnostic,
 } from './types';
 import { DEFAULT_PREVENTION_CONFIG, DISABLED_PREVENTION_CONFIG } from '@/lib/megaload/services/item-winner-prevention';
 import { addRecentPath } from './BulkStep1Settings';
@@ -73,6 +73,7 @@ export function useBulkRegisterActions() {
   const [autoMatchError, setAutoMatchError] = useState('');
   const [autoMatchStats, setAutoMatchStats] = useState<{ matched: number; failed: number; total: number } | null>(null);
   const [autoCategoryRetryCount, setAutoCategoryRetryCount] = useState(0);
+  const [categoryFailures, setCategoryFailures] = useState<FailureDiagnostic[]>([]);
   const AUTO_CATEGORY_MAX_RETRIES = 3;
 
   // Auto-fill pipeline progress
@@ -153,9 +154,11 @@ export function useBulkRegisterActions() {
 
     setAutoMatchingProgress({ done: 0, total });
     setAutoMatchError('');
+    setCategoryFailures([]);
     let matchedCount = 0;
     let failedCount = 0;
     const failedBatches: number[] = [];
+    let allFailures: FailureDiagnostic[] = [];
 
     const processBatch = async (batchStart: number, batchProds: EditableProduct[], allProds: EditableProduct[]) => {
       const names = batchProds.map((p) => p.name);  // 원본 상품명으로 카테고리 매칭
@@ -173,7 +176,10 @@ export function useBulkRegisterActions() {
         const errText = await res.text().catch(() => '');
         throw new Error(`HTTP ${res.status}: ${errText.slice(0, 200)}`);
       }
-      const data = await res.json() as { results: CategoryMatchResult[] };
+      const data = await res.json() as { results: CategoryMatchResult[]; failures?: FailureDiagnostic[] };
+      if (data.failures?.length) {
+        allFailures = [...allFailures, ...data.failures];
+      }
       let batchMatched = 0;
       setProducts((prev) => {
         const updated = [...prev];
@@ -232,6 +238,20 @@ export function useBulkRegisterActions() {
     if (stats.failed > 0) {
       setAutoMatchError(`카테고리 매칭 ${stats.matched}/${stats.total} 성공 (${stats.failed}개 실패). 수동으로 지정하거나 재시도하세요.`);
     }
+
+    // Save and log failure diagnostics
+    if (allFailures.length > 0) {
+      setCategoryFailures(allFailures);
+      console.log(`[카테고리 매칭 실패] ${allFailures.length}개 상품:`);
+      console.table(allFailures.map(f => ({
+        상품명: f.productName.slice(0, 30),
+        토큰: f.tokens.join(', '),
+        점수: f.bestScore,
+        실패사유: f.reason,
+      })));
+      console.log('[카테고리 매칭 실패 목록]', JSON.stringify(allFailures, null, 2));
+    }
+
     setAutoMatchingProgress(null);
   }, []);
 
@@ -502,10 +522,8 @@ export function useBulkRegisterActions() {
           // 스코어 순으로 재배열 — index는 원본 scannedMainImages 기준
           const sorted = final.map(s => p.scannedMainImages![s.index]);
 
-          // index 0 (최고 품질) 보존, 나머지만 셔플, 최대 10장
-          const [best, ...rest] = sorted;
-          const shuffledRest = shuffleWithSeed(rest, `${imgSeed}::${i}`);
-          const finalImages = [best, ...shuffledRest].slice(0, 10);
+          // 전체 셔플 (대표이미지 포함) — 아이템위너 방지 강화, 최대 10장
+          const finalImages = shuffleWithSeed(sorted, `${imgSeed}::${i}`).slice(0, 10);
           return {
             ...p,
             scannedMainImages: finalImages,
@@ -1179,6 +1197,7 @@ export function useBulkRegisterActions() {
     setDryRunResults({}); setImagePreuploadCache({}); setImagePreuploadProgress({ total: 0, done: 0, phase: 'idle' });
     setValidationPhase('idle'); setAutoCategoryRetryCount(0);
     setTitleGenProgress(null); setContentGenProgress(null); setPipelineRan(false);
+    setCategoryFailures([]);
     // #16 세션 삭제
     try { sessionStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
   }, []);
@@ -1211,7 +1230,7 @@ export function useBulkRegisterActions() {
     loadingShipping, shippingError,
     scanning, scanError, browsingFolder,
     products, setProducts,
-    autoMatchingProgress, autoMatchError, autoMatchStats,
+    autoMatchingProgress, autoMatchError, autoMatchStats, categoryFailures,
     categorySearchTarget, setCategorySearchTarget,
     categoryKeyword, setCategoryKeyword,
     categoryResults, searchingCategory,

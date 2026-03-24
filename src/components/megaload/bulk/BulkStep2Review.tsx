@@ -3,18 +3,20 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   ArrowLeft, ArrowRight, Loader2, CheckCircle2, XCircle, AlertTriangle,
-  Search, Zap, Filter, Upload, Eye, BarChart3, CircleDot, Package,
+  Search, Zap, Filter, Upload, Eye, BarChart3, CircleDot, Package, ClipboardCopy, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import BulkProductTable from './BulkProductTable';
 import BulkProductDetailPanel, { type PayloadPreviewState } from './BulkProductDetailPanel';
 import type { PayloadPreviewData } from './PayloadPreviewPanel';
-import type { EditableProduct, CategoryItem, FilterMode, SortField, SortDirection } from './types';
+import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
+import type { EditableProduct, CategoryItem, FilterMode, SortField, SortDirection, FailureDiagnostic } from './types';
 
 interface BulkStep2ReviewProps {
   products: EditableProduct[];
   autoMatchingProgress: { done: number; total: number } | null;
   autoMatchError?: string;
   autoMatchStats?: { matched: number; failed: number; total: number } | null;
+  categoryFailures?: FailureDiagnostic[];
   onRetryAutoCategory?: () => void;
   validating: boolean;
   validationPhase: string;
@@ -67,10 +69,11 @@ interface BulkStep2ReviewProps {
   contactNumber?: string;
   includeReviewImages?: boolean;
   noticeOverrides?: Record<string, string>;
+  preventionConfig?: PreventionConfig;
 }
 
 export default function BulkStep2Review({
-  products, autoMatchingProgress, autoMatchError, autoMatchStats, onRetryAutoCategory, validating, validationPhase,
+  products, autoMatchingProgress, autoMatchError, autoMatchStats, categoryFailures, onRetryAutoCategory, validating, validationPhase,
   imagePreuploadProgress, imagePreuploadCache, dryRunResults,
   titleGenProgress, contentGenProgress,
   deliveryChargeType, deliveryCharge, freeShipOverAmount,
@@ -83,8 +86,10 @@ export default function BulkStep2Review({
   thumbnailCache, onLoadThumbnail,
   onReorderImages, onRemoveImage, getDetailImageUrls,
   selectedOutbound, selectedReturn, returnCharge, contactNumber, includeReviewImages, noticeOverrides,
+  preventionConfig,
 }: BulkStep2ReviewProps) {
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
+  const [showFailures, setShowFailures] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [sortField, setSortField] = useState<SortField>(null);
@@ -296,6 +301,66 @@ export default function BulkStep2Review({
             <button onClick={onRetryAutoCategory} className="px-3 py-1 text-xs font-medium bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition shrink-0">
               재시도
             </button>
+          )}
+        </div>
+      )}
+
+      {/* Category match failure details */}
+      {categoryFailures && categoryFailures.length > 0 && !autoMatchingProgress && (
+        <div className="bg-orange-50 border border-orange-200 rounded-lg overflow-hidden">
+          <button
+            onClick={() => setShowFailures(!showFailures)}
+            className="w-full px-3 py-2 flex items-center justify-between text-sm text-orange-700 hover:bg-orange-100 transition"
+          >
+            <span className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" />
+              실패 {categoryFailures.length}개 상품 상세보기
+            </span>
+            {showFailures ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+          {showFailures && (
+            <div className="px-3 pb-3">
+              <div className="flex justify-end mb-2">
+                <button
+                  onClick={() => {
+                    const header = '상품명\t추출 토큰\t최고 점수\t가장 가까운 카테고리\t실패 사유';
+                    const rows = categoryFailures.map(f =>
+                      `${f.productName}\t${f.tokens.join(',')}\t${f.bestScore}\t${f.bestCandidate || '-'}\t${f.reason}`
+                    );
+                    navigator.clipboard.writeText([header, ...rows].join('\n'));
+                  }}
+                  className="flex items-center gap-1 px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 transition"
+                >
+                  <ClipboardCopy className="w-3 h-3" /> 클립보드 복사
+                </button>
+              </div>
+              <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-orange-50">
+                    <tr className="border-b border-orange-200">
+                      <th className="text-left py-1.5 px-2 text-orange-600 font-medium">#</th>
+                      <th className="text-left py-1.5 px-2 text-orange-600 font-medium">상품명</th>
+                      <th className="text-left py-1.5 px-2 text-orange-600 font-medium">추출 토큰</th>
+                      <th className="text-left py-1.5 px-2 text-orange-600 font-medium">최고 점수</th>
+                      <th className="text-left py-1.5 px-2 text-orange-600 font-medium">가장 가까운 카테고리</th>
+                      <th className="text-left py-1.5 px-2 text-orange-600 font-medium">실패 사유</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {categoryFailures.map((f, i) => (
+                      <tr key={i} className="border-b border-orange-100 hover:bg-orange-100/50">
+                        <td className="py-1 px-2 text-orange-500">{i + 1}</td>
+                        <td className="py-1 px-2 text-gray-700 max-w-[200px] truncate" title={f.productName}>{f.productName}</td>
+                        <td className="py-1 px-2 text-gray-500 max-w-[150px] truncate" title={f.tokens.join(', ')}>{f.tokens.join(', ')}</td>
+                        <td className="py-1 px-2 text-gray-600">{f.bestScore}/12</td>
+                        <td className="py-1 px-2 text-gray-500">{f.bestCandidate || '-'}</td>
+                        <td className="py-1 px-2 text-orange-600">{f.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -552,6 +617,7 @@ export default function BulkStep2Review({
         payloadPreview={payloadPreview}
         onRequestPreview={handleRequestPreview}
         preUploadedUrls={imagePreuploadCache}
+        preventionConfig={preventionConfig}
       />
     </div>
   );
