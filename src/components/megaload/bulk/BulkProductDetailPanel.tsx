@@ -8,6 +8,7 @@ import {
 import PayloadPreviewPanel, { type PayloadPreviewData } from './PayloadPreviewPanel';
 import CoupangFieldsSection from './CoupangFieldsSection';
 import DetailPageContentTab from './DetailPageContentTab';
+import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import type { EditableProduct } from './types';
 
 interface ImageItem {
@@ -33,6 +34,7 @@ interface BulkProductDetailPanelProps {
   payloadPreview?: PayloadPreviewState;
   onRequestPreview?: (uid: string) => void;
   preUploadedUrls?: Record<string, { mainImageUrls: string[]; detailImageUrls?: string[]; reviewImageUrls?: string[]; infoImageUrls?: string[] }>;
+  preventionConfig?: PreventionConfig;
 }
 
 export default function BulkProductDetailPanel({
@@ -47,6 +49,7 @@ export default function BulkProductDetailPanel({
   payloadPreview,
   onRequestPreview,
   preUploadedUrls,
+  preventionConfig,
 }: BulkProductDetailPanelProps) {
   const [activeTab, setActiveTab] = useState<'info' | 'detail' | 'payload'>('info');
   const [issuesExpanded, setIssuesExpanded] = useState(false);
@@ -312,6 +315,7 @@ export default function BulkProductDetailPanel({
                   imageItems={imageItems}
                   onImageReorder={handleImageReorder}
                   onImageRemove={handleImageRemove}
+                  preventionConfig={preventionConfig}
                 />
               ) : (
                 <PayloadPreviewPanel
