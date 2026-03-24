@@ -101,17 +101,26 @@ export async function scanProductFolder(folderPath: string): Promise<LocalProduc
     const mainImagesDir = path.join(productPath, 'main_images');
     const mainImages = collectImages(mainImagesDir, /^product_\d+\.(jpg|jpeg|png)$/i);
 
-    // output/ 내 상세페이지 이미지
-    const outputDir = path.join(productPath, 'output');
-    const detailImages = collectImages(outputDir, /\.(jpg|jpeg|png)$/i);
+    // detail_images/ → output/ 순 폴백
+    let detailImages = collectImages(path.join(productPath, 'detail_images'), /\.(jpg|jpeg|png)$/i);
+    if (detailImages.length === 0) {
+      detailImages = collectImages(path.join(productPath, 'output'), /\.(jpg|jpeg|png)$/i);
+    }
 
     // product_info/ 내 상품정보 이미지
     const infoDir = path.join(productPath, 'product_info');
     const infoImages = collectImages(infoDir, /\.(jpg|jpeg|png)$/i);
 
-    // reviews/ 내 리뷰 이미지
-    const reviewsDir = path.join(productPath, 'reviews');
-    const reviewImages = collectImages(reviewsDir, /\.(jpg|jpeg|png)$/i);
+    // review_images/ → reviews/ 순 폴백
+    let reviewImages = collectImages(path.join(productPath, 'review_images'), /\.(jpg|jpeg|png)$/i);
+    if (reviewImages.length === 0) {
+      reviewImages = collectImages(path.join(productPath, 'reviews'), /\.(jpg|jpeg|png)$/i);
+    }
+
+    // 상세이미지 없으면 리뷰이미지를 상세페이지용으로 활용
+    if (detailImages.length === 0 && reviewImages.length > 0) {
+      detailImages = [...reviewImages];
+    }
 
     products.push({
       folderPath: productPath,
