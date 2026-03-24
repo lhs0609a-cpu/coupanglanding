@@ -18,12 +18,13 @@ export async function GET(req: NextRequest) {
   const productNames = names.split(',').map((n) => decodeURIComponent(n.trim()));
   try {
     console.log('[debug-category] testing', productNames.length, 'products:', productNames);
-    const results = await matchCategoryBatch(productNames);
+    const { results, failures } = await matchCategoryBatch(productNames);
     const matched = results.filter((r) => r !== null);
     console.log('[debug-category] matched:', matched.length, '/', results.length);
     return NextResponse.json({
       total: productNames.length,
       matched: matched.length,
+      failures,
       results: results.map((r, i) => ({
         name: productNames[i],
         ...(r || { categoryCode: '', categoryName: '', categoryPath: '', confidence: 0, source: 'none' }),
@@ -47,13 +48,14 @@ export async function POST(req: NextRequest) {
 
     console.log('[debug-category] POST testing', body.productNames.length, 'products');
     console.log('[debug-category] first 3:', body.productNames.slice(0, 3));
-    const results = await matchCategoryBatch(body.productNames);
+    const { results, failures } = await matchCategoryBatch(body.productNames);
     const matched = results.filter((r) => r !== null);
     console.log('[debug-category] matched:', matched.length, '/', results.length);
 
     return NextResponse.json({
       total: body.productNames.length,
       matched: matched.length,
+      failures,
       results: results.map((r, i) => ({
         name: body.productNames[i],
         ...(r || { categoryCode: '', categoryName: '', categoryPath: '', confidence: 0, source: 'none' }),
