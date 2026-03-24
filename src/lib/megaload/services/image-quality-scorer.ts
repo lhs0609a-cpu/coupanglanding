@@ -18,6 +18,8 @@
 //  - 피부톤 ≥ 15% (모델/인물 사진)
 //  - 컨텐츠 < 5% (빈 이미지)
 //  - 배경 채도 > 25% AND 밝기 < 180 (컬러 배경: 로고/배너/포장재)
+//  - 텍스트 배너 감지 (4단계 Tier: 단색~다색 텍스트/홍보 배너)
+//  - 전체 이미지 고채도 > 30% (홍보/이벤트 배너 — 테두리가 흰색이어도 내부 컬러풀)
 //
 // 이상치 감지 (detectOutlierImages):
 //  - 같은 상품의 이미지 세트 내에서 색상 분포가 크게 다른 이미지 감지
@@ -50,6 +52,7 @@ const SKIN_RATIO_HARD = 0.15;        // 피부톤 15%+ → 차단
 const CONTENT_RATIO_HARD = 0.05;     // 비백색 5% 미만 → 차단
 const BG_SATURATION_HARD = 0.25;     // 배경 채도 25%+ → 차단
 const BG_LUMINANCE_CEIL = 180;       // 배경 채도 차단은 밝기 180 미만일 때만
+const FULL_SAT_RATIO_HARD = 0.30;    // 전체 이미지의 30%+ 고채도(sat>0.30) → 홍보/배너 이미지
 
 const ZERO_SCORE: ImageScore = {
   overall: 0, background: 0, backgroundSaturation: 0, centering: 0,
@@ -185,6 +188,12 @@ async function analyzeDetailImage(
     return { filtered: true, reason: 'colored_banner' };
   }
 
+  // 5. 전체 이미지 고채도 비율 — 홍보/이벤트 배너 (테두리는 흰색이어도 내부가 컬러풀)
+  const fullSatRatio = getHighSaturationRatio(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  if (fullSatRatio > FULL_SAT_RATIO_HARD) {
+    return { filtered: true, reason: 'promotional_image' };
+  }
+
   return { filtered: false };
 }
 
@@ -305,6 +314,8 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
     hardFilterReason = 'colored_background';
   } else if (detectTextBanner(data, ANALYSIS_SIZE, ANALYSIS_SIZE)) {
     hardFilterReason = 'text_banner';
+  } else if (getHighSaturationRatio(data, ANALYSIS_SIZE, ANALYSIS_SIZE) > FULL_SAT_RATIO_HARD) {
+    hardFilterReason = 'promotional_image';
   }
 
   if (hardFilterReason) {
@@ -771,7 +782,56 @@ function detectTextBanner(data: Uint8ClampedArray, w: number, h: number): boolea
   // Tier 3: 극단적 전환 밀도 + 적은 색상 → 확실한 텍스트
   if (avgTransitions > 15 && sigBins <= 5) return true;
 
+  // Tier 4: 다색 홍보/이벤트 배너 — 색상 더 다양하지만 텍스트+그래픽 패턴
+  // 상품 사진과 구분: 컨텐츠가 이미지 전체 높이에 걸쳐 퍼짐 (상품은 중앙에 집중)
+  const contentRatio = contentCount / totalPixels;
+  if (sigBins <= 10 && avgTransitions > 5 && fillRatio < 0.50 && contentRatio > 0.15 && contentRatio < 0.65) {
+    // 컨텐츠의 수직 분포: 행 중 5%+ 폭의 컨텐츠가 있는 행 비율
+    const minPerRow = w * 0.05;
+    let rowsWithSigContent = 0;
+    for (let y = 0; y < h; y++) {
+      let rowCount = 0;
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * 4;
+        const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+        if (lum < 200) rowCount++;
+      }
+      if (rowCount >= minPerRow) rowsWithSigContent++;
+    }
+    const contentSpread = rowsWithSigContent / h;
+    // 컨텐츠가 85%+ 행에 퍼져있으면 배너/홍보 (상품은 60-75% 행에만 집중)
+    if (contentSpread > 0.85) return true;
+  }
+
   return false;
+}
+
+/**
+ * 전체 이미지의 고채도 픽셀 비율을 계산한다.
+ * 상품 사진: 흰색 배경(무채색) + 상품(중간 채도) → 비율 낮음 (~10-25%)
+ * 홍보/배너: 진한 색상 텍스트/그래픽이 넓은 영역 → 비율 높음 (30%+)
+ *
+ * 배경 채도 체크(테두리 10%)가 놓치는 "테두리는 흰색, 내부는 컬러풀" 이미지를 잡는다.
+ */
+function getHighSaturationRatio(data: Uint8ClampedArray, w: number, h: number): number {
+  const totalPixels = w * h;
+  let highSatCount = 0;
+
+  for (let i = 0; i < totalPixels; i++) {
+    const offset = i * 4;
+    const r = data[offset] / 255;
+    const g = data[offset + 1] / 255;
+    const b = data[offset + 2] / 255;
+
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    const s = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
+
+    if (s > 0.30) highSatCount++;
+  }
+
+  return highSatCount / totalPixels;
 }
 
 /**
