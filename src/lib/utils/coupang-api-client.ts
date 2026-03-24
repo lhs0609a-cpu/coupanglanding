@@ -679,8 +679,8 @@ export async function checkInstantCouponStatus(
   credentials: CoupangCredentials,
   requestedId: string,
 ): Promise<unknown> {
-  // 문서: /api/v2/vendors/{vendorId}/requested/{requestedId}
-  const path = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/requested/${requestedId}`;
+  // 쿠팡 공식: /api/v1/vendors/{vendorId}/requested/{requestedId}
+  const path = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/requested/${requestedId}`;
   return callCoupangApi(credentials, 'GET', path);
 }
 
