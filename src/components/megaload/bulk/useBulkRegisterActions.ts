@@ -190,11 +190,17 @@ export function useBulkRegisterActions() {
       if (data.failures?.length) {
         allFailures = [...allFailures, ...data.failures];
       }
+      // 매칭 수를 state updater 밖에서 먼저 계산 (React 18에서 updater는 렌더 시점에 실행되므로
+      // updater 안에서 외부 변수를 수정하면 return 시점에 반영되지 않음)
       let batchMatched = 0;
+      for (const r of data.results) {
+        if (batchProds[r.index] && r.categoryCode) {
+          batchMatched++;
+        }
+      }
       setProducts((prev) => {
         const updated = [...prev];
         for (const r of data.results) {
-          // Find the product in the full list by uid
           const targetProduct = batchProds[r.index];
           if (!targetProduct) continue;
           const globalIdx = updated.findIndex((p) => p.uid === targetProduct.uid);
@@ -206,7 +212,6 @@ export function useBulkRegisterActions() {
               categoryConfidence: r.confidence,
               categorySource: r.source,
             };
-            batchMatched++;
           }
         }
         return updated;
