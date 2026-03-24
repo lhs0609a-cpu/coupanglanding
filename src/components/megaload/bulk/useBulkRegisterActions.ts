@@ -319,7 +319,7 @@ export function useBulkRegisterActions() {
                 i,
               ),
               editedSellerProductName: sellerName,
-              editedName: sellerName,  // 판매자상품명도 생성된 이름으로 갱신
+              // editedName은 "브랜드 고유번호" 유지 — UI 표시용
             };
           }
         }
