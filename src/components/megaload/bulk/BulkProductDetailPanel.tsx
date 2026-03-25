@@ -197,11 +197,11 @@ export default function BulkProductDetailPanel({
             <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200">
               <div className="flex items-center gap-3 min-w-0 flex-1">
                 <a
-                  href={`https://search.shopping.naver.com/catalog/${product.productCode}`}
+                  href={product.sourceUrl || `https://search.shopping.naver.com/catalog/${product.productCode}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs font-mono text-gray-400 hover:text-blue-600 transition shrink-0"
-                  title="네이버 원본 보기"
+                  title="원본 상품 보기"
                 >
                   {product.productCode}
                   <ExternalLink className="w-3 h-3" />

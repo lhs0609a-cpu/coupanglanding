@@ -13,6 +13,8 @@ export interface PriceBracket {
 
 export interface PreviewProduct {
   productCode: string;
+  /** product_summary.txt에서 추출한 원본 상품 URL */
+  sourceUrl?: string;
   name: string;
   brand: string;
   tags: string[];

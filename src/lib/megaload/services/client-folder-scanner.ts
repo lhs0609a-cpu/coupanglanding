@@ -14,6 +14,8 @@ export interface ScannedImageFile {
 export interface ScannedProduct {
   productCode: string;
   folderName: string;
+  /** product_summary.txt에서 추출한 원본 상품 URL */
+  sourceUrl?: string;
   productJson: {
     name?: string;
     title?: string;
@@ -80,6 +82,18 @@ export async function scanDirectoryHandle(dirHandle: FileSystemDirectoryHandle):
       // product.json 없거나 파싱 실패
     }
 
+    // product_summary.txt에서 원본 URL 추출
+    let sourceUrl: string | undefined;
+    try {
+      const summaryHandle = await productDirHandle.getFileHandle('product_summary.txt');
+      const summaryFile = await summaryHandle.getFile();
+      const summaryText = await summaryFile.text();
+      const urlMatch = summaryText.match(/URL:\s*(https?:\/\/\S+)/i);
+      if (urlMatch) sourceUrl = urlMatch[1];
+    } catch {
+      // product_summary.txt 없음
+    }
+
     // 이미지 파일 수집
     const mainImages = await collectImagesFromSubdir(productDirHandle, 'main_images', MAIN_IMAGE_PATTERN);
     // 상세이미지 = 리뷰 폴더에서만 가져옴 (review_images/ → reviews/)
@@ -91,6 +105,7 @@ export async function scanDirectoryHandle(dirHandle: FileSystemDirectoryHandle):
     products.push({
       productCode,
       folderName: name,
+      sourceUrl,
       productJson,
       mainImages,
       detailImages,

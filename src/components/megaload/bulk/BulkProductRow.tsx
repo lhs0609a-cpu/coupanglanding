@@ -106,14 +106,14 @@ const BulkProductRow = memo(function BulkProductRow({
         )}
       </div>
 
-      {/* Code — clickable naver link */}
+      {/* Code — clickable source link */}
       <div className="px-2 text-xs font-mono truncate">
         <a
-          href={`https://search.shopping.naver.com/catalog/${p.productCode}`}
+          href={p.sourceUrl || `https://search.shopping.naver.com/catalog/${p.productCode}`}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-0.5 text-gray-500 hover:text-blue-600 transition"
-          title="네이버 원본 보기"
+          title="원본 상품 보기"
           onClick={(e) => e.stopPropagation()}
         >
           {p.productCode}

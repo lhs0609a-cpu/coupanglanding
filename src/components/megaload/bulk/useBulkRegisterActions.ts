@@ -208,7 +208,7 @@ export function useBulkRegisterActions() {
             updated[globalIdx] = {
               ...updated[globalIdx],
               editedCategoryCode: r.categoryCode,
-              editedCategoryName: r.categoryPath || r.categoryName,
+              editedCategoryName: r.categoryPath || r.categoryName || '',
               categoryConfidence: r.confidence,
               categorySource: r.source,
             };
@@ -647,6 +647,7 @@ export function useBulkRegisterActions() {
         const resolvedBrand = isValidBrand(rawBrand) ? rawBrand : extractBrandFromName(rawName);
         return {
           productCode: sp.productCode,
+          sourceUrl: sp.sourceUrl,
           name: rawName || `product_${sp.productCode}`,
           brand: rawBrand,
           tags: sp.productJson.tags || [],
