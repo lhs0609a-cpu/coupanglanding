@@ -689,7 +689,7 @@ export default function BulkStep2Review({
                 )}
 
                 {/* Re-run preflight button */}
-                {(preflightStats.fail > 0 || preflightPhase === 'error') && onPreflight && (
+                {preflightStats.fail > 0 && onPreflight && (
                   <button
                     onClick={onPreflight}
                     className="mt-3 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition"
