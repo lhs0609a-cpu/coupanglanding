@@ -23,6 +23,10 @@ export interface VariationParams {
   cropRatio: number;
   /** 흰색 보더 패딩 (0~4px) */
   borderPadding: number;
+  /** 채도 조정 (-0.05 ~ +0.05) */
+  saturation: number;
+  /** 회전 각도 (-1.5 ~ +1.5°) */
+  rotation: number;
 }
 
 const CROP_DIRECTIONS = ['top', 'bottom', 'left', 'right', 'center'] as const;
@@ -40,6 +44,8 @@ export function generateVariationParams(sellerSeed: string, imageIndex: number):
     cropDirection: CROP_DIRECTIONS[Math.floor(rng() * 5)],
     cropRatio: 0.01 + rng() * 0.02,               // 1% ~ 3%
     borderPadding: Math.floor(rng() * 5),          // 0 ~ 4px
+    saturation: (rng() * 0.10) - 0.05,            // -0.05 ~ +0.05
+    rotation: (rng() * 3.0) - 1.5,                // -1.5° ~ +1.5°
   };
 }
 
@@ -82,6 +88,16 @@ export async function applyVariation(buffer: Buffer, params: VariationParams): P
     // 2. 밝기 조정
     if (params.brightness !== 0) {
       image.brightness(params.brightness);
+    }
+
+    // 2.5. 채도 조정
+    if (params.saturation !== 0) {
+      image.color([{ apply: 'saturate', params: [params.saturation * 100] }]);
+    }
+
+    // 2.6. 회전 (false = 리사이즈 안 함)
+    if (Math.abs(params.rotation) > 0.01) {
+      image.rotate(params.rotation, false);
     }
 
     // 3. 흰색 보더 (이미지 크기 미세 변경)

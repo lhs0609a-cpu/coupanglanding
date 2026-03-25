@@ -236,10 +236,10 @@ export function buildCoupangProductPayload(
     || '자체제조';
 
   // ---- 2. 대표이미지 (REPRESENTATION) ----
-  // 아이템위너 방지: preventionSeed가 있으면 이미지 순서를 셔플
-  // index 0 (품질 최적 대표이미지)은 고정, 나머지만 셔플
+  // 아이템위너 방지: preventionSeed가 있으면 전체 이미지 순서를 셔플
+  // 대표이미지(index 0)도 포함 — 셀러마다 다른 이미지가 대표로 설정됨
   const orderedImageUrls = preventionSeed
-    ? [mainImageUrls[0], ...shuffleWithSeed(mainImageUrls.slice(1, 10), preventionSeed)]
+    ? shuffleWithSeed(mainImageUrls.slice(0, 10), preventionSeed)
     : mainImageUrls.slice(0, 10);
   const images = orderedImageUrls.map((url, i) => ({
     imageOrder: i,

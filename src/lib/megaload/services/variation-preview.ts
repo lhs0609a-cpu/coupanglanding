@@ -29,6 +29,7 @@ function createSeededRandom(seed: number): () => number {
 // --- 타입 ---
 
 export type CropDirection = 'top' | 'bottom' | 'left' | 'right' | 'center';
+export type VariationIntensity = 'low' | 'mid' | 'high';
 
 export interface PreviewVariationParams {
   brightness: number;
@@ -42,23 +43,42 @@ export interface PreviewVariationParams {
 
 const CROP_DIRECTIONS: CropDirection[] = ['top', 'bottom', 'left', 'right', 'center'];
 
+// --- 강도별 범위 테이블 ---
+
+const INTENSITY_RANGES: Record<VariationIntensity, {
+  brightnessRange: number;
+  qualityBase: number;
+  qualityRange: number;
+  cropMin: number;
+  cropRange: number;
+  borderMax: number;
+  saturationRange: number;
+  rotationRange: number;
+}> = {
+  low:  { brightnessRange: 0.01, qualityBase: 90, qualityRange: 6,  cropMin: 0.005, cropRange: 0.01, borderMax: 2, saturationRange: 0.03, rotationRange: 0.8 },
+  mid:  { brightnessRange: 0.02, qualityBase: 82, qualityRange: 14, cropMin: 0.01,  cropRange: 0.02, borderMax: 5, saturationRange: 0.05, rotationRange: 1.5 },
+  high: { brightnessRange: 0.04, qualityBase: 75, qualityRange: 18, cropMin: 0.02,  cropRange: 0.04, borderMax: 8, saturationRange: 0.10, rotationRange: 3.0 },
+};
+
 // --- 파라미터 생성 (서버와 동일 로직) ---
 
 export function generatePreviewVariationParams(
   sellerSeed: string,
   imageIndex: number,
+  intensity: VariationIntensity = 'mid',
 ): PreviewVariationParams {
   const seed = stringToSeed(`${sellerSeed}:img:${imageIndex}`);
   const rng = createSeededRandom(seed);
+  const r = INTENSITY_RANGES[intensity];
 
   return {
-    brightness: (rng() * 0.04) - 0.02,
-    quality: Math.floor(rng() * 14) + 82,
+    brightness: (rng() * r.brightnessRange * 2) - r.brightnessRange,
+    quality: Math.floor(rng() * r.qualityRange) + r.qualityBase,
     cropDirection: CROP_DIRECTIONS[Math.floor(rng() * 5)],
-    cropRatio: 0.01 + rng() * 0.02,
-    borderPadding: Math.floor(rng() * 5),
-    saturation: (rng() * 0.10) - 0.05,
-    rotation: (rng() * 3.0) - 1.5,
+    cropRatio: r.cropMin + rng() * r.cropRange,
+    borderPadding: Math.floor(rng() * r.borderMax),
+    saturation: (rng() * r.saturationRange * 2) - r.saturationRange,
+    rotation: (rng() * r.rotationRange * 2) - r.rotationRange,
   };
 }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { pickAndScanFolder, uploadScannedImages, uploadScannedImagesWithVariation } from '@/lib/megaload/services/client-folder-scanner';
 import { validateProductLocal } from '@/lib/megaload/services/product-validator';
 import type {
@@ -8,6 +8,7 @@ import type {
   CategoryItem, CategoryMatchResult, PreviewProduct, BatchResult,
   CategoryMetadata, PreventionConfig, FailureDiagnostic,
 } from './types';
+import type { PreflightProductResult, CanaryResult } from '@/lib/megaload/types';
 import { DEFAULT_PREVENTION_CONFIG, DISABLED_PREVENTION_CONFIG } from '@/lib/megaload/services/item-winner-prevention';
 import { addRecentPath } from './BulkStep1Settings';
 
@@ -89,6 +90,9 @@ export function useBulkRegisterActions() {
   // Auto-fill pipeline progress
   const [titleGenProgress, setTitleGenProgress] = useState<{ done: number; total: number } | null>(null);
   const [contentGenProgress, setContentGenProgress] = useState<{ done: number; total: number } | null>(null);
+  const [imageFilterProgress, setImageFilterProgress] = useState<{
+    done: number; total: number; phase: 'idle' | 'running' | 'complete';
+  }>({ done: 0, total: 0, phase: 'idle' });
   const [pipelineRan, setPipelineRan] = useState(false);
 
   // Category search
@@ -118,6 +122,16 @@ export function useBulkRegisterActions() {
     payloadPreview?: { displayCategoryCode: number; sellerProductName: string; imageCount: number; noticeCategoryCount: number; attributeCount: number; hasDetailPage: boolean; stock: number };
     missingRequiredFields?: string[];
   }>>({});
+
+  // Preflight
+  const [preflightPhase, setPreflightPhase] = useState<'idle' | 'running' | 'complete' | 'error'>('idle');
+  const [preflightResults, setPreflightResults] = useState<Record<string, PreflightProductResult>>({});
+  const [preflightStats, setPreflightStats] = useState<{ total: number; pass: number; fail: number; warn: number } | null>(null);
+  const [preflightDurationMs, setPreflightDurationMs] = useState(0);
+
+  // Canary
+  const [canaryPhase, setCanaryPhase] = useState<'idle' | 'running' | 'complete' | 'error'>('idle');
+  const [canaryResult, setCanaryResult] = useState<CanaryResult | null>(null);
 
   // Step 3 state
   const [registering, setRegistering] = useState(false);
@@ -476,7 +490,15 @@ export function useBulkRegisterActions() {
             }));
           } catch { return null; }
         });
-        const scoringResults = await Promise.all(scoringPromises);
+        const filterTotal = latest.length;
+        setImageFilterProgress({ done: 0, total: filterTotal, phase: 'running' });
+        let filterDone = 0;
+        const scoringResults: (Awaited<typeof scoringPromises[number]>)[] = [];
+        for (const p of scoringPromises) {
+          scoringResults.push(await p);
+          filterDone++;
+          setImageFilterProgress(prev => ({ ...prev, done: filterDone }));
+        }
 
         // Phase 2: 이상치 감지 — 개별 스코어링 통과한 이미지 중 색상 분포가 다른 이미지 제거
         // (다른 브랜드/상품 이미지 자동 감지)
@@ -620,6 +642,8 @@ export function useBulkRegisterActions() {
 
           return updated;
         }));
+
+        setImageFilterProgress({ done: filterTotal, total: filterTotal, phase: 'complete' });
 
         await runTitleGeneration(productsRef.current);
         await runContentGeneration(productsRef.current);
@@ -892,6 +916,205 @@ export function useBulkRegisterActions() {
       setValidationPhase('complete');
     } catch { /* ignore */ } finally { setValidating(false); }
   }, [products, contactNumber, selectedOutbound, selectedReturn, deliveryChargeType, deliveryCharge, returnCharge, startImagePreupload, dryRunResults]);
+
+  // ---- Preflight ----
+  const handlePreflight = useCallback(async () => {
+    const selectedProds = products.filter(p => p.selected && p.editedCategoryCode && p.validationStatus !== 'error');
+    if (selectedProds.length === 0) return;
+
+    setPreflightPhase('running');
+    setPreflightResults({});
+    setPreflightStats(null);
+
+    try {
+      const batchProducts = selectedProds.map(p => {
+        const meta = categoryMetaCache[p.editedCategoryCode] || { noticeMeta: [], attributeMeta: [] };
+        const cached = imagePreuploadCache[p.uid];
+        return {
+          uid: p.uid,
+          productCode: p.productCode,
+          folderPath: p.folderPath,
+          name: p.editedName,
+          brand: p.editedBrand,
+          sellingPrice: p.editedSellingPrice,
+          sourcePrice: p.sourcePrice,
+          categoryCode: p.editedCategoryCode,
+          tags: p.tags,
+          description: p.description,
+          mainImages: p.mainImages,
+          detailImages: p.detailImages,
+          reviewImages: p.reviewImages,
+          infoImages: p.infoImages,
+          noticeMeta: meta.noticeMeta,
+          attributeMeta: meta.attributeMeta,
+          aiDisplayName: p.editedDisplayProductName,
+          aiSellerName: p.editedSellerProductName,
+          categoryConfidence: p.categoryConfidence,
+          displayProductNameOverride: p.editedDisplayProductName,
+          noticeValuesOverride: p.editedNoticeValues,
+          attributeValuesOverride: p.editedAttributeValues,
+          descriptionOverride: p.editedDescription,
+          storyParagraphsOverride: p.editedStoryParagraphs,
+          reviewTextsOverride: p.editedReviewTexts,
+          preUploadedUrls: cached ? {
+            mainImageUrls: cached.mainImageUrls || [],
+            detailImageUrls: cached.detailImageUrls || [],
+            reviewImageUrls: cached.reviewImageUrls || [],
+            infoImageUrls: cached.infoImageUrls || [],
+          } : undefined,
+        };
+      });
+
+      // 이미지 타임스탬프 수집
+      const imageTimestamps: Record<string, number> = {};
+      for (const p of selectedProds) {
+        const cached = imagePreuploadCache[p.uid];
+        if (cached?.uploadedAt) imageTimestamps[p.uid] = cached.uploadedAt;
+      }
+
+      const res = await fetch('/api/megaload/products/bulk-register/preflight', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          products: batchProducts,
+          deliveryInfo: {
+            deliveryCompanyCode: 'CJGLS',
+            deliveryChargeType,
+            deliveryCharge: deliveryChargeType === 'FREE' ? 0 : deliveryCharge,
+            freeShipOverAmount: deliveryChargeType === 'CONDITIONAL_FREE' ? freeShipOverAmount : 0,
+            deliveryChargeOnReturn: returnCharge,
+            outboundShippingPlaceCode: selectedOutbound,
+          },
+          returnInfo: {
+            returnCenterCode: selectedReturn,
+            returnCharge,
+            companyContactNumber: contactNumber,
+            afterServiceContactNumber: contactNumber,
+            afterServiceInformation: '상품 이상 시 고객센터로 연락 바랍니다.',
+          },
+          stock: 999,
+          contactNumber,
+          noticeOverrides: Object.keys(noticeOverrides).length > 0 ? noticeOverrides : undefined,
+          preventionConfig: preventionConfig.enabled ? preventionConfig : undefined,
+          categoryMetaCache,
+          imageTimestamps,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setPreflightResults(data.results || {});
+        setPreflightStats(data.stats || null);
+        setPreflightDurationMs(data.durationMs || 0);
+        if (data.categoryMeta) setCategoryMetaCache(prev => ({ ...prev, ...data.categoryMeta }));
+        setPreflightPhase('complete');
+      } else {
+        const errData = await res.json().catch(() => ({ error: '프리플라이트 실패' }));
+        console.error('[preflight] Error:', errData.error);
+        setPreflightPhase('error');
+      }
+    } catch (err) {
+      console.error('[preflight] Error:', err);
+      setPreflightPhase('error');
+    }
+  }, [products, categoryMetaCache, imagePreuploadCache, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, noticeOverrides, preventionConfig]);
+
+  // ---- Canary ----
+  const handleCanary = useCallback(async (targetUid: string) => {
+    const product = products.find(p => p.uid === targetUid);
+    if (!product) return;
+
+    setCanaryPhase('running');
+    setCanaryResult(null);
+
+    try {
+      const meta = categoryMetaCache[product.editedCategoryCode] || { noticeMeta: [], attributeMeta: [] };
+      const cached = imagePreuploadCache[product.uid];
+
+      const res = await fetch('/api/megaload/products/bulk-register/canary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product: {
+            uid: product.uid,
+            productCode: product.productCode,
+            folderPath: product.folderPath,
+            name: product.editedName,
+            brand: product.editedBrand,
+            sellingPrice: product.editedSellingPrice,
+            sourcePrice: product.sourcePrice,
+            categoryCode: product.editedCategoryCode,
+            tags: product.tags,
+            description: product.description,
+            mainImages: product.mainImages,
+            detailImages: product.detailImages,
+            reviewImages: product.reviewImages,
+            infoImages: product.infoImages,
+            noticeMeta: meta.noticeMeta,
+            attributeMeta: meta.attributeMeta,
+            aiDisplayName: product.editedDisplayProductName,
+            aiSellerName: product.editedSellerProductName,
+            displayProductNameOverride: product.editedDisplayProductName,
+            noticeValuesOverride: product.editedNoticeValues,
+            attributeValuesOverride: product.editedAttributeValues,
+            descriptionOverride: product.editedDescription,
+            storyParagraphsOverride: product.editedStoryParagraphs,
+            reviewTextsOverride: product.editedReviewTexts,
+            preUploadedUrls: cached ? {
+              mainImageUrls: cached.mainImageUrls || [],
+              detailImageUrls: cached.detailImageUrls || [],
+              reviewImageUrls: cached.reviewImageUrls || [],
+              infoImageUrls: cached.infoImageUrls || [],
+            } : undefined,
+          },
+          deliveryInfo: {
+            deliveryCompanyCode: 'CJGLS',
+            deliveryChargeType,
+            deliveryCharge: deliveryChargeType === 'FREE' ? 0 : deliveryCharge,
+            freeShipOverAmount: deliveryChargeType === 'CONDITIONAL_FREE' ? freeShipOverAmount : 0,
+            deliveryChargeOnReturn: returnCharge,
+            outboundShippingPlaceCode: selectedOutbound,
+          },
+          returnInfo: {
+            returnCenterCode: selectedReturn,
+            returnCharge,
+            companyContactNumber: contactNumber,
+            afterServiceContactNumber: contactNumber,
+            afterServiceInformation: '상품 이상 시 고객센터로 연락 바랍니다.',
+          },
+          stock: 999,
+          noticeOverrides: Object.keys(noticeOverrides).length > 0 ? noticeOverrides : undefined,
+          preventionConfig: preventionConfig.enabled ? preventionConfig : undefined,
+        }),
+      });
+
+      const data = await res.json() as CanaryResult;
+      setCanaryResult(data);
+      setCanaryPhase(data.success ? 'complete' : 'error');
+    } catch (err) {
+      console.error('[canary] Error:', err);
+      setCanaryResult({
+        success: false,
+        phases: [],
+        cleanedUp: false,
+        error: err instanceof Error ? err.message : '카나리 테스트 실패',
+      });
+      setCanaryPhase('error');
+    }
+  }, [products, categoryMetaCache, imagePreuploadCache, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, noticeOverrides, preventionConfig]);
+
+  // ---- Auto-trigger preflight after deep validation + image upload complete ----
+  useEffect(() => {
+    if (
+      validationPhase === 'complete' &&
+      (imagePreuploadProgress.phase === 'complete' || imagePreuploadProgress.phase === 'idle') &&
+      preflightPhase === 'idle' &&
+      step === 2
+    ) {
+      handlePreflight();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [validationPhase, imagePreuploadProgress.phase, preflightPhase, step]);
 
   // ---- Load shipping info ----
   useEffect(() => {
@@ -1223,7 +1446,10 @@ export function useBulkRegisterActions() {
     setDryRunResults({}); setImagePreuploadCache({}); setImagePreuploadProgress({ total: 0, done: 0, phase: 'idle' });
     setValidationPhase('idle'); setAutoCategoryRetryCount(0);
     setTitleGenProgress(null); setContentGenProgress(null); setPipelineRan(false);
+    setImageFilterProgress({ done: 0, total: 0, phase: 'idle' });
     setCategoryFailures([]);
+    setPreflightPhase('idle'); setPreflightResults({}); setPreflightStats(null); setPreflightDurationMs(0);
+    setCanaryPhase('idle'); setCanaryResult(null);
     // #16 세션 삭제
     try { sessionStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
   }, []);
@@ -1237,6 +1463,27 @@ export function useBulkRegisterActions() {
   const validationErrorCount = products.filter((p) => p.validationStatus === 'error').length;
   const validationWarningCount = products.filter((p) => p.validationStatus === 'warning').length;
   const registerableCount = products.filter((p) => p.selected && p.editedCategoryCode && p.validationStatus !== 'error').length;
+  const canRegister = preflightPhase === 'complete' && (preflightStats?.fail ?? 0) === 0;
+
+  // 카나리 대상 자동 선정: 가장 많은 카테고리에 속한 상품 중 1개
+  const canaryTargetUid = useMemo(() => {
+    const eligible = products.filter(p =>
+      p.selected && p.editedCategoryCode && p.validationStatus !== 'error' &&
+      (imagePreuploadCache[p.uid]?.mainImageUrls?.length ?? 0) > 0
+    );
+    if (eligible.length === 0) return null;
+    // 카테고리별 빈도 → 가장 흔한 카테고리의 대표 상품
+    const catCount: Record<string, number> = {};
+    for (const p of eligible) {
+      catCount[p.editedCategoryCode] = (catCount[p.editedCategoryCode] || 0) + 1;
+    }
+    const topCat = Object.entries(catCount).sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (!topCat) return eligible[0].uid;
+    // 해당 카테고리 중 confidence 높은 순
+    const candidates = eligible.filter(p => p.editedCategoryCode === topCat);
+    candidates.sort((a, b) => b.categoryConfidence - a.categoryConfidence);
+    return candidates[0]?.uid ?? null;
+  }, [products, imagePreuploadCache]);
 
   return {
     step, setStep,
@@ -1263,17 +1510,22 @@ export function useBulkRegisterActions() {
     validating, validationPhase,
     imagePreuploadProgress, imagePreuploadCache,
     dryRunResults,
-    titleGenProgress, contentGenProgress,
+    titleGenProgress, contentGenProgress, imageFilterProgress,
+    // Preflight
+    preflightPhase, preflightResults, preflightStats, preflightDurationMs,
+    // Canary
+    canaryPhase, canaryResult, canaryTargetUid,
     registering, isPaused, batchProgress, startTime,
     // Computed
     selectedCount, totalSourcePrice, totalSellingPrice,
     validationReadyCount, validationErrorCount, validationWarningCount, registerableCount,
+    canRegister,
     // Actions
     addFolderPath, removeFolderPath,
     recalcPrices,
     handleScan, handleBrowseFolder,
     handleSearchCategory, selectCategory,
-    handleDeepValidation,
+    handleDeepValidation, handlePreflight, handleCanary,
     toggleProduct, toggleAll, updateField,
     handleReorderImages, handleRemoveImage, getDetailImageUrls,
     handleRegister, togglePause, handleReset, retryAutoCategory,

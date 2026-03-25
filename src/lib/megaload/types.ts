@@ -680,6 +680,38 @@ export interface ChannelAdapter {
   searchCategory(keyword: string): Promise<{ items: { id: string; name: string; path: string }[] }>;
 }
 
+// --- 프리플라이트 / 카나리 ---
+
+export interface PreflightProductResult {
+  pass: boolean;
+  errors: PreflightIssue[];
+  warnings: PreflightIssue[];
+  payloadSnapshot: {
+    sellerProductName: string;
+    displayProductName: string;
+    imageCount: number;
+    noticeCategoryCount: number;
+    attributeCount: number;
+    hasDetailPage: boolean;
+    payloadSizeKB: number;
+  };
+  imageStatus: 'fresh' | 'stale' | 'missing';
+}
+
+export interface PreflightIssue {
+  code: string;
+  field: string;
+  message: string;
+}
+
+export interface CanaryResult {
+  success: boolean;
+  phases: { name: string; success: boolean; durationMs: number; error?: string }[];
+  channelProductId?: string;
+  cleanedUp: boolean;
+  error?: string;
+}
+
 // --- 대시보드/뱃지 ---
 
 export interface MegaloadBadgeData {

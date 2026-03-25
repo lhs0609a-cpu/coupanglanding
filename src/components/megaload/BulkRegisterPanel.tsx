@@ -162,6 +162,7 @@ export default function BulkRegisterPanel() {
           autoMatchStats={actions.autoMatchStats}
           categoryFailures={actions.categoryFailures}
           onRetryAutoCategory={actions.retryAutoCategory}
+          imageFilterProgress={actions.imageFilterProgress}
           titleGenProgress={actions.titleGenProgress}
           contentGenProgress={actions.contentGenProgress}
           validating={actions.validating}
@@ -207,6 +208,16 @@ export default function BulkRegisterPanel() {
           includeReviewImages={actions.includeReviewImages}
           noticeOverrides={actions.noticeOverrides}
           preventionConfig={actions.preventionConfig}
+          preflightPhase={actions.preflightPhase}
+          preflightResults={actions.preflightResults}
+          preflightStats={actions.preflightStats}
+          preflightDurationMs={actions.preflightDurationMs}
+          canaryPhase={actions.canaryPhase}
+          canaryResult={actions.canaryResult}
+          canaryTargetUid={actions.canaryTargetUid}
+          canRegister={actions.canRegister}
+          onPreflight={actions.handlePreflight}
+          onCanary={actions.handleCanary}
         />
       )}
 

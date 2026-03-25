@@ -4,7 +4,9 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   ArrowLeft, ArrowRight, Loader2, CheckCircle2, XCircle, AlertTriangle,
   Search, Zap, Filter, Upload, Eye, BarChart3, CircleDot, Package, ClipboardCopy, ChevronDown, ChevronUp, Ban,
+  ShieldCheck, FlaskConical, Lock, Image as ImageIcon, FileText, Type,
 } from 'lucide-react';
+import type { PreflightProductResult, CanaryResult } from '@/lib/megaload/types';
 import BulkProductTable from './BulkProductTable';
 import BulkProductDetailPanel, { type PayloadPreviewState } from './BulkProductDetailPanel';
 import type { PayloadPreviewData } from './PayloadPreviewPanel';
@@ -39,6 +41,7 @@ interface BulkStep2ReviewProps {
   categoryResults: CategoryItem[];
   searchingCategory: boolean;
   // Auto-fill pipeline progress
+  imageFilterProgress: { done: number; total: number; phase: 'idle' | 'running' | 'complete' };
   titleGenProgress: { done: number; total: number } | null;
   contentGenProgress: { done: number; total: number } | null;
   // Bulk actions
@@ -70,12 +73,24 @@ interface BulkStep2ReviewProps {
   includeReviewImages?: boolean;
   noticeOverrides?: Record<string, string>;
   preventionConfig?: PreventionConfig;
+  // Preflight
+  preflightPhase?: 'idle' | 'running' | 'complete' | 'error';
+  preflightResults?: Record<string, PreflightProductResult>;
+  preflightStats?: { total: number; pass: number; fail: number; warn: number } | null;
+  preflightDurationMs?: number;
+  // Canary
+  canaryPhase?: 'idle' | 'running' | 'complete' | 'error';
+  canaryResult?: CanaryResult | null;
+  canaryTargetUid?: string | null;
+  canRegister?: boolean;
+  onPreflight?: () => void;
+  onCanary?: (uid: string) => void;
 }
 
 export default function BulkStep2Review({
   products, autoMatchingProgress, autoMatchError, autoMatchStats, categoryFailures, onRetryAutoCategory, validating, validationPhase,
   imagePreuploadProgress, imagePreuploadCache, dryRunResults,
-  titleGenProgress, contentGenProgress,
+  imageFilterProgress, titleGenProgress, contentGenProgress,
   deliveryChargeType, deliveryCharge, freeShipOverAmount,
   selectedCount, totalSourcePrice, totalSellingPrice,
   validationReadyCount, validationWarningCount, validationErrorCount, registerableCount,
@@ -87,6 +102,9 @@ export default function BulkStep2Review({
   onReorderImages, onRemoveImage, getDetailImageUrls,
   selectedOutbound, selectedReturn, returnCharge, contactNumber, includeReviewImages, noticeOverrides,
   preventionConfig,
+  preflightPhase, preflightResults, preflightStats, preflightDurationMs,
+  canaryPhase, canaryResult, canaryTargetUid, canRegister,
+  onPreflight, onCanary,
 }: BulkStep2ReviewProps) {
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [showFailures, setShowFailures] = useState(false);
@@ -377,30 +395,71 @@ export default function BulkStep2Review({
         </div>
       )}
 
-      {/* 제목 생성 진행 */}
-      {titleGenProgress && (
-        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 flex items-center gap-3">
-          <Loader2 className="w-4 h-4 animate-spin text-purple-600" />
-          <span className="text-sm text-purple-700">
-            노출상품명 AI 생성 중... {titleGenProgress.done}/{titleGenProgress.total}
-          </span>
-          <div className="flex-1 h-1.5 bg-purple-100 rounded-full overflow-hidden">
-            <div className="h-full bg-purple-500 rounded-full transition-all"
-              style={{ width: `${(titleGenProgress.done / titleGenProgress.total) * 100}%` }} />
-          </div>
-        </div>
-      )}
-
-      {/* AI 콘텐츠 생성 진행 */}
-      {contentGenProgress && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-3">
-          <Loader2 className="w-4 h-4 animate-spin text-green-600" />
-          <span className="text-sm text-green-700">
-            AI 상세페이지 생성 중... {contentGenProgress.done}/{contentGenProgress.total}
-          </span>
-          <div className="flex-1 h-1.5 bg-green-100 rounded-full overflow-hidden">
-            <div className="h-full bg-green-500 rounded-full transition-all"
-              style={{ width: `${(contentGenProgress.done / contentGenProgress.total) * 100}%` }} />
+      {/* 자동 파이프라인 통합 진행 섹션 */}
+      {(imageFilterProgress.phase !== 'idle' || titleGenProgress !== null || contentGenProgress !== null) && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h4 className="text-xs font-semibold text-gray-700 mb-3">자동 파이프라인</h4>
+          <div className="space-y-2.5">
+            {(() => {
+              const steps: { label: string; icon: React.ReactNode; done: number; total: number; phase: 'idle' | 'running' | 'complete'; color: string }[] = [
+                {
+                  label: '이미지 필터링',
+                  icon: <ImageIcon className="w-3.5 h-3.5" />,
+                  done: imageFilterProgress.done,
+                  total: imageFilterProgress.total,
+                  phase: imageFilterProgress.phase,
+                  color: 'blue',
+                },
+                {
+                  label: '노출상품명 생성',
+                  icon: <Type className="w-3.5 h-3.5" />,
+                  done: titleGenProgress?.done ?? 0,
+                  total: titleGenProgress?.total ?? 0,
+                  phase: titleGenProgress === null
+                    ? (imageFilterProgress.phase === 'complete' ? 'idle' : 'idle')
+                    : titleGenProgress.done === titleGenProgress.total ? 'complete' : 'running',
+                  color: 'purple',
+                },
+                {
+                  label: '상세페이지 생성',
+                  icon: <FileText className="w-3.5 h-3.5" />,
+                  done: contentGenProgress?.done ?? 0,
+                  total: contentGenProgress?.total ?? 0,
+                  phase: contentGenProgress === null
+                    ? 'idle'
+                    : contentGenProgress.done === contentGenProgress.total ? 'complete' : 'running',
+                  color: 'green',
+                },
+              ];
+              return steps.map((s, i) => {
+                const pct = s.total > 0 ? Math.round((s.done / s.total) * 100) : (s.phase === 'complete' ? 100 : 0);
+                const barColor = s.phase === 'complete' ? 'bg-green-500' : s.phase === 'running' ? `bg-${s.color}-500` : 'bg-gray-200';
+                const textColor = s.phase === 'complete' ? 'text-green-600' : s.phase === 'running' ? `text-${s.color}-600` : 'text-gray-400';
+                return (
+                  <div key={i} className="flex items-center gap-3">
+                    <div className={`flex items-center gap-1.5 w-32 text-xs ${textColor}`}>
+                      {s.phase === 'running' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : s.icon}
+                      <span>{s.label}</span>
+                    </div>
+                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${s.phase === 'complete' ? 'bg-green-500' : s.phase === 'running' ? (s.color === 'blue' ? 'bg-blue-500' : s.color === 'purple' ? 'bg-purple-500' : 'bg-green-500') : 'bg-gray-200'}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] w-12 text-right text-gray-500">
+                      {s.phase !== 'idle' && s.total > 0 ? `${s.done}/${s.total}` : s.phase === 'complete' ? '완료' : '대기'}
+                    </span>
+                    <span className={`text-[10px] w-10 text-right font-medium ${textColor}`}>
+                      {s.phase !== 'idle' ? `${pct}%` : ''}
+                    </span>
+                    <span className="w-4 text-center">
+                      {s.phase === 'complete' ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : s.phase === 'running' ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" /> : <CircleDot className="w-3.5 h-3.5 text-gray-300" />}
+                    </span>
+                  </div>
+                );
+              });
+            })()}
           </div>
         </div>
       )}
@@ -463,6 +522,32 @@ export default function BulkStep2Review({
               </div>
               <span className="text-[10px] text-gray-400 w-16 text-right">{imagePreuploadProgress.phase === 'complete' ? '완료' : imagePreuploadProgress.total > 0 ? `${imagePreuploadProgress.done}/${imagePreuploadProgress.total}` : '대기'}</span>
             </div>
+            {/* Preflight pipeline row */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 w-36 text-xs">
+                {preflightPhase === 'complete' ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : preflightPhase === 'running' ? <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" /> : preflightPhase === 'error' ? <XCircle className="w-3.5 h-3.5 text-red-500" /> : <CircleDot className="w-3.5 h-3.5 text-gray-300" />}
+                <span className={preflightPhase === 'complete' ? 'text-green-600' : preflightPhase === 'running' ? 'text-indigo-600' : preflightPhase === 'error' ? 'text-red-600' : 'text-gray-400'}>프리플라이트</span>
+              </div>
+              <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full transition-all duration-500 ${preflightPhase === 'complete' ? (preflightStats?.fail ?? 0) > 0 ? 'bg-red-500' : 'bg-green-500' : preflightPhase === 'running' ? 'bg-indigo-500' : 'bg-gray-200'}`} style={{ width: preflightPhase === 'complete' || preflightPhase === 'error' ? '100%' : preflightPhase === 'running' ? '60%' : '0%' }} />
+              </div>
+              <span className="text-[10px] text-gray-400 w-16 text-right">
+                {preflightPhase === 'complete' ? `${preflightStats?.pass ?? 0}/${preflightStats?.total ?? 0}` : preflightPhase === 'running' ? '검사중' : preflightPhase === 'error' ? '오류' : '대기'}
+              </span>
+            </div>
+            {/* Canary pipeline row */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 w-36 text-xs">
+                {canaryPhase === 'complete' ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : canaryPhase === 'running' ? <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" /> : canaryPhase === 'error' ? <XCircle className="w-3.5 h-3.5 text-red-500" /> : <CircleDot className="w-3.5 h-3.5 text-gray-300" />}
+                <span className={canaryPhase === 'complete' ? 'text-green-600' : canaryPhase === 'running' ? 'text-amber-600' : canaryPhase === 'error' ? 'text-red-600' : 'text-gray-400'}>카나리 테스트 (선택)</span>
+              </div>
+              <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full transition-all duration-500 ${canaryPhase === 'complete' ? 'bg-green-500' : canaryPhase === 'running' ? 'bg-amber-500' : canaryPhase === 'error' ? 'bg-red-500' : 'bg-gray-200'}`} style={{ width: canaryPhase !== 'idle' ? '100%' : '0%' }} />
+              </div>
+              <span className="text-[10px] text-gray-400 w-16 text-right">
+                {canaryPhase === 'complete' ? '통과' : canaryPhase === 'running' ? '테스트중' : canaryPhase === 'error' ? '실패' : '대기'}
+              </span>
+            </div>
           </div>
         )}
 
@@ -476,6 +561,144 @@ export default function BulkStep2Review({
               <div><span className="text-blue-500">상세페이지:</span><strong className="ml-1 text-blue-700">{Object.values(dryRunResults).filter(r => r.payloadPreview?.hasDetailPage).length}건</strong></div>
               <div><span className="text-blue-500">이미지 업로드:</span><strong className="ml-1 text-purple-600">{Object.keys(imagePreuploadCache).length}건 완료</strong></div>
             </div>
+          </div>
+        )}
+
+        {/* Preflight Report Panel */}
+        {preflightPhase && preflightPhase !== 'idle' && (
+          <div className={`rounded-lg p-4 border mt-4 ${
+            preflightPhase === 'complete' && (preflightStats?.fail ?? 0) === 0
+              ? 'bg-green-50 border-green-200'
+              : preflightPhase === 'complete' && (preflightStats?.fail ?? 0) > 0
+                ? 'bg-red-50 border-red-200'
+                : preflightPhase === 'running'
+                  ? 'bg-indigo-50 border-indigo-200'
+                  : 'bg-gray-50 border-gray-200'
+          }`}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-indigo-600" />
+                <span className="text-sm font-semibold text-gray-900">프리플라이트 검사</span>
+                {preflightPhase === 'running' && <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />}
+              </div>
+              {preflightStats && (
+                <span className="text-xs text-gray-500">
+                  {preflightStats.pass}/{preflightStats.total} 통과
+                  {preflightDurationMs ? ` (${(preflightDurationMs / 1000).toFixed(1)}초)` : ''}
+                </span>
+              )}
+            </div>
+
+            {preflightStats && preflightPhase === 'complete' && (
+              <>
+                {/* Stats badges */}
+                <div className="grid grid-cols-3 gap-3 mb-3">
+                  <div className="bg-white rounded-lg p-2.5 text-center border border-green-100">
+                    <div className="text-lg font-bold text-green-600">{preflightStats.pass}</div>
+                    <div className="text-[10px] text-green-600">통과</div>
+                  </div>
+                  <div className={`bg-white rounded-lg p-2.5 text-center border ${preflightStats.warn > 0 ? 'border-orange-100' : 'border-gray-100'}`}>
+                    <div className={`text-lg font-bold ${preflightStats.warn > 0 ? 'text-orange-500' : 'text-gray-300'}`}>{preflightStats.warn}</div>
+                    <div className="text-[10px] text-gray-500">경고</div>
+                  </div>
+                  <div className={`bg-white rounded-lg p-2.5 text-center border ${preflightStats.fail > 0 ? 'border-red-100' : 'border-gray-100'}`}>
+                    <div className={`text-lg font-bold ${preflightStats.fail > 0 ? 'text-red-600' : 'text-gray-300'}`}>{preflightStats.fail}</div>
+                    <div className="text-[10px] text-gray-500">실패</div>
+                  </div>
+                </div>
+
+                {/* Failed product details */}
+                {preflightStats.fail > 0 && preflightResults && (
+                  <div className="mb-3">
+                    <div className="text-xs font-medium text-red-700 mb-1.5">실패 상세 ({preflightStats.fail}건):</div>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {Object.entries(preflightResults)
+                        .filter(([, r]) => !r.pass)
+                        .map(([uid, r]) => (
+                          <div key={uid} className="flex items-start gap-2 text-xs bg-white rounded px-2 py-1.5 border border-red-100">
+                            <XCircle className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
+                            <div>
+                              <span className="font-medium text-gray-700">{r.payloadSnapshot.sellerProductName.slice(0, 30)}</span>
+                              {r.errors.map((e, i) => (
+                                <div key={i} className="text-red-600 mt-0.5">{e.message}</div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Canary test section */}
+                {canaryTargetUid && onCanary && (
+                  <div className="border-t border-gray-200 pt-3 mt-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-xs">
+                        <FlaskConical className="w-3.5 h-3.5 text-amber-600" />
+                        <span className="text-gray-600">카나리 테스트 (1건 실제 등록 → 삭제)</span>
+                        {canaryTargetUid && (
+                          <span className="text-gray-400">
+                            대상: {products.find(p => p.uid === canaryTargetUid)?.editedName?.slice(0, 20) || canaryTargetUid.slice(-8)}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => onCanary(canaryTargetUid)}
+                        disabled={canaryPhase === 'running' || (preflightStats?.fail ?? 0) > 0}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-50 transition"
+                      >
+                        {canaryPhase === 'running' ? <Loader2 className="w-3 h-3 animate-spin" /> : <FlaskConical className="w-3 h-3" />}
+                        {canaryPhase === 'running' ? '테스트 중...' : canaryPhase === 'complete' ? '재실행' : '테스트 실행'}
+                      </button>
+                    </div>
+                    {/* Canary result */}
+                    {canaryResult && (
+                      <div className={`mt-2 rounded-lg p-2.5 text-xs ${canaryResult.success ? 'bg-green-50 border border-green-100' : 'bg-red-50 border border-red-100'}`}>
+                        {canaryResult.success ? (
+                          <div className="flex items-center gap-2 text-green-700">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>카나리 테스트 통과 — API 등록 성공{canaryResult.cleanedUp ? ' + 자동 삭제 완료' : ''}</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 text-red-700">
+                            <XCircle className="w-3.5 h-3.5" />
+                            <span>{canaryResult.error || '카나리 테스트 실패'}</span>
+                          </div>
+                        )}
+                        {canaryResult.phases.length > 0 && (
+                          <div className="mt-1.5 space-y-0.5">
+                            {canaryResult.phases.map((phase, i) => (
+                              <div key={i} className="flex items-center gap-2 text-gray-500">
+                                {phase.success ? <CheckCircle2 className="w-3 h-3 text-green-500" /> : <XCircle className="w-3 h-3 text-red-500" />}
+                                <span>{phase.name}</span>
+                                <span className="text-gray-300">({phase.durationMs}ms)</span>
+                                {phase.error && <span className="text-red-500">— {phase.error}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {canaryResult.channelProductId && !canaryResult.cleanedUp && (
+                          <div className="mt-1.5 text-orange-600 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" />
+                            상품 ID {canaryResult.channelProductId} — 쿠팡 Wing에서 수동 삭제 필요
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Re-run preflight button */}
+                {(preflightStats.fail > 0 || preflightPhase === 'error') && onPreflight && (
+                  <button
+                    onClick={onPreflight}
+                    className="mt-3 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition"
+                  >
+                    <ShieldCheck className="w-3 h-3" /> 프리플라이트 재실행
+                  </button>
+                )}
+              </>
+            )}
           </div>
         )}
 
@@ -608,15 +831,51 @@ export default function BulkStep2Review({
             </span>
           )}
           <div className="relative group">
-            <button
-              onClick={onRegister}
-              disabled={registerableCount === 0 || products.some(p => p.selected && p.validationStatus === 'error')}
-              className="flex items-center gap-2 px-6 py-3 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition shadow-sm"
-            >
-              <Zap className="w-4 h-4" /> {registerableCount}개 등록 시작
-              {validationErrorCount > 0 && <span className="text-xs opacity-75">({validationErrorCount}개 제외)</span>}
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            {(() => {
+              // 등록 버튼 상태 결정
+              const hasPreflightFail = (preflightStats?.fail ?? 0) > 0;
+              const preflightNotRun = !preflightPhase || preflightPhase === 'idle';
+              const preflightRunning = preflightPhase === 'running';
+              const preflightPassed = preflightPhase === 'complete' && !hasPreflightFail;
+              const disabled = registerableCount === 0 || !preflightPassed;
+
+              let buttonLabel: string;
+              let buttonColor: string;
+              let buttonIcon = <Zap className="w-4 h-4" />;
+
+              if (preflightRunning) {
+                buttonLabel = '검사 중...';
+                buttonColor = 'bg-gray-400';
+                buttonIcon = <Loader2 className="w-4 h-4 animate-spin" />;
+              } else if (preflightNotRun) {
+                buttonLabel = '프리플라이트 필요';
+                buttonColor = 'bg-gray-400';
+                buttonIcon = <Lock className="w-4 h-4" />;
+              } else if (hasPreflightFail) {
+                buttonLabel = `${preflightStats!.fail}개 상품 수정 필요`;
+                buttonColor = 'bg-red-500';
+                buttonIcon = <XCircle className="w-4 h-4" />;
+              } else if (preflightPassed) {
+                buttonLabel = `${preflightStats?.pass ?? registerableCount}개 등록 시작`;
+                buttonColor = 'bg-green-600 hover:bg-green-700';
+                buttonIcon = <CheckCircle2 className="w-4 h-4" />;
+              } else {
+                buttonLabel = `${registerableCount}개 등록 시작`;
+                buttonColor = 'bg-[#E31837] hover:bg-red-700';
+              }
+
+              return (
+                <button
+                  onClick={onRegister}
+                  disabled={disabled}
+                  className={`flex items-center gap-2 px-6 py-3 text-sm font-medium text-white ${buttonColor} rounded-lg disabled:opacity-50 transition shadow-sm`}
+                >
+                  {buttonIcon} {buttonLabel}
+                  {validationErrorCount > 0 && preflightPassed && <span className="text-xs opacity-75">({validationErrorCount}개 제외)</span>}
+                  {preflightPassed && <ArrowRight className="w-4 h-4" />}
+                </button>
+              );
+            })()}
             {registerableCount === 0 && (
               <div className="absolute bottom-full right-0 mb-2 w-64 p-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition pointer-events-none">
                 {products.filter(p => p.selected && !p.editedCategoryCode).length > 0

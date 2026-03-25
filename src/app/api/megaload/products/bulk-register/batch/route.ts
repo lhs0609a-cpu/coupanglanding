@@ -4,16 +4,15 @@ import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { uploadLocalImagesParallel } from '@/lib/megaload/services/local-product-reader';
-import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo, type AttributeMeta, type CertificationInfo, type OptionVariant } from '@/lib/megaload/services/coupang-product-builder';
-import { fillNoticeFields, type NoticeCategoryMeta, type ExtractedNoticeHints } from '@/lib/megaload/services/notice-field-filler';
+import type { DeliveryInfo, ReturnInfo, AttributeMeta, CertificationInfo, OptionVariant } from '@/lib/megaload/services/coupang-product-builder';
+import type { NoticeCategoryMeta } from '@/lib/megaload/services/notice-field-filler';
 import { generateProductStoriesBatch, type StoryBatchInput } from '@/lib/megaload/services/ai.service';
-import { extractOptions } from '@/lib/megaload/services/option-extractor';
+import { buildProductPayload } from '@/lib/megaload/services/preflight-builder';
 import { withRetry } from '@/lib/megaload/services/retry';
 import { checkBrandProtection } from '@/lib/megaload/services/brand-checker';
 import { classifyError } from '@/lib/megaload/services/error-classifier';
 import type { DetailedError } from '@/components/megaload/bulk/types';
 import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
-import { selectWithSeed } from '@/lib/megaload/services/item-winner-prevention';
 import { generateVariationParams, type VariationParams } from '@/lib/megaload/services/server-image-variation';
 
 interface BatchProduct {
@@ -293,18 +292,9 @@ export async function POST(req: NextRequest) {
       let aiReviewTexts: string[] = [];
       let aiStoryHtml = '';
 
-      // 사용자가 편집한 스토리/리뷰가 있으면 AI 생성 건너뜀
       const hasUserStory = Array.isArray(product.storyParagraphsOverride) && product.storyParagraphsOverride.length > 0;
       const hasUserReview = Array.isArray(product.reviewTextsOverride) && product.reviewTextsOverride.length > 0;
 
-      if (hasUserStory) {
-        aiStoryParagraphs = product.storyParagraphsOverride!;
-      }
-      if (hasUserReview) {
-        aiReviewTexts = product.reviewTextsOverride!;
-      }
-
-      // AI 생성 값은 사용자 편집이 없는 필드에만 적용
       if (!hasUserStory || !hasUserReview) {
         const aiStoryRaw = batchAiStories.get(product.uid || product.productCode) || '';
         try {
@@ -316,79 +306,23 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // 사용자가 편집한 description 우선 사용
-      const effectiveDescription = product.descriptionOverride ?? product.description;
-
-      // 6. 구매옵션 자동 추출 (notices보다 먼저 → hints 생성)
-      const extracted = await extractOptions(product.name, product.categoryCode);
-      if (extracted.warnings.length > 0) {
-        console.warn(`[batch] 옵션 추출 경고 [${product.name}]:`, extracted.warnings.join(', '));
-      }
-
-      // 추출된 옵션값을 notices용 hints로 변환
-      const noticeHints: ExtractedNoticeHints = {};
-      for (const opt of extracted.buyOptions) {
-        if (opt.unit === 'ml' || opt.name.includes('용량')) noticeHints.volume = `${opt.value}${opt.unit || 'ml'}`;
-        if (opt.unit === 'g' || opt.name.includes('중량')) noticeHints.weight = `${opt.value}${opt.unit || 'g'}`;
-        if (opt.name.includes('색상') || opt.name.includes('컬러')) noticeHints.color = opt.value;
-        if (opt.name.includes('사이즈') || opt.name.includes('크기')) noticeHints.size = opt.value;
-        if (opt.name === '수량') noticeHints.count = `${opt.value}${opt.unit || '개'}`;
-      }
-
-      // 7. notices 자동채움 (추출된 hints 연동 + 카테고리 힌트)
-      // per-product noticeValues 오버라이드를 전역 noticeOverrides에 병합
-      const mergedNoticeOverrides = { ...(noticeOverrides || {}), ...(product.noticeValuesOverride || {}) };
-      const filledNotices = fillNoticeFields(
-        product.noticeMeta || [],
-        { name: product.name, brand: product.brand, tags: product.tags, description: effectiveDescription },
-        returnInfo.afterServiceContactNumber,
-        Object.keys(mergedNoticeOverrides).length > 0 ? mergedNoticeOverrides : undefined,
-        noticeHints,
-        product.name,
-      );
-
-      // 8. 아이템위너 방지 시드 + 레이아웃 변형 결정
-      const preventionSeed = preventionEnabled && preventionConfig?.imageOrderShuffle
-        ? `${shUserId}:${product.productCode}`
-        : undefined;
-      const LAYOUT_VARIANTS = ['A', 'B', 'C', 'D'];
-      const detailLayoutVariant = preventionEnabled && preventionConfig?.detailPageVariation
-        ? selectWithSeed(LAYOUT_VARIANTS, shUserId)
-        : undefined;
-
-      // 9. 페이로드 빌드 (per-product 오버라이드 반영)
-      const effectiveStock = product.stockOverride ?? stock;
-      const payload = buildCoupangProductPayload({
+      // 6~9. 공유 빌더로 페이로드 빌드 (옵션 추출, 고시정보, 아이템위너 방지 포함)
+      const { payload } = await buildProductPayload({
+        product,
         vendorId,
-        product: {
-          folderPath: product.folderPath,
-          productCode: product.productCode,
-          productJson: { name: product.name, brand: product.brand, tags: product.tags, description: effectiveDescription, price: product.sourcePrice },
-          mainImages: product.mainImages, detailImages: product.detailImages, infoImages: product.infoImages, reviewImages: product.reviewImages,
-        },
-        sellingPrice: product.sellingPrice, categoryCode: product.categoryCode,
-        mainImageUrls, detailImageUrls, deliveryInfo, returnInfo, stock: effectiveStock,
-        brand: product.brand, filledNotices, attributeMeta: product.attributeMeta || [],
-        attributeValues: product.attributeValuesOverride,
-        reviewImageUrls, infoImageUrls,
-        aiStoryHtml, aiStoryParagraphs, aiReviewTexts,
-        extractedBuyOptions: extracted.buyOptions,
-        totalUnitCount: product.unitCountOverride ?? extracted.totalUnitCount,
-        displayProductName: product.displayProductNameOverride || product.aiDisplayName,
-        sellerProductName: product.aiSellerName,
-        manufacturer: product.manufacturerOverride,
-        maximumBuyForPerson: product.maxBuyPerPersonOverride,
-        outboundShippingTimeDay: product.shippingDaysOverride,
-        // 추가: 할인가, 바코드, KC인증, 멀티옵션, 세금/성인
-        originalPrice: product.originalPrice,
-        barcode: product.barcode,
-        certifications: product.certifications,
-        optionVariants: product.optionVariants,
-        taxType: product.taxType,
-        adultOnly: product.adultOnly,
-        // 아이템위너 방지
-        preventionSeed,
-        detailLayoutVariant,
+        deliveryInfo,
+        returnInfo,
+        stock,
+        noticeOverrides,
+        preventionConfig,
+        shUserId,
+        mainImageUrls,
+        detailImageUrls,
+        reviewImageUrls,
+        infoImageUrls,
+        aiStoryHtml,
+        aiStoryParagraphs,
+        aiReviewTexts,
       });
 
       // 10. 쿠팡 API 호출 (retry 적용)

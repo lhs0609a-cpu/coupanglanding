@@ -4,6 +4,8 @@
  * - validateProductDeep(): 카테고리 메타 기반 (API 필요)
  */
 
+import type { PreflightIssue } from '@/lib/megaload/types';
+
 // ---- 타입 ----
 
 export type ValidationSeverity = 'error' | 'warning' | 'info';
@@ -410,4 +412,152 @@ export function validateDryRun(
     payloadPreview,
     missingRequiredFields,
   };
+}
+
+// ---- 프리플라이트 페이로드 구조 검증 ----
+
+export interface PayloadStructureInput {
+  payload: Record<string, unknown>;
+  categoryMeta?: CategoryMetadata;
+  imageTimestamp?: number; // 이미지 업로드 시각 (epoch ms)
+}
+
+/**
+ * 실제 빌드된 쿠팡 API 페이로드를 구조적으로 엄격 검증.
+ * 프리플라이트 단계에서 호출하여 API 호출 전에 문제를 잡아냄.
+ */
+export function validatePayloadStructure(input: PayloadStructureInput): {
+  errors: PreflightIssue[];
+  warnings: PreflightIssue[];
+} {
+  const errors: PreflightIssue[] = [];
+  const warnings: PreflightIssue[] = [];
+  const { payload, categoryMeta, imageTimestamp } = input;
+
+  // 1. sellerProductName 길이
+  const sellerName = (payload.sellerProductName as string) || '';
+  if (!sellerName || sellerName.length === 0) {
+    errors.push({ code: 'NAME_LENGTH', field: 'sellerProductName', message: '판매자상품명이 비어있습니다.' });
+  } else if (sellerName.length > 100) {
+    errors.push({ code: 'NAME_LENGTH', field: 'sellerProductName', message: `판매자상품명이 ${sellerName.length}자입니다. (최대 100자)` });
+  }
+
+  // 2. displayProductName 길이
+  const displayName = (payload.displayProductName as string) || '';
+  if (displayName && displayName.length > 100) {
+    errors.push({ code: 'DISPLAY_NAME_LENGTH', field: 'displayProductName', message: `노출상품명이 ${displayName.length}자입니다. (최대 100자)` });
+  }
+
+  // 3. images >= 1
+  const items = (payload.sellerProductItemList as Record<string, unknown>[]) || [];
+  const firstItem = items[0] || {};
+  const images = (firstItem.imageList as Record<string, unknown>[]) || [];
+  if (images.length === 0) {
+    errors.push({ code: 'NO_IMAGES', field: 'images', message: '대표이미지가 없습니다. 최소 1장 필요합니다.' });
+  }
+
+  // 4. salePrice 범위
+  const salePrice = (firstItem.unitPrice as number) || 0;
+  if (salePrice < 100) {
+    errors.push({ code: 'PRICE_RANGE', field: 'salePrice', message: `판매가가 ${salePrice}원입니다. (최소 100원)` });
+  } else if (salePrice > 100_000_000) {
+    errors.push({ code: 'PRICE_RANGE', field: 'salePrice', message: '판매가가 1억원을 초과합니다.' });
+  }
+
+  // 5. stock > 0
+  const maximumBuyCount = (firstItem.maximumBuyCount as number) || 0;
+  // 쿠팡 페이로드에서는 stock 정보를 직접 체크하기 어려움 — maximumBuyCount로 대체 가능
+  // 실제 stock은 별도 전달되므로 payload 내에서는 pass
+
+  // 6. outboundShippingPlaceCode
+  const outbound = (payload.outboundShippingPlaceCode as string) || '';
+  if (!outbound) {
+    errors.push({ code: 'NO_OUTBOUND', field: 'outboundShippingPlaceCode', message: '출고지 코드가 없습니다.' });
+  }
+
+  // 7. returnCenterCode
+  const returnCenter = (payload.returnCenterCode as string) || '';
+  if (!returnCenter) {
+    errors.push({ code: 'NO_RETURN_CENTER', field: 'returnCenterCode', message: '반품지 코드가 없습니다.' });
+  }
+
+  // 8. notice 카테고리 수 불일치
+  const notices = (payload.noticeCategories as Record<string, unknown>[]) || [];
+  if (categoryMeta && categoryMeta.noticeMeta.length > 0) {
+    if (notices.length !== categoryMeta.noticeMeta.length) {
+      errors.push({
+        code: 'NOTICE_COUNT_MISMATCH',
+        field: 'noticeCategories',
+        message: `고시정보 카테고리 수 불일치 (기대: ${categoryMeta.noticeMeta.length}, 실제: ${notices.length})`,
+      });
+    }
+  }
+
+  // 9. 필수 notice 필드가 비어있는지
+  for (const notice of notices) {
+    const details = (notice.noticeCategoryDetailName as { noticeCategoryDetailName: string; content: string }[]) || [];
+    for (const detail of details) {
+      if (!detail.content || detail.content.trim() === '') {
+        errors.push({
+          code: 'NOTICE_FIELD_EMPTY',
+          field: `notice.${detail.noticeCategoryDetailName}`,
+          message: `고시정보 "${detail.noticeCategoryDetailName}" 값이 비어있습니다.`,
+        });
+      }
+    }
+  }
+
+  // 10. 필수 attribute 검증
+  if (categoryMeta) {
+    const attributes = (payload.attributes as Record<string, unknown>) || {};
+    const requiredAttrs = categoryMeta.attributeMeta.filter(a => a.required);
+    for (const attr of requiredAttrs) {
+      const val = (attributes as Record<string, string>)[attr.attributeTypeName];
+      if (!val || val.trim() === '') {
+        // 빌더가 fallback 하므로 warning
+        warnings.push({
+          code: 'ATTR_FALLBACK',
+          field: `attribute.${attr.attributeTypeName}`,
+          message: `필수 속성 "${attr.attributeTypeName}" 값이 폴백 처리되었습니다.`,
+        });
+      } else if (attr.dataType === 'ENUM' || (attr.attributeValues && attr.attributeValues.length > 0)) {
+        const allowed = attr.attributeValues?.map(v => v.attributeValueName) || [];
+        if (allowed.length > 0 && !allowed.includes(val)) {
+          errors.push({
+            code: 'ATTR_ENUM_INVALID',
+            field: `attribute.${attr.attributeTypeName}`,
+            message: `속성 "${attr.attributeTypeName}" 값 "${val}"이 허용목록에 없습니다.`,
+          });
+        }
+      }
+    }
+  }
+
+  // 11. payload JSON 크기 < 5MB
+  const payloadJson = JSON.stringify(payload);
+  const payloadSizeKB = payloadJson.length / 1024;
+  if (payloadSizeKB > 5 * 1024) {
+    errors.push({ code: 'PAYLOAD_TOO_LARGE', field: 'payload', message: `페이로드 크기가 ${Math.round(payloadSizeKB)}KB입니다. (최대 5MB)` });
+  }
+
+  // 12. 이미지 신선도 (30분 TTL → 25분부터 경고)
+  if (imageTimestamp) {
+    const ageMs = Date.now() - imageTimestamp;
+    const ageMin = ageMs / 60_000;
+    if (ageMin > 25) {
+      warnings.push({
+        code: 'IMAGE_STALE',
+        field: 'images',
+        message: `이미지가 ${Math.round(ageMin)}분 전에 업로드되었습니다. 30분 초과 시 URL 만료될 수 있습니다.`,
+      });
+    }
+  }
+
+  // 13. 상세페이지 유무
+  const contentHtml = (payload.content as string) || '';
+  if (!contentHtml || contentHtml.length < 50) {
+    warnings.push({ code: 'NO_DETAIL_PAGE', field: 'content', message: '상세페이지 콘텐츠가 없거나 너무 짧습니다.' });
+  }
+
+  return { errors, warnings };
 }

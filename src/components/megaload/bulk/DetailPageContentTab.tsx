@@ -50,7 +50,7 @@ export default function DetailPageContentTab({
   onUpdate,
   preUploadedUrls,
 }: DetailPageContentTabProps) {
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(true);
   const [previewVariant, setPreviewVariant] = useState<'A' | 'B' | 'C' | 'D'>('A');
 
   const description = product.editedDescription ?? product.description ?? '';

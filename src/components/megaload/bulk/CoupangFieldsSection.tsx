@@ -9,8 +9,11 @@ import {
 import BulkImageGrid from './BulkImageGrid';
 import { shuffleWithSeed, type PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import { useVariationPreviews } from './useVariationPreviews';
+import { useBeforeAfterPreview } from './useBeforeAfterPreview';
+import type { VariationIntensity } from '@/lib/megaload/services/variation-preview';
 import type { PayloadPreviewData } from './PayloadPreviewPanel';
 import type { EditableProduct } from './types';
+import { RefreshCw } from 'lucide-react';
 
 interface ImageItem {
   id: string;
@@ -132,6 +135,11 @@ function ImageSectionWithPreview({
     y: number;
   } | null>(null);
 
+  // Before/After 미리보기 상태
+  const [beforeAfterOpen, setBeforeAfterOpen] = useState(false);
+  const [intensity, setIntensity] = useState<VariationIntensity>('mid');
+  const [rerollSeed, setRerollSeed] = useState(() => `preview:${productCode}`);
+
   // 셀러 A/B/C 시드로 각각 다른 셔플 결과 미리보기
   const shuffledPreviews = useMemo(() => {
     if (imageItems.length <= 1) return [];
@@ -150,6 +158,15 @@ function ImageSectionWithPreview({
     imageItems,
     productCode,
     !!(isShuffleEnabled && isVariationEnabled && showVariation),
+  );
+
+  // Before/After 미리보기
+  const beforeAfterPreviews = useBeforeAfterPreview(
+    imageItems,
+    productCode,
+    beforeAfterOpen && !!isVariationEnabled,
+    intensity,
+    rerollSeed,
   );
 
   return (
@@ -174,6 +191,101 @@ function ImageSectionWithPreview({
               onImageReorder(newOrder);
             }}
           />
+
+          {/* Before/After 변형 미리보기 */}
+          {isVariationEnabled && imageItems.length >= 2 && (
+            <div className="mt-3 border border-purple-200 rounded-lg overflow-hidden">
+              {/* 헤더 — 접기/펼치기 */}
+              <button
+                onClick={() => setBeforeAfterOpen(!beforeAfterOpen)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-50 transition"
+              >
+                <Eye className="w-3.5 h-3.5 text-purple-500" />
+                <span className="flex-1 text-left">변형 미리보기 (Before → After)</span>
+                {beforeAfterOpen
+                  ? <ChevronDown className="w-3.5 h-3.5 text-purple-400" />
+                  : <ChevronRight className="w-3.5 h-3.5 text-purple-400" />}
+              </button>
+
+              {beforeAfterOpen && (
+                <div className="px-3 pb-3 pt-2 border-t border-purple-100 space-y-3 bg-purple-50/30">
+                  {/* 강도 + 리롤 컨트롤 */}
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] text-gray-500 font-medium">강도:</span>
+                    <div className="flex gap-1">
+                      {([
+                        { key: 'low' as const, label: '약' },
+                        { key: 'mid' as const, label: '중' },
+                        { key: 'high' as const, label: '강' },
+                      ]).map(({ key, label }) => (
+                        <button
+                          key={key}
+                          onClick={() => setIntensity(key)}
+                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium transition ${
+                            intensity === key
+                              ? 'bg-purple-600 text-white'
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => setRerollSeed(`preview:${Date.now()}`)}
+                      className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      다시 생성
+                    </button>
+                  </div>
+
+                  {/* 이미지 쌍 목록 */}
+                  {beforeAfterPreviews.images.map((img, idx) => (
+                    <div key={img.id} className="bg-white rounded-lg border border-gray-200 p-2.5">
+                      <div className="text-[10px] text-gray-400 font-medium mb-1.5">#{idx + 1}</div>
+                      <div className="flex items-center gap-3">
+                        {/* 원본 */}
+                        <div className="shrink-0">
+                          <div className="w-[100px] h-[100px] sm:w-[120px] sm:h-[120px] rounded overflow-hidden border border-gray-200">
+                            <img src={img.originalUrl} alt="원본" className="w-full h-full object-cover" loading="lazy" />
+                          </div>
+                          <div className="text-[9px] text-gray-400 text-center mt-0.5">원본</div>
+                        </div>
+
+                        {/* 화살표 */}
+                        <div className="text-gray-300 text-lg shrink-0">→</div>
+
+                        {/* 변형 */}
+                        <div className="shrink-0">
+                          <div className="w-[100px] h-[100px] sm:w-[120px] sm:h-[120px] rounded overflow-hidden border border-purple-200">
+                            {img.variedDataUrl ? (
+                              <img src={img.variedDataUrl} alt="변형" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full animate-pulse bg-gray-200" />
+                            )}
+                          </div>
+                          <div className="text-[9px] text-purple-500 text-center mt-0.5">변형</div>
+                        </div>
+                      </div>
+
+                      {/* 파라미터 텍스트 */}
+                      {img.paramsText.length > 0 && (
+                        <div className="mt-1.5 text-[10px] text-gray-500">
+                          {img.paramsText.join(' · ')}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {/* 안내 텍스트 */}
+                  <div className="text-[9px] text-gray-400 bg-gray-50 px-2 py-1.5 rounded">
+                    시각적으로는 동일하지만 파일 해시가 달라 아이템위너 묶임을 방지합니다.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 업로드 순서 미리보기 — 이미지 2장 이상이면 항상 표시 */}
           {imageItems.length > 1 && (

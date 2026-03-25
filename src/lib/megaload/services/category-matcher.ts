@@ -175,6 +175,23 @@ const DIRECT_CODE_MAP: Record<string, { code: string; path: string }> = {
   '넥크림': { code: '56169', path: '뷰티>스킨>크림>넥크림' },
   '넥케어': { code: '56169', path: '뷰티>스킨>크림>넥크림' },
   '목크림': { code: '56169', path: '뷰티>스킨>크림>넥크림' },
+  '바디워시': { code: '56213', path: '뷰티>바디>샤워/입욕용품>바디워시' },
+  '바디로션': { code: '56222', path: '뷰티>바디>바디케어>바디로션' },
+  '바디크림': { code: '56223', path: '뷰티>바디>바디케어>바디크림' },
+  '바디오일': { code: '56224', path: '뷰티>바디>바디케어>바디오일' },
+  '바디미스트': { code: '56226', path: '뷰티>바디>바디케어>바디미스트' },
+  '바디스크럽': { code: '56214', path: '뷰티>바디>샤워/입욕용품>바디스크럽' },
+  '핸드크림': { code: '56236', path: '뷰티>바디>핸드/풋 케어>핸드케어>핸드크림' },
+  '핸드워시': { code: '56234', path: '뷰티>바디>핸드/풋 케어>핸드케어>핸드워시' },
+  '샴푸': { code: '56280', path: '뷰티>헤어>샴푸>일반샴푸' },
+  '아이크림': { code: '56168', path: '뷰티>스킨>크림>아이크림' },
+  '선크림': { code: '56196', path: '뷰티>스킨>선케어/태닝>선블록/선크림/선로션' },
+  '자외선차단': { code: '56196', path: '뷰티>스킨>선케어/태닝>선블록/선크림/선로션' },
+  '선블록': { code: '56196', path: '뷰티>스킨>선케어/태닝>선블록/선크림/선로션' },
+  '립스틱': { code: '56429', path: '뷰티>메이크업>립메이크업>립스틱' },
+  '립틴트': { code: '56428', path: '뷰티>메이크업>립메이크업>립틴트' },
+  '치약': { code: '63981', path: '생활용품>구강/면도>치약' },
+  '칫솔': { code: '63982', path: '생활용품>구강/면도>칫솔' },
   // ── 영문 키워드 (해외직구/영문 상품명 대응) ──
   'vitamin': { code: '58913', path: '식품>건강식품>비타민/미네랄>멀티비타민' },
   'vitamina': { code: '58907', path: '식품>건강식품>비타민/미네랄>비타민A' },
@@ -306,6 +323,23 @@ const PRODUCT_TO_CATEGORY_ALIAS: Record<string, string[]> = {
   '뼈건강': ['칼슘'],
 };
 
+// ─── 수식어 토큰 사전 (지명·색상 등) ────────────────────────
+// 상품 유형이 아니라 원산지·브랜드 스토리 등 수식 역할로 쓰이는 단어.
+// 이 토큰이 leaf 매칭에 성공해도 점수를 대폭 제한하여 도메인 충돌 방지.
+// 예: "이탈리아" → "도서>여행>해외여행>이탈리아" leaf와 충돌 방지
+const MODIFIER_TOKENS = new Set([
+  // 국가/지역명 — 도서>여행>해외여행 leaf와 충돌
+  '이탈리아', '일본', '중국', '프랑스', '독일', '미국', '영국',
+  '호주', '스페인', '인도', '태국', '베트남', '대만', '캐나다',
+  '스위스', '네덜란드', '터키', '그리스', '러시아', '브라질',
+  '멕시코', '유럽', '아시아', '아프리카', '남미', '북미',
+  '하와이', '발리', '괌', '사이판', '오세아니아',
+  // 색상 — 간혹 카테고리명과 겹칠 수 있는 수식어
+  '레드', '블루', '그린', '블랙', '화이트', '핑크', '골드', '실버',
+  // 용도/규격 수식어 — "업소용 바디워시"처럼 상품 설명 수식으로 쓰이지만
+  // 쿠팡 카테고리 leaf 이름("업소용", "건식" 등)과 정확 일치하여 가전/디지털로 오매칭 방지
+  '업소용', '가정용', '산업용', '건식', '습식',
+]);
 
 // ─── Tier 0 투표 기반 매칭 헬퍼 ─────────────────────────────
 // 여러 토큰이 서로 다른 카테고리를 가리킬 때, 가장 많은 토큰이 지지하는 카테고리를 선택
@@ -513,7 +547,7 @@ async function localMatch(tokens: string[]): Promise<{ match: ScoredEntry | null
     // 1a. 정확 일치 (compound 포함): "넥크림" === "넥크림"
     for (const t of compoundTokens) {
       if (t.length >= 2 && t === leafLower) {
-        leafScore = 20;
+        leafScore = MODIFIER_TOKENS.has(t) ? 3 : 20;
         break;
       }
     }
@@ -528,8 +562,10 @@ async function localMatch(tokens: string[]): Promise<{ match: ScoredEntry | null
         }
       }
       if (wordMatchCount > 0) {
-        // 여러 leaf 단어 매칭 시 보너스
-        leafScore = 6 + wordMatchCount * 3;
+        // 여러 leaf 단어 매칭 시 보너스 (수식어면 ×0.3 제한)
+        const raw = 6 + wordMatchCount * 3;
+        const hasModifier = compoundTokens.some(t => t.length >= 2 && leafWords.some(lw => lw === t) && MODIFIER_TOKENS.has(t));
+        leafScore = hasModifier ? Math.round(raw * 0.3) : raw;
       }
     }
 
@@ -537,14 +573,25 @@ async function localMatch(tokens: string[]): Promise<{ match: ScoredEntry | null
       // 1c. leaf에 토큰 포함 (부분 매칭, 2글자 이상)
       for (const t of compoundTokens) {
         if (t.length >= 2 && leafLower.includes(t)) {
-          // 토큰 길이에 따라 점수 차등
-          leafScore = Math.min(6, t.length + 1);
+          // 토큰 길이에 따라 점수 차등 (수식어면 ×0.3 제한)
+          const raw = Math.min(6, t.length + 1);
+          leafScore = MODIFIER_TOKENS.has(t) ? Math.round(raw * 0.3) : raw;
           break;
         }
       }
     }
 
     score += leafScore;
+
+    // === 1d. 토큰 위치 가중치 ===
+    // 상품명 앞쪽 토큰 = 상품 유형일 확률 높음 → leaf 매칭 시 위치 보너스
+    if (leafScore > 0) {
+      const matchedTokenIdx = tokens.findIndex(t =>
+        t === leafLower || leafLower.includes(t)
+      );
+      if (matchedTokenIdx === 0) score += 5;       // 첫 번째 토큰
+      else if (matchedTokenIdx === 1) score += 3;   // 두 번째 토큰
+    }
 
     // === 2. Path token overlap (경로 전체 매칭) ===
     // catTokenList는 경로의 모든 단어 (e.g. ["뷰티", "스킨", "크림", "넥크림"])
@@ -574,9 +621,10 @@ async function localMatch(tokens: string[]): Promise<{ match: ScoredEntry | null
     }
 
     // Leaf-only match penalty: leaf만 매칭되고 부모 경로는 전혀 안 맞으면 감점
-    // (동음이의어 방지: "사료"가 조류/강아지 양쪽에 있을 때 구분)
+    // 깊은 카테고리(depth≥4)의 leaf-only 매칭은 더 강하게 감점
+    // (동음이의어 방지: "이탈리아"가 도서>여행>해외여행>이탈리아와 바디워시에서 충돌)
     if (leafScore > 0 && matchedCatTokens <= 1) {
-      score -= 3; // 컨텍스트 없이 leaf만 매칭 = 약한 신호
+      score -= depth >= 4 ? 8 : 5;
     }
 
     // Depth 보너스 (다중 매칭일 때만, 매우 약하게)
@@ -654,24 +702,18 @@ export function matchByNaverCategory(naverCategoryId: string): CategoryMatchResu
 
 /**
  * 상품명으로 쿠팡 카테고리를 자동 매칭한다.
- * 우선순위: 네이버 카테고리 매핑 → Tier 0 투표 → 로컬 DB → 쿠팡 API → AI
+ * 우선순위: Tier 0 투표 → 네이버 카테고리 매핑 → 로컬 DB → 쿠팡 API → AI
  */
 export async function matchCategory(
   productName: string,
   adapter?: CoupangAdapter,
   naverCategoryId?: string,
 ): Promise<CategoryMatchResult | null> {
-  // ── 최우선: 네이버 카테고리 매핑 테이블 조회 ──
-  if (naverCategoryId) {
-    const naverResult = matchByNaverCategory(naverCategoryId);
-    if (naverResult) return naverResult;
-  }
-
   const cleaned = cleanProductName(productName);
   const tokens = tokenize(productName);
   const compoundTokens = buildCompoundTokens(tokens);
 
-  // ── Tier 0: 직접 코드 매핑 (투표 기반 — 가장 많은 토큰이 지지하는 카테고리 선택) ──
+  // ── Tier 0: 직접 코드 매핑 (최우선 — 수동 큐레이션이라 신뢰도 최고) ──
   const baseCompounds = [...tokens];
   for (let i = 0; i < tokens.length - 1; i++) {
     baseCompounds.push(tokens[i] + tokens[i + 1]);
@@ -682,6 +724,12 @@ export async function matchCategory(
   const allCandidates = [...baseCompounds, ...expandedOnly];
   const tier0Result = voteTier0(allCandidates);
   if (tier0Result) return tier0Result;
+
+  // ── 네이버 카테고리 매핑 (Tier 0 미매칭 시) ──
+  if (naverCategoryId) {
+    const naverResult = matchByNaverCategory(naverCategoryId);
+    if (naverResult) return naverResult;
+  }
 
   // ── Tier 1: Local DB matching ──
   const { match: localResult } = await localMatch(tokens);
@@ -768,25 +816,15 @@ export async function matchCategoryBatch(
   const results: (CategoryMatchResult | null)[] = new Array(productNames.length).fill(null);
   const cache = new Map<string, CategoryMatchResult | null>();
 
-  // === Phase 0: 네이버 카테고리 매핑 테이블 조회 (최우선) ===
-  if (naverCategoryIds) {
-    for (let i = 0; i < productNames.length; i++) {
-      const navId = naverCategoryIds[i];
-      if (navId) {
-        const navResult = matchByNaverCategory(navId);
-        if (navResult) results[i] = navResult;
-      }
-    }
-  }
-
-  // === Phase 1: Tier 0 (DIRECT_CODE_MAP) + 로컬 DB 일괄 매칭 ===
+  // === Phase 0+1 통합: Tier 0 (DIRECT_CODE_MAP) 최우선 → 네이버 매핑 → 로컬 DB ===
+  // Tier 0는 수동 큐레이션된 키워드→카테고리 매핑이므로 신뢰도가 가장 높다.
+  // 네이버 매핑은 자동 생성이라 오류 가능성이 있으므로 Tier 0보다 후순위.
   const productTokensList: string[][] = productNames.map((name) => tokenize(name));
   const unmatchedIndices: number[] = [];
   const tier1Diagnostics = new Map<number, { score: number; candidateName: string }>();
 
   for (let i = 0; i < productNames.length; i++) {
-    if (results[i]) continue; // 네이버 매핑으로 이미 매칭됨
-    // Tier 0: 투표 기반 직접 코드 매핑
+    // Tier 0: 투표 기반 직접 코드 매핑 (최우선 — 네이버 매핑보다 앞)
     const toks = productTokensList[i];
     const baseComps: string[] = [...toks];
     for (let j = 0; j < toks.length - 1; j++) {
@@ -800,6 +838,18 @@ export async function matchCategoryBatch(
     if (tier0Result) {
       results[i] = tier0Result;
       continue;
+    }
+
+    // Tier 0 미매칭 → 네이버 카테고리 매핑 시도
+    if (naverCategoryIds) {
+      const navId = naverCategoryIds[i];
+      if (navId) {
+        const navResult = matchByNaverCategory(navId);
+        if (navResult) {
+          results[i] = navResult;
+          continue;
+        }
+      }
     }
 
     // Tier 1: 로컬 DB 토큰 매칭

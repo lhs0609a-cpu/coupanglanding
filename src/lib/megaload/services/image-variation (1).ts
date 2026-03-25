@@ -1,7 +1,29 @@
 // ============================================================
 // 이미지 변형 서비스
 // 쿠팡 이미지 해시 매칭을 회피하기 위한 미세 변형 적용
+//
+// ⚠️ 경고: 이미지 변형 기능은 기본적으로 비활성화되어 있습니다.
+// 쿠팡 Open API ToS (이용약관)에 따르면 이미지를 변형하여 해시
+// 매칭을 회피하는 행위는 제재 대상이 될 수 있습니다.
+// 이 기능을 활성화하기 전에 반드시 ToS를 확인하세요.
 // ============================================================
+
+/**
+ * 이미지 변형 기능 활성화 플래그
+ * 기본값: false (비활성화)
+ * ToS를 확인한 후 true로 변경하세요.
+ */
+let _imageVariationEnabled = false;
+
+/** 이미지 변형 기능 활성화 여부를 설정합니다. */
+export function setImageVariationEnabled(enabled: boolean): void {
+  _imageVariationEnabled = enabled;
+}
+
+/** 이미지 변형 기능이 활성화되어 있는지 확인합니다. */
+export function isImageVariationEnabled(): boolean {
+  return _imageVariationEnabled;
+}
 
 // ---- 타입 ----
 
@@ -54,6 +76,12 @@ export async function applyImageVariation(
   file: File | Blob,
   variation: ImageVariation,
 ): Promise<Blob> {
+  // 비활성화 상태면 원본 반환
+  if (!_imageVariationEnabled) {
+    console.warn('[image-variation] 이미지 변형 기능이 비활성화되어 있습니다. 원본을 반환합니다. (ToS 확인 후 setImageVariationEnabled(true) 호출)');
+    return file instanceof Blob ? file : new Blob([file]);
+  }
+
   // 1. 이미지를 HTMLImageElement로 로드
   const img = await loadImageFromBlob(file);
   const origW = img.naturalWidth;
