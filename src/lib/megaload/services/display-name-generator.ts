@@ -412,15 +412,9 @@ export function generateDisplayName(
   // 전체 셔플
   shuffle(unique, rng);
 
-  // 스펙 위치 변형: 앞(30%) 또는 뒤(70%)
-  const specsAtFront = rng() < 0.3;
+  // 스펙은 항상 맨 뒤에 배치
   const specTokens = classified.specs.filter(s => !seenFinal.has(s.toLowerCase()));
-
-  if (specsAtFront) {
-    unique.unshift(...specTokens);
-  } else {
-    unique.push(...specTokens);
-  }
+  unique.push(...specTokens);
 
   // 최소 단어수 보장: 6개 미만이면 Generic 추가 보충
   if (unique.length < 6 && pool) {
