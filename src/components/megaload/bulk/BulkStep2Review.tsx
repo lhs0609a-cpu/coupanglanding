@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   ArrowLeft, ArrowRight, Loader2, CheckCircle2, XCircle, AlertTriangle,
-  Search, Zap, Filter, Upload, Eye, BarChart3, CircleDot, Package, ClipboardCopy, ChevronDown, ChevronUp,
+  Search, Zap, Filter, Upload, Eye, BarChart3, CircleDot, Package, ClipboardCopy, ChevronDown, ChevronUp, Ban,
 } from 'lucide-react';
 import BulkProductTable from './BulkProductTable';
 import BulkProductDetailPanel, { type PayloadPreviewState } from './BulkProductDetailPanel';
@@ -211,6 +211,8 @@ export default function BulkStep2Review({
       result = result.filter(p => !p.editedCategoryCode);
     } else if (filterMode === 'no-image') {
       result = result.filter(p => (p.scannedMainImages?.length ?? p.mainImageCount) === 0);
+    } else if (filterMode === 'skipped') {
+      result = result.filter(p => !p.selected);
     }
 
     // Search
@@ -272,11 +274,14 @@ export default function BulkStep2Review({
     setBulkAction(null); setBulkPriceAdjust(0);
   }, [bulkPriceAdjust, onSetProducts]);
 
-  const filterButtons: { mode: FilterMode; label: string }[] = [
+  const skippedCount = products.filter(p => !p.selected).length;
+
+  const filterButtons: { mode: FilterMode; label: string; count?: number }[] = [
     { mode: 'all', label: '전체' },
     { mode: 'problems', label: '문제만' },
     { mode: 'no-category', label: '카테고리 미매칭' },
     { mode: 'no-image', label: '이미지 없음' },
+    { mode: 'skipped', label: '제외됨', count: skippedCount },
   ];
 
   return (
@@ -476,13 +481,19 @@ export default function BulkStep2Review({
 
         {/* Filter + Search bar */}
         <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100">
-          {filterButtons.map(({ mode, label }) => (
+          {filterButtons.map(({ mode, label, count }) => (
             <button
               key={mode}
               onClick={() => setFilterMode(mode)}
               className={`px-3 py-1 text-xs rounded-full border transition ${filterMode === mode ? 'bg-[#E31837] text-white border-[#E31837]' : 'border-gray-300 text-gray-500 hover:bg-gray-50'}`}
             >
-              <Filter className="w-3 h-3 inline mr-1" />{label}
+              {mode === 'skipped' ? <Ban className="w-3 h-3 inline mr-1" /> : <Filter className="w-3 h-3 inline mr-1" />}
+              {label}
+              {count !== undefined && count > 0 && (
+                <span className={`ml-1 px-1 py-px rounded-full text-[10px] font-medium ${filterMode === mode ? 'bg-white/20' : 'bg-red-100 text-red-600'}`}>
+                  {count}
+                </span>
+              )}
             </button>
           ))}
           <div className="ml-auto relative">
@@ -505,6 +516,19 @@ export default function BulkStep2Review({
         <button onClick={() => setBulkAction(bulkAction === 'brand' ? null : 'brand')} className={`px-3 py-1.5 text-xs rounded-lg border transition ${bulkAction === 'brand' ? 'bg-[#E31837] text-white border-[#E31837]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>브랜드 변경</button>
         <button onClick={() => { setBulkAction(bulkAction === 'category' ? null : 'category'); if (bulkAction !== 'category') onSetCategorySearchTarget('bulk'); }} className={`px-3 py-1.5 text-xs rounded-lg border transition ${bulkAction === 'category' ? 'bg-[#E31837] text-white border-[#E31837]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>카테고리 변경</button>
         <button onClick={() => setBulkAction(bulkAction === 'price' ? null : 'price')} className={`px-3 py-1.5 text-xs rounded-lg border transition ${bulkAction === 'price' ? 'bg-[#E31837] text-white border-[#E31837]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>가격 조정</button>
+        {validationErrorCount > 0 && (
+          <button
+            onClick={() => {
+              onSetProducts(prev => prev.map(p =>
+                p.validationStatus === 'error' ? { ...p, selected: false } : p
+              ));
+            }}
+            className="px-3 py-1.5 text-xs rounded-lg border border-red-300 text-red-600 hover:bg-red-50 transition flex items-center gap-1"
+          >
+            <Ban className="w-3 h-3" />
+            오류 상품 일괄 제외 ({validationErrorCount})
+          </button>
+        )}
         {bulkAction === 'brand' && (
           <div className="flex items-center gap-2">
             <input type="text" value={bulkBrandValue} onChange={(e) => setBulkBrandValue(e.target.value)} placeholder="브랜드명" className="px-2 py-1 border border-gray-300 rounded text-xs w-32" />
@@ -610,6 +634,7 @@ export default function BulkStep2Review({
         imageUrls={selectedUid ? getDetailImageUrls(selectedUid) : []}
         onClose={() => setSelectedUid(null)}
         onNavigate={handleNavigate}
+        onToggle={onToggle}
         onUpdate={onUpdate}
         onCategoryClick={onCategoryClick}
         onReorderImages={onReorderImages}

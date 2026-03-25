@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import {
   ChevronDown, ChevronRight, FileText, Hash, Tag, Truck,
   Settings2, Loader2, AlertTriangle, Package, Image as ImageIcon,
-  DollarSign, Layers, CheckCircle2, Settings, Shuffle, Eye,
+  DollarSign, Layers, CheckCircle2, Settings, Shuffle, Eye, Sparkles,
 } from 'lucide-react';
 import BulkImageGrid from './BulkImageGrid';
 import { shuffleWithSeed, type PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
+import { useVariationPreviews } from './useVariationPreviews';
 import type { PayloadPreviewData } from './PayloadPreviewPanel';
 import type { EditableProduct } from './types';
 
@@ -117,6 +118,19 @@ function ImageSectionWithPreview({
   productCode: string;
 }) {
   const isShuffleEnabled = preventionConfig?.enabled && preventionConfig?.imageOrderShuffle;
+  const isVariationEnabled = preventionConfig?.enabled && preventionConfig?.imageVariation;
+
+  // 변형 미리보기 토글
+  const [showVariation, setShowVariation] = useState(true);
+
+  // 호버 툴팁 상태
+  const [tooltipInfo, setTooltipInfo] = useState<{
+    sellerIdx: number;
+    imgIdx: number;
+    params: string[];
+    x: number;
+    y: number;
+  } | null>(null);
 
   // 셀러 A/B/C 시드로 각각 다른 셔플 결과 미리보기
   const shuffledPreviews = useMemo(() => {
@@ -126,10 +140,17 @@ function ImageSectionWithPreview({
       const seed = `${sellerLabel}:${productCode}`;
       const shuffled = isShuffleEnabled
         ? shuffleWithSeed(imageItems, seed)
-        : [...imageItems]; // 방지 비활성 시 현재 순서 유지
+        : [...imageItems];
       return { sellerLabel, images: shuffled };
     });
   }, [isShuffleEnabled, imageItems, productCode]);
+
+  // 변형 미리보기 생성 (Canvas 썸네일)
+  const variationPreviews = useVariationPreviews(
+    imageItems,
+    productCode,
+    !!(isShuffleEnabled && isVariationEnabled && showVariation),
+  );
 
   return (
     <CollapsibleSection
@@ -154,7 +175,7 @@ function ImageSectionWithPreview({
             }}
           />
 
-          {/* 업로드 순서 미리보기 — 이미지 2장 이상이면 항상 표시 (토글 없이 바로 노출) */}
+          {/* 업로드 순서 미리보기 — 이미지 2장 이상이면 항상 표시 */}
           {imageItems.length > 1 && (
             <div className={`mt-3 space-y-2.5 p-3 rounded-lg border ${
               isShuffleEnabled ? 'bg-purple-50/50 border-purple-200' : 'bg-blue-50/50 border-blue-200'
@@ -164,40 +185,129 @@ function ImageSectionWithPreview({
                 <span className={`text-[11px] font-bold ${isShuffleEnabled ? 'text-purple-700' : 'text-blue-700'}`}>
                   {isShuffleEnabled ? '아이템위너 방지 — 셀러별 업로드 미리보기' : '업로드 순서 미리보기'}
                 </span>
+                {/* 변형 토글 버튼 */}
+                {isShuffleEnabled && isVariationEnabled && (
+                  <button
+                    onClick={() => setShowVariation(!showVariation)}
+                    className={`ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition ${
+                      showVariation
+                        ? 'bg-purple-200 text-purple-800 hover:bg-purple-300'
+                        : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                    }`}
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    {showVariation ? '변형 적용됨' : '원본 보기'}
+                  </button>
+                )}
               </div>
 
               {isShuffleEnabled ? (
                 <>
                   <div className="text-[10px] text-purple-600">
-                    셀러마다 대표이미지 + 순서가 모두 달라 아이템위너로 묶이지 않습니다
+                    {isVariationEnabled && showVariation
+                      ? '셀러마다 순서 + 크롭·밝기·채도·회전·품질이 모두 달라집니다'
+                      : '셀러마다 대표이미지 + 순서가 모두 달라 아이템위너로 묶이지 않습니다'}
                   </div>
-                  {shuffledPreviews.map(({ sellerLabel, images }) => (
-                    <div key={sellerLabel}>
-                      <div className="text-[10px] text-gray-500 mb-1 font-medium">{sellerLabel}</div>
-                      <div className="flex gap-1 overflow-x-auto pb-1">
-                        {images.map((img, idx) => (
-                          <div
-                            key={img.id}
-                            className={`relative shrink-0 w-12 h-12 rounded overflow-hidden border ${
-                              idx === 0 ? 'border-amber-400 ring-2 ring-amber-300' : 'border-gray-200'
-                            }`}
-                          >
-                            <img src={img.url} alt="" className="w-full h-full object-cover" loading="lazy" />
-                            {idx === 0 && (
-                              <div className="absolute bottom-0 left-0 right-0 bg-amber-500 text-white text-[7px] text-center font-bold leading-tight py-px">
-                                대표
+
+                  {/* 변형 미리보기 모드 */}
+                  {isVariationEnabled && showVariation && variationPreviews.length > 0 ? (
+                    <>
+                      {variationPreviews.map((seller, si) => (
+                        <div key={seller.sellerLabel}>
+                          <div className="text-[10px] text-gray-500 mb-1 font-medium">{seller.sellerLabel}</div>
+                          <div className="flex gap-1 overflow-x-auto pb-1">
+                            {seller.images.map((img, idx) => (
+                              <div
+                                key={img.id}
+                                className={`relative shrink-0 w-16 h-16 rounded overflow-hidden border ${
+                                  idx === 0 ? 'border-amber-400 ring-2 ring-amber-300' : 'border-gray-200'
+                                }`}
+                                onMouseEnter={(e) => {
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  setTooltipInfo({
+                                    sellerIdx: si,
+                                    imgIdx: idx,
+                                    params: img.paramsText,
+                                    x: rect.left + rect.width / 2,
+                                    y: rect.top,
+                                  });
+                                }}
+                                onMouseLeave={() => setTooltipInfo(null)}
+                              >
+                                {seller.loading || !img.variedDataUrl ? (
+                                  <div className="w-full h-full bg-gray-100 animate-pulse" />
+                                ) : (
+                                  <img
+                                    src={img.variedDataUrl}
+                                    alt=""
+                                    className="w-full h-full object-cover"
+                                  />
+                                )}
+                                {/* 보라색 점 — 변형 인디케이터 */}
+                                {!seller.loading && img.variedDataUrl && (
+                                  <div className="absolute top-0.5 left-0.5 w-2 h-2 rounded-full bg-purple-500 border border-white" />
+                                )}
+                                {idx === 0 && (
+                                  <div className="absolute bottom-0 left-0 right-0 bg-amber-500 text-white text-[7px] text-center font-bold leading-tight py-px">
+                                    대표
+                                  </div>
+                                )}
+                                <div className="absolute top-0 right-0 bg-black/50 text-white text-[7px] px-0.5 rounded-bl">
+                                  {idx + 1}
+                                </div>
                               </div>
-                            )}
-                            <div className="absolute top-0 right-0 bg-black/50 text-white text-[7px] px-0.5 rounded-bl">
-                              {idx + 1}
-                            </div>
+                            ))}
                           </div>
-                        ))}
+                        </div>
+                      ))}
+
+                      {/* 호버 툴팁 */}
+                      {tooltipInfo && tooltipInfo.params.length > 0 && (
+                        <div
+                          className="fixed z-50 bg-gray-900 text-white text-[10px] px-2.5 py-1.5 rounded-lg shadow-lg pointer-events-none"
+                          style={{
+                            left: tooltipInfo.x,
+                            top: tooltipInfo.y - 8,
+                            transform: 'translate(-50%, -100%)',
+                          }}
+                        >
+                          {tooltipInfo.params.map((line, i) => (
+                            <div key={i} className="whitespace-nowrap">{line}</div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    /* 원본 순서 미리보기 (기존 로직) */
+                    shuffledPreviews.map(({ sellerLabel, images }) => (
+                      <div key={sellerLabel}>
+                        <div className="text-[10px] text-gray-500 mb-1 font-medium">{sellerLabel}</div>
+                        <div className="flex gap-1 overflow-x-auto pb-1">
+                          {images.map((img, idx) => (
+                            <div
+                              key={img.id}
+                              className={`relative shrink-0 w-12 h-12 rounded overflow-hidden border ${
+                                idx === 0 ? 'border-amber-400 ring-2 ring-amber-300' : 'border-gray-200'
+                              }`}
+                            >
+                              <img src={img.url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                              {idx === 0 && (
+                                <div className="absolute bottom-0 left-0 right-0 bg-amber-500 text-white text-[7px] text-center font-bold leading-tight py-px">
+                                  대표
+                                </div>
+                              )}
+                              <div className="absolute top-0 right-0 bg-black/50 text-white text-[7px] px-0.5 rounded-bl">
+                                {idx + 1}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
+
                   <div className="text-[9px] text-gray-400">
-                    * 실제 등록 시 셀러 ID 기반 시드로 결정됩니다. 위 예시는 시뮬레이션입니다.
+                    * 시뮬레이션입니다. 실제 등록 시 셀러 ID 기반으로 결정됩니다.
                   </div>
                 </>
               ) : (
@@ -237,6 +347,51 @@ function ImageSectionWithPreview({
         <p className="text-xs text-gray-400 py-2">이미지가 없습니다.</p>
       )}
     </CollapsibleSection>
+  );
+}
+
+/* ─── Quick Summary Card ─── */
+interface QuickSummaryItem {
+  label: string;
+  value: string;
+  ok: boolean;
+  sectionId: string;
+}
+
+function QuickSummaryCard({ items, scrollToSection }: { items: QuickSummaryItem[]; scrollToSection: (id: string) => void }) {
+  const readyCount = items.filter(i => i.ok).length;
+  const allReady = readyCount === items.length;
+
+  return (
+    <div className={`rounded-lg border-2 p-3 mb-3 ${allReady ? 'border-green-300 bg-green-50/50' : 'border-orange-300 bg-orange-50/50'}`}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold text-gray-700">등록 준비 상태</span>
+        <span className={`text-xs font-bold ${allReady ? 'text-green-600' : 'text-orange-600'}`}>
+          {readyCount}/{items.length} {allReady ? '✅' : ''}
+        </span>
+      </div>
+      <div className="flex gap-2">
+        {items.map((item) => (
+          <button
+            key={item.sectionId}
+            onClick={() => !item.ok && scrollToSection(item.sectionId)}
+            className={`flex-1 flex flex-col items-center gap-1 p-2 rounded-lg border transition ${
+              item.ok
+                ? 'border-green-200 bg-white'
+                : 'border-red-200 bg-red-50 cursor-pointer hover:border-red-400'
+            }`}
+          >
+            <span className={`text-sm ${item.ok ? 'text-green-500' : 'text-red-500'}`}>
+              {item.ok ? '✅' : '❌'}
+            </span>
+            <span className="text-[10px] font-medium text-gray-600 leading-tight text-center">{item.label}</span>
+            <span className={`text-[9px] leading-tight truncate max-w-full ${item.ok ? 'text-gray-400' : 'text-red-500 font-medium'}`}>
+              {item.value}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -313,10 +468,57 @@ export default function CoupangFieldsSection({
     return count;
   }, [meta, product.editedAttributeValues]);
 
+  // Section refs for scroll-to
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const scrollToSection = useCallback((id: string) => {
+    sectionRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  // Quick summary items
+  const displayName = product.editedDisplayProductName ?? '';
+  const nameLen = displayName.length || product.editedName.length;
+  const summaryItems: QuickSummaryItem[] = useMemo(() => [
+    {
+      label: '노출상품명',
+      value: displayName ? `${nameLen}자` : '미입력',
+      ok: !!displayName,
+      sectionId: 'basic',
+    },
+    {
+      label: '판매가',
+      value: product.editedSellingPrice > 0 ? `${(product.editedSellingPrice / 10000).toFixed(1)}만` : '미입력',
+      ok: product.editedSellingPrice > 0,
+      sectionId: 'price',
+    },
+    {
+      label: '카테고리',
+      value: product.editedCategoryCode ? product.editedCategoryName.split('>').pop()?.trim() || '선택됨' : '미선택',
+      ok: !!product.editedCategoryCode,
+      sectionId: 'category',
+    },
+    {
+      label: '이미지',
+      value: `${imageItems.length}장`,
+      ok: imageItems.length > 0,
+      sectionId: 'image',
+    },
+    {
+      label: '브랜드',
+      value: product.editedBrand || '미입력',
+      ok: !!product.editedBrand,
+      sectionId: 'basic',
+    },
+  ], [displayName, nameLen, product.editedSellingPrice, product.editedCategoryCode, product.editedCategoryName, imageItems.length, product.editedBrand]);
+
   return (
     <div className="space-y-2.5">
 
+      {/* Quick Summary Card */}
+      <QuickSummaryCard items={summaryItems} scrollToSection={scrollToSection} />
+
       {/* ❶ 기본정보 */}
+      <div ref={(el) => { sectionRefs.current['basic'] = el; }}>
       <CollapsibleSection
         title="기본정보"
         icon={<Package className="w-3.5 h-3.5 text-blue-500" />}
@@ -394,8 +596,10 @@ export default function CoupangFieldsSection({
         {/* 상품군 (읽기전용 — 노출상품명에서 자동 파생) */}
         <ReadonlyField label="상품군 (generalProductName)" value={(product.editedDisplayProductName || product.name || product.editedName).slice(0, 100)} />
       </CollapsibleSection>
+      </div>
 
       {/* ❷ 카테고리 */}
+      <div ref={(el) => { sectionRefs.current['category'] = el; }}>
       <CollapsibleSection
         title="카테고리"
         icon={<Layers className="w-3.5 h-3.5 text-indigo-500" />}
@@ -443,8 +647,10 @@ export default function CoupangFieldsSection({
           </div>
         )}
       </CollapsibleSection>
+      </div>
 
       {/* ❸ 가격/재고 */}
+      <div ref={(el) => { sectionRefs.current['price'] = el; }}>
       <CollapsibleSection
         title="가격/재고"
         icon={<DollarSign className="w-3.5 h-3.5 text-green-500" />}
@@ -504,8 +710,10 @@ export default function CoupangFieldsSection({
           </div>
         </div>
       </CollapsibleSection>
+      </div>
 
       {/* ❹ 이미지 */}
+      <div ref={(el) => { sectionRefs.current['image'] = el; }}>
       <ImageSectionWithPreview
         imageItems={imageItems}
         onImageReorder={onImageReorder}
@@ -513,12 +721,149 @@ export default function CoupangFieldsSection({
         preventionConfig={preventionConfig}
         productCode={product.productCode}
       />
+      </div>
 
-      {/* ❺ 옵션/아이템 */}
+      {/* ── 카테고리 연동 필수 항목 ── */}
+      <div className="flex items-center gap-2 pt-1">
+        <div className="flex-1 h-px bg-gray-200" />
+        <span className="text-[10px] text-gray-400 font-medium">카테고리 연동 필수 항목</span>
+        <div className="flex-1 h-px bg-gray-200" />
+      </div>
+
+      {/* ❺ 고시정보 */}
+      <CollapsibleSection
+        title="고시정보"
+        icon={<FileText className="w-3.5 h-3.5 text-purple-500" />}
+        defaultOpen={true}
+        badge={meta?.noticeCategories.length ? `${meta.noticeCategories.reduce((s, c) => s + c.fieldCount, 0)}개 필드` : undefined}
+        missingCount={noticeMissing > 0 ? noticeMissing : undefined}
+        allComplete={meta !== undefined && noticeMissing === 0}
+      >
+        {previewLoading ? (
+          <div className="flex items-center gap-2 py-3 text-gray-400 text-xs">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span>카테고리 메타 로딩 중...</span>
+          </div>
+        ) : previewError ? (
+          <div className="flex items-center gap-2 py-2 text-orange-600 text-xs">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>{previewError}</span>
+          </div>
+        ) : !meta ? (
+          <p className="text-xs text-gray-400 py-2">카테고리를 먼저 선택하세요</p>
+        ) : meta.noticeCategories.length > 0 ? (
+          <div className="space-y-3">
+            {meta.noticeCategories.map((nc, ci) => (
+              <div key={ci}>
+                <div className="text-[11px] font-medium text-gray-600 mb-1.5">{nc.name}</div>
+                <div className="space-y-1.5">
+                  {nc.fields.map((f, fi) => {
+                    const key = `${nc.name}::${f.noticeCategoryDetailName}`;
+                    const editedValue = product.editedNoticeValues?.[key];
+                    const val = editedValue ?? f.content;
+                    const isEmpty = !val;
+                    return (
+                      <div key={fi} className={`flex items-start gap-2 ${isEmpty ? 'border-l-2 border-l-red-400 pl-2' : ''}`}>
+                        <label className={`text-[10px] w-28 shrink-0 pt-1.5 truncate ${isEmpty ? 'text-red-600 font-medium' : 'text-gray-500'}`} title={f.noticeCategoryDetailName}>
+                          {f.noticeCategoryDetailName}<span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={val}
+                          onChange={(e) => handleNoticeChange(key, e.target.value)}
+                          className={`flex-1 px-2 py-1 border rounded text-xs focus:ring-1 focus:ring-[#E31837] outline-none ${
+                            isEmpty ? 'border-red-300 bg-red-50' :
+                            editedValue !== undefined && editedValue !== f.content ? 'border-[#E31837] bg-red-50/30' :
+                            'border-gray-200'
+                          }`}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <span className="text-xs text-gray-400 block">고시정보 없음</span>
+        )}
+      </CollapsibleSection>
+
+      {/* ❻ 속성 */}
+      <CollapsibleSection
+        title="속성"
+        icon={<Hash className="w-3.5 h-3.5 text-teal-500" />}
+        defaultOpen={true}
+        badge={meta?.attributes.length ? `${meta.attributes.length}개` : undefined}
+        missingCount={attrMissing > 0 ? attrMissing : undefined}
+        allComplete={meta !== undefined && attrMissing === 0}
+      >
+        {previewLoading ? (
+          <div className="flex items-center gap-2 py-3 text-gray-400 text-xs">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span>카테고리 메타 로딩 중...</span>
+          </div>
+        ) : !meta ? (
+          <p className="text-xs text-gray-400 py-2">카테고리를 먼저 선택하세요</p>
+        ) : meta.attributes.length > 0 ? (
+          <div className="space-y-1.5">
+            {meta.attributes.map((attr, i) => {
+              const editedValue = product.editedAttributeValues?.[attr.name] ?? '';
+              const isEmpty = attr.required && !editedValue;
+              const hasEnum = attr.attributeValues && attr.attributeValues.length > 0;
+
+              return (
+                <div key={i} className={`flex items-center gap-2 ${isEmpty ? 'border-l-2 border-l-red-400 pl-2' : ''}`}>
+                  <label className={`text-[10px] w-28 shrink-0 truncate ${attr.required ? (isEmpty ? 'text-red-600 font-medium' : 'text-gray-700 font-medium') : 'text-gray-500'}`} title={attr.name}>
+                    {attr.name}{attr.required && <span className="text-red-500">*</span>}
+                  </label>
+                  {hasEnum ? (
+                    <select
+                      value={editedValue}
+                      onChange={(e) => handleAttributeChange(attr.name, e.target.value)}
+                      className={`flex-1 px-2 py-1 border rounded text-xs focus:ring-1 focus:ring-[#E31837] outline-none ${
+                        isEmpty ? 'border-red-300 bg-red-50' :
+                        editedValue ? 'border-[#E31837] bg-red-50/30' : 'border-gray-200'
+                      }`}
+                    >
+                      <option value="">선택하세요</option>
+                      {attr.attributeValues!.map((av, j) => (
+                        <option key={j} value={av.attributeValueName}>{av.attributeValueName}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type={attr.dataType === 'NUMBER' ? 'number' : 'text'}
+                      value={editedValue}
+                      onChange={(e) => handleAttributeChange(attr.name, e.target.value)}
+                      className={`flex-1 px-2 py-1 border rounded text-xs focus:ring-1 focus:ring-[#E31837] outline-none ${
+                        isEmpty ? 'border-red-300 bg-red-50' :
+                        editedValue ? 'border-[#E31837] bg-red-50/30' : 'border-gray-200'
+                      }`}
+                      placeholder={attr.dataType === 'NUMBER' ? '숫자' : '값 입력'}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <span className="text-xs text-gray-400 block">속성 없음</span>
+        )}
+      </CollapsibleSection>
+
+      {/* ── 자동 설정 항목 ── */}
+      <div className="flex items-center gap-2 pt-1">
+        <div className="flex-1 h-px bg-gray-200" />
+        <span className="text-[10px] text-gray-400 font-medium">자동 설정 항목</span>
+        <div className="flex-1 h-px bg-gray-200" />
+      </div>
+
+      {/* ❼ 옵션/아이템 */}
       <CollapsibleSection
         title="옵션/아이템"
         icon={<Tag className="w-3.5 h-3.5 text-blue-500" />}
-        defaultOpen={true}
+        defaultOpen={false}
         missingCount={optionMissing}
         allComplete={optionMissing === 0}
         badge={meta?.extractedOptions.length ? `${meta.extractedOptions.length}개 추출` : undefined}
@@ -568,7 +913,7 @@ export default function CoupangFieldsSection({
         )}
       </CollapsibleSection>
 
-      {/* ❻ 배송/반품 */}
+      {/* ❽ 배송/반품 */}
       <CollapsibleSection
         title="배송/반품"
         icon={<Truck className="w-3.5 h-3.5 text-green-600" />}
@@ -626,126 +971,6 @@ export default function CoupangFieldsSection({
             </>
           )}
         </div>
-      </CollapsibleSection>
-
-      {/* ❼ 고시정보 */}
-      <CollapsibleSection
-        title="고시정보"
-        icon={<FileText className="w-3.5 h-3.5 text-purple-500" />}
-        badge={meta?.noticeCategories.length ? `${meta.noticeCategories.reduce((s, c) => s + c.fieldCount, 0)}개 필드` : undefined}
-        missingCount={noticeMissing > 0 ? noticeMissing : undefined}
-        allComplete={meta !== undefined && noticeMissing === 0}
-      >
-        {previewLoading ? (
-          <div className="flex items-center gap-2 py-3 text-gray-400 text-xs">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span>카테고리 메타 로딩 중...</span>
-          </div>
-        ) : previewError ? (
-          <div className="flex items-center gap-2 py-2 text-orange-600 text-xs">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span>{previewError}</span>
-          </div>
-        ) : !meta ? (
-          <p className="text-xs text-gray-400 py-2">카테고리를 먼저 선택하세요</p>
-        ) : meta.noticeCategories.length > 0 ? (
-          <div className="space-y-3">
-            {meta.noticeCategories.map((nc, ci) => (
-              <div key={ci}>
-                <div className="text-[11px] font-medium text-gray-600 mb-1.5">{nc.name}</div>
-                <div className="space-y-1.5">
-                  {nc.fields.map((f, fi) => {
-                    const key = `${nc.name}::${f.noticeCategoryDetailName}`;
-                    const editedValue = product.editedNoticeValues?.[key];
-                    const val = editedValue ?? f.content;
-                    const isEmpty = !val;
-                    return (
-                      <div key={fi} className={`flex items-start gap-2 ${isEmpty ? 'border-l-2 border-l-red-400 pl-2' : ''}`}>
-                        <label className={`text-[10px] w-28 shrink-0 pt-1.5 truncate ${isEmpty ? 'text-red-600 font-medium' : 'text-gray-500'}`} title={f.noticeCategoryDetailName}>
-                          {f.noticeCategoryDetailName}<span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={val}
-                          onChange={(e) => handleNoticeChange(key, e.target.value)}
-                          className={`flex-1 px-2 py-1 border rounded text-xs focus:ring-1 focus:ring-[#E31837] outline-none ${
-                            isEmpty ? 'border-red-300 bg-red-50' :
-                            editedValue !== undefined && editedValue !== f.content ? 'border-[#E31837] bg-red-50/30' :
-                            'border-gray-200'
-                          }`}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <span className="text-xs text-gray-400 block">고시정보 없음</span>
-        )}
-      </CollapsibleSection>
-
-      {/* ❽ 속성 */}
-      <CollapsibleSection
-        title="속성"
-        icon={<Hash className="w-3.5 h-3.5 text-teal-500" />}
-        badge={meta?.attributes.length ? `${meta.attributes.length}개` : undefined}
-        missingCount={attrMissing > 0 ? attrMissing : undefined}
-        allComplete={meta !== undefined && attrMissing === 0}
-      >
-        {previewLoading ? (
-          <div className="flex items-center gap-2 py-3 text-gray-400 text-xs">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span>카테고리 메타 로딩 중...</span>
-          </div>
-        ) : !meta ? (
-          <p className="text-xs text-gray-400 py-2">카테고리를 먼저 선택하세요</p>
-        ) : meta.attributes.length > 0 ? (
-          <div className="space-y-1.5">
-            {meta.attributes.map((attr, i) => {
-              const editedValue = product.editedAttributeValues?.[attr.name] ?? '';
-              const isEmpty = attr.required && !editedValue;
-              const hasEnum = attr.attributeValues && attr.attributeValues.length > 0;
-
-              return (
-                <div key={i} className={`flex items-center gap-2 ${isEmpty ? 'border-l-2 border-l-red-400 pl-2' : ''}`}>
-                  <label className={`text-[10px] w-28 shrink-0 truncate ${attr.required ? (isEmpty ? 'text-red-600 font-medium' : 'text-gray-700 font-medium') : 'text-gray-500'}`} title={attr.name}>
-                    {attr.name}{attr.required && <span className="text-red-500">*</span>}
-                  </label>
-                  {hasEnum ? (
-                    <select
-                      value={editedValue}
-                      onChange={(e) => handleAttributeChange(attr.name, e.target.value)}
-                      className={`flex-1 px-2 py-1 border rounded text-xs focus:ring-1 focus:ring-[#E31837] outline-none ${
-                        isEmpty ? 'border-red-300 bg-red-50' :
-                        editedValue ? 'border-[#E31837] bg-red-50/30' : 'border-gray-200'
-                      }`}
-                    >
-                      <option value="">선택하세요</option>
-                      {attr.attributeValues!.map((av, j) => (
-                        <option key={j} value={av.attributeValueName}>{av.attributeValueName}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      type={attr.dataType === 'NUMBER' ? 'number' : 'text'}
-                      value={editedValue}
-                      onChange={(e) => handleAttributeChange(attr.name, e.target.value)}
-                      className={`flex-1 px-2 py-1 border rounded text-xs focus:ring-1 focus:ring-[#E31837] outline-none ${
-                        isEmpty ? 'border-red-300 bg-red-50' :
-                        editedValue ? 'border-[#E31837] bg-red-50/30' : 'border-gray-200'
-                      }`}
-                      placeholder={attr.dataType === 'NUMBER' ? '숫자' : '값 입력'}
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <span className="text-xs text-gray-400 block">속성 없음</span>
-        )}
       </CollapsibleSection>
 
       {/* ❾ 기타 설정 */}

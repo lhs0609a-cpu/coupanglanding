@@ -131,6 +131,7 @@ export default function BulkProductTable({
           카테고리<SortIndicator field="confidence" />
         </div>
         <div className="px-2 text-center">이미지 수</div>
+        <div className="px-1 text-center">제외</div>
       </div>
 
       {/* Virtualized list — itemData로 데이터 전달, 변경 시 자동 갱신 */}

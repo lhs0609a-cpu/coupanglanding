@@ -3,7 +3,7 @@
 import { useEffect, useCallback, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  X, ChevronUp, ChevronDown, CheckCircle2, AlertTriangle, XCircle, Code2, FileText,
+  X, ChevronUp, ChevronDown, CheckCircle2, AlertTriangle, XCircle, Code2, FileText, ExternalLink, Ban,
 } from 'lucide-react';
 import PayloadPreviewPanel, { type PayloadPreviewData } from './PayloadPreviewPanel';
 import CoupangFieldsSection from './CoupangFieldsSection';
@@ -27,6 +27,7 @@ interface BulkProductDetailPanelProps {
   imageUrls: string[];
   onClose: () => void;
   onNavigate: (direction: 'prev' | 'next') => void;
+  onToggle: (uid: string) => void;
   onUpdate: (uid: string, field: string, value: string | number | string[] | Record<string, string>) => void;
   onCategoryClick: (uid: string) => void;
   onReorderImages: (uid: string, newOrder: string[]) => void;
@@ -42,6 +43,7 @@ export default function BulkProductDetailPanel({
   imageUrls,
   onClose,
   onNavigate,
+  onToggle,
   onUpdate,
   onCategoryClick,
   onReorderImages,
@@ -69,11 +71,17 @@ export default function BulkProductDetailPanel({
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
         onNavigate('next');
+      } else if (e.key === 'Delete') {
+        // Skip/restore toggle — only if not focused on an input
+        const active = document.activeElement;
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return;
+        e.preventDefault();
+        onToggle(product.uid);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [product, onClose, onNavigate]);
+  }, [product, onClose, onNavigate, onToggle]);
 
   // Reset tab on product change
   useEffect(() => {
@@ -187,13 +195,36 @@ export default function BulkProductDetailPanel({
           >
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200">
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-mono text-gray-400">{product.productCode}</span>
-                {product.validationStatus === 'ready' && <CheckCircle2 className="w-4 h-4 text-green-500" />}
-                {product.validationStatus === 'warning' && <AlertTriangle className="w-4 h-4 text-orange-500" />}
-                {product.validationStatus === 'error' && <XCircle className="w-4 h-4 text-red-500" />}
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <a
+                  href={`https://search.shopping.naver.com/catalog/${product.productCode}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs font-mono text-gray-400 hover:text-blue-600 transition shrink-0"
+                  title="네이버 원본 보기"
+                >
+                  {product.productCode}
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+                {product.validationStatus === 'ready' && <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />}
+                {product.validationStatus === 'warning' && <AlertTriangle className="w-4 h-4 text-orange-500 shrink-0" />}
+                {product.validationStatus === 'error' && <XCircle className="w-4 h-4 text-red-500 shrink-0" />}
+                <span className="text-xs text-gray-600 truncate max-w-[400px]" title={product.editedName}>
+                  {product.editedName}
+                </span>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={() => onToggle(product.uid)}
+                  title={product.selected ? '등록에서 제외 (Delete)' : '등록에 포함 (Delete)'}
+                  className={`p-1.5 rounded transition ${
+                    product.selected
+                      ? 'text-gray-400 hover:text-red-500 hover:bg-red-50'
+                      : 'text-red-500 bg-red-50 hover:bg-red-100'
+                  }`}
+                >
+                  <Ban className="w-4 h-4" />
+                </button>
                 <button
                   onClick={() => onNavigate('prev')}
                   className="p-1.5 hover:bg-gray-100 rounded transition"

@@ -132,7 +132,7 @@ export interface DetailedError {
   rawResponse?: string;
 }
 
-export type FilterMode = 'all' | 'problems' | 'no-category' | 'no-image';
+export type FilterMode = 'all' | 'problems' | 'no-category' | 'no-image' | 'skipped';
 export type SortField = 'name' | 'price' | 'confidence' | null;
 export type SortDirection = 'asc' | 'desc';
 

@@ -2,12 +2,12 @@
 
 import { memo, useState, useEffect } from 'react';
 import {
-  CheckCircle2, AlertTriangle, XCircle, Pencil, ChevronDown,
+  CheckCircle2, AlertTriangle, XCircle, Pencil, ChevronDown, ExternalLink, Ban,
 } from 'lucide-react';
 import type { EditableProduct } from './types';
 
 // Shared grid template (matches BulkProductTable header)
-export const GRID_TEMPLATE = '52px 48px 64px 1fr 96px 80px 192px 56px';
+export const GRID_TEMPLATE = '44px 40px 56px 1fr 88px 72px 168px 48px 36px';
 
 interface BulkProductRowProps {
   product: EditableProduct;
@@ -60,13 +60,13 @@ const BulkProductRow = memo(function BulkProductRow({
     <div
       style={style}
       className={`grid items-center border-b border-gray-100 text-sm cursor-pointer transition-colors ${
-        !p.selected ? 'opacity-50' : ''
-      } ${p.validationStatus === 'error' ? 'bg-red-50/50' : ''} ${
+        !p.selected ? 'opacity-50 border-l-2 border-l-red-300' : ''
+      } ${p.validationStatus === 'error' && p.selected ? 'bg-red-50/50' : ''} ${
         isSelected ? 'bg-blue-50 ring-1 ring-blue-300' : 'hover:bg-gray-50'
       }`}
       onClick={(e) => {
-        // Don't trigger row click for input/button/checkbox interactions
-        if ((e.target as HTMLElement).closest('input, button')) return;
+        // Don't trigger row click for input/button/checkbox/anchor interactions
+        if ((e.target as HTMLElement).closest('input, button, a')) return;
         onRowClick(p.uid);
       }}
       role="row"
@@ -95,19 +95,31 @@ const BulkProductRow = memo(function BulkProductRow({
           <img
             src={thumbnailUrl}
             alt=""
-            className={`w-10 h-10 rounded object-cover bg-gray-100 transition-opacity ${thumbLoaded ? 'opacity-100' : 'opacity-0'}`}
+            className={`w-9 h-9 rounded object-cover bg-gray-100 transition-opacity ${thumbLoaded ? 'opacity-100' : 'opacity-0'}`}
             onLoad={() => setThumbLoaded(true)}
             loading="lazy"
           />
         ) : (
-          <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-[10px] text-gray-400">
+          <div className="w-9 h-9 rounded bg-gray-100 flex items-center justify-center text-[10px] text-gray-400">
             {mainImgCount || 0}
           </div>
         )}
       </div>
 
-      {/* Code */}
-      <div className="px-2 text-xs text-gray-500 font-mono truncate">{p.productCode}</div>
+      {/* Code — clickable naver link */}
+      <div className="px-2 text-xs font-mono truncate">
+        <a
+          href={`https://search.shopping.naver.com/catalog/${p.productCode}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-0.5 text-gray-500 hover:text-blue-600 transition"
+          title="네이버 원본 보기"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {p.productCode}
+          <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+        </a>
+      </div>
 
       {/* Name */}
       <div className="px-2 min-w-0">
@@ -116,7 +128,7 @@ const BulkProductRow = memo(function BulkProductRow({
           value={p.editedName}
           onChange={(e) => onUpdate(p.uid, 'editedName', e.target.value)}
           title={fieldHasError('name') ? p.validationErrors?.find((e) => e.field === 'name')?.message : undefined}
-          className={fieldBorderClass('name', "w-full px-1.5 py-0.5 border border-transparent hover:border-gray-300 focus:border-[#E31837] rounded text-sm text-gray-900 focus:ring-1 focus:ring-[#E31837] outline-none transition truncate")}
+          className={fieldBorderClass('name', `w-full px-1.5 py-0.5 border border-transparent hover:border-gray-300 focus:border-[#E31837] rounded text-sm text-gray-900 focus:ring-1 focus:ring-[#E31837] outline-none transition truncate${!p.selected ? ' line-through text-gray-400' : ''}`)}
           onClick={(e) => e.stopPropagation()}
         />
       </div>
@@ -172,6 +184,21 @@ const BulkProductRow = memo(function BulkProductRow({
         <span title="대표">{mainImgCount}</span>
         <span>/</span>
         <span title="상세">{p.detailImageCount}</span>
+      </div>
+
+      {/* Skip (exclude) button */}
+      <div className="flex items-center justify-center">
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggle(p.uid); }}
+          title={p.selected ? '등록에서 제외' : '등록에 포함'}
+          className={`p-1 rounded transition ${
+            p.selected
+              ? 'text-gray-300 hover:text-red-500 hover:bg-red-50'
+              : 'text-red-500 bg-red-50 hover:bg-red-100'
+          }`}
+        >
+          <Ban className="w-3.5 h-3.5" />
+        </button>
       </div>
     </div>
   );
