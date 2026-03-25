@@ -615,7 +615,7 @@ export default function BulkStep2Review({
                       {Object.entries(preflightResults)
                         .filter(([, r]) => !r.pass)
                         .map(([uid, r]) => (
-                          <div key={uid} className="flex items-start gap-2 text-xs bg-white rounded px-2 py-1.5 border border-red-100">
+                          <button key={uid} onClick={() => setSelectedUid(uid)} className="w-full flex items-start gap-2 text-xs bg-white rounded px-2 py-1.5 border border-red-100 hover:bg-red-50 hover:border-red-300 cursor-pointer transition-colors text-left">
                             <XCircle className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
                             <div>
                               <span className="font-medium text-gray-700">{r.payloadSnapshot.sellerProductName.slice(0, 30)}</span>
@@ -623,7 +623,7 @@ export default function BulkStep2Review({
                                 <div key={i} className="text-red-600 mt-0.5">{e.message}</div>
                               ))}
                             </div>
-                          </div>
+                          </button>
                         ))}
                     </div>
                   </div>

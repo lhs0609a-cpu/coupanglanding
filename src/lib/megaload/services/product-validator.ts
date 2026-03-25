@@ -451,13 +451,13 @@ export function validatePayloadStructure(input: PayloadStructureInput): {
   // 3. images >= 1
   const items = (payload.sellerProductItemList as Record<string, unknown>[]) || [];
   const firstItem = items[0] || {};
-  const images = (firstItem.imageList as Record<string, unknown>[]) || [];
+  const images = (firstItem.images as Record<string, unknown>[]) || [];
   if (images.length === 0) {
     errors.push({ code: 'NO_IMAGES', field: 'images', message: '대표이미지가 없습니다. 최소 1장 필요합니다.' });
   }
 
   // 4. salePrice 범위
-  const salePrice = (firstItem.unitPrice as number) || 0;
+  const salePrice = (firstItem.salePrice as number) || 0;
   if (salePrice < 100) {
     errors.push({ code: 'PRICE_RANGE', field: 'salePrice', message: `판매가가 ${salePrice}원입니다. (최소 100원)` });
   } else if (salePrice > 100_000_000) {
