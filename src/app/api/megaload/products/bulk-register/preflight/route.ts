@@ -1,0 +1,279 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
+import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
+import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
+import { buildProductPayload, type BuildPayloadProduct } from '@/lib/megaload/services/preflight-builder';
+import { validatePayloadStructure, type CategoryMetadata } from '@/lib/megaload/services/product-validator';
+import type { PreflightProductResult, PreflightIssue } from '@/lib/megaload/types';
+import type { DeliveryInfo, ReturnInfo, AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
+import type { NoticeCategoryMeta } from '@/lib/megaload/services/notice-field-filler';
+import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
+
+interface PreflightRequestProduct {
+  uid: string;
+  productCode: string;
+  folderPath: string;
+  name: string;
+  brand: string;
+  sellingPrice: number;
+  sourcePrice: number;
+  categoryCode: string;
+  tags: string[];
+  description: string;
+  mainImages: string[];
+  detailImages: string[];
+  reviewImages: string[];
+  infoImages: string[];
+  noticeMeta?: NoticeCategoryMeta[];
+  attributeMeta?: AttributeMeta[];
+  aiDisplayName?: string;
+  aiSellerName?: string;
+  categoryConfidence?: number;
+  displayProductNameOverride?: string;
+  manufacturerOverride?: string;
+  unitCountOverride?: number;
+  stockOverride?: number;
+  noticeValuesOverride?: Record<string, string>;
+  attributeValuesOverride?: Record<string, string>;
+  descriptionOverride?: string;
+  storyParagraphsOverride?: string[];
+  reviewTextsOverride?: string[];
+  // 사전업로드 이미지 URL
+  preUploadedUrls?: {
+    mainImageUrls: string[];
+    detailImageUrls: string[];
+    reviewImageUrls: string[];
+    infoImageUrls: string[];
+  };
+}
+
+interface PreflightRequestBody {
+  products: PreflightRequestProduct[];
+  deliveryInfo: DeliveryInfo;
+  returnInfo: ReturnInfo;
+  stock?: number;
+  contactNumber?: string;
+  noticeOverrides?: Record<string, string>;
+  preventionConfig?: PreventionConfig;
+  categoryMetaCache?: Record<string, CategoryMetadata>;
+  imageTimestamps?: Record<string, number>;
+}
+
+/**
+ * POST — 프리플라이트 검사
+ * 실제 쿠팡 API 페이로드를 빌드하고 구조적으로 엄격 검증.
+ * API 호출 없이 클라이언트에서 1-2초 내 결과를 받음.
+ */
+export async function POST(req: NextRequest) {
+  const startTime = Date.now();
+
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const serviceClient = await createServiceClient();
+    let shUserId: string;
+    try {
+      shUserId = await ensureMegaloadUser(supabase, serviceClient, user.id);
+    } catch (err) {
+      return NextResponse.json({ error: err instanceof Error ? err.message : 'Megaload 계정이 없습니다.' }, { status: 404 });
+    }
+
+    const body = (await req.json()) as PreflightRequestBody;
+    const {
+      products,
+      deliveryInfo,
+      returnInfo,
+      stock = 999,
+      noticeOverrides,
+      preventionConfig,
+      categoryMetaCache = {},
+      imageTimestamps = {},
+    } = body;
+
+    if (!products || products.length === 0) {
+      return NextResponse.json({ error: '상품이 없습니다.' }, { status: 400 });
+    }
+
+    // vendorId 획득
+    const adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang');
+    const coupangAdapter = adapter as CoupangAdapter;
+    const vendorId = coupangAdapter.getVendorId();
+
+    // 유니크 카테고리 코드별 메타 조회 (캐시 우선)
+    const uniqueCategoryCodes = [...new Set(products.map(p => p.categoryCode).filter(Boolean))];
+    const uncachedCodes = uniqueCategoryCodes.filter(c => !categoryMetaCache[c]);
+    const categoryMeta: Record<string, CategoryMetadata> = { ...categoryMetaCache };
+
+    if (uncachedCodes.length > 0) {
+      try {
+        const metaRes = await fetch(
+          `${req.nextUrl.origin}/api/megaload/products/bulk-register/init-job`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Cookie: req.headers.get('cookie') || '' },
+            body: JSON.stringify({ totalCount: 0, categoryCodes: uncachedCodes, preflightOnly: true }),
+          },
+        );
+        if (metaRes.ok) {
+          const metaData = await metaRes.json();
+          if (metaData.categoryMeta) {
+            Object.assign(categoryMeta, metaData.categoryMeta);
+          }
+        }
+      } catch {
+        // 메타 조회 실패는 치명적이지 않음 — product-level 메타로 대체
+      }
+    }
+
+    // 상품별 병렬 처리 (10개 동시)
+    const PARALLEL = 10;
+    const results: Record<string, PreflightProductResult> = {};
+    let passCount = 0;
+    let failCount = 0;
+    let warnCount = 0;
+
+    for (let i = 0; i < products.length; i += PARALLEL) {
+      const chunk = products.slice(i, i + PARALLEL);
+      const chunkResults = await Promise.allSettled(
+        chunk.map(async (product) => {
+          const meta = categoryMeta[product.categoryCode] || {
+            noticeMeta: product.noticeMeta || [],
+            attributeMeta: product.attributeMeta || [],
+          };
+
+          // 이미지 URL 확인
+          const mainImageUrls = product.preUploadedUrls?.mainImageUrls?.filter(Boolean) || [];
+          const detailImageUrls = product.preUploadedUrls?.detailImageUrls?.filter(Boolean) || [];
+          const reviewImageUrls = product.preUploadedUrls?.reviewImageUrls?.filter(Boolean) || [];
+          const infoImageUrls = product.preUploadedUrls?.infoImageUrls?.filter(Boolean) || [];
+
+          // 이미지 상태 판정
+          let imageStatus: 'fresh' | 'stale' | 'missing' = 'missing';
+          if (mainImageUrls.length > 0) {
+            const uploadedAt = imageTimestamps[product.uid];
+            if (uploadedAt) {
+              const ageMin = (Date.now() - uploadedAt) / 60_000;
+              imageStatus = ageMin > 25 ? 'stale' : 'fresh';
+            } else {
+              imageStatus = 'fresh'; // 타임스탬프 없으면 fresh로 가정
+            }
+          }
+
+          // 페이로드 빌드
+          const buildProduct: BuildPayloadProduct = {
+            uid: product.uid,
+            productCode: product.productCode,
+            folderPath: product.folderPath,
+            name: product.name,
+            brand: product.brand,
+            sellingPrice: product.sellingPrice,
+            sourcePrice: product.sourcePrice,
+            categoryCode: product.categoryCode,
+            tags: product.tags,
+            description: product.description,
+            mainImages: product.mainImages,
+            detailImages: product.detailImages,
+            reviewImages: product.reviewImages,
+            infoImages: product.infoImages,
+            noticeMeta: meta.noticeMeta as NoticeCategoryMeta[],
+            attributeMeta: meta.attributeMeta as AttributeMeta[],
+            aiDisplayName: product.aiDisplayName,
+            aiSellerName: product.aiSellerName,
+            categoryConfidence: product.categoryConfidence,
+            displayProductNameOverride: product.displayProductNameOverride,
+            manufacturerOverride: product.manufacturerOverride,
+            unitCountOverride: product.unitCountOverride,
+            stockOverride: product.stockOverride,
+            noticeValuesOverride: product.noticeValuesOverride,
+            attributeValuesOverride: product.attributeValuesOverride,
+            descriptionOverride: product.descriptionOverride,
+            storyParagraphsOverride: product.storyParagraphsOverride,
+            reviewTextsOverride: product.reviewTextsOverride,
+          };
+
+          const { payload, filledNotices } = await buildProductPayload({
+            product: buildProduct,
+            vendorId,
+            deliveryInfo,
+            returnInfo,
+            stock,
+            noticeOverrides,
+            preventionConfig,
+            shUserId,
+            mainImageUrls,
+            detailImageUrls,
+            reviewImageUrls,
+            infoImageUrls,
+          });
+
+          // 구조 검증
+          const validation = validatePayloadStructure({
+            payload,
+            categoryMeta: meta,
+            imageTimestamp: imageTimestamps[product.uid],
+          });
+
+          // 페이로드 스냅샷
+          const payloadJson = JSON.stringify(payload);
+          const items = (payload.sellerProductItemList as Record<string, unknown>[]) || [];
+          const firstItem = items[0] || {};
+          const imageList = (firstItem.imageList as unknown[]) || [];
+
+          const payloadSnapshot = {
+            sellerProductName: (payload.sellerProductName as string) || '',
+            displayProductName: (payload.displayProductName as string) || '',
+            imageCount: imageList.length,
+            noticeCategoryCount: filledNotices.length,
+            attributeCount: (meta.attributeMeta as { required: boolean }[]).filter(a => a.required).length,
+            hasDetailPage: !!payload.content && (payload.content as string).length > 50,
+            payloadSizeKB: Math.round(payloadJson.length / 1024 * 10) / 10,
+          };
+
+          const pass = validation.errors.length === 0;
+
+          return {
+            uid: product.uid,
+            result: {
+              pass,
+              errors: validation.errors,
+              warnings: validation.warnings,
+              payloadSnapshot,
+              imageStatus,
+            } as PreflightProductResult,
+          };
+        }),
+      );
+
+      for (const settled of chunkResults) {
+        if (settled.status === 'fulfilled') {
+          const { uid, result } = settled.value;
+          results[uid] = result;
+          if (result.pass) passCount++;
+          else failCount++;
+          if (result.warnings.length > 0) warnCount++;
+        } else {
+          // Promise rejected — 빌드 자체 실패
+          const errMsg = settled.reason instanceof Error ? settled.reason.message : '빌드 실패';
+          // chunk에서 어떤 상품인지 식별 어려움 → skip
+          console.error('[preflight] Product build error:', errMsg);
+        }
+      }
+    }
+
+    return NextResponse.json({
+      overallPass: failCount === 0,
+      stats: { total: products.length, pass: passCount, fail: failCount, warn: warnCount },
+      results,
+      categoryMeta,
+      durationMs: Date.now() - startTime,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : '프리플라이트 검사 실패' },
+      { status: 500 },
+    );
+  }
+}
