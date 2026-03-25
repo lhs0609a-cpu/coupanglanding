@@ -58,7 +58,7 @@ const BulkProductRow = memo(function BulkProductRow({
 
   return (
     <div
-      style={style}
+      style={{ ...style, gridTemplateColumns: GRID_TEMPLATE }}
       className={`grid items-center border-b border-gray-100 text-sm cursor-pointer transition-colors ${
         !p.selected ? 'opacity-50 border-l-2 border-l-red-300' : ''
       } ${p.validationStatus === 'error' && p.selected ? 'bg-red-50/50' : ''} ${
