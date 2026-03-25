@@ -9,6 +9,7 @@ import {
   ArrowDown, MonitorSmartphone, RefreshCw,
   Brain, Globe, Cpu, CheckCircle,
 } from 'lucide-react';
+import SharedFooter from '@/components/sections/Footer';
 
 // ============================================================================
 // CONSTANTS
@@ -651,39 +652,7 @@ function FinalCTASection() {
   );
 }
 
-// ============================================================================
-// COMPONENT: Footer
-// ============================================================================
-function Footer() {
-  return (
-    <footer className="bg-white border-t border-gray-100">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
-        <div className="grid md:grid-cols-12 gap-8 lg:gap-12">
-          <div className="md:col-span-5">
-            <a href="#" className="flex items-center gap-2.5 mb-5"><div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#E31837] to-[#ff4d6a] flex items-center justify-center shadow-sm"><Zap className="w-[18px] h-[18px] text-white" strokeWidth={2.5} /></div><span className="text-lg font-bold text-gray-900">쿠팡 자동화</span></a>
-            <p className="text-sm text-gray-500 leading-relaxed max-w-sm mb-5">AI 기반 쿠팡 상품 등록 자동화 솔루션.<br />카테고리 매칭, 상품명 생성, 가격 계산, 네이버 변환까지<br />셀러에게 필요한 모든 것을 자동화합니다.</p>
-            <p className="text-xs text-gray-400">본 서비스는 쿠팡 공식 서비스가 아니며, 쿠팡 Wing API를 활용한 서드파티 솔루션입니다.</p>
-          </div>
-          <div className="md:col-span-2"><h4 className="text-sm font-bold text-gray-900 mb-4">제품</h4><ul className="space-y-3">{[{ label: '기능', href: '#features' }, { label: '요금제', href: '#pricing' }, { label: 'FAQ', href: '#faq' }].map((item) => (<li key={item.label}><a href={item.href} className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{item.label}</a></li>))}</ul></div>
-          <div className="md:col-span-2"><h4 className="text-sm font-bold text-gray-900 mb-4">지원</h4><ul className="space-y-3"><li><a href="/guide" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">초보 셀러 가이드</a></li><li><a href="/start" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">사업자등록 체크리스트</a></li>{['고객센터', 'API 문서', '제휴 문의'].map((label) => (<li key={label}><a href="#" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{label}</a></li>))}</ul></div>
-          <div className="md:col-span-3">
-            <h4 className="text-sm font-bold text-gray-900 mb-4">계정</h4>
-            <ul className="space-y-3">
-              <li><a href="/auth/login?type=signup" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">파트너 회원가입</a></li>
-              <li><a href="/auth/login" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">관리자 로그인</a></li>
-            </ul>
-            <h4 className="text-sm font-bold text-gray-900 mt-6 mb-4">법적 고지</h4>
-            <ul className="space-y-3">{['이용약관', '개인정보처리방침'].map((label) => (<li key={label}><a href="#" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{label}</a></li>))}</ul>
-          </div>
-        </div>
-        <div className="mt-12 pt-8 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
-          <p className="text-xs text-gray-400">&copy; {new Date().getFullYear()} 쿠팡 자동화. All rights reserved.</p>
-          <div className="flex items-center gap-6">{['이용약관', '개인정보처리방침', '쿠키 정책'].map((t) => (<a key={t} href="#" className="text-xs text-gray-400 hover:text-gray-600 transition-colors">{t}</a>))}</div>
-        </div>
-      </div>
-    </footer>
-  );
-}
+// Footer: uses shared component (SharedFooter)
 
 // ============================================================================
 // MAIN PAGE
@@ -703,7 +672,7 @@ export default function ProgramPage() {
       <TestimonialsSection />
       <FAQSection />
       <FinalCTASection />
-      <Footer />
+      <SharedFooter />
     </main>
   );
 }

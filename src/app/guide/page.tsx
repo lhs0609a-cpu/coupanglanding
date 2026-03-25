@@ -10,6 +10,7 @@ import {
   ShoppingCart, Star, TrendingUp,
   Truck, Users, X, Zap,
 } from 'lucide-react';
+import SharedFooter from '@/components/sections/Footer';
 
 // ============================================================================
 // ANIMATION VARIANTS (PT-style with custom index delays)
@@ -1171,36 +1172,7 @@ function CTASection() {
   );
 }
 
-// ============================================================================
-// FOOTER — PT Style
-// ============================================================================
-function Footer() {
-  return (
-    <footer className="bg-white border-t border-gray-100 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-          {/* Logo */}
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#E31837] to-[#ff4d6a] flex items-center justify-center">
-              <span className="text-white font-bold text-xs">M</span>
-            </div>
-            <span className="text-sm font-semibold text-gray-500">
-              &copy; {new Date().getFullYear()} 메가로드
-            </span>
-          </div>
-          {/* Nav links */}
-          <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm">
-            <Link href="/guide" className="text-gray-400 hover:text-gray-700 transition-colors font-medium">초보 셀러 가이드</Link>
-            <Link href="/start" className="text-gray-400 hover:text-gray-700 transition-colors font-medium">사업자등록 체크리스트</Link>
-            <Link href="/pt" className="text-gray-400 hover:text-gray-700 transition-colors font-medium">1:1 PT</Link>
-            <Link href="/program" className="text-gray-400 hover:text-gray-700 transition-colors font-medium">자동화 프로그램</Link>
-            <Link href="/auth/login" className="text-gray-400 hover:text-gray-700 transition-colors font-medium">파트너 로그인</Link>
-          </nav>
-        </div>
-      </div>
-    </footer>
-  );
-}
+// Footer: uses shared component (SharedFooter)
 
 // ============================================================================
 // MAIN PAGE
@@ -1219,7 +1191,7 @@ export default function GuidePage() {
       <WarningsSection />
       <GlossarySection />
       <CTASection />
-      <Footer />
+      <SharedFooter />
     </main>
   );
 }

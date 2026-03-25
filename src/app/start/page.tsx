@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence, useInView } from 'framer-motion';
+import SharedFooter from '@/components/sections/Footer';
 import {
   FileText,
   Shield,
@@ -748,26 +749,7 @@ function CelebrationOverlay({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Footer
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function Footer() {
-  return (
-    <footer className="border-t border-white/10 bg-gray-950">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-500">
-        <span>&copy; {new Date().getFullYear()} 메가로드. All rights reserved.</span>
-        <div className="flex items-center gap-4">
-          <Link href="/pt" className="hover:text-gray-300 transition-colors">
-            프로그램 소개
-          </Link>
-          <Link href="/terms" className="hover:text-gray-300 transition-colors">
-            이용약관
-          </Link>
-        </div>
-      </div>
-    </footer>
-  );
-}
+// Footer: uses shared component (SharedFooter)
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Main Page
@@ -926,7 +908,7 @@ export default function StartPage() {
 
       <FAQSection />
       <FinalCTA />
-      <Footer />
+      <SharedFooter />
 
       <AnimatePresence>
         {showCelebration && (
