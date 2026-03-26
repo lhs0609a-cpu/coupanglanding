@@ -56,62 +56,32 @@ export async function pickAndScanFolder(): Promise<{
 
 /**
  * FileSystemDirectoryHandle을 받아 product_* 하위 폴더를 스캔
+ *
+ * P1-3: 폴더 병렬 스캔 (SCAN_CONCURRENCY=10)
+ * P1-4: objectURL 지연 생성 (main_images만 즉시, 나머지 lazy)
  */
 export async function scanDirectoryHandle(dirHandle: FileSystemDirectoryHandle): Promise<{
   dirName: string;
   products: ScannedProduct[];
 }> {
-  const products: ScannedProduct[] = [];
-
-  // 하위 디렉토리 탐색
+  // Phase 1: product_* 디렉토리 핸들 수집 (순차 — 빠름)
+  const productDirs: { name: string; handle: FileSystemDirectoryHandle }[] = [];
   for await (const [name, handle] of dirHandle as unknown as AsyncIterable<[string, FileSystemHandle]>) {
     if (handle.kind !== 'directory') continue;
     if (!name.startsWith('product_')) continue;
+    productDirs.push({ name, handle: handle as FileSystemDirectoryHandle });
+  }
 
-    const productDirHandle = handle as FileSystemDirectoryHandle;
-    const productCode = name.replace('product_', '');
+  // Phase 2: 10개씩 병렬 처리
+  const SCAN_CONCURRENCY = 10;
+  const products: ScannedProduct[] = [];
 
-    // product.json 읽기
-    let productJson: ScannedProduct['productJson'] = {};
-    try {
-      const jsonHandle = await productDirHandle.getFileHandle('product.json');
-      const file = await jsonHandle.getFile();
-      const text = await file.text();
-      productJson = JSON.parse(text);
-    } catch {
-      // product.json 없거나 파싱 실패
-    }
-
-    // product_summary.txt에서 원본 URL 추출
-    let sourceUrl: string | undefined;
-    try {
-      const summaryHandle = await productDirHandle.getFileHandle('product_summary.txt');
-      const summaryFile = await summaryHandle.getFile();
-      const summaryText = await summaryFile.text();
-      const urlMatch = summaryText.match(/URL:\s*(https?:\/\/\S+)/i);
-      if (urlMatch) sourceUrl = urlMatch[1];
-    } catch {
-      // product_summary.txt 없음
-    }
-
-    // 이미지 파일 수집
-    const mainImages = await collectImagesFromSubdir(productDirHandle, 'main_images', MAIN_IMAGE_PATTERN);
-    // 상세이미지 = 리뷰 폴더에서만 가져옴 (review_images/ → reviews/)
-    let reviewImages = await collectImagesFromSubdir(productDirHandle, 'review_images', IMAGE_PATTERN);
-    if (reviewImages.length === 0) reviewImages = await collectImagesFromSubdir(productDirHandle, 'reviews', IMAGE_PATTERN);
-    const detailImages = [...reviewImages];
-    const infoImages = await collectImagesFromSubdir(productDirHandle, 'product_info', IMAGE_PATTERN);
-
-    products.push({
-      productCode,
-      folderName: name,
-      sourceUrl,
-      productJson,
-      mainImages,
-      detailImages,
-      infoImages,
-      reviewImages,
-    });
+  for (let i = 0; i < productDirs.length; i += SCAN_CONCURRENCY) {
+    const batch = productDirs.slice(i, i + SCAN_CONCURRENCY);
+    const results = await Promise.all(batch.map(({ name, handle }) =>
+      scanSingleProduct(name, handle),
+    ));
+    products.push(...results);
   }
 
   // 상품코드 순 정렬
@@ -121,12 +91,66 @@ export async function scanDirectoryHandle(dirHandle: FileSystemDirectoryHandle):
 }
 
 /**
+ * 단일 product_* 폴더를 스캔
+ */
+async function scanSingleProduct(
+  name: string,
+  productDirHandle: FileSystemDirectoryHandle,
+): Promise<ScannedProduct> {
+  const productCode = name.replace('product_', '');
+
+  // product.json 읽기
+  let productJson: ScannedProduct['productJson'] = {};
+  try {
+    const jsonHandle = await productDirHandle.getFileHandle('product.json');
+    const file = await jsonHandle.getFile();
+    const text = await file.text();
+    productJson = JSON.parse(text);
+  } catch {
+    // product.json 없거나 파싱 실패
+  }
+
+  // product_summary.txt에서 원본 URL 추출
+  let sourceUrl: string | undefined;
+  try {
+    const summaryHandle = await productDirHandle.getFileHandle('product_summary.txt');
+    const summaryFile = await summaryHandle.getFile();
+    const summaryText = await summaryFile.text();
+    const urlMatch = summaryText.match(/URL:\s*(https?:\/\/\S+)/i);
+    if (urlMatch) sourceUrl = urlMatch[1];
+  } catch {
+    // product_summary.txt 없음
+  }
+
+  // P1-4: main_images만 objectURL 즉시 생성, 나머지는 핸들만 수집 (lazy)
+  const mainImages = await collectImagesFromSubdir(productDirHandle, 'main_images', MAIN_IMAGE_PATTERN, true);
+  let reviewImages = await collectImagesFromSubdir(productDirHandle, 'review_images', IMAGE_PATTERN, false);
+  if (reviewImages.length === 0) reviewImages = await collectImagesFromSubdir(productDirHandle, 'reviews', IMAGE_PATTERN, false);
+  const detailImages = [...reviewImages];
+  const infoImages = await collectImagesFromSubdir(productDirHandle, 'product_info', IMAGE_PATTERN, false);
+
+  return {
+    productCode,
+    folderName: name,
+    sourceUrl,
+    productJson,
+    mainImages,
+    detailImages,
+    infoImages,
+    reviewImages,
+  };
+}
+
+/**
  * 하위 디렉토리에서 패턴에 맞는 이미지 파일 핸들을 수집
+ *
+ * @param eagerObjectUrls - true이면 즉시 objectURL 생성 (main_images용), false이면 핸들만 수집
  */
 async function collectImagesFromSubdir(
   parentHandle: FileSystemDirectoryHandle,
   subdirName: string,
   pattern: RegExp,
+  eagerObjectUrls = true,
 ): Promise<ScannedImageFile[]> {
   try {
     const subHandle = await parentHandle.getDirectoryHandle(subdirName);
@@ -135,12 +159,14 @@ async function collectImagesFromSubdir(
     for await (const [name, handle] of subHandle as unknown as AsyncIterable<[string, FileSystemHandle]>) {
       if (handle.kind !== 'file') continue;
       if (!pattern.test(name)) continue;
-      // 스캔 시점에 objectURL 생성 — 핸들 만료 방지
       let objectUrl: string | undefined;
-      try {
-        const file = await (handle as FileSystemFileHandle).getFile();
-        objectUrl = URL.createObjectURL(file);
-      } catch { /* 파일 읽기 실패 시 핸들만 저장 */ }
+      // P1-4: eagerObjectUrls가 true일 때만 즉시 생성
+      if (eagerObjectUrls) {
+        try {
+          const file = await (handle as FileSystemFileHandle).getFile();
+          objectUrl = URL.createObjectURL(file);
+        } catch { /* 파일 읽기 실패 시 핸들만 저장 */ }
+      }
       files.push({ name, handle: handle as FileSystemFileHandle, objectUrl });
     }
 
@@ -148,6 +174,20 @@ async function collectImagesFromSubdir(
     return files;
   } catch {
     return [];
+  }
+}
+
+/**
+ * P1-4: objectURL 지연 생성 유틸 — 필요할 때 lazy 생성
+ */
+export async function ensureObjectUrl(img: ScannedImageFile): Promise<string | undefined> {
+  if (img.objectUrl) return img.objectUrl;
+  try {
+    const file = await img.handle.getFile();
+    img.objectUrl = URL.createObjectURL(file);
+    return img.objectUrl;
+  } catch {
+    return undefined;
   }
 }
 

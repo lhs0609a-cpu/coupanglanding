@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
     // preventionSeed가 truthy이면 shUserId를 실제 시드로 사용
     const preventionSeed = body.preventionSeed ? shUserId : undefined;
     const IMAGE_CONCURRENCY = 15;
-    const PRODUCT_CONCURRENCY = 2;
+    const PRODUCT_CONCURRENCY = 5;  // P2-2: 2→5 동시 처리
 
     const allResults: Record<string, {
       mainImageUrls: string[];

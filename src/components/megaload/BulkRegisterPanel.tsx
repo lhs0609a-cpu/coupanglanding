@@ -65,6 +65,15 @@ export default function BulkRegisterPanel() {
     step, products, imagePreuploadProgress, imagePreuploadCache,
   } = actions;
 
+  // P0-4: 안정적 콜백 참조 — 인라인 화살표 함수 제거로 자식 re-render 방지
+  const handleCategoryClick = useCallback((uid: string) => {
+    actions.setCategorySearchTarget(uid);
+  }, [actions.setCategorySearchTarget]);
+
+  const handleBack = useCallback(() => {
+    actions.setStep(1);
+  }, [actions.setStep]);
+
   return (
     <div className="space-y-6">
       {/* Step indicator */}
@@ -189,14 +198,14 @@ export default function BulkRegisterPanel() {
           onToggle={actions.toggleProduct}
           onToggleAll={actions.toggleAll}
           onUpdate={actions.updateField}
-          onCategoryClick={(uid) => actions.setCategorySearchTarget(uid)}
+          onCategoryClick={handleCategoryClick}
           onSetCategorySearchTarget={actions.setCategorySearchTarget}
           onSetCategoryKeyword={actions.setCategoryKeyword}
           onSearchCategory={actions.handleSearchCategory}
           onSelectCategory={actions.selectCategory}
           onDeepValidation={actions.handleDeepValidation}
           onRegister={actions.handleRegister}
-          onBack={() => actions.setStep(1)}
+          onBack={handleBack}
           thumbnailCache={thumbnailCache}
           onLoadThumbnail={handleLoadThumbnail}
           onReorderImages={actions.handleReorderImages}

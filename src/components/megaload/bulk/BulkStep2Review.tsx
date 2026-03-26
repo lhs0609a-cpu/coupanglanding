@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef, memo } from 'react';
 import {
   ArrowLeft, ArrowRight, Loader2, CheckCircle2, XCircle, AlertTriangle,
   Search, Zap, Filter, Upload, Eye, BarChart3, CircleDot, Package, ClipboardCopy, ChevronDown, ChevronUp, Ban,
@@ -88,7 +88,87 @@ interface BulkStep2ReviewProps {
   onCanary?: (uid: string) => void;
 }
 
-export default function BulkStep2Review({
+// P1-2: 파이프라인 진행률 섹션 — memo 분리로 테이블 re-render 방지
+const PipelineProgress = memo(function PipelineProgress({
+  imageFilterProgress,
+  titleGenProgress,
+  contentGenProgress,
+}: {
+  imageFilterProgress: { done: number; total: number; phase: 'idle' | 'running' | 'complete' };
+  titleGenProgress: { done: number; total: number } | null;
+  contentGenProgress: { done: number; total: number } | null;
+}) {
+  if (imageFilterProgress.phase === 'idle' && titleGenProgress === null && contentGenProgress === null) return null;
+
+  const steps: { label: string; icon: React.ReactNode; done: number; total: number; phase: 'idle' | 'running' | 'complete'; color: string }[] = [
+    {
+      label: '이미지 필터링',
+      icon: <ImageIcon className="w-3.5 h-3.5" />,
+      done: imageFilterProgress.done,
+      total: imageFilterProgress.total,
+      phase: imageFilterProgress.phase,
+      color: 'blue',
+    },
+    {
+      label: '노출상품명 생성',
+      icon: <Type className="w-3.5 h-3.5" />,
+      done: titleGenProgress?.done ?? 0,
+      total: titleGenProgress?.total ?? 0,
+      phase: titleGenProgress === null
+        ? 'idle'
+        : titleGenProgress.done >= titleGenProgress.total ? 'complete' : 'running',
+      color: 'purple',
+    },
+    {
+      label: '상세페이지 생성',
+      icon: <FileText className="w-3.5 h-3.5" />,
+      done: contentGenProgress?.done ?? 0,
+      total: contentGenProgress?.total ?? 0,
+      phase: contentGenProgress === null
+        ? 'idle'
+        : contentGenProgress.done >= contentGenProgress.total ? 'complete' : 'running',
+      color: 'green',
+    },
+  ];
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <h4 className="text-xs font-semibold text-gray-700 mb-3">자동 파이프라인</h4>
+      <div className="space-y-2.5">
+        {steps.map((s, i) => {
+          const pct = s.total > 0 ? Math.round((s.done / s.total) * 100) : (s.phase === 'complete' ? 100 : 0);
+          const textColor = s.phase === 'complete' ? 'text-green-600' : s.phase === 'running' ? `text-${s.color}-600` : 'text-gray-400';
+          return (
+            <div key={i} className="flex items-center gap-3">
+              <div className={`flex items-center gap-1.5 w-32 text-xs ${textColor}`}>
+                {s.phase === 'running' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : s.icon}
+                <span>{s.label}</span>
+              </div>
+              <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${s.phase === 'complete' ? 'bg-green-500' : s.phase === 'running' ? (s.color === 'blue' ? 'bg-blue-500' : s.color === 'purple' ? 'bg-purple-500' : 'bg-green-500') : 'bg-gray-200'}`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <span className="text-[10px] w-12 text-right text-gray-500">
+                {s.phase !== 'idle' && s.total > 0 ? `${s.done}/${s.total}` : s.phase === 'complete' ? '완료' : '대기'}
+              </span>
+              <span className={`text-[10px] w-10 text-right font-medium ${textColor}`}>
+                {s.phase !== 'idle' ? `${pct}%` : ''}
+              </span>
+              <span className="w-4 text-center">
+                {s.phase === 'complete' ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : s.phase === 'running' ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" /> : <CircleDot className="w-3.5 h-3.5 text-gray-300" />}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+});
+
+// P1-1: React.memo 적용
+export default memo(function BulkStep2Review({
   products, autoMatchingProgress, autoMatchError, autoMatchStats, categoryFailures, onRetryAutoCategory, validating, validationPhase,
   imagePreuploadProgress, imagePreuploadCache, dryRunResults,
   imageFilterProgress, titleGenProgress, contentGenProgress,
@@ -396,74 +476,12 @@ export default function BulkStep2Review({
         </div>
       )}
 
-      {/* 자동 파이프라인 통합 진행 섹션 */}
-      {(imageFilterProgress.phase !== 'idle' || titleGenProgress !== null || contentGenProgress !== null) && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h4 className="text-xs font-semibold text-gray-700 mb-3">자동 파이프라인</h4>
-          <div className="space-y-2.5">
-            {(() => {
-              const steps: { label: string; icon: React.ReactNode; done: number; total: number; phase: 'idle' | 'running' | 'complete'; color: string }[] = [
-                {
-                  label: '이미지 필터링',
-                  icon: <ImageIcon className="w-3.5 h-3.5" />,
-                  done: imageFilterProgress.done,
-                  total: imageFilterProgress.total,
-                  phase: imageFilterProgress.phase,
-                  color: 'blue',
-                },
-                {
-                  label: '노출상품명 생성',
-                  icon: <Type className="w-3.5 h-3.5" />,
-                  done: titleGenProgress?.done ?? 0,
-                  total: titleGenProgress?.total ?? 0,
-                  phase: titleGenProgress === null
-                    ? 'idle'
-                    : titleGenProgress.done >= titleGenProgress.total ? 'complete' : 'running',
-                  color: 'purple',
-                },
-                {
-                  label: '상세페이지 생성',
-                  icon: <FileText className="w-3.5 h-3.5" />,
-                  done: contentGenProgress?.done ?? 0,
-                  total: contentGenProgress?.total ?? 0,
-                  phase: contentGenProgress === null
-                    ? 'idle'
-                    : contentGenProgress.done >= contentGenProgress.total ? 'complete' : 'running',
-                  color: 'green',
-                },
-              ];
-              return steps.map((s, i) => {
-                const pct = s.total > 0 ? Math.round((s.done / s.total) * 100) : (s.phase === 'complete' ? 100 : 0);
-                const barColor = s.phase === 'complete' ? 'bg-green-500' : s.phase === 'running' ? `bg-${s.color}-500` : 'bg-gray-200';
-                const textColor = s.phase === 'complete' ? 'text-green-600' : s.phase === 'running' ? `text-${s.color}-600` : 'text-gray-400';
-                return (
-                  <div key={i} className="flex items-center gap-3">
-                    <div className={`flex items-center gap-1.5 w-32 text-xs ${textColor}`}>
-                      {s.phase === 'running' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : s.icon}
-                      <span>{s.label}</span>
-                    </div>
-                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${s.phase === 'complete' ? 'bg-green-500' : s.phase === 'running' ? (s.color === 'blue' ? 'bg-blue-500' : s.color === 'purple' ? 'bg-purple-500' : 'bg-green-500') : 'bg-gray-200'}`}
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    <span className="text-[10px] w-12 text-right text-gray-500">
-                      {s.phase !== 'idle' && s.total > 0 ? `${s.done}/${s.total}` : s.phase === 'complete' ? '완료' : '대기'}
-                    </span>
-                    <span className={`text-[10px] w-10 text-right font-medium ${textColor}`}>
-                      {s.phase !== 'idle' ? `${pct}%` : ''}
-                    </span>
-                    <span className="w-4 text-center">
-                      {s.phase === 'complete' ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : s.phase === 'running' ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" /> : <CircleDot className="w-3.5 h-3.5 text-gray-300" />}
-                    </span>
-                  </div>
-                );
-              });
-            })()}
-          </div>
-        </div>
-      )}
+      {/* 자동 파이프라인 통합 진행 섹션 — P1-2: memo 컴포넌트로 분리 */}
+      <PipelineProgress
+        imageFilterProgress={imageFilterProgress}
+        titleGenProgress={titleGenProgress}
+        contentGenProgress={contentGenProgress}
+      />
 
       {/* Validation Dashboard */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -908,4 +926,4 @@ export default function BulkStep2Review({
       />
     </div>
   );
-}
+});

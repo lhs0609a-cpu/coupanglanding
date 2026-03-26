@@ -2,7 +2,7 @@
 // 이미지 품질 스코어링 서비스
 // Canvas API로 대표이미지 후보를 분석하여 최적 이미지를 선택
 //
-// 분석 항목 (200x200 축소 기준):
+// 분석 항목 (100x100 축소 기준):
 //  - 배경 밝기 (8%): 흰색/밝은 배경 선호
 //  - 배경 채도 (8%): 컬러 배경 → 하드필터 (로고/배너/포장재 차단)
 //  - 중심 집중도 (7%): 피사체가 중앙에 있을수록 고점
@@ -49,9 +49,41 @@ export interface ImageScore {
   hardFilterReason?: string;
 }
 
-const ANALYSIS_SIZE = 200;
-const HISTOGRAM_SIZE = 64;
+// 성능 최적화: 200→100 (4x 적은 픽셀, 패턴 감지에 충분)
+const ANALYSIS_SIZE = 100;
+// 히스토그램: 64→32 (4x 적은 픽셀, 이상치 감지에 충분)
+const HISTOGRAM_SIZE = 32;
 const DEFAULT_MIN_SCORE = 40;
+
+// Canvas 동시성 제한 — 저사양 PC 메모리 보호
+const IMAGE_CONCURRENCY = 3;
+
+/** 메인스레드 양보 — UI 멈춤 방지 */
+function yieldToMain(): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, 0));
+}
+
+/** 동시성 제한 워커풀 */
+async function runPool<T>(
+  items: readonly unknown[],
+  concurrency: number,
+  fn: (index: number) => Promise<T>,
+): Promise<T[]> {
+  const results: T[] = new Array(items.length);
+  let nextIdx = 0;
+  async function worker() {
+    while (nextIdx < items.length) {
+      const idx = nextIdx++;
+      results[idx] = await fn(idx);
+      // 매 작업 후 메인스레드 양보
+      await yieldToMain();
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
+  );
+  return results;
+}
 
 // ---- 하드필터 상수 ----
 const SKIN_RATIO_HARD = 0.15;        // 피부톤 15%+ → 차단
@@ -76,16 +108,14 @@ export async function scoreMainImages(
 ): Promise<{ index: number; score: ImageScore }[]> {
   if (objectUrls.length === 0) return [];
 
-  const results: { index: number; score: ImageScore }[] = [];
-
-  for (let i = 0; i < objectUrls.length; i++) {
+  const results = await runPool(objectUrls, IMAGE_CONCURRENCY, async (i) => {
     try {
       const score = await scoreImage(objectUrls[i]);
-      results.push({ index: i, score });
+      return { index: i, score };
     } catch {
-      results.push({ index: i, score: { ...ZERO_SCORE } });
+      return { index: i, score: { ...ZERO_SCORE } };
     }
-  }
+  });
 
   results.sort((a, b) => b.score.overall - a.score.overall);
   return results;
@@ -105,17 +135,15 @@ export async function filterAndScoreMainImages(
 ): Promise<{ index: number; score: ImageScore; filtered: boolean }[]> {
   if (objectUrls.length === 0) return [];
 
-  const results: { index: number; score: ImageScore; filtered: boolean }[] = [];
-
-  for (let i = 0; i < objectUrls.length; i++) {
+  const results = await runPool(objectUrls, IMAGE_CONCURRENCY, async (i) => {
     try {
       const score = await scoreImage(objectUrls[i]);
       const filtered = score.overall < minScore;
-      results.push({ index: i, score, filtered });
+      return { index: i, score, filtered };
     } catch {
-      results.push({ index: i, score: { ...ZERO_SCORE }, filtered: true });
+      return { index: i, score: { ...ZERO_SCORE }, filtered: true };
     }
-  }
+  });
 
   results.sort((a, b) => b.score.overall - a.score.overall);
   return results;
@@ -140,18 +168,14 @@ export async function filterDetailPageImages(
 ): Promise<{ index: number; filtered: boolean; reason?: string }[]> {
   if (objectUrls.length === 0) return [];
 
-  const results: { index: number; filtered: boolean; reason?: string }[] = [];
-
-  for (let i = 0; i < objectUrls.length; i++) {
+  return runPool(objectUrls, IMAGE_CONCURRENCY, async (i) => {
     try {
       const result = await analyzeDetailImage(objectUrls[i]);
-      results.push({ index: i, ...result });
+      return { index: i, ...result };
     } catch {
-      results.push({ index: i, filtered: false });
+      return { index: i, filtered: false };
     }
-  }
-
-  return results;
+  });
 }
 
 /**
@@ -220,16 +244,14 @@ export async function detectOutlierImages(
     return objectUrls.map((_, i) => ({ index: i, isOutlier: false, distance: 0 }));
   }
 
-  // 각 이미지의 색상 히스토그램 빌드
-  const histograms: Float32Array[] = [];
-  for (const url of objectUrls) {
+  // 히스토그램 빌드 (동시성 제한)
+  const histograms = await runPool(objectUrls, IMAGE_CONCURRENCY, async (i) => {
     try {
-      histograms.push(await buildColorHistogram(url));
+      return await buildColorHistogram(objectUrls[i]);
     } catch {
-      // 로드 실패 시 빈 히스토그램 (이상치로 자동 판별됨)
-      histograms.push(new Float32Array(64));
+      return new Float32Array(64);
     }
-  }
+  });
 
   const bins = histograms[0].length;
 
@@ -290,15 +312,12 @@ export async function crossReferenceOutlierImages(
     return candidateUrls.map((_, i) => ({ index: i, isOutlier: false, distance: 0 }));
   }
 
-  // 1. 기준 이미지들의 히스토그램 빌드
-  const refHistograms: Float32Array[] = [];
-  for (const url of referenceUrls) {
-    try {
-      refHistograms.push(await buildColorHistogram(url));
-    } catch {
-      // 기준 이미지 로드 실패 시 제외
-    }
-  }
+  // 1. 기준 이미지 히스토그램 빌드 (동시성 제한)
+  const refHistResults = await runPool(referenceUrls, IMAGE_CONCURRENCY, async (i) => {
+    try { return await buildColorHistogram(referenceUrls[i]); }
+    catch { return null; }
+  });
+  const refHistograms = refHistResults.filter((h): h is Float32Array => h !== null);
 
   // 유효한 기준 히스토그램이 없으면 비교 불가
   if (refHistograms.length === 0) {
@@ -314,10 +333,8 @@ export async function crossReferenceOutlierImages(
     meanHist[b] = sum / refHistograms.length;
   }
 
-  // 3. 각 후보 이미지의 히스토그램과 기준 평균의 chi-squared 거리 계산
-  const results: { index: number; isOutlier: boolean; distance: number }[] = [];
-
-  for (let i = 0; i < candidateUrls.length; i++) {
+  // 3. 후보 이미지 히스토그램 + 거리 계산 (동시성 제한)
+  return runPool(candidateUrls, IMAGE_CONCURRENCY, async (i) => {
     try {
       const candidateHist = await buildColorHistogram(candidateUrls[i]);
       let chi2 = 0;
@@ -327,14 +344,11 @@ export async function crossReferenceOutlierImages(
           chi2 += (candidateHist[b] - expected) ** 2 / expected;
         }
       }
-      results.push({ index: i, isOutlier: chi2 > threshold, distance: chi2 });
+      return { index: i, isOutlier: chi2 > threshold, distance: chi2 };
     } catch {
-      // 후보 이미지 로드 실패 시 이상치로 판정
-      results.push({ index: i, isOutlier: true, distance: Infinity });
+      return { index: i, isOutlier: true, distance: Infinity };
     }
-  }
-
-  return results;
+  });
 }
 
 // ================================================================
