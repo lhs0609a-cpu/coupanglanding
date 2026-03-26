@@ -308,7 +308,7 @@ export default function BulkStep2Review({
       {autoMatchingProgress && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-3">
           <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-          <span className="text-sm text-blue-700">카테고리 자동매칭 중... {autoMatchingProgress.done}/{autoMatchingProgress.total}</span>
+          <span className="text-sm text-blue-700">카테고리 자동매칭 중... {autoMatchingProgress.done}/{autoMatchingProgress.total} ({Math.round((autoMatchingProgress.done / autoMatchingProgress.total) * 100)}%)</span>
           <div className="flex-1 h-1.5 bg-blue-100 rounded-full overflow-hidden">
             <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${(autoMatchingProgress.done / autoMatchingProgress.total) * 100}%` }} />
           </div>
@@ -520,7 +520,7 @@ export default function BulkStep2Review({
               <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
                 <div className={`h-full rounded-full transition-all duration-500 ${imagePreuploadProgress.phase === 'complete' ? 'bg-green-500' : 'bg-purple-500'}`} style={{ width: imagePreuploadProgress.total > 0 ? `${(imagePreuploadProgress.done / imagePreuploadProgress.total) * 100}%` : imagePreuploadProgress.phase === 'complete' ? '100%' : '0%' }} />
               </div>
-              <span className="text-[10px] text-gray-400 w-16 text-right">{imagePreuploadProgress.phase === 'complete' ? '완료' : imagePreuploadProgress.total > 0 ? `${imagePreuploadProgress.done}/${imagePreuploadProgress.total}` : '대기'}</span>
+              <span className="text-[10px] text-gray-400 w-20 text-right">{imagePreuploadProgress.phase === 'complete' ? '완료' : imagePreuploadProgress.total > 0 ? `${imagePreuploadProgress.done}/${imagePreuploadProgress.total} (${Math.round((imagePreuploadProgress.done / imagePreuploadProgress.total) * 100)}%)` : '대기'}</span>
             </div>
             {/* Preflight pipeline row */}
             <div className="flex items-center gap-3">
@@ -532,7 +532,7 @@ export default function BulkStep2Review({
                 <div className={`h-full rounded-full transition-all duration-500 ${preflightPhase === 'complete' ? (preflightStats?.fail ?? 0) > 0 ? 'bg-red-500' : 'bg-green-500' : preflightPhase === 'running' ? 'bg-indigo-500' : 'bg-gray-200'}`} style={{ width: preflightPhase === 'complete' || preflightPhase === 'error' ? '100%' : preflightPhase === 'running' ? '60%' : '0%' }} />
               </div>
               <span className="text-[10px] text-gray-400 w-16 text-right">
-                {preflightPhase === 'complete' ? `${preflightStats?.pass ?? 0}/${preflightStats?.total ?? 0}` : preflightPhase === 'running' ? '검사중' : preflightPhase === 'error' ? '오류' : '대기'}
+                {preflightPhase === 'complete' ? `${preflightStats?.pass ?? 0}/${preflightStats?.total ?? 0} (${preflightStats?.total ? Math.round(((preflightStats?.pass ?? 0) / preflightStats.total) * 100) : 0}%)` : preflightPhase === 'running' ? '검사중' : preflightPhase === 'error' ? '오류' : '대기'}
               </span>
             </div>
             {/* Canary pipeline row */}
@@ -827,7 +827,7 @@ export default function BulkStep2Review({
           )}
           {imagePreuploadProgress.phase === 'uploading' && (
             <span className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-xs">
-              <Upload className="w-3.5 h-3.5 animate-pulse" /> 이미지 업로드 중... ({imagePreuploadProgress.done}/{imagePreuploadProgress.total})
+              <Upload className="w-3.5 h-3.5 animate-pulse" /> 이미지 업로드 중... {imagePreuploadProgress.done}/{imagePreuploadProgress.total} ({Math.round((imagePreuploadProgress.done / imagePreuploadProgress.total) * 100)}%)
             </span>
           )}
           <div className="relative group">
@@ -902,6 +902,7 @@ export default function BulkStep2Review({
         onRequestPreview={handleRequestPreview}
         preUploadedUrls={imagePreuploadCache}
         preventionConfig={preventionConfig}
+        titleGenProgress={titleGenProgress}
       />
     </div>
   );

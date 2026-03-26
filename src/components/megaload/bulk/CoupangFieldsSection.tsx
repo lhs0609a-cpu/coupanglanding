@@ -31,6 +31,7 @@ interface CoupangFieldsSectionProps {
   onImageReorder: (newOrder: ImageItem[]) => void;
   onImageRemove: (id: string) => void;
   preventionConfig?: PreventionConfig;
+  titleGenProgress?: { done: number; total: number } | null;
 }
 
 /* ─── Required field input styling ─── */
@@ -317,7 +318,7 @@ function ImageSectionWithPreview({
                 <>
                   <div className="text-[10px] text-purple-600">
                     {isVariationEnabled && showVariation
-                      ? '셀러마다 순서 + 크롭·밝기·채도·회전·품질이 모두 달라집니다'
+                      ? '셀러마다 순서 + 크롭·밝기·채도·감마·노이즈·품질이 모두 달라집니다'
                       : '셀러마다 대표이미지 + 순서가 모두 달라 아이템위너로 묶이지 않습니다'}
                   </div>
 
@@ -519,6 +520,7 @@ export default function CoupangFieldsSection({
   onImageReorder,
   onImageRemove,
   preventionConfig,
+  titleGenProgress,
 }: CoupangFieldsSectionProps) {
   const meta = previewData?.meta;
   const payload = previewData?.payload as Record<string, unknown> | undefined;
@@ -668,14 +670,22 @@ export default function CoupangFieldsSection({
                   className={isGenerating
                     ? 'w-full px-3 py-2 border border-purple-300 bg-purple-50 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition'
                     : inputRequired(isEmpty)}
-                  placeholder={isGenerating ? '자동 생성 중...' : '노출상품명 입력'}
+                  placeholder={isGenerating
+                    ? titleGenProgress
+                      ? `자동 생성 중 (${titleGenProgress.done}/${titleGenProgress.total} — ${Math.round((titleGenProgress.done / titleGenProgress.total) * 100)}%)...`
+                      : '자동 생성 대기 중...'
+                    : '노출상품명 입력'}
                 />
                 {isGenerating && (
                   <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-purple-500" />
                 )}
               </div>
               <p className="text-[10px] text-gray-400 mt-0.5">
-                {isGenerating ? '카테고리 매칭 완료 후 자동 생성됩니다' : `${dpn.length}자`}
+                {isGenerating
+                  ? titleGenProgress
+                    ? `노출상품명 생성 중... ${titleGenProgress.done}/${titleGenProgress.total}`
+                    : '카테고리 매칭 완료 후 자동 생성됩니다'
+                  : `${dpn.length}자`}
               </p>
             </div>
           );

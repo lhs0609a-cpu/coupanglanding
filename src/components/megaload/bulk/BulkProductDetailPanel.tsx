@@ -36,6 +36,7 @@ interface BulkProductDetailPanelProps {
   onRequestPreview?: (uid: string) => void;
   preUploadedUrls?: Record<string, { mainImageUrls: string[]; detailImageUrls?: string[]; reviewImageUrls?: string[]; infoImageUrls?: string[] }>;
   preventionConfig?: PreventionConfig;
+  titleGenProgress?: { done: number; total: number } | null;
 }
 
 export default function BulkProductDetailPanel({
@@ -52,6 +53,7 @@ export default function BulkProductDetailPanel({
   onRequestPreview,
   preUploadedUrls,
   preventionConfig,
+  titleGenProgress,
 }: BulkProductDetailPanelProps) {
   const [activeTab, setActiveTab] = useState<'info' | 'detail' | 'payload'>('info');
   const [issuesExpanded, setIssuesExpanded] = useState(false);
@@ -347,6 +349,7 @@ export default function BulkProductDetailPanel({
                   onImageReorder={handleImageReorder}
                   onImageRemove={handleImageRemove}
                   preventionConfig={preventionConfig}
+                  titleGenProgress={titleGenProgress}
                 />
               ) : (
                 <PayloadPreviewPanel
