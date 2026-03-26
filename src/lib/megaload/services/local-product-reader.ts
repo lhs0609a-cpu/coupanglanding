@@ -164,7 +164,7 @@ export async function uploadLocalImage(
   if (variationParams) {
     try {
       const { applyVariation } = await import('./server-image-variation');
-      buffer = Buffer.from(await applyVariation(buffer, variationParams));
+      buffer = Buffer.from(await applyVariation(buffer, variationParams, filePath));
     } catch (err) {
       console.warn(`[이미지 변형] 실패 — 원본 사용 (${path.basename(filePath)}):`, err instanceof Error ? err.message : err);
     }

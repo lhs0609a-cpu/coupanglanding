@@ -62,7 +62,7 @@ export function useBulkRegisterActions() {
   const [generateAiContent, setGenerateAiContent] = useState(false);
   const [includeReviewImages, setIncludeReviewImages] = useState(true);
   const [noticeOverrides, setNoticeOverrides] = useState<Record<string, string>>({});
-  const [preventionConfig, setPreventionConfig] = useState<PreventionConfig>(DISABLED_PREVENTION_CONFIG);
+  const [preventionConfig, setPreventionConfig] = useState<PreventionConfig>(DEFAULT_PREVENTION_CONFIG);
   const [browsingFolder, setBrowsingFolder] = useState(false);
 
   // Shipping
@@ -144,7 +144,6 @@ export function useBulkRegisterActions() {
   const setPreventionEnabled = useCallback((enabled: boolean) => {
     if (enabled) {
       setPreventionConfig(DEFAULT_PREVENTION_CONFIG);
-      setGenerateAiContent(true); // AI 상품명 필수화
     } else {
       setPreventionConfig(DISABLED_PREVENTION_CONFIG);
     }

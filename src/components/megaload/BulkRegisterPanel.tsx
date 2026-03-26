@@ -125,7 +125,6 @@ export default function BulkRegisterPanel() {
           freeShipOverAmount={actions.freeShipOverAmount}
           returnCharge={actions.returnCharge}
           contactNumber={actions.contactNumber}
-          generateAiContent={actions.generateAiContent}
           includeReviewImages={actions.includeReviewImages}
           noticeOverrides={actions.noticeOverrides}
           loadingShipping={actions.loadingShipping}
@@ -142,7 +141,6 @@ export default function BulkRegisterPanel() {
           onSetFreeShipOverAmount={actions.setFreeShipOverAmount}
           onSetReturnCharge={actions.setReturnCharge}
           onSetContactNumber={actions.setContactNumber}
-          onSetGenerateAiContent={actions.setGenerateAiContent}
           onSetIncludeReviewImages={actions.setIncludeReviewImages}
           onSetNoticeOverrides={actions.setNoticeOverrides}
           preventionConfig={actions.preventionConfig}

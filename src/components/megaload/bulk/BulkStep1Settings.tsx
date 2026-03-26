@@ -43,7 +43,6 @@ interface BulkStep1SettingsProps {
   freeShipOverAmount: number;
   returnCharge: number;
   contactNumber: string;
-  generateAiContent: boolean;
   includeReviewImages: boolean;
   noticeOverrides: Record<string, string>;
   loadingShipping: boolean;
@@ -60,7 +59,6 @@ interface BulkStep1SettingsProps {
   onSetFreeShipOverAmount: (v: number) => void;
   onSetReturnCharge: (v: number) => void;
   onSetContactNumber: (v: string) => void;
-  onSetGenerateAiContent: (v: boolean) => void;
   onSetIncludeReviewImages: (v: boolean) => void;
   onSetNoticeOverrides: (v: Record<string, string>) => void;
   preventionConfig: PreventionConfig;
@@ -74,13 +72,13 @@ export default function BulkStep1Settings({
   folderPaths, brackets, shippingPlaces, returnCenters,
   selectedOutbound, selectedReturn,
   deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, contactNumber,
-  generateAiContent, includeReviewImages, noticeOverrides,
+  includeReviewImages, noticeOverrides,
   loadingShipping, shippingError, scanning, scanError, browsingFolder,
   onAddFolderPath, onRemoveFolderPath,
   onSetSelectedOutbound, onSetSelectedReturn,
   onSetDeliveryChargeType, onSetDeliveryCharge, onSetFreeShipOverAmount,
   onSetReturnCharge, onSetContactNumber,
-  onSetGenerateAiContent, onSetIncludeReviewImages, onSetNoticeOverrides,
+  onSetIncludeReviewImages, onSetNoticeOverrides,
   preventionConfig, onSetPreventionEnabled,
   onRecalcPrices, onScan, onBrowseFolder,
 }: BulkStep1SettingsProps) {
@@ -331,13 +329,6 @@ export default function BulkStep1Settings({
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2"><Sparkles className="w-5 h-5 text-gray-500" /> 등록 옵션</h2>
         <div className="flex flex-wrap gap-6">
-          <label className="flex items-center gap-3 cursor-pointer">
-            <div className={`relative w-11 h-6 rounded-full transition ${generateAiContent ? 'bg-[#E31837]' : 'bg-gray-200'}`}>
-              <input type="checkbox" checked={generateAiContent} onChange={(e) => onSetGenerateAiContent(e.target.checked)} className="sr-only" />
-              <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${generateAiContent ? 'translate-x-5' : ''}`} />
-            </div>
-            <div><div className="text-sm font-medium text-gray-700">AI 상세페이지 생성</div><div className="text-xs text-gray-400">GPT-4o-mini로 감성 스토리 자동 생성</div></div>
-          </label>
           <label className="flex items-center gap-3 cursor-pointer">
             <div className={`relative w-11 h-6 rounded-full transition ${includeReviewImages ? 'bg-[#E31837]' : 'bg-gray-200'}`}>
               <input type="checkbox" checked={includeReviewImages} onChange={(e) => onSetIncludeReviewImages(e.target.checked)} className="sr-only" />

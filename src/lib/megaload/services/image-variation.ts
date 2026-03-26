@@ -16,17 +16,35 @@ export interface ImageVariation {
   brightness: number;
   /** 채도 조정 (0.90~1.10, 1.0 = 원본) */
   saturation: number;
-  /** 미세 회전 각도 (-2 ~ +2도) */
-  rotation: number;
-  /** JPEG 출력 품질 (85~95) */
+  /** JPEG 출력 품질 (80~94) */
   quality: number;
   /** 생성 시 사용된 시드 (추적용) */
   seed: string;
+  /** 픽셀 노이즈 강도 (0~2) */
+  noiseIntensity: number;
+  /** 감마 보정 (0.97~1.03) */
+  gamma: number;
+  /** 색온도 시프트 (-3~+3) */
+  colorTempShift: number;
+  /** 마이크로 리사이즈 X (-4~+4 px) */
+  microResizeX: number;
+  /** 마이크로 리사이즈 Y (-4~+4 px) */
+  microResizeY: number;
+  /** 채널 오프셋 R (-2~+2) */
+  channelOffsetR: number;
+  /** 채널 오프셋 G (-2~+2) */
+  channelOffsetG: number;
+  /** 채널 오프셋 B (-2~+2) */
+  channelOffsetB: number;
 }
 
 // ---- 서버사이드: 변형 파라미터 생성 ----
 
 const CROP_DIRECTIONS: CropDirection[] = ['top', 'bottom', 'left', 'right', 'center'];
+
+function clamp(v: number): number {
+  return v < 0 ? 0 : v > 255 ? 255 : Math.round(v);
+}
 
 /**
  * 랜덤하지만 미세한 이미지 변형 파라미터를 생성한다.
@@ -36,13 +54,20 @@ const CROP_DIRECTIONS: CropDirection[] = ['top', 'bottom', 'left', 'right', 'cen
 export function generateImageVariationParams(): ImageVariation {
   const seed = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   return {
-    cropPercent: 2 + Math.random() * 6,                         // 2~8% 크롭 (더 과감하게)
+    cropPercent: 2 + Math.random() * 6,                         // 2~8% 크롭
     cropDirection: CROP_DIRECTIONS[Math.floor(Math.random() * CROP_DIRECTIONS.length)],
-    brightness: 0.92 + Math.random() * 0.16,                    // 92~108% 밝기 (범위 확대)
-    saturation: 0.85 + Math.random() * 0.30,                    // 85~115% 채도 (범위 확대)
-    rotation: -3 + Math.random() * 6,                            // -3~+3도 회전 (범위 확대)
-    quality: 78 + Math.floor(Math.random() * 18),                // 78~95 JPEG 품질 (범위 확대)
+    brightness: 0.92 + Math.random() * 0.16,                    // 92~108% 밝기
+    saturation: 0.85 + Math.random() * 0.30,                    // 85~115% 채도
+    quality: 80 + Math.floor(Math.random() * 15),                // 80~94 JPEG 품질
     seed,
+    noiseIntensity: Math.floor(Math.random() * 3),               // 0, 1, 2
+    gamma: 0.97 + Math.random() * 0.06,                         // 0.97~1.03
+    colorTempShift: Math.floor(Math.random() * 7) - 3,          // -3~+3
+    microResizeX: Math.floor(Math.random() * 9) - 4,            // -4~+4
+    microResizeY: Math.floor(Math.random() * 9) - 4,            // -4~+4
+    channelOffsetR: Math.floor(Math.random() * 5) - 2,          // -2~+2
+    channelOffsetG: Math.floor(Math.random() * 5) - 2,          // -2~+2
+    channelOffsetB: Math.floor(Math.random() * 5) - 2,          // -2~+2
   };
 }
 
@@ -50,7 +75,7 @@ export function generateImageVariationParams(): ImageVariation {
 
 /**
  * 브라우저 환경에서 File/Blob 이미지에 미세 변형을 적용한다.
- * Canvas API를 사용하여 crop + brightness 조정 후 새 Blob을 반환한다.
+ * Canvas API를 사용하여 crop + brightness + 픽셀 조작 후 새 Blob을 반환한다.
  *
  * @param file - 원본 이미지 파일
  * @param variation - generateImageVariationParams()로 생성된 파라미터
@@ -69,12 +94,9 @@ export async function applyImageVariation(
   const cropPx = variation.cropPercent / 100;
   const { sx, sy, sw, sh } = calculateCropRect(origW, origH, cropPx, variation.cropDirection);
 
-  // 3. Canvas에 그리기 (회전 보정 포함)
-  const rotRad = (variation.rotation || 0) * Math.PI / 180;
-  const absRot = Math.abs(rotRad);
-  // 회전 시 잘리지 않도록 캔버스 확장
-  const outW = Math.ceil(sw * Math.cos(absRot) + sh * Math.sin(absRot));
-  const outH = Math.ceil(sh * Math.cos(absRot) + sw * Math.sin(absRot));
+  // 3. 마이크로 리사이즈 반영한 출력 크기
+  const outW = Math.max(1, sw + variation.microResizeX);
+  const outH = Math.max(1, sh + variation.microResizeY);
 
   const canvas = document.createElement('canvas');
   canvas.width = outW;
@@ -88,23 +110,77 @@ export async function applyImageVariation(
   const satVal = variation.saturation ?? 1.0;
   ctx.filter = `brightness(${variation.brightness}) saturate(${satVal})`;
 
-  // 회전 적용
-  ctx.translate(outW / 2, outH / 2);
-  ctx.rotate(rotRad);
-  ctx.drawImage(img, sx, sy, sw, sh, -sw / 2, -sh / 2, sw, sh);
-  ctx.setTransform(1, 0, 0, 1, 0, 0); // 변환 초기화
+  // 크롭된 원본을 출력 크기에 맞게 그리기
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
 
   // filter를 지원하지 않는 브라우저 폴백
   if (!ctx.filter || ctx.filter === 'none') {
     ctx.filter = 'none';
-    ctx.translate(outW / 2, outH / 2);
-    ctx.rotate(rotRad);
-    ctx.drawImage(img, sx, sy, sw, sh, -sw / 2, -sh / 2, sw, sh);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
     applyBrightnessManual(ctx, outW, outH, variation.brightness);
   }
 
-  // 4. JPEG Blob으로 변환
+  // 4. 픽셀 단일 순회: 감마 + 색온도 + 채널 오프셋 + 노이즈
+  const needsPixelPass =
+    variation.gamma !== 1.0 ||
+    variation.colorTempShift !== 0 ||
+    variation.channelOffsetR !== 0 || variation.channelOffsetG !== 0 || variation.channelOffsetB !== 0 ||
+    variation.noiseIntensity > 0;
+
+  if (needsPixelPass) {
+    const imageData = ctx.getImageData(0, 0, outW, outH);
+    const data = imageData.data;
+    const invGamma = 1 / variation.gamma;
+    const applyGamma = Math.abs(invGamma - 1) > 0.001;
+
+    // 간이 시드 RNG (seed 문자열 기반)
+    let noiseState = 0;
+    if (variation.noiseIntensity > 0) {
+      for (let i = 0; i < variation.seed.length; i++) {
+        noiseState = ((noiseState << 5) + noiseState + variation.seed.charCodeAt(i)) | 0;
+      }
+      noiseState = noiseState >>> 0;
+    }
+    function noiseRng(): number {
+      noiseState = (noiseState + 0x6d2b79f5) | 0;
+      let t = Math.imul(noiseState ^ (noiseState >>> 15), 1 | noiseState);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    }
+
+    for (let i = 0; i < data.length; i += 4) {
+      let r = data[i], g = data[i + 1], b = data[i + 2];
+
+      if (applyGamma) {
+        r = 255 * Math.pow(r / 255, invGamma);
+        g = 255 * Math.pow(g / 255, invGamma);
+        b = 255 * Math.pow(b / 255, invGamma);
+      }
+
+      r += variation.colorTempShift;
+      b -= variation.colorTempShift;
+
+      r += variation.channelOffsetR;
+      g += variation.channelOffsetG;
+      b += variation.channelOffsetB;
+
+      if (variation.noiseIntensity > 0) {
+        const n = variation.noiseIntensity;
+        const range = 2 * n + 1;
+        r += Math.floor(noiseRng() * range) - n;
+        g += Math.floor(noiseRng() * range) - n;
+        b += Math.floor(noiseRng() * range) - n;
+      }
+
+      data[i]     = clamp(r);
+      data[i + 1] = clamp(g);
+      data[i + 2] = clamp(b);
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  // 5. JPEG Blob으로 변환
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
