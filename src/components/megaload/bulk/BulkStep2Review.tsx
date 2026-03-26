@@ -416,8 +416,8 @@ export default function BulkStep2Review({
                   done: titleGenProgress?.done ?? 0,
                   total: titleGenProgress?.total ?? 0,
                   phase: titleGenProgress === null
-                    ? (imageFilterProgress.phase === 'complete' ? 'idle' : 'idle')
-                    : titleGenProgress.done === titleGenProgress.total ? 'complete' : 'running',
+                    ? 'idle'
+                    : titleGenProgress.done >= titleGenProgress.total ? 'complete' : 'running',
                   color: 'purple',
                 },
                 {
@@ -427,7 +427,7 @@ export default function BulkStep2Review({
                   total: contentGenProgress?.total ?? 0,
                   phase: contentGenProgress === null
                     ? 'idle'
-                    : contentGenProgress.done === contentGenProgress.total ? 'complete' : 'running',
+                    : contentGenProgress.done >= contentGenProgress.total ? 'complete' : 'running',
                   color: 'green',
                 },
               ];

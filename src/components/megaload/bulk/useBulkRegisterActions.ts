@@ -298,8 +298,13 @@ export function useBulkRegisterActions() {
   // ---- Auto-fill pipeline: Title generation (template or AI) ----
   const runTitleGeneration = useCallback(async (prods: EditableProduct[]) => {
     const targets = prods.filter(p => p.editedCategoryCode && !p.editedDisplayProductName);
-    if (!targets.length) return;
+    if (!targets.length) {
+      setTitleGenProgress({ done: 0, total: 0 });
+      return;
+    }
     setTitleGenProgress({ done: 0, total: targets.length });
+    // React 배치를 끊어 UI에 0% 상태를 표시
+    await new Promise(r => setTimeout(r, 0));
 
     // SEO 최적화 상품명 즉시 생성 (항상 실행, AI 불필요)
     // displayProductName과 sellerProductName을 서로 다른 시드로 생성하여
@@ -338,7 +343,7 @@ export function useBulkRegisterActions() {
         }
         return updated;
       });
-      setTitleGenProgress(null);
+      setTitleGenProgress({ done: targets.length, total: targets.length });
       return;
     }
 
@@ -373,7 +378,6 @@ export function useBulkRegisterActions() {
       }
       setTitleGenProgress({ done: Math.min(i + BATCH, targets.length), total: targets.length });
     }
-    setTitleGenProgress(null);
   }, [preventionConfig]);
 
   // ---- Auto-fill pipeline: Story/content generation (template or AI) ----
@@ -382,8 +386,13 @@ export function useBulkRegisterActions() {
       p.editedCategoryCode &&
       (!p.editedStoryParagraphs || p.editedStoryParagraphs.length === 0)
     );
-    if (!targets.length) return;
+    if (!targets.length) {
+      setContentGenProgress({ done: 0, total: 0 });
+      return;
+    }
     setContentGenProgress({ done: 0, total: targets.length });
+    // React 배치를 끊어 UI에 0% 상태를 표시
+    await new Promise(r => setTimeout(r, 0));
 
     // 템플릿 기반 즉시 생성 (항상 실행 — AI 불필요)
     {
@@ -411,7 +420,7 @@ export function useBulkRegisterActions() {
         }
         return updated;
       });
-      setContentGenProgress(null);
+      setContentGenProgress({ done: targets.length, total: targets.length });
       return;
     }
 
@@ -451,7 +460,6 @@ export function useBulkRegisterActions() {
       }
       setContentGenProgress({ done: Math.min(i + BATCH, targets.length), total: targets.length });
     }
-    setContentGenProgress(null);
   }, [generateAiContent, preventionConfig]);
 
   // ---- Auto-fill pipeline trigger: after category matching completes ----
@@ -643,8 +651,12 @@ export function useBulkRegisterActions() {
         }));
 
         setImageFilterProgress({ done: filterTotal, total: filterTotal, phase: 'complete' });
+        // React 배치를 끊어 이미지 필터링 완료 상태를 UI에 반영
+        await new Promise(r => setTimeout(r, 50));
 
         await runTitleGeneration(productsRef.current);
+        // React 배치를 끊어 노출상품명 완료 상태를 UI에 반영
+        await new Promise(r => setTimeout(r, 50));
         await runContentGeneration(productsRef.current);
       })();
     }
