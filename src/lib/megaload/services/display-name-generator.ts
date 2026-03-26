@@ -60,11 +60,28 @@ const NOISE = new Set([
   '추천', '인기', '베스트', '상품상세참조',
 ]);
 
-// 원산지 키워드
+// 원산지 키워드 (해외 + 국내 주요 산지)
 const ORIGINS = new Set([
+  // 해외
   '한국', '국내', '국산', '미국', '일본', '중국', '독일', '프랑스', '이탈리아',
   '영국', '호주', '뉴질랜드', '스위스', '캐나다', '네덜란드', '스페인', '덴마크',
   '노르웨이', '스웨덴', '핀란드', '벨기에', '오스트리아', '인도', '태국', '베트남',
+  '칠레', '페루', '멕시코', '필리핀', '에콰도르',
+  // 국내 광역
+  '경북', '경남', '충북', '충남', '전북', '전남', '강원', '경기', '제주',
+  // 국내 주요 농산물 산지 (과일/채소/쌀)
+  '청송', '영주', '영덕', '봉화', '영양', '안동', '상주', '김천', '경산', '의성',
+  '성주', '밀양', '거창', '합천', '산청', '하동',
+  '나주', '해남', '영암', '담양', '순천', '보성', '고흥', '무안',
+  '충주', '음성', '진천', '괴산', '보은', '영동', '금산',
+  '예산', '서산', '당진', '부여', '공주', '논산', '청양',
+  '이천', '여주', '양평', '평택', '안성', '화성',
+  '횡성', '홍천', '정선', '평창', '춘천', '양양', '속초',
+  '익산', '정읍', '남원', '김제', '완주', '고창', '부안',
+  '서귀포',
+  // 수산물 산지
+  '통영', '거제', '남해', '여수', '완도', '진도', '목포', '태안', '서천', '보령',
+  '포항', '울진', '영덕', '울릉', '속초', '강릉', '동해', '삼척', '제주',
 ]);
 
 // ─── Phase 1: 토큰 추출 & 분류 ──────────────────────────
@@ -160,36 +177,21 @@ function classifyTokens(
   }
 
   // Pass 2: 토큰별 분류
+  // (원산지/TYPE/FEATURE를 브랜드 체크보다 우선 — "청송농협" 브랜드 때문에 "청송"이 스킵되는 문제 방지)
   for (const token of tokens) {
     const lower = token.toLowerCase();
 
-    // 브랜드명 제외
-    if (lower === brandLower || brandLower.includes(lower)) continue;
     // 이미 분류된 토큰 스킵
     if (classified.has(lower)) continue;
 
-    // 원산지
+    // 원산지 (브랜드보다 우선 — "청송농협" 브랜드여도 "청송"은 원산지로 분류)
     if (ORIGINS.has(lower) || ORIGINS.has(token)) {
       result.origin.push(token);
       classified.add(lower);
       continue;
     }
 
-    // 성분 매칭 (토큰이 풀에 직접 있거나, 토큰이 풀 항목의 일부인 경우)
-    if (ingredientSet.has(lower)) {
-      result.ingredients.push(token);
-      classified.add(lower);
-      continue;
-    }
-
-    // 특징 매칭
-    if (featureSet.has(lower)) {
-      result.features.push(token);
-      classified.add(lower);
-      continue;
-    }
-
-    // 동의어 그룹에서 TYPE 판별 (상품유형 키워드)
+    // 동의어 그룹에서 TYPE 판별 (브랜드보다 우선 — "사과"가 브랜드 부분 매칭으로 스킵되는 것 방지)
     let isType = false;
     for (const [, synonyms] of Object.entries(SYNONYM_GROUPS)) {
       if (synonyms.some(s => s.toLowerCase() === lower)) {
@@ -201,9 +203,91 @@ function classifyTokens(
     }
     if (isType) continue;
 
+    // 성분 매칭 (풀 사전 기반)
+    if (ingredientSet.has(lower)) {
+      result.ingredients.push(token);
+      classified.add(lower);
+      continue;
+    }
+
+    // 특징 매칭 (풀 사전 기반)
+    if (featureSet.has(lower)) {
+      result.features.push(token);
+      classified.add(lower);
+      continue;
+    }
+
+    // 브랜드명 제외 (위의 원산지/TYPE/성분/특징에 해당 안 하는 경우에만)
+    if (lower === brandLower || brandLower.includes(lower)) continue;
+
     // 그 외 → 서술어
     result.descriptors.push(token);
     classified.add(lower);
+  }
+
+  // Pass 3a: 원산지 + TYPE/FEATURE 복합어 분해 ("청송사과" → "청송" origin + "사과" type)
+  const descriptorsCopy = [...result.descriptors];
+  for (const desc of descriptorsCopy) {
+    const descLower = desc.toLowerCase();
+    for (const origin of ORIGINS) {
+      if (descLower.startsWith(origin) && descLower.length > origin.length) {
+        const remainder = desc.slice(origin.length);
+        const remainderLower = remainder.toLowerCase();
+        let foundType = false;
+        for (const [, synonyms] of Object.entries(SYNONYM_GROUPS)) {
+          if (synonyms.some(s => s.toLowerCase() === remainderLower)) {
+            if (!classified.has(origin)) { result.origin.push(origin); classified.add(origin); }
+            if (!classified.has(remainderLower)) { result.type.push(remainder); classified.add(remainderLower); }
+            const idx = result.descriptors.indexOf(desc);
+            if (idx >= 0) result.descriptors.splice(idx, 1);
+            foundType = true;
+            break;
+          }
+        }
+        if (foundType) break;
+        if (featureSet.has(remainderLower)) {
+          if (!classified.has(origin)) { result.origin.push(origin); classified.add(origin); }
+          if (!classified.has(remainderLower)) { result.features.push(remainder); classified.add(remainderLower); }
+          const idx = result.descriptors.indexOf(desc);
+          if (idx >= 0) result.descriptors.splice(idx, 1);
+          break;
+        }
+      }
+    }
+  }
+
+  // Pass 3b: FEATURE/INGREDIENT + TYPE 복합어 분해 ("보습크림" → "보습" feat + "크림" type)
+  const descriptorsCopy2 = [...result.descriptors];
+  for (const desc of descriptorsCopy2) {
+    const descLower = desc.toLowerCase();
+    let found = false;
+    // 가능한 분할점을 순회하며 접미사가 TYPE 동의어인지 확인
+    for (let splitAt = 1; splitAt < descLower.length && !found; splitAt++) {
+      const suffix = descLower.slice(splitAt);
+      const prefix = descLower.slice(0, splitAt);
+      // 접미사가 synonymGroup에 있는지 확인
+      for (const [, synonyms] of Object.entries(SYNONYM_GROUPS)) {
+        if (synonyms.some(s => s.toLowerCase() === suffix)) {
+          // 접두사가 feature 또는 ingredient인지 확인
+          if (featureSet.has(prefix) || ingredientSet.has(prefix)) {
+            const prefixOriginal = desc.slice(0, splitAt);
+            const suffixOriginal = desc.slice(splitAt);
+            if (featureSet.has(prefix) && !classified.has(prefix)) {
+              result.features.push(prefixOriginal); classified.add(prefix);
+            } else if (ingredientSet.has(prefix) && !classified.has(prefix)) {
+              result.ingredients.push(prefixOriginal); classified.add(prefix);
+            }
+            if (!classified.has(suffix)) {
+              result.type.push(suffixOriginal); classified.add(suffix);
+            }
+            const idx = result.descriptors.indexOf(desc);
+            if (idx >= 0) result.descriptors.splice(idx, 1);
+            found = true;
+            break;
+          }
+        }
+      }
+    }
   }
 
   return result;

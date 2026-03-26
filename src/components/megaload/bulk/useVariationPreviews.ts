@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import type { VariationIntensity } from '@/lib/megaload/services/variation-preview';
 
 // --- 타입 ---
 
@@ -28,6 +29,7 @@ export function useVariationPreviews(
   imageItems: ImageItem[],
   productCode: string,
   enabled: boolean,
+  intensity: VariationIntensity = 'mid',
 ): SellerVariationPreview[] {
   const [previews, setPreviews] = useState<SellerVariationPreview[]>([]);
   const abortRef = useRef<AbortController | null>(null);
@@ -82,7 +84,7 @@ export function useVariationPreviews(
           if (abort.signal.aborted) return;
 
           const img = shuffled[ii];
-          const params = generatePreviewVariationParams(seed, ii);
+          const params = generatePreviewVariationParams(seed, ii, intensity);
           const paramsText = formatVariationParams(params);
 
           let variedDataUrl: string | null = null;
@@ -115,7 +117,7 @@ export function useVariationPreviews(
     return () => {
       abort.abort();
     };
-  }, [imageItems, productCode, enabled]);
+  }, [imageItems, productCode, enabled, intensity]);
 
   return previews;
 }

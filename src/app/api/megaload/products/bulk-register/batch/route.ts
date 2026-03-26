@@ -258,11 +258,12 @@ export async function POST(req: NextRequest) {
         const reviewPaths = includeReviewImages ? product.reviewImages : [];
         const allPaths = [...product.mainImages, ...product.detailImages, ...reviewPaths, ...product.infoImages];
 
-        // 아이템위너 방지: prevention 활성 시 변형 파라미터 생성
+        // 아이템위너 방지: prevention 활성 시 변형 파라미터 생성 (강도 반영)
         let variationParamsList: (VariationParams | undefined)[] | undefined;
         if (preventionEnabled && preventionConfig?.imageVariation) {
           const imgSeed = `${shUserId}:${product.productCode}`;
-          variationParamsList = allPaths.map((_, idx) => generateVariationParams(imgSeed, idx));
+          const intensity = preventionConfig.variationIntensity || 'mid';
+          variationParamsList = allPaths.map((_, idx) => generateVariationParams(imgSeed, idx, intensity));
         }
 
         const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, 10, true, variationParamsList);

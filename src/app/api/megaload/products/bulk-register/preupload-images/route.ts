@@ -17,6 +17,7 @@ interface PreuploadBody {
   products: PreuploadProduct[];
   includeReviewImages?: boolean;
   preventionSeed?: string;  // 아이템위너 방지 시드 (셀러 ID)
+  variationIntensity?: 'low' | 'mid' | 'high';
 }
 
 /**
@@ -89,11 +90,12 @@ export async function POST(req: NextRequest) {
             };
           }
 
-          // 아이템위너 방지: preventionSeed가 있으면 각 이미지에 변형 파라미터 생성
+          // 아이템위너 방지: preventionSeed가 있으면 각 이미지에 변형 파라미터 생성 (강도 반영)
           let variationParamsList: (VariationParams | undefined)[] | undefined;
           if (preventionSeed) {
             const imgSeed = `${preventionSeed}:${product.productCode}`;
-            variationParamsList = allPaths.map((_, idx) => generateVariationParams(imgSeed, idx));
+            const intensity = body.variationIntensity || 'mid';
+            variationParamsList = allPaths.map((_, idx) => generateVariationParams(imgSeed, idx, intensity));
           }
 
           const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, IMAGE_CONCURRENCY, false, variationParamsList);

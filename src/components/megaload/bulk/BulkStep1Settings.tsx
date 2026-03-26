@@ -44,6 +44,7 @@ interface BulkStep1SettingsProps {
   returnCharge: number;
   contactNumber: string;
   includeReviewImages: boolean;
+  useStockImages: boolean;
   noticeOverrides: Record<string, string>;
   loadingShipping: boolean;
   shippingError: string;
@@ -60,9 +61,11 @@ interface BulkStep1SettingsProps {
   onSetReturnCharge: (v: number) => void;
   onSetContactNumber: (v: string) => void;
   onSetIncludeReviewImages: (v: boolean) => void;
+  onSetUseStockImages: (v: boolean) => void;
   onSetNoticeOverrides: (v: Record<string, string>) => void;
   preventionConfig: PreventionConfig;
   onSetPreventionEnabled: (v: boolean) => void;
+  onSetPreventionIntensity: (v: 'low' | 'mid' | 'high') => void;
   onRecalcPrices: (brackets: PriceBracket[]) => void;
   onScan: () => void;
   onBrowseFolder: () => void;
@@ -72,14 +75,14 @@ export default function BulkStep1Settings({
   folderPaths, brackets, shippingPlaces, returnCenters,
   selectedOutbound, selectedReturn,
   deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, contactNumber,
-  includeReviewImages, noticeOverrides,
+  includeReviewImages, useStockImages, noticeOverrides,
   loadingShipping, shippingError, scanning, scanError, browsingFolder,
   onAddFolderPath, onRemoveFolderPath,
   onSetSelectedOutbound, onSetSelectedReturn,
   onSetDeliveryChargeType, onSetDeliveryCharge, onSetFreeShipOverAmount,
   onSetReturnCharge, onSetContactNumber,
-  onSetIncludeReviewImages, onSetNoticeOverrides,
-  preventionConfig, onSetPreventionEnabled,
+  onSetIncludeReviewImages, onSetUseStockImages, onSetNoticeOverrides,
+  preventionConfig, onSetPreventionEnabled, onSetPreventionIntensity,
   onRecalcPrices, onScan, onBrowseFolder,
 }: BulkStep1SettingsProps) {
   const [folderInput, setFolderInput] = useState('');
@@ -317,6 +320,36 @@ export default function BulkStep1Settings({
                   <span className="text-xs text-gray-400">— {desc}</span>
                 </div>
               ))}
+              {/* 변형 강도 선택 */}
+              {preventionConfig.imageVariation && (
+                <div className="mt-2 flex items-center gap-3">
+                  <span className="text-xs text-gray-500 font-medium shrink-0">변형 강도:</span>
+                  <div className="flex gap-1">
+                    {([
+                      { key: 'low' as const, label: '약', desc: '미세 변형 (파일 해시만 변경)' },
+                      { key: 'mid' as const, label: '중', desc: '중간 변형 (pHash 일부 변경)' },
+                      { key: 'high' as const, label: '강', desc: '강한 변형 (pHash 완전 변경)' },
+                    ]).map(({ key, label, desc }) => (
+                      <button
+                        key={key}
+                        onClick={() => onSetPreventionIntensity(key)}
+                        title={desc}
+                        className={`px-3 py-1 rounded-full text-xs font-medium transition ${
+                          preventionConfig.variationIntensity === key
+                            ? 'bg-[#E31837] text-white'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-[10px] text-gray-400 ml-1">
+                    {preventionConfig.variationIntensity === 'low' ? '파일 해시 변경 위주' :
+                     preventionConfig.variationIntensity === 'high' ? '좌우반전·회전·배경변경 포함' : '좌우반전·배경변경 포함'}
+                  </span>
+                </div>
+              )}
               <div className="mt-3 px-3 py-2 bg-gray-50 rounded-lg text-xs text-gray-500">
                 방지 레벨: <span className="font-semibold text-gray-700">{getPreventionLevel(preventionConfig) === 4 ? '높음' : getPreventionLevel(preventionConfig) >= 2 ? '중간' : '낮음'}</span> ({getPreventionLevel(preventionConfig)}/4)
               </div>
@@ -335,6 +368,13 @@ export default function BulkStep1Settings({
               <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${includeReviewImages ? 'translate-x-5' : ''}`} />
             </div>
             <div><div className="text-sm font-medium text-gray-700">리뷰 이미지 포함</div><div className="text-xs text-gray-400">reviews/ 폴더 이미지를 상세페이지에 삽입</div></div>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <div className={`relative w-11 h-6 rounded-full transition ${useStockImages ? 'bg-[#E31837]' : 'bg-gray-200'}`}>
+              <input type="checkbox" checked={useStockImages} onChange={(e) => onSetUseStockImages(e.target.checked)} className="sr-only" />
+              <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${useStockImages ? 'translate-x-5' : ''}`} />
+            </div>
+            <div><div className="text-sm font-medium text-gray-700">스톡 이미지 사용</div><div className="text-xs text-gray-400">농산물/수산물 등 범용 카테고리의 대표이미지를 고품질 스톡 사진으로 교체</div></div>
           </label>
         </div>
       </div>
