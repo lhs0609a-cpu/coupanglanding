@@ -30,6 +30,7 @@ interface PreflightRequestProduct {
   aiDisplayName?: string;
   aiSellerName?: string;
   categoryConfidence?: number;
+  categoryPath?: string;
   displayProductNameOverride?: string;
   manufacturerOverride?: string;
   unitCountOverride?: number;
@@ -95,6 +96,21 @@ export async function POST(req: NextRequest) {
 
     if (!products || products.length === 0) {
       return NextResponse.json({ error: '상품이 없습니다.' }, { status: 400 });
+    }
+
+    // 배송/반품 설정 검증 — 전체 등록에 영향을 미치는 공통 설정
+    const deliveryWarnings: PreflightIssue[] = [];
+    if (!deliveryInfo?.outboundShippingPlaceCode) {
+      deliveryWarnings.push({ code: 'NO_OUTBOUND', field: 'outboundShippingPlaceCode', message: '출고지가 설정되지 않았습니다. Step 1에서 출고지를 선택해주세요.' });
+    }
+    if (!returnInfo?.returnCenterCode) {
+      deliveryWarnings.push({ code: 'NO_RETURN_CENTER', field: 'returnCenterCode', message: '반품지가 설정되지 않았습니다. Step 1에서 반품지를 선택해주세요.' });
+    }
+    if (!deliveryInfo?.deliveryCompanyCode) {
+      deliveryWarnings.push({ code: 'NO_DELIVERY_COMPANY', field: 'deliveryCompanyCode', message: '배송사 코드가 설정되지 않았습니다.' });
+    }
+    if (!returnInfo?.companyContactNumber && !returnInfo?.afterServiceContactNumber) {
+      deliveryWarnings.push({ code: 'NO_CONTACT', field: 'contactNumber', message: 'A/S 연락처가 설정되지 않았습니다. 고시정보에 빈 값이 들어갑니다.' });
     }
 
     // vendorId 획득
@@ -183,6 +199,7 @@ export async function POST(req: NextRequest) {
             aiDisplayName: product.aiDisplayName,
             aiSellerName: product.aiSellerName,
             categoryConfidence: product.categoryConfidence,
+            categoryPath: product.categoryPath,
             displayProductNameOverride: product.displayProductNameOverride,
             manufacturerOverride: product.manufacturerOverride,
             unitCountOverride: product.unitCountOverride,
@@ -264,9 +281,10 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({
-      overallPass: failCount === 0,
+      overallPass: failCount === 0 && deliveryWarnings.filter(w => w.code === 'NO_OUTBOUND' || w.code === 'NO_RETURN_CENTER').length === 0,
       stats: { total: products.length, pass: passCount, fail: failCount, warn: warnCount },
       results,
+      deliveryWarnings,
       categoryMeta,
       durationMs: Date.now() - startTime,
     });

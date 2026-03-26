@@ -48,6 +48,7 @@ interface BatchProduct {
   taxType?: 'TAX' | 'FREE' | 'ZERO';
   adultOnly?: 'EVERYONE' | 'ADULT_ONLY';
   categoryConfidence?: number;  // 카테고리 매칭 confidence (0~1)
+  categoryPath?: string;        // 카테고리 경로 (예: "뷰티>스킨>크림>넥크림")
   // per-product 오버라이드 (상세패널에서 수정한 값)
   displayProductNameOverride?: string;
   manufacturerOverride?: string;

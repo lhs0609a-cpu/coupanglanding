@@ -1024,6 +1024,7 @@ export function useBulkRegisterActions() {
           sellingPrice: p.editedSellingPrice,
           sourcePrice: p.sourcePrice,
           categoryCode: p.editedCategoryCode,
+          categoryPath: p.editedCategoryName,
           tags: p.tags,
           description: p.description,
           mainImages: p.mainImages,
@@ -1429,7 +1430,7 @@ export function useBulkRegisterActions() {
           const product: Record<string, unknown> = {
             uid: p.uid, productCode: p.productCode, folderPath: p.folderPath, name: p.editedName,
             brand: p.editedBrand, sellingPrice: p.editedSellingPrice, sourcePrice: p.sourcePrice,
-            categoryCode: p.editedCategoryCode, tags: p.tags, description: p.description,
+            categoryCode: p.editedCategoryCode, categoryPath: p.editedCategoryName, tags: p.tags, description: p.description,
             mainImages: p.mainImages, detailImages: p.detailImages, reviewImages: p.reviewImages, infoImages: p.infoImages,
             noticeMeta: meta.noticeMeta, attributeMeta: meta.attributeMeta,
           };

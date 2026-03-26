@@ -139,6 +139,7 @@ function resolveFieldValue(
 /**
  * 메타데이터 없을 때 카테고리 힌트 기반 폴백
  * 식품/의류/화장품/가전 등 카테고리별 필수 고시 템플릿 제공
+ * categoryHint에는 카테고리 경로("뷰티>스킨>크림>넥크림") 또는 상품명이 전달됨
  */
 function buildFallbackNotice(
   product: LocalProductJson,
@@ -147,7 +148,8 @@ function buildFallbackNotice(
 ): FilledNoticeCategory[] {
   const productName = (product.name || product.title || '').slice(0, 50);
   const brand = product.brand || '';
-  const hint = (categoryHint || productName).toLowerCase();
+  // 카테고리 경로와 상품명 모두 활용하여 더 정확한 카테고리 판별
+  const hint = ((categoryHint || '') + ' ' + productName).toLowerCase();
 
   // 식품류
   if (/식품|건강|영양|음료|과자|라면|커피|차\b/.test(hint)) {
@@ -186,8 +188,8 @@ function buildFallbackNotice(
     }];
   }
 
-  // 화장품
-  if (/화장품|스킨|세럼|로션|크림|마스크팩|선크림|클렌징/.test(hint)) {
+  // 화장품/뷰티
+  if (/화장품|뷰티|스킨|세럼|로션|크림|마스크팩|선크림|클렌징|토너|에센스|미스트|파운데이션|립|아이/.test(hint)) {
     return [{
       noticeCategoryName: '화장품',
       noticeCategoryDetailName: [

@@ -38,6 +38,7 @@ export interface BuildPayloadProduct {
   taxType?: 'TAX' | 'FREE' | 'ZERO';
   adultOnly?: 'EVERYONE' | 'ADULT_ONLY';
   categoryConfidence?: number;
+  categoryPath?: string;        // 카테고리 경로 (예: "뷰티>스킨>크림>넥크림")
   displayProductNameOverride?: string;
   manufacturerOverride?: string;
   itemNameOverride?: string;
@@ -123,7 +124,7 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     returnInfo.afterServiceContactNumber,
     Object.keys(mergedNoticeOverrides).length > 0 ? mergedNoticeOverrides : undefined,
     noticeHints,
-    product.name,
+    product.categoryPath || product.name,
   );
 
   // 아이템위너 방지 시드 + 레이아웃 변형
@@ -179,6 +180,7 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     adultOnly: product.adultOnly,
     preventionSeed,
     detailLayoutVariant,
+    categoryPath: product.categoryPath,
   });
 
   return { payload, filledNotices, extractedOptions: extracted };
