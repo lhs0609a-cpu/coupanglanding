@@ -482,7 +482,8 @@ interface BankImage {
  */
 export async function queryBankImages(
   categoryKey: string,
-  supabaseClient: { from: (table: string) => { select: (columns: string) => { eq: (col: string, val: string) => { eq: (col: string, val: boolean) => { order: (col: string) => Promise<{ data: BankImage[] | null; error: { message: string } | null }> } } } } },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabaseClient: any,
 ): Promise<BankImage[]> {
   const { data, error } = await supabaseClient
     .from('stock_image_bank')
