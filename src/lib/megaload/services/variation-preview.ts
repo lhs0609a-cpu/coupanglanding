@@ -260,12 +260,16 @@ export async function generateVariedThumbnail(
   canvas.height = outH;
   const ctx = canvas.getContext('2d')!;
 
-  // 3. 밝기 + 채도 CSS 필터
+  // 3. 배경 흰색 (회전 시 빈 영역이 검정색으로 나오는 문제 방지)
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, outW, outH);
+
+  // 4. 밝기 + 채도 CSS 필터
   const brightnessVal = 1 + params.brightness;
   const saturateVal = 1 + params.saturation;
   ctx.filter = `brightness(${brightnessVal}) saturate(${saturateVal})`;
 
-  // 4. 좌우 반전 + 미세 회전 적용
+  // 5. 좌우 반전 + 미세 회전 적용
   ctx.save();
   ctx.translate(outW / 2, outH / 2);
 
@@ -277,10 +281,9 @@ export async function generateVariedThumbnail(
     ctx.rotate((params.rotation * Math.PI) / 180);
   }
 
-  // 회전 시 잘림 방지: 약간 확대
+  // 회전 시 모서리 잘림 방지: cos(θ)+sin(θ) 만큼 확대해야 캔버스 전체를 덮음
   const absRot = Math.abs(params.rotation) * Math.PI / 180;
-  const rotScale = absRot > 0.001 ? 1 / (Math.cos(absRot) - Math.sin(absRot) * Math.min(outW, outH) / Math.max(outW, outH) * 0.1) : 1;
-  const finalScale = Math.min(rotScale, 1.05); // 최대 5% 확대
+  const finalScale = absRot > 0.001 ? Math.cos(absRot) + Math.sin(absRot) : 1;
 
   ctx.drawImage(
     srcCanvas,
