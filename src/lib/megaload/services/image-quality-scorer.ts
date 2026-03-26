@@ -49,8 +49,8 @@ export interface ImageScore {
   hardFilterReason?: string;
 }
 
-// 성능 최적화: 200→100 (4x 적은 픽셀, 패턴 감지에 충분)
-const ANALYSIS_SIZE = 100;
+// 성능 최적화: 200→100→50 (16x 적은 픽셀, 패턴 감지에 충분)
+const ANALYSIS_SIZE = 50;
 // 히스토그램: 64→32 (4x 적은 픽셀, 이상치 감지에 충분)
 const HISTOGRAM_SIZE = 32;
 const DEFAULT_MIN_SCORE = 40;

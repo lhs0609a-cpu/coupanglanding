@@ -611,284 +611,83 @@ export function useBulkRegisterActions() {
       (async () => {
         const latest = productsRef.current;
 
-        // ========== 병렬 파이프라인 ==========
-        // Branch A: 이미지 필터 + 스톡 (CPU 헤비)
-        // Branch B: 상품명 + 상세페이지 생성 (즉시 완료, 이미지와 무관)
-        // 두 브랜치를 동시 실행하여 대기 시간 제거
-        await Promise.all([
-          // ── Branch A: 이미지 파이프라인 ──
-          (async () => {
-            const { filterAndScoreMainImages, detectOutlierImages, filterDetailPageImages, crossReferenceOutlierImages } = await import('@/lib/megaload/services/image-quality-scorer');
+        // ========== 순차 파이프라인 (UI 응답성 최우선) ==========
+        // Canvas가 CPU를 차단하므로 제목/콘텐츠를 먼저 즉시 생성
+        // 이미지 필터는 대표이미지 스코어링만 (이상치/상세/교차비교 완전 생략)
 
-            const filterTotal = latest.length;
-            setImageFilterProgress({ done: 0, total: filterTotal, phase: 'running' });
+        // Step 1. 상품명 생성 — 즉시 완료 (템플릿 기반, <100ms)
+        await runTitleGeneration(latest);
+        await new Promise(r => setTimeout(r, 50));
 
-            // Phase 1: 대표이미지 스코어링 — 워커풀 (5개 상품 동시, 각 상품 내부에서 3개 이미지 동시)
-            // ※ scoringPromises를 미리 만들지 않고, 워커풀에서 lazy 생성하여 메모리 폭증 방지
-            const PRODUCT_CONCURRENCY = 5;
-            type ScoringResult = { index: number; score: import('@/lib/megaload/services/image-quality-scorer').ImageScore; filtered: boolean }[] | null;
-            const scoringResults: ScoringResult[] = new Array(latest.length).fill(null);
-            let filterDone = 0;
-            let nextProduct = 0;
+        // Step 2. 상세페이지 생성 — 즉시 완료 (템플릿 기반, <100ms)
+        await runContentGeneration(productsRef.current);
+        await new Promise(r => setTimeout(r, 50));
 
-            async function scoringWorker() {
-              while (nextProduct < latest.length) {
-                const idx = nextProduct++;
-                const p = latest[idx];
-                if (p.scannedMainImages && p.scannedMainImages.length > 1) {
-                  const validEntries: { origIdx: number; url: string }[] = [];
-                  for (let j = 0; j < p.scannedMainImages.length; j++) {
-                    const url = p.scannedMainImages[j].objectUrl;
-                    if (url) validEntries.push({ origIdx: j, url });
-                  }
-                  if (validEntries.length > 1) {
-                    try {
-                      const urls = validEntries.map(e => e.url);
-                      const scores = await filterAndScoreMainImages(urls);
-                      scoringResults[idx] = scores.map(s => ({
-                        ...s,
-                        index: validEntries[s.index].origIdx,
-                      }));
-                    } catch { /* skip */ }
-                  }
-                }
-                filterDone++;
-                // 5개 상품마다 progress + yield (매 상품마다 하면 오버헤드)
-                if (filterDone % 5 === 0 || filterDone === latest.length) {
-                  setImageFilterProgress(prev => ({ ...prev, done: filterDone }));
-                  await new Promise(r => setTimeout(r, 0));
-                }
+        // Step 3. 대표이미지 스코어링 (1개씩 순차 — INP 0 보장)
+        {
+          const { filterAndScoreMainImages } = await import('@/lib/megaload/services/image-quality-scorer');
+          const filterTotal = latest.length;
+          setImageFilterProgress({ done: 0, total: filterTotal, phase: 'running' });
+          await new Promise(r => setTimeout(r, 0));
+
+          type ScoringResult = { index: number; score: import('@/lib/megaload/services/image-quality-scorer').ImageScore; filtered: boolean }[] | null;
+          const scoringResults: ScoringResult[] = new Array(latest.length).fill(null);
+
+          for (let idx = 0; idx < latest.length; idx++) {
+            const p = latest[idx];
+            if (p.scannedMainImages && p.scannedMainImages.length > 1) {
+              const validEntries: { origIdx: number; url: string }[] = [];
+              for (let j = 0; j < p.scannedMainImages.length; j++) {
+                const url = p.scannedMainImages[j].objectUrl;
+                if (url) validEntries.push({ origIdx: j, url });
               }
-            }
-
-            await Promise.all(
-              Array.from({ length: Math.min(PRODUCT_CONCURRENCY, latest.length) }, () => scoringWorker()),
-            );
-
-            // Phase 2: 이상치 감지 — 스코어링 결과 기반 (워커풀)
-            type OutlierResult = { originalIndex: number; isOutlier: boolean; distance: number }[] | null;
-            const outlierResults: OutlierResult[] = new Array(latest.length).fill(null);
-            let nextOutlier = 0;
-
-            async function outlierWorker() {
-              while (nextOutlier < latest.length) {
-                const i = nextOutlier++;
-                const p = latest[i];
-                if (!p.scannedMainImages || p.scannedMainImages.length <= 4) continue;
-                const scores = scoringResults[i];
-                if (!scores) continue;
-                const passedIndices = scores.filter(s => !s.filtered).map(s => s.index);
-                if (passedIndices.length <= 4) continue;
-                const validEntries: { origIdx: number; url: string }[] = [];
-                for (let j = 0; j < passedIndices.length; j++) {
-                  const url = p.scannedMainImages![passedIndices[j]]?.objectUrl;
-                  if (url) validEntries.push({ origIdx: passedIndices[j], url });
-                }
-                if (validEntries.length <= 4) continue;
+              if (validEntries.length > 1) {
                 try {
-                  const outliers = await detectOutlierImages(validEntries.map(e => e.url));
-                  outlierResults[i] = outliers.map((o, j) => ({
-                    originalIndex: validEntries[j].origIdx,
-                    isOutlier: o.isOutlier,
-                    distance: o.distance,
+                  const urls = validEntries.map(e => e.url);
+                  const scores = await filterAndScoreMainImages(urls);
+                  scoringResults[idx] = scores.map(s => ({
+                    ...s,
+                    index: validEntries[s.index].origIdx,
                   }));
                 } catch { /* skip */ }
               }
             }
-
-            await Promise.all(
-              Array.from({ length: Math.min(PRODUCT_CONCURRENCY, latest.length) }, () => outlierWorker()),
-            );
-
-            // Phase 1+2 결과로 대표이미지 로컬 계산 (Phase 3 교차 비교용)
-            const phase12MainResults: (typeof latest[number]['scannedMainImages'])[] = latest.map((p, i) => {
-              if (!p.scannedMainImages || p.scannedMainImages.length <= 1) return p.scannedMainImages;
-              const scores = scoringResults[i];
-              if (!scores || scores.length === 0) return p.scannedMainImages;
-              const passed = scores.filter(s => !s.filtered);
-              const surviving = passed.length > 0 ? passed : [scores[0]];
-              const outliers = outlierResults[i];
-              const outlierIndices = new Set(
-                outliers?.filter(o => o.isOutlier).map(o => o.originalIndex) ?? [],
-              );
-              const afterOutlier = outlierIndices.size > 0
-                ? surviving.filter(s => !outlierIndices.has(s.index))
-                : surviving;
-              const final = afterOutlier.length > 0 ? afterOutlier : [surviving[0]];
-              return final.map(s => p.scannedMainImages![s.index]).slice(0, 10);
-            });
-
-            // Phase 3: 상세/리뷰 이미지 필터링 — 워커풀 (전부 동시에 시작하지 않음)
-            type DetailFilterResult = {
-              detail?: { origIdx: number; filtered: boolean; reason?: string }[];
-              review?: { origIdx: number; filtered: boolean; reason?: string }[];
-            };
-            const detailFilterResults: DetailFilterResult[] = new Array(latest.length).fill({});
-            let nextDetail = 0;
-
-            async function detailFilterWorker() {
-              while (nextDetail < latest.length) {
-                const pIdx = nextDetail++;
-                const p = latest[pIdx];
-                const results: DetailFilterResult = {};
-
-                const mainUrls: string[] = [];
-                const phase12Main = phase12MainResults[pIdx];
-                if (phase12Main) {
-                  for (const img of phase12Main) {
-                    if (img.objectUrl) mainUrls.push(img.objectUrl);
-                  }
-                }
-
-                // 상세 이미지 필터
-                if (p.scannedDetailImages && p.scannedDetailImages.length > 0) {
-                  const entries: { origIdx: number; url: string }[] = [];
-                  for (let j = 0; j < p.scannedDetailImages.length; j++) {
-                    const url = p.scannedDetailImages[j].objectUrl;
-                    if (url) entries.push({ origIdx: j, url });
-                  }
-                  if (entries.length > 0) {
-                    try {
-                      const raw = await filterDetailPageImages(entries.map(e => e.url));
-                      results.detail = raw.map(r => ({ origIdx: entries[r.index].origIdx, filtered: r.filtered, reason: r.reason }));
-                      if (mainUrls.length > 0) {
-                        const passedEntries = results.detail.map((r, idx) => ({ ...r, entryIdx: idx })).filter(r => !r.filtered);
-                        if (passedEntries.length > 0) {
-                          try {
-                            const crossResults = await crossReferenceOutlierImages(
-                              mainUrls,
-                              passedEntries.map(e => entries.find(en => en.origIdx === e.origIdx)!.url),
-                            );
-                            for (let k = 0; k < crossResults.length; k++) {
-                              if (crossResults[k].isOutlier) {
-                                const target = results.detail[passedEntries[k].entryIdx];
-                                target.filtered = true;
-                                target.reason = 'cross_reference_outlier';
-                              }
-                            }
-                          } catch { /* skip */ }
-                        }
-                      }
-                    } catch { /* skip */ }
-                  }
-                }
-
-                // 리뷰 이미지 필터
-                if (p.scannedReviewImages && p.scannedReviewImages.length > 0) {
-                  const entries: { origIdx: number; url: string }[] = [];
-                  for (let j = 0; j < p.scannedReviewImages.length; j++) {
-                    const url = p.scannedReviewImages[j].objectUrl;
-                    if (url) entries.push({ origIdx: j, url });
-                  }
-                  if (entries.length > 0) {
-                    try {
-                      const raw = await filterDetailPageImages(entries.map(e => e.url));
-                      results.review = raw.map(r => ({ origIdx: entries[r.index].origIdx, filtered: r.filtered, reason: r.reason }));
-                      if (mainUrls.length > 0) {
-                        const passedEntries = results.review.map((r, idx) => ({ ...r, entryIdx: idx })).filter(r => !r.filtered);
-                        if (passedEntries.length > 0) {
-                          try {
-                            const crossResults = await crossReferenceOutlierImages(
-                              mainUrls,
-                              passedEntries.map(e => entries.find(en => en.origIdx === e.origIdx)!.url),
-                            );
-                            for (let k = 0; k < crossResults.length; k++) {
-                              if (crossResults[k].isOutlier) {
-                                const target = results.review[passedEntries[k].entryIdx];
-                                target.filtered = true;
-                                target.reason = 'cross_reference_outlier';
-                              }
-                            }
-                          } catch { /* skip */ }
-                        }
-                      }
-                    } catch { /* skip */ }
-                  }
-                }
-
-                detailFilterResults[pIdx] = results;
-              }
+            // 5개 상품마다 progress + yield
+            if ((idx + 1) % 5 === 0 || idx === latest.length - 1) {
+              setImageFilterProgress(prev => ({ ...prev, done: idx + 1 }));
+              await new Promise(r => setTimeout(r, 0));
             }
+          }
 
-            await Promise.all(
-              Array.from({ length: Math.min(PRODUCT_CONCURRENCY, latest.length) }, () => detailFilterWorker()),
+          // setProducts 1회 — 대표이미지 스코어링 결과만 적용
+          setProducts(prev => prev.map((p, i) => {
+            if (!p.scannedMainImages || p.scannedMainImages.length <= 1) return p;
+            const scores = scoringResults[i];
+            if (!scores || scores.length === 0) return p;
+
+            const passed = scores.filter(s => !s.filtered);
+            const surviving = passed.length > 0 ? passed : [scores[0]];
+
+            const hardFilteredCount = scores.length - surviving.length;
+            if (hardFilteredCount > 0) {
+              console.info(`[image-filter] ${p.productCode}: 하드필터 ${hardFilteredCount}장 제거 (${scores.length}→${surviving.length}장)`);
+            }
+            console.info(
+              `[image-score] ${p.productCode}: 대표=#${surviving[0].index} (overall=${surviving[0].score.overall.toFixed(1)})` +
+              ` | ${surviving.slice(0, 5).map(s => `#${s.index}=${s.score.overall.toFixed(1)}`).join(', ')}`,
             );
 
-            // 통합 setProducts — Phase 1+2+3 한 번에 적용
-            setProducts(prev => prev.map((p, i) => {
-              let updated = { ...p };
+            const sorted = surviving.map(s => p.scannedMainImages![s.index]);
+            const finalImages = sorted.slice(0, 10);
+            return { ...p, scannedMainImages: finalImages, mainImageCount: finalImages.length };
+          }));
 
-              // Phase 1+2: 대표이미지 스코어링+이상치
-              if (p.scannedMainImages && p.scannedMainImages.length > 1) {
-                const scores = scoringResults[i];
-                if (scores && scores.length > 0) {
-                  const passed = scores.filter(s => !s.filtered);
-                  const surviving = passed.length > 0 ? passed : [scores[0]];
-                  const outliers = outlierResults[i];
-                  const outlierIndices = new Set(
-                    outliers?.filter(o => o.isOutlier).map(o => o.originalIndex) ?? [],
-                  );
-                  const afterOutlier = outlierIndices.size > 0
-                    ? surviving.filter(s => !outlierIndices.has(s.index))
-                    : surviving;
-                  const final = afterOutlier.length > 0 ? afterOutlier : [surviving[0]];
+          setImageFilterProgress({ done: filterTotal, total: filterTotal, phase: 'complete' });
+          await new Promise(r => setTimeout(r, 50));
+        }
 
-                  const hardFilteredCount = scores.length - surviving.length;
-                  const outlierCount = surviving.length - afterOutlier.length;
-                  if (hardFilteredCount > 0 || outlierCount > 0) {
-                    const reasons: string[] = [];
-                    if (hardFilteredCount > 0) reasons.push(`하드필터 ${hardFilteredCount}장`);
-                    if (outlierCount > 0) reasons.push(`이상치 ${outlierCount}장`);
-                    console.info(`[image-filter] ${p.productCode}: ${reasons.join(' + ')} 제거 (${scores.length}→${final.length}장)`);
-                  }
-                  console.info(
-                    `[image-score] ${p.productCode}: 대표=#${final[0].index} (overall=${final[0].score.overall.toFixed(1)}, compact=${final[0].score.productCompactness.toFixed(0)}, edge=${final[0].score.edgeCrop.toFixed(0)}, sym=${final[0].score.symmetry.toFixed(0)}, bg=${final[0].score.background.toFixed(0)}, center=${final[0].score.centering.toFixed(0)})` +
-                    ` | 전체: ${final.slice(0, 5).map((s) => `#${s.index}=${s.score.overall.toFixed(1)}`).join(', ')}${final.length > 5 ? '...' : ''}`,
-                  );
-                  const sorted = final.map(s => p.scannedMainImages![s.index]);
-                  const finalImages = sorted.slice(0, 10);
-                  updated = { ...updated, scannedMainImages: finalImages, mainImageCount: finalImages.length };
-                }
-              }
-
-              // Phase 3: 상세/리뷰 필터
-              const filterResult = detailFilterResults[i];
-              if (filterResult.detail && p.scannedDetailImages) {
-                const passed = filterResult.detail.filter(r => !r.filtered);
-                if (passed.length < p.scannedDetailImages.length) {
-                  const removed = filterResult.detail.filter(r => r.filtered).length;
-                  console.info(`[detail-filter] ${p.productCode}: 상세이미지 ${removed}장 제거 (${filterResult.detail.filter(r => r.filtered).map(r => r.reason).join(',')})`);
-                  const kept = passed.map(r => p.scannedDetailImages![r.origIdx]);
-                  updated = { ...updated, scannedDetailImages: kept, detailImageCount: kept.length };
-                }
-              }
-              if (filterResult.review && p.scannedReviewImages) {
-                const passed = filterResult.review.filter(r => !r.filtered);
-                if (passed.length < p.scannedReviewImages.length) {
-                  const removed = filterResult.review.filter(r => r.filtered).length;
-                  console.info(`[detail-filter] ${p.productCode}: 리뷰이미지 ${removed}장 제거 (${filterResult.review.filter(r => r.filtered).map(r => r.reason).join(',')})`);
-                  const kept = passed.map(r => p.scannedReviewImages![r.origIdx]);
-                  updated = { ...updated, scannedReviewImages: kept, reviewImageCount: kept.length };
-                }
-              }
-
-              return updated;
-            }));
-
-            setImageFilterProgress({ done: filterTotal, total: filterTotal, phase: 'complete' });
-            await new Promise(r => setTimeout(r, 50));
-
-            // 스톡 이미지 fetch
-            await runStockImageFetch(productsRef.current);
-          })(),
-
-          // ── Branch B: 상품명 + 상세페이지 (이미지 필터와 병렬) ──
-          (async () => {
-            await runTitleGeneration(productsRef.current);
-            await new Promise(r => setTimeout(r, 50));
-            await runContentGeneration(productsRef.current);
-          })(),
-        ]);
+        // Step 4. 스톡 이미지 fetch
+        await runStockImageFetch(productsRef.current);
       })();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
