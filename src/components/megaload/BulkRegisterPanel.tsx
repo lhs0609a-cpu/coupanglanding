@@ -126,6 +126,7 @@ export default function BulkRegisterPanel() {
           returnCharge={actions.returnCharge}
           contactNumber={actions.contactNumber}
           includeReviewImages={actions.includeReviewImages}
+          useStockImages={actions.useStockImages}
           noticeOverrides={actions.noticeOverrides}
           loadingShipping={actions.loadingShipping}
           shippingError={actions.shippingError}
@@ -142,9 +143,11 @@ export default function BulkRegisterPanel() {
           onSetReturnCharge={actions.setReturnCharge}
           onSetContactNumber={actions.setContactNumber}
           onSetIncludeReviewImages={actions.setIncludeReviewImages}
+          onSetUseStockImages={actions.setUseStockImages}
           onSetNoticeOverrides={actions.setNoticeOverrides}
           preventionConfig={actions.preventionConfig}
           onSetPreventionEnabled={actions.setPreventionEnabled}
+          onSetPreventionIntensity={actions.setPreventionIntensity}
           onRecalcPrices={actions.recalcPrices}
           onScan={actions.handleScan}
           onBrowseFolder={actions.handleBrowseFolder}
@@ -198,6 +201,7 @@ export default function BulkRegisterPanel() {
           onLoadThumbnail={handleLoadThumbnail}
           onReorderImages={actions.handleReorderImages}
           onRemoveImage={actions.handleRemoveImage}
+          onSwapStockImage={actions.handleSwapStockImage}
           getDetailImageUrls={actions.getDetailImageUrls}
           selectedOutbound={actions.selectedOutbound}
           selectedReturn={actions.selectedReturn}

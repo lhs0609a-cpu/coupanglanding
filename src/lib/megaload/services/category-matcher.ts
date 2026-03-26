@@ -713,7 +713,14 @@ export async function matchCategory(
   const tokens = tokenize(productName);
   const compoundTokens = buildCompoundTokens(tokens);
 
-  // ── Tier 0: 직접 코드 매핑 (최우선 — 수동 큐레이션이라 신뢰도 최고) ──
+  // ── 네이버 카테고리 매핑 (최우선 — 소싱 상품의 실제 분류) ──
+  // naverCategoryId는 실제 상품의 정확한 카테고리이므로 키워드 추론보다 신뢰도가 높다.
+  if (naverCategoryId) {
+    const naverResult = matchByNaverCategory(naverCategoryId);
+    if (naverResult) return naverResult;
+  }
+
+  // ── Tier 0: 직접 코드 매핑 (네이버 ID 없을 때 최우선) ──
   const baseCompounds = [...tokens];
   for (let i = 0; i < tokens.length - 1; i++) {
     baseCompounds.push(tokens[i] + tokens[i + 1]);
@@ -724,12 +731,6 @@ export async function matchCategory(
   const allCandidates = [...baseCompounds, ...expandedOnly];
   const tier0Result = voteTier0(allCandidates);
   if (tier0Result) return tier0Result;
-
-  // ── 네이버 카테고리 매핑 (Tier 0 미매칭 시) ──
-  if (naverCategoryId) {
-    const naverResult = matchByNaverCategory(naverCategoryId);
-    if (naverResult) return naverResult;
-  }
 
   // ── Tier 1: Local DB matching ──
   const { match: localResult } = await localMatch(tokens);
@@ -816,15 +817,27 @@ export async function matchCategoryBatch(
   const results: (CategoryMatchResult | null)[] = new Array(productNames.length).fill(null);
   const cache = new Map<string, CategoryMatchResult | null>();
 
-  // === Phase 0+1 통합: Tier 0 (DIRECT_CODE_MAP) 최우선 → 네이버 매핑 → 로컬 DB ===
-  // Tier 0는 수동 큐레이션된 키워드→카테고리 매핑이므로 신뢰도가 가장 높다.
-  // 네이버 매핑은 자동 생성이라 오류 가능성이 있으므로 Tier 0보다 후순위.
+  // === Phase 0+1 통합: 네이버 매핑 최우선 → Tier 0 → 로컬 DB ===
+  // 네이버 카테고리 ID는 소싱 상품의 실제 분류이므로 키워드 추론보다 신뢰도가 높다.
+  // Tier 0는 네이버 ID가 없을 때만 작동.
   const productTokensList: string[][] = productNames.map((name) => tokenize(name));
   const unmatchedIndices: number[] = [];
   const tier1Diagnostics = new Map<number, { score: number; candidateName: string }>();
 
   for (let i = 0; i < productNames.length; i++) {
-    // Tier 0: 투표 기반 직접 코드 매핑 (최우선 — 네이버 매핑보다 앞)
+    // 네이버 카테고리 매핑 (최우선 — 소싱 상품의 실제 분류)
+    if (naverCategoryIds) {
+      const navId = naverCategoryIds[i];
+      if (navId) {
+        const navResult = matchByNaverCategory(navId);
+        if (navResult) {
+          results[i] = navResult;
+          continue;
+        }
+      }
+    }
+
+    // Tier 0: 투표 기반 직접 코드 매핑 (네이버 ID 없을 때)
     const toks = productTokensList[i];
     const baseComps: string[] = [...toks];
     for (let j = 0; j < toks.length - 1; j++) {
@@ -838,18 +851,6 @@ export async function matchCategoryBatch(
     if (tier0Result) {
       results[i] = tier0Result;
       continue;
-    }
-
-    // Tier 0 미매칭 → 네이버 카테고리 매핑 시도
-    if (naverCategoryIds) {
-      const navId = naverCategoryIds[i];
-      if (navId) {
-        const navResult = matchByNaverCategory(navId);
-        if (navResult) {
-          results[i] = navResult;
-          continue;
-        }
-      }
     }
 
     // Tier 1: 로컬 DB 토큰 매칭

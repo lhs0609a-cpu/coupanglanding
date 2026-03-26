@@ -30,9 +30,10 @@ interface BulkImageGridProps {
   onReorder: (newOrder: ImageItem[]) => void;
   onRemove: (id: string) => void;
   onSetAsMain?: (id: string) => void;
+  onImageClick?: (id: string, index: number) => void;
 }
 
-function SortableImage({ image, onRemove, isMain, onSetAsMain, idx }: { image: ImageItem; onRemove: (id: string) => void; isMain: boolean; onSetAsMain?: (id: string) => void; idx: number }) {
+function SortableImage({ image, onRemove, isMain, onSetAsMain, onImageClick, idx }: { image: ImageItem; onRemove: (id: string) => void; isMain: boolean; onSetAsMain?: (id: string) => void; onImageClick?: (id: string, index: number) => void; idx: number }) {
   const [imgError, setImgError] = useState(false);
   const {
     attributes,
@@ -58,19 +59,24 @@ function SortableImage({ image, onRemove, isMain, onSetAsMain, idx }: { image: I
         isDragging ? 'border-blue-400 shadow-lg' : 'border-gray-200'
       }`}
     >
-      {imgError ? (
-        <div className="w-full aspect-square bg-gray-100 flex items-center justify-center text-xs text-gray-400">
-          로드 실패
-        </div>
-      ) : (
-        <img
-          src={image.url}
-          alt=""
-          className="w-full aspect-square object-cover bg-gray-100"
-          loading="lazy"
-          onError={() => setImgError(true)}
-        />
-      )}
+      <div
+        onClick={onImageClick ? () => onImageClick(image.id, idx) : undefined}
+        className={onImageClick ? 'cursor-pointer' : ''}
+      >
+        {imgError ? (
+          <div className="w-full aspect-square bg-gray-100 flex items-center justify-center text-xs text-gray-400">
+            로드 실패
+          </div>
+        ) : (
+          <img
+            src={image.url}
+            alt=""
+            className="w-full aspect-square object-cover bg-gray-100"
+            loading="lazy"
+            onError={() => setImgError(true)}
+          />
+        )}
+      </div>
       {/* Drag handle */}
       <button
         {...attributes}
@@ -107,7 +113,7 @@ function SortableImage({ image, onRemove, isMain, onSetAsMain, idx }: { image: I
   );
 }
 
-export default function BulkImageGrid({ images, onReorder, onRemove, onSetAsMain }: BulkImageGridProps) {
+export default function BulkImageGrid({ images, onReorder, onRemove, onSetAsMain, onImageClick }: BulkImageGridProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -152,6 +158,7 @@ export default function BulkImageGrid({ images, onReorder, onRemove, onSetAsMain
               idx={idx}
               onRemove={onRemove}
               onSetAsMain={onSetAsMain}
+              onImageClick={onImageClick}
             />
           ))}
         </div>

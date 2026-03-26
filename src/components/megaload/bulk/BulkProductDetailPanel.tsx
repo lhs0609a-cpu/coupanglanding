@@ -32,6 +32,7 @@ interface BulkProductDetailPanelProps {
   onCategoryClick: (uid: string) => void;
   onReorderImages: (uid: string, newOrder: string[]) => void;
   onRemoveImage: (uid: string, imageIndex: number) => void;
+  onSwapStockImage?: (uid: string, imageIndex: number, newCdnUrl: string) => void;
   payloadPreview?: PayloadPreviewState;
   onRequestPreview?: (uid: string) => void;
   preUploadedUrls?: Record<string, { mainImageUrls: string[]; detailImageUrls?: string[]; reviewImageUrls?: string[]; infoImageUrls?: string[] }>;
@@ -49,6 +50,7 @@ export default function BulkProductDetailPanel({
   onCategoryClick,
   onReorderImages,
   onRemoveImage,
+  onSwapStockImage,
   payloadPreview,
   onRequestPreview,
   preUploadedUrls,
@@ -350,6 +352,7 @@ export default function BulkProductDetailPanel({
                   onImageRemove={handleImageRemove}
                   preventionConfig={preventionConfig}
                   titleGenProgress={titleGenProgress}
+                  onSwapStockImage={onSwapStockImage}
                 />
               ) : (
                 <PayloadPreviewPanel

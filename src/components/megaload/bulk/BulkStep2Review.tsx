@@ -63,6 +63,7 @@ interface BulkStep2ReviewProps {
   // Image reorder
   onReorderImages: (uid: string, newOrder: string[]) => void;
   onRemoveImage: (uid: string, imageIndex: number) => void;
+  onSwapStockImage?: (uid: string, imageIndex: number, newCdnUrl: string) => void;
   // Detail panel image URLs
   getDetailImageUrls: (uid: string) => string[];
   // Payload preview (shipping info needed for preview API)
@@ -99,7 +100,7 @@ export default function BulkStep2Review({
   onSetCategorySearchTarget, onSetCategoryKeyword, onSearchCategory, onSelectCategory,
   onDeepValidation, onRegister, onBack,
   thumbnailCache, onLoadThumbnail,
-  onReorderImages, onRemoveImage, getDetailImageUrls,
+  onReorderImages, onRemoveImage, onSwapStockImage, getDetailImageUrls,
   selectedOutbound, selectedReturn, returnCharge, contactNumber, includeReviewImages, noticeOverrides,
   preventionConfig,
   preflightPhase, preflightResults, preflightStats, preflightDurationMs,
@@ -898,6 +899,7 @@ export default function BulkStep2Review({
         onCategoryClick={onCategoryClick}
         onReorderImages={onReorderImages}
         onRemoveImage={onRemoveImage}
+        onSwapStockImage={onSwapStockImage}
         payloadPreview={payloadPreview}
         onRequestPreview={handleRequestPreview}
         preUploadedUrls={imagePreuploadCache}

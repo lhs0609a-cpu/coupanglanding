@@ -7,6 +7,8 @@ import {
   DollarSign, Layers, CheckCircle2, Settings, Shuffle, Eye, Sparkles,
 } from 'lucide-react';
 import BulkImageGrid from './BulkImageGrid';
+import StockImageSwapModal from './StockImageSwapModal';
+import { STOCK_CATEGORY_MAP } from '@/lib/megaload/data/stock-image-categories';
 import { shuffleWithSeed, type PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import { useVariationPreviews } from './useVariationPreviews';
 import { useBeforeAfterPreview } from './useBeforeAfterPreview';
@@ -32,6 +34,7 @@ interface CoupangFieldsSectionProps {
   onImageRemove: (id: string) => void;
   preventionConfig?: PreventionConfig;
   titleGenProgress?: { done: number; total: number } | null;
+  onSwapStockImage?: (uid: string, imageIndex: number, newCdnUrl: string) => void;
 }
 
 /* ─── Required field input styling ─── */
@@ -114,15 +117,45 @@ function CollapsibleSection({
 /* ─── Image Section with Prevention Preview ─── */
 function ImageSectionWithPreview({
   imageItems, onImageReorder, onImageRemove, preventionConfig, productCode,
+  stockCategoryKey, onSwapStockImage, productUid,
 }: {
   imageItems: ImageItem[];
   onImageReorder: (newOrder: ImageItem[]) => void;
   onImageRemove: (id: string) => void;
   preventionConfig?: PreventionConfig;
   productCode: string;
+  stockCategoryKey?: string;
+  onSwapStockImage?: (uid: string, imageIndex: number, newCdnUrl: string) => void;
+  productUid?: string;
 }) {
   const isShuffleEnabled = preventionConfig?.enabled && preventionConfig?.imageOrderShuffle;
   const isVariationEnabled = preventionConfig?.enabled && preventionConfig?.imageVariation;
+
+  // 스왑 모달 상태
+  const [swapModalOpen, setSwapModalOpen] = useState(false);
+  const [swapTargetIndex, setSwapTargetIndex] = useState(0);
+
+  // 스톡 이미지 카테고리 정보 해석
+  const resolvedCategory = useMemo(() => {
+    if (stockCategoryKey) {
+      const entries = Object.values(STOCK_CATEGORY_MAP);
+      const found = entries.find(e => e.key === stockCategoryKey);
+      return found ? { key: stockCategoryKey, label: found.label } : null;
+    }
+    return null;
+  }, [stockCategoryKey]);
+
+  const handleImageClick = useCallback((_id: string, index: number) => {
+    if (!stockCategoryKey || !onSwapStockImage) return;
+    setSwapTargetIndex(index);
+    setSwapModalOpen(true);
+  }, [stockCategoryKey, onSwapStockImage]);
+
+  const handleSwapSelect = useCallback((cdnUrl: string) => {
+    if (onSwapStockImage && productUid) {
+      onSwapStockImage(productUid, swapTargetIndex, cdnUrl);
+    }
+  }, [onSwapStockImage, productUid, swapTargetIndex]);
 
   // 변형 미리보기 토글
   const [showVariation, setShowVariation] = useState(true);
@@ -138,7 +171,7 @@ function ImageSectionWithPreview({
 
   // Before/After 미리보기 상태
   const [beforeAfterOpen, setBeforeAfterOpen] = useState(false);
-  const [intensity, setIntensity] = useState<VariationIntensity>('mid');
+  const intensity: VariationIntensity = preventionConfig?.variationIntensity || 'mid';
   const [rerollSeed, setRerollSeed] = useState(() => `preview:${productCode}`);
 
   // 셀러 A/B/C 시드로 각각 다른 셔플 결과 미리보기
@@ -159,6 +192,7 @@ function ImageSectionWithPreview({
     imageItems,
     productCode,
     !!(isShuffleEnabled && isVariationEnabled && showVariation),
+    intensity,
   );
 
   // Before/After 미리보기
@@ -191,7 +225,20 @@ function ImageSectionWithPreview({
               const newOrder = [imageItems[idx], ...imageItems.filter((_, i) => i !== idx)];
               onImageReorder(newOrder);
             }}
+            onImageClick={stockCategoryKey ? handleImageClick : undefined}
           />
+
+          {/* 스톡 이미지 스왑 모달 */}
+          {resolvedCategory && (
+            <StockImageSwapModal
+              isOpen={swapModalOpen}
+              onClose={() => setSwapModalOpen(false)}
+              categoryKey={resolvedCategory.key}
+              categoryLabel={resolvedCategory.label}
+              currentImageUrl={imageItems[swapTargetIndex]?.url || ''}
+              onSelect={handleSwapSelect}
+            />
+          )}
 
           {/* Before/After 변형 미리보기 */}
           {isVariationEnabled && imageItems.length >= 2 && (
@@ -210,28 +257,12 @@ function ImageSectionWithPreview({
 
               {beforeAfterOpen && (
                 <div className="px-3 pb-3 pt-2 border-t border-purple-100 space-y-3 bg-purple-50/30">
-                  {/* 강도 + 리롤 컨트롤 */}
+                  {/* 강도 표시 + 리롤 컨트롤 */}
                   <div className="flex items-center gap-3">
-                    <span className="text-[10px] text-gray-500 font-medium">강도:</span>
-                    <div className="flex gap-1">
-                      {([
-                        { key: 'low' as const, label: '약' },
-                        { key: 'mid' as const, label: '중' },
-                        { key: 'high' as const, label: '강' },
-                      ]).map(({ key, label }) => (
-                        <button
-                          key={key}
-                          onClick={() => setIntensity(key)}
-                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium transition ${
-                            intensity === key
-                              ? 'bg-purple-600 text-white'
-                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
+                    <span className="text-[10px] text-gray-500 font-medium">
+                      강도: <span className="text-purple-600 font-semibold">{intensity === 'low' ? '약' : intensity === 'high' ? '강' : '중'}</span>
+                      <span className="text-gray-400 ml-1">(Step 1에서 변경)</span>
+                    </span>
                     <button
                       onClick={() => setRerollSeed(`preview:${Date.now()}`)}
                       className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition"
@@ -521,6 +552,7 @@ export default function CoupangFieldsSection({
   onImageRemove,
   preventionConfig,
   titleGenProgress,
+  onSwapStockImage,
 }: CoupangFieldsSectionProps) {
   const meta = previewData?.meta;
   const payload = previewData?.payload as Record<string, unknown> | undefined;
@@ -842,6 +874,9 @@ export default function CoupangFieldsSection({
         onImageRemove={onImageRemove}
         preventionConfig={preventionConfig}
         productCode={product.productCode}
+        stockCategoryKey={product.stockCategoryKey}
+        onSwapStockImage={onSwapStockImage}
+        productUid={product.uid}
       />
       </div>
 

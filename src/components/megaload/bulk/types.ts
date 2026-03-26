@@ -78,6 +78,11 @@ export interface EditableProduct extends PreviewProduct {
   editedDescription?: string;
   editedStoryParagraphs?: string[];
   editedReviewTexts?: string[];
+  // 스톡 이미지
+  stockMainImageUrls?: string[];
+  stockCategoryKey?: string; // 'apple' — runStockImageFetch에서 설정
+  useStockImages?: boolean;
+  originalScannedMainImages?: ScannedImageFile[];
 }
 
 export interface ShippingPlace {

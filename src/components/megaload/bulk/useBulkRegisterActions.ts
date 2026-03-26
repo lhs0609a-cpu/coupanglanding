@@ -10,6 +10,7 @@ import type {
 } from './types';
 import type { PreflightProductResult, CanaryResult } from '@/lib/megaload/types';
 import { DEFAULT_PREVENTION_CONFIG, DISABLED_PREVENTION_CONFIG } from '@/lib/megaload/services/item-winner-prevention';
+import { isCommodityCategory } from '@/lib/megaload/services/stock-image-service';
 import { addRecentPath } from './BulkStep1Settings';
 
 // ---- 브랜드 자동 추출 (상품명에서) ----
@@ -63,6 +64,8 @@ export function useBulkRegisterActions() {
   const [includeReviewImages, setIncludeReviewImages] = useState(true);
   const [noticeOverrides, setNoticeOverrides] = useState<Record<string, string>>({});
   const [preventionConfig, setPreventionConfig] = useState<PreventionConfig>(DEFAULT_PREVENTION_CONFIG);
+  const [useStockImages, setUseStockImages] = useState(false);
+  const [stockImageProgress, setStockImageProgress] = useState<{ done: number; total: number } | null>(null);
   const [browsingFolder, setBrowsingFolder] = useState(false);
 
   // Shipping
@@ -147,6 +150,10 @@ export function useBulkRegisterActions() {
     } else {
       setPreventionConfig(DISABLED_PREVENTION_CONFIG);
     }
+  }, []);
+
+  const setPreventionIntensity = useCallback((intensity: 'low' | 'mid' | 'high') => {
+    setPreventionConfig(prev => ({ ...prev, variationIntensity: intensity }));
   }, []);
 
   // ---- Folder path management ----
@@ -294,6 +301,136 @@ export function useBulkRegisterActions() {
     await new Promise((r) => setTimeout(r, backoffMs));
     runAutoCategory(products, true);
   }, [products, runAutoCategory, autoCategoryRetryCount]);
+
+  // ---- Stock image fetch (Pexels) ----
+  const runStockImageFetch = useCallback(async (prods: EditableProduct[]) => {
+    if (!useStockImages) return;
+
+    const targets = prods.filter(p => p.editedCategoryCode && isCommodityCategory(p.editedCategoryName));
+    if (targets.length === 0) return;
+
+    setStockImageProgress({ done: 0, total: targets.length });
+    await new Promise(r => setTimeout(r, 0));
+
+    const BATCH = 20;
+    let done = 0;
+
+    for (let i = 0; i < targets.length; i += BATCH) {
+      const batch = targets.slice(i, i + BATCH);
+      try {
+        const res = await fetch('/api/megaload/products/stock-images', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            products: batch.map(p => ({
+              uid: p.uid,
+              categoryPath: p.editedCategoryName,
+              productCode: p.productCode,
+            })),
+            count: 5,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json() as {
+            results: Record<string, { stockImageUrls: string[]; stockCategoryKey?: string }>;
+            skipped: string[];
+          };
+
+          setProducts(prev => prev.map(p => {
+            const result = data.results[p.uid];
+            if (!result || result.stockImageUrls.length === 0) return p;
+
+            // 원본 백업 (복원용)
+            const originalScanned = p.originalScannedMainImages || p.scannedMainImages;
+
+            // scannedMainImages를 스톡 이미지로 교체 (objectUrl = CDN URL)
+            const stockScanned = result.stockImageUrls.map((url, idx) => ({
+              name: `stock_${idx}.jpg`,
+              objectUrl: url,
+              handle: null as unknown as FileSystemFileHandle,
+            }));
+
+            return {
+              ...p,
+              stockMainImageUrls: result.stockImageUrls,
+              stockCategoryKey: result.stockCategoryKey,
+              originalScannedMainImages: originalScanned,
+              scannedMainImages: stockScanned,
+              mainImageCount: stockScanned.length,
+            };
+          }));
+
+          // imagePreuploadCache에 CDN URL 직접 설정
+          // → preupload 단계에서 캐시 히트 → 추가 업로드 불필요
+          setImagePreuploadCache(prev => {
+            const updated = { ...prev };
+            for (const [uid, result] of Object.entries(data.results)) {
+              if (result.stockImageUrls.length > 0) {
+                updated[uid] = {
+                  ...(updated[uid] || { detailImageUrls: [], reviewImageUrls: [], infoImageUrls: [] }),
+                  mainImageUrls: result.stockImageUrls,
+                  uploadedAt: Date.now(),
+                };
+              }
+            }
+            return updated;
+          });
+        }
+      } catch (err) {
+        console.error('[stock-images] Batch failed:', err);
+      }
+      done += batch.length;
+      setStockImageProgress({ done: Math.min(done, targets.length), total: targets.length });
+    }
+
+    setStockImageProgress({ done: targets.length, total: targets.length });
+  }, [useStockImages]);
+
+  // ---- 스톡 이미지 개별 교체 (스왑 모달) ----
+  const handleSwapStockImage = useCallback((uid: string, imageIndex: number, newCdnUrl: string) => {
+    // 1. products 상태 업데이트 (stockMainImageUrls + scannedMainImages)
+    setProducts(prev => prev.map(p => {
+      if (p.uid !== uid) return p;
+
+      const urls = [...(p.stockMainImageUrls || [])];
+      // imageIndex가 범위 내인 경우 교체, 아니면 추가
+      if (imageIndex < urls.length) {
+        urls[imageIndex] = newCdnUrl;
+      } else {
+        urls.push(newCdnUrl);
+      }
+
+      const stockScanned = urls.map((url, idx) => ({
+        name: `stock_${idx}.jpg`,
+        objectUrl: url,
+        handle: null as unknown as FileSystemFileHandle,
+      }));
+
+      return {
+        ...p,
+        stockMainImageUrls: urls,
+        scannedMainImages: stockScanned,
+        mainImageCount: stockScanned.length,
+      };
+    }));
+
+    // 2. imagePreuploadCache 업데이트
+    setImagePreuploadCache(prev => {
+      const cached = prev[uid];
+      if (!cached) return prev;
+      const mainImageUrls = [...cached.mainImageUrls];
+      if (imageIndex < mainImageUrls.length) {
+        mainImageUrls[imageIndex] = newCdnUrl;
+      } else {
+        mainImageUrls.push(newCdnUrl);
+      }
+      return {
+        ...prev,
+        [uid]: { ...cached, mainImageUrls, uploadedAt: Date.now() },
+      };
+    });
+  }, []);
 
   // ---- Auto-fill pipeline: Title generation (template or AI) ----
   const runTitleGeneration = useCallback(async (prods: EditableProduct[]) => {
@@ -707,6 +844,10 @@ export function useBulkRegisterActions() {
         // React 배치를 끊어 이미지 필터링 완료 상태를 UI에 반영
         await new Promise(r => setTimeout(r, 50));
 
+        // 스톡 이미지 fetch (범용 카테고리 대표이미지 교체)
+        await runStockImageFetch(productsRef.current);
+        await new Promise(r => setTimeout(r, 50));
+
         await runTitleGeneration(productsRef.current);
         // React 배치를 끊어 노출상품명 완료 상태를 UI에 반영
         await new Promise(r => setTimeout(r, 50));
@@ -816,6 +957,7 @@ export function useBulkRegisterActions() {
           contactNumber,
           generateAiContent,
           includeReviewImages,
+          useStockImages,
           preventionConfig,
           products: products.map(({ scannedMainImages, scannedDetailImages, scannedInfoImages, scannedReviewImages, ...rest }) => rest),
         };
@@ -823,7 +965,7 @@ export function useBulkRegisterActions() {
       } catch { /* sessionStorage full or unavailable */ }
     }, 2000);
     return () => clearTimeout(timer);
-  }, [step, products, brackets, selectedOutbound, selectedReturn, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, contactNumber, generateAiContent, includeReviewImages, preventionConfig]);
+  }, [step, products, brackets, selectedOutbound, selectedReturn, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, contactNumber, generateAiContent, includeReviewImages, useStockImages, preventionConfig]);
 
   // 마운트 시 세션 복원 제안
   useEffect(() => {
@@ -851,6 +993,7 @@ export function useBulkRegisterActions() {
           setContactNumber(data.contactNumber || '');
           setGenerateAiContent(data.generateAiContent || false);
           setIncludeReviewImages(data.includeReviewImages ?? true);
+          if (data.useStockImages) setUseStockImages(data.useStockImages);
           if (data.preventionConfig) setPreventionConfig(data.preventionConfig);
           setStep(2);
         } else {
@@ -908,6 +1051,7 @@ export function useBulkRegisterActions() {
             products: chunk.map((p) => ({ uid: p.uid, productCode: p.productCode, mainImages: p.mainImages, detailImages: p.detailImages, reviewImages: p.reviewImages, infoImages: p.infoImages })),
             includeReviewImages,
             preventionSeed: preventionConfig.enabled && preventionConfig.imageVariation ? 'pending' : undefined,
+            variationIntensity: preventionConfig.enabled && preventionConfig.imageVariation ? preventionConfig.variationIntensity : undefined,
           }),
           signal: abort.signal,
         });
@@ -1511,6 +1655,7 @@ export function useBulkRegisterActions() {
     setValidationPhase('idle'); setAutoCategoryRetryCount(0);
     setTitleGenProgress(null); setContentGenProgress(null); setPipelineRan(false);
     setImageFilterProgress({ done: 0, total: 0, phase: 'idle' });
+    setStockImageProgress(null);
     setCategoryFailures([]);
     setPreflightPhase('idle'); setPreflightResults({}); setPreflightStats(null); setPreflightDurationMs(0);
     setCanaryPhase('idle'); setCanaryResult(null);
@@ -1562,8 +1707,9 @@ export function useBulkRegisterActions() {
     contactNumber, setContactNumber,
     generateAiContent, setGenerateAiContent,
     includeReviewImages, setIncludeReviewImages,
+    useStockImages, setUseStockImages,
     noticeOverrides, setNoticeOverrides,
-    preventionConfig, setPreventionEnabled,
+    preventionConfig, setPreventionEnabled, setPreventionIntensity,
     loadingShipping, shippingError,
     scanning, scanError, browsingFolder,
     products, setProducts,
@@ -1574,7 +1720,7 @@ export function useBulkRegisterActions() {
     validating, validationPhase,
     imagePreuploadProgress, imagePreuploadCache,
     dryRunResults,
-    titleGenProgress, contentGenProgress, imageFilterProgress,
+    titleGenProgress, contentGenProgress, imageFilterProgress, stockImageProgress,
     // Preflight
     preflightPhase, preflightResults, preflightStats, preflightDurationMs,
     // Canary
@@ -1591,7 +1737,7 @@ export function useBulkRegisterActions() {
     handleSearchCategory, selectCategory,
     handleDeepValidation, handlePreflight, handleCanary,
     toggleProduct, toggleAll, updateField,
-    handleReorderImages, handleRemoveImage, getDetailImageUrls,
+    handleReorderImages, handleRemoveImage, getDetailImageUrls, handleSwapStockImage,
     handleRegister, togglePause, handleReset, retryAutoCategory,
   };
 }
