@@ -53,7 +53,8 @@ const SYNONYM_GROUPS: Record<string, string[]> = seoData.synonymGroups;
 
 // ─── 상수 ────────────────────────────────────────────────
 
-const SPEC_PATTERN = /\d+\s*(ml|g|kg|mg|mcg|iu|L|정|개|매|팩|세트|입|병|통|포|봉|캡슐|알|ea|p|장|m|cm|mm|인치|oz|lb)/gi;
+// "개월분?" / "일분" / "주분" 은 반드시 "개" 보다 앞에 위치해야 부분매칭 방지
+const SPEC_PATTERN = /\d+\s*(개월분?|일분|주분|ml|g|kg|mg|mcg|iu|L|정|개|매|팩|세트|입|병|통|포|봉|캡슐|알|ea|p|장|m|cm|mm|인치|oz|lb)/gi;
 
 const NOISE = new Set([
   '무료배송', '당일발송', '특가', '할인', '증정', '사은품', '리뷰이벤트',
@@ -99,11 +100,8 @@ function extractSpecs(name: string): { specs: string[]; cleaned: string } {
   }
   const cleaned = name.replace(SPEC_PATTERN, ' ');
 
-  // 수량 없으면 1개 추가
-  const hasCount = specs.some(s => /\d+\s*(개|입|매|팩|세트|병|통|포|봉|장|알|ea)$/i.test(s));
-  if (!hasCount) specs.push('1개');
-
-  return { specs: specs.slice(0, 3), cleaned };
+  // 수량이 원본에 없으면 추가하지 않음 — 잘못된 수량은 오등록보다 위험
+  return { specs: specs.slice(0, 4), cleaned };
 }
 
 function tokenize(name: string): string[] {
@@ -163,17 +161,38 @@ function classifyTokens(
   const originalLower = originalName.toLowerCase();
 
   // Pass 1: 원본에서 풀 키워드 역매칭 (풀의 긴 키워드가 원본에 포함되어 있는지)
-  for (const term of allIngredientTerms) {
-    if (originalLower.includes(term.toLowerCase()) && !classified.has(term.toLowerCase())) {
-      result.ingredients.push(term);
-      classified.add(term.toLowerCase());
+  // 긴 키워드 우선 매칭 — "비타민C"가 "비타민"보다 먼저 매칭되어야 함
+  const sortedIngredients = [...allIngredientTerms].sort((a, b) => b.length - a.length);
+  const sortedFeatures = [...allFeatureTerms].sort((a, b) => b.length - a.length);
+
+  for (const term of sortedIngredients) {
+    const termLower = term.toLowerCase();
+    if (classified.has(termLower)) continue;
+    if (!originalLower.includes(termLower)) continue;
+    // 이미 매칭된 더 긴 키워드의 substring인지 확인 (예: "비타민" ⊂ "비타민C")
+    let isSubOfMatched = false;
+    for (const existing of classified) {
+      if (existing.length > termLower.length && existing.includes(termLower)) {
+        isSubOfMatched = true; break;
+      }
     }
+    if (isSubOfMatched) continue;
+    result.ingredients.push(term);
+    classified.add(termLower);
   }
-  for (const term of allFeatureTerms) {
-    if (originalLower.includes(term.toLowerCase()) && !classified.has(term.toLowerCase())) {
-      result.features.push(term);
-      classified.add(term.toLowerCase());
+  for (const term of sortedFeatures) {
+    const termLower = term.toLowerCase();
+    if (classified.has(termLower)) continue;
+    if (!originalLower.includes(termLower)) continue;
+    let isSubOfMatched = false;
+    for (const existing of classified) {
+      if (existing.length > termLower.length && existing.includes(termLower)) {
+        isSubOfMatched = true; break;
+      }
     }
+    if (isSubOfMatched) continue;
+    result.features.push(term);
+    classified.add(termLower);
   }
 
   // Pass 2: 토큰별 분류
