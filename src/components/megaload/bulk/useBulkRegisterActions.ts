@@ -623,19 +623,51 @@ export function useBulkRegisterActions() {
         await runContentGeneration(productsRef.current);
         await new Promise(r => setTimeout(r, 50));
 
-        // Step 3. 대표이미지 스코어링 (1개씩 순차 — INP 0 보장)
+        // Step 3. 대표이미지: 리뷰 사진 우선 (지재권 보호)
+        // 공식 상품 이미지(main_images) → 지재권 위험
+        // 리뷰 사진(review_images) → 안전, 정면·선명한 사진 자동 선택
         {
-          const { filterAndScoreMainImages } = await import('@/lib/megaload/services/image-quality-scorer');
+          const { filterAndScoreMainImages, filterAndScoreReviewImages } = await import('@/lib/megaload/services/image-quality-scorer');
+          const { ensureObjectUrl } = await import('@/lib/megaload/services/client-folder-scanner');
+
           const filterTotal = latest.length;
           setImageFilterProgress({ done: 0, total: filterTotal, phase: 'running' });
           await new Promise(r => setTimeout(r, 0));
 
           type ScoringResult = { index: number; score: import('@/lib/megaload/services/image-quality-scorer').ImageScore; filtered: boolean }[] | null;
           const scoringResults: ScoringResult[] = new Array(latest.length).fill(null);
+          const usedReview: boolean[] = new Array(latest.length).fill(false);
+          const MAX_REVIEW_CANDIDATES = 20;
 
           for (let idx = 0; idx < latest.length; idx++) {
             const p = latest[idx];
-            if (p.scannedMainImages && p.scannedMainImages.length > 1) {
+
+            // 1순위: 리뷰 이미지를 대표사진으로 (지재권 보호)
+            if (p.scannedReviewImages && p.scannedReviewImages.length > 0) {
+              const candidates = p.scannedReviewImages.slice(0, MAX_REVIEW_CANDIDATES);
+              const validEntries: { origIdx: number; url: string }[] = [];
+              for (let j = 0; j < candidates.length; j++) {
+                const url = await ensureObjectUrl(candidates[j]);
+                if (url) validEntries.push({ origIdx: j, url });
+              }
+              if (validEntries.length > 0) {
+                try {
+                  const urls = validEntries.map(e => e.url);
+                  const scores = await filterAndScoreReviewImages(urls);
+                  const passed = scores.filter(s => !s.filtered);
+                  if (passed.length > 0) {
+                    scoringResults[idx] = scores.map(s => ({
+                      ...s,
+                      index: validEntries[s.index].origIdx,
+                    }));
+                    usedReview[idx] = true;
+                  }
+                } catch { /* skip, fall through to main images */ }
+              }
+            }
+
+            // 2순위: 리뷰 이미지 없거나 전부 탈락 → 기존 대표이미지 스코어링
+            if (!usedReview[idx] && p.scannedMainImages && p.scannedMainImages.length > 1) {
               const validEntries: { origIdx: number; url: string }[] = [];
               for (let j = 0; j < p.scannedMainImages.length; j++) {
                 const url = p.scannedMainImages[j].objectUrl;
@@ -652,6 +684,7 @@ export function useBulkRegisterActions() {
                 } catch { /* skip */ }
               }
             }
+
             // 5개 상품마다 progress + yield
             if ((idx + 1) % 5 === 0 || idx === latest.length - 1) {
               setImageFilterProgress(prev => ({ ...prev, done: idx + 1 }));
@@ -659,27 +692,35 @@ export function useBulkRegisterActions() {
             }
           }
 
-          // setProducts 1회 — 대표이미지 스코어링 결과만 적용
+          // setProducts — 스코어링 결과 적용
           setProducts(prev => prev.map((p, i) => {
-            if (!p.scannedMainImages || p.scannedMainImages.length <= 1) return p;
             const scores = scoringResults[i];
             if (!scores || scores.length === 0) return p;
 
             const passed = scores.filter(s => !s.filtered);
             const surviving = passed.length > 0 ? passed : [scores[0]];
 
-            const hardFilteredCount = scores.length - surviving.length;
-            if (hardFilteredCount > 0) {
-              console.info(`[image-filter] ${p.productCode}: 하드필터 ${hardFilteredCount}장 제거 (${scores.length}→${surviving.length}장)`);
+            if (usedReview[i]) {
+              // 리뷰 이미지 → 대표사진 교체
+              console.info(
+                `[review→main] ${p.productCode}: 리뷰 ${surviving.length}장 선정 (${surviving.slice(0, 3).map(s => `#${s.index}=${s.score.overall.toFixed(1)}`).join(', ')})`,
+              );
+              const newMain = surviving.map(s => p.scannedReviewImages![s.index]).slice(0, 10);
+              return { ...p, scannedMainImages: newMain, mainImageCount: newMain.length };
+            } else {
+              // 기존 대표이미지 스코어링
+              if (!p.scannedMainImages || p.scannedMainImages.length <= 1) return p;
+              const hardFilteredCount = scores.length - surviving.length;
+              if (hardFilteredCount > 0) {
+                console.info(`[image-filter] ${p.productCode}: 하드필터 ${hardFilteredCount}장 제거`);
+              }
+              console.info(
+                `[image-score] ${p.productCode}: 대표=#${surviving[0].index} (overall=${surviving[0].score.overall.toFixed(1)})`,
+              );
+              const sorted = surviving.map(s => p.scannedMainImages![s.index]);
+              const finalImages = sorted.slice(0, 10);
+              return { ...p, scannedMainImages: finalImages, mainImageCount: finalImages.length };
             }
-            console.info(
-              `[image-score] ${p.productCode}: 대표=#${surviving[0].index} (overall=${surviving[0].score.overall.toFixed(1)})` +
-              ` | ${surviving.slice(0, 5).map(s => `#${s.index}=${s.score.overall.toFixed(1)}`).join(', ')}`,
-            );
-
-            const sorted = surviving.map(s => p.scannedMainImages![s.index]);
-            const finalImages = sorted.slice(0, 10);
-            return { ...p, scannedMainImages: finalImages, mainImageCount: finalImages.length };
           }));
 
           setImageFilterProgress({ done: filterTotal, total: filterTotal, phase: 'complete' });

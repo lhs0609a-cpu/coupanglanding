@@ -150,6 +150,40 @@ export async function filterAndScoreMainImages(
 }
 
 /**
+ * 리뷰 이미지를 대표사진 후보로 스코어링 + 필터링한다.
+ * 공식 상품 이미지 대신 리뷰 사진을 사용하여 지재권 이슈를 방지.
+ *
+ * scoreImage()와의 차이:
+ *  - 배경 흰색 불필요 (리뷰 사진은 다양한 배경)
+ *  - 피부톤 하드필터 해제 (손으로 잡고 찍은 사진 허용)
+ *  - 컬러 배경 하드필터 해제
+ *  - 상품 단일성(productCompactness) + 선명도(sharpness) 가중치 대폭 상향
+ *
+ * @param objectUrls - 분석할 리뷰 이미지의 Object URL 배열
+ * @param minScore - 최소 통과 점수 (기본 25, 리뷰 기준 관대)
+ * @returns 점수 내림차순 정렬된 { index, score, filtered } 배열
+ */
+export async function filterAndScoreReviewImages(
+  objectUrls: string[],
+  minScore: number = 25,
+): Promise<{ index: number; score: ImageScore; filtered: boolean }[]> {
+  if (objectUrls.length === 0) return [];
+
+  const results = await runPool(objectUrls, IMAGE_CONCURRENCY, async (i) => {
+    try {
+      const score = await scoreReviewImage(objectUrls[i]);
+      const filtered = score.overall < minScore;
+      return { index: i, score, filtered };
+    } catch {
+      return { index: i, score: { ...ZERO_SCORE }, filtered: true };
+    }
+  });
+
+  results.sort((a, b) => b.score.overall - a.score.overall);
+  return results;
+}
+
+/**
  * 상세페이지/리뷰 이미지용 필터링 (대표이미지보다 관대)
  *
  * 명백한 비상품 이미지만 제거:
@@ -433,6 +467,86 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
     symmetry * 0.07 +
     productCompactness * 0.14 +
     edgeCrop * 0.14;
+
+  return {
+    overall, background, backgroundSaturation, centering, aspect,
+    textDensity, sharpness, skinTone, contentSufficiency, colorDiversity,
+    symmetry, productCompactness, edgeCrop,
+  };
+}
+
+/**
+ * 리뷰 이미지를 대표사진 관점에서 스코어링한다.
+ * scoreImage()보다 관대한 기준: 배경 흰색·피부톤·컬러배경 하드필터 없음.
+ * 정면 촬영된 선명한 단일 상품 사진에 높은 점수.
+ */
+async function scoreReviewImage(objectUrl: string): Promise<ImageScore> {
+  const img = await loadImage(objectUrl);
+  const origW = img.naturalWidth;
+  const origH = img.naturalHeight;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = ANALYSIS_SIZE;
+  canvas.height = ANALYSIS_SIZE;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas context unavailable');
+
+  ctx.drawImage(img, 0, 0, origW, origH, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  const imageData = ctx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  const { data } = imageData;
+
+  const gray = new Float32Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
+  for (let i = 0; i < gray.length; i++) {
+    const offset = i * 4;
+    gray[i] = 0.299 * data[offset] + 0.587 * data[offset + 1] + 0.114 * data[offset + 2];
+  }
+
+  const background = scoreBackground(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  const bgSatResult = scoreBackgroundSaturation(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  const backgroundSaturation = bgSatResult.score;
+  const centering = scoreCentering(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  const aspect = scoreAspect(origW, origH);
+  const textDensity = scoreTextDensity(gray, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  const sharpness = scoreSharpness(gray, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  const skinTone = scoreSkinTone(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  const contentSufficiency = scoreContentSufficiency(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  const colorDiversity = scoreColorDiversity(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  const symmetry = scoreSymmetry(gray, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  const productCompactness = scoreProductCompactness(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  const edgeCrop = scoreEdgeCrop(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
+
+  // ---- 리뷰용 하드필터 (최소한만) ----
+  // 피부톤(손), 컬러 배경 → 허용 (리뷰 사진 특성)
+  let hardFilterReason: string | undefined;
+
+  if (contentSufficiency <= 20) {
+    hardFilterReason = 'empty_image';
+  } else if (detectTextBanner(data, ANALYSIS_SIZE, ANALYSIS_SIZE)) {
+    hardFilterReason = 'text_banner';
+  } else if (getHighSaturationRatio(data, ANALYSIS_SIZE, ANALYSIS_SIZE) > 0.50) {
+    hardFilterReason = 'promotional_image';
+  }
+
+  if (hardFilterReason) {
+    return {
+      overall: 0, background, backgroundSaturation, centering, aspect,
+      textDensity, sharpness, skinTone, contentSufficiency, colorDiversity,
+      symmetry, productCompactness, edgeCrop, hardFilterReason,
+    };
+  }
+
+  // ---- 리뷰용 가중치 (상품 단일성 + 선명도 + 정면 최우선) ----
+  const overall =
+    productCompactness * 0.25 +   // 단일 상품 집중도 (최우선)
+    sharpness * 0.20 +            // 선명도 (흐릿한 리뷰 사진 제거)
+    edgeCrop * 0.15 +             // 상품 완전 포함 (잘리지 않음)
+    centering * 0.10 +            // 중앙 배치
+    symmetry * 0.10 +             // 정면 촬영
+    contentSufficiency * 0.10 +   // 상품이 프레임에 충분히 채움
+    textDensity * 0.05 +          // 텍스트 없음
+    colorDiversity * 0.03 +       // 자연스러운 색상
+    background * 0.02;            // 배경은 거의 무시
+  // skinTone, backgroundSaturation, aspect → 0% (무시)
 
   return {
     overall, background, backgroundSaturation, centering, aspect,
