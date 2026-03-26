@@ -85,6 +85,49 @@ const ORIGINS = new Set([
   '포항', '울진', '영덕', '울릉', '속초', '강릉', '동해', '삼척', '제주',
 ]);
 
+/**
+ * 원본 텍스트에서 풀 키워드가 독립적으로 존재하는지 확인.
+ * 단순 .includes()와 달리, 매칭 전후 문자가 동일 스크립트(한글-한글, 라틴-라틴)로
+ * 이어지면 다른 단어의 일부일 수 있으므로 거부한다.
+ * 예: "오리지널" 안의 "오리" → 한글-한글 연속 → 거부
+ * 예: "비타민C 크림" 안의 "비타민C" → C 뒤 공백 → 허용
+ */
+function matchesWholeUnit(text: string, term: string): boolean {
+  const isHangul = (c: string) => c >= '\uAC00' && c <= '\uD7AF';
+  const isLatin = (c: string) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+  const isDigit = (c: string) => c >= '0' && c <= '9';
+
+  let searchFrom = 0;
+  while (true) {
+    const idx = text.indexOf(term, searchFrom);
+    if (idx < 0) return false;
+
+    const endIdx = idx + term.length;
+    let ok = true;
+
+    // 앞 문자 검사: 같은 스크립트로 연속이면 단어 중간 → 거부
+    if (idx > 0) {
+      const prev = text[idx - 1];
+      const first = term[0];
+      if ((isHangul(prev) && isHangul(first)) || (isLatin(prev) && isLatin(first)) || (isDigit(prev) && isDigit(first))) {
+        ok = false;
+      }
+    }
+
+    // 뒤 문자 검사: 같은 스크립트로 연속이면 단어 중간 → 거부
+    if (ok && endIdx < text.length) {
+      const next = text[endIdx];
+      const last = term[term.length - 1];
+      if ((isHangul(next) && isHangul(last)) || (isLatin(next) && isLatin(last)) || (isDigit(next) && isDigit(last))) {
+        ok = false;
+      }
+    }
+
+    if (ok) return true;
+    searchFrom = idx + 1;
+  }
+}
+
 // ─── Phase 1: 토큰 추출 & 분류 ──────────────────────────
 
 function extractSpecs(name: string): { specs: string[]; cleaned: string } {
@@ -168,7 +211,7 @@ function classifyTokens(
   for (const term of sortedIngredients) {
     const termLower = term.toLowerCase();
     if (classified.has(termLower)) continue;
-    if (!originalLower.includes(termLower)) continue;
+    if (!matchesWholeUnit(originalLower, termLower)) continue;
     // 이미 매칭된 더 긴 키워드의 substring인지 확인 (예: "비타민" ⊂ "비타민C")
     let isSubOfMatched = false;
     for (const existing of classified) {
@@ -183,7 +226,7 @@ function classifyTokens(
   for (const term of sortedFeatures) {
     const termLower = term.toLowerCase();
     if (classified.has(termLower)) continue;
-    if (!originalLower.includes(termLower)) continue;
+    if (!matchesWholeUnit(originalLower, termLower)) continue;
     let isSubOfMatched = false;
     for (const existing of classified) {
       if (existing.length > termLower.length && existing.includes(termLower)) {
