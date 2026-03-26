@@ -565,7 +565,7 @@ export function useBulkRegisterActions() {
 
           // 스코어링 결과 로그 — 대표이미지 선택 근거 확인용
           console.info(
-            `[image-score] ${p.productCode}: 대표=#${final[0].index} (overall=${final[0].score.overall.toFixed(1)}, sym=${final[0].score.symmetry.toFixed(0)}, bg=${final[0].score.background.toFixed(0)}, center=${final[0].score.centering.toFixed(0)})` +
+            `[image-score] ${p.productCode}: 대표=#${final[0].index} (overall=${final[0].score.overall.toFixed(1)}, compact=${final[0].score.productCompactness.toFixed(0)}, edge=${final[0].score.edgeCrop.toFixed(0)}, sym=${final[0].score.symmetry.toFixed(0)}, bg=${final[0].score.background.toFixed(0)}, center=${final[0].score.centering.toFixed(0)})` +
             ` | 전체: ${final.slice(0, 5).map((s, j) => `#${s.index}=${s.score.overall.toFixed(1)}`).join(', ')}${final.length > 5 ? '...' : ''}`,
           );
 
@@ -580,8 +580,8 @@ export function useBulkRegisterActions() {
           };
         }));
 
-        // Phase 3: 상세페이지/리뷰 이미지 필터링 — 배송안내, 배너, 빈 이미지 제거
-        const { filterDetailPageImages } = await import('@/lib/megaload/services/image-quality-scorer');
+        // Phase 3: 상세페이지/리뷰 이미지 필터링 — 배송안내, 배너, 빈 이미지 + 다른 상품 사진 제거
+        const { filterDetailPageImages, crossReferenceOutlierImages } = await import('@/lib/megaload/services/image-quality-scorer');
 
         // Phase 3에서도 원본 인덱스 매핑 보존 (objectUrl이 없는 항목 건너뛰기)
         const detailFilterPromises = productsRef.current.map(async (p) => {
@@ -589,6 +589,15 @@ export function useBulkRegisterActions() {
             detail?: { origIdx: number; filtered: boolean; reason?: string }[];
             review?: { origIdx: number; filtered: boolean; reason?: string }[];
           } = {};
+
+          // 대표이미지 URL 수집 (교차 이상치 감지의 기준)
+          const mainUrls: string[] = [];
+          if (p.scannedMainImages) {
+            for (const img of p.scannedMainImages) {
+              if (img.objectUrl) mainUrls.push(img.objectUrl);
+            }
+          }
+
           // 상세 이미지 필터
           if (p.scannedDetailImages && p.scannedDetailImages.length > 0) {
             const entries: { origIdx: number; url: string }[] = [];
@@ -600,6 +609,28 @@ export function useBulkRegisterActions() {
               try {
                 const raw = await filterDetailPageImages(entries.map(e => e.url));
                 results.detail = raw.map(r => ({ origIdx: entries[r.index].origIdx, filtered: r.filtered, reason: r.reason }));
+
+                // 교차 이상치 감지: 배너/빈이미지 필터 통과한 상세이미지를 대표이미지와 비교
+                if (mainUrls.length > 0) {
+                  const passedEntries = results.detail
+                    .map((r, idx) => ({ ...r, entryIdx: idx }))
+                    .filter(r => !r.filtered);
+                  if (passedEntries.length > 0) {
+                    try {
+                      const crossResults = await crossReferenceOutlierImages(
+                        mainUrls,
+                        passedEntries.map(e => entries.find(en => en.origIdx === e.origIdx)!.url),
+                      );
+                      for (let k = 0; k < crossResults.length; k++) {
+                        if (crossResults[k].isOutlier) {
+                          const target = results.detail[passedEntries[k].entryIdx];
+                          target.filtered = true;
+                          target.reason = 'cross_reference_outlier';
+                        }
+                      }
+                    } catch { /* skip cross-reference */ }
+                  }
+                }
               } catch { /* skip */ }
             }
           }
@@ -614,6 +645,28 @@ export function useBulkRegisterActions() {
               try {
                 const raw = await filterDetailPageImages(entries.map(e => e.url));
                 results.review = raw.map(r => ({ origIdx: entries[r.index].origIdx, filtered: r.filtered, reason: r.reason }));
+
+                // 교차 이상치 감지: 배너/빈이미지 필터 통과한 리뷰이미지를 대표이미지와 비교
+                if (mainUrls.length > 0) {
+                  const passedEntries = results.review
+                    .map((r, idx) => ({ ...r, entryIdx: idx }))
+                    .filter(r => !r.filtered);
+                  if (passedEntries.length > 0) {
+                    try {
+                      const crossResults = await crossReferenceOutlierImages(
+                        mainUrls,
+                        passedEntries.map(e => entries.find(en => en.origIdx === e.origIdx)!.url),
+                      );
+                      for (let k = 0; k < crossResults.length; k++) {
+                        if (crossResults[k].isOutlier) {
+                          const target = results.review[passedEntries[k].entryIdx];
+                          target.filtered = true;
+                          target.reason = 'cross_reference_outlier';
+                        }
+                      }
+                    } catch { /* skip cross-reference */ }
+                  }
+                }
               } catch { /* skip */ }
             }
           }

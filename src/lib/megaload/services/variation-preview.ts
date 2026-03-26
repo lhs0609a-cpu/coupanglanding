@@ -4,6 +4,12 @@
 // 서버 server-image-variation.ts와 동일한 시드 → 동일 파라미터를 생성하되
 // Canvas API로 썸네일을 렌더링한다.
 // 서버 전용 import(jimp) 없이 브라우저에서 동작.
+//
+// 변형 기법 (14종):
+//  기존: crop, brightness, saturation, quality, noise, gamma,
+//        colorTemp, microResize, channelOffset, borderPadding
+//  신규: horizontalFlip(좌우 반전), rotation(미세 회전),
+//        bgColorShift(배경색 시프트), paddingRatio(종횡비 패딩)
 // ============================================================
 
 // --- seeded-random 로직 인라인 (서버 모듈 import 방지) ---
@@ -46,13 +52,21 @@ export interface PreviewVariationParams {
   channelOffsetR: number;
   channelOffsetG: number;
   channelOffsetB: number;
+  /** 좌우 반전 — pHash를 완전히 바꾸는 가장 효과적인 기법 */
+  horizontalFlip: boolean;
+  /** 미세 회전 (degrees, ±1~3°) */
+  rotation: number;
+  /** 배경색 시프트 — 흰색 배경을 미세하게 톤 변경 (RGB 오프셋) */
+  bgColorShift: { r: number; g: number; b: number };
+  /** 종횡비 패딩 비율 — 상품 주변에 여백 추가 (0 = 없음, 0.05 = 5%) */
+  paddingRatio: number;
 }
 
 const CROP_DIRECTIONS: CropDirection[] = ['top', 'bottom', 'left', 'right', 'center'];
 
 // --- 강도별 범위 테이블 ---
 
-const INTENSITY_RANGES: Record<VariationIntensity, {
+interface IntensityRange {
   brightnessRange: number;
   qualityBase: number;
   qualityRange: number;
@@ -67,7 +81,15 @@ const INTENSITY_RANGES: Record<VariationIntensity, {
   colorTempRange: number;
   microResizeRange: number;
   channelOffsetRange: number;
-}> = {
+  // 신규 기법
+  flipProbability: number;         // 좌우 반전 확률 (0~1)
+  rotationRange: number;           // 회전 범위 (degrees)
+  bgShiftRange: number;            // 배경색 시프트 범위 (0~255)
+  paddingMin: number;              // 패딩 최소
+  paddingRange: number;            // 패딩 범위
+}
+
+const INTENSITY_RANGES: Record<VariationIntensity, IntensityRange> = {
   low: {
     brightnessRange: 0.01, qualityBase: 90, qualityRange: 6,
     cropMin: 0.005, cropRange: 0.01, borderMax: 2, saturationRange: 0.03,
@@ -76,6 +98,11 @@ const INTENSITY_RANGES: Record<VariationIntensity, {
     colorTempRange: 1,                     // -1~+1
     microResizeRange: 0,                   // 0
     channelOffsetRange: 1,                 // -1~+1
+    // 신규
+    flipProbability: 0.3,                  // 30% 확률
+    rotationRange: 0.5,                    // ±0.5°
+    bgShiftRange: 3,                       // ±3
+    paddingMin: 0, paddingRange: 0.02,     // 0~2%
   },
   mid: {
     brightnessRange: 0.02, qualityBase: 80, qualityRange: 15,
@@ -85,6 +112,11 @@ const INTENSITY_RANGES: Record<VariationIntensity, {
     colorTempRange: 3,                     // -3~+3
     microResizeRange: 4,                   // -4~+4
     channelOffsetRange: 2,                 // -2~+2
+    // 신규
+    flipProbability: 0.5,                  // 50% 확률
+    rotationRange: 1.5,                    // ±1.5°
+    bgShiftRange: 5,                       // ±5
+    paddingMin: 0.01, paddingRange: 0.03,  // 1~4%
   },
   high: {
     brightnessRange: 0.04, qualityBase: 75, qualityRange: 18,
@@ -94,6 +126,11 @@ const INTENSITY_RANGES: Record<VariationIntensity, {
     colorTempRange: 5,                     // -5~+5
     microResizeRange: 6,                   // -6~+6
     channelOffsetRange: 3,                 // -3~+3
+    // 신규
+    flipProbability: 0.5,                  // 50% 확률
+    rotationRange: 3.0,                    // ±3°
+    bgShiftRange: 8,                       // ±8
+    paddingMin: 0.02, paddingRange: 0.05,  // 2~7%
   },
 };
 
@@ -123,6 +160,15 @@ export function generatePreviewVariationParams(
     channelOffsetR: Math.floor(rng() * (r.channelOffsetRange * 2 + 1)) - r.channelOffsetRange,
     channelOffsetG: Math.floor(rng() * (r.channelOffsetRange * 2 + 1)) - r.channelOffsetRange,
     channelOffsetB: Math.floor(rng() * (r.channelOffsetRange * 2 + 1)) - r.channelOffsetRange,
+    // 신규 기법
+    horizontalFlip: rng() < r.flipProbability,
+    rotation: (rng() * r.rotationRange * 2) - r.rotationRange,
+    bgColorShift: {
+      r: Math.floor(rng() * (r.bgShiftRange * 2 + 1)) - r.bgShiftRange,
+      g: Math.floor(rng() * (r.bgShiftRange * 2 + 1)) - r.bgShiftRange,
+      b: Math.floor(rng() * (r.bgShiftRange * 2 + 1)) - r.bgShiftRange,
+    },
+    paddingRatio: r.paddingMin + rng() * r.paddingRange,
   };
 }
 
@@ -142,8 +188,22 @@ function clamp(v: number): number {
   return v < 0 ? 0 : v > 255 ? 255 : Math.round(v);
 }
 
+/** 배경 픽셀 판별: 밝기 > threshold → 배경으로 간주 */
+function isBgPixel(r: number, g: number, b: number, threshold = 230): boolean {
+  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+  return lum > threshold;
+}
+
 /**
- * Canvas로 crop → brightness → saturation → 픽셀조작 적용 후 dataURL 반환
+ * Canvas로 변형 적용 후 dataURL 반환
+ *
+ * 적용 순서:
+ *  1. 패딩 (종횡비 여백)
+ *  2. 크롭
+ *  3. 좌우 반전
+ *  4. 미세 회전
+ *  5. 밝기 + 채도 (CSS filter)
+ *  6. 픽셀 조작 (감마, 색온도, 채널오프셋, 노이즈, 배경색 시프트)
  */
 export async function generateVariedThumbnail(
   imgSrc: string,
@@ -154,19 +214,40 @@ export async function generateVariedThumbnail(
   const origW = img.naturalWidth;
   const origH = img.naturalHeight;
 
-  // 1. 크롭 영역 계산
-  const cropPx = Math.max(1, Math.round(Math.min(origW, origH) * params.cropRatio));
-  let sx = 0, sy = 0, sw = origW, sh = origH;
+  // 1. 패딩 적용 — 원본을 패딩된 캔버스에 그림
+  let srcCanvas: HTMLCanvasElement | HTMLImageElement = img;
+  let srcW = origW;
+  let srcH = origH;
+
+  if (params.paddingRatio > 0.001) {
+    const padX = Math.round(origW * params.paddingRatio);
+    const padY = Math.round(origH * params.paddingRatio);
+    const padCanvas = document.createElement('canvas');
+    padCanvas.width = origW + padX * 2;
+    padCanvas.height = origH + padY * 2;
+    const padCtx = padCanvas.getContext('2d')!;
+    // 흰색 배경
+    padCtx.fillStyle = '#FFFFFF';
+    padCtx.fillRect(0, 0, padCanvas.width, padCanvas.height);
+    padCtx.drawImage(img, padX, padY, origW, origH);
+    srcCanvas = padCanvas;
+    srcW = padCanvas.width;
+    srcH = padCanvas.height;
+  }
+
+  // 2. 크롭 영역 계산
+  const cropPx = Math.max(1, Math.round(Math.min(srcW, srcH) * params.cropRatio));
+  let sx = 0, sy = 0, sw = srcW, sh = srcH;
   switch (params.cropDirection) {
-    case 'top':    sy = cropPx; sh = origH - cropPx; break;
-    case 'bottom': sh = origH - cropPx; break;
-    case 'left':   sx = cropPx; sw = origW - cropPx; break;
-    case 'right':  sw = origW - cropPx; break;
+    case 'top':    sy = cropPx; sh = srcH - cropPx; break;
+    case 'bottom': sh = srcH - cropPx; break;
+    case 'left':   sx = cropPx; sw = srcW - cropPx; break;
+    case 'right':  sw = srcW - cropPx; break;
     case 'center':
       sx = Math.floor(cropPx / 2);
       sy = Math.floor(cropPx / 2);
-      sw = origW - cropPx;
-      sh = origH - cropPx;
+      sw = srcW - cropPx;
+      sh = srcH - cropPx;
       break;
   }
 
@@ -179,22 +260,48 @@ export async function generateVariedThumbnail(
   canvas.height = outH;
   const ctx = canvas.getContext('2d')!;
 
-  // 2. 밝기 + 채도 CSS 필터
+  // 3. 밝기 + 채도 CSS 필터
   const brightnessVal = 1 + params.brightness;
   const saturateVal = 1 + params.saturation;
   ctx.filter = `brightness(${brightnessVal}) saturate(${saturateVal})`;
 
-  // 3. 크롭된 원본을 출력 크기에 맞게 그리기
-  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
+  // 4. 좌우 반전 + 미세 회전 적용
+  ctx.save();
+  ctx.translate(outW / 2, outH / 2);
 
-  // 4. 픽셀 단일 순회: 감마 + 색온도 + 채널 오프셋 + 노이즈
+  if (params.horizontalFlip) {
+    ctx.scale(-1, 1);
+  }
+
+  if (Math.abs(params.rotation) > 0.01) {
+    ctx.rotate((params.rotation * Math.PI) / 180);
+  }
+
+  // 회전 시 잘림 방지: 약간 확대
+  const absRot = Math.abs(params.rotation) * Math.PI / 180;
+  const rotScale = absRot > 0.001 ? 1 / (Math.cos(absRot) - Math.sin(absRot) * Math.min(outW, outH) / Math.max(outW, outH) * 0.1) : 1;
+  const finalScale = Math.min(rotScale, 1.05); // 최대 5% 확대
+
+  ctx.drawImage(
+    srcCanvas,
+    sx, sy, sw, sh,
+    (-outW / 2) * finalScale, (-outH / 2) * finalScale,
+    outW * finalScale, outH * finalScale,
+  );
+  ctx.restore();
+
+  // 5. 픽셀 단일 순회: 감마 + 색온도 + 채널 오프셋 + 노이즈 + 배경색 시프트
+  const hasBgShift = params.bgColorShift.r !== 0 || params.bgColorShift.g !== 0 || params.bgColorShift.b !== 0;
   const needsPixelPass =
     params.gamma !== 1.0 ||
     params.colorTempShift !== 0 ||
     params.channelOffsetR !== 0 || params.channelOffsetG !== 0 || params.channelOffsetB !== 0 ||
-    params.noiseIntensity > 0;
+    params.noiseIntensity > 0 ||
+    hasBgShift;
 
   if (needsPixelPass) {
+    // filter 리셋 후 imageData 읽기 (CSS filter가 이미 적용된 상태)
+    ctx.filter = 'none';
     const imageData = ctx.getImageData(0, 0, outW, outH);
     const data = imageData.data;
     const invGamma = 1 / params.gamma;
@@ -207,6 +314,13 @@ export async function generateVariedThumbnail(
 
     for (let i = 0; i < data.length; i += 4) {
       let r = data[i], g = data[i + 1], b = data[i + 2];
+
+      // 배경색 시프트 — 밝은 픽셀(배경)만 색조 변경
+      if (hasBgShift && isBgPixel(r, g, b)) {
+        r += params.bgColorShift.r;
+        g += params.bgColorShift.g;
+        b += params.bgColorShift.b;
+      }
 
       if (applyGamma) {
         r = 255 * Math.pow(r / 255, invGamma);
@@ -252,6 +366,12 @@ const CROP_DIRECTION_KR: Record<CropDirection, string> = {
 
 export function formatVariationParams(params: PreviewVariationParams): string[] {
   const lines: string[] = [];
+  if (params.horizontalFlip) {
+    lines.push('좌우 반전');
+  }
+  if (Math.abs(params.rotation) > 0.01) {
+    lines.push(`회전 ${params.rotation >= 0 ? '+' : ''}${params.rotation.toFixed(1)}°`);
+  }
   lines.push(`크롭 ${(params.cropRatio * 100).toFixed(1)}% (${CROP_DIRECTION_KR[params.cropDirection]})`);
   lines.push(`밝기 ${params.brightness >= 0 ? '+' : ''}${(params.brightness * 100).toFixed(1)}%`);
   lines.push(`채도 ${params.saturation >= 0 ? '+' : ''}${(params.saturation * 100).toFixed(1)}%`);
@@ -271,6 +391,13 @@ export function formatVariationParams(params: PreviewVariationParams): string[] 
   }
   if (params.borderPadding > 0) {
     lines.push(`보더 ${params.borderPadding}px`);
+  }
+  if (params.paddingRatio > 0.001) {
+    lines.push(`여백 ${(params.paddingRatio * 100).toFixed(1)}%`);
+  }
+  const { bgColorShift: bg } = params;
+  if (bg.r !== 0 || bg.g !== 0 || bg.b !== 0) {
+    lines.push(`배경색 R${bg.r >= 0 ? '+' : ''}${bg.r} G${bg.g >= 0 ? '+' : ''}${bg.g} B${bg.b >= 0 ? '+' : ''}${bg.b}`);
   }
   return lines;
 }

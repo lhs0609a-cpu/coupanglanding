@@ -7,6 +7,9 @@
 
 import { createSeededRandom, stringToSeed } from './seeded-random';
 
+/** 이미지 변형 강도 */
+export type VariationIntensity = 'low' | 'mid' | 'high';
+
 /** 아이템위너 방지 설정 */
 export interface PreventionConfig {
   enabled: boolean;
@@ -14,6 +17,7 @@ export interface PreventionConfig {
   imageVariation: boolean;      // P1: 서버사이드 이미지 미세 변형
   mandatoryAiNames: boolean;    // P2: AI 상품명 필수화
   detailPageVariation: boolean; // P3: 상세페이지 레이아웃 변형
+  variationIntensity: VariationIntensity; // 이미지 변형 강도
 }
 
 /** 기본 설정 (전부 활성) */
@@ -23,6 +27,7 @@ export const DEFAULT_PREVENTION_CONFIG: PreventionConfig = {
   imageVariation: true,
   mandatoryAiNames: true,
   detailPageVariation: true,
+  variationIntensity: 'mid',
 };
 
 /** 비활성 설정 */
@@ -32,6 +37,7 @@ export const DISABLED_PREVENTION_CONFIG: PreventionConfig = {
   imageVariation: false,
   mandatoryAiNames: false,
   detailPageVariation: false,
+  variationIntensity: 'mid',
 };
 
 /**

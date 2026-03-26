@@ -3,16 +3,18 @@
 // Canvas API로 대표이미지 후보를 분석하여 최적 이미지를 선택
 //
 // 분석 항목 (200x200 축소 기준):
-//  - 배경 밝기 (12%): 흰색/밝은 배경 선호
-//  - 배경 채도 (12%): 컬러 배경 → 하드필터 (로고/배너/포장재 차단)
-//  - 중심 집중도 (8%): 피사체가 중앙에 있을수록 고점
-//  - 종횡비 (5%): 1:1에 가까울수록 고점
-//  - 텍스트 밀도 (8%): 엣지 과다(텍스트/워터마크) 감점
-//  - 선명도 (8%): Laplacian 분산 — 흐릿한 이미지 감점
-//  - 피부톤 비율 (15%): 피부색 픽셀 15%+ → 하드필터 (모델 사진 차단)
-//  - 컨텐츠 충분도 (8%): 비백색 픽셀 5% 미만 → 하드필터 (빈 이미지 차단)
-//  - 색상 다양성 (9%): 색상 분포가 너무 단순하면 로고/아이콘 의심
-//  - 좌우 대칭도 (15%): 정면 촬영 = 높은 대칭 → 대표이미지 우선
+//  - 배경 밝기 (8%): 흰색/밝은 배경 선호
+//  - 배경 채도 (8%): 컬러 배경 → 하드필터 (로고/배너/포장재 차단)
+//  - 중심 집중도 (7%): 피사체가 중앙에 있을수록 고점
+//  - 종횡비 (4%): 1:1에 가까울수록 고점
+//  - 텍스트 밀도 (7%): 엣지 과다(텍스트/워터마크) 감점
+//  - 선명도 (7%): Laplacian 분산 — 흐릿한 이미지 감점
+//  - 피부톤 비율 (11%): 피부색 픽셀 15%+ → 하드필터 (모델 사진 차단)
+//  - 컨텐츠 충분도 (7%): 비백색 픽셀 5% 미만 → 하드필터 (빈 이미지 차단)
+//  - 색상 다양성 (6%): 색상 분포가 너무 단순하면 로고/아이콘 의심
+//  - 좌우 대칭도 (7%): 정면 촬영 = 높은 대칭 → 대표이미지 우선
+//  - 단일상품 집중도 (14%): 번들/세트 이미지 감점 — 단일 상품 사진 선호
+//  - 가장자리 잘림 (14%): 제품이 이미지 경계에서 잘린 이미지 감점
 //
 // 하드필터 (해당 시 overall 강제 0):
 //  - 피부톤 ≥ 15% (모델/인물 사진)
@@ -39,6 +41,10 @@ export interface ImageScore {
   colorDiversity: number;
   /** 좌우 대칭도 — 정면 촬영일수록 높은 점수 */
   symmetry: number;
+  /** 단일 상품 집중도 — 번들/세트 이미지 감점 */
+  productCompactness: number;
+  /** 가장자리 잘림 — 제품이 이미지 경계에서 잘리면 감점 */
+  edgeCrop: number;
   /** 하드필터 사유 (해당 시) */
   hardFilterReason?: string;
 }
@@ -57,7 +63,7 @@ const FULL_SAT_RATIO_HARD = 0.30;    // 전체 이미지의 30%+ 고채도(sat>0
 const ZERO_SCORE: ImageScore = {
   overall: 0, background: 0, backgroundSaturation: 0, centering: 0,
   aspect: 0, textDensity: 0, sharpness: 0, skinTone: 0,
-  contentSufficiency: 0, colorDiversity: 0, symmetry: 0,
+  contentSufficiency: 0, colorDiversity: 0, symmetry: 0, productCompactness: 0, edgeCrop: 0,
 };
 
 /**
@@ -260,6 +266,77 @@ export async function detectOutlierImages(
   }));
 }
 
+/**
+ * 기준 이미지(대표이미지)와 후보 이미지(상세/리뷰)를 교차 비교하여
+ * 색상 분포가 크게 다른 후보를 이상치로 판별한다.
+ *
+ * 기존 detectOutlierImages는 같은 세트 내 자체 비교(self-referencing)이지만,
+ * 이 함수는 이미 선정된 대표이미지를 기준으로 상세/리뷰 이미지를 검증한다.
+ *
+ * @param referenceUrls - 대표이미지 URLs (기준)
+ * @param candidateUrls - 상세/리뷰 이미지 URLs (필터 대상)
+ * @param threshold - chi-squared 거리 임계값 (기본 0.8)
+ * @returns 각 후보의 { index, isOutlier, distance } 배열
+ */
+export async function crossReferenceOutlierImages(
+  referenceUrls: string[],
+  candidateUrls: string[],
+  threshold = 0.8,
+): Promise<{ index: number; isOutlier: boolean; distance: number }[]> {
+  if (candidateUrls.length === 0) return [];
+
+  // 기준 이미지 없으면 비교 불가 — 모든 후보를 통과 처리
+  if (referenceUrls.length === 0) {
+    return candidateUrls.map((_, i) => ({ index: i, isOutlier: false, distance: 0 }));
+  }
+
+  // 1. 기준 이미지들의 히스토그램 빌드
+  const refHistograms: Float32Array[] = [];
+  for (const url of referenceUrls) {
+    try {
+      refHistograms.push(await buildColorHistogram(url));
+    } catch {
+      // 기준 이미지 로드 실패 시 제외
+    }
+  }
+
+  // 유효한 기준 히스토그램이 없으면 비교 불가
+  if (refHistograms.length === 0) {
+    return candidateUrls.map((_, i) => ({ index: i, isOutlier: false, distance: 0 }));
+  }
+
+  // 2. 기준 히스토그램의 평균 계산 (기준 이미지 수가 적으므로 mean 사용)
+  const bins = refHistograms[0].length;
+  const meanHist = new Float32Array(bins);
+  for (let b = 0; b < bins; b++) {
+    let sum = 0;
+    for (const h of refHistograms) sum += h[b];
+    meanHist[b] = sum / refHistograms.length;
+  }
+
+  // 3. 각 후보 이미지의 히스토그램과 기준 평균의 chi-squared 거리 계산
+  const results: { index: number; isOutlier: boolean; distance: number }[] = [];
+
+  for (let i = 0; i < candidateUrls.length; i++) {
+    try {
+      const candidateHist = await buildColorHistogram(candidateUrls[i]);
+      let chi2 = 0;
+      for (let b = 0; b < bins; b++) {
+        const expected = meanHist[b];
+        if (expected > 0.001) {
+          chi2 += (candidateHist[b] - expected) ** 2 / expected;
+        }
+      }
+      results.push({ index: i, isOutlier: chi2 > threshold, distance: chi2 });
+    } catch {
+      // 후보 이미지 로드 실패 시 이상치로 판정
+      results.push({ index: i, isOutlier: true, distance: Infinity });
+    }
+  }
+
+  return results;
+}
+
 // ================================================================
 // 내부 함수
 // ================================================================
@@ -302,6 +379,8 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
   const contentSufficiency = scoreContentSufficiency(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
   const colorDiversity = scoreColorDiversity(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
   const symmetry = scoreSymmetry(gray, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  const productCompactness = scoreProductCompactness(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  const edgeCrop = scoreEdgeCrop(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
 
   // ---- 하드필터 체크 ----
   let hardFilterReason: string | undefined;
@@ -322,27 +401,29 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
     return {
       overall: 0, background, backgroundSaturation, centering, aspect,
       textDensity, sharpness, skinTone, contentSufficiency, colorDiversity,
-      symmetry, hardFilterReason,
+      symmetry, productCompactness, edgeCrop, hardFilterReason,
     };
   }
 
   // ---- 가중 합산 (100%) ----
   const overall =
-    background * 0.12 +
-    backgroundSaturation * 0.12 +
-    centering * 0.08 +
-    aspect * 0.05 +
-    textDensity * 0.08 +
-    sharpness * 0.08 +
-    skinTone * 0.15 +
-    contentSufficiency * 0.08 +
-    colorDiversity * 0.09 +
-    symmetry * 0.15;
+    background * 0.08 +
+    backgroundSaturation * 0.08 +
+    centering * 0.07 +
+    aspect * 0.04 +
+    textDensity * 0.07 +
+    sharpness * 0.07 +
+    skinTone * 0.11 +
+    contentSufficiency * 0.07 +
+    colorDiversity * 0.06 +
+    symmetry * 0.07 +
+    productCompactness * 0.14 +
+    edgeCrop * 0.14;
 
   return {
     overall, background, backgroundSaturation, centering, aspect,
     textDensity, sharpness, skinTone, contentSufficiency, colorDiversity,
-    symmetry,
+    symmetry, productCompactness, edgeCrop,
   };
 }
 
@@ -649,6 +730,160 @@ function scoreSymmetry(gray: Float32Array, w: number, h: number): number {
   const avgDiff = count > 0 ? diffSum / count : 50;
   // 차이 0 → 100점, 차이 50+ → 0점 (선형 보간)
   return Math.max(0, Math.min(100, (1 - avgDiff / 50) * 100));
+}
+
+/**
+ * 단일 상품 집중도: 스캔라인에서 콘텐츠 세그먼트 수로 다중 물체 감지
+ * 단일 상품(세그먼트 1개) = 100점, 번들/세트(여러 세그먼트) = 감점
+ *
+ * 수평 스캔 (60% 비중): 10개 행에서 중앙값 세그먼트 수
+ * 수직 스캔 (40% 비중): 7개 열에서 중앙값 세그먼트 수
+ */
+function scoreProductCompactness(data: Uint8ClampedArray, w: number, h: number): number {
+  const CONTENT_LUM = 220;
+  const MIN_GAP = Math.max(4, Math.floor(w * 0.02));
+
+  // 스캔라인에서 콘텐츠 세그먼트 수를 카운트하는 헬퍼
+  function countSegments(getLum: (pos: number) => number, length: number): number {
+    let segments = 0;
+    let inContent = false;
+    let gapCount = 0;
+
+    for (let i = 0; i < length; i++) {
+      const lum = getLum(i);
+      const isContent = lum < CONTENT_LUM;
+
+      if (isContent) {
+        if (!inContent) {
+          segments++;
+          inContent = true;
+        }
+        gapCount = 0;
+      } else {
+        if (inContent) {
+          gapCount++;
+          if (gapCount >= MIN_GAP) {
+            inContent = false;
+          }
+        }
+      }
+    }
+
+    return segments;
+  }
+
+  // 중앙값 계산
+  function median(arr: number[]): number {
+    const sorted = arr.slice().sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
+  }
+
+  // 세그먼트 수 → 점수 변환 (선형 보간)
+  function segmentScore(med: number, type: 'h' | 'v'): number {
+    if (type === 'h') {
+      // 수평: 1→100, 1.5→75, 2→50, 3+→20
+      if (med <= 1) return 100;
+      if (med <= 2) return 100 - (med - 1) * 50;  // 1→100, 2→50
+      return Math.max(20, 50 - (med - 2) * 30);   // 2→50, 3→20
+    } else {
+      // 수직: 1→100, 2→60, 3+→25
+      if (med <= 1) return 100;
+      if (med <= 2) return 100 - (med - 1) * 40;  // 1→100, 2→60
+      return Math.max(25, 60 - (med - 2) * 35);   // 2→60, 3→25
+    }
+  }
+
+  // 수평 스캔: 이미지 높이의 여러 위치에서 행 샘플링
+  const hPositions = [0.20, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.70, 0.80];
+  const hSegments: number[] = [];
+  for (const ratio of hPositions) {
+    const y = Math.floor(h * ratio);
+    if (y < 0 || y >= h) continue;
+    const segs = countSegments(
+      (x) => {
+        const idx = (y * w + x) * 4;
+        return 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+      },
+      w,
+    );
+    hSegments.push(segs);
+  }
+
+  // 수직 스캔: 이미지 너비의 여러 위치에서 열 샘플링
+  const vPositions = [0.25, 0.33, 0.40, 0.50, 0.60, 0.67, 0.75];
+  const vSegments: number[] = [];
+  for (const ratio of vPositions) {
+    const x = Math.floor(w * ratio);
+    if (x < 0 || x >= w) continue;
+    const segs = countSegments(
+      (y) => {
+        const idx = (y * w + x) * 4;
+        return 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+      },
+      h,
+    );
+    vSegments.push(segs);
+  }
+
+  const hMedian = hSegments.length > 0 ? median(hSegments) : 1;
+  const vMedian = vSegments.length > 0 ? median(vSegments) : 1;
+
+  const hScore = segmentScore(hMedian, 'h');
+  const vScore = segmentScore(vMedian, 'v');
+
+  return hScore * 0.6 + vScore * 0.4;
+}
+
+/**
+ * 가장자리 잘림 점수: 제품이 이미지 경계에서 잘렸는지 감지
+ *
+ * 각 변(상하좌우)의 가장자리 3px 스트립에서 컨텐츠(비백색) 픽셀 비율을 측정.
+ * 제품이 이미지 안에 완전히 들어있으면 가장자리가 흰색 → 고점.
+ * 제품이 가장자리에서 잘리면 가장자리에 컨텐츠가 많이 나타남 → 감점.
+ *
+ * - 4변 모두 깨끗 → 100점 (제품 완전 포함)
+ * - 1변 잘림 → 55점
+ * - 2변 잘림 → 30점
+ * - 3변+ 잘림 → 10점
+ */
+function scoreEdgeCrop(data: Uint8ClampedArray, w: number, h: number): number {
+  const EDGE_DEPTH = Math.max(3, Math.floor(Math.min(w, h) * 0.02));
+  const CONTENT_LUM = 225;
+  const CROP_THRESHOLD = 0.30; // 가장자리의 30%+ 컨텐츠 → 잘림 판정
+
+  function edgeContentRatio(
+    getIdx: (pos: number, depth: number) => number,
+    length: number,
+  ): number {
+    let content = 0;
+    let total = 0;
+    for (let pos = 0; pos < length; pos++) {
+      for (let d = 0; d < EDGE_DEPTH; d++) {
+        const idx = getIdx(pos, d) * 4;
+        const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+        if (lum < CONTENT_LUM) content++;
+        total++;
+      }
+    }
+    return total > 0 ? content / total : 0;
+  }
+
+  // 상단
+  const topRatio = edgeContentRatio((x, d) => d * w + x, w);
+  // 하단
+  const bottomRatio = edgeContentRatio((x, d) => (h - 1 - d) * w + x, w);
+  // 좌측
+  const leftRatio = edgeContentRatio((y, d) => y * w + d, h);
+  // 우측
+  const rightRatio = edgeContentRatio((y, d) => y * w + (w - 1 - d), h);
+
+  const croppedEdges = [topRatio, bottomRatio, leftRatio, rightRatio]
+    .filter(r => r > CROP_THRESHOLD).length;
+
+  if (croppedEdges === 0) return 100;
+  if (croppedEdges === 1) return 55;
+  if (croppedEdges === 2) return 30;
+  return 10;
 }
 
 /**
