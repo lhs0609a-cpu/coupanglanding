@@ -924,6 +924,8 @@ export function useBulkRegisterActions() {
           useStockImages,
           preventionConfig,
           products: products.map(({ scannedMainImages, scannedDetailImages, scannedInfoImages, scannedReviewImages, ...rest }) => rest),
+          // CDN URL은 직렬화 가능 → 새로고침 후에도 이미지 URL 유지
+          imagePreuploadCache: imagePreuploadCacheRef.current,
         };
         sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
       } catch { /* sessionStorage full or unavailable */ }
@@ -959,6 +961,10 @@ export function useBulkRegisterActions() {
           setIncludeReviewImages(data.includeReviewImages ?? true);
           if (data.useStockImages) setUseStockImages(data.useStockImages);
           if (data.preventionConfig) setPreventionConfig(data.preventionConfig);
+          // 이미지 CDN URL 캐시 복원 (scannedMainImages는 소실되지만 URL은 유지)
+          if (data.imagePreuploadCache && Object.keys(data.imagePreuploadCache).length > 0) {
+            setImagePreuploadCache(data.imagePreuploadCache);
+          }
           setStep(2);
         } else {
           sessionStorage.removeItem(SESSION_KEY);
