@@ -1190,6 +1190,8 @@ export function useBulkRegisterActions() {
   }, [products, categoryMetaCache, imagePreuploadCache, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, noticeOverrides, preventionConfig]);
 
   // ---- Auto-trigger preflight after deep validation + image upload complete ----
+  // handlePreflight를 deps에 포함하면 imagePreuploadCache 변경 시마다 재생성되어
+  // 최신 cache 값을 가진 클로저가 호출됨 (stale closure 방지)
   useEffect(() => {
     if (
       validationPhase === 'complete' &&
@@ -1197,10 +1199,13 @@ export function useBulkRegisterActions() {
       preflightPhase === 'idle' &&
       step === 2
     ) {
-      handlePreflight();
+      // 이미지 캐시가 React 상태에 완전히 반영될 때까지 1틱 대기
+      // setImagePreuploadCache → setImagePreuploadProgress 순서로 호출되지만
+      // React batching으로 같은 렌더에서 처리될 수 있으므로 next tick에서 실행
+      const timer = setTimeout(() => handlePreflight(), 100);
+      return () => clearTimeout(timer);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [validationPhase, imagePreuploadProgress.phase, preflightPhase, step]);
+  }, [validationPhase, imagePreuploadProgress.phase, preflightPhase, step, handlePreflight]);
 
   // ---- Load shipping info ----
   useEffect(() => {

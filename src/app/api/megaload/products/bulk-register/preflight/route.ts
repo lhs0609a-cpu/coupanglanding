@@ -237,12 +237,12 @@ export async function POST(req: NextRequest) {
           const payloadJson = JSON.stringify(payload);
           const items = (payload.sellerProductItemList as Record<string, unknown>[]) || [];
           const firstItem = items[0] || {};
-          const imageList = (firstItem.imageList as unknown[]) || [];
+          const imageArr = (firstItem.images as unknown[]) || [];
 
           const payloadSnapshot = {
             sellerProductName: (payload.sellerProductName as string) || '',
             displayProductName: (payload.displayProductName as string) || '',
-            imageCount: imageList.length,
+            imageCount: imageArr.length,
             noticeCategoryCount: filledNotices.length,
             attributeCount: (meta.attributeMeta as { required: boolean }[]).filter(a => a.required).length,
             hasDetailPage: !!payload.content && (payload.content as string).length > 50,
