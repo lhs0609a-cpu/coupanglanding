@@ -1627,7 +1627,7 @@ export function useBulkRegisterActions() {
   const retryFailed = useCallback(() => {
     // 실패 상품의 상태 초기화 → 다시 등록 대상으로
     setProducts(prev => prev.map(p =>
-      p.status === 'error' ? { ...p, status: undefined as unknown as string, errorMessage: undefined, detailedError: undefined, channelProductId: undefined } : p
+      p.status === 'error' ? { ...p, status: 'pending' as const, errorMessage: undefined, detailedError: undefined, channelProductId: undefined } : p
     ));
     setBatchProgress({ current: 0, total: 0 });
     setStartTime(null);
@@ -1637,7 +1637,7 @@ export function useBulkRegisterActions() {
   // ---- 검증(Step 2)으로 돌아가기 ----
   const backToStep2 = useCallback(() => {
     setProducts(prev => prev.map(p =>
-      p.status === 'error' ? { ...p, status: undefined as unknown as string, errorMessage: undefined, detailedError: undefined } : p
+      p.status === 'error' ? { ...p, status: 'pending' as const, errorMessage: undefined, detailedError: undefined } : p
     ));
     setStep(2);
     setPreflightPhase('idle');
