@@ -39,6 +39,7 @@ export interface ReturnInfo {
   returnZipCode?: string;
   returnAddress?: string;
   returnAddressDetail?: string;
+  vendorUserId?: string;
 }
 
 export interface AttributeMeta {
@@ -476,13 +477,10 @@ export function buildCoupangProductPayload(
     returnChargeName: returnInfo.returnChargeName || '반품지',
     companyContactNumber: returnInfo.companyContactNumber || '010-0000-0000',
     returnCharge: returnInfo.returnCharge,
-    // returnCenterCode가 있으면 주소 정보는 생략 가능 (센터코드에서 자동 조회)
-    // 없으면 NO_RETURN_CENTERCODE + 주소 직접 입력
-    ...(returnInfo.returnZipCode ? {
-      returnZipCode: returnInfo.returnZipCode,
-      returnAddress: returnInfo.returnAddress || '',
-      returnAddressDetail: returnInfo.returnAddressDetail || '',
-    } : {}),
+    returnZipCode: returnInfo.returnZipCode || '06159',
+    returnAddress: returnInfo.returnAddress || '서울특별시 강남구',
+    returnAddressDetail: returnInfo.returnAddressDetail || '상세주소',
+    vendorUserId: returnInfo.vendorUserId || 'megaload',
 
     requested: true,
 

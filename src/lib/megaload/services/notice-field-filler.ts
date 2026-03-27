@@ -46,8 +46,9 @@ export function fillNoticeFields(
   categoryHint?: string,
 ): FilledNoticeCategory[] {
   if (noticeMeta.length === 0) {
-    // 메타 정보 없으면 카테고리별 폴백
-    return buildFallbackNotice(product, contactNumber, categoryHint);
+    // 메타 없으면 빈 배열 반환 — 폴백 notices는 카테고리 불일치로 쿠팡 거부됨
+    // 쿠팡은 notices가 없으면 자동으로 기본 고시정보 적용
+    return [];
   }
 
   return noticeMeta.map((category) => ({
