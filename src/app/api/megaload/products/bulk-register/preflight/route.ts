@@ -114,10 +114,15 @@ export async function POST(req: NextRequest) {
       deliveryWarnings.push({ code: 'NO_CONTACT', field: 'contactNumber', message: 'A/S 연락처가 설정되지 않았습니다. 고시정보에 빈 값이 들어갑니다.' });
     }
 
-    // vendorId 획득
-    const adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang');
-    const coupangAdapter = adapter as CoupangAdapter;
-    const vendorId = coupangAdapter.getVendorId();
+    // vendorId 획득 (연결 안 되어 있어도 프리플라이트는 계속 진행)
+    let vendorId = 'PREFLIGHT_PLACEHOLDER';
+    try {
+      const adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang');
+      const coupangAdapter = adapter as CoupangAdapter;
+      vendorId = coupangAdapter.getVendorId();
+    } catch {
+      // 쿠팡 채널 미연결 시에도 프리플라이트 구조 검증은 가능
+    }
 
     // 유니크 카테고리 코드별 메타 조회 (캐시 우선)
     const uniqueCategoryCodes = [...new Set(products.map(p => p.categoryCode).filter(Boolean))];

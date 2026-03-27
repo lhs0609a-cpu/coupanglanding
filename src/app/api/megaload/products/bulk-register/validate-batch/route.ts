@@ -86,8 +86,12 @@ export async function POST(req: NextRequest) {
     const categoryMeta: CategoryMetaMap = {};
 
     if (uniqueCodes.length > 0) {
-      const adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang');
-      const coupangAdapter = adapter as CoupangAdapter;
+      let coupangAdapter: CoupangAdapter | null = null;
+      try {
+        const adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang');
+        coupangAdapter = adapter as CoupangAdapter;
+      } catch { /* 채널 미연결 시 메타 조회 스킵 */ }
+      if (coupangAdapter) {
 
       const fetchCategoryMeta = async (code: string): Promise<{
         code: string;
@@ -138,6 +142,7 @@ export async function POST(req: NextRequest) {
           await new Promise((r) => setTimeout(r, 300));
         }
       }
+    } // if (coupangAdapter)
     }
 
     // 3. 각 상품별 검증 실행
