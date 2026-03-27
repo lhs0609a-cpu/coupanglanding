@@ -293,12 +293,10 @@ export function buildCoupangProductPayload(
     : [];
 
   // ---- 4. 상품정보제공고시 (notices) ----
-  // 카테고리 메타 API에서 받은 filledNotices만 사용
-  // 폴백 notices는 카테고리 불일치로 쿠팡 API 거부되므로 빈 배열로 처리
-  // (쿠팡은 notices가 비어있으면 자동으로 기본 고시정보 적용)
-  const noticeCategories = filledNotices && filledNotices.length > 0
-    ? filledNotices
-    : [];
+  // 완전 비활성화 — 쿠팡이 카테고리에 맞는 기본 고시정보 자동 적용
+  // notices를 보내면 "N subschemas matched" 에러 발생 위험
+  // TODO: 카테고리 메타 API에서 정확한 noticeCategoryName 매핑 완성 후 재활성화
+  const noticeCategories: FilledNoticeCategory[] = [];
 
   // ---- 5. attributes (카테고리 필수 속성 + 구매옵션) ----
   // 쿠팡 API: attributes에 필수 속성 + 구매옵션(exposed) 모두 포함
