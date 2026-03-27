@@ -291,11 +291,13 @@ export function buildCoupangProductPayload(
       }]
     : [];
 
-  // ---- 4. 상품정보제공고시 (noticeCategories) ----
-  // categoryPath가 있으면 고시정보 폴백에 활용 (카테고리 기반 정확한 양식 선택)
+  // ---- 4. 상품정보제공고시 (notices) ----
+  // 카테고리 메타 API에서 받은 filledNotices만 사용
+  // 폴백 notices는 카테고리 불일치로 쿠팡 API 거부되므로 빈 배열로 처리
+  // (쿠팡은 notices가 비어있으면 자동으로 기본 고시정보 적용)
   const noticeCategories = filledNotices && filledNotices.length > 0
     ? filledNotices
-    : buildFallbackNotice(productName, resolvedManufacturer, returnInfo.afterServiceContactNumber, categoryPath);
+    : [];
 
   // ---- 5. attributes (카테고리 필수 속성 — buyOptions와 분리!) ----
   // attributes는 카테고리 검색 필터용 메타데이터만 넣는다.
@@ -398,7 +400,7 @@ export function buildCoupangProductPayload(
           ? certificationList
           : [{ certificationType: 'NOT_REQUIRED', certificationCode: '' }],
         images: variantImages,
-        notices: flattenNotices(noticeCategories),
+        ...(noticeCategories.length > 0 ? { notices: flattenNotices(noticeCategories) } : {}),
         attributes,
         contents,
       };
@@ -427,7 +429,7 @@ export function buildCoupangProductPayload(
         ? certificationList
         : [{ certificationType: 'NOT_REQUIRED', certificationCode: '' }],
       images,
-      notices: flattenNotices(noticeCategories),
+      ...(noticeCategories.length > 0 ? { notices: flattenNotices(noticeCategories) } : {}),
       attributes,
       contents,
     }];
@@ -459,13 +461,16 @@ export function buildCoupangProductPayload(
 
     returnCenterCode: returnInfo.returnCenterCode,
     returnChargeName: returnInfo.returnChargeName || '반품지',
-    companyContactNumber: returnInfo.companyContactNumber,
-    returnZipCode: returnInfo.returnZipCode || '',
-    returnAddress: returnInfo.returnAddress || '',
-    returnAddressDetail: returnInfo.returnAddressDetail || '',
+    companyContactNumber: returnInfo.companyContactNumber || '010-0000-0000',
     returnCharge: returnInfo.returnCharge,
+    // returnCenterCode가 있으면 주소 정보는 생략 가능 (센터코드에서 자동 조회)
+    // 없으면 NO_RETURN_CENTERCODE + 주소 직접 입력
+    ...(returnInfo.returnZipCode ? {
+      returnZipCode: returnInfo.returnZipCode,
+      returnAddress: returnInfo.returnAddress || '',
+      returnAddressDetail: returnInfo.returnAddressDetail || '',
+    } : {}),
 
-    vendorUserId: '',
     requested: true,
 
     // 쿠팡 스펙 필드명: "items" (sellerProductItemList가 아님!)
