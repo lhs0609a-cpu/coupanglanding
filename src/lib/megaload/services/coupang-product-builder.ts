@@ -412,8 +412,7 @@ export function buildCoupangProductPayload(
           ? certificationList
           : [{ certificationType: 'NOT_REQUIRED', certificationCode: '' }],
         images: variantImages,
-        // notices는 생략 — 쿠팡이 카테고리에 맞는 기본 고시정보 자동 적용
-      // 잘못된 notices 전송 시 "N subschemas matched" 에러 발생
+        notices: [],
         attributes,
         contents,
       };
@@ -442,8 +441,7 @@ export function buildCoupangProductPayload(
         ? certificationList
         : [{ certificationType: 'NOT_REQUIRED', certificationCode: '' }],
       images,
-      // notices는 생략 — 쿠팡이 카테고리에 맞는 기본 고시정보 자동 적용
-      // 잘못된 notices 전송 시 "N subschemas matched" 에러 발생
+      notices: [],
       attributes,
       contents,
     }];
