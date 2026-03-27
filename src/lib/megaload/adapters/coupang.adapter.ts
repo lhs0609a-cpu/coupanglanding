@@ -340,26 +340,42 @@ export class CoupangAdapter extends BaseAdapter {
   async getNoticeCategoryFields(categoryCode: string): Promise<{
     items: { noticeCategoryName: string; noticeCategoryDetailNames: { name: string; required: boolean }[] }[];
   }> {
-    // 쿠팡 공식 카테고리 메타 정보 조회 API
-    const path = `/v2/providers/seller_api/apis/api/v1/marketplace/meta/category-related-models/display-category-codes/${categoryCode}`;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = await this.coupangApi<{ data: any }>('GET', path);
+    // 여러 엔드포인트 시도 (쿠팡 API 버전에 따라 다름)
+    const endpoints = [
+      `/v2/providers/seller_api/apis/api/v1/marketplace/meta/category-related-models/display-category-codes/${categoryCode}`,
+      `/v2/providers/seller_api/apis/api/v1/vendor/categories/${categoryCode}/noticeCategories`,
+      `/v2/providers/openapi/apis/api/v4/vendors/${this.vendorId}/categorization/meta/display-category-codes/${categoryCode}`,
+    ];
 
-    // 응답에서 noticeCategories 추출
-    const meta = data.data;
-    if (!meta) return { items: [] };
+    for (const path of endpoints) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const raw = await this.coupangApi<any>('GET', path);
+        const data = raw?.data || raw;
+        if (!data) continue;
 
-    // 카테고리 메타 응답 구조: { noticeCategories: [...], attributes: [...], ... }
-    const noticeCategories = meta.noticeCategories || meta.noticeCategoryList || [];
-    return {
-      items: Array.isArray(noticeCategories) ? noticeCategories.map((nc: { noticeCategoryName: string; noticeCategoryDetailNames?: { noticeCategoryDetailName: string; required?: boolean }[] }) => ({
-        noticeCategoryName: nc.noticeCategoryName,
-        noticeCategoryDetailNames: (nc.noticeCategoryDetailNames || []).map((d) => ({
-          name: d.noticeCategoryDetailName,
-          required: d.required ?? true,
-        })),
-      })) : [],
-    };
+        // 응답 구조 자동 감지
+        const noticeCategories = data.noticeCategories || data.noticeCategoryList || (Array.isArray(data) ? data : null);
+        if (noticeCategories && Array.isArray(noticeCategories) && noticeCategories.length > 0) {
+          console.log(`[getNoticeCategoryFields] 성공: path=${path.split('/').pop()}, categories=${noticeCategories.length}`);
+          return {
+            items: noticeCategories.map((nc: Record<string, unknown>) => ({
+              noticeCategoryName: (nc.noticeCategoryName as string) || '',
+              noticeCategoryDetailNames: ((nc.noticeCategoryDetailNames || nc.noticeDetails || []) as Record<string, unknown>[]).map((d) => ({
+                name: (d.noticeCategoryDetailName as string) || (d.name as string) || '',
+                required: (d.required as boolean) ?? true,
+              })),
+            })),
+          };
+        }
+      } catch {
+        // 이 엔드포인트 실패 → 다음 시도
+        continue;
+      }
+    }
+
+    console.warn(`[getNoticeCategoryFields] 모든 엔드포인트 실패: categoryCode=${categoryCode}`);
+    return { items: [] };
   }
 
   /** 카테고리 자동 매칭 (상품명 기반) — Predict API */

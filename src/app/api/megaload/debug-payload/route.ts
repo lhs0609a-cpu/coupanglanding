@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     const coupangAdapter = adapter as CoupangAdapter;
     const vendorId = coupangAdapter.getVendorId();
 
-    // 카테고리 메타 조회 테스트 (58786 = 한방음료)
+    // 카테고리 메타 조회 테스트 (58786 = 한방음료) — 3개 엔드포인트 시도
     let noticeMeta = null;
     try {
       noticeMeta = await coupangAdapter.getNoticeCategoryFields('58786');
@@ -29,14 +29,22 @@ export async function GET(req: NextRequest) {
       noticeMeta = { error: e instanceof Error ? e.message : String(e) };
     }
 
-    // 카테고리 메타 원본 응답
-    let rawMeta = null;
-    try {
-      const path = '/v2/providers/seller_api/apis/api/v1/marketplace/meta/category-related-models/display-category-codes/58786';
-      rawMeta = await (coupangAdapter as any).coupangApi('GET', path);
-    } catch (e) {
-      rawMeta = { error: e instanceof Error ? e.message : String(e) };
+    // 각 엔드포인트 개별 테스트
+    const endpointTests: Record<string, unknown> = {};
+    const testPaths = [
+      `/v2/providers/seller_api/apis/api/v1/marketplace/meta/category-related-models/display-category-codes/58786`,
+      `/v2/providers/seller_api/apis/api/v1/vendor/categories/58786/noticeCategories`,
+      `/v2/providers/openapi/apis/api/v4/vendors/${vendorId}/categorization/meta/display-category-codes/58786`,
+    ];
+    for (const p of testPaths) {
+      try {
+        const res = await (coupangAdapter as any).coupangApi('GET', p);
+        endpointTests[p.split('/').slice(-3).join('/')] = JSON.stringify(res).slice(0, 500);
+      } catch (e) {
+        endpointTests[p.split('/').slice(-3).join('/')] = e instanceof Error ? e.message : String(e);
+      }
     }
+    const rawMeta = endpointTests;
 
     return NextResponse.json({
       vendorId,
