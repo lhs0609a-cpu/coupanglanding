@@ -1539,20 +1539,23 @@ export function useBulkRegisterActions() {
           const cacheValid = cached && cached.uploadedAt && (Date.now() - cached.uploadedAt < IMAGE_CACHE_TTL_MS);
           const shouldVary = preventionConfig.enabled && preventionConfig.imageVariation;
 
-          if (cacheValid) {
-            // 캐시에 main만 있고 detail/review/info 없으면 지금 업로드
-            const mainUrls = cached.mainImageUrls?.length ? cached.mainImageUrls : await uploadScannedImagesWithVariation(p.scannedMainImages || [], shouldVary, 10);
+          if (cacheValid && cached.mainImageUrls?.length) {
+            // 캐시에 main URL이 있으면 사용, 나머지는 on-the-fly 업로드
+            const mainUrls = cached.mainImageUrls;
             const detailUrls = cached.detailImageUrls?.length ? cached.detailImageUrls : await uploadScannedImages(p.scannedDetailImages || [], 10);
             const reviewUrls = cached.reviewImageUrls?.length ? cached.reviewImageUrls : (includeReviewImages ? await uploadScannedImages(p.scannedReviewImages || [], 10) : []);
             const infoUrls = cached.infoImageUrls?.length ? cached.infoImageUrls : await uploadScannedImages(p.scannedInfoImages || [], 10);
             product.preUploadedUrls = { mainImageUrls: mainUrls, detailImageUrls: detailUrls, reviewImageUrls: reviewUrls, infoImageUrls: infoUrls };
-          } else if (p.scannedMainImages || p.scannedDetailImages) {
+          } else if ((p.scannedMainImages?.length ?? 0) > 0) {
+            // 브라우저 모드: scannedMainImages를 직접 업로드
             const mainUrls = await uploadScannedImagesWithVariation(p.scannedMainImages || [], shouldVary, 10);
             const detailUrls = await uploadScannedImages(p.scannedDetailImages || [], 10);
             const reviewUrls = includeReviewImages ? await uploadScannedImages(p.scannedReviewImages || [], 10) : [];
             const infoUrls = await uploadScannedImages(p.scannedInfoImages || [], 10);
             product.preUploadedUrls = { mainImageUrls: mainUrls, detailImageUrls: detailUrls, reviewImageUrls: reviewUrls, infoImageUrls: infoUrls };
           }
+          // 서버 모드: mainImages 로컬 경로가 있으면 batch API가 서버에서 업로드 처리
+          // (preUploadedUrls가 없으면 batch/route.ts에서 uploadLocalImagesParallel 실행)
           batchProducts.push(product);
         }
 
