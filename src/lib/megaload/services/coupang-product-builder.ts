@@ -412,7 +412,7 @@ export function buildCoupangProductPayload(
           ? certificationList
           : [{ certificationType: 'NOT_REQUIRED', certificationCode: '' }],
         images: variantImages,
-        notices: [],
+        // notices 생략 — requested:false(임시저장)이면 불필요
         attributes,
         contents,
       };
@@ -480,7 +480,7 @@ export function buildCoupangProductPayload(
     returnAddressDetail: returnInfo.returnAddressDetail || '상세주소',
     vendorUserId: returnInfo.vendorUserId || 'megaload',
 
-    requested: true,
+    requested: false,  // 임시저장 → notices 없이 등록 가능, 이후 승인요청 API 별도 호출
 
     // 쿠팡 스펙 필드명: "items" (sellerProductItemList가 아님!)
     items: sellerProductItemList,

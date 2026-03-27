@@ -165,6 +165,18 @@ export class CoupangAdapter extends BaseAdapter {
     return { channelProductId: productId, success: true };
   }
 
+  /** 상품 승인 요청 (임시저장 → 승인요청) */
+  async approveProduct(sellerProductId: string): Promise<{ success: boolean; message: string }> {
+    const path = `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/${sellerProductId}/approvals`;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = await this.coupangApi<any>('PUT', path);
+      return { success: true, message: data?.message || '승인 요청 완료' };
+    } catch (err) {
+      return { success: false, message: err instanceof Error ? err.message : '승인 요청 실패' };
+    }
+  }
+
   async updateProduct(channelProductId: string, product: Record<string, unknown>) {
     const path = `/v2/providers/seller_api/apis/api/v1/vendor/sellers/${this.vendorId}/products/${channelProductId}`;
     await this.coupangApi('PUT', path, '', product);

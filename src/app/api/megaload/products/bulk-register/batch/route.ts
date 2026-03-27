@@ -385,6 +385,16 @@ export async function POST(req: NextRequest) {
         };
       }
 
+      // 10.5. 승인 요청 (임시저장 → 판매승인)
+      try {
+        const approval = await coupangAdapter.approveProduct(result.channelProductId);
+        if (!approval.success) {
+          console.warn(`[batch] 승인요청 실패 (${result.channelProductId}): ${approval.message} — 수동 승인 필요`);
+        }
+      } catch (e) {
+        console.warn(`[batch] 승인요청 에러 (${result.channelProductId}):`, e instanceof Error ? e.message : e);
+      }
+
       // 11. DB 저장 (트랜잭션 보장 — 실패 시 쿠팡 상품 정보를 orphan 테이블에 기록)
       let savedId: string | null = null;
       try {
