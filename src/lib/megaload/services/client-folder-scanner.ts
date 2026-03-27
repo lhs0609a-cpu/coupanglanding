@@ -320,7 +320,7 @@ export async function uploadScannedImages(
       try {
         const file = await images[idx].handle.getFile();
         const compressed = await compressImage(file);
-        results[idx] = await uploadDirectToSupabase(compressed, images[idx].name);
+        results[idx] = await uploadSingleImage(compressed, images[idx].name);
       } catch {
         results[idx] = '';
       }
@@ -364,7 +364,7 @@ export async function uploadScannedImagesWithVariation(
         const compressed = await compressImage(uploadBlob as File);
         const ext = img.name.replace(/.*\./, '');
         const variedName = img.name.replace(/\.[^.]+$/, `_v.${ext === 'png' ? 'jpg' : ext}`);
-        results[idx] = await uploadDirectToSupabase(compressed, variedName);
+        results[idx] = await uploadSingleImage(compressed, variedName);
       } catch {
         results[idx] = '';
       }
