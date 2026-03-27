@@ -969,26 +969,23 @@ export function useBulkRegisterActions() {
       setImagePreuploadProgress((prev) => ({ ...prev, done: Math.min(i + CHUNK, serverProducts.length) }));
     }
 
-    // ---- 2. 브라우저 모드 상품: scannedImages를 직접 업로드 ----
+    // ---- 2. 브라우저 모드 상품: 대표이미지(main)만 사전업로드 ----
+    // detail/review/info는 프리플라이트에 불필요 → 등록 시점에 on-the-fly 업로드
+    // 이렇게 하면 업로드량 70% 감소 (main 평균 7장 vs 전체 22장)
     const shouldVary = preventionConfig.enabled && preventionConfig.imageVariation;
-    const BROWSER_CHUNK = 6; // 배치 업로드 + 압축으로 병렬도 증가
+    const BROWSER_CHUNK = 8; // main만 업로드하므로 병렬도 증가
     for (let i = 0; i < browserProducts.length; i += BROWSER_CHUNK) {
       if (abort.signal.aborted) break;
       const chunk = browserProducts.slice(i, i + BROWSER_CHUNK);
       const chunkResults = await Promise.allSettled(chunk.map(async (p) => {
-        // 이미지 타입별 병렬 업로드 (main + detail + review + info 동시)
-        const [mainUrls, detailUrls, reviewUrls, infoUrls] = await Promise.all([
-          uploadScannedImagesWithVariation(p.scannedMainImages || [], shouldVary, 10),
-          uploadScannedImages(p.scannedDetailImages || [], 10),
-          includeReviewImages ? uploadScannedImages(p.scannedReviewImages || [], 10) : Promise.resolve([]),
-          uploadScannedImages(p.scannedInfoImages || [], 10),
-        ]);
+        // 대표이미지만 사전업로드 (프리플라이트 통과용 + 등록 속도 최적화)
+        const mainUrls = await uploadScannedImagesWithVariation(p.scannedMainImages || [], shouldVary, 10);
         return {
           uid: p.uid,
           mainImageUrls: mainUrls.filter(Boolean),
-          detailImageUrls: detailUrls.filter(Boolean),
-          reviewImageUrls: reviewUrls.filter(Boolean),
-          infoImageUrls: infoUrls.filter(Boolean),
+          detailImageUrls: [] as string[],   // 등록 시점에 업로드
+          reviewImageUrls: [] as string[],   // 등록 시점에 업로드
+          infoImageUrls: [] as string[],     // 등록 시점에 업로드
         };
       }));
 
@@ -1524,9 +1521,16 @@ export function useBulkRegisterActions() {
           if (p.editedReviewTexts && p.editedReviewTexts.length > 0) product.reviewTextsOverride = p.editedReviewTexts;
           const cached = imagePreuploadCacheRef.current[p.uid];
           const cacheValid = cached && cached.uploadedAt && (Date.now() - cached.uploadedAt < IMAGE_CACHE_TTL_MS);
-          if (cacheValid) { product.preUploadedUrls = cached; }
-          else if (p.scannedMainImages || p.scannedDetailImages) {
-            const shouldVary = preventionConfig.enabled && preventionConfig.imageVariation;
+          const shouldVary = preventionConfig.enabled && preventionConfig.imageVariation;
+
+          if (cacheValid) {
+            // 캐시에 main만 있고 detail/review/info 없으면 지금 업로드
+            const mainUrls = cached.mainImageUrls?.length ? cached.mainImageUrls : await uploadScannedImagesWithVariation(p.scannedMainImages || [], shouldVary, 10);
+            const detailUrls = cached.detailImageUrls?.length ? cached.detailImageUrls : await uploadScannedImages(p.scannedDetailImages || [], 10);
+            const reviewUrls = cached.reviewImageUrls?.length ? cached.reviewImageUrls : (includeReviewImages ? await uploadScannedImages(p.scannedReviewImages || [], 10) : []);
+            const infoUrls = cached.infoImageUrls?.length ? cached.infoImageUrls : await uploadScannedImages(p.scannedInfoImages || [], 10);
+            product.preUploadedUrls = { mainImageUrls: mainUrls, detailImageUrls: detailUrls, reviewImageUrls: reviewUrls, infoImageUrls: infoUrls };
+          } else if (p.scannedMainImages || p.scannedDetailImages) {
             const mainUrls = await uploadScannedImagesWithVariation(p.scannedMainImages || [], shouldVary, 10);
             const detailUrls = await uploadScannedImages(p.scannedDetailImages || [], 10);
             const reviewUrls = includeReviewImages ? await uploadScannedImages(p.scannedReviewImages || [], 10) : [];
