@@ -340,21 +340,25 @@ export class CoupangAdapter extends BaseAdapter {
   async getNoticeCategoryFields(categoryCode: string): Promise<{
     items: { noticeCategoryName: string; noticeCategoryDetailNames: { name: string; required: boolean }[] }[];
   }> {
-    const path = `/v2/providers/seller_api/apis/api/v1/vendor/categories/${categoryCode}/noticeCategories`;
-    const data = await this.coupangApi<{
-      data: {
-        noticeCategoryName: string;
-        noticeCategoryDetailNames: { noticeCategoryDetailName: string; required: boolean }[];
-      }[];
-    }>('GET', path);
+    // 쿠팡 공식 카테고리 메타 정보 조회 API
+    const path = `/v2/providers/seller_api/apis/api/v1/marketplace/meta/category-related-models/display-category-codes/${categoryCode}`;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.coupangApi<{ data: any }>('GET', path);
+
+    // 응답에서 noticeCategories 추출
+    const meta = data.data;
+    if (!meta) return { items: [] };
+
+    // 카테고리 메타 응답 구조: { noticeCategories: [...], attributes: [...], ... }
+    const noticeCategories = meta.noticeCategories || meta.noticeCategoryList || [];
     return {
-      items: (data.data || []).map((nc) => ({
+      items: Array.isArray(noticeCategories) ? noticeCategories.map((nc: { noticeCategoryName: string; noticeCategoryDetailNames?: { noticeCategoryDetailName: string; required?: boolean }[] }) => ({
         noticeCategoryName: nc.noticeCategoryName,
         noticeCategoryDetailNames: (nc.noticeCategoryDetailNames || []).map((d) => ({
           name: d.noticeCategoryDetailName,
-          required: d.required,
+          required: d.required ?? true,
         })),
-      })),
+      })) : [],
     };
   }
 
