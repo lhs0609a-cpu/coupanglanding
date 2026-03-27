@@ -1087,6 +1087,7 @@ export function useBulkRegisterActions() {
           sourcePrice: p.sourcePrice,
           categoryCode: p.editedCategoryCode,
           categoryPath: p.editedCategoryName,
+          mainImageCount: p.scannedMainImages?.length || p.mainImages?.length || p.mainImageCount || 0,
           tags: p.tags,
           description: p.description,
           mainImages: p.mainImages,

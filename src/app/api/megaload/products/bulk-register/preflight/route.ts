@@ -31,6 +31,7 @@ interface PreflightRequestProduct {
   aiSellerName?: string;
   categoryConfidence?: number;
   categoryPath?: string;
+  mainImageCount?: number;  // 클라이언트에서 확인된 이미지 수 (preUploadedUrls 없을 때 폴백)
   displayProductNameOverride?: string;
   manufacturerOverride?: string;
   unitCountOverride?: number;
@@ -160,11 +161,21 @@ export async function POST(req: NextRequest) {
             attributeMeta: product.attributeMeta || [],
           };
 
-          // 이미지 URL 확인
-          const mainImageUrls = product.preUploadedUrls?.mainImageUrls?.filter(Boolean) || [];
-          const detailImageUrls = product.preUploadedUrls?.detailImageUrls?.filter(Boolean) || [];
-          const reviewImageUrls = product.preUploadedUrls?.reviewImageUrls?.filter(Boolean) || [];
-          const infoImageUrls = product.preUploadedUrls?.infoImageUrls?.filter(Boolean) || [];
+          // 이미지 URL 확인 — 사전업로드 URL 또는 플레이스홀더
+          let mainImageUrls = product.preUploadedUrls?.mainImageUrls?.filter(Boolean) || [];
+          let detailImageUrls = product.preUploadedUrls?.detailImageUrls?.filter(Boolean) || [];
+          let reviewImageUrls = product.preUploadedUrls?.reviewImageUrls?.filter(Boolean) || [];
+          let infoImageUrls = product.preUploadedUrls?.infoImageUrls?.filter(Boolean) || [];
+
+          // 폴백: preUploadedUrls가 없지만 클라이언트에서 이미지 수를 알려준 경우
+          // (브라우저 모드 등 사전업로드가 안 된 경우)
+          if (mainImageUrls.length === 0 && (product.mainImageCount ?? 0) > 0) {
+            const cnt = product.mainImageCount!;
+            mainImageUrls = Array.from({ length: cnt }, (_, i) => `preflight-local://main/${product.uid}/${i}`);
+          }
+          if (mainImageUrls.length === 0 && product.mainImages && product.mainImages.length > 0) {
+            mainImageUrls = product.mainImages.map((_, i) => `preflight-local://main/${product.uid}/${i}`);
+          }
 
           // 이미지 상태 판정
           let imageStatus: 'fresh' | 'stale' | 'missing' = 'missing';
