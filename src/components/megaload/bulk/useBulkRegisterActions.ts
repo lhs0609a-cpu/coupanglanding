@@ -1011,116 +1011,17 @@ export function useBulkRegisterActions() {
     };
   }
 
-  // ---- Image preupload ----
+  // ---- Image preupload (즉시 완료 모드) ----
+  // 실제 업로드 없이 이미지 수만 확인 → 프리플라이트는 플레이스홀더로 통과
+  // 실제 업로드는 등록(Step 3) 시점에 on-the-fly 수행
   const startImagePreupload = useCallback(async (targetProducts: EditableProduct[]) => {
-    const serverProducts = targetProducts.filter((p) => !p.folderPath.startsWith('browser://') && p.mainImages.length > 0);
-    const browserProducts = targetProducts.filter((p) => p.folderPath.startsWith('browser://') && (p.scannedMainImages?.length ?? 0) > 0);
-    const totalProducts = serverProducts.length + browserProducts.length;
+    const total = targetProducts.filter(p =>
+      (p.scannedMainImages?.length ?? 0) > 0 || p.mainImages.length > 0 || (p.mainImageCount ?? 0) > 0
+    ).length;
 
-    if (totalProducts === 0) {
-      setImagePreuploadProgress({ total: 0, done: 0, phase: 'complete' });
-      return;
-    }
-    const abort = new AbortController();
-    imagePreuploadAbort.current = abort;
-    setImagePreuploadProgress({ total: totalProducts, done: 0, phase: 'uploading' });
-
-    // ---- 1. 서버 모드 상품: 서버 API로 업로드 ----
-    const CHUNK = 5;
-    for (let i = 0; i < serverProducts.length; i += CHUNK) {
-      if (abort.signal.aborted) break;
-      const chunk = serverProducts.slice(i, i + CHUNK);
-      try {
-        const res = await fetch('/api/megaload/products/bulk-register/preupload-images', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            products: chunk.map((p) => ({ uid: p.uid, productCode: p.productCode, mainImages: p.mainImages, detailImages: p.detailImages, reviewImages: p.reviewImages, infoImages: p.infoImages })),
-            includeReviewImages,
-            preventionSeed: preventionConfig.enabled && preventionConfig.imageVariation ? 'pending' : undefined,
-            variationIntensity: preventionConfig.enabled && preventionConfig.imageVariation ? preventionConfig.variationIntensity : undefined,
-          }),
-          signal: abort.signal,
-        });
-        if (res.ok) {
-          const data = await res.json() as { results: Record<string, { mainImageUrls: string[]; detailImageUrls: string[]; reviewImageUrls: string[]; infoImageUrls: string[]; uploadedAt?: number }> };
-          const timestamped: typeof data.results = {};
-          for (const [key, val] of Object.entries(data.results)) {
-            timestamped[key] = { ...val, uploadedAt: Date.now() };
-          }
-          setImagePreuploadCache((prev) => ({ ...prev, ...timestamped }));
-        }
-      } catch { if (abort.signal.aborted) break; }
-      setImagePreuploadProgress((prev) => ({ ...prev, done: Math.min(i + CHUNK, serverProducts.length) }));
-    }
-
-    // ---- 2. 브라우저 모드: 전체 이미지를 하나의 풀로 병렬 업로드 ----
-    // 상품 단위가 아닌 이미지 단위 큐 → 대기 없는 최대 병렬화
-    const shouldVary = preventionConfig.enabled && preventionConfig.imageVariation;
-
-    // 모든 상품의 main 이미지를 flat 배열로 변환 (uid + index 추적)
-    const allTasks: { uid: string; imgIndex: number; img: ScannedImageFile }[] = [];
-    const productUrlMap: Record<string, string[]> = {};
-    for (const p of browserProducts) {
-      const imgs = p.scannedMainImages || [];
-      productUrlMap[p.uid] = new Array(imgs.length).fill('');
-      for (let j = 0; j < imgs.length; j++) {
-        allTasks.push({ uid: p.uid, imgIndex: j, img: imgs[j] });
-      }
-    }
-
-    // 워커 풀: 동시 20개로 전체 이미지 처리 (상품 경계 없음)
-    const POOL_CONCURRENCY = 20;
-    let taskIndex = 0;
-    let completedImages = 0;
-
-    async function poolWorker() {
-      while (taskIndex < allTasks.length) {
-        if (abort.signal.aborted) return;
-        const idx = taskIndex++;
-        if (idx >= allTasks.length) return;
-        const task = allTasks[idx];
-        try {
-          const file = await task.img.handle.getFile();
-          let blob: Blob = file;
-          if (shouldVary) {
-            try {
-              const { generateImageVariationParams, applyImageVariation } = await import('@/lib/megaload/services/image-variation');
-              const variation = generateImageVariationParams();
-              blob = await applyImageVariation(file, variation);
-            } catch { /* 변형 실패 시 원본 */ }
-          }
-          const url = await uploadSingleImage(blob, task.img.name);
-          productUrlMap[task.uid][task.imgIndex] = url;
-        } catch { /* 실패 시 빈 문자열 유지 */ }
-        completedImages++;
-      }
-    }
-
-    // 모든 워커 동시 시작
-    await Promise.all(
-      Array.from({ length: Math.min(POOL_CONCURRENCY, allTasks.length) }, () => poolWorker()),
-    );
-
-    // 결과를 상품별 캐시에 저장
-    const timestamped: Record<string, { mainImageUrls: string[]; detailImageUrls: string[]; reviewImageUrls: string[]; infoImageUrls: string[]; uploadedAt: number }> = {};
-    for (const p of browserProducts) {
-      timestamped[p.uid] = {
-        mainImageUrls: (productUrlMap[p.uid] || []).filter(Boolean),
-        detailImageUrls: [],
-        reviewImageUrls: [],
-        infoImageUrls: [],
-        uploadedAt: Date.now(),
-      };
-    }
-    if (Object.keys(timestamped).length > 0) {
-      setImagePreuploadCache((prev) => ({ ...prev, ...timestamped }));
-    }
-    setImagePreuploadProgress((prev) => ({ ...prev, done: totalProducts }));
-
-    if (!abort.signal.aborted) {
-      setImagePreuploadProgress((prev) => ({ ...prev, phase: 'complete' }));
-    }
-  }, [includeReviewImages, preventionConfig]);
+    // 즉시 완료 — 실제 업로드 없음
+    setImagePreuploadProgress({ total, done: total, phase: 'complete' });
+  }, []);
 
   // ---- Deep validation ----
   const handleDeepValidation = useCallback(async () => {
