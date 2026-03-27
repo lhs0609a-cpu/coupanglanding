@@ -971,15 +971,18 @@ export function useBulkRegisterActions() {
 
     // ---- 2. 브라우저 모드 상품: scannedImages를 직접 업로드 ----
     const shouldVary = preventionConfig.enabled && preventionConfig.imageVariation;
-    const BROWSER_CHUNK = 3; // 브라우저 업로드는 더 느리므로 작은 청크
+    const BROWSER_CHUNK = 6; // 배치 업로드 + 압축으로 병렬도 증가
     for (let i = 0; i < browserProducts.length; i += BROWSER_CHUNK) {
       if (abort.signal.aborted) break;
       const chunk = browserProducts.slice(i, i + BROWSER_CHUNK);
       const chunkResults = await Promise.allSettled(chunk.map(async (p) => {
-        const mainUrls = await uploadScannedImagesWithVariation(p.scannedMainImages || [], shouldVary, 10);
-        const detailUrls = await uploadScannedImages(p.scannedDetailImages || [], 10);
-        const reviewUrls = includeReviewImages ? await uploadScannedImages(p.scannedReviewImages || [], 10) : [];
-        const infoUrls = await uploadScannedImages(p.scannedInfoImages || [], 10);
+        // 이미지 타입별 병렬 업로드 (main + detail + review + info 동시)
+        const [mainUrls, detailUrls, reviewUrls, infoUrls] = await Promise.all([
+          uploadScannedImagesWithVariation(p.scannedMainImages || [], shouldVary, 10),
+          uploadScannedImages(p.scannedDetailImages || [], 10),
+          includeReviewImages ? uploadScannedImages(p.scannedReviewImages || [], 10) : Promise.resolve([]),
+          uploadScannedImages(p.scannedInfoImages || [], 10),
+        ]);
         return {
           uid: p.uid,
           mainImageUrls: mainUrls.filter(Boolean),

@@ -211,110 +211,172 @@ export async function imageFilesToFormData(
   return { formData, count };
 }
 
-/**
- * 여러 이미지 파일을 일괄 업로드 (API 호출)
- * 반환: 업로드된 공개 URL 배열
- */
-export async function uploadScannedImages(
-  images: ScannedImageFile[],
-  concurrency = 5,
-): Promise<string[]> {
-  if (images.length === 0) return [];
+// ---- 클라이언트 이미지 압축 (업로드 전) ----
+const UPLOAD_MAX_DIMENSION = 1200; // 쿠팡 권장: 500×500 이상, 1200px이면 충분
+const UPLOAD_JPEG_QUALITY = 0.85;
 
-  const results: string[] = new Array(images.length).fill('');
-  let nextIndex = 0;
+async function compressImage(file: File): Promise<Blob> {
+  // 이미 작으면 그대로 반환 (100KB 이하)
+  if (file.size < 100 * 1024) return file;
 
-  async function worker() {
-    while (nextIndex < images.length) {
-      const idx = nextIndex++;
-      const img = images[idx];
-      const file = await img.handle.getFile();
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const { width, height } = img;
+      // 이미 작으면 그대로
+      if (width <= UPLOAD_MAX_DIMENSION && height <= UPLOAD_MAX_DIMENSION) {
+        resolve(file);
+        return;
+      }
+      const scale = UPLOAD_MAX_DIMENSION / Math.max(width, height);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(width * scale);
+      canvas.height = Math.round(height * scale);
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(
+        (blob) => resolve(blob || file),
+        'image/jpeg',
+        UPLOAD_JPEG_QUALITY,
+      );
+    };
+    img.onerror = () => resolve(file);
+    img.src = URL.createObjectURL(file);
+  });
+}
 
+// ---- 배치 업로드 (인증 1회, 최대 10장씩) ----
+const BATCH_SIZE = 10; // 한 번에 업로드할 이미지 수
+
+async function uploadBatch(blobs: { blob: Blob; name: string }[]): Promise<string[]> {
+  const formData = new FormData();
+  for (let i = 0; i < blobs.length; i++) {
+    formData.append(`file_${i}`, blobs[i].blob, blobs[i].name);
+  }
+  const res = await fetch('/api/megaload/products/bulk-register/upload-images-batch', {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) {
+    // 배치 API 없으면 개별 업로드로 폴백
+    if (res.status === 404) return uploadIndividually(blobs);
+    throw new Error(`배치 업로드 실패: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.urls || [];
+}
+
+async function uploadIndividually(blobs: { blob: Blob; name: string }[]): Promise<string[]> {
+  const results = await Promise.all(
+    blobs.map(async ({ blob, name }) => {
       const formData = new FormData();
-      formData.append('file', file, img.name);
-
+      formData.append('file', blob, name);
       const res = await fetch('/api/megaload/products/bulk-register/upload-image', {
         method: 'POST',
         body: formData,
       });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: '업로드 실패' }));
-        throw new Error(`${img.name}: ${data.error || '업로드 실패'}`);
-      }
-
+      if (!res.ok) return '';
       const data = await res.json();
-      results[idx] = data.url;
-    }
-  }
-
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, images.length) }, () => worker()),
+      return data.url || '';
+    }),
   );
+  return results;
+}
+
+/**
+ * 여러 이미지 파일을 일괄 업로드 (배치 API + 압축)
+ */
+export async function uploadScannedImages(
+  images: ScannedImageFile[],
+  concurrency = 10,
+): Promise<string[]> {
+  if (images.length === 0) return [];
+
+  const results: string[] = new Array(images.length).fill('');
+
+  // 배치 단위로 처리 (동시 2배치)
+  for (let i = 0; i < images.length; i += BATCH_SIZE * 2) {
+    const batchPromises: Promise<void>[] = [];
+
+    for (let b = 0; b < 2; b++) {
+      const start = i + b * BATCH_SIZE;
+      const end = Math.min(start + BATCH_SIZE, images.length);
+      if (start >= images.length) break;
+
+      const batchImages = images.slice(start, end);
+      batchPromises.push(
+        (async () => {
+          // 병렬 압축
+          const blobs = await Promise.all(
+            batchImages.map(async (img) => {
+              const file = await img.handle.getFile();
+              const compressed = await compressImage(file);
+              return { blob: compressed, name: img.name };
+            }),
+          );
+          const urls = await uploadBatch(blobs);
+          urls.forEach((url, idx) => { results[start + idx] = url; });
+        })(),
+      );
+    }
+
+    await Promise.all(batchPromises);
+  }
 
   return results;
 }
 
 /**
- * 이미지 변형을 적용한 후 업로드한다.
- * applyVariation이 true이면 각 이미지에 Canvas 변형(crop, 밝기, 채도, 회전)을 적용하여
- * 파일 해시가 달라진 Blob을 업로드한다.
- *
- * @param images - 스캔된 이미지 파일 배열
- * @param applyVariation - true이면 변형 적용, false이면 원본 업로드
- * @param concurrency - 동시 업로드 수
+ * 이미지 변형을 적용한 후 업로드 (배치 API + 압축)
  */
 export async function uploadScannedImagesWithVariation(
   images: ScannedImageFile[],
   applyVariation: boolean,
-  concurrency = 5,
+  concurrency = 10,
 ): Promise<string[]> {
   if (images.length === 0) return [];
   if (!applyVariation) return uploadScannedImages(images, concurrency);
 
   const { generateImageVariationParams, applyImageVariation } = await import('./image-variation');
-
   const results: string[] = new Array(images.length).fill('');
-  let nextIndex = 0;
 
-  async function worker() {
-    while (nextIndex < images.length) {
-      const idx = nextIndex++;
-      const img = images[idx];
-      const file = await img.handle.getFile();
+  // 배치 단위로 처리 (동시 2배치)
+  for (let i = 0; i < images.length; i += BATCH_SIZE * 2) {
+    const batchPromises: Promise<void>[] = [];
 
-      // 변형 적용
-      let uploadBlob: Blob = file;
-      try {
-        const variation = generateImageVariationParams();
-        uploadBlob = await applyImageVariation(file, variation);
-      } catch (err) {
-        console.warn(`[variation] ${img.name} 변형 실패, 원본 사용:`, err);
-      }
+    for (let b = 0; b < 2; b++) {
+      const start = i + b * BATCH_SIZE;
+      const end = Math.min(start + BATCH_SIZE, images.length);
+      if (start >= images.length) break;
 
-      const formData = new FormData();
-      const ext = img.name.replace(/.*\./, '');
-      const variedName = img.name.replace(/\.[^.]+$/, `_v.${ext === 'png' ? 'jpg' : ext}`);
-      formData.append('file', uploadBlob, variedName);
-
-      const res = await fetch('/api/megaload/products/bulk-register/upload-image', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: '업로드 실패' }));
-        throw new Error(`${img.name}: ${data.error || '업로드 실패'}`);
-      }
-
-      const data = await res.json();
-      results[idx] = data.url;
+      const batchImages = images.slice(start, end);
+      batchPromises.push(
+        (async () => {
+          // 병렬 압축 + 변형
+          const blobs = await Promise.all(
+            batchImages.map(async (img) => {
+              const file = await img.handle.getFile();
+              let uploadBlob: Blob = file;
+              try {
+                const variation = generateImageVariationParams();
+                uploadBlob = await applyImageVariation(file, variation);
+              } catch {
+                // 변형 실패 시 원본 사용
+              }
+              const compressed = await compressImage(uploadBlob as File);
+              const ext = img.name.replace(/.*\./, '');
+              const variedName = img.name.replace(/\.[^.]+$/, `_v.${ext === 'png' ? 'jpg' : ext}`);
+              return { blob: compressed, name: variedName };
+            }),
+          );
+          const urls = await uploadBatch(blobs);
+          urls.forEach((url, idx) => { results[start + idx] = url; });
+        })(),
+      );
     }
-  }
 
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, images.length) }, () => worker()),
-  );
+    await Promise.all(batchPromises);
+  }
 
   return results;
 }
