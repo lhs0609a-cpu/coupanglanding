@@ -912,14 +912,18 @@ export function useBulkRegisterActions() {
   // ---- Image preupload ----
   const startImagePreupload = useCallback(async (targetProducts: EditableProduct[]) => {
     const serverProducts = targetProducts.filter((p) => !p.folderPath.startsWith('browser://') && p.mainImages.length > 0);
-    if (serverProducts.length === 0) {
+    const browserProducts = targetProducts.filter((p) => p.folderPath.startsWith('browser://') && (p.scannedMainImages?.length ?? 0) > 0);
+    const totalProducts = serverProducts.length + browserProducts.length;
+
+    if (totalProducts === 0) {
       setImagePreuploadProgress({ total: 0, done: 0, phase: 'complete' });
       return;
     }
     const abort = new AbortController();
     imagePreuploadAbort.current = abort;
-    setImagePreuploadProgress({ total: serverProducts.length, done: 0, phase: 'uploading' });
+    setImagePreuploadProgress({ total: totalProducts, done: 0, phase: 'uploading' });
 
+    // ---- 1. 서버 모드 상품: 서버 API로 업로드 ----
     const CHUNK = 5;
     for (let i = 0; i < serverProducts.length; i += CHUNK) {
       if (abort.signal.aborted) break;
@@ -946,6 +950,40 @@ export function useBulkRegisterActions() {
       } catch { if (abort.signal.aborted) break; }
       setImagePreuploadProgress((prev) => ({ ...prev, done: Math.min(i + CHUNK, serverProducts.length) }));
     }
+
+    // ---- 2. 브라우저 모드 상품: scannedImages를 직접 업로드 ----
+    const shouldVary = preventionConfig.enabled && preventionConfig.imageVariation;
+    const BROWSER_CHUNK = 3; // 브라우저 업로드는 더 느리므로 작은 청크
+    for (let i = 0; i < browserProducts.length; i += BROWSER_CHUNK) {
+      if (abort.signal.aborted) break;
+      const chunk = browserProducts.slice(i, i + BROWSER_CHUNK);
+      const chunkResults = await Promise.allSettled(chunk.map(async (p) => {
+        const mainUrls = await uploadScannedImagesWithVariation(p.scannedMainImages || [], shouldVary, 10);
+        const detailUrls = await uploadScannedImages(p.scannedDetailImages || [], 10);
+        const reviewUrls = includeReviewImages ? await uploadScannedImages(p.scannedReviewImages || [], 10) : [];
+        const infoUrls = await uploadScannedImages(p.scannedInfoImages || [], 10);
+        return {
+          uid: p.uid,
+          mainImageUrls: mainUrls.filter(Boolean),
+          detailImageUrls: detailUrls.filter(Boolean),
+          reviewImageUrls: reviewUrls.filter(Boolean),
+          infoImageUrls: infoUrls.filter(Boolean),
+        };
+      }));
+
+      const timestamped: Record<string, { mainImageUrls: string[]; detailImageUrls: string[]; reviewImageUrls: string[]; infoImageUrls: string[]; uploadedAt: number }> = {};
+      for (const result of chunkResults) {
+        if (result.status === 'fulfilled') {
+          const { uid, ...urls } = result.value;
+          timestamped[uid] = { ...urls, uploadedAt: Date.now() };
+        }
+      }
+      if (Object.keys(timestamped).length > 0) {
+        setImagePreuploadCache((prev) => ({ ...prev, ...timestamped }));
+      }
+      setImagePreuploadProgress((prev) => ({ ...prev, done: serverProducts.length + Math.min(i + BROWSER_CHUNK, browserProducts.length) }));
+    }
+
     if (!abort.signal.aborted) {
       setImagePreuploadProgress((prev) => ({ ...prev, phase: 'complete' }));
     }
