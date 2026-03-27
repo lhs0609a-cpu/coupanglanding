@@ -354,20 +354,17 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // 2차: 메타 조회 실패 시 "기타 재화" 폴백 (쿠팡이 거의 모든 카테고리에서 허용)
-          if (filledNotices.length === 0) {
-            console.warn(`[batch] 고시정보 폴백 사용: "기타 재화"`);
-            filledNotices = [
-              { noticeCategoryName: '기타 재화', noticeCategoryDetailName: '품명 및 모델명', content: product.name || '상세페이지 참조' },
-              { noticeCategoryName: '기타 재화', noticeCategoryDetailName: '법에 의한 인증·허가 등을 받았음을 확인할 수 있는 경우 그에 대한 사항', content: '해당사항 없음' },
-              { noticeCategoryName: '기타 재화', noticeCategoryDetailName: '제조국 또는 원산지', content: '상세페이지 참조' },
-              { noticeCategoryName: '기타 재화', noticeCategoryDetailName: '제조자, 수입품의 경우 수입자를 함께 표기', content: product.brand || '상세페이지 참조' },
-              { noticeCategoryName: '기타 재화', noticeCategoryDetailName: 'A/S 책임자와 전화번호 또는 소비자상담 관련 전화번호', content: returnInfo.companyContactNumber || '상세페이지 참조' },
-            ];
-          }
-
-          for (const item of items) {
-            (item as Record<string, unknown>).notices = filledNotices;
+          // 메타 조회 실패 시 notices 필드 자체를 삭제 (잘못된 폴백은 더 위험)
+          if (filledNotices.length > 0) {
+            for (const item of items) {
+              (item as Record<string, unknown>).notices = filledNotices;
+            }
+          } else {
+            // notices 필드 삭제 — 쿠팡이 카테고리 기본 고시정보 자동 적용 시도
+            console.warn(`[batch] 고시정보 메타 없음 → notices 필드 삭제 (catCode=${catCode})`);
+            for (const item of items) {
+              delete (item as Record<string, unknown>).notices;
+            }
           }
         }
       }
