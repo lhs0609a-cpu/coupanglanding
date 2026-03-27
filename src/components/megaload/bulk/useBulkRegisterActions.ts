@@ -1515,18 +1515,25 @@ export function useBulkRegisterActions() {
 
   // ---- Get detail image URLs for a product ----
   const getDetailImageUrls = useCallback((uid: string): string[] => {
-    const cached = imagePreuploadCache[uid];
+    // 1. 캐시된 CDN URL (ref로 항상 최신값)
+    const cached = imagePreuploadCacheRef.current[uid];
     if (cached?.mainImageUrls?.length) return cached.mainImageUrls;
+    // 2. scannedMainImages의 objectUrl (브라우저 모드)
     const product = products.find(p => p.uid === uid);
+    if (product?.scannedMainImages?.length) {
+      const urls = product.scannedMainImages
+        .map(img => img.objectUrl)
+        .filter((u): u is string => !!u);
+      if (urls.length > 0) return urls;
+    }
+    // 3. 서버 모드 로컬 경로
     if (product?.mainImages?.length) {
-      // 로컬 경로(G:\... 등)는 브라우저에서 직접 표시 불가 → 서버 프록시 URL로 변환
-      // blob: URL은 이미 표시 가능하므로 그대로 반환
       return product.mainImages.map(p =>
         p.startsWith('http') || p.startsWith('blob:') ? p : `/api/megaload/products/bulk-register/serve-image?path=${encodeURIComponent(p)}`
       );
     }
     return [];
-  }, [imagePreuploadCache, products]);
+  }, [products]);
 
   // ---- Register ----
   const handleRegister = useCallback(async () => {
