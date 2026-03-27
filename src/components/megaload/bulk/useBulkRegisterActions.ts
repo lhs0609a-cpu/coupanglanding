@@ -909,6 +909,24 @@ export function useBulkRegisterActions() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [products.map((p) => `${p.uid}:${p.editedName}:${p.editedSellingPrice}:${p.editedCategoryCode}:${p.editedBrand}:${p.mainImageCount}`).join(','), step, autoMatchingProgress]);
 
+  // ---- Preflight용 플레이스홀더 URL ----
+  // 이미지가 사전업로드되지 않았지만 로컬에 존재하는 경우
+  // 프리플라이트 검증을 위해 플레이스홀더 URL 생성
+  // (실제 등록 시에는 실제 업로드된 URL 사용)
+  function buildPreflightPlaceholderUrls(p: EditableProduct) {
+    const mainCount = p.scannedMainImages?.length || p.mainImages?.length || p.mainImageCount || 0;
+    const detailCount = p.scannedDetailImages?.length || p.detailImages?.length || p.detailImageCount || 0;
+    const reviewCount = p.scannedReviewImages?.length || p.reviewImages?.length || p.reviewImageCount || 0;
+    const infoCount = p.scannedInfoImages?.length || p.infoImages?.length || p.infoImageCount || 0;
+    if (mainCount === 0) return undefined; // 이미지가 정말 없으면 undefined
+    return {
+      mainImageUrls: Array.from({ length: mainCount }, (_, i) => `preflight-placeholder://main/${p.uid}/${i}`),
+      detailImageUrls: Array.from({ length: detailCount }, (_, i) => `preflight-placeholder://detail/${p.uid}/${i}`),
+      reviewImageUrls: Array.from({ length: reviewCount }, (_, i) => `preflight-placeholder://review/${p.uid}/${i}`),
+      infoImageUrls: Array.from({ length: infoCount }, (_, i) => `preflight-placeholder://info/${p.uid}/${i}`),
+    };
+  }
+
   // ---- Image preupload ----
   const startImagePreupload = useCallback(async (targetProducts: EditableProduct[]) => {
     const serverProducts = targetProducts.filter((p) => !p.folderPath.startsWith('browser://') && p.mainImages.length > 0);
@@ -1091,7 +1109,7 @@ export function useBulkRegisterActions() {
             detailImageUrls: cached.detailImageUrls || [],
             reviewImageUrls: cached.reviewImageUrls || [],
             infoImageUrls: cached.infoImageUrls || [],
-          } : undefined,
+          } : buildPreflightPlaceholderUrls(p),
         };
       });
 
