@@ -1011,17 +1011,84 @@ export function useBulkRegisterActions() {
     };
   }
 
-  // ---- Image preupload (즉시 완료 모드) ----
-  // 실제 업로드 없이 이미지 수만 확인 → 프리플라이트는 플레이스홀더로 통과
-  // 실제 업로드는 등록(Step 3) 시점에 on-the-fly 수행
+  // ---- Image preupload (백그라운드 비차단) ----
+  // Step 2에서 백그라운드로 업로드 시작, 프리플라이트는 즉시 진행
+  // 등록 시 캐시된 URL 사용, 없으면 on-the-fly 업로드
   const startImagePreupload = useCallback(async (targetProducts: EditableProduct[]) => {
-    const total = targetProducts.filter(p =>
-      (p.scannedMainImages?.length ?? 0) > 0 || p.mainImages.length > 0 || (p.mainImageCount ?? 0) > 0
-    ).length;
+    const browserProducts = targetProducts.filter(p =>
+      p.folderPath.startsWith('browser://') && (p.scannedMainImages?.length ?? 0) > 0
+    );
+    const serverProducts = targetProducts.filter(p =>
+      !p.folderPath.startsWith('browser://') && p.mainImages.length > 0
+    );
+    const total = browserProducts.length + serverProducts.length;
 
-    // 즉시 완료 — 실제 업로드 없음
-    setImagePreuploadProgress({ total, done: total, phase: 'complete' });
-  }, []);
+    if (total === 0) {
+      setImagePreuploadProgress({ total: 0, done: 0, phase: 'complete' });
+      return;
+    }
+
+    // 즉시 "완료" 표시 (프리플라이트 차단 방지) → 백그라운드에서 실제 업로드
+    setImagePreuploadProgress({ total, done: 0, phase: 'uploading' });
+
+    // 백그라운드 업로드 (비차단 — await 안 함, 프리플라이트는 먼저 진행)
+    const shouldVary = preventionConfig.enabled && preventionConfig.imageVariation;
+
+    (async () => {
+      // 브라우저 모드: main 이미지를 flat 풀로 병렬 업로드
+      const allTasks: { uid: string; imgIndex: number; img: ScannedImageFile }[] = [];
+      const productUrlMap: Record<string, string[]> = {};
+      for (const p of browserProducts) {
+        const imgs = p.scannedMainImages || [];
+        productUrlMap[p.uid] = new Array(imgs.length).fill('');
+        for (let j = 0; j < imgs.length; j++) {
+          allTasks.push({ uid: p.uid, imgIndex: j, img: imgs[j] });
+        }
+      }
+
+      let completed = 0;
+      let taskIdx = 0;
+      const CONCURRENCY = 15;
+
+      async function worker() {
+        while (taskIdx < allTasks.length) {
+          const idx = taskIdx++;
+          if (idx >= allTasks.length) return;
+          const task = allTasks[idx];
+          try {
+            const file = await task.img.handle.getFile();
+            const url = await uploadSingleImage(file, task.img.name);
+            productUrlMap[task.uid][task.imgIndex] = url;
+          } catch { /* 실패 시 빈 문자열 */ }
+          completed++;
+          // 진행률 업데이트 (10개마다)
+          if (completed % 10 === 0 || completed === allTasks.length) {
+            const productsDone = Object.values(productUrlMap).filter(urls => urls.some(Boolean)).length;
+            setImagePreuploadProgress(prev => ({ ...prev, done: productsDone }));
+          }
+        }
+      }
+
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, allTasks.length) }, () => worker()),
+      );
+
+      // 캐시에 저장
+      const timestamped: Record<string, { mainImageUrls: string[]; detailImageUrls: string[]; reviewImageUrls: string[]; infoImageUrls: string[]; uploadedAt: number }> = {};
+      for (const p of browserProducts) {
+        const urls = (productUrlMap[p.uid] || []).filter(Boolean);
+        if (urls.length > 0) {
+          timestamped[p.uid] = { mainImageUrls: urls, detailImageUrls: [], reviewImageUrls: [], infoImageUrls: [], uploadedAt: Date.now() };
+        }
+      }
+      if (Object.keys(timestamped).length > 0) {
+        setImagePreuploadCache(prev => ({ ...prev, ...timestamped }));
+      }
+      setImagePreuploadProgress({ total, done: total, phase: 'complete' });
+    })();
+
+    // 프리플라이트 차단 방지: 즉시 리턴 (백그라운드 업로드 계속 진행)
+  }, [preventionConfig]);
 
   // ---- Deep validation ----
   const handleDeepValidation = useCallback(async () => {
@@ -1275,7 +1342,7 @@ export function useBulkRegisterActions() {
   useEffect(() => {
     if (
       validationPhase === 'complete' &&
-      (imagePreuploadProgress.phase === 'complete' || imagePreuploadProgress.phase === 'idle') &&
+      (imagePreuploadProgress.phase === 'complete' || imagePreuploadProgress.phase === 'idle' || imagePreuploadProgress.phase === 'uploading') &&
       preflightPhase === 'idle' &&
       step === 2
     ) {
