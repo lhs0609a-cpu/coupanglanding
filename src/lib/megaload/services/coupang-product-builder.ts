@@ -299,10 +299,23 @@ export function buildCoupangProductPayload(
     ? filledNotices
     : [];
 
-  // ---- 5. attributes (카테고리 필수 속성 — buyOptions와 분리!) ----
-  // attributes는 카테고리 검색 필터용 메타데이터만 넣는다.
-  // extractedBuyOptions는 여기에 넣지 않는다 (item-level에서 처리).
-  const attributes = buildAttributes(attributeMeta, attributeValues);
+  // ---- 5. attributes (카테고리 필수 속성 + 구매옵션) ----
+  // 쿠팡 API: attributes에 필수 속성 + 구매옵션(exposed) 모두 포함
+  const metaAttributes = buildAttributes(attributeMeta, attributeValues);
+  // extractedBuyOptions를 attributes에 병합 (구매옵션도 attributes로 전달)
+  const buyOptionAttributes: { attributeTypeName: string; attributeValueName: string }[] = [];
+  if (extractedBuyOptions) {
+    for (const opt of extractedBuyOptions) {
+      const alreadyExists = metaAttributes.some(a => a.attributeTypeName === opt.name);
+      if (!alreadyExists && opt.value) {
+        buyOptionAttributes.push({
+          attributeTypeName: opt.name,
+          attributeValueName: opt.unit ? `${opt.value}${opt.unit}` : opt.value,
+        });
+      }
+    }
+  }
+  const attributes = [...metaAttributes, ...buyOptionAttributes];
 
   // ---- 6. KC인증 ----
   const certificationList = certifications && certifications.length > 0
