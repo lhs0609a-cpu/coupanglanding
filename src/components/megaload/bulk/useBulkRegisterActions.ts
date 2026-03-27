@@ -119,6 +119,9 @@ export function useBulkRegisterActions() {
   }>>({});
   const IMAGE_CACHE_TTL_MS = 30 * 60 * 1000; // 30분
   const imagePreuploadAbort = useRef<AbortController | null>(null);
+  // Ref로 최신 캐시 참조 — useCallback 클로저 stale 문제 방지
+  const imagePreuploadCacheRef = useRef(imagePreuploadCache);
+  imagePreuploadCacheRef.current = imagePreuploadCache;
 
   // Dry-Run
   const [dryRunResults, setDryRunResults] = useState<Record<string, {
@@ -1012,9 +1015,12 @@ export function useBulkRegisterActions() {
     setPreflightStats(null);
 
     try {
+      // Ref로 최신 캐시 읽기 — useCallback 클로저 stale 방지
+      const currentCache = imagePreuploadCacheRef.current;
+
       const batchProducts = selectedProds.map(p => {
         const meta = categoryMetaCache[p.editedCategoryCode] || { noticeMeta: [], attributeMeta: [] };
-        const cached = imagePreuploadCache[p.uid];
+        const cached = currentCache[p.uid];
         return {
           uid: p.uid,
           productCode: p.productCode,
@@ -1054,7 +1060,7 @@ export function useBulkRegisterActions() {
       // 이미지 타임스탬프 수집
       const imageTimestamps: Record<string, number> = {};
       for (const p of selectedProds) {
-        const cached = imagePreuploadCache[p.uid];
+        const cached = currentCache[p.uid];
         if (cached?.uploadedAt) imageTimestamps[p.uid] = cached.uploadedAt;
       }
 
@@ -1103,7 +1109,8 @@ export function useBulkRegisterActions() {
       console.error('[preflight] Error:', err);
       setPreflightPhase('error');
     }
-  }, [products, categoryMetaCache, imagePreuploadCache, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, noticeOverrides, preventionConfig]);
+  // imagePreuploadCache는 ref로 읽으므로 deps에서 제거 — stale closure 완전 방지
+  }, [products, categoryMetaCache, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, noticeOverrides, preventionConfig]);
 
   // ---- Canary ----
   const handleCanary = useCallback(async (targetUid: string) => {
@@ -1115,7 +1122,7 @@ export function useBulkRegisterActions() {
 
     try {
       const meta = categoryMetaCache[product.editedCategoryCode] || { noticeMeta: [], attributeMeta: [] };
-      const cached = imagePreuploadCache[product.uid];
+      const cached = imagePreuploadCacheRef.current[product.uid];
 
       const res = await fetch('/api/megaload/products/bulk-register/canary', {
         method: 'POST',
@@ -1187,11 +1194,11 @@ export function useBulkRegisterActions() {
       });
       setCanaryPhase('error');
     }
-  }, [products, categoryMetaCache, imagePreuploadCache, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, noticeOverrides, preventionConfig]);
+  }, [products, categoryMetaCache, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, noticeOverrides, preventionConfig]);
 
   // ---- Auto-trigger preflight after deep validation + image upload complete ----
-  // handlePreflight를 deps에 포함하면 imagePreuploadCache 변경 시마다 재생성되어
-  // 최신 cache 값을 가진 클로저가 호출됨 (stale closure 방지)
+  // handlePreflight는 imagePreuploadCacheRef로 최신 캐시를 읽으므로
+  // stale closure 문제 없이 항상 최신 이미지 URL을 사용
   useEffect(() => {
     if (
       validationPhase === 'complete' &&
@@ -1199,13 +1206,10 @@ export function useBulkRegisterActions() {
       preflightPhase === 'idle' &&
       step === 2
     ) {
-      // 이미지 캐시가 React 상태에 완전히 반영될 때까지 1틱 대기
-      // setImagePreuploadCache → setImagePreuploadProgress 순서로 호출되지만
-      // React batching으로 같은 렌더에서 처리될 수 있으므로 next tick에서 실행
-      const timer = setTimeout(() => handlePreflight(), 100);
-      return () => clearTimeout(timer);
+      handlePreflight();
     }
-  }, [validationPhase, imagePreuploadProgress.phase, preflightPhase, step, handlePreflight]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [validationPhase, imagePreuploadProgress.phase, preflightPhase, step]);
 
   // ---- Load shipping info ----
   useEffect(() => {
@@ -1458,7 +1462,7 @@ export function useBulkRegisterActions() {
           if (p.editedDescription !== undefined) product.descriptionOverride = p.editedDescription;
           if (p.editedStoryParagraphs && p.editedStoryParagraphs.length > 0) product.storyParagraphsOverride = p.editedStoryParagraphs;
           if (p.editedReviewTexts && p.editedReviewTexts.length > 0) product.reviewTextsOverride = p.editedReviewTexts;
-          const cached = imagePreuploadCache[p.uid];
+          const cached = imagePreuploadCacheRef.current[p.uid];
           const cacheValid = cached && cached.uploadedAt && (Date.now() - cached.uploadedAt < IMAGE_CACHE_TTL_MS);
           if (cacheValid) { product.preUploadedUrls = cached; }
           else if (p.scannedMainImages || p.scannedDetailImages) {
@@ -1521,7 +1525,7 @@ export function useBulkRegisterActions() {
       });
     } catch (err) { alert(err instanceof Error ? err.message : '등록 실패'); }
     finally { setRegistering(false); }
-  }, [products, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, generateAiContent, includeReviewImages, noticeOverrides, categoryMetaCache, imagePreuploadCache, imagePreuploadProgress.phase, validating, autoMatchingProgress, preventionConfig]);
+  }, [products, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, generateAiContent, includeReviewImages, noticeOverrides, categoryMetaCache, imagePreuploadProgress.phase, validating, autoMatchingProgress, preventionConfig]);
 
   // ---- Toggle pause ----
   const togglePause = useCallback(() => {
