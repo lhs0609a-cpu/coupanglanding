@@ -269,7 +269,7 @@ function generateStoragePath(name: string): string {
   return `megaload/browser/${id}.${ext}`;
 }
 
-async function uploadSingleImage(blob: Blob, name: string): Promise<string> {
+export async function uploadSingleImage(blob: Blob, name: string): Promise<string> {
   // 1차: Supabase 직접 업로드
   const supabase = getSupabaseClient();
   if (supabase) {

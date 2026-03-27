@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { pickAndScanFolder, uploadScannedImages, uploadScannedImagesWithVariation } from '@/lib/megaload/services/client-folder-scanner';
+import { pickAndScanFolder, uploadScannedImages, uploadScannedImagesWithVariation, uploadSingleImage, type ScannedImageFile } from '@/lib/megaload/services/client-folder-scanner';
 import { validateProductLocal } from '@/lib/megaload/services/product-validator';
 import type {
   EditableProduct, PriceBracket, ShippingPlace, ReturnCenter,
@@ -969,38 +969,69 @@ export function useBulkRegisterActions() {
       setImagePreuploadProgress((prev) => ({ ...prev, done: Math.min(i + CHUNK, serverProducts.length) }));
     }
 
-    // ---- 2. 브라우저 모드 상품: 대표이미지(main)만 사전업로드 ----
-    // detail/review/info는 프리플라이트에 불필요 → 등록 시점에 on-the-fly 업로드
-    // 이렇게 하면 업로드량 70% 감소 (main 평균 7장 vs 전체 22장)
+    // ---- 2. 브라우저 모드: 전체 이미지를 하나의 풀로 병렬 업로드 ----
+    // 상품 단위가 아닌 이미지 단위 큐 → 대기 없는 최대 병렬화
     const shouldVary = preventionConfig.enabled && preventionConfig.imageVariation;
-    const BROWSER_CHUNK = 8; // main만 업로드하므로 병렬도 증가
-    for (let i = 0; i < browserProducts.length; i += BROWSER_CHUNK) {
-      if (abort.signal.aborted) break;
-      const chunk = browserProducts.slice(i, i + BROWSER_CHUNK);
-      const chunkResults = await Promise.allSettled(chunk.map(async (p) => {
-        // 대표이미지만 사전업로드 (프리플라이트 통과용 + 등록 속도 최적화)
-        const mainUrls = await uploadScannedImagesWithVariation(p.scannedMainImages || [], shouldVary, 10);
-        return {
-          uid: p.uid,
-          mainImageUrls: mainUrls.filter(Boolean),
-          detailImageUrls: [] as string[],   // 등록 시점에 업로드
-          reviewImageUrls: [] as string[],   // 등록 시점에 업로드
-          infoImageUrls: [] as string[],     // 등록 시점에 업로드
-        };
-      }));
 
-      const timestamped: Record<string, { mainImageUrls: string[]; detailImageUrls: string[]; reviewImageUrls: string[]; infoImageUrls: string[]; uploadedAt: number }> = {};
-      for (const result of chunkResults) {
-        if (result.status === 'fulfilled') {
-          const { uid, ...urls } = result.value;
-          timestamped[uid] = { ...urls, uploadedAt: Date.now() };
-        }
+    // 모든 상품의 main 이미지를 flat 배열로 변환 (uid + index 추적)
+    const allTasks: { uid: string; imgIndex: number; img: ScannedImageFile }[] = [];
+    const productUrlMap: Record<string, string[]> = {};
+    for (const p of browserProducts) {
+      const imgs = p.scannedMainImages || [];
+      productUrlMap[p.uid] = new Array(imgs.length).fill('');
+      for (let j = 0; j < imgs.length; j++) {
+        allTasks.push({ uid: p.uid, imgIndex: j, img: imgs[j] });
       }
-      if (Object.keys(timestamped).length > 0) {
-        setImagePreuploadCache((prev) => ({ ...prev, ...timestamped }));
-      }
-      setImagePreuploadProgress((prev) => ({ ...prev, done: serverProducts.length + Math.min(i + BROWSER_CHUNK, browserProducts.length) }));
     }
+
+    // 워커 풀: 동시 20개로 전체 이미지 처리 (상품 경계 없음)
+    const POOL_CONCURRENCY = 20;
+    let taskIndex = 0;
+    let completedImages = 0;
+
+    async function poolWorker() {
+      while (taskIndex < allTasks.length) {
+        if (abort.signal.aborted) return;
+        const idx = taskIndex++;
+        if (idx >= allTasks.length) return;
+        const task = allTasks[idx];
+        try {
+          const file = await task.img.handle.getFile();
+          let blob: Blob = file;
+          if (shouldVary) {
+            try {
+              const { generateImageVariationParams, applyImageVariation } = await import('@/lib/megaload/services/image-variation');
+              const variation = generateImageVariationParams();
+              blob = await applyImageVariation(file, variation);
+            } catch { /* 변형 실패 시 원본 */ }
+          }
+          const url = await uploadSingleImage(blob, task.img.name);
+          productUrlMap[task.uid][task.imgIndex] = url;
+        } catch { /* 실패 시 빈 문자열 유지 */ }
+        completedImages++;
+      }
+    }
+
+    // 모든 워커 동시 시작
+    await Promise.all(
+      Array.from({ length: Math.min(POOL_CONCURRENCY, allTasks.length) }, () => poolWorker()),
+    );
+
+    // 결과를 상품별 캐시에 저장
+    const timestamped: Record<string, { mainImageUrls: string[]; detailImageUrls: string[]; reviewImageUrls: string[]; infoImageUrls: string[]; uploadedAt: number }> = {};
+    for (const p of browserProducts) {
+      timestamped[p.uid] = {
+        mainImageUrls: (productUrlMap[p.uid] || []).filter(Boolean),
+        detailImageUrls: [],
+        reviewImageUrls: [],
+        infoImageUrls: [],
+        uploadedAt: Date.now(),
+      };
+    }
+    if (Object.keys(timestamped).length > 0) {
+      setImagePreuploadCache((prev) => ({ ...prev, ...timestamped }));
+    }
+    setImagePreuploadProgress((prev) => ({ ...prev, done: totalProducts }));
 
     if (!abort.signal.aborted) {
       setImagePreuploadProgress((prev) => ({ ...prev, phase: 'complete' }));
