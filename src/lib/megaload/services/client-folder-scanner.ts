@@ -245,138 +245,138 @@ async function compressImage(file: File): Promise<Blob> {
   });
 }
 
-// ---- 배치 업로드 (인증 1회, 최대 10장씩) ----
-const BATCH_SIZE = 10; // 한 번에 업로드할 이미지 수
+// ---- Supabase 직접 업로드 (Vercel 경유 없음) ----
+// 브라우저 → Supabase Storage 직접 업로드: 인증 0회, 네트워크 홉 1단계
+const DIRECT_CONCURRENCY = 15; // Supabase 직접이면 높은 동시성 가능
 
-async function uploadBatch(blobs: { blob: Blob; name: string }[]): Promise<string[]> {
-  const formData = new FormData();
-  for (let i = 0; i < blobs.length; i++) {
-    formData.append(`file_${i}`, blobs[i].blob, blobs[i].name);
+let _supabaseClient: ReturnType<typeof import('@/lib/supabase/client').createClient> | null = null;
+function getSupabaseClient() {
+  if (!_supabaseClient) {
+    // lazy import — 서버 사이드에서 호출 안 되도록
+    const { createClient } = require('@/lib/supabase/client');
+    _supabaseClient = createClient();
   }
-  const res = await fetch('/api/megaload/products/bulk-register/upload-images-batch', {
+  return _supabaseClient!;
+}
+
+function generateStoragePath(name: string): string {
+  const ext = name.match(/\.(jpg|jpeg|png|webp|gif)$/i)?.[1]?.toLowerCase() || 'jpg';
+  const uuid = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `megaload/browser/${uuid}.${ext}`;
+}
+
+async function uploadDirectToSupabase(blob: Blob, name: string): Promise<string> {
+  const supabase = getSupabaseClient();
+  const storagePath = generateStoragePath(name);
+  const ext = name.match(/\.(png|gif|webp)$/i)?.[1]?.toLowerCase();
+  const contentType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+
+  const { data, error } = await supabase.storage
+    .from('product-images')
+    .upload(storagePath, blob, {
+      contentType,
+      cacheControl: '31536000',
+      upsert: false,
+    });
+
+  if (error || !data) {
+    // RLS 거부 시 서버 API 폴백
+    return uploadViaServerApi(blob, name);
+  }
+
+  const { data: publicData } = supabase.storage
+    .from('product-images')
+    .getPublicUrl(storagePath);
+
+  return publicData?.publicUrl || '';
+}
+
+/** 직접 업로드 실패 시 서버 API 경유 폴백 */
+async function uploadViaServerApi(blob: Blob, name: string): Promise<string> {
+  const formData = new FormData();
+  formData.append('file', blob, name);
+  const res = await fetch('/api/megaload/products/bulk-register/upload-image', {
     method: 'POST',
     body: formData,
   });
-  if (!res.ok) {
-    // 배치 API 없으면 개별 업로드로 폴백
-    if (res.status === 404) return uploadIndividually(blobs);
-    throw new Error(`배치 업로드 실패: ${res.status}`);
-  }
+  if (!res.ok) return '';
   const data = await res.json();
-  return data.urls || [];
+  return data.url || '';
 }
 
-async function uploadIndividually(blobs: { blob: Blob; name: string }[]): Promise<string[]> {
-  const results = await Promise.all(
-    blobs.map(async ({ blob, name }) => {
-      const formData = new FormData();
-      formData.append('file', blob, name);
-      const res = await fetch('/api/megaload/products/bulk-register/upload-image', {
-        method: 'POST',
-        body: formData,
-      });
-      if (!res.ok) return '';
-      const data = await res.json();
-      return data.url || '';
-    }),
+/**
+ * 여러 이미지 파일을 Supabase에 직접 업로드 (Vercel 경유 없음)
+ * 압축 + 동시 15개 업로드
+ */
+export async function uploadScannedImages(
+  images: ScannedImageFile[],
+  concurrency = DIRECT_CONCURRENCY,
+): Promise<string[]> {
+  if (images.length === 0) return [];
+
+  const results: string[] = new Array(images.length).fill('');
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < images.length) {
+      const idx = nextIndex++;
+      try {
+        const file = await images[idx].handle.getFile();
+        const compressed = await compressImage(file);
+        results[idx] = await uploadDirectToSupabase(compressed, images[idx].name);
+      } catch {
+        results[idx] = '';
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, images.length) }, () => worker()),
   );
   return results;
 }
 
 /**
- * 여러 이미지 파일을 일괄 업로드 (배치 API + 압축)
- */
-export async function uploadScannedImages(
-  images: ScannedImageFile[],
-  concurrency = 10,
-): Promise<string[]> {
-  if (images.length === 0) return [];
-
-  const results: string[] = new Array(images.length).fill('');
-
-  // 배치 단위로 처리 (동시 2배치)
-  for (let i = 0; i < images.length; i += BATCH_SIZE * 2) {
-    const batchPromises: Promise<void>[] = [];
-
-    for (let b = 0; b < 2; b++) {
-      const start = i + b * BATCH_SIZE;
-      const end = Math.min(start + BATCH_SIZE, images.length);
-      if (start >= images.length) break;
-
-      const batchImages = images.slice(start, end);
-      batchPromises.push(
-        (async () => {
-          // 병렬 압축
-          const blobs = await Promise.all(
-            batchImages.map(async (img) => {
-              const file = await img.handle.getFile();
-              const compressed = await compressImage(file);
-              return { blob: compressed, name: img.name };
-            }),
-          );
-          const urls = await uploadBatch(blobs);
-          urls.forEach((url, idx) => { results[start + idx] = url; });
-        })(),
-      );
-    }
-
-    await Promise.all(batchPromises);
-  }
-
-  return results;
-}
-
-/**
- * 이미지 변형을 적용한 후 업로드 (배치 API + 압축)
+ * 이미지 변형 + Supabase 직접 업로드
  */
 export async function uploadScannedImagesWithVariation(
   images: ScannedImageFile[],
   applyVariation: boolean,
-  concurrency = 10,
+  concurrency = DIRECT_CONCURRENCY,
 ): Promise<string[]> {
   if (images.length === 0) return [];
   if (!applyVariation) return uploadScannedImages(images, concurrency);
 
   const { generateImageVariationParams, applyImageVariation } = await import('./image-variation');
   const results: string[] = new Array(images.length).fill('');
+  let nextIndex = 0;
 
-  // 배치 단위로 처리 (동시 2배치)
-  for (let i = 0; i < images.length; i += BATCH_SIZE * 2) {
-    const batchPromises: Promise<void>[] = [];
-
-    for (let b = 0; b < 2; b++) {
-      const start = i + b * BATCH_SIZE;
-      const end = Math.min(start + BATCH_SIZE, images.length);
-      if (start >= images.length) break;
-
-      const batchImages = images.slice(start, end);
-      batchPromises.push(
-        (async () => {
-          // 병렬 압축 + 변형
-          const blobs = await Promise.all(
-            batchImages.map(async (img) => {
-              const file = await img.handle.getFile();
-              let uploadBlob: Blob = file;
-              try {
-                const variation = generateImageVariationParams();
-                uploadBlob = await applyImageVariation(file, variation);
-              } catch {
-                // 변형 실패 시 원본 사용
-              }
-              const compressed = await compressImage(uploadBlob as File);
-              const ext = img.name.replace(/.*\./, '');
-              const variedName = img.name.replace(/\.[^.]+$/, `_v.${ext === 'png' ? 'jpg' : ext}`);
-              return { blob: compressed, name: variedName };
-            }),
-          );
-          const urls = await uploadBatch(blobs);
-          urls.forEach((url, idx) => { results[start + idx] = url; });
-        })(),
-      );
+  async function worker() {
+    while (nextIndex < images.length) {
+      const idx = nextIndex++;
+      try {
+        const img = images[idx];
+        const file = await img.handle.getFile();
+        let uploadBlob: Blob = file;
+        try {
+          const variation = generateImageVariationParams();
+          uploadBlob = await applyImageVariation(file, variation);
+        } catch {
+          // 변형 실패 시 원본 사용
+        }
+        const compressed = await compressImage(uploadBlob as File);
+        const ext = img.name.replace(/.*\./, '');
+        const variedName = img.name.replace(/\.[^.]+$/, `_v.${ext === 'png' ? 'jpg' : ext}`);
+        results[idx] = await uploadDirectToSupabase(compressed, variedName);
+      } catch {
+        results[idx] = '';
+      }
     }
-
-    await Promise.all(batchPromises);
   }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, images.length) }, () => worker()),
+  );
 
   return results;
 }
