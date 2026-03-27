@@ -40,7 +40,13 @@ export abstract class BaseAdapter implements ChannelAdapter {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`API call failed: ${response.status} ${errorText}`);
+      // 쿠팡 API 에러 응답에서 메시지 추출 시도
+      let detail = errorText;
+      try {
+        const parsed = JSON.parse(errorText);
+        detail = parsed.message || parsed.error || parsed.data || errorText;
+      } catch { /* JSON이 아니면 원문 사용 */ }
+      throw new Error(`API ${response.status}: ${typeof detail === 'string' ? detail.slice(0, 500) : JSON.stringify(detail).slice(0, 500)}`);
     }
 
     return response.json() as Promise<T>;

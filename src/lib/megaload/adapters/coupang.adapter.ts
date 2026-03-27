@@ -89,9 +89,17 @@ export class CoupangAdapter extends BaseAdapter {
   }
 
   async authenticate(credentials: Record<string, unknown>): Promise<boolean> {
-    this.vendorId = credentials.vendorId as string;
-    this.accessKey = credentials.accessKey as string;
-    this.secretKey = credentials.secretKey as string;
+    const vendorId = credentials.vendorId as string;
+    const accessKey = credentials.accessKey as string;
+    const secretKey = credentials.secretKey as string;
+
+    if (!vendorId || !accessKey || !secretKey) {
+      throw new Error('쿠팡 API 인증 정보 누락: vendorId, accessKey, secretKey 모두 필요합니다.');
+    }
+
+    this.vendorId = vendorId;
+    this.accessKey = accessKey;
+    this.secretKey = secretKey;
     return true;
   }
 
@@ -119,7 +127,16 @@ export class CoupangAdapter extends BaseAdapter {
 
   async createProduct(product: Record<string, unknown>) {
     const path = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
-    const data = await this.coupangApi<{ code: string; data: string | number }>('POST', path, '', product);
+    const data = await this.coupangApi<{ code: string; message?: string; data: string | number }>('POST', path, '', product);
+
+    // 쿠팡 API 응답 검증 — code가 "ERROR"이거나 data가 없으면 실패
+    if (!data || !data.data) {
+      throw new Error(`쿠팡 API 응답 이상: ${JSON.stringify(data).slice(0, 500)}`);
+    }
+    if (data.code && data.code !== 'SUCCESS' && data.code !== '200' && data.code !== 'OK') {
+      throw new Error(`쿠팡 API 오류 (${data.code}): ${data.message || JSON.stringify(data.data).slice(0, 300)}`);
+    }
+
     return { channelProductId: String(data.data), success: true };
   }
 

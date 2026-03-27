@@ -244,11 +244,12 @@ export function buildCoupangProductPayload(
     || '자체제조';
 
   // ---- 2. 대표이미지 (REPRESENTATION) ----
+  // 빈 문자열/falsy 값 제거 후 최대 10장
+  const validMainImageUrls = mainImageUrls.filter((url) => url && !url.startsWith('preflight-'));
   // 아이템위너 방지: preventionSeed가 있으면 전체 이미지 순서를 셔플
-  // 대표이미지(index 0)도 포함 — 셀러마다 다른 이미지가 대표로 설정됨
   const orderedImageUrls = preventionSeed
-    ? shuffleWithSeed(mainImageUrls.slice(0, 10), preventionSeed)
-    : mainImageUrls.slice(0, 10);
+    ? shuffleWithSeed(validMainImageUrls.slice(0, 10), preventionSeed)
+    : validMainImageUrls.slice(0, 10);
   const images = orderedImageUrls.map((url, i) => ({
     imageOrder: i,
     imageType: 'REPRESENTATION',
@@ -425,10 +426,10 @@ export function buildCoupangProductPayload(
   // ---- 12. 전체 페이로드 조립 ----
   // 주의: _meta 등 내부 필드를 페이로드에 포함하지 않음 (쿠팡 API 거부 방지)
   const payload: Record<string, unknown> = {
-    displayCategoryCode: Number(categoryCode),
+    displayCategoryCode: Number(categoryCode) || 0,
     sellerProductName: resolvedSellerName,
     vendorId,
-    saleStartedAt: new Date().toISOString().replace(/\.\d{3}Z$/, ''),
+    saleStartedAt: formatCoupangDateTime(new Date()),
     saleEndedAt: '2099-01-01T23:59:59',
     displayProductName: productName,
     brand: resolvedBrand,
@@ -441,7 +442,7 @@ export function buildCoupangProductPayload(
     deliveryChargeType: deliveryInfo.deliveryChargeType,
     deliveryCharge: deliveryInfo.deliveryCharge,
     freeShipOverAmount: deliveryInfo.deliveryChargeType === 'CONDITIONAL_FREE'
-      ? deliveryInfo.freeShipOverAmount
+      ? (deliveryInfo.freeShipOverAmount || 0)
       : 0,
     deliveryChargeOnReturn: deliveryInfo.deliveryChargeOnReturn,
     remoteAreaDeliverable: 'Y',
@@ -465,6 +466,17 @@ export function buildCoupangProductPayload(
 }
 
 // ---- 헬퍼 함수들 ----
+
+/** 쿠팡 API 날짜 포맷: yyyy-MM-ddTHH:mm:ss (밀리초/타임존 없음) */
+function formatCoupangDateTime(date: Date): string {
+  const y = date.getFullYear();
+  const M = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  const H = String(date.getHours()).padStart(2, '0');
+  const m = String(date.getMinutes()).padStart(2, '0');
+  const s = String(date.getSeconds()).padStart(2, '0');
+  return `${y}-${M}-${d}T${H}:${m}:${s}`;
+}
 
 /**
  * 카테고리 경로에서 generalProductName(상품군) 추출

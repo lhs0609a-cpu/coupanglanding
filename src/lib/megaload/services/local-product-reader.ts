@@ -207,6 +207,10 @@ export async function uploadLocalImage(
       .from('product-images')
       .getPublicUrl(storagePath);
 
+    if (!publicData?.publicUrl) {
+      throw new Error(`공개 URL 생성 실패 (${path.basename(filePath)}): storagePath=${storagePath}`);
+    }
+
     return publicData.publicUrl;
   }, { maxRetries: 2, initialDelayMs: 500 });
 }
