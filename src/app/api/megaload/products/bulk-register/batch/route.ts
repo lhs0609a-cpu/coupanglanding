@@ -327,31 +327,47 @@ export async function POST(req: NextRequest) {
         aiReviewTexts,
       });
 
-      // 9.5. 고시정보 보정 — notices가 비어있으면 카테고리 메타에서 가져옴
+      // 9.5. 고시정보 보정 — notices가 비어있으면 카테고리 메타에서 가져옴 (필수 필드!)
       const items = payload.items as Record<string, unknown>[] | undefined;
       if (items && items.length > 0) {
         const firstItem = items[0];
         const notices = firstItem.notices as unknown[] | undefined;
         if (!notices || notices.length === 0) {
-          try {
-            const catCode = String(payload.displayCategoryCode || '');
-            if (catCode && catCode !== '0') {
+          const catCode = String(payload.displayCategoryCode || '');
+          let filledNotices: { noticeCategoryName: string; noticeCategoryDetailName: string; content: string }[] = [];
+
+          // 1차: 카테고리 메타 API에서 정확한 고시정보 가져오기
+          if (catCode && catCode !== '0') {
+            try {
               const noticeMeta = await coupangAdapter.getNoticeCategoryFields(catCode);
+              console.log(`[batch] 고시정보 메타 조회 성공: catCode=${catCode}, categories=${noticeMeta.items.length}, first=${noticeMeta.items[0]?.noticeCategoryName || 'none'}`);
               if (noticeMeta.items.length > 0) {
-                // 첫 번째 고시정보 카테고리만 사용 (oneOf 스키마)
                 const nc = noticeMeta.items[0];
-                const filledNotices = nc.noticeCategoryDetailNames.map(d => ({
+                filledNotices = nc.noticeCategoryDetailNames.map(d => ({
                   noticeCategoryName: nc.noticeCategoryName,
                   noticeCategoryDetailName: d.name,
                   content: '상세페이지 참조',
                 }));
-                for (const item of items) {
-                  (item as Record<string, unknown>).notices = filledNotices;
-                }
               }
+            } catch (e) {
+              console.error(`[batch] 고시정보 메타 조회 실패: catCode=${catCode}`, e instanceof Error ? e.message : e);
             }
-          } catch (e) {
-            console.warn('[batch] 고시정보 메타 조회 실패:', e instanceof Error ? e.message : e);
+          }
+
+          // 2차: 메타 조회 실패 시 "기타 재화" 폴백 (쿠팡이 거의 모든 카테고리에서 허용)
+          if (filledNotices.length === 0) {
+            console.warn(`[batch] 고시정보 폴백 사용: "기타 재화"`);
+            filledNotices = [
+              { noticeCategoryName: '기타 재화', noticeCategoryDetailName: '품명 및 모델명', content: product.name || '상세페이지 참조' },
+              { noticeCategoryName: '기타 재화', noticeCategoryDetailName: '법에 의한 인증·허가 등을 받았음을 확인할 수 있는 경우 그에 대한 사항', content: '해당사항 없음' },
+              { noticeCategoryName: '기타 재화', noticeCategoryDetailName: '제조국 또는 원산지', content: '상세페이지 참조' },
+              { noticeCategoryName: '기타 재화', noticeCategoryDetailName: '제조자, 수입품의 경우 수입자를 함께 표기', content: product.brand || '상세페이지 참조' },
+              { noticeCategoryName: '기타 재화', noticeCategoryDetailName: 'A/S 책임자와 전화번호 또는 소비자상담 관련 전화번호', content: returnInfo.companyContactNumber || '상세페이지 참조' },
+            ];
+          }
+
+          for (const item of items) {
+            (item as Record<string, unknown>).notices = filledNotices;
           }
         }
       }
