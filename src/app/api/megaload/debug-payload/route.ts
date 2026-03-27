@@ -34,12 +34,31 @@ export async function GET(req: NextRequest) {
       testResult = err instanceof Error ? err.message : 'Failed';
     }
 
+    // 카테고리 메타 조회 테스트 (58786 = 한방음료)
+    let noticeMeta = null;
+    try {
+      noticeMeta = await coupangAdapter.getNoticeCategoryFields('58786');
+    } catch (e) {
+      noticeMeta = { error: e instanceof Error ? e.message : String(e) };
+    }
+
+    // 카테고리 메타 원본 응답
+    let rawMeta = null;
+    try {
+      const path = '/v2/providers/seller_api/apis/api/v1/marketplace/meta/category-related-models/display-category-codes/58786';
+      rawMeta = await (coupangAdapter as any).coupangApi('GET', path);
+    } catch (e) {
+      rawMeta = { error: e instanceof Error ? e.message : String(e) };
+    }
+
     return NextResponse.json({
       vendorId,
       proxyUrl: process.env.COUPANG_PROXY_URL || '(not set)',
       proxySecretSet: !!process.env.COUPANG_PROXY_SECRET,
       testConnection: testResult,
       shUserId,
+      noticeMeta,
+      rawMeta: rawMeta ? JSON.stringify(rawMeta).slice(0, 3000) : null,
     });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Error' }, { status: 500 });
