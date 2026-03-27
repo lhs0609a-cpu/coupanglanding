@@ -129,6 +129,13 @@ export class CoupangAdapter extends BaseAdapter {
 
   async createProduct(product: Record<string, unknown>) {
     const path = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
+
+    // 디버그 로깅: 페이로드 핵심 필드
+    const items = product.sellerProductItemList as Record<string, unknown>[] | undefined;
+    const firstItem = items?.[0] || {};
+    const images = (firstItem.images as unknown[]) || [];
+    console.log(`[createProduct] vendorId=${product.vendorId}, category=${product.displayCategoryCode}, delivery=${product.deliveryMethod}, images=${images.length}, itemCount=${items?.length || 0}, name="${(product.displayProductName as string || '').slice(0, 30)}"`);
+
     const data = await this.coupangApi<{ code: string; message?: string; data: string | number }>('POST', path, '', product);
 
     // 쿠팡 API 응답 검증 — code가 "ERROR"이거나 data가 없으면 실패
