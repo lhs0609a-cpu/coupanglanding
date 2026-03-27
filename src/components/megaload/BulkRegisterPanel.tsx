@@ -229,6 +229,10 @@ export default function BulkRegisterPanel() {
           canRegister={actions.canRegister}
           onPreflight={actions.handlePreflight}
           onCanary={actions.handleCanary}
+          lowConfidenceCount={actions.lowConfidenceProducts.length}
+          rematchingCategory={actions.rematchingCategory}
+          onRematchLowConfidence={actions.rematchLowConfidence}
+          onFetchCategorySuggestions={actions.fetchCategorySuggestions}
         />
       )}
 

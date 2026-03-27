@@ -86,6 +86,11 @@ interface BulkStep2ReviewProps {
   canRegister?: boolean;
   onPreflight?: () => void;
   onCanary?: (uid: string) => void;
+  // 카테고리 정확도 개선
+  lowConfidenceCount?: number;
+  rematchingCategory?: boolean;
+  onRematchLowConfidence?: () => void;
+  onFetchCategorySuggestions?: (uid: string) => Promise<CategoryItem[]>;
 }
 
 // P1-2: 파이프라인 진행률 섹션 — memo 분리로 테이블 re-render 방지
@@ -186,6 +191,7 @@ export default memo(function BulkStep2Review({
   preflightPhase, preflightResults, preflightStats, preflightDurationMs,
   canaryPhase, canaryResult, canaryTargetUid, canRegister,
   onPreflight, onCanary,
+  lowConfidenceCount, rematchingCategory, onRematchLowConfidence,
 }: BulkStep2ReviewProps) {
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [showFailures, setShowFailures] = useState(false);
@@ -758,6 +764,16 @@ export default memo(function BulkStep2Review({
         <button onClick={() => setBulkAction(bulkAction === 'brand' ? null : 'brand')} className={`px-3 py-1.5 text-xs rounded-lg border transition ${bulkAction === 'brand' ? 'bg-[#E31837] text-white border-[#E31837]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>브랜드 변경</button>
         <button onClick={() => { setBulkAction(bulkAction === 'category' ? null : 'category'); if (bulkAction !== 'category') onSetCategorySearchTarget('bulk'); }} className={`px-3 py-1.5 text-xs rounded-lg border transition ${bulkAction === 'category' ? 'bg-[#E31837] text-white border-[#E31837]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>카테고리 변경</button>
         <button onClick={() => setBulkAction(bulkAction === 'price' ? null : 'price')} className={`px-3 py-1.5 text-xs rounded-lg border transition ${bulkAction === 'price' ? 'bg-[#E31837] text-white border-[#E31837]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>가격 조정</button>
+        {(lowConfidenceCount ?? 0) > 0 && (
+          <button
+            onClick={onRematchLowConfidence}
+            disabled={rematchingCategory}
+            className="px-3 py-1.5 text-xs rounded-lg border border-orange-300 text-orange-600 hover:bg-orange-50 disabled:opacity-50 transition flex items-center gap-1"
+          >
+            {rematchingCategory ? <Loader2 className="w-3 h-3 animate-spin" /> : <AlertTriangle className="w-3 h-3" />}
+            {rematchingCategory ? '재매칭 중...' : `오분류 재매칭 (${lowConfidenceCount}건)`}
+          </button>
+        )}
         {validationErrorCount > 0 && (
           <button
             onClick={() => {

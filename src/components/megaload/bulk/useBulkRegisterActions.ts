@@ -305,6 +305,90 @@ export function useBulkRegisterActions() {
     runAutoCategory(products, true);
   }, [products, runAutoCategory, autoCategoryRetryCount]);
 
+  // ---- 1단계: 쿠팡 Predict API로 카테고리 추천 (단일 상품) ----
+  const fetchCategorySuggestions = useCallback(async (uid: string): Promise<CategoryItem[]> => {
+    const product = products.find(p => p.uid === uid);
+    if (!product) return [];
+    try {
+      // 쿠팡 카테고리 검색 + Predict API 동시 호출
+      const name = product.name || product.editedName;
+      const [searchRes, predictRes] = await Promise.allSettled([
+        fetch(`/api/megaload/products/bulk-register/search-category?keyword=${encodeURIComponent(name.slice(0, 30))}`),
+        fetch('/api/megaload/products/bulk-register/auto-category', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ productName: name }),
+        }),
+      ]);
+
+      const suggestions: CategoryItem[] = [];
+      // Predict API 결과 (가장 정확)
+      if (predictRes.status === 'fulfilled' && predictRes.value.ok) {
+        const data = await predictRes.value.json();
+        if (data.categoryCode) {
+          suggestions.push({ id: data.categoryCode, name: data.categoryName || '', path: data.categoryPath || '' });
+        }
+      }
+      // 검색 API 결과 (다양한 후보)
+      if (searchRes.status === 'fulfilled' && searchRes.value.ok) {
+        const data = await searchRes.value.json();
+        for (const item of (data.items || []).slice(0, 5)) {
+          if (!suggestions.some(s => s.id === item.id)) {
+            suggestions.push(item);
+          }
+        }
+      }
+      return suggestions.slice(0, 5);
+    } catch { return []; }
+  }, [products]);
+
+  // ---- 2단계: 신뢰도 낮은 상품 감지 ----
+  const lowConfidenceProducts = useMemo(() =>
+    products.filter(p => p.selected && p.categoryConfidence < 0.9 && p.editedCategoryCode),
+  [products]);
+
+  // ---- 3단계: 오분류 일괄 재매칭 (쿠팡 Predict API 우선) ----
+  const [rematchingCategory, setRematchingCategory] = useState(false);
+  const rematchLowConfidence = useCallback(async () => {
+    const targets = lowConfidenceProducts;
+    if (targets.length === 0) return;
+    setRematchingCategory(true);
+
+    try {
+      const BATCH = 10;
+      for (let i = 0; i < targets.length; i += BATCH) {
+        const batch = targets.slice(i, i + BATCH);
+        const results = await Promise.allSettled(
+          batch.map(async (p) => {
+            const res = await fetch('/api/megaload/products/bulk-register/auto-category', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ productName: p.name || p.editedName, forceCoupangApi: true }),
+            });
+            if (!res.ok) return null;
+            const data = await res.json();
+            return { uid: p.uid, ...data };
+          }),
+        );
+
+        setProducts(prev => prev.map(p => {
+          const r = results.find(r => r.status === 'fulfilled' && r.value?.uid === p.uid);
+          if (!r || r.status !== 'fulfilled' || !r.value?.categoryCode) return p;
+          const v = r.value;
+          // 새 결과가 기존보다 높은 신뢰도일 때만 적용
+          if (v.confidence > p.categoryConfidence) {
+            return {
+              ...p,
+              editedCategoryCode: v.categoryCode,
+              editedCategoryName: v.categoryPath || v.categoryName || '',
+              categoryConfidence: v.confidence,
+              categorySource: 'coupang_api',
+            };
+          }
+          return p;
+        }));
+      }
+    } finally { setRematchingCategory(false); }
+  }, [lowConfidenceProducts]);
+
   // ---- Stock image fetch (Pexels) ----
   const runStockImageFetch = useCallback(async (prods: EditableProduct[]) => {
     if (!useStockImages) return;
@@ -1737,5 +1821,7 @@ export function useBulkRegisterActions() {
     toggleProduct, toggleAll, updateField,
     handleReorderImages, handleRemoveImage, getDetailImageUrls, handleSwapStockImage,
     handleRegister, togglePause, handleReset, retryAutoCategory,
+    // 카테고리 정확도 개선
+    fetchCategorySuggestions, lowConfidenceProducts, rematchLowConfidence, rematchingCategory,
   };
 }

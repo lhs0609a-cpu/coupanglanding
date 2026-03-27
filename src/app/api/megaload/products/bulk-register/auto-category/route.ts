@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
 
     const shUserId = (shUser as Record<string, unknown>).id as string;
 
-    const body = await req.json() as { productName: string };
+    const body = await req.json() as { productName: string; forceCoupangApi?: boolean };
     if (!body.productName) {
       return NextResponse.json({ error: '상품명이 필요합니다.' }, { status: 400 });
     }
@@ -33,7 +33,25 @@ export async function POST(req: NextRequest) {
     const adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang');
     const coupangAdapter = adapter as CoupangAdapter;
 
-    const result = await matchCategory(body.productName, coupangAdapter);
+    // forceCoupangApi: 로컬 DB 스킵, 쿠팡 Predict API 직접 호출
+    let result;
+    if (body.forceCoupangApi) {
+      try {
+        const predicted = await coupangAdapter.autoCategorize(body.productName);
+        if (predicted && predicted.predictedCategoryId) {
+          result = {
+            categoryCode: String(predicted.predictedCategoryId),
+            categoryName: predicted.predictedCategoryName || '',
+            categoryPath: predicted.predictedCategoryName || '',
+            confidence: 0.95,
+            source: 'coupang_api' as const,
+          };
+        }
+      } catch { /* Predict 실패 시 기본 매칭 사용 */ }
+    }
+    if (!result) {
+      result = await matchCategory(body.productName, coupangAdapter);
+    }
 
     if (!result) {
       return NextResponse.json({ error: '카테고리 매칭 실패' }, { status: 404 });
