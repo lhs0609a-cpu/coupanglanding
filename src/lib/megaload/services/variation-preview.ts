@@ -49,6 +49,8 @@ export interface PreviewVariationParams {
   colorTempShift: number;
   microResizeX: number;
   microResizeY: number;
+  /** 균일 스케일 (1.0 = 원본, 0.95 = 5% 축소, 1.05 = 5% 확대) */
+  uniformScale: number;
   channelOffsetR: number;
   channelOffsetG: number;
   channelOffsetB: number;
@@ -80,57 +82,57 @@ interface IntensityRange {
   gammaRange: number;
   colorTempRange: number;
   microResizeRange: number;
+  uniformScaleRange: number;       // 균일 스케일 범위 (0.05 = ±5%)
   channelOffsetRange: number;
-  // 신규 기법
-  flipProbability: number;         // 좌우 반전 확률 (0~1)
-  rotationRange: number;           // 회전 범위 (degrees)
-  bgShiftRange: number;            // 배경색 시프트 범위 (0~255)
-  paddingMin: number;              // 패딩 최소
-  paddingRange: number;            // 패딩 범위
+  flipProbability: number;
+  rotationRange: number;
+  bgShiftRange: number;
+  paddingMin: number;
+  paddingRange: number;
 }
 
 const INTENSITY_RANGES: Record<VariationIntensity, IntensityRange> = {
   low: {
     brightnessRange: 0.01, qualityBase: 90, qualityRange: 6,
     cropMin: 0.005, cropRange: 0.01, borderMax: 2, saturationRange: 0.03,
-    noiseMin: 0, noiseRange: 2,           // 0~1
-    gammaMin: 0.99, gammaRange: 0.02,     // 0.99~1.01
-    colorTempRange: 1,                     // -1~+1
-    microResizeRange: 0,                   // 0
-    channelOffsetRange: 1,                 // -1~+1
-    // 신규
-    flipProbability: 0.3,                  // 30% 확률
-    rotationRange: 0.5,                    // ±0.5°
-    bgShiftRange: 3,                       // ±3
-    paddingMin: 0, paddingRange: 0.02,     // 0~2%
+    noiseMin: 0, noiseRange: 2,
+    gammaMin: 0.99, gammaRange: 0.02,
+    colorTempRange: 1,
+    microResizeRange: 1,            // ±1px (종횡비 미세 조정만)
+    uniformScaleRange: 0.02,        // ±2% 균일 확대/축소
+    channelOffsetRange: 1,
+    flipProbability: 0.3,
+    rotationRange: 0.5,
+    bgShiftRange: 3,
+    paddingMin: 0, paddingRange: 0.02,
   },
   mid: {
     brightnessRange: 0.02, qualityBase: 80, qualityRange: 15,
     cropMin: 0.01, cropRange: 0.01, borderMax: 4, saturationRange: 0.05,
-    noiseMin: 0, noiseRange: 3,           // 0~2
-    gammaMin: 0.97, gammaRange: 0.06,     // 0.97~1.03
-    colorTempRange: 3,                     // -3~+3
-    microResizeRange: 4,                   // -4~+4
-    channelOffsetRange: 2,                 // -2~+2
-    // 신규
-    flipProbability: 0.5,                  // 50% 확률
-    rotationRange: 1.5,                    // ±1.5°
-    bgShiftRange: 5,                       // ±5
-    paddingMin: 0.01, paddingRange: 0.03,  // 1~4%
+    noiseMin: 0, noiseRange: 3,
+    gammaMin: 0.97, gammaRange: 0.06,
+    colorTempRange: 3,
+    microResizeRange: 2,            // ±2px (종횡비 미세 조정만)
+    uniformScaleRange: 0.05,        // ±5% 균일 확대/축소
+    channelOffsetRange: 2,
+    flipProbability: 0.5,
+    rotationRange: 1.5,
+    bgShiftRange: 5,
+    paddingMin: 0.01, paddingRange: 0.03,
   },
   high: {
     brightnessRange: 0.04, qualityBase: 75, qualityRange: 18,
     cropMin: 0.02, cropRange: 0.04, borderMax: 8, saturationRange: 0.10,
-    noiseMin: 1, noiseRange: 3,           // 1~3
-    gammaMin: 0.95, gammaRange: 0.10,     // 0.95~1.05
-    colorTempRange: 5,                     // -5~+5
-    microResizeRange: 6,                   // -6~+6
-    channelOffsetRange: 3,                 // -3~+3
-    // 신규
-    flipProbability: 0.5,                  // 50% 확률
-    rotationRange: 3.0,                    // ±3°
-    bgShiftRange: 8,                       // ±8
-    paddingMin: 0.02, paddingRange: 0.05,  // 2~7%
+    noiseMin: 1, noiseRange: 3,
+    gammaMin: 0.95, gammaRange: 0.10,
+    colorTempRange: 5,
+    microResizeRange: 3,            // ±3px (종횡비 미세 조정만)
+    uniformScaleRange: 0.08,        // ±8% 균일 확대/축소
+    channelOffsetRange: 3,
+    flipProbability: 0.5,
+    rotationRange: 3.0,
+    bgShiftRange: 8,
+    paddingMin: 0.02, paddingRange: 0.05,
   },
 };
 
@@ -157,6 +159,7 @@ export function generatePreviewVariationParams(
     colorTempShift: Math.floor(rng() * (r.colorTempRange * 2 + 1)) - r.colorTempRange,
     microResizeX: r.microResizeRange === 0 ? 0 : Math.floor(rng() * (r.microResizeRange * 2 + 1)) - r.microResizeRange,
     microResizeY: r.microResizeRange === 0 ? 0 : Math.floor(rng() * (r.microResizeRange * 2 + 1)) - r.microResizeRange,
+    uniformScale: 1.0 + (rng() * r.uniformScaleRange * 2) - r.uniformScaleRange,
     channelOffsetR: Math.floor(rng() * (r.channelOffsetRange * 2 + 1)) - r.channelOffsetRange,
     channelOffsetG: Math.floor(rng() * (r.channelOffsetRange * 2 + 1)) - r.channelOffsetRange,
     channelOffsetB: Math.floor(rng() * (r.channelOffsetRange * 2 + 1)) - r.channelOffsetRange,
@@ -251,9 +254,10 @@ export async function generateVariedThumbnail(
       break;
   }
 
-  // 마이크로 리사이즈 반영한 출력 크기
-  const outW = Math.max(1, size + params.microResizeX);
-  const outH = Math.max(1, size + params.microResizeY);
+  // 균일 스케일 + 마이크로 리사이즈 반영한 출력 크기
+  const scaledSize = Math.round(size * params.uniformScale);
+  const outW = Math.max(1, scaledSize + params.microResizeX);
+  const outH = Math.max(1, scaledSize + params.microResizeY);
 
   const canvas = document.createElement('canvas');
   canvas.width = outW;
@@ -388,6 +392,10 @@ export function formatVariationParams(params: PreviewVariationParams): string[] 
   }
   if (params.channelOffsetR !== 0 || params.channelOffsetG !== 0 || params.channelOffsetB !== 0) {
     lines.push(`채널 R${params.channelOffsetR >= 0 ? '+' : ''}${params.channelOffsetR} G${params.channelOffsetG >= 0 ? '+' : ''}${params.channelOffsetG} B${params.channelOffsetB >= 0 ? '+' : ''}${params.channelOffsetB}`);
+  }
+  if (Math.abs(params.uniformScale - 1.0) > 0.001) {
+    const pct = ((params.uniformScale - 1.0) * 100).toFixed(1);
+    lines.push(`스케일 ${params.uniformScale > 1 ? '+' : ''}${pct}%`);
   }
   if (params.microResizeX !== 0 || params.microResizeY !== 0) {
     lines.push(`리사이즈 ${params.microResizeX >= 0 ? '+' : ''}${params.microResizeX}×${params.microResizeY >= 0 ? '+' : ''}${params.microResizeY}px`);

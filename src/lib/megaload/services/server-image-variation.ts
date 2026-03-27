@@ -39,10 +39,12 @@ export interface VariationParams {
   gamma: number;
   /** 색온도 시프트 (양수=따뜻) */
   colorTempShift: number;
-  /** 마이크로 리사이즈 X (px) */
+  /** 마이크로 리사이즈 X (px) — 종횡비 미세 조정용 (±1~2px) */
   microResizeX: number;
-  /** 마이크로 리사이즈 Y (px) */
+  /** 마이크로 리사이즈 Y (px) — 종횡비 미세 조정용 (±1~2px) */
   microResizeY: number;
+  /** 균일 스케일 (1.0 = 원본, 0.95 = 5% 축소, 1.05 = 5% 확대) */
+  uniformScale: number;
   /** 채널 오프셋 R */
   channelOffsetR: number;
   /** 채널 오프셋 G */
@@ -81,6 +83,7 @@ interface IntensityRange {
   gammaRange: number;
   colorTempRange: number;
   microResizeRange: number;
+  uniformScaleRange: number;       // 균일 스케일 범위 (0.03 = ±3%)
   channelOffsetRange: number;
   flipProbability: number;
   rotationRange: number;
@@ -96,7 +99,8 @@ const INTENSITY_RANGES: Record<VariationIntensity, IntensityRange> = {
     noiseMin: 0, noiseRange: 2,
     gammaMin: 0.99, gammaRange: 0.02,
     colorTempRange: 1,
-    microResizeRange: 0,
+    microResizeRange: 1,            // ±1px (종횡비 미세 조정만)
+    uniformScaleRange: 0.02,        // ±2% 균일 확대/축소
     channelOffsetRange: 1,
     flipProbability: 0.3,
     rotationRange: 0.5,
@@ -109,7 +113,8 @@ const INTENSITY_RANGES: Record<VariationIntensity, IntensityRange> = {
     noiseMin: 0, noiseRange: 3,
     gammaMin: 0.97, gammaRange: 0.06,
     colorTempRange: 3,
-    microResizeRange: 4,
+    microResizeRange: 2,            // ±2px (종횡비 미세 조정만)
+    uniformScaleRange: 0.05,        // ±5% 균일 확대/축소
     channelOffsetRange: 2,
     flipProbability: 0.5,
     rotationRange: 1.5,
@@ -122,7 +127,8 @@ const INTENSITY_RANGES: Record<VariationIntensity, IntensityRange> = {
     noiseMin: 1, noiseRange: 3,
     gammaMin: 0.95, gammaRange: 0.10,
     colorTempRange: 5,
-    microResizeRange: 6,
+    microResizeRange: 3,            // ±3px (종횡비 미세 조정만)
+    uniformScaleRange: 0.08,        // ±8% 균일 확대/축소
     channelOffsetRange: 3,
     flipProbability: 0.5,
     rotationRange: 3.0,
@@ -156,6 +162,7 @@ export function generateVariationParams(
     colorTempShift: Math.floor(rng() * (r.colorTempRange * 2 + 1)) - r.colorTempRange,
     microResizeX: r.microResizeRange === 0 ? 0 : Math.floor(rng() * (r.microResizeRange * 2 + 1)) - r.microResizeRange,
     microResizeY: r.microResizeRange === 0 ? 0 : Math.floor(rng() * (r.microResizeRange * 2 + 1)) - r.microResizeRange,
+    uniformScale: 1.0 + (rng() * r.uniformScaleRange * 2) - r.uniformScaleRange,
     channelOffsetR: Math.floor(rng() * (r.channelOffsetRange * 2 + 1)) - r.channelOffsetRange,
     channelOffsetG: Math.floor(rng() * (r.channelOffsetRange * 2 + 1)) - r.channelOffsetRange,
     channelOffsetB: Math.floor(rng() * (r.channelOffsetRange * 2 + 1)) - r.channelOffsetRange,
@@ -309,13 +316,17 @@ export async function applyVariation(buffer: Buffer, params: VariationParams, no
       }
     }
 
-    // 7. 마이크로 리사이즈
-    if (params.microResizeX !== 0 || params.microResizeY !== 0) {
+    // 7. 균일 스케일 + 마이크로 리사이즈 (종횡비 미세 조정)
+    {
       const curW = image.getWidth();
       const curH = image.getHeight();
-      const newW = Math.max(1, curW + params.microResizeX);
-      const newH = Math.max(1, curH + params.microResizeY);
-      image.resize(newW, newH);
+      const scaledW = Math.round(curW * params.uniformScale);
+      const scaledH = Math.round(curH * params.uniformScale);
+      const newW = Math.max(1, scaledW + params.microResizeX);
+      const newH = Math.max(1, scaledH + params.microResizeY);
+      if (newW !== curW || newH !== curH) {
+        image.resize(newW, newH);
+      }
     }
 
     // 8. 흰색 보더 (이미지 크기 미세 변경)
