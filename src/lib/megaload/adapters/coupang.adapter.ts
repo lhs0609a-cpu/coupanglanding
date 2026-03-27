@@ -59,6 +59,7 @@ export class CoupangAdapter extends BaseAdapter {
           'X-Proxy-Secret': COUPANG_PROXY_SECRET,
           'X-Coupang-Access-Key': this.accessKey,
           'X-Coupang-Secret-Key': this.secretKey,
+          'X-Coupang-Vendor-Id': this.vendorId, // 쿠팡 API X-Requested-By 헤더에 필요
         },
       };
 
@@ -77,7 +78,8 @@ export class CoupangAdapter extends BaseAdapter {
       method,
       headers: {
         Authorization: authorization,
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json;charset=UTF-8',
+        'X-Requested-By': this.vendorId,
       },
     };
 
