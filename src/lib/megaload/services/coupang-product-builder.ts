@@ -34,6 +34,11 @@ export interface ReturnInfo {
   companyContactNumber: string;
   afterServiceContactNumber: string;
   afterServiceInformation: string;
+  // 쿠팡 필수 필드
+  returnChargeName?: string;
+  returnZipCode?: string;
+  returnAddress?: string;
+  returnAddressDetail?: string;
 }
 
 export interface AttributeMeta {
@@ -281,7 +286,7 @@ export function buildCoupangProductPayload(
 
   const contents = detailHtml
     ? [{
-        contentsType: 'IMAGE_VENDOR',
+        contentsType: 'TEXT',
         contentDetails: [{ content: detailHtml, detailType: 'TEXT' }],
       }]
     : [];
@@ -389,9 +394,11 @@ export function buildCoupangProductPayload(
         externalVendorSku: variant.sku || `${product.productCode}_${idx + 1}`,
         barcode: variantBarcode,
         emptyBarcode: !variantBarcode,
-        certificationListByItem: certificationList,
+        certifications: certificationList.length > 0
+          ? certificationList
+          : [{ certificationType: 'NOT_REQUIRED', certificationCode: '' }],
         images: variantImages,
-        noticeCategories,
+        notices: flattenNotices(noticeCategories),
         attributes,
         contents,
       };
@@ -411,20 +418,23 @@ export function buildCoupangProductPayload(
       taxType,
       parallelImported,
       overseasPurchased,
-      pccNeeded,
+      pccNeeded: String(pccNeeded),  // 쿠팡: 문자열 "true"/"false"
       externalVendorSku: product.productCode,
       barcode: resolvedBarcode,
       emptyBarcode: !hasBarcode,
-      certificationListByItem: certificationList,
+      ...((!hasBarcode) ? { emptyBarcodeReason: '상품확인불가_바코드없음사유' } : {}),
+      certifications: certificationList.length > 0
+        ? certificationList
+        : [{ certificationType: 'NOT_REQUIRED', certificationCode: '' }],
       images,
-      noticeCategories,
+      notices: flattenNotices(noticeCategories),
       attributes,
       contents,
     }];
   }
 
   // ---- 12. 전체 페이로드 조립 ----
-  // 주의: _meta 등 내부 필드를 페이로드에 포함하지 않음 (쿠팡 API 거부 방지)
+  // 쿠팡 OpenAPI v2 seller-products 공식 스펙에 맞춤
   const payload: Record<string, unknown> = {
     displayCategoryCode: Number(categoryCode) || 0,
     sellerProductName: resolvedSellerName,
@@ -435,9 +445,7 @@ export function buildCoupangProductPayload(
     brand: resolvedBrand,
     generalProductName: extractGeneralProductName(categoryPath, productName),
     productGroup: '',
-    manufacturer: resolvedManufacturer,
-
-    deliveryMethod: 'SEQUENCIAL',   // 쿠팡 API 공식 값 (오타이지만 API가 이 값을 사용)
+    deliveryMethod: 'SEQUENCIAL',
     deliveryCompanyCode: deliveryInfo.deliveryCompanyCode,
     deliveryChargeType: deliveryInfo.deliveryChargeType,
     deliveryCharge: deliveryInfo.deliveryCharge,
@@ -450,22 +458,48 @@ export function buildCoupangProductPayload(
     outboundShippingPlaceCode: deliveryInfo.outboundShippingPlaceCode,
 
     returnCenterCode: returnInfo.returnCenterCode,
-    returnChargeName: '반품배송비',
-    returnCharge: returnInfo.returnCharge,
+    returnChargeName: returnInfo.returnChargeName || '반품지',
     companyContactNumber: returnInfo.companyContactNumber,
-    afterServiceInformation: returnInfo.afterServiceInformation || '상품 이상 시 고객센터로 연락 바랍니다.',
-    afterServiceContactNumber: returnInfo.afterServiceContactNumber,
+    returnZipCode: returnInfo.returnZipCode || '',
+    returnAddress: returnInfo.returnAddress || '',
+    returnAddressDetail: returnInfo.returnAddressDetail || '',
+    returnCharge: returnInfo.returnCharge,
 
-    sellerProductItemList,
+    vendorUserId: '',
+    requested: true,
 
-    requiredDocuments: [],
+    // 쿠팡 스펙 필드명: "items" (sellerProductItemList가 아님!)
+    items: sellerProductItemList,
+
     extraInfoMessage: '',
+    manufacture: resolvedManufacturer,
   };
 
   return payload;
 }
 
 // ---- 헬퍼 함수들 ----
+
+/**
+ * 쿠팡 notices 포맷: 중첩 구조 → flat 배열 변환
+ * 입력: [{ noticeCategoryName, noticeCategoryDetailName: [{ noticeCategoryDetailName, content }] }]
+ * 출력: [{ noticeCategoryName, noticeCategoryDetailName, content }, ...]
+ */
+function flattenNotices(
+  categories: FilledNoticeCategory[],
+): { noticeCategoryName: string; noticeCategoryDetailName: string; content: string }[] {
+  const flat: { noticeCategoryName: string; noticeCategoryDetailName: string; content: string }[] = [];
+  for (const cat of categories) {
+    for (const detail of cat.noticeCategoryDetailName) {
+      flat.push({
+        noticeCategoryName: cat.noticeCategoryName,
+        noticeCategoryDetailName: detail.noticeCategoryDetailName,
+        content: detail.content || '상세페이지 참조',
+      });
+    }
+  }
+  return flat;
+}
 
 /** 쿠팡 API 날짜 포맷: yyyy-MM-ddTHH:mm:ss (밀리초/타임존 없음) */
 function formatCoupangDateTime(date: Date): string {

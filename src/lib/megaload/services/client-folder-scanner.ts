@@ -247,52 +247,49 @@ async function compressImage(file: File): Promise<Blob> {
 
 // ---- Supabase 직접 업로드 (Vercel 경유 없음) ----
 // 브라우저 → Supabase Storage 직접 업로드: 인증 0회, 네트워크 홉 1단계
-const DIRECT_CONCURRENCY = 15; // Supabase 직접이면 높은 동시성 가능
+const DIRECT_CONCURRENCY = 20; // 직접 업로드 동시성
 
-let _supabaseClient: ReturnType<typeof import('@/lib/supabase/client').createClient> | null = null;
+import { createClient as createBrowserSupabase } from '@/lib/supabase/client';
+
+let _supabaseClient: ReturnType<typeof createBrowserSupabase> | null = null;
 function getSupabaseClient() {
   if (!_supabaseClient) {
-    // lazy import — 서버 사이드에서 호출 안 되도록
-    const { createClient } = require('@/lib/supabase/client');
-    _supabaseClient = createClient();
+    try {
+      _supabaseClient = createBrowserSupabase();
+    } catch {
+      return null;
+    }
   }
-  return _supabaseClient!;
+  return _supabaseClient;
 }
 
 function generateStoragePath(name: string): string {
   const ext = name.match(/\.(jpg|jpeg|png|webp|gif)$/i)?.[1]?.toLowerCase() || 'jpg';
-  const uuid = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return `megaload/browser/${uuid}.${ext}`;
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return `megaload/browser/${id}.${ext}`;
 }
 
-async function uploadDirectToSupabase(blob: Blob, name: string): Promise<string> {
+async function uploadSingleImage(blob: Blob, name: string): Promise<string> {
+  // 1차: Supabase 직접 업로드
   const supabase = getSupabaseClient();
-  const storagePath = generateStoragePath(name);
-  const ext = name.match(/\.(png|gif|webp)$/i)?.[1]?.toLowerCase();
-  const contentType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+  if (supabase) {
+    try {
+      const storagePath = generateStoragePath(name);
+      const ext = name.match(/\.(png|gif|webp)$/i)?.[1]?.toLowerCase();
+      const contentType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
 
-  const { data, error } = await supabase.storage
-    .from('product-images')
-    .upload(storagePath, blob, {
-      contentType,
-      cacheControl: '31536000',
-      upsert: false,
-    });
+      const { data, error } = await supabase.storage
+        .from('product-images')
+        .upload(storagePath, blob, { contentType, cacheControl: '31536000', upsert: false });
 
-  if (error || !data) {
-    // RLS 거부 시 서버 API 폴백
-    return uploadViaServerApi(blob, name);
+      if (!error && data) {
+        const { data: pub } = supabase.storage.from('product-images').getPublicUrl(storagePath);
+        if (pub?.publicUrl) return pub.publicUrl;
+      }
+    } catch { /* 직접 업로드 실패 → 폴백 */ }
   }
 
-  const { data: publicData } = supabase.storage
-    .from('product-images')
-    .getPublicUrl(storagePath);
-
-  return publicData?.publicUrl || '';
-}
-
-/** 직접 업로드 실패 시 서버 API 경유 폴백 */
-async function uploadViaServerApi(blob: Blob, name: string): Promise<string> {
+  // 2차: 서버 API 폴백
   const formData = new FormData();
   formData.append('file', blob, name);
   const res = await fetch('/api/megaload/products/bulk-register/upload-image', {

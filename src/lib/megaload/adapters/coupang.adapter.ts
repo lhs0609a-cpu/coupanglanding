@@ -136,17 +136,33 @@ export class CoupangAdapter extends BaseAdapter {
     const images = (firstItem.images as unknown[]) || [];
     console.log(`[createProduct] vendorId=${product.vendorId}, category=${product.displayCategoryCode}, delivery=${product.deliveryMethod}, images=${images.length}, itemCount=${items?.length || 0}, name="${(product.displayProductName as string || '').slice(0, 30)}"`);
 
-    const data = await this.coupangApi<{ code: string; message?: string; data: string | number }>('POST', path, '', product);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = await this.coupangApi<any>('POST', path, '', product);
 
-    // 쿠팡 API 응답 검증 — code가 "ERROR"이거나 data가 없으면 실패
-    if (!data || !data.data) {
-      throw new Error(`쿠팡 API 응답 이상: ${JSON.stringify(data).slice(0, 500)}`);
-    }
-    if (data.code && data.code !== 'SUCCESS' && data.code !== '200' && data.code !== 'OK') {
-      throw new Error(`쿠팡 API 오류 (${data.code}): ${data.message || JSON.stringify(data.data).slice(0, 300)}`);
+    // 쿠팡 응답 구조: { code: "200", data: { code: "SUCCESS", data: 427011919 } }
+    // 또는: { code: "ERROR", message: "...", data: null }
+    const outer = raw || {};
+    const code = outer.code || '';
+    const innerData = outer.data;
+
+    // 에러 응답 체크
+    if (code === 'ERROR' || (!innerData && innerData !== 0)) {
+      const msg = outer.message || outer.details || JSON.stringify(outer).slice(0, 500);
+      throw new Error(`쿠팡 API 오류 (${code}): ${msg}`);
     }
 
-    return { channelProductId: String(data.data), success: true };
+    // 중첩 응답 처리: data가 객체면 내부 data 추출
+    let productId: string;
+    if (typeof innerData === 'object' && innerData !== null && 'data' in innerData) {
+      if (innerData.code === 'ERROR') {
+        throw new Error(`쿠팡 API 오류: ${innerData.message || JSON.stringify(innerData).slice(0, 300)}`);
+      }
+      productId = String(innerData.data);
+    } else {
+      productId = String(innerData);
+    }
+
+    return { channelProductId: productId, success: true };
   }
 
   async updateProduct(channelProductId: string, product: Record<string, unknown>) {
