@@ -246,7 +246,7 @@ export async function POST(req: NextRequest) {
 
           // 페이로드 스냅샷
           const payloadJson = JSON.stringify(payload);
-          const items = (payload.sellerProductItemList as Record<string, unknown>[]) || [];
+          const items = ((payload.items || payload.sellerProductItemList) as Record<string, unknown>[]) || [];
           const firstItem = items[0] || {};
           const imageArr = (firstItem.images as unknown[]) || [];
 

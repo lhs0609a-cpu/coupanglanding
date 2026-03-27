@@ -449,7 +449,7 @@ export function validatePayloadStructure(input: PayloadStructureInput): {
   }
 
   // 3. images >= 1
-  const items = (payload.sellerProductItemList as Record<string, unknown>[]) || [];
+  const items = ((payload.items || payload.sellerProductItemList) as Record<string, unknown>[]) || [];
   const firstItem = items[0] || {};
   const images = (firstItem.images as Record<string, unknown>[]) || [];
   if (images.length === 0) {
