@@ -244,8 +244,8 @@ export function buildCoupangProductPayload(
     || '자체제조';
 
   // ---- 2. 대표이미지 (REPRESENTATION) ----
-  // 빈 문자열/falsy 값 제거 후 최대 10장
-  const validMainImageUrls = mainImageUrls.filter((url) => url && !url.startsWith('preflight-'));
+  // 빈 문자열/falsy 값만 제거 (preflight-placeholder URL은 프리플라이트에서 유효)
+  const validMainImageUrls = mainImageUrls.filter(Boolean);
   // 아이템위너 방지: preventionSeed가 있으면 전체 이미지 순서를 셔플
   const orderedImageUrls = preventionSeed
     ? shuffleWithSeed(validMainImageUrls.slice(0, 10), preventionSeed)
