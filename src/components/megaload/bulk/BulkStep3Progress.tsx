@@ -18,6 +18,8 @@ interface BulkStep3ProgressProps {
   imagePreuploadCacheSize: number;
   onTogglePause: () => void;
   onReset: () => void;
+  onRetryFailed?: () => void;
+  onBackToStep2?: () => void;
 }
 
 function formatTime(seconds: number) {
@@ -402,9 +404,19 @@ export default function BulkStep3Progress({
       </div>
 
       {!registering && (
-        <div className="flex items-center justify-center">
-          <button onClick={onReset} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition">
-            <RefreshCw className="w-4 h-4" /> 새로 등록하기
+        <div className="flex items-center justify-center gap-3">
+          {failCount > 0 && onRetryFailed && (
+            <button onClick={onRetryFailed} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 transition">
+              <RefreshCw className="w-4 h-4" /> 실패 {failCount}건 재등록
+            </button>
+          )}
+          {onBackToStep2 && (
+            <button onClick={onBackToStep2} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+              <ChevronUp className="w-4 h-4" /> 검증으로 돌아가기
+            </button>
+          )}
+          <button onClick={onReset} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 transition">
+            <FolderOpen className="w-4 h-4" /> 새로 등록하기
           </button>
         </div>
       )}

@@ -247,6 +247,8 @@ export default function BulkRegisterPanel() {
           imagePreuploadCacheSize={Object.keys(actions.imagePreuploadCache).length}
           onTogglePause={actions.togglePause}
           onReset={actions.handleReset}
+          onRetryFailed={() => { actions.retryFailed(); actions.handleRegister(); }}
+          onBackToStep2={actions.backToStep2}
         />
       )}
     </div>

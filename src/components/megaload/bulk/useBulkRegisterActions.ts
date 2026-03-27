@@ -1614,6 +1614,30 @@ export function useBulkRegisterActions() {
     isPausedRef.current = next;
   }, [isPaused]);
 
+  // ---- 실패한 상품만 재등록 ----
+  const retryFailed = useCallback(() => {
+    // 실패 상품의 상태 초기화 → 다시 등록 대상으로
+    setProducts(prev => prev.map(p =>
+      p.status === 'error' ? { ...p, status: undefined as unknown as string, errorMessage: undefined, detailedError: undefined, channelProductId: undefined } : p
+    ));
+    setBatchProgress({ current: 0, total: 0 });
+    setStartTime(null);
+    // handleRegister가 status !== 'success'인 상품만 등록
+  }, []);
+
+  // ---- 검증(Step 2)으로 돌아가기 ----
+  const backToStep2 = useCallback(() => {
+    setProducts(prev => prev.map(p =>
+      p.status === 'error' ? { ...p, status: undefined as unknown as string, errorMessage: undefined, detailedError: undefined } : p
+    ));
+    setStep(2);
+    setPreflightPhase('idle');
+    setPreflightResults({});
+    setPreflightStats(null);
+    setBatchProgress({ current: 0, total: 0 });
+    setStartTime(null);
+  }, []);
+
   // ---- Reset ----
   const handleReset = useCallback(() => {
     setStep(1); setProducts([]); setFolderPaths([]); setBatchProgress({ current: 0, total: 0 });
@@ -1721,7 +1745,7 @@ export function useBulkRegisterActions() {
     handleDeepValidation, handlePreflight, handleCanary,
     toggleProduct, toggleAll, updateField,
     handleReorderImages, handleRemoveImage, getDetailImageUrls, handleSwapStockImage,
-    handleRegister, togglePause, handleReset, retryAutoCategory,
+    handleRegister, togglePause, handleReset, retryFailed, backToStep2, retryAutoCategory,
     // 카테고리 정확도 개선
     fetchCategorySuggestions, lowConfidenceProducts, rematchLowConfidence, rematchingCategory,
   };
