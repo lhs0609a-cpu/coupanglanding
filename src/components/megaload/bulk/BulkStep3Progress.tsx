@@ -61,7 +61,7 @@ function getCategoryBadge(category: ErrorCategory) {
 
 export default function BulkStep3Progress({
   products, registering, isPaused, batchProgress, startTime, imagePreuploadCacheSize,
-  onTogglePause, onReset,
+  onTogglePause, onReset, onRetryFailed, onBackToStep2,
 }: BulkStep3ProgressProps) {
   const [expandedErrorUids, setExpandedErrorUids] = useState<Set<string>>(new Set());
   const [expandedRawUids, setExpandedRawUids] = useState<Set<string>>(new Set());

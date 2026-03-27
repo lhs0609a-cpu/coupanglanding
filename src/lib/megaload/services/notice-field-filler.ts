@@ -51,13 +51,16 @@ export function fillNoticeFields(
     return [];
   }
 
-  return noticeMeta.map((category) => ({
-    noticeCategoryName: category.noticeCategoryName,
-    noticeCategoryDetailName: category.fields.map((field) => ({
+  // 쿠팡 API는 oneOf 스키마 — 반드시 하나의 고시정보 카테고리만 선택해야 함
+  // 여러 개 보내면 "N subschemas matched instead of one" 오류 발생
+  const selected = noticeMeta[0];
+  return [{
+    noticeCategoryName: selected.noticeCategoryName,
+    noticeCategoryDetailName: selected.fields.map((field) => ({
       noticeCategoryDetailName: field.name,
       content: resolveFieldValue(field.name, product, contactNumber, overrides, extractedHints),
     })),
-  }));
+  }];
 }
 
 /**
