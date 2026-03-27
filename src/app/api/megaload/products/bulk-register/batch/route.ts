@@ -327,6 +327,35 @@ export async function POST(req: NextRequest) {
         aiReviewTexts,
       });
 
+      // 9.5. 고시정보 보정 — notices가 비어있으면 카테고리 메타에서 가져옴
+      const items = payload.items as Record<string, unknown>[] | undefined;
+      if (items && items.length > 0) {
+        const firstItem = items[0];
+        const notices = firstItem.notices as unknown[] | undefined;
+        if (!notices || notices.length === 0) {
+          try {
+            const catCode = String(payload.displayCategoryCode || '');
+            if (catCode && catCode !== '0') {
+              const noticeMeta = await coupangAdapter.getNoticeCategoryFields(catCode);
+              if (noticeMeta.items.length > 0) {
+                // 첫 번째 고시정보 카테고리만 사용 (oneOf 스키마)
+                const nc = noticeMeta.items[0];
+                const filledNotices = nc.noticeCategoryDetailNames.map(d => ({
+                  noticeCategoryName: nc.noticeCategoryName,
+                  noticeCategoryDetailName: d.name,
+                  content: '상세페이지 참조',
+                }));
+                for (const item of items) {
+                  (item as Record<string, unknown>).notices = filledNotices;
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('[batch] 고시정보 메타 조회 실패:', e instanceof Error ? e.message : e);
+          }
+        }
+      }
+
       // 10. 쿠팡 API 호출 (retry 적용)
       let result: { channelProductId: string };
       try {
