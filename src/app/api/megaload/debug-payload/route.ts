@@ -21,19 +21,6 @@ export async function GET(req: NextRequest) {
     const coupangAdapter = adapter as CoupangAdapter;
     const vendorId = coupangAdapter.getVendorId();
 
-    // 출고지 조회 테스트 (인증 확인)
-    let testResult: string;
-    try {
-      const testRes = await coupangAdapter.testConnection({
-        vendorId,
-        accessKey: '', // already authenticated
-        secretKey: '',
-      });
-      testResult = testRes.success ? 'OK' : testRes.message;
-    } catch (err) {
-      testResult = err instanceof Error ? err.message : 'Failed';
-    }
-
     // 카테고리 메타 조회 테스트 (58786 = 한방음료)
     let noticeMeta = null;
     try {
@@ -55,7 +42,6 @@ export async function GET(req: NextRequest) {
       vendorId,
       proxyUrl: process.env.COUPANG_PROXY_URL || '(not set)',
       proxySecretSet: !!process.env.COUPANG_PROXY_SECRET,
-      testConnection: testResult,
       shUserId,
       noticeMeta,
       rawMeta: rawMeta ? JSON.stringify(rawMeta).slice(0, 3000) : null,
