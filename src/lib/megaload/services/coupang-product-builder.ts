@@ -478,9 +478,9 @@ export function buildCoupangProductPayload(
     returnZipCode: returnInfo.returnZipCode || '06159',
     returnAddress: returnInfo.returnAddress || '서울특별시 강남구',
     returnAddressDetail: returnInfo.returnAddressDetail || '상세주소',
-    vendorUserId: returnInfo.vendorUserId || 'megaload',
+    // vendorUserId는 Wing ID — 모르면 생략 (쿠팡이 자동 처리)
 
-    requested: false,  // 임시저장 → notices 없이 등록 가능, 이후 승인요청 API 별도 호출
+    requested: true,  // 자동 판매승인 요청
 
     // 쿠팡 스펙 필드명: "items" (sellerProductItemList가 아님!)
     items: sellerProductItemList,

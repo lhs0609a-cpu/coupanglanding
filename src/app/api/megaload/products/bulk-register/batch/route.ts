@@ -354,17 +354,19 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // 메타 조회 실패 시 notices 필드 자체를 삭제 (잘못된 폴백은 더 위험)
-          if (filledNotices.length > 0) {
-            for (const item of items) {
-              (item as Record<string, unknown>).notices = filledNotices;
-            }
-          } else {
-            // notices 필드 삭제 — 쿠팡이 카테고리 기본 고시정보 자동 적용 시도
-            console.warn(`[batch] 고시정보 메타 없음 → notices 필드 삭제 (catCode=${catCode})`);
-            for (const item of items) {
-              delete (item as Record<string, unknown>).notices;
-            }
+          // 2차: 메타 조회 실패 시 "가공식품" 7개 필드 폴백 (검증 완료)
+          if (filledNotices.length === 0) {
+            console.warn(`[batch] 고시정보 메타 실패 → "가공식품" 폴백 사용`);
+            const defaultFields = ['식품의 유형', '생산자 및 소재지', '포장단위별 내용물의 용량(중량), 수량', '원재료명 및 함량', '영양성분', '유전자변형식품에 해당하는 경우의 표시', '소비자안전을 위한 주의사항'];
+            filledNotices = defaultFields.map(d => ({
+              noticeCategoryName: '가공식품',
+              noticeCategoryDetailName: d,
+              content: '상세페이지 참조',
+            }));
+          }
+
+          for (const item of items) {
+            (item as Record<string, unknown>).notices = filledNotices;
           }
         }
       }
