@@ -105,19 +105,30 @@ export async function GET(req: NextRequest) {
 
         const path = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
         const res = await (coupangAdapter as any).coupangApi('POST', path, '', testPayload);
-        noticeTestResults[catName] = `SUCCESS: ${JSON.stringify(res).slice(0, 200)}`;
-        // 성공하면 즉시 삭제
-        if (res?.data?.data || res?.data) {
-          const pid = String(res?.data?.data || res?.data);
-          try { await (coupangAdapter as any).coupangApi('DELETE', `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/${pid}`); } catch {}
+        const code = res?.code || res?.data?.code || '';
+        const msg = res?.message || res?.data?.message || '';
+        if (code === 'ERROR' || code === 'error') {
+          if (String(msg).includes('입력할 수 없습니다') || String(msg).includes('subschemas')) {
+            noticeTestResults[catName] = 'REJECTED';
+          } else {
+            noticeTestResults[catName] = `ERROR: ${String(msg).slice(0, 150)}`;
+          }
+        } else {
+          // 진짜 성공!
+          const pid = String(res?.data?.data || res?.data || '');
+          noticeTestResults[catName] = `SUCCESS (id=${pid})`;
+          // 테스트 상품 삭제
+          if (pid && pid !== 'null' && pid !== 'undefined') {
+            try { await (coupangAdapter as any).coupangApi('DELETE', `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/${pid}`); } catch {}
+          }
+          break; // 성공 찾으면 중단
         }
-        break; // 성공한 카테고리 찾으면 중단
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (msg.includes('입력할 수 없습니다') || msg.includes('subschemas')) {
           noticeTestResults[catName] = 'REJECTED';
         } else {
-          noticeTestResults[catName] = msg.slice(0, 100);
+          noticeTestResults[catName] = `THROW: ${msg.slice(0, 100)}`;
         }
       }
     }
