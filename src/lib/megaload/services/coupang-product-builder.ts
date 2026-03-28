@@ -478,7 +478,7 @@ export function buildCoupangProductPayload(
     returnZipCode: returnInfo.returnZipCode || '06159',
     returnAddress: returnInfo.returnAddress || '서울특별시 강남구',
     returnAddressDetail: returnInfo.returnAddressDetail || '상세주소',
-    // vendorUserId는 Wing ID — 모르면 생략 (쿠팡이 자동 처리)
+    vendorUserId: vendorId,  // Wing ID — vendorId를 대체 사용
 
     requested: true,  // 자동 판매승인 요청
 
