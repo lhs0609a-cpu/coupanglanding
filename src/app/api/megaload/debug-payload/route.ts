@@ -106,11 +106,8 @@ export async function GET(req: NextRequest) {
         const code = res?.code || res?.data?.code || '';
         const msg = res?.message || res?.data?.message || '';
         if (code === 'ERROR' || code === 'error') {
-          if (String(msg).includes('입력할 수 없습니다') || String(msg).includes('subschemas')) {
-            noticeTestResults[catName] = 'REJECTED';
-          } else {
-            noticeTestResults[catName] = `ERROR: ${String(msg).slice(0, 150)}`;
-          }
+          // 전체 에러 메시지 반환 (디버그용)
+          noticeTestResults[catName] = `ERROR: ${String(msg).slice(0, 300)}`;
         } else {
           // 진짜 성공!
           const pid = String(res?.data?.data || res?.data || '');
