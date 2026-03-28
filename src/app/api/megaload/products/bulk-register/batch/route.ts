@@ -139,6 +139,17 @@ export async function POST(req: NextRequest) {
     const coupangAdapter = adapter as CoupangAdapter;
     const vendorId = coupangAdapter.getVendorId();
 
+    // Wing ID (vendorUserId) 조회 — pt_users.coupang_seller_id
+    let wingUserId = '';
+    try {
+      const { data: ptUser } = await supabase
+        .from('pt_users')
+        .select('coupang_seller_id')
+        .eq('profile_id', user.id)
+        .single();
+      wingUserId = (ptUser as Record<string, unknown>)?.coupang_seller_id as string || '';
+    } catch { /* pt_users 없으면 빈 문자열 */ }
+
     // ---- 중복 등록 방지: 이미 등록된 productCode 조회 ----
     const productCodes = products.map((p) => p.productCode);
     const { data: existingProducts } = await serviceClient
@@ -326,6 +337,11 @@ export async function POST(req: NextRequest) {
         aiStoryParagraphs,
         aiReviewTexts,
       });
+
+      // 9.4. vendorUserId 설정 (Wing ID)
+      if (wingUserId) {
+        (payload as Record<string, unknown>).vendorUserId = wingUserId;
+      }
 
       // 9.5. 고시정보 보정 — notices가 비어있으면 카테고리 메타에서 가져옴 (필수 필드!)
       const items = payload.items as Record<string, unknown>[] | undefined;
