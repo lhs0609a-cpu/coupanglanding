@@ -131,7 +131,8 @@ export class CoupangAdapter extends BaseAdapter {
     const path = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
 
     // notices 강제 제거 — 어떤 경로로든 notices가 포함되면 쿠팡 oneOf 스키마 에러 발생
-    const items = product.sellerProductItemList as Record<string, unknown>[] | undefined;
+    // 페이로드 키가 "items" (sellerProductItemList가 아님!)
+    const items = (product.items || product.sellerProductItemList) as Record<string, unknown>[] | undefined;
     if (items) {
       for (const item of items) {
         if (item.notices) {
