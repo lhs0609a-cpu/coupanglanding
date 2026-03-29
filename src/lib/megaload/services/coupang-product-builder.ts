@@ -256,9 +256,10 @@ export function buildCoupangProductPayload(
   const orderedImageUrls = preventionSeed
     ? shuffleWithSeed(validMainImageUrls.slice(0, 10), preventionSeed)
     : validMainImageUrls.slice(0, 10);
+  // 쿠팡: REPRESENTATION은 1개만 허용, 나머지는 DETAIL
   const images = orderedImageUrls.map((url, i) => ({
     imageOrder: i,
-    imageType: 'REPRESENTATION',
+    imageType: i === 0 ? 'REPRESENTATION' : 'DETAIL',
     cdnPath: url,
     vendorPath: url,
   }));
@@ -293,10 +294,10 @@ export function buildCoupangProductPayload(
     : [];
 
   // ---- 4. 상품정보제공고시 (notices) ----
-  // 완전 비활성화 — 쿠팡이 카테고리에 맞는 기본 고시정보 자동 적용
-  // notices를 보내면 "N subschemas matched" 에러 발생 위험
-  // TODO: 카테고리 메타 API에서 정확한 noticeCategoryName 매핑 완성 후 재활성화
-  const noticeCategories: FilledNoticeCategory[] = [];
+  // fillNoticeFields()가 oneOf 준수하여 1개 카테고리만 반환
+  const noticeCategories = filledNotices && filledNotices.length > 0
+    ? filledNotices
+    : [];
 
   // ---- 5. attributes (카테고리 필수 속성 + 구매옵션) ----
   // 쿠팡 API: attributes에 필수 속성 + 구매옵션(exposed) 모두 포함
@@ -385,7 +386,7 @@ export function buildCoupangProductPayload(
       const variantImages = variant.mainImageUrls
         ? variant.mainImageUrls.slice(0, 10).map((url, i) => ({
             imageOrder: i,
-            imageType: 'REPRESENTATION',
+            imageType: i === 0 ? 'REPRESENTATION' : 'DETAIL',
             cdnPath: url,
             vendorPath: url,
           }))
@@ -412,7 +413,7 @@ export function buildCoupangProductPayload(
           ? certificationList
           : [{ certificationType: 'NOT_REQUIRED', certificationCode: '' }],
         images: variantImages,
-        // notices 생략 — requested:false(임시저장)이면 불필요
+        ...(noticeCategories.length > 0 ? { notices: flattenNotices(noticeCategories) } : {}),
         attributes,
         contents,
       };
@@ -441,7 +442,7 @@ export function buildCoupangProductPayload(
         ? certificationList
         : [{ certificationType: 'NOT_REQUIRED', certificationCode: '' }],
       images,
-      notices: [],
+      ...(noticeCategories.length > 0 ? { notices: flattenNotices(noticeCategories) } : {}),
       attributes,
       contents,
     }];
