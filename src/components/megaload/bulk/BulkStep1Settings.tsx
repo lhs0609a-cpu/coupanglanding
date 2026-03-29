@@ -412,36 +412,7 @@ export default function BulkStep1Settings({
         </table>
       </div>
 
-      {/* Notice Overrides */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">상품정보제공고시 기본값</h2>
-        <p className="text-xs text-gray-400 mb-4">비어있는 필드는 &quot;상세페이지 참조&quot;로 자동 입력됩니다.</p>
-        <div className="grid grid-cols-2 gap-4">
-          {[
-            { key: '품명 및 모델명', placeholder: '상품명에서 자동 입력' },
-            { key: '브랜드', placeholder: '상품 브랜드에서 자동 입력' },
-            { key: '제조국 또는 원산지', placeholder: '상세페이지 참조' },
-            { key: '제조자/수입자', placeholder: '브랜드에서 자동 입력' },
-            { key: 'A/S 책임자와 전화번호', placeholder: '연락처에서 자동 입력' },
-            { key: '인증/허가 사항', placeholder: '해당사항 없음' },
-          ].map(({ key, placeholder }) => (
-            <div key={key}>
-              <label className="block text-xs font-medium text-gray-600 mb-1">{key}</label>
-              <input
-                type="text"
-                value={noticeOverrides[key] || ''}
-                onChange={(e) => {
-                  const newOverrides = { ...noticeOverrides };
-                  if (e.target.value) { newOverrides[key] = e.target.value; } else { delete newOverrides[key]; }
-                  onSetNoticeOverrides(newOverrides);
-                }}
-                placeholder={placeholder}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
-              />
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* 상품정보제공고시: 쿠팡이 자동 적용하므로 별도 설정 불필요 */}
 
       {scanError && <p className="text-sm text-red-600">{scanError}</p>}
       <div className="flex justify-end">
