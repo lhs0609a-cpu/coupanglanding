@@ -355,11 +355,18 @@ export async function POST(req: NextRequest) {
         const isNoticeError = /고시정보|notices|subschemas?\s*matched/i.test(errMsg);
 
         if (isNoticeError) {
-          // 고시정보 에러 → notices 제거 후 재시도 (쿠팡이 기본값 자동 적용)
-          console.error(`[batch][v5] 고시정보 에러 감지 — notices 제거 후 재시도: ${product.productCode}, itemKeys=${Object.keys((payload.items as Record<string,unknown>[])?.[0] || {}).join(',')}`);
-          const items = payload.items as Record<string, unknown>[] | undefined;
-          if (items) {
-            for (const item of items) {
+          // 진단: payload의 notices 상태를 에러에 포함
+          const diagItems = payload.items as Record<string, unknown>[] | undefined;
+          const diagFirst = diagItems?.[0] || {};
+          const diagNotices = diagFirst.notices;
+          const diagKeys = Object.keys(diagFirst).join(',');
+          const noticeMeta = product.noticeMeta as { noticeCategoryName: string }[] | undefined;
+          const metaNames = noticeMeta?.map(n => n.noticeCategoryName).join(',') || 'empty';
+          const diagInfo = `[v6-diag] itemKeys=[${diagKeys}] notices=${JSON.stringify(diagNotices).slice(0, 300)} metaCategories=[${metaNames}] category=${product.categoryCode}`;
+
+          // notices 제거 후 재시도
+          if (diagItems) {
+            for (const item of diagItems) {
               delete item.notices;
             }
           }
@@ -369,10 +376,10 @@ export async function POST(req: NextRequest) {
               { maxRetries: 2, initialDelayMs: 1000, retryableErrors: ['timeout', 'econnreset', 'socket hang up', '429', '503', '502'] },
             );
           } catch (retryErr) {
-            const retryMsg = `[v5] ${retryErr instanceof Error ? retryErr.message : '쿠팡 API 등록 실패 (재시도)'}`;
+            const retryMsg = retryErr instanceof Error ? retryErr.message : '쿠팡 API 등록 실패 (재시도)';
             return {
               uid: product.uid, productCode: product.productCode, name: product.name,
-              success: false, error: retryMsg, duration: Date.now() - productStart, brandWarning,
+              success: false, error: `${diagInfo} | retry: ${retryMsg}`, duration: Date.now() - productStart, brandWarning,
               detailedError: classifyError(retryMsg, 'API 등록', retryMsg),
             };
           }
