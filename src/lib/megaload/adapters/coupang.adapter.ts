@@ -130,8 +130,17 @@ export class CoupangAdapter extends BaseAdapter {
   async createProduct(product: Record<string, unknown>) {
     const path = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
 
-    // 디버그 로깅: 페이로드 핵심 필드
+    // notices 강제 제거 — 어떤 경로로든 notices가 포함되면 쿠팡 oneOf 스키마 에러 발생
     const items = product.sellerProductItemList as Record<string, unknown>[] | undefined;
+    if (items) {
+      for (const item of items) {
+        if (item.notices) {
+          console.warn(`[createProduct] notices 강제 제거: ${JSON.stringify(item.notices).slice(0, 200)}`);
+          delete item.notices;
+        }
+      }
+    }
+
     const firstItem = items?.[0] || {};
     const images = (firstItem.images as unknown[]) || [];
     console.log(`[createProduct] vendorId=${product.vendorId}, category=${product.displayCategoryCode}, delivery=${product.deliveryMethod}, images=${images.length}, itemCount=${items?.length || 0}, name="${(product.displayProductName as string || '').slice(0, 30)}"`);
