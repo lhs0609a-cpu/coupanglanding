@@ -294,10 +294,10 @@ export function buildCoupangProductPayload(
     : [];
 
   // ---- 4. 상품정보제공고시 (notices) ----
-  // 1개 카테고리만 전송, 에러 시 batch route에서 notices 제거 후 재시도
-  const noticeCategories = filledNotices && filledNotices.length > 0
-    ? filledNotices
-    : [];
+  // 근본 원인: noticeMeta[0]이 범용 필드("상세페이지 참조")로 채워지면
+  // 쿠팡 oneOf 스키마에서 여러 subschema에 동시 매칭 → "5 subschemas matched" 에러
+  // notices 생략 시 쿠팡이 기본 고시정보 자동 적용하므로 보내지 않는 게 안전
+  const noticeCategories: FilledNoticeCategory[] = [];
 
   // ---- 5. attributes (카테고리 필수 속성 + 구매옵션) ----
   // 쿠팡 API: attributes에 필수 속성 + 구매옵션(exposed) 모두 포함
