@@ -54,9 +54,9 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     suggestion: '네트워크 오류입니다. 잠시 후 재시도해주세요.',
   },
   {
-    patterns: [/Unauthorized/i, /인증/, /accessKey/i, /401/],
+    patterns: [/Unauthorized/i, /인증/, /accessKey/i, /401/, /API.*키.*등록/],
     category: 'auth',
-    suggestion: '채널 연결 상태를 확인해주세요. API 키가 만료되었을 수 있습니다.',
+    suggestion: '채널관리 페이지에서 쿠팡 API 키(Vendor ID, Access Key, Secret Key)를 입력해주세요. wing.coupang.com → 판매자정보 → API Key 관리에서 발급할 수 있습니다.',
   },
   {
     patterns: [/고시/, /notice/i, /noticeCategoryName/i],

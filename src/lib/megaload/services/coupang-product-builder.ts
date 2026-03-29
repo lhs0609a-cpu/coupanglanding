@@ -294,10 +294,10 @@ export function buildCoupangProductPayload(
     : [];
 
   // ---- 4. 상품정보제공고시 (notices) ----
-  // fillNoticeFields()가 oneOf 준수하여 1개 카테고리만 반환
-  const noticeCategories = filledNotices && filledNotices.length > 0
-    ? filledNotices
-    : [];
+  // notices를 보내면 카테고리별 oneOf 스키마 불일치로 에러 발생 위험
+  // 생략하면 쿠팡이 카테고리에 맞는 기본 고시정보를 자동 적용
+  // 에러 발생 시 batch route의 재시도 로직이 notices 제거 후 재등록
+  const noticeCategories: FilledNoticeCategory[] = [];
 
   // ---- 5. attributes (카테고리 필수 속성 + 구매옵션) ----
   // 쿠팡 API: attributes에 필수 속성 + 구매옵션(exposed) 모두 포함

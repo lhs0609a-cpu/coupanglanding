@@ -46,7 +46,12 @@ export async function getAuthenticatedAdapter(
     .single();
 
   if (!cred) {
-    throw new Error(`${channel} 채널이 연결되지 않았습니다.`);
+    const guideUrl = '/megaload/channels';
+    throw new Error(
+      `${channel} API 키가 등록되지 않았습니다. ` +
+      `[채널관리](${guideUrl}) 페이지에서 Vendor ID, Access Key, Secret Key를 입력해주세요. ` +
+      `(wing.coupang.com → 판매자정보 → API Key 관리에서 발급)`
+    );
   }
 
   const adapter = createAdapter(channel);
