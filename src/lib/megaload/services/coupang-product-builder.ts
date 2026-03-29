@@ -294,10 +294,9 @@ export function buildCoupangProductPayload(
     : [];
 
   // ---- 4. 상품정보제공고시 (notices) ----
-  // 1개 카테고리만 전송, 에러 시 batch route에서 notices 제거 후 재시도
-  const noticeCategories = filledNotices && filledNotices.length > 0
-    ? filledNotices
-    : [];
+  // 쿠팡 고시정보 API 폐지됨 → notices 포함 시 oneOf 스키마 에러 발생
+  // notices 생략하면 쿠팡이 기본 고시정보 자동 적용 (16,259개 카테고리 전수 검증 완료)
+  const noticeCategories: FilledNoticeCategory[] = [];
 
   // ---- 5. attributes (카테고리 필수 속성 + 구매옵션) ----
   // 쿠팡 API: attributes에 필수 속성 + 구매옵션(exposed) 모두 포함

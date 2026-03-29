@@ -212,9 +212,9 @@ export async function imageFilesToFormData(
 }
 
 // ---- 클라이언트 이미지 압축/리사이즈 (업로드 전) ----
-const UPLOAD_MAX_DIMENSION = 1200; // 쿠팡 권장: 1200px이면 충분
+const UPLOAD_MAX_DIMENSION = 1000; // 쿠팡 권장: 1000px이면 충분 (크기 초과 방지)
 const UPLOAD_MIN_DIMENSION = 500;  // 쿠팡 필수: 최소 500×500
-const UPLOAD_JPEG_QUALITY = 0.85;
+const UPLOAD_JPEG_QUALITY = 0.75;  // 파일 크기 제한 (Supabase 5MB, Vercel 4.5MB)
 
 /**
  * 이미지를 canvas로 리사이즈 (최소 500x500, 최대 1200px)
@@ -247,8 +247,15 @@ async function compressImage(file: File | Blob): Promise<Blob> {
         // 크기 적절 + 파일 작으면 그대로
         resolve(file);
         return;
+      } else if (file.size > 3 * 1024 * 1024) {
+        // 3MB 초과 → 강제 리사이즈 (Supabase/Vercel 크기 제한 방지)
+        const scale = UPLOAD_MAX_DIMENSION / Math.max(width, height);
+        if (scale < 1) {
+          targetW = Math.round(width * scale);
+          targetH = Math.round(height * scale);
+        }
       } else {
-        // 크기 적절하지만 JPEG 압축 적용
+        // 크기 적절
         resolve(file);
         return;
       }
