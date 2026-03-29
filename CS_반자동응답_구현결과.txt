@@ -1,0 +1,149 @@
+============================================================
+CS 반자동 응답 시스템 구현 결과
+============================================================
+
+■ 생성된 파일 (6개)
+============================================================
+
+1. supabase/migration_cs_templates.sql
+   - DB 마이그레이션: 카테고리 테이블, 키워드 규칙 테이블, 기존 테이블 확장
+   - 시드 데이터: 카테고리 7개, 키워드 규칙 6개, 기본 템플릿 30개
+
+2. src/lib/megaload/services/cs-template-engine.ts
+   - renderTemplate(): {{변수}} 패턴을 컨텍스트 값으로 치환
+   - extractVariables(): 템플릿에서 사용된 변수 목록 추출
+   - buildContext(): 문의 + DB 주문정보에서 컨텍스트 자동 추출
+   - classifyInquiry(): 키워드 기반 카테고리 자동 분류 + 긴급도 판단
+   - recommendTemplates(): 카테고리 + 주문상태 기반 템플릿 추천 (관련도순)
+   - relativeTime(): 상대 시간 포맷 (3분전, 1시간전 등)
+
+3. src/app/api/megaload/cs/sync/route.ts
+   - POST /api/megaload/cs/sync
+   - 쿠팡에서 문의 가져오기 (onlineInquiries + callCenterInquiries)
+   - 신규 문의만 DB INSERT (channel_inquiry_id로 중복 체크)
+   - 키워드 매칭으로 자동 카테고리 분류 + 긴급도 설정
+   - 주문번호 있으면 sh_orders와 매칭하여 상품명 자동 채움
+
+4. src/app/api/megaload/cs/templates/route.ts
+   - GET: 템플릿 목록 조회 (카테고리 필터, 기본+사용자 템플릿 합산)
+   - POST: 새 템플릿 생성
+   - PUT: 템플릿 수정
+   - DELETE: 템플릿 삭제
+
+5. src/app/api/megaload/cs/categories/route.ts
+   - GET: 카테고리 + 키워드 규칙 목록 조회
+   - POST: 카테고리 또는 키워드 규칙 생성 (type 파라미터로 분기)
+   - PUT: 카테고리/규칙 수정
+   - DELETE: 카테고리/규칙 삭제
+
+
+■ 수정된 파일 (4개)
+============================================================
+
+6. src/lib/megaload/types.ts
+   - 추가된 타입: CsUrgency, CsInquirySource, CsCategory, CsKeywordRule, CsTemplateContext
+   - CsInquiry 확장: category_id, urgency, inquiry_source, channel_order_id, channel_product_name, template_id
+   - CsTemplate 확장: category_id, order_status_condition, variables, sort_order, use_count, is_default
+
+7. src/lib/megaload/adapters/coupang.adapter.ts
+   - getInquiries(): onlineInquiries + callCenterInquiries 2개 API 병합 호출
+   - answerInquiry(): source별 분기 (product → onlineInquiries, callcenter → callCenterInquiries)
+   - acknowledgeInquiry(): 콜센터 문의 확인 처리 (신규)
+
+8. src/app/api/megaload/cs/answer/route.ts
+   - templateId 파라미터 추가 → use_count 증가 + inquiry에 template_id 기록
+   - inquirySource 파라미터 추가 → CoupangAdapter instanceof 체크 후 source 분기
+
+9. src/app/megaload/cs/page.tsx (전면 재작성)
+   - 3컬럼 레이아웃: 문의목록 | 문의상세+답변 | 템플릿추천
+   - 동기화 버튼 → /api/megaload/cs/sync 호출
+   - 카테고리/채널/상태 필터
+   - 긴급도 뱃지 (긴급/높음/보통)
+   - 주문정보 카드 (상품명/배송상태/송장번호)
+   - 추천 템플릿 (카테고리+주문상태 기반 자동 정렬)
+   - 템플릿 클릭 → {{변수}} 자동 치환 미리보기
+   - 키보드 단축키: ↑↓ 문의이동, 1~9 템플릿선택, Ctrl+Enter 전송
+   - 인라인 템플릿 관리 (문의함 ↔ 템플릿관리 탭 전환)
+
+
+■ 삭제된 파일 (1개)
+============================================================
+
+10. src/app/api/megaload/cs/ai-draft/route.ts
+    - AI 초안 생성 기능 제거 (순수 템플릿 기반으로 전환)
+
+
+■ DB 스키마 변경 요약
+============================================================
+
+[신규 테이블]
+- sh_cs_categories: id, name, icon, color, priority, is_active
+- sh_cs_keyword_rules: id, category_id(FK), keywords[], match_mode, is_active
+
+[확장 컬럼 — sh_cs_templates]
+- category_id (FK → sh_cs_categories)
+- order_status_condition (배송중, 배송완료 등 조건)
+- variables[] (사용된 변수 목록)
+- sort_order, use_count, is_default
+
+[확장 컬럼 — sh_cs_inquiries]
+- category_id (FK → sh_cs_categories)
+- urgency (low/normal/high/urgent)
+- inquiry_source (product/callcenter)
+- channel_order_id, channel_product_name
+- template_id (FK → sh_cs_templates)
+
+
+■ 기본 시드 데이터
+============================================================
+
+[카테고리 7개]
+1. 배송문의 (priority: 3)
+2. 교환 (priority: 4)
+3. 반품/환불 (priority: 4)
+4. 불량/파손 (priority: 5)
+5. 상품문의 (priority: 2)
+6. 주문관련 (priority: 3)
+7. 기타 (priority: 1)
+
+[기본 템플릿 30개]
+- 배송문의: 6개 (배송전/배송중/지연/완료/도서산간/예정일)
+- 교환: 4개 (단순변심/사이즈색상/불량/진행상황)
+- 반품/환불: 5개 (단순변심/불량/기간초과/처리기간/부분환불)
+- 불량/파손: 3개 (접수+선택/사진요청/완료)
+- 상품문의: 5개 (상세/사이즈/재입고/품절/호환성)
+- 주문관련: 4개 (확인/취소완료/변경불가/부분취소)
+- 기타: 3개 (감사/추가문의/영업시간)
+
+
+■ 사용 가능한 템플릿 변수
+============================================================
+
+{{고객명}} — 구매자 이름
+{{상품명}} — 주문 상품명
+{{주문번호}} — 채널 주문번호
+{{배송상태}} — 결제완료/배송중/배송완료 등
+{{택배사}} — CJ대한통운/한진택배 등
+{{송장번호}} — 택배 송장번호
+{{주문일}} — 주문일자 (yyyy.MM.dd)
+{{판매자명}} — 판매자 상호
+
+
+■ 워크플로우 (2~3클릭)
+============================================================
+
+1. [문의 가져오기] 버튼 → 쿠팡 API에서 문의 동기화
+2. 왼쪽 문의 클릭 → 자동 카테고리 분류 + 주문정보 표시
+3. 오른쪽 추천 템플릿 클릭 → 변수 자동 치환 미리보기
+4. (필요시 수정) → [답변 전송] → 쿠팡 API 전송 완료
+
+
+■ 다음 단계 (마이그레이션 실행)
+============================================================
+
+Supabase SQL Editor에서 실행:
+  supabase/migration_cs_templates.sql
+
+주의: 기본 템플릿의 megaload_user_id가 '00000000-...'로 되어있음
+→ 모든 사용자가 공유하는 시스템 기본 템플릿
+→ 사용자가 직접 만든 템플릿은 자신의 megaload_user_id로 저장됨
