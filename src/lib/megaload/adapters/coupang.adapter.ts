@@ -130,11 +130,19 @@ export class CoupangAdapter extends BaseAdapter {
   async createProduct(product: Record<string, unknown>) {
     const path = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
 
-    // 디버그 로깅: 페이로드 핵심 필드
+    // notices 강제 제거 (안전장치) — 키 이름은 "items" (sellerProductItemList 아님)
     const items = (product.items || product.sellerProductItemList) as Record<string, unknown>[] | undefined;
+    if (items) {
+      for (const item of items) {
+        if (item.notices) {
+          console.warn(`[createProduct] notices 강제 제거됨`);
+          delete item.notices;
+        }
+      }
+    }
     const firstItem = items?.[0] || {};
     const images = (firstItem.images as unknown[]) || [];
-    console.log(`[createProduct] vendorId=${product.vendorId}, category=${product.displayCategoryCode}, delivery=${product.deliveryMethod}, images=${images.length}, itemCount=${items?.length || 0}, name="${(product.displayProductName as string || '').slice(0, 30)}"`);
+    console.log(`[createProduct] vendorId=${product.vendorId}, category=${product.displayCategoryCode}, images=${images.length}, items=${items?.length || 0}, hasNotices=false`);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const raw = await this.coupangApi<any>('POST', path, '', product);
