@@ -130,28 +130,12 @@ export class CoupangAdapter extends BaseAdapter {
   async createProduct(product: Record<string, unknown>) {
     const path = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
 
-    // notices 강제 제거 (안전장치) — 키 이름은 "items" (sellerProductItemList 아님)
+    // notices 로깅
     const items = (product.items || product.sellerProductItemList) as Record<string, unknown>[] | undefined;
-    if (items) {
-      for (const item of items) {
-        if (item.notices) {
-          console.error(`[createProduct] !! notices 발견 — 강제 제거: keys=${Object.keys(item).join(',')}`);
-          delete item.notices;
-        }
-      }
-    }
-    // payload 전체에서 notices 키 존재 여부 확인
-    const payloadStr = JSON.stringify(product).slice(0, 2000);
-    const hasNoticesAnywhere = payloadStr.includes('"notices"');
     const firstItem = items?.[0] || {};
-    const itemKeys = Object.keys(firstItem).join(',');
-    // 삭제 후에도 남아있으면 payload 일부 출력
-    if (hasNoticesAnywhere) {
-      const idx = payloadStr.indexOf('"notices"');
-      console.error(`[createProduct] !! 삭제 후에도 notices 존재! context: ...${payloadStr.slice(Math.max(0, idx - 50), idx + 200)}...`);
-    }
+    const hasNotices = !!(firstItem as Record<string,unknown>).notices;
     const images = (firstItem.images as unknown[]) || [];
-    console.error(`[createProduct] category=${product.displayCategoryCode}, items=${items?.length || 0}, images=${images.length}, itemKeys=[${itemKeys}], noticesInPayload=${hasNoticesAnywhere}`);
+    console.log(`[createProduct][v4] category=${product.displayCategoryCode}, items=${items?.length || 0}, images=${images.length}, hasNotices=${hasNotices}`);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const raw = await this.coupangApi<any>('POST', path, '', product);

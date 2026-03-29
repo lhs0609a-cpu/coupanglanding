@@ -38,16 +38,41 @@ export interface ExtractedNoticeHints {
 }
 
 export function fillNoticeFields(
-  _noticeMeta: NoticeCategoryMeta[],
-  _product: LocalProductJson,
-  _contactNumber?: string,
-  _overrides?: Record<string, string>,
-  _extractedHints?: ExtractedNoticeHints,
+  noticeMeta: NoticeCategoryMeta[],
+  product: LocalProductJson,
+  contactNumber?: string,
+  overrides?: Record<string, string>,
+  extractedHints?: ExtractedNoticeHints,
   _categoryHint?: string,
 ): FilledNoticeCategory[] {
-  // notices를 보내면 쿠팡 oneOf 스키마 에러 발생
-  // notices 생략 시 쿠팡이 기본 고시정보 자동 적용 — 항상 빈 배열 반환
-  return [];
+  // 쿠팡 API는 notices 필수 — 생략하면 내부 기본값이 oneOf 다중 매칭 에러 유발
+  // 반드시 1개 카테고리만 전송해야 함 (oneOf 스키마)
+
+  if (noticeMeta.length > 0) {
+    // API에서 받은 메타의 첫 번째 카테고리 사용
+    const selected = noticeMeta[0];
+    return [{
+      noticeCategoryName: selected.noticeCategoryName,
+      noticeCategoryDetailName: selected.fields.map((field) => ({
+        noticeCategoryDetailName: field.name,
+        content: resolveFieldValue(field.name, product, contactNumber, overrides, extractedHints),
+      })),
+    }];
+  }
+
+  // 메타 없으면 "기타 재화" 사용 — 가장 범용적이며 모든 카테고리에 적용 가능
+  const productName = (product.name || product.title || '').slice(0, 50);
+  const brand = product.brand || '';
+  return [{
+    noticeCategoryName: '기타 재화',
+    noticeCategoryDetailName: [
+      { noticeCategoryDetailName: '품명 및 모델명', content: productName || '해당없음' },
+      { noticeCategoryDetailName: '인증/허가 사항', content: '해당사항 없음' },
+      { noticeCategoryDetailName: '제조국 또는 원산지', content: '상세페이지 참조' },
+      { noticeCategoryDetailName: '제조자/수입자', content: brand || '상세페이지 참조' },
+      { noticeCategoryDetailName: 'A/S 책임자와 전화번호', content: contactNumber || '상세페이지 참조' },
+    ],
+  }];
 }
 
 /**
