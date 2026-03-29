@@ -240,9 +240,9 @@ export function buildCoupangProductPayload(
     ? cleanProductName(sellerProductName)
     : productName;
 
-  // brand: 쿠팡에 "브랜드 없음"으로 등록 — 브랜드명은 상품명에 포함
+  // brand: 앞글자만 축약 (3글자→2글자, 5글자→3글자, 대략 절반+1)
   const rawBrand = brand || product.productJson.brand || '';
-  const resolvedBrand = '';
+  const resolvedBrand = rawBrand ? rawBrand.slice(0, Math.max(2, Math.ceil(rawBrand.length / 2))) : '';
   // manufacturer: brand와 별개 — product.json에 manufacturer 있으면 사용
   const resolvedManufacturer = manufacturer
     || (product.productJson as Record<string, unknown>).manufacturer as string
