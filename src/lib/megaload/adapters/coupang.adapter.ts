@@ -141,10 +141,15 @@ export class CoupangAdapter extends BaseAdapter {
       }
     }
     // payload 전체에서 notices 키 존재 여부 확인
-    const payloadStr = JSON.stringify(product);
+    const payloadStr = JSON.stringify(product).slice(0, 2000);
     const hasNoticesAnywhere = payloadStr.includes('"notices"');
     const firstItem = items?.[0] || {};
     const itemKeys = Object.keys(firstItem).join(',');
+    // 삭제 후에도 남아있으면 payload 일부 출력
+    if (hasNoticesAnywhere) {
+      const idx = payloadStr.indexOf('"notices"');
+      console.error(`[createProduct] !! 삭제 후에도 notices 존재! context: ...${payloadStr.slice(Math.max(0, idx - 50), idx + 200)}...`);
+    }
     const images = (firstItem.images as unknown[]) || [];
     console.error(`[createProduct] category=${product.displayCategoryCode}, items=${items?.length || 0}, images=${images.length}, itemKeys=[${itemKeys}], noticesInPayload=${hasNoticesAnywhere}`);
 
