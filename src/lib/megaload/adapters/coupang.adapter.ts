@@ -135,14 +135,18 @@ export class CoupangAdapter extends BaseAdapter {
     if (items) {
       for (const item of items) {
         if (item.notices) {
-          console.warn(`[createProduct] notices 강제 제거됨`);
+          console.error(`[createProduct] !! notices 발견 — 강제 제거: keys=${Object.keys(item).join(',')}`);
           delete item.notices;
         }
       }
     }
+    // payload 전체에서 notices 키 존재 여부 확인
+    const payloadStr = JSON.stringify(product);
+    const hasNoticesAnywhere = payloadStr.includes('"notices"');
     const firstItem = items?.[0] || {};
+    const itemKeys = Object.keys(firstItem).join(',');
     const images = (firstItem.images as unknown[]) || [];
-    console.log(`[createProduct] vendorId=${product.vendorId}, category=${product.displayCategoryCode}, images=${images.length}, items=${items?.length || 0}, hasNotices=false`);
+    console.error(`[createProduct] category=${product.displayCategoryCode}, items=${items?.length || 0}, images=${images.length}, itemKeys=[${itemKeys}], noticesInPayload=${hasNoticesAnywhere}`);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const raw = await this.coupangApi<any>('POST', path, '', product);
