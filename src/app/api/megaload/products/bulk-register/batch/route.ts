@@ -343,51 +343,7 @@ export async function POST(req: NextRequest) {
         (payload as Record<string, unknown>).vendorUserId = wingUserId;
       }
 
-      // 9.5. 고시정보 보정 — notices가 비어있으면 카테고리 메타에서 가져옴 (필수 필드!)
-      const items = payload.items as Record<string, unknown>[] | undefined;
-      if (items && items.length > 0) {
-        const firstItem = items[0];
-        const notices = firstItem.notices as unknown[] | undefined;
-        if (!notices || notices.length === 0) {
-          const catCode = String(payload.displayCategoryCode || '');
-          let filledNotices: { noticeCategoryName: string; noticeCategoryDetailName: string; content: string }[] = [];
-
-          // 1차: 카테고리 메타 API에서 정확한 고시정보 가져오기
-          if (catCode && catCode !== '0') {
-            try {
-              const noticeMeta = await coupangAdapter.getNoticeCategoryFields(catCode);
-              console.log(`[batch] 고시정보 메타 조회 성공: catCode=${catCode}, categories=${noticeMeta.items.length}, first=${noticeMeta.items[0]?.noticeCategoryName || 'none'}`);
-              if (noticeMeta.items.length > 0) {
-                const nc = noticeMeta.items[0];
-                filledNotices = nc.noticeCategoryDetailNames.map(d => ({
-                  noticeCategoryName: nc.noticeCategoryName,
-                  noticeCategoryDetailName: d.name,
-                  content: '상세페이지 참조',
-                }));
-              }
-            } catch (e) {
-              console.error(`[batch] 고시정보 메타 조회 실패: catCode=${catCode}`, e instanceof Error ? e.message : e);
-            }
-          }
-
-          // 2차: 메타 조회 실패 시 "가공식품" 7개 필드 폴백 (검증 완료)
-          if (filledNotices.length === 0) {
-            console.warn(`[batch] 고시정보 메타 실패 → "가공식품" 폴백 사용`);
-            const defaultFields = ['식품의 유형', '생산자 및 소재지', '포장단위별 내용물의 용량(중량), 수량', '원재료명 및 함량', '영양성분', '유전자변형식품에 해당하는 경우의 표시', '소비자안전을 위한 주의사항'];
-            filledNotices = defaultFields.map(d => ({
-              noticeCategoryName: '가공식품',
-              noticeCategoryDetailName: d,
-              content: '상세페이지 참조',
-            }));
-          }
-
-          for (const item of items) {
-            (item as Record<string, unknown>).notices = filledNotices;
-          }
-        }
-      }
-
-      // 10. 쿠팡 API 호출 (retry 적용)
+      // 10. 쿠팡 API 호출 (고시정보 에러 시 notices 제거 후 자동 재시도)
       let result: { channelProductId: string };
       try {
         result = await withRetry(
@@ -396,11 +352,37 @@ export async function POST(req: NextRequest) {
         );
       } catch (apiErr) {
         const errMsg = apiErr instanceof Error ? apiErr.message : '쿠팡 API 등록 실패';
-        return {
-          uid: product.uid, productCode: product.productCode, name: product.name,
-          success: false, error: errMsg, duration: Date.now() - productStart, brandWarning,
-          detailedError: classifyError(errMsg, 'API 등록', errMsg),
-        };
+        const isNoticeError = /고시정보|notices|subschemas?\s*matched/i.test(errMsg);
+
+        if (isNoticeError) {
+          // 고시정보 에러 → notices 제거 후 재시도 (쿠팡이 기본값 자동 적용)
+          console.warn(`[batch] 고시정보 에러 → notices 제거 후 재시도: ${product.productCode}`);
+          const items = payload.items as Record<string, unknown>[] | undefined;
+          if (items) {
+            for (const item of items) {
+              delete item.notices;
+            }
+          }
+          try {
+            result = await withRetry(
+              () => coupangAdapter.createProduct(payload),
+              { maxRetries: 2, initialDelayMs: 1000, retryableErrors: ['timeout', 'econnreset', 'socket hang up', '429', '503', '502'] },
+            );
+          } catch (retryErr) {
+            const retryMsg = retryErr instanceof Error ? retryErr.message : '쿠팡 API 등록 실패 (재시도)';
+            return {
+              uid: product.uid, productCode: product.productCode, name: product.name,
+              success: false, error: retryMsg, duration: Date.now() - productStart, brandWarning,
+              detailedError: classifyError(retryMsg, 'API 등록', retryMsg),
+            };
+          }
+        } else {
+          return {
+            uid: product.uid, productCode: product.productCode, name: product.name,
+            success: false, error: errMsg, duration: Date.now() - productStart, brandWarning,
+            detailedError: classifyError(errMsg, 'API 등록', errMsg),
+          };
+        }
       }
 
       // 10.5. 승인 요청 (임시저장 → 판매승인)
