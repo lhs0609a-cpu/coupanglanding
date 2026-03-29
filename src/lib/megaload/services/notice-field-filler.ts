@@ -38,29 +38,16 @@ export interface ExtractedNoticeHints {
 }
 
 export function fillNoticeFields(
-  noticeMeta: NoticeCategoryMeta[],
-  product: LocalProductJson,
-  contactNumber?: string,
-  overrides?: Record<string, string>,
-  extractedHints?: ExtractedNoticeHints,
-  categoryHint?: string,
+  _noticeMeta: NoticeCategoryMeta[],
+  _product: LocalProductJson,
+  _contactNumber?: string,
+  _overrides?: Record<string, string>,
+  _extractedHints?: ExtractedNoticeHints,
+  _categoryHint?: string,
 ): FilledNoticeCategory[] {
-  if (noticeMeta.length === 0) {
-    // 메타 없으면 빈 배열 반환 — 폴백 notices는 카테고리 불일치로 쿠팡 거부됨
-    // 쿠팡은 notices가 없으면 자동으로 기본 고시정보 적용
-    return [];
-  }
-
-  // 쿠팡 API는 oneOf 스키마 — 반드시 하나의 고시정보 카테고리만 선택해야 함
-  // 여러 개 보내면 "N subschemas matched instead of one" 오류 발생
-  const selected = noticeMeta[0];
-  return [{
-    noticeCategoryName: selected.noticeCategoryName,
-    noticeCategoryDetailName: selected.fields.map((field) => ({
-      noticeCategoryDetailName: field.name,
-      content: resolveFieldValue(field.name, product, contactNumber, overrides, extractedHints),
-    })),
-  }];
+  // notices를 보내면 쿠팡 oneOf 스키마 에러 발생
+  // notices 생략 시 쿠팡이 기본 고시정보 자동 적용 — 항상 빈 배열 반환
+  return [];
 }
 
 /**
