@@ -211,29 +211,50 @@ export async function imageFilesToFormData(
   return { formData, count };
 }
 
-// ---- 클라이언트 이미지 압축 (업로드 전) ----
-const UPLOAD_MAX_DIMENSION = 1200; // 쿠팡 권장: 500×500 이상, 1200px이면 충분
+// ---- 클라이언트 이미지 압축/리사이즈 (업로드 전) ----
+const UPLOAD_MAX_DIMENSION = 1200; // 쿠팡 권장: 1200px이면 충분
+const UPLOAD_MIN_DIMENSION = 500;  // 쿠팡 필수: 최소 500×500
 const UPLOAD_JPEG_QUALITY = 0.85;
 
 async function compressImage(file: File): Promise<Blob> {
-  // 이미 작으면 그대로 반환 (100KB 이하)
-  if (file.size < 100 * 1024) return file;
-
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
       const { width, height } = img;
-      // 이미 작으면 그대로
-      if (width <= UPLOAD_MAX_DIMENSION && height <= UPLOAD_MAX_DIMENSION) {
+      const tooSmall = width < UPLOAD_MIN_DIMENSION || height < UPLOAD_MIN_DIMENSION;
+      const tooLarge = width > UPLOAD_MAX_DIMENSION || height > UPLOAD_MAX_DIMENSION;
+
+      // 크기가 적절하고 파일이 작으면 그대로 반환
+      if (!tooSmall && !tooLarge && file.size < 100 * 1024) {
         resolve(file);
         return;
       }
-      const scale = UPLOAD_MAX_DIMENSION / Math.max(width, height);
+      // 크기가 적절하면 그대로 반환
+      if (!tooSmall && !tooLarge) {
+        resolve(file);
+        return;
+      }
+
+      let targetW = width;
+      let targetH = height;
+
+      if (tooSmall) {
+        // 쿠팡 최소 500×500 — 비율 유지하며 업스케일
+        const scale = UPLOAD_MIN_DIMENSION / Math.min(width, height);
+        targetW = Math.round(width * scale);
+        targetH = Math.round(height * scale);
+      } else if (tooLarge) {
+        // 너무 크면 축소
+        const scale = UPLOAD_MAX_DIMENSION / Math.max(width, height);
+        targetW = Math.round(width * scale);
+        targetH = Math.round(height * scale);
+      }
+
       const canvas = document.createElement('canvas');
-      canvas.width = Math.round(width * scale);
-      canvas.height = Math.round(height * scale);
+      canvas.width = targetW;
+      canvas.height = targetH;
       const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, targetW, targetH);
       canvas.toBlob(
         (blob) => resolve(blob || file),
         'image/jpeg',
