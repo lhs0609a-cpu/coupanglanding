@@ -476,8 +476,49 @@ interface ScoredEntry {
  * ["넥", "크림"] → ["넥", "크림", "넥크림"]
  * ["선크림"] → ["선크림", "선로션", "자외선차단"] (동의어 확장)
  */
+// 한국어 복합어 분리 경계 (카테고리 관련 핵심 단어)
+// "자몽음료수" → ["자몽", "음료수"], "사과주스" → ["사과", "주스"]
+const COMPOUND_SPLIT_SUFFIXES = [
+  '음료수', '음료', '주스', '탄산', '탄산수', '사이다',
+  '과일', '야채', '채소', '식품', '식물',
+  '건강', '영양', '보조', '기능',
+  '세트', '묶음', '팩', '박스',
+  '크림', '로션', '세럼', '에센스',
+];
+
+function splitKoreanCompound(token: string): string[] {
+  if (token.length < 3) return [];
+  const parts: string[] = [];
+  for (const suffix of COMPOUND_SPLIT_SUFFIXES) {
+    if (token.length > suffix.length && token.endsWith(suffix)) {
+      const prefix = token.slice(0, -suffix.length);
+      if (prefix.length >= 1) {
+        parts.push(prefix, suffix);
+        break;
+      }
+    }
+    // 접두사 매칭: "음료자몽" 같은 역순 패턴도 처리
+    if (token.length > suffix.length && token.startsWith(suffix)) {
+      const rest = token.slice(suffix.length);
+      if (rest.length >= 1) {
+        parts.push(suffix, rest);
+        break;
+      }
+    }
+  }
+  return parts;
+}
+
 function buildCompoundTokens(tokens: string[]): string[] {
   const compounds = [...tokens];
+
+  // 한국어 복합어 분리: "자몽음료수" → ["자몽", "음료수"]
+  for (const t of tokens) {
+    const parts = splitKoreanCompound(t);
+    for (const p of parts) {
+      if (!compounds.includes(p)) compounds.push(p);
+    }
+  }
 
   // 2-gram 복합어
   for (let i = 0; i < tokens.length - 1; i++) {

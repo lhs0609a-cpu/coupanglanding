@@ -216,38 +216,41 @@ const UPLOAD_MAX_DIMENSION = 1200; // 쿠팡 권장: 1200px이면 충분
 const UPLOAD_MIN_DIMENSION = 500;  // 쿠팡 필수: 최소 500×500
 const UPLOAD_JPEG_QUALITY = 0.85;
 
-async function compressImage(file: File): Promise<Blob> {
+/**
+ * 이미지를 canvas로 리사이즈 (최소 500x500, 최대 1200px)
+ * 모든 이미지를 canvas를 통해 처리하여 쿠팡 최소 크기를 보장
+ */
+async function compressImage(file: File | Blob): Promise<Blob> {
   return new Promise((resolve) => {
     const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
     img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
       const { width, height } = img;
-      const tooSmall = width < UPLOAD_MIN_DIMENSION || height < UPLOAD_MIN_DIMENSION;
-      const tooLarge = width > UPLOAD_MAX_DIMENSION || height > UPLOAD_MAX_DIMENSION;
 
-      // 크기가 적절하고 파일이 작으면 그대로 반환
-      if (!tooSmall && !tooLarge && file.size < 100 * 1024) {
-        resolve(file);
-        return;
-      }
-      // 크기가 적절하면 그대로 반환
-      if (!tooSmall && !tooLarge) {
-        resolve(file);
-        return;
-      }
-
+      // 항상 canvas를 통해 처리 — 최소 500x500 보장
       let targetW = width;
       let targetH = height;
 
-      if (tooSmall) {
-        // 쿠팡 최소 500×500 — 비율 유지하며 업스케일
+      if (width < UPLOAD_MIN_DIMENSION || height < UPLOAD_MIN_DIMENSION) {
+        // 업스케일: 짧은 변이 500이 되도록
         const scale = UPLOAD_MIN_DIMENSION / Math.min(width, height);
-        targetW = Math.round(width * scale);
-        targetH = Math.round(height * scale);
-      } else if (tooLarge) {
-        // 너무 크면 축소
+        targetW = Math.max(UPLOAD_MIN_DIMENSION, Math.round(width * scale));
+        targetH = Math.max(UPLOAD_MIN_DIMENSION, Math.round(height * scale));
+      } else if (width > UPLOAD_MAX_DIMENSION || height > UPLOAD_MAX_DIMENSION) {
+        // 다운스케일: 긴 변이 1200이 되도록
         const scale = UPLOAD_MAX_DIMENSION / Math.max(width, height);
         targetW = Math.round(width * scale);
         targetH = Math.round(height * scale);
+      } else if (file.size < 100 * 1024) {
+        // 크기 적절 + 파일 작으면 그대로
+        resolve(file);
+        return;
+      } else {
+        // 크기 적절하지만 JPEG 압축 적용
+        resolve(file);
+        return;
       }
 
       const canvas = document.createElement('canvas');
@@ -261,8 +264,25 @@ async function compressImage(file: File): Promise<Blob> {
         UPLOAD_JPEG_QUALITY,
       );
     };
-    img.onerror = () => resolve(file);
-    img.src = URL.createObjectURL(file);
+
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      // 이미지 로드 실패 시에도 최소 크기 보장을 위해 빈 캔버스 생성
+      console.warn('[compressImage] 이미지 로드 실패 — 500x500 빈 캔버스 폴백');
+      const canvas = document.createElement('canvas');
+      canvas.width = UPLOAD_MIN_DIMENSION;
+      canvas.height = UPLOAD_MIN_DIMENSION;
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, UPLOAD_MIN_DIMENSION, UPLOAD_MIN_DIMENSION);
+      canvas.toBlob(
+        (blob) => resolve(blob || file),
+        'image/jpeg',
+        UPLOAD_JPEG_QUALITY,
+      );
+    };
+
+    img.src = objectUrl;
   });
 }
 

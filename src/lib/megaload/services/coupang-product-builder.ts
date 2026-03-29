@@ -240,9 +240,9 @@ export function buildCoupangProductPayload(
     ? cleanProductName(sellerProductName)
     : productName;
 
-  // brand: 빈 문자열이면 안전한 기본값 (일부 카테고리에서 필수)
+  // brand: 쿠팡에 "브랜드 없음"으로 등록 — 브랜드명은 상품명에 포함
   const rawBrand = brand || product.productJson.brand || '';
-  const resolvedBrand = rawBrand || '자체브랜드';
+  const resolvedBrand = '';
   // manufacturer: brand와 별개 — product.json에 manufacturer 있으면 사용
   const resolvedManufacturer = manufacturer
     || (product.productJson as Record<string, unknown>).manufacturer as string
