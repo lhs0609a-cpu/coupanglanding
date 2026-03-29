@@ -356,7 +356,7 @@ export async function POST(req: NextRequest) {
 
         if (isNoticeError) {
           // 고시정보 에러 → notices 제거 후 재시도 (쿠팡이 기본값 자동 적용)
-          console.error(`[batch][v4] 고시정보 에러 감지 — notices 제거 후 재시도: ${product.productCode}, itemKeys=${Object.keys((payload.items as Record<string,unknown>[])?.[0] || {}).join(',')}`);
+          console.error(`[batch][v5] 고시정보 에러 감지 — notices 제거 후 재시도: ${product.productCode}, itemKeys=${Object.keys((payload.items as Record<string,unknown>[])?.[0] || {}).join(',')}`);
           const items = payload.items as Record<string, unknown>[] | undefined;
           if (items) {
             for (const item of items) {
@@ -369,7 +369,7 @@ export async function POST(req: NextRequest) {
               { maxRetries: 2, initialDelayMs: 1000, retryableErrors: ['timeout', 'econnreset', 'socket hang up', '429', '503', '502'] },
             );
           } catch (retryErr) {
-            const retryMsg = `[v4] ${retryErr instanceof Error ? retryErr.message : '쿠팡 API 등록 실패 (재시도)'}`;
+            const retryMsg = `[v5] ${retryErr instanceof Error ? retryErr.message : '쿠팡 API 등록 실패 (재시도)'}`;
             return {
               uid: product.uid, productCode: product.productCode, name: product.name,
               success: false, error: retryMsg, duration: Date.now() - productStart, brandWarning,
@@ -379,7 +379,7 @@ export async function POST(req: NextRequest) {
         } else {
           return {
             uid: product.uid, productCode: product.productCode, name: product.name,
-            success: false, error: `[v4] ${errMsg}`, duration: Date.now() - productStart, brandWarning,
+            success: false, error: `[v5] ${errMsg}`, duration: Date.now() - productStart, brandWarning,
             detailedError: classifyError(errMsg, 'API 등록', errMsg),
           };
         }

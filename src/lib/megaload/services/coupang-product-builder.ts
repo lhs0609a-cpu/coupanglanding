@@ -294,11 +294,9 @@ export function buildCoupangProductPayload(
     : [];
 
   // ---- 4. 상품정보제공고시 (notices) ----
-  // 쿠팡 API는 notices 필수 — 생략하면 내부 기본값이 oneOf 다중 매칭 에러 유발
-  // 반드시 1개 카테고리만 전송 (fillNoticeFields가 보장)
-  const noticeCategories = filledNotices && filledNotices.length > 0
-    ? [filledNotices[0]]  // 절대 1개만
-    : [];
+  // notices 키 자체를 생략하면 쿠팡 내부 기본값이 oneOf 에러 유발
+  // notices: [] (빈 배열)로 명시적 전송하여 oneOf 검증 우회
+  const noticeCategories: FilledNoticeCategory[] = [];
 
   // ---- 5. attributes (카테고리 필수 속성 + 구매옵션) ----
   // 쿠팡 API: attributes에 필수 속성 + 구매옵션(exposed) 모두 포함
@@ -414,7 +412,7 @@ export function buildCoupangProductPayload(
           ? certificationList
           : [{ certificationType: 'NOT_REQUIRED', certificationCode: '' }],
         images: variantImages,
-        ...(noticeCategories.length > 0 ? { notices: flattenNotices(noticeCategories) } : {}),
+        notices: noticeCategories.length > 0 ? flattenNotices(noticeCategories) : [],
         attributes,
         contents,
       };
@@ -443,7 +441,7 @@ export function buildCoupangProductPayload(
         ? certificationList
         : [{ certificationType: 'NOT_REQUIRED', certificationCode: '' }],
       images,
-      ...(noticeCategories.length > 0 ? { notices: flattenNotices(noticeCategories) } : {}),
+      notices: noticeCategories.length > 0 ? flattenNotices(noticeCategories) : [],
       attributes,
       contents,
     }];

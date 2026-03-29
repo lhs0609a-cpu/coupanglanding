@@ -130,12 +130,11 @@ export class CoupangAdapter extends BaseAdapter {
   async createProduct(product: Record<string, unknown>) {
     const path = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
 
-    // notices 로깅
     const items = (product.items || product.sellerProductItemList) as Record<string, unknown>[] | undefined;
     const firstItem = items?.[0] || {};
-    const hasNotices = !!(firstItem as Record<string,unknown>).notices;
+    const notices = (firstItem as Record<string,unknown>).notices as unknown[];
     const images = (firstItem.images as unknown[]) || [];
-    console.log(`[createProduct][v4] category=${product.displayCategoryCode}, items=${items?.length || 0}, images=${images.length}, hasNotices=${hasNotices}`);
+    console.log(`[createProduct][v5] category=${product.displayCategoryCode}, items=${items?.length || 0}, images=${images.length}, notices=${Array.isArray(notices) ? notices.length : 'none'}`);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const raw = await this.coupangApi<any>('POST', path, '', product);
