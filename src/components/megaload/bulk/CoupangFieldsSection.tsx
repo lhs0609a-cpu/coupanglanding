@@ -748,7 +748,7 @@ export default function CoupangFieldsSection({
         </div>
 
         {/* 상품군 (읽기전용 — 노출상품명에서 자동 파생) */}
-        <ReadonlyField label="상품군 (generalProductName)" value={(product.editedDisplayProductName || product.name || product.editedName).slice(0, 100)} />
+        <ReadonlyField label="상품군 (generalProductName)" value={(product.editedDisplayProductName || product.name || product.editedName || '').slice(0, 100)} />
       </CollapsibleSection>
       </div>
 

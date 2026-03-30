@@ -396,7 +396,7 @@ export function buildCoupangProductPayload(
         : images;
 
       return {
-        itemName: variant.optionName.slice(0, 100),
+        itemName: (variant.optionName || '').slice(0, 100),
         originalPrice: variant.originalPrice ?? variant.salePrice,
         salePrice: variant.salePrice,
         maximumBuyCount: variant.stock ?? stock,
