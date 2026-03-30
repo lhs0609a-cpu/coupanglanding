@@ -369,7 +369,8 @@ export class CoupangAdapter extends BaseAdapter {
   }> {
     // 여러 엔드포인트 시도 (쿠팡 API 버전에 따라 다름)
     const endpoints = [
-      `/v2/providers/seller_api/apis/api/v1/marketplace/meta/category-related-models/display-category-codes/${categoryCode}`,
+      // 공식 문서: category-related-metas (NOT models)
+      `/v2/providers/seller_api/apis/api/v1/marketplace/meta/category-related-metas/display-category-codes/${categoryCode}`,
       `/v2/providers/seller_api/apis/api/v1/vendor/categories/${categoryCode}/noticeCategories`,
       `/v2/providers/openapi/apis/api/v4/vendors/${this.vendorId}/categorization/meta/display-category-codes/${categoryCode}`,
     ];
@@ -379,12 +380,15 @@ export class CoupangAdapter extends BaseAdapter {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const raw = await this.coupangApi<any>('GET', path);
         const data = raw?.data || raw;
-        if (!data) continue;
+        if (!data) {
+          console.log(`[getNoticeCategoryFields] ${path.split('/').slice(-2).join('/')}: data=null`);
+          continue;
+        }
 
         // 응답 구조 자동 감지
         const noticeCategories = data.noticeCategories || data.noticeCategoryList || (Array.isArray(data) ? data : null);
         if (noticeCategories && Array.isArray(noticeCategories) && noticeCategories.length > 0) {
-          console.log(`[getNoticeCategoryFields] 성공: path=${path.split('/').pop()}, categories=${noticeCategories.length}`);
+          console.log(`[getNoticeCategoryFields] 성공: path=${path.split('/').slice(-2).join('/')}, categories=${noticeCategories.length}, first="${noticeCategories[0]?.noticeCategoryName}"`);
           return {
             items: noticeCategories.map((nc: Record<string, unknown>) => ({
               noticeCategoryName: (nc.noticeCategoryName as string) || '',
@@ -395,8 +399,9 @@ export class CoupangAdapter extends BaseAdapter {
             })),
           };
         }
-      } catch {
-        // 이 엔드포인트 실패 → 다음 시도
+        console.log(`[getNoticeCategoryFields] ${path.split('/').slice(-2).join('/')}: noticeCategories 없음 (keys=${Object.keys(data).join(',')})`);
+      } catch (e) {
+        console.log(`[getNoticeCategoryFields] ${path.split('/').slice(-2).join('/')}: 에러=${e instanceof Error ? e.message.slice(0, 100) : 'unknown'}`);
         continue;
       }
     }
