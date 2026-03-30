@@ -481,9 +481,7 @@ export function validatePayloadStructure(input: PayloadStructureInput): {
     errors.push({ code: 'NO_RETURN_CENTER', field: 'returnCenterCode', message: '반품지 코드가 없습니다.' });
   }
 
-  // 8. notice 검증 (items[].notices — flat 배열 형태)
-  const items = (payload.items as Record<string, unknown>[]) || [];
-  const firstItem = items[0] || {};
+  // 8. notice 검증 (items[].notices — flat 배열 형태, 위에서 선언한 firstItem 재사용)
   const notices = (firstItem.notices as { noticeCategoryName: string; noticeCategoryDetailName: string; content: string }[]) || [];
 
   if (notices.length === 0) {
