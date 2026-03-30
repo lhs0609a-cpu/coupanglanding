@@ -295,8 +295,17 @@ export function buildCoupangProductPayload(
 
   // ---- 4. 상품정보제공고시 (notices) ----
   // notices 키 자체를 생략하면 쿠팡 내부 기본값이 oneOf 에러 유발
-  // notices: [] (빈 배열)로 명시적 전송하여 oneOf 검증 우회
-  const noticeCategories: FilledNoticeCategory[] = [];
+  // filledNotices가 있으면 사용, 없으면 카테고리 경로 기반 폴백
+  const noticeCategories: FilledNoticeCategory[] = filledNotices && filledNotices.length > 0
+    ? filledNotices
+    : buildFallbackNotice(
+        productName,
+        resolvedManufacturer,
+        returnInfo.afterServiceContactNumber,
+        categoryPath,
+      );
+  const noticeSource = filledNotices && filledNotices.length > 0 ? 'API_META' : 'FALLBACK';
+  console.log(`[payload-builder] notices: source=${noticeSource}, category="${noticeCategories[0]?.noticeCategoryName}", fields=${noticeCategories[0]?.noticeCategoryDetailName.length || 0}`);
 
   // ---- 5. attributes (카테고리 필수 속성 + 구매옵션) ----
   // 쿠팡 API: attributes에 필수 속성 + 구매옵션(exposed) 모두 포함
@@ -622,7 +631,8 @@ function getAttributeFallback(attrName: string): string {
 
 /**
  * notices 메타 없을 때 카테고리 경로 기반 고시정보 폴백
- * categoryPath가 있으면 적절한 카테고리별 양식 선택 (화장품, 식품, 의류, 가전 등)
+ * ⚠️ 필드명은 쿠팡 API 정확한 스펙 사용 필수 (oneOf 스키마 매칭)
+ *    축약형 필드명 사용 시 "N subschemas matched" 에러 발생
  */
 function buildFallbackNotice(
   productName: string,
@@ -633,127 +643,33 @@ function buildFallbackNotice(
   const safeName = escHtml(productName.slice(0, 50));
   const safeManuf = manufacturer || '상세페이지 참조';
   const safeContact = contactNumber || '상세페이지 참조';
-  // 카테고리 경로와 상품명 모두 활용하여 카테고리 판별
   const hint = ((categoryPath || '') + ' ' + productName).toLowerCase();
 
-  // 화장품/뷰티
-  if (/화장품|뷰티|스킨|세럼|로션|크림|마스크팩|선크림|클렌징|토너|에센스|미스트|파운데이션|립|아이/.test(hint)) {
-    return [{
-      noticeCategoryName: '화장품',
-      noticeCategoryDetailName: [
-        { noticeCategoryDetailName: '용량 또는 중량', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '제품 주요 사양', content: safeName },
-        { noticeCategoryDetailName: '사용기한 또는 개봉 후 사용기간', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '사용방법', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '제조자/수입자', content: safeManuf },
-        { noticeCategoryDetailName: '제조국', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '화장품법에 따라 기재·표시하여야 하는 모든 성분', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '식품의약품안전처 심사 필 유무', content: '해당사항 없음' },
-        { noticeCategoryDetailName: '사용할 때 주의사항', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '품질보증기준', content: '제조사 기준' },
-        { noticeCategoryDetailName: '소비자상담 관련 전화번호', content: safeContact },
-      ],
-    }];
-  }
-
-  // 식품
+  // 식품 — 쿠팡 "가공식품" 정확한 7개 필드
   if (/식품|건강|영양|음료|과자|라면|커피|차\b|건강기능|비타민|프로틴|유산균/.test(hint)) {
     return [{
       noticeCategoryName: '가공식품',
       noticeCategoryDetailName: [
         { noticeCategoryDetailName: '식품의 유형', content: '상세페이지 참조' },
         { noticeCategoryDetailName: '생산자 및 소재지', content: safeManuf },
-        { noticeCategoryDetailName: '제조연월일, 유통기한 또는 품질유지기한', content: '상세페이지 참조' },
         { noticeCategoryDetailName: '포장단위별 내용물의 용량(중량), 수량', content: '상세페이지 참조' },
         { noticeCategoryDetailName: '원재료명 및 함량', content: '상세페이지 참조' },
         { noticeCategoryDetailName: '영양성분', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '유전자변형식품 여부', content: '해당사항 없음' },
-        { noticeCategoryDetailName: '소비자 안전을 위한 주의사항', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '수입식품 문구', content: '해당시 상세페이지 참조' },
-        { noticeCategoryDetailName: '소비자상담 관련 전화번호', content: safeContact },
+        { noticeCategoryDetailName: '유전자변형식품에 해당하는 경우의 표시', content: '해당사항 없음' },
+        { noticeCategoryDetailName: '소비자안전을 위한 주의사항', content: '상세페이지 참조' },
       ],
     }];
   }
 
-  // 의류/패션
-  if (/의류|패션|셔츠|바지|티셔츠|자켓|코트|원피스|스커트|니트|후드|점퍼|청바지|레깅스/.test(hint)) {
-    return [{
-      noticeCategoryName: '의류',
-      noticeCategoryDetailName: [
-        { noticeCategoryDetailName: '제품 소재', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '색상', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '치수', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '제조자/수입자', content: safeManuf },
-        { noticeCategoryDetailName: '제조국', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '세탁방법 및 취급 시 주의사항', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '제조연월', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '품질보증기준', content: '제조사 기준' },
-        { noticeCategoryDetailName: 'A/S 책임자와 전화번호', content: safeContact },
-      ],
-    }];
-  }
-
-  // 가전/전자
-  if (/가전|전자|컴퓨터|노트북|모니터|냉장고|세탁기|에어컨|청소기|디지털|가습기|건조기/.test(hint)) {
-    return [{
-      noticeCategoryName: '소형전자',
-      noticeCategoryDetailName: [
-        { noticeCategoryDetailName: '품명 및 모델명', content: safeName },
-        { noticeCategoryDetailName: '인증/허가 사항', content: '해당사항 없음' },
-        { noticeCategoryDetailName: '정격전압, 소비전력', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '에너지소비효율등급', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '동일모델의 출시년월', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '제조자/수입자', content: safeManuf },
-        { noticeCategoryDetailName: '제조국', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '크기', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '품질보증기준', content: '제조사 기준' },
-        { noticeCategoryDetailName: 'A/S 책임자와 전화번호', content: safeContact },
-      ],
-    }];
-  }
-
-  // 생활용품/주방/욕실
-  if (/생활|주방|욕실|세제|수납|청소|인테리어|가구|침구|커튼/.test(hint)) {
-    return [{
-      noticeCategoryName: '생활용품',
-      noticeCategoryDetailName: [
-        { noticeCategoryDetailName: '품명 및 모델명', content: safeName },
-        { noticeCategoryDetailName: '인증/허가 사항', content: '해당사항 없음' },
-        { noticeCategoryDetailName: '제조국 또는 원산지', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '제조자/수입자', content: safeManuf },
-        { noticeCategoryDetailName: '소재', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '품질보증기준', content: '제조사 기준' },
-        { noticeCategoryDetailName: 'A/S 책임자와 전화번호', content: safeContact },
-      ],
-    }];
-  }
-
-  // 스포츠/레저
-  if (/스포츠|레저|운동|피트니스|요가|골프|등산|캠핑|자전거/.test(hint)) {
-    return [{
-      noticeCategoryName: '스포츠용품',
-      noticeCategoryDetailName: [
-        { noticeCategoryDetailName: '품명 및 모델명', content: safeName },
-        { noticeCategoryDetailName: '인증/허가 사항', content: '해당사항 없음' },
-        { noticeCategoryDetailName: '크기, 중량', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '색상', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '제조자/수입자', content: safeManuf },
-        { noticeCategoryDetailName: '제조국', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '품질보증기준', content: '제조사 기준' },
-        { noticeCategoryDetailName: 'A/S 책임자와 전화번호', content: safeContact },
-      ],
-    }];
-  }
-
-  // 기타 재화 (기본 폴백)
+  // 기타 재화 (기본 폴백) — 쿠팡 정확한 5개 필드
   return [{
     noticeCategoryName: '기타 재화',
     noticeCategoryDetailName: [
       { noticeCategoryDetailName: '품명 및 모델명', content: safeName },
-      { noticeCategoryDetailName: '인증/허가 사항', content: '해당사항 없음' },
+      { noticeCategoryDetailName: '법에 의한 인증·허가 등을 받았음을 확인할 수 있는 경우 그에 대한 사항', content: '해당사항 없음' },
       { noticeCategoryDetailName: '제조국 또는 원산지', content: '상세페이지 참조' },
-      { noticeCategoryDetailName: '제조자/수입자', content: safeManuf },
-      { noticeCategoryDetailName: 'A/S 책임자와 전화번호', content: safeContact },
+      { noticeCategoryDetailName: '제조자, 수입품의 경우 수입자를 함께 표기', content: safeManuf },
+      { noticeCategoryDetailName: 'A/S 책임자와 전화번호 또는 소비자상담 관련 전화번호', content: safeContact },
     ],
   }];
 }

@@ -134,7 +134,12 @@ export class CoupangAdapter extends BaseAdapter {
     const firstItem = items?.[0] || {};
     const notices = (firstItem as Record<string,unknown>).notices as unknown[];
     const images = (firstItem.images as unknown[]) || [];
-    console.log(`[createProduct][v5] category=${product.displayCategoryCode}, items=${items?.length || 0}, images=${images.length}, notices=${Array.isArray(notices) ? notices.length : 'none'}`);
+    // 상세 notices 로깅 — oneOf 디버깅용
+    const noticeCount = Array.isArray(notices) ? notices.length : 'none';
+    const noticeSample = Array.isArray(notices) && notices.length > 0
+      ? (notices as Record<string, string>[]).map(n => `${n.noticeCategoryName}::"${n.noticeCategoryDetailName}"`).join(' | ')
+      : 'EMPTY';
+    console.log(`[createProduct][v8] category=${product.displayCategoryCode}, items=${items?.length || 0}, images=${images.length}, notices=${noticeCount}, fields=[${noticeSample}]`);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const raw = await this.coupangApi<any>('POST', path, '', product);
@@ -148,7 +153,17 @@ export class CoupangAdapter extends BaseAdapter {
     // 에러 응답 체크
     if (code === 'ERROR' || (!innerData && innerData !== 0)) {
       const msg = outer.message || outer.details || JSON.stringify(outer).slice(0, 500);
-      throw new Error(`쿠팡 API 오류 (${code}): ${msg}`);
+      // 고시정보 에러일 때 payload의 notices 상태를 포함
+      const isNotice = /고시정보|notices|subschema/i.test(msg);
+      const noticesInfo = isNotice
+        ? (() => {
+            const itms = (product as Record<string, unknown>).items as Record<string, unknown>[] | undefined;
+            const firstNotices = itms?.[0]?.notices;
+            const noticeStr = firstNotices !== undefined ? JSON.stringify(firstNotices).slice(0, 200) : 'KEY_ABSENT';
+            return ` [v7|notices=${noticeStr}|category=${(product as Record<string, unknown>).displayCategoryCode}]`;
+          })()
+        : '';
+      throw new Error(`쿠팡 API 오류 (${code}): ${msg}${noticesInfo}`);
     }
 
     // 중첩 응답 처리: data가 객체면 내부 data 추출

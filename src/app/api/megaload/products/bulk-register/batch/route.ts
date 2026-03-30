@@ -364,10 +364,17 @@ export async function POST(req: NextRequest) {
           const metaNames = noticeMeta?.map(n => n.noticeCategoryName).join(',') || 'empty';
           const diagInfo = `[v6-diag] itemKeys=[${diagKeys}] notices=${JSON.stringify(diagNotices).slice(0, 300)} metaCategories=[${metaNames}] category=${product.categoryCode}`;
 
-          // notices 제거 후 재시도
+          // notices를 "기타 재화" 폴백으로 교체하여 재시도 (정확한 쿠팡 스펙 필드명)
           if (diagItems) {
+            const fallbackNotices = [
+              { noticeCategoryName: '기타 재화', noticeCategoryDetailName: '품명 및 모델명', content: (product.name || '상품').slice(0, 50) },
+              { noticeCategoryName: '기타 재화', noticeCategoryDetailName: '법에 의한 인증·허가 등을 받았음을 확인할 수 있는 경우 그에 대한 사항', content: '해당사항 없음' },
+              { noticeCategoryName: '기타 재화', noticeCategoryDetailName: '제조국 또는 원산지', content: '상세페이지 참조' },
+              { noticeCategoryName: '기타 재화', noticeCategoryDetailName: '제조자, 수입품의 경우 수입자를 함께 표기', content: '상세페이지 참조' },
+              { noticeCategoryName: '기타 재화', noticeCategoryDetailName: 'A/S 책임자와 전화번호 또는 소비자상담 관련 전화번호', content: returnInfo.afterServiceContactNumber || '상세페이지 참조' },
+            ];
             for (const item of diagItems) {
-              delete item.notices;
+              item.notices = fallbackNotices;
             }
           }
           try {

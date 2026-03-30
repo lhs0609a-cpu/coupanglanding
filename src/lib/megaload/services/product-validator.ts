@@ -481,29 +481,27 @@ export function validatePayloadStructure(input: PayloadStructureInput): {
     errors.push({ code: 'NO_RETURN_CENTER', field: 'returnCenterCode', message: '반품지 코드가 없습니다.' });
   }
 
-  // 8. notice 카테고리 수 불일치
-  const notices = (payload.noticeCategories as Record<string, unknown>[]) || [];
-  if (categoryMeta && categoryMeta.noticeMeta.length > 0) {
-    if (notices.length !== categoryMeta.noticeMeta.length) {
-      errors.push({
-        code: 'NOTICE_COUNT_MISMATCH',
-        field: 'noticeCategories',
-        message: `고시정보 카테고리 수 불일치 (기대: ${categoryMeta.noticeMeta.length}, 실제: ${notices.length})`,
-      });
-    }
+  // 8. notice 검증 (items[].notices — flat 배열 형태)
+  const items = (payload.items as Record<string, unknown>[]) || [];
+  const firstItem = items[0] || {};
+  const notices = (firstItem.notices as { noticeCategoryName: string; noticeCategoryDetailName: string; content: string }[]) || [];
+
+  if (notices.length === 0) {
+    warnings.push({
+      code: 'NOTICE_EMPTY',
+      field: 'items[0].notices',
+      message: '고시정보가 비어있습니다. 빌더 폴백이 적용됩니다.',
+    });
   }
 
   // 9. 필수 notice 필드가 비어있는지
   for (const notice of notices) {
-    const details = (notice.noticeCategoryDetailName as { noticeCategoryDetailName: string; content: string }[]) || [];
-    for (const detail of details) {
-      if (!detail.content || detail.content.trim() === '') {
-        errors.push({
-          code: 'NOTICE_FIELD_EMPTY',
-          field: `notice.${detail.noticeCategoryDetailName}`,
-          message: `고시정보 "${detail.noticeCategoryDetailName}" 값이 비어있습니다.`,
-        });
-      }
+    if (!notice.content || notice.content.trim() === '') {
+      errors.push({
+        code: 'NOTICE_FIELD_EMPTY',
+        field: `notice.${notice.noticeCategoryDetailName}`,
+        message: `고시정보 "${notice.noticeCategoryDetailName}" 값이 비어있습니다.`,
+      });
     }
   }
 
