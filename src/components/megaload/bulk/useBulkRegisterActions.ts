@@ -861,8 +861,8 @@ export function useBulkRegisterActions() {
             || (sp.productJson.sourceCategory as { categoryId?: string })?.categoryId
             || undefined,
           uid: `browser://${dirName}/${sp.folderName}::${sp.productCode}`,
-          editedName: `${resolvedBrand} ${sp.productCode}`,
-          editedBrand: resolvedBrand,
+          editedName: `${resolvedBrand.slice(0, 2)} ${sp.productCode}`,
+          editedBrand: resolvedBrand.slice(0, 2),
           editedSellingPrice: sourcePrice,
           editedDisplayProductName: '', // 비워두면 runTitleGeneration에서 SEO 최적화 상품명 자동 생성
           editedCategoryCode: '',
@@ -1397,7 +1397,7 @@ export function useBulkRegisterActions() {
         const editableProducts: EditableProduct[] = (data.products as PreviewProduct[]).map((p) => {
           const srvBrand = isValidBrand(p.brand) ? p.brand : extractBrandFromName(p.name);
           return {
-          ...p, uid: `${p.folderPath}::${p.productCode}`, editedName: `${srvBrand} ${p.productCode}`, editedBrand: srvBrand,
+          ...p, uid: `${p.folderPath}::${p.productCode}`, editedName: `${srvBrand.slice(0, 2)} ${p.productCode}`, editedBrand: srvBrand.slice(0, 2),
           editedSellingPrice: p.sellingPrice, editedDisplayProductName: '', // SEO 자동 생성 대기
           editedCategoryCode: '', editedCategoryName: '',
           categoryConfidence: 0, categorySource: '', selected: true, status: 'pending' as const,
