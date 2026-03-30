@@ -1554,7 +1554,7 @@ export function useBulkRegisterActions() {
       while (Date.now() - waitStart < 30000) { await new Promise((r) => setTimeout(r, 500)); break; }
     }
 
-    const BATCH_SIZE = 10;
+    const BATCH_SIZE = 30;
     setProducts((prev) => prev.map((p) => p.selected && p.editedCategoryCode ? { ...p, status: 'pending' } : p));
 
     try {

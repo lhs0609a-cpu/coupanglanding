@@ -525,7 +525,7 @@ export async function POST(req: NextRequest) {
     let successCount = 0;
     let errorCount = 0;
 
-    const PARALLEL_REGISTER = 5;
+    const PARALLEL_REGISTER = 10;
     for (let i = 0; i < products.length; i += PARALLEL_REGISTER) {
       const chunk = products.slice(i, i + PARALLEL_REGISTER);
       const chunkResults = await Promise.allSettled(chunk.map((p) => registerSingleProduct(p)));
