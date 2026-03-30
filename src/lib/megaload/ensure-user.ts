@@ -21,7 +21,35 @@ export async function ensureMegaloadUser(
     .eq('profile_id', profileId)
     .single();
 
-  if (existing) return (existing as Record<string, unknown>).id as string;
+  if (existing) {
+    const megaloadUserId = (existing as Record<string, unknown>).id as string;
+
+    // pt_users 키가 변경됐을 수 있으므로 channel_credentials 동기화
+    const { data: ptUser } = await serviceClient
+      .from('pt_users')
+      .select('coupang_vendor_id, coupang_access_key, coupang_secret_key, coupang_api_connected')
+      .eq('profile_id', profileId)
+      .single();
+
+    if (ptUser?.coupang_api_connected && ptUser.coupang_access_key && ptUser.coupang_secret_key) {
+      const accessKey = await decryptPassword(ptUser.coupang_access_key);
+      const secretKey = await decryptPassword(ptUser.coupang_secret_key);
+
+      await serviceClient.from('channel_credentials').upsert({
+        megaload_user_id: megaloadUserId,
+        channel: 'coupang',
+        credentials: {
+          vendorId: ptUser.coupang_vendor_id,
+          accessKey,
+          secretKey,
+        },
+        is_connected: true,
+        last_verified_at: new Date().toISOString(),
+      }, { onConflict: 'megaload_user_id,channel' });
+    }
+
+    return megaloadUserId;
+  }
 
   // 2) pt_users에서 쿠팡 연동 정보 확인
   const { data: ptUser, error: ptErr } = await serviceClient

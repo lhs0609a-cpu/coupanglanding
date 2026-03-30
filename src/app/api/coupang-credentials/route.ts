@@ -92,6 +92,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '자격증명 저장에 실패했습니다.' }, { status: 500 });
     }
 
+    // megaload_users가 있으면 channel_credentials도 동기화 (평문)
+    const { data: megaloadUser } = await serviceClient
+      .from('megaload_users')
+      .select('id')
+      .eq('profile_id', user.id)
+      .single();
+
+    if (megaloadUser) {
+      await serviceClient.from('channel_credentials').upsert({
+        megaload_user_id: (megaloadUser as Record<string, unknown>).id as string,
+        channel: 'coupang',
+        credentials: {
+          vendorId,
+          accessKey: finalAccessKey,
+          secretKey: finalSecretKey,
+        },
+        is_connected: true,
+        last_verified_at: new Date().toISOString(),
+      }, { onConflict: 'megaload_user_id,channel' });
+    }
+
     return NextResponse.json({
       success: true,
       expiresAt: expiresAt.toISOString(),
