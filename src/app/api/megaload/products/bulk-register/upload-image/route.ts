@@ -26,11 +26,11 @@ export async function POST(req: NextRequest) {
     const file = formData.get('file') as File | null;
     if (!file) return NextResponse.json({ error: '파일이 없습니다.' }, { status: 400 });
 
-    // 파일 크기 제한 (5MB)
-    const MAX_FILE_SIZE = 5 * 1024 * 1024;
+    // 파일 크기 제한 (10MB — 쿠팡 DETAIL 이미지 최대 10MB)
+    const MAX_FILE_SIZE = 10 * 1024 * 1024;
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: `파일 크기가 5MB를 초과합니다 (${(file.size / 1024 / 1024).toFixed(1)}MB)` },
+        { error: `파일 크기가 10MB를 초과합니다 (${(file.size / 1024 / 1024).toFixed(1)}MB)` },
         { status: 400 },
       );
     }

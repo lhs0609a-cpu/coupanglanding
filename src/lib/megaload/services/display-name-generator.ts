@@ -50,6 +50,7 @@ interface ClassifiedTokens {
 
 const CATEGORY_POOLS: Record<string, CategoryPool> = seoData.categoryPools;
 const SYNONYM_GROUPS: Record<string, string[]> = seoData.synonymGroups;
+const UNIVERSAL_MODIFIERS: string[] = (seoData as Record<string, unknown>).universalModifiers as string[] || [];
 
 // ─── 상수 ────────────────────────────────────────────────
 
@@ -184,12 +185,12 @@ function classifyTokens(
   const pool = findBestPool(categoryPath);
 
   // 분류용 세트 빌드 (소문자)
-  const ingredientSet = new Set((pool?.ingredients || []).map(s => s.toLowerCase()));
-  const featureSet = new Set((pool?.features || []).map(s => s.toLowerCase()));
+  const ingredientSet = new Set(pool.ingredients.map(s => s.toLowerCase()));
+  const featureSet = new Set(pool.features.map(s => s.toLowerCase()));
 
   // 각 풀의 모든 항목에 대해 "포함 매칭"도 수행 (부분 일치)
-  const allIngredientTerms = pool?.ingredients || [];
-  const allFeatureTerms = pool?.features || [];
+  const allIngredientTerms = pool.ingredients;
+  const allFeatureTerms = pool.features;
 
   const result: ClassifiedTokens = {
     type: [],
@@ -357,7 +358,7 @@ function classifyTokens(
 
 // ─── 카테고리 풀 매칭 (세그먼트 기반) ─────────────────────
 
-function findBestPool(categoryPath: string): CategoryPool | null {
+function findBestPool(categoryPath: string): CategoryPool {
   if (CATEGORY_POOLS[categoryPath]) return CATEGORY_POOLS[categoryPath];
 
   const segments = categoryPath.split('>').map(s => s.trim());
@@ -397,10 +398,41 @@ function findBestPool(categoryPath: string): CategoryPool | null {
         }
       }
     }
-    return merged;
+    if (merged.generic.length > 0) return merged;
   }
 
-  return null;
+  // 매칭 실패 → 카테고리 경로에서 자동 키워드 생성
+  return generatePoolFromPath(segments);
+}
+
+/** 카테고리 풀에 없는 4000+ 소분류를 커버: 경로 세그먼트에서 키워드 자동 생성 */
+function generatePoolFromPath(segments: string[]): CategoryPool {
+  const generic: string[] = [];
+  const features: string[] = [];
+
+  // 각 세그먼트를 generic으로 활용
+  for (const seg of segments) {
+    if (seg.length >= 2) generic.push(seg);
+  }
+
+  // 리프 노드에서 synonymGroups 매칭하여 동의어 추가
+  const leaf = segments[segments.length - 1] || '';
+  const leafLower = leaf.toLowerCase();
+  for (const [key, synonyms] of Object.entries(SYNONYM_GROUPS)) {
+    const keyLower = key.toLowerCase();
+    if (leafLower.includes(keyLower) || keyLower.includes(leafLower)) {
+      for (const s of synonyms.slice(0, 5)) {
+        if (!generic.includes(s)) generic.push(s);
+      }
+    }
+  }
+
+  // universalModifiers에서 보강
+  for (const m of UNIVERSAL_MODIFIERS.slice(0, 15)) {
+    if (!generic.includes(m)) features.push(m);
+  }
+
+  return { generic, ingredients: [], features };
 }
 
 // ─── Phase 2: 안전 확장 ─────────────────────────────────
@@ -518,10 +550,10 @@ export function generateDisplayName(
     }
   }
 
-  // (f) GENERIC: 카테고리 수준 키워드에서 2~3개 회전 선택 (항상 안전)
+  // (f) GENERIC: 카테고리 수준 키워드에서 3~5개 회전 선택 (항상 안전)
   const pool = findBestPool(categoryPath);
-  if (pool) {
-    const genericCount = 2 + Math.floor(rng() * 2); // 2~3개
+  {
+    const genericCount = 3 + Math.floor(rng() * 3); // 3~5개
     const availableGeneric = pool.generic.filter(g => !usedWords.has(g.toLowerCase()));
     const selectedGeneric = selectSubset(availableGeneric, genericCount, rng);
     for (const g of selectedGeneric) {
@@ -544,6 +576,17 @@ export function generateDisplayName(
     }
   }
 
+  // (h) Universal modifiers: 2~4개 추가 — 쿠팡 SEO 다양성 확보
+  if (UNIVERSAL_MODIFIERS.length > 0) {
+    const modCount = 2 + Math.floor(rng() * 3); // 2~4개
+    const availableMods = UNIVERSAL_MODIFIERS.filter(m => !usedWords.has(m.toLowerCase()));
+    const selectedMods = selectSubset(availableMods, modCount, rng);
+    for (const m of selectedMods) {
+      allWords.push(m);
+      usedWords.add(m.toLowerCase());
+    }
+  }
+
   // Phase 3: 중복 제거 & 셔플
   const unique: string[] = [];
   const seenFinal = new Set<string>();
@@ -563,7 +606,7 @@ export function generateDisplayName(
   unique.push(...specTokens);
 
   // 최소 단어수 보장: 6개 미만이면 Generic 추가 보충
-  if (unique.length < 6 && pool) {
+  if (unique.length < 6) {
     const remaining = pool.generic.filter(g => !usedWords.has(g.toLowerCase()));
     const extra = selectSubset(remaining, 6 - unique.length, rng);
     for (const g of extra) {

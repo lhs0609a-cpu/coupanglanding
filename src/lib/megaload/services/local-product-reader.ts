@@ -170,16 +170,65 @@ export async function uploadLocalImage(
     }
   }
 
-  const format = detectImageFormat(buffer);
-  const ext = format === 'unknown' ? 'jpg' : format;
+  let format = detectImageFormat(buffer);
+  let ext = format === 'unknown' ? 'jpg' : format;
 
-  // 이미지 해상도 검증 (쿠팡 최소 500×500, 최대 5000×5000)
+  // 이미지 해상도 검증 + 자동 리사이징 (쿠팡: 최소 500×500, 최대 5000×5000, 최대 10MB)
   const dims = getImageDimensions(buffer, format);
-  if (dims.width > 0 && dims.height > 0) {
-    if (dims.width < 500 || dims.height < 500) {
-      console.warn(`[이미지 해상도 경고] ${path.basename(filePath)}: ${dims.width}×${dims.height} — 쿠팡 최소 500×500 미충족`);
+  const needsUpscale = dims.width > 0 && dims.height > 0 && (dims.width < 500 || dims.height < 500);
+  const needsDownscale = dims.width > 5000 || dims.height > 5000;
+  const needsCompress = buffer.length > 10 * 1024 * 1024;
+
+  if (needsUpscale || needsDownscale || needsCompress) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let Jimp: any;
+      try {
+        Jimp = (await import('jimp')).default || (await import('jimp'));
+      } catch {
+        Jimp = null;
+      }
+
+      if (Jimp) {
+        let image = await Jimp.read(buffer);
+
+        if (needsUpscale) {
+          // 비율 유지하며 짧은 변이 800px 되도록 업스케일
+          const scale = Math.max(800 / dims.width, 800 / dims.height);
+          const newW = Math.round(dims.width * scale);
+          const newH = Math.round(dims.height * scale);
+          image = image.resize(newW, newH);
+          console.log(`[이미지 리사이즈] ${path.basename(filePath)}: ${dims.width}×${dims.height} → ${newW}×${newH} (업스케일)`);
+        } else if (needsDownscale) {
+          // 비율 유지하며 긴 변이 4500px 이하가 되도록 다운스케일
+          const scale = Math.min(4500 / dims.width, 4500 / dims.height);
+          const newW = Math.round(dims.width * scale);
+          const newH = Math.round(dims.height * scale);
+          image = image.resize(newW, newH);
+          console.log(`[이미지 리사이즈] ${path.basename(filePath)}: ${dims.width}×${dims.height} → ${newW}×${newH} (다운스케일)`);
+        }
+
+        // 품질 단계적 압축 (10MB 이하가 될 때까지)
+        const MIME_JPEG = Jimp.MIME_JPEG || 'image/jpeg';
+        let quality = 92;
+        let outBuf = await image.quality(quality).getBufferAsync(MIME_JPEG);
+        while (outBuf.length > 10 * 1024 * 1024 && quality > 40) {
+          quality -= 10;
+          outBuf = await image.quality(quality).getBufferAsync(MIME_JPEG);
+          console.log(`[이미지 압축] ${path.basename(filePath)}: quality=${quality}, size=${(outBuf.length / 1024 / 1024).toFixed(1)}MB`);
+        }
+
+        buffer = Buffer.from(outBuf);
+        format = 'jpg';
+        ext = 'jpg';
+      } else {
+        console.warn(`[이미지 리사이즈] jimp 미설치 — 원본 유지 (${path.basename(filePath)})`);
+      }
+    } catch (resizeErr) {
+      console.warn(`[이미지 리사이즈 실패] ${path.basename(filePath)}:`, resizeErr instanceof Error ? resizeErr.message : resizeErr);
     }
   }
+
   const contentType =
     format === 'png' ? 'image/png'
     : format === 'gif' ? 'image/gif'

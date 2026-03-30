@@ -14,13 +14,13 @@ export interface ProcessedImage {
 }
 
 // Channel image specifications
-const CHANNEL_IMAGE_SPECS: Record<string, { maxWidth: number; maxHeight: number; maxSizeKb: number; format: string }> = {
-  coupang: { maxWidth: 1000, maxHeight: 1000, maxSizeKb: 5120, format: 'jpg' },
-  naver: { maxWidth: 1000, maxHeight: 1000, maxSizeKb: 10240, format: 'jpg' },
-  elevenst: { maxWidth: 1000, maxHeight: 1000, maxSizeKb: 3072, format: 'jpg' },
-  gmarket: { maxWidth: 1000, maxHeight: 1000, maxSizeKb: 5120, format: 'jpg' },
-  auction: { maxWidth: 1000, maxHeight: 1000, maxSizeKb: 5120, format: 'jpg' },
-  lotteon: { maxWidth: 1000, maxHeight: 1000, maxSizeKb: 5120, format: 'jpg' },
+const CHANNEL_IMAGE_SPECS: Record<string, { minWidth: number; minHeight: number; maxWidth: number; maxHeight: number; maxSizeKb: number; format: string }> = {
+  coupang: { minWidth: 500, minHeight: 500, maxWidth: 5000, maxHeight: 5000, maxSizeKb: 10240, format: 'jpg' },
+  naver: { minWidth: 100, minHeight: 100, maxWidth: 5000, maxHeight: 5000, maxSizeKb: 10240, format: 'jpg' },
+  elevenst: { minWidth: 100, minHeight: 100, maxWidth: 2000, maxHeight: 2000, maxSizeKb: 3072, format: 'jpg' },
+  gmarket: { minWidth: 100, minHeight: 100, maxWidth: 2000, maxHeight: 2000, maxSizeKb: 5120, format: 'jpg' },
+  auction: { minWidth: 100, minHeight: 100, maxWidth: 2000, maxHeight: 2000, maxSizeKb: 5120, format: 'jpg' },
+  lotteon: { minWidth: 100, minHeight: 100, maxWidth: 2000, maxHeight: 2000, maxSizeKb: 5120, format: 'jpg' },
 };
 
 // Chinese image hosting domains (AliExpress, 1688, Taobao, etc.)
@@ -199,8 +199,13 @@ export async function processImageForChannel(
   if (sizeKb > spec.maxSizeKb) {
     warnings.push(`이미지 크기(${sizeKb}KB)가 ${channel} 최대(${spec.maxSizeKb}KB)를 초과합니다.`);
   }
-  if (dimensions.width > spec.maxWidth || dimensions.height > spec.maxHeight) {
-    warnings.push(`이미지 해상도(${dimensions.width}x${dimensions.height})가 ${channel} 최대(${spec.maxWidth}x${spec.maxHeight})를 초과합니다. 리사이징이 필요합니다.`);
+  if (dimensions.width > 0 && dimensions.height > 0) {
+    if (dimensions.width < spec.minWidth || dimensions.height < spec.minHeight) {
+      warnings.push(`이미지 해상도(${dimensions.width}x${dimensions.height})가 ${channel} 최소(${spec.minWidth}x${spec.minHeight}) 미만입니다. 업스케일이 필요합니다.`);
+    }
+    if (dimensions.width > spec.maxWidth || dimensions.height > spec.maxHeight) {
+      warnings.push(`이미지 해상도(${dimensions.width}x${dimensions.height})가 ${channel} 최대(${spec.maxWidth}x${spec.maxHeight})를 초과합니다. 리사이징이 필요합니다.`);
+    }
   }
 
   // 4. Supabase Storage에 업로드 (CDN 미러링)

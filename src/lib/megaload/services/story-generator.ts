@@ -35,10 +35,22 @@ const VARIABLES: Record<string, Record<string, string[]>> = storyData.variables 
 
 function getCategoryKey(categoryPath: string): string {
   const top = categoryPath.split('>')[0]?.trim() || '';
+  const full = categoryPath.toLowerCase();
+
   if (top.includes('뷰티') || top.includes('화장품')) return '뷰티';
-  if (top.includes('식품')) return '식품';
-  if (top.includes('생활') || top.includes('주방') || top.includes('문구')) return '생활용품';
-  if (top.includes('가전') || top.includes('디지털')) return '가전/디지털';
+  if (top.includes('식품') || top.includes('건강식품')) return '식품';
+  if (top.includes('생활') || full.includes('세제') || full.includes('욕실') || full.includes('수납')) return '생활용품';
+  if (top.includes('가전') || top.includes('디지털') || full.includes('컴퓨터') || full.includes('영상')) return '가전/디지털';
+  if (top.includes('패션') || top.includes('의류') || top.includes('잡화') || full.includes('신발') || full.includes('가방')) return '패션의류잡화';
+  if (top.includes('가구') || top.includes('홈데코') || full.includes('침대') || full.includes('소파') || full.includes('인테리어')) return '가구/홈데코';
+  if (top.includes('출산') || top.includes('유아') || full.includes('기저귀') || full.includes('분유')) return '출산/유아동';
+  if (top.includes('스포츠') || top.includes('레져') || full.includes('헬스') || full.includes('골프') || full.includes('캠핑')) return '스포츠/레져';
+  if (top.includes('반려') || top.includes('애완') || full.includes('사료') || full.includes('고양이') || full.includes('강아지')) return '반려/애완용품';
+  if (top.includes('주방') || full.includes('프라이팬') || full.includes('냄비') || full.includes('식기')) return '주방용품';
+  if (top.includes('문구') || top.includes('사무') || full.includes('필기') || full.includes('노트')) return '문구/오피스';
+  if (top.includes('완구') || top.includes('취미') || full.includes('퍼즐') || full.includes('보드게임')) return '완구/취미';
+  if (top.includes('자동차') || full.includes('블랙박스') || full.includes('세차')) return '자동차용품';
+
   // 나머지는 DEFAULT
   for (const key of Object.keys(TEMPLATES)) {
     if (key !== 'DEFAULT' && top.includes(key.split('/')[0])) return key;
@@ -319,4 +331,240 @@ function escapeHtml(str: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+// ─── FAQ 자동 생성 ──────────────────────────────────────────
+
+export interface FaqItem {
+  question: string;
+  answer: string;
+}
+
+/** 카테고리별 FAQ 템플릿 */
+const FAQ_TEMPLATES: Record<string, { q: string; a: string }[]> = {
+  '뷰티': [
+    { q: '{product} 민감한 피부에도 사용할 수 있나요?', a: '네, {성분} 성분으로 {추천대상}도 안심하고 사용하실 수 있습니다. {인증} 완료된 제품입니다.' },
+    { q: '{product} 효과는 얼마나 지속되나요?', a: '{사용법}하시면 {효과1} 효과가 {지속시간} 지속됩니다. 꾸준히 {기간} 사용하시면 {효과2} 효과도 기대할 수 있어요.' },
+    { q: '{product} 사용 순서가 어떻게 되나요?', a: '세안 후 토너 → 세럼 → {product} 순서로 {사용법}하시면 {효과1} 효과를 극대화할 수 있습니다.' },
+    { q: '{product} 남녀 모두 사용 가능한가요?', a: '네! 성별 무관하게 {효과1} 효과를 볼 수 있습니다. {추천대상} 분들께 특히 추천드려요.' },
+    { q: '{product} 개봉 후 유통기한은 어떻게 되나요?', a: '개봉 후 12개월 이내 사용을 권장합니다. 직사광선을 피해 서늘한 곳에 보관해주세요.' },
+  ],
+  '식품': [
+    { q: '{product} 하루에 얼마나 섭취하나요?', a: '{사용법}하시면 됩니다. {성분} {용량} 함유로 하루 권장량을 충족합니다.' },
+    { q: '{product} 부작용은 없나요?', a: '{인증} 인증을 받은 안전한 제품입니다. {추천대상}도 안심하고 드실 수 있어요.' },
+    { q: '{product} 공복에 먹어도 되나요?', a: '네, 대부분 공복 섭취 가능합니다. 위가 약하신 분은 식후 섭취를 권장드려요.' },
+    { q: '{product} 효과는 언제부터 느낄 수 있나요?', a: '개인차가 있지만 {기간} 꾸준히 섭취하시면 {효과1} 변화를 체감하실 수 있습니다.' },
+    { q: '{product} 다른 영양제와 함께 먹어도 되나요?', a: '네, 대부분의 영양제와 함께 섭취 가능합니다. 단, 전문가 상담을 권장드립니다.' },
+  ],
+  '생활용품': [
+    { q: '{product} 아이가 있는 가정에서도 안전한가요?', a: '네, {인증} 인증 제품으로 {추천대상}에서도 안전하게 사용하실 수 있습니다.' },
+    { q: '{product} 사용량은 어떻게 되나요?', a: '{사용법}하시면 됩니다. 대용량이라 경제적으로 오래 쓰실 수 있어요.' },
+    { q: '{product} 다른 세제와 섞어 써도 되나요?', a: '단독 사용을 권장드리며, {성분} 성분으로 단독으로도 충분한 {효과1}을 발휘합니다.' },
+    { q: '{product} 환경에 안전한 제품인가요?', a: '네, {성분} 기반으로 생분해성이 높아 환경 부담이 적은 제품입니다.' },
+  ],
+  '가전/디지털': [
+    { q: '{product} A/S는 어떻게 되나요?', a: '구매일로부터 1년간 무상 A/S를 제공합니다. 고객센터로 문의해주세요.' },
+    { q: '{product} 전기세 많이 나오나요?', a: '{인증} 제품으로 에너지 효율이 우수합니다. 월 전기세 부담이 적어요.' },
+    { q: '{product} 소음은 어떤가요?', a: '{효과1} 기술로 소음을 최소화했습니다. 취침 중에도 편안하게 사용할 수 있어요.' },
+    { q: '{product} 설치가 어렵지 않나요?', a: '간편한 셀프 설치가 가능합니다. 상세 설치 가이드도 함께 제공됩니다.' },
+  ],
+  '패션의류잡화': [
+    { q: '{product} 세탁 방법은 어떻게 되나요?', a: '세탁기 사용 가능하며, 찬물 세탁을 권장합니다. 형태 유지가 잘 되는 소재입니다.' },
+    { q: '{product} 사이즈가 정사이즈인가요?', a: '정사이즈 제작이며, 상세 사이즈표를 참고해주세요. 체형에 따라 한 사이즈 업도 추천드려요.' },
+    { q: '{product} 색상이 사진과 동일한가요?', a: '실물과 최대한 동일하게 촬영했습니다. 모니터 환경에 따라 약간의 차이가 있을 수 있어요.' },
+  ],
+  '가구/홈데코': [
+    { q: '{product} 조립이 어렵지 않나요?', a: '상세 조립 설명서와 필요 공구가 모두 포함되어 있어 초보자도 쉽게 조립할 수 있습니다.' },
+    { q: '{product} 배송 시 엘리베이터 없어도 되나요?', a: '택배 배송 기준이며, 설치 배송 시 추가 비용이 발생할 수 있습니다.' },
+    { q: '{product} 내구성은 어떤가요?', a: '{성분} 소재로 {효과1}이 뛰어납니다. 일반 사용 시 수년간 튼튼하게 사용하실 수 있어요.' },
+  ],
+  '출산/유아동': [
+    { q: '{product} 신생아도 사용할 수 있나요?', a: '{인증} 인증 제품으로 {추천대상}부터 안전하게 사용할 수 있습니다.' },
+    { q: '{product} 유해 성분은 없나요?', a: '무형광, 무파라벤, 무프탈레이트 제품이며, {인증} 테스트를 완료했습니다.' },
+    { q: '{product} 사용 기간은 어떻게 되나요?', a: '{추천대상} 기준으로 적합하며, 성장 단계에 맞춰 다음 단계 제품으로 전환하시면 됩니다.' },
+  ],
+  '스포츠/레져': [
+    { q: '{product} 초보자도 사용할 수 있나요?', a: '네, {추천대상}를 위한 제품으로 초보자도 쉽게 사용할 수 있습니다.' },
+    { q: '{product} 야외에서 사용 가능한가요?', a: '네, 실내외 모두 사용 가능합니다. {효과1}이 우수하여 다양한 환경에서 활용할 수 있어요.' },
+    { q: '{product} 보관 방법은 어떻게 되나요?', a: '직사광선을 피해 건조한 곳에 보관해주세요. 사용 후 깨끗이 닦아 보관하시면 오래 쓸 수 있습니다.' },
+  ],
+  '반려/애완용품': [
+    { q: '{product} 우리 강아지/고양이에게 맞을까요?', a: '{추천대상}에게 적합한 제품으로, {성분} 원료를 사용하여 안전합니다.' },
+    { q: '{product} 알레르기가 있는 아이도 먹을 수 있나요?', a: '주요 알레르기 유발 원료를 배제했습니다. 성분표를 확인 후 급여해주세요.' },
+    { q: '{product} 급여량은 어떻게 되나요?', a: '체중별 급여량 가이드가 포장에 표기되어 있습니다. {사용법}하시면 됩니다.' },
+  ],
+  '주방용품': [
+    { q: '{product} 식기세척기 사용이 가능한가요?', a: '네, 식기세척기 사용이 가능합니다. 다만 코팅 제품은 손세척을 권장드려요.' },
+    { q: '{product} 인덕션에서 사용 가능한가요?', a: '모든 열원(가스, 인덕션, 하이라이트, 전기레인지)에 사용 가능합니다.' },
+    { q: '{product} 코팅이 벗겨지지 않나요?', a: '{성분} 코팅으로 {효과1}이 뛰어납니다. 나무/실리콘 도구 사용 시 더 오래 유지됩니다.' },
+  ],
+  'DEFAULT': [
+    { q: '{product} 품질은 어떤가요?', a: '{인증} 인증을 받은 고품질 제품으로 {효과1}이 우수합니다.' },
+    { q: '{product} 교환/반품이 가능한가요?', a: '수령 후 7일 이내 교환/반품이 가능합니다. 상세 정책은 판매자 정보를 확인해주세요.' },
+    { q: '{product} 배송은 얼마나 걸리나요?', a: '주문 후 1-3일 이내 출고됩니다. 로켓배송 상품은 당일/익일 수령 가능합니다.' },
+    { q: '{product} 선물용으로 적합한가요?', a: '네! 깔끔한 포장으로 {추천대상}에게 선물하기 좋습니다.' },
+  ],
+};
+
+/**
+ * 카테고리별 FAQ 항목 생성
+ *
+ * @param productName 상품명
+ * @param categoryPath 카테고리 경로
+ * @param sellerSeed 셀러 시드
+ * @param productIndex 상품 인덱스
+ * @param count FAQ 개수 (기본 3~5개)
+ */
+export function generateFaqItems(
+  productName: string,
+  categoryPath: string,
+  sellerSeed: string,
+  productIndex: number,
+  count: number = 4,
+): FaqItem[] {
+  const catKey = getCategoryKey(categoryPath);
+  const vars = VARIABLES[catKey] || VARIABLES['DEFAULT'];
+  const seed = stringToSeed(`${sellerSeed}::faq::${productIndex}::${productName}`);
+  const rng = createSeededRandom(seed);
+
+  const cleanName = productName
+    .replace(/[\[\(【][^\]\)】]*[\]\)】]/g, '')
+    .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
+    .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ');
+
+  const faqPool = FAQ_TEMPLATES[catKey] || FAQ_TEMPLATES['DEFAULT'];
+  const shuffled = [...faqPool].sort(() => rng() - 0.5);
+  const selected = shuffled.slice(0, Math.min(count, shuffled.length));
+
+  return selected.map(({ q, a }) => ({
+    question: fillTemplate(q, vars, cleanName, rng),
+    answer: fillTemplate(a, vars, cleanName, rng),
+  }));
+}
+
+// ─── SEO 키워드 배지 추출 ────────────────────────────────────
+
+/**
+ * 상품명 + 카테고리에서 SEO 키워드 배지 3~6개를 추출한다.
+ * 상세페이지 히어로 섹션에 표시됨.
+ */
+export function extractSeoKeywords(
+  productName: string,
+  categoryPath: string,
+  sellerSeed: string,
+  productIndex: number,
+): string[] {
+  const seed = stringToSeed(`${sellerSeed}::seo::${productIndex}::${productName}`);
+  const rng = createSeededRandom(seed);
+
+  const catKey = getCategoryKey(categoryPath);
+  const vars = VARIABLES[catKey] || VARIABLES['DEFAULT'];
+
+  const keywords: string[] = [];
+
+  // 카테고리명에서 추출
+  const catParts = categoryPath.split('>').map(p => p.trim()).filter(p => p.length > 0);
+  if (catParts.length > 0) {
+    keywords.push(catParts[catParts.length - 1]); // 소분류
+  }
+
+  // 효과1/효과2에서 랜덤 선택
+  const effects1 = vars['효과1'] || [];
+  const effects2 = vars['효과2'] || [];
+  if (effects1.length > 0) keywords.push(effects1[Math.floor(rng() * effects1.length)]);
+  if (effects2.length > 0) keywords.push(effects2[Math.floor(rng() * effects2.length)]);
+
+  // 인증에서 선택
+  const certs = vars['인증'] || [];
+  if (certs.length > 0) keywords.push(certs[Math.floor(rng() * certs.length)]);
+
+  // 추천대상에서 선택
+  const targets = vars['추천대상'] || [];
+  if (targets.length > 0) keywords.push(targets[Math.floor(rng() * targets.length)]);
+
+  // 카테고리에서 선택
+  const catWords = vars['카테고리'] || [];
+  if (catWords.length > 0) keywords.push(catWords[Math.floor(rng() * catWords.length)]);
+
+  // 중복 제거 후 3~6개 반환
+  const unique = [...new Set(keywords)];
+  return unique.slice(0, 6);
+}
+
+// ─── SEO 마무리 문구 생성 ────────────────────────────────────
+
+/** 카테고리별 마무리 문구 템플릿 */
+const CLOSING_TEMPLATES: Record<string, string[]> = {
+  '뷰티': [
+    '{product}로 매일 달라지는 피부를 경험해보세요. {효과1}과 {효과2}를 한 번에 관리하는 스마트한 선택, 지금 바로 시작하세요.',
+    '아름다운 피부의 시작, {product}. {추천대상} 분들이 선택한 데일리 {카테고리} 루틴으로 {효과1} 효과를 직접 느껴보세요.',
+    '피부 고민 끝! {product}의 {성분} 성분이 {효과1}부터 {효과2}까지 집중 케어합니다. 꾸준히 사용할수록 더 빛나는 피부를 만나보세요.',
+  ],
+  '식품': [
+    '건강한 하루의 시작, {product}. {성분} 함유로 {효과1}을 과학적으로 관리하세요. {추천대상}에게 특히 추천드립니다.',
+    '{product}과 함께 건강한 내일을 준비하세요. {효과1}은 물론 {효과2}까지, 온 가족의 건강을 위한 현명한 선택입니다.',
+    '매일 꾸준히, {product}으로 {효과1} 관리를 시작하세요. {인증} 인증 제품으로 안심하고 섭취할 수 있습니다.',
+  ],
+  '생활용품': [
+    '깨끗한 생활의 시작, {product}. 강력한 {효과1}으로 우리 가정을 깨끗하고 위생적으로 관리하세요.',
+    '{product} 하나로 {효과1}부터 {효과2}까지! {추천대상}에서도 안전하게 사용할 수 있는 {인증} 인증 제품입니다.',
+  ],
+  '가전/디지털': [
+    '스마트한 라이프의 시작, {product}. {효과1}이 뛰어난 프리미엄 가전으로 생활의 질을 높여보세요.',
+    '{product}와 함께하는 편리한 일상. {효과1} 기술로 더 쾌적하고 스마트한 생활을 경험하세요.',
+  ],
+  '패션의류잡화': [
+    '매일 입고 싶은 {product}. {효과1}이 뛰어나 사계절 코디에 활용하기 좋습니다. 지금 트렌디한 스타일을 완성해보세요.',
+    '{product}으로 완성하는 데일리 스타일. {효과1}과 {효과2}를 모두 갖춘 합리적인 선택입니다.',
+  ],
+  '가구/홈데코': [
+    '우리 집을 특별하게, {product}. {효과1}이 뛰어나 어떤 공간에도 잘 어울립니다. 나만의 인테리어를 완성해보세요.',
+    '{product}으로 만드는 편안한 공간. {효과1}과 실용성을 모두 갖춘 가구로 일상의 만족도를 높여보세요.',
+  ],
+  '출산/유아동': [
+    '우리 아이를 위한 안전한 선택, {product}. {인증} 인증으로 안심하고 사용하세요. {추천대상}에게 딱 맞는 제품입니다.',
+    '아이의 건강한 성장을 위한 {product}. {효과1}이 뛰어나고 {성분} 소재로 안전합니다.',
+  ],
+  '스포츠/레져': [
+    '운동이 즐거워지는 {product}. {효과1}이 뛰어나 {추천대상}에게 딱 맞는 스포츠 용품입니다. 지금 시작하세요!',
+    '{product}와 함께라면 운동 효과 UP! {효과1}과 {효과2}를 동시에 경험해보세요.',
+  ],
+  '반려/애완용품': [
+    '우리 아이를 위한 프리미엄 선택, {product}. {성분} 원료로 {효과1}을 책임집니다. {추천대상}에게 추천드려요.',
+    '{product}으로 반려동물의 건강을 챙겨주세요. {효과1}과 {효과2}를 한 번에 관리할 수 있습니다.',
+  ],
+  '주방용품': [
+    '요리가 즐거워지는 {product}. {효과1}이 뛰어나 매일 사용해도 든든합니다. {추천대상}에게 특히 추천!',
+    '{product}으로 주방을 업그레이드하세요. {성분} 소재로 {효과1}과 안전성을 모두 갖추었습니다.',
+  ],
+  'DEFAULT': [
+    '{product}을 지금 만나보세요. {효과1}이 뛰어나 {추천대상}에게 딱 맞는 제품입니다. 후회 없는 선택이 될 거예요.',
+    '믿고 선택하는 {product}. {효과1}은 물론 {효과2}까지, 가성비와 품질 모두 만족하실 수 있습니다.',
+    '지금 바로 {product}을 경험해보세요. 이미 많은 분들이 선택한 {효과1} 제품, 여러분도 만족하실 거예요.',
+  ],
+};
+
+/**
+ * SEO 마무리 문구 생성
+ * 상세페이지 하단에 키워드를 자연스럽게 포함한 구매 유도 문구.
+ */
+export function generateClosingText(
+  productName: string,
+  categoryPath: string,
+  sellerSeed: string,
+  productIndex: number,
+): string {
+  const catKey = getCategoryKey(categoryPath);
+  const vars = VARIABLES[catKey] || VARIABLES['DEFAULT'];
+  const seed = stringToSeed(`${sellerSeed}::closing::${productIndex}::${productName}`);
+  const rng = createSeededRandom(seed);
+
+  const cleanName = productName
+    .replace(/[\[\(【][^\]\)】]*[\]\)】]/g, '')
+    .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
+    .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ');
+
+  const pool = CLOSING_TEMPLATES[catKey] || CLOSING_TEMPLATES['DEFAULT'];
+  const template = pool[Math.floor(rng() * pool.length)];
+  return fillTemplate(template, vars, cleanName, rng);
 }

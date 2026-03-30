@@ -11,6 +11,7 @@ import { extractOptions, type ExtractedOptions } from './option-extractor';
 import { selectWithSeed } from './item-winner-prevention';
 import type { PreventionConfig } from './item-winner-prevention';
 import type { ExtractedBuyOption } from './coupang-product-builder';
+import { generateFaqItems, extractSeoKeywords, generateClosingText } from './story-generator';
 
 export interface BuildPayloadProduct {
   uid?: string;
@@ -136,6 +137,13 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     ? selectWithSeed(LAYOUT_VARIANTS, shUserId)
     : undefined;
 
+  // SEO 데이터 자동 생성 (상세페이지 7섹션 구조용)
+  const categoryPath = product.categoryPath || product.name;
+  const productIndex = parseInt(product.productCode.replace(/\D/g, ''), 10) || 0;
+  const seoKeywords = extractSeoKeywords(product.name, categoryPath, shUserId, productIndex);
+  const faqItems = generateFaqItems(product.name, categoryPath, shUserId, productIndex, 4);
+  const closingText = generateClosingText(product.name, categoryPath, shUserId, productIndex);
+
   // 페이로드 빌드
   const effectiveStock = product.stockOverride ?? stock;
   const payload = buildCoupangProductPayload({
@@ -180,7 +188,10 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     adultOnly: product.adultOnly,
     preventionSeed,
     detailLayoutVariant,
-    categoryPath: product.categoryPath,
+    categoryPath,
+    seoKeywords,
+    faqItems,
+    closingText,
   });
 
   return { payload, filledNotices, extractedOptions: extracted };

@@ -1,22 +1,38 @@
 // ============================================================
-// 리치 HTML 상세페이지 빌더 — 네이버 블로그 스타일
+// 리치 HTML 상세페이지 빌더 — SEO 최적화 7섹션 구조
 //
-// 구조: 이미지 → 글 → 이미지 → 글 → 이미지 → 글 ...
-// 마지막: 상품정보 이미지 + 위탁/신뢰 정보
+// 구조 (쿠팡 검색 노출 + 체류시간 극대화):
+//   1. 히어로 헤더: 브랜드 + 상품명 + SEO 키워드 배지
+//   2. 이미지-스토리 교차: 블로그 스타일 긴 문단
+//   3. FAQ: 카테고리별 Q&A (검색 노출 + 체류시간↑)
+//   4. 후기 섹션: 이미지 + 상세 텍스트
+//   5. 키워드 마무리: SEO 키워드 자연 포함 구매 유도
+//   6. 상품정보제공고시
+//   7. 위탁판매 정보
 //
 // 아이템위너 방지: 4가지 레이아웃 변형 (A/B/C/D)
 // ============================================================
 
+export interface FaqItem {
+  question: string;
+  answer: string;
+}
+
 export interface DetailPageParams {
   productName: string;
   brand?: string;
-  aiStoryParagraphs?: string[];  // AI 생성 문단 배열 (이미지 사이에 삽입)
-  aiStoryHtml?: string;           // 기존 호환: 단일 HTML 문자열
+  aiStoryParagraphs?: string[];   // AI 생성 문단 배열 (이미지 사이에 삽입)
+  aiStoryHtml?: string;            // 기존 호환: 단일 HTML 문자열
   reviewImageUrls?: string[];
-  reviewTexts?: string[];         // 리뷰 이미지별 AI 생성 텍스트
+  reviewTexts?: string[];          // 리뷰 이미지별 AI 생성 텍스트
   detailImageUrls: string[];
-  infoImageUrls?: string[];       // 상품정보제공고시 이미지
+  infoImageUrls?: string[];        // 상품정보제공고시 이미지
   consignmentImageUrls?: string[]; // 위탁판매/신뢰 정보 이미지
+  // SEO 신규 필드
+  seoKeywords?: string[];          // SEO 키워드 배지 (3~6개)
+  faqItems?: FaqItem[];            // 카테고리별 FAQ (3~5개)
+  closingText?: string;            // SEO 마무리 문구
+  categoryPath?: string;           // 카테고리 경로 (컬러 테마용)
 }
 
 // ─── 레이아웃별 CSS 변형값 ──────────────────────────────────
@@ -39,15 +55,50 @@ function getStyle(variant?: string): LayoutStyle {
   return LAYOUT_STYLES[variant || 'A'] || LAYOUT_STYLES.A;
 }
 
+// ─── 카테고리별 테마 컬러 ──────────────────────────────────
+
+interface ThemeColor {
+  primary: string;     // 주 악센트
+  bgLight: string;     // 밝은 배경
+  bgAccent: string;    // 강조 배경
+  textAccent: string;  // 강조 텍스트
+}
+
+const CATEGORY_THEMES: Record<string, ThemeColor> = {
+  '뷰티':       { primary: '#E31837', bgLight: '#FFF5F7', bgAccent: '#FEE2E8', textAccent: '#C81535' },
+  '식품':       { primary: '#2E7D32', bgLight: '#F1F8E9', bgAccent: '#DCEDC8', textAccent: '#1B5E20' },
+  '생활':       { primary: '#1565C0', bgLight: '#E3F2FD', bgAccent: '#BBDEFB', textAccent: '#0D47A1' },
+  '가전':       { primary: '#37474F', bgLight: '#ECEFF1', bgAccent: '#CFD8DC', textAccent: '#263238' },
+  '패션':       { primary: '#6D4C41', bgLight: '#EFEBE9', bgAccent: '#D7CCC8', textAccent: '#4E342E' },
+  '가구':       { primary: '#5D4037', bgLight: '#FBE9E7', bgAccent: '#FFCCBC', textAccent: '#3E2723' },
+  '출산':       { primary: '#F06292', bgLight: '#FCE4EC', bgAccent: '#F8BBD0', textAccent: '#C2185B' },
+  '스포츠':     { primary: '#FF6F00', bgLight: '#FFF8E1', bgAccent: '#FFECB3', textAccent: '#E65100' },
+  '반려':       { primary: '#00897B', bgLight: '#E0F2F1', bgAccent: '#B2DFDB', textAccent: '#00695C' },
+  '주방':       { primary: '#D84315', bgLight: '#FBE9E7', bgAccent: '#FFCCBC', textAccent: '#BF360C' },
+  '문구':       { primary: '#5C6BC0', bgLight: '#E8EAF6', bgAccent: '#C5CAE9', textAccent: '#283593' },
+  '완구':       { primary: '#AB47BC', bgLight: '#F3E5F5', bgAccent: '#E1BEE7', textAccent: '#7B1FA2' },
+  '자동차':     { primary: '#455A64', bgLight: '#ECEFF1', bgAccent: '#CFD8DC', textAccent: '#37474F' },
+  'DEFAULT':    { primary: '#E31837', bgLight: '#FAFAFA', bgAccent: '#F5F5F5', textAccent: '#E31837' },
+};
+
+function getTheme(categoryPath?: string): ThemeColor {
+  if (!categoryPath) return CATEGORY_THEMES['DEFAULT'];
+  const top = categoryPath.split('>')[0]?.trim() || '';
+  for (const [key, theme] of Object.entries(CATEGORY_THEMES)) {
+    if (key !== 'DEFAULT' && top.includes(key)) return theme;
+  }
+  return CATEGORY_THEMES['DEFAULT'];
+}
+
 /**
- * 블로그 스타일 상세페이지 HTML을 생성한다.
+ * SEO 최적화 상세페이지 HTML을 생성한다.
  *
  * @param templateVariant - 레이아웃 변형 (A/B/C/D), 아이템위너 방지용
  *
- * A (기본): 헤더 → 이미지-글 교차 → 리뷰 → 정보
- * B: 이미지 전체 먼저 → 글 모음 → 리뷰 → 정보
- * C: 히어로 이미지 → 글 소개 → 2열 그리드 이미지 → 리뷰 → 정보
- * D: 헤더 없이 바로 이미지-글 교차 → 텍스트 리뷰만 → 정보
+ * A (기본): 히어로 → 이미지-글 교차 → FAQ → 리뷰 → 키워드마무리 → 정보
+ * B: 히어로 → 이미지 전체 → 글모음 → FAQ → 리뷰 → 키워드마무리 → 정보
+ * C: 히어로 → 히어로이미지 → 글 → 2열그리드 → FAQ → 리뷰 → 키워드마무리 → 정보
+ * D: 이미지-글 교차(헤더없음) → FAQ → 텍스트리뷰 → 키워드마무리 → 정보
  */
 export function buildRichDetailPageHtml(params: DetailPageParams, templateVariant?: string): string {
   const variant = templateVariant || 'A';
@@ -59,26 +110,40 @@ export function buildRichDetailPageHtml(params: DetailPageParams, templateVarian
   }
 }
 
-// ─── 레이아웃 A (기본: 이미지-글 교차) ──────────────────────
+// ─── 레이아웃 A (기본: 히어로 → 이미지-글 교차 → FAQ → 리뷰 → 마무리) ──
 
 function buildLayoutA(params: DetailPageParams): string {
-  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls } = params;
+  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, seoKeywords, faqItems, closingText, categoryPath } = params;
   const style = getStyle('A');
+  const theme = getTheme(categoryPath);
   const sections: string[] = [];
 
-  sections.push(`<div style="width:100%;max-width:${style.maxWidth};margin:0 auto;font-family:'Malgun Gothic','맑은 고딕',sans-serif;color:#333;">`);
-  sections.push(buildHeaderSection(productName, brand));
+  sections.push(buildWrapper(style, theme));
+  sections.push(buildHeroSection(productName, brand, seoKeywords, theme));
 
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
-  // 글 → 이미지 → 글 → 이미지 블로그 스타일
-  // detail이미지 + 리뷰이미지(중복 없이 최대 5장) 합쳐서 교차 배치
   const detailSet = new Set(detailImageUrls);
   const uniqueReviews = (reviewImageUrls || []).filter(url => !detailSet.has(url)).slice(0, 5);
   const allImages = [...detailImageUrls, ...uniqueReviews];
   if (allImages.length > 0) {
-    sections.push(buildBlogStyleSection(allImages, paragraphs, productName, style));
+    sections.push(buildBlogStyleSection(allImages, paragraphs, productName, style, theme));
   } else if (paragraphs.length > 0) {
     for (const p of paragraphs) sections.push(buildParagraphBlock(p, style));
+  }
+
+  if (faqItems && faqItems.length > 0) {
+    sections.push(buildDivider());
+    sections.push(buildFaqSection(faqItems, theme));
+  }
+
+  if (reviewImageUrls && reviewImageUrls.length > 0) {
+    sections.push(buildDivider());
+    sections.push(buildBlogReviewSection(reviewImageUrls, reviewTexts, productName, style, theme));
+  }
+
+  if (closingText) {
+    sections.push(buildDivider());
+    sections.push(buildClosingSection(closingText, productName, theme));
   }
 
   sections.push(buildDivider());
@@ -89,22 +154,21 @@ function buildLayoutA(params: DetailPageParams): string {
   return sections.join('\n');
 }
 
-// ─── 레이아웃 B (이미지 전체 먼저 → 글 모음) ───────────────
+// ─── 레이아웃 B (이미지 전체 → 글모음 → FAQ → 리뷰 → 마무리) ──
 
 function buildLayoutB(params: DetailPageParams): string {
-  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls } = params;
+  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, seoKeywords, faqItems, closingText, categoryPath } = params;
   const style = getStyle('B');
+  const theme = getTheme(categoryPath);
   const sections: string[] = [];
 
-  sections.push(`<div style="width:100%;max-width:${style.maxWidth};margin:0 auto;font-family:'Malgun Gothic','맑은 고딕',sans-serif;color:#333;">`);
-  sections.push(buildHeaderSection(productName, brand));
+  sections.push(buildWrapper(style, theme));
+  sections.push(buildHeroSection(productName, brand, seoKeywords, theme));
 
-  // 이미지 전체 먼저
   for (let i = 0; i < detailImageUrls.length; i++) {
     sections.push(`<div style="margin:0;"><img src="${esc(detailImageUrls[i])}" alt="${esc(productName)} ${i + 1}" style="width:100%;display:block;" /></div>`);
   }
 
-  // 글 모음
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
   if (paragraphs.length > 0) {
     sections.push(`<div style="padding:32px ${style.padding.split(' ')[1] || '32px'};">`);
@@ -114,8 +178,19 @@ function buildLayoutB(params: DetailPageParams): string {
     sections.push('</div>');
   }
 
+  if (faqItems && faqItems.length > 0) {
+    sections.push(buildDivider());
+    sections.push(buildFaqSection(faqItems, theme));
+  }
+
   if (reviewImageUrls && reviewImageUrls.length > 0) {
-    sections.push(buildBlogReviewSection(reviewImageUrls, reviewTexts, productName, style));
+    sections.push(buildDivider());
+    sections.push(buildBlogReviewSection(reviewImageUrls, reviewTexts, productName, style, theme));
+  }
+
+  if (closingText) {
+    sections.push(buildDivider());
+    sections.push(buildClosingSection(closingText, productName, theme));
   }
 
   sections.push(buildDivider());
@@ -126,28 +201,26 @@ function buildLayoutB(params: DetailPageParams): string {
   return sections.join('\n');
 }
 
-// ─── 레이아웃 C (히어로 이미지 → 글 → 2열 그리드) ──────────
+// ─── 레이아웃 C (히어로이미지 → 글 → 2열그리드 → FAQ → 리뷰 → 마무리) ──
 
 function buildLayoutC(params: DetailPageParams): string {
-  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls } = params;
+  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, seoKeywords, faqItems, closingText, categoryPath } = params;
   const style = getStyle('C');
+  const theme = getTheme(categoryPath);
   const sections: string[] = [];
 
-  sections.push(`<div style="width:100%;max-width:${style.maxWidth};margin:0 auto;font-family:'Malgun Gothic','맑은 고딕',sans-serif;color:#333;">`);
-  sections.push(buildHeaderSection(productName, brand));
+  sections.push(buildWrapper(style, theme));
+  sections.push(buildHeroSection(productName, brand, seoKeywords, theme));
 
-  // 히어로 이미지 (1번째 이미지 크게)
   if (detailImageUrls.length > 0) {
     sections.push(`<div style="margin:0;"><img src="${esc(detailImageUrls[0])}" alt="${esc(productName)} 메인" style="width:100%;display:block;" /></div>`);
   }
 
-  // 글 소개
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
   if (paragraphs.length > 0) {
     for (const p of paragraphs) sections.push(buildParagraphBlock(p, style));
   }
 
-  // 나머지 이미지 2열 그리드
   if (detailImageUrls.length > 1) {
     const remaining = detailImageUrls.slice(1);
     sections.push('<div style="display:flex;flex-wrap:wrap;gap:4px;padding:8px 0;">');
@@ -158,8 +231,19 @@ function buildLayoutC(params: DetailPageParams): string {
     sections.push('</div>');
   }
 
+  if (faqItems && faqItems.length > 0) {
+    sections.push(buildDivider());
+    sections.push(buildFaqSection(faqItems, theme));
+  }
+
   if (reviewImageUrls && reviewImageUrls.length > 0) {
-    sections.push(buildBlogReviewSection(reviewImageUrls, reviewTexts, productName, style));
+    sections.push(buildDivider());
+    sections.push(buildBlogReviewSection(reviewImageUrls, reviewTexts, productName, style, theme));
+  }
+
+  if (closingText) {
+    sections.push(buildDivider());
+    sections.push(buildClosingSection(closingText, productName, theme));
   }
 
   sections.push(buildDivider());
@@ -170,36 +254,51 @@ function buildLayoutC(params: DetailPageParams): string {
   return sections.join('\n');
 }
 
-// ─── 레이아웃 D (헤더 없음, 이미지-글 교차, 텍스트 리뷰만) ─
+// ─── 레이아웃 D (헤더없음 → 이미지-글 교차 → FAQ → 텍스트리뷰 → 마무리) ──
 
 function buildLayoutD(params: DetailPageParams): string {
-  const { productName, aiStoryParagraphs, aiStoryHtml, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls } = params;
+  const { productName, aiStoryParagraphs, aiStoryHtml, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, seoKeywords, faqItems, closingText, categoryPath } = params;
   const style = getStyle('D');
+  const theme = getTheme(categoryPath);
   const sections: string[] = [];
 
-  sections.push(`<div style="width:100%;max-width:${style.maxWidth};margin:0 auto;font-family:'Malgun Gothic','맑은 고딕',sans-serif;color:#333;">`);
+  sections.push(buildWrapper(style, theme));
 
-  // 헤더 없이 바로 이미지-글 교차
+  // 키워드 배지만 표시 (헤더 없음)
+  if (seoKeywords && seoKeywords.length > 0) {
+    sections.push(buildKeywordBadgesOnly(seoKeywords, theme));
+  }
+
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
   if (detailImageUrls.length > 0) {
-    sections.push(buildBlogStyleSection(detailImageUrls, paragraphs, productName, style));
+    sections.push(buildBlogStyleSection(detailImageUrls, paragraphs, productName, style, theme));
   } else if (paragraphs.length > 0) {
     for (const p of paragraphs) sections.push(buildParagraphBlock(p, style));
+  }
+
+  if (faqItems && faqItems.length > 0) {
+    sections.push(buildDivider());
+    sections.push(buildFaqSection(faqItems, theme));
   }
 
   // 텍스트 리뷰만 (이미지 없음)
   if (reviewTexts && reviewTexts.length > 0) {
     sections.push('<div style="padding:32px 0 16px;">');
-    sections.push('<div style="text-align:center;font-size:18px;font-weight:bold;color:#333;margin-bottom:16px;">구매 후기</div>');
+    sections.push(`<div style="text-align:center;font-size:18px;font-weight:bold;color:${theme.textAccent};margin-bottom:16px;">구매 후기</div>`);
     for (const rt of reviewTexts) {
       if (rt.trim()) {
         sections.push(
-          `<div style="padding:14px 24px;line-height:1.8;font-size:14px;color:#555;background:#f9f9f9;border-radius:8px;margin:8px 16px;">`
+          `<div style="padding:14px 24px;line-height:1.8;font-size:14px;color:#555;background:${theme.bgLight};border-radius:8px;margin:8px 16px;">`
           + `${esc(rt)}</div>`
         );
       }
     }
     sections.push('</div>');
+  }
+
+  if (closingText) {
+    sections.push(buildDivider());
+    sections.push(buildClosingSection(closingText, productName, theme));
   }
 
   sections.push(buildDivider());
@@ -212,35 +311,63 @@ function buildLayoutD(params: DetailPageParams): string {
 
 // ─── 공통 섹션 빌더 ─────────────────────────────────────────
 
-function buildHeaderSection(productName: string, brand?: string): string {
+function buildWrapper(style: LayoutStyle, theme: ThemeColor): string {
+  return `<div style="width:100%;max-width:${style.maxWidth};margin:0 auto;font-family:'Malgun Gothic','맑은 고딕','Apple SD Gothic Neo',sans-serif;color:#333;background:#fff;">`;
+}
+
+/** 섹션 1: 히어로 헤더 — 브랜드 + 상품명 + SEO 키워드 배지 */
+function buildHeroSection(productName: string, brand?: string, seoKeywords?: string[], theme?: ThemeColor): string {
+  const t = theme || CATEGORY_THEMES['DEFAULT'];
   const parts: string[] = [];
-  parts.push('<div style="text-align:center;padding:40px 20px 30px;">');
+  parts.push(`<div style="text-align:center;padding:48px 20px 36px;background:${t.bgLight};">`);
   if (brand) {
     parts.push(`<div style="font-size:13px;color:#999;letter-spacing:3px;text-transform:uppercase;margin-bottom:10px;">${esc(brand)}</div>`);
   }
-  parts.push(`<div style="font-size:24px;font-weight:bold;color:#111;line-height:1.5;">${esc(productName)}</div>`);
-  parts.push('<div style="width:60px;height:3px;background:#E31837;margin:20px auto 0;border-radius:2px;"></div>');
+  parts.push(`<div style="font-size:26px;font-weight:bold;color:#111;line-height:1.5;margin-bottom:16px;">${esc(productName)}</div>`);
+  parts.push(`<div style="width:60px;height:3px;background:${t.primary};margin:0 auto 20px;border-radius:2px;"></div>`);
+
+  // SEO 키워드 배지
+  if (seoKeywords && seoKeywords.length > 0) {
+    parts.push('<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:12px;">');
+    for (const kw of seoKeywords.slice(0, 6)) {
+      parts.push(`<span style="display:inline-block;padding:6px 14px;background:${t.bgAccent};color:${t.textAccent};font-size:13px;font-weight:500;border-radius:20px;letter-spacing:0.3px;">${esc(kw)}</span>`);
+    }
+    parts.push('</div>');
+  }
+
   parts.push('</div>');
   return parts.join('\n');
 }
 
+/** 레이아웃 D 전용: 키워드 배지만 (헤더 없이) */
+function buildKeywordBadgesOnly(keywords: string[], theme: ThemeColor): string {
+  const parts: string[] = [];
+  parts.push('<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px;padding:20px 16px;">');
+  for (const kw of keywords.slice(0, 6)) {
+    parts.push(`<span style="display:inline-block;padding:6px 14px;background:${theme.bgAccent};color:${theme.textAccent};font-size:13px;font-weight:500;border-radius:20px;">${esc(kw)}</span>`);
+  }
+  parts.push('</div>');
+  return parts.join('\n');
+}
+
+/** 섹션 2: 이미지-스토리 교차 (블로그 스타일) */
 function buildBlogStyleSection(
   imageUrls: string[],
   paragraphs: string[],
   productName: string,
   style: LayoutStyle,
+  theme?: ThemeColor,
 ): string {
   const parts: string[] = [];
   const maxLen = Math.max(imageUrls.length, paragraphs.length);
 
-  // 글 → 이미지 → 글 → 이미지 (블로그 스타일)
   for (let i = 0; i < maxLen; i++) {
     if (i < paragraphs.length && paragraphs[i].trim()) {
       parts.push(buildParagraphBlock(paragraphs[i], style));
     }
     if (i < imageUrls.length) {
       parts.push(
-        `<div style="margin:8px 0;"><img src="${esc(imageUrls[i])}" alt="${esc(productName)} ${i + 1}" style="width:100%;display:block;border-radius:8px;" /></div>`
+        `<div style="margin:12px 0;"><img src="${esc(imageUrls[i])}" alt="${esc(productName)} ${i + 1}" style="width:100%;display:block;border-radius:8px;" /></div>`
       );
     }
   }
@@ -250,23 +377,47 @@ function buildBlogStyleSection(
 
 function buildParagraphBlock(text: string, style: LayoutStyle): string {
   const isHtml = /<[a-z][\s\S]*>/i.test(text);
-  const content = isHtml ? text : `<p>${esc(text)}</p>`;
+  const content = isHtml ? text : `<p style="margin:0;">${esc(text)}</p>`;
   return `<div style="padding:${style.padding};line-height:${style.lineHeight};font-size:${style.fontSize};color:#444;word-break:keep-all;">\n${content}\n</div>`;
 }
 
+/** 섹션 3: FAQ — 카테고리별 Q&A (쿠팡 검색 노출 + 체류시간↑) */
+function buildFaqSection(items: FaqItem[], theme: ThemeColor): string {
+  const parts: string[] = [];
+
+  parts.push('<div style="padding:36px 0 20px;">');
+  parts.push('<div style="text-align:center;margin-bottom:24px;">');
+  parts.push(`<div style="font-size:12px;color:${theme.primary};letter-spacing:4px;font-weight:600;margin-bottom:6px;">FAQ</div>`);
+  parts.push('<div style="font-size:20px;font-weight:bold;color:#222;">자주 묻는 질문</div>');
+  parts.push(`<div style="width:40px;height:2px;background:${theme.primary};margin:12px auto 0;"></div>`);
+  parts.push('</div>');
+
+  for (const item of items) {
+    parts.push(`<div style="margin:12px 20px;border-radius:12px;overflow:hidden;border:1px solid #eee;">`);
+    parts.push(`<div style="padding:16px 20px;background:${theme.bgLight};font-size:15px;font-weight:600;color:#333;">Q. ${esc(item.question)}</div>`);
+    parts.push(`<div style="padding:16px 20px;font-size:14px;color:#555;line-height:1.8;background:#fff;">A. ${esc(item.answer)}</div>`);
+    parts.push('</div>');
+  }
+
+  parts.push('</div>');
+  return parts.join('\n');
+}
+
+/** 섹션 4: 후기 — 이미지 + 상세 텍스트 */
 function buildBlogReviewSection(
   imageUrls: string[],
   reviewTexts: string[] | undefined,
   productName: string,
   style: LayoutStyle,
+  theme: ThemeColor,
 ): string {
   const parts: string[] = [];
 
-  parts.push('<div style="padding:40px 0 20px;">');
+  parts.push('<div style="padding:36px 0 20px;">');
   parts.push('<div style="text-align:center;">');
-  parts.push('<div style="font-size:12px;color:#E31837;letter-spacing:4px;font-weight:600;margin-bottom:8px;">REAL REVIEW</div>');
+  parts.push(`<div style="font-size:12px;color:${theme.primary};letter-spacing:4px;font-weight:600;margin-bottom:8px;">REAL REVIEW</div>`);
   parts.push('<div style="font-size:20px;font-weight:bold;color:#222;">실제 사용 후기</div>');
-  parts.push('<div style="width:40px;height:2px;background:#E31837;margin:12px auto 0;"></div>');
+  parts.push(`<div style="width:40px;height:2px;background:${theme.primary};margin:12px auto 0;"></div>`);
   parts.push('</div>');
   parts.push('</div>');
 
@@ -276,13 +427,23 @@ function buildBlogReviewSection(
     );
     if (reviewTexts && i < reviewTexts.length && reviewTexts[i].trim()) {
       parts.push(
-        `<div style="padding:16px 30px 24px;line-height:1.8;font-size:${style.fontSize};color:#555;background:#fafafa;border-left:3px solid #E31837;margin:8px 20px 16px;">`
+        `<div style="padding:16px 24px 20px;line-height:1.8;font-size:${style.fontSize};color:#555;background:${theme.bgLight};border-left:3px solid ${theme.primary};margin:8px 20px 16px;border-radius:0 8px 8px 0;">`
         + `${esc(reviewTexts[i])}`
         + `</div>`
       );
     }
   }
 
+  return parts.join('\n');
+}
+
+/** 섹션 5: 키워드 마무리 — SEO 키워드를 자연스럽게 포함한 구매 유도 문구 */
+function buildClosingSection(closingText: string, productName: string, theme: ThemeColor): string {
+  const parts: string[] = [];
+  parts.push(`<div style="padding:32px 24px;text-align:center;background:${theme.bgLight};border-radius:12px;margin:0 16px;">`);
+  parts.push(`<div style="width:40px;height:2px;background:${theme.primary};margin:0 auto 20px;border-radius:2px;"></div>`);
+  parts.push(`<div style="font-size:15px;color:#444;line-height:1.9;word-break:keep-all;">${esc(closingText)}</div>`);
+  parts.push('</div>');
   return parts.join('\n');
 }
 

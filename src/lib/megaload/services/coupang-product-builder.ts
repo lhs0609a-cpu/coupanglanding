@@ -129,6 +129,10 @@ export interface BuildCoupangPayloadParams {
   detailLayoutVariant?: string;       // 상세페이지 레이아웃 변형 (A/B/C/D)
   // 카테고리 경로 (예: "뷰티>스킨>크림>넥크림") — generalProductName, 고시정보 폴백에 사용
   categoryPath?: string;
+  // SEO 상세페이지 신규 필드
+  seoKeywords?: string[];
+  faqItems?: { question: string; answer: string }[];
+  closingText?: string;
 }
 
 // ---- HTML 이스케이프 (XSS 방어) ----
@@ -229,6 +233,9 @@ export function buildCoupangProductPayload(
     preventionSeed,
     detailLayoutVariant,
     categoryPath,
+    seoKeywords,
+    faqItems,
+    closingText,
   } = params;
 
   // ---- 1. 상품명 정리 ----
@@ -240,9 +247,9 @@ export function buildCoupangProductPayload(
     ? cleanProductName(sellerProductName)
     : productName;
 
-  // brand: 앞글자만 축약 (3글자→2글자, 5글자→3글자, 대략 절반+1)
+  // brand: 항상 앞 2글자만 축약 (비오팜→비오, 종근당→종근, 고려은단헬스→고려)
   const rawBrand = brand || product.productJson.brand || '';
-  const resolvedBrand = rawBrand ? rawBrand.slice(0, Math.max(2, Math.ceil(rawBrand.length / 2))) : '';
+  const resolvedBrand = rawBrand ? rawBrand.slice(0, 2) : '';
   // manufacturer: brand와 별개 — product.json에 manufacturer 있으면 사용
   const resolvedManufacturer = manufacturer
     || (product.productJson as Record<string, unknown>).manufacturer as string
@@ -281,6 +288,10 @@ export function buildCoupangProductPayload(
       detailImageUrls,
       infoImageUrls,
       consignmentImageUrls,
+      seoKeywords,
+      faqItems,
+      closingText,
+      categoryPath,
     }, detailLayoutVariant));
   } else {
     detailHtml = buildSimpleDetailHtml(detailImageUrls, productName);
