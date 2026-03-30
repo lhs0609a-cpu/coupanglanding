@@ -39,7 +39,6 @@ export interface ReturnInfo {
   returnZipCode?: string;
   returnAddress?: string;
   returnAddressDetail?: string;
-  vendorUserId?: string;
 }
 
 export interface AttributeMeta {
@@ -133,6 +132,8 @@ export interface BuildCoupangPayloadParams {
   seoKeywords?: string[];
   faqItems?: { question: string; answer: string }[];
   closingText?: string;
+  // Wing ID (vendorUserId) — vendorId와 다름, DB에서 조회하여 전달
+  vendorUserId?: string;
 }
 
 // ---- HTML 이스케이프 (XSS 방어) ----
@@ -236,6 +237,7 @@ export function buildCoupangProductPayload(
     seoKeywords,
     faqItems,
     closingText,
+    vendorUserId,
   } = params;
 
   // ---- 1. 상품명 정리 ----
@@ -495,7 +497,9 @@ export function buildCoupangProductPayload(
     returnZipCode: returnInfo.returnZipCode || '06159',
     returnAddress: returnInfo.returnAddress || '서울특별시 강남구',
     returnAddressDetail: returnInfo.returnAddressDetail || '상세주소',
-    vendorUserId: vendorId,  // Wing ID — vendorId를 대체 사용
+    // vendorUserId는 Wing ID — vendorId와 다른 값이므로 별도 전달 시에만 설정
+    // batch/route.ts에서 wingUserId가 있을 때 payload에 직접 주입함
+    ...(vendorUserId ? { vendorUserId } : {}),
 
     requested: true,  // 자동 판매승인 요청
 

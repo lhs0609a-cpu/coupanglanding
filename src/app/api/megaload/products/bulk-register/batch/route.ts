@@ -356,12 +356,8 @@ export async function POST(req: NextRequest) {
         aiStoryHtml,
         aiStoryParagraphs,
         aiReviewTexts,
+        vendorUserId: wingUserId || undefined,
       });
-
-      // 9.4. vendorUserId 설정 (Wing ID)
-      if (wingUserId) {
-        (payload as Record<string, unknown>).vendorUserId = wingUserId;
-      }
 
       // 10. 쿠팡 API 호출 (고시정보 에러 시 notices 제거 후 자동 재시도)
       let result: { channelProductId: string };

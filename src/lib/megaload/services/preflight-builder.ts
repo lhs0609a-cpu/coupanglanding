@@ -71,6 +71,8 @@ export interface BuildPayloadParams {
   aiStoryHtml?: string;
   aiStoryParagraphs?: string[];
   aiReviewTexts?: string[];
+  // Wing ID (vendorUserId) — vendorId와 다름
+  vendorUserId?: string;
 }
 
 export interface BuildPayloadResult {
@@ -89,6 +91,7 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     noticeOverrides, preventionConfig, shUserId,
     mainImageUrls, detailImageUrls, reviewImageUrls, infoImageUrls,
     aiStoryHtml = '', aiStoryParagraphs = [], aiReviewTexts = [],
+    vendorUserId,
   } = params;
 
   const preventionEnabled = preventionConfig?.enabled ?? false;
@@ -192,6 +195,7 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     seoKeywords,
     faqItems,
     closingText,
+    vendorUserId,
   });
 
   return { payload, filledNotices, extractedOptions: extracted };
