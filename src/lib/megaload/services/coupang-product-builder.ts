@@ -16,6 +16,7 @@ import type { FilledNoticeCategory } from './notice-field-filler';
 import type { ImageVariation } from './image-variation';
 import { buildRichDetailPageHtml } from './detail-page-builder';
 import { shuffleWithSeed, selectWithSeed } from './item-winner-prevention';
+import { checkCompliance } from './compliance-filter';
 
 // ---- 입력 타입 ----
 
@@ -165,24 +166,31 @@ function sanitizeHtml(html: string): string {
     .replace(/src\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, 'src=""');
 }
 
-// ---- 쿠팡 상품명 금지어/특수문자 패턴 ----
+// ---- 쿠팡 상품명 금지어 필터 (compliance-filter 기반) ----
 
-const FORBIDDEN_NAME_PATTERNS = [
-  /[★☆♥♡▶▷◀◁●○■□◆◇△▽♠♣♦♬♪♩⊙◎]/g,
-  /[!@#$%^&*=+|\\{}[\]<>~`]/g,
-  /최저가|무료배송|할인|특가|한정|베스트|1위|인기|추천/g,
-  /\b(SALE|HOT|BEST|NEW|EVENT|FREE)\b/gi,
-];
+// 쿠팡 상품명에 추가로 허용되지 않는 특수문자 (규제 금지어와 별도)
+const EXTRA_SPECIAL_CHARS = /[!@#$%^&*=+|\\{}[\]<>~`]/g;
 
-function cleanProductName(name: string): string {
+function cleanProductName(name: string, categoryContext?: string): string {
   let cleaned = name.trim();
-  for (const pattern of FORBIDDEN_NAME_PATTERNS) {
-    cleaned = cleaned.replace(pattern, '');
+
+  // 1) 특수문자 제거 (쿠팡 기본 정책)
+  cleaned = cleaned.replace(EXTRA_SPECIAL_CHARS, '');
+
+  // 2) 규제 금지어 자동 제거 (error severity)
+  const result = checkCompliance(cleaned, { removeErrors: true, categoryContext });
+  cleaned = result.cleanedText;
+
+  // 위반 로깅 (디버그)
+  if (result.violations.length > 0) {
+    console.log(
+      `[compliance] 상품명 금지어 감지: ${result.violations.map((v) => `${v.label}(${v.category})`).join(', ')} | 원본: "${name}"`,
+    );
   }
-  cleaned = cleaned.replace(/\s+/g, ' ').trim();
-  // 금지어/특수문자 제거 후 빈 문자열이면 원본으로 폴백
+
+  // 빈 문자열 폴백
   if (!cleaned) {
-    cleaned = name.trim().replace(/\s+/g, ' ');
+    cleaned = name.trim().replace(/[!@#$%^&*=+|\\{}[\]<>~`]/g, '').replace(/\s+/g, ' ');
     if (!cleaned) cleaned = '상품';
   }
   if (cleaned.length > 100) {

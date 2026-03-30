@@ -1,4 +1,6 @@
 import { createSeededRandom, stringToSeed } from './seeded-random';
+import { getForbiddenTermsForPrompt } from '../data/forbidden-terms';
+import { checkCompliance } from './compliance-filter';
 
 export interface AiServiceResult {
   content: string;
@@ -297,11 +299,8 @@ export async function generateProductTitles(
 - 핵심 스펙 (용량/중량/수량: 50ml, 120정, 3개 등)
 - 검색 키워드 2~3개 (사용자가 실제 검색할 단어)
 
-### 쿠팡 금지어 (절대 사용 금지):
-- 최고, 최저, 최상, 최대, 1위, 1등, 유일한
-- 무료배송, 당일발송, 특가, 할인, 이벤트, 한정
-- 100% 보장, 완벽, 기적, 놀라운, 충격, 폭발적
-- 의학적 효능 표현: 치료, 완치, 예방, 암, 질병
+### 금지어 (절대 사용 금지 — 법규 위반 + 쿠팡 정책):
+${getForbiddenTermsForPrompt()}
 - 타사 비교: OO보다, OO 대비, 경쟁사명
 
 ### 키워드 배열 전략 (아이템위너 회피):
@@ -341,8 +340,10 @@ JSON으로만 응답: { "displayName": "...", "sellerName": "...", "keywords": [
   const data = await res.json() as { choices: { message: { content: string } }[] };
   try {
     const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
+    const rawDisplay = (parsed.displayName || input.originalName).slice(0, 100);
+    const { cleanedText: cleanedDisplay } = checkCompliance(rawDisplay, { removeErrors: true, categoryContext: input.categoryPath });
     return {
-      displayName: (parsed.displayName || input.originalName).slice(0, 100),
+      displayName: cleanedDisplay || input.originalName.slice(0, 100),
       sellerName: (parsed.sellerName || input.originalName).slice(0, 30),
       keywords: Array.isArray(parsed.keywords) ? parsed.keywords : input.keywords,
     };
@@ -394,8 +395,9 @@ ${productList}
 - 상품마다 반드시 다른 키워드 순서와 문장 구조 사용
 - 유사 표현 활용 (보습/수분/촉촉, 탄력/리프팅/탱탱 등)
 
-### 쿠팡 금지어 (절대 사용 금지):
-최고/최저/1위/1등/유일/무료배송/당일발송/특가/할인/이벤트/한정/100%보장/완벽/기적/놀라운/치료/완치/예방/암/타사비교
+### 금지어 (절대 사용 금지 — 법규 위반 + 쿠팡 정책):
+${getForbiddenTermsForPrompt()}
+타사비교 표현도 금지
 
 ### 아이템위너 회피:
 - 같은 카테고리 상품이어도 키워드 순서를 완전히 다르게 배치
@@ -437,8 +439,10 @@ JSON 배열로만 응답: { "results": [{ "displayName": "...", "sellerName": ".
       for (let i = 0; i < chunk.length; i++) {
         const r = results[i];
         if (r && r.displayName) {
+          const rawDisplay = String(r.displayName).slice(0, 100);
+          const { cleanedText: cleanedDisplay } = checkCompliance(rawDisplay, { removeErrors: true, categoryContext: chunk[i].categoryPath });
           allResults.push({
-            displayName: String(r.displayName).slice(0, 100),
+            displayName: cleanedDisplay || chunk[i].originalName.slice(0, 100),
             sellerName: String(r.sellerName || chunk[i].originalName).slice(0, 30),
             keywords: Array.isArray(r.keywords) ? r.keywords : chunk[i].keywords,
           });

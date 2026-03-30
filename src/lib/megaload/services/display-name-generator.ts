@@ -28,6 +28,7 @@
 
 import { createSeededRandom, stringToSeed } from './seeded-random';
 import seoData from '../data/seo-keyword-pools.json';
+import { checkCompliance } from './compliance-filter';
 
 // ─── 타입 ────────────────────────────────────────────────
 
@@ -626,6 +627,10 @@ export function generateDisplayName(
     }
     result = trimmed.join(' ');
   }
+
+  // 규제 금지어 후처리
+  const { cleanedText } = checkCompliance(result, { removeErrors: true, categoryContext: categoryPath });
+  result = cleanedText || result;
 
   return result || originalName.slice(0, 100);
 }
