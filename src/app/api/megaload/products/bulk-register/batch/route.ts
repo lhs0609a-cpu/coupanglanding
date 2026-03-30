@@ -362,7 +362,7 @@ export async function POST(req: NextRequest) {
           const diagKeys = Object.keys(diagFirst).join(',');
           const noticeMeta = product.noticeMeta as { noticeCategoryName: string }[] | undefined;
           const metaNames = noticeMeta?.map(n => n.noticeCategoryName).join(',') || 'empty';
-          const diagInfo = `[v6-diag] itemKeys=[${diagKeys}] notices=${JSON.stringify(diagNotices).slice(0, 300)} metaCategories=[${metaNames}] category=${product.categoryCode}`;
+          const diagInfo = `[v6-diag] itemKeys=[${diagKeys}] notices=${JSON.stringify(diagNotices ?? null).slice(0, 300)} metaCategories=[${metaNames}] category=${product.categoryCode}`;
 
           // notices 키 삭제 후 재시도 — 범용 폴백 카테고리("기타 재화" 등)가
           // 해당 display category에서 허용되지 않을 수 있으므로 추측하지 않음
