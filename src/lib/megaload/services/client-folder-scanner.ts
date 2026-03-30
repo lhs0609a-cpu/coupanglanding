@@ -248,12 +248,14 @@ async function compressImage(file: File | Blob): Promise<Blob> {
         resolve(file);
         return;
       } else if (file.size > 3 * 1024 * 1024) {
-        // 3MB 초과 → 강제 리사이즈 (Supabase/Vercel 크기 제한 방지)
+        // 3MB 초과 → JPEG 재압축 (Supabase/Vercel 크기 제한 방지)
+        // 해상도가 이미 작아도 품질 낮춰 재압축해야 413 방지
         const scale = UPLOAD_MAX_DIMENSION / Math.max(width, height);
         if (scale < 1) {
           targetW = Math.round(width * scale);
           targetH = Math.round(height * scale);
         }
+        // scale >= 1 이어도 아래 canvas.toBlob으로 재압축 진행 (break through)
       } else {
         // 크기 적절
         resolve(file);
@@ -334,7 +336,12 @@ export async function uploadSingleImage(blob: Blob, name: string): Promise<strin
         const { data: pub } = supabase.storage.from('product-images').getPublicUrl(storagePath);
         if (pub?.publicUrl) return pub.publicUrl;
       }
-    } catch { /* 직접 업로드 실패 → 폴백 */ }
+      if (error) {
+        console.warn(`[uploadSingleImage] Supabase 직접 업로드 실패: ${error.message} (size=${blob.size})`);
+      }
+    } catch (e) {
+      console.warn(`[uploadSingleImage] Supabase 직접 업로드 예외:`, e);
+    }
   }
 
   // 2차: 서버 API 폴백

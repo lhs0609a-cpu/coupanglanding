@@ -282,8 +282,8 @@ export function useBulkRegisterActions() {
       setCategoryFailures(allFailures);
       console.log(`[카테고리 매칭 실패] ${allFailures.length}개 상품:`);
       console.table(allFailures.map(f => ({
-        상품명: f.productName.slice(0, 30),
-        토큰: f.tokens.join(', '),
+        상품명: (f.productName || '').slice(0, 30),
+        토큰: (f.tokens || []).join(', '),
         점수: f.bestScore,
         실패사유: f.reason,
       })));
@@ -311,7 +311,7 @@ export function useBulkRegisterActions() {
     if (!product) return [];
     try {
       // 쿠팡 카테고리 검색 + Predict API 동시 호출
-      const name = product.name || product.editedName;
+      const name = product.name || product.editedName || '';
       const [searchRes, predictRes] = await Promise.allSettled([
         fetch(`/api/megaload/products/bulk-register/search-category?keyword=${encodeURIComponent(name.slice(0, 30))}`),
         fetch('/api/megaload/products/bulk-register/auto-category', {

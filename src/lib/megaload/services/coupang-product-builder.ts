@@ -300,7 +300,7 @@ export function buildCoupangProductPayload(
     ? filledNotices
     : [];
   const hasNotices = noticeCategories.length > 0;
-  console.log(`[payload-builder] notices: source=${hasNotices ? 'API_META' : 'OMITTED'}, category="${noticeCategories[0]?.noticeCategoryName || 'N/A'}", fields=${noticeCategories[0]?.noticeCategoryDetailName.length || 0}`);
+  console.log(`[payload-builder] notices: source=${hasNotices ? 'API_META' : 'OMITTED'}, category="${noticeCategories[0]?.noticeCategoryName || 'N/A'}", fields=${noticeCategories[0]?.noticeCategoryDetailName?.length || 0}`);
 
   // ---- 5. attributes (카테고리 필수 속성 + 구매옵션) ----
   // 쿠팡 API: attributes에 필수 속성 + 구매옵션(exposed) 모두 포함
