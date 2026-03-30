@@ -958,16 +958,26 @@ export async function applyDownloadCoupon(
   return addDownloadCouponItems(credentials, couponId, vendorItemIds);
 }
 
-/** 즉시할인 쿠폰 아이템 수 조회 */
+/** 즉시할인 쿠폰 아이템 수 조회 (v2→v1 폴백) */
 export async function getInstantCouponItemCount(
   credentials: CoupangCredentials,
   couponId: number,
 ): Promise<number> {
+  const v2Path = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupons/${couponId}/items`;
+  const v1Path = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/coupons/${couponId}/items`;
   try {
-    const path = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/coupons/${couponId}/items`;
-    const data = await callCoupangApi(credentials, 'GET', path) as { data?: unknown[] };
+    const data = await callCoupangApi(credentials, 'GET', v2Path) as { data?: unknown[] };
     return data.data?.length || 0;
-  } catch {
+  } catch (v2Err) {
+    // v2 미지원(404/410) → v1 폴백
+    if (v2Err instanceof CoupangApiError && (v2Err.statusCode === 404 || v2Err.statusCode === 410)) {
+      try {
+        const data = await callCoupangApi(credentials, 'GET', v1Path) as { data?: unknown[] };
+        return data.data?.length || 0;
+      } catch {
+        return 0;
+      }
+    }
     return 0;
   }
 }
