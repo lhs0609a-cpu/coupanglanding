@@ -319,6 +319,26 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // 5.5 noticeMeta가 비어있으면 쿠팡 API에서 직접 재조회
+      if (!product.noticeMeta || product.noticeMeta.length === 0) {
+        try {
+          console.log(`[batch] noticeMeta 비어있음 → 재조회: category=${product.categoryCode}`);
+          const noticeResult = await coupangAdapter.getNoticeCategoryFields(product.categoryCode);
+          if (noticeResult.items.length > 0) {
+            product.noticeMeta = noticeResult.items.map((item) => ({
+              noticeCategoryName: item.noticeCategoryName,
+              fields: item.noticeCategoryDetailNames.map((d) => ({
+                name: d.name,
+                required: d.required,
+              })),
+            }));
+            console.log(`[batch] noticeMeta 재조회 성공: ${product.noticeMeta[0].noticeCategoryName} (${product.noticeMeta[0].fields.length}개 필드)`);
+          }
+        } catch (e) {
+          console.warn(`[batch] noticeMeta 재조회 실패:`, e);
+        }
+      }
+
       // 6~9. 공유 빌더로 페이로드 빌드 (옵션 추출, 고시정보, 아이템위너 방지 포함)
       const { payload } = await buildProductPayload({
         product,
@@ -355,23 +375,41 @@ export async function POST(req: NextRequest) {
         const isNoticeError = /고시정보|notices|subschemas?\s*matched/i.test(errMsg);
 
         if (isNoticeError) {
-          // 진단: payload의 notices 상태를 에러에 포함
+          // 진단 정보
           const diagItems = payload.items as Record<string, unknown>[] | undefined;
           const diagFirst = diagItems?.[0] || {};
           const diagNotices = diagFirst.notices;
-          const diagKeys = Object.keys(diagFirst).join(',');
-          const noticeMeta = product.noticeMeta as { noticeCategoryName: string }[] | undefined;
-          const metaNames = noticeMeta?.map(n => n.noticeCategoryName).join(',') || 'empty';
-          const diagInfo = `[v6-diag] itemKeys=[${diagKeys}] notices=${JSON.stringify(diagNotices ?? null).slice(0, 300)} metaCategories=[${metaNames}] category=${product.categoryCode}`;
+          const metaNames = (product.noticeMeta as { noticeCategoryName: string }[] | undefined)?.map(n => n.noticeCategoryName).join(',') || 'empty';
+          const diagInfo = `[v13-diag] notices=${JSON.stringify(diagNotices ?? null).slice(0, 300)} meta=[${metaNames}] category=${product.categoryCode}`;
+          console.log(`[batch] 고시정보 에러 → noticeMeta 재조회 시도: ${diagInfo}`);
 
-          // notices 키 삭제 후 재시도 — 범용 폴백 카테고리("기타 재화" 등)가
-          // 해당 display category에서 허용되지 않을 수 있으므로 추측하지 않음
-          if (diagItems) {
-            for (const item of diagItems) {
-              delete item.notices;
-            }
-          }
+          // noticeMeta 재조회 후 notices를 올바르게 채워 재시도
           try {
+            const freshNotice = await coupangAdapter.getNoticeCategoryFields(product.categoryCode);
+            if (freshNotice.items.length > 0 && diagItems) {
+              // fillNoticeFields 호출하여 올바른 notices 생성
+              const { fillNoticeFields } = await import('@/lib/megaload/services/notice-field-filler');
+              const freshMeta = freshNotice.items.map((item) => ({
+                noticeCategoryName: item.noticeCategoryName,
+                fields: item.noticeCategoryDetailNames.map((d) => ({ name: d.name, required: d.required })),
+              }));
+              const filledNotices = fillNoticeFields(
+                freshMeta,
+                { name: product.name, brand: product.brand, tags: product.tags || [], description: product.description || '' },
+              );
+              // flattenNotices: FilledNoticeCategory[] → flat array
+              const flatNotices = filledNotices.flatMap(nc =>
+                nc.noticeCategoryDetailName.map(d => ({
+                  noticeCategoryName: nc.noticeCategoryName,
+                  noticeCategoryDetailName: d.noticeCategoryDetailName,
+                  content: d.content,
+                }))
+              );
+              for (const item of diagItems) {
+                item.notices = flatNotices;
+              }
+              console.log(`[batch] notices 재구성 완료: ${freshMeta[0].noticeCategoryName} (${flatNotices.length}개 필드)`);
+            }
             result = await withRetry(
               () => coupangAdapter.createProduct(payload),
               { maxRetries: 2, initialDelayMs: 1000, retryableErrors: ['timeout', 'econnreset', 'socket hang up', '429', '503', '502'] },

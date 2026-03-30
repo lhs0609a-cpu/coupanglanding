@@ -294,8 +294,8 @@ export function buildCoupangProductPayload(
     : [];
 
   // ---- 4. 상품정보제공고시 (notices) ----
-  // filledNotices가 있으면 flattenNotices()로 변환, 없으면 notices 키 자체를 생략
-  // "기타 재화" 등 범용 폴백은 사용하지 않음 — display category별로 허용 카테고리가 다름
+  // filledNotices가 있으면 flattenNotices()로 변환, 없으면 빈 배열 전송
+  // 쿠팡 API는 notices 키 필수 — 생략하면 oneOf 다중 매칭 에러 발생
   const noticeCategories: FilledNoticeCategory[] = filledNotices && filledNotices.length > 0
     ? filledNotices
     : [];
@@ -417,7 +417,7 @@ export function buildCoupangProductPayload(
           : [{ certificationType: 'NOT_REQUIRED', certificationCode: '' }],
         images: variantImages,
         // notices: API 메타 있을 때만 전송, 없으면 키 생략 (잘못된 카테고리 전송 방지)
-        ...(hasNotices ? { notices: flattenNotices(noticeCategories) } : {}),
+        notices: hasNotices ? flattenNotices(noticeCategories) : [],
         attributes,
         contents,
       };
@@ -447,7 +447,7 @@ export function buildCoupangProductPayload(
         : [{ certificationType: 'NOT_REQUIRED', certificationCode: '' }],
       images,
       // notices: API 메타 있을 때만 전송, 없으면 키 생략
-      ...(hasNotices ? { notices: flattenNotices(noticeCategories) } : {}),
+      notices: hasNotices ? flattenNotices(noticeCategories) : [],
       attributes,
       contents,
     }];
