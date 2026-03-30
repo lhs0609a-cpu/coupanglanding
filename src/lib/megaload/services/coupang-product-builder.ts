@@ -294,18 +294,13 @@ export function buildCoupangProductPayload(
     : [];
 
   // ---- 4. 상품정보제공고시 (notices) ----
-  // notices 키 자체를 생략하면 쿠팡 내부 기본값이 oneOf 에러 유발
-  // filledNotices가 있으면 사용, 없으면 카테고리 경로 기반 폴백
+  // filledNotices가 있으면 flattenNotices()로 변환, 없으면 notices 키 자체를 생략
+  // "기타 재화" 등 범용 폴백은 사용하지 않음 — display category별로 허용 카테고리가 다름
   const noticeCategories: FilledNoticeCategory[] = filledNotices && filledNotices.length > 0
     ? filledNotices
-    : buildFallbackNotice(
-        productName,
-        resolvedManufacturer,
-        returnInfo.afterServiceContactNumber,
-        categoryPath,
-      );
-  const noticeSource = filledNotices && filledNotices.length > 0 ? 'API_META' : 'FALLBACK';
-  console.log(`[payload-builder] notices: source=${noticeSource}, category="${noticeCategories[0]?.noticeCategoryName}", fields=${noticeCategories[0]?.noticeCategoryDetailName.length || 0}`);
+    : [];
+  const hasNotices = noticeCategories.length > 0;
+  console.log(`[payload-builder] notices: source=${hasNotices ? 'API_META' : 'OMITTED'}, category="${noticeCategories[0]?.noticeCategoryName || 'N/A'}", fields=${noticeCategories[0]?.noticeCategoryDetailName.length || 0}`);
 
   // ---- 5. attributes (카테고리 필수 속성 + 구매옵션) ----
   // 쿠팡 API: attributes에 필수 속성 + 구매옵션(exposed) 모두 포함
@@ -421,7 +416,8 @@ export function buildCoupangProductPayload(
           ? certificationList
           : [{ certificationType: 'NOT_REQUIRED', certificationCode: '' }],
         images: variantImages,
-        notices: noticeCategories.length > 0 ? flattenNotices(noticeCategories) : [],
+        // notices: API 메타 있을 때만 전송, 없으면 키 생략 (잘못된 카테고리 전송 방지)
+        ...(hasNotices ? { notices: flattenNotices(noticeCategories) } : {}),
         attributes,
         contents,
       };
@@ -450,7 +446,8 @@ export function buildCoupangProductPayload(
         ? certificationList
         : [{ certificationType: 'NOT_REQUIRED', certificationCode: '' }],
       images,
-      notices: noticeCategories.length > 0 ? flattenNotices(noticeCategories) : [],
+      // notices: API 메타 있을 때만 전송, 없으면 키 생략
+      ...(hasNotices ? { notices: flattenNotices(noticeCategories) } : {}),
       attributes,
       contents,
     }];
@@ -629,47 +626,3 @@ function getAttributeFallback(attrName: string): string {
   return '상세페이지 참조';
 }
 
-/**
- * notices 메타 없을 때 카테고리 경로 기반 고시정보 폴백
- * ⚠️ 필드명은 쿠팡 API 정확한 스펙 사용 필수 (oneOf 스키마 매칭)
- *    축약형 필드명 사용 시 "N subschemas matched" 에러 발생
- */
-function buildFallbackNotice(
-  productName: string,
-  manufacturer: string,
-  contactNumber: string,
-  categoryPath?: string,
-): FilledNoticeCategory[] {
-  const safeName = escHtml(productName.slice(0, 50));
-  const safeManuf = manufacturer || '상세페이지 참조';
-  const safeContact = contactNumber || '상세페이지 참조';
-  const hint = ((categoryPath || '') + ' ' + productName).toLowerCase();
-
-  // 식품 — 쿠팡 "가공식품" 정확한 7개 필드
-  if (/식품|건강|영양|음료|과자|라면|커피|차\b|건강기능|비타민|프로틴|유산균/.test(hint)) {
-    return [{
-      noticeCategoryName: '가공식품',
-      noticeCategoryDetailName: [
-        { noticeCategoryDetailName: '식품의 유형', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '생산자 및 소재지', content: safeManuf },
-        { noticeCategoryDetailName: '포장단위별 내용물의 용량(중량), 수량', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '원재료명 및 함량', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '영양성분', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '유전자변형식품에 해당하는 경우의 표시', content: '해당사항 없음' },
-        { noticeCategoryDetailName: '소비자안전을 위한 주의사항', content: '상세페이지 참조' },
-      ],
-    }];
-  }
-
-  // 기타 재화 (기본 폴백) — 쿠팡 정확한 5개 필드
-  return [{
-    noticeCategoryName: '기타 재화',
-    noticeCategoryDetailName: [
-      { noticeCategoryDetailName: '품명 및 모델명', content: safeName },
-      { noticeCategoryDetailName: '법에 의한 인증·허가 등을 받았음을 확인할 수 있는 경우 그에 대한 사항', content: '해당사항 없음' },
-      { noticeCategoryDetailName: '제조국 또는 원산지', content: '상세페이지 참조' },
-      { noticeCategoryDetailName: '제조자, 수입품의 경우 수입자를 함께 표기', content: safeManuf },
-      { noticeCategoryDetailName: 'A/S 책임자와 전화번호 또는 소비자상담 관련 전화번호', content: safeContact },
-    ],
-  }];
-}

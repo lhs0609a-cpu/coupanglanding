@@ -61,21 +61,11 @@ export function fillNoticeFields(
     }];
   }
 
-  console.log(`[fillNoticeFields] API 메타 없음 → "기타 재화" 폴백 사용`);
-
-  // 메타 없으면 "기타 재화" 사용 — 필드명은 쿠팡 API 정확한 스펙 (oneOf 스키마 매칭용)
-  const productName = (product.name || product.title || '').slice(0, 50);
-  const brand = product.brand || '';
-  return [{
-    noticeCategoryName: '기타 재화',
-    noticeCategoryDetailName: [
-      { noticeCategoryDetailName: '품명 및 모델명', content: productName || '해당없음' },
-      { noticeCategoryDetailName: '법에 의한 인증·허가 등을 받았음을 확인할 수 있는 경우 그에 대한 사항', content: '해당사항 없음' },
-      { noticeCategoryDetailName: '제조국 또는 원산지', content: '상세페이지 참조' },
-      { noticeCategoryDetailName: '제조자, 수입품의 경우 수입자를 함께 표기', content: brand || '상세페이지 참조' },
-      { noticeCategoryDetailName: 'A/S 책임자와 전화번호 또는 소비자상담 관련 전화번호', content: contactNumber || '상세페이지 참조' },
-    ],
-  }];
+  // API 메타 없음 → 빈 배열 반환 (폴백으로 추측하지 않음)
+  // "기타 재화" 등 범용 카테고리가 허용되지 않는 display category가 있으므로
+  // 잘못된 카테고리 전송보다 빈 배열이 안전 → 빌더에서 notices 키 생략 처리
+  console.warn(`[fillNoticeFields] API 메타 없음 → notices 빈 배열 반환 (카테고리별 허용 목록 불명)`);
+  return [];
 }
 
 /**
@@ -163,45 +153,3 @@ function resolveFieldValue(
   return '상세페이지 참조';
 }
 
-/**
- * 메타데이터 없을 때 카테고리 힌트 기반 폴백
- * 필드명은 쿠팡 API 정확한 스펙 (oneOf 스키마 매칭용)
- * 축약형 필드명 사용하면 oneOf에서 여러 subschema 동시 매칭됨
- */
-function buildFallbackNotice(
-  product: LocalProductJson,
-  contactNumber?: string,
-  categoryHint?: string,
-): FilledNoticeCategory[] {
-  const productName = (product.name || product.title || '').slice(0, 50);
-  const brand = product.brand || '';
-  const hint = ((categoryHint || '') + ' ' + productName).toLowerCase();
-
-  // 식품류 — 쿠팡 "가공식품" 정확한 7개 필드
-  if (/식품|건강|영양|음료|과자|라면|커피|차\b/.test(hint)) {
-    return [{
-      noticeCategoryName: '가공식품',
-      noticeCategoryDetailName: [
-        { noticeCategoryDetailName: '식품의 유형', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '생산자 및 소재지', content: brand || '상세페이지 참조' },
-        { noticeCategoryDetailName: '포장단위별 내용물의 용량(중량), 수량', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '원재료명 및 함량', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '영양성분', content: '상세페이지 참조' },
-        { noticeCategoryDetailName: '유전자변형식품에 해당하는 경우의 표시', content: '해당사항 없음' },
-        { noticeCategoryDetailName: '소비자안전을 위한 주의사항', content: '상세페이지 참조' },
-      ],
-    }];
-  }
-
-  // 기타 재화 (기본 폴백) — 쿠팡 정확한 5개 필드
-  return [{
-    noticeCategoryName: '기타 재화',
-    noticeCategoryDetailName: [
-      { noticeCategoryDetailName: '품명 및 모델명', content: productName || '상세페이지 참조' },
-      { noticeCategoryDetailName: '법에 의한 인증·허가 등을 받았음을 확인할 수 있는 경우 그에 대한 사항', content: '해당사항 없음' },
-      { noticeCategoryDetailName: '제조국 또는 원산지', content: '상세페이지 참조' },
-      { noticeCategoryDetailName: '제조자, 수입품의 경우 수입자를 함께 표기', content: brand || '상세페이지 참조' },
-      { noticeCategoryDetailName: 'A/S 책임자와 전화번호 또는 소비자상담 관련 전화번호', content: contactNumber || '상세페이지 참조' },
-    ],
-  }];
-}
