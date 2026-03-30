@@ -365,7 +365,7 @@ export default memo(function BulkStep2Review({
 
   const applyBulkBrand = useCallback(() => {
     if (!bulkBrandValue.trim()) return;
-    onSetProducts(prev => prev.map(p => p.selected ? { ...p, editedBrand: bulkBrandValue } : p));
+    onSetProducts(prev => prev.map(p => p.selected ? { ...p, editedBrand: bulkBrandValue.slice(0, 2) } : p));
     setBulkAction(null); setBulkBrandValue('');
   }, [bulkBrandValue, onSetProducts]);
 

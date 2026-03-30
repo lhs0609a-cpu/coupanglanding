@@ -948,7 +948,11 @@ export function useBulkRegisterActions() {
         setSessionRestoreOffered(true);
         const shouldRestore = confirm(`이전 작업 세션이 있습니다 (${data.products.length}개 상품, ${Math.round((Date.now() - data.savedAt) / 60000)}분 전). 복원하시겠습니까?`);
         if (shouldRestore) {
-          setProducts(data.products);
+          // 브랜드 앞 2글자 축약 적용 (이전 세션에 전체 브랜드명이 저장됐을 수 있음)
+          setProducts((data.products as EditableProduct[]).map((p: EditableProduct) => ({
+            ...p,
+            editedBrand: p.editedBrand ? p.editedBrand.slice(0, 2) : '',
+          })));
           setBrackets(data.brackets || brackets);
           setSelectedOutbound(data.selectedOutbound || '');
           setSelectedReturn(data.selectedReturn || '');
