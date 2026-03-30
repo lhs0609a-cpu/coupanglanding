@@ -5,7 +5,6 @@ import {
   applyInstantCoupon,
   createInstantCoupon,
   createDownloadCoupon,
-  addDownloadCouponItems,
   checkDownloadCouponStatus,
   checkInstantCouponStatus,
   getInstantCouponItemCount,
@@ -185,7 +184,9 @@ async function ensureInstantCoupon(
   return { couponId, couponName: config.instant_coupon_name };
 }
 
-// ── 다운로드 쿠폰 배치 생성 (2단계: 쿠폰 생성 → 아이템 등록) ──
+// ── 다운로드 쿠폰 배치 생성 (생성 시 vendorItemIds 포함 — 1단계로 통합) ──
+// ★ 쿠팡 공식: "다운로드쿠폰은 최초 생성 시 설정한 쿠폰 적용 상품을 추후 바꿀 수 없습니다."
+//   → vendorItemIds를 생성 시 포함해야 함. 별도 PUT /coupon-items는 "요청불가" 발생.
 async function createDownloadCouponBatch(
   credentials: CoupangCredentials,
   config: Config,
@@ -193,7 +194,8 @@ async function createDownloadCouponBatch(
   batchNumber: number,
 ): Promise<{ couponId: number; couponName: string }> {
   const now = new Date();
-  const startDate = new Date(now.getTime() + 5 * 60 * 1000);
+  // 쿠팡 문서: "생성 후 최소 1시간 이후부터 프론트에 반영"
+  const startDate = new Date(now.getTime() + 60 * 60 * 1000); // +1시간
   const endDate = new Date(startDate);
   const durationDays = Math.min(config.download_coupon_duration_days || 30, 90);
   endDate.setDate(endDate.getDate() + durationDays);
@@ -208,15 +210,16 @@ async function createDownloadCouponBatch(
     throw new Error('다운로드 쿠폰 정책(policies)이 설정되지 않았습니다. 기존 쿠폰에서 정책을 복사해주세요.');
   }
 
-  console.log(`[bulk-apply] 다운로드 쿠폰 기간: ${startDate.toISOString()} ~ ${endDate.toISOString()} (${durationDays}일)`);
+  console.log(`[bulk-apply] 다운로드 쿠폰 기간: ${startDate.toISOString()} ~ ${endDate.toISOString()} (${durationDays}일), 아이템 ${vendorItemIds.length}개 포함`);
 
-  // Step 1: 쿠폰 생성
+  // ★ 쿠폰 생성 시 vendorItemIds 포함 (별도 아이템 등록 불필요)
   const newCoupon = await createDownloadCoupon(credentials, {
     title,
     startDate: startDate.toISOString(),
     endDate: endDate.toISOString(),
     policies,
     contractId: config.contract_id,
+    vendorItemIds,
   });
 
   let couponId = newCoupon.couponId;
@@ -252,19 +255,6 @@ async function createDownloadCouponBatch(
     }
     if (couponId === 0) {
       throw new Error(`다운로드 쿠폰 비동기 처리 중 (txId: ${newCoupon.requestTransactionId}).`);
-    }
-  }
-
-  // Step 2: 아이템 등록
-  if (vendorItemIds.length > 0) {
-    console.log(`[bulk-apply] 쿠폰 ${couponId} 준비 대기 3초...`);
-    await new Promise((r) => setTimeout(r, 3000));
-
-    console.log(`[bulk-apply] 쿠폰 ${couponId}에 ${vendorItemIds.length}개 아이템 등록`);
-    const itemResult = await addDownloadCouponItems(credentials, couponId, vendorItemIds);
-
-    if (itemResult.requestResultStatus !== 'SUCCESS') {
-      throw new Error(`다운로드 쿠폰(${couponId}) 아이템 등록 실패: status=${itemResult.requestResultStatus}`);
     }
   }
 
@@ -456,18 +446,30 @@ export async function POST(request: NextRequest) {
               }
 
               // ★ 결과 판정: 쿠팡 응답 기반으로 성공/부분성공/전체실패 처리
-              // 전체 실패(0건 성공) = 이미 적용된 상품 → 재시도 없이 적용 완료 처리
               const isAllFail = (pollStatus === 'FAIL' || pollStatus === 'FAILED' || pollStatus === 'ERROR')
                 && pollSuccessCount === 0 && pollFailCount > 0;
 
               if (isAllFail) {
-                // ★ 전체 실패 = 이미 쿠팡에 적용된 상품들 (중복 적용 거부)
-                // 재시도하면 똑같이 실패하므로, 즉시 "적용 완료"로 처리하고 다음 단계로
-                console.log(`[bulk-apply] 즉시할인 전체 실패 (${pollFailCount}건) — 이미 적용된 상품으로 간주, 다음 단계 진행`);
-                batchInstantSuccess += validItems.length; // 카운터는 성공으로 (이미 적용됨)
-                const newStatus = hasDownload ? 'pending' : 'completed';
+                // ★ 전체 실패 — 실패로 기록하고 재시도 허용 (이전: 성공 가정 → 에러 은폐)
+                batchInstantFailed += validItems.length;
+                const failMsg = `즉시할인 전체 실패: ${pollFailCount}건, status=${pollStatus}`;
+                lastError = `[즉시할인] ${failMsg}`;
+                console.error(`[bulk-apply] ${failMsg}`);
+
+                await serviceClient.from('coupon_apply_log').insert(
+                  validItems.map((item) => ({
+                    pt_user_id: ptUser.id,
+                    coupon_type: 'instant',
+                    coupon_id: String(couponId),
+                    coupon_name: couponName,
+                    seller_product_id: item.seller_product_id,
+                    vendor_item_id: item.vendor_item_id,
+                    success: false,
+                    error_message: failMsg,
+                  })),
+                );
                 await serviceClient.from('product_coupon_tracking')
-                  .update({ status: newStatus, instant_coupon_applied: true, error_message: null })
+                  .update({ status: 'failed', instant_coupon_applied: false, error_message: failMsg })
                   .in('id', validItems.map((p) => p.id));
 
                 await new Promise((r) => setTimeout(r, 2000));

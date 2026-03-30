@@ -647,21 +647,41 @@ export async function createInstantCoupon(
 /** 즉시할인 쿠폰 아이템 추가 (상품에 쿠폰 연결) — 비동기 (requestedId 반환)
  *
  *  쿠팡 FMS coupon-items API:
- *  - POST /api/v1/vendors/{vendorId}/coupons/{couponId}/items
- *  - body: { vendorItemIds: [number, ...] }
+ *  - POST /api/v2/vendors/{vendorId}/coupons/{couponId}/items  (v2 우선 시도)
+ *  - POST /api/v1/vendors/{vendorId}/coupons/{couponId}/items  (v1 폴백)
+ *  - body: { vendorItemIds: [number, ...] }  (vendorItems도 동시 전송 — 호환성)
  *  - 쿠팡 Wing "총 1건"은 1 API 배치 요청을 의미 (내부적으로 N개 아이템 처리) */
 export async function applyInstantCoupon(
   credentials: CoupangCredentials,
   couponId: number,
   vendorItemIds: (string | number)[],
 ): Promise<{ requestedId?: string }> {
-  const path = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/coupons/${couponId}/items`;
   const numericIds = vendorItemIds.map(Number).filter((n) => !isNaN(n));
 
   console.log(`[applyInstantCoupon] 쿠폰 ${couponId}에 ${numericIds.length}개 아이템 등록 요청, 샘플: [${numericIds.slice(0, 5).join(',')}...]`);
 
-  // 쿠팡 FMS API 스펙: 필드명은 "vendorItems" (vendorItemIds 아님!)
-  const result = await callCoupangApi(credentials, 'POST', path, { vendorItems: numericIds }) as Record<string, unknown>;
+  // ★ 필드명 호환성: vendorItemIds(공식 문서 추정) + vendorItems(레거시) 동시 전송
+  //   쿠팡 API는 인식하는 필드만 사용, 나머지 무시
+  const body = { vendorItemIds: numericIds, vendorItems: numericIds };
+
+  // v2 엔드포인트 우선 시도 (쿠폰 생성/조회가 v2이므로)
+  const v2Path = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/coupons/${couponId}/items`;
+  const v1Path = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/coupons/${couponId}/items`;
+
+  let result: Record<string, unknown>;
+  try {
+    result = await callCoupangApi(credentials, 'POST', v2Path, body) as Record<string, unknown>;
+    console.log(`[applyInstantCoupon] v2 성공`);
+  } catch (v2Err) {
+    // v2 실패(404/410) → v1 폴백
+    const isRetired = v2Err instanceof CoupangApiError && (v2Err.statusCode === 404 || v2Err.statusCode === 410);
+    if (isRetired) {
+      console.log(`[applyInstantCoupon] v2 미지원 (${(v2Err as CoupangApiError).statusCode}) → v1 폴백`);
+      result = await callCoupangApi(credentials, 'POST', v1Path, body) as Record<string, unknown>;
+    } else {
+      throw v2Err;
+    }
+  }
 
   // 응답: { code:200, data: { success, content: { requestedId } } }
   const data = (result.data || result) as Record<string, unknown>;
@@ -679,9 +699,17 @@ export async function checkInstantCouponStatus(
   credentials: CoupangCredentials,
   requestedId: string,
 ): Promise<unknown> {
-  // 쿠팡 공식: /api/v1/vendors/{vendorId}/requested/{requestedId}
-  const path = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/requested/${requestedId}`;
-  return callCoupangApi(credentials, 'GET', path);
+  // v2 우선, v1 폴백
+  const v2Path = `${FMS_BASE}/v2/vendors/${credentials.vendorId}/requested/${requestedId}`;
+  const v1Path = `${FMS_BASE}/v1/vendors/${credentials.vendorId}/requested/${requestedId}`;
+  try {
+    return await callCoupangApi(credentials, 'GET', v2Path);
+  } catch (err) {
+    if (err instanceof CoupangApiError && (err.statusCode === 404 || err.statusCode === 410)) {
+      return callCoupangApi(credentials, 'GET', v1Path);
+    }
+    throw err;
+  }
 }
 
 /** 다운로드 쿠폰 목록 조회
@@ -868,10 +896,12 @@ export async function addDownloadCouponItems(
   const numericIds = vendorItemIds.map(Number).filter((n) => !isNaN(n));
 
   // 쿠팡 공식 스펙: PUT /coupon-items, body: { couponItems: [...] }
+  // ★ 참고: 쿠팡 문서에 따르면 생성 시 vendorItemIds 포함이 권장됨.
+  //   이 함수는 폴백용으로만 유지.
   const mktPath = `${MKT_OPENAPI_BASE}/coupon-items`;
   const body = {
     couponItems: [{
-      couponId: String(couponId),
+      couponId: Number(couponId),  // ★ Number 타입 (쿠팡 API 스펙)
       userId: credentials.vendorId,
       vendorItemIds: numericIds,
     }],
