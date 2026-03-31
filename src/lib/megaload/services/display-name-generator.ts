@@ -1,7 +1,13 @@
 // ============================================================
-// 노출상품명(displayProductName) SEO 최적화 생성기 v3
+// 노출상품명(displayProductName) SEO 최적화 생성기 v4.1
 //
-// 핵심 원리: "추출 → 분류 → 안전 확장"
+// 리셀러 최적 전략 (브랜드 미포함 — 아이템위너 리스크 방지):
+//   구조: [성분 2-3] [특징 2-3] [유형] [서술어 1-2] [카테고리KW 2] [원산지] [스펙]
+//   - 브랜드 미포함 (리셀러 → IP 리스크)
+//   - 핵심 키워드 모바일 40자 내 노출
+//   - 타겟 45~60자 (검색 커버리지 ↔ 스터핑 균형)
+//   - 동일 단어 최대 2회
+//   - 홍보성/과장 수식어 금지
 //
 // Phase 1: 원본 상품명에서 토큰 추출 & 분류
 //   - TYPE:  [바디워시]         ← 상품 유형
@@ -11,19 +17,11 @@
 //   - DESC:  [150년, 명품]      ← 서술어
 //   - SPEC:  [500ml]           ← 스펙
 //
-// Phase 2: 안전 확장 규칙
-//   - Generic (카테고리 수준): 항상 추가 가능 ✅
-//   - TYPE 동의어: 바디워시→샤워젤 ✅
-//   - INGR/FEAT 동의어: 원본 매칭된 것만 ✅
-//   - INGR/FEAT 신규 추가: ❌ 절대 안 됨!
+// Phase 2: 구조적 배치 (고정 순서, 브랜드 제외)
+//   [성분 2-3] → [특징 2-3] → [유형 1-2] → [서술어 1-2]
+//   → [카테고리 키워드 2] → [원산지] → [스펙]
 //
-// Phase 3: 다양성 확보 (6가지 전략)
-//   1. 토큰 순서 변형
-//   2. 안전 동의어 치환 (TYPE/FEAT만)
-//   3. 복합어 생성
-//   4. 부분 선택 (토큰 풀에서 서브셋)
-//   5. Generic 회전
-//   6. 스펙 위치 변형
+// 다양성: 시드 기반 서브셋 선택 (성분/특징/서술어/Generic)
 // ============================================================
 
 import { createSeededRandom, stringToSeed } from './seeded-random';
@@ -51,7 +49,6 @@ export interface ClassifiedTokens {
 
 const CATEGORY_POOLS: Record<string, CategoryPool> = seoData.categoryPools;
 const SYNONYM_GROUPS: Record<string, string[]> = seoData.synonymGroups;
-const UNIVERSAL_MODIFIERS: string[] = (seoData as Record<string, unknown>).universalModifiers as string[] || [];
 
 // ─── 상수 ────────────────────────────────────────────────
 
@@ -282,7 +279,9 @@ export function classifyTokens(
     }
 
     // 브랜드명 제외 (위의 원산지/TYPE/성분/특징에 해당 안 하는 경우에만)
-    if (lower === brandLower || brandLower.includes(lower)) continue;
+    // 축약 브랜드(2글자)의 원본 브랜드명도 제외 (예: 브랜드="필립", "필립스" 제외)
+    if (lower === brandLower || brandLower.includes(lower) ||
+        (brandLower.length >= 2 && lower.startsWith(brandLower) && lower.length <= brandLower.length + 3)) continue;
 
     // 그 외 → 서술어
     result.descriptors.push(token);
@@ -409,47 +408,29 @@ export function findBestPool(categoryPath: string): CategoryPool {
 /** 카테고리 풀에 없는 4000+ 소분류를 커버: 경로 세그먼트에서 키워드 자동 생성 */
 function generatePoolFromPath(segments: string[]): CategoryPool {
   const generic: string[] = [];
-  const features: string[] = [];
 
   // 각 세그먼트를 generic으로 활용
   for (const seg of segments) {
     if (seg.length >= 2) generic.push(seg);
   }
 
-  // 리프 노드에서 synonymGroups 매칭하여 동의어 추가
+  // 리프 노드에서 synonymGroups 매칭하여 동의어 추가 (최대 3개)
   const leaf = segments[segments.length - 1] || '';
   const leafLower = leaf.toLowerCase();
   for (const [key, synonyms] of Object.entries(SYNONYM_GROUPS)) {
     const keyLower = key.toLowerCase();
     if (leafLower.includes(keyLower) || keyLower.includes(leafLower)) {
-      for (const s of synonyms.slice(0, 5)) {
+      for (const s of synonyms.slice(0, 3)) {
         if (!generic.includes(s)) generic.push(s);
       }
+      break; // 첫 매칭만 사용
     }
   }
 
-  // universalModifiers에서 보강
-  for (const m of UNIVERSAL_MODIFIERS.slice(0, 15)) {
-    if (!generic.includes(m)) features.push(m);
-  }
-
-  return { generic, ingredients: [], features };
+  return { generic, ingredients: [], features: [] };
 }
 
-// ─── Phase 2: 안전 확장 ─────────────────────────────────
-
-/** 동의어 중 원본과 다른 것 반환 (TYPE/FEAT에만 사용) */
-function getSynonym(word: string, rng: () => number): string {
-  for (const [, synonyms] of Object.entries(SYNONYM_GROUPS)) {
-    if (synonyms.some(s => s.toLowerCase() === word.toLowerCase())) {
-      const others = synonyms.filter(s => s.toLowerCase() !== word.toLowerCase());
-      if (others.length > 0) {
-        return others[Math.floor(rng() * others.length)];
-      }
-    }
-  }
-  return word;
-}
+// ─── Phase 2: 구조적 배치 도우미 ────────────────────────
 
 /** 셀러별 서브셋 선택 (Fisher-Yates) */
 function selectSubset<T>(items: T[], count: number, rng: () => number): T[] {
@@ -462,24 +443,23 @@ function selectSubset<T>(items: T[], count: number, rng: () => number): T[] {
   return shuffled.slice(0, count);
 }
 
-/** Fisher-Yates 셔플 (in-place) */
-function shuffle<T>(arr: T[], rng: () => number): void {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-}
+// ─── Phase 3: 구조적 SEO 배치 ──────────────────────────
 
-// ─── Phase 3: 조합 생성 ────────────────────────────────
+const TARGET_MIN_CHARS = 45;
+const TARGET_MAX_CHARS = 60;
+const HARD_MAX_CHARS = 70;
 
 /**
- * 쿠팡 SEO 최적화 노출상품명 생성 v3
+ * 쿠팡 SEO 최적화 노출상품명 생성 v4.1
  *
- * 핵심 변경:
- * - 원본 상품명에서 토큰을 추출하고 분류
- * - 원본에 없는 성분/특징은 절대 추가 안 함
- * - Generic (카테고리 수준) 키워드만 자유롭게 추가
- * - 다양성: 순서/동의어/복합어/부분선택/Generic회전/스펙위치
+ * 리셀러 최적 전략:
+ *   [성분 2-3] [특징 2-3] [상품유형] [서술어 1-2] [카테고리키워드 2] [원산지] [스펙]
+ *
+ * - 브랜드 미포함 (리셀러 → 아이템위너 리스크 방지)
+ * - 성분/특징: 원본에서 추출한 것만 (허위 정보 방지)
+ * - 카테고리 키워드 2개로 검색 커버리지 확보
+ * - 타겟 45~60자 (너무 짧으면 검색 노출 ↓, 너무 길면 스터핑)
+ * - 동일 단어 최대 2회, 홍보성 수식어 미사용
  */
 export function generateDisplayName(
   originalName: string,
@@ -495,133 +475,105 @@ export function generateDisplayName(
   // Phase 1: 토큰 추출 & 분류
   const classified = classifyTokens(originalName, categoryPath, brand);
 
-  // Phase 2: 안전 확장
+  // Phase 2: 구조적 SEO 배치 (브랜드 제외)
+  const parts: string[] = [];
   const usedWords = new Set<string>();
-  const allWords: string[] = [];
 
-  // (a) TYPE: 동의어로 치환 (원본 유형 → 다른 유형명)
-  for (const t of classified.type) {
-    const synonym = getSynonym(t, rng);
-    if (!usedWords.has(synonym.toLowerCase())) {
-      allWords.push(synonym);
-      usedWords.add(synonym.toLowerCase());
-    }
+  const addToken = (word: string): boolean => {
+    const lower = word.toLowerCase();
+    if (usedWords.has(lower)) return false;
+    usedWords.add(lower);
+    parts.push(word);
+    return true;
+  };
+
+  // ① 핵심 성분 (INGREDIENTS) — 원본에서 추출, 최대 3개
+  const ingrToUse = selectSubset(classified.ingredients, 3, rng);
+  for (const ingr of ingrToUse) {
+    addToken(ingr);
   }
 
-  // (b) INGREDIENTS: 원본 매칭된 성분만 (동의어 확장 1개씩)
-  for (const ingr of classified.ingredients) {
-    if (!usedWords.has(ingr.toLowerCase())) {
-      allWords.push(ingr);
-      usedWords.add(ingr.toLowerCase());
-    }
-    const ingrSynonym = getSynonym(ingr, rng);
-    if (ingrSynonym.toLowerCase() !== ingr.toLowerCase() && !usedWords.has(ingrSynonym.toLowerCase())) {
-      allWords.push(ingrSynonym);
-      usedWords.add(ingrSynonym.toLowerCase());
-    }
+  // ② 핵심 특징 (FEATURES) — 원본에서 추출, 최대 3개
+  const featToUse = selectSubset(classified.features, 3, rng);
+  for (const feat of featToUse) {
+    addToken(feat);
   }
 
-  // (c) FEATURES: 원본 매칭된 특징만 (동의어 확장)
-  for (const feat of classified.features) {
-    if (!usedWords.has(feat.toLowerCase())) {
-      allWords.push(feat);
-      usedWords.add(feat.toLowerCase());
-    }
-    const featSynonym = getSynonym(feat, rng);
-    if (featSynonym.toLowerCase() !== feat.toLowerCase() && !usedWords.has(featSynonym.toLowerCase())) {
-      allWords.push(featSynonym);
-      usedWords.add(featSynonym.toLowerCase());
-    }
-  }
-
-  // (d) ORIGIN: 원산지 그대로
-  for (const orig of classified.origin) {
-    if (!usedWords.has(orig.toLowerCase())) {
-      allWords.push(orig);
-      usedWords.add(orig.toLowerCase());
-    }
-  }
-
-  // (e) DESCRIPTORS: 서술어 일부 포함 (최대 3개)
-  const selectedDesc = selectSubset(classified.descriptors, 3, rng);
-  for (const desc of selectedDesc) {
-    if (!usedWords.has(desc.toLowerCase())) {
-      allWords.push(desc);
-      usedWords.add(desc.toLowerCase());
-    }
-  }
-
-  // (f) GENERIC: 카테고리 수준 키워드에서 3~5개 회전 선택 (항상 안전)
-  const pool = findBestPool(categoryPath);
-  {
-    const genericCount = 3 + Math.floor(rng() * 3); // 3~5개
-    const availableGeneric = pool.generic.filter(g => !usedWords.has(g.toLowerCase()));
-    const selectedGeneric = selectSubset(availableGeneric, genericCount, rng);
-    for (const g of selectedGeneric) {
-      allWords.push(g);
-      usedWords.add(g.toLowerCase());
-    }
-  }
-
-  // (g) 복합어 생성: TYPE + INGR, FEAT + TYPE 등 (1~2개)
-  if (classified.type.length > 0 && classified.ingredients.length > 0) {
-    const compoundCount = 1 + Math.floor(rng() * 2); // 1~2개
-    for (let i = 0; i < compoundCount; i++) {
-      const t = classified.type[Math.floor(rng() * classified.type.length)];
-      const ingr = classified.ingredients[Math.floor(rng() * classified.ingredients.length)];
-      const compound = rng() < 0.5 ? `${ingr}${t}` : `${t}${ingr}`;
-      if (!usedWords.has(compound.toLowerCase()) && compound.length <= 12) {
-        allWords.push(compound);
-        usedWords.add(compound.toLowerCase());
+  // ③ 상품 유형 (TYPE) — 메인 키워드 + 동의어 1개
+  for (const t of classified.type.slice(0, 2)) {
+    addToken(t);
+    // TYPE 동의어 추가 (검색 커버리지 확장: 크림→페이스크림 등)
+    for (const [, synonyms] of Object.entries(SYNONYM_GROUPS)) {
+      if (synonyms.some(s => s.toLowerCase() === t.toLowerCase())) {
+        const others = synonyms.filter(s => s.toLowerCase() !== t.toLowerCase() && !usedWords.has(s.toLowerCase()));
+        if (others.length > 0) {
+          addToken(others[Math.floor(rng() * others.length)]);
+        }
+        break;
       }
     }
   }
 
-  // (h) Universal modifiers: 2~4개 추가 — 쿠팡 SEO 다양성 확보
-  if (UNIVERSAL_MODIFIERS.length > 0) {
-    const modCount = 2 + Math.floor(rng() * 3); // 2~4개
-    const availableMods = UNIVERSAL_MODIFIERS.filter(m => !usedWords.has(m.toLowerCase()));
-    const selectedMods = selectSubset(availableMods, modCount, rng);
-    for (const m of selectedMods) {
-      allWords.push(m);
-      usedWords.add(m.toLowerCase());
+  // ④ 서술어 (DESCRIPTORS) — 최대 2개
+  if (classified.descriptors.length > 0) {
+    const descToUse = selectSubset(classified.descriptors, 2, rng);
+    for (const d of descToUse) {
+      addToken(d);
     }
   }
 
-  // Phase 3: 중복 제거 & 셔플
-  const unique: string[] = [];
-  const seenFinal = new Set<string>();
-  for (const w of allWords) {
-    const l = w.toLowerCase();
-    if (!seenFinal.has(l)) {
-      seenFinal.add(l);
-      unique.push(w);
+  // ⑤ 카테고리 키워드 (GENERIC) — 3개 (검색 커버리지 확보)
+  const pool = findBestPool(categoryPath);
+  {
+    const availableGeneric = pool.generic.filter(g => !usedWords.has(g.toLowerCase()));
+    const genericPicks = selectSubset(availableGeneric, 3, rng);
+    for (const g of genericPicks) {
+      addToken(g);
     }
   }
 
-  // 전체 셔플
-  shuffle(unique, rng);
+  // ⑥ 원산지 (ORIGIN) — 최대 1개
+  for (const orig of classified.origin.slice(0, 1)) {
+    addToken(orig);
+  }
 
-  // 스펙은 항상 맨 뒤에 배치
-  const specTokens = classified.specs.filter(s => !seenFinal.has(s.toLowerCase()));
-  unique.push(...specTokens);
+  // ⑦ 스펙 — 맨 뒤 고정 (최대 3개)
+  for (const spec of classified.specs.slice(0, 3)) {
+    addToken(spec);
+  }
 
-  // 최소 단어수 보장: 6개 미만이면 Generic 추가 보충
-  if (unique.length < 6) {
-    const remaining = pool.generic.filter(g => !usedWords.has(g.toLowerCase()));
-    const extra = selectSubset(remaining, 6 - unique.length, rng);
-    for (const g of extra) {
-      unique.push(g);
+  // ── 45~60자 타겟 맞추기 ──────────────────────────────
+
+  let currentLen = parts.join(' ').length;
+
+  // 45자 미만이면 패딩 (Generic 추가 → 카테고리 경로 세그먼트 → 더 많은 Generic)
+  if (currentLen < TARGET_MIN_CHARS) {
+    // 패딩 소스 1: 남은 Generic 키워드
+    const remainingGeneric = pool.generic.filter(g => !usedWords.has(g.toLowerCase()));
+    const extraGeneric = selectSubset(remainingGeneric, 6, rng);
+    for (const g of extraGeneric) {
+      if (parts.join(' ').length >= TARGET_MIN_CHARS) break;
+      addToken(g);
     }
   }
 
-  // 100자 제한
-  let result = unique.join(' ');
-  if (result.length > 100) {
+  if (parts.join(' ').length < TARGET_MIN_CHARS) {
+    // 패딩 소스 2: 카테고리 경로 세그먼트
+    const catSegments = categoryPath.split('>').map(s => s.trim()).filter(s => s.length >= 2);
+    for (const seg of catSegments) {
+      if (parts.join(' ').length >= TARGET_MIN_CHARS) break;
+      addToken(seg);
+    }
+  }
+
+  let result = parts.join(' ');
+
+  // 70자 초과면 뒤에서부터 축약 (스펙은 유지)
+  if (result.length > HARD_MAX_CHARS) {
     const trimmed: string[] = [];
     let len = 0;
-    for (const w of unique) {
-      if (len + w.length + (len > 0 ? 1 : 0) > 100) break;
+    for (const w of parts) {
+      if (len + w.length + (len > 0 ? 1 : 0) > HARD_MAX_CHARS) break;
       trimmed.push(w);
       len += w.length + (len > 0 ? 1 : 0);
     }
@@ -632,7 +584,7 @@ export function generateDisplayName(
   const { cleanedText } = checkCompliance(result, { removeErrors: true, categoryContext: categoryPath });
   result = cleanedText || result;
 
-  return result || originalName.slice(0, 100);
+  return result || originalName.slice(0, HARD_MAX_CHARS);
 }
 
 /**
