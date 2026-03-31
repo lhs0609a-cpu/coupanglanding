@@ -1,13 +1,13 @@
 {
   "tones": [
-    {"id":"young_woman","name":"20대 여성","prefix":"","suffix":"💕","style":"~해요, ~거든요, 진짜, 대박"},
-    {"id":"mom_30s","name":"30대 주부","prefix":"","suffix":"😊","style":"~합니다, ~더라고요, 솔직히"},
-    {"id":"man_office","name":"30대 직장인 남성","prefix":"","suffix":"👍","style":"~입니다, ~네요, 확실히"},
+    {"id":"young_woman","name":"20대 여성","prefix":"","suffix":"","style":"~해요, ~거든요, 진짜, 대박"},
+    {"id":"mom_30s","name":"30대 주부","prefix":"","suffix":"","style":"~합니다, ~더라고요, 솔직히"},
+    {"id":"man_office","name":"30대 직장인 남성","prefix":"","suffix":"","style":"~입니다, ~네요, 확실히"},
     {"id":"senior","name":"50대 이상","prefix":"","suffix":"","style":"~습니다, ~드립니다, 정말"},
-    {"id":"expert","name":"전문가 리뷰어","prefix":"[상세리뷰]","suffix":"⭐","style":"~됩니다, 객관적으로, 결론적으로"},
-    {"id":"casual","name":"캐주얼","prefix":"","suffix":"ㅋㅋ","style":"~임, ~ㅋㅋ, 개좋음, 찐"},
-    {"id":"emotional","name":"감성형","prefix":"","suffix":"🌿","style":"~네요, ~었어요, 따뜻한, 포근한"},
-    {"id":"practical","name":"실용주의","prefix":"","suffix":"✅","style":"~입니다, 가성비, 실용적, 결과적으로"}
+    {"id":"expert","name":"전문가 리뷰어","prefix":"","suffix":"","style":"~됩니다, 객관적으로, 결론적으로"},
+    {"id":"casual","name":"캐주얼","prefix":"","suffix":"","style":"~임, ~거든, 개좋음, 찐"},
+    {"id":"emotional","name":"감성형","prefix":"","suffix":"","style":"~네요, ~었어요, 따뜻한, 포근한"},
+    {"id":"practical","name":"실용주의","prefix":"","suffix":"","style":"~입니다, 가성비, 실용적, 결과적으로"}
   ],
   "templates": {
     "뷰티": [

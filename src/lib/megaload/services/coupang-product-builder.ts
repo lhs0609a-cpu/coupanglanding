@@ -103,7 +103,7 @@ export interface BuildCoupangPayloadParams {
   aiStoryParagraphs?: string[];
   aiReviewTexts?: string[];
   consignmentImageUrls?: string[];
-  thirdPartyImageUrl?: string;     // 제3자 이미지 URL (랜덤 선정된 1장)
+  thirdPartyImageUrls?: string[];   // 제3자 이미지 URLs (랜덤 선정된 2장)
   // 구매옵션 (option-extractor 추출값 — item-level 반영용)
   extractedBuyOptions?: ExtractedBuyOption[];
   // 총 수량 (option-extractor의 totalUnitCount — perCount × count)
@@ -231,7 +231,7 @@ export function buildCoupangProductPayload(
     aiStoryParagraphs,
     aiReviewTexts,
     consignmentImageUrls,
-    thirdPartyImageUrl,
+    thirdPartyImageUrls,
     extractedBuyOptions,
     displayProductName,
     sellerProductName,
@@ -287,7 +287,7 @@ export function buildCoupangProductPayload(
   }));
 
   // ---- 3. 상세페이지 (contents) ----
-  console.log(`[payload-builder] 상세페이지 이미지: detail=${detailImageUrls.length}, review=${reviewImageUrls?.length || 0}, info=${infoImageUrls?.length || 0}, consignment=${consignmentImageUrls?.length || 0}, thirdParty=${thirdPartyImageUrl ? 1 : 0}, noticeFields=${filledNotices?.[0]?.noticeCategoryDetailName?.length || 0}`);
+  console.log(`[payload-builder] 상세페이지 이미지: detail=${detailImageUrls.length}, review=${reviewImageUrls?.length || 0}, info=${infoImageUrls?.length || 0}, consignment=${consignmentImageUrls?.length || 0}, thirdParty=${thirdPartyImageUrls?.length || 0}, noticeFields=${filledNotices?.[0]?.noticeCategoryDetailName?.length || 0}`);
   const hasRichContent = aiStoryHtml || aiStoryParagraphs?.length
     || (reviewImageUrls && reviewImageUrls.length > 0)
     || (infoImageUrls && infoImageUrls.length > 0);
@@ -304,7 +304,7 @@ export function buildCoupangProductPayload(
       detailImageUrls,
       infoImageUrls,
       consignmentImageUrls,
-      thirdPartyImageUrl,
+      thirdPartyImageUrls,
       seoKeywords,
       faqItems,
       closingText,
