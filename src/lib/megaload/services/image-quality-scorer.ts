@@ -5,19 +5,19 @@
 // ★ 대표이미지 기준: 흰배경 누끼 + 정면 + 썸네일 크기 최적화
 //
 // 분석 항목 (50x50 축소 기준):
-//  - 단일상품 집중도 (18%): 번들/세트 이미지 감점 — 누끼딴 단일 상품 최우선 ★핵심
-//  - 프레임 점유율 (15%): 상품이 이미지를 얼마나 채우는지 — 썸네일 가시성 ★핵심
-//  - 배경 밝기 (12%): 흰색/밝은 배경 선호 ★핵심
-//  - 가장자리 잘림 (12%): 제품이 이미지 경계에서 잘린 이미지 감점 ★핵심
-//  - 좌우 대칭도 (10%): 정면 촬영 = 높은 대칭 → 대표이미지 우선 ★핵심
-//  - 배경 채도 (8%): 컬러 배경 → 하드필터 (로고/배너/포장재 차단) ★핵심
+//  - 배경 밝기 (20%): 흰색/밝은 배경 선호 ★★★ 최우선
+//  - 배경 채도 (12%): 컬러 배경 → 하드필터 (로고/배너/포장재 차단) ★★
+//  - 단일상품 집중도 (15%): 번들/세트 이미지 감점 — 누끼딴 단일 상품 ★★
+//  - 프레임 점유율 (12%): 상품이 이미지를 얼마나 채우는지 — 썸네일 가시성 ★
+//  - 가장자리 잘림 (10%): 제품이 이미지 경계에서 잘린 이미지 감점 ★
+//  - 좌우 대칭도 (10%): 정면 촬영 = 높은 대칭 → 대표이미지 우선 ★
 //  - 선명도 (7%): Laplacian 분산 — 흐릿한 이미지 감점 (↑ 썸네일 축소 시 중요)
-//  - 중심 집중도 (5%): 피사체가 중앙에 있을수록 고점
-//  - 컨텐츠 충분도 (5%): 비백색 픽셀 5% 미만 → 하드필터 (빈 이미지 차단)
-//  - 피부톤 비율 (4%): 피부색 픽셀 15%+ → 하드필터 (모델 사진 차단)
+//  - 중심 집중도 (4%): 피사체가 중앙에 있을수록 고점
+//  - 컨텐츠 충분도 (4%): 비백색 픽셀 5% 미만 → 하드필터 (빈 이미지 차단)
+//  - 피부톤 비율 (3%): 피부색 픽셀 15%+ → 하드필터 (모델 사진 차단)
 //  - 텍스트 밀도 (2%): 엣지 과다(텍스트/워터마크) 감점
-//  - 종횡비 (1%): 1:1에 가까울수록 고점
-//  - 색상 다양성 (1%): 색상 분포가 너무 단순하면 로고/아이콘 의심
+//  - 종횡비 (0.5%): 1:1에 가까울수록 고점
+//  - 색상 다양성 (0.5%): 색상 분포가 너무 단순하면 로고/아이콘 의심
 //
 // 자동 크롭 (autoCropToFill):
 //  - 점유율 55% 이하 + 원본 600px 이상 → 바운딩박스 기준 정사각형 크롭
@@ -27,7 +27,8 @@
 // 하드필터 (해당 시 overall 강제 0):
 //  - 피부톤 ≥ 15% (모델/인물 사진)
 //  - 컨텐츠 < 5% (빈 이미지)
-//  - 배경 채도 > 25% AND 밝기 < 180 (컬러 배경: 로고/배너/포장재)
+//  - 배경 채도 > 20% AND 밝기 < 220 (컬러 배경: 로고/배너/포장재)
+//  - 배경 채도 > 35% (밝기 무관 — 밝은 노란/연두/분홍 배경도 차단)
 //  - 텍스트 배너 감지 (4단계 Tier: 단색~다색 텍스트/홍보 배너)
 //  - 전체 이미지 고채도 > 30% (홍보/이벤트 배너 — 테두리가 흰색이어도 내부 컬러풀)
 //
@@ -98,8 +99,9 @@ async function runPool<T>(
 // ---- 하드필터 상수 ----
 const SKIN_RATIO_HARD = 0.15;        // 피부톤 15%+ → 차단
 const CONTENT_RATIO_HARD = 0.05;     // 비백색 5% 미만 → 차단
-const BG_SATURATION_HARD = 0.25;     // 배경 채도 25%+ → 차단
-const BG_LUMINANCE_CEIL = 180;       // 배경 채도 차단은 밝기 180 미만일 때만
+const BG_SATURATION_HARD = 0.20;     // 배경 채도 20%+ → 차단 (밝기 조건 함께)
+const BG_LUMINANCE_CEIL = 220;       // 배경 채도 차단: 밝기 220 미만 (밝은 컬러 배경도 감지)
+const BG_SATURATION_ABSOLUTE = 0.35; // 채도 35%+ → 밝기 무관 무조건 차단 (노란/연두/분홍 등)
 const FULL_SAT_RATIO_HARD = 0.30;    // 전체 이미지의 30%+ 고채도(sat>0.30) → 홍보/배너 이미지
 
 const ZERO_SCORE: ImageScore = {
@@ -466,21 +468,21 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
   }
 
   // ---- 가중 합산 (100%) ----
-  // ★ 흰배경 누끼 + 정면 + 썸네일 크기 최적화 (핵심 = 75%)
+  // ★ 흰배경이 최우선 — 쿠팡 썸네일에서 흰배경 누끼가 가장 중요
   const overall =
-    productCompactness * 0.18 +    // 누끼 단일상품 ★
-    fillRatio * 0.15 +             // 프레임 점유율 ★ (썸네일 가시성)
-    background * 0.12 +            // 흰배경 ★
-    edgeCrop * 0.12 +              // 상품 완전 포함 ★
+    background * 0.20 +            // 흰배경 ★★★ (최우선)
+    backgroundSaturation * 0.12 +  // 무채색 배경 ★★ (컬러 배경 강력 감점)
+    productCompactness * 0.15 +    // 누끼 단일상품 ★★
+    fillRatio * 0.12 +             // 프레임 점유율 ★ (썸네일 가시성)
+    edgeCrop * 0.10 +              // 상품 완전 포함 ★
     symmetry * 0.10 +              // 정면 촬영 ★
-    backgroundSaturation * 0.08 +  // 무채색 배경 ★
-    sharpness * 0.07 +             // 선명도 (↑ 썸네일 축소 시 중요)
-    centering * 0.05 +
-    contentSufficiency * 0.05 +
-    skinTone * 0.04 +
+    sharpness * 0.07 +             // 선명도
+    centering * 0.04 +
+    contentSufficiency * 0.04 +
+    skinTone * 0.03 +
     textDensity * 0.02 +
-    aspect * 0.01 +
-    colorDiversity * 0.01;
+    aspect * 0.005 +
+    colorDiversity * 0.005;
 
   return {
     overall, background, backgroundSaturation, centering, aspect,
@@ -633,7 +635,11 @@ function scoreBackgroundSaturation(
   const avgLuminance = count > 0 ? lumSum / count : 128;
 
   // 하드필터: 컬러 배경
-  const isHardFiltered = avgSaturation > BG_SATURATION_HARD && avgLuminance < BG_LUMINANCE_CEIL;
+  // 1) 채도 > 20% AND 밝기 < 220 → 대부분의 컬러 배경 차단
+  // 2) 채도 > 35% → 밝기 무관 차단 (밝은 노란/연두/분홍 배경)
+  const isHardFiltered =
+    (avgSaturation > BG_SATURATION_HARD && avgLuminance < BG_LUMINANCE_CEIL) ||
+    avgSaturation > BG_SATURATION_ABSOLUTE;
 
   // 점수: 채도 0% → 100점, 채도 20% → 60점, 채도 40%+ → 10점
   let score: number;
