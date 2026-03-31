@@ -40,6 +40,8 @@ export interface DetailPageParams {
   categoryPath?: string;           // 카테고리 경로 (컬러 테마용)
   // V2: 설득형 콘텐츠 블록
   contentBlocks?: ContentBlock[];    // 설득형 블록 배열 (있으면 새 렌더러 사용)
+  // 상품고지정보 텍스트 테이블 (이미지 없을 때 폴백)
+  noticeFields?: { name: string; value: string }[];
 }
 
 // ─── 레이아웃별 CSS 변형값 ──────────────────────────────────
@@ -160,6 +162,7 @@ function buildLayoutA(params: DetailPageParams): string {
 
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
+  if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
   if (consignmentImageUrls && consignmentImageUrls.length > 0) sections.push(buildConsignmentSection(consignmentImageUrls));
   if (thirdPartyImageUrl) sections.push(buildThirdPartySection(thirdPartyImageUrl));
 
@@ -208,6 +211,7 @@ function buildLayoutB(params: DetailPageParams): string {
 
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
+  if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
   if (consignmentImageUrls && consignmentImageUrls.length > 0) sections.push(buildConsignmentSection(consignmentImageUrls));
   if (thirdPartyImageUrl) sections.push(buildThirdPartySection(thirdPartyImageUrl));
 
@@ -262,6 +266,7 @@ function buildLayoutC(params: DetailPageParams): string {
 
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
+  if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
   if (consignmentImageUrls && consignmentImageUrls.length > 0) sections.push(buildConsignmentSection(consignmentImageUrls));
   if (thirdPartyImageUrl) sections.push(buildThirdPartySection(thirdPartyImageUrl));
 
@@ -318,6 +323,7 @@ function buildLayoutD(params: DetailPageParams): string {
 
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
+  if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
   if (consignmentImageUrls && consignmentImageUrls.length > 0) sections.push(buildConsignmentSection(consignmentImageUrls));
   if (thirdPartyImageUrl) sections.push(buildThirdPartySection(thirdPartyImageUrl));
 
@@ -495,6 +501,26 @@ function buildConsignmentSection(urls: string[]): string {
 
 function buildThirdPartySection(url: string): string {
   return `<div style="padding:20px 0 30px;"><img src="${esc(url)}" alt="추가 정보" style="width:100%;display:block;" /></div>`;
+}
+
+/** 상품고지정보 텍스트 테이블 — 모바일 최적화 */
+function buildNoticeTable(fields: { name: string; value: string }[]): string {
+  const rows = fields
+    .filter(f => f.name && f.value)
+    .map(f =>
+      `<tr><td style="padding:10px 14px;background:#f8f9fa;border:1px solid #e9ecef;font-size:13px;font-weight:600;color:#555;width:35%;vertical-align:top;word-break:keep-all;">${esc(f.name)}</td>`
+      + `<td style="padding:10px 14px;border:1px solid #e9ecef;font-size:13px;color:#444;line-height:1.6;word-break:keep-all;">${esc(f.value)}</td></tr>`
+    )
+    .join('\n');
+
+  return `<div style="padding:30px 0 0;">
+<div style="text-align:center;margin-bottom:20px;">
+<div style="font-size:16px;font-weight:bold;color:#555;letter-spacing:1px;">상품정보제공고시</div>
+</div>
+<table style="width:100%;border-collapse:collapse;table-layout:fixed;">
+${rows}
+</table>
+</div>`;
 }
 
 // ─── V2: 설득형 콘텐츠 블록 렌더러 (11가지 타입) ─────────────
@@ -760,6 +786,7 @@ export function buildPersuasionPageHtml(
   // 상품정보제공고시 / 위탁판매 정보 / 제3자 이미지
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
+  if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
   if (consignmentImageUrls && consignmentImageUrls.length > 0) sections.push(buildConsignmentSection(consignmentImageUrls));
   if (thirdPartyImageUrl) sections.push(buildThirdPartySection(thirdPartyImageUrl));
 

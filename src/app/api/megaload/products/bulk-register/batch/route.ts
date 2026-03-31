@@ -292,6 +292,8 @@ export async function POST(req: NextRequest) {
         infoImageUrls = allUrls.slice(offset, offset + product.infoImages.length).filter(Boolean);
       }
 
+      console.log(`[batch] ${product.productCode} 이미지 URL: main=${mainImageUrls.length}, detail=${detailImageUrls.length}, review=${reviewImageUrls.length}, info=${infoImageUrls.length}, preUploaded=${!!product.preUploadedUrls}`);
+
       // 대표이미지 최소 1장 필요
       if (mainImageUrls.length === 0) {
         const error = '대표이미지 업로드 실패 — 최소 1장 필요';

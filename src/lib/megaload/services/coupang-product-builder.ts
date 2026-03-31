@@ -287,6 +287,7 @@ export function buildCoupangProductPayload(
   }));
 
   // ---- 3. 상세페이지 (contents) ----
+  console.log(`[payload-builder] 상세페이지 이미지: detail=${detailImageUrls.length}, review=${reviewImageUrls?.length || 0}, info=${infoImageUrls?.length || 0}, consignment=${consignmentImageUrls?.length || 0}, thirdParty=${thirdPartyImageUrl ? 1 : 0}, noticeFields=${filledNotices?.[0]?.noticeCategoryDetailName?.length || 0}`);
   const hasRichContent = aiStoryHtml || aiStoryParagraphs?.length
     || (reviewImageUrls && reviewImageUrls.length > 0)
     || (infoImageUrls && infoImageUrls.length > 0);
@@ -309,6 +310,10 @@ export function buildCoupangProductPayload(
       closingText,
       categoryPath,
       contentBlocks,
+      noticeFields: filledNotices?.[0]?.noticeCategoryDetailName?.map(f => ({
+        name: f.noticeCategoryDetailName,
+        value: f.content,
+      })),
     }, detailLayoutVariant));
   } else {
     detailHtml = buildSimpleDetailHtml(detailImageUrls, productName);
