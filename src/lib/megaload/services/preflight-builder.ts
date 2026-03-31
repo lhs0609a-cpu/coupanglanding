@@ -153,22 +153,18 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
   const faqItems = generateFaqItems(product.name, categoryPath, shUserId, productIndex, 4);
   const closingText = generateClosingText(product.name, categoryPath, shUserId, productIndex);
 
-  // 제3자 이미지: 상품별 결정적 랜덤 — ~25% 확률로 1장 선택
-  // 10개 상품 중 2~3개만 포함되도록 (법적 리스크 분산)
-  let thirdPartyImageUrl: string | undefined;
+  // 제3자 이미지: 상품별 결정적 랜덤 — 10장 중 2장 선택 (100%)
+  let selectedThirdPartyUrls: string[] | undefined;
   if (thirdPartyImageUrls && thirdPartyImageUrls.length > 0) {
-    // productCode를 시드로 사용 → 동일 상품은 항상 동일 결과
     const tpSeed = `tp:${product.productCode}`;
-    const selected = selectWithSeed(thirdPartyImageUrls, tpSeed);
-    // 포함 여부: productCode 해시의 마지막 2자리 → 0~99 중 0~24이면 포함 (25%)
-    const inclusionSeed = `tp-inc:${product.productCode}`;
-    const inclusionVal = selectWithSeed(
-      Array.from({ length: 100 }, (_, i) => i),
-      inclusionSeed,
-    );
-    if (inclusionVal < 25) {
-      thirdPartyImageUrl = selected;
+    // Fisher-Yates 셔플 (시드 기반) 후 앞 2장 선택
+    const shuffled = [...thirdPartyImageUrls];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const seedStr = `${tpSeed}:${i}`;
+      const idx = selectWithSeed(Array.from({ length: i + 1 }, (_, k) => k), seedStr);
+      [shuffled[i], shuffled[idx]] = [shuffled[idx], shuffled[i]];
     }
+    selectedThirdPartyUrls = shuffled.slice(0, Math.min(2, shuffled.length));
   }
 
   // 페이로드 빌드
@@ -220,7 +216,7 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     faqItems,
     closingText,
     contentBlocks: product.contentBlocksOverride || contentBlocks,
-    thirdPartyImageUrl,
+    thirdPartyImageUrls: selectedThirdPartyUrls,
     vendorUserId,
   });
 
