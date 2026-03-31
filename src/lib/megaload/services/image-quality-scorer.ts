@@ -100,9 +100,9 @@ async function runPool<T>(
 const SKIN_RATIO_HARD = 0.15;        // 피부톤 15%+ → 차단
 const CONTENT_RATIO_HARD = 0.05;     // 비백색 5% 미만 → 차단
 const BG_SATURATION_HARD = 0.20;     // 배경 채도 20%+ → 차단 (밝기 조건 함께)
-const BG_LUMINANCE_CEIL = 220;       // 배경 채도 차단: 밝기 220 미만 (밝은 컬러 배경도 감지)
-const BG_SATURATION_ABSOLUTE = 0.35; // 채도 35%+ → 밝기 무관 무조건 차단 (노란/연두/분홍 등)
-const FULL_SAT_RATIO_HARD = 0.30;    // 전체 이미지의 30%+ 고채도(sat>0.30) → 홍보/배너 이미지
+const BG_LUMINANCE_CEIL = 200;       // 배경 채도 차단: 밝기 200 미만 (밝은 흰배경 누끼는 통과)
+const BG_SATURATION_ABSOLUTE = 0.50; // 채도 50%+ → 밝기 무관 무조건 차단 (진한 컬러 배경만)
+const FULL_SAT_RATIO_HARD = 0.40;    // 전체 이미지의 40%+ 고채도(sat>0.30) → 홍보/배너 이미지
 
 const ZERO_SCORE: ImageScore = {
   overall: 0, background: 0, backgroundSaturation: 0, centering: 0,

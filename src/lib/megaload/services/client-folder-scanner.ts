@@ -141,7 +141,7 @@ async function scanSingleProduct(
   let reviewImages = await collectImagesFromSubdir(productDirHandle, 'review_images', IMAGE_PATTERN, false);
   if (reviewImages.length === 0) reviewImages = await collectImagesFromSubdir(productDirHandle, 'reviews', IMAGE_PATTERN, false);
   const detailImages = [...reviewImages];
-  const infoImages = await collectImagesFromSubdir(productDirHandle, 'product_info', IMAGE_PATTERN, false);
+  const infoImages = await collectImagesFromSubdir(productDirHandle, 'product_info', IMAGE_PATTERN, true);
 
   return {
     productCode,
