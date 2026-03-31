@@ -42,6 +42,7 @@ const MAIN_IMAGE_PATTERN = /\.(jpg|jpeg|png|webp)$/i;
 export async function pickAndScanFolder(): Promise<{
   dirName: string;
   products: ScannedProduct[];
+  thirdPartyImages: ScannedImageFile[];
 }> {
   // showDirectoryPicker 지원 확인
   if (!('showDirectoryPicker' in window)) {
@@ -63,6 +64,7 @@ export async function pickAndScanFolder(): Promise<{
 export async function scanDirectoryHandle(dirHandle: FileSystemDirectoryHandle): Promise<{
   dirName: string;
   products: ScannedProduct[];
+  thirdPartyImages: ScannedImageFile[];
 }> {
   // Phase 1: product_* 디렉토리 핸들 수집 (순차 — 빠름)
   const productDirs: { name: string; handle: FileSystemDirectoryHandle }[] = [];
@@ -87,7 +89,19 @@ export async function scanDirectoryHandle(dirHandle: FileSystemDirectoryHandle):
   // 상품코드 순 정렬
   products.sort((a, b) => a.productCode.localeCompare(b.productCode, undefined, { numeric: true }));
 
-  return { dirName: dirHandle.name, products };
+  // 제3자 이미지 폴더 스캔 (배치 루트의 '제3자이미지/' 또는 'third_party/' 하위 폴더)
+  let thirdPartyImages: ScannedImageFile[] = [];
+  for (const subName of ['제3자이미지', 'third_party']) {
+    try {
+      thirdPartyImages = await collectImagesFromSubdir(dirHandle, subName, IMAGE_PATTERN, true);
+      if (thirdPartyImages.length > 0) {
+        console.info(`[scan] 제3자 이미지 ${thirdPartyImages.length}장 발견 (${subName}/)`);
+        break;
+      }
+    } catch { /* 폴더 없음 — 무시 */ }
+  }
+
+  return { dirName: dirHandle.name, products, thirdPartyImages };
 }
 
 /**

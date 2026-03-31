@@ -67,6 +67,7 @@ export function useBulkRegisterActions() {
   const [useStockImages, setUseStockImages] = useState(false);
   const [stockImageProgress, setStockImageProgress] = useState<{ done: number; total: number } | null>(null);
   const [browsingFolder, setBrowsingFolder] = useState(false);
+  const [thirdPartyImages, setThirdPartyImages] = useState<ScannedImageFile[]>([]);
 
   // Shipping
   const [shippingPlaces, setShippingPlaces] = useState<ShippingPlace[]>([]);
@@ -622,7 +623,7 @@ export function useBulkRegisterActions() {
 
     // 템플릿 기반 즉시 생성 (항상 실행 — AI 불필요)
     {
-      const { generateStory } = await import('@/lib/megaload/services/story-generator');
+      const { generateStoryV2 } = await import('@/lib/megaload/services/story-generator');
       const sellerSeed = `seller_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
       setProducts(prev => {
@@ -631,8 +632,8 @@ export function useBulkRegisterActions() {
           const target = targets[i];
           const globalIdx = updated.findIndex(p => p.uid === target.uid);
           if (globalIdx >= 0) {
-            const story = generateStory(
-              target.editedDisplayProductName || target.name,  // 원본 상품명 사용
+            const story = generateStoryV2(
+              target.editedDisplayProductName || target.name,
               target.editedCategoryName,
               sellerSeed,
               i,
@@ -641,6 +642,7 @@ export function useBulkRegisterActions() {
               ...updated[globalIdx],
               editedStoryParagraphs: story.paragraphs,
               editedReviewTexts: story.reviewTexts,
+              editedContentBlocks: story.contentBlocks,
             };
           }
         }
@@ -812,6 +814,46 @@ export function useBulkRegisterActions() {
 
           setImageFilterProgress({ done: filterTotal, total: filterTotal, phase: 'complete' });
           await new Promise(r => setTimeout(r, 50));
+
+          // Step 3.5. 자동 크롭: 대표이미지(index 0) 점유율이 낮으면 바운딩박스 기준 크롭
+          {
+            const { autoCropToFill } = await import('@/lib/megaload/services/image-quality-scorer');
+
+            const latestForCrop = productsRef.current;
+            const cropResults: Map<number, string> = new Map();
+
+            for (let idx = 0; idx < latestForCrop.length; idx++) {
+              const p = latestForCrop[idx];
+              const mainImg = p.scannedMainImages?.[0];
+              const url = mainImg?.objectUrl;
+              if (!url) continue;
+
+              try {
+                const result = await autoCropToFill(url);
+                if (result.cropped) {
+                  cropResults.set(idx, result.url);
+                  console.info(
+                    `[auto-crop] ${p.productCode}: 점유율 ${(result.oldRatio * 100).toFixed(0)}%→${(result.newRatio * 100).toFixed(0)}%`,
+                  );
+                }
+              } catch { /* skip */ }
+
+              // 10개마다 yield
+              if ((idx + 1) % 10 === 0) await new Promise(r => setTimeout(r, 0));
+            }
+
+            if (cropResults.size > 0) {
+              setProducts(prev => prev.map((p, i) => {
+                const newUrl = cropResults.get(i);
+                if (!newUrl || !p.scannedMainImages || p.scannedMainImages.length === 0) return p;
+
+                const updated = [...p.scannedMainImages];
+                updated[0] = { ...updated[0], objectUrl: newUrl };
+                return { ...p, scannedMainImages: updated };
+              }));
+              console.info(`[auto-crop] ${cropResults.size}개 상품 대표이미지 크롭 완료`);
+            }
+          }
         }
 
         // Step 4. 스톡 이미지 fetch
@@ -826,11 +868,17 @@ export function useBulkRegisterActions() {
     setBrowsingFolder(true);
     setScanError('');
     try {
-      const { dirName, products: scanned } = await pickAndScanFolder();
+      const { dirName, products: scanned, thirdPartyImages: tpImages } = await pickAndScanFolder();
       if (scanned.length === 0) {
         setScanError(`"${dirName}" 폴더에 product_* 하위 폴더가 없습니다.`);
         setBrowsingFolder(false);
         return;
+      }
+
+      // 제3자 이미지 저장 (배치 폴더의 '제3자이미지/' 하위 폴더)
+      if (tpImages.length > 0) {
+        setThirdPartyImages(tpImages);
+        console.info(`[browse] 제3자 이미지 ${tpImages.length}장 로드`);
       }
 
       const editableProducts: EditableProduct[] = scanned.map((sp) => {
@@ -1198,6 +1246,7 @@ export function useBulkRegisterActions() {
           descriptionOverride: p.editedDescription,
           storyParagraphsOverride: p.editedStoryParagraphs,
           reviewTextsOverride: p.editedReviewTexts,
+          contentBlocksOverride: p.editedContentBlocks,
           preUploadedUrls: cached ? {
             mainImageUrls: cached.mainImageUrls || [],
             detailImageUrls: cached.detailImageUrls || [],
@@ -1303,6 +1352,7 @@ export function useBulkRegisterActions() {
             descriptionOverride: product.editedDescription,
             storyParagraphsOverride: product.editedStoryParagraphs,
             reviewTextsOverride: product.editedReviewTexts,
+            contentBlocksOverride: product.editedContentBlocks,
             preUploadedUrls: cached ? {
               mainImageUrls: cached.mainImageUrls || [],
               detailImageUrls: cached.detailImageUrls || [],
@@ -1328,6 +1378,9 @@ export function useBulkRegisterActions() {
           stock: 999,
           noticeOverrides: Object.keys(noticeOverrides).length > 0 ? noticeOverrides : undefined,
           preventionConfig: preventionConfig.enabled ? preventionConfig : undefined,
+          thirdPartyImageUrls: thirdPartyImages.length > 0
+            ? (await uploadScannedImages(thirdPartyImages, thirdPartyImages.length)).filter(Boolean)
+            : undefined,
         }),
       });
 
@@ -1574,6 +1627,18 @@ export function useBulkRegisterActions() {
       const { jobId } = initData;
       const categoryMeta = { ...categoryMetaCache, ...(initData.categoryMeta || {}) };
 
+      // 제3자 이미지 CDN 업로드 (한 번만, 전체 상품 공유)
+      let thirdPartyImageCdnUrls: string[] = [];
+      if (thirdPartyImages.length > 0) {
+        try {
+          thirdPartyImageCdnUrls = await uploadScannedImages(thirdPartyImages, thirdPartyImages.length);
+          thirdPartyImageCdnUrls = thirdPartyImageCdnUrls.filter(Boolean);
+          console.info(`[register] 제3자 이미지 ${thirdPartyImageCdnUrls.length}장 업로드 완료`);
+        } catch (e) {
+          console.warn('[register] 제3자 이미지 업로드 실패:', e);
+        }
+      }
+
       const batches: EditableProduct[][] = [];
       for (let i = 0; i < selectedProducts.length; i += BATCH_SIZE) {
         batches.push(selectedProducts.slice(i, i + BATCH_SIZE));
@@ -1619,6 +1684,7 @@ export function useBulkRegisterActions() {
           if (p.editedDescription !== undefined) product.descriptionOverride = p.editedDescription;
           if (p.editedStoryParagraphs && p.editedStoryParagraphs.length > 0) product.storyParagraphsOverride = p.editedStoryParagraphs;
           if (p.editedReviewTexts && p.editedReviewTexts.length > 0) product.reviewTextsOverride = p.editedReviewTexts;
+          if (p.editedContentBlocks && p.editedContentBlocks.length > 0) product.contentBlocksOverride = p.editedContentBlocks;
           const cached = imagePreuploadCacheRef.current[p.uid];
           const cacheValid = cached && cached.uploadedAt && (Date.now() - cached.uploadedAt < IMAGE_CACHE_TTL_MS);
           const shouldVary = preventionConfig.enabled && preventionConfig.imageVariation;
@@ -1669,6 +1735,7 @@ export function useBulkRegisterActions() {
               noticeOverrides: Object.keys(noticeOverrides).length > 0 ? noticeOverrides : undefined,
               preventionConfig: preventionConfig.enabled ? preventionConfig : undefined,
               products: batchProducts,
+              thirdPartyImageUrls: thirdPartyImageCdnUrls.length > 0 ? thirdPartyImageCdnUrls : undefined,
             }),
           });
           const batchData = await batchRes.json();
@@ -1811,7 +1878,7 @@ export function useBulkRegisterActions() {
     noticeOverrides, setNoticeOverrides,
     preventionConfig, setPreventionEnabled, setPreventionIntensity,
     loadingShipping, shippingError,
-    scanning, scanError, browsingFolder,
+    scanning, scanError, browsingFolder, thirdPartyImages,
     products, setProducts,
     autoMatchingProgress, autoMatchError, autoMatchStats, categoryFailures,
     categorySearchTarget, setCategorySearchTarget,

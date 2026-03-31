@@ -103,6 +103,7 @@ export interface BuildCoupangPayloadParams {
   aiStoryParagraphs?: string[];
   aiReviewTexts?: string[];
   consignmentImageUrls?: string[];
+  thirdPartyImageUrl?: string;     // 제3자 이미지 URL (랜덤 선정된 1장)
   // 구매옵션 (option-extractor 추출값 — item-level 반영용)
   extractedBuyOptions?: ExtractedBuyOption[];
   // 총 수량 (option-extractor의 totalUnitCount — perCount × count)
@@ -133,6 +134,8 @@ export interface BuildCoupangPayloadParams {
   seoKeywords?: string[];
   faqItems?: { question: string; answer: string }[];
   closingText?: string;
+  // V2: 설득형 콘텐츠 블록
+  contentBlocks?: import('./persuasion-engine').ContentBlock[];
   // Wing ID (vendorUserId) — vendorId와 다름, DB에서 조회하여 전달
   vendorUserId?: string;
 }
@@ -228,6 +231,7 @@ export function buildCoupangProductPayload(
     aiStoryParagraphs,
     aiReviewTexts,
     consignmentImageUrls,
+    thirdPartyImageUrl,
     extractedBuyOptions,
     displayProductName,
     sellerProductName,
@@ -245,6 +249,7 @@ export function buildCoupangProductPayload(
     seoKeywords,
     faqItems,
     closingText,
+    contentBlocks,
     vendorUserId,
   } = params;
 
@@ -298,10 +303,12 @@ export function buildCoupangProductPayload(
       detailImageUrls,
       infoImageUrls,
       consignmentImageUrls,
+      thirdPartyImageUrl,
       seoKeywords,
       faqItems,
       closingText,
       categoryPath,
+      contentBlocks,
     }, detailLayoutVariant));
   } else {
     detailHtml = buildSimpleDetailHtml(detailImageUrls, productName);

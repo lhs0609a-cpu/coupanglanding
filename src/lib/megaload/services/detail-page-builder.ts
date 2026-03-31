@@ -11,7 +11,11 @@
 //   7. 위탁판매 정보
 //
 // 아이템위너 방지: 4가지 레이아웃 변형 (A/B/C/D)
+//
+// V2: 설득형 콘텐츠 블록 렌더러 (11가지 블록 타입별 HTML)
 // ============================================================
+
+import type { ContentBlock } from './persuasion-engine';
 
 export interface FaqItem {
   question: string;
@@ -28,11 +32,14 @@ export interface DetailPageParams {
   detailImageUrls: string[];
   infoImageUrls?: string[];        // 상품정보제공고시 이미지
   consignmentImageUrls?: string[]; // 위탁판매/신뢰 정보 이미지
+  thirdPartyImageUrl?: string;     // 제3자 이미지 (랜덤 1장, 법적 리스크 분산용)
   // SEO 신규 필드
   seoKeywords?: string[];          // SEO 키워드 배지 (3~6개)
   faqItems?: FaqItem[];            // 카테고리별 FAQ (3~5개)
   closingText?: string;            // SEO 마무리 문구
   categoryPath?: string;           // 카테고리 경로 (컬러 테마용)
+  // V2: 설득형 콘텐츠 블록
+  contentBlocks?: ContentBlock[];    // 설득형 블록 배열 (있으면 새 렌더러 사용)
 }
 
 // ─── 레이아웃별 CSS 변형값 ──────────────────────────────────
@@ -101,6 +108,11 @@ function getTheme(categoryPath?: string): ThemeColor {
  * D: 이미지-글 교차(헤더없음) → FAQ → 텍스트리뷰 → 키워드마무리 → 정보
  */
 export function buildRichDetailPageHtml(params: DetailPageParams, templateVariant?: string): string {
+  // V2: contentBlocks가 있으면 설득형 렌더러 사용
+  if (params.contentBlocks && params.contentBlocks.length > 0) {
+    return buildPersuasionPageHtml(params, params.contentBlocks, templateVariant);
+  }
+
   const variant = templateVariant || 'A';
   switch (variant) {
     case 'B': return buildLayoutB(params);
@@ -113,7 +125,7 @@ export function buildRichDetailPageHtml(params: DetailPageParams, templateVarian
 // ─── 레이아웃 A (기본: 히어로 → 이미지-글 교차 → FAQ → 리뷰 → 마무리) ──
 
 function buildLayoutA(params: DetailPageParams): string {
-  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, seoKeywords, faqItems, closingText, categoryPath } = params;
+  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, thirdPartyImageUrl, seoKeywords, faqItems, closingText, categoryPath } = params;
   const style = getStyle('A');
   const theme = getTheme(categoryPath);
   const sections: string[] = [];
@@ -149,6 +161,7 @@ function buildLayoutA(params: DetailPageParams): string {
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (consignmentImageUrls && consignmentImageUrls.length > 0) sections.push(buildConsignmentSection(consignmentImageUrls));
+  if (thirdPartyImageUrl) sections.push(buildThirdPartySection(thirdPartyImageUrl));
 
   sections.push('</div>');
   return sections.join('\n');
@@ -157,7 +170,7 @@ function buildLayoutA(params: DetailPageParams): string {
 // ─── 레이아웃 B (이미지 전체 → 글모음 → FAQ → 리뷰 → 마무리) ──
 
 function buildLayoutB(params: DetailPageParams): string {
-  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, seoKeywords, faqItems, closingText, categoryPath } = params;
+  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, thirdPartyImageUrl, seoKeywords, faqItems, closingText, categoryPath } = params;
   const style = getStyle('B');
   const theme = getTheme(categoryPath);
   const sections: string[] = [];
@@ -196,6 +209,7 @@ function buildLayoutB(params: DetailPageParams): string {
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (consignmentImageUrls && consignmentImageUrls.length > 0) sections.push(buildConsignmentSection(consignmentImageUrls));
+  if (thirdPartyImageUrl) sections.push(buildThirdPartySection(thirdPartyImageUrl));
 
   sections.push('</div>');
   return sections.join('\n');
@@ -204,7 +218,7 @@ function buildLayoutB(params: DetailPageParams): string {
 // ─── 레이아웃 C (히어로이미지 → 글 → 2열그리드 → FAQ → 리뷰 → 마무리) ──
 
 function buildLayoutC(params: DetailPageParams): string {
-  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, seoKeywords, faqItems, closingText, categoryPath } = params;
+  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, thirdPartyImageUrl, seoKeywords, faqItems, closingText, categoryPath } = params;
   const style = getStyle('C');
   const theme = getTheme(categoryPath);
   const sections: string[] = [];
@@ -249,6 +263,7 @@ function buildLayoutC(params: DetailPageParams): string {
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (consignmentImageUrls && consignmentImageUrls.length > 0) sections.push(buildConsignmentSection(consignmentImageUrls));
+  if (thirdPartyImageUrl) sections.push(buildThirdPartySection(thirdPartyImageUrl));
 
   sections.push('</div>');
   return sections.join('\n');
@@ -257,7 +272,7 @@ function buildLayoutC(params: DetailPageParams): string {
 // ─── 레이아웃 D (헤더없음 → 이미지-글 교차 → FAQ → 텍스트리뷰 → 마무리) ──
 
 function buildLayoutD(params: DetailPageParams): string {
-  const { productName, aiStoryParagraphs, aiStoryHtml, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, seoKeywords, faqItems, closingText, categoryPath } = params;
+  const { productName, aiStoryParagraphs, aiStoryHtml, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, thirdPartyImageUrl, seoKeywords, faqItems, closingText, categoryPath } = params;
   const style = getStyle('D');
   const theme = getTheme(categoryPath);
   const sections: string[] = [];
@@ -304,6 +319,7 @@ function buildLayoutD(params: DetailPageParams): string {
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (consignmentImageUrls && consignmentImageUrls.length > 0) sections.push(buildConsignmentSection(consignmentImageUrls));
+  if (thirdPartyImageUrl) sections.push(buildThirdPartySection(thirdPartyImageUrl));
 
   sections.push('</div>');
   return sections.join('\n');
@@ -475,6 +491,273 @@ function buildConsignmentSection(urls: string[]): string {
   }
   parts.push('</div>');
   return parts.join('\n');
+}
+
+function buildThirdPartySection(url: string): string {
+  return `<div style="padding:20px 0 30px;"><img src="${esc(url)}" alt="추가 정보" style="width:100%;display:block;" /></div>`;
+}
+
+// ─── V2: 설득형 콘텐츠 블록 렌더러 (11가지 타입) ─────────────
+
+/** hook: 큰 폰트, 중앙정렬, 배경 그라데이션, 인용부호 장식 */
+function renderHookBlock(block: ContentBlock, theme: ThemeColor): string {
+  return `<div style="text-align:center;padding:40px 24px;background:linear-gradient(135deg,${theme.bgLight},${theme.bgAccent});border-radius:16px;margin:20px 0;">
+<div style="font-size:36px;color:${theme.primary};opacity:0.3;line-height:1;margin-bottom:8px;">&ldquo;</div>
+<h3 style="font-size:20px;font-weight:700;color:#222;line-height:1.6;margin:0;word-break:keep-all;">${esc(block.content)}</h3>
+<div style="font-size:36px;color:${theme.primary};opacity:0.3;line-height:1;margin-top:8px;">&rdquo;</div>
+</div>`;
+}
+
+/** problem: 좌측 빨간 보더, 아이콘(⚠), 회색 배경 */
+function renderProblemBlock(block: ContentBlock, theme: ThemeColor): string {
+  return `<div style="padding:20px 24px;margin:16px 0;background:#f8f9fa;border-left:4px solid ${theme.primary};border-radius:0 12px 12px 0;">
+<div style="font-size:14px;color:${theme.primary};font-weight:600;margin-bottom:8px;">&#9888; 이런 고민, 있으신가요?</div>
+<p style="font-size:15px;color:#444;line-height:1.8;margin:0;word-break:keep-all;">${esc(block.content)}</p>
+</div>`;
+}
+
+/** agitation: 진한 배경, 볼드 텍스트, 경고 톤 */
+function renderAgitationBlock(block: ContentBlock, theme: ThemeColor): string {
+  return `<div style="padding:24px;margin:16px 0;background:#2c2c2c;border-radius:12px;">
+<p style="font-size:15px;color:#fff;font-weight:600;line-height:1.8;margin:0;word-break:keep-all;">&#9888;&#65039; ${esc(block.content)}</p>
+</div>`;
+}
+
+/** solution: 밝은 배경, 테마 컬러 악센트, 제품명 하이라이트 */
+function renderSolutionBlock(block: ContentBlock, theme: ThemeColor): string {
+  const parts: string[] = [];
+  parts.push(`<div style="padding:32px 24px;margin:20px 0;background:${theme.bgLight};border:2px solid ${theme.bgAccent};border-radius:16px;text-align:center;">`);
+  parts.push(`<div style="display:inline-block;padding:4px 16px;background:${theme.primary};color:#fff;font-size:12px;font-weight:600;border-radius:20px;letter-spacing:1px;margin-bottom:16px;">SOLUTION</div>`);
+  parts.push(`<h3 style="font-size:18px;font-weight:700;color:#222;line-height:1.6;margin:0 0 12px 0;word-break:keep-all;">${esc(block.content)}</h3>`);
+  if (block.subContent) {
+    parts.push(`<p style="font-size:14px;color:#666;line-height:1.7;margin:0;">${esc(block.subContent)}</p>`);
+  }
+  parts.push('</div>');
+  return parts.join('\n');
+}
+
+/** benefits_grid: flex 2×2 카드, 체크마크 아이콘, 둥근 모서리 카드 */
+function renderBenefitsGridBlock(block: ContentBlock, theme: ThemeColor): string {
+  const items = block.items || [];
+  const parts: string[] = [];
+  parts.push(`<div style="padding:24px 16px;margin:16px 0;">`);
+  parts.push(`<div style="text-align:center;font-size:16px;font-weight:700;color:#222;margin-bottom:16px;">${esc(block.content)}</div>`);
+  parts.push(`<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;">`);
+  for (const item of items.slice(0, 4)) {
+    parts.push(`<div style="flex:1;min-width:140px;max-width:48%;padding:16px;background:${theme.bgLight};border-radius:12px;text-align:center;">
+<div style="font-size:20px;margin-bottom:8px;color:${theme.primary};">&#10003;</div>
+<div style="font-size:13px;color:#444;font-weight:500;word-break:keep-all;">${esc(item)}</div>
+</div>`);
+  }
+  parts.push('</div></div>');
+  return parts.join('\n');
+}
+
+/** social_proof: 큰 인용부호("), 이탤릭, 별점 시각화 */
+function renderSocialProofBlock(block: ContentBlock, theme: ThemeColor): string {
+  const stars = block.emphasis || '⭐⭐⭐⭐⭐';
+  return `<div style="padding:28px 24px;margin:16px 0;background:#fff;border:1px solid #eee;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,0.04);">
+<div style="font-size:40px;color:${theme.bgAccent};line-height:1;margin-bottom:4px;">&ldquo;</div>
+<p style="font-size:15px;color:#444;line-height:1.8;font-style:italic;margin:0 0 12px 0;word-break:keep-all;">${esc(block.content)}</p>
+<div style="font-size:16px;letter-spacing:2px;">${esc(stars)}</div>
+</div>`;
+}
+
+/** comparison: ✓/✗ 리스트, 좌우 비교 */
+function renderComparisonBlock(block: ContentBlock, theme: ThemeColor): string {
+  const items = block.items || [];
+  const pros = items.filter(i => i.startsWith('✓'));
+  const cons = items.filter(i => i.startsWith('✗'));
+
+  const parts: string[] = [];
+  parts.push(`<div style="padding:24px 16px;margin:16px 0;">`);
+  parts.push(`<div style="text-align:center;font-size:16px;font-weight:700;color:#222;margin-bottom:16px;">${esc(block.content || '비교 분석')}</div>`);
+  parts.push(`<div style="display:flex;gap:12px;flex-wrap:wrap;">`);
+
+  // 장점 (왼쪽)
+  parts.push(`<div style="flex:1;min-width:45%;padding:16px;background:${theme.bgLight};border-radius:12px;">`);
+  for (const p of pros) {
+    parts.push(`<div style="padding:6px 0;font-size:13px;color:${theme.textAccent};line-height:1.6;word-break:keep-all;">${esc(p)}</div>`);
+  }
+  parts.push('</div>');
+
+  // 단점 (오른쪽)
+  parts.push(`<div style="flex:1;min-width:45%;padding:16px;background:#f5f5f5;border-radius:12px;">`);
+  for (const c of cons) {
+    parts.push(`<div style="padding:6px 0;font-size:13px;color:#999;line-height:1.6;word-break:keep-all;">${esc(c)}</div>`);
+  }
+  parts.push('</div>');
+
+  parts.push('</div></div>');
+  return parts.join('\n');
+}
+
+/** feature_detail: 하이라이트 박스, 성분/기술 강조 */
+function renderFeatureDetailBlock(block: ContentBlock, theme: ThemeColor): string {
+  const parts: string[] = [];
+  parts.push(`<div style="padding:24px;margin:16px 0;background:#fff;border:1px solid ${theme.bgAccent};border-radius:12px;">`);
+  if (block.emphasis) {
+    parts.push(`<div style="display:inline-block;padding:4px 12px;background:${theme.bgAccent};color:${theme.textAccent};font-size:11px;font-weight:600;border-radius:6px;margin-bottom:12px;">${esc(block.emphasis)}</div>`);
+  }
+  parts.push(`<p style="font-size:15px;color:#333;line-height:1.8;margin:0;word-break:keep-all;">${esc(block.content)}</p>`);
+  if (block.subContent) {
+    parts.push(`<p style="font-size:13px;color:#888;line-height:1.6;margin:8px 0 0 0;">${esc(block.subContent)}</p>`);
+  }
+  parts.push('</div>');
+  return parts.join('\n');
+}
+
+/** usage_guide: 번호 매겨진 스텝, 아이콘 장식 */
+function renderUsageGuideBlock(block: ContentBlock, theme: ThemeColor): string {
+  const items = block.items || [];
+  const parts: string[] = [];
+  parts.push(`<div style="padding:24px 20px;margin:16px 0;background:${theme.bgLight};border-radius:16px;">`);
+  parts.push(`<div style="text-align:center;font-size:16px;font-weight:700;color:#222;margin-bottom:20px;">&#128218; ${esc(block.content || '사용 가이드')}</div>`);
+  for (let i = 0; i < items.length; i++) {
+    parts.push(`<div style="display:flex;align-items:flex-start;gap:12px;margin:12px 0;">
+<div style="width:28px;height:28px;background:${theme.primary};color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;">${i + 1}</div>
+<div style="font-size:14px;color:#444;line-height:1.7;padding-top:4px;word-break:keep-all;">${esc(items[i])}</div>
+</div>`);
+  }
+  parts.push('</div>');
+  return parts.join('\n');
+}
+
+/** urgency: 배너 스타일, 강한 대비 컬러, 굵은 텍스트 */
+function renderUrgencyBlock(block: ContentBlock, theme: ThemeColor): string {
+  const parts: string[] = [];
+  parts.push(`<div style="padding:24px;margin:16px 0;background:linear-gradient(135deg,${theme.primary},${theme.textAccent});border-radius:12px;text-align:center;">`);
+  if (block.emphasis) {
+    parts.push(`<div style="font-size:24px;font-weight:800;color:#fff;margin-bottom:8px;">${esc(block.emphasis)}</div>`);
+  }
+  parts.push(`<p style="font-size:15px;color:rgba(255,255,255,0.9);line-height:1.7;margin:0;word-break:keep-all;">${esc(block.content)}</p>`);
+  parts.push('</div>');
+  return parts.join('\n');
+}
+
+/** cta: 버튼 모양 CTA 영역, 테마 컬러 배경, 큰 글씨 */
+function renderCtaBlock(block: ContentBlock, theme: ThemeColor): string {
+  return `<div style="text-align:center;padding:32px 24px;margin:20px 0;">
+<div style="display:inline-block;padding:16px 48px;background:${theme.primary};color:#fff;font-size:17px;font-weight:700;border-radius:50px;letter-spacing:0.5px;word-break:keep-all;">${esc(block.content)}</div>
+</div>`;
+}
+
+/** 블록 타입별 렌더러 매핑 */
+function renderContentBlock(block: ContentBlock, theme: ThemeColor): string {
+  switch (block.type) {
+    case 'hook': return renderHookBlock(block, theme);
+    case 'problem': return renderProblemBlock(block, theme);
+    case 'agitation': return renderAgitationBlock(block, theme);
+    case 'solution': return renderSolutionBlock(block, theme);
+    case 'benefits_grid': return renderBenefitsGridBlock(block, theme);
+    case 'social_proof': return renderSocialProofBlock(block, theme);
+    case 'comparison': return renderComparisonBlock(block, theme);
+    case 'feature_detail': return renderFeatureDetailBlock(block, theme);
+    case 'usage_guide': return renderUsageGuideBlock(block, theme);
+    case 'urgency': return renderUrgencyBlock(block, theme);
+    case 'cta': return renderCtaBlock(block, theme);
+    default: return `<div style="padding:20px;"><p style="font-size:15px;color:#444;line-height:1.8;">${esc(block.content)}</p></div>`;
+  }
+}
+
+/**
+ * 설득형 콘텐츠 블록 기반 상세페이지 HTML 생성
+ *
+ * 이미지 인터리빙 규칙:
+ * - hook 뒤: 첫 번째 상세이미지
+ * - solution 뒤: 두 번째 상세이미지
+ * - benefits_grid 뒤: 세 번째 상세이미지
+ * - 나머지 이미지: 남은 블록 사이에 분배
+ */
+export function buildPersuasionPageHtml(
+  params: DetailPageParams,
+  contentBlocks: ContentBlock[],
+  templateVariant?: string,
+): string {
+  const { productName, brand, detailImageUrls, reviewImageUrls, infoImageUrls, consignmentImageUrls, thirdPartyImageUrl, seoKeywords, faqItems, closingText, categoryPath } = params;
+  const style = getStyle(templateVariant);
+  const theme = getTheme(categoryPath);
+  const sections: string[] = [];
+
+  sections.push(buildWrapper(style, theme));
+
+  // 히어로 헤더 (레이아웃 D는 키워드만)
+  if (templateVariant === 'D') {
+    if (seoKeywords && seoKeywords.length > 0) {
+      sections.push(buildKeywordBadgesOnly(seoKeywords, theme));
+    }
+  } else {
+    sections.push(buildHeroSection(productName, brand, seoKeywords, theme));
+  }
+
+  // 이미지 배분: 지정된 블록 뒤에 배치
+  const imageQueue = [...detailImageUrls];
+  const detailSet = new Set(detailImageUrls);
+  const uniqueReviews = (reviewImageUrls || []).filter(url => !detailSet.has(url)).slice(0, 5);
+  imageQueue.push(...uniqueReviews);
+
+  let imageIdx = 0;
+  const imageAfterTypes = ['hook', 'solution', 'benefits_grid'];
+  const imageAfterSet = new Set(imageAfterTypes);
+
+  // 남은 이미지를 배치할 블록 인덱스 계산
+  const extraImagePositions: Set<number> = new Set();
+  const priorityCount = contentBlocks.filter(b => imageAfterSet.has(b.type)).length;
+  const remainingImages = Math.max(0, imageQueue.length - priorityCount);
+  if (remainingImages > 0) {
+    // 우선 블록이 아닌 블록들 사이에 균등 배분
+    const nonPriorityIndices = contentBlocks
+      .map((b, i) => ({ type: b.type, i }))
+      .filter(x => !imageAfterSet.has(x.type))
+      .map(x => x.i);
+    const step = Math.max(1, Math.floor(nonPriorityIndices.length / remainingImages));
+    for (let n = 0; n < remainingImages && n * step < nonPriorityIndices.length; n++) {
+      extraImagePositions.add(nonPriorityIndices[n * step]);
+    }
+  }
+
+  // 블록 렌더링 + 이미지 인터리빙
+  for (let i = 0; i < contentBlocks.length; i++) {
+    sections.push(renderContentBlock(contentBlocks[i], theme));
+
+    // 우선 이미지 배치 (hook, solution, benefits_grid 뒤)
+    if (imageAfterSet.has(contentBlocks[i].type) && imageIdx < imageQueue.length) {
+      sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${contentBlocks[i].type}" style="width:100%;display:block;border-radius:8px;" /></div>`);
+      imageIdx++;
+    }
+    // 남은 이미지 배치
+    else if (extraImagePositions.has(i) && imageIdx < imageQueue.length) {
+      sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${i + 1}" style="width:100%;display:block;border-radius:8px;" /></div>`);
+      imageIdx++;
+    }
+  }
+
+  // 미배치 이미지 모두 출력
+  while (imageIdx < imageQueue.length) {
+    sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${imageIdx + 1}" style="width:100%;display:block;border-radius:8px;" /></div>`);
+    imageIdx++;
+  }
+
+  // FAQ
+  if (faqItems && faqItems.length > 0) {
+    sections.push(buildDivider());
+    sections.push(buildFaqSection(faqItems, theme));
+  }
+
+  // 마무리 문구
+  if (closingText) {
+    sections.push(buildDivider());
+    sections.push(buildClosingSection(closingText, productName, theme));
+  }
+
+  // 상품정보제공고시 / 위탁판매 정보 / 제3자 이미지
+  sections.push(buildDivider());
+  if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
+  if (consignmentImageUrls && consignmentImageUrls.length > 0) sections.push(buildConsignmentSection(consignmentImageUrls));
+  if (thirdPartyImageUrl) sections.push(buildThirdPartySection(thirdPartyImageUrl));
+
+  sections.push('</div>');
+  return sections.join('\n');
 }
 
 // ─── 헬퍼 ────────────────────────────────────────────────────

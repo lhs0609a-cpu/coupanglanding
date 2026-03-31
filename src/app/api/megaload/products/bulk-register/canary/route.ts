@@ -36,6 +36,7 @@ interface CanaryRequestBody {
     descriptionOverride?: string;
     storyParagraphsOverride?: string[];
     reviewTextsOverride?: string[];
+    contentBlocksOverride?: import('@/lib/megaload/services/persuasion-engine').ContentBlock[];
     preUploadedUrls?: {
       mainImageUrls: string[];
       detailImageUrls: string[];
@@ -48,6 +49,7 @@ interface CanaryRequestBody {
   stock?: number;
   noticeOverrides?: Record<string, string>;
   preventionConfig?: PreventionConfig;
+  thirdPartyImageUrls?: string[];
 }
 
 /**
@@ -120,6 +122,7 @@ export async function POST(req: NextRequest) {
         descriptionOverride: product.descriptionOverride,
         storyParagraphsOverride: product.storyParagraphsOverride,
         reviewTextsOverride: product.reviewTextsOverride,
+        contentBlocksOverride: product.contentBlocksOverride,
       };
 
       const result = await buildProductPayload({
@@ -135,6 +138,7 @@ export async function POST(req: NextRequest) {
         detailImageUrls,
         reviewImageUrls,
         infoImageUrls,
+        thirdPartyImageUrls: body.thirdPartyImageUrls,
       });
       payload = result.payload;
       phases.push({ name: '페이로드 빌드', success: true, durationMs: Date.now() - buildStart });

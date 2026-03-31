@@ -63,6 +63,7 @@ interface BatchProduct {
   descriptionOverride?: string;
   storyParagraphsOverride?: string[];
   reviewTextsOverride?: string[];
+  contentBlocksOverride?: import('@/lib/megaload/services/persuasion-engine').ContentBlock[];
 }
 
 interface BatchRegisterBody {
@@ -76,6 +77,7 @@ interface BatchRegisterBody {
   noticeOverrides?: Record<string, string>;
   preventionConfig?: PreventionConfig;
   products: BatchProduct[];
+  thirdPartyImageUrls?: string[];
 }
 
 interface ProductResult {
@@ -356,6 +358,8 @@ export async function POST(req: NextRequest) {
         aiStoryHtml,
         aiStoryParagraphs,
         aiReviewTexts,
+        contentBlocks: product.contentBlocksOverride,
+        thirdPartyImageUrls: body.thirdPartyImageUrls,
         vendorUserId: wingUserId || undefined,
       });
 

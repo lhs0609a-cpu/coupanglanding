@@ -41,6 +41,7 @@ interface PreflightRequestProduct {
   descriptionOverride?: string;
   storyParagraphsOverride?: string[];
   reviewTextsOverride?: string[];
+  contentBlocksOverride?: import('@/lib/megaload/services/persuasion-engine').ContentBlock[];
   // 사전업로드 이미지 URL
   preUploadedUrls?: {
     mainImageUrls: string[];
@@ -60,6 +61,7 @@ interface PreflightRequestBody {
   preventionConfig?: PreventionConfig;
   categoryMetaCache?: Record<string, CategoryMetadata>;
   imageTimestamps?: Record<string, number>;
+  thirdPartyImageUrls?: string[];
 }
 
 /**
@@ -225,6 +227,7 @@ export async function POST(req: NextRequest) {
             descriptionOverride: product.descriptionOverride,
             storyParagraphsOverride: product.storyParagraphsOverride,
             reviewTextsOverride: product.reviewTextsOverride,
+            contentBlocksOverride: product.contentBlocksOverride,
           };
 
           const { payload, filledNotices } = await buildProductPayload({
@@ -240,6 +243,7 @@ export async function POST(req: NextRequest) {
             detailImageUrls,
             reviewImageUrls,
             infoImageUrls,
+            thirdPartyImageUrls: body.thirdPartyImageUrls,
           });
 
           // 구조 검증

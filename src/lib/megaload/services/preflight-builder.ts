@@ -52,6 +52,7 @@ export interface BuildPayloadProduct {
   descriptionOverride?: string;
   storyParagraphsOverride?: string[];
   reviewTextsOverride?: string[];
+  contentBlocksOverride?: import('./persuasion-engine').ContentBlock[];
 }
 
 export interface BuildPayloadParams {
@@ -71,6 +72,9 @@ export interface BuildPayloadParams {
   aiStoryHtml?: string;
   aiStoryParagraphs?: string[];
   aiReviewTexts?: string[];
+  contentBlocks?: import('./persuasion-engine').ContentBlock[];
+  // 제3자 이미지 (전체 업로드된 URL 풀 — 상품별 랜덤 선정은 내부에서 처리)
+  thirdPartyImageUrls?: string[];
   // Wing ID (vendorUserId) — vendorId와 다름
   vendorUserId?: string;
 }
@@ -91,6 +95,8 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     noticeOverrides, preventionConfig, shUserId,
     mainImageUrls, detailImageUrls, reviewImageUrls, infoImageUrls,
     aiStoryHtml = '', aiStoryParagraphs = [], aiReviewTexts = [],
+    contentBlocks,
+    thirdPartyImageUrls,
     vendorUserId,
   } = params;
 
@@ -147,6 +153,24 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
   const faqItems = generateFaqItems(product.name, categoryPath, shUserId, productIndex, 4);
   const closingText = generateClosingText(product.name, categoryPath, shUserId, productIndex);
 
+  // 제3자 이미지: 상품별 결정적 랜덤 — ~25% 확률로 1장 선택
+  // 10개 상품 중 2~3개만 포함되도록 (법적 리스크 분산)
+  let thirdPartyImageUrl: string | undefined;
+  if (thirdPartyImageUrls && thirdPartyImageUrls.length > 0) {
+    // productCode를 시드로 사용 → 동일 상품은 항상 동일 결과
+    const tpSeed = `tp:${product.productCode}`;
+    const selected = selectWithSeed(thirdPartyImageUrls, tpSeed);
+    // 포함 여부: productCode 해시의 마지막 2자리 → 0~99 중 0~24이면 포함 (25%)
+    const inclusionSeed = `tp-inc:${product.productCode}`;
+    const inclusionVal = selectWithSeed(
+      Array.from({ length: 100 }, (_, i) => i),
+      inclusionSeed,
+    );
+    if (inclusionVal < 25) {
+      thirdPartyImageUrl = selected;
+    }
+  }
+
   // 페이로드 빌드
   const effectiveStock = product.stockOverride ?? stock;
   const payload = buildCoupangProductPayload({
@@ -195,6 +219,8 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     seoKeywords,
     faqItems,
     closingText,
+    contentBlocks: product.contentBlocksOverride || contentBlocks,
+    thirdPartyImageUrl,
     vendorUserId,
   });
 

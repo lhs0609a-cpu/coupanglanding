@@ -2,21 +2,27 @@
 // 이미지 품질 스코어링 서비스
 // Canvas API로 대표이미지 후보를 분석하여 최적 이미지를 선택
 //
-// ★ 대표이미지 기준: 흰배경 누끼 + 정면 상품 사진 최우선
+// ★ 대표이미지 기준: 흰배경 누끼 + 정면 + 썸네일 크기 최적화
 //
 // 분석 항목 (50x50 축소 기준):
-//  - 배경 밝기 (15%): 흰색/밝은 배경 선호 ★핵심
-//  - 배경 채도 (10%): 컬러 배경 → 하드필터 (로고/배너/포장재 차단) ★핵심
-//  - 단일상품 집중도 (20%): 번들/세트 이미지 감점 — 누끼딴 단일 상품 최우선 ★핵심
-//  - 가장자리 잘림 (15%): 제품이 이미지 경계에서 잘린 이미지 감점 ★핵심
-//  - 좌우 대칭도 (12%): 정면 촬영 = 높은 대칭 → 대표이미지 우선 ★핵심
+//  - 단일상품 집중도 (18%): 번들/세트 이미지 감점 — 누끼딴 단일 상품 최우선 ★핵심
+//  - 프레임 점유율 (15%): 상품이 이미지를 얼마나 채우는지 — 썸네일 가시성 ★핵심
+//  - 배경 밝기 (12%): 흰색/밝은 배경 선호 ★핵심
+//  - 가장자리 잘림 (12%): 제품이 이미지 경계에서 잘린 이미지 감점 ★핵심
+//  - 좌우 대칭도 (10%): 정면 촬영 = 높은 대칭 → 대표이미지 우선 ★핵심
+//  - 배경 채도 (8%): 컬러 배경 → 하드필터 (로고/배너/포장재 차단) ★핵심
+//  - 선명도 (7%): Laplacian 분산 — 흐릿한 이미지 감점 (↑ 썸네일 축소 시 중요)
 //  - 중심 집중도 (5%): 피사체가 중앙에 있을수록 고점
-//  - 선명도 (5%): Laplacian 분산 — 흐릿한 이미지 감점
-//  - 피부톤 비율 (5%): 피부색 픽셀 15%+ → 하드필터 (모델 사진 차단)
 //  - 컨텐츠 충분도 (5%): 비백색 픽셀 5% 미만 → 하드필터 (빈 이미지 차단)
-//  - 텍스트 밀도 (4%): 엣지 과다(텍스트/워터마크) 감점
-//  - 종횡비 (2%): 1:1에 가까울수록 고점
-//  - 색상 다양성 (2%): 색상 분포가 너무 단순하면 로고/아이콘 의심
+//  - 피부톤 비율 (4%): 피부색 픽셀 15%+ → 하드필터 (모델 사진 차단)
+//  - 텍스트 밀도 (2%): 엣지 과다(텍스트/워터마크) 감점
+//  - 종횡비 (1%): 1:1에 가까울수록 고점
+//  - 색상 다양성 (1%): 색상 분포가 너무 단순하면 로고/아이콘 의심
+//
+// 자동 크롭 (autoCropToFill):
+//  - 점유율 55% 이하 + 원본 600px 이상 → 바운딩박스 기준 정사각형 크롭
+//  - 여백 12% 유지, 크롭 후 500px 이상 보장
+//  - 쿠팡 썸네일에서 상품이 크게 보이도록 최적화
 //
 // 하드필터 (해당 시 overall 강제 0):
 //  - 피부톤 ≥ 15% (모델/인물 사진)
@@ -47,6 +53,8 @@ export interface ImageScore {
   productCompactness: number;
   /** 가장자리 잘림 — 제품이 이미지 경계에서 잘리면 감점 */
   edgeCrop: number;
+  /** 프레임 점유율 — 상품이 이미지 프레임을 얼마나 채우는지 (썸네일 가시성) */
+  fillRatio: number;
   /** 하드필터 사유 (해당 시) */
   hardFilterReason?: string;
 }
@@ -97,7 +105,8 @@ const FULL_SAT_RATIO_HARD = 0.30;    // 전체 이미지의 30%+ 고채도(sat>0
 const ZERO_SCORE: ImageScore = {
   overall: 0, background: 0, backgroundSaturation: 0, centering: 0,
   aspect: 0, textDensity: 0, sharpness: 0, skinTone: 0,
-  contentSufficiency: 0, colorDiversity: 0, symmetry: 0, productCompactness: 0, edgeCrop: 0,
+  contentSufficiency: 0, colorDiversity: 0, symmetry: 0, productCompactness: 0,
+  edgeCrop: 0, fillRatio: 0,
 };
 
 /**
@@ -431,6 +440,7 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
   const symmetry = scoreSymmetry(gray, ANALYSIS_SIZE, ANALYSIS_SIZE);
   const productCompactness = scoreProductCompactness(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
   const edgeCrop = scoreEdgeCrop(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  const fillRatio = scoreFillRatio(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
 
   // ---- 하드필터 체크 ----
   let hardFilterReason: string | undefined;
@@ -451,30 +461,31 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
     return {
       overall: 0, background, backgroundSaturation, centering, aspect,
       textDensity, sharpness, skinTone, contentSufficiency, colorDiversity,
-      symmetry, productCompactness, edgeCrop, hardFilterReason,
+      symmetry, productCompactness, edgeCrop, fillRatio, hardFilterReason,
     };
   }
 
   // ---- 가중 합산 (100%) ----
-  // ★ 흰배경 누끼 + 정면 상품 사진 최우선 (핵심 3요소 = 72%)
+  // ★ 흰배경 누끼 + 정면 + 썸네일 크기 최적화 (핵심 = 75%)
   const overall =
-    background * 0.15 +            // 흰배경 ★
-    backgroundSaturation * 0.10 +  // 무채색 배경 ★
-    productCompactness * 0.20 +    // 누끼 단일상품 ★
-    edgeCrop * 0.15 +              // 상품 완전 포함 ★
-    symmetry * 0.12 +              // 정면 촬영 ★
+    productCompactness * 0.18 +    // 누끼 단일상품 ★
+    fillRatio * 0.15 +             // 프레임 점유율 ★ (썸네일 가시성)
+    background * 0.12 +            // 흰배경 ★
+    edgeCrop * 0.12 +              // 상품 완전 포함 ★
+    symmetry * 0.10 +              // 정면 촬영 ★
+    backgroundSaturation * 0.08 +  // 무채색 배경 ★
+    sharpness * 0.07 +             // 선명도 (↑ 썸네일 축소 시 중요)
     centering * 0.05 +
-    sharpness * 0.05 +
-    skinTone * 0.05 +
     contentSufficiency * 0.05 +
-    textDensity * 0.04 +
-    aspect * 0.02 +
-    colorDiversity * 0.02;
+    skinTone * 0.04 +
+    textDensity * 0.02 +
+    aspect * 0.01 +
+    colorDiversity * 0.01;
 
   return {
     overall, background, backgroundSaturation, centering, aspect,
     textDensity, sharpness, skinTone, contentSufficiency, colorDiversity,
-    symmetry, productCompactness, edgeCrop,
+    symmetry, productCompactness, edgeCrop, fillRatio,
   };
 }
 
@@ -517,6 +528,7 @@ async function scoreReviewImage(objectUrl: string): Promise<ImageScore> {
   const symmetry = scoreSymmetry(gray, ANALYSIS_SIZE, ANALYSIS_SIZE);
   const productCompactness = scoreProductCompactness(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
   const edgeCrop = scoreEdgeCrop(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  const fillRatio = scoreFillRatio(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
 
   // ---- 리뷰용 하드필터 (최소한만) ----
   // 피부톤(손), 컬러 배경 → 허용 (리뷰 사진 특성)
@@ -534,27 +546,28 @@ async function scoreReviewImage(objectUrl: string): Promise<ImageScore> {
     return {
       overall: 0, background, backgroundSaturation, centering, aspect,
       textDensity, sharpness, skinTone, contentSufficiency, colorDiversity,
-      symmetry, productCompactness, edgeCrop, hardFilterReason,
+      symmetry, productCompactness, edgeCrop, fillRatio, hardFilterReason,
     };
   }
 
-  // ---- 리뷰용 가중치 (상품 단일성 + 선명도 + 정면 최우선) ----
+  // ---- 리뷰용 가중치 (상품 단일성 + 선명도 + 정면 + 크기 최우선) ----
   const overall =
-    productCompactness * 0.25 +   // 단일 상품 집중도 (최우선)
-    sharpness * 0.20 +            // 선명도 (흐릿한 리뷰 사진 제거)
-    edgeCrop * 0.15 +             // 상품 완전 포함 (잘리지 않음)
+    productCompactness * 0.22 +   // 단일 상품 집중도 (최우선)
+    sharpness * 0.18 +            // 선명도 (흐릿한 리뷰 사진 제거)
+    fillRatio * 0.13 +            // 프레임 점유율 (썸네일 가시성)
+    edgeCrop * 0.12 +             // 상품 완전 포함 (잘리지 않음)
     centering * 0.10 +            // 중앙 배치
     symmetry * 0.10 +             // 정면 촬영
-    contentSufficiency * 0.10 +   // 상품이 프레임에 충분히 채움
-    textDensity * 0.05 +          // 텍스트 없음
-    colorDiversity * 0.03 +       // 자연스러운 색상
+    contentSufficiency * 0.07 +   // 상품이 프레임에 충분히 채움
+    textDensity * 0.04 +          // 텍스트 없음
+    colorDiversity * 0.02 +       // 자연스러운 색상
     background * 0.02;            // 배경은 거의 무시
   // skinTone, backgroundSaturation, aspect → 0% (무시)
 
   return {
     overall, background, backgroundSaturation, centering, aspect,
     textDensity, sharpness, skinTone, contentSufficiency, colorDiversity,
-    symmetry, productCompactness, edgeCrop,
+    symmetry, productCompactness, edgeCrop, fillRatio,
   };
 }
 
@@ -1198,6 +1211,198 @@ function getHighSaturationRatio(data: Uint8ClampedArray, w: number, h: number): 
   }
 
   return highSatCount / totalPixels;
+}
+
+/**
+ * 프레임 점유율 점수: 상품 바운딩박스가 전체 이미지를 얼마나 채우는지 측정
+ *
+ * 쿠팡 검색 결과 썸네일(~200x200px)에서 상품이 크게 보여야 클릭률이 높다.
+ * 흰배경 누끼 사진이라도 상품이 이미지의 30%만 차지하면 썸네일에서 너무 작게 보인다.
+ *
+ * 알고리즘:
+ *  1. 비백색(밝기 < 230) 픽셀의 바운딩박스를 계산
+ *  2. 바운딩박스 면적 / 전체 이미지 면적 = 점유율
+ *  3. 점유율 기반 점수 변환:
+ *     - 70~85% → 100점 (최적: 상품이 크게 + 적절한 여백)
+ *     - 55~70% → 85점
+ *     - 40~55% → 60점
+ *     - 25~40% → 35점 (너무 작음)
+ *     - < 25%  → 15점 (매우 작음)
+ *     - > 85%  → 75점 (여백 부족, 약간 답답함)
+ */
+function scoreFillRatio(data: Uint8ClampedArray, w: number, h: number): number {
+  const CONTENT_LUM = 230;
+  let minX = w, maxX = 0, minY = h, maxY = 0;
+  let hasContent = false;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+      if (lum < CONTENT_LUM) {
+        hasContent = true;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (!hasContent) return 0;
+
+  const bboxArea = (maxX - minX + 1) * (maxY - minY + 1);
+  const totalArea = w * h;
+  const ratio = bboxArea / totalArea;
+
+  if (ratio < 0.25) return 15;
+  if (ratio < 0.40) return 15 + (ratio - 0.25) / 0.15 * 20;  // 15→35
+  if (ratio < 0.55) return 35 + (ratio - 0.40) / 0.15 * 25;  // 35→60
+  if (ratio < 0.70) return 60 + (ratio - 0.55) / 0.15 * 25;  // 60→85
+  if (ratio <= 0.85) return 85 + (ratio - 0.70) / 0.15 * 15;  // 85→100
+  return Math.max(65, 100 - (ratio - 0.85) / 0.15 * 35);     // 100→65
+
+}
+
+// ---- 자동 크롭 상수 ----
+/** 자동 크롭 대상 최소 이미지 원본 크기 (크롭해도 500px 이상 보장) */
+const AUTO_CROP_MIN_SRC = 600;
+/** 자동 크롭 후 최소 출력 크기 */
+const AUTO_CROP_MIN_OUTPUT = 500;
+/** 크롭 트리거 점유율 — 이 이하면 자동 크롭 */
+const AUTO_CROP_TRIGGER_RATIO = 0.55;
+/** 크롭 시 상품 주위 여백 비율 (바운딩박스 대비) */
+const AUTO_CROP_PADDING = 0.12;
+
+/**
+ * 대표이미지 자동 크롭 — 상품이 프레임을 충분히 채우도록 확대
+ *
+ * 흰배경 누끼 사진에서 상품이 이미지의 작은 부분만 차지할 경우,
+ * 바운딩박스 기준으로 여백을 10-15%만 남기고 크롭하여 새 Object URL을 반환.
+ *
+ * 조건:
+ *  - 원본 이미지 600px 이상 (크롭 후에도 500px 이상 보장)
+ *  - 현재 점유율 55% 이하
+ *  - 크롭 결과가 500x500 이상
+ *
+ * @param objectUrl - 원본 이미지의 Object URL
+ * @returns { cropped: true, url: string, ratio: number } 또는 { cropped: false }
+ */
+export async function autoCropToFill(
+  objectUrl: string,
+): Promise<{ cropped: true; url: string; oldRatio: number; newRatio: number } | { cropped: false }> {
+  const img = await loadImage(objectUrl);
+  const origW = img.naturalWidth;
+  const origH = img.naturalHeight;
+
+  // 원본이 너무 작으면 크롭 불가
+  if (origW < AUTO_CROP_MIN_SRC || origH < AUTO_CROP_MIN_SRC) {
+    return { cropped: false };
+  }
+
+  // 바운딩박스 계산 (원본 크기에서 수행 — 정확도 위해)
+  // 성능: 200x200으로 축소하여 바운딩박스 감지, 원본에 비율 적용
+  const detectSize = 200;
+  const detectCanvas = document.createElement('canvas');
+  detectCanvas.width = detectSize;
+  detectCanvas.height = detectSize;
+  const detectCtx = detectCanvas.getContext('2d');
+  if (!detectCtx) return { cropped: false };
+
+  detectCtx.drawImage(img, 0, 0, origW, origH, 0, 0, detectSize, detectSize);
+  const detectData = detectCtx.getImageData(0, 0, detectSize, detectSize).data;
+
+  const CONTENT_LUM = 230;
+  let minX = detectSize, maxX = 0, minY = detectSize, maxY = 0;
+  let hasContent = false;
+
+  for (let y = 0; y < detectSize; y++) {
+    for (let x = 0; x < detectSize; x++) {
+      const idx = (y * detectSize + x) * 4;
+      const lum = 0.299 * detectData[idx] + 0.587 * detectData[idx + 1] + 0.114 * detectData[idx + 2];
+      if (lum < CONTENT_LUM) {
+        hasContent = true;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (!hasContent) return { cropped: false };
+
+  // 점유율 계산
+  const bboxW = maxX - minX + 1;
+  const bboxH = maxY - minY + 1;
+  const oldRatio = (bboxW * bboxH) / (detectSize * detectSize);
+
+  // 이미 충분히 채우고 있으면 크롭 불필요
+  if (oldRatio > AUTO_CROP_TRIGGER_RATIO) return { cropped: false };
+
+  // 바운딩박스를 원본 좌표로 변환
+  const scaleX = origW / detectSize;
+  const scaleY = origH / detectSize;
+
+  const realMinX = Math.floor(minX * scaleX);
+  const realMaxX = Math.ceil(maxX * scaleX);
+  const realMinY = Math.floor(minY * scaleY);
+  const realMaxY = Math.ceil(maxY * scaleY);
+
+  const realBboxW = realMaxX - realMinX;
+  const realBboxH = realMaxY - realMinY;
+
+  // 패딩 추가
+  const padX = Math.floor(realBboxW * AUTO_CROP_PADDING);
+  const padY = Math.floor(realBboxH * AUTO_CROP_PADDING);
+
+  // 정사각형 크롭 (쿠팡 썸네일 최적화 — 1:1 비율)
+  const contentCenterX = (realMinX + realMaxX) / 2;
+  const contentCenterY = (realMinY + realMaxY) / 2;
+  const cropSide = Math.max(realBboxW + padX * 2, realBboxH + padY * 2);
+
+  let cropX = Math.round(contentCenterX - cropSide / 2);
+  let cropY = Math.round(contentCenterY - cropSide / 2);
+  let cropW = cropSide;
+  let cropH = cropSide;
+
+  // 원본 경계 내로 클램프
+  if (cropX < 0) cropX = 0;
+  if (cropY < 0) cropY = 0;
+  if (cropX + cropW > origW) cropW = origW - cropX;
+  if (cropY + cropH > origH) cropH = origH - cropY;
+
+  // 크롭 결과가 너무 작으면 포기
+  if (cropW < AUTO_CROP_MIN_OUTPUT || cropH < AUTO_CROP_MIN_OUTPUT) {
+    return { cropped: false };
+  }
+
+  // Canvas로 크롭 실행
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = cropW;
+  outCanvas.height = cropH;
+  const outCtx = outCanvas.getContext('2d');
+  if (!outCtx) return { cropped: false };
+
+  // 흰색 배경 채우기 (정사각형 크롭에서 원본 범위 밖 영역)
+  outCtx.fillStyle = '#FFFFFF';
+  outCtx.fillRect(0, 0, cropW, cropH);
+  outCtx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+  // Blob → Object URL
+  const blob = await new Promise<Blob | null>(resolve =>
+    outCanvas.toBlob(resolve, 'image/jpeg', 0.92),
+  );
+  if (!blob) return { cropped: false };
+
+  const newUrl = URL.createObjectURL(blob);
+
+  // 새 점유율 계산
+  const newBboxArea = realBboxW * realBboxH;
+  const newTotalArea = cropW * cropH;
+  const newRatio = newBboxArea / newTotalArea;
+
+  return { cropped: true, url: newUrl, oldRatio, newRatio };
 }
 
 /**
