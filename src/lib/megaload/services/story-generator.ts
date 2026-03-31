@@ -9,6 +9,8 @@
 import { createSeededRandom, stringToSeed } from './seeded-random';
 import storyData from '../data/story-templates.json';
 import fullReviewData from '../data/full-review-templates.json';
+import { generateRealReview, reviewToCaption } from './real-review-composer';
+import type { RealReviewResult } from './real-review-composer';
 
 // ─── 타입 ────────────────────────────────────────────────────
 
@@ -110,6 +112,7 @@ export interface StoryResult {
   paragraphs: string[];     // 3~5개 스토리 문단 (이미지 사이에 삽입)
   reviewTexts: string[];    // 2~3개 짧은 후기 (리뷰 이미지 캡션)
   tone: string;             // 사용된 톤
+  realReview?: RealReviewResult;  // 리얼 후기 (V3)
 }
 
 /**
@@ -201,15 +204,13 @@ export function generateStory(
     i === rawParagraphs.length - 1 ? applyTone(p, tone) : p
   );
 
-  // 리뷰 텍스트 (기존 짧은 템플릿에서 3개 — 리뷰 이미지 캡션용)
-  const shortTemplates = (TEMPLATES[catKey] || TEMPLATES['DEFAULT'])
-    .filter(t => t.type === 'review');
-  const shuffledShort = [...shortTemplates].sort(() => rng() - 0.5);
-  const reviewTexts = shuffledShort.slice(0, 3).map(t =>
-    fillTemplate(t.text, vars, cleanName, rng)
-  );
+  // V3 리얼 후기 생성 (조합형 프레임 시스템)
+  const realReview = generateRealReview(productName, categoryPath, sellerSeed, productIndex);
 
-  return { paragraphs, reviewTexts, tone: tone.name };
+  // 리뷰 텍스트: 리얼 후기에서 임팩트 문단 추출 (이미지 캡션용)
+  const reviewTexts = reviewToCaption(realReview);
+
+  return { paragraphs, reviewTexts, tone: tone.name, realReview };
 }
 
 /**
@@ -262,29 +263,19 @@ export function generateStoryV2(
   // 레거시 paragraphs 변환 (하위 호환)
   const paragraphs = contentBlocksToParagraphs(persuasion.blocks);
 
-  // 리뷰 텍스트: 기존 짧은 템플릿에서 생성 (social_proof 블록과 별도)
-  const catKey = getCategoryKey(categoryPath);
-  const vars = VARIABLES[catKey] || VARIABLES['DEFAULT'];
+  // V3 리얼 후기 생성 (조합형 프레임 시스템)
+  const realReview = generateRealReview(productName, categoryPath, sellerSeed, productIndex);
+  const reviewTexts = reviewToCaption(realReview);
+
   const seed = stringToSeed(`${sellerSeed}::story::${productIndex}::${productName}`);
   const rng = createSeededRandom(seed);
   const tone = TONES[Math.floor(rng() * TONES.length)];
-
-  const cleanName = productName
-    .replace(/[\[\(【][^\]\)】]*[\]\)】]/g, '')
-    .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
-    .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ');
-
-  const shortTemplates = (TEMPLATES[catKey] || TEMPLATES['DEFAULT'])
-    .filter(t => t.type === 'review');
-  const shuffledShort = [...shortTemplates].sort(() => rng() - 0.5);
-  const reviewTexts = shuffledShort.slice(0, 3).map(t =>
-    fillTemplate(t.text, vars, cleanName, rng)
-  );
 
   return {
     paragraphs,
     reviewTexts,
     tone: tone.name,
+    realReview,
     contentBlocks: persuasion.blocks,
     framework: persuasion.framework,
     frameworkName: persuasion.frameworkName,
@@ -312,10 +303,10 @@ export function buildStoryDetailHtml(params: {
 
   const sections: string[] = [];
 
-  // 헤더
+  // 헤더 — 텍스트만, 장식 제로
   sections.push(`
-    <div style="text-align:center;padding:30px 20px;background:#fafafa;border-radius:12px;margin-bottom:20px;">
-      <h2 style="font-size:22px;font-weight:700;color:#333;margin:0 0 8px 0;">${escapeHtml(productName)}</h2>
+    <div style="text-align:center;padding:30px 20px 20px;">
+      <h2 style="font-size:24px;font-weight:700;color:#222;margin:0 0 8px 0;word-break:keep-all;">${escapeHtml(productName)}</h2>
       ${brand ? `<p style="font-size:14px;color:#888;margin:0;">${escapeHtml(brand)}</p>` : ''}
     </div>
   `);
@@ -323,75 +314,67 @@ export function buildStoryDetailHtml(params: {
   // 스토리↔이미지 교차
   const maxBlocks = Math.max(paragraphs.length, detailImageUrls.length);
   for (let i = 0; i < maxBlocks; i++) {
-    // 텍스트 블록
+    // 텍스트 블록 — 리얼 후기 스타일
     if (i < paragraphs.length) {
       const p = paragraphs[i];
-      // Q&A 형식 처리
+      // Q&A 형식 처리 — 장식 제거, 텍스트만
       if (p.includes('Q.') && p.includes('A.')) {
         const [q, a] = p.split(/\nA\.\s*/);
         sections.push(`
-          <div style="padding:24px 20px;margin:16px 0;background:#f8f9fa;border-left:4px solid #E31837;border-radius:0 8px 8px 0;">
-            <p style="font-size:15px;font-weight:600;color:#E31837;margin:0 0 12px 0;">${escapeHtml(q.replace(/^Q\.\s*/, 'Q. '))}</p>
-            <p style="font-size:15px;color:#333;line-height:1.7;margin:0;">A. ${escapeHtml(a || '')}</p>
+          <div style="padding:20px 20px;margin:16px 0;">
+            <p style="font-size:21px;font-weight:bold;color:#222;margin:0 0 12px 0;word-break:keep-all;">${escapeHtml(q.replace(/^Q\.\s*/, 'Q. '))}</p>
+            <p style="font-size:21px;color:#222;line-height:2.2;margin:0;word-break:keep-all;">A. ${escapeHtml(a || '')}</p>
           </div>
         `);
       } else {
         sections.push(`
           <div style="padding:20px;margin:16px 0;">
-            <p style="font-size:15px;color:#444;line-height:1.8;text-align:center;margin:0;word-break:keep-all;">
-              "${escapeHtml(p)}"
+            <p style="font-size:21px;color:#222;line-height:2.2;margin:0;word-break:keep-all;">
+              ${escapeHtml(p)}
             </p>
           </div>
         `);
       }
     }
 
-    // 이미지 블록
+    // 이미지 블록 — 장식 제거
     if (i < detailImageUrls.length) {
       sections.push(`
-        <div style="margin:8px 0;text-align:center;">
-          <img src="${escapeHtml(detailImageUrls[i])}" style="max-width:100%;height:auto;border-radius:8px;" alt="${escapeHtml(productName)}" />
+        <div style="margin:8px 0;">
+          <img src="${escapeHtml(detailImageUrls[i])}" style="width:100%;display:block;" alt="${escapeHtml(productName)}" />
         </div>
       `);
     }
   }
 
-  // 리뷰 섹션 (있으면)
+  // 리뷰 섹션 — 리얼 후기 스타일: 이미지+텍스트만, 장식 제로
   if (reviewTexts && reviewTexts.length > 0 && reviewImageUrls && reviewImageUrls.length > 0) {
-    sections.push(`
-      <div style="margin:32px 0;padding:24px;background:#fff9fa;border-radius:12px;">
-        <h3 style="font-size:16px;font-weight:600;color:#E31837;text-align:center;margin:0 0 16px 0;">구매자 후기</h3>
-    `);
-
     for (let i = 0; i < Math.min(reviewTexts.length, reviewImageUrls.length); i++) {
       sections.push(`
-        <div style="display:flex;align-items:flex-start;gap:12px;margin:12px 0;padding:12px;background:#fff;border-radius:8px;">
-          <img src="${escapeHtml(reviewImageUrls[i])}" style="width:80px;height:80px;object-fit:cover;border-radius:8px;flex-shrink:0;" alt="" />
-          <p style="font-size:13px;color:#555;line-height:1.6;margin:0;">"${escapeHtml(reviewTexts[i])}"</p>
+        <div style="margin:0;">
+          <img src="${escapeHtml(reviewImageUrls[i])}" style="width:100%;display:block;" alt="${escapeHtml(productName)} 리뷰 ${i + 1}" />
+        </div>
+        <div style="padding:20px 20px 32px;line-height:2.2;font-size:21px;color:#222;word-break:keep-all;">
+          ${escapeHtml(reviewTexts[i])}
         </div>
       `);
     }
-
-    sections.push(`</div>`);
   }
 
   // 상품정보고시 이미지 (마지막)
   if (infoImageUrls && infoImageUrls.length > 0) {
+    sections.push(`<div style="margin:40px 0;"></div>`);
     sections.push(`
-      <div style="margin:32px 0 0 0;padding:20px 0;border-top:1px solid #eee;">
-        <h3 style="font-size:14px;color:#888;text-align:center;margin:0 0 16px 0;">상품정보제공고시</h3>
+      <div style="text-align:center;margin-bottom:20px;">
+        <div style="font-size:16px;font-weight:bold;color:#555;">상품정보제공고시</div>
+      </div>
     `);
     for (const url of infoImageUrls) {
-      sections.push(`
-        <div style="margin:4px 0;text-align:center;">
-          <img src="${escapeHtml(url)}" style="max-width:100%;height:auto;" alt="상품정보" />
-        </div>
-      `);
+      sections.push(`<img src="${escapeHtml(url)}" style="width:100%;display:block;margin-bottom:4px;" alt="상품정보" />`);
     }
-    sections.push(`</div>`);
   }
 
-  return `<div style="max-width:860px;margin:0 auto;font-family:'Noto Sans KR',sans-serif;">${sections.join('')}</div>`;
+  return `<div style="max-width:860px;margin:0 auto;font-family:'Malgun Gothic','맑은 고딕','Apple SD Gothic Neo',sans-serif;color:#222;background:#fff;">${sections.join('')}</div>`;
 }
 
 function escapeHtml(str: string): string {

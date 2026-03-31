@@ -32,7 +32,7 @@ export interface DetailPageParams {
   detailImageUrls: string[];
   infoImageUrls?: string[];        // 상품정보제공고시 이미지
   consignmentImageUrls?: string[]; // 위탁판매/신뢰 정보 이미지
-  thirdPartyImageUrl?: string;     // 제3자 이미지 (랜덤 1장, 법적 리스크 분산용)
+  thirdPartyImageUrls?: string[];   // 제3자 이미지 (랜덤 2장)
   // SEO 신규 필드
   seoKeywords?: string[];          // SEO 키워드 배지 (3~6개)
   faqItems?: FaqItem[];            // 카테고리별 FAQ (3~5개)
@@ -54,10 +54,10 @@ interface LayoutStyle {
 }
 
 const LAYOUT_STYLES: Record<string, LayoutStyle> = {
-  A: { maxWidth: '860px', fontSize: '15px', padding: '24px 30px', lineHeight: '1.9' },
-  B: { maxWidth: '880px', fontSize: '16px', padding: '28px 32px', lineHeight: '1.85' },
-  C: { maxWidth: '840px', fontSize: '14px', padding: '20px 24px', lineHeight: '1.95' },
-  D: { maxWidth: '860px', fontSize: '15px', padding: '22px 28px', lineHeight: '1.9' },
+  A: { maxWidth: '860px', fontSize: '17px', padding: '24px 20px', lineHeight: '2.0' },
+  B: { maxWidth: '880px', fontSize: '17px', padding: '28px 20px', lineHeight: '2.0' },
+  C: { maxWidth: '840px', fontSize: '17px', padding: '20px 20px', lineHeight: '2.0' },
+  D: { maxWidth: '860px', fontSize: '17px', padding: '22px 20px', lineHeight: '2.0' },
 };
 
 function getStyle(variant?: string): LayoutStyle {
@@ -127,7 +127,7 @@ export function buildRichDetailPageHtml(params: DetailPageParams, templateVarian
 // ─── 레이아웃 A (기본: 히어로 → 이미지-글 교차 → FAQ → 리뷰 → 마무리) ──
 
 function buildLayoutA(params: DetailPageParams): string {
-  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, thirdPartyImageUrl, seoKeywords, faqItems, closingText, categoryPath } = params;
+  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, thirdPartyImageUrls, seoKeywords, faqItems, closingText, categoryPath } = params;
   const style = getStyle('A');
   const theme = getTheme(categoryPath);
   const sections: string[] = [];
@@ -164,7 +164,7 @@ function buildLayoutA(params: DetailPageParams): string {
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
   if (consignmentImageUrls && consignmentImageUrls.length > 0) sections.push(buildConsignmentSection(consignmentImageUrls));
-  if (thirdPartyImageUrl) sections.push(buildThirdPartySection(thirdPartyImageUrl));
+  if (thirdPartyImageUrls && thirdPartyImageUrls.length > 0) sections.push(buildThirdPartySection(thirdPartyImageUrls));
 
   sections.push('</div>');
   return sections.join('\n');
@@ -173,7 +173,7 @@ function buildLayoutA(params: DetailPageParams): string {
 // ─── 레이아웃 B (이미지 전체 → 글모음 → FAQ → 리뷰 → 마무리) ──
 
 function buildLayoutB(params: DetailPageParams): string {
-  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, thirdPartyImageUrl, seoKeywords, faqItems, closingText, categoryPath } = params;
+  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, thirdPartyImageUrls, seoKeywords, faqItems, closingText, categoryPath } = params;
   const style = getStyle('B');
   const theme = getTheme(categoryPath);
   const sections: string[] = [];
@@ -213,7 +213,7 @@ function buildLayoutB(params: DetailPageParams): string {
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
   if (consignmentImageUrls && consignmentImageUrls.length > 0) sections.push(buildConsignmentSection(consignmentImageUrls));
-  if (thirdPartyImageUrl) sections.push(buildThirdPartySection(thirdPartyImageUrl));
+  if (thirdPartyImageUrls && thirdPartyImageUrls.length > 0) sections.push(buildThirdPartySection(thirdPartyImageUrls));
 
   sections.push('</div>');
   return sections.join('\n');
@@ -222,7 +222,7 @@ function buildLayoutB(params: DetailPageParams): string {
 // ─── 레이아웃 C (히어로이미지 → 글 → 2열그리드 → FAQ → 리뷰 → 마무리) ──
 
 function buildLayoutC(params: DetailPageParams): string {
-  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, thirdPartyImageUrl, seoKeywords, faqItems, closingText, categoryPath } = params;
+  const { productName, brand, aiStoryParagraphs, aiStoryHtml, reviewImageUrls, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, thirdPartyImageUrls, seoKeywords, faqItems, closingText, categoryPath } = params;
   const style = getStyle('C');
   const theme = getTheme(categoryPath);
   const sections: string[] = [];
@@ -268,7 +268,7 @@ function buildLayoutC(params: DetailPageParams): string {
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
   if (consignmentImageUrls && consignmentImageUrls.length > 0) sections.push(buildConsignmentSection(consignmentImageUrls));
-  if (thirdPartyImageUrl) sections.push(buildThirdPartySection(thirdPartyImageUrl));
+  if (thirdPartyImageUrls && thirdPartyImageUrls.length > 0) sections.push(buildThirdPartySection(thirdPartyImageUrls));
 
   sections.push('</div>');
   return sections.join('\n');
@@ -277,7 +277,7 @@ function buildLayoutC(params: DetailPageParams): string {
 // ─── 레이아웃 D (헤더없음 → 이미지-글 교차 → FAQ → 텍스트리뷰 → 마무리) ──
 
 function buildLayoutD(params: DetailPageParams): string {
-  const { productName, aiStoryParagraphs, aiStoryHtml, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, thirdPartyImageUrl, seoKeywords, faqItems, closingText, categoryPath } = params;
+  const { productName, aiStoryParagraphs, aiStoryHtml, reviewTexts, detailImageUrls, infoImageUrls, consignmentImageUrls, thirdPartyImageUrls, seoKeywords, faqItems, closingText, categoryPath } = params;
   const style = getStyle('D');
   const theme = getTheme(categoryPath);
   const sections: string[] = [];
@@ -301,14 +301,13 @@ function buildLayoutD(params: DetailPageParams): string {
     sections.push(buildFaqSection(faqItems, theme));
   }
 
-  // 텍스트 리뷰만 (이미지 없음)
+  // 텍스트 리뷰만 (이미지 없음) — 리얼 후기 스타일
   if (reviewTexts && reviewTexts.length > 0) {
     sections.push('<div style="padding:32px 0 16px;">');
-    sections.push(`<div style="text-align:center;font-size:18px;font-weight:bold;color:${theme.textAccent};margin-bottom:16px;">구매 후기</div>`);
     for (const rt of reviewTexts) {
       if (rt.trim()) {
         sections.push(
-          `<div style="padding:14px 24px;line-height:1.8;font-size:14px;color:#555;background:${theme.bgLight};border-radius:8px;margin:8px 16px;">`
+          `<div style="padding:18px 20px;line-height:2.2;font-size:21px;color:#222;word-break:keep-all;">`
           + `${esc(rt)}</div>`
         );
       }
@@ -325,7 +324,7 @@ function buildLayoutD(params: DetailPageParams): string {
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
   if (consignmentImageUrls && consignmentImageUrls.length > 0) sections.push(buildConsignmentSection(consignmentImageUrls));
-  if (thirdPartyImageUrl) sections.push(buildThirdPartySection(thirdPartyImageUrl));
+  if (thirdPartyImageUrls && thirdPartyImageUrls.length > 0) sections.push(buildThirdPartySection(thirdPartyImageUrls));
 
   sections.push('</div>');
   return sections.join('\n');
@@ -334,42 +333,30 @@ function buildLayoutD(params: DetailPageParams): string {
 // ─── 공통 섹션 빌더 ─────────────────────────────────────────
 
 function buildWrapper(style: LayoutStyle, theme: ThemeColor): string {
-  return `<div style="width:100%;max-width:${style.maxWidth};margin:0 auto;font-family:'Malgun Gothic','맑은 고딕','Apple SD Gothic Neo',sans-serif;color:#333;background:#fff;">`;
+  return `<div style="width:100%;max-width:${style.maxWidth};margin:0 auto;font-family:'Malgun Gothic','맑은 고딕','Apple SD Gothic Neo',sans-serif;color:#222;background:#fff;">`;
 }
 
-/** 섹션 1: 히어로 헤더 — 브랜드 + 상품명 + SEO 키워드 배지 */
-function buildHeroSection(productName: string, brand?: string, seoKeywords?: string[], theme?: ThemeColor): string {
-  const t = theme || CATEGORY_THEMES['DEFAULT'];
+/** 섹션 1: 히어로 헤더 — 상품명만 크게 */
+function buildHeroSection(productName: string, brand?: string, seoKeywords?: string[], _theme?: ThemeColor): string {
   const parts: string[] = [];
-  parts.push(`<div style="text-align:center;padding:48px 20px 36px;background:${t.bgLight};">`);
+  parts.push(`<div style="text-align:center;padding:48px 20px 36px;">`);
   if (brand) {
-    parts.push(`<div style="font-size:13px;color:#999;letter-spacing:3px;text-transform:uppercase;margin-bottom:10px;">${esc(brand)}</div>`);
+    parts.push(`<div style="font-size:14px;color:#999;letter-spacing:2px;margin-bottom:10px;">${esc(brand)}</div>`);
   }
-  parts.push(`<div style="font-size:26px;font-weight:bold;color:#111;line-height:1.5;margin-bottom:16px;">${esc(productName)}</div>`);
-  parts.push(`<div style="width:60px;height:3px;background:${t.primary};margin:0 auto 20px;border-radius:2px;"></div>`);
+  parts.push(`<div style="font-size:24px;font-weight:bold;color:#222;line-height:1.6;word-break:keep-all;">${esc(productName)}</div>`);
 
-  // SEO 키워드 배지
+  // SEO 키워드 — 쉼표 구분 텍스트
   if (seoKeywords && seoKeywords.length > 0) {
-    parts.push('<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:12px;">');
-    for (const kw of seoKeywords.slice(0, 6)) {
-      parts.push(`<span style="display:inline-block;padding:6px 14px;background:${t.bgAccent};color:${t.textAccent};font-size:13px;font-weight:500;border-radius:20px;letter-spacing:0.3px;">${esc(kw)}</span>`);
-    }
-    parts.push('</div>');
+    parts.push(`<div style="font-size:14px;color:#888;margin-top:14px;line-height:1.8;">${seoKeywords.slice(0, 6).map(k => esc(k)).join(', ')}</div>`);
   }
 
   parts.push('</div>');
   return parts.join('\n');
 }
 
-/** 레이아웃 D 전용: 키워드 배지만 (헤더 없이) */
-function buildKeywordBadgesOnly(keywords: string[], theme: ThemeColor): string {
-  const parts: string[] = [];
-  parts.push('<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px;padding:20px 16px;">');
-  for (const kw of keywords.slice(0, 6)) {
-    parts.push(`<span style="display:inline-block;padding:6px 14px;background:${theme.bgAccent};color:${theme.textAccent};font-size:13px;font-weight:500;border-radius:20px;">${esc(kw)}</span>`);
-  }
-  parts.push('</div>');
-  return parts.join('\n');
+/** 레이아웃 D 전용: 키워드 텍스트만 (헤더 없이) */
+function buildKeywordBadgesOnly(keywords: string[], _theme: ThemeColor): string {
+  return `<div style="text-align:center;padding:20px 16px;font-size:14px;color:#888;line-height:1.8;">${keywords.slice(0, 6).map(k => esc(k)).join(', ')}</div>`;
 }
 
 /** 섹션 2: 이미지-스토리 교차 (블로그 스타일) */
@@ -389,7 +376,7 @@ function buildBlogStyleSection(
     }
     if (i < imageUrls.length) {
       parts.push(
-        `<div style="margin:12px 0;"><img src="${esc(imageUrls[i])}" alt="${esc(productName)} ${i + 1}" style="width:100%;display:block;border-radius:8px;" /></div>`
+        `<div style="margin:12px 0;"><img src="${esc(imageUrls[i])}" alt="${esc(productName)} ${i + 1}" style="width:100%;display:block;" /></div>`
       );
     }
   }
@@ -400,24 +387,18 @@ function buildBlogStyleSection(
 function buildParagraphBlock(text: string, style: LayoutStyle): string {
   const isHtml = /<[a-z][\s\S]*>/i.test(text);
   const content = isHtml ? text : `<p style="margin:0;">${esc(text)}</p>`;
-  return `<div style="padding:${style.padding};line-height:${style.lineHeight};font-size:${style.fontSize};color:#444;word-break:keep-all;">\n${content}\n</div>`;
+  return `<div style="padding:${style.padding};line-height:2.2;font-size:21px;color:#222;word-break:keep-all;">\n${content}\n</div>`;
 }
 
-/** 섹션 3: FAQ — 카테고리별 Q&A (쿠팡 검색 노출 + 체류시간↑) */
-function buildFaqSection(items: FaqItem[], theme: ThemeColor): string {
+/** 섹션 3: FAQ — 심플 텍스트 Q&A */
+function buildFaqSection(items: FaqItem[], _theme: ThemeColor): string {
   const parts: string[] = [];
-
-  parts.push('<div style="padding:36px 0 20px;">');
-  parts.push('<div style="text-align:center;margin-bottom:24px;">');
-  parts.push(`<div style="font-size:12px;color:${theme.primary};letter-spacing:4px;font-weight:600;margin-bottom:6px;">FAQ</div>`);
-  parts.push('<div style="font-size:20px;font-weight:bold;color:#222;">자주 묻는 질문</div>');
-  parts.push(`<div style="width:40px;height:2px;background:${theme.primary};margin:12px auto 0;"></div>`);
-  parts.push('</div>');
+  parts.push('<div style="padding:36px 20px 20px;">');
 
   for (const item of items) {
-    parts.push(`<div style="margin:12px 20px;border-radius:12px;overflow:hidden;border:1px solid #eee;">`);
-    parts.push(`<div style="padding:16px 20px;background:${theme.bgLight};font-size:15px;font-weight:600;color:#333;">Q. ${esc(item.question)}</div>`);
-    parts.push(`<div style="padding:16px 20px;font-size:14px;color:#555;line-height:1.8;background:#fff;">A. ${esc(item.answer)}</div>`);
+    parts.push(`<div style="margin-bottom:28px;">`);
+    parts.push(`<div style="font-size:21px;font-weight:bold;color:#222;line-height:2.2;word-break:keep-all;">Q. ${esc(item.question)}</div>`);
+    parts.push(`<div style="font-size:21px;color:#222;line-height:2.2;margin-top:8px;word-break:keep-all;">A. ${esc(item.answer)}</div>`);
     parts.push('</div>');
   }
 
@@ -425,31 +406,24 @@ function buildFaqSection(items: FaqItem[], theme: ThemeColor): string {
   return parts.join('\n');
 }
 
-/** 섹션 4: 후기 — 이미지 + 상세 텍스트 */
+/** 섹션 4: 리얼 후기 — 진짜 구매자 블로그 느낌, 장식 제로 */
 function buildBlogReviewSection(
   imageUrls: string[],
   reviewTexts: string[] | undefined,
   productName: string,
-  style: LayoutStyle,
-  theme: ThemeColor,
+  _style: LayoutStyle,
+  _theme: ThemeColor,
 ): string {
   const parts: string[] = [];
-
-  parts.push('<div style="padding:36px 0 20px;">');
-  parts.push('<div style="text-align:center;">');
-  parts.push(`<div style="font-size:12px;color:${theme.primary};letter-spacing:4px;font-weight:600;margin-bottom:8px;">REAL REVIEW</div>`);
-  parts.push('<div style="font-size:20px;font-weight:bold;color:#222;">실제 사용 후기</div>');
-  parts.push(`<div style="width:40px;height:2px;background:${theme.primary};margin:12px auto 0;"></div>`);
-  parts.push('</div>');
-  parts.push('</div>');
 
   for (let i = 0; i < imageUrls.length; i++) {
     parts.push(
       `<div style="margin:0;"><img src="${esc(imageUrls[i])}" alt="${esc(productName)} 리뷰 ${i + 1}" style="width:100%;display:block;" /></div>`
     );
     if (reviewTexts && i < reviewTexts.length && reviewTexts[i].trim()) {
+      // 리얼 후기: 큰 폰트, 순수 검정 텍스트, 장식 없음
       parts.push(
-        `<div style="padding:16px 24px 20px;line-height:1.8;font-size:${style.fontSize};color:#555;background:${theme.bgLight};border-left:3px solid ${theme.primary};margin:8px 20px 16px;border-radius:0 8px 8px 0;">`
+        `<div style="padding:20px 20px 32px;line-height:2.2;font-size:21px;color:#222;word-break:keep-all;">`
         + `${esc(reviewTexts[i])}`
         + `</div>`
       );
@@ -459,18 +433,13 @@ function buildBlogReviewSection(
   return parts.join('\n');
 }
 
-/** 섹션 5: 키워드 마무리 — SEO 키워드를 자연스럽게 포함한 구매 유도 문구 */
-function buildClosingSection(closingText: string, productName: string, theme: ThemeColor): string {
-  const parts: string[] = [];
-  parts.push(`<div style="padding:32px 24px;text-align:center;background:${theme.bgLight};border-radius:12px;margin:0 16px;">`);
-  parts.push(`<div style="width:40px;height:2px;background:${theme.primary};margin:0 auto 20px;border-radius:2px;"></div>`);
-  parts.push(`<div style="font-size:15px;color:#444;line-height:1.9;word-break:keep-all;">${esc(closingText)}</div>`);
-  parts.push('</div>');
-  return parts.join('\n');
+/** 섹션 5: 키워드 마무리 — 텍스트만 */
+function buildClosingSection(closingText: string, _productName: string, _theme: ThemeColor): string {
+  return `<div style="padding:32px 20px;text-align:center;"><div style="font-size:21px;color:#222;line-height:2.2;word-break:keep-all;">${esc(closingText)}</div></div>`;
 }
 
 function buildDivider(): string {
-  return '<div style="height:2px;background:linear-gradient(90deg,transparent,#ddd,transparent);margin:40px 0;"></div>';
+  return '<div style="margin:40px 0;"></div>';
 }
 
 function buildInfoSection(urls: string[], productName: string): string {
@@ -499,8 +468,10 @@ function buildConsignmentSection(urls: string[]): string {
   return parts.join('\n');
 }
 
-function buildThirdPartySection(url: string): string {
-  return `<div style="padding:20px 0 30px;"><img src="${esc(url)}" alt="추가 정보" style="width:100%;display:block;" /></div>`;
+function buildThirdPartySection(urls: string[]): string {
+  return urls.map((url, i) =>
+    `<div style="padding:10px 0;"><img src="${esc(url)}" alt="추가 정보 ${i + 1}" style="width:100%;display:block;" /></div>`
+  ).join('\n');
 }
 
 /** 상품고지정보 텍스트 테이블 — 모바일 최적화 */
@@ -525,143 +496,118 @@ ${rows}
 
 // ─── V2: 설득형 콘텐츠 블록 렌더러 (11가지 타입) ─────────────
 
-/** hook: 큰 폰트, 중앙정렬, 배경 그라데이션, 모바일 최적 */
-function renderHookBlock(block: ContentBlock, theme: ThemeColor): string {
-  return `<div style="text-align:center;padding:28px 16px;background:linear-gradient(135deg,${theme.bgLight},${theme.bgAccent});border-radius:16px;margin:16px 0;">
-<h3 style="font-size:18px;font-weight:700;color:#222;line-height:1.6;margin:0;word-break:keep-all;">${esc(block.content)}</h3>
+/** hook: 큰 폰트, 중앙정렬 */
+function renderHookBlock(block: ContentBlock, _theme: ThemeColor): string {
+  return `<div style="text-align:center;padding:32px 20px;margin:16px 0;">
+<div style="font-size:24px;font-weight:bold;color:#222;line-height:2.0;word-break:keep-all;">${esc(block.content)}</div>
 </div>`;
 }
 
-/** problem: 좌측 빨간 보더, 아이콘(⚠), 회색 배경 */
-function renderProblemBlock(block: ContentBlock, theme: ThemeColor): string {
-  return `<div style="padding:20px 24px;margin:16px 0;background:#f8f9fa;border-left:4px solid ${theme.primary};border-radius:0 12px 12px 0;">
-<div style="font-size:14px;color:${theme.primary};font-weight:600;margin-bottom:8px;">&#9888; 이런 고민, 있으신가요?</div>
-<p style="font-size:15px;color:#444;line-height:1.8;margin:0;word-break:keep-all;">${esc(block.content)}</p>
+/** problem: 본문 문단 */
+function renderProblemBlock(block: ContentBlock, _theme: ThemeColor): string {
+  return `<div style="padding:20px 20px;margin:16px 0;">
+<p style="font-size:21px;color:#222;line-height:2.2;margin:0;word-break:keep-all;">${esc(block.content)}</p>
 </div>`;
 }
 
-/** agitation: 진한 배경, 볼드 텍스트, 경고 톤 */
-function renderAgitationBlock(block: ContentBlock, theme: ThemeColor): string {
-  return `<div style="padding:24px;margin:16px 0;background:#2c2c2c;border-radius:12px;">
-<p style="font-size:15px;color:#fff;font-weight:600;line-height:1.8;margin:0;word-break:keep-all;">&#9888;&#65039; ${esc(block.content)}</p>
+/** agitation: bold 강조 문단 */
+function renderAgitationBlock(block: ContentBlock, _theme: ThemeColor): string {
+  return `<div style="padding:20px 20px;margin:16px 0;">
+<p style="font-size:21px;color:#222;font-weight:bold;line-height:2.2;margin:0;word-break:keep-all;">${esc(block.content)}</p>
 </div>`;
 }
 
-/** solution: 밝은 배경, 테마 컬러 악센트, 모바일 경량화 */
-function renderSolutionBlock(block: ContentBlock, theme: ThemeColor): string {
-  const parts: string[] = [];
-  parts.push(`<div style="padding:24px 16px;margin:16px 0;background:${theme.bgLight};border:2px solid ${theme.bgAccent};border-radius:16px;text-align:center;">`);
-  parts.push(`<h3 style="font-size:17px;font-weight:700;color:#222;line-height:1.6;margin:0;word-break:keep-all;">${esc(block.content)}</h3>`);
-  parts.push('</div>');
-  return parts.join('\n');
+/** solution: 큰 폰트 중앙 */
+function renderSolutionBlock(block: ContentBlock, _theme: ThemeColor): string {
+  return `<div style="padding:24px 20px;margin:16px 0;text-align:center;">
+<div style="font-size:22px;font-weight:bold;color:#222;line-height:2.0;word-break:keep-all;">${esc(block.content)}</div>
+</div>`;
 }
 
-/** benefits_grid: flex 카드, 체크마크 아이콘, 3개 제한, 모바일 최적 */
-function renderBenefitsGridBlock(block: ContentBlock, theme: ThemeColor): string {
+/** benefits_grid: 세로 리스트 */
+function renderBenefitsGridBlock(block: ContentBlock, _theme: ThemeColor): string {
   const items = block.items || [];
   const parts: string[] = [];
-  parts.push(`<div style="padding:20px 12px;margin:12px 0;">`);
-  parts.push(`<div style="text-align:center;font-size:15px;font-weight:700;color:#222;margin-bottom:12px;">${esc(block.content)}</div>`);
-  parts.push(`<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;">`);
-  for (const item of items.slice(0, 3)) {
-    parts.push(`<div style="flex:1;min-width:90px;max-width:32%;padding:12px 8px;background:${theme.bgLight};border-radius:10px;text-align:center;">
-<div style="font-size:18px;margin-bottom:6px;color:${theme.primary};">&#10003;</div>
-<div style="font-size:12px;color:#444;font-weight:500;word-break:keep-all;">${esc(item)}</div>
-</div>`);
+  parts.push(`<div style="padding:20px 20px;margin:12px 0;">`);
+  parts.push(`<div style="font-size:21px;font-weight:bold;color:#222;margin-bottom:14px;word-break:keep-all;">${esc(block.content)}</div>`);
+  for (const item of items.slice(0, 5)) {
+    parts.push(`<div style="font-size:20px;color:#222;line-height:2.2;word-break:keep-all;">- ${esc(item)}</div>`);
   }
-  parts.push('</div></div>');
+  parts.push('</div>');
   return parts.join('\n');
 }
 
-/** social_proof: 큰 인용부호("), 이탤릭, 별점 시각화 */
-function renderSocialProofBlock(block: ContentBlock, theme: ThemeColor): string {
-  const stars = block.emphasis || '⭐⭐⭐⭐⭐';
-  return `<div style="padding:28px 24px;margin:16px 0;background:#fff;border:1px solid #eee;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,0.04);">
-<div style="font-size:40px;color:${theme.bgAccent};line-height:1;margin-bottom:4px;">&ldquo;</div>
-<p style="font-size:15px;color:#444;line-height:1.8;font-style:italic;margin:0 0 12px 0;word-break:keep-all;">${esc(block.content)}</p>
-<div style="font-size:16px;letter-spacing:2px;">${esc(stars)}</div>
+/** social_proof: 리얼 후기 스타일 */
+function renderSocialProofBlock(block: ContentBlock, _theme: ThemeColor): string {
+  return `<div style="padding:20px 20px;margin:16px 0;">
+<p style="font-size:21px;color:#222;line-height:2.2;margin:0;word-break:keep-all;">${esc(block.content)}</p>
 </div>`;
 }
 
-/** comparison: ✓/✗ 리스트, 좌우 비교 */
-function renderComparisonBlock(block: ContentBlock, theme: ThemeColor): string {
+/** comparison: 단일 컬럼 리스트 */
+function renderComparisonBlock(block: ContentBlock, _theme: ThemeColor): string {
   const items = block.items || [];
-  const pros = items.filter(i => i.startsWith('✓'));
-  const cons = items.filter(i => i.startsWith('✗'));
-
   const parts: string[] = [];
-  parts.push(`<div style="padding:24px 16px;margin:16px 0;">`);
-  parts.push(`<div style="text-align:center;font-size:16px;font-weight:700;color:#222;margin-bottom:16px;">${esc(block.content || '비교 분석')}</div>`);
-  parts.push(`<div style="display:flex;gap:12px;flex-wrap:wrap;">`);
-
-  // 장점 (왼쪽)
-  parts.push(`<div style="flex:1;min-width:45%;padding:16px;background:${theme.bgLight};border-radius:12px;">`);
-  for (const p of pros) {
-    parts.push(`<div style="padding:6px 0;font-size:13px;color:${theme.textAccent};line-height:1.6;word-break:keep-all;">${esc(p)}</div>`);
+  parts.push(`<div style="padding:20px 20px;margin:16px 0;">`);
+  if (block.content) {
+    parts.push(`<div style="font-size:21px;font-weight:bold;color:#222;margin-bottom:14px;word-break:keep-all;">${esc(block.content)}</div>`);
+  }
+  for (const item of items) {
+    parts.push(`<div style="font-size:20px;color:#222;line-height:2.2;word-break:keep-all;">${esc(item)}</div>`);
   }
   parts.push('</div>');
-
-  // 단점 (오른쪽)
-  parts.push(`<div style="flex:1;min-width:45%;padding:16px;background:#f5f5f5;border-radius:12px;">`);
-  for (const c of cons) {
-    parts.push(`<div style="padding:6px 0;font-size:13px;color:#999;line-height:1.6;word-break:keep-all;">${esc(c)}</div>`);
-  }
-  parts.push('</div>');
-
-  parts.push('</div></div>');
   return parts.join('\n');
 }
 
-/** feature_detail: 하이라이트 박스, 성분/기술 강조 */
-function renderFeatureDetailBlock(block: ContentBlock, theme: ThemeColor): string {
+/** feature_detail: 본문 텍스트 */
+function renderFeatureDetailBlock(block: ContentBlock, _theme: ThemeColor): string {
   const parts: string[] = [];
-  parts.push(`<div style="padding:24px;margin:16px 0;background:#fff;border:1px solid ${theme.bgAccent};border-radius:12px;">`);
+  parts.push(`<div style="padding:20px 20px;margin:16px 0;">`);
   if (block.emphasis) {
-    parts.push(`<div style="display:inline-block;padding:4px 12px;background:${theme.bgAccent};color:${theme.textAccent};font-size:11px;font-weight:600;border-radius:6px;margin-bottom:12px;">${esc(block.emphasis)}</div>`);
+    parts.push(`<div style="font-size:21px;font-weight:bold;color:#222;margin-bottom:10px;word-break:keep-all;">${esc(block.emphasis)}</div>`);
   }
-  parts.push(`<p style="font-size:15px;color:#333;line-height:1.8;margin:0;word-break:keep-all;">${esc(block.content)}</p>`);
+  parts.push(`<p style="font-size:21px;color:#222;line-height:2.2;margin:0;word-break:keep-all;">${esc(block.content)}</p>`);
   if (block.subContent) {
-    parts.push(`<p style="font-size:13px;color:#888;line-height:1.6;margin:8px 0 0 0;">${esc(block.subContent)}</p>`);
+    parts.push(`<p style="font-size:20px;color:#222;line-height:2.2;margin:10px 0 0 0;word-break:keep-all;">${esc(block.subContent)}</p>`);
   }
   parts.push('</div>');
   return parts.join('\n');
 }
 
-/** usage_guide: 번호 매겨진 스텝, 아이콘 장식 */
-function renderUsageGuideBlock(block: ContentBlock, theme: ThemeColor): string {
+/** usage_guide: 숫자 리스트 */
+function renderUsageGuideBlock(block: ContentBlock, _theme: ThemeColor): string {
   const items = block.items || [];
   const parts: string[] = [];
-  parts.push(`<div style="padding:24px 20px;margin:16px 0;background:${theme.bgLight};border-radius:16px;">`);
-  parts.push(`<div style="text-align:center;font-size:16px;font-weight:700;color:#222;margin-bottom:20px;">&#128218; ${esc(block.content || '사용 가이드')}</div>`);
+  parts.push(`<div style="padding:20px 20px;margin:16px 0;">`);
+  if (block.content) {
+    parts.push(`<div style="font-size:21px;font-weight:bold;color:#222;margin-bottom:14px;word-break:keep-all;">${esc(block.content)}</div>`);
+  }
   for (let i = 0; i < items.length; i++) {
-    parts.push(`<div style="display:flex;align-items:flex-start;gap:12px;margin:12px 0;">
-<div style="width:28px;height:28px;background:${theme.primary};color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;">${i + 1}</div>
-<div style="font-size:14px;color:#444;line-height:1.7;padding-top:4px;word-break:keep-all;">${esc(items[i])}</div>
-</div>`);
+    parts.push(`<div style="font-size:20px;color:#222;line-height:2.2;word-break:keep-all;">${i + 1}. ${esc(items[i])}</div>`);
   }
   parts.push('</div>');
   return parts.join('\n');
 }
 
-/** urgency: 배너 스타일, 강한 대비 컬러, 굵은 텍스트 */
-function renderUrgencyBlock(block: ContentBlock, theme: ThemeColor): string {
+/** urgency: 큰 폰트 bold */
+function renderUrgencyBlock(block: ContentBlock, _theme: ThemeColor): string {
   const parts: string[] = [];
-  parts.push(`<div style="padding:24px;margin:16px 0;background:linear-gradient(135deg,${theme.primary},${theme.textAccent});border-radius:12px;text-align:center;">`);
+  parts.push(`<div style="padding:24px 20px;margin:16px 0;text-align:center;">`);
   if (block.emphasis) {
-    parts.push(`<div style="font-size:24px;font-weight:800;color:#fff;margin-bottom:8px;">${esc(block.emphasis)}</div>`);
+    parts.push(`<div style="font-size:24px;font-weight:bold;color:#222;margin-bottom:8px;word-break:keep-all;">${esc(block.emphasis)}</div>`);
   }
-  parts.push(`<p style="font-size:15px;color:rgba(255,255,255,0.9);line-height:1.7;margin:0;word-break:keep-all;">${esc(block.content)}</p>`);
+  parts.push(`<p style="font-size:22px;font-weight:bold;color:#222;line-height:2.0;margin:0;word-break:keep-all;">${esc(block.content)}</p>`);
   parts.push('</div>');
   return parts.join('\n');
 }
 
-/** cta: 버튼 모양 CTA 영역, 테마 컬러 배경, 터치 강조 */
-function renderCtaBlock(block: ContentBlock, theme: ThemeColor): string {
+/** cta: 큰 폰트 bold */
+function renderCtaBlock(block: ContentBlock, _theme: ThemeColor): string {
   const parts: string[] = [];
-  parts.push(`<div style="text-align:center;padding:24px 16px;margin:16px 0;">`);
-  parts.push(`<div style="display:inline-block;padding:16px 48px;background:${theme.primary};color:#fff;font-size:18px;font-weight:700;border-radius:50px;letter-spacing:0.5px;word-break:keep-all;box-shadow:0 4px 12px rgba(0,0,0,0.15);">${esc(block.content)}</div>`);
+  parts.push(`<div style="text-align:center;padding:24px 20px;margin:16px 0;">`);
+  parts.push(`<div style="font-size:22px;font-weight:bold;color:#222;word-break:keep-all;">${esc(block.content)}</div>`);
   if (block.subContent) {
-    parts.push(`<div style="margin-top:10px;font-size:12px;color:#999;">${esc(block.subContent)}</div>`);
+    parts.push(`<div style="margin-top:10px;font-size:20px;color:#222;word-break:keep-all;">${esc(block.subContent)}</div>`);
   }
   parts.push('</div>');
   return parts.join('\n');
@@ -681,7 +627,7 @@ function renderContentBlock(block: ContentBlock, theme: ThemeColor): string {
     case 'usage_guide': return renderUsageGuideBlock(block, theme);
     case 'urgency': return renderUrgencyBlock(block, theme);
     case 'cta': return renderCtaBlock(block, theme);
-    default: return `<div style="padding:20px;"><p style="font-size:15px;color:#444;line-height:1.8;">${esc(block.content)}</p></div>`;
+    default: return `<div style="padding:20px 20px;"><p style="font-size:21px;color:#222;line-height:2.2;word-break:keep-all;">${esc(block.content)}</p></div>`;
   }
 }
 
@@ -699,7 +645,7 @@ export function buildPersuasionPageHtml(
   contentBlocks: ContentBlock[],
   templateVariant?: string,
 ): string {
-  const { productName, brand, detailImageUrls, reviewImageUrls, infoImageUrls, consignmentImageUrls, thirdPartyImageUrl, seoKeywords, faqItems, closingText, categoryPath } = params;
+  const { productName, brand, detailImageUrls, reviewImageUrls, infoImageUrls, consignmentImageUrls, thirdPartyImageUrls, seoKeywords, faqItems, closingText, categoryPath } = params;
   const style = getStyle(templateVariant);
   const theme = getTheme(categoryPath);
   const sections: string[] = [];
@@ -755,19 +701,19 @@ export function buildPersuasionPageHtml(
 
     // 우선 이미지 배치 (hook, solution, benefits_grid 뒤)
     if (imageAfterSet.has(contentBlocks[i].type) && imageIdx < imageQueue.length) {
-      sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${seoAltPrefix}${contentBlocks[i].type}" style="width:100%;display:block;border-radius:8px;" /></div>`);
+      sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${seoAltPrefix}${contentBlocks[i].type}" style="width:100%;display:block;" /></div>`);
       imageIdx++;
     }
     // 남은 이미지 배치
     else if (extraImagePositions.has(i) && imageIdx < imageQueue.length) {
-      sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${seoAltPrefix}${i + 1}" style="width:100%;display:block;border-radius:8px;" /></div>`);
+      sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${seoAltPrefix}${i + 1}" style="width:100%;display:block;" /></div>`);
       imageIdx++;
     }
   }
 
   // 미배치 이미지 모두 출력
   while (imageIdx < imageQueue.length) {
-    sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${seoAltPrefix}${imageIdx + 1}" style="width:100%;display:block;border-radius:8px;" /></div>`);
+    sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${seoAltPrefix}${imageIdx + 1}" style="width:100%;display:block;" /></div>`);
     imageIdx++;
   }
 
@@ -788,7 +734,7 @@ export function buildPersuasionPageHtml(
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
   if (consignmentImageUrls && consignmentImageUrls.length > 0) sections.push(buildConsignmentSection(consignmentImageUrls));
-  if (thirdPartyImageUrl) sections.push(buildThirdPartySection(thirdPartyImageUrl));
+  if (thirdPartyImageUrls && thirdPartyImageUrls.length > 0) sections.push(buildThirdPartySection(thirdPartyImageUrls));
 
   sections.push('</div>');
   return sections.join('\n');
