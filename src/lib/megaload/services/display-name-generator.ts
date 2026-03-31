@@ -537,34 +537,40 @@ export function generateDisplayName(
     addToken(orig);
   }
 
-  // ⑦ 스펙 — 맨 뒤 고정 (최대 3개)
-  for (const spec of classified.specs.slice(0, 3)) {
-    addToken(spec);
-  }
+  // ── 45~60자 타겟 맞추기 (스펙 추가 전) ─────────────────
 
-  // ── 45~60자 타겟 맞추기 ──────────────────────────────
+  // 스펙은 별도 보관 → 패딩 후 맨 뒤에 붙임
+  const specTokens = classified.specs.slice(0, 3).filter(s => !usedWords.has(s.toLowerCase()));
+  for (const s of specTokens) usedWords.add(s.toLowerCase());
 
-  let currentLen = parts.join(' ').length;
+  // 스펙 포함 예상 길이 계산
+  const specStr = specTokens.join(' ');
+  const specLen = specStr.length > 0 ? specStr.length + 1 : 0; // +1 for space
 
-  // 45자 미만이면 패딩 (Generic 추가 → 카테고리 경로 세그먼트 → 더 많은 Generic)
-  if (currentLen < TARGET_MIN_CHARS) {
+  const targetWithoutSpec = TARGET_MIN_CHARS - specLen;
+
+  // 45자 미만이면 패딩 (Generic 추가 → 카테고리 경로 세그먼트)
+  if (parts.join(' ').length < targetWithoutSpec) {
     // 패딩 소스 1: 남은 Generic 키워드
     const remainingGeneric = pool.generic.filter(g => !usedWords.has(g.toLowerCase()));
     const extraGeneric = selectSubset(remainingGeneric, 6, rng);
     for (const g of extraGeneric) {
-      if (parts.join(' ').length >= TARGET_MIN_CHARS) break;
+      if (parts.join(' ').length >= targetWithoutSpec) break;
       addToken(g);
     }
   }
 
-  if (parts.join(' ').length < TARGET_MIN_CHARS) {
+  if (parts.join(' ').length < targetWithoutSpec) {
     // 패딩 소스 2: 카테고리 경로 세그먼트
     const catSegments = categoryPath.split('>').map(s => s.trim()).filter(s => s.length >= 2);
     for (const seg of catSegments) {
-      if (parts.join(' ').length >= TARGET_MIN_CHARS) break;
+      if (parts.join(' ').length >= targetWithoutSpec) break;
       addToken(seg);
     }
   }
+
+  // ⑦ 스펙 — 맨 뒤 고정
+  parts.push(...specTokens);
 
   let result = parts.join(' ');
 
