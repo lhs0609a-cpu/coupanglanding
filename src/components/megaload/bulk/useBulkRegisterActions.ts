@@ -716,7 +716,7 @@ export function useBulkRegisterActions() {
         // 공식 상품 이미지(main_images) → 지재권 위험
         // 리뷰 사진(review_images) → 안전, 정면·선명한 사진 자동 선택
         {
-          const { filterAndScoreMainImages, filterAndScoreReviewImages } = await import('@/lib/megaload/services/image-quality-scorer');
+          const { filterAndScoreMainImages } = await import('@/lib/megaload/services/image-quality-scorer');
           const { ensureObjectUrl } = await import('@/lib/megaload/services/client-folder-scanner');
 
           const filterTotal = latest.length;
@@ -732,6 +732,8 @@ export function useBulkRegisterActions() {
             const p = latest[idx];
 
             // 1순위: 리뷰 이미지를 대표사진으로 (지재권 보호)
+            // ★ 대표이미지용이므로 filterAndScoreMainImages(엄격 기준) 사용
+            //    — 흰배경/누끼/정면 우선, 피부톤·컬러배경 하드필터 적용
             if (p.scannedReviewImages && p.scannedReviewImages.length > 0) {
               const candidates = p.scannedReviewImages.slice(0, MAX_REVIEW_CANDIDATES);
               const validEntries: { origIdx: number; url: string }[] = [];
@@ -742,7 +744,8 @@ export function useBulkRegisterActions() {
               if (validEntries.length > 0) {
                 try {
                   const urls = validEntries.map(e => e.url);
-                  const scores = await filterAndScoreReviewImages(urls);
+                  // 대표이미지 기준: 흰배경 누끼 + 정면 + 피부톤/컬러배경 하드필터
+                  const scores = await filterAndScoreMainImages(urls);
                   const passed = scores.filter(s => !s.filtered);
                   if (passed.length > 0) {
                     scoringResults[idx] = scores.map(s => ({
