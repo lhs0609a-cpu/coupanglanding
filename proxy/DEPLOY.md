@@ -95,7 +95,7 @@ curl -X GET "https://coupang-proxy.fly.dev/proxy/v2/providers/seller_api/apis/ap
 ## 구조
 
 ```
-Vercel (셀러허브)
+Vercel (메가로드)
   ↓ HTTPS + X-Proxy-Secret
 Fly.io nrt (도쿄, 고정 IP)
   ↓ HMAC 서명 생성 + API 호출

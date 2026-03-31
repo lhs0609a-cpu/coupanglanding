@@ -78,6 +78,7 @@ export interface EditableProduct extends PreviewProduct {
   editedDescription?: string;
   editedStoryParagraphs?: string[];
   editedReviewTexts?: string[];
+  editedContentBlocks?: import('@/lib/megaload/services/persuasion-engine').ContentBlock[];
   // 스톡 이미지
   stockMainImageUrls?: string[];
   stockCategoryKey?: string; // 'apple' — runStockImageFetch에서 설정

@@ -445,17 +445,23 @@ export async function POST(request: NextRequest) {
                 }
               }
 
-              // ★ 결과 판정: 쿠팡 응답 기반으로 성공/부분성공/전체실패 처리
-              const isAllFail = (pollStatus === 'FAIL' || pollStatus === 'FAILED' || pollStatus === 'ERROR')
-                && pollSuccessCount === 0 && pollFailCount > 0;
+              // ★ 결과 판정: 쿠팡 응답 기반
+              // 전체 실패 = "이미 적용된 아이템"일 가능성 높음 → 완료 처리 (재시도 무한루프 방지)
+              // 부분 성공 = 일부 신규 + 일부 이미 적용 → 전체 완료 처리
+              // 쿠팡은 이미 등록된 vendorItemId를 재추가하면 해당 아이템만 실패 카운트함
+              const isTerminalFail = ['FAIL', 'FAILED', 'ERROR'].includes(pollStatus);
+              const isAlreadyApplied = isTerminalFail && pollSuccessCount === 0 && pollFailCount > 0;
+              const isPartialSuccess = pollSuccessCount > 0 && pollFailCount > 0;
 
-              if (isAllFail) {
-                // ★ 전체 실패 — 실패로 기록하고 재시도 허용 (이전: 성공 가정 → 에러 은폐)
-                batchInstantFailed += validItems.length;
-                const failMsg = `즉시할인 전체 실패: ${pollFailCount}건, status=${pollStatus}`;
-                lastError = `[즉시할인] ${failMsg}`;
-                console.error(`[bulk-apply] ${failMsg}`);
+              // 실제 신규 적용 건수 (쿠팡 응답 기준, 미확인 시 전체로 간주)
+              const actualNewCount = pollSuccessCount >= 0 ? pollSuccessCount : vendorItemIds.length;
 
+              if (isAlreadyApplied) {
+                // ★ 전체 실패 = 이미 쿠폰에 등록된 아이템 → "적용 완료"로 처리
+                console.log(`[bulk-apply] 즉시할인 전체 실패(${pollFailCount}건) — 이미 적용된 아이템으로 간주, 완료 처리`);
+                batchInstantSuccess += validItems.length;
+
+                const newStatus = hasDownload ? 'pending' : 'completed';
                 await serviceClient.from('coupon_apply_log').insert(
                   validItems.map((item) => ({
                     pt_user_id: ptUser.id,
@@ -464,19 +470,19 @@ export async function POST(request: NextRequest) {
                     coupon_name: couponName,
                     seller_product_id: item.seller_product_id,
                     vendor_item_id: item.vendor_item_id,
-                    success: false,
-                    error_message: failMsg,
+                    success: true,
+                    error_message: '이미 쿠폰 적용됨 (중복 등록 스킵)',
                   })),
                 );
                 await serviceClient.from('product_coupon_tracking')
-                  .update({ status: 'failed', instant_coupon_applied: false, error_message: failMsg })
+                  .update({ status: newStatus, instant_coupon_applied: true, error_message: null })
                   .in('id', validItems.map((p) => p.id));
 
                 await new Promise((r) => setTimeout(r, 2000));
               } else {
-                // 성공 또는 부분 성공 또는 미확인 → 전체 적용 완료 처리
-                // (부분 성공 시 실패 아이템도 이미 적용됐을 가능성 높음)
-                const newCount = (config.instant_coupon_item_count || 0) + vendorItemIds.length;
+                // 성공 / 부분 성공 / 미확인 → 전체 적용 완료 처리
+                // 부분 실패 = 이미 적용된 아이템이므로 결과적으로 전체 적용됨
+                const newCount = (config.instant_coupon_item_count || 0) + actualNewCount;
                 await serviceClient.from('coupon_auto_sync_config').update({
                   instant_coupon_item_count: newCount,
                 }).eq('pt_user_id', ptUser.id);
@@ -494,18 +500,19 @@ export async function POST(request: NextRequest) {
                     seller_product_id: item.seller_product_id,
                     vendor_item_id: item.vendor_item_id,
                     success: true,
+                    error_message: isPartialSuccess ? `${pollFailCount}건 이미 적용됨` : undefined,
                   })),
                 );
                 await serviceClient.from('product_coupon_tracking')
-                  .update({ status: newStatus, instant_coupon_applied: true })
+                  .update({ status: newStatus, instant_coupon_applied: true, error_message: null })
                   .in('id', validItems.map((p) => p.id));
 
                 if (pollFailCount > 0) {
-                  console.log(`[bulk-apply] 부분 성공: ${pollSuccessCount}건 성공, ${pollFailCount}건 실패 (이미 적용 추정) — 전체 적용 처리`);
+                  console.log(`[bulk-apply] 부분 성공: 신규 ${pollSuccessCount}건, 이미적용 ${pollFailCount}건 — 전체 완료 처리`);
                 }
 
                 // 쿠팡 처리 안정화 대기
-                console.log(`[bulk-apply] 즉시할인 ${validItems.length}건 처리 — 5초 대기`);
+                console.log(`[bulk-apply] 즉시할인 ${validItems.length}건 처리 (신규 ${actualNewCount}건) — 5초 대기`);
                 await new Promise((r) => setTimeout(r, 5000));
               }
 

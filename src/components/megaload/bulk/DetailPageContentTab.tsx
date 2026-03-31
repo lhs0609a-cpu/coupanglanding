@@ -6,6 +6,7 @@ import {
   ChevronDown, ChevronRight, GripVertical, Image as ImageIcon,
 } from 'lucide-react';
 import { buildRichDetailPageHtml } from '@/lib/megaload/services/detail-page-builder';
+import type { ContentBlock } from '@/lib/megaload/services/persuasion-engine';
 import type { EditableProduct } from './types';
 
 interface DetailPageContentTabProps {
@@ -56,6 +57,7 @@ export default function DetailPageContentTab({
   const description = product.editedDescription ?? product.description ?? '';
   const storyParagraphs = product.editedStoryParagraphs ?? [];
   const reviewTexts = product.editedReviewTexts ?? [];
+  const contentBlocks: ContentBlock[] = product.editedContentBlocks ?? [];
 
   // --- 상품설명 ---
   const handleDescriptionChange = useCallback((value: string) => {
@@ -138,10 +140,12 @@ export default function DetailPageContentTab({
         reviewTexts: reviewTexts.length > 0 ? reviewTexts : undefined,
         detailImageUrls: detailUrls,
         infoImageUrls,
+        contentBlocks: contentBlocks.length > 0 ? contentBlocks : undefined,
+        categoryPath: product.editedCategoryName,
       },
       previewVariant,
     );
-  }, [previewOpen, previewVariant, product, storyParagraphs, reviewTexts, description, preUploadedUrls]);
+  }, [previewOpen, previewVariant, product, storyParagraphs, reviewTexts, description, preUploadedUrls, contentBlocks]);
 
   return (
     <div className="space-y-3">
@@ -175,9 +179,9 @@ export default function DetailPageContentTab({
 
       {/* ─── AI 스토리 문단 ─── */}
       <Collapsible
-        title="스토리 문단 (이미지 사이 텍스트)"
+        title={contentBlocks.length > 0 ? '설득형 콘텐츠 블록' : '스토리 문단 (이미지 사이 텍스트)'}
         icon={<GripVertical className="w-3.5 h-3.5 text-purple-500" />}
-        badge={storyParagraphs.length > 0 ? `${storyParagraphs.length}개` : undefined}
+        badge={contentBlocks.length > 0 ? `${contentBlocks.length}블록` : storyParagraphs.length > 0 ? `${storyParagraphs.length}개` : undefined}
       >
         <div className="pt-2 space-y-2">
           {storyParagraphs.length === 0 ? (
@@ -187,7 +191,14 @@ export default function DetailPageContentTab({
           ) : (
             storyParagraphs.map((para, i) => (
               <div key={i} className="flex items-start gap-2">
-                <span className="text-[10px] text-gray-400 mt-2.5 w-4 shrink-0 text-center">{i + 1}</span>
+                <div className="flex flex-col items-center gap-1 shrink-0 mt-1.5">
+                  <span className="text-[10px] text-gray-400 w-4 text-center">{i + 1}</span>
+                  {contentBlocks[i] && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-600 font-medium whitespace-nowrap">
+                      {contentBlocks[i].type}
+                    </span>
+                  )}
+                </div>
                 <textarea
                   value={para}
                   onChange={(e) => handleParagraphChange(i, e.target.value)}

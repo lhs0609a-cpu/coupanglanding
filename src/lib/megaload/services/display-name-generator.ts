@@ -38,7 +38,7 @@ interface CategoryPool {
   features: string[];
 }
 
-interface ClassifiedTokens {
+export interface ClassifiedTokens {
   type: string[];       // 상품 유형 (바디워시, 크림 등)
   ingredients: string[];// 성분 — 원본에서 추출
   features: string[];   // 특징 — 원본에서 추출
@@ -173,7 +173,7 @@ function tokenize(name: string): string[] {
  * 원본 상품명의 토큰을 카테고리별 사전과 교차 매칭하여 분류.
  * 카테고리 풀의 ingredients/features에 있고 원본에도 있어야 해당 분류로 들어감.
  */
-function classifyTokens(
+export function classifyTokens(
   originalName: string,
   categoryPath: string,
   brand: string,
@@ -359,7 +359,7 @@ function classifyTokens(
 
 // ─── 카테고리 풀 매칭 (세그먼트 기반) ─────────────────────
 
-function findBestPool(categoryPath: string): CategoryPool {
+export function findBestPool(categoryPath: string): CategoryPool {
   if (CATEGORY_POOLS[categoryPath]) return CATEGORY_POOLS[categoryPath];
 
   const segments = categoryPath.split('>').map(s => s.trim());

@@ -222,6 +222,76 @@ export function generateStoryBatch(
   return products.map((p, i) => generateStory(p.name, p.categoryPath, sellerSeed, i));
 }
 
+// ─── V2: 설득형 콘텐츠 생성 ─────────────────────────────────
+
+import { generatePersuasionContent, contentBlocksToParagraphs } from './persuasion-engine';
+import type { ContentBlock, PersuasionResult } from './persuasion-engine';
+import { resolveSeoCategoryPool, getUniversalModifiers } from './seo-keyword-resolver';
+
+export interface StoryResultV2 extends StoryResult {
+  contentBlocks: ContentBlock[];   // 설득형 블록 배열
+  framework: string;               // 사용된 프레임워크
+  frameworkName: string;            // 프레임워크 표시 이름
+  totalCharCount: number;           // SEO 길이 검증
+}
+
+/**
+ * V2 설득형 스토리 생성
+ *
+ * 설득 프레임워크 기반 블록 조합 → 레거시 paragraphs 호환 변환
+ * 기존 generateStory()와 동일한 인터페이스로 교체 가능
+ */
+export function generateStoryV2(
+  productName: string,
+  categoryPath: string,
+  sellerSeed: string,
+  productIndex: number,
+): StoryResultV2 {
+  // SEO 키워드를 먼저 생성 → 설득 엔진에 전달
+  const seoKeywords = extractSeoKeywords(productName, categoryPath, sellerSeed, productIndex);
+
+  // 설득형 블록 생성 (SEO 키워드 본문 삽입 포함)
+  const persuasion: PersuasionResult = generatePersuasionContent(
+    productName,
+    categoryPath,
+    sellerSeed,
+    productIndex,
+    seoKeywords,
+  );
+
+  // 레거시 paragraphs 변환 (하위 호환)
+  const paragraphs = contentBlocksToParagraphs(persuasion.blocks);
+
+  // 리뷰 텍스트: 기존 짧은 템플릿에서 생성 (social_proof 블록과 별도)
+  const catKey = getCategoryKey(categoryPath);
+  const vars = VARIABLES[catKey] || VARIABLES['DEFAULT'];
+  const seed = stringToSeed(`${sellerSeed}::story::${productIndex}::${productName}`);
+  const rng = createSeededRandom(seed);
+  const tone = TONES[Math.floor(rng() * TONES.length)];
+
+  const cleanName = productName
+    .replace(/[\[\(【][^\]\)】]*[\]\)】]/g, '')
+    .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
+    .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ');
+
+  const shortTemplates = (TEMPLATES[catKey] || TEMPLATES['DEFAULT'])
+    .filter(t => t.type === 'review');
+  const shuffledShort = [...shortTemplates].sort(() => rng() - 0.5);
+  const reviewTexts = shuffledShort.slice(0, 3).map(t =>
+    fillTemplate(t.text, vars, cleanName, rng)
+  );
+
+  return {
+    paragraphs,
+    reviewTexts,
+    tone: tone.name,
+    contentBlocks: persuasion.blocks,
+    framework: persuasion.framework,
+    frameworkName: persuasion.frameworkName,
+    totalCharCount: persuasion.totalCharCount,
+  };
+}
+
 // ─── 상세설명 HTML 조합 ──────────────────────────────────────
 
 /**
@@ -446,7 +516,8 @@ export function generateFaqItems(
 
 /**
  * 상품명 + 카테고리에서 SEO 키워드 배지 3~6개를 추출한다.
- * 상세페이지 히어로 섹션에 표시됨.
+ * seo-keyword-pools.json의 카테고리별 풀에서 features/generic/ingredients를 사용.
+ * 상세페이지 히어로 섹션 배지 + 본문 SEO 삽입에 사용됨.
  */
 export function extractSeoKeywords(
   productName: string,
@@ -457,34 +528,38 @@ export function extractSeoKeywords(
   const seed = stringToSeed(`${sellerSeed}::seo::${productIndex}::${productName}`);
   const rng = createSeededRandom(seed);
 
-  const catKey = getCategoryKey(categoryPath);
-  const vars = VARIABLES[catKey] || VARIABLES['DEFAULT'];
+  const seoPool = resolveSeoCategoryPool(categoryPath);
+  const universalMods = getUniversalModifiers();
 
   const keywords: string[] = [];
 
-  // 카테고리명에서 추출
+  // 1. 소분류명 추가
   const catParts = categoryPath.split('>').map(p => p.trim()).filter(p => p.length > 0);
   if (catParts.length > 0) {
-    keywords.push(catParts[catParts.length - 1]); // 소분류
+    keywords.push(catParts[catParts.length - 1]);
   }
 
-  // 효과1/효과2에서 랜덤 선택
-  const effects1 = vars['효과1'] || [];
-  const effects2 = vars['효과2'] || [];
-  if (effects1.length > 0) keywords.push(effects1[Math.floor(rng() * effects1.length)]);
-  if (effects2.length > 0) keywords.push(effects2[Math.floor(rng() * effects2.length)]);
+  // 2. features에서 2개
+  if (seoPool.features.length > 0) {
+    const shuffled = [...seoPool.features].sort(() => rng() - 0.5);
+    keywords.push(shuffled[0]);
+    if (shuffled.length > 1) keywords.push(shuffled[1]);
+  }
 
-  // 인증에서 선택
-  const certs = vars['인증'] || [];
-  if (certs.length > 0) keywords.push(certs[Math.floor(rng() * certs.length)]);
+  // 3. generic에서 1개
+  if (seoPool.generic.length > 0) {
+    keywords.push(seoPool.generic[Math.floor(rng() * seoPool.generic.length)]);
+  }
 
-  // 추천대상에서 선택
-  const targets = vars['추천대상'] || [];
-  if (targets.length > 0) keywords.push(targets[Math.floor(rng() * targets.length)]);
+  // 4. universalModifiers에서 1개
+  if (universalMods.length > 0) {
+    keywords.push(universalMods[Math.floor(rng() * universalMods.length)]);
+  }
 
-  // 카테고리에서 선택
-  const catWords = vars['카테고리'] || [];
-  if (catWords.length > 0) keywords.push(catWords[Math.floor(rng() * catWords.length)]);
+  // 5. ingredients에서 1개 (있으면)
+  if (seoPool.ingredients.length > 0) {
+    keywords.push(seoPool.ingredients[Math.floor(rng() * seoPool.ingredients.length)]);
+  }
 
   // 중복 제거 후 3~6개 반환
   const unique = [...new Set(keywords)];

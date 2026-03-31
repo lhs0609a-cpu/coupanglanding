@@ -499,12 +499,10 @@ function buildThirdPartySection(url: string): string {
 
 // ─── V2: 설득형 콘텐츠 블록 렌더러 (11가지 타입) ─────────────
 
-/** hook: 큰 폰트, 중앙정렬, 배경 그라데이션, 인용부호 장식 */
+/** hook: 큰 폰트, 중앙정렬, 배경 그라데이션, 모바일 최적 */
 function renderHookBlock(block: ContentBlock, theme: ThemeColor): string {
-  return `<div style="text-align:center;padding:40px 24px;background:linear-gradient(135deg,${theme.bgLight},${theme.bgAccent});border-radius:16px;margin:20px 0;">
-<div style="font-size:36px;color:${theme.primary};opacity:0.3;line-height:1;margin-bottom:8px;">&ldquo;</div>
-<h3 style="font-size:20px;font-weight:700;color:#222;line-height:1.6;margin:0;word-break:keep-all;">${esc(block.content)}</h3>
-<div style="font-size:36px;color:${theme.primary};opacity:0.3;line-height:1;margin-top:8px;">&rdquo;</div>
+  return `<div style="text-align:center;padding:28px 16px;background:linear-gradient(135deg,${theme.bgLight},${theme.bgAccent});border-radius:16px;margin:16px 0;">
+<h3 style="font-size:18px;font-weight:700;color:#222;line-height:1.6;margin:0;word-break:keep-all;">${esc(block.content)}</h3>
 </div>`;
 }
 
@@ -523,30 +521,26 @@ function renderAgitationBlock(block: ContentBlock, theme: ThemeColor): string {
 </div>`;
 }
 
-/** solution: 밝은 배경, 테마 컬러 악센트, 제품명 하이라이트 */
+/** solution: 밝은 배경, 테마 컬러 악센트, 모바일 경량화 */
 function renderSolutionBlock(block: ContentBlock, theme: ThemeColor): string {
   const parts: string[] = [];
-  parts.push(`<div style="padding:32px 24px;margin:20px 0;background:${theme.bgLight};border:2px solid ${theme.bgAccent};border-radius:16px;text-align:center;">`);
-  parts.push(`<div style="display:inline-block;padding:4px 16px;background:${theme.primary};color:#fff;font-size:12px;font-weight:600;border-radius:20px;letter-spacing:1px;margin-bottom:16px;">SOLUTION</div>`);
-  parts.push(`<h3 style="font-size:18px;font-weight:700;color:#222;line-height:1.6;margin:0 0 12px 0;word-break:keep-all;">${esc(block.content)}</h3>`);
-  if (block.subContent) {
-    parts.push(`<p style="font-size:14px;color:#666;line-height:1.7;margin:0;">${esc(block.subContent)}</p>`);
-  }
+  parts.push(`<div style="padding:24px 16px;margin:16px 0;background:${theme.bgLight};border:2px solid ${theme.bgAccent};border-radius:16px;text-align:center;">`);
+  parts.push(`<h3 style="font-size:17px;font-weight:700;color:#222;line-height:1.6;margin:0;word-break:keep-all;">${esc(block.content)}</h3>`);
   parts.push('</div>');
   return parts.join('\n');
 }
 
-/** benefits_grid: flex 2×2 카드, 체크마크 아이콘, 둥근 모서리 카드 */
+/** benefits_grid: flex 카드, 체크마크 아이콘, 3개 제한, 모바일 최적 */
 function renderBenefitsGridBlock(block: ContentBlock, theme: ThemeColor): string {
   const items = block.items || [];
   const parts: string[] = [];
-  parts.push(`<div style="padding:24px 16px;margin:16px 0;">`);
-  parts.push(`<div style="text-align:center;font-size:16px;font-weight:700;color:#222;margin-bottom:16px;">${esc(block.content)}</div>`);
-  parts.push(`<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;">`);
-  for (const item of items.slice(0, 4)) {
-    parts.push(`<div style="flex:1;min-width:140px;max-width:48%;padding:16px;background:${theme.bgLight};border-radius:12px;text-align:center;">
-<div style="font-size:20px;margin-bottom:8px;color:${theme.primary};">&#10003;</div>
-<div style="font-size:13px;color:#444;font-weight:500;word-break:keep-all;">${esc(item)}</div>
+  parts.push(`<div style="padding:20px 12px;margin:12px 0;">`);
+  parts.push(`<div style="text-align:center;font-size:15px;font-weight:700;color:#222;margin-bottom:12px;">${esc(block.content)}</div>`);
+  parts.push(`<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;">`);
+  for (const item of items.slice(0, 3)) {
+    parts.push(`<div style="flex:1;min-width:90px;max-width:32%;padding:12px 8px;background:${theme.bgLight};border-radius:10px;text-align:center;">
+<div style="font-size:18px;margin-bottom:6px;color:${theme.primary};">&#10003;</div>
+<div style="font-size:12px;color:#444;font-weight:500;word-break:keep-all;">${esc(item)}</div>
 </div>`);
   }
   parts.push('</div></div>');
@@ -635,11 +629,16 @@ function renderUrgencyBlock(block: ContentBlock, theme: ThemeColor): string {
   return parts.join('\n');
 }
 
-/** cta: 버튼 모양 CTA 영역, 테마 컬러 배경, 큰 글씨 */
+/** cta: 버튼 모양 CTA 영역, 테마 컬러 배경, 터치 강조 */
 function renderCtaBlock(block: ContentBlock, theme: ThemeColor): string {
-  return `<div style="text-align:center;padding:32px 24px;margin:20px 0;">
-<div style="display:inline-block;padding:16px 48px;background:${theme.primary};color:#fff;font-size:17px;font-weight:700;border-radius:50px;letter-spacing:0.5px;word-break:keep-all;">${esc(block.content)}</div>
-</div>`;
+  const parts: string[] = [];
+  parts.push(`<div style="text-align:center;padding:24px 16px;margin:16px 0;">`);
+  parts.push(`<div style="display:inline-block;padding:16px 48px;background:${theme.primary};color:#fff;font-size:18px;font-weight:700;border-radius:50px;letter-spacing:0.5px;word-break:keep-all;box-shadow:0 4px 12px rgba(0,0,0,0.15);">${esc(block.content)}</div>`);
+  if (block.subContent) {
+    parts.push(`<div style="margin-top:10px;font-size:12px;color:#999;">${esc(block.subContent)}</div>`);
+  }
+  parts.push('</div>');
+  return parts.join('\n');
 }
 
 /** 블록 타입별 렌더러 매핑 */
@@ -690,6 +689,11 @@ export function buildPersuasionPageHtml(
     sections.push(buildHeroSection(productName, brand, seoKeywords, theme));
   }
 
+  // SEO 키워드 텍스트 레이어 (크롤러용, 시각적 방해 최소)
+  if (seoKeywords && seoKeywords.length > 0) {
+    sections.push(`<div style="text-align:center;padding:4px 16px;font-size:12px;color:#999;line-height:1.6;">${seoKeywords.slice(0, 5).map(k => esc(k)).join(' | ')}</div>`);
+  }
+
   // 이미지 배분: 지정된 블록 뒤에 배치
   const imageQueue = [...detailImageUrls];
   const detailSet = new Set(detailImageUrls);
@@ -716,25 +720,28 @@ export function buildPersuasionPageHtml(
     }
   }
 
+  // 이미지 alt 텍스트 SEO 강화
+  const seoAltPrefix = seoKeywords && seoKeywords.length > 0 ? seoKeywords[0] + ' ' : '';
+
   // 블록 렌더링 + 이미지 인터리빙
   for (let i = 0; i < contentBlocks.length; i++) {
     sections.push(renderContentBlock(contentBlocks[i], theme));
 
     // 우선 이미지 배치 (hook, solution, benefits_grid 뒤)
     if (imageAfterSet.has(contentBlocks[i].type) && imageIdx < imageQueue.length) {
-      sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${contentBlocks[i].type}" style="width:100%;display:block;border-radius:8px;" /></div>`);
+      sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${seoAltPrefix}${contentBlocks[i].type}" style="width:100%;display:block;border-radius:8px;" /></div>`);
       imageIdx++;
     }
     // 남은 이미지 배치
     else if (extraImagePositions.has(i) && imageIdx < imageQueue.length) {
-      sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${i + 1}" style="width:100%;display:block;border-radius:8px;" /></div>`);
+      sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${seoAltPrefix}${i + 1}" style="width:100%;display:block;border-radius:8px;" /></div>`);
       imageIdx++;
     }
   }
 
   // 미배치 이미지 모두 출력
   while (imageIdx < imageQueue.length) {
-    sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${imageIdx + 1}" style="width:100%;display:block;border-radius:8px;" /></div>`);
+    sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${seoAltPrefix}${imageIdx + 1}" style="width:100%;display:block;border-radius:8px;" /></div>`);
     imageIdx++;
   }
 
