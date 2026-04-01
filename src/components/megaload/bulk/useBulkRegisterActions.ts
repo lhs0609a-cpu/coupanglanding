@@ -740,31 +740,26 @@ export function useBulkRegisterActions() {
             const p = latest[idx];
             let usedMainImages = false;
 
-            // 1순위: 기존 대표이미지 스코어링 (누끼 이미지 우선)
-            // ★ 흰배경 누끼가 있으면 반드시 대표이미지로 사용
+            // 1순위: 메인이미지 — 있으면 무조건 사용 (누끼 보호)
+            // ★ main_images 폴더의 이미지는 절대 리뷰이미지로 교체하지 않음
+            // 스코어링은 정렬(누끼 우선)용으로만 사용, 하드필터 결과 무시
             if (p.scannedMainImages && p.scannedMainImages.length > 0) {
+              usedMainImages = true;  // ← 무조건 true
               const validEntries: { origIdx: number; url: string }[] = [];
               for (let j = 0; j < p.scannedMainImages.length; j++) {
                 const url = p.scannedMainImages[j].objectUrl;
                 if (url) validEntries.push({ origIdx: j, url });
               }
-              if (validEntries.length === 1) {
-                // 대표이미지 1장 → 스코어링 불필요, 리뷰로 교체하지 않음
-                usedMainImages = true;
-              } else if (validEntries.length > 1) {
+              if (validEntries.length > 1) {
                 try {
                   const urls = validEntries.map(e => e.url);
                   const scores = await filterAndScoreMainImages(urls);
-                  const passed = scores.filter(s => !s.filtered);
-                  // 대표이미지 후보가 하나라도 하드필터 통과하면 사용 (누끼 우선)
-                  if (passed.length > 0) {
-                    scoringResults[idx] = scores.map(s => ({
-                      ...s,
-                      index: validEntries[s.index].origIdx,
-                    }));
-                    usedMainImages = true;
-                  }
-                } catch { /* fall through to review images */ }
+                  // 스코어링 결과는 정렬용으로만 저장 (하드필터 무시)
+                  scoringResults[idx] = scores.map(s => ({
+                    ...s,
+                    index: validEntries[s.index].origIdx,
+                  }));
+                } catch { /* 스코어링 실패해도 메인이미지 그대로 사용 */ }
               }
             }
 
@@ -802,32 +797,30 @@ export function useBulkRegisterActions() {
           // setProducts — 스코어링 결과 적용
           setProducts(prev => prev.map((p, i) => {
             const scores = scoringResults[i];
-            if (!scores || scores.length === 0) return p;
 
-            const passed = scores.filter(s => !s.filtered);
-            const surviving = passed.length > 0 ? passed : [scores[0]];
-
-            if (usedReview[i]) {
-              // 리뷰 이미지 → 대표사진 교체
+            if (usedReview[i] && scores && scores.length > 0) {
+              // 리뷰 이미지 → 대표사진 교체 (메인이미지가 없을 때만)
+              const passed = scores.filter(s => !s.filtered);
+              const surviving = passed.length > 0 ? passed : [scores[0]];
               console.info(
                 `[review→main] ${p.productCode}: 리뷰 ${surviving.length}장 선정 (${surviving.slice(0, 3).map(s => `#${s.index}=${s.score.overall.toFixed(1)}`).join(', ')})`,
               );
               const newMain = surviving.map(s => p.scannedReviewImages![s.index]).slice(0, 10);
               return { ...p, scannedMainImages: newMain, mainImageCount: newMain.length };
-            } else {
-              // 기존 대표이미지 스코어링
-              if (!p.scannedMainImages || p.scannedMainImages.length <= 1) return p;
-              const hardFilteredCount = scores.length - surviving.length;
-              if (hardFilteredCount > 0) {
-                console.info(`[image-filter] ${p.productCode}: 하드필터 ${hardFilteredCount}장 제거`);
-              }
-              console.info(
-                `[image-score] ${p.productCode}: 대표=#${surviving[0].index} (overall=${surviving[0].score.overall.toFixed(1)})`,
-              );
-              const sorted = surviving.map(s => p.scannedMainImages![s.index]);
-              const finalImages = sorted.slice(0, 10);
-              return { ...p, scannedMainImages: finalImages, mainImageCount: finalImages.length };
             }
+
+            if (!scores || scores.length === 0) return p;
+            if (!p.scannedMainImages || p.scannedMainImages.length <= 1) return p;
+
+            // 메인이미지: 스코어 순 정렬만 (하드필터 제거 안 함)
+            // 누끼 이미지가 높은 점수를 받아 앞으로 오도록 정렬
+            const allSorted = [...scores].sort((a, b) => b.score.overall - a.score.overall);
+            console.info(
+              `[image-score] ${p.productCode}: 대표=#${allSorted[0].index} (overall=${allSorted[0].score.overall.toFixed(1)}), 전체 ${allSorted.length}장 유지`,
+            );
+            const sorted = allSorted.map(s => p.scannedMainImages![s.index]);
+            const finalImages = sorted.slice(0, 10);
+            return { ...p, scannedMainImages: finalImages, mainImageCount: finalImages.length };
           }));
 
           setImageFilterProgress({ done: filterTotal, total: filterTotal, phase: 'complete' });
