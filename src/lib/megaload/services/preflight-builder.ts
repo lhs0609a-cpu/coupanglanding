@@ -9,6 +9,7 @@ import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo, type At
 import { fillNoticeFields, type NoticeCategoryMeta, type FilledNoticeCategory, type ExtractedNoticeHints } from './notice-field-filler';
 import { extractOptions, type ExtractedOptions } from './option-extractor';
 import { selectWithSeed } from './item-winner-prevention';
+import { createSeededRandom, stringToSeed } from './seeded-random';
 import type { PreventionConfig } from './item-winner-prevention';
 import type { ExtractedBuyOption } from './coupang-product-builder';
 import { generateFaqItems, extractSeoKeywords, generateClosingText } from './story-generator';
@@ -75,6 +76,10 @@ export interface BuildPayloadParams {
   contentBlocks?: import('./persuasion-engine').ContentBlock[];
   // 제3자 이미지 (전체 업로드된 URL 풀 — 상품별 랜덤 선정은 내부에서 처리)
   thirdPartyImageUrls?: string[];
+  // 배치 내 상품 인덱스 (0-based) — 10개 중 정확히 2개 선택용
+  productIndexInBatch?: number;
+  // 배치 내 전체 상품 수
+  totalProductsInBatch?: number;
   // Wing ID (vendorUserId) — vendorId와 다름
   vendorUserId?: string;
 }
@@ -97,6 +102,8 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     aiStoryHtml = '', aiStoryParagraphs = [], aiReviewTexts = [],
     contentBlocks,
     thirdPartyImageUrls,
+    productIndexInBatch,
+    totalProductsInBatch,
     vendorUserId,
   } = params;
 
@@ -153,7 +160,7 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
   const faqItems = generateFaqItems(product.name, categoryPath, shUserId, productIndex, 4);
   const closingText = generateClosingText(product.name, categoryPath, shUserId, productIndex);
 
-  // 제3자 이미지: 서버 저장 URL 20장 → 상품별 랜덤 2장 선택 (100%)
+  // 제3자 이미지: 10개 상품 중 2개만 선택(20%), 선택된 상품에 1장
   const HARDCODED_THIRD_PARTY_URLS = [
     'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-01.jpg',
     'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-02.jpg',
@@ -176,18 +183,46 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-19.jpg',
     'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-20.jpg',
   ];
-  // 클라이언트 전달 URL이 있으면 우선 사용, 없으면 하드코딩 URL 사용
+
+  // 제3자 이미지: 10개 그룹당 정확히 2개 상품만 선택, 각 1장
   const tpPool = (thirdPartyImageUrls && thirdPartyImageUrls.length > 0)
     ? thirdPartyImageUrls
     : HARDCODED_THIRD_PARTY_URLS;
-  const tpSeed = `tp:${product.productCode}`;
-  const shuffled = [...tpPool];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const seedStr = `${tpSeed}:${i}`;
-    const idx = selectWithSeed(Array.from({ length: i + 1 }, (_, k) => k), seedStr);
-    [shuffled[i], shuffled[idx]] = [shuffled[idx], shuffled[i]];
+  let selectedThirdPartyUrls: string[] = [];
+
+  if (productIndexInBatch != null && totalProductsInBatch != null) {
+    // 배치 모드: 10개 그룹 기반으로 정확히 2개 선택
+    const groupSize = 10;
+    const groupNum = Math.floor(productIndexInBatch / groupSize);
+    const posInGroup = productIndexInBatch % groupSize;
+    const groupStart = groupNum * groupSize;
+    const groupEnd = Math.min(groupStart + groupSize, totalProductsInBatch);
+    const groupLen = groupEnd - groupStart;
+
+    // 그룹 내에서 Fisher-Yates 셔플로 정확히 2개 위치 선택
+    const pickCount = Math.min(2, groupLen);
+    const positions = Array.from({ length: groupLen }, (_, i) => i);
+    const rng = createSeededRandom(stringToSeed(`tp-group:${shUserId}:${groupNum}`));
+    for (let k = 0; k < pickCount; k++) {
+      const remaining = groupLen - k;
+      const pick = k + Math.floor(rng() * remaining);
+      [positions[k], positions[pick]] = [positions[pick], positions[k]];
+    }
+    const selectedPositions = new Set(positions.slice(0, pickCount));
+
+    if (selectedPositions.has(posInGroup)) {
+      const picked = selectWithSeed(tpPool, `tp-pick:${product.productCode}`);
+      selectedThirdPartyUrls = [picked];
+    }
+  } else {
+    // 단일 상품 (preflight/canary): 20% 확률 폴백
+    const tpRng = createSeededRandom(stringToSeed(`tp-select:${product.productCode}`));
+    const tpSlot = Math.floor(tpRng() * 10);
+    if (tpSlot < 2) {
+      const picked = selectWithSeed(tpPool, `tp-pick:${product.productCode}`);
+      selectedThirdPartyUrls = [picked];
+    }
   }
-  const selectedThirdPartyUrls = shuffled.slice(0, Math.min(2, shuffled.length));
 
   // 페이로드 빌드
   const effectiveStock = product.stockOverride ?? stock;

@@ -190,7 +190,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ---- 단일 상품 등록 헬퍼 ----
-    async function registerSingleProduct(product: BatchProduct): Promise<ProductResult> {
+    async function registerSingleProduct(product: BatchProduct, batchIndex?: number): Promise<ProductResult> {
       const productStart = Date.now();
 
       // 1. 중복 등록 체크
@@ -362,6 +362,8 @@ export async function POST(req: NextRequest) {
         aiReviewTexts,
         contentBlocks: product.contentBlocksOverride,
         thirdPartyImageUrls: body.thirdPartyImageUrls,
+        productIndexInBatch: batchIndex,
+        totalProductsInBatch: products.length,
         vendorUserId: wingUserId || undefined,
       });
 
@@ -530,7 +532,7 @@ export async function POST(req: NextRequest) {
     const PARALLEL_REGISTER = 10;
     for (let i = 0; i < products.length; i += PARALLEL_REGISTER) {
       const chunk = products.slice(i, i + PARALLEL_REGISTER);
-      const chunkResults = await Promise.allSettled(chunk.map((p) => registerSingleProduct(p)));
+      const chunkResults = await Promise.allSettled(chunk.map((p, j) => registerSingleProduct(p, i + j)));
 
       // 순차적으로 카운트 업데이트 (race condition 방지)
       for (let j = 0; j < chunkResults.length; j++) {
