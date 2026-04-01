@@ -1,5 +1,10 @@
 // ============================================================
-// 노출상품명(displayProductName) SEO 최적화 생성기 v4.3
+// 노출상품명(displayProductName) SEO 최적화 생성기 v4.4
+//
+// v4.4 변경사항:
+//   - pool.generic 주입 완전 제거 — 원본 상품명 + 카테고리 경로만 사용
+//   - 4000+ 소분류 카테고리에서 무관한 키워드 주입 원천 차단
+//   - 패딩: 남은 descriptors → 카테고리 경로 → universalModifiers
 //
 // v4.3 변경사항:
 //   - 도서/미디어 카테고리 TYPE 오분류 방지: 비상품 카테고리에서 synonym TYPE 매칭 스킵
@@ -64,16 +69,6 @@ export interface ClassifiedTokens {
 const CATEGORY_POOLS: Record<string, CategoryPool> = seoData.categoryPools;
 const SYNONYM_GROUPS: Record<string, string[]> = seoData.synonymGroups;
 const UNIVERSAL_MODIFIERS: string[] = seoData.universalModifiers || [];
-
-// ─── 기능성 수식어 synonym 키 (오염 판정 제외) ──────────────
-// 이 키들은 상품 속성/기능을 설명하는 수식어이므로 다른 상품 유형으로 판정하지 않는다.
-// 예: "보습" 크림, "저자극" 바디워시, "대용량" 세제 → 정상
-// 반면: "사과" 크림, "커피" 세제 → 오염 (다른 상품 유형)
-const FEATURE_SYNONYM_KEYS = new Set([
-  '보습', '주름개선', '미백', '탄력', '콜라겐', '비타민c',
-  '유산균', '오메가3', '프로틴', '다이어트', '루테인', '밀크씨슬',
-  '칼슘', '마그네슘', '알로에', '유기농', '저자극', '대용량', '향기',
-].map(k => k.toLowerCase()));
 
 // ─── 비상품 카테고리 (도서/미디어) ─────────────────────────
 // 이 대분류에서는 상품명에 "에센스", "라이트", "크림" 등이 있어도
@@ -461,19 +456,7 @@ function generatePoolFromPath(segments: string[]): CategoryPool {
     if (seg.length >= 2) generic.push(seg);
   }
 
-  // 리프 노드에서 synonymGroups 매칭하여 동의어 추가 (최대 3개)
-  const leaf = segments[segments.length - 1] || '';
-  const leafLower = leaf.toLowerCase();
-  for (const [key, synonyms] of Object.entries(SYNONYM_GROUPS)) {
-    const keyLower = key.toLowerCase();
-    if (leafLower.includes(keyLower) || keyLower.includes(leafLower)) {
-      for (const s of synonyms.slice(0, 3)) {
-        if (!generic.includes(s)) generic.push(s);
-      }
-      break; // 첫 매칭만 사용
-    }
-  }
-
+  // synonymGroup 동의어 추가 제거 — 오분류 위험
   return { generic, ingredients: [], features: [] };
 }
 
@@ -521,7 +504,6 @@ export function generateDisplayName(
 
   // Phase 1: 토큰 추출 & 분류
   const classified = classifyTokens(originalName, categoryPath, brand);
-  const originalLower = originalName.toLowerCase();
 
   // Phase 2: 구조적 SEO 배치 (브랜드 제외)
   const parts: string[] = [];
@@ -590,43 +572,6 @@ export function generateDisplayName(
     }
   }
 
-  // ⑤ 카테고리 키워드 (GENERIC) — 3개 (검색 커버리지 확보)
-  // 오염 방지 v4.2: 다른 상품 유형(synonymGroup 키)은 제외하되,
-  //   기능성 수식어(보습/저자극/대용량 등)와 카테고리 경로에 있는 단어는 허용
-  const pool = findBestPool(categoryPath);
-  const synonymKeySet = new Set(Object.keys(SYNONYM_GROUPS).map(k => k.toLowerCase()));
-  const myTypes = new Set(classified.type.map(t => t.toLowerCase()));
-  const isHangul = (c: string) => c >= '\uAC00' && c <= '\uD7AF';
-  const isContaminated = (g: string): boolean => {
-    const lower = g.toLowerCase();
-    // 기능성 수식어는 항상 허용 (보습, 저자극, 대용량, 콜라겐 등)
-    if (FEATURE_SYNONYM_KEYS.has(lower)) return false;
-    // 카테고리 경로에 포함된 단어는 해당 카테고리 관련 키워드 → 허용
-    if (categoryPathLower.includes(lower)) return false;
-    // generic 키워드 자체가 다른 상품 유형명이면 제외
-    if (synonymKeySet.has(lower) && !myTypes.has(lower)) return true;
-    // generic 키워드가 다른 상품 유형명을 포함하면 제외 (예: "국내산블루베리", "신선배")
-    for (const synKey of synonymKeySet) {
-      // 기능성 수식어는 스킵
-      if (FEATURE_SYNONYM_KEYS.has(synKey)) continue;
-      // 한글 1글자(배, 쌀, 김)도 포함, 라틴은 2글자 이상만 (C 등 false positive 방지)
-      const minLen = (synKey.length === 1 && isHangul(synKey[0])) ? 1 : 2;
-      if (synKey.length >= minLen && lower.includes(synKey) && !myTypes.has(synKey)) {
-        if (!originalLower.includes(synKey) && !categoryPathLower.includes(synKey)) return true;
-      }
-    }
-    return false;
-  };
-  {
-    const availableGeneric = pool.generic.filter(g =>
-      !usedWords.has(g.toLowerCase()) && !isContaminated(g)
-    );
-    const genericPicks = selectSubset(availableGeneric, 3, rng);
-    for (const g of genericPicks) {
-      addToken(g);
-    }
-  }
-
   // ⑤b 카테고리 리프명 → TYPE 자동 추가 (TYPE 토큰이 없을 때)
   // 16,259 카테고리 중 73%가 synonymGroup에 없어서 TYPE 누락 → 리프명으로 보완
   if (classified.type.length === 0) {
@@ -653,25 +598,22 @@ export function generateDisplayName(
 
   const targetWithoutSpec = TARGET_MIN_CHARS - specLen;
 
-  // 45자 미만이면 패딩 (Generic → 경로세그먼트 → universalModifiers)
+  // 45자 미만이면 패딩 (남은 descriptors → 경로세그먼트 → universalModifiers)
   if (parts.join(' ').length < targetWithoutSpec) {
-    // 패딩 소스 1: 남은 Generic 키워드 (오염 방지 필터 동일 적용)
-    const remainingGeneric = pool.generic.filter(g =>
-      !usedWords.has(g.toLowerCase()) && !isContaminated(g)
-    );
-    const extraGeneric = selectSubset(remainingGeneric, 6, rng);
-    for (const g of extraGeneric) {
+    // 패딩 소스 1: 원본 상품명의 남은 descriptors (가장 관련성 높음)
+    const remainingDesc = classified.descriptors.filter(d => !usedWords.has(d.toLowerCase()));
+    for (const d of remainingDesc) {
       if (parts.join(' ').length >= targetWithoutSpec) break;
-      addToken(g);
+      addToken(d);
     }
   }
 
   if (parts.join(' ').length < targetWithoutSpec) {
-    // 패딩 소스 2: 카테고리 경로 세그먼트 (오염 방지 적용)
+    // 패딩 소스 2: 카테고리 경로 세그먼트
     const catSegments = categoryPath.split('>').map(s => s.trim()).filter(s => s.length >= 2);
     for (const seg of catSegments) {
       if (parts.join(' ').length >= targetWithoutSpec) break;
-      if (!isContaminated(seg)) addToken(seg);
+      addToken(seg);
     }
   }
 
