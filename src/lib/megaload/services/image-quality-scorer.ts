@@ -25,12 +25,13 @@
 //  - 쿠팡 썸네일에서 상품이 크게 보이도록 최적화
 //
 // 하드필터 (해당 시 overall 강제 0):
-//  - 피부톤 ≥ 15% (모델/인물 사진)
-//  - 컨텐츠 < 5% (빈 이미지)
-//  - 배경 채도 > 20% AND 밝기 < 220 (컬러 배경: 로고/배너/포장재)
-//  - 배경 채도 > 35% (밝기 무관 — 밝은 노란/연두/분홍 배경도 차단)
-//  - 텍스트 배너 감지 (4단계 Tier: 단색~다색 텍스트/홍보 배너)
-//  - 전체 이미지 고채도 > 30% (홍보/이벤트 배너 — 테두리가 흰색이어도 내부 컬러풀)
+//  ★ 누끼 면역: 배경 밝기 > 230 AND 배경 채도 < 12% → 빈 이미지 외 모든 하드필터 면제
+//  - 피부톤 ≥ 15% (모델/인물 사진) — 누끼 면제
+//  - 컨텐츠 < 5% (빈 이미지) — 누끼도 적용
+//  - 배경 채도 > 20% AND 밝기 < 220 (컬러 배경) — 누끼 면제
+//  - 배경 채도 > 35% (밝기 무관) — 누끼 면제
+//  - 텍스트 배너 감지 — 누끼 면제
+//  - 전체 이미지 고채도 > 30% — 누끼 면제
 //
 // 이상치 감지 (detectOutlierImages):
 //  - 같은 상품의 이미지 세트 내에서 색상 분포가 크게 다른 이미지 감지
@@ -447,16 +448,28 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
   // ---- 하드필터 체크 ----
   let hardFilterReason: string | undefined;
 
-  if (skinTone === 0) {
-    hardFilterReason = 'skin_tone';
-  } else if (contentSufficiency <= 20) {
-    hardFilterReason = 'empty_image';
-  } else if (bgSatResult.isHardFiltered) {
-    hardFilterReason = 'colored_background';
-  } else if (detectTextBanner(data, ANALYSIS_SIZE, ANALYSIS_SIZE)) {
-    hardFilterReason = 'text_banner';
-  } else if (getHighSaturationRatio(data, ANALYSIS_SIZE, ANALYSIS_SIZE) > FULL_SAT_RATIO_HARD) {
-    hardFilterReason = 'promotional_image';
+  // ★ 누끼 면역: 배경이 밝은 흰색 + 무채색이면 하드필터 대부분 면제
+  // 흰배경 누끼 이미지는 절대 필터링하지 않는다 (빈 이미지만 예외)
+  const isWhiteBackground = bgSatResult.avgLuminance > 230 && bgSatResult.avgSaturation < 0.12;
+
+  if (isWhiteBackground) {
+    // 누끼 이미지: 빈 이미지만 체크 (다른 하드필터 전부 면제)
+    if (contentSufficiency <= 20) {
+      hardFilterReason = 'empty_image';
+    }
+  } else {
+    // 비누끼 이미지: 기존 하드필터 전체 적용
+    if (skinTone === 0) {
+      hardFilterReason = 'skin_tone';
+    } else if (contentSufficiency <= 20) {
+      hardFilterReason = 'empty_image';
+    } else if (bgSatResult.isHardFiltered) {
+      hardFilterReason = 'colored_background';
+    } else if (detectTextBanner(data, ANALYSIS_SIZE, ANALYSIS_SIZE)) {
+      hardFilterReason = 'text_banner';
+    } else if (getHighSaturationRatio(data, ANALYSIS_SIZE, ANALYSIS_SIZE) > FULL_SAT_RATIO_HARD) {
+      hardFilterReason = 'promotional_image';
+    }
   }
 
   if (hardFilterReason) {

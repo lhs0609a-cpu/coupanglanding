@@ -738,11 +738,38 @@ export function useBulkRegisterActions() {
 
           for (let idx = 0; idx < latest.length; idx++) {
             const p = latest[idx];
+            let usedMainImages = false;
 
-            // 1순위: 리뷰 이미지를 대표사진으로 (지재권 보호)
-            // ★ 대표이미지용이므로 filterAndScoreMainImages(엄격 기준) 사용
-            //    — 흰배경/누끼/정면 우선, 피부톤·컬러배경 하드필터 적용
-            if (p.scannedReviewImages && p.scannedReviewImages.length > 0) {
+            // 1순위: 기존 대표이미지 스코어링 (누끼 이미지 우선)
+            // ★ 흰배경 누끼가 있으면 반드시 대표이미지로 사용
+            if (p.scannedMainImages && p.scannedMainImages.length > 0) {
+              const validEntries: { origIdx: number; url: string }[] = [];
+              for (let j = 0; j < p.scannedMainImages.length; j++) {
+                const url = p.scannedMainImages[j].objectUrl;
+                if (url) validEntries.push({ origIdx: j, url });
+              }
+              if (validEntries.length === 1) {
+                // 대표이미지 1장 → 스코어링 불필요, 리뷰로 교체하지 않음
+                usedMainImages = true;
+              } else if (validEntries.length > 1) {
+                try {
+                  const urls = validEntries.map(e => e.url);
+                  const scores = await filterAndScoreMainImages(urls);
+                  const passed = scores.filter(s => !s.filtered);
+                  // 대표이미지 후보가 있고 최고점이 55+ → 사용 (누끼면 80+ 나옴)
+                  if (passed.length > 0 && passed[0].score.overall >= 55) {
+                    scoringResults[idx] = scores.map(s => ({
+                      ...s,
+                      index: validEntries[s.index].origIdx,
+                    }));
+                    usedMainImages = true;
+                  }
+                } catch { /* fall through to review images */ }
+              }
+            }
+
+            // 2순위: 기존 대표이미지 부적합/없음 → 리뷰 이미지 폴백 (지재권 보호)
+            if (!usedMainImages && p.scannedReviewImages && p.scannedReviewImages.length > 0) {
               const candidates = p.scannedReviewImages.slice(0, MAX_REVIEW_CANDIDATES);
               const validEntries: { origIdx: number; url: string }[] = [];
               for (let j = 0; j < candidates.length; j++) {
@@ -752,7 +779,6 @@ export function useBulkRegisterActions() {
               if (validEntries.length > 0) {
                 try {
                   const urls = validEntries.map(e => e.url);
-                  // 대표이미지 기준: 흰배경 누끼 + 정면 + 피부톤/컬러배경 하드필터
                   const scores = await filterAndScoreMainImages(urls);
                   const passed = scores.filter(s => !s.filtered);
                   if (passed.length > 0) {
@@ -762,25 +788,6 @@ export function useBulkRegisterActions() {
                     }));
                     usedReview[idx] = true;
                   }
-                } catch { /* skip, fall through to main images */ }
-              }
-            }
-
-            // 2순위: 리뷰 이미지 없거나 전부 탈락 → 기존 대표이미지 스코어링
-            if (!usedReview[idx] && p.scannedMainImages && p.scannedMainImages.length > 1) {
-              const validEntries: { origIdx: number; url: string }[] = [];
-              for (let j = 0; j < p.scannedMainImages.length; j++) {
-                const url = p.scannedMainImages[j].objectUrl;
-                if (url) validEntries.push({ origIdx: j, url });
-              }
-              if (validEntries.length > 1) {
-                try {
-                  const urls = validEntries.map(e => e.url);
-                  const scores = await filterAndScoreMainImages(urls);
-                  scoringResults[idx] = scores.map(s => ({
-                    ...s,
-                    index: validEntries[s.index].origIdx,
-                  }));
                 } catch { /* skip */ }
               }
             }
