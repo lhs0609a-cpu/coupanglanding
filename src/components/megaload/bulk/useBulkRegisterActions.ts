@@ -68,6 +68,14 @@ export function useBulkRegisterActions() {
   const [stockImageProgress, setStockImageProgress] = useState<{ done: number; total: number } | null>(null);
   const [browsingFolder, setBrowsingFolder] = useState(false);
   const [thirdPartyImages, setThirdPartyImages] = useState<ScannedImageFile[]>([]);
+  // 제3자 이미지 CDN URL 영구 저장 (localStorage)
+  const [savedThirdPartyUrls, setSavedThirdPartyUrls] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const saved = localStorage.getItem('megaload_thirdPartyUrls');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
 
   // Shipping
   const [shippingPlaces, setShippingPlaces] = useState<ShippingPlace[]>([]);
@@ -1381,9 +1389,11 @@ export function useBulkRegisterActions() {
           stock: 999,
           noticeOverrides: Object.keys(noticeOverrides).length > 0 ? noticeOverrides : undefined,
           preventionConfig: preventionConfig.enabled ? preventionConfig : undefined,
-          thirdPartyImageUrls: thirdPartyImages.length > 0
-            ? (await uploadScannedImages(thirdPartyImages, thirdPartyImages.length)).filter(Boolean)
-            : undefined,
+          thirdPartyImageUrls: savedThirdPartyUrls.length > 0
+            ? savedThirdPartyUrls
+            : thirdPartyImages.length > 0
+              ? (await uploadScannedImages(thirdPartyImages, thirdPartyImages.length)).filter(Boolean)
+              : undefined,
         }),
       });
 
@@ -1630,9 +1640,12 @@ export function useBulkRegisterActions() {
       const { jobId } = initData;
       const categoryMeta = { ...categoryMetaCache, ...(initData.categoryMeta || {}) };
 
-      // 제3자 이미지 CDN 업로드 (한 번만, 전체 상품 공유)
+      // 제3자 이미지: 저장된 CDN URL 우선 → 없으면 스캔 이미지 업로드
       let thirdPartyImageCdnUrls: string[] = [];
-      if (thirdPartyImages.length > 0) {
+      if (savedThirdPartyUrls.length > 0) {
+        thirdPartyImageCdnUrls = [...savedThirdPartyUrls];
+        console.info(`[register] 제3자 이미지 ${thirdPartyImageCdnUrls.length}장 (저장된 URL 사용)`);
+      } else if (thirdPartyImages.length > 0) {
         try {
           thirdPartyImageCdnUrls = await uploadScannedImages(thirdPartyImages, thirdPartyImages.length);
           thirdPartyImageCdnUrls = thirdPartyImageCdnUrls.filter(Boolean);
@@ -1864,6 +1877,56 @@ export function useBulkRegisterActions() {
     return candidates[0]?.uid ?? null;
   }, [products, imagePreuploadCache]);
 
+  // ─── 제3자 이미지 관리 (localStorage 영구 저장) ─────────────
+
+  /** 제3자 이미지 파일 선택 → CDN 업로드 → URL 영구 저장 */
+  const handleUploadThirdPartyImages = useCallback(async () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = 'image/*';
+    input.onchange = async () => {
+      if (!input.files || input.files.length === 0) return;
+      const files = Array.from(input.files);
+      const scannedFiles: ScannedImageFile[] = [];
+      for (const file of files) {
+        const objectUrl = URL.createObjectURL(file);
+        // FileSystemFileHandle 없이 직접 File 객체를 wrapping
+        scannedFiles.push({
+          name: file.name,
+          handle: { getFile: () => Promise.resolve(file) } as unknown as FileSystemFileHandle,
+          objectUrl,
+        });
+      }
+      try {
+        const urls = await uploadScannedImages(scannedFiles, scannedFiles.length);
+        const validUrls = urls.filter(Boolean);
+        if (validUrls.length > 0) {
+          const merged = [...savedThirdPartyUrls, ...validUrls];
+          setSavedThirdPartyUrls(merged);
+          localStorage.setItem('megaload_thirdPartyUrls', JSON.stringify(merged));
+          console.info(`[제3자] ${validUrls.length}장 업로드 → 총 ${merged.length}장 저장`);
+        }
+      } catch (e) {
+        console.error('[제3자] 업로드 실패:', e);
+      }
+    };
+    input.click();
+  }, [savedThirdPartyUrls]);
+
+  /** 저장된 제3자 이미지 1장 삭제 */
+  const handleRemoveThirdPartyUrl = useCallback((index: number) => {
+    const updated = savedThirdPartyUrls.filter((_, i) => i !== index);
+    setSavedThirdPartyUrls(updated);
+    localStorage.setItem('megaload_thirdPartyUrls', JSON.stringify(updated));
+  }, [savedThirdPartyUrls]);
+
+  /** 저장된 제3자 이미지 전체 초기화 */
+  const handleClearThirdPartyUrls = useCallback(() => {
+    setSavedThirdPartyUrls([]);
+    localStorage.removeItem('megaload_thirdPartyUrls');
+  }, []);
+
   return {
     step, setStep,
     folderPaths, brackets,
@@ -1881,7 +1944,7 @@ export function useBulkRegisterActions() {
     noticeOverrides, setNoticeOverrides,
     preventionConfig, setPreventionEnabled, setPreventionIntensity,
     loadingShipping, shippingError,
-    scanning, scanError, browsingFolder, thirdPartyImages,
+    scanning, scanError, browsingFolder, thirdPartyImages, savedThirdPartyUrls,
     products, setProducts,
     autoMatchingProgress, autoMatchError, autoMatchStats, categoryFailures,
     categorySearchTarget, setCategorySearchTarget,
@@ -1911,5 +1974,7 @@ export function useBulkRegisterActions() {
     handleRegister, togglePause, handleReset, retryFailed, backToStep2, retryAutoCategory,
     // 카테고리 정확도 개선
     fetchCategorySuggestions, lowConfidenceProducts, rematchLowConfidence, rematchingCategory,
+    // 제3자 이미지 관리
+    handleUploadThirdPartyImages, handleRemoveThirdPartyUrl, handleClearThirdPartyUrls,
   };
 }

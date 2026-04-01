@@ -160,6 +160,10 @@ export default function BulkRegisterPanel() {
           onRecalcPrices={actions.recalcPrices}
           onScan={actions.handleScan}
           onBrowseFolder={actions.handleBrowseFolder}
+          savedThirdPartyUrls={actions.savedThirdPartyUrls}
+          onUploadThirdPartyImages={actions.handleUploadThirdPartyImages}
+          onRemoveThirdPartyUrl={actions.handleRemoveThirdPartyUrl}
+          onClearThirdPartyUrls={actions.handleClearThirdPartyUrls}
         />
       )}
 

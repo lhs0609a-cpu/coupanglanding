@@ -69,6 +69,11 @@ interface BulkStep1SettingsProps {
   onRecalcPrices: (brackets: PriceBracket[]) => void;
   onScan: () => void;
   onBrowseFolder: () => void;
+  // 제3자 이미지
+  savedThirdPartyUrls: string[];
+  onUploadThirdPartyImages: () => void;
+  onRemoveThirdPartyUrl: (index: number) => void;
+  onClearThirdPartyUrls: () => void;
 }
 
 export default function BulkStep1Settings({
@@ -84,6 +89,7 @@ export default function BulkStep1Settings({
   onSetIncludeReviewImages, onSetUseStockImages, onSetNoticeOverrides,
   preventionConfig, onSetPreventionEnabled, onSetPreventionIntensity,
   onRecalcPrices, onScan, onBrowseFolder,
+  savedThirdPartyUrls, onUploadThirdPartyImages, onRemoveThirdPartyUrl, onClearThirdPartyUrls,
 }: BulkStep1SettingsProps) {
   const [folderInput, setFolderInput] = useState('');
   const [showRecentPaths, setShowRecentPaths] = useState(false);
@@ -356,6 +362,52 @@ export default function BulkStep1Settings({
             </div>
           )}
         </div>
+      </div>
+
+      {/* 제3자 이미지 관리 */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <Folder className="w-5 h-5 text-gray-500" /> 제3자 이미지
+          {savedThirdPartyUrls.length > 0 && (
+            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
+              {savedThirdPartyUrls.length}장 저장됨
+            </span>
+          )}
+        </h2>
+        <p className="text-xs text-gray-400 mb-3">
+          한번 업로드하면 모든 상품 등록 시 자동으로 상세페이지에 포함됩니다. 상품당 랜덤 2장 배치.
+        </p>
+        <div className="flex gap-2 mb-3">
+          <button
+            onClick={onUploadThirdPartyImages}
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-lg transition flex items-center gap-1.5"
+          >
+            <Plus className="w-4 h-4" /> 이미지 추가
+          </button>
+          {savedThirdPartyUrls.length > 0 && (
+            <button
+              onClick={onClearThirdPartyUrls}
+              className="px-4 py-2 text-red-500 hover:bg-red-50 text-sm rounded-lg transition"
+            >
+              전체 삭제
+            </button>
+          )}
+        </div>
+        {savedThirdPartyUrls.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {savedThirdPartyUrls.map((url, i) => (
+              <div key={i} className="relative group w-16 h-16 rounded-lg overflow-hidden border border-gray-200">
+                <img src={url} alt={`제3자 ${i + 1}`} className="w-full h-full object-cover" />
+                <button
+                  onClick={() => onRemoveThirdPartyUrl(i)}
+                  className="absolute top-0 right-0 bg-black/60 text-white p-0.5 rounded-bl opacity-0 group-hover:opacity-100 transition"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Options */}
