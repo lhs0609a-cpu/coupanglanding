@@ -153,19 +153,41 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
   const faqItems = generateFaqItems(product.name, categoryPath, shUserId, productIndex, 4);
   const closingText = generateClosingText(product.name, categoryPath, shUserId, productIndex);
 
-  // 제3자 이미지: 상품별 결정적 랜덤 — 10장 중 2장 선택 (100%)
-  let selectedThirdPartyUrls: string[] | undefined;
-  if (thirdPartyImageUrls && thirdPartyImageUrls.length > 0) {
-    const tpSeed = `tp:${product.productCode}`;
-    // Fisher-Yates 셔플 (시드 기반) 후 앞 2장 선택
-    const shuffled = [...thirdPartyImageUrls];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const seedStr = `${tpSeed}:${i}`;
-      const idx = selectWithSeed(Array.from({ length: i + 1 }, (_, k) => k), seedStr);
-      [shuffled[i], shuffled[idx]] = [shuffled[idx], shuffled[i]];
-    }
-    selectedThirdPartyUrls = shuffled.slice(0, Math.min(2, shuffled.length));
+  // 제3자 이미지: 서버 저장 URL 20장 → 상품별 랜덤 2장 선택 (100%)
+  const HARDCODED_THIRD_PARTY_URLS = [
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-01.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-02.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-03.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-04.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-05.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-06.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-07.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-08.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-09.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-10.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-11.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-12.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-13.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-14.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-15.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-16.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-17.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-18.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-19.jpg',
+    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-20.jpg',
+  ];
+  // 클라이언트 전달 URL이 있으면 우선 사용, 없으면 하드코딩 URL 사용
+  const tpPool = (thirdPartyImageUrls && thirdPartyImageUrls.length > 0)
+    ? thirdPartyImageUrls
+    : HARDCODED_THIRD_PARTY_URLS;
+  const tpSeed = `tp:${product.productCode}`;
+  const shuffled = [...tpPool];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const seedStr = `${tpSeed}:${i}`;
+    const idx = selectWithSeed(Array.from({ length: i + 1 }, (_, k) => k), seedStr);
+    [shuffled[i], shuffled[idx]] = [shuffled[idx], shuffled[i]];
   }
+  const selectedThirdPartyUrls = shuffled.slice(0, Math.min(2, shuffled.length));
 
   // 페이로드 빌드
   const effectiveStock = product.stockOverride ?? stock;
