@@ -186,19 +186,32 @@ async function collectImagesFromSubdir(
     // 비상품 파일명 패턴 (광고/배지/아이콘 — 서버 collectImages와 동일)
     const AD_PATTERN = /(?:^|[_\-.])(npay|naverpay|kakaopay|tosspay|payco|banner|badge|icon|logo|watermark|stamp|popup|event_banner|coupon|ad_|promotion|btn_|button_)/i;
 
+    let totalFiles = 0;
+    let patternSkipped = 0;
+    let adSkipped = 0;
+    let urlFailed = 0;
+
     for await (const [name, handle] of subHandle as unknown as AsyncIterable<[string, FileSystemHandle]>) {
       if (handle.kind !== 'file') continue;
-      if (!pattern.test(name)) continue;
-      if (AD_PATTERN.test(name)) continue;
+      totalFiles++;
+      if (!pattern.test(name)) { patternSkipped++; continue; }
+      if (AD_PATTERN.test(name)) { adSkipped++; continue; }
       let objectUrl: string | undefined;
       // P1-4: eagerObjectUrls가 true일 때만 즉시 생성
       if (eagerObjectUrls) {
         try {
           const file = await (handle as FileSystemFileHandle).getFile();
           objectUrl = URL.createObjectURL(file);
-        } catch { /* 파일 읽기 실패 시 핸들만 저장 */ }
+        } catch { urlFailed++; /* 파일 읽기 실패 시 핸들만 저장 */ }
       }
       files.push({ name, handle: handle as FileSystemFileHandle, objectUrl });
+    }
+
+    if (subdirName === 'main_images') {
+      console.info(`[scan] ${subdirName}: 전체 ${totalFiles}개 → 수집 ${files.length}개 (패턴제외=${patternSkipped}, 광고제외=${adSkipped}, URL실패=${urlFailed})`);
+      if (files.length > 0) {
+        console.info(`[scan] ${subdirName} 파일: ${files.map(f => f.name).join(', ')}`);
+      }
     }
 
     files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));

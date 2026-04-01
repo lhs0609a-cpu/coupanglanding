@@ -745,11 +745,13 @@ export function useBulkRegisterActions() {
             // 스코어링은 정렬(누끼 우선)용으로만 사용, 하드필터 결과 무시
             if (p.scannedMainImages && p.scannedMainImages.length > 0) {
               usedMainImages = true;  // ← 무조건 true
+              console.info(`[image-pipeline] ${p.productCode}: scannedMainImages=${p.scannedMainImages.length}장 (${p.scannedMainImages.map(m => m.name).join(', ')})`);
               const validEntries: { origIdx: number; url: string }[] = [];
               for (let j = 0; j < p.scannedMainImages.length; j++) {
                 const url = p.scannedMainImages[j].objectUrl;
                 if (url) validEntries.push({ origIdx: j, url });
               }
+              console.info(`[image-pipeline] ${p.productCode}: objectUrl 있음=${validEntries.length}장, 없음=${p.scannedMainImages.length - validEntries.length}장`);
               if (validEntries.length > 1) {
                 try {
                   const urls = validEntries.map(e => e.url);
@@ -759,8 +761,13 @@ export function useBulkRegisterActions() {
                     ...s,
                     index: validEntries[s.index].origIdx,
                   }));
-                } catch { /* 스코어링 실패해도 메인이미지 그대로 사용 */ }
+                  console.info(`[image-pipeline] ${p.productCode}: 스코어 결과 = ${scores.slice(0, 5).map(s => `${p.scannedMainImages![validEntries[s.index].origIdx]?.name}=${s.score.overall.toFixed(1)}${s.score.hardFilterReason ? `(${s.score.hardFilterReason})` : ''}`).join(', ')}`);
+                } catch (e) {
+                  console.warn(`[image-pipeline] ${p.productCode}: 스코어링 실패`, e);
+                }
               }
+            } else {
+              console.info(`[image-pipeline] ${p.productCode}: scannedMainImages 없음 → 리뷰 폴백`);
             }
 
             // 2순위: 기존 대표이미지 부적합/없음 → 리뷰 이미지 폴백 (지재권 보호)
