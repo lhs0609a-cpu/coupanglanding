@@ -756,8 +756,8 @@ export function useBulkRegisterActions() {
                   const urls = validEntries.map(e => e.url);
                   const scores = await filterAndScoreMainImages(urls);
                   const passed = scores.filter(s => !s.filtered);
-                  // 대표이미지 후보가 있고 최고점이 55+ → 사용 (누끼면 80+ 나옴)
-                  if (passed.length > 0 && passed[0].score.overall >= 55) {
+                  // 대표이미지 후보가 하나라도 하드필터 통과하면 사용 (누끼 우선)
+                  if (passed.length > 0) {
                     scoringResults[idx] = scores.map(s => ({
                       ...s,
                       index: validEntries[s.index].origIdx,
