@@ -89,9 +89,10 @@ export async function scanDirectoryHandle(dirHandle: FileSystemDirectoryHandle):
   // 상품코드 순 정렬
   products.sort((a, b) => a.productCode.localeCompare(b.productCode, undefined, { numeric: true }));
 
-  // 제3자 이미지 폴더 스캔 (배치 루트의 '제3자이미지/' 또는 'third_party/' 하위 폴더)
+  // 제3자 이미지 폴더 스캔 (배치 루트 하위 폴더)
   let thirdPartyImages: ScannedImageFile[] = [];
-  for (const subName of ['제3자이미지', 'third_party']) {
+  const tpFolderNames = ['제3자이미지', '제3자 이미지', '제3자', 'third_party', 'third-party', 'thirdparty', '제삼자이미지', '제삼자 이미지'];
+  for (const subName of tpFolderNames) {
     try {
       thirdPartyImages = await collectImagesFromSubdir(dirHandle, subName, IMAGE_PATTERN, true);
       if (thirdPartyImages.length > 0) {
@@ -99,6 +100,17 @@ export async function scanDirectoryHandle(dirHandle: FileSystemDirectoryHandle):
         break;
       }
     } catch { /* 폴더 없음 — 무시 */ }
+  }
+  if (thirdPartyImages.length === 0) {
+    // 디버그: 배치 루트 하위 폴더 목록 출력 (제3자 이미지 폴더 찾기 도움)
+    const subdirs: string[] = [];
+    try {
+      for await (const [name, handle] of dirHandle as unknown as AsyncIterable<[string, FileSystemHandle]>) {
+        if (handle.kind === 'directory' && !name.startsWith('product_')) subdirs.push(name);
+      }
+    } catch { /* ignore */ }
+    console.warn(`[scan] 제3자 이미지 폴더를 찾지 못했습니다. 인식 가능 폴더명: ${tpFolderNames.join(', ')}`);
+    if (subdirs.length > 0) console.warn(`[scan] 현재 루트 하위 폴더: ${subdirs.join(', ')}`);
   }
 
   return { dirName: dirHandle.name, products, thirdPartyImages };
