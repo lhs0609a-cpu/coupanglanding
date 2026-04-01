@@ -154,13 +154,14 @@ export default function DetailPageContentTab({
       ? storyParagraphs.filter(p => p.trim())
       : (description ? [description] : []);
 
-    // 제3자 이미지: 상품코드 시드로 20장 중 랜덤 2장 선택
+    // 제3자 이미지: 서버 로직과 동일 — 20% 확률로 1장만 선택
     const tpSeed = product.productCode || product.uid;
     let tpHash = 0;
     for (let i = 0; i < tpSeed.length; i++) tpHash = ((tpHash << 5) - tpHash + tpSeed.charCodeAt(i)) | 0;
-    const tpIdx1 = Math.abs(tpHash) % THIRD_PARTY_IMAGE_URLS.length;
-    const tpIdx2 = (tpIdx1 + 7) % THIRD_PARTY_IMAGE_URLS.length; // 고정 오프셋으로 다른 이미지
-    const selectedTp = [THIRD_PARTY_IMAGE_URLS[tpIdx1], THIRD_PARTY_IMAGE_URLS[tpIdx2]];
+    const tpSlot = Math.abs(tpHash) % 5; // 0~4 중 0만 선택 = 20%
+    const selectedTp = tpSlot === 0
+      ? [THIRD_PARTY_IMAGE_URLS[Math.abs(tpHash) % THIRD_PARTY_IMAGE_URLS.length]]
+      : [];
 
     return buildRichDetailPageHtml(
       {
