@@ -25,7 +25,7 @@
 //  - 쿠팡 썸네일에서 상품이 크게 보이도록 최적화
 //
 // 하드필터 (해당 시 overall 강제 0):
-//  ★ 누끼 면역: 배경 밝기 > 230 AND 배경 채도 < 12% → 빈 이미지 외 모든 하드필터 면제
+//  ★ 누끼 면역: 배경 밝기 > 200 AND 배경 채도 < 20% → 빈 이미지 외 모든 하드필터 면제
 //  - 피부톤 ≥ 15% (모델/인물 사진) — 누끼 면제
 //  - 컨텐츠 < 5% (빈 이미지) — 누끼도 적용
 //  - 배경 채도 > 20% AND 밝기 < 220 (컬러 배경) — 누끼 면제
@@ -448,9 +448,11 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
   // ---- 하드필터 체크 ----
   let hardFilterReason: string | undefined;
 
-  // ★ 누끼 면역: 배경이 밝은 흰색 + 무채색이면 하드필터 대부분 면제
+  // ★ 누끼 면역: 배경이 밝은 흰색 계열 + 저채도이면 하드필터 대부분 면제
   // 흰배경 누끼 이미지는 절대 필터링하지 않는다 (빈 이미지만 예외)
-  const isWhiteBackground = bgSatResult.avgLuminance > 230 && bgSatResult.avgSaturation < 0.12;
+  // v4.5: 임계값 완화 (230/0.12 → 200/0.20) — 제품 라벨 색상이 테두리에 침투해도 누끼로 인식
+  //   보충제 병 등 프레임 60~80% 채우는 제품: lum≈210~225, sat≈0.13~0.18 → 이전에 누끼 미인식
+  const isWhiteBackground = bgSatResult.avgLuminance > 200 && bgSatResult.avgSaturation < 0.20;
 
   if (isWhiteBackground) {
     // 누끼 이미지: 빈 이미지만 체크 (다른 하드필터 전부 면제)
