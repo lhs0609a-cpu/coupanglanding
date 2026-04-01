@@ -49,6 +49,8 @@ export interface EditableProduct extends PreviewProduct {
   scannedDetailImages?: ScannedImageFile[];
   scannedInfoImages?: ScannedImageFile[];
   scannedReviewImages?: ScannedImageFile[];
+  /** product_* 디렉토리 핸들 (main_images 리스캔용) */
+  productDirHandle?: FileSystemDirectoryHandle;
   validationStatus?: ValidationStatus;
   validationErrors?: ValidationIssue[];
   validationWarnings?: ValidationIssue[];

@@ -29,6 +29,8 @@ export interface ScannedProduct {
   detailImages: ScannedImageFile[];
   infoImages: ScannedImageFile[];
   reviewImages: ScannedImageFile[];
+  /** product_* 디렉토리 핸들 (main_images 리스캔용) */
+  dirHandle?: FileSystemDirectoryHandle;
 }
 
 const IMAGE_PATTERN = /\.(jpg|jpeg|png|webp)$/i;
@@ -165,6 +167,7 @@ async function scanSingleProduct(
     detailImages,
     infoImages,
     reviewImages,
+    dirHandle: productDirHandle,
   };
 }
 
@@ -219,6 +222,14 @@ async function collectImagesFromSubdir(
   } catch {
     return [];
   }
+}
+
+/**
+ * 저장된 dirHandle로 main_images를 다시 스캔
+ * 코드 업데이트 후 폴더 재선택 없이 누락 이미지 복구용
+ */
+export async function rescanMainImages(dirHandle: FileSystemDirectoryHandle): Promise<ScannedImageFile[]> {
+  return collectImagesFromSubdir(dirHandle, 'main_images', MAIN_IMAGE_PATTERN, true);
 }
 
 /**

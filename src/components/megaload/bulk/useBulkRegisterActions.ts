@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { pickAndScanFolder, uploadScannedImages, uploadScannedImagesWithVariation, uploadSingleImage, type ScannedImageFile } from '@/lib/megaload/services/client-folder-scanner';
+import { pickAndScanFolder, uploadScannedImages, uploadScannedImagesWithVariation, uploadSingleImage, rescanMainImages, type ScannedImageFile } from '@/lib/megaload/services/client-folder-scanner';
 import { validateProductLocal } from '@/lib/megaload/services/product-validator';
 import type {
   EditableProduct, PriceBracket, ShippingPlace, ReturnCenter,
@@ -720,12 +720,32 @@ export function useBulkRegisterActions() {
         await runContentGeneration(productsRef.current);
         await new Promise(r => setTimeout(r, 50));
 
-        // Step 3. 대표이미지: 리뷰 사진 우선 (지재권 보호)
-        // 공식 상품 이미지(main_images) → 지재권 위험
-        // 리뷰 사진(review_images) → 안전, 정면·선명한 사진 자동 선택
+        // Step 3. 대표이미지 선정
+        // main_images 폴더의 모든 이미지를 스코어링하여 누끼 우선 정렬
         {
           const { filterAndScoreMainImages } = await import('@/lib/megaload/services/image-quality-scorer');
-          const { ensureObjectUrl } = await import('@/lib/megaload/services/client-folder-scanner');
+          const { ensureObjectUrl, rescanMainImages: rescanMainImagesFn } = await import('@/lib/megaload/services/client-folder-scanner');
+
+          // ★ Step 3a: main_images 자동 리스캔 (코드 업데이트 후 누락 이미지 복구)
+          // dirHandle이 있으면 현재 코드의 패턴으로 다시 스캔
+          let rescanCount = 0;
+          for (let idx = 0; idx < latest.length; idx++) {
+            const p = latest[idx];
+            if (p.productDirHandle) {
+              try {
+                const rescanned = await rescanMainImagesFn(p.productDirHandle);
+                if (rescanned.length > (p.scannedMainImages?.length ?? 0)) {
+                  rescanCount++;
+                  latest[idx] = { ...p, scannedMainImages: rescanned, mainImageCount: rescanned.length };
+                }
+              } catch { /* dirHandle 만료 시 기존 유지 */ }
+            }
+          }
+          if (rescanCount > 0) {
+            console.info(`[image-rescan] ${rescanCount}개 상품의 main_images 리스캔 완료 (누락 이미지 복구)`);
+            setProducts([...latest]);
+            await new Promise(r => setTimeout(r, 50));
+          }
 
           const filterTotal = latest.length;
           setImageFilterProgress({ done: 0, total: filterTotal, phase: 'running' });
@@ -940,6 +960,7 @@ export function useBulkRegisterActions() {
           scannedDetailImages: sp.detailImages,
           scannedInfoImages: sp.infoImages,
           scannedReviewImages: sp.reviewImages,
+          productDirHandle: sp.dirHandle,
           status: 'pending' as const,
         };
       });
