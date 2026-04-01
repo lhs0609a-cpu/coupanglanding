@@ -169,45 +169,13 @@ export function generateStory(
   sellerSeed: string,
   productIndex: number,
 ): StoryResult {
-  const catKey = getCategoryKey(categoryPath);
-  const vars = VARIABLES[catKey] || VARIABLES['DEFAULT'];
-
-  // 시드 기반 RNG
   const seed = stringToSeed(`${sellerSeed}::story::${productIndex}::${productName}`);
   const rng = createSeededRandom(seed);
-
-  // 톤 선택
   const tone = TONES[Math.floor(rng() * TONES.length)];
 
-  // 이름 정리
-  const cleanName = productName
-    .replace(/[\[\(【][^\]\)】]*[\]\)】]/g, '')
-    .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
-    .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ');
-
-  // 완성형 후기 템플릿 선택 (소분류 우선 매칭)
-  const fullPool = findBestReviewPool(categoryPath);
-  const selectedTemplate = fullPool[Math.floor(rng() * fullPool.length)] || '';
-
-  // 변수 치환
-  const filledFull = fillTemplate(selectedTemplate, vars, cleanName, rng);
-
-  // \n\n 으로 문단 분리 → 이미지 사이에 배치할 수 있도록
-  // 한 사람이 쓴 하나의 글이지만, 문단별로 쪼개서 이미지↔글 교차 가능
-  const rawParagraphs = filledFull
-    .split(/\n\n+/)
-    .map(p => p.replace(/\n/g, ' ').trim())
-    .filter(p => p.length > 10);
-
-  // 톤 적용 (마지막 문단에만)
-  const paragraphs = rawParagraphs.map((p, i) =>
-    i === rawParagraphs.length - 1 ? applyTone(p, tone) : p
-  );
-
-  // V3 리얼 후기 생성 (조합형 프레임 시스템)
+  // V3 리얼 후기를 메인 콘텐츠로 사용 (마케팅 카피 대신 진짜 후기)
   const realReview = generateRealReview(productName, categoryPath, sellerSeed, productIndex);
-
-  // 리뷰 텍스트: 리얼 후기에서 임팩트 문단 추출 (이미지 캡션용)
+  const paragraphs = realReview.paragraphs;
   const reviewTexts = reviewToCaption(realReview);
 
   return { paragraphs, reviewTexts, tone: tone.name, realReview };
@@ -237,10 +205,11 @@ export interface StoryResultV2 extends StoryResult {
 }
 
 /**
- * V2 설득형 스토리 생성
+ * V2 → V3 리얼 후기 스토리 생성
  *
- * 설득 프레임워크 기반 블록 조합 → 레거시 paragraphs 호환 변환
- * 기존 generateStory()와 동일한 인터페이스로 교체 가능
+ * 마케팅 카피(설득형 블록) 대신 리얼 후기 문단을 메인 콘텐츠로 사용.
+ * contentBlocks를 비워서 상세페이지가 블로그 스타일(이미지-텍스트 교차)로 렌더링됨.
+ * 진짜 사람이 쓴 것 같은 구매 후기가 상세페이지 본문이 됨.
  */
 export function generateStoryV2(
   productName: string,
@@ -248,38 +217,31 @@ export function generateStoryV2(
   sellerSeed: string,
   productIndex: number,
 ): StoryResultV2 {
-  // SEO 키워드를 먼저 생성 → 설득 엔진에 전달
-  const seoKeywords = extractSeoKeywords(productName, categoryPath, sellerSeed, productIndex);
-
-  // 설득형 블록 생성 (SEO 키워드 본문 삽입 포함)
-  const persuasion: PersuasionResult = generatePersuasionContent(
-    productName,
-    categoryPath,
-    sellerSeed,
-    productIndex,
-    seoKeywords,
-  );
-
-  // 레거시 paragraphs 변환 (하위 호환)
-  const paragraphs = contentBlocksToParagraphs(persuasion.blocks);
-
-  // V3 리얼 후기 생성 (조합형 프레임 시스템)
+  // V3 리얼 후기 생성 (조합형 프레임 시스템) — 메인 콘텐츠
   const realReview = generateRealReview(productName, categoryPath, sellerSeed, productIndex);
+
+  // 리얼 후기 문단을 메인 paragraphs로 사용
+  const paragraphs = realReview.paragraphs;
+
+  // 리뷰 텍스트: 리얼 후기에서 임팩트 문단 추출 (이미지 캡션용)
   const reviewTexts = reviewToCaption(realReview);
 
   const seed = stringToSeed(`${sellerSeed}::story::${productIndex}::${productName}`);
   const rng = createSeededRandom(seed);
   const tone = TONES[Math.floor(rng() * TONES.length)];
 
+  // 총 글자수 계산 (SEO 검증용)
+  const totalCharCount = paragraphs.join('').length;
+
   return {
     paragraphs,
     reviewTexts,
     tone: tone.name,
     realReview,
-    contentBlocks: persuasion.blocks,
-    framework: persuasion.framework,
-    frameworkName: persuasion.frameworkName,
-    totalCharCount: persuasion.totalCharCount,
+    contentBlocks: [],    // 비움 → 블로그 스타일 레이아웃 사용 (마케팅 블록 제거)
+    framework: realReview.frameId,
+    frameworkName: realReview.frameName,
+    totalCharCount,
   };
 }
 
