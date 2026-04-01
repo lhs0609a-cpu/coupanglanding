@@ -131,11 +131,21 @@ export async function scanProductFolder(folderPath: string): Promise<LocalProduc
 /**
  * 디렉토리 내 패턴에 맞는 이미지 파일 경로 목록을 반환 (정렬됨)
  */
+/** 비상품 이미지 파일명 패턴 (광고/배지/아이콘 등) */
+const AD_FILENAME_PATTERNS = /(?:^|[_\-.])(npay|naverpay|kakaopay|tosspay|payco|banner|badge|icon|logo|watermark|stamp|popup|event_banner|coupon|ad_|promotion|btn_|button_)/i;
+
 function collectImages(dirPath: string, pattern: RegExp): string[] {
   if (!fs.existsSync(dirPath)) return [];
   try {
     const files = fs.readdirSync(dirPath)
       .filter((f) => pattern.test(f))
+      .filter((f) => {
+        if (AD_FILENAME_PATTERNS.test(f)) {
+          console.log(`[이미지 필터] 광고/비상품 파일명 제외: ${f}`);
+          return false;
+        }
+        return true;
+      })
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     return files.map((f) => path.join(dirPath, f));
   } catch {
@@ -173,8 +183,35 @@ export async function uploadLocalImage(
   let format = detectImageFormat(buffer);
   let ext = format === 'unknown' ? 'jpg' : format;
 
+  // ---- 이미지 품질 게이트: 비상품 이미지 차단 ----
+  const fileSize = buffer.length;
+  const fileName = path.basename(filePath);
+
+  if (format === 'unknown') {
+    throw new Error(`[이미지 필터] 포맷 불명 — 업로드 중단: ${fileName}`);
+  }
+
   // 이미지 해상도 검증 + 자동 리사이징 (쿠팡: 최소 500×500, 최대 5000×5000, 최대 10MB)
   const dims = getImageDimensions(buffer, format);
+
+  if (dims.width > 0 && dims.height > 0) {
+    const minSide = Math.min(dims.width, dims.height);
+    const maxSide = Math.max(dims.width, dims.height);
+    const aspectRatio = maxSide / minSide;
+
+    if (minSide < 100) {
+      throw new Error(`[이미지 필터] 비상품 이미지 (아이콘/배지) ${dims.width}×${dims.height}: ${fileName}`);
+    }
+    if (aspectRatio > 4) {
+      throw new Error(`[이미지 필터] 배너 형태 ${dims.width}×${dims.height} (비율 ${aspectRatio.toFixed(1)}:1): ${fileName}`);
+    }
+    if (fileSize < 5 * 1024 && minSide < 300) {
+      throw new Error(`[이미지 필터] 극소 이미지 ${dims.width}×${dims.height}, ${(fileSize / 1024).toFixed(1)}KB: ${fileName}`);
+    }
+  } else if (fileSize < 20 * 1024) {
+    throw new Error(`[이미지 필터] 손상 의심 (치수 판독 불가 + ${(fileSize / 1024).toFixed(1)}KB): ${fileName}`);
+  }
+
   const needsUpscale = dims.width > 0 && dims.height > 0 && (dims.width < 500 || dims.height < 500);
   const needsDownscale = dims.width > 5000 || dims.height > 5000;
   const needsCompress = buffer.length > 10 * 1024 * 1024;
@@ -221,10 +258,15 @@ export async function uploadLocalImage(
         buffer = Buffer.from(outBuf);
         format = 'jpg';
         ext = 'jpg';
+      } else if (needsUpscale) {
+        throw new Error(`[이미지 필터] 업스케일 필요하나 jimp 미설치 — 500×500 미만 이미지 제외: ${path.basename(filePath)}`);
       } else {
         console.warn(`[이미지 리사이즈] jimp 미설치 — 원본 유지 (${path.basename(filePath)})`);
       }
     } catch (resizeErr) {
+      if (needsUpscale) {
+        throw new Error(`[이미지 필터] 업스케일 실패 — 500×500 미만 이미지 제외 (${path.basename(filePath)}): ${resizeErr instanceof Error ? resizeErr.message : resizeErr}`);
+      }
       console.warn(`[이미지 리사이즈 실패] ${path.basename(filePath)}:`, resizeErr instanceof Error ? resizeErr.message : resizeErr);
     }
   }
