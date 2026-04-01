@@ -134,6 +134,15 @@ function selectFrame(catKey: string, rng: () => number): FrameId {
   return weights[Math.floor(rng() * weights.length)];
 }
 
+// ─── SEO 글자수 상수 ────────────────────────────────────────
+
+const REVIEW_MIN_CHARS = 400;   // 리뷰 텍스트 최소 (설득형 블록과 합쳐 800+ 목표)
+const REVIEW_TARGET_CHARS = 600; // 리뷰 텍스트 목표
+
+// ─── 보조 섹션 (글자수 부족 시 추가 생성용) ─────────────────
+
+const PADDING_SECTIONS: string[] = ['experience', 'detail', 'daily_routine', 'motivation'];
+
 // ─── 문장 조각 조합 ─────────────────────────────────────────
 
 function composeFragment(
@@ -145,6 +154,18 @@ function composeFragment(
   const closer = pool.closers[Math.floor(rng() * pool.closers.length)] || '';
 
   const parts = [opener, value, closer].filter(p => p.length > 0);
+  return parts.join(' ');
+}
+
+/** 같은 풀에서 다른 조합의 문장을 추가로 뽑는다 */
+function composeExtraFragment(
+  pool: FragmentPool,
+  rng: () => number,
+): string {
+  // 다른 value를 뽑아서 variation 확보
+  const value = pool.values[Math.floor(rng() * pool.values.length)] || '';
+  const closer = pool.closers[Math.floor(rng() * pool.closers.length)] || '';
+  const parts = [value, closer].filter(p => p.length > 0);
   return parts.join(' ');
 }
 
@@ -217,6 +238,45 @@ export function generateRealReview(
 
     if (filled.trim().length > 5) {
       paragraphs.push(filled.trim());
+    }
+
+    // experience, detail 같은 핵심 섹션은 추가 문장으로 문단 보강
+    if ((section === 'experience' || section === 'detail' || section === 'backstory') && pool.values.length > 2) {
+      const extra = composeExtraFragment(pool, rng);
+      const filledExtra = fillVariables(extra, vars, cleanName, rng);
+      if (filledExtra.trim().length > 5) {
+        // 이전 문단에 이어붙이기 (한 사람이 쓴 것처럼)
+        const lastIdx = paragraphs.length - 1;
+        if (lastIdx >= 0) {
+          paragraphs[lastIdx] += ' ' + filledExtra.trim();
+        }
+      }
+    }
+  }
+
+  // 글자수 보장: REVIEW_MIN_CHARS 미만이면 보조 섹션 추가
+  let totalChars = paragraphs.join('').length;
+  let padIdx = 0;
+
+  while (totalChars < REVIEW_MIN_CHARS && padIdx < PADDING_SECTIONS.length) {
+    const section = PADDING_SECTIONS[padIdx];
+    const pool = fragments[section];
+    padIdx++;
+
+    if (!pool) continue;
+
+    const raw = composeFragment(pool, rng);
+    const filled = fillVariables(raw, vars, cleanName, rng);
+
+    if (filled.trim().length > 5) {
+      // verdict 바로 앞에 삽입
+      const verdictIdx = paragraphs.length - 1;
+      if (verdictIdx >= 0) {
+        paragraphs.splice(verdictIdx, 0, filled.trim());
+      } else {
+        paragraphs.push(filled.trim());
+      }
+      totalChars += filled.trim().length;
     }
   }
 

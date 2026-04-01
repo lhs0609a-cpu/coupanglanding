@@ -42,9 +42,9 @@ export interface PersuasionResult {
 
 // ─── 상수 ────────────────────────────────────────────────────
 
-const MIN_CHARS = 600;
-const MAX_CHARS = 1200;
-const TRUNCATE_LIMIT = 120;
+const MIN_CHARS = 800;
+const MAX_CHARS = 1500;
+const TRUNCATE_LIMIT = 150;
 
 // ─── 블록 텍스트 길이 계산 ──────────────────────────────────
 
