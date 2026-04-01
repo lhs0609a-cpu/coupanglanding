@@ -32,8 +32,8 @@ export interface ScannedProduct {
 }
 
 const IMAGE_PATTERN = /\.(jpg|jpeg|png|webp)$/i;
-// 대표이미지: 모든 jpg/jpeg/png/webp 파일 허용 (product_숫자 패턴 제한 해제)
-const MAIN_IMAGE_PATTERN = /\.(jpg|jpeg|png|webp)$/i;
+// 대표이미지: product_숫자 패턴만 허용 (서버 모드와 동일 — 콘텐츠/인포그래픽 이미지 제외)
+const MAIN_IMAGE_PATTERN = /^product_\d+\.(jpg|jpeg|png|webp)$/i;
 
 /**
  * showDirectoryPicker()로 사용자가 폴더를 선택하도록 하고,
@@ -182,9 +182,13 @@ async function collectImagesFromSubdir(
     const subHandle = await parentHandle.getDirectoryHandle(subdirName);
     const files: ScannedImageFile[] = [];
 
+    // 비상품 파일명 패턴 (광고/배지/아이콘 — 서버 collectImages와 동일)
+    const AD_PATTERN = /(?:^|[_\-.])(npay|naverpay|kakaopay|tosspay|payco|banner|badge|icon|logo|watermark|stamp|popup|event_banner|coupon|ad_|promotion|btn_|button_)/i;
+
     for await (const [name, handle] of subHandle as unknown as AsyncIterable<[string, FileSystemHandle]>) {
       if (handle.kind !== 'file') continue;
       if (!pattern.test(name)) continue;
+      if (AD_PATTERN.test(name)) continue;
       let objectUrl: string | undefined;
       // P1-4: eagerObjectUrls가 true일 때만 즉시 생성
       if (eagerObjectUrls) {
