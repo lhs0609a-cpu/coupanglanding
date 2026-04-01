@@ -97,9 +97,9 @@ export async function scanProductFolder(folderPath: string): Promise<LocalProduc
       }
     }
 
-    // main_images/ 내 product_*.jpg 파일
+    // main_images/ 내 모든 이미지 파일 (누끼 포함)
     const mainImagesDir = path.join(productPath, 'main_images');
-    const mainImages = collectImages(mainImagesDir, /^product_\d+\.(jpg|jpeg|png)$/i);
+    const mainImages = collectImages(mainImagesDir, /\.(jpg|jpeg|png|webp)$/i);
 
     // 상세이미지 = 리뷰 폴더에서만 가져옴 (review_images/ → reviews/)
     let reviewImages = collectImages(path.join(productPath, 'review_images'), /\.(jpg|jpeg|png)$/i);

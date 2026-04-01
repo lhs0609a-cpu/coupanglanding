@@ -32,8 +32,9 @@ export interface ScannedProduct {
 }
 
 const IMAGE_PATTERN = /\.(jpg|jpeg|png|webp)$/i;
-// 대표이미지: product_숫자 패턴만 허용 (서버 모드와 동일 — 콘텐츠/인포그래픽 이미지 제외)
-const MAIN_IMAGE_PATTERN = /^product_\d+\.(jpg|jpeg|png|webp)$/i;
+// 대표이미지: main_images 폴더 내 모든 이미지 허용 (누끼 포함)
+// 광고/배지는 AD_PATTERN으로 별도 제외
+const MAIN_IMAGE_PATTERN = IMAGE_PATTERN;
 
 /**
  * showDirectoryPicker()로 사용자가 폴더를 선택하도록 하고,

@@ -24,7 +24,8 @@
 //  - 여백 12% 유지, 크롭 후 500px 이상 보장
 //  - 쿠팡 썸네일에서 상품이 크게 보이도록 최적화
 //
-// 하드필터 (해당 시 overall 강제 0):
+// 하드필터 (hardFilterReason 표기만, overall 점수 유지 — 정렬용):
+//  ★ 메인이미지는 절대 제거 안 함, 점수 순 정렬만
 //  ★ 누끼 면역: 테두리 흰색 픽셀 40%+ OR (밝기>210 AND 채도<18%) → 빈 이미지 외 면제
 //  - 피부톤 ≥ 15% (모델/인물 사진) — 누끼 면제
 //  - 컨텐츠 < 5% (빈 이미지) — 누끼도 적용
@@ -475,14 +476,6 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
     }
   }
 
-  if (hardFilterReason) {
-    return {
-      overall: 0, background, backgroundSaturation, centering, aspect,
-      textDensity, sharpness, skinTone, contentSufficiency, colorDiversity,
-      symmetry, productCompactness, edgeCrop, fillRatio, hardFilterReason,
-    };
-  }
-
   // ---- 가중 합산 (100%) ----
   // ★ 흰배경이 최우선 — 쿠팡 썸네일에서 흰배경 누끼가 가장 중요
   const overall =
@@ -500,10 +493,13 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
     aspect * 0.005 +
     colorDiversity * 0.005;
 
+  // 하드필터: hardFilterReason만 표기, overall 점수는 유지 (정렬용)
+  // → useBulkRegisterActions에서 하드필터 무시하고 점수 순 정렬
   return {
     overall, background, backgroundSaturation, centering, aspect,
     textDensity, sharpness, skinTone, contentSufficiency, colorDiversity,
     symmetry, productCompactness, edgeCrop, fillRatio,
+    ...(hardFilterReason ? { hardFilterReason } : {}),
   };
 }
 
