@@ -177,6 +177,9 @@ const EXTRA_SPECIAL_CHARS = /[!@#$%^&*=+|\\{}[\]<>~`]/g;
 function cleanProductName(name: string, categoryContext?: string): string {
   let cleaned = name.trim();
 
+  // 0) "상세페이지 참조" 등 소싱 잔여 구문 제거
+  cleaned = cleaned.replace(/상세\s*페이지\s*참조|상품\s*상세\s*참조|상세\s*설명\s*참조|본문\s*참조|상페\s*참조|이미지\s*참조/gi, '');
+
   // 1) 특수문자 제거 (쿠팡 기본 정책)
   cleaned = cleaned.replace(EXTRA_SPECIAL_CHARS, '');
 
