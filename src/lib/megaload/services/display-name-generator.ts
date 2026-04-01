@@ -706,6 +706,18 @@ export function generateDisplayName(
   const { cleanedText } = checkCompliance(result, { removeErrors: true, categoryContext: categoryPath });
   result = cleanedText || result;
 
+  // fallback: 생성 실패 시 원본 사용 — 노이즈 구문은 반드시 제거
+  if (!result) {
+    result = originalName
+      .replace(NOISE_PHRASES, ' ')
+      .replace(/[\[\(【][^\]\)】]*[\]\)】]/g, ' ')
+      .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 2 && !NOISE.has(w.toLowerCase()))
+      .join(' ')
+      .slice(0, HARD_MAX_CHARS);
+  }
+
   return result || originalName.slice(0, HARD_MAX_CHARS);
 }
 
