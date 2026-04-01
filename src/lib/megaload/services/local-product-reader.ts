@@ -183,12 +183,11 @@ export async function uploadLocalImage(
   let format = detectImageFormat(buffer);
   let ext = format === 'unknown' ? 'jpg' : format;
 
-  // ---- 이미지 품질 게이트: 비상품 이미지 차단 ----
-  const fileSize = buffer.length;
+  // ---- 이미지 품질 게이트: 명백한 비상품 이미지만 차단 (누끼 등 정상 이미지 통과 보장) ----
   const fileName = path.basename(filePath);
 
   if (format === 'unknown') {
-    throw new Error(`[이미지 필터] 포맷 불명 — 업로드 중단: ${fileName}`);
+    console.warn(`[이미지 필터] 포맷 불명 — jpg 폴백 처리: ${fileName}`);
   }
 
   // 이미지 해상도 검증 + 자동 리사이징 (쿠팡: 최소 500×500, 최대 5000×5000, 최대 10MB)
@@ -196,20 +195,10 @@ export async function uploadLocalImage(
 
   if (dims.width > 0 && dims.height > 0) {
     const minSide = Math.min(dims.width, dims.height);
-    const maxSide = Math.max(dims.width, dims.height);
-    const aspectRatio = maxSide / minSide;
 
-    if (minSide < 100) {
-      throw new Error(`[이미지 필터] 비상품 이미지 (아이콘/배지) ${dims.width}×${dims.height}: ${fileName}`);
+    if (minSide < 50) {
+      throw new Error(`[이미지 필터] 아이콘/배지 ${dims.width}×${dims.height}: ${fileName}`);
     }
-    if (aspectRatio > 4) {
-      throw new Error(`[이미지 필터] 배너 형태 ${dims.width}×${dims.height} (비율 ${aspectRatio.toFixed(1)}:1): ${fileName}`);
-    }
-    if (fileSize < 5 * 1024 && minSide < 300) {
-      throw new Error(`[이미지 필터] 극소 이미지 ${dims.width}×${dims.height}, ${(fileSize / 1024).toFixed(1)}KB: ${fileName}`);
-    }
-  } else if (fileSize < 20 * 1024) {
-    throw new Error(`[이미지 필터] 손상 의심 (치수 판독 불가 + ${(fileSize / 1024).toFixed(1)}KB): ${fileName}`);
   }
 
   const needsUpscale = dims.width > 0 && dims.height > 0 && (dims.width < 500 || dims.height < 500);
