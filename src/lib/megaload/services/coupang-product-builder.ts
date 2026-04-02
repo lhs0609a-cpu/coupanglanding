@@ -414,15 +414,31 @@ export function buildCoupangProductPayload(
     }
   }
 
-  // 건기식 안전장치: unitCount=1 + 고가상품 → 단가 초과로 노출제한 위험
-  // 원본 상품명에서 정/캡슐/소프트젤 수를 재추출 시도
-  if (unitCount === 1 && rawName) {
+  // 건기식 안전장치: unitCount 낮으면 단가 초과로 노출제한 위험
+  // 원본 상품명에서 정/캡슐 수 × 수량을 재추출 시도
+  if (unitCount <= 1 && rawName) {
     const tabletMatch = rawName.match(/(\d+)\s*(정|캡슐|알|타블렛|소프트젤|포(?!기|인)|매|장|ml|mL|g)/);
     if (tabletMatch) {
-      const extracted = parseInt(tabletMatch[1], 10);
-      if (extracted > 1) {
-        console.warn(`[payload-builder] ⚠️ unitCount=1 → 원본상품명에서 ${extracted} 재추출 적용 | "${rawName}"`);
-        unitCount = extracted;
+      const tabletNum = parseInt(tabletMatch[1], 10);
+      // 수량 추출: "N개/통/팩/박스" (개입/개월 제외)
+      const countMatch = rawName.match(/(\d+)\s*(개(?!입|월)|팩|세트|박스|봉|병|통|EA|ea)/i);
+      const packageCount = countMatch ? parseInt(countMatch[1], 10) : 1;
+      const total = tabletNum * packageCount;
+      if (total > 1) {
+        console.warn(`[payload-builder] ⚠️ unitCount=${unitCount} → 재추출 ${tabletNum}×${packageCount}=${total} 적용 | "${rawName}"`);
+        unitCount = total;
+      }
+    }
+    // 개월분 기반 추정: "2개월 1캡슐" → 1×1=1이지만 2×30=60이 맞음
+    if (unitCount <= 1) {
+      const monthMatch = rawName.match(/(\d+)\s*개월/);
+      if (monthMatch) {
+        const months = parseInt(monthMatch[1], 10);
+        if (months >= 1 && months <= 24) {
+          const estimated = months * 30;
+          console.warn(`[payload-builder] ⚠️ unitCount=${unitCount} → 개월분 추정 ${months}개월×30=${estimated} 적용 | "${rawName}"`);
+          unitCount = estimated;
+        }
       }
     }
   }

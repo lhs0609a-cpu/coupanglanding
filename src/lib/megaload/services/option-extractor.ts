@@ -270,6 +270,12 @@ export function extractOptionsFromDetails(productName: string, details: Category
   // ── 1단계: 모든 옵션의 값을 먼저 추출 (순서 무관하게) ──
   const extracted = new Map<string, { value: string; unit?: string }>();
 
+  // 개당 캡슐/정 택1 옵션 존재 여부 확인
+  const hasTabletOpt = buyOpts.some(o => {
+    const n = normalizeOptionName(o.name);
+    return n.includes('캡슐') || n.includes('정');
+  });
+
   for (const opt of buyOpts) {
     const name = normalizeOptionName(opt.name);
     const unit = opt.unit;
@@ -297,6 +303,56 @@ export function extractOptionsFromDetails(productName: string, details: Category
 
     if (value !== null) {
       extracted.set(opt.name, { value, unit });
+    }
+  }
+
+  // ── 1.5단계: 개당 캡슐/정 × 수량 → 총합 보정 ──
+  // 쿠팡은 "개당 캡슐/정" 값으로 단위가격을 계산함.
+  // "1정 30개" → 개당캡슐/정=1, 수량=30 이면 단위가격=가격/1=전액 → 노출제한!
+  // 정상: 개당캡슐/정=30(총정수), 수량=1 → 단위가격=가격/30 → 아이템위너
+  if (hasTabletOpt) {
+    let tabletKey: string | null = null;
+    let tabletVal = 0;
+    for (const [key, entry] of extracted) {
+      const n = normalizeOptionName(key);
+      if (n.includes('캡슐') || n.includes('정')) {
+        tabletKey = key;
+        tabletVal = parseInt(entry.value, 10) || 0;
+        break;
+      }
+    }
+    let countKey: string | null = null;
+    let countVal = 0;
+    for (const [key, entry] of extracted) {
+      if (normalizeOptionName(key) === '수량') {
+        countKey = key;
+        countVal = parseInt(entry.value, 10) || 0;
+        break;
+      }
+    }
+
+    if (tabletKey && countKey && tabletVal >= 1 && countVal > 1) {
+      // 총 정/캡슐 수를 개당 옵션에 넣고, 수량은 1로 고정
+      // "1정 30개" → 개당=30, 수량=1
+      // "60캡슐 2통" → 개당=120, 수량=1
+      const totalTablets = tabletVal * countVal;
+      const tabletEntry = extracted.get(tabletKey)!;
+      extracted.set(tabletKey, { value: String(totalTablets), unit: tabletEntry.unit });
+      extracted.set(countKey, { value: '1', unit: '개' });
+    }
+
+    // 개월분 기반 추정: "2개월 1캡슐" → 1캡슐/일 × 60일 = 60캡슐
+    if (tabletKey && tabletVal <= 1) {
+      const monthMatch = productName.match(/(\d+)\s*개월/);
+      if (monthMatch) {
+        const months = parseInt(monthMatch[1], 10);
+        if (months >= 1 && months <= 24) {
+          const estimatedTotal = months * 30; // 1개월 = 30일 기준
+          const tabletEntry = extracted.get(tabletKey)!;
+          extracted.set(tabletKey, { value: String(estimatedTotal), unit: tabletEntry.unit });
+          if (countKey) extracted.set(countKey, { value: '1', unit: '개' });
+        }
+      }
     }
   }
 
@@ -375,13 +431,32 @@ export function extractOptionsFromDetails(productName: string, details: Category
 
   const confidence = totalRequired > 0 ? filledRequired / totalRequired : 1;
 
-  // totalUnitCount 계산: perCount × count (또는 count만)
-  // 쿠팡의 unitCount는 "묶음 내 총 수량"
-  // 예: "80매 x 10팩" → 80 × 10 = 800 (unitCount)
-  // 예: "3개세트" → 3 (unitCount)
+  // totalUnitCount 계산: 정제수 × 수량 (또는 perCount × count)
+  // 쿠팡의 unitCount는 "묶음 내 총 수량" — 단위가격 = 가격 ÷ unitCount
+  // 예: "80매 x 10팩" → 80 × 10 = 800
+  // 예: "120캡슐 2통" → 120 × 2 = 240
+  // 예: "1정 30개" → 1 × 30 = 30
   const count = composite.count || extractCount(productName, composite);
   const perCount = composite.perCount || null;
-  const totalUnitCount = perCount ? perCount * count : count;
+  const tabletCountForUnit = extractTabletCount(productName);
+
+  let totalUnitCount: number;
+  if (tabletCountForUnit !== null && tabletCountForUnit >= 1) {
+    // 건강보조식품: 정/캡슐 수 × 수량 = 총 정제 수
+    totalUnitCount = tabletCountForUnit * count;
+    // 개월분 보정: "2개월 1캡슐" → 1×1=1 이지만, 2×30=60이 맞음
+    if (totalUnitCount <= 1) {
+      const monthMatch = productName.match(/(\d+)\s*개월/);
+      if (monthMatch) {
+        const months = parseInt(monthMatch[1], 10);
+        if (months >= 1 && months <= 24) totalUnitCount = months * 30;
+      }
+    }
+  } else if (perCount) {
+    totalUnitCount = perCount * count;
+  } else {
+    totalUnitCount = count;
+  }
 
   return {
     buyOptions: result,
