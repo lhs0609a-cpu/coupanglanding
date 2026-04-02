@@ -603,5 +603,31 @@ function getRequiredFallback(optionName: string, productName: string): string | 
     return '상세페이지 참조';
   }
 
+  // 출고희망일 (절임배추 등 신선식품)
+  if (n.includes('출고') && n.includes('일')) {
+    return '주문 확인 후 순차배송';
+  }
+
+  // 쌀 등급
+  if (n.includes('쌀') && n.includes('등급')) {
+    return '상등급';
+  }
+
+  // 계란 구수 (30구, 15구 등)
+  if (n.includes('계란') && n.includes('구수')) {
+    const eggMatch = productName.match(/(\d+)\s*(구|개|알)/);
+    if (eggMatch) return eggMatch[1];
+    return '30';
+  }
+
+  // 원두 분쇄타입
+  if (n.includes('분쇄')) {
+    if (productName.includes('분쇄') || productName.includes('그라인드') || productName.includes('드립'))
+      return '분쇄';
+    if (productName.includes('홀빈') || productName.includes('원두'))
+      return '홀빈';
+    return '홀빈';
+  }
+
   return null;
 }
