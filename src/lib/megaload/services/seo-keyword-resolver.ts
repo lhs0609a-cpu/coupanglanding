@@ -24,18 +24,41 @@ const data = seoData as unknown as SeoDataShape;
 
 const EMPTY_POOL: SeoPool = { generic: [], ingredients: [], features: [] };
 
+// ─── 키워드 기반 자동 감지 (건강식품 세부 카테고리) ──────────
+// 카테고리명에 특정 성분/키워드가 포함되면 해당 풀로 매핑.
+// 계층적 폴백에서 놓치는 세부 카테고리를 커버한다.
+const KEYWORD_POOL_MAP: [string, string][] = [
+  // 관절/연골
+  ['관절', '식품>건강식품>관절'], ['연골', '식품>건강식품>관절'],
+  ['글루코사민', '식품>건강식품>관절'], ['콘드로이친', '식품>건강식품>관절'],
+  ['보스웰리아', '식품>건강식품>관절'], ['MSM', '식품>건강식품>관절'],
+  // 코엔자임
+  ['코엔자임', '식품>건강식품>코엔자임Q10'], ['코큐텐', '식품>건강식품>코엔자임Q10'],
+  ['Q10', '식품>건강식품>코엔자임Q10'], ['유비퀴놀', '식품>건강식품>코엔자임Q10'],
+  // MCT
+  ['MCT', '식품>건강식품>MCT오일'], ['중쇄지방', '식품>건강식품>MCT오일'],
+  // 기존 풀 매핑
+  ['비타민', '식품>건강식품>비타민'], ['오메가', '식품>건강식품>오메가3'],
+  ['유산균', '식품>건강식품>유산균'], ['프로바이오', '식품>건강식품>유산균'],
+  ['콜라겐', '식품>건강식품>콜라겐'], ['루테인', '식품>건강식품>루테인'],
+  ['밀크씨슬', '식품>건강식품>밀크씨슬'], ['홍삼', '식품>건강식품>홍삼'],
+  ['프로틴', '식품>건강식품>프로틴'], ['칼슘', '식품>건강식품>칼슘'],
+  ['마그네슘', '식품>건강식품>마그네슘'], ['다이어트', '식품>건강식품>다이어트'],
+];
+
 // ─── 카테고리 경로 → SEO 키워드 풀 매칭 ──────────────────────
 
 /**
  * 카테고리 경로에서 가장 구체적인 SEO 풀을 찾는다.
- * 소분류 → 중분류 → 대분류 → 빈 풀 순서로 폴백.
+ * 소분류 → 중분류 → 대분류 → 키워드 자동감지 → 빈 풀 순서로 폴백.
  *
  * 예: "뷰티>스킨>크림>넥크림"
  *   1) exact "뷰티>스킨>크림>넥크림" ✓
  *   2) "뷰티>스킨>크림"
  *   3) "뷰티>스킨"
  *   4) "뷰티"
- *   5) EMPTY_POOL
+ *   5) 키워드 자동감지 (카테고리 경로에 성분명 포함 여부)
+ *   6) EMPTY_POOL
  */
 export function resolveSeoCategoryPool(categoryPath: string): SeoPool {
   const pools = data.categoryPools;
@@ -63,6 +86,14 @@ export function resolveSeoCategoryPool(categoryPath: string): SeoPool {
     }
   }
   if (bestKey) return pools[bestKey];
+
+  // 4. 키워드 자동감지: 카테고리 경로에 성분/키워드가 포함되면 해당 풀 반환
+  const pathLower = categoryPath.toLowerCase();
+  for (const [keyword, poolKey] of KEYWORD_POOL_MAP) {
+    if (pathLower.includes(keyword.toLowerCase()) && pools[poolKey]) {
+      return pools[poolKey];
+    }
+  }
 
   return EMPTY_POOL;
 }

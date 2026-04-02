@@ -264,10 +264,16 @@ export function mergeVariables(
   productOverrides: Record<string, string[]>,
 ): Record<string, string[]> {
   const result = { ...categoryVars };
+  // 상품 오버라이드 키가 존재하면 카테고리 풀을 축소하여
+  // 상품별 맞춤 콘텐츠 생성 확률을 극대화한다.
+  // 기존: prepend만 → 15개 풀 중 1~2개 오버라이드 → 높은 확률로 generic 선택
+  // 개선: 카테고리 풀을 MAX_CATEGORY_KEEP개로 제한 → 오버라이드 선택 확률 대폭 증가
+  const MAX_CATEGORY_KEEP = 5;
   for (const [key, overrideValues] of Object.entries(productOverrides)) {
     if (result[key]) {
+      const trimmed = result[key].slice(0, MAX_CATEGORY_KEEP);
       const merged = [...overrideValues];
-      for (const existing of result[key]) {
+      for (const existing of trimmed) {
         if (!merged.includes(existing)) merged.push(existing);
       }
       result[key] = merged;
@@ -373,6 +379,26 @@ export function maybeSeoWeave(
 
 // ─── Layer 1: 변수 치환 ─────────────────────────────────
 
+/** 한글 받침(종성) 존재 여부 확인 */
+function hasFinalConsonant(char: string): boolean {
+  const code = char.charCodeAt(0);
+  if (code < 0xAC00 || code > 0xD7A3) return false;
+  return (code - 0xAC00) % 28 !== 0;
+}
+
+/** 한글 조사 자동 교정 — 변수 치환 후 은/는, 이/가, 을/를, 과/와 수정 */
+function fixKoreanParticles(text: string): string {
+  return text
+    .replace(/([\uAC00-\uD7A3])(은|는)/g, (_, prev) =>
+      prev + (hasFinalConsonant(prev) ? '은' : '는'))
+    .replace(/([\uAC00-\uD7A3])(이|가)/g, (_, prev) =>
+      prev + (hasFinalConsonant(prev) ? '이' : '가'))
+    .replace(/([\uAC00-\uD7A3])(을|를)/g, (_, prev) =>
+      prev + (hasFinalConsonant(prev) ? '을' : '를'))
+    .replace(/([\uAC00-\uD7A3])(과|와)/g, (_, prev) =>
+      prev + (hasFinalConsonant(prev) ? '과' : '와'));
+}
+
 function fillTemplate(
   template: string,
   vars: Record<string, string[]>,
@@ -389,6 +415,8 @@ function fillTemplate(
     // 미해결 변수는 빈 문자열로 제거 (문법 안전)
     return '';
   });
+  // 한글 조사 자동 교정 — "{효과1}은 물론" → "콜레스테롤관리는 물론"
+  result = fixKoreanParticles(result);
   return result;
 }
 

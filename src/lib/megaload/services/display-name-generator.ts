@@ -514,10 +514,16 @@ export function generateDisplayName(
   const addToken = (word: string): boolean => {
     const lower = word.toLowerCase();
     if (usedWords.has(lower)) return false;
-    // 서브워드 중복 체크: 개별 단어가 이미 2회 사용되었으면 스킵
+    // 서브워드 중복 체크: 개별 단어가 이미 사용되었으면 스킵
     const subWords = lower.split(/[\/\s]+/).filter(w => w.length >= 2);
     for (const sw of subWords) {
-      if ((usedSubWords.get(sw) || 0) >= 2) return false;
+      if ((usedSubWords.get(sw) || 0) >= 1) return false;
+      // 한글 부분문자열 중복 감지: "캡슐"이 있으면 "캡슐에"도 중복
+      for (const [existing] of usedSubWords) {
+        if (existing.length >= 2 && sw.length >= 2) {
+          if (sw.includes(existing) || existing.includes(sw)) return false;
+        }
+      }
     }
     usedWords.add(lower);
     for (const sw of subWords) {
@@ -588,9 +594,28 @@ export function generateDisplayName(
 
   // ── 45~60자 타겟 맞추기 (스펙 추가 전) ─────────────────
 
-  // 스펙은 별도 보관 → 패딩 후 맨 뒤에 붙임
-  const specTokens = classified.specs.slice(0, 3).filter(s => !usedWords.has(s.toLowerCase()));
-  for (const s of specTokens) usedWords.add(s.toLowerCase());
+  // 스펙은 별도 보관 → 패딩 후 맨 뒤에 붙임 (서브워드 중복도 검사)
+  const specTokens: string[] = [];
+  for (const s of classified.specs.slice(0, 3)) {
+    const lower = s.toLowerCase();
+    if (usedWords.has(lower)) continue;
+    // 서브워드 중복 체크 (addToken과 동일 로직)
+    const subs = lower.split(/[\/\s]+/).filter(w => w.length >= 2);
+    let overlap = false;
+    for (const sw of subs) {
+      if ((usedSubWords.get(sw) || 0) >= 1) { overlap = true; break; }
+      for (const [existing] of usedSubWords) {
+        if (existing.length >= 2 && sw.length >= 2) {
+          if (sw.includes(existing) || existing.includes(sw)) { overlap = true; break; }
+        }
+      }
+      if (overlap) break;
+    }
+    if (overlap) continue;
+    usedWords.add(lower);
+    for (const sw of subs) usedSubWords.set(sw, (usedSubWords.get(sw) || 0) + 1);
+    specTokens.push(s);
+  }
 
   // 스펙 포함 예상 길이 계산
   const specStr = specTokens.join(' ');

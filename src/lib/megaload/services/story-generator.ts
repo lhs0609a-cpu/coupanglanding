@@ -389,8 +389,8 @@ const FAQ_TEMPLATES: Record<string, { q: string; a: string }[]> = {
     { q: '{product} 효과는 언제부터 느낄 수 있나요?', a: '개인차가 있지만 {기간} 꾸준히 섭취하시면 {효과1} 변화를 체감하실 수 있습니다.' },
     { q: '{product} 다른 영양제와 함께 먹어도 되나요?', a: '네, 대부분의 영양제와 함께 섭취 가능합니다. 단, 전문가 상담을 권장드립니다.' },
     { q: '{product} 보관 방법은 어떻게 되나요?', a: '직사광선을 피해 서늘하고 건조한 곳에 보관해주세요. 개봉 후에는 밀봉하여 보관하시면 됩니다.' },
-    { q: '{product} 유통기한이 지나면 어떻게 하나요?', a: '유통기한이 지난 제품은 섭취를 권장하지 않습니다. 제조일로부터 {기간} 이내 섭취를 권장합니다.' },
-    { q: '{product} 체질에 따라 안 맞을 수도 있나요?', a: '특이 체질이시거나 알레르기가 있으신 분은 성분표를 확인 후 섭취해주세요. {성분} 기반 제품입니다.' },
+    { q: '{product} 유통기한이 지나면 어떻게 하나요?', a: '유통기한이 지난 제품은 섭취를 권장하지 않습니다. 제품 포장에 표기된 소비기한을 확인해주세요.' },
+    { q: '{product} 체질에 따라 안 맞을 수도 있나요?', a: '특이 체질이시거나 알레르기가 있으신 분은 성분표를 확인 후 섭취해주세요. 섭취 전 전문가 상담을 권장드립니다.' },
     { q: '{product} 선물로 적합한가요?', a: '네! 건강을 생각하는 {추천대상}에게 실용적인 선물로 인기가 많습니다.' },
   ],
   '생활용품': [
@@ -496,14 +496,69 @@ export function generateFaqItems(
   count: number = 6,
 ): FaqItem[] {
   const catKey = getCategoryKey(categoryPath);
-  const vars = VARIABLES[catKey] || VARIABLES['DEFAULT'];
+  const vars = { ...(VARIABLES[catKey] || VARIABLES['DEFAULT']) };
+  // 배열 키도 깊은 복사 (원본 VARIABLES 오염 방지)
+  for (const k of Object.keys(vars)) {
+    if (Array.isArray(vars[k])) vars[k] = [...vars[k]];
+  }
+
   const seed = stringToSeed(`${sellerSeed}::faq::${productIndex}::${productName}`);
   const rng = createSeededRandom(seed);
 
-  const cleanName = productName
+  // ── 건강식품 성분별 변수 오버라이드 ──
+  // 상품명 + 카테고리 경로 모두 검사하여 상품과 무관한 성분 언급 방지
+  const pn = (productName + ' ' + categoryPath).toLowerCase();
+  if (catKey === '식품') {
+    if (/코엔자임|coq10|코큐텐|유비퀴놀/.test(pn)) {
+      vars['성분'] = ['코엔자임Q10','유비퀴놀','비타민E','셀레늄'];
+      vars['효과1'] = ['항산화','심장건강','에너지생성','세포보호','피로회복'];
+    } else if (/비오틴|바이오틴/.test(pn)) {
+      vars['성분'] = ['비오틴','비타민B7','판토텐산','아연'];
+      vars['효과1'] = ['모발건강','피부건강','손톱건강','두피건강','모발영양'];
+    } else if (/루테인|지아잔틴/.test(pn)) {
+      vars['성분'] = ['루테인','지아잔틴','비타민A','베타카로틴'];
+      vars['효과1'] = ['눈건강','시력보호','눈피로','안구건조','황반건강'];
+    } else if (/콘드로이친|글루코사민|관절|상어연골|보스웰리아|msm/.test(pn)) {
+      vars['성분'] = ['콘드로이친','글루코사민','MSM','보스웰리아'];
+      vars['효과1'] = ['관절건강','연골보호','관절유연성','뼈건강','관절영양'];
+    } else if (/밀크씨슬|실리마린/.test(pn)) {
+      vars['성분'] = ['밀크씨슬','실리마린','UDCA','비타민B군'];
+      vars['효과1'] = ['간건강','간보호','피로회복','간기능개선','독소배출'];
+    } else if (/유산균|프로바이오|락토|비피더스/.test(pn)) {
+      vars['성분'] = ['유산균','프로바이오틱스','프리바이오틱스','식이섬유'];
+      vars['효과1'] = ['장건강','소화흡수','장내환경','배변활동','장면역력'];
+    } else if (/오메가|크릴|epa|dha/.test(pn)) {
+      vars['성분'] = ['오메가3','EPA','DHA','크릴오일'];
+      vars['효과1'] = ['혈관건강','혈행개선','중성지방감소','심혈관건강','혈압관리'];
+    } else if (/홍삼|인삼|진세노사이드/.test(pn)) {
+      vars['성분'] = ['홍삼','진세노사이드','인삼사포닌','프로폴리스'];
+      vars['효과1'] = ['면역력','피로회복','활력','체력','항산화'];
+    } else if (/콜라겐|히알루론/.test(pn)) {
+      vars['성분'] = ['콜라겐','히알루론산','비타민C','엘라스틴'];
+      vars['효과1'] = ['피부탄력','피부보습','주름개선','피부건강','피부광채'];
+    } else if (/마그네슘/.test(pn)) {
+      vars['성분'] = ['마그네슘','비타민D','칼슘','아연'];
+    } else if (/칼슘/.test(pn)) {
+      vars['성분'] = ['칼슘','비타민D','마그네슘','비타민K'];
+    } else if (/mct|중쇄지방/.test(pn)) {
+      vars['성분'] = ['MCT오일','중쇄지방산','코코넛오일','C8카프릴산'];
+      vars['효과1'] = ['에너지','체지방관리','대사촉진','포만감','흡수율'];
+    }
+  }
+
+  // ── cleanName: "브랜드 상품코드" 형태면 카테고리 리프명 사용 ──
+  let cleanName = productName
     .replace(/[\[\(【][^\]\)】]*[\]\)】]/g, '')
     .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
     .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ');
+
+  // 숫자 6자리 이상이면 상품코드로 간주 → 카테고리 리프명으로 대체
+  if (/\d{6,}/.test(cleanName)) {
+    const leafName = categoryPath.split('>').pop()?.trim();
+    if (leafName && leafName.length >= 2) {
+      cleanName = leafName;
+    }
+  }
 
   const faqPool = FAQ_TEMPLATES[catKey] || FAQ_TEMPLATES['DEFAULT'];
   const shuffled = [...faqPool].sort(() => rng() - 0.5);
@@ -637,10 +692,18 @@ export function generateClosingText(
   const seed = stringToSeed(`${sellerSeed}::closing::${productIndex}::${productName}`);
   const rng = createSeededRandom(seed);
 
-  const cleanName = productName
+  let cleanName = productName
     .replace(/[\[\(【][^\]\)】]*[\]\)】]/g, '')
     .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
     .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ');
+
+  // 숫자 6자리 이상이면 상품코드로 간주 → 카테고리 리프명으로 대체
+  if (/\d{6,}/.test(cleanName)) {
+    const leafName = categoryPath.split('>').pop()?.trim();
+    if (leafName && leafName.length >= 2) {
+      cleanName = leafName;
+    }
+  }
 
   const pool = CLOSING_TEMPLATES[catKey] || CLOSING_TEMPLATES['DEFAULT'];
   const template = pool[Math.floor(rng() * pool.length)];

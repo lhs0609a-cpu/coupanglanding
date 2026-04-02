@@ -53,9 +53,34 @@ const HEALTH_FOOD_LAW: ForbiddenCategory = {
     { pattern: /소염/g, label: '소염', severity: 'error', category: '건기식법' },
     { pattern: /(?<![가-힣])암(?!막|밴드|벽|석|면|판|호|퇘|기와|회색|청색|갈색|적색|녹색|흑색)/g, label: '암(질병)', severity: 'error', category: '건기식법' },
     { pattern: /질병예방/g, label: '질병예방', severity: 'error', category: '건기식법' },
-    // warning: 기능성 과장 가능 표현
+    // error: 추가 질병명 (상세페이지 AI 검수 대응)
+    { pattern: /간경화/g, label: '간경화', severity: 'error', category: '건기식법' },
+    { pattern: /관절염/g, label: '관절염', severity: 'error', category: '건기식법' },
+    { pattern: /위장병/g, label: '위장병', severity: 'error', category: '건기식법' },
+    { pattern: /(?<![가-힣])변비(?!약)/g, label: '변비', severity: 'error', category: '건기식법' },
+    { pattern: /불면증/g, label: '불면증', severity: 'error', category: '건기식법' },
+    { pattern: /우울증/g, label: '우울증', severity: 'error', category: '건기식법' },
+    { pattern: /빈혈/g, label: '빈혈', severity: 'error', category: '건기식법' },
+    { pattern: /동맥경화/g, label: '동맥경화', severity: 'error', category: '건기식법' },
+    { pattern: /뇌졸중/g, label: '뇌졸중', severity: 'error', category: '건기식법' },
+    { pattern: /심근경색/g, label: '심근경색', severity: 'error', category: '건기식법' },
+    { pattern: /부정맥/g, label: '부정맥', severity: 'error', category: '건기식법' },
+    { pattern: /전립선/g, label: '전립선', severity: 'error', category: '건기식법' },
+    { pattern: /갱년기/g, label: '갱년기', severity: 'error', category: '건기식법' },
+    // error: 의약품 혼동 표현
+    { pattern: /처방/g, label: '처방', severity: 'error', category: '건기식법' },
+    { pattern: /투여/g, label: '투여', severity: 'error', category: '건기식법' },
+    { pattern: /(?<![가-힣])즉효/g, label: '즉효', severity: 'error', category: '건기식법' },
+    { pattern: /특효/g, label: '특효', severity: 'error', category: '건기식법' },
+    { pattern: /명약/g, label: '명약', severity: 'error', category: '건기식법' },
+    { pattern: /신약/g, label: '신약', severity: 'error', category: '건기식법' },
+    { pattern: /(?<![가-힣])탈모(?!케어|방지|샴푸)/g, label: '탈모', severity: 'error', category: '건기식법' },
+    // warning: 기능성 과장 가능 표현 + 의료 암시 (심의 필요)
     { pattern: /혈행개선/g, label: '혈행개선', severity: 'warning', category: '건기식법' },
     { pattern: /면역력강화/g, label: '면역력강화', severity: 'warning', category: '건기식법' },
+    { pattern: /콜레스테롤\s*관리/g, label: '콜레스테롤관리', severity: 'warning', category: '건기식법' },
+    { pattern: /혈당\s*관리/g, label: '혈당관리', severity: 'warning', category: '건기식법' },
+    { pattern: /체지방\s*감소/g, label: '체지방감소', severity: 'warning', category: '건기식법' },
   ],
 };
 

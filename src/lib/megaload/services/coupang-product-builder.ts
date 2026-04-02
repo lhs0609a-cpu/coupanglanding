@@ -16,7 +16,8 @@ import type { FilledNoticeCategory } from './notice-field-filler';
 import type { ImageVariation } from './image-variation';
 import { buildRichDetailPageHtml } from './detail-page-builder';
 import { shuffleWithSeed, selectWithSeed } from './item-winner-prevention';
-import { checkCompliance } from './compliance-filter';
+import { checkCompliance, containsForbiddenTerm } from './compliance-filter';
+import type { ContentBlock } from './fragment-composer';
 
 // ---- 입력 타입 ----
 
@@ -296,23 +297,43 @@ export function buildCoupangProductPayload(
     || (infoImageUrls && infoImageUrls.length > 0);
   let detailHtml: string;
 
+  // ---- 상세페이지 텍스트 compliance 필터링 (쿠팡 AI 검수 대응) ----
+  const complianceCtx = categoryPath;
+  const cleanText = (t: string) => {
+    const { cleanedText } = checkCompliance(t, { removeErrors: true, categoryContext: complianceCtx });
+    return cleanedText || t;
+  };
+  const safeParagraphs = aiStoryParagraphs?.map(cleanText);
+  const safeReviewTexts = aiReviewTexts?.map(cleanText);
+  const safeFaqItems = faqItems?.map(f => ({ question: f.question, answer: cleanText(f.answer) }));
+  const safeClosingText = closingText ? cleanText(closingText) : closingText;
+  const safeSeoKeywords = seoKeywords?.filter(k => !containsForbiddenTerm(k));
+  const safeContentBlocks: ContentBlock[] | undefined = contentBlocks?.map(b => ({
+    ...b,
+    content: cleanText(b.content),
+    subContent: b.subContent ? cleanText(b.subContent) : b.subContent,
+    items: b.items?.map(cleanText),
+    emphasis: b.emphasis ? cleanText(b.emphasis) : b.emphasis,
+  }));
+  const safeStoryHtml = aiStoryHtml ? cleanText(aiStoryHtml) : aiStoryHtml;
+
   if (hasRichContent) {
     detailHtml = sanitizeHtml(buildRichDetailPageHtml({
       productName,
       brand: resolvedBrand,
-      aiStoryParagraphs,
-      aiStoryHtml,
+      aiStoryParagraphs: safeParagraphs,
+      aiStoryHtml: safeStoryHtml,
       reviewImageUrls,
-      reviewTexts: aiReviewTexts,
+      reviewTexts: safeReviewTexts,
       detailImageUrls,
       infoImageUrls,
       consignmentImageUrls,
       thirdPartyImageUrls,
-      seoKeywords,
-      faqItems,
-      closingText,
+      seoKeywords: safeSeoKeywords,
+      faqItems: safeFaqItems,
+      closingText: safeClosingText,
       categoryPath,
-      contentBlocks,
+      contentBlocks: safeContentBlocks,
       noticeFields: filledNotices?.[0]?.noticeCategoryDetailName?.map(f => ({
         name: f.noticeCategoryDetailName,
         value: f.content,
@@ -382,6 +403,24 @@ export function buildCoupangProductPayload(
       const parsed = parseInt(countOpt.value, 10);
       if (!isNaN(parsed) && parsed > 0) unitCount = parsed;
     }
+  }
+
+  // 건기식 안전장치: unitCount=1 + 고가상품 → 단가 초과로 노출제한 위험
+  // 원본 상품명에서 정/캡슐/소프트젤 수를 재추출 시도
+  if (unitCount === 1 && rawName) {
+    const tabletMatch = rawName.match(/(\d+)\s*(정|캡슐|알|타블렛|소프트젤|포(?!기|인)|매|장|ml|mL|g)/);
+    if (tabletMatch) {
+      const extracted = parseInt(tabletMatch[1], 10);
+      if (extracted > 1) {
+        console.warn(`[payload-builder] ⚠️ unitCount=1 → 원본상품명에서 ${extracted} 재추출 적용 | "${rawName}"`);
+        unitCount = extracted;
+      }
+    }
+  }
+  // 건기식 카테고리에서 unitCount=1 경고 (단위가격 = 판매가 전체 → 노출제한 위험)
+  if (unitCount === 1 && categoryPath && /건강식품|건강기능|영양제|비타민|오메가|유산균|프로바이오틱/.test(categoryPath)) {
+    const unitPrice = sellingPrice / unitCount;
+    console.error(`[payload-builder] 🚨 건기식 unitCount=1 경고! 단위가격=${unitPrice.toLocaleString()}원 (판매가=${sellingPrice.toLocaleString()}원) → 노출제한 위험 | "${rawName}"`);
   }
 
   // ---- 8. itemName에 구매옵션 반영 ----

@@ -515,7 +515,7 @@ function resolveVariablePool(
       } else if (/코엔자임|coq10|유비퀴놀|심장/.test(pn)) {
         healthVars['효과1'] = ['심장건강','항산화','에너지생성','세포보호','혈압관리','심혈관건강','피로회복','활력'];
         healthVars['효과2'] = ['심장기능','항산화력','에너지충전','세포활력','혈관건강'];
-        healthVars['성분'] = ['코엔자임Q10','유비퀴놀','비타민E','셀레늄','오메가3','비타민B군','마그네슘','L-카르니틴','알파리포산','아스타잔틴'];
+        healthVars['성분'] = ['코엔자임Q10','유비퀴놀','비타민E','셀레늄','오메가3','비타민B군','마그네슘','L-카르니틴','알파리포산','PQQ'];
         healthVars['카테고리'] = ['코엔자임Q10','항산화영양제','영양제','건강식품','심장건강'];
       } else if (/마그네슘|칼슘|아연|셀레늄|철분|미네랄/.test(pn)) {
         healthVars['효과1'] = ['뼈건강','근육이완','신경안정','에너지대사','면역력','수면개선','스트레스완화','혈압관리'];
@@ -734,8 +734,26 @@ export function generateRealReview(
     }
   }
 
+  // ── 문장 중복 제거 (같은 리뷰 내 동일 문장 반복 방지) ──
+  const allSeenSentences = new Set<string>();
+  for (let i = 0; i < paragraphs.length; i++) {
+    // 문장 단위로 분리 (마침표/느낌표/물음표 뒤 공백)
+    const sentences = paragraphs[i].split(/(?<=[.!?。])\s+/);
+    const deduped: string[] = [];
+    for (const s of sentences) {
+      const key = s.trim().replace(/\s+/g, ' ');
+      if (key.length < 10 || !allSeenSentences.has(key)) {
+        allSeenSentences.add(key);
+        deduped.push(s);
+      }
+    }
+    paragraphs[i] = deduped.join(' ').trim();
+  }
+  // 빈 문단 제거
+  const cleanedParagraphs = paragraphs.filter(p => p.trim().length > 5);
+
   return {
-    paragraphs,
+    paragraphs: cleanedParagraphs,
     frameId,
     frameName: frame.name,
   };
