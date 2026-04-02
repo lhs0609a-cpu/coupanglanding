@@ -412,7 +412,12 @@ function fillTemplate(
     if (pool && pool.length > 0) {
       return pool[Math.floor(rng() * pool.length)];
     }
-    // 미해결 변수는 빈 문자열로 제거 (문법 안전)
+    // 미해결 변수: 유사 키에서 폴백 시도 (성분2→성분, 효과2→효과1)
+    const baseKey = key.replace(/\d+$/, '');
+    const fallback = vars[baseKey] || vars[baseKey + '1'];
+    if (fallback && fallback.length > 0) {
+      return fallback[Math.floor(rng() * fallback.length)];
+    }
     return '';
   });
   // 한글 조사 자동 교정 — "{효과1}은 물론" → "콜레스테롤관리는 물론"

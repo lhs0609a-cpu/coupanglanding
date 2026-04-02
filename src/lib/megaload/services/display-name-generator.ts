@@ -475,9 +475,9 @@ function selectSubset<T>(items: T[], count: number, rng: () => number): T[] {
 
 // ─── Phase 3: 구조적 SEO 배치 ──────────────────────────
 
-const TARGET_MIN_CHARS = 45;
-const TARGET_MAX_CHARS = 60;
-const HARD_MAX_CHARS = 70;
+const TARGET_MIN_CHARS = 50;
+const TARGET_MAX_CHARS = 70;
+const HARD_MAX_CHARS = 100;
 
 /**
  * 쿠팡 SEO 최적화 노출상품명 생성 v4.1

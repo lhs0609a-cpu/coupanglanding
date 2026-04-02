@@ -342,10 +342,21 @@ export function extractOptionsFromDetails(productName: string, details: Category
     }
   }
 
-  // 택1 그룹 전체 실패 시 경고 (기본값 불가)
+  // 택1 그룹 전체 실패 시 첫 번째 필수옵션에 안전한 기본값 설정
   if (choose1Opts.length > 0 && !choose1Filled) {
     const choose1Names = choose1Opts.map((o) => o.name).join('/');
     warnings.push(`택1 필수 옵션 '${choose1Names}' 중 하나도 추출할 수 없습니다.`);
+    // 첫 번째 택1 옵션에 기본값 추가 (등록 실패 방지)
+    const first = choose1Opts[0];
+    if (first.required) {
+      const fallbackValue = first.unit === '개' ? '1'
+        : first.unit === 'g' ? '1'
+        : first.unit === 'ml' ? '1'
+        : '상세페이지 참조';
+      result.push({ name: first.name, value: fallbackValue, unit: first.unit });
+      choose1Filled = true;
+      warnings.push(`'${first.name}' → 기본값 "${fallbackValue}${first.unit || ''}" 사용`);
+    }
   }
 
   // ── Confidence 계산 ──

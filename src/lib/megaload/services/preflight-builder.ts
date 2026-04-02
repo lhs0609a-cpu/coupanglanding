@@ -145,7 +145,8 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
   );
 
   // 아이템위너 방지 시드 + 레이아웃 변형
-  const preventionSeed = preventionEnabled && preventionConfig?.imageOrderShuffle
+  // prevention enabled면 항상 시드 생성 (바코드 제거, 브랜드 고유화 등에 사용)
+  const preventionSeed = preventionEnabled
     ? `${shUserId}:${product.productCode}`
     : undefined;
   const LAYOUT_VARIANTS = ['A', 'B', 'C', 'D'];

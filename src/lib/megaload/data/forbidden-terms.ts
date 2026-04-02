@@ -163,6 +163,9 @@ const COUPANG_POLICY: ForbiddenCategory = {
     { pattern: /추천/g, label: '추천', severity: 'error', category: '쿠팡정책' },
     { pattern: /[★☆♥♡▶▷◀◁●○■□◆◇△▽♠♣♦♬♪♩⊙◎]/g, label: '특수문자', severity: 'error', category: '쿠팡정책' },
     { pattern: /\b(?:SALE|HOT|BEST|NEW|EVENT|FREE)\b/gi, label: '영문 마케팅 금지어', severity: 'error', category: '쿠팡정책' },
+    { pattern: /로켓배송/g, label: '로켓배송', severity: 'error', category: '쿠팡정책' },
+    { pattern: /타임세일/g, label: '타임세일', severity: 'error', category: '쿠팡정책' },
+    { pattern: /끝판왕/g, label: '끝판왕', severity: 'error', category: '쿠팡정책' },
     // warning
     { pattern: /정품/g, label: '정품', severity: 'warning', category: '쿠팡정책' },
     { pattern: /공식/g, label: '공식', severity: 'warning', category: '쿠팡정책' },

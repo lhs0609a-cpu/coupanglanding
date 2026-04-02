@@ -1,0 +1,756 @@
+{
+  "frameworks": {
+    "PAS": { "name": "문제→해결", "blocks": ["hook","solution","benefits_grid","cta"] },
+    "AIDA": { "name": "주의→관심→행동", "blocks": ["hook","feature_detail","benefits_grid","cta"] },
+    "EXPERT": { "name": "전문가 분석", "blocks": ["hook","feature_detail","benefits_grid","cta"] },
+    "GIFT": { "name": "선물 스토리", "blocks": ["hook","solution","cta"] },
+    "LIFESTYLE": { "name": "라이프스타일", "blocks": ["hook","feature_detail","cta"] },
+    "SEASONAL": { "name": "시즌/트렌드", "blocks": ["hook","solution","cta"] }
+  },
+  "categoryFrameworks": {
+    "뷰티": ["PAS","AIDA","LIFESTYLE"],
+    "식품": ["PAS","EXPERT","GIFT"],
+    "생활용품": ["PAS","AIDA","SEASONAL"],
+    "가전/디지털": ["EXPERT","AIDA","LIFESTYLE"],
+    "패션의류잡화": ["LIFESTYLE","AIDA","SEASONAL"],
+    "가구/홈데코": ["LIFESTYLE","EXPERT","GIFT"],
+    "출산/유아동": ["GIFT","PAS","EXPERT"],
+    "스포츠/레져": ["LIFESTYLE","AIDA","PAS"],
+    "반려/애완용품": ["GIFT","PAS","EXPERT"],
+    "주방용품": ["LIFESTYLE","EXPERT","AIDA"],
+    "문구/오피스": ["LIFESTYLE","AIDA","GIFT"],
+    "완구/취미": ["GIFT","LIFESTYLE","SEASONAL"],
+    "자동차용품": ["EXPERT","PAS","AIDA"],
+    "DEFAULT": ["AIDA","PAS","LIFESTYLE"]
+  },
+  "blocks": {
+    "뷰티": {
+      "hook": [
+        {"type":"hook","content":"거울 볼 때마다 {효과1} 신경 쓰이시나요?"},
+        {"type":"hook","content":"피부가 달라졌다는 말, 듣고 싶지 않으세요?"},
+        {"type":"hook","content":"진짜 {효과1}을 경험해보세요."},
+        {"type":"hook","content":"매일 아침, 피부에 자신감을 더해보세요."},
+        {"type":"hook","content":"피부 고민, 이제 끝낼 때가 됐습니다."},
+        {"type":"hook","content":"{추천대상}이라면 꼭 확인하세요."},
+        {"type":"hook","content":"하루 5분, {효과1}의 비밀."},
+        {"type":"hook","content":"주변에서 먼저 알아채는 변화."}
+      ],
+      "solution": [
+        {"type":"solution","content":"{product}은 {성분}의 힘으로 {효과1}에 집중합니다."},
+        {"type":"solution","content":"{효과1}의 근본을 해결하는 {product}."},
+        {"type":"solution","content":"{product} 하나로 {효과1}과 {효과2}를 동시에."},
+        {"type":"solution","content":"{성분} 함유 {product}으로 케어하세요."},
+        {"type":"solution","content":"{추천대상}을 위해 개발된 {product}."},
+        {"type":"solution","content":"{product}으로 {효과1} 걱정 끝."},
+        {"type":"solution","content":"당신의 피부가 원하는 답, {product}."},
+        {"type":"solution","content":"{성분}이 피부 장벽을 강화합니다."}
+      ],
+      "feature_detail": [
+        {"type":"feature_detail","content":"{성분}이 피부 깊숙이 침투, {효과1}에 집중 작용합니다.","emphasis":"{성분} 고농축"},
+        {"type":"feature_detail","content":"{성분}과 {성분2}의 시너지로 {효과1}을 극대화합니다.","emphasis":"듀얼 액티브"},
+        {"type":"feature_detail","content":"피부 장벽을 강화하는 {성분} 기술로 {효과1} 지속.","emphasis":"장벽 강화"},
+        {"type":"feature_detail","content":"{인증} 테스트 완료, {추천대상}도 안심 사용.","emphasis":"{인증}"},
+        {"type":"feature_detail","content":"{사용감} 텍스처로 빠르게 흡수, {효과1} 즉시 체감.","emphasis":"즉시 체감"},
+        {"type":"feature_detail","content":"{효과1}과 {효과2}를 한 번에 관리하는 포뮬러.","emphasis":"올인원"},
+        {"type":"feature_detail","content":"{성분} 기반 {효과1} 특화 설계입니다.","emphasis":"{성분} 기반"},
+        {"type":"feature_detail","content":"민감 피부도 편안한 저자극 포뮬러.","emphasis":"저자극"}
+      ],
+      "benefits_grid": [
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1} 집중 케어","{인증} 완료","{추천대상} 적합"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{성분} 고농축","{효과2} 동시 관리","민감 피부 OK"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["피부 장벽 강화","순한 성분","데일리 사용 OK"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1} 탁월","{성분} 함유","무자극 포뮬러"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["빠른 흡수","{효과1}+{효과2}","{추천대상} 추천"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{카테고리} 전문","고보습 포뮬러","남녀공용"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["피부결 개선","{효과1} 극대화","올시즌 사용"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{성분} 함유","{인증} 안전","빠른 흡수"]}
+      ],
+      "cta": [
+        {"type":"cta","content":"{효과1} 변화를 경험해보세요."},
+        {"type":"cta","content":"빛나는 피부를 되찾으세요."},
+        {"type":"cta","content":"답은 {product}입니다."},
+        {"type":"cta","content":"{추천대상}을 위한 선택."},
+        {"type":"cta","content":"{효과1}의 차이를 느껴보세요."},
+        {"type":"cta","content":"아름다운 변화를 시작하세요."},
+        {"type":"cta","content":"지금 {product}을 만나보세요."},
+        {"type":"cta","content":"{product}으로 시작하세요."}
+      ]
+    },
+    "식품": {
+      "hook": [
+        {"type":"hook","content":"{효과1}이 걱정되시나요?"},
+        {"type":"hook","content":"매일 하나로 {효과1}이 달라집니다."},
+        {"type":"hook","content":"가족 건강, 식탁에서부터 지키세요."},
+        {"type":"hook","content":"{추천대상}이라면 꼭 알아야 할 관리법."},
+        {"type":"hook","content":"바쁜 일상, {효과1} 관리도 챙기세요."},
+        {"type":"hook","content":"{성분}의 놀라운 효과, 알고 계세요?"},
+        {"type":"hook","content":"아침 공복, 딱 하나만 챙기세요."},
+        {"type":"hook","content":"건강한 습관, 오늘부터 시작하세요."}
+      ],
+      "solution": [
+        {"type":"solution","content":"{product}은 {성분} 고함량으로 {효과1}을 관리합니다."},
+        {"type":"solution","content":"하루 한 알로 {효과1}부터 {효과2}까지."},
+        {"type":"solution","content":"{추천대상}을 위해 설계된 {product}."},
+        {"type":"solution","content":"건강 관리의 첫 걸음, {product}."},
+        {"type":"solution","content":"온 가족 건강을 책임지는 {product}."},
+        {"type":"solution","content":"{product}의 {성분}이 {효과1}에 집중 작용."},
+        {"type":"solution","content":"복잡한 영양제 조합 대신 {product} 하나."},
+        {"type":"solution","content":"간편한 건강 루틴, {product}."}
+      ],
+      "feature_detail": [
+        {"type":"feature_detail","content":"{성분} 고함량, 하루 권장량 한 알로 충족.","emphasis":"고함량"},
+        {"type":"feature_detail","content":"체내 흡수율을 높이는 코팅 기술 적용.","emphasis":"흡수율 UP"},
+        {"type":"feature_detail","content":"{성분}과 {성분2}의 복합 배합 포뮬러.","emphasis":"복합 영양"},
+        {"type":"feature_detail","content":"GMP 인증 시설에서 엄격한 품질 관리.","emphasis":"GMP 인증"},
+        {"type":"feature_detail","content":"개별 포장으로 휴대 편리, 위생적 섭취.","emphasis":"개별 포장"},
+        {"type":"feature_detail","content":"{추천대상} {효과1} 요구량에 최적 배합.","emphasis":"맞춤 배합"},
+        {"type":"feature_detail","content":"불필요한 첨가물 없이 순수하게 담았습니다.","emphasis":"무첨가"},
+        {"type":"feature_detail","content":"식약처 기능성 인정 원료 사용.","emphasis":"기능성 인정"}
+      ],
+      "benefits_grid": [
+        {"type":"benefits_grid","content":"핵심 장점","items":["{성분} 고함량","{효과1} 관리","{인증} 인증"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["간편 섭취","{효과1}+{효과2}","개별 포장"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{성분} 함유","{인증} 안전","온 가족 OK"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["흡수율 극대화","{효과1} 케어","무첨가"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["식약처 인정","{성분} 특허","무방부제"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["고순도 {성분}","체내 흡수율 UP","국내 GMP"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1} 전문","코팅 기술","{인증} 인증"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{추천대상} 적합","프리미엄 원료","원산지 투명"]}
+      ],
+      "cta": [
+        {"type":"cta","content":"건강한 내일, {product}과 시작하세요."},
+        {"type":"cta","content":"온 가족 건강을 위한 선택."},
+        {"type":"cta","content":"{효과1} 관리, {product}과 함께."},
+        {"type":"cta","content":"{추천대상}을 위한 최적의 선택."},
+        {"type":"cta","content":"하루 한 알로 달라지는 건강."},
+        {"type":"cta","content":"건강한 습관을 만들어보세요."},
+        {"type":"cta","content":"지금 {product}을 시작하세요."},
+        {"type":"cta","content":"{product}으로 건강 루틴 시작."}
+      ]
+    },
+    "생활용품": {
+      "hook": [
+        {"type":"hook","content":"집안 {효과1}, 제대로 되고 있나요?"},
+        {"type":"hook","content":"한 번 쓰면 바꿀 수 없는 {카테고리}."},
+        {"type":"hook","content":"우리 집 {효과1}의 비밀."},
+        {"type":"hook","content":"{추천대상}에서도 안심할 수 있나요?"},
+        {"type":"hook","content":"깨끗한 집, 건강한 가족의 시작."},
+        {"type":"hook","content":"{효과1}이 다른 건 이유가 있습니다."},
+        {"type":"hook","content":"생활이 편해지는 작은 변화."},
+        {"type":"hook","content":"매일 쓰는 거니까, 제대로 고르세요."}
+      ],
+      "solution": [
+        {"type":"solution","content":"{product}은 {성분} 성분으로 {효과1}이 다릅니다."},
+        {"type":"solution","content":"강력한 {효과1}과 {효과2}를 동시에, {product}."},
+        {"type":"solution","content":"{추천대상}에서도 안심, {인증} 인증 {product}."},
+        {"type":"solution","content":"{product} 하나로 깨끗한 생활환경 완성."},
+        {"type":"solution","content":"매일 쓰는 {카테고리}, {product}으로 바꾸세요."},
+        {"type":"solution","content":"{성분} 기반으로 {효과1}이 오래 지속됩니다."},
+        {"type":"solution","content":"대용량이라 경제적, {효과1}은 확실한 {product}."},
+        {"type":"solution","content":"우리 가족을 위한 {효과1} 솔루션."}
+      ],
+      "feature_detail": [
+        {"type":"feature_detail","content":"{성분} 성분이 {효과1}을 강력하게 발휘합니다.","emphasis":"{성분}"},
+        {"type":"feature_detail","content":"{인증} 인증으로 {추천대상}에서도 안심 사용.","emphasis":"{인증} 인증"},
+        {"type":"feature_detail","content":"{효과1}과 {효과2}를 동시에 해결하는 포뮬러.","emphasis":"듀얼 효과"},
+        {"type":"feature_detail","content":"대용량 설계로 {기간} 이상 넉넉히 사용 가능.","emphasis":"대용량"},
+        {"type":"feature_detail","content":"환경을 생각한 {성분} 기반 친환경 제품.","emphasis":"친환경"},
+        {"type":"feature_detail","content":"빠르게 작용하여 {효과1} 즉시 체감.","emphasis":"빠른 체감"},
+        {"type":"feature_detail","content":"소재에 손상 없이 {효과1}만 집중 처리.","emphasis":"안심 사용"},
+        {"type":"feature_detail","content":"하나로 다용도 활용, 공간 절약까지.","emphasis":"다용도"}
+      ],
+      "benefits_grid": [
+        {"type":"benefits_grid","content":"핵심 장점","items":["강력한 {효과1}","{인증} 안전","대용량"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{성분} 성분","{효과2} 동시","{추천대상} OK"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["친환경 소재","경제적 가격","다용도 활용"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1} 탁월","순한 성분","아이 안심"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["빠른 효과","잔여물 ZERO","향기 좋음"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1} 전문","가성비 좋은","편리한 사용"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{성분} 함유","{인증} 인증","온 가족용"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["오래 지속","무자극","깔끔한 마무리"]}
+      ],
+      "cta": [
+        {"type":"cta","content":"깨끗한 집, {product}으로 시작."},
+        {"type":"cta","content":"{효과1}의 차이를 느껴보세요."},
+        {"type":"cta","content":"우리 가족을 위한 선택."},
+        {"type":"cta","content":"지금 {product}을 만나보세요."},
+        {"type":"cta","content":"생활이 달라지는 경험."},
+        {"type":"cta","content":"답은 {product}입니다."},
+        {"type":"cta","content":"{추천대상}을 위한 안심 선택."},
+        {"type":"cta","content":"{product}으로 바꿔보세요."}
+      ]
+    },
+    "가전/디지털": {
+      "hook": [
+        {"type":"hook","content":"{효과1}이 뛰어난 가전, 찾고 계셨나요?"},
+        {"type":"hook","content":"기술이 다르면 {효과1}도 다릅니다."},
+        {"type":"hook","content":"스마트한 생활의 시작."},
+        {"type":"hook","content":"{추천대상}에게 딱 맞는 스펙."},
+        {"type":"hook","content":"매일 쓰는 가전, 성능이 핵심입니다."},
+        {"type":"hook","content":"{효과1} 하나로 생활이 바뀝니다."},
+        {"type":"hook","content":"이 가격에 이 성능, 가능합니다."},
+        {"type":"hook","content":"가전은 역시 {효과1}이 기본."}
+      ],
+      "solution": [
+        {"type":"solution","content":"{product}은 {성분} 기술로 {효과1}을 극대화합니다."},
+        {"type":"solution","content":"{효과1}과 {효과2}를 한 번에, {product}."},
+        {"type":"solution","content":"{추천대상}에 최적화된 스펙, {product}."},
+        {"type":"solution","content":"조용하고 강력한 {효과1}, {product}."},
+        {"type":"solution","content":"{product}의 {성분} 기술이 차이를 만듭니다."},
+        {"type":"solution","content":"에너지 효율까지 챙긴 {product}."},
+        {"type":"solution","content":"설치부터 사용까지 간편한 {product}."},
+        {"type":"solution","content":"{인증} 인증 완료, 믿을 수 있는 {product}."}
+      ],
+      "feature_detail": [
+        {"type":"feature_detail","content":"{성분} 기술로 {효과1} 성능을 한 단계 높였습니다.","emphasis":"{성분}"},
+        {"type":"feature_detail","content":"{효과1}과 {효과2}를 동시에 만족하는 스마트 설계.","emphasis":"듀얼 기능"},
+        {"type":"feature_detail","content":"{인증} 인증으로 안전성과 신뢰성을 보장합니다.","emphasis":"{인증}"},
+        {"type":"feature_detail","content":"저소음 설계로 {추천대상}에서도 조용하게 사용.","emphasis":"저소음"},
+        {"type":"feature_detail","content":"에너지 효율 등급 충족, 전기세 부담 절감.","emphasis":"고효율"},
+        {"type":"feature_detail","content":"원터치 조작, 누구나 쉽게 사용하는 직관 UI.","emphasis":"간편 조작"},
+        {"type":"feature_detail","content":"{성분} 소재로 내구성이 뛰어나 오래 사용 가능.","emphasis":"내구성"},
+        {"type":"feature_detail","content":"컴팩트한 디자인으로 공간 활용도를 높였습니다.","emphasis":"컴팩트"}
+      ],
+      "benefits_grid": [
+        {"type":"benefits_grid","content":"핵심 장점","items":["강력한 {효과1}","{성분} 기술","{인증} 인증"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1}+{효과2}","저소음 설계","에너지 효율"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["간편 조작","컴팩트 설계","{추천대상} 적합"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1} 극대화","내구성 우수","합리적 가격"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{성분} 소재","안전 설계","A/S 보장"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["스마트 기능","{효과1} 탁월","세련된 디자인"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["고효율","{인증} 안전","편리한 관리"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{추천대상} 추천","저전력","뛰어난 성능"]}
+      ],
+      "cta": [
+        {"type":"cta","content":"스마트한 선택, {product}."},
+        {"type":"cta","content":"{효과1}의 차이를 경험하세요."},
+        {"type":"cta","content":"지금 {product}을 만나보세요."},
+        {"type":"cta","content":"{추천대상}을 위한 최적 가전."},
+        {"type":"cta","content":"생활이 달라지는 기술."},
+        {"type":"cta","content":"답은 {product}입니다."},
+        {"type":"cta","content":"{product}으로 업그레이드하세요."},
+        {"type":"cta","content":"합리적 가격, 확실한 성능."}
+      ]
+    },
+    "패션의류잡화": {
+      "hook": [
+        {"type":"hook","content":"매일 뭐 입을지 고민되시나요?"},
+        {"type":"hook","content":"{효과1}이 좋은 옷, 입어보면 압니다."},
+        {"type":"hook","content":"스타일과 편안함, 둘 다 잡으세요."},
+        {"type":"hook","content":"오늘도 코디 고민이라면."},
+        {"type":"hook","content":"{추천대상}을 위한 데일리 아이템."},
+        {"type":"hook","content":"한 장으로 분위기가 달라집니다."},
+        {"type":"hook","content":"핏이 다르면 자신감도 달라요."},
+        {"type":"hook","content":"편하고 예쁜 건 양립 가능합니다."}
+      ],
+      "solution": [
+        {"type":"solution","content":"{product}은 {효과1}과 스타일을 동시에 잡았습니다."},
+        {"type":"solution","content":"{성분} 소재로 {사용감}이 남다른 {product}."},
+        {"type":"solution","content":"{추천대상}을 위한 데일리 아이템, {product}."},
+        {"type":"solution","content":"어디에든 매치하기 좋은 {product}."},
+        {"type":"solution","content":"{효과1}이 뛰어나 하루종일 편안한 {product}."},
+        {"type":"solution","content":"트렌드와 실용성을 모두 갖춘 {product}."},
+        {"type":"solution","content":"사계절 코디에 활용도 높은 {product}."},
+        {"type":"solution","content":"{product}으로 데일리 스타일 완성."}
+      ],
+      "feature_detail": [
+        {"type":"feature_detail","content":"{성분} 소재로 {사용감}이 뛰어납니다.","emphasis":"{성분} 소재"},
+        {"type":"feature_detail","content":"{효과1}을 고려한 패턴 설계로 핏이 다릅니다.","emphasis":"핏 설계"},
+        {"type":"feature_detail","content":"세탁 후에도 형태 유지, {효과2}까지 갖췄습니다.","emphasis":"형태 유지"},
+        {"type":"feature_detail","content":"{추천대상}의 체형에 맞춘 사이즈 시스템.","emphasis":"맞춤 사이즈"},
+        {"type":"feature_detail","content":"데일리부터 외출까지 다양하게 활용 가능.","emphasis":"다용도"},
+        {"type":"feature_detail","content":"통기성이 좋아 사계절 쾌적하게 착용.","emphasis":"통기성"},
+        {"type":"feature_detail","content":"디테일 마감이 깔끔해 고급스러운 룩 완성.","emphasis":"고급 디테일"},
+        {"type":"feature_detail","content":"{효과1}과 {효과2}를 모두 만족하는 소재 선택.","emphasis":"프리미엄 소재"}
+      ],
+      "benefits_grid": [
+        {"type":"benefits_grid","content":"핵심 장점","items":["뛰어난 {효과1}","{성분} 소재","편안한 착용감"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["세탁 형태 유지","사계절 활용","트렌디 디자인"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{추천대상} 핏","{효과1} 탁월","다양한 코디"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["통기성 좋음","고급 마감","데일리 활용"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1}+{효과2}","{성분} 소재","합리적 가격"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["깔끔한 핏","편안한 착용","스타일리시"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["경량 소재","빠른 건조","쾌적한 착용"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["유니섹스","다양한 컬러","실용적 디자인"]}
+      ],
+      "cta": [
+        {"type":"cta","content":"스타일을 완성하세요."},
+        {"type":"cta","content":"지금 {product}을 만나보세요."},
+        {"type":"cta","content":"편하고 예쁜 {product}."},
+        {"type":"cta","content":"데일리 아이템의 정답."},
+        {"type":"cta","content":"{효과1}의 차이를 입어보세요."},
+        {"type":"cta","content":"{추천대상}을 위한 선택."},
+        {"type":"cta","content":"코디가 쉬워지는 {product}."},
+        {"type":"cta","content":"{product}으로 시작하세요."}
+      ]
+    },
+    "가구/홈데코": {
+      "hook": [
+        {"type":"hook","content":"우리 집, 좀 더 편안해질 수 있습니다."},
+        {"type":"hook","content":"{효과1}이 좋은 가구, 경험해보셨나요?"},
+        {"type":"hook","content":"공간이 달라지면 생활이 달라집니다."},
+        {"type":"hook","content":"인테리어, 하나만 바꿔도 분위기 전환."},
+        {"type":"hook","content":"{추천대상}에 딱 맞는 가구를 찾으세요."},
+        {"type":"hook","content":"매일 쓰는 가구, {효과1}이 핵심입니다."},
+        {"type":"hook","content":"좁은 공간도 넓어 보이는 비결."},
+        {"type":"hook","content":"집에서 보내는 시간, 더 가치있게."}
+      ],
+      "solution": [
+        {"type":"solution","content":"{product}은 {효과1}과 디자인을 모두 갖췄습니다."},
+        {"type":"solution","content":"{성분} 소재로 {효과1}이 뛰어난 {product}."},
+        {"type":"solution","content":"{추천대상}에 최적화된 사이즈, {product}."},
+        {"type":"solution","content":"공간을 살리는 스마트한 설계, {product}."},
+        {"type":"solution","content":"{product}으로 집 안 분위기를 바꿔보세요."},
+        {"type":"solution","content":"조립이 쉽고 {효과1}이 뛰어난 {product}."},
+        {"type":"solution","content":"{효과1}과 {효과2}를 모두 만족하는 {product}."},
+        {"type":"solution","content":"오래 써도 질리지 않는 클래식 디자인."}
+      ],
+      "feature_detail": [
+        {"type":"feature_detail","content":"{성분} 소재로 견고하고 {효과1}이 뛰어납니다.","emphasis":"{성분} 소재"},
+        {"type":"feature_detail","content":"{추천대상}에 맞춘 최적 사이즈 설계.","emphasis":"맞춤 사이즈"},
+        {"type":"feature_detail","content":"간편 조립 설계, 공구 포함으로 바로 사용 가능.","emphasis":"간편 조립"},
+        {"type":"feature_detail","content":"{효과1}과 수납 기능을 동시에 갖춘 스마트 구조.","emphasis":"스마트 수납"},
+        {"type":"feature_detail","content":"모던한 디자인으로 어떤 인테리어에도 조화.","emphasis":"모던 디자인"},
+        {"type":"feature_detail","content":"마감 처리가 깔끔해 안전하게 사용 가능.","emphasis":"안전 마감"},
+        {"type":"feature_detail","content":"{효과2}까지 고려한 인체공학적 설계.","emphasis":"인체공학"},
+        {"type":"feature_detail","content":"무게 대비 내구성이 뛰어나 오래 사용 가능.","emphasis":"내구성"}
+      ],
+      "benefits_grid": [
+        {"type":"benefits_grid","content":"핵심 장점","items":["뛰어난 {효과1}","{성분} 소재","간편 조립"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["모던 디자인","공간 활용","안전 마감"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{추천대상} 적합","{효과1} 극대화","합리적 가격"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["견고한 구조","클래식 디자인","수납 기능"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1}+{효과2}","인체공학 설계","내구성 우수"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["인테리어 조화","편안한 사용감","고급 마감"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{성분} 소재","스마트 구조","컴팩트 설계"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["조립 간편","디자인 우수","오래 사용"]}
+      ],
+      "cta": [
+        {"type":"cta","content":"공간을 바꿔보세요."},
+        {"type":"cta","content":"지금 {product}을 만나보세요."},
+        {"type":"cta","content":"편안한 집의 시작, {product}."},
+        {"type":"cta","content":"{효과1}의 차이를 느껴보세요."},
+        {"type":"cta","content":"인테리어를 완성하세요."},
+        {"type":"cta","content":"{추천대상}을 위한 가구."},
+        {"type":"cta","content":"답은 {product}입니다."},
+        {"type":"cta","content":"{product}으로 시작하세요."}
+      ]
+    },
+    "출산/유아동": {
+      "hook": [
+        {"type":"hook","content":"우리 아이에게 안전한 제품인가요?"},
+        {"type":"hook","content":"아이를 위한 선택, 꼼꼼해야 합니다."},
+        {"type":"hook","content":"{추천대상} 아이에게 딱 맞는 제품."},
+        {"type":"hook","content":"엄마가 안심할 수 있는 {카테고리}."},
+        {"type":"hook","content":"아이 {효과1}, 제대로 챙기고 계신가요?"},
+        {"type":"hook","content":"순한 성분, 확실한 {효과1}."},
+        {"type":"hook","content":"우리 아이 첫 {카테고리}, 신중하게."},
+        {"type":"hook","content":"안전이 최우선인 부모님께."}
+      ],
+      "solution": [
+        {"type":"solution","content":"{product}은 {성분} 소재로 아이 피부에 순합니다."},
+        {"type":"solution","content":"{인증} 인증 완료, 안심하고 쓸 수 있는 {product}."},
+        {"type":"solution","content":"{추천대상}에 맞춰 설계된 {product}."},
+        {"type":"solution","content":"아이의 {효과1}을 위한 전문 {카테고리}."},
+        {"type":"solution","content":"{product}으로 엄마의 걱정을 덜어드립니다."},
+        {"type":"solution","content":"유해 성분 ZERO, 순수한 {product}."},
+        {"type":"solution","content":"{효과1}과 {효과2}를 모두 챙기는 {product}."},
+        {"type":"solution","content":"아이 성장에 맞춘 단계별 설계."}
+      ],
+      "feature_detail": [
+        {"type":"feature_detail","content":"{성분} 소재로 아이 피부에 자극 없이 순합니다.","emphasis":"순한 소재"},
+        {"type":"feature_detail","content":"{인증} 테스트 완료, 유해 물질 걱정 없음.","emphasis":"{인증}"},
+        {"type":"feature_detail","content":"{추천대상}의 성장 단계에 맞춘 최적 설계.","emphasis":"단계별 설계"},
+        {"type":"feature_detail","content":"{효과1}이 뛰어나 아이와 엄마 모두 편안.","emphasis":"{효과1}"},
+        {"type":"feature_detail","content":"무형광, 무파라벤, 무프탈레이트 안전 설계.","emphasis":"무자극"},
+        {"type":"feature_detail","content":"{효과2}까지 고려한 인체공학적 설계.","emphasis":"인체공학"},
+        {"type":"feature_detail","content":"세탁이 쉬워 위생적으로 관리 가능.","emphasis":"위생 관리"},
+        {"type":"feature_detail","content":"가볍고 휴대 편리한 설계.","emphasis":"휴대 편리"}
+      ],
+      "benefits_grid": [
+        {"type":"benefits_grid","content":"핵심 장점","items":["순한 {성분}","{인증} 안전","{추천대상} 적합"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["무자극 소재","{효과1} 우수","세탁 편리"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["유해물질 ZERO","단계별 설계","엄마 안심"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1} 탁월","가벼운 무게","휴대 편리"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{성분} 소재","{효과2} 동시","위생적 관리"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["아이 피부 OK","안전 설계","합리적 가격"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{인증} 인증","성장 맞춤","편안한 착용"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["순한 성분","내구성 좋음","디자인 귀여움"]}
+      ],
+      "cta": [
+        {"type":"cta","content":"우리 아이를 위한 선택."},
+        {"type":"cta","content":"안심하고 사용하세요."},
+        {"type":"cta","content":"지금 {product}을 만나보세요."},
+        {"type":"cta","content":"{추천대상}에 딱 맞는 {product}."},
+        {"type":"cta","content":"엄마의 마음으로 만든 제품."},
+        {"type":"cta","content":"답은 {product}입니다."},
+        {"type":"cta","content":"아이의 {효과1}을 지켜주세요."},
+        {"type":"cta","content":"{product}으로 시작하세요."}
+      ]
+    },
+    "스포츠/레져": {
+      "hook": [
+        {"type":"hook","content":"운동 효과, 장비가 바꿔줍니다."},
+        {"type":"hook","content":"{효과1}이 다르면 결과도 다릅니다."},
+        {"type":"hook","content":"{추천대상}을 위한 퍼포먼스 장비."},
+        {"type":"hook","content":"운동이 즐거워지는 비결."},
+        {"type":"hook","content":"장비 하나로 퍼포먼스가 달라져요."},
+        {"type":"hook","content":"제대로 된 {카테고리}, 써보셨나요?"},
+        {"type":"hook","content":"매일 운동하는 분이라면 필수."},
+        {"type":"hook","content":"시작이 반, 장비가 나머지 반."}
+      ],
+      "solution": [
+        {"type":"solution","content":"{product}은 {효과1}에 특화된 스포츠 장비입니다."},
+        {"type":"solution","content":"{성분} 소재로 {효과1}과 내구성을 동시에."},
+        {"type":"solution","content":"{추천대상}을 위해 설계된 {product}."},
+        {"type":"solution","content":"가볍고 튼튼한 {product}으로 퍼포먼스 UP."},
+        {"type":"solution","content":"{효과1}과 {효과2}를 모두 잡은 {product}."},
+        {"type":"solution","content":"프로도 인정하는 {효과1}, {product}."},
+        {"type":"solution","content":"{product}으로 운동의 질을 높이세요."},
+        {"type":"solution","content":"부상 예방과 {효과1}을 동시에."}
+      ],
+      "feature_detail": [
+        {"type":"feature_detail","content":"{성분} 소재로 가볍지만 내구성이 뛰어납니다.","emphasis":"{성분} 소재"},
+        {"type":"feature_detail","content":"{효과1}에 최적화된 인체공학적 설계.","emphasis":"인체공학"},
+        {"type":"feature_detail","content":"땀 배출이 빠른 통기성 소재 적용.","emphasis":"통기성"},
+        {"type":"feature_detail","content":"{추천대상}의 운동 강도에 맞춘 강도 설계.","emphasis":"맞춤 강도"},
+        {"type":"feature_detail","content":"미끄럼 방지 처리로 안전한 그립감.","emphasis":"안전 그립"},
+        {"type":"feature_detail","content":"접이식/분리형 설계로 보관과 휴대가 편리.","emphasis":"휴대 편리"},
+        {"type":"feature_detail","content":"{효과1}과 {효과2}를 모두 지원하는 다기능 설계.","emphasis":"다기능"},
+        {"type":"feature_detail","content":"충격 흡수 기능으로 관절 부담을 줄여줍니다.","emphasis":"충격 흡수"}
+      ],
+      "benefits_grid": [
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1} 극대화","{성분} 소재","가벼운 무게"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["인체공학 설계","통기성 우수","내구성 탁월"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{추천대상} 적합","안전 그립","휴대 편리"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1}+{효과2}","충격 흡수","다기능"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["프로 사양","부상 예방","합리적 가격"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["경량 설계","{효과1} 탁월","세련된 디자인"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["미끄럼 방지","빠른 건조","실내외 겸용"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{성분} 소재","접이식 설계","퍼포먼스 UP"]}
+      ],
+      "cta": [
+        {"type":"cta","content":"퍼포먼스를 높여보세요."},
+        {"type":"cta","content":"운동이 즐거워지는 {product}."},
+        {"type":"cta","content":"지금 {product}을 만나보세요."},
+        {"type":"cta","content":"{추천대상}을 위한 선택."},
+        {"type":"cta","content":"시작이 반, {product}이 나머지."},
+        {"type":"cta","content":"답은 {product}입니다."},
+        {"type":"cta","content":"{효과1}의 차이를 경험하세요."},
+        {"type":"cta","content":"{product}으로 시작하세요."}
+      ]
+    },
+    "반려/애완용품": {
+      "hook": [
+        {"type":"hook","content":"우리 아이 {효과1}, 챙기고 계신가요?"},
+        {"type":"hook","content":"반려동물도 좋은 제품을 알아봅니다."},
+        {"type":"hook","content":"{추천대상}에게 딱 맞는 {카테고리}."},
+        {"type":"hook","content":"아이가 좋아하는 건 이유가 있어요."},
+        {"type":"hook","content":"건강한 반려 생활의 시작."},
+        {"type":"hook","content":"우리 아이 건강, 먹는 것부터."},
+        {"type":"hook","content":"까다로운 아이도 좋아하는 비결."},
+        {"type":"hook","content":"반려인이라면 꼭 확인하세요."}
+      ],
+      "solution": [
+        {"type":"solution","content":"{product}은 {성분} 원료로 {효과1}을 책임집니다."},
+        {"type":"solution","content":"{추천대상}에 맞춰 설계된 전용 {카테고리}."},
+        {"type":"solution","content":"{효과1}과 {효과2}를 동시에 챙기는 {product}."},
+        {"type":"solution","content":"까다로운 아이도 좋아하는 {product}."},
+        {"type":"solution","content":"{인증} 인증, 안심하고 급여할 수 있는 {product}."},
+        {"type":"solution","content":"건강한 반려 생활을 위한 {product}."},
+        {"type":"solution","content":"{성분} 주원료로 영양 균형을 맞춘 {product}."},
+        {"type":"solution","content":"아이의 건강을 최우선으로 생각한 제품."}
+      ],
+      "feature_detail": [
+        {"type":"feature_detail","content":"{성분} 주원료로 {효과1}에 최적화된 영양 설계.","emphasis":"{성분} 원료"},
+        {"type":"feature_detail","content":"{추천대상}의 특성에 맞춘 맞춤 배합.","emphasis":"맞춤 배합"},
+        {"type":"feature_detail","content":"{인증} 인증으로 안전성이 검증된 제품.","emphasis":"{인증}"},
+        {"type":"feature_detail","content":"기호성이 뛰어나 까다로운 아이도 잘 먹습니다.","emphasis":"높은 기호성"},
+        {"type":"feature_detail","content":"{효과1}과 {효과2}를 동시에 관리하는 포뮬러.","emphasis":"듀얼 케어"},
+        {"type":"feature_detail","content":"알레르기 유발 원료를 배제한 안심 설계.","emphasis":"저알레르기"},
+        {"type":"feature_detail","content":"소화 흡수율이 높아 변 상태가 좋아집니다.","emphasis":"소화 흡수"},
+        {"type":"feature_detail","content":"신선한 원료로 만들어 풍미가 살아있습니다.","emphasis":"신선 원료"}
+      ],
+      "benefits_grid": [
+        {"type":"benefits_grid","content":"핵심 장점","items":["{성분} 원료","{효과1} 케어","{인증} 안전"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["높은 기호성","{추천대상} 맞춤","영양 균형"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["저알레르기","소화 흡수 UP","신선 원료"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1}+{효과2}","안심 급여","합리적 가격"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["기호성 높음","{성분} 함유","건강 관리"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{추천대상} 전용","영양 균형","안전 검증"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["프리미엄 원료","{효과1} 탁월","변 상태 개선"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["무방부제","신선도 유지","아이 건강"]}
+      ],
+      "cta": [
+        {"type":"cta","content":"우리 아이를 위한 선택."},
+        {"type":"cta","content":"건강한 반려 생활 시작."},
+        {"type":"cta","content":"지금 {product}을 만나보세요."},
+        {"type":"cta","content":"{추천대상}에 딱 맞는 제품."},
+        {"type":"cta","content":"아이가 좋아하는 {product}."},
+        {"type":"cta","content":"답은 {product}입니다."},
+        {"type":"cta","content":"{효과1}을 챙겨주세요."},
+        {"type":"cta","content":"{product}으로 시작하세요."}
+      ]
+    },
+    "주방용품": {
+      "hook": [
+        {"type":"hook","content":"요리가 즐거워지는 비결, 있습니다."},
+        {"type":"hook","content":"{효과1}이 좋은 {카테고리}, 써보셨나요?"},
+        {"type":"hook","content":"주방 하나만 바꿔도 요리가 달라져요."},
+        {"type":"hook","content":"매일 쓰는 주방용품, 성능이 중요합니다."},
+        {"type":"hook","content":"{추천대상}이 인정한 {카테고리}."},
+        {"type":"hook","content":"좋은 도구가 좋은 요리를 만듭니다."},
+        {"type":"hook","content":"코팅 걱정 없는 주방용품."},
+        {"type":"hook","content":"주방을 업그레이드할 시간입니다."}
+      ],
+      "solution": [
+        {"type":"solution","content":"{product}은 {성분} 소재로 {효과1}이 뛰어납니다."},
+        {"type":"solution","content":"코팅 걱정 없는 {product}으로 안심 조리."},
+        {"type":"solution","content":"{효과1}과 {효과2}를 동시에 갖춘 {product}."},
+        {"type":"solution","content":"{추천대상}도 쉽게 사용하는 {product}."},
+        {"type":"solution","content":"모든 열원 호환, 만능 {product}."},
+        {"type":"solution","content":"세척이 쉬워 매일 사용해도 부담 없는 {product}."},
+        {"type":"solution","content":"{성분} 코팅으로 음식이 달라붙지 않습니다."},
+        {"type":"solution","content":"요리의 질을 높이는 프리미엄 {카테고리}."}
+      ],
+      "feature_detail": [
+        {"type":"feature_detail","content":"{성분} 소재로 {효과1}과 안전성을 동시에.","emphasis":"{성분} 소재"},
+        {"type":"feature_detail","content":"모든 열원(가스, 인덕션, 전기) 호환 설계.","emphasis":"전열원 호환"},
+        {"type":"feature_detail","content":"{효과1}이 뛰어나 오래 사용해도 성능 유지.","emphasis":"내구성"},
+        {"type":"feature_detail","content":"인체공학적 손잡이로 {사용감}이 편안합니다.","emphasis":"편안한 그립"},
+        {"type":"feature_detail","content":"세척이 간편해 관리 부담이 적습니다.","emphasis":"간편 세척"},
+        {"type":"feature_detail","content":"{효과2}까지 고려한 열전도 기술 적용.","emphasis":"열전도"},
+        {"type":"feature_detail","content":"유해 물질 걱정 없는 안전한 코팅.","emphasis":"안전 코팅"},
+        {"type":"feature_detail","content":"음식이 골고루 익는 균일 열전도 설계.","emphasis":"균일 가열"}
+      ],
+      "benefits_grid": [
+        {"type":"benefits_grid","content":"핵심 장점","items":["{성분} 소재","뛰어난 {효과1}","전열원 호환"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["안전 코팅","간편 세척","편안한 그립"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1} 탁월","내구성 우수","합리적 가격"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["균일 가열","논스틱 코팅","가벼운 무게"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1}+{효과2}","{성분} 코팅","열전도 우수"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{추천대상} 추천","프리미엄 소재","식기세척기 OK"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["안전한 소재","오래 사용","스타일리시"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["유해물질 FREE","다용도","인덕션 호환"]}
+      ],
+      "cta": [
+        {"type":"cta","content":"요리가 즐거워지는 {product}."},
+        {"type":"cta","content":"주방을 업그레이드하세요."},
+        {"type":"cta","content":"지금 {product}을 만나보세요."},
+        {"type":"cta","content":"{효과1}의 차이를 느껴보세요."},
+        {"type":"cta","content":"{추천대상}을 위한 선택."},
+        {"type":"cta","content":"답은 {product}입니다."},
+        {"type":"cta","content":"매일 쓰는 주방의 정답."},
+        {"type":"cta","content":"{product}으로 시작하세요."}
+      ]
+    },
+    "문구/오피스": {
+      "hook": [
+        {"type":"hook","content":"{효과1}이 다른 문구, 써보셨나요?"},
+        {"type":"hook","content":"좋은 도구가 효율을 바꿉니다."},
+        {"type":"hook","content":"매일 쓰는 문구, 제대로 고르세요."},
+        {"type":"hook","content":"정리가 되면 일도 됩니다."},
+        {"type":"hook","content":"{추천대상}을 위한 프리미엄 문구."},
+        {"type":"hook","content":"손끝에서 느껴지는 차이."},
+        {"type":"hook","content":"감성까지 챙기는 문구 선택."},
+        {"type":"hook","content":"업무 효율, 도구가 반입니다."}
+      ],
+      "solution": [
+        {"type":"solution","content":"{product}은 {효과1}이 뛰어난 프리미엄 문구입니다."},
+        {"type":"solution","content":"{성분} 소재로 {사용감}이 남다른 {product}."},
+        {"type":"solution","content":"{추천대상}을 위한 맞춤 설계, {product}."},
+        {"type":"solution","content":"정리와 효율을 동시에 잡는 {product}."},
+        {"type":"solution","content":"{효과1}과 {효과2}를 모두 갖춘 {product}."},
+        {"type":"solution","content":"매일 쓰고 싶은 {사용감}의 {product}."},
+        {"type":"solution","content":"디자인과 실용성을 겸비한 {product}."},
+        {"type":"solution","content":"업무가 편해지는 똑똑한 {카테고리}."}
+      ],
+      "feature_detail": [
+        {"type":"feature_detail","content":"{성분} 소재로 {효과1}과 내구성을 동시에.","emphasis":"{성분} 소재"},
+        {"type":"feature_detail","content":"{사용감}이 뛰어나 오래 써도 피로감이 적습니다.","emphasis":"편안한 사용감"},
+        {"type":"feature_detail","content":"깔끔한 디자인으로 데스크 정리에 딱.","emphasis":"깔끔한 디자인"},
+        {"type":"feature_detail","content":"{추천대상}의 사용 패턴에 맞춘 최적 설계.","emphasis":"맞춤 설계"},
+        {"type":"feature_detail","content":"{효과1}과 {효과2}를 동시에 만족하는 설계.","emphasis":"듀얼 기능"},
+        {"type":"feature_detail","content":"친환경 소재로 환경까지 생각한 제품.","emphasis":"친환경"},
+        {"type":"feature_detail","content":"컴팩트한 크기로 어디서든 편리하게 사용.","emphasis":"컴팩트"},
+        {"type":"feature_detail","content":"리필이 가능해 경제적으로 오래 사용.","emphasis":"리필 가능"}
+      ],
+      "benefits_grid": [
+        {"type":"benefits_grid","content":"핵심 장점","items":["뛰어난 {효과1}","{성분} 소재","세련된 디자인"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["편안한 사용감","내구성 우수","합리적 가격"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{추천대상} 적합","깔끔한 정리","실용적 설계"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1}+{효과2}","컴팩트 사이즈","친환경 소재"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["리필 가능","감성 디자인","다용도 활용"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{성분} 소재","피로감 적음","데스크 정리"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1} 탁월","가성비 좋음","선물용 적합"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["프리미엄 품질","편리한 휴대","오래 사용"]}
+      ],
+      "cta": [
+        {"type":"cta","content":"효율을 높이는 {product}."},
+        {"type":"cta","content":"지금 {product}을 만나보세요."},
+        {"type":"cta","content":"{효과1}의 차이를 느껴보세요."},
+        {"type":"cta","content":"{추천대상}을 위한 문구."},
+        {"type":"cta","content":"매일 쓰고 싶은 {product}."},
+        {"type":"cta","content":"답은 {product}입니다."},
+        {"type":"cta","content":"업무가 달라지는 경험."},
+        {"type":"cta","content":"{product}으로 시작하세요."}
+      ]
+    },
+    "완구/취미": {
+      "hook": [
+        {"type":"hook","content":"아이의 {효과1}, 놀이로 키워주세요."},
+        {"type":"hook","content":"재미와 교육, 둘 다 잡는 방법."},
+        {"type":"hook","content":"선물 고민 중이시라면 이거예요."},
+        {"type":"hook","content":"{추천대상}이 좋아하는 {카테고리}."},
+        {"type":"hook","content":"놀면서 배우는 가장 좋은 방법."},
+        {"type":"hook","content":"아이 눈이 반짝이는 순간."},
+        {"type":"hook","content":"온 가족이 함께 즐기는 시간."},
+        {"type":"hook","content":"취미 생활의 새로운 즐거움."}
+      ],
+      "solution": [
+        {"type":"solution","content":"{product}은 {효과1}을 키워주는 {카테고리}입니다."},
+        {"type":"solution","content":"{추천대상}에 맞춰 설계된 안전한 {product}."},
+        {"type":"solution","content":"놀이와 학습을 동시에, {product}."},
+        {"type":"solution","content":"{성분} 소재로 안전한 {product}."},
+        {"type":"solution","content":"온 가족이 함께 즐기는 {product}."},
+        {"type":"solution","content":"{효과1}과 {효과2}를 동시에 키워주는 제품."},
+        {"type":"solution","content":"선물로 딱 좋은 {product}."},
+        {"type":"solution","content":"질리지 않는 재미, {product}."}
+      ],
+      "feature_detail": [
+        {"type":"feature_detail","content":"{성분} 소재로 아이가 입에 넣어도 안전합니다.","emphasis":"안전 소재"},
+        {"type":"feature_detail","content":"{효과1}을 자연스럽게 발달시키는 설계.","emphasis":"{효과1} 발달"},
+        {"type":"feature_detail","content":"{추천대상}의 발달 단계에 맞춘 난이도 설계.","emphasis":"단계별 설계"},
+        {"type":"feature_detail","content":"{인증} 인증으로 안전성이 검증된 제품.","emphasis":"{인증}"},
+        {"type":"feature_detail","content":"여러 명이 함께 즐길 수 있는 협동 설계.","emphasis":"함께 즐기기"},
+        {"type":"feature_detail","content":"내구성이 뛰어나 오래 사용해도 튼튼합니다.","emphasis":"내구성"},
+        {"type":"feature_detail","content":"컬러풀한 디자인으로 아이의 호기심 자극.","emphasis":"호기심 자극"},
+        {"type":"feature_detail","content":"수납과 정리가 쉬운 패키지 설계.","emphasis":"정리 편리"}
+      ],
+      "benefits_grid": [
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1} 발달","{성분} 안전","{추천대상} 적합"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["놀이+학습","{인증} 인증","내구성 우수"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["온가족 활용","단계별 설계","선물용 적합"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1}+{효과2}","안전 소재","재미 보장"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["호기심 자극","정리 편리","합리적 가격"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["협동 놀이","컬러풀 디자인","오래 사용"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{추천대상} 추천","교육 효과","튼튼한 소재"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["창의력 UP","안전 검증","다양한 활용"]}
+      ],
+      "cta": [
+        {"type":"cta","content":"아이의 {효과1}을 키워주세요."},
+        {"type":"cta","content":"재미있는 {product}을 만나보세요."},
+        {"type":"cta","content":"선물로 딱 좋은 {product}."},
+        {"type":"cta","content":"{추천대상}을 위한 선택."},
+        {"type":"cta","content":"놀면서 배우는 {product}."},
+        {"type":"cta","content":"답은 {product}입니다."},
+        {"type":"cta","content":"온 가족의 즐거움."},
+        {"type":"cta","content":"{product}으로 시작하세요."}
+      ]
+    },
+    "자동차용품": {
+      "hook": [
+        {"type":"hook","content":"내 차 {효과1}, 제대로 관리하고 계세요?"},
+        {"type":"hook","content":"차량 관리, 제품이 다르면 결과도 다릅니다."},
+        {"type":"hook","content":"{추천대상}이라면 필수 아이템."},
+        {"type":"hook","content":"전문가가 쓰는 {카테고리}의 비밀."},
+        {"type":"hook","content":"셀프 세차의 완성도를 높이세요."},
+        {"type":"hook","content":"내 차를 새 차처럼 유지하는 법."},
+        {"type":"hook","content":"드라이빙이 즐거워지는 {카테고리}."},
+        {"type":"hook","content":"차량 관리, 이것 하나면 됩니다."}
+      ],
+      "solution": [
+        {"type":"solution","content":"{product}은 {성분} 기술로 {효과1}을 극대화합니다."},
+        {"type":"solution","content":"전문가 수준의 {효과1}을 집에서, {product}."},
+        {"type":"solution","content":"{효과1}과 {효과2}를 동시에 잡는 {product}."},
+        {"type":"solution","content":"{추천대상}도 쉽게 사용하는 {product}."},
+        {"type":"solution","content":"{성분} 성분이 차량을 오래 보호합니다."},
+        {"type":"solution","content":"한 번 사용으로 {효과1}이 오래 지속."},
+        {"type":"solution","content":"내 차를 위한 프리미엄 케어, {product}."},
+        {"type":"solution","content":"간편하지만 확실한 {효과1}, {product}."}
+      ],
+      "feature_detail": [
+        {"type":"feature_detail","content":"{성분} 기술로 {효과1}이 오래 지속됩니다.","emphasis":"{성분} 기술"},
+        {"type":"feature_detail","content":"{효과1}과 {효과2}를 동시에 달성하는 포뮬러.","emphasis":"듀얼 효과"},
+        {"type":"feature_detail","content":"도장면에 손상 없이 안전하게 작업 가능.","emphasis":"안전 사용"},
+        {"type":"feature_detail","content":"{추천대상}도 간편하게 사용하는 원스텝 방식.","emphasis":"간편 사용"},
+        {"type":"feature_detail","content":"자외선 차단 기능으로 도장 보호까지.","emphasis":"UV 보호"},
+        {"type":"feature_detail","content":"물과 오염물을 강력하게 밀어내는 발수 코팅.","emphasis":"발수 코팅"},
+        {"type":"feature_detail","content":"전문 디테일링 수준의 마감을 직접 구현.","emphasis":"프로 마감"},
+        {"type":"feature_detail","content":"실내외 겸용으로 차량 전체를 한 번에 관리.","emphasis":"올인원"}
+      ],
+      "benefits_grid": [
+        {"type":"benefits_grid","content":"핵심 장점","items":["{성분} 기술","강력한 {효과1}","오래 지속"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1}+{효과2}","도장 보호","간편 사용"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{추천대상} 적합","프로 마감","합리적 가격"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["발수 코팅","UV 차단","안전 사용"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1} 탁월","실내외 겸용","원스텝 방식"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{성분} 성분","세정+보호","새차 느낌"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["전문가 수준","내구성 우수","편리한 사용"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["올인원 관리","{효과1} 극대화","가성비 좋음"]}
+      ],
+      "cta": [
+        {"type":"cta","content":"내 차를 위한 선택, {product}."},
+        {"type":"cta","content":"{효과1}의 차이를 경험하세요."},
+        {"type":"cta","content":"지금 {product}을 만나보세요."},
+        {"type":"cta","content":"{추천대상}을 위한 필수템."},
+        {"type":"cta","content":"새 차처럼 유지하세요."},
+        {"type":"cta","content":"답은 {product}입니다."},
+        {"type":"cta","content":"차량 관리의 정답."},
+        {"type":"cta","content":"{product}으로 시작하세요."}
+      ]
+    },
+    "DEFAULT": {
+      "hook": [
+        {"type":"hook","content":"{효과1}에 대해 고민 중이신가요?"},
+        {"type":"hook","content":"이건 진짜 다릅니다."},
+        {"type":"hook","content":"가장 만족스러운 {카테고리}를 찾으셨나요?"},
+        {"type":"hook","content":"좋은 제품 하나가 일상을 바꿉니다."},
+        {"type":"hook","content":"{추천대상}이 열광하는 이유가 있습니다."},
+        {"type":"hook","content":"단 하나를 골라야 한다면?"},
+        {"type":"hook","content":"{효과1}이 중요하다면 꼭 읽어보세요."},
+        {"type":"hook","content":"더 좋은 선택, 지금 바꾸세요."}
+      ],
+      "solution": [
+        {"type":"solution","content":"{product}은 {효과1}에 특화된 프리미엄 {카테고리}."},
+        {"type":"solution","content":"{효과1}과 {효과2}를 모두 만족하는 {product}."},
+        {"type":"solution","content":"{추천대상}을 위해 설계된 {product}."},
+        {"type":"solution","content":"{product} 하나로 고민 해결."},
+        {"type":"solution","content":"{product}으로 {효과1}의 차이를 느껴보세요."},
+        {"type":"solution","content":"당신이 찾던 바로 그 {카테고리}."},
+        {"type":"solution","content":"{product}의 {성분}이 핵심을 해결합니다."},
+        {"type":"solution","content":"합리적 가격, 확실한 {효과1}."}
+      ],
+      "feature_detail": [
+        {"type":"feature_detail","content":"{성분} 기술로 {효과1} 성능을 극대화.","emphasis":"{성분} 기술"},
+        {"type":"feature_detail","content":"{인증} 인증, 안전하고 신뢰할 수 있는 품질.","emphasis":"{인증}"},
+        {"type":"feature_detail","content":"{효과1}과 {효과2}를 동시에 만족하는 설계.","emphasis":"올인원"},
+        {"type":"feature_detail","content":"{추천대상}에 최적화된 사양으로 제작.","emphasis":"맞춤 설계"},
+        {"type":"feature_detail","content":"사용 즉시 {사용감}을 체감하는 프리미엄 품질.","emphasis":"즉시 체감"},
+        {"type":"feature_detail","content":"뛰어난 내구성으로 오래도록 만족.","emphasis":"내구성"},
+        {"type":"feature_detail","content":"{효과1}에만 집중한 본질적 설계.","emphasis":"본질 집중"},
+        {"type":"feature_detail","content":"{성분} 기반, {추천대상} 맞춤 제작.","emphasis":"맞춤 제작"}
+      ],
+      "benefits_grid": [
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1} 탁월","{인증} 인증","{추천대상} 적합"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{성분} 기술","{효과1}+{효과2}","간편 사용"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["안전성 검증","프리미엄 품질","편리한 사용"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1} 극대화","{성분} 함유","{인증} 안전"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["빠른 체감","가성비 좋은","{추천대상} 적합"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{카테고리} 전문","검증된 품질","편리한 관리"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["{효과1} 전문","{성분} 기반","경제적 선택"]},
+        {"type":"benefits_grid","content":"핵심 장점","items":["프리미엄 품질","합리적 가격","올시즌 사용"]}
+      ],
+      "cta": [
+        {"type":"cta","content":"지금 {product}을 경험해보세요."},
+        {"type":"cta","content":"{효과1}의 차이를 느껴보세요."},
+        {"type":"cta","content":"답은 {product}입니다."},
+        {"type":"cta","content":"{추천대상}을 위한 현명한 선택."},
+        {"type":"cta","content":"후회 없는 선택, {product}."},
+        {"type":"cta","content":"달라지는 일상을 경험하세요."},
+        {"type":"cta","content":"지금 {product}을 만나보세요."},
+        {"type":"cta","content":"{product}으로 시작하세요."}
+      ]
+    }
+  }
+}

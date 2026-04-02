@@ -34,6 +34,18 @@ interface ComplianceOptions {
 // 생활용품에서 허용되는 단어
 const HOUSEHOLD_ALLOWED = ['항균', '살균'];
 
+// 금지어 → 안전한 대체어 (단순 삭제 대신 문맥 유지)
+const SAFE_REPLACEMENTS: Record<string, string> = {
+  '최고': '좋은',
+  '완벽': '꼼꼼한',
+  '놀라운': '인상적인',
+  '폭발적': '빠른',
+  '베스트': '인기',
+  '처방': '포뮬러',
+  '즉효': '빠른',
+  '충격': '놀랄만한',
+};
+
 /**
  * 텍스트의 규제 위반 검사 및 자동 정리
  */
@@ -66,7 +78,8 @@ export function checkCompliance(
 
         if (removeErrors && term.severity === 'error') {
           const removeRegex = new RegExp(term.pattern.source, term.pattern.flags);
-          cleaned = cleaned.replace(removeRegex, '');
+          const replacement = SAFE_REPLACEMENTS[term.label] || '';
+          cleaned = cleaned.replace(removeRegex, replacement);
         }
       }
     }

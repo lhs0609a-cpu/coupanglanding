@@ -267,13 +267,22 @@ export function buildCoupangProductPayload(
     : productName;
 
   // brand: 항상 앞 2글자만 축약 (비오팜→비오, 종근당→종근, 고려은단헬스→고려)
+  // 아이템위너 방지 모드: '자체' 고정 (원본 브랜드로 매칭되는 것 방지)
   const rawBrand = brand || product.productJson.brand || '';
-  const resolvedBrand = rawBrand ? rawBrand.slice(0, 2) : '';
+  const resolvedBrand = preventionSeed
+    ? '자체'  // 아이템위너 방지: 원본 브랜드 제거
+    : (rawBrand ? rawBrand.slice(0, 2) : '자체');
+  if (!rawBrand && !preventionSeed) {
+    console.warn(`[payload-builder] ⚠️ brand 미설정 → "자체" 폴백 | "${rawName}"`);
+  }
   // manufacturer: brand와 별개 — product.json에 manufacturer 있으면 사용
-  const resolvedManufacturer = manufacturer
-    || (product.productJson as Record<string, unknown>).manufacturer as string
-    || rawBrand
-    || '자체제조';
+  // 아이템위너 방지 모드: '자체제조' 고정
+  const resolvedManufacturer = preventionSeed
+    ? '자체제조'  // 아이템위너 방지: 원본 제조사 제거
+    : (manufacturer
+      || (product.productJson as Record<string, unknown>).manufacturer as string
+      || rawBrand
+      || '자체제조');
 
   // ---- 2. 대표이미지 (REPRESENTATION) ----
   // 빈 문자열/falsy 값만 제거 (preflight-placeholder URL은 프리플라이트에서 유효)
@@ -443,7 +452,12 @@ export function buildCoupangProductPayload(
   }
 
   // ---- 9. 바코드 처리 ----
-  const resolvedBarcode = barcode || (product.productJson as Record<string, unknown>).barcode as string || '';
+  // 아이템위너 방지 모드: 바코드를 비워서 기존 상품 매칭 차단 (매칭 1순위)
+  // barcode가 있으면 쿠팡이 정확히 같은 상품을 찾아 아이템위너에 묶고,
+  // 단위가격이 높으면 노출제한 걸림. barcode 비우면 새 아이템 페이지 생성됨.
+  const resolvedBarcode = preventionSeed
+    ? ''  // 아이템위너 방지 활성 → 바코드 제거
+    : (barcode || (product.productJson as Record<string, unknown>).barcode as string || '');
   const hasBarcode = !!resolvedBarcode;
 
   // ---- 10. 할인가 (originalPrice > salePrice면 할인 태그 표시) ----
@@ -460,7 +474,8 @@ export function buildCoupangProductPayload(
   if (optionVariants && optionVariants.length > 0) {
     // 멀티옵션 상품: 각 변형별 별도 item
     sellerProductItemList = optionVariants.map((variant, idx) => {
-      const variantBarcode = variant.barcode || '';
+      // 아이템위너 방지: 멀티옵션 바코드도 제거
+      const variantBarcode = preventionSeed ? '' : (variant.barcode || '');
       const variantImages = variant.mainImageUrls
         ? variant.mainImageUrls.slice(0, 10).map((url, i) => ({
             imageOrder: i,

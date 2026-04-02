@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   FileText, MessageSquare, Plus, Trash2, Eye, EyeOff,
   ChevronDown, ChevronRight, GripVertical, Image as ImageIcon,
 } from 'lucide-react';
 import { buildRichDetailPageHtml } from '@/lib/megaload/services/detail-page-builder';
+import { ensureObjectUrl } from '@/lib/megaload/services/client-folder-scanner';
 // 제3자 이미지 서버 URL (Supabase Storage 영구 저장)
 const THIRD_PARTY_IMAGE_URLS = [
   'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-01.jpg',
@@ -76,11 +77,43 @@ export default function DetailPageContentTab({
 }: DetailPageContentTabProps) {
   const [previewOpen, setPreviewOpen] = useState(true);
   const [previewVariant, setPreviewVariant] = useState<'A' | 'B' | 'C' | 'D'>('A');
+  // lazy objectURL 생성 결과 (review/detail은 eagerObjectUrls=false로 스캔됨)
+  const [resolvedDetailUrls, setResolvedDetailUrls] = useState<string[]>([]);
+  const [resolvedReviewUrls, setResolvedReviewUrls] = useState<string[]>([]);
 
   const description = product.editedDescription ?? product.description ?? '';
   const storyParagraphs = product.editedStoryParagraphs ?? [];
   const reviewTexts = product.editedReviewTexts ?? [];
   const contentBlocks: ContentBlock[] = product.editedContentBlocks ?? [];
+
+  // 미리보기가 열릴 때 scanned 이미지의 objectURL을 lazy 생성
+  useEffect(() => {
+    if (!previewOpen) return;
+    // CDN URL이 있으면 lazy 생성 불필요
+    if (preUploadedUrls?.detailImageUrls?.filter(Boolean).length) return;
+    let cancelled = false;
+    (async () => {
+      const detailImgs = product.scannedDetailImages ?? [];
+      const reviewImgs = product.scannedReviewImages ?? [];
+      if (detailImgs.length === 0 && reviewImgs.length === 0) return;
+      const dUrls: string[] = [];
+      for (const img of detailImgs) {
+        const url = await ensureObjectUrl(img);
+        if (url) dUrls.push(url);
+      }
+      const rUrls: string[] = [];
+      for (const img of reviewImgs) {
+        const url = await ensureObjectUrl(img);
+        if (url) rUrls.push(url);
+      }
+      if (!cancelled) {
+        setResolvedDetailUrls(dUrls);
+        setResolvedReviewUrls(rUrls);
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewOpen, product.uid, preUploadedUrls?.detailImageUrls]);
 
   // --- 상품설명 ---
   const handleDescriptionChange = useCallback((value: string) => {
@@ -123,13 +156,17 @@ export default function DetailPageContentTab({
   const previewHtml = useMemo(() => {
     if (!previewOpen) return '';
 
-    // 서버 업로드 URL > 브라우저 objectURL > 플레이스홀더 순서
+    // 서버 업로드 URL > lazy resolved objectURL > 인라인 objectURL > 플레이스홀더 순서
     const detailImageUrls = (preUploadedUrls?.detailImageUrls?.filter(Boolean) ?? []).length > 0
       ? preUploadedUrls!.detailImageUrls!.filter(Boolean)
-      : (product.scannedDetailImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []);
+      : resolvedDetailUrls.length > 0
+        ? resolvedDetailUrls
+        : (product.scannedDetailImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []);
     const reviewImageUrls = (preUploadedUrls?.reviewImageUrls?.filter(Boolean) ?? []).length > 0
       ? preUploadedUrls!.reviewImageUrls!.filter(Boolean)
-      : (product.scannedReviewImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []);
+      : resolvedReviewUrls.length > 0
+        ? resolvedReviewUrls
+        : (product.scannedReviewImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []);
     const infoImageUrls = (preUploadedUrls?.infoImageUrls?.filter(Boolean) ?? []).length > 0
       ? preUploadedUrls!.infoImageUrls!.filter(Boolean)
       : (product.scannedInfoImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []);
@@ -178,7 +215,7 @@ export default function DetailPageContentTab({
       },
       previewVariant,
     );
-  }, [previewOpen, previewVariant, product, storyParagraphs, reviewTexts, description, preUploadedUrls, contentBlocks]);
+  }, [previewOpen, previewVariant, product, storyParagraphs, reviewTexts, description, preUploadedUrls, contentBlocks, resolvedDetailUrls, resolvedReviewUrls]);
 
   return (
     <div className="space-y-3">
