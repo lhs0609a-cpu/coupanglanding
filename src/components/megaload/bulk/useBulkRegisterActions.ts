@@ -542,12 +542,10 @@ export function useBulkRegisterActions() {
     await new Promise(r => setTimeout(r, 0));
 
     // SEO 최적화 상품명 즉시 생성 (항상 실행, AI 불필요)
-    // displayProductName과 sellerProductName을 서로 다른 시드로 생성하여
-    // 쿠팡 아이템위너 매칭 시 교차 비교 유사도를 낮춘다.
+    // displayProductName은 SEO 최적화, sellerProductName은 "브랜드 고유번호" 유지
     {
       const { generateDisplayName } = await import('@/lib/megaload/services/display-name-generator');
       const displaySeed = `display_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const sellerNameSeed = `seller_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
       setProducts(prev => {
         const updated = [...prev];
@@ -555,24 +553,18 @@ export function useBulkRegisterActions() {
           const target = targets[i];
           const globalIdx = updated.findIndex(p => p.uid === target.uid);
           if (globalIdx >= 0) {
-            const sellerName = generateDisplayName(
-              target.name,
-              target.editedBrand || target.brand,
-              target.editedCategoryName,
-              sellerNameSeed,
-              i,
-            );
+            // 풀 브랜드명 복원 — editedBrand는 2글자 축약이라 긴 브랜드명 필터 실패
+            const fullBrand = isValidBrand(target.brand) ? target.brand : extractBrandFromName(target.name);
             updated[globalIdx] = {
               ...updated[globalIdx],
               editedDisplayProductName: generateDisplayName(
                 target.name,  // 원본 상품명 사용 (editedName은 브랜드+고유번호)
-                target.editedBrand || target.brand,
+                fullBrand,
                 target.editedCategoryName,
                 displaySeed,
                 i,
               ),
-              editedSellerProductName: sellerName,
-              // editedName은 "브랜드 고유번호" 유지 — UI 표시용
+              editedSellerProductName: updated[globalIdx].editedName, // "브랜드 고유번호" 그대로 사용
             };
           }
         }
