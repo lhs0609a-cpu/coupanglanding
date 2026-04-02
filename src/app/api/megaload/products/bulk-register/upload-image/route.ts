@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { randomUUID } from 'crypto';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
+import { detectImageFormat, getImageDimensions } from '@/lib/megaload/services/image-processor';
 
 /**
  * POST — 브라우저에서 이미지 파일을 받아 Supabase Storage에 업로드
@@ -47,15 +48,63 @@ export async function POST(req: NextRequest) {
     }
     const ext = extMatch[1].toLowerCase();
 
-    const buffer = Buffer.from(await file.arrayBuffer());
+    let buffer = Buffer.from(await file.arrayBuffer());
+
+    // 이미지 차원 검증 + 자동 리사이징 (쿠팡: 최소 500×500, 최대 5000×5000)
+    const format = detectImageFormat(buffer);
+    let dims = getImageDimensions(buffer, format);
+    let finalExt = ext;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let Jimp: any = null;
+    const dimUnknown = dims.width === 0 || dims.height === 0;
+    const needsUpscale = !dimUnknown && (dims.width < 500 || dims.height < 500);
+    const needsDownscale = dims.width > 5000 || dims.height > 5000;
+
+    if (dimUnknown || needsUpscale || needsDownscale) {
+      try {
+        Jimp = (await import('jimp')).default || (await import('jimp'));
+      } catch { /* jimp unavailable */ }
+
+      if (Jimp) {
+        let image = await Jimp.read(buffer);
+        const jW: number = image.getWidth?.() ?? image.bitmap?.width ?? 0;
+        const jH: number = image.getHeight?.() ?? image.bitmap?.height ?? 0;
+        if (dimUnknown && jW > 0 && jH > 0) dims = { width: jW, height: jH };
+        const w = dims.width || jW;
+        const h = dims.height || jH;
+
+        if (w > 0 && h > 0 && (w < 500 || h < 500)) {
+          const scale = Math.max(800 / w, 800 / h);
+          image = image.resize(Math.round(w * scale), Math.round(h * scale));
+        } else if (w > 5000 || h > 5000) {
+          const scale = Math.min(4500 / w, 4500 / h);
+          image = image.resize(Math.round(w * scale), Math.round(h * scale));
+        }
+
+        const MIME_JPEG = Jimp.MIME_JPEG || 'image/jpeg';
+        let quality = 92;
+        let outBuf = await image.quality(quality).getBufferAsync(MIME_JPEG);
+        while (outBuf.length > 10 * 1024 * 1024 && quality > 40) {
+          quality -= 10;
+          outBuf = await image.quality(quality).getBufferAsync(MIME_JPEG);
+        }
+        buffer = Buffer.from(outBuf);
+        finalExt = 'jpg';
+      } else if (needsUpscale) {
+        return NextResponse.json({ error: '이미지가 500×500 미만입니다.' }, { status: 400 });
+      } else if (needsDownscale) {
+        return NextResponse.json({ error: '이미지가 5000×5000을 초과합니다.' }, { status: 400 });
+      }
+    }
 
     const contentType =
-      ext === 'png' ? 'image/png'
-      : ext === 'gif' ? 'image/gif'
-      : ext === 'webp' ? 'image/webp'
+      finalExt === 'png' ? 'image/png'
+      : finalExt === 'gif' ? 'image/gif'
+      : finalExt === 'webp' ? 'image/webp'
       : 'image/jpeg';
 
-    const storagePath = `megaload/${shUserId}/bulk/${randomUUID()}.${ext}`;
+    const storagePath = `megaload/${shUserId}/bulk/${randomUUID()}.${finalExt}`;
 
     const { data, error } = await serviceClient.storage
       .from('product-images')
