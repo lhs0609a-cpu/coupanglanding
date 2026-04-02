@@ -42,9 +42,9 @@ export interface PersuasionResult {
 
 // ─── 상수 ────────────────────────────────────────────────────
 
-const MIN_CHARS = 800;
-const MAX_CHARS = 1500;
-const TRUNCATE_LIMIT = 150;
+const MIN_CHARS = 2500;
+const MAX_CHARS = 4000;
+const TRUNCATE_LIMIT = 300;
 
 // ─── 블록 텍스트 길이 계산 ──────────────────────────────────
 
@@ -204,7 +204,11 @@ export function generatePersuasionContent(
   let totalChars = enrichedBlocks.reduce((sum, b) => sum + getBlockCharCount(b), 0);
 
   // 글자수 < MIN_CHARS이면 블록 추가 (최대 5회 반복)
-  const paddingTypes: ContentBlockType[] = ['feature_detail', 'solution', 'social_proof', 'usage_guide', 'feature_detail'];
+  const paddingTypes: ContentBlockType[] = [
+    'feature_detail', 'solution', 'social_proof', 'usage_guide',
+    'feature_detail', 'solution', 'social_proof', 'usage_guide',
+    'feature_detail', 'solution', 'feature_detail', 'social_proof',
+  ];
   let padIdx = 0;
   while (totalChars < MIN_CHARS && padIdx < paddingTypes.length) {
     const extraBlock = composeBlock(
@@ -243,8 +247,37 @@ export function generatePersuasionContent(
       if (b.content.length > TRUNCATE_LIMIT) {
         b.content = b.content.slice(0, TRUNCATE_LIMIT) + '...';
       }
-      if (b.items && b.items.length > 3) {
-        b.items = b.items.slice(0, 3);
+      if (b.items && b.items.length > 7) {
+        b.items = b.items.slice(0, 7);
+      }
+      totalChars = enrichedBlocks.reduce((sum, bl) => sum + getBlockCharCount(bl), 0);
+    }
+  }
+
+  // ── 키워드 밀도 검증 — 모든 SEO 키워드 최소 1회 포함 보장 ──
+  if (seoKeywords && seoKeywords.length > 0) {
+    const allText = enrichedBlocks.map(b => {
+      let t = b.content;
+      if (b.subContent) t += ' ' + b.subContent;
+      if (b.items) t += ' ' + b.items.join(' ');
+      if (b.emphasis) t += ' ' + b.emphasis;
+      return t;
+    }).join(' ');
+
+    const missingKws = seoKeywords.filter(kw => !allText.includes(kw));
+    if (missingKws.length > 0) {
+      // feature_detail / solution 블록에 강제 삽입
+      const insertableBlocks = enrichedBlocks.filter(
+        b => b.type === 'feature_detail' || b.type === 'solution',
+      );
+      for (let mi = 0; mi < missingKws.length; mi++) {
+        const target = insertableBlocks[mi % insertableBlocks.length];
+        if (target) {
+          target.content = target.content.replace(/([.?!。])$/, ` ${missingKws[mi]}$1`);
+          if (!target.content.endsWith(missingKws[mi]) && !target.content.includes(missingKws[mi])) {
+            target.content += ' ' + missingKws[mi];
+          }
+        }
       }
       totalChars = enrichedBlocks.reduce((sum, bl) => sum + getBlockCharCount(bl), 0);
     }

@@ -327,9 +327,19 @@ export function enrichVariablesWithSeo(
 
 // ─── Layer 4: SEO 키워드 인라인 위빙 ────────────────────
 
+// ─── SEO 위빙 삽입 카운터 (블록 순서 기반 로테이션) ────
+let _seoWeaveInsertionCount = 0;
+
+/** 삽입 카운터 리셋 (composeAllBlocks 시작 시 호출) */
+export function resetSeoWeaveCounter(): void {
+  _seoWeaveInsertionCount = 0;
+}
+
 /**
- * 40% 확률로 SEO 키워드를 문장에 자연스럽게 삽입한다.
- * hook/cta 블록에서는 삽입 확률 더 높음(60%).
+ * SEO 키워드를 문장에 자연스럽게 삽입한다.
+ * - 처음 4개 블록: 100% 삽입 보장
+ * - 이후 블록: 50-60% 확률
+ * - 키워드 로테이션: insertionCount % seoKeywords.length
  */
 export function maybeSeoWeave(
   content: string,
@@ -339,10 +349,14 @@ export function maybeSeoWeave(
 ): string {
   if (!seoKeywords || seoKeywords.length === 0) return content;
 
-  const threshold = (blockType === 'hook' || blockType === 'cta') ? 0.6 : 0.4;
+  const isEarlyBlock = _seoWeaveInsertionCount < 4;
+  const threshold = isEarlyBlock ? 1.0 : ((blockType === 'hook' || blockType === 'cta') ? 0.6 : 0.5);
+
   if (rng() > threshold) return content;
 
-  const kw = seoKeywords[Math.floor(rng() * seoKeywords.length)];
+  // 키워드 로테이션 — 모든 키워드 균등 사용
+  const kw = seoKeywords[_seoWeaveInsertionCount % seoKeywords.length];
+  _seoWeaveInsertionCount++;
 
   // 이미 포함되어 있으면 스킵
   if (content.includes(kw)) return content;
@@ -535,6 +549,7 @@ export function composeAllBlocks(
   seoKeywords: string[],
   rng: () => number,
 ): ContentBlock[] {
+  resetSeoWeaveCounter();
   return framework.blocks.map(blockType =>
     composeBlock(
       blockType as ContentBlockType,
