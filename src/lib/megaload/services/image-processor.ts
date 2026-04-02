@@ -149,6 +149,35 @@ function getPngDimensions(buffer: Buffer): { width: number; height: number } | n
 }
 
 /**
+ * WebP에서 이미지 크기 추출 (VP8/VP8L/VP8X)
+ */
+function getWebpDimensions(buffer: Buffer): { width: number; height: number } | null {
+  // RIFF....WEBP 최소 길이
+  if (buffer.length < 30) return null;
+  const chunk = buffer.toString('ascii', 12, 16);
+  if (chunk === 'VP8 ' && buffer.length >= 30) {
+    // Lossy VP8: width/height at offset 26/28 (little-endian 16-bit, masked)
+    const width = buffer.readUInt16LE(26) & 0x3FFF;
+    const height = buffer.readUInt16LE(28) & 0x3FFF;
+    return { width, height };
+  }
+  if (chunk === 'VP8L' && buffer.length >= 25) {
+    // Lossless VP8L: 4 bytes at offset 21
+    const bits = buffer.readUInt32LE(21);
+    const width = (bits & 0x3FFF) + 1;
+    const height = ((bits >> 14) & 0x3FFF) + 1;
+    return { width, height };
+  }
+  if (chunk === 'VP8X' && buffer.length >= 30) {
+    // Extended VP8X: canvas size at offset 24 (24-bit LE + 1)
+    const width = (buffer[24] | (buffer[25] << 8) | (buffer[26] << 16)) + 1;
+    const height = (buffer[27] | (buffer[28] << 8) | (buffer[29] << 16)) + 1;
+    return { width, height };
+  }
+  return null;
+}
+
+/**
  * 이미지 크기 추출
  */
 export function getImageDimensions(buffer: Buffer, format: string): { width: number; height: number } {
@@ -158,6 +187,10 @@ export function getImageDimensions(buffer: Buffer, format: string): { width: num
   }
   if (format === 'png') {
     const dims = getPngDimensions(buffer);
+    if (dims) return dims;
+  }
+  if (format === 'webp') {
+    const dims = getWebpDimensions(buffer);
     if (dims) return dims;
   }
   return { width: 0, height: 0 };

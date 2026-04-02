@@ -191,7 +191,7 @@ export async function uploadLocalImage(
   }
 
   // 이미지 해상도 검증 + 자동 리사이징 (쿠팡: 최소 500×500, 최대 5000×5000, 최대 10MB)
-  const dims = getImageDimensions(buffer, format);
+  let dims = getImageDimensions(buffer, format);
 
   if (dims.width > 0 && dims.height > 0) {
     const minSide = Math.min(dims.width, dims.height);
@@ -201,11 +201,14 @@ export async function uploadLocalImage(
     }
   }
 
-  const needsUpscale = dims.width > 0 && dims.height > 0 && (dims.width < 500 || dims.height < 500);
+  // 차원 감지 실패(webp/gif 등) 또는 규격 초과 → jimp로 안전 리사이징
+  const dimUnknown = dims.width === 0 || dims.height === 0;
+  const needsUpscale = !dimUnknown && (dims.width < 500 || dims.height < 500);
   const needsDownscale = dims.width > 5000 || dims.height > 5000;
   const needsCompress = buffer.length > 10 * 1024 * 1024;
+  const needsJimp = dimUnknown || needsUpscale || needsDownscale || needsCompress;
 
-  if (needsUpscale || needsDownscale || needsCompress) {
+  if (needsJimp) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let Jimp: any;
@@ -217,21 +220,32 @@ export async function uploadLocalImage(
 
       if (Jimp) {
         let image = await Jimp.read(buffer);
+        const jimpW: number = image.getWidth?.() ?? image.bitmap?.width ?? 0;
+        const jimpH: number = image.getHeight?.() ?? image.bitmap?.height ?? 0;
 
-        if (needsUpscale) {
-          // 비율 유지하며 짧은 변이 800px 되도록 업스케일
-          const scale = Math.max(800 / dims.width, 800 / dims.height);
-          const newW = Math.round(dims.width * scale);
-          const newH = Math.round(dims.height * scale);
+        // 차원 감지 실패 시 jimp가 읽은 실제 차원으로 보정
+        if (dimUnknown && jimpW > 0 && jimpH > 0) {
+          dims = { width: jimpW, height: jimpH };
+          console.log(`[이미지 차원 보정] ${fileName}: jimp → ${jimpW}×${jimpH}`);
+        }
+
+        const actualW = dims.width || jimpW;
+        const actualH = dims.height || jimpH;
+        const actualNeedsUpscale = actualW > 0 && actualH > 0 && (actualW < 500 || actualH < 500);
+        const actualNeedsDownscale = actualW > 5000 || actualH > 5000;
+
+        if (actualNeedsUpscale) {
+          const scale = Math.max(800 / actualW, 800 / actualH);
+          const newW = Math.round(actualW * scale);
+          const newH = Math.round(actualH * scale);
           image = image.resize(newW, newH);
-          console.log(`[이미지 리사이즈] ${path.basename(filePath)}: ${dims.width}×${dims.height} → ${newW}×${newH} (업스케일)`);
-        } else if (needsDownscale) {
-          // 비율 유지하며 긴 변이 4500px 이하가 되도록 다운스케일
-          const scale = Math.min(4500 / dims.width, 4500 / dims.height);
-          const newW = Math.round(dims.width * scale);
-          const newH = Math.round(dims.height * scale);
+          console.log(`[이미지 리사이즈] ${fileName}: ${actualW}×${actualH} → ${newW}×${newH} (업스케일)`);
+        } else if (actualNeedsDownscale) {
+          const scale = Math.min(4500 / actualW, 4500 / actualH);
+          const newW = Math.round(actualW * scale);
+          const newH = Math.round(actualH * scale);
           image = image.resize(newW, newH);
-          console.log(`[이미지 리사이즈] ${path.basename(filePath)}: ${dims.width}×${dims.height} → ${newW}×${newH} (다운스케일)`);
+          console.log(`[이미지 리사이즈] ${fileName}: ${actualW}×${actualH} → ${newW}×${newH} (다운스케일)`);
         }
 
         // 품질 단계적 압축 (10MB 이하가 될 때까지)
@@ -241,22 +255,22 @@ export async function uploadLocalImage(
         while (outBuf.length > 10 * 1024 * 1024 && quality > 40) {
           quality -= 10;
           outBuf = await image.quality(quality).getBufferAsync(MIME_JPEG);
-          console.log(`[이미지 압축] ${path.basename(filePath)}: quality=${quality}, size=${(outBuf.length / 1024 / 1024).toFixed(1)}MB`);
+          console.log(`[이미지 압축] ${fileName}: quality=${quality}, size=${(outBuf.length / 1024 / 1024).toFixed(1)}MB`);
         }
 
         buffer = Buffer.from(outBuf);
         format = 'jpg';
         ext = 'jpg';
       } else if (needsUpscale) {
-        throw new Error(`[이미지 필터] 업스케일 필요하나 jimp 미설치 — 500×500 미만 이미지 제외: ${path.basename(filePath)}`);
-      } else {
-        console.warn(`[이미지 리사이즈] jimp 미설치 — 원본 유지 (${path.basename(filePath)})`);
+        throw new Error(`[이미지 필터] 업스케일 필요하나 jimp 미설치 — 500×500 미만 이미지 제외: ${fileName}`);
+      } else if (needsDownscale || dimUnknown) {
+        throw new Error(`[이미지 필터] 리사이징 필요하나 jimp 미설치 — 규격 미확인 이미지 제외: ${fileName}`);
       }
     } catch (resizeErr) {
-      if (needsUpscale) {
-        throw new Error(`[이미지 필터] 업스케일 실패 — 500×500 미만 이미지 제외 (${path.basename(filePath)}): ${resizeErr instanceof Error ? resizeErr.message : resizeErr}`);
+      if (needsUpscale || needsDownscale || dimUnknown) {
+        throw new Error(`[이미지 필터] 리사이징 실패 — 이미지 제외 (${fileName}): ${resizeErr instanceof Error ? resizeErr.message : resizeErr}`);
       }
-      console.warn(`[이미지 리사이즈 실패] ${path.basename(filePath)}:`, resizeErr instanceof Error ? resizeErr.message : resizeErr);
+      console.warn(`[이미지 리사이즈 실패] ${fileName}:`, resizeErr instanceof Error ? resizeErr.message : resizeErr);
     }
   }
 
