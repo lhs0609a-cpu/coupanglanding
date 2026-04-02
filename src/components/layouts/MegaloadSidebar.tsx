@@ -1,11 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
   Receipt, BarChart3, Zap, Globe, Link as LinkIcon, Settings, X,
-  Upload, User, ArrowRight,
+  Upload, User, ArrowRight, Search,
 } from 'lucide-react';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
 
@@ -37,6 +38,22 @@ interface MegaloadSidebarProps {
 
 export default function MegaloadSidebar({ isOpen, onClose, badges }: MegaloadSidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [quickSearch, setQuickSearch] = useState('');
+
+  const handleQuickSearch = () => {
+    const trimmed = quickSearch.trim();
+    if (!trimmed) return;
+
+    const numMatch = trimmed.match(/\d{5,}/);
+    if (numMatch) {
+      window.open(`https://www.coupang.com/vp/products/${numMatch[0]}`, '_blank');
+    } else {
+      router.push(`/megaload/products?search=${encodeURIComponent(trimmed)}`);
+    }
+    setQuickSearch('');
+    onClose();
+  };
 
   return (
     <>
@@ -82,6 +99,21 @@ export default function MegaloadSidebar({ isOpen, onClose, badges }: MegaloadSid
               </div>
               <ArrowRight className="w-4 h-4 shrink-0 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
             </Link>
+          </div>
+
+          {/* 상품번호 퀵서치 */}
+          <div className="px-3 pt-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                value={quickSearch}
+                onChange={(e) => setQuickSearch(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleQuickSearch(); }}
+                placeholder="상품번호 검색"
+                className="w-full pl-8 pr-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 placeholder:text-gray-400 focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+              />
+            </div>
           </div>
 
         <nav className="p-3 space-y-1">

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { CHANNELS, CHANNEL_SHORT_LABELS, CHANNEL_STATUS_LABELS } from '@/lib/megaload/constants';
 import type { Channel, MasterProduct, ProductChannel } from '@/lib/megaload/types';
@@ -11,10 +12,11 @@ type Tab = 'list' | 'bulk';
 
 export default function ProductsPage() {
   const supabase = useMemo(() => createClient(), []);
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState<Tab>('list');
   const [products, setProducts] = useState<MasterProduct[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(searchParams.get('search') || '');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -43,7 +45,11 @@ export default function ProductsPage() {
       .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
 
     if (search) {
-      query = query.ilike('product_name', `%${search}%`);
+      if (/^\d+$/.test(search.trim())) {
+        query = query.eq('coupang_product_id', search.trim());
+      } else {
+        query = query.or(`product_name.ilike.%${search}%,display_name.ilike.%${search}%`);
+      }
     }
 
     const { data, count } = await query;
