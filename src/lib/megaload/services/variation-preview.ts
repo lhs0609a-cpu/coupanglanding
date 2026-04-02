@@ -5,11 +5,12 @@
 // Canvas API로 썸네일을 렌더링한다.
 // 서버 전용 import(jimp) 없이 브라우저에서 동작.
 //
-// 변형 기법 (14종):
+// 변형 기법 (17종):
 //  기존: crop, brightness, saturation, quality, noise, gamma,
-//        colorTemp, microResize, channelOffset, borderPadding
-//  신규: horizontalFlip(좌우 반전), rotation(미세 회전),
-//        bgColorShift(배경색 시프트), paddingRatio(종횡비 패딩)
+//        colorTemp, microResize, channelOffset, borderPadding,
+//        horizontalFlip, rotation, bgColorShift, paddingRatio
+//  신규: bgPattern(배경 미세 패턴), zoomLevel(줌 변형),
+//        sharpenBlur(샤프닝/블러)
 // ============================================================
 
 // --- seeded-random 로직 인라인 (서버 모듈 import 방지) ---
@@ -62,9 +63,20 @@ export interface PreviewVariationParams {
   bgColorShift: { r: number; g: number; b: number };
   /** 종횡비 패딩 비율 — 상품 주변에 여백 추가 (0 = 없음, 0.05 = 5%) */
   paddingRatio: number;
+  /** 배경 미세 패턴 */
+  bgPattern: {
+    type: 'dots' | 'grid' | 'diagonal' | 'none';
+    intensity: number;
+    spacing: number;
+  };
+  /** 줌 변형 (0 = 없음) */
+  zoomLevel: number;
+  /** 샤프닝/블러 (양수=샤프, 음수=블러) */
+  sharpenBlur: number;
 }
 
 const CROP_DIRECTIONS: CropDirection[] = ['top', 'bottom', 'left', 'right', 'center'];
+const BG_PATTERN_TYPES = ['dots', 'grid', 'diagonal', 'none'] as const;
 
 // --- 강도별 범위 테이블 ---
 
@@ -89,6 +101,14 @@ interface IntensityRange {
   bgShiftRange: number;
   paddingMin: number;
   paddingRange: number;
+  bgPatternProb: number;
+  bgPatternIntensityMin: number;
+  bgPatternIntensityRange: number;
+  bgPatternSpacingMin: number;
+  bgPatternSpacingRange: number;
+  zoomMin: number;
+  zoomRange: number;
+  sharpenBlurRange: number;
 }
 
 const INTENSITY_RANGES: Record<VariationIntensity, IntensityRange> = {
@@ -98,13 +118,18 @@ const INTENSITY_RANGES: Record<VariationIntensity, IntensityRange> = {
     noiseMin: 0, noiseRange: 2,
     gammaMin: 0.99, gammaRange: 0.02,
     colorTempRange: 1,
-    microResizeRange: 1,            // ±1px (종횡비 미세 조정만)
-    uniformScaleRange: 0.02,        // ±2% 균일 확대/축소
+    microResizeRange: 1,
+    uniformScaleRange: 0.02,
     channelOffsetRange: 1,
     flipProbability: 0.3,
     rotationRange: 0.5,
     bgShiftRange: 3,
     paddingMin: 0, paddingRange: 0.02,
+    bgPatternProb: 0.5,
+    bgPatternIntensityMin: 1, bgPatternIntensityRange: 1,
+    bgPatternSpacingMin: 6, bgPatternSpacingRange: 6,
+    zoomMin: 0.005, zoomRange: 0.015,
+    sharpenBlurRange: 0.15,
   },
   mid: {
     brightnessRange: 0.02, qualityBase: 80, qualityRange: 15,
@@ -112,13 +137,18 @@ const INTENSITY_RANGES: Record<VariationIntensity, IntensityRange> = {
     noiseMin: 0, noiseRange: 3,
     gammaMin: 0.97, gammaRange: 0.06,
     colorTempRange: 3,
-    microResizeRange: 2,            // ±2px (종횡비 미세 조정만)
-    uniformScaleRange: 0.05,        // ±5% 균일 확대/축소
+    microResizeRange: 2,
+    uniformScaleRange: 0.05,
     channelOffsetRange: 2,
     flipProbability: 0.5,
     rotationRange: 1.5,
     bgShiftRange: 5,
     paddingMin: 0.01, paddingRange: 0.03,
+    bgPatternProb: 0.6,
+    bgPatternIntensityMin: 1, bgPatternIntensityRange: 2,
+    bgPatternSpacingMin: 4, bgPatternSpacingRange: 6,
+    zoomMin: 0.01, zoomRange: 0.03,
+    sharpenBlurRange: 0.3,
   },
   high: {
     brightnessRange: 0.04, qualityBase: 75, qualityRange: 18,
@@ -126,13 +156,18 @@ const INTENSITY_RANGES: Record<VariationIntensity, IntensityRange> = {
     noiseMin: 1, noiseRange: 3,
     gammaMin: 0.95, gammaRange: 0.10,
     colorTempRange: 5,
-    microResizeRange: 3,            // ±3px (종횡비 미세 조정만)
-    uniformScaleRange: 0.08,        // ±8% 균일 확대/축소
+    microResizeRange: 3,
+    uniformScaleRange: 0.08,
     channelOffsetRange: 3,
     flipProbability: 0.5,
     rotationRange: 3.0,
     bgShiftRange: 8,
     paddingMin: 0.02, paddingRange: 0.05,
+    bgPatternProb: 0.7,
+    bgPatternIntensityMin: 2, bgPatternIntensityRange: 2,
+    bgPatternSpacingMin: 3, bgPatternSpacingRange: 6,
+    zoomMin: 0.02, zoomRange: 0.06,
+    sharpenBlurRange: 0.5,
   },
 };
 
@@ -172,6 +207,13 @@ export function generatePreviewVariationParams(
       b: Math.floor(rng() * (r.bgShiftRange * 2 + 1)) - r.bgShiftRange,
     },
     paddingRatio: r.paddingMin + rng() * r.paddingRange,
+    bgPattern: rng() < r.bgPatternProb ? {
+      type: BG_PATTERN_TYPES[Math.floor(rng() * 3)] as 'dots' | 'grid' | 'diagonal',
+      intensity: r.bgPatternIntensityMin + Math.floor(rng() * r.bgPatternIntensityRange),
+      spacing: r.bgPatternSpacingMin + Math.floor(rng() * r.bgPatternSpacingRange),
+    } : { type: 'none' as const, intensity: 0, spacing: 0 },
+    zoomLevel: r.zoomMin + rng() * r.zoomRange,
+    sharpenBlur: (rng() * r.sharpenBlurRange * 2) - r.sharpenBlurRange,
   };
 }
 
@@ -297,14 +339,16 @@ export async function generateVariedThumbnail(
   );
   ctx.restore();
 
-  // 5. 픽셀 단일 순회: 감마 + 색온도 + 채널 오프셋 + 노이즈 + 배경색 시프트
+  // 5. 픽셀 단일 순회: 감마 + 색온도 + 채널 오프셋 + 노이즈 + 배경색 시프트 + 배경 패턴
   const hasBgShift = params.bgColorShift.r !== 0 || params.bgColorShift.g !== 0 || params.bgColorShift.b !== 0;
+  const hasBgPattern = params.bgPattern.type !== 'none' && params.bgPattern.intensity > 0;
   const needsPixelPass =
     params.gamma !== 1.0 ||
     params.colorTempShift !== 0 ||
     params.channelOffsetR !== 0 || params.channelOffsetG !== 0 || params.channelOffsetB !== 0 ||
     params.noiseIntensity > 0 ||
-    hasBgShift;
+    hasBgShift ||
+    hasBgPattern;
 
   if (needsPixelPass) {
     // filter 리셋 후 imageData 읽기 (CSS filter가 이미 적용된 상태)
@@ -319,6 +363,10 @@ export async function generateVariedThumbnail(
       ? createSeededRandom(stringToSeed(imgSrc))
       : null;
 
+    const patSpacing = params.bgPattern.spacing || 8;
+    const patIntensity = params.bgPattern.intensity || 2;
+    const patType = params.bgPattern.type;
+
     for (let i = 0; i < data.length; i += 4) {
       let r = data[i], g = data[i + 1], b = data[i + 2];
 
@@ -327,6 +375,25 @@ export async function generateVariedThumbnail(
         r += params.bgColorShift.r;
         g += params.bgColorShift.g;
         b += params.bgColorShift.b;
+      }
+
+      // 배경 미세 패턴
+      if (hasBgPattern && isBgPixel(r, g, b, 220)) {
+        const px = Math.floor((i / 4) % outW);
+        const py = Math.floor((i / 4) / outW);
+        let hit = false;
+        if (patType === 'dots') {
+          hit = (px % patSpacing === 0) && (py % patSpacing === 0);
+        } else if (patType === 'grid') {
+          hit = (px % patSpacing === 0) || (py % patSpacing === 0);
+        } else if (patType === 'diagonal') {
+          hit = ((px + py) % patSpacing === 0);
+        }
+        if (hit) {
+          r -= patIntensity;
+          g -= patIntensity;
+          b -= patIntensity;
+        }
       }
 
       if (applyGamma) {
@@ -357,6 +424,21 @@ export async function generateVariedThumbnail(
 
     ctx.putImageData(imageData, 0, 0);
   }
+
+  // 5b. 줌 변형 — 중앙 기준 확대 후 원래 크기 복원
+  if (params.zoomLevel > 0.001) {
+    const zCanvas = document.createElement('canvas');
+    zCanvas.width = outW;
+    zCanvas.height = outH;
+    const zCtx = zCanvas.getContext('2d')!;
+    const insetX = Math.round(outW * params.zoomLevel / 2);
+    const insetY = Math.round(outH * params.zoomLevel / 2);
+    zCtx.drawImage(canvas, insetX, insetY, outW - insetX * 2, outH - insetY * 2, 0, 0, outW, outH);
+    ctx.clearRect(0, 0, outW, outH);
+    ctx.drawImage(zCanvas, 0, 0);
+  }
+
+  // 5c. 샤프닝/블러 — 서버 JIMP에서만 정밀 적용 (Canvas 미리보기는 생략)
 
   return canvas.toDataURL('image/jpeg', params.quality / 100);
 }
@@ -409,6 +491,18 @@ export function formatVariationParams(params: PreviewVariationParams): string[] 
   const { bgColorShift: bg } = params;
   if (bg.r !== 0 || bg.g !== 0 || bg.b !== 0) {
     lines.push(`배경색 R${bg.r >= 0 ? '+' : ''}${bg.r} G${bg.g >= 0 ? '+' : ''}${bg.g} B${bg.b >= 0 ? '+' : ''}${bg.b}`);
+  }
+  if (params.bgPattern.type !== 'none') {
+    const typeKr = { dots: '도트', grid: '그리드', diagonal: '대각선' }[params.bgPattern.type] || params.bgPattern.type;
+    lines.push(`배경패턴 ${typeKr} (강도${params.bgPattern.intensity}, 간격${params.bgPattern.spacing}px)`);
+  }
+  if (params.zoomLevel > 0.001) {
+    lines.push(`줌 +${(params.zoomLevel * 100).toFixed(1)}%`);
+  }
+  if (Math.abs(params.sharpenBlur) > 0.05) {
+    lines.push(params.sharpenBlur > 0
+      ? `샤프닝 +${params.sharpenBlur.toFixed(2)}`
+      : `블러 ${params.sharpenBlur.toFixed(2)}`);
   }
   return lines;
 }
