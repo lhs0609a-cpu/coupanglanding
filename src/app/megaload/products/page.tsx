@@ -48,7 +48,7 @@ export default function ProductsPage() {
       if (/^\d+$/.test(search.trim())) {
         query = query.eq('coupang_product_id', search.trim());
       } else {
-        query = query.or(`product_name.ilike.%${search}%,display_name.ilike.%${search}%`);
+        query = query.or(`product_name.ilike.%${search}%,display_name.ilike.%${search}%,brand.ilike.%${search}%`);
       }
     }
 
