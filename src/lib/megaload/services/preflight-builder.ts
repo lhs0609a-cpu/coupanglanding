@@ -19,6 +19,7 @@ export interface BuildPayloadProduct {
   productCode: string;
   folderPath: string;
   name: string;
+  sourceName?: string;  // 원본 상품명 (옵션 추출용)
   brand: string;
   sellingPrice: number;
   sourcePrice: number;
@@ -120,8 +121,9 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     ? product.reviewTextsOverride
     : aiReviewTexts;
 
-  // 구매옵션 자동 추출
-  const extracted = await extractOptions(product.name, product.categoryCode);
+  // 구매옵션 자동 추출 — 원본 상품명에서 수량/캡슐 등을 추출 (가공된 노출상품명에는 정보 없음)
+  const optionSourceName = product.sourceName || product.name;
+  const extracted = await extractOptions(optionSourceName, product.categoryCode);
 
   // 추출된 옵션값을 notices용 hints로 변환
   const noticeHints: ExtractedNoticeHints = {};
@@ -232,7 +234,7 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     product: {
       folderPath: product.folderPath,
       productCode: product.productCode,
-      productJson: { name: product.name, brand: product.brand, tags: product.tags, description: effectiveDescription, price: product.sourcePrice },
+      productJson: { name: optionSourceName, brand: product.brand, tags: product.tags, description: effectiveDescription, price: product.sourcePrice },
       mainImages: product.mainImages,
       detailImages: product.detailImages,
       infoImages: product.infoImages,

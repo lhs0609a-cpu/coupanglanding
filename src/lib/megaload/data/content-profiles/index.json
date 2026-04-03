@@ -1,0 +1,57 @@
+{
+  "generatedAt": "2026-04-03T04:48:19.024Z",
+  "files": {
+    "식품": {
+      "l1Category": "식품",
+      "profileCount": 37
+    },
+    "뷰티": {
+      "l1Category": "뷰티",
+      "profileCount": 46
+    },
+    "가전": {
+      "l1Category": "가전/디지털",
+      "profileCount": 9
+    },
+    "생활용품": {
+      "l1Category": "생활용품",
+      "profileCount": 69
+    },
+    "패션의류잡화": {
+      "l1Category": "패션의류잡화",
+      "profileCount": 52
+    },
+    "가구": {
+      "l1Category": "가구/홈데코",
+      "profileCount": 30
+    },
+    "출산": {
+      "l1Category": "출산/유아동",
+      "profileCount": 13
+    },
+    "스포츠": {
+      "l1Category": "스포츠/레져",
+      "profileCount": 40
+    },
+    "반려": {
+      "l1Category": "반려/애완용품",
+      "profileCount": 14
+    },
+    "주방용품": {
+      "l1Category": "주방용품",
+      "profileCount": 36
+    },
+    "완구": {
+      "l1Category": "완구/취미",
+      "profileCount": 19
+    },
+    "자동차용품": {
+      "l1Category": "자동차용품",
+      "profileCount": 28
+    },
+    "문구": {
+      "l1Category": "문구/오피스",
+      "profileCount": 18
+    }
+  }
+}

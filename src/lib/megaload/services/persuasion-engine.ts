@@ -25,6 +25,7 @@ import {
   enrichVariablesWithSeo,
   getFrameworks,
   resolveCategoryFrameworks,
+  getContentProfile,
 } from './fragment-composer';
 import type { ContentBlock, ContentBlockType } from './fragment-composer';
 import { parseProductName, tokensToVariableOverrides } from './product-name-parser';
@@ -145,6 +146,7 @@ export function seoEnrichBlocks(blocks: ContentBlock[], seoKeywords: string[]): 
  * @param sellerSeed 셀러 고유 시드
  * @param productIndex 상품 인덱스
  * @param seoKeywords SEO 키워드 배열 (optional, 있으면 본문에 자연 삽입)
+ * @param categoryCode 쿠팡 카테고리 코드 (optional, CPG 프로필 매핑용)
  */
 export function generatePersuasionContent(
   productName: string,
@@ -152,6 +154,7 @@ export function generatePersuasionContent(
   sellerSeed: string,
   productIndex: number,
   seoKeywords?: string[],
+  categoryCode?: string,
 ): PersuasionResult {
   // 시드 기반 RNG
   const seed = stringToSeed(`${sellerSeed}::persuasion::${productIndex}::${productName}`);
@@ -167,11 +170,14 @@ export function generatePersuasionContent(
   const tokens = parseProductName(productName, categoryPath, '');
   const productOverrides = tokensToVariableOverrides(tokens);
 
-  // ── Layer 2: 카테고리 변수풀 해석 (중분류→대분류→DEFAULT) ──
-  const categoryVars = resolveVariables(categoryPath);
+  // ── CPG 프로필 조회 → forbiddenTerms 추출 ──
+  const profile = getContentProfile(categoryPath, categoryCode);
 
-  // ── Layer 3+2: 변수 병합 (상품 토큰 우선) ──
-  let vars = mergeVariables(categoryVars, productOverrides);
+  // ── Layer 2: 카테고리 변수풀 해석 (CPG 격리 or 레거시) ──
+  const categoryVars = resolveVariables(categoryPath, categoryCode);
+
+  // ── Layer 3+2: 변수 병합 (상품 토큰 우선 + forbiddenTerms 필터) ──
+  let vars = mergeVariables(categoryVars, productOverrides, profile?.forbiddenTerms);
 
   // ── Layer 4: SEO 키워드 → 변수풀 보강 ──
   if (seoKeywords && seoKeywords.length > 0) {
@@ -319,8 +325,10 @@ export function contentBlocksToParagraphs(blocks: ContentBlock[]): string[] {
  * 배치 설득형 콘텐츠 생성
  */
 export function generatePersuasionBatch(
-  products: { name: string; categoryPath: string }[],
+  products: { name: string; categoryPath: string; categoryCode?: string }[],
   sellerSeed: string,
 ): PersuasionResult[] {
-  return products.map((p, i) => generatePersuasionContent(p.name, p.categoryPath, sellerSeed, i));
+  return products.map((p, i) =>
+    generatePersuasionContent(p.name, p.categoryPath, sellerSeed, i, undefined, p.categoryCode),
+  );
 }

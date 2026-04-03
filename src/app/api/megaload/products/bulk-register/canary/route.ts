@@ -16,6 +16,7 @@ interface CanaryRequestBody {
     productCode: string;
     folderPath: string;
     name: string;
+    sourceName?: string;
     brand: string;
     sellingPrice: number;
     sourcePrice: number;
@@ -102,6 +103,7 @@ export async function POST(req: NextRequest) {
         productCode: product.productCode,
         folderPath: product.folderPath,
         name: product.name,
+        sourceName: product.sourceName,
         brand: product.brand,
         sellingPrice: product.sellingPrice,
         sourcePrice: product.sourcePrice,

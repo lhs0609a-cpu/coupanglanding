@@ -14,6 +14,8 @@
 
 import fragmentData from '../data/persuasion-fragments.json';
 import storyData from '../data/story-templates.json';
+import { resolveContentProfile } from './content-profile-resolver';
+import type { ContentProfile } from './content-profile-resolver';
 
 // ─── 타입 (여기가 원본 — persuasion-engine에서 re-export) ──
 
@@ -193,9 +195,30 @@ export function resolveFragments(
 
 /**
  * categoryPath에서 가장 구체적인 변수풀을 반환.
+ *
+ * CPG 프로필 존재 시 → 격리된 변수풀만 반환 (상위 병합 없음, 오염 방지)
+ * CPG 없으면 → 레거시: 중분류→대분류→DEFAULT 폴백.
+ */
+export function resolveVariables(
+  categoryPath: string,
+  categoryCode?: string,
+): Record<string, string[]> {
+  // ── CPG 프로필 우선 참조 (격리된 변수풀) ──
+  const profile = resolveContentProfile(categoryPath, categoryCode);
+  if (profile && profile.variables && Object.keys(profile.variables).length > 0) {
+    // 격리! DEFAULT/대분류 병합 없이 프로필 변수만 반환
+    return { ...profile.variables };
+  }
+
+  // ── 레거시 로직 (미매핑 카테고리) ──
+  return legacyResolveVariables(categoryPath);
+}
+
+/**
+ * 레거시 변수풀 해석 — CPG 미매핑 카테고리용.
  * 중분류→대분류→DEFAULT 폴백. 상위 변수를 하위가 오버라이드(prepend).
  */
-export function resolveVariables(categoryPath: string): Record<string, string[]> {
+function legacyResolveVariables(categoryPath: string): Record<string, string[]> {
   const parts = categoryPath.split('>').map(p => p.trim());
 
   // 대분류 키 추론 (getCategoryKey 로직 인라인)
@@ -235,6 +258,16 @@ export function resolveVariables(categoryPath: string): Record<string, string[]>
   return base;
 }
 
+/**
+ * CPG 프로필 객체 조회 (persuasion-engine에서 forbiddenTerms 접근용)
+ */
+export function getContentProfile(
+  categoryPath: string,
+  categoryCode?: string,
+): ContentProfile | null {
+  return resolveContentProfile(categoryPath, categoryCode);
+}
+
 function inferTopCategory(top: string, full: string): string {
   const fl = full.toLowerCase();
   if (top.includes('뷰티') || top.includes('화장품')) return '뷰티';
@@ -262,13 +295,26 @@ function inferTopCategory(top: string, full: string): string {
 export function mergeVariables(
   categoryVars: Record<string, string[]>,
   productOverrides: Record<string, string[]>,
+  forbiddenTerms?: string[],
 ): Record<string, string[]> {
   const result = { ...categoryVars };
+
+  // forbiddenTerms 필터링 — 카테고리 변수에서 금지어 제거
+  if (forbiddenTerms && forbiddenTerms.length > 0) {
+    const forbidden = new Set(forbiddenTerms);
+    for (const [key, values] of Object.entries(result)) {
+      const filtered = values.filter(v => !forbidden.has(v));
+      if (filtered.length > 0) {
+        result[key] = filtered;
+      }
+      // filtered가 비면 원본 유지 (안전망)
+    }
+  }
+
   // 상품 오버라이드 키가 존재하면 카테고리 풀을 축소하여
   // 상품별 맞춤 콘텐츠 생성 확률을 극대화한다.
-  // 기존: prepend만 → 15개 풀 중 1~2개 오버라이드 → 높은 확률로 generic 선택
-  // 개선: 카테고리 풀을 MAX_CATEGORY_KEEP개로 제한 → 오버라이드 선택 확률 대폭 증가
-  const MAX_CATEGORY_KEEP = 5;
+  // CPG 프로필 사용 시 이미 격리되어 있으므로 3개로 축소
+  const MAX_CATEGORY_KEEP = 3;
   for (const [key, overrideValues] of Object.entries(productOverrides)) {
     if (result[key]) {
       const trimmed = result[key].slice(0, MAX_CATEGORY_KEEP);

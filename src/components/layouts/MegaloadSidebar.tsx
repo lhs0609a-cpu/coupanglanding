@@ -41,17 +41,24 @@ export default function MegaloadSidebar({ isOpen, onClose, badges }: MegaloadSid
   const router = useRouter();
   const [quickSearch, setQuickSearch] = useState('');
 
-  const handleQuickSearch = () => {
+  const handleQuickSearch = async () => {
     const trimmed = quickSearch.trim();
     if (!trimmed) return;
-
-    const numMatch = trimmed.match(/\d{5,}/);
-    if (numMatch) {
-      window.open(`https://www.coupang.com/vp/products/${numMatch[0]}`, '_blank');
-    } else {
-      router.push(`/megaload/products?search=${encodeURIComponent(trimmed)}`);
-    }
     setQuickSearch('');
+
+    // DB에서 판매자상품명으로 검색 → 저장된 sourceUrl(product_summary.txt 원본 링크)로 이동
+    try {
+      const res = await fetch(`/api/megaload/products/quick-search?q=${encodeURIComponent(trimmed)}`);
+      const { sourceUrl } = await res.json();
+      if (sourceUrl) {
+        window.open(sourceUrl, '_blank');
+        onClose();
+        return;
+      }
+    } catch { /* API 실패 시 폴백 */ }
+
+    // DB에 없으면 상품목록 페이지에서 검색
+    router.push(`/megaload/products?search=${encodeURIComponent(trimmed)}`);
     onClose();
   };
 

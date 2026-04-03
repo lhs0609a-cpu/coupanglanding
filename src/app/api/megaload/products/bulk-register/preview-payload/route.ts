@@ -12,6 +12,7 @@ interface PreviewRequestBody {
     productCode: string;
     folderPath: string;
     name: string;
+    sourceName?: string;
     brand: string;
     sellingPrice: number;
     sourcePrice: number;
@@ -90,8 +91,9 @@ export async function POST(req: NextRequest) {
       // attributes 조회 실패 → 빈 배열
     }
 
-    // 4. 구매옵션 자동 추출
-    const extracted = await extractOptions(product.name, product.categoryCode);
+    // 4. 구매옵션 자동 추출 — 원본 상품명에서 추출 (가공된 이름엔 수량 정보 없음)
+    const optionSourceName = product.sourceName || product.name;
+    const extracted = await extractOptions(optionSourceName, product.categoryCode);
 
     // 추출된 옵션값을 notices용 hints로 변환
     const noticeHints: ExtractedNoticeHints = {};
@@ -127,7 +129,7 @@ export async function POST(req: NextRequest) {
       product: {
         folderPath: product.folderPath,
         productCode: product.productCode,
-        productJson: { name: product.name, brand: product.brand, tags: product.tags, description: product.description, price: product.sourcePrice },
+        productJson: { name: optionSourceName, brand: product.brand, tags: product.tags, description: product.description, price: product.sourcePrice },
         mainImages: product.mainImages,
         detailImages: product.detailImages,
         infoImages: product.infoImages,

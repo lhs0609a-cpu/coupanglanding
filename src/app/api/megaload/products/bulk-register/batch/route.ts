@@ -20,6 +20,8 @@ interface BatchProduct {
   productCode: string;
   folderPath: string;
   name: string;
+  sourceName?: string;  // 원본 상품명 (옵션 추출용)
+  sourceUrl?: string;   // 원본 상품 URL (product_summary.txt에서 추출)
   brand: string;
   sellingPrice: number;
   sourcePrice: number;
@@ -460,6 +462,7 @@ export async function POST(req: NextRequest) {
             status: 'active',
             raw_data: {
               sourceFolder: product.folderPath, sourcePrice: product.sourcePrice, productCode: product.productCode,
+              sourceUrl: product.sourceUrl || undefined,
               mainImageUrls, detailImageUrls, reviewImageUrls, infoImageUrls,
               aiStoryHtml: aiStoryHtml || undefined,
             },

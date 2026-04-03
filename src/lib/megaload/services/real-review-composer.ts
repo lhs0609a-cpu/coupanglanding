@@ -12,6 +12,8 @@
 import { createSeededRandom, stringToSeed } from './seeded-random';
 import reviewFrameData from '../data/real-review-frames.json';
 import storyData from '../data/story-templates.json';
+import { resolveContentProfile } from './content-profile-resolver';
+import type { ContentProfile } from './content-profile-resolver';
 
 // ─── 타입 ────────────────────────────────────────────────────
 
@@ -428,7 +430,15 @@ function resolveVariablePool(
   categoryPath: string,
   catKey: string,
   productName: string,
+  categoryCode?: string,
 ): Record<string, string[]> {
+  // ── CPG 프로필 우선 참조 (격리된 변수풀) ──
+  const profile = resolveContentProfile(categoryPath, categoryCode);
+  if (profile && profile.variables && Object.keys(profile.variables).length > 0) {
+    return { ...profile.variables };
+  }
+
+  // ── 레거시 로직 ──
   const parentVars = VARIABLES[catKey] || VARIABLES['DEFAULT'];
 
   // 서브카테고리 키 추론: categoryPath에서 "대분류>중분류" 패턴 검색
@@ -655,12 +665,13 @@ export function generateRealReview(
   categoryPath: string,
   sellerSeed: string,
   productIndex: number,
+  categoryCode?: string,
 ): RealReviewResult {
   const catKey = getReviewCategoryKey(categoryPath);
   const fragCatKey = resolveFragmentCategory(catKey);
 
-  // 변수 풀 (서브카테고리 라우팅)
-  const vars = resolveVariablePool(categoryPath, catKey, productName);
+  // 변수 풀 (CPG 프로필 우선, 없으면 서브카테고리 라우팅)
+  const vars = resolveVariablePool(categoryPath, catKey, productName, categoryCode);
 
   // 시드 기반 RNG
   const seed = stringToSeed(`${sellerSeed}::realreview::${productIndex}::${productName}`);
@@ -763,10 +774,12 @@ export function generateRealReview(
  * 리얼 후기 배치 생성
  */
 export function generateRealReviewBatch(
-  products: { name: string; categoryPath: string }[],
+  products: { name: string; categoryPath: string; categoryCode?: string }[],
   sellerSeed: string,
 ): RealReviewResult[] {
-  return products.map((p, i) => generateRealReview(p.name, p.categoryPath, sellerSeed, i));
+  return products.map((p, i) =>
+    generateRealReview(p.name, p.categoryPath, sellerSeed, i, p.categoryCode),
+  );
 }
 
 /**

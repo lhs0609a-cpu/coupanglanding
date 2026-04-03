@@ -1254,6 +1254,7 @@ export function useBulkRegisterActions() {
           productCode: p.productCode,
           folderPath: p.folderPath,
           name: p.editedName,
+          sourceName: p.name,
           brand: p.editedBrand,
           sellingPrice: p.editedSellingPrice,
           sourcePrice: p.sourcePrice,
@@ -1363,6 +1364,7 @@ export function useBulkRegisterActions() {
             productCode: product.productCode,
             folderPath: product.folderPath,
             name: product.editedName,
+            sourceName: product.name,
             brand: product.editedBrand,
             sellingPrice: product.editedSellingPrice,
             sourcePrice: product.sourcePrice,
@@ -1695,7 +1697,7 @@ export function useBulkRegisterActions() {
         for (const p of batch) {
           const meta = categoryMeta?.[p.editedCategoryCode] || { noticeMeta: [], attributeMeta: [] };
           const product: Record<string, unknown> = {
-            uid: p.uid, productCode: p.productCode, folderPath: p.folderPath, name: p.editedName,
+            uid: p.uid, productCode: p.productCode, folderPath: p.folderPath, name: p.editedName, sourceName: p.name, sourceUrl: p.sourceUrl,
             brand: p.editedBrand, sellingPrice: p.editedSellingPrice, sourcePrice: p.sourcePrice,
             categoryCode: p.editedCategoryCode, categoryPath: p.editedCategoryName, tags: p.tags, description: p.description,
             mainImages: p.mainImages, detailImages: p.detailImages, reviewImages: p.reviewImages, infoImages: p.infoImages,
