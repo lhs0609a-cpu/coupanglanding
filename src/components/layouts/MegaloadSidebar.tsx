@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
   Receipt, BarChart3, Zap, Globe, Link as LinkIcon, Settings, X,
-  Upload, User, ArrowRight, Search,
+  Upload, User, ArrowRight, Search, ExternalLink, Loader2,
 } from 'lucide-react';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
 
@@ -30,6 +30,14 @@ const navItems = [
   { href: '/megaload/settings', label: '설정', icon: 'Settings' as const },
 ];
 
+interface SearchResult {
+  id: string;
+  productName: string;
+  brand: string;
+  coupangProductId: string;
+  sourceUrl: string | null;
+}
+
 interface MegaloadSidebarProps {
   isOpen: boolean;
   onClose: () => void;
@@ -40,26 +48,67 @@ export default function MegaloadSidebar({ isOpen, onClose, badges }: MegaloadSid
   const pathname = usePathname();
   const router = useRouter();
   const [quickSearch, setQuickSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
-  const handleQuickSearch = async () => {
+  // 외부 클릭 시 드롭다운 닫기
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // 검색 API 호출 (디바운스 300ms)
+  const doSearch = useCallback(async (query: string) => {
+    if (!query.trim() || query.trim().length < 2) {
+      setSearchResults([]);
+      setShowDropdown(false);
+      return;
+    }
+    setIsSearching(true);
+    try {
+      const res = await fetch(`/api/megaload/products/quick-search?q=${encodeURIComponent(query.trim())}`);
+      const { results } = await res.json();
+      setSearchResults(results || []);
+      setShowDropdown(true);
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  const handleInputChange = (value: string) => {
+    setQuickSearch(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => doSearch(value), 300);
+  };
+
+  // 엔터 또는 버튼 클릭 → 즉시 검색
+  const handleQuickSearch = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     const trimmed = quickSearch.trim();
     if (!trimmed) return;
+    doSearch(trimmed);
+  };
+
+  // 검색 결과 항목 클릭
+  const handleResultClick = (result: SearchResult) => {
+    setShowDropdown(false);
     setQuickSearch('');
-
-    // DB에서 판매자상품명으로 검색 → 저장된 sourceUrl(product_summary.txt 원본 링크)로 이동
-    try {
-      const res = await fetch(`/api/megaload/products/quick-search?q=${encodeURIComponent(trimmed)}`);
-      const { sourceUrl } = await res.json();
-      if (sourceUrl) {
-        window.open(sourceUrl, '_blank');
-        onClose();
-        return;
-      }
-    } catch { /* API 실패 시 폴백 */ }
-
-    // DB에 없으면 상품목록 페이지에서 검색
-    router.push(`/megaload/products?search=${encodeURIComponent(trimmed)}`);
-    onClose();
+    if (result.sourceUrl) {
+      window.open(result.sourceUrl, '_blank');
+    } else if (result.coupangProductId) {
+      // 쿠팡 상품 페이지로 이동
+      window.open(`https://www.coupang.com/vp/products/${result.coupangProductId}`, '_blank');
+    }
   };
 
   return (
@@ -108,16 +157,17 @@ export default function MegaloadSidebar({ isOpen, onClose, badges }: MegaloadSid
             </Link>
           </div>
 
-          {/* 상품번호 퀵서치 */}
-          <div className="px-3 pt-2">
-            <div className="relative flex">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          {/* 상품 퀵서치 (자동완성 드롭다운) */}
+          <div className="px-3 pt-2" ref={searchRef}>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none z-10" />
               <input
                 type="text"
                 value={quickSearch}
-                onChange={(e) => setQuickSearch(e.target.value)}
+                onChange={(e) => handleInputChange(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleQuickSearch(); }}
-                placeholder="상품번호 검색"
+                onFocus={() => { if (searchResults.length > 0) setShowDropdown(true); }}
+                placeholder="상품명 · 브랜드 검색"
                 className="w-full pl-8 pr-10 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 placeholder:text-gray-400 focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
               />
               <button
@@ -126,8 +176,66 @@ export default function MegaloadSidebar({ isOpen, onClose, badges }: MegaloadSid
                 className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 rounded-md bg-[#E31837] text-white hover:bg-red-700 transition-colors"
                 aria-label="검색"
               >
-                <Search className="w-3.5 h-3.5" />
+                {isSearching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
               </button>
+
+              {/* 검색 결과 드롭다운 */}
+              {showDropdown && (
+                <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-[320px] overflow-y-auto">
+                  {isSearching && searchResults.length === 0 && (
+                    <div className="flex items-center justify-center gap-2 py-4 text-sm text-gray-400">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      검색 중...
+                    </div>
+                  )}
+                  {!isSearching && searchResults.length === 0 && quickSearch.trim().length >= 2 && (
+                    <div className="py-4 text-center text-sm text-gray-400">
+                      검색 결과가 없습니다
+                    </div>
+                  )}
+                  {searchResults.map((result) => (
+                    <button
+                      key={result.id}
+                      type="button"
+                      onClick={() => handleResultClick(result)}
+                      className="w-full text-left px-3 py-2.5 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition-colors group"
+                    >
+                      <div className="flex items-start justify-between gap-1">
+                        <p className="text-[13px] text-gray-800 font-medium leading-tight line-clamp-2">
+                          {result.productName}
+                        </p>
+                        <ExternalLink className="w-3.5 h-3.5 text-gray-300 shrink-0 mt-0.5 group-hover:text-[#E31837] transition-colors" />
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        {result.brand && (
+                          <span className="text-[11px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
+                            {result.brand}
+                          </span>
+                        )}
+                        {result.coupangProductId && (
+                          <span className="text-[11px] text-gray-400">
+                            #{result.coupangProductId}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                  {searchResults.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowDropdown(false);
+                        router.push(`/megaload/products?search=${encodeURIComponent(quickSearch.trim())}`);
+                        setQuickSearch('');
+                        onClose();
+                      }}
+                      className="w-full text-center py-2 text-xs text-[#E31837] font-medium hover:bg-red-50 transition-colors"
+                    >
+                      상품관리에서 전체 보기 →
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

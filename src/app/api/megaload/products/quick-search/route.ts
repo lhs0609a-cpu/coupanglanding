@@ -3,20 +3,20 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
 /**
- * 퀵서치: 판매자상품명으로 검색 → 원본 소스 URL 반환
- * GET /api/megaload/products/quick-search?q=오투바이오+12595862404
+ * 퀵서치: 상품명/브랜드/상품번호로 검색 → 매칭 상품 목록 반환
+ * GET /api/megaload/products/quick-search?q=성진바이오
  */
 export async function GET(request: NextRequest) {
   try {
     const q = request.nextUrl.searchParams.get('q')?.trim();
     if (!q) {
-      return NextResponse.json({ sourceUrl: null });
+      return NextResponse.json({ results: [] });
     }
 
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      return NextResponse.json({ sourceUrl: null }, { status: 401 });
+      return NextResponse.json({ results: [] }, { status: 401 });
     }
 
     const serviceClient = await createServiceClient();
@@ -24,25 +24,32 @@ export async function GET(request: NextRequest) {
     try {
       shUserId = await ensureMegaloadUser(supabase, serviceClient, user.id);
     } catch {
-      return NextResponse.json({ sourceUrl: null }, { status: 401 });
+      return NextResponse.json({ results: [] }, { status: 401 });
     }
 
-    // 판매자상품명(product_name)으로 검색
+    // 상품명, 브랜드, 상품코드에서 검색 (최대 20개)
     const { data } = await supabase
       .from('sh_products')
-      .select('raw_data')
+      .select('id, product_name, display_name, brand, coupang_product_id, raw_data, created_at')
       .eq('megaload_user_id', shUserId)
-      .ilike('product_name', `%${q}%`)
       .neq('status', 'deleted')
+      .or(`product_name.ilike.%${q}%,display_name.ilike.%${q}%,brand.ilike.%${q}%,coupang_product_id.ilike.%${q}%`)
       .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+      .limit(20);
 
-    const rawData = data?.raw_data as Record<string, unknown> | null;
-    const sourceUrl = rawData?.sourceUrl as string | null;
+    const results = (data || []).map((item) => {
+      const raw = item.raw_data as Record<string, unknown> | null;
+      return {
+        id: item.id,
+        productName: item.product_name || item.display_name || '',
+        brand: item.brand || '',
+        coupangProductId: item.coupang_product_id || '',
+        sourceUrl: (raw?.sourceUrl as string) || null,
+      };
+    });
 
-    return NextResponse.json({ sourceUrl: sourceUrl || null });
+    return NextResponse.json({ results, total: results.length });
   } catch {
-    return NextResponse.json({ sourceUrl: null });
+    return NextResponse.json({ results: [] });
   }
 }
