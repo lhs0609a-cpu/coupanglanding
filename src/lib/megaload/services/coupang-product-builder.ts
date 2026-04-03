@@ -16,6 +16,7 @@ import type { FilledNoticeCategory } from './notice-field-filler';
 import type { ImageVariation } from './image-variation';
 import { buildRichDetailPageHtml } from './detail-page-builder';
 import { shuffleWithSeed, selectWithSeed } from './item-winner-prevention';
+import { stringToSeed } from './seeded-random';
 import { checkCompliance, containsForbiddenTerm } from './compliance-filter';
 import type { ContentBlock } from './fragment-composer';
 
@@ -262,8 +263,18 @@ export function buildCoupangProductPayload(
   const productName = displayProductName
     ? cleanProductName(displayProductName)
     : cleanProductName(rawName);
+
+  // 셀러별 고유 코드: preventionSeed(shUserId:productCode) 해시 → 4자리 hex
+  // 같은 셀러+같은 상품 = 항상 같은 코드, 다른 셀러+같은 상품 = 다른 코드
+  const sellerHash = preventionSeed
+    ? stringToSeed(preventionSeed).toString(16).slice(0, 4).toUpperCase()
+    : '';
+  const uniqueProductCode = sellerHash
+    ? `${sellerHash}-${product.productCode}`
+    : product.productCode;
+
   const resolvedSellerName = sellerProductName
-    ? cleanProductName(sellerProductName)
+    ? cleanProductName(sellerProductName.replace(product.productCode, uniqueProductCode))
     : productName;
 
   // brand: 항상 앞 2글자만 축약 (비오팜→비오, 종근당→종근, 고려은단헬스→고려)
@@ -516,7 +527,7 @@ export function buildCoupangProductPayload(
         parallelImported,
         overseasPurchased,
         pccNeeded,
-        externalVendorSku: variant.sku || `${product.productCode}_${idx + 1}`,
+        externalVendorSku: variant.sku || `${uniqueProductCode}_${idx + 1}`,
         barcode: variantBarcode,
         emptyBarcode: !variantBarcode,
         certifications: certificationList.length > 0
@@ -545,7 +556,7 @@ export function buildCoupangProductPayload(
       parallelImported,
       overseasPurchased,
       pccNeeded: String(pccNeeded),  // 쿠팡: 문자열 "true"/"false"
-      externalVendorSku: product.productCode,
+      externalVendorSku: uniqueProductCode,
       barcode: resolvedBarcode,
       emptyBarcode: !hasBarcode,
       ...((!hasBarcode) ? { emptyBarcodeReason: '상품확인불가_바코드없음사유' } : {}),
