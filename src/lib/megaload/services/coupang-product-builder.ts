@@ -287,10 +287,11 @@ export function buildCoupangProductPayload(
   // ---- 2. 대표이미지 (REPRESENTATION) ----
   // 빈 문자열/falsy 값만 제거 (preflight-placeholder URL은 프리플라이트에서 유효)
   const validMainImageUrls = mainImageUrls.filter(Boolean);
-  // 아이템위너 방지: preventionSeed가 있으면 전체 이미지 순서를 셔플
-  const orderedImageUrls = preventionSeed
-    ? shuffleWithSeed(validMainImageUrls.slice(0, 10), preventionSeed)
-    : validMainImageUrls.slice(0, 10);
+  // 아이템위너 방지: 대표이미지(1번)는 고정, 나머지만 셔플
+  const sliced = validMainImageUrls.slice(0, 10);
+  const orderedImageUrls = preventionSeed && sliced.length > 1
+    ? [sliced[0], ...shuffleWithSeed(sliced.slice(1), preventionSeed)]
+    : sliced;
   // 쿠팡: REPRESENTATION은 1개만 허용, 나머지는 DETAIL
   const images = orderedImageUrls.map((url, i) => ({
     imageOrder: i,
