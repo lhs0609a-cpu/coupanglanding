@@ -198,17 +198,29 @@ function extractPerCount(name: string, composite: CompositeResult): number | nul
 /**
  * 개당 캡슐/정 수 추출 (건강보조식품)
  *
- * ⚠️ 주의: "비타민C 1000mg 120정" → 120정만 추출
- * mg 뒤의 숫자(1000)는 성분 함량이고, 정 앞의 숫자(120)가 정제 수
- * 정/캡슐 앞의 숫자가 성분 함량 뒤에 오는지 확인
+ * ⚠️ 주의: "콘드로이친1200정 60정" → 60만 추출 (1200은 성분 함량)
+ * 상품명에 "성분명+숫자+정" 형태가 여러 번 나올 수 있음.
+ * 마지막 매칭을 사용 — 실제 정제수는 상품명 끝부분에 위치.
+ * 500 초과 숫자는 성분 함량일 가능성이 높으므로 건너뜀.
  */
 function extractTabletCount(name: string): number | null {
-  // "비타민C 1000mg 120정 3개" → 120 추출
-  // "콜라겐 2000mg 30포" → 30 추출
-  // mg/mcg는 단위 리스트에 없으므로 자연스럽게 "1000mg"는 매칭 안 됨
-  const match = name.match(/(\d+)\s*(정|캡슐|알|타블렛|소프트젤|포(?!기|인))/);
-  if (match) return parseInt(match[1], 10);
-  return null;
+  const TABLET_RE = /(\d+)\s*(정|캡슐|알|타블렛|소프트젤|포(?!기|인))/g;
+  const matches: { value: number; index: number }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = TABLET_RE.exec(name)) !== null) {
+    matches.push({ value: parseInt(m[1], 10), index: m.index });
+  }
+  if (matches.length === 0) return null;
+
+  // 500 이하인 매칭만 후보 (500 초과는 성분 함량: 콘드로이친1200, 글루코사민1500 등)
+  const reasonable = matches.filter(x => x.value <= 500);
+  if (reasonable.length > 0) {
+    // 후보 중 가장 마지막(상품명 뒤쪽) 것 사용
+    return reasonable[reasonable.length - 1].value;
+  }
+
+  // 전부 500 초과면 가장 마지막 것 사용 (실제로 대용량일 수 있음)
+  return matches[matches.length - 1].value;
 }
 
 /**
