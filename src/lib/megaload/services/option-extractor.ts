@@ -264,6 +264,51 @@ function normalizeOptionName(name: string): string {
   return name.replace(/\(택1\)\s*/g, '').trim();
 }
 
+// ─── Option value sanitization ──────────────────────────────
+
+/**
+ * 구매옵션 값을 쿠팡 API가 허용하는 형식으로 정규화한다.
+ *
+ * 핵심 규칙:
+ * - unit이 있는 옵션 (ml, g, 개 등) → 값은 **숫자만** 허용
+ *   예: "500g" → "500", "250ml" → "250"
+ * - unit이 없는 옵션 (브랜드, 색상 등) → 텍스트 허용하되 특수문자 제거
+ *
+ * 이 함수를 거치지 않고 attributes에 들어가면:
+ * "유효하지 않은 구매 옵션 값 혹은 단위가 존재합니다" 에러 발생
+ */
+function sanitizeBuyOptionValue(value: string, unit?: string): string | null {
+  if (!value || value.trim() === '') return null;
+  const trimmed = value.trim();
+
+  if (unit) {
+    // 단위가 있는 옵션 → 숫자만 추출
+    // "500g" → "500", "1.5kg" → "1500" (kg→g), "250ml" → "250"
+    const numericMatch = trimmed.match(/(\d+(?:\.\d+)?)\s*(kg|g|ml|mL|L|리터|ℓ|개|EA|ea)?/i);
+    if (numericMatch) {
+      let numVal = parseFloat(numericMatch[1]);
+      const extractedUnit = (numericMatch[2] || '').toLowerCase();
+
+      // 단위 변환: 옵션 단위와 추출된 단위가 다르면 변환
+      if (unit === 'g' && extractedUnit === 'kg') numVal *= 1000;
+      if (unit === 'ml' && (extractedUnit === 'l' || extractedUnit === '리터' || extractedUnit === 'ℓ')) numVal *= 1000;
+
+      return String(numVal);
+    }
+
+    // 순수 숫자만 있는 경우
+    const pureNum = trimmed.match(/^(\d+(?:\.\d+)?)$/);
+    if (pureNum) return pureNum[1];
+
+    // 숫자를 전혀 추출할 수 없으면 → null (이 값은 사용 불가)
+    return null;
+  }
+
+  // 단위 없는 옵션 → 텍스트 그대로 (단, 빈 값/특수문자만은 제외)
+  const cleaned = trimmed.replace(/[\x00-\x1f]/g, '').trim();
+  return cleaned || null;
+}
+
 // ─── Main extraction logic ──────────────────────────────────
 
 /**
@@ -795,7 +840,9 @@ function mapOcrSpecsToOptions(
         return normalized === buyOptName || normalized.includes(buyOptName);
       });
       if (match && !mapped.has(match.name)) {
-        mapped.set(match.name, ocrValue.trim());
+        // 단위가 있는 옵션은 숫자만 허용 → sanitize
+        const sanitized = sanitizeBuyOptionValue(ocrValue.trim(), match.unit);
+        if (sanitized) mapped.set(match.name, sanitized);
       }
     }
   }
@@ -1065,7 +1112,11 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
     for (const [optName, aiValue] of aiResults) {
       const opt = buyOpts.find(o => o.name === optName || normalizeOptionName(o.name) === optName);
       if (opt && !layer1.has(opt.name)) {
-        layer1.set(opt.name, { value: aiValue, unit: opt.unit });
+        // AI 추론 값도 sanitize — 숫자 옵션에 텍스트가 들어가는 것 방지
+        const sanitized = sanitizeBuyOptionValue(aiValue, opt.unit);
+        if (sanitized) {
+          layer1.set(opt.name, { value: sanitized, unit: opt.unit });
+        }
       }
     }
   }
