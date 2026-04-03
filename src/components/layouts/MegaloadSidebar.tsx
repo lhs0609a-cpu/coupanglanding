@@ -52,7 +52,7 @@ export default function MegaloadSidebar({ isOpen, onClose, badges }: MegaloadSid
   const [isSearching, setIsSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // 외부 클릭 시 드롭다운 닫기
   useEffect(() => {
