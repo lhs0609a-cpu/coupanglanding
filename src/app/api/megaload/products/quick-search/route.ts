@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
 /**
@@ -14,8 +14,16 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    const shUser = await ensureMegaloadUser(supabase);
-    if (!shUser) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ sourceUrl: null }, { status: 401 });
+    }
+
+    const serviceClient = await createServiceClient();
+    let shUserId: string;
+    try {
+      shUserId = await ensureMegaloadUser(supabase, serviceClient, user.id);
+    } catch {
       return NextResponse.json({ sourceUrl: null }, { status: 401 });
     }
 
@@ -23,7 +31,7 @@ export async function GET(request: NextRequest) {
     const { data } = await supabase
       .from('sh_products')
       .select('raw_data')
-      .eq('megaload_user_id', shUser.id)
+      .eq('megaload_user_id', shUserId)
       .ilike('product_name', `%${q}%`)
       .neq('status', 'deleted')
       .order('created_at', { ascending: false })

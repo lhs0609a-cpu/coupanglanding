@@ -66,6 +66,8 @@ interface BatchProduct {
   storyParagraphsOverride?: string[];
   reviewTextsOverride?: string[];
   contentBlocksOverride?: import('@/lib/megaload/services/persuasion-engine').ContentBlock[];
+  // OCR 추출 상품정보 스펙 (Layer 3)
+  ocrSpecs?: Record<string, string>;
 }
 
 interface BatchRegisterBody {

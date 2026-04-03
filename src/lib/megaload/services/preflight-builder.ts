@@ -7,7 +7,7 @@
 
 import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo, type AttributeMeta, type CertificationInfo, type OptionVariant } from './coupang-product-builder';
 import { fillNoticeFields, type NoticeCategoryMeta, type FilledNoticeCategory, type ExtractedNoticeHints } from './notice-field-filler';
-import { extractOptions, type ExtractedOptions } from './option-extractor';
+import { extractOptionsEnhanced, type ExtractedOptions } from './option-extractor';
 import { selectWithSeed } from './item-winner-prevention';
 import { createSeededRandom, stringToSeed } from './seeded-random';
 import type { PreventionConfig } from './item-winner-prevention';
@@ -42,6 +42,7 @@ export interface BuildPayloadProduct {
   adultOnly?: 'EVERYONE' | 'ADULT_ONLY';
   categoryConfidence?: number;
   categoryPath?: string;        // 카테고리 경로 (예: "뷰티>스킨>크림>넥크림")
+  ocrSpecs?: Record<string, string>;  // OCR 추출 상품정보 스펙
   displayProductNameOverride?: string;
   manufacturerOverride?: string;
   itemNameOverride?: string;
@@ -121,9 +122,17 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     ? product.reviewTextsOverride
     : aiReviewTexts;
 
-  // 구매옵션 자동 추출 — 원본 상품명에서 수량/캡슐 등을 추출 (가공된 노출상품명에는 정보 없음)
+  // 구매옵션 자동 추출 — 5-Layer Pipeline
   const optionSourceName = product.sourceName || product.name;
-  const extracted = await extractOptions(optionSourceName, product.categoryCode);
+  const extracted = await extractOptionsEnhanced({
+    productName: optionSourceName,
+    categoryCode: product.categoryCode,
+    brand: product.brand,
+    tags: product.tags,
+    description: effectiveDescription,
+    ocrSpecs: product.ocrSpecs,
+    categoryPath: product.categoryPath,
+  });
 
   // 추출된 옵션값을 notices용 hints로 변환
   const noticeHints: ExtractedNoticeHints = {};
