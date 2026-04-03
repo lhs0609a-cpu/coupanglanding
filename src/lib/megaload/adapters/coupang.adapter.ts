@@ -193,13 +193,15 @@ export class CoupangAdapter extends BaseAdapter {
   }
 
   async updateProduct(channelProductId: string, product: Record<string, unknown>) {
-    const path = `/v2/providers/seller_api/apis/api/v1/vendor/sellers/${this.vendorId}/products/${channelProductId}`;
+    // 공식 스펙: PUT /v2/providers/seller_api/apis/api/v1/marketplace/seller-products/{sellerProductId}
+    const path = `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/${channelProductId}`;
     await this.coupangApi('PUT', path, '', product);
     return { success: true };
   }
 
   async deleteProduct(channelProductId: string) {
-    const path = `/v2/providers/seller_api/apis/api/v1/vendor/sellers/${this.vendorId}/products/${channelProductId}`;
+    // 공식 스펙: DELETE /v2/providers/seller_api/apis/api/v1/marketplace/seller-products/{sellerProductId}
+    const path = `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/${channelProductId}`;
     await this.coupangApi('DELETE', path);
     return { success: true };
   }
@@ -214,13 +216,15 @@ export class CoupangAdapter extends BaseAdapter {
   }
 
   async suspendProduct(channelProductId: string) {
-    const path = `/v2/providers/seller_api/apis/api/v1/vendor/sellers/${this.vendorId}/products/${channelProductId}/suspend`;
+    // 공식 스펙: 상품 판매중지 — marketplace/seller-products 경로
+    const path = `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/${channelProductId}/suspend`;
     await this.coupangApi('PUT', path);
     return { success: true };
   }
 
   async resumeProduct(channelProductId: string) {
-    const path = `/v2/providers/seller_api/apis/api/v1/vendor/sellers/${this.vendorId}/products/${channelProductId}/resume`;
+    // 공식 스펙: 상품 판매재개 — marketplace/seller-products 경로
+    const path = `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/${channelProductId}/resume`;
     await this.coupangApi('PUT', path);
     return { success: true };
   }

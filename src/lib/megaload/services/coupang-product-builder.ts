@@ -5,7 +5,7 @@
 // 개선사항:
 // - buyOptions ↔ attributes 분리 (구매옵션은 item-level, 속성은 attributes)
 // - 멀티옵션 상품 지원 (색상×사이즈 조합 → 여러 item)
-// - KC인증 지원 (certificationListByItem)
+// - KC인증 지원 (certifications)
 // - 할인가 표시 (originalPrice ≠ salePrice)
 // - 바코드 지원
 // - deliveryMethod 오타 수정
@@ -553,10 +553,11 @@ export function buildCoupangProductPayload(
         taxType,
         parallelImported,
         overseasPurchased,
-        pccNeeded,
+        pccNeeded: String(pccNeeded),  // 스펙: 문자열 "true"/"false"
         externalVendorSku: variant.sku || `${uniqueProductCode}_${idx + 1}`,
         barcode: variantBarcode,
         emptyBarcode: !variantBarcode,
+        ...((!variantBarcode) ? { emptyBarcodeReason: '상품확인불가_바코드없음사유' } : {}),
         certifications: certificationList.length > 0
           ? certificationList
           : [{ certificationType: 'NOT_REQUIRED', certificationCode: '' }],
@@ -620,7 +621,7 @@ export function buildCoupangProductPayload(
     deliveryChargeOnReturn: deliveryInfo.deliveryChargeOnReturn,
     remoteAreaDeliverable: 'Y',
     unionDeliveryType: 'NOT_UNION_DELIVERY',
-    outboundShippingPlaceCode: deliveryInfo.outboundShippingPlaceCode,
+    outboundShippingPlaceCode: Number(deliveryInfo.outboundShippingPlaceCode) || 0,  // 스펙: Number 타입
 
     returnCenterCode: returnInfo.returnCenterCode,
     returnChargeName: returnInfo.returnChargeName || '반품지',
