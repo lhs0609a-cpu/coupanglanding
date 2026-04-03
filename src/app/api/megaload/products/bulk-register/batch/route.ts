@@ -460,11 +460,11 @@ export async function POST(req: NextRequest) {
             product_name: product.name,
             display_name: product.aiDisplayName || product.name,
             brand: product.brand || '',
-            category_id: product.categoryCode,
             status: 'active',
             raw_data: {
               sourceFolder: product.folderPath, sourcePrice: product.sourcePrice, productCode: product.productCode,
               sourceUrl: product.sourceUrl || undefined,
+              categoryCode: product.categoryCode,
               mainImageUrls, detailImageUrls, reviewImageUrls, infoImageUrls,
               aiStoryHtml: aiStoryHtml || undefined,
             },
