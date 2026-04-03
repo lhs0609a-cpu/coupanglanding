@@ -384,14 +384,37 @@ export function buildCoupangProductPayload(
   // 쿠팡 API: attributes에 필수 속성 + 구매옵션(exposed) 모두 포함
   const metaAttributes = buildAttributes(attributeMeta, attributeValues);
   // extractedBuyOptions를 attributes에 병합 (구매옵션도 attributes로 전달)
+  // ⚠️ 단위형 옵션은 "숫자+단위" 포맷만 허용 (예: "500g", "3개")
+  //    "상세페이지 참조g" 같은 텍스트+단위는 API 거부됨
   const buyOptionAttributes: { attributeTypeName: string; attributeValueName: string }[] = [];
   if (extractedBuyOptions) {
     for (const opt of extractedBuyOptions) {
       const alreadyExists = metaAttributes.some(a => a.attributeTypeName === opt.name);
       if (!alreadyExists && opt.value) {
+        let attrValue: string;
+        if (opt.unit) {
+          // 단위형: 숫자인 경우만 "숫자+단위" 포맷, 그 외는 숫자 추출 시도
+          const numMatch = opt.value.match(/^(\d+(?:\.\d+)?)$/);
+          if (numMatch) {
+            attrValue = `${numMatch[1]}${opt.unit}`;
+          } else {
+            // "상세페이지 참조" 등 텍스트 → 단위 옵션에 넣으면 API 에러
+            // 숫자 추출 시도
+            const extracted = opt.value.match(/(\d+(?:\.\d+)?)/);
+            if (extracted) {
+              attrValue = `${extracted[1]}${opt.unit}`;
+            } else {
+              // 숫자를 전혀 추출할 수 없으면 이 옵션은 스킵
+              console.warn(`[payload-builder] buyOption "${opt.name}" 값 "${opt.value}" → 단위형(${opt.unit})인데 숫자 아님 → 스킵`);
+              continue;
+            }
+          }
+        } else {
+          attrValue = opt.value;
+        }
         buyOptionAttributes.push({
           attributeTypeName: opt.name,
-          attributeValueName: opt.unit ? `${opt.value}${opt.unit}` : opt.value,
+          attributeValueName: attrValue,
         });
       }
     }
