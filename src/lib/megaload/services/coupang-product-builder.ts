@@ -404,9 +404,9 @@ export function buildCoupangProductPayload(
             if (extracted) {
               attrValue = `${extracted[1]}${opt.unit}`;
             } else {
-              // 숫자를 전혀 추출할 수 없으면 이 옵션은 스킵
-              console.warn(`[payload-builder] buyOption "${opt.name}" 값 "${opt.value}" → 단위형(${opt.unit})인데 숫자 아님 → 스킵`);
-              continue;
+              // 숫자를 전혀 추출할 수 없으면 최소값 "1" 사용 (필수옵션 누락 방지)
+              console.warn(`[payload-builder] buyOption "${opt.name}" 값 "${opt.value}" → 단위형(${opt.unit})인데 숫자 아님 → 최소값 "1${opt.unit}" 사용`);
+              attrValue = `1${opt.unit}`;
             }
           }
         } else {
@@ -490,7 +490,11 @@ export function buildCoupangProductPayload(
     for (const opt of extractedBuyOptions) {
       if (opt.name === '수량') continue;
       if (opt.unit) {
-        optParts.push(`${opt.value}${opt.unit}`);
+        // 단위형: 숫자가 있을 때만 "숫자+단위" 포맷으로 itemName에 추가
+        if (/\d/.test(opt.value)) {
+          const numMatch = opt.value.match(/(\d+(?:\.\d+)?)/);
+          if (numMatch) optParts.push(`${numMatch[1]}${opt.unit}`);
+        }
       } else if (opt.name.includes('색상') || opt.name.includes('사이즈')) {
         optParts.push(opt.value);
       }

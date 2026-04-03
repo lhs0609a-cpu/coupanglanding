@@ -461,10 +461,18 @@ export function extractOptionsFromDetails(productName: string, details: Category
       result.push({ name: opt.name, value: ext.value, unit: ext.unit });
     } else if (opt.required) {
       // 기본값으로 채움 — 쿠팡 등록 거부 방지
-      const fallback = getRequiredFallback(opt.name, productName);
+      const fallback = getRequiredFallback(opt.name, productName, opt.unit);
       if (fallback) {
-        result.push({ name: opt.name, value: fallback, unit: opt.unit });
-        warnings.push(`'${opt.name}' → 기본값 "${fallback}" 사용`);
+        // 단위형 옵션은 반드시 숫자여야 함 — 이중 안전장치
+        if (opt.unit) {
+          const numMatch = fallback.match(/(\d+(?:\.\d+)?)/);
+          const safeValue = numMatch ? numMatch[1] : '1';
+          result.push({ name: opt.name, value: safeValue, unit: opt.unit });
+          warnings.push(`'${opt.name}' → 기본값 "${safeValue}${opt.unit}" 사용`);
+        } else {
+          result.push({ name: opt.name, value: fallback, unit: opt.unit });
+          warnings.push(`'${opt.name}' → 기본값 "${fallback}" 사용`);
+        }
       } else {
         warnings.push(`필수 옵션 '${opt.name}' 값을 추출할 수 없습니다.`);
       }
@@ -478,10 +486,8 @@ export function extractOptionsFromDetails(productName: string, details: Category
     // 첫 번째 택1 옵션에 기본값 추가 (등록 실패 방지)
     const first = choose1Opts[0];
     if (first.required) {
-      const fallbackValue = first.unit === '개' ? '1'
-        : first.unit === 'g' ? '1'
-        : first.unit === 'ml' ? '1'
-        : '상세페이지 참조';
+      // 단위형 택1 옵션: 무조건 숫자 "1" (텍스트+단위 → API 에러)
+      const fallbackValue = first.unit ? '1' : '상세페이지 참조';
       result.push({ name: first.name, value: fallbackValue, unit: first.unit });
       choose1Filled = true;
       warnings.push(`'${first.name}' → 기본값 "${fallbackValue}${first.unit || ''}" 사용`);
@@ -546,8 +552,13 @@ export function extractOptionsFromDetails(productName: string, details: Category
  * 쿠팡이 허용하는 범용 값만 사용.
  * null이면 기본값 없음 → 경고만 출력.
  */
-function getRequiredFallback(optionName: string, productName: string): string | null {
+function getRequiredFallback(optionName: string, productName: string, unit?: string): string | null {
   const n = optionName.toLowerCase();
+
+  // ── 단위형 옵션 최종 안전장치 ──
+  // unit이 있는데 숫자를 추출할 수 없으면 "1" 반환 (텍스트 반환 절대 금지)
+  // "상세페이지 참조" + unit → "상세페이지 참조ml" → 쿠팡 API 에러
+  const numericFallback = unit ? '1' : null;
 
   // 색상 계열
   if (n.includes('색상') || n.includes('컬러') || n === '색') {
@@ -580,25 +591,29 @@ function getRequiredFallback(optionName: string, productName: string): string | 
   if (n === '용량') {
     const ml = extractVolumeMl(productName, { count: undefined, volume: undefined, weight: undefined });
     if (ml !== null) return String(ml);
-    return '상세페이지 참조';
+    return numericFallback;
   }
 
   // 중량 (택1이 아닌 별도 필수 — "아령 3kg" 등)
   if (n === '중량') {
     const g = extractWeightG(productName, {});
-    if (g !== null) return g >= 1000 ? (g / 1000) + 'kg' : g + 'g';
-    return '상세페이지 참조';
+    if (g !== null) {
+      // 단위에 맞게 숫자만 반환 (unit suffix 없이)
+      if (unit === 'kg') return String(g / 1000);
+      return String(g); // g 또는 기본
+    }
+    return numericFallback;
   }
 
   // 길이 (충전케이블 1m, 와이퍼 600mm 등)
   if (n.includes('길이') || n === '길이') {
     const mMatch = productName.match(/(\d+(?:\.\d+)?)\s*m(?!m|l|g|A|B|a|b|Hz)/);
-    if (mMatch) return mMatch[1] + 'm';
+    if (mMatch) return mMatch[1];
     const mmMatch = productName.match(/(\d+)\s*mm/i);
-    if (mmMatch) return mmMatch[1] + 'mm';
+    if (mmMatch) return mmMatch[1];
     const cmMatch = productName.match(/(\d+(?:\.\d+)?)\s*cm/i);
-    if (cmMatch) return cmMatch[1] + 'cm';
-    return '상세페이지 참조';
+    if (cmMatch) return cmMatch[1];
+    return numericFallback;
   }
 
   // 차종
@@ -608,23 +623,23 @@ function getRequiredFallback(optionName: string, productName: string): string | 
 
   // 사용가능인원
   if (n.includes('인원')) {
-    return '상세페이지 참조';
+    return unit ? '1' : '상세페이지 참조';
   }
 
   // 가로길이/세로길이
   if (n.includes('가로') || n.includes('세로')) {
     const dimMatch = productName.match(/(\d+)\s*[xX×]\s*(\d+)/);
     if (dimMatch) {
-      return n.includes('가로') ? dimMatch[1] + 'mm' : dimMatch[2] + 'mm';
+      return n.includes('가로') ? dimMatch[1] : dimMatch[2];
     }
-    return '상세페이지 참조';
+    return numericFallback;
   }
 
   // 신발사이즈
   if (n.includes('신발')) {
     const shoeMatch = productName.match(/(\d{3})\s*(mm)?/);
     if (shoeMatch) return shoeMatch[1];
-    return '상세페이지 참조';
+    return '250'; // 250mm 기본값 (단위형이므로 텍스트 불가)
   }
 
   // 총 수량
@@ -639,7 +654,7 @@ function getRequiredFallback(optionName: string, productName: string): string | 
     if (productName.includes('신생아')) return '신생아';
     if (productName.includes('대형')) return '대형';
     if (productName.includes('특대')) return '특대형';
-    return '상세페이지 참조';
+    return unit ? '1' : '상세페이지 참조';
   }
 
   // 주원료/원료
@@ -650,8 +665,8 @@ function getRequiredFallback(optionName: string, productName: string): string | 
   // RAM/메모리
   if (n.includes('ram') || n.includes('메모리') || n.includes('저장')) {
     const memMatch = productName.match(/(\d+)\s*(GB|TB|MB)/i);
-    if (memMatch) return memMatch[1] + memMatch[2].toUpperCase();
-    return '상세페이지 참조';
+    if (memMatch) return memMatch[1]; // 숫자만 반환, unit은 opt.unit에서
+    return numericFallback;
   }
 
   // 전구 색상
@@ -665,15 +680,18 @@ function getRequiredFallback(optionName: string, productName: string): string | 
   // 수산물/농산물 중량
   if ((n.includes('수산물') || n.includes('농산물')) && n.includes('중량')) {
     const wt = extractWeightG(productName, {});
-    if (wt !== null) return wt >= 1000 ? (wt / 1000) + 'kg' : wt + 'g';
-    return '상세페이지 참조';
+    if (wt !== null) {
+      if (unit === 'kg') return String(wt / 1000);
+      return String(wt);
+    }
+    return numericFallback;
   }
 
   // 개당 수량 (택1이 아닌 별도 필수 — 화장지 등)
   if (n === '개당 수량') {
     const pc = extractPerCount(productName, {});
     if (pc !== null) return String(pc);
-    return '상세페이지 참조';
+    return numericFallback ?? '1';
   }
 
   // 출고희망일 (절임배추 등 신선식품)
@@ -702,7 +720,8 @@ function getRequiredFallback(optionName: string, productName: string): string | 
     return '홀빈';
   }
 
-  return null;
+  // ── 매칭되지 않은 옵션: unit 여부에 따라 결정 ──
+  return numericFallback;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1149,10 +1168,18 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
     if (ext) {
       result.push({ name: opt.name, value: ext.value, unit: ext.unit });
     } else if (opt.required) {
-      const fallback = getRequiredFallback(opt.name, context.productName);
+      const fallback = getRequiredFallback(opt.name, context.productName, opt.unit);
       if (fallback) {
-        result.push({ name: opt.name, value: fallback, unit: opt.unit });
-        warnings.push(`'${opt.name}' → 기본값 "${fallback}" 사용`);
+        // 단위형 옵션은 반드시 숫자여야 함 — 이중 안전장치
+        if (opt.unit) {
+          const numMatch = fallback.match(/(\d+(?:\.\d+)?)/);
+          const safeValue = numMatch ? numMatch[1] : '1';
+          result.push({ name: opt.name, value: safeValue, unit: opt.unit });
+          warnings.push(`'${opt.name}' → 기본값 "${safeValue}${opt.unit}" 사용`);
+        } else {
+          result.push({ name: opt.name, value: fallback, unit: opt.unit });
+          warnings.push(`'${opt.name}' → 기본값 "${fallback}" 사용`);
+        }
       } else {
         warnings.push(`필수 옵션 '${opt.name}' 값을 추출할 수 없습니다.`);
       }
@@ -1164,10 +1191,8 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
     warnings.push(`택1 필수 옵션 '${choose1Names}' 중 하나도 추출할 수 없습니다.`);
     const first = choose1Opts[0];
     if (first.required) {
-      const fallbackValue = first.unit === '개' ? '1'
-        : first.unit === 'g' ? '1'
-        : first.unit === 'ml' ? '1'
-        : '상세페이지 참조';
+      // 단위형 택1 옵션: 무조건 숫자 "1" (텍스트+단위 → API 에러)
+      const fallbackValue = first.unit ? '1' : '상세페이지 참조';
       result.push({ name: first.name, value: fallbackValue, unit: first.unit });
       choose1FilledFinal = true;
       warnings.push(`'${first.name}' → 기본값 "${fallbackValue}${first.unit || ''}" 사용`);

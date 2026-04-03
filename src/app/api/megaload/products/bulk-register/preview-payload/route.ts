@@ -5,7 +5,7 @@ import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo, type AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
 import { fillNoticeFields, type NoticeCategoryMeta, type ExtractedNoticeHints } from '@/lib/megaload/services/notice-field-filler';
-import { extractOptions } from '@/lib/megaload/services/option-extractor';
+import { extractOptionsEnhanced } from '@/lib/megaload/services/option-extractor';
 
 interface PreviewRequestBody {
   product: {
@@ -93,7 +93,13 @@ export async function POST(req: NextRequest) {
 
     // 4. 구매옵션 자동 추출 — 원본 상품명에서 추출 (가공된 이름엔 수량 정보 없음)
     const optionSourceName = product.sourceName || product.name;
-    const extracted = await extractOptions(optionSourceName, product.categoryCode);
+    const extracted = await extractOptionsEnhanced({
+      productName: optionSourceName,
+      categoryCode: product.categoryCode,
+      brand: product.brand,
+      tags: product.tags,
+      description: product.description,
+    });
 
     // 추출된 옵션값을 notices용 hints로 변환
     const noticeHints: ExtractedNoticeHints = {};
