@@ -382,36 +382,48 @@ export function buildCoupangProductPayload(
 
   // ---- 5. attributes (카테고리 필수 속성 + 구매옵션) ----
   // 쿠팡 API: attributes에 필수 속성 + 구매옵션(exposed) 모두 포함
+  //
+  // 핵심: extractedBuyOptions(option-extractor에서 정확히 추출한 값)가
+  //       metaAttributes(buildAttributes 폴백값)보다 우선해야 함!
+  //       이전 버그: buildAttributes()가 "상세페이지 참조" 폴백 먼저 채움
+  //       → alreadyExists 체크로 정확한 추출값 버림 → API 에러
   const metaAttributes = buildAttributes(attributeMeta, attributeValues);
-  // extractedBuyOptions를 attributes에 병합 (구매옵션도 attributes로 전달)
-  // ⚠️ 단위형 옵션은 "숫자+단위" 포맷만 허용 (예: "500g", "3개")
-  //    "상세페이지 참조g" 같은 텍스트+단위는 API 거부됨
+
+  // extractedBuyOptions로 metaAttributes 값 교체 또는 신규 추가
   const buyOptionAttributes: { attributeTypeName: string; attributeValueName: string }[] = [];
   if (extractedBuyOptions) {
     for (const opt of extractedBuyOptions) {
-      const alreadyExists = metaAttributes.some(a => a.attributeTypeName === opt.name);
-      if (!alreadyExists && opt.value) {
-        let attrValue: string;
-        if (opt.unit) {
-          // 단위형: 숫자인 경우만 "숫자+단위" 포맷, 그 외는 숫자 추출 시도
-          const numMatch = opt.value.match(/^(\d+(?:\.\d+)?)$/);
-          if (numMatch) {
-            attrValue = `${numMatch[1]}${opt.unit}`;
-          } else {
-            // "상세페이지 참조" 등 텍스트 → 단위 옵션에 넣으면 API 에러
-            // 숫자 추출 시도
-            const extracted = opt.value.match(/(\d+(?:\.\d+)?)/);
-            if (extracted) {
-              attrValue = `${extracted[1]}${opt.unit}`;
-            } else {
-              // 숫자를 전혀 추출할 수 없으면 최소값 "1" 사용 (필수옵션 누락 방지)
-              console.warn(`[payload-builder] buyOption "${opt.name}" 값 "${opt.value}" → 단위형(${opt.unit})인데 숫자 아님 → 최소값 "1${opt.unit}" 사용`);
-              attrValue = `1${opt.unit}`;
-            }
-          }
+      if (!opt.value) continue;
+
+      // 단위형 옵션 값 포맷팅: "숫자+단위" (예: "500g", "3개")
+      let attrValue: string;
+      if (opt.unit) {
+        const numMatch = opt.value.match(/^(\d+(?:\.\d+)?)$/);
+        if (numMatch) {
+          attrValue = `${numMatch[1]}${opt.unit}`;
         } else {
-          attrValue = opt.value;
+          const extracted = opt.value.match(/(\d+(?:\.\d+)?)/);
+          if (extracted) {
+            attrValue = `${extracted[1]}${opt.unit}`;
+          } else {
+            console.warn(`[payload-builder] buyOption "${opt.name}" 값 "${opt.value}" → 단위형(${opt.unit})인데 숫자 아님 → 최소값 "1${opt.unit}" 사용`);
+            attrValue = `1${opt.unit}`;
+          }
         }
+      } else {
+        attrValue = opt.value;
+      }
+
+      // 이미 metaAttributes에 존재하면 → 폴백값을 추출값으로 교체
+      const existingIdx = metaAttributes.findIndex(a => a.attributeTypeName === opt.name);
+      if (existingIdx >= 0) {
+        const oldVal = metaAttributes[existingIdx].attributeValueName;
+        if (oldVal !== attrValue) {
+          console.log(`[payload-builder] buyOption "${opt.name}": 폴백 "${oldVal}" → 추출값 "${attrValue}" 교체`);
+        }
+        metaAttributes[existingIdx].attributeValueName = attrValue;
+      } else {
+        // 신규 추가
         buyOptionAttributes.push({
           attributeTypeName: opt.name,
           attributeValueName: attrValue,
@@ -420,6 +432,8 @@ export function buildCoupangProductPayload(
     }
   }
   const attributes = [...metaAttributes, ...buyOptionAttributes];
+  // 디버깅: 최종 attributes 로깅 (구매옵션 에러 추적)
+  console.log(`[payload-builder] attributes (${attributes.length}개): ${attributes.map(a => `${a.attributeTypeName}="${a.attributeValueName}"`).join(' | ')}`);
 
   // ---- 6. KC인증 ----
   const certificationList = certifications && certifications.length > 0
@@ -748,10 +762,13 @@ function buildAttributes(
         attributeValueName: allowedValues[0],
       });
     } else if (attr.dataType === 'TEXT' || attr.dataType === 'STRING' || attr.dataType === 'NUMBER') {
-      // 자유입력형(TEXT) 필수 속성: attributeValues가 빈 배열이어도 기본값으로 채움
-      // skip하면 쿠팡 API가 필수 속성 누락으로 등록 거부함
-      const fallbackValue = getAttributeFallback(attr.attributeTypeName);
-      console.warn(`[payload-builder] TEXT형 필수 속성 "${attr.attributeTypeName}" → "${fallbackValue}" 폴백`);
+      // 자유입력형 필수 속성: 기본값으로 채움
+      // ⚠️ 단위형 구매옵션(개당 중량/용량/수량 등)은 여기서 텍스트 폴백을 넣으면
+      //    나중에 extractedBuyOptions에서 올바른 값으로 교체됨 (buyOption 우선 로직)
+      //    하지만 extractedBuyOptions에 없는 경우를 대비해 NUMBER 타입은 "1" 사용
+      const isUnitTypeOption = attr.dataType === 'NUMBER' && isBuyOptionName(attr.attributeTypeName);
+      const fallbackValue = isUnitTypeOption ? '1' : getAttributeFallback(attr.attributeTypeName);
+      console.warn(`[payload-builder] ${attr.dataType}형 필수 속성 "${attr.attributeTypeName}" → "${fallbackValue}" 폴백`);
       attrs.push({
         attributeTypeName: attr.attributeTypeName,
         attributeValueName: fallbackValue,
@@ -759,6 +776,14 @@ function buildAttributes(
     }
   }
   return attrs;
+}
+
+/** 구매옵션(단위형) 속성명인지 판별 — 이 속성에 텍스트 폴백을 넣으면 API 에러 */
+function isBuyOptionName(attrName: string): boolean {
+  const n = attrName.toLowerCase();
+  return n.includes('개당') || n === '수량' || n === '총 수량' || n === '용량' || n === '중량'
+    || n.includes('캡슐') || n.includes('정(') || n.includes('길이')
+    || n.includes('가로') || n.includes('세로') || n.includes('신발');
 }
 
 /** TEXT/NUMBER형 필수 속성의 안전한 기본값 */
