@@ -110,16 +110,24 @@ export default function MegaloadSidebar({ isOpen, onClose, badges }: MegaloadSid
 
           {/* 상품번호 퀵서치 */}
           <div className="px-3 pt-2">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <div className="relative flex">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               <input
                 type="text"
                 value={quickSearch}
                 onChange={(e) => setQuickSearch(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleQuickSearch(); }}
                 placeholder="상품번호 검색"
-                className="w-full pl-8 pr-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 placeholder:text-gray-400 focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                className="w-full pl-8 pr-10 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 placeholder:text-gray-400 focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
               />
+              <button
+                type="button"
+                onClick={handleQuickSearch}
+                className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 rounded-md bg-[#E31837] text-white hover:bg-red-700 transition-colors"
+                aria-label="검색"
+              >
+                <Search className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
 
