@@ -394,29 +394,20 @@ export function buildCoupangProductPayload(
   const metaAttributes = buildAttributes(attributeMeta, attributeValues);
 
   // extractedBuyOptions로 metaAttributes 값 교체
-  // ⚠️ 핵심: extractedBuyOptions의 name은 coupang-cat-details.json(로컬 캐시)에서 옴
-  //          metaAttributes의 attributeTypeName은 라이브 쿠팡 API에서 옴
-  //          이름이 미세하게 다를 수 있으므로 정규화(normalize) 매칭 사용
-  //          매칭 실패 시 절대 새 attribute로 추가하지 않음 (잘못된 이름 → API 에러)
+  // 추출값이 있는 속성만 마킹 (택1 그룹 처리에 사용)
+  const extractedAttrNames = new Set<string>();
   if (extractedBuyOptions) {
     for (const opt of extractedBuyOptions) {
       if (!opt.value) continue;
 
-      // 단위형 옵션 값 포맷팅: "숫자+단위" (예: "500g", "3개")
+      // ⚠️ NUMBER 타입 구매옵션은 순수 숫자만 전송 (단위 포함 시 API 에러)
+      //    쿠팡 API: basicUnit/usableUnits로 단위를 별도 관리
+      //    예: "90" (O), "90개" (X) — "유효하지 않은 구매 옵션 값 혹은 단위" 에러
       let attrValue: string;
       if (opt.unit) {
-        const numMatch = opt.value.match(/^(\d+(?:\.\d+)?)$/);
-        if (numMatch) {
-          attrValue = `${numMatch[1]}${opt.unit}`;
-        } else {
-          const extracted = opt.value.match(/(\d+(?:\.\d+)?)/);
-          if (extracted) {
-            attrValue = `${extracted[1]}${opt.unit}`;
-          } else {
-            console.warn(`[payload-builder] buyOption "${opt.name}" 값 "${opt.value}" → 단위형(${opt.unit})인데 숫자 아님 → 최소값 "1${opt.unit}" 사용`);
-            attrValue = `1${opt.unit}`;
-          }
-        }
+        // 단위형 → 숫자만 추출
+        const numMatch = opt.value.match(/(\d+(?:\.\d+)?)/);
+        attrValue = numMatch ? numMatch[1] : '1';
       } else {
         attrValue = opt.value;
       }
@@ -439,16 +430,52 @@ export function buildCoupangProductPayload(
           console.log(`[payload-builder] buyOption "${metaAttributes[existingIdx].attributeTypeName}": 폴백 "${oldVal}" → 추출값 "${attrValue}" 교체`);
         }
         metaAttributes[existingIdx].attributeValueName = attrValue;
+        extractedAttrNames.add(metaAttributes[existingIdx].attributeTypeName);
       } else {
-        // ⚠️ metaAttributes(라이브 API)에 없는 옵션명은 추가하지 않음
-        // 잘못된 attributeTypeName을 보내면 쿠팡 API가 거부함
-        console.warn(`[payload-builder] buyOption "${opt.name}" → 라이브 API attributeMeta에 매칭 안됨 → 건너뜀 (잘못된 이름 전송 방지)`);
+        console.warn(`[payload-builder] buyOption "${opt.name}" → 라이브 API attributeMeta에 매칭 안됨 → 건너뜀`);
       }
     }
   }
+
+  // ⚠️ 택1(choose1) 그룹 처리: 같은 groupNumber의 EXPOSED 속성 중 하나만 남김
+  // 쿠팡 에러: "카테고리는 최대 3개까지 옵션생성이 가능합니다"
+  // 예: 개당 캡슐/정, 개당 중량, 개당 용량 (groupNumber="1") → 추출된 하나만 전송
+  if (attributeMeta && attributeMeta.length > 0) {
+    // groupNumber별 EXPOSED 속성 그룹 만들기
+    const exposedGroups = new Map<string, string[]>(); // groupNumber → attributeTypeName[]
+    for (const meta of attributeMeta) {
+      if (meta.exposed === 'EXPOSED' && meta.groupNumber && meta.groupNumber !== 'NONE') {
+        const group = exposedGroups.get(meta.groupNumber) || [];
+        group.push(meta.attributeTypeName);
+        exposedGroups.set(meta.groupNumber, group);
+      }
+    }
+
+    // 각 그룹에서 추출값이 있는 하나만 남기고 나머지 제거
+    for (const [groupNum, members] of exposedGroups) {
+      if (members.length <= 1) continue; // 택1이 아닌 단일 그룹
+
+      // 추출값이 있는 멤버 찾기
+      const extracted = members.filter(name => extractedAttrNames.has(name));
+      const keepName = extracted.length > 0 ? extracted[0] : members[0]; // 없으면 첫 번째 유지
+
+      // 나머지 제거
+      const removeNames = new Set(members.filter(name => name !== keepName));
+      if (removeNames.size > 0) {
+        console.log(`[payload-builder] 택1그룹 ${groupNum}: "${keepName}" 유지, ${[...removeNames].map(n => `"${n}"`).join(',')} 제거`);
+        for (let i = metaAttributes.length - 1; i >= 0; i--) {
+          if (removeNames.has(metaAttributes[i].attributeTypeName)) {
+            metaAttributes.splice(i, 1);
+          }
+        }
+      }
+    }
+  }
+
   const attributes = [...metaAttributes];
   // 디버깅: 최종 attributes 로깅 (구매옵션 에러 추적)
-  console.log(`[payload-builder] attributes (${attributes.length}개): ${attributes.map(a => `${a.attributeTypeName}="${a.attributeValueName}"`).join(' | ')}`);
+  const exposedLog = attributeMeta?.filter(m => m.exposed === 'EXPOSED').map(m => m.attributeTypeName) || [];
+  console.log(`[payload-builder] attributes (${attributes.length}개, EXPOSED=${exposedLog.length}→${attributes.filter(a => exposedLog.includes(a.attributeTypeName)).length}): ${attributes.map(a => `${a.attributeTypeName}="${a.attributeValueName}"`).join(' | ')}`);
 
   // ---- 6. KC인증 ----
   const certificationList = certifications && certifications.length > 0
