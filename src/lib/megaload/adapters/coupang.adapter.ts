@@ -445,37 +445,67 @@ export class CoupangAdapter extends BaseAdapter {
     }
   }
 
-  /** 카테고리 속성(구매옵션/필수속성) 조회 */
+  /** 카테고리 속성(구매옵션/필수속성) 조회
+   *
+   * 올바른 endpoint: category-related-metas (notices, attributes 등 모두 반환)
+   * ⚠️ 이전 버그: /vendor/categories/{code}/attributes 는 존재하지 않는 endpoint
+   *    → 항상 404 → catch에서 빈 배열 반환 → 구매옵션 미전송 → 노출제한
+   */
   async getCategoryAttributes(categoryCode: string): Promise<{
     items: {
       attributeTypeName: string;
       required: boolean;
       dataType: string;
+      basicUnit?: string;
+      usableUnits?: string[];
+      exposed?: string;
+      groupNumber?: string;
       attributeValues?: { attributeValueName: string }[];
     }[];
   }> {
-    try {
-      const path = `/v2/providers/seller_api/apis/api/v1/vendor/categories/${categoryCode}/attributes`;
-      const data = await this.coupangApi<{
-        data: {
-          attributeTypeName: string;
-          required: boolean;
-          dataType: string;
-          attributeValueList?: { attributeValueName: string }[];
-        }[];
-      }>('GET', path);
-      return {
-        items: (data.data || []).map((attr) => ({
-          attributeTypeName: attr.attributeTypeName,
-          required: attr.required,
-          dataType: attr.dataType,
-          attributeValues: attr.attributeValueList?.map((v) => ({
-            attributeValueName: v.attributeValueName,
-          })),
-        })),
-      };
-    } catch {
-      return { items: [] };
+    // 여러 엔드포인트 시도 (getNoticeCategoryFields와 동일한 전략)
+    const endpoints = [
+      `/v2/providers/seller_api/apis/api/v1/marketplace/meta/category-related-metas/display-category-codes/${categoryCode}`,
+      `/v2/providers/openapi/apis/api/v4/vendors/${this.vendorId}/categorization/meta/display-category-codes/${categoryCode}`,
+    ];
+
+    for (const path of endpoints) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const raw = await this.coupangApi<any>('GET', path);
+        const data = raw?.data || raw;
+        if (!data) continue;
+
+        const attributes = data.attributes;
+        if (attributes && Array.isArray(attributes) && attributes.length > 0) {
+          console.log(`[getCategoryAttributes] 성공: category=${categoryCode}, attributes=${attributes.length}개`);
+          return {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            items: attributes.map((attr: any) => ({
+              attributeTypeName: attr.attributeTypeName || '',
+              // API: "MANDATORY" | "OPTIONAL" → boolean
+              required: attr.required === 'MANDATORY' || attr.required === true,
+              dataType: attr.dataType || 'STRING',
+              basicUnit: attr.basicUnit,
+              usableUnits: attr.usableUnits,
+              exposed: attr.exposed,      // "EXPOSED" = 구매옵션, "NONE" = 검색속성
+              groupNumber: attr.groupNumber, // 택1 그룹 번호 ("1", "2", "NONE")
+              // inputValues → attributeValues (ENUM형 선택지)
+              attributeValues: (attr.inputValues || attr.attributeValueList || [])
+                .map((v: { inputValue?: string; attributeValueName?: string }) => ({
+                  attributeValueName: v.inputValue || v.attributeValueName || '',
+                }))
+                .filter((v: { attributeValueName: string }) => v.attributeValueName),
+            })),
+          };
+        }
+      } catch (e) {
+        console.log(`[getCategoryAttributes] ${path.split('/').slice(-2).join('/')}: 에러=${e instanceof Error ? e.message.slice(0, 100) : 'unknown'}`);
+        continue;
+      }
     }
+
+    console.warn(`[getCategoryAttributes] 모든 엔드포인트 실패: categoryCode=${categoryCode}`);
+    return { items: [] };
   }
 }

@@ -48,6 +48,10 @@ export interface AttributeMeta {
   attributeTypeName: string;
   required: boolean;
   dataType: string;
+  basicUnit?: string;       // API 기본 단위 (예: "개", "g", "ml")
+  usableUnits?: string[];   // 사용 가능 단위 목록
+  exposed?: string;         // "EXPOSED" = 구매옵션, "NONE" = 검색속성
+  groupNumber?: string;     // 택1 그룹 번호 ("1", "2", "NONE")
   attributeValues?: { attributeValueName: string }[];
 }
 
