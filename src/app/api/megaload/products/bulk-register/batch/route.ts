@@ -446,6 +446,24 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // 5.6 attributeMeta가 비어있으면 쿠팡 API에서 직접 재조회
+      // (init-job에서 getCategoryAttributes 실패 시 빈 배열 → 구매옵션 미전송 → API 에러)
+      if (!product.attributeMeta || product.attributeMeta.length === 0) {
+        try {
+          console.log(`[batch] attributeMeta 비어있음 → 재조회: category=${product.categoryCode}`);
+          const attrResult = await coupangAdapter.getCategoryAttributes(product.categoryCode);
+          if (attrResult.items.length > 0) {
+            product.attributeMeta = attrResult.items;
+            const exposedCount = attrResult.items.filter(a => a.exposed === 'EXPOSED').length;
+            console.log(`[batch] attributeMeta 재조회 성공: ${attrResult.items.length}개 속성 (EXPOSED=${exposedCount})`);
+          } else {
+            console.warn(`[batch] attributeMeta 재조회했으나 비어있음 → 구매옵션 없는 카테고리이거나 API 오류`);
+          }
+        } catch (e) {
+          console.warn(`[batch] attributeMeta 재조회 실패:`, e instanceof Error ? e.message : e);
+        }
+      }
+
       // 6~9. 공유 빌더로 페이로드 빌드 (옵션 추출, 고시정보, 아이템위너 방지 포함)
       const { payload } = await buildProductPayload({
         product,

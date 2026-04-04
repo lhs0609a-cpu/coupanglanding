@@ -139,7 +139,12 @@ export class CoupangAdapter extends BaseAdapter {
     const noticeSample = Array.isArray(notices) && notices.length > 0
       ? (notices as Record<string, string>[]).map(n => `${n.noticeCategoryName}::"${n.noticeCategoryDetailName}"`).join(' | ')
       : 'EMPTY';
-    console.log(`[createProduct][v8] category=${product.displayCategoryCode}, items=${items?.length || 0}, images=${images.length}, notices=${noticeCount}, fields=[${noticeSample}]`);
+    // attributes 로깅 — 구매옵션 디버깅용
+    const attrs = (firstItem as Record<string,unknown>).attributes as { attributeTypeName: string; attributeValueName: string }[] | undefined;
+    const attrSummary = Array.isArray(attrs) && attrs.length > 0
+      ? attrs.map(a => `${a.attributeTypeName}="${a.attributeValueName}"`).join(' | ')
+      : 'NONE';
+    console.log(`[createProduct][v9] category=${product.displayCategoryCode}, items=${items?.length || 0}, images=${images.length}, notices=${noticeCount}, attrs=${attrs?.length || 0}=[${attrSummary}], fields=[${noticeSample}]`);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const raw = await this.coupangApi<any>('POST', path, '', product);
@@ -153,17 +158,30 @@ export class CoupangAdapter extends BaseAdapter {
     // 에러 응답 체크
     if (code === 'ERROR' || (!innerData && innerData !== 0)) {
       const msg = outer.message || outer.details || JSON.stringify(outer).slice(0, 500);
+      const itms = (product as Record<string, unknown>).items as Record<string, unknown>[] | undefined;
+
+      // 구매옵션 에러일 때 attributes 상태를 포함 (디버깅 핵심)
+      const isBuyOptionErr = /구매\s*옵션|option.*value|option.*unit/i.test(msg);
+      const buyOptionInfo = isBuyOptionErr
+        ? (() => {
+            const firstAttrs = itms?.[0]?.attributes as { attributeTypeName: string; attributeValueName: string }[] | undefined;
+            const attrStr = firstAttrs
+              ? firstAttrs.map(a => `${a.attributeTypeName}="${a.attributeValueName}"`).join(', ')
+              : 'NONE';
+            return ` [attrs=${attrStr}|category=${(product as Record<string, unknown>).displayCategoryCode}]`;
+          })()
+        : '';
+
       // 고시정보 에러일 때 payload의 notices 상태를 포함
       const isNotice = /고시정보|notices|subschema/i.test(msg);
       const noticesInfo = isNotice
         ? (() => {
-            const itms = (product as Record<string, unknown>).items as Record<string, unknown>[] | undefined;
             const firstNotices = itms?.[0]?.notices;
             const noticeStr = firstNotices !== undefined ? JSON.stringify(firstNotices).slice(0, 200) : 'KEY_ABSENT';
             return ` [v7|notices=${noticeStr}|category=${(product as Record<string, unknown>).displayCategoryCode}]`;
           })()
         : '';
-      throw new Error(`쿠팡 API 오류 (${code}): ${msg}${noticesInfo}`);
+      throw new Error(`쿠팡 API 오류 (${code}): ${msg}${buyOptionInfo}${noticesInfo}`);
     }
 
     // 중첩 응답 처리: data가 객체면 내부 data 추출

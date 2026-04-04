@@ -393,6 +393,15 @@ export function buildCoupangProductPayload(
   //       → alreadyExists 체크로 정확한 추출값 버림 → API 에러
   const metaAttributes = buildAttributes(attributeMeta, attributeValues);
 
+  // ⚠️ attributeMeta 비어있으면 경고 (구매옵션 미전송 → API 에러 가능)
+  if (!attributeMeta || attributeMeta.length === 0) {
+    console.error(`[payload-builder] 🚨 attributeMeta 비어있음! 카테고리=${categoryCode} → 구매옵션/필수속성 미전송 → API 에러 가능`);
+  } else if (metaAttributes.length === 0) {
+    const exposedCount = attributeMeta.filter(a => a.exposed === 'EXPOSED').length;
+    const mandatoryCount = attributeMeta.filter(a => a.required).length;
+    console.error(`[payload-builder] 🚨 buildAttributes 결과 0개! meta=${attributeMeta.length}개(EXPOSED=${exposedCount}, MANDATORY=${mandatoryCount}) → 필터링 로직 확인 필요`);
+  }
+
   // extractedBuyOptions로 metaAttributes 값 교체
   // 추출값이 있는 속성만 마킹 (택1 그룹 처리에 사용)
   const extractedAttrNames = new Set<string>();
