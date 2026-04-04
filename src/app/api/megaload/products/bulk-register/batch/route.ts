@@ -14,6 +14,101 @@ import { classifyError } from '@/lib/megaload/services/error-classifier';
 import type { DetailedError } from '@/components/megaload/bulk/types';
 import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import { generateVariationParams, type VariationParams } from '@/lib/megaload/services/server-image-variation';
+import { detectImageFormat, getImageDimensions } from '@/lib/megaload/services/image-processor';
+import { randomUUID } from 'crypto';
+
+/**
+ * 서버사이드 이미지 규격 게이트 — 쿠팡 전송 전 최종 방어
+ * 쿠팡: 최소 500×500, 최대 5000×5000, 최대 10MB
+ * 규격 밖이면 jimp로 리사이징 + 재업로드, 규격 내면 원본 URL 반환
+ */
+async function ensureImageSpec(
+  url: string,
+  megaloadUserId: string,
+  serviceClient: { storage: { from: (b: string) => { upload: (p: string, body: Buffer, opts?: Record<string, unknown>) => Promise<{ data: { path: string } | null; error: { message: string } | null }>; getPublicUrl: (p: string) => { data: { publicUrl: string } } } } },
+): Promise<string> {
+  if (!url || url.startsWith('preflight-placeholder://')) return url;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return url;
+    let buffer = Buffer.from(await res.arrayBuffer());
+
+    const format = detectImageFormat(buffer);
+    const dims = getImageDimensions(buffer, format);
+
+    const dimUnknown = dims.width === 0 || dims.height === 0;
+    const needsUpscale = !dimUnknown && (dims.width < 500 || dims.height < 500);
+    const needsDownscale = dims.width > 5000 || dims.height > 5000;
+    const needsCompress = buffer.length > 10 * 1024 * 1024;
+
+    if (!dimUnknown && !needsUpscale && !needsDownscale && !needsCompress) {
+      return url; // 규격 내 — 원본 유지
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let Jimp: any;
+    try {
+      Jimp = (await import('jimp')).default || (await import('jimp'));
+    } catch {
+      console.warn('[ensureImageSpec] jimp 미설치 — 원본 반환');
+      return url;
+    }
+
+    let image = await Jimp.read(buffer);
+    const jW: number = image.getWidth?.() ?? image.bitmap?.width ?? 0;
+    const jH: number = image.getHeight?.() ?? image.bitmap?.height ?? 0;
+    const w = dims.width || jW;
+    const h = dims.height || jH;
+
+    if (w > 0 && h > 0 && (w < 500 || h < 500)) {
+      const scale = Math.max(800 / w, 800 / h);
+      image = image.resize(Math.round(w * scale), Math.round(h * scale));
+    } else if (w > 5000 || h > 5000) {
+      const scale = Math.min(4500 / w, 4500 / h);
+      image = image.resize(Math.round(w * scale), Math.round(h * scale));
+    }
+
+    const MIME_JPEG = Jimp.MIME_JPEG || 'image/jpeg';
+    let quality = 92;
+    let outBuf = await image.quality(quality).getBufferAsync(MIME_JPEG);
+    while (outBuf.length > 10 * 1024 * 1024 && quality > 40) {
+      quality -= 10;
+      outBuf = await image.quality(quality).getBufferAsync(MIME_JPEG);
+    }
+
+    // 리사이징된 이미지 재업로드
+    const newBuffer = Buffer.from(outBuf);
+    const storagePath = `megaload/${megaloadUserId}/resized/${randomUUID()}.jpg`;
+    const bucket = serviceClient.storage.from('product-images');
+    const { data, error } = await bucket.upload(storagePath, newBuffer, {
+      contentType: 'image/jpeg',
+      cacheControl: '31536000',
+      upsert: false,
+    });
+
+    if (error || !data) {
+      console.warn(`[ensureImageSpec] 재업로드 실패: ${error?.message} — 원본 반환`);
+      return url;
+    }
+
+    const { data: pub } = bucket.getPublicUrl(storagePath);
+    console.log(`[ensureImageSpec] 리사이징: ${w}×${h} → 규격 내 (${pub.publicUrl})`);
+    return pub.publicUrl;
+  } catch (err) {
+    console.warn(`[ensureImageSpec] 실패 — 원본 반환:`, err instanceof Error ? err.message : err);
+    return url;
+  }
+}
+
+/** mainImageUrls 전체를 병렬 검증+리사이징 */
+async function ensureAllImageSpecs(
+  urls: string[],
+  megaloadUserId: string,
+  serviceClient: Parameters<typeof ensureImageSpec>[2],
+): Promise<string[]> {
+  return Promise.all(urls.map(url => ensureImageSpec(url, megaloadUserId, serviceClient)));
+}
 
 interface BatchProduct {
   uid?: string;
@@ -295,6 +390,10 @@ export async function POST(req: NextRequest) {
         offset += reviewPaths.length;
         infoImageUrls = allUrls.slice(offset, offset + product.infoImages.length).filter(Boolean);
       }
+
+      // 서버사이드 이미지 규격 게이트 — 쿠팡 전송 전 최종 방어 (모든 경로 100% 커버)
+      mainImageUrls = await ensureAllImageSpecs(mainImageUrls, shUserId, serviceClient);
+      mainImageUrls = mainImageUrls.filter(Boolean);
 
       console.log(`[batch] ${product.productCode} 이미지 URL: main=${mainImageUrls.length}, detail=${detailImageUrls.length}, review=${reviewImageUrls.length}, info=${infoImageUrls.length}, preUploaded=${!!product.preUploadedUrls}`);
 

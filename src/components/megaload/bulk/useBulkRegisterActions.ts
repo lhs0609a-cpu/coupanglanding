@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { pickAndScanFolder, uploadScannedImages, uploadScannedImagesWithVariation, uploadSingleImage, rescanMainImages, type ScannedImageFile } from '@/lib/megaload/services/client-folder-scanner';
+import { pickAndScanFolder, uploadScannedImages, uploadScannedImagesWithVariation, uploadSingleImage, compressImage, rescanMainImages, type ScannedImageFile } from '@/lib/megaload/services/client-folder-scanner';
 import { validateProductLocal } from '@/lib/megaload/services/product-validator';
 import type {
   EditableProduct, PriceBracket, ShippingPlace, ReturnCenter,
@@ -1146,7 +1146,8 @@ export function useBulkRegisterActions() {
           const task = allTasks[idx];
           try {
             const file = await task.img.handle.getFile();
-            const url = await uploadSingleImage(file, task.img.name);
+            const compressed = await compressImage(file);
+            const url = await uploadSingleImage(compressed, task.img.name);
             productUrlMap[task.uid][task.imgIndex] = url;
           } catch { /* 실패 시 빈 문자열 */ }
           completed++;

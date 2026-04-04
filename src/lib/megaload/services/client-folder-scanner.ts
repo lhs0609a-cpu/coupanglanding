@@ -275,7 +275,7 @@ const UPLOAD_JPEG_QUALITY = 0.75;  // 파일 크기 제한 (Supabase 5MB, Vercel
  * 이미지를 canvas로 리사이즈 (최소 500x500, 최대 1200px)
  * 모든 이미지를 canvas를 통해 처리하여 쿠팡 최소 크기를 보장
  */
-async function compressImage(file: File | Blob): Promise<Blob> {
+export async function compressImage(file: File | Blob): Promise<Blob> {
   return new Promise((resolve) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
