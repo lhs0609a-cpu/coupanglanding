@@ -86,6 +86,17 @@ const NOISE = new Set([
   '참조', '상세참조', '페이지참조',
 ]);
 
+// 광고 모델 / 연예인 / 인플루언서 이름 — 노출상품명에 포함 시 IP 리스크
+const CELEBRITY_NAMES = new Set([
+  // 건강기능식품·홈쇼핑 광고 모델
+  '이서진', '정우성', '전지현', '손예진', '공유', '김연아', '박서준',
+  '송중기', '이민호', '차은우', '김수현', '현빈', '박보검', '송혜교',
+  '유재석', '이광수', '김종국', '하하', '강호동', '이승기', '임영웅',
+  '장민호', '영탁', '이찬원', '김희선', '고현정', '김태희', '한가인',
+  '전현무', '백종원', '안성재', '류수영', '정해인', '위너', '방탄소년단',
+  '블랙핑크', '아이유', '수지', '설현', '아이린', '제니', '지수',
+]);
+
 /** 토큰 분할 전에 제거할 복합 구문 (공백 포함 패턴) */
 const NOISE_PHRASES = /상세\s*페이지\s*참조|상품\s*상세\s*참조|상세\s*설명\s*참조|본문\s*참조|상페\s*참조|이미지\s*참조/gi;
 
@@ -209,6 +220,15 @@ export function classifyTokens(
   const { specs, cleaned } = extractSpecs(originalName);
   const tokens = tokenize(cleaned);
   const brandLower = brand.toLowerCase();
+  // 브랜드명을 서브토큰으로도 분해 (예: "안국건강" → ["안국건강"], "LG생활건강" → ["lg생활건강", "lg", "생활건강"])
+  const brandSubTokens = new Set<string>();
+  if (brandLower.length >= 2) {
+    brandSubTokens.add(brandLower);
+    // 공백/특수문자로 분리된 서브토큰
+    for (const sub of brandLower.split(/[\s\/·]+/).filter(s => s.length >= 2)) {
+      brandSubTokens.add(sub);
+    }
+  }
 
   // v4.3: 비상품 카테고리 판별 (도서/미디어 → synonym TYPE 매칭 스킵)
   const topCategory = categoryPath.split('>')[0]?.trim() || '';
@@ -245,8 +265,8 @@ export function classifyTokens(
   for (const term of sortedIngredients) {
     const termLower = term.toLowerCase();
     if (classified.has(termLower)) continue;
-    // v4.3: 브랜드명과 동일한 풀 키워드 스킵 (예: 브랜드="엘라스틴" → "엘라스틴" 성분 스킵)
-    if (brandLower.length >= 2 && termLower === brandLower) continue;
+    // v4.3+: 브랜드명/서브토큰과 동일한 풀 키워드 스킵
+    if (brandSubTokens.has(termLower)) continue;
     if (!matchesWholeUnit(originalLower, termLower)) continue;
     // 이미 매칭된 더 긴 키워드의 substring인지 확인 (예: "비타민" ⊂ "비타민C")
     let isSubOfMatched = false;
@@ -262,8 +282,8 @@ export function classifyTokens(
   for (const term of sortedFeatures) {
     const termLower = term.toLowerCase();
     if (classified.has(termLower)) continue;
-    // v4.3: 브랜드명과 동일한 풀 키워드 스킵
-    if (brandLower.length >= 2 && termLower === brandLower) continue;
+    // v4.3+: 브랜드명/서브토큰과 동일한 풀 키워드 스킵
+    if (brandSubTokens.has(termLower)) continue;
     if (!matchesWholeUnit(originalLower, termLower)) continue;
     let isSubOfMatched = false;
     for (const existing of classified) {
@@ -308,8 +328,13 @@ export function classifyTokens(
       if (isType) continue;
     }
 
-    if (lower === brandLower || brandLower.includes(lower) ||
+    // 브랜드 필터 (양방향 + 서브토큰)
+    if (brandSubTokens.has(lower) || brandLower.includes(lower) ||
+        lower.includes(brandLower) ||
         (brandLower.length >= 2 && lower.startsWith(brandLower) && lower.length <= brandLower.length + 3)) continue;
+
+    // 연예인/모델명 필터 — IP 리스크 방지
+    if (CELEBRITY_NAMES.has(token)) continue;
 
     // 성분 매칭 (풀 사전 기반) — 브랜드 제외 후 실행
     if (ingredientSet.has(lower)) {
@@ -511,9 +536,22 @@ export function generateDisplayName(
   // 서브워드 중복 방지: "IT 전문서" + "IT 모바일" → "IT" 중복 감지
   const usedSubWords = new Map<string, number>();
 
+  // 브랜드 서브토큰 세트 (classifyTokens와 동일 로직)
+  const brandLowerGen = brand.toLowerCase();
+  const brandSubTokensGen = new Set<string>();
+  if (brandLowerGen.length >= 2) {
+    brandSubTokensGen.add(brandLowerGen);
+    for (const sub of brandLowerGen.split(/[\s\/·]+/).filter(s => s.length >= 2)) {
+      brandSubTokensGen.add(sub);
+    }
+  }
+
   const addToken = (word: string): boolean => {
     const lower = word.toLowerCase();
     if (usedWords.has(lower)) return false;
+    // 2차 방어: 브랜드/연예인이 descriptor로 빠져나온 경우 차단
+    if (brandSubTokensGen.has(lower) || brandLowerGen.includes(lower) || lower.includes(brandLowerGen)) return false;
+    if (CELEBRITY_NAMES.has(word)) return false;
     // 서브워드 중복 체크: 개별 단어가 이미 사용되었으면 스킵
     const subWords = lower.split(/[\/\s]+/).filter(w => w.length >= 2);
     for (const sw of subWords) {
