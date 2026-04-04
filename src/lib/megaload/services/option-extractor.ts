@@ -259,9 +259,11 @@ function extractColor(name: string): string | null {
 
 // ─── Option name normalization ──────────────────────────────
 
-/** 택1 그룹 이름에서 "(택1)" 제거 */
+/** 택1 그룹 이름에서 "(택1)" 제거 + "총 수량" → "수량" 동의어 처리 */
 function normalizeOptionName(name: string): string {
-  return name.replace(/\(택1\)\s*/g, '').trim();
+  let n = name.replace(/\(택\d+\)\s*/g, '').trim();
+  if (n === '총 수량') n = '수량';
+  return n;
 }
 
 // ─── Option value sanitization ──────────────────────────────
@@ -354,7 +356,7 @@ export function extractOptionsFromDetails(productName: string, details: Category
     const unit = opt.unit;
     let value: string | null = null;
 
-    if (name === '수량' && unit === '개') {
+    if ((name === '수량' || name === '총 수량') && unit === '개') {
       value = String(extractCount(productName, composite));
     } else if (name === '개당 용량' && unit === 'ml') {
       const ml = extractVolumeMl(productName, composite);

@@ -389,8 +389,11 @@ export function buildCoupangProductPayload(
   //       → alreadyExists 체크로 정확한 추출값 버림 → API 에러
   const metaAttributes = buildAttributes(attributeMeta, attributeValues);
 
-  // extractedBuyOptions로 metaAttributes 값 교체 또는 신규 추가
-  const buyOptionAttributes: { attributeTypeName: string; attributeValueName: string }[] = [];
+  // extractedBuyOptions로 metaAttributes 값 교체
+  // ⚠️ 핵심: extractedBuyOptions의 name은 coupang-cat-details.json(로컬 캐시)에서 옴
+  //          metaAttributes의 attributeTypeName은 라이브 쿠팡 API에서 옴
+  //          이름이 미세하게 다를 수 있으므로 정규화(normalize) 매칭 사용
+  //          매칭 실패 시 절대 새 attribute로 추가하지 않음 (잘못된 이름 → API 에러)
   if (extractedBuyOptions) {
     for (const opt of extractedBuyOptions) {
       if (!opt.value) continue;
@@ -415,23 +418,31 @@ export function buildCoupangProductPayload(
       }
 
       // 이미 metaAttributes에 존재하면 → 폴백값을 추출값으로 교체
-      const existingIdx = metaAttributes.findIndex(a => a.attributeTypeName === opt.name);
+      // 1차: 정확히 일치
+      let existingIdx = metaAttributes.findIndex(a => a.attributeTypeName === opt.name);
+      // 2차: 정규화 매칭 (택1 제거, 공백 정리, 수량↔총 수량 등)
+      if (existingIdx < 0) {
+        const normalizedOpt = normalizeAttrName(opt.name);
+        existingIdx = metaAttributes.findIndex(a => normalizeAttrName(a.attributeTypeName) === normalizedOpt);
+        if (existingIdx >= 0) {
+          console.log(`[payload-builder] buyOption 이름 정규화 매칭: "${opt.name}" → API명 "${metaAttributes[existingIdx].attributeTypeName}"`);
+        }
+      }
+
       if (existingIdx >= 0) {
         const oldVal = metaAttributes[existingIdx].attributeValueName;
         if (oldVal !== attrValue) {
-          console.log(`[payload-builder] buyOption "${opt.name}": 폴백 "${oldVal}" → 추출값 "${attrValue}" 교체`);
+          console.log(`[payload-builder] buyOption "${metaAttributes[existingIdx].attributeTypeName}": 폴백 "${oldVal}" → 추출값 "${attrValue}" 교체`);
         }
         metaAttributes[existingIdx].attributeValueName = attrValue;
       } else {
-        // 신규 추가
-        buyOptionAttributes.push({
-          attributeTypeName: opt.name,
-          attributeValueName: attrValue,
-        });
+        // ⚠️ metaAttributes(라이브 API)에 없는 옵션명은 추가하지 않음
+        // 잘못된 attributeTypeName을 보내면 쿠팡 API가 거부함
+        console.warn(`[payload-builder] buyOption "${opt.name}" → 라이브 API attributeMeta에 매칭 안됨 → 건너뜀 (잘못된 이름 전송 방지)`);
       }
     }
   }
-  const attributes = [...metaAttributes, ...buyOptionAttributes];
+  const attributes = [...metaAttributes];
   // 디버깅: 최종 attributes 로깅 (구매옵션 에러 추적)
   console.log(`[payload-builder] attributes (${attributes.length}개): ${attributes.map(a => `${a.attributeTypeName}="${a.attributeValueName}"`).join(' | ')}`);
 
@@ -502,7 +513,7 @@ export function buildCoupangProductPayload(
   if (extractedBuyOptions && extractedBuyOptions.length > 0) {
     const optParts: string[] = [];
     for (const opt of extractedBuyOptions) {
-      if (opt.name === '수량') continue;
+      if (opt.name === '수량' || opt.name === '총 수량') continue;
       if (opt.unit) {
         // 단위형: 숫자가 있을 때만 "숫자+단위" 포맷으로 itemName에 추가
         if (/\d/.test(opt.value)) {
@@ -776,6 +787,22 @@ function buildAttributes(
     }
   }
   return attrs;
+}
+
+/**
+ * 속성명 정규화 — 로컬 캐시명과 라이브 API명의 미세 차이를 흡수
+ * 예: "개당 캡슐/정(택1)" → "개당 캡슐/정"
+ *     "총 수량" → "수량"
+ *     " 수량 " → "수량"
+ */
+function normalizeAttrName(name: string): string {
+  let n = name
+    .replace(/\(택\d+\)\s*/g, '')   // "(택1)" 등 제거
+    .replace(/\s+/g, ' ')            // 다중 공백 정리
+    .trim();
+  // "총 수량" ↔ "수량" 동의어
+  if (n === '총 수량') n = '수량';
+  return n;
 }
 
 /** 구매옵션(단위형) 속성명인지 판별 — 이 속성에 텍스트 폴백을 넣으면 API 에러 */
