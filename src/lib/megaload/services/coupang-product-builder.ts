@@ -402,34 +402,40 @@ export function buildCoupangProductPayload(
 
       // 쿠팡 공식 스펙: NUMBER 타입 attributeValueName = "숫자+단위" 형식 필수
       //   예: "90정" (O), "1개" (O), "200ml" (O), "90" (X — 단위 누락)
-      //   단위는 API의 basicUnit 또는 usableUnits 중 하나여야 함
+      //   ⚠️ 단위는 반드시 usableUnits 배열 안에 있어야 유효!
+      //      basicUnit이 usableUnits에 없으면 사용 불가 (검증 에러 발생)
       let attrValue: string;
 
       // 매칭되는 attributeMeta 찾기 (단위 정보 참조)
       const matchedMeta = attributeMeta?.find(m => m.attributeTypeName === opt.name)
         || attributeMeta?.find(m => normalizeAttrName(m.attributeTypeName) === normalizeAttrName(opt.name));
 
-      if (opt.unit || matchedMeta?.basicUnit) {
+      if (opt.unit || matchedMeta?.basicUnit || (matchedMeta?.usableUnits && matchedMeta.usableUnits.length > 0)) {
         // 단위형: 숫자 추출 후 유효 단위 부착
         const numMatch = opt.value.match(/(\d+(?:\.\d+)?)/);
         const numStr = numMatch ? numMatch[1] : '1';
 
-        // 유효 단위 결정: opt.unit이 API 허용 단위에 있으면 사용, 아니면 basicUnit
-        const validUnits = [
-          matchedMeta?.basicUnit || '',
-          ...(matchedMeta?.usableUnits || []),
-        ].filter(Boolean);
+        // usableUnits��� 진짜 유효 단위 ��록 — basicUnit은 usableUnits에 포함된 경우만 유효
+        const usable = matchedMeta?.usableUnits || [];
+        const basic = matchedMeta?.basicUnit || '';
+        const basicIsValid = basic && usable.includes(basic);
 
         let unit = '';
-        if (opt.unit && validUnits.includes(opt.unit)) {
+        if (opt.unit && usable.includes(opt.unit)) {
+          // 1순위: 추출된 단위�� usableUnits에 있으면 그대로 사용
           unit = opt.unit;
-        } else if (opt.unit && validUnits.length === 0) {
-          // API 메타에 단위 정보 없으면 로컬 JSON 단위 사용
+        } else if (opt.unit && basicIsValid && opt.unit === basic) {
+          // 2순위: 추출된 단위 = basicUnit이고 basicUnit이 유효하면 사용
+          unit = basic;
+        } else if (usable.length > 0) {
+          // 3순위: usableUnits 첫 번째 사용 (가장 안전)
+          unit = usable[0];
+        } else if (basic) {
+          // 4순위: usableUnits 없으면 basicUnit 사용 (레��시 카테고리)
+          unit = basic;
+        } else if (opt.unit) {
+          // 5순위: API 메타에 단위 정보 전혀 없으면 로컬 JSON 단위 사용
           unit = opt.unit;
-        } else if (matchedMeta?.basicUnit) {
-          unit = matchedMeta.basicUnit;
-        } else if (validUnits.length > 0) {
-          unit = validUnits[0];
         }
 
         attrValue = unit ? `${numStr}${unit}` : numStr;
@@ -836,7 +842,13 @@ function buildAttributes(
       });
     } else if (attr.dataType === 'NUMBER') {
       // NUMBER 타입: "숫자+단위" 폴백 (쿠팡 공식 스펙)
-      const unit = attr.basicUnit || (attr.usableUnits && attr.usableUnits[0]) || '';
+      // ⚠️ 단위는 반드시 usableUnits에 포함되어야 함!
+      //    basicUnit이 usableUnits에 없으면 사용 불가 (예: "개당 캡슐/정" basicUnit="개" usableUnits=["정","회분"])
+      const usable = attr.usableUnits || [];
+      const basic = attr.basicUnit || '';
+      const unit = (usable.length > 0)
+        ? (usable.includes(basic) ? basic : usable[0])  // usableUnits 기준으로 선택
+        : basic;  // usableUnits 없으면 basicUnit 폴백
       attrs.push({
         attributeTypeName: attr.attributeTypeName,
         attributeValueName: unit ? `1${unit}` : '1',
