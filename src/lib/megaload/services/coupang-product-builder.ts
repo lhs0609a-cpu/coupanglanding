@@ -400,14 +400,39 @@ export function buildCoupangProductPayload(
     for (const opt of extractedBuyOptions) {
       if (!opt.value) continue;
 
-      // ⚠️ NUMBER 타입 구매옵션은 순수 숫자만 전송 (단위 포함 시 API 에러)
-      //    쿠팡 API: basicUnit/usableUnits로 단위를 별도 관리
-      //    예: "90" (O), "90개" (X) — "유효하지 않은 구매 옵션 값 혹은 단위" 에러
+      // 쿠팡 공식 스펙: NUMBER 타입 attributeValueName = "숫자+단위" 형식 필수
+      //   예: "90정" (O), "1개" (O), "200ml" (O), "90" (X — 단위 누락)
+      //   단위는 API의 basicUnit 또는 usableUnits 중 하나여야 함
       let attrValue: string;
-      if (opt.unit) {
-        // 단위형 → 숫자만 추출
+
+      // 매칭되는 attributeMeta 찾기 (단위 정보 참조)
+      const matchedMeta = attributeMeta?.find(m => m.attributeTypeName === opt.name)
+        || attributeMeta?.find(m => normalizeAttrName(m.attributeTypeName) === normalizeAttrName(opt.name));
+
+      if (opt.unit || matchedMeta?.basicUnit) {
+        // 단위형: 숫자 추출 후 유효 단위 부착
         const numMatch = opt.value.match(/(\d+(?:\.\d+)?)/);
-        attrValue = numMatch ? numMatch[1] : '1';
+        const numStr = numMatch ? numMatch[1] : '1';
+
+        // 유효 단위 결정: opt.unit이 API 허용 단위에 있으면 사용, 아니면 basicUnit
+        const validUnits = [
+          matchedMeta?.basicUnit || '',
+          ...(matchedMeta?.usableUnits || []),
+        ].filter(Boolean);
+
+        let unit = '';
+        if (opt.unit && validUnits.includes(opt.unit)) {
+          unit = opt.unit;
+        } else if (opt.unit && validUnits.length === 0) {
+          // API 메타에 단위 정보 없으면 로컬 JSON 단위 사용
+          unit = opt.unit;
+        } else if (matchedMeta?.basicUnit) {
+          unit = matchedMeta.basicUnit;
+        } else if (validUnits.length > 0) {
+          unit = validUnits[0];
+        }
+
+        attrValue = unit ? `${numStr}${unit}` : numStr;
       } else {
         attrValue = opt.value;
       }
@@ -810,10 +835,11 @@ function buildAttributes(
         attributeValueName: allowedValues[0],
       });
     } else if (attr.dataType === 'NUMBER') {
-      // NUMBER 타입: 항상 숫자 폴백 (텍스트 넣으면 API 에러)
+      // NUMBER 타입: "숫자+단위" 폴백 (쿠팡 공식 스펙)
+      const unit = attr.basicUnit || (attr.usableUnits && attr.usableUnits[0]) || '';
       attrs.push({
         attributeTypeName: attr.attributeTypeName,
-        attributeValueName: '1',
+        attributeValueName: unit ? `1${unit}` : '1',
       });
     } else if (attr.dataType === 'TEXT' || attr.dataType === 'STRING') {
       attrs.push({
