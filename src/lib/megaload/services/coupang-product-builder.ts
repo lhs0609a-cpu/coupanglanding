@@ -763,11 +763,12 @@ function buildSimpleDetailHtml(imageUrls: string[], productName: string): string
 
 /**
  * 카테고리 속성 빌드
- * required 속성 중 값이 있는 것만 포함.
  *
- * 주의: buyOptions(구매옵션)는 여기에 넣지 않는다!
- * buyOptions는 item-level(itemName, unitCount 등)에서 처리.
- * attributes는 카테고리 검색 필터용 메타데이터만.
+ * items[].attributes는 구매옵션(exposed=EXPOSED)을 위한 필드.
+ * non-EXPOSED 검색속성은 포함하지 않음 — 넣으면 NUMBER에 텍스트 폴백이 들어가
+ * "유효하지 않은 구매 옵션 값 혹은 단위" 에러 발생.
+ *
+ * exposed 정보가 없는 경우(이전 캐시) → 기존 로직으로 폴백.
  */
 function buildAttributes(
   meta?: AttributeMeta[],
@@ -775,9 +776,15 @@ function buildAttributes(
 ): { attributeTypeName: string; attributeValueName: string }[] {
   if (!meta || meta.length === 0) return [];
 
+  // exposed 정보가 있으면 EXPOSED 속성만 포함 (구매옵션만)
+  const hasExposedInfo = meta.some(a => a.exposed);
+
   const attrs: { attributeTypeName: string; attributeValueName: string }[] = [];
   for (const attr of meta) {
     if (!attr.required) continue;
+
+    // EXPOSED 속성만 포함 (non-EXPOSED 검색속성은 제외)
+    if (hasExposedInfo && attr.exposed !== 'EXPOSED') continue;
 
     const userValue = values?.[attr.attributeTypeName];
     const allowedValues = attr.attributeValues?.map((v) => v.attributeValueName) || [];
@@ -798,22 +805,20 @@ function buildAttributes(
       }
     } else if (allowedValues.length > 0) {
       // 선택형 필수: 첫 번째 선택지로 폴백
-      console.warn(`[payload-builder] 필수 속성 "${attr.attributeTypeName}" 미지정 → "${allowedValues[0]}" 폴백`);
       attrs.push({
         attributeTypeName: attr.attributeTypeName,
         attributeValueName: allowedValues[0],
       });
-    } else if (attr.dataType === 'TEXT' || attr.dataType === 'STRING' || attr.dataType === 'NUMBER') {
-      // 자유입력형 필수 속성: 기본값으로 채움
-      // ⚠️ 단위형 구매옵션(개당 중량/용량/수량 등)은 여기서 텍스트 폴백을 넣으면
-      //    나중에 extractedBuyOptions에서 올바른 값으로 교체됨 (buyOption 우선 로직)
-      //    하지만 extractedBuyOptions에 없는 경우를 대비해 NUMBER 타입은 "1" 사용
-      const isUnitTypeOption = attr.dataType === 'NUMBER' && isBuyOptionName(attr.attributeTypeName);
-      const fallbackValue = isUnitTypeOption ? '1' : getAttributeFallback(attr.attributeTypeName);
-      console.warn(`[payload-builder] ${attr.dataType}형 필수 속성 "${attr.attributeTypeName}" → "${fallbackValue}" 폴백`);
+    } else if (attr.dataType === 'NUMBER') {
+      // NUMBER 타입: 항상 숫자 폴백 (텍스트 넣으면 API 에러)
       attrs.push({
         attributeTypeName: attr.attributeTypeName,
-        attributeValueName: fallbackValue,
+        attributeValueName: '1',
+      });
+    } else if (attr.dataType === 'TEXT' || attr.dataType === 'STRING') {
+      attrs.push({
+        attributeTypeName: attr.attributeTypeName,
+        attributeValueName: getAttributeFallback(attr.attributeTypeName),
       });
     }
   }
