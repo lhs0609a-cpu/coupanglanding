@@ -1570,10 +1570,11 @@ export function useBulkRegisterActions() {
       return { ...p, mainImages: newOrder };
     }));
     // Also update preupload cache (server mode only — browser mode는 cache 없음)
+    // uploadedAt도 갱신 — 재배열 후 캐시 만료로 원본 순서 폴백 방지
     setImagePreuploadCache((prev) => {
       const cached = prev[uid];
       if (!cached) return prev;
-      return { ...prev, [uid]: { ...cached, mainImageUrls: newOrder } };
+      return { ...prev, [uid]: { ...cached, mainImageUrls: newOrder, uploadedAt: Date.now() } };
     });
   }, []);
 
