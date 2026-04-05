@@ -18,6 +18,26 @@ import { detectImageFormat, getImageDimensions } from '@/lib/megaload/services/i
 import { randomUUID } from 'crypto';
 
 /**
+ * 비상품 이미지 감지 — 네이버/플랫폼 배너, 가이드, 로고 등 상품과 무관한 이미지 URL 필터
+ * 파일명 또는 URL 경로에서 패턴 매칭
+ */
+const NON_PRODUCT_URL_PATTERNS = [
+  // 네이버 플랫폼 CDN (상품 이미지가 아닌 UI/가이드 이미지)
+  /shop-phinf\.pstatic\.net/i,
+  /shopping\.pstatic\.net/i,
+  /simg\.pstatic\.net/i,
+  /ssl\.pstatic\.net.*(?:shopping|pay|store|smartstore)/i,
+  // URL 경로의 비상품 키워드
+  /\/(?:naver_?logo|n_?pay|smartstore|store_?banner|delivery_?guide|return_?guide|shopping_?guide|exchange_?guide|refund_?guide)/i,
+  // 파일명의 비상품 키워드 (업로드 후 CDN URL에 원본 파일명이 남는 경우)
+  /(?:^|[/_\-.])(banner|badge|icon|logo|watermark|stamp|footer|header|guide|naverpay|npay|smartstore|delivery_info|return_info|notice_ban)/i,
+];
+
+function isNonProductImage(url: string): boolean {
+  return NON_PRODUCT_URL_PATTERNS.some(p => p.test(url));
+}
+
+/**
  * 서버사이드 이미지 규격 게이트 — 쿠팡 전송 전 최종 방어
  * 쿠팡: 최소 500×500, 최대 5000×5000, 최대 10MB
  * 규격 밖이면 jimp로 리사이징 + 재업로드, 규격 내면 원본 URL 반환
@@ -389,6 +409,13 @@ export async function POST(req: NextRequest) {
         reviewImageUrls = allUrls.slice(offset, offset + reviewPaths.length).filter(Boolean);
         offset += reviewPaths.length;
         infoImageUrls = allUrls.slice(offset, offset + product.infoImages.length).filter(Boolean);
+      }
+
+      // 기타이미지(info) 네이버/플랫폼 비상품 이미지 필터 — 상품과 무관한 배너/가이드/로고 제거
+      const prevInfoCount = infoImageUrls.length;
+      infoImageUrls = infoImageUrls.filter(url => !isNonProductImage(url));
+      if (prevInfoCount !== infoImageUrls.length) {
+        console.log(`[batch] ${product.productCode} 기타이미지 필터: ${prevInfoCount} → ${infoImageUrls.length} (${prevInfoCount - infoImageUrls.length}건 제거)`);
       }
 
       // 서버사이드 이미지 규격 게이트 — 쿠팡 전송 전 최종 방어 (모든 경로 100% 커버)

@@ -131,8 +131,17 @@ export async function scanProductFolder(folderPath: string): Promise<LocalProduc
 /**
  * 디렉토리 내 패턴에 맞는 이미지 파일 경로 목록을 반환 (정렬됨)
  */
-/** 비상품 이미지 파일명 패턴 (광고/배지/아이콘 등) */
-const AD_FILENAME_PATTERNS = /(?:^|[_\-.])(npay|naverpay|kakaopay|tosspay|payco|banner|badge|icon|logo|watermark|stamp|popup|event_banner|coupon|ad_|promotion|btn_|button_)/i;
+/** 비상품 이미지 파일명 패턴 (광고/배지/아이콘/네이버 UI 등) */
+const AD_FILENAME_PATTERNS = /(?:^|[_\-.])(npay|naverpay|naver_|naver\-|smartstore|kakaopay|tosspay|payco|banner|badge|icon|logo|watermark|stamp|popup|event_banner|coupon|ad_|promotion|btn_|button_|shopping_|store_|delivery_info|return_info|guide_|notice_ban|footer|header)/i;
+
+/** 네이버/플랫폼 비상품 이미지 URL 패턴 — CDN URL에서 감지 */
+const NAVER_NONPRODUCT_URL_PATTERNS = [
+  /shop-phinf\.pstatic\.net/i,       // 네이버 스마트스토어 공통 이미지
+  /shopping\.pstatic\.net/i,          // 네이버 쇼핑 CDN
+  /simg\.pstatic\.net/i,              // 네이버 스마트이미지
+  /ssl\.pstatic\.net.*(?:shopping|pay|store|smartstore)/i,
+  /\/(?:naver_?logo|n_?pay|smartstore|store_?banner|delivery_?guide|return_?guide|shopping_?guide)/i,
+];
 
 function collectImages(dirPath: string, pattern: RegExp): string[] {
   if (!fs.existsSync(dirPath)) return [];

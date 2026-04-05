@@ -186,8 +186,8 @@ async function collectImagesFromSubdir(
     const subHandle = await parentHandle.getDirectoryHandle(subdirName);
     const files: ScannedImageFile[] = [];
 
-    // 비상품 파일명 패턴 (광고/배지/아이콘 — 서버 collectImages와 동일)
-    const AD_PATTERN = /(?:^|[_\-.])(npay|naverpay|kakaopay|tosspay|payco|banner|badge|icon|logo|watermark|stamp|popup|event_banner|coupon|ad_|promotion|btn_|button_)/i;
+    // 비상품 파일명 패턴 (광고/배지/아이콘/네이버 UI — 서버 collectImages와 동일)
+    const AD_PATTERN = /(?:^|[_\-.])(npay|naverpay|naver_|naver\-|smartstore|kakaopay|tosspay|payco|banner|badge|icon|logo|watermark|stamp|popup|event_banner|coupon|ad_|promotion|btn_|button_|shopping_|store_|delivery_info|return_info|guide_|notice_ban|footer|header)/i;
 
     let totalFiles = 0;
     let patternSkipped = 0;
