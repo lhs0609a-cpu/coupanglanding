@@ -24,6 +24,7 @@ export interface ExtractedOptions {
 /** 5-Layer 추출을 위한 확장 컨텍스트 */
 export interface ProductContext {
   productName: string;
+  displayName?: string;               // AI 생성 노출상품명 (스펙 폴백용)
   categoryCode: string;
   brand?: string;
   tags?: string[];
@@ -218,9 +219,14 @@ function extractPerCount(name: string, composite: CompositeResult): number | nul
  *
  * ⚠️ 복용법 제외: "1일 2정", "하루 3캡슐", "매일 1정" 등은
  * 일일 복용량이지 총 정제수가 아니므로 제외한다.
+ *
+ * ⚠️ "포" 분리: 포(sachet/스틱)는 정/캡슐과 다른 포장 단위.
+ * TABLET_RE에서 제외하고 extractSachetCount()로 별도 추출.
+ * 포 단위는 수량과 곱하지 않음 (30포 3개 = 30정, 3개 ≠ 90정, 1개).
  */
 function extractTabletCount(name: string): number | null {
-  const TABLET_RE = /(\d+)\s*(정|캡슐|알|타블렛|소프트젤|포(?!기|인))/g;
+  // ⚠️ "포" 제외 — 포는 포장단위이므로 extractSachetCount()에서 별도 처리
+  const TABLET_RE = /(\d+)\s*(정|캡슐|알|타블렛|소프트젤)/g;
   // 복용법 감지: "1일", "하루", "매일", "N회" 직전의 매치는 일일 복용량
   const DOSAGE_PREFIX_RE = /(?:1일|하루|매일|일일)\s*$/;
   const DOSAGE_POSTFIX_RE = /^\s*[xX×]\s*\d+\s*(?:일|회)/;
@@ -249,6 +255,30 @@ function extractTabletCount(name: string): number | null {
   }
 
   // 전부 500 초과면 가장 마지막 것 사용 (실제로 대용량일 수 있음)
+  return matches[matches.length - 1].value;
+}
+
+/**
+ * 개당 포(sachet/스틱) 수 추출 — 정/캡슐과 별도 처리
+ *
+ * 포(sachet)는 포장 단위이므로 수량(N개)과 곱하지 않는다.
+ * "30포 3개" → 개당캡슐/정=30, 수량=3 (NOT 90정, 1개)
+ *
+ * extractTabletCount가 null일 때만 폴백으로 사용.
+ */
+function extractSachetCount(name: string): number | null {
+  const SACHET_RE = /(\d+)\s*포(?!기|인)/g;
+  const DOSAGE_PREFIX_RE = /(?:1일|하루|매일|일일)\s*$/;
+  const matches: { value: number; index: number }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = SACHET_RE.exec(name)) !== null) {
+    const prefix = name.slice(Math.max(0, m.index - 10), m.index);
+    if (DOSAGE_PREFIX_RE.test(prefix)) continue;
+    matches.push({ value: parseInt(m[1], 10), index: m.index });
+  }
+  if (matches.length === 0) return null;
+  const reasonable = matches.filter(x => x.value <= 500);
+  if (reasonable.length > 0) return reasonable[reasonable.length - 1].value;
   return matches[matches.length - 1].value;
 }
 
@@ -380,6 +410,9 @@ export function extractOptionsFromDetails(productName: string, details: Category
     return n.includes('캡슐') || n.includes('정');
   });
 
+  // 포(sachet) 여부 추적: 포 유래 값은 수량과 곱하지 않음
+  let tabletFromSachet = false;
+
   for (const opt of buyOpts) {
     const name = normalizeOptionName(opt.name);
     const unit = opt.unit;
@@ -387,18 +420,29 @@ export function extractOptionsFromDetails(productName: string, details: Category
 
     if ((name === '수량' || name === '총 수량') && unit === '개') {
       value = String(extractCount(productName, composite, hasTabletOpt));
-    } else if (name === '개당 용량' && unit === 'ml') {
+    } else if (name.includes('용량') && unit === 'ml') {
+      // "개당 용량", "최소 용량", "용량" 모두 매칭 (저장용량(MB)은 unit≠ml이므로 제외)
       const ml = extractVolumeMl(productName, composite);
       if (ml !== null) value = String(ml);
-    } else if (name === '개당 중량' && unit === 'g') {
+    } else if (name.includes('중량') && unit === 'g') {
+      // "개당 중량", "최소 중량", "중량" 모두 매칭 (농수산물 중량은 unit 없으므로 제외)
       const g = extractWeightG(productName, composite);
       if (g !== null) value = String(g);
-    } else if (name === '개당 수량' && unit === '개') {
+    } else if (name.includes('수량') && name !== '수량' && unit === '개') {
       const perCount = extractPerCount(productName, composite);
       if (perCount !== null) value = String(perCount);
     } else if (name.includes('캡슐') || name.includes('정')) {
       const tabletCount = extractTabletCount(productName);
-      if (tabletCount !== null) value = String(tabletCount);
+      if (tabletCount !== null) {
+        value = String(tabletCount);
+      } else {
+        // 정/캡슐 매치 없으면 포(sachet) 폴백 — 포 단위는 수량 곱셈 안 함
+        const sachetCount = extractSachetCount(productName);
+        if (sachetCount !== null) {
+          value = String(sachetCount);
+          tabletFromSachet = true;
+        }
+      }
     } else if (name === '사이즈' || name.includes('사이즈') || name === '크기') {
       value = extractSize(productName);
     } else if (name === '색상' || name.includes('색상') || name === '컬러' || name.includes('컬러')) {
@@ -414,7 +458,11 @@ export function extractOptionsFromDetails(productName: string, details: Category
   // 쿠팡은 "개당 캡슐/정" 값으로 단위가격을 계산함.
   // "1정 30개" → 개당캡슐/정=1, 수량=30 이면 단위가격=가격/1=전액 → 노출제한!
   // 정상: 개당캡슐/정=30(총정수), 수량=1 → 단위가격=가격/30 → 아이템위너
-  if (hasTabletOpt) {
+  //
+  // ⚠️ 포(sachet) 유래 값은 곱하지 않음!
+  // 포는 포장 단위이므로 "30포 3개" = 3개 패키지 × 30포 = 총 90포
+  // → 개당캡슐/정=30, 수량=3 (NOT 90정, 1개)
+  if (hasTabletOpt && !tabletFromSachet) {
     let tabletKey: string | null = null;
     let tabletVal = 0;
     for (const [key, entry] of extracted) {
@@ -466,12 +514,13 @@ export function extractOptionsFromDetails(productName: string, details: Category
   let choose1Filled = false;
 
   if (choose1Opts.length > 0) {
-    // 우선순위 정렬: 용량 > 캡슐/정 > 중량
-    const priority = ['개당 용량', '개당 캡슐', '개당 정', '개당 중량'];
+    // 우선순위 정렬: 용량(ml) > 캡슐/정 > 중량(g) > 수량(개)
+    // "개당 용량", "최소 용량", "용량" 모두 매칭되도록 짧은 키워드 사용
+    const priority = ['용량', '캡슐', '정', '중량', '수량'];
     const sorted = [...choose1Opts].sort((a, b) => {
-      const aIdx = priority.findIndex(p => normalizeOptionName(a.name).includes(p)) ?? 99;
-      const bIdx = priority.findIndex(p => normalizeOptionName(b.name).includes(p)) ?? 99;
-      return aIdx - bIdx;
+      const rawA = priority.findIndex(p => normalizeOptionName(a.name).includes(p));
+      const rawB = priority.findIndex(p => normalizeOptionName(b.name).includes(p));
+      return (rawA === -1 ? 99 : rawA) - (rawB === -1 ? 99 : rawB);
     });
 
     for (const opt of sorted) {
@@ -546,14 +595,17 @@ export function extractOptionsFromDetails(productName: string, details: Category
   // 예: "80매 x 10팩" → 80 × 10 = 800
   // 예: "120캡슐 2통" → 120 × 2 = 240
   // 예: "1정 30개" → 1 × 30 = 30
+  // 예: "30포 3개" → 30 × 3 = 90 (포도 dose unit으로 계산)
   const tabletCountForUnit = extractTabletCount(productName);
-  const countForUnit = composite.count || extractCount(productName, composite, tabletCountForUnit !== null);
+  const sachetCountForUnit = tabletCountForUnit === null ? extractSachetCount(productName) : null;
+  const doseCountForUnit = tabletCountForUnit ?? sachetCountForUnit;
+  const countForUnit = composite.count || extractCount(productName, composite, doseCountForUnit !== null);
   const perCount = composite.perCount || null;
 
   let totalUnitCount: number;
-  if (tabletCountForUnit !== null && tabletCountForUnit >= 1) {
-    // 건강보조식품: 정/캡슐 수 × 수량 = 총 정제 수
-    totalUnitCount = tabletCountForUnit * countForUnit;
+  if (doseCountForUnit !== null && doseCountForUnit >= 1) {
+    // 건강보조식품: 정/캡슐/포 수 × 수량 = 총 dose unit 수
+    totalUnitCount = doseCountForUnit * countForUnit;
     // 개월분 보정: "2개월 1캡슐" → 1×1=1 이지만, 2×30=60이 맞음
     if (totalUnitCount <= 1) {
       const monthMatch = productName.match(/(\d+)\s*개월/);
@@ -1039,6 +1091,9 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
     return n.includes('캡슐') || n.includes('정');
   });
 
+  // 포(sachet) 여부 추적: 포 유래 값은 수량과 곱하지 않음
+  let tabletFromSachetEnhanced = false;
+
   for (const opt of buyOpts) {
     const name = normalizeOptionName(opt.name);
     const unit = opt.unit;
@@ -1046,18 +1101,27 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
 
     if (name === '수량' && unit === '개') {
       value = String(extractCount(context.productName, composite, hasTabletOpt));
-    } else if (name === '개당 용량' && unit === 'ml') {
+    } else if (name.includes('용량') && unit === 'ml') {
       const ml = extractVolumeMl(context.productName, composite);
       if (ml !== null) value = String(ml);
-    } else if (name === '개당 중량' && unit === 'g') {
+    } else if (name.includes('중량') && unit === 'g') {
       const g = extractWeightG(context.productName, composite);
       if (g !== null) value = String(g);
-    } else if (name === '개당 수량' && unit === '개') {
+    } else if (name.includes('수량') && name !== '수량' && unit === '개') {
       const perCount = extractPerCount(context.productName, composite);
       if (perCount !== null) value = String(perCount);
     } else if (name.includes('캡슐') || name.includes('정')) {
       const tabletCount = extractTabletCount(context.productName);
-      if (tabletCount !== null) value = String(tabletCount);
+      if (tabletCount !== null) {
+        value = String(tabletCount);
+      } else {
+        // 정/캡슐 매치 없으면 포(sachet) 폴백 — 포 단위는 수량 곱셈 안 함
+        const sachetCount = extractSachetCount(context.productName);
+        if (sachetCount !== null) {
+          value = String(sachetCount);
+          tabletFromSachetEnhanced = true;
+        }
+      }
     } else if (name === '사이즈' || name.includes('사이즈') || name === '크기') {
       value = extractSize(context.productName);
     } else if (name === '색상' || name.includes('색상') || name === '컬러' || name.includes('컬러')) {
@@ -1066,6 +1130,48 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
 
     if (value !== null) {
       layer1.set(opt.name, { value, unit });
+    }
+  }
+
+  // ── Layer 1.5: displayName 폴백 (소스 상품명에서 스펙 미추출 시) ──
+  // AI 생성 노출상품명에는 "10ml, 1개", "30포, 2개" 등 정확한 스펙 포함.
+  // 소스 상품명(중국어/코드명)에 스펙 정보 없을 때 displayName으로 보완.
+  if (context.displayName && context.displayName !== context.productName) {
+    const displayComposite = extractComposite(context.displayName);
+    for (const opt of buyOpts) {
+      if (layer1.has(opt.name)) continue;
+      const name = normalizeOptionName(opt.name);
+      const unit = opt.unit;
+      let value: string | null = null;
+
+      if (name.includes('용량') && unit === 'ml') {
+        const ml = extractVolumeMl(context.displayName, displayComposite);
+        if (ml !== null) value = String(ml);
+      } else if (name.includes('중량') && unit === 'g') {
+        const g = extractWeightG(context.displayName, displayComposite);
+        if (g !== null) value = String(g);
+      } else if (name.includes('캡슐') || name.includes('정')) {
+        const tabletCount = extractTabletCount(context.displayName);
+        if (tabletCount !== null) {
+          value = String(tabletCount);
+        } else {
+          const sachetCount = extractSachetCount(context.displayName);
+          if (sachetCount !== null) {
+            value = String(sachetCount);
+            tabletFromSachetEnhanced = true;
+          }
+        }
+      } else if ((name === '수량' || name === '총 수량') && unit === '개') {
+        value = String(extractCount(context.displayName, displayComposite, hasTabletOpt));
+      } else if (name === '개당 수량' && unit === '개') {
+        const perCount = extractPerCount(context.displayName, displayComposite);
+        if (perCount !== null) value = String(perCount);
+      }
+
+      if (value !== null) {
+        layer1.set(opt.name, { value, unit });
+        warnings.push(`'${opt.name}' → displayName 폴백: "${value}${unit || ''}"`);
+      }
     }
   }
 
@@ -1103,7 +1209,8 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
   }
 
   // ── 택1 그룹 + 정/캡슐 보정 (기존 로직 재사용) ──
-  if (hasTabletOpt) {
+  // ⚠️ 포(sachet) 유래 값은 곱하지 않음 (30포 3개 → 30정,3개 NOT 90정,1개)
+  if (hasTabletOpt && !tabletFromSachetEnhanced) {
     let tabletKey: string | null = null;
     let tabletVal = 0;
     for (const [key, entry] of layer1) {
@@ -1176,11 +1283,11 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
   let choose1FilledFinal = false;
 
   if (choose1Opts.length > 0) {
-    const priority = ['개당 용량', '개당 캡슐', '개당 정', '개당 중량'];
+    const priority = ['용량', '캡슐', '정', '중량', '수량'];
     const sorted = [...choose1Opts].sort((a, b) => {
-      const aIdx = priority.findIndex(p => normalizeOptionName(a.name).includes(p)) ?? 99;
-      const bIdx = priority.findIndex(p => normalizeOptionName(b.name).includes(p)) ?? 99;
-      return aIdx - bIdx;
+      const rawA = priority.findIndex(p => normalizeOptionName(a.name).includes(p));
+      const rawB = priority.findIndex(p => normalizeOptionName(b.name).includes(p));
+      return (rawA === -1 ? 99 : rawA) - (rawB === -1 ? 99 : rawB);
     });
 
     for (const opt of sorted) {
@@ -1248,12 +1355,15 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
 
   // totalUnitCount
   const tabletCountForUnit = extractTabletCount(context.productName);
-  const countForUnit = composite.count || extractCount(context.productName, composite, tabletCountForUnit !== null);
+  const sachetCountForUnit = tabletCountForUnit === null ? extractSachetCount(context.productName) : null;
+  const doseCountForUnit = tabletCountForUnit ?? sachetCountForUnit;
+  const countForUnit = composite.count || extractCount(context.productName, composite, doseCountForUnit !== null);
   const perCount = composite.perCount || null;
 
   let totalUnitCount: number;
-  if (tabletCountForUnit !== null && tabletCountForUnit >= 1) {
-    totalUnitCount = tabletCountForUnit * countForUnit;
+  if (doseCountForUnit !== null && doseCountForUnit >= 1) {
+    // 건강보조식품: 정/캡슐/포 수 × 수량 = 총 dose unit 수
+    totalUnitCount = doseCountForUnit * countForUnit;
     if (totalUnitCount <= 1) {
       const monthMatch = context.productName.match(/(\d+)\s*개월/);
       if (monthMatch) {

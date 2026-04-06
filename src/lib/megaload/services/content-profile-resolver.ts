@@ -505,6 +505,11 @@ const HEALTH_PROFILES: Record<string, { displayName: string; variables: Record<s
   },
 };
 
+// ─── 모듈 초기화: 건강식품 인라인 프로필 즉시 등록 ──────────
+// HEALTH_PROFILES는 하드코딩 상수이므로 파일 I/O 불필요.
+// loadL1Profiles()를 거치지 않고 즉시 profileCache에 등록.
+registerHealthCodeProfiles({});
+
 // 동기 버전 (이미 로드된 경우만)
 function getProfileSync(groupId: string): ContentProfile | null {
   return profileCache.get(groupId) || null;

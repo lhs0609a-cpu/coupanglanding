@@ -126,6 +126,7 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
   const optionSourceName = product.sourceName || product.name;
   const extracted = await extractOptionsEnhanced({
     productName: optionSourceName,
+    displayName: product.name !== optionSourceName ? product.name : undefined,
     categoryCode: product.categoryCode,
     brand: product.brand,
     tags: product.tags,

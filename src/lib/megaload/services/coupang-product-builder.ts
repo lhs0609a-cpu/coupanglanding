@@ -548,7 +548,8 @@ export function buildCoupangProductPayload(
   // 건기식 안전장치: unitCount 낮으면 단가 초과로 노출제한 위험
   // 원본 상품명에서 정/캡슐 수 × 수량을 재추출 시도
   if (unitCount <= 1 && rawName) {
-    const tabletMatch = rawName.match(/(\d+)\s*(정|캡슐|알|타블렛|소프트젤|포(?!기|인)|매|장|ml|mL|g)/);
+    // 1차: 정/캡슐 등 정제형 단위 (포 제외 — 포는 포장단위)
+    const tabletMatch = rawName.match(/(\d+)\s*(정|캡슐|알|타블렛|소프트젤|매|장|ml|mL|g)/);
     if (tabletMatch) {
       const tabletNum = parseInt(tabletMatch[1], 10);
       // 수량 추출: "N개/통/팩/박스" (개입/개월 제외)
@@ -558,6 +559,17 @@ export function buildCoupangProductPayload(
       if (total > 1) {
         console.warn(`[payload-builder] ⚠️ unitCount=${unitCount} → 재추출 ${tabletNum}×${packageCount}=${total} 적용 | "${rawName}"`);
         unitCount = total;
+      }
+    }
+    // 2차: 포(sachet/스틱) — 수량과 곱하지 않음 (포장단위이므로)
+    if (unitCount <= 1) {
+      const sachetMatch = rawName.match(/(\d+)\s*포(?!기|인)/);
+      if (sachetMatch) {
+        const sachetNum = parseInt(sachetMatch[1], 10);
+        if (sachetNum > 1) {
+          console.warn(`[payload-builder] ⚠️ unitCount=${unitCount} → 포(sachet) 재추출 ${sachetNum} 적용 | "${rawName}"`);
+          unitCount = sachetNum;
+        }
       }
     }
     // 개월분 기반 추정: "2개월 1캡슐" → 1×1=1이지만 2×30=60이 맞음
