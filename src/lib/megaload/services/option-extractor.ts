@@ -443,9 +443,11 @@ export function extractOptionsFromDetails(productName: string, details: Category
           tabletFromSachet = true;
         }
       }
-    } else if (name === '사이즈' || name.includes('사이즈') || name === '크기') {
+    } else if ((name === '사이즈' || name.includes('사이즈') || name === '크기') && !opt.unit) {
+      // 단위형(cm, mm 등)은 텍스트 사이즈(S/M/L) 부적합 → unit 없는 경우만
       value = extractSize(productName);
-    } else if (name === '색상' || name.includes('색상') || name === '컬러' || name.includes('컬러')) {
+    } else if ((name === '색상' || name.includes('색상') || name === '컬러' || name.includes('컬러')) && !opt.unit) {
+      // 단위형(개 등 — "색상 수(개)")은 색상명 부적합 → unit 없는 경우만
       value = extractColor(productName);
     }
 
@@ -638,13 +640,13 @@ export function extractOptionsFromDetails(productName: string, details: Category
 function getRequiredFallback(optionName: string, productName: string, unit?: string): string | null {
   const n = optionName.toLowerCase();
 
-  // ── 단위형 옵션 최종 안전장치 ──
-  // unit이 있는데 숫자를 추출할 수 없으면 "1" 반환 (텍스트 반환 절대 금지)
-  // "상세페이지 참조" + unit → "상세페이지 참조ml" → 쿠팡 API 에러
-  const numericFallback = unit ? '1' : null;
+  // ── 기본 폴백값 ──
+  // 단위형: "1" (숫자 필수 — "상세페이지 참조ml" → API 에러 방지)
+  // 텍스트형: "상세페이지 참조" (필수 옵션 누락 → 등록 거부 방지)
+  const numericFallback = unit ? '1' : '상세페이지 참조';
 
-  // 색상 계열
-  if (n.includes('색상') || n.includes('컬러') || n === '색') {
+  // 색상 계열 (단위형 "색상 수(개)" 등은 숫자 폴백)
+  if ((n.includes('색상') || n.includes('컬러') || n === '색') && !unit) {
     const color = extractColor(productName);
     return color || '상세페이지 참조';
   }
@@ -654,8 +656,8 @@ function getRequiredFallback(optionName: string, productName: string, unit?: str
     return '자체제작';
   }
 
-  // 사이즈
-  if (n.includes('사이즈') || n.includes('크기')) {
+  // 사이즈 (단위형 "최대커버사이즈(cm)" 등은 숫자 폴백)
+  if ((n.includes('사이즈') || n.includes('크기')) && !unit) {
     const size = extractSize(productName);
     return size || 'FREE';
   }
@@ -804,7 +806,8 @@ function getRequiredFallback(optionName: string, productName: string, unit?: str
   }
 
   // ── 매칭되지 않은 옵션: unit 여부에 따라 결정 ──
-  return numericFallback;
+  // 단위형 → "1" (숫자 필수), 텍스트형 → "상세페이지 참조" (누락 방지)
+  return unit ? '1' : '상세페이지 참조';
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1122,9 +1125,11 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
           tabletFromSachetEnhanced = true;
         }
       }
-    } else if (name === '사이즈' || name.includes('사이즈') || name === '크기') {
+    } else if ((name === '사이즈' || name.includes('사이즈') || name === '크기') && !opt.unit) {
+      // 단위형(cm, mm 등)은 텍스트 사이즈(S/M/L) 부적합 → unit 없는 경우만
       value = extractSize(context.productName);
-    } else if (name === '색상' || name.includes('색상') || name === '컬러' || name.includes('컬러')) {
+    } else if ((name === '색상' || name.includes('색상') || name === '컬러' || name.includes('컬러')) && !opt.unit) {
+      // 단위형(개 등 — "색상 수(개)")은 색상명 부적합 → unit 없는 경우만
       value = extractColor(context.productName);
     }
 
@@ -1191,9 +1196,11 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
       layer1.set(opt.name, { value: layer2.origin, unit: opt.unit });
     } else if ((name.includes('모델') || name.includes('품번')) && layer2.modelName) {
       layer1.set(opt.name, { value: layer2.modelName, unit: opt.unit });
-    } else if ((name.includes('색상') || name.includes('컬러')) && layer2.color) {
+    } else if ((name.includes('색상') || name.includes('컬러')) && layer2.color && !opt.unit) {
+      // 단위형("색상 수(개)" 등)에 텍스트 색상 넣으면 API 에러
       layer1.set(opt.name, { value: layer2.color, unit: opt.unit });
-    } else if ((name.includes('사이즈') || name.includes('크기')) && layer2.size) {
+    } else if ((name.includes('사이즈') || name.includes('크기')) && layer2.size && !opt.unit) {
+      // 단위형("최대커버사이즈(cm)" 등)에 텍스트 사이즈 넣으면 API 에러
       layer1.set(opt.name, { value: layer2.size, unit: opt.unit });
     }
   }
