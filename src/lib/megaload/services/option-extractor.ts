@@ -70,20 +70,33 @@ interface CompositeResult {
 function extractComposite(name: string): CompositeResult {
   const result: CompositeResult = {};
 
-  // "NNml x N개" pattern → 용량 + 수량
-  const volumeCountMatch = name.match(/(\d+(?:\.\d+)?)\s*(ml|mL|ML|㎖)\s*[xX×]\s*(\d+)\s*(개|입|팩|봉|병|통|EA|ea)?/i);
-  if (volumeCountMatch) {
-    result.volume = { value: parseFloat(volumeCountMatch[1]), unit: 'ml' };
-    result.count = parseInt(volumeCountMatch[3], 10);
+  // ⚠️ dose 단위 감지: "Ng × 30포", "Ng × 112정" 등은 포장 구성 분해.
+  // weight/volume는 추출하되, count 숫자 뒤에 dose 단위(포/정/캡슐/알)가 오면
+  // count는 설정하지 않음 → 곱셈 폭발 방지.
+  // "5g × 120포" → weight=5g, count=undefined
+  // "500ml × 3개" → volume=500ml, count=3
+  const DOSE_UNIT_AFTER_COUNT = /^(?:포(?!기|인)|정|캡슐|알|타블렛|소프트젤)/;
+
+  // "NNml x N" pattern → 용량 (+수량)
+  const vm = name.match(/(\d+(?:\.\d+)?)\s*(ml|mL|ML|㎖)\s*[xX×]\s*(\d+)/i);
+  if (vm) {
+    result.volume = { value: parseFloat(vm[1]), unit: 'ml' };
+    const afterCount = name.slice(vm.index! + vm[0].length).trimStart();
+    if (!DOSE_UNIT_AFTER_COUNT.test(afterCount)) {
+      result.count = parseInt(vm[3], 10);
+    }
   }
 
-  // "NNg/kg x N개" pattern → 중량 + 수량
-  const weightCountMatch = name.match(/(\d+(?:\.\d+)?)\s*(g|kg|KG|㎏)\s*[xX×]\s*(\d+)\s*(개|입|팩|봉|병|통|EA|ea)?/i);
-  if (weightCountMatch) {
-    let wVal = parseFloat(weightCountMatch[1]);
-    if (/kg/i.test(weightCountMatch[2])) wVal *= 1000;
+  // "NNg/kg x N" pattern → 중량 (+수량)
+  const wm = name.match(/(\d+(?:\.\d+)?)\s*(g|kg|KG|㎏)\s*[xX×]\s*(\d+)/i);
+  if (wm) {
+    let wVal = parseFloat(wm[1]);
+    if (/kg/i.test(wm[2])) wVal *= 1000;
     result.weight = { value: wVal, unit: 'g' };
-    result.count = parseInt(weightCountMatch[3], 10);
+    const afterCount = name.slice(wm.index! + wm[0].length).trimStart();
+    if (!DOSE_UNIT_AFTER_COUNT.test(afterCount)) {
+      result.count = parseInt(wm[3], 10);
+    }
   }
 
   // "NN매 x N팩" pattern → 개당수량 + 수량 (물티슈, 마스크 등)
@@ -283,11 +296,21 @@ function extractTabletCount(name: string): number | null {
 function extractSachetCount(name: string): number | null {
   const SACHET_RE = /(\d+)\s*포(?!기|인)/g;
   const DOSAGE_PREFIX_RE = /(?:1일|하루|매일|일일)\s*$/;
+  // 복합 패턴 내 sachet 제외: "2g × 10포" (× 뒤), "10포 × 3EA" (× 앞)
+  // 이런 패턴은 포장 구성 분해이지 제품 스펙이 아님.
+  // 제품 스펙은 "30포, 3개" 형태로 × 없이 나타남.
+  const COMPOSITE_BEFORE_RE = /[xX×]\s*$/;
+  const COMPOSITE_AFTER_RE = /^\s*[xX×]/;
   const matches: { value: number; index: number }[] = [];
   let m: RegExpExecArray | null;
   while ((m = SACHET_RE.exec(name)) !== null) {
     const prefix = name.slice(Math.max(0, m.index - 10), m.index);
     if (DOSAGE_PREFIX_RE.test(prefix)) continue;
+    // "Ng × 10포" — × 뒤에 오는 sachet은 포장 분해
+    if (COMPOSITE_BEFORE_RE.test(prefix)) continue;
+    // "10포 × 3EA" — × 앞에 오는 sachet은 포장 분해
+    const postfix = name.slice(m.index + m[0].length, m.index + m[0].length + 10);
+    if (COMPOSITE_AFTER_RE.test(postfix)) continue;
     matches.push({ value: parseInt(m[1], 10), index: m.index });
   }
   if (matches.length === 0) return null;
