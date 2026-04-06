@@ -112,8 +112,18 @@ function extractComposite(name: string): CompositeResult {
  * - excludeSachet=true: 카테고리에 캡슐/정 옵션이 있을 때, "포"를 수량에서 제외하여
  *   extractTabletCount와 이중 매칭 방지 (30포,3개 → count=3, tablet=30)
  */
-function extractCount(name: string, composite: CompositeResult, excludeSachet = false): number {
-  if (composite.count) return composite.count;
+interface CountResult {
+  value: number;
+  /** true: 실제 패턴 매칭됨, false: 기본값 1 (패턴 없음) */
+  found: boolean;
+}
+
+/**
+ * 수량 추출 (raw 버전) — found=false면 기본값 1.
+ * Layer 1.5 displayName 폴백 판단에 사용.
+ */
+function extractCountRaw(name: string, composite: CompositeResult, excludeSachet = false): CountResult {
+  if (composite.count) return { value: composite.count, found: true };
 
   // "N개입", "N개월" 제외, "N매 x" 패턴도 제외 (composite에서 처리됨)
   // excludeSachet=true일 때 "포"를 수량 단위에서 제외 (캡슐/정 옵션과 이중 매칭 방지)
@@ -128,22 +138,26 @@ function extractCount(name: string, composite: CompositeResult, excludeSachet = 
     allMatches.push({ value: parseInt(m[1], 10) });
   }
   if (allMatches.length > 0) {
-    return allMatches[allMatches.length - 1].value;
+    return { value: allMatches[allMatches.length - 1].value, found: true };
   }
 
   // "N입"도 수량이 될 수 있음 — 단, "N개입"과 구분 필요
   const ipMatch = name.match(/(\d+)\s*입(?!\s*[xX×])/);
   if (ipMatch && !name.includes(ipMatch[1] + '개입')) {
-    return parseInt(ipMatch[1], 10);
+    return { value: parseInt(ipMatch[1], 10), found: true };
   }
 
   // "N매"가 단독으로 있으면 (x 패턴이 아닌 경우) — 개당 수량이 아닌 총 수량
   if (!composite.perCount) {
     const sheetMatch = name.match(/(\d+)\s*(매|장)(?!\s*[xX×])/);
-    if (sheetMatch) return parseInt(sheetMatch[1], 10);
+    if (sheetMatch) return { value: parseInt(sheetMatch[1], 10), found: true };
   }
 
-  return 1; // 기본값
+  return { value: 1, found: false }; // 기본값 (실제 패턴 없음)
+}
+
+function extractCount(name: string, composite: CompositeResult, excludeSachet = false): number {
+  return extractCountRaw(name, composite, excludeSachet).value;
 }
 
 /**
@@ -1103,7 +1117,9 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
     let value: string | null = null;
 
     if (name === '수량' && unit === '개') {
-      value = String(extractCount(context.productName, composite, hasTabletOpt));
+      // extractCountRaw 사용: found=false(기본값 1)이면 value=null → Layer 1.5에서 displayName 시도
+      const countResult = extractCountRaw(context.productName, composite, hasTabletOpt);
+      if (countResult.found) value = String(countResult.value);
     } else if (name.includes('용량') && unit === 'ml') {
       const ml = extractVolumeMl(context.productName, composite);
       if (ml !== null) value = String(ml);
@@ -1167,7 +1183,9 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
           }
         }
       } else if ((name === '수량' || name === '총 수량') && unit === '개') {
-        value = String(extractCount(context.displayName, displayComposite, hasTabletOpt));
+        // extractCountRaw 사용: displayName에 실제 수량 패턴이 있을 때만 설정
+        const displayCountResult = extractCountRaw(context.displayName!, displayComposite, hasTabletOpt);
+        if (displayCountResult.found) value = String(displayCountResult.value);
       } else if (name === '개당 수량' && unit === '개') {
         const perCount = extractPerCount(context.displayName, displayComposite);
         if (perCount !== null) value = String(perCount);
@@ -1360,11 +1378,25 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
 
   const confidence = totalRequired > 0 ? filledRequired / totalRequired : 1;
 
-  // totalUnitCount
-  const tabletCountForUnit = extractTabletCount(context.productName);
-  const sachetCountForUnit = tabletCountForUnit === null ? extractSachetCount(context.productName) : null;
-  const doseCountForUnit = tabletCountForUnit ?? sachetCountForUnit;
-  const countForUnit = composite.count || extractCount(context.productName, composite, doseCountForUnit !== null);
+  // totalUnitCount — sourceName 우선, displayName 폴백
+  let doseCountForUnit = extractTabletCount(context.productName)
+    ?? extractSachetCount(context.productName);
+  // displayName 폴백 (dose)
+  if (doseCountForUnit === null && context.displayName) {
+    doseCountForUnit = extractTabletCount(context.displayName)
+      ?? extractSachetCount(context.displayName);
+  }
+  // count — sourceName에서 실제 매칭 우선, 없으면 displayName
+  const countRawForUnit = extractCountRaw(context.productName, composite, doseCountForUnit !== null);
+  let countForUnit: number;
+  if (countRawForUnit.found) {
+    countForUnit = countRawForUnit.value;
+  } else if (context.displayName) {
+    const dnCompForUnit = extractComposite(context.displayName);
+    countForUnit = extractCount(context.displayName, dnCompForUnit, doseCountForUnit !== null);
+  } else {
+    countForUnit = 1;
+  }
   const perCount = composite.perCount || null;
 
   let totalUnitCount: number;
