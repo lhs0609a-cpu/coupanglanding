@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import MegaloadLayoutClient from './layout-client';
+import { getSettlementGateLevel, getReportTargetMonth } from '@/lib/utils/settlement';
+import type { SettlementGateLevel, PaymentStatus } from '@/lib/utils/settlement';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +25,7 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
   const [{ data: profile }, { data: shUser }, { data: ptUser }] = await Promise.all([
     supabase.from('profiles').select('full_name, role, is_active').eq('id', user.id).single(),
     supabase.from('megaload_users').select('id, plan, onboarding_done').eq('profile_id', user.id).maybeSingle(),
-    supabase.from('pt_users').select('id').eq('profile_id', user.id).maybeSingle(),
+    supabase.from('pt_users').select('id, created_at').eq('profile_id', user.id).maybeSingle(),
   ]);
 
   const role = profile?.role;
@@ -48,11 +50,40 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
     });
   }
 
+  // 정산 게이트 산출 (admin/partner 바이패스)
+  let gateLevel: SettlementGateLevel = 'none';
+  let gateDDay = 0;
+  let gateTargetMonth = '';
+  let gateDeadline = '';
+
+  if (role !== 'admin' && role !== 'partner' && ptUser) {
+    const targetMonth = getReportTargetMonth();
+    const { data: report } = await supabase
+      .from('monthly_reports')
+      .select('payment_status')
+      .eq('pt_user_id', ptUser.id)
+      .eq('year_month', targetMonth)
+      .maybeSingle();
+
+    const gateInfo = getSettlementGateLevel(
+      ptUser.created_at,
+      (report?.payment_status as PaymentStatus) ?? null,
+    );
+    gateLevel = gateInfo.level;
+    gateDDay = gateInfo.dday;
+    gateTargetMonth = gateInfo.targetMonth;
+    gateDeadline = gateInfo.deadlineFormatted;
+  }
+
   // 뱃지/채널 데이터는 클라이언트에서 비동기 로드 → 페이지 렌더링 차단 안 함
   return (
     <MegaloadLayoutClient
       userName={profile?.full_name || user.email || '사용자'}
       userRole={profile?.role || 'pt_user'}
+      gateLevel={gateLevel}
+      gateDDay={gateDDay}
+      gateTargetMonth={gateTargetMonth}
+      gateDeadline={gateDeadline}
     >
       {children}
     </MegaloadLayoutClient>

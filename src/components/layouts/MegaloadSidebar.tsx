@@ -6,9 +6,10 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
   Receipt, BarChart3, Zap, Globe, Link as LinkIcon, Settings, X,
-  Upload, User, ArrowRight, Search, ExternalLink, Loader2,
+  Upload, User, ArrowRight, Search, ExternalLink, Loader2, Lock,
 } from 'lucide-react';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
+import type { SettlementGateLevel } from '@/lib/utils/settlement';
 
 const iconMap = {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
@@ -38,13 +39,21 @@ interface SearchResult {
   sourceUrl: string | null;
 }
 
+const GATE_ALLOWED_PATHS = [
+  '/megaload/dashboard',
+  '/megaload/settlement',
+  '/megaload/cs',
+  '/megaload/settings',
+];
+
 interface MegaloadSidebarProps {
   isOpen: boolean;
   onClose: () => void;
   badges?: MegaloadBadgeData;
+  gateLevel?: SettlementGateLevel;
 }
 
-export default function MegaloadSidebar({ isOpen, onClose, badges }: MegaloadSidebarProps) {
+export default function MegaloadSidebar({ isOpen, onClose, badges, gateLevel }: MegaloadSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [quickSearch, setQuickSearch] = useState('');
@@ -244,6 +253,25 @@ export default function MegaloadSidebar({ isOpen, onClose, badges }: MegaloadSid
             const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
             const Icon = iconMap[item.icon];
             const badgeCount = item.badgeKey && badges ? badges[item.badgeKey] : 0;
+            const isLocked = gateLevel === 'restricted' &&
+              !GATE_ALLOWED_PATHS.some((p) => item.href === p || item.href.startsWith(p + '/'));
+
+            if (isLocked) {
+              return (
+                <a
+                  key={item.href}
+                  href="#"
+                  onClick={(e) => e.preventDefault()}
+                  className="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 cursor-not-allowed"
+                >
+                  <span className="flex items-center gap-3">
+                    <Icon className="w-5 h-5" />
+                    {item.label}
+                  </span>
+                  <Lock className="w-4 h-4 text-gray-300" />
+                </a>
+              );
+            }
 
             return (
               <Link

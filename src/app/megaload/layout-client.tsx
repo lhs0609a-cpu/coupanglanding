@@ -4,17 +4,26 @@ import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import MegaloadLayout from '@/components/layouts/MegaloadLayout';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
+import type { SettlementGateLevel } from '@/lib/utils/settlement';
 
 interface MegaloadLayoutClientProps {
   children: React.ReactNode;
   userName: string;
   userRole: string;
+  gateLevel: SettlementGateLevel;
+  gateDDay: number;
+  gateTargetMonth: string;
+  gateDeadline: string;
 }
 
 export default function MegaloadLayoutClient({
   children,
   userName,
   userRole,
+  gateLevel,
+  gateDDay,
+  gateTargetMonth,
+  gateDeadline,
 }: MegaloadLayoutClientProps) {
   const supabase = useMemo(() => createClient(), []);
   const [badges, setBadges] = useState<MegaloadBadgeData | undefined>();
@@ -73,6 +82,10 @@ export default function MegaloadLayoutClient({
       userRole={userRole}
       badges={badges}
       hasConnectedChannels={hasConnectedChannels}
+      gateLevel={gateLevel}
+      gateDDay={gateDDay}
+      gateTargetMonth={gateTargetMonth}
+      gateDeadline={gateDeadline}
     >
       {children}
     </MegaloadLayout>

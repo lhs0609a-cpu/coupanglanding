@@ -133,7 +133,48 @@ export function getAdminSettlementStatus(
 
 export type PaymentStatus = 'pending' | 'submitted' | 'reviewed' | 'deposited' | 'confirmed' | 'rejected';
 
-// --- Feature 3: 첫 정산 합산 구간 ---
+// --- Feature 3: 정산 강제 게이트 ---
+
+export type SettlementGateLevel = 'none' | 'warning' | 'restricted' | 'blocked';
+
+export interface SettlementGateInfo {
+  level: SettlementGateLevel;
+  dday: number;
+  targetMonth: string;
+  deadlineFormatted: string;
+}
+
+/** 정산 게이트 레벨 산출 */
+export function getSettlementGateLevel(
+  createdAt: string,
+  reportPaymentStatus: PaymentStatus | null,
+): SettlementGateInfo {
+  const targetMonth = getReportTargetMonth();
+  const dday = getSettlementDDay(targetMonth);
+  const deadlineFormatted = formatDeadline(targetMonth);
+  const none: SettlementGateInfo = { level: 'none', dday, targetMonth, deadlineFormatted };
+
+  // 정산 대상 아님
+  if (!isEligibleForMonth(createdAt, targetMonth)) return none;
+
+  // 이미 제출됨 (submitted 이상) → 게이트 해제
+  if (
+    reportPaymentStatus === 'submitted' ||
+    reportPaymentStatus === 'reviewed' ||
+    reportPaymentStatus === 'deposited' ||
+    reportPaymentStatus === 'confirmed'
+  ) {
+    return none;
+  }
+
+  // pending, rejected, null → 미제출로 간주
+  if (dday > 7) return none;
+  if (dday >= 0) return { level: 'warning', dday, targetMonth, deadlineFormatted };
+  if (dday >= -7) return { level: 'restricted', dday, targetMonth, deadlineFormatted };
+  return { level: 'blocked', dday, targetMonth, deadlineFormatted };
+}
+
+// --- Feature 4: 첫 정산 합산 구간 ---
 
 export interface SettlementPeriod {
   start: string;  // 'YYYY-MM-DD'

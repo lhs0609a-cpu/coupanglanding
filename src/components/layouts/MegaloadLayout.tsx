@@ -1,11 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import DashboardHeader from './DashboardHeader';
 import MegaloadSidebar from './MegaloadSidebar';
 import { Plug, ArrowRight } from 'lucide-react';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
+import type { SettlementGateLevel } from '@/lib/utils/settlement';
+import SettlementWarningModal from '@/components/megaload/SettlementWarningModal';
+import SettlementGatePage, { SettlementBlockPage } from '@/components/megaload/SettlementGatePage';
+
+const ALLOWED_PATHS = [
+  '/megaload/dashboard',
+  '/megaload/settlement',
+  '/megaload/cs',
+  '/megaload/settings',
+];
+
+function isAllowedPath(pathname: string): boolean {
+  return ALLOWED_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
+}
 
 interface MegaloadLayoutProps {
   children: React.ReactNode;
@@ -13,6 +28,10 @@ interface MegaloadLayoutProps {
   userRole: string;
   badges?: MegaloadBadgeData;
   hasConnectedChannels?: boolean;
+  gateLevel: SettlementGateLevel;
+  gateDDay: number;
+  gateTargetMonth: string;
+  gateDeadline: string;
 }
 
 export default function MegaloadLayout({
@@ -21,18 +40,58 @@ export default function MegaloadLayout({
   userRole,
   badges,
   hasConnectedChannels,
+  gateLevel,
+  gateDDay,
+  gateTargetMonth,
+  gateDeadline,
 }: MegaloadLayoutProps) {
+  const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [warningDismissed, setWarningDismissed] = useState(false);
+  const prevPathRef = useRef(pathname);
+
+  // pathname 변경 시 warning 모달 다시 표시
+  useEffect(() => {
+    if (prevPathRef.current !== pathname) {
+      prevPathRef.current = pathname;
+      setWarningDismissed(false);
+    }
+  }, [pathname]);
 
   const showChannelBanner = hasConnectedChannels === false && !bannerDismissed;
 
+  // Tier 3: 풀스크린 차단
+  if (gateLevel === 'blocked') {
+    return (
+      <SettlementBlockPage
+        dday={gateDDay}
+        targetMonth={gateTargetMonth}
+        deadline={gateDeadline}
+      />
+    );
+  }
+
+  // Tier 2: 허용 경로 외 접근 시 인라인 게이트
+  const showInlineGate = gateLevel === 'restricted' && !isAllowedPath(pathname);
+
   return (
     <div className="min-h-screen bg-gray-50 flex">
+      {/* Tier 1: Warning Modal */}
+      {gateLevel === 'warning' && !warningDismissed && (
+        <SettlementWarningModal
+          dday={gateDDay}
+          targetMonth={gateTargetMonth}
+          deadline={gateDeadline}
+          onClose={() => setWarningDismissed(true)}
+        />
+      )}
+
       <MegaloadSidebar
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         badges={badges}
+        gateLevel={gateLevel}
       />
 
       <div className="flex-1 flex flex-col min-w-0">
@@ -79,7 +138,15 @@ export default function MegaloadLayout({
         )}
 
         <main className="flex-1 p-4 lg:p-6 overflow-auto">
-          {children}
+          {showInlineGate ? (
+            <SettlementGatePage
+              dday={gateDDay}
+              targetMonth={gateTargetMonth}
+              deadline={gateDeadline}
+            />
+          ) : (
+            children
+          )}
         </main>
       </div>
     </div>
