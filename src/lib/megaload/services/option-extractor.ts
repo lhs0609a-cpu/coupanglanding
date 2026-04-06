@@ -108,14 +108,27 @@ function extractComposite(name: string): CompositeResult {
  * - "N개입"은 개당 수량이므로 제외
  * - "N매"가 "x" 앞에 있으면 개당 수량이므로 제외 (composite에서 처리)
  * - composite.count가 있으면 우선 사용
+ * - excludeSachet=true: 카테고리에 캡슐/정 옵션이 있을 때, "포"를 수량에서 제외하여
+ *   extractTabletCount와 이중 매칭 방지 (30포,3개 → count=3, tablet=30)
  */
-function extractCount(name: string, composite: CompositeResult): number {
+function extractCount(name: string, composite: CompositeResult, excludeSachet = false): number {
   if (composite.count) return composite.count;
 
   // "N개입", "N개월" 제외, "N매 x" 패턴도 제외 (composite에서 처리됨)
-  // 수량 단위: 개, 팩, 세트, 박스, 봉, 병, 통, 족, 켤레, 롤, 포, EA, P
-  const match = name.match(/(\d+)\s*(개(?!입|월)|팩|세트|박스|봉|병|통|족|켤레|롤|포(?!기)|EA|ea|P)(?!\s*[xX×])/i);
-  if (match) return parseInt(match[1], 10);
+  // excludeSachet=true일 때 "포"를 수량 단위에서 제외 (캡슐/정 옵션과 이중 매칭 방지)
+  // 마지막 매치를 사용: 수량은 상품명 끝부분("...30포 3개")에 위치하는 경우가 많고,
+  // 앞부분의 "1박스 세트" 등은 상품 구성 설명이지 실제 판매 수량이 아님
+  const unitPattern = excludeSachet
+    ? /(\d+)\s*(개(?!입|월)|팩|세트|박스|봉|병|통|족|켤레|롤|EA|ea|P)(?!\s*[xX×])/gi
+    : /(\d+)\s*(개(?!입|월)|팩|세트|박스|봉|병|통|족|켤레|롤|포(?!기)|EA|ea|P)(?!\s*[xX×])/gi;
+  const allMatches: { value: number }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = unitPattern.exec(name)) !== null) {
+    allMatches.push({ value: parseInt(m[1], 10) });
+  }
+  if (allMatches.length > 0) {
+    return allMatches[allMatches.length - 1].value;
+  }
 
   // "N입"도 수량이 될 수 있음 — 단, "N개입"과 구분 필요
   const ipMatch = name.match(/(\d+)\s*입(?!\s*[xX×])/);
@@ -202,12 +215,28 @@ function extractPerCount(name: string, composite: CompositeResult): number | nul
  * 상품명에 "성분명+숫자+정" 형태가 여러 번 나올 수 있음.
  * 마지막 매칭을 사용 — 실제 정제수는 상품명 끝부분에 위치.
  * 500 초과 숫자는 성분 함량일 가능성이 높으므로 건너뜀.
+ *
+ * ⚠️ 복용법 제외: "1일 2정", "하루 3캡슐", "매일 1정" 등은
+ * 일일 복용량이지 총 정제수가 아니므로 제외한다.
  */
 function extractTabletCount(name: string): number | null {
   const TABLET_RE = /(\d+)\s*(정|캡슐|알|타블렛|소프트젤|포(?!기|인))/g;
+  // 복용법 감지: "1일", "하루", "매일", "N회" 직전의 매치는 일일 복용량
+  const DOSAGE_PREFIX_RE = /(?:1일|하루|매일|일일)\s*$/;
+  const DOSAGE_POSTFIX_RE = /^\s*[xX×]\s*\d+\s*(?:일|회)/;
   const matches: { value: number; index: number }[] = [];
   let m: RegExpExecArray | null;
   while ((m = TABLET_RE.exec(name)) !== null) {
+    // "1일 2정", "하루 3캡슐" 등 복용법 패턴 제외
+    const prefix = name.slice(Math.max(0, m.index - 10), m.index);
+    if (DOSAGE_PREFIX_RE.test(prefix)) continue;
+    // "2정 x 30일" 등 복용법 패턴 제외
+    const postfix = name.slice(m.index + m[0].length, m.index + m[0].length + 15);
+    if (DOSAGE_POSTFIX_RE.test(postfix)) continue;
+    // "N회 분량" 직전 패턴: "1회 2정" → 1회 복용량
+    const dosePrefix2 = name.slice(Math.max(0, m.index - 8), m.index);
+    if (/\d+\s*회\s*$/.test(dosePrefix2)) continue;
+
     matches.push({ value: parseInt(m[1], 10), index: m.index });
   }
   if (matches.length === 0) return null;
@@ -357,7 +386,7 @@ export function extractOptionsFromDetails(productName: string, details: Category
     let value: string | null = null;
 
     if ((name === '수량' || name === '총 수량') && unit === '개') {
-      value = String(extractCount(productName, composite));
+      value = String(extractCount(productName, composite, hasTabletOpt));
     } else if (name === '개당 용량' && unit === 'ml') {
       const ml = extractVolumeMl(productName, composite);
       if (ml !== null) value = String(ml);
@@ -517,14 +546,14 @@ export function extractOptionsFromDetails(productName: string, details: Category
   // 예: "80매 x 10팩" → 80 × 10 = 800
   // 예: "120캡슐 2통" → 120 × 2 = 240
   // 예: "1정 30개" → 1 × 30 = 30
-  const count = composite.count || extractCount(productName, composite);
-  const perCount = composite.perCount || null;
   const tabletCountForUnit = extractTabletCount(productName);
+  const countForUnit = composite.count || extractCount(productName, composite, tabletCountForUnit !== null);
+  const perCount = composite.perCount || null;
 
   let totalUnitCount: number;
   if (tabletCountForUnit !== null && tabletCountForUnit >= 1) {
     // 건강보조식품: 정/캡슐 수 × 수량 = 총 정제 수
-    totalUnitCount = tabletCountForUnit * count;
+    totalUnitCount = tabletCountForUnit * countForUnit;
     // 개월분 보정: "2개월 1캡슐" → 1×1=1 이지만, 2×30=60이 맞음
     if (totalUnitCount <= 1) {
       const monthMatch = productName.match(/(\d+)\s*개월/);
@@ -534,9 +563,9 @@ export function extractOptionsFromDetails(productName: string, details: Category
       }
     }
   } else if (perCount) {
-    totalUnitCount = perCount * count;
+    totalUnitCount = perCount * countForUnit;
   } else {
-    totalUnitCount = count;
+    totalUnitCount = countForUnit;
   }
 
   return {
@@ -1016,7 +1045,7 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
     let value: string | null = null;
 
     if (name === '수량' && unit === '개') {
-      value = String(extractCount(context.productName, composite));
+      value = String(extractCount(context.productName, composite, hasTabletOpt));
     } else if (name === '개당 용량' && unit === 'ml') {
       const ml = extractVolumeMl(context.productName, composite);
       if (ml !== null) value = String(ml);
@@ -1218,13 +1247,13 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
   const confidence = totalRequired > 0 ? filledRequired / totalRequired : 1;
 
   // totalUnitCount
-  const count = composite.count || extractCount(context.productName, composite);
-  const perCount = composite.perCount || null;
   const tabletCountForUnit = extractTabletCount(context.productName);
+  const countForUnit = composite.count || extractCount(context.productName, composite, tabletCountForUnit !== null);
+  const perCount = composite.perCount || null;
 
   let totalUnitCount: number;
   if (tabletCountForUnit !== null && tabletCountForUnit >= 1) {
-    totalUnitCount = tabletCountForUnit * count;
+    totalUnitCount = tabletCountForUnit * countForUnit;
     if (totalUnitCount <= 1) {
       const monthMatch = context.productName.match(/(\d+)\s*개월/);
       if (monthMatch) {
@@ -1233,9 +1262,9 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
       }
     }
   } else if (perCount) {
-    totalUnitCount = perCount * count;
+    totalUnitCount = perCount * countForUnit;
   } else {
-    totalUnitCount = count;
+    totalUnitCount = countForUnit;
   }
 
   return {
