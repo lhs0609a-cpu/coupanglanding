@@ -884,6 +884,128 @@ export function useBulkRegisterActions() {
               console.info(`[auto-crop] ${cropResults.size}개 상품 대표이미지 크롭 완료`);
             }
           }
+
+          // Step 3.7. 상세/리뷰 이미지 자동 필터링
+          {
+            const { filterDetailPageImages, crossReferenceOutlierImages } = await import('@/lib/megaload/services/image-quality-scorer');
+
+            const latestForFilter = productsRef.current;
+            const detailOrderMap: Map<number, number[]> = new Map();
+            const reviewOrderMap: Map<number, number[]> = new Map();
+
+            for (let idx = 0; idx < latestForFilter.length; idx++) {
+              const p = latestForFilter[idx];
+
+              // (1) 상세이미지 필터링
+              const detailImgs = p.scannedDetailImages ?? [];
+              if (detailImgs.length > 0) {
+                const detailUrls: (string | null)[] = [];
+                for (const img of detailImgs) {
+                  const url = await ensureObjectUrl(img);
+                  detailUrls.push(url ?? null);
+                }
+                const validDetailMap: { origIdx: number; url: string }[] = [];
+                for (let j = 0; j < detailUrls.length; j++) {
+                  if (detailUrls[j]) validDetailMap.push({ origIdx: j, url: detailUrls[j]! });
+                }
+
+                if (validDetailMap.length > 0) {
+                  try {
+                    // (a) 기본 품질 필터
+                    const detailFilter = await filterDetailPageImages(validDetailMap.map(e => e.url));
+                    const goodEntries = detailFilter
+                      .filter(r => !r.filtered)
+                      .map(r => validDetailMap[r.index]);
+
+                    // (b) 메인이미지 대비 색상 이상치 검출
+                    const mainUrls = (p.scannedMainImages ?? [])
+                      .map(img => img.objectUrl)
+                      .filter((u): u is string => !!u)
+                      .slice(0, 3);
+
+                    if (mainUrls.length > 0 && goodEntries.length > 3) {
+                      const crossRef = await crossReferenceOutlierImages(
+                        mainUrls,
+                        goodEntries.map(e => e.url),
+                        0.9,
+                      );
+                      const passedIndices = crossRef
+                        .filter(r => !r.isOutlier)
+                        .map(r => goodEntries[r.index].origIdx);
+                      detailOrderMap.set(idx, passedIndices);
+                    } else {
+                      detailOrderMap.set(idx, goodEntries.map(e => e.origIdx));
+                    }
+                  } catch (e) {
+                    console.warn(`[detail-filter] ${p.productCode}: 필터링 실패`, e);
+                  }
+                }
+              }
+
+              // (2) 리뷰이미지 필터링 (더 엄격)
+              const reviewImgs = p.scannedReviewImages ?? [];
+              if (reviewImgs.length > 0) {
+                const reviewUrls: (string | null)[] = [];
+                for (const img of reviewImgs) {
+                  const url = await ensureObjectUrl(img);
+                  reviewUrls.push(url ?? null);
+                }
+                const validReviewMap: { origIdx: number; url: string }[] = [];
+                for (let j = 0; j < reviewUrls.length; j++) {
+                  if (reviewUrls[j]) validReviewMap.push({ origIdx: j, url: reviewUrls[j]! });
+                }
+
+                if (validReviewMap.length > 0) {
+                  try {
+                    // (a) 기본 필터
+                    const reviewFilter = await filterDetailPageImages(validReviewMap.map(e => e.url));
+                    let goodEntries = reviewFilter
+                      .filter(r => !r.filtered)
+                      .map(r => validReviewMap[r.index]);
+
+                    // (b) 메인이미지 대비 이상치 (리뷰는 더 엄격하게)
+                    const mainUrls = (p.scannedMainImages ?? [])
+                      .map(img => img.objectUrl)
+                      .filter((u): u is string => !!u)
+                      .slice(0, 3);
+
+                    if (mainUrls.length > 0 && goodEntries.length > 2) {
+                      const crossRef = await crossReferenceOutlierImages(
+                        mainUrls,
+                        goodEntries.map(e => e.url),
+                        0.7,
+                      );
+                      goodEntries = crossRef
+                        .filter(r => !r.isOutlier)
+                        .map(r => goodEntries[r.index]);
+                    }
+
+                    reviewOrderMap.set(idx, goodEntries.map(e => e.origIdx));
+                  } catch (e) {
+                    console.warn(`[review-filter] ${p.productCode}: 필터링 실패`, e);
+                  }
+                }
+              }
+
+              // 10개마다 yield
+              if ((idx + 1) % 10 === 0) await new Promise(r => setTimeout(r, 0));
+            }
+
+            // 결과 적용
+            if (detailOrderMap.size > 0 || reviewOrderMap.size > 0) {
+              setProducts(prev => prev.map((p, i) => {
+                const detailOrder = detailOrderMap.get(i);
+                const reviewOrder = reviewOrderMap.get(i);
+                if (!detailOrder && !reviewOrder) return p;
+                return {
+                  ...p,
+                  ...(detailOrder ? { editedDetailImageOrder: detailOrder } : {}),
+                  ...(reviewOrder ? { editedReviewImageOrder: reviewOrder } : {}),
+                };
+              }));
+              console.info(`[image-filter] 상세이미지 ${detailOrderMap.size}건, 리뷰이미지 ${reviewOrderMap.size}건 자동 필터링 완료`);
+            }
+          }
         }
 
         // Step 4. 스톡 이미지 fetch
@@ -1082,14 +1204,20 @@ export function useBulkRegisterActions() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [products.map((p) => `${p.uid}:${p.editedName}:${p.editedSellingPrice}:${p.editedCategoryCode}:${p.editedBrand}:${p.mainImageCount}`).join(','), step, autoMatchingProgress]);
 
+  // ---- 이미지 순서 필터링 헬퍼 ----
+  function filterImagesByOrder<T>(images: T[], order: number[] | undefined): T[] {
+    if (!order) return images;
+    return order.filter(i => i >= 0 && i < images.length).map(i => images[i]);
+  }
+
   // ---- Preflight용 플레이스홀더 URL ----
   // 이미지가 사전업로드되지 않았지만 로컬에 존재하는 경우
   // 프리플라이트 검증을 위해 플레이스홀더 URL 생성
   // (실제 등록 시에는 실제 업로드된 URL 사용)
   function buildPreflightPlaceholderUrls(p: EditableProduct) {
     const mainCount = p.scannedMainImages?.length || p.mainImages?.length || p.mainImageCount || 0;
-    const detailCount = p.scannedDetailImages?.length || p.detailImages?.length || p.detailImageCount || 0;
-    const reviewCount = p.scannedReviewImages?.length || p.reviewImages?.length || p.reviewImageCount || 0;
+    const detailCount = filterImagesByOrder(p.scannedDetailImages || p.detailImages || [], p.editedDetailImageOrder).length || p.detailImageCount || 0;
+    const reviewCount = filterImagesByOrder(p.scannedReviewImages || p.reviewImages || [], p.editedReviewImageOrder).length || p.reviewImageCount || 0;
     const infoCount = p.scannedInfoImages?.length || p.infoImages?.length || p.infoImageCount || 0;
     if (mainCount === 0) return undefined; // 이미지가 정말 없으면 undefined
     return {
@@ -1550,7 +1678,7 @@ export function useBulkRegisterActions() {
     });
   }, []);
 
-  const updateField = useCallback((uid: string, field: string, value: string | number | string[] | Record<string, string>) => {
+  const updateField = useCallback((uid: string, field: string, value: string | number | string[] | number[] | Record<string, string>) => {
     setProducts((prev) => prev.map((p) => p.uid === uid ? { ...p, [field]: value } : p));
   }, []);
 
@@ -1734,17 +1862,21 @@ export function useBulkRegisterActions() {
           const hasScanned = (p.scannedMainImages?.length ?? 0) > 0;
           const hasLocalPaths = (p.mainImages?.length ?? 0) > 0;
 
+          // 이미지 순서 필터링 적용
+          const filteredDetail = filterImagesByOrder(p.scannedDetailImages || [], p.editedDetailImageOrder);
+          const filteredReview = filterImagesByOrder(p.scannedReviewImages || [], p.editedReviewImageOrder);
+
           if (hasCache) {
             const mainUrls = cached.mainImageUrls;
-            const detailUrls = cached.detailImageUrls?.length ? cached.detailImageUrls : await uploadScannedImages(p.scannedDetailImages || [], 10);
-            const reviewUrls = cached.reviewImageUrls?.length ? cached.reviewImageUrls : (includeReviewImages ? await uploadScannedImages(p.scannedReviewImages || [], 10) : []);
+            const detailUrls = cached.detailImageUrls?.length ? cached.detailImageUrls : await uploadScannedImages(filteredDetail, 10);
+            const reviewUrls = cached.reviewImageUrls?.length ? cached.reviewImageUrls : (includeReviewImages ? await uploadScannedImages(filteredReview, 10) : []);
             const infoUrls = cached.infoImageUrls?.length ? cached.infoImageUrls : await uploadScannedImages(p.scannedInfoImages || [], 10);
             product.preUploadedUrls = { mainImageUrls: mainUrls, detailImageUrls: detailUrls, reviewImageUrls: reviewUrls, infoImageUrls: infoUrls };
           } else if (hasScanned) {
             // 브라우저 모드: scannedMainImages를 직접 업로드
             const mainUrls = await uploadScannedImagesWithVariation(p.scannedMainImages!, shouldVary, 10);
-            const detailUrls = await uploadScannedImages(p.scannedDetailImages || [], 10);
-            const reviewUrls = includeReviewImages ? await uploadScannedImages(p.scannedReviewImages || [], 10) : [];
+            const detailUrls = await uploadScannedImages(filteredDetail, 10);
+            const reviewUrls = includeReviewImages ? await uploadScannedImages(filteredReview, 10) : [];
             const infoUrls = await uploadScannedImages(p.scannedInfoImages || [], 10);
             product.preUploadedUrls = { mainImageUrls: mainUrls, detailImageUrls: detailUrls, reviewImageUrls: reviewUrls, infoImageUrls: infoUrls };
           } else if (!hasLocalPaths) {
