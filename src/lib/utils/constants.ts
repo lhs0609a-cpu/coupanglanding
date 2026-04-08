@@ -719,6 +719,57 @@ export const FAQ_CATEGORY_COLORS: Record<string, string> = {
   other: 'bg-gray-100 text-gray-700',
 };
 
+// 메가로드 오류문의 - 카테고리
+export const BUG_REPORT_CATEGORY_LABELS: Record<string, string> = {
+  ui_bug: 'UI 오류',
+  data_error: '데이터 오류',
+  api_error: 'API 오류',
+  performance: '성능',
+  feature_request: '기능 요청',
+  general: '기타',
+};
+
+export const BUG_REPORT_CATEGORY_COLORS: Record<string, string> = {
+  ui_bug: 'bg-purple-100 text-purple-700',
+  data_error: 'bg-orange-100 text-orange-700',
+  api_error: 'bg-red-100 text-red-700',
+  performance: 'bg-yellow-100 text-yellow-700',
+  feature_request: 'bg-blue-100 text-blue-700',
+  general: 'bg-gray-100 text-gray-700',
+};
+
+// 메가로드 오류문의 - 상태
+export const BUG_REPORT_STATUS_LABELS: Record<string, string> = {
+  pending: '접수됨',
+  confirmed: '확인됨',
+  in_progress: '수정중',
+  resolved: '수정완료',
+  closed: '종료',
+};
+
+export const BUG_REPORT_STATUS_COLORS: Record<string, string> = {
+  pending: 'bg-yellow-100 text-yellow-700',
+  confirmed: 'bg-blue-100 text-blue-700',
+  in_progress: 'bg-indigo-100 text-indigo-700',
+  resolved: 'bg-green-100 text-green-700',
+  closed: 'bg-gray-100 text-gray-500',
+};
+
+// 메가로드 오류문의 - 우선도
+export const BUG_REPORT_PRIORITY_LABELS: Record<string, string> = {
+  low: '낮음',
+  normal: '보통',
+  high: '높음',
+  critical: '긴급',
+};
+
+export const BUG_REPORT_PRIORITY_COLORS: Record<string, string> = {
+  low: 'bg-gray-100 text-gray-700',
+  normal: 'bg-blue-100 text-blue-700',
+  high: 'bg-orange-100 text-orange-700',
+  critical: 'bg-red-100 text-red-700',
+};
+
 // 사전등록 상태
 export const PRE_REG_STATUS_LABELS: Record<string, string> = {
   pending: '대기중',

@@ -114,7 +114,7 @@ const PipelineProgress = memo(function PipelineProgress({
 
   const steps: { label: string; icon: React.ReactNode; done: number; total: number; phase: 'idle' | 'running' | 'complete'; color: string }[] = [
     {
-      label: '이미지 필터링',
+      label: '이미지 다양성 분석',
       icon: <ImageIcon className="w-3.5 h-3.5" />,
       done: imageFilterProgress.done,
       total: imageFilterProgress.total,
@@ -331,6 +331,17 @@ export default memo(function BulkStep2Review({
         const sr = stockCheckResults?.[p.uid];
         return sr && (sr.status === 'sold_out' || sr.status === 'removed');
       });
+    } else if (filterMode === 'image-review') {
+      // 이미지 신뢰도 낮은 상품만 표시: diversityScore < 70 또는 유형 2종 이하 또는 워터마크 감지 또는 이미지 3장 미만
+      result = result.filter(p => {
+        const meta = p.detailImageSelectionMeta;
+        const detailCount = p.editedDetailImageOrder?.length ?? p.detailImageCount;
+        if (detailCount < 3) return true;
+        if (meta?.watermarkScores?.some(w => w.score >= 0.5)) return true;
+        if (!meta) return false;
+        const uniqueTypes = new Set(meta.imageTypes.filter(t => t !== 'unknown')).size;
+        return meta.diversityScore < 70 || uniqueTypes < 3;
+      });
     }
 
     // Search
@@ -417,6 +428,15 @@ export default memo(function BulkStep2Review({
     { mode: 'no-image', label: '이미지 없음' },
     { mode: 'skipped', label: '제외됨', count: skippedCount },
     ...(soldOutCount > 0 ? [{ mode: 'sold-out' as FilterMode, label: '품절', count: soldOutCount, icon: <PackageX className="w-3 h-3 inline mr-1" /> }] : []),
+    { mode: 'image-review' as FilterMode, label: '이미지 검토', count: products.filter(p => {
+      const meta = p.detailImageSelectionMeta;
+      const detailCount = p.editedDetailImageOrder?.length ?? p.detailImageCount;
+      if (detailCount < 3) return true;
+      if (meta?.watermarkScores?.some(w => w.score >= 0.5)) return true;
+      if (!meta) return false;
+      const uniqueTypes = new Set(meta.imageTypes.filter(t => t !== 'unknown')).size;
+      return meta.diversityScore < 70 || uniqueTypes < 3;
+    }).length || undefined, icon: <ImageIcon className="w-3 h-3 inline mr-1" /> },
   ];
 
   return (

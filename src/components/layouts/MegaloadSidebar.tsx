@@ -6,14 +6,14 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
   Receipt, BarChart3, Zap, Globe, Link as LinkIcon, Settings, X,
-  Upload, User, ArrowRight, Search, ExternalLink, Loader2, Lock, RotateCcw, RefreshCw,
+  Upload, User, ArrowRight, Search, ExternalLink, Loader2, Lock, RotateCcw, RefreshCw, Bug,
 } from 'lucide-react';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
 import type { SettlementGateLevel } from '@/lib/utils/settlement';
 
 const iconMap = {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
-  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw,
+  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug,
 } as const;
 
 const navItems = [
@@ -30,6 +30,7 @@ const navItems = [
   { href: '/megaload/automation', label: '자동화', icon: 'Zap' as const },
   { href: '/megaload/sourcing', label: '해외소싱', icon: 'Globe' as const },
   { href: '/megaload/channels', label: '채널관리', icon: 'Link' as const },
+  { href: '/megaload/bug-reports', label: '오류문의', icon: 'Bug' as const, badgeKey: 'unreadBugReports' as const },
   { href: '/megaload/settings', label: '설정', icon: 'Settings' as const },
 ];
 
@@ -45,6 +46,7 @@ const GATE_ALLOWED_PATHS = [
   '/megaload/dashboard',
   '/megaload/settlement',
   '/megaload/cs',
+  '/megaload/bug-reports',
   '/megaload/settings',
 ];
 

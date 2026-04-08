@@ -81,6 +81,9 @@ export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   create_pre_registration: '사전등록 생성',
   cancel_pre_registration: '사전등록 취소',
   auto_approve_user: '사용자 자동승인',
+  reply_bug_report: '오류문의 답변',
+  update_bug_report_status: '오류문의 상태 변경',
+  close_bug_report: '오류문의 종료',
 };
 
 /** 대상 타입 한글 라벨 */
@@ -115,4 +118,6 @@ export const TARGET_TYPE_LABELS: Record<string, string> = {
   screening_link: '스크리닝 링크',
   screening_result: '스크리닝 결과',
   pre_registration: '사전등록',
+  bug_report: '오류문의',
+  bug_report_message: '오류문의 메시지',
 };

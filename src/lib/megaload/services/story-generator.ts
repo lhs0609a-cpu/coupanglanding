@@ -11,6 +11,7 @@ import storyData from '../data/story-templates.json';
 import fullReviewData from '../data/full-review-templates.json';
 import { generateRealReview, reviewToCaption } from './real-review-composer';
 import type { RealReviewResult } from './real-review-composer';
+import { extractContextOverrides } from './product-name-parser';
 
 // ─── 타입 ────────────────────────────────────────────────────
 
@@ -219,7 +220,7 @@ export function generateStoryV2(
   productContext?: ProductContext,
 ): StoryResultV2 {
   // V3 리얼 후기 생성 (조합형 프레임 시스템) — 메인 콘텐츠
-  const realReview = generateRealReview(productName, categoryPath, sellerSeed, productIndex);
+  const realReview = generateRealReview(productName, categoryPath, sellerSeed, productIndex, undefined, productContext);
 
   // 리얼 후기 문단을 메인 paragraphs로 사용
   const reviewParagraphs = realReview.paragraphs;
@@ -244,7 +245,33 @@ export function generateStoryV2(
   const persuasionParagraphs = contentBlocksToParagraphs(persuasion.blocks);
 
   // 리얼후기 문단 + 설득 문단 합산 (블로그 스타일 교차 레이아웃 유지)
-  const paragraphs = [...reviewParagraphs, ...persuasionParagraphs];
+  let paragraphs = [...reviewParagraphs, ...persuasionParagraphs];
+
+  // ── 후처리 안전망: 건강식품 성분 불일치 문장 제거 ──
+  if (productContext && categoryPath.includes('건강식품')) {
+    const overrides = extractContextOverrides(productContext, categoryPath);
+    const expectedTerms = new Set([
+      ...(overrides['성분'] || []),
+      ...(overrides['효과1'] || []),
+      ...(overrides['효과2'] || []),
+    ]);
+
+    if (expectedTerms.size >= 1) {
+      // 다른 영양제 성분이 언급되면 해당 문장 제거 (상품과 무관한 성분 언급 방지)
+      const HEALTH_INGREDIENTS_RE = /오메가3|루테인|비오틴|콜라겐|유산균|프로바이오틱스|밀크씨슬|홍삼|마그네슘|칼슘|글루코사민|히알루론산|코엔자임|크릴오일|프로폴리스|쏘팔메토|엽산|가르시니아|스피루리나|클로렐라|흑마늘|비타민[A-EK]|철분|아연|셀레늄|보스웰리아|MSM|진세노사이드/g;
+
+      paragraphs = paragraphs.map(p => {
+        const sentences = p.split(/(?<=[.!?。요])\s+/);
+        const filtered = sentences.filter(s => {
+          const mentions = s.match(HEALTH_INGREDIENTS_RE);
+          if (!mentions) return true; // 성분 언급 없으면 통과
+          // 언급된 성분 중 하나라도 expected에 있으면 통과
+          return mentions.some(m => expectedTerms.has(m));
+        });
+        return filtered.join(' ').trim();
+      }).filter(p => p.length > 5);
+    }
+  }
 
   // 총 글자수 계산 (SEO 검증용)
   const totalCharCount = paragraphs.join('').length;

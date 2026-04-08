@@ -892,18 +892,27 @@ export function useBulkRegisterActions() {
             }
           }
 
-          // Step 3.7. 상세/리뷰 이미지 자동 필터링
+          // Step 3.7. 상세/리뷰 이미지 다양성 기반 자동 선택
           {
-            const { filterDetailPageImages, crossReferenceOutlierImages } = await import('@/lib/megaload/services/image-quality-scorer');
+            const { selectDiverseImages } = await import('@/lib/megaload/services/image-quality-scorer');
+            type ImageSelectionMeta = import('./types').ImageSelectionMeta;
 
             const latestForFilter = productsRef.current;
             const detailOrderMap: Map<number, number[]> = new Map();
             const reviewOrderMap: Map<number, number[]> = new Map();
+            const detailMetaMap: Map<number, ImageSelectionMeta> = new Map();
+            const reviewMetaMap: Map<number, ImageSelectionMeta> = new Map();
 
             for (let idx = 0; idx < latestForFilter.length; idx++) {
               const p = latestForFilter[idx];
 
-              // (1) 상세이미지 필터링
+              // 메인이미지 URLs (이상치 비교 기준)
+              const mainUrls = (p.scannedMainImages ?? [])
+                .map(img => img.objectUrl)
+                .filter((u): u is string => !!u)
+                .slice(0, 3);
+
+              // (1) 상세이미지 다양성 선택
               const detailImgs = p.scannedDetailImages ?? [];
               if (detailImgs.length > 0) {
                 const detailUrls: (string | null)[] = [];
@@ -918,38 +927,26 @@ export function useBulkRegisterActions() {
 
                 if (validDetailMap.length > 0) {
                   try {
-                    // (a) 기본 품질 필터
-                    const detailFilter = await filterDetailPageImages(validDetailMap.map(e => e.url));
-                    const goodEntries = detailFilter
-                      .filter(r => !r.filtered)
-                      .map(r => validDetailMap[r.index]);
-
-                    // (b) 메인이미지 대비 색상 이상치 검출
-                    const mainUrls = (p.scannedMainImages ?? [])
-                      .map(img => img.objectUrl)
-                      .filter((u): u is string => !!u)
-                      .slice(0, 3);
-
-                    if (mainUrls.length > 0 && goodEntries.length > 3) {
-                      const crossRef = await crossReferenceOutlierImages(
-                        mainUrls,
-                        goodEntries.map(e => e.url),
-                        0.9,
-                      );
-                      const passedIndices = crossRef
-                        .filter(r => !r.isOutlier)
-                        .map(r => goodEntries[r.index].origIdx);
-                      detailOrderMap.set(idx, passedIndices);
-                    } else {
-                      detailOrderMap.set(idx, goodEntries.map(e => e.origIdx));
-                    }
+                    const result = await selectDiverseImages(
+                      validDetailMap.map(e => e.url),
+                      { maxCount: 10, referenceUrls: mainUrls },
+                    );
+                    // selectedIndices는 validDetailMap 내의 인덱스 → origIdx로 변환
+                    const selectedOrigIndices = result.selectedIndices.map(i => validDetailMap[i].origIdx);
+                    detailOrderMap.set(idx, selectedOrigIndices);
+                    detailMetaMap.set(idx, {
+                      diversityScore: result.diversityScore,
+                      imageTypes: result.imageTypes,
+                      clusterCount: result.clusterCount,
+                      watermarkScores: result.watermarkScores,
+                    });
                   } catch (e) {
-                    console.warn(`[detail-filter] ${p.productCode}: 필터링 실패`, e);
+                    console.warn(`[detail-diversity] ${p.productCode}: 다양성 선택 실패`, e);
                   }
                 }
               }
 
-              // (2) 리뷰이미지 필터링 (더 엄격)
+              // (2) 리뷰이미지 다양성 선택
               const reviewImgs = p.scannedReviewImages ?? [];
               if (reviewImgs.length > 0) {
                 const reviewUrls: (string | null)[] = [];
@@ -964,32 +961,20 @@ export function useBulkRegisterActions() {
 
                 if (validReviewMap.length > 0) {
                   try {
-                    // (a) 기본 필터
-                    const reviewFilter = await filterDetailPageImages(validReviewMap.map(e => e.url));
-                    let goodEntries = reviewFilter
-                      .filter(r => !r.filtered)
-                      .map(r => validReviewMap[r.index]);
-
-                    // (b) 메인이미지 대비 이상치 (리뷰는 더 엄격하게)
-                    const mainUrls = (p.scannedMainImages ?? [])
-                      .map(img => img.objectUrl)
-                      .filter((u): u is string => !!u)
-                      .slice(0, 3);
-
-                    if (mainUrls.length > 0 && goodEntries.length > 2) {
-                      const crossRef = await crossReferenceOutlierImages(
-                        mainUrls,
-                        goodEntries.map(e => e.url),
-                        0.7,
-                      );
-                      goodEntries = crossRef
-                        .filter(r => !r.isOutlier)
-                        .map(r => goodEntries[r.index]);
-                    }
-
-                    reviewOrderMap.set(idx, goodEntries.map(e => e.origIdx));
+                    const result = await selectDiverseImages(
+                      validReviewMap.map(e => e.url),
+                      { maxCount: 5, referenceUrls: mainUrls },
+                    );
+                    const selectedOrigIndices = result.selectedIndices.map(i => validReviewMap[i].origIdx);
+                    reviewOrderMap.set(idx, selectedOrigIndices);
+                    reviewMetaMap.set(idx, {
+                      diversityScore: result.diversityScore,
+                      imageTypes: result.imageTypes,
+                      clusterCount: result.clusterCount,
+                      watermarkScores: result.watermarkScores,
+                    });
                   } catch (e) {
-                    console.warn(`[review-filter] ${p.productCode}: 필터링 실패`, e);
+                    console.warn(`[review-diversity] ${p.productCode}: 다양성 선택 실패`, e);
                   }
                 }
               }
@@ -1003,14 +988,18 @@ export function useBulkRegisterActions() {
               setProducts(prev => prev.map((p, i) => {
                 const detailOrder = detailOrderMap.get(i);
                 const reviewOrder = reviewOrderMap.get(i);
+                const detailMeta = detailMetaMap.get(i);
+                const reviewMeta = reviewMetaMap.get(i);
                 if (!detailOrder && !reviewOrder) return p;
                 return {
                   ...p,
                   ...(detailOrder ? { editedDetailImageOrder: detailOrder } : {}),
                   ...(reviewOrder ? { editedReviewImageOrder: reviewOrder } : {}),
+                  ...(detailMeta ? { detailImageSelectionMeta: detailMeta } : {}),
+                  ...(reviewMeta ? { reviewImageSelectionMeta: reviewMeta } : {}),
                 };
               }));
-              console.info(`[image-filter] 상세이미지 ${detailOrderMap.size}건, 리뷰이미지 ${reviewOrderMap.size}건 자동 필터링 완료`);
+              console.info(`[image-diversity] 상세이미지 ${detailOrderMap.size}건, 리뷰이미지 ${reviewOrderMap.size}건 다양성 기반 자동 선택 완료`);
             }
           }
         }

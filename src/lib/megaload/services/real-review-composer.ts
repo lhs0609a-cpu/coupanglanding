@@ -14,6 +14,8 @@ import reviewFrameData from '../data/real-review-frames.json';
 import storyData from '../data/story-templates.json';
 import { resolveContentProfile } from './content-profile-resolver';
 import type { ContentProfile } from './content-profile-resolver';
+import { extractContextOverrides } from './product-name-parser';
+import type { ProductContext } from './product-name-parser';
 
 // ─── 타입 ────────────────────────────────────────────────────
 
@@ -426,7 +428,7 @@ const SUBCATEGORY_ALIASES: Record<string, string> = {
   '문구/오피스>미술/화방용품':  '문구/오피스>필기구',
 };
 
-function resolveVariablePool(
+function resolveVariablePoolCore(
   categoryPath: string,
   catKey: string,
   productName: string,
@@ -586,6 +588,30 @@ function resolveVariablePool(
   return parentVars;
 }
 
+/** 변수풀 해석 + productContext 오버라이드 일괄 적용 */
+function resolveVariablePool(
+  categoryPath: string,
+  catKey: string,
+  productName: string,
+  categoryCode?: string,
+  productContext?: ProductContext,
+): Record<string, string[]> {
+  // Core에서 카테고리/상품명 기반 변수풀 해석
+  const vars = { ...resolveVariablePoolCore(categoryPath, catKey, productName, categoryCode) };
+
+  // productContext 오버라이드 — 모든 경로에 공통 적용
+  if (productContext) {
+    const contextOverrides = extractContextOverrides(productContext, categoryPath);
+    for (const [key, values] of Object.entries(contextOverrides)) {
+      if (values.length > 0) {
+        // 상품 컨텍스트 값을 앞에 배치 (높은 선택 확률)
+        vars[key] = [...values, ...(vars[key] || [])];
+      }
+    }
+  }
+  return vars;
+}
+
 // ─── 후처리 새니타이저 ──────────────────────────────────────
 
 function sanitizeByProductForm(text: string, productName: string, categoryKey: string): string {
@@ -666,12 +692,13 @@ export function generateRealReview(
   sellerSeed: string,
   productIndex: number,
   categoryCode?: string,
+  productContext?: ProductContext,
 ): RealReviewResult {
   const catKey = getReviewCategoryKey(categoryPath);
   const fragCatKey = resolveFragmentCategory(catKey);
 
-  // 변수 풀 (CPG 프로필 우선, 없으면 서브카테고리 라우팅)
-  const vars = resolveVariablePool(categoryPath, catKey, productName, categoryCode);
+  // 변수 풀 (CPG 프로필 우선, 없으면 서브카테고리 라우팅 + productContext 오버라이드)
+  const vars = resolveVariablePool(categoryPath, catKey, productName, categoryCode, productContext);
 
   // 시드 기반 RNG
   const seed = stringToSeed(`${sellerSeed}::realreview::${productIndex}::${productName}`);
@@ -774,11 +801,11 @@ export function generateRealReview(
  * 리얼 후기 배치 생성
  */
 export function generateRealReviewBatch(
-  products: { name: string; categoryPath: string; categoryCode?: string }[],
+  products: { name: string; categoryPath: string; categoryCode?: string; productContext?: ProductContext }[],
   sellerSeed: string,
 ): RealReviewResult[] {
   return products.map((p, i) =>
-    generateRealReview(p.name, p.categoryPath, sellerSeed, i, p.categoryCode),
+    generateRealReview(p.name, p.categoryPath, sellerSeed, i, p.categoryCode, p.productContext),
   );
 }
 

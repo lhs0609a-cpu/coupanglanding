@@ -746,3 +746,50 @@ export async function notifyRankChange(
     link: '/my/arena',
   });
 }
+
+/** 메가로드 오류문의 생성 알림 (관리자에게) */
+export async function notifyBugReportCreated(
+  supabase: SupabaseClient,
+  adminId: string,
+  userName: string,
+  reportTitle: string,
+) {
+  return createNotification(supabase, {
+    userId: adminId,
+    type: 'bug_report',
+    title: '새 오류문의 접수',
+    message: `"${userName}" 사용자가 "${reportTitle}" 오류를 신고했습니다.`,
+    link: '/admin/megaload-bug-reports',
+  });
+}
+
+/** 오류문의 답변 알림 (사용자에게) */
+export async function notifyBugReportReplied(
+  supabase: SupabaseClient,
+  userId: string,
+  reportTitle: string,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'bug_report',
+    title: '오류문의에 답변이 등록되었습니다',
+    message: `"${reportTitle}" 오류문의에 관리자 답변이 등록되었습니다.`,
+    link: '/megaload/bug-reports',
+  });
+}
+
+/** 오류문의 상태 변경 알림 (사용자에게) */
+export async function notifyBugReportStatusChanged(
+  supabase: SupabaseClient,
+  userId: string,
+  reportTitle: string,
+  statusLabel: string,
+) {
+  return createNotification(supabase, {
+    userId,
+    type: 'bug_report',
+    title: '오류문의 상태가 변경되었습니다',
+    message: `"${reportTitle}" 오류문의가 "${statusLabel}" 상태로 변경되었습니다.`,
+    link: '/megaload/bug-reports',
+  });
+}

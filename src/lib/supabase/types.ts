@@ -8,8 +8,8 @@ export type ContractStatus = 'draft' | 'sent' | 'signed' | 'expired' | 'terminat
 export type OnboardingStepStatus = 'pending' | 'submitted' | 'approved' | 'rejected';
 export type OnboardingVerificationType = 'self_check' | 'evidence_upload' | 'auto_linked' | 'quiz';
 export type FeePaymentStatus = 'not_applicable' | 'awaiting_payment' | 'paid' | 'overdue' | 'suspended';
-export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system' | 'emergency' | 'violation' | 'arena' | 'fee_payment' | 'support' | 'trainer_message';
-export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'unlink_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist' | 'create_violation' | 'update_violation' | 'escalate_violation' | 'resolve_violation' | 'dismiss_violation' | 'terminate_violation' | 'issue_tax_invoice' | 'cancel_tax_invoice' | 'confirm_tax_invoice' | 'approve_manual_input' | 'reject_manual_input' | 'create_penalty' | 'resolve_penalty' | 'create_challenge' | 'update_challenge' | 'award_points' | 'suspend_program_access' | 'restore_program_access' | 'create_notice' | 'update_notice' | 'delete_notice' | 'reply_ticket' | 'close_ticket' | 'create_faq' | 'update_faq' | 'delete_faq' | 'create_screening' | 'decide_screening' | 'create_pre_registration' | 'cancel_pre_registration' | 'auto_approve_user' | 'user_signup';
+export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system' | 'emergency' | 'violation' | 'arena' | 'fee_payment' | 'support' | 'trainer_message' | 'bug_report';
+export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'unlink_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist' | 'create_violation' | 'update_violation' | 'escalate_violation' | 'resolve_violation' | 'dismiss_violation' | 'terminate_violation' | 'issue_tax_invoice' | 'cancel_tax_invoice' | 'confirm_tax_invoice' | 'approve_manual_input' | 'reject_manual_input' | 'create_penalty' | 'resolve_penalty' | 'create_challenge' | 'update_challenge' | 'award_points' | 'suspend_program_access' | 'restore_program_access' | 'create_notice' | 'update_notice' | 'delete_notice' | 'reply_ticket' | 'close_ticket' | 'create_faq' | 'update_faq' | 'delete_faq' | 'create_screening' | 'decide_screening' | 'create_pre_registration' | 'cancel_pre_registration' | 'auto_approve_user' | 'user_signup' | 'reply_bug_report' | 'update_bug_report_status' | 'close_bug_report';
 export type WithdrawalStatus = 'pending' | 'approved' | 'rejected';
 export type TrainerStatus = 'pending' | 'approved' | 'revoked';
 export type TrainerEarningStatus = 'pending' | 'requested' | 'deposited' | 'confirmed';
@@ -834,6 +834,48 @@ export interface Faq {
   view_count: number;
   created_at: string;
   updated_at: string;
+}
+
+// 메가로드 오류문의 타입
+export type BugReportCategory = 'ui_bug' | 'data_error' | 'api_error' | 'performance' | 'feature_request' | 'general';
+export type BugReportStatus = 'pending' | 'confirmed' | 'in_progress' | 'resolved' | 'closed';
+export type BugReportPriority = 'low' | 'normal' | 'high' | 'critical';
+
+export interface BugReportAttachment {
+  url: string;
+  name: string;
+  size: number;
+}
+
+export interface BugReport {
+  id: string;
+  megaload_user_id: string;
+  title: string;
+  description: string;
+  category: BugReportCategory;
+  status: BugReportStatus;
+  priority: BugReportPriority;
+  page_url: string | null;
+  browser_info: string | null;
+  screen_size: string | null;
+  attachments: BugReportAttachment[];
+  context: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  // Joined
+  megaload_user?: { id: string; profile_id: string; profile?: { id: string; full_name: string; email: string } | null };
+  unread_count?: number;
+}
+
+export interface BugReportMessage {
+  id: string;
+  bug_report_id: string;
+  sender_id: string;
+  sender_role: 'user' | 'admin';
+  content: string;
+  attachments: BugReportAttachment[];
+  is_read: boolean;
+  created_at: string;
 }
 
 // 파트너 스크리닝 타입

@@ -137,6 +137,62 @@ export function seoEnrichBlocks(blocks: ContentBlock[], seoKeywords: string[]): 
   });
 }
 
+// ─── 건강식품 성분→효과 자동 추론 ─────────────────────────────
+
+const HEALTH_EFFECT_MAP: Record<string, { 효과1: string[]; 효과2: string[]; 카테고리: string[] }> = {
+  '비오틴':       { 효과1: ['모발건강','피부건강','손톱건강','두피건강'], 효과2: ['탈모예방','모발윤기','피부탄력'], 카테고리: ['비오틴','모발영양제'] },
+  '오메가3':      { 효과1: ['혈관건강','혈행개선','중성지방감소'], 효과2: ['혈행촉진','심장건강','혈류개선'], 카테고리: ['오메가3','혈관건강'] },
+  '루테인':       { 효과1: ['눈건강','시력보호','황반건강'], 효과2: ['눈피로회복','블루라이트차단'], 카테고리: ['루테인','눈영양제'] },
+  '밀크씨슬':     { 효과1: ['간건강','간보호','간해독'], 효과2: ['숙취해소','피로회복'], 카테고리: ['밀크씨슬','간영양제'] },
+  '유산균':       { 효과1: ['장건강','소화흡수','배변활동'], 효과2: ['쾌변','더부룩함해소'], 카테고리: ['유산균','프로바이오틱스'] },
+  '프로바이오틱스': { 효과1: ['장건강','소화흡수','장내환경'], 효과2: ['유익균증식','소화력향상'], 카테고리: ['유산균','프로바이오틱스'] },
+  '콜라겐':       { 효과1: ['피부탄력','피부보습','주름개선'], 효과2: ['피부윤기','보습력향상'], 카테고리: ['콜라겐','이너뷰티'] },
+  '히알루론산':    { 효과1: ['피부보습','피부탄력','주름개선'], 효과2: ['보습력향상','피부결개선'], 카테고리: ['콜라겐','이너뷰티'] },
+  '홍삼':         { 효과1: ['면역력','피로회복','활력'], 효과2: ['에너지충전','면역증진'], 카테고리: ['홍삼','면역영양제'] },
+  '진세노사이드':  { 효과1: ['면역력','피로회복','활력'], 효과2: ['체력보강','면역강화'], 카테고리: ['홍삼','면역영양제'] },
+  '글루코사민':    { 효과1: ['관절건강','연골보호','관절유연성'], 효과2: ['관절통완화','보행편안'], 카테고리: ['관절영양제','글루코사민'] },
+  '콘드로이친':    { 효과1: ['관절건강','연골보호','뼈건강'], 효과2: ['연골강화','움직임개선'], 카테고리: ['관절영양제','글루코사민'] },
+  '보스웰리아':    { 효과1: ['관절건강','관절유연성','연골보호'], 효과2: ['관절편안함','움직임개선'], 카테고리: ['관절영양제','보스웰리아'] },
+  'MSM':          { 효과1: ['관절건강','연골보호','관절유연성'], 효과2: ['관절편안함','무릎건강'], 카테고리: ['관절영양제','MSM'] },
+  '코엔자임':      { 효과1: ['항산화','심장건강','에너지생성'], 효과2: ['심장기능','세포활력'], 카테고리: ['코엔자임Q10','항산화영양제'] },
+  '쏘팔메토':      { 효과1: ['전립선건강','배뇨기능','남성건강'], 효과2: ['전립선기능','배뇨편안'], 카테고리: ['쏘팔메토','남성영양제'] },
+  '엽산':         { 효과1: ['태아건강','세포분열','임산부건강'], 효과2: ['태아발달','빈혈예방'], 카테고리: ['엽산','임산부영양제'] },
+  '가르시니아':    { 효과1: ['체지방감소','식욕억제','대사촉진'], 효과2: ['체중관리','지방감소'], 카테고리: ['다이어트','체지방관리'] },
+  '스피루리나':    { 효과1: ['영양균형','항산화','면역력'], 효과2: ['영양보충','해독력'], 카테고리: ['스피루리나','녹색영양'] },
+  '클로렐라':      { 효과1: ['영양균형','항산화','디톡스'], 효과2: ['영양보충','면역강화'], 카테고리: ['클로렐라','녹색영양'] },
+  '흑마늘':       { 효과1: ['면역력','항산화','피로회복'], 효과2: ['면역강화','활력개선'], 카테고리: ['흑마늘','면역영양제'] },
+  '마그네슘':      { 효과1: ['근육이완','신경안정','수면개선'], 효과2: ['근육경련완화','스트레스완화'], 카테고리: ['마그네슘','미네랄'] },
+  '칼슘':         { 효과1: ['뼈건강','골밀도','치아건강'], 효과2: ['뼈밀도유지','골다공증예방'], 카테고리: ['칼슘','미네랄'] },
+  '철분':         { 효과1: ['빈혈예방','혈액생성','에너지대사'], 효과2: ['피로감소','활력증진'], 카테고리: ['철분','미네랄'] },
+  '프로틴':       { 효과1: ['근력강화','근육회복','단백질보충'], 효과2: ['근육합성','운동효과'], 카테고리: ['프로틴','단백질보충제'] },
+  'EPA':          { 효과1: ['혈관건강','혈행개선','중성지방감소'], 효과2: ['혈류개선','심장건강'], 카테고리: ['오메가3','혈관건강'] },
+  'DHA':          { 효과1: ['혈관건강','두뇌건강','혈행개선'], 효과2: ['혈류개선','기억력향상'], 카테고리: ['오메가3','혈관건강'] },
+  '크릴오일':      { 효과1: ['혈관건강','혈행개선','항산화'], 효과2: ['혈류개선','중성지방관리'], 카테고리: ['크릴오일','혈관건강'] },
+};
+
+function inferHealthEffects(ingredients: string[]): Record<string, string[]> {
+  const effects1: string[] = [];
+  const effects2: string[] = [];
+  const categories: string[] = [];
+
+  for (const ingredient of ingredients) {
+    for (const [key, mapping] of Object.entries(HEALTH_EFFECT_MAP)) {
+      if (ingredient.includes(key) || key.includes(ingredient)) {
+        effects1.push(...mapping['효과1']);
+        effects2.push(...mapping['효과2']);
+        categories.push(...mapping['카테고리']);
+        break;
+      }
+    }
+  }
+
+  return {
+    '효과1': [...new Set(effects1)],
+    '효과2': [...new Set(effects2)],
+    '카테고리': [...new Set(categories)],
+  };
+}
+
 // ─── 공개 API ────────────────────────────────────────────────
 
 /**
@@ -172,17 +228,32 @@ export function generatePersuasionContent(
   const tokens = parseProductName(productName, categoryPath, '');
   const productOverrides = tokensToVariableOverrides(tokens);
 
-  // ── Layer 3.5: 상품 컨텍스트 → 추가 오버라이드 (빈 키만 채움) ──
+  // ── Layer 3.5: 상품 컨텍스트 → 변수 오버라이드 강화 ──
   let hasStrongContext = false;
   if (productContext) {
     const contextOverrides = extractContextOverrides(productContext, categoryPath);
     for (const [key, values] of Object.entries(contextOverrides)) {
-      if (!productOverrides[key]) {
-        // 이름 파싱에서 해당 키가 비어있을 때만 컨텍스트로 채움
-        productOverrides[key] = values;
+      if (values.length > 0) {
+        // 기존 파싱 결과 앞에 컨텍스트 값을 prepend (높은 선택 확률)
+        const existing = productOverrides[key] || [];
+        productOverrides[key] = [...values, ...existing.filter(v => !values.includes(v))];
       }
     }
-    hasStrongContext = Object.keys(productOverrides).length >= 3;
+    // 건강식품: 성분에서 효과 자동 추론 (비오틴→모발건강, 오메가3→혈관건강 등)
+    if (categoryPath.includes('건강식품') && productOverrides['성분']?.length > 0) {
+      const inferred = inferHealthEffects(productOverrides['성분']);
+      if (inferred['효과1']?.length > 0 && !productOverrides['효과1']?.length) {
+        productOverrides['효과1'] = inferred['효과1'];
+      }
+      if (inferred['효과2']?.length > 0 && !productOverrides['효과2']?.length) {
+        productOverrides['효과2'] = inferred['효과2'];
+      }
+      if (inferred['카테고리']?.length > 0 && !productOverrides['카테고리']?.length) {
+        productOverrides['카테고리'] = inferred['카테고리'];
+      }
+    }
+    // 1개 이상 오버라이드 → 강한 컨텍스트 (카테고리 폴백 최소화)
+    hasStrongContext = Object.keys(productOverrides).length >= 1;
   }
 
   // ── CPG 프로필 조회 → forbiddenTerms 추출 ──

@@ -45,7 +45,7 @@ export default function MegaloadLayoutClient({
 
       const shUserId = (shUser as Record<string, unknown>).id as string;
 
-      const [ordersRes, inquiriesRes, channelsRes] = await Promise.all([
+      const [ordersRes, inquiriesRes, channelsRes, bugReportMsgsRes] = await Promise.all([
         supabase
           .from('sh_orders')
           .select('id', { count: 'exact', head: true })
@@ -61,6 +61,11 @@ export default function MegaloadLayoutClient({
           .select('id', { count: 'exact', head: true })
           .eq('megaload_user_id', shUserId)
           .eq('is_connected', true),
+        supabase
+          .from('sh_bug_report_messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('sender_role', 'admin')
+          .eq('is_read', false),
       ]);
 
       if (cancelled) return;
@@ -70,6 +75,7 @@ export default function MegaloadLayoutClient({
         pendingInquiries: inquiriesRes.count ?? 0,
         lowStockCount: 0,
         expiringKeys: 0,
+        unreadBugReports: bugReportMsgsRes.count ?? 0,
       });
       setHasConnectedChannels((channelsRes.count ?? 0) > 0);
     })();

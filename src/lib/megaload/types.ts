@@ -719,4 +719,5 @@ export interface MegaloadBadgeData {
   pendingInquiries: number;
   lowStockCount: number;
   expiringKeys: number;
+  unreadBugReports: number;
 }

@@ -25,6 +25,7 @@ import {
   Bell,
   MessageCircle,
   HelpCircle,
+  Bug,
 } from 'lucide-react';
 
 const navItems = [
@@ -46,6 +47,7 @@ const navItems = [
   { href: '/admin/guide-images', label: '가이드 이미지', icon: BookOpen },
   { href: '/admin/notices', label: '공지 관리', icon: Bell },
   { href: '/admin/support', label: '문의 관리', icon: MessageCircle },
+  { href: '/admin/megaload-bug-reports', label: '메가로드 오류문의', icon: Bug },
   { href: '/admin/faqs', label: 'FAQ 관리', icon: HelpCircle },
   { href: '/admin/activity-log', label: '활동 로그', icon: ScrollText },
   { href: '/admin/settings', label: '설정', icon: Settings },

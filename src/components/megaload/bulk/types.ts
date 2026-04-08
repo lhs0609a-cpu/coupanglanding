@@ -4,6 +4,9 @@ import type {
   ValidationIssue,
   CategoryMetadata,
 } from '@/lib/megaload/services/product-validator';
+import type { ImageType } from '@/lib/megaload/services/image-quality-scorer';
+
+export type { ImageType };
 
 export interface PriceBracket {
   minPrice: number;
@@ -84,11 +87,25 @@ export interface EditableProduct extends PreviewProduct {
   // 상세페이지 이미지 선택/순서 (undefined=전체, [2,0,5]=해당 인덱스만 지정 순서)
   editedDetailImageOrder?: number[];
   editedReviewImageOrder?: number[];
+  // 다양성 기반 이미지 선택 메타
+  detailImageSelectionMeta?: ImageSelectionMeta;
+  reviewImageSelectionMeta?: ImageSelectionMeta;
   // 스톡 이미지
   stockMainImageUrls?: string[];
   stockCategoryKey?: string; // 'apple' — runStockImageFetch에서 설정
   useStockImages?: boolean;
   originalScannedMainImages?: ScannedImageFile[];
+}
+
+export interface ImageSelectionMeta {
+  /** 다양성 점수 0~100 */
+  diversityScore: number;
+  /** 선택된 이미지의 유형 목록 */
+  imageTypes: ImageType[];
+  /** 클러스터 수 */
+  clusterCount: number;
+  /** 워터마크 감지된 이미지 인덱스와 점수 */
+  watermarkScores?: { index: number; score: number }[];
 }
 
 export interface ShippingPlace {
@@ -145,7 +162,7 @@ export interface DetailedError {
   rawResponse?: string;
 }
 
-export type FilterMode = 'all' | 'problems' | 'no-category' | 'no-image' | 'skipped' | 'sold-out';
+export type FilterMode = 'all' | 'problems' | 'no-category' | 'no-image' | 'skipped' | 'sold-out' | 'image-review';
 export type SortField = 'name' | 'price' | 'confidence' | null;
 export type SortDirection = 'asc' | 'desc';
 

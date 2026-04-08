@@ -195,11 +195,28 @@ const BulkProductRow = memo(function BulkProductRow({
         </button>
       </div>
 
-      {/* Image counts */}
-      <div className="px-2 flex items-center justify-center gap-2 text-[10px] text-gray-400">
+      {/* Image counts + diversity badge */}
+      <div className="px-2 flex items-center justify-center gap-1.5 text-[10px] text-gray-400">
         <span title="대표">{mainImgCount}</span>
         <span>/</span>
         <span title="상세">{p.detailImageCount}</span>
+        {(() => {
+          const meta = p.detailImageSelectionMeta;
+          const detailCount = p.editedDetailImageOrder?.length ?? p.detailImageCount;
+          // 빨강: 이미지 3장 미만 또는 워터마크 감지
+          const hasWatermark = meta?.watermarkScores?.some(w => w.score >= 0.5);
+          if (detailCount < 3 || hasWatermark) {
+            return <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" title={hasWatermark ? '워터마크 감지 — 수동 확인 필요' : '이미지 3장 미만 — 수동 확인 필요'} />;
+          }
+          if (!meta) return null;
+          const uniqueTypes = new Set(meta.imageTypes.filter(t => t !== 'unknown')).size;
+          // 초록: diversityScore >= 70 + 유형 3종+
+          if (meta.diversityScore >= 70 && uniqueTypes >= 3) {
+            return <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" title={`자동 선택 완료 (다양성 ${meta.diversityScore}%, ${uniqueTypes}유형)`} />;
+          }
+          // 노랑: diversityScore 40~70 또는 유형 2종 이하
+          return <span className="w-2 h-2 rounded-full bg-yellow-500 shrink-0" title={`검토 권장 (다양성 ${meta.diversityScore}%, ${uniqueTypes}유형)`} />;
+        })()}
       </div>
 
       {/* Skip (exclude) button */}

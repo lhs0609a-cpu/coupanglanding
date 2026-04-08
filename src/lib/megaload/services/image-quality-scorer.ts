@@ -37,6 +37,13 @@
 // 이상치 감지 (detectOutlierImages):
 //  - 같은 상품의 이미지 세트 내에서 색상 분포가 크게 다른 이미지 감지
 //  - 다른 브랜드/상품 이미지 자동 제거
+//
+// 다양성 기반 이미지 선택 (selectDiverseImages):
+//  - 이미지 특징 벡터 추출 (색상 히스토그램 + 공간 레이아웃 + 에지 방향)
+//  - 이미지 유형 자동 분류 (nukki/lifestyle/packaging/ingredient/detail_shot/infographic)
+//  - K-Medoids 클러스터링 → 유형별 쿼터 보충 → greedy maximin 순서 정렬
+//  - 워터마크 시각 감지 (코너 로고 + 대각선 반투명)
+//  - 모델 사진 차단 강화 (상단 중앙 피부톤 집중만 차단)
 // ============================================================
 
 export interface ImageScore {
@@ -60,6 +67,49 @@ export interface ImageScore {
   fillRatio: number;
   /** 하드필터 사유 (해당 시) */
   hardFilterReason?: string;
+}
+
+/** 이미지 유형 분류 */
+export type ImageType =
+  | 'nukki'        // 흰배경 누끼
+  | 'lifestyle'    // 라이프스타일 (사용 장면)
+  | 'packaging'    // 패키징/포장재
+  | 'ingredient'   // 성분표/텍스트 정보
+  | 'usage'        // 사용법
+  | 'detail_shot'  // 디테일 샷 (클로즈업)
+  | 'infographic'  // 인포그래픽
+  | 'unknown';
+
+/** 이미지 특징 벡터 — 다양성 비교용 */
+export interface ImageFeatures {
+  /** 64빈 색상 히스토그램 (4x4x4 RGB 양자화, 정규화) */
+  colorHist: Float32Array;
+  /** 3x3 공간 레이아웃 (9영역 평균 밝기, 0~1 정규화) */
+  spatialLayout: Float32Array;
+  /** 8빈 에지 방향 히스토그램 (Sobel 기반, 정규화) */
+  edgeOrientHist: Float32Array;
+  /** 밝기 분포 4구간 (어두운~밝은, 정규화) */
+  brightnessDist: Float32Array;
+  /** 자동 분류된 이미지 유형 */
+  imageType: ImageType;
+  /** 워터마크 감지 신뢰도 (0~1) */
+  watermarkScore: number;
+  /** 원본 인덱스 */
+  originalIndex: number;
+}
+
+/** selectDiverseImages 결과 */
+export interface DiverseSelectionResult {
+  /** 선택된 이미지 인덱스 (다양성 순서로 정렬) */
+  selectedIndices: number[];
+  /** 다양성 점수 0~100 */
+  diversityScore: number;
+  /** 선택된 이미지의 유형 목록 */
+  imageTypes: ImageType[];
+  /** 클러스터 수 */
+  clusterCount: number;
+  /** 각 이미지의 워터마크 점수 */
+  watermarkScores: { index: number; score: number }[];
 }
 
 // 성능 최적화: 200→100→50 (16x 적은 픽셀, 패턴 감지에 충분)
@@ -1427,6 +1477,852 @@ export async function autoCropToFill(
   const newRatio = newBboxArea / newTotalArea;
 
   return { cropped: true, url: newUrl, oldRatio, newRatio };
+}
+
+// ================================================================
+// 다양성 기반 이미지 선택 시스템
+// ================================================================
+
+/**
+ * 이미지 특징 벡터를 추출한다 (기존 50x50 Canvas에서 값 재사용).
+ * 새 Canvas 로드 없이 기존 분석 데이터에서 추가 특징만 추출.
+ */
+function extractImageFeatures(
+  data: Uint8ClampedArray,
+  gray: Float32Array,
+  w: number,
+  h: number,
+  originalIndex: number,
+): ImageFeatures {
+  // 1. 64빈 색상 히스토그램 (4x4x4 RGB 양자화)
+  const BINS_PER_CH = 4;
+  const TOTAL_BINS = BINS_PER_CH ** 3; // 64
+  const colorHist = new Float32Array(TOTAL_BINS);
+  const totalPixels = w * h;
+
+  for (let i = 0; i < totalPixels; i++) {
+    const offset = i * 4;
+    const rBin = Math.min(3, data[offset] >> 6);
+    const gBin = Math.min(3, data[offset + 1] >> 6);
+    const bBin = Math.min(3, data[offset + 2] >> 6);
+    colorHist[rBin * 16 + gBin * 4 + bBin]++;
+  }
+  for (let i = 0; i < TOTAL_BINS; i++) colorHist[i] /= totalPixels;
+
+  // 2. 3x3 공간 레이아웃 (9영역 평균 밝기, 0~1 정규화)
+  const spatialLayout = new Float32Array(9);
+  const cellCounts = new Float32Array(9);
+  const cellW = Math.floor(w / 3);
+  const cellH = Math.floor(h / 3);
+
+  for (let y = 0; y < h; y++) {
+    const row = Math.min(2, Math.floor(y / cellH));
+    for (let x = 0; x < w; x++) {
+      const col = Math.min(2, Math.floor(x / cellW));
+      const cellIdx = row * 3 + col;
+      spatialLayout[cellIdx] += gray[y * w + x];
+      cellCounts[cellIdx]++;
+    }
+  }
+  for (let i = 0; i < 9; i++) {
+    spatialLayout[i] = cellCounts[i] > 0 ? (spatialLayout[i] / cellCounts[i]) / 255 : 0.5;
+  }
+
+  // 3. 8빈 에지 방향 히스토그램 (Sobel 기반)
+  const edgeOrientHist = new Float32Array(8);
+  let edgeTotal = 0;
+  const EDGE_THRESH = 30;
+
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const gx =
+        -gray[(y - 1) * w + (x - 1)] + gray[(y - 1) * w + (x + 1)] +
+        -2 * gray[y * w + (x - 1)] + 2 * gray[y * w + (x + 1)] +
+        -gray[(y + 1) * w + (x - 1)] + gray[(y + 1) * w + (x + 1)];
+      const gy =
+        -gray[(y - 1) * w + (x - 1)] - 2 * gray[(y - 1) * w + x] - gray[(y - 1) * w + (x + 1)] +
+        gray[(y + 1) * w + (x - 1)] + 2 * gray[(y + 1) * w + x] + gray[(y + 1) * w + (x + 1)];
+
+      const mag = Math.sqrt(gx * gx + gy * gy);
+      if (mag > EDGE_THRESH) {
+        // atan2 → 0~2π → 8빈
+        let angle = Math.atan2(gy, gx);
+        if (angle < 0) angle += Math.PI * 2;
+        const bin = Math.min(7, Math.floor(angle / (Math.PI / 4)));
+        edgeOrientHist[bin] += mag;
+        edgeTotal += mag;
+      }
+    }
+  }
+  if (edgeTotal > 0) {
+    for (let i = 0; i < 8; i++) edgeOrientHist[i] /= edgeTotal;
+  }
+
+  // 4. 밝기 분포 4구간 (0~63, 64~127, 128~191, 192~255)
+  const brightnessDist = new Float32Array(4);
+  for (let i = 0; i < totalPixels; i++) {
+    const bin = Math.min(3, Math.floor(gray[i] / 64));
+    brightnessDist[bin]++;
+  }
+  for (let i = 0; i < 4; i++) brightnessDist[i] /= totalPixels;
+
+  // 5. 이미지 유형 분류
+  const imageType = classifyImageType(data, gray, w, h, colorHist);
+
+  // 6. 워터마크 감지
+  const watermarkScore = detectVisualWatermark(data, gray, w, h);
+
+  return {
+    colorHist,
+    spatialLayout,
+    edgeOrientHist,
+    brightnessDist,
+    imageType,
+    watermarkScore,
+    originalIndex,
+  };
+}
+
+/**
+ * 이미지 유형을 자동 분류한다.
+ * 기존 분석값(배경밝기, 채도, 텍스트밀도, fillRatio)만으로 판별 — 추가 비용 0.
+ */
+function classifyImageType(
+  data: Uint8ClampedArray,
+  gray: Float32Array,
+  w: number,
+  h: number,
+  colorHist: Float32Array,
+): ImageType {
+  const totalPixels = w * h;
+
+  // 기본 수치 계산 (기존 함수 재사용)
+  const bgSat = scoreBackgroundSaturation(data, w, h);
+  const fillRatioScore = scoreFillRatio(data, w, h);
+
+  // 텍스트 밀도 (에지 밀도)
+  let edgeCount = 0;
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const gx =
+        -gray[(y - 1) * w + (x - 1)] + gray[(y - 1) * w + (x + 1)] +
+        -2 * gray[y * w + (x - 1)] + 2 * gray[y * w + (x + 1)] +
+        -gray[(y + 1) * w + (x - 1)] + gray[(y + 1) * w + (x + 1)];
+      const gy =
+        -gray[(y - 1) * w + (x - 1)] - 2 * gray[(y - 1) * w + x] - gray[(y - 1) * w + (x + 1)] +
+        gray[(y + 1) * w + (x - 1)] + 2 * gray[(y + 1) * w + x] + gray[(y + 1) * w + (x + 1)];
+      if (Math.sqrt(gx * gx + gy * gy) > 50) edgeCount++;
+    }
+  }
+  const edgeDensity = edgeCount / ((w - 2) * (h - 2));
+
+  // 컬러 다양성: significant bins 계산
+  const minBinCount = totalPixels * 0.02;
+  let sigBins = 0;
+  for (let i = 0; i < 64; i++) {
+    if (colorHist[i] * totalPixels >= minBinCount) sigBins++;
+  }
+
+  // 피부톤 비율
+  let skinCount = 0;
+  for (let i = 0; i < totalPixels; i++) {
+    const off = i * 4;
+    const r = data[off], g = data[off + 1], b = data[off + 2];
+    if (r > 95 && g > 40 && b > 20 && r > g && r > b &&
+        Math.max(r, g, b) - Math.min(r, g, b) > 15 && Math.abs(r - g) > 15) {
+      skinCount++;
+    }
+  }
+  const skinRatio = skinCount / totalPixels;
+
+  // 흰배경 비율 (밝기 > 230)
+  let whiteBgCount = 0;
+  for (let i = 0; i < totalPixels; i++) {
+    if (gray[i] > 230) whiteBgCount++;
+  }
+  const whiteBgRatio = whiteBgCount / totalPixels;
+
+  // 세그먼트 수 (단일상품 집중도 관련 — 중앙 행 스캔)
+  const midY = Math.floor(h / 2);
+  let segments = 0;
+  let inContent = false;
+  for (let x = 0; x < w; x++) {
+    const lum = gray[midY * w + x];
+    const isContent = lum < 220;
+    if (isContent && !inContent) { segments++; inContent = true; }
+    if (!isContent) inContent = false;
+  }
+
+  // 가장자리 잘림 (scoreEdgeCrop 로직 간소화)
+  let croppedEdges = 0;
+  const EDGE_D = Math.max(2, Math.floor(Math.min(w, h) * 0.02));
+  const checkEdge = (getIdx: (p: number, d: number) => number, len: number) => {
+    let content = 0, total = 0;
+    for (let p = 0; p < len; p++) {
+      for (let d = 0; d < EDGE_D; d++) {
+        if (gray[getIdx(p, d)] < 225) content++;
+        total++;
+      }
+    }
+    return total > 0 && content / total > 0.30;
+  };
+  if (checkEdge((x, d) => d * w + x, w)) croppedEdges++;
+  if (checkEdge((x, d) => (h - 1 - d) * w + x, w)) croppedEdges++;
+  if (checkEdge((y, d) => y * w + d, h)) croppedEdges++;
+  if (checkEdge((y, d) => y * w + (w - 1 - d), h)) croppedEdges++;
+
+  // ---- 분류 규칙 ----
+
+  // 1. 누끼: 흰배경 40%+ + 중앙집중(세그먼트 1) + fill < 90
+  if (whiteBgRatio > 0.40 && segments <= 1 && fillRatioScore < 90) {
+    return 'nukki';
+  }
+
+  // 2. 성분표/텍스트 정보: 텍스트 밀도 높음
+  if (edgeDensity > 0.25 && sigBins <= 8) {
+    return 'ingredient';
+  }
+
+  // 3. 인포그래픽: 높은 채도 비율 + 다양한 색상
+  const highSatRatio = getHighSaturationRatio(data, w, h);
+  if (highSatRatio > 0.25 && sigBins > 6) {
+    return 'infographic';
+  }
+
+  // 4. 라이프스타일: 피부톤 5~15% OR (높은 색상 다양성 + 낮은 흰배경)
+  if ((skinRatio >= 0.05 && skinRatio < 0.15) ||
+      (sigBins > 10 && whiteBgRatio < 0.20)) {
+    return 'lifestyle';
+  }
+
+  // 5. 패키징: 에지잘림 2변+ + 높은 fill
+  if (croppedEdges >= 2 && fillRatioScore >= 60) {
+    return 'packaging';
+  }
+
+  // 6. 디테일 샷: 높은 fill + 높은 선명도 + 세그먼트 1
+  if (fillRatioScore >= 85 && edgeDensity > 0.10 && segments <= 1) {
+    return 'detail_shot';
+  }
+
+  return 'unknown';
+}
+
+/**
+ * 시각적 워터마크를 감지한다.
+ * - 코너 로고: 4코너(15%) 엣지밀도가 중앙 대비 1.5배 + 색상 2~5개
+ * - 대각선 반투명 텍스트: 대각선 스캔 → 평탄 영역 내 미세 주기 변화
+ *
+ * @returns 워터마크 신뢰도 0~1 (0.5+ = 워터마크 가능성 높음)
+ */
+function detectVisualWatermark(
+  data: Uint8ClampedArray,
+  gray: Float32Array,
+  w: number,
+  h: number,
+): number {
+  let score = 0;
+
+  // (A) 코너 로고 감지
+  const cornerSize = Math.floor(Math.min(w, h) * 0.15);
+  const centerX1 = Math.floor(w * 0.3);
+  const centerX2 = Math.floor(w * 0.7);
+  const centerY1 = Math.floor(h * 0.3);
+  const centerY2 = Math.floor(h * 0.7);
+
+  // 중앙 에지 밀도
+  let centerEdges = 0, centerTotal = 0;
+  for (let y = centerY1; y < centerY2; y++) {
+    for (let x = centerX1; x < centerX2; x++) {
+      if (x > 0 && x < w - 1 && y > 0 && y < h - 1) {
+        const gx = Math.abs(gray[y * w + (x + 1)] - gray[y * w + (x - 1)]);
+        const gy = Math.abs(gray[(y + 1) * w + x] - gray[(y - 1) * w + x]);
+        if (gx + gy > 30) centerEdges++;
+        centerTotal++;
+      }
+    }
+  }
+  const centerEdgeDensity = centerTotal > 0 ? centerEdges / centerTotal : 0;
+
+  // 4코너 중 가장 높은 에지밀도
+  const corners = [
+    { x0: 0, y0: 0 },                          // 좌상
+    { x0: w - cornerSize, y0: 0 },              // 우상
+    { x0: 0, y0: h - cornerSize },              // 좌하
+    { x0: w - cornerSize, y0: h - cornerSize }, // 우하
+  ];
+
+  for (const corner of corners) {
+    let cornerEdges = 0, cornerTotal2 = 0;
+    const uniqueColors = new Set<number>();
+
+    for (let y = corner.y0; y < corner.y0 + cornerSize && y < h; y++) {
+      for (let x = corner.x0; x < corner.x0 + cornerSize && x < w; x++) {
+        if (x > 0 && x < w - 1 && y > 0 && y < h - 1) {
+          const gx = Math.abs(gray[y * w + (x + 1)] - gray[y * w + (x - 1)]);
+          const gy = Math.abs(gray[(y + 1) * w + x] - gray[(y - 1) * w + x]);
+          if (gx + gy > 30) cornerEdges++;
+          cornerTotal2++;
+        }
+        // 양자화된 색상 카운트
+        const off = (y * w + x) * 4;
+        const qr = data[off] >> 5;
+        const qg = data[off + 1] >> 5;
+        const qb = data[off + 2] >> 5;
+        uniqueColors.add(qr * 64 + qg * 8 + qb);
+      }
+    }
+
+    const cornerDensity = cornerTotal2 > 0 ? cornerEdges / cornerTotal2 : 0;
+    const colorCount = uniqueColors.size;
+
+    // 코너에 에지밀도가 높고 + 색상 수가 적으면(2~5) → 로고 가능
+    if (centerEdgeDensity > 0.01 && cornerDensity > centerEdgeDensity * 1.5 && colorCount >= 2 && colorCount <= 8) {
+      score = Math.max(score, 0.4 + Math.min(0.3, (cornerDensity / centerEdgeDensity - 1.5) * 0.3));
+    }
+  }
+
+  // (B) 대각선 반투명 텍스트 감지
+  // 대각선 라인에서 주기적 밝기 변화 패턴 감지
+  const diagLen = Math.min(w, h);
+  const diagValues: number[] = [];
+  for (let i = 0; i < diagLen; i++) {
+    diagValues.push(gray[i * w + i]);
+  }
+
+  if (diagValues.length > 10) {
+    // 고주파 에너지 비율 (미세 주기 변화)
+    let totalVariance = 0;
+    let highFreqVariance = 0;
+    const windowSize = 5;
+
+    for (let i = windowSize; i < diagValues.length - windowSize; i++) {
+      // 로컬 평균 대비 차이
+      let localSum = 0;
+      for (let j = -windowSize; j <= windowSize; j++) localSum += diagValues[i + j];
+      const localMean = localSum / (windowSize * 2 + 1);
+
+      const diff = diagValues[i] - localMean;
+      totalVariance += diff * diff;
+
+      // 인접 차이 (고주파)
+      const hfDiff = diagValues[i] - diagValues[i - 1];
+      highFreqVariance += hfDiff * hfDiff;
+    }
+
+    // 반투명 워터마크: 평탄한 배경에 미세한 주기적 패턴
+    const avgTotalVar = totalVariance / Math.max(1, diagLen - windowSize * 2);
+    const avgHFVar = highFreqVariance / Math.max(1, diagLen - windowSize);
+
+    if (avgTotalVar < 100 && avgHFVar > 5 && avgHFVar < 50) {
+      score = Math.max(score, 0.3 + Math.min(0.3, avgHFVar / 50));
+    }
+  }
+
+  return Math.min(1, score);
+}
+
+/**
+ * 모델/인물 사진 감지 강화 — 상단 중앙에 피부톤이 집중된 경우만 차단.
+ * 기존: 피부톤 15%이면 무조건 차단
+ * 개선: 피부톤 공간 분포 분석 → 상단 중앙 집중(얼굴)만 차단, 하단/가장자리(손)은 허용
+ *
+ * @returns true = 모델 사진 (차단 대상), false = 허용
+ */
+export function detectFaceRegion(
+  data: Uint8ClampedArray,
+  w: number,
+  h: number,
+): boolean {
+  const totalPixels = w * h;
+  let totalSkin = 0;
+
+  // 상단 중앙 (상위 40%, 좌우 중앙 60%)
+  let upperCenterSkin = 0;
+  let upperCenterTotal = 0;
+
+  const topBound = Math.floor(h * 0.4);
+  const leftBound = Math.floor(w * 0.2);
+  const rightBound = Math.floor(w * 0.8);
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const off = (y * w + x) * 4;
+      const r = data[off], g = data[off + 1], b = data[off + 2];
+
+      const isSkin = r > 95 && g > 40 && b > 20 && r > g && r > b &&
+        Math.max(r, g, b) - Math.min(r, g, b) > 15 && Math.abs(r - g) > 15;
+
+      if (isSkin) totalSkin++;
+
+      if (y < topBound && x >= leftBound && x < rightBound) {
+        upperCenterTotal++;
+        if (isSkin) upperCenterSkin++;
+      }
+    }
+  }
+
+  const totalSkinRatio = totalSkin / totalPixels;
+  if (totalSkinRatio < 0.08) return false; // 피부톤 너무 적으면 무조건 허용
+
+  const upperCenterRatio = upperCenterTotal > 0 ? upperCenterSkin / upperCenterTotal : 0;
+
+  // 상단 중앙에 피부톤 20%+ 집중 → 얼굴 가능성 높음
+  return upperCenterRatio >= 0.20;
+}
+
+/**
+ * 두 특징 벡터 간의 복합 거리를 계산한다.
+ * 색상 chi² 40% + 공간 유클리드 25% + 에지 코사인 20% + 유형 불일치 15%
+ */
+function featureDistance(a: ImageFeatures, b: ImageFeatures): number {
+  // (1) 색상 히스토그램 chi-squared 거리 (0~∞, 보통 0~2)
+  let chi2 = 0;
+  for (let i = 0; i < 64; i++) {
+    const sum = a.colorHist[i] + b.colorHist[i];
+    if (sum > 0.001) {
+      chi2 += (a.colorHist[i] - b.colorHist[i]) ** 2 / sum;
+    }
+  }
+  const colorDist = Math.min(1, chi2 / 2); // 정규화 0~1
+
+  // (2) 공간 레이아웃 유클리드 거리 (0~√9 ≈ 3, 보통 0~1)
+  let spatialSq = 0;
+  for (let i = 0; i < 9; i++) {
+    spatialSq += (a.spatialLayout[i] - b.spatialLayout[i]) ** 2;
+  }
+  const spatialDist = Math.min(1, Math.sqrt(spatialSq) / 1.5);
+
+  // (3) 에지 방향 코사인 거리 (0~2, 보통 0~1)
+  let dotProduct = 0, normA = 0, normB = 0;
+  for (let i = 0; i < 8; i++) {
+    dotProduct += a.edgeOrientHist[i] * b.edgeOrientHist[i];
+    normA += a.edgeOrientHist[i] ** 2;
+    normB += b.edgeOrientHist[i] ** 2;
+  }
+  const cosSim = (normA > 0 && normB > 0) ? dotProduct / (Math.sqrt(normA) * Math.sqrt(normB)) : 0;
+  const edgeDist = 1 - cosSim; // 0(동일) ~ 1(반대)
+
+  // (4) 유형 불일치 (0 또는 1)
+  const typeDist = a.imageType !== b.imageType ? 1 : 0;
+
+  return colorDist * 0.40 + spatialDist * 0.25 + edgeDist * 0.20 + typeDist * 0.15;
+}
+
+/**
+ * K-Medoids 클러스터링 (PAM 알고리즘 간소화).
+ * 거리 행렬 기반으로 k개의 대표 이미지(medoid)를 선택한다.
+ */
+function kMedoids(
+  distMatrix: number[][],
+  k: number,
+  maxIter = 30,
+): { medoids: number[]; clusters: number[][] } {
+  const n = distMatrix.length;
+  if (k >= n) {
+    return {
+      medoids: Array.from({ length: n }, (_, i) => i),
+      clusters: Array.from({ length: n }, (_, i) => [i]),
+    };
+  }
+
+  // 초기 medoid: 가장 중심적인 k개 포인트 (다른 포인트와의 평균 거리가 가장 작은)
+  const avgDists = distMatrix.map(row => row.reduce((a, b) => a + b, 0) / n);
+  const sortedByDist = avgDists.map((d, i) => ({ i, d })).sort((a, b) => a.d - b.d);
+  const medoids = sortedByDist.slice(0, k).map(e => e.i);
+
+  for (let iter = 0; iter < maxIter; iter++) {
+    // 할당: 각 포인트를 가장 가까운 medoid에 배정
+    const clusters: number[][] = Array.from({ length: k }, () => []);
+    for (let i = 0; i < n; i++) {
+      let bestCluster = 0;
+      let bestDist = Infinity;
+      for (let m = 0; m < k; m++) {
+        if (distMatrix[i][medoids[m]] < bestDist) {
+          bestDist = distMatrix[i][medoids[m]];
+          bestCluster = m;
+        }
+      }
+      clusters[bestCluster].push(i);
+    }
+
+    // 업데이트: 각 클러스터에서 총 거리가 최소인 포인트를 새 medoid로
+    let changed = false;
+    for (let m = 0; m < k; m++) {
+      const cluster = clusters[m];
+      if (cluster.length === 0) continue;
+
+      let bestMedoid = medoids[m];
+      let bestCost = Infinity;
+      for (const candidate of cluster) {
+        let cost = 0;
+        for (const point of cluster) cost += distMatrix[candidate][point];
+        if (cost < bestCost) {
+          bestCost = cost;
+          bestMedoid = candidate;
+        }
+      }
+      if (bestMedoid !== medoids[m]) {
+        medoids[m] = bestMedoid;
+        changed = true;
+      }
+    }
+
+    if (!changed) break;
+  }
+
+  // 최종 할당
+  const finalClusters: number[][] = Array.from({ length: k }, () => []);
+  for (let i = 0; i < n; i++) {
+    let bestCluster = 0;
+    let bestDist = Infinity;
+    for (let m = 0; m < k; m++) {
+      if (distMatrix[i][medoids[m]] < bestDist) {
+        bestDist = distMatrix[i][medoids[m]];
+        bestCluster = m;
+      }
+    }
+    finalClusters[bestCluster].push(i);
+  }
+
+  return { medoids, clusters: finalClusters };
+}
+
+/**
+ * 다양성 기반 이미지 선택 — 상세/리뷰 이미지용.
+ *
+ * 1. 모든 이미지 특징 벡터 추출 (동시성 3)
+ * 2. 기존 filterDetailPageImages + crossReferenceOutlierImages 적용
+ * 3. 거리 행렬 계산 (색상 chi² 40% + 공간 유클리드 25% + 에지 코사인 20% + 유형 불일치 15%)
+ * 4. K-Medoids 클러스터링 → 각 클러스터 대표 1개 선택
+ * 5. 유형별 쿼터 보충 (누끼 1~2, 라이프스타일 1~2, 디테일 1, 성분표 0~1)
+ * 6. Greedy maximin 순서 정렬 (상위 N장만 봐도 다양한 뷰)
+ *
+ * @param objectUrls - 분석할 이미지의 Object URL 배열
+ * @param options.maxCount - 최대 선택 수 (기본 10)
+ * @param options.referenceUrls - 대표이미지 URLs (이상치 비교 기준)
+ */
+export async function selectDiverseImages(
+  objectUrls: string[],
+  options: {
+    maxCount?: number;
+    referenceUrls?: string[];
+  } = {},
+): Promise<DiverseSelectionResult> {
+  const maxCount = options.maxCount ?? 10;
+
+  if (objectUrls.length === 0) {
+    return { selectedIndices: [], diversityScore: 0, imageTypes: [], clusterCount: 0, watermarkScores: [] };
+  }
+
+  // 이미지가 maxCount 이하면 필터만 적용하고 전부 반환
+  if (objectUrls.length <= maxCount) {
+    // 기본 필터 + 특징 추출만
+    const basicFilter = await filterDetailPageImages(objectUrls);
+    const passed = basicFilter.filter(r => !r.filtered);
+
+    if (passed.length === 0) {
+      return { selectedIndices: [], diversityScore: 0, imageTypes: [], clusterCount: 0, watermarkScores: [] };
+    }
+
+    // 특징 벡터 추출
+    const features = await extractFeaturesForUrls(
+      passed.map(p => objectUrls[p.index]),
+      passed.map(p => p.index),
+    );
+
+    const indices = features.map(f => f.originalIndex);
+    const types = features.map(f => f.imageType);
+    const uniqueTypes = new Set(types.filter(t => t !== 'unknown'));
+    const watermarkScores = features.map(f => ({ index: f.originalIndex, score: f.watermarkScore }));
+
+    return {
+      selectedIndices: indices,
+      diversityScore: computeDiversityScore(features, uniqueTypes.size),
+      imageTypes: types,
+      clusterCount: uniqueTypes.size || 1,
+      watermarkScores,
+    };
+  }
+
+  // Step 1: 기본 품질 필터
+  const detailFilter = await filterDetailPageImages(objectUrls);
+  let passedEntries = detailFilter
+    .filter(r => !r.filtered)
+    .map(r => ({ origIdx: r.index, url: objectUrls[r.index] }));
+
+  if (passedEntries.length === 0) {
+    return { selectedIndices: [], diversityScore: 0, imageTypes: [], clusterCount: 0, watermarkScores: [] };
+  }
+
+  // Step 2: 이상치 제거 (대표이미지 대비)
+  if (options.referenceUrls && options.referenceUrls.length > 0 && passedEntries.length > 3) {
+    const crossRef = await crossReferenceOutlierImages(
+      options.referenceUrls,
+      passedEntries.map(e => e.url),
+      0.9,
+    );
+    passedEntries = crossRef
+      .filter(r => !r.isOutlier)
+      .map(r => passedEntries[r.index]);
+  }
+
+  if (passedEntries.length === 0) {
+    return { selectedIndices: [], diversityScore: 0, imageTypes: [], clusterCount: 0, watermarkScores: [] };
+  }
+
+  // Step 3: 특징 벡터 추출
+  const features = await extractFeaturesForUrls(
+    passedEntries.map(e => e.url),
+    passedEntries.map(e => e.origIdx),
+  );
+
+  if (features.length === 0) {
+    return { selectedIndices: [], diversityScore: 0, imageTypes: [], clusterCount: 0, watermarkScores: [] };
+  }
+
+  // 이미지 수가 maxCount 이하면 전부 반환
+  if (features.length <= maxCount) {
+    const indices = greedyMaximinOrder(features);
+    const types = indices.map(i => features.find(f => f.originalIndex === i)!.imageType);
+    const uniqueTypes = new Set(types.filter(t => t !== 'unknown'));
+    const watermarkScores = features.map(f => ({ index: f.originalIndex, score: f.watermarkScore }));
+
+    return {
+      selectedIndices: indices,
+      diversityScore: computeDiversityScore(features, uniqueTypes.size),
+      imageTypes: types,
+      clusterCount: uniqueTypes.size || 1,
+      watermarkScores,
+    };
+  }
+
+  // Step 4: 거리 행렬 계산
+  const n = features.length;
+  const distMatrix: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const d = featureDistance(features[i], features[j]);
+      distMatrix[i][j] = d;
+      distMatrix[j][i] = d;
+    }
+  }
+
+  // Step 5: K-Medoids 클러스터링
+  const k = Math.min(maxCount, Math.max(3, Math.ceil(n / 3)));
+  const { medoids, clusters } = kMedoids(distMatrix, k);
+
+  // Step 6: 각 클러스터 대표 선택 (medoid 우선)
+  let selected: number[] = [...medoids];
+
+  // Step 7: 유형별 쿼터 보충
+  const typeQuota: Partial<Record<ImageType, { min: number; max: number }>> = {
+    nukki: { min: 1, max: 2 },
+    lifestyle: { min: 1, max: 2 },
+    detail_shot: { min: 0, max: 1 },
+    ingredient: { min: 0, max: 1 },
+  };
+
+  const selectedSet = new Set(selected);
+  const typeCounts: Partial<Record<ImageType, number>> = {};
+  for (const idx of selected) {
+    const type = features[idx].imageType;
+    typeCounts[type] = (typeCounts[type] ?? 0) + 1;
+  }
+
+  // 부족한 유형 보충
+  for (const [type, quota] of Object.entries(typeQuota) as [ImageType, { min: number; max: number }][]) {
+    const current = typeCounts[type] ?? 0;
+    if (current >= quota.min) continue;
+
+    // 해당 유형의 이미지 중 아직 선택되지 않은 것
+    const candidates = features
+      .map((f, i) => ({ featureIdx: i, f }))
+      .filter(({ featureIdx, f }) => f.imageType === type && !selectedSet.has(featureIdx));
+
+    for (const { featureIdx } of candidates) {
+      if (selected.length >= maxCount) break;
+      if ((typeCounts[type] ?? 0) >= quota.min) break;
+      selected.push(featureIdx);
+      selectedSet.add(featureIdx);
+      typeCounts[type] = (typeCounts[type] ?? 0) + 1;
+    }
+  }
+
+  // maxCount까지 남은 슬롯은 거리 기반으로 채움 (선택된 것들과 가장 먼 이미지)
+  while (selected.length < maxCount && selected.length < features.length) {
+    let bestIdx = -1;
+    let bestMinDist = -1;
+    for (let i = 0; i < features.length; i++) {
+      if (selectedSet.has(i)) continue;
+      let minDist = Infinity;
+      for (const s of selected) {
+        minDist = Math.min(minDist, distMatrix[i][s]);
+      }
+      if (minDist > bestMinDist) {
+        bestMinDist = minDist;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx < 0) break;
+    selected.push(bestIdx);
+    selectedSet.add(bestIdx);
+  }
+
+  // Step 8: Greedy maximin 순서 정렬
+  const orderedFeatures = selected.map(i => features[i]);
+  const orderedIndices = greedyMaximinOrder(orderedFeatures);
+
+  const finalTypes = orderedIndices.map(i => {
+    const feat = features.find(f => f.originalIndex === i);
+    return feat?.imageType ?? 'unknown';
+  });
+  const uniqueTypes = new Set(finalTypes.filter(t => t !== 'unknown'));
+
+  const watermarkScores = features.map(f => ({ index: f.originalIndex, score: f.watermarkScore }));
+
+  return {
+    selectedIndices: orderedIndices,
+    diversityScore: computeDiversityScoreFromMatrix(selected, distMatrix, uniqueTypes.size),
+    imageTypes: finalTypes,
+    clusterCount: clusters.filter(c => c.length > 0).length,
+    watermarkScores,
+  };
+}
+
+/**
+ * Object URL 배열에서 특징 벡터를 추출한다 (동시성 제한).
+ */
+async function extractFeaturesForUrls(
+  urls: string[],
+  originalIndices: number[],
+): Promise<ImageFeatures[]> {
+  const results = await runPool(urls, IMAGE_CONCURRENCY, async (i) => {
+    try {
+      const img = await loadImage(urls[i]);
+      const canvas = document.createElement('canvas');
+      canvas.width = ANALYSIS_SIZE;
+      canvas.height = ANALYSIS_SIZE;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+
+      ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
+      const imageData = ctx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
+      const { data } = imageData;
+
+      const gray = new Float32Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
+      for (let p = 0; p < gray.length; p++) {
+        const offset = p * 4;
+        gray[p] = 0.299 * data[offset] + 0.587 * data[offset + 1] + 0.114 * data[offset + 2];
+      }
+
+      return extractImageFeatures(data, gray, ANALYSIS_SIZE, ANALYSIS_SIZE, originalIndices[i]);
+    } catch {
+      return null;
+    }
+  });
+
+  return results.filter((r): r is ImageFeatures => r !== null);
+}
+
+/**
+ * Greedy maximin 순서 정렬 — 상위 N장만 봐도 다양한 뷰를 보장.
+ * 첫 이미지: 누끼가 있으면 누끼 우선, 아니면 첫 번째
+ * 이후: 이미 선택된 이미지들과의 최소 거리가 가장 큰 이미지를 선택
+ */
+function greedyMaximinOrder(features: ImageFeatures[]): number[] {
+  if (features.length === 0) return [];
+  if (features.length === 1) return [features[0].originalIndex];
+
+  const n = features.length;
+  const distMat: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const d = featureDistance(features[i], features[j]);
+      distMat[i][j] = d;
+      distMat[j][i] = d;
+    }
+  }
+
+  // 첫 이미지: 누끼 우선
+  let firstIdx = 0;
+  const nukkiIdx = features.findIndex(f => f.imageType === 'nukki');
+  if (nukkiIdx >= 0) firstIdx = nukkiIdx;
+
+  const order: number[] = [firstIdx];
+  const used = new Set([firstIdx]);
+
+  while (order.length < n) {
+    let bestIdx = -1;
+    let bestMinDist = -1;
+    for (let i = 0; i < n; i++) {
+      if (used.has(i)) continue;
+      let minDist = Infinity;
+      for (const s of order) {
+        minDist = Math.min(minDist, distMat[i][s]);
+      }
+      if (minDist > bestMinDist) {
+        bestMinDist = minDist;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx < 0) break;
+    order.push(bestIdx);
+    used.add(bestIdx);
+  }
+
+  return order.map(i => features[i].originalIndex);
+}
+
+/**
+ * 다양성 점수 계산 (0~100) — 특징 벡터 리스트 기반
+ */
+function computeDiversityScore(features: ImageFeatures[], uniqueTypeCount: number): number {
+  if (features.length <= 1) return features.length === 1 ? 30 : 0;
+
+  // 쌍별 평균 거리
+  let totalDist = 0;
+  let pairs = 0;
+  for (let i = 0; i < features.length; i++) {
+    for (let j = i + 1; j < features.length; j++) {
+      totalDist += featureDistance(features[i], features[j]);
+      pairs++;
+    }
+  }
+  const avgDist = pairs > 0 ? totalDist / pairs : 0;
+
+  // 거리 점수 (0~70): avgDist 0→0, 0.3→50, 0.6+→70
+  const distScore = Math.min(70, avgDist * 120);
+
+  // 유형 다양성 점수 (0~30): 1유형→5, 2→15, 3→25, 4+→30
+  const typeScore = Math.min(30, uniqueTypeCount * 8 - 3);
+
+  return Math.round(Math.max(0, Math.min(100, distScore + typeScore)));
+}
+
+/**
+ * 다양성 점수 계산 — 거리 행렬 기반 (이미 계산된 거리 행렬 재사용)
+ */
+function computeDiversityScoreFromMatrix(
+  selectedIndices: number[],
+  distMatrix: number[][],
+  uniqueTypeCount: number,
+): number {
+  if (selectedIndices.length <= 1) return selectedIndices.length === 1 ? 30 : 0;
+
+  let totalDist = 0;
+  let pairs = 0;
+  for (let i = 0; i < selectedIndices.length; i++) {
+    for (let j = i + 1; j < selectedIndices.length; j++) {
+      totalDist += distMatrix[selectedIndices[i]][selectedIndices[j]];
+      pairs++;
+    }
+  }
+  const avgDist = pairs > 0 ? totalDist / pairs : 0;
+  const distScore = Math.min(70, avgDist * 120);
+  const typeScore = Math.min(30, uniqueTypeCount * 8 - 3);
+
+  return Math.round(Math.max(0, Math.min(100, distScore + typeScore)));
 }
 
 /**
