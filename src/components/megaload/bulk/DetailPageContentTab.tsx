@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   FileText, MessageSquare, Plus, Trash2, Eye, EyeOff,
-  ChevronDown, ChevronRight, GripVertical, Image as ImageIcon,
+  ChevronDown, ChevronRight, GripVertical, Image as ImageIcon, Check,
 } from 'lucide-react';
 import { buildRichDetailPageHtml } from '@/lib/megaload/services/detail-page-builder';
 import { ensureObjectUrl } from '@/lib/megaload/services/client-folder-scanner';
@@ -31,11 +31,11 @@ const THIRD_PARTY_IMAGE_URLS = [
   'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-20.jpg',
 ];
 import type { ContentBlock } from '@/lib/megaload/services/persuasion-engine';
-import type { EditableProduct } from './types';
+import type { EditableProduct, ScannedImageFile } from './types';
 
 interface DetailPageContentTabProps {
   product: EditableProduct;
-  onUpdate: (uid: string, field: string, value: string | number | string[] | Record<string, string>) => void;
+  onUpdate: (uid: string, field: string, value: string | number | string[] | number[] | Record<string, string>) => void;
   preUploadedUrls?: {
     mainImageUrls: string[];
     detailImageUrls?: string[];
@@ -50,6 +50,166 @@ interface CollapsibleProps {
   badge?: string;
   defaultOpen?: boolean;
   children: React.ReactNode;
+}
+
+/** order 배열로 이미지 필터링. undefined → 전체, [] → 0장 */
+function filterByOrder<T>(items: T[], order: number[] | undefined): T[] {
+  if (!order) return items;
+  return order.filter(i => i >= 0 && i < items.length).map(i => items[i]);
+}
+
+interface ImageSelectorGroupProps {
+  label: string;
+  images: ScannedImageFile[];
+  thumbnailUrls: string[];
+  order: number[] | undefined;
+  onOrderChange: (newOrder: number[]) => void;
+}
+
+function ImageSelectorGroup({ label, images, thumbnailUrls, order, onOrderChange }: ImageSelectorGroupProps) {
+  const dragSrcRef = useRef<number | null>(null); // position in order array being dragged
+  const [dragOverPos, setDragOverPos] = useState<number | null>(null);
+
+  if (images.length === 0) return null;
+
+  const allIndices = images.map((_, i) => i);
+  const selectedIndices = order ?? allIndices;
+  const selectedSet = new Set(selectedIndices);
+  const unselectedIndices = allIndices.filter(i => !selectedSet.has(i));
+  const selectedCount = selectedIndices.length;
+  const totalCount = images.length;
+
+  const toggleImage = (imgIdx: number) => {
+    if (selectedSet.has(imgIdx)) {
+      // 제거
+      const newOrder = selectedIndices.filter(i => i !== imgIdx);
+      onOrderChange(newOrder);
+    } else {
+      // 끝에 추가
+      onOrderChange([...selectedIndices, imgIdx]);
+    }
+  };
+
+  const selectAll = () => onOrderChange(allIndices);
+  const deselectAll = () => onOrderChange([]);
+
+  // DnD handlers (selected 영역 내에서만)
+  const handleDragStart = (posInOrder: number) => (e: React.DragEvent) => {
+    dragSrcRef.current = posInOrder;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(posInOrder));
+  };
+  const handleDragOver = (posInOrder: number) => (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverPos(posInOrder);
+  };
+  const handleDrop = (posInOrder: number) => (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOverPos(null);
+    const from = dragSrcRef.current;
+    if (from === null || from === posInOrder) return;
+    const newOrder = [...selectedIndices];
+    const [moved] = newOrder.splice(from, 1);
+    newOrder.splice(posInOrder, 0, moved);
+    onOrderChange(newOrder);
+    dragSrcRef.current = null;
+  };
+  const handleDragEnd = () => {
+    setDragOverPos(null);
+    dragSrcRef.current = null;
+  };
+
+  const renderThumb = (imgIdx: number, opts: { selected: boolean; posInOrder?: number; draggable?: boolean }) => {
+    const url = thumbnailUrls[imgIdx] || images[imgIdx]?.objectUrl;
+    return (
+      <div
+        key={`${label}-${imgIdx}`}
+        className={`relative w-20 h-20 rounded-lg overflow-hidden cursor-pointer border-2 transition-all flex-shrink-0 ${
+          opts.selected
+            ? dragOverPos === opts.posInOrder
+              ? 'border-blue-400 ring-2 ring-blue-200'
+              : 'border-blue-500'
+            : 'border-gray-200 opacity-50'
+        }`}
+        onClick={() => toggleImage(imgIdx)}
+        draggable={opts.draggable}
+        onDragStart={opts.draggable ? handleDragStart(opts.posInOrder!) : undefined}
+        onDragOver={opts.draggable ? handleDragOver(opts.posInOrder!) : undefined}
+        onDrop={opts.draggable ? handleDrop(opts.posInOrder!) : undefined}
+        onDragEnd={opts.draggable ? handleDragEnd : undefined}
+        title={`${images[imgIdx]?.name ?? `이미지 ${imgIdx + 1}`}${opts.selected ? ` (순서 ${opts.posInOrder! + 1})` : ' (제외됨)'}`}
+      >
+        {url ? (
+          <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
+        ) : (
+          <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+            <ImageIcon className="w-5 h-5 text-gray-300" />
+          </div>
+        )}
+        {/* 선택 체크마크 */}
+        {opts.selected && (
+          <div className="absolute top-1 left-1 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center shadow">
+            <Check className="w-3 h-3 text-white" />
+          </div>
+        )}
+        {/* 순서 번호 */}
+        {opts.selected && opts.posInOrder !== undefined && (
+          <div className="absolute bottom-1 right-1 min-w-[18px] h-[18px] bg-blue-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center shadow">
+            {opts.posInOrder + 1}
+          </div>
+        )}
+        {/* 미선택 오버레이 */}
+        {!opts.selected && (
+          <div className="absolute inset-0 bg-white/40" />
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="pt-2">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-xs font-medium text-gray-700">{label}</span>
+        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
+          {selectedCount}/{totalCount}장 선택
+        </span>
+        <div className="flex-1" />
+        <button
+          onClick={selectAll}
+          className="text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-blue-400 hover:text-blue-600 transition"
+        >
+          전체선택
+        </button>
+        <button
+          onClick={deselectAll}
+          className="text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-red-400 hover:text-red-600 transition"
+        >
+          전체해제
+        </button>
+      </div>
+      {selectedCount === 0 && (
+        <div className="text-[10px] text-amber-600 bg-amber-50 px-2 py-1 rounded mb-2">
+          선택된 이미지가 없습니다. 상세페이지에 이미지가 포함되지 않습니다.
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {/* 선택된 이미지 (드래그 가능) */}
+        {selectedIndices.map((imgIdx, posInOrder) =>
+          renderThumb(imgIdx, { selected: true, posInOrder, draggable: selectedCount > 1 })
+        )}
+        {/* 미선택 이미지 */}
+        {unselectedIndices.map(imgIdx =>
+          renderThumb(imgIdx, { selected: false })
+        )}
+      </div>
+      {selectedCount > 1 && (
+        <p className="text-[10px] text-gray-400 mt-1.5">
+          선택된 이미지를 드래그하여 순서를 변경할 수 있습니다.
+        </p>
+      )}
+    </div>
+  );
 }
 
 function Collapsible({ title, icon, badge, defaultOpen = true, children }: CollapsibleProps) {
@@ -86,9 +246,8 @@ export default function DetailPageContentTab({
   const reviewTexts = product.editedReviewTexts ?? [];
   const contentBlocks: ContentBlock[] = product.editedContentBlocks ?? [];
 
-  // 미리보기가 열릴 때 scanned 이미지의 objectURL을 lazy 생성
+  // scanned 이미지의 objectURL을 lazy 생성 (썸네일 + 미리보기 공용)
   useEffect(() => {
-    if (!previewOpen) return;
     // CDN URL이 있으면 lazy 생성 불필요
     if (preUploadedUrls?.detailImageUrls?.filter(Boolean).length) return;
     let cancelled = false;
@@ -113,7 +272,7 @@ export default function DetailPageContentTab({
     })();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewOpen, product.uid, preUploadedUrls?.detailImageUrls]);
+  }, [product.uid, preUploadedUrls?.detailImageUrls]);
 
   // --- 상품설명 ---
   const handleDescriptionChange = useCallback((value: string) => {
@@ -171,18 +330,22 @@ export default function DetailPageContentTab({
       ? preUploadedUrls!.infoImageUrls!.filter(Boolean)
       : (product.scannedInfoImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []);
 
+    // order 배열로 이미지 필터링 (선택/순서 반영)
+    const filteredDetailUrls = filterByOrder(detailImageUrls, product.editedDetailImageOrder);
+    const filteredReviewUrls = filterByOrder(reviewImageUrls, product.editedReviewImageOrder);
+
     // 이미지 없으면 플레이스홀더 SVG 사용
     const placeholderImg = (label: string) =>
       `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="400"><rect fill="#f0f0f0" width="800" height="400"/><text fill="#999" font-family="sans-serif" font-size="20" x="400" y="200" text-anchor="middle">${label}</text></svg>`)}`;
 
-    const detailUrls = detailImageUrls.length > 0
-      ? detailImageUrls
+    const detailUrls = filteredDetailUrls.length > 0
+      ? filteredDetailUrls
       : product.detailImageCount > 0
         ? Array.from({ length: Math.min(product.detailImageCount, 3) }, (_, i) => placeholderImg(`상세이미지 ${i + 1}`))
         : [placeholderImg('상세이미지 없음')];
 
-    const reviewUrls = reviewImageUrls.length > 0
-      ? reviewImageUrls
+    const reviewUrls = filteredReviewUrls.length > 0
+      ? filteredReviewUrls
       : product.reviewImageCount > 0
         ? Array.from({ length: Math.min(product.reviewImageCount, 3) }, (_, i) => placeholderImg(`리뷰이미지 ${i + 1}`))
         : [];
@@ -219,6 +382,31 @@ export default function DetailPageContentTab({
 
   return (
     <div className="space-y-3">
+      {/* ─── 상세페이지 이미지 선택 ─── */}
+      {((product.scannedDetailImages?.length ?? 0) > 0 || (product.scannedReviewImages?.length ?? 0) > 0) && (
+        <Collapsible
+          title="상세페이지 이미지"
+          icon={<ImageIcon className="w-3.5 h-3.5 text-indigo-500" />}
+          badge={`${(product.editedDetailImageOrder ?? product.scannedDetailImages ?? []).length + (product.editedReviewImageOrder ?? product.scannedReviewImages ?? []).length}장 선택`}
+          defaultOpen={false}
+        >
+          <ImageSelectorGroup
+            label="상세이미지"
+            images={product.scannedDetailImages ?? []}
+            thumbnailUrls={resolvedDetailUrls}
+            order={product.editedDetailImageOrder}
+            onOrderChange={(newOrder) => onUpdate(product.uid, 'editedDetailImageOrder', newOrder)}
+          />
+          <ImageSelectorGroup
+            label="리뷰이미지"
+            images={product.scannedReviewImages ?? []}
+            thumbnailUrls={resolvedReviewUrls}
+            order={product.editedReviewImageOrder}
+            onOrderChange={(newOrder) => onUpdate(product.uid, 'editedReviewImageOrder', newOrder)}
+          />
+        </Collapsible>
+      )}
+
       {/* ─── 상품설명 ─── */}
       <Collapsible
         title="상품설명"

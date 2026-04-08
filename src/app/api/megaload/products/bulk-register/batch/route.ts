@@ -638,6 +638,27 @@ export async function POST(req: NextRequest) {
           if (imageInserts.length > 0) {
             await serviceClient.from('sh_product_images').insert(imageInserts);
           }
+
+          // 품절 모니터 자동 등록 (source_url 있는 상품만)
+          if (product.sourceUrl) {
+            try {
+              await serviceClient.from('sh_products').update({ source_url: product.sourceUrl }).eq('id', savedId);
+              // sourceName에서 옵션명 추출 (예: "블랙 / M" — 네이버 원본 옵션명)
+              const registeredOptionName = product.sourceName || null;
+              await serviceClient.from('sh_stock_monitors').upsert({
+                megaload_user_id: shUserId,
+                product_id: savedId,
+                coupang_product_id: result.channelProductId,
+                source_url: product.sourceUrl,
+                source_status: 'in_stock',
+                coupang_status: 'active',
+                is_active: true,
+                registered_option_name: registeredOptionName,
+              }, { onConflict: 'megaload_user_id,product_id' });
+            } catch (monitorErr) {
+              console.warn(`[batch] 품절 모니터 등록 실패 (${savedId}):`, monitorErr);
+            }
+          }
         }
       } catch (dbErr) {
         // DB 실패 시 보상 로직: 고아 상품 정보를 sh_sync_jobs.result에 기록

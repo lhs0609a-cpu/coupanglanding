@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/trends",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/megaload-stock-monitor",
+      "schedule": "*/30 * * * *"
     }
   ]
 }

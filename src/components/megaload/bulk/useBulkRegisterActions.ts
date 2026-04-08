@@ -637,6 +637,13 @@ export function useBulkRegisterActions() {
               target.editedCategoryName,
               sellerSeed,
               i,
+              {
+                description: target.description,
+                tags: target.tags,
+                brand: target.editedBrand || target.brand,
+                noticeValues: target.editedNoticeValues,
+                attributeValues: target.editedAttributeValues,
+              },
             );
             updated[globalIdx] = {
               ...updated[globalIdx],

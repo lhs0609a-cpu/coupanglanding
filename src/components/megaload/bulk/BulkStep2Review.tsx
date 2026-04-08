@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo, useEffect, useRef, memo } from 'react';
 import {
   ArrowLeft, ArrowRight, Loader2, CheckCircle2, XCircle, AlertTriangle,
   Search, Zap, Filter, Upload, Eye, BarChart3, CircleDot, Package, ClipboardCopy, ChevronDown, ChevronUp, Ban,
-  ShieldCheck, FlaskConical, Lock, Image as ImageIcon, FileText, Type,
+  ShieldCheck, FlaskConical, Lock, Image as ImageIcon, FileText, Type, PackageX,
 } from 'lucide-react';
 import type { PreflightProductResult, CanaryResult } from '@/lib/megaload/types';
 import BulkProductTable from './BulkProductTable';
@@ -48,7 +48,7 @@ interface BulkStep2ReviewProps {
   onSetProducts: React.Dispatch<React.SetStateAction<EditableProduct[]>>;
   onToggle: (uid: string) => void;
   onToggleAll: () => void;
-  onUpdate: (uid: string, field: string, value: string | number | string[] | Record<string, string>) => void;
+  onUpdate: (uid: string, field: string, value: string | number | string[] | number[] | Record<string, string>) => void;
   onCategoryClick: (uid: string) => void;
   onSetCategorySearchTarget: (v: string | null) => void;
   onSetCategoryKeyword: (v: string) => void;
@@ -91,6 +91,13 @@ interface BulkStep2ReviewProps {
   rematchingCategory?: boolean;
   onRematchLowConfidence?: () => void;
   onFetchCategorySuggestions?: (uid: string) => Promise<CategoryItem[]>;
+  // 품절 체크
+  stockCheckPhase?: 'idle' | 'running' | 'complete';
+  stockCheckProgress?: { done: number; total: number };
+  stockCheckResults?: Record<string, { status: import('./useStockCheck').StockStatus; options?: { optionName: string; status: 'in_stock' | 'sold_out' }[]; isOptionProduct?: boolean; soldOutOptionCount?: number; totalOptionCount?: number }>;
+  stockCheckStats?: { inStock: number; soldOut: number; removed: number; unknown: number; error: number } | null;
+  onStockCheck?: () => void;
+  onExcludeSoldOut?: () => void;
 }
 
 // P1-2: 파이프라인 진행률 섹션 — memo 분리로 테이블 re-render 방지
@@ -192,6 +199,7 @@ export default memo(function BulkStep2Review({
   canaryPhase, canaryResult, canaryTargetUid, canRegister,
   onPreflight, onCanary,
   lowConfidenceCount, rematchingCategory, onRematchLowConfidence,
+  stockCheckPhase, stockCheckProgress, stockCheckResults, stockCheckStats, onStockCheck, onExcludeSoldOut,
 }: BulkStep2ReviewProps) {
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [showFailures, setShowFailures] = useState(false);
@@ -318,6 +326,11 @@ export default memo(function BulkStep2Review({
       result = result.filter(p => (p.scannedMainImages?.length ?? p.mainImageCount) === 0);
     } else if (filterMode === 'skipped') {
       result = result.filter(p => !p.selected);
+    } else if (filterMode === 'sold-out') {
+      result = result.filter(p => {
+        const sr = stockCheckResults?.[p.uid];
+        return sr && (sr.status === 'sold_out' || sr.status === 'removed');
+      });
     }
 
     // Search
@@ -381,12 +394,29 @@ export default memo(function BulkStep2Review({
 
   const skippedCount = products.filter(p => !p.selected).length;
 
-  const filterButtons: { mode: FilterMode; label: string; count?: number }[] = [
+  const soldOutCount = stockCheckResults
+    ? Object.values(stockCheckResults).filter(r => r.status === 'sold_out' || r.status === 'removed').length
+    : 0;
+
+  // 품절 체크 완료 시 자동 제외 (최초 1회)
+  const autoExcludedRef = useRef(false);
+  useEffect(() => {
+    if (stockCheckPhase === 'complete' && soldOutCount > 0 && !autoExcludedRef.current && onExcludeSoldOut) {
+      autoExcludedRef.current = true;
+      onExcludeSoldOut();
+    }
+    if (stockCheckPhase === 'idle') {
+      autoExcludedRef.current = false;
+    }
+  }, [stockCheckPhase, soldOutCount, onExcludeSoldOut]);
+
+  const filterButtons: { mode: FilterMode; label: string; count?: number; icon?: React.ReactNode }[] = [
     { mode: 'all', label: '전체' },
     { mode: 'problems', label: '문제만' },
     { mode: 'no-category', label: '카테고리 미매칭' },
     { mode: 'no-image', label: '이미지 없음' },
     { mode: 'skipped', label: '제외됨', count: skippedCount },
+    ...(soldOutCount > 0 ? [{ mode: 'sold-out' as FilterMode, label: '품절', count: soldOutCount, icon: <PackageX className="w-3 h-3 inline mr-1" /> }] : []),
   ];
 
   return (
@@ -729,13 +759,13 @@ export default memo(function BulkStep2Review({
 
         {/* Filter + Search bar */}
         <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100">
-          {filterButtons.map(({ mode, label, count }) => (
+          {filterButtons.map(({ mode, label, count, icon }) => (
             <button
               key={mode}
               onClick={() => setFilterMode(mode)}
               className={`px-3 py-1 text-xs rounded-full border transition ${filterMode === mode ? 'bg-[#E31837] text-white border-[#E31837]' : 'border-gray-300 text-gray-500 hover:bg-gray-50'}`}
             >
-              {mode === 'skipped' ? <Ban className="w-3 h-3 inline mr-1" /> : <Filter className="w-3 h-3 inline mr-1" />}
+              {icon || (mode === 'skipped' ? <Ban className="w-3 h-3 inline mr-1" /> : <Filter className="w-3 h-3 inline mr-1" />)}
               {label}
               {count !== undefined && count > 0 && (
                 <span className={`ml-1 px-1 py-px rounded-full text-[10px] font-medium ${filterMode === mode ? 'bg-white/20' : 'bg-red-100 text-red-600'}`}>
@@ -787,6 +817,33 @@ export default memo(function BulkStep2Review({
             오류 상품 일괄 제외 ({validationErrorCount})
           </button>
         )}
+        {onStockCheck && (
+          <button
+            onClick={onStockCheck}
+            disabled={stockCheckPhase === 'running' || selectedCount === 0}
+            className={`px-3 py-1.5 text-xs rounded-lg border transition flex items-center gap-1 ${
+              stockCheckPhase === 'complete'
+                ? 'border-green-300 text-green-600 hover:bg-green-50'
+                : 'border-purple-300 text-purple-600 hover:bg-purple-50'
+            } disabled:opacity-50`}
+          >
+            {stockCheckPhase === 'running' ? <Loader2 className="w-3 h-3 animate-spin" /> : <PackageX className="w-3 h-3" />}
+            {stockCheckPhase === 'running'
+              ? `품절 체크 중... ${stockCheckProgress?.done ?? 0}/${stockCheckProgress?.total ?? 0}`
+              : stockCheckPhase === 'complete'
+                ? `품절 체크 완료`
+                : '원본 품절 체크'}
+          </button>
+        )}
+        {onExcludeSoldOut && soldOutCount > 0 && (
+          <button
+            onClick={onExcludeSoldOut}
+            className="px-3 py-1.5 text-xs rounded-lg border border-red-300 text-red-600 hover:bg-red-50 transition flex items-center gap-1"
+          >
+            <Ban className="w-3 h-3" />
+            품절 상품 제외 ({soldOutCount})
+          </button>
+        )}
         {bulkAction === 'brand' && (
           <div className="flex items-center gap-2">
             <input type="text" value={bulkBrandValue} onChange={(e) => setBulkBrandValue(e.target.value)} placeholder="브랜드명" className="px-2 py-1 border border-gray-300 rounded text-xs w-32" />
@@ -833,11 +890,45 @@ export default memo(function BulkStep2Review({
         </div>
       )}
 
+      {/* Stock check running banner */}
+      {stockCheckPhase === 'running' && stockCheckProgress && (
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 flex items-center gap-3">
+          <Loader2 className="w-4 h-4 animate-spin text-purple-600" />
+          <span className="text-sm text-purple-700">원본 품절 자동 체크 중... {stockCheckProgress.done}/{stockCheckProgress.total}</span>
+          <div className="flex-1 h-1.5 bg-purple-100 rounded-full overflow-hidden">
+            <div className="h-full bg-purple-500 rounded-full transition-all" style={{ width: stockCheckProgress.total > 0 ? `${(stockCheckProgress.done / stockCheckProgress.total) * 100}%` : '0%' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Stock check results summary */}
+      {stockCheckPhase === 'complete' && stockCheckStats && (
+        <div className={`rounded-lg p-3 border ${stockCheckStats.soldOut + stockCheckStats.removed > 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+          <div className="flex items-center gap-2 mb-2">
+            <PackageX className="w-4 h-4 text-purple-600" />
+            <span className="text-xs font-semibold text-gray-700">품절 체크 결과</span>
+            {(stockCheckStats.soldOut + stockCheckStats.removed) > 0 && (
+              <span className="text-xs text-red-600 font-medium ml-auto">
+                {stockCheckStats.soldOut + stockCheckStats.removed}개 품절/삭제 상품 자동 제외됨
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-5 gap-3 text-xs text-center">
+            <div><span className="text-green-600 font-bold text-sm">{stockCheckStats.inStock}</span><div className="text-gray-500 mt-0.5">판매중</div></div>
+            <div><span className={`font-bold text-sm ${stockCheckStats.soldOut > 0 ? 'text-red-600' : 'text-gray-300'}`}>{stockCheckStats.soldOut}</span><div className="text-gray-500 mt-0.5">품절</div></div>
+            <div><span className={`font-bold text-sm ${stockCheckStats.removed > 0 ? 'text-gray-600' : 'text-gray-300'}`}>{stockCheckStats.removed}</span><div className="text-gray-500 mt-0.5">삭제됨</div></div>
+            <div><span className={`font-bold text-sm ${stockCheckStats.unknown > 0 ? 'text-yellow-600' : 'text-gray-300'}`}>{stockCheckStats.unknown}</span><div className="text-gray-500 mt-0.5">확인불가</div></div>
+            <div><span className={`font-bold text-sm ${stockCheckStats.error > 0 ? 'text-orange-600' : 'text-gray-300'}`}>{stockCheckStats.error}</span><div className="text-gray-500 mt-0.5">접속오류</div></div>
+          </div>
+        </div>
+      )}
+
       {/* Product table */}
       <BulkProductTable
         products={displayedProducts}
         selectedUid={selectedUid}
         thumbnailCache={thumbnailCache}
+        stockResults={stockCheckResults}
         sortField={sortField}
         sortDirection={sortDirection}
         onToggle={onToggle}

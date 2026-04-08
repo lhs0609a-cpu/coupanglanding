@@ -5,15 +5,25 @@ import {
   CheckCircle2, AlertTriangle, XCircle, Pencil, ChevronDown, ExternalLink, Ban,
 } from 'lucide-react';
 import type { EditableProduct } from './types';
+import type { StockStatus } from './useStockCheck';
 
 // Shared grid template (matches BulkProductTable header)
 export const GRID_TEMPLATE = '44px 40px 56px 1fr 88px 72px 168px 48px 36px';
+
+const STOCK_BADGE: Record<StockStatus, { bg: string; text: string; label: string } | null> = {
+  in_stock: { bg: 'bg-green-100', text: 'text-green-700', label: '판매중' },
+  sold_out: { bg: 'bg-red-100', text: 'text-red-700', label: '품절' },
+  removed: { bg: 'bg-gray-200', text: 'text-gray-600', label: '삭제' },
+  unknown: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: '?' },
+  error: null, // 에러는 표시 안함
+};
 
 interface BulkProductRowProps {
   product: EditableProduct;
   style: React.CSSProperties; // from react-window
   isSelected?: boolean; // row selected for detail panel
   thumbnailUrl: string | null;
+  stockStatus?: StockStatus;
   onLoadThumbnail: (uid: string) => void;
   onToggle: (uid: string) => void;
   onUpdate: (uid: string, field: string, value: string | number) => void;
@@ -26,6 +36,7 @@ const BulkProductRow = memo(function BulkProductRow({
   style,
   isSelected,
   thumbnailUrl,
+  stockStatus,
   onLoadThumbnail,
   onToggle,
   onUpdate,
@@ -106,7 +117,7 @@ const BulkProductRow = memo(function BulkProductRow({
         )}
       </div>
 
-      {/* Code — clickable source link */}
+      {/* Code — clickable source link + stock badge */}
       <div className="px-2 text-xs font-mono truncate">
         <a
           href={p.sourceUrl || `https://search.shopping.naver.com/catalog/${p.productCode}`}
@@ -119,6 +130,11 @@ const BulkProductRow = memo(function BulkProductRow({
           {p.productCode}
           <ExternalLink className="w-2.5 h-2.5 shrink-0" />
         </a>
+        {stockStatus && STOCK_BADGE[stockStatus] && (
+          <span className={`ml-1 px-1 py-px rounded text-[9px] font-medium ${STOCK_BADGE[stockStatus]!.bg} ${STOCK_BADGE[stockStatus]!.text}`}>
+            {STOCK_BADGE[stockStatus]!.label}
+          </span>
+        )}
       </div>
 
       {/* Name */}

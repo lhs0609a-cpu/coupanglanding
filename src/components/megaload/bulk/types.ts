@@ -81,6 +81,9 @@ export interface EditableProduct extends PreviewProduct {
   editedStoryParagraphs?: string[];
   editedReviewTexts?: string[];
   editedContentBlocks?: import('@/lib/megaload/services/persuasion-engine').ContentBlock[];
+  // 상세페이지 이미지 선택/순서 (undefined=전체, [2,0,5]=해당 인덱스만 지정 순서)
+  editedDetailImageOrder?: number[];
+  editedReviewImageOrder?: number[];
   // 스톡 이미지
   stockMainImageUrls?: string[];
   stockCategoryKey?: string; // 'apple' — runStockImageFetch에서 설정
@@ -142,7 +145,7 @@ export interface DetailedError {
   rawResponse?: string;
 }
 
-export type FilterMode = 'all' | 'problems' | 'no-category' | 'no-image' | 'skipped';
+export type FilterMode = 'all' | 'problems' | 'no-category' | 'no-image' | 'skipped' | 'sold-out';
 export type SortField = 'name' | 'price' | 'confidence' | null;
 export type SortDirection = 'asc' | 'desc';
 

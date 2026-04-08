@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   CheckCircle2, Package, Upload, Image as ImageIcon,
 } from 'lucide-react';
 import { useBulkRegisterActions } from './bulk/useBulkRegisterActions';
 import { useThumbnailCache } from './bulk/useThumbnailCache';
+import { useStockCheck } from './bulk/useStockCheck';
 import BulkStep1Settings from './bulk/BulkStep1Settings';
 import BulkStep2Review from './bulk/BulkStep2Review';
 import BulkStep3Progress from './bulk/BulkStep3Progress';
@@ -13,6 +14,7 @@ import BulkStep3Progress from './bulk/BulkStep3Progress';
 export default function BulkRegisterPanel() {
   const actions = useBulkRegisterActions();
   const { getThumbnail, loadThumbnail, cleanup } = useThumbnailCache(actions.products, actions.imagePreuploadCache);
+  const { state: stockState, runStockCheck } = useStockCheck();
 
   // Thumbnail cache for BulkProductTable
   const [thumbnailCache, setThumbnailCache] = useState<Record<string, string | null>>({});
@@ -73,6 +75,38 @@ export default function BulkRegisterPanel() {
   const handleBack = useCallback(() => {
     actions.setStep(1);
   }, [actions.setStep]);
+
+  // Step 2 진입 시 자동 품절 체크
+  const stockCheckTriggeredRef = useRef(false);
+  useEffect(() => {
+    if (step === 2 && !stockCheckTriggeredRef.current && products.length > 0) {
+      const selected = products.filter(p => p.selected && p.sourceUrl);
+      if (selected.length > 0) {
+        stockCheckTriggeredRef.current = true;
+        runStockCheck(selected);
+      }
+    }
+    if (step !== 2) {
+      stockCheckTriggeredRef.current = false;
+    }
+  }, [step, products.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleStockCheck = useCallback(() => {
+    const selected = actions.products.filter(p => p.selected);
+    runStockCheck(selected);
+  }, [actions.products, runStockCheck]);
+
+  const handleExcludeSoldOut = useCallback(() => {
+    const soldOutUids = new Set(
+      Object.entries(stockState.results)
+        .filter(([, r]) => r.status === 'sold_out' || r.status === 'removed')
+        .map(([uid]) => uid),
+    );
+    if (soldOutUids.size === 0) return;
+    actions.setProducts(prev => prev.map(p =>
+      soldOutUids.has(p.uid) ? { ...p, selected: false } : p,
+    ));
+  }, [stockState.results, actions.setProducts]);
 
   return (
     <div className="space-y-6">
@@ -237,6 +271,12 @@ export default function BulkRegisterPanel() {
           rematchingCategory={actions.rematchingCategory}
           onRematchLowConfidence={actions.rematchLowConfidence}
           onFetchCategorySuggestions={actions.fetchCategorySuggestions}
+          stockCheckPhase={stockState.phase}
+          stockCheckProgress={stockState.progress}
+          stockCheckResults={stockState.results}
+          stockCheckStats={stockState.stats}
+          onStockCheck={handleStockCheck}
+          onExcludeSoldOut={handleExcludeSoldOut}
         />
       )}
 

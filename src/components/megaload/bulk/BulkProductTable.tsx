@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, memo } from 'react';
 import { FixedSizeList, type ListOnItemsRenderedProps } from 'react-window';
 import BulkProductRow, { GRID_TEMPLATE } from './BulkProductRow';
 import type { EditableProduct, SortField, SortDirection } from './types';
+import type { StockStatus } from './useStockCheck';
 
 const ROW_HEIGHT = 56;
 const OVERSCAN = 15;
@@ -12,6 +13,7 @@ interface BulkProductTableProps {
   products: EditableProduct[];
   selectedUid: string | null;
   thumbnailCache: Record<string, string | null>;
+  stockResults?: Record<string, { status: StockStatus }>;
   sortField: SortField;
   sortDirection: SortDirection;
   onToggle: (uid: string) => void;
@@ -28,6 +30,7 @@ interface RowData {
   products: EditableProduct[];
   selectedUid: string | null;
   thumbnailCache: Record<string, string | null>;
+  stockResults?: Record<string, { status: StockStatus }>;
   onLoadThumbnail: (uid: string) => void;
   onToggle: (uid: string) => void;
   onUpdate: (uid: string, field: string, value: string | number) => void;
@@ -45,6 +48,7 @@ const Row = memo(function Row({ index, style, data }: { index: number; style: Re
       style={style}
       isSelected={data.selectedUid === p.uid}
       thumbnailUrl={data.thumbnailCache[p.uid] ?? null}
+      stockStatus={data.stockResults?.[p.uid]?.status}
       onLoadThumbnail={data.onLoadThumbnail}
       onToggle={data.onToggle}
       onUpdate={data.onUpdate}
@@ -58,6 +62,7 @@ export default function BulkProductTable({
   products,
   selectedUid,
   thumbnailCache,
+  stockResults,
   sortField,
   sortDirection,
   onToggle,
@@ -95,12 +100,13 @@ export default function BulkProductTable({
     products,
     selectedUid,
     thumbnailCache,
+    stockResults,
     onLoadThumbnail,
     onToggle,
     onUpdate,
     onCategoryClick,
     onRowClick,
-  }), [products, selectedUid, thumbnailCache, onLoadThumbnail, onToggle, onUpdate, onCategoryClick, onRowClick]);
+  }), [products, selectedUid, thumbnailCache, stockResults, onLoadThumbnail, onToggle, onUpdate, onCategoryClick, onRowClick]);
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">

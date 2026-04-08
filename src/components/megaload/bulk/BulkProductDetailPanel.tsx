@@ -28,7 +28,7 @@ interface BulkProductDetailPanelProps {
   onClose: () => void;
   onNavigate: (direction: 'prev' | 'next') => void;
   onToggle: (uid: string) => void;
-  onUpdate: (uid: string, field: string, value: string | number | string[] | Record<string, string>) => void;
+  onUpdate: (uid: string, field: string, value: string | number | string[] | number[] | Record<string, string>) => void;
   onCategoryClick: (uid: string) => void;
   onReorderImages: (uid: string, newOrder: string[]) => void;
   onRemoveImage: (uid: string, imageIndex: number) => void;
