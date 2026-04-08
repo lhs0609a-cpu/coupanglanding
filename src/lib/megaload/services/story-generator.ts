@@ -194,7 +194,7 @@ export function generateStoryBatch(
 // ─── V2: 설득형 콘텐츠 생성 ─────────────────────────────────
 
 import { generatePersuasionContent, contentBlocksToParagraphs } from './persuasion-engine';
-import type { ContentBlock, PersuasionResult } from './persuasion-engine';
+import type { ContentBlock, PersuasionResult, ProductContext } from './persuasion-engine';
 import { resolveSeoCategoryPool, getUniversalModifiers } from './seo-keyword-resolver';
 
 export interface StoryResultV2 extends StoryResult {
@@ -216,6 +216,7 @@ export function generateStoryV2(
   categoryPath: string,
   sellerSeed: string,
   productIndex: number,
+  productContext?: ProductContext,
 ): StoryResultV2 {
   // V3 리얼 후기 생성 (조합형 프레임 시스템) — 메인 콘텐츠
   const realReview = generateRealReview(productName, categoryPath, sellerSeed, productIndex);
@@ -238,6 +239,7 @@ export function generateStoryV2(
   ];
   const persuasion = generatePersuasionContent(
     productName, categoryPath, sellerSeed, productIndex, seoKeywords,
+    undefined, productContext,
   );
   const persuasionParagraphs = contentBlocksToParagraphs(persuasion.blocks);
 

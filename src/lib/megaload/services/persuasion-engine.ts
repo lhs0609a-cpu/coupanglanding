@@ -28,11 +28,12 @@ import {
   getContentProfile,
 } from './fragment-composer';
 import type { ContentBlock, ContentBlockType } from './fragment-composer';
-import { parseProductName, tokensToVariableOverrides } from './product-name-parser';
+import { parseProductName, tokensToVariableOverrides, extractContextOverrides } from './product-name-parser';
+import type { ProductContext } from './product-name-parser';
 
 // ─── 타입 re-export (원본은 fragment-composer.ts) ────────────
 
-export type { ContentBlockType, ContentBlock };
+export type { ContentBlockType, ContentBlock, ProductContext };
 
 export interface PersuasionResult {
   framework: string;         // 사용된 프레임워크 ID
@@ -155,6 +156,7 @@ export function generatePersuasionContent(
   productIndex: number,
   seoKeywords?: string[],
   categoryCode?: string,
+  productContext?: ProductContext,
 ): PersuasionResult {
   // 시드 기반 RNG
   const seed = stringToSeed(`${sellerSeed}::persuasion::${productIndex}::${productName}`);
@@ -170,6 +172,19 @@ export function generatePersuasionContent(
   const tokens = parseProductName(productName, categoryPath, '');
   const productOverrides = tokensToVariableOverrides(tokens);
 
+  // ── Layer 3.5: 상품 컨텍스트 → 추가 오버라이드 (빈 키만 채움) ──
+  let hasStrongContext = false;
+  if (productContext) {
+    const contextOverrides = extractContextOverrides(productContext, categoryPath);
+    for (const [key, values] of Object.entries(contextOverrides)) {
+      if (!productOverrides[key]) {
+        // 이름 파싱에서 해당 키가 비어있을 때만 컨텍스트로 채움
+        productOverrides[key] = values;
+      }
+    }
+    hasStrongContext = Object.keys(productOverrides).length >= 3;
+  }
+
   // ── CPG 프로필 조회 → forbiddenTerms 추출 ──
   const profile = getContentProfile(categoryPath, categoryCode);
 
@@ -177,7 +192,7 @@ export function generatePersuasionContent(
   const categoryVars = resolveVariables(categoryPath, categoryCode);
 
   // ── Layer 3+2: 변수 병합 (상품 토큰 우선 + forbiddenTerms 필터) ──
-  let vars = mergeVariables(categoryVars, productOverrides, profile?.forbiddenTerms);
+  let vars = mergeVariables(categoryVars, productOverrides, profile?.forbiddenTerms, hasStrongContext);
 
   // ── Layer 4: SEO 키워드 → 변수풀 보강 ──
   if (seoKeywords && seoKeywords.length > 0) {
@@ -191,7 +206,7 @@ export function generatePersuasionContent(
   const framework = frameworks[frameworkId] || frameworks['AIDA'];
   const actualFrameworkId = frameworks[frameworkId] ? frameworkId : 'AIDA';
 
-  // ── Layer 1: 블록 시퀀스 조합 ──
+  // ── Layer 1: 블록 시퀀스 조합 (forbiddenTerms 전달 → 프래그먼트 필터) ──
   const blocks = composeAllBlocks(
     framework,
     categoryPath,
@@ -199,6 +214,7 @@ export function generatePersuasionContent(
     cleanName,
     seoKeywords || [],
     rng,
+    profile?.forbiddenTerms,
   );
 
   // ── Layer 4: SEO 안전망 (인라인 위빙 실패 시) ──
@@ -224,6 +240,7 @@ export function generatePersuasionContent(
       cleanName,
       seoKeywords || [],
       rng,
+      profile?.forbiddenTerms,
     );
     // cta 앞에 삽입
     const ctaIdx = enrichedBlocks.findIndex(b => b.type === 'cta');
@@ -325,10 +342,10 @@ export function contentBlocksToParagraphs(blocks: ContentBlock[]): string[] {
  * 배치 설득형 콘텐츠 생성
  */
 export function generatePersuasionBatch(
-  products: { name: string; categoryPath: string; categoryCode?: string }[],
+  products: { name: string; categoryPath: string; categoryCode?: string; context?: ProductContext }[],
   sellerSeed: string,
 ): PersuasionResult[] {
   return products.map((p, i) =>
-    generatePersuasionContent(p.name, p.categoryPath, sellerSeed, i, undefined, p.categoryCode),
+    generatePersuasionContent(p.name, p.categoryPath, sellerSeed, i, undefined, p.categoryCode, p.context),
   );
 }

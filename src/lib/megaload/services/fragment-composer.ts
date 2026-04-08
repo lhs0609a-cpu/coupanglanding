@@ -296,6 +296,7 @@ export function mergeVariables(
   categoryVars: Record<string, string[]>,
   productOverrides: Record<string, string[]>,
   forbiddenTerms?: string[],
+  hasStrongContext?: boolean,
 ): Record<string, string[]> {
   const result = { ...categoryVars };
 
@@ -313,8 +314,9 @@ export function mergeVariables(
 
   // 상품 오버라이드 키가 존재하면 카테고리 풀을 축소하여
   // 상품별 맞춤 콘텐츠 생성 확률을 극대화한다.
-  // CPG 프로필 사용 시 이미 격리되어 있으므로 3개로 축소
-  const MAX_CATEGORY_KEEP = 3;
+  // 강한 컨텍스트(상품 데이터 충분) → 카테고리 폴백 최소화(1개)
+  // 약한 컨텍스트 → 기존대로 3개 유지
+  const MAX_CATEGORY_KEEP = hasStrongContext ? 1 : 3;
   for (const [key, overrideValues] of Object.entries(productOverrides)) {
     if (result[key]) {
       const trimmed = result[key].slice(0, MAX_CATEGORY_KEEP);
@@ -483,6 +485,7 @@ export function composeBlock(
   productName: string,
   seoKeywords: string[],
   rng: () => number,
+  forbiddenTerms?: string[],
 ): ContentBlock {
   // social_proof, usage_guide는 자체 조각풀 사용, 없으면 solution으로 폴백
   const effectiveType = blockType;
@@ -499,7 +502,12 @@ export function composeBlock(
   const hasPool = pool.openers.length > 0 || pool.values.length > 0;
 
   // 풀이 비어있으면 solution 풀로 폴백 (social_proof, usage_guide 등)
-  const actualPool = hasPool ? pool : resolveFragments('solution', categoryPath);
+  let actualPool = hasPool ? pool : resolveFragments('solution', categoryPath);
+
+  // ── forbiddenTerms 필터: 프래그먼트 텍스트에서 금지어 포함 항목 제거 ──
+  if (forbiddenTerms && forbiddenTerms.length > 0) {
+    actualPool = filterFragmentPool(actualPool, forbiddenTerms);
+  }
 
   switch (blockType) {
     case 'hook':
@@ -589,6 +597,29 @@ export function composeBlock(
   }
 }
 
+/**
+ * 프래그먼트 풀에서 forbiddenTerms 포함 항목을 제거한다.
+ * 필터 후 비어있으면 원본 유지 (안전망).
+ */
+function filterFragmentPool(pool: FragmentPool, forbiddenTerms: string[]): FragmentPool {
+  const hasForbidden = (text: string): boolean =>
+    forbiddenTerms.some(term => text.includes(term));
+
+  const filterArr = (arr: string[]): string[] => {
+    const filtered = arr.filter(s => !hasForbidden(s));
+    return filtered.length > 0 ? filtered : arr; // 전부 제거되면 원본 유지
+  };
+
+  return {
+    openers: filterArr(pool.openers || []),
+    values: filterArr(pool.values || []),
+    closers: filterArr(pool.closers || []),
+    emphases: pool.emphases ? filterArr(pool.emphases) : undefined,
+    titles: pool.titles,
+    item_pool: pool.item_pool ? filterArr(pool.item_pool) : undefined,
+  };
+}
+
 /** 하나의 문장을 조각 풀에서 조합한다. */
 function composeOneSentence(
   pool: FragmentPool,
@@ -627,6 +658,7 @@ export function composeAllBlocks(
   productName: string,
   seoKeywords: string[],
   rng: () => number,
+  forbiddenTerms?: string[],
 ): ContentBlock[] {
   resetSeoWeaveCounter();
   return framework.blocks.map(blockType =>
@@ -637,6 +669,7 @@ export function composeAllBlocks(
       productName,
       seoKeywords,
       rng,
+      forbiddenTerms,
     ),
   );
 }
