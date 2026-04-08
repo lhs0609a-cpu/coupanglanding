@@ -229,7 +229,7 @@ export function buildCoupangProductPayload(
     brand,
     manufacturer,
     maximumBuyForPerson = 0,
-    outboundShippingTimeDay = 2,
+    outboundShippingTimeDay = 3,
     originalPrice,
     filledNotices,
     attributeMeta,

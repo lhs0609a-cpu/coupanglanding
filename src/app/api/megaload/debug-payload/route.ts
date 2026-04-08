@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
             maximumBuyCount: 1,
             maximumBuyForPerson: 0,
             maximumBuyForPersonPeriod: 1,
-            outboundShippingTimeDay: 2,
+            outboundShippingTimeDay: 3,
             unitCount: 1,
             adultOnly: 'EVERYONE',
             taxType: 'TAX',

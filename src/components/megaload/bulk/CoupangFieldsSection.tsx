@@ -27,7 +27,7 @@ interface CoupangFieldsSectionProps {
   previewData: PayloadPreviewData | null;
   previewLoading: boolean;
   previewError: string;
-  onUpdate: (uid: string, field: string, value: string | number | string[] | Record<string, string>) => void;
+  onUpdate: (uid: string, field: string, value: string | number | string[] | number[] | Record<string, string>) => void;
   onCategoryClick: (uid: string) => void;
   imageItems: ImageItem[];
   onImageReorder: (newOrder: ImageItem[]) => void;
@@ -1101,7 +1101,7 @@ export default function CoupangFieldsSection({
             <span className="text-gray-500 w-28 shrink-0">출고소요일</span>
             <input
               type="number"
-              value={product.editedShippingDays ?? 2}
+              value={product.editedShippingDays ?? 3}
               onChange={(e) => onUpdate(product.uid, 'editedShippingDays', Number(e.target.value) || 1)}
               className="w-20 px-2 py-1.5 border border-gray-200 rounded text-xs text-right tabular-nums focus:ring-1 focus:ring-[#E31837] outline-none"
               min={1}
