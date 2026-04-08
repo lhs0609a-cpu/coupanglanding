@@ -6,19 +6,20 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
   Receipt, BarChart3, Zap, Globe, Link as LinkIcon, Settings, X,
-  Upload, User, ArrowRight, Search, ExternalLink, Loader2, Lock,
+  Upload, User, ArrowRight, Search, ExternalLink, Loader2, Lock, RotateCcw,
 } from 'lucide-react';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
 import type { SettlementGateLevel } from '@/lib/utils/settlement';
 
 const iconMap = {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
-  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload,
+  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw,
 } as const;
 
 const navItems = [
   { href: '/megaload/dashboard', label: '대시보드', icon: 'LayoutDashboard' as const },
   { href: '/megaload/orders', label: '주문관리', icon: 'ShoppingCart' as const, badgeKey: 'pendingOrders' as const },
+  { href: '/megaload/returns', label: '반품수거', icon: 'RotateCcw' as const },
   { href: '/megaload/products', label: '상품관리', icon: 'Package' as const },
   { href: '/megaload/products/bulk-register', label: '상품등록', icon: 'Upload' as const },
   { href: '/megaload/inventory', label: '재고관리', icon: 'Warehouse' as const },
