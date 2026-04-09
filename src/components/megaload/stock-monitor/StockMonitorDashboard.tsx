@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   RefreshCw, Package, XCircle, AlertTriangle, PauseCircle, Loader2,
-  CheckCircle2, ExternalLink, Clock, Activity,
+  CheckCircle2, ExternalLink, Clock, Activity, Download,
 } from 'lucide-react';
 import StockStatusBadge from './StockStatusBadge';
 
@@ -80,6 +80,7 @@ export default function StockMonitorDashboard() {
   const [loading, setLoading] = useState(true);
   const [filterTab, setFilterTab] = useState<FilterTab>('all');
   const [checkingIds, setCheckingIds] = useState<Set<string>>(new Set());
+  const [backfilling, setBackfilling] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -146,6 +147,30 @@ export default function StockMonitorDashboard() {
     }
   };
 
+  const handleBackfill = async () => {
+    setBackfilling(true);
+    try {
+      const res = await fetch('/api/megaload/stock-monitor/backfill', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`기존 상품 가져오기 실패: ${data.error || '알 수 없는 오류'}`);
+        return;
+      }
+      const msgs: string[] = [];
+      msgs.push(`신규 등록: ${data.created}개`);
+      if (data.alreadyMonitored > 0) msgs.push(`이미 등록됨: ${data.alreadyMonitored}개`);
+      if (data.missingUrl > 0) msgs.push(`원본 URL 없음: ${data.missingUrl}개`);
+      if (data.missingChannel > 0) msgs.push(`쿠팡 매핑 없음: ${data.missingChannel}개`);
+      alert(`기존 상품 가져오기 완료\n\n${msgs.join('\n')}\n\n(전체 스캔 ${data.totalScanned}개)`);
+      await fetchData();
+    } catch (err) {
+      console.error('backfill error:', err);
+      alert('기존 상품 가져오기 중 오류가 발생했습니다.');
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
   const handleDeactivate = async (monitorId: string) => {
     try {
       await fetch(`/api/megaload/stock-monitor?id=${monitorId}`, { method: 'DELETE' });
@@ -170,14 +195,25 @@ export default function StockMonitorDashboard() {
           <h1 className="text-xl font-bold text-gray-900">품절 동기화</h1>
           <p className="text-sm text-gray-500 mt-0.5">원본(네이버) 품절 상태를 감시하여 쿠팡 상품을 자동 중지/재개합니다</p>
         </div>
-        <button
-          onClick={handleCheckAll}
-          disabled={checkingIds.size > 0 || loading}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
-        >
-          {checkingIds.size > 0 ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          전체 즉시 확인
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleBackfill}
+            disabled={backfilling || loading}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition"
+            title="이미 등록된 쿠팡 상품들을 모니터 목록에 일괄 추가합니다"
+          >
+            {backfilling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            기존 상품 가져오기
+          </button>
+          <button
+            onClick={handleCheckAll}
+            disabled={checkingIds.size > 0 || loading}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
+          >
+            {checkingIds.size > 0 ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            전체 즉시 확인
+          </button>
+        </div>
       </div>
 
       {/* 요약 카드 */}
@@ -253,7 +289,15 @@ export default function StockMonitorDashboard() {
           <div className="text-center py-16 text-gray-400">
             <RefreshCw className="w-10 h-10 mx-auto mb-3 text-gray-300" />
             <p className="text-sm">모니터링 대상 상품이 없습니다</p>
-            <p className="text-xs mt-1">상품등록 시 자동으로 등록됩니다</p>
+            <p className="text-xs mt-1">신규 상품등록 시 자동으로 등록됩니다</p>
+            <button
+              onClick={handleBackfill}
+              disabled={backfilling}
+              className="mt-4 inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
+            >
+              {backfilling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+              기존 등록 상품 가져오기
+            </button>
           </div>
         ) : (
           <table className="w-full text-sm">
