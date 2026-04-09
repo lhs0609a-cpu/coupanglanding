@@ -135,19 +135,34 @@ export default function ReturnsPage() {
       destination,
     }));
 
-    // 택배사 사이트 새 탭
-    window.open(urls[courier], '_blank');
-
-    // 가이드를 작은 팝업 윈도우로 (택배사 사이트 옆에 배치 가능)
+    // ⚠️ 중요: 가이드 팝업을 *먼저* 띄운다.
+    // 두 개의 window.open을 연속으로 호출하면 브라우저가 두 번째를 차단하는데,
+    // 가이드 팝업(width/height 지정)이 더 차단 대상이 되기 쉬우므로 먼저 열어야 한다.
     const w = 420;
     const h = 660;
     const left = window.screenX + window.outerWidth - w - 20;
     const top = window.screenY + 60;
-    window.open(
+    const guideWin = window.open(
       '/return-guide',
       'returnGuide',
       `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`,
     );
+
+    // 팝업 차단 감지
+    if (!guideWin || guideWin.closed || typeof guideWin.closed === 'undefined') {
+      alert(
+        '가이드 팝업이 차단되었습니다.\n\n' +
+        '브라우저 주소창 오른쪽의 팝업 차단 아이콘을 클릭해서\n' +
+        '"이 사이트의 팝업 허용"을 선택한 후 다시 시도해주세요.',
+      );
+      return;
+    }
+
+    // 가이드 팝업을 앞으로
+    guideWin.focus();
+
+    // 택배사 사이트 새 탭 (가이드가 정상적으로 열린 경우에만)
+    window.open(urls[courier], '_blank');
   };
 
   // 우리 창고는 이름(business_name)이 없어도 OK — 택배사 양식은 전화+주소만 필요
