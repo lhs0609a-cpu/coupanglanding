@@ -150,8 +150,12 @@ export default function ReturnsPage() {
     );
   };
 
-  const isReady = sender.name.trim() && sender.phone.trim() && sender.address.trim()
-    && destination.name.trim() && destination.phone.trim() && destination.address.trim();
+  // 우리 창고는 이름(business_name)이 없어도 OK — 택배사 양식은 전화+주소만 필요
+  // 공급처는 외부 업체이므로 이름 필수
+  const destinationReady = destType === 'warehouse'
+    ? destination.phone.trim() && destination.address.trim()
+    : destination.name.trim() && destination.phone.trim() && destination.address.trim();
+  const isReady = sender.name.trim() && sender.phone.trim() && sender.address.trim() && destinationReady;
 
   return (
     <div className="space-y-6">
@@ -249,7 +253,9 @@ export default function ReturnsPage() {
                 </div>
               ) : warehouseAddr.address ? (
                 <div className="bg-gray-50 rounded-lg p-4 space-y-1 text-sm">
-                  <p className="font-medium text-gray-900">{warehouseAddr.name}</p>
+                  {warehouseAddr.name && (
+                    <p className="font-medium text-gray-900">{warehouseAddr.name}</p>
+                  )}
                   <p className="text-gray-600">{warehouseAddr.phone}</p>
                   <p className="text-gray-600">{warehouseAddr.address}</p>
                 </div>
