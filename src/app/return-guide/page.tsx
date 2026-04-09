@@ -244,7 +244,19 @@ export default function ReturnGuidePage() {
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(SESSION_KEY);
-      if (raw) setData(JSON.parse(raw));
+      if (raw) {
+        setData(JSON.parse(raw));
+        return;
+      }
+      // Fallback: URL param `d` (base64-encoded JSON).
+      // Used when this page is loaded inside a Document Picture-in-Picture
+      // iframe, which doesn't share sessionStorage with the opener.
+      const params = new URLSearchParams(window.location.search);
+      const encoded = params.get('d');
+      if (encoded) {
+        const json = decodeURIComponent(escape(atob(encoded)));
+        setData(JSON.parse(json));
+      }
     } catch { /* empty */ }
   }, []);
 
@@ -535,7 +547,12 @@ export default function ReturnGuidePage() {
 
         {isLast || (isCompletionScreen && !hasInvoiceStep) ? (
           <button
-            onClick={() => window.close()}
+            onClick={() => {
+              // When loaded inside a Document PiP iframe, close the top window
+              // (the PiP window itself), not just the iframe.
+              try { window.top?.close(); } catch { /* same-origin should be allowed */ }
+              try { window.close(); } catch { /* empty */ }
+            }}
             className="flex-1 px-5 py-3 text-sm font-bold text-white bg-green-500 rounded-lg hover:bg-green-600 transition active:scale-[0.98]"
           >
             창 닫기

@@ -236,23 +236,65 @@ export default function ReturnsPage() {
     ? warehouseAddr
     : supplierForm;
 
-  // 접수 시작 — 가이드 팝업 하나만 열고, 택배사 사이트는 가이드 안의 버튼으로 연다.
-  const handleStartPickup = () => {
+  // 접수 시작 — Document Picture-in-Picture로 항상 위에 떠 있는 플로팅 가이드 창을 연다.
+  // 지원하지 않는 브라우저(Firefox/Safari 등)는 일반 팝업으로 폴백.
+  const handleStartPickup = async () => {
     const urls: Record<CourierType, string> = {
       cj: 'https://www.cjlogistics.com/ko/tool/parcel/reservation-return',
       epost: 'https://parcel.epost.go.kr',
     };
 
-    sessionStorage.setItem('megaload_return_guide', JSON.stringify({
+    const guideData = {
       courier,
       sender,
       destination,
       courierUrl: urls[courier],
       receiptId: selectedReceiptId,
-    }));
+    };
+
+    // 폴백용 sessionStorage (일반 팝업 경로에서 사용)
+    sessionStorage.setItem('megaload_return_guide', JSON.stringify(guideData));
+
+    // Document PiP iframe은 opener의 sessionStorage를 공유하지 않으므로
+    // URL 파라미터로도 데이터를 전달한다.
+    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(guideData))));
+    const guideUrl = `/return-guide?d=${encoded}`;
 
     const w = 420;
     const h = 660;
+
+    // 1) Document Picture-in-Picture (항상 위에 뜨는 플로팅 창)
+    const pipApi = (window as unknown as {
+      documentPictureInPicture?: {
+        requestWindow: (opts?: { width?: number; height?: number }) => Promise<Window>;
+      };
+    }).documentPictureInPicture;
+
+    if (pipApi) {
+      try {
+        const pipWindow = await pipApi.requestWindow({ width: w, height: h });
+        pipWindow.document.title = '반품 수거 가이드';
+
+        // PiP 창 내부 레이아웃 초기화
+        const root = pipWindow.document.documentElement;
+        const body = pipWindow.document.body;
+        root.style.cssText = 'margin:0;padding:0;height:100%;';
+        body.style.cssText = 'margin:0;padding:0;height:100vh;overflow:hidden;background:#f9fafb;';
+
+        // iframe으로 /return-guide 로드 (자체 Tailwind CSS 포함)
+        const iframe = pipWindow.document.createElement('iframe');
+        iframe.src = guideUrl;
+        iframe.style.cssText = 'width:100%;height:100%;border:0;display:block;';
+        iframe.allow = 'clipboard-read; clipboard-write';
+        body.appendChild(iframe);
+
+        return;
+      } catch (e) {
+        console.error('Document PiP 실패 — 일반 팝업으로 폴백', e);
+      }
+    }
+
+    // 2) 폴백: 일반 팝업 (항상 위에 뜨지는 않지만 독립 창)
     const left = window.screenX + window.outerWidth - w - 20;
     const top = window.screenY + 60;
     const guideWin = window.open(
@@ -715,7 +757,7 @@ export default function ReturnsPage() {
           className="w-full py-3.5 rounded-xl text-white font-bold text-base bg-[#E31837] hover:bg-red-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           <RotateCcw className="w-5 h-5" />
-          접수 시작 — 택배사 사이트 열기 + 가이드
+          접수 시작 — 플로팅 가이드 열기
         </button>
 
         {!isReady && (
