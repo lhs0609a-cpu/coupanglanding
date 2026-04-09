@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import {
   Copy, Check, ChevronLeft, ChevronRight, RotateCcw, ExternalLink,
   LogIn, User, Phone, Home, UserCheck, Smartphone, MapPin, Package,
-  CheckCircle2, PlayCircle, Search, ClipboardList,
+  CheckCircle2, PlayCircle, Search, ClipboardList, Truck, Loader2, AlertCircle,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -229,10 +229,17 @@ export default function ReturnGuidePage() {
     sender: AddressInfo;
     destination: AddressInfo;
     courierUrl?: string;
+    receiptId?: number | null;
   } | null>(null);
 
   const [currentStep, setCurrentStep] = useState(0);
   const [courierOpened, setCourierOpened] = useState(false);
+
+  // 회수 송장 등록 상태
+  const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [invoiceSubmitting, setInvoiceSubmitting] = useState(false);
+  const [invoiceRegistered, setInvoiceRegistered] = useState(false);
+  const [invoiceError, setInvoiceError] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -262,15 +269,60 @@ export default function ReturnGuidePage() {
     );
   }
 
-  const steps = data.courier === 'cj'
+  const baseSteps = data.courier === 'cj'
     ? buildCjSteps(data.sender, data.destination)
     : buildEpostSteps(data.sender, data.destination);
 
+  // receiptId가 있을 때는 마지막에 "회수 운송장 등록" 단계 추가
+  const hasInvoiceStep = !!data.receiptId;
+  const steps: (GuideStep & { isInvoiceStep?: boolean })[] = hasInvoiceStep
+    ? [
+        ...baseSteps,
+        {
+          icon: Truck,
+          title: '회수 운송장 쿠팡에 등록',
+          description: '택배사 접수 후 받은 운송장 번호를 아래에 입력하고 버튼을 눌러 쿠팡에 등록하세요.',
+          isInvoiceStep: true,
+        },
+      ]
+    : baseSteps;
+
   const step = steps[currentStep];
   const isLast = currentStep === steps.length - 1;
+  const isInvoiceStep = !!step.isInvoiceStep;
+  const isCompletionScreen = step.title === '접수가 완료되었습니다';
   const progress = ((currentStep + 1) / steps.length) * 100;
   const courierName = data.courier === 'cj' ? 'CJ대한통운' : '우체국택배';
+  const courierCode = data.courier === 'cj' ? 'CJGLS' : 'EPOST';
   const StepIcon = step.icon;
+
+  const handleRegisterInvoice = async () => {
+    if (!data.receiptId) return;
+    if (!invoiceNumber.trim()) {
+      setInvoiceError('운송장 번호를 입력해주세요.');
+      return;
+    }
+    setInvoiceSubmitting(true);
+    setInvoiceError(null);
+    try {
+      const res = await fetch('/api/megaload/returns/register-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          receiptId: data.receiptId,
+          deliveryCompanyCode: courierCode,
+          invoiceNumber: invoiceNumber.trim(),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || '등록 실패');
+      setInvoiceRegistered(true);
+    } catch (e) {
+      setInvoiceError(e instanceof Error ? e.message : '등록 실패');
+    } finally {
+      setInvoiceSubmitting(false);
+    }
+  };
 
   const handleOpenCourier = () => {
     if (!data.courierUrl) return;
@@ -326,7 +378,90 @@ export default function ReturnGuidePage() {
 
       {/* content */}
       <div className="flex-1 overflow-y-auto p-4">
-        {isLast ? (
+        {isInvoiceStep ? (
+          /* 회수 운송장 등록 단계 */
+          <div className="space-y-5">
+            <div className="flex flex-col items-center text-center pt-2">
+              <div className="w-16 h-16 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center mb-3">
+                <Truck className="w-9 h-9 text-[#E31837]" />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-5 h-5 rounded-full bg-[#E31837] text-white flex items-center justify-center text-[10px] font-bold">
+                  {currentStep + 1}
+                </span>
+                <span className="text-xs text-gray-500 font-medium">마지막 단계</span>
+              </div>
+            </div>
+
+            <div className="text-center px-1">
+              <h2 className="font-bold text-gray-900 text-lg mb-2">{step.title}</h2>
+              <p className="text-sm text-gray-600 leading-relaxed">{step.description}</p>
+            </div>
+
+            {invoiceRegistered ? (
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center space-y-2">
+                <CheckCircle2 className="w-10 h-10 text-green-500 mx-auto" />
+                <p className="text-sm font-bold text-green-800">쿠팡에 등록 완료!</p>
+                <p className="text-xs text-green-700">
+                  회수 운송장이 쿠팡에 등록되었습니다.<br />
+                  쿠팡 WING에서 확인할 수 있습니다.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600 space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">접수번호</span>
+                    <span className="font-mono font-semibold text-gray-800">#{data.receiptId}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">택배사</span>
+                    <span className="font-semibold text-gray-800">{courierName}</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                    운송장 번호
+                  </label>
+                  <input
+                    type="text"
+                    value={invoiceNumber}
+                    onChange={e => setInvoiceNumber(e.target.value)}
+                    placeholder="예: 1234567890"
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E31837] focus:border-transparent font-mono"
+                    disabled={invoiceSubmitting}
+                  />
+                </div>
+                {invoiceError && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-2.5 text-xs text-red-700 flex items-start gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>{invoiceError}</span>
+                  </div>
+                )}
+                <button
+                  onClick={handleRegisterInvoice}
+                  disabled={invoiceSubmitting || !invoiceNumber.trim()}
+                  className="w-full flex items-center justify-center gap-1.5 py-3 rounded-lg bg-[#E31837] text-white text-sm font-bold hover:bg-red-700 transition disabled:opacity-50"
+                >
+                  {invoiceSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      등록 중...
+                    </>
+                  ) : (
+                    <>
+                      <Truck className="w-4 h-4" />
+                      쿠팡에 등록하기
+                    </>
+                  )}
+                </button>
+                <p className="text-[11px] text-gray-400 text-center">
+                  나중에 등록해도 됩니다. 건너뛰려면 &quot;창 닫기&quot;를 누르세요.
+                </p>
+              </div>
+            )}
+          </div>
+        ) : isCompletionScreen ? (
           /* 완료 화면 */
           <div className="flex flex-col items-center justify-center text-center h-full py-8 space-y-4">
             <div className="w-20 h-20 rounded-full bg-green-50 border-2 border-green-200 flex items-center justify-center">
@@ -353,7 +488,7 @@ export default function ReturnGuidePage() {
                   {currentStep + 1}
                 </span>
                 <span className="text-xs text-gray-500 font-medium">
-                  / {steps.length - 1} 단계
+                  / {baseSteps.length - 1} 단계
                 </span>
               </div>
             </div>
@@ -398,7 +533,7 @@ export default function ReturnGuidePage() {
           이전
         </button>
 
-        {isLast ? (
+        {isLast || (isCompletionScreen && !hasInvoiceStep) ? (
           <button
             onClick={() => window.close()}
             className="flex-1 px-5 py-3 text-sm font-bold text-white bg-green-500 rounded-lg hover:bg-green-600 transition active:scale-[0.98]"
@@ -410,7 +545,7 @@ export default function ReturnGuidePage() {
             onClick={() => setCurrentStep(s => Math.min(steps.length - 1, s + 1))}
             className="flex-1 flex items-center justify-center gap-1 px-4 py-3 text-sm font-bold text-white bg-[#E31837] rounded-lg hover:bg-red-700 transition active:scale-[0.98]"
           >
-            다음 단계
+            {isCompletionScreen ? '운송장 등록으로' : '다음 단계'}
             <ChevronRight className="w-4 h-4" />
           </button>
         )}

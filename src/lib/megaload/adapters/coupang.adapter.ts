@@ -261,6 +261,58 @@ export class CoupangAdapter extends BaseAdapter {
     return { items: (data.data || []) as Record<string, unknown>[], totalCount: data.pagination?.totalElements || 0 };
   }
 
+  /** 반품 요청 목록 조회 — v6 */
+  async getReturnRequests(params: {
+    createdAtFrom: string;  // "yyyy-MM-dd" or "yyyy-MM-ddTHH:mm"
+    createdAtTo: string;
+    status?: 'RU' | 'UC' | 'CC' | 'PR';
+    timeFrame?: boolean;    // true면 searchType=timeFrame
+    nextToken?: string;
+    maxPerPage?: number;
+  }): Promise<{ items: Record<string, unknown>[]; nextToken: string }> {
+    const path = `/v2/providers/openapi/apis/api/v6/vendors/${this.vendorId}/returnRequests`;
+    const parts: string[] = [];
+    if (params.timeFrame) parts.push('searchType=timeFrame');
+    parts.push(`createdAtFrom=${params.createdAtFrom}`);
+    parts.push(`createdAtTo=${params.createdAtTo}`);
+    if (params.status) parts.push(`status=${params.status}`);
+    if (!params.timeFrame) {
+      parts.push(`maxPerPage=${params.maxPerPage || 50}`);
+      if (params.nextToken) parts.push(`nextToken=${params.nextToken}`);
+    }
+    const query = parts.join('&');
+
+    const data = await this.coupangApi<{
+      data: Record<string, unknown>[];
+      nextToken?: string;
+    }>('GET', path, query);
+
+    return {
+      items: data.data || [],
+      nextToken: data.nextToken || '',
+    };
+  }
+
+  /** 회수 송장 등록 */
+  async registerReturnInvoice(params: {
+    receiptId: number;
+    deliveryCompanyCode: string;  // 'CJGLS' / 'EPOST' / 'HANJIN' / 'KDEXP' 등
+    invoiceNumber: string;
+    regNumber?: string;
+  }): Promise<{ deliveryCompanyCode: string; invoiceNumber: string; invoiceNumberId: number; receiptId: number }> {
+    const path = `/v2/providers/openapi/apis/api/v4/vendors/${this.vendorId}/return-exchange-invoices/manual`;
+    const body = {
+      returnExchangeDeliveryType: 'RETURN',
+      receiptId: params.receiptId,
+      deliveryCompanyCode: params.deliveryCompanyCode,
+      invoiceNumber: params.invoiceNumber,
+      ...(params.regNumber && { regNumber: params.regNumber }),
+    };
+
+    const data = await this.coupangApi<{ data: Record<string, unknown> }>('POST', path, '', body);
+    return data.data as { deliveryCompanyCode: string; invoiceNumber: string; invoiceNumberId: number; receiptId: number };
+  }
+
   async confirmOrder(channelOrderId: string) {
     const path = `/v2/providers/openapi/apis/api/v4/vendors/${this.vendorId}/ordersheets/${channelOrderId}/confirmed`;
     await this.coupangApi('PUT', path);

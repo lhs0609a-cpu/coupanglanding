@@ -937,6 +937,42 @@ export interface PreRegistration {
   updated_at: string;
 }
 
+// 메가로드 반품 요청 (쿠팡 returnRequests API 연동)
+export interface ShReturnRequest {
+  id: string;
+  megaload_user_id: string;
+  channel: string;
+  receipt_id: number;
+  order_id: number;
+  payment_id: number | null;
+  receipt_type: string | null;
+  receipt_status: string;
+  requester_name: string | null;
+  requester_phone: string | null;
+  requester_address: string | null;
+  requester_zip_code: string | null;
+  reason_category1: string | null;
+  reason_category2: string | null;
+  reason_code: string | null;
+  reason_code_text: string | null;
+  cancel_count_sum: number | null;
+  return_delivery_type: string | null;
+  return_delivery_invoice_no: string | null;
+  return_delivery_company_code: string | null;
+  return_shipping_charge: number | null;
+  fault_by_type: string | null;
+  release_stop_status: string | null;
+  product_name: string | null;
+  option_name: string | null;
+  release_status: string | null;
+  channel_created_at: string | null;
+  channel_modified_at: string | null;
+  raw_data: Record<string, unknown>;
+  invoice_registered_at: string | null;
+  synced_at: string;
+  updated_at: string;
+}
+
 export interface Database {
   public: {
     Tables: {
