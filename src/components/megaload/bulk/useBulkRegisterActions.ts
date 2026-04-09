@@ -1212,8 +1212,14 @@ export function useBulkRegisterActions() {
   // (실제 등록 시에는 실제 업로드된 URL 사용)
   function buildPreflightPlaceholderUrls(p: EditableProduct) {
     const mainCount = p.scannedMainImages?.length || p.mainImages?.length || p.mainImageCount || 0;
-    const detailCount = filterImagesByOrder(p.scannedDetailImages || p.detailImages || [], p.editedDetailImageOrder).length || p.detailImageCount || 0;
-    const reviewCount = filterImagesByOrder(p.scannedReviewImages || p.reviewImages || [], p.editedReviewImageOrder).length || p.reviewImageCount || 0;
+    const detailRawLen = p.scannedDetailImages?.length ?? p.detailImages?.length ?? 0;
+    const detailCount = (p.editedDetailImageOrder
+      ? p.editedDetailImageOrder.filter(i => i >= 0 && i < detailRawLen).length
+      : detailRawLen) || p.detailImageCount || 0;
+    const reviewRawLen = p.scannedReviewImages?.length ?? p.reviewImages?.length ?? 0;
+    const reviewCount = (p.editedReviewImageOrder
+      ? p.editedReviewImageOrder.filter(i => i >= 0 && i < reviewRawLen).length
+      : reviewRawLen) || p.reviewImageCount || 0;
     const infoCount = p.scannedInfoImages?.length || p.infoImages?.length || p.infoImageCount || 0;
     if (mainCount === 0) return undefined; // 이미지가 정말 없으면 undefined
     return {
