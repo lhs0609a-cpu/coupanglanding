@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { processMonitorBatch, type MonitorRecord } from '@/lib/megaload/services/stock-monitor-engine';
+import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
 /**
  * POST /api/megaload/stock-monitor/check
@@ -13,9 +14,13 @@ export async function POST(request: NextRequest) {
     if (!user) return NextResponse.json({ error: '인증이 필요합니다.' }, { status: 401 });
 
     const serviceClient = await createServiceClient();
-    const { data: mu } = await serviceClient.from('megaload_users').select('id').eq('user_id', user.id).single();
-    if (!mu) return NextResponse.json({ error: '메가로드 계정이 필요합니다.' }, { status: 403 });
-    const shUserId = (mu as Record<string, unknown>).id as string;
+    let shUserId: string;
+    try {
+      shUserId = await ensureMegaloadUser(supabase, serviceClient, user.id);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '메가로드 계정이 필요합니다.';
+      return NextResponse.json({ error: msg }, { status: 403 });
+    }
 
     const body = await request.json();
     const { monitorIds } = body as { monitorIds: string[] };
