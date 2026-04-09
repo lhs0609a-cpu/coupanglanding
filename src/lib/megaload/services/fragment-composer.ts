@@ -14,6 +14,7 @@
 
 import fragmentData from '../data/persuasion-fragments.json';
 import storyData from '../data/story-templates.json';
+import v2TemplateData from '../data/story-templates-v2.json';
 import { resolveContentProfile } from './content-profile-resolver';
 import type { ContentProfile } from './content-profile-resolver';
 
@@ -286,25 +287,203 @@ function inferTopCategory(top: string, full: string): string {
   return 'DEFAULT';
 }
 
+// ─── L1 (대분류) 크로스카테고리 금지어 안전망 ───────────
+// CPG 프로필의 forbiddenTerms가 비어있을 때 L1 레벨 금지어를 자동 적용.
+// 자동차용품에 "면역력" 같은 건강식품 변수가 섞이는 등 크로스카테고리 오염 방지.
+const L1_FORBIDDEN_TERMS: Record<string, string[]> = {
+  '자동차용품': ['면역력','섭취','복용','영양제','건강기능식품','피부탄력','장건강','뼈건강','관절건강','1정','캡슐','정제','필기감'],
+  '식품': ['세차','광택','발수','코팅','필기감','토크','절단력','드릴','논스틱','인덕션','프라이팬','세정력','탈취','살균'],
+  '생활용품': ['면역력','섭취','복용','영양제','건강기능식품','세차','광택','발수','1정','캡슐','정제','필기감'],
+  '문구/오피스': ['면역력','섭취','복용','세차','광택','세정력','탈취','살균','1정','영양제','건강기능식품','토크','드릴','논스틱','인덕션'],
+  '주방용품': ['면역력','섭취','복용','영양제','건강기능식품','세차','필기감','토크','1정','캡슐','정제'],
+  '뷰티': ['세차','광택','발수','토크','절단력','복용','1정','논스틱','인덕션','프라이팬','필기감'],
+  '가전/디지털': ['면역력','섭취','복용','세차','광택','발수','1정','영양제','건강기능식품','필기감'],
+  '가구/홈데코': ['면역력','섭취','복용','세차','광택','발수','1정','영양제','건강기능식품','필기감','토크'],
+  '패션의류잡화': ['면역력','섭취','복용','세차','광택','발수','토크','1정','영양제','건강기능식품','필기감'],
+  '스포츠/레져': ['면역력','섭취','복용','세차','광택','발수','1정','영양제','건강기능식품','필기감'],
+  '출산/유아동': ['세차','광택','발수','토크','절단력','드릴','1정','필기감'],
+  '반려/애완용품': ['면역력','섭취','복용','세차','광택','발수','1정','필기감','토크'],
+  '완구/취미': ['면역력','섭취','복용','세차','광택','발수','1정','영양제','건강기능식품','필기감','논스틱','인덕션'],
+};
+
+/**
+ * categoryPath에서 L1 대분류를 추출하여 해당 L1의 금지어를 반환.
+ * CPG 프로필의 forbiddenTerms가 비어있을 때 안전망으로 사용된다.
+ */
+function getL1ForbiddenTerms(categoryPath: string): string[] {
+  if (!categoryPath) return [];
+  const top = (categoryPath.split('>')[0] || '').trim();
+  return L1_FORBIDDEN_TERMS[top] || [];
+}
+
+// ─── v2 완성문 템플릿 뱅크 ────────────────────────────────
+// v1 조각조합 엔진의 주술호응 버그/부자연스러운 연결을 차단하기 위해
+// 카테고리별로 사전 생성된 완성 문장 템플릿을 우선 사용한다.
+// 슬롯({product}, {효과1} 등)만 치환하면 자연스러운 한국어가 나오도록 작성됨.
+
+interface V2BenefitsGrid {
+  titles: string[];
+  items: string[];
+}
+
+interface V2CategoryTemplates {
+  hook?: string[];
+  problem?: string[];
+  agitation?: string[];
+  solution?: string[];
+  feature_detail?: string[];
+  benefits_grid?: V2BenefitsGrid;
+  social_proof?: string[];
+  comparison?: string[];
+  usage_guide?: string[];
+  urgency?: string[];
+  cta?: string[];
+}
+
+const V2_TEMPLATES: Record<string, V2CategoryTemplates> =
+  (v2TemplateData as { templates: Record<string, V2CategoryTemplates> }).templates;
+
+/**
+ * categoryPath에서 가장 구체적인 v2 템플릿 뱅크를 반환한다.
+ * 정확 매칭 → SUBCATEGORY_ALIASES 변환 → 부모 경로 폴백. 없으면 null.
+ */
+function resolveV2CategoryTemplates(categoryPath: string): V2CategoryTemplates | null {
+  if (!categoryPath) return null;
+
+  // 1. 정확 매칭
+  if (V2_TEMPLATES[categoryPath]) return V2_TEMPLATES[categoryPath];
+
+  // 2. 별칭 매칭
+  const aliased = SUBCATEGORY_ALIASES[categoryPath];
+  if (aliased && V2_TEMPLATES[aliased]) return V2_TEMPLATES[aliased];
+
+  // 3. 부모 경로 폴백
+  const parts = categoryPath.split('>').map(p => p.trim());
+  for (let len = parts.length - 1; len >= 1; len--) {
+    const key = parts.slice(0, len).join('>');
+    if (V2_TEMPLATES[key]) return V2_TEMPLATES[key];
+    const aliasedKey = SUBCATEGORY_ALIASES[key];
+    if (aliasedKey && V2_TEMPLATES[aliasedKey]) return V2_TEMPLATES[aliasedKey];
+  }
+
+  return null;
+}
+
+/**
+ * v2 템플릿으로 ContentBlock 생성 시도.
+ * 템플릿 존재 시 블록 반환, 없으면 null (호출부에서 v1 로직 폴백).
+ */
+function composeFromV2Templates(
+  blockType: ContentBlockType,
+  categoryPath: string,
+  vars: Record<string, string[]>,
+  productName: string,
+  seoKeywords: string[],
+  rng: () => number,
+  forbiddenTerms?: string[],
+): ContentBlock | null {
+  const catTemplates = resolveV2CategoryTemplates(categoryPath);
+  if (!catTemplates) return null;
+
+  const effectiveForbidden = (forbiddenTerms && forbiddenTerms.length > 0)
+    ? forbiddenTerms
+    : getL1ForbiddenTerms(categoryPath);
+
+  const filterOut = (arr: string[]): string[] => {
+    if (effectiveForbidden.length === 0) return arr;
+    const filtered = arr.filter(s => !effectiveForbidden.some(t => s.includes(t)));
+    return filtered.length > 0 ? filtered : arr;
+  };
+
+  // benefits_grid — titles + items 구조
+  if (blockType === 'benefits_grid') {
+    const grid = catTemplates.benefits_grid;
+    if (!grid || !grid.titles || !grid.items) return null;
+    if (grid.titles.length === 0 || grid.items.length === 0) return null;
+
+    const titles = filterOut(grid.titles);
+    const items = filterOut(grid.items);
+
+    const titleTpl = titles[Math.floor(rng() * titles.length)];
+    const title = fillTemplate(titleTpl, vars, productName, rng);
+
+    const selectedItems = selectDistinct(items, 5, rng);
+    const filledItems = selectedItems.map(item => {
+      let filled = fillTemplate(item, vars, productName, rng);
+      if (filled.includes('{seo_keyword}') && seoKeywords.length > 0) {
+        filled = filled.replace(
+          /\{seo_keyword\}/g,
+          seoKeywords[Math.floor(rng() * seoKeywords.length)],
+        );
+      }
+      return filled;
+    });
+
+    return { type: blockType, content: title, items: filledItems };
+  }
+
+  // 문자열 기반 블록 — hook/problem/agitation/solution/feature_detail/social_proof/comparison/usage_guide/urgency/cta
+  const key = blockType as Exclude<ContentBlockType, 'benefits_grid'>;
+  const rawTemplates = catTemplates[key];
+  if (!rawTemplates || !Array.isArray(rawTemplates) || rawTemplates.length === 0) {
+    return null;
+  }
+
+  const effective = filterOut(rawTemplates);
+
+  const pickOne = (): string => {
+    const tpl = effective[Math.floor(rng() * effective.length)];
+    let out = fillTemplate(tpl, vars, productName, rng);
+    out = maybeSeoWeave(out, seoKeywords, rng, blockType);
+    out = cleanSpaces(out);
+    return out;
+  };
+
+  const content = pickOne();
+  let subContent: string | undefined;
+  if (effective.length >= 2) {
+    // subContent는 content와 다른 결과가 나올 때까지 최대 5회 재시도
+    for (let i = 0; i < 5; i++) {
+      const s = pickOne();
+      if (s !== content) {
+        subContent = s;
+        break;
+      }
+    }
+  }
+
+  return { type: blockType, content, subContent };
+}
+
 // ─── Layer 3: 상품 토큰 + 카테고리 변수 병합 ────────────
 
 /**
  * 상품 토큰 오버라이드를 변수풀에 prepend 병합.
  * 상품 토큰이 높은 확률로 선택되되, 카테고리 풀도 폴백 유지.
+ *
+ * @param categoryPath — L1 금지어 안전망 적용용 (forbiddenTerms가 비었을 때 L1 금지어 사용)
  */
 export function mergeVariables(
   categoryVars: Record<string, string[]>,
   productOverrides: Record<string, string[]>,
   forbiddenTerms?: string[],
   hasStrongContext?: boolean,
+  categoryPath?: string,
 ): Record<string, string[]> {
   const result = { ...categoryVars };
 
-  // forbiddenTerms 필터링 — 카테고리 변수에서 금지어 제거
-  if (forbiddenTerms && forbiddenTerms.length > 0) {
-    const forbidden = new Set(forbiddenTerms);
+  // forbiddenTerms 결정: 프로필 지정값 우선, 없으면 L1 안전망 적용
+  let effectiveForbidden = forbiddenTerms;
+  if ((!effectiveForbidden || effectiveForbidden.length === 0) && categoryPath) {
+    effectiveForbidden = getL1ForbiddenTerms(categoryPath);
+  }
+
+  // forbiddenTerms 필터링 — 카테고리 변수에서 금지어 포함 항목 제거
+  // (완전 일치가 아닌 부분 문자열 매칭 — "아침 공복에 1정 섭취" 같은 문장도 차단)
+  if (effectiveForbidden && effectiveForbidden.length > 0) {
+    const forbidden = effectiveForbidden;
     for (const [key, values] of Object.entries(result)) {
-      const filtered = values.filter(v => !forbidden.has(v));
+      const filtered = values.filter(v => !forbidden.some(term => v.includes(term)));
       if (filtered.length > 0) {
         result[key] = filtered;
       }
@@ -434,17 +613,43 @@ function hasFinalConsonant(char: string): boolean {
   return (code - 0xAC00) % 28 !== 0;
 }
 
-/** 한글 조사 자동 교정 — 변수 치환 후 은/는, 이/가, 을/를, 과/와 수정 */
+/** 한글 조사 자동 교정 — 변수 치환 후 은/는, 이/가, 을/를, 과/와 수정
+ *  ※ 단어 중간의 이/가/과/와는 건드리지 않음 (첨가물, 효과적, 다이어트 보호)
+ *     → 조사 뒤에 공백/구두점/문장끝이 올 때만 교정 */
 function fixKoreanParticles(text: string): string {
+  const boundary = '(?=[\\s,.!?;:)\\]\'\"」, 。]|$)';
   return text
-    .replace(/([\uAC00-\uD7A3])(은|는)/g, (_, prev) =>
+    .replace(new RegExp(`([\\uAC00-\\uD7A3])(은|는)${boundary}`, 'g'), (_, prev) =>
       prev + (hasFinalConsonant(prev) ? '은' : '는'))
-    .replace(/([\uAC00-\uD7A3])(이|가)/g, (_, prev) =>
+    .replace(new RegExp(`([\\uAC00-\\uD7A3])(이|가)${boundary}`, 'g'), (_, prev) =>
       prev + (hasFinalConsonant(prev) ? '이' : '가'))
-    .replace(/([\uAC00-\uD7A3])(을|를)/g, (_, prev) =>
+    .replace(new RegExp(`([\\uAC00-\\uD7A3])(을|를)${boundary}`, 'g'), (_, prev) =>
       prev + (hasFinalConsonant(prev) ? '을' : '를'))
-    .replace(/([\uAC00-\uD7A3])(과|와)/g, (_, prev) =>
+    .replace(new RegExp(`([\\uAC00-\\uD7A3])(과|와)${boundary}`, 'g'), (_, prev) =>
       prev + (hasFinalConsonant(prev) ? '과' : '와'));
+}
+
+// 변수 치환 경계 마커. 치환 후 이 경계 직후의 조사만 교정하여
+// 템플릿 내부의 관형사형 어미("있는/없는") · 의존명사("뭔가/누군가")
+// 같은 단어가 잘못 교정되는 것을 방지한다.
+const VAR_BOUNDARY = '\u0001';
+
+/**
+ * 변수 치환 경계(VAR_BOUNDARY)에 접한 조사만 교정한다.
+ * 경계 = 치환된 변수값의 끝 (즉, 템플릿에서 "...{var}X..." 형태의 X가 조사인 경우).
+ */
+function fixParticlesAtBoundary(text: string): string {
+  const b = VAR_BOUNDARY;
+  return text
+    .replace(new RegExp(`([\\uAC00-\\uD7A3])${b}(은|는)`, 'g'), (_, prev) =>
+      prev + (hasFinalConsonant(prev) ? '은' : '는'))
+    .replace(new RegExp(`([\\uAC00-\\uD7A3])${b}(이|가)`, 'g'), (_, prev) =>
+      prev + (hasFinalConsonant(prev) ? '이' : '가'))
+    .replace(new RegExp(`([\\uAC00-\\uD7A3])${b}(을|를)`, 'g'), (_, prev) =>
+      prev + (hasFinalConsonant(prev) ? '을' : '를'))
+    .replace(new RegExp(`([\\uAC00-\\uD7A3])${b}(과|와)`, 'g'), (_, prev) =>
+      prev + (hasFinalConsonant(prev) ? '과' : '와'))
+    .replace(new RegExp(b, 'g'), '');
 }
 
 function fillTemplate(
@@ -453,23 +658,27 @@ function fillTemplate(
   productName: string,
   rng: () => number,
 ): string {
-  let result = template;
-  result = result.replace(/\{product\}/g, productName);
+  const b = VAR_BOUNDARY;
+  // 1. {product} 치환 — 끝에 경계 마커 삽입
+  let result = template.replace(/\{product\}/g, productName + b);
+  // 2. {변수} 치환 — 끝에 경계 마커 삽입
   result = result.replace(/\{([^}]+)\}/g, (match, key) => {
     const pool = vars[key];
     if (pool && pool.length > 0) {
-      return pool[Math.floor(rng() * pool.length)];
+      return pool[Math.floor(rng() * pool.length)] + b;
     }
     // 미해결 변수: 유사 키에서 폴백 시도 (성분2→성분, 효과2→효과1)
     const baseKey = key.replace(/\d+$/, '');
     const fallback = vars[baseKey] || vars[baseKey + '1'];
     if (fallback && fallback.length > 0) {
-      return fallback[Math.floor(rng() * fallback.length)];
+      return fallback[Math.floor(rng() * fallback.length)] + b;
     }
     return '';
   });
-  // 한글 조사 자동 교정 — "{효과1}은 물론" → "콜레스테롤관리는 물론"
-  result = fixKoreanParticles(result);
+  // 3. 경계 직후의 조사만 교정 + 경계 마커 제거
+  //    "{효과1}은 물론" → "콜레스테롤관리\u0001은 물론" → "콜레스테롤관리는 물론"
+  //    템플릿 내부의 "있는/없는/뭔가"는 경계가 없으므로 보호됨.
+  result = fixParticlesAtBoundary(result);
   return result;
 }
 
@@ -487,6 +696,19 @@ export function composeBlock(
   rng: () => number,
   forbiddenTerms?: string[],
 ): ContentBlock {
+  // ── v2 완성문 템플릿 뱅크 우선 ──
+  // 해당 카테고리에 v2 템플릿이 있으면 조각조합 대신 직접 사용 (자연스러움 보장)
+  const v2Block = composeFromV2Templates(
+    blockType,
+    categoryPath,
+    vars,
+    productName,
+    seoKeywords,
+    rng,
+    forbiddenTerms,
+  );
+  if (v2Block) return v2Block;
+
   // social_proof, usage_guide는 자체 조각풀 사용, 없으면 solution으로 폴백
   const effectiveType = blockType;
   const rawPool = resolveFragments(effectiveType, categoryPath);
@@ -505,8 +727,12 @@ export function composeBlock(
   let actualPool = hasPool ? pool : resolveFragments('solution', categoryPath);
 
   // ── forbiddenTerms 필터: 프래그먼트 텍스트에서 금지어 포함 항목 제거 ──
-  if (forbiddenTerms && forbiddenTerms.length > 0) {
-    actualPool = filterFragmentPool(actualPool, forbiddenTerms);
+  // 프로필 지정값 우선, 없으면 L1 대분류 안전망 적용
+  const effectiveForbidden = (forbiddenTerms && forbiddenTerms.length > 0)
+    ? forbiddenTerms
+    : getL1ForbiddenTerms(categoryPath);
+  if (effectiveForbidden.length > 0) {
+    actualPool = filterFragmentPool(actualPool, effectiveForbidden);
   }
 
   switch (blockType) {

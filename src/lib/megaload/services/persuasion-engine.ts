@@ -262,8 +262,8 @@ export function generatePersuasionContent(
   // ── Layer 2: 카테고리 변수풀 해석 (CPG 격리 or 레거시) ──
   const categoryVars = resolveVariables(categoryPath, categoryCode);
 
-  // ── Layer 3+2: 변수 병합 (상품 토큰 우선 + forbiddenTerms 필터) ──
-  let vars = mergeVariables(categoryVars, productOverrides, profile?.forbiddenTerms, hasStrongContext);
+  // ── Layer 3+2: 변수 병합 (상품 토큰 우선 + forbiddenTerms 필터 + L1 안전망) ──
+  let vars = mergeVariables(categoryVars, productOverrides, profile?.forbiddenTerms, hasStrongContext, categoryPath);
 
   // ── Layer 4: SEO 키워드 → 변수풀 보강 ──
   if (seoKeywords && seoKeywords.length > 0) {

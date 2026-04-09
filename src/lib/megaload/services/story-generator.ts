@@ -265,8 +265,8 @@ export function generateStoryV2(
         const filtered = sentences.filter(s => {
           const mentions = s.match(HEALTH_INGREDIENTS_RE);
           if (!mentions) return true; // 성분 언급 없으면 통과
-          // 언급된 성분 중 하나라도 expected에 있으면 통과
-          return mentions.some(m => expectedTerms.has(m));
+          // 언급된 성분 모두 expected에 있어야 통과 (혼합 언급 차단)
+          return mentions.every(m => expectedTerms.has(m));
         });
         return filtered.join(' ').trim();
       }).filter(p => p.length > 5);
