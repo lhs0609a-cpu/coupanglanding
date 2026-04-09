@@ -637,12 +637,22 @@ const VAR_BOUNDARY = '\u0001';
 /**
  * 변수 치환 경계(VAR_BOUNDARY)에 접한 조사만 교정한다.
  * 경계 = 치환된 변수값의 끝 (즉, 템플릿에서 "...{var}X..." 형태의 X가 조사인 경우).
+ *
+ * 주의: 계사(copula) "이" 처리 - "이라면/이시라면/이에요/이다/이야" 등에서
+ * "이"는 주격조사가 아니라 계사이므로 vowel-final noun에서는 탈락(drop)된다.
+ * 예) "프리랜서이라면" → "프리랜서라면" (NOT "프리랜서가라면")
+ *     "직장인이라면" → "직장인이라면" (유지)
  */
 function fixParticlesAtBoundary(text: string): string {
   const b = VAR_BOUNDARY;
   return text
+    // 계사 "이" + (라|시|에|다|야): vowel-final이면 탈락, consonant-final이면 유지
+    .replace(new RegExp(`([\\uAC00-\\uD7A3])${b}이(?=[라시에다야])`, 'g'), (_, prev) =>
+      hasFinalConsonant(prev) ? prev + '이' : prev)
+    // 은/는 주격보조조사
     .replace(new RegExp(`([\\uAC00-\\uD7A3])${b}(은|는)`, 'g'), (_, prev) =>
       prev + (hasFinalConsonant(prev) ? '은' : '는'))
+    // 주격조사 이/가 — 계사 케이스는 위에서 이미 처리됨
     .replace(new RegExp(`([\\uAC00-\\uD7A3])${b}(이|가)`, 'g'), (_, prev) =>
       prev + (hasFinalConsonant(prev) ? '이' : '가'))
     .replace(new RegExp(`([\\uAC00-\\uD7A3])${b}(을|를)`, 'g'), (_, prev) =>
