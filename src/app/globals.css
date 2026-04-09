@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+@source not "../../test-*.mjs";
+@source not "../../scripts";
+@source not "../lib/megaload/data";
+@source not "../lib/megaload/services";
+
 :root {
   --background: #ffffff;
   --foreground: #0a0a0a;
