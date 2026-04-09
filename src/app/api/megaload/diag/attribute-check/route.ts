@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       categoryCode,
-      categoryName: localDetails?.name || 'unknown',
+      categoryPath: localDetails?.path || 'unknown',
       apiAttributeCount: apiAttributes.length,
       apiRequiredAttributes: apiNames,
       localBuyOptions: localNames,
