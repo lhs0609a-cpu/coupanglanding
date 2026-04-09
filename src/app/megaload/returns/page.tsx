@@ -121,23 +121,23 @@ export default function ReturnsPage() {
     ? warehouseAddr
     : supplierForm;
 
-  // 접수 시작 — 가이드를 팝업 윈도우로 띄워서 택배사 사이트 옆에 나란히 사용 가능
+  // 접수 시작 — 가이드 팝업 하나만 열고, 택배사 사이트는 가이드 안의 버튼으로 연다.
+  // (브라우저는 한 번의 클릭에서 window.open 2번을 대부분 차단하므로 분리 필수)
   const handleStartPickup = () => {
     const urls: Record<CourierType, string> = {
       cj: 'https://www.cjlogistics.com/ko/tool/parcel/reservation-return',
       epost: 'https://parcel.epost.go.kr',
     };
 
-    // sessionStorage로 가이드 데이터 전달
+    // sessionStorage로 가이드 데이터 + 택배사 URL 전달
     sessionStorage.setItem('megaload_return_guide', JSON.stringify({
       courier,
       sender,
       destination,
+      courierUrl: urls[courier],
     }));
 
-    // ⚠️ 중요: 가이드 팝업을 *먼저* 띄운다.
-    // 두 개의 window.open을 연속으로 호출하면 브라우저가 두 번째를 차단하는데,
-    // 가이드 팝업(width/height 지정)이 더 차단 대상이 되기 쉬우므로 먼저 열어야 한다.
+    // 가이드 팝업 윈도우 오픈
     const w = 420;
     const h = 660;
     const left = window.screenX + window.outerWidth - w - 20;
@@ -160,9 +160,6 @@ export default function ReturnsPage() {
 
     // 가이드 팝업을 앞으로
     guideWin.focus();
-
-    // 택배사 사이트 새 탭 (가이드가 정상적으로 열린 경우에만)
-    window.open(urls[courier], '_blank');
   };
 
   // 우리 창고는 이름(business_name)이 없어도 OK — 택배사 양식은 전화+주소만 필요

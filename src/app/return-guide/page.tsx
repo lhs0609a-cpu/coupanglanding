@@ -1,7 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Copy, Check, ChevronLeft, ChevronRight, PartyPopper, RotateCcw } from 'lucide-react';
+import {
+  Copy, Check, ChevronLeft, ChevronRight, RotateCcw, ExternalLink,
+  LogIn, User, Phone, Home, UserCheck, Smartphone, MapPin, Package,
+  CheckCircle2, PlayCircle, Search, ClipboardList,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 interface AddressInfo {
   name: string;
@@ -10,10 +15,11 @@ interface AddressInfo {
 }
 
 interface GuideStep {
+  icon: LucideIcon;
   title: string;
   description: string;
   copies?: { label: string; value: string }[];
-  hint: string;
+  hint?: string;
 }
 
 const SESSION_KEY = 'megaload_return_guide';
@@ -21,42 +27,75 @@ const SESSION_KEY = 'megaload_return_guide';
 function buildCjSteps(sender: AddressInfo, dest: AddressInfo): GuideStep[] {
   return [
     {
-      title: '로그인 / 비회원 접수',
-      description: 'CJ대한통운 사이트에서 "반품예약" 페이지가 열렸습니다. 로그인하거나 비회원 접수를 선택하세요.',
-      hint: '상단 "반품예약 접수" 화면이 보이면 준비 완료입니다.',
+      icon: PlayCircle,
+      title: '준비하기',
+      description: 'CJ대한통운 반품예약 사이트가 옆에 열렸는지 확인해주세요. 열리지 않았다면 위쪽의 빨간 버튼을 눌러 사이트를 여세요.',
+      hint: '사이트와 이 가이드 창을 나란히 배치하면 따라하기 편합니다.',
     },
     {
+      icon: LogIn,
+      title: '로그인 또는 비회원 접수',
+      description: 'CJ 사이트에서 로그인을 하거나, 아이디가 없으면 "비회원 접수" 버튼을 선택하세요.',
+      hint: '처음 이용한다면 비회원 접수가 간편합니다.',
+    },
+    {
+      icon: User,
       title: '보내는 분 이름 입력',
-      description: '"보내는 분" 란에 아래 구매자 이름을 붙여넣으세요.',
+      description: '"보내는 분" 이름 칸을 클릭하고, 아래 복사 버튼을 누른 뒤 입력란에 Ctrl+V로 붙여넣으세요.',
       copies: [{ label: '보내는 분 이름', value: sender.name }],
-      hint: '"보내는 분 정보" 섹션의 이름 입력란에 붙여넣기(Ctrl+V) 하세요.',
+      hint: '입력란 안에 커서를 둔 상태에서 붙여넣기하세요.',
     },
     {
+      icon: Phone,
       title: '보내는 분 연락처 입력',
-      description: '연락처를 붙여넣으세요.',
+      description: '"보내는 분 연락처" 칸을 클릭한 다음, 아래 번호를 복사해서 붙여넣으세요.',
       copies: [{ label: '연락처', value: sender.phone }],
-      hint: '전화번호 입력란에 붙여넣으세요. 하이픈(-) 포함 그대로 넣으면 됩니다.',
+      hint: '하이픈(-) 포함 그대로 붙여넣어도 됩니다.',
     },
     {
+      icon: Home,
       title: '보내는 분 주소 입력',
-      description: '주소 검색 창에 아래 주소를 참고하여 입력하세요.',
+      description: '"주소 검색" 버튼을 눌러 검색창을 연 뒤, 아래 주소를 복사해서 검색하세요. 주소 선택 후 상세주소가 자동으로 채워집니다.',
       copies: [{ label: '주소', value: sender.address }],
-      hint: '주소 검색 버튼 클릭 → 동/읍/면 이름으로 검색 → 선택 후 상세주소 입력.',
+      hint: '동/읍/면 이름으로 검색하면 더 잘 찾아집니다.',
     },
     {
-      title: '받는 분 정보 입력',
-      description: '"받는 분" 란에 도착지 정보를 하나씩 붙여넣으세요.',
-      copies: [
-        { label: '받는 분 이름', value: dest.name },
-        { label: '받는 분 연락처', value: dest.phone },
-        { label: '받는 분 주소', value: dest.address },
-      ],
-      hint: '이름 → 연락처 → 주소 순서로 각 칸에 붙여넣으세요.',
+      icon: UserCheck,
+      title: '받는 분 이름 입력',
+      description: '이제 "받는 분" 차례입니다. "받는 분 이름" 칸을 클릭한 다음 아래 이름을 붙여넣으세요.',
+      copies: [{ label: '받는 분 이름', value: dest.name }],
+      hint: '보내는 분 정보 바로 아래 섹션에 있습니다.',
     },
     {
-      title: '접수 완료!',
-      description: '물품 정보와 수량을 확인한 후 "예약접수" 버튼을 누르세요.',
-      hint: '접수가 완료되면 택배기사가 구매자에게 방문하여 수거합니다. 보통 1~2 영업일 소요.',
+      icon: Smartphone,
+      title: '받는 분 연락처 입력',
+      description: '"받는 분 연락처" 칸에 아래 번호를 복사해서 붙여넣으세요.',
+      copies: [{ label: '연락처', value: dest.phone }],
+      hint: '절반 이상 진행되었습니다. 조금만 더 힘내세요.',
+    },
+    {
+      icon: MapPin,
+      title: '받는 분 주소 입력',
+      description: '"받는 분 주소 검색" 버튼을 눌러 검색창을 연 뒤, 아래 주소로 검색하세요.',
+      copies: [{ label: '주소', value: dest.address }],
+      hint: '주소 선택 후 상세주소가 비어 있다면 직접 입력해주세요.',
+    },
+    {
+      icon: Package,
+      title: '물품 정보 선택',
+      description: '물품 종류를 선택합니다. "의류", "잡화", "기타" 중 적합한 항목을 선택하세요.',
+      hint: '수량은 특별한 경우가 아니면 1개로 두시면 됩니다.',
+    },
+    {
+      icon: CheckCircle2,
+      title: '예약 접수 완료',
+      description: '화면 아래쪽의 "예약접수" 또는 "접수완료" 버튼을 눌러 최종 제출하세요.',
+      hint: '이 버튼을 누르면 접수가 완료됩니다.',
+    },
+    {
+      icon: CheckCircle2,
+      title: '접수가 완료되었습니다',
+      description: '',
     },
   ];
 }
@@ -64,42 +103,81 @@ function buildCjSteps(sender: AddressInfo, dest: AddressInfo): GuideStep[] {
 function buildEpostSteps(sender: AddressInfo, dest: AddressInfo): GuideStep[] {
   return [
     {
-      title: '우체국 택배 예약 진입',
-      description: '우체국 택배 사이트가 열렸습니다. "택배 예약" 또는 "방문접수" 메뉴를 찾아 클릭하세요.',
-      hint: '메인 화면에서 "택배 예약" 배너 또는 상단 메뉴를 클릭하세요.',
+      icon: PlayCircle,
+      title: '준비하기',
+      description: '우체국택배 사이트가 옆에 열렸는지 확인해주세요. 열리지 않았다면 위쪽의 빨간 버튼을 눌러 사이트를 여세요.',
+      hint: '사이트와 이 가이드 창을 나란히 배치하면 따라하기 편합니다.',
     },
     {
+      icon: ClipboardList,
+      title: '방문접수 메뉴 진입',
+      description: '우체국 사이트에서 "방문접수" 또는 "택배 예약" 메뉴를 찾아 클릭하세요.',
+      hint: '메인 페이지 상단이나 배너에서 찾을 수 있습니다.',
+    },
+    {
+      icon: LogIn,
+      title: '로그인 또는 비회원 예약',
+      description: '로그인을 하거나 "비회원 예약"을 선택하세요.',
+      hint: '처음이라면 비회원 예약이 간편합니다.',
+    },
+    {
+      icon: User,
       title: '보내는 분 이름 입력',
-      description: '"보내는 사람" 란에 아래 구매자 이름을 붙여넣으세요.',
+      description: '"보내는 사람" 이름 칸을 클릭하고, 아래 복사 버튼을 누른 뒤 Ctrl+V로 붙여넣으세요.',
       copies: [{ label: '보내는 분 이름', value: sender.name }],
-      hint: '"보내는 사람 정보" 입력란을 찾아 이름을 입력하세요.',
+      hint: '입력란 안에 커서를 둔 상태에서 붙여넣기하세요.',
     },
     {
+      icon: Phone,
       title: '보내는 분 연락처 입력',
-      description: '연락처를 붙여넣으세요.',
+      description: '"보내는 사람 연락처" 칸에 아래 번호를 복사해서 붙여넣으세요.',
       copies: [{ label: '연락처', value: sender.phone }],
-      hint: '전화번호 입력란에 하이픈(-) 포함하여 입력하세요.',
+      hint: '하이픈(-) 포함 그대로 붙여넣어도 됩니다.',
     },
     {
+      icon: Search,
       title: '보내는 분 주소 입력',
-      description: '주소 검색 후 아래 주소를 참고하여 입력하세요.',
+      description: '"우편번호 검색" 버튼을 눌러 팝업을 연 뒤, 아래 주소로 검색하세요. 주소 선택 후 상세주소가 자동으로 채워집니다.',
       copies: [{ label: '주소', value: sender.address }],
-      hint: '우편번호 검색 버튼 → 주소 선택 → 상세주소 입력 순서로 진행하세요.',
+      hint: '동/읍/면 이름으로 검색하면 더 잘 찾아집니다.',
     },
     {
-      title: '받는 분 정보 입력',
-      description: '"받는 사람" 란에 도착지 정보를 하나씩 붙여넣으세요.',
-      copies: [
-        { label: '받는 분 이름', value: dest.name },
-        { label: '받는 분 연락처', value: dest.phone },
-        { label: '받는 분 주소', value: dest.address },
-      ],
-      hint: '이름 → 연락처 → 주소 순서로 각 칸에 붙여넣으세요.',
+      icon: UserCheck,
+      title: '받는 분 이름 입력',
+      description: '이제 "받는 사람" 차례입니다. "받는 사람 이름" 칸에 아래 이름을 붙여넣으세요.',
+      copies: [{ label: '받는 분 이름', value: dest.name }],
+      hint: '보내는 사람 정보 아래에 있습니다.',
     },
     {
-      title: '접수 완료!',
-      description: '물품 정보를 확인하고 "접수" 버튼을 누르세요.',
-      hint: '접수가 완료되면 우체국 택배기사가 구매자에게 방문하여 수거합니다. 보통 1~2 영업일 소요.',
+      icon: Smartphone,
+      title: '받는 분 연락처 입력',
+      description: '"받는 사람 연락처" 칸에 아래 번호를 붙여넣으세요.',
+      copies: [{ label: '연락처', value: dest.phone }],
+      hint: '거의 다 왔습니다.',
+    },
+    {
+      icon: MapPin,
+      title: '받는 분 주소 입력',
+      description: '"받는 사람 우편번호 검색"을 눌러 팝업을 연 뒤 아래 주소로 검색하세요.',
+      copies: [{ label: '주소', value: dest.address }],
+      hint: '주소 선택 후 상세주소를 확인해주세요.',
+    },
+    {
+      icon: Package,
+      title: '물품 정보 선택',
+      description: '물품 종류를 선택합니다. "의류" 또는 "잡화"가 일반적입니다.',
+      hint: '수량은 특별한 경우가 아니면 1개로 두시면 됩니다.',
+    },
+    {
+      icon: CheckCircle2,
+      title: '접수 완료',
+      description: '화면 아래쪽의 "접수" 또는 "신청" 버튼을 눌러 최종 제출하세요.',
+      hint: '이 버튼을 누르면 접수가 완료됩니다.',
+    },
+    {
+      icon: CheckCircle2,
+      title: '접수가 완료되었습니다',
+      description: '',
     },
   ];
 }
@@ -132,14 +210,14 @@ function CopyCard({ label, value }: { label: string; value: string }) {
       </div>
       <button
         onClick={handleCopy}
-        className={`shrink-0 flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-bold transition ${
+        className={`shrink-0 flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-bold transition active:scale-95 ${
           copied
             ? 'bg-green-500 text-white'
-            : 'bg-[#E31837] text-white hover:bg-red-700 active:scale-95'
+            : 'bg-[#E31837] text-white hover:bg-red-700'
         }`}
       >
         {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-        {copied ? '완료!' : '복사'}
+        {copied ? '복사됨' : '복사'}
       </button>
     </div>
   );
@@ -150,9 +228,11 @@ export default function ReturnGuidePage() {
     courier: 'cj' | 'epost';
     sender: AddressInfo;
     destination: AddressInfo;
+    courierUrl?: string;
   } | null>(null);
 
   const [currentStep, setCurrentStep] = useState(0);
+  const [courierOpened, setCourierOpened] = useState(false);
 
   useEffect(() => {
     try {
@@ -160,6 +240,15 @@ export default function ReturnGuidePage() {
       if (raw) setData(JSON.parse(raw));
     } catch { /* empty */ }
   }, []);
+
+  // 가이드 팝업이 뜨자마자 택배사 사이트 자동 오픈 시도 (차단되면 버튼으로 폴백)
+  useEffect(() => {
+    if (!data?.courierUrl || courierOpened) return;
+    try {
+      const win = window.open(data.courierUrl, 'courierSite');
+      if (win && !win.closed) setCourierOpened(true);
+    } catch { /* popup blocked — user will click button */ }
+  }, [data, courierOpened]);
 
   if (!data) {
     return (
@@ -181,62 +270,103 @@ export default function ReturnGuidePage() {
   const isLast = currentStep === steps.length - 1;
   const progress = ((currentStep + 1) / steps.length) * 100;
   const courierName = data.courier === 'cj' ? 'CJ대한통운' : '우체국택배';
+  const StepIcon = step.icon;
+
+  const handleOpenCourier = () => {
+    if (!data.courierUrl) return;
+    const win = window.open(data.courierUrl, 'courierSite');
+    if (win && !win.closed) {
+      setCourierOpened(true);
+      win.focus();
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* header */}
       <div className="bg-white border-b border-gray-200 px-4 py-3">
         <div className="flex items-center gap-2">
-          <RotateCcw className="w-5 h-5 text-[#E31837]" />
-          <div>
-            <h1 className="text-sm font-bold text-gray-900">{courierName} 수거 접수 가이드</h1>
-            <p className="text-[11px] text-gray-500">
+          <RotateCcw className="w-5 h-5 text-[#E31837] shrink-0" />
+          <div className="min-w-0 flex-1">
+            <h1 className="text-sm font-bold text-gray-900 truncate">{courierName} 수거 접수 가이드</h1>
+            <p className="text-[11px] text-gray-500 truncate">
               이 창을 택배사 사이트 옆에 두고 따라하세요
             </p>
           </div>
         </div>
+
+        {/* 택배사 사이트 열기 버튼 */}
+        {data.courierUrl && (
+          <button
+            onClick={handleOpenCourier}
+            className={`mt-2.5 w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-white text-xs font-bold transition ${
+              courierOpened
+                ? 'bg-gray-400 hover:bg-gray-500'
+                : 'bg-[#E31837] hover:bg-red-700 animate-pulse'
+            }`}
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            {courierOpened ? `${courierName} 사이트 다시 열기` : `${courierName} 사이트 열기`}
+          </button>
+        )}
+
         {/* progress */}
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-3 flex items-center gap-2">
           <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
             <div
-              className="h-full bg-[#E31837] rounded-full transition-all duration-300"
+              className="h-full bg-[#E31837] rounded-full transition-all duration-500 ease-out"
               style={{ width: `${progress}%` }}
             />
           </div>
-          <span className="text-[11px] text-gray-500 font-medium shrink-0">
+          <span className="text-[11px] text-gray-600 font-semibold shrink-0">
             {currentStep + 1} / {steps.length}
           </span>
         </div>
       </div>
 
       {/* content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {isLast && !step.copies ? (
+      <div className="flex-1 overflow-y-auto p-4">
+        {isLast ? (
           /* 완료 화면 */
-          <div className="text-center py-8 space-y-3">
-            <PartyPopper className="w-14 h-14 text-[#E31837] mx-auto" />
-            <h2 className="text-xl font-bold text-gray-900">수거 접수 완료!</h2>
-            <p className="text-sm text-gray-600 leading-relaxed">
-              택배기사가 구매자 주소로 방문하여<br />
-              상품을 수거합니다.<br />
-              보통 <strong>1~2 영업일</strong> 내 수거 완료.
-            </p>
-            <p className="text-xs text-gray-400 mt-4">이 창을 닫아도 됩니다.</p>
+          <div className="flex flex-col items-center justify-center text-center h-full py-8 space-y-4">
+            <div className="w-20 h-20 rounded-full bg-green-50 border-2 border-green-200 flex items-center justify-center">
+              <CheckCircle2 className="w-12 h-12 text-green-500" />
+            </div>
+            <h2 className="text-xl font-bold text-gray-900">접수가 완료되었습니다</h2>
+            <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 max-w-xs">
+              <p className="text-sm text-gray-700 leading-relaxed">
+                수고하셨습니다.<br />
+                <strong className="text-[#E31837]">1~2 영업일</strong> 안에 택배 기사가 구매자 주소로 방문하여 상품을 수거합니다.
+              </p>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">이 창은 닫으셔도 됩니다.</p>
           </div>
         ) : (
-          <>
-            {/* step indicator + title */}
-            <div className="flex items-start gap-3">
-              <span className="shrink-0 w-8 h-8 rounded-full bg-[#E31837] text-white flex items-center justify-center text-sm font-bold shadow-sm">
-                {currentStep + 1}
-              </span>
-              <div className="pt-0.5">
-                <h2 className="font-bold text-gray-900 text-[15px]">{step.title}</h2>
-                <p className="text-sm text-gray-600 mt-1 leading-relaxed">{step.description}</p>
+          <div className="space-y-5">
+            {/* 아이콘 + 단계 번호 */}
+            <div className="flex flex-col items-center text-center pt-2">
+              <div className="w-16 h-16 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center mb-3">
+                <StepIcon className="w-9 h-9 text-[#E31837]" />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-5 h-5 rounded-full bg-[#E31837] text-white flex items-center justify-center text-[10px] font-bold">
+                  {currentStep + 1}
+                </span>
+                <span className="text-xs text-gray-500 font-medium">
+                  / {steps.length - 1} 단계
+                </span>
               </div>
             </div>
 
-            {/* copy cards */}
+            {/* 제목 + 설명 */}
+            <div className="text-center px-1">
+              <h2 className="font-bold text-gray-900 text-lg mb-2">{step.title}</h2>
+              <p className="text-sm text-gray-600 leading-relaxed">
+                {step.description}
+              </p>
+            </div>
+
+            {/* 복사 카드 */}
             {step.copies && step.copies.length > 0 && (
               <div className="space-y-2">
                 {step.copies.map((c, i) => (
@@ -245,22 +375,24 @@ export default function ReturnGuidePage() {
               </div>
             )}
 
-            {/* hint */}
-            <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2.5">
-              <p className="text-xs text-blue-800 leading-relaxed">
-                <strong>Tip:</strong> {step.hint}
-              </p>
-            </div>
-          </>
+            {/* 힌트 */}
+            {step.hint && (
+              <div className="bg-blue-50 border border-blue-100 rounded-lg px-3.5 py-2.5">
+                <p className="text-xs text-blue-800 leading-relaxed">
+                  <strong className="font-semibold">Tip.</strong> {step.hint}
+                </p>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
       {/* navigation */}
-      <div className="bg-white border-t border-gray-200 px-4 py-3 flex items-center justify-between">
+      <div className="bg-white border-t border-gray-200 px-4 py-3 flex items-center gap-2">
         <button
           onClick={() => setCurrentStep(s => Math.max(0, s - 1))}
           disabled={currentStep === 0}
-          className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100 transition disabled:opacity-30 disabled:cursor-not-allowed"
+          className="flex items-center gap-1 px-3 py-2.5 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100 transition disabled:opacity-30 disabled:cursor-not-allowed"
         >
           <ChevronLeft className="w-4 h-4" />
           이전
@@ -269,16 +401,16 @@ export default function ReturnGuidePage() {
         {isLast ? (
           <button
             onClick={() => window.close()}
-            className="px-5 py-2 text-sm font-bold text-white bg-[#E31837] rounded-lg hover:bg-red-700 transition"
+            className="flex-1 px-5 py-3 text-sm font-bold text-white bg-green-500 rounded-lg hover:bg-green-600 transition active:scale-[0.98]"
           >
-            닫기
+            창 닫기
           </button>
         ) : (
           <button
             onClick={() => setCurrentStep(s => Math.min(steps.length - 1, s + 1))}
-            className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-white bg-[#E31837] rounded-lg hover:bg-red-700 transition active:scale-95"
+            className="flex-1 flex items-center justify-center gap-1 px-4 py-3 text-sm font-bold text-white bg-[#E31837] rounded-lg hover:bg-red-700 transition active:scale-[0.98]"
           >
-            다음
+            다음 단계
             <ChevronRight className="w-4 h-4" />
           </button>
         )}
