@@ -167,6 +167,56 @@ function matchesWholeUnit(text: string, term: string): boolean {
   }
 }
 
+// ─── 브랜드 누출 후처리 (n-gram 기반) ────────────────────
+
+/**
+ * 생성 완료된 노출상품명에서 브랜드 누출 토큰을 제거한다.
+ *
+ * classifyTokens + addToken의 2중 필터를 통과한 누출 케이스 방어:
+ *   - 브랜드의 3자+ 연속 부분이 토큰에 포함된 경우 (ex: "한국씨엔에스팜" → "씨엔에스")
+ *   - 브랜드 서브토큰이 descriptor로 빠져나온 경우
+ *
+ * 원산지(ORIGINS), 스펙(숫자), 1-2자 토큰은 false positive 방지로 스킵.
+ */
+function removeBrandLeaks(displayName: string, brand: string): string {
+  if (!brand || brand.length < 2) return displayName;
+
+  const brandLower = brand.toLowerCase().replace(/[^가-힣a-z0-9]/g, '');
+  if (brandLower.length < 2) return displayName;
+
+  // 브랜드에서 3자 이상의 n-gram 추출
+  const brandNgrams = new Set<string>();
+  for (let len = 3; len <= brandLower.length; len++) {
+    for (let i = 0; i <= brandLower.length - len; i++) {
+      brandNgrams.add(brandLower.slice(i, i + len));
+    }
+  }
+  // 브랜드 서브토큰 (공백/슬래시 기반 분할)
+  for (const sub of brand.toLowerCase().split(/[\s\/·]+/).filter(s => s.length >= 2)) {
+    brandNgrams.add(sub);
+  }
+
+  const tokens = displayName.split(/\s+/);
+  const cleaned = tokens.filter(token => {
+    // 1-2자, 숫자(스펙), 원산지는 스킵 (false positive 방지)
+    if (token.length <= 2) return true;
+    if (/^\d/.test(token)) return true;
+    if (ORIGINS.has(token.toLowerCase()) || ORIGINS.has(token)) return true;
+
+    const tokenLower = token.toLowerCase().replace(/[^가-힣a-z0-9]/g, '');
+    if (tokenLower.length < 3) return true;
+
+    // 토큰이 브랜드 n-gram과 3자 이상 겹치면 누출로 판정
+    for (const ng of brandNgrams) {
+      if (ng.length >= 3 && tokenLower.includes(ng)) return false;
+      if (ng.length >= 3 && ng.includes(tokenLower)) return false;
+    }
+    return true;
+  });
+
+  return cleaned.join(' ');
+}
+
 // ─── Phase 1: 토큰 추출 & 분류 ──────────────────────────
 
 function extractSpecs(name: string): { specs: string[]; cleaned: string } {
@@ -706,6 +756,9 @@ export function generateDisplayName(
     }
     result = trimmed.join(' ');
   }
+
+  // 브랜드 누출 후처리 안전망 — n-gram 기반 부분 음절 매칭
+  result = removeBrandLeaks(result, brand);
 
   // 규제 금지어 후처리
   const { cleanedText } = checkCompliance(result, { removeErrors: true, categoryContext: categoryPath });

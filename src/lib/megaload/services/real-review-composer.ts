@@ -38,6 +38,7 @@ type FrameId = 'CONCLUSION_FIRST' | 'COMPARISON' | 'DAILY_LIFE' | 'GIFT_STORY' |
 const FRAMES: Record<string, ReviewFrame> = reviewFrameData.frames as Record<string, ReviewFrame>;
 const FRAGMENTS: Record<string, Record<string, FragmentPool>> = reviewFrameData.fragments as Record<string, Record<string, FragmentPool>>;
 const CATEGORY_ALIASES: Record<string, string> = reviewFrameData.categoryAliases as Record<string, string>;
+const TRANSITIONS: Record<string, string[]> = (reviewFrameData as Record<string, unknown>).transitions as Record<string, string[]> || {};
 const VARIABLES: Record<string, Record<string, string[]>> = storyData.variables as Record<string, Record<string, string[]>>;
 
 // ─── 카테고리 매핑 ───────────────────────────────────────────
@@ -636,10 +637,13 @@ function composeFragment(
   rng: () => number,
   productName?: string,
   categoryKey?: string,
+  skipOpener?: boolean,
 ): string {
   const filteredOpeners = productName ? filterByProductForm(pool.openers, productName, categoryKey) : pool.openers;
   const openers = filteredOpeners.length > 0 ? filteredOpeners : pool.openers;
-  const opener = openers[Math.floor(rng() * openers.length)] || '';
+  // rng 항상 소비 (시퀀스 안정성) — skipOpener이면 결과만 버림
+  const openerIdx = Math.floor(rng() * openers.length);
+  const opener = skipOpener ? '' : (openers[openerIdx] || '');
 
   const filteredValues = productName ? filterByProductForm(pool.values, productName, categoryKey) : pool.values;
   const values = filteredValues.length > 0 ? filteredValues : pool.values;
@@ -715,19 +719,32 @@ export function generateRealReview(
   const frame = FRAMES[frameId];
   const fragments = FRAGMENTS[fragCatKey] || FRAGMENTS['DEFAULT'];
 
-  // 프레임 구조에 따라 문단 조합
+  // 프레임 구조에 따라 문단 조합 — 섹션 간 브릿지(연결어) 적용
   const paragraphs: string[] = [];
+  let prevSection: string | null = null;
 
   for (const section of frame.structure) {
     const pool = fragments[section];
-    if (!pool) continue;
+    if (!pool) { prevSection = section; continue; }
 
-    const raw = composeFragment(pool, rng, productName, catKey);
+    // 브릿지 조회: 이전 섹션 → 현재 섹션 연결어
+    let bridge = '';
+    if (prevSection) {
+      const transKey = `${prevSection}->${section}`;
+      const transPool = TRANSITIONS[transKey];
+      if (transPool && transPool.length > 0) {
+        bridge = transPool[Math.floor(rng() * transPool.length)];
+      }
+    }
+
+    // 브릿지가 있으면 opener 스킵 (브릿지가 opener 역할 대체)
+    const raw = composeFragment(pool, rng, productName, catKey, !!bridge);
     const filled = fillVariables(raw, vars, cleanName, rng);
     const sanitized = sanitizeByProductForm(filled, productName, catKey);
 
     if (sanitized.trim().length > 5) {
-      paragraphs.push(sanitized.trim());
+      const paragraph = bridge ? (bridge + ' ' + sanitized.trim()) : sanitized.trim();
+      paragraphs.push(paragraph);
     }
 
     // experience, detail 같은 핵심 섹션은 추가 문장으로 문단 보강
@@ -743,6 +760,8 @@ export function generateRealReview(
         }
       }
     }
+
+    prevSection = section;
   }
 
   // 글자수 보장: REVIEW_MIN_CHARS 미만이면 보조 섹션 추가

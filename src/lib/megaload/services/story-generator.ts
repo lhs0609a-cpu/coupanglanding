@@ -192,6 +192,54 @@ export function generateStoryBatch(
   return products.map((p, i) => generateStory(p.name, p.categoryPath, sellerSeed, i));
 }
 
+// ─── 설득 문단 → 1인칭 후기 톤 리라이트 ─────────────────────
+
+/** 3인칭 마케팅 카피 → 1인칭 후기 톤 변환 */
+function rewritePersuasionAsReview(
+  persuasionParagraphs: string[],
+  rng: () => number,
+): string[] {
+  const VOICE_BRIDGES = [
+    '참고로 더 알아봤는데,',
+    '아 그리고 추가로,',
+    '한 가지 더 말하면,',
+    '찾아보니까,',
+    '더 찾아본 결과,',
+  ];
+
+  // 마케팅 → 후기 톤 치환 패턴
+  const REWRITES: [RegExp, string][] = [
+    [/지금 확인하세요[.!]?/g, ''],
+    [/지금 바로 경험해보세요[.!]?/g, ''],
+    [/경험해보세요[.!]?/g, '써보면 알아요.'],
+    [/만나보세요[.!]?/g, '한번 써보세요.'],
+    [/시작하세요[.!]?/g, '저도 그래서 시작했어요.'],
+    [/확인해보세요[.!]?/g, '한번 확인해보시면 알 거예요.'],
+    [/추천드립니다[.!]?/g, '추천해요 진심으로.'],
+    [/선택하세요[.!]?/g, '저는 이걸로 정착했어요.'],
+    [/비밀은 여기에 있습니다[.!]?/g, '비밀이 있더라고요.'],
+    [/답을 찾았습니다[.!]?/g, '답을 찾은 것 같아요.'],
+    [/신경 쓰이시나요\??/g, '신경 쓰였거든요.'],
+    [/놓치지 마세요[.!]?/g, '놓치면 아까워요.'],
+  ];
+
+  return persuasionParagraphs.map((p, i) => {
+    let rewritten = p;
+
+    for (const [pattern, replacement] of REWRITES) {
+      rewritten = rewritten.replace(pattern, replacement);
+    }
+
+    // 첫 설득 문단에 보이스 브릿지 prepend
+    if (i === 0) {
+      const bridge = VOICE_BRIDGES[Math.floor(rng() * VOICE_BRIDGES.length)];
+      rewritten = bridge + ' ' + rewritten;
+    }
+
+    return rewritten.trim();
+  }).filter(p => p.length > 5);
+}
+
 // ─── V2: 설득형 콘텐츠 생성 ─────────────────────────────────
 
 import { generatePersuasionContent, contentBlocksToParagraphs } from './persuasion-engine';
@@ -244,8 +292,9 @@ export function generateStoryV2(
   );
   const persuasionParagraphs = contentBlocksToParagraphs(persuasion.blocks);
 
-  // 리얼후기 문단 + 설득 문단 합산 (블로그 스타일 교차 레이아웃 유지)
-  let paragraphs = [...reviewParagraphs, ...persuasionParagraphs];
+  // 리얼후기 문단 + 설득 문단 합산 (설득 문단은 1인칭 후기 톤으로 리라이트)
+  const rewrittenPersuasion = rewritePersuasionAsReview(persuasionParagraphs, rng);
+  let paragraphs = [...reviewParagraphs, ...rewrittenPersuasion];
 
   // ── 후처리 안전망: 건강식품 성분 불일치 문장 제거 ──
   if (productContext && categoryPath.includes('건강식품')) {

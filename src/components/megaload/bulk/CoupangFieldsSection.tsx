@@ -468,6 +468,14 @@ export default function CoupangFieldsSection({
         missingCount={basicMissing}
         allComplete={basicMissing === 0}
       >
+        {/* 원본상품명 (읽기전용) */}
+        {product.name && (
+          <div>
+            <OptionalLabel>원본상품명</OptionalLabel>
+            <div className="px-3 py-1.5 bg-gray-50 rounded-lg text-xs text-gray-500 break-all leading-relaxed">{product.name}</div>
+          </div>
+        )}
+
         {/* 판매자상품명 */}
         <div className={!product.editedName ? 'border-l-2 border-l-red-400 pl-3' : ''}>
           <RequiredLabel empty={!product.editedName}>판매자상품명 (sellerProductName)</RequiredLabel>
@@ -487,6 +495,25 @@ export default function CoupangFieldsSection({
           const isEmpty = !dpn;
           // 카테고리 있는데 노출상품명 없으면 → 자동 생성 대기 중
           const isGenerating = isEmpty && !!product.editedCategoryCode;
+          // 브랜드 누출 감지 (3자+ n-gram 매칭)
+          const brandLeak = (() => {
+            if (!dpn || !product.brand || product.brand.length < 2) return '';
+            const brandClean = product.brand.toLowerCase().replace(/[^가-힣a-z0-9]/g, '');
+            if (brandClean.length < 3) return '';
+            const dpnTokens = dpn.toLowerCase().split(/\s+/);
+            for (const token of dpnTokens) {
+              if (token.length < 3) continue;
+              const tokenClean = token.replace(/[^가-힣a-z0-9]/g, '');
+              // 브랜드 3자+ n-gram 매칭
+              for (let len = 3; len <= brandClean.length; len++) {
+                for (let i = 0; i <= brandClean.length - len; i++) {
+                  const ng = brandClean.slice(i, i + len);
+                  if (tokenClean.includes(ng) || ng.includes(tokenClean)) return token;
+                }
+              }
+            }
+            return '';
+          })();
           return (
             <div className={isEmpty ? (isGenerating ? 'border-l-2 border-l-purple-400 pl-3' : 'border-l-2 border-l-red-400 pl-3') : ''}>
               <RequiredLabel empty={isEmpty && !isGenerating}>노출상품명 (displayProductName)</RequiredLabel>
@@ -497,7 +524,9 @@ export default function CoupangFieldsSection({
                   onChange={(e) => onUpdate(product.uid, 'editedDisplayProductName', e.target.value)}
                   className={isGenerating
                     ? 'w-full px-3 py-2 border border-purple-300 bg-purple-50 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition'
-                    : inputRequired(isEmpty)}
+                    : brandLeak
+                      ? `${inputBase} border-orange-300 bg-orange-50`
+                      : inputRequired(isEmpty)}
                   placeholder={isGenerating
                     ? titleGenProgress
                       ? `자동 생성 중 (${titleGenProgress.done}/${titleGenProgress.total} — ${Math.round((titleGenProgress.done / titleGenProgress.total) * 100)}%)...`
@@ -508,13 +537,20 @@ export default function CoupangFieldsSection({
                   <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-purple-500" />
                 )}
               </div>
-              <p className="text-[10px] text-gray-400 mt-0.5">
-                {isGenerating
-                  ? titleGenProgress
-                    ? `노출상품명 생성 중... ${titleGenProgress.done}/${titleGenProgress.total}`
-                    : '카테고리 매칭 완료 후 자동 생성됩니다'
-                  : `${dpn.length}자`}
-              </p>
+              {brandLeak ? (
+                <p className="text-[10px] text-orange-600 mt-0.5 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" />
+                  브랜드 누출 감지: &quot;{brandLeak}&quot; (브랜드: {product.brand})
+                </p>
+              ) : (
+                <p className="text-[10px] text-gray-400 mt-0.5">
+                  {isGenerating
+                    ? titleGenProgress
+                      ? `노출상품명 생성 중... ${titleGenProgress.done}/${titleGenProgress.total}`
+                      : '카테고리 매칭 완료 후 자동 생성됩니다'
+                    : `${dpn.length}자`}
+                </p>
+              )}
             </div>
           );
         })()}
