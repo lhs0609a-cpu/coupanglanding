@@ -9,9 +9,7 @@ import {
 import { buildRichDetailPageHtml } from '@/lib/megaload/services/detail-page-builder';
 import { ensureObjectUrl } from '@/lib/megaload/services/client-folder-scanner';
 import {
-  analyzeReviewImages,
   scoreProductRelevance,
-  type ReviewImageAnalysisResult,
   type ProductRelevanceScore,
 } from '@/lib/megaload/services/image-quality-scorer';
 // 제3자 이미지 서버 URL (Supabase Storage 영구 저장)
@@ -71,8 +69,8 @@ interface ImageSelectorGroupProps {
   thumbnailUrls: string[];
   order: number[] | undefined;
   onOrderChange: (newOrder: number[]) => void;
-  /** 리뷰 이미지 전용 — 품질/관련성 분석 결과 */
-  analysis?: ReviewImageAnalysisResult | null;
+  /** 이미지 품질/관련성 분석 결과 (미사용) */
+  analysis?: unknown;
   /** AI 분석 버튼 핸들러 (리뷰: AI 자동 추천, 상세: 관련성 분석) */
   onAnalyze?: () => void;
   /** 분석 진행 중 여부 */
@@ -366,17 +364,12 @@ export default function DetailPageContentTab({
   // lazy objectURL 생성 결과 (review/detail은 eagerObjectUrls=false로 스캔됨)
   const [resolvedDetailUrls, setResolvedDetailUrls] = useState<string[]>([]);
   const [resolvedReviewUrls, setResolvedReviewUrls] = useState<string[]>([]);
-  // 리뷰 이미지 품질/관련성 분석 결과
-  const [reviewAnalysis, setReviewAnalysis] = useState<ReviewImageAnalysisResult | null>(null);
-  const [isAnalyzingReview, setIsAnalyzingReview] = useState(false);
   // 상세 이미지 관련성 분석 결과
   const [detailRelevanceScores, setDetailRelevanceScores] = useState<{ index: number; score: number }[] | null>(null);
   const [isAnalyzingDetailRelevance, setIsAnalyzingDetailRelevance] = useState(false);
 
   // 상품이 바뀌면 분석 결과 초기화
   useEffect(() => {
-    setReviewAnalysis(null);
-    setIsAnalyzingReview(false);
     setDetailRelevanceScores(null);
     setIsAnalyzingDetailRelevance(false);
   }, [product.uid]);
@@ -450,54 +443,6 @@ export default function DetailPageContentTab({
     const updated = reviewTexts.filter((_, i) => i !== index);
     onUpdate(product.uid, 'editedReviewTexts', updated);
   }, [product.uid, reviewTexts, onUpdate]);
-
-  // --- 리뷰 이미지 AI 자동 추천 (품질 + 상품 관련성) ---
-  const handleAnalyzeReviewImages = useCallback(async () => {
-    const reviewImgs = product.scannedReviewImages ?? [];
-    if (reviewImgs.length === 0) return;
-
-    setIsAnalyzingReview(true);
-    try {
-      // 리뷰 이미지 URL 수집 (원본 순서 보존 — editedReviewImageOrder와 인덱스 일치 필수)
-      const reviewUrls: string[] = await Promise.all(
-        reviewImgs.map(async (img) => {
-          const url = await ensureObjectUrl(img);
-          return url || 'data:image/png;base64,'; // 실패 시 invalid placeholder
-        }),
-      );
-
-      // 기준 이미지(대표이미지) 수집 — 관련성 비교용
-      const mainImgs = product.scannedMainImages ?? [];
-      const referenceUrls: string[] = [];
-      for (const img of mainImgs) {
-        const url = await ensureObjectUrl(img);
-        if (url) referenceUrls.push(url);
-      }
-      // 로컬 메인 이미지가 없으면 업로드된 CDN URL 폴백
-      if (referenceUrls.length === 0 && preUploadedUrls?.mainImageUrls) {
-        referenceUrls.push(...preUploadedUrls.mainImageUrls.filter(Boolean));
-      }
-
-      const result = await analyzeReviewImages(reviewUrls, referenceUrls);
-      setReviewAnalysis(result);
-
-      // order가 미지정(=전체)일 때만 자동 적용 — 사용자가 이미 선택한 경우 덮어쓰지 않음
-      if (product.editedReviewImageOrder === undefined) {
-        onUpdate(product.uid, 'editedReviewImageOrder', result.recommendedIndices);
-      }
-    } catch (err) {
-      console.error('[analyzeReviewImages]', err);
-    } finally {
-      setIsAnalyzingReview(false);
-    }
-  }, [
-    product.uid,
-    product.scannedReviewImages,
-    product.scannedMainImages,
-    product.editedReviewImageOrder,
-    preUploadedUrls?.mainImageUrls,
-    onUpdate,
-  ]);
 
   // --- 상세 이미지 관련성 분석 ---
   const handleAnalyzeDetailRelevance = useCallback(async () => {
@@ -587,14 +532,8 @@ export default function DetailPageContentTab({
           ? Array.from({ length: Math.min(product.detailImageCount, 3) }, (_, i) => placeholderImg(`상세이미지 ${i + 1}`))
           : [];
 
-    // editedReviewImageOrder가 []이면 사용자가 의도적으로 0장 선택한 것 → 빈 배열
-    const reviewUrls = filteredReviewUrls.length > 0
-      ? filteredReviewUrls
-      : Array.isArray(product.editedReviewImageOrder) && product.editedReviewImageOrder.length === 0
-        ? []
-        : product.reviewImageCount > 0
-          ? Array.from({ length: Math.min(product.reviewImageCount, 3) }, (_, i) => placeholderImg(`리뷰이미지 ${i + 1}`))
-          : [];
+    // 리뷰이미지는 상세페이지에 사용하지 않음
+    const reviewUrls: string[] = [];
 
     const paragraphs = storyParagraphs.length > 0
       ? storyParagraphs.filter(p => p.trim())
@@ -629,11 +568,11 @@ export default function DetailPageContentTab({
   return (
     <div className="space-y-3">
       {/* ─── 상세페이지 이미지 선택 ─── */}
-      {((product.scannedDetailImages?.length ?? 0) > 0 || (product.scannedReviewImages?.length ?? 0) > 0) && (
+      {(product.scannedDetailImages?.length ?? 0) > 0 && (
         <Collapsible
           title="상세페이지 이미지"
           icon={<ImageIcon className="w-3.5 h-3.5 text-indigo-500" />}
-          badge={`${(product.editedDetailImageOrder ?? product.scannedDetailImages ?? []).length + (product.editedReviewImageOrder ?? product.scannedReviewImages ?? []).length}장 선택`}
+          badge={`${(product.editedDetailImageOrder ?? product.scannedDetailImages ?? []).length}장 선택`}
           defaultOpen={false}
         >
           <ImageSelectorGroup
@@ -646,17 +585,6 @@ export default function DetailPageContentTab({
             isAnalyzing={isAnalyzingDetailRelevance}
             analyzeLabel={detailRelevanceScores ? '다시 분석' : '관련성 분석'}
             relevanceScores={detailRelevanceScores ?? product.detailImageSelectionMeta?.relevanceScores ?? undefined}
-          />
-          <ImageSelectorGroup
-            label="리뷰이미지"
-            images={product.scannedReviewImages ?? []}
-            thumbnailUrls={resolvedReviewUrls}
-            order={product.editedReviewImageOrder}
-            onOrderChange={(newOrder) => onUpdate(product.uid, 'editedReviewImageOrder', newOrder)}
-            analysis={reviewAnalysis}
-            onAnalyze={handleAnalyzeReviewImages}
-            isAnalyzing={isAnalyzingReview}
-            relevanceScores={product.reviewImageSelectionMeta?.relevanceScores ?? undefined}
           />
         </Collapsible>
       )}
@@ -744,15 +672,9 @@ export default function DetailPageContentTab({
       <Collapsible
         title="리뷰 텍스트"
         icon={<MessageSquare className="w-3.5 h-3.5 text-green-500" />}
-        badge={reviewTexts.length > 0 ? `${reviewTexts.length}개` : product.reviewImageCount > 0 ? `이미지 ${product.reviewImageCount}장` : undefined}
+        badge={reviewTexts.length > 0 ? `${reviewTexts.length}개` : undefined}
       >
         <div className="pt-2 space-y-2">
-          {product.reviewImageCount > 0 && (
-            <div className="flex items-center gap-2 text-[10px] text-gray-500 bg-gray-50 px-2 py-1.5 rounded">
-              <ImageIcon className="w-3 h-3" />
-              리뷰 이미지 {product.reviewImageCount}장 감지됨
-            </div>
-          )}
           {reviewTexts.length === 0 ? (
             <p className="text-xs text-gray-400 py-2">
               리뷰 텍스트가 없습니다. 직접 추가하거나, 등록 시 AI가 자동 생성합니다.
