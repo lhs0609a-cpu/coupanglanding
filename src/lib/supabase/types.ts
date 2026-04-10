@@ -937,6 +937,94 @@ export interface PreRegistration {
   updated_at: string;
 }
 
+// 품절동기화 — 가격 자동 추종 (Auto Price Follow)
+export type PriceFollowType = 'exact' | 'markup_amount' | 'markup_percent' | 'fixed_margin';
+export type PriceFollowMode = 'auto' | 'manual_approval';
+
+export interface PriceFollowRule {
+  enabled: boolean;
+  mode: PriceFollowMode;
+  type: PriceFollowType;
+  amount?: number;
+  percent?: number;
+  captured_margin?: number;
+  min_price?: number;
+  max_price?: number;
+  min_change_pct?: number;
+  max_change_pct?: number;
+  follow_down?: boolean;
+  cooldown_minutes?: number;
+}
+
+export interface PendingPriceChange {
+  newPrice: number;
+  oldPrice: number;
+  sourcePrice: number;
+  reason: string;
+  detectedAt: string;
+}
+
+export type ShStockMonitorSourceStatus = 'in_stock' | 'sold_out' | 'removed' | 'unknown' | 'error';
+export type ShStockMonitorCoupangStatus = 'active' | 'suspended';
+
+export interface ShStockMonitor {
+  id: string;
+  megaload_user_id: string;
+  product_id: string;
+  coupang_product_id: string;
+  source_url: string;
+  source_status: ShStockMonitorSourceStatus;
+  coupang_status: ShStockMonitorCoupangStatus;
+  registered_option_name: string | null;
+  option_statuses: { optionName: string; status: 'in_stock' | 'sold_out' }[];
+  consecutive_unknowns: number;
+  consecutive_errors: number;
+  is_active: boolean;
+  check_interval_minutes: number;
+  last_checked_at: string | null;
+  last_changed_at: string | null;
+  last_action_at: string | null;
+  // 가격 추종
+  price_follow_rule: PriceFollowRule | null;
+  source_price_last: number | null;
+  our_price_last: number | null;
+  price_last_updated_at: string | null;
+  price_last_applied_at: string | null;
+  pending_price_change: PendingPriceChange | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ShStockMonitorEventType =
+  | 'source_sold_out' | 'source_restocked' | 'source_removed'
+  | 'coupang_suspended' | 'coupang_resumed'
+  | 'check_error' | 'check_ok'
+  | 'price_changed_source' | 'price_updated_coupang'
+  | 'price_update_skipped' | 'price_update_flagged'
+  | 'price_update_failed' | 'price_update_pending'
+  | 'price_approved' | 'price_rejected';
+
+export interface ShStockMonitorLog {
+  id: string;
+  monitor_id: string;
+  megaload_user_id: string;
+  event_type: ShStockMonitorEventType;
+  source_status_before: string | null;
+  source_status_after: string | null;
+  coupang_status_before: string | null;
+  coupang_status_after: string | null;
+  option_name: string | null;
+  action_taken: string | null;
+  action_success: boolean | null;
+  error_message: string | null;
+  source_price_before: number | null;
+  source_price_after: number | null;
+  our_price_before: number | null;
+  our_price_after: number | null;
+  price_skip_reason: string | null;
+  created_at: string;
+}
+
 // 메가로드 반품 요청 (쿠팡 returnRequests API 연동)
 export interface ShReturnRequest {
   id: string;

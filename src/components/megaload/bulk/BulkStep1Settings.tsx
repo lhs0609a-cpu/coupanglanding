@@ -65,7 +65,8 @@ interface BulkStep1SettingsProps {
   onSetNoticeOverrides: (v: Record<string, string>) => void;
   preventionConfig: PreventionConfig;
   onSetPreventionEnabled: (v: boolean) => void;
-  onSetPreventionIntensity: (v: 'low' | 'mid' | 'high') => void;
+  onSetSellerBrand: (v: string) => void;
+  onSetAutoBarcodeGeneration: (v: boolean) => void;
   onRecalcPrices: (brackets: PriceBracket[]) => void;
   onScan: () => void;
   onBrowseFolder: () => void;
@@ -87,7 +88,7 @@ export default function BulkStep1Settings({
   onSetDeliveryChargeType, onSetDeliveryCharge, onSetFreeShipOverAmount,
   onSetReturnCharge, onSetContactNumber,
   onSetIncludeReviewImages, onSetUseStockImages, onSetNoticeOverrides,
-  preventionConfig, onSetPreventionEnabled, onSetPreventionIntensity,
+  preventionConfig, onSetPreventionEnabled, onSetSellerBrand, onSetAutoBarcodeGeneration,
   onRecalcPrices, onScan, onBrowseFolder,
   savedThirdPartyUrls, onUploadThirdPartyImages, onRemoveThirdPartyUrl, onClearThirdPartyUrls,
 }: BulkStep1SettingsProps) {
@@ -296,10 +297,10 @@ export default function BulkStep1Settings({
       {/* Integration Test */}
       <IntegrationTestCard disabled={loadingShipping} />
 
-      {/* Item Winner Prevention */}
+      {/* 상품 차별화 */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          <Shield className="w-5 h-5 text-gray-500" /> 아이템위너 방지
+          <Shield className="w-5 h-5 text-gray-500" /> 상품 차별화
         </h2>
         <div className="space-y-4">
           <label className="flex items-center gap-3 cursor-pointer">
@@ -309,14 +310,13 @@ export default function BulkStep1Settings({
             </div>
             <div>
               <div className="text-sm font-medium text-gray-700">활성화</div>
-              <div className="text-xs text-gray-400">같은 소싱 폴더를 여러 셀러가 등록할 때 쿠팡의 상품 그룹화를 방지합니다.</div>
+              <div className="text-xs text-gray-400">셀러별 고유 브랜드, 바코드, 상품명으로 차별화합니다.</div>
             </div>
           </label>
           {preventionConfig.enabled && (
             <div className="ml-14 space-y-2.5">
               {[
                 { label: '대표이미지 순서 셔플', key: 'imageOrderShuffle' as const, desc: '셀러마다 대표이미지 순서를 다르게' },
-                { label: '이미지 미세 변형', key: 'imageVariation' as const, desc: '파일 해시를 변경하여 매칭 회피' },
                 { label: 'AI 상품명 자동 생성 (필수)', key: 'mandatoryAiNames' as const, desc: '셀러 페르소나 기반 고유 상품명' },
                 { label: '상세페이지 레이아웃 변형', key: 'detailPageVariation' as const, desc: '셀러별 다른 HTML 구조' },
               ].map(({ label, key, desc }) => (
@@ -326,38 +326,31 @@ export default function BulkStep1Settings({
                   <span className="text-xs text-gray-400">— {desc}</span>
                 </div>
               ))}
-              {/* 변형 강도 선택 */}
-              {preventionConfig.imageVariation && (
-                <div className="mt-2 flex items-center gap-3">
-                  <span className="text-xs text-gray-500 font-medium shrink-0">변형 강도:</span>
-                  <div className="flex gap-1">
-                    {([
-                      { key: 'low' as const, label: '약', desc: '미세 변형 (파일 해시만 변경)' },
-                      { key: 'mid' as const, label: '중', desc: '중간 변형 (pHash 일부 변경)' },
-                      { key: 'high' as const, label: '강', desc: '강한 변형 (pHash 완전 변경)' },
-                    ]).map(({ key, label, desc }) => (
-                      <button
-                        key={key}
-                        onClick={() => onSetPreventionIntensity(key)}
-                        title={desc}
-                        className={`px-3 py-1 rounded-full text-xs font-medium transition ${
-                          preventionConfig.variationIntensity === key
-                            ? 'bg-[#E31837] text-white'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  <span className="text-[10px] text-gray-400 ml-1">
-                    {preventionConfig.variationIntensity === 'low' ? '파일 해시 변경 위주' :
-                     preventionConfig.variationIntensity === 'high' ? '좌우반전·회전·배경변경 포함' : '좌우반전·배경변경 포함'}
-                  </span>
-                </div>
-              )}
+              {/* 셀러 브랜드 입력 */}
+              <div className="mt-3">
+                <label className="block text-xs font-medium text-gray-600 mb-1">셀러 고유 브랜드</label>
+                <input
+                  type="text"
+                  value={preventionConfig.sellerBrand || ''}
+                  onChange={(e) => onSetSellerBrand(e.target.value)}
+                  placeholder="예: 마이헬스, 더나은생활 (미입력 시 '자체')"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                />
+                <p className="mt-1 text-[10px] text-gray-400">쿠팡에 등록될 브랜드명 + 제조사명에 반영됩니다.</p>
+              </div>
+              {/* 자동 바코드 생성 */}
+              <label className="flex items-center gap-2 text-sm mt-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={preventionConfig.autoBarcodeGeneration}
+                  onChange={(e) => onSetAutoBarcodeGeneration(e.target.checked)}
+                  className="w-4 h-4 accent-[#E31837]"
+                />
+                <span className="text-gray-700">자동 바코드 생성 (EAN-13)</span>
+                <span className="text-xs text-gray-400">— 셀러+상품별 고유 바코드</span>
+              </label>
               <div className="mt-3 px-3 py-2 bg-gray-50 rounded-lg text-xs text-gray-500">
-                방지 레벨: <span className="font-semibold text-gray-700">{getPreventionLevel(preventionConfig) === 4 ? '높음' : getPreventionLevel(preventionConfig) >= 2 ? '중간' : '낮음'}</span> ({getPreventionLevel(preventionConfig)}/4)
+                차별화 레벨: <span className="font-semibold text-gray-700">{getPreventionLevel(preventionConfig) >= 4 ? '높음' : getPreventionLevel(preventionConfig) >= 2 ? '중간' : '낮음'}</span> ({getPreventionLevel(preventionConfig)}/5)
               </div>
             </div>
           )}

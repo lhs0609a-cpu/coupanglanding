@@ -5,6 +5,10 @@
 export interface OptionStockStatus {
   optionName: string;
   status: 'in_stock' | 'sold_out';
+  /** 네이버 옵션 절대가격 (옵션조합에 price 필드 있을 때) */
+  price?: number;
+  /** 네이버 옵션 상대가격 (priceRelative — 메인가 기준 상대) */
+  priceRelative?: number;
 }
 
 /** 옵션명 정규화: 공백/특수문자 제거, 소문자화 */

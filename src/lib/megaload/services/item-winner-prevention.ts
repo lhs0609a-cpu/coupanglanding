@@ -1,43 +1,39 @@
 // ============================================================
-// 아이템위너 방지 시스템 — 설정 타입 + 오케스트레이션
+// 상품 차별화 시스템 — 설정 타입 + 오케스트레이션
 //
-// 쿠팡이 같은 상품으로 인식하여 아이템위너로 묶는 것을 방지.
-// 셀러마다 대표이미지 순서/변형, 상품명, 상세페이지를 다르게 한다.
+// 셀러별 고유 브랜드, 바코드, 상품명, 상세페이지로 차별화.
 // ============================================================
 
 import { createSeededRandom, stringToSeed } from './seeded-random';
 
-/** 이미지 변형 강도 */
-export type VariationIntensity = 'low' | 'mid' | 'high';
-
-/** 아이템위너 방지 설정 */
+/** 상품 차별화 설정 */
 export interface PreventionConfig {
   enabled: boolean;
-  imageOrderShuffle: boolean;   // P0: 대표이미지 순서 셔플
-  imageVariation: boolean;      // P1: 서버사이드 이미지 미세 변형
-  mandatoryAiNames: boolean;    // P2: AI 상품명 필수화
-  detailPageVariation: boolean; // P3: 상세페이지 레이아웃 변형
-  variationIntensity: VariationIntensity; // 이미지 변형 강도
+  imageOrderShuffle: boolean;      // P0: 대표이미지 순서 셔플
+  mandatoryAiNames: boolean;       // P2: AI 상품명 필수화
+  detailPageVariation: boolean;    // P3: 상세페이지 레이아웃 변형
+  sellerBrand: string;             // 셀러 고유 브랜드
+  autoBarcodeGeneration: boolean;  // EAN-13 자동 생성
 }
 
 /** 기본 설정 (전부 활성) */
 export const DEFAULT_PREVENTION_CONFIG: PreventionConfig = {
   enabled: true,
   imageOrderShuffle: true,
-  imageVariation: true,
   mandatoryAiNames: true,
   detailPageVariation: true,
-  variationIntensity: 'mid',
+  sellerBrand: '',
+  autoBarcodeGeneration: true,
 };
 
 /** 비활성 설정 */
 export const DISABLED_PREVENTION_CONFIG: PreventionConfig = {
   enabled: false,
   imageOrderShuffle: false,
-  imageVariation: false,
   mandatoryAiNames: false,
   detailPageVariation: false,
-  variationIntensity: 'mid',
+  sellerBrand: '',
+  autoBarcodeGeneration: false,
 };
 
 /**
@@ -68,14 +64,15 @@ export function selectWithSeed<T>(items: T[], seed: string): T {
 }
 
 /**
- * 활성화된 방지 전략 수 (UI 표시용)
+ * 활성화된 차별화 전략 수 (UI 표시용, 최대 5)
  */
 export function getPreventionLevel(config: PreventionConfig): number {
   if (!config.enabled) return 0;
   let level = 0;
   if (config.imageOrderShuffle) level++;
-  if (config.imageVariation) level++;
   if (config.mandatoryAiNames) level++;
   if (config.detailPageVariation) level++;
+  if (config.sellerBrand) level++;
+  if (config.autoBarcodeGeneration) level++;
   return level;
 }

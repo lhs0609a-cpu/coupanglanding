@@ -40,6 +40,8 @@ export interface DetailPageParams {
   categoryPath?: string;           // 카테고리 경로 (컬러 테마용)
   // V2: 설득형 콘텐츠 블록
   contentBlocks?: ContentBlock[];    // 설득형 블록 배열 (있으면 새 렌더러 사용)
+  // 이미지 타입 분류 (의미적 매칭용)
+  detailImageTypes?: string[];
   // 상품고지정보 텍스트 테이블 (이미지 없을 때 폴백)
   noticeFields?: { name: string; value: string }[];
 }
@@ -494,6 +496,18 @@ ${rows}
 </div>`;
 }
 
+// ─── 이미지-텍스트 의미적 매칭 (ImageType → ContentBlockType affinity) ───
+
+const IMAGE_BLOCK_AFFINITY: Record<string, string[]> = {
+  nukki:       ['hook', 'feature_detail', 'comparison'],
+  lifestyle:   ['solution', 'social_proof', 'usage_guide'],
+  packaging:   ['benefits_grid', 'feature_detail'],
+  ingredient:  ['feature_detail', 'comparison'],
+  detail_shot: ['feature_detail', 'usage_guide'],
+  infographic: ['comparison', 'benefits_grid'],
+  unknown:     ['hook', 'solution', 'benefits_grid'],
+};
+
 // ─── V2: 설득형 콘텐츠 블록 렌더러 (11가지 타입) ─────────────
 
 /** hook: 큰 폰트, 중앙정렬 */
@@ -672,49 +686,100 @@ export function buildPersuasionPageHtml(
   const uniqueReviews = (reviewImageUrls || []).filter(url => !detailSet.has(url)).slice(0, 5);
   imageQueue.push(...uniqueReviews);
 
-  let imageIdx = 0;
-  const imageAfterTypes = ['hook', 'solution', 'benefits_grid'];
-  const imageAfterSet = new Set(imageAfterTypes);
+  // 이미지 alt 텍스트 SEO 강화
+  const seoAltPrefix = seoKeywords && seoKeywords.length > 0 ? seoKeywords[0] + ' ' : '';
 
-  // 남은 이미지를 배치할 블록 인덱스 계산
-  const extraImagePositions: Set<number> = new Set();
-  const priorityCount = contentBlocks.filter(b => imageAfterSet.has(b.type)).length;
-  const remainingImages = Math.max(0, imageQueue.length - priorityCount);
-  if (remainingImages > 0) {
-    // 우선 블록이 아닌 블록들 사이에 균등 배분
-    const nonPriorityIndices = contentBlocks
-      .map((b, i) => ({ type: b.type, i }))
-      .filter(x => !imageAfterSet.has(x.type))
-      .map(x => x.i);
-    const step = Math.max(1, Math.floor(nonPriorityIndices.length / remainingImages));
-    for (let n = 0; n < remainingImages && n * step < nonPriorityIndices.length; n++) {
-      extraImagePositions.add(nonPriorityIndices[n * step]);
+  // 이미지→블록 배정 맵: imageIndex → blockIndex (뒤에 배치)
+  const imageToBlockMap = new Map<number, number>();
+  const detailImageTypes = params.detailImageTypes;
+  const useAffinity = detailImageTypes && detailImageTypes.length === detailImageUrls.length && detailImageUrls.length > 0;
+
+  if (useAffinity) {
+    // Affinity 기반 매칭: 각 이미지를 가장 적합한 블록 뒤에 배치
+    const assignedBlocks = new Set<number>();
+
+    for (let imgIdx = 0; imgIdx < imageQueue.length; imgIdx++) {
+      const imgType = imgIdx < detailImageTypes.length ? detailImageTypes[imgIdx] : 'unknown';
+      const affinityBlocks = IMAGE_BLOCK_AFFINITY[imgType] || IMAGE_BLOCK_AFFINITY['unknown'];
+
+      let matched = false;
+      for (const blockType of affinityBlocks) {
+        const blockIdx = contentBlocks.findIndex((b, bi) => b.type === blockType && !assignedBlocks.has(bi));
+        if (blockIdx >= 0) {
+          imageToBlockMap.set(imgIdx, blockIdx);
+          assignedBlocks.add(blockIdx);
+          matched = true;
+          break;
+        }
+      }
+
+      // 매칭 실패: 아직 이미지가 배정되지 않은 블록에 균등 배분
+      if (!matched) {
+        for (let bi = 0; bi < contentBlocks.length; bi++) {
+          if (!assignedBlocks.has(bi)) {
+            imageToBlockMap.set(imgIdx, bi);
+            assignedBlocks.add(bi);
+            break;
+          }
+        }
+      }
+    }
+  } else {
+    // 기존 로직: hook, solution, benefits_grid 뒤 우선 배치 + 나머지 균등 배분
+    const imageAfterTypes = ['hook', 'solution', 'benefits_grid'];
+    const imageAfterSet = new Set(imageAfterTypes);
+    let nextImgIdx = 0;
+
+    // 우선 배치
+    for (let bi = 0; bi < contentBlocks.length && nextImgIdx < imageQueue.length; bi++) {
+      if (imageAfterSet.has(contentBlocks[bi].type)) {
+        imageToBlockMap.set(nextImgIdx, bi);
+        nextImgIdx++;
+      }
+    }
+
+    // 남은 이미지를 비우선 블록에 균등 배분
+    if (nextImgIdx < imageQueue.length) {
+      const nonPriorityIndices = contentBlocks
+        .map((b, i) => ({ type: b.type, i }))
+        .filter(x => !imageAfterSet.has(x.type))
+        .map(x => x.i);
+      const remaining = imageQueue.length - nextImgIdx;
+      const step = Math.max(1, Math.floor(nonPriorityIndices.length / remaining));
+      for (let n = 0; n < remaining && n * step < nonPriorityIndices.length; n++) {
+        imageToBlockMap.set(nextImgIdx, nonPriorityIndices[n * step]);
+        nextImgIdx++;
+      }
     }
   }
 
-  // 이미지 alt 텍스트 SEO 강화
-  const seoAltPrefix = seoKeywords && seoKeywords.length > 0 ? seoKeywords[0] + ' ' : '';
+  // blockIndex → 해당 블록 뒤에 배치할 이미지 인덱스 목록
+  const blockToImages = new Map<number, number[]>();
+  for (const [imgIdx, blockIdx] of imageToBlockMap) {
+    const list = blockToImages.get(blockIdx) || [];
+    list.push(imgIdx);
+    blockToImages.set(blockIdx, list);
+  }
+  const placedImages = new Set(imageToBlockMap.keys());
 
   // 블록 렌더링 + 이미지 인터리빙
   for (let i = 0; i < contentBlocks.length; i++) {
     sections.push(renderContentBlock(contentBlocks[i], theme));
 
-    // 우선 이미지 배치 (hook, solution, benefits_grid 뒤)
-    if (imageAfterSet.has(contentBlocks[i].type) && imageIdx < imageQueue.length) {
-      sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${seoAltPrefix}${contentBlocks[i].type}" style="width:100%;display:block;" /></div>`);
-      imageIdx++;
-    }
-    // 남은 이미지 배치
-    else if (extraImagePositions.has(i) && imageIdx < imageQueue.length) {
-      sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${seoAltPrefix}${i + 1}" style="width:100%;display:block;" /></div>`);
-      imageIdx++;
+    const imgsForBlock = blockToImages.get(i);
+    if (imgsForBlock) {
+      for (const imgIdx of imgsForBlock) {
+        const altType = useAffinity && imgIdx < detailImageTypes.length ? detailImageTypes[imgIdx] : contentBlocks[i].type;
+        sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imgIdx])}" alt="${esc(productName)} ${seoAltPrefix}${altType}" style="width:100%;display:block;" /></div>`);
+      }
     }
   }
 
   // 미배치 이미지 모두 출력
-  while (imageIdx < imageQueue.length) {
-    sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imageIdx])}" alt="${esc(productName)} ${seoAltPrefix}${imageIdx + 1}" style="width:100%;display:block;" /></div>`);
-    imageIdx++;
+  for (let imgIdx = 0; imgIdx < imageQueue.length; imgIdx++) {
+    if (!placedImages.has(imgIdx)) {
+      sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imgIdx])}" alt="${esc(productName)} ${seoAltPrefix}${imgIdx + 1}" style="width:100%;display:block;" /></div>`);
+    }
   }
 
   // FAQ

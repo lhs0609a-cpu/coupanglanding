@@ -32,6 +32,7 @@ export interface StoryBatchInput {
   category: string;
   features: string[];
   description?: string;
+  categoryPath?: string;  // "뷰티>스킨>크림>넥크림" — AI 맥락 파악용
 }
 
 /** 스토리 톤 타입 — 배치 생성 시 순환 사용 */
@@ -488,7 +489,7 @@ export async function generateProductStoriesBatch(
         const tone = STORY_TONES[idx % STORY_TONES.length];
         const featureStr = p.features.length > 0 ? p.features.join(', ') : '없음';
         const descStr = p.description ? ` | 설명: ${p.description}` : '';
-        return `${idx + 1}. [톤: ${tone}] 상품명: "${p.productName}" | 카테고리: ${p.category} | 특징: ${featureStr}${descStr}`;
+        return `${idx + 1}. [톤: ${tone}] 상품명: "${p.productName}" | 카테고리: ${p.categoryPath || p.category} | 특징: ${featureStr}${descStr}`;
       })
       .join('\n');
 

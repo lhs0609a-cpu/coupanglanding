@@ -3,9 +3,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   RefreshCw, Package, XCircle, AlertTriangle, PauseCircle, Loader2,
-  CheckCircle2, ExternalLink, Clock, Activity, Download,
+  CheckCircle2, ExternalLink, Clock, Activity, Download, Settings, Bell,
 } from 'lucide-react';
 import StockStatusBadge from './StockStatusBadge';
+import PriceRuleModal from './PriceRuleModal';
+import PendingPriceApprovalList from './PendingPriceApprovalList';
+import type { PriceFollowRule, PendingPriceChange } from '@/lib/supabase/types';
 
 interface MonitorItem {
   id: string;
@@ -21,6 +24,13 @@ interface MonitorItem {
   last_action_at: string | null;
   consecutive_errors: number;
   created_at: string;
+  // 가격 추종
+  price_follow_rule: PriceFollowRule | null;
+  source_price_last: number | null;
+  our_price_last: number | null;
+  price_last_updated_at: string | null;
+  price_last_applied_at: string | null;
+  pending_price_change: PendingPriceChange | null;
   sh_products: { product_name: string; display_name: string; brand: string };
 }
 
@@ -36,6 +46,11 @@ interface LogItem {
   action_taken: string | null;
   action_success: boolean | null;
   error_message: string | null;
+  source_price_before: number | null;
+  source_price_after: number | null;
+  our_price_before: number | null;
+  our_price_after: number | null;
+  price_skip_reason: string | null;
   created_at: string;
 }
 
@@ -47,9 +62,11 @@ interface Stats {
   suspended: number;
   error: number;
   inactive: number;
+  pendingApprovalCount: number;
 }
 
 type FilterTab = 'all' | 'in_stock' | 'sold_out' | 'error';
+type LogFilter = 'all' | 'stock' | 'price';
 
 const EVENT_LABELS: Record<string, { label: string; color: string }> = {
   source_sold_out: { label: '품절 감지', color: 'text-red-600' },
@@ -59,7 +76,38 @@ const EVENT_LABELS: Record<string, { label: string; color: string }> = {
   coupang_resumed: { label: '쿠팡 재개', color: 'text-green-600' },
   check_error: { label: '체크 오류', color: 'text-orange-600' },
   check_ok: { label: '정상', color: 'text-gray-500' },
+  price_changed_source: { label: '소스가 변동', color: 'text-blue-600' },
+  price_updated_coupang: { label: '가격 적용', color: 'text-green-600' },
+  price_update_skipped: { label: '가격 스킵', color: 'text-gray-500' },
+  price_update_flagged: { label: '가격 플래그', color: 'text-orange-600' },
+  price_update_failed: { label: '가격 실패', color: 'text-red-600' },
+  price_update_pending: { label: '승인 대기', color: 'text-yellow-600' },
+  price_approved: { label: '승인 완료', color: 'text-green-600' },
+  price_rejected: { label: '거부됨', color: 'text-gray-600' },
 };
+
+const PRICE_EVENT_TYPES = new Set([
+  'price_changed_source', 'price_updated_coupang', 'price_update_skipped',
+  'price_update_flagged', 'price_update_failed', 'price_update_pending',
+  'price_approved', 'price_rejected',
+]);
+
+function ruleSummary(rule: PriceFollowRule | null): { label: string; colorClass: string } {
+  if (!rule || !rule.enabled) return { label: 'OFF', colorClass: 'bg-gray-100 text-gray-500 ring-1 ring-gray-200' };
+  let label = '';
+  switch (rule.type) {
+    case 'exact': label = '정가'; break;
+    case 'markup_amount': label = `+${(rule.amount ?? 0).toLocaleString()}원`; break;
+    case 'markup_percent': label = `+${rule.percent ?? 0}%`; break;
+    case 'fixed_margin':
+      label = rule.captured_margin != null
+        ? `마진고정(₩${rule.captured_margin.toLocaleString()})`
+        : '마진고정';
+      break;
+  }
+  const ring = rule.mode === 'auto' ? 'ring-2 ring-blue-400' : 'ring-2 ring-yellow-400';
+  return { label, colorClass: `bg-white text-gray-700 ${ring}` };
+}
 
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return '-';
@@ -81,6 +129,11 @@ export default function StockMonitorDashboard() {
   const [filterTab, setFilterTab] = useState<FilterTab>('all');
   const [checkingIds, setCheckingIds] = useState<Set<string>>(new Set());
   const [backfilling, setBackfilling] = useState(false);
+  const [logFilter, setLogFilter] = useState<LogFilter>('all');
+  const [priceRuleModal, setPriceRuleModal] = useState<
+    { mode: 'single'; monitor: MonitorItem } | { mode: 'bulk' } | null
+  >(null);
+  const [showPendingList, setShowPendingList] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -206,6 +259,15 @@ export default function StockMonitorDashboard() {
             기존 상품 가져오기
           </button>
           <button
+            onClick={() => setPriceRuleModal({ mode: 'bulk' })}
+            disabled={loading || monitors.length === 0}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition"
+            title="필터된 모니터 전체에 가격 추종 규칙을 일괄 적용합니다"
+          >
+            <Settings className="w-4 h-4" />
+            가격 추종 일괄 설정
+          </button>
+          <button
             onClick={handleCheckAll}
             disabled={checkingIds.size > 0 || loading}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
@@ -215,6 +277,25 @@ export default function StockMonitorDashboard() {
           </button>
         </div>
       </div>
+
+      {/* 승인 대기 배너 */}
+      {stats && stats.pendingApprovalCount > 0 && (
+        <button
+          onClick={() => setShowPendingList(true)}
+          className="w-full flex items-center gap-3 px-4 py-3 bg-yellow-50 border border-yellow-300 rounded-lg hover:bg-yellow-100 transition text-left"
+        >
+          <Bell className="w-5 h-5 text-yellow-600 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-yellow-900">
+              가격 변경 승인 대기 {stats.pendingApprovalCount}건
+            </p>
+            <p className="text-xs text-yellow-700 mt-0.5">
+              소스 가격 변동으로 인한 가격 업데이트가 승인을 기다리고 있습니다.
+            </p>
+          </div>
+          <span className="text-xs text-yellow-700 font-medium">자세히 →</span>
+        </button>
+      )}
 
       {/* 요약 카드 */}
       {stats && (
@@ -306,8 +387,10 @@ export default function StockMonitorDashboard() {
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">상품명</th>
                 <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">원본 상태</th>
                 <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">쿠팡 상태</th>
+                <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">소스가</th>
+                <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">우리가</th>
+                <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">추종 규칙</th>
                 <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">마지막 확인</th>
-                <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">마지막 변경</th>
                 <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">동작</th>
               </tr>
             </thead>
@@ -359,18 +442,45 @@ export default function StockMonitorDashboard() {
                       <StockStatusBadge status={m.coupang_status as 'active' | 'suspended'} />
                     </td>
                     <td className="px-3 py-3 text-center">
+                      <span className="text-xs text-gray-700 font-mono">
+                        {m.source_price_last != null ? `₩${m.source_price_last.toLocaleString()}` : '-'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      <span className="text-xs text-gray-700 font-mono">
+                        {m.our_price_last != null ? `₩${m.our_price_last.toLocaleString()}` : '-'}
+                      </span>
+                      {m.pending_price_change && (
+                        <div className="text-[10px] text-yellow-700 mt-0.5">
+                          → ₩{m.pending_price_change.newPrice.toLocaleString()} 대기
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      {(() => {
+                        const s = ruleSummary(m.price_follow_rule);
+                        return (
+                          <span className={`inline-block px-2 py-0.5 text-[10px] font-medium rounded ${s.colorClass}`}>
+                            {s.label}
+                          </span>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-3 py-3 text-center">
                       <span className="text-xs text-gray-500 flex items-center justify-center gap-1">
                         <Clock className="w-3 h-3" />
                         {timeAgo(m.last_checked_at)}
                       </span>
                     </td>
                     <td className="px-3 py-3 text-center">
-                      <span className="text-xs text-gray-500">
-                        {timeAgo(m.last_changed_at)}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3 text-center">
                       <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => setPriceRuleModal({ mode: 'single', monitor: m })}
+                          className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition"
+                          title="가격 추종 설정"
+                        >
+                          <Settings className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           onClick={() => handleCheckNow(m.id)}
                           disabled={isChecking}
@@ -399,42 +509,106 @@ export default function StockMonitorDashboard() {
       {/* 최근 이력 */}
       {recentLogs.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-3">
-            <Activity className="w-4 h-4 text-gray-500" />
-            최근 변경 이력
-          </h3>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {recentLogs.map((log) => {
-              const eventConfig = EVENT_LABELS[log.event_type] || { label: log.event_type, color: 'text-gray-500' };
-              return (
-                <div key={log.id} className="flex items-center gap-3 text-xs py-1.5 border-b border-gray-50 last:border-b-0">
-                  <span className="text-gray-400 w-24 shrink-0">
-                    {new Date(log.created_at).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                  <span className={`font-medium w-20 shrink-0 ${eventConfig.color}`}>
-                    {eventConfig.label}
-                  </span>
-                  {log.source_status_before && log.source_status_after && (
-                    <span className="text-gray-500">
-                      {log.source_status_before} → {log.source_status_after}
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+              <Activity className="w-4 h-4 text-gray-500" />
+              최근 변경 이력
+            </h3>
+            <div className="flex items-center gap-1">
+              {(['all', 'stock', 'price'] as LogFilter[]).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setLogFilter(f)}
+                  className={`px-3 py-1 text-[11px] rounded-full border transition ${
+                    logFilter === f
+                      ? 'bg-gray-900 text-white border-gray-900'
+                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  {f === 'all' ? '전체' : f === 'stock' ? '품절' : '가격'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {recentLogs
+              .filter((log) => {
+                if (logFilter === 'all') return true;
+                const isPrice = PRICE_EVENT_TYPES.has(log.event_type);
+                return logFilter === 'price' ? isPrice : !isPrice;
+              })
+              .map((log) => {
+                const eventConfig = EVENT_LABELS[log.event_type] || { label: log.event_type, color: 'text-gray-500' };
+                const isPrice = PRICE_EVENT_TYPES.has(log.event_type);
+                return (
+                  <div key={log.id} className="flex items-center gap-3 text-xs py-1.5 border-b border-gray-50 last:border-b-0">
+                    <span className="text-gray-400 w-24 shrink-0">
+                      {new Date(log.created_at).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </span>
-                  )}
-                  {log.option_name && (
-                    <span className="text-gray-400">옵션: {log.option_name}</span>
-                  )}
-                  {log.action_taken && (
-                    <span className={`${log.action_success ? 'text-green-600' : 'text-red-600'}`}>
-                      [{log.action_taken}]
+                    <span className={`font-medium w-20 shrink-0 ${eventConfig.color}`}>
+                      {eventConfig.label}
                     </span>
-                  )}
-                  {log.error_message && (
-                    <span className="text-red-500 truncate max-w-[200px]">{log.error_message}</span>
-                  )}
-                </div>
-              );
-            })}
+                    {isPrice ? (
+                      <span className="text-gray-600 font-mono">
+                        {log.source_price_before != null || log.source_price_after != null ? (
+                          <>소스 ₩{log.source_price_before?.toLocaleString() ?? '-'} → ₩{log.source_price_after?.toLocaleString() ?? '-'}</>
+                        ) : null}
+                        {log.our_price_before != null && log.our_price_after != null && (
+                          <span className="ml-2">우리 ₩{log.our_price_before.toLocaleString()} → ₩{log.our_price_after.toLocaleString()}</span>
+                        )}
+                      </span>
+                    ) : (
+                      log.source_status_before && log.source_status_after && (
+                        <span className="text-gray-500">
+                          {log.source_status_before} → {log.source_status_after}
+                        </span>
+                      )
+                    )}
+                    {log.option_name && (
+                      <span className="text-gray-400">옵션: {log.option_name}</span>
+                    )}
+                    {log.action_taken && (
+                      <span className={`${log.action_success ? 'text-green-600' : 'text-red-600'}`}>
+                        [{log.action_taken}]
+                      </span>
+                    )}
+                    {log.price_skip_reason && (
+                      <span className="text-gray-400 truncate max-w-[200px]">{log.price_skip_reason}</span>
+                    )}
+                    {log.error_message && (
+                      <span className="text-red-500 truncate max-w-[200px]">{log.error_message}</span>
+                    )}
+                  </div>
+                );
+              })}
           </div>
         </div>
+      )}
+
+      {/* 가격 추종 규칙 모달 */}
+      {priceRuleModal && (
+        <PriceRuleModal
+          open={true}
+          onClose={() => setPriceRuleModal(null)}
+          monitor={priceRuleModal.mode === 'single' ? {
+            id: priceRuleModal.monitor.id,
+            source_price_last: priceRuleModal.monitor.source_price_last,
+            our_price_last: priceRuleModal.monitor.our_price_last,
+            price_follow_rule: priceRuleModal.monitor.price_follow_rule,
+            productName: priceRuleModal.monitor.sh_products?.display_name || priceRuleModal.monitor.sh_products?.product_name || '',
+          } : undefined}
+          monitorIds={priceRuleModal.mode === 'bulk' ? monitors.map((m) => m.id) : undefined}
+          onSaved={() => { setPriceRuleModal(null); fetchData(); }}
+        />
+      )}
+
+      {/* 승인 대기 목록 모달 */}
+      {showPendingList && (
+        <PendingPriceApprovalList
+          open={true}
+          onClose={() => setShowPendingList(false)}
+          onUpdated={fetchData}
+        />
       )}
     </div>
   );

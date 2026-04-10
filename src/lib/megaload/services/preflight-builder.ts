@@ -76,6 +76,8 @@ export interface BuildPayloadParams {
   aiStoryParagraphs?: string[];
   aiReviewTexts?: string[];
   contentBlocks?: import('./persuasion-engine').ContentBlock[];
+  // 이미지 타입 분류 (의미적 매칭용)
+  detailImageTypes?: string[];
   // 제3자 이미지 (전체 업로드된 URL 풀 — 상품별 랜덤 선정은 내부에서 처리)
   thirdPartyImageUrls?: string[];
   // 배치 내 상품 인덱스 (0-based) — 10개 중 정확히 2개 선택용
@@ -84,6 +86,8 @@ export interface BuildPayloadParams {
   totalProductsInBatch?: number;
   // Wing ID (vendorUserId) — vendorId와 다름
   vendorUserId?: string;
+  // 셀러 고유 브랜드 (상품 차별화)
+  sellerBrand?: string;
 }
 
 export interface BuildPayloadResult {
@@ -103,10 +107,12 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     mainImageUrls, detailImageUrls, reviewImageUrls, infoImageUrls,
     aiStoryHtml = '', aiStoryParagraphs = [], aiReviewTexts = [],
     contentBlocks,
+    detailImageTypes,
     thirdPartyImageUrls,
     productIndexInBatch,
     totalProductsInBatch,
     vendorUserId,
+    sellerBrand,
   } = params;
 
   const preventionEnabled = preventionConfig?.enabled ?? false;
@@ -286,8 +292,10 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     faqItems,
     closingText,
     contentBlocks: product.contentBlocksOverride || contentBlocks,
+    detailImageTypes,
     thirdPartyImageUrls: selectedThirdPartyUrls,
     vendorUserId,
+    sellerBrand,
   });
 
   return { payload, filledNotices, extractedOptions: extracted };

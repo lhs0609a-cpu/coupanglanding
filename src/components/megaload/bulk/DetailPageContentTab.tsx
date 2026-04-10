@@ -4,9 +4,14 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   FileText, MessageSquare, Plus, Trash2, Eye, EyeOff,
   ChevronDown, ChevronRight, GripVertical, Image as ImageIcon, Check,
+  Sparkles,
 } from 'lucide-react';
 import { buildRichDetailPageHtml } from '@/lib/megaload/services/detail-page-builder';
 import { ensureObjectUrl } from '@/lib/megaload/services/client-folder-scanner';
+import {
+  analyzeReviewImages,
+  type ReviewImageAnalysisResult,
+} from '@/lib/megaload/services/image-quality-scorer';
 // 제3자 이미지 서버 URL (Supabase Storage 영구 저장)
 const THIRD_PARTY_IMAGE_URLS = [
   'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-01.jpg',
@@ -64,9 +69,27 @@ interface ImageSelectorGroupProps {
   thumbnailUrls: string[];
   order: number[] | undefined;
   onOrderChange: (newOrder: number[]) => void;
+  /** 리뷰 이미지 전용 — 품질/관련성 분석 결과 */
+  analysis?: ReviewImageAnalysisResult | null;
+  /** 리뷰 이미지 전용 — AI 자동 추천 버튼 핸들러 */
+  onAnalyze?: () => void;
+  /** 분석 진행 중 여부 */
+  isAnalyzing?: boolean;
 }
 
-function ImageSelectorGroup({ label, images, thumbnailUrls, order, onOrderChange }: ImageSelectorGroupProps) {
+/** 거부 사유별 뱃지 메타 */
+const REJECTION_BADGE: Record<string, { label: string; bg: string }> = {
+  unrelated: { label: '비관련', bg: 'bg-red-500' },
+  low_quality: { label: '품질↓', bg: 'bg-amber-500' },
+  empty_image: { label: '빈이미지', bg: 'bg-gray-500' },
+  text_banner: { label: '배너', bg: 'bg-gray-500' },
+  promotional_image: { label: '광고', bg: 'bg-gray-500' },
+};
+
+function ImageSelectorGroup({
+  label, images, thumbnailUrls, order, onOrderChange,
+  analysis, onAnalyze, isAnalyzing,
+}: ImageSelectorGroupProps) {
   const dragSrcRef = useRef<number | null>(null); // position in order array being dragged
   const [dragOverPos, setDragOverPos] = useState<number | null>(null);
 
@@ -122,23 +145,38 @@ function ImageSelectorGroup({ label, images, thumbnailUrls, order, onOrderChange
 
   const renderThumb = (imgIdx: number, opts: { selected: boolean; posInOrder?: number; draggable?: boolean }) => {
     const url = thumbnailUrls[imgIdx] || images[imgIdx]?.objectUrl;
+    const a = analysis?.analyses[imgIdx];
+    const rejectionBadge = a?.rejectionReason ? REJECTION_BADGE[a.rejectionReason] : undefined;
+    const isRecommended = a?.isRecommended ?? false;
+
+    // 분석 결과 기반 테두리 색상
+    let borderClass = opts.selected
+      ? dragOverPos === opts.posInOrder
+        ? 'border-blue-400 ring-2 ring-blue-200'
+        : 'border-blue-500'
+      : 'border-gray-200 opacity-50';
+    if (a && !opts.selected) {
+      if (rejectionBadge) borderClass = 'border-red-200 opacity-40';
+      else if (isRecommended) borderClass = 'border-emerald-300 opacity-70';
+    }
+
+    const reasonText = a?.rejectionReason
+      ? ` · ${REJECTION_BADGE[a.rejectionReason]?.label ?? a.rejectionReason}`
+      : isRecommended
+        ? ` · 추천 (품질 ${Math.round(a!.qualityScore)})`
+        : '';
+
     return (
       <div
         key={`${label}-${imgIdx}`}
-        className={`relative w-20 h-20 rounded-lg overflow-hidden cursor-pointer border-2 transition-all flex-shrink-0 ${
-          opts.selected
-            ? dragOverPos === opts.posInOrder
-              ? 'border-blue-400 ring-2 ring-blue-200'
-              : 'border-blue-500'
-            : 'border-gray-200 opacity-50'
-        }`}
+        className={`relative w-20 h-20 rounded-lg overflow-hidden cursor-pointer border-2 transition-all flex-shrink-0 ${borderClass}`}
         onClick={() => toggleImage(imgIdx)}
         draggable={opts.draggable}
         onDragStart={opts.draggable ? handleDragStart(opts.posInOrder!) : undefined}
         onDragOver={opts.draggable ? handleDragOver(opts.posInOrder!) : undefined}
         onDrop={opts.draggable ? handleDrop(opts.posInOrder!) : undefined}
         onDragEnd={opts.draggable ? handleDragEnd : undefined}
-        title={`${images[imgIdx]?.name ?? `이미지 ${imgIdx + 1}`}${opts.selected ? ` (순서 ${opts.posInOrder! + 1})` : ' (제외됨)'}`}
+        title={`${images[imgIdx]?.name ?? `이미지 ${imgIdx + 1}`}${opts.selected ? ` (순서 ${opts.posInOrder! + 1})` : ' (제외됨)'}${reasonText}`}
       >
         {url ? (
           <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -159,6 +197,17 @@ function ImageSelectorGroup({ label, images, thumbnailUrls, order, onOrderChange
             {opts.posInOrder + 1}
           </div>
         )}
+        {/* 분석 뱃지 (우상단) */}
+        {rejectionBadge && (
+          <div className={`absolute top-1 right-1 text-[9px] px-1 py-[1px] rounded ${rejectionBadge.bg} text-white font-bold shadow`}>
+            {rejectionBadge.label}
+          </div>
+        )}
+        {!rejectionBadge && isRecommended && (
+          <div className="absolute top-1 right-1 text-[9px] px-1 py-[1px] rounded bg-emerald-500 text-white font-bold shadow flex items-center gap-0.5">
+            <Sparkles className="w-2.5 h-2.5" />추천
+          </div>
+        )}
         {/* 미선택 오버레이 */}
         {!opts.selected && (
           <div className="absolute inset-0 bg-white/40" />
@@ -169,12 +218,23 @@ function ImageSelectorGroup({ label, images, thumbnailUrls, order, onOrderChange
 
   return (
     <div className="pt-2">
-      <div className="flex items-center gap-2 mb-2">
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
         <span className="text-xs font-medium text-gray-700">{label}</span>
         <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
           {selectedCount}/{totalCount}장 선택
         </span>
         <div className="flex-1" />
+        {onAnalyze && (
+          <button
+            onClick={onAnalyze}
+            disabled={isAnalyzing}
+            className="text-[10px] px-2 py-0.5 rounded border border-purple-300 text-purple-600 hover:bg-purple-50 disabled:opacity-50 transition flex items-center gap-1"
+            title="AI가 품질과 상품 관련성을 분석하여 추천 이미지를 자동 선택합니다"
+          >
+            <Sparkles className="w-3 h-3" />
+            {isAnalyzing ? '분석중...' : analysis ? '다시 분석' : 'AI 자동 추천'}
+          </button>
+        )}
         <button
           onClick={selectAll}
           className="text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-blue-400 hover:text-blue-600 transition"
@@ -188,6 +248,21 @@ function ImageSelectorGroup({ label, images, thumbnailUrls, order, onOrderChange
           전체해제
         </button>
       </div>
+      {analysis && (
+        <div className="text-[10px] text-gray-600 bg-gray-50 px-2 py-1.5 rounded mb-2 flex flex-wrap gap-x-3 gap-y-0.5">
+          <span>총 <b>{analysis.stats.total}</b>장</span>
+          <span className="text-emerald-600">추천 <b>{analysis.stats.recommended}</b>장</span>
+          {analysis.stats.rejectedUnrelated > 0 && (
+            <span className="text-red-500">비관련 <b>{analysis.stats.rejectedUnrelated}</b>장</span>
+          )}
+          {analysis.stats.rejectedLowQuality > 0 && (
+            <span className="text-amber-600">품질낮음 <b>{analysis.stats.rejectedLowQuality}</b>장</span>
+          )}
+          {analysis.stats.rejectedBanner > 0 && (
+            <span className="text-gray-500">배너/광고 <b>{analysis.stats.rejectedBanner}</b>장</span>
+          )}
+        </div>
+      )}
       {selectedCount === 0 && (
         <div className="text-[10px] text-amber-600 bg-amber-50 px-2 py-1 rounded mb-2">
           선택된 이미지가 없습니다. 상세페이지에 이미지가 포함되지 않습니다.
@@ -240,6 +315,15 @@ export default function DetailPageContentTab({
   // lazy objectURL 생성 결과 (review/detail은 eagerObjectUrls=false로 스캔됨)
   const [resolvedDetailUrls, setResolvedDetailUrls] = useState<string[]>([]);
   const [resolvedReviewUrls, setResolvedReviewUrls] = useState<string[]>([]);
+  // 리뷰 이미지 품질/관련성 분석 결과
+  const [reviewAnalysis, setReviewAnalysis] = useState<ReviewImageAnalysisResult | null>(null);
+  const [isAnalyzingReview, setIsAnalyzingReview] = useState(false);
+
+  // 상품이 바뀌면 분석 결과 초기화
+  useEffect(() => {
+    setReviewAnalysis(null);
+    setIsAnalyzingReview(false);
+  }, [product.uid]);
 
   const description = product.editedDescription ?? product.description ?? '';
   const storyParagraphs = product.editedStoryParagraphs ?? [];
@@ -310,6 +394,54 @@ export default function DetailPageContentTab({
     const updated = reviewTexts.filter((_, i) => i !== index);
     onUpdate(product.uid, 'editedReviewTexts', updated);
   }, [product.uid, reviewTexts, onUpdate]);
+
+  // --- 리뷰 이미지 AI 자동 추천 (품질 + 상품 관련성) ---
+  const handleAnalyzeReviewImages = useCallback(async () => {
+    const reviewImgs = product.scannedReviewImages ?? [];
+    if (reviewImgs.length === 0) return;
+
+    setIsAnalyzingReview(true);
+    try {
+      // 리뷰 이미지 URL 수집 (원본 순서 보존 — editedReviewImageOrder와 인덱스 일치 필수)
+      const reviewUrls: string[] = await Promise.all(
+        reviewImgs.map(async (img) => {
+          const url = await ensureObjectUrl(img);
+          return url || 'data:image/png;base64,'; // 실패 시 invalid placeholder
+        }),
+      );
+
+      // 기준 이미지(대표이미지) 수집 — 관련성 비교용
+      const mainImgs = product.scannedMainImages ?? [];
+      const referenceUrls: string[] = [];
+      for (const img of mainImgs) {
+        const url = await ensureObjectUrl(img);
+        if (url) referenceUrls.push(url);
+      }
+      // 로컬 메인 이미지가 없으면 업로드된 CDN URL 폴백
+      if (referenceUrls.length === 0 && preUploadedUrls?.mainImageUrls) {
+        referenceUrls.push(...preUploadedUrls.mainImageUrls.filter(Boolean));
+      }
+
+      const result = await analyzeReviewImages(reviewUrls, referenceUrls);
+      setReviewAnalysis(result);
+
+      // order가 미지정(=전체)일 때만 자동 적용 — 사용자가 이미 선택한 경우 덮어쓰지 않음
+      if (product.editedReviewImageOrder === undefined) {
+        onUpdate(product.uid, 'editedReviewImageOrder', result.recommendedIndices);
+      }
+    } catch (err) {
+      console.error('[analyzeReviewImages]', err);
+    } finally {
+      setIsAnalyzingReview(false);
+    }
+  }, [
+    product.uid,
+    product.scannedReviewImages,
+    product.scannedMainImages,
+    product.editedReviewImageOrder,
+    preUploadedUrls?.mainImageUrls,
+    onUpdate,
+  ]);
 
   // --- 미리보기 HTML ---
   const previewHtml = useMemo(() => {
@@ -403,6 +535,9 @@ export default function DetailPageContentTab({
             thumbnailUrls={resolvedReviewUrls}
             order={product.editedReviewImageOrder}
             onOrderChange={(newOrder) => onUpdate(product.uid, 'editedReviewImageOrder', newOrder)}
+            analysis={reviewAnalysis}
+            onAnalyze={handleAnalyzeReviewImages}
+            isAnalyzing={isAnalyzingReview}
           />
         </Collapsible>
       )}

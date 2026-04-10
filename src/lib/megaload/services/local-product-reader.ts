@@ -8,7 +8,6 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { randomUUID } from 'crypto';
 import { detectImageFormat, getImageDimensions } from './image-processor';
 import { withRetry } from './retry';
-import type { VariationParams } from './server-image-variation';
 
 // ---- 보안: 허용 경로 + 이미지 크기 제한 ----
 
@@ -106,7 +105,8 @@ export async function scanProductFolder(folderPath: string): Promise<LocalProduc
     if (reviewImages.length === 0) {
       reviewImages = collectImages(path.join(productPath, 'reviews'), /\.(jpg|jpeg|png)$/i);
     }
-    const detailImages = [...reviewImages];
+    let detailImages = collectImages(path.join(productPath, 'detail_images'), /\.(jpg|jpeg|png|webp)$/i);
+    if (detailImages.length === 0) detailImages = [...reviewImages]; // fallback: detail_images/ 없으면 리뷰 이미지 사용
 
     // product_info/ 내 상품정보 이미지
     const infoDir = path.join(productPath, 'product_info');
@@ -164,12 +164,10 @@ function collectImages(dirPath: string, pattern: RegExp): string[] {
 
 /**
  * 로컬 이미지 파일을 Supabase Storage에 업로드하고 CDN URL을 반환
- * variationParams가 제공되면 업로드 전에 서버사이드 이미지 변형 적용
  */
 export async function uploadLocalImage(
   filePath: string,
   megaloadUserId: string,
-  variationParams?: VariationParams,
 ): Promise<string> {
   // 파일 크기 검증
   const stat = fs.statSync(filePath);
@@ -178,16 +176,6 @@ export async function uploadLocalImage(
   }
 
   let buffer: Buffer = fs.readFileSync(filePath);
-
-  // 아이템위너 방지: 이미지 변형 적용
-  if (variationParams) {
-    try {
-      const { applyVariation } = await import('./server-image-variation');
-      buffer = Buffer.from(await applyVariation(buffer, variationParams, filePath));
-    } catch (err) {
-      console.warn(`[이미지 변형] 실패 — 원본 사용 (${path.basename(filePath)}):`, err instanceof Error ? err.message : err);
-    }
-  }
 
   let format = detectImageFormat(buffer);
   let ext = format === 'unknown' ? 'jpg' : format;
@@ -338,14 +326,12 @@ export async function uploadLocalImages(
  * 기존 uploadLocalImages 대비 ~80% 시간 단축
  *
  * allowPartialFailure=true: 일부 이미지 실패해도 성공한 것만 반환 (빈 문자열로 대체)
- * variationParamsList: 각 이미지에 적용할 변형 파라미터 (아이템위너 방지)
  */
 export async function uploadLocalImagesParallel(
   filePaths: string[],
   megaloadUserId: string,
   concurrency = 5,
   allowPartialFailure = false,
-  variationParamsList?: (VariationParams | undefined)[],
 ): Promise<string[]> {
   if (filePaths.length === 0) return [];
 
@@ -356,8 +342,7 @@ export async function uploadLocalImagesParallel(
     while (nextIndex < filePaths.length) {
       const idx = nextIndex++;
       try {
-        const vp = variationParamsList?.[idx];
-        results[idx] = await uploadLocalImage(filePaths[idx], megaloadUserId, vp);
+        results[idx] = await uploadLocalImage(filePaths[idx], megaloadUserId);
       } catch (err) {
         results[idx] = err instanceof Error ? err : new Error(String(err));
       }

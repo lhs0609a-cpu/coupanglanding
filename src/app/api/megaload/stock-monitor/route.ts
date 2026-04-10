@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
     // 필터 파라미터
     const { searchParams } = new URL(request.url);
     const statusFilter = searchParams.get('status'); // in_stock, sold_out, error, all
+    const pendingOnly = searchParams.get('pendingOnly') === 'true';
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '50');
     const offset = (page - 1) * limit;
@@ -39,6 +40,8 @@ export async function GET(request: NextRequest) {
         is_active, check_interval_minutes,
         last_checked_at, last_changed_at, last_action_at,
         consecutive_errors, created_at,
+        price_follow_rule, source_price_last, our_price_last,
+        price_last_updated_at, price_last_applied_at, pending_price_change,
         sh_products!inner(product_name, display_name, brand)
       `, { count: 'exact' })
       .eq('megaload_user_id', shUserId)
@@ -52,6 +55,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    if (pendingOnly) {
+      query = query.not('pending_price_change', 'is', null);
+    }
+
     const { data: monitors, count, error: queryErr } = await query
       .range(offset, offset + limit - 1);
 
@@ -62,7 +69,7 @@ export async function GET(request: NextRequest) {
     // 통계 집계 (전체)
     const { data: allMonitors } = await serviceClient
       .from('sh_stock_monitors')
-      .select('source_status, coupang_status, consecutive_errors, is_active')
+      .select('source_status, coupang_status, consecutive_errors, is_active, pending_price_change')
       .eq('megaload_user_id', shUserId);
 
     const stats = {
@@ -73,10 +80,12 @@ export async function GET(request: NextRequest) {
       suspended: 0,
       error: 0,
       inactive: 0,
+      pendingApprovalCount: 0,
     };
 
     for (const m of allMonitors || []) {
       const rec = m as Record<string, unknown>;
+      if (rec.pending_price_change) stats.pendingApprovalCount++;
       if (!rec.is_active) { stats.inactive++; continue; }
       switch (rec.source_status) {
         case 'in_stock': stats.inStock++; break;
@@ -87,13 +96,13 @@ export async function GET(request: NextRequest) {
       if ((rec.consecutive_errors as number) > 0) stats.error++;
     }
 
-    // 최근 이력 조회 (최신 20건)
+    // 최근 이력 조회 (최신 30건)
     const { data: recentLogs } = await serviceClient
       .from('sh_stock_monitor_logs')
-      .select('id, monitor_id, event_type, source_status_before, source_status_after, coupang_status_before, coupang_status_after, option_name, action_taken, action_success, error_message, created_at')
+      .select('id, monitor_id, event_type, source_status_before, source_status_after, coupang_status_before, coupang_status_after, option_name, action_taken, action_success, error_message, source_price_before, source_price_after, our_price_before, our_price_after, price_skip_reason, created_at')
       .eq('megaload_user_id', shUserId)
       .order('created_at', { ascending: false })
-      .limit(20);
+      .limit(30);
 
     return NextResponse.json({
       monitors: monitors || [],

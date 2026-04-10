@@ -13,10 +13,10 @@
 
 import type { LocalProduct } from './local-product-reader';
 import type { FilledNoticeCategory } from './notice-field-filler';
-import type { ImageVariation } from './image-variation';
 import { buildRichDetailPageHtml } from './detail-page-builder';
 import { shuffleWithSeed, selectWithSeed } from './item-winner-prevention';
 import { stringToSeed } from './seeded-random';
+import { generateEAN13 } from './barcode-generator';
 import { checkCompliance, containsForbiddenTerm } from './compliance-filter';
 import type { ContentBlock } from './fragment-composer';
 
@@ -117,8 +117,8 @@ export interface BuildCoupangPayloadParams {
   // AI 생성 상품명
   displayProductName?: string;
   sellerProductName?: string;
-  // 이미지 변형 (로깅용, 페이로드에 포함하지 않음)
-  imageVariation?: ImageVariation;
+  // 셀러 고유 브랜드 (상품 차별화)
+  sellerBrand?: string;
   // KC인증
   certifications?: CertificationInfo[];
   // 멀티옵션 (제공 시 sellerProductItemList에 여러 item 생성)
@@ -142,6 +142,8 @@ export interface BuildCoupangPayloadParams {
   closingText?: string;
   // V2: 설득형 콘텐츠 블록
   contentBlocks?: import('./persuasion-engine').ContentBlock[];
+  // 이미지 타입 분류 (의미적 매칭용)
+  detailImageTypes?: string[];
   // Wing ID (vendorUserId) — vendorId와 다름, DB에서 조회하여 전달
   vendorUserId?: string;
 }
@@ -259,7 +261,9 @@ export function buildCoupangProductPayload(
     faqItems,
     closingText,
     contentBlocks,
+    detailImageTypes,
     vendorUserId,
+    sellerBrand,
   } = params;
 
   // ---- 1. 상품명 정리 ----
@@ -281,19 +285,18 @@ export function buildCoupangProductPayload(
     ? cleanProductName(sellerProductName.replace(product.productCode, uniqueProductCode))
     : productName;
 
-  // brand: 항상 앞 2글자만 축약 (비오팜→비오, 종근당→종근, 고려은단헬스→고려)
-  // 아이템위너 방지 모드: '자체' 고정 (원본 브랜드로 매칭되는 것 방지)
+  // brand: 셀러 브랜드가 설정되어 있으면 우선 사용
+  // 아이템위너 방지 모드: sellerBrand || '자체' (원본 브랜드로 매칭되는 것 방지)
   const rawBrand = brand || product.productJson.brand || '';
   const resolvedBrand = preventionSeed
-    ? '자체'  // 아이템위너 방지: 원본 브랜드 제거
+    ? (sellerBrand || '자체')
     : (rawBrand ? rawBrand.slice(0, 2) : '자체');
   if (!rawBrand && !preventionSeed) {
     console.warn(`[payload-builder] ⚠️ brand 미설정 → "자체" 폴백 | "${rawName}"`);
   }
-  // manufacturer: brand와 별개 — product.json에 manufacturer 있으면 사용
-  // 아이템위너 방지 모드: '자체제조' 고정
+  // manufacturer: 셀러 브랜드가 있으면 제조사에도 적용
   const resolvedManufacturer = preventionSeed
-    ? '자체제조'  // 아이템위너 방지: 원본 제조사 제거
+    ? (sellerBrand || '자체제조')
     : (manufacturer
       || (product.productJson as Record<string, unknown>).manufacturer as string
       || rawBrand
@@ -359,6 +362,7 @@ export function buildCoupangProductPayload(
       closingText: safeClosingText,
       categoryPath,
       contentBlocks: safeContentBlocks,
+      detailImageTypes,
       noticeFields: filledNotices?.[0]?.noticeCategoryDetailName?.map(f => ({
         name: f.noticeCategoryDetailName,
         value: f.content,
@@ -615,11 +619,9 @@ export function buildCoupangProductPayload(
   }
 
   // ---- 9. 바코드 처리 ----
-  // 아이템위너 방지 모드: 바코드를 비워서 기존 상품 매칭 차단 (매칭 1순위)
-  // barcode가 있으면 쿠팡이 정확히 같은 상품을 찾아 아이템위너에 묶고,
-  // 단위가격이 높으면 노출제한 걸림. barcode 비우면 새 아이템 페이지 생성됨.
+  // 상품 차별화 모드: 셀러별 고유 EAN-13 생성 (기존 상품과 다른 바코드)
   const resolvedBarcode = preventionSeed
-    ? ''  // 아이템위너 방지 활성 → 바코드 제거
+    ? generateEAN13(preventionSeed, product.productCode)
     : (barcode || (product.productJson as Record<string, unknown>).barcode as string || '');
   const hasBarcode = !!resolvedBarcode;
 
@@ -637,8 +639,10 @@ export function buildCoupangProductPayload(
   if (optionVariants && optionVariants.length > 0) {
     // 멀티옵션 상품: 각 변형별 별도 item
     sellerProductItemList = optionVariants.map((variant, idx) => {
-      // 아이템위너 방지: 멀티옵션 바코드도 제거
-      const variantBarcode = preventionSeed ? '' : (variant.barcode || '');
+      // 상품 차별화: 멀티옵션 바코드도 고유 EAN-13 생성
+      const variantBarcode = preventionSeed
+        ? generateEAN13(preventionSeed, `${product.productCode}_${idx}`)
+        : (variant.barcode || '');
       const variantImages = variant.mainImageUrls
         ? variant.mainImageUrls.slice(0, 10).map((url, i) => ({
             imageOrder: i,

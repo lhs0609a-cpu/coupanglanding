@@ -1855,6 +1855,8 @@ export function useBulkRegisterActions() {
           if (p.editedStoryParagraphs && p.editedStoryParagraphs.length > 0) product.storyParagraphsOverride = p.editedStoryParagraphs;
           if (p.editedReviewTexts && p.editedReviewTexts.length > 0) product.reviewTextsOverride = p.editedReviewTexts;
           if (p.editedContentBlocks && p.editedContentBlocks.length > 0) product.contentBlocksOverride = p.editedContentBlocks;
+          // 이미지 타입 정보 전달 (의미적 매칭용)
+          if (p.detailImageSelectionMeta?.imageTypes?.length) product.detailImageTypes = p.detailImageSelectionMeta.imageTypes;
           const cached = imagePreuploadCacheRef.current[p.uid];
           const cacheValid = cached && cached.uploadedAt && (Date.now() - cached.uploadedAt < IMAGE_CACHE_TTL_MS);
           const shouldVary = preventionConfig.enabled && preventionConfig.imageVariation;

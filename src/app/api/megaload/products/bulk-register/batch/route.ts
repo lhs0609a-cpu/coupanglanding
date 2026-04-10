@@ -13,7 +13,6 @@ import { checkBrandProtection } from '@/lib/megaload/services/brand-checker';
 import { classifyError } from '@/lib/megaload/services/error-classifier';
 import type { DetailedError } from '@/components/megaload/bulk/types';
 import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
-import { generateVariationParams, type VariationParams } from '@/lib/megaload/services/server-image-variation';
 import { detectImageFormat, getImageDimensions } from '@/lib/megaload/services/image-processor';
 import { randomUUID } from 'crypto';
 
@@ -183,6 +182,8 @@ interface BatchProduct {
   contentBlocksOverride?: import('@/lib/megaload/services/persuasion-engine').ContentBlock[];
   // OCR 추출 상품정보 스펙 (Layer 3)
   ocrSpecs?: Record<string, string>;
+  // 이미지 타입 분류 (의미적 매칭용)
+  detailImageTypes?: string[];
 }
 
 interface BatchRegisterBody {
@@ -271,6 +272,21 @@ export async function POST(req: NextRequest) {
       wingUserId = (ptUser as Record<string, unknown>)?.coupang_seller_id as string || '';
     } catch { /* pt_users 없으면 빈 문자열 */ }
 
+    // ---- 셀러 브랜드 조회 (상품 차별화) ----
+    let sellerBrand = '';
+    if (preventionConfig?.sellerBrand) {
+      sellerBrand = preventionConfig.sellerBrand;
+    } else {
+      try {
+        const { data: megaloadRow } = await serviceClient
+          .from('megaload_users')
+          .select('seller_brand')
+          .eq('id', shUserId)
+          .single();
+        sellerBrand = (megaloadRow as Record<string, unknown>)?.seller_brand as string || '';
+      } catch { /* 조회 실패 시 빈 문자열 */ }
+    }
+
     // ---- 중복 등록 방지: 이미 등록된 productCode 조회 ----
     const productCodes = products.map((p) => p.productCode);
     const { data: existingProducts } = await serviceClient
@@ -290,12 +306,32 @@ export async function POST(req: NextRequest) {
     const batchAiStories = new Map<string, string>();
     if (generateAiContent) {
       try {
-        const storyInputs: StoryBatchInput[] = products.map((p) => ({
-          productName: p.aiDisplayName || p.name,
-          category: p.categoryCode,
-          features: p.tags || [],
-          description: p.description,
-        }));
+        const storyInputs: StoryBatchInput[] = products.map((p) => {
+          // features 강화: tags + ocrSpecs + noticeValues + attributeValues에서 추출
+          const enrichedFeatures = [...(p.tags || [])];
+          if (p.ocrSpecs) {
+            Object.entries(p.ocrSpecs).forEach(([k, v]) => {
+              if (v && v !== '-' && v !== '해당없음') enrichedFeatures.push(`${k}: ${v}`);
+            });
+          }
+          if (p.noticeValuesOverride) {
+            Object.entries(p.noticeValuesOverride).forEach(([k, v]) => {
+              if (v && v.length < 50 && v !== '-') enrichedFeatures.push(`${k}: ${v}`);
+            });
+          }
+          if (p.attributeValuesOverride) {
+            Object.entries(p.attributeValuesOverride).forEach(([k, v]) => {
+              if (v && v !== '-') enrichedFeatures.push(`${k}: ${v}`);
+            });
+          }
+          return {
+            productName: p.aiDisplayName || p.name,
+            category: p.categoryCode,
+            features: enrichedFeatures.slice(0, 15),
+            description: p.description,
+            categoryPath: p.categoryPath,
+          };
+        });
         const stories = await generateProductStoriesBatch(storyInputs);
         for (let i = 0; i < products.length; i++) {
           const key = products[i].uid || products[i].productCode;
@@ -391,15 +427,7 @@ export async function POST(req: NextRequest) {
         const reviewPaths = includeReviewImages ? product.reviewImages : [];
         const allPaths = [...product.mainImages, ...product.detailImages, ...reviewPaths, ...product.infoImages];
 
-        // 아이템위너 방지: prevention 활성 시 변형 파라미터 생성 (강도 반영)
-        let variationParamsList: (VariationParams | undefined)[] | undefined;
-        if (preventionEnabled && preventionConfig?.imageVariation) {
-          const imgSeed = `${shUserId}:${product.productCode}`;
-          const intensity = preventionConfig.variationIntensity || 'mid';
-          variationParamsList = allPaths.map((_, idx) => generateVariationParams(imgSeed, idx, intensity));
-        }
-
-        const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, 10, true, variationParamsList);
+        const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, 10, true);
 
         let offset = 0;
         mainImageUrls = allUrls.slice(offset, offset + product.mainImages.length).filter(Boolean);
@@ -509,10 +537,12 @@ export async function POST(req: NextRequest) {
         aiStoryParagraphs,
         aiReviewTexts,
         contentBlocks: product.contentBlocksOverride,
+        detailImageTypes: product.detailImageTypes,
         thirdPartyImageUrls: body.thirdPartyImageUrls,
         productIndexInBatch: batchIndex,
         totalProductsInBatch: products.length,
         vendorUserId: wingUserId || undefined,
+        sellerBrand,
       });
 
       // 10. 쿠팡 API 호출 (고시정보 에러 시 notices 제거 후 자동 재시도)

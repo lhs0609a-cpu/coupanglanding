@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { uploadLocalImagesParallel } from '@/lib/megaload/services/local-product-reader';
-import { generateVariationParams, type VariationParams } from '@/lib/megaload/services/server-image-variation';
 
 interface PreuploadProduct {
   uid: string;
@@ -16,8 +15,7 @@ interface PreuploadProduct {
 interface PreuploadBody {
   products: PreuploadProduct[];
   includeReviewImages?: boolean;
-  preventionSeed?: string;  // 아이템위너 방지 시드 (셀러 ID)
-  variationIntensity?: 'low' | 'mid' | 'high';
+  preventionSeed?: string;
 }
 
 /**
@@ -31,7 +29,7 @@ interface PreuploadBody {
  *
  * 최적화:
  * - 상품당 15개 이미지 동시 업로드
- * - 상품 간 2개 동시 처리 (총 30개 이미지 동시)
+ * - 상품 간 5개 동시 처리
  */
 export async function POST(req: NextRequest) {
   try {
@@ -53,10 +51,8 @@ export async function POST(req: NextRequest) {
     }
 
     const includeReviewImages = body.includeReviewImages ?? true;
-    // preventionSeed가 truthy이면 shUserId를 실제 시드로 사용
-    const preventionSeed = body.preventionSeed ? shUserId : undefined;
     const IMAGE_CONCURRENCY = 15;
-    const PRODUCT_CONCURRENCY = 5;  // P2-2: 2→5 동시 처리
+    const PRODUCT_CONCURRENCY = 5;
 
     const allResults: Record<string, {
       mainImageUrls: string[];
@@ -90,15 +86,7 @@ export async function POST(req: NextRequest) {
             };
           }
 
-          // 아이템위너 방지: preventionSeed가 있으면 각 이미지에 변형 파라미터 생성 (강도 반영)
-          let variationParamsList: (VariationParams | undefined)[] | undefined;
-          if (preventionSeed) {
-            const imgSeed = `${preventionSeed}:${product.productCode}`;
-            const intensity = body.variationIntensity || 'mid';
-            variationParamsList = allPaths.map((_, idx) => generateVariationParams(imgSeed, idx, intensity));
-          }
-
-          const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, IMAGE_CONCURRENCY, false, variationParamsList);
+          const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, IMAGE_CONCURRENCY, false);
 
           let offset = 0;
           const mainImageUrls = allUrls.slice(offset, offset + product.mainImages.length);
@@ -120,7 +108,6 @@ export async function POST(req: NextRequest) {
           const { uid, ...urls } = result.value;
           allResults[uid] = { ...urls, success: true };
         } else {
-          // rejected 상품도 에러 정보와 함께 기록
           allResults[product.uid] = {
             mainImageUrls: [],
             detailImageUrls: [],

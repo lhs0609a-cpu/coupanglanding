@@ -155,7 +155,8 @@ async function scanSingleProduct(
   const mainImages = await collectImagesFromSubdir(productDirHandle, 'main_images', MAIN_IMAGE_PATTERN, true);
   let reviewImages = await collectImagesFromSubdir(productDirHandle, 'review_images', IMAGE_PATTERN, false);
   if (reviewImages.length === 0) reviewImages = await collectImagesFromSubdir(productDirHandle, 'reviews', IMAGE_PATTERN, false);
-  const detailImages = [...reviewImages];
+  let detailImages = await collectImagesFromSubdir(productDirHandle, 'detail_images', IMAGE_PATTERN, false);
+  if (detailImages.length === 0) detailImages = [...reviewImages]; // fallback: detail_images/ 없으면 리뷰 이미지 사용
   const infoImages = await collectImagesFromSubdir(productDirHandle, 'product_info', IMAGE_PATTERN, true);
 
   return {
@@ -444,46 +445,12 @@ export async function uploadScannedImages(
 }
 
 /**
- * 이미지 변형 + Supabase 직접 업로드
+ * 이미지 업로드 (하위호환 래퍼 — 변형 파라미터 무시, uploadScannedImages로 위임)
  */
 export async function uploadScannedImagesWithVariation(
   images: ScannedImageFile[],
-  applyVariation: boolean,
+  _applyVariation: boolean,
   concurrency = DIRECT_CONCURRENCY,
 ): Promise<string[]> {
-  if (images.length === 0) return [];
-  if (!applyVariation) return uploadScannedImages(images, concurrency);
-
-  const { generateImageVariationParams, applyImageVariation } = await import('./image-variation');
-  const results: string[] = new Array(images.length).fill('');
-  let nextIndex = 0;
-
-  async function worker() {
-    while (nextIndex < images.length) {
-      const idx = nextIndex++;
-      try {
-        const img = images[idx];
-        const file = await img.handle.getFile();
-        let uploadBlob: Blob = file;
-        try {
-          const variation = generateImageVariationParams();
-          uploadBlob = await applyImageVariation(file, variation);
-        } catch {
-          // 변형 실패 시 원본 사용
-        }
-        const compressed = await compressImage(uploadBlob as File);
-        const ext = img.name.replace(/.*\./, '');
-        const variedName = img.name.replace(/\.[^.]+$/, `_v.${ext === 'png' ? 'jpg' : ext}`);
-        results[idx] = await uploadSingleImage(compressed, variedName);
-      } catch {
-        results[idx] = '';
-      }
-    }
-  }
-
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, images.length) }, () => worker()),
-  );
-
-  return results;
+  return uploadScannedImages(images, concurrency);
 }

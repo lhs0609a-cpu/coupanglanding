@@ -10,9 +10,6 @@ import BulkImageGrid from './BulkImageGrid';
 import StockImageSwapModal from './StockImageSwapModal';
 import { STOCK_CATEGORY_MAP } from '@/lib/megaload/data/stock-image-categories';
 import { shuffleWithSeed, type PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
-import { useVariationPreviews } from './useVariationPreviews';
-import { useBeforeAfterPreview } from './useBeforeAfterPreview';
-import type { VariationIntensity } from '@/lib/megaload/services/variation-preview';
 import type { PayloadPreviewData } from './PayloadPreviewPanel';
 import type { EditableProduct } from './types';
 import { RefreshCw } from 'lucide-react';
@@ -129,7 +126,6 @@ function ImageSectionWithPreview({
   productUid?: string;
 }) {
   const isShuffleEnabled = preventionConfig?.enabled && preventionConfig?.imageOrderShuffle;
-  const isVariationEnabled = preventionConfig?.enabled && preventionConfig?.imageVariation;
 
   // 스왑 모달 상태
   const [swapModalOpen, setSwapModalOpen] = useState(false);
@@ -157,23 +153,6 @@ function ImageSectionWithPreview({
     }
   }, [onSwapStockImage, productUid, swapTargetIndex]);
 
-  // 변형 미리보기 토글
-  const [showVariation, setShowVariation] = useState(true);
-
-  // 호버 툴팁 상태
-  const [tooltipInfo, setTooltipInfo] = useState<{
-    sellerIdx: number;
-    imgIdx: number;
-    params: string[];
-    x: number;
-    y: number;
-  } | null>(null);
-
-  // Before/After 미리보기 상태
-  const [beforeAfterOpen, setBeforeAfterOpen] = useState(false);
-  const intensity: VariationIntensity = preventionConfig?.variationIntensity || 'mid';
-  const [rerollSeed, setRerollSeed] = useState(() => `preview:${productCode}`);
-
   // 셀러 A/B/C 시드로 각각 다른 셔플 결과 미리보기
   const shuffledPreviews = useMemo(() => {
     if (imageItems.length <= 1) return [];
@@ -186,23 +165,6 @@ function ImageSectionWithPreview({
       return { sellerLabel, images: shuffled };
     });
   }, [isShuffleEnabled, imageItems, productCode]);
-
-  // 변형 미리보기 생성 (Canvas 썸네일)
-  const variationPreviews = useVariationPreviews(
-    imageItems,
-    productCode,
-    !!(isShuffleEnabled && isVariationEnabled && showVariation),
-    intensity,
-  );
-
-  // Before/After 미리보기
-  const beforeAfterPreviews = useBeforeAfterPreview(
-    imageItems,
-    productCode,
-    beforeAfterOpen && !!isVariationEnabled,
-    intensity,
-    rerollSeed,
-  );
 
   return (
     <CollapsibleSection
@@ -240,85 +202,6 @@ function ImageSectionWithPreview({
             />
           )}
 
-          {/* Before/After 변형 미리보기 */}
-          {isVariationEnabled && imageItems.length >= 2 && (
-            <div className="mt-3 border border-purple-200 rounded-lg overflow-hidden">
-              {/* 헤더 — 접기/펼치기 */}
-              <button
-                onClick={() => setBeforeAfterOpen(!beforeAfterOpen)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-50 transition"
-              >
-                <Eye className="w-3.5 h-3.5 text-purple-500" />
-                <span className="flex-1 text-left">변형 미리보기 (Before → After)</span>
-                {beforeAfterOpen
-                  ? <ChevronDown className="w-3.5 h-3.5 text-purple-400" />
-                  : <ChevronRight className="w-3.5 h-3.5 text-purple-400" />}
-              </button>
-
-              {beforeAfterOpen && (
-                <div className="px-3 pb-3 pt-2 border-t border-purple-100 space-y-3 bg-purple-50/30">
-                  {/* 강도 표시 + 리롤 컨트롤 */}
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10px] text-gray-500 font-medium">
-                      강도: <span className="text-purple-600 font-semibold">{intensity === 'low' ? '약' : intensity === 'high' ? '강' : '중'}</span>
-                      <span className="text-gray-400 ml-1">(Step 1에서 변경)</span>
-                    </span>
-                    <button
-                      onClick={() => setRerollSeed(`preview:${Date.now()}`)}
-                      className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition"
-                    >
-                      <RefreshCw className="w-3 h-3" />
-                      다시 생성
-                    </button>
-                  </div>
-
-                  {/* 이미지 쌍 목록 */}
-                  {beforeAfterPreviews.images.map((img, idx) => (
-                    <div key={img.id} className="bg-white rounded-lg border border-gray-200 p-2.5">
-                      <div className="text-[10px] text-gray-400 font-medium mb-1.5">#{idx + 1}</div>
-                      <div className="flex items-center gap-3">
-                        {/* 원본 */}
-                        <div className="shrink-0">
-                          <div className="w-[100px] h-[100px] sm:w-[120px] sm:h-[120px] rounded overflow-hidden border border-gray-200">
-                            <img src={img.originalUrl} alt="원본" className="w-full h-full object-cover" loading="lazy" />
-                          </div>
-                          <div className="text-[9px] text-gray-400 text-center mt-0.5">원본</div>
-                        </div>
-
-                        {/* 화살표 */}
-                        <div className="text-gray-300 text-lg shrink-0">→</div>
-
-                        {/* 변형 */}
-                        <div className="shrink-0">
-                          <div className="w-[100px] h-[100px] sm:w-[120px] sm:h-[120px] rounded overflow-hidden border border-purple-200">
-                            {img.variedDataUrl ? (
-                              <img src={img.variedDataUrl} alt="변형" className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full animate-pulse bg-gray-200" />
-                            )}
-                          </div>
-                          <div className="text-[9px] text-purple-500 text-center mt-0.5">변형</div>
-                        </div>
-                      </div>
-
-                      {/* 파라미터 텍스트 */}
-                      {img.paramsText.length > 0 && (
-                        <div className="mt-1.5 text-[10px] text-gray-500">
-                          {img.paramsText.join(' · ')}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-
-                  {/* 안내 텍스트 */}
-                  <div className="text-[9px] text-gray-400 bg-gray-50 px-2 py-1.5 rounded">
-                    시각적으로는 동일하지만 파일 해시가 달라 아이템위너 묶임을 방지합니다.
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* 업로드 순서 미리보기 — 이미지 2장 이상이면 항상 표시 */}
           {imageItems.length > 1 && (
             <div className={`mt-3 space-y-2.5 p-3 rounded-lg border ${
@@ -327,103 +210,17 @@ function ImageSectionWithPreview({
               <div className="flex items-center gap-1.5">
                 {isShuffleEnabled ? <Shuffle className="w-3.5 h-3.5 text-purple-500" /> : <Eye className="w-3.5 h-3.5 text-blue-500" />}
                 <span className={`text-[11px] font-bold ${isShuffleEnabled ? 'text-purple-700' : 'text-blue-700'}`}>
-                  {isShuffleEnabled ? '아이템위너 방지 — 셀러별 업로드 미리보기' : '업로드 순서 미리보기'}
+                  {isShuffleEnabled ? '상품 차별화 — 셀러별 업로드 미리보기' : '업로드 순서 미리보기'}
                 </span>
-                {/* 변형 토글 버튼 */}
-                {isShuffleEnabled && isVariationEnabled && (
-                  <button
-                    onClick={() => setShowVariation(!showVariation)}
-                    className={`ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition ${
-                      showVariation
-                        ? 'bg-purple-200 text-purple-800 hover:bg-purple-300'
-                        : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
-                    }`}
-                  >
-                    <Sparkles className="w-3 h-3" />
-                    {showVariation ? '변형 적용됨' : '원본 보기'}
-                  </button>
-                )}
               </div>
 
               {isShuffleEnabled ? (
                 <>
                   <div className="text-[10px] text-purple-600">
-                    {isVariationEnabled && showVariation
-                      ? '셀러마다 순서 + 크롭·밝기·채도·감마·노이즈·품질이 모두 달라집니다'
-                      : '셀러마다 대표이미지 + 순서가 모두 달라 아이템위너로 묶이지 않습니다'}
+                    셀러마다 대표이미지 순서가 달라 상품이 차별화됩니다.
                   </div>
 
-                  {/* 변형 미리보기 모드 */}
-                  {isVariationEnabled && showVariation && variationPreviews.length > 0 ? (
-                    <>
-                      {variationPreviews.map((seller, si) => (
-                        <div key={seller.sellerLabel}>
-                          <div className="text-[10px] text-gray-500 mb-1 font-medium">{seller.sellerLabel}</div>
-                          <div className="flex gap-1 overflow-x-auto pb-1">
-                            {seller.images.map((img, idx) => (
-                              <div
-                                key={img.id}
-                                className={`relative shrink-0 w-16 h-16 rounded overflow-hidden border ${
-                                  idx === 0 ? 'border-amber-400 ring-2 ring-amber-300' : 'border-gray-200'
-                                }`}
-                                onMouseEnter={(e) => {
-                                  const rect = e.currentTarget.getBoundingClientRect();
-                                  setTooltipInfo({
-                                    sellerIdx: si,
-                                    imgIdx: idx,
-                                    params: img.paramsText,
-                                    x: rect.left + rect.width / 2,
-                                    y: rect.top,
-                                  });
-                                }}
-                                onMouseLeave={() => setTooltipInfo(null)}
-                              >
-                                {seller.loading || !img.variedDataUrl ? (
-                                  <div className="w-full h-full bg-gray-100 animate-pulse" />
-                                ) : (
-                                  <img
-                                    src={img.variedDataUrl}
-                                    alt=""
-                                    className="w-full h-full object-cover"
-                                  />
-                                )}
-                                {/* 보라색 점 — 변형 인디케이터 */}
-                                {!seller.loading && img.variedDataUrl && (
-                                  <div className="absolute top-0.5 left-0.5 w-2 h-2 rounded-full bg-purple-500 border border-white" />
-                                )}
-                                {idx === 0 && (
-                                  <div className="absolute bottom-0 left-0 right-0 bg-amber-500 text-white text-[7px] text-center font-bold leading-tight py-px">
-                                    대표
-                                  </div>
-                                )}
-                                <div className="absolute top-0 right-0 bg-black/50 text-white text-[7px] px-0.5 rounded-bl">
-                                  {idx + 1}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-
-                      {/* 호버 툴팁 */}
-                      {tooltipInfo && tooltipInfo.params.length > 0 && (
-                        <div
-                          className="fixed z-50 bg-gray-900 text-white text-[10px] px-2.5 py-1.5 rounded-lg shadow-lg pointer-events-none"
-                          style={{
-                            left: tooltipInfo.x,
-                            top: tooltipInfo.y - 8,
-                            transform: 'translate(-50%, -100%)',
-                          }}
-                        >
-                          {tooltipInfo.params.map((line, i) => (
-                            <div key={i} className="whitespace-nowrap">{line}</div>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    /* 원본 순서 미리보기 (기존 로직) */
-                    shuffledPreviews.map(({ sellerLabel, images }) => (
+                  {shuffledPreviews.map(({ sellerLabel, images }) => (
                       <div key={sellerLabel}>
                         <div className="text-[10px] text-gray-500 mb-1 font-medium">{sellerLabel}</div>
                         <div className="flex gap-1 overflow-x-auto pb-1">

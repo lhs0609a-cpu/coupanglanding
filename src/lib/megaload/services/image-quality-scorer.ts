@@ -451,6 +451,155 @@ export async function crossReferenceOutlierImages(
 }
 
 // ================================================================
+// 리뷰 이미지 종합 분석 (품질 + 상품 관련성)
+// ================================================================
+
+/** 리뷰 이미지 거부 사유 */
+export type ReviewRejectionReason =
+  | 'empty_image'        // 빈 이미지
+  | 'text_banner'        // 텍스트 배너
+  | 'promotional_image'  // 홍보/이벤트 이미지
+  | 'unrelated'          // 상품과 무관 (색상 분포 outlier)
+  | 'low_quality';       // 품질 낮음 (흐림/번들/잘림 등)
+
+/** 개별 리뷰 이미지 분석 결과 */
+export interface ReviewImageAnalysis {
+  /** 원본 배열에서의 인덱스 */
+  index: number;
+  /** 품질 점수 0~100 (scoreReviewImage 기준) */
+  qualityScore: number;
+  /** 품질 하드필터 사유 (있을 경우) */
+  hardFilterReason?: string;
+  /** 대표이미지 기준 chi² 색상 거리 */
+  relevanceDistance: number;
+  /** 관련성 이상치 여부 (상품과 무관한 이미지) */
+  isRelevanceOutlier: boolean;
+  /** 추천 여부 (모든 필터 통과) */
+  isRecommended: boolean;
+  /** 거부 사유 (isRecommended=false일 때) */
+  rejectionReason?: ReviewRejectionReason;
+}
+
+/** analyzeReviewImages 결과 */
+export interface ReviewImageAnalysisResult {
+  /** 원본 인덱스 순서로 정렬된 분석 결과 */
+  analyses: ReviewImageAnalysis[];
+  /** 추천 이미지 인덱스 (품질 스코어 내림차순) */
+  recommendedIndices: number[];
+  /** 통계 */
+  stats: {
+    total: number;
+    recommended: number;
+    rejectedLowQuality: number;
+    rejectedUnrelated: number;
+    rejectedBanner: number;
+  };
+}
+
+/**
+ * 리뷰 이미지의 품질 + 상품 관련성을 종합 분석하여 추천 이미지를 반환한다.
+ *
+ * 분석 단계:
+ *  1. 품질 스코어링 — filterAndScoreReviewImages()
+ *     단일 상품성, 선명도, 정면 촬영, 프레임 점유율 기반
+ *  2. 관련성 검사 — crossReferenceOutlierImages()
+ *     대표이미지(referenceUrls)의 평균 색상 히스토그램과 chi² 거리 비교
+ *
+ * 거부 우선순위: hardFilterReason(banner/empty/promo) > unrelated > low_quality
+ *
+ * @param reviewUrls - 분석할 리뷰 이미지 Object URL 배열 (원본 순서 유지)
+ * @param referenceUrls - 기준 이미지(대표이미지) URL 배열. 비어있으면 관련성 검사 생략.
+ * @param options.minQualityScore - 품질 통과 최소 점수 (기본 25)
+ * @param options.relevanceThreshold - 관련성 chi² 임계값 (기본 0.8, 낮을수록 엄격)
+ * @param options.maxRecommended - 추천 인덱스 최대 개수 (기본 10)
+ */
+export async function analyzeReviewImages(
+  reviewUrls: string[],
+  referenceUrls: string[],
+  options?: {
+    minQualityScore?: number;
+    relevanceThreshold?: number;
+    maxRecommended?: number;
+  },
+): Promise<ReviewImageAnalysisResult> {
+  const total = reviewUrls.length;
+  if (total === 0) {
+    return {
+      analyses: [],
+      recommendedIndices: [],
+      stats: { total: 0, recommended: 0, rejectedLowQuality: 0, rejectedUnrelated: 0, rejectedBanner: 0 },
+    };
+  }
+
+  const minQualityScore = options?.minQualityScore ?? 25;
+  const relevanceThreshold = options?.relevanceThreshold ?? 0.8;
+  const maxRecommended = options?.maxRecommended ?? 10;
+
+  // 품질 + 관련성 병렬 실행
+  const [qualityResults, relevanceResults] = await Promise.all([
+    filterAndScoreReviewImages(reviewUrls, minQualityScore),
+    crossReferenceOutlierImages(referenceUrls, reviewUrls, relevanceThreshold),
+  ]);
+
+  // 원본 인덱스 기반으로 재정렬 (filterAndScoreReviewImages는 점수 내림차순)
+  const qualityByIdx = new Map<number, { score: ImageScore; filtered: boolean }>();
+  for (const r of qualityResults) qualityByIdx.set(r.index, { score: r.score, filtered: r.filtered });
+  const relevanceByIdx = new Map<number, { isOutlier: boolean; distance: number }>();
+  for (const r of relevanceResults) relevanceByIdx.set(r.index, { isOutlier: r.isOutlier, distance: r.distance });
+
+  const bannerReasons = new Set(['empty_image', 'text_banner', 'promotional_image']);
+
+  const analyses: ReviewImageAnalysis[] = [];
+  for (let i = 0; i < total; i++) {
+    const q = qualityByIdx.get(i);
+    const r = relevanceByIdx.get(i);
+
+    const qualityScore = q?.score.overall ?? 0;
+    const hardFilterReason = q?.score.hardFilterReason;
+    const qualityFiltered = q?.filtered ?? true;
+    const relevanceDistance = r?.distance ?? 0;
+    const isRelevanceOutlier = r?.isOutlier ?? false;
+
+    // 우선순위: 배너/빈/광고 > 관련성 > 품질
+    let rejectionReason: ReviewRejectionReason | undefined;
+    if (hardFilterReason && bannerReasons.has(hardFilterReason)) {
+      rejectionReason = hardFilterReason as ReviewRejectionReason;
+    } else if (isRelevanceOutlier) {
+      rejectionReason = 'unrelated';
+    } else if (qualityFiltered) {
+      rejectionReason = 'low_quality';
+    }
+
+    analyses.push({
+      index: i,
+      qualityScore,
+      hardFilterReason,
+      relevanceDistance,
+      isRelevanceOutlier,
+      isRecommended: !rejectionReason,
+      rejectionReason,
+    });
+  }
+
+  // 추천 인덱스: 품질 스코어 내림차순, 상위 N개
+  const recommendedIndices = analyses
+    .filter(a => a.isRecommended)
+    .sort((a, b) => b.qualityScore - a.qualityScore)
+    .slice(0, maxRecommended)
+    .map(a => a.index);
+
+  const stats = {
+    total,
+    recommended: recommendedIndices.length,
+    rejectedLowQuality: analyses.filter(a => a.rejectionReason === 'low_quality').length,
+    rejectedUnrelated: analyses.filter(a => a.rejectionReason === 'unrelated').length,
+    rejectedBanner: analyses.filter(a => a.rejectionReason && bannerReasons.has(a.rejectionReason)).length,
+  };
+
+  return { analyses, recommendedIndices, stats };
+}
+
+// ================================================================
 // 내부 함수
 // ================================================================
 
