@@ -190,7 +190,8 @@ export default function BulkRegisterPanel() {
           onSetNoticeOverrides={actions.setNoticeOverrides}
           preventionConfig={actions.preventionConfig}
           onSetPreventionEnabled={actions.setPreventionEnabled}
-          onSetPreventionIntensity={actions.setPreventionIntensity}
+          onSetSellerBrand={actions.setSellerBrand}
+          onSetAutoBarcodeGeneration={actions.setAutoBarcodeGeneration}
           onRecalcPrices={actions.recalcPrices}
           onScan={actions.handleScan}
           onBrowseFolder={actions.handleBrowseFolder}

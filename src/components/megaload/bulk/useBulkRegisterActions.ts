@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { pickAndScanFolder, uploadScannedImages, uploadScannedImagesWithVariation, uploadSingleImage, compressImage, rescanMainImages, type ScannedImageFile } from '@/lib/megaload/services/client-folder-scanner';
+import { pickAndScanFolder, uploadScannedImages, uploadSingleImage, compressImage, rescanMainImages, type ScannedImageFile } from '@/lib/megaload/services/client-folder-scanner';
 import { validateProductLocal } from '@/lib/megaload/services/product-validator';
 import type {
   EditableProduct, PriceBracket, ShippingPlace, ReturnCenter,
@@ -164,8 +164,12 @@ export function useBulkRegisterActions() {
     }
   }, []);
 
-  const setPreventionIntensity = useCallback((intensity: 'low' | 'mid' | 'high') => {
-    setPreventionConfig(prev => ({ ...prev, variationIntensity: intensity }));
+  const setSellerBrand = useCallback((brand: string) => {
+    setPreventionConfig(prev => ({ ...prev, sellerBrand: brand }));
+  }, []);
+
+  const setAutoBarcodeGeneration = useCallback((v: boolean) => {
+    setPreventionConfig(prev => ({ ...prev, autoBarcodeGeneration: v }));
   }, []);
 
   // ---- Folder path management ----
@@ -545,7 +549,10 @@ export function useBulkRegisterActions() {
     // displayProductName은 SEO 최적화, sellerProductName은 "브랜드 고유번호" 유지
     {
       const { generateDisplayName } = await import('@/lib/megaload/services/display-name-generator');
-      const displaySeed = `display_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      // 셀러 브랜드 기반 결정적 시드 — 같은 셀러+같은 상품 = 같은 상품명, 다른 셀러 = 다른 상품명
+      const displaySeed = preventionConfig.enabled && preventionConfig.sellerBrand
+        ? `seller_${preventionConfig.sellerBrand}`
+        : `display_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
       setProducts(prev => {
         const updated = [...prev];
@@ -583,6 +590,9 @@ export function useBulkRegisterActions() {
         categoryPath: p.editedCategoryName,
         brand: p.editedBrand,
         keywords: p.tags,
+        // 셀러 브랜드를 personaSeed로 전달 → 셀러별 다른 톤의 AI 상품명 생성
+        personaSeed: preventionConfig.enabled && preventionConfig.sellerBrand
+          ? preventionConfig.sellerBrand : undefined,
       }));
 
       try {
@@ -939,6 +949,10 @@ export function useBulkRegisterActions() {
                       imageTypes: result.imageTypes,
                       clusterCount: result.clusterCount,
                       watermarkScores: result.watermarkScores,
+                      relevanceScores: result.relevanceScores?.map(r => ({
+                        index: validDetailMap[r.index]?.origIdx ?? r.index,
+                        score: r.score,
+                      })),
                     });
                   } catch (e) {
                     console.warn(`[detail-diversity] ${p.productCode}: 다양성 선택 실패`, e);
@@ -972,6 +986,10 @@ export function useBulkRegisterActions() {
                       imageTypes: result.imageTypes,
                       clusterCount: result.clusterCount,
                       watermarkScores: result.watermarkScores,
+                      relevanceScores: result.relevanceScores?.map(r => ({
+                        index: validReviewMap[r.index]?.origIdx ?? r.index,
+                        score: r.score,
+                      })),
                     });
                   } catch (e) {
                     console.warn(`[review-diversity] ${p.productCode}: 다양성 선택 실패`, e);
@@ -1251,8 +1269,6 @@ export function useBulkRegisterActions() {
     setImagePreuploadProgress({ total, done: 0, phase: 'uploading' });
 
     // 백그라운드 업로드 (비차단 — await 안 함, 프리플라이트는 먼저 진행)
-    const shouldVary = preventionConfig.enabled && preventionConfig.imageVariation;
-
     (async () => {
       // 브라우저 모드: main 이미지를 flat 풀로 병렬 업로드
       const allTasks: { uid: string; imgIndex: number; img: ScannedImageFile }[] = [];
@@ -1276,7 +1292,8 @@ export function useBulkRegisterActions() {
           const task = allTasks[idx];
           try {
             const file = await task.img.handle.getFile();
-            const compressed = await compressImage(file);
+            const brand = preventionConfig.enabled ? preventionConfig.sellerBrand : undefined;
+            const compressed = await compressImage(file, brand);
             const url = await uploadSingleImage(compressed, task.img.name);
             productUrlMap[task.uid][task.imgIndex] = url;
           } catch { /* 실패 시 빈 문자열 */ }
@@ -1545,7 +1562,7 @@ export function useBulkRegisterActions() {
           thirdPartyImageUrls: savedThirdPartyUrls.length > 0
             ? savedThirdPartyUrls
             : thirdPartyImages.length > 0
-              ? (await uploadScannedImages(thirdPartyImages, thirdPartyImages.length)).filter(Boolean)
+              ? (await uploadScannedImages(thirdPartyImages, thirdPartyImages.length, preventionConfig.enabled ? preventionConfig.sellerBrand : undefined)).filter(Boolean)
               : undefined,
         }),
       });
@@ -1801,7 +1818,7 @@ export function useBulkRegisterActions() {
         console.info(`[register] 제3자 이미지 ${thirdPartyImageCdnUrls.length}장 (저장된 URL 사용)`);
       } else if (thirdPartyImages.length > 0) {
         try {
-          thirdPartyImageCdnUrls = await uploadScannedImages(thirdPartyImages, thirdPartyImages.length);
+          thirdPartyImageCdnUrls = await uploadScannedImages(thirdPartyImages, thirdPartyImages.length, preventionConfig.enabled ? preventionConfig.sellerBrand : undefined);
           thirdPartyImageCdnUrls = thirdPartyImageCdnUrls.filter(Boolean);
           console.info(`[register] 제3자 이미지 ${thirdPartyImageCdnUrls.length}장 업로드 완료`);
         } catch (e) {
@@ -1859,8 +1876,6 @@ export function useBulkRegisterActions() {
           if (p.detailImageSelectionMeta?.imageTypes?.length) product.detailImageTypes = p.detailImageSelectionMeta.imageTypes;
           const cached = imagePreuploadCacheRef.current[p.uid];
           const cacheValid = cached && cached.uploadedAt && (Date.now() - cached.uploadedAt < IMAGE_CACHE_TTL_MS);
-          const shouldVary = preventionConfig.enabled && preventionConfig.imageVariation;
-
           // 이미지 업로드: 캐시 → 브라우저 업로드 → 서버 업로드 순서
           const hasCache = cacheValid && cached.mainImageUrls?.length;
           const hasScanned = (p.scannedMainImages?.length ?? 0) > 0;
@@ -1870,18 +1885,19 @@ export function useBulkRegisterActions() {
           const filteredDetail = filterImagesByOrder(p.scannedDetailImages || [], p.editedDetailImageOrder);
           const filteredReview = filterImagesByOrder(p.scannedReviewImages || [], p.editedReviewImageOrder);
 
+          const wmBrand = preventionConfig.enabled ? preventionConfig.sellerBrand : undefined;
           if (hasCache) {
             const mainUrls = cached.mainImageUrls;
-            const detailUrls = cached.detailImageUrls?.length ? cached.detailImageUrls : await uploadScannedImages(filteredDetail, 10);
-            const reviewUrls = cached.reviewImageUrls?.length ? cached.reviewImageUrls : (includeReviewImages ? await uploadScannedImages(filteredReview, 10) : []);
-            const infoUrls = cached.infoImageUrls?.length ? cached.infoImageUrls : await uploadScannedImages(p.scannedInfoImages || [], 10);
+            const detailUrls = cached.detailImageUrls?.length ? cached.detailImageUrls : await uploadScannedImages(filteredDetail, 10, wmBrand);
+            const reviewUrls = cached.reviewImageUrls?.length ? cached.reviewImageUrls : (includeReviewImages ? await uploadScannedImages(filteredReview, 10, wmBrand) : []);
+            const infoUrls = cached.infoImageUrls?.length ? cached.infoImageUrls : await uploadScannedImages(p.scannedInfoImages || [], 10, wmBrand);
             product.preUploadedUrls = { mainImageUrls: mainUrls, detailImageUrls: detailUrls, reviewImageUrls: reviewUrls, infoImageUrls: infoUrls };
           } else if (hasScanned) {
             // 브라우저 모드: scannedMainImages를 직접 업로드
-            const mainUrls = await uploadScannedImagesWithVariation(p.scannedMainImages!, shouldVary, 10);
-            const detailUrls = await uploadScannedImages(filteredDetail, 10);
-            const reviewUrls = includeReviewImages ? await uploadScannedImages(filteredReview, 10) : [];
-            const infoUrls = await uploadScannedImages(p.scannedInfoImages || [], 10);
+            const mainUrls = await uploadScannedImages(p.scannedMainImages!, 10, wmBrand);
+            const detailUrls = await uploadScannedImages(filteredDetail, 10, wmBrand);
+            const reviewUrls = includeReviewImages ? await uploadScannedImages(filteredReview, 10, wmBrand) : [];
+            const infoUrls = await uploadScannedImages(p.scannedInfoImages || [], 10, wmBrand);
             product.preUploadedUrls = { mainImageUrls: mainUrls, detailImageUrls: detailUrls, reviewImageUrls: reviewUrls, infoImageUrls: infoUrls };
           } else if (!hasLocalPaths) {
             // 이미지가 전혀 없는 경우 — 서버에서도 업로드 불가
@@ -2059,7 +2075,7 @@ export function useBulkRegisterActions() {
         });
       }
       try {
-        const urls = await uploadScannedImages(scannedFiles, scannedFiles.length);
+        const urls = await uploadScannedImages(scannedFiles, scannedFiles.length, preventionConfig.enabled ? preventionConfig.sellerBrand : undefined);
         const validUrls = urls.filter(Boolean);
         if (validUrls.length > 0) {
           const merged = [...savedThirdPartyUrls, ...validUrls];
@@ -2102,7 +2118,7 @@ export function useBulkRegisterActions() {
     includeReviewImages, setIncludeReviewImages,
     useStockImages, setUseStockImages,
     noticeOverrides, setNoticeOverrides,
-    preventionConfig, setPreventionEnabled, setPreventionIntensity,
+    preventionConfig, setPreventionEnabled, setSellerBrand, setAutoBarcodeGeneration,
     loadingShipping, shippingError,
     scanning, scanError, browsingFolder, thirdPartyImages, savedThirdPartyUrls,
     products, setProducts,

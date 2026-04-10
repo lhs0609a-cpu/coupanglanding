@@ -98,6 +98,21 @@ export interface ImageFeatures {
   originalIndex: number;
 }
 
+/** 상품 dominant color */
+interface DominantColor {
+  r: number; g: number; b: number;
+  weight: number;  // 0~1, 해당 색상의 비중
+}
+
+/** 상품 관련성 점수 */
+export interface ProductRelevanceScore {
+  index: number;       // 원본 이미지 인덱스
+  score: number;       // 0~1 종합 관련성 (1 = 완벽 매칭)
+  colorOverlap: number;  // 0~1 dominant color 겹침률
+  histSimilarity: number; // 0~1 chi² 히스토그램 유사도
+  edgeSimilarity: number; // 0~1 에지 방향 코사인 유사도
+}
+
 /** selectDiverseImages 결과 */
 export interface DiverseSelectionResult {
   /** 선택된 이미지 인덱스 (다양성 순서로 정렬) */
@@ -110,6 +125,8 @@ export interface DiverseSelectionResult {
   clusterCount: number;
   /** 각 이미지의 워터마크 점수 */
   watermarkScores: { index: number; score: number }[];
+  /** 상품 관련성 점수 (메인 이미지 대비) */
+  relevanceScores?: ProductRelevanceScore[];
 }
 
 // 성능 최적화: 200→100→50 (16x 적은 픽셀, 패턴 감지에 충분)
@@ -2137,11 +2154,266 @@ function kMedoids(
   return { medoids, clusters: finalClusters };
 }
 
+// ================================================================
+// 상품 관련성 스코어링 엔진
+// ================================================================
+
+/**
+ * 50×50 Canvas 픽셀 데이터에서 dominant colors를 추출한다.
+ * 전경 픽셀만 사용 (밝기 < 230 AND 채도 > 8%).
+ * 간단한 k-means (k=5, max 15 iterations).
+ */
+function extractDominantColors(
+  data: Uint8ClampedArray,
+  w: number,
+  h: number,
+  k = 5,
+): DominantColor[] {
+  const totalPixels = w * h;
+
+  // 전경 픽셀 추출
+  const fgPixels: { r: number; g: number; b: number }[] = [];
+  for (let i = 0; i < totalPixels; i++) {
+    const off = i * 4;
+    const r = data[off], g = data[off + 1], b = data[off + 2];
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    const maxC = Math.max(r, g, b), minC = Math.min(r, g, b);
+    const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
+    if (lum < 230 && sat > 0.08) {
+      fgPixels.push({ r, g, b });
+    }
+  }
+
+  if (fgPixels.length < 10) return [];
+
+  // k-means 초기화: 균등 간격 샘플링
+  const step = Math.max(1, Math.floor(fgPixels.length / k));
+  const centroids: { r: number; g: number; b: number }[] = [];
+  for (let i = 0; i < k; i++) {
+    const idx = Math.min(i * step, fgPixels.length - 1);
+    centroids.push({ ...fgPixels[idx] });
+  }
+
+  const assignments = new Int32Array(fgPixels.length);
+
+  for (let iter = 0; iter < 15; iter++) {
+    // Assign
+    let changed = false;
+    for (let i = 0; i < fgPixels.length; i++) {
+      const px = fgPixels[i];
+      let bestDist = Infinity, bestC = 0;
+      for (let c = 0; c < centroids.length; c++) {
+        const d = (px.r - centroids[c].r) ** 2 + (px.g - centroids[c].g) ** 2 + (px.b - centroids[c].b) ** 2;
+        if (d < bestDist) { bestDist = d; bestC = c; }
+      }
+      if (assignments[i] !== bestC) { assignments[i] = bestC; changed = true; }
+    }
+    if (!changed) break;
+
+    // Update
+    const sumR = new Float64Array(k), sumG = new Float64Array(k), sumB = new Float64Array(k);
+    const counts = new Int32Array(k);
+    for (let i = 0; i < fgPixels.length; i++) {
+      const c = assignments[i];
+      sumR[c] += fgPixels[i].r;
+      sumG[c] += fgPixels[i].g;
+      sumB[c] += fgPixels[i].b;
+      counts[c]++;
+    }
+    for (let c = 0; c < k; c++) {
+      if (counts[c] > 0) {
+        centroids[c] = { r: sumR[c] / counts[c], g: sumG[c] / counts[c], b: sumB[c] / counts[c] };
+      }
+    }
+  }
+
+  // 결과: weight 기준 내림차순
+  const result: DominantColor[] = [];
+  const totalFg = fgPixels.length;
+  const counts = new Int32Array(k);
+  for (let i = 0; i < fgPixels.length; i++) counts[assignments[i]]++;
+  for (let c = 0; c < k; c++) {
+    if (counts[c] > 0) {
+      result.push({
+        r: Math.round(centroids[c].r),
+        g: Math.round(centroids[c].g),
+        b: Math.round(centroids[c].b),
+        weight: counts[c] / totalFg,
+      });
+    }
+  }
+  result.sort((a, b) => b.weight - a.weight);
+  return result;
+}
+
+/**
+ * 후보 이미지의 전경 픽셀이 기준 dominant colors와 얼마나 겹치는지 계산.
+ * RGB 유클리드 거리 < 45 → "매칭" 픽셀.
+ * @returns matchingPixels / totalForegroundPixels (0~1)
+ */
+function matchDominantColors(
+  candidateData: Uint8ClampedArray,
+  w: number,
+  h: number,
+  dominantColors: DominantColor[],
+): number {
+  if (dominantColors.length === 0) return 0;
+
+  const MATCH_DIST_SQ = 45 * 45; // 45 in 255 scale, squared for perf
+  const totalPixels = w * h;
+  let fgCount = 0;
+  let matchCount = 0;
+
+  for (let i = 0; i < totalPixels; i++) {
+    const off = i * 4;
+    const r = candidateData[off], g = candidateData[off + 1], b = candidateData[off + 2];
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    const maxC = Math.max(r, g, b), minC = Math.min(r, g, b);
+    const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
+
+    if (lum < 230 && sat > 0.08) {
+      fgCount++;
+      // 가장 가까운 dominant color까지 거리 확인
+      for (const dc of dominantColors) {
+        const distSq = (r - dc.r) ** 2 + (g - dc.g) ** 2 + (b - dc.b) ** 2;
+        if (distSq < MATCH_DIST_SQ) { matchCount++; break; }
+      }
+    }
+  }
+
+  return fgCount > 0 ? matchCount / fgCount : 0;
+}
+
+/**
+ * 기준 이미지(메인/누끼)의 dominant color를 기반으로
+ * 후보 이미지의 상품 관련성을 0~1 연속 점수로 평가한다.
+ *
+ * score = colorOverlap * 0.50 + histSimilarity * 0.30 + edgeSimilarity * 0.20
+ *
+ * @param referenceUrls - 기준 이미지(메인) URL 배열
+ * @param candidateUrls - 후보 이미지 URL 배열
+ * @returns 각 후보의 관련성 점수 배열
+ */
+export async function scoreProductRelevance(
+  referenceUrls: string[],
+  candidateUrls: string[],
+): Promise<ProductRelevanceScore[]> {
+  if (candidateUrls.length === 0) return [];
+  if (referenceUrls.length === 0) {
+    return candidateUrls.map((_, i) => ({
+      index: i, score: 1, colorOverlap: 1, histSimilarity: 1, edgeSimilarity: 1,
+    }));
+  }
+
+  // 1. 기준 이미지 분석: dominant colors + 평균 히스토그램 + 평균 에지 방향
+  const refAnalyses = await runPool(referenceUrls, IMAGE_CONCURRENCY, async (i) => {
+    try {
+      const img = await loadImage(referenceUrls[i]);
+      const canvas = document.createElement('canvas');
+      canvas.width = ANALYSIS_SIZE;
+      canvas.height = ANALYSIS_SIZE;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
+      const imageData = ctx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
+      const { data } = imageData;
+      const gray = new Float32Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
+      for (let p = 0; p < gray.length; p++) {
+        const off = p * 4;
+        gray[p] = 0.299 * data[off] + 0.587 * data[off + 1] + 0.114 * data[off + 2];
+      }
+      const features = extractImageFeatures(data, gray, ANALYSIS_SIZE, ANALYSIS_SIZE, i);
+      const dominantColors = extractDominantColors(data, ANALYSIS_SIZE, ANALYSIS_SIZE);
+      return { features, dominantColors };
+    } catch {
+      return null;
+    }
+  });
+
+  const validRefs = refAnalyses.filter((r): r is NonNullable<typeof r> => r !== null);
+  if (validRefs.length === 0) {
+    return candidateUrls.map((_, i) => ({
+      index: i, score: 1, colorOverlap: 1, histSimilarity: 1, edgeSimilarity: 1,
+    }));
+  }
+
+  // 모든 기준 이미지의 dominant colors 통합
+  const allDominantColors: DominantColor[] = [];
+  for (const ref of validRefs) {
+    allDominantColors.push(...ref.dominantColors);
+  }
+
+  // 평균 히스토그램 계산
+  const bins = 64;
+  const avgHist = new Float32Array(bins);
+  for (const ref of validRefs) {
+    for (let b = 0; b < bins; b++) avgHist[b] += ref.features.colorHist[b];
+  }
+  for (let b = 0; b < bins; b++) avgHist[b] /= validRefs.length;
+
+  // 평균 에지 방향 히스토그램 계산
+  const avgEdge = new Float32Array(8);
+  for (const ref of validRefs) {
+    for (let b = 0; b < 8; b++) avgEdge[b] += ref.features.edgeOrientHist[b];
+  }
+  for (let b = 0; b < 8; b++) avgEdge[b] /= validRefs.length;
+
+  // 2. 각 후보 이미지 분석
+  return runPool(candidateUrls, IMAGE_CONCURRENCY, async (i) => {
+    try {
+      const img = await loadImage(candidateUrls[i]);
+      const canvas = document.createElement('canvas');
+      canvas.width = ANALYSIS_SIZE;
+      canvas.height = ANALYSIS_SIZE;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return { index: i, score: 0, colorOverlap: 0, histSimilarity: 0, edgeSimilarity: 0 };
+
+      ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
+      const imageData = ctx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
+      const { data } = imageData;
+      const gray = new Float32Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
+      for (let p = 0; p < gray.length; p++) {
+        const off = p * 4;
+        gray[p] = 0.299 * data[off] + 0.587 * data[off + 1] + 0.114 * data[off + 2];
+      }
+
+      // colorOverlap (50% 가중)
+      const colorOverlap = matchDominantColors(data, ANALYSIS_SIZE, ANALYSIS_SIZE, allDominantColors);
+
+      // chi² 히스토그램 유사도 (30% 가중): 1 - min(chi2 / 1.5, 1)
+      const candidateFeatures = extractImageFeatures(data, gray, ANALYSIS_SIZE, ANALYSIS_SIZE, i);
+      let chi2 = 0;
+      for (let b = 0; b < bins; b++) {
+        const expected = avgHist[b];
+        if (expected > 0.001) {
+          chi2 += (candidateFeatures.colorHist[b] - expected) ** 2 / expected;
+        }
+      }
+      const histSimilarity = 1 - Math.min(chi2 / 1.5, 1);
+
+      // 에지 방향 코사인 유사도 (20% 가중)
+      let dotProduct = 0, normA = 0, normB = 0;
+      for (let b = 0; b < 8; b++) {
+        dotProduct += candidateFeatures.edgeOrientHist[b] * avgEdge[b];
+        normA += candidateFeatures.edgeOrientHist[b] ** 2;
+        normB += avgEdge[b] ** 2;
+      }
+      const edgeSimilarity = (normA > 0 && normB > 0) ? dotProduct / (Math.sqrt(normA) * Math.sqrt(normB)) : 0;
+
+      const score = colorOverlap * 0.50 + histSimilarity * 0.30 + edgeSimilarity * 0.20;
+      return { index: i, score, colorOverlap, histSimilarity, edgeSimilarity };
+    } catch {
+      return { index: i, score: 0, colorOverlap: 0, histSimilarity: 0, edgeSimilarity: 0 };
+    }
+  });
+}
+
 /**
  * 다양성 기반 이미지 선택 — 상세/리뷰 이미지용.
  *
  * 1. 모든 이미지 특징 벡터 추출 (동시성 3)
  * 2. 기존 filterDetailPageImages + crossReferenceOutlierImages 적용
+ * 2.5. 상품 관련성 점수 계산 (dominant color + chi² + 에지 방향)
  * 3. 거리 행렬 계산 (색상 chi² 40% + 공간 유클리드 25% + 에지 코사인 20% + 유형 불일치 15%)
  * 4. K-Medoids 클러스터링 → 각 클러스터 대표 1개 선택
  * 5. 유형별 쿼터 보충 (누끼 1~2, 라이프스타일 1~2, 디테일 1, 성분표 0~1)
@@ -2220,6 +2492,40 @@ export async function selectDiverseImages(
     return { selectedIndices: [], diversityScore: 0, imageTypes: [], clusterCount: 0, watermarkScores: [] };
   }
 
+  // Step 2.5: 상품 관련성 점수 계산
+  let relevanceResults: ProductRelevanceScore[] | undefined;
+  if (options.referenceUrls && options.referenceUrls.length > 0) {
+    relevanceResults = await scoreProductRelevance(
+      options.referenceUrls,
+      passedEntries.map(e => e.url),
+    );
+    // 관련성 < 0.3 → 자동 제외 (하드필터)
+    const beforeCount = passedEntries.length;
+    const filtered = passedEntries.filter((_, i) => relevanceResults![i].score >= 0.3);
+    // 전부 제거되면 관련성 필터 무시 (폴백)
+    if (filtered.length > 0) {
+      // relevanceResults도 필터된 인덱스에 맞게 재매핑
+      const filteredRelevance: ProductRelevanceScore[] = [];
+      for (let i = 0; i < passedEntries.length; i++) {
+        if (relevanceResults[i].score >= 0.3) {
+          filteredRelevance.push({ ...relevanceResults[i], index: passedEntries[i].origIdx });
+        }
+      }
+      passedEntries = filtered;
+      relevanceResults = filteredRelevance;
+    } else {
+      // 원본 인덱스로 매핑만
+      relevanceResults = relevanceResults.map((r, i) => ({ ...r, index: passedEntries[i].origIdx }));
+    }
+    if (beforeCount !== passedEntries.length) {
+      console.info(`[relevance-filter] ${beforeCount - passedEntries.length}장 관련성 < 0.3 제외`);
+    }
+  }
+
+  if (passedEntries.length === 0) {
+    return { selectedIndices: [], diversityScore: 0, imageTypes: [], clusterCount: 0, watermarkScores: [] };
+  }
+
   // Step 3: 특징 벡터 추출
   const features = await extractFeaturesForUrls(
     passedEntries.map(e => e.url),
@@ -2243,6 +2549,7 @@ export async function selectDiverseImages(
       imageTypes: types,
       clusterCount: uniqueTypes.size || 1,
       watermarkScores,
+      relevanceScores: relevanceResults,
     };
   }
 
@@ -2336,6 +2643,7 @@ export async function selectDiverseImages(
     imageTypes: finalTypes,
     clusterCount: clusters.filter(c => c.length > 0).length,
     watermarkScores,
+    relevanceScores: relevanceResults,
   };
 }
 

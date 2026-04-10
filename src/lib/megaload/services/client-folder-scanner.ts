@@ -275,8 +275,10 @@ const UPLOAD_JPEG_QUALITY = 0.75;  // 파일 크기 제한 (Supabase 5MB, Vercel
 /**
  * 이미지를 canvas로 리사이즈 (최소 500x500, 최대 1200px)
  * 모든 이미지를 canvas를 통해 처리하여 쿠팡 최소 크기를 보장
+ *
+ * sellerBrand가 제공되면 반투명 워터마크를 삽입하여 CNN 임베딩 차별화
  */
-export async function compressImage(file: File | Blob): Promise<Blob> {
+export async function compressImage(file: File | Blob, sellerBrand?: string): Promise<Blob> {
   return new Promise((resolve) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
@@ -323,6 +325,20 @@ export async function compressImage(file: File | Blob): Promise<Blob> {
       canvas.height = targetH;
       const ctx = canvas.getContext('2d')!;
       ctx.drawImage(img, 0, 0, targetW, targetH);
+
+      // 셀러 워터마크 삽입 — CNN 임베딩 차별화 (반투명, 우하단)
+      if (sellerBrand) {
+        const fontSize = Math.max(14, Math.round(targetW * 0.028));
+        ctx.save();
+        ctx.globalAlpha = 0.12;
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(sellerBrand, targetW - 8, targetH - 8);
+        ctx.restore();
+      }
+
       canvas.toBlob(
         (blob) => resolve(blob || file),
         'image/jpeg',
@@ -419,6 +435,7 @@ export async function uploadSingleImage(blob: Blob, name: string): Promise<strin
 export async function uploadScannedImages(
   images: ScannedImageFile[],
   concurrency = DIRECT_CONCURRENCY,
+  sellerBrand?: string,
 ): Promise<string[]> {
   if (images.length === 0) return [];
 
@@ -430,7 +447,7 @@ export async function uploadScannedImages(
       const idx = nextIndex++;
       try {
         const file = await images[idx].handle.getFile();
-        const compressed = await compressImage(file);
+        const compressed = await compressImage(file, sellerBrand);
         results[idx] = await uploadSingleImage(compressed, images[idx].name);
       } catch {
         results[idx] = '';
@@ -451,6 +468,7 @@ export async function uploadScannedImagesWithVariation(
   images: ScannedImageFile[],
   _applyVariation: boolean,
   concurrency = DIRECT_CONCURRENCY,
+  sellerBrand?: string,
 ): Promise<string[]> {
-  return uploadScannedImages(images, concurrency);
+  return uploadScannedImages(images, concurrency, sellerBrand);
 }

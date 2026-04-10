@@ -106,6 +106,8 @@ export interface ImageSelectionMeta {
   clusterCount: number;
   /** 워터마크 감지된 이미지 인덱스와 점수 */
   watermarkScores?: { index: number; score: number }[];
+  /** 상품 관련성 점수 (원본 인덱스 매핑) */
+  relevanceScores?: { index: number; score: number }[];
 }
 
 export interface ShippingPlace {

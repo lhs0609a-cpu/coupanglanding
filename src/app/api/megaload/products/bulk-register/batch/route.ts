@@ -427,7 +427,7 @@ export async function POST(req: NextRequest) {
         const reviewPaths = includeReviewImages ? product.reviewImages : [];
         const allPaths = [...product.mainImages, ...product.detailImages, ...reviewPaths, ...product.infoImages];
 
-        const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, 10, true);
+        const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, 10, true, sellerBrand || undefined);
 
         let offset = 0;
         mainImageUrls = allUrls.slice(offset, offset + product.mainImages.length).filter(Boolean);

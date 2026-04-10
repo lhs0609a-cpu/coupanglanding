@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo, useRef } from 'react';
 import {
   ChevronDown, ChevronRight, FileText, Hash, Tag, Truck,
   Settings2, Loader2, AlertTriangle, Package, Image as ImageIcon,
-  DollarSign, Layers, CheckCircle2, Settings, Shuffle, Eye, Sparkles,
+  DollarSign, Layers, CheckCircle2, Settings, Shuffle, Eye,
 } from 'lucide-react';
 import BulkImageGrid from './BulkImageGrid';
 import StockImageSwapModal from './StockImageSwapModal';
@@ -12,7 +12,7 @@ import { STOCK_CATEGORY_MAP } from '@/lib/megaload/data/stock-image-categories';
 import { shuffleWithSeed, type PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import type { PayloadPreviewData } from './PayloadPreviewPanel';
 import type { EditableProduct } from './types';
-import { RefreshCw } from 'lucide-react';
+
 
 interface ImageItem {
   id: string;
@@ -277,7 +277,7 @@ function ImageSectionWithPreview({
                     ))}
                   </div>
                   <div className="text-[9px] text-amber-600 bg-amber-50 px-2 py-1 rounded">
-                    아이템위너 방지를 활성화하면 셀러마다 다른 대표이미지로 등록되어 묶임을 방지합니다.
+                    상품 차별화를 활성화하면 셀러마다 다른 순서로 등록되어 고유 상품으로 차별화됩니다.
                   </div>
                 </>
               )}

@@ -281,7 +281,10 @@ export async function generateProductTitles(
     return { displayName: input.originalName, sellerName: input.originalName, keywords: input.keywords };
   }
 
-  const seed = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  // 셀러 페르소나 시드가 있으면 결정적 시드 사용 (같은 셀러 = 같은 상품명)
+  const seed = input.personaSeed
+    ? `seller_${input.personaSeed}_${input.originalName.slice(0, 20)}`
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   const personaSection = buildPersonaSection(input.personaSeed);
   const prompt = `당신은 쿠팡 상품 등록 SEO 전문가입니다.${personaSection}
@@ -373,14 +376,15 @@ export async function generateProductTitlesBatch(
   const allResults: ProductTitleResult[] = [];
 
   for (const chunk of chunks) {
-    const seed = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // 셀러 페르소나 시드가 있으면 결정적 시드 사용 (같은 셀러 = 같은 톤)
+    const batchPersonaSeed = chunk[0]?.personaSeed;
+    const seed = batchPersonaSeed
+      ? `seller_${batchPersonaSeed}_${chunks.indexOf(chunk)}`
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     const productList = chunk
       .map((p, idx) => `${idx + 1}. 원본: "${p.originalName}" | 카테고리: ${p.categoryPath} | 브랜드: ${p.brand || '없음'} | 키워드: ${p.keywords.join(', ') || '없음'}`)
       .join('\n');
-
-    // 배치 내 첫 번째 상품의 페르소나 시드를 대표로 사용
-    const batchPersonaSeed = chunk[0]?.personaSeed;
     const batchPersonaSection = buildPersonaSection(batchPersonaSeed);
     const prompt = `당신은 쿠팡 상품 등록 SEO 전문가입니다. ${chunk.length}개 상품 각각에 대해 고유한 상품명을 생성하세요.${batchPersonaSection}
 

@@ -10,7 +10,9 @@ import { buildRichDetailPageHtml } from '@/lib/megaload/services/detail-page-bui
 import { ensureObjectUrl } from '@/lib/megaload/services/client-folder-scanner';
 import {
   analyzeReviewImages,
+  scoreProductRelevance,
   type ReviewImageAnalysisResult,
+  type ProductRelevanceScore,
 } from '@/lib/megaload/services/image-quality-scorer';
 // 제3자 이미지 서버 URL (Supabase Storage 영구 저장)
 const THIRD_PARTY_IMAGE_URLS = [
@@ -71,10 +73,14 @@ interface ImageSelectorGroupProps {
   onOrderChange: (newOrder: number[]) => void;
   /** 리뷰 이미지 전용 — 품질/관련성 분석 결과 */
   analysis?: ReviewImageAnalysisResult | null;
-  /** 리뷰 이미지 전용 — AI 자동 추천 버튼 핸들러 */
+  /** AI 분석 버튼 핸들러 (리뷰: AI 자동 추천, 상세: 관련성 분석) */
   onAnalyze?: () => void;
   /** 분석 진행 중 여부 */
   isAnalyzing?: boolean;
+  /** 상품 관련성 점수 (이미지 인덱스 → 점수) */
+  relevanceScores?: { index: number; score: number }[];
+  /** 분석 버튼 레이블 (기본 'AI 자동 추천') */
+  analyzeLabel?: string;
 }
 
 /** 거부 사유별 뱃지 메타 */
@@ -88,8 +94,27 @@ const REJECTION_BADGE: Record<string, { label: string; bg: string }> = {
 
 function ImageSelectorGroup({
   label, images, thumbnailUrls, order, onOrderChange,
-  analysis, onAnalyze, isAnalyzing,
+  analysis, onAnalyze, isAnalyzing, relevanceScores, analyzeLabel,
 }: ImageSelectorGroupProps) {
+  // 관련성 점수 인덱스 매핑
+  const relevanceByIdx = useMemo(() => {
+    if (!relevanceScores) return null;
+    const map = new Map<number, number>();
+    for (const r of relevanceScores) map.set(r.index, r.score);
+    return map;
+  }, [relevanceScores]);
+
+  // 관련성 통계 계산
+  const relevanceStats = useMemo(() => {
+    if (!relevanceByIdx) return null;
+    let related = 0, uncertain = 0, unrelated = 0;
+    for (const [, score] of relevanceByIdx) {
+      if (score > 0.7) related++;
+      else if (score >= 0.4) uncertain++;
+      else unrelated++;
+    }
+    return { related, uncertain, unrelated };
+  }, [relevanceByIdx]);
   const dragSrcRef = useRef<number | null>(null); // position in order array being dragged
   const [dragOverPos, setDragOverPos] = useState<number | null>(null);
 
@@ -148,6 +173,7 @@ function ImageSelectorGroup({
     const a = analysis?.analyses[imgIdx];
     const rejectionBadge = a?.rejectionReason ? REJECTION_BADGE[a.rejectionReason] : undefined;
     const isRecommended = a?.isRecommended ?? false;
+    const relScore = relevanceByIdx?.get(imgIdx);
 
     // 분석 결과 기반 테두리 색상
     let borderClass = opts.selected
@@ -159,12 +185,17 @@ function ImageSelectorGroup({
       if (rejectionBadge) borderClass = 'border-red-200 opacity-40';
       else if (isRecommended) borderClass = 'border-emerald-300 opacity-70';
     }
+    // 관련성 낮은 이미지 opacity 강화
+    if (relScore !== undefined && relScore < 0.4 && !opts.selected) {
+      borderClass = 'border-red-200 opacity-30';
+    }
 
     const reasonText = a?.rejectionReason
       ? ` · ${REJECTION_BADGE[a.rejectionReason]?.label ?? a.rejectionReason}`
       : isRecommended
         ? ` · 추천 (품질 ${Math.round(a!.qualityScore)})`
         : '';
+    const relText = relScore !== undefined ? ` · 관련성 ${Math.round(relScore * 100)}%` : '';
 
     return (
       <div
@@ -176,7 +207,7 @@ function ImageSelectorGroup({
         onDragOver={opts.draggable ? handleDragOver(opts.posInOrder!) : undefined}
         onDrop={opts.draggable ? handleDrop(opts.posInOrder!) : undefined}
         onDragEnd={opts.draggable ? handleDragEnd : undefined}
-        title={`${images[imgIdx]?.name ?? `이미지 ${imgIdx + 1}`}${opts.selected ? ` (순서 ${opts.posInOrder! + 1})` : ' (제외됨)'}${reasonText}`}
+        title={`${images[imgIdx]?.name ?? `이미지 ${imgIdx + 1}`}${opts.selected ? ` (순서 ${opts.posInOrder! + 1})` : ' (제외됨)'}${reasonText}${relText}`}
       >
         {url ? (
           <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -208,6 +239,15 @@ function ImageSelectorGroup({
             <Sparkles className="w-2.5 h-2.5" />추천
           </div>
         )}
+        {/* 관련성 점 (좌하단) */}
+        {relScore !== undefined && (
+          <div
+            className={`absolute bottom-1 left-1 w-3 h-3 rounded-full shadow border border-white/60 ${
+              relScore > 0.7 ? 'bg-emerald-500' : relScore >= 0.4 ? 'bg-amber-400' : 'bg-red-500'
+            }`}
+            title={`관련성 ${Math.round(relScore * 100)}%`}
+          />
+        )}
         {/* 미선택 오버레이 */}
         {!opts.selected && (
           <div className="absolute inset-0 bg-white/40" />
@@ -232,7 +272,7 @@ function ImageSelectorGroup({
             title="AI가 품질과 상품 관련성을 분석하여 추천 이미지를 자동 선택합니다"
           >
             <Sparkles className="w-3 h-3" />
-            {isAnalyzing ? '분석중...' : analysis ? '다시 분석' : 'AI 자동 추천'}
+            {isAnalyzing ? '분석중...' : analyzeLabel ?? (analysis ? '다시 분석' : 'AI 자동 추천')}
           </button>
         )}
         <button
@@ -260,6 +300,17 @@ function ImageSelectorGroup({
           )}
           {analysis.stats.rejectedBanner > 0 && (
             <span className="text-gray-500">배너/광고 <b>{analysis.stats.rejectedBanner}</b>장</span>
+          )}
+        </div>
+      )}
+      {relevanceStats && (
+        <div className="text-[10px] text-gray-600 bg-gray-50 px-2 py-1.5 rounded mb-2 flex flex-wrap gap-x-3 gap-y-0.5">
+          <span className="text-emerald-600">관련 <b>{relevanceStats.related}</b>장</span>
+          {relevanceStats.uncertain > 0 && (
+            <span className="text-amber-500">불확실 <b>{relevanceStats.uncertain}</b>장</span>
+          )}
+          {relevanceStats.unrelated > 0 && (
+            <span className="text-red-500">비관련 <b>{relevanceStats.unrelated}</b>장</span>
           )}
         </div>
       )}
@@ -318,11 +369,16 @@ export default function DetailPageContentTab({
   // 리뷰 이미지 품질/관련성 분석 결과
   const [reviewAnalysis, setReviewAnalysis] = useState<ReviewImageAnalysisResult | null>(null);
   const [isAnalyzingReview, setIsAnalyzingReview] = useState(false);
+  // 상세 이미지 관련성 분석 결과
+  const [detailRelevanceScores, setDetailRelevanceScores] = useState<{ index: number; score: number }[] | null>(null);
+  const [isAnalyzingDetailRelevance, setIsAnalyzingDetailRelevance] = useState(false);
 
   // 상품이 바뀌면 분석 결과 초기화
   useEffect(() => {
     setReviewAnalysis(null);
     setIsAnalyzingReview(false);
+    setDetailRelevanceScores(null);
+    setIsAnalyzingDetailRelevance(false);
   }, [product.uid]);
 
   const description = product.editedDescription ?? product.description ?? '';
@@ -439,6 +495,58 @@ export default function DetailPageContentTab({
     product.scannedReviewImages,
     product.scannedMainImages,
     product.editedReviewImageOrder,
+    preUploadedUrls?.mainImageUrls,
+    onUpdate,
+  ]);
+
+  // --- 상세 이미지 관련성 분석 ---
+  const handleAnalyzeDetailRelevance = useCallback(async () => {
+    const detailImgs = product.scannedDetailImages ?? [];
+    if (detailImgs.length === 0) return;
+
+    setIsAnalyzingDetailRelevance(true);
+    try {
+      // 상세 이미지 URL 수집
+      const detailUrls: string[] = [];
+      for (const img of detailImgs) {
+        const url = await ensureObjectUrl(img);
+        detailUrls.push(url || 'data:image/png;base64,');
+      }
+
+      // 기준 이미지(대표이미지) 수집
+      const mainImgs = product.scannedMainImages ?? [];
+      const referenceUrls: string[] = [];
+      for (const img of mainImgs) {
+        const url = await ensureObjectUrl(img);
+        if (url) referenceUrls.push(url);
+      }
+      if (referenceUrls.length === 0 && preUploadedUrls?.mainImageUrls) {
+        referenceUrls.push(...preUploadedUrls.mainImageUrls.filter(Boolean));
+      }
+
+      const scores = await scoreProductRelevance(referenceUrls, detailUrls);
+      const mapped = scores.map(s => ({ index: s.index, score: s.score }));
+      setDetailRelevanceScores(mapped);
+
+      // 자동 재선택: score < 0.3 제외, score >= 0.4 선택
+      if (product.editedDetailImageOrder === undefined) {
+        const autoSelected = scores
+          .filter(s => s.score >= 0.4)
+          .map(s => s.index);
+        if (autoSelected.length > 0) {
+          onUpdate(product.uid, 'editedDetailImageOrder', autoSelected);
+        }
+      }
+    } catch (err) {
+      console.error('[analyzeDetailRelevance]', err);
+    } finally {
+      setIsAnalyzingDetailRelevance(false);
+    }
+  }, [
+    product.uid,
+    product.scannedDetailImages,
+    product.scannedMainImages,
+    product.editedDetailImageOrder,
     preUploadedUrls?.mainImageUrls,
     onUpdate,
   ]);

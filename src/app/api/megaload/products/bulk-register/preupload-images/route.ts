@@ -16,6 +16,7 @@ interface PreuploadBody {
   products: PreuploadProduct[];
   includeReviewImages?: boolean;
   preventionSeed?: string;
+  sellerBrand?: string;
 }
 
 /**
@@ -86,7 +87,7 @@ export async function POST(req: NextRequest) {
             };
           }
 
-          const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, IMAGE_CONCURRENCY, false);
+          const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, IMAGE_CONCURRENCY, false, body.sellerBrand || undefined);
 
           let offset = 0;
           const mainImageUrls = allUrls.slice(offset, offset + product.mainImages.length);

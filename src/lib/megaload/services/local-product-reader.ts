@@ -164,10 +164,12 @@ function collectImages(dirPath: string, pattern: RegExp): string[] {
 
 /**
  * 로컬 이미지 파일을 Supabase Storage에 업로드하고 CDN URL을 반환
+ * sellerBrand가 제공되면 jimp로 워터마크를 삽입하여 CNN 임베딩 차별화
  */
 export async function uploadLocalImage(
   filePath: string,
   megaloadUserId: string,
+  sellerBrand?: string,
 ): Promise<string> {
   // 파일 크기 검증
   const stat = fs.statSync(filePath);
@@ -255,6 +257,38 @@ export async function uploadLocalImage(
           console.log(`[이미지 압축] ${fileName}: quality=${quality}, size=${(outBuf.length / 1024 / 1024).toFixed(1)}MB`);
         }
 
+        // 셀러 워터마크 삽입 (CNN 임베딩 차별화 — jimp 로드 상태에서만)
+        if (sellerBrand) {
+          try {
+            const imgW: number = image.getWidth?.() ?? image.bitmap?.width ?? 0;
+            const imgH: number = image.getHeight?.() ?? image.bitmap?.height ?? 0;
+            if (imgW > 0 && imgH > 0) {
+              // 셀러 브랜드 해시 기반 고유 색상 생성
+              const { stringToSeed: s2s } = await import('./seeded-random');
+              const brandSeed = s2s(sellerBrand);
+              const r = (brandSeed >> 16) & 0xFF;
+              const g = (brandSeed >> 8) & 0xFF;
+              const b = brandSeed & 0xFF;
+              const barH = Math.max(3, Math.round(imgH * 0.005));
+              const startY = imgH - barH;
+              // 반투명 컬러 바 합성 (alpha=30/255 ≈ 12%)
+              image.scan(0, startY, imgW, barH, function(this: { bitmap: { data: Buffer } }, _x: number, _y: number, idx: number) {
+                const orig_r = this.bitmap.data[idx];
+                const orig_g = this.bitmap.data[idx + 1];
+                const orig_b = this.bitmap.data[idx + 2];
+                const alpha = 0.12;
+                this.bitmap.data[idx] = Math.round(orig_r * (1 - alpha) + r * alpha);
+                this.bitmap.data[idx + 1] = Math.round(orig_g * (1 - alpha) + g * alpha);
+                this.bitmap.data[idx + 2] = Math.round(orig_b * (1 - alpha) + b * alpha);
+              });
+              // 재압축
+              outBuf = await image.quality(quality).getBufferAsync(MIME_JPEG);
+            }
+          } catch (wmErr) {
+            console.warn(`[워터마크] jimp 워터마크 실패: ${wmErr instanceof Error ? wmErr.message : wmErr}`);
+          }
+        }
+
         buffer = Buffer.from(outBuf);
         format = 'jpg';
         ext = 'jpg';
@@ -268,6 +302,47 @@ export async function uploadLocalImage(
         throw new Error(`[이미지 필터] 리사이징 실패 — 이미지 제외 (${fileName}): ${resizeErr instanceof Error ? resizeErr.message : resizeErr}`);
       }
       console.warn(`[이미지 리사이즈 실패] ${fileName}:`, resizeErr instanceof Error ? resizeErr.message : resizeErr);
+    }
+  }
+
+  // jimp 리사이징 불필요했으나 워터마크는 적용해야 하는 경우
+  if (!needsJimp && sellerBrand) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let Jimp: any;
+      try {
+        Jimp = (await import('jimp')).default || (await import('jimp'));
+      } catch { Jimp = null; }
+      if (Jimp) {
+        const image = await Jimp.read(buffer);
+        const imgW: number = image.getWidth?.() ?? image.bitmap?.width ?? 0;
+        const imgH: number = image.getHeight?.() ?? image.bitmap?.height ?? 0;
+        if (imgW > 0 && imgH > 0) {
+          const { stringToSeed: s2s } = await import('./seeded-random');
+          const brandSeed = s2s(sellerBrand);
+          const r = (brandSeed >> 16) & 0xFF;
+          const g = (brandSeed >> 8) & 0xFF;
+          const b = brandSeed & 0xFF;
+          const barH = Math.max(3, Math.round(imgH * 0.005));
+          const startY = imgH - barH;
+          image.scan(0, startY, imgW, barH, function(this: { bitmap: { data: Buffer } }, _x: number, _y: number, idx: number) {
+            const orig_r = this.bitmap.data[idx];
+            const orig_g = this.bitmap.data[idx + 1];
+            const orig_b = this.bitmap.data[idx + 2];
+            const alpha = 0.12;
+            this.bitmap.data[idx] = Math.round(orig_r * (1 - alpha) + r * alpha);
+            this.bitmap.data[idx + 1] = Math.round(orig_g * (1 - alpha) + g * alpha);
+            this.bitmap.data[idx + 2] = Math.round(orig_b * (1 - alpha) + b * alpha);
+          });
+          const MIME_JPEG = Jimp.MIME_JPEG || 'image/jpeg';
+          const outBuf = await image.quality(92).getBufferAsync(MIME_JPEG);
+          buffer = Buffer.from(outBuf);
+          format = 'jpg';
+          ext = 'jpg';
+        }
+      }
+    } catch (wmErr) {
+      console.warn(`[워터마크] 별도 워터마크 실패: ${wmErr instanceof Error ? wmErr.message : wmErr}`);
     }
   }
 
@@ -312,10 +387,11 @@ export async function uploadLocalImage(
 export async function uploadLocalImages(
   filePaths: string[],
   megaloadUserId: string,
+  sellerBrand?: string,
 ): Promise<string[]> {
   const urls: string[] = [];
   for (const fp of filePaths) {
-    const url = await uploadLocalImage(fp, megaloadUserId);
+    const url = await uploadLocalImage(fp, megaloadUserId, sellerBrand);
     urls.push(url);
   }
   return urls;
@@ -332,6 +408,7 @@ export async function uploadLocalImagesParallel(
   megaloadUserId: string,
   concurrency = 5,
   allowPartialFailure = false,
+  sellerBrand?: string,
 ): Promise<string[]> {
   if (filePaths.length === 0) return [];
 
@@ -342,7 +419,7 @@ export async function uploadLocalImagesParallel(
     while (nextIndex < filePaths.length) {
       const idx = nextIndex++;
       try {
-        results[idx] = await uploadLocalImage(filePaths[idx], megaloadUserId);
+        results[idx] = await uploadLocalImage(filePaths[idx], megaloadUserId, sellerBrand);
       } catch (err) {
         results[idx] = err instanceof Error ? err : new Error(String(err));
       }
