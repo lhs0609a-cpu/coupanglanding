@@ -578,17 +578,23 @@ export default function DetailPageContentTab({
     const placeholderImg = (label: string) =>
       `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="400"><rect fill="#f0f0f0" width="800" height="400"/><text fill="#999" font-family="sans-serif" font-size="20" x="400" y="200" text-anchor="middle">${label}</text></svg>`)}`;
 
+    // editedDetailImageOrder가 []이면 사용자가 의도적으로 0장 선택한 것 → 빈 배열
     const detailUrls = filteredDetailUrls.length > 0
       ? filteredDetailUrls
-      : product.detailImageCount > 0
-        ? Array.from({ length: Math.min(product.detailImageCount, 3) }, (_, i) => placeholderImg(`상세이미지 ${i + 1}`))
-        : [placeholderImg('상세이미지 없음')];
+      : Array.isArray(product.editedDetailImageOrder) && product.editedDetailImageOrder.length === 0
+        ? []
+        : product.detailImageCount > 0
+          ? Array.from({ length: Math.min(product.detailImageCount, 3) }, (_, i) => placeholderImg(`상세이미지 ${i + 1}`))
+          : [];
 
+    // editedReviewImageOrder가 []이면 사용자가 의도적으로 0장 선택한 것 → 빈 배열
     const reviewUrls = filteredReviewUrls.length > 0
       ? filteredReviewUrls
-      : product.reviewImageCount > 0
-        ? Array.from({ length: Math.min(product.reviewImageCount, 3) }, (_, i) => placeholderImg(`리뷰이미지 ${i + 1}`))
-        : [];
+      : Array.isArray(product.editedReviewImageOrder) && product.editedReviewImageOrder.length === 0
+        ? []
+        : product.reviewImageCount > 0
+          ? Array.from({ length: Math.min(product.reviewImageCount, 3) }, (_, i) => placeholderImg(`리뷰이미지 ${i + 1}`))
+          : [];
 
     const paragraphs = storyParagraphs.length > 0
       ? storyParagraphs.filter(p => p.trim())
