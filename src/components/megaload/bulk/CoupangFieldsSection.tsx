@@ -244,8 +244,7 @@ function ImageSectionWithPreview({
                           ))}
                         </div>
                       </div>
-                    ))
-                  )}
+                    ))}
 
                   <div className="text-[9px] text-gray-400">
                     * 시뮬레이션입니다. 실제 등록 시 셀러 ID 기반으로 결정됩니다.

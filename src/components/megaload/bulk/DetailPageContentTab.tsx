@@ -636,6 +636,10 @@ export default function DetailPageContentTab({
             thumbnailUrls={resolvedDetailUrls}
             order={product.editedDetailImageOrder}
             onOrderChange={(newOrder) => onUpdate(product.uid, 'editedDetailImageOrder', newOrder)}
+            onAnalyze={handleAnalyzeDetailRelevance}
+            isAnalyzing={isAnalyzingDetailRelevance}
+            analyzeLabel={detailRelevanceScores ? '다시 분석' : '관련성 분석'}
+            relevanceScores={detailRelevanceScores ?? product.detailImageSelectionMeta?.relevanceScores ?? undefined}
           />
           <ImageSelectorGroup
             label="리뷰이미지"
@@ -646,6 +650,7 @@ export default function DetailPageContentTab({
             analysis={reviewAnalysis}
             onAnalyze={handleAnalyzeReviewImages}
             isAnalyzing={isAnalyzingReview}
+            relevanceScores={product.reviewImageSelectionMeta?.relevanceScores ?? undefined}
           />
         </Collapsible>
       )}
