@@ -69,9 +69,7 @@ interface ImageSelectorGroupProps {
   thumbnailUrls: string[];
   order: number[] | undefined;
   onOrderChange: (newOrder: number[]) => void;
-  /** 이미지 품질/관련성 분석 결과 (미사용) */
-  analysis?: unknown;
-  /** AI 분석 버튼 핸들러 (리뷰: AI 자동 추천, 상세: 관련성 분석) */
+  /** AI 분석 버튼 핸들러 (상세: 관련성 분석) */
   onAnalyze?: () => void;
   /** 분석 진행 중 여부 */
   isAnalyzing?: boolean;
@@ -81,18 +79,10 @@ interface ImageSelectorGroupProps {
   analyzeLabel?: string;
 }
 
-/** 거부 사유별 뱃지 메타 */
-const REJECTION_BADGE: Record<string, { label: string; bg: string }> = {
-  unrelated: { label: '비관련', bg: 'bg-red-500' },
-  low_quality: { label: '품질↓', bg: 'bg-amber-500' },
-  empty_image: { label: '빈이미지', bg: 'bg-gray-500' },
-  text_banner: { label: '배너', bg: 'bg-gray-500' },
-  promotional_image: { label: '광고', bg: 'bg-gray-500' },
-};
 
 function ImageSelectorGroup({
   label, images, thumbnailUrls, order, onOrderChange,
-  analysis, onAnalyze, isAnalyzing, relevanceScores, analyzeLabel,
+  onAnalyze, isAnalyzing, relevanceScores, analyzeLabel,
 }: ImageSelectorGroupProps) {
   // 관련성 점수 인덱스 매핑
   const relevanceByIdx = useMemo(() => {
@@ -168,31 +158,19 @@ function ImageSelectorGroup({
 
   const renderThumb = (imgIdx: number, opts: { selected: boolean; posInOrder?: number; draggable?: boolean }) => {
     const url = thumbnailUrls[imgIdx] || images[imgIdx]?.objectUrl;
-    const a = analysis?.analyses[imgIdx];
-    const rejectionBadge = a?.rejectionReason ? REJECTION_BADGE[a.rejectionReason] : undefined;
-    const isRecommended = a?.isRecommended ?? false;
     const relScore = relevanceByIdx?.get(imgIdx);
 
-    // 분석 결과 기반 테두리 색상
+    // 테두리 색상
     let borderClass = opts.selected
       ? dragOverPos === opts.posInOrder
         ? 'border-blue-400 ring-2 ring-blue-200'
         : 'border-blue-500'
       : 'border-gray-200 opacity-50';
-    if (a && !opts.selected) {
-      if (rejectionBadge) borderClass = 'border-red-200 opacity-40';
-      else if (isRecommended) borderClass = 'border-emerald-300 opacity-70';
-    }
     // 관련성 낮은 이미지 opacity 강화
     if (relScore !== undefined && relScore < 0.4 && !opts.selected) {
       borderClass = 'border-red-200 opacity-30';
     }
 
-    const reasonText = a?.rejectionReason
-      ? ` · ${REJECTION_BADGE[a.rejectionReason]?.label ?? a.rejectionReason}`
-      : isRecommended
-        ? ` · 추천 (품질 ${Math.round(a!.qualityScore)})`
-        : '';
     const relText = relScore !== undefined ? ` · 관련성 ${Math.round(relScore * 100)}%` : '';
 
     return (
@@ -205,7 +183,7 @@ function ImageSelectorGroup({
         onDragOver={opts.draggable ? handleDragOver(opts.posInOrder!) : undefined}
         onDrop={opts.draggable ? handleDrop(opts.posInOrder!) : undefined}
         onDragEnd={opts.draggable ? handleDragEnd : undefined}
-        title={`${images[imgIdx]?.name ?? `이미지 ${imgIdx + 1}`}${opts.selected ? ` (순서 ${opts.posInOrder! + 1})` : ' (제외됨)'}${reasonText}${relText}`}
+        title={`${images[imgIdx]?.name ?? `이미지 ${imgIdx + 1}`}${opts.selected ? ` (순서 ${opts.posInOrder! + 1})` : ' (제외됨)'}${relText}`}
       >
         {url ? (
           <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -224,17 +202,6 @@ function ImageSelectorGroup({
         {opts.selected && opts.posInOrder !== undefined && (
           <div className="absolute bottom-1 right-1 min-w-[18px] h-[18px] bg-blue-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center shadow">
             {opts.posInOrder + 1}
-          </div>
-        )}
-        {/* 분석 뱃지 (우상단) */}
-        {rejectionBadge && (
-          <div className={`absolute top-1 right-1 text-[9px] px-1 py-[1px] rounded ${rejectionBadge.bg} text-white font-bold shadow`}>
-            {rejectionBadge.label}
-          </div>
-        )}
-        {!rejectionBadge && isRecommended && (
-          <div className="absolute top-1 right-1 text-[9px] px-1 py-[1px] rounded bg-emerald-500 text-white font-bold shadow flex items-center gap-0.5">
-            <Sparkles className="w-2.5 h-2.5" />추천
           </div>
         )}
         {/* 관련성 점 (좌하단) */}
@@ -270,7 +237,7 @@ function ImageSelectorGroup({
             title="AI가 품질과 상품 관련성을 분석하여 추천 이미지를 자동 선택합니다"
           >
             <Sparkles className="w-3 h-3" />
-            {isAnalyzing ? '분석중...' : analyzeLabel ?? (analysis ? '다시 분석' : 'AI 자동 추천')}
+            {isAnalyzing ? '분석중...' : analyzeLabel ?? 'AI 자동 추천'}
           </button>
         )}
         <button
@@ -286,21 +253,6 @@ function ImageSelectorGroup({
           전체해제
         </button>
       </div>
-      {analysis && (
-        <div className="text-[10px] text-gray-600 bg-gray-50 px-2 py-1.5 rounded mb-2 flex flex-wrap gap-x-3 gap-y-0.5">
-          <span>총 <b>{analysis.stats.total}</b>장</span>
-          <span className="text-emerald-600">추천 <b>{analysis.stats.recommended}</b>장</span>
-          {analysis.stats.rejectedUnrelated > 0 && (
-            <span className="text-red-500">비관련 <b>{analysis.stats.rejectedUnrelated}</b>장</span>
-          )}
-          {analysis.stats.rejectedLowQuality > 0 && (
-            <span className="text-amber-600">품질낮음 <b>{analysis.stats.rejectedLowQuality}</b>장</span>
-          )}
-          {analysis.stats.rejectedBanner > 0 && (
-            <span className="text-gray-500">배너/광고 <b>{analysis.stats.rejectedBanner}</b>장</span>
-          )}
-        </div>
-      )}
       {relevanceStats && (
         <div className="text-[10px] text-gray-600 bg-gray-50 px-2 py-1.5 rounded mb-2 flex flex-wrap gap-x-3 gap-y-0.5">
           <span className="text-emerald-600">관련 <b>{relevanceStats.related}</b>장</span>
