@@ -27,11 +27,13 @@ import {
   HelpCircle,
   Bug,
   Table2,
+  BarChart3,
 } from 'lucide-react';
 
 const navItems = [
   { href: '/admin/dashboard', label: '대시보드', icon: LayoutDashboard },
   { href: '/admin/sales-overview', label: '매출 현황', icon: Table2 },
+  { href: '/admin/performance', label: 'PT생 성과', icon: BarChart3 },
   { href: '/admin/applications', label: '신청 관리', icon: ClipboardList },
   { href: '/admin/screening', label: '파트너 스크리닝', icon: UserCheck },
   { href: '/admin/pre-registrations', label: '사전등록 관리', icon: UserPlus },
