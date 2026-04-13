@@ -8,8 +8,7 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 /**
  * POST /api/megaload/stock-monitor/fetch-prices
- * 모든 모니터의 쿠팡 실제 판매가를 일괄 조회하여 our_price_last 업데이트
- * 쿠팡 API 429 방지: 1개씩 순차 처리 + 요청 간 1초 딜레이
+ * 쿠팡 판매가 일괄 조회 — 2개 동시 + 500ms 딜레이 (429 방지)
  */
 export async function POST(request: Request) {
   try {
@@ -28,9 +27,8 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
     const cursor = (body as Record<string, unknown>).cursor as string | undefined;
-    const batchSize = 10; // 429 방지: 한 번에 10개만
+    const batchSize = 20;
 
-    // 어댑터 인증
     let adapter: CoupangAdapter;
     try {
       adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang') as CoupangAdapter;
@@ -38,7 +36,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: e instanceof Error ? e.message : 'API 인증 실패' }, { status: 400 });
     }
 
-    // our_price_last가 NULL인 모니터만 조회 (cursor 이후)
     let query = serviceClient
       .from('sh_stock_monitors')
       .select('id, coupang_product_id, coupang_status, our_price_last')
@@ -48,15 +45,12 @@ export async function POST(request: Request) {
       .order('id')
       .limit(batchSize);
 
-    if (cursor) {
-      query = query.gt('id', cursor);
-    }
+    if (cursor) query = query.gt('id', cursor);
 
     const { data: monitors, error: qErr } = await query;
     if (qErr) return NextResponse.json({ error: qErr.message }, { status: 500 });
 
     const rows = (monitors || []) as { id: string; coupang_product_id: string; coupang_status: string; our_price_last: number | null }[];
-
     if (rows.length === 0) {
       return NextResponse.json({ updated: 0, remaining: 0, done: true });
     }
@@ -66,39 +60,40 @@ export async function POST(request: Request) {
     let errors = 0;
     let rateLimited = false;
 
-    // 1개씩 순차 처리 + 1초 딜레이 (429 방지)
-    for (const m of rows) {
-      try {
-        const detail = await adapter.getProductDetail(m.coupang_product_id);
-        if (!detail) { errors++; continue; }
+    // 2개씩 동시 처리 + 500ms 딜레이
+    for (let i = 0; i < rows.length; i += 2) {
+      const pair = rows.slice(i, i + 2);
+      const results = await Promise.allSettled(
+        pair.map(async (m) => {
+          try {
+            const detail = await adapter.getProductDetail(m.coupang_product_id);
+            if (!detail) return null;
+            const price = detail.items?.[0]?.salePrice ?? null;
+            const status: 'active' | 'suspended' = detail.statusName === 'APPROVE' ? 'active' : 'suspended';
+            const updates: Record<string, unknown> = { updated_at: now, last_checked_at: now };
+            if (price != null && price > 0) updates.our_price_last = price;
+            if (status !== m.coupang_status) updates.coupang_status = status;
+            await serviceClient.from('sh_stock_monitors').update(updates).eq('id', m.id);
+            return price;
+          } catch (err) {
+            if (err instanceof Error && err.message.includes('429')) throw err;
+            return null;
+          }
+        })
+      );
 
-        const price = detail.items?.[0]?.salePrice ?? null;
-        const status: 'active' | 'suspended' = detail.statusName === 'APPROVE' ? 'active' : 'suspended';
-
-        const updates: Record<string, unknown> = {
-          updated_at: now,
-          last_checked_at: now,
-        };
-        if (price != null && price > 0) updates.our_price_last = price;
-        if (status !== m.coupang_status) updates.coupang_status = status;
-
-        await serviceClient.from('sh_stock_monitors').update(updates).eq('id', m.id);
-        if (price != null && price > 0) updated++;
-        else errors++;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : '';
-        if (msg.includes('429')) {
+      for (const r of results) {
+        if (r.status === 'rejected' && r.reason?.message?.includes('429')) {
           rateLimited = true;
-          break; // 429 발생 시 즉시 중단, 다음 호출에서 이어서 처리
+          break;
         }
-        errors++;
+        if (r.status === 'fulfilled' && r.value != null) updated++;
+        else errors++;
       }
-
-      // 요청 간 1초 대기
-      await sleep(1000);
+      if (rateLimited) break;
+      await sleep(500);
     }
 
-    // 남은 개수 확인
     const { count: remaining } = await serviceClient
       .from('sh_stock_monitors')
       .select('id', { count: 'exact', head: true })
@@ -106,14 +101,12 @@ export async function POST(request: Request) {
       .is('our_price_last', null)
       .not('coupang_product_id', 'eq', '');
 
-    const lastId = rows[rows.length - 1]?.id;
-
     return NextResponse.json({
       updated,
       errors,
       remaining: remaining ?? 0,
       done: (remaining ?? 0) === 0,
-      cursor: lastId,
+      cursor: rows[rows.length - 1]?.id,
       rateLimited,
     });
   } catch (err) {
