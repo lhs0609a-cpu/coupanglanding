@@ -2,6 +2,30 @@ import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 
+/** 제조사/법인명 패턴 — brand 필드에 제조사가 들어온 경우 감지 */
+const MANUFACTURER_RE = /주식회사|법인|제조|산업|공업|식품공장|팜$|팜\s|코퍼레이션|엔터프라이즈|인터내셔널|홀딩스|그룹$|\(주\)|\(유\)|co\.,?\s*ltd|inc\.|corp\./i;
+
+/**
+ * 쿠팡 API brand가 제조사명이면 상품명에서 실제 브랜드를 추출한다.
+ * 상품명 형식: "브랜드명 상품설명 ..." → 첫 번째 토큰이 브랜드
+ */
+function extractBrand(apiBrand: string, productName: string): { brand: string; manufacturer: string } {
+  const trimmed = apiBrand.trim();
+
+  // API brand가 비어있거나 제조사명 패턴이면 → 상품명에서 추출
+  if (!trimmed || MANUFACTURER_RE.test(trimmed)) {
+    const firstToken = productName.trim().split(/\s+/)[0] || '';
+    // 첫 토큰이 유효한 브랜드명인지 (숫자만이거나 특수문자 덩어리가 아닌지)
+    const isBrand = firstToken.length >= 2 && !/^\d+$/.test(firstToken) && !/^[^\w가-힣]+$/.test(firstToken);
+    return {
+      brand: isBrand ? firstToken : trimmed,
+      manufacturer: trimmed,
+    };
+  }
+
+  return { brand: trimmed, manufacturer: '' };
+}
+
 export async function POST() {
   try {
     const supabase = await createClient();
@@ -46,6 +70,12 @@ export async function POST() {
           const productId = String(item.sellerProductId || item.productId || '');
           const productName = String(item.sellerProductName || item.productName || '');
 
+          // 브랜드 vs 제조사 분리: API brand가 제조사명이면 상품명에서 실제 브랜드 추출
+          const { brand, manufacturer } = extractBrand(
+            String(item.brand || ''),
+            productName,
+          );
+
           // Upsert master product
           await serviceClient
             .from('sh_products')
@@ -55,7 +85,8 @@ export async function POST() {
               product_name: productName,
               management_name: productName.slice(0, 50),
               category_id: String(item.categoryId || ''),
-              brand: String(item.brand || ''),
+              brand,
+              manufacturer,
               status: 'active',
               raw_data: item,
               updated_at: new Date().toISOString(),

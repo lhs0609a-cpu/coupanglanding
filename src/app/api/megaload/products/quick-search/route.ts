@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
       .select('id, product_name, display_name, brand, coupang_product_id, raw_data, created_at')
       .eq('megaload_user_id', shUserId)
       .neq('status', 'deleted')
-      .or(`product_name.ilike.%${q}%,display_name.ilike.%${q}%,brand.ilike.%${q}%,coupang_product_id.ilike.%${q}%`)
+      .or(`product_name.ilike.%${q}%,display_name.ilike.%${q}%,brand.ilike.%${q}%,manufacturer.ilike.%${q}%,coupang_product_id.ilike.%${q}%`)
       .order('created_at', { ascending: false })
       .limit(20);
 

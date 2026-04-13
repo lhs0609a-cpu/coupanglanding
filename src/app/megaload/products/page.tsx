@@ -45,11 +45,8 @@ export default function ProductsPage() {
       .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
 
     if (search) {
-      if (/^\d+$/.test(search.trim())) {
-        query = query.eq('coupang_product_id', search.trim());
-      } else {
-        query = query.or(`product_name.ilike.%${search}%,display_name.ilike.%${search}%,brand.ilike.%${search}%`);
-      }
+      const s = search.trim();
+      query = query.or(`product_name.ilike.%${s}%,display_name.ilike.%${s}%,brand.ilike.%${s}%,manufacturer.ilike.%${s}%,coupang_product_id.ilike.%${s}%`);
     }
 
     const { data, count } = await query;
