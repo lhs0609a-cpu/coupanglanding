@@ -203,12 +203,39 @@ export default function StockMonitorDashboard() {
   const handleBackfill = async () => {
     setBackfilling(true);
     try {
+      // 1단계: backfill 시도
       const res = await fetch('/api/megaload/stock-monitor/backfill', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) {
         alert(`기존 상품 가져오기 실패: ${data.error || '알 수 없는 오류'}`);
         return;
       }
+
+      // 상품이 0개면 → 쿠팡 동기화 먼저 실행
+      if (data.totalScanned === 0) {
+        const doSync = confirm(
+          '등록된 상품이 없습니다.\n\n쿠팡에서 판매중인 상품을 자동으로 가져올까요?\n(쿠팡 API 연동이 필요합니다)'
+        );
+        if (doSync) {
+          try {
+            const syncRes = await fetch('/api/megaload/products/sync-coupang', { method: 'POST' });
+            const syncData = await syncRes.json();
+            if (!syncRes.ok) {
+              alert(`쿠팡 동기화 실패: ${syncData.error || '알 수 없는 오류'}\n\n쿠팡 API 키가 설정되어 있는지 확인해주세요.`);
+              return;
+            }
+            alert(`쿠팡 상품 ${syncData.synced}개 동기화 완료!\n모니터 ${syncData.monitorCreated || 0}개 자동 등록`);
+            await fetchData();
+            return;
+          } catch (syncErr) {
+            console.error('sync-coupang error:', syncErr);
+            alert('쿠팡 동기화 중 오류가 발생했습니다.');
+            return;
+          }
+        }
+        return;
+      }
+
       const msgs: string[] = [];
       msgs.push(`신규 등록: ${data.created}개`);
       if (data.alreadyMonitored > 0) msgs.push(`이미 등록됨: ${data.alreadyMonitored}개`);
@@ -369,16 +396,19 @@ export default function StockMonitorDashboard() {
         ) : monitors.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
             <RefreshCw className="w-10 h-10 mx-auto mb-3 text-gray-300" />
-            <p className="text-sm">모니터링 대상 상품이 없습니다</p>
-            <p className="text-xs mt-1">신규 상품등록 시 자동으로 등록됩니다</p>
+            <p className="text-sm font-medium text-gray-600">모니터링 대상 상품이 없습니다</p>
+            <p className="text-xs mt-1">아래 버튼을 눌러 쿠팡 판매중인 상품을 가져오세요</p>
             <button
               onClick={handleBackfill}
               disabled={backfilling}
               className="mt-4 inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
             >
               {backfilling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-              기존 등록 상품 가져오기
+              {backfilling ? '상품 동기화 중...' : '쿠팡 상품 가져오기'}
             </button>
+            <p className="text-[10px] text-gray-400 mt-2">
+              이미 등록된 상품은 자동 감지하며, 없으면 쿠팡 API에서 직접 가져옵니다
+            </p>
           </div>
         ) : (
           <table className="w-full text-sm">

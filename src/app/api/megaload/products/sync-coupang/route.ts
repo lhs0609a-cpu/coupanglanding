@@ -55,6 +55,7 @@ export async function POST() {
 
       let page = 1;
       let totalSynced = 0;
+      let monitorCreated = 0;
       let hasMore = true;
 
       while (hasMore) {
@@ -67,50 +68,99 @@ export async function POST() {
         }
 
         for (const item of items) {
-          const productId = String(item.sellerProductId || item.productId || '');
+          const coupangProductId = String(item.sellerProductId || item.productId || '');
           const productName = String(item.sellerProductName || item.productName || '');
 
-          // 브랜드 vs 제조사 분리: API brand가 제조사명이면 상품명에서 실제 브랜드 추출
+          // 브랜드 vs 제조사 분리
           const { brand, manufacturer } = extractBrand(
             String(item.brand || ''),
             productName,
           );
 
-          // Upsert master product
-          await serviceClient
+          // 1. sh_products upsert — UUID 반환 받기
+          //    category_id(UUID 타입)에 문자열 넣으면 실패하므로 raw_data에만 보관
+          const { data: upsertedProduct, error: productErr } = await serviceClient
             .from('sh_products')
             .upsert({
               megaload_user_id: shUserId,
-              coupang_product_id: productId,
+              coupang_product_id: coupangProductId,
               product_name: productName,
-              management_name: productName.slice(0, 50),
-              category_id: String(item.categoryId || ''),
+              display_name: productName,
               brand,
               manufacturer,
               status: 'active',
               raw_data: item,
               updated_at: new Date().toISOString(),
-            }, { onConflict: 'megaload_user_id,coupang_product_id' });
+            }, { onConflict: 'megaload_user_id,coupang_product_id' })
+            .select('id')
+            .single();
 
-          // Upsert options/SKU
+          if (productErr || !upsertedProduct) {
+            console.warn(`[sync-coupang] sh_products upsert failed for ${coupangProductId}:`, productErr?.message);
+            continue;
+          }
+
+          const savedId = (upsertedProduct as Record<string, unknown>).id as string;
+
+          // 2. sh_product_channels upsert — 쿠팡 채널 매핑
+          try {
+            await serviceClient.from('sh_product_channels').upsert({
+              product_id: savedId,
+              channel: 'coupang',
+              channel_product_id: coupangProductId,
+              status: 'active',
+              last_synced_at: new Date().toISOString(),
+            }, { onConflict: 'product_id,channel' });
+          } catch (chErr) {
+            console.warn(`[sync-coupang] sh_product_channels upsert failed for ${savedId}:`, chErr);
+          }
+
+          // 3. sh_product_options — 올바른 product_id(UUID) 사용
           const sellerProductItems = (item.sellerProductItemList || item.items || []) as Record<string, unknown>[];
           for (const opt of sellerProductItems) {
             const optionId = String(opt.vendorItemId || opt.itemId || '');
-            await serviceClient
-              .from('sh_product_options')
-              .upsert({
-                product_id: productId,
-                megaload_user_id: shUserId,
+            const sku = String(opt.externalVendorSku || opt.sellerItemCode || optionId);
+            try {
+              await serviceClient.from('sh_product_options').upsert({
+                product_id: savedId,
                 option_name: String(opt.itemName || opt.optionName || '기본'),
-                sku: String(opt.externalVendorSku || opt.sellerItemCode || optionId),
+                sku,
                 barcode: String(opt.barcode || ''),
                 sale_price: Number(opt.salePrice || opt.originalPrice || 0),
                 cost_price: Number(opt.supplyPrice || 0),
-                stock: Number(opt.maximumBuyCount || opt.outboundShippingPlaceMaximumBuyCount || 0),
-                channel_option_id: optionId,
                 raw_data: opt,
                 updated_at: new Date().toISOString(),
-              }, { onConflict: 'megaload_user_id,sku' });
+              }, { onConflict: 'product_id,sku' });
+            } catch {
+              // onConflict 미일치 시 insert fallback
+              try {
+                await serviceClient.from('sh_product_options').insert({
+                  product_id: savedId,
+                  option_name: String(opt.itemName || opt.optionName || '기본'),
+                  sku,
+                  barcode: String(opt.barcode || ''),
+                  sale_price: Number(opt.salePrice || opt.originalPrice || 0),
+                  cost_price: Number(opt.supplyPrice || 0),
+                  raw_data: opt,
+                });
+              } catch { /* 옵션 저장 실패 — 비핵심, 계속 진행 */ }
+            }
+          }
+
+          // 4. sh_stock_monitors 자동 등록
+          try {
+            await serviceClient.from('sh_stock_monitors').upsert({
+              megaload_user_id: shUserId,
+              product_id: savedId,
+              coupang_product_id: coupangProductId,
+              source_url: '',
+              source_status: 'unknown',
+              coupang_status: 'active',
+              is_active: true,
+            }, { onConflict: 'megaload_user_id,product_id' });
+            monitorCreated++;
+          } catch (monErr) {
+            console.warn(`[sync-coupang] monitor creation failed for ${savedId}:`, monErr);
           }
 
           totalSynced++;
@@ -124,11 +174,11 @@ export async function POST() {
       if (jobId) {
         await serviceClient
           .from('sh_sync_jobs')
-          .update({ status: 'completed', result: { synced: totalSynced }, completed_at: new Date().toISOString() })
+          .update({ status: 'completed', result: { synced: totalSynced, monitorCreated }, completed_at: new Date().toISOString() })
           .eq('id', jobId);
       }
 
-      return NextResponse.json({ success: true, synced: totalSynced });
+      return NextResponse.json({ success: true, synced: totalSynced, monitorCreated });
     } catch (err) {
       if (jobId) {
         await serviceClient

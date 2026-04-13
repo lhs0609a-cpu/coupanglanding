@@ -113,6 +113,27 @@ export async function POST(
       }
     }
 
+    // 쿠팡 등록 성공 시 품절 모니터 자동 등록
+    const coupangResult = results['coupang'];
+    if (coupangResult?.success && coupangResult.channelProductId) {
+      const sourceUrl = (productData.source_url as string)
+        || ((productData.raw_data as Record<string, unknown>)?.sourceUrl as string)
+        || '';
+      try {
+        await serviceClient.from('sh_stock_monitors').upsert({
+          megaload_user_id: shUserId,
+          product_id: id,
+          coupang_product_id: coupangResult.channelProductId,
+          source_url: sourceUrl,
+          source_status: sourceUrl ? 'in_stock' : 'unknown',
+          coupang_status: 'active',
+          is_active: true,
+        }, { onConflict: 'megaload_user_id,product_id' });
+      } catch (monErr) {
+        console.warn(`[register] 품절 모니터 등록 실패 (${id}):`, monErr);
+      }
+    }
+
     const successCount = Object.values(results).filter((r) => r.success).length;
     return NextResponse.json({ success: true, results, successCount, totalChannels: targetChannels.length });
   } catch (err) {

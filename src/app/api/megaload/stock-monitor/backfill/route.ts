@@ -143,6 +143,11 @@ export async function POST() {
       created = (inserted || []).length;
     }
 
+    // 상품이 0개이면 진단 정보 추가
+    const hint = products.length === 0
+      ? '쿠팡 상품이 아직 동기화되지 않았습니다. 상품관리에서 "쿠팡 동기화"를 먼저 실행해주세요.'
+      : undefined;
+
     return NextResponse.json({
       created,
       alreadyMonitored,
@@ -150,6 +155,7 @@ export async function POST() {
       missingChannel,
       totalScanned: products.length,
       urlFilled: urlUpdates.length,
+      hint,
     });
 
   } catch (err) {
