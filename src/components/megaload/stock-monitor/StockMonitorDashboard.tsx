@@ -200,6 +200,37 @@ export default function StockMonitorDashboard() {
     }
   };
 
+  /** 파이프라인 진단 실행 — 어디서 끊기는지 확인 */
+  const runDiagnose = async (): Promise<string> => {
+    try {
+      const res = await fetch('/api/megaload/stock-monitor/diagnose');
+      const data = await res.json();
+      const steps = (data.steps || []) as { step: string; status: string; detail: unknown }[];
+      const lines: string[] = ['=== 파이프라인 진단 결과 ===\n'];
+      const labels: Record<string, string> = {
+        '1_auth': '① 로그인',
+        '2_megaload_users_rls': '② DB 계정(RLS)',
+        '3_megaload_users_admin': '③ DB 계정(Admin)',
+        '4_pt_users': '④ PT 쿠팡 연동',
+        '5_channel_credentials': '⑤ API 인증정보',
+        '6_coupang_api': '⑥ 쿠팡 API 호출',
+        '7_products': '⑦ 상품 DB',
+        '8_monitors': '⑧ 모니터 DB',
+        '9_inner_join_test': '⑨ 조인 테스트',
+      };
+      const icons: Record<string, string> = { ok: '[OK]', fail: '[실패]', warn: '[경고]' };
+      for (const s of steps) {
+        const label = labels[s.step] || s.step;
+        const icon = icons[s.status] || s.status;
+        const detail = typeof s.detail === 'string' ? s.detail : JSON.stringify(s.detail, null, 1);
+        lines.push(`${icon} ${label}\n   ${detail}`);
+      }
+      return lines.join('\n');
+    } catch {
+      return '진단 API 호출 실패';
+    }
+  };
+
   const handleBackfill = async () => {
     setBackfilling(true);
     try {
@@ -207,7 +238,8 @@ export default function StockMonitorDashboard() {
       const res = await fetch('/api/megaload/stock-monitor/backfill', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) {
-        alert(`기존 상품 가져오기 실패: ${data.error || '알 수 없는 오류'}`);
+        const diag = await runDiagnose();
+        alert(`기존 상품 가져오기 실패: ${data.error || '알 수 없는 오류'}\n\n${diag}`);
         return;
       }
 
@@ -221,7 +253,13 @@ export default function StockMonitorDashboard() {
             const syncRes = await fetch('/api/megaload/products/sync-coupang', { method: 'POST' });
             const syncData = await syncRes.json();
             if (!syncRes.ok) {
-              alert(`쿠팡 동기화 실패: ${syncData.error || '알 수 없는 오류'}\n\n쿠팡 API 키가 설정되어 있는지 확인해주세요.`);
+              const diag = await runDiagnose();
+              alert(`쿠팡 동기화 실패: ${syncData.error || '알 수 없는 오류'}\n\n${diag}`);
+              return;
+            }
+            if (syncData.synced === 0) {
+              const diag = await runDiagnose();
+              alert(`쿠팡 API에서 가져온 상품이 0개입니다.\n\n${diag}`);
               return;
             }
             alert(`쿠팡 상품 ${syncData.synced}개 동기화 완료!\n모니터 ${syncData.monitorCreated || 0}개 자동 등록`);
@@ -229,7 +267,8 @@ export default function StockMonitorDashboard() {
             return;
           } catch (syncErr) {
             console.error('sync-coupang error:', syncErr);
-            alert('쿠팡 동기화 중 오류가 발생했습니다.');
+            const diag = await runDiagnose();
+            alert(`쿠팡 동기화 중 오류 발생\n\n${diag}`);
             return;
           }
         }
@@ -242,10 +281,16 @@ export default function StockMonitorDashboard() {
       if (data.missingUrl > 0) msgs.push(`원본 URL 없음: ${data.missingUrl}개`);
       if (data.missingChannel > 0) msgs.push(`쿠팡 매핑 없음: ${data.missingChannel}개`);
       alert(`기존 상품 가져오기 완료\n\n${msgs.join('\n')}\n\n(전체 스캔 ${data.totalScanned}개)`);
+
+      if (data.created === 0 && data.alreadyMonitored === 0) {
+        const diag = await runDiagnose();
+        console.log(diag);
+      }
       await fetchData();
     } catch (err) {
       console.error('backfill error:', err);
-      alert('기존 상품 가져오기 중 오류가 발생했습니다.');
+      const diag = await runDiagnose();
+      alert(`기존 상품 가져오기 중 오류 발생\n\n${diag}`);
     } finally {
       setBackfilling(false);
     }
