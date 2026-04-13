@@ -217,6 +217,11 @@ export default function StockMonitorDashboard() {
           break;
         }
         cursor = data.cursor;
+        // 429 발생 시 5초 대기 후 재시도
+        if (data.rateLimited) {
+          setPriceProgress(`API 속도 제한 — 5초 대기 중... (${totalUpdated}개 완료)`);
+          await new Promise(r => setTimeout(r, 5000));
+        }
       }
       await fetchData();
     } catch (err) {
