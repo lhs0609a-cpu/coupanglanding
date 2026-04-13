@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50');
     const offset = (page - 1) * limit;
 
-    // 모니터 목록 조회
+    // 모니터 목록 조회 (FK 조인 대신 별도 조회 — PostgREST FK 미설정 대응)
     let query = serviceClient
       .from('sh_stock_monitors')
       .select(`
@@ -41,8 +41,7 @@ export async function GET(request: NextRequest) {
         last_checked_at, last_changed_at, last_action_at,
         consecutive_errors, created_at,
         price_follow_rule, source_price_last, our_price_last,
-        price_last_updated_at, price_last_applied_at, pending_price_change,
-        sh_products!inner(product_name, display_name, brand)
+        price_last_updated_at, price_last_applied_at, pending_price_change
       `, { count: 'exact' })
       .eq('megaload_user_id', shUserId)
       .order('last_checked_at', { ascending: false, nullsFirst: true });
@@ -59,12 +58,38 @@ export async function GET(request: NextRequest) {
       query = query.not('pending_price_change', 'is', null);
     }
 
-    const { data: monitors, count, error: queryErr } = await query
+    const { data: rawMonitors, count, error: queryErr } = await query
       .range(offset, offset + limit - 1);
 
     if (queryErr) {
+      console.error('stock-monitor query error:', queryErr.message);
       return NextResponse.json({ error: queryErr.message }, { status: 500 });
     }
+
+    // 상품 정보 별도 조회 후 병합
+    const monitorRows = (rawMonitors || []) as Record<string, unknown>[];
+    const productIds = [...new Set(monitorRows.map(m => m.product_id as string).filter(Boolean))];
+    type ProductInfo = { id: string; product_name: string; display_name: string; brand: string };
+    const productMap = new Map<string, ProductInfo>();
+
+    if (productIds.length > 0) {
+      const { data: products } = await serviceClient
+        .from('sh_products')
+        .select('id, product_name, display_name, brand')
+        .in('id', productIds);
+      for (const p of (products || []) as unknown as ProductInfo[]) {
+        productMap.set(p.id, p);
+      }
+    }
+
+    const monitors = monitorRows.map(m => ({
+      ...m,
+      sh_products: productMap.get(m.product_id as string) || {
+        product_name: '상품명 없음',
+        display_name: '',
+        brand: '',
+      },
+    }));
 
     // 통계 집계 (전체)
     const { data: allMonitors } = await serviceClient
