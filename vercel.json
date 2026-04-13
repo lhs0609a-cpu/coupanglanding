@@ -18,7 +18,7 @@
     },
     {
       "path": "/api/cron/megaload-stock-monitor",
-      "schedule": "0 */6 * * *"
+      "schedule": "0 * * * *"
     }
   ]
 }

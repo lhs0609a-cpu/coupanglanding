@@ -339,9 +339,28 @@ async function processSingleMonitor(
 ): Promise<ProcessResult> {
   const now = new Date().toISOString();
 
-  // source_url 미설정 모니터 건너뛰기 (backfill로 등록된 URL 없는 상품)
+  // source_url 미설정 모니터 — 소스 체크는 불가하지만 우리가 캐시는 수행
   if (!monitor.source_url) {
-    return { monitorId: monitor.id, checked: false, changed: false, error: '원본 URL 미설정' };
+    // our_price_last 미캐시 시 DB에서 조회해서 저장
+    if (monitor.our_price_last == null) {
+      try {
+        const ourPrice = await fetchCurrentOurPrice(supabase, monitor.product_id);
+        if (ourPrice != null) {
+          await supabase.from('sh_stock_monitors').update({
+            our_price_last: ourPrice,
+            last_checked_at: now,
+            updated_at: now,
+          }).eq('id', monitor.id);
+        }
+      } catch { /* 캐시 실패 무시 */ }
+    } else {
+      // last_checked_at만 갱신
+      await supabase.from('sh_stock_monitors').update({
+        last_checked_at: now,
+        updated_at: now,
+      }).eq('id', monitor.id);
+    }
+    return { monitorId: monitor.id, checked: true, changed: false };
   }
 
   // 1. 원본 URL 체크

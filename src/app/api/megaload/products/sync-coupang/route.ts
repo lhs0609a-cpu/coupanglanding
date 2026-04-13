@@ -147,7 +147,11 @@ export async function POST() {
             }
           }
 
-          // 4. sh_stock_monitors 자동 등록
+          // 4. sh_stock_monitors 자동 등록 — 쿠팡 판매가도 함께 저장
+          const firstOpt = sellerProductItems[0];
+          const ourPrice = firstOpt
+            ? Number(firstOpt.salePrice || firstOpt.originalPrice || 0)
+            : 0;
           try {
             await serviceClient.from('sh_stock_monitors').upsert({
               megaload_user_id: shUserId,
@@ -157,6 +161,7 @@ export async function POST() {
               source_status: 'unknown',
               coupang_status: 'active',
               is_active: true,
+              ...(ourPrice > 0 && { our_price_last: ourPrice }),
             }, { onConflict: 'megaload_user_id,product_id' });
             monitorCreated++;
           } catch (monErr) {

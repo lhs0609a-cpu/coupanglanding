@@ -22,7 +22,6 @@ export async function GET(request: Request) {
     .select('id, megaload_user_id, product_id, coupang_product_id, source_url, source_status, coupang_status, option_statuses, consecutive_errors, consecutive_unknowns, registered_option_name, price_follow_rule, source_price_last, our_price_last, price_last_updated_at, price_last_applied_at, pending_price_change')
     .eq('is_active', true)
     .lt('consecutive_errors', 10)
-    .neq('source_url', '')
     .or(`last_checked_at.is.null,last_checked_at.lt.${new Date(Date.now() - 30 * 60 * 1000).toISOString()}`)
     .order('last_checked_at', { ascending: true, nullsFirst: true })
     .limit(100);
