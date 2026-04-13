@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
+import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
 /** 제조사/법인명 패턴 — brand 필드에 제조사가 들어온 경우 감지 */
 const MANUFACTURER_RE = /주식회사|법인|제조|산업|공업|식품공장|팜$|팜\s|코퍼레이션|엔터프라이즈|인터내셔널|홀딩스|그룹$|\(주\)|\(유\)|co\.,?\s*ltd|inc\.|corp\./i;
@@ -32,15 +33,14 @@ export async function POST() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { data: shUser } = await supabase
-      .from('megaload_users')
-      .select('id')
-      .eq('profile_id', user.id)
-      .single();
-    if (!shUser) return NextResponse.json({ error: 'Megaload 계정이 없습니다' }, { status: 404 });
-
     const serviceClient = await createServiceClient();
-    const shUserId = (shUser as Record<string, unknown>).id as string;
+    let shUserId: string;
+    try {
+      shUserId = await ensureMegaloadUser(supabase, serviceClient, user.id);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '메가로드 계정이 필요합니다.';
+      return NextResponse.json({ error: msg }, { status: 403 });
+    }
 
     // sync job 생성
     const { data: job } = await serviceClient
@@ -59,8 +59,10 @@ export async function POST() {
       let hasMore = true;
 
       while (hasMore) {
-        const result = await adapter.getProducts({ page, size: 100, status: 'APPROVE' });
+        // status 필터 없이 전체 상품 조회 (중지/검수중 포함)
+        const result = await adapter.getProducts({ page, size: 100 });
         const items = result.items;
+        console.log(`[sync-coupang] page=${page}, fetched=${items.length} items`);
 
         if (items.length === 0) {
           hasMore = false;
@@ -147,11 +149,13 @@ export async function POST() {
             }
           }
 
-          // 4. sh_stock_monitors 자동 등록 — 쿠팡 판매가도 함께 저장
+          // 4. sh_stock_monitors 자동 등록 — 쿠팡 판매가 + 상태 함께 저장
           const firstOpt = sellerProductItems[0];
           const ourPrice = firstOpt
             ? Number(firstOpt.salePrice || firstOpt.originalPrice || 0)
             : 0;
+          const itemStatus = String(item.statusName || item.status || '');
+          const coupangStatus: 'active' | 'suspended' = itemStatus === 'APPROVE' ? 'active' : 'suspended';
           try {
             await serviceClient.from('sh_stock_monitors').upsert({
               megaload_user_id: shUserId,
@@ -159,7 +163,7 @@ export async function POST() {
               coupang_product_id: coupangProductId,
               source_url: '',
               source_status: 'unknown',
-              coupang_status: 'active',
+              coupang_status: coupangStatus,
               is_active: true,
               ...(ourPrice > 0 && { our_price_last: ourPrice }),
             }, { onConflict: 'megaload_user_id,product_id' });

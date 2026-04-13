@@ -123,8 +123,24 @@ export class CoupangAdapter extends BaseAdapter {
     if (status) queryParts.push(`status=${status}`);
     const query = queryParts.join('&');
 
-    const data = await this.coupangApi<{ data: unknown[]; nextToken?: string }>('GET', path, query);
-    return { items: (data.data || []) as Record<string, unknown>[], totalCount: (data.data || []).length };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = await this.coupangApi<any>('GET', path, query);
+
+    // 쿠팡 API 응답 구조 방어적 파싱:
+    //  직접: { code, message, data: [...] }
+    //  프록시: { data: [...] } 또는 { data: { content: [...] } }
+    let items: Record<string, unknown>[] = [];
+    const payload = raw?.data ?? raw;
+    if (Array.isArray(payload)) {
+      items = payload;
+    } else if (payload && Array.isArray(payload.data)) {
+      items = payload.data;
+    } else if (payload && Array.isArray(payload.content)) {
+      items = payload.content;
+    }
+
+    console.log(`[CoupangAdapter] getProducts: raw keys=${Object.keys(raw || {}).join(',')}, items=${items.length}`);
+    return { items, totalCount: items.length };
   }
 
   async createProduct(product: Record<string, unknown>) {
