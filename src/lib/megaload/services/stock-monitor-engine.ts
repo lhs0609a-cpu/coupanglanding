@@ -235,6 +235,45 @@ function determineEffectiveStatus(
   return { status: pageStatus };
 }
 
+/**
+ * 쿠팡 API로 실제 상품 상태 + 판매가를 조회하여 DB 반영
+ * - statusName: APPROVE → 'active', SUSPEND/기타 → 'suspended'
+ * - our_price_last: 첫 번째 item의 salePrice
+ */
+async function fetchAndUpdateCoupangStatus(
+  monitor: { id: string; coupang_product_id: string; coupang_status: 'active' | 'suspended'; our_price_last: number | null },
+  adapter: CoupangAdapter,
+  supabase: SupabaseClient,
+  now: string,
+): Promise<{ coupangApiStatus: 'active' | 'suspended'; coupangApiPrice: number | null } | null> {
+  try {
+    const detail = await adapter.getProductDetail(monitor.coupang_product_id);
+    if (!detail) return null;
+
+    const coupangApiStatus: 'active' | 'suspended' = detail.statusName === 'APPROVE' ? 'active' : 'suspended';
+    const coupangApiPrice = detail.items?.[0]?.salePrice ?? null;
+
+    // DB 업데이트 — 변경분만
+    const updates: Record<string, unknown> = { updated_at: now };
+    if (coupangApiStatus !== monitor.coupang_status) {
+      updates.coupang_status = coupangApiStatus;
+      console.log(`[stock-monitor] coupang status mismatch: monitor=${monitor.id} DB=${monitor.coupang_status} API=${coupangApiStatus}`);
+    }
+    if (coupangApiPrice != null && coupangApiPrice > 0) {
+      updates.our_price_last = coupangApiPrice;
+    }
+
+    if (Object.keys(updates).length > 1) { // updated_at 외에 변경이 있을 때만
+      await supabase.from('sh_stock_monitors').update(updates).eq('id', monitor.id);
+    }
+
+    return { coupangApiStatus, coupangApiPrice };
+  } catch (err) {
+    console.warn(`[stock-monitor] fetchAndUpdateCoupangStatus failed for ${monitor.coupang_product_id}:`, err);
+    return null;
+  }
+}
+
 export interface MonitorRecord {
   id: string;
   megaload_user_id: string;
@@ -339,27 +378,17 @@ async function processSingleMonitor(
 ): Promise<ProcessResult> {
   const now = new Date().toISOString();
 
-  // source_url 미설정 모니터 — 소스 체크는 불가하지만 우리가 캐시는 수행
+  // source_url 미설정 모니터 — 소스 체크는 불가하지만 쿠팡 실제 상태/가격은 조회
   if (!monitor.source_url) {
-    // our_price_last 미캐시 시 DB에서 조회해서 저장
-    if (monitor.our_price_last == null) {
-      try {
-        const ourPrice = await fetchCurrentOurPrice(supabase, monitor.product_id);
-        if (ourPrice != null) {
-          await supabase.from('sh_stock_monitors').update({
-            our_price_last: ourPrice,
-            last_checked_at: now,
-            updated_at: now,
-          }).eq('id', monitor.id);
-        }
-      } catch { /* 캐시 실패 무시 */ }
-    } else {
-      // last_checked_at만 갱신
-      await supabase.from('sh_stock_monitors').update({
-        last_checked_at: now,
-        updated_at: now,
-      }).eq('id', monitor.id);
-    }
+    // 쿠팡 API로 실제 상태 + 판매가 조회
+    await fetchAndUpdateCoupangStatus(monitor, adapter, supabase, now);
+
+    // last_checked_at 갱신
+    await supabase.from('sh_stock_monitors').update({
+      last_checked_at: now,
+      updated_at: now,
+    }).eq('id', monitor.id);
+
     return { monitorId: monitor.id, checked: true, changed: false };
   }
 
@@ -527,8 +556,12 @@ async function processSingleMonitor(
     });
   }
 
-  // 5-a3. 우리가 캐시 (가격추종 룰 유무와 무관)
-  if (monitor.our_price_last == null) {
+  // 5-a3. 쿠팡 API로 실제 상태/판매가 조회 (our_price_last + coupang_status 갱신)
+  const coupangDetail = await fetchAndUpdateCoupangStatus(monitor, adapter, supabase, now);
+  if (coupangDetail?.coupangApiPrice != null && coupangDetail.coupangApiPrice > 0) {
+    monitor.our_price_last = coupangDetail.coupangApiPrice;
+  } else if (monitor.our_price_last == null) {
+    // 쿠팡 API 실패 시 DB 폴백
     try {
       const cachedOurPrice = await fetchCurrentOurPrice(supabase, monitor.product_id);
       if (cachedOurPrice != null) {

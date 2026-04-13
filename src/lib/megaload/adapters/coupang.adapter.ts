@@ -210,6 +210,30 @@ export class CoupangAdapter extends BaseAdapter {
     }
   }
 
+  /** 상품 상세 조회 — 실제 쿠팡 상태/판매가 확인용 */
+  async getProductDetail(sellerProductId: string): Promise<{
+    statusName: string;
+    items: { salePrice: number; maximumBuyCount: number }[];
+  } | null> {
+    try {
+      const path = `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/${sellerProductId}`;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const raw = await this.coupangApi<any>('GET', path);
+      const data = raw?.data ?? raw;
+      if (!data) return null;
+      return {
+        statusName: data.statusName || '',
+        items: ((data.items || data.sellerProductItemList || []) as { salePrice?: number; maximumBuyCount?: number }[]).map(item => ({
+          salePrice: item.salePrice ?? 0,
+          maximumBuyCount: item.maximumBuyCount ?? 0,
+        })),
+      };
+    } catch (err) {
+      console.warn(`[CoupangAdapter] getProductDetail(${sellerProductId}) failed:`, err instanceof Error ? err.message : err);
+      return null;
+    }
+  }
+
   async updateProduct(channelProductId: string, product: Record<string, unknown>) {
     // 공식 스펙: PUT /v2/providers/seller_api/apis/api/v1/marketplace/seller-products/{sellerProductId}
     const path = `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/${channelProductId}`;

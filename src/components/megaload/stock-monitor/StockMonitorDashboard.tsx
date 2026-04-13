@@ -491,6 +491,11 @@ export default function StockMonitorDashboard() {
                       <span className="text-xs text-gray-700 font-mono">
                         {m.our_price_last != null ? `₩${m.our_price_last.toLocaleString()}` : '-'}
                       </span>
+                      {m.our_price_last != null && m.last_checked_at && (
+                        <div className="text-[10px] text-gray-400 mt-0.5">
+                          {timeAgo(m.last_checked_at)} 조회
+                        </div>
+                      )}
                       {m.pending_price_change && (
                         <div className="text-[10px] text-yellow-700 mt-0.5">
                           → ₩{m.pending_price_change.newPrice.toLocaleString()} 대기
