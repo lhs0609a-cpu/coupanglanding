@@ -413,14 +413,20 @@ export default function StockMonitorDashboard() {
                                 {product.brand}
                               </span>
                             )}
-                            <a
-                              href={m.source_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5"
-                            >
-                              원본 <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
+                            {m.source_url ? (
+                              <a
+                                href={m.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5"
+                              >
+                                원본 <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            ) : (
+                              <span className="text-[10px] text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">
+                                원본 URL 필요
+                              </span>
+                            )}
                             {m.coupang_product_id && (
                               <a
                                 href={`https://www.coupang.com/vp/products/${m.coupang_product_id}`}

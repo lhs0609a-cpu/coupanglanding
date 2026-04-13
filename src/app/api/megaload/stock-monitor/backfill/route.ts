@@ -95,7 +95,6 @@ export async function POST() {
         ? (p.raw_data as Record<string, unknown>).sourceUrl
         : undefined;
       const sourceUrl = p.source_url || (typeof rawSourceUrl === 'string' ? rawSourceUrl : null);
-      if (!sourceUrl) { missingUrl++; continue; }
 
       // raw_data.sourceUrl만 있고 column은 비었으면 채워줌
       if (!p.source_url && sourceUrl) {
@@ -106,6 +105,9 @@ export async function POST() {
       const coupangProductId = channelMap.get(p.id) || p.coupang_product_id || '';
       if (!coupangProductId) { missingChannel++; continue; }
 
+      // source_url 없어도 등록 허용 — UI에서 나중에 추가 가능
+      if (!sourceUrl) missingUrl++;
+
       const sourceName = p.raw_data && typeof p.raw_data === 'object'
         ? (p.raw_data as Record<string, unknown>).sourceName
         : undefined;
@@ -115,8 +117,8 @@ export async function POST() {
         megaload_user_id: shUserId,
         product_id: p.id,
         coupang_product_id: coupangProductId,
-        source_url: sourceUrl,
-        source_status: 'in_stock',
+        source_url: sourceUrl || '',
+        source_status: sourceUrl ? 'in_stock' : 'unknown',
         coupang_status: 'active',
         is_active: true,
         registered_option_name: registeredOptionName,

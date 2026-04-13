@@ -339,6 +339,11 @@ async function processSingleMonitor(
 ): Promise<ProcessResult> {
   const now = new Date().toISOString();
 
+  // source_url 미설정 모니터 건너뛰기 (backfill로 등록된 URL 없는 상품)
+  if (!monitor.source_url) {
+    return { monitorId: monitor.id, checked: false, changed: false, error: '원본 URL 미설정' };
+  }
+
   // 1. 원본 URL 체크
   const check = await checkUrl(monitor.source_url);
 
