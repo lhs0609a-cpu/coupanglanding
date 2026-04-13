@@ -480,6 +480,8 @@ async function processSingleMonitor(
   }
   if (observedSourcePrice == null) observedSourcePrice = check.mainPrice ?? null;
 
+  const sourcePriceChanged = observedSourcePrice != null && observedSourcePrice !== monitor.source_price_last;
+
   await supabase.from('sh_stock_monitors').update({
     source_status: effectiveStatus,
     coupang_status: coupangStatus,
@@ -490,7 +492,35 @@ async function processSingleMonitor(
     updated_at: now,
     ...(statusChanged && { last_changed_at: now }),
     ...(actionTaken && { last_action_at: now }),
+    // 소스 가격 항상 저장 (가격추종 룰 유무와 무관)
+    ...(observedSourcePrice != null && { source_price_last: observedSourcePrice }),
+    ...(sourcePriceChanged && { price_last_updated_at: now }),
   }).eq('id', monitor.id);
+
+  // 5-a2. 소스 가격 변동 로그 (가격추종 룰 유무와 무관)
+  if (sourcePriceChanged) {
+    await supabase.from('sh_stock_monitor_logs').insert({
+      monitor_id: monitor.id,
+      megaload_user_id: monitor.megaload_user_id,
+      event_type: 'price_changed_source',
+      source_price_before: monitor.source_price_last ?? null,
+      source_price_after: observedSourcePrice,
+    });
+  }
+
+  // 5-a3. 우리가 캐시 (가격추종 룰 유무와 무관)
+  if (monitor.our_price_last == null) {
+    try {
+      const cachedOurPrice = await fetchCurrentOurPrice(supabase, monitor.product_id);
+      if (cachedOurPrice != null) {
+        await supabase.from('sh_stock_monitors').update({
+          our_price_last: cachedOurPrice,
+          updated_at: now,
+        }).eq('id', monitor.id);
+        monitor.our_price_last = cachedOurPrice;
+      }
+    } catch { /* 캐시 실패해도 진행 */ }
+  }
 
   // 5-b. 가격 자동 추종 — 재고가 정상이고 이번 사이클에 suspend/resume 액션이 없을 때만
   let priceAction: PriceFollowActionResult | undefined;
@@ -667,23 +697,7 @@ async function processPriceFollow(input: {
     return { action: 'none', reason: 'no source price observed' };
   }
 
-  // 2. 소스 가격 변동 감사 추적 (액션과 무관)
-  const sourcePriceChanged = monitor.source_price_last !== observedSourcePrice;
-  if (sourcePriceChanged) {
-    await supabase.from('sh_stock_monitors').update({
-      source_price_last: observedSourcePrice,
-      price_last_updated_at: now,
-      updated_at: now,
-    }).eq('id', monitor.id);
-
-    await supabase.from('sh_stock_monitor_logs').insert({
-      monitor_id: monitor.id,
-      megaload_user_id: monitor.megaload_user_id,
-      event_type: 'price_changed_source',
-      source_price_before: monitor.source_price_last ?? null,
-      source_price_after: observedSourcePrice,
-    });
-  }
+  // 2. 소스 가격 저장 + 로그는 메인 루프(processSingleMonitor)에서 처리 완료
 
   // 3. 현재 우리가 해석 (24h 이내 our_price_last 우선)
   let ourPrice: number | null = null;

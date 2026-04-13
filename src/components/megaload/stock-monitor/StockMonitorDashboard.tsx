@@ -387,8 +387,8 @@ export default function StockMonitorDashboard() {
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">상품명</th>
                 <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">원본 상태</th>
                 <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">쿠팡 상태</th>
-                <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">소스가</th>
-                <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">우리가</th>
+                <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">원본가(네이버)</th>
+                <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">판매가(쿠팡)</th>
                 <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">추종 규칙</th>
                 <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">마지막 확인</th>
                 <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">동작</th>
@@ -451,6 +451,11 @@ export default function StockMonitorDashboard() {
                       <span className="text-xs text-gray-700 font-mono">
                         {m.source_price_last != null ? `₩${m.source_price_last.toLocaleString()}` : '-'}
                       </span>
+                      {m.price_last_updated_at && (
+                        <div className="text-[10px] text-gray-400 mt-0.5">
+                          {timeAgo(m.price_last_updated_at)} 감지
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-center">
                       <span className="text-xs text-gray-700 font-mono">
@@ -477,6 +482,11 @@ export default function StockMonitorDashboard() {
                         <Clock className="w-3 h-3" />
                         {timeAgo(m.last_checked_at)}
                       </span>
+                      {m.last_checked_at && (
+                        <div className="text-[10px] text-gray-400">
+                          {new Date(m.last_checked_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-center">
                       <div className="flex items-center justify-center gap-1">
