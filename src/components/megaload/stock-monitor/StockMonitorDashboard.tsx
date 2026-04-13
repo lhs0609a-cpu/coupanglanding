@@ -134,6 +134,8 @@ export default function StockMonitorDashboard() {
     { mode: 'single'; monitor: MonitorItem } | { mode: 'bulk' } | null
   >(null);
   const [showPendingList, setShowPendingList] = useState(false);
+  const [fetchingPrices, setFetchingPrices] = useState(false);
+  const [priceProgress, setPriceProgress] = useState('');
 
   const [apiError, setApiError] = useState<string | null>(null);
 
@@ -187,6 +189,41 @@ export default function StockMonitorDashboard() {
         next.delete(monitorId);
         return next;
       });
+    }
+  };
+
+  const handleFetchPrices = async () => {
+    setFetchingPrices(true);
+    setPriceProgress('가격 조회 시작...');
+    let totalUpdated = 0;
+    let cursor: string | undefined;
+    try {
+      // 반복 호출로 전체 처리 (50개씩)
+      for (let round = 0; round < 100; round++) {
+        const res = await fetch('/api/megaload/stock-monitor/fetch-prices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cursor }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setPriceProgress(`오류: ${data.error}`);
+          break;
+        }
+        totalUpdated += data.updated || 0;
+        setPriceProgress(`${totalUpdated}개 조회 완료, 남은 ${data.remaining}개...`);
+        if (data.done) {
+          setPriceProgress(`완료! 총 ${totalUpdated}개 가격 업데이트`);
+          break;
+        }
+        cursor = data.cursor;
+      }
+      await fetchData();
+    } catch (err) {
+      console.error('fetch-prices error:', err);
+      setPriceProgress('가격 조회 중 오류 발생');
+    } finally {
+      setFetchingPrices(false);
     }
   };
 
@@ -340,6 +377,15 @@ export default function StockMonitorDashboard() {
           >
             {backfilling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
             기존 상품 가져오기
+          </button>
+          <button
+            onClick={handleFetchPrices}
+            disabled={fetchingPrices || loading || monitors.length === 0}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition"
+            title="쿠팡 API에서 전체 상품 판매가를 일괄 조회합니다"
+          >
+            {fetchingPrices ? <Loader2 className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
+            {fetchingPrices ? priceProgress : '가격 일괄 조회'}
           </button>
           <button
             onClick={() => setPriceRuleModal({ mode: 'bulk' })}
