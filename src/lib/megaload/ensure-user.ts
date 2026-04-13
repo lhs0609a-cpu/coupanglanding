@@ -14,12 +14,24 @@ export async function ensureMegaloadUser(
   serviceClient: SupabaseClient,
   profileId: string
 ): Promise<string> {
-  // 1) 기존 megaload_users 확인
-  const { data: existing, error: existingErr } = await supabase
+  // 1) 기존 megaload_users 확인 — RLS 먼저 시도, 실패 시 serviceClient 폴백
+  let existing: Record<string, unknown> | null = null;
+  const { data: rlsData } = await supabase
     .from('megaload_users')
     .select('id')
     .eq('profile_id', profileId)
     .single();
+  if (rlsData) {
+    existing = rlsData as Record<string, unknown>;
+  } else {
+    // RLS가 차단했을 수 있으므로 serviceClient로 재조회
+    const { data: adminData } = await serviceClient
+      .from('megaload_users')
+      .select('id')
+      .eq('profile_id', profileId)
+      .single();
+    if (adminData) existing = adminData as Record<string, unknown>;
+  }
 
   if (existing) {
     const megaloadUserId = (existing as Record<string, unknown>).id as string;

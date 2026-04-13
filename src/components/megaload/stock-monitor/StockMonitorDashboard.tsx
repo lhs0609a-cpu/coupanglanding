@@ -135,18 +135,29 @@ export default function StockMonitorDashboard() {
   >(null);
   const [showPendingList, setShowPendingList] = useState(false);
 
+  const [apiError, setApiError] = useState<string | null>(null);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setApiError(null);
     try {
       const statusParam = filterTab === 'all' ? '' : `&status=${filterTab}`;
       const res = await fetch(`/api/megaload/stock-monitor?${statusParam}`);
-      if (!res.ok) throw new Error('데이터 로딩 실패');
       const data = await res.json();
+      if (!res.ok) {
+        const errMsg = `GET ${res.status}: ${data.error || JSON.stringify(data)}`;
+        console.error('stock-monitor API error:', errMsg);
+        setApiError(errMsg);
+        return;
+      }
+      console.log('[stock-monitor] loaded:', { monitors: data.monitors?.length, stats: data.stats });
       setMonitors(data.monitors || []);
       setStats(data.stats || null);
       setRecentLogs(data.recentLogs || []);
     } catch (err) {
-      console.error('stock-monitor fetch error:', err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('stock-monitor fetch error:', errMsg);
+      setApiError(errMsg);
     } finally {
       setLoading(false);
     }
@@ -440,6 +451,12 @@ export default function StockMonitorDashboard() {
           </div>
         ) : monitors.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
+            {apiError && (
+              <div className="mb-4 mx-auto max-w-md p-3 bg-red-50 border border-red-200 rounded-lg text-left">
+                <p className="text-xs font-medium text-red-700">API 오류</p>
+                <p className="text-[11px] text-red-600 mt-1 break-all">{apiError}</p>
+              </div>
+            )}
             <RefreshCw className="w-10 h-10 mx-auto mb-3 text-gray-300" />
             <p className="text-sm font-medium text-gray-600">모니터링 대상 상품이 없습니다</p>
             <p className="text-xs mt-1">아래 버튼을 눌러 쿠팡 판매중인 상품을 가져오세요</p>
