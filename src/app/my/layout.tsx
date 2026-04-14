@@ -43,14 +43,19 @@ export default async function MyLayout({ children }: { children: React.ReactNode
     const dday = getSettlementDDay(targetMonth);
     const eligible = isEligibleForMonth(ptUserData.created_at, targetMonth);
 
-    // 2단계: reportData + trainer + 카드 병렬 조회
-    const [{ data: reportData }, { data: trainer }, { data: cards }] = await Promise.all([
+    // 2단계: reportData + trainer 병렬 조회
+    const [{ data: reportData }, { data: trainer }] = await Promise.all([
       supabase.from('monthly_reports').select('payment_status, fee_payment_status, fee_payment_deadline, total_with_vat').eq('pt_user_id', ptUserData.id).eq('year_month', targetMonth).maybeSingle(),
       supabase.from('trainers').select('id').eq('pt_user_id', ptUserData.id).eq('status', 'approved').maybeSingle(),
-      supabase.from('billing_cards').select('id').eq('pt_user_id', ptUserData.id).eq('is_active', true).limit(1),
     ]);
 
-    hasPaymentCards = (cards || []).length > 0;
+    // billing_cards는 마이그레이션 미적용 시에도 안전하게 처리
+    try {
+      const { data: cards } = await supabase.from('billing_cards').select('id').eq('pt_user_id', ptUserData.id).eq('is_active', true).limit(1);
+      hasPaymentCards = (cards || []).length > 0;
+    } catch {
+      hasPaymentCards = false;
+    }
 
     const reportStatus = getSettlementStatus(
       ptUserData.created_at,
