@@ -217,7 +217,10 @@ async function collectImagesFromSubdir(
         try {
           const file = await (handle as FileSystemFileHandle).getFile();
           objectUrl = URL.createObjectURL(file);
-        } catch { urlFailed++; /* 파일 읽기 실패 시 핸들만 저장 */ }
+        } catch (err) {
+          urlFailed++;
+          console.warn(`[scan] 파일 읽기 실패 (핸들 만료 가능): ${name}`, err instanceof Error ? err.message : err);
+        }
       }
       files.push({ name, handle: handle as FileSystemFileHandle, objectUrl });
     }
@@ -451,6 +454,7 @@ export async function uploadScannedImages(
   if (images.length === 0) return [];
 
   const results: string[] = new Array(images.length).fill('');
+  const failures: string[] = [];
   let nextIndex = 0;
 
   async function worker() {
@@ -460,8 +464,14 @@ export async function uploadScannedImages(
         const file = await images[idx].handle.getFile();
         const compressed = await compressImage(file, sellerBrand);
         results[idx] = await uploadSingleImage(compressed, images[idx].name);
-      } catch {
+        if (!results[idx]) {
+          failures.push(images[idx].name);
+          console.warn(`[upload] 업로드 실패 (빈 응답): ${images[idx].name}`);
+        }
+      } catch (err) {
         results[idx] = '';
+        failures.push(images[idx].name);
+        console.warn(`[upload] 업로드 실패: ${images[idx].name}`, err instanceof Error ? err.message : err);
       }
     }
   }
@@ -469,6 +479,11 @@ export async function uploadScannedImages(
   await Promise.all(
     Array.from({ length: Math.min(concurrency, images.length) }, () => worker()),
   );
+
+  if (failures.length > 0) {
+    console.error(`[upload] ${images.length}개 중 ${failures.length}개 실패: ${failures.slice(0, 5).join(', ')}${failures.length > 5 ? ` 외 ${failures.length - 5}개` : ''}`);
+  }
+
   return results;
 }
 

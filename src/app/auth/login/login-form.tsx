@@ -49,6 +49,10 @@ export default function LoginForm() {
           setError('이메일 또는 비밀번호가 올바르지 않습니다.');
         } else if (authError.status === 429) {
           setError('요청이 너무 많습니다. 잠시 후 다시 시도해주세요.');
+        } else if (!authError.message || authError.message === '0' || authError.message === 'Failed to fetch') {
+          setError('서버에 연결할 수 없습니다. 인터넷 연결을 확인하고 다시 시도해주세요.');
+        } else if (authError.message === 'Email not confirmed') {
+          setError('이메일 인증이 완료되지 않았습니다. 이메일을 확인해주세요.');
         } else {
           setError(`로그인 오류: ${authError.message}`);
         }

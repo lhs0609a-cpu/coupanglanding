@@ -2840,8 +2840,18 @@ function computeDiversityScoreFromMatrix(
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve(img);
+    img.onload = () => {
+      if (img.naturalWidth === 0 || img.naturalHeight === 0) {
+        reject(new Error(`이미지 크기를 읽을 수 없습니다: ${url}`));
+        return;
+      }
+      resolve(img);
+    };
     img.onerror = () => reject(new Error(`이미지 로드 실패: ${url}`));
+    // 외부 CDN 이미지 canvas 보안 에러 방지
+    if (!url.startsWith('blob:') && !url.startsWith('data:')) {
+      img.crossOrigin = 'anonymous';
+    }
     img.src = url;
   });
 }
