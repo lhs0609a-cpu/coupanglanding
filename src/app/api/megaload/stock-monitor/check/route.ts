@@ -4,6 +4,67 @@ import { processMonitorBatch, type MonitorRecord } from '@/lib/megaload/services
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
 /**
+ * PATCH /api/megaload/stock-monitor/check
+ * 에러 상태 일괄 리셋 — consecutive_errors를 0으로 초기화하여 다음 크론에서 재체크
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: '인증이 필요합니다.' }, { status: 401 });
+
+    const serviceClient = await createServiceClient();
+    let shUserId: string;
+    try {
+      shUserId = await ensureMegaloadUser(supabase, serviceClient, user.id);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '메가로드 계정이 필요합니다.';
+      return NextResponse.json({ error: msg }, { status: 403 });
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const { scope } = body as { scope?: 'errors' | 'all_suspended' };
+
+    if (scope === 'all_suspended') {
+      // 쿠팡 중지 상태인데 source가 in_stock인 모니터 → coupang_status를 리셋하여 다음 체크에서 resume
+      // 실제 resume은 engine이 처리하므로 여기서는 last_checked_at을 리셋하여 크론이 즉시 대상으로 삼도록 함
+      const { count, error } = await serviceClient
+        .from('sh_stock_monitors')
+        .update({
+          last_checked_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('megaload_user_id', shUserId)
+        .eq('coupang_status', 'suspended')
+        .eq('is_active', true);
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ reset: count || 0, scope: 'all_suspended' });
+    }
+
+    // 기본: 에러 리셋
+    const { count, error } = await serviceClient
+      .from('sh_stock_monitors')
+      .update({
+        consecutive_errors: 0,
+        source_status: 'unknown',
+        last_checked_at: null,
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('megaload_user_id', shUserId)
+      .gte('consecutive_errors', 1);
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ reset: count || 0, scope: 'errors' });
+
+  } catch (err) {
+    console.error('stock-monitor reset error:', err);
+    return NextResponse.json({ error: '서버 오류' }, { status: 500 });
+  }
+}
+
+/**
  * POST /api/megaload/stock-monitor/check
  * 특정 모니터 수동 즉시 체크
  */

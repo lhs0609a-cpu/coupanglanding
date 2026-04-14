@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
     // 통계 집계 (전체)
     const { data: allMonitors } = await serviceClient
       .from('sh_stock_monitors')
-      .select('source_status, coupang_status, consecutive_errors, is_active, pending_price_change')
+      .select('source_status, coupang_status, consecutive_errors, is_active, pending_price_change, last_checked_at')
       .eq('megaload_user_id', shUserId);
 
     const stats = {
@@ -105,6 +105,7 @@ export async function GET(request: NextRequest) {
       suspended: 0,
       error: 0,
       inactive: 0,
+      unchecked: 0,
       pendingApprovalCount: 0,
     };
 
@@ -112,6 +113,7 @@ export async function GET(request: NextRequest) {
       const rec = m as Record<string, unknown>;
       if (rec.pending_price_change) stats.pendingApprovalCount++;
       if (!rec.is_active) { stats.inactive++; continue; }
+      if (!rec.last_checked_at) { stats.unchecked++; continue; }
       switch (rec.source_status) {
         case 'in_stock': stats.inStock++; break;
         case 'sold_out': stats.soldOut++; break;

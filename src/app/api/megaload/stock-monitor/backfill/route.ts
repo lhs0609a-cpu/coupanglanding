@@ -118,7 +118,7 @@ export async function POST() {
         product_id: p.id,
         coupang_product_id: coupangProductId,
         source_url: sourceUrl || '',
-        source_status: sourceUrl ? 'in_stock' : 'unknown',
+        source_status: 'unknown',
         coupang_status: 'active',
         is_active: true,
         registered_option_name: registeredOptionName,

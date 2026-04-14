@@ -54,26 +54,40 @@ interface CheckResult {
 
 async function checkUrl(url: string, retryCount = 0): Promise<CheckResult> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(() => controller.abort(), 20000);
 
   try {
     const res = await fetch(url, {
       signal: controller.signal,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0',
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'ko-KR,ko;q=0.9',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Sec-Ch-Ua': '"Chromium";v="131", "Not_A Brand";v="24"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Upgrade-Insecure-Requests': '1',
+        'Cache-Control': 'max-age=0',
       },
       redirect: 'follow',
+      cache: 'no-store',
     });
     clearTimeout(timeout);
 
     if (res.status === 404 || res.status === 410) return { status: 'removed', matchedPattern: `HTTP ${res.status}` };
-    // 429 재시도: 최대 2회, 3초/6초 대기
-    if (res.status === 429 && retryCount < 2) {
-      await sleep(3000 * (retryCount + 1));
+    // 429 재시도: 최대 1회, 8초 대기 후 재시도
+    // 배치 레벨 circuit breaker가 429를 감지하므로 여기서는 가볍게 1회만 재시도
+    if (res.status === 429 && retryCount < 1) {
+      await sleep(8000);
       return checkUrl(url, retryCount + 1);
     }
+    // 403 → 네이버 봇 차단 의심: 별도 에러 메시지
+    if (res.status === 403) return { status: 'error', matchedPattern: 'HTTP 403 (접근 차단 — 네이버 봇 감지 의심)' };
     if (!res.ok) return { status: 'error', matchedPattern: `HTTP ${res.status}` };
 
     const html = (await res.text()).slice(0, 500_000);
@@ -350,28 +364,44 @@ export async function processMonitorBatch(
       continue;
     }
 
-    // 2개씩 동시 처리 + 배치 간 2초 딜레이 (네이버 429 방지)
-    const CONCURRENCY = 2;
-    for (let i = 0; i < userMonitors.length; i += CONCURRENCY) {
-      if (i > 0) await sleep(2000);
+    // 1개씩 순차 처리 + 4초 딜레이 (네이버 429 방지)
+    // 429 circuit breaker: 2연속 429 → 나머지 스킵
+    let consecutive429 = 0;
+    for (let i = 0; i < userMonitors.length; i++) {
+      if (i > 0) await sleep(4000);
 
-      const chunk = userMonitors.slice(i, i + CONCURRENCY);
-      const chunkResults = await Promise.allSettled(
-        chunk.map(m => processSingleMonitor(m, adapter!, supabase, authUserId)),
-      );
-
-      for (let j = 0; j < chunkResults.length; j++) {
-        const r = chunkResults[j];
-        if (r.status === 'fulfilled') {
-          results.push(r.value);
-        } else {
+      // Circuit breaker: 429 연속 2회 → 배치 중단
+      if (consecutive429 >= 2) {
+        console.log(`[stock-monitor] 429 circuit breaker at ${i}/${userMonitors.length}`);
+        for (let j = i; j < userMonitors.length; j++) {
           results.push({
-            monitorId: chunk[j].id,
+            monitorId: userMonitors[j].id,
             checked: false,
             changed: false,
-            error: r.reason instanceof Error ? r.reason.message : '처리 실패',
+            error: '429 속도제한 — 다음 크론에서 재시도',
           });
         }
+        break;
+      }
+
+      try {
+        const result = await processSingleMonitor(userMonitors[i], adapter!, supabase, authUserId);
+        results.push(result);
+
+        if (result.error?.includes('429')) {
+          consecutive429++;
+          // 429 발생 시 추가 대기
+          await sleep(10000);
+        } else {
+          consecutive429 = 0;
+        }
+      } catch (err) {
+        results.push({
+          monitorId: userMonitors[i].id,
+          checked: false,
+          changed: false,
+          error: err instanceof Error ? err.message : '처리 실패',
+        });
       }
     }
   }
@@ -471,43 +501,43 @@ async function processSingleMonitor(
   const prevStatus = monitor.source_status;
   const statusChanged = prevStatus !== effectiveStatus;
 
-  // 4. 상태 변경 시 쿠팡 액션 실행
+  // 4. 쿠팡 액션 실행
   let actionTaken: string | undefined;
   let actionSuccess = true;
 
-  if (statusChanged) {
-    // 품절/삭제 → 쿠팡 판매중지
-    if ((effectiveStatus === 'sold_out' || effectiveStatus === 'removed') && monitor.coupang_status === 'active') {
-      try {
-        await adapter.suspendProduct(monitor.coupang_product_id);
-        actionTaken = 'coupang_suspended';
+  // 4-a. 품절/삭제 감지 → 쿠팡 판매중지 (상태 변경 시만)
+  if (statusChanged && (effectiveStatus === 'sold_out' || effectiveStatus === 'removed') && monitor.coupang_status === 'active') {
+    try {
+      await adapter.suspendProduct(monitor.coupang_product_id);
+      actionTaken = 'coupang_suspended';
 
-        await supabase.from('sh_product_channels')
-          .update({ status: 'suspended' })
-          .eq('product_id', monitor.product_id)
-          .eq('channel', 'coupang');
-      } catch (e) {
-        actionTaken = 'coupang_suspend_failed';
-        actionSuccess = false;
-        console.error(`[stock-monitor] suspend failed for ${monitor.coupang_product_id}:`, e);
-      }
+      await supabase.from('sh_product_channels')
+        .update({ status: 'suspended' })
+        .eq('product_id', monitor.product_id)
+        .eq('channel', 'coupang');
+    } catch (e) {
+      actionTaken = 'coupang_suspend_failed';
+      actionSuccess = false;
+      console.error(`[stock-monitor] suspend failed for ${monitor.coupang_product_id}:`, e);
     }
+  }
 
-    // 재입고 → 쿠팡 판매재개
-    if (effectiveStatus === 'in_stock' && (prevStatus === 'sold_out' || prevStatus === 'removed') && monitor.coupang_status === 'suspended') {
-      try {
-        await adapter.resumeProduct(monitor.coupang_product_id);
-        actionTaken = 'coupang_resumed';
+  // 4-b. 원본 판매중인데 쿠팡 중지됨 → 재개 (상태 변경 여부와 무관)
+  //  기존 버그: sold_out/removed → in_stock 전환만 resume했음
+  //  수정: error/unknown → in_stock, 또는 in_stock 유지 중 쿠팡만 suspended인 경우도 resume
+  if (effectiveStatus === 'in_stock' && monitor.coupang_status === 'suspended') {
+    try {
+      await adapter.resumeProduct(monitor.coupang_product_id);
+      actionTaken = 'coupang_resumed';
 
-        await supabase.from('sh_product_channels')
-          .update({ status: 'active' })
-          .eq('product_id', monitor.product_id)
-          .eq('channel', 'coupang');
-      } catch (e) {
-        actionTaken = 'coupang_resume_failed';
-        actionSuccess = false;
-        console.error(`[stock-monitor] resume failed for ${monitor.coupang_product_id}:`, e);
-      }
+      await supabase.from('sh_product_channels')
+        .update({ status: 'active' })
+        .eq('product_id', monitor.product_id)
+        .eq('channel', 'coupang');
+    } catch (e) {
+      actionTaken = 'coupang_resume_failed';
+      actionSuccess = false;
+      console.error(`[stock-monitor] resume failed for ${monitor.coupang_product_id}:`, e);
     }
   }
 

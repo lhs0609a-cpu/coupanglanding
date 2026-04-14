@@ -79,7 +79,7 @@ export async function GET(request: Request) {
     .not('source_url', 'eq', '') // source_url이 있는 것만 (품절 체크 가능한 것)
     .or(`last_checked_at.is.null,last_checked_at.lt.${new Date(Date.now() - 30 * 60 * 1000).toISOString()}`)
     .order('last_checked_at', { ascending: true, nullsFirst: true })
-    .limit(50); // 429 방지: 100 → 50
+    .limit(20); // 429 방지: 50 → 20 (순차 4초 딜레이, 20개 × 4초 = ~80초)
 
   if (queryErr) {
     console.error('[stock-monitor-cron] Query error:', queryErr);
@@ -112,16 +112,19 @@ export async function GET(request: Request) {
 
   const results = await processMonitorBatch(typedMonitors, supabase);
 
+  const rateLimited = results.filter(r => r.error?.includes('429')).length;
+
   const stats = {
     total: results.length,
     checked: results.filter(r => r.checked).length,
     changed: results.filter(r => r.changed).length,
     errors: results.filter(r => r.error).length,
+    rateLimited,
     actions: results.filter(r => r.action).map(r => r.action),
     priceBackfilled,
   };
 
-  console.log(`[stock-monitor-cron] 완료: ${stats.checked}/${stats.total} 체크, ${stats.changed} 변경, ${stats.errors} 에러, ${priceBackfilled} 가격백필`);
+  console.log(`[stock-monitor-cron] 완료: ${stats.checked}/${stats.total} 체크, ${stats.changed} 변경, ${stats.errors} 에러 (429: ${rateLimited}), ${priceBackfilled} 가격백필`);
 
   return NextResponse.json({
     message: '품절 모니터링 완료',

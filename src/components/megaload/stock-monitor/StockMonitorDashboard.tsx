@@ -62,6 +62,7 @@ interface Stats {
   suspended: number;
   error: number;
   inactive: number;
+  unchecked: number;
   pendingApprovalCount: number;
 }
 
@@ -233,23 +234,47 @@ export default function StockMonitorDashboard() {
   };
 
   const handleCheckAll = async () => {
-    const activeMonitorIds = monitors.filter(m => m.is_active).map(m => m.id).slice(0, 20);
+    const activeMonitorIds = monitors.filter(m => m.is_active).map(m => m.id);
     if (activeMonitorIds.length === 0) return;
 
     setCheckingIds(new Set(activeMonitorIds));
     try {
-      const res = await fetch('/api/megaload/stock-monitor/check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ monitorIds: activeMonitorIds }),
-      });
-      if (res.ok) {
-        await fetchData();
+      // 20개씩 배치로 순차 처리
+      for (let i = 0; i < activeMonitorIds.length; i += 20) {
+        const batch = activeMonitorIds.slice(i, i + 20);
+        const res = await fetch('/api/megaload/stock-monitor/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ monitorIds: batch }),
+        });
+        if (!res.ok) break;
+        // 배치 간 1초 대기
+        if (i + 20 < activeMonitorIds.length) {
+          await new Promise(r => setTimeout(r, 1000));
+        }
       }
+      await fetchData();
     } catch (err) {
       console.error('check all error:', err);
     } finally {
       setCheckingIds(new Set());
+    }
+  };
+
+  const handleResetErrors = async () => {
+    try {
+      const res = await fetch('/api/megaload/stock-monitor/check', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: 'errors' }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`${data.reset}개 모니터의 에러 상태를 초기화했습니다.\n다음 크론 실행 시 자동으로 재체크됩니다.`);
+        await fetchData();
+      }
+    } catch (err) {
+      console.error('reset errors:', err);
     }
   };
 
@@ -438,6 +463,9 @@ export default function StockMonitorDashboard() {
             <Package className="w-5 h-5 mx-auto text-gray-400 mb-1" />
             <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
             <div className="text-xs text-gray-500">전체 모니터</div>
+            {stats.unchecked > 0 && (
+              <div className="text-[9px] text-gray-400 mt-0.5">{stats.unchecked}개 대기중</div>
+            )}
           </div>
           <div className="bg-white rounded-xl border border-green-200 p-4 text-center">
             <CheckCircle2 className="w-5 h-5 mx-auto text-green-500 mb-1" />
@@ -449,15 +477,27 @@ export default function StockMonitorDashboard() {
             <div className="text-2xl font-bold text-red-600">{stats.soldOut + stats.removed}</div>
             <div className="text-xs text-gray-500">품절 감지</div>
           </div>
-          <div className="bg-white rounded-xl border border-orange-200 p-4 text-center">
+          <div className="bg-white rounded-xl border border-orange-200 p-4 text-center" title="쿠팡에서 판매 중지된 상품 수. 원본이 판매중이면 다음 체크 시 자동 재개됩니다.">
             <PauseCircle className="w-5 h-5 mx-auto text-orange-500 mb-1" />
             <div className="text-2xl font-bold text-orange-600">{stats.suspended}</div>
             <div className="text-xs text-gray-500">쿠팡 중지</div>
+            {stats.suspended > stats.soldOut + stats.removed && (
+              <div className="text-[9px] text-orange-400 mt-0.5">원본 확인 후 자동 재개</div>
+            )}
           </div>
-          <div className="bg-white rounded-xl border border-yellow-200 p-4 text-center">
+          <div className="bg-white rounded-xl border border-yellow-200 p-4 text-center relative">
             <AlertTriangle className="w-5 h-5 mx-auto text-yellow-500 mb-1" />
             <div className="text-2xl font-bold text-yellow-600">{stats.error}</div>
             <div className="text-xs text-gray-500">에러</div>
+            {stats.error > 0 && (
+              <button
+                onClick={handleResetErrors}
+                className="absolute top-1 right-1 px-1.5 py-0.5 text-[9px] text-yellow-700 bg-yellow-50 border border-yellow-300 rounded hover:bg-yellow-100 transition"
+                title="에러 상태를 초기화하여 다음 크론에서 재체크합니다"
+              >
+                리셋
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -572,10 +612,11 @@ export default function StockMonitorDashboard() {
                             )}
                             {m.coupang_product_id && (
                               <a
-                                href={`https://www.coupang.com/vp/products/${m.coupang_product_id}`}
+                                href={`https://wing.coupang.com/tenants/manage-product/products?sellerProductId=${m.coupang_product_id}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-[10px] text-purple-500 hover:text-purple-700 flex items-center gap-0.5"
+                                title="쿠팡 Wing 셀러센터에서 보기"
                               >
                                 쿠팡 <ExternalLink className="w-2.5 h-2.5" />
                               </a>
@@ -585,29 +626,60 @@ export default function StockMonitorDashboard() {
                       </div>
                     </td>
                     <td className="px-3 py-3 text-center">
-                      <StockStatusBadge status={m.source_status as 'in_stock' | 'sold_out' | 'removed' | 'unknown' | 'error'} />
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      <StockStatusBadge status={m.coupang_status as 'active' | 'suspended'} />
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      <span className="text-xs text-gray-700 font-mono">
-                        {m.source_price_last != null ? `₩${m.source_price_last.toLocaleString()}` : '-'}
-                      </span>
-                      {m.price_last_updated_at && (
-                        <div className="text-[10px] text-gray-400 mt-0.5">
-                          {timeAgo(m.price_last_updated_at)} 감지
+                      <StockStatusBadge status={
+                        !m.last_checked_at ? 'unknown' : m.source_status as 'in_stock' | 'sold_out' | 'removed' | 'unknown' | 'error'
+                      } />
+                      {m.source_status === 'error' && m.consecutive_errors > 0 && (
+                        <div className="text-[9px] text-orange-500 mt-0.5">
+                          {m.consecutive_errors >= 5 ? '네이버 속도제한' : `연속 ${m.consecutive_errors}회 실패`}
                         </div>
                       )}
                     </td>
                     <td className="px-3 py-3 text-center">
-                      <span className="text-xs text-gray-700 font-mono">
-                        {m.our_price_last != null ? `₩${m.our_price_last.toLocaleString()}` : '-'}
-                      </span>
-                      {m.our_price_last != null && m.last_checked_at && (
-                        <div className="text-[10px] text-gray-400 mt-0.5">
-                          {timeAgo(m.last_checked_at)} 조회
-                        </div>
+                      <StockStatusBadge status={
+                        !m.last_checked_at ? 'unknown' : m.coupang_status as 'active' | 'suspended'
+                      } />
+                      {m.last_checked_at && m.coupang_status === 'suspended' && m.source_status !== 'error' && (
+                        <div className="text-[9px] text-orange-500 mt-0.5">재개 대기중</div>
+                      )}
+                      {m.last_checked_at && m.coupang_status === 'suspended' && m.source_status === 'error' && (
+                        <div className="text-[9px] text-gray-400 mt-0.5">확인 후 재개</div>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      {m.source_price_last != null ? (
+                        <>
+                          <span className="text-xs text-gray-700 font-mono">
+                            ₩{m.source_price_last.toLocaleString()}
+                          </span>
+                          {m.price_last_updated_at && (
+                            <div className="text-[10px] text-gray-400 mt-0.5">
+                              {timeAgo(m.price_last_updated_at)} 감지
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-[10px] text-gray-400">
+                          {m.source_status === 'error' ? '조회 실패' : !m.last_checked_at ? '미조회' : '-'}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      {m.our_price_last != null ? (
+                        <>
+                          <span className="text-xs text-gray-700 font-mono">
+                            ₩{m.our_price_last.toLocaleString()}
+                          </span>
+                          {m.last_checked_at && (
+                            <div className="text-[10px] text-gray-400 mt-0.5">
+                              {timeAgo(m.last_checked_at)} 조회
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-[10px] text-gray-400">
+                          {!m.last_checked_at ? '미조회' : '조회 중'}
+                        </span>
                       )}
                       {m.pending_price_change && (
                         <div className="text-[10px] text-yellow-700 mt-0.5">
@@ -626,14 +698,18 @@ export default function StockMonitorDashboard() {
                       })()}
                     </td>
                     <td className="px-3 py-3 text-center">
-                      <span className="text-xs text-gray-500 flex items-center justify-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {timeAgo(m.last_checked_at)}
-                      </span>
-                      {m.last_checked_at && (
-                        <div className="text-[10px] text-gray-400">
-                          {new Date(m.last_checked_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
-                        </div>
+                      {m.last_checked_at ? (
+                        <>
+                          <span className="text-xs text-gray-500 flex items-center justify-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {timeAgo(m.last_checked_at)}
+                          </span>
+                          <div className="text-[10px] text-gray-400">
+                            {new Date(m.last_checked_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </>
+                      ) : (
+                        <span className="text-[10px] text-gray-400">미확인</span>
                       )}
                     </td>
                     <td className="px-3 py-3 text-center">
