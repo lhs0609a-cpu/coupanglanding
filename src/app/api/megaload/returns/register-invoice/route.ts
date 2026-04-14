@@ -8,7 +8,7 @@ import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
  * POST /api/megaload/returns/register-invoice
  * body: { receiptId, deliveryCompanyCode, invoiceNumber, regNumber? }
  *
- * 쿠팡 회수 송장 등록 API 호출 후 sh_return_requests 업데이트
+ * 쿠팡 회수 송장 등록 API 호출 후 megaload_return_requests 업데이트
  */
 export async function POST(request: NextRequest) {
   try {
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
 
     // 해당 receipt_id가 이 사용자 소유인지 확인 + 중복 등록 방지
     const { data: existing } = await serviceClient
-      .from('sh_return_requests')
+      .from('megaload_return_requests')
       .select('id, receipt_status, return_delivery_type, return_delivery_invoice_no')
       .eq('megaload_user_id', shUserId)
       .eq('channel', 'coupang')
@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
     // DB 업데이트
     const nowIso = new Date().toISOString();
     await serviceClient
-      .from('sh_return_requests')
+      .from('megaload_return_requests')
       .update({
         return_delivery_invoice_no: invoiceNumber,
         return_delivery_company_code: deliveryCompanyCode,

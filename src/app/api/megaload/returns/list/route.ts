@@ -4,7 +4,7 @@ import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
 /**
  * GET /api/megaload/returns/list?status=RETURNS_UNCHECKED&limit=50
- * sh_return_requests에서 반품 요청 목록 조회
+ * megaload_return_requests에서 반품 요청 목록 조회
  */
 export async function GET(request: NextRequest) {
   try {
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get('limit') || '100'), 200);
 
     let query = serviceClient
-      .from('sh_return_requests')
+      .from('megaload_return_requests')
       .select('*', { count: 'exact' })
       .eq('megaload_user_id', shUserId)
       // 전담택배는 쿠팡이 자동 수거하므로 UI에서 제외
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
 
     // 상태별 카운트 (탭 뱃지용)
     const { data: all } = await serviceClient
-      .from('sh_return_requests')
+      .from('megaload_return_requests')
       .select('receipt_status, return_delivery_type')
       .eq('megaload_user_id', shUserId);
 

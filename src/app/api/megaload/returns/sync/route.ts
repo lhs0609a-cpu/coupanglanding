@@ -30,7 +30,7 @@ function num(v: unknown): number | null {
 
 /**
  * POST /api/megaload/returns/sync
- * 쿠팡 반품 요청 목록을 최근 7일치 수집해서 sh_return_requests에 upsert
+ * 쿠팡 반품 요청 목록을 최근 7일치 수집해서 megaload_return_requests에 upsert
  */
 export async function POST() {
   try {
@@ -126,7 +126,7 @@ export async function POST() {
         const nowIso = new Date().toISOString();
 
         const { error } = await serviceClient
-          .from('sh_return_requests')
+          .from('megaload_return_requests')
           .upsert({
             megaload_user_id: shUserId,
             channel: 'coupang',

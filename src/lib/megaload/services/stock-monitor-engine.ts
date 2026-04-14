@@ -52,7 +52,7 @@ interface CheckResult {
   matchedPattern?: string;
 }
 
-async function checkUrl(url: string): Promise<CheckResult> {
+async function checkUrl(url: string, retryCount = 0): Promise<CheckResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
 
@@ -69,6 +69,11 @@ async function checkUrl(url: string): Promise<CheckResult> {
     clearTimeout(timeout);
 
     if (res.status === 404 || res.status === 410) return { status: 'removed', matchedPattern: `HTTP ${res.status}` };
+    // 429 재시도: 최대 2회, 3초/6초 대기
+    if (res.status === 429 && retryCount < 2) {
+      await sleep(3000 * (retryCount + 1));
+      return checkUrl(url, retryCount + 1);
+    }
     if (!res.ok) return { status: 'error', matchedPattern: `HTTP ${res.status}` };
 
     const html = (await res.text()).slice(0, 500_000);
@@ -306,6 +311,8 @@ export interface ProcessResult {
 /**
  * 배치 모니터링 처리 — cron에서 호출
  */
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
 export async function processMonitorBatch(
   monitors: MonitorRecord[],
   supabase: SupabaseClient,
@@ -343,9 +350,11 @@ export async function processMonitorBatch(
       continue;
     }
 
-    // 3개씩 동시 처리
-    const CONCURRENCY = 3;
+    // 2개씩 동시 처리 + 배치 간 2초 딜레이 (네이버 429 방지)
+    const CONCURRENCY = 2;
     for (let i = 0; i < userMonitors.length; i += CONCURRENCY) {
+      if (i > 0) await sleep(2000);
+
       const chunk = userMonitors.slice(i, i + CONCURRENCY);
       const chunkResults = await Promise.allSettled(
         chunk.map(m => processSingleMonitor(m, adapter!, supabase, authUserId)),

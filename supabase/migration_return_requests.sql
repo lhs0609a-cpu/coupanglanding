@@ -2,7 +2,7 @@
 -- Megaload — 반품 요청 저장소 (쿠팡 returnRequests API 연동)
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS sh_return_requests (
+CREATE TABLE IF NOT EXISTS megaload_return_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   megaload_user_id UUID NOT NULL REFERENCES megaload_users(id) ON DELETE CASCADE,
   channel TEXT NOT NULL DEFAULT 'coupang',
@@ -38,15 +38,15 @@ CREATE TABLE IF NOT EXISTS sh_return_requests (
   UNIQUE(megaload_user_id, channel, receipt_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_sh_return_requests_user_status
-  ON sh_return_requests(megaload_user_id, receipt_status);
+CREATE INDEX IF NOT EXISTS idx_megaload_return_requests_user_status
+  ON megaload_return_requests(megaload_user_id, receipt_status);
 
-CREATE INDEX IF NOT EXISTS idx_sh_return_requests_user_created
-  ON sh_return_requests(megaload_user_id, channel_created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_megaload_return_requests_user_created
+  ON megaload_return_requests(megaload_user_id, channel_created_at DESC);
 
-ALTER TABLE sh_return_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE megaload_return_requests ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Users can view own return requests" ON sh_return_requests;
+DROP POLICY IF EXISTS "Users can view own return requests" ON megaload_return_requests;
 CREATE POLICY "Users can view own return requests"
-  ON sh_return_requests FOR SELECT TO authenticated
+  ON megaload_return_requests FOR SELECT TO authenticated
   USING (megaload_user_id IN (SELECT id FROM megaload_users WHERE profile_id = auth.uid()));
