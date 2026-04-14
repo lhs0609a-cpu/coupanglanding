@@ -1061,6 +1061,69 @@ export interface ShReturnRequest {
   updated_at: string;
 }
 
+// 토스페이먼츠 결제 타입
+export type PaymentTransactionStatus = 'pending' | 'success' | 'failed' | 'cancelled';
+export type PaymentMethod = 'card' | 'manual_transfer';
+
+export interface BillingCard {
+  id: string;
+  pt_user_id: string;
+  customer_key: string;
+  billing_key: string;
+  card_company: string;
+  card_number: string;
+  card_type: string;
+  is_active: boolean;
+  is_primary: boolean;
+  failed_count: number;
+  registered_at: string;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PaymentTransaction {
+  id: string;
+  pt_user_id: string;
+  monthly_report_id: string;
+  billing_card_id: string | null;
+  toss_payment_key: string | null;
+  toss_order_id: string;
+  amount: number;
+  penalty_amount: number;
+  total_amount: number;
+  status: PaymentTransactionStatus;
+  payment_method: PaymentMethod;
+  is_auto_payment: boolean;
+  receipt_url: string | null;
+  raw_response: Record<string, unknown> | null;
+  requested_at: string;
+  approved_at: string | null;
+  failed_at: string | null;
+  failure_code: string | null;
+  failure_message: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  billing_card?: BillingCard;
+  monthly_report?: MonthlyReport;
+}
+
+export interface PaymentSchedule {
+  id: string;
+  pt_user_id: string;
+  auto_payment_enabled: boolean;
+  billing_day: number;
+  billing_card_id: string | null;
+  total_success_count: number;
+  total_failed_count: number;
+  last_charged_at: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  billing_card?: BillingCard;
+}
+
 export interface Database {
   public: {
     Tables: {

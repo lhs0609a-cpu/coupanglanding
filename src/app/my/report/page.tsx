@@ -25,9 +25,10 @@ import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import StatCard from '@/components/ui/StatCard';
 import PaymentProgress from '@/components/ui/PaymentProgress';
 import { calculateListingDiscount, type ListingDiscountResult } from '@/lib/calculations/listing-discount';
-import { Send, Calculator, CheckCircle2, ChevronDown, ChevronUp, Banknote, Minus, Plug, Shield, Edit3, Award, FlaskConical, AlertTriangle } from 'lucide-react';
+import { Send, Calculator, CheckCircle2, ChevronDown, ChevronUp, Banknote, Minus, Plug, Shield, Edit3, Award, FlaskConical, AlertTriangle, CreditCard } from 'lucide-react';
 import ApiConnectionBanner from '@/components/settlement/ApiConnectionBanner';
 import FeePaymentBanner from '@/components/settlement/FeePaymentBanner';
+import PaymentButton from '@/components/payments/PaymentButton';
 import { calculateFeePenalty, getFeePaymentDDay, GRACE_PERIOD_DAYS } from '@/lib/utils/fee-penalty';
 import type { MonthlyReport, PtUser, FeePaymentStatus } from '@/lib/supabase/types';
 
@@ -61,6 +62,8 @@ export default function MyReportPage() {
   const [totalListings, setTotalListings] = useState(0);
   const [testStep, setTestStep] = useState<string | null>(null);
   const [dynamicRates, setDynamicRates] = useState<CostRateSettings | null>(null);
+  const [hasCards, setHasCards] = useState(false);
+  const [showManualTransfer, setShowManualTransfer] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -139,6 +142,15 @@ export default function MyReportPage() {
     }
 
     setLoading(false);
+
+    // 등록 카드 유무 확인
+    try {
+      const cardsRes = await fetch('/api/payments/cards');
+      if (cardsRes.ok) {
+        const cardsData = await cardsRes.json();
+        setHasCards((cardsData.cards || []).length > 0);
+      }
+    } catch { /* ignore */ }
   }, [yearMonth, supabase]);
 
   useEffect(() => {
@@ -322,14 +334,25 @@ export default function MyReportPage() {
       adScreenshotUrl = result.url;
     }
 
-    const reportData = {
+    // API 검증 시 자동 확인 (관리자 수동 확인 불필요)
+    const isAutoReview = apiVerified;
+    const now = new Date();
+
+    // 수수료 납부 마감일 계산
+    const [ry, rm] = yearMonth.split('-').map(Number);
+    const settlDeadline = new Date(ry, rm, 3, 23, 59, 59); // 익월 3일
+    const feeDeadline = settlDeadline > now
+      ? settlDeadline.toISOString()
+      : new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const reportData: Record<string, unknown> = {
       pt_user_id: ptUser.id,
       year_month: yearMonth,
       reported_revenue: revenue,
       screenshot_url: screenshotUrl,
       ad_screenshot_url: adScreenshotUrl,
       calculated_deposit: depositAmount,
-      payment_status: 'submitted' as const,
+      payment_status: isAutoReview ? 'reviewed' : 'submitted',
       cost_product: costs.cost_product,
       cost_commission: costs.cost_commission,
       cost_advertising: costs.cost_advertising,
@@ -341,9 +364,18 @@ export default function MyReportPage() {
       supply_amount: finalVatCalc.supplyAmount,
       vat_amount: finalVatCalc.vatAmount,
       total_with_vat: finalVatCalc.totalWithVat,
-      input_source: apiVerified ? 'api' as const : 'manual_approved' as const,
+      input_source: apiVerified ? 'api' : 'manual_approved',
       period_start: settlementPeriod?.start || null,
       period_end: settlementPeriod?.end || null,
+      // API 검증 시 자동 확인 필드
+      ...(isAutoReview && {
+        admin_deposit_amount: depositAmount,
+        reviewed_at: now.toISOString(),
+        fee_payment_status: 'awaiting_payment',
+        fee_payment_deadline: feeDeadline,
+        fee_surcharge_amount: 0,
+        fee_interest_amount: 0,
+      }),
     };
 
     if (report) {
@@ -355,7 +387,10 @@ export default function MyReportPage() {
       if (error) {
         setMessage({ type: 'error', text: '보고 수정에 실패했습니다.' });
       } else {
-        setMessage({ type: 'success', text: '매출 정산이 수정되었습니다.' });
+        setMessage({ type: 'success', text: isAutoReview
+          ? '매출 정산이 자동 확인되었습니다. 수수료를 결제해주세요.'
+          : '매출 정산이 수정되었습니다.'
+        });
         fetchData();
       }
     } else {
@@ -366,7 +401,10 @@ export default function MyReportPage() {
       if (error) {
         setMessage({ type: 'error', text: '보고 제출에 실패했습니다.' });
       } else {
-        setMessage({ type: 'success', text: '매출 정산이 제출되었습니다.' });
+        setMessage({ type: 'success', text: isAutoReview
+          ? '매출 정산이 자동 확인되었습니다. 수수료를 결제해주세요.'
+          : '매출 정산이 제출되었습니다. 관리자 확인을 기다려주세요.'
+        });
         fetchData();
       }
     }
@@ -725,31 +763,20 @@ export default function MyReportPage() {
             const baseAmount = report.admin_deposit_amount || report.calculated_deposit;
             const hasPenalty = daysOver > GRACE_PERIOD_DAYS && penalty.totalPenalty > 0;
 
+            const totalDue = hasPenalty ? penalty.totalDue : report.total_with_vat;
+
             return (
-              <div className="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
-                <div className="flex items-center justify-between flex-wrap gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-purple-800">관리자가 매출을 확인했습니다. 송금을 대기 중입니다.</p>
-                    {report.admin_deposit_amount && (
-                      <p className="text-lg font-bold text-purple-900 mt-1">
-                        확정 수수료: {formatKRW(report.total_with_vat)}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleDepositComplete}
-                    disabled={depositLoading}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
-                  >
-                    <Banknote className="w-4 h-4" />
-                    {depositLoading ? '처리 중...' : '송금완료 신청'}
-                  </button>
+              <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-4">
+                <div>
+                  <p className="text-sm font-medium text-blue-800">관리자가 매출을 확인했습니다. 수수료를 결제해주세요.</p>
+                  <p className="text-xl font-bold text-blue-900 mt-1">
+                    결제 금액: {formatKRW(totalDue)}
+                  </p>
                 </div>
 
                 {/* 연체금 내역 (유예 기간 초과 시) */}
                 {hasPenalty && (
-                  <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg space-y-1.5 text-sm">
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg space-y-1.5 text-sm">
                     <p className="font-medium text-red-800 flex items-center gap-1.5">
                       <AlertTriangle className="w-4 h-4" />
                       연체금이 포함된 납부액
@@ -774,6 +801,54 @@ export default function MyReportPage() {
                     </div>
                   </div>
                 )}
+
+                {/* 카드 결제 (메인) */}
+                {hasCards ? (
+                  <PaymentButton
+                    reportId={report.id}
+                    amount={report.total_with_vat}
+                    penaltyAmount={hasPenalty ? penalty.totalPenalty : 0}
+                    yearMonth={report.year_month}
+                    onSuccess={() => fetchData()}
+                  />
+                ) : (
+                  <div className="p-3 bg-white border border-blue-200 rounded-lg">
+                    <p className="text-sm text-gray-700 mb-2">
+                      카드를 등록하면 즉시 결제 및 자동결제를 이용할 수 있습니다.
+                    </p>
+                    <a
+                      href="/my/settings"
+                      className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm"
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      결제 카드 등록하기
+                    </a>
+                  </div>
+                )}
+
+                {/* 계좌이체 (접힌 폴백) */}
+                <div className="border-t border-blue-200 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowManualTransfer(!showManualTransfer)}
+                    className="text-xs text-gray-400 hover:text-gray-600 transition"
+                  >
+                    {showManualTransfer ? '▲ 접기' : '▼ 계좌이체로 납부하기'}
+                  </button>
+                  {showManualTransfer && (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={handleDepositComplete}
+                        disabled={depositLoading}
+                        className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 text-sm rounded-lg hover:bg-gray-200 transition disabled:opacity-50"
+                      >
+                        <Banknote className="w-4 h-4" />
+                        {depositLoading ? '처리 중...' : '송금완료 신청'}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })()}

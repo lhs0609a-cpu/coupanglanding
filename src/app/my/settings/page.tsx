@@ -7,7 +7,11 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { API_STATUS_LABELS, API_STATUS_COLORS, BUSINESS_RELATIONS } from '@/lib/utils/constants';
 import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
-import { Settings, Eye, EyeOff, Save, CheckCircle, Plug, AlertTriangle, Shield, ChevronDown, ChevronUp, HelpCircle, ExternalLink, Building2, RefreshCw } from 'lucide-react';
+import { Settings, Eye, EyeOff, Save, CheckCircle, Plug, AlertTriangle, Shield, ChevronDown, ChevronUp, HelpCircle, ExternalLink, Building2, RefreshCw, CreditCard } from 'lucide-react';
+import CardRegistration from '@/components/payments/CardRegistration';
+import RegisteredCards from '@/components/payments/RegisteredCards';
+import AutoPaymentSettings from '@/components/payments/AutoPaymentSettings';
+import type { BillingCard } from '@/lib/supabase/types';
 
 // UTF-8 안전 base64 인코딩/디코딩
 function safeBase64Encode(str: string): string {
@@ -70,6 +74,11 @@ export default function MySettingsPage() {
   const [maskedSecretKey, setMaskedSecretKey] = useState<string | null>(null);
   const [apiReconnecting, setApiReconnecting] = useState(false);
 
+  // 결제 카드
+  const [ptUserId, setPtUserId] = useState('');
+  const [billingCards, setBillingCards] = useState<BillingCard[]>([]);
+  const [paymentTab, setPaymentTab] = useState<'cards' | 'auto'>('cards');
+
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
 
@@ -84,11 +93,12 @@ export default function MySettingsPage() {
 
     const { data: ptUser } = await supabase
       .from('pt_users')
-      .select('coupang_seller_id, coupang_seller_pw, business_name, business_registration_number, business_representative, business_address, business_type, business_category, coupang_api_connected, coupang_vendor_id, coupang_api_key_expires_at, is_self_business, business_relation')
+      .select('id, coupang_seller_id, coupang_seller_pw, business_name, business_registration_number, business_representative, business_address, business_type, business_category, coupang_api_connected, coupang_vendor_id, coupang_api_key_expires_at, is_self_business, business_relation')
       .eq('profile_id', user.id)
       .single();
 
     if (ptUser) {
+      setPtUserId(ptUser.id);
       setSellerId(ptUser.coupang_seller_id || '');
       if (ptUser.coupang_seller_pw) {
         setSellerPw(safeBase64Decode(ptUser.coupang_seller_pw));
@@ -121,9 +131,20 @@ export default function MySettingsPage() {
     setLoading(false);
   }, [supabase]);
 
+  const fetchBillingCards = useCallback(async () => {
+    try {
+      const res = await fetch('/api/payments/cards');
+      if (res.ok) {
+        const data = await res.json();
+        setBillingCards(data.cards || []);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
   useEffect(() => {
     fetchCredentials();
-  }, [fetchCredentials]);
+    fetchBillingCards();
+  }, [fetchCredentials, fetchBillingCards]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -956,6 +977,54 @@ export default function MySettingsPage() {
               {bizSaving ? '저장 중...' : '사업자 정보 저장'}
             </button>
           </div>
+        )}
+      </Card>
+
+      {/* 자동결제 관리 */}
+      <Card>
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+            <CreditCard className="w-5 h-5 text-blue-600" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">자동결제 관리</h2>
+            <p className="text-sm text-gray-500">수수료 카드 결제 및 자동결제를 설정합니다</p>
+          </div>
+        </div>
+
+        {/* 탭 */}
+        <div className="flex border-b mb-5">
+          <button
+            type="button"
+            onClick={() => setPaymentTab('cards')}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition ${
+              paymentTab === 'cards'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            등록 카드
+          </button>
+          <button
+            type="button"
+            onClick={() => setPaymentTab('auto')}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition ${
+              paymentTab === 'auto'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            자동결제 설정
+          </button>
+        </div>
+
+        {paymentTab === 'cards' ? (
+          <div className="space-y-5">
+            <RegisteredCards cards={billingCards} onRefresh={fetchBillingCards} />
+            {ptUserId && <CardRegistration ptUserId={ptUserId} />}
+          </div>
+        ) : (
+          <AutoPaymentSettings cards={billingCards} />
         )}
       </Card>
 

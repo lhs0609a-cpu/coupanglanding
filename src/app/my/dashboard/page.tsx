@@ -18,6 +18,7 @@ import Card from '@/components/ui/Card';
 import WelcomeTutorial from '@/components/tutorial/WelcomeTutorial';
 import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
 import TutorialHubWidget from '@/components/tutorial/TutorialHubWidget';
+import CardRegistrationPrompt from '@/components/payments/CardRegistrationPrompt';
 import { ClipboardList, GraduationCap, ArrowRight, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 
@@ -147,6 +148,19 @@ export default function MyDashboardPage() {
           feeInterestAmount={currentReport.fee_interest_amount}
         />
       )}
+
+      {/* 카드 등록 유도 — 미납 시 강한 compact, 정산대상이면 compact, 아직 대상 아니면 full 안내 */}
+      {ptUser && (() => {
+        const hasUnpaid = !!currentReport && ['awaiting_payment', 'overdue'].includes(currentReport.fee_payment_status);
+        const showVariant = hasUnpaid ? 'compact' : (eligible ? 'compact' : 'full');
+        return (
+          <CardRegistrationPrompt
+            variant={showVariant}
+            eligible={eligible}
+            hasUnpaidFee={hasUnpaid}
+          />
+        );
+      })()}
 
       <div className="flex items-center gap-3">
         <ClipboardList className="w-6 h-6 text-[#E31837]" />

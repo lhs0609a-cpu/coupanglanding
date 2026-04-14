@@ -32,6 +32,8 @@ export default async function MyLayout({ children }: { children: React.ReactNode
   let settlementBadge: { dday: number; reportStatus: 'not_eligible' | 'pending' | 'submitted' | 'completed' | 'overdue'; eligible: boolean } | undefined;
   let feePaymentBadge: { status: string; deadline: string | null; unpaidAmount: number; yearMonth: string } | undefined;
 
+  let hasPaymentCards = false;
+
   if (ptUser) {
     // fire-and-forget: 마지막 활동 시간 업데이트
     supabase.from('pt_users').update({ last_active_at: new Date().toISOString() }).eq('id', (ptUser as { id: string }).id).then();
@@ -41,11 +43,14 @@ export default async function MyLayout({ children }: { children: React.ReactNode
     const dday = getSettlementDDay(targetMonth);
     const eligible = isEligibleForMonth(ptUserData.created_at, targetMonth);
 
-    // 2단계: reportData + trainer 병렬 조회
-    const [{ data: reportData }, { data: trainer }] = await Promise.all([
+    // 2단계: reportData + trainer + 카드 병렬 조회
+    const [{ data: reportData }, { data: trainer }, { data: cards }] = await Promise.all([
       supabase.from('monthly_reports').select('payment_status, fee_payment_status, fee_payment_deadline, total_with_vat').eq('pt_user_id', ptUserData.id).eq('year_month', targetMonth).maybeSingle(),
       supabase.from('trainers').select('id').eq('pt_user_id', ptUserData.id).eq('status', 'approved').maybeSingle(),
+      supabase.from('billing_cards').select('id').eq('pt_user_id', ptUserData.id).eq('is_active', true).limit(1),
     ]);
+
+    hasPaymentCards = (cards || []).length > 0;
 
     const reportStatus = getSettlementStatus(
       ptUserData.created_at,
@@ -80,6 +85,7 @@ export default async function MyLayout({ children }: { children: React.ReactNode
       settlementBadge={settlementBadge}
       feePaymentBadge={feePaymentBadge}
       coupangApiConnected={coupangApiConnected}
+      hasPaymentCards={hasPaymentCards}
     >
       {children}
     </MyLayoutClient>
