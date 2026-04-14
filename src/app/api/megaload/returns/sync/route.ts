@@ -88,37 +88,59 @@ export async function POST() {
         const receiptType = str(raw.receiptType);
         const receiptStatus = str(raw.receiptStatus) || 'UNKNOWN';
 
-        // 요청자 정보 (안심번호 대비 real* 우선)
-        const requester = (raw.requester || {}) as Record<string, unknown>;
-        const requesterName = str(requester.realName) || str(requester.name);
-        const requesterPhone = str(requester.realNumber) || str(requester.safeNumber);
-        const addressRaw = str(requester.address) || '';
-        const addressDetailRaw = str(requester.addressDetail) || '';
-        const requesterAddress = [addressRaw, addressDetailRaw].filter(Boolean).join(' ').trim() || null;
-        const requesterZipCode = str(requester.zipCode);
+        // 목록 API에는 requester 정보가 없으므로 단건 상세 조회로 가져온다
+        let requesterName: string | null = null;
+        let requesterPhone: string | null = null;
+        let requesterAddress: string | null = null;
+        let requesterZipCode: string | null = null;
+        let detailRaw: Record<string, unknown> | null = null;
+
+        try {
+          detailRaw = await adapter.getReturnRequestDetail(receiptId);
+          const requester = (detailRaw.requester || {}) as Record<string, unknown>;
+          requesterName = str(requester.realName) || str(requester.name);
+          requesterPhone = str(requester.realNumber) || str(requester.safeNumber);
+          const addressRaw = str(requester.address) || '';
+          const addressDetailRaw = str(requester.addressDetail) || '';
+          requesterAddress = [addressRaw, addressDetailRaw].filter(Boolean).join(' ').trim() || null;
+          requesterZipCode = str(requester.zipCode);
+        } catch (detailErr) {
+          // 상세 조회 실패 시 목록 데이터에서 시도 (fallback)
+          const requester = (raw.requester || {}) as Record<string, unknown>;
+          requesterName = str(requester.realName) || str(requester.name);
+          requesterPhone = str(requester.realNumber) || str(requester.safeNumber);
+          const addressRaw = str(requester.address) || '';
+          const addressDetailRaw = str(requester.addressDetail) || '';
+          requesterAddress = [addressRaw, addressDetailRaw].filter(Boolean).join(' ').trim() || null;
+          requesterZipCode = str(requester.zipCode);
+          console.warn(`receipt_id=${receiptId} 상세조회 실패:`, detailErr);
+        }
 
         // returnItems 첫 건
-        const returnItems = (raw.returnItems || []) as Record<string, unknown>[];
+        const detailItems = detailRaw?.returnItems as Record<string, unknown>[] | undefined;
+        const returnItems = (detailItems || raw.returnItems || []) as Record<string, unknown>[];
         const firstItem = returnItems[0] || {};
         const productName = str(firstItem.sellerProductName);
         const optionName = str(firstItem.vendorItemName);
         const releaseStatus = str(firstItem.releaseStatus);
 
         // returnDeliveryDtos 첫 건 (이미 등록된 회수 운송장)
-        const returnDeliveryDtos = (raw.returnDeliveryDtos || []) as Record<string, unknown>[];
+        const detailDeliveries = detailRaw?.returnDeliveryDtos as Record<string, unknown>[] | undefined;
+        const returnDeliveryDtos = (detailDeliveries || raw.returnDeliveryDtos || []) as Record<string, unknown>[];
         const firstDelivery = returnDeliveryDtos[0] || {};
         const existingInvoiceNo = str(firstDelivery.deliveryInvoiceNo);
         const existingDeliveryCode = str(firstDelivery.deliveryCompanyCode);
 
-        const reasonCategory1 = str(raw.reasonCategory1);
-        const reasonCategory2 = str(raw.reasonCategory2);
-        const reasonCode = str(raw.returnReason) || str(raw.reasonCode);
-        const reasonCodeText = str(raw.returnReasonText) || str(raw.reasonCodeText);
-        const cancelCountSum = num(raw.cancelCountSum);
-        const returnDeliveryType = str(raw.returnDeliveryType);
-        const returnShippingCharge = num(raw.returnShippingCharge);
-        const faultByType = str(raw.faultByType);
-        const releaseStopStatus = str(raw.releaseStopStatus);
+        const src = detailRaw || raw;
+        const reasonCategory1 = str(src.reasonCategory1);
+        const reasonCategory2 = str(src.reasonCategory2);
+        const reasonCode = str(src.returnReason) || str(src.reasonCode);
+        const reasonCodeText = str(src.returnReasonText) || str(src.reasonCodeText);
+        const cancelCountSum = num(src.cancelCountSum);
+        const returnDeliveryType = str(src.returnDeliveryType);
+        const returnShippingCharge = num(src.returnShippingCharge);
+        const faultByType = str(src.faultByType);
+        const releaseStopStatus = str(src.releaseStopStatus);
 
         const channelCreatedAt = str(raw.createdAt);
         const channelModifiedAt = str(raw.modifiedAt);
@@ -155,7 +177,7 @@ export async function POST() {
             release_status: releaseStatus,
             channel_created_at: channelCreatedAt,
             channel_modified_at: channelModifiedAt,
-            raw_data: raw,
+            raw_data: detailRaw || raw,
             synced_at: nowIso,
             updated_at: nowIso,
           }, { onConflict: 'megaload_user_id,channel,receipt_id' });
@@ -166,6 +188,9 @@ export async function POST() {
         }
 
         synced++;
+
+        // Rate limit 방지: 상세 조회 간 100ms 딜레이
+        await new Promise(r => setTimeout(r, 100));
       } catch (e) {
         const msg = e instanceof Error ? e.message : '처리 실패';
         errors.push(msg);

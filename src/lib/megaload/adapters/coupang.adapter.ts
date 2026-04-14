@@ -333,6 +333,13 @@ export class CoupangAdapter extends BaseAdapter {
     };
   }
 
+  /** 반품 요청 단건 상세 조회 */
+  async getReturnRequestDetail(receiptId: number): Promise<Record<string, unknown>> {
+    const path = `/v2/providers/openapi/apis/api/v4/vendors/${this.vendorId}/returnRequests/${receiptId}`;
+    const data = await this.coupangApi<{ data: Record<string, unknown> }>('GET', path);
+    return data.data || {};
+  }
+
   /** 회수 송장 등록 */
   async registerReturnInvoice(params: {
     receiptId: number;
