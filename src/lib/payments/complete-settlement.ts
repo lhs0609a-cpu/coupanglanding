@@ -66,7 +66,7 @@ export async function completeSettlement(
     .eq('id', report.pt_user_id)
     .single();
 
-  const userName = (ptUser?.profile as { full_name: string } | null)?.full_name || '이름없음';
+  const userName = (ptUser?.profile as unknown as { full_name: string } | null)?.full_name || '이름없음';
 
   // 4. revenue_entries 생성 (중복 방지)
   const { data: existingRevenue } = await serviceClient
