@@ -2431,19 +2431,31 @@ export async function selectDiverseImages(
   } = {},
 ): Promise<DiverseSelectionResult> {
   const maxCount = options.maxCount ?? 10;
+  /** 필터 후 최소 보장 장수 — 어떤 필터든 이 아래로 떨어지면 점수순 보충 */
+  const MIN_KEEP = 5;
 
   if (objectUrls.length === 0) {
     return { selectedIndices: [], diversityScore: 0, imageTypes: [], clusterCount: 0, watermarkScores: [] };
   }
 
+  const minKeep = Math.min(MIN_KEEP, objectUrls.length); // 전체가 5장 미만이면 전체가 최소
+
   // 이미지가 maxCount 이하면 필터만 적용하고 전부 반환
   if (objectUrls.length <= maxCount) {
     // 기본 필터 + 특징 추출만
     const basicFilter = await filterDetailPageImages(objectUrls);
-    const passed = basicFilter.filter(r => !r.filtered);
+    let passed = basicFilter.filter(r => !r.filtered);
 
-    if (passed.length === 0) {
-      return { selectedIndices: [], diversityScore: 0, imageTypes: [], clusterCount: 0, watermarkScores: [] };
+    // 최소 보장: 필터 통과 장수 < minKeep이면 탈락 이미지를 원본순으로 보충
+    if (passed.length < minKeep) {
+      const passedSet = new Set(passed.map(r => r.index));
+      const rejected = basicFilter.filter(r => r.filtered && !passedSet.has(r.index));
+      for (const r of rejected) {
+        if (passed.length >= minKeep) break;
+        passed.push({ ...r, filtered: false });
+      }
+      passed.sort((a, b) => a.index - b.index);
+      console.warn(`[selectDiverseImages] 품질필터 후 ${basicFilter.filter(r => !r.filtered).length}장 → 최소 ${minKeep}장 보충 → ${passed.length}장`);
     }
 
     // 특징 벡터 추출
@@ -2452,14 +2464,18 @@ export async function selectDiverseImages(
       passed.map(p => p.index),
     );
 
-    const indices = features.map(f => f.originalIndex);
-    const types = features.map(f => f.imageType);
+    const indices = features.length > 0
+      ? features.map(f => f.originalIndex)
+      : passed.map(p => p.index);
+    const types = features.length > 0
+      ? features.map(f => f.imageType)
+      : indices.map(() => 'unknown' as ImageType);
     const uniqueTypes = new Set(types.filter(t => t !== 'unknown'));
     const watermarkScores = features.map(f => ({ index: f.originalIndex, score: f.watermarkScore }));
 
     return {
       selectedIndices: indices,
-      diversityScore: computeDiversityScore(features, uniqueTypes.size),
+      diversityScore: features.length > 0 ? computeDiversityScore(features, uniqueTypes.size) : 0,
       imageTypes: types,
       clusterCount: uniqueTypes.size || 1,
       watermarkScores,
@@ -2472,8 +2488,18 @@ export async function selectDiverseImages(
     .filter(r => !r.filtered)
     .map(r => ({ origIdx: r.index, url: objectUrls[r.index] }));
 
-  if (passedEntries.length === 0) {
-    return { selectedIndices: [], diversityScore: 0, imageTypes: [], clusterCount: 0, watermarkScores: [] };
+  // 최소 보장: 품질필터 후 minKeep 미만이면 탈락 이미지를 원본순으로 보충
+  if (passedEntries.length < minKeep) {
+    const passedSet = new Set(passedEntries.map(e => e.origIdx));
+    const rejected = detailFilter
+      .filter(r => r.filtered && !passedSet.has(r.index))
+      .map(r => ({ origIdx: r.index, url: objectUrls[r.index] }));
+    for (const r of rejected) {
+      if (passedEntries.length >= minKeep) break;
+      passedEntries.push(r);
+    }
+    passedEntries.sort((a, b) => a.origIdx - b.origIdx);
+    console.warn(`[selectDiverseImages] 품질필터 후 최소 ${minKeep}장 보충 → ${passedEntries.length}장`);
   }
 
   // Step 2: 이상치 제거 (대표이미지 대비)
@@ -2483,13 +2509,23 @@ export async function selectDiverseImages(
       passedEntries.map(e => e.url),
       0.9,
     );
-    passedEntries = crossRef
-      .filter(r => !r.isOutlier)
-      .map(r => passedEntries[r.index]);
-  }
-
-  if (passedEntries.length === 0) {
-    return { selectedIndices: [], diversityScore: 0, imageTypes: [], clusterCount: 0, watermarkScores: [] };
+    const kept = crossRef.filter(r => !r.isOutlier);
+    if (kept.length >= minKeep) {
+      passedEntries = kept.map(r => passedEntries[r.index]);
+    } else {
+      // 최소 보장: 거리 낮은 순(덜 이상한 순)으로 보충
+      const sorted = [...crossRef].sort((a, b) => a.distance - b.distance);
+      const resultSet = new Set<number>();
+      // 통과한 것 먼저 추가
+      for (const r of kept) resultSet.add(r.index);
+      // 거리 낮은 순으로 보충
+      for (const r of sorted) {
+        if (resultSet.size >= minKeep) break;
+        resultSet.add(r.index);
+      }
+      passedEntries = [...resultSet].sort((a, b) => a - b).map(i => passedEntries[i]);
+      console.warn(`[selectDiverseImages] 이상치필터 후 ${kept.length}장 → 최소 ${minKeep}장 보충 → ${passedEntries.length}장`);
+    }
   }
 
   // Step 2.5: 상품 관련성 점수 계산
@@ -2501,29 +2537,42 @@ export async function selectDiverseImages(
     );
     // 관련성 < 0.3 → 자동 제외 (하드필터)
     const beforeCount = passedEntries.length;
-    const filtered = passedEntries.filter((_, i) => relevanceResults![i].score >= 0.3);
-    // 전부 제거되면 관련성 필터 무시 (폴백)
-    if (filtered.length > 0) {
-      // relevanceResults도 필터된 인덱스에 맞게 재매핑
+    // 점수 높은 순 정렬 인덱스 (최소 보장 보충용)
+    const scoredIndices = relevanceResults
+      .map((r, i) => ({ i, score: r.score }))
+      .sort((a, b) => b.score - a.score);
+    const aboveThreshold = passedEntries.filter((_, i) => relevanceResults![i].score >= 0.3);
+
+    if (aboveThreshold.length >= minKeep) {
+      // 충분히 남음 — 0.3 미만만 제외
       const filteredRelevance: ProductRelevanceScore[] = [];
       for (let i = 0; i < passedEntries.length; i++) {
         if (relevanceResults[i].score >= 0.3) {
           filteredRelevance.push({ ...relevanceResults[i], index: passedEntries[i].origIdx });
         }
       }
-      passedEntries = filtered;
+      passedEntries = aboveThreshold;
       relevanceResults = filteredRelevance;
     } else {
-      // 원본 인덱스로 매핑만
-      relevanceResults = relevanceResults.map((r, i) => ({ ...r, index: passedEntries[i].origIdx }));
+      // 최소 보장: 점수 높은 순으로 minKeep장 확보
+      const keepSet = new Set<number>();
+      for (const { i } of scoredIndices) {
+        if (keepSet.size >= minKeep) break;
+        keepSet.add(i);
+      }
+      const keptEntries: typeof passedEntries = [];
+      const keptRelevance: ProductRelevanceScore[] = [];
+      for (const i of [...keepSet].sort((a, b) => a - b)) {
+        keptEntries.push(passedEntries[i]);
+        keptRelevance.push({ ...relevanceResults[i], index: passedEntries[i].origIdx });
+      }
+      passedEntries = keptEntries;
+      relevanceResults = keptRelevance;
+      console.warn(`[selectDiverseImages] 관련성필터 후 ${aboveThreshold.length}장 → 점수순 ${minKeep}장 보충 → ${passedEntries.length}장`);
     }
     if (beforeCount !== passedEntries.length) {
-      console.info(`[relevance-filter] ${beforeCount - passedEntries.length}장 관련성 < 0.3 제외`);
+      console.info(`[relevance-filter] ${beforeCount - passedEntries.length}장 관련성 제외 (최소 ${minKeep}장 보장)`);
     }
-  }
-
-  if (passedEntries.length === 0) {
-    return { selectedIndices: [], diversityScore: 0, imageTypes: [], clusterCount: 0, watermarkScores: [] };
   }
 
   // Step 3: 특징 벡터 추출
@@ -2533,7 +2582,10 @@ export async function selectDiverseImages(
   );
 
   if (features.length === 0) {
-    return { selectedIndices: [], diversityScore: 0, imageTypes: [], clusterCount: 0, watermarkScores: [] };
+    // 특징 추출 실패 → passedEntries 전체 포함 (최소 보장 이미 적용됨)
+    console.warn(`[selectDiverseImages] 특징 추출 실패 — ${passedEntries.length}장 전체 포함`);
+    const allIndices = passedEntries.map(e => e.origIdx);
+    return { selectedIndices: allIndices, diversityScore: 0, imageTypes: allIndices.map(() => 'unknown' as ImageType), clusterCount: 1, watermarkScores: [], relevanceScores: relevanceResults };
   }
 
   // 이미지 수가 maxCount 이하면 전부 반환

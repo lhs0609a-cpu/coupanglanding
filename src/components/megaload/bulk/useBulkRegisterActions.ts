@@ -943,7 +943,10 @@ export function useBulkRegisterActions() {
                     );
                     // selectedIndices는 validDetailMap 내의 인덱스 → origIdx로 변환
                     const selectedOrigIndices = result.selectedIndices.map(i => validDetailMap[i].origIdx);
-                    detailOrderMap.set(idx, selectedOrigIndices);
+                    // 전부 필터 탈락 시 order를 설정하지 않음 (undefined = 전체 선택)
+                    if (selectedOrigIndices.length > 0) {
+                      detailOrderMap.set(idx, selectedOrigIndices);
+                    }
                     detailMetaMap.set(idx, {
                       diversityScore: result.diversityScore,
                       imageTypes: result.imageTypes,
@@ -980,7 +983,9 @@ export function useBulkRegisterActions() {
                       { maxCount: 5, referenceUrls: mainUrls },
                     );
                     const selectedOrigIndices = result.selectedIndices.map(i => validReviewMap[i].origIdx);
-                    reviewOrderMap.set(idx, selectedOrigIndices);
+                    if (selectedOrigIndices.length > 0) {
+                      reviewOrderMap.set(idx, selectedOrigIndices);
+                    }
                     reviewMetaMap.set(idx, {
                       diversityScore: result.diversityScore,
                       imageTypes: result.imageTypes,
