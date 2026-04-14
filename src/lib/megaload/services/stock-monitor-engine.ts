@@ -368,7 +368,7 @@ export async function processMonitorBatch(
     // 429 circuit breaker: 2연속 429 → 나머지 스킵
     let consecutive429 = 0;
     for (let i = 0; i < userMonitors.length; i++) {
-      if (i > 0) await sleep(4000);
+      if (i > 0) await sleep(1500);
 
       // Circuit breaker: 429 연속 2회 → 배치 중단
       if (consecutive429 >= 2) {
@@ -391,7 +391,7 @@ export async function processMonitorBatch(
         if (result.error?.includes('429')) {
           consecutive429++;
           // 429 발생 시 추가 대기
-          await sleep(10000);
+          await sleep(5000);
         } else {
           consecutive429 = 0;
         }

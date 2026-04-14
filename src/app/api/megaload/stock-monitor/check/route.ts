@@ -3,6 +3,8 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { processMonitorBatch, type MonitorRecord } from '@/lib/megaload/services/stock-monitor-engine';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
+export const maxDuration = 300; // 5분 — Vercel 기본 10~15초로는 배치 처리 불가
+
 /**
  * PATCH /api/megaload/stock-monitor/check
  * 에러 상태 일괄 리셋 — consecutive_errors를 0으로 초기화하여 다음 크론에서 재체크
@@ -23,7 +25,22 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const { scope } = body as { scope?: 'errors' | 'all_suspended' };
+    const { scope } = body as { scope?: 'errors' | 'all_suspended' | 'recheck_all' };
+
+    if (scope === 'recheck_all') {
+      // 전체 모니터의 last_checked_at을 null로 리셋 → 크론이 다음 실행에서 우선 체크
+      const { count, error } = await serviceClient
+        .from('sh_stock_monitors')
+        .update({
+          last_checked_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('megaload_user_id', shUserId)
+        .eq('is_active', true);
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ reset: count || 0, scope: 'recheck_all' });
+    }
 
     if (scope === 'all_suspended') {
       // 쿠팡 중지 상태인데 source가 in_stock인 모니터 → coupang_status를 리셋하여 다음 체크에서 resume

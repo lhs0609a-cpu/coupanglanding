@@ -233,31 +233,29 @@ export default function StockMonitorDashboard() {
     }
   };
 
-  const handleCheckAll = async () => {
-    const activeMonitorIds = monitors.filter(m => m.is_active).map(m => m.id);
-    if (activeMonitorIds.length === 0) return;
+  const [recheckScheduled, setRecheckScheduled] = useState(false);
 
-    setCheckingIds(new Set(activeMonitorIds));
+  const handleCheckAll = async () => {
+    // 즉시 재체크 예약: last_checked_at을 null로 리셋 → 크론이 다음 실행에서 우선 처리
+    setRecheckScheduled(true);
     try {
-      // 20개씩 배치로 순차 처리
-      for (let i = 0; i < activeMonitorIds.length; i += 20) {
-        const batch = activeMonitorIds.slice(i, i + 20);
-        const res = await fetch('/api/megaload/stock-monitor/check', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ monitorIds: batch }),
-        });
-        if (!res.ok) break;
-        // 배치 간 1초 대기
-        if (i + 20 < activeMonitorIds.length) {
-          await new Promise(r => setTimeout(r, 1000));
-        }
+      const res = await fetch('/api/megaload/stock-monitor/check', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: 'recheck_all' }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`${data.reset}개 모니터가 재체크 예약되었습니다.\n30분마다 60개씩 자동 처리됩니다.`);
+        await fetchData();
+      } else {
+        alert(`재체크 예약 실패: ${data.error || '알 수 없는 오류'}`);
       }
-      await fetchData();
     } catch (err) {
-      console.error('check all error:', err);
+      console.error('recheck all error:', err);
+      alert('재체크 예약 중 오류가 발생했습니다.');
     } finally {
-      setCheckingIds(new Set());
+      setRecheckScheduled(false);
     }
   };
 
@@ -428,11 +426,11 @@ export default function StockMonitorDashboard() {
           </button>
           <button
             onClick={handleCheckAll}
-            disabled={checkingIds.size > 0 || loading}
+            disabled={recheckScheduled || loading}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
           >
-            {checkingIds.size > 0 ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            전체 즉시 확인
+            {recheckScheduled ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            전체 재체크 예약
           </button>
         </div>
       </div>
@@ -612,7 +610,7 @@ export default function StockMonitorDashboard() {
                             )}
                             {m.coupang_product_id && (
                               <a
-                                href={`https://wing.coupang.com/tenants/manage-product/products?sellerProductId=${m.coupang_product_id}`}
+                                href={`https://wing.coupang.com/tenants/manage-product/products?searchKeyword=${m.coupang_product_id}&searchType=SELLER_PRODUCT_ID`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-[10px] text-purple-500 hover:text-purple-700 flex items-center gap-0.5"
