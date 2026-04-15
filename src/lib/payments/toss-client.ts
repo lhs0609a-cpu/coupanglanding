@@ -99,7 +99,7 @@ function getAuthHeader(): string {
 export class TossPaymentsAPI {
   /** authKey로 빌링키 발급 */
   static async issueBillingKey(authKey: string, customerKey: string): Promise<BillingKeyResponse> {
-    const res = await fetch(TOSS_API_BASE, {
+    const res = await fetch(`${TOSS_API_BASE}/authorizations/issue`, {
       method: 'POST',
       headers: {
         Authorization: getAuthHeader(),
