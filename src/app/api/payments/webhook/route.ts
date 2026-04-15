@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
         // orderId로 트랜잭션 찾기
         const { data: tx } = await serviceClient
           .from('payment_transactions')
-          .select('id, monthly_report_id')
+          .select('id, pt_user_id, monthly_report_id')
           .eq('toss_order_id', orderId)
           .single();
 
@@ -49,6 +49,15 @@ export async function POST(request: NextRequest) {
               fee_paid_at: null,
             })
             .eq('id', tx.monthly_report_id);
+
+          // 결제가 취소되었으므로 해당 PT 유저를 다시 overdue 상태로 마킹
+          // payment-lock-update 크론이 다음 실행 시 level을 재계산한다.
+          const todayDateStr = new Date().toISOString().slice(0, 10);
+          await serviceClient
+            .from('pt_users')
+            .update({ payment_overdue_since: todayDateStr })
+            .eq('id', tx.pt_user_id)
+            .is('payment_overdue_since', null);
         }
         break;
       }

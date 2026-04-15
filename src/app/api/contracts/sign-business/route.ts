@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
 
     // 사업자 서명 저장 + status를 signed로 변경
-    const { error: updateError } = await supabase
+    const { data: updatedContract, error: updateError } = await supabase
       .from('contracts')
       .update({
         status: 'signed',
@@ -112,10 +112,23 @@ export async function POST(request: NextRequest) {
         business_signed_ip: clientIp,
         business_signer_name: signerName,
       })
-      .eq('id', contract.id);
+      .eq('id', contract.id)
+      .select('start_date, pt_user_id')
+      .single();
 
     if (updateError) {
       return NextResponse.json({ error: `서명 저장 실패: ${updateError.message}` }, { status: 500 });
+    }
+
+    // first_billing_grace_until = 계약 시작일 + 30일 (구멍 #77)
+    if (updatedContract?.start_date && updatedContract?.pt_user_id) {
+      const graceUntil = new Date(updatedContract.start_date);
+      graceUntil.setDate(graceUntil.getDate() + 30);
+      await supabase
+        .from('pt_users')
+        .update({ first_billing_grace_until: graceUntil.toISOString().slice(0, 10) })
+        .eq('id', updatedContract.pt_user_id)
+        .is('first_billing_grace_until', null);
     }
 
     return NextResponse.json({ success: true });

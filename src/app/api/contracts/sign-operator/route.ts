@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
 
     if (contractMode === 'single') {
       // 2자 계약: 기존과 동일하게 바로 signed
-      const { error: updateError } = await supabase
+      const { data: updatedContract, error: updateError } = await supabase
         .from('contracts')
         .update({
           status: 'signed',
@@ -58,10 +58,24 @@ export async function POST(request: NextRequest) {
           signed_ip: clientIp || 'unknown',
           signature_data: signatureData,
         })
-        .eq('id', contractId);
+        .eq('id', contractId)
+        .select('start_date')
+        .single();
 
       if (updateError) {
         return NextResponse.json({ error: `서명 실패: ${updateError.message}` }, { status: 500 });
+      }
+
+      // first_billing_grace_until = 계약 시작일 + 30일 (구멍 #77)
+      // 이미 다른 signed 계약이 있어서 grace가 이미 지난 유저라면 덮어쓰지 않음
+      if (updatedContract?.start_date) {
+        const graceUntil = new Date(updatedContract.start_date);
+        graceUntil.setDate(graceUntil.getDate() + 30);
+        await supabase
+          .from('pt_users')
+          .update({ first_billing_grace_until: graceUntil.toISOString().slice(0, 10) })
+          .eq('id', ptUser.id)
+          .is('first_billing_grace_until', null);
       }
 
       return NextResponse.json({ success: true, contractMode: 'single' });

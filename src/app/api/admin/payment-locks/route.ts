@@ -32,9 +32,10 @@ export async function GET() {
         payment_overdue_since,
         payment_lock_level,
         payment_lock_exempt_until,
+        admin_override_level,
         profile:profiles(full_name, email)
       `)
-      .or('payment_overdue_since.not.is.null,payment_lock_level.gt.0,payment_lock_exempt_until.not.is.null')
+      .or('payment_overdue_since.not.is.null,payment_lock_level.gt.0,payment_lock_exempt_until.not.is.null,admin_override_level.not.is.null')
       .order('payment_overdue_since', { ascending: true, nullsFirst: false });
 
     if (error) throw error;

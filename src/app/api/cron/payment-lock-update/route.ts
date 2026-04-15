@@ -22,10 +22,10 @@ export async function GET(request: NextRequest) {
     const today = new Date();
     const todayDateStr = today.toISOString().slice(0, 10);
 
-    // 연체 중이거나 락이 걸려 있는 사용자만 대상 (전수 스캔 회피)
+    // 연체 중이거나 락이 걸려 있거나 관리자 override 상태인 사용자만 대상
     const { data: candidates } = await serviceClient
       .from('pt_users')
-      .select('id, profile_id, payment_overdue_since, payment_lock_level, payment_lock_exempt_until');
+      .select('id, profile_id, payment_overdue_since, payment_lock_level, payment_lock_exempt_until, admin_override_level');
 
     if (!candidates || candidates.length === 0) {
       return NextResponse.json({ success: true, scanned: 0, updated: 0 });
@@ -37,9 +37,24 @@ export async function GET(request: NextRequest) {
 
     for (const u of candidates) {
       scanned++;
+
+      // 1순위: 관리자 override — cron이 덮어쓰지 않음
+      if (u.admin_override_level !== null && u.admin_override_level !== undefined) {
+        if (u.admin_override_level !== u.payment_lock_level) {
+          await serviceClient
+            .from('pt_users')
+            .update({ payment_lock_level: u.admin_override_level })
+            .eq('id', u.id);
+          updated++;
+        }
+        continue;
+      }
+
+      // 2순위: exempt 활성 → 강제 0
       const exemptActive =
         u.payment_lock_exempt_until && u.payment_lock_exempt_until > todayDateStr;
 
+      // 3순위: payment_overdue_since 기반 자동 계산
       const newLevel = exemptActive
         ? 0
         : calculateLockLevel(u.payment_overdue_since, today);

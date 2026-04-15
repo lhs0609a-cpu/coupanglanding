@@ -39,20 +39,34 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // signed 계약이 있는 PT 유저만 대상 (terminated/draft 제외)
     const { data: ptUsers } = await serviceClient
       .from('pt_users')
-      .select('id, profile_id');
+      .select(`
+        id,
+        profile_id,
+        first_billing_grace_until,
+        contracts!inner(status)
+      `)
+      .eq('contracts.status', 'signed');
 
     if (!ptUsers || ptUsers.length === 0) {
-      return NextResponse.json({ success: true, message: 'PT 유저 없음', processed: 0 });
+      return NextResponse.json({ success: true, message: '대상 PT 유저 없음', processed: 0 });
     }
 
     let processed = 0;
     let succeeded = 0;
     let failed = 0;
     let overdueMarked = 0;
+    let graceSkipped = 0;
 
     for (const ptUser of ptUsers) {
+      // grace 기간 중이면 skip (락 마킹도 하지 않음)
+      if (ptUser.first_billing_grace_until && todayDateStr < ptUser.first_billing_grace_until) {
+        graceSkipped++;
+        continue;
+      }
+
       const result = await processPtUser(serviceClient, ptUser, todayDateStr);
       processed += result.processed;
       succeeded += result.succeeded;
@@ -66,6 +80,7 @@ export async function GET(request: NextRequest) {
       succeeded,
       failed,
       overdueMarked,
+      graceSkipped,
     });
   } catch (err) {
     console.error('cron/auto-billing error:', err);
@@ -111,8 +126,27 @@ async function processPtUser(
     .order('year_month', { ascending: true });
 
   if (!unpaidReports || unpaidReports.length === 0) {
-    // 미납이 없으면 정상 상태이므로 혹시 남아있을 수 있는 overdue 클리어
-    await clearOverdue(serviceClient, ptUser.id);
+    // Q3=엄격: 대상 월이 있는데 보고도 안 했으면 overdue 마킹
+    // "대상 월 있음"의 기준은 paid 리포트가 하나라도 있는가(이전엔 보고했었음) OR
+    // 해당 pt_user의 grace 만료 후 한 달 이상 지났는가.
+    const { count: totalReportCount } = await serviceClient
+      .from('monthly_reports')
+      .select('id', { count: 'exact', head: true })
+      .eq('pt_user_id', ptUser.id);
+
+    const hasEverReported = (totalReportCount ?? 0) > 0;
+
+    if (hasEverReported) {
+      // 과거엔 보고했는데 이번 청구일에 미납 리포트 0건 = 모두 결제 완료 상태. 정상.
+      await clearOverdue(serviceClient, ptUser.id);
+    } else {
+      // 한 번도 보고 안 함 + grace도 지남 → 엄격 처리 (락 마킹)
+      const marked = await markOverdue(serviceClient, ptUser.id, todayDateStr);
+      if (marked) {
+        markedOverdue = true;
+        await notifyMissingReports(serviceClient, ptUser.profile_id);
+      }
+    }
     return { processed, succeeded, failed, markedOverdue };
   }
 
@@ -294,5 +328,15 @@ async function notifyMissingCard(serviceClient: ServiceClient, profileId: string
     title: '결제 카드 미등록',
     message: '청구일이 도래했지만 등록된 결제 카드가 없습니다. 단계적 서비스 제한이 시작됩니다. 즉시 카드를 등록해주세요.',
     link: '/my/settings',
+  });
+}
+
+async function notifyMissingReports(serviceClient: ServiceClient, profileId: string) {
+  await createNotification(serviceClient, {
+    userId: profileId,
+    type: 'fee_payment',
+    title: '매출 보고 누락',
+    message: '정산 대상 월인데 매출 보고가 한 번도 제출되지 않았습니다. 단계적 서비스 제한이 시작됩니다. 즉시 매출을 보고해주세요.',
+    link: '/my/report',
   });
 }

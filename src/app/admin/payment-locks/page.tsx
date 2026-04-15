@@ -9,6 +9,7 @@ interface LockedUser {
   payment_overdue_since: string | null;
   payment_lock_level: number;
   payment_lock_exempt_until: string | null;
+  admin_override_level: number | null;
   computed_level: number;
   profile: { full_name: string | null; email: string | null } | null;
 }
@@ -47,7 +48,7 @@ export default function AdminPaymentLocksPage() {
 
   const callAction = async (
     id: string,
-    body: { action: 'reset' | 'exempt' | 'force_level'; exempt_until?: string; force_level?: number },
+    body: { action: 'reset' | 'exempt' | 'force_level' | 'clear_override'; exempt_until?: string; force_level?: number },
   ) => {
     setActingId(id);
     try {
@@ -173,7 +174,12 @@ export default function AdminPaymentLocksPage() {
                         : '-'}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <div className="inline-flex gap-1">
+                      <div className="inline-flex gap-1 flex-wrap justify-end">
+                        {u.admin_override_level !== null && (
+                          <span className="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs font-medium self-center">
+                            Override: {u.admin_override_level}
+                          </span>
+                        )}
                         <button
                           type="button"
                           onClick={() => handleReset(u.id, name)}
@@ -200,6 +206,19 @@ export default function AdminPaymentLocksPage() {
                         >
                           단계 강제
                         </button>
+                        {u.admin_override_level !== null && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!confirm(`${name} 사용자의 override를 해제하고 자동 계산으로 복귀합니다. 진행할까요?`)) return;
+                              callAction(u.id, { action: 'clear_override' });
+                            }}
+                            disabled={actingId === u.id}
+                            className="px-2.5 py-1 text-xs font-medium bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50"
+                          >
+                            Override 해제
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
