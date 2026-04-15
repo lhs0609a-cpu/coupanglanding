@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { BILLING_DAY } from '@/lib/payments/billing-constants';
 
 /**
  * GET /api/payments/schedule — 자동결제 스케줄 조회
@@ -38,7 +39,9 @@ export async function PUT(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 });
 
-    const { enabled, billingDay, cardId } = await request.json();
+    // billingDay와 enabled는 운영 정책상 고정 — 클라이언트 입력 무시.
+    // 사용자는 billing_card_id만 변경 가능.
+    const { cardId } = await request.json();
 
     const { data: ptUser } = await supabase
       .from('pt_users')
@@ -48,14 +51,7 @@ export async function PUT(request: NextRequest) {
 
     if (!ptUser) return NextResponse.json({ error: 'PT 사용자 없음' }, { status: 404 });
 
-    // billingDay 유효성
-    const day = Number(billingDay);
-    if (day && (day < 1 || day > 28)) {
-      return NextResponse.json({ error: '청구일은 1~28 사이여야 합니다' }, { status: 400 });
-    }
-
-    // 자동결제 활성화 시 카드 필수
-    if (enabled && cardId) {
+    if (cardId) {
       const { data: card } = await supabase
         .from('billing_cards')
         .select('id')
@@ -71,13 +67,12 @@ export async function PUT(request: NextRequest) {
 
     const serviceClient = await createServiceClient();
 
-    // upsert
     const { data: schedule, error } = await serviceClient
       .from('payment_schedules')
       .upsert({
         pt_user_id: ptUser.id,
-        auto_payment_enabled: !!enabled,
-        billing_day: day || 10,
+        auto_payment_enabled: true,
+        billing_day: BILLING_DAY,
         billing_card_id: cardId || null,
       }, { onConflict: 'pt_user_id' })
       .select()

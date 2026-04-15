@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import MegaloadLayout from '@/components/layouts/MegaloadLayout';
+import PaymentLockBanner from '@/components/payments/PaymentLockBanner';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
 import type { SettlementGateLevel } from '@/lib/utils/settlement';
 
@@ -15,6 +16,8 @@ interface MegaloadLayoutClientProps {
   gateDDay: number;
   gateTargetMonth: string;
   gateDeadline: string;
+  paymentLockLevel: number;
+  paymentOverdueSince: string | null;
 }
 
 export default function MegaloadLayoutClient({
@@ -25,6 +28,8 @@ export default function MegaloadLayoutClient({
   gateDDay,
   gateTargetMonth,
   gateDeadline,
+  paymentLockLevel,
+  paymentOverdueSince,
 }: MegaloadLayoutClientProps) {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
@@ -109,6 +114,7 @@ export default function MegaloadLayoutClient({
       gateTargetMonth={gateTargetMonth}
       gateDeadline={gateDeadline}
     >
+      <PaymentLockBanner level={paymentLockLevel} overdueSince={paymentOverdueSince} />
       {children}
     </MegaloadLayout>
   );

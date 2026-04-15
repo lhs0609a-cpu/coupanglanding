@@ -25,8 +25,18 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
   const [{ data: profile }, { data: shUser }, { data: ptUser }] = await Promise.all([
     supabase.from('profiles').select('full_name, role, is_active').eq('id', user.id).single(),
     supabase.from('megaload_users').select('id, plan, onboarding_done').eq('profile_id', user.id).maybeSingle(),
-    supabase.from('pt_users').select('id, created_at').eq('profile_id', user.id).maybeSingle(),
+    supabase.from('pt_users').select('id, created_at, payment_lock_level, payment_overdue_since').eq('profile_id', user.id).maybeSingle(),
   ]);
+
+  // 결제 락 3단계(완전 차단) → 결제 설정 페이지로 강제 이동
+  // admin/partner는 면제. /my/settings는 별도 레이아웃이라 여기서 막지 않음.
+  if (
+    profile?.role !== 'admin' &&
+    profile?.role !== 'partner' &&
+    ptUser?.payment_lock_level === 3
+  ) {
+    redirect('/my/settings?locked=3');
+  }
 
   const role = profile?.role;
 
@@ -84,6 +94,8 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
       gateDDay={gateDDay}
       gateTargetMonth={gateTargetMonth}
       gateDeadline={gateDeadline}
+      paymentLockLevel={ptUser?.payment_lock_level ?? 0}
+      paymentOverdueSince={ptUser?.payment_overdue_since ?? null}
     >
       {children}
     </MegaloadLayoutClient>
