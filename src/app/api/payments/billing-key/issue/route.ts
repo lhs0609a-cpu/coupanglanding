@@ -87,8 +87,43 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, card });
   } catch (err) {
-    console.error('billing-key/issue error:', err);
-    const message = err instanceof Error ? err.message : '빌링키 발급 실패';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const detail = serializeError(err);
+    console.error('billing-key/issue error:', JSON.stringify(detail));
+    return NextResponse.json(
+      { error: detail.message, code: detail.code, detail },
+      { status: 500 },
+    );
   }
+}
+
+function serializeError(err: unknown): {
+  message: string;
+  code?: string;
+  name?: string;
+  details?: unknown;
+  hint?: unknown;
+  stack?: string;
+} {
+  if (err instanceof Error) {
+    const extra = err as unknown as Record<string, unknown>;
+    return {
+      message: typeof err.message === 'string' ? err.message : String(err.message),
+      name: err.name,
+      code: typeof extra.code === 'string' ? extra.code : undefined,
+      details: extra.details,
+      hint: extra.hint,
+      stack: err.stack,
+    };
+  }
+  if (err && typeof err === 'object') {
+    const obj = err as Record<string, unknown>;
+    const msg = obj.message;
+    return {
+      message: typeof msg === 'string' ? msg : JSON.stringify(obj) || '알 수 없는 오류',
+      code: typeof obj.code === 'string' ? obj.code : undefined,
+      details: obj.details,
+      hint: obj.hint,
+    };
+  }
+  return { message: String(err) || '빌링키 발급 실패' };
 }

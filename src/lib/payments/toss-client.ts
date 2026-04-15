@@ -110,7 +110,18 @@ export class TossPaymentsAPI {
 
     if (!res.ok) {
       const error = await res.json().catch(() => ({}));
-      throw new Error(error.message || `빌링키 발급 실패 (${res.status})`);
+      const rawMsg = (error as { message?: unknown }).message;
+      const msg =
+        typeof rawMsg === 'string'
+          ? rawMsg
+          : rawMsg != null
+            ? JSON.stringify(rawMsg)
+            : `빌링키 발급 실패 (${res.status})`;
+      throw Object.assign(new Error(msg), {
+        code: (error as { code?: string }).code || `HTTP_${res.status}`,
+        raw: error,
+        status: res.status,
+      });
     }
 
     return res.json();

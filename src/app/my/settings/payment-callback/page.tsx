@@ -41,11 +41,19 @@ export default function PaymentCallbackPage() {
         body: JSON.stringify({ authKey }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setStatus('error');
-        setMessage(data.error || '빌링키 발급에 실패했습니다.');
+        const rawMsg = (data as { error?: unknown }).error;
+        const code = (data as { code?: unknown }).code;
+        const msgText =
+          typeof rawMsg === 'string'
+            ? rawMsg
+            : rawMsg != null
+              ? JSON.stringify(rawMsg)
+              : '빌링키 발급에 실패했습니다.';
+        setMessage(typeof code === 'string' ? `[${code}] ${msgText}` : msgText);
         return;
       }
 
