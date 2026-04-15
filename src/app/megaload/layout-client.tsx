@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import MegaloadLayout from '@/components/layouts/MegaloadLayout';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
@@ -26,8 +27,23 @@ export default function MegaloadLayoutClient({
   gateDeadline,
 }: MegaloadLayoutClientProps) {
   const supabase = useMemo(() => createClient(), []);
+  const router = useRouter();
+  const pathname = usePathname();
   const [badges, setBadges] = useState<MegaloadBadgeData | undefined>();
   const [hasConnectedChannels, setHasConnectedChannels] = useState<boolean | undefined>();
+
+  // 스테일 refresh 토큰 클린업 — 브라우저 클라이언트의 백그라운드 auto-refresh가
+  // "Invalid Refresh Token" 에러를 뿜을 때, Supabase 내부가 SIGNED_OUT 이벤트를
+  // 발사한다. 이걸 잡아서 /auth/login으로 넘겨 스테일 세션을 즉시 끊는다.
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        const redirect = pathname || '/megaload/dashboard';
+        router.replace(`/auth/login?redirect=${encodeURIComponent(redirect)}`);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [supabase, router, pathname]);
 
   useEffect(() => {
     let cancelled = false;

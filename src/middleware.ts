@@ -1,27 +1,10 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import { type NextRequest } from 'next/server';
+import { updateSession } from '@/lib/supabase/middleware';
 
-export function middleware(request: NextRequest) {
-  const pathname = request.nextUrl.pathname;
-
-  // Supabase 세션 쿠키 존재 여부만 확인 (네트워크 요청 없음)
-  const hasSession = request.cookies.getAll().some(
-    (c) => c.name.startsWith('sb-') && c.name.endsWith('-auth-token'),
-  );
-
-  // /auth/* → 누구나 접근
-  if (pathname.startsWith('/auth')) {
-    return NextResponse.next();
-  }
-
-  // /my/*, /admin/* → 쿠키 없으면 로그인 페이지로
-  if (!hasSession) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/auth/login';
-    url.searchParams.set('redirect', pathname);
-    return NextResponse.redirect(url);
-  }
-
-  return NextResponse.next();
+export async function middleware(request: NextRequest) {
+  // updateSession: access token이 만료되면 refresh 토큰으로 갱신해 쿠키를 다시 심고,
+  // refresh가 실패하면 스테일 쿠키를 정리한 뒤 /auth/login으로 리다이렉트.
+  return updateSession(request);
 }
 
 export const config = {
