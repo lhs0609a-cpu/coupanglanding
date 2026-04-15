@@ -138,11 +138,8 @@ function buildLayoutA(params: DetailPageParams): string {
   sections.push(buildHeroSection(productName, brand, seoKeywords, theme));
 
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
-  const detailSet = new Set(detailImageUrls);
-  const uniqueReviews = (reviewImageUrls || []).filter(url => !detailSet.has(url)).slice(0, 5);
-  const allImages = [...detailImageUrls, ...uniqueReviews];
-  if (allImages.length > 0) {
-    sections.push(buildBlogStyleSection(allImages, paragraphs, productName, style, theme));
+  if (detailImageUrls.length > 0) {
+    sections.push(buildBlogStyleSection(detailImageUrls, paragraphs, productName, style, theme));
   } else if (paragraphs.length > 0) {
     for (const p of paragraphs) sections.push(buildParagraphBlock(p, style));
   }
@@ -680,11 +677,8 @@ export function buildPersuasionPageHtml(
     sections.push(`<div style="text-align:center;padding:4px 16px;font-size:12px;color:#999;line-height:1.6;">${seoKeywords.slice(0, 5).map(k => esc(k)).join(' | ')}</div>`);
   }
 
-  // 이미지 배분: 지정된 블록 뒤에 배치
+  // 이미지 배분: 지정된 블록 뒤에 배치 (사용자 선택 상세이미지만 사용)
   const imageQueue = [...detailImageUrls];
-  const detailSet = new Set(detailImageUrls);
-  const uniqueReviews = (reviewImageUrls || []).filter(url => !detailSet.has(url)).slice(0, 5);
-  imageQueue.push(...uniqueReviews);
 
   // 이미지 alt 텍스트 SEO 강화
   const seoAltPrefix = seoKeywords && seoKeywords.length > 0 ? seoKeywords[0] + ' ' : '';
