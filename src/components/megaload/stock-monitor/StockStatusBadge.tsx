@@ -1,8 +1,8 @@
 'use client';
 
-import { CheckCircle2, XCircle, AlertTriangle, Loader2, MinusCircle } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertTriangle, MinusCircle, Link2Off } from 'lucide-react';
 
-type StatusType = 'in_stock' | 'sold_out' | 'removed' | 'unknown' | 'error' | 'active' | 'suspended';
+type StatusType = 'in_stock' | 'sold_out' | 'removed' | 'unknown' | 'error' | 'active' | 'suspended' | 'no_source_url';
 
 const STATUS_CONFIG: Record<StatusType, { label: string; color: string; icon: React.ComponentType<{ className?: string }> }> = {
   in_stock: { label: '판매중', color: 'bg-green-100 text-green-700', icon: CheckCircle2 },
@@ -12,6 +12,7 @@ const STATUS_CONFIG: Record<StatusType, { label: string; color: string; icon: Re
   error: { label: '오류', color: 'bg-orange-100 text-orange-700', icon: AlertTriangle },
   active: { label: '판매중', color: 'bg-green-100 text-green-700', icon: CheckCircle2 },
   suspended: { label: '중지됨', color: 'bg-red-100 text-red-700', icon: XCircle },
+  no_source_url: { label: '원본 URL 필요', color: 'bg-orange-100 text-orange-700', icon: Link2Off },
 };
 
 export default function StockStatusBadge({ status, size = 'sm' }: { status: StatusType; size?: 'xs' | 'sm' }) {

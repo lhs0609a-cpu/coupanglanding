@@ -46,14 +46,16 @@ export async function POST() {
     };
     const products = (allProducts || []) as unknown as ProductRow[];
 
-    // 2. 이미 등록된 모니터 product_id 세트
+    // 2. 이미 등록된 모니터 조회 (ID + source_url — 빈 URL 복구용)
     const { data: existingMonitors } = await serviceClient
       .from('sh_stock_monitors')
-      .select('product_id')
+      .select('id, product_id, source_url')
       .eq('megaload_user_id', shUserId);
-    const existingProductIds = new Set(
-      ((existingMonitors || []) as unknown as { product_id: string }[]).map(m => m.product_id)
-    );
+    const existingMonitorMap = new Map<string, { id: string; source_url: string | null }>();
+    for (const m of (existingMonitors || []) as unknown as { id: string; product_id: string; source_url: string | null }[]) {
+      existingMonitorMap.set(m.product_id, { id: m.id, source_url: m.source_url });
+    }
+    const existingProductIds = new Set(existingMonitorMap.keys());
 
     // 3. 쿠팡 채널 매핑 조회
     const productIds = products.map(p => p.id);
@@ -83,13 +85,13 @@ export async function POST() {
     }[] = [];
 
     const urlUpdates: { id: string; source_url: string }[] = [];
+    const monitorUrlRecoveries: { id: string; source_url: string }[] = [];
     let missingUrl = 0;
     let missingChannel = 0;
     let alreadyMonitored = 0;
+    let recoveredUrls = 0;
 
     for (const p of products) {
-      if (existingProductIds.has(p.id)) { alreadyMonitored++; continue; }
-
       // source_url 우선순위: sh_products.source_url → raw_data.sourceUrl
       const rawSourceUrl = p.raw_data && typeof p.raw_data === 'object'
         ? (p.raw_data as Record<string, unknown>).sourceUrl
@@ -99,6 +101,17 @@ export async function POST() {
       // raw_data.sourceUrl만 있고 column은 비었으면 채워줌
       if (!p.source_url && sourceUrl) {
         urlUpdates.push({ id: p.id, source_url: sourceUrl });
+      }
+
+      // 기존 모니터인 경우: source_url이 비어있고 sh_products에 URL이 있으면 복구
+      if (existingProductIds.has(p.id)) {
+        const existing = existingMonitorMap.get(p.id)!;
+        const monitorUrlEmpty = !existing.source_url || existing.source_url.length === 0;
+        if (monitorUrlEmpty && sourceUrl) {
+          monitorUrlRecoveries.push({ id: existing.id, source_url: sourceUrl });
+        }
+        alreadyMonitored++;
+        continue;
       }
 
       // 우선순위: sh_product_channels → sh_products.coupang_product_id (폴백)
@@ -130,7 +143,20 @@ export async function POST() {
       await serviceClient.from('sh_products').update({ source_url: u.source_url }).eq('id', u.id);
     }
 
-    // 6. sh_stock_monitors 일괄 upsert
+    // 5-1. 기존 모니터의 source_url 복구 — sync-coupang에 의해 덮어씌워진 URL 되살리기
+    for (const r of monitorUrlRecoveries) {
+      const { error: recoverErr } = await serviceClient
+        .from('sh_stock_monitors')
+        .update({
+          source_url: r.source_url,
+          last_checked_at: null, // 크론이 재체크 대상으로 잡도록
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', r.id);
+      if (!recoverErr) recoveredUrls++;
+    }
+
+    // 6. sh_stock_monitors 일괄 upsert (신규 등록)
     let created = 0;
     if (toInsert.length > 0) {
       const { error: insertErr, data: inserted } = await serviceClient
@@ -155,6 +181,7 @@ export async function POST() {
       missingChannel,
       totalScanned: products.length,
       urlFilled: urlUpdates.length,
+      recoveredUrls,
       hint,
     });
 

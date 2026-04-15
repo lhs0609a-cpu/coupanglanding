@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   RefreshCw, Package, XCircle, AlertTriangle, PauseCircle, Loader2,
-  CheckCircle2, ExternalLink, Clock, Activity, Download, Settings, Bell,
+  CheckCircle2, ExternalLink, Clock, Activity, Download, Settings, Bell, Link2Off,
 } from 'lucide-react';
 import StockStatusBadge from './StockStatusBadge';
 import PriceRuleModal from './PriceRuleModal';
@@ -63,10 +63,11 @@ interface Stats {
   error: number;
   inactive: number;
   unchecked: number;
+  needsSourceUrl: number;
   pendingApprovalCount: number;
 }
 
-type FilterTab = 'all' | 'in_stock' | 'sold_out' | 'error';
+type FilterTab = 'all' | 'in_stock' | 'sold_out' | 'error' | 'no_source_url';
 type LogFilter = 'all' | 'stock' | 'price';
 
 const EVENT_LABELS: Record<string, { label: string; color: string }> = {
@@ -354,6 +355,7 @@ export default function StockMonitorDashboard() {
       const msgs: string[] = [];
       msgs.push(`신규 등록: ${data.created}개`);
       if (data.alreadyMonitored > 0) msgs.push(`이미 등록됨: ${data.alreadyMonitored}개`);
+      if (data.recoveredUrls > 0) msgs.push(`⭐ 원본 URL 복구: ${data.recoveredUrls}개 (크론 재체크 예약됨)`);
       if (data.missingUrl > 0) msgs.push(`원본 URL 없음: ${data.missingUrl}개`);
       if (data.missingChannel > 0) msgs.push(`쿠팡 매핑 없음: ${data.missingChannel}개`);
       alert(`기존 상품 가져오기 완료\n\n${msgs.join('\n')}\n\n(전체 스캔 ${data.totalScanned}개)`);
@@ -386,6 +388,7 @@ export default function StockMonitorDashboard() {
     { tab: 'in_stock', label: '판매중', count: stats?.inStock ?? 0 },
     { tab: 'sold_out', label: '품절', count: stats?.soldOut ?? 0 },
     { tab: 'error', label: '오류', count: stats?.error ?? 0 },
+    { tab: 'no_source_url', label: '원본 URL 필요', count: stats?.needsSourceUrl ?? 0 },
   ];
 
   return (
@@ -456,7 +459,7 @@ export default function StockMonitorDashboard() {
 
       {/* 요약 카드 */}
       {stats && (
-        <div className="grid grid-cols-5 gap-3">
+        <div className="grid grid-cols-6 gap-3">
           <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
             <Package className="w-5 h-5 mx-auto text-gray-400 mb-1" />
             <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
@@ -465,6 +468,22 @@ export default function StockMonitorDashboard() {
               <div className="text-[9px] text-gray-400 mt-0.5">{stats.unchecked}개 대기중</div>
             )}
           </div>
+          <button
+            onClick={() => setFilterTab('no_source_url')}
+            className={`bg-white rounded-xl border p-4 text-center transition hover:bg-orange-50 ${
+              stats.needsSourceUrl > 0 ? 'border-orange-300' : 'border-gray-200'
+            }`}
+            title="원본(네이버) URL이 매핑되지 않은 모니터. 품절 감시를 위해 URL이 필요합니다."
+          >
+            <Link2Off className={`w-5 h-5 mx-auto mb-1 ${stats.needsSourceUrl > 0 ? 'text-orange-500' : 'text-gray-300'}`} />
+            <div className={`text-2xl font-bold ${stats.needsSourceUrl > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+              {stats.needsSourceUrl}
+            </div>
+            <div className="text-xs text-gray-500">원본 URL 필요</div>
+            {stats.needsSourceUrl > 0 && (
+              <div className="text-[9px] text-orange-400 mt-0.5">매핑 후 감시 시작</div>
+            )}
+          </button>
           <div className="bg-white rounded-xl border border-green-200 p-4 text-center">
             <CheckCircle2 className="w-5 h-5 mx-auto text-green-500 mb-1" />
             <div className="text-2xl font-bold text-green-600">{stats.inStock}</div>
@@ -625,9 +644,13 @@ export default function StockMonitorDashboard() {
                     </td>
                     <td className="px-3 py-3 text-center">
                       <StockStatusBadge status={
-                        !m.last_checked_at ? 'unknown' : m.source_status as 'in_stock' | 'sold_out' | 'removed' | 'unknown' | 'error'
+                        !m.source_url
+                          ? 'no_source_url'
+                          : !m.last_checked_at
+                            ? 'unknown'
+                            : m.source_status as 'in_stock' | 'sold_out' | 'removed' | 'unknown' | 'error'
                       } />
-                      {m.source_status === 'error' && m.consecutive_errors > 0 && (
+                      {m.source_url && m.source_status === 'error' && m.consecutive_errors > 0 && (
                         <div className="text-[9px] text-orange-500 mt-0.5">
                           {m.consecutive_errors >= 5 ? '네이버 속도제한' : `연속 ${m.consecutive_errors}회 실패`}
                         </div>
@@ -658,7 +681,13 @@ export default function StockMonitorDashboard() {
                         </>
                       ) : (
                         <span className="text-[10px] text-gray-400">
-                          {m.source_status === 'error' ? '조회 실패' : !m.last_checked_at ? '미조회' : '-'}
+                          {!m.source_url
+                            ? 'URL 필요'
+                            : m.source_status === 'error'
+                              ? '조회 실패'
+                              : !m.last_checked_at
+                                ? '미조회'
+                                : '-'}
                         </span>
                       )}
                     </td>

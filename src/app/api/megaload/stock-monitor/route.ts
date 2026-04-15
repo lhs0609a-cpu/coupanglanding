@@ -49,6 +49,8 @@ export async function GET(request: NextRequest) {
     if (statusFilter && statusFilter !== 'all') {
       if (statusFilter === 'error') {
         query = query.gte('consecutive_errors', 1);
+      } else if (statusFilter === 'no_source_url') {
+        query = query.or('source_url.is.null,source_url.eq.');
       } else {
         query = query.eq('source_status', statusFilter);
       }
@@ -94,7 +96,7 @@ export async function GET(request: NextRequest) {
     // 통계 집계 (전체)
     const { data: allMonitors } = await serviceClient
       .from('sh_stock_monitors')
-      .select('source_status, coupang_status, consecutive_errors, is_active, pending_price_change, last_checked_at')
+      .select('source_status, coupang_status, consecutive_errors, is_active, pending_price_change, last_checked_at, source_url')
       .eq('megaload_user_id', shUserId);
 
     const stats = {
@@ -106,6 +108,7 @@ export async function GET(request: NextRequest) {
       error: 0,
       inactive: 0,
       unchecked: 0,
+      needsSourceUrl: 0,
       pendingApprovalCount: 0,
     };
 
@@ -113,6 +116,8 @@ export async function GET(request: NextRequest) {
       const rec = m as Record<string, unknown>;
       if (rec.pending_price_change) stats.pendingApprovalCount++;
       if (!rec.is_active) { stats.inactive++; continue; }
+      const hasSourceUrl = typeof rec.source_url === 'string' && (rec.source_url as string).length > 0;
+      if (!hasSourceUrl) stats.needsSourceUrl++;
       if (!rec.last_checked_at) { stats.unchecked++; continue; }
       switch (rec.source_status) {
         case 'in_stock': stats.inStock++; break;

@@ -94,7 +94,7 @@ export async function POST() {
               raw_data: item,
               updated_at: new Date().toISOString(),
             }, { onConflict: 'megaload_user_id,coupang_product_id' })
-            .select('id')
+            .select('id, source_url')
             .single();
 
           if (productErr || !upsertedProduct) {
@@ -103,6 +103,7 @@ export async function POST() {
           }
 
           const savedId = (upsertedProduct as Record<string, unknown>).id as string;
+          const existingProductSourceUrl = ((upsertedProduct as Record<string, unknown>).source_url as string | null) || '';
 
           // 2. sh_product_channels upsert — 쿠팡 채널 매핑
           try {
@@ -149,7 +150,9 @@ export async function POST() {
             }
           }
 
-          // 4. sh_stock_monitors 자동 등록 — 쿠팡 판매가 + 상태 함께 저장
+          // 4. sh_stock_monitors 자동 등록/갱신
+          //    핵심: 기존 모니터의 source_url / source_status / consecutive_errors는 절대 건드리지 않음
+          //    (bulk-register로 이미 설정된 네이버 URL을 쿠팡 동기화가 덮어쓰면 안 됨)
           const firstOpt = sellerProductItems[0];
           const ourPrice = firstOpt
             ? Number(firstOpt.salePrice || firstOpt.originalPrice || 0)
@@ -157,19 +160,38 @@ export async function POST() {
           const itemStatus = String(item.statusName || item.status || '');
           const coupangStatus: 'active' | 'suspended' = itemStatus === 'APPROVE' ? 'active' : 'suspended';
           try {
-            await serviceClient.from('sh_stock_monitors').upsert({
-              megaload_user_id: shUserId,
-              product_id: savedId,
-              coupang_product_id: coupangProductId,
-              source_url: '',
-              source_status: 'unknown',
-              coupang_status: coupangStatus,
-              is_active: true,
-              ...(ourPrice > 0 && { our_price_last: ourPrice }),
-            }, { onConflict: 'megaload_user_id,product_id' });
-            monitorCreated++;
+            const { data: existingMonitor } = await serviceClient
+              .from('sh_stock_monitors')
+              .select('id')
+              .eq('megaload_user_id', shUserId)
+              .eq('product_id', savedId)
+              .maybeSingle();
+
+            if (existingMonitor) {
+              // 기존 모니터: 쿠팡 측 필드만 갱신
+              await serviceClient.from('sh_stock_monitors').update({
+                coupang_product_id: coupangProductId,
+                coupang_status: coupangStatus,
+                ...(ourPrice > 0 && { our_price_last: ourPrice }),
+                updated_at: new Date().toISOString(),
+              }).eq('id', (existingMonitor as Record<string, unknown>).id as string);
+            } else {
+              // 신규 모니터: sh_products에 이미 URL이 있으면 승계
+              await serviceClient.from('sh_stock_monitors').insert({
+                megaload_user_id: shUserId,
+                product_id: savedId,
+                coupang_product_id: coupangProductId,
+                source_url: existingProductSourceUrl,
+                source_status: 'unknown',
+                coupang_status: coupangStatus,
+                is_active: true,
+                consecutive_errors: 0,
+                ...(ourPrice > 0 && { our_price_last: ourPrice }),
+              });
+              monitorCreated++;
+            }
           } catch (monErr) {
-            console.warn(`[sync-coupang] monitor creation failed for ${savedId}:`, monErr);
+            console.warn(`[sync-coupang] monitor upsert failed for ${savedId}:`, monErr);
           }
 
           totalSynced++;
