@@ -28,6 +28,7 @@ import {
   Bug,
   Table2,
   BarChart3,
+  Lock,
 } from 'lucide-react';
 
 const navItems = [
@@ -46,6 +47,7 @@ const navItems = [
   { href: '/admin/trends', label: '트렌드 관리', icon: Flame },
   { href: '/admin/emergency', label: '긴급 대응 관리', icon: ShieldAlert },
   { href: '/admin/violations', label: '계약위반 관리', icon: Gavel },
+  { href: '/admin/payment-locks', label: '결제 락 관리', icon: Lock },
   { href: '/admin/tax-invoices', label: '세금계산서', icon: Receipt },
   { href: '/admin/arena', label: '아레나 관리', icon: Swords },
   { href: '/admin/guide-images', label: '가이드 이미지', icon: BookOpen },

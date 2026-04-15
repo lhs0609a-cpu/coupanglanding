@@ -13,5 +13,6 @@ export const config = {
     '/admin/:path*',
     '/auth/:path*',
     '/megaload/:path*',
+    '/api/megaload/:path*',
   ],
 };

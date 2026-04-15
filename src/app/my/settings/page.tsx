@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { API_STATUS_LABELS, API_STATUS_COLORS, BUSINESS_RELATIONS } from '@/lib/utils/constants';
 import FeatureTutorial from '@/components/tutorial/FeatureTutorial';
-import { Settings, Eye, EyeOff, Save, CheckCircle, Plug, AlertTriangle, Shield, ChevronDown, ChevronUp, HelpCircle, ExternalLink, Building2, RefreshCw, CreditCard } from 'lucide-react';
+import { Settings, Eye, EyeOff, Save, CheckCircle, Plug, AlertTriangle, Shield, ChevronDown, ChevronUp, HelpCircle, ExternalLink, Building2, RefreshCw, CreditCard, Lock } from 'lucide-react';
 import CardRegistration from '@/components/payments/CardRegistration';
 import RegisteredCards from '@/components/payments/RegisteredCards';
 import AutoPaymentSettings from '@/components/payments/AutoPaymentSettings';
@@ -80,6 +80,8 @@ export default function MySettingsPage() {
   const [paymentTab, setPaymentTab] = useState<'cards' | 'auto'>('cards');
 
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const lockedParam = searchParams.get('locked');
   const supabase = useMemo(() => createClient(), []);
 
   const fetchCredentials = useCallback(async () => {
@@ -379,6 +381,22 @@ export default function MySettingsPage() {
         </div>
       )}
       <FeatureTutorial featureKey="settings" />
+
+      {lockedParam && (
+        <div className="bg-red-50 border-l-4 border-red-500 text-red-900 px-4 py-4 rounded-r-lg">
+          <div className="flex items-start gap-3">
+            <Lock className="w-5 h-5 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="font-semibold text-sm">서비스가 일시 차단되었습니다 (락 단계 {lockedParam})</p>
+              <p className="text-sm mt-1 opacity-90">
+                결제 미이행으로 메가로드 등 주요 페이지 접근이 제한된 상태입니다.
+                아래에서 결제 카드를 등록하시면 모든 서비스가 즉시 복구됩니다.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-3">
         <Settings className="w-6 h-6 text-[#E31837]" />
         <h1 className="text-2xl font-bold text-gray-900">계정 설정</h1>

@@ -48,6 +48,8 @@ export async function updateSession(request: NextRequest) {
     return supabaseResponse;
   }
 
+  const isApiRoute = pathname.startsWith('/api/');
+
   // refresh 토큰이 무효화된 경우: 스테일 쿠키를 정리해 클라이언트가 재차
   // 자동 refresh를 시도하다 콘솔에 AuthApiError를 뿜는 것을 막는다.
   if (sessionError || !user) {
@@ -55,10 +57,16 @@ export async function updateSession(request: NextRequest) {
     const isProtected =
       pathname.startsWith('/my') ||
       pathname.startsWith('/admin') ||
-      pathname.startsWith('/megaload');
+      pathname.startsWith('/megaload') ||
+      isApiRoute;
 
     if (!isProtected) {
       return supabaseResponse;
+    }
+
+    // API 라우트는 리다이렉트 대신 401 JSON 반환 (fetch 클라이언트가 처리)
+    if (isApiRoute) {
+      return jsonResponse(401, { error: '인증 필요' });
     }
 
     const url = request.nextUrl.clone();
@@ -66,7 +74,6 @@ export async function updateSession(request: NextRequest) {
     url.searchParams.set('redirect', pathname);
     const redirectResponse = NextResponse.redirect(url);
 
-    // 스테일 sb-* 쿠키 전부 삭제 (브라우저가 더 이상 만료된 refresh token을 들고 있지 않도록)
     request.cookies.getAll().forEach((cookie) => {
       if (cookie.name.startsWith('sb-')) {
         redirectResponse.cookies.delete(cookie.name);
@@ -76,5 +83,50 @@ export async function updateSession(request: NextRequest) {
     return redirectResponse;
   }
 
+  // ─── 결제 락 가드 (메가로드 mutation API) ─────────────────────────
+  // /api/megaload/* 의 POST/PUT/PATCH/DELETE 요청만 검사. GET/HEAD는 조회이므로 통과.
+  // L1+: bulk-register 차단 / L2+: 모든 쓰기 차단 / L3+: 모든 쓰기 차단(이미 페이지 단에서 리다이렉트되지만 API도 방어)
+  if (
+    pathname.startsWith('/api/megaload/') &&
+    isMutationMethod(request.method)
+  ) {
+    const { data: ptUser } = await supabase
+      .from('pt_users')
+      .select('payment_lock_level, payment_lock_exempt_until')
+      .eq('profile_id', user.id)
+      .maybeSingle();
+
+    if (ptUser) {
+      const today = new Date().toISOString().slice(0, 10);
+      const exemptActive =
+        ptUser.payment_lock_exempt_until && ptUser.payment_lock_exempt_until > today;
+      const level = exemptActive ? 0 : (ptUser.payment_lock_level ?? 0);
+
+      const isMajorWrite = pathname.includes('/bulk-register/');
+      const blocked =
+        level >= 2 || (level >= 1 && isMajorWrite);
+
+      if (blocked) {
+        return jsonResponse(423, {
+          error: '결제 미이행으로 서비스가 일시 제한되었습니다',
+          code: 'PAYMENT_LOCKED',
+          lockLevel: level,
+          link: '/my/settings',
+        });
+      }
+    }
+  }
+
   return supabaseResponse;
+}
+
+function isMutationMethod(method: string): boolean {
+  return method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
+}
+
+function jsonResponse(status: number, body: Record<string, unknown>): NextResponse {
+  return new NextResponse(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
 }

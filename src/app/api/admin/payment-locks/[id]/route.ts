@@ -1,0 +1,96 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { createNotification } from '@/lib/utils/notifications';
+
+interface UpdateBody {
+  action: 'reset' | 'exempt' | 'force_level';
+  exempt_until?: string | null;
+  force_level?: number;
+}
+
+/**
+ * PATCH /api/admin/payment-locks/[id]
+ * Body actions:
+ *  - reset:        payment_overdue_since=null, payment_lock_level=0, exempt_until=null
+ *  - exempt:       exempt_until=YYYY-MM-DD (lock_level은 cron이 다음 실행 때 0으로 내림)
+ *  - force_level:  payment_lock_level=N (관리자가 수동으로 단계 조정)
+ */
+export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await context.params;
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 });
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    if (!profile || (profile.role !== 'admin' && profile.role !== 'partner')) {
+      return NextResponse.json({ error: '관리자 권한 필요' }, { status: 403 });
+    }
+
+    const body = (await request.json()) as UpdateBody;
+    const serviceClient = await createServiceClient();
+
+    let updates: Record<string, unknown> = {};
+    let notifyTitle = '';
+    let notifyMessage = '';
+
+    if (body.action === 'reset') {
+      updates = {
+        payment_overdue_since: null,
+        payment_lock_level: 0,
+        payment_lock_exempt_until: null,
+      };
+      notifyTitle = '결제 락 해제';
+      notifyMessage = '관리자가 결제 락을 해제했습니다. 모든 서비스를 정상 이용할 수 있습니다.';
+    } else if (body.action === 'exempt') {
+      if (!body.exempt_until) {
+        return NextResponse.json({ error: 'exempt_until 필수' }, { status: 400 });
+      }
+      updates = {
+        payment_lock_exempt_until: body.exempt_until,
+        payment_lock_level: 0,
+      };
+      notifyTitle = '결제 락 예외 처리';
+      notifyMessage = `관리자가 ${body.exempt_until}까지 결제 락 예외를 적용했습니다.`;
+    } else if (body.action === 'force_level') {
+      const level = Number(body.force_level);
+      if (!Number.isInteger(level) || level < 0 || level > 3) {
+        return NextResponse.json({ error: 'force_level은 0~3 사이여야 합니다' }, { status: 400 });
+      }
+      updates = { payment_lock_level: level };
+      notifyTitle = '결제 락 단계 변경';
+      notifyMessage = `관리자가 결제 락을 ${level}단계로 설정했습니다.`;
+    } else {
+      return NextResponse.json({ error: '알 수 없는 action' }, { status: 400 });
+    }
+
+    const { data: ptUser, error } = await serviceClient
+      .from('pt_users')
+      .update(updates)
+      .eq('id', id)
+      .select('profile_id')
+      .single();
+
+    if (error) throw error;
+
+    if (ptUser?.profile_id) {
+      await createNotification(serviceClient, {
+        userId: ptUser.profile_id,
+        type: 'fee_payment',
+        title: notifyTitle,
+        message: notifyMessage,
+        link: '/my/settings',
+      });
+    }
+
+    return NextResponse.json({ success: true, updates });
+  } catch (err) {
+    console.error('PATCH /api/admin/payment-locks/[id] error:', err);
+    return NextResponse.json({ error: '서버 오류' }, { status: 500 });
+  }
+}
