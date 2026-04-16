@@ -1006,7 +1006,7 @@ export function useBulkRegisterActions() {
               if ((idx + 1) % 10 === 0) await new Promise(r => setTimeout(r, 0));
             }
 
-            // 결과 적용
+            // 결과 적용 — ★ 사용자가 이미 선택한 경우(editedDetailImageOrder 정의됨) 덮어쓰지 않음
             if (detailOrderMap.size > 0 || reviewOrderMap.size > 0) {
               setProducts(prev => prev.map((p, i) => {
                 const detailOrder = detailOrderMap.get(i);
@@ -1014,15 +1014,19 @@ export function useBulkRegisterActions() {
                 const detailMeta = detailMetaMap.get(i);
                 const reviewMeta = reviewMetaMap.get(i);
                 if (!detailOrder && !reviewOrder) return p;
+                // 사용자 수동 선택 보존
+                const shouldSetDetail = detailOrder && p.editedDetailImageOrder === undefined;
+                const shouldSetReview = reviewOrder && p.editedReviewImageOrder === undefined;
                 return {
                   ...p,
-                  ...(detailOrder ? { editedDetailImageOrder: detailOrder } : {}),
-                  ...(reviewOrder ? { editedReviewImageOrder: reviewOrder } : {}),
+                  ...(shouldSetDetail ? { editedDetailImageOrder: detailOrder } : {}),
+                  ...(shouldSetReview ? { editedReviewImageOrder: reviewOrder } : {}),
+                  // 메타(분석 정보)는 덮어써도 무해 — UI 점수 표시용
                   ...(detailMeta ? { detailImageSelectionMeta: detailMeta } : {}),
                   ...(reviewMeta ? { reviewImageSelectionMeta: reviewMeta } : {}),
                 };
               }));
-              console.info(`[image-diversity] 상세이미지 ${detailOrderMap.size}건, 리뷰이미지 ${reviewOrderMap.size}건 다양성 기반 자동 선택 완료`);
+              console.info(`[image-diversity] 상세이미지 ${detailOrderMap.size}건, 리뷰이미지 ${reviewOrderMap.size}건 다양성 기반 자동 선택 완료 (사용자 수동 선택은 보존)`);
             }
           }
         }
@@ -1417,8 +1421,8 @@ export function useBulkRegisterActions() {
           tags: p.tags,
           description: p.description,
           mainImages: p.mainImages,
-          detailImages: p.detailImages,
-          reviewImages: p.reviewImages,
+          detailImages: filterImagesByOrder(p.detailImages || [], p.editedDetailImageOrder),
+          reviewImages: filterImagesByOrder(p.reviewImages || [], p.editedReviewImageOrder),
           infoImages: p.infoImages,
           noticeMeta: meta.noticeMeta,
           attributeMeta: meta.attributeMeta,
@@ -1434,8 +1438,9 @@ export function useBulkRegisterActions() {
           contentBlocksOverride: p.editedContentBlocks,
           preUploadedUrls: cached ? {
             mainImageUrls: cached.mainImageUrls || [],
-            detailImageUrls: cached.detailImageUrls || [],
-            reviewImageUrls: cached.reviewImageUrls || [],
+            // ★ 사용자 선택(editedDetailImageOrder/editedReviewImageOrder) 반영 — 필터 외 이미지 절대 노출 금지
+            detailImageUrls: filterImagesByOrder(cached.detailImageUrls || [], p.editedDetailImageOrder),
+            reviewImageUrls: filterImagesByOrder(cached.reviewImageUrls || [], p.editedReviewImageOrder),
             infoImageUrls: cached.infoImageUrls || [],
           } : buildPreflightPlaceholderUrls(p),
         };
@@ -1525,8 +1530,8 @@ export function useBulkRegisterActions() {
             tags: product.tags,
             description: product.description,
             mainImages: product.mainImages,
-            detailImages: product.detailImages,
-            reviewImages: product.reviewImages,
+            detailImages: filterImagesByOrder(product.detailImages || [], product.editedDetailImageOrder),
+            reviewImages: filterImagesByOrder(product.reviewImages || [], product.editedReviewImageOrder),
             infoImages: product.infoImages,
             noticeMeta: meta.noticeMeta,
             attributeMeta: meta.attributeMeta,
@@ -1541,8 +1546,9 @@ export function useBulkRegisterActions() {
             contentBlocksOverride: product.editedContentBlocks,
             preUploadedUrls: cached ? {
               mainImageUrls: cached.mainImageUrls || [],
-              detailImageUrls: cached.detailImageUrls || [],
-              reviewImageUrls: cached.reviewImageUrls || [],
+              // ★ Canary도 사용자 선택 반영
+              detailImageUrls: filterImagesByOrder(cached.detailImageUrls || [], product.editedDetailImageOrder),
+              reviewImageUrls: filterImagesByOrder(cached.reviewImageUrls || [], product.editedReviewImageOrder),
               infoImageUrls: cached.infoImageUrls || [],
             } : undefined,
           },
@@ -1854,7 +1860,10 @@ export function useBulkRegisterActions() {
             uid: p.uid, productCode: p.productCode, folderPath: p.folderPath, name: p.editedName, sourceName: p.name, sourceUrl: p.sourceUrl,
             brand: p.editedBrand, sellingPrice: p.editedSellingPrice, sourcePrice: p.sourcePrice,
             categoryCode: p.editedCategoryCode, categoryPath: p.editedCategoryName, tags: p.tags, description: p.description,
-            mainImages: p.mainImages, detailImages: p.detailImages, reviewImages: p.reviewImages, infoImages: p.infoImages,
+            mainImages: p.mainImages,
+            detailImages: filterImagesByOrder(p.detailImages || [], p.editedDetailImageOrder),
+            reviewImages: filterImagesByOrder(p.reviewImages || [], p.editedReviewImageOrder),
+            infoImages: p.infoImages,
             noticeMeta: meta.noticeMeta, attributeMeta: meta.attributeMeta,
           };
           // per-product overrides
@@ -1893,8 +1902,13 @@ export function useBulkRegisterActions() {
           const wmBrand = preventionConfig.enabled ? preventionConfig.sellerBrand : undefined;
           if (hasCache) {
             const mainUrls = cached.mainImageUrls;
-            const detailUrls = cached.detailImageUrls?.length ? cached.detailImageUrls : await uploadScannedImages(filteredDetail, 10, wmBrand);
-            const reviewUrls = cached.reviewImageUrls?.length ? cached.reviewImageUrls : (includeReviewImages ? await uploadScannedImages(filteredReview, 10, wmBrand) : []);
+            // ★ 캐시된 URL도 editedDetailImageOrder / editedReviewImageOrder로 필터링 — 사용자 선택 외 절대 업로드 금지
+            const detailUrls = cached.detailImageUrls?.length
+              ? filterImagesByOrder(cached.detailImageUrls, p.editedDetailImageOrder)
+              : await uploadScannedImages(filteredDetail, 10, wmBrand);
+            const reviewUrls = cached.reviewImageUrls?.length
+              ? filterImagesByOrder(cached.reviewImageUrls, p.editedReviewImageOrder)
+              : (includeReviewImages ? await uploadScannedImages(filteredReview, 10, wmBrand) : []);
             const infoUrls = cached.infoImageUrls?.length ? cached.infoImageUrls : await uploadScannedImages(p.scannedInfoImages || [], 10, wmBrand);
             product.preUploadedUrls = { mainImageUrls: mainUrls, detailImageUrls: detailUrls, reviewImageUrls: reviewUrls, infoImageUrls: infoUrls };
           } else if (hasScanned) {

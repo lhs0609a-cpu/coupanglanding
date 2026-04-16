@@ -155,19 +155,8 @@ async function scanSingleProduct(
   const mainImages = await collectImagesFromSubdir(productDirHandle, 'main_images', MAIN_IMAGE_PATTERN, true);
   let reviewImages = await collectImagesFromSubdir(productDirHandle, 'review_images', IMAGE_PATTERN, false);
   if (reviewImages.length === 0) reviewImages = await collectImagesFromSubdir(productDirHandle, 'reviews', IMAGE_PATTERN, false);
-  let detailImages = await collectImagesFromSubdir(productDirHandle, 'detail_images', IMAGE_PATTERN, false);
-  // detail_images 5장 미만이면 review_images로 보충 (중복 제외)
-  const DETAIL_MIN = 5;
-  if (detailImages.length === 0) {
-    detailImages = [...reviewImages];
-  } else if (detailImages.length < DETAIL_MIN && reviewImages.length > 0) {
-    const existingNames = new Set(detailImages.map(d => d.name));
-    for (const ri of reviewImages) {
-      if (!existingNames.has(ri.name)) {
-        detailImages.push(ri);
-      }
-    }
-  }
+  const detailImages = await collectImagesFromSubdir(productDirHandle, 'detail_images', IMAGE_PATTERN, false);
+  // ★ 절대 review_images를 detail로 혼입하지 않음 — 사용자가 선택한 이미지 외엔 업로드 금지
   const infoImages = await collectImagesFromSubdir(productDirHandle, 'product_info', IMAGE_PATTERN, true);
 
   return {

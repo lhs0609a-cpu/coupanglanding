@@ -105,8 +105,8 @@ export async function scanProductFolder(folderPath: string): Promise<LocalProduc
     if (reviewImages.length === 0) {
       reviewImages = collectImages(path.join(productPath, 'reviews'), /\.(jpg|jpeg|png)$/i);
     }
-    let detailImages = collectImages(path.join(productPath, 'detail_images'), /\.(jpg|jpeg|png|webp)$/i);
-    if (detailImages.length === 0) detailImages = [...reviewImages]; // fallback: detail_images/ 없으면 리뷰 이미지 사용
+    const detailImages = collectImages(path.join(productPath, 'detail_images'), /\.(jpg|jpeg|png|webp)$/i);
+    // ★ 절대 review_images를 detail로 폴백하지 않음 — 사용자 선택 외 업로드 금지
 
     // product_info/ 내 상품정보 이미지
     const infoDir = path.join(productPath, 'product_info');

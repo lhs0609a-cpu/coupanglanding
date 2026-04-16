@@ -240,10 +240,15 @@ export default memo(function BulkStep2Review({
 
     try {
       const cached = imagePreuploadCache[uid];
+      // ★ 사용자 선택(editedDetailImageOrder/editedReviewImageOrder) 반영 — 선택 외 이미지 미리보기 금지
+      const filterByOrder = <T,>(arr: T[], order: number[] | undefined): T[] => {
+        if (!order) return arr;
+        return order.filter(i => i >= 0 && i < arr.length).map(i => arr[i]);
+      };
       const preUploadedUrls = cached ? {
         mainImageUrls: cached.mainImageUrls || [],
-        detailImageUrls: cached.detailImageUrls || [],
-        reviewImageUrls: cached.reviewImageUrls || [],
+        detailImageUrls: filterByOrder(cached.detailImageUrls || [], product.editedDetailImageOrder),
+        reviewImageUrls: filterByOrder(cached.reviewImageUrls || [], product.editedReviewImageOrder),
         infoImageUrls: cached.infoImageUrls || [],
       } : undefined;
 
@@ -262,8 +267,9 @@ export default memo(function BulkStep2Review({
             tags: product.tags,
             description: product.description,
             mainImages: product.mainImages,
-            detailImages: product.detailImages,
-            reviewImages: product.reviewImages,
+            // ★ 서버 모드 경로(paths)도 사용자 선택 반영
+            detailImages: filterByOrder(product.detailImages || [], product.editedDetailImageOrder),
+            reviewImages: filterByOrder(product.reviewImages || [], product.editedReviewImageOrder),
             infoImages: product.infoImages,
           },
           deliveryInfo: {
