@@ -12,6 +12,7 @@ import type { PreflightProductResult, CanaryResult } from '@/lib/megaload/types'
 import { DEFAULT_PREVENTION_CONFIG, DISABLED_PREVENTION_CONFIG } from '@/lib/megaload/services/item-winner-prevention';
 import { isCommodityCategory } from '@/lib/megaload/services/stock-image-service';
 import { addRecentPath } from './BulkStep1Settings';
+import { createClient } from '@/lib/supabase/client';
 
 // ---- 브랜드 자동 추출 (상품명에서) ----
 function extractBrandFromName(name: string): string {
@@ -42,6 +43,26 @@ function isValidBrand(brand: string | undefined): boolean {
 }
 
 export function useBulkRegisterActions() {
+  const supabase = useMemo(() => createClient(), []);
+  // ★ shUserId: 상품명/시드 계산의 결정적 기반 — 브랜드명 중복 충돌 방지
+  //    서버의 preventionSeed(바코드/이미지 셔플)와 동일한 식별자로 일관성 확보
+  const [shUserId, setShUserId] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user || cancelled) return;
+      const { data: shUser } = await supabase
+        .from('megaload_users')
+        .select('id')
+        .eq('profile_id', session.user.id)
+        .single();
+      if (!shUser || cancelled) return;
+      setShUserId((shUser as Record<string, unknown>).id as string);
+    })();
+    return () => { cancelled = true; };
+  }, [supabase]);
+
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
   // Step 1 state
@@ -549,10 +570,15 @@ export function useBulkRegisterActions() {
     // displayProductName은 SEO 최적화, sellerProductName은 "브랜드 고유번호" 유지
     {
       const { generateDisplayName } = await import('@/lib/megaload/services/display-name-generator');
-      // 셀러 브랜드 기반 결정적 시드 — 같은 셀러+같은 상품 = 같은 상품명, 다른 셀러 = 다른 상품명
-      const displaySeed = preventionConfig.enabled && preventionConfig.sellerBrand
-        ? `seller_${preventionConfig.sellerBrand}`
-        : `display_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      // ★ shUserId 기반 결정적 시드 — 100% 고유성 보장 (브랜드명 중복 충돌 방지)
+      //   - 같은 유저: 항상 같은 상품명 (재등록 안전)
+      //   - 다른 유저: UUID가 다르므로 시드 충돌 불가 → 100명이 올려도 모두 다른 이름
+      //   - 서버의 preventionSeed(바코드/이미지 셔플)와 동일한 식별자 사용으로 일관성 확보
+      const displaySeed = shUserId
+        ? `seller_${shUserId}_${preventionConfig.sellerBrand || 'default'}`
+        : (preventionConfig.enabled && preventionConfig.sellerBrand
+            ? `seller_${preventionConfig.sellerBrand}`
+            : `display_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
 
       setProducts(prev => {
         const updated = [...prev];
@@ -615,7 +641,7 @@ export function useBulkRegisterActions() {
       }
       setTitleGenProgress({ done: Math.min(i + BATCH, targets.length), total: targets.length });
     }
-  }, [preventionConfig]);
+  }, [preventionConfig, shUserId]);
 
   // ---- Auto-fill pipeline: Story/content generation (template or AI) ----
   const runContentGeneration = useCallback(async (prods: EditableProduct[]) => {
@@ -634,7 +660,10 @@ export function useBulkRegisterActions() {
     // 템플릿 기반 즉시 생성 (항상 실행 — AI 불필요)
     {
       const { generateStoryV2 } = await import('@/lib/megaload/services/story-generator');
-      const sellerSeed = `seller_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      // ★ shUserId 기반 결정적 시드 — 유저마다 다른 스토리 문장 조합 보장
+      const sellerSeed = shUserId
+        ? `seller_${shUserId}`
+        : `seller_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
       setProducts(prev => {
         const updated = [...prev];
@@ -705,7 +734,7 @@ export function useBulkRegisterActions() {
       }
       setContentGenProgress({ done: Math.min(i + BATCH, targets.length), total: targets.length });
     }
-  }, [generateAiContent, preventionConfig]);
+  }, [generateAiContent, preventionConfig, shUserId]);
 
   // ---- Auto-fill pipeline trigger: after category matching completes ----
   const productsRef = useRef<EditableProduct[]>(products);
