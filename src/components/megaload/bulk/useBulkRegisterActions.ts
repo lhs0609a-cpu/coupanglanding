@@ -32,13 +32,28 @@ function extractBrandFromName(name: string): string {
   return '';
 }
 
-/** product.json brand 필드가 실제 브랜드인지 검증 (프로모션 태그 제외) */
+/**
+ * product.json brand 필드가 실제 브랜드인지 검증.
+ * 제외 대상: 프로모션 태그, UI 링크 텍스트("본문으로 바로가기" 등), 문장류.
+ */
 function isValidBrand(brand: string | undefined): boolean {
-  if (!brand || brand.length < 2) return false;
+  if (!brand) return false;
+  const trimmed = brand.trim();
+  if (trimmed.length < 2 || trimmed.length > 15) return false; // 너무 길면 UI 문구/설명일 가능성
   // "1+1", "2+1" 등 프로모션 태그 제외
-  if (/^\d+\+\d+$/.test(brand)) return false;
+  if (/^\d+\+\d+$/.test(trimmed)) return false;
   // 숫자/특수문자만으로 구성된 것 제외
-  if (!/[가-힣a-zA-Z]/.test(brand)) return false;
+  if (!/[가-힣a-zA-Z]/.test(trimmed)) return false;
+  // UI/네비게이션 문구 블랙리스트 (크롤러가 페이지 링크 텍스트를 잘못 수집하는 케이스)
+  const UI_KEYWORDS = [
+    '본문', '바로가기', '상세', '페이지', '참조', '뒤로', '메뉴',
+    '카테고리', '바로', '이동', '열기', '닫기', '더보기', '보기',
+    '홈으로', '처음으로', '목록', '전체', '선택', '장바구니', '구매',
+    '공지', '안내', '이벤트', '검색', '로그인', '회원', '주문',
+  ];
+  if (UI_KEYWORDS.some(w => trimmed.includes(w))) return false;
+  // 공백 2개 이상 = 문장/UI 문구일 가능성 큼 (정상 브랜드는 대부분 공백 0~1개)
+  if ((trimmed.match(/\s/g) || []).length >= 2) return false;
   return true;
 }
 
@@ -1094,7 +1109,8 @@ export function useBulkRegisterActions() {
           productCode: sp.productCode,
           sourceUrl: sp.sourceUrl,
           name: rawName || `product_${sp.productCode}`,
-          brand: rawBrand,
+          // ★ 검증 통과한 brand만 저장 (UI 문구/오염 데이터 제거) — 상품명 생성 파이프라인 오염 방지
+          brand: resolvedBrand,
           tags: sp.productJson.tags || [],
           description: sp.productJson.description || '',
           sourcePrice,
@@ -1677,7 +1693,9 @@ export function useBulkRegisterActions() {
         const editableProducts: EditableProduct[] = (data.products as PreviewProduct[]).map((p) => {
           const srvBrand = isValidBrand(p.brand) ? p.brand : extractBrandFromName(p.name);
           return {
-          ...p, uid: `${p.folderPath}::${p.productCode}`, editedName: `${srvBrand} ${p.productCode}`, editedBrand: srvBrand.slice(0, 2),
+          ...p, uid: `${p.folderPath}::${p.productCode}`,
+          brand: srvBrand, // ★ 검증 통과한 brand만 저장 (오염 원본 차단)
+          editedName: `${srvBrand} ${p.productCode}`, editedBrand: srvBrand.slice(0, 2),
           editedSellingPrice: p.sellingPrice, editedDisplayProductName: '', // SEO 자동 생성 대기
           editedCategoryCode: '', editedCategoryName: '',
           categoryConfidence: 0, categorySource: '', selected: true, status: 'pending' as const,

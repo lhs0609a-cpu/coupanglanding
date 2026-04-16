@@ -156,7 +156,19 @@ async function scanSingleProduct(
   let reviewImages = await collectImagesFromSubdir(productDirHandle, 'review_images', IMAGE_PATTERN, false);
   if (reviewImages.length === 0) reviewImages = await collectImagesFromSubdir(productDirHandle, 'reviews', IMAGE_PATTERN, false);
   const detailImages = await collectImagesFromSubdir(productDirHandle, 'detail_images', IMAGE_PATTERN, false);
-  // ★ 절대 review_images를 detail로 혼입하지 않음 — 사용자가 선택한 이미지 외엔 업로드 금지
+  // detail_images 5장 미만이면 review_images로 보충 (중복 제외).
+  // ★ 불변조건: 사용자가 editedDetailImageOrder를 설정하면 이 배열의 인덱스 기준으로
+  //    필터링되므로, "UI에 보인 것 ≠ 업로드 데이터" 불일치는 발생하지 않음.
+  //    자동 모드에서만 보충 효과 발휘 (상세페이지 빈약 방지).
+  const DETAIL_MIN = 5;
+  if (detailImages.length < DETAIL_MIN && reviewImages.length > 0) {
+    const existingNames = new Set(detailImages.map(d => d.name));
+    for (const ri of reviewImages) {
+      if (!existingNames.has(ri.name)) {
+        detailImages.push(ri);
+      }
+    }
+  }
   const infoImages = await collectImagesFromSubdir(productDirHandle, 'product_info', IMAGE_PATTERN, true);
 
   return {
