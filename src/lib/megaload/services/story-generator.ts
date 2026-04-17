@@ -12,6 +12,8 @@ import fullReviewData from '../data/full-review-templates.json';
 import { generateRealReview, reviewToCaption } from './real-review-composer';
 import type { RealReviewResult } from './real-review-composer';
 import { extractContextOverrides } from './product-name-parser';
+import { sanitizeHealthText } from './health-sanitizer';
+export { sanitizeHealthText } from './health-sanitizer';
 
 // ─── 타입 ────────────────────────────────────────────────────
 
@@ -63,6 +65,17 @@ function getCategoryKey(categoryPath: string): string {
 
 // ─── 변수 치환 ───────────────────────────────────────────────
 
+// 공통 변수 기본값 (프로필에 없을 때 폴백)
+const COMMON_VAR_FALLBACKS: Record<string, string[]> = {
+  '용량': ['1000mg', '500mg', '고함량', '2000IU', '600mg', '300mg'],
+  '횟수': ['2', '3', '4', '5', '6', '7'],
+  '기간': ['매일', '꾸준히', '3개월 이상', '장기복용'],
+  '인증': ['식약처인증', '건강기능식품', 'GMP인증', 'HACCP'],
+  '성분2': ['엄선원료', '표준화추출물', '고농축'],
+  '효과2': ['활력개선', '컨디션유지', '건강관리'],
+  '사용감': ['만족스러운', '편안해진', '컨디션이 좋아진'],
+};
+
 function fillTemplate(
   template: string,
   vars: Record<string, string[]>,
@@ -80,7 +93,18 @@ function fillTemplate(
     if (pool && pool.length > 0) {
       return pool[Math.floor(rng() * pool.length)];
     }
-    return match; // 매칭 안 되면 원본 유지
+    // 유사 키 폴백 (효과2→효과1, 성분2→성분)
+    const baseKey = key.replace(/\d+$/, '');
+    const baseFallback = vars[baseKey] || vars[baseKey + '1'];
+    if (baseFallback && baseFallback.length > 0) {
+      return baseFallback[Math.floor(rng() * baseFallback.length)];
+    }
+    // 공통 변수 폴백 (용량, 횟수, 기간 등)
+    const common = COMMON_VAR_FALLBACKS[key];
+    if (common && common.length > 0) {
+      return common[Math.floor(rng() * common.length)];
+    }
+    return ''; // 매칭 안 되면 제거
   });
 
   return result;
@@ -266,9 +290,10 @@ export function generateStoryV2(
   sellerSeed: string,
   productIndex: number,
   productContext?: ProductContext,
+  categoryCode?: string,
 ): StoryResultV2 {
   // V3 리얼 후기 생성 (조합형 프레임 시스템) — 메인 콘텐츠
-  const realReview = generateRealReview(productName, categoryPath, sellerSeed, productIndex, undefined, productContext);
+  const realReview = generateRealReview(productName, categoryPath, sellerSeed, productIndex, categoryCode, productContext);
 
   // 리얼 후기 문단을 메인 paragraphs로 사용
   const reviewParagraphs = realReview.paragraphs;
@@ -288,7 +313,7 @@ export function generateStoryV2(
   ];
   const persuasion = generatePersuasionContent(
     productName, categoryPath, sellerSeed, productIndex, seoKeywords,
-    undefined, productContext,
+    categoryCode, productContext,
   );
   const persuasionParagraphs = contentBlocksToParagraphs(persuasion.blocks);
 
@@ -296,90 +321,10 @@ export function generateStoryV2(
   const rewrittenPersuasion = rewritePersuasionAsReview(persuasionParagraphs, rng);
   let paragraphs = [...reviewParagraphs, ...rewrittenPersuasion];
 
-  // ── 후처리 안전망: 건강식품 성분 불일치 문장 제거 ──
-  //   productContext가 없으면 카테고리 경로 + 상품명에서 허용 성분을 추론한다.
-  //   이 필터는 다른 영양제 성분 언급(예: 홍삼 상품에 "유산균")이 있는 문장을 통째로 제거.
-  if (categoryPath.includes('건강식품')) {
-    const expectedTerms = new Set<string>();
-
-    // 1) productContext가 있으면 overrides에서 수집
-    if (productContext) {
-      const overrides = extractContextOverrides(productContext, categoryPath);
-      for (const key of ['성분', '효과1', '효과2']) {
-        for (const v of (overrides[key] || [])) expectedTerms.add(v);
-      }
-    }
-
-    // 2) 카테고리 경로에서 키워드 추론 (예: "홍삼농축액", "오메가3" 등)
-    const path = categoryPath.toLowerCase();
-    const CATEGORY_INGREDIENT_MAP: Record<string, string[]> = {
-      '홍삼': ['홍삼', '진세노사이드', '인삼사포닌'],
-      '유산균': ['유산균', '프로바이오틱스', '프리바이오틱스'],
-      '프로바이오틱스': ['유산균', '프로바이오틱스', '프리바이오틱스'],
-      '오메가': ['오메가3', 'EPA', 'DHA', '크릴오일'],
-      '크릴': ['오메가3', '크릴오일'],
-      '루테인': ['루테인', '지아잔틴'],
-      '밀크': ['밀크씨슬', '실리마린'],
-      '간건강': ['밀크씨슬', '실리마린'],
-      '콜라겐': ['콜라겐', '히알루론산', '엘라스틴'],
-      '글루코사민': ['글루코사민', '콘드로이친', 'MSM', '보스웰리아'],
-      '관절': ['글루코사민', '콘드로이친', 'MSM', '보스웰리아'],
-      '코엔자임': ['코엔자임', 'Q10', '유비퀴놀'],
-      '쏘팔메토': ['쏘팔메토'],
-      '비오틴': ['비오틴'],
-      '엽산': ['엽산'],
-      '가르시니아': ['가르시니아', 'HCA', 'CLA'],
-      '다이어트': ['가르시니아', 'HCA', 'CLA', 'L-카르니틴', '키토산'],
-      '헬스': ['프로틴', 'BCAA', '크레아틴'],
-      '프로틴': ['프로틴', 'WPI', 'WPC', 'BCAA'],
-      '스피루리나': ['스피루리나', '클로렐라'],
-      '클로렐라': ['스피루리나', '클로렐라'],
-      '흑마늘': ['흑마늘', '마늘'],
-      '마늘': ['흑마늘', '마늘'],
-      '프로폴리스': ['프로폴리스'],
-      '비타민c': ['비타민C', '비타민E'],
-      '비타민d': ['비타민D'],
-      '비타민b': ['비타민B'],
-      '비타민a': ['비타민A'],
-      '비타민e': ['비타민E'],
-      '비타민k': ['비타민K'],
-      '멀티비타민': ['비타민C', '비타민D', '비타민B', '비타민A', '비타민E'],
-      '칼슘': ['칼슘', '마그네슘'],
-      '마그네슘': ['마그네슘', '칼슘'],
-      '철분': ['철분'],
-      '아연': ['아연'],
-      '셀레늄': ['셀레늄'],
-    };
-    for (const [key, ingredients] of Object.entries(CATEGORY_INGREDIENT_MAP)) {
-      if (path.includes(key)) {
-        for (const ing of ingredients) expectedTerms.add(ing);
-      }
-    }
-
-    // 3) 상품명에서도 키워드 추출
-    const nameLower = productName.toLowerCase();
-    for (const [key, ingredients] of Object.entries(CATEGORY_INGREDIENT_MAP)) {
-      if (nameLower.includes(key)) {
-        for (const ing of ingredients) expectedTerms.add(ing);
-      }
-    }
-
-    if (expectedTerms.size >= 1) {
-      // 다른 영양제 성분이 언급되면 해당 문장 제거 (상품과 무관한 성분 언급 방지)
-      const HEALTH_INGREDIENTS_RE = /오메가3|루테인|비오틴|콜라겐|유산균|프로바이오틱스|밀크씨슬|홍삼|마그네슘|칼슘|글루코사민|히알루론산|코엔자임|크릴오일|프로폴리스|쏘팔메토|엽산|가르시니아|스피루리나|클로렐라|흑마늘|비타민[A-EK]|철분|아연|셀레늄|보스웰리아|MSM|진세노사이드|프로틴|WPC|CLA|카테킨/g;
-
-      paragraphs = paragraphs.map(p => {
-        const sentences = p.split(/(?<=[.!?。요])\s+/);
-        const filtered = sentences.filter(s => {
-          const mentions = s.match(HEALTH_INGREDIENTS_RE);
-          if (!mentions) return true; // 성분 언급 없으면 통과
-          // 언급된 성분 모두 expected에 있어야 통과 (혼합 언급 차단)
-          return mentions.every(m => expectedTerms.has(m));
-        });
-        return filtered.join(' ').trim();
-      }).filter(p => p.length > 5);
-    }
-  }
+  // ── 후처리 안전망: 건강식품 성분 불일치 문장 제거 (공유 함수 사용) ──
+  paragraphs = paragraphs
+    .map(p => sanitizeHealthText(p, categoryPath, productName))
+    .filter(p => p.length > 5);
 
   // ── 비식품 카테고리 후처리: 식품/건강식품 전용 용어 제거 ──
   //   자동차/가전/가구/문구 등에서 "복용/섭취/공복/1일 섭취량" 같은 문장 제거
@@ -682,36 +627,51 @@ export function generateFaqItems(
   const pn = (productName + ' ' + categoryPath).toLowerCase();
   if (catKey === '식품') {
     if (/코엔자임|coq10|코큐텐|유비퀴놀/.test(pn)) {
-      vars['성분'] = ['코엔자임Q10','유비퀴놀','비타민E','셀레늄'];
+      vars['성분'] = ['코엔자임Q10','유비퀴놀'];
       vars['효과1'] = ['항산화','심장건강','에너지생성','세포보호','피로회복'];
     } else if (/비오틴|바이오틴/.test(pn)) {
-      vars['성분'] = ['비오틴','비타민B7','판토텐산','아연'];
+      vars['성분'] = ['비오틴','판토텐산'];
       vars['효과1'] = ['모발건강','피부건강','손톱건강','두피건강','모발영양'];
     } else if (/루테인|지아잔틴/.test(pn)) {
-      vars['성분'] = ['루테인','지아잔틴','비타민A','베타카로틴'];
+      vars['성분'] = ['루테인','지아잔틴'];
       vars['효과1'] = ['눈건강','시력보호','눈피로','안구건조','황반건강'];
     } else if (/콘드로이친|글루코사민|관절|상어연골|보스웰리아|msm/.test(pn)) {
       vars['성분'] = ['콘드로이친','글루코사민','MSM','보스웰리아'];
       vars['효과1'] = ['관절건강','연골보호','관절유연성','뼈건강','관절영양'];
-    } else if (/밀크씨슬|실리마린/.test(pn)) {
-      vars['성분'] = ['밀크씨슬','실리마린','UDCA','비타민B군'];
+    } else if (/밀크씨슬|밀크시슬|실리마린/.test(pn)) {
+      vars['성분'] = ['밀크씨슬','실리마린'];
       vars['효과1'] = ['간건강','간보호','피로회복','간기능개선','독소배출'];
     } else if (/유산균|프로바이오|락토|비피더스/.test(pn)) {
-      vars['성분'] = ['유산균','프로바이오틱스','프리바이오틱스','식이섬유'];
+      vars['성분'] = ['유산균','프로바이오틱스','프리바이오틱스'];
       vars['효과1'] = ['장건강','소화흡수','장내환경','배변활동','장면역력'];
     } else if (/오메가|크릴|epa|dha/.test(pn)) {
       vars['성분'] = ['오메가3','EPA','DHA','크릴오일'];
       vars['효과1'] = ['혈관건강','혈행개선','중성지방감소','심혈관건강','혈압관리'];
     } else if (/홍삼|인삼|진세노사이드/.test(pn)) {
-      vars['성분'] = ['홍삼','진세노사이드','인삼사포닌','프로폴리스'];
+      vars['성분'] = ['홍삼','진세노사이드','인삼사포닌'];
       vars['효과1'] = ['면역력','피로회복','활력','체력','항산화'];
     } else if (/콜라겐|히알루론/.test(pn)) {
-      vars['성분'] = ['콜라겐','히알루론산','비타민C','엘라스틴'];
+      vars['성분'] = ['콜라겐','히알루론산','엘라스틴'];
       vars['효과1'] = ['피부탄력','피부보습','주름개선','피부건강','피부광채'];
     } else if (/마그네슘/.test(pn)) {
-      vars['성분'] = ['마그네슘','비타민D','칼슘','아연'];
+      vars['성분'] = ['마그네슘'];
     } else if (/칼슘/.test(pn)) {
-      vars['성분'] = ['칼슘','비타민D','마그네슘','비타민K'];
+      vars['성분'] = ['칼슘'];
+    } else if (/프로폴리스/.test(pn)) {
+      vars['성분'] = ['프로폴리스'];
+      vars['효과1'] = ['면역력','구강건강','항균','활력'];
+    } else if (/쏘팔메토/.test(pn)) {
+      vars['성분'] = ['쏘팔메토'];
+    } else if (/가르시니아|다이어트|cla|카테킨|키토산/.test(pn)) {
+      vars['성분'] = ['가르시니아','HCA','CLA','카테킨'];
+    } else if (/프로틴|단백질|wpc|wpi|bcaa|크레아틴|게이너|카제인/.test(pn)) {
+      vars['성분'] = ['프로틴','단백질','WPC','BCAA','크레아틴'];
+    } else if (/스피루리나/.test(pn)) {
+      vars['성분'] = ['스피루리나'];
+    } else if (/클로렐라/.test(pn)) {
+      vars['성분'] = ['클로렐라'];
+    } else if (/흑마늘|마늘/.test(pn)) {
+      vars['성분'] = ['흑마늘','마늘'];
     } else if (/mct|중쇄지방/.test(pn)) {
       vars['성분'] = ['MCT오일','중쇄지방산','코코넛오일','C8카프릴산'];
       vars['효과1'] = ['에너지','체지방관리','대사촉진','포만감','흡수율'];
@@ -737,8 +697,8 @@ export function generateFaqItems(
   const selected = shuffled.slice(0, Math.min(count, shuffled.length));
 
   return selected.map(({ q, a }) => ({
-    question: fillTemplate(q, vars, cleanName, rng),
-    answer: fillTemplate(a, vars, cleanName, rng),
+    question: sanitizeHealthText(fillTemplate(q, vars, cleanName, rng), categoryPath, productName),
+    answer: sanitizeHealthText(fillTemplate(a, vars, cleanName, rng), categoryPath, productName),
   }));
 }
 
@@ -879,5 +839,5 @@ export function generateClosingText(
 
   const pool = CLOSING_TEMPLATES[catKey] || CLOSING_TEMPLATES['DEFAULT'];
   const template = pool[Math.floor(rng() * pool.length)];
-  return fillTemplate(template, vars, cleanName, rng);
+  return sanitizeHealthText(fillTemplate(template, vars, cleanName, rng), categoryPath, productName);
 }

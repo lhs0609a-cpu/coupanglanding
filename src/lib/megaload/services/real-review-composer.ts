@@ -93,6 +93,16 @@ function fixKoreanParticles(text: string): string {
       prev + (hasFinalConsonant(prev) ? '으로' : '로') + sp);
 }
 
+const COMMON_VAR_FALLBACKS: Record<string, string[]> = {
+  '용량': ['1000mg', '500mg', '고함량', '2000IU', '600mg', '300mg', '대용량'],
+  '횟수': ['2', '3', '4', '5', '6', '7'],
+  '기간': ['매일', '꾸준히', '3개월 이상', '장기복용'],
+  '인증': ['식약처인증', '건강기능식품', 'GMP인증', 'HACCP'],
+  '성분2': ['엄선원료', '표준화추출물', '고농축'],
+  '효과2': ['활력개선', '컨디션유지', '건강관리'],
+  '사용감': ['만족스러운', '편안해진', '컨디션이 좋아진'],
+};
+
 function fillVariables(
   text: string,
   vars: Record<string, string[]>,
@@ -106,7 +116,18 @@ function fillVariables(
     if (pool && pool.length > 0) {
       return pool[Math.floor(rng() * pool.length)];
     }
-    return match;
+    // 유사 키 폴백 (효과2→효과1, 성분2→성분)
+    const baseKey = key.replace(/\d+$/, '');
+    const baseFallback = vars[baseKey] || vars[baseKey + '1'];
+    if (baseFallback && baseFallback.length > 0) {
+      return baseFallback[Math.floor(rng() * baseFallback.length)];
+    }
+    // 공통 폴백 (용량, 횟수, 기간 등)
+    const common = COMMON_VAR_FALLBACKS[key];
+    if (common && common.length > 0) {
+      return common[Math.floor(rng() * common.length)];
+    }
+    return '';
   });
 
   // 한국어 조사 자동 보정

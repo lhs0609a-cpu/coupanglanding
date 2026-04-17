@@ -1,0 +1,3618 @@
+{
+  "summary": {
+    "totalCategories": 16259,
+    "totalProducts": 487770,
+    "criticals": 382,
+    "warnings": 495,
+    "errorRate": "0.18",
+    "elapsed": "745.7"
+  },
+  "byType": {
+    "wrong_category_term": 495,
+    "contamination": 382
+  },
+  "criticalIssues": [
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>글루코사민",
+      "categoryCode": "58927",
+      "productName": "네이처메이드 글루코사민 1500 914",
+      "productIndex": 2,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>글루코사민",
+      "categoryCode": "58927",
+      "productName": "에이블씨엔씨 글루코사민 1500 602",
+      "productIndex": 8,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>폴리코사놀",
+      "categoryCode": "58929",
+      "productName": "나이키 폴리코사놀 10mg 137",
+      "productIndex": 0,
+      "type": "contamination",
+      "detail": "타 성분 오염: 유산균",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>폴리코사놀",
+      "categoryCode": "58929",
+      "productName": "아모레퍼시픽 폴리코사놀 10mg 472",
+      "productIndex": 1,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>폴리코사놀",
+      "categoryCode": "58929",
+      "productName": "네이처메이드 폴리코사놀 10mg 475",
+      "productIndex": 2,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>폴리코사놀",
+      "categoryCode": "58929",
+      "productName": "아모레퍼시픽 폴리코사놀 10mg 557",
+      "productIndex": 3,
+      "type": "contamination",
+      "detail": "타 성분 오염: 오메가3",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>폴리코사놀",
+      "categoryCode": "58929",
+      "productName": "LG생활건강 폴리코사놀 10mg 528",
+      "productIndex": 4,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>폴리코사놀",
+      "categoryCode": "58929",
+      "productName": "종근당건강 폴리코사놀 10mg 672",
+      "productIndex": 9,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>폴리코사놀",
+      "categoryCode": "58929",
+      "productName": "종근당건강 폴리코사놀 10mg 648",
+      "productIndex": 12,
+      "type": "contamination",
+      "detail": "타 성분 오염: 콜라겐",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>폴리코사놀",
+      "categoryCode": "58929",
+      "productName": "LG생활건강 폴리코사놀 10mg 527",
+      "productIndex": 14,
+      "type": "contamination",
+      "detail": "타 성분 오염: 오메가3",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>폴리코사놀",
+      "categoryCode": "58929",
+      "productName": "종근당건강 폴리코사놀 10mg 143",
+      "productIndex": 15,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>폴리코사놀",
+      "categoryCode": "58929",
+      "productName": "에이블씨엔씨 폴리코사놀 10mg 225",
+      "productIndex": 18,
+      "type": "contamination",
+      "detail": "타 성분 오염: 오메가3",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>폴리코사놀",
+      "categoryCode": "58929",
+      "productName": "삼성전자 폴리코사놀 10mg 634",
+      "productIndex": 20,
+      "type": "contamination",
+      "detail": "타 성분 오염: 유산균",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>폴리코사놀",
+      "categoryCode": "58929",
+      "productName": "삼성전자 폴리코사놀 10mg 532",
+      "productIndex": 22,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인, 유산균",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>폴리코사놀",
+      "categoryCode": "58929",
+      "productName": "오뚜기 폴리코사놀 10mg 737",
+      "productIndex": 23,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>폴리코사놀",
+      "categoryCode": "58929",
+      "productName": "나이키 폴리코사놀 10mg 704",
+      "productIndex": 24,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>폴리코사놀",
+      "categoryCode": "58929",
+      "productName": "삼성전자 폴리코사놀 10mg 325",
+      "productIndex": 25,
+      "type": "contamination",
+      "detail": "타 성분 오염: 콜라겐, 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>폴리코사놀",
+      "categoryCode": "58929",
+      "productName": "에이블씨엔씨 폴리코사놀 10mg 558",
+      "productIndex": 27,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>폴리코사놀",
+      "categoryCode": "58929",
+      "productName": "LG생활건강 폴리코사놀 10mg 191",
+      "productIndex": 29,
+      "type": "contamination",
+      "detail": "타 성분 오염: 오메가3",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>코엔자임Q10/코큐텐",
+      "categoryCode": "58972",
+      "productName": "아모레퍼시픽 코엔자임Q10 100mg 266",
+      "productIndex": 17,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민E",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>코엔자임Q10/코큐텐",
+      "categoryCode": "58972",
+      "productName": "아모레퍼시픽 유비퀴놀 환원형 195",
+      "productIndex": 28,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민E",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>영양식>환자영양식",
+      "categoryCode": "58977",
+      "productName": "에이블씨엔씨 멀티비타민 이뮨 플러스 772",
+      "productIndex": 3,
+      "type": "contamination",
+      "detail": "타 성분 오염: 단백질",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>영양식>환자영양식",
+      "categoryCode": "58977",
+      "productName": "아모레퍼시픽 천연비타민C 1000 826",
+      "productIndex": 4,
+      "type": "contamination",
+      "detail": "타 성분 오염: 단백질",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>영양식>환자영양식",
+      "categoryCode": "58977",
+      "productName": "LG생활건강 천연비타민C 1000 711",
+      "productIndex": 5,
+      "type": "contamination",
+      "detail": "타 성분 오염: 단백질",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>영양식>환자영양식",
+      "categoryCode": "58977",
+      "productName": "종근당건강 천연비타민C 1000 608",
+      "productIndex": 8,
+      "type": "contamination",
+      "detail": "타 성분 오염: 단백질",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>영양식>환자영양식",
+      "categoryCode": "58977",
+      "productName": "삼성전자 활성비타민B 컴플렉스 410",
+      "productIndex": 13,
+      "type": "contamination",
+      "detail": "타 성분 오염: 단백질",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>영양식>환자영양식",
+      "categoryCode": "58977",
+      "productName": "오뚜기 멀티비타민 이뮨 플러스 374",
+      "productIndex": 17,
+      "type": "contamination",
+      "detail": "타 성분 오염: 단백질",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>영양식>환자영양식",
+      "categoryCode": "58977",
+      "productName": "나이키 멀티비타민 이뮨 플러스 123",
+      "productIndex": 21,
+      "type": "contamination",
+      "detail": "타 성분 오염: 단백질",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>영양식>환자영양식",
+      "categoryCode": "58977",
+      "productName": "이케아 활성비타민B 컴플렉스 651",
+      "productIndex": 24,
+      "type": "contamination",
+      "detail": "타 성분 오염: 단백질",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>영양식>환자영양식",
+      "categoryCode": "58977",
+      "productName": "네이처메이드 비타민D 2000IU 462",
+      "productIndex": 26,
+      "type": "contamination",
+      "detail": "타 성분 오염: 단백질",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>영양식>환자영양식",
+      "categoryCode": "58977",
+      "productName": "LG생활건강 멀티비타민 이뮨 플러스 653",
+      "productIndex": 27,
+      "type": "contamination",
+      "detail": "타 성분 오염: 단백질",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>영양식>환자영양식",
+      "categoryCode": "58977",
+      "productName": "오뚜기 비타민D 2000IU 863",
+      "productIndex": 29,
+      "type": "contamination",
+      "detail": "타 성분 오염: 단백질",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>콜라겐/히알루론산",
+      "categoryCode": "59163",
+      "productName": "종근당건강 저분자 콜라겐 3000mg 242",
+      "productIndex": 4,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>콜라겐/히알루론산",
+      "categoryCode": "59163",
+      "productName": "에이블씨엔씨 히알루론산 콜라겐 스틱 545",
+      "productIndex": 5,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>콜라겐/히알루론산",
+      "categoryCode": "59163",
+      "productName": "네이처메이드 저분자 콜라겐 3000mg 786",
+      "productIndex": 25,
+      "type": "contamination",
+      "detail": "타 성분 오염: 코엔자임",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>콜라겐/히알루론산",
+      "categoryCode": "59163",
+      "productName": "아모레퍼시픽 저분자 콜라겐 3000mg 704",
+      "productIndex": 29,
+      "type": "contamination",
+      "detail": "타 성분 오염: 코엔자임",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>아스타크산틴",
+      "categoryCode": "73136",
+      "productName": "LG생활건강 아스타크산틴 캡슐 965",
+      "productIndex": 2,
+      "type": "contamination",
+      "detail": "타 성분 오염: 콜라겐",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>아스타크산틴",
+      "categoryCode": "73136",
+      "productName": "네이처메이드 아스타크산틴 캡슐 133",
+      "productIndex": 3,
+      "type": "contamination",
+      "detail": "타 성분 오염: 콜라겐, 유산균",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>아스타크산틴",
+      "categoryCode": "73136",
+      "productName": "오뚜기 아스타크산틴 캡슐 946",
+      "productIndex": 4,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>아스타크산틴",
+      "categoryCode": "73136",
+      "productName": "종근당건강 아스타크산틴 캡슐 304",
+      "productIndex": 6,
+      "type": "contamination",
+      "detail": "타 성분 오염: 오메가3",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>아스타크산틴",
+      "categoryCode": "73136",
+      "productName": "나이키 아스타크산틴 캡슐 986",
+      "productIndex": 12,
+      "type": "contamination",
+      "detail": "타 성분 오염: 유산균",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>아스타크산틴",
+      "categoryCode": "73136",
+      "productName": "아모레퍼시픽 아스타크산틴 캡슐 889",
+      "productIndex": 14,
+      "type": "contamination",
+      "detail": "타 성분 오염: 오메가3",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>아스타크산틴",
+      "categoryCode": "73136",
+      "productName": "아모레퍼시픽 아스타크산틴 캡슐 326",
+      "productIndex": 18,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>아스타크산틴",
+      "categoryCode": "73136",
+      "productName": "레고 아스타크산틴 캡슐 296",
+      "productIndex": 21,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>아스타크산틴",
+      "categoryCode": "73136",
+      "productName": "LG생활건강 아스타크산틴 캡슐 960",
+      "productIndex": 23,
+      "type": "contamination",
+      "detail": "타 성분 오염: 콜라겐",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>아스타크산틴",
+      "categoryCode": "73136",
+      "productName": "오뚜기 아스타크산틴 캡슐 991",
+      "productIndex": 24,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>아스타크산틴",
+      "categoryCode": "73136",
+      "productName": "나이키 아스타크산틴 캡슐 289",
+      "productIndex": 26,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>아스타크산틴",
+      "categoryCode": "73136",
+      "productName": "삼성전자 아스타크산틴 캡슐 113",
+      "productIndex": 27,
+      "type": "contamination",
+      "detail": "타 성분 오염: 콜라겐",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>아스타크산틴",
+      "categoryCode": "73136",
+      "productName": "삼성전자 아스타크산틴 캡슐 482",
+      "productIndex": 28,
+      "type": "contamination",
+      "detail": "타 성분 오염: 유산균",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>영양식>기타영양식",
+      "categoryCode": "73155",
+      "productName": "오뚜기 비타민D 2000IU 444",
+      "productIndex": 6,
+      "type": "contamination",
+      "detail": "타 성분 오염: 단백질",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>영양식>기타영양식",
+      "categoryCode": "73155",
+      "productName": "삼성전자 천연비타민C 1000 158",
+      "productIndex": 12,
+      "type": "contamination",
+      "detail": "타 성분 오염: 단백질",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>영양식>기타영양식",
+      "categoryCode": "73155",
+      "productName": "삼성전자 멀티비타민 이뮨 플러스 325",
+      "productIndex": 13,
+      "type": "contamination",
+      "detail": "타 성분 오염: 단백질",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>영양식>기타영양식",
+      "categoryCode": "73155",
+      "productName": "오뚜기 멀티비타민 이뮨 플러스 127",
+      "productIndex": 24,
+      "type": "contamination",
+      "detail": "타 성분 오염: 단백질",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>영양식>기타영양식",
+      "categoryCode": "73155",
+      "productName": "네이처메이드 멀티비타민 이뮨 플러스 895",
+      "productIndex": 28,
+      "type": "contamination",
+      "detail": "타 성분 오염: 단백질",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>영양식>기타영양식",
+      "categoryCode": "73155",
+      "productName": "LG생활건강 멀티비타민 이뮨 플러스 630",
+      "productIndex": 29,
+      "type": "contamination",
+      "detail": "타 성분 오염: 단백질",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아미네랄",
+      "categoryCode": "76941",
+      "productName": "나이키 아이 종합영양제 282",
+      "productIndex": 2,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아미네랄",
+      "categoryCode": "76941",
+      "productName": "나이키 유아 비타민 692",
+      "productIndex": 17,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아미네랄",
+      "categoryCode": "76941",
+      "productName": "이케아 유아 비타민 200",
+      "productIndex": 19,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>초유",
+      "categoryCode": "76944",
+      "productName": "레고 유아 비타민 565",
+      "productIndex": 1,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>초유",
+      "categoryCode": "76944",
+      "productName": "종근당건강 아이 종합영양제 141",
+      "productIndex": 3,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>초유",
+      "categoryCode": "76944",
+      "productName": "네이처메이드 아이 종합영양제 405",
+      "productIndex": 5,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>초유",
+      "categoryCode": "76944",
+      "productName": "오뚜기 유아 비타민 558",
+      "productIndex": 12,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>초유",
+      "categoryCode": "76944",
+      "productName": "네이처메이드 유아 비타민 413",
+      "productIndex": 13,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>초유",
+      "categoryCode": "76944",
+      "productName": "종근당건강 유아 비타민 286",
+      "productIndex": 26,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아아연",
+      "categoryCode": "76945",
+      "productName": "LG생활건강 유아 비타민 550",
+      "productIndex": 1,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아아연",
+      "categoryCode": "76945",
+      "productName": "아모레퍼시픽 유아 비타민 567",
+      "productIndex": 3,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아아연",
+      "categoryCode": "76945",
+      "productName": "에이블씨엔씨 아이 종합영양제 247",
+      "productIndex": 26,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아칼슘/성장발육",
+      "categoryCode": "76946",
+      "productName": "에이블씨엔씨 유아 비타민 722",
+      "productIndex": 13,
+      "type": "contamination",
+      "detail": "타 성분 오염: MSM",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아칼슘/성장발육",
+      "categoryCode": "76946",
+      "productName": "종근당건강 유아 비타민 371",
+      "productIndex": 14,
+      "type": "contamination",
+      "detail": "타 성분 오염: MSM",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아칼슘/성장발육",
+      "categoryCode": "76946",
+      "productName": "이케아 유아 비타민 767",
+      "productIndex": 20,
+      "type": "contamination",
+      "detail": "타 성분 오염: MSM",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아칼슘/성장발육",
+      "categoryCode": "76946",
+      "productName": "레고 아이 종합영양제 426",
+      "productIndex": 21,
+      "type": "contamination",
+      "detail": "타 성분 오염: 글루코사민",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아칼슘/성장발육",
+      "categoryCode": "76946",
+      "productName": "종근당건강 유아 비타민 611",
+      "productIndex": 23,
+      "type": "contamination",
+      "detail": "타 성분 오염: 글루코사민",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아칼슘/성장발육",
+      "categoryCode": "76946",
+      "productName": "아모레퍼시픽 유아 비타민 822",
+      "productIndex": 26,
+      "type": "contamination",
+      "detail": "타 성분 오염: 글루코사민",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아DHA",
+      "categoryCode": "76949",
+      "productName": "레고 rTG DHA 412",
+      "productIndex": 3,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아DHA",
+      "categoryCode": "76949",
+      "productName": "아모레퍼시픽 rTG DHA 517",
+      "productIndex": 5,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아DHA",
+      "categoryCode": "76949",
+      "productName": "LG생활건강 식물성 DHA 516",
+      "productIndex": 8,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아DHA",
+      "categoryCode": "76949",
+      "productName": "아모레퍼시픽 rTG DHA 194",
+      "productIndex": 11,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아DHA",
+      "categoryCode": "76949",
+      "productName": "LG생활건강 rTG DHA 809",
+      "productIndex": 13,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아DHA",
+      "categoryCode": "76949",
+      "productName": "LG생활건강 rTG DHA 680",
+      "productIndex": 18,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아DHA",
+      "categoryCode": "76949",
+      "productName": "삼성전자 rTG DHA 605",
+      "productIndex": 19,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아DHA",
+      "categoryCode": "76949",
+      "productName": "삼성전자 식물성 DHA 372",
+      "productIndex": 27,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아철분",
+      "categoryCode": "76950",
+      "productName": "아모레퍼시픽 아이 종합영양제 175",
+      "productIndex": 8,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아철분",
+      "categoryCode": "76950",
+      "productName": "이케아 유아 비타민 268",
+      "productIndex": 13,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아철분",
+      "categoryCode": "76950",
+      "productName": "종근당건강 아이 종합영양제 315",
+      "productIndex": 15,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아철분",
+      "categoryCode": "76950",
+      "productName": "이케아 아이 종합영양제 408",
+      "productIndex": 23,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아철분",
+      "categoryCode": "76950",
+      "productName": "나이키 아이 종합영양제 707",
+      "productIndex": 24,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아철분",
+      "categoryCode": "76950",
+      "productName": "삼성전자 유아 비타민 438",
+      "productIndex": 26,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "출산/유아동>분유/유아식품>유아건강식품>유아철분",
+      "categoryCode": "76950",
+      "productName": "삼성전자 유아 비타민 948",
+      "productIndex": 27,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>MSM 식이유황",
+      "categoryCode": "102517",
+      "productName": "에이블씨엔씨 MSM 관절 플러스 265",
+      "productIndex": 1,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>MSM 식이유황",
+      "categoryCode": "102517",
+      "productName": "나이키 MSM 관절 플러스 563",
+      "productIndex": 10,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>MSM 식이유황",
+      "categoryCode": "102517",
+      "productName": "LG생활건강 MSM 식이유황 268",
+      "productIndex": 18,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>MSM 식이유황",
+      "categoryCode": "102517",
+      "productName": "네이처메이드 MSM 식이유황 506",
+      "productIndex": 20,
+      "type": "contamination",
+      "detail": "타 성분 오염: 콜라겐",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>MSM 식이유황",
+      "categoryCode": "102517",
+      "productName": "종근당건강 MSM 관절 플러스 851",
+      "productIndex": 22,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>MSM 식이유황",
+      "categoryCode": "102517",
+      "productName": "LG생활건강 MSM 식이유황 808",
+      "productIndex": 23,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>DHA",
+      "categoryCode": "102520",
+      "productName": "오뚜기 식물성 DHA 800",
+      "productIndex": 15,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>DHA",
+      "categoryCode": "102520",
+      "productName": "에이블씨엔씨 rTG DHA 412",
+      "productIndex": 19,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>DHA",
+      "categoryCode": "102520",
+      "productName": "삼성전자 rTG DHA 340",
+      "productIndex": 21,
+      "type": "contamination",
+      "detail": "타 성분 오염: 콜라겐",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>DHA",
+      "categoryCode": "102520",
+      "productName": "이케아 식물성 DHA 324",
+      "productIndex": 29,
+      "type": "contamination",
+      "detail": "타 성분 오염: 콜라겐",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>레시틴",
+      "categoryCode": "102522",
+      "productName": "이케아 대두 레시틴 148",
+      "productIndex": 0,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>레시틴",
+      "categoryCode": "102522",
+      "productName": "네이처메이드 대두 레시틴 131",
+      "productIndex": 4,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>레시틴",
+      "categoryCode": "102522",
+      "productName": "나이키 해바라기 레시틴 105",
+      "productIndex": 7,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>레시틴",
+      "categoryCode": "102522",
+      "productName": "종근당건강 대두 레시틴 180",
+      "productIndex": 8,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>레시틴",
+      "categoryCode": "102522",
+      "productName": "LG생활건강 해바라기 레시틴 763",
+      "productIndex": 11,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>레시틴",
+      "categoryCode": "102522",
+      "productName": "이케아 대두 레시틴 629",
+      "productIndex": 13,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>레시틴",
+      "categoryCode": "102522",
+      "productName": "에이블씨엔씨 해바라기 레시틴 500",
+      "productIndex": 15,
+      "type": "contamination",
+      "detail": "타 성분 오염: 유산균, 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>레시틴",
+      "categoryCode": "102522",
+      "productName": "네이처메이드 해바라기 레시틴 379",
+      "productIndex": 19,
+      "type": "contamination",
+      "detail": "타 성분 오염: 유산균",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>레시틴",
+      "categoryCode": "102522",
+      "productName": "에이블씨엔씨 해바라기 레시틴 504",
+      "productIndex": 22,
+      "type": "contamination",
+      "detail": "타 성분 오염: 콜라겐",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>레시틴",
+      "categoryCode": "102522",
+      "productName": "나이키 해바라기 레시틴 506",
+      "productIndex": 24,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>레시틴",
+      "categoryCode": "102522",
+      "productName": "이케아 해바라기 레시틴 246",
+      "productIndex": 26,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>레시틴",
+      "categoryCode": "102522",
+      "productName": "네이처메이드 해바라기 레시틴 899",
+      "productIndex": 27,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>SAM-E 메티오닌",
+      "categoryCode": "102524",
+      "productName": "에이블씨엔씨 SAM-E 메티오닌 172",
+      "productIndex": 0,
+      "type": "contamination",
+      "detail": "타 성분 오염: 콜라겐",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>SAM-E 메티오닌",
+      "categoryCode": "102524",
+      "productName": "삼성전자 SAM-E 메티오닌 267",
+      "productIndex": 1,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>SAM-E 메티오닌",
+      "categoryCode": "102524",
+      "productName": "네이처메이드 SAM-E 메티오닌 799",
+      "productIndex": 2,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>SAM-E 메티오닌",
+      "categoryCode": "102524",
+      "productName": "삼성전자 SAM-E 메티오닌 442",
+      "productIndex": 3,
+      "type": "contamination",
+      "detail": "타 성분 오염: 오메가3",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>SAM-E 메티오닌",
+      "categoryCode": "102524",
+      "productName": "네이처메이드 SAM-E 메티오닌 131",
+      "productIndex": 4,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인, 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>SAM-E 메티오닌",
+      "categoryCode": "102524",
+      "productName": "LG생활건강 SAM-E 메티오닌 592",
+      "productIndex": 8,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>SAM-E 메티오닌",
+      "categoryCode": "102524",
+      "productName": "네이처메이드 SAM-E 메티오닌 999",
+      "productIndex": 10,
+      "type": "contamination",
+      "detail": "타 성분 오염: 오메가3, 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>SAM-E 메티오닌",
+      "categoryCode": "102524",
+      "productName": "이케아 SAM-E 메티오닌 545",
+      "productIndex": 13,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>SAM-E 메티오닌",
+      "categoryCode": "102524",
+      "productName": "오뚜기 SAM-E 메티오닌 654",
+      "productIndex": 17,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인, 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>SAM-E 메티오닌",
+      "categoryCode": "102524",
+      "productName": "나이키 SAM-E 메티오닌 500",
+      "productIndex": 18,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>SAM-E 메티오닌",
+      "categoryCode": "102524",
+      "productName": "네이처메이드 SAM-E 메티오닌 626",
+      "productIndex": 20,
+      "type": "contamination",
+      "detail": "타 성분 오염: 루테인",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>SAM-E 메티오닌",
+      "categoryCode": "102524",
+      "productName": "네이처메이드 SAM-E 메티오닌 229",
+      "productIndex": 21,
+      "type": "contamination",
+      "detail": "타 성분 오염: 콜라겐",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>SAM-E 메티오닌",
+      "categoryCode": "102524",
+      "productName": "LG생활건강 SAM-E 메티오닌 380",
+      "productIndex": 22,
+      "type": "contamination",
+      "detail": "타 성분 오염: 오메가3",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>SAM-E 메티오닌",
+      "categoryCode": "102524",
+      "productName": "에이블씨엔씨 SAM-E 메티오닌 877",
+      "productIndex": 26,
+      "type": "contamination",
+      "detail": "타 성분 오염: 오메가3",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>SAM-E 메티오닌",
+      "categoryCode": "102524",
+      "productName": "네이처메이드 SAM-E 메티오닌 182",
+      "productIndex": 27,
+      "type": "contamination",
+      "detail": "타 성분 오염: 오메가3",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>SAM-E 메티오닌",
+      "categoryCode": "102524",
+      "productName": "나이키 SAM-E 메티오닌 697",
+      "productIndex": 29,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "삼성전자 HCA 가르시니아 캄보지아 698",
+      "productIndex": 0,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민B, 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "아모레퍼시픽 키토산 다이어트 보조제 517",
+      "productIndex": 2,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비오틴",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "아모레퍼시픽 CLA 공액리놀레산 140",
+      "productIndex": 4,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비오틴, 비타민D, 비타민E",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "레고 HCA 가르시니아 캄보지아 767",
+      "productIndex": 5,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민A",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "네이처메이드 CLA 공액리놀레산 660",
+      "productIndex": 6,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비오틴, 엽산, 비타민B, 비타민D, 비타민K",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "이케아 HCA 가르시니아 캄보지아 418",
+      "productIndex": 9,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민E",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "네이처메이드 녹차추출물 카테킨 372",
+      "productIndex": 10,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비오틴",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "오뚜기 키토산 다이어트 보조제 214",
+      "productIndex": 12,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민K",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "아모레퍼시픽 키토산 다이어트 보조제 401",
+      "productIndex": 13,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민C, 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "오뚜기 가르시니아 다이어트 723",
+      "productIndex": 14,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "종근당건강 가르시니아 다이어트 779",
+      "productIndex": 15,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민A",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "종근당건강 HCA 가르시니아 캄보지아 411",
+      "productIndex": 16,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민E",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "종근당건강 키토산 다이어트 보조제 122",
+      "productIndex": 17,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민A, 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "종근당건강 HCA 가르시니아 캄보지아 690",
+      "productIndex": 18,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민A, 비타민B, 비타민K",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "에이블씨엔씨 가르시니아 다이어트 841",
+      "productIndex": 20,
+      "type": "contamination",
+      "detail": "타 성분 오염: 엽산, 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "이케아 녹차추출물 카테킨 939",
+      "productIndex": 21,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민A, 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "네이처메이드 HCA 가르시니아 캄보지아 254",
+      "productIndex": 22,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D, 비타민K",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "삼성전자 CLA 공액리놀레산 967",
+      "productIndex": 24,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "LG생활건강 키토산 다이어트 보조제 721",
+      "productIndex": 25,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민A",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "삼성전자 HCA 가르시니아 캄보지아 488",
+      "productIndex": 26,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민K",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "이케아 HCA 가르시니아 캄보지아 883",
+      "productIndex": 27,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비오틴",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>가르시니아",
+      "categoryCode": "102537",
+      "productName": "나이키 녹차추출물 카테킨 162",
+      "productIndex": 28,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민K",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "에이블씨엔씨 녹차추출물 카테킨 335",
+      "productIndex": 0,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비오틴, 비타민K",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "레고 녹차추출물 카테킨 125",
+      "productIndex": 1,
+      "type": "contamination",
+      "detail": "타 성분 오염: 엽산",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "나이키 CLA 공액리놀레산 827",
+      "productIndex": 2,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "오뚜기 키토산 다이어트 보조제 421",
+      "productIndex": 3,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비오틴, 비타민C",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "네이처메이드 HCA 가르시니아 캄보지아 649",
+      "productIndex": 4,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민E",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "아모레퍼시픽 녹차추출물 카테킨 634",
+      "productIndex": 5,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D, 비타민K",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "오뚜기 CLA 공액리놀레산 800",
+      "productIndex": 6,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비오틴",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "나이키 키토산 다이어트 보조제 251",
+      "productIndex": 7,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민C, 비타민K",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "오뚜기 CLA 공액리놀레산 408",
+      "productIndex": 8,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "네이처메이드 녹차추출물 카테킨 680",
+      "productIndex": 11,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민B, 비타민E",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "나이키 HCA 가르시니아 캄보지아 547",
+      "productIndex": 13,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비오틴",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "삼성전자 CLA 공액리놀레산 540",
+      "productIndex": 14,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민A",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "에이블씨엔씨 HCA 가르시니아 캄보지아 360",
+      "productIndex": 15,
+      "type": "contamination",
+      "detail": "타 성분 오염: 엽산, 비타민A, 비타민B, 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "에이블씨엔씨 CLA 공액리놀레산 799",
+      "productIndex": 16,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민B, 비타민K",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "아모레퍼시픽 키토산 다이어트 보조제 888",
+      "productIndex": 17,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민K",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "LG생활건강 HCA 가르시니아 캄보지아 125",
+      "productIndex": 19,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민B",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "이케아 키토산 다이어트 보조제 319",
+      "productIndex": 20,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민E, 비타민K",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "네이처메이드 HCA 가르시니아 캄보지아 612",
+      "productIndex": 21,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민D",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "에이블씨엔씨 녹차추출물 카테킨 255",
+      "productIndex": 22,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민E",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "레고 가르시니아 다이어트 912",
+      "productIndex": 23,
+      "type": "contamination",
+      "detail": "타 성분 오염: 엽산, 비타민E",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "레고 가르시니아 다이어트 490",
+      "productIndex": 24,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비오틴, 비타민E",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "LG생활건강 키토산 다이어트 보조제 764",
+      "productIndex": 28,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비타민A, 비타민E",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>다이어트식품>키드니빈",
+      "categoryCode": "102538",
+      "productName": "나이키 녹차추출물 카테킨 648",
+      "productIndex": 29,
+      "type": "contamination",
+      "detail": "타 성분 오염: 비오틴",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "이케아 활성비타민B 컴플렉스 535",
+      "productIndex": 0,
+      "type": "contamination",
+      "detail": "타 성분 오염: CLA",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "레고 활성비타민B 컴플렉스 331",
+      "productIndex": 3,
+      "type": "contamination",
+      "detail": "타 성분 오염: 카테킨",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "오뚜기 활성비타민B 컴플렉스 874",
+      "productIndex": 4,
+      "type": "contamination",
+      "detail": "타 성분 오염: 가르시니아, CLA",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "아모레퍼시픽 종합비타민 미네랄 371",
+      "productIndex": 5,
+      "type": "contamination",
+      "detail": "타 성분 오염: CLA",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "나이키 활성비타민B 컴플렉스 210",
+      "productIndex": 6,
+      "type": "contamination",
+      "detail": "타 성분 오염: 가르시니아",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "에이블씨엔씨 천연비타민C 1000 100",
+      "productIndex": 8,
+      "type": "contamination",
+      "detail": "타 성분 오염: 카테킨",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "에이블씨엔씨 천연비타민C 1000 609",
+      "productIndex": 9,
+      "type": "contamination",
+      "detail": "타 성분 오염: CLA",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "LG생활건강 활성비타민B 컴플렉스 102",
+      "productIndex": 10,
+      "type": "contamination",
+      "detail": "타 성분 오염: 카테킨",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "에이블씨엔씨 천연비타민C 1000 187",
+      "productIndex": 11,
+      "type": "contamination",
+      "detail": "타 성분 오염: 카테킨",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "종근당건강 종합비타민 미네랄 750",
+      "productIndex": 12,
+      "type": "contamination",
+      "detail": "타 성분 오염: CLA",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "아모레퍼시픽 천연비타민C 1000 998",
+      "productIndex": 13,
+      "type": "contamination",
+      "detail": "타 성분 오염: 가르시니아",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "오뚜기 비타민D 2000IU 580",
+      "productIndex": 19,
+      "type": "contamination",
+      "detail": "타 성분 오염: 가르시니아, CLA",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "종근당건강 종합비타민 미네랄 986",
+      "productIndex": 20,
+      "type": "contamination",
+      "detail": "타 성분 오염: CLA",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "에이블씨엔씨 멀티비타민 이뮨 플러스 111",
+      "productIndex": 25,
+      "type": "contamination",
+      "detail": "타 성분 오염: 카테킨",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "이케아 멀티비타민 이뮨 플러스 190",
+      "productIndex": 26,
+      "type": "contamination",
+      "detail": "타 성분 오염: 가르시니아",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "네이처메이드 비타민D 2000IU 215",
+      "productIndex": 27,
+      "type": "contamination",
+      "detail": "타 성분 오염: CLA",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "에이블씨엔씨 종합비타민 미네랄 262",
+      "productIndex": 28,
+      "type": "contamination",
+      "detail": "타 성분 오염: 가르시니아, 카테킨",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>타우린",
+      "categoryCode": "102542",
+      "productName": "삼성전자 종합비타민 미네랄 746",
+      "productIndex": 29,
+      "type": "contamination",
+      "detail": "타 성분 오염: CLA",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>L 라이신",
+      "categoryCode": "102543",
+      "productName": "LG생활건강 천연비타민C 1000 607",
+      "productIndex": 2,
+      "type": "contamination",
+      "detail": "타 성분 오염: CLA",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>L 라이신",
+      "categoryCode": "102543",
+      "productName": "레고 비타민D 2000IU 538",
+      "productIndex": 3,
+      "type": "contamination",
+      "detail": "타 성분 오염: 카테킨",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>L 라이신",
+      "categoryCode": "102543",
+      "productName": "오뚜기 비타민D 2000IU 857",
+      "productIndex": 4,
+      "type": "contamination",
+      "detail": "타 성분 오염: 가르시니아, CLA",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>L 라이신",
+      "categoryCode": "102543",
+      "productName": "에이블씨엔씨 비타민D 2000IU 549",
+      "productIndex": 7,
+      "type": "contamination",
+      "detail": "타 성분 오염: 카테킨",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>L 라이신",
+      "categoryCode": "102543",
+      "productName": "이케아 종합비타민 미네랄 143",
+      "productIndex": 9,
+      "type": "contamination",
+      "detail": "타 성분 오염: 카테킨",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>L 라이신",
+      "categoryCode": "102543",
+      "productName": "에이블씨엔씨 비타민D 2000IU 844",
+      "productIndex": 10,
+      "type": "contamination",
+      "detail": "타 성분 오염: 가르시니아",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>L 라이신",
+      "categoryCode": "102543",
+      "productName": "LG생활건강 활성비타민B 컴플렉스 675",
+      "productIndex": 11,
+      "type": "contamination",
+      "detail": "타 성분 오염: CLA",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>L 라이신",
+      "categoryCode": "102543",
+      "productName": "종근당건강 비타민D 2000IU 100",
+      "productIndex": 12,
+      "type": "contamination",
+      "detail": "타 성분 오염: CLA",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>L 라이신",
+      "categoryCode": "102543",
+      "productName": "에이블씨엔씨 종합비타민 미네랄 701",
+      "productIndex": 13,
+      "type": "contamination",
+      "detail": "타 성분 오염: 가르시니아",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>L 라이신",
+      "categoryCode": "102543",
+      "productName": "LG생활건강 멀티비타민 이뮨 플러스 103",
+      "productIndex": 15,
+      "type": "contamination",
+      "detail": "타 성분 오염: 카테킨",
+      "severity": "critical"
+    },
+    {
+      "category": "식품>건강식품>헬스/다이어트식품>헬스보충식품>L 라이신",
+      "categoryCode": "102543",
+      "productName": "LG생활건강 비타민D 2000IU 641",
+      "productIndex": 16,
+      "type": "contamination",
+      "detail": "타 성분 오염: CLA",
+      "severity": "critical"
+    }
+  ],
+  "warningIssues": [
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>헤어타월/헤어터번",
+      "categoryCode": "56567",
+      "productName": "네이처메이드 걸레 516",
+      "productIndex": 1,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>헤어타월/헤어터번",
+      "categoryCode": "56567",
+      "productName": "에이블씨엔씨 걸레 983",
+      "productIndex": 2,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>헤어타월/헤어터번",
+      "categoryCode": "56567",
+      "productName": "삼성전자 물티슈 713",
+      "productIndex": 4,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>헤어타월/헤어터번",
+      "categoryCode": "56567",
+      "productName": "아모레퍼시픽 쓰레기봉투 483",
+      "productIndex": 20,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>헤어타월/헤어터번",
+      "categoryCode": "56567",
+      "productName": "에이블씨엔씨 물티슈 349",
+      "productIndex": 22,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>헤어타월/헤어터번",
+      "categoryCode": "56567",
+      "productName": "나이키 키친타올 846",
+      "productIndex": 23,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>헤어타월/헤어터번",
+      "categoryCode": "56567",
+      "productName": "나이키 물티슈 511",
+      "productIndex": 26,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>바디브러쉬",
+      "categoryCode": "56611",
+      "productName": "에이블씨엔씨 식기세척기세제 131",
+      "productIndex": 2,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>바디브러쉬",
+      "categoryCode": "56611",
+      "productName": "삼성전자 빗자루 400",
+      "productIndex": 7,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>바디브러쉬",
+      "categoryCode": "56611",
+      "productName": "종근당건강 키친타올 971",
+      "productIndex": 13,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>바디브러쉬",
+      "categoryCode": "56611",
+      "productName": "LG생활건강 쓰레기봉투 717",
+      "productIndex": 14,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>바디브러쉬",
+      "categoryCode": "56611",
+      "productName": "LG생활건강 세탁세제 305",
+      "productIndex": 18,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>바디브러쉬",
+      "categoryCode": "56611",
+      "productName": "LG생활건강 쓰레기봉투 161",
+      "productIndex": 19,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>바디브러쉬",
+      "categoryCode": "56611",
+      "productName": "종근당건강 빗자루 809",
+      "productIndex": 21,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>바디브러쉬",
+      "categoryCode": "56611",
+      "productName": "LG생활건강 수세미 400",
+      "productIndex": 22,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>바디브러쉬",
+      "categoryCode": "56611",
+      "productName": "에이블씨엔씨 세탁세제 773",
+      "productIndex": 26,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>목욕베개",
+      "categoryCode": "56914",
+      "productName": "오뚜기 수세미 868",
+      "productIndex": 2,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>목욕베개",
+      "categoryCode": "56914",
+      "productName": "종근당건강 키친타올 654",
+      "productIndex": 3,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>목욕베개",
+      "categoryCode": "56914",
+      "productName": "레고 빗자루 627",
+      "productIndex": 8,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>목욕베개",
+      "categoryCode": "56914",
+      "productName": "에이블씨엔씨 쓰레기봉투 629",
+      "productIndex": 9,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>목욕베개",
+      "categoryCode": "56914",
+      "productName": "LG생활건강 방향제 401",
+      "productIndex": 11,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>목욕베개",
+      "categoryCode": "56914",
+      "productName": "오뚜기 세탁세제 971",
+      "productIndex": 18,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>목욕베개",
+      "categoryCode": "56914",
+      "productName": "종근당건강 섬유유연제 695",
+      "productIndex": 22,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>목욕베개",
+      "categoryCode": "56914",
+      "productName": "삼성전자 세탁세제 281",
+      "productIndex": 27,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "식품>건강식품>건강식품>기타건강식품>콜라겐/히알루론산",
+      "categoryCode": "59163",
+      "productName": "에이블씨엔씨 석류 콜라겐 젤리 587",
+      "productIndex": 0,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 주름개선(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>변기용품>변기시트",
+      "categoryCode": "61607",
+      "productName": "에이블씨엔씨 섬유유연제 857",
+      "productIndex": 0,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>변기용품>변기시트",
+      "categoryCode": "61607",
+      "productName": "레고 방향제 476",
+      "productIndex": 1,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>변기용품>변기시트",
+      "categoryCode": "61607",
+      "productName": "나이키 키친타올 574",
+      "productIndex": 2,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>변기용품>변기시트",
+      "categoryCode": "61607",
+      "productName": "네이처메이드 물티슈 279",
+      "productIndex": 10,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>변기용품>변기시트",
+      "categoryCode": "61607",
+      "productName": "아모레퍼시픽 섬유유연제 786",
+      "productIndex": 14,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>변기용품>변기시트",
+      "categoryCode": "61607",
+      "productName": "이케아 식기세척기세제 480",
+      "productIndex": 18,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>변기용품>변기시트",
+      "categoryCode": "61607",
+      "productName": "종근당건강 세탁세제 558",
+      "productIndex": 26,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>변기용품>변기시트",
+      "categoryCode": "61607",
+      "productName": "오뚜기 방향제 275",
+      "productIndex": 27,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>변기용품>변기시트",
+      "categoryCode": "61607",
+      "productName": "레고 수세미 195",
+      "productIndex": 28,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>변기용품>변기시트",
+      "categoryCode": "61607",
+      "productName": "오뚜기 세탁세제 287",
+      "productIndex": 29,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "LG생활건강 선풍기 973",
+      "productIndex": 0,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "종근당건강 공기청정기 585",
+      "productIndex": 1,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "나이키 선풍기 337",
+      "productIndex": 2,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x6)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "오뚜기 드라이기 449",
+      "productIndex": 3,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "이케아 가습기 622",
+      "productIndex": 4,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "네이처메이드 전기밥솥 836",
+      "productIndex": 5,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "이케아 선풍기 282",
+      "productIndex": 6,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "오뚜기 전자레인지 109",
+      "productIndex": 7,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "아모레퍼시픽 공기청정기 243",
+      "productIndex": 8,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "오뚜기 전자레인지 991",
+      "productIndex": 9,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "종근당건강 가습기 207",
+      "productIndex": 10,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "LG생활건강 무선청소기 582",
+      "productIndex": 11,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "레고 드라이기 394",
+      "productIndex": 12,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "LG생활건강 가습기 126",
+      "productIndex": 13,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "이케아 드라이기 150",
+      "productIndex": 14,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "에이블씨엔씨 선풍기 820",
+      "productIndex": 15,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "에이블씨엔씨 드라이기 364",
+      "productIndex": 16,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "오뚜기 드라이기 484",
+      "productIndex": 17,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "LG생활건강 다리미 124",
+      "productIndex": 18,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "이케아 에어프라이어 249",
+      "productIndex": 19,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "LG생활건강 에어프라이어 487",
+      "productIndex": 20,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "LG생활건강 가습기 297",
+      "productIndex": 21,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "네이처메이드 에어프라이어 804",
+      "productIndex": 22,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "삼성전자 에어프라이어 775",
+      "productIndex": 23,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "삼성전자 전기밥솥 983",
+      "productIndex": 24,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "LG생활건강 공기청정기 316",
+      "productIndex": 25,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "오뚜기 무선청소기 779",
+      "productIndex": 26,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "종근당건강 전자레인지 616",
+      "productIndex": 27,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "이케아 무선청소기 779",
+      "productIndex": 28,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "가전/디지털>이미용건강가전>안마기/건강/이미용가전>피부/몸매관리기>각질관리기기",
+      "categoryCode": "63864",
+      "productName": "삼성전자 전기밥솥 955",
+      "productIndex": 29,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 각질(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "네이처메이드 수세미 993",
+      "productIndex": 0,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "아모레퍼시픽 수세미 370",
+      "productIndex": 1,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "레고 물티슈 199",
+      "productIndex": 2,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "이케아 쓰레기봉투 381",
+      "productIndex": 3,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "오뚜기 빗자루 257",
+      "productIndex": 4,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "에이블씨엔씨 빗자루 349",
+      "productIndex": 5,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "삼성전자 세탁세제 563",
+      "productIndex": 6,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "나이키 빗자루 274",
+      "productIndex": 7,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "LG생활건강 키친타올 576",
+      "productIndex": 8,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "에이블씨엔씨 쓰레기봉투 663",
+      "productIndex": 9,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "LG생활건강 세탁세제 966",
+      "productIndex": 10,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "오뚜기 수세미 555",
+      "productIndex": 11,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "오뚜기 키친타올 494",
+      "productIndex": 12,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "네이처메이드 빗자루 223",
+      "productIndex": 13,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x6)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "이케아 키친타올 910",
+      "productIndex": 14,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "나이키 방향제 211",
+      "productIndex": 15,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "네이처메이드 식기세척기세제 989",
+      "productIndex": 16,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "아모레퍼시픽 쓰레기봉투 652",
+      "productIndex": 17,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "삼성전자 키친타올 191",
+      "productIndex": 18,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "아모레퍼시픽 키친타올 679",
+      "productIndex": 19,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "삼성전자 물티슈 798",
+      "productIndex": 20,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "삼성전자 방향제 219",
+      "productIndex": 21,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "삼성전자 방향제 879",
+      "productIndex": 22,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "종근당건강 방향제 279",
+      "productIndex": 23,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "이케아 키친타올 453",
+      "productIndex": 24,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "오뚜기 걸레 529",
+      "productIndex": 25,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "네이처메이드 빗자루 267",
+      "productIndex": 26,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "아모레퍼시픽 수세미 253",
+      "productIndex": 27,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "나이키 섬유유연제 175",
+      "productIndex": 28,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>구강/면도>치아미백제",
+      "categoryCode": "63988",
+      "productName": "아모레퍼시픽 쓰레기봉투 504",
+      "productIndex": 29,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>수건",
+      "categoryCode": "64476",
+      "productName": "레고 방향제 333",
+      "productIndex": 0,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>수건",
+      "categoryCode": "64476",
+      "productName": "아모레퍼시픽 쓰레기봉투 909",
+      "productIndex": 1,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>수건",
+      "categoryCode": "64476",
+      "productName": "오뚜기 물티슈 211",
+      "productIndex": 3,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>수건",
+      "categoryCode": "64476",
+      "productName": "아모레퍼시픽 세탁세제 262",
+      "productIndex": 12,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>수건",
+      "categoryCode": "64476",
+      "productName": "삼성전자 식기세척기세제 639",
+      "productIndex": 24,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>수건",
+      "categoryCode": "64476",
+      "productName": "이케아 쓰레기봉투 184",
+      "productIndex": 29,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>비치타월",
+      "categoryCode": "64477",
+      "productName": "아모레퍼시픽 세탁세제 819",
+      "productIndex": 2,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>비치타월",
+      "categoryCode": "64477",
+      "productName": "레고 쓰레기봉투 323",
+      "productIndex": 7,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>비치타월",
+      "categoryCode": "64477",
+      "productName": "에이블씨엔씨 물티슈 551",
+      "productIndex": 8,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>비치타월",
+      "categoryCode": "64477",
+      "productName": "이케아 빗자루 595",
+      "productIndex": 10,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>비치타월",
+      "categoryCode": "64477",
+      "productName": "삼성전자 키친타올 443",
+      "productIndex": 12,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>비치타월",
+      "categoryCode": "64477",
+      "productName": "네이처메이드 키친타올 561",
+      "productIndex": 14,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>비치타월",
+      "categoryCode": "64477",
+      "productName": "에이블씨엔씨 수세미 173",
+      "productIndex": 16,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>비치타월",
+      "categoryCode": "64477",
+      "productName": "오뚜기 빗자루 185",
+      "productIndex": 24,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>샤워가운",
+      "categoryCode": "64478",
+      "productName": "레고 쓰레기봉투 597",
+      "productIndex": 1,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>샤워가운",
+      "categoryCode": "64478",
+      "productName": "삼성전자 수세미 790",
+      "productIndex": 2,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>샤워가운",
+      "categoryCode": "64478",
+      "productName": "네이처메이드 쓰레기봉투 439",
+      "productIndex": 3,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>때수건/샤워타월",
+      "categoryCode": "64479",
+      "productName": "종근당건강 세탁세제 675",
+      "productIndex": 4,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>때수건/샤워타월",
+      "categoryCode": "64479",
+      "productName": "레고 빗자루 740",
+      "productIndex": 9,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>때수건/샤워타월",
+      "categoryCode": "64479",
+      "productName": "종근당건강 방향제 294",
+      "productIndex": 10,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>때수건/샤워타월",
+      "categoryCode": "64479",
+      "productName": "오뚜기 물티슈 645",
+      "productIndex": 11,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>때수건/샤워타월",
+      "categoryCode": "64479",
+      "productName": "종근당건강 세탁세제 906",
+      "productIndex": 13,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>때수건/샤워타월",
+      "categoryCode": "64479",
+      "productName": "레고 빗자루 436",
+      "productIndex": 15,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>때수건/샤워타월",
+      "categoryCode": "64479",
+      "productName": "네이처메이드 세탁세제 408",
+      "productIndex": 18,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>때수건/샤워타월",
+      "categoryCode": "64479",
+      "productName": "종근당건강 쓰레기봉투 703",
+      "productIndex": 20,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>때수건/샤워타월",
+      "categoryCode": "64479",
+      "productName": "종근당건강 물티슈 231",
+      "productIndex": 23,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>때수건/샤워타월",
+      "categoryCode": "64479",
+      "productName": "삼성전자 식기세척기세제 559",
+      "productIndex": 26,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>때수건/샤워타월",
+      "categoryCode": "64479",
+      "productName": "아모레퍼시픽 수세미 271",
+      "productIndex": 28,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>핸드타월/세수타월",
+      "categoryCode": "64480",
+      "productName": "레고 식기세척기세제 183",
+      "productIndex": 6,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>핸드타월/세수타월",
+      "categoryCode": "64480",
+      "productName": "이케아 수세미 537",
+      "productIndex": 11,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>핸드타월/세수타월",
+      "categoryCode": "64480",
+      "productName": "네이처메이드 걸레 478",
+      "productIndex": 13,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>핸드타월/세수타월",
+      "categoryCode": "64480",
+      "productName": "나이키 식기세척기세제 168",
+      "productIndex": 14,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>핸드타월/세수타월",
+      "categoryCode": "64480",
+      "productName": "삼성전자 방향제 219",
+      "productIndex": 15,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>핸드타월/세수타월",
+      "categoryCode": "64480",
+      "productName": "나이키 섬유유연제 312",
+      "productIndex": 23,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>핸드타월/세수타월",
+      "categoryCode": "64480",
+      "productName": "나이키 세탁세제 745",
+      "productIndex": 27,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>스포츠타월",
+      "categoryCode": "64481",
+      "productName": "이케아 빗자루 606",
+      "productIndex": 5,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>스포츠타월",
+      "categoryCode": "64481",
+      "productName": "아모레퍼시픽 걸레 487",
+      "productIndex": 10,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>스포츠타월",
+      "categoryCode": "64481",
+      "productName": "네이처메이드 빗자루 441",
+      "productIndex": 11,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>스포츠타월",
+      "categoryCode": "64481",
+      "productName": "종근당건강 세탁세제 145",
+      "productIndex": 13,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>스포츠타월",
+      "categoryCode": "64481",
+      "productName": "종근당건강 세탁세제 493",
+      "productIndex": 18,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>스포츠타월",
+      "categoryCode": "64481",
+      "productName": "네이처메이드 키친타올 902",
+      "productIndex": 19,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>스포츠타월",
+      "categoryCode": "64481",
+      "productName": "이케아 수세미 269",
+      "productIndex": 20,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>스포츠타월",
+      "categoryCode": "64481",
+      "productName": "아모레퍼시픽 수세미 741",
+      "productIndex": 21,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>스포츠타월",
+      "categoryCode": "64481",
+      "productName": "레고 쓰레기봉투 895",
+      "productIndex": 26,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>스포츠타월",
+      "categoryCode": "64481",
+      "productName": "네이처메이드 걸레 913",
+      "productIndex": 27,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>스포츠타월",
+      "categoryCode": "64481",
+      "productName": "네이처메이드 키친타올 142",
+      "productIndex": 28,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>수건/타월/가운>스포츠타월",
+      "categoryCode": "64481",
+      "productName": "네이처메이드 빗자루 341",
+      "productIndex": 29,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실발판",
+      "categoryCode": "64483",
+      "productName": "나이키 수세미 430",
+      "productIndex": 0,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실발판",
+      "categoryCode": "64483",
+      "productName": "LG생활건강 수세미 497",
+      "productIndex": 5,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실발판",
+      "categoryCode": "64483",
+      "productName": "레고 섬유유연제 451",
+      "productIndex": 7,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실발판",
+      "categoryCode": "64483",
+      "productName": "종근당건강 물티슈 149",
+      "productIndex": 10,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실발판",
+      "categoryCode": "64483",
+      "productName": "종근당건강 섬유유연제 706",
+      "productIndex": 11,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실발판",
+      "categoryCode": "64483",
+      "productName": "에이블씨엔씨 섬유유연제 171",
+      "productIndex": 17,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실발판",
+      "categoryCode": "64483",
+      "productName": "오뚜기 빗자루 247",
+      "productIndex": 19,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실발판",
+      "categoryCode": "64483",
+      "productName": "레고 물티슈 338",
+      "productIndex": 22,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실발판",
+      "categoryCode": "64483",
+      "productName": "나이키 키친타올 895",
+      "productIndex": 24,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실발판",
+      "categoryCode": "64483",
+      "productName": "이케아 식기세척기세제 598",
+      "productIndex": 25,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실발판",
+      "categoryCode": "64483",
+      "productName": "아모레퍼시픽 쓰레기봉투 333",
+      "productIndex": 26,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실발판",
+      "categoryCode": "64483",
+      "productName": "오뚜기 걸레 669",
+      "productIndex": 29,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>대야/바가지/양동이",
+      "categoryCode": "64484",
+      "productName": "네이처메이드 걸레 502",
+      "productIndex": 5,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>대야/바가지/양동이",
+      "categoryCode": "64484",
+      "productName": "이케아 키친타올 190",
+      "productIndex": 6,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>대야/바가지/양동이",
+      "categoryCode": "64484",
+      "productName": "나이키 수세미 277",
+      "productIndex": 21,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>대야/바가지/양동이",
+      "categoryCode": "64484",
+      "productName": "이케아 세탁세제 649",
+      "productIndex": 23,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>대야/바가지/양동이",
+      "categoryCode": "64484",
+      "productName": "삼성전자 걸레 449",
+      "productIndex": 29,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실의자",
+      "categoryCode": "64485",
+      "productName": "네이처메이드 걸레 804",
+      "productIndex": 0,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실의자",
+      "categoryCode": "64485",
+      "productName": "네이처메이드 빗자루 288",
+      "productIndex": 4,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실의자",
+      "categoryCode": "64485",
+      "productName": "LG생활건강 걸레 846",
+      "productIndex": 16,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실의자",
+      "categoryCode": "64485",
+      "productName": "이케아 섬유유연제 352",
+      "productIndex": 21,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실화",
+      "categoryCode": "64486",
+      "productName": "삼성전자 세탁세제 298",
+      "productIndex": 10,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실화",
+      "categoryCode": "64486",
+      "productName": "아모레퍼시픽 빗자루 136",
+      "productIndex": 11,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실화",
+      "categoryCode": "64486",
+      "productName": "삼성전자 세탁세제 901",
+      "productIndex": 15,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실화",
+      "categoryCode": "64486",
+      "productName": "오뚜기 식기세척기세제 793",
+      "productIndex": 18,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실화",
+      "categoryCode": "64486",
+      "productName": "오뚜기 식기세척기세제 889",
+      "productIndex": 25,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>목욕가방",
+      "categoryCode": "64487",
+      "productName": "아모레퍼시픽 세탁세제 961",
+      "productIndex": 3,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>목욕가방",
+      "categoryCode": "64487",
+      "productName": "아모레퍼시픽 세탁세제 523",
+      "productIndex": 13,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>목욕가방",
+      "categoryCode": "64487",
+      "productName": "이케아 키친타올 889",
+      "productIndex": 15,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>목욕가방",
+      "categoryCode": "64487",
+      "productName": "종근당건강 수세미 588",
+      "productIndex": 18,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>목욕가방",
+      "categoryCode": "64487",
+      "productName": "나이키 쓰레기봉투 142",
+      "productIndex": 19,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>목욕가방",
+      "categoryCode": "64487",
+      "productName": "삼성전자 식기세척기세제 893",
+      "productIndex": 24,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실용시계",
+      "categoryCode": "64488",
+      "productName": "이케아 수세미 892",
+      "productIndex": 3,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실용시계",
+      "categoryCode": "64488",
+      "productName": "오뚜기 수세미 808",
+      "productIndex": 5,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실용시계",
+      "categoryCode": "64488",
+      "productName": "나이키 빗자루 302",
+      "productIndex": 9,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실용시계",
+      "categoryCode": "64488",
+      "productName": "에이블씨엔씨 쓰레기봉투 502",
+      "productIndex": 12,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실용시계",
+      "categoryCode": "64488",
+      "productName": "오뚜기 식기세척기세제 843",
+      "productIndex": 18,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실용시계",
+      "categoryCode": "64488",
+      "productName": "LG생활건강 방향제 881",
+      "productIndex": 21,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실용시계",
+      "categoryCode": "64488",
+      "productName": "에이블씨엔씨 쓰레기봉투 884",
+      "productIndex": 22,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>욕실잡화>욕실용시계",
+      "categoryCode": "64488",
+      "productName": "LG생활건강 섬유유연제 953",
+      "productIndex": 25,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>기타 욕실소품",
+      "categoryCode": "64492",
+      "productName": "삼성전자 식기세척기세제 406",
+      "productIndex": 1,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>기타 욕실소품",
+      "categoryCode": "64492",
+      "productName": "나이키 식기세척기세제 312",
+      "productIndex": 14,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>기타 욕실소품",
+      "categoryCode": "64492",
+      "productName": "오뚜기 물티슈 475",
+      "productIndex": 15,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실용품/잡화>기타 욕실소품",
+      "categoryCode": "64492",
+      "productName": "이케아 섬유유연제 893",
+      "productIndex": 16,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실수납/정리>욕실선반",
+      "categoryCode": "64494",
+      "productName": "삼성전자 키친타올 388",
+      "productIndex": 2,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실수납/정리>욕실선반",
+      "categoryCode": "64494",
+      "productName": "레고 빗자루 101",
+      "productIndex": 3,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실수납/정리>욕실선반",
+      "categoryCode": "64494",
+      "productName": "이케아 식기세척기세제 751",
+      "productIndex": 12,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실수납/정리>욕실선반",
+      "categoryCode": "64494",
+      "productName": "에이블씨엔씨 식기세척기세제 217",
+      "productIndex": 21,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실수납/정리>욕실선반",
+      "categoryCode": "64494",
+      "productName": "종근당건강 쓰레기봉투 265",
+      "productIndex": 25,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실수납/정리>멀티선반",
+      "categoryCode": "64495",
+      "productName": "레고 식기세척기세제 128",
+      "productIndex": 9,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실수납/정리>멀티선반",
+      "categoryCode": "64495",
+      "productName": "레고 식기세척기세제 561",
+      "productIndex": 11,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실수납/정리>멀티선반",
+      "categoryCode": "64495",
+      "productName": "삼성전자 키친타올 993",
+      "productIndex": 14,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실수납/정리>멀티선반",
+      "categoryCode": "64495",
+      "productName": "삼성전자 방향제 129",
+      "productIndex": 19,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x5)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실수납/정리>멀티선반",
+      "categoryCode": "64495",
+      "productName": "오뚜기 키친타올 643",
+      "productIndex": 23,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실수납/정리>멀티선반",
+      "categoryCode": "64495",
+      "productName": "LG생활건강 섬유유연제 983",
+      "productIndex": 24,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실수납/정리>양치용품 정리",
+      "categoryCode": "64497",
+      "productName": "에이블씨엔씨 쓰레기봉투 835",
+      "productIndex": 7,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실수납/정리>양치용품 정리",
+      "categoryCode": "64497",
+      "productName": "종근당건강 섬유유연제 992",
+      "productIndex": 9,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x3)",
+      "severity": "warning"
+    },
+    {
+      "category": "생활용품>욕실용품>욕실수납/정리>양치용품 정리",
+      "categoryCode": "64497",
+      "productName": "종근당건강 쓰레기봉투 972",
+      "productIndex": 10,
+      "type": "wrong_category_term",
+      "detail": "부적절 용어: 미백(x4)",
+      "severity": "warning"
+    }
+  ]
+}

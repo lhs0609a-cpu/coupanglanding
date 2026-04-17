@@ -30,6 +30,7 @@ import {
 import type { ContentBlock, ContentBlockType } from './fragment-composer';
 import { parseProductName, tokensToVariableOverrides, extractContextOverrides } from './product-name-parser';
 import type { ProductContext } from './product-name-parser';
+import { sanitizeHealthText } from './health-sanitizer';
 
 // ─── 타입 re-export (원본은 fragment-composer.ts) ────────────
 
@@ -382,6 +383,17 @@ export function generatePersuasionContent(
       }
       totalChars = enrichedBlocks.reduce((sum, bl) => sum + getBlockCharCount(bl), 0);
     }
+  }
+
+  // ── 건강식품 교차 오염 후처리 ──
+  if (categoryPath.includes('건강식품')) {
+    for (const block of enrichedBlocks) {
+      block.content = sanitizeHealthText(block.content, categoryPath, cleanName);
+      if (block.subContent) block.subContent = sanitizeHealthText(block.subContent, categoryPath, cleanName);
+      if (block.emphasis) block.emphasis = sanitizeHealthText(block.emphasis, categoryPath, cleanName);
+      if (block.items) block.items = block.items.map(item => sanitizeHealthText(item, categoryPath, cleanName)).filter(Boolean);
+    }
+    totalChars = enrichedBlocks.reduce((sum, bl) => sum + getBlockCharCount(bl), 0);
   }
 
   return {

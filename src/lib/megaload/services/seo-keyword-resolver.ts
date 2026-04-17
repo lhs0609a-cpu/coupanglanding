@@ -73,7 +73,16 @@ export function resolveSeoCategoryPool(categoryPath: string): SeoPool {
     if (pools[key]) return pools[key];
   }
 
-  // 3. 대분류 부분 매칭 (첫 번째 세그먼트가 포함된 키 중 가장 짧은 것)
+  // 3. 키워드 자동감지: 카테고리 경로에 성분/키워드가 포함되면 해당 풀 반환
+  // (건강식품은 계층 매칭에서 놓치는 경우가 많아 부분 매칭보다 우선)
+  const pathLower = categoryPath.toLowerCase();
+  for (const [keyword, poolKey] of KEYWORD_POOL_MAP) {
+    if (pathLower.includes(keyword.toLowerCase()) && pools[poolKey]) {
+      return pools[poolKey];
+    }
+  }
+
+  // 4. 대분류 부분 매칭 (첫 번째 세그먼트가 포함된 키 중 가장 짧은 것)
   const top = parts[0];
   let bestKey = '';
   let bestLen = Infinity;
@@ -86,14 +95,6 @@ export function resolveSeoCategoryPool(categoryPath: string): SeoPool {
     }
   }
   if (bestKey) return pools[bestKey];
-
-  // 4. 키워드 자동감지: 카테고리 경로에 성분/키워드가 포함되면 해당 풀 반환
-  const pathLower = categoryPath.toLowerCase();
-  for (const [keyword, poolKey] of KEYWORD_POOL_MAP) {
-    if (pathLower.includes(keyword.toLowerCase()) && pools[poolKey]) {
-      return pools[poolKey];
-    }
-  }
 
   return EMPTY_POOL;
 }

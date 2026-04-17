@@ -87,6 +87,8 @@ export interface EditableProduct extends PreviewProduct {
   // 상세페이지 이미지 선택/순서 (undefined=전체, [2,0,5]=해당 인덱스만 지정 순서)
   editedDetailImageOrder?: number[];
   editedReviewImageOrder?: number[];
+  // 대표이미지 사용자 수동 재정렬 여부 — true면 Step 3 자동 스코어 재정렬을 건너뜀
+  mainImageManuallyReordered?: boolean;
   // 다양성 기반 이미지 선택 메타
   detailImageSelectionMeta?: ImageSelectionMeta;
   reviewImageSelectionMeta?: ImageSelectionMeta;

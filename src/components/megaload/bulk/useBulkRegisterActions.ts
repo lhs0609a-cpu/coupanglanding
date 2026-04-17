@@ -892,6 +892,12 @@ export function useBulkRegisterActions() {
             if (!scores || scores.length === 0) return p;
             if (!p.scannedMainImages || p.scannedMainImages.length <= 1) return p;
 
+            // 사용자가 수동으로 재정렬한 상품은 스코어 재정렬 건너뜀 (대표이미지 사용자 선택 보호)
+            if (p.mainImageManuallyReordered) {
+              console.info(`[image-score] ${p.productCode}: 사용자 수동 재정렬 상품 — 스코어 재정렬 건너뜀`);
+              return p;
+            }
+
             // 메인이미지: 스코어 순 정렬만 (하드필터 제거 안 함)
             // 누끼 이미지가 높은 점수를 받아 앞으로 오도록 정렬
             const allSorted = [...scores].sort((a, b) => b.score.overall - a.score.overall);
@@ -1770,9 +1776,14 @@ export function useBulkRegisterActions() {
           .filter((img): img is NonNullable<typeof img> => !!img);
         // 매핑 실패 시 (URL 불일치) 기존 순서 유지
         if (reordered.length === 0) return p;
-        return { ...p, scannedMainImages: reordered, mainImageCount: reordered.length };
+        return {
+          ...p,
+          scannedMainImages: reordered,
+          mainImageCount: reordered.length,
+          mainImageManuallyReordered: true,
+        };
       }
-      return { ...p, mainImages: newOrder };
+      return { ...p, mainImages: newOrder, mainImageManuallyReordered: true };
     }));
     // Also update preupload cache (server mode only — browser mode는 cache 없음)
     // uploadedAt도 갱신 — 재배열 후 캐시 만료로 원본 순서 폴백 방지
