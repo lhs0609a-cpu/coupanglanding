@@ -452,17 +452,30 @@ export default function DetailPageContentTab({
   const previewHtml = useMemo(() => {
     if (!previewOpen) return '';
 
-    // 서버 업로드 URL > lazy resolved objectURL > 인라인 objectURL > 플레이스홀더 순서
+    // 서버 업로드 URL > lazy resolved objectURL > 인라인 objectURL > 로컬경로(serve-image) > 플레이스홀더 순서
+    const toServeUrl = (p: string) =>
+      p.startsWith('http') || p.startsWith('blob:') || p.startsWith('data:')
+        ? p
+        : `/api/megaload/products/bulk-register/serve-image?path=${encodeURIComponent(p)}`;
+
     const detailImageUrls = (preUploadedUrls?.detailImageUrls?.filter(Boolean) ?? []).length > 0
       ? preUploadedUrls!.detailImageUrls!.filter(Boolean)
       : resolvedDetailUrls.length > 0
         ? resolvedDetailUrls
-        : (product.scannedDetailImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []);
+        : (product.scannedDetailImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []).length > 0
+          ? product.scannedDetailImages!.map(img => img.objectUrl).filter((u): u is string => !!u)
+          : (product.detailImages?.length ?? 0) > 0
+            ? product.detailImages!.map(toServeUrl)
+            : [];
     const reviewImageUrls = (preUploadedUrls?.reviewImageUrls?.filter(Boolean) ?? []).length > 0
       ? preUploadedUrls!.reviewImageUrls!.filter(Boolean)
       : resolvedReviewUrls.length > 0
         ? resolvedReviewUrls
-        : (product.scannedReviewImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []);
+        : (product.scannedReviewImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []).length > 0
+          ? product.scannedReviewImages!.map(img => img.objectUrl).filter((u): u is string => !!u)
+          : (product.reviewImages?.length ?? 0) > 0
+            ? product.reviewImages!.map(toServeUrl)
+            : [];
     const infoImageUrls = (preUploadedUrls?.infoImageUrls?.filter(Boolean) ?? []).length > 0
       ? preUploadedUrls!.infoImageUrls!.filter(Boolean)
       : (product.scannedInfoImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []);
