@@ -48,23 +48,40 @@ function callCoupangApi(method, path, query, body, accessKey, secretKey, vendorI
     const url = `${COUPANG_API_BASE}${path}${query ? '?' + query : ''}`;
     const parsed = new URL(url);
 
+    // body를 Buffer로 변환하여 정확한 Content-Length 계산
+    const bodyStr = body ? (typeof body === 'string' ? body : JSON.stringify(body)) : '';
+    const bodyBuffer = bodyStr ? Buffer.from(bodyStr, 'utf-8') : null;
+
+    const headers = {
+      'Authorization': authorization,
+      'Content-Type': 'application/json;charset=UTF-8',
+      'X-Requested-By': vendorId || accessKey, // 쿠팡 API 필수 헤더
+    };
+
+    // Content-Length 명시 (chunked encoding 방지 — 쿠팡 API 호환성)
+    if (bodyBuffer) {
+      headers['Content-Length'] = String(bodyBuffer.length);
+    }
+
     const options = {
       hostname: parsed.hostname,
       port: 443,
       path: parsed.pathname + parsed.search,
       method,
-      headers: {
-        'Authorization': authorization,
-        'Content-Type': 'application/json;charset=UTF-8',
-        'X-Requested-By': vendorId || accessKey, // 쿠팡 API 필수 헤더
-      },
+      headers,
     };
+
+    console.log(`[proxy→coupang] ${method} ${parsed.pathname}${parsed.search} Content-Length: ${bodyBuffer ? bodyBuffer.length : 0}`);
+    if (bodyBuffer && bodyBuffer.length > 0) {
+      console.log(`[proxy→coupang] body: ${bodyStr.slice(0, 500)}`);
+    }
 
     const req = https.request(options, (res) => {
       const chunks = [];
       res.on('data', (chunk) => chunks.push(chunk));
       res.on('end', () => {
         const responseBody = Buffer.concat(chunks).toString();
+        console.log(`[proxy←coupang] ${res.statusCode} ${method} ${path} body: ${responseBody.slice(0, 500)}`);
         resolve({
           statusCode: res.statusCode,
           headers: res.headers,
@@ -79,10 +96,12 @@ function callCoupangApi(method, path, query, body, accessKey, secretKey, vendorI
       reject(new Error('Coupang API timeout (30s)'));
     });
 
-    if (body) {
-      req.write(typeof body === 'string' ? body : JSON.stringify(body));
+    // body를 end()에 직접 전달 (Content-Length와 일치 보장)
+    if (bodyBuffer) {
+      req.end(bodyBuffer);
+    } else {
+      req.end();
     }
-    req.end();
   });
 }
 
@@ -112,6 +131,86 @@ const server = http.createServer(async (req, res) => {
   if (PROXY_SECRET && proxySecret !== PROXY_SECRET) {
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Invalid proxy secret' }));
+    return;
+  }
+
+  // ── 네이버 페이지 프록시 (품절동기화용) ──
+  // Vercel에서 직접 fetch하면 네이버가 403 차단 → Fly.io 고정 IP로 우회
+  if (req.url === '/naver-check' && req.method === 'POST') {
+    try {
+      let bodyStr = '';
+      bodyStr = await new Promise((resolve) => {
+        const chunks = [];
+        req.on('data', (chunk) => chunks.push(chunk));
+        req.on('end', () => resolve(Buffer.concat(chunks).toString()));
+      });
+      const { url: naverUrl } = JSON.parse(bodyStr);
+      if (!naverUrl || typeof naverUrl !== 'string') {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'url 필수' }));
+        return;
+      }
+      // 허용 도메인 체크 (네이버 계열만)
+      const allowed = /^https?:\/\/(smartstore\.naver\.com|shop\.naver\.com|brand\.naver\.com|shopping\.naver\.com|search\.shopping\.naver\.com)/;
+      if (!allowed.test(naverUrl)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '네이버 URL만 허용됩니다' }));
+        return;
+      }
+      console.log(`[naver-check] fetching ${naverUrl}`);
+      const naverRes = await new Promise((resolve, reject) => {
+        const parsed = new URL(naverUrl);
+        const lib = parsed.protocol === 'https:' ? https : http;
+        const naverReq = lib.request(parsed, {
+          method: 'GET',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'ko-KR,ko;q=0.9',
+            'Accept-Encoding': 'identity',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Cache-Control': 'no-cache',
+          },
+        }, (naverResponse) => {
+          // 리다이렉트 처리
+          if ([301, 302, 307, 308].includes(naverResponse.statusCode) && naverResponse.headers.location) {
+            const redirectUrl = new URL(naverResponse.headers.location, naverUrl);
+            console.log(`[naver-check] redirect → ${redirectUrl}`);
+            const redirReq = https.request(redirectUrl, {
+              method: 'GET',
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                'Accept': 'text/html',
+                'Accept-Language': 'ko-KR,ko;q=0.9',
+                'Accept-Encoding': 'identity',
+              },
+            }, (redirRes) => {
+              const chunks = [];
+              redirRes.on('data', (c) => chunks.push(c));
+              redirRes.on('end', () => resolve({ statusCode: redirRes.statusCode, body: Buffer.concat(chunks).toString().slice(0, 500000) }));
+            });
+            redirReq.on('error', reject);
+            redirReq.setTimeout(20000, () => { redirReq.destroy(); reject(new Error('timeout')); });
+            redirReq.end();
+            return;
+          }
+          const chunks = [];
+          naverResponse.on('data', (c) => chunks.push(c));
+          naverResponse.on('end', () => resolve({ statusCode: naverResponse.statusCode, body: Buffer.concat(chunks).toString().slice(0, 500000) }));
+        });
+        naverReq.on('error', reject);
+        naverReq.setTimeout(20000, () => { naverReq.destroy(); reject(new Error('timeout')); });
+        naverReq.end();
+      });
+      console.log(`[naver-check] ${naverRes.statusCode} (${naverRes.body.length} bytes)`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ statusCode: naverRes.statusCode, html: naverRes.body }));
+    } catch (err) {
+      console.error('[naver-check] error:', err.message);
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
     return;
   }
 
@@ -151,6 +250,8 @@ const server = http.createServer(async (req, res) => {
 
   // ── 쿠팡 API 호출 ──
   try {
+    console.log(`[${new Date().toISOString()}] 요청: ${req.method} ${coupangPath}${coupangQuery ? '?' + coupangQuery : ''} body-length=${body ? body.length : 0}`);
+
     const startTime = Date.now();
     const result = await callCoupangApi(
       req.method,
@@ -163,13 +264,7 @@ const server = http.createServer(async (req, res) => {
     );
     const duration = Date.now() - startTime;
 
-    // ★ FMS 비동기 상태 확인 + 쿠폰 적용 응답 로깅 (디버깅)
-    const isFmsPath = coupangPath.includes('/fms/') || coupangPath.includes('/coupons/');
-    if (isFmsPath || result.statusCode !== 200) {
-      console.log(`[${new Date().toISOString()}] ${req.method} ${coupangPath} → ${result.statusCode} (${duration}ms) BODY: ${result.body.slice(0, 800)}`);
-    } else {
-      console.log(`[${new Date().toISOString()}] ${req.method} ${coupangPath} → ${result.statusCode} (${duration}ms)`);
-    }
+    console.log(`[${new Date().toISOString()}] 응답: ${req.method} ${coupangPath} → ${result.statusCode} (${duration}ms) body: ${result.body.slice(0, 300)}`);
 
     res.writeHead(result.statusCode, {
       'Content-Type': 'application/json',

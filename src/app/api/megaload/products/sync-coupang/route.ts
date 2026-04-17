@@ -157,8 +157,9 @@ export async function POST() {
           const ourPrice = firstOpt
             ? Number(firstOpt.salePrice || firstOpt.originalPrice || 0)
             : 0;
-          const itemStatus = String(item.statusName || item.status || '');
-          const coupangStatus: 'active' | 'suspended' = itemStatus === 'APPROVE' ? 'active' : 'suspended';
+          const itemStatus = String(item.statusName || item.status || '').toUpperCase();
+          const ACTIVE_STATUSES = new Set(['APPROVE', 'PARTIAL_APPROVAL', 'WAITING_FOR_APPROVAL', 'REGISTRATION']);
+          const coupangStatus: 'active' | 'suspended' = ACTIVE_STATUSES.has(itemStatus) ? 'active' : 'suspended';
           try {
             const { data: existingMonitor } = await serviceClient
               .from('sh_stock_monitors')

@@ -296,12 +296,15 @@ export function generatePersuasionContent(
   // ── 글자수 검증 (600~1200자 타겟) ──
   let totalChars = enrichedBlocks.reduce((sum, b) => sum + getBlockCharCount(b), 0);
 
-  // 글자수 < MIN_CHARS이면 블록 추가 (최대 5회 반복)
+  // 글자수 < MIN_CHARS이면 블록 추가 (중복 텍스트 방지 — content 기준 dedup)
   const paddingTypes: ContentBlockType[] = [
     'feature_detail', 'solution', 'social_proof', 'usage_guide',
     'feature_detail', 'solution', 'social_proof', 'usage_guide',
     'feature_detail', 'solution', 'feature_detail', 'social_proof',
   ];
+  const seenPadHeads = new Set<string>(
+    enrichedBlocks.map(b => (b.content || '').trim().slice(0, 80)).filter(Boolean),
+  );
   let padIdx = 0;
   while (totalChars < MIN_CHARS && padIdx < paddingTypes.length) {
     const extraBlock = composeBlock(
@@ -313,6 +316,11 @@ export function generatePersuasionContent(
       rng,
       profile?.forbiddenTerms,
     );
+    padIdx++;
+    const head = (extraBlock.content || '').trim().slice(0, 80);
+    // 빈 블록 or 기존 블록과 선행 80자 동일 → 버림
+    if (!head || seenPadHeads.has(head)) continue;
+    seenPadHeads.add(head);
     // cta 앞에 삽입
     const ctaIdx = enrichedBlocks.findIndex(b => b.type === 'cta');
     if (ctaIdx >= 0) {
@@ -321,7 +329,6 @@ export function generatePersuasionContent(
       enrichedBlocks.push(extraBlock);
     }
     totalChars += getBlockCharCount(extraBlock);
-    padIdx++;
   }
 
   // 글자수 > MAX_CHARS이면 가장 긴 non-hook/non-cta 블록 축약

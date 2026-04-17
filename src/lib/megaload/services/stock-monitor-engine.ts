@@ -52,45 +52,72 @@ interface CheckResult {
   matchedPattern?: string;
 }
 
+const NAVER_PROXY_URL = process.env.COUPANG_PROXY_URL || '';
+const NAVER_PROXY_SECRET = process.env.PROXY_SECRET || '';
+
 async function checkUrl(url: string, retryCount = 0): Promise<CheckResult> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
+  const timeout = setTimeout(() => controller.abort(), 25000);
 
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Sec-Ch-Ua': '"Chromium";v="131", "Not_A Brand";v="24"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': '"Windows"',
-        'Upgrade-Insecure-Requests': '1',
-        'Cache-Control': 'max-age=0',
-      },
-      redirect: 'follow',
-      cache: 'no-store',
-    });
-    clearTimeout(timeout);
+    let statusCode: number;
+    let html: string;
 
-    if (res.status === 404 || res.status === 410) return { status: 'removed', matchedPattern: `HTTP ${res.status}` };
-    // 429 재시도: 최대 1회, 8초 대기 후 재시도
-    // 배치 레벨 circuit breaker가 429를 감지하므로 여기서는 가볍게 1회만 재시도
-    if (res.status === 429 && retryCount < 1) {
+    // 네이버 URL이고 프록시가 설정돼 있으면 Fly.io 프록시 경유 (Vercel 직접 fetch 시 403 차단 방지)
+    const isNaverUrl = /smartstore\.naver|shop\.naver|brand\.naver|shopping\.naver/.test(url);
+    if (isNaverUrl && NAVER_PROXY_URL) {
+      const proxyBase = NAVER_PROXY_URL.replace(/\/proxy\/?$/, '');
+      const proxyRes = await fetch(`${proxyBase}/naver-check`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Proxy-Secret': NAVER_PROXY_SECRET,
+        },
+        body: JSON.stringify({ url }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!proxyRes.ok) {
+        const errData = await proxyRes.json().catch(() => ({}));
+        return { status: 'error', matchedPattern: `proxy ${proxyRes.status}: ${(errData as Record<string, string>).error || ''}` };
+      }
+      const data = await proxyRes.json() as { statusCode: number; html: string };
+      statusCode = data.statusCode;
+      html = data.html || '';
+    } else {
+      // 직접 fetch (프록시 미설정 or 비네이버 URL)
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+          'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Sec-Ch-Ua': '"Chromium";v="131", "Not_A Brand";v="24"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"',
+          'Upgrade-Insecure-Requests': '1',
+          'Cache-Control': 'max-age=0',
+        },
+        redirect: 'follow',
+        cache: 'no-store',
+      });
+      clearTimeout(timeout);
+      statusCode = res.status;
+      html = (await res.text()).slice(0, 500_000);
+    }
+
+    if (statusCode === 404 || statusCode === 410) return { status: 'removed', matchedPattern: `HTTP ${statusCode}` };
+    if (statusCode === 429 && retryCount < 1) {
       await sleep(8000);
       return checkUrl(url, retryCount + 1);
     }
-    // 403 → 네이버 봇 차단 의심: 별도 에러 메시지
-    if (res.status === 403) return { status: 'error', matchedPattern: 'HTTP 403 (접근 차단 — 네이버 봇 감지 의심)' };
-    if (!res.ok) return { status: 'error', matchedPattern: `HTTP ${res.status}` };
-
-    const html = (await res.text()).slice(0, 500_000);
+    if (statusCode === 403) return { status: 'error', matchedPattern: 'HTTP 403 (접근 차단)' };
+    if (statusCode < 200 || statusCode >= 400) return { status: 'error', matchedPattern: `HTTP ${statusCode}` };
 
     for (const p of REMOVED_PATTERNS) {
       if (p.test(html)) return { status: 'removed', matchedPattern: p.source };
@@ -269,7 +296,8 @@ async function fetchAndUpdateCoupangStatus(
     const detail = await adapter.getProductDetail(monitor.coupang_product_id);
     if (!detail) return null;
 
-    const coupangApiStatus: 'active' | 'suspended' = detail.statusName === 'APPROVE' ? 'active' : 'suspended';
+    const ACTIVE_STATUSES = new Set(['APPROVE', 'PARTIAL_APPROVAL', 'WAITING_FOR_APPROVAL', 'REGISTRATION']);
+    const coupangApiStatus: 'active' | 'suspended' = ACTIVE_STATUSES.has(String(detail.statusName || '').toUpperCase()) ? 'active' : 'suspended';
     const coupangApiPrice = detail.items?.[0]?.salePrice ?? null;
 
     // DB 업데이트 — 변경분만

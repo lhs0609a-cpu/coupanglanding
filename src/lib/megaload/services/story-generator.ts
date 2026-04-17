@@ -297,17 +297,76 @@ export function generateStoryV2(
   let paragraphs = [...reviewParagraphs, ...rewrittenPersuasion];
 
   // ── 후처리 안전망: 건강식품 성분 불일치 문장 제거 ──
-  if (productContext && categoryPath.includes('건강식품')) {
-    const overrides = extractContextOverrides(productContext, categoryPath);
-    const expectedTerms = new Set([
-      ...(overrides['성분'] || []),
-      ...(overrides['효과1'] || []),
-      ...(overrides['효과2'] || []),
-    ]);
+  //   productContext가 없으면 카테고리 경로 + 상품명에서 허용 성분을 추론한다.
+  //   이 필터는 다른 영양제 성분 언급(예: 홍삼 상품에 "유산균")이 있는 문장을 통째로 제거.
+  if (categoryPath.includes('건강식품')) {
+    const expectedTerms = new Set<string>();
+
+    // 1) productContext가 있으면 overrides에서 수집
+    if (productContext) {
+      const overrides = extractContextOverrides(productContext, categoryPath);
+      for (const key of ['성분', '효과1', '효과2']) {
+        for (const v of (overrides[key] || [])) expectedTerms.add(v);
+      }
+    }
+
+    // 2) 카테고리 경로에서 키워드 추론 (예: "홍삼농축액", "오메가3" 등)
+    const path = categoryPath.toLowerCase();
+    const CATEGORY_INGREDIENT_MAP: Record<string, string[]> = {
+      '홍삼': ['홍삼', '진세노사이드', '인삼사포닌'],
+      '유산균': ['유산균', '프로바이오틱스', '프리바이오틱스'],
+      '프로바이오틱스': ['유산균', '프로바이오틱스', '프리바이오틱스'],
+      '오메가': ['오메가3', 'EPA', 'DHA', '크릴오일'],
+      '크릴': ['오메가3', '크릴오일'],
+      '루테인': ['루테인', '지아잔틴'],
+      '밀크': ['밀크씨슬', '실리마린'],
+      '간건강': ['밀크씨슬', '실리마린'],
+      '콜라겐': ['콜라겐', '히알루론산', '엘라스틴'],
+      '글루코사민': ['글루코사민', '콘드로이친', 'MSM', '보스웰리아'],
+      '관절': ['글루코사민', '콘드로이친', 'MSM', '보스웰리아'],
+      '코엔자임': ['코엔자임', 'Q10', '유비퀴놀'],
+      '쏘팔메토': ['쏘팔메토'],
+      '비오틴': ['비오틴'],
+      '엽산': ['엽산'],
+      '가르시니아': ['가르시니아', 'HCA', 'CLA'],
+      '다이어트': ['가르시니아', 'HCA', 'CLA', 'L-카르니틴', '키토산'],
+      '헬스': ['프로틴', 'BCAA', '크레아틴'],
+      '프로틴': ['프로틴', 'WPI', 'WPC', 'BCAA'],
+      '스피루리나': ['스피루리나', '클로렐라'],
+      '클로렐라': ['스피루리나', '클로렐라'],
+      '흑마늘': ['흑마늘', '마늘'],
+      '마늘': ['흑마늘', '마늘'],
+      '프로폴리스': ['프로폴리스'],
+      '비타민c': ['비타민C', '비타민E'],
+      '비타민d': ['비타민D'],
+      '비타민b': ['비타민B'],
+      '비타민a': ['비타민A'],
+      '비타민e': ['비타민E'],
+      '비타민k': ['비타민K'],
+      '멀티비타민': ['비타민C', '비타민D', '비타민B', '비타민A', '비타민E'],
+      '칼슘': ['칼슘', '마그네슘'],
+      '마그네슘': ['마그네슘', '칼슘'],
+      '철분': ['철분'],
+      '아연': ['아연'],
+      '셀레늄': ['셀레늄'],
+    };
+    for (const [key, ingredients] of Object.entries(CATEGORY_INGREDIENT_MAP)) {
+      if (path.includes(key)) {
+        for (const ing of ingredients) expectedTerms.add(ing);
+      }
+    }
+
+    // 3) 상품명에서도 키워드 추출
+    const nameLower = productName.toLowerCase();
+    for (const [key, ingredients] of Object.entries(CATEGORY_INGREDIENT_MAP)) {
+      if (nameLower.includes(key)) {
+        for (const ing of ingredients) expectedTerms.add(ing);
+      }
+    }
 
     if (expectedTerms.size >= 1) {
       // 다른 영양제 성분이 언급되면 해당 문장 제거 (상품과 무관한 성분 언급 방지)
-      const HEALTH_INGREDIENTS_RE = /오메가3|루테인|비오틴|콜라겐|유산균|프로바이오틱스|밀크씨슬|홍삼|마그네슘|칼슘|글루코사민|히알루론산|코엔자임|크릴오일|프로폴리스|쏘팔메토|엽산|가르시니아|스피루리나|클로렐라|흑마늘|비타민[A-EK]|철분|아연|셀레늄|보스웰리아|MSM|진세노사이드/g;
+      const HEALTH_INGREDIENTS_RE = /오메가3|루테인|비오틴|콜라겐|유산균|프로바이오틱스|밀크씨슬|홍삼|마그네슘|칼슘|글루코사민|히알루론산|코엔자임|크릴오일|프로폴리스|쏘팔메토|엽산|가르시니아|스피루리나|클로렐라|흑마늘|비타민[A-EK]|철분|아연|셀레늄|보스웰리아|MSM|진세노사이드|프로틴|WPC|CLA|카테킨/g;
 
       paragraphs = paragraphs.map(p => {
         const sentences = p.split(/(?<=[.!?。요])\s+/);
@@ -320,6 +379,41 @@ export function generateStoryV2(
         return filtered.join(' ').trim();
       }).filter(p => p.length > 5);
     }
+  }
+
+  // ── 비식품 카테고리 후처리: 식품/건강식품 전용 용어 제거 ──
+  //   자동차/가전/가구/문구 등에서 "복용/섭취/공복/1일 섭취량" 같은 문장 제거
+  {
+    const isFoodOrHealth =
+      categoryPath.includes('식품') ||
+      categoryPath.includes('건강식품') ||
+      categoryPath.includes('뷰티') ||
+      categoryPath.includes('화장품');
+    if (!isFoodOrHealth) {
+      const FOOD_TERM_RE = /복용|섭취|공복|식후\s*\d|1일\s*권장량|1일\s*섭취량|건강기능식품|영양제|캡슐|정제|1정|1포/;
+      paragraphs = paragraphs.map(p => {
+        const sentences = p.split(/(?<=[.!?。요])\s+/);
+        const filtered = sentences.filter(s => !FOOD_TERM_RE.test(s));
+        return filtered.join(' ').trim();
+      }).filter(p => p.length > 5);
+    }
+  }
+
+  // ── 문단 중복 제거 (선행 80자 기준) ──
+  //   realReview + persuasion 합산 후 시드 충돌로 유사 문단이 생길 수 있어
+  //   선행 80자가 동일하면 뒤에 나오는 문단을 버린다.
+  {
+    const seenHeads = new Set<string>();
+    const deduped: string[] = [];
+    for (const p of paragraphs) {
+      const normalized = p.trim().replace(/\s+/g, ' ');
+      if (normalized.length < 10) continue;
+      const head = normalized.slice(0, 80);
+      if (seenHeads.has(head)) continue;
+      seenHeads.add(head);
+      deduped.push(normalized);
+    }
+    paragraphs = deduped;
   }
 
   // 총 글자수 계산 (SEO 검증용)

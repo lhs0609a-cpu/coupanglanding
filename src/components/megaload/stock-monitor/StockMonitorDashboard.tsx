@@ -629,7 +629,7 @@ export default function StockMonitorDashboard() {
                             )}
                             {m.coupang_product_id && (
                               <a
-                                href={`https://wing.coupang.com/tenants/manage-product/products?searchKeyword=${m.coupang_product_id}&searchType=SELLER_PRODUCT_ID`}
+                                href={`https://wing.coupang.com/tenants/manage-product/products/list?searchKeyword=${m.coupang_product_id}&searchType=SELLER_PRODUCT_ID`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-[10px] text-purple-500 hover:text-purple-700 flex items-center gap-0.5"
