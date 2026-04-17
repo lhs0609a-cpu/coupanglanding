@@ -77,8 +77,10 @@ const NON_PRODUCT_TOP = new Set(['도서', '도서/음반/DVD']);
 
 // ─── 상수 ────────────────────────────────────────────────
 
-// "개월분?" / "일분" / "주분" 은 반드시 "개" 보다 앞에 위치해야 부분매칭 방지
-const SPEC_PATTERN = /\d+\s*(개월분?|일분|주분|ml|g|kg|mg|mcg|iu|L|정|개|매|팩|세트|입|병|통|포|봉|캡슐|알|ea|p|장|m|cm|mm|인치|oz|lb)/gi;
+// "개월분?" / "일분" / "주분" 은 반드시 "개" 보다 앞에 위치해야 부분매칭 방지.
+// "개" 뒤에 "입|월|월분|년"이 오면 수량이 아닌 서술어("N개입", "N개월", "N개월분")이므로 제외.
+// "kg/g" 앞에 숫자 소수점 허용 (2.74kg 같은 값 보존).
+const SPEC_PATTERN = /\d+(?:\.\d+)?\s*(개월분?|일분|주분|ml|g|kg|mg|mcg|iu|L|정|개(?!입|월|년)|매|팩|세트|입|병|통|포|봉|캡슐|알|ea|p|장|m|cm|mm|인치|oz|lb)/gi;
 
 const NOISE = new Set([
   '무료배송', '당일발송', '특가', '할인', '증정', '사은품', '리뷰이벤트',
@@ -777,6 +779,59 @@ export function generateDisplayName(
   }
 
   return result || originalName.slice(0, HARD_MAX_CHARS);
+}
+
+/**
+ * 노출상품명의 꼬리 spec을 추출된 구매옵션 값으로 재동기화한다.
+ *
+ * 문제: display name은 원본 상품명의 literal 토큰("60캡슐, 2개", "2.74kg")을 그대로 꼬리에 붙이지만,
+ *       실제 쿠팡에 전송되는 옵션 값은 option-extractor가 정규화/통합한 값("60정, 1개", "2740g, 1개")이라
+ *       노출상품명과 옵션값이 불일치하는 경우가 발생한다.
+ *
+ * 해결: 노출상품명 꼬리의 spec 토큰을 제거하고 옵션 값 기반 canonical spec string으로 대체한다.
+ *
+ * @param displayName — generateDisplayName 결과
+ * @param buyOptions — extractOptionsEnhanced().buyOptions (정제된 옵션값)
+ */
+export function syncDisplayNameWithOptions(
+  displayName: string,
+  buyOptions: { name: string; value: string; unit?: string }[],
+): string {
+  if (!displayName || buyOptions.length === 0) return displayName;
+
+  // 꼬리에서 SPEC 토큰 제거 (공백·콤마 포함)
+  // "프로틴 2kg, 1개" → "프로틴"
+  // 한글 콤마 decimal(2,74kg)도 포함하도록 콤마 허용
+  const stripRegex = /(?:\s|,)*(?:\d+(?:[.,]\d+)?\s*(?:개월분?|일분|주분|ml|g|kg|mg|mcg|iu|L|정|개(?!입|월|년)|매|팩|세트|입|병|통|포|봉|캡슐|알|ea|p|장|m|cm|mm|인치|oz|lb)[,\s]*)+$/i;
+  let stripped = displayName.replace(stripRegex, '').trim();
+  // 추가: 방금 제거된 spec 앞에 "2,", "3, " 같은 낙오 조각(한글 콤마 decimal 잔여)이 있으면 제거
+  stripped = stripped.replace(/[,\s]*\d{1,3}\s*,?\s*$/, '').trim();
+
+  // canonical spec 빌드 — choose1 우선(용량/중량/캡슐/정), 그 다음 수량
+  const parts: string[] = [];
+  const specPriority = ['용량', '캡슐', '정', '중량'];
+  for (const key of specPriority) {
+    const opt = buyOptions.find(o => {
+      const n = o.name.replace(/\s+/g, '');
+      return n.includes(key);
+    });
+    if (opt && opt.value) {
+      parts.push(`${opt.value}${opt.unit || ''}`);
+      break;
+    }
+  }
+  const countOpt = buyOptions.find(o => o.name.replace(/\s+/g, '') === '수량' || o.name.replace(/\s+/g, '') === '총수량');
+  if (countOpt && countOpt.value) {
+    parts.push(`${countOpt.value}${countOpt.unit || '개'}`);
+  }
+
+  if (parts.length === 0) return stripped || displayName;
+
+  const canonicalSpec = parts.join(', ');
+  const result = stripped ? `${stripped} ${canonicalSpec}` : canonicalSpec;
+
+  // HARD_MAX_CHARS(70) 초과 시 자르기
+  return result.length > 70 ? result.slice(0, 70) : result;
 }
 
 /**

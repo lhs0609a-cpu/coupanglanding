@@ -215,13 +215,28 @@ function extractVolumeMl(name: string, composite: CompositeResult): number | nul
 function extractWeightG(name: string, composite: CompositeResult): number | null {
   if (composite.weight) return composite.weight.value;
 
-  // kg → g 변환
-  const kgMatch = name.match(/(\d+(?:\.\d+)?)\s*(kg|KG|㎏)(?!\s*[xX×])/i);
-  if (kgMatch) return parseFloat(kgMatch[1]) * 1000;
+  // kg → g 변환. 소수점 한글 콤마(2,74kg) 정규화 먼저 수행해 소수점 유실 방지.
+  // 또한 비현실적 값(>= 100kg = 100000g) 방어 — 타이핑 오류/성분 함량 혼입 가드.
+  const normalized = name.replace(/(\d),(\d{1,2})(?=\s*(?:kg|KG|㎏|g|그램))/g, '$1.$2');
+  const kgMatch = normalized.match(/(\d+(?:\.\d+)?)\s*(kg|KG|㎏)(?!\s*[xX×])/i);
+  if (kgMatch) {
+    const val = parseFloat(kgMatch[1]) * 1000;
+    // 100kg 초과는 타이핑 오류(2.74kg → 274kg)일 가능성이 높음 → 소수점 복원 시도
+    if (val >= 100000 && !kgMatch[1].includes('.') && kgMatch[1].length >= 3) {
+      const recovered = parseFloat(kgMatch[1].slice(0, 1) + '.' + kgMatch[1].slice(1)) * 1000;
+      if (recovered > 0 && recovered < 100000) return recovered;
+    }
+    return val;
+  }
 
   // g 직접 추출 — 단, 앞에 m이 붙은 mg는 제외!
-  const gMatch = name.match(/(?<![mkμ])(\d+(?:\.\d+)?)\s*(g|그램)(?!\s*[xX×])/i);
-  if (gMatch) return parseFloat(gMatch[1]);
+  const gMatch = normalized.match(/(?<![mkμ])(\d+(?:\.\d+)?)\s*(g|그램)(?!\s*[xX×])/i);
+  if (gMatch) {
+    const val = parseFloat(gMatch[1]);
+    // 100kg(=100000g) 초과는 비현실적 — 보수적으로 null 반환하여 수동 수정 유도
+    if (val >= 100000) return null;
+    return val;
+  }
 
   // mg는 무시 (성분 함량이므로 제품 중량이 아님)
   // mcg도 무시

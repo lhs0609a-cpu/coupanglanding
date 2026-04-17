@@ -8,6 +8,7 @@
 import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo, type AttributeMeta, type CertificationInfo, type OptionVariant } from './coupang-product-builder';
 import { fillNoticeFields, type NoticeCategoryMeta, type FilledNoticeCategory, type ExtractedNoticeHints } from './notice-field-filler';
 import { extractOptionsEnhanced, type ExtractedOptions } from './option-extractor';
+import { syncDisplayNameWithOptions } from './display-name-generator';
 import { selectWithSeed } from './item-winner-prevention';
 import { createSeededRandom, stringToSeed } from './seeded-random';
 import type { PreventionConfig } from './item-winner-prevention';
@@ -140,6 +141,15 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     ocrSpecs: product.ocrSpecs,
     categoryPath: product.categoryPath,
   });
+
+  // 노출상품명(title) 꼬리 spec을 추출된 옵션값과 동기화.
+  // displayProductName은 editedDisplayProductName(SEO 최적화 결과)에서 오므로 이걸 교정.
+  // 예: "...60캡슐, 2개" + 옵션 "60정, 1개" → "...60정, 1개"
+  //     "...2.74kg" + 옵션 "2740g, 1개" → "...2740g, 1개"
+  const rawDisplayName = product.displayProductNameOverride || product.aiDisplayName;
+  const syncedDisplayName = rawDisplayName
+    ? syncDisplayNameWithOptions(rawDisplayName, extracted.buyOptions)
+    : rawDisplayName;
 
   // 추출된 옵션값을 notices용 hints로 변환
   const noticeHints: ExtractedNoticeHints = {};
@@ -274,7 +284,7 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     aiReviewTexts: finalReviewTexts,
     extractedBuyOptions: extracted.buyOptions as ExtractedBuyOption[],
     totalUnitCount: product.unitCountOverride ?? extracted.totalUnitCount,
-    displayProductName: product.displayProductNameOverride || product.aiDisplayName,
+    displayProductName: syncedDisplayName,
     sellerProductName: product.aiSellerName,
     manufacturer: product.manufacturerOverride,
     maximumBuyForPerson: product.maxBuyPerPersonOverride,
