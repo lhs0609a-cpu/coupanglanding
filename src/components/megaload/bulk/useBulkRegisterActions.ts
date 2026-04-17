@@ -898,14 +898,16 @@ export function useBulkRegisterActions() {
               return p;
             }
 
-            // 메인이미지: 스코어 순 정렬만 (하드필터 제거 안 함)
-            // 누끼 이미지가 높은 점수를 받아 앞으로 오도록 정렬
-            const allSorted = [...scores].sort((a, b) => b.score.overall - a.score.overall);
+            // 메인이미지: index 0(대표)은 사용자 폴더 순서 보호 — 1~9번만 스코어 정렬
+            // 사용자가 폴더에 첫번째로 놓은 파일을 쿠팡 REPRESENTATION으로 고정
+            const firstImage = p.scannedMainImages[0];
+            const restScores = scores.filter(s => s.index !== 0);
+            const restSorted = [...restScores].sort((a, b) => b.score.overall - a.score.overall);
+            const restImages = restSorted.map(s => p.scannedMainImages![s.index]);
+            const finalImages = [firstImage, ...restImages].slice(0, 10);
             console.info(
-              `[image-score] ${p.productCode}: 대표=#${allSorted[0].index} (overall=${allSorted[0].score.overall.toFixed(1)}), 전체 ${allSorted.length}장 유지`,
+              `[image-score] ${p.productCode}: 대표=#0 고정(${firstImage.name}), 나머지 ${restSorted.length}장 스코어 정렬`,
             );
-            const sorted = allSorted.map(s => p.scannedMainImages![s.index]);
-            const finalImages = sorted.slice(0, 10);
             return { ...p, scannedMainImages: finalImages, mainImageCount: finalImages.length };
           }));
 
