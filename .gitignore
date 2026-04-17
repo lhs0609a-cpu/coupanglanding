@@ -53,3 +53,14 @@ nul
 자료/
 
 .env*.local
+
+# build / run artifacts (루트)
+build.log
+build.err
+build.out
+
+# 스크립트 실행 로그 (검증 스크립트 출력)
+scripts/verify-output*.log
+
+# Claude Code 로컬 상태
+.claude/scheduled_tasks.lock
