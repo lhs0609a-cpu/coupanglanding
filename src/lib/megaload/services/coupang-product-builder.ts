@@ -351,14 +351,14 @@ export function buildCoupangProductPayload(
       brand: resolvedBrand,
       aiStoryParagraphs: safeParagraphs,
       aiStoryHtml: safeStoryHtml,
-      reviewImageUrls,
-      reviewTexts: safeReviewTexts,
-      detailImageUrls,
-      infoImageUrls,
-      consignmentImageUrls,
-      thirdPartyImageUrls,
+      reviewImageUrls: [],           // 사용자 선택 외 이미지 전면 차단
+      reviewTexts: undefined,        // 리뷰 텍스트 섹션 제거
+      detailImageUrls,               // ★ 사용자가 선택한 이미지만 사용
+      infoImageUrls,                 // 상품정보(product_info) — 사용자 폴더 이미지
+      consignmentImageUrls: [],      // 위탁판매 이미지 제거
+      thirdPartyImageUrls: [],       // 제3자(스톡) 이미지 제거
       seoKeywords: safeSeoKeywords,
-      faqItems: safeFaqItems,
+      faqItems: [],                  // Q&A 제거
       closingText: safeClosingText,
       categoryPath,
       contentBlocks: safeContentBlocks,

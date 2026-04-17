@@ -12,29 +12,6 @@ import {
   scoreProductRelevance,
   type ProductRelevanceScore,
 } from '@/lib/megaload/services/image-quality-scorer';
-// 제3자 이미지 서버 URL (Supabase Storage 영구 저장)
-const THIRD_PARTY_IMAGE_URLS = [
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-01.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-02.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-03.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-04.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-05.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-06.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-07.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-08.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-09.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-10.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-11.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-12.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-13.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-14.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-15.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-16.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-17.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-18.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-19.jpg',
-  'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-20.jpg',
-];
 import type { ContentBlock } from '@/lib/megaload/services/persuasion-engine';
 import type { EditableProduct, ScannedImageFile } from './types';
 
@@ -504,25 +481,18 @@ export default function DetailPageContentTab({
       ? storyParagraphs.filter(p => p.trim())
       : (description ? [description] : []);
 
-    // 제3자 이미지: 서버 로직과 동일 — 20% 확률로 1장만 선택
-    const tpSeed = product.productCode || product.uid;
-    let tpHash = 0;
-    for (let i = 0; i < tpSeed.length; i++) tpHash = ((tpHash << 5) - tpHash + tpSeed.charCodeAt(i)) | 0;
-    const tpSlot = Math.abs(tpHash) % 5; // 0~4 중 0만 선택 = 20%
-    const selectedTp = tpSlot === 0
-      ? [THIRD_PARTY_IMAGE_URLS[Math.abs(tpHash) % THIRD_PARTY_IMAGE_URLS.length]]
-      : [];
-
     return buildRichDetailPageHtml(
       {
         productName: product.editedDisplayProductName || product.name,
         brand: '',  // 브랜드 비움 (아이템위너 방지)
         aiStoryParagraphs: paragraphs,
-        reviewImageUrls: reviewUrls,
-        reviewTexts: reviewTexts.length > 0 ? reviewTexts : undefined,
-        detailImageUrls: detailUrls,
+        reviewImageUrls: reviewUrls,       // 빈 배열 — 리뷰이미지 미사용
+        reviewTexts: undefined,            // 리뷰 텍스트 섹션 제거
+        detailImageUrls: detailUrls,       // ★ 사용자 선택 이미지만
         infoImageUrls,
-        thirdPartyImageUrls: selectedTp,
+        thirdPartyImageUrls: [],           // 제3자 이미지 제거
+        consignmentImageUrls: [],          // 위탁판매 이미지 제거
+        faqItems: [],                      // Q&A 제거
         contentBlocks: contentBlocks.length > 0 ? contentBlocks : undefined,
         categoryPath: product.editedCategoryName,
       },
