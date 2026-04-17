@@ -423,6 +423,19 @@ export async function POST(req: NextRequest) {
         detailImageUrls = product.preUploadedUrls.detailImageUrls.filter(Boolean);
         reviewImageUrls = includeReviewImages ? product.preUploadedUrls.reviewImageUrls.filter(Boolean) : [];
         infoImageUrls = product.preUploadedUrls.infoImageUrls.filter(Boolean);
+
+        // 세션 복원 후 핸들 유실 시 preUploadedUrls에 detail/review가 빈 배열이지만
+        // product.detailImages/reviewImages에 로컬 경로가 남아있을 수 있음 → 서버 업로드 폴백
+        if (detailImageUrls.length === 0 && product.detailImages?.length > 0) {
+          console.log(`[batch] ${product.productCode} detail 폴백: preUploaded=0, localPaths=${product.detailImages.length}`);
+          const detailFallbackUrls = await uploadLocalImagesParallel(product.detailImages, shUserId, 10, true, sellerBrand || undefined);
+          detailImageUrls = detailFallbackUrls.filter(Boolean);
+        }
+        if (reviewImageUrls.length === 0 && includeReviewImages && product.reviewImages?.length > 0) {
+          console.log(`[batch] ${product.productCode} review 폴백: preUploaded=0, localPaths=${product.reviewImages.length}`);
+          const reviewFallbackUrls = await uploadLocalImagesParallel(product.reviewImages, shUserId, 10, true, sellerBrand || undefined);
+          reviewImageUrls = reviewFallbackUrls.filter(Boolean);
+        }
       } else {
         const reviewPaths = includeReviewImages ? product.reviewImages : [];
         const allPaths = [...product.mainImages, ...product.detailImages, ...reviewPaths, ...product.infoImages];

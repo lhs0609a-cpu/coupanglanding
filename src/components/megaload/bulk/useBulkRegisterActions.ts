@@ -1947,23 +1947,52 @@ export function useBulkRegisterActions() {
           const filteredReview = filterImagesByOrder(p.scannedReviewImages || [], p.editedReviewImageOrder);
 
           const wmBrand = preventionConfig.enabled ? preventionConfig.sellerBrand : undefined;
+
+          // 세션 복원 후 scannedDetailImages 핸들이 사라진 경우 감지:
+          // 캐시에 detail URLs도 없고, scanned 핸들도 없지만, 로컬 경로(detailImages)는 있으면
+          // → 해당 카테고리만 서버 업로드로 폴백 (preUploadedUrls에서 제외)
+          const detailHandlesLost = filteredDetail.length === 0 && (p.detailImages?.length ?? 0) > 0;
+          const reviewHandlesLost = filteredReview.length === 0 && (p.reviewImages?.length ?? 0) > 0;
+
           if (hasCache) {
             const mainUrls = cached.mainImageUrls;
-            // ★ 캐시된 URL도 editedDetailImageOrder / editedReviewImageOrder로 필터링 — 사용자 선택 외 절대 업로드 금지
             const detailUrls = cached.detailImageUrls?.length
               ? filterImagesByOrder(cached.detailImageUrls, p.editedDetailImageOrder)
-              : await uploadScannedImages(filteredDetail, 10, wmBrand);
+              : detailHandlesLost
+                ? null // null = 서버 업로드 폴백 (아래에서 preUploadedUrls에서 제외)
+                : await uploadScannedImages(filteredDetail, 10, wmBrand);
             const reviewUrls = cached.reviewImageUrls?.length
               ? filterImagesByOrder(cached.reviewImageUrls, p.editedReviewImageOrder)
-              : (includeReviewImages ? await uploadScannedImages(filteredReview, 10, wmBrand) : []);
+              : reviewHandlesLost
+                ? null
+                : (includeReviewImages ? await uploadScannedImages(filteredReview, 10, wmBrand) : []);
             const infoUrls = cached.infoImageUrls?.length ? cached.infoImageUrls : await uploadScannedImages(p.scannedInfoImages || [], 10, wmBrand);
-            product.preUploadedUrls = { mainImageUrls: mainUrls, detailImageUrls: detailUrls, reviewImageUrls: reviewUrls, infoImageUrls: infoUrls };
+
+            if (detailUrls === null || reviewUrls === null) {
+              // 일부 이미지 핸들 유실 → 서버 업로드 혼합 모드:
+              // preUploadedUrls에 main만 넣고 detail/review는 로컬 경로로 서버 전송
+              console.log(`[register] ${p.productCode}: 세션 복원 → 상세/리뷰 이미지 핸들 유실, 서버 업로드 폴백 (detail=${detailHandlesLost}, review=${reviewHandlesLost})`);
+              product.preUploadedUrls = {
+                mainImageUrls: mainUrls,
+                detailImageUrls: detailUrls ?? [],
+                reviewImageUrls: reviewUrls ?? [],
+                infoImageUrls: infoUrls,
+              };
+              // 서버가 detailImageUrls=[]이면 product.detailImages(로컬 경로)를 사용하도록
+              // product.detailImages는 이미 line 1911에서 filterImagesByOrder 적용됨
+            } else {
+              product.preUploadedUrls = { mainImageUrls: mainUrls, detailImageUrls: detailUrls, reviewImageUrls: reviewUrls, infoImageUrls: infoUrls };
+            }
           } else if (hasScanned) {
             // 브라우저 모드: scannedMainImages를 직접 업로드
             const mainUrls = await uploadScannedImages(p.scannedMainImages!, 10, wmBrand);
-            const detailUrls = await uploadScannedImages(filteredDetail, 10, wmBrand);
-            const reviewUrls = includeReviewImages ? await uploadScannedImages(filteredReview, 10, wmBrand) : [];
+            const detailUrls = detailHandlesLost ? [] : await uploadScannedImages(filteredDetail, 10, wmBrand);
+            const reviewUrls = reviewHandlesLost ? [] : (includeReviewImages ? await uploadScannedImages(filteredReview, 10, wmBrand) : []);
             const infoUrls = await uploadScannedImages(p.scannedInfoImages || [], 10, wmBrand);
+
+            if (detailHandlesLost || reviewHandlesLost) {
+              console.log(`[register] ${p.productCode}: 핸들 유실 폴백 — detail=${detailHandlesLost}, review=${reviewHandlesLost}`);
+            }
             product.preUploadedUrls = { mainImageUrls: mainUrls, detailImageUrls: detailUrls, reviewImageUrls: reviewUrls, infoImageUrls: infoUrls };
           } else if (!hasLocalPaths) {
             // 이미지가 전혀 없는 경우 — 서버에서도 업로드 불가
