@@ -106,17 +106,6 @@ export async function scanProductFolder(folderPath: string): Promise<LocalProduc
       reviewImages = collectImages(path.join(productPath, 'reviews'), /\.(jpg|jpeg|png)$/i);
     }
     const detailImages = collectImages(path.join(productPath, 'detail_images'), /\.(jpg|jpeg|png|webp)$/i);
-    // detail_images 5장 미만이면 review_images로 보충 (중복 제외).
-    // ★ 불변조건: editedDetailImageOrder 설정 시 필터링되므로 UI↔업로드 불일치 없음.
-    const DETAIL_MIN = 5;
-    if (detailImages.length < DETAIL_MIN && reviewImages.length > 0) {
-      const existingNames = new Set(detailImages.map(d => path.basename(d)));
-      for (const ri of reviewImages) {
-        if (!existingNames.has(path.basename(ri))) {
-          detailImages.push(ri);
-        }
-      }
-    }
 
     // product_info/ 내 상품정보 이미지
     const infoDir = path.join(productPath, 'product_info');

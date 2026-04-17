@@ -176,7 +176,7 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
   const categoryPath = product.categoryPath || product.name;
   const productIndex = parseInt(product.productCode.replace(/\D/g, ''), 10) || 0;
   const seoKeywords = extractSeoKeywords(product.name, categoryPath, shUserId, productIndex);
-  const faqItems = generateFaqItems(product.name, categoryPath, shUserId, productIndex, 6);
+  const faqItems: ReturnType<typeof generateFaqItems> = [];
   const closingText = generateClosingText(product.name, categoryPath, shUserId, productIndex);
 
   // 제3자 이미지: 10개 상품 중 2개만 선택(20%), 선택된 상품에 1장
