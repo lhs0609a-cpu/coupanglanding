@@ -233,6 +233,11 @@ const DIRECT_CODE_MAP: Record<string, { code: string; path: string }> = {
   '구강청결제': { code: '63983', path: '생활용품>구강/면도>구강청결제' },
   '탈취제': { code: '68036', path: '패션의류잡화>신발/운동화>탈취제' },
   '젖병': { code: '76953', path: '출산/유아동>수유/이유용품>젖병' },
+  // 유아물티슈 — "아기물티슈"가 반려동물 물티슈로 오매칭되는 문제 방지
+  '유아물티슈': { code: '76872', path: '출산/유아동>유아물티슈/캡/홀더>유아물티슈' },
+  '아기물티슈': { code: '76872', path: '출산/유아동>유아물티슈/캡/홀더>유아물티슈' },
+  '유아건티슈': { code: '76871', path: '출산/유아동>유아물티슈/캡/홀더>유아건티슈' },
+  '물티슈': { code: '63908', path: '생활용품>화장지/물티슈>화장지/티슈>물티슈' },
   '올인원': { code: '56176', path: '뷰티>스킨케어>올인원' },
   '쿨매트': { code: '78063', path: '가구/홈데코>침구>쿨매트' },
   '제면기': { code: '63745', path: '가전/디지털>주방가전>제면기' },
@@ -319,6 +324,10 @@ const SYNONYM_MAP: Record<string, string[]> = {
   // 유아동
   '기저귀': ['기저귀', '일회용기저귀'],
   '분유': ['분유', '조제분유'],
+  '아기': ['아기', '유아'],
+  '유아': ['유아', '아기'],
+  '아기물티슈': ['아기물티슈', '유아물티슈'],
+  '유아물티슈': ['유아물티슈', '아기물티슈'],
 };
 
 // ─── 상품명→카테고리명 별칭 (토큰 레벨) ─────────────────────
@@ -370,11 +379,27 @@ const MODIFIER_TOKENS = new Set([
 // ─── Tier 0 투표 기반 매칭 헬퍼 ─────────────────────────────
 // 여러 토큰이 서로 다른 카테고리를 가리킬 때, 가장 많은 토큰이 지지하는 카테고리를 선택
 // 예: "콜라겐 넥크림 넥케어" → 콜라겐(59163) 1표 vs 넥크림(56169) 2표 → 넥크림 승
-function voteTier0(candidates: string[]): CategoryMatchResult | null {
+//
+// domainFilter: 도메인 prefix가 감지되면 해당 도메인 외 DIRECT 엔트리를 무시한다.
+// 예: "아기홍삼" → domain='baby' → DIRECT_CODE_MAP['홍삼'](식품) 스킵 → localMatch로 폴백.
+type DomainFilter = 'baby' | 'pet' | 'auto' | null;
+
+function pathMatchesDomain(path: string, domain: DomainFilter): boolean {
+  if (!domain) return true;
+  const l1 = path.split('>')[0] || '';
+  if (domain === 'baby') return /출산|유아|아동/.test(l1);
+  if (domain === 'pet') return /반려|애완/.test(l1);
+  if (domain === 'auto') return /자동차/.test(l1);
+  return true;
+}
+
+function voteTier0(candidates: string[], domainFilter: DomainFilter = null): CategoryMatchResult | null {
   const votes = new Map<string, { entry: { code: string; path: string }; count: number; longestToken: number }>();
   for (const t of candidates) {
     const direct = DIRECT_CODE_MAP[t];
     if (!direct) continue;
+    // 도메인 불일치 엔트리는 Tier 0에서 배제
+    if (!pathMatchesDomain(direct.path, domainFilter)) continue;
     const existing = votes.get(direct.code);
     if (existing) {
       existing.count++;
@@ -395,6 +420,14 @@ function voteTier0(candidates: string[]): CategoryMatchResult | null {
     confidence: 0.95,
     source: 'local_db',
   };
+}
+
+function detectDomainFilter(candidates: string[]): DomainFilter {
+  const set = new Set(candidates);
+  if (['아기', '유아', '신생아', '아동', '키즈'].some(p => set.has(p))) return 'baby';
+  if (['강아지', '고양이', '반려', '반려동물', '애완', '애견', '펫'].some(p => set.has(p))) return 'pet';
+  if (['자동차', '차량', '오토바이'].some(p => set.has(p))) return 'auto';
+  return null;
 }
 
 // ─── Product name cleaning ───────────────────────────────────
@@ -510,11 +543,34 @@ const COMPOUND_SPLIT_SUFFIXES = [
   '건강', '영양', '보조', '기능',
   '세트', '묶음', '팩', '박스',
   '크림', '로션', '세럼', '에센스',
+  // 생활용품/유아 — "아기물티슈" → ["아기", "물티슈"]
+  '물티슈', '화장지', '기저귀', '티슈',
+];
+
+// 도메인 prefix — "아기X"/"강아지X"/"자동차X" 형태를 ["아기", "X"] 등으로 분리해
+// 복합어를 도메인 힌트 + 제품 stem으로 쪼갠다. stem 길이 2자 이상일 때만 분리.
+const DOMAIN_PREFIXES = [
+  // 유아동
+  '신생아', '아기', '유아', '아동', '키즈',
+  // 반려
+  '강아지', '고양이', '반려동물', '반려', '애완', '애견', '펫',
+  // 자동차
+  '자동차', '차량', '오토바이',
 ];
 
 function splitKoreanCompound(token: string): string[] {
   if (token.length < 3) return [];
   const parts: string[] = [];
+  // 도메인 prefix 분리 우선 (가장 긴 prefix부터 시도)
+  for (const pfx of DOMAIN_PREFIXES) {
+    if (token.length > pfx.length && token.startsWith(pfx)) {
+      const rest = token.slice(pfx.length);
+      if (rest.length >= 2) {
+        parts.push(pfx, rest);
+        return parts;
+      }
+    }
+  }
   for (const suffix of COMPOUND_SPLIT_SUFFIXES) {
     if (token.length > suffix.length && token.endsWith(suffix)) {
       const prefix = token.slice(0, -suffix.length);
@@ -589,7 +645,10 @@ function buildCompoundTokens(tokens: string[]): string[] {
  * 3. 다중 경로 레벨 일치 시 가산점 (leaf+parent 모두 매칭 → 훨씬 높은 점수)
  * 4. 2-char 이상 의미 토큰만 leaf 매칭에 사용 (1-char는 복합어 생성용)
  */
-async function localMatch(tokens: string[]): Promise<{ match: ScoredEntry | null; bestCandidate: ScoredEntry | null }> {
+async function localMatch(
+  tokens: string[],
+  domainFilter: DomainFilter = null,
+): Promise<{ match: ScoredEntry | null; bestCandidate: ScoredEntry | null }> {
   if (tokens.length === 0) return { match: null, bestCandidate: null };
 
   const index = loadIndex();
@@ -603,10 +662,23 @@ async function localMatch(tokens: string[]): Promise<{ match: ScoredEntry | null
   let best: ScoredEntry | null = null;
 
   for (const entry of index) {
-    const [, catTokensStr, leafName, depth] = entry;
+    const [code, catTokensStr, leafName, depth] = entry;
     const catTokenList = catTokensStr.split(' ');
     const leafLower = leafName.toLowerCase();
     let score = 0;
+
+    // 도메인 prefix 감지 시 타 도메인 엔트리는 페널티, 매칭 도메인은 보너스
+    // boost가 leafScore(최대 20) 차이를 덮을 만큼 커야 도메인 일치를 확실히 선호함
+    let domainBoost = 0;
+    if (domainFilter) {
+      const detail = (loadDetails() as Record<string, { p?: string }>)[code];
+      const path = detail?.p || '';
+      if (pathMatchesDomain(path, domainFilter)) {
+        domainBoost = 25; // 같은 도메인 카테고리 강한 가산점
+      } else {
+        domainBoost = -25; // 다른 도메인 카테고리 강한 감점
+      }
+    }
 
     // === 1. Leaf matching ===
     let leafScore = 0;
@@ -723,6 +795,9 @@ async function localMatch(tokens: string[]): Promise<{ match: ScoredEntry | null
       }
     }
 
+    // 도메인 boost 반영
+    score += domainBoost;
+
     if (score > 0 && (!best || score > best.score)) {
       best = { entry, score };
     }
@@ -820,11 +895,13 @@ export async function matchCategory(
   const baseSet = new Set(baseCompounds);
   const expandedOnly = compoundTokens.filter((t) => !baseSet.has(t));
   const allCandidates = [...baseCompounds, ...expandedOnly];
-  const tier0Result = voteTier0(allCandidates);
+  // 도메인 prefix 감지 (아기/유아 → baby, 강아지 → pet 등)
+  const domainFilter = detectDomainFilter(allCandidates);
+  const tier0Result = voteTier0(allCandidates, domainFilter);
   if (tier0Result) return tier0Result;
 
   // ── Tier 1: Local DB matching ──
-  const { match: localResult } = await localMatch(tokens);
+  const { match: localResult } = await localMatch(tokens, domainFilter);
   if (localResult) {
     // High-confidence local match
     const result = await buildResultFromIndex(

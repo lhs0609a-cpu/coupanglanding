@@ -61,6 +61,8 @@ build.out
 
 # 스크립트 실행 로그 (검증 스크립트 출력)
 scripts/verify-output*.log
+scripts/verify-*-bundle.cjs
+scripts/verify-*-report.json
 
 # Claude Code 로컬 상태
 .claude/scheduled_tasks.lock
