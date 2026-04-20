@@ -4,20 +4,35 @@ import { TossPaymentsAPI, generateOrderId } from '@/lib/payments/toss-client';
 import { calculateFeePenalty, getFeePaymentDDay } from '@/lib/utils/fee-penalty';
 import { createNotification } from '@/lib/utils/notifications';
 import { completeSettlement } from '@/lib/payments/complete-settlement';
-import { BILLING_DAY } from '@/lib/payments/billing-constants';
+import {
+  BILLING_DAY,
+  PAYMENT_RETRY_INTERVAL_HOURS,
+  kstDay,
+  kstDateStr,
+} from '@/lib/payments/billing-constants';
+import { isRetryable, failureLabel, isBillingKeyInvalid } from '@/lib/payments/failure-codes';
+import { logSettlementError } from '@/lib/payments/settlement-errors';
 
 type ServiceClient = Awaited<ReturnType<typeof createServiceClient>>;
 
+// 동시 실행 방지용 advisory lock key.
+// Number.MAX_SAFE_INTEGER(2^53-1) 안쪽의 값만 사용 — BigInt → Number 변환 시 정밀도 손실 방지.
+const ADVISORY_LOCK_KEY = 778001001;
+
 /**
  * GET /api/cron/auto-billing
- * 매일 03:00 KST 실행. 오늘이 BILLING_DAY(매월 5일)일 때만 동작.
+ * vercel.json 스케줄: "0 18 * * *" (매일 UTC 18:00 = 다음날 KST 03:00).
+ * KST 기준 오늘이 BILLING_DAY(매월 5일)일 때만 실제 결제 수행, 그 외는 no-op.
+ *
+ * 동시 실행 방지: postgres advisory lock 획득 실패 시 409 로 거부 (Vercel 재시도 대비).
  *
  * 동작:
- *   1) 모든 PT 유저 순회
+ *   1) 모든 PT 유저 순회 (signed 계약만)
  *   2) 활성 카드 없음 → payment_overdue_since 마킹 + 알림
  *   3) 활성 카드 있음 → 미납 monthly_reports 결제 시도
- *      - 성공: 트랜잭션 기록 + completeSettlement + payment_overdue_since 클리어
- *      - 실패: 트랜잭션 기록 + payment_overdue_since 마킹 (없을 때만)
+ *      - 성공: payment_mark_success RPC + completeSettlement
+ *      - 실패(retryable): next_retry_at 세팅 + retry_in_progress=true
+ *      - 실패(non-retryable): 즉시 overdue 마킹
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -25,16 +40,29 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const serviceClient = await createServiceClient();
+
+  // 동시 실행 방지
+  const { data: lockOk } = await serviceClient.rpc('payment_try_advisory_lock', {
+    p_key: ADVISORY_LOCK_KEY,
+  });
+
+  if (!lockOk) {
+    return NextResponse.json(
+      { error: 'auto-billing 이 이미 실행 중', processed: 0 },
+      { status: 409 },
+    );
+  }
+
   try {
-    const serviceClient = await createServiceClient();
-    const today = new Date();
-    const todayDay = today.getDate();
-    const todayDateStr = today.toISOString().slice(0, 10);
+    const now = new Date();
+    const todayDay = kstDay(now);
+    const todayDateStr = kstDateStr(now);
 
     if (todayDay !== BILLING_DAY) {
       return NextResponse.json({
         success: true,
-        message: `오늘은 청구일이 아님 (오늘=${todayDay}일, 청구일=${BILLING_DAY}일)`,
+        message: `오늘은 청구일이 아님 (KST ${todayDay}일, 청구일=${BILLING_DAY}일)`,
         processed: 0,
       });
     }
@@ -46,6 +74,7 @@ export async function GET(request: NextRequest) {
         id,
         profile_id,
         first_billing_grace_until,
+        created_at,
         contracts!inner(status)
       `)
       .eq('contracts.status', 'signed');
@@ -59,19 +88,33 @@ export async function GET(request: NextRequest) {
     let failed = 0;
     let overdueMarked = 0;
     let graceSkipped = 0;
+    let userErrors = 0;
 
     for (const ptUser of ptUsers) {
-      // grace 기간 중이면 skip (락 마킹도 하지 않음)
-      if (ptUser.first_billing_grace_until && todayDateStr < ptUser.first_billing_grace_until) {
+      // grace 기간 — first_billing_grace_until 이 있으면 그 값, 없으면 가입 +1개월 기본
+      const graceUntil = ptUser.first_billing_grace_until
+        ? ptUser.first_billing_grace_until
+        : defaultGraceUntil(ptUser.created_at);
+
+      if (graceUntil && todayDateStr < graceUntil) {
         graceSkipped++;
         continue;
       }
 
-      const result = await processPtUser(serviceClient, ptUser, todayDateStr);
-      processed += result.processed;
-      succeeded += result.succeeded;
-      failed += result.failed;
-      if (result.markedOverdue) overdueMarked++;
+      try {
+        const result = await processPtUser(serviceClient, ptUser, todayDateStr);
+        processed += result.processed;
+        succeeded += result.succeeded;
+        failed += result.failed;
+        if (result.markedOverdue) overdueMarked++;
+      } catch (userErr) {
+        userErrors++;
+        await logSettlementError(serviceClient, {
+          stage: 'auto_billing_user_loop',
+          ptUserId: ptUser.id,
+          error: userErr,
+        });
+      }
     }
 
     return NextResponse.json({
@@ -81,11 +124,23 @@ export async function GET(request: NextRequest) {
       failed,
       overdueMarked,
       graceSkipped,
+      userErrors,
     });
   } catch (err) {
     console.error('cron/auto-billing error:', err);
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
+  } finally {
+    await serviceClient.rpc('payment_advisory_unlock', {
+      p_key: ADVISORY_LOCK_KEY,
+    });
   }
+}
+
+function defaultGraceUntil(createdAt: string | null): string | null {
+  if (!createdAt) return null;
+  const d = new Date(createdAt);
+  d.setMonth(d.getMonth() + 1);
+  return d.toISOString().slice(0, 10);
 }
 
 async function processPtUser(
@@ -117,18 +172,15 @@ async function processPtUser(
     return { processed, succeeded, failed, markedOverdue };
   }
 
-  // 미납 리포트 조회
+  // 미납 리포트 조회 — suspended 도 포함 (자동결제로 복구 가능하게)
   const { data: unpaidReports } = await serviceClient
     .from('monthly_reports')
     .select('*')
     .eq('pt_user_id', ptUser.id)
-    .in('fee_payment_status', ['awaiting_payment', 'overdue'])
+    .in('fee_payment_status', ['awaiting_payment', 'overdue', 'suspended'])
     .order('year_month', { ascending: true });
 
   if (!unpaidReports || unpaidReports.length === 0) {
-    // Q3=엄격: 대상 월이 있는데 보고도 안 했으면 overdue 마킹
-    // "대상 월 있음"의 기준은 paid 리포트가 하나라도 있는가(이전엔 보고했었음) OR
-    // 해당 pt_user의 grace 만료 후 한 달 이상 지났는가.
     const { count: totalReportCount } = await serviceClient
       .from('monthly_reports')
       .select('id', { count: 'exact', head: true })
@@ -138,7 +190,10 @@ async function processPtUser(
 
     if (hasEverReported) {
       // 과거엔 보고했는데 이번 청구일에 미납 리포트 0건 = 모두 결제 완료 상태. 정상.
-      await clearOverdue(serviceClient, ptUser.id);
+      // 조건부 해제 RPC 사용 — 다른 미결 tx 가 있으면 해제하지 않음.
+      await serviceClient.rpc('payment_clear_overdue_if_settled', {
+        p_pt_user_id: ptUser.id,
+      });
     } else {
       // 한 번도 보고 안 함 + grace도 지남 → 엄격 처리 (락 마킹)
       const marked = await markOverdue(serviceClient, ptUser.id, todayDateStr);
@@ -158,6 +213,10 @@ async function processPtUser(
     .maybeSingle();
 
   let allSucceeded = true;
+  let anyRetryScheduled = false;
+  // 이 실행에서 카드 failed_count 를 이미 증가시켰는지 추적 —
+  // 한 유저에 미납 리포트가 여러 개일 때 카드 1장이 N회 누적되는 걸 막는다.
+  const cardFailUpdated = new Set<string>();
 
   for (const report of unpaidReports) {
     processed++;
@@ -178,7 +237,7 @@ async function processPtUser(
     const orderId = generateOrderId(report.year_month, ptUser.id);
     const orderName = `메가로드 수수료 ${report.year_month} (자동)`;
 
-    const { data: tx } = await serviceClient
+    const { data: tx, error: txErr } = await serviceClient
       .from('payment_transactions')
       .insert({
         pt_user_id: ptUser.id,
@@ -195,7 +254,16 @@ async function processPtUser(
       .select()
       .single();
 
-    if (!tx) continue;
+    // 이 리포트에 이미 pending tx 가 있으면 UNIQUE 위반으로 insert 실패 → skip
+    if (!tx || txErr) {
+      await logSettlementError(serviceClient, {
+        stage: 'auto_billing_tx_insert',
+        monthlyReportId: report.id,
+        ptUserId: ptUser.id,
+        error: txErr,
+      });
+      continue;
+    }
 
     try {
       const result = await TossPaymentsAPI.payWithBillingKey(
@@ -206,21 +274,25 @@ async function processPtUser(
         orderName,
       );
 
-      await serviceClient
-        .from('payment_transactions')
-        .update({
-          status: 'success',
-          toss_payment_key: result.paymentKey,
-          receipt_url: result.receipt?.url || null,
-          raw_response: result as unknown as Record<string, unknown>,
-          approved_at: result.approvedAt,
-        })
-        .eq('id', tx.id);
+      // 원자적 성공 처리
+      const { error: rpcErr } = await serviceClient.rpc('payment_mark_success', {
+        p_tx_id: tx.id,
+        p_payment_key: result.paymentKey,
+        p_receipt_url: result.receipt?.url || null,
+        p_raw: result as unknown as Record<string, unknown>,
+        p_approved_at: result.approvedAt,
+      });
 
+      if (rpcErr) throw rpcErr;
+
+      // 페널티 금액을 리포트에 확정값으로 고정 (fee-payment-check가 덮어쓰지 않도록)
       await serviceClient
-        .from('billing_cards')
-        .update({ last_used_at: new Date().toISOString(), failed_count: 0 })
-        .eq('id', card.id);
+        .from('monthly_reports')
+        .update({
+          fee_surcharge_amount: Math.max(0, Math.floor(penaltyAmount * 0.5)),
+          fee_interest_amount: Math.max(0, penaltyAmount - Math.floor(penaltyAmount * 0.5)),
+        })
+        .eq('id', report.id);
 
       if (schedule?.id) {
         await serviceClient
@@ -232,7 +304,16 @@ async function processPtUser(
           .eq('id', schedule.id);
       }
 
-      await completeSettlement(serviceClient, report);
+      try {
+        await completeSettlement(serviceClient, report);
+      } catch (settleErr) {
+        await logSettlementError(serviceClient, {
+          stage: 'auto_billing_complete_settlement',
+          monthlyReportId: report.id,
+          ptUserId: ptUser.id,
+          error: settleErr,
+        });
+      }
 
       await createNotification(serviceClient, {
         userId: ptUser.profile_id,
@@ -246,22 +327,35 @@ async function processPtUser(
     } catch (payErr) {
       allSucceeded = false;
       const errObj = payErr as { code?: string; message?: string; raw?: unknown };
+      const code = errObj.code || 'UNKNOWN';
+      const retryable = isRetryable(code);
+
+      const nextRetryAt = retryable
+        ? new Date(Date.now() + PAYMENT_RETRY_INTERVAL_HOURS * 60 * 60 * 1000).toISOString()
+        : null;
 
       await serviceClient
         .from('payment_transactions')
         .update({
           status: 'failed',
-          failure_code: errObj.code || 'UNKNOWN',
+          failure_code: code,
           failure_message: errObj.message || '자동결제 실패',
           raw_response: (errObj.raw as Record<string, unknown>) || null,
           failed_at: new Date().toISOString(),
+          retry_count: 0,
+          next_retry_at: nextRetryAt,
+          is_final_failure: !retryable,
+          final_failed_at: retryable ? null : new Date().toISOString(),
         })
         .eq('id', tx.id);
 
-      await serviceClient
-        .from('billing_cards')
-        .update({ failed_count: (card.failed_count || 0) + 1 })
-        .eq('id', card.id);
+      if (!cardFailUpdated.has(card.id)) {
+        await serviceClient
+          .from('billing_cards')
+          .update({ failed_count: (card.failed_count || 0) + 1 })
+          .eq('id', card.id);
+        cardFailUpdated.add(card.id);
+      }
 
       if (schedule?.id) {
         await serviceClient
@@ -272,24 +366,64 @@ async function processPtUser(
           .eq('id', schedule.id);
       }
 
-      await createNotification(serviceClient, {
-        userId: ptUser.profile_id,
-        type: 'fee_payment',
-        title: '자동결제 실패',
-        message: `${report.year_month} 수수료 자동결제가 실패했습니다. 사유: ${errObj.message || '알 수 없는 오류'}. 설정에서 카드를 확인해주세요.`,
-        link: '/my/settings',
-      });
+      if (retryable) {
+        anyRetryScheduled = true;
+        // 재시도 예정 → 락 마킹 + retry_in_progress=true. overdue_since 는 오늘로 찍어
+        // MAX_RETRY_GRACE_DAYS 이내에서만 유예되도록 한다.
+        await markOverdue(serviceClient, ptUser.id, todayDateStr);
+        await serviceClient
+          .from('pt_users')
+          .update({ payment_retry_in_progress: true })
+          .eq('id', ptUser.id);
+
+        await createNotification(serviceClient, {
+          userId: ptUser.profile_id,
+          type: 'fee_payment',
+          title: '자동결제 일시 실패 — 내일 자동 재시도',
+          message: `${report.year_month} 수수료 자동결제가 일시적 사유(${failureLabel(code, errObj.message)})로 실패했습니다. 24시간 후 자동으로 재시도됩니다. (최대 3회)`,
+          link: '/my/report',
+        });
+      } else {
+        // 즉시 최종 실패 → 연체 마킹 + 카드 변경 안내
+        const marked = await markOverdue(serviceClient, ptUser.id, todayDateStr);
+        if (marked) markedOverdue = true;
+
+        // 빌링키 자체가 무효/만료: 카드를 DB에서 즉시 비활성화해 동일 카드로
+        // 반복 시도되는 것을 차단. 사용자에겐 "카드 재등록 필요" 강조 알림.
+        if (isBillingKeyInvalid(code)) {
+          await serviceClient
+            .from('billing_cards')
+            .update({ is_active: false, is_primary: false })
+            .eq('id', card.id);
+
+          await createNotification(serviceClient, {
+            userId: ptUser.profile_id,
+            type: 'fee_payment',
+            title: '등록된 카드의 빌링키가 만료되었습니다',
+            message: `${report.year_month} 수수료 자동결제가 실패했습니다. 사유: ${failureLabel(code, errObj.message)}. 등록된 카드를 더 이상 사용할 수 없어 자동으로 비활성화했습니다. 결제 설정에서 카드를 다시 등록해주세요.`,
+            link: '/my/settings',
+          });
+        } else {
+          await createNotification(serviceClient, {
+            userId: ptUser.profile_id,
+            type: 'fee_payment',
+            title: '자동결제 실패 — 카드 변경 필요',
+            message: `${report.year_month} 수수료 자동결제가 실패했습니다. 사유: ${failureLabel(code, errObj.message)}. 카드 자체 문제로 자동 재시도 대상이 아닙니다. 즉시 결제 카드를 변경해주세요.`,
+            link: '/my/settings',
+          });
+        }
+      }
 
       failed++;
     }
   }
 
-  // 모든 리포트가 성공했으면 overdue 클리어, 하나라도 실패했으면 overdue 마킹
-  if (allSucceeded && processed > 0) {
-    await clearOverdue(serviceClient, ptUser.id);
-  } else if (!allSucceeded) {
-    const marked = await markOverdue(serviceClient, ptUser.id, todayDateStr);
-    if (marked) markedOverdue = true;
+  // 모든 리포트가 성공했으면 조건부로 overdue/retry_in_progress 클리어
+  // 재시도 예정된 건이 있으면 아직 해제하지 않는다.
+  if (allSucceeded && processed > 0 && !anyRetryScheduled) {
+    await serviceClient.rpc('payment_clear_overdue_if_settled', {
+      p_pt_user_id: ptUser.id,
+    });
   }
 
   return { processed, succeeded, failed, markedOverdue };
@@ -312,13 +446,6 @@ async function markOverdue(
     .is('payment_overdue_since', null)
     .select('id');
   return !!data && data.length > 0;
-}
-
-async function clearOverdue(serviceClient: ServiceClient, ptUserId: string) {
-  await serviceClient
-    .from('pt_users')
-    .update({ payment_overdue_since: null, payment_lock_level: 0 })
-    .eq('id', ptUserId);
 }
 
 async function notifyMissingCard(serviceClient: ServiceClient, profileId: string) {
