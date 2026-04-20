@@ -157,32 +157,17 @@ const FULL_REVIEWS: Record<string, string[]> = fullReviewData as unknown as Reco
  * 소분류 → 중분류 → 대분류 → DEFAULT 순서로 폴백.
  */
 function findBestReviewPool(categoryPath: string): string[] {
-  // 1. 정확 매칭
+  // prefix 정확 일치만 유효. 깊은 매칭 → 얕은 매칭 → DEFAULT 순서로 폴백.
+  //   이전 구현 문제:
+  //     L175 "key.includes(parts.slice(0,3))" 가 "뷰티>스킨>크림"을 prefix로 가진
+  //     "뷰티>스킨>크림>넥크림"을 페이스 스크럽 같은 다른 하위 카테고리에 잘못 적용.
+  //     L182 "첫 번째 top prefix"도 "식품>건강식품>비타민"이 신선식품 카테고리에 섞임.
   if (FULL_REVIEWS[categoryPath]?.length > 0) return FULL_REVIEWS[categoryPath];
 
-  // 2. 뒤에서부터 줄여가며 매칭 (소분류→중분류→대분류)
-  const parts = categoryPath.split('>');
-  for (let len = parts.length; len >= 2; len--) {
+  const parts = categoryPath.split('>').map(s => s.trim());
+  for (let len = parts.length; len >= 1; len--) {
     const key = parts.slice(0, len).join('>');
     if (FULL_REVIEWS[key]?.length > 0) return FULL_REVIEWS[key];
-  }
-
-  // 3. 부분 매칭 (가장 긴 매칭)
-  let bestKey = '';
-  let bestLen = 0;
-  for (const key of Object.keys(FULL_REVIEWS)) {
-    if (!Array.isArray(FULL_REVIEWS[key]) || FULL_REVIEWS[key].length === 0) continue;
-    if (categoryPath.includes(key) || key.includes(parts.slice(0, 3).join('>'))) {
-      if (key.length > bestLen) { bestLen = key.length; bestKey = key; }
-    }
-  }
-  if (bestKey) return FULL_REVIEWS[bestKey];
-
-  // 4. 대분류 매칭
-  const top = parts[0];
-  for (const key of Object.keys(FULL_REVIEWS)) {
-    if (!Array.isArray(FULL_REVIEWS[key]) || FULL_REVIEWS[key].length === 0) continue;
-    if (key.startsWith(top)) return FULL_REVIEWS[key];
   }
 
   return FULL_REVIEWS['DEFAULT'] || [];
