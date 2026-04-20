@@ -1315,7 +1315,11 @@ export function useBulkRegisterActions() {
   // 등록 시 캐시된 URL 사용, 없으면 on-the-fly 업로드
   const startImagePreupload = useCallback(async (targetProducts: EditableProduct[]) => {
     const browserProducts = targetProducts.filter(p =>
-      p.folderPath.startsWith('browser://') && (p.scannedMainImages?.length ?? 0) > 0
+      p.folderPath.startsWith('browser://') && (
+        (p.scannedMainImages?.length ?? 0) > 0 ||
+        (p.scannedDetailImages?.length ?? 0) > 0 ||
+        (p.scannedReviewImages?.length ?? 0) > 0
+      )
     );
     const serverProducts = targetProducts.filter(p =>
       !p.folderPath.startsWith('browser://') && p.mainImages.length > 0
@@ -1332,15 +1336,23 @@ export function useBulkRegisterActions() {
 
     // 백그라운드 업로드 (비차단 — await 안 함, 프리플라이트는 먼저 진행)
     (async () => {
-      // 브라우저 모드: main 이미지를 flat 풀로 병렬 업로드
-      const allTasks: { uid: string; imgIndex: number; img: ScannedImageFile }[] = [];
-      const productUrlMap: Record<string, string[]> = {};
+      // 브라우저 모드: main + detail + review 이미지를 flat 풀로 병렬 업로드
+      // (info는 stock-image 자동 합성이라 클라 업로드 대상 아님)
+      type Kind = 'main' | 'detail' | 'review';
+      const allTasks: { uid: string; kind: Kind; imgIndex: number; img: ScannedImageFile }[] = [];
+      const productUrlMap: Record<string, { main: string[]; detail: string[]; review: string[] }> = {};
       for (const p of browserProducts) {
-        const imgs = p.scannedMainImages || [];
-        productUrlMap[p.uid] = new Array(imgs.length).fill('');
-        for (let j = 0; j < imgs.length; j++) {
-          allTasks.push({ uid: p.uid, imgIndex: j, img: imgs[j] });
-        }
+        const mains = p.scannedMainImages || [];
+        const details = p.scannedDetailImages || [];
+        const reviews = p.scannedReviewImages || [];
+        productUrlMap[p.uid] = {
+          main: new Array(mains.length).fill(''),
+          detail: new Array(details.length).fill(''),
+          review: new Array(reviews.length).fill(''),
+        };
+        for (let j = 0; j < mains.length; j++) allTasks.push({ uid: p.uid, kind: 'main', imgIndex: j, img: mains[j] });
+        for (let j = 0; j < details.length; j++) allTasks.push({ uid: p.uid, kind: 'detail', imgIndex: j, img: details[j] });
+        for (let j = 0; j < reviews.length; j++) allTasks.push({ uid: p.uid, kind: 'review', imgIndex: j, img: reviews[j] });
       }
 
       let completed = 0;
@@ -1357,12 +1369,12 @@ export function useBulkRegisterActions() {
             const brand = preventionConfig.enabled ? preventionConfig.sellerBrand : undefined;
             const compressed = await compressImage(file, brand);
             const url = await uploadSingleImage(compressed, task.img.name);
-            productUrlMap[task.uid][task.imgIndex] = url;
-          } catch { /* 실패 시 빈 문자열 */ }
+            productUrlMap[task.uid][task.kind][task.imgIndex] = url;
+          } catch { /* 실패 시 빈 문자열 — 소비 시 filter(Boolean)로 제거 */ }
           completed++;
-          // 진행률 업데이트 (10개마다)
+          // 진행률 업데이트 (10개마다) — main 업로드 1개라도 성공한 상품을 "done"으로 카운트
           if (completed % 10 === 0 || completed === allTasks.length) {
-            const productsDone = Object.values(productUrlMap).filter(urls => urls.some(Boolean)).length;
+            const productsDone = Object.values(productUrlMap).filter(m => m.main.some(Boolean)).length;
             setImagePreuploadProgress(prev => ({ ...prev, done: productsDone }));
           }
         }
@@ -1372,13 +1384,22 @@ export function useBulkRegisterActions() {
         Array.from({ length: Math.min(CONCURRENCY, allTasks.length) }, () => worker()),
       );
 
-      // 캐시에 저장
+      // 캐시에 저장 — main 1개 이상 성공한 상품만 (main 없으면 등록 자체 불가)
       const timestamped: Record<string, { mainImageUrls: string[]; detailImageUrls: string[]; reviewImageUrls: string[]; infoImageUrls: string[]; uploadedAt: number }> = {};
       for (const p of browserProducts) {
-        const urls = (productUrlMap[p.uid] || []).filter(Boolean);
-        if (urls.length > 0) {
-          timestamped[p.uid] = { mainImageUrls: urls, detailImageUrls: [], reviewImageUrls: [], infoImageUrls: [], uploadedAt: Date.now() };
-        }
+        const m = productUrlMap[p.uid];
+        if (!m) continue;
+        const mainUrls = m.main.filter(Boolean);
+        if (mainUrls.length === 0) continue;
+        // detail/review는 인덱스 위치 보존 (editedDetailImageOrder가 인덱스 기반)
+        // 실패한 슬롯은 빈 문자열로 남고, 소비 측 filterImagesByOrder + 이후 filter(Boolean)에서 제거됨
+        timestamped[p.uid] = {
+          mainImageUrls: mainUrls,
+          detailImageUrls: m.detail,
+          reviewImageUrls: m.review,
+          infoImageUrls: [],
+          uploadedAt: Date.now(),
+        };
       }
       if (Object.keys(timestamped).length > 0) {
         setImagePreuploadCache(prev => ({ ...prev, ...timestamped }));
@@ -1492,8 +1513,9 @@ export function useBulkRegisterActions() {
           preUploadedUrls: cached ? {
             mainImageUrls: cached.mainImageUrls || [],
             // ★ 사용자 선택(editedDetailImageOrder/editedReviewImageOrder) 반영 — 필터 외 이미지 절대 노출 금지
-            detailImageUrls: filterImagesByOrder(cached.detailImageUrls || [], p.editedDetailImageOrder),
-            reviewImageUrls: filterImagesByOrder(cached.reviewImageUrls || [], p.editedReviewImageOrder),
+            // filter(Boolean): 사전업로드 실패로 빈 슬롯이 생긴 경우 제거
+            detailImageUrls: filterImagesByOrder(cached.detailImageUrls || [], p.editedDetailImageOrder).filter(Boolean),
+            reviewImageUrls: filterImagesByOrder(cached.reviewImageUrls || [], p.editedReviewImageOrder).filter(Boolean),
             infoImageUrls: cached.infoImageUrls || [],
           } : buildPreflightPlaceholderUrls(p),
         };
@@ -1599,9 +1621,9 @@ export function useBulkRegisterActions() {
             contentBlocksOverride: product.editedContentBlocks,
             preUploadedUrls: cached ? {
               mainImageUrls: cached.mainImageUrls || [],
-              // ★ Canary도 사용자 선택 반영
-              detailImageUrls: filterImagesByOrder(cached.detailImageUrls || [], product.editedDetailImageOrder),
-              reviewImageUrls: filterImagesByOrder(cached.reviewImageUrls || [], product.editedReviewImageOrder),
+              // ★ Canary도 사용자 선택 반영 + 사전업로드 실패 슬롯 제거
+              detailImageUrls: filterImagesByOrder(cached.detailImageUrls || [], product.editedDetailImageOrder).filter(Boolean),
+              reviewImageUrls: filterImagesByOrder(cached.reviewImageUrls || [], product.editedReviewImageOrder).filter(Boolean),
               infoImageUrls: cached.infoImageUrls || [],
             } : undefined,
           },
@@ -1969,13 +1991,20 @@ export function useBulkRegisterActions() {
 
           if (hasCache) {
             const mainUrls = cached.mainImageUrls;
-            const detailUrls = cached.detailImageUrls?.length
-              ? filterImagesByOrder(cached.detailImageUrls, p.editedDetailImageOrder)
+            // filter(Boolean): 사전업로드 실패로 생긴 빈 슬롯 제거 (drop 후 길이 0이면 핸들 폴백 시도)
+            const cachedDetail = cached.detailImageUrls?.length
+              ? filterImagesByOrder(cached.detailImageUrls, p.editedDetailImageOrder).filter(Boolean)
+              : null;
+            const detailUrls = cachedDetail && cachedDetail.length > 0
+              ? cachedDetail
               : detailHandlesLost
                 ? null // null = 서버 업로드 폴백 (아래에서 preUploadedUrls에서 제외)
                 : await uploadScannedImages(filteredDetail, 10, wmBrand);
-            const reviewUrls = cached.reviewImageUrls?.length
-              ? filterImagesByOrder(cached.reviewImageUrls, p.editedReviewImageOrder)
+            const cachedReview = cached.reviewImageUrls?.length
+              ? filterImagesByOrder(cached.reviewImageUrls, p.editedReviewImageOrder).filter(Boolean)
+              : null;
+            const reviewUrls = cachedReview && cachedReview.length > 0
+              ? cachedReview
               : reviewHandlesLost
                 ? null
                 : (includeReviewImages ? await uploadScannedImages(filteredReview, 10, wmBrand) : []);
