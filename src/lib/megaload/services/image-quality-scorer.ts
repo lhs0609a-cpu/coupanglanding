@@ -2428,9 +2428,13 @@ export async function selectDiverseImages(
   options: {
     maxCount?: number;
     referenceUrls?: string[];
+    /** 사용자가 큐레이션한 폴더 내용 — filterDetailPageImages(품질필터) 건너뛰기.
+     *  리뷰 사진 특성상 어두운 배경/고채도/배너 스타일이 빈번해 과도 필터링됨. */
+    trustFolderContents?: boolean;
   } = {},
 ): Promise<DiverseSelectionResult> {
   const maxCount = options.maxCount ?? 10;
+  const trustFolder = options.trustFolderContents ?? false;
   /** 필터 후 최소 보장 장수 — 어떤 필터든 이 아래로 떨어지면 점수순 보충 */
   const MIN_KEEP = 5;
 
@@ -2442,8 +2446,10 @@ export async function selectDiverseImages(
 
   // 이미지가 maxCount 이하면 필터만 적용하고 전부 반환
   if (objectUrls.length <= maxCount) {
-    // 기본 필터 + 특징 추출만
-    const basicFilter = await filterDetailPageImages(objectUrls);
+    // 기본 필터 (trustFolder=true면 전부 통과 처리)
+    const basicFilter = trustFolder
+      ? objectUrls.map((_, i) => ({ index: i, filtered: false }))
+      : await filterDetailPageImages(objectUrls);
     let passed = basicFilter.filter(r => !r.filtered);
 
     // 최소 보장: 필터 통과 장수 < minKeep이면 탈락 이미지를 원본순으로 보충
@@ -2482,8 +2488,10 @@ export async function selectDiverseImages(
     };
   }
 
-  // Step 1: 기본 품질 필터
-  const detailFilter = await filterDetailPageImages(objectUrls);
+  // Step 1: 기본 품질 필터 (trustFolder=true면 전부 통과 처리)
+  const detailFilter = trustFolder
+    ? objectUrls.map((_, i) => ({ index: i, filtered: false }))
+    : await filterDetailPageImages(objectUrls);
   let passedEntries = detailFilter
     .filter(r => !r.filtered)
     .map(r => ({ origIdx: r.index, url: objectUrls[r.index] }));

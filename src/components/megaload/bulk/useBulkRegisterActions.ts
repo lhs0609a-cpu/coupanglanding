@@ -991,7 +991,9 @@ export function useBulkRegisterActions() {
                   try {
                     const result = await selectDiverseImages(
                       validDetailMap.map(e => e.url),
-                      { maxCount: 10, referenceUrls: mainUrls },
+                      // trustFolderContents: review_images 폴더에서 승격된 사용자 큐레이션 이미지는
+                      //   품질필터(어두운 배경/고채도/배너)를 건너뛴다 (리뷰 사진 특성상 과도 필터링됨)
+                      { maxCount: 10, referenceUrls: mainUrls, trustFolderContents: true },
                     );
                     // selectedIndices는 validDetailMap 내의 인덱스 → origIdx로 변환
                     const selectedOrigIndices = result.selectedIndices.map(i => validDetailMap[i].origIdx);
@@ -1032,7 +1034,7 @@ export function useBulkRegisterActions() {
                   try {
                     const result = await selectDiverseImages(
                       validReviewMap.map(e => e.url),
-                      { maxCount: 5, referenceUrls: mainUrls },
+                      { maxCount: 5, referenceUrls: mainUrls, trustFolderContents: true },
                     );
                     const selectedOrigIndices = result.selectedIndices.map(i => validReviewMap[i].origIdx);
                     if (selectedOrigIndices.length > 0) {
