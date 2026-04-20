@@ -485,45 +485,32 @@ export function findBestPool(categoryPath: string): CategoryPool {
 
   const segments = categoryPath.split('>').map(s => s.trim());
 
+  // 풀 key의 전체 세그먼트가 카테고리 경로의 앞쪽 prefix와 정확히 일치할 때만 유효.
+  // (이전 구현의 bug: "채소류"와 "채소"처럼 부분 접두사 충돌 후 길이 tiebreaker로
+  //  관련없는 긴 5레벨 key ─ 블루베리·정수기·코엔자임Q10 등 ─ 를 선점하던 문제 차단)
   let bestKey = '';
-  let bestScore = 0;
+  let bestDepth = 0;
   for (const key of Object.keys(CATEGORY_POOLS)) {
     const keySegments = key.split('>').map(s => s.trim());
-    let matchCount = 0;
-    for (let i = 0; i < Math.min(segments.length, keySegments.length); i++) {
-      if (segments[i] === keySegments[i]) matchCount++;
-      else break;
+    if (keySegments.length > segments.length) continue;
+    let isPrefix = true;
+    for (let i = 0; i < keySegments.length; i++) {
+      if (segments[i] !== keySegments[i]) { isPrefix = false; break; }
     }
-    if (matchCount > bestScore || (matchCount === bestScore && key.length > bestKey.length)) {
-      bestScore = matchCount;
+    if (!isPrefix) continue;
+    if (keySegments.length > bestDepth) {
+      bestDepth = keySegments.length;
       bestKey = key;
     }
   }
 
-  if (bestScore >= 2 && bestKey) return CATEGORY_POOLS[bestKey];
+  if (bestDepth >= 2 && bestKey) return CATEGORY_POOLS[bestKey];
 
-  // 1레벨만 일치: 같은 대분류의 모든 풀 합침
-  if (bestScore >= 1) {
-    const merged: CategoryPool = { generic: [], ingredients: [], features: [] };
-    const seen = { generic: new Set<string>(), ingredients: new Set<string>(), features: new Set<string>() };
-    for (const key of Object.keys(CATEGORY_POOLS)) {
-      if (key.split('>')[0].trim() === segments[0]) {
-        const pool = CATEGORY_POOLS[key];
-        for (const g of pool.generic) {
-          if (!seen.generic.has(g.toLowerCase())) { seen.generic.add(g.toLowerCase()); merged.generic.push(g); }
-        }
-        for (const i of pool.ingredients) {
-          if (!seen.ingredients.has(i.toLowerCase())) { seen.ingredients.add(i.toLowerCase()); merged.ingredients.push(i); }
-        }
-        for (const f of pool.features) {
-          if (!seen.features.has(f.toLowerCase())) { seen.features.add(f.toLowerCase()); merged.features.push(f); }
-        }
-      }
-    }
-    if (merged.generic.length > 0) return merged;
-  }
+  // 대분류 병합 폴백 제거:
+  //   "출산/유아동>분유/유아식품>..."처럼 2레벨 key 사전에 없으면 예전엔 대분류 전체 병합으로
+  //   카시트·유모차 등 형제 카테고리 단어가 전부 섞여 들어갔다. 이제는 카테고리 경로
+  //   세그먼트만으로 풀 생성 → 의미 외 단어 주입 차단. (L506-524 block 삭제)
 
-  // 매칭 실패 → 카테고리 경로에서 자동 키워드 생성
   return generatePoolFromPath(segments);
 }
 
