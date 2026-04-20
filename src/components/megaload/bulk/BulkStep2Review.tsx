@@ -403,8 +403,9 @@ export default memo(function BulkStep2Review({
     if (bulkPriceAdjust === 0) return;
     onSetProducts(prev => prev.map(p => {
       if (!p.selected) return p;
-      const adjusted = Math.ceil((p.editedSellingPrice * (1 + bulkPriceAdjust / 100)) / 100) * 100;
-      return { ...p, editedSellingPrice: Math.max(100, adjusted) };
+      const adjusted = Math.max(100, Math.ceil((p.editedSellingPrice * (1 + bulkPriceAdjust / 100)) / 100) * 100);
+      const originalPrice = Math.ceil((adjusted * 1.5) / 100) * 100;
+      return { ...p, editedSellingPrice: adjusted, editedOriginalPrice: originalPrice };
     }));
     setBulkAction(null); setBulkPriceAdjust(0);
   }, [bulkPriceAdjust, onSetProducts]);

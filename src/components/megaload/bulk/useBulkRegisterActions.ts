@@ -1142,6 +1142,8 @@ export function useBulkRegisterActions() {
           editedName: `${resolvedBrand} ${sp.productCode}`,
           editedBrand: resolvedBrand.slice(0, 2),
           editedSellingPrice: sourcePrice,
+          // 정가 = 판매가 × 1.5 (쿠팡 할인태그 33% 표시용, 100원 단위 올림)
+          editedOriginalPrice: Math.ceil((sourcePrice * 1.5) / 100) * 100,
           editedDisplayProductName: '', // 비워두면 runTitleGeneration에서 SEO 최적화 상품명 자동 생성
           editedCategoryCode: '',
           editedCategoryName: '',
@@ -1161,7 +1163,8 @@ export function useBulkRegisterActions() {
         const bracket = brackets.find((b) => p.sourcePrice >= b.minPrice && p.sourcePrice < (b.maxPrice ?? Infinity));
         const rate = bracket ? bracket.marginRate : 25;
         const sellingPrice = Math.ceil((p.sourcePrice * (1 + rate / 100)) / 100) * 100;
-        return { ...p, sellingPrice, editedSellingPrice: sellingPrice };
+        const originalPrice = Math.ceil((sellingPrice * 1.5) / 100) * 100;
+        return { ...p, sellingPrice, editedSellingPrice: sellingPrice, editedOriginalPrice: originalPrice };
       });
 
       setProducts(withPricing);
