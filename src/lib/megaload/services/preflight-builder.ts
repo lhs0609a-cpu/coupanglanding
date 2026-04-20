@@ -14,6 +14,7 @@ import { createSeededRandom, stringToSeed } from './seeded-random';
 import type { PreventionConfig } from './item-winner-prevention';
 import type { ExtractedBuyOption } from './coupang-product-builder';
 import { generateFaqItems, extractSeoKeywords, generateClosingText } from './story-generator';
+import { THIRD_PARTY_IMAGE_URLS } from '@/lib/megaload/constants/third-party-images';
 
 export interface BuildPayloadProduct {
   uid?: string;
@@ -189,34 +190,10 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
   const faqItems: ReturnType<typeof generateFaqItems> = [];
   const closingText = generateClosingText(product.name, categoryPath, shUserId, productIndex);
 
-  // 제3자 이미지: 10개 상품 중 2개만 선택(20%), 선택된 상품에 1장
-  const HARDCODED_THIRD_PARTY_URLS = [
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-01.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-02.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-03.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-04.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-05.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-06.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-07.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-08.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-09.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-10.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-11.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-12.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-13.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-14.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-15.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-16.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-17.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-18.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-19.jpg',
-    'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-20.jpg',
-  ];
-
   // 제3자 이미지: 10개 그룹당 정확히 2개 상품만 선택, 각 1장
   const tpPool = (thirdPartyImageUrls && thirdPartyImageUrls.length > 0)
     ? thirdPartyImageUrls
-    : HARDCODED_THIRD_PARTY_URLS;
+    : THIRD_PARTY_IMAGE_URLS;
   let selectedThirdPartyUrls: string[] = [];
 
   if (productIndexInBatch != null && totalProductsInBatch != null) {

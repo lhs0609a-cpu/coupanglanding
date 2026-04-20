@@ -12,6 +12,9 @@ import {
   scoreProductRelevance,
   type ProductRelevanceScore,
 } from '@/lib/megaload/services/image-quality-scorer';
+import { createSeededRandom, stringToSeed } from '@/lib/megaload/services/seeded-random';
+import { selectWithSeed } from '@/lib/megaload/services/item-winner-prevention';
+import { THIRD_PARTY_IMAGE_URLS } from '@/lib/megaload/constants/third-party-images';
 import type { ContentBlock } from '@/lib/megaload/services/persuasion-engine';
 import type { EditableProduct, ScannedImageFile } from './types';
 
@@ -525,6 +528,12 @@ export default function DetailPageContentTab({
 
     const previewReviewTexts = reviewTexts.filter(t => t.trim());
 
+    // 제3자 이미지: 실제 등록 단일 모드와 동일한 시드 로직(20% 확률, productCode 시드)
+    const tpRng = createSeededRandom(stringToSeed(`tp-select:${product.productCode}`));
+    const previewThirdPartyUrls = Math.floor(tpRng() * 10) < 2
+      ? [selectWithSeed([...THIRD_PARTY_IMAGE_URLS], `tp-pick:${product.productCode}`)]
+      : [];
+
     return buildRichDetailPageHtml(
       {
         productName: product.editedDisplayProductName || product.name,
@@ -534,7 +543,7 @@ export default function DetailPageContentTab({
         reviewTexts: previewReviewTexts.length > 0 ? previewReviewTexts : undefined,
         detailImageUrls: detailUrls,       // ★ 사용자 선택 이미지만
         infoImageUrls,
-        thirdPartyImageUrls: [],           // 제3자 이미지 제거
+        thirdPartyImageUrls: previewThirdPartyUrls,
         consignmentImageUrls: [],          // 위탁판매 이미지 제거
         faqItems: [],                      // Q&A 제거
         contentBlocks: contentBlocks.length > 0 ? contentBlocks : undefined,
