@@ -351,8 +351,8 @@ export function buildCoupangProductPayload(
       brand: resolvedBrand,
       aiStoryParagraphs: safeParagraphs,
       aiStoryHtml: safeStoryHtml,
-      reviewImageUrls: [],           // 사용자 선택 외 이미지 전면 차단
-      reviewTexts: undefined,        // 리뷰 텍스트 섹션 제거
+      reviewImageUrls,               // 사용자가 선택한 리뷰이미지
+      reviewTexts: safeReviewTexts,  // 사용자 편집 또는 AI 생성 리뷰텍스트
       detailImageUrls,               // ★ 사용자가 선택한 이미지만 사용
       infoImageUrls,                 // 상품정보(product_info) — 사용자 폴더 이미지
       consignmentImageUrls: [],      // 위탁판매 이미지 제거

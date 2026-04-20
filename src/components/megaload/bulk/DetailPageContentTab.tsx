@@ -312,22 +312,37 @@ export default function DetailPageContentTab({
   const reviewTexts = product.editedReviewTexts ?? [];
   const contentBlocks: ContentBlock[] = product.editedContentBlocks ?? [];
 
-  // 상세이미지 썸네일 URL — 스캔 핸들 → 업로드된 CDN URL → 로컬 경로 serve-image 순으로 해결
+  // 썸네일 URL 해결 헬퍼 — 스캔 핸들 → 업로드된 CDN URL → 로컬 경로 serve-image 순
   // (세션 복원/서버 폴더 상품에서도 선택 UI가 표시되도록)
-  const detailThumbnailUrls = useMemo<string[]>(() => {
-    if (resolvedDetailUrls.length > 0) return resolvedDetailUrls;
-    const scannedUrls = product.scannedDetailImages
+  const resolveThumbnailUrls = (
+    resolvedUrls: string[],
+    scanned: ScannedImageFile[] | undefined,
+    cdnUrls: string[] | undefined,
+    localPaths: string[] | undefined,
+  ): string[] => {
+    if (resolvedUrls.length > 0) return resolvedUrls;
+    const scannedUrls = scanned
       ?.map(img => img.objectUrl)
       .filter((u): u is string => !!u) ?? [];
     if (scannedUrls.length > 0) return scannedUrls;
-    const cdnUrls = preUploadedUrls?.detailImageUrls?.filter((u): u is string => !!u) ?? [];
-    if (cdnUrls.length > 0) return cdnUrls;
-    return (product.detailImages ?? []).map(p =>
+    const cdn = cdnUrls?.filter((u): u is string => !!u) ?? [];
+    if (cdn.length > 0) return cdn;
+    return (localPaths ?? []).map(p =>
       p.startsWith('http') || p.startsWith('blob:') || p.startsWith('data:')
         ? p
         : `/api/megaload/products/bulk-register/serve-image?path=${encodeURIComponent(p)}`,
     );
-  }, [resolvedDetailUrls, product.scannedDetailImages, product.detailImages, preUploadedUrls?.detailImageUrls]);
+  };
+
+  const detailThumbnailUrls = useMemo<string[]>(
+    () => resolveThumbnailUrls(resolvedDetailUrls, product.scannedDetailImages, preUploadedUrls?.detailImageUrls, product.detailImages),
+    [resolvedDetailUrls, product.scannedDetailImages, product.detailImages, preUploadedUrls?.detailImageUrls],
+  );
+
+  const reviewThumbnailUrls = useMemo<string[]>(
+    () => resolveThumbnailUrls(resolvedReviewUrls, product.scannedReviewImages, preUploadedUrls?.reviewImageUrls, product.reviewImages),
+    [resolvedReviewUrls, product.scannedReviewImages, product.reviewImages, preUploadedUrls?.reviewImageUrls],
+  );
 
   // scanned 이미지의 objectURL을 lazy 생성 (썸네일 + 미리보기 공용)
   useEffect(() => {
@@ -495,20 +510,28 @@ export default function DetailPageContentTab({
           ? Array.from({ length: Math.min(product.detailImageCount, 3) }, (_, i) => placeholderImg(`상세이미지 ${i + 1}`))
           : [];
 
-    // 리뷰이미지는 상세페이지에 사용하지 않음
-    const reviewUrls: string[] = [];
+    // editedReviewImageOrder가 []이면 사용자가 의도적으로 0장 선택한 것 → 빈 배열
+    const reviewUrls = filteredReviewUrls.length > 0
+      ? filteredReviewUrls
+      : Array.isArray(product.editedReviewImageOrder) && product.editedReviewImageOrder.length === 0
+        ? []
+        : (product.reviewImageCount ?? 0) > 0
+          ? Array.from({ length: Math.min(product.reviewImageCount ?? 0, 3) }, (_, i) => placeholderImg(`리뷰이미지 ${i + 1}`))
+          : [];
 
     const paragraphs = storyParagraphs.length > 0
       ? storyParagraphs.filter(p => p.trim())
       : (description ? [description] : []);
+
+    const previewReviewTexts = reviewTexts.filter(t => t.trim());
 
     return buildRichDetailPageHtml(
       {
         productName: product.editedDisplayProductName || product.name,
         brand: '',  // 브랜드 비움 (아이템위너 방지)
         aiStoryParagraphs: paragraphs,
-        reviewImageUrls: reviewUrls,       // 빈 배열 — 리뷰이미지 미사용
-        reviewTexts: undefined,            // 리뷰 텍스트 섹션 제거
+        reviewImageUrls: reviewUrls,       // 사용자 선택 리뷰이미지
+        reviewTexts: previewReviewTexts.length > 0 ? previewReviewTexts : undefined,
         detailImageUrls: detailUrls,       // ★ 사용자 선택 이미지만
         infoImageUrls,
         thirdPartyImageUrls: [],           // 제3자 이미지 제거
@@ -541,6 +564,24 @@ export default function DetailPageContentTab({
             isAnalyzing={isAnalyzingDetailRelevance}
             analyzeLabel={detailRelevanceScores ? '다시 분석' : '관련성 분석'}
             relevanceScores={detailRelevanceScores ?? product.detailImageSelectionMeta?.relevanceScores ?? undefined}
+          />
+        </Collapsible>
+      )}
+
+      {/* ─── 리뷰 이미지 선택 ─── */}
+      {reviewThumbnailUrls.length > 0 && (
+        <Collapsible
+          title="리뷰 이미지"
+          icon={<ImageIcon className="w-3.5 h-3.5 text-emerald-500" />}
+          badge={`${(product.editedReviewImageOrder ?? reviewThumbnailUrls).length}장 선택`}
+          defaultOpen={false}
+        >
+          <ImageSelectorGroup
+            label="리뷰이미지"
+            images={product.scannedReviewImages}
+            thumbnailUrls={reviewThumbnailUrls}
+            order={product.editedReviewImageOrder}
+            onOrderChange={(newOrder) => onUpdate(product.uid, 'editedReviewImageOrder', newOrder)}
           />
         </Collapsible>
       )}
