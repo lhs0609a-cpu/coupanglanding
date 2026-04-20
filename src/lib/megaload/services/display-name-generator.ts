@@ -68,7 +68,7 @@ export interface ClassifiedTokens {
 
 const CATEGORY_POOLS: Record<string, CategoryPool> = seoData.categoryPools;
 const SYNONYM_GROUPS: Record<string, string[]> = seoData.synonymGroups;
-const UNIVERSAL_MODIFIERS: string[] = seoData.universalModifiers || [];
+// universalModifiers는 의도적으로 미사용 — 카테고리 무관 단어는 SEO 역효과(스터핑/CTR 하락)
 
 // ─── 비상품 카테고리 (도서/미디어) ─────────────────────────
 // 이 대분류에서는 상품명에 "에센스", "라이트", "크림" 등이 있어도
@@ -716,7 +716,8 @@ export function generateDisplayName(
 
   const targetWithoutSpec = TARGET_MIN_CHARS - specLen;
 
-  // 45자 미만이면 패딩 (남은 descriptors → 경로세그먼트 → universalModifiers)
+  // 50자 미만이면 패딩 — 모든 토큰은 카테고리 의미와 연결되도록 보장
+  // (universalModifiers 같은 무관 단어는 키워드 스터핑 페널티 + CTR 하락 → SEO 역효과)
   if (parts.join(' ').length < targetWithoutSpec) {
     // 패딩 소스 1: 원본 상품명의 남은 descriptors (가장 관련성 높음)
     const remainingDesc = classified.descriptors.filter(d => !usedWords.has(d.toLowerCase()));
@@ -726,24 +727,55 @@ export function generateDisplayName(
     }
   }
 
+  // 카테고리 풀 — features/generic/ingredients 모두 카테고리와 의미 매칭됨
+  // 200+ 핵심 카테고리는 풍부한 풀, 그 외는 findBestPool 폴백 체인이 자동 처리
+  const padPool = findBestPool(categoryPath);
+
   if (parts.join(' ').length < targetWithoutSpec) {
-    // 패딩 소스 2: 카테고리 경로 세그먼트
+    // 패딩 소스 2: 카테고리 features (예: 비타민A → "면역", "시력", "항산화")
+    const padFeats = selectSubset(
+      padPool.features.filter(f => !usedWords.has(f.toLowerCase())),
+      3, rng,
+    );
+    for (const f of padFeats) {
+      if (parts.join(' ').length >= targetWithoutSpec) break;
+      addToken(f);
+    }
+  }
+
+  if (parts.join(' ').length < targetWithoutSpec) {
+    // 패딩 소스 3: 카테고리 generic (예: 비타민A → "영양제", "건강기능식품")
+    const padGenerics = selectSubset(
+      padPool.generic.filter(g => !usedWords.has(g.toLowerCase())),
+      3, rng,
+    );
+    for (const g of padGenerics) {
+      if (parts.join(' ').length >= targetWithoutSpec) break;
+      addToken(g);
+    }
+  }
+
+  if (parts.join(' ').length < targetWithoutSpec) {
+    // 패딩 소스 4: 카테고리 ingredients (원본에 없던 것도 OK — 카테고리 관련 성분은 검색어로 의미 있음)
+    const padIngrs = selectSubset(
+      padPool.ingredients.filter(i => !usedWords.has(i.toLowerCase())),
+      2, rng,
+    );
+    for (const i of padIngrs) {
+      if (parts.join(' ').length >= targetWithoutSpec) break;
+      addToken(i);
+    }
+  }
+
+  if (parts.join(' ').length < targetWithoutSpec) {
+    // 패딩 소스 5 (폴백): 카테고리 경로 세그먼트 — 풀이 빈약한 소분류 대비
     const catSegments = categoryPath.split('>').map(s => s.trim()).filter(s => s.length >= 2);
     for (const seg of catSegments) {
       if (parts.join(' ').length >= targetWithoutSpec) break;
       addToken(seg);
     }
   }
-
-  if (parts.join(' ').length < targetWithoutSpec) {
-    // 패딩 소스 3: universalModifiers — SEO 검색 커버리지 확장
-    const availableMods = UNIVERSAL_MODIFIERS.filter(m => !usedWords.has(m.toLowerCase()));
-    const modPicks = selectSubset(availableMods, 4, rng);
-    for (const m of modPicks) {
-      if (parts.join(' ').length >= targetWithoutSpec) break;
-      addToken(m);
-    }
-  }
+  // ※ universalModifiers 패딩은 의도적으로 제거 — 무관 단어는 SEO 역효과 (스팸 신호 + CTR 하락)
 
   // ⑦ 스펙 — 맨 뒤 고정
   parts.push(...specTokens);
