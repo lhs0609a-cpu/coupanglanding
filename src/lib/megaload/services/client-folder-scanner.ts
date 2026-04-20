@@ -162,10 +162,57 @@ async function scanSingleProduct(
   const rawMainImages = await collectImagesFromSubdir(productDirHandle, 'main_images', MAIN_IMAGE_PATTERN, true, true);
   // dHash 기반 시각적 이탈치 제거 — 텍스트 배너/로고 등 파일명으로 못 거른 비상품 이미지 차단
   const mainImages = await filterMainImageOutliers(rawMainImages, name);
-  let reviewImages = await collectImagesFromSubdir(productDirHandle, 'review_images', IMAGE_PATTERN, false, false);
-  if (reviewImages.length === 0) reviewImages = await collectImagesFromSubdir(productDirHandle, 'reviews', IMAGE_PATTERN, false, false);
-  const detailImages = await collectImagesFromSubdir(productDirHandle, 'detail_images', IMAGE_PATTERN, false, false);
-  const infoImages = await collectImagesFromSubdir(productDirHandle, 'product_info', IMAGE_PATTERN, true, false);
+  // 폴백: 사용자 폴더 구조가 표준 이름과 다를 수 있으므로 여러 후보 검사
+  const collectFirstMatch = async (
+    names: string[],
+    eagerObjectUrls: boolean,
+    applyAdFilter: boolean,
+  ): Promise<ScannedImageFile[]> => {
+    for (const n of names) {
+      const imgs = await collectImagesFromSubdir(productDirHandle, n, IMAGE_PATTERN, eagerObjectUrls, applyAdFilter);
+      if (imgs.length > 0) return imgs;
+    }
+    return [];
+  };
+
+  let reviewImages = await collectFirstMatch(
+    ['review_images', 'reviews', 'review', '리뷰이미지', '리뷰 이미지', '리뷰', 'customer_reviews'],
+    false, false,
+  );
+  let detailImages = await collectFirstMatch(
+    ['detail_images', 'details', 'detail', 'detail-images', 'detailImages', '상세이미지', '상세 이미지', '상세', 'description_images'],
+    false, false,
+  );
+  const infoImages = await collectFirstMatch(
+    ['product_info', 'info', 'product-info', 'productInfo', '상품정보', '정보', 'info_images'],
+    true, false,
+  );
+
+  // 상세페이지 본문 이미지 소스 폴백:
+  //   사용자 데이터셋(쿠팡PT)은 detail_images 없이 review_images 폴더만 두고
+  //   그 안의 이미지를 상세페이지 본문에 넣는 구조가 일반적.
+  //   detail_images 미존재 + review_images 존재 시 review를 상세로 승격 → 중복 방지 위해 review는 비움.
+  if (detailImages.length === 0 && reviewImages.length > 0) {
+    console.info(`[scan] ${name}: detail_images 폴더 없음 — review_images ${reviewImages.length}장을 상세페이지 본문 이미지로 사용`);
+    detailImages = reviewImages;
+    reviewImages = [];
+  }
+
+  // 진단: 표준 폴더를 모두 못 찾았으면 실제 하위 폴더명을 출력하여 사용자가 구조를 확인할 수 있도록
+  if (detailImages.length === 0 || infoImages.length === 0) {
+    const subdirs: string[] = [];
+    try {
+      for await (const [n, h] of productDirHandle as unknown as AsyncIterable<[string, FileSystemHandle]>) {
+        if (h.kind === 'directory') subdirs.push(n);
+      }
+    } catch { /* ignore */ }
+    if (subdirs.length > 0) {
+      const missing: string[] = [];
+      if (detailImages.length === 0) missing.push('상세/리뷰(detail_images·review_images)');
+      if (infoImages.length === 0) missing.push('정보(product_info)');
+      console.info(`[scan] ${name}: ${missing.join(', ')} 폴더 미발견 — 실제 하위 폴더: ${subdirs.join(', ')}`);
+    }
+  }
 
   return {
     productCode,

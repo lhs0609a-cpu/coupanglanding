@@ -100,12 +100,27 @@ export async function scanProductFolder(folderPath: string): Promise<LocalProduc
     const mainImagesDir = path.join(productPath, 'main_images');
     const mainImages = collectImages(mainImagesDir, /\.(jpg|jpeg|png|webp)$/i);
 
-    // 상세이미지 = 리뷰 폴더에서만 가져옴 (review_images/ → reviews/)
-    let reviewImages = collectImages(path.join(productPath, 'review_images'), /\.(jpg|jpeg|png)$/i);
-    if (reviewImages.length === 0) {
-      reviewImages = collectImages(path.join(productPath, 'reviews'), /\.(jpg|jpeg|png)$/i);
+    // 리뷰 폴더 후보 순회 (review_images → reviews → review → 리뷰이미지 등)
+    const reviewFolderCandidates = ['review_images', 'reviews', 'review', '리뷰이미지', '리뷰 이미지', '리뷰', 'customer_reviews'];
+    let reviewImages: string[] = [];
+    for (const name of reviewFolderCandidates) {
+      reviewImages = collectImages(path.join(productPath, name), /\.(jpg|jpeg|png)$/i);
+      if (reviewImages.length > 0) break;
     }
-    const detailImages = collectImages(path.join(productPath, 'detail_images'), /\.(jpg|jpeg|png|webp)$/i);
+
+    // 상세이미지 폴더 후보 순회
+    const detailFolderCandidates = ['detail_images', 'details', 'detail', 'detail-images', 'detailImages', '상세이미지', '상세 이미지', '상세', 'description_images'];
+    let detailImages: string[] = [];
+    for (const name of detailFolderCandidates) {
+      detailImages = collectImages(path.join(productPath, name), /\.(jpg|jpeg|png|webp)$/i);
+      if (detailImages.length > 0) break;
+    }
+
+    // detail_images 폴더 없고 review_images만 있으면 review를 상세로 승격 (중복 방지 위해 review 비움)
+    if (detailImages.length === 0 && reviewImages.length > 0) {
+      detailImages = reviewImages;
+      reviewImages = [];
+    }
 
     // product_info/ 내 상품정보 이미지
     const infoDir = path.join(productPath, 'product_info');
