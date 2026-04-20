@@ -188,14 +188,26 @@ async function scanSingleProduct(
     true, false,
   );
 
-  // 상세페이지 본문 이미지 소스 폴백:
-  //   사용자 데이터셋(쿠팡PT)은 detail_images 없이 review_images 폴더만 두고
-  //   그 안의 이미지를 상세페이지 본문에 넣는 구조가 일반적.
-  //   detail_images 미존재 + review_images 존재 시 review를 상세로 승격 → 중복 방지 위해 review는 비움.
+  // 상세페이지 본문 이미지 소스 폴백 (우선순위):
+  //   1. detail_images 폴더 (명시적 상세이미지)
+  //   2. review_images 폴더 (쿠팡PT 관행: 상세용 이미지가 여기에 있는 구조)
+  //   3. main_images 오버플로우: 대표이미지 첫 3장을 제외한 나머지를 상세로 사용
+  //      (쿠팡 스크랩 데이터는 main_images에 20+장이 있고 상세/리뷰 폴더가 없는 케이스가 일반적)
   if (detailImages.length === 0 && reviewImages.length > 0) {
     console.info(`[scan] ${name}: detail_images 폴더 없음 — review_images ${reviewImages.length}장을 상세페이지 본문 이미지로 사용`);
     detailImages = reviewImages;
     reviewImages = [];
+  }
+  if (detailImages.length < 3 && mainImages.length > 3) {
+    // 대표이미지로 쓸 첫 3장을 제외한 나머지를 상세이미지에 추가
+    const mainOverflow = mainImages.slice(3);
+    // 중복 제거: 이미 detail에 있는 핸들은 제외 (name 기준)
+    const existingNames = new Set(detailImages.map(img => img.name));
+    const additions = mainOverflow.filter(img => !existingNames.has(img.name));
+    if (additions.length > 0) {
+      console.info(`[scan] ${name}: main_images 오버플로우 ${additions.length}장을 상세이미지 풀에 추가`);
+      detailImages = [...detailImages, ...additions];
+    }
   }
 
   // 진단: 표준 폴더를 모두 못 찾았으면 실제 하위 폴더명을 출력하여 사용자가 구조를 확인할 수 있도록

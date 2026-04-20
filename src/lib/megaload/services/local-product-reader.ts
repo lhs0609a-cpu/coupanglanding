@@ -121,6 +121,15 @@ export async function scanProductFolder(folderPath: string): Promise<LocalProduc
       detailImages = reviewImages;
       reviewImages = [];
     }
+    // 상세이미지가 여전히 부족하면 main_images[3:] 오버플로우를 상세이미지 풀에 추가
+    // (쿠팡 스크랩 데이터는 main_images에 20+장이 있고 상세/리뷰 폴더가 없는 케이스가 일반적)
+    if (detailImages.length < 3 && mainImages.length > 3) {
+      const existing = new Set(detailImages);
+      const additions = mainImages.slice(3).filter(p => !existing.has(p));
+      if (additions.length > 0) {
+        detailImages = [...detailImages, ...additions];
+      }
+    }
 
     // product_info/ 내 상품정보 이미지
     const infoDir = path.join(productPath, 'product_info');
