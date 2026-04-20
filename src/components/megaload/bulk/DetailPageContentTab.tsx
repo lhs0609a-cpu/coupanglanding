@@ -507,7 +507,7 @@ export default function DetailPageContentTab({
       : Array.isArray(product.editedDetailImageOrder) && product.editedDetailImageOrder.length === 0
         ? []
         : product.detailImageCount > 0
-          ? Array.from({ length: Math.min(product.detailImageCount, 3) }, (_, i) => placeholderImg(`상세이미지 ${i + 1}`))
+          ? Array.from({ length: product.detailImageCount }, (_, i) => placeholderImg(`상세이미지 ${i + 1}`))
           : [];
 
     // editedReviewImageOrder가 []이면 사용자가 의도적으로 0장 선택한 것 → 빈 배열
@@ -516,7 +516,7 @@ export default function DetailPageContentTab({
       : Array.isArray(product.editedReviewImageOrder) && product.editedReviewImageOrder.length === 0
         ? []
         : (product.reviewImageCount ?? 0) > 0
-          ? Array.from({ length: Math.min(product.reviewImageCount ?? 0, 3) }, (_, i) => placeholderImg(`리뷰이미지 ${i + 1}`))
+          ? Array.from({ length: product.reviewImageCount ?? 0 }, (_, i) => placeholderImg(`리뷰이미지 ${i + 1}`))
           : [];
 
     const paragraphs = storyParagraphs.length > 0

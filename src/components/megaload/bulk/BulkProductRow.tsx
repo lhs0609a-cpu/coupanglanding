@@ -66,6 +66,7 @@ const BulkProductRow = memo(function BulkProductRow({
   const tooltipText = allIssues.map((i) => `${i.severity === 'error' ? '[오류]' : '[경고]'} ${i.message}`).join('\n');
 
   const mainImgCount = p.scannedMainImages?.length ?? p.mainImageCount;
+  const detailImgCount = p.scannedDetailImages?.length ?? p.detailImageCount;
 
   return (
     <div
@@ -199,10 +200,10 @@ const BulkProductRow = memo(function BulkProductRow({
       <div className="px-2 flex items-center justify-center gap-1.5 text-[10px] text-gray-400">
         <span title="대표">{mainImgCount}</span>
         <span>/</span>
-        <span title="상세">{p.detailImageCount}</span>
+        <span title="상세">{detailImgCount}</span>
         {(() => {
           const meta = p.detailImageSelectionMeta;
-          const detailCount = p.editedDetailImageOrder?.length ?? p.detailImageCount;
+          const detailCount = p.editedDetailImageOrder?.length ?? detailImgCount;
           // 빨강: 이미지 3장 미만 또는 워터마크 감지
           const hasWatermark = meta?.watermarkScores?.some(w => w.score >= 0.5);
           if (detailCount < 3 || hasWatermark) {

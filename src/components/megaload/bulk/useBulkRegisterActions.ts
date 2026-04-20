@@ -1180,6 +1180,8 @@ export function useBulkRegisterActions() {
   // ---- #16 Session recovery: 자동저장 (2초 debounce, Step 2에서만) ----
   const SESSION_KEY = 'megaload_bulk_session';
   const SESSION_TTL_MS = 30 * 60 * 1000; // 30분
+  /** 스캐너 로직 변경 시 bump → 이전 세션 무효화 (detailImageCount 등 scan-time 필드가 달라질 때) */
+  const SCANNER_VERSION = 4;
   const [sessionRestoreOffered, setSessionRestoreOffered] = useState(false);
 
   // 자동저장
@@ -1189,6 +1191,7 @@ export function useBulkRegisterActions() {
       try {
         const sessionData = {
           savedAt: Date.now(),
+          scannerVersion: SCANNER_VERSION,
           step,
           brackets,
           selectedOutbound,
@@ -1220,6 +1223,12 @@ export function useBulkRegisterActions() {
       if (!raw) return;
       const data = JSON.parse(raw);
       if (!data.savedAt || Date.now() - data.savedAt > SESSION_TTL_MS) {
+        sessionStorage.removeItem(SESSION_KEY);
+        return;
+      }
+      // 스캐너 버전 불일치 → 세션 폐기 (scan-time 필드가 달라지므로 재스캔 필수)
+      if (data.scannerVersion !== SCANNER_VERSION) {
+        console.info(`[session] 스캐너 버전 변경(${data.scannerVersion ?? 'none'} → ${SCANNER_VERSION}) — 이전 세션 폐기, 재스캔 필요`);
         sessionStorage.removeItem(SESSION_KEY);
         return;
       }
