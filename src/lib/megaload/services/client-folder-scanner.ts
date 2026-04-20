@@ -4,6 +4,8 @@
  * 브라우저에서 직접 폴더를 읽고 상품 데이터를 추출
  */
 
+import { detectVisualOutliers } from './image-outlier-detector';
+
 export interface ScannedImageFile {
   name: string;
   handle: FileSystemFileHandle;
@@ -152,11 +154,14 @@ async function scanSingleProduct(
   }
 
   // P1-4: main_images만 objectURL 즉시 생성, 나머지는 핸들만 수집 (lazy)
-  const mainImages = await collectImagesFromSubdir(productDirHandle, 'main_images', MAIN_IMAGE_PATTERN, true);
-  let reviewImages = await collectImagesFromSubdir(productDirHandle, 'review_images', IMAGE_PATTERN, false);
-  if (reviewImages.length === 0) reviewImages = await collectImagesFromSubdir(productDirHandle, 'reviews', IMAGE_PATTERN, false);
-  const detailImages = await collectImagesFromSubdir(productDirHandle, 'detail_images', IMAGE_PATTERN, false);
-  const infoImages = await collectImagesFromSubdir(productDirHandle, 'product_info', IMAGE_PATTERN, true);
+  // AD_PATTERN은 main_images/third_party에만 적용 — 사용자 큐레이션 폴더(detail/review/info)는 파일명 필터링 생략
+  const rawMainImages = await collectImagesFromSubdir(productDirHandle, 'main_images', MAIN_IMAGE_PATTERN, true, true);
+  // dHash 기반 시각적 이탈치 제거 — 텍스트 배너/로고 등 파일명으로 못 거른 비상품 이미지 차단
+  const mainImages = await filterMainImageOutliers(rawMainImages, name);
+  let reviewImages = await collectImagesFromSubdir(productDirHandle, 'review_images', IMAGE_PATTERN, false, false);
+  if (reviewImages.length === 0) reviewImages = await collectImagesFromSubdir(productDirHandle, 'reviews', IMAGE_PATTERN, false, false);
+  const detailImages = await collectImagesFromSubdir(productDirHandle, 'detail_images', IMAGE_PATTERN, false, false);
+  const infoImages = await collectImagesFromSubdir(productDirHandle, 'product_info', IMAGE_PATTERN, true, false);
 
   return {
     productCode,
@@ -175,12 +180,14 @@ async function scanSingleProduct(
  * 하위 디렉토리에서 패턴에 맞는 이미지 파일 핸들을 수집
  *
  * @param eagerObjectUrls - true이면 즉시 objectURL 생성 (main_images용), false이면 핸들만 수집
+ * @param applyAdFilter - true이면 파일명 기반 광고/배지 제외 (main_images/third_party용)
  */
 async function collectImagesFromSubdir(
   parentHandle: FileSystemDirectoryHandle,
   subdirName: string,
   pattern: RegExp,
   eagerObjectUrls = true,
+  applyAdFilter = true,
 ): Promise<ScannedImageFile[]> {
   try {
     const subHandle = await parentHandle.getDirectoryHandle(subdirName);
@@ -193,12 +200,14 @@ async function collectImagesFromSubdir(
     let patternSkipped = 0;
     let adSkipped = 0;
     let urlFailed = 0;
+    const adSkippedNames: string[] = [];
+    const patternSkippedNames: string[] = [];
 
     for await (const [name, handle] of subHandle as unknown as AsyncIterable<[string, FileSystemHandle]>) {
       if (handle.kind !== 'file') continue;
       totalFiles++;
-      if (!pattern.test(name)) { patternSkipped++; continue; }
-      if (AD_PATTERN.test(name)) { adSkipped++; continue; }
+      if (!pattern.test(name)) { patternSkipped++; patternSkippedNames.push(name); continue; }
+      if (applyAdFilter && AD_PATTERN.test(name)) { adSkipped++; adSkippedNames.push(name); continue; }
       let objectUrl: string | undefined;
       // P1-4: eagerObjectUrls가 true일 때만 즉시 생성
       if (eagerObjectUrls) {
@@ -213,11 +222,15 @@ async function collectImagesFromSubdir(
       files.push({ name, handle: handle as FileSystemFileHandle, objectUrl });
     }
 
-    if (subdirName === 'main_images') {
-      console.info(`[scan] ${subdirName}: 전체 ${totalFiles}개 → 수집 ${files.length}개 (패턴제외=${patternSkipped}, 광고제외=${adSkipped}, URL실패=${urlFailed})`);
-      if (files.length > 0) {
-        console.info(`[scan] ${subdirName} 파일: ${files.map(f => f.name).join(', ')}`);
-      }
+    console.info(`[scan] ${subdirName}: 전체 ${totalFiles}개 → 수집 ${files.length}개 (패턴제외=${patternSkipped}, 광고제외=${adSkipped}, URL실패=${urlFailed})`);
+    if (files.length > 0) {
+      console.info(`[scan] ${subdirName} 파일: ${files.map(f => f.name).join(', ')}`);
+    }
+    if (adSkipped > 0) {
+      console.warn(`[scan] ${subdirName} 광고제외: ${adSkippedNames.join(', ')}`);
+    }
+    if (patternSkipped > 0) {
+      console.warn(`[scan] ${subdirName} 패턴제외: ${patternSkippedNames.join(', ')}`);
     }
 
     files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
@@ -228,11 +241,35 @@ async function collectImagesFromSubdir(
 }
 
 /**
- * 저장된 dirHandle로 main_images를 다시 스캔
+ * 저장된 dirHandle로 main_images를 다시 스캔 (이탈치 제거 포함)
  * 코드 업데이트 후 폴더 재선택 없이 누락 이미지 복구용
  */
 export async function rescanMainImages(dirHandle: FileSystemDirectoryHandle): Promise<ScannedImageFile[]> {
-  return collectImagesFromSubdir(dirHandle, 'main_images', MAIN_IMAGE_PATTERN, true);
+  const raw = await collectImagesFromSubdir(dirHandle, 'main_images', MAIN_IMAGE_PATTERN, true);
+  return filterMainImageOutliers(raw, dirHandle.name);
+}
+
+/**
+ * dHash 군집 이탈치 필터 — 텍스트 배너/로고 등 비상품 이미지 자동 제외
+ */
+async function filterMainImageOutliers(
+  images: ScannedImageFile[],
+  label: string,
+): Promise<ScannedImageFile[]> {
+  try {
+    const { outlierIndices, debug } = await detectVisualOutliers(images);
+    if (outlierIndices.size === 0) {
+      if (images.length >= 5) console.info(`[outlier] ${label}: 이탈치 없음 (${debug})`);
+      return images;
+    }
+    const excluded = images.filter((_, i) => outlierIndices.has(i)).map(f => f.name);
+    console.warn(`[outlier] ${label}: ${outlierIndices.size}장 제외 → ${excluded.join(', ')}`);
+    console.info(`[outlier] ${label}: ${debug}`);
+    return images.filter((_, i) => !outlierIndices.has(i));
+  } catch (err) {
+    console.warn(`[outlier] ${label}: 감지 실패 (원본 유지)`, err instanceof Error ? err.message : err);
+    return images;
+  }
 }
 
 /**
