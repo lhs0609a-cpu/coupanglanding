@@ -42,7 +42,8 @@ function filterByOrder<T>(items: T[], order: number[] | undefined): T[] {
 
 interface ImageSelectorGroupProps {
   label: string;
-  images: ScannedImageFile[];
+  /** 스캔된 이미지 파일 핸들 (없으면 thumbnailUrls.length가 총 개수) */
+  images?: ScannedImageFile[];
   thumbnailUrls: string[];
   order: number[] | undefined;
   onOrderChange: (newOrder: number[]) => void;
@@ -61,6 +62,10 @@ function ImageSelectorGroup({
   label, images, thumbnailUrls, order, onOrderChange,
   onAnalyze, isAnalyzing, relevanceScores, analyzeLabel,
 }: ImageSelectorGroupProps) {
+  // 이미지 총 개수: 스캔 핸들 있으면 그 길이, 없으면 썸네일 URL 길이 기준
+  const totalCount = images?.length ?? thumbnailUrls.length;
+  const imageNameAt = (idx: number) => images?.[idx]?.name ?? `이미지 ${idx + 1}`;
+  const objectUrlAt = (idx: number) => images?.[idx]?.objectUrl;
   // 관련성 점수 인덱스 매핑
   const relevanceByIdx = useMemo(() => {
     if (!relevanceScores) return null;
@@ -83,14 +88,13 @@ function ImageSelectorGroup({
   const dragSrcRef = useRef<number | null>(null); // position in order array being dragged
   const [dragOverPos, setDragOverPos] = useState<number | null>(null);
 
-  if (images.length === 0) return null;
+  if (totalCount === 0) return null;
 
-  const allIndices = images.map((_, i) => i);
+  const allIndices = Array.from({ length: totalCount }, (_, i) => i);
   const selectedIndices = order ?? allIndices;
   const selectedSet = new Set(selectedIndices);
   const unselectedIndices = allIndices.filter(i => !selectedSet.has(i));
   const selectedCount = selectedIndices.length;
-  const totalCount = images.length;
 
   const toggleImage = (imgIdx: number) => {
     if (selectedSet.has(imgIdx)) {
@@ -134,7 +138,7 @@ function ImageSelectorGroup({
   };
 
   const renderThumb = (imgIdx: number, opts: { selected: boolean; posInOrder?: number; draggable?: boolean }) => {
-    const url = thumbnailUrls[imgIdx] || images[imgIdx]?.objectUrl;
+    const url = thumbnailUrls[imgIdx] || objectUrlAt(imgIdx);
     const relScore = relevanceByIdx?.get(imgIdx);
 
     // 테두리 색상
@@ -160,7 +164,7 @@ function ImageSelectorGroup({
         onDragOver={opts.draggable ? handleDragOver(opts.posInOrder!) : undefined}
         onDrop={opts.draggable ? handleDrop(opts.posInOrder!) : undefined}
         onDragEnd={opts.draggable ? handleDragEnd : undefined}
-        title={`${images[imgIdx]?.name ?? `이미지 ${imgIdx + 1}`}${opts.selected ? ` (순서 ${opts.posInOrder! + 1})` : ' (제외됨)'}${relText}`}
+        title={`${imageNameAt(imgIdx)}${opts.selected ? ` (순서 ${opts.posInOrder! + 1})` : ' (제외됨)'}${relText}`}
       >
         {url ? (
           <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -307,6 +311,23 @@ export default function DetailPageContentTab({
   const storyParagraphs = product.editedStoryParagraphs ?? [];
   const reviewTexts = product.editedReviewTexts ?? [];
   const contentBlocks: ContentBlock[] = product.editedContentBlocks ?? [];
+
+  // 상세이미지 썸네일 URL — 스캔 핸들 → 업로드된 CDN URL → 로컬 경로 serve-image 순으로 해결
+  // (세션 복원/서버 폴더 상품에서도 선택 UI가 표시되도록)
+  const detailThumbnailUrls = useMemo<string[]>(() => {
+    if (resolvedDetailUrls.length > 0) return resolvedDetailUrls;
+    const scannedUrls = product.scannedDetailImages
+      ?.map(img => img.objectUrl)
+      .filter((u): u is string => !!u) ?? [];
+    if (scannedUrls.length > 0) return scannedUrls;
+    const cdnUrls = preUploadedUrls?.detailImageUrls?.filter((u): u is string => !!u) ?? [];
+    if (cdnUrls.length > 0) return cdnUrls;
+    return (product.detailImages ?? []).map(p =>
+      p.startsWith('http') || p.startsWith('blob:') || p.startsWith('data:')
+        ? p
+        : `/api/megaload/products/bulk-register/serve-image?path=${encodeURIComponent(p)}`,
+    );
+  }, [resolvedDetailUrls, product.scannedDetailImages, product.detailImages, preUploadedUrls?.detailImageUrls]);
 
   // scanned 이미지의 objectURL을 lazy 생성 (썸네일 + 미리보기 공용)
   useEffect(() => {
@@ -503,20 +524,20 @@ export default function DetailPageContentTab({
   return (
     <div className="space-y-3">
       {/* ─── 상세페이지 이미지 선택 ─── */}
-      {(product.scannedDetailImages?.length ?? 0) > 0 && (
+      {detailThumbnailUrls.length > 0 && (
         <Collapsible
           title="상세페이지 이미지"
           icon={<ImageIcon className="w-3.5 h-3.5 text-indigo-500" />}
-          badge={`${(product.editedDetailImageOrder ?? product.scannedDetailImages ?? []).length}장 선택`}
+          badge={`${(product.editedDetailImageOrder ?? detailThumbnailUrls).length}장 선택`}
           defaultOpen={false}
         >
           <ImageSelectorGroup
             label="상세이미지"
-            images={product.scannedDetailImages ?? []}
-            thumbnailUrls={resolvedDetailUrls}
+            images={product.scannedDetailImages}
+            thumbnailUrls={detailThumbnailUrls}
             order={product.editedDetailImageOrder}
             onOrderChange={(newOrder) => onUpdate(product.uid, 'editedDetailImageOrder', newOrder)}
-            onAnalyze={handleAnalyzeDetailRelevance}
+            onAnalyze={(product.scannedDetailImages?.length ?? 0) > 0 ? handleAnalyzeDetailRelevance : undefined}
             isAnalyzing={isAnalyzingDetailRelevance}
             analyzeLabel={detailRelevanceScores ? '다시 분석' : '관련성 분석'}
             relevanceScores={detailRelevanceScores ?? product.detailImageSelectionMeta?.relevanceScores ?? undefined}
