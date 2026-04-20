@@ -1,4 +1,4 @@
-export const THIRD_PARTY_IMAGE_URLS: readonly string[] = [
+export const THIRD_PARTY_IMAGE_URLS: string[] = [
   'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-01.jpg',
   'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-02.jpg',
   'https://dwfhcshvkxyokvtbgluw.supabase.co/storage/v1/object/public/product-images/megaload/third-party/tp-03.jpg',
