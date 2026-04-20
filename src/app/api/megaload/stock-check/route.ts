@@ -89,9 +89,9 @@ const STATUS_LABELS: Record<StockStatus, string> = {
 };
 
 // Vercel 데이터센터 IP는 네이버가 403 차단하므로 Fly.io 고정 IP 프록시 경유
-// stock-monitor-engine.ts와 동일한 환경변수 이름을 사용 (이미 배포/설정된 값 재사용)
+// Fly.io 측의 PROXY_SECRET은 COUPANG_PROXY_SECRET과 동일 값 — coupang-api-client와 같은 fallback 규칙 사용
 const NAVER_PROXY_URL = process.env.COUPANG_PROXY_URL || '';
-const NAVER_PROXY_SECRET = process.env.PROXY_SECRET || '';
+const NAVER_PROXY_SECRET = process.env.COUPANG_PROXY_SECRET || process.env.PROXY_SECRET || '';
 const NAVER_URL_RE = /smartstore\.naver|shop\.naver|brand\.naver|shopping\.naver/;
 
 // SSRF 방지

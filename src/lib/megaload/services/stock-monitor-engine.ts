@@ -53,7 +53,8 @@ interface CheckResult {
 }
 
 const NAVER_PROXY_URL = process.env.COUPANG_PROXY_URL || '';
-const NAVER_PROXY_SECRET = process.env.PROXY_SECRET || '';
+// Fly.io 측의 PROXY_SECRET은 COUPANG_PROXY_SECRET과 동일 값 — coupang-api-client와 같은 fallback 규칙 사용
+const NAVER_PROXY_SECRET = process.env.COUPANG_PROXY_SECRET || process.env.PROXY_SECRET || '';
 
 async function checkUrl(url: string, retryCount = 0): Promise<CheckResult> {
   const controller = new AbortController();
