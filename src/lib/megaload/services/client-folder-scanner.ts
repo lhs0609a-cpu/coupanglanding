@@ -79,17 +79,21 @@ export async function scanDirectoryHandle(dirHandle: FileSystemDirectoryHandle):
     productDirs.push({ name, handle: handle as FileSystemDirectoryHandle });
   }
 
-  // Phase 2: 10개씩 병렬 처리
-  const SCAN_CONCURRENCY = 10;
-  const products: ScannedProduct[] = [];
-
-  for (let i = 0; i < productDirs.length; i += SCAN_CONCURRENCY) {
-    const batch = productDirs.slice(i, i + SCAN_CONCURRENCY);
-    const results = await Promise.all(batch.map(({ name, handle }) =>
-      scanSingleProduct(name, handle),
-    ));
-    products.push(...results);
+  // Phase 2: 연속 워커 풀 — 배치 단위 Promise.all은 head-of-line 블로킹(한 상품이 느리면 동일 배치 9개 대기)을
+  // 일으키므로 풀 슬롯이 비는 즉시 다음 상품을 채우는 방식으로 처리량 극대화
+  const SCAN_CONCURRENCY = 12;
+  const products: ScannedProduct[] = new Array(productDirs.length);
+  let nextProductIdx = 0;
+  async function productWorker() {
+    while (nextProductIdx < productDirs.length) {
+      const idx = nextProductIdx++;
+      const { name, handle } = productDirs[idx];
+      products[idx] = await scanSingleProduct(name, handle);
+    }
   }
+  await Promise.all(
+    Array.from({ length: Math.min(SCAN_CONCURRENCY, productDirs.length) }, () => productWorker()),
+  );
 
   // 상품코드 순 정렬
   products.sort((a, b) => a.productCode.localeCompare(b.productCode, undefined, { numeric: true }));
@@ -191,7 +195,6 @@ async function collectImagesFromSubdir(
 ): Promise<ScannedImageFile[]> {
   try {
     const subHandle = await parentHandle.getDirectoryHandle(subdirName);
-    const files: ScannedImageFile[] = [];
 
     // 비상품 파일명 패턴 (광고/배지/아이콘/네이버 UI — 서버 collectImages와 동일)
     const AD_PATTERN = /(?:^|[_\-.])(npay|naverpay|naver_|naver\-|smartstore|kakaopay|tosspay|payco|banner|badge|icon|logo|watermark|stamp|popup|event_banner|coupon|ad_|promotion|btn_|button_|shopping_|store_|delivery_info|return_info|guide_|notice_ban|footer|header)/i;
@@ -203,23 +206,31 @@ async function collectImagesFromSubdir(
     const adSkippedNames: string[] = [];
     const patternSkippedNames: string[] = [];
 
+    // Phase 1: 핸들만 빠르게 수집 (디렉토리 이터레이션 — I/O 가벼움)
+    const accepted: { name: string; handle: FileSystemFileHandle }[] = [];
     for await (const [name, handle] of subHandle as unknown as AsyncIterable<[string, FileSystemHandle]>) {
       if (handle.kind !== 'file') continue;
       totalFiles++;
       if (!pattern.test(name)) { patternSkipped++; patternSkippedNames.push(name); continue; }
       if (applyAdFilter && AD_PATTERN.test(name)) { adSkipped++; adSkippedNames.push(name); continue; }
-      let objectUrl: string | undefined;
-      // P1-4: eagerObjectUrls가 true일 때만 즉시 생성
-      if (eagerObjectUrls) {
+      accepted.push({ name, handle: handle as FileSystemFileHandle });
+    }
+
+    // Phase 2: eagerObjectUrls면 getFile() + createObjectURL을 병렬 처리 (직렬 await 회피)
+    let files: ScannedImageFile[];
+    if (eagerObjectUrls && accepted.length > 0) {
+      files = await Promise.all(accepted.map(async ({ name, handle }) => {
         try {
-          const file = await (handle as FileSystemFileHandle).getFile();
-          objectUrl = URL.createObjectURL(file);
+          const file = await handle.getFile();
+          return { name, handle, objectUrl: URL.createObjectURL(file) };
         } catch (err) {
           urlFailed++;
           console.warn(`[scan] 파일 읽기 실패 (핸들 만료 가능): ${name}`, err instanceof Error ? err.message : err);
+          return { name, handle, objectUrl: undefined };
         }
-      }
-      files.push({ name, handle: handle as FileSystemFileHandle, objectUrl });
+      }));
+    } else {
+      files = accepted.map(({ name, handle }) => ({ name, handle, objectUrl: undefined }));
     }
 
     console.info(`[scan] ${subdirName}: 전체 ${totalFiles}개 → 수집 ${files.length}개 (패턴제외=${patternSkipped}, 광고제외=${adSkipped}, URL실패=${urlFailed})`);

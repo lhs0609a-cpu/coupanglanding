@@ -20,7 +20,7 @@ import type { ScannedImageFile } from './client-folder-scanner';
 const DHASH_W = 9;
 const DHASH_H = 8;
 const MIN_IMAGES = 5; // 이보다 적으면 군집 통계가 무의미
-const HASH_CONCURRENCY = 8;
+const HASH_CONCURRENCY = 16; // createImageBitmap이 백그라운드 디코드라 풀 키워도 메인스레드 부담 적음
 const DIST_FLOOR = 22; // medoid 거리가 이보다 작으면 이탈치 아님 (절대 임계)
 const MAD_K = 2.5;     // median + K*MAD 위면 이탈치
 
@@ -33,43 +33,48 @@ export interface OutlierResult {
  * dHash(difference hash): 9x8 grayscale로 축소하여 가로 인접 픽셀
  * 밝기 비교로 64-bit 지문을 만든다. 색상/해상도 변화에 강건하며
  * 이미지의 구조적 특징(텍스트 vs 사진)을 잘 포착한다.
+ *
+ * 성능: createImageBitmap은 네이티브 백그라운드 스레드에서 디코드 + 리사이즈를
+ * 처리하므로 풀사이즈 디코드를 거치는 <img>.src 방식보다 5~10배 빠르다.
  */
-async function computeDHash(objectUrl: string): Promise<Uint8Array | null> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = DHASH_W;
-        canvas.height = DHASH_H;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        if (!ctx) return resolve(null);
-        // 투명 PNG는 흰 배경으로 합성 (로고 감지 일관성)
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, DHASH_W, DHASH_H);
-        ctx.drawImage(img, 0, 0, DHASH_W, DHASH_H);
-        const { data } = ctx.getImageData(0, 0, DHASH_W, DHASH_H);
+async function computeDHash(blob: Blob): Promise<Uint8Array | null> {
+  let bitmap: ImageBitmap | null = null;
+  try {
+    // resizeWidth/Height: 디코더가 9x8로 직접 다운샘플 → 풀사이즈 디코드 회피
+    bitmap = await createImageBitmap(blob, {
+      resizeWidth: DHASH_W,
+      resizeHeight: DHASH_H,
+      resizeQuality: 'medium',
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = DHASH_W;
+    canvas.height = DHASH_H;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    // 투명 PNG는 흰 배경으로 합성 (로고 감지 일관성)
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, DHASH_W, DHASH_H);
+    ctx.drawImage(bitmap, 0, 0);
+    const { data } = ctx.getImageData(0, 0, DHASH_W, DHASH_H);
 
-        const hash = new Uint8Array(DHASH_H);
-        for (let y = 0; y < DHASH_H; y++) {
-          let byte = 0;
-          for (let x = 0; x < DHASH_H; x++) {
-            const iL = (y * DHASH_W + x) * 4;
-            const iR = iL + 4;
-            const gL = 0.299 * data[iL] + 0.587 * data[iL + 1] + 0.114 * data[iL + 2];
-            const gR = 0.299 * data[iR] + 0.587 * data[iR + 1] + 0.114 * data[iR + 2];
-            if (gL < gR) byte |= 1 << (7 - x);
-          }
-          hash[y] = byte;
-        }
-        resolve(hash);
-      } catch {
-        resolve(null);
+    const hash = new Uint8Array(DHASH_H);
+    for (let y = 0; y < DHASH_H; y++) {
+      let byte = 0;
+      for (let x = 0; x < DHASH_H; x++) {
+        const iL = (y * DHASH_W + x) * 4;
+        const iR = iL + 4;
+        const gL = 0.299 * data[iL] + 0.587 * data[iL + 1] + 0.114 * data[iL + 2];
+        const gR = 0.299 * data[iR] + 0.587 * data[iR + 1] + 0.114 * data[iR + 2];
+        if (gL < gR) byte |= 1 << (7 - x);
       }
-    };
-    img.onerror = () => resolve(null);
-    img.src = objectUrl;
-  });
+      hash[y] = byte;
+    }
+    return hash;
+  } catch {
+    return null;
+  } finally {
+    bitmap?.close();
+  }
 }
 
 function hamming(a: Uint8Array, b: Uint8Array): number {
@@ -110,9 +115,15 @@ export async function detectVisualOutliers(images: ScannedImageFile[]): Promise<
     return { outlierIndices: new Set(), debug: `skipped n=${images.length}<${MIN_IMAGES}` };
   }
 
-  const hashes = await runPool(images, HASH_CONCURRENCY, (img) =>
-    img.objectUrl ? computeDHash(img.objectUrl) : Promise.resolve(null),
-  );
+  // File 핸들에서 직접 Blob 추출 → createImageBitmap에 전달 (objectURL 우회로 한 단계 절약)
+  const hashes = await runPool(images, HASH_CONCURRENCY, async (img) => {
+    try {
+      const file = await img.handle.getFile();
+      return await computeDHash(file);
+    } catch {
+      return null;
+    }
+  });
 
   const valid = hashes
     .map((h, i) => ({ h, i }))
