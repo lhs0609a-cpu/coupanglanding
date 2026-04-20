@@ -25,8 +25,24 @@
       "schedule": "0 18 * * *"
     },
     {
-      "path": "/api/cron/payment-lock-update",
+      "path": "/api/cron/payment-retry",
       "schedule": "0 19 * * *"
+    },
+    {
+      "path": "/api/cron/payment-lock-update",
+      "schedule": "0 20 * * *"
+    },
+    {
+      "path": "/api/cron/payment-reconcile",
+      "schedule": "15 * * * *"
+    },
+    {
+      "path": "/api/cron/fee-payment-check",
+      "schedule": "0 21 * * *"
+    },
+    {
+      "path": "/api/cron/coupang-revenue-sync",
+      "schedule": "0 */4 * * *"
     }
   ]
 }

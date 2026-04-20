@@ -83,6 +83,21 @@ export interface PtUser {
   profile?: Profile;
 }
 
+export interface ApiRevenueSnapshot {
+  id: string;
+  pt_user_id: string;
+  year_month: string;
+  total_sales: number;
+  total_commission: number;
+  total_shipping: number;
+  total_returns: number;
+  total_settlement: number;
+  item_count: number;
+  synced_at: string;
+  sync_error: string | null;
+  created_at: string;
+}
+
 export interface MonthlyReport {
   id: string;
   pt_user_id: string;
@@ -1146,6 +1161,11 @@ export interface Database {
         Row: MonthlyReport;
         Insert: Omit<MonthlyReport, 'id' | 'created_at' | 'updated_at'>;
         Update: Partial<Omit<MonthlyReport, 'id' | 'created_at'>>;
+      };
+      api_revenue_snapshots: {
+        Row: ApiRevenueSnapshot;
+        Insert: Omit<ApiRevenueSnapshot, 'id' | 'created_at'>;
+        Update: Partial<Omit<ApiRevenueSnapshot, 'id' | 'created_at'>>;
       };
       revenue_entries: {
         Row: RevenueEntry;

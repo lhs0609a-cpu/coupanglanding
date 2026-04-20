@@ -15,8 +15,8 @@ import {
   getSettlementStatus,
 } from '@/lib/utils/settlement';
 import StatCard from '@/components/ui/StatCard';
-import { Table2, Search, Download, TrendingUp, Users as UsersIcon, CheckCircle2, Banknote, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
-import type { PtUser, MonthlyReport, Profile } from '@/lib/supabase/types';
+import { Table2, Search, Download, TrendingUp, Users as UsersIcon, CheckCircle2, Banknote, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, Zap } from 'lucide-react';
+import type { PtUser, MonthlyReport, Profile, ApiRevenueSnapshot } from '@/lib/supabase/types';
 
 interface PtUserWithProfile extends PtUser {
   profile: Profile;
@@ -27,15 +27,27 @@ type SortDir = 'asc' | 'desc';
 type MonthRange = 3 | 6 | 12;
 type StatusFilter = 'all' | 'pending' | 'submitted' | 'completed' | 'overdue';
 
+interface MonthCell {
+  revenue: number;
+  deposit: number;
+  status: string;
+  isEligible: boolean;
+  /** 데이터 출처 — 'report'=PT생 확정, 'api'=쿠팡 API 자동수집 잠정, 'none'=없음 */
+  source: 'report' | 'api' | 'none';
+  syncedAt?: string;
+  syncError?: string | null;
+}
+
 interface UserRow {
   user: PtUserWithProfile;
-  // yearMonth → { revenue, deposit, status }
-  monthly: Map<string, { revenue: number; deposit: number; status: string; isEligible: boolean }>;
+  monthly: Map<string, MonthCell>;
   totalRevenue: number;
   totalDeposit: number;
   currentRevenue: number;
   currentDeposit: number;
-  currentStatus: string; // for filtering
+  currentStatus: string;
+  apiConnected: boolean;
+  latestSyncedAt: string | null;
 }
 
 /** 최근 N개월 배열 생성 (최신 → 과거) */
@@ -53,18 +65,20 @@ export default function AdminSalesOverviewPage() {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<PtUserWithProfile[]>([]);
   const [reports, setReports] = useState<MonthlyReport[]>([]);
+  const [snapshots, setSnapshots] = useState<ApiRevenueSnapshot[]>([]);
   const [monthRange, setMonthRange] = useState<MonthRange>(6);
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('currentRevenue');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   const supabase = useMemo(() => createClient(), []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // 1. 모든 PT 사용자 + 프로필
       const { data: usersData } = await supabase
         .from('pt_users')
         .select('*, profile:profiles(*)')
@@ -73,16 +87,17 @@ export default function AdminSalesOverviewPage() {
       const fetchedUsers = (usersData as PtUserWithProfile[]) || [];
       setUsers(fetchedUsers);
 
-      // 2. 전체 월별 보고서 (누적 합계용)
       if (fetchedUsers.length > 0) {
         const userIds = fetchedUsers.map(u => u.id);
-        const { data: reportsData } = await supabase
-          .from('monthly_reports')
-          .select('*')
-          .in('pt_user_id', userIds);
-        setReports((reportsData as MonthlyReport[]) || []);
+        const [reportsRes, snapshotsRes] = await Promise.all([
+          supabase.from('monthly_reports').select('*').in('pt_user_id', userIds),
+          supabase.from('api_revenue_snapshots').select('*').in('pt_user_id', userIds),
+        ]);
+        setReports((reportsRes.data as MonthlyReport[]) || []);
+        setSnapshots((snapshotsRes.data as ApiRevenueSnapshot[]) || []);
       } else {
         setReports([]);
+        setSnapshots([]);
       }
     } catch (err) {
       console.error('sales-overview fetch error:', err);
@@ -91,14 +106,30 @@ export default function AdminSalesOverviewPage() {
     }
   }, [supabase]);
 
+  const handleSyncNow = useCallback(async () => {
+    if (!confirm('연동된 모든 PT생의 쿠팡 API 매출을 지금 동기화합니다. 수십초~수분 소요될 수 있어요. 진행할까요?')) return;
+    setSyncing(true);
+    setSyncMessage(null);
+    try {
+      const res = await fetch('/api/admin/coupang-revenue-sync', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '동기화 실패');
+      setSyncMessage(`${data.totalUsers}명 × ${data.yearMonths?.length || 0}개월 — 성공 ${data.totalSynced}건, 실패 ${data.totalFailed}건 (${Math.round((data.elapsedMs || 0) / 1000)}초)`);
+      await fetchData();
+    } catch (err) {
+      setSyncMessage(err instanceof Error ? `❌ ${err.message}` : '❌ 동기화 실패');
+    } finally {
+      setSyncing(false);
+    }
+  }, [fetchData]);
+
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const months = useMemo(() => getRecentMonths(monthRange), [monthRange]);
   const currentMonth = months[0]; // 보고 대상 월(전월)
 
-  /** 사용자별 집계 계산 */
+  /** 사용자별 집계 계산 — monthly_reports(확정) ∪ api_revenue_snapshots(잠정) */
   const rows = useMemo<UserRow[]>(() => {
-    // userId → reports
     const reportsByUser = new Map<string, MonthlyReport[]>();
     for (const r of reports) {
       const list = reportsByUser.get(r.pt_user_id) || [];
@@ -106,17 +137,26 @@ export default function AdminSalesOverviewPage() {
       reportsByUser.set(r.pt_user_id, list);
     }
 
+    const snapshotsByUser = new Map<string, ApiRevenueSnapshot[]>();
+    for (const s of snapshots) {
+      const list = snapshotsByUser.get(s.pt_user_id) || [];
+      list.push(s);
+      snapshotsByUser.set(s.pt_user_id, list);
+    }
+
     return users.map(user => {
       const userReports = reportsByUser.get(user.id) || [];
-      const monthly = new Map<string, { revenue: number; deposit: number; status: string; isEligible: boolean }>();
+      const userSnaps = snapshotsByUser.get(user.id) || [];
+      const monthly = new Map<string, MonthCell>();
 
-      // 표시 월별 집계
+      // 표시 월별 집계: report 우선, 없으면 snapshot
       for (const ym of months) {
         const report = userReports.find(r => r.year_month === ym);
+        const snap = userSnaps.find(s => s.year_month === ym);
         const isEligible = isEligibleForMonth(user.created_at, ym);
+
         if (report) {
           const revenue = report.reported_revenue || 0;
-          // 관리자 확정 송금액 우선, 없으면 계산값
           const deposit = report.admin_deposit_amount
             || report.calculated_deposit
             || calculateDeposit(revenue, getReportCosts(report), user.share_percentage);
@@ -125,13 +165,48 @@ export default function AdminSalesOverviewPage() {
             deposit,
             status: report.payment_status,
             isEligible: true,
+            source: 'report',
+          });
+        } else if (snap && (snap.total_sales > 0 || !snap.sync_error)) {
+          // API 스냅샷: 매출 → 정산은 API commission 기반 대략값 (광고비/반품비 제외)
+          const revenue = Number(snap.total_sales) || 0;
+          const deposit = revenue > 0
+            ? calculateDeposit(
+                revenue,
+                {
+                  cost_product: 0,
+                  cost_commission: Number(snap.total_commission) || 0,
+                  cost_advertising: 0,
+                  cost_returns: Number(snap.total_returns) || 0,
+                  cost_shipping: Number(snap.total_shipping) || 0,
+                  cost_tax: 0,
+                },
+                user.share_percentage,
+              )
+            : 0;
+          monthly.set(ym, {
+            revenue,
+            deposit,
+            status: 'api_pending',
+            isEligible,
+            source: 'api',
+            syncedAt: snap.synced_at,
+            syncError: snap.sync_error,
           });
         } else {
-          monthly.set(ym, { revenue: 0, deposit: 0, status: 'none', isEligible });
+          monthly.set(ym, {
+            revenue: 0,
+            deposit: 0,
+            status: 'none',
+            isEligible,
+            source: 'none',
+            syncError: snap?.sync_error || null,
+          });
         }
       }
 
-      // 누적 합계 (모든 보고서 기준, 표시 범위와 무관)
+      // 누적 합계: report 월은 report, 그 외 월은 snapshot
+      const reportMonths = new Set(userReports.map(r => r.year_month));
       let totalRevenue = 0;
       let totalDeposit = 0;
       for (const r of userReports) {
@@ -140,10 +215,35 @@ export default function AdminSalesOverviewPage() {
           || r.calculated_deposit
           || calculateDeposit(r.reported_revenue || 0, getReportCosts(r), user.share_percentage);
       }
+      for (const s of userSnaps) {
+        if (reportMonths.has(s.year_month)) continue;
+        const rev = Number(s.total_sales) || 0;
+        if (rev <= 0) continue;
+        totalRevenue += rev;
+        totalDeposit += calculateDeposit(
+          rev,
+          {
+            cost_product: 0,
+            cost_commission: Number(s.total_commission) || 0,
+            cost_advertising: 0,
+            cost_returns: Number(s.total_returns) || 0,
+            cost_shipping: Number(s.total_shipping) || 0,
+            cost_tax: 0,
+          },
+          user.share_percentage,
+        );
+      }
 
-      // 당월(보고대상월) 지표
       const curr = monthly.get(currentMonth)!;
-      const currentStatus = getSettlementStatus(user.created_at, curr.status === 'none' ? null : curr.status, currentMonth);
+      const currentStatus = getSettlementStatus(
+        user.created_at,
+        curr.source === 'report' ? curr.status : null,
+        currentMonth,
+      );
+
+      const latestSync = userSnaps.length > 0
+        ? userSnaps.reduce((max, s) => s.synced_at > max ? s.synced_at : max, '')
+        : null;
 
       return {
         user,
@@ -153,9 +253,11 @@ export default function AdminSalesOverviewPage() {
         currentRevenue: curr.revenue,
         currentDeposit: curr.deposit,
         currentStatus,
+        apiConnected: !!user.coupang_api_connected,
+        latestSyncedAt: latestSync || null,
       };
     });
-  }, [users, reports, months, currentMonth]);
+  }, [users, reports, snapshots, months, currentMonth]);
 
   /** 필터링 + 정렬 */
   const filteredRows = useMemo(() => {
@@ -274,11 +376,12 @@ export default function AdminSalesOverviewPage() {
       ];
       for (const ym of [...months].reverse()) {
         const m = r.monthly.get(ym)!;
-        cells.push(
-          String(m.revenue),
-          String(m.deposit),
-          m.status === 'none' ? (m.isEligible ? '미제출' : '-') : (PAYMENT_STATUS_LABELS[m.status] || m.status),
-        );
+        const statusLabel = m.source === 'api'
+          ? 'API 잠정'
+          : m.source === 'none'
+            ? (m.isEligible ? '미제출' : '-')
+            : (PAYMENT_STATUS_LABELS[m.status] || m.status);
+        cells.push(String(m.revenue), String(m.deposit), statusLabel);
       }
       cells.push(String(r.totalRevenue), String(r.totalDeposit));
       return cells;
@@ -312,12 +415,30 @@ export default function AdminSalesOverviewPage() {
   };
 
   /** 셀 렌더링 */
-  const renderCell = (m: { revenue: number; deposit: number; status: string; isEligible: boolean }) => {
-    if (!m.isEligible) {
+  const renderCell = (m: MonthCell) => {
+    if (!m.isEligible && m.source === 'none') {
       return <span className="text-xs text-gray-300">-</span>;
     }
-    if (m.status === 'none') {
-      return <span className="text-xs text-gray-400">미제출</span>;
+    if (m.source === 'none') {
+      return (
+        <div className="flex flex-col items-end gap-0.5">
+          <span className="text-xs text-gray-400">미제출</span>
+          {m.syncError && (
+            <span className="text-[9px] text-red-500" title={m.syncError}>API 오류</span>
+          )}
+        </div>
+      );
+    }
+    if (m.source === 'api') {
+      return (
+        <div className="flex flex-col items-end gap-0.5">
+          <span className="text-xs font-semibold text-blue-700">{formatKRW(m.revenue)}</span>
+          <span className="text-[11px] text-blue-500">→ {formatKRW(m.deposit)}</span>
+          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
+            <Zap className="w-2.5 h-2.5" /> API 잠정
+          </span>
+        </div>
+      );
     }
     const statusColor = PAYMENT_STATUS_COLORS[m.status] || 'bg-gray-100 text-gray-700';
     return (
@@ -350,16 +471,36 @@ export default function AdminSalesOverviewPage() {
           <p className="text-sm text-gray-500 mt-1">
             전체 PT 사용자의 월별 매출·정산액을 한눈에 확인합니다 (기준월: {formatYearMonth(currentMonth)})
           </p>
+          <p className="text-[11px] text-gray-400 mt-0.5">
+            <Zap className="w-3 h-3 inline text-blue-500" /> API 잠정 = 쿠팡 API에서 자동수집한 매출(광고비/반품비 미반영) · 확정값은 PT생이 제출한 리포트 기준
+          </p>
         </div>
-        <button
-          onClick={exportCsv}
-          disabled={loading || filteredRows.length === 0}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
-        >
-          <Download className="w-4 h-4" />
-          CSV 내보내기
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleSyncNow}
+            disabled={syncing || loading}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+            title="연동된 PT생의 쿠팡 API 매출을 지금 즉시 동기화합니다"
+          >
+            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? '동기화 중...' : '지금 동기화'}
+          </button>
+          <button
+            onClick={exportCsv}
+            disabled={loading || filteredRows.length === 0}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
+          >
+            <Download className="w-4 h-4" />
+            CSV 내보내기
+          </button>
+        </div>
       </div>
+
+      {syncMessage && (
+        <div className="bg-blue-50 border border-blue-200 text-blue-900 px-4 py-2 rounded-lg text-sm">
+          {syncMessage}
+        </div>
+      )}
 
       {/* 요약 카드 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -492,9 +633,16 @@ export default function AdminSalesOverviewPage() {
                 {filteredRows.map(row => (
                   <tr key={row.user.id} className="border-b border-gray-100 hover:bg-gray-50 transition">
                     <td className="sticky left-0 z-10 bg-white px-4 py-3 border-r border-gray-200" style={{ minWidth: 200 }}>
-                      <div className="font-medium text-gray-900">{row.user.profile?.full_name || '-'}</div>
+                      <div className="font-medium text-gray-900 flex items-center gap-1">
+                        {row.user.profile?.full_name || '-'}
+                        {row.apiConnected && (
+                          <span title={`API 연동 · ${row.latestSyncedAt ? '최근 동기화 ' + new Date(row.latestSyncedAt).toLocaleString('ko-KR') : '동기화 이력 없음'}`}>
+                            <Zap className="w-3 h-3 text-blue-500" />
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[11px] text-gray-500 truncate max-w-[180px]">{row.user.profile?.email}</div>
-                      <div className="text-[10px] text-gray-400 mt-0.5">수수료 {row.user.share_percentage}%</div>
+                      <div className="text-[10px] text-gray-400 mt-0.5">수수료 {row.user.share_percentage}%{!row.apiConnected && <span className="ml-1 text-amber-600">· API 미연동</span>}</div>
                     </td>
                     <td className="px-3 py-3 border-r border-gray-200 text-xs text-gray-600 whitespace-nowrap">
                       {row.user.created_at.slice(0, 10)}
