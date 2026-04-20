@@ -2510,8 +2510,10 @@ export async function selectDiverseImages(
     console.warn(`[selectDiverseImages] 품질필터 후 최소 ${minKeep}장 보충 → ${passedEntries.length}장`);
   }
 
-  // Step 2: 이상치 제거 (대표이미지 대비)
-  if (options.referenceUrls && options.referenceUrls.length > 0 && passedEntries.length > 3) {
+  // Step 2: 이상치 제거 (대표이미지 대비) — trustFolder=true면 건너뜀
+  //   사용자 큐레이션 폴더에는 리뷰 사진·언박싱 등 대표 대비 색상 분포가 다른
+  //   이미지가 의도적으로 포함될 수 있어, 색상 히스토그램 기반 outlier로 모두 탈락하는 문제 발생
+  if (!trustFolder && options.referenceUrls && options.referenceUrls.length > 0 && passedEntries.length > 3) {
     const crossRef = await crossReferenceOutlierImages(
       options.referenceUrls,
       passedEntries.map(e => e.url),
@@ -2537,12 +2539,17 @@ export async function selectDiverseImages(
   }
 
   // Step 2.5: 상품 관련성 점수 계산
+  //   trustFolder=true면 점수는 계산하되 하드필터(< 0.3 제외)는 적용 안 함 — UI 표시용으로만 사용
   let relevanceResults: ProductRelevanceScore[] | undefined;
   if (options.referenceUrls && options.referenceUrls.length > 0) {
     relevanceResults = await scoreProductRelevance(
       options.referenceUrls,
       passedEntries.map(e => e.url),
     );
+    if (trustFolder) {
+      // trustFolder: 점수만 보관, 필터링 없음
+      relevanceResults = relevanceResults.map((r, i) => ({ ...r, index: passedEntries[i].origIdx }));
+    } else {
     // 관련성 < 0.3 → 자동 제외 (하드필터)
     const beforeCount = passedEntries.length;
     // 점수 높은 순 정렬 인덱스 (최소 보장 보충용)
@@ -2580,6 +2587,7 @@ export async function selectDiverseImages(
     }
     if (beforeCount !== passedEntries.length) {
       console.info(`[relevance-filter] ${beforeCount - passedEntries.length}장 관련성 제외 (최소 ${minKeep}장 보장)`);
+    }
     }
   }
 
