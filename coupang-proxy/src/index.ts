@@ -43,6 +43,59 @@ app.get('/check-ip', async (c) => {
   }
 });
 
+// ─── Naver 페이지 프록시 (품절 동기화/수동 품절체크 공용) ──
+// Vercel 데이터센터 IP는 Naver가 403으로 차단하므로 Fly.io 고정 IP로 우회
+app.post('/naver-check', async (c) => {
+  const received = c.req.header('x-proxy-secret') || '';
+  if (!PROXY_SECRET || received !== PROXY_SECRET) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  let body: { url?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'JSON body required' }, 400);
+  }
+  const url = body.url;
+  if (!url || typeof url !== 'string') {
+    return c.json({ error: 'url field required' }, 400);
+  }
+  const allowed = /^https?:\/\/(smartstore\.naver\.com|shop\.naver\.com|brand\.naver\.com|shopping\.naver\.com|search\.shopping\.naver\.com)/;
+  if (!allowed.test(url)) {
+    return c.json({ error: 'Naver URL only' }, 400);
+  }
+
+  console.log(`[naver-check] ${url}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9',
+        'Accept-Encoding': 'identity',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Cache-Control': 'no-cache',
+      },
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    const full = await res.text();
+    const html = full.slice(0, 500_000);
+    console.log(`[naver-check] -> ${res.status} (${html.length} bytes)`);
+    return c.json({ statusCode: res.status, html });
+  } catch (err) {
+    clearTimeout(timeout);
+    const msg = (err as Error).name === 'AbortError' ? 'timeout' : String((err as Error).message || err);
+    console.error(`[naver-check] error: ${msg}`);
+    return c.json({ error: msg }, 502);
+  }
+});
+
 // ─── Auth middleware for /proxy/* ────────────────────────────
 
 app.use('/proxy/*', async (c, next) => {

@@ -88,6 +88,12 @@ const STATUS_LABELS: Record<StockStatus, string> = {
   error: '접속오류',
 };
 
+// Vercel 데이터센터 IP는 네이버가 403 차단하므로 Fly.io 고정 IP 프록시 경유
+// stock-monitor-engine.ts와 동일한 환경변수 이름을 사용 (이미 배포/설정된 값 재사용)
+const NAVER_PROXY_URL = process.env.COUPANG_PROXY_URL || '';
+const NAVER_PROXY_SECRET = process.env.PROXY_SECRET || '';
+const NAVER_URL_RE = /smartstore\.naver|shop\.naver|brand\.naver|shopping\.naver/;
+
 // SSRF 방지
 function validateUrl(url: string): boolean {
   try {
@@ -173,30 +179,53 @@ async function checkSingleUrl(url: string): Promise<StockCheckResult> {
   const timeout = setTimeout(() => controller.abort(), 15000);
 
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-      },
-      redirect: 'follow',
-    });
-    clearTimeout(timeout);
+    let httpStatus: number;
+    let sample: string;
 
-    const httpStatus = res.status;
+    const isNaver = NAVER_URL_RE.test(url);
+    if (isNaver && NAVER_PROXY_URL) {
+      // Naver는 Vercel IP를 403 차단하므로 Fly.io 프록시로 우회
+      const proxyBase = NAVER_PROXY_URL.replace(/\/proxy\/?$/, '');
+      const proxyRes = await fetch(`${proxyBase}/naver-check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Proxy-Secret': NAVER_PROXY_SECRET },
+        body: JSON.stringify({ url }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!proxyRes.ok) {
+        const errData = await proxyRes.json().catch(() => ({}));
+        return {
+          url, status: 'error', statusLabel: STATUS_LABELS.error, checkedAt,
+          matchedPattern: `proxy ${proxyRes.status}: ${(errData as Record<string, string>).error || ''}`.trim(),
+        };
+      }
+      const data = await proxyRes.json() as { statusCode: number; html: string };
+      httpStatus = data.statusCode;
+      sample = (data.html || '').slice(0, 500_000);
+    } else {
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+        },
+        redirect: 'follow',
+      });
+      clearTimeout(timeout);
+      httpStatus = res.status;
+      const html = await res.text();
+      sample = html.slice(0, 500_000);
+    }
 
-    // HTTP 에러
+    // HTTP 에러 판정 (프록시/직접 공통)
     if (httpStatus === 404 || httpStatus === 410) {
       return { url, status: 'removed', statusLabel: STATUS_LABELS.removed, httpStatus, checkedAt, matchedPattern: `HTTP ${httpStatus}` };
     }
-    if (!res.ok) {
+    if (httpStatus < 200 || httpStatus >= 400) {
       return { url, status: 'error', statusLabel: STATUS_LABELS.error, httpStatus, checkedAt, matchedPattern: `HTTP ${httpStatus}` };
     }
-
-    // HTML 본문 분석 (최대 500KB만 읽기 — 메모리 절약)
-    const html = await res.text();
-    const sample = html.slice(0, 500_000);
 
     // 1차: 삭제/미존재 체크
     for (const pattern of REMOVED_PATTERNS) {
@@ -205,8 +234,7 @@ async function checkSingleUrl(url: string): Promise<StockCheckResult> {
       }
     }
 
-    // 옵션별 품절 파싱 (네이버 스마트스토어)
-    const isNaver = /smartstore\.naver|shop\.naver|shopping\.naver/i.test(url);
+    // 옵션별 품절 파싱 (네이버 스마트스토어) — isNaver는 위에서 이미 판정
     let options: OptionStockStatus[] | null = null;
     if (isNaver) {
       options = parseNaverOptions(sample);
