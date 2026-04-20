@@ -252,6 +252,9 @@ function tokenize(name: string): string[] {
     .map(w => w.trim())
     .filter(w => {
       if (w.length < 2) return false;
+      // 단위 없는 순수 숫자 토큰 차단 — "793", "2024" 같은 의미 불명 잔여물 제거
+      //   (단위가 붙은 스펙은 extractSpecs에서 이미 분리됨)
+      if (/^\d+$/.test(w)) return false;
       const lower = w.toLowerCase();
       if (NOISE.has(lower)) return false;
       if (seen.has(lower)) return false;

@@ -594,7 +594,19 @@ export function maybeSeoWeave(
   // 이미 포함되어 있으면 스킵
   if (content.includes(kw)) return content;
 
-  // 마침표/물음표 앞에 삽입
+  // 종결어미(입니다/예요/어요/해요/죠/네요/요/다) 또는 조사(은/는/이/가/을/를/과/와/도/만) 뒤에
+  // 바로 키워드를 이어붙이면 "~입니다 고함량." 같이 부자연스러운 문장이 되므로 삽입 스킵.
+  //   자연스러운 삽입 지점이 없으면 아예 붙이지 않는다 (삽입 실패 허용).
+  const UNNATURAL_TAIL = /(입니다|습니다|예요|에요|어요|아요|해요|되요|돼요|이죠|네요|군요|세요|죠|다|요)[.!?。]?$/;
+  const PARTICLE_TAIL = /[은는이가을를과와도만에의로]\s*[.!?。]?$/;
+
+  if (UNNATURAL_TAIL.test(content) || PARTICLE_TAIL.test(content)) {
+    // 이른 블록(강제 삽입 구간)이라면 카운터 롤백하여 다음 블록에 다시 시도
+    if (isEarlyBlock) _seoWeaveInsertionCount--;
+    return content;
+  }
+
+  // 마침표/물음표 앞에 삽입 (종결어미 아닐 때만 실행됨)
   const punctIdx = content.search(/[.?!。]$/);
   if (punctIdx >= 0) {
     return content.slice(0, punctIdx) + ' ' + kw + content.slice(punctIdx);

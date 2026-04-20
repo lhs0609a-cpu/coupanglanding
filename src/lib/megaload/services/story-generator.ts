@@ -344,19 +344,44 @@ export function generateStoryV2(
     }
   }
 
-  // ── 문단 중복 제거 (선행 80자 기준) ──
+  // ── 문단 중복 제거 (정규화 키 기준) ──
   //   realReview + persuasion 합산 후 시드 충돌로 유사 문단이 생길 수 있어
-  //   선행 80자가 동일하면 뒤에 나오는 문단을 버린다.
+  //   중복 문장을 버린다. 꼬리에 부착된 SEO 키워드(고함량/천연/건강기능식품 등)나
+  //   문장부호만 다른 문단도 중복으로 감지되도록 정규화한다.
+  //
+  //   또한 문단 내부에 동일 문장이 여러 번 반복되는 경우에도 문장 단위로 dedup 한다.
   {
-    const seenHeads = new Set<string>();
+    const SEO_TAIL_RE = /\s*(고함량|천연|건강기능식품|정품|프리미엄|GMP인증|식약처인증|무첨가|국산원료|저온추출)[.!?。]*\s*$/;
+    const normalizeKey = (s: string): string =>
+      s.trim()
+        .replace(/\s+/g, ' ')
+        .replace(SEO_TAIL_RE, '')
+        .replace(/[.!?。,\s]+$/g, '')
+        .toLowerCase();
+
+    const seenKeys = new Set<string>();
     const deduped: string[] = [];
     for (const p of paragraphs) {
       const normalized = p.trim().replace(/\s+/g, ' ');
       if (normalized.length < 10) continue;
-      const head = normalized.slice(0, 80);
-      if (seenHeads.has(head)) continue;
-      seenHeads.add(head);
-      deduped.push(normalized);
+
+      // 문단 내 문장 단위 dedup (동일 문장이 반복되는 경우 방지)
+      const sentences = normalized.split(/(?<=[.!?。요])\s+/);
+      const innerSeen = new Set<string>();
+      const uniqueSentences: string[] = [];
+      for (const sent of sentences) {
+        const sk = normalizeKey(sent);
+        if (!sk || innerSeen.has(sk)) continue;
+        innerSeen.add(sk);
+        uniqueSentences.push(sent);
+      }
+      const innerDeduped = uniqueSentences.join(' ').trim();
+      if (innerDeduped.length < 10) continue;
+
+      const key = normalizeKey(innerDeduped);
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      deduped.push(innerDeduped);
     }
     paragraphs = deduped;
   }
