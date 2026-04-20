@@ -88,32 +88,53 @@ export async function POST() {
         const receiptType = str(raw.receiptType);
         const receiptStatus = str(raw.receiptStatus) || 'UNKNOWN';
 
-        // 목록 API에는 requester 정보가 없으므로 단건 상세 조회로 가져온다
+        // 목록 API에는 requester 정보가 없으므로 단건 상세 조회로 가져온다.
+        // 쿠팡 반품 API는 최상위 flat 필드로 반환됨:
+        //   requesterName / requesterPhoneNumber / requesterAddress /
+        //   requesterAddressDetail / requesterZipCode
         let requesterName: string | null = null;
         let requesterPhone: string | null = null;
         let requesterAddress: string | null = null;
         let requesterZipCode: string | null = null;
         let detailRaw: Record<string, unknown> | null = null;
 
+        const extractRequester = (src: Record<string, unknown>) => {
+          // 중첩 requester 객체(취소 API 규격)도 방어적으로 허용
+          const nested = (src.requester || {}) as Record<string, unknown>;
+          const name = str(src.requesterName) || str(nested.realName) || str(nested.name);
+          const phone =
+            str(src.requesterPhoneNumber) ||
+            str(src.requesterPhone) ||
+            str(nested.realNumber) ||
+            str(nested.safeNumber);
+          const addressRaw =
+            str(src.requesterAddress) || str(nested.address) || '';
+          const addressDetailRaw =
+            str(src.requesterAddressDetail) || str(nested.addressDetail) || '';
+          const address =
+            [addressRaw, addressDetailRaw].filter(Boolean).join(' ').trim() || null;
+          const zip = str(src.requesterZipCode) || str(nested.zipCode);
+          return { name, phone, address, zip };
+        };
+
         try {
           detailRaw = await adapter.getReturnRequestDetail(receiptId);
-          const requester = (detailRaw.requester || {}) as Record<string, unknown>;
-          requesterName = str(requester.realName) || str(requester.name);
-          requesterPhone = str(requester.realNumber) || str(requester.safeNumber);
-          const addressRaw = str(requester.address) || '';
-          const addressDetailRaw = str(requester.addressDetail) || '';
-          requesterAddress = [addressRaw, addressDetailRaw].filter(Boolean).join(' ').trim() || null;
-          requesterZipCode = str(requester.zipCode);
+          const r = extractRequester(detailRaw);
+          requesterName = r.name;
+          requesterPhone = r.phone;
+          requesterAddress = r.address;
+          requesterZipCode = r.zip;
         } catch (detailErr) {
-          // 상세 조회 실패 시 목록 데이터에서 시도 (fallback)
-          const requester = (raw.requester || {}) as Record<string, unknown>;
-          requesterName = str(requester.realName) || str(requester.name);
-          requesterPhone = str(requester.realNumber) || str(requester.safeNumber);
-          const addressRaw = str(requester.address) || '';
-          const addressDetailRaw = str(requester.addressDetail) || '';
-          requesterAddress = [addressRaw, addressDetailRaw].filter(Boolean).join(' ').trim() || null;
-          requesterZipCode = str(requester.zipCode);
           console.warn(`receipt_id=${receiptId} 상세조회 실패:`, detailErr);
+        }
+
+        // 상세 조회에서 누락된 값이 있으면 목록 데이터로 보완
+        if (!requesterName || !requesterPhone || !requesterAddress) {
+          const r = extractRequester(raw);
+          requesterName = requesterName || r.name;
+          requesterPhone = requesterPhone || r.phone;
+          requesterAddress = requesterAddress || r.address;
+          requesterZipCode = requesterZipCode || r.zip;
         }
 
         // returnItems 첫 건
