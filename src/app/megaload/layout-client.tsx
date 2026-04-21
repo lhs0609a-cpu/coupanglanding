@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import MegaloadLayout from '@/components/layouts/MegaloadLayout';
 import PaymentLockBanner from '@/components/payments/PaymentLockBanner';
+import PaymentLockForceModal from '@/components/payments/PaymentLockForceModal';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
 import type { SettlementGateLevel } from '@/lib/utils/settlement';
 
@@ -18,6 +19,9 @@ interface MegaloadLayoutClientProps {
   gateDeadline: string;
   paymentLockLevel: number;
   paymentOverdueSince: string | null;
+  adminOverrideLevel?: number | null;
+  paymentLockExemptUntil?: string | null;
+  hasPaymentCards?: boolean;
 }
 
 export default function MegaloadLayoutClient({
@@ -30,6 +34,9 @@ export default function MegaloadLayoutClient({
   gateDeadline,
   paymentLockLevel,
   paymentOverdueSince,
+  adminOverrideLevel,
+  paymentLockExemptUntil,
+  hasPaymentCards,
 }: MegaloadLayoutClientProps) {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
@@ -115,6 +122,13 @@ export default function MegaloadLayoutClient({
       gateDeadline={gateDeadline}
     >
       <PaymentLockBanner level={paymentLockLevel} overdueSince={paymentOverdueSince} />
+      {/* 첫 진입 시 강제 모달 — L1/L2 는 닫기 가능, L3 는 강제 (redirect 전에 깜빡 표시될 수 있음) */}
+      <PaymentLockForceModal
+        lockLevel={((adminOverrideLevel ?? paymentLockLevel ?? 0) as 0 | 1 | 2 | 3)}
+        overdueSince={paymentOverdueSince}
+        hasCard={!!hasPaymentCards}
+        allowDismiss={(adminOverrideLevel ?? paymentLockLevel ?? 0) < 3}
+      />
       {children}
     </MegaloadLayout>
   );

@@ -25,8 +25,17 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
   const [{ data: profile }, { data: shUser }, { data: ptUser }] = await Promise.all([
     supabase.from('profiles').select('full_name, role, is_active').eq('id', user.id).single(),
     supabase.from('megaload_users').select('id, plan, onboarding_done').eq('profile_id', user.id).maybeSingle(),
-    supabase.from('pt_users').select('id, created_at, payment_lock_level, payment_overdue_since').eq('profile_id', user.id).maybeSingle(),
+    supabase.from('pt_users').select('id, created_at, payment_lock_level, payment_overdue_since, admin_override_level, payment_lock_exempt_until').eq('profile_id', user.id).maybeSingle(),
   ]);
+
+  // 카드 유무
+  let hasPaymentCards = false;
+  if (ptUser) {
+    try {
+      const { data: cards } = await supabase.from('billing_cards').select('id').eq('pt_user_id', ptUser.id).eq('is_active', true).limit(1);
+      hasPaymentCards = (cards || []).length > 0;
+    } catch { hasPaymentCards = false; }
+  }
 
   // 결제 락 3단계(완전 차단) → 결제 설정 페이지로 강제 이동
   // admin/partner는 면제. /my/settings는 별도 레이아웃이라 여기서 막지 않음.
@@ -96,6 +105,9 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
       gateDeadline={gateDeadline}
       paymentLockLevel={ptUser?.payment_lock_level ?? 0}
       paymentOverdueSince={ptUser?.payment_overdue_since ?? null}
+      adminOverrideLevel={(ptUser as Record<string, unknown> | null)?.admin_override_level as number | null ?? null}
+      paymentLockExemptUntil={(ptUser as Record<string, unknown> | null)?.payment_lock_exempt_until as string | null ?? null}
+      hasPaymentCards={hasPaymentCards}
     >
       {children}
     </MegaloadLayoutClient>
