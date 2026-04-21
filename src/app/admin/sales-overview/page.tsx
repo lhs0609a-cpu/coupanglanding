@@ -14,6 +14,7 @@ import {
   isEligibleForMonth,
   getSettlementStatus,
 } from '@/lib/utils/settlement';
+import { buildCostBreakdown } from '@/lib/calculations/deposit';
 import StatCard from '@/components/ui/StatCard';
 import { Table2, Search, Download, TrendingUp, Users as UsersIcon, CheckCircle2, Banknote, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, Zap } from 'lucide-react';
 import type { PtUser, MonthlyReport, Profile, ApiRevenueSnapshot } from '@/lib/supabase/types';
@@ -217,19 +218,14 @@ export default function AdminSalesOverviewPage() {
             source: 'report',
           });
         } else if (snap && (snap.total_sales > 0 || !snap.sync_error)) {
-          // API 스냅샷: 매출 → 정산은 API commission 기반 대략값 (광고비/반품비 제외)
+          // API 스냅샷: 매출 기반 기본 비용률(원가 40%·세금 10% 등) 적용한 잠정 정산
+          //   - 광고비는 PT생이 리포트 제출해야 알 수 있으므로 0 가정
+          //   - 실제보다 과대평가될 수 있음 (광고비 미반영)
           const revenue = Number(snap.total_sales) || 0;
           const deposit = revenue > 0
             ? calculateDeposit(
                 revenue,
-                {
-                  cost_product: 0,
-                  cost_commission: Number(snap.total_commission) || 0,
-                  cost_advertising: 0,
-                  cost_returns: Number(snap.total_returns) || 0,
-                  cost_shipping: Number(snap.total_shipping) || 0,
-                  cost_tax: 0,
-                },
+                buildCostBreakdown(revenue, 0), // 자동 비용률 적용, 광고비 0
                 user.share_percentage,
               )
             : 0;
@@ -271,14 +267,7 @@ export default function AdminSalesOverviewPage() {
         totalRevenue += rev;
         totalDeposit += calculateDeposit(
           rev,
-          {
-            cost_product: 0,
-            cost_commission: Number(s.total_commission) || 0,
-            cost_advertising: 0,
-            cost_returns: Number(s.total_returns) || 0,
-            cost_shipping: Number(s.total_shipping) || 0,
-            cost_tax: 0,
-          },
+          buildCostBreakdown(rev, 0),
           user.share_percentage,
         );
       }
@@ -547,7 +536,10 @@ export default function AdminSalesOverviewPage() {
             전체 PT 사용자의 월별 매출·정산액을 한눈에 확인합니다 (기준월: {formatYearMonth(currentMonth)})
           </p>
           <p className="text-[11px] text-gray-400 mt-0.5">
-            <Zap className="w-3 h-3 inline text-blue-500" /> API 잠정 = 쿠팡 API에서 자동수집한 매출(광고비/반품비 미반영) · 확정값은 PT생이 제출한 리포트 기준
+            <Zap className="w-3 h-3 inline text-blue-500" /> API 잠정 매출 = 쿠팡 revenue-history(정산 인식 기준, ~어제까지) · 확정은 PT생 리포트 제출 후
+          </p>
+          <p className="text-[11px] text-gray-400 mt-0.5">
+            잠정 정산액은 기본 비용률(원가40%·수수료10%·세금10%·반품3%·배송5%) 적용 · 광고비는 0 가정이라 실제보다 높을 수 있음
           </p>
           <div className="flex items-center gap-2 mt-1 text-[11px]">
             {autoSyncStatus === 'syncing' ? (
