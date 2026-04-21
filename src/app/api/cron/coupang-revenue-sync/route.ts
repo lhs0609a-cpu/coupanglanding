@@ -77,7 +77,14 @@ async function runSync() {
   // 병렬 처리 — admin 동기화 라우트와 동일. Vercel 타임아웃 안에 완료되도록 5명 동시.
   const CONCURRENCY = 5;
 
-  async function processUser(user: typeof users[number]) {
+  type UserRow = {
+    id: string;
+    coupang_vendor_id: string | null;
+    coupang_access_key: string | null;
+    coupang_secret_key: string | null;
+  };
+
+  async function processUser(user: UserRow) {
     let accessKey: string;
     let secretKey: string;
     try {

@@ -72,7 +72,14 @@ export async function POST(request: NextRequest) {
   // 유저당 각 월은 순차(쿠팡 API per-vendor rate limit 보호).
   const CONCURRENCY = 5;
 
-  async function processUser(u: typeof users[number]) {
+  type UserRow = {
+    id: string;
+    coupang_vendor_id: string | null;
+    coupang_access_key: string | null;
+    coupang_secret_key: string | null;
+  };
+
+  async function processUser(u: UserRow) {
     let accessKey: string;
     let secretKey: string;
     try {
