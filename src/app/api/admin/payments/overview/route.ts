@@ -141,11 +141,16 @@ export async function GET() {
       else if (!card) status = 'no_card';
       else if (!report) status = 'no_report';
 
+      // Supabase 조인은 1:1 FK 관계여도 타입 추론이 배열로 되는 경우가 있어 양쪽 모두 안전 처리
+      const profileRaw = u.profile as unknown;
+      const profile = Array.isArray(profileRaw) ? profileRaw[0] : profileRaw;
+      const profileTyped = profile as { full_name?: string | null; email?: string | null } | null;
+
       return {
         pt_user_id: u.id,
         profile_id: u.profile_id,
-        full_name: u.profile?.full_name ?? null,
-        email: u.profile?.email ?? null,
+        full_name: profileTyped?.full_name ?? null,
+        email: profileTyped?.email ?? null,
         status,
         payment_overdue_since: u.payment_overdue_since,
         payment_lock_level: u.payment_lock_level ?? 0,
