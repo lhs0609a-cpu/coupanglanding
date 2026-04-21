@@ -519,7 +519,14 @@ export async function fetchOrderBasedSales(
   const [year, month] = yearMonth.split('-').map(Number);
   const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
   const lastDay = new Date(year, month, 0).getDate();
-  const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  let endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+  // 쿠팡 ordersheets 는 오늘 포함 가능. 단 미래 날짜는 거부.
+  const todayStr = new Date().toISOString().split('T')[0];
+  if (endDate > todayStr) endDate = todayStr;
+  if (startDate > todayStr) {
+    return { totalSales: 0, orderCount: 0, itemCount: 0, yearMonth, rawSample: null };
+  }
 
   const fromMs = new Date(startDate + 'T00:00:00+09:00').getTime();
   const toMs = new Date(endDate + 'T23:59:59+09:00').getTime();

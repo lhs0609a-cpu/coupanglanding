@@ -139,14 +139,18 @@ export async function GET(request: NextRequest) {
           // 신규: Wing 대시보드 기준 (주문 기반) 매출 — 병행 호출
           let orderBased: Awaited<ReturnType<typeof fetchOrderBasedSales>> | null = null;
           let orderBasedExcludingCancelled: Awaited<ReturnType<typeof fetchOrderBasedSales>> | null = null;
+          let orderBasedError: string | null = null;
           try {
             orderBased = await fetchOrderBasedSales(creds, ym);
           } catch (e) {
-            console.warn(`[debug] order-based fetch failed ${u.id} ${ym}:`, e);
+            orderBasedError = e instanceof CoupangApiError
+              ? `${e.code || 'api'}(HTTP ${e.statusCode}): ${e.message}`
+              : e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+            console.warn(`[debug] order-based fetch failed ${u.id} ${ym}:`, orderBasedError);
           }
           try {
             orderBasedExcludingCancelled = await fetchOrderBasedSales(creds, ym, { excludeCancelled: true });
-          } catch { /* ignore */ }
+          } catch { /* same error as above */ }
 
           await serviceClient.from('api_revenue_snapshots').upsert({
             pt_user_id: u.id, year_month: ym,
@@ -161,6 +165,7 @@ export async function GET(request: NextRequest) {
             settlementBased: { sales: s.totalSales, items: s.items.length },
             orderBased: orderBased ? { sales: orderBased.totalSales, orders: orderBased.orderCount, items: orderBased.itemCount } : null,
             orderBasedNoCancel: orderBasedExcludingCancelled ? { sales: orderBasedExcludingCancelled.totalSales, orders: orderBasedExcludingCancelled.orderCount } : null,
+            orderBasedError,
             ok: true,
           });
         } catch (err) {
