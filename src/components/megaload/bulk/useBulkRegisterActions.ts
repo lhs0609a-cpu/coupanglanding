@@ -1112,6 +1112,10 @@ export function useBulkRegisterActions() {
 
       const editableProducts: EditableProduct[] = scanned.map((sp) => {
         const sourcePrice = sp.productJson.price || 0;
+        // 초저가 의심 케이스: 크롤러가 단위가격(ml/g당)을 저장한 경우 방어
+        if (sourcePrice > 0 && sourcePrice < 1000) {
+          console.warn(`[browse] ⚠️ sourcePrice 비정상 저가 ${sourcePrice}원 | ${sp.productCode} — product.json 의 price 필드 재확인 필요`);
+        }
         const rawName = sp.productJson.name || sp.productJson.title || '';
         const rawBrand = sp.productJson.brand || '';
         const resolvedBrand = isValidBrand(rawBrand) ? rawBrand : extractBrandFromName(rawName);

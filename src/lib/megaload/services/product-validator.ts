@@ -112,6 +112,17 @@ export function validateProductLocal(product: LocalValidationInput): ProductVali
     });
   }
 
+  // 초저가 가드: 원가가 1,000원 미만이면 단위 환산 오류 의심 — 등록 차단
+  // (실제 도매 500원대 상품은 극소수이며, 대부분 크롤러가 ml/g 단위 가격을 잘못 파싱한 경우)
+  if (product.sourcePrice > 0 && product.sourcePrice < 1000) {
+    errors.push({
+      field: 'sourcePrice',
+      severity: 'error',
+      message: `원가 ${product.sourcePrice.toLocaleString()}원은 비정상적으로 낮습니다. 원본 채널 수집 단계에서 단위/수량 환산이 잘못됐을 가능성이 큽니다.`,
+      fixSuggestion: '원본 상품 페이지를 확인하고 실제 판매 단위가격으로 수정 후 다시 시도해주세요.',
+    });
+  }
+
   // 역마진 검증
   if (product.sourcePrice > 0 && price > 0 && price < product.sourcePrice) {
     warnings.push({
