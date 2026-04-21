@@ -536,8 +536,9 @@ export async function fetchOrderBasedSales(
     ? [options.status]
     : ['FINAL_DELIVERY']; // 기본: 배송완료 주문 (구매확정 포함)
 
-  const fromMs = new Date(startDate + 'T00:00:00+09:00').getTime();
-  const toMs = new Date(endDate + 'T23:59:59+09:00').getTime();
+  // 쿠팡 ordersheets 는 createdAtFrom/To 가 'yyyy-MM-dd' 형식 요구 (epoch ms 아님)
+  const fromStr = startDate;
+  const toStr = endDate;
 
   const excludeCancelled = options?.excludeCancelled ?? false;
   let totalSales = 0;
@@ -549,8 +550,8 @@ export async function fetchOrderBasedSales(
     const maxPages = 200;
     for (let page = 1; page <= maxPages; page++) {
       const queryParts = [
-        `createdAtFrom=${fromMs}`,
-        `createdAtTo=${toMs}`,
+        `createdAtFrom=${fromStr}`,
+        `createdAtTo=${toStr}`,
         `status=${status}`,
         `maxPerPage=50`,
         `page=${page}`,
