@@ -2,13 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { TossPaymentsAPI, generateCustomerKey, generateOrderId } from '@/lib/payments/toss-client';
 import { createNotification } from '@/lib/utils/notifications';
-import { BILLING_DAY } from '@/lib/payments/billing-constants';
+import {
+  BILLING_DAY,
+  PAYMENT_RETRY_INTERVAL_HOURS,
+} from '@/lib/payments/billing-constants';
 import { completeSettlement } from '@/lib/payments/complete-settlement';
 import { calculateFeePenalty, getFeePaymentDDay } from '@/lib/utils/fee-penalty';
+import { isRetryable } from '@/lib/payments/failure-codes';
+import { logSettlementError } from '@/lib/payments/settlement-errors';
 
 /**
  * POST /api/payments/billing-key/issue
  * 토스 SDK 콜백에서 받은 authKey로 빌링키 발급 + 카드 등록
+ *
+ * 카드 등록 순서(원자성 보장을 위해):
+ *   1) 토스 API 로 빌링키 발급
+ *   2) 새 카드 insert (is_primary=true)
+ *   3) 성공 시에만 기존 카드 is_primary=false 로 해제 (step2 실패 시 primary 잃지 않음)
  */
 export async function POST(request: NextRequest) {
   try {
@@ -19,7 +29,6 @@ export async function POST(request: NextRequest) {
     const { authKey } = await request.json();
     if (!authKey) return NextResponse.json({ error: 'authKey 필요' }, { status: 400 });
 
-    // pt_user 조회
     const { data: ptUser } = await supabase
       .from('pt_users')
       .select('id, profile_id')
@@ -30,19 +39,12 @@ export async function POST(request: NextRequest) {
 
     const customerKey = generateCustomerKey(ptUser.id);
 
-    // 토스 API로 빌링키 발급
     const billing = await TossPaymentsAPI.issueBillingKey(authKey, customerKey);
 
     const serviceClient = await createServiceClient();
 
-    // 기존 primary 카드 해제
-    await serviceClient
-      .from('billing_cards')
-      .update({ is_primary: false })
-      .eq('pt_user_id', ptUser.id)
-      .eq('is_primary', true);
-
-    // 새 카드 저장
+    // 새 카드 먼저 insert (is_primary=true). 성공 후 기존 primary 를 내린다 —
+    // 중간에 실패해도 "primary 없는 사용자" 가 되지 않도록.
     const { data: card, error: insertError } = await serviceClient
       .from('billing_cards')
       .insert({
@@ -61,12 +63,22 @@ export async function POST(request: NextRequest) {
 
     if (insertError) throw insertError;
 
+    // 기존 primary 해제 — 새 카드 id 를 제외하고
+    if (card) {
+      await serviceClient
+        .from('billing_cards')
+        .update({ is_primary: false })
+        .eq('pt_user_id', ptUser.id)
+        .eq('is_primary', true)
+        .neq('id', card.id);
+    }
+
     // 자동결제 스케줄 자동 생성 (첫 카드 등록 시)
     const { data: existingSchedule } = await serviceClient
       .from('payment_schedules')
       .select('id')
       .eq('pt_user_id', ptUser.id)
-      .single();
+      .maybeSingle();
 
     if (!existingSchedule && card) {
       await serviceClient
@@ -79,7 +91,7 @@ export async function POST(request: NextRequest) {
         });
     }
 
-    // 락 상태 확인 → 연체 중이면 즉시 미납 결제 시도 (구멍 #74 해결)
+    // 락 상태 확인 → 연체 중이면 즉시 미납 결제 시도
     const { data: ptUserFull } = await serviceClient
       .from('pt_users')
       .select('payment_overdue_since, payment_lock_level')
@@ -87,7 +99,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     const wasOverdue = !!ptUserFull?.payment_overdue_since;
-    let immediateChargeResult: { succeeded: number; failed: number } | null = null;
+    let immediateChargeResult: { succeeded: number; failed: number; scheduledRetries: number } | null = null;
 
     if (wasOverdue && card) {
       immediateChargeResult = await attemptImmediateCharge(
@@ -99,7 +111,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 알림 — 락 복구 결과에 따라 메시지 분기
+    // 알림 분기
     if (wasOverdue && immediateChargeResult && immediateChargeResult.succeeded > 0 && immediateChargeResult.failed === 0) {
       await createNotification(serviceClient, {
         userId: ptUser.profile_id,
@@ -109,11 +121,14 @@ export async function POST(request: NextRequest) {
         link: '/my/settings',
       });
     } else if (wasOverdue && immediateChargeResult && immediateChargeResult.failed > 0) {
+      const retryText = immediateChargeResult.scheduledRetries > 0
+        ? ` ${immediateChargeResult.scheduledRetries}건은 24시간 후 자동 재시도됩니다.`
+        : '';
       await createNotification(serviceClient, {
         userId: ptUser.profile_id,
         type: 'fee_payment',
         title: '카드 등록됨 — 일부 결제 실패',
-        message: `${billing.cardCompany} ${billing.cardNumber} 카드가 등록되었지만 미납 수수료 일부 결제에 실패했습니다. 카드 잔액을 확인해주세요.`,
+        message: `${billing.cardCompany} ${billing.cardNumber} 카드가 등록되었지만 미납 수수료 일부 결제에 실패했습니다.${retryText} 카드 잔액을 확인해주세요.`,
         link: '/my/settings',
       });
     } else {
@@ -142,9 +157,14 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * 카드 등록 직후, 해당 PT 유저의 미납 리포트를 즉시 결제 시도.
- * 성공 시 payment_overdue_since/payment_lock_level을 클리어한다.
- * 모든 결제가 성공해야 락을 푼다.
+ * 카드 등록 직후 해당 PT 유저의 미납 리포트를 즉시 결제 시도.
+ *
+ * 실패 처리:
+ *   - retryable 코드 → next_retry_at 세팅 + retry_in_progress=true (payment-retry 크론이 잡음)
+ *   - non-retryable 코드 → is_final_failure=true
+ *
+ * 성공 처리:
+ *   - 조건부 RPC 로 overdue/lock 해제 (다른 미결이 없을 때만)
  */
 async function attemptImmediateCharge(
   serviceClient: Awaited<ReturnType<typeof createServiceClient>>,
@@ -152,24 +172,25 @@ async function attemptImmediateCharge(
   billingCardId: string,
   billingKey: string,
   customerKey: string,
-): Promise<{ succeeded: number; failed: number }> {
+): Promise<{ succeeded: number; failed: number; scheduledRetries: number }> {
   let succeeded = 0;
   let failed = 0;
+  let scheduledRetries = 0;
 
+  // suspended 도 포함 — 카드 재등록 복구 시나리오
   const { data: unpaidReports } = await serviceClient
     .from('monthly_reports')
     .select('*')
     .eq('pt_user_id', ptUserId)
-    .in('fee_payment_status', ['awaiting_payment', 'overdue'])
+    .in('fee_payment_status', ['awaiting_payment', 'overdue', 'suspended'])
     .order('year_month', { ascending: true });
 
   if (!unpaidReports || unpaidReports.length === 0) {
-    // 미납 리포트 0건이어도 overdue 플래그가 남아있을 수 있음 (카드 미등록 사유) → 즉시 클리어
-    await serviceClient
-      .from('pt_users')
-      .update({ payment_overdue_since: null, payment_lock_level: 0 })
-      .eq('id', ptUserId);
-    return { succeeded: 0, failed: 0 };
+    // 미납 리포트 0건이어도 overdue 플래그가 남아있을 수 있음 → 조건부 클리어
+    await serviceClient.rpc('payment_clear_overdue_if_settled', {
+      p_pt_user_id: ptUserId,
+    });
+    return { succeeded: 0, failed: 0, scheduledRetries: 0 };
   }
 
   for (const report of unpaidReports) {
@@ -189,7 +210,7 @@ async function attemptImmediateCharge(
     const orderId = generateOrderId(report.year_month, ptUserId);
     const orderName = `메가로드 수수료 ${report.year_month} (카드 등록 즉시)`;
 
-    const { data: tx } = await serviceClient
+    const { data: tx, error: txErr } = await serviceClient
       .from('payment_transactions')
       .insert({
         pt_user_id: ptUserId,
@@ -206,7 +227,15 @@ async function attemptImmediateCharge(
       .select()
       .single();
 
-    if (!tx) continue;
+    if (!tx || txErr) {
+      await logSettlementError(serviceClient, {
+        stage: 'immediate_charge_tx_insert',
+        monthlyReportId: report.id,
+        ptUserId,
+        error: txErr,
+      });
+      continue;
+    }
 
     try {
       const result = await TossPaymentsAPI.payWithBillingKey(
@@ -217,44 +246,70 @@ async function attemptImmediateCharge(
         orderName,
       );
 
-      await serviceClient
-        .from('payment_transactions')
-        .update({
-          status: 'success',
-          toss_payment_key: result.paymentKey,
-          receipt_url: result.receipt?.url || null,
-          raw_response: result as unknown as Record<string, unknown>,
-          approved_at: result.approvedAt,
-        })
-        .eq('id', tx.id);
+      const { error: rpcErr } = await serviceClient.rpc('payment_mark_success', {
+        p_tx_id: tx.id,
+        p_payment_key: result.paymentKey,
+        p_receipt_url: result.receipt?.url || null,
+        p_raw: result as unknown as Record<string, unknown>,
+        p_approved_at: result.approvedAt,
+      });
 
-      await completeSettlement(serviceClient, report);
+      if (rpcErr) throw rpcErr;
+
+      try {
+        await completeSettlement(serviceClient, report);
+      } catch (settleErr) {
+        await logSettlementError(serviceClient, {
+          stage: 'immediate_charge_complete_settlement',
+          monthlyReportId: report.id,
+          ptUserId,
+          error: settleErr,
+        });
+      }
       succeeded++;
     } catch (payErr) {
       const errObj = payErr as { code?: string; message?: string; raw?: unknown };
+      const code = errObj.code || 'UNKNOWN';
+      const retryable = isRetryable(code);
+
+      const nextRetryAt = retryable
+        ? new Date(Date.now() + PAYMENT_RETRY_INTERVAL_HOURS * 60 * 60 * 1000).toISOString()
+        : null;
+
       await serviceClient
         .from('payment_transactions')
         .update({
           status: 'failed',
-          failure_code: errObj.code || 'UNKNOWN',
+          failure_code: code,
           failure_message: errObj.message || '결제 실패',
           raw_response: (errObj.raw as Record<string, unknown>) || null,
           failed_at: new Date().toISOString(),
+          next_retry_at: nextRetryAt,
+          is_final_failure: !retryable,
+          final_failed_at: retryable ? null : new Date().toISOString(),
         })
         .eq('id', tx.id);
+
+      if (retryable) {
+        scheduledRetries++;
+        await serviceClient
+          .from('pt_users')
+          .update({ payment_retry_in_progress: true })
+          .eq('id', ptUserId);
+      }
+
       failed++;
     }
   }
 
-  // 모두 성공했으면 락 해제
+  // 모든 리포트가 성공했고 다른 미결 재시도도 없으면 조건부 해제
   if (failed === 0 && succeeded > 0) {
-    await serviceClient
-      .from('pt_users')
-      .update({ payment_overdue_since: null, payment_lock_level: 0 })
-      .eq('id', ptUserId);
+    await serviceClient.rpc('payment_clear_overdue_if_settled', {
+      p_pt_user_id: ptUserId,
+    });
   }
 
-  return { succeeded, failed };
+  return { succeeded, failed, scheduledRetries };
 }
 
 function serializeError(err: unknown): {

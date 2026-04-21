@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { createNotification } from '@/lib/utils/notifications';
+import { requireAdminRole } from '@/lib/payments/admin-guard';
 
 interface UpdateBody {
   action: 'reset' | 'exempt' | 'force_level' | 'clear_override';
@@ -21,17 +22,10 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { id } = await context.params;
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 });
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    if (!profile || (profile.role !== 'admin' && profile.role !== 'partner')) {
-      return NextResponse.json({ error: '관리자 권한 필요' }, { status: 403 });
-    }
+    // 락 변경은 write — admin 전용 (partner 는 금지)
+    const guard = await requireAdminRole(supabase, user?.id, 'write');
+    if (!guard.ok) return guard.response;
 
     const body = (await request.json()) as UpdateBody;
     const serviceClient = await createServiceClient();

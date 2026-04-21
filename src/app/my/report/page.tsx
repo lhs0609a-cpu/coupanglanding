@@ -34,7 +34,10 @@ import type { MonthlyReport, PtUser, FeePaymentStatus } from '@/lib/supabase/typ
 
 export default function MyReportPage() {
   const searchParams = useSearchParams();
-  const testMode = searchParams.get('test') === '1';
+  const testModeRequested = searchParams.get('test') === '1';
+  // testMode 는 admin role 인증 후에만 활성화 (일반 사용자가 ?test=1 로 정산 강제 confirm 하는 허점 차단)
+  const [isAdminUser, setIsAdminUser] = useState(false);
+  const testMode = testModeRequested && isAdminUser;
 
   const [yearMonth, setYearMonth] = useState(getReportTargetMonth());
   const [revenue, setRevenue] = useState(0);
@@ -79,6 +82,14 @@ export default function MyReportPage() {
       setLoading(false);
       return;
     }
+
+    // admin role 확인 (testMode 허용 여부)
+    const { data: profileRole } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+    setIsAdminUser(profileRole?.role === 'admin');
 
     const { data: ptUserData } = await supabase
       .from('pt_users')
@@ -417,20 +428,10 @@ export default function MyReportPage() {
 
     setDepositLoading(true);
 
-    const updateData: Record<string, unknown> = {
-      payment_status: 'deposited',
-      deposited_at: new Date().toISOString(),
-    };
-
-    // 연체 상태면 납부 시점 기록 (이자 계산 기준)
-    if (report.fee_payment_status === 'overdue' || report.fee_payment_status === 'suspended') {
-      updateData.fee_paid_at = new Date().toISOString();
-    }
-
-    const { error } = await supabase
-      .from('monthly_reports')
-      .update(updateData)
-      .eq('id', report.id);
+    // RPC 로 서버에서 상태 전이 검증 (사용자가 payment_status 를 직접 UPDATE 하는 경로는 RLS/GRANT 로 차단됨)
+    const { error } = await supabase.rpc('monthly_report_mark_deposited', {
+      p_report_id: report.id,
+    });
 
     if (error) {
       setMessage({ type: 'error', text: '송금완료 신청에 실패했습니다.' });

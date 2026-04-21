@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
-import { TossPaymentsAPI, generateCustomerKey, generateOrderId } from '@/lib/payments/toss-client';
+import { TossPaymentsAPI, generateOrderId } from '@/lib/payments/toss-client';
 import { calculateFeePenalty, getFeePaymentDDay } from '@/lib/utils/fee-penalty';
 import { createNotification } from '@/lib/utils/notifications';
 import { completeSettlement } from '@/lib/payments/complete-settlement';
+import { logSettlementError } from '@/lib/payments/settlement-errors';
 
 /**
  * POST /api/payments/execute
  * 수동 즉시 결제 실행
  * body: { reportId, cardId }
+ *
+ * 허용 상태: awaiting_payment, overdue, suspended
+ *   - suspended 는 D+14 로 정지된 리포트. 사용자가 직접 결제하여 복구할 수 있게 허용한다.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -19,7 +23,6 @@ export async function POST(request: NextRequest) {
     const { reportId, cardId } = await request.json();
     if (!reportId) return NextResponse.json({ error: 'reportId 필요' }, { status: 400 });
 
-    // pt_user 조회
     const { data: ptUser } = await supabase
       .from('pt_users')
       .select('id, profile_id')
@@ -30,7 +33,6 @@ export async function POST(request: NextRequest) {
 
     const serviceClient = await createServiceClient();
 
-    // 리포트 조회
     const { data: report } = await serviceClient
       .from('monthly_reports')
       .select('*')
@@ -40,12 +42,11 @@ export async function POST(request: NextRequest) {
 
     if (!report) return NextResponse.json({ error: '리포트 없음' }, { status: 404 });
 
-    // 결제 가능 상태 확인
-    if (!['awaiting_payment', 'overdue'].includes(report.fee_payment_status)) {
+    if (!['awaiting_payment', 'overdue', 'suspended'].includes(report.fee_payment_status)) {
       return NextResponse.json({ error: '결제 불가 상태' }, { status: 400 });
     }
 
-    // 카드 조회 (지정된 카드 or 기본 카드)
+    // 카드 조회
     let cardQuery = serviceClient
       .from('billing_cards')
       .select('*')
@@ -58,18 +59,16 @@ export async function POST(request: NextRequest) {
       cardQuery = cardQuery.eq('is_primary', true);
     }
 
-    const { data: card } = await cardQuery.single();
+    const { data: card } = await cardQuery.maybeSingle();
     if (!card) return NextResponse.json({ error: '결제 카드 없음. 카드를 먼저 등록해주세요.' }, { status: 400 });
 
-    // 금액 계산 (원금 + 페널티)
     const baseAmount = report.total_with_vat || 0;
     let penaltyAmount = 0;
 
     if (report.fee_payment_deadline) {
       const dday = getFeePaymentDDay(report.fee_payment_deadline);
       if (dday < 0) {
-        const daysOverdue = Math.abs(dday);
-        const penalty = calculateFeePenalty(baseAmount, daysOverdue);
+        const penalty = calculateFeePenalty(baseAmount, Math.abs(dday));
         penaltyAmount = penalty.totalPenalty;
       }
     }
@@ -78,10 +77,9 @@ export async function POST(request: NextRequest) {
     if (totalAmount <= 0) return NextResponse.json({ error: '결제 금액이 0원입니다' }, { status: 400 });
 
     const orderId = generateOrderId(report.year_month, ptUser.id);
-    const customerKey = generateCustomerKey(ptUser.id);
     const orderName = `메가로드 수수료 ${report.year_month}`;
 
-    // 트랜잭션 레코드 생성 (pending)
+    // pending tx insert — monthly_report_id partial unique 로 중복 결제 방지
     const { data: tx, error: txError } = await serviceClient
       .from('payment_transactions')
       .insert({
@@ -99,40 +97,50 @@ export async function POST(request: NextRequest) {
       .select()
       .single();
 
-    if (txError) throw txError;
+    if (txError || !tx) {
+      // unique 위반 — 이미 진행 중인 결제가 있음
+      return NextResponse.json(
+        { error: '이미 진행 중인 결제가 있습니다. 잠시 후 다시 시도해주세요.' },
+        { status: 409 },
+      );
+    }
 
-    // 토스 결제 실행
     try {
       const result = await TossPaymentsAPI.payWithBillingKey(
         card.billing_key,
-        customerKey,
+        card.customer_key,
         totalAmount,
         orderId,
         orderName,
       );
 
-      // 결제 성공 — 트랜잭션 기록
-      await serviceClient
-        .from('payment_transactions')
-        .update({
-          status: 'success',
-          toss_payment_key: result.paymentKey,
-          receipt_url: result.receipt?.url || null,
-          raw_response: result as unknown as Record<string, unknown>,
-          approved_at: result.approvedAt,
-        })
-        .eq('id', tx.id);
+      // 원자적 성공 처리
+      const { error: rpcErr } = await serviceClient.rpc('payment_mark_success', {
+        p_tx_id: tx.id,
+        p_payment_key: result.paymentKey,
+        p_receipt_url: result.receipt?.url || null,
+        p_raw: result as unknown as Record<string, unknown>,
+        p_approved_at: result.approvedAt,
+      });
 
-      // 카드 last_used_at 갱신 + failed_count 리셋
-      await serviceClient
-        .from('billing_cards')
-        .update({ last_used_at: new Date().toISOString(), failed_count: 0 })
-        .eq('id', card.id);
+      if (rpcErr) throw rpcErr;
 
-      // 정산 자동 확정 (confirmed + 매출기록 + 세금계산서 + 트레이너 보너스)
-      await completeSettlement(serviceClient, report);
+      try {
+        await completeSettlement(serviceClient, report);
+      } catch (settleErr) {
+        await logSettlementError(serviceClient, {
+          stage: 'execute_complete_settlement',
+          monthlyReportId: report.id,
+          ptUserId: ptUser.id,
+          error: settleErr,
+        });
+      }
 
-      // 성공 알림
+      // 조건부 락 해제
+      await serviceClient.rpc('payment_clear_overdue_if_settled', {
+        p_pt_user_id: ptUser.id,
+      });
+
       await createNotification(serviceClient, {
         userId: ptUser.profile_id,
         type: 'fee_payment',
@@ -146,7 +154,6 @@ export async function POST(request: NextRequest) {
         transaction: { id: tx.id, amount: totalAmount, paymentKey: result.paymentKey },
       });
     } catch (payErr) {
-      // 결제 실패
       const errObj = payErr as { code?: string; message?: string; raw?: unknown };
 
       await serviceClient
@@ -160,7 +167,6 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', tx.id);
 
-      // 카드 실패 카운트 증가
       await serviceClient
         .from('billing_cards')
         .update({ failed_count: (card.failed_count || 0) + 1 })

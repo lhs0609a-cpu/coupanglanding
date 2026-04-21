@@ -11,6 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getReportCosts } from '@/lib/calculations/deposit';
 import { calculateTrainerBonus } from '@/lib/calculations/trainer';
 import { notifyTrainerBonusEarned } from '@/lib/utils/notifications';
+import { logSettlementError } from './settlement-errors';
 
 interface SettlementReport {
   id: string;
@@ -68,22 +69,32 @@ export async function completeSettlement(
 
   const userName = (ptUser?.profile as unknown as { full_name: string } | null)?.full_name || '이름없음';
 
-  // 4. revenue_entries 생성 (중복 방지)
+  // 4. revenue_entries 생성 — source_ref=monthly_report_id 기준 UNIQUE 로 중복 방지
+  //    description 수동 편집에 의존하던 기존 ilike 방식은 회피되므로 제거.
   const { data: existingRevenue } = await serviceClient
     .from('revenue_entries')
     .select('id')
-    .eq('year_month', report.year_month)
-    .ilike('description', `PT:${report.pt_user_id}%`)
+    .eq('source', 'pt')
+    .eq('source_ref', report.id)
     .maybeSingle();
 
   if (!existingRevenue) {
-    await serviceClient.from('revenue_entries').insert({
+    const { error: revErr } = await serviceClient.from('revenue_entries').insert({
       year_month: report.year_month,
       source: 'pt',
+      source_ref: report.id,
       description: `PT:${report.pt_user_id}:${userName}`,
       amount: depositAmount,
       main_partner_id: null,
     });
+    if (revErr) {
+      await logSettlementError(serviceClient, {
+        stage: 'revenue_entries_insert',
+        monthlyReportId: report.id,
+        ptUserId: report.pt_user_id,
+        error: revErr,
+      });
+    }
   }
 
   // 5. 트레이너 보너스 생성
@@ -153,14 +164,21 @@ export async function completeSettlement(
   }
 
   // 6. 세금계산서 자동 발행
+  //    연산자 우선순위 버그 수정: NEXT_PUBLIC_BASE_URL 이 우선, 없으면 VERCEL_URL, 아니면 localhost.
+  //    실패해도 정산 확정은 유지하되, payment_settlement_errors 에 반드시 기록한다.
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : 'http://localhost:3000';
+    const baseUrl =
+      process.env.NEXT_PUBLIC_BASE_URL ??
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
 
-    await fetch(`${baseUrl}/api/tax-invoices`, {
+    const invoiceRes = await fetch(`${baseUrl}/api/tax-invoices`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.INTERNAL_API_SECRET
+          ? { 'x-internal-secret': process.env.INTERNAL_API_SECRET }
+          : {}),
+      },
       body: JSON.stringify({
         monthly_report_id: report.id,
         pt_user_id: report.pt_user_id,
@@ -170,7 +188,23 @@ export async function completeSettlement(
         total_amount: report.total_with_vat || 0,
       }),
     });
-  } catch {
-    // 세금계산서 실패해도 정산 확정은 유지
+
+    if (!invoiceRes.ok) {
+      const errBody = await invoiceRes.text().catch(() => '');
+      await logSettlementError(serviceClient, {
+        stage: 'tax_invoice_fetch',
+        monthlyReportId: report.id,
+        ptUserId: report.pt_user_id,
+        error: { code: `HTTP_${invoiceRes.status}`, message: errBody.slice(0, 500) },
+        detail: { baseUrl, status: invoiceRes.status },
+      });
+    }
+  } catch (err) {
+    await logSettlementError(serviceClient, {
+      stage: 'tax_invoice_fetch',
+      monthlyReportId: report.id,
+      ptUserId: report.pt_user_id,
+      error: err,
+    });
   }
 }
