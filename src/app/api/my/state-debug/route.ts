@@ -79,11 +79,9 @@ export async function GET() {
     const hasActiveCard = (billingCards?.activeCount ?? 0) > 0;
     const feeStatus = (currentReport?.fee_payment_status as string | undefined) ?? 'not_applicable';
     const hasUnpaidFee = ['awaiting_payment', 'overdue'].includes(feeStatus);
-    const noCardWithUnpaid = !hasActiveCard && hasUnpaidFee;
     const isHardBlock = !isTestAccount && uiEffectiveLockLevel === 3;
     const isSoftWarning =
-      !isTestAccount &&
-      (uiEffectiveLockLevel === 1 || uiEffectiveLockLevel === 2 || noCardWithUnpaid);
+      !isTestAccount && (uiEffectiveLockLevel === 1 || uiEffectiveLockLevel === 2);
 
     const banners = {
       apiConnectionBanner_shown: !uiCoupangApiConnected,
@@ -93,10 +91,10 @@ export async function GET() {
       forcedPaymentOverlay_hardBlock: isHardBlock,
       forcedPaymentOverlay_softWarning: isSoftWarning,
       forcedPaymentOverlay_reason: isHardBlock
-        ? `HARD — lockLevel=${uiEffectiveLockLevel} (hard block, cannot dismiss, blocks navigation)`
+        ? `HARD — lockLevel=${uiEffectiveLockLevel} (완전 봉쇄, dismiss 불가, 네비게이션 차단)`
         : isSoftWarning
-          ? `SOFT — lockLevel=${uiEffectiveLockLevel}, noCardWithUnpaid=${noCardWithUnpaid}(hasActiveCard=${hasActiveCard}, hasUnpaidFee=${hasUnpaidFee}, feeStatus=${feeStatus}) — dismissible, navigation allowed`
-          : 'not shown',
+          ? `SOFT — lockLevel=${uiEffectiveLockLevel} (dismiss 가능, 네비게이션 허용)`
+          : `not shown (hasActiveCard=${hasActiveCard}, hasUnpaidFee=${hasUnpaidFee}, feeStatus=${feeStatus} — 카드/미납만으로는 모달 안 뜸)`,
       megaloadLayoutRedirectsToSettings: uiEffectiveLockLevel === 3 && !isTestAccount,
     };
 
