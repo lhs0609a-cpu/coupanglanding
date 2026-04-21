@@ -79,6 +79,15 @@ export interface PtUser {
   // 사업자 관계 (3자 계약)
   is_self_business: boolean;
   business_relation: string | null;
+  // 테스트 계정 (결제/락/배너 전부 면제)
+  is_test_account?: boolean;
+  // 결제 락 관련 (옵셔널 — 마이그레이션 적용 전 row 호환)
+  payment_lock_level?: number | null;
+  payment_overdue_since?: string | null;
+  admin_override_level?: number | null;
+  payment_lock_exempt_until?: string | null;
+  payment_retry_in_progress?: boolean;
+  first_billing_grace_until?: string | null;
   // Joined fields
   profile?: Profile;
 }

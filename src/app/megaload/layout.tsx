@@ -38,7 +38,8 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
   }
 
   // 테스트 계정 체크 — 모든 결제 관련 처리 bypass
-  const ptUserRow = ptUser as Record<string, unknown> | null;
+  // Supabase 부분 select 결과를 Record 로 직접 cast 하면 Next 16 Turbopack 이 거부 → unknown 경유.
+  const ptUserRow = ptUser as unknown as Record<string, unknown> | null;
   const isTestAccount = !!ptUserRow?.is_test_account;
 
   // 결제 락 3단계(완전 차단) → 결제 설정 페이지로 강제 이동
@@ -48,7 +49,7 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
   const exemptUntil = ptUserRow?.payment_lock_exempt_until as string | null | undefined;
   const exemptActive = !!exemptUntil && exemptUntil > todayStr;
   const adminOverride = ptUserRow?.admin_override_level as number | null | undefined;
-  const rawLockLevel = ptUser?.payment_lock_level ?? 0;
+  const rawLockLevel = (ptUser as unknown as { payment_lock_level?: number | null } | null)?.payment_lock_level ?? 0;
   const effectiveLockLevel = exemptActive ? 0 : (adminOverride ?? rawLockLevel);
 
   if (
@@ -116,10 +117,10 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
       gateDDay={gateDDay}
       gateTargetMonth={gateTargetMonth}
       gateDeadline={gateDeadline}
-      paymentLockLevel={isTestAccount ? 0 : (ptUser?.payment_lock_level ?? 0)}
-      paymentOverdueSince={isTestAccount ? null : (ptUser?.payment_overdue_since ?? null)}
-      adminOverrideLevel={isTestAccount ? null : ((ptUser as Record<string, unknown> | null)?.admin_override_level as number | null ?? null)}
-      paymentLockExemptUntil={(ptUser as Record<string, unknown> | null)?.payment_lock_exempt_until as string | null ?? null}
+      paymentLockLevel={isTestAccount ? 0 : rawLockLevel}
+      paymentOverdueSince={isTestAccount ? null : ((ptUserRow?.payment_overdue_since as string | null | undefined) ?? null)}
+      adminOverrideLevel={isTestAccount ? null : (adminOverride ?? null)}
+      paymentLockExemptUntil={(exemptUntil ?? null)}
       hasPaymentCards={isTestAccount ? true : hasPaymentCards}
     >
       {children}
