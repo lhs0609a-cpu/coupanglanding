@@ -528,60 +528,66 @@ export async function fetchOrderBasedSales(
     return { totalSales: 0, orderCount: 0, itemCount: 0, yearMonth, rawSample: null };
   }
 
-  // ordersheets API 는 searchType=timeFrame 일 때 ISO 날짜 형식 사용 + status 없이 조회 가능
-  const fromIso = `${startDate}T00:00`;
-  const toIso = `${endDate}T23:59`;
+  // 쿠팡 ordersheets 는 status 가 필수. 여러 상태를 순회 합산.
+  //   Wing '우수판매자 3개월 누적 매출' 은 최종 배송완료+구매확정 기반 추정.
+  //   기본: FINAL_DELIVERY (배송 완료된 주문) 만 조회 — Wing 과 가장 유사.
+  //   옵션.status 지정 시 해당 상태만.
+  const statusList = options?.status
+    ? [options.status]
+    : ['FINAL_DELIVERY']; // 기본: 배송완료 주문 (구매확정 포함)
+
+  const fromMs = new Date(startDate + 'T00:00:00+09:00').getTime();
+  const toMs = new Date(endDate + 'T23:59:59+09:00').getTime();
 
   const excludeCancelled = options?.excludeCancelled ?? false;
   let totalSales = 0;
   let orderCount = 0;
   let itemCount = 0;
   let firstRawSample: unknown = null;
-  let nextToken = '';
 
-  const maxPages = 200;
-  for (let page = 0; page < maxPages; page++) {
-    const queryParts = [
-      `searchType=timeFrame`,
-      `createdAtFrom=${fromIso}`,
-      `createdAtTo=${toIso}`,
-      `maxPerPage=50`,
-    ];
-    if (nextToken) queryParts.push(`nextToken=${encodeURIComponent(nextToken)}`);
-    if (options?.status) queryParts.push(`status=${options.status}`);
-    const path = `/v2/providers/openapi/apis/api/v4/vendors/${credentials.vendorId}/ordersheets?${queryParts.join('&')}`;
+  for (const status of statusList) {
+    const maxPages = 200;
+    for (let page = 1; page <= maxPages; page++) {
+      const queryParts = [
+        `createdAtFrom=${fromMs}`,
+        `createdAtTo=${toMs}`,
+        `status=${status}`,
+        `maxPerPage=50`,
+        `page=${page}`,
+      ];
+      const path = `/v2/providers/openapi/apis/api/v4/vendors/${credentials.vendorId}/ordersheets?${queryParts.join('&')}`;
 
-    const data = await callCoupangApi(credentials, 'GET', path) as {
-      data?: Array<Record<string, unknown>>;
-      nextToken?: string;
-      pagination?: { totalElements?: number; totalPages?: number };
-    };
+      const data = await callCoupangApi(credentials, 'GET', path) as {
+        data?: Array<Record<string, unknown>>;
+        pagination?: { totalElements?: number; totalPages?: number; currentPage?: number };
+      };
 
-    if (page === 0) firstRawSample = data;
+      if (firstRawSample === null) firstRawSample = data;
 
-    const orders = Array.isArray(data.data) ? data.data : [];
-    if (orders.length === 0) break;
+      const orders = Array.isArray(data.data) ? data.data : [];
+      if (orders.length === 0) break;
 
-    for (const order of orders) {
-      const orderStatus = String(order.status || '').toUpperCase();
-      if (excludeCancelled && (orderStatus === 'CANCEL' || orderStatus === 'CANCELLED' || orderStatus === 'RETURN_DONE')) {
-        continue;
+      for (const order of orders) {
+        const orderStatus = String(order.status || '').toUpperCase();
+        if (excludeCancelled && (orderStatus === 'CANCEL' || orderStatus === 'CANCELLED' || orderStatus === 'RETURN_DONE')) {
+          continue;
+        }
+        orderCount++;
+        const orderItems = Array.isArray(order.orderItems) ? order.orderItems as Array<Record<string, unknown>> : [];
+        for (const item of orderItems) {
+          const itemStatus = String(item.status || '').toUpperCase();
+          if (excludeCancelled && (itemStatus === 'CANCEL' || itemStatus === 'CANCELLED')) continue;
+          itemCount++;
+          const unitPrice = Number(item.salesPrice ?? item.orderPrice ?? 0);
+          const qty = Number(item.shippingCount ?? item.shippingNumberSum ?? 1);
+          totalSales += unitPrice * qty;
+        }
       }
-      orderCount++;
-      const orderItems = Array.isArray(order.orderItems) ? order.orderItems as Array<Record<string, unknown>> : [];
-      for (const item of orderItems) {
-        const itemStatus = String(item.status || '').toUpperCase();
-        if (excludeCancelled && (itemStatus === 'CANCEL' || itemStatus === 'CANCELLED')) continue;
-        itemCount++;
-        const unitPrice = Number(item.salesPrice ?? item.orderPrice ?? 0);
-        const qty = Number(item.shippingCount ?? item.shippingNumberSum ?? 1);
-        totalSales += unitPrice * qty;
-      }
+
+      const totalPages = data.pagination?.totalPages;
+      if (totalPages && page >= totalPages) break;
+      if (orders.length < 50) break;
     }
-
-    nextToken = data.nextToken || '';
-    if (!nextToken) break;
-    if (orders.length < 50) break;
   }
 
   return { totalSales, orderCount, itemCount, yearMonth, rawSample: firstRawSample };
