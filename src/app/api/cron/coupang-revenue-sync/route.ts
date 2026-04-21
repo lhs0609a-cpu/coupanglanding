@@ -74,7 +74,10 @@ async function runSync() {
 
   const results: SyncResult[] = [];
 
-  for (const user of users) {
+  // 병렬 처리 — admin 동기화 라우트와 동일. Vercel 타임아웃 안에 완료되도록 5명 동시.
+  const CONCURRENCY = 5;
+
+  async function processUser(user: typeof users[number]) {
     let accessKey: string;
     let secretKey: string;
     try {
@@ -102,7 +105,7 @@ async function runSync() {
           sync_error: 'decrypt_failed',
         });
       }
-      continue;
+      return;
     }
 
     const credentials = {
@@ -158,6 +161,11 @@ async function runSync() {
         });
       }
     }
+  }
+
+  for (let i = 0; i < users.length; i += CONCURRENCY) {
+    const batch = users.slice(i, i + CONCURRENCY);
+    await Promise.allSettled(batch.map(processUser));
   }
 
   const successCount = results.filter(r => r.success).length;

@@ -67,7 +67,12 @@ export async function POST(request: NextRequest) {
   let failedCount = 0;
   const errorsSample: Array<{ ptUserId: string; yearMonth: string; error: string }> = [];
 
-  for (const u of users) {
+  // 병렬 처리 — 유저 단위로 CONCURRENCY 명 동시 실행. 이전 순차 처리로 90초+ 걸리던
+  // 루프가 Vercel 타임아웃을 넘겨 클라이언트 UI 가 "실패" 로 오인하던 문제 해소.
+  // 유저당 각 월은 순차(쿠팡 API per-vendor rate limit 보호).
+  const CONCURRENCY = 5;
+
+  async function processUser(u: typeof users[number]) {
     let accessKey: string;
     let secretKey: string;
     try {
@@ -90,7 +95,7 @@ export async function POST(request: NextRequest) {
         failedCount++;
         errorsSample.push({ ptUserId: u.id, yearMonth: ym, error: 'decrypt_failed' });
       }
-      continue;
+      return;
     }
 
     const credentials = {
@@ -137,6 +142,12 @@ export async function POST(request: NextRequest) {
         }
       }
     }
+  }
+
+  // CONCURRENCY 크기 배치로 나눠 Promise.allSettled
+  for (let i = 0; i < users.length; i += CONCURRENCY) {
+    const batch = users.slice(i, i + CONCURRENCY);
+    await Promise.allSettled(batch.map(processUser));
   }
 
   return NextResponse.json({
