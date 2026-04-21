@@ -1,10 +1,35 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
+/**
+ * 결제 락에서 항상 예외되는 경로 (mutation 이어도 허용).
+ * 사용자가 결제를 하려면 이 경로들은 닫히면 안 되며, 로그아웃/세션/알림 조회 같은
+ * 운영상 필수 기능도 포함.
+ */
+const LOCK_ALLOWLIST_PREFIXES: string[] = [
+  '/api/payments/',           // 카드 등록/결제 — 락 해제 수단
+  '/api/auth/',               // 로그인/로그아웃
+  '/api/notifications/',      // 알림 읽음 처리
+  '/api/profile/',            // 프로필 기본 정보
+  '/api/cron/',               // 크론 엔드포인트 (Bearer 자체 검증)
+  '/api/admin/',              // 관리자 (별도 role 체크)
+  '/api/webhook/',            // 외부 웹훅 (해당 경로에서 인증)
+  '/api/tax-invoices',        // 내부 호출
+];
+
+/**
+ * L1(부분 쓰기 차단) 에서도 차단해야 할 "메이저 쓰기" 경로.
+ * 신규 상품 등록/일괄 처리/외부 동기화 등 비용이 큰 작업.
+ */
+const L1_BLOCK_PATTERNS: RegExp[] = [
+  /^\/api\/megaload\/bulk-register\//,
+  /^\/api\/megaload\/sourcing\//,
+  /^\/api\/megaload\/products\/.+\/register/,
+];
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
-  // Supabase 환경변수가 없으면 미들웨어 건너뛰기
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!supabaseUrl || !supabaseAnonKey) {
@@ -32,9 +57,6 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  // getSession()은 access token이 유효할 땐 로컬 JWT 디코딩만 하고,
-  // 만료 직전이면 refresh token으로 갱신한 뒤 setAll로 새 쿠키를 응답에 심는다.
-  // refresh가 실패하면 session은 null, error에 "refresh_token_not_found"가 담긴다.
   const {
     data: { session },
     error: sessionError,
@@ -43,17 +65,13 @@ export async function updateSession(request: NextRequest) {
   const user = session?.user ?? null;
   const pathname = request.nextUrl.pathname;
 
-  // /auth/* → 누구나 접근 가능 (refresh 실패도 무시 — 로그인 페이지 자체는 열려야 함)
   if (pathname.startsWith('/auth')) {
     return supabaseResponse;
   }
 
   const isApiRoute = pathname.startsWith('/api/');
 
-  // refresh 토큰이 무효화된 경우: 스테일 쿠키를 정리해 클라이언트가 재차
-  // 자동 refresh를 시도하다 콘솔에 AuthApiError를 뿜는 것을 막는다.
   if (sessionError || !user) {
-    // /megaload, /my, /admin 같은 보호 경로만 로그인 강제. 그 외 공개 페이지는 통과.
     const isProtected =
       pathname.startsWith('/my') ||
       pathname.startsWith('/admin') ||
@@ -64,7 +82,6 @@ export async function updateSession(request: NextRequest) {
       return supabaseResponse;
     }
 
-    // API 라우트는 리다이렉트 대신 401 JSON 반환 (fetch 클라이언트가 처리)
     if (isApiRoute) {
       return jsonResponse(401, { error: '인증 필요' });
     }
@@ -83,16 +100,20 @@ export async function updateSession(request: NextRequest) {
     return redirectResponse;
   }
 
-  // ─── 결제 락 가드 (메가로드 mutation API) ─────────────────────────
-  // /api/megaload/* 의 POST/PUT/PATCH/DELETE 요청만 검사. GET/HEAD는 조회이므로 통과.
-  // L1+: bulk-register 차단 / L2+: 모든 쓰기 차단 / L3+: 모든 쓰기 차단(이미 페이지 단에서 리다이렉트되지만 API도 방어)
-  if (
-    pathname.startsWith('/api/megaload/') &&
-    isMutationMethod(request.method)
-  ) {
+  // ─── 결제 락 가드 ─────────────────────────────────────────────
+  //
+  // 범위: `/api/*` 의 모든 mutation (POST/PUT/PATCH/DELETE) + 일부 `/megaload/*` 쓰기.
+  //       단 LOCK_ALLOWLIST_PREFIXES 는 제외 (결제/인증/관리자 경로).
+  //
+  // 레벨별 정책:
+  //   L1 (payment_lock_level=1) — L1_BLOCK_PATTERNS 에 매칭되는 "메이저 쓰기" 만 차단
+  //   L2 (payment_lock_level=2) — 모든 mutation 차단
+  //   L3 (payment_lock_level=3) — 페이지 자체는 /my/settings 로 리다이렉트 (별도 처리), API 도 전부 차단
+  //
+  if (isMutationMethod(request.method) && isLockTargetPath(pathname)) {
     const { data: ptUser } = await supabase
       .from('pt_users')
-      .select('payment_lock_level, payment_lock_exempt_until')
+      .select('payment_lock_level, payment_lock_exempt_until, admin_override_level')
       .eq('profile_id', user.id)
       .maybeSingle();
 
@@ -100,9 +121,10 @@ export async function updateSession(request: NextRequest) {
       const today = new Date().toISOString().slice(0, 10);
       const exemptActive =
         ptUser.payment_lock_exempt_until && ptUser.payment_lock_exempt_until > today;
-      const level = exemptActive ? 0 : (ptUser.payment_lock_level ?? 0);
+      const baseLevel = ptUser.admin_override_level ?? ptUser.payment_lock_level ?? 0;
+      const level = exemptActive ? 0 : baseLevel;
 
-      const isMajorWrite = pathname.includes('/bulk-register/');
+      const isMajorWrite = L1_BLOCK_PATTERNS.some((re) => re.test(pathname));
       const blocked =
         level >= 2 || (level >= 1 && isMajorWrite);
 
@@ -122,6 +144,14 @@ export async function updateSession(request: NextRequest) {
 
 function isMutationMethod(method: string): boolean {
   return method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
+}
+
+function isLockTargetPath(pathname: string): boolean {
+  // 비 /api 경로는 락 체크 안 함 (페이지 레벨은 layout/guard 에서 처리)
+  if (!pathname.startsWith('/api/')) return false;
+  // allowlist 먼저 체크
+  if (LOCK_ALLOWLIST_PREFIXES.some((p) => pathname.startsWith(p))) return false;
+  return true;
 }
 
 function jsonResponse(status: number, body: Record<string, unknown>): NextResponse {
