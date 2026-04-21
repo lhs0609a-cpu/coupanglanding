@@ -79,19 +79,24 @@ export async function GET() {
     const hasActiveCard = (billingCards?.activeCount ?? 0) > 0;
     const feeStatus = (currentReport?.fee_payment_status as string | undefined) ?? 'not_applicable';
     const hasUnpaidFee = ['awaiting_payment', 'overdue'].includes(feeStatus);
-    const isHardBlock =
+    const noCardWithUnpaid = !hasActiveCard && hasUnpaidFee;
+    const isHardBlock = !isTestAccount && uiEffectiveLockLevel === 3;
+    const isSoftWarning =
       !isTestAccount &&
-      (uiEffectiveLockLevel === 3 || (!hasActiveCard && hasUnpaidFee));
+      (uiEffectiveLockLevel === 1 || uiEffectiveLockLevel === 2 || noCardWithUnpaid);
 
     const banners = {
       apiConnectionBanner_shown: !uiCoupangApiConnected,
       apiConnectionBanner_reason: uiCoupangApiConnected
         ? 'hidden — connected or test account or has vendor id'
         : `shown — is_test_account=${isTestAccount}, coupang_api_connected=${apiConnectedFlag}, coupang_vendor_id=${hasVendorId}`,
-      forcedPaymentOverlay_shown: isHardBlock,
+      forcedPaymentOverlay_hardBlock: isHardBlock,
+      forcedPaymentOverlay_softWarning: isSoftWarning,
       forcedPaymentOverlay_reason: isHardBlock
-        ? `blocked — lockLevel=${uiEffectiveLockLevel}, hasActiveCard=${hasActiveCard}, hasUnpaidFee=${hasUnpaidFee}(status=${feeStatus})`
-        : 'not shown',
+        ? `HARD — lockLevel=${uiEffectiveLockLevel} (hard block, cannot dismiss, blocks navigation)`
+        : isSoftWarning
+          ? `SOFT — lockLevel=${uiEffectiveLockLevel}, noCardWithUnpaid=${noCardWithUnpaid}(hasActiveCard=${hasActiveCard}, hasUnpaidFee=${hasUnpaidFee}, feeStatus=${feeStatus}) — dismissible, navigation allowed`
+          : 'not shown',
       megaloadLayoutRedirectsToSettings: uiEffectiveLockLevel === 3 && !isTestAccount,
     };
 

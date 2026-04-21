@@ -78,11 +78,15 @@ export default function DashboardLayout({
     ? Math.max(0, nextThresholdDays - daysSinceOverdue)
     : null;
 
-  // Hard block: 닫기 불가 — L3 완전 봉쇄 OR 카드 미등록 + 미납 수수료
-  // Soft warning: L1/L2 — 닫기 가능, 페이지 이동 시 재등장
+  // Hard block: 닫기 불가 — payment_lock_level === 3 완전 봉쇄에만 한정.
+  //   "카드 미등록 + 미납" 만으로는 hard block 하지 않음 — soft warning 으로 낮춰
+  //   사이드바·메가로드 링크 같은 정상 네비게이션이 막히지 않도록 한다.
+  // Soft warning: L1/L2 OR 카드 미등록 + 미납 — 닫기 가능, 페이지 이동 시 재등장.
   const hasUnpaidFee = !!feePaymentBadge && ['awaiting_payment', 'overdue'].includes(feePaymentBadge.status);
-  const isHardBlock = effectiveLockLevel === 3 || (hasPaymentCards === false && hasUnpaidFee);
-  const isSoftWarning = effectiveLockLevel === 1 || effectiveLockLevel === 2;
+  const noCardWithUnpaid = hasPaymentCards === false && hasUnpaidFee;
+  const isHardBlock = effectiveLockLevel === 3;
+  const isSoftWarning =
+    effectiveLockLevel === 1 || effectiveLockLevel === 2 || noCardWithUnpaid;
   const showForcedOverlay = variant === 'user' && (
     isHardBlock || (isSoftWarning && !lockModalDismissed)
   );
