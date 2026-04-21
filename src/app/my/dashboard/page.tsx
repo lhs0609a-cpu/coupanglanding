@@ -114,16 +114,19 @@ export default function MyDashboardPage() {
         </div>
       )}
 
-      {/* API 미연동 경고 배너 (dismiss 불가, 항상 표시) */}
-      {ptUser && !ptUser.coupang_api_connected && (
+      {/* API 미연동 경고 배너 (dismiss 불가, 항상 표시)
+          - 테스트 계정: 모든 결제 관련 알림 면제
+          - coupang_vendor_id 가 세팅돼 있으면 이미 연동 완료로 간주
+            (플래그 갱신 지연/row 미스매치 방어) */}
+      {ptUser && !ptUser.coupang_api_connected && !(ptUser as Record<string, unknown>).is_test_account && !(ptUser as Record<string, unknown>).coupang_vendor_id && (
         <ApiConnectionBanner
           variant="nudge"
           daysSinceJoin={Math.floor((Date.now() - new Date(ptUser.created_at).getTime()) / (1000 * 60 * 60 * 24))}
         />
       )}
 
-      {/* 쿠팡 연동 현황 위젯 (API 연동 완료 시) */}
-      {ptUser?.coupang_api_connected && <CoupangOverviewWidget />}
+      {/* 쿠팡 연동 현황 위젯 (API 연동 완료 시 — vendor_id 기반 판정) */}
+      {ptUser && (ptUser.coupang_api_connected || !!(ptUser as Record<string, unknown>).coupang_vendor_id) && <CoupangOverviewWidget />}
 
       {/* 정산 D-Day 배너 (항상 표시) */}
       {ptUser && (

@@ -99,7 +99,12 @@ export default function MyReportPage() {
 
     if (ptUserData) {
       setPtUser(ptUserData as PtUser);
-      const isConnected = !!(ptUserData as PtUser).coupang_api_connected;
+      // 연동 판정: flag || vendor_id 존재 || 테스트 계정 (세 경우 모두 배너 미표시)
+      const row = ptUserData as Record<string, unknown>;
+      const isConnected =
+        !!row.coupang_api_connected ||
+        !!row.coupang_vendor_id ||
+        !!row.is_test_account;
       setApiConnected(isConnected);
 
       // 누적 상품 등록 수 조회 (할인 계산용)

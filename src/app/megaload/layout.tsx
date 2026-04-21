@@ -38,15 +38,24 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
   }
 
   // 테스트 계정 체크 — 모든 결제 관련 처리 bypass
-  const isTestAccount = !!(ptUser as Record<string, unknown> | null)?.is_test_account;
+  const ptUserRow = ptUser as Record<string, unknown> | null;
+  const isTestAccount = !!ptUserRow?.is_test_account;
 
   // 결제 락 3단계(완전 차단) → 결제 설정 페이지로 강제 이동
-  // admin/partner 면제 · 테스트 계정 면제. /my/settings는 별도 레이아웃.
+  // 판정 로직 미들웨어와 통일: admin_override_level 우선, exempt_until 기간엔 0으로 간주.
+  // admin/partner · 테스트 계정은 면제. /my/settings는 별도 레이아웃.
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const exemptUntil = ptUserRow?.payment_lock_exempt_until as string | null | undefined;
+  const exemptActive = !!exemptUntil && exemptUntil > todayStr;
+  const adminOverride = ptUserRow?.admin_override_level as number | null | undefined;
+  const rawLockLevel = ptUser?.payment_lock_level ?? 0;
+  const effectiveLockLevel = exemptActive ? 0 : (adminOverride ?? rawLockLevel);
+
   if (
     profile?.role !== 'admin' &&
     profile?.role !== 'partner' &&
     !isTestAccount &&
-    ptUser?.payment_lock_level === 3
+    effectiveLockLevel === 3
   ) {
     redirect('/my/settings?locked=3');
   }
