@@ -563,7 +563,7 @@ export default function AdminSalesOverviewPage() {
             전체 PT 사용자의 월별 매출·정산액을 한눈에 확인합니다 (기준월: {formatYearMonth(currentMonth)})
           </p>
           <p className="text-[11px] text-gray-400 mt-0.5">
-            <Zap className="w-3 h-3 inline text-blue-500" /> API 잠정 매출 = 쿠팡 revenue-history(정산 인식 기준, ~어제까지) · 확정은 PT생 리포트 제출 후
+            <Zap className="w-3 h-3 inline text-blue-500" /> API 잠정 매출 = 쿠팡 ordersheets(주문 기준, 취소 제외) · 빠른정산 수령액과 가까움 · 확정은 PT생 리포트 제출 후
           </p>
           <p className="text-[11px] text-gray-400 mt-0.5">
             잠정 정산액은 기본 비용률(원가40%·수수료10%·세금10%·반품3%·배송5%) 적용 · 광고비는 0 가정이라 실제보다 높을 수 있음

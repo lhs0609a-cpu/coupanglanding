@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
-import { fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
+import { fetchOrderBasedSales, CoupangApiError } from '@/lib/utils/coupang-api-client';
 import { getPreviousMonth, getReportTargetMonth } from '@/lib/utils/settlement';
 
 /**
@@ -116,16 +116,17 @@ async function runSync() {
 
     for (const ym of yearMonths) {
       try {
-        const settlement = await fetchSettlementData(credentials, ym);
+        // 주문 기반 매출 — 빠른정산 이용자 실질 매출 기준, 취소 제외.
+        const orderSales = await fetchOrderBasedSales(credentials, ym, { excludeCancelled: true });
         await upsertSnapshot(serviceClient, {
           pt_user_id: user.id,
           year_month: ym,
-          total_sales: settlement.totalSales,
-          total_commission: settlement.totalCommission,
-          total_shipping: settlement.totalShipping,
-          total_returns: settlement.totalReturns,
-          total_settlement: settlement.totalSettlement,
-          item_count: settlement.items.length,
+          total_sales: orderSales.totalSales,
+          total_commission: 0,
+          total_shipping: 0,
+          total_returns: 0,
+          total_settlement: orderSales.totalSales,
+          item_count: orderSales.itemCount,
           synced_at: new Date().toISOString(),
           sync_error: null,
         });
@@ -133,8 +134,8 @@ async function runSync() {
           ptUserId: user.id,
           yearMonth: ym,
           success: true,
-          totalSales: settlement.totalSales,
-          itemCount: settlement.items.length,
+          totalSales: orderSales.totalSales,
+          itemCount: orderSales.itemCount,
         });
       } catch (err) {
         const message = err instanceof CoupangApiError
