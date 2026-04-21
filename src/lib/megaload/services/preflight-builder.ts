@@ -143,14 +143,19 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     categoryPath: product.categoryPath,
   });
 
-  // 노출상품명(title) 꼬리 spec을 추출된 옵션값과 동기화.
-  // displayProductName은 editedDisplayProductName(SEO 최적화 결과)에서 오므로 이걸 교정.
-  // 예: "...60캡슐, 2개" + 옵션 "60정, 1개" → "...60정, 1개"
-  //     "...2.74kg" + 옵션 "2740g, 1개" → "...2740g, 1개"
-  const rawDisplayName = product.displayProductNameOverride || product.aiDisplayName;
-  const syncedDisplayName = rawDisplayName
-    ? syncDisplayNameWithOptions(rawDisplayName, extracted.buyOptions)
-    : rawDisplayName;
+  // 노출상품명(title) 꼬리 spec 처리.
+  // - 사용자가 검수 화면에서 직접 편집한 displayProductNameOverride 는 "사용자 의사"로
+  //   간주하고 그대로 보존. (과거엔 여기서도 sync 를 돌려 "2.45L 1개" → "2450ml, 2개"
+  //   처럼 사용자 입력이 임의로 변형되는 문제가 있었음)
+  // - AI 자동생성명(aiDisplayName)만 option-extractor 결과로 꼬리를 교정해서
+  //   상품 옵션값과 표기를 일관되게 맞춘다.
+  const userEditedDisplayName = product.displayProductNameOverride;
+  const rawDisplayName = userEditedDisplayName || product.aiDisplayName;
+  const syncedDisplayName = userEditedDisplayName
+    ? userEditedDisplayName
+    : rawDisplayName
+      ? syncDisplayNameWithOptions(rawDisplayName, extracted.buyOptions)
+      : rawDisplayName;
 
   // 추출된 옵션값을 notices용 hints로 변환
   const noticeHints: ExtractedNoticeHints = {};
