@@ -38,7 +38,9 @@ export default async function MyLayout({ children }: { children: React.ReactNode
     // fire-and-forget: 마지막 활동 시간 업데이트
     supabase.from('pt_users').update({ last_active_at: new Date().toISOString() }).eq('id', (ptUser as { id: string }).id).then();
 
-    const ptUserData = ptUser as PtUser;
+    // select 가 일부 필드만 가져오므로 PtUser 전체 구조와 불일치 — unknown 경유 cast.
+    // 실제 사용 필드(id, created_at) 는 27행 select 에 포함돼 있어 런타임 안전.
+    const ptUserData = ptUser as unknown as PtUser;
     const targetMonth = getReportTargetMonth();
     const dday = getSettlementDDay(targetMonth);
     const eligible = isEligibleForMonth(ptUserData.created_at, targetMonth);
