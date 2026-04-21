@@ -51,6 +51,17 @@ export async function GET() {
     return NextResponse.json({ users: enriched });
   } catch (err) {
     console.error('GET /api/admin/payment-locks error:', err);
-    return NextResponse.json({ error: '서버 오류' }, { status: 500 });
+    // 컬럼/관계 누락 같은 구체적 DB 에러 원문을 그대로 노출 (관리자 전용 라우트)
+    const message = err instanceof Error ? err.message : String(err);
+    const isSchemaMissing =
+      /does not exist|could not find|relation .* does not exist/i.test(message);
+    return NextResponse.json(
+      {
+        error: isSchemaMissing
+          ? `DB 스키마 누락: ${message}. migration_payment_hardening.sql / migration_payment_retry.sql / migration_test_account_flag.sql 을 Supabase 에 적용해주세요.`
+          : `서버 오류: ${message}`,
+      },
+      { status: 500 },
+    );
   }
 }
