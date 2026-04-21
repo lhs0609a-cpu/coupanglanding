@@ -490,6 +490,96 @@ export async function fetchTotalProductCount(
   return { count, rawResponse: data };
 }
 
+/**
+ * 주문 기반 매출 수집 — 쿠팡 Wing 대시보드와 기준 일치
+ *
+ * revenue-history (정산 인식) 와 달리, ordersheets API 는
+ * 주문 발생 즉시 조회 가능. Wing 우수판매자 "3개월 누적 매출" 과 같은 기준.
+ *
+ * 상태(status) 필터:
+ *   undefined → 전체 (취소 포함). Wing 기본값과 가장 가까움.
+ *   'DELIVERED' 계열 → 구매확정만 (보수적)
+ *
+ * 반환값: 기간 내 모든 orderItems 의 salesPrice 합계 + 건수
+ */
+export async function fetchOrderBasedSales(
+  credentials: CoupangCredentials,
+  yearMonth: string,
+  options?: {
+    status?: string;
+    excludeCancelled?: boolean; // true 면 cancelRequested/cancelled 제외
+  },
+): Promise<{
+  totalSales: number;
+  orderCount: number;
+  itemCount: number;
+  yearMonth: string;
+  rawSample: unknown;
+}> {
+  const [year, month] = yearMonth.split('-').map(Number);
+  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+  const fromMs = new Date(startDate + 'T00:00:00+09:00').getTime();
+  const toMs = new Date(endDate + 'T23:59:59+09:00').getTime();
+
+  const excludeCancelled = options?.excludeCancelled ?? false;
+  let totalSales = 0;
+  let orderCount = 0;
+  let itemCount = 0;
+  let firstRawSample: unknown = null;
+
+  // 페이지 순회 (쿠팡 ordersheets 는 page-based)
+  const maxPages = 200;
+  for (let page = 1; page <= maxPages; page++) {
+    const queryParts = [
+      `createdAtFrom=${fromMs}`,
+      `createdAtTo=${toMs}`,
+      `maxPerPage=50`,
+      `page=${page}`,
+    ];
+    if (options?.status) queryParts.push(`status=${options.status}`);
+    const path = `/v2/providers/openapi/apis/api/v4/vendors/${credentials.vendorId}/ordersheets?${queryParts.join('&')}`;
+
+    const data = await callCoupangApi(credentials, 'GET', path) as {
+      data?: Array<Record<string, unknown>>;
+      pagination?: { totalElements?: number; totalPages?: number };
+    };
+
+    if (page === 1) firstRawSample = data;
+
+    const orders = Array.isArray(data.data) ? data.data : [];
+    if (orders.length === 0) break;
+
+    for (const order of orders) {
+      const orderStatus = String(order.status || '').toUpperCase();
+      // 취소 제외 옵션
+      if (excludeCancelled && (orderStatus === 'CANCEL' || orderStatus === 'CANCELLED' || orderStatus === 'RETURN_DONE')) {
+        continue;
+      }
+      orderCount++;
+      const orderItems = Array.isArray(order.orderItems) ? order.orderItems as Array<Record<string, unknown>> : [];
+      for (const item of orderItems) {
+        const itemStatus = String(item.status || '').toUpperCase();
+        if (excludeCancelled && (itemStatus === 'CANCEL' || itemStatus === 'CANCELLED')) continue;
+        itemCount++;
+        // salesPrice = 단가 × 수량(shippingNumberSum 반영). orderPrice 는 주문 총액
+        const unitPrice = Number(item.salesPrice ?? item.orderPrice ?? 0);
+        const qty = Number(item.shippingCount ?? item.shippingNumberSum ?? 1);
+        totalSales += unitPrice * qty;
+      }
+    }
+
+    // totalPages 있으면 기준으로, 없으면 orders.length < 50 일 때 마지막
+    const totalPages = data.pagination?.totalPages;
+    if (totalPages && page >= totalPages) break;
+    if (orders.length < 50) break;
+  }
+
+  return { totalSales, orderCount, itemCount, yearMonth, rawSample: firstRawSample };
+}
+
 // ── 쿠폰/계약 API 함수들 ───────────────────────────────
 // 즉시할인 쿠폰: fms 프로바이더 (비동기 — requestedId 반환)
 // 다운로드 쿠폰: marketplace_openapi 프로바이더 (비동기 — requestTransactionId 반환)

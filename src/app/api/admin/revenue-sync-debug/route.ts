@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
-import { fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
+import { fetchSettlementData, fetchOrderBasedSales, CoupangApiError } from '@/lib/utils/coupang-api-client';
 import { getPreviousMonth, getReportTargetMonth } from '@/lib/utils/settlement';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 
@@ -134,7 +134,20 @@ export async function GET(request: NextRequest) {
       const creds = { vendorId: u.coupang_vendor_id as string, accessKey, secretKey };
       for (const ym of yearMonths) {
         try {
+          // 기존: 정산 인식 기준 매출
           const s = await fetchSettlementData(creds, ym);
+          // 신규: Wing 대시보드 기준 (주문 기반) 매출 — 병행 호출
+          let orderBased: Awaited<ReturnType<typeof fetchOrderBasedSales>> | null = null;
+          let orderBasedExcludingCancelled: Awaited<ReturnType<typeof fetchOrderBasedSales>> | null = null;
+          try {
+            orderBased = await fetchOrderBasedSales(creds, ym);
+          } catch (e) {
+            console.warn(`[debug] order-based fetch failed ${u.id} ${ym}:`, e);
+          }
+          try {
+            orderBasedExcludingCancelled = await fetchOrderBasedSales(creds, ym, { excludeCancelled: true });
+          } catch { /* ignore */ }
+
           await serviceClient.from('api_revenue_snapshots').upsert({
             pt_user_id: u.id, year_month: ym,
             total_sales: s.totalSales, total_commission: s.totalCommission,
@@ -142,7 +155,14 @@ export async function GET(request: NextRequest) {
             total_settlement: s.totalSettlement, item_count: s.items.length,
             synced_at: new Date().toISOString(), sync_error: null,
           }, { onConflict: 'pt_user_id,year_month' });
-          (userLog.monthResults as Array<Record<string, unknown>>).push({ ym, sales: s.totalSales, items: s.items.length, ok: true });
+
+          (userLog.monthResults as Array<Record<string, unknown>>).push({
+            ym,
+            settlementBased: { sales: s.totalSales, items: s.items.length },
+            orderBased: orderBased ? { sales: orderBased.totalSales, orders: orderBased.orderCount, items: orderBased.itemCount } : null,
+            orderBasedNoCancel: orderBasedExcludingCancelled ? { sales: orderBasedExcludingCancelled.totalSales, orders: orderBasedExcludingCancelled.orderCount } : null,
+            ok: true,
+          });
         } catch (err) {
           const msg = err instanceof CoupangApiError ? `${err.code || 'api'}: ${err.message}` : err instanceof Error ? err.message : String(err);
           await serviceClient.from('api_revenue_snapshots').upsert({
