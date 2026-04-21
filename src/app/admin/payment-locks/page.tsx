@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Lock, ShieldCheck, CalendarPlus, RotateCcw, AlertTriangle, Loader2 } from 'lucide-react';
+import { Lock, ShieldCheck, CalendarPlus, RotateCcw, AlertTriangle, Loader2, Search, UserPlus, CalendarClock } from 'lucide-react';
 
 interface LockedUser {
   id: string;
@@ -12,6 +12,18 @@ interface LockedUser {
   admin_override_level: number | null;
   computed_level: number;
   profile: { full_name: string | null; email: string | null } | null;
+}
+
+interface SearchUser {
+  id: string;
+  profile_id: string;
+  full_name: string | null;
+  email: string | null;
+  status: string;
+  payment_lock_level: number;
+  payment_overdue_since: string | null;
+  payment_lock_exempt_until: string | null;
+  first_billing_grace_until: string | null;
 }
 
 const LEVEL_LABELS: Record<number, { label: string; color: string }> = {
@@ -26,6 +38,11 @@ export default function AdminPaymentLocksPage() {
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+
+  // 사전 예외 설정 - 검색
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchUser[]>([]);
+  const [searching, setSearching] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -93,6 +110,66 @@ export default function AdminPaymentLocksPage() {
     callAction(id, { action: 'force_level', force_level: level });
   };
 
+  // 사전 예외 검색
+  const doSearch = useCallback(async () => {
+    if (searchQuery.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    setSearching(true);
+    try {
+      const res = await fetch(`/api/admin/pt-users/search?q=${encodeURIComponent(searchQuery.trim())}`);
+      const data = await res.json();
+      if (res.ok) setSearchResults(data.users || []);
+    } catch { /* silent */ }
+    finally { setSearching(false); }
+  }, [searchQuery]);
+
+  const preExempt = async (u: SearchUser) => {
+    const name = u.full_name || u.email || u.id.slice(0, 8);
+    const input = prompt(
+      `${name} 님에게 결제 락 예외를 미리 적용합니다.\n이 날짜까지는 결제 실패해도 차단되지 않습니다.\n\n종료일(YYYY-MM-DD):`,
+      u.payment_lock_exempt_until || '',
+    );
+    if (!input) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input)) {
+      alert('YYYY-MM-DD 형식으로 입력해주세요');
+      return;
+    }
+    await callAction(u.id, { action: 'exempt', exempt_until: input });
+    await doSearch();
+  };
+
+  const extendGrace = async (u: SearchUser) => {
+    const name = u.full_name || u.email || u.id.slice(0, 8);
+    const input = prompt(
+      `${name} 님의 "첫 결제 유예 종료일" 을 설정합니다.\n이 날짜까지는 자동 결제가 시도되지 않습니다 (청구일 도달해도 skip).\n\n종료일(YYYY-MM-DD):`,
+      u.first_billing_grace_until || '',
+    );
+    if (!input) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input)) {
+      alert('YYYY-MM-DD 형식으로 입력해주세요');
+      return;
+    }
+    setActingId(u.id);
+    try {
+      const res = await fetch(`/api/admin/payment-locks/${u.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'extend_grace', grace_until: input }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || '처리 실패');
+      }
+      await doSearch();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '처리 실패');
+    } finally {
+      setActingId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -107,6 +184,81 @@ export default function AdminPaymentLocksPage() {
           <li>• <b>2단계 (D+3)</b>: 모든 쓰기 작업 차단, 조회만 허용</li>
           <li>• <b>3단계 (D+7)</b>: 메가로드 진입 자체 불가, /my/settings으로 강제 이동</li>
         </ul>
+      </div>
+
+      {/* 사전 예외 / 유예 설정 — 정상 유저도 포함해 검색 */}
+      <div className="bg-white border border-indigo-200 rounded-lg p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <UserPlus className="w-5 h-5 text-indigo-600" />
+          <h2 className="text-sm font-bold text-gray-900">사전 예외 / 유예 설정 (결제 락 걸리지 않은 PT생 포함)</h2>
+        </div>
+        <p className="text-xs text-gray-500 mb-3">
+          특정 PT생에게 미리 <b>예외 종료일</b>을 걸어두면 그 날짜까지는 결제 실패해도 차단되지 않습니다.<br />
+          <b>첫 결제 유예</b>는 청구일(매월 5일) 자동결제 시도 자체를 skip — 아직 결제 시점이 안 된 유저에게 사용.
+        </p>
+        <div className="flex gap-2 items-center">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && doSearch()}
+              placeholder="이메일 또는 이름 검색 (2자 이상)"
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+            />
+          </div>
+          <button
+            onClick={doSearch}
+            disabled={searching || searchQuery.trim().length < 2}
+            className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {searching ? '검색 중' : '검색'}
+          </button>
+        </div>
+        {searchResults.length > 0 && (
+          <div className="mt-3 border border-gray-200 rounded-lg divide-y divide-gray-100">
+            {searchResults.map((u) => {
+              const name = u.full_name || u.email || u.id.slice(0, 8);
+              const isExempt = u.payment_lock_exempt_until && u.payment_lock_exempt_until >= new Date().toISOString().slice(0, 10);
+              return (
+                <div key={u.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-900 truncate">{name}</p>
+                    <p className="text-[11px] text-gray-500 truncate">
+                      {u.email} · 락 L{u.payment_lock_level}
+                      {isExempt && u.payment_lock_exempt_until && ` · 예외 ${u.payment_lock_exempt_until}까지`}
+                      {u.first_billing_grace_until && ` · 유예 ${u.first_billing_grace_until}까지`}
+                    </p>
+                  </div>
+                  <div className="flex gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => preExempt(u)}
+                      disabled={actingId === u.id}
+                      className="px-2.5 py-1 text-xs font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1"
+                      title="이 날짜까지 결제 락 예외 (미납이어도 차단 안 됨)"
+                    >
+                      <CalendarPlus className="w-3 h-3" />
+                      예외 설정
+                    </button>
+                    <button
+                      onClick={() => extendGrace(u)}
+                      disabled={actingId === u.id}
+                      className="px-2.5 py-1 text-xs font-medium bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 inline-flex items-center gap-1"
+                      title="이 날짜까지 자동 결제 시도 자체를 skip"
+                    >
+                      <CalendarClock className="w-3 h-3" />
+                      유예 설정
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {searchQuery.trim().length >= 2 && !searching && searchResults.length === 0 && (
+          <p className="mt-3 text-xs text-gray-500 text-center">검색 결과 없음</p>
+        )}
       </div>
 
       {error && (

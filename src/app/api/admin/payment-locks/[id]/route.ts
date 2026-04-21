@@ -4,9 +4,10 @@ import { createNotification } from '@/lib/utils/notifications';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 
 interface UpdateBody {
-  action: 'reset' | 'exempt' | 'force_level' | 'clear_override';
+  action: 'reset' | 'exempt' | 'force_level' | 'clear_override' | 'extend_grace';
   exempt_until?: string | null;
   force_level?: number;
+  grace_until?: string | null;  // first_billing_grace_until 직접 지정
 }
 
 /**
@@ -69,6 +70,13 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       updates = { admin_override_level: null };
       notifyTitle = '관리자 override 해제';
       notifyMessage = '락 단계가 자동 계산 모드로 복귀합니다.';
+    } else if (body.action === 'extend_grace') {
+      if (!body.grace_until) {
+        return NextResponse.json({ error: 'grace_until 필수' }, { status: 400 });
+      }
+      updates = { first_billing_grace_until: body.grace_until };
+      notifyTitle = '첫 결제 유예 연장';
+      notifyMessage = `관리자가 첫 결제 유예 종료일을 ${body.grace_until}까지 연장했습니다. 이 날짜까지 자동 결제가 시도되지 않습니다.`;
     } else {
       return NextResponse.json({ error: '알 수 없는 action' }, { status: 400 });
     }
