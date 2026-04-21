@@ -42,7 +42,7 @@
     },
     {
       "path": "/api/cron/coupang-revenue-sync",
-      "schedule": "0 */4 * * *"
+      "schedule": "*/15 * * * *"
     }
   ]
 }

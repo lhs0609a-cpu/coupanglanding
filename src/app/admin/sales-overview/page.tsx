@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, formatYearMonth } from '@/lib/utils/format';
 import { calculateDeposit, getReportCosts } from '@/lib/calculations/deposit';
@@ -73,11 +73,15 @@ export default function AdminSalesOverviewPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [autoSyncStatus, setAutoSyncStatus] = useState<'idle' | 'syncing' | 'ok' | 'error'>('idle');
+  const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
+  const autoSyncLockRef = useRef<number>(0);
 
   const supabase = useMemo(() => createClient(), []);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  /** 데이터 조회. initial=true 면 로딩 스피너 표시, 주기 폴링에서는 false 로 silent */
+  const fetchData = useCallback(async (initial = true) => {
+    if (initial) setLoading(true);
     try {
       const { data: usersData } = await supabase
         .from('pt_users')
@@ -99,15 +103,34 @@ export default function AdminSalesOverviewPage() {
         setReports([]);
         setSnapshots([]);
       }
+      setLastRefreshAt(new Date());
     } catch (err) {
       console.error('sales-overview fetch error:', err);
     } finally {
-      setLoading(false);
+      if (initial) setLoading(false);
     }
   }, [supabase]);
 
+  /** 백그라운드 자동 동기화 — 조용히 실행, 실패해도 UI 방해 없음 */
+  const triggerAutoSync = useCallback(async () => {
+    const now = Date.now();
+    // 5분 이내 재실행 방지
+    if (now - autoSyncLockRef.current < 5 * 60 * 1000) return;
+    autoSyncLockRef.current = now;
+    setAutoSyncStatus('syncing');
+    try {
+      const res = await fetch('/api/admin/coupang-revenue-sync', { method: 'POST' });
+      if (!res.ok) throw new Error('sync failed');
+      setAutoSyncStatus('ok');
+      await fetchData(false);
+    } catch {
+      setAutoSyncStatus('error');
+    }
+  }, [fetchData]);
+
+  /** 수동 즉시 동기화 — confirm 프롬프트 */
   const handleSyncNow = useCallback(async () => {
-    if (!confirm('연동된 모든 PT생의 쿠팡 API 매출을 지금 동기화합니다. 수십초~수분 소요될 수 있어요. 진행할까요?')) return;
+    if (!confirm('연동된 모든 PT생의 쿠팡 API 매출을 즉시 재동기화합니다. 15분 주기 자동 동기화와 별개로 강제 실행. 진행할까요?')) return;
     setSyncing(true);
     setSyncMessage(null);
     try {
@@ -115,7 +138,8 @@ export default function AdminSalesOverviewPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '동기화 실패');
       setSyncMessage(`${data.totalUsers}명 × ${data.yearMonths?.length || 0}개월 — 성공 ${data.totalSynced}건, 실패 ${data.totalFailed}건 (${Math.round((data.elapsedMs || 0) / 1000)}초)`);
-      await fetchData();
+      autoSyncLockRef.current = Date.now();
+      await fetchData(false);
     } catch (err) {
       setSyncMessage(err instanceof Error ? `❌ ${err.message}` : '❌ 동기화 실패');
     } finally {
@@ -123,7 +147,32 @@ export default function AdminSalesOverviewPage() {
     }
   }, [fetchData]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { fetchData(true); }, [fetchData]);
+
+  /** 초기 로드 후: 스냅샷이 10분 이상 묵었으면 자동 동기화 */
+  useEffect(() => {
+    if (loading || users.length === 0) return;
+    const latestSync = snapshots.reduce((max, s) => s.synced_at > max ? s.synced_at : max, '');
+    const stale = !latestSync || (Date.now() - new Date(latestSync).getTime() > 10 * 60 * 1000);
+    const hasConnectedUser = users.some(u => u.coupang_api_connected);
+    if (stale && hasConnectedUser) {
+      triggerAutoSync();
+    }
+  }, [loading, users, snapshots, triggerAutoSync]);
+
+  /** 1분마다 자동 재조회 — 크론(15분마다)이 갱신한 스냅샷을 계속 반영 */
+  useEffect(() => {
+    const refreshId = setInterval(() => { fetchData(false); }, 60 * 1000);
+    /** 5분마다 stale 체크 → 자동 동기화 재트리거 */
+    const syncCheckId = setInterval(() => {
+      const latestSync = snapshots.reduce((max, s) => s.synced_at > max ? s.synced_at : max, '');
+      const stale = !latestSync || (Date.now() - new Date(latestSync).getTime() > 10 * 60 * 1000);
+      if (stale && users.some(u => u.coupang_api_connected)) {
+        triggerAutoSync();
+      }
+    }, 5 * 60 * 1000);
+    return () => { clearInterval(refreshId); clearInterval(syncCheckId); };
+  }, [fetchData, snapshots, users, triggerAutoSync]);
 
   const months = useMemo(() => getRecentMonths(monthRange), [monthRange]);
   const currentMonth = months[0]; // 보고 대상 월(전월)
@@ -500,16 +549,30 @@ export default function AdminSalesOverviewPage() {
           <p className="text-[11px] text-gray-400 mt-0.5">
             <Zap className="w-3 h-3 inline text-blue-500" /> API 잠정 = 쿠팡 API에서 자동수집한 매출(광고비/반품비 미반영) · 확정값은 PT생이 제출한 리포트 기준
           </p>
+          <div className="flex items-center gap-2 mt-1 text-[11px]">
+            {autoSyncStatus === 'syncing' ? (
+              <span className="inline-flex items-center gap-1 text-blue-600">
+                <RefreshCw className="w-3 h-3 animate-spin" /> 자동 동기화 중...
+              </span>
+            ) : autoSyncStatus === 'error' ? (
+              <span className="text-red-600">⚠️ 자동 동기화 실패 · 수동 버튼으로 재시도 가능</span>
+            ) : (
+              <span className="text-green-600">● 실시간 자동 동기화 활성 (15분 크론 + 1분 폴링)</span>
+            )}
+            {lastRefreshAt && (
+              <span className="text-gray-400">· 마지막 갱신 {lastRefreshAt.toLocaleTimeString('ko-KR')}</span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={handleSyncNow}
             disabled={syncing || loading}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
-            title="연동된 PT생의 쿠팡 API 매출을 지금 즉시 동기화합니다"
+            title="자동 동기화와 별개로 즉시 강제 동기화"
           >
             <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? '동기화 중...' : '지금 동기화'}
+            {syncing ? '동기화 중...' : '강제 동기화'}
           </button>
           <button
             onClick={exportCsv}
