@@ -183,12 +183,22 @@ export default function ProductSearchPage() {
     };
   }, [searchTerm]);
 
-  // Filtered products
+  // Filtered products — id/name 뿐 아니라 모든 raw 컬럼값에서 부분일치 검색
+  //   (쿠팡 상품번호·SKU·브랜드 등이 어느 컬럼에 있어도 잡히도록)
   const filteredProducts = useMemo(() => {
     if (!debouncedSearch.trim()) return products.slice(0, MAX_RESULTS);
     const term = debouncedSearch.toLowerCase();
     return products
-      .filter((p) => p.id.toLowerCase().includes(term) || p.name.toLowerCase().includes(term))
+      .filter((p) => {
+        if (p.id && p.id.toLowerCase().includes(term)) return true;
+        if (p.name && p.name.toLowerCase().includes(term)) return true;
+        if (p.url && p.url.toLowerCase().includes(term)) return true;
+        // 시트의 모든 컬럼값에서도 검색 — 상품코드가 다른 컬럼명에 있어도 대응
+        for (const val of Object.values(p.raw)) {
+          if (val && val.toLowerCase().includes(term)) return true;
+        }
+        return false;
+      })
       .slice(0, MAX_RESULTS);
   }, [products, debouncedSearch]);
 
