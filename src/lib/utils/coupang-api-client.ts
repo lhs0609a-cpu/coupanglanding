@@ -528,40 +528,42 @@ export async function fetchOrderBasedSales(
     return { totalSales: 0, orderCount: 0, itemCount: 0, yearMonth, rawSample: null };
   }
 
-  const fromMs = new Date(startDate + 'T00:00:00+09:00').getTime();
-  const toMs = new Date(endDate + 'T23:59:59+09:00').getTime();
+  // ordersheets API 는 searchType=timeFrame 일 때 ISO 날짜 형식 사용 + status 없이 조회 가능
+  const fromIso = `${startDate}T00:00`;
+  const toIso = `${endDate}T23:59`;
 
   const excludeCancelled = options?.excludeCancelled ?? false;
   let totalSales = 0;
   let orderCount = 0;
   let itemCount = 0;
   let firstRawSample: unknown = null;
+  let nextToken = '';
 
-  // 페이지 순회 (쿠팡 ordersheets 는 page-based)
   const maxPages = 200;
-  for (let page = 1; page <= maxPages; page++) {
+  for (let page = 0; page < maxPages; page++) {
     const queryParts = [
-      `createdAtFrom=${fromMs}`,
-      `createdAtTo=${toMs}`,
+      `searchType=timeFrame`,
+      `createdAtFrom=${fromIso}`,
+      `createdAtTo=${toIso}`,
       `maxPerPage=50`,
-      `page=${page}`,
     ];
+    if (nextToken) queryParts.push(`nextToken=${encodeURIComponent(nextToken)}`);
     if (options?.status) queryParts.push(`status=${options.status}`);
     const path = `/v2/providers/openapi/apis/api/v4/vendors/${credentials.vendorId}/ordersheets?${queryParts.join('&')}`;
 
     const data = await callCoupangApi(credentials, 'GET', path) as {
       data?: Array<Record<string, unknown>>;
+      nextToken?: string;
       pagination?: { totalElements?: number; totalPages?: number };
     };
 
-    if (page === 1) firstRawSample = data;
+    if (page === 0) firstRawSample = data;
 
     const orders = Array.isArray(data.data) ? data.data : [];
     if (orders.length === 0) break;
 
     for (const order of orders) {
       const orderStatus = String(order.status || '').toUpperCase();
-      // 취소 제외 옵션
       if (excludeCancelled && (orderStatus === 'CANCEL' || orderStatus === 'CANCELLED' || orderStatus === 'RETURN_DONE')) {
         continue;
       }
@@ -571,16 +573,14 @@ export async function fetchOrderBasedSales(
         const itemStatus = String(item.status || '').toUpperCase();
         if (excludeCancelled && (itemStatus === 'CANCEL' || itemStatus === 'CANCELLED')) continue;
         itemCount++;
-        // salesPrice = 단가 × 수량(shippingNumberSum 반영). orderPrice 는 주문 총액
         const unitPrice = Number(item.salesPrice ?? item.orderPrice ?? 0);
         const qty = Number(item.shippingCount ?? item.shippingNumberSum ?? 1);
         totalSales += unitPrice * qty;
       }
     }
 
-    // totalPages 있으면 기준으로, 없으면 orders.length < 50 일 때 마지막
-    const totalPages = data.pagination?.totalPages;
-    if (totalPages && page >= totalPages) break;
+    nextToken = data.nextToken || '';
+    if (!nextToken) break;
     if (orders.length < 50) break;
   }
 
