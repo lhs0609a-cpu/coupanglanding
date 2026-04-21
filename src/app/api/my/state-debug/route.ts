@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getSettlementGateLevel, getReportTargetMonth } from '@/lib/utils/settlement';
+import type { PaymentStatus } from '@/lib/utils/settlement';
 
 /**
  * GET /api/my/state-debug
@@ -34,7 +36,10 @@ export async function GET() {
 
     let billingCards: { count: number; activeCount: number } | null = null;
     let currentReport: Record<string, unknown> | null = null;
+    let targetMonthReport: Record<string, unknown> | null = null;
     let megaloadUser: { id: string } | null = null;
+
+    const targetMonth = getReportTargetMonth();
 
     if (ptUser) {
       const ptRow = ptUser as Record<string, unknown>;
@@ -55,6 +60,15 @@ export async function GET() {
         .eq('year_month', yearMonth)
         .maybeSingle();
       currentReport = (report as Record<string, unknown> | null) ?? null;
+
+      // 정산 게이트 계산용 — targetMonth 리포트 (전월)
+      const { data: tReport } = await supabase
+        .from('monthly_reports')
+        .select('year_month, payment_status')
+        .eq('pt_user_id', ptRow.id as string)
+        .eq('year_month', targetMonth)
+        .maybeSingle();
+      targetMonthReport = (tReport as Record<string, unknown> | null) ?? null;
 
       const { data: mUser } = await supabase
         .from('megaload_users')
@@ -83,6 +97,22 @@ export async function GET() {
     const isSoftWarning =
       !isTestAccount && (uiEffectiveLockLevel === 1 || uiEffectiveLockLevel === 2);
 
+    // 정산 게이트 판정 — megaload/layout.tsx 와 동일 로직
+    let settlementGate: { level: string; dday: number; targetMonth: string } | null = null;
+    if (ptUser && !isTestAccount) {
+      const ptRow = ptUser as Record<string, unknown>;
+      const tReportStatus = targetMonthReport?.payment_status as PaymentStatus | null | undefined;
+      const gate = getSettlementGateLevel(
+        ptRow.created_at as string,
+        tReportStatus ?? null,
+      );
+      settlementGate = { level: gate.level, dday: gate.dday, targetMonth: gate.targetMonth };
+    }
+
+    const megaloadBlocked =
+      settlementGate?.level === 'blocked' ||
+      (uiEffectiveLockLevel === 3 && !isTestAccount);
+
     const banners = {
       apiConnectionBanner_shown: !uiCoupangApiConnected,
       apiConnectionBanner_reason: uiCoupangApiConnected
@@ -96,6 +126,12 @@ export async function GET() {
           ? `SOFT — lockLevel=${uiEffectiveLockLevel} (dismiss 가능, 네비게이션 허용)`
           : `not shown (hasActiveCard=${hasActiveCard}, hasUnpaidFee=${hasUnpaidFee}, feeStatus=${feeStatus} — 카드/미납만으로는 모달 안 뜸)`,
       megaloadLayoutRedirectsToSettings: uiEffectiveLockLevel === 3 && !isTestAccount,
+      megaloadBlocked,
+      megaloadBlocked_reason: megaloadBlocked
+        ? settlementGate?.level === 'blocked'
+          ? `SettlementBlockPage — targetMonth=${settlementGate.targetMonth} 미제출, D${settlementGate.dday}`
+          : `lockLevel=3 redirect to /my/settings`
+        : 'not blocked',
     };
 
     return NextResponse.json({
@@ -104,6 +140,8 @@ export async function GET() {
       ptUser,
       billingCards,
       currentReport,
+      targetMonthReport,
+      settlementGate,
       megaloadUser,
       uiDecisions: {
         isTestAccount,

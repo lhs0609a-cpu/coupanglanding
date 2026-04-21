@@ -89,7 +89,8 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
   let gateTargetMonth = '';
   let gateDeadline = '';
 
-  if (role !== 'admin' && role !== 'partner' && ptUser) {
+  // 정산 게이트: admin/partner · 테스트 계정은 면제. 이외 사용자만 계산.
+  if (role !== 'admin' && role !== 'partner' && !isTestAccount && ptUser) {
     const targetMonth = getReportTargetMonth();
     const { data: report } = await supabase
       .from('monthly_reports')
