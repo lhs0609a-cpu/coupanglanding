@@ -185,40 +185,35 @@ export default function DashboardLayout({
               <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/20">
                 <AlertTriangle className="h-7 w-7 text-white" />
               </div>
-              <h2 className="text-lg font-bold text-white">
-                {effectiveLockLevel === 0
-                  ? (isOverdue ? '수수료가 연체되었습니다' : meta.title)
-                  : meta.title}
-              </h2>
+              {/* 오버레이는 L1/L2/L3 에서만 표시되므로 effectiveLockLevel 은 1|2|3 로 좁혀짐 */}
+              <h2 className="text-lg font-bold text-white">{meta.title}</h2>
               <p className="mt-1 text-sm text-white/90">{meta.subtitle}</p>
             </div>
 
             {/* 본문 */}
             <div className="px-6 py-5 space-y-4">
-              {/* 카운트다운 + 경과 단계 */}
-              {effectiveLockLevel > 0 && (
-                <div className="rounded-xl bg-red-50 border border-red-200 p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold text-red-700">현재 상태</span>
-                    <span className="text-xs font-bold text-red-800">
-                      L{effectiveLockLevel} · D+{daysSinceOverdue}
-                    </span>
-                  </div>
-                  <ul className="space-y-1 text-xs text-red-700">
-                    {meta.restrictions.map((r, i) => (
-                      <li key={i} className="flex items-start gap-1">
-                        <span className="mt-0.5">•</span>
-                        <span>{r}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  {daysUntilNextLevel !== null && daysUntilNextLevel > 0 && (
-                    <p className="mt-2 text-[11px] font-medium text-red-600 border-t border-red-200 pt-2">
-                      ⏰ <strong>{daysUntilNextLevel}일 뒤</strong> 다음 단계로 자동 상승합니다
-                    </p>
-                  )}
+              {/* 카운트다운 + 경과 단계 (오버레이 진입 시 항상 > 0) */}
+              <div className="rounded-xl bg-red-50 border border-red-200 p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-red-700">현재 상태</span>
+                  <span className="text-xs font-bold text-red-800">
+                    L{effectiveLockLevel} · D+{daysSinceOverdue}
+                  </span>
                 </div>
-              )}
+                <ul className="space-y-1 text-xs text-red-700">
+                  {meta.restrictions.map((r, i) => (
+                    <li key={i} className="flex items-start gap-1">
+                      <span className="mt-0.5">•</span>
+                      <span>{r}</span>
+                    </li>
+                  ))}
+                </ul>
+                {daysUntilNextLevel !== null && daysUntilNextLevel > 0 && (
+                  <p className="mt-2 text-[11px] font-medium text-red-600 border-t border-red-200 pt-2">
+                    ⏰ <strong>{daysUntilNextLevel}일 뒤</strong> 다음 단계로 자동 상승합니다
+                  </p>
+                )}
+              </div>
 
               {/* 금액 */}
               {feePaymentBadge && (
