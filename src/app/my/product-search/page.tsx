@@ -183,21 +183,31 @@ export default function ProductSearchPage() {
     };
   }, [searchTerm]);
 
-  // Filtered products — id/name 뿐 아니라 모든 raw 컬럼값에서 부분일치 검색
-  //   (쿠팡 상품번호·SKU·브랜드 등이 어느 컬럼에 있어도 잡히도록)
+  // Filtered products — 공백/하이픈으로 토큰 분리 후 AND 매칭.
+  //   '카포드' → '카포드' 포함 전체
+  //   '6A4D'  → '6A4D' 포함 전체
+  //   '카포드 6A4D-10336963077' → 세 토큰 모두 어딘가에 있어야 히트
+  //   어느 토큰이든 id/name/url/raw 의 어느 필드에 있어도 매칭으로 인정.
   const filteredProducts = useMemo(() => {
-    if (!debouncedSearch.trim()) return products.slice(0, MAX_RESULTS);
-    const term = debouncedSearch.toLowerCase();
+    const raw = debouncedSearch.trim();
+    if (!raw) return products.slice(0, MAX_RESULTS);
+    // 공백 + 하이픈 분리 (하이픈도 공백으로 취급하면 '6A4D-10336963077' 입력해도 분리돼 매칭됨)
+    const tokens = raw.toLowerCase().split(/[\s\-]+/).filter((t) => t.length > 0);
+    if (tokens.length === 0) return products.slice(0, MAX_RESULTS);
+
     return products
       .filter((p) => {
-        if (p.id && p.id.toLowerCase().includes(term)) return true;
-        if (p.name && p.name.toLowerCase().includes(term)) return true;
-        if (p.url && p.url.toLowerCase().includes(term)) return true;
-        // 시트의 모든 컬럼값에서도 검색 — 상품코드가 다른 컬럼명에 있어도 대응
-        for (const val of Object.values(p.raw)) {
-          if (val && val.toLowerCase().includes(term)) return true;
-        }
-        return false;
+        // 모든 검색 가능 필드 값을 한 번에 합쳐 비교 — 각 토큰이 이 안에 있으면 통과
+        const haystack = [
+          p.id,
+          p.name,
+          p.url,
+          ...Object.values(p.raw || {}),
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return tokens.every((t) => haystack.includes(t));
       })
       .slice(0, MAX_RESULTS);
   }, [products, debouncedSearch]);
