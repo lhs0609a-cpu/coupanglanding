@@ -1,7 +1,9 @@
 'use client';
 
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 import {
   LayoutDashboard,
   TrendingUp,
@@ -67,6 +69,40 @@ interface AdminSidebarProps {
 
 export default function AdminSidebar({ isOpen, onClose }: AdminSidebarProps) {
   const pathname = usePathname();
+  const supabase = useMemo(() => createClient(), []);
+  const [newApplicationsCount, setNewApplicationsCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchCount = async () => {
+      const { count } = await supabase
+        .from('applications')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'new');
+      if (!cancelled) setNewApplicationsCount(count || 0);
+    };
+    fetchCount();
+    const interval = setInterval(fetchCount, 30000);
+
+    const channel = supabase
+      .channel('admin-sidebar-applications')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'applications' },
+        () => { fetchCount(); },
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
+  }, [supabase]);
+
+  const badgeCountByHref: Record<string, number> = {
+    '/admin/applications': newApplicationsCount,
+  };
 
   return (
     <>
@@ -102,6 +138,7 @@ export default function AdminSidebar({ isOpen, onClose }: AdminSidebarProps) {
           {navItems.map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
             const Icon = item.icon;
+            const badgeCount = badgeCountByHref[item.href] || 0;
             return (
               <Link
                 key={item.href}
@@ -114,7 +151,16 @@ export default function AdminSidebar({ isOpen, onClose }: AdminSidebarProps) {
                 }`}
               >
                 <Icon className="w-5 h-5" />
-                {item.label}
+                <span className="flex-1">{item.label}</span>
+                {badgeCount > 0 && (
+                  <span
+                    className={`min-w-[20px] h-5 px-1.5 inline-flex items-center justify-center rounded-full text-[11px] font-bold ${
+                      isActive ? 'bg-white text-[#E31837]' : 'bg-[#E31837] text-white animate-pulse'
+                    }`}
+                  >
+                    {badgeCount > 99 ? '99+' : badgeCount}
+                  </span>
+                )}
               </Link>
             );
           })}
