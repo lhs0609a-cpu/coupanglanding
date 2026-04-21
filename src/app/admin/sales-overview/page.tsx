@@ -318,6 +318,27 @@ export default function AdminSalesOverviewPage() {
     const completionRate = eligible.length > 0
       ? Math.round(((completed + submitted) / eligible.length) * 100)
       : 0;
+
+    // 이번달 청구 수수료 (PT생이 우리에게 결제할 금액, VAT 포함)
+    const currentReports = reports.filter(r => r.year_month === currentMonth);
+    let feeBilledTotal = 0; // 이번달 청구 총액
+    let feePaidTotal = 0;   // 이미 납부완료된 금액
+    let feeDueTotal = 0;    // 미납(받아야 할) 금액
+    let feePaidCount = 0;
+    let feeDueCount = 0;
+    for (const r of currentReports) {
+      const amount = Number(r.total_with_vat) || 0;
+      if (amount <= 0) continue;
+      feeBilledTotal += amount;
+      if (r.fee_payment_status === 'paid') {
+        feePaidTotal += amount;
+        feePaidCount++;
+      } else if (r.fee_payment_status !== 'not_applicable') {
+        feeDueTotal += amount;
+        feeDueCount++;
+      }
+    }
+
     return {
       totalRev,
       totalDep,
@@ -327,8 +348,13 @@ export default function AdminSalesOverviewPage() {
       overdue,
       pending,
       completionRate,
+      feeBilledTotal,
+      feePaidTotal,
+      feeDueTotal,
+      feePaidCount,
+      feeDueCount,
     };
-  }, [rows, currentMonth]);
+  }, [rows, reports, currentMonth]);
 
   /** 월별 총합 (matrix 하단 합계행) */
   const monthTotals = useMemo(() => {
@@ -502,18 +528,42 @@ export default function AdminSalesOverviewPage() {
         </div>
       )}
 
-      {/* 요약 카드 */}
+      {/* 핵심: 이번달 우리가 받을 돈 (PT생 → 우리, VAT 포함) */}
+      <div className="bg-gradient-to-r from-[#E31837]/5 to-amber-50 border-2 border-[#E31837]/30 rounded-xl p-5">
+        <div className="flex items-start justify-between flex-wrap gap-4">
+          <div>
+            <p className="text-xs font-semibold text-[#E31837] uppercase tracking-wide">이번달 청구 수수료 (PT생 → 우리)</p>
+            <p className="text-3xl font-bold text-gray-900 mt-1">{formatKRW(summary.feeBilledTotal)}</p>
+            <p className="text-[11px] text-gray-500 mt-1">VAT 포함 · 기준월 {formatYearMonth(currentMonth)} · 제출된 리포트만 집계</p>
+          </div>
+          <div className="flex items-center gap-6">
+            <div>
+              <p className="text-[11px] font-semibold text-green-700 uppercase">납부 완료</p>
+              <p className="text-xl font-bold text-green-700">{formatKRW(summary.feePaidTotal)}</p>
+              <p className="text-[10px] text-green-600">{summary.feePaidCount}건</p>
+            </div>
+            <div className="w-px h-12 bg-gray-200" />
+            <div>
+              <p className="text-[11px] font-semibold text-orange-700 uppercase">받아야 할 금액</p>
+              <p className="text-xl font-bold text-orange-700">{formatKRW(summary.feeDueTotal)}</p>
+              <p className="text-[10px] text-orange-600">{summary.feeDueCount}건 미납</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 요약 카드 (매출·정산 흐름) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title={`${formatYearMonth(currentMonth)} 총매출`}
           value={formatKRW(summary.totalRev)}
-          subtitle={`대상자 ${summary.eligible}명`}
+          subtitle={`대상자 ${summary.eligible}명 (API 잠정 포함)`}
           icon={<TrendingUp className="w-5 h-5" />}
         />
         <StatCard
           title={`${formatYearMonth(currentMonth)} 총정산액`}
           value={formatKRW(summary.totalDep)}
-          subtitle="확정/계산 송금액 합계"
+          subtitle="우리 → PT생 송금액 합계"
           icon={<Banknote className="w-5 h-5" />}
         />
         <StatCard

@@ -60,6 +60,14 @@ interface ReportRow {
   reported_revenue: number;
 }
 
+interface SnapshotRow {
+  pt_user_id: string;
+  year_month: string;
+  total_sales: number;
+  synced_at: string;
+  sync_error: string | null;
+}
+
 type SortKey = 'name' | 'products' | 'currentRevenue' | 'totalRevenue';
 type SortDir = 'asc' | 'desc';
 type StatusFilter = 'all' | 'active' | 'paused';
@@ -99,6 +107,7 @@ export default function AdminPerformancePage() {
   const [megaloadUsers, setMegaloadUsers] = useState<MegaloadUserRow[]>([]);
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [reports, setReports] = useState<ReportRow[]>([]);
+  const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -110,31 +119,31 @@ export default function AdminPerformancePage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [usersRes, megaloadRes, reportsRes, productsRes] = await Promise.all([
-        // 1. PT users + profiles
+      const [usersRes, megaloadRes, reportsRes, productsRes, snapshotsRes] = await Promise.all([
         supabase
           .from('pt_users')
           .select('*, profile:profiles(*)')
           .neq('status', 'terminated')
           .order('created_at', { ascending: false }),
-        // 2. megaload_users mapping
         supabase
           .from('megaload_users')
           .select('id, profile_id'),
-        // 3. monthly reports
         supabase
           .from('monthly_reports')
           .select('pt_user_id, year_month, reported_revenue'),
-        // 4. products + channels
         supabase
           .from('sh_products')
           .select('id, megaload_user_id, status, channels:sh_product_channels(channel, status)'),
+        supabase
+          .from('api_revenue_snapshots')
+          .select('pt_user_id, year_month, total_sales, synced_at, sync_error'),
       ]);
 
       setPtUsers((usersRes.data as PtUserWithProfile[]) || []);
       setMegaloadUsers((megaloadRes.data as MegaloadUserRow[]) || []);
       setReports((reportsRes.data as ReportRow[]) || []);
       setProducts((productsRes.data as ProductRow[]) || []);
+      setSnapshots((snapshotsRes.data as SnapshotRow[]) || []);
     } catch (err) {
       console.error('performance fetch error:', err);
     } finally {
@@ -181,6 +190,26 @@ export default function AdminPerformancePage() {
     return m;
   }, [reports]);
 
+  const snapshotsByUser = useMemo(() => {
+    const m = new Map<string, SnapshotRow[]>();
+    for (const s of snapshots) {
+      const list = m.get(s.pt_user_id) || [];
+      list.push(s);
+      m.set(s.pt_user_id, list);
+    }
+    return m;
+  }, [snapshots]);
+
+  /** report 우선, 없으면 snapshot(total_sales) */
+  const resolveRevenue = useCallback((ptUserId: string, ym: string): number => {
+    const reports = reportsByUser.get(ptUserId) || [];
+    const r = reports.find(rr => rr.year_month === ym);
+    if (r) return r.reported_revenue || 0;
+    const snaps = snapshotsByUser.get(ptUserId) || [];
+    const s = snaps.find(ss => ss.year_month === ym);
+    return s ? Number(s.total_sales) || 0 : 0;
+  }, [reportsByUser, snapshotsByUser]);
+
   // ── Per-user performance rows ──
 
   const rows = useMemo<UserPerf[]>(() => {
@@ -205,16 +234,23 @@ export default function AdminPerformancePage() {
         }
       }
 
-      // Revenue
-      const currentReport = userReports.find(r => r.year_month === currentMonth);
-      const currentRevenue = currentReport?.reported_revenue || 0;
-      const totalRevenue = userReports.reduce((sum, r) => sum + (r.reported_revenue || 0), 0);
+      // Revenue — report 우선, 없으면 snapshot(API 잠정)
+      const currentRevenue = resolveRevenue(user.id, currentMonth);
 
-      // Recent 3 months for mini chart (oldest first)
-      const recentMonths = [...last3].reverse().map(ym => {
-        const r = userReports.find(rr => rr.year_month === ym);
-        return { month: ym, revenue: r?.reported_revenue || 0 };
-      });
+      // 누적 매출: report 월은 report 값, 그 외 월은 snapshot 값
+      const userSnaps = snapshotsByUser.get(user.id) || [];
+      const reportMonths = new Set(userReports.map(r => r.year_month));
+      let totalRevenue = 0;
+      for (const r of userReports) totalRevenue += r.reported_revenue || 0;
+      for (const s of userSnaps) {
+        if (reportMonths.has(s.year_month)) continue;
+        totalRevenue += Number(s.total_sales) || 0;
+      }
+
+      const recentMonths = [...last3].reverse().map(ym => ({
+        month: ym,
+        revenue: resolveRevenue(user.id, ym),
+      }));
 
       return {
         user,
@@ -226,7 +262,7 @@ export default function AdminPerformancePage() {
         recentMonths,
       };
     });
-  }, [ptUsers, profileToMegaload, productsByMegaload, reportsByUser, currentMonth, last3]);
+  }, [ptUsers, profileToMegaload, productsByMegaload, reportsByUser, snapshotsByUser, resolveRevenue, currentMonth, last3]);
 
   // ── Filtered & sorted ──
 
@@ -279,19 +315,13 @@ export default function AdminPerformancePage() {
 
   // ── Chart data ──
 
-  // Monthly total revenue (last 6 months, oldest first)
+  // Monthly total revenue (last 6 months, oldest first) — report ∪ snapshot
   const monthlyRevenueChart = useMemo(() => {
     return [...last6].reverse().map(ym => {
-      const total = rows.reduce((s, r) => {
-        const rep = r.recentMonths.find(rm => rm.month === ym);
-        if (rep) return s + rep.revenue;
-        // Also check full reports for months outside last3
-        const rr = reportsByUser.get(r.user.id)?.find(rr => rr.year_month === ym);
-        return s + (rr?.reported_revenue || 0);
-      }, 0);
+      const total = ptUsers.reduce((s, u) => s + resolveRevenue(u.id, ym), 0);
       return { month: shortMonth(ym), fullMonth: ym, revenue: total };
     });
-  }, [last6, rows, reportsByUser]);
+  }, [last6, ptUsers, resolveRevenue]);
 
   // Top 10 by total revenue
   const top10Data = useMemo(() => {
