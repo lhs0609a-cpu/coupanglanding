@@ -528,13 +528,12 @@ export async function fetchOrderBasedSales(
     return { totalSales: 0, orderCount: 0, itemCount: 0, yearMonth, rawSample: null };
   }
 
-  // 쿠팡 ordersheets 는 status 가 필수. 여러 상태를 순회 합산.
-  //   Wing '우수판매자 3개월 누적 매출' 은 최종 배송완료+구매확정 기반 추정.
-  //   기본: FINAL_DELIVERY (배송 완료된 주문) 만 조회 — Wing 과 가장 유사.
+  // 쿠팡 ordersheets 는 status 가 필수. 여러 상태를 순회해 모든 주문 합산.
+  //   기본: 전체 활성 상태 (ACCEPT~FINAL_DELIVERY). 오늘·실시간 매출까지 전부 집계.
   //   옵션.status 지정 시 해당 상태만.
   const statusList = options?.status
     ? [options.status]
-    : ['FINAL_DELIVERY']; // 기본: 배송완료 주문 (구매확정 포함)
+    : ['ACCEPT', 'INSTRUCT', 'DEPARTURE', 'DELIVERING', 'FINAL_DELIVERY'];
 
   // 쿠팡 ordersheets 는 createdAtFrom/To 가 'yyyy-MM-dd' 형식 요구 (epoch ms 아님)
   const fromStr = startDate;
@@ -592,6 +591,71 @@ export async function fetchOrderBasedSales(
   }
 
   return { totalSales, orderCount, itemCount, yearMonth, rawSample: firstRawSample };
+}
+
+/**
+ * 오늘 실시간 매출 — 오늘 날짜에 발생한 모든 주문 합계
+ *
+ * ordersheets API 로 오늘 날짜만 조회. 모든 상태(ACCEPT~FINAL_DELIVERY) 포함.
+ * Wing 대시보드 '오늘 매출' 과 근접.
+ */
+export async function fetchTodaySales(
+  credentials: CoupangCredentials,
+): Promise<{
+  totalSales: number;
+  orderCount: number;
+  itemCount: number;
+  date: string;
+}> {
+  const now = new Date();
+  // KST(UTC+9) 기준 오늘
+  const kstOffset = 9 * 60 * 60 * 1000;
+  const kstNow = new Date(now.getTime() + kstOffset);
+  const today = kstNow.toISOString().split('T')[0];
+  const [y, m] = today.split('-');
+
+  // fetchOrderBasedSales 는 월 단위 계산이라 별도 구현
+  const statusList = ['ACCEPT', 'INSTRUCT', 'DEPARTURE', 'DELIVERING', 'FINAL_DELIVERY'];
+  let totalSales = 0;
+  let orderCount = 0;
+  let itemCount = 0;
+
+  for (const status of statusList) {
+    for (let page = 1; page <= 200; page++) {
+      const queryParts = [
+        `createdAtFrom=${today}`,
+        `createdAtTo=${today}`,
+        `status=${status}`,
+        `maxPerPage=50`,
+        `page=${page}`,
+      ];
+      const path = `/v2/providers/openapi/apis/api/v4/vendors/${credentials.vendorId}/ordersheets?${queryParts.join('&')}`;
+      const data = await callCoupangApi(credentials, 'GET', path) as {
+        data?: Array<Record<string, unknown>>;
+        pagination?: { totalPages?: number };
+      };
+      const orders = Array.isArray(data.data) ? data.data : [];
+      if (orders.length === 0) break;
+      for (const order of orders) {
+        orderCount++;
+        const orderItems = Array.isArray(order.orderItems) ? order.orderItems as Array<Record<string, unknown>> : [];
+        for (const item of orderItems) {
+          itemCount++;
+          const unitPrice = Number(item.salesPrice ?? item.orderPrice ?? 0);
+          const qty = Number(item.shippingCount ?? item.shippingNumberSum ?? 1);
+          totalSales += unitPrice * qty;
+        }
+      }
+      const totalPages = data.pagination?.totalPages;
+      if (totalPages && page >= totalPages) break;
+      if (orders.length < 50) break;
+    }
+  }
+
+  // 간단 로그: 오늘 yyyy-MM-dd · 주문/아이템/매출
+  console.log(`[fetchTodaySales] ${y}-${m}-${today.split('-')[2]}: orders=${orderCount}, items=${itemCount}, sales=${totalSales}`);
+
+  return { totalSales, orderCount, itemCount, date: today };
 }
 
 // ── 쿠폰/계약 API 함수들 ───────────────────────────────

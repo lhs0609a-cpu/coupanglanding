@@ -78,6 +78,26 @@ export default function AdminSalesOverviewPage() {
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
   const autoSyncLockRef = useRef<number>(0);
 
+  // 오늘 실시간 매출
+  const [todayTotal, setTodayTotal] = useState<number | null>(null);
+  const [todayPerUser, setTodayPerUser] = useState<Array<{ ptUserId: string; name: string; email: string; todaySales: number; orderCount?: number; error?: string }>>([]);
+  const [todayLoading, setTodayLoading] = useState(false);
+  const [todayFetchedAt, setTodayFetchedAt] = useState<Date | null>(null);
+
+  const fetchTodayRevenue = useCallback(async () => {
+    setTodayLoading(true);
+    try {
+      const res = await fetch('/api/admin/today-revenue');
+      const data = await res.json();
+      if (res.ok) {
+        setTodayTotal(Number(data.totalSales) || 0);
+        setTodayPerUser(Array.isArray(data.perUser) ? data.perUser : []);
+        setTodayFetchedAt(new Date());
+      }
+    } catch { /* silent */ }
+    finally { setTodayLoading(false); }
+  }, []);
+
   const supabase = useMemo(() => createClient(), []);
 
   /** 데이터 조회. initial=true 면 로딩 스피너 표시, 주기 폴링에서는 false 로 silent */
@@ -149,6 +169,13 @@ export default function AdminSalesOverviewPage() {
   }, [fetchData]);
 
   useEffect(() => { fetchData(true); }, [fetchData]);
+
+  // 오늘 실시간 매출 — 최초 진입 + 5분 주기
+  useEffect(() => {
+    fetchTodayRevenue();
+    const id = setInterval(fetchTodayRevenue, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [fetchTodayRevenue]);
 
   /** 초기 로드 후: 스냅샷이 10분 이상 묵었으면 자동 동기화 */
   useEffect(() => {
@@ -582,6 +609,47 @@ export default function AdminSalesOverviewPage() {
           {syncMessage}
         </div>
       )}
+
+      {/* 오늘 실시간 매출 — Wing 기준 */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-xl p-5">
+        <div className="flex items-start justify-between flex-wrap gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Zap className="w-5 h-5 text-blue-600" />
+              <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">오늘 실시간 매출 (전체 PT생, KST 오늘)</p>
+            </div>
+            <p className="text-3xl font-bold text-gray-900 mt-1">
+              {todayLoading && todayTotal === null ? '조회 중...' : formatKRW(todayTotal ?? 0)}
+            </p>
+            <p className="text-[11px] text-gray-500 mt-1">
+              쿠팡 ordersheets API 직접 조회 · 접수~배송완료 모든 주문 포함 · 5분마다 자동 갱신
+              {todayFetchedAt && ` · ${todayFetchedAt.toLocaleTimeString('ko-KR')} 기준`}
+            </p>
+          </div>
+          <button
+            onClick={fetchTodayRevenue}
+            disabled={todayLoading}
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-white border border-blue-300 text-blue-700 rounded hover:bg-blue-50 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3 h-3 ${todayLoading ? 'animate-spin' : ''}`} />
+            지금 새로고침
+          </button>
+        </div>
+        {todayPerUser.length > 0 && (
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+            {todayPerUser.filter(u => u.todaySales > 0 || u.error).slice(0, 12).map((u) => (
+              <div key={u.ptUserId} className="flex items-center justify-between bg-white rounded px-3 py-1.5 border border-blue-100">
+                <span className="text-xs text-gray-700 truncate flex-1 pr-2">{u.name || u.email}</span>
+                {u.error ? (
+                  <span className="text-[10px] text-red-500" title={u.error}>오류</span>
+                ) : (
+                  <span className="text-xs font-semibold text-blue-700">{formatKRW(u.todaySales)}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* 핵심: 이번달 우리가 받을 돈 (PT생 → 우리, VAT 포함) */}
       <div className="bg-gradient-to-r from-[#E31837]/5 to-amber-50 border-2 border-[#E31837]/30 rounded-xl p-5">
