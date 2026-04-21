@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Lock, ShieldCheck, CalendarPlus, RotateCcw, AlertTriangle, Loader2, Search, UserPlus, CalendarClock } from 'lucide-react';
+import { Lock, ShieldCheck, CalendarPlus, RotateCcw, AlertTriangle, Loader2, Search, UserPlus, CalendarClock, FlaskConical } from 'lucide-react';
 
 interface LockedUser {
   id: string;
@@ -24,6 +24,7 @@ interface SearchUser {
   payment_overdue_since: string | null;
   payment_lock_exempt_until: string | null;
   first_billing_grace_until: string | null;
+  is_test_account: boolean;
 }
 
 const LEVEL_LABELS: Record<number, { label: string; color: string }> = {
@@ -140,6 +141,32 @@ export default function AdminPaymentLocksPage() {
     await doSearch();
   };
 
+  const toggleTestAccount = async (u: SearchUser) => {
+    const name = u.full_name || u.email || u.id.slice(0, 8);
+    const nextState = !u.is_test_account;
+    const confirmMsg = nextState
+      ? `${name} 계정을 테스트 계정으로 지정합니다.\n\n• 자동 결제 시도 안 함\n• 모든 결제 락 면제\n• 결제 관련 팝업/배너 안 뜸\n• 모든 기능 정상 동작\n\n진행할까요?`
+      : `${name} 계정의 테스트 지정을 해제합니다.\n이후부터 정상 결제 프로세스가 적용됩니다.\n\n진행할까요?`;
+    if (!confirm(confirmMsg)) return;
+    setActingId(u.id);
+    try {
+      const res = await fetch(`/api/admin/payment-locks/${u.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_test_account', is_test: nextState }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || '처리 실패');
+      }
+      await doSearch();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '처리 실패');
+    } finally {
+      setActingId(null);
+    }
+  };
+
   const extendGrace = async (u: SearchUser) => {
     const name = u.full_name || u.email || u.id.slice(0, 8);
     const input = prompt(
@@ -224,31 +251,53 @@ export default function AdminPaymentLocksPage() {
               return (
                 <div key={u.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-gray-900 truncate">{name}</p>
+                    <p className="text-sm font-medium text-gray-900 truncate flex items-center gap-1">
+                      {name}
+                      {u.is_test_account && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-teal-100 text-teal-700 rounded text-[9px] font-bold">
+                          <FlaskConical className="w-2.5 h-2.5" />
+                          TEST
+                        </span>
+                      )}
+                    </p>
                     <p className="text-[11px] text-gray-500 truncate">
                       {u.email} · 락 L{u.payment_lock_level}
                       {isExempt && u.payment_lock_exempt_until && ` · 예외 ${u.payment_lock_exempt_until}까지`}
                       {u.first_billing_grace_until && ` · 유예 ${u.first_billing_grace_until}까지`}
+                      {u.is_test_account && ' · 결제 완전 면제'}
                     </p>
                   </div>
                   <div className="flex gap-1 flex-shrink-0">
                     <button
-                      onClick={() => preExempt(u)}
+                      onClick={() => toggleTestAccount(u)}
                       disabled={actingId === u.id}
+                      className={`px-2.5 py-1 text-xs font-medium rounded disabled:opacity-50 inline-flex items-center gap-1 ${
+                        u.is_test_account
+                          ? 'bg-teal-600 text-white hover:bg-teal-700'
+                          : 'bg-white border border-teal-600 text-teal-700 hover:bg-teal-50'
+                      }`}
+                      title={u.is_test_account ? '테스트 지정 해제 (정상 결제 프로세스 적용)' : '테스트 계정 지정 (결제 완전 면제, 모든 기능 정상)'}
+                    >
+                      <FlaskConical className="w-3 h-3" />
+                      {u.is_test_account ? '테스트 해제' : '테스트 계정'}
+                    </button>
+                    <button
+                      onClick={() => preExempt(u)}
+                      disabled={actingId === u.id || u.is_test_account}
                       className="px-2.5 py-1 text-xs font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1"
                       title="이 날짜까지 결제 락 예외 (미납이어도 차단 안 됨)"
                     >
                       <CalendarPlus className="w-3 h-3" />
-                      예외 설정
+                      예외
                     </button>
                     <button
                       onClick={() => extendGrace(u)}
-                      disabled={actingId === u.id}
+                      disabled={actingId === u.id || u.is_test_account}
                       className="px-2.5 py-1 text-xs font-medium bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 inline-flex items-center gap-1"
                       title="이 날짜까지 자동 결제 시도 자체를 skip"
                     >
                       <CalendarClock className="w-3 h-3" />
-                      유예 설정
+                      유예
                     </button>
                   </div>
                 </div>

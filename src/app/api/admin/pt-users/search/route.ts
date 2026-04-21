@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
   const profileIds = profiles.map((p) => p.id);
   const { data: ptUsers } = await serviceClient
     .from('pt_users')
-    .select('id, profile_id, status, payment_lock_level, payment_overdue_since, payment_lock_exempt_until, admin_override_level, first_billing_grace_until')
+    .select('id, profile_id, status, payment_lock_level, payment_overdue_since, payment_lock_exempt_until, admin_override_level, first_billing_grace_until, is_test_account')
     .in('profile_id', profileIds)
     .neq('status', 'terminated')
     .limit(20);
@@ -53,6 +53,7 @@ export async function GET(request: NextRequest) {
       payment_lock_exempt_until: u.payment_lock_exempt_until,
       admin_override_level: u.admin_override_level,
       first_billing_grace_until: u.first_billing_grace_until,
+      is_test_account: !!u.is_test_account,
     };
   });
 

@@ -4,10 +4,11 @@ import { createNotification } from '@/lib/utils/notifications';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 
 interface UpdateBody {
-  action: 'reset' | 'exempt' | 'force_level' | 'clear_override' | 'extend_grace';
+  action: 'reset' | 'exempt' | 'force_level' | 'clear_override' | 'extend_grace' | 'set_test_account';
   exempt_until?: string | null;
   force_level?: number;
   grace_until?: string | null;  // first_billing_grace_until 직접 지정
+  is_test?: boolean;            // set_test_account용
 }
 
 /**
@@ -77,6 +78,21 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       updates = { first_billing_grace_until: body.grace_until };
       notifyTitle = '첫 결제 유예 연장';
       notifyMessage = `관리자가 첫 결제 유예 종료일을 ${body.grace_until}까지 연장했습니다. 이 날짜까지 자동 결제가 시도되지 않습니다.`;
+    } else if (body.action === 'set_test_account') {
+      const makeTest = body.is_test === true;
+      updates = makeTest
+        ? {
+            is_test_account: true,
+            // 이미 걸려있을 수 있는 락 정리 — 테스트 전환 시 즉시 정상화
+            payment_overdue_since: null,
+            payment_lock_level: 0,
+            payment_retry_in_progress: false,
+          }
+        : { is_test_account: false };
+      notifyTitle = makeTest ? '테스트 계정 지정' : '테스트 계정 해제';
+      notifyMessage = makeTest
+        ? '관리자가 이 계정을 테스트 계정으로 지정했습니다. 결제가 면제되며 모든 기능은 정상 동작합니다.'
+        : '관리자가 테스트 계정 지정을 해제했습니다. 이후부터 정상 결제 프로세스가 적용됩니다.';
     } else {
       return NextResponse.json({ error: '알 수 없는 action' }, { status: 400 });
     }

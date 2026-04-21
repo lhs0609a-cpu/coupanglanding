@@ -113,11 +113,15 @@ export async function updateSession(request: NextRequest) {
   if (isMutationMethod(request.method) && isLockTargetPath(pathname)) {
     const { data: ptUser } = await supabase
       .from('pt_users')
-      .select('payment_lock_level, payment_lock_exempt_until, admin_override_level')
+      .select('payment_lock_level, payment_lock_exempt_until, admin_override_level, is_test_account')
       .eq('profile_id', user.id)
       .maybeSingle();
 
     if (ptUser) {
+      // 테스트 계정 — 락 계산 자체 skip, 모든 기능 허용
+      if (ptUser.is_test_account) {
+        return supabaseResponse;
+      }
       const today = new Date().toISOString().slice(0, 10);
       const exemptActive =
         ptUser.payment_lock_exempt_until && ptUser.payment_lock_exempt_until > today;

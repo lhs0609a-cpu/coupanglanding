@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // signed 계약이 있는 PT 유저만 대상 (terminated/draft 제외)
+    // signed 계약이 있는 PT 유저만 대상 (terminated/draft 제외, 테스트 계정 제외)
     const { data: ptUsers } = await serviceClient
       .from('pt_users')
       .select(`
@@ -75,9 +75,11 @@ export async function GET(request: NextRequest) {
         profile_id,
         first_billing_grace_until,
         created_at,
+        is_test_account,
         contracts!inner(status)
       `)
-      .eq('contracts.status', 'signed');
+      .eq('contracts.status', 'signed')
+      .eq('is_test_account', false);
 
     if (!ptUsers || ptUsers.length === 0) {
       return NextResponse.json({ success: true, message: '대상 PT 유저 없음', processed: 0 });

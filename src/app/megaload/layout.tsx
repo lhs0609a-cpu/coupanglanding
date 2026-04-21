@@ -25,7 +25,7 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
   const [{ data: profile }, { data: shUser }, { data: ptUser }] = await Promise.all([
     supabase.from('profiles').select('full_name, role, is_active').eq('id', user.id).single(),
     supabase.from('megaload_users').select('id, plan, onboarding_done').eq('profile_id', user.id).maybeSingle(),
-    supabase.from('pt_users').select('id, created_at, payment_lock_level, payment_overdue_since, admin_override_level, payment_lock_exempt_until').eq('profile_id', user.id).maybeSingle(),
+    supabase.from('pt_users').select('id, created_at, payment_lock_level, payment_overdue_since, admin_override_level, payment_lock_exempt_until, is_test_account').eq('profile_id', user.id).maybeSingle(),
   ]);
 
   // 카드 유무
@@ -37,11 +37,15 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
     } catch { hasPaymentCards = false; }
   }
 
+  // 테스트 계정 체크 — 모든 결제 관련 처리 bypass
+  const isTestAccount = !!(ptUser as Record<string, unknown> | null)?.is_test_account;
+
   // 결제 락 3단계(완전 차단) → 결제 설정 페이지로 강제 이동
-  // admin/partner는 면제. /my/settings는 별도 레이아웃이라 여기서 막지 않음.
+  // admin/partner 면제 · 테스트 계정 면제. /my/settings는 별도 레이아웃.
   if (
     profile?.role !== 'admin' &&
     profile?.role !== 'partner' &&
+    !isTestAccount &&
     ptUser?.payment_lock_level === 3
   ) {
     redirect('/my/settings?locked=3');
@@ -103,11 +107,11 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
       gateDDay={gateDDay}
       gateTargetMonth={gateTargetMonth}
       gateDeadline={gateDeadline}
-      paymentLockLevel={ptUser?.payment_lock_level ?? 0}
-      paymentOverdueSince={ptUser?.payment_overdue_since ?? null}
-      adminOverrideLevel={(ptUser as Record<string, unknown> | null)?.admin_override_level as number | null ?? null}
+      paymentLockLevel={isTestAccount ? 0 : (ptUser?.payment_lock_level ?? 0)}
+      paymentOverdueSince={isTestAccount ? null : (ptUser?.payment_overdue_since ?? null)}
+      adminOverrideLevel={isTestAccount ? null : ((ptUser as Record<string, unknown> | null)?.admin_override_level as number | null ?? null)}
       paymentLockExemptUntil={(ptUser as Record<string, unknown> | null)?.payment_lock_exempt_until as string | null ?? null}
-      hasPaymentCards={hasPaymentCards}
+      hasPaymentCards={isTestAccount ? true : hasPaymentCards}
     >
       {children}
     </MegaloadLayoutClient>
