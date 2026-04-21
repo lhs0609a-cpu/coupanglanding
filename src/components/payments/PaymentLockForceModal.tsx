@@ -27,6 +27,7 @@ export default function PaymentLockForceModal({ lockLevel, overdueSince, hasCard
   const nextThreshold = lockLevel === 1 ? 3 : lockLevel === 2 ? 7 : null;
   const daysUntilNext = nextThreshold !== null ? Math.max(0, nextThreshold - daysSinceOverdue) : null;
 
+  const safeLockLevel = lockLevel as 1 | 2 | 3; // L0 는 위에서 return null 로 걸러냄
   const meta: Record<1 | 2 | 3, { title: string; subtitle: string; bg: string; restrictions: string[] }> = {
     1: {
       title: '⚠️ L1 부분 차단 중',
@@ -47,7 +48,7 @@ export default function PaymentLockForceModal({ lockLevel, overdueSince, hasCard
       restrictions: ['메가로드 전체 접근 차단', '결제 설정 페이지로만 이동', '카드 등록 + 결제 시 즉시 복구'],
     },
   };
-  const m = meta[lockLevel];
+  const m = meta[safeLockLevel];
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm">
