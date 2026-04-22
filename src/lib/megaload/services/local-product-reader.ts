@@ -80,40 +80,63 @@ export async function scanProductFolder(folderPath: string): Promise<LocalProduc
 
   const products: LocalProduct[] = [];
 
+  // 후보 폴더명 — 순서 우선순위 유지
+  const reviewFolderCandidates = ['review_images', 'reviews', 'review', '리뷰이미지', '리뷰 이미지', '리뷰', 'customer_reviews'];
+  const detailFolderCandidates = ['detail_images', 'details', 'detail', 'detail-images', 'detailImages', '상세이미지', '상세 이미지', '상세', 'description_images'];
+
   for (const dir of productDirs) {
     const productPath = path.join(normalizedPath, dir.name);
     const productCode = dir.name.replace('product_', '');
 
+    // PERF: 하위 엔트리 1회만 읽고 Set으로 인덱싱 → 후보 조회를 O(1)로 (이전엔 후보별 fs.existsSync 루프)
+    let subdirSet = new Set<string>();
+    let hasProductJson = false;
+    try {
+      const subEntries = fs.readdirSync(productPath, { withFileTypes: true });
+      for (const ent of subEntries) {
+        if (ent.isDirectory()) subdirSet.add(ent.name);
+        else if (ent.name === 'product.json') hasProductJson = true;
+      }
+    } catch {
+      subdirSet = new Set();
+    }
+
     // product.json 읽기
-    const jsonPath = path.join(productPath, 'product.json');
     let productJson: LocalProductJson = {};
-    if (fs.existsSync(jsonPath)) {
+    if (hasProductJson) {
       try {
-        const raw = fs.readFileSync(jsonPath, 'utf-8');
+        const raw = fs.readFileSync(path.join(productPath, 'product.json'), 'utf-8');
         productJson = JSON.parse(raw) as LocalProductJson;
       } catch {
         // JSON 파싱 실패 시 빈 객체
       }
     }
 
-    // main_images/ 내 모든 이미지 파일 (누끼 포함)
-    const mainImagesDir = path.join(productPath, 'main_images');
-    const mainImages = collectImages(mainImagesDir, /\.(jpg|jpeg|png|webp)$/i);
+    // main_images/
+    const mainImages = subdirSet.has('main_images')
+      ? collectImages(path.join(productPath, 'main_images'), /\.(jpg|jpeg|png|webp)$/i)
+      : [];
 
-    // 리뷰 폴더 후보 순회 (review_images → reviews → review → 리뷰이미지 등)
-    const reviewFolderCandidates = ['review_images', 'reviews', 'review', '리뷰이미지', '리뷰 이미지', '리뷰', 'customer_reviews'];
+    // 리뷰 폴더 — 우선순위 순으로 존재하는 첫 번째 채택
     let reviewImages: string[] = [];
     for (const name of reviewFolderCandidates) {
-      reviewImages = collectImages(path.join(productPath, name), /\.(jpg|jpeg|png)$/i);
-      if (reviewImages.length > 0) break;
+      if (!subdirSet.has(name)) continue;
+      const found = collectImages(path.join(productPath, name), /\.(jpg|jpeg|png)$/i);
+      if (found.length > 0) {
+        reviewImages = found;
+        break;
+      }
     }
 
-    // 상세이미지 폴더 후보 순회
-    const detailFolderCandidates = ['detail_images', 'details', 'detail', 'detail-images', 'detailImages', '상세이미지', '상세 이미지', '상세', 'description_images'];
+    // 상세이미지 폴더
     let detailImages: string[] = [];
     for (const name of detailFolderCandidates) {
-      detailImages = collectImages(path.join(productPath, name), /\.(jpg|jpeg|png|webp)$/i);
-      if (detailImages.length > 0) break;
+      if (!subdirSet.has(name)) continue;
+      const found = collectImages(path.join(productPath, name), /\.(jpg|jpeg|png|webp)$/i);
+      if (found.length > 0) {
+        detailImages = found;
+        break;
+      }
     }
 
     // detail_images 폴더 없고 review_images만 있으면 review를 상세로 승격 (중복 방지 위해 review 비움)
@@ -122,7 +145,6 @@ export async function scanProductFolder(folderPath: string): Promise<LocalProduc
       reviewImages = [];
     }
     // 상세이미지가 여전히 부족하면 main_images[3:] 오버플로우를 상세이미지 풀에 추가
-    // (쿠팡 스크랩 데이터는 main_images에 20+장이 있고 상세/리뷰 폴더가 없는 케이스가 일반적)
     if (detailImages.length < 3 && mainImages.length > 3) {
       const existing = new Set(detailImages);
       const additions = mainImages.slice(3).filter(p => !existing.has(p));
@@ -131,9 +153,10 @@ export async function scanProductFolder(folderPath: string): Promise<LocalProduc
       }
     }
 
-    // product_info/ 내 상품정보 이미지
-    const infoDir = path.join(productPath, 'product_info');
-    const infoImages = collectImages(infoDir, /\.(jpg|jpeg|png)$/i);
+    // product_info/
+    const infoImages = subdirSet.has('product_info')
+      ? collectImages(path.join(productPath, 'product_info'), /\.(jpg|jpeg|png)$/i)
+      : [];
 
     products.push({
       folderPath: productPath,

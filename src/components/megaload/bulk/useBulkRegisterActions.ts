@@ -1730,24 +1730,38 @@ export function useBulkRegisterActions() {
 
     setScanning(true); setScanError('');
     try {
+      // PERF: 여러 폴더 경로를 병렬 스캔 (이전엔 순차 for 루프)
+      const scanResults = await Promise.allSettled(
+        serverPaths.map(async (fp) => {
+          const res = await fetch(`/api/megaload/products/bulk-register?folderPath=${encodeURIComponent(fp)}`);
+          const data = await res.json();
+          if (!res.ok) throw new Error(`[${fp}] ${data.error || '스캔 실패'}`);
+          return { fp, data };
+        }),
+      );
+
+      const failures = scanResults
+        .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+        .map((r) => r.reason instanceof Error ? r.reason.message : String(r.reason));
+      if (failures.length > 0) throw new Error(failures.join(' / '));
+
       const allEditableProducts: EditableProduct[] = [];
       let latestBrackets: PriceBracket[] | null = null;
-
-      for (const fp of serverPaths) {
-        const res = await fetch(`/api/megaload/products/bulk-register?folderPath=${encodeURIComponent(fp)}`);
-        const data = await res.json();
-        if (!res.ok) throw new Error(`[${fp}] ${data.error || '스캔 실패'}`);
+      for (const r of scanResults) {
+        if (r.status !== 'fulfilled') continue;
+        const { data } = r.value;
         if (data.brackets) latestBrackets = data.brackets;
         const editableProducts: EditableProduct[] = (data.products as PreviewProduct[]).map((p) => {
           const srvBrand = isValidBrand(p.brand) ? p.brand : extractBrandFromName(p.name);
           return {
-          ...p, uid: `${p.folderPath}::${p.productCode}`,
-          brand: srvBrand, // ★ 검증 통과한 brand만 저장 (오염 원본 차단)
-          editedName: `${srvBrand} ${p.productCode}`, editedBrand: srvBrand.slice(0, 2),
-          editedSellingPrice: p.sellingPrice, editedDisplayProductName: '', // SEO 자동 생성 대기
-          editedCategoryCode: '', editedCategoryName: '',
-          categoryConfidence: 0, categorySource: '', selected: true, status: 'pending' as const,
-        };});
+            ...p, uid: `${p.folderPath}::${p.productCode}`,
+            brand: srvBrand, // ★ 검증 통과한 brand만 저장 (오염 원본 차단)
+            editedName: `${srvBrand} ${p.productCode}`, editedBrand: srvBrand.slice(0, 2),
+            editedSellingPrice: p.sellingPrice, editedDisplayProductName: '', // SEO 자동 생성 대기
+            editedCategoryCode: '', editedCategoryName: '',
+            categoryConfidence: 0, categorySource: '', selected: true, status: 'pending' as const,
+          };
+        });
         allEditableProducts.push(...editableProducts);
       }
 

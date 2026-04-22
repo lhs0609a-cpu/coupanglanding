@@ -157,18 +157,29 @@ async function scanSingleProduct(
     // product_summary.txt 없음
   }
 
+  // PERF: 하위 디렉토리를 1회만 열거 → 후보 존재 여부를 Set으로 O(1) 조회
+  // (이전엔 collectFirstMatch 에서 후보마다 getDirectoryHandle 호출 → 대부분 reject 대기)
+  const productSubdirs = new Set<string>();
+  try {
+    for await (const [n, h] of productDirHandle as unknown as AsyncIterable<[string, FileSystemHandle]>) {
+      if (h.kind === 'directory') productSubdirs.add(n);
+    }
+  } catch { /* ignore */ }
+
   // P1-4: main_images만 objectURL 즉시 생성, 나머지는 핸들만 수집 (lazy)
-  // AD_PATTERN은 main_images/third_party에만 적용 — 사용자 큐레이션 폴더(detail/review/info)는 파일명 필터링 생략
-  const rawMainImages = await collectImagesFromSubdir(productDirHandle, 'main_images', MAIN_IMAGE_PATTERN, true, true);
-  // dHash 기반 시각적 이탈치 제거 — 텍스트 배너/로고 등 파일명으로 못 거른 비상품 이미지 차단
+  const rawMainImages = productSubdirs.has('main_images')
+    ? await collectImagesFromSubdir(productDirHandle, 'main_images', MAIN_IMAGE_PATTERN, true, true)
+    : [];
   const mainImages = await filterMainImageOutliers(rawMainImages, name);
-  // 폴백: 사용자 폴더 구조가 표준 이름과 다를 수 있으므로 여러 후보 검사
+
+  // 폴백: 사용자 폴더 구조가 표준 이름과 다를 수 있으므로 여러 후보 검사 (존재하는 폴더만 실제 호출)
   const collectFirstMatch = async (
     names: string[],
     eagerObjectUrls: boolean,
     applyAdFilter: boolean,
   ): Promise<ScannedImageFile[]> => {
     for (const n of names) {
+      if (!productSubdirs.has(n)) continue;
       const imgs = await collectImagesFromSubdir(productDirHandle, n, IMAGE_PATTERN, eagerObjectUrls, applyAdFilter);
       if (imgs.length > 0) return imgs;
     }
@@ -210,19 +221,13 @@ async function scanSingleProduct(
     }
   }
 
-  // 진단: 표준 폴더를 모두 못 찾았으면 실제 하위 폴더명을 출력하여 사용자가 구조를 확인할 수 있도록
+  // 진단: 표준 폴더를 모두 못 찾았으면 실제 하위 폴더명을 출력
   if (detailImages.length === 0 || infoImages.length === 0) {
-    const subdirs: string[] = [];
-    try {
-      for await (const [n, h] of productDirHandle as unknown as AsyncIterable<[string, FileSystemHandle]>) {
-        if (h.kind === 'directory') subdirs.push(n);
-      }
-    } catch { /* ignore */ }
-    if (subdirs.length > 0) {
+    if (productSubdirs.size > 0) {
       const missing: string[] = [];
       if (detailImages.length === 0) missing.push('상세/리뷰(detail_images·review_images)');
       if (infoImages.length === 0) missing.push('정보(product_info)');
-      console.info(`[scan] ${name}: ${missing.join(', ')} 폴더 미발견 — 실제 하위 폴더: ${subdirs.join(', ')}`);
+      console.info(`[scan] ${name}: ${missing.join(', ')} 폴더 미발견 — 실제 하위 폴더: ${Array.from(productSubdirs).join(', ')}`);
     }
   }
 
