@@ -103,6 +103,7 @@ export function useBulkRegisterActions() {
   const [useStockImages, setUseStockImages] = useState(false);
   const [stockImageProgress, setStockImageProgress] = useState<{ done: number; total: number } | null>(null);
   const [browsingFolder, setBrowsingFolder] = useState(false);
+  const [browseProgress, setBrowseProgress] = useState<{ current: number; total: number; currentName?: string; phase?: string } | null>(null);
   const [thirdPartyImages, setThirdPartyImages] = useState<ScannedImageFile[]>([]);
   // 제3자 이미지 CDN URL 영구 저장 (localStorage)
   const [savedThirdPartyUrls, setSavedThirdPartyUrls] = useState<string[]>(() => {
@@ -1095,9 +1096,12 @@ export function useBulkRegisterActions() {
   // ---- Browse folder (showDirectoryPicker) ----
   const handleBrowseFolder = useCallback(async () => {
     setBrowsingFolder(true);
+    setBrowseProgress(null);
     setScanError('');
     try {
-      const { dirName, products: scanned, thirdPartyImages: tpImages } = await pickAndScanFolder();
+      const { dirName, products: scanned, thirdPartyImages: tpImages } = await pickAndScanFolder((p) => {
+        setBrowseProgress({ current: p.current, total: p.total, currentName: p.currentName, phase: p.phase });
+      });
       if (scanned.length === 0) {
         setScanError(`"${dirName}" 폴더에 product_* 하위 폴더가 없습니다.`);
         setBrowsingFolder(false);
@@ -1181,6 +1185,7 @@ export function useBulkRegisterActions() {
       else { setScanError(err instanceof Error ? err.message : '폴더 스캔 실패'); }
     } finally {
       setBrowsingFolder(false);
+      setBrowseProgress(null);
     }
   }, [brackets, runAutoCategory]);
 
@@ -2289,7 +2294,7 @@ export function useBulkRegisterActions() {
     noticeOverrides, setNoticeOverrides,
     preventionConfig, setPreventionEnabled, setSellerBrand, setAutoBarcodeGeneration,
     loadingShipping, shippingError,
-    scanning, scanError, browsingFolder, thirdPartyImages, savedThirdPartyUrls,
+    scanning, scanError, browsingFolder, browseProgress, thirdPartyImages, savedThirdPartyUrls,
     products, setProducts,
     autoMatchingProgress, autoMatchError, autoMatchStats, categoryFailures,
     categorySearchTarget, setCategorySearchTarget,

@@ -176,6 +176,7 @@ export default function BulkRegisterPanel() {
           scanning={actions.scanning}
           scanError={actions.scanError}
           browsingFolder={actions.browsingFolder}
+          browseProgress={actions.browseProgress}
           onAddFolderPath={actions.addFolderPath}
           onRemoveFolderPath={actions.removeFolderPath}
           onSetSelectedOutbound={actions.setSelectedOutbound}

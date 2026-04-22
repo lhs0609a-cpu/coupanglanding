@@ -51,6 +51,7 @@ interface BulkStep1SettingsProps {
   scanning: boolean;
   scanError: string;
   browsingFolder: boolean;
+  browseProgress?: { current: number; total: number; currentName?: string; phase?: string } | null;
   onAddFolderPath: (path: string) => void;
   onRemoveFolderPath: (path: string) => void;
   onSetSelectedOutbound: (v: string) => void;
@@ -82,7 +83,7 @@ export default function BulkStep1Settings({
   selectedOutbound, selectedReturn,
   deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, contactNumber,
   includeReviewImages, useStockImages, noticeOverrides,
-  loadingShipping, shippingError, scanning, scanError, browsingFolder,
+  loadingShipping, shippingError, scanning, scanError, browsingFolder, browseProgress,
   onAddFolderPath, onRemoveFolderPath,
   onSetSelectedOutbound, onSetSelectedReturn,
   onSetDeliveryChargeType, onSetDeliveryCharge, onSetFreeShipOverAmount,
@@ -186,7 +187,13 @@ export default function BulkStep1Settings({
               className="w-full flex items-center justify-center gap-2 px-4 py-3 mb-3 text-sm font-medium text-[#E31837] bg-white border-2 border-[#E31837] rounded-lg hover:bg-red-50 disabled:opacity-50 transition"
             >
               {browsingFolder ? <Loader2 className="w-5 h-5 animate-spin" /> : <FolderOpen className="w-5 h-5" />}
-              {browsingFolder ? '폴더 읽는 중...' : '폴더 선택하기'}
+              {browsingFolder
+                ? (browseProgress && browseProgress.total > 0
+                    ? `스캔 중 ${browseProgress.current}/${browseProgress.total}${browseProgress.currentName ? ` · ${browseProgress.currentName}` : ''}`
+                    : browseProgress?.phase === 'listing'
+                      ? '폴더 목록 읽는 중...'
+                      : '폴더 읽는 중...')
+                : '폴더 선택하기'}
             </button>
           )}
           <div className="flex gap-2">

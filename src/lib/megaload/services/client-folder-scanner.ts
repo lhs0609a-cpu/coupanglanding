@@ -44,7 +44,19 @@ const MAIN_IMAGE_PATTERN = IMAGE_PATTERN;
  * showDirectoryPicker()로 사용자가 폴더를 선택하도록 하고,
  * product_* 하위 폴더를 스캔하여 상품 목록을 반환
  */
-export async function pickAndScanFolder(): Promise<{
+export interface ScanProgress {
+  current: number;
+  total: number;
+  currentName?: string;
+  phase: 'listing' | 'scanning' | 'finalizing';
+}
+
+export type ScanProgressCallback = (progress: ScanProgress) => void;
+
+/** 이 규모 이상이면 dHash 군집 이탈치 감지 스킵 (메인스레드 부담 회피) */
+const DHASH_SKIP_THRESHOLD = 50;
+
+export async function pickAndScanFolder(onProgress?: ScanProgressCallback): Promise<{
   dirName: string;
   products: ScannedProduct[];
   thirdPartyImages: ScannedImageFile[];
@@ -57,7 +69,7 @@ export async function pickAndScanFolder(): Promise<{
   const dirHandle = await (window as unknown as { showDirectoryPicker: (opts?: object) => Promise<FileSystemDirectoryHandle> })
     .showDirectoryPicker({ mode: 'read' });
 
-  return scanDirectoryHandle(dirHandle);
+  return scanDirectoryHandle(dirHandle, onProgress);
 }
 
 /**
@@ -66,11 +78,16 @@ export async function pickAndScanFolder(): Promise<{
  * P1-3: 폴더 병렬 스캔 (SCAN_CONCURRENCY=10)
  * P1-4: objectURL 지연 생성 (main_images만 즉시, 나머지 lazy)
  */
-export async function scanDirectoryHandle(dirHandle: FileSystemDirectoryHandle): Promise<{
+export async function scanDirectoryHandle(
+  dirHandle: FileSystemDirectoryHandle,
+  onProgress?: ScanProgressCallback,
+): Promise<{
   dirName: string;
   products: ScannedProduct[];
   thirdPartyImages: ScannedImageFile[];
 }> {
+  onProgress?.({ current: 0, total: 0, phase: 'listing' });
+
   // Phase 1: product_* 디렉토리 핸들 수집 (순차 — 빠름)
   const productDirs: { name: string; handle: FileSystemDirectoryHandle }[] = [];
   for await (const [name, handle] of dirHandle as unknown as AsyncIterable<[string, FileSystemHandle]>) {
@@ -79,21 +96,34 @@ export async function scanDirectoryHandle(dirHandle: FileSystemDirectoryHandle):
     productDirs.push({ name, handle: handle as FileSystemDirectoryHandle });
   }
 
+  // 대량 배치에서 dHash는 메인스레드를 막으므로 스킵 (파일명 필터 + AI 필터로 대체)
+  const skipDhash = productDirs.length > DHASH_SKIP_THRESHOLD;
+  if (skipDhash) {
+    console.info(`[scan] 상품 ${productDirs.length}개 — dHash 이탈치 감지 스킵 (임계 ${DHASH_SKIP_THRESHOLD})`);
+  }
+
+  onProgress?.({ current: 0, total: productDirs.length, phase: 'scanning' });
+
   // Phase 2: 연속 워커 풀 — 배치 단위 Promise.all은 head-of-line 블로킹(한 상품이 느리면 동일 배치 9개 대기)을
   // 일으키므로 풀 슬롯이 비는 즉시 다음 상품을 채우는 방식으로 처리량 극대화
   const SCAN_CONCURRENCY = 12;
   const products: ScannedProduct[] = new Array(productDirs.length);
   let nextProductIdx = 0;
+  let doneCount = 0;
   async function productWorker() {
     while (nextProductIdx < productDirs.length) {
       const idx = nextProductIdx++;
       const { name, handle } = productDirs[idx];
-      products[idx] = await scanSingleProduct(name, handle);
+      products[idx] = await scanSingleProduct(name, handle, { skipDhash });
+      doneCount++;
+      onProgress?.({ current: doneCount, total: productDirs.length, currentName: name, phase: 'scanning' });
     }
   }
   await Promise.all(
     Array.from({ length: Math.min(SCAN_CONCURRENCY, productDirs.length) }, () => productWorker()),
   );
+
+  onProgress?.({ current: productDirs.length, total: productDirs.length, phase: 'finalizing' });
 
   // 상품코드 순 정렬
   products.sort((a, b) => a.productCode.localeCompare(b.productCode, undefined, { numeric: true }));
@@ -131,6 +161,7 @@ export async function scanDirectoryHandle(dirHandle: FileSystemDirectoryHandle):
 async function scanSingleProduct(
   name: string,
   productDirHandle: FileSystemDirectoryHandle,
+  options: { skipDhash?: boolean } = {},
 ): Promise<ScannedProduct> {
   const productCode = name.replace('product_', '');
 
@@ -170,7 +201,8 @@ async function scanSingleProduct(
   const rawMainImages = productSubdirs.has('main_images')
     ? await collectImagesFromSubdir(productDirHandle, 'main_images', MAIN_IMAGE_PATTERN, true, true)
     : [];
-  const mainImages = await filterMainImageOutliers(rawMainImages, name);
+  // 대량 배치에서는 dHash(메인스레드 O(N²)) 스킵 — 파일명 기반 광고 필터로 대체
+  const mainImages = options.skipDhash ? rawMainImages : await filterMainImageOutliers(rawMainImages, name);
 
   // 폴백: 사용자 폴더 구조가 표준 이름과 다를 수 있으므로 여러 후보 검사 (존재하는 폴더만 실제 호출)
   const collectFirstMatch = async (
