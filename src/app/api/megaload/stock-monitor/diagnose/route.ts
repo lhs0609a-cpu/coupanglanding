@@ -174,6 +174,66 @@ export async function GET() {
       },
     });
 
+    // ── 10단계: Fly.io 프록시 /naver-check 연결성 (품절 동기화 핵심 엔드포인트) ──
+    const proxyUrl = process.env.COUPANG_PROXY_URL || '';
+    const proxySecret = process.env.COUPANG_PROXY_SECRET || process.env.PROXY_SECRET || '';
+    if (!proxyUrl) {
+      steps.push({
+        step: '10_proxy_naver_check',
+        status: 'warn',
+        detail: { note: 'COUPANG_PROXY_URL 환경변수 미설정 — 직접 fetch 경로로만 동작 (네이버 403 가능성 높음)' },
+      });
+    } else {
+      const proxyBase = proxyUrl.replace(/\/proxy\/?$/, '');
+      try {
+        // 테스트용 가벼운 네이버 URL (홈페이지)
+        const testRes = await fetch(`${proxyBase}/naver-check`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Proxy-Secret': proxySecret },
+          body: JSON.stringify({ url: 'https://smartstore.naver.com/main' }),
+          signal: AbortSignal.timeout(15000),
+        });
+        const text = await testRes.text();
+        const parsed = (() => { try { return JSON.parse(text); } catch { return null; } })();
+        if (testRes.ok && parsed?.statusCode) {
+          steps.push({
+            step: '10_proxy_naver_check',
+            status: 'ok',
+            detail: {
+              proxyUrl: proxyBase,
+              naverStatusCode: parsed.statusCode,
+              htmlBytes: parsed.html?.length ?? 0,
+            },
+          });
+        } else {
+          steps.push({
+            step: '10_proxy_naver_check',
+            status: 'fail',
+            detail: {
+              proxyUrl: proxyBase,
+              httpStatus: testRes.status,
+              body: text.slice(0, 300),
+              hint: testRes.status === 400 && /Coupang/i.test(text)
+                ? '프록시 서버에 /naver-check 핸들러 없음 → proxy/server.js 최신 배포 필요 (cd proxy && fly deploy)'
+                : testRes.status === 401
+                ? 'X-Proxy-Secret 불일치 — Vercel COUPANG_PROXY_SECRET과 Fly.io PROXY_SECRET 값 확인'
+                : '프록시 예외 응답 — 로그 확인',
+            },
+          });
+        }
+      } catch (proxyErr) {
+        steps.push({
+          step: '10_proxy_naver_check',
+          status: 'fail',
+          detail: {
+            proxyUrl: proxyBase,
+            error: proxyErr instanceof Error ? proxyErr.message : String(proxyErr),
+            hint: 'Fly.io 앱이 안 떠있거나 네트워크 차단',
+          },
+        });
+      }
+    }
+
     return NextResponse.json({ steps });
   } catch (err) {
     steps.push({ step: 'unexpected', status: 'fail', detail: err instanceof Error ? err.message : 'Unknown' });

@@ -50,6 +50,13 @@ interface CheckResult {
   /** 네이버 메인 상품 판매가 (옵션 조합 기준가) */
   mainPrice?: number;
   matchedPattern?: string;
+  /**
+   * 에러 분류 — status='error'일 때만 사용
+   *  - 'infra': 프록시/네트워크 설정 문제 (프록시 400/401/502, DNS 실패 등). 상품별 문제 아님 → consecutive_errors 증가 금지
+   *  - 'transient': 재시도 가능 (HTTP 429, 타임아웃 1회차 등). 기존 circuit breaker로 처리
+   *  - 'naver': 네이버 응답 문제 (HTTP 403/404/500, 페이지 파싱 실패 등). consecutive_errors 증가
+   */
+  errorClass?: 'infra' | 'transient' | 'naver';
 }
 
 const NAVER_PROXY_URL = process.env.COUPANG_PROXY_URL || '';
@@ -61,32 +68,47 @@ async function checkUrl(url: string, retryCount = 0): Promise<CheckResult> {
   const timeout = setTimeout(() => controller.abort(), 25000);
 
   try {
-    let statusCode: number;
-    let html: string;
+    let statusCode = 0;
+    let html = '';
 
     // 네이버 URL이고 프록시가 설정돼 있으면 Fly.io 프록시 경유 (Vercel 직접 fetch 시 403 차단 방지)
     const isNaverUrl = /smartstore\.naver|shop\.naver|brand\.naver|shopping\.naver/.test(url);
+    let proxyTried = false;
+    let proxySucceeded = false;
+    let proxyError: string | null = null;
     if (isNaverUrl && NAVER_PROXY_URL) {
+      proxyTried = true;
       const proxyBase = NAVER_PROXY_URL.replace(/\/proxy\/?$/, '');
-      const proxyRes = await fetch(`${proxyBase}/naver-check`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Proxy-Secret': NAVER_PROXY_SECRET,
-        },
-        body: JSON.stringify({ url }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      if (!proxyRes.ok) {
-        const errData = await proxyRes.json().catch(() => ({}));
-        return { status: 'error', matchedPattern: `proxy ${proxyRes.status}: ${(errData as Record<string, string>).error || ''}` };
+      try {
+        const proxyRes = await fetch(`${proxyBase}/naver-check`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Proxy-Secret': NAVER_PROXY_SECRET,
+          },
+          body: JSON.stringify({ url }),
+          signal: controller.signal,
+        });
+        if (proxyRes.ok) {
+          const data = await proxyRes.json() as { statusCode: number; html: string };
+          statusCode = data.statusCode;
+          html = data.html || '';
+          proxySucceeded = true;
+        } else {
+          // 프록시 실패 — 인프라 에러로 분류 (프록시 미배포/키 불일치/5xx 모두 상품별 이슈 아님)
+          const errData = await proxyRes.json().catch(() => ({}));
+          proxyError = `proxy ${proxyRes.status}: ${(errData as Record<string, string>).error || ''}`;
+          // 폴백: 프록시가 naver-check 핸들러 없음(400 Missing Coupang...)이거나 5xx → 직접 fetch 시도
+          //   Vercel 직접 fetch는 403일 확률 높지만, 시도 자체는 값어치 있음 (프록시 장애 중 일부라도 통과)
+          console.warn(`[stock-monitor] proxy naver-check 실패 — 직접 fetch 폴백 시도: ${proxyError}`);
+        }
+      } catch (proxyErr) {
+        proxyError = `proxy exception: ${proxyErr instanceof Error ? proxyErr.message.slice(0, 80) : 'unknown'}`;
+        console.warn(`[stock-monitor] proxy 호출 예외 — 직접 fetch 폴백:`, proxyError);
       }
-      const data = await proxyRes.json() as { statusCode: number; html: string };
-      statusCode = data.statusCode;
-      html = data.html || '';
-    } else {
-      // 직접 fetch (프록시 미설정 or 비네이버 URL)
+    }
+    if (!proxySucceeded) {
+      // 직접 fetch (프록시 미설정 or 비네이버 URL or 프록시 실패 폴백)
       const res = await fetch(url, {
         signal: controller.signal,
         headers: {
@@ -107,18 +129,40 @@ async function checkUrl(url: string, retryCount = 0): Promise<CheckResult> {
         redirect: 'follow',
         cache: 'no-store',
       });
-      clearTimeout(timeout);
       statusCode = res.status;
       html = (await res.text()).slice(0, 500_000);
     }
+    clearTimeout(timeout);
 
-    if (statusCode === 404 || statusCode === 410) return { status: 'removed', matchedPattern: `HTTP ${statusCode}` };
+    // 프록시 실패 + 직접 fetch도 차단 상태(403/5xx 등) → 인프라 에러
+    //   이 경우 consecutive_errors 누적 금지(상품별 문제 아님) — processSingleMonitor에서 errorClass로 분기
+    const proxyFellThroughToFail = proxyTried && !proxySucceeded;
+
+    if (statusCode === 404 || statusCode === 410) {
+      // 404는 삭제로 확정 (프록시 실패 여부와 무관)
+      return { status: 'removed', matchedPattern: `HTTP ${statusCode}` };
+    }
     if (statusCode === 429 && retryCount < 1) {
       await sleep(8000);
       return checkUrl(url, retryCount + 1);
     }
-    if (statusCode === 403) return { status: 'error', matchedPattern: 'HTTP 403 (접근 차단)' };
-    if (statusCode < 200 || statusCode >= 400) return { status: 'error', matchedPattern: `HTTP ${statusCode}` };
+    if (statusCode === 429) {
+      return { status: 'error', matchedPattern: 'HTTP 429 (속도제한)', errorClass: 'transient' };
+    }
+    if (statusCode === 403) {
+      return {
+        status: 'error',
+        matchedPattern: proxyFellThroughToFail ? `${proxyError} → 직접 fetch 403` : 'HTTP 403 (접근 차단)',
+        errorClass: proxyFellThroughToFail ? 'infra' : 'naver',
+      };
+    }
+    if (statusCode < 200 || statusCode >= 400) {
+      return {
+        status: 'error',
+        matchedPattern: proxyFellThroughToFail ? `${proxyError} → 직접 fetch HTTP ${statusCode}` : `HTTP ${statusCode}`,
+        errorClass: proxyFellThroughToFail ? 'infra' : 'naver',
+      };
+    }
 
     for (const p of REMOVED_PATTERNS) {
       if (p.test(html)) return { status: 'removed', matchedPattern: p.source };
@@ -149,7 +193,12 @@ async function checkUrl(url: string, retryCount = 0): Promise<CheckResult> {
 
   } catch (err) {
     clearTimeout(timeout);
-    return { status: 'error', matchedPattern: (err as Error).name === 'AbortError' ? 'timeout' : (err as Error).message?.slice(0, 80) };
+    const isTimeout = (err as Error).name === 'AbortError';
+    return {
+      status: 'error',
+      matchedPattern: isTimeout ? 'timeout' : (err as Error).message?.slice(0, 80),
+      errorClass: isTimeout ? 'transient' : 'naver',
+    };
   }
 }
 
@@ -465,7 +514,14 @@ async function processSingleMonitor(
 
   // 에러 처리
   if (check.status === 'error') {
-    const newErrors = monitor.consecutive_errors + 1;
+    // 인프라 에러(프록시 미배포/키 불일치 등)는 전체 시스템 문제 — consecutive_errors 누적 금지
+    //   누적하면 10회 후 is_active=false로 모니터가 영구 비활성화되는 부작용.
+    //   대신 source_status='error'만 기록하고 last_checked_at 갱신, 다음 크론에서 재시도.
+    const isInfra = check.errorClass === 'infra';
+    const isTransient = check.errorClass === 'transient';
+    const shouldAccumulate = !isInfra && !isTransient;
+    const newErrors = shouldAccumulate ? monitor.consecutive_errors + 1 : monitor.consecutive_errors;
+
     await supabase.from('sh_stock_monitors').update({
       source_status: 'error',
       last_checked_at: now,
@@ -480,7 +536,7 @@ async function processSingleMonitor(
       event_type: 'check_error',
       source_status_before: monitor.source_status,
       source_status_after: 'error',
-      error_message: check.matchedPattern || 'check failed',
+      error_message: `${check.errorClass || 'naver'}: ${check.matchedPattern || 'check failed'}`,
     });
 
     return { monitorId: monitor.id, checked: true, changed: false, error: check.matchedPattern };

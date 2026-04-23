@@ -25,7 +25,27 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const { scope } = body as { scope?: 'errors' | 'all_suspended' | 'recheck_all' };
+    const { scope } = body as { scope?: 'errors' | 'all_suspended' | 'recheck_all' | 'error_state' };
+
+    // 'error_state' — source_status='error'인 모든 모니터 리셋 (consecutive_errors 값 무관)
+    //   인프라 에러(프록시 미배포 등)로 누적 0 그대로인 경우 'errors' 필터에 안 걸려서 추가된 scope.
+    //   인프라 복구 후 일괄 재검사 진입 경로.
+    if (scope === 'error_state') {
+      const { count, error } = await serviceClient
+        .from('sh_stock_monitors')
+        .update({
+          consecutive_errors: 0,
+          source_status: 'unknown',
+          last_checked_at: null,
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('megaload_user_id', shUserId)
+        .eq('source_status', 'error');
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ reset: count || 0, scope: 'error_state' });
+    }
 
     if (scope === 'recheck_all') {
       // 전체 모니터의 last_checked_at을 null로 리셋 → 크론이 다음 실행에서 우선 체크

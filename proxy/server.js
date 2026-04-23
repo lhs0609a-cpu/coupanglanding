@@ -13,11 +13,115 @@
 const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const { URL } = require('url');
 
 const PORT = process.env.PORT || 8080;
 const PROXY_SECRET = process.env.PROXY_SECRET || '';
 const COUPANG_API_BASE = 'https://api-gateway.coupang.com';
+
+// ─── 네이버 원본 페이지 스크랩 (품절 동기화용) ──────────────
+
+const NAVER_BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Sec-Fetch-User': '?1',
+  'Sec-Ch-Ua': '"Chromium";v="131", "Not_A Brand";v="24"',
+  'Sec-Ch-Ua-Mobile': '?0',
+  'Sec-Ch-Ua-Platform': '"Windows"',
+  'Upgrade-Insecure-Requests': '1',
+  'Cache-Control': 'max-age=0',
+};
+
+const NAVER_FETCH_TIMEOUT_MS = 25000;
+const NAVER_MAX_REDIRECTS = 5;
+const NAVER_MAX_HTML_BYTES = 500_000;
+
+function fetchNaverUrl(targetUrl, redirectCount = 0) {
+  return new Promise((resolve, reject) => {
+    let parsed;
+    try {
+      parsed = new URL(targetUrl);
+    } catch (err) {
+      reject(new Error('invalid url: ' + err.message));
+      return;
+    }
+
+    const options = {
+      hostname: parsed.hostname,
+      port: parsed.port || 443,
+      path: parsed.pathname + parsed.search,
+      method: 'GET',
+      headers: { ...NAVER_BROWSER_HEADERS, Host: parsed.hostname },
+    };
+
+    const req = https.request(options, (res) => {
+      // 리다이렉트 처리
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+        res.resume();
+        if (redirectCount >= NAVER_MAX_REDIRECTS) {
+          reject(new Error('too many redirects'));
+          return;
+        }
+        const nextUrl = new URL(res.headers.location, targetUrl).toString();
+        fetchNaverUrl(nextUrl, redirectCount + 1).then(resolve, reject);
+        return;
+      }
+
+      // 인코딩 디코더 파이프
+      const encoding = (res.headers['content-encoding'] || '').toLowerCase();
+      let stream = res;
+      if (encoding === 'gzip') stream = res.pipe(zlib.createGunzip());
+      else if (encoding === 'deflate') stream = res.pipe(zlib.createInflate());
+      else if (encoding === 'br') stream = res.pipe(zlib.createBrotliDecompress());
+
+      const chunks = [];
+      let bytes = 0;
+      let truncated = false;
+      stream.on('data', (chunk) => {
+        if (truncated) return;
+        if (bytes + chunk.length > NAVER_MAX_HTML_BYTES) {
+          chunks.push(chunk.slice(0, NAVER_MAX_HTML_BYTES - bytes));
+          truncated = true;
+          bytes = NAVER_MAX_HTML_BYTES;
+          res.destroy();
+          return;
+        }
+        chunks.push(chunk);
+        bytes += chunk.length;
+      });
+      stream.on('end', () => {
+        resolve({
+          statusCode: res.statusCode,
+          html: Buffer.concat(chunks).toString('utf8'),
+          truncated,
+        });
+      });
+      stream.on('error', reject);
+    });
+
+    req.on('error', reject);
+    req.setTimeout(NAVER_FETCH_TIMEOUT_MS, () => {
+      req.destroy();
+      reject(new Error('naver fetch timeout'));
+    });
+    req.end();
+  });
+}
+
+async function readRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString()));
+    req.on('error', reject);
+  });
+}
 
 // ─── HMAC 서명 생성 (쿠팡 CEA 방식) ────────────────────────
 
@@ -112,6 +216,40 @@ const server = http.createServer(async (req, res) => {
   if (PROXY_SECRET && proxySecret !== PROXY_SECRET) {
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Invalid proxy secret' }));
+    return;
+  }
+
+  // ── /naver-check: 품절 동기화용 네이버 스크랩 (쿠팡 헤더 불필요) ──
+  if (req.url === '/naver-check' && req.method === 'POST') {
+    try {
+      const rawBody = await readRequestBody(req);
+      let parsedBody;
+      try {
+        parsedBody = JSON.parse(rawBody);
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+        return;
+      }
+      const targetUrl = parsedBody && typeof parsedBody.url === 'string' ? parsedBody.url : '';
+      if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'url (http/https) is required' }));
+        return;
+      }
+
+      const startTime = Date.now();
+      const result = await fetchNaverUrl(targetUrl);
+      const duration = Date.now() - startTime;
+      console.log(`[${new Date().toISOString()}] NAVER ${targetUrl.slice(0, 80)} → ${result.statusCode} (${duration}ms, ${result.html.length}B${result.truncated ? ' trunc' : ''})`);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ statusCode: result.statusCode, html: result.html }));
+    } catch (err) {
+      console.error(`[${new Date().toISOString()}] NAVER ERROR:`, err.message);
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'naver fetch failed: ' + err.message }));
+    }
     return;
   }
 
