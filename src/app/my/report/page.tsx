@@ -658,8 +658,46 @@ export default function MyReportPage() {
         </div>
       )}
 
+      {/* 자동 생성된 보고서 검토/확정 배너 */}
+      {report && report.fee_payment_status === 'awaiting_review' && (
+        <div className="rounded-lg p-4 bg-amber-50 border border-amber-200 space-y-3">
+          <div>
+            <p className="text-sm font-bold text-amber-900">
+              ⚠️ 자동 생성된 매출 보고서 — 검토 후 확정 필요
+            </p>
+            <p className="text-xs text-amber-800 mt-1">
+              쿠팡 API 매출({(report.reported_revenue ?? 0).toLocaleString()}원) 기반으로 자동 생성됐습니다.
+              비용 항목(광고비 등)을 수정하고 "확정" 버튼을 눌러야 결제 사이클에 포함됩니다.
+              매월 3일까지 미확정 시 단계적 서비스 락이 시작됩니다.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              if (!confirm('이 보고서를 확정합니다. 확정 후엔 수수료 결제 대상이 됩니다.')) return;
+              const { data, error } = await supabase.rpc('monthly_report_user_confirm', {
+                p_report_id: report.id,
+              });
+              if (error) {
+                setMessage({ type: 'error', text: '확정 실패: ' + error.message });
+                return;
+              }
+              if (data && typeof data === 'object' && 'success' in data && !(data as { success: boolean }).success) {
+                setMessage({ type: 'error', text: ((data as { error?: string }).error) || '확정 실패' });
+                return;
+              }
+              setMessage({ type: 'success', text: '보고서가 확정되었습니다. 수수료 결제일에 자동 청구됩니다.' });
+              fetchData();
+            }}
+            className="w-full sm:w-auto px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 transition"
+          >
+            ✓ 매출 보고 확정하기
+          </button>
+        </div>
+      )}
+
       {/* 수수료 납부 배너 (reviewed 이상일 때) */}
-      {report && report.fee_payment_status !== 'not_applicable' && report.fee_payment_status !== 'paid' && (
+      {report && report.fee_payment_status !== 'not_applicable' && report.fee_payment_status !== 'paid' && report.fee_payment_status !== 'awaiting_review' && (
         <FeePaymentBanner
           variant="full"
           feePaymentStatus={report.fee_payment_status as FeePaymentStatus}

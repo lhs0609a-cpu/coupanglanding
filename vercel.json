@@ -43,6 +43,14 @@
     {
       "path": "/api/cron/coupang-revenue-sync",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/megaload-replication-runner",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/monthly-report-auto-create",
+      "schedule": "0 18 * * *"
     }
   ]
 }
