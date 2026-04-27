@@ -50,6 +50,7 @@ const navItems = [
   { href: '/admin/emergency', label: '긴급 대응 관리', icon: ShieldAlert },
   { href: '/admin/violations', label: '계약위반 관리', icon: Gavel },
   { href: '/admin/payments', label: '결제 통합 대시보드', icon: CreditCard },
+  { href: '/admin/payments/test', label: '테스트 결제', icon: CreditCard },
   { href: '/admin/payment-locks', label: '결제 락 관리', icon: Lock },
   { href: '/admin/tax-invoices', label: '세금계산서', icon: Receipt },
   { href: '/admin/arena', label: '아레나 관리', icon: Swords },
