@@ -261,39 +261,44 @@ export async function POST(req: NextRequest) {
     const coupangAdapter = adapter as CoupangAdapter;
     const vendorId = coupangAdapter.getVendorId();
 
-    // Wing ID (vendorUserId) 조회 — pt_users.coupang_seller_id
-    let wingUserId = '';
-    try {
-      const { data: ptUser } = await supabase
+    // ---- 진입부 사전조회 4가지를 병렬로 (Promise.all) ----
+    // 이전: wing → seller_brand → existing → ... 순차 await (각 50~200ms 누적)
+    // 이후: 모두 동시에 발사 — 서버/DB 입장에선 동일한 4개 쿼리, 시간만 단축
+    const productCodes = products.map((p) => p.productCode);
+
+    const [
+      wingUserResult,
+      sellerBrandResult,
+      existingProductsResult,
+    ] = await Promise.all([
+      // 1) Wing ID (vendorUserId)
+      supabase
         .from('pt_users')
         .select('coupang_seller_id')
         .eq('profile_id', user.id)
-        .single();
-      wingUserId = (ptUser as Record<string, unknown>)?.coupang_seller_id as string || '';
-    } catch { /* pt_users 없으면 빈 문자열 */ }
+        .single()
+        .then((r) => r, () => ({ data: null } as { data: Record<string, unknown> | null })),
+      // 2) 셀러 브랜드 (preventionConfig 에서 우선)
+      preventionConfig?.sellerBrand
+        ? Promise.resolve({ data: { seller_brand: preventionConfig.sellerBrand } })
+        : serviceClient
+            .from('megaload_users')
+            .select('seller_brand')
+            .eq('id', shUserId)
+            .single()
+            .then((r) => r, () => ({ data: null } as { data: Record<string, unknown> | null })),
+      // 3) 중복 등록 방지: 이미 등록된 productCode
+      serviceClient
+        .from('sh_products')
+        .select('raw_data')
+        .eq('megaload_user_id', shUserId)
+        .in('raw_data->>productCode', productCodes)
+        .then((r) => r, () => ({ data: null } as { data: { raw_data: Record<string, unknown> | null }[] | null })),
+    ]);
 
-    // ---- 셀러 브랜드 조회 (상품 차별화) ----
-    let sellerBrand = '';
-    if (preventionConfig?.sellerBrand) {
-      sellerBrand = preventionConfig.sellerBrand;
-    } else {
-      try {
-        const { data: megaloadRow } = await serviceClient
-          .from('megaload_users')
-          .select('seller_brand')
-          .eq('id', shUserId)
-          .single();
-        sellerBrand = (megaloadRow as Record<string, unknown>)?.seller_brand as string || '';
-      } catch { /* 조회 실패 시 빈 문자열 */ }
-    }
-
-    // ---- 중복 등록 방지: 이미 등록된 productCode 조회 ----
-    const productCodes = products.map((p) => p.productCode);
-    const { data: existingProducts } = await serviceClient
-      .from('sh_products')
-      .select('raw_data')
-      .eq('megaload_user_id', shUserId)
-      .in('raw_data->>productCode', productCodes);
+    const wingUserId = (wingUserResult.data as Record<string, unknown> | null)?.coupang_seller_id as string || '';
+    const sellerBrand = (sellerBrandResult.data as Record<string, unknown> | null)?.seller_brand as string || '';
+    const existingProducts = existingProductsResult.data as { raw_data: Record<string, unknown> | null }[] | null;
 
     const registeredCodes = new Set(
       (existingProducts || []).map((p) => {
@@ -683,6 +688,10 @@ export async function POST(req: NextRequest) {
       }
 
       // 11. DB 저장 (트랜잭션 보장 — 실패 시 쿠팡 상품 정보를 orphan 테이블에 기록)
+      // 안전 최적화:
+      //   - source_url 을 초기 INSERT 에 포함 (이전: 별도 UPDATE 1회 추가 호출)
+      //   - sh_products INSERT 후 channels/options/images/stock_monitor 4개를 Promise.all 병렬
+      //     (모두 savedId 의존이지만 서로 독립 — 동일한 DB 쓰기, 단지 순차 대기 제거)
       let savedId: string | null = null;
       try {
         const { data: savedProduct } = await serviceClient
@@ -694,6 +703,7 @@ export async function POST(req: NextRequest) {
             display_name: product.aiDisplayName || product.name,
             brand: product.brand || '',
             status: 'active',
+            source_url: product.sourceUrl || null,  // ← 별도 UPDATE 제거, 초기 INSERT에 포함
             raw_data: {
               sourceFolder: product.folderPath, sourcePrice: product.sourcePrice, productCode: product.productCode,
               sourceUrl: product.sourceUrl || undefined,
@@ -708,33 +718,35 @@ export async function POST(req: NextRequest) {
         savedId = (savedProduct as Record<string, unknown>)?.id as string;
 
         if (savedId) {
-          // 채널 + 옵션 저장
-          await serviceClient.from('sh_product_channels').insert({
-            product_id: savedId, megaload_user_id: shUserId, channel: 'coupang',
-            channel_product_id: result.channelProductId, status: 'active', last_synced_at: new Date().toISOString(),
-          });
-          await serviceClient.from('sh_product_options').insert({
-            product_id: savedId, megaload_user_id: shUserId, option_name: '기본',
-            sku: product.productCode, sale_price: product.sellingPrice, cost_price: product.sourcePrice, stock,
-          });
-
-          // sh_product_images 저장
+          // 채널 / 옵션 / 이미지 / 품절 모니터 4개 INSERT 를 병렬 실행
+          // (각 작업이 서로 독립, 모두 savedId 만 공유)
           const imageInserts: { product_id: string; image_url: string; cdn_url: string; image_type: string; sort_order: number }[] = [];
           mainImageUrls.forEach((url, i) => imageInserts.push({ product_id: savedId!, image_url: url, cdn_url: url, image_type: 'main', sort_order: i }));
           detailImageUrls.forEach((url, i) => imageInserts.push({ product_id: savedId!, image_url: url, cdn_url: url, image_type: 'detail', sort_order: i }));
           reviewImageUrls.forEach((url, i) => imageInserts.push({ product_id: savedId!, image_url: url, cdn_url: url, image_type: 'description', sort_order: i }));
           infoImageUrls.forEach((url, i) => imageInserts.push({ product_id: savedId!, image_url: url, cdn_url: url, image_type: 'option', sort_order: i }));
-          if (imageInserts.length > 0) {
-            await serviceClient.from('sh_product_images').insert(imageInserts);
-          }
 
-          // 품절 모니터 자동 등록 (source_url 있는 상품만)
+          // Supabase 빌더는 thenable (PromiseLike) — Promise.all 은 PromiseLike 도 받음.
+          const dbWrites: PromiseLike<unknown>[] = [
+            serviceClient.from('sh_product_channels').insert({
+              product_id: savedId, megaload_user_id: shUserId, channel: 'coupang',
+              channel_product_id: result.channelProductId, status: 'active', last_synced_at: new Date().toISOString(),
+            }).then((r) => r),
+            serviceClient.from('sh_product_options').insert({
+              product_id: savedId, megaload_user_id: shUserId, option_name: '기본',
+              sku: product.productCode, sale_price: product.sellingPrice, cost_price: product.sourcePrice, stock,
+            }).then((r) => r),
+          ];
+          if (imageInserts.length > 0) {
+            dbWrites.push(
+              serviceClient.from('sh_product_images').insert(imageInserts).then((r) => r),
+            );
+          }
+          // 품절 모니터 (source_url 있는 상품만)
           if (product.sourceUrl) {
-            try {
-              await serviceClient.from('sh_products').update({ source_url: product.sourceUrl }).eq('id', savedId);
-              // sourceName에서 옵션명 추출 (예: "블랙 / M" — 네이버 원본 옵션명)
-              const registeredOptionName = product.sourceName || null;
-              await serviceClient.from('sh_stock_monitors').upsert({
+            const registeredOptionName = product.sourceName || null;
+            dbWrites.push(
+              serviceClient.from('sh_stock_monitors').upsert({
                 megaload_user_id: shUserId,
                 product_id: savedId,
                 coupang_product_id: result.channelProductId,
@@ -743,11 +755,11 @@ export async function POST(req: NextRequest) {
                 coupang_status: 'active',
                 is_active: true,
                 registered_option_name: registeredOptionName,
-              }, { onConflict: 'megaload_user_id,product_id' });
-            } catch (monitorErr) {
-              console.warn(`[batch] 품절 모니터 등록 실패 (${savedId}):`, monitorErr);
-            }
+              }, { onConflict: 'megaload_user_id,product_id' }).then((r) => r),
+            );
           }
+          await Promise.all(dbWrites);
+          // (품절 모니터 자동 등록 + source_url UPDATE 는 위 dbWrites 에 통합됨)
         }
       } catch (dbErr) {
         // DB 실패 시 보상 로직: 고아 상품 정보를 sh_sync_jobs.result에 기록
