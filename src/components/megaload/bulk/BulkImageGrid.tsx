@@ -18,7 +18,7 @@ import {
   rectSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { X, GripVertical, Star } from 'lucide-react';
+import { X, GripVertical, Star, Sparkles } from 'lucide-react';
 
 interface ImageItem {
   id: string;
@@ -31,9 +31,10 @@ interface BulkImageGridProps {
   onRemove: (id: string) => void;
   onSetAsMain?: (id: string) => void;
   onImageClick?: (id: string, index: number) => void;
+  onRegenerateClick?: (id: string, index: number) => void;
 }
 
-function SortableImage({ image, onRemove, isMain, onSetAsMain, onImageClick, idx }: { image: ImageItem; onRemove: (id: string) => void; isMain: boolean; onSetAsMain?: (id: string) => void; onImageClick?: (id: string, index: number) => void; idx: number }) {
+function SortableImage({ image, onRemove, isMain, onSetAsMain, onImageClick, onRegenerateClick, idx }: { image: ImageItem; onRemove: (id: string) => void; isMain: boolean; onSetAsMain?: (id: string) => void; onImageClick?: (id: string, index: number) => void; onRegenerateClick?: (id: string, index: number) => void; idx: number }) {
   const [imgError, setImgError] = useState(false);
   const {
     attributes,
@@ -92,6 +93,16 @@ function SortableImage({ image, onRemove, isMain, onSetAsMain, onImageClick, idx
       >
         <X className="w-3.5 h-3.5" />
       </button>
+      {/* Gemini regenerate button */}
+      {onRegenerateClick && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onRegenerateClick(image.id, idx); }}
+          className="absolute bottom-1 right-1 p-1 bg-purple-500/85 rounded text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-purple-600 shadow"
+          title="Gemini으로 이 이미지 재생성"
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+        </button>
+      )}
       {/* 순서 번호 */}
       <div className="absolute top-1 right-8 bg-black/50 text-white text-[9px] px-1 py-0.5 rounded font-mono">
         {idx + 1}
@@ -113,7 +124,7 @@ function SortableImage({ image, onRemove, isMain, onSetAsMain, onImageClick, idx
   );
 }
 
-export default function BulkImageGrid({ images, onReorder, onRemove, onSetAsMain, onImageClick }: BulkImageGridProps) {
+export default function BulkImageGrid({ images, onReorder, onRemove, onSetAsMain, onImageClick, onRegenerateClick }: BulkImageGridProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -159,6 +170,7 @@ export default function BulkImageGrid({ images, onReorder, onRemove, onSetAsMain
               onRemove={onRemove}
               onSetAsMain={onSetAsMain}
               onImageClick={onImageClick}
+              onRegenerateClick={onRegenerateClick}
             />
           ))}
         </div>
