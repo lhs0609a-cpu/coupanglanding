@@ -95,50 +95,56 @@ export default function CoupangOverviewWidget() {
 
   if (!data) return null;
 
-  // IP 만료 배너 (가장 먼저 — 화이트리스트 문제이면 키 검증 자체 도달 불가)
+  // IP 만료 배너 — "뭐가 문제 / 어디 가서 / 뭘 해라" 명확하게
   const ipBanner = data.ipOutdated ? (
     <div className="mb-4 p-4 rounded-lg border border-red-300 bg-red-50">
       <div className="flex items-start gap-3">
         <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-red-800">
-            쿠팡 API 연동이 IP 화이트리스트 문제로 차단되었습니다
+            🚨 쿠팡 연동이 끊겼어요 — IP 정보 수정 필요
           </p>
-          <p className="text-xs text-red-700 mt-1">
-            현재 호출 IP{data.failedIp ? ` ${data.failedIp}` : ''} 가 쿠팡 Wing 에 등록되지 않았어요. 영구 IP <code className="font-mono bg-white px-1 rounded">209.71.88.111</code> 등 최신 목록으로 업데이트가 필요합니다.
+          <p className="text-xs text-red-700 mt-1.5 leading-relaxed">
+            <b>무엇이 문제인지:</b> 쿠팡 Wing 에 등록한 IP 가 최신이 아니에요. 그래서 상품 등록·매출 조회 등 모든 쿠팡 기능이 막혀있어요.<br/>
+            <b>어디 가서:</b> 쿠팡 Wing → 마이페이지 → 추가판매정보 → 연동 정보 "수정" 버튼<br/>
+            <b>뭘 해야:</b> 아래 버튼 눌러 가이드 열고 → IP 10개 통째로 복사 → Wing 에 붙여넣고 저장 → 5~15분 대기 후 자동 복구
           </p>
           <button
             type="button"
             onClick={() => setIpModalOpen(true)}
-            className="mt-2 inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition"
+            className="mt-2.5 inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition"
           >
-            IP 업데이트 가이드 보기
+            지금 IP 수정하러 가기
           </button>
         </div>
       </div>
     </div>
   ) : null;
 
-  // 키 만료/인증실패 배너 (IP 정상이지만 인증 실패 시)
+  // 키 만료/인증실패 배너
   const keyBanner = (!data.ipOutdated && (data.keyExpired || data.keyAuthFailed)) ? (
     <div className="mb-4 p-4 rounded-lg border border-orange-300 bg-orange-50">
       <div className="flex items-start gap-3">
         <AlertTriangle className="w-5 h-5 text-orange-600 shrink-0 mt-0.5" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-orange-800">
-            {data.keyExpired ? '쿠팡 API 키가 만료되었습니다' : '쿠팡 API 인증에 실패했습니다'}
-          </p>
-          <p className="text-xs text-orange-700 mt-1">
             {data.keyExpired
-              ? 'Wing 에서 발급한 OPEN API 키 유효기간이 끝났어요. 재발급 후 새 키로 다시 등록해주세요.'
-              : 'Access Key 또는 Secret Key 가 일치하지 않습니다. 키 만료, 잘못된 입력, 또는 키 회수 가능성이 있어요. Wing 에서 키를 다시 확인해주세요.'}
+              ? '🚨 쿠팡 API 키 유효기간이 끝났어요 — 새로 발급받으세요'
+              : '🚨 쿠팡 API 인증 실패 — 키를 다시 확인하거나 새로 발급받으세요'}
+          </p>
+          <p className="text-xs text-orange-700 mt-1.5 leading-relaxed">
+            <b>무엇이 문제인지:</b> {data.keyExpired
+              ? '쿠팡에서 받은 OPEN API 키는 6개월짜리예요. 그 기간이 끝나서 자동으로 막혔어요.'
+              : 'Access Key 또는 Secret Key 가 잘못됐거나 만료됐어요. 쿠팡이 인증을 거부하고 있어요.'}<br/>
+            <b>어디 가서:</b> 쿠팡 Wing → 마이페이지 → 추가판매정보 → OPEN API 섹션 → 기존 키 옆 "재발급" 버튼<br/>
+            <b>뭘 해야:</b> 새 Access Key + Secret Key 받아서 (⚠ Secret Key 는 발급 직후 1번만 보임 — 즉시 복사!) → 우리 앱 설정 화면에 새 키 붙여넣고 저장
           </p>
           <button
             type="button"
             onClick={() => setKeyModalOpen(true)}
-            className="mt-2 inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-orange-600 hover:bg-orange-700 rounded-lg transition"
+            className="mt-2.5 inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-orange-600 hover:bg-orange-700 rounded-lg transition"
           >
-            API 키 재발급 가이드 보기
+            지금 키 재발급하러 가기
           </button>
         </div>
       </div>
