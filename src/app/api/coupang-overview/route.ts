@@ -42,6 +42,25 @@ export async function GET() {
     const productCount = productResult.status === 'fulfilled' ? productResult.value.count : 0;
     const settlement = settlementResult.status === 'fulfilled' ? settlementResult.value : null;
 
+    // ── IP 화이트리스트 만료 자동 감지 ──
+    // 둘 중 하나라도 "Your ip address X.X.X.X is not allowed" 메시지 포함 시
+    // ipOutdated=true + 차단된 IP 추출하여 클라이언트에 전달.
+    // 클라이언트가 배너로 사용자에게 새 IP 등록 안내.
+    let ipOutdated = false;
+    let failedIp: string | null = null;
+    const ipErrorRe = /Your ip address ([0-9.]+) is not allowed/i;
+    for (const r of [productResult, settlementResult]) {
+      if (r.status === 'rejected') {
+        const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+        const m = msg.match(ipErrorRe);
+        if (m) {
+          ipOutdated = true;
+          failedIp = m[1];
+          break;
+        }
+      }
+    }
+
     return NextResponse.json({
       productCount,
       monthlySales: settlement?.totalSales ?? 0,
@@ -49,6 +68,8 @@ export async function GET() {
       monthlyCommission: settlement?.totalCommission ?? 0,
       yearMonth,
       syncedAt: new Date().toISOString(),
+      ipOutdated,
+      failedIp,
     });
   } catch (error) {
     if (error instanceof CoupangApiError) {
