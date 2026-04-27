@@ -34,6 +34,9 @@ interface SettlementReport {
 /**
  * 결제 성공 후 정산 자동 확정
  * 관리자의 수동 확인 없이 모든 후처리를 수행한다.
+ *
+ * 멱등성: 이미 confirmed 인 리포트면 즉시 반환 (웹훅 재전송 시 중복 정산·중복 트레이너 보너스 방지).
+ * 가드는 DB 상태 기준으로 atomic update 시도 — 동시 두 호출이 와도 한쪽만 통과.
  */
 export async function completeSettlement(
   serviceClient: SupabaseClient,
@@ -42,8 +45,9 @@ export async function completeSettlement(
   const now = new Date().toISOString();
   const depositAmount = report.admin_deposit_amount || report.calculated_deposit;
 
-  // 1. 리포트 → confirmed
-  await serviceClient
+  // 1. 리포트 → confirmed (멱등성 가드: payment_status가 'confirmed'가 아닐 때만 update)
+  //    rows 길이가 0이면 이미 다른 호출이 confirmed 처리한 상태 → 중복 실행 방지
+  const { data: confirmedRows } = await serviceClient
     .from('monthly_reports')
     .update({
       payment_status: 'confirmed',
@@ -52,7 +56,15 @@ export async function completeSettlement(
       fee_confirmed_at: now,
       fee_paid_at: now,
     })
-    .eq('id', report.id);
+    .eq('id', report.id)
+    .neq('payment_status', 'confirmed')
+    .select('id');
+
+  if (!confirmedRows || confirmedRows.length === 0) {
+    // 이미 다른 호출이 정산 확정 완료. 중복 트레이너 보너스/세금계산서 발행 방지를 위해 즉시 반환.
+    console.log(`[completeSettlement] ${report.id} 이미 confirmed 상태 — 중복 처리 skip`);
+    return;
+  }
 
   // 2. 프로그램 접근 복구
   await serviceClient

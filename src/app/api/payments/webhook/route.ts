@@ -4,6 +4,22 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { completeSettlement } from '@/lib/payments/complete-settlement';
 import { logSettlementError } from '@/lib/payments/settlement-errors';
 
+// 모듈 로드 시점 env 검증 — 시크릿 미설정 채로 배포되면 즉시 명시적 경고를 남긴다.
+//   prod 빌드 시 console.error 가 Vercel 빌드/런타임 로그에 남아 운영자가 즉시 인지 가능.
+//   미설정 자체로 throw 하면 webhook 외 다른 endpoint까지 영향 가능하므로
+//   로그만 남기고 verifyWebhookAuth 가 항상 false 반환하는 기존 동작은 유지.
+(() => {
+  const hasShared = !!process.env.TOSS_WEBHOOK_SECRET;
+  const hasSigning = !!process.env.TOSS_WEBHOOK_SIGNING_KEY;
+  if (!hasShared && !hasSigning) {
+    console.error(
+      '[webhook][BOOT] 🚨 TOSS_WEBHOOK_SECRET 및 TOSS_WEBHOOK_SIGNING_KEY 둘 다 미설정 — ' +
+      '모든 결제 웹훅이 401 거부됨. 결제 후 정산 자동 확정이 멈춤. ' +
+      'Vercel 환경변수에 둘 중 하나 이상 즉시 설정 필요.',
+    );
+  }
+})();
+
 /**
  * POST /api/payments/webhook
  * 토스페이먼츠 웹훅 핸들러

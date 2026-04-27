@@ -22,6 +22,18 @@ const MAX_AMOUNT = 1000;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = 5;
 
+/**
+ * Admin별 동시 실행 차단용 advisory lock 키.
+ * payment_try_advisory_lock(BIGINT) 단일 인자 RPC 사용.
+ * 키 = 베이스(778002_000_000) + admin UUID hash(6자리 mod) → 동일 admin 동시 호출 차단.
+ * 다른 cron(778001001 등)과 키 공간 분리됨.
+ */
+function adminLockKey(adminId: string): number {
+  const hex = adminId.replace(/-/g, '').slice(0, 8);
+  const hash = parseInt(hex, 16); // 0 .. 2^32-1
+  return 778002000000 + (hash % 1000000); // 778002000000~778002999999, 53-bit safe
+}
+
 async function requireAdmin(supabase: Awaited<ReturnType<typeof createClient>>) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -67,12 +79,46 @@ export async function POST(request: NextRequest) {
 
     const serviceClient = await createServiceClient();
 
+    // Advisory lock — 같은 admin의 동시 호출 차단 (race condition 방지)
+    //   기존 rate limit(앱 카운트)은 동시 요청에 무력하므로 DB lock으로 강제 직렬화.
+    const lockKey = adminLockKey(admin.id);
+    const { data: lockOk } = await serviceClient.rpc('payment_try_advisory_lock', {
+      p_key: lockKey,
+    });
+    if (!lockOk) {
+      return NextResponse.json(
+        { error: '이전 테스트 결제가 진행 중입니다. 완료 후 다시 시도하세요.' },
+        { status: 409 },
+      );
+    }
+
+    try {
+      return await runChargeTest(serviceClient, admin.id, ptUserId, amount, cardId, note);
+    } finally {
+      await serviceClient.rpc('payment_advisory_unlock', { p_key: lockKey });
+    }
+  } catch (err) {
+    console.error('POST /api/admin/payments/charge-test error:', err);
+    return NextResponse.json({ error: '서버 오류' }, { status: 500 });
+  }
+}
+
+async function runChargeTest(
+  serviceClient: Awaited<ReturnType<typeof createServiceClient>>,
+  adminId: string,
+  ptUserId: string,
+  amount: number,
+  cardId: unknown,
+  note: unknown,
+): Promise<NextResponse> {
+  try {
     // Rate limit — 같은 admin이 1분 내 5회 초과 호출 차단
+    //   advisory lock으로 동시성은 차단되지만, 시리얼한 5회+를 막기 위한 보조 제어.
     const since = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
     const { count: recentCount } = await serviceClient
       .from('payment_transactions')
       .select('id', { count: 'exact', head: true })
-      .eq('test_initiated_by', admin.id)
+      .eq('test_initiated_by', adminId)
       .gte('created_at', since);
     if ((recentCount ?? 0) >= RATE_LIMIT_MAX) {
       return NextResponse.json(
@@ -129,7 +175,7 @@ export async function POST(request: NextRequest) {
         payment_method: 'card',
         is_auto_payment: false,
         is_test_transaction: true,
-        test_initiated_by: admin.id,
+        test_initiated_by: adminId,
         test_note: testNote,
       })
       .select()
