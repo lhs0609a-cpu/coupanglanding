@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
-import { fetchTotalProductCount, fetchSettlementData, fetchOrderBasedSales, CoupangApiError } from '@/lib/utils/coupang-api-client';
+import { fetchTotalProductCount, fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
+
+export const maxDuration = 60;
 
 /** GET: 쿠팡 연동 현황 (총 상품 수 + 이번 달 매출 요약) */
 export async function GET() {
@@ -30,25 +32,45 @@ export async function GET() {
     const now = new Date();
     const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    // 상품 수 + 매출(주문일 기준) + 정산(인식일 기준) 병렬 조회
-    //  - monthlySales: ordersheets API로 createdAt 기준 — 사용자가 기대하는 "이 달 발주"
-    //  - monthlySettlement/Commission: revenue-history API로 recognitionDate 기준 — 쿠팡이 이 달 정산한 금액
-    //    (revenue-history만 쓰면 과거 주문의 정산이 이 달로 인식돼 누적치처럼 부풀려짐)
-    const [productResult, orderSalesResult, settlementResult] = await Promise.allSettled([
+    // 상품 수 + revenue-history 정산 데이터 병렬 조회 (단일 빠른 endpoint, 페이지네이션 부담 없음)
+    //   monthlySales는 settlementDate 기준 client-side 필터링하여 yearMonth 범위만 합산
+    //   (revenue-history API는 recognitionDate로 fetch하지만 이 값이 누적치처럼 들어오는 케이스가 있어
+    //    클라 측에서 settlementDate가 yearMonth 안인 항목만 합산함으로써 누적 부풀림 방지)
+    const [productResult, settlementResult] = await Promise.allSettled([
       fetchTotalProductCount(credentials),
-      fetchOrderBasedSales(credentials, yearMonth, { excludeCancelled: true }),
       fetchSettlementData(credentials, yearMonth),
     ]);
 
     const productCount = productResult.status === 'fulfilled' ? productResult.value.count : 0;
-    const orderSales = orderSalesResult.status === 'fulfilled' ? orderSalesResult.value : null;
     const settlement = settlementResult.status === 'fulfilled' ? settlementResult.value : null;
+
+    // settlementDate가 yearMonth(예: '2026-04') 으로 시작하는 것만 매출/수수료/정산액 합산
+    const ymPrefix = yearMonth; // 'YYYY-MM'
+    let monthlySales = 0;
+    let monthlySettlement = 0;
+    let monthlyCommission = 0;
+    if (settlement?.items) {
+      for (const it of settlement.items) {
+        if (typeof it.settlementDate === 'string' && it.settlementDate.startsWith(ymPrefix)) {
+          monthlySales += it.salePrice || 0;
+          monthlySettlement += it.settlementAmount || 0;
+          monthlyCommission += it.commission || 0;
+        }
+      }
+    }
+    // settlementDate가 비어있는 응답 폴백 — 적어도 누적 부풀림은 막을 수 없지만 0 반환은 회피
+    const hasFiltered = monthlySales > 0 || monthlySettlement > 0 || monthlyCommission > 0;
+    if (!hasFiltered && settlement) {
+      monthlySales = settlement.totalSales;
+      monthlySettlement = settlement.totalSettlement;
+      monthlyCommission = settlement.totalCommission;
+    }
 
     return NextResponse.json({
       productCount,
-      monthlySales: orderSales?.totalSales ?? 0,
-      monthlySettlement: settlement?.totalSettlement ?? 0,
-      monthlyCommission: settlement?.totalCommission ?? 0,
+      monthlySales,
+      monthlySettlement,
+      monthlyCommission,
       yearMonth,
       syncedAt: new Date().toISOString(),
     });
