@@ -161,20 +161,34 @@ function callCoupangApi(method, path, query, body, accessKey, secretKey, vendorI
         'Authorization': authorization,
         'Content-Type': 'application/json;charset=UTF-8',
         'X-Requested-By': vendorId || accessKey, // 쿠팡 API 필수 헤더
+        'Accept-Encoding': 'gzip, deflate, br',  // 압축 응답 명시 수락 (해제 로직 추가됨)
       },
     };
 
     const req = https.request(options, (res) => {
+      // Content-Encoding 디코딩 — 쿠팡이 gzip/br 압축으로 응답하면
+      // raw 바이트가 그대로 전달돼 클라이언트에서 깨진 문자열로 보임 (BUG FIX)
+      const encoding = (res.headers['content-encoding'] || '').toLowerCase();
+      let stream = res;
+      if (encoding === 'gzip') stream = res.pipe(zlib.createGunzip());
+      else if (encoding === 'deflate') stream = res.pipe(zlib.createInflate());
+      else if (encoding === 'br') stream = res.pipe(zlib.createBrotliDecompress());
+
       const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        const responseBody = Buffer.concat(chunks).toString();
+      stream.on('data', (chunk) => chunks.push(chunk));
+      stream.on('end', () => {
+        const responseBody = Buffer.concat(chunks).toString('utf8');
+        // Content-Encoding 헤더는 디코딩 후 제거 (다운스트림 재압축 방지)
+        const cleanHeaders = { ...res.headers };
+        delete cleanHeaders['content-encoding'];
+        delete cleanHeaders['content-length'];  // 크기 변경됨
         resolve({
           statusCode: res.statusCode,
-          headers: res.headers,
+          headers: cleanHeaders,
           body: responseBody,
         });
       });
+      stream.on('error', reject);
     });
 
     req.on('error', reject);
