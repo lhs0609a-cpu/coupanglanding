@@ -85,6 +85,40 @@ export async function GET() {
       }
     }
 
+    // ── 진단 정보 — settlementDate 분포 분석으로 누적치 표시 원인 특정 ──
+    //   monthlySales 값이 누적치처럼 부풀려 보일 때, 응답 items의 settlementDate가
+    //   yearMonth 범위 밖이면 쿠팡 API 필터 문제, 모두 yearMonth 안이면 신규 셀러 케이스.
+    let debug: {
+      itemCount: number;
+      firstSettlementDate: string | null;
+      lastSettlementDate: string | null;
+      uniqueMonths: string[];
+      itemsOutsideRequestedMonth: number;
+      requestedMonth: string;
+    } | null = null;
+
+    if (settlement?.items && settlement.items.length > 0) {
+      const dates = settlement.items
+        .map(it => (typeof it.settlementDate === 'string' ? it.settlementDate : ''))
+        .filter(Boolean)
+        .sort();
+      const monthsInResponse = new Set<string>();
+      let outsideCount = 0;
+      for (const d of dates) {
+        const month = d.slice(0, 7); // 'YYYY-MM'
+        monthsInResponse.add(month);
+        if (month !== yearMonth) outsideCount++;
+      }
+      debug = {
+        itemCount: settlement.items.length,
+        firstSettlementDate: dates[0] || null,
+        lastSettlementDate: dates[dates.length - 1] || null,
+        uniqueMonths: Array.from(monthsInResponse).sort(),
+        itemsOutsideRequestedMonth: outsideCount,
+        requestedMonth: yearMonth,
+      };
+    }
+
     return NextResponse.json({
       productCount,
       monthlySales: settlement?.totalSales ?? 0,
@@ -98,6 +132,8 @@ export async function GET() {
       ipOutdated: alert === 'ip_outdated',
       keyExpired: alert === 'key_expired',
       keyAuthFailed: alert === 'key_auth_failed' || alert === 'key_expired',
+      // 진단용 — 누적치 의심 시 settlementDate 분포 확인
+      debug,
     });
   } catch (error) {
     if (error instanceof CoupangApiError) {
