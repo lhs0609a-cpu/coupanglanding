@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
-import { fetchTotalProductCount, fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
+import { fetchTotalProductCount, fetchSettlementData, fetchOrderBasedSales, CoupangApiError } from '@/lib/utils/coupang-api-client';
 
 /** GET: 쿠팡 연동 현황 (총 상품 수 + 이번 달 매출 요약) */
 export async function GET() {
@@ -30,21 +30,23 @@ export async function GET() {
     const now = new Date();
     const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    // 상품 수 + 매출 병렬 조회 (inflow-status는 단일 호출이라 빠름)
-    const [productResult, settlementResult] = await Promise.allSettled([
+    // 상품 수 + 매출(주문일 기준) + 정산(인식일 기준) 병렬 조회
+    //  - monthlySales: ordersheets API로 createdAt 기준 — 사용자가 기대하는 "이 달 발주"
+    //  - monthlySettlement/Commission: revenue-history API로 recognitionDate 기준 — 쿠팡이 이 달 정산한 금액
+    //    (revenue-history만 쓰면 과거 주문의 정산이 이 달로 인식돼 누적치처럼 부풀려짐)
+    const [productResult, orderSalesResult, settlementResult] = await Promise.allSettled([
       fetchTotalProductCount(credentials),
+      fetchOrderBasedSales(credentials, yearMonth, { excludeCancelled: true }),
       fetchSettlementData(credentials, yearMonth),
     ]);
 
     const productCount = productResult.status === 'fulfilled' ? productResult.value.count : 0;
+    const orderSales = orderSalesResult.status === 'fulfilled' ? orderSalesResult.value : null;
     const settlement = settlementResult.status === 'fulfilled' ? settlementResult.value : null;
-    const settlementError = settlementResult.status === 'rejected'
-      ? (settlementResult.reason instanceof Error ? settlementResult.reason.message : String(settlementResult.reason))
-      : null;
 
     return NextResponse.json({
       productCount,
-      monthlySales: settlement?.totalSales ?? 0,
+      monthlySales: orderSales?.totalSales ?? 0,
       monthlySettlement: settlement?.totalSettlement ?? 0,
       monthlyCommission: settlement?.totalCommission ?? 0,
       yearMonth,
