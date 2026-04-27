@@ -10,6 +10,7 @@ import CoupangFieldsSection from './CoupangFieldsSection';
 import DetailPageContentTab from './DetailPageContentTab';
 import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import type { EditableProduct } from './types';
+import type { NoticeCategoryMeta } from '@/lib/megaload/services/notice-field-filler';
 
 interface ImageItem {
   id: string;
@@ -38,6 +39,10 @@ interface BulkProductDetailPanelProps {
   preUploadedUrls?: Record<string, { mainImageUrls: string[]; detailImageUrls?: string[]; reviewImageUrls?: string[]; infoImageUrls?: string[] }>;
   preventionConfig?: PreventionConfig;
   titleGenProgress?: { done: number; total: number } | null;
+  /** 현재 product의 카테고리 고시정보 메타 — 상세페이지 미리보기 하단 고시정보 테이블 렌더용 */
+  noticeMeta?: NoticeCategoryMeta[];
+  /** 사용자 전역 고시정보 오버라이드 (예: 제조국, A/S 안내) */
+  noticeOverrides?: Record<string, string>;
 }
 
 export default function BulkProductDetailPanel({
@@ -56,6 +61,8 @@ export default function BulkProductDetailPanel({
   preUploadedUrls,
   preventionConfig,
   titleGenProgress,
+  noticeMeta,
+  noticeOverrides,
 }: BulkProductDetailPanelProps) {
   const [activeTab, setActiveTab] = useState<'info' | 'detail' | 'payload'>('info');
   const [issuesExpanded, setIssuesExpanded] = useState(false);
@@ -338,6 +345,8 @@ export default function BulkProductDetailPanel({
                   product={product}
                   onUpdate={onUpdate}
                   preUploadedUrls={preUploadedUrls?.[product.uid]}
+                  noticeMeta={noticeMeta}
+                  noticeOverrides={noticeOverrides}
                 />
               ) : activeTab === 'info' ? (
                 <CoupangFieldsSection

@@ -7,6 +7,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { buildRichDetailPageHtml } from '@/lib/megaload/services/detail-page-builder';
+import { fillNoticeFields, type NoticeCategoryMeta } from '@/lib/megaload/services/notice-field-filler';
 import { ensureObjectUrl } from '@/lib/megaload/services/client-folder-scanner';
 import {
   scoreProductRelevance,
@@ -27,6 +28,10 @@ interface DetailPageContentTabProps {
     reviewImageUrls?: string[];
     infoImageUrls?: string[];
   };
+  /** 현재 카테고리의 고시정보 메타 (서버에서 fetch한 categoryMetaCache의 noticeMeta) */
+  noticeMeta?: NoticeCategoryMeta[];
+  /** 사용자 전역 고시정보 오버라이드 */
+  noticeOverrides?: Record<string, string>;
 }
 
 interface CollapsibleProps {
@@ -294,6 +299,8 @@ export default function DetailPageContentTab({
   product,
   onUpdate,
   preUploadedUrls,
+  noticeMeta,
+  noticeOverrides,
 }: DetailPageContentTabProps) {
   const [previewOpen, setPreviewOpen] = useState(true);
   const [previewVariant, setPreviewVariant] = useState<'A' | 'B' | 'C' | 'D'>('A');
@@ -534,6 +541,25 @@ export default function DetailPageContentTab({
       ? [selectWithSeed([...THIRD_PARTY_IMAGE_URLS], `tp-pick:${product.productCode}`)]
       : [];
 
+    // 고시정보(상품정보제공고시) — 서버 등록 경로(coupang-product-builder.ts:366)와 동일한 fillNoticeFields() 사용
+    //   noticeMeta가 없으면(카테고리 메타 미캐싱) 빈 배열 → buildNoticeTable 호출 안 됨
+    let noticeFields: { name: string; value: string }[] | undefined;
+    if (noticeMeta && noticeMeta.length > 0) {
+      const merged = { ...(noticeOverrides || {}), ...(product.editedNoticeValues || {}) };
+      const filled = fillNoticeFields(
+        noticeMeta,
+        { name: product.name, brand: product.brand, tags: product.tags, description: description || '' },
+        undefined,
+        Object.keys(merged).length > 0 ? merged : undefined,
+        undefined,
+        product.editedCategoryName,
+      );
+      const detail = filled?.[0]?.noticeCategoryDetailName;
+      if (detail && detail.length > 0) {
+        noticeFields = detail.map(f => ({ name: f.noticeCategoryDetailName, value: f.content }));
+      }
+    }
+
     return buildRichDetailPageHtml(
       {
         productName: product.editedDisplayProductName || product.name,
@@ -548,10 +574,11 @@ export default function DetailPageContentTab({
         faqItems: [],                      // Q&A 제거
         contentBlocks: contentBlocks.length > 0 ? contentBlocks : undefined,
         categoryPath: product.editedCategoryName,
+        noticeFields,
       },
       previewVariant,
     );
-  }, [previewOpen, previewVariant, product, storyParagraphs, reviewTexts, description, preUploadedUrls, contentBlocks, resolvedDetailUrls, resolvedReviewUrls]);
+  }, [previewOpen, previewVariant, product, storyParagraphs, reviewTexts, description, preUploadedUrls, contentBlocks, resolvedDetailUrls, resolvedReviewUrls, noticeMeta, noticeOverrides]);
 
   return (
     <div className="space-y-3">

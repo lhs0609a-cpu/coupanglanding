@@ -259,6 +259,7 @@ export default function BulkRegisterPanel() {
           includeReviewImages={actions.includeReviewImages}
           noticeOverrides={actions.noticeOverrides}
           preventionConfig={actions.preventionConfig}
+          categoryMetaCache={actions.categoryMetaCache}
           preflightPhase={actions.preflightPhase}
           preflightResults={actions.preflightResults}
           preflightStats={actions.preflightStats}

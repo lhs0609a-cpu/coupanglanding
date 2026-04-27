@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import BulkImageGrid from './BulkImageGrid';
 import StockImageSwapModal from './StockImageSwapModal';
+import GeminiRegenerateModal from './GeminiRegenerateModal';
 import { STOCK_CATEGORY_MAP } from '@/lib/megaload/data/stock-image-categories';
 import { shuffleWithSeed, type PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import type { PayloadPreviewData } from './PayloadPreviewPanel';
@@ -130,6 +131,9 @@ function ImageSectionWithPreview({
   // 스왑 모달 상태
   const [swapModalOpen, setSwapModalOpen] = useState(false);
   const [swapTargetIndex, setSwapTargetIndex] = useState(0);
+  // Gemini 재생성 모달 상태
+  const [regenModalOpen, setRegenModalOpen] = useState(false);
+  const [regenTargetIndex, setRegenTargetIndex] = useState(0);
 
   // 스톡 이미지 카테고리 정보 해석
   const resolvedCategory = useMemo(() => {
@@ -152,6 +156,18 @@ function ImageSectionWithPreview({
       onSwapStockImage(productUid, swapTargetIndex, cdnUrl);
     }
   }, [onSwapStockImage, productUid, swapTargetIndex]);
+
+  const handleRegenerateClick = useCallback((_id: string, index: number) => {
+    if (!onSwapStockImage) return;
+    setRegenTargetIndex(index);
+    setRegenModalOpen(true);
+  }, [onSwapStockImage]);
+
+  const handleRegenerateApply = useCallback((newUrl: string) => {
+    if (onSwapStockImage && productUid) {
+      onSwapStockImage(productUid, regenTargetIndex, newUrl);
+    }
+  }, [onSwapStockImage, productUid, regenTargetIndex]);
 
   // 셀러 A/B/C 시드로 각각 다른 셔플 결과 미리보기
   const shuffledPreviews = useMemo(() => {
@@ -188,6 +204,7 @@ function ImageSectionWithPreview({
               onImageReorder(newOrder);
             }}
             onImageClick={stockCategoryKey ? handleImageClick : undefined}
+            onRegenerateClick={onSwapStockImage ? handleRegenerateClick : undefined}
           />
 
           {/* 스톡 이미지 스왑 모달 */}
@@ -201,6 +218,14 @@ function ImageSectionWithPreview({
               onSelect={handleSwapSelect}
             />
           )}
+
+          {/* Gemini 재생성 모달 */}
+          <GeminiRegenerateModal
+            isOpen={regenModalOpen}
+            onClose={() => setRegenModalOpen(false)}
+            currentImageUrl={imageItems[regenTargetIndex]?.url || ''}
+            onApply={handleRegenerateApply}
+          />
 
           {/* 업로드 순서 미리보기 — 이미지 2장 이상이면 항상 표시 */}
           {imageItems.length > 1 && (
@@ -644,8 +669,20 @@ export default function CoupangFieldsSection({
         missingCount={priceMissing}
         allComplete={priceMissing === 0}
       >
-        {/* 원가 (도매가) — 읽기전용 */}
-        <ReadonlyField label="원가 (도매가)" value={`${product.sourcePrice.toLocaleString()}원`} />
+        {/* 원가 (도매가) — 편집 가능 (크롤러가 추출한 값이 틀릴 때 수동 보정) */}
+        <div>
+          <OptionalLabel>원가 (도매가)</OptionalLabel>
+          <input
+            type="number"
+            value={product.sourcePrice}
+            onChange={(e) => onUpdate(product.uid, 'sourcePrice', Number(e.target.value) || 0)}
+            className={`${inputNormal} text-right tabular-nums`}
+            placeholder="0"
+          />
+          <p className="text-[10px] text-gray-400 mt-0.5">
+            소싱처 원가가 틀리면 수정하세요. 판매가/정가는 별도로 조정합니다.
+          </p>
+        </div>
 
         {/* 판매가 */}
         <div className={product.editedSellingPrice <= 0 ? 'border-l-2 border-l-red-400 pl-3' : ''}>

@@ -1362,20 +1362,15 @@ export function useBulkRegisterActions() {
       // 브라우저 모드: main + detail + review 이미지를 flat 풀로 병렬 업로드
       // (info는 stock-image 자동 합성이라 클라 업로드 대상 아님)
       type Kind = 'main' | 'detail' | 'review';
-      const allTasks: { uid: string; kind: Kind; imgIndex: number; img: ScannedImageFile }[] = [];
-      const productUrlMap: Record<string, { main: string[]; detail: string[]; review: string[] }> = {};
+      const allTasks: { uid: string; kind: Kind; img: ScannedImageFile }[] = [];
+      // 파일명 기준 Map — preupload 도중 유저가 X로 이미지를 제거해도
+      // cache 주입 시 productsRef.current의 최신 scannedMainImages만 참조하므로 제거된 URL은 자연 누락
+      const productUrlMap: Record<string, { main: Map<string, string>; detail: Map<string, string>; review: Map<string, string> }> = {};
       for (const p of browserProducts) {
-        const mains = p.scannedMainImages || [];
-        const details = p.scannedDetailImages || [];
-        const reviews = p.scannedReviewImages || [];
-        productUrlMap[p.uid] = {
-          main: new Array(mains.length).fill(''),
-          detail: new Array(details.length).fill(''),
-          review: new Array(reviews.length).fill(''),
-        };
-        for (let j = 0; j < mains.length; j++) allTasks.push({ uid: p.uid, kind: 'main', imgIndex: j, img: mains[j] });
-        for (let j = 0; j < details.length; j++) allTasks.push({ uid: p.uid, kind: 'detail', imgIndex: j, img: details[j] });
-        for (let j = 0; j < reviews.length; j++) allTasks.push({ uid: p.uid, kind: 'review', imgIndex: j, img: reviews[j] });
+        productUrlMap[p.uid] = { main: new Map(), detail: new Map(), review: new Map() };
+        for (const img of p.scannedMainImages || []) allTasks.push({ uid: p.uid, kind: 'main', img });
+        for (const img of p.scannedDetailImages || []) allTasks.push({ uid: p.uid, kind: 'detail', img });
+        for (const img of p.scannedReviewImages || []) allTasks.push({ uid: p.uid, kind: 'review', img });
       }
 
       let completed = 0;
@@ -1392,12 +1387,12 @@ export function useBulkRegisterActions() {
             const brand = preventionConfig.enabled ? preventionConfig.sellerBrand : undefined;
             const compressed = await compressImage(file, brand);
             const url = await uploadSingleImage(compressed, task.img.name);
-            productUrlMap[task.uid][task.kind][task.imgIndex] = url;
-          } catch { /* 실패 시 빈 문자열 — 소비 시 filter(Boolean)로 제거 */ }
+            if (url) productUrlMap[task.uid][task.kind].set(task.img.name, url);
+          } catch { /* 실패 시 Map에 기록 안 함 — 소비 시 자동 누락 */ }
           completed++;
           // 진행률 업데이트 (10개마다) — main 업로드 1개라도 성공한 상품을 "done"으로 카운트
           if (completed % 10 === 0 || completed === allTasks.length) {
-            const productsDone = Object.values(productUrlMap).filter(m => m.main.some(Boolean)).length;
+            const productsDone = Object.values(productUrlMap).filter(m => m.main.size > 0).length;
             setImagePreuploadProgress(prev => ({ ...prev, done: productsDone }));
           }
         }
@@ -1407,19 +1402,28 @@ export function useBulkRegisterActions() {
         Array.from({ length: Math.min(CONCURRENCY, allTasks.length) }, () => worker()),
       );
 
-      // 캐시에 저장 — main 1개 이상 성공한 상품만 (main 없으면 등록 자체 불가)
+      // 캐시에 저장 — productsRef.current의 최신 scannedXxxImages 순서로 URL 조립
+      // (preupload 도중 유저가 제거한 이미지는 Map 조회 결과에서 자연 누락됨)
       const timestamped: Record<string, { mainImageUrls: string[]; detailImageUrls: string[]; reviewImageUrls: string[]; infoImageUrls: string[]; uploadedAt: number }> = {};
       for (const p of browserProducts) {
+        const latest = productsRef.current.find(x => x.uid === p.uid);
+        if (!latest) continue;
         const m = productUrlMap[p.uid];
         if (!m) continue;
-        const mainUrls = m.main.filter(Boolean);
+        const mainUrls = (latest.scannedMainImages || [])
+          .map(img => m.main.get(img.name) || '')
+          .filter(Boolean);
         if (mainUrls.length === 0) continue;
         // detail/review는 인덱스 위치 보존 (editedDetailImageOrder가 인덱스 기반)
-        // 실패한 슬롯은 빈 문자열로 남고, 소비 측 filterImagesByOrder + 이후 filter(Boolean)에서 제거됨
+        // 실패/제거된 슬롯은 빈 문자열로 남고, 소비 측 filterImagesByOrder + 이후 filter(Boolean)에서 제거됨
+        const detailUrls = (latest.scannedDetailImages || [])
+          .map(img => m.detail.get(img.name) || '');
+        const reviewUrls = (latest.scannedReviewImages || [])
+          .map(img => m.review.get(img.name) || '');
         timestamped[p.uid] = {
           mainImageUrls: mainUrls,
-          detailImageUrls: m.detail,
-          reviewImageUrls: m.review,
+          detailImageUrls: detailUrls,
+          reviewImageUrls: reviewUrls,
           infoImageUrls: [],
           uploadedAt: Date.now(),
         };
@@ -2292,6 +2296,7 @@ export function useBulkRegisterActions() {
     includeReviewImages, setIncludeReviewImages,
     useStockImages, setUseStockImages,
     noticeOverrides, setNoticeOverrides,
+    categoryMetaCache,
     preventionConfig, setPreventionEnabled, setSellerBrand, setAutoBarcodeGeneration,
     loadingShipping, shippingError,
     scanning, scanError, browsingFolder, browseProgress, thirdPartyImages, savedThirdPartyUrls,

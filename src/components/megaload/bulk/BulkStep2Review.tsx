@@ -12,6 +12,7 @@ import BulkProductDetailPanel, { type PayloadPreviewState } from './BulkProductD
 import type { PayloadPreviewData } from './PayloadPreviewPanel';
 import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import type { EditableProduct, CategoryItem, FilterMode, SortField, SortDirection, FailureDiagnostic } from './types';
+import type { CategoryMetadata } from '@/lib/megaload/services/product-validator';
 
 interface BulkStep2ReviewProps {
   products: EditableProduct[];
@@ -74,6 +75,7 @@ interface BulkStep2ReviewProps {
   includeReviewImages?: boolean;
   noticeOverrides?: Record<string, string>;
   preventionConfig?: PreventionConfig;
+  categoryMetaCache?: Record<string, CategoryMetadata>;
   // Preflight
   preflightPhase?: 'idle' | 'running' | 'complete' | 'error';
   preflightResults?: Record<string, PreflightProductResult>;
@@ -195,6 +197,7 @@ export default memo(function BulkStep2Review({
   onReorderImages, onRemoveImage, onSwapStockImage, getDetailImageUrls,
   selectedOutbound, selectedReturn, returnCharge, contactNumber, includeReviewImages, noticeOverrides,
   preventionConfig,
+  categoryMetaCache,
   preflightPhase, preflightResults, preflightStats, preflightDurationMs,
   canaryPhase, canaryResult, canaryTargetUid, canRegister,
   onPreflight, onCanary,
@@ -1057,6 +1060,8 @@ export default memo(function BulkStep2Review({
         preUploadedUrls={imagePreuploadCache}
         preventionConfig={preventionConfig}
         titleGenProgress={titleGenProgress}
+        noticeMeta={selectedProduct?.editedCategoryCode ? categoryMetaCache?.[selectedProduct.editedCategoryCode]?.noticeMeta : undefined}
+        noticeOverrides={noticeOverrides}
       />
     </div>
   );
