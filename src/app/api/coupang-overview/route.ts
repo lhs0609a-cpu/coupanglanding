@@ -42,38 +42,45 @@ export async function GET() {
     const productCount = productResult.status === 'fulfilled' ? productResult.value.count : 0;
     const settlement = settlementResult.status === 'fulfilled' ? settlementResult.value : null;
 
-    // ── 자동 진단 — IP 만료 / 키 만료 / 인증 실패 ──
-    // 응답 에러 메시지에서 패턴 감지하여 클라이언트 배너용 플래그 반환.
-    // DB 컬럼 추가 없이 런타임 시그널만으로 동작.
-    let ipOutdated = false;
+    // ── 자동 진단 — 모든 실패 케이스 패턴 감지 ──
+    // 응답 에러 메시지를 분석해 비기술 사용자가 이해할 수 있는 단일 alert 반환.
+    // 우선순위: ip > key_expired > key_auth_failed > rate_limited > server_error > proxy_unreachable > timeout
+    type AlertKind =
+      | 'ip_outdated'
+      | 'key_expired'
+      | 'key_auth_failed'
+      | 'rate_limited'
+      | 'server_error'
+      | 'proxy_unreachable'
+      | 'timeout'
+      | null;
+
+    let alert: AlertKind = null;
     let failedIp: string | null = null;
-    let keyExpired = false;       // 명시적 "만료" 신호
-    let keyAuthFailed = false;    // 401 (만료 또는 잘못된 키 — 모달에서 둘 다 안내)
 
-    const ipErrorRe = /Your ip address ([0-9.]+) is not allowed/i;
-    // 쿠팡 OpenAPI 만료 시 errorCode/Message 패턴
-    const expiredKeyRe = /expired|만료|EXPIRED_?AUTH|EXPIRED_?KEY|key.*expir/i;
-    const authFailRe = /인증 실패 \(401\)|AUTH_?FAIL|INVALID_?ACCESS_?KEY|HTTP 401/i;
+    const patterns: Array<{ kind: AlertKind; re: RegExp }> = [
+      { kind: 'ip_outdated',       re: /Your ip address ([0-9.]+) is not allowed/i },
+      { kind: 'key_expired',       re: /expired|만료|EXPIRED_?AUTH|EXPIRED_?KEY|key.*expir/i },
+      { kind: 'key_auth_failed',   re: /인증 실패 \(401\)|AUTH_?FAIL|INVALID_?ACCESS_?KEY|HTTP 401|status.*401/i },
+      { kind: 'rate_limited',      re: /API 호출 한도|RATE_?LIMIT|rate.?limit|HTTP 429|status.*429/i },
+      { kind: 'server_error',      re: /HTTP 50[234]|status.*50[234]|server error|internal.*error/i },
+      { kind: 'proxy_unreachable', re: /ECONNREFUSED|ENOTFOUND|fetch failed|network|proxy.*fail/i },
+      { kind: 'timeout',           re: /타임아웃|TIMEOUT|timed? out|ETIMEDOUT/i },
+    ];
 
-    for (const r of [productResult, settlementResult]) {
-      if (r.status === 'rejected') {
-        const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
-
-        // IP 화이트리스트
-        const ipMatch = msg.match(ipErrorRe);
-        if (ipMatch) {
-          ipOutdated = true;
-          failedIp = ipMatch[1];
-        }
-
-        // 키 만료 (specific)
-        if (expiredKeyRe.test(msg)) {
-          keyExpired = true;
-        }
-
-        // 401 일반 (만료 or 잘못된 키)
-        if (authFailRe.test(msg)) {
-          keyAuthFailed = true;
+    // 우선순위대로 첫 매치 채택
+    outer: for (const r of [productResult, settlementResult]) {
+      if (r.status !== 'rejected') continue;
+      const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+      for (const p of patterns) {
+        if (p.re.test(msg)) {
+          alert = p.kind;
+          // IP 의 경우 차단된 IP 추출
+          if (p.kind === 'ip_outdated') {
+            const m = msg.match(/Your ip address ([0-9.]+)/i);
+            if (m) failedIp = m[1];
+          }
+          break outer;
         }
       }
     }
@@ -85,10 +92,12 @@ export async function GET() {
       monthlyCommission: settlement?.totalCommission ?? 0,
       yearMonth,
       syncedAt: new Date().toISOString(),
-      ipOutdated,
+      alert,        // null | 'ip_outdated' | 'key_expired' | 'key_auth_failed' | 'rate_limited' | 'server_error' | 'proxy_unreachable' | 'timeout'
       failedIp,
-      keyExpired,
-      keyAuthFailed,
+      // 하위 호환 (이전 필드도 함께 반환)
+      ipOutdated: alert === 'ip_outdated',
+      keyExpired: alert === 'key_expired',
+      keyAuthFailed: alert === 'key_auth_failed' || alert === 'key_expired',
     });
   } catch (error) {
     if (error instanceof CoupangApiError) {
