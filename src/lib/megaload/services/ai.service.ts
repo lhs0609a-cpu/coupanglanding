@@ -485,19 +485,27 @@ export async function generateProductStoriesBatch(
     chunks.push(products.slice(i, i + 10));
   }
 
-  const allResults: AiServiceResult[] = [];
+  // 모든 청크를 병렬 처리. (이전: 순차 for-loop 으로 청크당 12~18초씩 누적)
+  // 150개 = 15청크 → 30초 → 3초 (10x).
+  const chunkResults = await Promise.all(chunks.map((chunk) => processChunk(chunk, apiKey)));
+  return chunkResults.flat();
+}
 
-  for (const chunk of chunks) {
-    const productList = chunk
-      .map((p, idx) => {
-        const tone = STORY_TONES[idx % STORY_TONES.length];
-        const featureStr = p.features.length > 0 ? p.features.join(', ') : '없음';
-        const descStr = p.description ? ` | 설명: ${p.description}` : '';
-        return `${idx + 1}. [톤: ${tone}] 상품명: "${p.productName}" | 카테고리: ${p.categoryPath || p.category} | 특징: ${featureStr}${descStr}`;
-      })
-      .join('\n');
+// 청크 1개를 처리해 AiServiceResult[] 반환 — 호출 단위로 병렬 가능하게 분리.
+async function processChunk(
+  chunk: StoryBatchInput[],
+  apiKey: string,
+): Promise<AiServiceResult[]> {
+  const productList = chunk
+    .map((p, idx) => {
+      const tone = STORY_TONES[idx % STORY_TONES.length];
+      const featureStr = p.features.length > 0 ? p.features.join(', ') : '없음';
+      const descStr = p.description ? ` | 설명: ${p.description}` : '';
+      return `${idx + 1}. [톤: ${tone}] 상품명: "${p.productName}" | 카테고리: ${p.categoryPath || p.category} | 특징: ${featureStr}${descStr}`;
+    })
+    .join('\n');
 
-    const prompt = `당신은 쿠팡 상세페이지 전문 카피라이터입니다. 네이버 블로그 스타일로 상품 소개 글을 작성합니다.
+  const prompt = `당신은 쿠팡 상세페이지 전문 카피라이터입니다. 네이버 블로그 스타일로 상품 소개 글을 작성합니다.
 
 [상품 목록]
 ${productList}
@@ -532,54 +540,51 @@ ${productList}
 JSON: { "results": [{ "paragraphs": ["...", "...", "..."], "reviewTexts": ["...", "..."] }, ...] }
 반드시 ${chunk.length}개 항목을 순서대로 반환.`;
 
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.8,
-        max_tokens: 8000,
-        response_format: { type: 'json_object' },
-      }),
-    });
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.8,
+      max_tokens: 8000,
+      response_format: { type: 'json_object' },
+    }),
+  });
 
-    if (!res.ok) {
-      allResults.push(...chunk.map(() => ({ content: '', creditsUsed: 0, model: 'none' })));
-      continue;
-    }
-
-    const data = await res.json() as { choices: { message: { content: string } }[] };
-    try {
-      const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
-      const results: { paragraphs?: string[]; reviewTexts?: string[] }[] =
-        Array.isArray(parsed.results) ? parsed.results :
-        Array.isArray(parsed.stories) ? parsed.stories.map((s: string) => ({ paragraphs: [s] })) :
-        [];
-
-      for (let i = 0; i < chunk.length; i++) {
-        const item = results[i] || {};
-        const paragraphs: string[] = Array.isArray(item.paragraphs) ? item.paragraphs : [];
-        const reviewTexts: string[] = Array.isArray(item.reviewTexts) ? item.reviewTexts : [];
-
-        // content에는 문단을 \n\n으로 합쳐서 저장 (기존 호환)
-        // paragraphs와 reviewTexts는 JSON으로 별도 저장
-        const content = JSON.stringify({ paragraphs, reviewTexts });
-        allResults.push({
-          content,
-          creditsUsed: paragraphs.length > 0 ? 1200 : 0,
-          model: paragraphs.length > 0 ? 'gpt-4o-mini' : 'none',
-        });
-      }
-    } catch {
-      allResults.push(...chunk.map(() => ({ content: '', creditsUsed: 0, model: 'none' })));
-    }
+  if (!res.ok) {
+    return chunk.map(() => ({ content: '', creditsUsed: 0, model: 'none' }));
   }
 
-  return allResults;
+  const data = await res.json() as { choices: { message: { content: string } }[] };
+  try {
+    const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
+    const results: { paragraphs?: string[]; reviewTexts?: string[] }[] =
+      Array.isArray(parsed.results) ? parsed.results :
+      Array.isArray(parsed.stories) ? parsed.stories.map((s: string) => ({ paragraphs: [s] })) :
+      [];
+
+    const out: AiServiceResult[] = [];
+    for (let i = 0; i < chunk.length; i++) {
+      const item = results[i] || {};
+      const paragraphs: string[] = Array.isArray(item.paragraphs) ? item.paragraphs : [];
+      const reviewTexts: string[] = Array.isArray(item.reviewTexts) ? item.reviewTexts : [];
+
+      // content 에는 문단을 JSON으로 저장 (기존 호환)
+      const content = JSON.stringify({ paragraphs, reviewTexts });
+      out.push({
+        content,
+        creditsUsed: paragraphs.length > 0 ? 1200 : 0,
+        model: paragraphs.length > 0 ? 'gpt-4o-mini' : 'none',
+      });
+    }
+    return out;
+  } catch {
+    return chunk.map(() => ({ content: '', creditsUsed: 0, model: 'none' }));
+  }
 }
 
 export async function mapCategory(

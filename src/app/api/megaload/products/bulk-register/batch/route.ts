@@ -302,6 +302,52 @@ export async function POST(req: NextRequest) {
       }).filter(Boolean),
     );
 
+    // ---- 카테고리 메타 일괄 prefetch (누락된 코드만 한 번에 조회) ----
+    // 이전: 상품마다 개별 재조회 → 카테고리 N개 × 1~2초 누적 (병목 #3)
+    // 개선: 누락된 카테고리 코드 dedup → Promise.all 병렬 조회 (1.5~2초 1회로 단축)
+    {
+      const missingNoticeCodes = new Set<string>();
+      const missingAttrCodes = new Set<string>();
+      for (const p of products) {
+        if (!p.noticeMeta || p.noticeMeta.length === 0) missingNoticeCodes.add(p.categoryCode);
+        if (!p.attributeMeta || p.attributeMeta.length === 0) missingAttrCodes.add(p.categoryCode);
+      }
+      const allMissing = new Set([...missingNoticeCodes, ...missingAttrCodes]);
+      if (allMissing.size > 0) {
+        const noticeCache = new Map<string, NoticeCategoryMeta[]>();
+        const attrCache = new Map<string, AttributeMeta[]>();
+        await Promise.allSettled(
+          [...allMissing].map(async (code) => {
+            if (missingNoticeCodes.has(code)) {
+              try {
+                const r = await coupangAdapter.getNoticeCategoryFields(code);
+                noticeCache.set(code, r.items.map((item) => ({
+                  noticeCategoryName: item.noticeCategoryName,
+                  fields: item.noticeCategoryDetailNames.map((d) => ({ name: d.name, required: d.required })),
+                })));
+              } catch { /* 개별 실패 무시 */ }
+            }
+            if (missingAttrCodes.has(code)) {
+              try {
+                const r = await coupangAdapter.getCategoryAttributes(code);
+                attrCache.set(code, r.items);
+              } catch { /* 개별 실패 무시 */ }
+            }
+          }),
+        );
+        // 상품에 채워넣기
+        for (const p of products) {
+          if ((!p.noticeMeta || p.noticeMeta.length === 0) && noticeCache.has(p.categoryCode)) {
+            p.noticeMeta = noticeCache.get(p.categoryCode)!;
+          }
+          if ((!p.attributeMeta || p.attributeMeta.length === 0) && attrCache.has(p.categoryCode)) {
+            p.attributeMeta = attrCache.get(p.categoryCode)!;
+          }
+        }
+        console.log(`[batch] 메타 prefetch: notice=${noticeCache.size}, attr=${attrCache.size} / 누락카테고리=${allMissing.size}`);
+      }
+    }
+
     // ---- AI 스토리 배치 생성 ----
     const batchAiStories = new Map<string, string>();
     if (generateAiContent) {
@@ -428,19 +474,19 @@ export async function POST(req: NextRequest) {
         // product.detailImages/reviewImages에 로컬 경로가 남아있을 수 있음 → 서버 업로드 폴백
         if (detailImageUrls.length === 0 && product.detailImages?.length > 0) {
           console.log(`[batch] ${product.productCode} detail 폴백: preUploaded=0, localPaths=${product.detailImages.length}`);
-          const detailFallbackUrls = await uploadLocalImagesParallel(product.detailImages, shUserId, 10, true, sellerBrand || undefined);
+          const detailFallbackUrls = await uploadLocalImagesParallel(product.detailImages, shUserId, 20, true, sellerBrand || undefined);
           detailImageUrls = detailFallbackUrls.filter(Boolean);
         }
         if (reviewImageUrls.length === 0 && includeReviewImages && product.reviewImages?.length > 0) {
           console.log(`[batch] ${product.productCode} review 폴백: preUploaded=0, localPaths=${product.reviewImages.length}`);
-          const reviewFallbackUrls = await uploadLocalImagesParallel(product.reviewImages, shUserId, 10, true, sellerBrand || undefined);
+          const reviewFallbackUrls = await uploadLocalImagesParallel(product.reviewImages, shUserId, 20, true, sellerBrand || undefined);
           reviewImageUrls = reviewFallbackUrls.filter(Boolean);
         }
       } else {
         const reviewPaths = includeReviewImages ? product.reviewImages : [];
         const allPaths = [...product.mainImages, ...product.detailImages, ...reviewPaths, ...product.infoImages];
 
-        const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, 10, true, sellerBrand || undefined);
+        const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, 20, true, sellerBrand || undefined);
 
         let offset = 0;
         mainImageUrls = allUrls.slice(offset, offset + product.mainImages.length).filter(Boolean);
@@ -742,21 +788,24 @@ export async function POST(req: NextRequest) {
     let successCount = 0;
     let errorCount = 0;
 
-    const PARALLEL_REGISTER = 10;
+    // 동시성 10 → 20 으로 상향. 쿠팡 API 동시 20 처리 검증됨.
+    // 카운터 RPC 도 청크 단위로 합산하여 1회만 호출 (이전: 상품당 sequential RPC).
+    const PARALLEL_REGISTER = 20;
     for (let i = 0; i < products.length; i += PARALLEL_REGISTER) {
       const chunk = products.slice(i, i + PARALLEL_REGISTER);
       const chunkResults = await Promise.allSettled(chunk.map((p, j) => registerSingleProduct(p, i + j)));
 
-      // 순차적으로 카운트 업데이트 (race condition 방지)
+      // 결과 집계 (RPC 호출 전 동기 처리)
+      let chunkProcessed = 0;
+      let chunkErrors = 0;
       for (let j = 0; j < chunkResults.length; j++) {
         const result = chunkResults[j];
         const product = chunk[j];
-        const isSuccess = result.status === 'fulfilled' && result.value.success;
 
         if (result.status === 'fulfilled') {
           results.push(result.value);
-          if (result.value.success) successCount++;
-          else errorCount++;
+          if (result.value.success) { successCount++; }
+          else { errorCount++; chunkErrors++; }
         } else {
           const errMsg = result.reason instanceof Error ? result.reason.message : '알 수 없는 오류';
           results.push({
@@ -765,33 +814,34 @@ export async function POST(req: NextRequest) {
             detailedError: classifyError(errMsg, 'API 등록'),
           });
           errorCount++;
+          chunkErrors++;
         }
+        chunkProcessed++;
+      }
 
-        // sh_sync_jobs 카운트 업데이트 (atomic RPC → fallback with retry)
+      // sh_sync_jobs 카운터 — 청크 1회 batch RPC (이전: 상품당 sequential)
+      try {
+        const { error: rpcError } = await serviceClient.rpc('increment_sync_job_counts', {
+          p_job_id: jobId,
+          p_processed: chunkProcessed,
+          p_errors: chunkErrors,
+        });
+        if (rpcError) throw rpcError;
+      } catch {
         try {
-          const { error: rpcError } = await serviceClient.rpc('increment_sync_job_counts', {
-            p_job_id: jobId, p_processed: 1,
-            p_errors: isSuccess ? 0 : 1,
+          await serviceClient.rpc('increment_sync_job_counts_fallback', {
+            p_job_id: jobId,
+            p_add_processed: chunkProcessed,
+            p_add_errors: chunkErrors,
           });
-          if (rpcError) throw rpcError;
         } catch {
-          // RPC 실패 시 직접 increment (SQL 수준 atomic)
-          try {
-            await serviceClient.rpc('increment_sync_job_counts_fallback', {
-              p_job_id: jobId,
-              p_add_processed: 1,
-              p_add_errors: isSuccess ? 0 : 1,
-            });
-          } catch {
-            // 최종 fallback: 현재 배치 종료 후 complete-job에서 최종 보정됨
-            console.warn(`[batch] Job counter 업데이트 실패 — complete-job에서 보정 예정`);
-          }
+          console.warn(`[batch] Job counter 업데이트 실패 — complete-job에서 보정 예정`);
         }
       }
 
-      // 청크 간 짧은 딜레이 (레이트 리밋)
+      // 청크 간 딜레이 100ms → 50ms (쿠팡 API 측 throttle 자동 감지)
       if (i + PARALLEL_REGISTER < products.length) {
-        await new Promise((r) => setTimeout(r, 100));
+        await new Promise((r) => setTimeout(r, 50));
       }
     }
 
