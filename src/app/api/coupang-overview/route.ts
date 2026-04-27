@@ -32,10 +32,8 @@ export async function GET() {
     const now = new Date();
     const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    // 상품 수 + revenue-history 정산 데이터 병렬 조회 (단일 빠른 endpoint, 페이지네이션 부담 없음)
-    //   monthlySales는 settlementDate 기준 client-side 필터링하여 yearMonth 범위만 합산
-    //   (revenue-history API는 recognitionDate로 fetch하지만 이 값이 누적치처럼 들어오는 케이스가 있어
-    //    클라 측에서 settlementDate가 yearMonth 안인 항목만 합산함으로써 누적 부풀림 방지)
+    // revenue-history 단일 호출 — recognitionDateFrom/To로 yearMonth 범위 조회
+    //   쿠팡 API가 이미 날짜 필터를 적용해 응답하므로 client-side 후처리 불필요
     const [productResult, settlementResult] = await Promise.allSettled([
       fetchTotalProductCount(credentials),
       fetchSettlementData(credentials, yearMonth),
@@ -44,33 +42,11 @@ export async function GET() {
     const productCount = productResult.status === 'fulfilled' ? productResult.value.count : 0;
     const settlement = settlementResult.status === 'fulfilled' ? settlementResult.value : null;
 
-    // settlementDate가 yearMonth(예: '2026-04') 으로 시작하는 것만 매출/수수료/정산액 합산
-    const ymPrefix = yearMonth; // 'YYYY-MM'
-    let monthlySales = 0;
-    let monthlySettlement = 0;
-    let monthlyCommission = 0;
-    if (settlement?.items) {
-      for (const it of settlement.items) {
-        if (typeof it.settlementDate === 'string' && it.settlementDate.startsWith(ymPrefix)) {
-          monthlySales += it.salePrice || 0;
-          monthlySettlement += it.settlementAmount || 0;
-          monthlyCommission += it.commission || 0;
-        }
-      }
-    }
-    // settlementDate가 비어있는 응답 폴백 — 적어도 누적 부풀림은 막을 수 없지만 0 반환은 회피
-    const hasFiltered = monthlySales > 0 || monthlySettlement > 0 || monthlyCommission > 0;
-    if (!hasFiltered && settlement) {
-      monthlySales = settlement.totalSales;
-      monthlySettlement = settlement.totalSettlement;
-      monthlyCommission = settlement.totalCommission;
-    }
-
     return NextResponse.json({
       productCount,
-      monthlySales,
-      monthlySettlement,
-      monthlyCommission,
+      monthlySales: settlement?.totalSales ?? 0,
+      monthlySettlement: settlement?.totalSettlement ?? 0,
+      monthlyCommission: settlement?.totalCommission ?? 0,
       yearMonth,
       syncedAt: new Date().toISOString(),
     });
