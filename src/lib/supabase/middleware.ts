@@ -18,6 +18,18 @@ const LOCK_ALLOWLIST_PREFIXES: string[] = [
 ];
 
 /**
+ * 세션 없이 호출되는 공개 API — 회원가입/아이디 찾기/비밀번호 재설정 등.
+ * 이 경로들은 미들웨어의 `세션 없으면 401` 차단에서 제외해야 한다.
+ * (해당 라우트에서 입력값 검증 + service-role 로 자체 처리)
+ */
+const PUBLIC_API_PREFIXES: string[] = [
+  '/api/auth/signup',
+  '/api/auth/find-id',
+  '/api/auth/reset-password',
+  '/api/webhook/',           // 외부에서 호출, 자체 서명 검증
+];
+
+/**
  * L1(부분 쓰기 차단) 에서도 차단해야 할 "메이저 쓰기" 경로.
  * 신규 상품 등록/일괄 처리/외부 동기화 등 비용이 큰 작업.
  */
@@ -70,6 +82,11 @@ export async function updateSession(request: NextRequest) {
   }
 
   const isApiRoute = pathname.startsWith('/api/');
+  // 공개 API (회원가입/아이디 찾기/비밀번호 재설정/웹훅) 는 세션 검사 자체를 스킵
+  const isPublicApi = PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p));
+  if (isPublicApi) {
+    return supabaseResponse;
+  }
 
   if (sessionError || !user) {
     const isProtected =
