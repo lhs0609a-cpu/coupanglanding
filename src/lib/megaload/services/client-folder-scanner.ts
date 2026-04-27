@@ -122,9 +122,11 @@ export async function scanDirectoryHandle(
 
   onProgress?.({ current: 0, total: productDirs.length, phase: 'scanning' });
 
-  // Phase 2: 연속 워커 풀 — 배치 단위 Promise.all은 head-of-line 블로킹(한 상품이 느리면 동일 배치 9개 대기)을
-  // 일으키므로 풀 슬롯이 비는 즉시 다음 상품을 채우는 방식으로 처리량 극대화
-  const SCAN_CONCURRENCY = 12;
+  // Phase 2: 워커 풀 — 12 → 6 으로 하향 (FS API 동시 호출 폭주 방지).
+  // 12 워커가 동시에 collectImagesFromSubdir을 부르면 각자 5 getFile = 60 동시 호출 → 35개 이후 throttle.
+  // 6 워커로 줄이면 30 동시 호출 — 브라우저 FS 큐 한계 내.
+  // 추가: 매 상품 처리 후 setTimeout(0) yield 로 메인스레드 starvation 방지 (UI 응답성 + GC 기회 확보).
+  const SCAN_CONCURRENCY = 6;
   const products: ScannedProduct[] = new Array(productDirs.length);
   let nextProductIdx = 0;
   let doneCount = 0;
@@ -135,6 +137,8 @@ export async function scanDirectoryHandle(
       products[idx] = await scanSingleProduct(name, handle, { skipDhash });
       doneCount++;
       onProgress?.({ current: doneCount, total: productDirs.length, currentName: name, phase: 'scanning' });
+      // 메인스레드에 작은 호흡 — 5상품마다 한 번
+      if (doneCount % 5 === 0) await new Promise((r) => setTimeout(r, 0));
     }
   }
   await Promise.all(
@@ -316,17 +320,29 @@ async function collectImagesFromSubdir(
       accepted.push({ name, handle: handle as FileSystemFileHandle });
     }
 
-    // Phase 2: eagerObjectUrls면 getFile() + createObjectURL을 병렬 처리 (직렬 await 회피)
+    // Phase 2: eagerObjectUrls면 getFile() + createObjectURL.
+    // 이전: Promise.all 로 모든 이미지 동시 호출 → 12 워커 × N 이미지 = 100+ 동시 getFile → FS API 큐 막힘
+    // 이후: bounded worker pool (5 동시)로 제한 — 이미지 많은 상품도 안정적
     let files: ScannedImageFile[];
     if (eagerObjectUrls && accepted.length > 0) {
-      files = await Promise.all(accepted.map(async ({ name, handle }) => {
-        try {
-          const file = await handle.getFile();
-          return { name, handle, objectUrl: URL.createObjectURL(file) };
-        } catch {
-          return { name, handle, objectUrl: undefined };
+      files = new Array(accepted.length);
+      let next = 0;
+      const GETFILE_CONCURRENCY = 5;
+      async function getFileWorker() {
+        while (next < accepted.length) {
+          const i = next++;
+          const { name, handle } = accepted[i];
+          try {
+            const file = await handle.getFile();
+            files[i] = { name, handle, objectUrl: URL.createObjectURL(file) };
+          } catch {
+            files[i] = { name, handle, objectUrl: undefined };
+          }
         }
-      }));
+      }
+      await Promise.all(
+        Array.from({ length: Math.min(GETFILE_CONCURRENCY, accepted.length) }, () => getFileWorker()),
+      );
     } else {
       files = accepted.map(({ name, handle }) => ({ name, handle, objectUrl: undefined }));
     }
