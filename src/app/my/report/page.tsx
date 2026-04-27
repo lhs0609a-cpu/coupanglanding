@@ -395,18 +395,42 @@ export default function MyReportPage() {
     };
 
     if (report) {
+      // 결제 완료된 보고서는 회계 무결성을 위해 수정 차단.
+      //   DB trigger(monthly_reports_protect_paid)에서도 paid → awaiting_payment 회귀를
+      //   막지만, 사용자에게 명확한 메시지 제공을 위해 클라이언트에서 사전 차단.
+      if (report.fee_payment_status === 'paid' || report.payment_status === 'confirmed') {
+        setMessage({
+          type: 'error',
+          text: '이미 결제·정산 확정된 보고서는 수정할 수 없습니다. 수정이 필요하면 관리자에게 문의해주세요.',
+        });
+        setSubmitLoading(false);
+        return;
+      }
+
+      // paid 가 아닌 상태에서도 fee_* / admin_deposit_amount / reviewed_at 같은 결제 메타필드는
+      // update 페이로드에 들어가면 다음 결제 사이클에 영향 줄 수 있으므로,
+      // 신규 자동검증(isAutoReview && !report) 진입 경로 외에는 상태 필드를 분리.
+      type ReportPayload = typeof reportData;
+      const { fee_payment_status, fee_payment_deadline, fee_surcharge_amount, fee_interest_amount,
+        admin_deposit_amount, reviewed_at, ...safeData } = reportData as ReportPayload & {
+          fee_payment_status?: string; fee_payment_deadline?: string;
+          fee_surcharge_amount?: number; fee_interest_amount?: number;
+          admin_deposit_amount?: number; reviewed_at?: string;
+        };
+      // 이미 결제 마감일 / 페널티가 세팅된 row는 그대로 유지. 신규 자동검증 시점에만 set.
+      void fee_payment_status; void fee_payment_deadline;
+      void fee_surcharge_amount; void fee_interest_amount;
+      void admin_deposit_amount; void reviewed_at;
+
       const { error } = await supabase
         .from('monthly_reports')
-        .update(reportData)
+        .update(safeData)
         .eq('id', report.id);
 
       if (error) {
         setMessage({ type: 'error', text: '보고 수정에 실패했습니다.' });
       } else {
-        setMessage({ type: 'success', text: isAutoReview
-          ? '매출 정산이 자동 확인되었습니다. 수수료를 결제해주세요.'
-          : '매출 정산이 수정되었습니다.'
-        });
+        setMessage({ type: 'success', text: '매출 정산이 수정되었습니다. (결제 메타정보는 보존됨)' });
         fetchData();
       }
     } else {
