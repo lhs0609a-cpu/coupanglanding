@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, memo } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -58,7 +58,9 @@ interface BulkImageGridProps {
   onRegenerateClick?: (id: string, index: number) => void;
 }
 
-function SortableImage({ image, onRemove, onToggleAutoExclude, isMain, onSetAsMain, onImageClick, onRegenerateClick, idx }: { image: ImageItem; onRemove: (id: string) => void; onToggleAutoExclude?: (id: string) => void; isMain: boolean; onSetAsMain?: (id: string) => void; onImageClick?: (id: string, index: number) => void; onRegenerateClick?: (id: string, index: number) => void; idx: number }) {
+// React.memo로 감싸 드래그 시 다른 이미지의 불필요 리렌더 방지
+// (drag transform 변하는 image만 리렌더 → 9~10장 그리드 부드러움 향상)
+const SortableImage = memo(function SortableImage({ image, onRemove, onToggleAutoExclude, isMain, onSetAsMain, onImageClick, onRegenerateClick, idx }: { image: ImageItem; onRemove: (id: string) => void; onToggleAutoExclude?: (id: string) => void; isMain: boolean; onSetAsMain?: (id: string) => void; onImageClick?: (id: string, index: number) => void; onRegenerateClick?: (id: string, index: number) => void; idx: number }) {
   const [imgError, setImgError] = useState(false);
   const {
     attributes,
@@ -176,7 +178,7 @@ function SortableImage({ image, onRemove, onToggleAutoExclude, isMain, onSetAsMa
       )}
     </div>
   );
-}
+});
 
 export default function BulkImageGrid({ images, onReorder, onRemove, onToggleAutoExclude, onSetAsMain, onImageClick, onRegenerateClick }: BulkImageGridProps) {
   const [activeId, setActiveId] = useState<string | null>(null);

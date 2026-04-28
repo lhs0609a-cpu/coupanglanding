@@ -42,7 +42,8 @@ interface RowData {
   onPrewarmCancel?: (uid: string) => void;
 }
 
-/** 안정적인 Row 컴포넌트 — useCallback 대신 별도 컴포넌트로 분리하여 react-window가 올바르게 re-render */
+/** Row 컴포넌트 — 정밀 memo: 이 row와 관련된 slice만 비교 → thumbnail 1장 로드해도
+ *  visible row 100개가 모두 리렌더되는 폭주를 차단 */
 const Row = memo(function Row({ index, style, data }: { index: number; style: React.CSSProperties; data: RowData }) {
   const p = data.products[index];
   if (!p) return null;
@@ -62,6 +63,20 @@ const Row = memo(function Row({ index, style, data }: { index: number; style: Re
       onPrewarmCancel={data.onPrewarmCancel}
     />
   );
+}, (prev, next) => {
+  if (prev.index !== next.index) return false;
+  if (prev.style !== next.style) return false;
+  const pP = prev.data.products[prev.index];
+  const pN = next.data.products[next.index];
+  if (pP !== pN) return false; // product object reference 변경 시 무조건 리렌더
+  const uid = pN?.uid ?? '';
+  // 이 row의 selected 상태
+  if ((prev.data.selectedUid === uid) !== (next.data.selectedUid === uid)) return false;
+  // 이 row의 thumbnail / stock
+  if (prev.data.thumbnailCache[uid] !== next.data.thumbnailCache[uid]) return false;
+  if (prev.data.stockResults?.[uid]?.status !== next.data.stockResults?.[uid]?.status) return false;
+  // 콜백 reference는 부모에서 useCallback으로 안정 — 변경되어도 무시 (행위는 동일)
+  return true;
 });
 
 export default function BulkProductTable({
