@@ -2,8 +2,38 @@
 //
 // 이 파일은 audit/test 스크립트가 빠른 검증을 위해 사용한다.
 // production 코드는 option-extractor.ts의 실제 함수를 사용한다.
+// ⚠️ unit-dictionary.json과 정규식이 production과 100% 동일해야 함.
 
 /* eslint-disable */
+import unitDict from '../data/unit-dictionary.json';
+
+function escapeRe(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function buildAlternation(items: string[]): string {
+  return [...items].sort((a, b) => b.length - a.length).map(escapeRe).join('|');
+}
+
+const COUNT_UNITS_RE = (() => {
+  const u = unitDict.count.units;
+  const neg = unitDict.count.negativeLookahead as Record<string, string>;
+  return [...u].sort((a, b) => b.length - a.length).map(unit => {
+    if (neg[unit]) return `${escapeRe(unit)}(?!${neg[unit]})`;
+    return escapeRe(unit);
+  }).join('|');
+})();
+
+const COUNT_UNITS_RE_WITH_SACHET = (() => {
+  const u = [...unitDict.count.units, ...unitDict.sachet.units];
+  const neg = unitDict.count.negativeLookahead as Record<string, string>;
+  const sachetNeg = unitDict.sachet.negativeLookahead;
+  return [...u].sort((a, b) => b.length - a.length).map(unit => {
+    if (unit === '포') return `포(?!${sachetNeg})`;
+    if (neg[unit]) return `${escapeRe(unit)}(?!${neg[unit]})`;
+    return escapeRe(unit);
+  }).join('|');
+})();
+
+const TABLET_UNITS_RE = buildAlternation(unitDict.tablet.units);
+const SACHET_UNITS_RE = `(?:${unitDict.sachet.units.map(escapeRe).join('|')})(?!${unitDict.sachet.negativeLookahead})`;
 
 interface CompositeResult {
   volume?: { value: number; unit: string };
@@ -68,8 +98,8 @@ interface CountResult { value: number; found: boolean; }
 export function extractCountRaw(name: string, composite: CompositeResult, excludeSachet = false): CountResult {
   if (composite.count) return { value: composite.count, found: true };
   const unitPattern = excludeSachet
-    ? /(\d+)\s*(개(?!입|월)|팩|세트|박스|봉|병|통|족|켤레|롤|포대|캔|호|갑|자루|종|묶음|입(?!체)|EA|ea|P|ct|pcs|pc)(?!\s*[xX×]\s*\d)/gi
-    : /(\d+)\s*(개(?!입|월)|팩|세트|박스|봉|병|통|족|켤레|롤|포대|포(?!기|인|대)|캔|호|갑|자루|종|묶음|입(?!체)|EA|ea|P|ct|pcs|pc)(?!\s*[xX×]\s*\d)/gi;
+    ? new RegExp(`(\\d+)\\s*(${COUNT_UNITS_RE})(?!\\s*[xX×]\\s*\\d)`, 'gi')
+    : new RegExp(`(\\d+)\\s*(${COUNT_UNITS_RE_WITH_SACHET})(?!\\s*[xX×]\\s*\\d)`, 'gi');
   const allMatches: { value: number }[] = [];
   let m: RegExpExecArray | null;
   while ((m = unitPattern.exec(name)) !== null) {
@@ -157,7 +187,7 @@ export function extractPerCount(name: string, composite: CompositeResult): numbe
 }
 
 export function extractTabletCount(name: string): number | null {
-  const TABLET_RE = /(\d+)\s*(베지캡슐|베지캡|연질캡슐|연질캡|소프트젤|소프트캡슐|츄어블정?|츄잉정|트로키|구미정?|타블렛|정|캡슐|알|softgel(?:s)?|vcap(?:s|sule)?|tab(?:let)?(?:s)?|cap(?:s|sule)?(?![a-z])|T(?![a-zA-Z]))/gi;
+  const TABLET_RE = new RegExp(`(\\d+)\\s*(${TABLET_UNITS_RE})(?![a-z가-힣])`, 'gi');
   const DOSAGE_PREFIX_RE = /(?:1일|하루|매일|일일)\s*$/;
   const DOSAGE_POSTFIX_RE = /^\s*[xX×]\s*\d+\s*(?:일|회)/;
   const matches: { value: number; index: number }[] = [];
@@ -178,7 +208,7 @@ export function extractTabletCount(name: string): number | null {
 }
 
 export function extractSachetCount(name: string): number | null {
-  const SACHET_RE = /(\d+)\s*포(?!기|인|대)/g;
+  const SACHET_RE = new RegExp(`(\\d+)\\s*${SACHET_UNITS_RE}`, 'g');
   const DOSAGE_PREFIX_RE = /(?:1일|하루|매일|일일)\s*$/;
   const COMPOSITE_BEFORE_RE = /[xX×]\s*$/;
   const COMPOSITE_AFTER_RE = /^\s*[xX×]/;

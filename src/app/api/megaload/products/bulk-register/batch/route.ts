@@ -11,6 +11,7 @@ import { buildProductPayload } from '@/lib/megaload/services/preflight-builder';
 import { withRetry } from '@/lib/megaload/services/retry';
 import { checkBrandProtection } from '@/lib/megaload/services/brand-checker';
 import { classifyError } from '@/lib/megaload/services/error-classifier';
+import { logExtractionCorpus } from '@/lib/megaload/services/option-corpus-logger';
 import type { DetailedError } from '@/components/megaload/bulk/types';
 import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import { detectImageFormat, getImageDimensions } from '@/lib/megaload/services/image-processor';
@@ -579,7 +580,7 @@ export async function POST(req: NextRequest) {
       }
 
       // 6~9. 공유 빌더로 페이로드 빌드 (옵션 추출, 고시정보, 아이템위너 방지 포함)
-      const { payload } = await buildProductPayload({
+      const { payload, extractedOptions } = await buildProductPayload({
         product,
         vendorId,
         deliveryInfo,
@@ -672,6 +673,17 @@ export async function POST(req: NextRequest) {
           };
         }
       }
+
+      // 10.4. corpus 로깅 — 실 등록 데이터를 회귀 검증 corpus에 적재
+      // self-graded 한계 해결: 합성 패턴 GT 대신 실 사용자 등록 데이터로 검증
+      logExtractionCorpus({
+        productName: product.sourceName || product.name,
+        categoryCode: product.categoryCode,
+        categoryPath: product.categoryPath,
+        extracted: extractedOptions.buyOptions,
+        channelProductId: result.channelProductId,
+        displayName: product.aiDisplayName || product.name,
+      });
 
       // 10.5. 승인 요청 (임시저장 → 판매승인)
       try {

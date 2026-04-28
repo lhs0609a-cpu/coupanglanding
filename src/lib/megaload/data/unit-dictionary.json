@@ -1,0 +1,80 @@
+{
+  "_meta": {
+    "description": "옵션 추출용 단위 사전. option-extractor.ts에서 동적으로 정규식을 빌드.",
+    "version": 1,
+    "lastUpdated": "2026-04-28",
+    "addingNewUnit": "새 단위 발견 시 해당 그룹 배열에 추가. 빌드/deploy 없이 hot-reload."
+  },
+
+  "count": {
+    "description": "수량(개수) 단위 — 1개, 5박스, 10팩 등",
+    "negativeLookahead": {
+      "개": "입|월|년",
+      "포": "기|인|대",
+      "입": "체"
+    },
+    "units": [
+      "개", "팩", "세트", "박스", "봉", "병", "통", "족", "켤레", "롤",
+      "포대", "캔", "호", "갑", "자루", "종", "묶음", "입",
+      "EA", "ea", "P", "ct", "pcs", "pc"
+    ]
+  },
+
+  "sachet": {
+    "description": "포(파우치/스틱) 단위 — 정/캡슐과 별도 처리. 수량과 곱셈 안 함.",
+    "units": ["포"],
+    "negativeLookahead": "기|인|대"
+  },
+
+  "tablet": {
+    "description": "정/캡슐 등 알약 단위 — 시중 표기 모두 망라",
+    "units": [
+      "베지캡슐", "베지캡", "연질캡슐", "연질캡",
+      "소프트젤", "소프트캡슐",
+      "츄어블정", "츄어블", "츄잉정",
+      "트로키", "구미정", "구미",
+      "타블렛", "정", "캡슐", "알",
+      "softgels", "softgel",
+      "vcaps", "vcapsule", "vcap",
+      "tablets", "tablet", "tabs", "tab",
+      "capsules", "capsule", "caps", "cap"
+    ],
+    "ambiguousAbbrev": {
+      "T": "60T 약어로 쓰지만 영문 텍스트의 T와 충돌 — 단어 경계 검사 필수"
+    }
+  },
+
+  "volume": {
+    "description": "용량 단위 — ml/L 변환",
+    "ml": ["ml", "mL", "ML", "㎖"],
+    "literToMl": ["L", "리터", "ℓ"],
+    "literRange": [0.1, 20]
+  },
+
+  "weight": {
+    "description": "중량 단위 — g/kg 변환",
+    "g": ["g", "그램"],
+    "kgToG": ["kg", "KG", "㎏"],
+    "ignoredAsIngredient": ["mg", "mcg", "μg", "ug"]
+  },
+
+  "perCount": {
+    "description": "개당 수량(개입/매) — N개입, N매",
+    "primary": ["개입"],
+    "fallback": ["매", "장"]
+  },
+
+  "dosagePrefix": {
+    "description": "복용법 접두사 — 매칭 직전에 있으면 일일 복용량으로 제외",
+    "prefixes": ["1일", "하루", "매일", "일일"]
+  },
+
+  "_changelog": [
+    {
+      "v": 1,
+      "date": "2026-04-28",
+      "added": ["베지캡", "베지캡슐", "캔", "갑", "자루", "종", "묶음", "ct", "pcs", "pc", "포대"],
+      "context": "실 상품명 200건 검증에서 발견된 시장 단위 누락 11+건 fix"
+    }
+  ]
+}

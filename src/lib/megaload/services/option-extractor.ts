@@ -10,6 +10,50 @@
 
 import { getCategoryDetails, type CategoryDetails } from './category-matcher';
 import { OCR_TO_BUYOPTION } from '../data/ocr-field-mapping';
+import unitDict from '../data/unit-dictionary.json';
+
+// ─── 단위 사전 → 정규식 빌드 ─────────────────────────────────
+// unit-dictionary.json만 수정하면 추출 단위 즉시 확장. 코드 deploy 불필요.
+
+function buildAlternation(items: string[]): string {
+  // 길이 내림차순 정렬 — 긴 단위가 먼저 매칭되어야 ("베지캡슐" > "베지캡" > "캡슐")
+  return [...items].sort((a, b) => b.length - a.length).map(escapeRe).join('|');
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const COUNT_UNITS_RE = (() => {
+  const u = unitDict.count.units;
+  const neg = unitDict.count.negativeLookahead as Record<string, string>;
+  // 부정형 lookahead가 필요한 단위는 별도 처리
+  const parts = [...u].sort((a, b) => b.length - a.length).map(unit => {
+    if (neg[unit]) return `${escapeRe(unit)}(?!${neg[unit]})`;
+    return escapeRe(unit);
+  });
+  return parts.join('|');
+})();
+
+const COUNT_UNITS_RE_WITH_SACHET = (() => {
+  const u = [...unitDict.count.units, ...unitDict.sachet.units];
+  const neg = unitDict.count.negativeLookahead as Record<string, string>;
+  const sachetNeg = unitDict.sachet.negativeLookahead;
+  const parts = [...u].sort((a, b) => b.length - a.length).map(unit => {
+    if (unit === '포') return `포(?!${sachetNeg})`;
+    if (neg[unit]) return `${escapeRe(unit)}(?!${neg[unit]})`;
+    return escapeRe(unit);
+  });
+  return parts.join('|');
+})();
+
+const TABLET_UNITS_RE = buildAlternation(unitDict.tablet.units);
+const SACHET_UNITS_RE = `(?:${unitDict.sachet.units.map(escapeRe).join('|')})(?!${unitDict.sachet.negativeLookahead})`;
+const VOL_ML_RE = unitDict.volume.ml.map(escapeRe).join('|');
+const VOL_LITER_RE = unitDict.volume.literToMl.filter(s => s !== 'L').map(escapeRe).join('|');
+const WT_G_RE = unitDict.weight.g.map(escapeRe).join('|');
+const WT_KG_RE = unitDict.weight.kgToG.map(escapeRe).join('|');
+const DOSAGE_PREFIX_RE_STR = unitDict.dosagePrefix.prefixes.map(escapeRe).join('|');
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -160,9 +204,10 @@ function extractCountRaw(name: string, composite: CompositeResult, excludeSachet
   // 마지막 매치를 사용: 수량은 상품명 끝부분("...30포 3개")에 위치하는 경우가 많고,
   // 앞부분의 "1박스 세트" 등은 상품 구성 설명이지 실제 판매 수량이 아님
   // "포대"(쌀/곡물 포대 단위)는 항상 count 단위. "포(?!기|인|대)" sachet과 구분.
+  // unit-dictionary.json에서 동적 빌드 — 새 단위는 사전에서 추가 (코드 변경 불필요)
   const unitPattern = excludeSachet
-    ? /(\d+)\s*(개(?!입|월)|팩|세트|박스|봉|병|통|족|켤레|롤|포대|캔|호|갑|자루|종|묶음|입(?!체)|EA|ea|P|ct|pcs|pc)(?!\s*[xX×]\s*\d)/gi
-    : /(\d+)\s*(개(?!입|월)|팩|세트|박스|봉|병|통|족|켤레|롤|포대|포(?!기|인|대)|캔|호|갑|자루|종|묶음|입(?!체)|EA|ea|P|ct|pcs|pc)(?!\s*[xX×]\s*\d)/gi;
+    ? new RegExp(`(\\d+)\\s*(${COUNT_UNITS_RE})(?!\\s*[xX×]\\s*\\d)`, 'gi')
+    : new RegExp(`(\\d+)\\s*(${COUNT_UNITS_RE_WITH_SACHET})(?!\\s*[xX×]\\s*\\d)`, 'gi');
   const allMatches: { value: number }[] = [];
   let m: RegExpExecArray | null;
   while ((m = unitPattern.exec(name)) !== null) {
@@ -334,10 +379,8 @@ function extractPerCount(name: string, composite: CompositeResult): number | nul
  */
 function extractTabletCount(name: string): number | null {
   // ⚠️ "포" 제외 — 포는 포장단위이므로 extractSachetCount()에서 별도 처리
-  // 시중 단위 망라 — 한글: 정/캡슐/알/타블렛/소프트젤/베지캡(슐)/연질캡슐/츄어블/트로키/구미
-  //                영문: T(60T 약어), tab(s)/cap(s)/vcap(s)/softgel(s)
-  // ⚠️ 단어 경계: 영문 단위(T/tab/cap)는 다른 단어의 일부가 아니어야 (예: "Smart" 안의 "T" 매칭 방지)
-  const TABLET_RE = /(\d+)\s*(베지캡슐|베지캡|연질캡슐|연질캡|소프트젤|소프트캡슐|츄어블정?|츄잉정|트로키|구미정?|타블렛|정|캡슐|알|softgel(?:s)?|vcap(?:s|sule)?|tab(?:let)?(?:s)?|cap(?:s|sule)?(?![a-z])|T(?![a-zA-Z]))/gi;
+  // 단위 사전(unit-dictionary.json)에서 동적 빌드 — 새 단위 추가 시 사전 한 줄
+  const TABLET_RE = new RegExp(`(\\d+)\\s*(${TABLET_UNITS_RE})(?![a-z가-힣])`, 'gi');
   // 복용법 감지: "1일", "하루", "매일", "N회" 직전의 매치는 일일 복용량
   const DOSAGE_PREFIX_RE = /(?:1일|하루|매일|일일)\s*$/;
   const DOSAGE_POSTFIX_RE = /^\s*[xX×]\s*\d+\s*(?:일|회)/;
@@ -378,8 +421,8 @@ function extractTabletCount(name: string): number | null {
  * extractTabletCount가 null일 때만 폴백으로 사용.
  */
 function extractSachetCount(name: string): number | null {
-  // "포대"(쌀 포대 등 일반 단위), "포기"(채소 단위), "포인" 제외
-  const SACHET_RE = /(\d+)\s*포(?!기|인|대)/g;
+  // "포대"(쌀 포대 등 일반 단위), "포기"(채소 단위), "포인" 제외 — 사전의 sachet.negativeLookahead로 정의
+  const SACHET_RE = new RegExp(`(\\d+)\\s*${SACHET_UNITS_RE}`, 'g');
   const DOSAGE_PREFIX_RE = /(?:1일|하루|매일|일일)\s*$/;
   // 복합 패턴 내 sachet 제외: "2g × 10포" (× 뒤), "10포 × 3EA" (× 앞)
   // 이런 패턴은 포장 구성 분해이지 제품 스펙이 아님.

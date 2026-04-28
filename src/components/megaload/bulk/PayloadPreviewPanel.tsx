@@ -113,8 +113,37 @@ export default function PayloadPreviewPanel({ loading, data, error }: PayloadPre
     return `${(bytes / 1024).toFixed(1)}KB`;
   }
 
+  // displayName ↔ 옵션 일치도 dry-run 검증
+  // 사용자 신고 케이스 ("displayName=...1개" + "옵션 수량=2") 자동 감지
+  const displayName = String((data.payload as Record<string, unknown>)?.displayProductName || '');
+  const dnTailMatch = displayName.match(/(\d+)\s*(개|입|팩|병|박스|봉|통|세트|캔)\s*$/);
+  const dnTailQty = dnTailMatch ? parseInt(dnTailMatch[1]) : null;
+  const optCountEntry = meta.extractedOptions.find(o => o.name === '수량' || o.name === '총 수량');
+  const optQty = optCountEntry ? parseInt(optCountEntry.value) : null;
+  const qtyMismatch = dnTailQty !== null && optQty !== null && dnTailQty !== optQty;
+
   return (
     <div className="space-y-5">
+      {/* displayName ↔ 옵션 일치도 경고 (dry-run) */}
+      {qtyMismatch && (
+        <div className="bg-red-50 border border-red-300 rounded-lg p-3">
+          <div className="flex items-start gap-2 text-xs text-red-800">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-semibold">노출상품명 ↔ 옵션 수량 불일치</div>
+              <div className="mt-1 text-red-700">
+                노출상품명 끝 수량: <strong>{dnTailQty}{dnTailMatch![2]}</strong>
+                {' '}vs 옵션 수량: <strong>{optQty}개</strong>
+              </div>
+              <div className="mt-1 text-[11px] text-red-600">
+                등록 후 옵션이 &quot;{optQty}개&quot;로 들어가지만 상품명에는 &quot;{dnTailQty}{dnTailMatch![2]}&quot;가 노출됩니다.
+                상품명을 수정하거나 원본 데이터의 수량 표기를 확인하세요.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 옵션 추출 결과 */}
       <section>
         <h4 className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">
@@ -137,6 +166,9 @@ export default function PayloadPreviewPanel({ loading, data, error }: PayloadPre
             <span>신뢰도: <strong className={meta.optionConfidence >= 80 ? 'text-green-600' : meta.optionConfidence >= 50 ? 'text-yellow-600' : 'text-gray-400'}>{meta.optionConfidence}%</strong></span>
             {meta.totalUnitCount !== undefined && (
               <span>unitCount: <strong className="text-gray-700">{meta.totalUnitCount}</strong></span>
+            )}
+            {meta.optionConfidence < 70 && (
+              <span className="text-orange-600 font-medium">⚠ 수동 확인 권장</span>
             )}
           </div>
           {meta.optionWarnings.length > 0 && (
