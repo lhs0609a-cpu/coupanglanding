@@ -93,6 +93,10 @@ export function seoEnrichBlocks(blocks: ContentBlock[], seoKeywords: string[]): 
     return kw;
   };
 
+  // 종결어미/조사 뒤 부자연 키워드 부착 방지 (fragment-composer의 maybeSeoWeave와 동일 가드)
+  const UNNATURAL_TAIL = /(입니다|습니다|예요|에요|어요|아요|해요|되요|돼요|이죠|네요|군요|세요|죠|다|요)[.!?。]?$/;
+  const PARTICLE_TAIL = /[은는이가을를과와도만에의로]\s*[.!?。]?$/;
+
   return blocks.map(block => {
     const enriched = { ...block };
 
@@ -101,6 +105,11 @@ export function seoEnrichBlocks(blocks: ContentBlock[], seoKeywords: string[]): 
         const kw = nextKw();
         if (enriched.content.includes(kw)) break;
         const content = enriched.content;
+        // ⚠️ 종결어미/조사로 끝나면 키워드 부착 시 "...입니다 국내산." 같이 부자연
+        //    → 부착 자체를 건너뜀 (다음 키워드 사이클에서 다른 블록 시도)
+        if (UNNATURAL_TAIL.test(content) || PARTICLE_TAIL.test(content)) {
+          break;
+        }
         const lastPunc = content.search(/[.?!。]$/);
         if (lastPunc >= 0) {
           enriched.content = content.slice(0, lastPunc) + ' ' + kw + content.slice(lastPunc);
@@ -126,6 +135,7 @@ export function seoEnrichBlocks(blocks: ContentBlock[], seoKeywords: string[]): 
       case 'cta': {
         const kw = nextKw();
         if (enriched.content.includes(kw)) break;
+        // CTA의 subContent로만 사용 — 본문 끝 부착 X
         enriched.subContent = kw;
         break;
       }
@@ -262,7 +272,8 @@ export function generatePersuasionContent(
   const profile = getContentProfile(categoryPath, categoryCode);
 
   // ── Layer 2: 카테고리 변수풀 해석 (CPG 격리 or 레거시) ──
-  const categoryVars = resolveVariables(categoryPath, categoryCode);
+  // productName 전달 — 건강식품 성분 cross-leak 방지 (비타민D 제품에 콜라겐/밀크씨슬 누수 차단)
+  const categoryVars = resolveVariables(categoryPath, categoryCode, productName);
 
   // ── Layer 3+2: 변수 병합 (상품 토큰 우선 + forbiddenTerms 필터 + L1 안전망) ──
   let vars = mergeVariables(categoryVars, productOverrides, profile?.forbiddenTerms, hasStrongContext, categoryPath);

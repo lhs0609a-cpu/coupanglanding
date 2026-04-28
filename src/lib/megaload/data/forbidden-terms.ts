@@ -81,6 +81,27 @@ const HEALTH_FOOD_LAW: ForbiddenCategory = {
     { pattern: /콜레스테롤\s*관리/g, label: '콜레스테롤관리', severity: 'warning', category: '건기식법' },
     { pattern: /혈당\s*관리/g, label: '혈당관리', severity: 'warning', category: '건기식법' },
     { pattern: /체지방\s*감소/g, label: '체지방감소', severity: 'warning', category: '건기식법' },
+
+    // error: 건기식 효능 단정 광고 (식품표시광고법 위반 — 인정 표현은 "...에 도움을 줄 수 있음")
+    { pattern: /확실히\s*(줄었|달라졌|좋아졌|개선됐|효과)/g, label: '효능단정-확실히', severity: 'error', category: '건기식법' },
+    { pattern: /피로감이?\s*(줄|사라|없어)/g, label: '피로감 효능단정', severity: 'error', category: '건기식법' },
+    { pattern: /변화가?\s*눈에\s*보(여|입니)/g, label: '변화눈에보임-효능단정', severity: 'error', category: '건기식법' },
+    { pattern: /체감이?\s*(빠른|좋|있)/g, label: '체감-효능단정', severity: 'error', category: '건기식법' },
+    { pattern: /진작\s*(먹|드)/g, label: '진작먹을걸-효능단정', severity: 'error', category: '건기식법' },
+    { pattern: /이건?\s*진짜(예요|입니다|에요)/g, label: '진짜-단정과장', severity: 'error', category: '건기식법' },
+    { pattern: /이거\s*먹고\s*나서/g, label: '이거먹고나서-효능단정', severity: 'error', category: '건기식법' },
+    { pattern: /꾸준히\s*(먹|드시)고\s*나서\s*(확실히|달라)/g, label: '꾸준히먹고달라짐', severity: 'error', category: '건기식법' },
+    { pattern: /임산부라면\s*특히/g, label: '임산부 효능광고', severity: 'error', category: '건기식법' },
+
+    // error: 미인정 기능성 (성분과 무관한 효능 표시 — 데이터 누수에서 자주 발생)
+    { pattern: /에너지충전/g, label: '에너지충전-미인정', severity: 'error', category: '건기식법' },
+    { pattern: /체력증진/g, label: '체력증진-미인정', severity: 'error', category: '건기식법' },
+    { pattern: /건강\s*챙기고\s*싶/g, label: '건강챙기고싶-권유', severity: 'warning', category: '건기식법' },
+
+    // error: 막연한 인증 표시 (구체적 인증번호 없이 "식약처 검증" 등은 위반)
+    { pattern: /식약처\s*안전성\s*검증/g, label: '식약처막연인증', severity: 'error', category: '건기식법' },
+    { pattern: /식약처\s*인정\s*완료/g, label: '식약처막연인증', severity: 'error', category: '건기식법' },
+    { pattern: /(?<![가-힣])천연(?!분|색소)\s*(분야|원료|성분).*관심/g, label: '천연-막연표시', severity: 'warning', category: '건기식법' },
   ],
 };
 

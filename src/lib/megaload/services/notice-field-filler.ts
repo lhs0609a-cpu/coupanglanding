@@ -479,15 +479,68 @@ function resolveFieldValue(
   const productName = (product.name || product.title || '').slice(0, 50);
   const brand = product.brand || '';
 
+  // ⚠️ 건기식(건강기능식품) 카테고리 감지 — 필수 표시사항이 많아 별도 처리.
+  //    노출고시 카테고리명에 "건강기능식품"이 들어가면 건기식으로 판단.
+  //    이 카테고리에선 "상세페이지 참조" 대신 명시값을 줘야 식약처 적발 회피.
+  const productNameLower = (product.name || '').toLowerCase();
+  const isHealthFunctionalFood = /비타민|미네랄|오메가|유산균|프로바이오틱|콜라겐|루테인|밀크씨슬|글루코사민|쏘팔메토|코큐텐|코엔자임|크릴오일|비오틴|바이오틴|마그네슘|아연|칼슘|철분|엽산|셀레늄|프로폴리스|스피루리나|클로렐라|히알루론산|레시틴|보스웰리아|폴리코사놀|영양제|건강기능|홍삼정|홍삼환|홍삼캡슐/.test(productNameLower);
+
   // 패턴 매칭 규칙 (추출된 옵션값 hints 활용)
-  if (normalized.includes('품명') || normalized.includes('모델명')) {
+  if (normalized.includes('품명') || normalized.includes('모델명') || normalized.includes('제품명')) {
     return productName || '상세페이지 참조';
   }
   if (normalized.includes('브랜드') || normalized.includes('상호')) {
     return brand || '상세페이지 참조';
   }
   if (normalized.includes('제조국') || normalized.includes('원산지')) {
+    if (isHealthFunctionalFood) return '대한민국';  // 건기식은 명시 의무
     return '상세페이지 참조';
+  }
+  // 건기식 의약품 여부 — "의약품 아님" 명시
+  if (normalized.includes('의약품여부') || (normalized.includes('의약품') && !normalized.includes('의약품여부'))) {
+    return '의약품 아님';
+  }
+  // 건기식 유전자변형 표시 — "해당사항 없음" 명시
+  if (normalized.includes('유전자변형') || normalized.includes('gmo')) {
+    return '해당사항 없음';
+  }
+  // 건기식 수입 여부 — 국내 GMP 인증 제품이라고 명시 (사용자가 변경 가능)
+  if (normalized.includes('수입') && (normalized.includes('건강기능식품') || normalized.includes('문구') || isHealthFunctionalFood)) {
+    return '해당사항 없음 (국내 제조)';
+  }
+  // 건기식 소비기한/유통기한
+  if (normalized.includes('소비기한') || normalized.includes('유통기한')) {
+    if (isHealthFunctionalFood) return '제조일로부터 24개월';
+    return '상세페이지 참조';
+  }
+  // 건기식 보관방법
+  if (normalized.includes('보관방법')) {
+    if (isHealthFunctionalFood) return '직사광선을 피해 서늘하고 건조한 곳에 보관';
+    return '상세페이지 참조';
+  }
+  // 섭취량/섭취방법
+  if (normalized.includes('섭취량') || normalized.includes('섭취방법')) {
+    if (isHealthFunctionalFood) return '1일 1~2회, 1회 1정 식후 섭취';
+    return '상세페이지 참조';
+  }
+  // 영양정보/기능정보 — 사용자가 직접 입력 필요한 영역, 안전한 default
+  if (normalized.includes('영양정보') || normalized.includes('기능정보') || normalized.includes('영양성분')) {
+    if (isHealthFunctionalFood) return '제품 라벨 표기사항 참고';
+    return '상세페이지 참조';
+  }
+  // 원료명 및 함량 — 건기식 핵심 필드
+  if (normalized.includes('원료') && normalized.includes('함량')) {
+    if (isHealthFunctionalFood) return '제품 라벨 표기사항 참고';
+    return '상세페이지 참조';
+  }
+  // 소비자 안전 주의사항
+  if (normalized.includes('안전') && normalized.includes('주의')) {
+    if (isHealthFunctionalFood) return '알레르기 체질, 임산부, 의약품 복용자는 의사와 상담 후 섭취';
+    return '상세페이지 참조';
+  }
+  // 소비자상담 전화번호
+  if (normalized.includes('소비자상담') || normalized.includes('상담관련')) {
+    return contactNumber || '상세페이지 참조';
   }
   if (normalized.includes('제조자') || normalized.includes('수입자') || normalized.includes('제조업자')) {
     return brand || '상세페이지 참조';

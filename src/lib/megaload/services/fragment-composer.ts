@@ -78,7 +78,7 @@ const SUBCATEGORY_ALIASES: Record<string, string> = {
   '가전/디지털>컴퓨터/게임/SW':'가전/디지털>컴퓨터','가전/디지털>휴대폰/태블릿PC/액세서리':'가전/디지털>휴대폰',
   '가전/디지털>카메라/캠코더':'가전/디지털>카메라',
   '뷰티>남성화장품':'뷰티>스킨','뷰티>어린이화장품':'뷰티>스킨','뷰티>임산부화장품':'뷰티>스킨',
-  '뷰티>선물세트':'뷰티>스킨','뷰티>뷰티소품':'뷰티>메이크업','뷰티>네일':'뷰티>네일','뷰티>향수':'뷰티>향수',
+  '뷰티>선물세트':'뷰티>스킨','뷰티>뷰티소품':'뷰티>뷰티소품','뷰티>네일':'뷰티>네일','뷰티>향수':'뷰티>향수',
   '식품>가공/즉석식품':'식품>가공식품','식품>냉장/냉동식품':'식품>가공식품','식품>스낵/간식':'식품>가공식품',
   '식품>생수/음료':'식품>음료','식품>유제품/아이스크림/디저트':'식품>가공식품','식품>장/소스':'식품>가공식품',
   '식품>가루/조미료/향신료':'식품>가공식품','식품>커피/차':'식품>음료','식품>전통주':'식품>음료',
@@ -250,6 +250,52 @@ function pickN<T>(arr: T[], n: number, rng: () => number): T[] {
   return out;
 }
 
+// ─── 강조 박스 fallback (모든 블록에 강제 채움) ──
+const EMPHASIS_FALLBACK: string[] = [
+  '핵심은 디테일에 있습니다.','과한 광고보다 정직한 만족이 우선입니다.','검색 시간을 줄여드릴 만한 선택입니다.',
+  '오래 두고 쓸 수 있는 안정적인 구성입니다.','꾸준한 사용자가 점점 늘고 있습니다.','자세히 따져볼수록 점수가 올라갑니다.',
+  '실사용자 평가가 결정적인 단서입니다.','사양보다 사용감이 핵심입니다.','쓰는 사람을 배려한 설계입니다.',
+  '필요한 만큼만 더한 균형감이 강점입니다.','시간이 지나도 만족이 이어집니다.','첫 사용부터 손에 잡히는 그런 제품입니다.',
+];
+
+// ─── CTA 강제 closer (마지막 200자에 행동 유도 보장) ──
+const CTA_FORCED_CLOSERS: string[] = [
+  '한 번 더 살펴보시고 결정하셔도 좋습니다.','오늘 검색을 마무리할 만한 선택이 됩니다.',
+  '천천히 비교해보시고 골라보세요.','꼼꼼히 따져보시고 합리적으로 골라보시기 바랍니다.',
+  '필요한 분께는 분명한 가치를 드립니다.','마음에 드는 옵션을 살펴보시고 선택하세요.',
+  '이 페이지에서 사양과 후기를 함께 확인해보세요.','검토를 마치셨다면 자신 있게 들여보셔도 좋습니다.',
+  '꼭 필요한 정보만 정리해 두었습니다, 천천히 살펴보세요.','지금 둘러보시고 합리적인 선택을 만나보세요.',
+  '자세한 정보는 본문에서 확인하시고 골라보세요.','선택을 망설이지 마시고 한번 살펴보시기 바랍니다.',
+];
+
+// ─── 어미 톤 일관성 ──
+// 한 글 안에서 ~다(격식체)와 ~요(친근체)가 섞이면 부자연스럽다.
+// composeAllBlocks 호출 시 시드 기반으로 한쪽 톤을 결정 → 풀 필터링.
+type ToneMode = 'formal' | 'casual' | 'mixed';
+let _currentTone: ToneMode = 'mixed';
+
+export function setToneMode(mode: ToneMode): void {
+  _currentTone = mode;
+}
+
+const FORMAL_RE = /(다|입니다|습니다|됩니다|입니까|니다)[\s.!?。]?$/;
+const CASUAL_RE = /(요|에요|예요|어요|아요|해요|네요|군요|죠)[\s.!?。]?$/;
+
+function matchesTone(s: string): boolean {
+  if (_currentTone === 'mixed') return true;
+  if (!s) return true;
+  const trimmed = s.replace(/\s+$/, '');
+  if (_currentTone === 'formal') return FORMAL_RE.test(trimmed) || !CASUAL_RE.test(trimmed);
+  if (_currentTone === 'casual') return CASUAL_RE.test(trimmed) || !FORMAL_RE.test(trimmed);
+  return true;
+}
+
+function filterByTone(arr: string[]): string[] {
+  if (_currentTone === 'mixed') return arr;
+  const filtered = arr.filter(s => matchesTone(s));
+  return filtered.length > 0 ? filtered : arr; // 안전망
+}
+
 /**
  * 카테고리 풀에 글로벌 다양성 풀을 시드 기반으로 주입한다.
  * 모든 카테고리에 동일 종결어가 박히는 문제를 해결.
@@ -283,14 +329,17 @@ function injectGlobalDiversity(
     default:
       break;
   }
+  // 톤 필터 적용 — 같은 글에서 ~다/~요 혼용 방지
+  const tonedCloser = filterByTone(globalCloser);
+  const tonedOpener = filterByTone(globalOpener);
   // 시드 기반으로 글로벌 풀에서 12개 골라 카테고리 풀에 추가
   // — 시드별로 다른 12개가 선택되므로 다양성 폭증
-  const addCloser = pickN(globalCloser, 12, rng);
-  const addOpener = pickN(globalOpener, 12, rng);
+  const addCloser = pickN(tonedCloser, 12, rng);
+  const addOpener = pickN(tonedOpener, 12, rng);
   return {
     ...pool,
-    openers: [...(pool.openers || []), ...addOpener],
-    closers: [...(pool.closers || []), ...addCloser],
+    openers: filterByTone([...(pool.openers || []), ...addOpener]),
+    closers: filterByTone([...(pool.closers || []), ...addCloser]),
   };
 }
 
@@ -338,20 +387,125 @@ export function resolveFragments(
  *
  * CPG 프로필 존재 시 → 격리된 변수풀만 반환 (상위 병합 없음, 오염 방지)
  * CPG 없으면 → 레거시: 중분류→대분류→DEFAULT 폴백.
+ *
+ * ⚠️ productName이 제공되면 건강식품 성분 cross-leak 방지 디텍터 적용.
+ * 비타민D 제품에 콜라겐/밀크씨슬/코엔자임Q10 등이 누수되는 버그 차단.
  */
 export function resolveVariables(
   categoryPath: string,
   categoryCode?: string,
+  productName?: string,
 ): Record<string, string[]> {
+  let result: Record<string, string[]>;
+
   // ── CPG 프로필 우선 참조 (격리된 변수풀) ──
   const profile = resolveContentProfile(categoryPath, categoryCode);
   if (profile && profile.variables && Object.keys(profile.variables).length > 0) {
     // 격리! DEFAULT/대분류 병합 없이 프로필 변수만 반환
-    return { ...profile.variables };
+    result = { ...profile.variables };
+  } else {
+    // ── 레거시 로직 (미매핑 카테고리) ──
+    result = legacyResolveVariables(categoryPath);
   }
 
-  // ── 레거시 로직 (미매핑 카테고리) ──
-  return legacyResolveVariables(categoryPath);
+  // ⚠️ 건강식품 성분 cross-leak 방지 — 상품명 + categoryPath 검사하여
+  //    실제 성분만 남기고 다른 영양제 풀(콜라겐/밀크씨슬/코엔자임 등)은 제거.
+  //    이걸 안 하면 비타민D 상세페이지에 "콜라겐예요", "밀크씨슬 함량" 같은 문구가 섞임.
+  if (productName && /^식품|건강식품|영양제|비타민/.test(categoryPath)) {
+    const ingredient = detectHealthIngredient((productName + ' ' + categoryPath).toLowerCase());
+    if (ingredient) {
+      result = { ...result, ...ingredient };
+    }
+  }
+
+  return result;
+}
+
+/**
+ * 상품명+카테고리에서 건강식품 핵심 성분을 감지 → 격리된 변수풀 반환.
+ * story-generator.ts:638-688의 FAQ 디텍터를 본문에도 적용.
+ * 매칭되는 성분 없으면 null 반환 (기본 풀 유지).
+ */
+function detectHealthIngredient(pn: string): Record<string, string[]> | null {
+  if (/코엔자임|coq10|코큐텐|유비퀴놀/.test(pn)) {
+    return { 성분: ['코엔자임Q10', '유비퀴놀'], 효과1: ['항산화', '심장건강', '에너지생성', '세포보호'] };
+  }
+  if (/비오틴|바이오틴/.test(pn)) {
+    return { 성분: ['비오틴', '판토텐산'], 효과1: ['모발건강', '피부건강', '손톱건강', '두피건강'] };
+  }
+  if (/루테인|지아잔틴/.test(pn)) {
+    return { 성분: ['루테인', '지아잔틴'], 효과1: ['눈건강', '시력보호', '눈피로개선', '황반건강'] };
+  }
+  if (/콘드로이친|글루코사민|관절|상어연골|보스웰리아|msm/.test(pn)) {
+    return { 성분: ['콘드로이친', '글루코사민', 'MSM'], 효과1: ['관절건강', '연골보호', '관절유연성'] };
+  }
+  if (/밀크씨슬|밀크시슬|실리마린/.test(pn)) {
+    return { 성분: ['밀크씨슬', '실리마린'], 효과1: ['간건강', '간보호', '간기능개선'] };
+  }
+  if (/유산균|프로바이오|락토|비피더스/.test(pn)) {
+    return { 성분: ['유산균', '프로바이오틱스'], 효과1: ['장건강', '소화흡수', '장내환경'] };
+  }
+  if (/오메가|크릴|epa|dha/.test(pn)) {
+    return { 성분: ['오메가3', 'EPA', 'DHA'], 효과1: ['혈관건강', '혈행개선', '중성지방감소'] };
+  }
+  if (/홍삼|인삼|진세노사이드/.test(pn)) {
+    return { 성분: ['홍삼', '진세노사이드'], 효과1: ['면역력', '피로개선', '활력'] };
+  }
+  if (/콜라겐|히알루론/.test(pn)) {
+    return { 성분: ['콜라겐', '히알루론산'], 효과1: ['피부탄력', '피부보습', '피부건강'] };
+  }
+  if (/마그네슘/.test(pn)) {
+    return { 성분: ['마그네슘'], 효과1: ['신경기능', '근육기능', '에너지대사'] };
+  }
+  if (/칼슘/.test(pn)) {
+    return { 성분: ['칼슘'], 효과1: ['뼈건강', '치아건강'] };
+  }
+  if (/비타민d3|비타민d/.test(pn)) {
+    return { 성분: ['비타민D'], 효과1: ['뼈건강', '칼슘흡수', '면역기능'] };
+  }
+  if (/비타민c/.test(pn)) {
+    return { 성분: ['비타민C'], 효과1: ['항산화', '면역력', '피부건강'] };
+  }
+  if (/비타민b|b군|b컴플렉스/.test(pn)) {
+    return { 성분: ['비타민B군'], 효과1: ['에너지대사', '신경기능', '피로개선'] };
+  }
+  if (/비타민a/.test(pn)) {
+    return { 성분: ['비타민A'], 효과1: ['시력유지', '피부건강', '면역기능'] };
+  }
+  if (/비타민e/.test(pn)) {
+    return { 성분: ['비타민E'], 효과1: ['항산화', '세포보호'] };
+  }
+  if (/멀티비타민|종합비타민/.test(pn)) {
+    return { 성분: ['멀티비타민'], 효과1: ['종합영양', '활력', '면역력'] };
+  }
+  if (/철분/.test(pn)) {
+    return { 성분: ['철분'], 효과1: ['빈혈예방', '혈액건강'] };
+  }
+  if (/아연/.test(pn)) {
+    return { 성분: ['아연'], 효과1: ['면역기능', '세포분열'] };
+  }
+  if (/엽산/.test(pn)) {
+    return { 성분: ['엽산'], 효과1: ['세포생성', '태아발달'] };
+  }
+  if (/쏘팔메토/.test(pn)) {
+    return { 성분: ['쏘팔메토'], 효과1: ['전립선건강'] };
+  }
+  if (/프로폴리스/.test(pn)) {
+    return { 성분: ['프로폴리스'], 효과1: ['면역력', '구강건강', '항균'] };
+  }
+  if (/스피루리나/.test(pn)) {
+    return { 성분: ['스피루리나'], 효과1: ['항산화', '면역력'] };
+  }
+  if (/클로렐라/.test(pn)) {
+    return { 성분: ['클로렐라'], 효과1: ['항산화', '면역력'] };
+  }
+  if (/가르시니아|cla|카테킨|키토산/.test(pn)) {
+    return { 성분: ['가르시니아', 'HCA'], 효과1: ['체지방관리', '다이어트'] };
+  }
+  if (/프로틴|단백질|wpc|wpi|bcaa|크레아틴|카제인/.test(pn)) {
+    return { 성분: ['프로틴', 'BCAA'], 효과1: ['근육성장', '운동회복'] };
+  }
+  return null;
 }
 
 /**
@@ -373,24 +527,18 @@ function legacyResolveVariables(categoryPath: string): Record<string, string[]> 
     }
   }
 
-  // 중분류 변수풀 오버라이드 (있으면 prepend)
-  // 실제 쿠팡 경로명을 SUBCATEGORY_ALIASES로 변환 후 조회
+  // 중분류 변수풀 — 정의된 키가 있으면 isolation 모드로 적용
+  // (상위 변수와 병합 시 부적합 표현 누출 방지: 예) 뷰티>바디에 "목에서 턱 방향" 누출)
+  // 단, 하위 카테고리가 특정 슬롯을 정의 안 한 경우만 상위 슬롯 보존.
   for (let len = 2; len <= parts.length; len++) {
     const rawSubKey = parts.slice(0, len).join('>');
     const subKey = SUBCATEGORY_ALIASES[rawSubKey] || rawSubKey;
     const subVars = VARIABLES[subKey];
     if (subVars) {
+      // isolation: 하위에 정의된 슬롯은 상위를 완전히 대체.
+      // 미정의 슬롯만 상위 값 유지.
       for (const [k, v] of Object.entries(subVars)) {
-        if (base[k]) {
-          // prepend: 중분류 값이 앞에, 대분류 값이 뒤에
-          const merged = [...v];
-          for (const existing of base[k]) {
-            if (!merged.includes(existing)) merged.push(existing);
-          }
-          base[k] = merged;
-        } else {
-          base[k] = v;
-        }
+        base[k] = v; // 상위 prepend 없이 완전 대체
       }
     }
   }
@@ -675,8 +823,10 @@ function composeFromV2Templates(
   // ── v2 글로벌 다양성 풀 주입 ──
   // 동일 통문장이 5만회+ 폭주하는 문제 해결: 시드별로 글로벌 풀에서 8개 추가
   const globalV2 = V2_GLOBAL_FRAGMENTS[blockType] || [];
-  const extraGlobals = pickN(globalV2, 8, rng);
-  const enriched = [...rawTemplates, ...extraGlobals];
+  const extraGlobals = pickN(filterByTone(globalV2), 8, rng);
+  // 카테고리 v2 풀에도 톤 필터 적용 — 한 글 내 어미 일관성 보장
+  const tonedRaw = filterByTone(rawTemplates);
+  const enriched = [...tonedRaw, ...extraGlobals];
 
   const effective = filterOut(enriched);
 
@@ -689,17 +839,19 @@ function composeFromV2Templates(
   };
 
   const content = pickOne();
-  let subContent: string | undefined;
+  // 2-3 문장 결합으로 분량 확대 (글 길이 부족 99% 해결용)
+  const subParts = [];
+  const seen = new Set([content]);
   if (effective.length >= 2) {
-    // subContent는 content와 다른 결과가 나올 때까지 최대 5회 재시도
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6 && subParts.length < 2; i++) {
       const s = pickOne();
-      if (s !== content) {
-        subContent = s;
-        break;
+      if (s && !seen.has(s)) {
+        subParts.push(s);
+        seen.add(s);
       }
     }
   }
+  const subContent = subParts.length > 0 ? subParts.join(' ') : undefined;
 
   return { type: blockType, content, subContent };
 }
@@ -1032,10 +1184,21 @@ export function composeBlock(
     case 'usage_guide': {
       // 1차 문장
       const content = composeOneSentence(actualPool, vars, productName, seoKeywords, rng, blockType);
-      // 2차 문장 (subContent) — 다른 조합으로 생성
-      const subContent = composeOneSentence(actualPool, vars, productName, seoKeywords, rng, blockType);
+      // 3차 문장 결합 (SEO 권장 2500+자를 위해 분량 확대)
+      const sub1 = composeOneSentence(actualPool, vars, productName, seoKeywords, rng, blockType);
+      const sub2 = composeOneSentence(actualPool, vars, productName, seoKeywords, rng, blockType);
+      const sub3 = composeOneSentence(actualPool, vars, productName, seoKeywords, rng, blockType);
+      const seen = new Set([content]);
+      const subParts = [];
+      for (const s of [sub1, sub2, sub3]) {
+        if (s && !seen.has(s)) {
+          subParts.push(s);
+          seen.add(s);
+        }
+      }
+      const subContent = subParts.join(' ');
 
-      return { type: blockType, content, subContent: content !== subContent ? subContent : undefined };
+      return { type: blockType, content, subContent: subContent || undefined };
     }
 
     case 'feature_detail': {
@@ -1044,15 +1207,26 @@ export function composeBlock(
       const closer = pickRandom(actualPool.closers, rng);
       const emphasis = actualPool.emphases && actualPool.emphases.length > 0
         ? actualPool.emphases[Math.floor(rng() * actualPool.emphases.length)]
-        : undefined;
+        : EMPHASIS_FALLBACK[Math.floor(rng() * EMPHASIS_FALLBACK.length)];
 
       let rawContent = [opener, value, closer].filter(Boolean).join(' ');
       rawContent = fillTemplate(rawContent, vars, productName, rng);
       rawContent = maybeSeoWeave(rawContent, seoKeywords, rng, blockType);
       rawContent = cleanSpaces(rawContent);
 
-      // subContent — 다른 조합
-      const subContent = composeOneSentence(actualPool, vars, productName, seoKeywords, rng, blockType);
+      // subContent — 3 문장 결합 (분량 확대)
+      const sub1 = composeOneSentence(actualPool, vars, productName, seoKeywords, rng, blockType);
+      const sub2 = composeOneSentence(actualPool, vars, productName, seoKeywords, rng, blockType);
+      const sub3 = composeOneSentence(actualPool, vars, productName, seoKeywords, rng, blockType);
+      const seen = new Set([rawContent]);
+      const subParts = [];
+      for (const s of [sub1, sub2, sub3]) {
+        if (s && !seen.has(s)) {
+          subParts.push(s);
+          seen.add(s);
+        }
+      }
+      const subContent = subParts.join(' ');
 
       const filledEmphasis = emphasis
         ? fillTemplate(emphasis, vars, productName, rng)
@@ -1061,7 +1235,7 @@ export function composeBlock(
       return {
         type: blockType,
         content: rawContent,
-        subContent: rawContent !== subContent ? subContent : undefined,
+        subContent: subContent || undefined,
         emphasis: filledEmphasis,
       };
     }
@@ -1097,18 +1271,41 @@ export function composeBlock(
       rawContent = maybeSeoWeave(rawContent, seoKeywords, rng, blockType);
       rawContent = cleanSpaces(rawContent);
 
-      // subContent 추가
-      const sub = composeOneSentence(actualPool, vars, productName, seoKeywords, rng, blockType);
+      // subContent — 2 문장 + 강제 행동 유도 closer
+      // — 글의 마지막 200자에 행동 유도 표현이 반드시 들어가도록 보장
+      const sub1 = composeOneSentence(actualPool, vars, productName, seoKeywords, rng, blockType);
+      const sub2 = composeOneSentence(actualPool, vars, productName, seoKeywords, rng, blockType);
+      const forcedCta = CTA_FORCED_CLOSERS[Math.floor(rng() * CTA_FORCED_CLOSERS.length)];
+      const seen = new Set([rawContent]);
+      const subParts = [];
+      for (const s of [sub1, sub2]) {
+        if (s && !seen.has(s)) {
+          subParts.push(s);
+          seen.add(s);
+        }
+      }
+      // 마지막에 강제 CTA closer (체크된 행동 유도 표현)
+      subParts.push(forcedCta);
+      const subContent = subParts.join(' ');
 
-      return { type: blockType, content: rawContent, subContent: rawContent !== sub ? sub : undefined };
+      return { type: blockType, content: rawContent, subContent: subContent || undefined };
     }
 
     default: {
       // 미지원 블록타입은 hook 로직으로 폴백
       const fb = resolveFragments('hook', categoryPath);
       const content = composeOneSentence(fb, vars, productName, seoKeywords, rng, blockType);
-      const subContent = composeOneSentence(fb, vars, productName, seoKeywords, rng, blockType);
-      return { type: blockType, content, subContent: content !== subContent ? subContent : undefined };
+      const sub1 = composeOneSentence(fb, vars, productName, seoKeywords, rng, blockType);
+      const sub2 = composeOneSentence(fb, vars, productName, seoKeywords, rng, blockType);
+      const seen = new Set([content]);
+      const subParts = [];
+      for (const s of [sub1, sub2]) {
+        if (s && !seen.has(s)) {
+          subParts.push(s);
+          seen.add(s);
+        }
+      }
+      return { type: blockType, content, subContent: subParts.join(' ') || undefined };
     }
   }
 }
@@ -1177,7 +1374,19 @@ export function composeAllBlocks(
   forbiddenTerms?: string[],
 ): ContentBlock[] {
   resetSeoWeaveCounter();
-  return framework.blocks.map(blockType =>
+  // 시드 기반 톤 결정 — 한 글에서 ~다/~요 일관성 유지
+  setToneMode(rng() < 0.6 ? 'formal' : 'casual');
+  // 블록 시퀀스 보강 — 쿠팡 SEO 권장 2000자+ 충족 위해 신뢰/사용가이드 블록 강제 추가.
+  // cta는 항상 마지막에 두어 행동 유도가 글 끝에 위치하도록 보장.
+  const baseBlocks = [...framework.blocks];
+  const ctaIdx = baseBlocks.lastIndexOf('cta');
+  const beforeCta = ctaIdx >= 0 ? baseBlocks.slice(0, ctaIdx) : baseBlocks;
+  const ctaPart = ctaIdx >= 0 ? baseBlocks.slice(ctaIdx) : [];
+  const enriched = [...beforeCta];
+  if (!enriched.includes('social_proof')) enriched.push('social_proof');
+  if (!enriched.includes('usage_guide')) enriched.push('usage_guide');
+  const finalBlocks = [...enriched, ...ctaPart];
+  return finalBlocks.map(blockType =>
     composeBlock(
       blockType as ContentBlockType,
       categoryPath,
