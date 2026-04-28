@@ -1433,15 +1433,55 @@ export function useBulkRegisterActions() {
           includeReviewImages,
           useStockImages,
           preventionConfig,
-          products: products.map(({ scannedMainImages, scannedDetailImages, scannedInfoImages, scannedReviewImages, ...rest }) => rest),
+          // ⚠️ scannedMainImages의 file handle은 직렬화 불가 — 통째로 strip하면
+          //   autoExcludeReason(사용자 수동 제외 flag)도 같이 유실되어 등록 시 unselected
+          //   이미지가 그대로 등록되는 버그 발생.
+          //   → autoExcludeMaps에 인덱스→reason 별도 보관해 복원 시 재적용.
+          products: products.map((p) => {
+            const { scannedMainImages, scannedDetailImages, scannedInfoImages, scannedReviewImages, ...rest } = p;
+            const mainExcludeMap: Record<number, string> = {};
+            scannedMainImages?.forEach((img, idx) => {
+              if (img.autoExcludeReason) mainExcludeMap[idx] = img.autoExcludeReason;
+            });
+            return { ...rest, _persistedMainExcludeMap: mainExcludeMap };
+          }),
           // CDN URL은 직렬화 가능 → 새로고침 후에도 이미지 URL 유지
           imagePreuploadCache: imagePreuploadCacheRef.current,
         };
         sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
+        // 사용자 설정(returnCharge 등)은 별도 localStorage에 영구 저장
+        // (sessionStorage 30분 TTL 만료 후에도 사용자 입력값 유지)
+        try {
+          localStorage.setItem('megaload_user_prefs', JSON.stringify({
+            brackets, selectedOutbound, selectedReturn, deliveryChargeType,
+            deliveryCharge, freeShipOverAmount, returnCharge, contactNumber,
+            generateAiContent, includeReviewImages, useStockImages, preventionConfig,
+          }));
+        } catch { /* localStorage 사용 불가 환경 */ }
       } catch { /* sessionStorage full or unavailable */ }
     }, 2000);
     return () => clearTimeout(timer);
   }, [step, products, brackets, selectedOutbound, selectedReturn, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, contactNumber, generateAiContent, includeReviewImages, useStockImages, preventionConfig]);
+
+  // 마운트 시 사용자 설정 영구 복원 (sessionStorage 만료와 무관)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('megaload_user_prefs');
+      if (!raw) return;
+      const prefs = JSON.parse(raw);
+      // 명시적으로 저장된 값만 복원 — 기본값(5000) 덮어쓰기 방지
+      if (prefs.returnCharge !== undefined && prefs.returnCharge > 0) setReturnCharge(prefs.returnCharge);
+      if (prefs.deliveryCharge !== undefined) setDeliveryCharge(prefs.deliveryCharge);
+      if (prefs.freeShipOverAmount !== undefined) setFreeShipOverAmount(prefs.freeShipOverAmount);
+      if (prefs.deliveryChargeType) setDeliveryChargeType(prefs.deliveryChargeType);
+      if (prefs.contactNumber) setContactNumber(prefs.contactNumber);
+      if (prefs.selectedOutbound) setSelectedOutbound(prefs.selectedOutbound);
+      if (prefs.selectedReturn) setSelectedReturn(prefs.selectedReturn);
+      if (prefs.generateAiContent !== undefined) setGenerateAiContent(prefs.generateAiContent);
+      if (prefs.includeReviewImages !== undefined) setIncludeReviewImages(prefs.includeReviewImages);
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 마운트 시 세션 복원 제안
   useEffect(() => {
@@ -1464,11 +1504,30 @@ export function useBulkRegisterActions() {
         setSessionRestoreOffered(true);
         const shouldRestore = confirm(`이전 작업 세션이 있습니다 (${data.products.length}개 상품, ${Math.round((Date.now() - data.savedAt) / 60000)}분 전). 복원하시겠습니까?`);
         if (shouldRestore) {
-          // 브랜드 앞 2글자 축약 적용 (이전 세션에 전체 브랜드명이 저장됐을 수 있음)
-          setProducts((data.products as EditableProduct[]).map((p: EditableProduct) => ({
-            ...p,
-            editedBrand: p.editedBrand ? p.editedBrand.slice(0, 2) : '',
-          })));
+          // 브랜드 앞 2글자 축약 + 영구 저장된 _persistedMainExcludeMap → scannedMainImages 재구축
+          // (file handle은 못 살리지만 autoExcludeReason flag 보존 → unselected 이미지 누출 방지)
+          setProducts((data.products as (EditableProduct & { _persistedMainExcludeMap?: Record<number, string> })[]).map((p) => {
+            const excludeMap = p._persistedMainExcludeMap;
+            const cleanedP = { ...p } as EditableProduct & { _persistedMainExcludeMap?: Record<number, string> };
+            delete cleanedP._persistedMainExcludeMap;
+            // 캐시된 mainImageUrls 길이만큼 mock scannedMainImages 생성 (file handle 없이 reason만)
+            const cachedMain = imagePreuploadCacheRef.current?.[p.uid]?.mainImageUrls;
+            if (excludeMap && cachedMain && Object.keys(excludeMap).length > 0) {
+              const mockScanned = cachedMain.map((_, idx) => ({
+                id: `restored-${p.uid}-${idx}`,
+                name: `restored-${idx}`,
+                path: '',
+                size: 0,
+                handle: null as unknown as FileSystemFileHandle,
+                ...(excludeMap[idx] ? { autoExcludeReason: excludeMap[idx] as 'low_score' } : {}),
+              }));
+              cleanedP.scannedMainImages = mockScanned as EditableProduct['scannedMainImages'];
+            }
+            return {
+              ...cleanedP,
+              editedBrand: cleanedP.editedBrand ? cleanedP.editedBrand.slice(0, 2) : '',
+            };
+          }));
           setBrackets(data.brackets || brackets);
           setSelectedOutbound(data.selectedOutbound || '');
           setSelectedReturn(data.selectedReturn || '');
@@ -2282,11 +2341,28 @@ export function useBulkRegisterActions() {
           const reviewHandlesLost = filteredReview.length === 0 && (p.reviewImages?.length ?? 0) > 0;
 
           if (hasCache) {
-            // 자동 제외 권장 이미지 필터링 (cached.mainImageUrls는 scannedMainImages와 1:1 정렬)
-            const mainUrls = (p.scannedMainImages && p.scannedMainImages.length === cached.mainImageUrls.length)
-              ? cached.mainImageUrls.filter((_, i) => !p.scannedMainImages![i]?.autoExcludeReason)
-              : cached.mainImageUrls;
-            if (p.scannedMainImages && cached.mainImageUrls.length !== mainUrls.length) {
+            // 자동 제외 권장 이미지 필터링 — 길이 일치할 때 정상 필터, 불일치 시도 부분 필터 시도.
+            // 핵심: scannedMainImages가 있으면 autoExcludeReason flag 우선 적용 (사용자가
+            //       "선택 안 함"으로 표시한 이미지는 절대 등록되지 않음).
+            //       세션 복원 후 scannedMainImages가 부분 재구축됐을 때도 동작해야.
+            let mainUrls: string[] = cached.mainImageUrls;
+            if (p.scannedMainImages && p.scannedMainImages.length > 0) {
+              if (p.scannedMainImages.length === cached.mainImageUrls.length) {
+                // 정상 1:1 정렬 — flag 적용
+                mainUrls = cached.mainImageUrls.filter((_, i) => !p.scannedMainImages![i]?.autoExcludeReason);
+              } else {
+                // 길이 불일치 — 인덱스 기반 부분 적용 (보수적: 적어도 알려진 인덱스의 exclude만 반영)
+                const excludeIndices = new Set<number>();
+                p.scannedMainImages.forEach((img, idx) => {
+                  if (img.autoExcludeReason) excludeIndices.add(idx);
+                });
+                if (excludeIndices.size > 0) {
+                  mainUrls = cached.mainImageUrls.filter((_, i) => !excludeIndices.has(i));
+                  console.warn(`[auto-exclude] ${p.productCode}: scannedMainImages(${p.scannedMainImages.length}) ↔ cached(${cached.mainImageUrls.length}) 길이 불일치 — 인덱스 기반 부분 필터 적용 (${excludeIndices.size}장 제외)`);
+                }
+              }
+            }
+            if (cached.mainImageUrls.length !== mainUrls.length) {
               console.info(`[auto-exclude] ${p.productCode}: 대표이미지 ${cached.mainImageUrls.length - mainUrls.length}장 자동 제외 (등록 시점)`);
             }
             // filter(Boolean): 사전업로드 실패로 생긴 빈 슬롯 제거 (drop 후 길이 0이면 핸들 폴백 시도)
