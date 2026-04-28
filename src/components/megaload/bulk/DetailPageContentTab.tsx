@@ -609,7 +609,7 @@ export default function DetailPageContentTab({
           title="상세페이지 이미지"
           icon={<ImageIcon className="w-3.5 h-3.5 text-indigo-500" />}
           badge={`${(product.editedDetailImageOrder ?? detailThumbnailUrls).length}장 선택`}
-          defaultOpen={false}
+          defaultOpen={true}
         >
           <ImageSelectorGroup
             label="상세이미지"
