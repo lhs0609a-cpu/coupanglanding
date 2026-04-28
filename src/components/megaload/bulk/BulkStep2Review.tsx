@@ -68,6 +68,8 @@ interface BulkStep2ReviewProps {
   onReorderImages: (uid: string, newOrder: string[]) => void;
   onRemoveImage: (uid: string, imageIndex: number) => void;
   onToggleAutoExclude?: (uid: string, imageIndex: number) => void;
+  onPrewarmProduct?: (uid: string) => void;
+  onPrewarmCancel?: (uid: string) => void;
   onSwapStockImage?: (uid: string, imageIndex: number, newCdnUrl: string) => void;
   // Detail panel image URLs
   getDetailImageUrls: (uid: string) => string[];
@@ -198,7 +200,7 @@ export default memo(function BulkStep2Review({
   onSetCategorySearchTarget, onSetCategoryKeyword, onSearchCategory, onSelectCategory,
   onDeepValidation, onRegister, onBack,
   thumbnailCache, onLoadThumbnail,
-  onReorderImages, onRemoveImage, onToggleAutoExclude, onSwapStockImage, getDetailImageUrls,
+  onReorderImages, onRemoveImage, onToggleAutoExclude, onPrewarmProduct, onPrewarmCancel, onSwapStockImage, getDetailImageUrls,
   selectedOutbound, selectedReturn, returnCharge, contactNumber, includeReviewImages, noticeOverrides,
   preventionConfig,
   categoryMetaCache,
@@ -987,6 +989,8 @@ export default memo(function BulkStep2Review({
         onRowClick={handleRowClick}
         onLoadThumbnail={onLoadThumbnail}
         onSort={handleSort}
+        onPrewarmProduct={onPrewarmProduct}
+        onPrewarmCancel={onPrewarmCancel}
       />
 
       {/* Bottom navigation */}

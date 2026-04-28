@@ -23,6 +23,8 @@ interface BulkProductTableProps {
   onRowClick: (uid: string) => void;
   onLoadThumbnail: (uid: string) => void;
   onSort: (field: SortField) => void;
+  onPrewarmProduct?: (uid: string) => void;
+  onPrewarmCancel?: (uid: string) => void;
 }
 
 /** react-window itemData — 이 참조가 변경되면 모든 visible row가 re-render */
@@ -36,6 +38,8 @@ interface RowData {
   onUpdate: (uid: string, field: string, value: string | number) => void;
   onCategoryClick: (uid: string) => void;
   onRowClick: (uid: string) => void;
+  onPrewarmProduct?: (uid: string) => void;
+  onPrewarmCancel?: (uid: string) => void;
 }
 
 /** 안정적인 Row 컴포넌트 — useCallback 대신 별도 컴포넌트로 분리하여 react-window가 올바르게 re-render */
@@ -54,6 +58,8 @@ const Row = memo(function Row({ index, style, data }: { index: number; style: Re
       onUpdate={data.onUpdate}
       onCategoryClick={data.onCategoryClick}
       onRowClick={data.onRowClick}
+      onPrewarmProduct={data.onPrewarmProduct}
+      onPrewarmCancel={data.onPrewarmCancel}
     />
   );
 });
@@ -72,6 +78,8 @@ export default function BulkProductTable({
   onRowClick,
   onLoadThumbnail,
   onSort,
+  onPrewarmProduct,
+  onPrewarmCancel,
 }: BulkProductTableProps) {
   const listRef = useRef<FixedSizeList>(null);
 
@@ -106,7 +114,9 @@ export default function BulkProductTable({
     onUpdate,
     onCategoryClick,
     onRowClick,
-  }), [products, selectedUid, thumbnailCache, stockResults, onLoadThumbnail, onToggle, onUpdate, onCategoryClick, onRowClick]);
+    onPrewarmProduct,
+    onPrewarmCancel,
+  }), [products, selectedUid, thumbnailCache, stockResults, onLoadThumbnail, onToggle, onUpdate, onCategoryClick, onRowClick, onPrewarmProduct, onPrewarmCancel]);
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">

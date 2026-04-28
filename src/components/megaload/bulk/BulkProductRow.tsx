@@ -29,6 +29,8 @@ interface BulkProductRowProps {
   onUpdate: (uid: string, field: string, value: string | number) => void;
   onCategoryClick: (uid: string) => void;
   onRowClick: (uid: string) => void;
+  onPrewarmProduct?: (uid: string) => void;
+  onPrewarmCancel?: (uid: string) => void;
 }
 
 const BulkProductRow = memo(function BulkProductRow({
@@ -42,6 +44,8 @@ const BulkProductRow = memo(function BulkProductRow({
   onUpdate,
   onCategoryClick,
   onRowClick,
+  onPrewarmProduct,
+  onPrewarmCancel,
 }: BulkProductRowProps) {
   const [thumbLoaded, setThumbLoaded] = useState(false);
 
@@ -76,6 +80,8 @@ const BulkProductRow = memo(function BulkProductRow({
       } ${p.validationStatus === 'error' && p.selected ? 'bg-red-50/50' : ''} ${
         isSelected ? 'bg-blue-50 ring-1 ring-blue-300' : 'hover:bg-gray-50'
       }`}
+      onMouseEnter={onPrewarmProduct ? () => onPrewarmProduct(p.uid) : undefined}
+      onMouseLeave={onPrewarmCancel ? () => onPrewarmCancel(p.uid) : undefined}
       onClick={(e) => {
         // Don't trigger row click for input/button/checkbox/anchor interactions
         if ((e.target as HTMLElement).closest('input, button, a')) return;

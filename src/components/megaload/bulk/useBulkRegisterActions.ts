@@ -2241,6 +2241,66 @@ export function useBulkRegisterActions() {
     });
   }, []);
 
+  // ---- 호버 사전 워밍: 상품 행 hover 시 detail/review objectURL 백그라운드 생성 ----
+  // 패널 열기 전에 미리 준비 → 패널 진입 시 캐시 hit → 즉시 표시
+  const prewarmTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const prewarmedRef = useRef<Set<string>>(new Set());
+
+  const handlePrewarmProduct = useCallback((uid: string) => {
+    if (prewarmedRef.current.has(uid)) return; // 이미 워밍 완료
+    if (prewarmTimersRef.current.has(uid)) return; // 이미 예약됨
+
+    // 100ms 디바운스 — 빠르게 지나가는 호버는 무시 (마우스-패스 방지)
+    const timer = setTimeout(async () => {
+      prewarmTimersRef.current.delete(uid);
+      const product = productsRef.current.find(p => p.uid === uid);
+      if (!product) return;
+
+      const imgs = [
+        ...(product.scannedDetailImages ?? []),
+        ...(product.scannedReviewImages ?? []),
+      ];
+      if (imgs.length === 0) {
+        prewarmedRef.current.add(uid);
+        return;
+      }
+      // 이미 모두 캐시됐으면 skip
+      if (imgs.every(img => img.objectUrl)) {
+        prewarmedRef.current.add(uid);
+        return;
+      }
+
+      // 병렬 워커 6개로 백그라운드 생성 — 메인스레드에 부담 적음
+      const { ensureObjectUrl } = await import('@/lib/megaload/services/client-folder-scanner');
+      const CONC = 6;
+      let nextIdx = 0;
+      const worker = async () => {
+        while (true) {
+          const i = nextIdx++;
+          if (i >= imgs.length) return;
+          try { await ensureObjectUrl(imgs[i]); }
+          catch { /* skip */ }
+        }
+      };
+      try {
+        await Promise.all(
+          Array.from({ length: Math.min(CONC, imgs.length) }, () => worker()),
+        );
+        prewarmedRef.current.add(uid);
+      } catch { /* skip */ }
+    }, 100);
+
+    prewarmTimersRef.current.set(uid, timer);
+  }, []);
+
+  const handlePrewarmCancel = useCallback((uid: string) => {
+    const timer = prewarmTimersRef.current.get(uid);
+    if (timer) {
+      clearTimeout(timer);
+      prewarmTimersRef.current.delete(uid);
+    }
+  }, []);
+
   // ---- Auto-exclude 토글: 자동 제외 권장 이미지를 강제 포함시키거나 다시 제외시킴 ----
   const handleToggleAutoExclude = useCallback((uid: string, imageIndex: number) => {
     setProducts((prev) => prev.map((p) => {
@@ -2754,6 +2814,7 @@ export function useBulkRegisterActions() {
     handleDeepValidation, handlePreflight, handleCanary,
     toggleProduct, toggleAll, updateField,
     handleReorderImages, handleRemoveImage, handleToggleAutoExclude, getDetailImageUrls, handleSwapStockImage,
+    handlePrewarmProduct, handlePrewarmCancel,
     handleRegister, togglePause, handleReset, retryFailed, backToStep2, retryAutoCategory,
     // 카테고리 정확도 개선
     fetchCategorySuggestions, lowConfidenceProducts, rematchLowConfidence, rematchingCategory,
