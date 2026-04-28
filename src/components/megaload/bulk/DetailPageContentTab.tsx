@@ -341,16 +341,25 @@ export default function DetailPageContentTab({
   }, [product.uid]);
 
   // 자동 트리거: 패널이 열렸고 분석이 한 번도 안 돌았으면 자동 실행
-  // — editedDetailImageOrder가 undefined일 때만 (사용자 수동 선택 보존)
-  // — 안 한 사용자에겐 클릭 한번 줄여줌, 이미 한 사용자에겐 불필요 분석 안 함
+  // 보호 케이스 (자동 트리거 SKIP):
+  //   - editedDetailImageOrder가 부분 선택 (= 사용자가 의도적으로 큐레이션한 상태)
+  //   - 이미 분석 결과 있음 (detailRelevanceScores)
+  //   - 이미 트리거함 (autoTriggeredRef)
+  // 트리거 케이스:
+  //   - editedDetailImageOrder undefined (스캔 초기 상태)
+  //   - 또는 전부 선택 (= 옛 코드로 스캔 OR "전체선택" 누른 상태, 큐레이션 아님)
   const autoTriggeredRef = useRef<string | null>(null);
   useEffect(() => {
-    const hasDetail = (product.scannedDetailImages?.length ?? 0) > 0;
-    if (!hasDetail) return;
-    if (product.editedDetailImageOrder !== undefined) return; // 이미 사용자 선택 있음
+    const totalDetail = product.scannedDetailImages?.length ?? 0;
+    if (totalDetail === 0) return;
     if (detailRelevanceScores) return; // 이미 분석 완료
     if (isAnalyzingDetailRelevance) return;
     if (autoTriggeredRef.current === product.uid) return; // 이 상품은 이미 트리거 함
+
+    // 사용자 큐레이션 보호: 부분 선택이면 SKIP
+    const order = product.editedDetailImageOrder;
+    const isUserCurated = order !== undefined && order.length > 0 && order.length < totalDetail;
+    if (isUserCurated) return;
 
     autoTriggeredRef.current = product.uid;
     // 짧은 지연으로 panel 렌더 완료 후 실행 (UX 부드럽게)
