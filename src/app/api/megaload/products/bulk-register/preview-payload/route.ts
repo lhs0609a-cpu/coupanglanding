@@ -75,14 +75,8 @@ export async function POST(req: NextRequest) {
     let attributeMeta: AttributeMeta[] = [];
 
     try {
-      const noticeResult = await coupangAdapter.getNoticeCategoryFields(product.categoryCode);
-      noticeMeta = noticeResult.items.map((item: { noticeCategoryName: string; noticeCategoryDetailNames: { name: string; required: boolean }[] }) => ({
-        noticeCategoryName: item.noticeCategoryName,
-        fields: item.noticeCategoryDetailNames.map((d: { name: string; required: boolean }) => ({
-          name: d.name,
-          required: d.required ?? false,
-        })),
-      }));
+      const { getNoticeCategoryWithCache } = await import('@/lib/megaload/services/notice-category-cache');
+      noticeMeta = await getNoticeCategoryWithCache(serviceClient, coupangAdapter, product.categoryCode);
     } catch {
       // notices 조회 실패 → 빈 배열
     }

@@ -398,6 +398,15 @@ export function fillNoticeFields(
     // categoryPath와 가장 적합한 noticeMeta 선택 (단일이면 그대로, 복수면 점수화)
     const selected = selectBestNoticeMeta(noticeMeta, categoryHint) || noticeMeta[0];
     console.log(`[fillNoticeFields] API 메타 사용: "${selected.noticeCategoryName}" (${selected.fields.length}개 필드, 전체 ${noticeMeta.length}개 카테고리, hint="${categoryHint || ''}")`);
+
+    // 도메인 미스매치 soft 경고 — 명백한 잘못된 매칭이면 로깅 (블로킹 X, 모니터링용)
+    if (categoryHint) {
+      const mismatch = detectDomainMismatch(selected.noticeCategoryName, categoryHint);
+      if (mismatch) {
+        console.error(`[fillNoticeFields] 🚨 도메인 미스매치 감지: ${mismatch} | path="${categoryHint}" | 후보=${noticeMeta.map(m => m.noticeCategoryName).join(',')}`);
+      }
+    }
+
     return [{
       noticeCategoryName: selected.noticeCategoryName,
       noticeCategoryDetailName: selected.fields.map((field) => ({
@@ -412,6 +421,35 @@ export function fillNoticeFields(
   // 잘못된 카테고리 전송보다 빈 배열이 안전 → 빌더에서 notices 키 생략 처리
   console.warn(`[fillNoticeFields] API 메타 없음 → notices 빈 배열 반환 (카테고리별 허용 목록 불명)`);
   return [];
+}
+
+/**
+ * 도메인 명백한 미스매치 감지 (soft warning, not blocking).
+ * 식품 path → 패션 notice 같은 명백한 오매핑만 식별.
+ * 회색 영역(베이비 화장품 등)은 비워둠 — 합법 등록 막으면 안 됨.
+ */
+function detectDomainMismatch(noticeCategoryName: string, categoryPath: string): string | null {
+  const path = categoryPath.toLowerCase();
+  const notice = noticeCategoryName.toLowerCase();
+
+  // 명백한 미스매치만 — false positive 위험을 감수하더라도 잡아야 할 케이스
+  const HARD_RULES: { pathRegex: RegExp; forbidNoticeIncludes: string[]; label: string }[] = [
+    { pathRegex: /^식품>건강식품/, forbidNoticeIncludes: ['패션', '의류', '구두', '신발', '가방', '시계', '쥬얼리'], label: '건강식품→패션' },
+    { pathRegex: /^식품/, forbidNoticeIncludes: ['패션', '의류', '구두', '신발', '가방', '시계', '쥬얼리', '화장품'], label: '식품→패션/화장품' },
+    { pathRegex: /^뷰티/, forbidNoticeIncludes: ['패션', '의류', '구두', '신발', '가방', '시계', '쥬얼리', '식품', '건강기능', '농산', '축산', '수산'], label: '뷰티→패션/식품' },
+    { pathRegex: /^자동차/, forbidNoticeIncludes: ['패션', '의류', '구두', '신발', '가방', '시계', '쥬얼리', '화장품', '식품', '건강기능'], label: '자동차→패션/뷰티/식품' },
+    { pathRegex: /^도서/, forbidNoticeIncludes: ['패션', '의류', '구두', '신발', '가방', '시계', '쥬얼리', '화장품', '식품', '건강기능', '농산', '축산', '수산', '생활화학', '의약'], label: '도서→타도메인' },
+  ];
+
+  for (const rule of HARD_RULES) {
+    if (rule.pathRegex.test(path)) {
+      for (const forbid of rule.forbidNoticeIncludes) {
+        if (notice.includes(forbid)) return rule.label + ` (notice="${noticeCategoryName}")`;
+      }
+      return null;
+    }
+  }
+  return null;
 }
 
 /**

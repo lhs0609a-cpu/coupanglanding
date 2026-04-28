@@ -102,14 +102,9 @@ export async function POST(req: NextRequest) {
         let attributeMeta: AttributeMeta[] = [];
 
         try {
-          const noticeResult = await coupangAdapter.getNoticeCategoryFields(code);
-          noticeMeta = noticeResult.items.map((item) => ({
-            noticeCategoryName: item.noticeCategoryName,
-            fields: item.noticeCategoryDetailNames.map((d) => ({
-              name: d.name,
-              required: d.required,
-            })),
-          }));
+          // Supabase 캐시 우선 → 미스 시 라이브 API → 결과 캐시 저장
+          const { getNoticeCategoryWithCache } = await import('@/lib/megaload/services/notice-category-cache');
+          noticeMeta = await getNoticeCategoryWithCache(serviceClient, coupangAdapter, code);
         } catch {
           // notices 조회 실패 → 빈 배열
         }

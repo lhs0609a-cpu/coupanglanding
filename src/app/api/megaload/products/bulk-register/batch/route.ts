@@ -545,20 +545,15 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // 5.5 noticeMeta가 비어있으면 쿠팡 API에서 직접 재조회
+      // 5.5 noticeMeta가 비어있으면 캐시 우선 + 라이브 API 폴백으로 재조회
       if (!product.noticeMeta || product.noticeMeta.length === 0) {
         try {
-          console.log(`[batch] noticeMeta 비어있음 → 재조회: category=${product.categoryCode}`);
-          const noticeResult = await coupangAdapter.getNoticeCategoryFields(product.categoryCode);
-          if (noticeResult.items.length > 0) {
-            product.noticeMeta = noticeResult.items.map((item) => ({
-              noticeCategoryName: item.noticeCategoryName,
-              fields: item.noticeCategoryDetailNames.map((d) => ({
-                name: d.name,
-                required: d.required,
-              })),
-            }));
-            console.log(`[batch] noticeMeta 재조회 성공: ${product.noticeMeta[0].noticeCategoryName} (${product.noticeMeta[0].fields.length}개 필드)`);
+          console.log(`[batch] noticeMeta 비어있음 → 캐시+재조회: category=${product.categoryCode}`);
+          const { getNoticeCategoryWithCache } = await import('@/lib/megaload/services/notice-category-cache');
+          const fresh = await getNoticeCategoryWithCache(serviceClient, coupangAdapter, product.categoryCode);
+          if (fresh.length > 0) {
+            product.noticeMeta = fresh;
+            console.log(`[batch] noticeMeta 재조회 성공: ${fresh[0].noticeCategoryName} (${fresh[0].fields.length}개 필드)`);
           }
         } catch (e) {
           console.warn(`[batch] noticeMeta 재조회 실패:`, e);
@@ -631,14 +626,11 @@ export async function POST(req: NextRequest) {
 
           // noticeMeta 재조회 후 notices를 올바르게 채워 재시도
           try {
-            const freshNotice = await coupangAdapter.getNoticeCategoryFields(product.categoryCode);
-            if (freshNotice.items.length > 0 && diagItems) {
+            const { getNoticeCategoryWithCache } = await import('@/lib/megaload/services/notice-category-cache');
+            const freshMeta = await getNoticeCategoryWithCache(serviceClient, coupangAdapter, product.categoryCode);
+            if (freshMeta.length > 0 && diagItems) {
               // fillNoticeFields 호출하여 올바른 notices 생성
               const { fillNoticeFields } = await import('@/lib/megaload/services/notice-field-filler');
-              const freshMeta = freshNotice.items.map((item) => ({
-                noticeCategoryName: item.noticeCategoryName,
-                fields: item.noticeCategoryDetailNames.map((d) => ({ name: d.name, required: d.required })),
-              }));
               const filledNotices = fillNoticeFields(
                 freshMeta,
                 { name: product.name, brand: product.brand, tags: product.tags || [], description: product.description || '' },
