@@ -439,35 +439,173 @@ const UPLOAD_MAX_DIMENSION = 1000; // 쿠팡 권장: 1000px이면 충분 (크기
 const UPLOAD_MIN_DIMENSION = 500;  // 쿠팡 필수: 최소 500×500
 const UPLOAD_JPEG_QUALITY = 0.75;  // 파일 크기 제한 (Supabase 5MB, Vercel 4.5MB)
 
+// ─── Web Worker Pool — 메인스레드 freezing 완전 해소 ──────────────
+// 인라인 Blob Worker로 빌드 설정 영향 없음. OffscreenCanvas 지원 브라우저에서만 활성.
+// 4개 워커 = 4개 압축 동시 실행 (메인스레드는 자유)
+const COMPRESS_WORKER_CODE = `
+const MIN_DIM = 500;
+const MAX_DIM = 1200;
+const QUALITY = 0.75;
+
+async function compress(file, sellerBrand) {
+  if (!sellerBrand && file.size >= 100*1024 && file.size <= 3*1024*1024) return file;
+
+  let bitmap;
+  try { bitmap = await createImageBitmap(file); }
+  catch (e) { return renderEmpty(); }
+
+  const w = bitmap.width, h = bitmap.height;
+  let tw = w, th = h, render = false;
+  if (w < MIN_DIM || h < MIN_DIM) {
+    const s = MIN_DIM / Math.min(w, h);
+    tw = Math.max(MIN_DIM, Math.round(w * s));
+    th = Math.max(MIN_DIM, Math.round(h * s));
+    render = true;
+  } else if (w > MAX_DIM || h > MAX_DIM) {
+    const s = MAX_DIM / Math.max(w, h);
+    tw = Math.round(w * s); th = Math.round(h * s);
+    render = true;
+  } else if (file.size > 3*1024*1024) {
+    render = true;
+  }
+  if (sellerBrand) render = true;
+
+  if (!render) { bitmap.close(); return file; }
+
+  const canvas = new OffscreenCanvas(tw, th);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) { bitmap.close(); return file; }
+  ctx.drawImage(bitmap, 0, 0, tw, th);
+  if (sellerBrand) {
+    const fs = Math.max(14, Math.round(tw * 0.028));
+    ctx.save();
+    ctx.globalAlpha = 0.12;
+    ctx.font = 'bold ' + fs + 'px sans-serif';
+    ctx.fillStyle = '#000000';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(sellerBrand, tw - 8, th - 8);
+    ctx.restore();
+  }
+  bitmap.close();
+  return canvas.convertToBlob({ type: 'image/jpeg', quality: QUALITY });
+}
+
+async function renderEmpty() {
+  const c = new OffscreenCanvas(MIN_DIM, MIN_DIM);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, MIN_DIM, MIN_DIM);
+  return c.convertToBlob({ type: 'image/jpeg', quality: QUALITY });
+}
+
+self.addEventListener('message', async (e) => {
+  const { id, file, sellerBrand } = e.data;
+  try {
+    const blob = await compress(file, sellerBrand);
+    self.postMessage({ id, blob });
+  } catch (err) {
+    self.postMessage({ id, error: (err && err.message) || 'compress failed' });
+  }
+});
+`;
+
+interface CompressJob {
+  resolve: (b: Blob) => void;
+  reject: (e: Error) => void;
+}
+
+class CompressWorkerPool {
+  private workers: Worker[] = [];
+  private pending = new Map<number, CompressJob>();
+  private nextId = 0;
+  private rrIdx = 0;
+
+  constructor(size: number) {
+    const blob = new Blob([COMPRESS_WORKER_CODE], { type: 'application/javascript' });
+    const url = URL.createObjectURL(blob);
+    for (let i = 0; i < size; i++) {
+      const w = new Worker(url);
+      w.onmessage = (e: MessageEvent<{ id: number; blob?: Blob; error?: string }>) => {
+        const { id, blob: result, error } = e.data;
+        const handler = this.pending.get(id);
+        if (!handler) return;
+        this.pending.delete(id);
+        if (error) handler.reject(new Error(error));
+        else if (result) handler.resolve(result);
+        else handler.reject(new Error('worker returned no blob'));
+      };
+      w.onerror = (err) => {
+        console.warn('[compress-worker] error', err);
+      };
+      this.workers.push(w);
+    }
+    URL.revokeObjectURL(url);
+  }
+
+  compress(file: Blob, sellerBrand?: string): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      const id = ++this.nextId;
+      this.pending.set(id, { resolve, reject });
+      const worker = this.workers[this.rrIdx];
+      this.rrIdx = (this.rrIdx + 1) % this.workers.length;
+      worker.postMessage({ id, file, sellerBrand });
+    });
+  }
+}
+
+let _workerPool: CompressWorkerPool | null = null;
+const WORKER_POOL_SIZE = 4;
+
+function getWorkerPool(): CompressWorkerPool | null {
+  if (typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined') return null;
+  if (_workerPool) return _workerPool;
+  try {
+    _workerPool = new CompressWorkerPool(WORKER_POOL_SIZE);
+    return _workerPool;
+  } catch (e) {
+    console.warn('[compressImage] Worker 풀 생성 실패, 메인스레드 폴백', e);
+    return null;
+  }
+}
+
 /**
  * 이미지를 canvas로 리사이즈 (최소 500x500, 최대 1200px)
- * 모든 이미지를 canvas를 통해 처리하여 쿠팡 최소 크기를 보장
+ *
+ * 성능 계층 (빠른 순):
+ *   1) 휴리스틱 조기 탈출 (디코드 0): 워터마크 없고 100KB~3MB → pass-through
+ *   2) Web Worker 풀 (4 worker): 메인스레드 freezing 0
+ *   3) OffscreenCanvas 메인스레드 폴백
+ *   4) HTMLCanvasElement (구 브라우저 폴백)
  *
  * sellerBrand가 제공되면 반투명 워터마크를 삽입하여 CNN 임베딩 차별화
- *
- * 성능: createImageBitmap → 디코딩이 백그라운드 스레드 (워커 없이도)
- *      OffscreenCanvas (지원 시) → 메인스레드 영향 없음
- *      파일 크기 휴리스틱 조기 탈출 → 디코딩 자체 스킵
  */
 export async function compressImage(file: File | Blob, sellerBrand?: string): Promise<Blob> {
-  // ── 휴리스틱 조기 탈출 ── 디코딩 비용도 안 치름
-  // 워터마크가 필요 없고, 파일 크기가 100KB ~ 3MB 사이면 그대로 통과 (해상도 검사 생략)
-  // 1200px 넘는 큰 이미지가 아니라면 대부분 적절한 해상도. 해상도가 너무 작으면 쿠팡이 거부하지만
-  // 그 케이스는 파일 크기도 보통 작음 → 100KB 이하 분기에서 잡힘
+  // 1) 휴리스틱 조기 탈출 — 디코드 비용 0
   if (!sellerBrand && file.size >= 100 * 1024 && file.size <= 3 * 1024 * 1024) {
     return file;
   }
-  if (!sellerBrand && file.size < 100 * 1024) {
-    // 작은 파일: 디코드 후 해상도만 확인. 너무 작으면 업스케일.
-    // 디코드 비싸지만 작은 파일이라 빠름.
+
+  // 2) Web Worker 풀 시도
+  const pool = getWorkerPool();
+  if (pool) {
+    try {
+      return await pool.compress(file, sellerBrand);
+    } catch (e) {
+      console.warn('[compressImage] worker 실패, 메인스레드 폴백', e);
+      // fallthrough → 메인스레드 처리
+    }
   }
 
+  // 3-4) 메인스레드 폴백
+  return compressInMain(file, sellerBrand);
+}
+
+async function compressInMain(file: File | Blob, sellerBrand?: string): Promise<Blob> {
   let bitmap: ImageBitmap | null = null;
   try {
-    // createImageBitmap: 디코딩이 백그라운드 스레드 (브라우저 내부)
     bitmap = await createImageBitmap(file);
   } catch {
-    // 폴백: createImageBitmap 실패 (예: HEIC) → 500x500 흰 캔버스
     console.warn('[compressImage] createImageBitmap 실패 — 500x500 흰 캔버스 폴백');
     return await renderEmptyCanvas();
   }
@@ -478,23 +616,19 @@ export async function compressImage(file: File | Blob, sellerBrand?: string): Pr
   let needsRender = false;
 
   if (width < UPLOAD_MIN_DIMENSION || height < UPLOAD_MIN_DIMENSION) {
-    // 업스케일: 짧은 변이 500이 되도록
     const scale = UPLOAD_MIN_DIMENSION / Math.min(width, height);
     targetW = Math.max(UPLOAD_MIN_DIMENSION, Math.round(width * scale));
     targetH = Math.max(UPLOAD_MIN_DIMENSION, Math.round(height * scale));
     needsRender = true;
   } else if (width > UPLOAD_MAX_DIMENSION || height > UPLOAD_MAX_DIMENSION) {
-    // 다운스케일: 긴 변이 1200이 되도록
     const scale = UPLOAD_MAX_DIMENSION / Math.max(width, height);
     targetW = Math.round(width * scale);
     targetH = Math.round(height * scale);
     needsRender = true;
   } else if (file.size > 3 * 1024 * 1024) {
-    // 3MB 초과 → 재압축 (Supabase/Vercel 5MB/4.5MB 제한)
     needsRender = true;
   }
 
-  // 워터마크가 필요하면 무조건 render
   if (sellerBrand) needsRender = true;
 
   if (!needsRender) {
@@ -502,7 +636,6 @@ export async function compressImage(file: File | Blob, sellerBrand?: string): Pr
     return file;
   }
 
-  // OffscreenCanvas 사용 가능하면 활용 (메인스레드 영향 최소)
   const useOffscreen = typeof OffscreenCanvas !== 'undefined';
   let blob: Blob | null;
 
