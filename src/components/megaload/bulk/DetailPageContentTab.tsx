@@ -408,30 +408,79 @@ export default function DetailPageContentTab({
     [resolvedReviewUrls, product.scannedReviewImages, product.reviewImages, preUploadedUrls?.reviewImageUrls],
   );
 
-  // scanned 이미지의 objectURL을 lazy 생성 (썸네일 + 미리보기 공용)
+  // scanned 이미지의 objectURL을 병렬 생성 (썸네일 + 미리보기 공용)
+  // 병렬 동시성 + 점진적 setState로 썸네일이 즉시 하나씩 나타나도록 함
   useEffect(() => {
     // CDN URL이 있으면 lazy 생성 불필요
     if (preUploadedUrls?.detailImageUrls?.filter(Boolean).length) return;
     let cancelled = false;
-    (async () => {
-      const detailImgs = product.scannedDetailImages ?? [];
-      const reviewImgs = product.scannedReviewImages ?? [];
-      if (detailImgs.length === 0 && reviewImgs.length === 0) return;
-      const dUrls: string[] = [];
-      for (const img of detailImgs) {
-        const url = await ensureObjectUrl(img);
-        if (url) dUrls.push(url);
+
+    const detailImgs = product.scannedDetailImages ?? [];
+    const reviewImgs = product.scannedReviewImages ?? [];
+    if (detailImgs.length === 0 && reviewImgs.length === 0) {
+      setResolvedDetailUrls([]);
+      setResolvedReviewUrls([]);
+      return;
+    }
+
+    // 인덱스 보존을 위한 미리 채운 배열 (실패 시 빈 문자열)
+    const dUrls: string[] = new Array(detailImgs.length).fill('');
+    const rUrls: string[] = new Array(reviewImgs.length).fill('');
+
+    // 점진적 flush: 5개씩 모이면 setState (UI에 즉시 반영)
+    let pendingFlush = false;
+    const scheduleFlush = () => {
+      if (pendingFlush || cancelled) return;
+      pendingFlush = true;
+      // requestAnimationFrame으로 다음 프레임에 batch 적용 (불필요 리렌더 방지)
+      const apply = () => {
+        if (cancelled) return;
+        setResolvedDetailUrls([...dUrls]);
+        setResolvedReviewUrls([...rUrls]);
+        pendingFlush = false;
+      };
+      if (typeof requestAnimationFrame !== 'undefined') {
+        requestAnimationFrame(apply);
+      } else {
+        setTimeout(apply, 16);
       }
-      const rUrls: string[] = [];
-      for (const img of reviewImgs) {
-        const url = await ensureObjectUrl(img);
-        if (url) rUrls.push(url);
+    };
+
+    // 병렬 워커 풀 (동시 10개) — 메인 이미지에 영향 안 가는 수준
+    const tasks: { kind: 'd' | 'r'; idx: number; img: typeof detailImgs[number] }[] = [];
+    for (let j = 0; j < detailImgs.length; j++) tasks.push({ kind: 'd', idx: j, img: detailImgs[j] });
+    for (let j = 0; j < reviewImgs.length; j++) tasks.push({ kind: 'r', idx: j, img: reviewImgs[j] });
+
+    let nextIdx = 0;
+    let resolvedCount = 0;
+    const CONC = 10;
+    const worker = async () => {
+      while (true) {
+        if (cancelled) return;
+        const i = nextIdx++;
+        if (i >= tasks.length) return;
+        const t = tasks[i];
+        try {
+          const url = await ensureObjectUrl(t.img);
+          if (cancelled) return;
+          if (url) {
+            if (t.kind === 'd') dUrls[t.idx] = url;
+            else rUrls[t.idx] = url;
+          }
+        } catch { /* skip */ }
+        resolvedCount++;
+        // 매 5개마다 또는 끝에서 flush
+        if (resolvedCount % 5 === 0 || resolvedCount === tasks.length) {
+          scheduleFlush();
+        }
       }
-      if (!cancelled) {
-        setResolvedDetailUrls(dUrls);
-        setResolvedReviewUrls(rUrls);
-      }
-    })();
+    };
+    Promise.all(
+      Array.from({ length: Math.min(CONC, tasks.length) }, () => worker()),
+    ).then(() => {
+      if (!cancelled) scheduleFlush();
+    });
+
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product.uid, preUploadedUrls?.detailImageUrls]);
