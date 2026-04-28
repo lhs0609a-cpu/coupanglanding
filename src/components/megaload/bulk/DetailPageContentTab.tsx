@@ -11,6 +11,8 @@ import { fillNoticeFields, type NoticeCategoryMeta } from '@/lib/megaload/servic
 import { ensureObjectUrl } from '@/lib/megaload/services/client-folder-scanner';
 import {
   scoreProductRelevance,
+  filterDetailPageImages,
+  detectDuplicateImages,
   type ProductRelevanceScore,
 } from '@/lib/megaload/services/image-quality-scorer';
 import { createSeededRandom, stringToSeed } from '@/lib/megaload/services/seeded-random';
@@ -338,6 +340,28 @@ export default function DetailPageContentTab({
     setIsAnalyzingDetailRelevance(false);
   }, [product.uid]);
 
+  // 자동 트리거: 패널이 열렸고 분석이 한 번도 안 돌았으면 자동 실행
+  // — editedDetailImageOrder가 undefined일 때만 (사용자 수동 선택 보존)
+  // — 안 한 사용자에겐 클릭 한번 줄여줌, 이미 한 사용자에겐 불필요 분석 안 함
+  const autoTriggeredRef = useRef<string | null>(null);
+  useEffect(() => {
+    const hasDetail = (product.scannedDetailImages?.length ?? 0) > 0;
+    if (!hasDetail) return;
+    if (product.editedDetailImageOrder !== undefined) return; // 이미 사용자 선택 있음
+    if (detailRelevanceScores) return; // 이미 분석 완료
+    if (isAnalyzingDetailRelevance) return;
+    if (autoTriggeredRef.current === product.uid) return; // 이 상품은 이미 트리거 함
+
+    autoTriggeredRef.current = product.uid;
+    // 짧은 지연으로 panel 렌더 완료 후 실행 (UX 부드럽게)
+    const timer = setTimeout(() => {
+      handleAnalyzeDetailRelevance();
+    }, 300);
+    return () => clearTimeout(timer);
+    // handleAnalyzeDetailRelevance를 deps에 넣으면 무한루프 가능 — 의도적 omit
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product.uid, product.scannedDetailImages, product.editedDetailImageOrder, detailRelevanceScores, isAnalyzingDetailRelevance]);
+
   const description = product.editedDescription ?? product.description ?? '';
   const storyParagraphs = product.editedStoryParagraphs ?? [];
   const reviewTexts = product.editedReviewTexts ?? [];
@@ -440,19 +464,22 @@ export default function DetailPageContentTab({
     onUpdate(product.uid, 'editedReviewTexts', updated);
   }, [product.uid, reviewTexts, onUpdate]);
 
-  // --- 상세 이미지 관련성 분석 ---
+  // --- 상세 이미지 관련성 분석 + 광고/중복 자동 제외 ---
+  // 클릭 한 번에 전체 분석 + MIN_KEEP=5 보호된 자동 선택을 수행
   const handleAnalyzeDetailRelevance = useCallback(async () => {
     const detailImgs = product.scannedDetailImages ?? [];
     if (detailImgs.length === 0) return;
 
     setIsAnalyzingDetailRelevance(true);
     try {
-      // 상세 이미지 URL 수집
-      const detailUrls: string[] = [];
-      for (const img of detailImgs) {
-        const url = await ensureObjectUrl(img);
-        detailUrls.push(url || 'data:image/png;base64,');
+      // 상세 이미지 URL 수집 (유효한 것만 — 빈 데이터 URL은 분석 대상 아님)
+      const validEntries: { origIdx: number; url: string }[] = [];
+      for (let j = 0; j < detailImgs.length; j++) {
+        const url = await ensureObjectUrl(detailImgs[j]);
+        if (url) validEntries.push({ origIdx: j, url });
       }
+      if (validEntries.length === 0) return;
+      const detailUrls = validEntries.map(e => e.url);
 
       // 기준 이미지(대표이미지) 수집
       const mainImgs = product.scannedMainImages ?? [];
@@ -465,17 +492,101 @@ export default function DetailPageContentTab({
         referenceUrls.push(...preUploadedUrls.mainImageUrls.filter(Boolean));
       }
 
-      const scores = await scoreProductRelevance(referenceUrls, detailUrls);
-      const mapped = scores.map(s => ({ index: s.index, score: s.score }));
+      // (1) 관련성 점수 (기존)
+      const relScores = await scoreProductRelevance(referenceUrls, detailUrls);
+      // relScores.index는 detailUrls 내 인덱스 → origIdx로 변환해 UI에 저장
+      const mapped = relScores.map(s => ({
+        index: validEntries[s.index]?.origIdx ?? s.index,
+        score: s.score,
+      }));
       setDetailRelevanceScores(mapped);
 
-      // 자동 재선택: score < 0.3 제외, score >= 0.4 선택
-      if (product.editedDetailImageOrder === undefined) {
-        const autoSelected = scores
-          .filter(s => s.score >= 0.4)
-          .map(s => s.index);
-        if (autoSelected.length > 0) {
-          onUpdate(product.uid, 'editedDetailImageOrder', autoSelected);
+      // (2) 광고/텍스트/빈이미지 검출
+      const exclusionReasons = new Map<number, string>(); // origIdx → reason
+      try {
+        const adFilter = await filterDetailPageImages(detailUrls);
+        for (const r of adFilter) {
+          if (r.filtered) {
+            const origIdx = validEntries[r.index].origIdx;
+            exclusionReasons.set(origIdx, r.reason || 'text_banner');
+          }
+        }
+      } catch { /* skip */ }
+
+      // (3) 중복 검출 (코사인 0.95+)
+      try {
+        const dup = await detectDuplicateImages(detailUrls, 0.95);
+        for (const dupIdx of dup.duplicateIndices) {
+          const origIdx = validEntries[dupIdx].origIdx;
+          if (!exclusionReasons.has(origIdx)) {
+            exclusionReasons.set(origIdx, 'duplicate');
+          }
+        }
+      } catch { /* skip */ }
+
+      // (4) 관련성 < 0.3 도 제외 후보로 추가
+      for (const r of relScores) {
+        const origIdx = validEntries[r.index].origIdx;
+        if (r.score < 0.3 && !exclusionReasons.has(origIdx)) {
+          exclusionReasons.set(origIdx, 'low_relevance');
+        }
+      }
+
+      // (5) 최종 선택 = (전체 - 제외 후보) — 관련성 순으로 정렬
+      const allOrigIndices = validEntries.map(e => e.origIdx);
+      let finalSelected = allOrigIndices.filter(i => !exclusionReasons.has(i));
+
+      // (6) MIN_KEEP=5 보호 — 너무 적게 남으면 우선순위 낮은 사유부터 해제
+      const MIN_KEEP = 5;
+      const minKeep = Math.min(MIN_KEEP, allOrigIndices.length);
+      if (finalSelected.length < minKeep && exclusionReasons.size > 0) {
+        // 풀어주기 우선순위: low_relevance(약함) → duplicate → text_banner → empty_image(강함)
+        const reasonPriority: Record<string, number> = {
+          low_relevance: 1,
+          duplicate: 2,
+          text_banner: 3,
+          dark_background: 3,
+          colored_banner: 3,
+          promotional_image: 3,
+          empty_image: 4,
+        };
+        const taggedSorted = allOrigIndices
+          .filter(i => exclusionReasons.has(i))
+          .sort((a, b) => {
+            const pa = reasonPriority[exclusionReasons.get(a)!] ?? 99;
+            const pb = reasonPriority[exclusionReasons.get(b)!] ?? 99;
+            if (pa !== pb) return pa - pb;
+            // 같은 사유면 관련성 점수 높은 순
+            const sa = relScores.find(r => validEntries[r.index].origIdx === a)?.score ?? 0;
+            const sb = relScores.find(r => validEntries[r.index].origIdx === b)?.score ?? 0;
+            return sb - sa;
+          });
+        let releaseCount = minKeep - finalSelected.length;
+        for (const origIdx of taggedSorted) {
+          if (releaseCount <= 0) break;
+          exclusionReasons.delete(origIdx);
+          releaseCount--;
+        }
+        finalSelected = allOrigIndices.filter(i => !exclusionReasons.has(i));
+        console.warn(`[analyzeDetailRelevance] ${product.productCode}: MIN_KEEP=${minKeep} 보호 — 자동제외 일부 해제`);
+      }
+
+      // (7) 결과 적용 — 관련성 높은 순으로 정렬
+      finalSelected.sort((a, b) => {
+        const sa = relScores.find(r => validEntries[r.index].origIdx === a)?.score ?? 0;
+        const sb = relScores.find(r => validEntries[r.index].origIdx === b)?.score ?? 0;
+        return sb - sa;
+      });
+
+      if (finalSelected.length > 0) {
+        onUpdate(product.uid, 'editedDetailImageOrder', finalSelected);
+        const excludedCount = allOrigIndices.length - finalSelected.length;
+        if (excludedCount > 0) {
+          const summary = Array.from(exclusionReasons.entries())
+            .map(([i, r]) => `#${i + 1}=${r}`)
+            .slice(0, 8)
+            .join(', ');
+          console.info(`[analyzeDetailRelevance] ${product.productCode}: ${excludedCount}장 자동 제외 — ${summary}${exclusionReasons.size > 8 ? '...' : ''}`);
         }
       }
     } catch (err) {
@@ -485,9 +596,9 @@ export default function DetailPageContentTab({
     }
   }, [
     product.uid,
+    product.productCode,
     product.scannedDetailImages,
     product.scannedMainImages,
-    product.editedDetailImageOrder,
     preUploadedUrls?.mainImageUrls,
     onUpdate,
   ]);
