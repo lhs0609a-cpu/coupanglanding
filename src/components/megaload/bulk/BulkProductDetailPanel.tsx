@@ -15,6 +15,7 @@ import type { NoticeCategoryMeta } from '@/lib/megaload/services/notice-field-fi
 interface ImageItem {
   id: string;
   url: string;
+  autoExcludeReason?: 'hard_filter' | 'low_score' | 'color_outlier' | 'unrelated_to_main' | 'duplicate' | 'text_banner' | 'empty_image';
 }
 
 export interface PayloadPreviewState {
@@ -33,6 +34,7 @@ interface BulkProductDetailPanelProps {
   onCategoryClick: (uid: string) => void;
   onReorderImages: (uid: string, newOrder: string[]) => void;
   onRemoveImage: (uid: string, imageIndex: number) => void;
+  onToggleAutoExclude?: (uid: string, imageIndex: number) => void;
   onSwapStockImage?: (uid: string, imageIndex: number, newCdnUrl: string) => void;
   payloadPreview?: PayloadPreviewState;
   onRequestPreview?: (uid: string) => void;
@@ -55,6 +57,7 @@ export default function BulkProductDetailPanel({
   onCategoryClick,
   onReorderImages,
   onRemoveImage,
+  onToggleAutoExclude,
   onSwapStockImage,
   payloadPreview,
   onRequestPreview,
@@ -159,9 +162,11 @@ export default function BulkProductDetailPanel({
 
   // Display images: CDN/server URLs > browser objectURLs
   const displayImageUrls = imageUrls.length > 0 ? imageUrls : browserImageUrls;
+  // scannedMainImages가 있으면 자동제외 사유를 ImageItem에 전달
   const imageItems: ImageItem[] = displayImageUrls.map((url, i) => ({
     id: `img-${i}`,
     url,
+    autoExcludeReason: scannedMainImagesRef?.[i]?.autoExcludeReason,
   }));
 
   const handleImageReorder = useCallback((newOrder: ImageItem[]) => {
@@ -175,6 +180,12 @@ export default function BulkProductDetailPanel({
     const index = parseInt(id.split('-').pop() || '0');
     onRemoveImage(product.uid, index);
   }, [product, onRemoveImage]);
+
+  const handleImageToggleAutoExclude = useCallback((id: string) => {
+    if (!product || !onToggleAutoExclude) return;
+    const index = parseInt(id.split('-').pop() || '0');
+    onToggleAutoExclude(product.uid, index);
+  }, [product, onToggleAutoExclude]);
 
   const errorCount = product?.validationErrors?.length || 0;
   const warningCount = product?.validationWarnings?.length || 0;
@@ -359,6 +370,7 @@ export default function BulkProductDetailPanel({
                   imageItems={imageItems}
                   onImageReorder={handleImageReorder}
                   onImageRemove={handleImageRemove}
+                  onImageToggleAutoExclude={handleImageToggleAutoExclude}
                   preventionConfig={preventionConfig}
                   titleGenProgress={titleGenProgress}
                   onSwapStockImage={onSwapStockImage}

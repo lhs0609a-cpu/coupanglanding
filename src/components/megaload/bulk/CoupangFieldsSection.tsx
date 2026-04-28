@@ -18,6 +18,7 @@ import type { EditableProduct } from './types';
 interface ImageItem {
   id: string;
   url: string;
+  autoExcludeReason?: 'hard_filter' | 'low_score' | 'color_outlier' | 'unrelated_to_main' | 'duplicate' | 'text_banner' | 'empty_image';
 }
 
 interface CoupangFieldsSectionProps {
@@ -30,6 +31,7 @@ interface CoupangFieldsSectionProps {
   imageItems: ImageItem[];
   onImageReorder: (newOrder: ImageItem[]) => void;
   onImageRemove: (id: string) => void;
+  onImageToggleAutoExclude?: (id: string) => void;
   preventionConfig?: PreventionConfig;
   titleGenProgress?: { done: number; total: number } | null;
   onSwapStockImage?: (uid: string, imageIndex: number, newCdnUrl: string) => void;
@@ -114,12 +116,13 @@ function CollapsibleSection({
 
 /* ─── Image Section with Prevention Preview ─── */
 function ImageSectionWithPreview({
-  imageItems, onImageReorder, onImageRemove, preventionConfig, productCode,
+  imageItems, onImageReorder, onImageRemove, onImageToggleAutoExclude, preventionConfig, productCode,
   stockCategoryKey, onSwapStockImage, productUid,
 }: {
   imageItems: ImageItem[];
   onImageReorder: (newOrder: ImageItem[]) => void;
   onImageRemove: (id: string) => void;
+  onImageToggleAutoExclude?: (id: string) => void;
   preventionConfig?: PreventionConfig;
   productCode: string;
   stockCategoryKey?: string;
@@ -197,6 +200,7 @@ function ImageSectionWithPreview({
             images={imageItems}
             onReorder={onImageReorder}
             onRemove={onImageRemove}
+            onToggleAutoExclude={onImageToggleAutoExclude}
             onSetAsMain={(id) => {
               const idx = imageItems.findIndex(i => i.id === id);
               if (idx <= 0) return;
@@ -371,6 +375,7 @@ export default function CoupangFieldsSection({
   imageItems,
   onImageReorder,
   onImageRemove,
+  onImageToggleAutoExclude,
   preventionConfig,
   titleGenProgress,
   onSwapStockImage,
@@ -741,6 +746,7 @@ export default function CoupangFieldsSection({
         imageItems={imageItems}
         onImageReorder={onImageReorder}
         onImageRemove={onImageRemove}
+        onImageToggleAutoExclude={onImageToggleAutoExclude}
         preventionConfig={preventionConfig}
         productCode={product.productCode}
         stockCategoryKey={product.stockCategoryKey}

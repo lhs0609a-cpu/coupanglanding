@@ -344,6 +344,81 @@ async function analyzeDetailImage(
 }
 
 /**
+ * 색상 히스토그램 코사인 유사도 기반 중복 이미지 감지.
+ *
+ * 같은 박스를 반복 촬영한 사진들처럼 색상 분포가 거의 동일한 이미지를 군집화하고,
+ * 각 군집에서 첫 번째(원본 순서 빠른) 이미지만 keep, 나머지는 duplicate로 표시.
+ *
+ * @param objectUrls - 분석 대상 이미지 Object URL 배열
+ * @param threshold - 코사인 유사도 임계값 (기본 0.95 — 매우 유사한 것만)
+ * @returns { keptIndices, duplicateIndices } 원본 순서 기반 인덱스
+ */
+export async function detectDuplicateImages(
+  objectUrls: string[],
+  threshold = 0.95,
+): Promise<{ keptIndices: number[]; duplicateIndices: number[]; clusterMap: Map<number, number> }> {
+  if (objectUrls.length <= 1) {
+    return { keptIndices: objectUrls.map((_, i) => i), duplicateIndices: [], clusterMap: new Map() };
+  }
+
+  // 색상 히스토그램 빌드 (동시성 제한)
+  const histograms = await runPool(objectUrls, IMAGE_CONCURRENCY, async (i) => {
+    try {
+      return await buildColorHistogram(objectUrls[i]);
+    } catch {
+      return null;
+    }
+  });
+
+  // 코사인 유사도 페어와이즈
+  const n = objectUrls.length;
+  const cosineSim = (a: Float32Array, b: Float32Array): number => {
+    let dot = 0, na = 0, nb = 0;
+    for (let i = 0; i < a.length; i++) {
+      dot += a[i] * b[i];
+      na += a[i] * a[i];
+      nb += b[i] * b[i];
+    }
+    if (na === 0 || nb === 0) return 0;
+    return dot / (Math.sqrt(na) * Math.sqrt(nb));
+  };
+
+  // Union-Find 군집화
+  const parent = Array.from({ length: n }, (_, i) => i);
+  const find = (x: number): number => parent[x] === x ? x : (parent[x] = find(parent[x]));
+  const union = (a: number, b: number) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb); // 항상 작은 인덱스가 root
+  };
+
+  for (let i = 0; i < n; i++) {
+    if (!histograms[i]) continue;
+    for (let j = i + 1; j < n; j++) {
+      if (!histograms[j]) continue;
+      const sim = cosineSim(histograms[i]!, histograms[j]!);
+      if (sim >= threshold) union(i, j);
+    }
+  }
+
+  // 각 군집의 root만 keep
+  const keptIndices: number[] = [];
+  const duplicateIndices: number[] = [];
+  const clusterMap = new Map<number, number>(); // duplicate idx → kept idx
+
+  for (let i = 0; i < n; i++) {
+    const root = find(i);
+    if (root === i) {
+      keptIndices.push(i);
+    } else {
+      duplicateIndices.push(i);
+      clusterMap.set(i, root);
+    }
+  }
+
+  return { keptIndices, duplicateIndices, clusterMap };
+}
+
+/**
  * 같은 상품의 이미지 세트에서 색상 분포가 크게 다른 이상치를 감지한다.
  * 다른 브랜드/상품 이미지를 자동 제거하는 용도.
  *
@@ -2674,11 +2749,26 @@ export async function selectDiverseImages(
   }
 
   // maxCount까지 남은 슬롯은 거리 기반으로 채움 (선택된 것들과 가장 먼 이미지)
+  // 클러스터당 최대 2장 캡 — 같은 클러스터(시각적으로 유사한 이미지군)에서 중복 선택 방지.
+  // 큰 클러스터(예: 같은 보틀 6장)도 medoid + 1장만 뽑히고 나머지 슬롯은 다른 클러스터로 자연 분산.
+  const PER_CLUSTER_CAP = 2;
+  const featureIdxToCluster = new Map<number, number>();
+  for (let m = 0; m < clusters.length; m++) {
+    for (const fIdx of clusters[m]) featureIdxToCluster.set(fIdx, m);
+  }
+  const clusterPickCount = new Map<number, number>();
+  for (const idx of selected) {
+    const c = featureIdxToCluster.get(idx);
+    if (c !== undefined) clusterPickCount.set(c, (clusterPickCount.get(c) ?? 0) + 1);
+  }
+
   while (selected.length < maxCount && selected.length < features.length) {
     let bestIdx = -1;
     let bestMinDist = -1;
     for (let i = 0; i < features.length; i++) {
       if (selectedSet.has(i)) continue;
+      const c = featureIdxToCluster.get(i);
+      if (c !== undefined && (clusterPickCount.get(c) ?? 0) >= PER_CLUSTER_CAP) continue;
       let minDist = Infinity;
       for (const s of selected) {
         minDist = Math.min(minDist, distMatrix[i][s]);
@@ -2691,6 +2781,8 @@ export async function selectDiverseImages(
     if (bestIdx < 0) break;
     selected.push(bestIdx);
     selectedSet.add(bestIdx);
+    const c = featureIdxToCluster.get(bestIdx);
+    if (c !== undefined) clusterPickCount.set(c, (clusterPickCount.get(c) ?? 0) + 1);
   }
 
   // Step 8: Greedy maximin 순서 정렬

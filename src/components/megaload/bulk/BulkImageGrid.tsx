@@ -18,23 +18,47 @@ import {
   rectSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { X, GripVertical, Star, Sparkles } from 'lucide-react';
+import { X, GripVertical, Star, Sparkles, AlertTriangle } from 'lucide-react';
+
+type AutoExcludeReason = 'hard_filter' | 'low_score' | 'color_outlier' | 'unrelated_to_main' | 'duplicate' | 'text_banner' | 'empty_image';
 
 interface ImageItem {
   id: string;
   url: string;
+  autoExcludeReason?: AutoExcludeReason;
 }
+
+const REASON_LABELS: Record<AutoExcludeReason, string> = {
+  hard_filter: '광고/텍스트',
+  low_score: '품질 낮음',
+  color_outlier: '색상 이질',
+  unrelated_to_main: '대표와 무관',
+  duplicate: '중복',
+  text_banner: '광고/텍스트',
+  empty_image: '빈 이미지',
+};
+
+const REASON_TOOLTIPS: Record<AutoExcludeReason, string> = {
+  hard_filter: '텍스트 배너 또는 광고성 이미지로 감지됨',
+  low_score: '대표이미지 품질 점수가 낮음',
+  color_outlier: '다른 이미지들과 색상 분포가 크게 다름',
+  unrelated_to_main: '1번 대표이미지와 색상 분포가 크게 달라 다른 상품 사진일 가능성',
+  duplicate: '다른 이미지와 색상 분포가 거의 동일 — 동일 각도 중복 사진',
+  text_banner: '광고/이벤트 텍스트 배너로 감지됨',
+  empty_image: '빈 이미지 또는 콘텐츠 부족',
+};
 
 interface BulkImageGridProps {
   images: ImageItem[];
   onReorder: (newOrder: ImageItem[]) => void;
   onRemove: (id: string) => void;
+  onToggleAutoExclude?: (id: string) => void;
   onSetAsMain?: (id: string) => void;
   onImageClick?: (id: string, index: number) => void;
   onRegenerateClick?: (id: string, index: number) => void;
 }
 
-function SortableImage({ image, onRemove, isMain, onSetAsMain, onImageClick, onRegenerateClick, idx }: { image: ImageItem; onRemove: (id: string) => void; isMain: boolean; onSetAsMain?: (id: string) => void; onImageClick?: (id: string, index: number) => void; onRegenerateClick?: (id: string, index: number) => void; idx: number }) {
+function SortableImage({ image, onRemove, onToggleAutoExclude, isMain, onSetAsMain, onImageClick, onRegenerateClick, idx }: { image: ImageItem; onRemove: (id: string) => void; onToggleAutoExclude?: (id: string) => void; isMain: boolean; onSetAsMain?: (id: string) => void; onImageClick?: (id: string, index: number) => void; onRegenerateClick?: (id: string, index: number) => void; idx: number }) {
   const [imgError, setImgError] = useState(false);
   const {
     attributes,
@@ -52,12 +76,19 @@ function SortableImage({ image, onRemove, isMain, onSetAsMain, onImageClick, onR
     opacity: isDragging ? 0.5 : 1,
   };
 
+  const reason = image.autoExcludeReason;
+  const isAutoExcluded = !!reason;
+
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={`relative group rounded-lg overflow-hidden border-2 ${
-        isDragging ? 'border-blue-400 shadow-lg' : 'border-gray-200'
+        isDragging
+          ? 'border-blue-400 shadow-lg'
+          : isAutoExcluded
+            ? 'border-amber-300 ring-1 ring-amber-200'
+            : 'border-gray-200'
       }`}
     >
       <div
@@ -72,10 +103,33 @@ function SortableImage({ image, onRemove, isMain, onSetAsMain, onImageClick, onR
           <img
             src={image.url}
             alt=""
-            className="w-full aspect-square object-cover bg-gray-100"
+            className={`w-full aspect-square object-cover bg-gray-100 ${
+              isAutoExcluded ? 'opacity-40 grayscale' : ''
+            }`}
             loading="lazy"
             onError={() => setImgError(true)}
           />
+        )}
+        {isAutoExcluded && reason && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onToggleAutoExclude?.(image.id); }}
+            className="absolute inset-x-0 top-0 bg-amber-500/95 hover:bg-amber-600 text-white text-[10px] font-bold px-1.5 py-1 flex items-center gap-1 transition"
+            title={`${REASON_TOOLTIPS[reason]} — 클릭하면 강제 포함 (등록에 사용)`}
+          >
+            <AlertTriangle className="w-3 h-3 shrink-0" />
+            <span className="truncate">자동 제외 · {REASON_LABELS[reason]} (클릭→포함)</span>
+          </button>
+        )}
+        {!isAutoExcluded && onToggleAutoExclude && idx > 0 && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onToggleAutoExclude(image.id); }}
+            className="absolute top-1 left-8 px-1.5 py-0.5 bg-black/40 hover:bg-amber-500 text-white text-[9px] rounded opacity-0 group-hover:opacity-100 transition-opacity"
+            title="이 이미지를 등록에서 제외"
+          >
+            제외
+          </button>
         )}
       </div>
       {/* Drag handle */}
@@ -124,7 +178,7 @@ function SortableImage({ image, onRemove, isMain, onSetAsMain, onImageClick, onR
   );
 }
 
-export default function BulkImageGrid({ images, onReorder, onRemove, onSetAsMain, onImageClick, onRegenerateClick }: BulkImageGridProps) {
+export default function BulkImageGrid({ images, onReorder, onRemove, onToggleAutoExclude, onSetAsMain, onImageClick, onRegenerateClick }: BulkImageGridProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -152,6 +206,24 @@ export default function BulkImageGrid({ images, onReorder, onRemove, onSetAsMain
     );
   }
 
+  const autoExcludedCount = images.filter(i => i.autoExcludeReason).length;
+
+  const handleRemoveAllAutoExcluded = () => {
+    // 1번(대표) 보호 — autoExcludeReason 있어도 idx 0이면 안 지움
+    images.forEach((img, idx) => {
+      if (idx > 0 && img.autoExcludeReason) {
+        onRemove(img.id);
+      }
+    });
+  };
+
+  const handleIncludeAllAutoExcluded = () => {
+    if (!onToggleAutoExclude) return;
+    images.forEach((img) => {
+      if (img.autoExcludeReason) onToggleAutoExclude(img.id);
+    });
+  };
+
   return (
     <DndContext
       sensors={sensors}
@@ -159,6 +231,37 @@ export default function BulkImageGrid({ images, onReorder, onRemove, onSetAsMain
       onDragStart={({ active }) => setActiveId(active.id as string)}
       onDragEnd={handleDragEnd}
     >
+      {autoExcludedCount > 0 && (
+        <div className="mb-2 px-2 py-1.5 bg-amber-50 border border-amber-200 rounded">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-amber-700 font-medium text-[11px]">
+              자동 제외 {autoExcludedCount}장 — 등록 시 자동으로 빠짐
+            </span>
+            <div className="flex gap-1 shrink-0">
+              {onToggleAutoExclude && (
+                <button
+                  type="button"
+                  onClick={handleIncludeAllAutoExcluded}
+                  className="px-2 py-0.5 bg-white hover:bg-amber-100 border border-amber-300 text-amber-700 rounded text-[10px] font-bold"
+                  title="자동 제외된 이미지를 모두 강제 포함"
+                >
+                  전부 포함
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleRemoveAllAutoExcluded}
+                className="px-2 py-0.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-[10px] font-bold"
+              >
+                목록에서 삭제
+              </button>
+            </div>
+          </div>
+          <div className="mt-1 text-[10px] text-amber-600">
+            다른 상품/광고/품질 낮음으로 감지. 노란 배지 클릭 = 강제 포함, 호버 시 "제외" 버튼으로 정상 이미지도 수동 제외 가능.
+          </div>
+        </div>
+      )}
       <SortableContext items={images.map(i => i.id)} strategy={rectSortingStrategy}>
         <div className="grid grid-cols-4 gap-2">
           {images.map((image, idx) => (
@@ -168,6 +271,7 @@ export default function BulkImageGrid({ images, onReorder, onRemove, onSetAsMain
               isMain={idx === 0}
               idx={idx}
               onRemove={onRemove}
+              onToggleAutoExclude={onToggleAutoExclude}
               onSetAsMain={onSetAsMain}
               onImageClick={onImageClick}
               onRegenerateClick={onRegenerateClick}

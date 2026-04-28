@@ -250,6 +250,7 @@ export default function BulkRegisterPanel() {
           onLoadThumbnail={handleLoadThumbnail}
           onReorderImages={actions.handleReorderImages}
           onRemoveImage={actions.handleRemoveImage}
+          onToggleAutoExclude={actions.handleToggleAutoExclude}
           onSwapStockImage={actions.handleSwapStockImage}
           getDetailImageUrls={actions.getDetailImageUrls}
           selectedOutbound={actions.selectedOutbound}

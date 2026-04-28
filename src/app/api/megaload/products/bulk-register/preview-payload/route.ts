@@ -6,6 +6,9 @@ import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo, type AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
 import { fillNoticeFields, type NoticeCategoryMeta, type ExtractedNoticeHints } from '@/lib/megaload/services/notice-field-filler';
 import { extractOptionsEnhanced } from '@/lib/megaload/services/option-extractor';
+import { selectWithSeed } from '@/lib/megaload/services/item-winner-prevention';
+import { createSeededRandom, stringToSeed } from '@/lib/megaload/services/seeded-random';
+import { THIRD_PARTY_IMAGE_URLS } from '@/lib/megaload/constants/third-party-images';
 
 interface PreviewRequestBody {
   product: {
@@ -129,6 +132,13 @@ export async function POST(req: NextRequest) {
       : [];
     const infoImageUrls = body.preUploadedUrls?.infoImageUrls?.filter(Boolean) || product.infoImages;
 
+    // 6-1. 제3자 이미지: 미리보기는 단일 상품 모드 — 20% 폴백으로 1장 선정 (preflight-builder의 single-product 분기와 동일)
+    let selectedThirdPartyUrls: string[] = [];
+    const tpRng = createSeededRandom(stringToSeed(`tp-select:${product.productCode}`));
+    if (Math.floor(tpRng() * 10) < 2) {
+      selectedThirdPartyUrls = [selectWithSeed(THIRD_PARTY_IMAGE_URLS, `tp-pick:${product.productCode}`)];
+    }
+
     // 7. 페이로드 빌드
     const payload = buildCoupangProductPayload({
       vendorId,
@@ -153,6 +163,7 @@ export async function POST(req: NextRequest) {
       attributeMeta,
       reviewImageUrls,
       infoImageUrls,
+      thirdPartyImageUrls: selectedThirdPartyUrls,
       extractedBuyOptions: extracted.buyOptions,
       totalUnitCount: extracted.totalUnitCount,
     });

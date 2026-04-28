@@ -6,11 +6,25 @@
 
 import { detectVisualOutliers } from './image-outlier-detector';
 
+/** 자동 제외 사유 — 스코어링/이상치 검출 단계에서 태그됨 */
+export type AutoExcludeReason =
+  | 'hard_filter'      // detectTextBanner / scoreFillRatio 등 하드필터 적중
+  | 'low_score'        // overall 스코어가 임계값 미만
+  | 'color_outlier'    // 그룹 색상 분포 대비 격차 (chi²)
+  | 'unrelated_to_main' // 1번 대표이미지와 색상 분포 격차
+  | 'duplicate'        // 다른 이미지와 색상/구도 거의 동일 (중복)
+  | 'text_banner'      // 광고/이벤트 텍스트 배너
+  | 'empty_image';     // 빈 이미지 / 콘텐츠 부족
+
 export interface ScannedImageFile {
   name: string;
   handle: FileSystemFileHandle;
   /** 스캔 시점에 생성된 objectURL — 핸들 만료와 무관하게 이미지 표시 가능 */
   objectUrl?: string;
+  /** 자동 제외 권장 사유 (스코어링 단계에서 태그) */
+  autoExcludeReason?: AutoExcludeReason;
+  /** 자동 제외 사유 디버그 정보 (optional) */
+  autoExcludeDetail?: string;
 }
 
 export interface ScannedProduct {

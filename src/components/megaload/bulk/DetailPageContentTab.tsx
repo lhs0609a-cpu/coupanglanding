@@ -148,6 +148,7 @@ function ImageSelectorGroup({
   const renderThumb = (imgIdx: number, opts: { selected: boolean; posInOrder?: number; draggable?: boolean }) => {
     const url = thumbnailUrls[imgIdx] || objectUrlAt(imgIdx);
     const relScore = relevanceByIdx?.get(imgIdx);
+    const autoExcludeReason = images?.[imgIdx]?.autoExcludeReason;
 
     // 테두리 색상
     let borderClass = opts.selected
@@ -159,8 +160,22 @@ function ImageSelectorGroup({
     if (relScore !== undefined && relScore < 0.4 && !opts.selected) {
       borderClass = 'border-red-200 opacity-30';
     }
+    // 자동 제외된 이미지 강조
+    if (autoExcludeReason && !opts.selected) {
+      borderClass = 'border-amber-300 ring-1 ring-amber-200 opacity-60';
+    }
 
     const relText = relScore !== undefined ? ` · 관련성 ${Math.round(relScore * 100)}%` : '';
+    const reasonLabels: Record<string, string> = {
+      duplicate: '중복',
+      text_banner: '광고/텍스트',
+      empty_image: '빈 이미지',
+      hard_filter: '광고/텍스트',
+      low_score: '품질 낮음',
+      color_outlier: '색상 이질',
+      unrelated_to_main: '대표와 무관',
+    };
+    const reasonText = autoExcludeReason ? ` · 자동제외(${reasonLabels[autoExcludeReason] ?? autoExcludeReason})` : '';
 
     return (
       <div
@@ -172,7 +187,7 @@ function ImageSelectorGroup({
         onDragOver={opts.draggable ? handleDragOver(opts.posInOrder!) : undefined}
         onDrop={opts.draggable ? handleDrop(opts.posInOrder!) : undefined}
         onDragEnd={opts.draggable ? handleDragEnd : undefined}
-        title={`${imageNameAt(imgIdx)}${opts.selected ? ` (순서 ${opts.posInOrder! + 1})` : ' (제외됨)'}${relText}`}
+        title={`${imageNameAt(imgIdx)}${opts.selected ? ` (순서 ${opts.posInOrder! + 1})` : ' (제외됨)'}${relText}${reasonText}`}
       >
         {url ? (
           <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -205,6 +220,12 @@ function ImageSelectorGroup({
         {/* 미선택 오버레이 */}
         {!opts.selected && (
           <div className="absolute inset-0 bg-white/40" />
+        )}
+        {/* 자동 제외 배지 (상단) */}
+        {autoExcludeReason && (
+          <div className="absolute inset-x-0 top-0 bg-amber-500/95 text-white text-[8px] font-bold px-1 py-0.5 truncate">
+            {reasonLabels[autoExcludeReason] ?? autoExcludeReason}
+          </div>
         )}
       </div>
     );
