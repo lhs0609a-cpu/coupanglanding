@@ -642,6 +642,10 @@ export async function POST(req: NextRequest) {
               const filledNotices = fillNoticeFields(
                 freshMeta,
                 { name: product.name, brand: product.brand, tags: product.tags || [], description: product.description || '' },
+                undefined,
+                undefined,
+                undefined,
+                product.categoryPath || product.name,
               );
               // flattenNotices: FilledNoticeCategory[] → flat array
               const flatNotices = filledNotices.flatMap(nc =>

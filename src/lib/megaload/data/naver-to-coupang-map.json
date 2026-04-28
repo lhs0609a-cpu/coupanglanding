@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-03-20T16:48:04.402Z",
+  "generatedAt": "2026-04-28T03:14:18.701Z",
   "stats": {
-    "totalNaver": 4993,
-    "matched": 4993,
+    "totalNaver": 4965,
+    "matched": 4965,
     "unmatched": 0,
     "topCategoryMismatch": 0,
     "byMethod": {
@@ -12,6 +12,11 @@
       "gpt_api": 1057,
       "best_effort": 17,
       "relaxed_path": 5
+    },
+    "leakFixesApplied": {
+      "replaced": 28,
+      "deleted": 28,
+      "threshold": 35
     }
   },
   "map": {
@@ -2030,11 +2035,6 @@
       "n": 0.98,
       "m": "e"
     },
-    "50000778": {
-      "c": "111704",
-      "n": 0.8333333333333334,
-      "m": "p"
-    },
     "50000779": {
       "c": "42606",
       "n": 0.9,
@@ -2096,39 +2096,29 @@
       "m": "p"
     },
     "50000803": {
-      "c": "111688",
-      "n": 0.98,
-      "m": "e"
-    },
-    "50000804": {
-      "c": "111685",
-      "n": 0.8333333333333334,
-      "m": "p"
+      "c": "81005",
+      "n": 0.85,
+      "m": "c"
     },
     "50000807": {
-      "c": "111707",
-      "n": 0.98,
-      "m": "e"
+      "c": "81016",
+      "n": 0.85,
+      "m": "c"
     },
     "50000808": {
-      "c": "111710",
-      "n": 0.98,
-      "m": "e"
+      "c": "81014",
+      "n": 0.85,
+      "m": "c"
     },
     "50000809": {
-      "c": "111709",
-      "n": 0.9333333333333333,
-      "m": "p"
+      "c": "69454",
+      "n": 0.85,
+      "m": "c"
     },
     "50000810": {
-      "c": "111690",
-      "n": 0.9333333333333333,
-      "m": "p"
-    },
-    "50000811": {
-      "c": "111681",
-      "n": 0.7708333333333334,
-      "m": "p"
+      "c": "81011",
+      "n": 0.85,
+      "m": "c"
     },
     "50000812": {
       "c": "105917",
@@ -2136,19 +2126,14 @@
       "m": "g"
     },
     "50000814": {
-      "c": "111702",
-      "n": 0.9333333333333333,
-      "m": "p"
-    },
-    "50000816": {
-      "c": "111693",
-      "n": 0.98,
-      "m": "e"
+      "c": "81023",
+      "n": 0.85,
+      "m": "c"
     },
     "50000818": {
-      "c": "111695",
-      "n": 0.9333333333333333,
-      "m": "p"
+      "c": "69413",
+      "n": 0.85,
+      "m": "c"
     },
     "50000819": {
       "c": "111218",
@@ -2171,14 +2156,14 @@
       "m": "p"
     },
     "50000824": {
-      "c": "111698",
+      "c": "69262",
       "n": 0.85,
-      "m": "e"
+      "m": "c"
     },
     "50000825": {
-      "c": "111698",
-      "n": 0.7,
-      "m": "p"
+      "c": "69246",
+      "n": 0.85,
+      "m": "c"
     },
     "50000826": {
       "c": "69567",
@@ -2201,9 +2186,9 @@
       "m": "p"
     },
     "50000830": {
-      "c": "111688",
-      "n": 0.98,
-      "m": "e"
+      "c": "81006",
+      "n": 0.85,
+      "m": "c"
     },
     "50000833": {
       "c": "69517",
@@ -2211,29 +2196,24 @@
       "m": "g"
     },
     "50000835": {
-      "c": "111709",
-      "n": 0.9333333333333333,
-      "m": "p"
+      "c": "69704",
+      "n": 0.85,
+      "m": "c"
     },
     "50000836": {
-      "c": "111690",
-      "n": 0.9333333333333333,
-      "m": "p"
+      "c": "81012",
+      "n": 0.85,
+      "m": "c"
     },
     "50000837": {
-      "c": "111702",
-      "n": 0.9333333333333333,
-      "m": "p"
+      "c": "81024",
+      "n": 0.85,
+      "m": "c"
     },
     "50000840": {
-      "c": "111693",
-      "n": 0.98,
-      "m": "e"
-    },
-    "50000841": {
-      "c": "111695",
-      "n": 0.9333333333333333,
-      "m": "p"
+      "c": "69526",
+      "n": 0.85,
+      "m": "c"
     },
     "50000842": {
       "c": "111218",
@@ -2246,19 +2226,14 @@
       "m": "g"
     },
     "50000845": {
-      "c": "111698",
+      "c": "69559",
       "n": 0.85,
-      "m": "e"
+      "m": "c"
     },
     "50000846": {
       "c": "69681",
       "n": 0.35,
       "m": "r"
-    },
-    "50000847": {
-      "c": "111698",
-      "n": 0.7,
-      "m": "p"
     },
     "50000848": {
       "c": "69560",
@@ -13696,9 +13671,9 @@
       "m": "g"
     },
     "50004198": {
-      "c": "81249",
-      "n": 0.95,
-      "m": "m"
+      "c": "70228",
+      "n": 0.85,
+      "m": "c"
     },
     "50004199": {
       "c": "76847",
@@ -18510,11 +18485,6 @@
       "n": 0.98,
       "m": "p"
     },
-    "50006328": {
-      "c": "111704",
-      "n": 0.8333333333333334,
-      "m": "p"
-    },
     "50006369": {
       "c": "111820",
       "n": 0.98,
@@ -20738,11 +20708,6 @@
     "50008940": {
       "c": "63360",
       "n": 0.98,
-      "m": "p"
-    },
-    "50008960": {
-      "c": "111681",
-      "n": 0.7708333333333334,
       "m": "p"
     },
     "50008980": {
@@ -24811,84 +24776,34 @@
       "m": "p"
     },
     "50021260": {
-      "c": "111669",
+      "c": "79389",
       "n": 0.85,
-      "m": "p"
+      "m": "c"
     },
     "50021261": {
-      "c": "111684",
-      "n": 0.98,
-      "m": "p"
-    },
-    "50021299": {
-      "c": "111669",
+      "c": "69198",
       "n": 0.85,
-      "m": "p"
-    },
-    "50021319": {
-      "c": "111669",
-      "n": 0.85,
-      "m": "p"
-    },
-    "50021320": {
-      "c": "111703",
-      "n": 0.98,
-      "m": "p"
+      "m": "c"
     },
     "50021321": {
-      "c": "111702",
-      "n": 0.98,
-      "m": "p"
+      "c": "79476",
+      "n": 0.85,
+      "m": "c"
     },
     "50021360": {
-      "c": "111703",
-      "n": 0.98,
-      "m": "p"
-    },
-    "50021379": {
-      "c": "111669",
+      "c": "79474",
       "n": 0.85,
-      "m": "p"
-    },
-    "50021380": {
-      "c": "111669",
-      "n": 0.85,
-      "m": "p"
+      "m": "c"
     },
     "50021399": {
-      "c": "111669",
+      "c": "69210",
       "n": 0.85,
-      "m": "p"
-    },
-    "50021419": {
-      "c": "111704",
-      "n": 0.98,
-      "m": "p"
-    },
-    "50021439": {
-      "c": "111704",
-      "n": 0.98,
-      "m": "p"
+      "m": "c"
     },
     "50021441": {
-      "c": "111684",
-      "n": 0.98,
-      "m": "p"
-    },
-    "50021459": {
-      "c": "111704",
-      "n": 0.98,
-      "m": "p"
-    },
-    "50021479": {
-      "c": "111704",
-      "n": 0.98,
-      "m": "p"
-    },
-    "50021499": {
-      "c": "111704",
-      "n": 0.98,
-      "m": "p"
+      "c": "69198",
+      "n": 0.85,
+      "m": "c"
     },
     "50021519": {
       "c": "64020",
@@ -24900,85 +24815,35 @@
       "n": 0.3,
       "m": "b"
     },
-    "50021579": {
-      "c": "111669",
-      "n": 0.85,
-      "m": "p"
-    },
-    "50021599": {
-      "c": "111669",
-      "n": 0.85,
-      "m": "p"
-    },
     "50021600": {
-      "c": "111669",
+      "c": "79493",
       "n": 0.85,
-      "m": "p"
-    },
-    "50021601": {
-      "c": "111704",
-      "n": 0.98,
-      "m": "p"
+      "m": "c"
     },
     "50021619": {
-      "c": "111684",
-      "n": 0.98,
-      "m": "p"
+      "c": "69520",
+      "n": 0.85,
+      "m": "c"
     },
     "50021620": {
-      "c": "111669",
+      "c": "69532",
       "n": 0.85,
-      "m": "p"
+      "m": "c"
     },
     "50021640": {
-      "c": "111703",
-      "n": 0.98,
-      "m": "p"
-    },
-    "50021659": {
-      "c": "111669",
+      "c": "80991",
       "n": 0.85,
-      "m": "p"
-    },
-    "50021679": {
-      "c": "111703",
-      "n": 0.98,
-      "m": "p"
-    },
-    "50021699": {
-      "c": "111704",
-      "n": 0.98,
-      "m": "p"
-    },
-    "50021700": {
-      "c": "111704",
-      "n": 0.98,
-      "m": "p"
-    },
-    "50021719": {
-      "c": "111704",
-      "n": 0.98,
-      "m": "p"
-    },
-    "50021720": {
-      "c": "111669",
-      "n": 0.85,
-      "m": "p"
+      "m": "c"
     },
     "50021739": {
-      "c": "111702",
-      "n": 0.98,
-      "m": "p"
+      "c": "80988",
+      "n": 0.85,
+      "m": "c"
     },
     "50021759": {
-      "c": "111684",
-      "n": 0.98,
-      "m": "p"
-    },
-    "50021779": {
-      "c": "111704",
-      "n": 0.98,
-      "m": "p"
+      "c": "69520",
+      "n": 0.85,
+      "m": "c"
     }
   },
   "details": [
@@ -68086,11 +67951,11 @@
       "naverCatId": "50004198",
       "naverName": "운동화",
       "naverPath": "출산/육아>유아동잡화>신발>운동화",
-      "coupangCode": "81249",
+      "coupangCode": "70228",
       "coupangName": "남성 런닝화",
-      "coupangPath": "패션의류잡화>남성패션>남성화>운동화/스니커즈>남성 런닝화",
-      "method": "manual",
-      "confidence": 0.95
+      "coupangPath": "패션의류잡화>영유아동 신발/잡화/기타의류(0~17세)>남녀공용신발>운동화/스니커즈>공용 운동화",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50005466",
@@ -68943,16 +68808,6 @@
       "confidence": 0.35
     },
     {
-      "naverCatId": "50000847",
-      "naverName": "러닝팬티세트",
-      "naverPath": "패션의류>남성언더웨어/잠옷>러닝팬티세트",
-      "coupangCode": "111698",
-      "coupangName": "팬티",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>속옷/잠옷>팬티",
-      "method": "partial_leaf",
-      "confidence": 0.7
-    },
-    {
       "naverCatId": "50003804",
       "naverName": "보정상의",
       "naverPath": "패션의류>남성언더웨어/잠옷>보정속옷>보정상의",
@@ -69016,61 +68871,41 @@
       "naverCatId": "50000845",
       "naverName": "팬티",
       "naverPath": "패션의류>남성언더웨어/잠옷>팬티",
-      "coupangCode": "111698",
+      "coupangCode": "69559",
       "coupangName": "팬티",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>속옷/잠옷>팬티",
-      "method": "exact_leaf",
+      "coupangPath": "패션의류잡화>남성패션>속옷/잠옷>남성 보정 속옷>남성 힙업팬티",
+      "method": "corrected_leak",
       "confidence": 0.85
     },
     {
       "naverCatId": "50021619",
       "naverName": "베스트",
       "naverPath": "패션의류>남성의류>니트>베스트",
-      "coupangCode": "111684",
+      "coupangCode": "69520",
       "coupangName": "베스트/조끼",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>상의>베스트/조끼",
-      "method": "partial_leaf",
-      "confidence": 0.98
-    },
-    {
-      "naverCatId": "50021599",
-      "naverName": "카디건",
-      "naverPath": "패션의류>남성의류>니트>카디건",
-      "coupangCode": "111669",
-      "coupangName": "보행기화/걸음마신발",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비신발>보행기화/걸음마신발",
-      "method": "path_similarity",
+      "coupangPath": "패션의류잡화>남성패션>남성의류>남성 베스트(조끼)",
+      "method": "corrected_leak",
       "confidence": 0.85
     },
     {
       "naverCatId": "50021600",
       "naverName": "터틀넥",
       "naverPath": "패션의류>남성의류>니트>터틀넥",
-      "coupangCode": "111669",
+      "coupangCode": "79493",
       "coupangName": "보행기화/걸음마신발",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비신발>보행기화/걸음마신발",
-      "method": "path_similarity",
-      "confidence": 0.85
-    },
-    {
-      "naverCatId": "50021579",
-      "naverName": "풀오버",
-      "naverPath": "패션의류>남성의류>니트>풀오버",
-      "coupangCode": "111669",
-      "coupangName": "보행기화/걸음마신발",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비신발>보행기화/걸음마신발",
-      "method": "path_similarity",
+      "coupangPath": "패션의류잡화>남성패션>남성의류>스웨터/니트>남성 터틀넥",
+      "method": "corrected_leak",
       "confidence": 0.85
     },
     {
       "naverCatId": "50000836",
       "naverName": "바지",
       "naverPath": "패션의류>남성의류>바지",
-      "coupangCode": "111690",
+      "coupangCode": "81012",
       "coupangName": "상하 바지세트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>상하복 세트>상하 바지세트",
-      "method": "partial_leaf",
-      "confidence": 0.9333333333333333
+      "coupangPath": "패션의류잡화>남성패션>남성의류>골프의류>남성 골프 바지",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50000833",
@@ -69083,123 +68918,43 @@
       "confidence": 0.9
     },
     {
-      "naverCatId": "50021779",
-      "naverName": "기타코트",
-      "naverPath": "패션의류>남성의류>아우터>기타코트",
-      "coupangCode": "111704",
-      "coupangName": "코트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>코트",
-      "method": "partial_leaf",
-      "confidence": 0.98
-    },
-    {
-      "naverCatId": "50021659",
-      "naverName": "레더재킷",
-      "naverPath": "패션의류>남성의류>아우터>레더재킷",
-      "coupangCode": "111669",
-      "coupangName": "보행기화/걸음마신발",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비신발>보행기화/걸음마신발",
-      "method": "path_similarity",
-      "confidence": 0.85
-    },
-    {
-      "naverCatId": "50021601",
-      "naverName": "레인코트",
-      "naverPath": "패션의류>남성의류>아우터>레인코트",
-      "coupangCode": "111704",
-      "coupangName": "코트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>코트",
-      "method": "partial_leaf",
-      "confidence": 0.98
-    },
-    {
-      "naverCatId": "50021700",
-      "naverName": "롱코트",
-      "naverPath": "패션의류>남성의류>아우터>롱코트",
-      "coupangCode": "111704",
-      "coupangName": "코트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>코트",
-      "method": "partial_leaf",
-      "confidence": 0.98
-    },
-    {
-      "naverCatId": "50021720",
-      "naverName": "무스탕",
-      "naverPath": "패션의류>남성의류>아우터>무스탕",
-      "coupangCode": "111669",
-      "coupangName": "보행기화/걸음마신발",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비신발>보행기화/걸음마신발",
-      "method": "path_similarity",
-      "confidence": 0.85
-    },
-    {
       "naverCatId": "50021759",
       "naverName": "베스트",
       "naverPath": "패션의류>남성의류>아우터>베스트",
-      "coupangCode": "111684",
+      "coupangCode": "69520",
       "coupangName": "베스트/조끼",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>상의>베스트/조끼",
-      "method": "partial_leaf",
-      "confidence": 0.98
-    },
-    {
-      "naverCatId": "50021719",
-      "naverName": "숏코트",
-      "naverPath": "패션의류>남성의류>아우터>숏코트",
-      "coupangCode": "111704",
-      "coupangName": "코트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>코트",
-      "method": "partial_leaf",
-      "confidence": 0.98
+      "coupangPath": "패션의류잡화>남성패션>남성의류>남성 베스트(조끼)",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50021640",
       "naverName": "재킷",
       "naverPath": "패션의류>남성의류>아우터>재킷",
-      "coupangCode": "111703",
+      "coupangCode": "80991",
       "coupangName": "재킷/점퍼",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>재킷/점퍼",
-      "method": "partial_leaf",
-      "confidence": 0.98
-    },
-    {
-      "naverCatId": "50021699",
-      "naverName": "트렌치코트",
-      "naverPath": "패션의류>남성의류>아우터>트렌치코트",
-      "coupangCode": "111704",
-      "coupangName": "코트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>코트",
-      "method": "partial_leaf",
-      "confidence": 0.98
+      "coupangPath": "패션의류잡화>남성패션>남성의류>골프의류>남성 골프 바람막이/재킷",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50021739",
       "naverName": "패딩",
       "naverPath": "패션의류>남성의류>아우터>패딩",
-      "coupangCode": "111702",
+      "coupangCode": "80988",
       "coupangName": "다운/패딩점퍼",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>다운/패딩점퍼",
-      "method": "partial_leaf",
-      "confidence": 0.98
-    },
-    {
-      "naverCatId": "50021679",
-      "naverName": "퍼재킷",
-      "naverPath": "패션의류>남성의류>아우터>퍼재킷",
-      "coupangCode": "111703",
-      "coupangName": "재킷/점퍼",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>재킷/점퍼",
-      "method": "path_similarity",
-      "confidence": 0.98
+      "coupangPath": "패션의류잡화>남성패션>남성의류>골프의류>남성 골프 패딩/다운패딩",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50021620",
       "naverName": "후드집업",
       "naverPath": "패션의류>남성의류>아우터>후드집업",
-      "coupangCode": "111669",
+      "coupangCode": "69532",
       "coupangName": "보행기화/걸음마신발",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비신발>보행기화/걸음마신발",
-      "method": "path_similarity",
+      "coupangPath": "패션의류잡화>남성패션>남성의류>남성 후드집업/집업류",
+      "method": "corrected_leak",
       "confidence": 0.85
     },
     {
@@ -69216,71 +68971,41 @@
       "naverCatId": "50000837",
       "naverName": "점퍼",
       "naverPath": "패션의류>남성의류>점퍼",
-      "coupangCode": "111702",
+      "coupangCode": "81024",
       "coupangName": "다운/패딩점퍼",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>다운/패딩점퍼",
-      "method": "partial_leaf",
-      "confidence": 0.9333333333333333
-    },
-    {
-      "naverCatId": "50008960",
-      "naverName": "점프슈트",
-      "naverPath": "패션의류>남성의류>점프슈트",
-      "coupangCode": "111681",
-      "coupangName": "점프수트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>바디슈트/롬퍼>점프수트",
-      "method": "path_similarity",
-      "confidence": 0.7708333333333334
+      "coupangPath": "패션의류잡화>남성패션>남성의류>등산/아웃도어 의류>남성 등산/아웃도어 패딩/점퍼",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50000840",
       "naverName": "정장세트",
       "naverPath": "패션의류>남성의류>정장세트",
-      "coupangCode": "111693",
+      "coupangCode": "69526",
       "coupangName": "정장세트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>상하복 세트>정장세트",
-      "method": "exact_leaf",
-      "confidence": 0.98
+      "coupangPath": "패션의류잡화>남성패션>남성의류>남성 정장세트",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50000835",
       "naverName": "청바지",
       "naverPath": "패션의류>남성의류>청바지",
-      "coupangCode": "111709",
+      "coupangCode": "69704",
       "coupangName": "바지/청바지",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>하의>바지/청바지",
-      "method": "partial_leaf",
-      "confidence": 0.9333333333333333
-    },
-    {
-      "naverCatId": "50006328",
-      "naverName": "코디세트",
-      "naverPath": "패션의류>남성의류>코디세트",
-      "coupangCode": "111704",
-      "coupangName": "코트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>코트",
-      "method": "path_similarity",
-      "confidence": 0.8333333333333334
-    },
-    {
-      "naverCatId": "50000841",
-      "naverName": "트레이닝복",
-      "naverPath": "패션의류>남성의류>트레이닝복",
-      "coupangCode": "111695",
-      "coupangName": "트레이닝복 상하 세트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>상하복 세트>트레이닝복 상하 세트",
-      "method": "partial_leaf",
-      "confidence": 0.9333333333333333
+      "coupangPath": "패션의류잡화>남성패션>해외직구>의류>남성 청바지",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50000830",
       "naverName": "티셔츠",
       "naverPath": "패션의류>남성의류>티셔츠",
-      "coupangCode": "111688",
+      "coupangCode": "81006",
       "coupangName": "티셔츠",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>상의>티셔츠",
-      "method": "exact_leaf",
-      "confidence": 0.98
+      "coupangPath": "패션의류잡화>남성패션>남성의류>골프의류>남성 골프 티셔츠",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50000842",
@@ -69376,11 +69101,11 @@
       "naverCatId": "50000825",
       "naverName": "브라팬티세트",
       "naverPath": "패션의류>여성언더웨어/잠옷>브라팬티세트",
-      "coupangCode": "111698",
+      "coupangCode": "69246",
       "coupangName": "팬티",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>속옷/잠옷>팬티",
-      "method": "partial_leaf",
-      "confidence": 0.7
+      "coupangPath": "패션의류잡화>여성패션>속옷/잠옷>섹시 언더웨어(19)>섹시 브라팬티세트(19)",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50000829",
@@ -69496,50 +69221,30 @@
       "naverCatId": "50000824",
       "naverName": "팬티",
       "naverPath": "패션의류>여성언더웨어/잠옷>팬티",
-      "coupangCode": "111698",
+      "coupangCode": "69262",
       "coupangName": "팬티",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>속옷/잠옷>팬티",
-      "method": "exact_leaf",
+      "coupangPath": "패션의류잡화>여성패션>속옷/잠옷>보정속옷>여성 힙업 팬티",
+      "method": "corrected_leak",
       "confidence": 0.85
     },
     {
       "naverCatId": "50021261",
       "naverName": "베스트",
       "naverPath": "패션의류>여성의류>니트>베스트",
-      "coupangCode": "111684",
+      "coupangCode": "69198",
       "coupangName": "베스트/조끼",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>상의>베스트/조끼",
-      "method": "partial_leaf",
-      "confidence": 0.98
-    },
-    {
-      "naverCatId": "50021319",
-      "naverName": "카디건",
-      "naverPath": "패션의류>여성의류>니트>카디건",
-      "coupangCode": "111669",
-      "coupangName": "보행기화/걸음마신발",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비신발>보행기화/걸음마신발",
-      "method": "path_similarity",
+      "coupangPath": "패션의류잡화>여성패션>여성의류>여성 베스트(조끼)",
+      "method": "corrected_leak",
       "confidence": 0.85
     },
     {
       "naverCatId": "50021260",
       "naverName": "터틀넥",
       "naverPath": "패션의류>여성의류>니트>터틀넥",
-      "coupangCode": "111669",
+      "coupangCode": "79389",
       "coupangName": "보행기화/걸음마신발",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비신발>보행기화/걸음마신발",
-      "method": "path_similarity",
-      "confidence": 0.85
-    },
-    {
-      "naverCatId": "50021299",
-      "naverName": "풀오버",
-      "naverPath": "패션의류>여성의류>니트>풀오버",
-      "coupangCode": "111669",
-      "coupangName": "보행기화/걸음마신발",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비신발>보행기화/걸음마신발",
-      "method": "path_similarity",
+      "coupangPath": "패션의류잡화>여성패션>여성의류>스웨터/니트>여성 터틀넥",
+      "method": "corrected_leak",
       "confidence": 0.85
     },
     {
@@ -69556,161 +69261,71 @@
       "naverCatId": "50000810",
       "naverName": "바지",
       "naverPath": "패션의류>여성의류>바지",
-      "coupangCode": "111690",
+      "coupangCode": "81011",
       "coupangName": "상하 바지세트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>상하복 세트>상하 바지세트",
-      "method": "partial_leaf",
-      "confidence": 0.9333333333333333
-    },
-    {
-      "naverCatId": "50000804",
-      "naverName": "블라우스/셔츠",
-      "naverPath": "패션의류>여성의류>블라우스/셔츠",
-      "coupangCode": "111685",
-      "coupangName": "셔츠/블라우스",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>상의>셔츠/블라우스",
-      "method": "path_similarity",
-      "confidence": 0.8333333333333334
+      "coupangPath": "패션의류잡화>여성패션>여성의류>골프의류>여성 골프 바지",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50000808",
       "naverName": "스커트",
       "naverPath": "패션의류>여성의류>스커트",
-      "coupangCode": "111710",
+      "coupangCode": "81014",
       "coupangName": "스커트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>하의>스커트",
-      "method": "exact_leaf",
-      "confidence": 0.98
-    },
-    {
-      "naverCatId": "50021479",
-      "naverName": "기타코트",
-      "naverPath": "패션의류>여성의류>아우터>기타코트",
-      "coupangCode": "111704",
-      "coupangName": "코트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>코트",
-      "method": "partial_leaf",
-      "confidence": 0.98
-    },
-    {
-      "naverCatId": "50021379",
-      "naverName": "레더재킷",
-      "naverPath": "패션의류>여성의류>아우터>레더재킷",
-      "coupangCode": "111669",
-      "coupangName": "보행기화/걸음마신발",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비신발>보행기화/걸음마신발",
-      "method": "path_similarity",
-      "confidence": 0.85
-    },
-    {
-      "naverCatId": "50021499",
-      "naverName": "레인코트",
-      "naverPath": "패션의류>여성의류>아우터>레인코트",
-      "coupangCode": "111704",
-      "coupangName": "코트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>코트",
-      "method": "partial_leaf",
-      "confidence": 0.98
-    },
-    {
-      "naverCatId": "50021459",
-      "naverName": "롱코트",
-      "naverPath": "패션의류>여성의류>아우터>롱코트",
-      "coupangCode": "111704",
-      "coupangName": "코트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>코트",
-      "method": "partial_leaf",
-      "confidence": 0.98
-    },
-    {
-      "naverCatId": "50021380",
-      "naverName": "무스탕",
-      "naverPath": "패션의류>여성의류>아우터>무스탕",
-      "coupangCode": "111669",
-      "coupangName": "보행기화/걸음마신발",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비신발>보행기화/걸음마신발",
-      "method": "path_similarity",
+      "coupangPath": "패션의류잡화>여성패션>여성의류>골프의류>여성 골프 스커트",
+      "method": "corrected_leak",
       "confidence": 0.85
     },
     {
       "naverCatId": "50021441",
       "naverName": "베스트",
       "naverPath": "패션의류>여성의류>아우터>베스트",
-      "coupangCode": "111684",
+      "coupangCode": "69198",
       "coupangName": "베스트/조끼",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>상의>베스트/조끼",
-      "method": "partial_leaf",
-      "confidence": 0.98
-    },
-    {
-      "naverCatId": "50021439",
-      "naverName": "숏코트",
-      "naverPath": "패션의류>여성의류>아우터>숏코트",
-      "coupangCode": "111704",
-      "coupangName": "코트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>코트",
-      "method": "partial_leaf",
-      "confidence": 0.98
+      "coupangPath": "패션의류잡화>여성패션>여성의류>여성 베스트(조끼)",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50021360",
       "naverName": "재킷",
       "naverPath": "패션의류>여성의류>아우터>재킷",
-      "coupangCode": "111703",
+      "coupangCode": "79474",
       "coupangName": "재킷/점퍼",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>재킷/점퍼",
-      "method": "partial_leaf",
-      "confidence": 0.98
-    },
-    {
-      "naverCatId": "50021419",
-      "naverName": "트렌치코트",
-      "naverPath": "패션의류>여성의류>아우터>트렌치코트",
-      "coupangCode": "111704",
-      "coupangName": "코트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>코트",
-      "method": "partial_leaf",
-      "confidence": 0.98
+      "coupangPath": "패션의류잡화>여성패션>여성의류>임산부의류>아우터>임산부 정장재킷",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50021321",
       "naverName": "패딩",
       "naverPath": "패션의류>여성의류>아우터>패딩",
-      "coupangCode": "111702",
+      "coupangCode": "79476",
       "coupangName": "다운/패딩점퍼",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>다운/패딩점퍼",
-      "method": "partial_leaf",
-      "confidence": 0.98
-    },
-    {
-      "naverCatId": "50021320",
-      "naverName": "퍼재킷",
-      "naverPath": "패션의류>여성의류>아우터>퍼재킷",
-      "coupangCode": "111703",
-      "coupangName": "재킷/점퍼",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>재킷/점퍼",
-      "method": "path_similarity",
-      "confidence": 0.98
+      "coupangPath": "패션의류잡화>여성패션>여성의류>임산부의류>아우터>임산부 패딩/다운패딩점퍼",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50021399",
       "naverName": "후드집업",
       "naverPath": "패션의류>여성의류>아우터>후드집업",
-      "coupangCode": "111669",
+      "coupangCode": "69210",
       "coupangName": "보행기화/걸음마신발",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비신발>보행기화/걸음마신발",
-      "method": "path_similarity",
+      "coupangPath": "패션의류잡화>여성패션>여성의류>여성 후드집업/집업류",
+      "method": "corrected_leak",
       "confidence": 0.85
     },
     {
       "naverCatId": "50000807",
       "naverName": "원피스",
       "naverPath": "패션의류>여성의류>원피스",
-      "coupangCode": "111707",
+      "coupangCode": "81016",
       "coupangName": "원피스",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>원피스",
-      "method": "exact_leaf",
-      "confidence": 0.98
+      "coupangPath": "패션의류잡화>여성패션>여성의류>골프의류>여성 골프 원피스",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50000821",
@@ -69726,71 +69341,41 @@
       "naverCatId": "50000814",
       "naverName": "점퍼",
       "naverPath": "패션의류>여성의류>점퍼",
-      "coupangCode": "111702",
+      "coupangCode": "81023",
       "coupangName": "다운/패딩점퍼",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>다운/패딩점퍼",
-      "method": "partial_leaf",
-      "confidence": 0.9333333333333333
-    },
-    {
-      "naverCatId": "50000811",
-      "naverName": "점프슈트",
-      "naverPath": "패션의류>여성의류>점프슈트",
-      "coupangCode": "111681",
-      "coupangName": "점프수트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>바디슈트/롬퍼>점프수트",
-      "method": "path_similarity",
-      "confidence": 0.7708333333333334
-    },
-    {
-      "naverCatId": "50000816",
-      "naverName": "정장세트",
-      "naverPath": "패션의류>여성의류>정장세트",
-      "coupangCode": "111693",
-      "coupangName": "정장세트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>상하복 세트>정장세트",
-      "method": "exact_leaf",
-      "confidence": 0.98
+      "coupangPath": "패션의류잡화>여성패션>여성의류>등산/아웃도어 의류>여성 등산/아웃도어 패딩/점퍼",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50000809",
       "naverName": "청바지",
       "naverPath": "패션의류>여성의류>청바지",
-      "coupangCode": "111709",
+      "coupangCode": "69454",
       "coupangName": "바지/청바지",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>하의>바지/청바지",
-      "method": "partial_leaf",
-      "confidence": 0.9333333333333333
-    },
-    {
-      "naverCatId": "50000778",
-      "naverName": "코디세트",
-      "naverPath": "패션의류>여성의류>코디세트",
-      "coupangCode": "111704",
-      "coupangName": "코트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>아우터>코트",
-      "method": "path_similarity",
-      "confidence": 0.8333333333333334
+      "coupangPath": "패션의류잡화>여성패션>해외직구>하의류>여성 청바지",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50000818",
       "naverName": "트레이닝복",
       "naverPath": "패션의류>여성의류>트레이닝복",
-      "coupangCode": "111695",
+      "coupangCode": "69413",
       "coupangName": "트레이닝복 상하 세트",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>상하복 세트>트레이닝복 상하 세트",
-      "method": "partial_leaf",
-      "confidence": 0.9333333333333333
+      "coupangPath": "패션의류잡화>여성패션>여성의류>임산부의류>트레이닝복>임산부 트레이닝복 상의",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50000803",
       "naverName": "티셔츠",
       "naverPath": "패션의류>여성의류>티셔츠",
-      "coupangCode": "111688",
+      "coupangCode": "81005",
       "coupangName": "티셔츠",
-      "coupangPath": "패션의류잡화>베이비 의류/신발/잡화(~24개월)>베이비의류>상의>티셔츠",
-      "method": "exact_leaf",
-      "confidence": 0.98
+      "coupangPath": "패션의류잡화>여성패션>여성의류>골프의류>여성 골프 티셔츠",
+      "method": "corrected_leak",
+      "confidence": 0.85
     },
     {
       "naverCatId": "50000820",

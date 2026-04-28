@@ -1,104 +1,35 @@
-// ============================================================
-// 상품정보제공고시(notices) 필드 자동채움
-// 규칙기반 + 안전한 기본값 ("상세페이지 참조")
-// ============================================================
+// 16,259개 모든 displayCategoryCode 대상 노출고시 매칭 가드 검증
+// notice-field-filler.ts 의 scoreNoticeCategory를 동일하게 복제
 
-import type { LocalProductJson } from './local-product-reader';
+const path = require('path');
+const root = path.resolve(__dirname, '..');
+const detailsJson = require(path.join(root, 'src/lib/megaload/data/coupang-cat-details.json'));
 
-export interface NoticeFieldMeta {
-  name: string;
-  required: boolean;
-}
-
-export interface NoticeCategoryMeta {
-  noticeCategoryName: string;
-  fields: NoticeFieldMeta[];
-}
-
-export interface FilledNoticeCategory {
-  noticeCategoryName: string;
-  noticeCategoryDetailName: { noticeCategoryDetailName: string; content: string }[];
-}
-
-/**
- * 카테고리별 notices 메타데이터와 상품 정보를 조합하여 필드를 자동 채운다.
- *
- * 규칙:
- * 1. 패턴 매칭으로 알려진 필드 자동 입력
- * 2. 나머지는 "상세페이지 참조" (쿠팡이 대부분 허용)
- */
-/** 옵션 추출 결과 (option-extractor에서 전달) */
-export interface ExtractedNoticeHints {
-  volume?: string;    // "50ml"
-  weight?: string;    // "500g"
-  color?: string;     // "블랙"
-  size?: string;      // "M"
-  count?: string;     // "3개"
-  material?: string;  // 소재 (향후 확장)
-}
-
-// ─── 노출고시 카테고리 선택 규칙 ──────────────────────────────
-// 쿠팡 API는 한 displayCategoryCode에 대해 복수의 noticeCategory를 반환할 수 있음
-// 예: 풋케어 카테고리 → ["화장품 및 인체적용제품", "패션잡화"] 둘 다 반환되어
-//      noticeMeta[0] 무조건 채택 시 패션잡화로 잘못 들어감
-//
-// categoryPath / 상품명을 보고 가장 적합한 noticeCategory를 점수화하여 선택.
-// 룰 매칭은 L1 고정 anchor 우선 — 첫 매칭만 적용 (break).
-interface NoticeCategoryRule {
-  /** categoryPath 매칭 정규식 (lowercase, > 구분 path 전체) */
-  pathRegex: RegExp;
-  /** 노출고시 카테고리명에 포함되어야 할 키워드 (있으면 가산점) */
-  expect: string[];
-  /** 노출고시 카테고리명에 포함되면 안 되는 키워드 (있으면 강한 감점) */
-  avoid?: string[];
-}
-
-// ⚠️ 룰 순서 = 우선순위. L1 고정 anchor 룰이 위, 일반 키워드 룰은 그 다음.
-//    잘못된 leak 방지를 위해 도메인별 명시 avoid를 강하게 둠.
-const NOTICE_CATEGORY_RULES: NoticeCategoryRule[] = [
-  // ── L1 고정 앵커 룰 (최우선) ──
-  // 도서/음반: leaf에 침구/시계 등 동음이의어가 와도 도서로 강제
+const NOTICE_CATEGORY_RULES = [
   { pathRegex: /^도서|^음반|^영상저작|^dvd|^cd/i,
     expect: ['도서', '음반', '영상저작'],
     avoid: ['식품', '화장품', '패션', '잡화', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '침구', '커튼', '카페트', '가구', '주방', '가전', '디지털', '자동차', '완구', '문구', '의약', '의료', '생활화학', '욕실', '농산', '축산', '수산'] },
-
-  // 반려/애완: 사료/영양제도 식품/건강기능식품 아님 — 보통 "기타 재화"
   { pathRegex: /^반려|^애완/,
     expect: ['반려', '애완', '기타 재화'],
     avoid: ['건강기능', '가공식품', '농산', '축산', '수산', '화장품', '의류', '패션', '잡화', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '의약', '주방', '문구'] },
-
-  // 자동차: 동음이의어(시계/온도계/커튼/부츠) 강력 차단
   { pathRegex: /^자동차/,
     expect: ['자동차', '부품'],
     avoid: ['식품', '건강기능', '농산', '축산', '수산', '화장품', '의류', '패션', '잡화', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '침구', '커튼', '카페트', '가구', '주방', '가전', '디지털', '완구', '문구', '의약', '의료', '도서'] },
-
-  // 출산/유아동: 의류/식품 동음이의 차단 → 보통 "기타 재화" or 의류(베이비)
   { pathRegex: /^출산\/유아동|^출산\/육아|^유아동/,
     expect: ['유아', '아동', '출산', '기저귀', '기타'],
     avoid: ['패션의류', '패션잡화', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '침구', '커튼', '카페트', '가구', '주방', '가전', '디지털', '자동차', '완구', '문구', '도서', '농산', '축산', '수산'] },
-
-  // 완구/취미: 가방/시계/주방 동음이의 차단
   { pathRegex: /^완구|^장난감|^취미/,
     expect: ['완구', '장난감'],
     avoid: ['식품', '건강기능', '농산', '축산', '수산', '화장품', '의류', '패션', '잡화', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '침구', '커튼', '카페트', '가구', '주방', '가전', '디지털', '자동차', '문구', '도서', '의약', '의료'] },
-
-  // 문구/오피스
   { pathRegex: /^문구\/오피스|^문구|^오피스/,
     expect: ['문구', '사무'],
     avoid: ['식품', '건강기능', '농산', '축산', '수산', '화장품', '의류', '패션', '잡화', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '침구', '커튼', '카페트', '가구', '주방', '가전', '디지털', '자동차', '완구', '도서', '의약', '의료'] },
-
-  // 스포츠/레저
   { pathRegex: /^스포츠\/레져|^스포츠|^레져|^레저/,
     expect: ['스포츠', '레저', '레져'],
     avoid: ['식품', '건강기능', '농산', '축산', '수산', '화장품', '의류', '패션의류', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '침구', '커튼', '카페트', '가구', '주방', '가전', '디지털', '자동차', '완구', '문구', '도서'] },
-
-  // 주방용품
   { pathRegex: /^주방용품/,
     expect: ['주방'],
     avoid: ['식품', '건강기능', '농산', '축산', '수산', '화장품', '의류', '패션', '잡화', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '침구', '커튼', '카페트', '가구', '가전', '디지털', '자동차', '완구', '문구', '도서', '의약', '의료'] },
-
-  // 가전/디지털 — 영상/디지털/가전 세분
-  // expect: 명확한 부분문자열만 사용 (substring match가 다른 카테고리에 누설되지 않게)
   { pathRegex: /^가전\/?디지털>.*(tv|티비|모니터|디스플레이|영상|프로젝터|블루레이|dvd)/i,
     expect: ['영상가전'],
     avoid: ['식품', '건강기능', '농산', '축산', '수산', '화장품', '의류', '패션', '잡화', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '침구', '커튼', '카페트', '가구', '주방', '자동차', '완구', '문구', '도서', '디지털기기'] },
@@ -108,16 +39,12 @@ const NOTICE_CATEGORY_RULES: NoticeCategoryRule[] = [
   { pathRegex: /^가전\/?디지털/,
     expect: ['가전제품'],
     avoid: ['식품', '건강기능', '농산', '축산', '수산', '화장품', '의류', '패션', '잡화', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '침구', '커튼', '카페트', '가구', '주방', '자동차', '완구', '문구', '도서', '영상가전', '디지털기기'] },
-
-  // 가구/홈데코 — 침구류는 별도
   { pathRegex: /^가구\/홈데코>.*(침구|이불|베개|매트리스|커튼|카페트|러그|블라인드|침장)/,
     expect: ['침구', '커튼', '카페트'],
     avoid: ['식품', '건강기능', '농산', '축산', '수산', '화장품', '의류', '패션', '잡화', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '주방', '가전', '디지털', '자동차', '완구', '문구', '도서'] },
   { pathRegex: /^가구\/홈데코|^가구|^홈데코/,
     expect: ['가구'],
     avoid: ['식품', '건강기능', '농산', '축산', '수산', '화장품', '의류', '패션', '잡화', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '주방', '가전', '디지털', '자동차', '완구', '문구', '도서'] },
-
-  // ── 식품 / 건강식품 (L1 anchor + 농수축산 별도) ──
   { pathRegex: /^식품>건강식품/,
     expect: ['건강기능', '영양보조', '건강보조'],
     avoid: ['패션', '잡화', '의류', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '화장품', '침구', '커튼', '카페트', '가구', '주방', '가전', '디지털', '자동차', '완구', '문구', '도서'] },
@@ -133,13 +60,9 @@ const NOTICE_CATEGORY_RULES: NoticeCategoryRule[] = [
   { pathRegex: /^식품/,
     expect: ['가공식품'],
     avoid: ['패션', '잡화', '의류', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '화장품', '침구', '커튼', '카페트', '가구', '주방', '가전', '디지털', '자동차', '완구', '문구', '도서', '농산', '축산', '수산', '건강기능'] },
-
-  // ── 뷰티 / 화장품 (L1 anchor + 핸드/풋 케어 포함) ──
   { pathRegex: /^뷰티|^화장품/,
     expect: ['화장품', '인체적용'],
     avoid: ['패션', '잡화', '의류', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '식품', '건강기능', '농산', '축산', '수산', '침구', '커튼', '카페트', '가구', '주방', '가전', '디지털', '자동차', '완구', '문구', '도서'] },
-
-  // ── 패션 (L1 anchor) — 세분류 우선 ──
   { pathRegex: /^패션의류잡화>.*(가방|백팩|클러치|숄더백|토트백|크로스백|핸드백|에코백|메신저백|힙색|허리색)/,
     expect: ['가방'],
     avoid: ['식품', '건강기능', '농산', '축산', '수산', '화장품', '구두', '신발', '시계', '쥬얼리', '주얼리', '침구', '커튼', '카페트', '가구', '주방', '가전', '디지털', '자동차', '완구', '문구', '도서'] },
@@ -158,8 +81,6 @@ const NOTICE_CATEGORY_RULES: NoticeCategoryRule[] = [
   { pathRegex: /^패션의류잡화/,
     expect: ['패션잡화', '잡화'],
     avoid: ['식품', '건강기능', '농산', '축산', '수산', '화장품', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '침구', '커튼', '카페트', '가구', '주방', '가전', '디지털', '자동차', '완구', '문구', '도서'] },
-
-  // ── 생활용품 — 세분 ──
   { pathRegex: /^생활용품>.*(세제|섬유유연제|살균제|소독제|살충제|방향제|탈취제|미백제|제습제|공기청정)/,
     expect: ['생활화학', '화학제품'],
     avoid: ['식품', '건강기능', '농산', '축산', '수산', '화장품', '의류', '패션', '잡화', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '침구', '커튼', '카페트', '가구', '주방', '가전', '디지털', '자동차', '완구', '문구', '도서'] },
@@ -177,17 +98,13 @@ const NOTICE_CATEGORY_RULES: NoticeCategoryRule[] = [
     avoid: ['식품', '건강기능', '농산', '축산', '수산', '화장품', '의류', '패션', '구두', '신발', '가방', '시계', '쥬얼리', '주얼리', '침구', '커튼', '카페트', '가구', '주방', '가전', '디지털', '자동차', '완구', '문구', '도서', '생활화학', '욕실', '의약', '의료기기'] },
 ];
 
-/** noticeCategoryName이 categoryPath에 적합한지 점수화 */
-function scoreNoticeCategory(noticeCategoryName: string, categoryPath: string): number {
+function scoreNoticeCategory(noticeCategoryName, categoryPath) {
   if (!categoryPath || !noticeCategoryName) return 0;
-
-  const path = categoryPath.toLowerCase();
+  const pathL = categoryPath.toLowerCase();
   const name = noticeCategoryName.toLowerCase();
   let score = 0;
-
-  // 룰 기반 가산점/감점 (path-token 부분일치 폴백 폐지 — leak 원인이었음)
   for (const rule of NOTICE_CATEGORY_RULES) {
-    if (!rule.pathRegex.test(path)) continue;
+    if (!rule.pathRegex.test(pathL)) continue;
     for (const kw of rule.expect) {
       if (name.includes(kw.toLowerCase())) score += 20;
     }
@@ -196,156 +113,108 @@ function scoreNoticeCategory(noticeCategoryName: string, categoryPath: string): 
         if (name.includes(kw.toLowerCase())) score -= 30;
       }
     }
-    break; // 첫 매칭 룰만 적용 (위가 더 구체적인 패턴)
+    break;
   }
-
-  // "기타" 범용 카테고리는 약한 감점 — 단, 룰이 expect로 '기타'를 명시한 경우는 위에서 가산되어 있음
   if (/기타/.test(name) && score < 20) score -= 3;
-
   return score;
 }
 
-/**
- * 복수의 noticeMeta 후보 중 categoryPath에 가장 적합한 것을 선택.
- * 동점이면 첫 번째 (API 반환 순서) 유지.
- */
-export function selectBestNoticeMeta(
-  noticeMeta: NoticeCategoryMeta[],
-  categoryHint?: string,
-): NoticeCategoryMeta | null {
-  if (noticeMeta.length === 0) return null;
-  if (noticeMeta.length === 1) return noticeMeta[0];
-  if (!categoryHint) return noticeMeta[0];
+const STD_NOTICE_CATEGORIES = [
+  '의류', '구두/신발', '가방', '패션잡화', '시계', '쥬얼리/액세서리',
+  '화장품 및 인체적용제품',
+  '가공식품', '건강기능식품', '농산물', '축산물', '수산물',
+  '영상가전제품', '가전제품', '디지털기기',
+  '가구', '침구/커튼/카페트류',
+  '의약외품', '의료기기', '생활화학제품',
+  '자동차용품',
+  '사무/문구용품', '완구용품', '도서/음반/영상저작물',
+  '스포츠/레저용품', '욕실용품', '주방용품',
+  '기타 재화',
+];
 
-  let bestIdx = 0;
-  let bestScore = scoreNoticeCategory(noticeMeta[0].noticeCategoryName, categoryHint);
-  for (let i = 1; i < noticeMeta.length; i++) {
-    const s = scoreNoticeCategory(noticeMeta[i].noticeCategoryName, categoryHint);
-    if (s > bestScore) {
-      bestScore = s;
-      bestIdx = i;
-    }
+function predictNoticeCategory(p) {
+  let best = null;
+  let bestScore = -Infinity;
+  for (const c of STD_NOTICE_CATEGORIES) {
+    const s = scoreNoticeCategory(c, p);
+    if (s > bestScore) { bestScore = s; best = c; }
   }
-
-  if (bestIdx !== 0) {
-    console.log(`[fillNoticeFields] noticeMeta 재선택: [0]"${noticeMeta[0].noticeCategoryName}"(score=${scoreNoticeCategory(noticeMeta[0].noticeCategoryName, categoryHint)}) → [${bestIdx}]"${noticeMeta[bestIdx].noticeCategoryName}"(score=${bestScore}) | path="${categoryHint}"`);
-  }
-  return noticeMeta[bestIdx];
+  return { best, score: bestScore };
 }
 
-export function fillNoticeFields(
-  noticeMeta: NoticeCategoryMeta[],
-  product: LocalProductJson,
-  contactNumber?: string,
-  overrides?: Record<string, string>,
-  extractedHints?: ExtractedNoticeHints,
-  categoryHint?: string,
-): FilledNoticeCategory[] {
-  // 쿠팡 API는 notices 필수 — 생략하면 내부 기본값이 oneOf 다중 매칭 에러 유발
-  // 반드시 1개 카테고리만 전송해야 함 (oneOf 스키마)
+const L1_EXPECTED = {
+  '식품': ['건강기능식품', '가공식품', '농산물', '축산물', '수산물'],
+  '뷰티': ['화장품 및 인체적용제품'],
+  '패션의류잡화': ['의류', '구두/신발', '가방', '패션잡화', '시계', '쥬얼리/액세서리'],
+  '생활용품': ['생활화학제품', '욕실용품', '주방용품', '의료기기', '의약외품', '기타 재화'],
+  '주방용품': ['주방용품'],
+  '가전/디지털': ['가전제품', '영상가전제품', '디지털기기'],
+  '가구/홈데코': ['가구', '침구/커튼/카페트류'],
+  '자동차용품': ['자동차용품'],
+  '스포츠/레져': ['스포츠/레저용품'],
+  '완구/취미': ['완구용품'],
+  '문구/오피스': ['사무/문구용품'],
+  '도서': ['도서/음반/영상저작물'],
+  '반려/애완용품': ['기타 재화'],
+  '출산/유아동': ['기타 재화', '의류'],
+};
 
-  if (noticeMeta.length > 0) {
-    // categoryPath와 가장 적합한 noticeMeta 선택 (단일이면 그대로, 복수면 점수화)
-    const selected = selectBestNoticeMeta(noticeMeta, categoryHint) || noticeMeta[0];
-    console.log(`[fillNoticeFields] API 메타 사용: "${selected.noticeCategoryName}" (${selected.fields.length}개 필드, 전체 ${noticeMeta.length}개 카테고리, hint="${categoryHint || ''}")`);
-    return [{
-      noticeCategoryName: selected.noticeCategoryName,
-      noticeCategoryDetailName: selected.fields.map((field) => ({
-        noticeCategoryDetailName: field.name,
-        content: resolveFieldValue(field.name, product, contactNumber, overrides, extractedHints),
-      })),
-    }];
+const groupedResults = {};
+const failures = [];
+let total = 0;
+
+for (const [code, v] of Object.entries(detailsJson)) {
+  const p = v.p || '';
+  if (!p) continue;
+  total++;
+  const l1 = p.split('>')[0];
+  if (!groupedResults[l1]) groupedResults[l1] = { total: 0, predictions: {} };
+  groupedResults[l1].total++;
+  const { best, score } = predictNoticeCategory(p);
+  groupedResults[l1].predictions[best] = (groupedResults[l1].predictions[best] || 0) + 1;
+  const expected = L1_EXPECTED[l1];
+  if (expected && !expected.some(e => best && best === e)) {
+    failures.push({ code, path: p, predicted: best, score });
   }
-
-  // API 메타 없음 → 빈 배열 반환 (폴백으로 추측하지 않음)
-  // "기타 재화" 등 범용 카테고리가 허용되지 않는 display category가 있으므로
-  // 잘못된 카테고리 전송보다 빈 배열이 안전 → 빌더에서 notices 키 생략 처리
-  console.warn(`[fillNoticeFields] API 메타 없음 → notices 빈 배열 반환 (카테고리별 허용 목록 불명)`);
-  return [];
 }
 
-/**
- * 필드명 패턴으로 적절한 값을 매칭
- */
-function resolveFieldValue(
-  fieldName: string,
-  product: LocalProductJson,
-  contactNumber?: string,
-  overrides?: Record<string, string>,
-  hints?: ExtractedNoticeHints,
-): string {
-  // 사용자가 수동으로 지정한 값 우선
-  // 프론트엔드는 "카테고리명::필드명" 형식으로 키를 보내므로 양쪽 모두 매칭
-  if (overrides) {
-    if (overrides[fieldName]) return overrides[fieldName];
-    // "카테고리명::필드명" 형식 키에서 필드명 매칭
-    for (const key of Object.keys(overrides)) {
-      if (key.includes('::')) {
-        const afterSep = key.split('::')[1];
-        if (afterSep === fieldName && overrides[key]) return overrides[key];
-      }
-    }
+console.log('=== 전체 ' + total + '개 카테고리 path 노출고시 선호 분포 ===\n');
+for (const [l1, info] of Object.entries(groupedResults)) {
+  console.log('[' + l1 + '] ' + info.total + '개');
+  const sorted = Object.entries(info.predictions).sort((a,b) => b[1]-a[1]);
+  for (const [pred, cnt] of sorted) {
+    const pct = (cnt / info.total * 100).toFixed(1);
+    console.log('  ' + pct + '% (' + cnt + ') → ' + pred);
   }
-
-  const normalized = fieldName.toLowerCase().replace(/\s/g, '');
-  const productName = (product.name || product.title || '').slice(0, 50);
-  const brand = product.brand || '';
-
-  // 패턴 매칭 규칙 (추출된 옵션값 hints 활용)
-  if (normalized.includes('품명') || normalized.includes('모델명')) {
-    return productName || '상세페이지 참조';
-  }
-  if (normalized.includes('브랜드') || normalized.includes('상호')) {
-    return brand || '상세페이지 참조';
-  }
-  if (normalized.includes('제조국') || normalized.includes('원산지')) {
-    return '상세페이지 참조';
-  }
-  if (normalized.includes('제조자') || normalized.includes('수입자') || normalized.includes('제조업자')) {
-    return brand || '상세페이지 참조';
-  }
-  if (normalized.includes('a/s') || normalized.includes('as') || normalized.includes('책임자') || normalized.includes('전화번호')) {
-    return contactNumber || '상세페이지 참조';
-  }
-  if (normalized.includes('인증') || normalized.includes('허가')) {
-    return '해당사항 없음';
-  }
-  // 크기/중량/용량: 추출된 값이 있으면 우선 사용
-  if (normalized.includes('용량') || normalized.includes('내용량')) {
-    if (hints?.volume) return hints.volume;
-    return '상세페이지 참조';
-  }
-  if (normalized.includes('중량') || normalized.includes('무게') || normalized.includes('순중량')) {
-    if (hints?.weight) return hints.weight;
-    return '상세페이지 참조';
-  }
-  if (normalized.includes('크기') || normalized.includes('치수')) {
-    if (hints?.size) return hints.size;
-    return '상세페이지 참조';
-  }
-  if (normalized.includes('색상') || normalized.includes('컬러')) {
-    if (hints?.color) return hints.color;
-    return '상세페이지 참조';
-  }
-  if (normalized.includes('수량') || normalized.includes('구성')) {
-    if (hints?.count) return hints.count;
-    return '상세페이지 참조';
-  }
-  if (normalized.includes('소재') || normalized.includes('재질') || normalized.includes('성분')) {
-    if (hints?.material) return hints.material;
-    return '상세페이지 참조';
-  }
-  if (normalized.includes('주의사항') || normalized.includes('취급')) {
-    return '상세페이지 참조';
-  }
-  if (normalized.includes('품질보증') || normalized.includes('보증기간')) {
-    return '제조사 기준';
-  }
-  if (normalized.includes('제조연월') || normalized.includes('생산일') || normalized.includes('날짜')) {
-    return '상세페이지 참조';
-  }
-
-  // 기본값: 안전한 "상세페이지 참조"
-  return '상세페이지 참조';
+  console.log();
 }
 
+console.log('=== L1 도메인 기대치 위반 ===');
+console.log('총 위반: ' + failures.length + ' / ' + total + ' (' + (failures.length/total*100).toFixed(2) + '%)');
+const failureGroups = {};
+for (const f of failures) {
+  const l1 = f.path.split('>')[0];
+  const k = l1 + ' → ' + f.predicted;
+  failureGroups[k] = (failureGroups[k] || 0) + 1;
+}
+console.log('\n위반 유형:');
+Object.entries(failureGroups).sort((a,b)=>b[1]-a[1]).forEach(([k,v]) => console.log('  ' + v + '건: ' + k));
+
+if (failures.length > 0 && failures.length < 50) {
+  console.log('\n전체 위반:');
+  failures.forEach(f => console.log('  ' + f.path + ' → "' + f.predicted + '" (score=' + f.score + ')'));
+} else if (failures.length > 0) {
+  console.log('\n샘플 (각 L1당 5건):');
+  const seen = {};
+  for (const f of failures) {
+    const l1 = f.path.split('>')[0];
+    seen[l1] = (seen[l1] || 0) + 1;
+    if (seen[l1] <= 5) console.log('  [' + l1 + '] ' + f.path + ' → "' + f.predicted + '" (score=' + f.score + ')');
+  }
+}
+
+const fs = require('fs');
+fs.writeFileSync(path.join(root, 'scripts/audit-all-categories.json'),
+  JSON.stringify({ total, failureCount: failures.length, groupedResults, failures }, null, 2));
+console.log('\n저장: scripts/audit-all-categories.json');
+process.exit(0);
