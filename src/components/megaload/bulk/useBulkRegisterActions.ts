@@ -817,6 +817,7 @@ export function useBulkRegisterActions() {
           const LOW_SCORE_THRESHOLD = 25;        // overall < 25 → 약한 표시
           const COLOR_OUTLIER_THRESHOLD = 1.5;   // detectOutlierImages stddev 배수
           const CROSS_REF_THRESHOLD = 0.7;       // crossReferenceOutlierImages chi² 임계
+          const MAIN_MIN_KEEP = 5;               // 자동 제외 후 최소 보장 장수 (전체가 적으면 전체)
 
           for (let idx = 0; idx < latest.length; idx++) {
             const p = latest[idx];
@@ -883,6 +884,27 @@ export function useBulkRegisterActions() {
                       }
                     } catch { /* skip */ }
                   }
+                  // ─── 안전장치: MIN_KEEP 보호 ───
+                  // 자동 제외 후 남는 이미지가 MAIN_MIN_KEEP보다 적으면
+                  // 점수 높은 순으로 자동 제외에서 풀어줌 (1번 대표 항상 보존)
+                  const totalCount = validEntries.length;
+                  const minKeepCount = Math.min(MAIN_MIN_KEEP, totalCount);
+                  const wouldRemain = totalCount - reasonMap.size;
+                  if (wouldRemain < minKeepCount && reasonMap.size > 0) {
+                    // 점수 높은 순으로 reasonMap에서 빼기
+                    const taggedScores = scores
+                      .filter(s => reasonMap.has(validEntries[s.index].origIdx))
+                      .map(s => ({ origIdx: validEntries[s.index].origIdx, score: s.score.overall }))
+                      .sort((a, b) => b.score - a.score);
+                    let releaseCount = minKeepCount - wouldRemain;
+                    for (const t of taggedScores) {
+                      if (releaseCount <= 0) break;
+                      reasonMap.delete(t.origIdx);
+                      releaseCount--;
+                    }
+                    console.warn(`[auto-exclude] ${p.productCode}: MIN_KEEP=${minKeepCount} 보호 — ${minKeepCount - wouldRemain}장 자동제외에서 해제 (점수 높은 순)`);
+                  }
+
                   if (reasonMap.size > 0) {
                     const summary = Array.from(reasonMap.entries())
                       .map(([i, r]) => `#${i}=${r}`)
@@ -1113,6 +1135,36 @@ export function useBulkRegisterActions() {
                       }
                     } catch { /* skip */ }
 
+                    // ─── 안전장치: MIN_KEEP 보호 (상세이미지) ───
+                    // 자동 제외 후 selectedOrigIndices에 5장 미만 남으면 원본순으로 보충
+                    const DETAIL_MIN_KEEP = 5;
+                    const minKeep = Math.min(DETAIL_MIN_KEEP, selectedOrigIndices.length);
+                    let filteredSelected = selectedOrigIndices.filter(i => !detailReasonMap.has(i));
+
+                    if (filteredSelected.length < minKeep && detailReasonMap.size > 0) {
+                      // 우선순위: duplicate < text_banner < empty_image (중복부터 풀어주기)
+                      const reasonPriority: Record<AutoExcludeReason, number> = {
+                        duplicate: 1,
+                        text_banner: 2,
+                        empty_image: 3,
+                        hard_filter: 2,
+                        low_score: 1,
+                        color_outlier: 2,
+                        unrelated_to_main: 3,
+                      };
+                      const taggedSorted = selectedOrigIndices
+                        .filter(i => detailReasonMap.has(i))
+                        .sort((a, b) => (reasonPriority[detailReasonMap.get(a)!] ?? 99) - (reasonPriority[detailReasonMap.get(b)!] ?? 99));
+                      let releaseCount = minKeep - filteredSelected.length;
+                      for (const origIdx of taggedSorted) {
+                        if (releaseCount <= 0) break;
+                        detailReasonMap.delete(origIdx);
+                        releaseCount--;
+                      }
+                      filteredSelected = selectedOrigIndices.filter(i => !detailReasonMap.has(i));
+                      console.warn(`[detail-auto-exclude] ${p.productCode}: MIN_KEEP=${minKeep} 보호 — ${minKeep - (selectedOrigIndices.length - taggedSorted.length)}장 자동제외에서 해제`);
+                    }
+
                     if (detailReasonMap.size > 0) {
                       const summary = Array.from(detailReasonMap.entries())
                         .map(([i, r]) => `#${i}=${r}`)
@@ -1121,9 +1173,6 @@ export function useBulkRegisterActions() {
                       console.info(`[detail-auto-exclude] ${p.productCode}: ${detailReasonMap.size}장 자동 제외 — ${summary}${detailReasonMap.size > 8 ? '...' : ''}`);
                       detailAutoExcludeMaps.set(idx, detailReasonMap);
                     }
-
-                    // 자동 제외된 이미지를 selectedOrigIndices에서 제거
-                    const filteredSelected = selectedOrigIndices.filter(i => !detailReasonMap.has(i));
 
                     // 전부 필터 탈락 시 order를 설정하지 않음 (undefined = 전체 선택)
                     if (filteredSelected.length > 0) {
