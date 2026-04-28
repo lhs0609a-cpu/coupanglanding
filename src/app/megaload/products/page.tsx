@@ -5,10 +5,8 @@ import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { CHANNELS, CHANNEL_SHORT_LABELS, CHANNEL_STATUS_LABELS } from '@/lib/megaload/constants';
 import type { Channel, MasterProduct, ProductChannel } from '@/lib/megaload/types';
-import { Package, Search, RefreshCw, ChevronLeft, ChevronRight, Upload, PlusCircle, MoreHorizontal, FolderUp, List, Copy, History } from 'lucide-react';
-import Link from 'next/link';
+import { Package, Search, RefreshCw, ChevronLeft, ChevronRight, Upload, PlusCircle, MoreHorizontal, FolderUp, List } from 'lucide-react';
 import BulkRegisterPanel from '@/components/megaload/BulkRegisterPanel';
-import ReplicationModal from '@/components/megaload/ReplicationModal';
 
 type Tab = 'list' | 'bulk';
 
@@ -23,7 +21,6 @@ export default function ProductsPage() {
   const [total, setTotal] = useState(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [channelFilter, setChannelFilter] = useState<Channel | ''>('');
-  const [replicateOpen, setReplicateOpen] = useState(false);
   const PAGE_SIZE = 20;
 
   const fetchProducts = useCallback(async () => {
@@ -136,13 +133,9 @@ export default function ProductsPage() {
         </div>
         {tab === 'list' && (
           <div className="flex items-center gap-2">
-            <Link
-              href="/megaload/products/replications"
-              className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition"
-            >
-              <History className="w-4 h-4" />
-              복제 히스토리
+            {/* 복제 히스토리 — 멀티채널 확장 완성 후 활성화
             </Link>
+            */}
             <button
               onClick={() => fetch('/api/megaload/products/sync-coupang', { method: 'POST' }).then(() => fetchProducts())}
               className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition"
@@ -213,15 +206,8 @@ export default function ProductsPage() {
           {selectedIds.length > 0 && (
             <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
               <span className="text-sm font-medium text-blue-700">{selectedIds.length}개 선택</span>
-              <button
-                onClick={() => setReplicateOpen(true)}
-                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                전채널 복제
-              </button>
-              <button onClick={handleBulkRegister} className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
-                즉시 등록 (동기)
+              <button onClick={handleBulkRegister} className="px-3 py-1.5 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700">
+                전채널 등록
               </button>
               <button className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
                 일괄 품절
@@ -348,13 +334,6 @@ export default function ProductsPage() {
       )}
 
       {tab === 'bulk' && <BulkRegisterPanel />}
-
-      <ReplicationModal
-        isOpen={replicateOpen}
-        onClose={() => setReplicateOpen(false)}
-        selectedProductIds={selectedIds}
-        onCompleted={() => { fetchProducts(); setSelectedIds([]); }}
-      />
     </div>
   );
 }
