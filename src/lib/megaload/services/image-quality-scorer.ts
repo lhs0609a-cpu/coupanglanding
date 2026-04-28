@@ -136,7 +136,8 @@ const HISTOGRAM_SIZE = 32;
 const DEFAULT_MIN_SCORE = 40;
 
 // Canvas 동시성 제한 — 저사양 PC 메모리 보호
-const IMAGE_CONCURRENCY = 3;
+// 6 = 4코어 PC에서도 안전, 메모리 spike 제어. 8 이상은 OOM 위험.
+const IMAGE_CONCURRENCY = 6;
 
 /** 메인스레드 양보 — UI 멈춤 방지 */
 function yieldToMain(): Promise<void> {
@@ -1349,7 +1350,18 @@ function scoreEdgeCrop(data: Uint8ClampedArray, w: number, h: number): number {
  * 이미지의 색상 히스토그램을 빌드한다 (이상치 감지용).
  * 64x64로 축소 후 4×4×4=64빈 히스토그램 생성.
  */
+// URL → Histogram 캐시 — 같은 이미지를 detectOutlier/crossRef/detectDuplicate에서 재계산 방지.
+// 150 상품 × 30이미지 × 256bytes ≈ 1.2MB로 메모리 무시 가능.
+// 한 번의 Step 3 / Step 3.7 사이클 동안 유효. clearHistogramCache()로 명시 비움.
+const _histogramCache = new Map<string, Float32Array>();
+export function clearHistogramCache(): void {
+  _histogramCache.clear();
+}
+
 async function buildColorHistogram(objectUrl: string): Promise<Float32Array> {
+  const cached = _histogramCache.get(objectUrl);
+  if (cached) return cached;
+
   const img = await loadImage(objectUrl);
 
   const canvas = document.createElement('canvas');
@@ -1376,6 +1388,7 @@ async function buildColorHistogram(objectUrl: string): Promise<Float32Array> {
 
   // 정규화
   for (let i = 0; i < TOTAL_BINS; i++) hist[i] /= totalPixels;
+  _histogramCache.set(objectUrl, hist);
   return hist;
 }
 

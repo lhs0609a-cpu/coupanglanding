@@ -777,9 +777,11 @@ export function useBulkRegisterActions() {
         // Step 3. 대표이미지 선정
         // main_images 폴더의 모든 이미지를 스코어링하여 누끼 우선 정렬
         {
-          const { filterAndScoreMainImages, detectOutlierImages, crossReferenceOutlierImages } = await import('@/lib/megaload/services/image-quality-scorer');
+          const { filterAndScoreMainImages, detectOutlierImages, crossReferenceOutlierImages, clearHistogramCache } = await import('@/lib/megaload/services/image-quality-scorer');
           const { ensureObjectUrl, rescanMainImages: rescanMainImagesFn } = await import('@/lib/megaload/services/client-folder-scanner');
           type AutoExcludeReason = import('@/lib/megaload/services/client-folder-scanner').AutoExcludeReason;
+          // 새 파이프라인 시작 — 이전 사이클의 히스토그램 캐시 비움
+          clearHistogramCache();
 
           // ★ Step 3a: main_images 자동 리스캔 (코드 업데이트 후 누락 이미지 복구)
           // dirHandle이 있으면 현재 코드의 패턴으로 다시 스캔
@@ -1572,7 +1574,7 @@ export function useBulkRegisterActions() {
 
       let completed = 0;
       let taskIdx = 0;
-      const CONCURRENCY = 15;
+      const CONCURRENCY = 25;  // 브라우저→Supabase 직접 업로드 (서버 거치지 않음)
 
       async function worker() {
         while (taskIdx < allTasks.length) {
@@ -1644,46 +1646,62 @@ export function useBulkRegisterActions() {
 
     try {
       const BATCH = 100;
-      for (let i = 0; i < targetProducts.length; i += BATCH) {
-        const batch = targetProducts.slice(i, i + BATCH);
-        const res = await fetch('/api/megaload/products/bulk-register/validate-batch', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            products: batch.map((p) => ({
-              uid: p.uid, editedName: p.editedName, editedBrand: p.editedBrand, editedSellingPrice: p.editedSellingPrice,
-              editedCategoryCode: p.editedCategoryCode, sourcePrice: p.sourcePrice,
-              mainImageCount: p.scannedMainImages?.length ?? p.mainImageCount, detailImageCount: p.detailImageCount,
-              infoImageCount: p.infoImageCount, reviewImageCount: p.reviewImageCount,
-            })),
-            contactNumber, dryRun: true,
-            deliveryInfo: {
-              outboundShippingPlaceCode: selectedOutbound, returnCenterCode: selectedReturn,
-              deliveryChargeType, deliveryCharge: deliveryChargeType === 'FREE' ? 0 : deliveryCharge, returnCharge,
-            },
-            stock: 999,
-          }),
-        });
+      const BATCH_CONCURRENCY = 2; // 동시에 진행할 배치 수 — 서버 부하 살짝만 증가 (100*2 = 200 동시)
+      // 배치 인덱스 만들기
+      const batchStarts: number[] = [];
+      for (let i = 0; i < targetProducts.length; i += BATCH) batchStarts.push(i);
 
-        if (res.ok) {
-          const data = await res.json();
-          setProducts((prev) => prev.map((p) => {
-            const r = data.results[p.uid];
-            if (!r) return p;
-            return { ...p, validationStatus: r.status, validationErrors: r.errors, validationWarnings: r.warnings };
-          }));
-          const newDryRun: typeof dryRunResults = {};
-          for (const [uid, r] of Object.entries(data.results) as [string, Record<string, unknown>][]) {
-            if (r.payloadPreview || r.missingRequiredFields) {
-              newDryRun[uid] = {
-                payloadPreview: r.payloadPreview as typeof dryRunResults[string]['payloadPreview'],
-                missingRequiredFields: r.missingRequiredFields as string[],
-              };
+      // 워커: 다음 배치 인덱스를 가져와 처리
+      let nextBatch = 0;
+      const runBatchWorker = async () => {
+        while (true) {
+          const batchIdx = nextBatch++;
+          if (batchIdx >= batchStarts.length) return;
+          const start = batchStarts[batchIdx];
+          const batch = targetProducts.slice(start, start + BATCH);
+          const res = await fetch('/api/megaload/products/bulk-register/validate-batch', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              products: batch.map((p) => ({
+                uid: p.uid, editedName: p.editedName, editedBrand: p.editedBrand, editedSellingPrice: p.editedSellingPrice,
+                editedCategoryCode: p.editedCategoryCode, sourcePrice: p.sourcePrice,
+                mainImageCount: p.scannedMainImages?.length ?? p.mainImageCount, detailImageCount: p.detailImageCount,
+                infoImageCount: p.infoImageCount, reviewImageCount: p.reviewImageCount,
+              })),
+              contactNumber, dryRun: true,
+              deliveryInfo: {
+                outboundShippingPlaceCode: selectedOutbound, returnCenterCode: selectedReturn,
+                deliveryChargeType, deliveryCharge: deliveryChargeType === 'FREE' ? 0 : deliveryCharge, returnCharge,
+              },
+              stock: 999,
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setProducts((prev) => prev.map((p) => {
+              const r = data.results[p.uid];
+              if (!r) return p;
+              return { ...p, validationStatus: r.status, validationErrors: r.errors, validationWarnings: r.warnings };
+            }));
+            const newDryRun: typeof dryRunResults = {};
+            for (const [uid, r] of Object.entries(data.results) as [string, Record<string, unknown>][]) {
+              if (r.payloadPreview || r.missingRequiredFields) {
+                newDryRun[uid] = {
+                  payloadPreview: r.payloadPreview as typeof dryRunResults[string]['payloadPreview'],
+                  missingRequiredFields: r.missingRequiredFields as string[],
+                };
+              }
             }
+            setDryRunResults((prev) => ({ ...prev, ...newDryRun }));
+            if (data.categoryMeta) setCategoryMetaCache((prev) => ({ ...prev, ...data.categoryMeta }));
           }
-          setDryRunResults((prev) => ({ ...prev, ...newDryRun }));
-          if (data.categoryMeta) setCategoryMetaCache((prev) => ({ ...prev, ...data.categoryMeta }));
         }
-      }
+      };
+
+      // 동시 워커 시작 (배치 수보다 많이 만들지 않음)
+      await Promise.all(
+        Array.from({ length: Math.min(BATCH_CONCURRENCY, batchStarts.length) }, () => runBatchWorker()),
+      );
       setValidationPhase('complete');
     } catch { /* ignore */ } finally { setValidating(false); }
   }, [products, contactNumber, selectedOutbound, selectedReturn, deliveryChargeType, deliveryCharge, returnCharge, startImagePreupload, dryRunResults]);
