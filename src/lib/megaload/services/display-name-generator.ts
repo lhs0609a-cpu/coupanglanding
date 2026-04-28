@@ -179,8 +179,11 @@ function matchesWholeUnit(text: string, term: string): boolean {
  *   - 브랜드 서브토큰이 descriptor로 빠져나온 경우
  *
  * 원산지(ORIGINS), 스펙(숫자), 1-2자 토큰은 false positive 방지로 스킵.
+ *
+ * categorySafeWords: 카테고리 leaf/세그먼트 키워드는 브랜드명에 포함돼도 보존
+ *   (예: brand="슈퍼마그네슘플러스", leaf="마그네슘" → "마그네슘"은 SEO 핵심이므로 유지)
  */
-function removeBrandLeaks(displayName: string, brand: string): string {
+function removeBrandLeaks(displayName: string, brand: string, categorySafeWords?: Set<string>): string {
   if (!brand || brand.length < 2) return displayName;
 
   const brandLower = brand.toLowerCase().replace(/[^가-힣a-z0-9]/g, '');
@@ -208,6 +211,9 @@ function removeBrandLeaks(displayName: string, brand: string): string {
     const tokenLower = token.toLowerCase().replace(/[^가-힣a-z0-9]/g, '');
     if (tokenLower.length < 3) return true;
 
+    // 카테고리 안전 키워드(leaf 등)는 브랜드 누출 판정에서 제외 — SEO 핵심 보존
+    if (categorySafeWords && categorySafeWords.has(tokenLower)) return true;
+
     // 토큰이 브랜드 n-gram과 3자 이상 겹치면 누출로 판정
     for (const ng of brandNgrams) {
       if (ng.length >= 3 && tokenLower.includes(ng)) return false;
@@ -217,6 +223,35 @@ function removeBrandLeaks(displayName: string, brand: string): string {
   });
 
   return cleaned.join(' ');
+}
+
+/**
+ * 카테고리 경로에서 SEO 핵심 키워드(leaf + 분할 + 부모)를 추출한다.
+ * 이 키워드들은 브랜드 누출 필터에서 면제됨 — 카테고리 매칭 검색의 핵심.
+ *
+ * 예: "식품>건강식품>비타민/미네랄>마그네슘"
+ *  → {"마그네슘", "비타민", "미네랄", "건강식품"}
+ */
+function buildCategorySafeWords(categoryPath: string): Set<string> {
+  const safe = new Set<string>();
+  const segs = categoryPath.split('>').map(s => s.trim()).filter(Boolean);
+  const leafIdx = segs.length - 1;
+  for (let i = 0; i < segs.length; i++) {
+    const seg = segs[i];
+    // leaf는 1자도 허용 (단일자 한글 leaf "팥/조/감/밤/잣/톳/묵" 등 카테고리 키워드 보존)
+    const minLen = i === leafIdx ? 1 : 2;
+    if (seg.length >= minLen) safe.add(seg.toLowerCase());
+    // 슬래시·중점·공백·괄호·콤마·플러스·앰퍼샌드 모두로 분할
+    //   "두뇌 트레이닝" → "두뇌","트레이닝"
+    //   "1/2/3급 (심화)" → "1","2","3급","심화"
+    //   "굴착,성토,정지용" → "굴착","성토","정지용"
+    //   "키보드+마우스세트" → "키보드","마우스세트"
+    //   "일러스트화보집& 캘린더" → "일러스트화보집","캘린더"
+    for (const part of seg.split(/[\/·\s\(\)\[\],+&\-._''""\u2018\u2019\u201C\u201D]+/).map(s => s.trim())) {
+      if (part.length >= minLen) safe.add(part.toLowerCase());
+    }
+  }
+  return safe;
 }
 
 // ─── Phase 1: 토큰 추출 & 분류 ──────────────────────────
@@ -588,11 +623,23 @@ export function generateDisplayName(
     }
   }
 
+  // 카테고리 안전 키워드 — brand-leak 필터 면제 대상 (SEO 핵심 보존)
+  // 예: brand="슈퍼마그네슘플러스", leaf="마그네슘" → "마그네슘"은 무조건 통과시킴
+  const categorySafeWords = buildCategorySafeWords(categoryPath);
+
   const addToken = (word: string): boolean => {
     const lower = word.toLowerCase();
     if (usedWords.has(lower)) return false;
     // 2차 방어: 브랜드/연예인이 descriptor로 빠져나온 경우 차단
-    if (brandSubTokensGen.has(lower) || brandLowerGen.includes(lower) || lower.includes(brandLowerGen)) return false;
+    // ★ 카테고리 안전 키워드(leaf)는 brand에 substring으로 포함되더라도 보존
+    const isCategorySafe = categorySafeWords.has(lower);
+    if (!isCategorySafe) {
+      if (brandSubTokensGen.has(lower) || brandLowerGen.includes(lower) || lower.includes(brandLowerGen)) return false;
+    } else {
+      // safe 키워드라도 브랜드 자체와 정확히 일치/포함 관계면 차단
+      // (예: brand="마그네슘"인 (미친) 케이스 — leaf와 brand가 같으면 brand 우선 차단)
+      if (brandSubTokensGen.has(lower) && lower === brandLowerGen) return false;
+    }
     if (CELEBRITY_NAMES.has(word)) return false;
     // 서브워드 중복 체크: 개별 단어가 이미 사용되었으면 스킵
     const subWords = lower.split(/[\/\s]+/).filter(w => w.length >= 2);
@@ -612,6 +659,27 @@ export function generateDisplayName(
     parts.push(word);
     return true;
   };
+
+  // ⓞ 카테고리 leaf 키워드 — SEO 최우선 토큰으로 강제 선두 배치
+  //   슬래시·콤마·괄호로 분할 (공백은 한 덩어리 유지하되 split도 별도 추가)
+  //   예: "마그네슘" / "심리/인성/감성" → 첫 분할 "심리"
+  //   예: "굴착,성토,정지용" → "굴착"
+  //   1자 leaf("팥","조","마","감","밤" 등)도 카테고리 키워드는 SEO 핵심이라 허용
+  {
+    const leafRaw = (categoryPath.split('>').pop() || '').trim();
+    if (leafRaw.length >= 1) {
+      const slashSplits = leafRaw.split(/[\/·\(\)\[\],+&\-._''""\u2018\u2019\u201C\u201D]+/).map(s => s.trim()).filter(s => s.length >= 1);
+      const candidates = slashSplits.length > 0 ? slashSplits : [leafRaw];
+      const primary = candidates[0];
+      addToken(primary);
+      // 공백 포함이면 split 토큰을 별도로도 추가 (removeBrandLeaks가 split할 때 안전)
+      if (/\s/.test(primary)) {
+        for (const w of primary.split(/\s+/).filter(s => s.length >= 1)) {
+          addToken(w);
+        }
+      }
+    }
+  }
 
   // ① 핵심 성분 (INGREDIENTS) — 원본에서 추출, 최대 3개
   const ingrToUse = selectSubset(classified.ingredients, 3, rng);
@@ -658,12 +726,15 @@ export function generateDisplayName(
     }
   }
 
-  // ⑤b 카테고리 리프명 → TYPE 자동 추가 (TYPE 토큰이 없을 때)
-  // 16,259 카테고리 중 73%가 synonymGroup에 없어서 TYPE 누락 → 리프명으로 보완
-  if (classified.type.length === 0) {
-    const leafName = categoryPath.split('>').pop()?.trim() || '';
-    if (leafName.length >= 2) {
-      addToken(leafName);
+  // ⑤b 카테고리 리프 추가 분할 (슬래시 leaf의 보조 키워드)
+  //   ⓞ에서 첫 분할만 추가했으므로 나머지를 보조로 추가 (ex: "심리/인성/감성" → "인성","감성"도 추가)
+  {
+    const leafRaw = (categoryPath.split('>').pop() || '').trim();
+    const splits = leafRaw.split(/[\/·]+/).map(s => s.trim()).filter(s => s.length >= 2);
+    if (splits.length > 1) {
+      for (const sub of splits.slice(1, 3)) {
+        addToken(sub);
+      }
     }
   }
 
@@ -782,11 +853,53 @@ export function generateDisplayName(
   }
 
   // 브랜드 누출 후처리 안전망 — n-gram 기반 부분 음절 매칭
-  result = removeBrandLeaks(result, brand);
+  // 카테고리 안전 키워드(leaf)는 누출 판정에서 제외 (SEO 핵심 보존)
+  result = removeBrandLeaks(result, brand, categorySafeWords);
 
-  // 규제 금지어 후처리
+  // 규제 금지어 후처리 — 카테고리 leaf 토큰은 사후 복원
+  //   카테고리 leaf는 쿠팡 공식 명칭이라 합법성 보장됨
+  //   예: "모니터 벽걸이 암"의 "암"(arm) — 의약 "암(질병)" 패턴 매칭이지만 가전 부품
+  //   예: "전기충격기"의 "충격" — SAFE_REPLACEMENTS로 "놀랄만한" 치환 방지
+  //   예: 도서 "고혈압", "예술치료" 등은 isNonHealthCategory에서 이미 우회됨
   const { cleanedText } = checkCompliance(result, { removeErrors: true, categoryContext: categoryPath });
-  result = cleanedText || result;
+  let postCompliance = cleanedText || result;
+  // leaf 토큰이 compliance에 의해 strip/대체된 경우 복원 (카테고리 명칭 보존)
+  // 안전 키워드별로 한 번씩만 복원 (이미 있으면 skip)
+  const postLower = postCompliance.toLowerCase();
+  const missingSafe: string[] = [];
+  for (const safe of categorySafeWords) {
+    if (safe.length < 1) continue;
+    if (!postLower.includes(safe)) missingSafe.push(safe);
+  }
+  if (missingSafe.length > 0) {
+    // 원래 result에 있었던 안전 키워드만 복원 (compliance가 빼앗은 것)
+    const origLower = result.toLowerCase();
+    const restored = missingSafe.filter(s => origLower.includes(s));
+    if (restored.length > 0) {
+      // 원본 케이싱 보존: result에서 case-preserving 추출
+      const tokens = result.split(/\s+/);
+      const tokenLower = tokens.map(t => t.toLowerCase());
+      const restoreTokens = restored
+        .map(s => {
+          const idx = tokenLower.findIndex(t => t === s);
+          return idx >= 0 ? tokens[idx] : s;
+        });
+      // 맨 앞에 prepend (SEO 우선순위)
+      postCompliance = `${restoreTokens.join(' ')} ${postCompliance}`.trim();
+      // 70자 초과 트림
+      if (postCompliance.length > HARD_MAX_CHARS) {
+        const trimmed: string[] = [];
+        let len = 0;
+        for (const w of postCompliance.split(/\s+/)) {
+          if (len + w.length + (len > 0 ? 1 : 0) > HARD_MAX_CHARS) break;
+          trimmed.push(w);
+          len += w.length + (len > 0 ? 1 : 0);
+        }
+        postCompliance = trimmed.join(' ');
+      }
+    }
+  }
+  result = postCompliance;
 
   // fallback: 생성 실패 시 원본 사용 — 노이즈 구문은 반드시 제거
   if (!result) {
