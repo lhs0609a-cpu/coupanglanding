@@ -139,6 +139,20 @@ const DEFAULT_MIN_SCORE = 40;
 // 6 = 4코어 PC에서도 안전, 메모리 spike 제어. 8 이상은 OOM 위험.
 const IMAGE_CONCURRENCY = 6;
 
+// ─── URL 기반 분석 결과 캐시 ────────────────────────────────────
+// 같은 이미지를 Step 3 / Step 3.7 / 패널 자동분석에서 반복 호출 — 재계산 방지.
+// 메모리: 150 상품 × 30 이미지 × ~500 bytes ≈ 2.2MB로 무시 가능.
+// clearAnalysisCache()로 새 파이프라인 시작 시 비움.
+const _scoreImageCache = new Map<string, ImageScore>();
+const _scoreReviewCache = new Map<string, ImageScore>();
+const _analyzeDetailCache = new Map<string, { filtered: boolean; reason?: string }>();
+
+export function clearAnalysisCache(): void {
+  _scoreImageCache.clear();
+  _scoreReviewCache.clear();
+  _analyzeDetailCache.clear();
+}
+
 /** 메인스레드 양보 — UI 멈춤 방지 */
 function yieldToMain(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, 0));
@@ -220,7 +234,10 @@ export async function filterAndScoreMainImages(
 
   const results = await runPool(objectUrls, IMAGE_CONCURRENCY, async (i) => {
     try {
-      const score = await scoreImage(objectUrls[i]);
+      const url = objectUrls[i];
+      const cached = _scoreImageCache.get(url);
+      const score = cached ?? await scoreImage(url);
+      if (!cached) _scoreImageCache.set(url, score);
       const filtered = score.overall < minScore;
       return { index: i, score, filtered };
     } catch {
@@ -254,7 +271,10 @@ export async function filterAndScoreReviewImages(
 
   const results = await runPool(objectUrls, IMAGE_CONCURRENCY, async (i) => {
     try {
-      const score = await scoreReviewImage(objectUrls[i]);
+      const url = objectUrls[i];
+      const cached = _scoreReviewCache.get(url);
+      const score = cached ?? await scoreReviewImage(url);
+      if (!cached) _scoreReviewCache.set(url, score);
       const filtered = score.overall < minScore;
       return { index: i, score, filtered };
     } catch {
@@ -287,7 +307,10 @@ export async function filterDetailPageImages(
 
   return runPool(objectUrls, IMAGE_CONCURRENCY, async (i) => {
     try {
-      const result = await analyzeDetailImage(objectUrls[i]);
+      const url = objectUrls[i];
+      const cached = _analyzeDetailCache.get(url);
+      const result = cached ?? await analyzeDetailImage(url);
+      if (!cached) _analyzeDetailCache.set(url, result);
       return { index: i, ...result };
     } catch {
       return { index: i, filtered: false };

@@ -140,7 +140,7 @@ export async function scanDirectoryHandle(
   // 12 워커가 동시에 collectImagesFromSubdir을 부르면 각자 5 getFile = 60 동시 호출 → 35개 이후 throttle.
   // 6 워커로 줄이면 30 동시 호출 — 브라우저 FS 큐 한계 내.
   // 추가: 매 상품 처리 후 setTimeout(0) yield 로 메인스레드 starvation 방지 (UI 응답성 + GC 기회 확보).
-  const SCAN_CONCURRENCY = 6;
+  const SCAN_CONCURRENCY = 10;
   const products: ScannedProduct[] = new Array(productDirs.length);
   let nextProductIdx = 0;
   let doneCount = 0;
@@ -341,7 +341,7 @@ async function collectImagesFromSubdir(
     if (eagerObjectUrls && accepted.length > 0) {
       files = new Array(accepted.length);
       let next = 0;
-      const GETFILE_CONCURRENCY = 5;
+      const GETFILE_CONCURRENCY = 10;
       async function getFileWorker() {
         while (next < accepted.length) {
           const i = next++;

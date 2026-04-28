@@ -365,7 +365,7 @@ export default function DetailPageContentTab({
     // 짧은 지연으로 panel 렌더 완료 후 실행 (UX 부드럽게)
     const timer = setTimeout(() => {
       handleAnalyzeDetailRelevance();
-    }, 300);
+    }, 100);
     return () => clearTimeout(timer);
     // handleAnalyzeDetailRelevance를 deps에 넣으면 무한루프 가능 — 의도적 omit
     // eslint-disable-next-line react-hooks/exhaustive-deps

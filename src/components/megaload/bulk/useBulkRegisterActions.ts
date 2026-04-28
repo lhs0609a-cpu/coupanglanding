@@ -777,11 +777,12 @@ export function useBulkRegisterActions() {
         // Step 3. 대표이미지 선정
         // main_images 폴더의 모든 이미지를 스코어링하여 누끼 우선 정렬
         {
-          const { filterAndScoreMainImages, detectOutlierImages, crossReferenceOutlierImages, clearHistogramCache } = await import('@/lib/megaload/services/image-quality-scorer');
+          const { filterAndScoreMainImages, detectOutlierImages, crossReferenceOutlierImages, clearHistogramCache, clearAnalysisCache } = await import('@/lib/megaload/services/image-quality-scorer');
           const { ensureObjectUrl, rescanMainImages: rescanMainImagesFn } = await import('@/lib/megaload/services/client-folder-scanner');
           type AutoExcludeReason = import('@/lib/megaload/services/client-folder-scanner').AutoExcludeReason;
-          // 새 파이프라인 시작 — 이전 사이클의 히스토그램 캐시 비움
+          // 새 파이프라인 시작 — 이전 사이클의 캐시 비움 (히스토그램 + 분석 결과)
           clearHistogramCache();
+          clearAnalysisCache();
 
           // ★ Step 3a: main_images 자동 리스캔 (코드 업데이트 후 누락 이미지 복구)
           // dirHandle이 있으면 현재 코드의 패턴으로 다시 스캔
