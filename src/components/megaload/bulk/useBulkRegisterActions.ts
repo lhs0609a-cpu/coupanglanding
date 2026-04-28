@@ -829,7 +829,13 @@ export function useBulkRegisterActions() {
           const CROSS_REF_THRESHOLD = 2.0;
           const MAIN_MIN_KEEP = 8;
 
-          for (let idx = 0; idx < latest.length; idx++) {
+          // Step 3 메인 스코어링 — 상품별 병렬 처리 (3개 동시)
+          // Step 3.7과 동일 패턴: Canvas 동시성은 IMAGE_CONCURRENCY로 내부 제한,
+          // 외부 워커 3개 × 내부 6 = 최대 18 동시 캔버스 (메모리 안전)
+          const SCORE_PRODUCT_PARALLEL = 3;
+          let nextScoreIdx = 0;
+
+          const processMainScoring = async (idx: number): Promise<void> => {
             const p = latest[idx];
             let usedMainImages = false;
 
@@ -953,12 +959,26 @@ export function useBulkRegisterActions() {
               }
             }
 
-            // 5개 상품마다 progress + yield
-            if ((idx + 1) % 5 === 0 || idx === latest.length - 1) {
-              setImageFilterProgress(prev => ({ ...prev, done: idx + 1 }));
-              await new Promise(r => setTimeout(r, 0));
+          };
+
+          // 워커 풀 실행
+          let scoreCompleted = 0;
+          const scoreWorker = async () => {
+            while (true) {
+              const idx = nextScoreIdx++;
+              if (idx >= latest.length) return;
+              try { await processMainScoring(idx); }
+              catch (e) { console.warn(`[image-pipeline] 상품 ${idx} 스코어링 실패`, e); }
+              scoreCompleted++;
+              if (scoreCompleted % 5 === 0 || scoreCompleted === latest.length) {
+                setImageFilterProgress(prev => ({ ...prev, done: scoreCompleted }));
+                await new Promise(r => setTimeout(r, 0));
+              }
             }
-          }
+          };
+          await Promise.all(
+            Array.from({ length: Math.min(SCORE_PRODUCT_PARALLEL, latest.length) }, () => scoreWorker()),
+          );
 
           // setProducts — 스코어링 결과 적용
           setProducts(prev => prev.map((p, i) => {
@@ -1034,25 +1054,35 @@ export function useBulkRegisterActions() {
             const latestForCrop = productsRef.current;
             const cropResults: Map<number, string> = new Map();
 
-            for (let idx = 0; idx < latestForCrop.length; idx++) {
-              const p = latestForCrop[idx];
-              const mainImg = p.scannedMainImages?.[0];
-              const url = mainImg?.objectUrl;
-              if (!url) continue;
-
-              try {
-                const result = await autoCropToFill(url);
-                if (result.cropped) {
-                  cropResults.set(idx, result.url);
-                  console.info(
-                    `[auto-crop] ${p.productCode}: 점유율 ${(result.oldRatio * 100).toFixed(0)}%→${(result.newRatio * 100).toFixed(0)}%`,
-                  );
+            // 자동 크롭도 병렬 처리 (5개 동시) — 메인 이미지 1장씩만 처리하므로 메모리 안전
+            const CROP_PARALLEL = 5;
+            let nextCropIdx = 0;
+            let cropDone = 0;
+            const cropWorker = async () => {
+              while (true) {
+                const idx = nextCropIdx++;
+                if (idx >= latestForCrop.length) return;
+                const p = latestForCrop[idx];
+                const mainImg = p.scannedMainImages?.[0];
+                const url = mainImg?.objectUrl;
+                if (url) {
+                  try {
+                    const result = await autoCropToFill(url);
+                    if (result.cropped) {
+                      cropResults.set(idx, result.url);
+                      console.info(
+                        `[auto-crop] ${p.productCode}: 점유율 ${(result.oldRatio * 100).toFixed(0)}%→${(result.newRatio * 100).toFixed(0)}%`,
+                      );
+                    }
+                  } catch { /* skip */ }
                 }
-              } catch { /* skip */ }
-
-              // 10개마다 yield
-              if ((idx + 1) % 10 === 0) await new Promise(r => setTimeout(r, 0));
-            }
+                cropDone++;
+                if (cropDone % 10 === 0) await new Promise(r => setTimeout(r, 0));
+              }
+            };
+            await Promise.all(
+              Array.from({ length: Math.min(CROP_PARALLEL, latestForCrop.length) }, () => cropWorker()),
+            );
 
             if (cropResults.size > 0) {
               setProducts(prev => prev.map((p, i) => {

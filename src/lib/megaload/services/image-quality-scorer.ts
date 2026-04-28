@@ -141,16 +141,20 @@ const IMAGE_CONCURRENCY = 6;
 
 // ─── URL 기반 분석 결과 캐시 ────────────────────────────────────
 // 같은 이미지를 Step 3 / Step 3.7 / 패널 자동분석에서 반복 호출 — 재계산 방지.
-// 메모리: 150 상품 × 30 이미지 × ~500 bytes ≈ 2.2MB로 무시 가능.
+// 메모리: 150 상품 × 30 이미지 × ~3KB (features 포함) ≈ 13MB로 부담 가능 수준.
 // clearAnalysisCache()로 새 파이프라인 시작 시 비움.
 const _scoreImageCache = new Map<string, ImageScore>();
 const _scoreReviewCache = new Map<string, ImageScore>();
 const _analyzeDetailCache = new Map<string, { filtered: boolean; reason?: string }>();
+// extractFeaturesForUrls는 originalIndex가 매번 다를 수 있어 features를 그대로 캐시 못함.
+// 대신 "이미지 분석 데이터" (color hist, edge orient, dominantColors 등)를 별도 캐시.
+const _imageFeaturesCache = new Map<string, ImageFeatures>();
 
 export function clearAnalysisCache(): void {
   _scoreImageCache.clear();
   _scoreReviewCache.clear();
   _analyzeDetailCache.clear();
+  _imageFeaturesCache.clear();
 }
 
 /** 메인스레드 양보 — UI 멈춤 방지 */
@@ -2852,7 +2856,13 @@ async function extractFeaturesForUrls(
 ): Promise<ImageFeatures[]> {
   const results = await runPool(urls, IMAGE_CONCURRENCY, async (i) => {
     try {
-      const img = await loadImage(urls[i]);
+      const url = urls[i];
+      // 캐시된 features가 있으면 originalIndex만 갱신해서 반환 (deep clone 불필요 — 호출자는 read-only)
+      const cached = _imageFeaturesCache.get(url);
+      if (cached) {
+        return { ...cached, originalIndex: originalIndices[i] };
+      }
+      const img = await loadImage(url);
       const canvas = document.createElement('canvas');
       canvas.width = ANALYSIS_SIZE;
       canvas.height = ANALYSIS_SIZE;
@@ -2869,7 +2879,9 @@ async function extractFeaturesForUrls(
         gray[p] = 0.299 * data[offset] + 0.587 * data[offset + 1] + 0.114 * data[offset + 2];
       }
 
-      return extractImageFeatures(data, gray, ANALYSIS_SIZE, ANALYSIS_SIZE, originalIndices[i]);
+      const features = extractImageFeatures(data, gray, ANALYSIS_SIZE, ANALYSIS_SIZE, originalIndices[i]);
+      _imageFeaturesCache.set(url, features);
+      return features;
     } catch {
       return null;
     }
