@@ -28,6 +28,13 @@ export default function OrdersPage() {
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const PAGE_SIZE = 20;
 
+  // 검색 debounce: 매 키 입력 fetch → 400ms 안정화 후 1회만
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     const { data: { session } } = await supabase.auth.getSession();
@@ -43,23 +50,23 @@ export default function OrdersPage() {
 
     const megaloadUserId = (shUser as Record<string, unknown>).id as string;
 
-    // 상태별 카운트
-    const countPromises = STATUS_TABS.filter((t) => t.key !== 'all').map(async (tab) => {
-      const { count } = await supabase
-        .from('sh_orders')
-        .select('id', { count: 'exact', head: true })
-        .eq('megaload_user_id', megaloadUserId)
-        .eq('order_status', tab.key);
-      return [tab.key, count || 0] as [string, number];
-    });
+    // 상태별 카운트 — 단일 쿼리로 통합 (이전: 5개 별도 count 쿼리 = 5번 왕복)
+    // status 컬럼만 fetch → 클라이언트 측에서 GROUP BY (대역폭 작고 응답 빠름)
+    const { data: statusRows } = await supabase
+      .from('sh_orders')
+      .select('order_status')
+      .eq('megaload_user_id', megaloadUserId);
+    const counts: Record<string, number> = {};
+    for (const row of (statusRows as { order_status: string }[] | null) || []) {
+      counts[row.order_status] = (counts[row.order_status] || 0) + 1;
+    }
+    setStatusCounts(counts);
 
-    const counts = await Promise.all(countPromises);
-    setStatusCounts(Object.fromEntries(counts));
-
-    // 주문 목록
+    // 주문 목록 — 필요 컬럼만 (이전: select('*, sh_order_items(*), sh_order_tags(*)') 전체 fetch)
+    // 페이지에서 표시되는 정보만 select → 대역폭 절감 + 응답 시간 단축
     let query = supabase
       .from('sh_orders')
-      .select('*, sh_order_items(*), sh_order_tags(*)', { count: 'exact' })
+      .select('id, channel, channel_order_id, order_status, ordered_at, buyer_name, receiver_name, total_amount, sh_order_items(id, product_name, quantity, item_price), sh_order_tags(tag)', { count: 'exact' })
       .eq('megaload_user_id', megaloadUserId)
       .order('ordered_at', { ascending: false })
       .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
@@ -70,15 +77,15 @@ export default function OrdersPage() {
     if (channelFilter) {
       query = query.eq('channel', channelFilter);
     }
-    if (search) {
-      query = query.or(`buyer_name.ilike.%${search}%,receiver_name.ilike.%${search}%,channel_order_id.ilike.%${search}%`);
+    if (debouncedSearch) {
+      query = query.or(`buyer_name.ilike.%${debouncedSearch}%,receiver_name.ilike.%${debouncedSearch}%,channel_order_id.ilike.%${debouncedSearch}%`);
     }
 
     const { data, count } = await query;
     setOrders((data as unknown as Order[]) || []);
     setTotal(count || 0);
     setLoading(false);
-  }, [supabase, activeTab, channelFilter, search, page]);
+  }, [supabase, activeTab, channelFilter, debouncedSearch, page]);
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 

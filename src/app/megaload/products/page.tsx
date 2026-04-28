@@ -5,8 +5,10 @@ import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { CHANNELS, CHANNEL_SHORT_LABELS, CHANNEL_STATUS_LABELS } from '@/lib/megaload/constants';
 import type { Channel, MasterProduct, ProductChannel } from '@/lib/megaload/types';
-import { Package, Search, RefreshCw, ChevronLeft, ChevronRight, Upload, PlusCircle, MoreHorizontal, FolderUp, List } from 'lucide-react';
+import { Package, Search, RefreshCw, ChevronLeft, ChevronRight, Upload, PlusCircle, MoreHorizontal, FolderUp, List, Copy, History } from 'lucide-react';
+import Link from 'next/link';
 import BulkRegisterPanel from '@/components/megaload/BulkRegisterPanel';
+import ReplicationModal from '@/components/megaload/ReplicationModal';
 
 type Tab = 'list' | 'bulk';
 
@@ -21,6 +23,7 @@ export default function ProductsPage() {
   const [total, setTotal] = useState(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [channelFilter, setChannelFilter] = useState<Channel | ''>('');
+  const [replicateOpen, setReplicateOpen] = useState(false);
   const PAGE_SIZE = 20;
 
   const fetchProducts = useCallback(async () => {
@@ -36,9 +39,17 @@ export default function ProductsPage() {
       .single();
     if (!shUser) return;
 
+    // 필요 컬럼만 select — 이전: '*' (전체) 로 raw_data, 모든 옵션/채널 컬럼까지 fetch
+    // 페이지에서 표시되는 정보만 가져와 대역폭 2-3배 절감 + JSON parse 시간 단축
+    // alias 'options'/'channels'는 화면 코드 호환 (product.options[0].sale_price)
     let query = supabase
       .from('sh_products')
-      .select('*, sh_product_options(*), sh_product_channels(*)', { count: 'exact' })
+      .select(
+        'id, product_name, display_name, brand, coupang_product_id, status, created_at, ' +
+        'options:sh_product_options(id, sale_price, option_name), ' +
+        'channels:sh_product_channels(channel, status)',
+        { count: 'exact' },
+      )
       .eq('megaload_user_id', (shUser as Record<string, unknown>).id)
       .neq('status', 'deleted')
       .order('created_at', { ascending: false })
@@ -86,13 +97,22 @@ export default function ProductsPage() {
 
   const handleBulkRegister = async () => {
     if (selectedIds.length === 0) return;
-    for (const id of selectedIds) {
-      await fetch(`/api/megaload/products/${id}/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channels: CHANNELS.filter((c) => c !== 'coupang') }),
-      });
-    }
+    // 병렬 등록 (이전: 순차 N배 지연). 동시 8개로 제한 — 서버 폭주 방지
+    const CONCURRENCY = 8;
+    let nextIdx = 0;
+    const worker = async () => {
+      while (nextIdx < selectedIds.length) {
+        const id = selectedIds[nextIdx++];
+        try {
+          await fetch(`/api/megaload/products/${id}/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ channels: CHANNELS.filter((c) => c !== 'coupang') }),
+          });
+        } catch { /* 개별 실패는 무시 — fetchProducts 후 사용자 확인 */ }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, selectedIds.length) }, worker));
     await fetchProducts();
     setSelectedIds([]);
   };
@@ -116,6 +136,13 @@ export default function ProductsPage() {
         </div>
         {tab === 'list' && (
           <div className="flex items-center gap-2">
+            <Link
+              href="/megaload/products/replications"
+              className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+            >
+              <History className="w-4 h-4" />
+              복제 히스토리
+            </Link>
             <button
               onClick={() => fetch('/api/megaload/products/sync-coupang', { method: 'POST' }).then(() => fetchProducts())}
               className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition"
@@ -186,8 +213,15 @@ export default function ProductsPage() {
           {selectedIds.length > 0 && (
             <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
               <span className="text-sm font-medium text-blue-700">{selectedIds.length}개 선택</span>
-              <button onClick={handleBulkRegister} className="px-3 py-1.5 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700">
-                전채널 등록
+              <button
+                onClick={() => setReplicateOpen(true)}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                전채널 복제
+              </button>
+              <button onClick={handleBulkRegister} className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                즉시 등록 (동기)
               </button>
               <button className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
                 일괄 품절
@@ -314,6 +348,13 @@ export default function ProductsPage() {
       )}
 
       {tab === 'bulk' && <BulkRegisterPanel />}
+
+      <ReplicationModal
+        isOpen={replicateOpen}
+        onClose={() => setReplicateOpen(false)}
+        selectedProductIds={selectedIds}
+        onCompleted={() => { fetchProducts(); setSelectedIds([]); }}
+      />
     </div>
   );
 }
