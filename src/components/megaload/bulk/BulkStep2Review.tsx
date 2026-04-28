@@ -23,7 +23,10 @@ interface BulkStep2ReviewProps {
   onRetryAutoCategory?: () => void;
   validating: boolean;
   validationPhase: string;
-  imagePreuploadProgress: { total: number; done: number; phase: string };
+  imagePreuploadProgress: {
+    total: number; done: number; phase: string;
+    failureCount?: number; failureReasons?: Record<string, number>; sampleFailure?: string;
+  };
   imagePreuploadCache: Record<string, { mainImageUrls: string[]; detailImageUrls?: string[]; reviewImageUrls?: string[]; infoImageUrls?: string[] }>;
   dryRunResults: Record<string, { payloadPreview?: { hasDetailPage?: boolean }; missingRequiredFields?: string[] }>;
   deliveryChargeType: string;
@@ -608,6 +611,21 @@ export default memo(function BulkStep2Review({
               </div>
               <span className="text-[10px] text-gray-400 w-20 text-right">{imagePreuploadProgress.phase === 'complete' ? '완료' : imagePreuploadProgress.total > 0 ? `${imagePreuploadProgress.done}/${imagePreuploadProgress.total} (${Math.round((imagePreuploadProgress.done / imagePreuploadProgress.total) * 100)}%)` : '대기'}</span>
             </div>
+            {(imagePreuploadProgress.failureCount ?? 0) > 0 && (
+              <div className="ml-[10.25rem] -mt-1 text-[11px] text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">
+                <div className="font-medium">⚠ 업로드 실패 {imagePreuploadProgress.failureCount}건</div>
+                {imagePreuploadProgress.failureReasons && Object.keys(imagePreuploadProgress.failureReasons).length > 0 && (
+                  <div className="text-[10px] text-red-500 mt-0.5">
+                    원인: {Object.entries(imagePreuploadProgress.failureReasons).map(([k, v]) => `${k}=${v}`).join(', ')}
+                  </div>
+                )}
+                {imagePreuploadProgress.sampleFailure && (
+                  <div className="text-[10px] text-red-400 mt-0.5 truncate" title={imagePreuploadProgress.sampleFailure}>
+                    예: {imagePreuploadProgress.sampleFailure}
+                  </div>
+                )}
+              </div>
+            )}
             {/* Preflight pipeline row */}
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5 w-36 text-xs">

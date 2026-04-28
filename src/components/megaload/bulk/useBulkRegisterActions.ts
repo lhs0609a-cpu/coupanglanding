@@ -158,6 +158,10 @@ export function useBulkRegisterActions() {
   // Image preupload pipeline
   const [imagePreuploadProgress, setImagePreuploadProgress] = useState<{
     total: number; done: number; phase: 'idle' | 'uploading' | 'complete' | 'error';
+    /** 업로드 실패 통계 — 사용자에게 가시화 (silent fail 방지) */
+    failureCount?: number;
+    failureReasons?: Record<string, number>;
+    sampleFailure?: string;
   }>({ total: 0, done: 0, phase: 'idle' });
   const [imagePreuploadCache, setImagePreuploadCache] = useState<Record<string, {
     mainImageUrls: string[]; detailImageUrls: string[]; reviewImageUrls: string[]; infoImageUrls: string[];
@@ -1690,9 +1694,40 @@ export function useBulkRegisterActions() {
 
       let completed = 0;
       let taskIdx = 0;
-      // 브라우저→Supabase 직접 업로드 (서버 비경유) → concurrency 대폭 상향
-      // 25 → 60: 모던 브라우저 HTTP/2 동시 연결 ~100, Supabase storage rate limit 충분
       const CONCURRENCY = 60;
+
+      // 실패 추적 (사용자 가시화 — silent fail 방지)
+      const failureReasons: Record<string, number> = {};
+      let sampleFailure: string | undefined;
+      let failureCount = 0;
+
+      // 진행률 throttle (200ms) — 매 task setState는 60워커×N 재렌더 폭주 위험
+      let lastProgressUpdate = 0;
+      const updateProgress = (force = false) => {
+        const now = Date.now();
+        if (!force && now - lastProgressUpdate < 200) return;
+        lastProgressUpdate = now;
+        const productsDone = Object.values(productUrlMap).filter(m => m.main.size > 0).length;
+        setImagePreuploadProgress(prev => ({
+          ...prev,
+          done: productsDone,
+          failureCount,
+          failureReasons: { ...failureReasons },
+          sampleFailure,
+        }));
+      };
+
+      function categorizeError(err: unknown): string {
+        const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+        if (msg.includes('quota') || msg.includes('storage')) return 'quota_exceeded';
+        if (msg.includes('cors') || msg.includes('cross-origin')) return 'cors';
+        if (msg.includes('network') || msg.includes('fetch') || msg.includes('aborted')) return 'network';
+        if (msg.includes('permission') || msg.includes('denied') || msg.includes('not allowed')) return 'permission';
+        if (msg.includes('handle') || msg.includes('notfound')) return 'file_handle_invalid';
+        if (msg.includes('413') || msg.includes('too large')) return 'too_large';
+        if (msg.includes('rate') || msg.includes('429')) return 'rate_limited';
+        return 'unknown';
+      }
 
       async function worker() {
         while (taskIdx < allTasks.length) {
@@ -1704,23 +1739,32 @@ export function useBulkRegisterActions() {
             const brand = preventionConfig.enabled ? preventionConfig.sellerBrand : undefined;
             const compressed = await compressImage(file, brand);
             const url = await uploadSingleImage(compressed, task.img.name);
-            if (url) productUrlMap[task.uid][task.kind].set(task.img.name, url);
+            if (url) {
+              productUrlMap[task.uid][task.kind].set(task.img.name, url);
+            } else {
+              // url 빈 문자열 = silent fail — 카운트
+              failureCount++;
+              failureReasons['empty_response'] = (failureReasons['empty_response'] || 0) + 1;
+              if (!sampleFailure) sampleFailure = `${task.img.name}: 업로드 응답 비어있음 (Supabase RLS/버킷 권한 의심)`;
+            }
           } catch (err) {
-            // 업로드 실패 진단: 디버그 로깅 (1회만 노이즈 방지 위해 throttle)
-            if (idx % 50 === 0) {
-              console.warn(`[preupload] ${task.uid}/${task.kind}/${task.img.name} 업로드 실패:`, err instanceof Error ? err.message : err);
+            failureCount++;
+            const reason = categorizeError(err);
+            failureReasons[reason] = (failureReasons[reason] || 0) + 1;
+            if (!sampleFailure) {
+              sampleFailure = `${task.img.name}: ${err instanceof Error ? err.message : String(err)}`;
+              console.warn(`[preupload] 첫 실패 — ${task.uid}/${task.kind}/${task.img.name}:`, err);
             }
           }
           completed++;
-          // 진행률 업데이트 — 매 task마다 (이전 매 10개) → 사용자에게 즉시 피드백
-          const productsDone = Object.values(productUrlMap).filter(m => m.main.size > 0).length;
-          setImagePreuploadProgress(prev => ({ ...prev, done: productsDone }));
+          updateProgress();
         }
       }
 
       await Promise.all(
         Array.from({ length: Math.min(CONCURRENCY, allTasks.length) }, () => worker()),
       );
+      updateProgress(true); // 완료 시 강제 마지막 업데이트
 
       // 캐시에 저장 — productsRef.current의 최신 scannedXxxImages 순서로 URL 조립
       // (preupload 도중 유저가 제거한 이미지는 Map 조회 결과에서 자연 누락됨)
