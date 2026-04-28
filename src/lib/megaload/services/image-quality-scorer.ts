@@ -776,9 +776,19 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
     (bgSatResult.avgLuminance > 210 && bgSatResult.avgSaturation < 0.18);
 
   if (isWhiteBackground) {
-    // 누끼 이미지: 빈 이미지만 체크 (다른 하드필터 전부 면제)
+    // 누끼 이미지: 빈 이미지 + 텍스트 배너 + 단일색 텍스트만 체크 (그 외 면제)
+    // ⚠️ 이전 버그: 흰배경 + 텍스트만 있는 이미지("참여히", "OK", "혹" 등)가
+    //              누끼 면역으로 통과 → 대표후보로 노출되던 문제
     if (contentSufficiency <= 20) {
       hardFilterReason = 'empty_image';
+    } else if (detectTextBanner(data, ANALYSIS_SIZE, ANALYSIS_SIZE)) {
+      // 흰배경 위 큰 텍스트 (배송안내/이벤트 배너 등) — 누끼면역에서 제외
+      hardFilterReason = 'text_banner';
+    } else if (textDensity < 35 && colorDiversity < 30 && contentSufficiency < 55) {
+      // 단일색 큰 글자만 있는 이미지 (배너 일부 캡처)
+      // textDensity 점수↓ = 글자 많음, colorDiversity 점수↓ = 색상 단조, content↓ = 빈공간 많음
+      // 세 신호 동시 충족 시 텍스트 전용 비상품 이미지로 간주
+      hardFilterReason = 'text_only_image';
     }
   } else {
     // 비누끼 이미지: 기존 하드필터 전체 적용
