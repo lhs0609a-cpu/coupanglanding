@@ -816,10 +816,17 @@ export function useBulkRegisterActions() {
           const MAX_REVIEW_CANDIDATES = 20;
 
           // 약한/강한 임계값 — 메인 폴더는 전부 통과시키되 약한 케이스만 표시
-          const LOW_SCORE_THRESHOLD = 25;        // overall < 25 → 약한 표시
-          const COLOR_OUTLIER_THRESHOLD = 1.5;   // detectOutlierImages stddev 배수
-          const CROSS_REF_THRESHOLD = 0.7;       // crossReferenceOutlierImages chi² 임계
-          const MAIN_MIN_KEEP = 5;               // 자동 제외 후 최소 보장 장수 (전체가 적으면 전체)
+          // ⚠️ false positive 완화 (사용자 신고): 대표이미지 8/10 자동 제외 발생.
+          //   사용자가 정상 이미지를 수동으로 풀어야 했음 → 임계 대폭 보수화.
+          //   - LOW_SCORE: 25→10 (점수 저하 자동제외 거의 비활성)
+          //   - COLOR_OUTLIER: 1.5→3.0 (정말 명백한 outlier만)
+          //   - CROSS_REF: 0.7→2.0 (대표와 색감 다른 정도로는 제외 안 함)
+          //   - MAIN_MIN_KEEP: 5→8 (10장 중 최소 8장 보존)
+          //   기존 임계가 너무 공격적이라 정상 상품 사진을 잘못 배제했던 결과 반영.
+          const LOW_SCORE_THRESHOLD = 10;
+          const COLOR_OUTLIER_THRESHOLD = 3.0;
+          const CROSS_REF_THRESHOLD = 2.0;
+          const MAIN_MIN_KEEP = 8;
 
           for (let idx = 0; idx < latest.length; idx++) {
             const p = latest[idx];
@@ -1635,22 +1642,26 @@ export function useBulkRegisterActions() {
     // 백그라운드 업로드 (비차단 — await 안 함, 프리플라이트는 먼저 진행)
     (async () => {
       // 브라우저 모드: main + detail + review 이미지를 flat 풀로 병렬 업로드
-      // (info는 stock-image 자동 합성이라 클라 업로드 대상 아님)
+      // 우선순위: main > detail > review (main 1장만 있어도 product done 카운트되므로
+      //          모든 product의 main을 먼저 처리해야 진행률이 빨리 올라감)
       type Kind = 'main' | 'detail' | 'review';
-      const allTasks: { uid: string; kind: Kind; img: ScannedImageFile }[] = [];
-      // 파일명 기준 Map — preupload 도중 유저가 X로 이미지를 제거해도
-      // cache 주입 시 productsRef.current의 최신 scannedMainImages만 참조하므로 제거된 URL은 자연 누락
+      const mainTasks: { uid: string; kind: Kind; img: ScannedImageFile }[] = [];
+      const otherTasks: { uid: string; kind: Kind; img: ScannedImageFile }[] = [];
       const productUrlMap: Record<string, { main: Map<string, string>; detail: Map<string, string>; review: Map<string, string> }> = {};
       for (const p of browserProducts) {
         productUrlMap[p.uid] = { main: new Map(), detail: new Map(), review: new Map() };
-        for (const img of p.scannedMainImages || []) allTasks.push({ uid: p.uid, kind: 'main', img });
-        for (const img of p.scannedDetailImages || []) allTasks.push({ uid: p.uid, kind: 'detail', img });
-        for (const img of p.scannedReviewImages || []) allTasks.push({ uid: p.uid, kind: 'review', img });
+        for (const img of p.scannedMainImages || []) mainTasks.push({ uid: p.uid, kind: 'main', img });
+        for (const img of p.scannedDetailImages || []) otherTasks.push({ uid: p.uid, kind: 'detail', img });
+        for (const img of p.scannedReviewImages || []) otherTasks.push({ uid: p.uid, kind: 'review', img });
       }
+      // main 우선 + 인터리브 (각 product의 첫 main 먼저 → 진행률 빠르게 상승)
+      const allTasks = [...mainTasks, ...otherTasks];
 
       let completed = 0;
       let taskIdx = 0;
-      const CONCURRENCY = 25;  // 브라우저→Supabase 직접 업로드 (서버 거치지 않음)
+      // 브라우저→Supabase 직접 업로드 (서버 비경유) → concurrency 대폭 상향
+      // 25 → 60: 모던 브라우저 HTTP/2 동시 연결 ~100, Supabase storage rate limit 충분
+      const CONCURRENCY = 60;
 
       async function worker() {
         while (taskIdx < allTasks.length) {
@@ -1663,13 +1674,16 @@ export function useBulkRegisterActions() {
             const compressed = await compressImage(file, brand);
             const url = await uploadSingleImage(compressed, task.img.name);
             if (url) productUrlMap[task.uid][task.kind].set(task.img.name, url);
-          } catch { /* 실패 시 Map에 기록 안 함 — 소비 시 자동 누락 */ }
-          completed++;
-          // 진행률 업데이트 (10개마다) — main 업로드 1개라도 성공한 상품을 "done"으로 카운트
-          if (completed % 10 === 0 || completed === allTasks.length) {
-            const productsDone = Object.values(productUrlMap).filter(m => m.main.size > 0).length;
-            setImagePreuploadProgress(prev => ({ ...prev, done: productsDone }));
+          } catch (err) {
+            // 업로드 실패 진단: 디버그 로깅 (1회만 노이즈 방지 위해 throttle)
+            if (idx % 50 === 0) {
+              console.warn(`[preupload] ${task.uid}/${task.kind}/${task.img.name} 업로드 실패:`, err instanceof Error ? err.message : err);
+            }
           }
+          completed++;
+          // 진행률 업데이트 — 매 task마다 (이전 매 10개) → 사용자에게 즉시 피드백
+          const productsDone = Object.values(productUrlMap).filter(m => m.main.size > 0).length;
+          setImagePreuploadProgress(prev => ({ ...prev, done: productsDone }));
         }
       }
 
@@ -1721,8 +1735,10 @@ export function useBulkRegisterActions() {
     startImagePreupload(targetProducts);
 
     try {
-      const BATCH = 100;
-      const BATCH_CONCURRENCY = 2; // 동시에 진행할 배치 수 — 서버 부하 살짝만 증가 (100*2 = 200 동시)
+      // 작은 배치 + 더 많은 동시 워커 = 응답 latency 단축 + 진행률 빠른 상승
+      // 100×2(=200 in-flight) → 25×8(=200 in-flight). 동시 inflight 동일하지만 첫 결과까지 4배 빠름.
+      const BATCH = 25;
+      const BATCH_CONCURRENCY = 8;
       // 배치 인덱스 만들기
       const batchStarts: number[] = [];
       for (let i = 0; i < targetProducts.length; i += BATCH) batchStarts.push(i);

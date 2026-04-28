@@ -119,8 +119,9 @@ export async function POST(req: NextRequest) {
         return { code, noticeMeta, attributeMeta };
       };
 
-      // 병렬 조회 (5개 동시)
-      const CONCURRENT = 5;
+      // 병렬 조회 — 캐시 히트 비율이 높으므로 동시성 상향 + inter-chunk delay 제거
+      // 12개 동시 (이전 5개) — Supabase 캐시 우선이라 라이브 API 호출은 첫 등록만 발생
+      const CONCURRENT = 12;
       for (let i = 0; i < uniqueCodes.length; i += CONCURRENT) {
         const chunk = uniqueCodes.slice(i, i + CONCURRENT);
         const results = await Promise.allSettled(chunk.map(fetchCategoryMeta));
@@ -131,11 +132,7 @@ export async function POST(req: NextRequest) {
             categoryMeta[code] = { noticeMeta: nm, attributeMeta: am };
           }
         }
-
-        // 청크 간 짧은 딜레이 (레이트 리밋 방지)
-        if (i + CONCURRENT < uniqueCodes.length) {
-          await new Promise((r) => setTimeout(r, 300));
-        }
+        // inter-chunk delay 제거 — 캐시 히트 시 불필요, 미스는 어차피 라이브 API에 도달하면 자체 rate limit 작동
       }
     } // if (coupangAdapter)
     }
