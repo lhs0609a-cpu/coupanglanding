@@ -19,10 +19,32 @@ import {
 import { calculateSimilarity } from '@/lib/utils/string-similarity';
 
 // ── Constants ───────────────────────────────────────────
-const GOOGLE_SHEET_ID = '1wBxJlm1_p3BJAi16hcgw0XxlnW4Fquk_gfm9dtE4QR0';
-const CACHE_KEY = 'product_search_cache';
-const CACHE_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
+const LOCAL_CSV_URL = '/data/product-list.csv';
 const MAX_RESULTS = 50;
+
+// ── Channel 정의 (CSV id prefix 기준) ──
+// NAVER_BULK_DETAIL 을 NAVER_BULK 보다 먼저 매칭해야 하므로 순서 중요.
+type ChannelKey = 'all' | 'coupang' | '11st' | 'naver' | 'naver_bulk' | 'naver_bulk_detail';
+
+const CHANNELS: { key: ChannelKey; label: string; prefix: string | null }[] = [
+  { key: 'all',               label: '전체',          prefix: null },
+  { key: 'coupang',           label: '쿠팡',          prefix: 'COUPANG' },
+  { key: '11st',              label: '11번가',        prefix: '11ST' },
+  { key: 'naver',             label: '네이버',        prefix: 'NAVER' },
+  { key: 'naver_bulk',        label: '네이버 벌크',    prefix: 'NAVER_BULK' },
+  { key: 'naver_bulk_detail', label: '네이버 벌크 디테일', prefix: 'NAVER_BULK_DETAIL' },
+];
+
+// id → 채널 판정. 긴 prefix부터 검사해 NAVER_BULK_DETAIL 이 NAVER_BULK 보다 우선.
+function detectChannel(id: string): ChannelKey {
+  const up = id.toUpperCase();
+  if (up.startsWith('NAVER_BULK_DETAIL')) return 'naver_bulk_detail';
+  if (up.startsWith('NAVER_BULK')) return 'naver_bulk';
+  if (up.startsWith('COUPANG')) return 'coupang';
+  if (up.startsWith('11ST')) return '11st';
+  if (up.startsWith('NAVER')) return 'naver';
+  return 'all';
+}
 
 // ── Types ───────────────────────────────────────────────
 interface Product {
@@ -31,6 +53,7 @@ interface Product {
   image: string;
   url: string;
   date: string;
+  channel: ChannelKey;
   raw: Record<string, string>;
 }
 
@@ -96,49 +119,35 @@ function isDateLike(val: string): boolean {
 
 function parseProducts(csv: string): Product[] {
   const lines = csv.split('\n').filter((l) => l.trim());
-  if (lines.length < 2) return [];
+  if (lines.length === 0) return [];
 
-  const headers = parseCSVLine(lines[0]);
   const products: Product[] = [];
 
-  for (let i = 1; i < lines.length; i++) {
+  // 헤더 없는 CSV: 컬럼 순서 고정 (0=고유번호, 1=상품명, 2=링크, 3=날짜)
+  for (let i = 0; i < lines.length; i++) {
     const fields = parseCSVLine(lines[i]);
     if (fields.length < 2) continue;
 
-    const raw: Record<string, string> = {};
-    headers.forEach((h, idx) => {
-      raw[h] = fields[idx] || '';
-    });
-
-    // Auto-detect fields
+    // 값 기반 자동 감지 (헤더 없음 전제)
     let id = '';
     let name = '';
     let image = '';
     let url = '';
     let date = '';
 
-    for (let j = 0; j < fields.length; j++) {
-      const val = fields[j];
-      const header = (headers[j] || '').toLowerCase();
-
-      if (!id && (header.includes('id') || header.includes('번호') || header === 'no')) {
-        id = val;
-      } else if (!name && (header.includes('name') || header.includes('상품명') || header.includes('이름') || header.includes('제목'))) {
-        name = val;
-      } else if (!image && (isImageUrl(val) || header.includes('image') || header.includes('이미지') || header.includes('썸네일'))) {
-        image = val;
-      } else if (!url && (isProductUrl(val) || header.includes('url') || header.includes('링크'))) {
-        url = val;
-      } else if (!date && (isDateLike(val) || header.includes('date') || header.includes('날짜') || header.includes('등록일'))) {
-        date = val;
-      }
+    for (const val of fields) {
+      if (!url && isProductUrl(val)) url = val;
+      else if (!image && isImageUrl(val)) image = val;
+      else if (!date && isDateLike(val)) date = val;
     }
 
-    // Fallback: first field as ID, second as name
     if (!id) id = fields[0] || String(i);
     if (!name) name = fields[1] || fields[0] || `상품 ${i}`;
 
-    products.push({ id, name, image, url, date, raw });
+    const raw: Record<string, string> = {};
+    fields.forEach((v, idx) => { raw[String(idx)] = v; });
+
+    products.push({ id, name, image, url, date, channel: detectChannel(id), raw });
   }
 
   return products;
@@ -147,6 +156,7 @@ function parseProducts(csv: string): Product[] {
 // ── Page Component ──────────────────────────────────────
 export default function ProductSearchPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [activeChannel, setActiveChannel] = useState<ChannelKey>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -167,7 +177,6 @@ export default function ProductSearchPage() {
 
   // Image extraction state
   const [imageExtracting, setImageExtracting] = useState(false);
-  const imageExtractedRef = useRef(false);
 
   // Debounced search
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -188,16 +197,30 @@ export default function ProductSearchPage() {
   //   '6A4D'  → '6A4D' 포함 전체
   //   '카포드 6A4D-10336963077' → 세 토큰 모두 어딘가에 있어야 히트
   //   어느 토큰이든 id/name/url/raw 의 어느 필드에 있어도 매칭으로 인정.
-  const filteredProducts = useMemo(() => {
-    const raw = debouncedSearch.trim();
-    if (!raw) return products.slice(0, MAX_RESULTS);
-    // 공백 + 하이픈 분리 (하이픈도 공백으로 취급하면 '6A4D-10336963077' 입력해도 분리돼 매칭됨)
-    const tokens = raw.toLowerCase().split(/[\s\-]+/).filter((t) => t.length > 0);
-    if (tokens.length === 0) return products.slice(0, MAX_RESULTS);
+  // 채널별 카운트 — 탭 옆 뱃지에 표시
+  const channelCounts = useMemo(() => {
+    const counts: Record<ChannelKey, number> = {
+      all: products.length,
+      coupang: 0, '11st': 0, naver: 0, naver_bulk: 0, naver_bulk_detail: 0,
+    };
+    for (const p of products) counts[p.channel] = (counts[p.channel] ?? 0) + 1;
+    return counts;
+  }, [products]);
 
-    return products
+  const filteredProducts = useMemo(() => {
+    // 1) 채널 필터 먼저 적용
+    const byChannel = activeChannel === 'all'
+      ? products
+      : products.filter((p) => p.channel === activeChannel);
+
+    // 2) 검색어 필터
+    const raw = debouncedSearch.trim();
+    if (!raw) return byChannel.slice(0, MAX_RESULTS);
+    const tokens = raw.toLowerCase().split(/[\s\-]+/).filter((t) => t.length > 0);
+    if (tokens.length === 0) return byChannel.slice(0, MAX_RESULTS);
+
+    return byChannel
       .filter((p) => {
-        // 모든 검색 가능 필드 값을 한 번에 합쳐 비교 — 각 토큰이 이 안에 있으면 통과
         const haystack = [
           p.id,
           p.name,
@@ -210,38 +233,35 @@ export default function ProductSearchPage() {
         return tokens.every((t) => haystack.includes(t));
       })
       .slice(0, MAX_RESULTS);
-  }, [products, debouncedSearch]);
+  }, [products, activeChannel, debouncedSearch]);
 
-  // Load from cache or sync
+  // 전체 매칭 수 (slice 전) — "n건 중 50건 표시" 용
+  const totalMatchCount = useMemo(() => {
+    const byChannel = activeChannel === 'all'
+      ? products
+      : products.filter((p) => p.channel === activeChannel);
+    const raw = debouncedSearch.trim();
+    if (!raw) return byChannel.length;
+    const tokens = raw.toLowerCase().split(/[\s\-]+/).filter((t) => t.length > 0);
+    if (tokens.length === 0) return byChannel.length;
+    return byChannel.filter((p) => {
+      const haystack = [p.id, p.name, p.url, ...Object.values(p.raw || {})]
+        .filter(Boolean).join(' ').toLowerCase();
+      return tokens.every((t) => haystack.includes(t));
+    }).length;
+  }, [products, activeChannel, debouncedSearch]);
+
+  // Load from local static CSV (browser's HTTP cache handles caching automatically)
   const syncProducts = useCallback(async (force = false) => {
-    if (!force) {
-      try {
-        const cached = localStorage.getItem(CACHE_KEY);
-        if (cached) {
-          const { data, timestamp } = JSON.parse(cached);
-          if (Date.now() - timestamp < CACHE_EXPIRY_MS) {
-            setProducts(data);
-            setLoading(false);
-            return;
-          }
-        }
-      } catch { /* ignore */ }
-    }
-
     setSyncing(true);
     setError(null);
     try {
-      const res = await fetch(`/api/naver-shopping/google-sheets-proxy?sheetId=${GOOGLE_SHEET_ID}&gid=0`);
-      if (!res.ok) throw new Error('시트 데이터를 가져오지 못했습니다.');
+      const url = force ? `${LOCAL_CSV_URL}?t=${Date.now()}` : LOCAL_CSV_URL;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('상품 데이터를 불러오지 못했습니다.');
       const csv = await res.text();
       const parsed = parseProducts(csv);
       setProducts(parsed);
-      // localStorage 캐싱 시도 (용량 초과 시 무시)
-      try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify({ data: parsed, timestamp: Date.now() }));
-      } catch {
-        try { localStorage.removeItem(CACHE_KEY); } catch { /* ignore */ }
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '동기화 실패');
     } finally {
@@ -254,15 +274,13 @@ export default function ProductSearchPage() {
     syncProducts();
   }, [syncProducts]);
 
-  // 이미지 없는 상품들에 대해 og:image 배치 추출
+  // 현재 검색 결과(최대 MAX_RESULTS)에 대해서만 og:image 추출 — 대용량(39k+) 대응
   useEffect(() => {
-    if (loading || products.length === 0 || imageExtractedRef.current) return;
-    const needImage = products.filter((p) => !p.image && p.url);
+    if (loading || filteredProducts.length === 0) return;
+    const needImage = filteredProducts.filter((p) => !p.image && p.url);
     if (needImage.length === 0) return;
 
-    imageExtractedRef.current = true;
     setImageExtracting(true);
-
     const BATCH_SIZE = 5;
     let cancelled = false;
 
@@ -302,7 +320,7 @@ export default function ProductSearchPage() {
     return () => {
       cancelled = true;
     };
-  }, [loading, products.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loading, filteredProducts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Price comparison error
   const [priceError, setPriceError] = useState<string | null>(null);
@@ -431,8 +449,35 @@ export default function ProductSearchPage() {
           className="flex items-center gap-1.5 px-4 py-2 text-sm text-white bg-[#E31837] rounded-lg hover:bg-[#c81530] transition disabled:opacity-50"
         >
           <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-          {syncing ? '동기화 중...' : '시트 동기화'}
+          {syncing ? '불러오는 중...' : '데이터 새로고침'}
         </button>
+      </div>
+
+      {/* Channel Tabs */}
+      <div className="flex flex-wrap gap-1.5 border-b border-gray-200">
+        {CHANNELS.map((ch) => {
+          const active = activeChannel === ch.key;
+          const count = channelCounts[ch.key] ?? 0;
+          return (
+            <button
+              key={ch.key}
+              type="button"
+              onClick={() => setActiveChannel(ch.key)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition ${
+                active
+                  ? 'border-[#E31837] text-[#E31837]'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {ch.label}
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                active ? 'bg-[#E31837]/10 text-[#E31837]' : 'bg-gray-100 text-gray-500'
+              }`}>
+                {count.toLocaleString('ko-KR')}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Search Input */}
@@ -468,12 +513,11 @@ export default function ProductSearchPage() {
         </div>
       ) : (
         <>
-          {debouncedSearch && (
-            <p className="text-sm text-gray-500">
-              검색 결과: <span className="font-bold text-gray-900">{filteredProducts.length}건</span>
-              {filteredProducts.length >= MAX_RESULTS && ` (최대 ${MAX_RESULTS}건 표시)`}
-            </p>
-          )}
+          <p className="text-sm text-gray-500">
+            {debouncedSearch ? '검색 결과: ' : `${CHANNELS.find((c) => c.key === activeChannel)?.label}: `}
+            <span className="font-bold text-gray-900">{totalMatchCount.toLocaleString('ko-KR')}건</span>
+            {totalMatchCount > MAX_RESULTS && ` (최대 ${MAX_RESULTS}건 표시)`}
+          </p>
 
           {/* Product Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">

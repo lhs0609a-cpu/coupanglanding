@@ -25,7 +25,7 @@ fly auth login
 cd proxy
 
 # 앱 생성 + 배포 (도쿄 리전)
-fly launch --name coupang-proxy --region nrt --no-deploy
+fly launch --name coupang-api-proxy --region nrt --no-deploy
 
 # 고정 IPv4 할당 ($2/월)
 fly ips allocate-v4
@@ -44,7 +44,7 @@ fly deploy
 
 ```bash
 # 헬스체크
-curl https://coupang-proxy.fly.dev/health
+curl https://coupang-api-proxy.fly.dev/health
 
 # 응답 예시:
 # {"status":"ok","region":"nrt","timestamp":"2026-03-15T12:00:00.000Z"}
@@ -64,13 +64,13 @@ curl https://coupang-proxy.fly.dev/health
 ```
 Vercel 대시보드 → Settings → Environment Variables:
 
-COUPANG_PROXY_URL = https://coupang-proxy.fly.dev
+COUPANG_PROXY_URL = https://coupang-api-proxy.fly.dev
 COUPANG_PROXY_SECRET = (위에서 설정한 것과 동일)
 ```
 
 또는 `.env.local`:
 ```env
-COUPANG_PROXY_URL=https://coupang-proxy.fly.dev
+COUPANG_PROXY_URL=https://coupang-api-proxy.fly.dev
 COUPANG_PROXY_SECRET=여기에-강력한-비밀키-입력
 ```
 
@@ -78,7 +78,7 @@ COUPANG_PROXY_SECRET=여기에-강력한-비밀키-입력
 
 ```bash
 # 프록시 경유 쿠팡 API 호출 테스트
-curl -X GET "https://coupang-proxy.fly.dev/proxy/v2/providers/seller_api/apis/api/v1/vendor/sellers/YOUR_VENDOR_ID" \
+curl -X GET "https://coupang-api-proxy.fly.dev/proxy/v2/providers/seller_api/apis/api/v1/vendor/sellers/YOUR_VENDOR_ID" \
   -H "X-Proxy-Secret: 여기에-비밀키" \
   -H "X-Coupang-Access-Key: 쿠팡-액세스키" \
   -H "X-Coupang-Secret-Key: 쿠팡-시크릿키"

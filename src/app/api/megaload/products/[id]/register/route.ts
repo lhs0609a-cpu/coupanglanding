@@ -3,7 +3,8 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { mapCategory } from '@/lib/megaload/services/ai.service';
 import type { Channel } from '@/lib/megaload/types';
-import { CHANNELS } from '@/lib/megaload/constants';
+import { isChannelSupported } from '@/lib/megaload/types';
+import { CHANNELS, CHANNEL_LABELS } from '@/lib/megaload/constants';
 
 export async function POST(
   request: NextRequest,
@@ -16,7 +17,19 @@ export async function POST(
 
     const { id } = await params;
     const body = await request.json();
-    const targetChannels = (body.channels || CHANNELS.filter((c) => c !== 'coupang')) as Channel[];
+    const requestedChannels = (body.channels || CHANNELS.filter((c) => c !== 'coupang')) as Channel[];
+    const margins = (body.margins || {}) as Record<string, number>;
+
+    // 준비 중 채널은 요청 단계에서 즉시 차단
+    const unsupported = requestedChannels.filter((c) => !isChannelSupported(c));
+    if (unsupported.length > 0) {
+      const names = unsupported.map((c) => CHANNEL_LABELS[c]).join(', ');
+      return NextResponse.json(
+        { error: `${names} 은(는) 준비 중인 채널입니다.` },
+        { status: 400 }
+      );
+    }
+    const targetChannels = requestedChannels.filter((c) => c !== 'coupang');
 
     const serviceClient = await createServiceClient();
 
@@ -56,21 +69,39 @@ export async function POST(
         const headerHtml = (header as Record<string, unknown>)?.content || '';
         const footerHtml = (footer as Record<string, unknown>)?.content || '';
 
+        // 기준 가격 & 마진 적용
+        const options = ((productData as Record<string, unknown>).sh_product_options as Array<Record<string, unknown>>) || [];
+        const rawSellerPrice = Number((productData.raw_data as Record<string, unknown>)?.sellerProductPrice || 0);
+        const basePrice = Number(options[0]?.sale_price) || rawSellerPrice;
+
+        let salePrice: number;
+        if (typeof margins[channel] === 'number') {
+          salePrice = Math.round(basePrice * (1 + margins[channel] / 100));
+        } else if (body.priceMode === 'same') {
+          salePrice = basePrice;
+        } else {
+          salePrice = Number(body.prices?.[channel]) || basePrice;
+        }
+
         // 상품 데이터 구성
         const channelProduct = {
           productName,
           categoryId: categoryMapping.categoryId || categoryId,
           description: `${headerHtml}${(productData.raw_data as Record<string, unknown>)?.content || ''}${footerHtml}`,
-          salePrice: body.priceMode === 'same'
-            ? (productData.raw_data as Record<string, unknown>)?.sellerProductPrice
-            : body.prices?.[channel],
-          options: (productData as Record<string, unknown>).sh_product_options || [],
+          salePrice,
+          options,
           images: (productData.raw_data as Record<string, unknown>)?.images || [],
         };
 
         const result = await adapter.createProduct(channelProduct as Record<string, unknown>);
 
         // 채널 매핑 저장
+        const priceRule = typeof margins[channel] === 'number'
+          ? { mode: 'margin', margin_percent: margins[channel], base_price: basePrice, final_price: salePrice }
+          : body.priceMode === 'same'
+            ? { mode: 'same' }
+            : { mode: 'custom', price: body.prices?.[channel] };
+
         await serviceClient
           .from('sh_product_channels')
           .upsert({
@@ -79,7 +110,7 @@ export async function POST(
             channel,
             channel_product_id: result.channelProductId,
             status: 'active',
-            price_rule: body.priceMode === 'same' ? { mode: 'same' } : { mode: 'custom', price: body.prices?.[channel] },
+            price_rule: priceRule,
             updated_at: new Date().toISOString(),
           }, { onConflict: 'product_id,channel' });
 

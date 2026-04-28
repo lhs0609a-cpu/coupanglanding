@@ -215,8 +215,9 @@ export function generatePersuasionContent(
   categoryCode?: string,
   productContext?: ProductContext,
 ): PersuasionResult {
-  // 시드 기반 RNG
-  const seed = stringToSeed(`${sellerSeed}::persuasion::${productIndex}::${productName}`);
+  // 시드 기반 RNG — 카테고리도 시드에 포함하여 같은 상품명이라도
+  // 카테고리가 다르면 다른 텍스트가 생성되도록 한다.
+  const seed = stringToSeed(`${sellerSeed}::persuasion::${productIndex}::${productName}::${categoryPath}::${categoryCode || ''}`);
   const rng = createSeededRandom(seed);
 
   // 이름 정리
