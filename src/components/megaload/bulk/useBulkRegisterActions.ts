@@ -1073,7 +1073,11 @@ export function useBulkRegisterActions() {
             const detailMetaMap: Map<number, ImageSelectionMeta> = new Map();
             const reviewMetaMap: Map<number, ImageSelectionMeta> = new Map();
 
-            for (let idx = 0; idx < latestForFilter.length; idx++) {
+            // 상품별 이미지 분석 — 병렬 워커 풀 (3개 동시)
+            // 메인스레드 Canvas 작업이 많아 4 이상은 마진 적음
+            const PRODUCT_PARALLEL = 3;
+            let nextIdx = 0;
+            const processProduct = async (idx: number): Promise<void> => {
               const p = latestForFilter[idx];
 
               // 메인이미지 URLs (이상치 비교 기준)
@@ -1238,9 +1242,22 @@ export function useBulkRegisterActions() {
                 }
               }
 
-              // 10개마다 yield
-              if ((idx + 1) % 10 === 0) await new Promise(r => setTimeout(r, 0));
-            }
+              // 5개마다 yield (워커별로 yield)
+              if ((idx + 1) % 5 === 0) await new Promise(r => setTimeout(r, 0));
+            };
+
+            // 워커 풀 실행
+            const productWorker = async () => {
+              while (true) {
+                const idx = nextIdx++;
+                if (idx >= latestForFilter.length) return;
+                try { await processProduct(idx); }
+                catch (e) { console.warn(`[image-diversity] 상품 ${idx} 처리 실패`, e); }
+              }
+            };
+            await Promise.all(
+              Array.from({ length: Math.min(PRODUCT_PARALLEL, latestForFilter.length) }, () => productWorker()),
+            );
 
             // 결과 적용 — ★ 사용자가 이미 선택한 경우(editedDetailImageOrder 정의됨) 덮어쓰지 않음
             if (detailOrderMap.size > 0 || reviewOrderMap.size > 0 || detailAutoExcludeMaps.size > 0) {

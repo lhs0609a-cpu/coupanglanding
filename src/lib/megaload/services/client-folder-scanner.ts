@@ -444,93 +444,138 @@ const UPLOAD_JPEG_QUALITY = 0.75;  // 파일 크기 제한 (Supabase 5MB, Vercel
  * 모든 이미지를 canvas를 통해 처리하여 쿠팡 최소 크기를 보장
  *
  * sellerBrand가 제공되면 반투명 워터마크를 삽입하여 CNN 임베딩 차별화
+ *
+ * 성능: createImageBitmap → 디코딩이 백그라운드 스레드 (워커 없이도)
+ *      OffscreenCanvas (지원 시) → 메인스레드 영향 없음
+ *      파일 크기 휴리스틱 조기 탈출 → 디코딩 자체 스킵
  */
 export async function compressImage(file: File | Blob, sellerBrand?: string): Promise<Blob> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    const objectUrl = URL.createObjectURL(file);
+  // ── 휴리스틱 조기 탈출 ── 디코딩 비용도 안 치름
+  // 워터마크가 필요 없고, 파일 크기가 100KB ~ 3MB 사이면 그대로 통과 (해상도 검사 생략)
+  // 1200px 넘는 큰 이미지가 아니라면 대부분 적절한 해상도. 해상도가 너무 작으면 쿠팡이 거부하지만
+  // 그 케이스는 파일 크기도 보통 작음 → 100KB 이하 분기에서 잡힘
+  if (!sellerBrand && file.size >= 100 * 1024 && file.size <= 3 * 1024 * 1024) {
+    return file;
+  }
+  if (!sellerBrand && file.size < 100 * 1024) {
+    // 작은 파일: 디코드 후 해상도만 확인. 너무 작으면 업스케일.
+    // 디코드 비싸지만 작은 파일이라 빠름.
+  }
 
-    img.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-      const { width, height } = img;
+  let bitmap: ImageBitmap | null = null;
+  try {
+    // createImageBitmap: 디코딩이 백그라운드 스레드 (브라우저 내부)
+    bitmap = await createImageBitmap(file);
+  } catch {
+    // 폴백: createImageBitmap 실패 (예: HEIC) → 500x500 흰 캔버스
+    console.warn('[compressImage] createImageBitmap 실패 — 500x500 흰 캔버스 폴백');
+    return await renderEmptyCanvas();
+  }
 
-      // 항상 canvas를 통해 처리 — 최소 500x500 보장
-      let targetW = width;
-      let targetH = height;
+  const { width, height } = bitmap;
+  let targetW = width;
+  let targetH = height;
+  let needsRender = false;
 
-      if (width < UPLOAD_MIN_DIMENSION || height < UPLOAD_MIN_DIMENSION) {
-        // 업스케일: 짧은 변이 500이 되도록
-        const scale = UPLOAD_MIN_DIMENSION / Math.min(width, height);
-        targetW = Math.max(UPLOAD_MIN_DIMENSION, Math.round(width * scale));
-        targetH = Math.max(UPLOAD_MIN_DIMENSION, Math.round(height * scale));
-      } else if (width > UPLOAD_MAX_DIMENSION || height > UPLOAD_MAX_DIMENSION) {
-        // 다운스케일: 긴 변이 1200이 되도록
-        const scale = UPLOAD_MAX_DIMENSION / Math.max(width, height);
-        targetW = Math.round(width * scale);
-        targetH = Math.round(height * scale);
-      } else if (file.size < 100 * 1024) {
-        // 크기 적절 + 파일 작으면 그대로
-        resolve(file);
-        return;
-      } else if (file.size > 3 * 1024 * 1024) {
-        // 3MB 초과 → JPEG 재압축 (Supabase/Vercel 크기 제한 방지)
-        // 해상도가 이미 작아도 품질 낮춰 재압축해야 413 방지
-        const scale = UPLOAD_MAX_DIMENSION / Math.max(width, height);
-        if (scale < 1) {
-          targetW = Math.round(width * scale);
-          targetH = Math.round(height * scale);
-        }
-        // scale >= 1 이어도 아래 canvas.toBlob으로 재압축 진행 (break through)
-      } else {
-        // 크기 적절
-        resolve(file);
-        return;
-      }
+  if (width < UPLOAD_MIN_DIMENSION || height < UPLOAD_MIN_DIMENSION) {
+    // 업스케일: 짧은 변이 500이 되도록
+    const scale = UPLOAD_MIN_DIMENSION / Math.min(width, height);
+    targetW = Math.max(UPLOAD_MIN_DIMENSION, Math.round(width * scale));
+    targetH = Math.max(UPLOAD_MIN_DIMENSION, Math.round(height * scale));
+    needsRender = true;
+  } else if (width > UPLOAD_MAX_DIMENSION || height > UPLOAD_MAX_DIMENSION) {
+    // 다운스케일: 긴 변이 1200이 되도록
+    const scale = UPLOAD_MAX_DIMENSION / Math.max(width, height);
+    targetW = Math.round(width * scale);
+    targetH = Math.round(height * scale);
+    needsRender = true;
+  } else if (file.size > 3 * 1024 * 1024) {
+    // 3MB 초과 → 재압축 (Supabase/Vercel 5MB/4.5MB 제한)
+    needsRender = true;
+  }
 
-      const canvas = document.createElement('canvas');
-      canvas.width = targetW;
-      canvas.height = targetH;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0, targetW, targetH);
+  // 워터마크가 필요하면 무조건 render
+  if (sellerBrand) needsRender = true;
 
-      // 셀러 워터마크 삽입 — CNN 임베딩 차별화 (반투명, 우하단)
-      if (sellerBrand) {
-        const fontSize = Math.max(14, Math.round(targetW * 0.028));
-        ctx.save();
-        ctx.globalAlpha = 0.12;
-        ctx.font = `bold ${fontSize}px sans-serif`;
-        ctx.fillStyle = '#000000';
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(sellerBrand, targetW - 8, targetH - 8);
-        ctx.restore();
-      }
+  if (!needsRender) {
+    bitmap.close();
+    return file;
+  }
 
-      canvas.toBlob(
-        (blob) => resolve(blob || file),
-        'image/jpeg',
-        UPLOAD_JPEG_QUALITY,
-      );
-    };
+  // OffscreenCanvas 사용 가능하면 활용 (메인스레드 영향 최소)
+  const useOffscreen = typeof OffscreenCanvas !== 'undefined';
+  let blob: Blob | null;
 
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      // 이미지 로드 실패 시에도 최소 크기 보장을 위해 빈 캔버스 생성
-      console.warn('[compressImage] 이미지 로드 실패 — 500x500 빈 캔버스 폴백');
-      const canvas = document.createElement('canvas');
-      canvas.width = UPLOAD_MIN_DIMENSION;
-      canvas.height = UPLOAD_MIN_DIMENSION;
-      const ctx = canvas.getContext('2d')!;
+  if (useOffscreen) {
+    const canvas = new OffscreenCanvas(targetW, targetH);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) { bitmap.close(); return file; }
+    ctx.drawImage(bitmap, 0, 0, targetW, targetH);
+    if (sellerBrand) drawWatermark(ctx, targetW, targetH, sellerBrand);
+    bitmap.close();
+    try {
+      blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: UPLOAD_JPEG_QUALITY });
+    } catch {
+      blob = null;
+    }
+  } else {
+    const canvas = document.createElement('canvas');
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) { bitmap.close(); return file; }
+    ctx.drawImage(bitmap, 0, 0, targetW, targetH);
+    if (sellerBrand) drawWatermark(ctx, targetW, targetH, sellerBrand);
+    bitmap.close();
+    blob = await new Promise<Blob | null>(resolve =>
+      canvas.toBlob(resolve, 'image/jpeg', UPLOAD_JPEG_QUALITY),
+    );
+  }
+
+  return blob || file;
+}
+
+function drawWatermark(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  w: number,
+  _h: number,
+  text: string,
+): void {
+  const fontSize = Math.max(14, Math.round(w * 0.028));
+  ctx.save();
+  ctx.globalAlpha = 0.12;
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  ctx.fillStyle = '#000000';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(text, w - 8, _h - 8);
+  ctx.restore();
+}
+
+async function renderEmptyCanvas(): Promise<Blob> {
+  const useOffscreen = typeof OffscreenCanvas !== 'undefined';
+  if (useOffscreen) {
+    const canvas = new OffscreenCanvas(UPLOAD_MIN_DIMENSION, UPLOAD_MIN_DIMENSION);
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, UPLOAD_MIN_DIMENSION, UPLOAD_MIN_DIMENSION);
-      canvas.toBlob(
-        (blob) => resolve(blob || file),
-        'image/jpeg',
-        UPLOAD_JPEG_QUALITY,
-      );
-    };
-
-    img.src = objectUrl;
+      try { return await canvas.convertToBlob({ type: 'image/jpeg', quality: UPLOAD_JPEG_QUALITY }); }
+      catch { /* fallthrough */ }
+    }
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = UPLOAD_MIN_DIMENSION;
+  canvas.height = UPLOAD_MIN_DIMENSION;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, UPLOAD_MIN_DIMENSION, UPLOAD_MIN_DIMENSION);
+  return new Promise<Blob>(resolve => {
+    canvas.toBlob(
+      blob => resolve(blob || new Blob([], { type: 'image/jpeg' })),
+      'image/jpeg',
+      UPLOAD_JPEG_QUALITY,
+    );
   });
 }
 
