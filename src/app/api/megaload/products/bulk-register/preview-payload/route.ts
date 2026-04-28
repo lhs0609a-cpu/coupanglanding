@@ -114,14 +114,20 @@ export async function POST(req: NextRequest) {
       if (opt.name === '수량') noticeHints.count = `${opt.value}${opt.unit || '개'}`;
     }
 
-    // 5. notices 자동채움
+    // categoryPath 조회 (노출고시 매칭에 categoryPath가 상품명보다 정확)
+    const { getCategoryDetails } = await import('@/lib/megaload/services/category-matcher');
+    const categoryDetails = await getCategoryDetails(product.categoryCode);
+    const categoryPath = categoryDetails?.path || '';
+
+    // 5. notices 자동채움 — categoryPath + 상품명을 모두 hint로 전달 (path 우선)
+    const noticeHint = categoryPath || product.name;
     const filledNotices = fillNoticeFields(
       noticeMeta,
       { name: product.name, brand: product.brand, tags: product.tags, description: product.description },
       returnInfo.afterServiceContactNumber,
       noticeOverrides,
       noticeHints,
-      product.name,
+      noticeHint,
     );
 
     // 6. 이미지 URL (사전 업로드된 URL 사용, 없으면 원본 경로)
