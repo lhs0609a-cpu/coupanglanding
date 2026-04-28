@@ -87,6 +87,23 @@ function extractComposite(name: string): CompositeResult {
     }
   }
 
+  // "NNL x N" pattern → 용량 (L→ml 변환) (+수량)
+  // L은 의류 사이즈와 혼동되므로 직전이 알파벳이 아닌 경우만(즉 숫자만 앞)
+  const vmL = name.match(/(?<![a-zA-Z])(\d+(?:\.\d+)?)\s*(L|리터|ℓ)\s*[xX×]\s*(\d+)/);
+  if (vmL && !result.volume) {
+    let val = parseFloat(vmL[1]);
+    if (vmL[2] === 'L' && (val < 0.1 || val > 20)) {
+      // L 사이즈 의류 등 무관 매칭 방지
+    } else {
+      val *= 1000;
+      result.volume = { value: val, unit: 'ml' };
+      const afterCount = name.slice(vmL.index! + vmL[0].length).trimStart();
+      if (!DOSE_UNIT_AFTER_COUNT.test(afterCount)) {
+        result.count = parseInt(vmL[3], 10);
+      }
+    }
+  }
+
   // "NNg/kg x N" pattern → 중량 (+수량)
   const wm = name.match(/(\d+(?:\.\d+)?)\s*(g|kg|KG|㎏)\s*[xX×]\s*(\d+)/i);
   if (wm) {
@@ -142,9 +159,10 @@ function extractCountRaw(name: string, composite: CompositeResult, excludeSachet
   // excludeSachet=true일 때 "포"를 수량 단위에서 제외 (캡슐/정 옵션과 이중 매칭 방지)
   // 마지막 매치를 사용: 수량은 상품명 끝부분("...30포 3개")에 위치하는 경우가 많고,
   // 앞부분의 "1박스 세트" 등은 상품 구성 설명이지 실제 판매 수량이 아님
+  // "포대"(쌀/곡물 포대 단위)는 항상 count 단위. "포(?!기|인|대)" sachet과 구분.
   const unitPattern = excludeSachet
-    ? /(\d+)\s*(개(?!입|월)|팩|세트|박스|봉|병|통|족|켤레|롤|EA|ea|P)(?!\s*[xX×]\s*\d)/gi
-    : /(\d+)\s*(개(?!입|월)|팩|세트|박스|봉|병|통|족|켤레|롤|포(?!기)|EA|ea|P)(?!\s*[xX×]\s*\d)/gi;
+    ? /(\d+)\s*(개(?!입|월)|팩|세트|박스|봉|병|통|족|켤레|롤|포대|캔|호|갑|자루|종|묶음|입(?!체)|EA|ea|P|ct|pcs|pc)(?!\s*[xX×]\s*\d)/gi
+    : /(\d+)\s*(개(?!입|월)|팩|세트|박스|봉|병|통|족|켤레|롤|포대|포(?!기|인|대)|캔|호|갑|자루|종|묶음|입(?!체)|EA|ea|P|ct|pcs|pc)(?!\s*[xX×]\s*\d)/gi;
   const allMatches: { value: number }[] = [];
   let m: RegExpExecArray | null;
   while ((m = unitPattern.exec(name)) !== null) {
@@ -186,21 +204,32 @@ function extractCount(name: string, composite: CompositeResult, excludeSachet = 
 function extractVolumeMl(name: string, composite: CompositeResult): number | null {
   if (composite.volume) return composite.volume.value;
 
-  // L/리터/ℓ → ml 변환
-  const literMatch = name.match(/(\d+(?:\.\d+)?)\s*(리터|ℓ)(?!\s*[xX×]\s*\d)/i);
-  if (literMatch) {
-    return parseFloat(literMatch[1]) * 1000;
+  // L/리터/ℓ → ml 변환 (마지막 매치 우선)
+  const literRe = /(\d+(?:\.\d+)?)\s*(리터|ℓ)(?!\s*[xX×]\s*\d)/gi;
+  const literMatches: number[] = [];
+  let lm: RegExpExecArray | null;
+  while ((lm = literRe.exec(name)) !== null) {
+    literMatches.push(parseFloat(lm[1]) * 1000);
   }
+  if (literMatches.length > 0) return literMatches[literMatches.length - 1];
 
-  // "L" 단독은 사이즈 L과 혼동 가능 — 앞에 숫자+소수점이 있고 범위 체크
-  const lMatch = name.match(/(\d+(?:\.\d+)?)\s*L(?!\s*[xX×a-zA-Z])/);
-  if (lMatch) {
-    const val = parseFloat(lMatch[1]);
-    if (val >= 0.1 && val <= 20) return val * 1000;
+  // "L" 단독은 사이즈 L과 혼동 가능 — 0.1 ≤ val ≤ 20 범위만 인정
+  const lRe = /(\d+(?:\.\d+)?)\s*L(?!\s*[xX×a-zA-Z])/g;
+  const lMatches: number[] = [];
+  let lm2: RegExpExecArray | null;
+  while ((lm2 = lRe.exec(name)) !== null) {
+    const val = parseFloat(lm2[1]);
+    if (val >= 0.1 && val <= 20) lMatches.push(val * 1000);
   }
+  if (lMatches.length > 0) return lMatches[lMatches.length - 1];
 
-  const mlMatch = name.match(/(\d+(?:\.\d+)?)\s*(ml|mL|ML|㎖)(?!\s*[xX×]\s*\d)/i);
-  if (mlMatch) return parseFloat(mlMatch[1]);
+  const mlRe = /(\d+(?:\.\d+)?)\s*(ml|mL|ML|㎖)(?!\s*[xX×]\s*\d)/gi;
+  const mlMatches: number[] = [];
+  let mm: RegExpExecArray | null;
+  while ((mm = mlRe.exec(name)) !== null) {
+    mlMatches.push(parseFloat(mm[1]));
+  }
+  if (mlMatches.length > 0) return mlMatches[mlMatches.length - 1];
 
   return null;
 }
@@ -216,30 +245,31 @@ function extractWeightG(name: string, composite: CompositeResult): number | null
   if (composite.weight) return composite.weight.value;
 
   // kg → g 변환. 소수점 한글 콤마(2,74kg) 정규화 먼저 수행해 소수점 유실 방지.
-  // 또한 비현실적 값(>= 100kg = 100000g) 방어 — 타이핑 오류/성분 함량 혼입 가드.
   const normalized = name.replace(/(\d),(\d{1,2})(?=\s*(?:kg|KG|㎏|g|그램))/g, '$1.$2');
-  const kgMatch = normalized.match(/(\d+(?:\.\d+)?)\s*(kg|KG|㎏)(?!\s*[xX×]\s*\d)/i);
-  if (kgMatch) {
-    const val = parseFloat(kgMatch[1]) * 1000;
-    // 100kg 초과는 타이핑 오류(2.74kg → 274kg)일 가능성이 높음 → 소수점 복원 시도
-    if (val >= 100000 && !kgMatch[1].includes('.') && kgMatch[1].length >= 3) {
-      const recovered = parseFloat(kgMatch[1].slice(0, 1) + '.' + kgMatch[1].slice(1)) * 1000;
-      if (recovered > 0 && recovered < 100000) return recovered;
-    }
-    return val;
+
+  // kg 매칭 — 마지막 매치 우선 (상품명 뒤쪽이 진짜 product spec)
+  //   예: "원료 100g 함유, 제품 500g" → 500
+  //   타이핑 오류 방어(2.74→274)는 실제 농산물 100kg 포대 등 정상값과 충돌하므로 제거.
+  const kgRe = /(\d+(?:\.\d+)?)\s*(kg|KG|㎏)(?!\s*[xX×]\s*\d)/gi;
+  const kgMatches: number[] = [];
+  let km: RegExpExecArray | null;
+  while ((km = kgRe.exec(normalized)) !== null) {
+    kgMatches.push(parseFloat(km[1]) * 1000);
+  }
+  if (kgMatches.length > 0) {
+    return kgMatches[kgMatches.length - 1];
   }
 
-  // g 직접 추출 — 단, 앞에 m이 붙은 mg는 제외!
-  const gMatch = normalized.match(/(?<![mkμ])(\d+(?:\.\d+)?)\s*(g|그램)(?!\s*[xX×]\s*\d)/i);
-  if (gMatch) {
-    const val = parseFloat(gMatch[1]);
-    // 100kg(=100000g) 초과는 비현실적 — 보수적으로 null 반환하여 수동 수정 유도
-    if (val >= 100000) return null;
-    return val;
+  // g 직접 추출 — 단, 앞에 m이 붙은 mg는 제외! 마지막 매치 우선.
+  const gRe = /(?<![mkμ])(\d+(?:\.\d+)?)\s*(g|그램)(?!\s*[xX×]\s*\d)/gi;
+  const gMatches: number[] = [];
+  let gm: RegExpExecArray | null;
+  while ((gm = gRe.exec(normalized)) !== null) {
+    gMatches.push(parseFloat(gm[1]));
   }
-
-  // mg는 무시 (성분 함량이므로 제품 중량이 아님)
-  // mcg도 무시
+  if (gMatches.length > 0) {
+    return gMatches[gMatches.length - 1];
+  }
 
   return null;
 }
@@ -248,16 +278,41 @@ function extractWeightG(name: string, composite: CompositeResult): number | null
  * 개당 수량 (개입) 추출
  * "80매 x 10팩" → perCount=80 (composite에서 처리)
  * "100개입" → 100
+ *
+ * 규칙:
+ * - "N개입" + 별도 count 패턴(N개/N팩/N병/N세트/N박스/N봉/N통) 동반 →
+ *     "N개입"은 perCount, count는 별도 → 둘 다 추출
+ *     예: "135g 1개입, 2개" → perCount=1, count=2
+ * - "N개입" 단독 + 용량/중량 →
+ *     "N개입"은 묶음 수량(count)으로 처리 → perCount 아님
+ *     예: "250ml 24개입" → count=24, perCount=null (24병 세트)
+ * - "N개입" 단독 + 용량/중량 없음 → perCount
+ *     예: "100개입" → perCount=100
+ * - "N매" 단독 (composite의 perCount 패턴 외) → perCount 폴백
+ *     예: "100매" → perCount=100 (count 옵션 없는 카테고리에서 의미 있음)
  */
 function extractPerCount(name: string, composite: CompositeResult): number | null {
   if (composite.perCount) return composite.perCount;
 
-  // 용량/중량 단위 있으면 "N개입"은 수량(count)으로 분류 → perCount 아님
-  const hasVolumeOrWeight = /\d+\s*(ml|mL|ML|㎖|L|리터|ℓ|g|kg|㎏)/i.test(name);
-  if (hasVolumeOrWeight) return null;
+  const gaepipMatch = name.match(/(\d+)\s*개입/);
+  if (gaepipMatch) {
+    // 다른 count 단위(N개/팩/병/세트/박스/봉/통)가 함께 있으면 → "N개입"은 perCount
+    // 단, "N개입" 자체("...개")는 lookahead로 제외해야 함.
+    const stripped = name.replace(gaepipMatch[0], '');
+    const hasOtherCount = /\d+\s*(개(?!입|월|년)|팩|세트|박스|봉|병|통|족|켤레|롤)/.test(stripped);
+    if (hasOtherCount) return parseInt(gaepipMatch[1], 10);
 
-  const match = name.match(/(\d+)\s*개입/);
-  if (match) return parseInt(match[1], 10);
+    // count 패턴 없음 → 용량/중량 있으면 묶음 수량(count)이므로 perCount 아님
+    const hasVolumeOrWeight = /\d+\s*(ml|mL|ML|㎖|L|리터|ℓ|g|kg|㎏)/i.test(name);
+    if (hasVolumeOrWeight) return null;
+
+    // 용량/중량도 없음 → 단순 "100개입" → perCount
+    return parseInt(gaepipMatch[1], 10);
+  }
+
+  // "N매" 폴백 (composite에서 매×팩 패턴 미매칭일 때 단독 매 수량으로 인정)
+  const sheetMatch = name.match(/(\d+)\s*매(?!\s*[xX×]\s*\d)/);
+  if (sheetMatch) return parseInt(sheetMatch[1], 10);
 
   return null;
 }
@@ -279,7 +334,10 @@ function extractPerCount(name: string, composite: CompositeResult): number | nul
  */
 function extractTabletCount(name: string): number | null {
   // ⚠️ "포" 제외 — 포는 포장단위이므로 extractSachetCount()에서 별도 처리
-  const TABLET_RE = /(\d+)\s*(정|캡슐|알|타블렛|소프트젤)/g;
+  // 시중 단위 망라 — 한글: 정/캡슐/알/타블렛/소프트젤/베지캡(슐)/연질캡슐/츄어블/트로키/구미
+  //                영문: T(60T 약어), tab(s)/cap(s)/vcap(s)/softgel(s)
+  // ⚠️ 단어 경계: 영문 단위(T/tab/cap)는 다른 단어의 일부가 아니어야 (예: "Smart" 안의 "T" 매칭 방지)
+  const TABLET_RE = /(\d+)\s*(베지캡슐|베지캡|연질캡슐|연질캡|소프트젤|소프트캡슐|츄어블정?|츄잉정|트로키|구미정?|타블렛|정|캡슐|알|softgel(?:s)?|vcap(?:s|sule)?|tab(?:let)?(?:s)?|cap(?:s|sule)?(?![a-z])|T(?![a-zA-Z]))/gi;
   // 복용법 감지: "1일", "하루", "매일", "N회" 직전의 매치는 일일 복용량
   const DOSAGE_PREFIX_RE = /(?:1일|하루|매일|일일)\s*$/;
   const DOSAGE_POSTFIX_RE = /^\s*[xX×]\s*\d+\s*(?:일|회)/;
@@ -320,7 +378,8 @@ function extractTabletCount(name: string): number | null {
  * extractTabletCount가 null일 때만 폴백으로 사용.
  */
 function extractSachetCount(name: string): number | null {
-  const SACHET_RE = /(\d+)\s*포(?!기|인)/g;
+  // "포대"(쌀 포대 등 일반 단위), "포기"(채소 단위), "포인" 제외
+  const SACHET_RE = /(\d+)\s*포(?!기|인|대)/g;
   const DOSAGE_PREFIX_RE = /(?:1일|하루|매일|일일)\s*$/;
   // 복합 패턴 내 sachet 제외: "2g × 10포" (× 뒤), "10포 × 3EA" (× 앞)
   // 이런 패턴은 포장 구성 분해이지 제품 스펙이 아님.
@@ -574,13 +633,16 @@ export function extractOptionsFromDetails(productName: string, details: Category
   }
 
   // ── 2단계: 택1 그룹 해소 + 결과 조립 ──
-  // 택1 그룹에서 값이 있는 것 중 우선순위: 용량(ml) > 캡슐/정 > 중량(g)
+  // 쿠팡 c1 그룹은 "최소 한 개" 의미 — 추출된 모든 c1 옵션은 모두 result에 포함
+  // (예: 개당 수량 1개입, 개당 중량 135g 둘 다 추출됐으면 둘 다 등록)
+  // 단, attribute groupNumber 단계에서 coupang-product-builder가 EXPOSED 그룹 수를
+  // 정책상 1개로 줄임. 여기서는 추출 손실 없이 모두 보낸다.
   const choose1Opts = buyOpts.filter((o) => o.choose1);
   let choose1Filled = false;
 
   if (choose1Opts.length > 0) {
-    // 우선순위 정렬: 용량(ml) > 캡슐/정 > 중량(g) > 수량(개)
-    // "개당 용량", "최소 용량", "용량" 모두 매칭되도록 짧은 키워드 사용
+    // 우선순위 정렬: 추출된 값 중 어느 하나는 반드시 등록되도록 정렬
+    // 추출 실패 시 폴백 우선순위: 용량(ml) > 캡슐/정 > 중량(g) > 수량(개)
     const priority = ['용량', '캡슐', '정', '중량', '수량'];
     const sorted = [...choose1Opts].sort((a, b) => {
       const rawA = priority.findIndex(p => normalizeOptionName(a.name).includes(p));
@@ -589,11 +651,11 @@ export function extractOptionsFromDetails(productName: string, details: Category
     });
 
     for (const opt of sorted) {
-      if (choose1Filled) break;
       const ext = extracted.get(opt.name);
       if (ext) {
         result.push({ name: opt.name, value: ext.value, unit: ext.unit });
         choose1Filled = true;
+        // break 제거: 추출된 c1 옵션 모두 등록 (Coupang은 groupNumber로 정리)
       }
     }
   }
@@ -1365,11 +1427,11 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
     });
 
     for (const opt of sorted) {
-      if (choose1FilledFinal) break;
       const ext = layer1.get(opt.name);
       if (ext) {
         result.push({ name: opt.name, value: ext.value, unit: ext.unit });
         choose1FilledFinal = true;
+        // break 제거: 추출된 모든 c1 옵션 등록 (Coupang groupNumber 단계에서 정리)
       }
     }
   }
