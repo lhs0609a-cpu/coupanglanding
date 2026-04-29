@@ -411,7 +411,7 @@ export function fillNoticeFields(
       noticeCategoryName: selected.noticeCategoryName,
       noticeCategoryDetailName: selected.fields.map((field) => ({
         noticeCategoryDetailName: field.name,
-        content: resolveFieldValue(field.name, product, contactNumber, overrides, extractedHints),
+        content: resolveFieldValue(field.name, product, contactNumber, overrides, extractedHints, categoryHint, selected.noticeCategoryName),
       })),
     }];
   }
@@ -461,6 +461,8 @@ function resolveFieldValue(
   contactNumber?: string,
   overrides?: Record<string, string>,
   hints?: ExtractedNoticeHints,
+  categoryHint?: string,
+  noticeCategoryName?: string,
 ): string {
   // 사용자가 수동으로 지정한 값 우선
   // 프론트엔드는 "카테고리명::필드명" 형식으로 키를 보내므로 양쪽 모두 매칭
@@ -485,6 +487,13 @@ function resolveFieldValue(
   const productNameLower = (product.name || '').toLowerCase();
   const isHealthFunctionalFood = /비타민|미네랄|오메가|유산균|프로바이오틱|콜라겐|루테인|밀크씨슬|글루코사민|쏘팔메토|코큐텐|코엔자임|크릴오일|비오틴|바이오틴|마그네슘|아연|칼슘|철분|엽산|셀레늄|프로폴리스|스피루리나|클로렐라|히알루론산|레시틴|보스웰리아|폴리코사놀|영양제|건강기능|홍삼정|홍삼환|홍삼캡슐/.test(productNameLower);
 
+  // ⚠️ 일반 식품(과일/채소/곡물/축수산/가공식품) — 식품표시광고법 §4 필수 표시사항 충족용.
+  //    "상세페이지 참조"는 일반 식품에서도 위반이라 명시값 보강.
+  const _categoryStr = `${categoryHint || ''} ${noticeCategoryName || ''}`;
+  const isGeneralFood =
+    /식품|농산|과일|채소|곡물|수산|축산|가공식품|신선식품|음료|차류|간식|스낵|냉동식품|조미료|장류|발효|양념|식자재|즉석식품|즉석조리|반찬|김치|건어물|곡류|두부|면류|국수|라면|떡|빵|과자|초콜릿/.test(_categoryStr)
+    || /^(사과|배|감|귤|오렌지|레몬|자몽|바나나|파인애플|망고|딸기|블루베리|포도|복숭아|체리|키위|아보카도|수박|멜론|호박|토마토|오이|당근|감자|고구마|양파|마늘|쌀|현미|찹쌀|보리|밀가루|식초|간장|된장|고추장|꿀|소금|설탕|기름|참기름|들기름|올리브유)/.test(productNameLower);
+
   // 패턴 매칭 규칙 (추출된 옵션값 hints 활용)
   if (normalized.includes('품명') || normalized.includes('모델명') || normalized.includes('제품명')) {
     return productName || '상세페이지 참조';
@@ -494,6 +503,7 @@ function resolveFieldValue(
   }
   if (normalized.includes('제조국') || normalized.includes('원산지')) {
     if (isHealthFunctionalFood) return '대한민국';  // 건기식은 명시 의무
+    if (isGeneralFood) return '대한민국';  // 일반 식품도 식품표시광고법상 명시 필수
     return '상세페이지 참조';
   }
   // 건기식 의약품 여부 — "의약품 아님" 명시
@@ -511,11 +521,20 @@ function resolveFieldValue(
   // 건기식 소비기한/유통기한
   if (normalized.includes('소비기한') || normalized.includes('유통기한')) {
     if (isHealthFunctionalFood) return '제조일로부터 24개월';
+    if (isGeneralFood) {
+      // 신선식품(과일/채소)은 짧음, 가공식품은 김
+      if (/과일|채소|농산|신선식품|수산|축산/.test(_categoryStr)) return '수령 후 가능한 빠른 시일 내 섭취 권장';
+      return '제품 라벨 표기일까지';
+    }
     return '상세페이지 참조';
   }
   // 건기식 보관방법
   if (normalized.includes('보관방법')) {
     if (isHealthFunctionalFood) return '직사광선을 피해 서늘하고 건조한 곳에 보관';
+    if (isGeneralFood) {
+      if (/과일|채소|신선식품|냉장|냉동/.test(_categoryStr)) return '냉장 보관 (0~10℃)';
+      return '직사광선을 피해 서늘하고 건조한 곳에 보관';
+    }
     return '상세페이지 참조';
   }
   // 섭취량/섭취방법
@@ -538,15 +557,21 @@ function resolveFieldValue(
     if (isHealthFunctionalFood) return '알레르기 체질, 임산부, 의약품 복용자는 의사와 상담 후 섭취';
     return '상세페이지 참조';
   }
-  // 소비자상담 전화번호
+  // 소비자상담 전화번호 — 식품/건기식은 필수, 미입력 시 안내 문구
   if (normalized.includes('소비자상담') || normalized.includes('상담관련')) {
-    return contactNumber || '상세페이지 참조';
+    if (contactNumber) return contactNumber;
+    if (isHealthFunctionalFood || isGeneralFood) return '판매자 고객센터로 문의';
+    return '상세페이지 참조';
   }
   if (normalized.includes('제조자') || normalized.includes('수입자') || normalized.includes('제조업자')) {
-    return brand || '상세페이지 참조';
+    if (brand) return brand;
+    if (isHealthFunctionalFood || isGeneralFood) return '제품 라벨 표기사항 참고';
+    return '상세페이지 참조';
   }
   if (normalized.includes('a/s') || normalized.includes('as') || normalized.includes('책임자') || normalized.includes('전화번호')) {
-    return contactNumber || '상세페이지 참조';
+    if (contactNumber) return contactNumber;
+    if (isHealthFunctionalFood || isGeneralFood) return '판매자 고객센터로 문의';
+    return '상세페이지 참조';
   }
   if (normalized.includes('인증') || normalized.includes('허가')) {
     return '해당사항 없음';

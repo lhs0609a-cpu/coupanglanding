@@ -790,12 +790,53 @@ export function extractOptionsFromDetails(productName: string, details: Category
     totalUnitCount = countForUnit;
   }
 
+  // ── 정합성 검증: 단위중량 비현실 (예: "사과 10과 240g" = 24g/개) ──
+  validateUnitWeightPlausibility(productName, result, warnings);
+
   return {
     buyOptions: result,
     confidence: Math.round(confidence * 100) / 100,
     warnings,
     totalUnitCount: totalUnitCount > 0 ? totalUnitCount : undefined,
   };
+}
+
+/**
+ * 단위중량 비현실 검증 — 카테고리별 최소 단위중량과 비교.
+ * 사과 10과 240g (24g/개) 같은 명백한 입력 오류를 감지하여 수량을 1로 안전 폴백.
+ * 이를 안 잡으면 쿠팡 단위가격 폭주 + 표시광고법 위반.
+ */
+function validateUnitWeightPlausibility(
+  productName: string,
+  result: { name: string; value: string; unit?: string }[],
+  warnings: string[],
+): void {
+  const MIN_UNIT_WEIGHT_G: { pattern: RegExp; minG: number; label: string }[] = [
+    { pattern: /사과|배(?!송|치|터|터리)|망고|파인애플|수박|멜론|두리안/, minG: 100, label: '큰 과일' },
+    { pattern: /감(?!자|기|미)|귤|오렌지|레몬|자몽|복숭아|키위|아보카도|석류/, minG: 50, label: '중간 과일' },
+    { pattern: /닭고기|소고기|돼지고기|오리고기|한우|한돈|삼겹살|목살|등심|안심|갈비/, minG: 100, label: '육류' },
+    { pattern: /감자|고구마|양파|당근|무(?!침|료|선|언|관)|배추|호박|가지/, minG: 80, label: '뿌리/엽채' },
+  ];
+
+  const lower = productName.toLowerCase();
+  const matched = MIN_UNIT_WEIGHT_G.find(p => p.pattern.test(lower));
+  if (!matched) return;
+
+  const weightOpt = result.find(r => r.unit === 'g' && /중량|무게|순중량/.test(r.name));
+  const countOpt = result.find(r => r.unit === '개' && (r.name === '수량' || r.name === '총 수량'));
+  if (!weightOpt || !countOpt) return;
+
+  const weightG = parseFloat(weightOpt.value);
+  const count = parseInt(countOpt.value, 10);
+  if (!Number.isFinite(weightG) || !Number.isFinite(count) || count <= 1) return;
+
+  const perUnit = weightG / count;
+  if (perUnit < matched.minG) {
+    warnings.push(
+      `[정합성] ${matched.label}(${weightG}g ÷ ${count}개 = ${perUnit.toFixed(0)}g/개) — 단위중량 ${matched.minG}g 미만, 입력 오류 의심. 수량을 1로 폴백.`,
+    );
+    countOpt.value = '1';
+  }
 }
 
 // ─── 필수 옵션 기본값 (추출 실패 시 쿠팡 등록 거부 방지) ──
@@ -1569,6 +1610,9 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
   } else {
     totalUnitCount = countForUnit;
   }
+
+  // ── 정합성 검증: 단위중량 비현실 (예: "사과 10과 240g" = 24g/개) ──
+  validateUnitWeightPlausibility(context.productName, result, warnings);
 
   return {
     buyOptions: result,

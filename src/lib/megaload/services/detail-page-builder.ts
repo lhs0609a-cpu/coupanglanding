@@ -139,7 +139,8 @@ function buildLayoutA(params: DetailPageParams): string {
 
   // 본문: 스토리문단 + 리뷰이미지를 글-이미지-글-이미지 교차 (detailImageUrls는 사용하지 않음)
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
-  const bodyImages = reviewImageUrls ?? [];
+  // 빈 슬롯/null URL 제거 — 후기 4·5번이 빈 칸으로 노출되는 문제 차단
+  const bodyImages = (reviewImageUrls ?? []).filter(u => typeof u === 'string' && u.trim().length > 0);
   if (bodyImages.length > 0 || paragraphs.length > 0) {
     sections.push(buildBlogStyleSection(bodyImages, paragraphs, productName, style, theme));
   }
@@ -176,7 +177,8 @@ function buildLayoutB(params: DetailPageParams): string {
   sections.push(buildHeroSection(productName, brand, seoKeywords, theme));
 
   // 본문: 리뷰이미지 모음 → 글 모음 (detailImageUrls 미사용)
-  const bodyImages = reviewImageUrls ?? [];
+  // 빈 슬롯/null URL 제거 — 후기 4·5번이 빈 칸으로 노출되는 문제 차단
+  const bodyImages = (reviewImageUrls ?? []).filter(u => typeof u === 'string' && u.trim().length > 0);
   for (let i = 0; i < bodyImages.length; i++) {
     sections.push(`<div style="margin:0;"><img src="${esc(bodyImages[i])}" alt="${esc(productName)} ${i + 1}" style="width:100%;display:block;" /></div>`);
   }
@@ -222,7 +224,8 @@ function buildLayoutC(params: DetailPageParams): string {
   sections.push(buildHeroSection(productName, brand, seoKeywords, theme));
 
   // 본문: 리뷰이미지 1번을 히어로로 → 글 → 나머지 리뷰이미지 그리드 (detailImageUrls 미사용)
-  const bodyImages = reviewImageUrls ?? [];
+  // 빈 슬롯/null URL 제거 — 후기 4·5번이 빈 칸으로 노출되는 문제 차단
+  const bodyImages = (reviewImageUrls ?? []).filter(u => typeof u === 'string' && u.trim().length > 0);
   if (bodyImages.length > 0) {
     sections.push(`<div style="margin:0;"><img src="${esc(bodyImages[0])}" alt="${esc(productName)} 메인" style="width:100%;display:block;" /></div>`);
   }
@@ -278,8 +281,9 @@ function buildLayoutD(params: DetailPageParams): string {
   }
 
   // 본문: 리뷰이미지 + 스토리문단 글-이미지 교차 (detailImageUrls 미사용)
+  // 빈 슬롯/null URL 제거 — 후기 4·5번이 빈 칸으로 노출되는 문제 차단
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
-  const bodyImages = reviewImageUrls ?? [];
+  const bodyImages = (reviewImageUrls ?? []).filter(u => typeof u === 'string' && u.trim().length > 0);
   if (bodyImages.length > 0 || paragraphs.length > 0) {
     sections.push(buildBlogStyleSection(bodyImages, paragraphs, productName, style, theme));
   }
@@ -362,7 +366,7 @@ function buildBlogStyleSection(
     if (i < paragraphs.length && paragraphs[i].trim()) {
       parts.push(buildParagraphBlock(paragraphs[i], style));
     }
-    if (i < imageUrls.length) {
+    if (i < imageUrls.length && typeof imageUrls[i] === 'string' && imageUrls[i].trim().length > 0) {
       parts.push(
         `<div style="margin:12px 0;"><img src="${esc(imageUrls[i])}" alt="${esc(productName)} ${i + 1}" style="width:100%;display:block;" /></div>`
       );

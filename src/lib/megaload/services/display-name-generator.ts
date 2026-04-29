@@ -593,6 +593,52 @@ const HARD_MAX_CHARS = 100;
  * - 타겟 45~60자 (너무 짧으면 검색 노출 ↓, 너무 길면 스터핑)
  * - 동일 단어 최대 2회, 홍보성 수식어 미사용
  */
+/**
+ * 정체성 모순 토큰 정리 — 같은 상품명에 상호 배타적인 품목명이 섞이면 1개만 남김.
+ * 예: "사과 과일세트 레드자몽 프리미엄 10과 아오리" → 사과/자몽 동시 존재
+ *     "세트/박스/모듬/혼합" 키워드 있으면 의도된 모듬 상품으로 간주 (그대로 유지)
+ *     없으면 카테고리 leaf와 일치하는 토큰 우선 보존, 나머지 제거
+ */
+const MUTUALLY_EXCLUSIVE_FAMILIES: { name: string; tokens: string[] }[] = [
+  // 과일 — 사과 vs 자몽 vs 배 vs 포도 등은 동시 존재 불가 (모듬 아닌 한)
+  { name: '과일', tokens: ['사과', '배', '감', '귤', '오렌지', '레몬', '자몽', '바나나', '파인애플', '망고', '딸기', '블루베리', '포도', '복숭아', '체리', '키위', '아보카도', '수박', '멜론', '두리안', '석류', '용과', '리치', '망고스틴'] },
+  // 사과 품종 — 부사/홍로/아오리 동시 노출 모순
+  { name: '사과품종', tokens: ['부사', '홍로', '아오리', '시나노골드', '감홍', '양광', '미얀마', '청사과', '빨간사과'] },
+  // 채소 주요 품목
+  { name: '채소', tokens: ['배추', '무', '당근', '양파', '대파', '마늘', '감자', '고구마', '오이', '토마토', '호박', '가지', '시금치', '브로콜리'] },
+  // 곡물
+  { name: '곡물', tokens: ['쌀', '현미', '찹쌀', '보리', '귀리', '퀴노아', '메밀', '수수', '조'] },
+  // 육류
+  { name: '육류', tokens: ['소고기', '돼지고기', '닭고기', '오리고기', '양고기', '한우', '한돈'] },
+];
+
+function sanitizeContradictoryTokens(name: string, categoryPath: string): string {
+  // "세트/박스/모듬/혼합/구성/혼합세트" 키워드 있으면 의도된 모듬 — 그대로 유지
+  if (/세트|박스|모듬|혼합|구성|패키지|선물포장|꾸러미/.test(name)) return name;
+
+  let result = name;
+  const leafLower = (categoryPath.split('>').pop() || '').toLowerCase();
+
+  for (const family of MUTUALLY_EXCLUSIVE_FAMILIES) {
+    const matched = family.tokens.filter(t => result.includes(t));
+    if (matched.length <= 1) continue;
+
+    // 카테고리 leaf와 일치하는 토큰 우선
+    let primary = matched.find(t => leafLower.includes(t.toLowerCase()));
+    if (!primary) primary = matched[0]; // 없으면 가장 먼저 등장한 것
+
+    // 나머지 모순 토큰 제거 (첫 1회만 — 정확한 매칭으로 다른 단어 손상 방지)
+    for (const tok of matched) {
+      if (tok === primary) continue;
+      // 단어 경계 보존: "자몽 " "자몽," "자몽\n" 등 trailing 구분자 함께 제거
+      result = result.replace(new RegExp(tok + '(?=\\s|,|$|·|/|\\)|\\])', 'g'), '');
+      // trailing 구분자 없이 끝에 붙은 케이스도 처리
+      result = result.replace(new RegExp('(?<=\\s|^|·|/|\\(|\\[)' + tok, 'g'), '');
+    }
+  }
+  return result.replace(/\s{2,}/g, ' ').trim();
+}
+
 export function generateDisplayName(
   originalName: string,
   brand: string,
@@ -604,8 +650,11 @@ export function generateDisplayName(
   const seed = stringToSeed(`${sellerSeed}::${productIndex}::${originalName}`);
   const rng = createSeededRandom(seed);
 
+  // 정체성 모순 토큰 제거 (사과+자몽, 부사+아오리 등 동시 노출 차단)
+  const sanitizedOriginal = sanitizeContradictoryTokens(originalName, categoryPath);
+
   // Phase 1: 토큰 추출 & 분류
-  const classified = classifyTokens(originalName, categoryPath, brand);
+  const classified = classifyTokens(sanitizedOriginal, categoryPath, brand);
 
   // Phase 2: 구조적 SEO 배치 (브랜드 제외)
   const parts: string[] = [];
@@ -901,9 +950,9 @@ export function generateDisplayName(
   }
   result = postCompliance;
 
-  // fallback: 생성 실패 시 원본 사용 — 노이즈 구문은 반드시 제거
+  // fallback: 생성 실패 시 원본 사용 — 노이즈 구문 + 모순 토큰 제거
   if (!result) {
-    result = originalName
+    result = sanitizedOriginal
       .replace(NOISE_PHRASES, ' ')
       .replace(/[\[\(【][^\]\)】]*[\]\)】]/g, ' ')
       .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
@@ -913,7 +962,7 @@ export function generateDisplayName(
       .slice(0, HARD_MAX_CHARS);
   }
 
-  return result || originalName.slice(0, HARD_MAX_CHARS);
+  return result || sanitizedOriginal.slice(0, HARD_MAX_CHARS);
 }
 
 /**
