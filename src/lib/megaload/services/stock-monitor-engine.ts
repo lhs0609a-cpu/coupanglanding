@@ -442,24 +442,17 @@ export async function processMonitorBatch(
       continue;
     }
 
-    // 1개씩 순차 처리 + 4초 딜레이 (네이버 429 방지)
-    // 429 circuit breaker: 2연속 429 → 나머지 스킵
+    // 1개씩 순차 처리 + 1.5초 딜레이 (네이버 429 방지)
+    // 429 발생 시 backoff하지만 배치 중단하지 않음 — 일부가 막혀도 나머지는 진행
     let consecutive429 = 0;
     for (let i = 0; i < userMonitors.length; i++) {
       if (i > 0) await sleep(1500);
 
-      // Circuit breaker: 429 연속 2회 → 배치 중단
+      // 429 연속 2회 — 30초 휴식 후 계속 (이전엔 배치 전체 중단했음)
       if (consecutive429 >= 2) {
-        console.log(`[stock-monitor] 429 circuit breaker at ${i}/${userMonitors.length}`);
-        for (let j = i; j < userMonitors.length; j++) {
-          results.push({
-            monitorId: userMonitors[j].id,
-            checked: false,
-            changed: false,
-            error: '429 속도제한 — 다음 크론에서 재시도',
-          });
-        }
-        break;
+        console.log(`[stock-monitor] 429 backoff at ${i}/${userMonitors.length} — 30s 휴식 후 계속`);
+        await sleep(30000);
+        consecutive429 = 0;
       }
 
       try {
@@ -468,7 +461,6 @@ export async function processMonitorBatch(
 
         if (result.error?.includes('429')) {
           consecutive429++;
-          // 429 발생 시 추가 대기
           await sleep(5000);
         } else {
           consecutive429 = 0;

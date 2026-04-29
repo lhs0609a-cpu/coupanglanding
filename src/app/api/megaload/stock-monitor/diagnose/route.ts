@@ -185,53 +185,82 @@ export async function GET() {
       });
     } else {
       const proxyBase = proxyUrl.replace(/\/proxy\/?$/, '');
-      try {
-        // 테스트용 가벼운 네이버 URL (홈페이지)
-        const testRes = await fetch(`${proxyBase}/naver-check`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Proxy-Secret': proxySecret },
-          body: JSON.stringify({ url: 'https://smartstore.naver.com/main' }),
-          signal: AbortSignal.timeout(15000),
-        });
-        const text = await testRes.text();
-        const parsed = (() => { try { return JSON.parse(text); } catch { return null; } })();
-        if (testRes.ok && parsed?.statusCode) {
-          steps.push({
-            step: '10_proxy_naver_check',
-            status: 'ok',
-            detail: {
-              proxyUrl: proxyBase,
-              naverStatusCode: parsed.statusCode,
-              htmlBytes: parsed.html?.length ?? 0,
-            },
+
+      // 실제 사용자 모니터의 source_url 1~3개를 표본으로 테스트
+      // (smartstore.naver.com/main 랜딩만 차단되고 상품 페이지는 OK일 수 있음 → 실 URL로 검증)
+      const { data: sampleMonitors } = await serviceClient
+        .from('sh_stock_monitors')
+        .select('id, source_url')
+        .eq('megaload_user_id', shUserId)
+        .not('source_url', 'eq', '')
+        .limit(3);
+
+      const testUrls: { label: string; url: string }[] = [
+        { label: 'smartstore_main', url: 'https://smartstore.naver.com/main' },
+      ];
+      for (const m of (sampleMonitors || []) as { id: string; source_url: string }[]) {
+        if (m.source_url) testUrls.push({ label: `monitor_${m.id.slice(0, 8)}`, url: m.source_url });
+      }
+
+      const probeResults: { label: string; url: string; status?: number; htmlBytes?: number; error?: string }[] = [];
+      for (const probe of testUrls) {
+        try {
+          const testRes = await fetch(`${proxyBase}/naver-check`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Proxy-Secret': proxySecret },
+            body: JSON.stringify({ url: probe.url }),
+            signal: AbortSignal.timeout(20000),
           });
-        } else {
-          steps.push({
-            step: '10_proxy_naver_check',
-            status: 'fail',
-            detail: {
-              proxyUrl: proxyBase,
-              httpStatus: testRes.status,
-              body: text.slice(0, 300),
-              hint: testRes.status === 400 && /Coupang/i.test(text)
-                ? '프록시 서버에 /naver-check 핸들러 없음 → proxy/server.js 최신 배포 필요 (cd proxy && fly deploy)'
-                : testRes.status === 401
-                ? 'X-Proxy-Secret 불일치 — Vercel COUPANG_PROXY_SECRET과 Fly.io PROXY_SECRET 값 확인'
-                : '프록시 예외 응답 — 로그 확인',
-            },
+          const text = await testRes.text();
+          const parsed = (() => { try { return JSON.parse(text); } catch { return null; } })();
+          if (testRes.ok && parsed?.statusCode) {
+            probeResults.push({
+              label: probe.label,
+              url: probe.url.slice(0, 80),
+              status: parsed.statusCode,
+              htmlBytes: parsed.html?.length ?? 0,
+            });
+          } else {
+            probeResults.push({
+              label: probe.label,
+              url: probe.url.slice(0, 80),
+              status: testRes.status,
+              error: text.slice(0, 200),
+            });
+          }
+        } catch (e) {
+          probeResults.push({
+            label: probe.label,
+            url: probe.url.slice(0, 80),
+            error: e instanceof Error ? e.message : String(e),
           });
         }
-      } catch (proxyErr) {
-        steps.push({
-          step: '10_proxy_naver_check',
-          status: 'fail',
-          detail: {
-            proxyUrl: proxyBase,
-            error: proxyErr instanceof Error ? proxyErr.message : String(proxyErr),
-            hint: 'Fly.io 앱이 안 떠있거나 네트워크 차단',
-          },
-        });
       }
+
+      const productProbes = probeResults.filter(p => p.label.startsWith('monitor_'));
+      const productOk = productProbes.filter(p => p.status === 200).length;
+      const productBlocked = productProbes.filter(p => p.status === 429 || p.status === 403).length;
+
+      steps.push({
+        step: '10_proxy_naver_check',
+        status: productProbes.length === 0 ? 'warn' : (productOk > 0 ? 'ok' : 'fail'),
+        detail: {
+          proxyUrl: proxyBase,
+          probes: probeResults,
+          summary: {
+            productProbes: productProbes.length,
+            productOk,
+            productBlocked,
+          },
+          hint: productOk > 0 && productBlocked === 0
+            ? '실제 상품 URL은 정상 — 메인 랜딩만 막힌 경우. 품절 동기화는 작동해야 함.'
+            : productOk === 0 && productBlocked > 0
+            ? '실제 상품 URL도 차단 — Fly.io IP가 네이버에 throttling 됨. 리전 변경 또는 IP 추가 필요.'
+            : productProbes.length === 0
+            ? '테스트할 모니터 URL이 없음 — 등록된 source_url이 비어있을 수 있음.'
+            : '일부만 성공 — 부분 차단 또는 일시적 throttling.',
+        },
+      });
     }
 
     return NextResponse.json({ steps });

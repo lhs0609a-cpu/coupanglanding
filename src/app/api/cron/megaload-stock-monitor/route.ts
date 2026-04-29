@@ -77,9 +77,9 @@ export async function GET(request: Request) {
     .eq('is_active', true)
     .lt('consecutive_errors', 10)
     .not('source_url', 'eq', '') // source_url이 있는 것만 (품절 체크 가능한 것)
-    .or(`last_checked_at.is.null,last_checked_at.lt.${new Date(Date.now() - 30 * 60 * 1000).toISOString()}`)
+    .or(`last_checked_at.is.null,last_checked_at.lt.${new Date(Date.now() - 15 * 60 * 1000).toISOString()}`)
     .order('last_checked_at', { ascending: true, nullsFirst: true })
-    .limit(60); // 60 × 1.5초 = ~90초 (5분 제한 내 충분, 시간당 120개 처리)
+    .limit(80); // 80 × 1.5s + fetch ~3s = ~280s (5분 제한 내), 15분 크론 → 시간당 320개
 
   if (queryErr) {
     console.error('[stock-monitor-cron] Query error:', queryErr);

@@ -93,14 +93,22 @@ export async function GET(request: NextRequest) {
       },
     }));
 
-    // 통계 집계 (전체)
-    const { data: allMonitors } = await serviceClient
-      .from('sh_stock_monitors')
-      .select('source_status, coupang_status, consecutive_errors, is_active, pending_price_change, last_checked_at, source_url')
-      .eq('megaload_user_id', shUserId);
+    // 통계 집계 (전체) — PostgREST 기본 1000행 제한 회피를 위해 페이지네이션
+    const allMonitors: Record<string, unknown>[] = [];
+    const pageSize = 1000;
+    for (let offset = 0; offset < 100000; offset += pageSize) {
+      const { data: chunk } = await serviceClient
+        .from('sh_stock_monitors')
+        .select('source_status, coupang_status, consecutive_errors, is_active, pending_price_change, last_checked_at, source_url')
+        .eq('megaload_user_id', shUserId)
+        .range(offset, offset + pageSize - 1);
+      if (!chunk || chunk.length === 0) break;
+      allMonitors.push(...(chunk as Record<string, unknown>[]));
+      if (chunk.length < pageSize) break;
+    }
 
     const stats = {
-      total: allMonitors?.length || 0,
+      total: allMonitors.length,
       inStock: 0,
       soldOut: 0,
       removed: 0,
@@ -112,8 +120,8 @@ export async function GET(request: NextRequest) {
       pendingApprovalCount: 0,
     };
 
-    for (const m of allMonitors || []) {
-      const rec = m as Record<string, unknown>;
+    for (const m of allMonitors) {
+      const rec = m;
       if (rec.pending_price_change) stats.pendingApprovalCount++;
       if (!rec.is_active) { stats.inactive++; continue; }
       const hasSourceUrl = typeof rec.source_url === 'string' && (rec.source_url as string).length > 0;
