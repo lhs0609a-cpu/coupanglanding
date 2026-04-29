@@ -31,6 +31,7 @@ import {
   Table2,
   BarChart3,
   Lock,
+  Megaphone,
 } from 'lucide-react';
 
 const navItems = [
@@ -49,6 +50,7 @@ const navItems = [
   { href: '/admin/trends', label: '트렌드 관리', icon: Flame },
   { href: '/admin/emergency', label: '긴급 대응 관리', icon: ShieldAlert },
   { href: '/admin/violations', label: '계약위반 관리', icon: Gavel },
+  { href: '/admin/ad-cost-review', label: '광고비 검토', icon: Megaphone },
   { href: '/admin/payments', label: '결제 통합 대시보드', icon: CreditCard },
   { href: '/admin/payments/test', label: '테스트 결제', icon: CreditCard },
   { href: '/admin/payment-locks', label: '결제 락 관리', icon: Lock },

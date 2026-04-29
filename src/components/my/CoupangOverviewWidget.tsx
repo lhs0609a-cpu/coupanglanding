@@ -14,6 +14,8 @@ interface OverviewData {
   estimatedNetProfit?: number;
   estimatedProgramFee?: number;
   sharePercentage?: number;
+  adCostAmount?: number;
+  adCostSource?: 'approved' | 'pending' | 'rejected' | 'missed' | 'locked' | 'none';
   yearMonth: string;
   syncedAt: string;
   alert?: CoupangAlertKind | null;
@@ -180,8 +182,26 @@ export default function CoupangOverviewWidget() {
                 </tr>
               ))}
               <tr>
-                <td className="py-1 text-gray-500">− 광고비</td>
-                <td className="py-1 text-right text-gray-400">0원 (위젯 가정값)</td>
+                <td className="py-1 text-gray-500">
+                  − 광고비
+                  {data.adCostSource === 'approved' && (
+                    <span className="ml-1.5 text-[10px] text-emerald-600 font-medium">승인됨</span>
+                  )}
+                  {data.adCostSource === 'pending' && (
+                    <span className="ml-1.5 text-[10px] text-yellow-600 font-medium">검토 중 (반영 안 됨)</span>
+                  )}
+                  {(data.adCostSource === 'missed' || data.adCostSource === 'locked') && (
+                    <span className="ml-1.5 text-[10px] text-gray-400 font-medium">0원 확정</span>
+                  )}
+                  {data.adCostSource === 'none' && (
+                    <a href="/my/ad-cost" className="ml-1.5 text-[10px] text-rose-600 hover:underline font-medium">제출하기 →</a>
+                  )}
+                </td>
+                <td className="py-1 text-right text-gray-600">
+                  {data.adCostSource === 'approved' && data.adCostAmount
+                    ? formatExactKRW(data.adCostAmount)
+                    : <span className="text-gray-400">0원</span>}
+                </td>
               </tr>
               <tr className="border-t border-gray-300">
                 <td className="py-1.5 text-gray-700 font-medium">예상 순이익</td>
@@ -199,7 +219,9 @@ export default function CoupangOverviewWidget() {
           </table>
           <p className="mt-3 text-[10px] text-gray-400 leading-relaxed">
             * 비용 비율은 디폴트값(원가 40% · 쿠팡수수료 10% · 반품 3% · 배송 5% · 세금 10%) 기준 추정.
-            광고비는 위젯에서 0원으로 가정합니다. 실제 금액은 매월 정산 리포트 제출 시 입력한 비용으로 확정됩니다.
+            광고비는 매월 1일까지 직전 달 스크린샷 제출 + 관리자 승인 시 반영됩니다 (
+            <a href="/my/ad-cost" className="text-rose-600 hover:underline">제출 페이지</a>).
+            미제출 시 0원으로 자동 확정됩니다.
           </p>
         </div>
       )}

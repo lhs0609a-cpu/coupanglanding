@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchTotalProductCount, fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
 import { buildCostBreakdown, calculateNetProfit, calculateDeposit } from '@/lib/calculations/deposit';
+import { resolveAdCostForMonth } from '@/lib/payments/ad-cost';
 
 export const maxDuration = 60;
 
@@ -120,12 +121,18 @@ export async function GET() {
       };
     }
 
-    // 우리 수수료(예상) 계산 — DEFAULT_COST_RATES 기반 추정
-    //   광고비는 사용자 수동 입력 필드라 위젯에선 0 으로 가정 (실제 정산 리포트에서 입력)
+    // 메가로드 수수료(예상) 계산 — DEFAULT_COST_RATES 기반 추정
+    //   광고비: ad_cost_submissions 에서 해당 월 approved 가 있으면 사용, 없으면 0
     //   share_percentage 는 pt_users 컬럼, 미설정 시 30 디폴트
     const monthlySales = settlement?.totalSales ?? 0;
     const sharePercentage = ptUser.share_percentage ?? 30;
-    const estimatedCosts = buildCostBreakdown(monthlySales, 0);
+    const ptUserId = await supabase
+      .from('pt_users').select('id').eq('profile_id', user.id).single();
+    const ptId = (ptUserId.data as { id: string } | null)?.id || '';
+    const adCost = ptId
+      ? await resolveAdCostForMonth(supabase, ptId, yearMonth)
+      : { amount: 0, source: 'none' as const, submission_id: null };
+    const estimatedCosts = buildCostBreakdown(monthlySales, adCost.amount);
     const estimatedNetProfit = monthlySales > 0 ? calculateNetProfit(monthlySales, estimatedCosts) : 0;
     const estimatedProgramFee = monthlySales > 0 ? calculateDeposit(monthlySales, estimatedCosts, sharePercentage) : 0;
 
@@ -134,10 +141,12 @@ export async function GET() {
       monthlySales,
       monthlySettlement: settlement?.totalSettlement ?? 0,
       monthlyCommission: settlement?.totalCommission ?? 0,
-      // 우리 정산 (예상값 — 정확한 금액은 월별 리포트 제출 시 확정)
+      // 메가로드 정산 (예상값 — 광고비는 ad_cost_submissions 의 approved 만 반영)
       estimatedNetProfit,
       estimatedProgramFee,
       sharePercentage,
+      adCostAmount: adCost.amount,
+      adCostSource: adCost.source,
       yearMonth,
       syncedAt: new Date().toISOString(),
       alert,        // null | 'ip_outdated' | 'key_expired' | 'key_auth_failed' | 'rate_limited' | 'server_error' | 'proxy_unreachable' | 'timeout'

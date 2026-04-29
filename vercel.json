@@ -51,6 +51,14 @@
     {
       "path": "/api/cron/monthly-report-auto-create",
       "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/api/cron/ad-cost-reminder",
+      "schedule": "0 0 1 * *"
+    },
+    {
+      "path": "/api/cron/ad-cost-deadline",
+      "schedule": "30 15 1 * *"
     }
   ]
 }

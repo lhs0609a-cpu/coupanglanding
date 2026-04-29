@@ -107,6 +107,26 @@ export interface ApiRevenueSnapshot {
   created_at: string;
 }
 
+/** 광고비 월별 제출 (관리자 검토 후 monthly_reports.cost_advertising 에 반영) */
+export type AdCostSubmissionStatus = 'pending' | 'approved' | 'rejected' | 'missed' | 'locked';
+
+export interface AdCostSubmission {
+  id: string;
+  pt_user_id: string;
+  year_month: string;            // 광고비 발생 월 'YYYY-MM'
+  amount: number;                // 청구 금액 (원)
+  screenshot_url: string;
+  attempt_no: number;            // 1=초회, 2=재제출
+  status: AdCostSubmissionStatus;
+  submitted_at: string;
+  reviewed_at: string | null;
+  reviewed_by_admin_id: string | null;
+  reject_reason: string | null;
+  admin_note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface MonthlyReport {
   id: string;
   pt_user_id: string;
@@ -1170,6 +1190,11 @@ export interface Database {
         Row: MonthlyReport;
         Insert: Omit<MonthlyReport, 'id' | 'created_at' | 'updated_at'>;
         Update: Partial<Omit<MonthlyReport, 'id' | 'created_at'>>;
+      };
+      ad_cost_submissions: {
+        Row: AdCostSubmission;
+        Insert: Omit<AdCostSubmission, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<AdCostSubmission, 'id' | 'created_at'>>;
       };
       api_revenue_snapshots: {
         Row: ApiRevenueSnapshot;

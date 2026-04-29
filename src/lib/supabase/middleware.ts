@@ -21,12 +21,16 @@ const LOCK_ALLOWLIST_PREFIXES: string[] = [
  * 세션 없이 호출되는 공개 API — 회원가입/아이디 찾기/비밀번호 재설정 등.
  * 이 경로들은 미들웨어의 `세션 없으면 401` 차단에서 제외해야 한다.
  * (해당 라우트에서 입력값 검증 + service-role 로 자체 처리)
+ *
+ * /api/cron/ 도 여기 포함 — Vercel cron 호출은 Supabase 세션이 없고
+ * 라우트 자체에서 Authorization Bearer CRON_SECRET 으로 검증한다.
  */
 const PUBLIC_API_PREFIXES: string[] = [
   '/api/auth/signup',
   '/api/auth/find-id',
   '/api/auth/reset-password',
   '/api/webhook/',           // 외부에서 호출, 자체 서명 검증
+  '/api/cron/',              // Vercel cron — Bearer 자체 검증
 ];
 
 /**
