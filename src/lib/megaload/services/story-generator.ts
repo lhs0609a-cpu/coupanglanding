@@ -15,6 +15,29 @@ import { extractContextOverrides } from './product-name-parser';
 import { sanitizeHealthText } from './health-sanitizer';
 export { sanitizeHealthText } from './health-sanitizer';
 
+// 한 페이지 내 단일고정 변수 — 여러 슬롯이 다른 값을 뽑으면 모순 (샐러드용+아이간식+다이어트 동시 노출 방지)
+const SINGLE_PICK_VAR_KEYS = new Set([
+  '추천대상', '용도', '페르소나', '품종', '시즌', '상황', '대상',
+  '사용방법', '복용방법', '섭취방법', '메인효과',
+]);
+function _stableHash(s: string): number {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) { h = ((h << 5) + h) + s.charCodeAt(i); h = h | 0; }
+  return Math.abs(h);
+}
+function lockSinglePickVars(vars: Record<string, string[]>, productName: string): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const k of Object.keys(vars)) {
+    const arr = vars[k];
+    if (Array.isArray(arr) && arr.length > 1 && SINGLE_PICK_VAR_KEYS.has(k)) {
+      out[k] = [arr[_stableHash(productName + '|' + k) % arr.length]];
+    } else {
+      out[k] = Array.isArray(arr) ? arr : arr;
+    }
+  }
+  return out;
+}
+
 // ─── 타입 ────────────────────────────────────────────────────
 
 interface StoryTemplate {
@@ -623,7 +646,7 @@ export function generateFaqItems(
   count: number = 6,
 ): FaqItem[] {
   const catKey = getCategoryKey(categoryPath);
-  const vars = { ...(VARIABLES[catKey] || VARIABLES['DEFAULT']) };
+  let vars = { ...(VARIABLES[catKey] || VARIABLES['DEFAULT']) };
   // 배열 키도 깊은 복사 (원본 VARIABLES 오염 방지)
   for (const k of Object.keys(vars)) {
     if (Array.isArray(vars[k])) vars[k] = [...vars[k]];
@@ -687,6 +710,10 @@ export function generateFaqItems(
       vars['효과1'] = ['에너지','체지방관리','대사촉진','포만감','흡수율'];
     }
   }
+
+  // ── 단일고정 변수 잠금: 추천대상/품종/용도 등은 상품당 1개만 사용 ──
+  // 같은 페이지에서 "샐러드용/아이간식/다이어트" 동시 노출 방지
+  vars = lockSinglePickVars(vars, productName);
 
   // ── cleanName: "브랜드 상품코드" 형태면 카테고리 리프명 사용 ──
   let cleanName = productName
@@ -830,7 +857,7 @@ export function generateClosingText(
   productIndex: number,
 ): string {
   const catKey = getCategoryKey(categoryPath);
-  const vars = VARIABLES[catKey] || VARIABLES['DEFAULT'];
+  const vars = lockSinglePickVars(VARIABLES[catKey] || VARIABLES['DEFAULT'], productName);
   const seed = stringToSeed(`${sellerSeed}::closing::${productIndex}::${productName}`);
   const rng = createSeededRandom(seed);
 

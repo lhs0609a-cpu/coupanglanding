@@ -98,6 +98,17 @@ const HEALTH_FOOD_LAW: ForbiddenCategory = {
     { pattern: /체력증진/g, label: '체력증진-미인정', severity: 'error', category: '건기식법' },
     { pattern: /건강\s*챙기고\s*싶/g, label: '건강챙기고싶-권유', severity: 'warning', category: '건기식법' },
 
+    // error: 식품/과일에 대한 성분 효능 단정 (LLM 환각으로 자주 등장)
+    { pattern: /(안토시아닌|폴리페놀|플라보노이드|카테킨|레스베라트롤|루테올린|쿼세틴|클로로겐산|오메가3?|EPA|DHA|식이섬유|비타민\s*[A-Z]|미네랄)이?\s*좋다/g, label: '성분효능단정', severity: 'error', category: '건기식법' },
+    { pattern: /(안토시아닌|폴리페놀|플라보노이드|카테킨|식이섬유)이?\s*풍부.*효과/g, label: '성분풍부효능시사', severity: 'error', category: '건기식법' },
+    { pattern: /다이어트(에게|하시는|하는|중인|러)\s*(잘\s*맞|좋|딱|특히|적합|추천)/g, label: '다이어트-효능광고', severity: 'error', category: '건기식법' },
+    { pattern: /다이어트.*[과음간식]에\s*특히/g, label: '다이어트-효능광고', severity: 'error', category: '건기식법' },
+    { pattern: /자기\s*전에\s*\d+초.*건강/g, label: '취침전건강-효능시사', severity: 'error', category: '건기식법' },
+    { pattern: /\d+\s*개월\s*(꾸준|먹|드시).*(효과|변화|차이)/g, label: '기간효능단정', severity: 'error', category: '건기식법' },
+    { pattern: /이\s*가격에\s*이\s*함량/g, label: '함량과장-건기식용어오용', severity: 'warning', category: '건기식법' },
+    { pattern: /건강\s*챙기기/g, label: '건강챙기기-건기식오인', severity: 'warning', category: '건기식법' },
+    { pattern: /뉴스에서\s*.*좋다고/g, label: '뉴스인용효능단정', severity: 'error', category: '건기식법' },
+
     // error: 막연한 인증 표시 (구체적 인증번호 없이 "식약처 검증" 등은 위반)
     { pattern: /식약처\s*안전성\s*검증/g, label: '식약처막연인증', severity: 'error', category: '건기식법' },
     { pattern: /식약처\s*인정\s*완료/g, label: '식약처막연인증', severity: 'error', category: '건기식법' },

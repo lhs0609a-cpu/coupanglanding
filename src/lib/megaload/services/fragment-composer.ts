@@ -82,6 +82,8 @@ const SUBCATEGORY_ALIASES: Record<string, string> = {
   '식품>가공/즉석식품':'식품>가공식품','식품>냉장/냉동식품':'식품>가공식품','식품>스낵/간식':'식품>가공식품',
   '식품>생수/음료':'식품>음료','식품>유제품/아이스크림/디저트':'식품>가공식품','식품>장/소스':'식품>가공식품',
   '식품>가루/조미료/향신료':'식품>가공식품','식품>커피/차':'식품>음료','식품>전통주':'식품>음료',
+  // 김치/반찬/젓갈은 발효식품으로 신선식품 풀이 더 적합 (캠핑족 누출 방지)
+  '식품>김치/반찬/젓갈':'식품>신선식품','식품>냉장/냉동식품>김치/반찬/젓갈':'식품>신선식품',
   '생활용품>세탁용품':'생활용품>세제','생활용품>청소용품':'생활용품>세제',
   '생활용품>방향/탈취/제습/살충':'생활용품>세제','생활용품>화장지/물티슈':'생활용품>욕실용품',
   '생활용품>구강/면도':'생활용품>욕실용품','생활용품>생리대/성인기저귀':'생활용품>욕실용품',
@@ -235,6 +237,88 @@ const GLOBAL_FEATURE_CLOSERS: string[] = [
   '잡티 없는 마감이 깔끔합니다.','시각적으로도 정돈된 인상입니다.','구성품이 빠지는 게 없습니다.','사용 흐름에 자연스럽게 녹아듭니다.','일상의 작은 불편을 잘 잡아줍니다.',
 ];
 
+// ─── 식품 전용 글로벌 풀 (공산품 톤 차단) ──────────────────
+// 일반 GLOBAL_*는 "마감/디테일/조립/그립감/한 통/쓰는" 등 공산품 어휘가 섞여
+// 식품 카테고리에 적용 시 어색함. 식품은 별도 풀에서만 인출.
+
+const FOOD_HOOK_CLOSERS: string[] = [
+  '드셔보시면 차이가 느껴집니다.', '한 입에 알 수 있는 맛입니다.', '꾸준히 찾는 데에는 이유가 있어요.',
+  '입맛 까다로우신 분께도 무난합니다.', '식탁 분위기를 한 단계 올려줍니다.', '제철의 맛이 그대로 담겼습니다.',
+  '신선함이 가장 큰 차이입니다.', '재료 본연의 맛이 살아있습니다.', '한 번 드셔본 분들이 다시 찾습니다.',
+  '간단하지만 든든하게 채워줍니다.', '온 가족이 부담 없이 즐길 수 있어요.', '일상 식사에 자연스럽게 어울립니다.',
+  '바쁜 아침에도 든든히 챙길 수 있어요.', '간식으로도 식사로도 어울립니다.', '식재료 본래 맛이 잘 살아있어요.',
+  '꾸준한 재구매가 만족도를 보여줍니다.', '재료의 신선도가 한눈에 느껴집니다.', '한끼 가볍게 채우기 좋습니다.',
+  '맛과 양 모두 만족스럽습니다.', '먹어본 분들이 입을 모읍니다.', '평범한 듯 깊이 있는 맛입니다.',
+  '과하지 않은 단맛이 매력입니다.', '어른 아이 가리지 않고 잘 드십니다.', '신선한 재료의 맛 그대로입니다.',
+  '재료 그대로의 풍미가 살아있어요.', '신선함이 입안에서 바로 느껴집니다.', '식탁에 자주 오를 만한 선택이에요.',
+];
+
+const FOOD_FEATURE_CLOSERS: string[] = [
+  '신선도 유지에 신경 썼습니다.', '재료 본연의 맛이 살아있습니다.', '간편하게 즐길 수 있는 구성이에요.',
+  '보관이 까다롭지 않습니다.', '먹기 좋게 손질되어 있어요.', '한 끼 분량으로 적당합니다.',
+  '온 가족이 함께 즐기기 좋습니다.', '제철의 풍미가 그대로 담겼어요.', '깔끔하게 포장되어 받아보기 좋습니다.',
+  '냉장 보관 시 신선도가 오래 유지됩니다.', '맛의 균형이 잘 잡혀있습니다.', '재료의 등급이 좋습니다.',
+  '단맛과 산미의 조화가 좋아요.', '향이 진하게 살아있습니다.', '식감이 살아있어 만족스럽습니다.',
+  '식탁에 올렸을 때 비주얼도 좋습니다.', '간단한 조리만으로도 충분합니다.', '바쁜 일상에 든든한 한 끼가 됩니다.',
+  '준비가 간편해 자주 손이 갑니다.', '맛에 군더더기가 없습니다.', '재료가 살아있다는 게 한입에 느껴져요.',
+  '일상에서 부담 없이 드시기 좋습니다.', '조리 후에도 맛이 잘 유지됩니다.', '받아보시면 신선도가 한눈에 보여요.',
+  '담백한 맛이 질리지 않습니다.', '식재료의 단정함이 느껴집니다.', '재료 손질 상태가 깔끔합니다.',
+  '한입 가볍게 즐기기 좋은 구성이에요.', '제철 식재료의 묘미가 잘 살아있어요.', '식사 외에 간식으로도 어울립니다.',
+];
+
+const FOOD_HOOK_OPENERS: string[] = [
+  '식탁에 자주 오르는 그런', '제철에 더 빛나는', '한 입에 알아보는 신선함이', '오래 찾는 데에는 이유가 있는',
+  '꾸준히 사랑받는 식재료가', '식사 자리에 자연스럽게 어울리는', '재료 본연의 맛을 살린', '한 번 맛보면 기억에 남는',
+  '제철 풍미가 진한', '담백한 매력이 돋보이는', '식탁 분위기를 살리는', '바쁜 아침에도 든든한',
+  '간단하지만 만족스러운', '어른 아이 가리지 않는 맛이', '꾸준히 재구매하는 분들이 많은',
+];
+
+/** 카테고리 경로가 식품/식자재/음료/건강식품 계열인지 판정 */
+function isFoodCategory(categoryPath?: string): boolean {
+  if (!categoryPath) return false;
+  return /^(식품|건강식품|영양제|비타민|음료|차류|과일|채소|곡물|수산|축산|농산|신선식품|간식|스낵|냉동식품|가공식품|조미료|장류|발효식품|양념|식자재)/.test(categoryPath);
+}
+
+/**
+ * 한 페이지에서 "단일값으로 고정"되어야 하는 변수들.
+ * 여러 슬롯이 다른 값을 뽑으면 모순됨 (예: 같은 상품에 "샐러드용+아이간식+다이어트" 동시 노출).
+ *
+ * 정체성 붕괴 방지: 품종/용도/페르소나/시즌/추천대상은 상품당 1개 고정.
+ */
+const SINGLE_PICK_VARS = new Set([
+  '추천대상', '용도', '페르소나', '품종', '시즌', '상황', '대상',
+  '사용방법', '복용방법', '섭취방법', '메인효과',
+]);
+
+/** 문자열 안정 해시 (시드 기반 결정성 픽 — rng 호출 없이) */
+function stableHash(s: string): number {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) + h) + s.charCodeAt(i);
+    h = h | 0;
+  }
+  return Math.abs(h);
+}
+
+/**
+ * 변수 풀에서 단일고정 키들의 풀을 1개로 축소한다.
+ * (productName + key) 해시로 결정성 선택 → 같은 상품 내 모든 슬롯이 같은 값을 본다.
+ */
+function lockSinglePickVars(
+  vars: Record<string, string[]>,
+  productName?: string,
+): Record<string, string[]> {
+  const seed = productName || 'default';
+  const result: Record<string, string[]> = { ...vars };
+  for (const key of Object.keys(result)) {
+    if (SINGLE_PICK_VARS.has(key) && result[key] && result[key].length > 1) {
+      const idx = stableHash(seed + '|' + key) % result[key].length;
+      result[key] = [result[key][idx]];
+    }
+  }
+  return result;
+}
+
 // 시드 기반 N개 추출 (중복 없이)
 function pickN<T>(arr: T[], n: number, rng: () => number): T[] {
   if (arr.length === 0) return [];
@@ -256,6 +340,13 @@ const EMPHASIS_FALLBACK: string[] = [
   '오래 두고 쓸 수 있는 안정적인 구성입니다.','꾸준한 사용자가 점점 늘고 있습니다.','자세히 따져볼수록 점수가 올라갑니다.',
   '실사용자 평가가 결정적인 단서입니다.','사양보다 사용감이 핵심입니다.','쓰는 사람을 배려한 설계입니다.',
   '필요한 만큼만 더한 균형감이 강점입니다.','시간이 지나도 만족이 이어집니다.','첫 사용부터 손에 잡히는 그런 제품입니다.',
+];
+
+const FOOD_EMPHASIS_FALLBACK: string[] = [
+  '재료의 신선함이 가장 큰 강점입니다.','과한 광고보다 정직한 맛이 우선입니다.','꾸준히 찾는 분들의 평이 핵심입니다.',
+  '식탁에서 자주 만나는 그런 식재료입니다.','맛과 신선도의 균형이 잘 잡혀있습니다.','자세히 따져볼수록 만족도가 올라갑니다.',
+  '실사용자 평가가 결정적인 단서입니다.','광고보다 한 입 맛본 평이 정직합니다.','재료 본연의 맛이 가장 큰 가치입니다.',
+  '필요한 만큼만 담은 정직한 구성입니다.','한 번 드셔보면 만족이 이어집니다.','식탁에 자연스럽게 자리하는 식재료입니다.',
 ];
 
 // ─── CTA 강제 closer (마지막 200자에 행동 유도 보장) ──
@@ -299,32 +390,39 @@ function filterByTone(arr: string[]): string[] {
 /**
  * 카테고리 풀에 글로벌 다양성 풀을 시드 기반으로 주입한다.
  * 모든 카테고리에 동일 종결어가 박히는 문제를 해결.
+ *
+ * ⚠️ 식품 카테고리는 공산품 톤 GLOBAL 풀(마감/디테일/조립/그립감 등)을 차단하고
+ *    식품 전용 풀(드셔보시면/신선도/재료 본연 등)만 주입한다.
  */
 function injectGlobalDiversity(
   pool: FragmentPool,
   blockType: string,
   rng: () => number,
+  categoryPath?: string,
 ): FragmentPool {
-  // blockType별 글로벌 풀 매핑
+  const isFood = isFoodCategory(categoryPath);
+
+  // blockType별 글로벌 풀 매핑 — 식품 vs 비식품 분기
   let globalCloser: string[] = [];
   let globalOpener: string[] = [];
   switch (blockType) {
     case 'cta':
+      // CTA는 식품/비식품 공통적으로 안전 (가격/검토/선물 중심)
       globalCloser = GLOBAL_CTA_CLOSERS;
       globalOpener = GLOBAL_CTA_OPENERS;
       break;
     case 'hook':
-      globalOpener = GLOBAL_HOOK_OPENERS;
-      globalCloser = GLOBAL_HOOK_CLOSERS;
+      globalOpener = isFood ? FOOD_HOOK_OPENERS : GLOBAL_HOOK_OPENERS;
+      globalCloser = isFood ? FOOD_HOOK_CLOSERS : GLOBAL_HOOK_CLOSERS;
       break;
     case 'feature_detail':
-      globalCloser = GLOBAL_FEATURE_CLOSERS;
+      globalCloser = isFood ? FOOD_FEATURE_CLOSERS : GLOBAL_FEATURE_CLOSERS;
       break;
     case 'solution':
     case 'social_proof':
     case 'usage_guide':
-      globalCloser = GLOBAL_HOOK_CLOSERS;
-      globalOpener = GLOBAL_HOOK_OPENERS;
+      globalCloser = isFood ? FOOD_HOOK_CLOSERS : GLOBAL_HOOK_CLOSERS;
+      globalOpener = isFood ? FOOD_HOOK_OPENERS : GLOBAL_HOOK_OPENERS;
       break;
     default:
       break;
@@ -417,6 +515,10 @@ export function resolveVariables(
       result = { ...result, ...ingredient };
     }
   }
+
+  // 단일고정 변수 (추천대상/품종/용도 등) → 상품당 1개로 잠금
+  // 같은 상세페이지 안에서 "샐러드용+아이간식+다이어트" 모순 방지
+  result = lockSinglePickVars(result, productName);
 
   return result;
 }
@@ -822,8 +924,21 @@ function composeFromV2Templates(
 
   // ── v2 글로벌 다양성 풀 주입 ──
   // 동일 통문장이 5만회+ 폭주하는 문제 해결: 시드별로 글로벌 풀에서 8개 추가
+  // ⚠️ 식품 카테고리는 V2_GLOBAL_FRAGMENTS의 공산품 톤 문구(마감/디테일/설계/적응기간/관리/소재구조)를
+  //    차단하기 위해 식품 부적합 패턴을 사전 필터링한다.
   const globalV2 = V2_GLOBAL_FRAGMENTS[blockType] || [];
-  const extraGlobals = pickN(filterByTone(globalV2), 8, rng);
+  const isFood = isFoodCategory(categoryPath);
+  const v2FoodUnsafePatterns = [
+    /마감\s*디테일/, /손끝에서\s*느껴/, /소재와\s*구조/, /설계됐어요/, /설계된\s*점/,
+    /적응\s*기간/, /관리만\s*잘하면\s*오래/, /쓰는\s*동안\s*작은\s*불편/,
+    /노하우\s*없이도/, /매일\s*같은\s*시간대.*효과/, /조작이\s*단순/,
+    /오래\s*두고\s*쓰기\s*좋은\s*견고/, /만듦새/, /구조의\s*균형/,
+    /손에\s*익는/, /그립감/, /조립/, /본질에\s*충실한\s*디자인/,
+  ];
+  const filteredGlobalV2 = isFood
+    ? globalV2.filter(s => !v2FoodUnsafePatterns.some(re => re.test(s)))
+    : globalV2;
+  const extraGlobals = pickN(filterByTone(filteredGlobalV2), 8, rng);
   // 카테고리 v2 풀에도 톤 필터 적용 — 한 글 내 어미 일관성 보장
   const tonedRaw = filterByTone(rawTemplates);
   const enriched = [...tonedRaw, ...extraGlobals];
@@ -1171,7 +1286,8 @@ export function composeBlock(
 
   // ── 글로벌 다양성 풀 주입 (closer/opener 96만회 반복 문제 해결) ──
   // 시드별로 다른 12개씩 추가되어 카테고리당 풀 크기가 5~10배 확대됨
-  actualPool = injectGlobalDiversity(actualPool, blockType, rng);
+  // categoryPath를 전달해 식품 카테고리는 식품 전용 풀만 사용 (공산품 톤 차단)
+  actualPool = injectGlobalDiversity(actualPool, blockType, rng, categoryPath);
   // forbidden 필터를 한번 더 적용 (글로벌 풀에 카테고리 부적합 단어가 있을 수 있음)
   if (effectiveForbidden.length > 0) {
     actualPool = filterFragmentPool(actualPool, effectiveForbidden);
@@ -1205,9 +1321,10 @@ export function composeBlock(
       const opener = pickRandom(actualPool.openers, rng);
       const value = pickRandom(actualPool.values, rng);
       const closer = pickRandom(actualPool.closers, rng);
+      const emphasisFallback = isFoodCategory(categoryPath) ? FOOD_EMPHASIS_FALLBACK : EMPHASIS_FALLBACK;
       const emphasis = actualPool.emphases && actualPool.emphases.length > 0
         ? actualPool.emphases[Math.floor(rng() * actualPool.emphases.length)]
-        : EMPHASIS_FALLBACK[Math.floor(rng() * EMPHASIS_FALLBACK.length)];
+        : emphasisFallback[Math.floor(rng() * emphasisFallback.length)];
 
       let rawContent = [opener, value, closer].filter(Boolean).join(' ');
       rawContent = fillTemplate(rawContent, vars, productName, rng);
