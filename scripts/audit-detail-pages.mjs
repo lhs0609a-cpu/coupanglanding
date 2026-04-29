@@ -118,7 +118,21 @@ function genProductNames(catPath, n = SAMPLES_PER_CAT) {
     if (i % 2 === 0 && ing) parts.push(ing);
     parts.push(base);
     if (i % 4 === 0) parts.push(size);
-    out.push(parts.filter(Boolean).join(' '));
+
+    // ⚠️ 변형 패턴 — 실 사용자 입력 다양성 시뮬레이션 (Phase 8 stress test)
+    let name = parts.filter(Boolean).join(' ');
+    const variant = i % 10;
+    if (variant === 0) name = `(주)${brand || '컴퍼니'}_${name}_2024`;
+    else if (variant === 1) name = `[정품][한정]${name} ★★★`;
+    else if (variant === 2) name = `${name} ${name.slice(0, 10)}`; // 부분 중복
+    else if (variant === 3) name = `${name} 사과 자몽 배`; // 모순 토큰
+    else if (variant === 4) name = `${size} ${size} ${name}`; // 사양 중복
+    else if (variant === 5) name = `${brand || '브랜드'} ${brand || '브랜드'} ${name}`; // 브랜드 중복
+    else if (variant === 6) name = `${name.slice(0, 8)}…★`; // 매우 짧음
+    else if (variant === 7) name = `${name} ${ing || '성분'} ${ing || '성분'} ${ing || '성분'}`; // 성분 반복
+    // variant 8, 9는 정상 패턴 유지
+
+    out.push(name);
   }
   return out;
 }
