@@ -4,7 +4,9 @@ import { retryTransaction } from '@/lib/payments/retry-runner';
 import { kstDateStr } from '@/lib/payments/billing-constants';
 import { logSettlementError } from '@/lib/payments/settlement-errors';
 
-const ADVISORY_LOCK_KEY = 778001002; // auto-billing 과 별도 키 (safe integer 범위)
+const CRON_LOCK_KEY = 'cron:payment-retry';
+// payment-retry 배치 최대 실행 예상 시간(초). 이 시간이 지나면 stale 로 간주하고 강탈 가능.
+const CRON_LOCK_TTL_SECONDS = 30 * 60;
 
 /**
  * GET /api/cron/payment-retry
@@ -13,7 +15,7 @@ const ADVISORY_LOCK_KEY = 778001002; // auto-billing 과 별도 키 (safe intege
  * 동작:
  *   1) status=failed, is_final_failure=false, next_retry_at<=now() 인 모든 tx 조회
  *   2) 각 tx 에 대해 retryTransaction() 호출 — per-tx try/catch 로 격리 (한 건 실패가 전체 배치 중단하지 않도록)
- *   3) 동시 실행 방지용 advisory lock
+ *   3) 동시 실행 방지: cron_locks 행 기반 TTL 락 (풀 무관)
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -23,8 +25,13 @@ export async function GET(request: NextRequest) {
 
   const serviceClient = await createServiceClient();
 
-  const { data: lockOk } = await serviceClient.rpc('payment_try_advisory_lock', {
-    p_key: ADVISORY_LOCK_KEY,
+  // pg_advisory_lock 은 세션 스코프라 PostgREST 풀과 함께 쓰면 unlock 이 다른
+  // 커넥션으로 라우팅되어 무효화 → 락이 영구 잔존하는 버그가 있다.
+  // 행 기반 TTL 락으로 교체.
+  const { data: lockOk } = await serviceClient.rpc('cron_try_acquire_lock', {
+    p_key: CRON_LOCK_KEY,
+    p_ttl_seconds: CRON_LOCK_TTL_SECONDS,
+    p_acquired_by: 'payment-retry',
   });
 
   if (!lockOk) {
@@ -92,8 +99,6 @@ export async function GET(request: NextRequest) {
     console.error('cron/payment-retry error:', err);
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   } finally {
-    await serviceClient.rpc('payment_advisory_unlock', {
-      p_key: ADVISORY_LOCK_KEY,
-    });
+    await serviceClient.rpc('cron_release_lock', { p_key: CRON_LOCK_KEY });
   }
 }

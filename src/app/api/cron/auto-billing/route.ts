@@ -15,9 +15,9 @@ import { logSettlementError } from '@/lib/payments/settlement-errors';
 
 type ServiceClient = Awaited<ReturnType<typeof createServiceClient>>;
 
-// 동시 실행 방지용 advisory lock key.
-// Number.MAX_SAFE_INTEGER(2^53-1) 안쪽의 값만 사용 — BigInt → Number 변환 시 정밀도 손실 방지.
-const ADVISORY_LOCK_KEY = 778001001;
+const CRON_LOCK_KEY = 'cron:auto-billing';
+// auto-billing 배치 최대 실행 예상 시간(초). 전체 PT 유저 순회 + 외부 결제 호출 포함.
+const CRON_LOCK_TTL_SECONDS = 30 * 60;
 
 /**
  * GET /api/cron/auto-billing
@@ -42,9 +42,11 @@ export async function GET(request: NextRequest) {
 
   const serviceClient = await createServiceClient();
 
-  // 동시 실행 방지
-  const { data: lockOk } = await serviceClient.rpc('payment_try_advisory_lock', {
-    p_key: ADVISORY_LOCK_KEY,
+  // 동시 실행 방지 — 행 기반 TTL 락 (pg_advisory_lock 의 세션/풀 문제 회피).
+  const { data: lockOk } = await serviceClient.rpc('cron_try_acquire_lock', {
+    p_key: CRON_LOCK_KEY,
+    p_ttl_seconds: CRON_LOCK_TTL_SECONDS,
+    p_acquired_by: 'auto-billing',
   });
 
   if (!lockOk) {
@@ -132,9 +134,7 @@ export async function GET(request: NextRequest) {
     console.error('cron/auto-billing error:', err);
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   } finally {
-    await serviceClient.rpc('payment_advisory_unlock', {
-      p_key: ADVISORY_LOCK_KEY,
-    });
+    await serviceClient.rpc('cron_release_lock', { p_key: CRON_LOCK_KEY });
   }
 }
 

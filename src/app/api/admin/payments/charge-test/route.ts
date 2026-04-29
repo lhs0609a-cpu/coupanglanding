@@ -21,18 +21,9 @@ const MIN_AMOUNT = 1;
 const MAX_AMOUNT = 1000;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = 5;
-
-/**
- * Admin별 동시 실행 차단용 advisory lock 키.
- * payment_try_advisory_lock(BIGINT) 단일 인자 RPC 사용.
- * 키 = 베이스(778002_000_000) + admin UUID hash(6자리 mod) → 동일 admin 동시 호출 차단.
- * 다른 cron(778001001 등)과 키 공간 분리됨.
- */
-function adminLockKey(adminId: string): number {
-  const hex = adminId.replace(/-/g, '').slice(0, 8);
-  const hash = parseInt(hex, 16); // 0 .. 2^32-1
-  return 778002000000 + (hash % 1000000); // 778002000000~778002999999, 53-bit safe
-}
+// pending row 기반 동시 실행 차단 윈도우. Toss 타임아웃(보통 30s) 보다 길게 잡아
+// 결제 호출이 길어져도 중복 클릭이 통과하지 않도록 함.
+const INFLIGHT_LOCK_WINDOW_MS = 90 * 1000;
 
 async function requireAdmin(supabase: Awaited<ReturnType<typeof createClient>>) {
   const { data: { user } } = await supabase.auth.getUser();
@@ -79,24 +70,25 @@ export async function POST(request: NextRequest) {
 
     const serviceClient = await createServiceClient();
 
-    // Advisory lock — 같은 admin의 동시 호출 차단 (race condition 방지)
-    //   기존 rate limit(앱 카운트)은 동시 요청에 무력하므로 DB lock으로 강제 직렬화.
-    const lockKey = adminLockKey(admin.id);
-    const { data: lockOk } = await serviceClient.rpc('payment_try_advisory_lock', {
-      p_key: lockKey,
-    });
-    if (!lockOk) {
+    // Row-based 동시 실행 차단 — 같은 admin의 90초 이내 pending tx가 있으면 거부.
+    //   pg_advisory_lock은 세션 스코프인데 PostgREST 풀이 락 획득 커넥션과 unlock 커넥션을
+    //   다르게 잡아주는 경우가 있어 unlock이 무효가 되고 락이 영구 잔존하는 버그가 발생.
+    //   pending 행 기반 체크는 풀과 무관하고, 윈도우가 지나면 자동 회복된다.
+    const inflightSince = new Date(Date.now() - INFLIGHT_LOCK_WINDOW_MS).toISOString();
+    const { count: inflight } = await serviceClient
+      .from('payment_transactions')
+      .select('id', { count: 'exact', head: true })
+      .eq('test_initiated_by', admin.id)
+      .eq('status', 'pending')
+      .gte('created_at', inflightSince);
+    if ((inflight ?? 0) > 0) {
       return NextResponse.json(
         { error: '이전 테스트 결제가 진행 중입니다. 완료 후 다시 시도하세요.' },
         { status: 409 },
       );
     }
 
-    try {
-      return await runChargeTest(serviceClient, admin.id, ptUserId, amount, cardId, note);
-    } finally {
-      await serviceClient.rpc('payment_advisory_unlock', { p_key: lockKey });
-    }
+    return await runChargeTest(serviceClient, admin.id, ptUserId, amount, cardId, note);
   } catch (err) {
     console.error('POST /api/admin/payments/charge-test error:', err);
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
