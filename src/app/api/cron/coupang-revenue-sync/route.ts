@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
-import { fetchOrderBasedSales, CoupangApiError } from '@/lib/utils/coupang-api-client';
+import { fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
 import { getPreviousMonth, getReportTargetMonth } from '@/lib/utils/settlement';
 
 /**
@@ -123,17 +123,19 @@ async function runSync() {
 
     for (const ym of yearMonths) {
       try {
-        // 주문 기반 매출 — 빠른정산 이용자 실질 매출 기준, 취소 제외.
-        const orderSales = await fetchOrderBasedSales(credentials, ym, { excludeCancelled: true });
+        // 매출인식 기준(공식 revenue-history API). 이전엔 fetchOrderBasedSales(ordersheets)를 썼으나
+        // 쿠팡 ordersheets API 의 page 파라미터가 동일 페이지를 반복 반환 → 같은 주문이 200배 부풀려져 누적되는
+        // 버그가 확인되어 제거. revenue-history 는 한 달 범위로 nextToken 기반 페이지네이션이 정확히 동작.
+        const settlement = await fetchSettlementData(credentials, ym);
         await upsertSnapshot(serviceClient, {
           pt_user_id: user.id,
           year_month: ym,
-          total_sales: orderSales.totalSales,
-          total_commission: 0,
-          total_shipping: 0,
-          total_returns: 0,
-          total_settlement: orderSales.totalSales,
-          item_count: orderSales.itemCount,
+          total_sales: settlement.totalSales,
+          total_commission: settlement.totalCommission,
+          total_shipping: settlement.totalShipping,
+          total_returns: settlement.totalReturns,
+          total_settlement: settlement.totalSettlement,
+          item_count: settlement.items.length,
           synced_at: new Date().toISOString(),
           sync_error: null,
         });
@@ -141,8 +143,8 @@ async function runSync() {
           ptUserId: user.id,
           yearMonth: ym,
           success: true,
-          totalSales: orderSales.totalSales,
-          itemCount: orderSales.itemCount,
+          totalSales: settlement.totalSales,
+          itemCount: settlement.items.length,
         });
       } catch (err) {
         const message = err instanceof CoupangApiError
