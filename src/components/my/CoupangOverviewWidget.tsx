@@ -142,7 +142,7 @@ export default function CoupangOverviewWidget() {
         </div>
       </div>
 
-      {/* 우리 수수료 — 메인 카드 (클릭 시 계산 상세 펼침) */}
+      {/* 메가로드 수수료 — 메인 카드 (클릭 시 계산 상세 펼침) */}
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -152,7 +152,7 @@ export default function CoupangOverviewWidget() {
           <HandCoins className="w-6 h-6" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-xs text-rose-600 font-medium">{monthLabel} 우리 수수료 (예상)</p>
+          <p className="text-xs text-rose-600 font-medium">{monthLabel} 메가로드 수수료 (예상)</p>
           <p className="text-2xl font-bold text-gray-900">{formatKRW(programFee)}</p>
           <p className="text-[11px] text-gray-500 mt-0.5">
             계산 자세히 보기 {expanded ? '닫기' : '펼치기'}
@@ -188,11 +188,11 @@ export default function CoupangOverviewWidget() {
                 <td className="py-1.5 text-right font-semibold text-emerald-700">{formatExactKRW(netProfit)}</td>
               </tr>
               <tr>
-                <td className="py-1 text-gray-500">× 우리 수수료율</td>
+                <td className="py-1 text-gray-500">× 메가로드 수수료율</td>
                 <td className="py-1 text-right text-gray-600">{sharePct}%</td>
               </tr>
               <tr className="border-t border-gray-300 bg-rose-50/40">
-                <td className="py-2 text-gray-900 font-bold">우리 수수료 (예상)</td>
+                <td className="py-2 text-gray-900 font-bold">메가로드 수수료 (예상)</td>
                 <td className="py-2 text-right text-lg font-bold text-rose-600">{formatExactKRW(programFee)}</td>
               </tr>
             </tbody>
