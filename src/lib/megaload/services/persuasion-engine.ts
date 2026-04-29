@@ -311,9 +311,13 @@ export function generatePersuasionContent(
 
   // 글자수 < MIN_CHARS이면 블록 추가 (중복 텍스트 방지 — content 기준 dedup)
   // SEO 스터핑 방지: solution 비중 축소(상품명 {product} 다수 포함). feature_detail/usage_guide 위주.
+  // ⚠️ Phase 9: 8 → 18로 확장 — 평균 1900자 → 2500+자 보장 (Coupang SEO 권장 충족)
   const paddingTypes: ContentBlockType[] = [
+    'feature_detail', 'social_proof', 'usage_guide', 'comparison',
     'feature_detail', 'social_proof', 'usage_guide', 'feature_detail',
-    'solution', 'social_proof', 'usage_guide', 'feature_detail',
+    'comparison', 'feature_detail', 'social_proof', 'usage_guide',
+    'feature_detail', 'comparison', 'social_proof', 'usage_guide',
+    'feature_detail', 'social_proof',
   ];
   const seenPadHeads = new Set<string>(
     enrichedBlocks.map(b => (b.content || '').trim().slice(0, 80)).filter(Boolean),
@@ -406,6 +410,20 @@ export function generatePersuasionContent(
       if (block.items) block.items = block.items.map(item => sanitizeHealthText(item, categoryPath, cleanName)).filter(Boolean);
     }
     totalChars = enrichedBlocks.reduce((sum, bl) => sum + getBlockCharCount(bl), 0);
+  }
+
+  // ── 블록 순서 정규화: hook 첫째, cta 마지막 (no_cta 5.9% 해결) ──
+  // 패딩 삽입 후 cta가 중간에 끼는 경우 방지. 마지막 200자에 행동 유도 보장.
+  const hookIdx2 = enrichedBlocks.findIndex(b => b.type === 'hook');
+  const ctaIdx2 = enrichedBlocks.findIndex(b => b.type === 'cta');
+  if (hookIdx2 > 0) {
+    const [hookBlock] = enrichedBlocks.splice(hookIdx2, 1);
+    enrichedBlocks.unshift(hookBlock);
+  }
+  if (ctaIdx2 >= 0 && ctaIdx2 !== enrichedBlocks.length - 1) {
+    const newCtaIdx = enrichedBlocks.findIndex(b => b.type === 'cta');
+    const [ctaBlock] = enrichedBlocks.splice(newCtaIdx, 1);
+    enrichedBlocks.push(ctaBlock);
   }
 
   return {
