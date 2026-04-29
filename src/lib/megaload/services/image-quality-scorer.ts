@@ -129,15 +129,17 @@ export interface DiverseSelectionResult {
   relevanceScores?: ProductRelevanceScore[];
 }
 
-// 성능 최적화: 200→100→50 (16x 적은 픽셀, 패턴 감지에 충분)
-const ANALYSIS_SIZE = 50;
+// 성능 최적화: 200→100→50→36 (8x 적은 픽셀 vs 100, 32bin 히스토그램에 충분)
+const ANALYSIS_SIZE = 36;
 // 히스토그램: 64→32 (4x 적은 픽셀, 이상치 감지에 충분)
 const HISTOGRAM_SIZE = 32;
 const DEFAULT_MIN_SCORE = 40;
 
-// Canvas 동시성 제한 — 저사양 PC 메모리 보호
-// 6 = 4코어 PC에서도 안전, 메모리 spike 제어. 8 이상은 OOM 위험.
-const IMAGE_CONCURRENCY = 6;
+// Canvas 동시성 — 디바이스 코어 수에 비례, 최대 12. createImageBitmap이 디코딩을
+// 워커스레드로 옮겨 메인스레드 부담이 줄어 6→12로 안전하게 상향.
+const IMAGE_CONCURRENCY = typeof navigator !== 'undefined'
+  ? Math.min(12, Math.max(4, navigator.hardwareConcurrency || 6))
+  : 6;
 
 // ─── URL 기반 분석 결과 캐시 ────────────────────────────────────
 // 같은 이미지를 Step 3 / Step 3.7 / 패널 자동분석에서 반복 호출 — 재계산 방지.
@@ -2872,14 +2874,18 @@ async function extractFeaturesForUrls(
       if (cached) {
         return { ...cached, originalIndex: originalIndices[i] };
       }
-      const img = await loadImage(url);
+      const fast = await loadImageFast(url);
       const canvas = document.createElement('canvas');
       canvas.width = ANALYSIS_SIZE;
       canvas.height = ANALYSIS_SIZE;
       const ctx = canvas.getContext('2d');
-      if (!ctx) return null;
+      if (!ctx) {
+        fast.close?.();
+        return null;
+      }
 
-      ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
+      ctx.drawImage(fast.source, 0, 0, fast.width, fast.height, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
+      fast.close?.();
       const imageData = ctx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
       const { data } = imageData;
 
@@ -3020,4 +3026,30 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     }
     img.src = url;
   });
+}
+
+/**
+ * 빠른 이미지 로드 — createImageBitmap이 워커스레드에서 디코딩
+ * 미지원 브라우저는 HTMLImageElement로 폴백
+ */
+type FastImage = { width: number; height: number; source: CanvasImageSource; close?: () => void };
+
+async function loadImageFast(url: string): Promise<FastImage> {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const bitmap = await createImageBitmap(blob);
+      return {
+        width: bitmap.width,
+        height: bitmap.height,
+        source: bitmap,
+        close: () => bitmap.close(),
+      };
+    } catch {
+      // 폴백
+    }
+  }
+  const img = await loadImage(url);
+  return { width: img.naturalWidth, height: img.naturalHeight, source: img };
 }

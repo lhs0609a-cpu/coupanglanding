@@ -1115,9 +1115,9 @@ export function useBulkRegisterActions() {
             const detailMetaMap: Map<number, ImageSelectionMeta> = new Map();
             const reviewMetaMap: Map<number, ImageSelectionMeta> = new Map();
 
-            // 상품별 이미지 분석 — 병렬 워커 풀 (3개 동시)
-            // 메인스레드 Canvas 작업이 많아 4 이상은 마진 적음
-            const PRODUCT_PARALLEL = 3;
+            // 상품별 이미지 분석 — 병렬 워커 풀
+            // ANALYSIS_SIZE 50→36 + createImageBitmap 도입으로 메인스레드 부담 줄어 3→4
+            const PRODUCT_PARALLEL = 4;
             let nextIdx = 0;
             const processProduct = async (idx: number): Promise<void> => {
               const p = latestForFilter[idx];
