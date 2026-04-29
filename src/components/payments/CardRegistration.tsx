@@ -2,13 +2,14 @@
 
 import { useState, useCallback } from 'react';
 import { CreditCard, Loader2 } from 'lucide-react';
-import { loadTossPaymentsSDK, generateCustomerKey } from '@/lib/payments/toss-client';
+import { loadTossPaymentsSDK } from '@/lib/payments/toss-client';
 
 interface CardRegistrationProps {
-  ptUserId: string;
+  /** 사용 안 함 (하위호환) — customerKey 는 서버에서 발급하므로 클라이언트 ptUserId 불필요 */
+  ptUserId?: string;
 }
 
-export default function CardRegistration({ ptUserId }: CardRegistrationProps) {
+export default function CardRegistration(_props: CardRegistrationProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -23,9 +24,23 @@ export default function CardRegistration({ ptUserId }: CardRegistrationProps) {
         return;
       }
 
+      // customerKey 는 서버 시크릿(TOSS_CUSTOMER_KEY_SECRET)으로 HMAC 되므로 서버에서만 계산 가능.
+      // 이전엔 generateCustomerKey() 를 클라이언트에서 직접 호출 → process.env.TOSS_PAYMENTS_SECRET_KEY 가
+      // 브라우저에서 undefined 라 항상 "결제 설정 누락" 에러 발생.
+      const ckRes = await fetch('/api/payments/customer-key', { credentials: 'include' });
+      if (!ckRes.ok) {
+        const data = await ckRes.json().catch(() => ({}));
+        setError(data.error || 'customerKey 발급 실패');
+        return;
+      }
+      const { customerKey } = (await ckRes.json()) as { customerKey: string };
+      if (!customerKey) {
+        setError('customerKey 발급 실패');
+        return;
+      }
+
       const TossPayments = await loadTossPaymentsSDK();
       const toss = TossPayments(clientKey);
-      const customerKey = generateCustomerKey(ptUserId);
 
       const origin = window.location.origin;
 
@@ -40,7 +55,7 @@ export default function CardRegistration({ ptUserId }: CardRegistrationProps) {
     } finally {
       setLoading(false);
     }
-  }, [ptUserId]);
+  }, []);
 
   return (
     <div className="space-y-3">
