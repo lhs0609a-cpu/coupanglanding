@@ -772,35 +772,13 @@ export default function DetailPageContentTab({
 
   return (
     <div className="space-y-3">
-      {/* ─── 상세페이지 이미지 선택 ─── */}
-      {detailThumbnailUrls.length > 0 && (
-        <Collapsible
-          title="상세페이지 이미지"
-          icon={<ImageIcon className="w-3.5 h-3.5 text-indigo-500" />}
-          badge={`${(product.editedDetailImageOrder ?? detailThumbnailUrls).length}장 선택`}
-          defaultOpen={true}
-        >
-          <ImageSelectorGroup
-            label="상세이미지"
-            images={product.scannedDetailImages}
-            thumbnailUrls={detailThumbnailUrls}
-            order={product.editedDetailImageOrder}
-            onOrderChange={(newOrder) => onUpdate(product.uid, 'editedDetailImageOrder', newOrder)}
-            onAnalyze={(product.scannedDetailImages?.length ?? 0) > 0 ? handleAnalyzeDetailRelevance : undefined}
-            isAnalyzing={isAnalyzingDetailRelevance}
-            analyzeLabel={detailRelevanceScores ? '다시 분석' : '관련성 분석'}
-            relevanceScores={detailRelevanceScores ?? product.detailImageSelectionMeta?.relevanceScores ?? undefined}
-          />
-        </Collapsible>
-      )}
-
-      {/* ─── 리뷰 이미지 선택 ─── */}
+      {/* ─── 리뷰 이미지 선택 ─── (상세페이지 본문은 리뷰이미지 + 스토리문단 교차로 구성) */}
       {reviewThumbnailUrls.length > 0 && (
         <Collapsible
           title="리뷰 이미지"
           icon={<ImageIcon className="w-3.5 h-3.5 text-emerald-500" />}
           badge={`${(product.editedReviewImageOrder ?? reviewThumbnailUrls).length}장 선택`}
-          defaultOpen={false}
+          defaultOpen={true}
         >
           <ImageSelectorGroup
             label="리뷰이미지"

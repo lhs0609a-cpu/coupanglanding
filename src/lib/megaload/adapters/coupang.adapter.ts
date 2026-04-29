@@ -435,23 +435,31 @@ export class CoupangAdapter extends BaseAdapter {
   }> {
     const path = '/v2/providers/marketplace_openapi/apis/api/v1/vendor/shipping-place/outbound';
     const query = 'pageSize=50&pageNum=1';
-    const data = await this.coupangApi<{
-      content: {
-        outboundShippingPlaceCode: number;
-        shippingPlaceName: string;
-        placeAddresses: { returnAddress: string; returnAddressDetail: string }[];
-        usable: boolean;
-      }[];
-      pagination?: { totalElements: number };
-    }>('GET', path, query);
-    const content = data.content || [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = await this.coupangApi<any>('GET', path, query);
+
+    // 응답 구조 방어적 파싱:
+    //  직접 v1 marketplace_openapi: { code, message, content: [...], pagination }
+    //  프록시 또는 wrap된 응답: { code, data: { content: [...] } } 또는 { data: [...] }
+    let content: Record<string, unknown>[] = [];
+    if (Array.isArray(raw?.content)) content = raw.content;
+    else if (Array.isArray(raw?.data?.content)) content = raw.data.content;
+    else if (Array.isArray(raw?.data)) content = raw.data;
+    else if (Array.isArray(raw)) content = raw;
+
+    console.log(`[CoupangAdapter] getOutboundShippingPlaces: rawKeys=${Object.keys(raw || {}).join(',')}, items=${content.length}`);
+
     return {
-      items: content.map((p) => ({
-        outboundShippingPlaceCode: String(p.outboundShippingPlaceCode),
-        placeName: p.shippingPlaceName,
-        placeAddresses: p.placeAddresses?.[0]?.returnAddress || '',
-        usable: p.usable,
-      })),
+      items: content.map((p) => {
+        const addresses = (p.placeAddresses as { returnAddress?: string }[] | undefined) || [];
+        return {
+          outboundShippingPlaceCode: String(p.outboundShippingPlaceCode),
+          placeName: (p.shippingPlaceName as string) || '',
+          placeAddresses: addresses[0]?.returnAddress || '',
+          // 일부 응답은 usable 필드가 누락되거나 문자열일 수 있음 → 명시적 false만 제외
+          usable: p.usable !== false,
+        };
+      }),
     };
   }
 
@@ -460,27 +468,30 @@ export class CoupangAdapter extends BaseAdapter {
     items: { returnCenterCode: string; shippingPlaceName: string; deliverCode: string; returnAddress: string; usable: boolean }[];
   }> {
     const path = `/v2/providers/openapi/apis/api/v5/vendors/${this.vendorId}/returnShippingCenters`;
-    const data = await this.coupangApi<{
-      code: number;
-      data: {
-        content: {
-          returnCenterCode: string;
-          shippingPlaceName: string;
-          deliverCode: string;
-          placeAddresses?: { returnAddress: string }[];
-          usable: boolean;
-        }[];
-      };
-    }>('GET', path);
-    const content = data.data?.content || [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = await this.coupangApi<any>('GET', path);
+
+    // 응답 구조 방어적 파싱: v5 openapi는 { code, data: { content: [...] } } 가 표준이지만
+    // 프록시/직접 모드별로 wrap이 달라질 수 있음
+    let content: Record<string, unknown>[] = [];
+    if (Array.isArray(raw?.data?.content)) content = raw.data.content;
+    else if (Array.isArray(raw?.content)) content = raw.content;
+    else if (Array.isArray(raw?.data)) content = raw.data;
+    else if (Array.isArray(raw)) content = raw;
+
+    console.log(`[CoupangAdapter] getReturnShippingCenters: rawKeys=${Object.keys(raw || {}).join(',')}, items=${content.length}`);
+
     return {
-      items: content.map((c) => ({
-        returnCenterCode: String(c.returnCenterCode),
-        shippingPlaceName: c.shippingPlaceName,
-        deliverCode: c.deliverCode || '',
-        returnAddress: c.placeAddresses?.[0]?.returnAddress || '',
-        usable: c.usable,
-      })),
+      items: content.map((c) => {
+        const addresses = (c.placeAddresses as { returnAddress?: string }[] | undefined) || [];
+        return {
+          returnCenterCode: String(c.returnCenterCode),
+          shippingPlaceName: (c.shippingPlaceName as string) || '',
+          deliverCode: (c.deliverCode as string) || '',
+          returnAddress: addresses[0]?.returnAddress || '',
+          usable: c.usable !== false,
+        };
+      }),
     };
   }
 

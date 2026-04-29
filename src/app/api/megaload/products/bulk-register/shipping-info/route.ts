@@ -28,16 +28,48 @@ export async function GET() {
 
     const vendorId = coupangAdapter.getVendorId();
 
-    // 출고지 + 반품지 병렬 조회
-    const [outboundResult, returnResult] = await Promise.all([
-      coupangAdapter.getOutboundShippingPlaces().catch(() => ({ items: [] })),
-      coupangAdapter.getReturnShippingCenters().catch(() => ({ items: [] })),
+    // 출고지 + 반품지 병렬 조회 — 에러를 삼키지 말고 개별 캡처해 진단정보로 노출
+    const [outboundSettled, returnSettled] = await Promise.allSettled([
+      coupangAdapter.getOutboundShippingPlaces(),
+      coupangAdapter.getReturnShippingCenters(),
     ]);
+
+    const outboundItems = outboundSettled.status === 'fulfilled' ? outboundSettled.value.items : [];
+    const returnItems = returnSettled.status === 'fulfilled' ? returnSettled.value.items : [];
+    const outboundError = outboundSettled.status === 'rejected'
+      ? (outboundSettled.reason instanceof Error ? outboundSettled.reason.message : String(outboundSettled.reason))
+      : null;
+    const returnError = returnSettled.status === 'rejected'
+      ? (returnSettled.reason instanceof Error ? returnSettled.reason.message : String(returnSettled.reason))
+      : null;
+
+    if (outboundError) console.error('[shipping-info] 출고지 조회 실패:', outboundError);
+    if (returnError) console.error('[shipping-info] 반품지 조회 실패:', returnError);
+
+    const usableOutbound = outboundItems.filter((p) => p.usable);
+    const usableReturn = returnItems.filter((c) => c.usable);
+
+    // 둘 다 에러면 사용자에게 에러로 노출 (UI shippingError 활성화)
+    if (outboundError && returnError) {
+      return NextResponse.json(
+        { error: `쿠팡 API 호출 실패 — 출고지: ${outboundError} / 반품지: ${returnError}` },
+        { status: 502 },
+      );
+    }
 
     return NextResponse.json({
       vendorId,
-      outboundShippingPlaces: outboundResult.items.filter((p) => p.usable),
-      returnShippingCenters: returnResult.items.filter((c) => c.usable),
+      outboundShippingPlaces: usableOutbound,
+      returnShippingCenters: usableReturn,
+      // 진단 정보: UI에 표시되진 않지만 콘솔/디버깅에 유용
+      diagnostics: {
+        outboundTotal: outboundItems.length,
+        outboundUsable: usableOutbound.length,
+        outboundError,
+        returnTotal: returnItems.length,
+        returnUsable: usableReturn.length,
+        returnError,
+      },
     });
   } catch (err) {
     return NextResponse.json(

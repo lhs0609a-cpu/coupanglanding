@@ -139,19 +139,9 @@ export async function scanProductFolder(folderPath: string): Promise<LocalProduc
       }
     }
 
-    // detail_images 폴더 없고 review_images만 있으면 review를 상세로 승격 (중복 방지 위해 review 비움)
-    if (detailImages.length === 0 && reviewImages.length > 0) {
-      detailImages = reviewImages;
-      reviewImages = [];
-    }
-    // 상세이미지가 여전히 부족하면 main_images[3:] 오버플로우를 상세이미지 풀에 추가
-    if (detailImages.length < 3 && mainImages.length > 3) {
-      const existing = new Set(detailImages);
-      const additions = mainImages.slice(3).filter(p => !existing.has(p));
-      if (additions.length > 0) {
-        detailImages = [...detailImages, ...additions];
-      }
-    }
+    // 상세페이지 슬롯은 detail_images/ 폴더 단독으로만 채움.
+    // - reviews/ 는 별도 슬롯(reviewImages)으로 UI에서 독립 노출됨 → 상세로 승격하지 않음
+    // - main_images 오버플로우 폴백도 제거 → 대표이미지가 상세 슬롯에 새지 않도록
 
     // product_info/
     const infoImages = subdirSet.has('product_info')
