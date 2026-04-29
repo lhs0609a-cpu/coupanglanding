@@ -9,6 +9,7 @@ import {
   PAYMENT_RETRY_INTERVAL_HOURS,
   kstDay,
   kstDateStr,
+  kstNow,
 } from '@/lib/payments/billing-constants';
 import { isRetryable, failureLabel, isBillingKeyInvalid } from '@/lib/payments/failure-codes';
 import { logSettlementError } from '@/lib/payments/settlement-errors';
@@ -140,9 +141,16 @@ export async function GET(request: NextRequest) {
 
 function defaultGraceUntil(createdAt: string | null): string | null {
   if (!createdAt) return null;
-  const d = new Date(createdAt);
-  d.setMonth(d.getMonth() + 1);
-  return d.toISOString().slice(0, 10);
+  // KST 기준으로 가입월 +1 (월말 day 클램핑). UTC 기반 setMonth 는 createdAt 의 UTC 시각이
+  // 15시 이상이면 KST 익일로 넘어가는 데 반해 grace 종료일이 1일 일찍 끝나는 버그가 있었음.
+  const kst = kstNow(new Date(createdAt));
+  const y = kst.getUTCFullYear();
+  const m = kst.getUTCMonth();
+  const day = kst.getUTCDate();
+  const lastDayOfNextMonth = new Date(Date.UTC(y, m + 2, 0)).getUTCDate();
+  const targetDay = Math.min(day, lastDayOfNextMonth);
+  const target = new Date(Date.UTC(y, m + 1, targetDay));
+  return target.toISOString().slice(0, 10);
 }
 
 async function processPtUser(
@@ -297,13 +305,13 @@ async function processPtUser(
         .eq('id', report.id);
 
       if (schedule?.id) {
-        await serviceClient
-          .from('payment_schedules')
-          .update({
-            total_success_count: (schedule.total_success_count || 0) + 1,
-            last_charged_at: new Date().toISOString(),
-          })
-          .eq('id', schedule.id);
+        // atomic increment — 동시 cron(자동결제 + 재시도 + 즉시결제) 충돌 시 카운터 손실 방지
+        await serviceClient.rpc('payment_schedule_increment', {
+          p_schedule_id: schedule.id,
+          p_success_delta: 1,
+          p_failed_delta: 0,
+          p_set_last_charged: true,
+        });
       }
 
       try {
@@ -352,20 +360,19 @@ async function processPtUser(
         .eq('id', tx.id);
 
       if (!cardFailUpdated.has(card.id)) {
-        await serviceClient
-          .from('billing_cards')
-          .update({ failed_count: (card.failed_count || 0) + 1 })
-          .eq('id', card.id);
+        await serviceClient.rpc('billing_card_increment_failed', {
+          p_card_id: card.id,
+        });
         cardFailUpdated.add(card.id);
       }
 
       if (schedule?.id) {
-        await serviceClient
-          .from('payment_schedules')
-          .update({
-            total_failed_count: (schedule.total_failed_count || 0) + 1,
-          })
-          .eq('id', schedule.id);
+        await serviceClient.rpc('payment_schedule_increment', {
+          p_schedule_id: schedule.id,
+          p_success_delta: 0,
+          p_failed_delta: 1,
+          p_set_last_charged: false,
+        });
       }
 
       if (retryable) {

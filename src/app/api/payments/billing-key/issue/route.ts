@@ -43,35 +43,21 @@ export async function POST(request: NextRequest) {
 
     const serviceClient = await createServiceClient();
 
-    // 새 카드 먼저 insert (is_primary=true). 성공 후 기존 primary 를 내린다 —
-    // 중간에 실패해도 "primary 없는 사용자" 가 되지 않도록.
-    const { data: card, error: insertError } = await serviceClient
-      .from('billing_cards')
-      .insert({
-        pt_user_id: ptUser.id,
-        customer_key: customerKey,
-        billing_key: billing.billingKey,
-        card_company: billing.cardCompany,
-        card_number: billing.cardNumber,
-        card_type: billing.cardType || '신용',
-        is_active: true,
-        is_primary: true,
-        registered_at: billing.authenticatedAt || new Date().toISOString(),
-      })
-      .select()
-      .single();
+    // 기존 primary demote + 새 카드 insert(is_primary=true) 를 한 트랜잭션에서 원자화.
+    // 두 단계로 쪼개면 사이에 다른 호출이 .eq('is_primary',true).maybeSingle() 했을 때
+    // 다중 행 에러로 "카드 없음" 처리되어 사용자가 잘못된 overdue 마킹을 받을 수 있음.
+    const { data: card, error: rpcError } = await serviceClient
+      .rpc('billing_card_register_primary', {
+        p_pt_user_id: ptUser.id,
+        p_customer_key: customerKey,
+        p_billing_key: billing.billingKey,
+        p_card_company: billing.cardCompany,
+        p_card_number: billing.cardNumber,
+        p_card_type: billing.cardType || '신용',
+        p_registered_at: billing.authenticatedAt || new Date().toISOString(),
+      });
 
-    if (insertError) throw insertError;
-
-    // 기존 primary 해제 — 새 카드 id 를 제외하고
-    if (card) {
-      await serviceClient
-        .from('billing_cards')
-        .update({ is_primary: false })
-        .eq('pt_user_id', ptUser.id)
-        .eq('is_primary', true)
-        .neq('id', card.id);
-    }
+    if (rpcError || !card) throw rpcError || new Error('카드 등록 실패');
 
     // 자동결제 스케줄 자동 생성 (첫 카드 등록 시)
     const { data: existingSchedule } = await serviceClient

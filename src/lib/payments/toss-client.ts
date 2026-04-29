@@ -93,7 +93,7 @@ interface CancelResult {
 /**
  * 토스페이먼츠 관련 env 변수 검증 — 모든 호출 진입점에서 동일한 체크 수행.
  * 필수:   TOSS_PAYMENTS_SECRET_KEY (없으면 결제 자체 불가능)
- * 권장:   TOSS_CUSTOMER_KEY_SECRET (없으면 ptUserId 가 customerKey 에 평문 노출)
+ * 필수(prod): TOSS_CUSTOMER_KEY_SECRET (미설정 시 ptUserId 평문 노출, 운영에서 throw)
  * 선택:   TOSS_WEBHOOK_SECRET / TOSS_WEBHOOK_SIGNING_KEY (웹훅 검증용, webhook 라우트에서 별도 체크)
  */
 export function assertTossEnv(): { secretKey: string; customerKeySecret: string | null } {
@@ -106,7 +106,15 @@ export function assertTossEnv(): { secretKey: string; customerKeySecret: string 
   }
   const customerKeySecret = process.env.TOSS_CUSTOMER_KEY_SECRET || null;
   if (!customerKeySecret && process.env.NODE_ENV === 'production') {
-    console.warn('[toss-client] TOSS_CUSTOMER_KEY_SECRET 미설정 — customerKey 가 ptUserId 평문 기반으로 생성됩니다');
+    // 운영에서 미설정이면 즉시 throw — 평문 ptUserId 가 토스/로그에 노출되는 것 차단.
+    // dev/staging 은 호환성 위해 경고만.
+    throw Object.assign(
+      new Error('결제 설정 누락: TOSS_CUSTOMER_KEY_SECRET 가 운영 환경에서 필수입니다'),
+      { code: 'TOSS_CUSTOMER_KEY_SECRET_MISSING' },
+    );
+  }
+  if (!customerKeySecret) {
+    console.warn('[toss-client] TOSS_CUSTOMER_KEY_SECRET 미설정 — customerKey 가 ptUserId 평문 기반으로 생성됩니다 (dev/staging 만 허용)');
   }
   return { secretKey, customerKeySecret };
 }

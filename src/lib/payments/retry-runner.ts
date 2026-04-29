@@ -158,11 +158,14 @@ export async function retryTransaction(
   }
 
   // 이미 결제된 리포트면(다른 경로로 처리됨) → 원본 tx 를 final 로 정리 + retry 플래그 해제
+  // 테스트 결제(charge-test)는 monthly_report_id=null 이라 현재는 안전하지만,
+  // 향후 변경에 대비해 명시적으로 is_test_transaction=false 필터 적용.
   const { data: paidCheck } = await serviceClient
     .from('payment_transactions')
     .select('id')
     .eq('monthly_report_id', failedTx.monthly_report_id)
     .eq('status', 'success')
+    .eq('is_test_transaction', false)
     .limit(1)
     .maybeSingle();
 
@@ -320,10 +323,10 @@ export async function retryTransaction(
       .update({ next_retry_at: null })
       .eq('id', txId);
 
-    await serviceClient
-      .from('billing_cards')
-      .update({ failed_count: (card.failed_count || 0) + 1 })
-      .eq('id', card.id);
+    // atomic increment — 동시 cron 실행 시 카운터 손실 방지
+    await serviceClient.rpc('billing_card_increment_failed', {
+      p_card_id: card.id,
+    });
 
     if (goFinal) {
       await markFinalFailure(serviceClient, newTx.id, ptUserId, todayDateStr);

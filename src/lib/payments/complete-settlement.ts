@@ -1,10 +1,15 @@
 /**
  * 카드 결제 성공 후 정산 자동 확정 로직
- * - payment_status → confirmed
  * - revenue_entries 생성
  * - 세금계산서 자동 발행
  * - 트레이너 보너스 생성
  * - 프로그램 접근 복구
+ *
+ * 멱등성: monthly_reports.settlement_completed_at 가 NULL 일 때만 후처리 실행.
+ *   payment_mark_success RPC 가 이미 payment_status='confirmed' 로 마킹하므로 그 컬럼은
+ *   가드로 쓸 수 없다 (모든 후처리 호출이 0건 매칭으로 skip 되던 버그).
+ *   각 단계도 자체 idempotency guard (revenue_entries source_ref UNIQUE,
+ *   trainer_earnings monthly_report_id UNIQUE, tax_invoices 멱등 체크)를 가짐.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -31,42 +36,24 @@ interface SettlementReport {
   cost_tax: number;
 }
 
-/**
- * 결제 성공 후 정산 자동 확정
- * 관리자의 수동 확인 없이 모든 후처리를 수행한다.
- *
- * 멱등성: 이미 confirmed 인 리포트면 즉시 반환 (웹훅 재전송 시 중복 정산·중복 트레이너 보너스 방지).
- * 가드는 DB 상태 기준으로 atomic update 시도 — 동시 두 호출이 와도 한쪽만 통과.
- */
 export async function completeSettlement(
   serviceClient: SupabaseClient,
   report: SettlementReport,
 ) {
-  const now = new Date().toISOString();
-  const depositAmount = report.admin_deposit_amount || report.calculated_deposit;
-
-  // 1. 리포트 → confirmed (멱등성 가드: payment_status가 'confirmed'가 아닐 때만 update)
-  //    rows 길이가 0이면 이미 다른 호출이 confirmed 처리한 상태 → 중복 실행 방지
-  const { data: confirmedRows } = await serviceClient
+  // 1. 멱등 가드 — 이미 후처리 완료된 리포트면 즉시 반환
+  const { data: gateCheck } = await serviceClient
     .from('monthly_reports')
-    .update({
-      payment_status: 'confirmed',
-      payment_confirmed_at: now,
-      fee_payment_status: 'paid',
-      fee_confirmed_at: now,
-      fee_paid_at: now,
-    })
+    .select('settlement_completed_at')
     .eq('id', report.id)
-    .neq('payment_status', 'confirmed')
-    .select('id');
+    .maybeSingle();
 
-  if (!confirmedRows || confirmedRows.length === 0) {
-    // 이미 다른 호출이 정산 확정 완료. 중복 트레이너 보너스/세금계산서 발행 방지를 위해 즉시 반환.
-    console.log(`[completeSettlement] ${report.id} 이미 confirmed 상태 — 중복 처리 skip`);
+  if (gateCheck?.settlement_completed_at) {
     return;
   }
 
-  // 2. 프로그램 접근 복구
+  const depositAmount = report.admin_deposit_amount || report.calculated_deposit;
+
+  // 2. 프로그램 접근 복구 (idempotent)
   await serviceClient
     .from('pt_users')
     .update({ program_access_active: true })
@@ -82,7 +69,6 @@ export async function completeSettlement(
   const userName = (ptUser?.profile as unknown as { full_name: string } | null)?.full_name || '이름없음';
 
   // 4. revenue_entries 생성 — source_ref=monthly_report_id 기준 UNIQUE 로 중복 방지
-  //    description 수동 편집에 의존하던 기존 ilike 방식은 회피되므로 제거.
   const { data: existingRevenue } = await serviceClient
     .from('revenue_entries')
     .select('id')
@@ -100,16 +86,19 @@ export async function completeSettlement(
       main_partner_id: null,
     });
     if (revErr) {
-      await logSettlementError(serviceClient, {
-        stage: 'revenue_entries_insert',
-        monthlyReportId: report.id,
-        ptUserId: report.pt_user_id,
-        error: revErr,
-      });
+      // UNIQUE 충돌(동시 호출)은 정상 — 다른 호출이 먼저 처리. 그 외만 로깅.
+      if (revErr.code !== '23505') {
+        await logSettlementError(serviceClient, {
+          stage: 'revenue_entries_insert',
+          monthlyReportId: report.id,
+          ptUserId: report.pt_user_id,
+          error: revErr,
+        });
+      }
     }
   }
 
-  // 5. 트레이너 보너스 생성
+  // 5. 트레이너 보너스 생성 (trainer_earnings.monthly_report_id UNIQUE 로 중복 방지)
   const { data: traineeLink } = await serviceClient
     .from('trainer_trainees')
     .select('trainer_id, trainer:trainers(*, pt_user:pt_users(profile_id))')
@@ -145,7 +134,7 @@ export async function completeSettlement(
           .maybeSingle();
 
         if (!existingEarning) {
-          await serviceClient.from('trainer_earnings').insert({
+          const { error: earningErr } = await serviceClient.from('trainer_earnings').insert({
             trainer_id: trainer.id,
             trainee_pt_user_id: report.pt_user_id,
             monthly_report_id: report.id,
@@ -156,28 +145,36 @@ export async function completeSettlement(
             payment_status: 'pending',
           });
 
-          await serviceClient
-            .from('trainers')
-            .update({ total_earnings: (trainer.total_earnings || 0) + bonusAmount })
-            .eq('id', trainer.id);
+          if (!earningErr) {
+            // total_earnings 는 atomic increment 로 race-free 보장
+            await serviceClient.rpc('trainer_increment_total_earnings', {
+              p_trainer_id: trainer.id,
+              p_delta: bonusAmount,
+            });
 
-          if (trainer.pt_user?.profile_id) {
-            await notifyTrainerBonusEarned(
-              serviceClient,
-              trainer.pt_user.profile_id,
-              userName,
-              report.year_month,
-              bonusAmount,
-            );
+            if (trainer.pt_user?.profile_id) {
+              await notifyTrainerBonusEarned(
+                serviceClient,
+                trainer.pt_user.profile_id,
+                userName,
+                report.year_month,
+                bonusAmount,
+              );
+            }
+          } else if (earningErr.code !== '23505') {
+            await logSettlementError(serviceClient, {
+              stage: 'trainer_earnings_insert',
+              monthlyReportId: report.id,
+              ptUserId: report.pt_user_id,
+              error: earningErr,
+            });
           }
         }
       }
     }
   }
 
-  // 6. 세금계산서 자동 발행
-  //    연산자 우선순위 버그 수정: NEXT_PUBLIC_BASE_URL 이 우선, 없으면 VERCEL_URL, 아니면 localhost.
-  //    실패해도 정산 확정은 유지하되, payment_settlement_errors 에 반드시 기록한다.
+  // 6. 세금계산서 자동 발행 — tax_invoices API 가 자체 멱등 체크 보유 (중복 호출 시 400)
   try {
     const baseUrl =
       process.env.NEXT_PUBLIC_BASE_URL ??
@@ -201,7 +198,8 @@ export async function completeSettlement(
       }),
     });
 
-    if (!invoiceRes.ok) {
+    if (!invoiceRes.ok && invoiceRes.status !== 400) {
+      // 400 은 "이미 발행됨" 멱등 응답이므로 정상.
       const errBody = await invoiceRes.text().catch(() => '');
       await logSettlementError(serviceClient, {
         stage: 'tax_invoice_fetch',
@@ -219,4 +217,12 @@ export async function completeSettlement(
       error: err,
     });
   }
+
+  // 7. 후처리 완료 마킹 — 다음 호출은 1번 가드에서 즉시 return.
+  //    부분 실패한 경우에도 마킹하여 재실행으로 인한 중복 부작용을 차단(로그는 settlement_errors 에 남음).
+  await serviceClient
+    .from('monthly_reports')
+    .update({ settlement_completed_at: new Date().toISOString() })
+    .eq('id', report.id)
+    .is('settlement_completed_at', null);
 }

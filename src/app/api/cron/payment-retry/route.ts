@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { retryTransaction } from '@/lib/payments/retry-runner';
-import { kstDateStr } from '@/lib/payments/billing-constants';
+import { kstDateStr, MAX_PAYMENT_RETRY_COUNT } from '@/lib/payments/billing-constants';
 import { logSettlementError } from '@/lib/payments/settlement-errors';
 
 const CRON_LOCK_KEY = 'cron:payment-retry';
@@ -46,11 +46,13 @@ export async function GET(request: NextRequest) {
     const todayDateStr = kstDateStr(today);
     const nowIso = today.toISOString();
 
+    // retry_count < MAX 명시 — is_final_failure 토글이 누락된 좀비 행이 무한 재시도되는 것 방지
     const { data: dueRetries, error: queryErr } = await serviceClient
       .from('payment_transactions')
       .select('id, pt_user_id, monthly_report_id, billing_card_id, amount, penalty_amount, total_amount, retry_count, parent_transaction_id')
       .eq('status', 'failed')
       .eq('is_final_failure', false)
+      .lt('retry_count', MAX_PAYMENT_RETRY_COUNT)
       .not('next_retry_at', 'is', null)
       .lte('next_retry_at', nowIso)
       .order('next_retry_at', { ascending: true });

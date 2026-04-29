@@ -5,20 +5,33 @@
  * - 접근 정지: 14일 초과 시
  */
 
+import { kstNow } from '@/lib/payments/billing-constants';
+
 /** 상수 */
 export const SURCHARGE_RATE = 0.05;        // 연체 부과금 5%
 export const ANNUAL_INTEREST_RATE = 0.15;  // 연 15% 지연이자
 export const SUSPENSION_DAYS = 14;         // 접근 정지까지 유예일
 export const GRACE_PERIOD_DAYS = 10;       // 연체 부과금/이자 유예 기간
 
-/** D-Day 계산 (양수=남은일, 0=당일, 음수=초과) */
+/**
+ * D-Day 계산 (양수=남은일, 0=당일, 음수=초과)
+ * KST 기준 — 서버 타임존(UTC) 으로 계산하면 한국 자정 직후 1일 어긋남이 발생.
+ */
 export function getFeePaymentDDay(deadline: string | Date): number {
   const d = typeof deadline === 'string' ? new Date(deadline) : deadline;
-  const now = new Date();
-  const deadlineDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const diffMs = deadlineDate.getTime() - todayDate.getTime();
-  return Math.round(diffMs / (1000 * 60 * 60 * 24));
+  const dKst = kstNow(d);
+  const nowKst = kstNow();
+  const deadlineMidnight = Date.UTC(
+    dKst.getUTCFullYear(),
+    dKst.getUTCMonth(),
+    dKst.getUTCDate(),
+  );
+  const todayMidnight = Date.UTC(
+    nowKst.getUTCFullYear(),
+    nowKst.getUTCMonth(),
+    nowKst.getUTCDate(),
+  );
+  return Math.round((deadlineMidnight - todayMidnight) / (1000 * 60 * 60 * 24));
 }
 
 /** 페널티 계산 결과 */
