@@ -4,6 +4,18 @@
 -- ============================================================
 
 -- ------------------------------------------------------------
+-- 0. revenue_entries.source_ref — migration_payment_hardening.sql 의 ADD COLUMN 이
+--    적용 안 된 환경에서도 본 마이그레이션이 자가 충족적으로 동작하도록 idempotent 추가.
+-- ------------------------------------------------------------
+ALTER TABLE revenue_entries
+  ADD COLUMN IF NOT EXISTS source_ref TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_revenue_entries_source
+  ON revenue_entries (year_month, source, source_ref)
+  WHERE source_ref IS NOT NULL;
+
+
+-- ------------------------------------------------------------
 -- 1. monthly_reports.settlement_completed_at — 정산 후처리 멱등 가드
 -- ------------------------------------------------------------
 -- 기존 completeSettlement 가드는 monthly_reports.payment_status='confirmed' 를 봤는데,
