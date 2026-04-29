@@ -221,7 +221,7 @@ export default function AdminPaymentLocksPage() {
         </div>
         <p className="text-xs text-gray-500 mb-3">
           특정 PT생에게 미리 <b>예외 종료일</b>을 걸어두면 그 날짜까지는 결제 실패해도 차단되지 않습니다.<br />
-          <b>첫 결제 유예</b>는 청구일(매월 5일) 자동결제 시도 자체를 skip — 아직 결제 시점이 안 된 유저에게 사용.
+          <b>첫 결제 유예</b>는 청구일(매월 3일) 자동결제 시도 자체를 skip — 아직 결제 시점이 안 된 유저에게 사용.
         </p>
         <div className="flex gap-2 items-center">
           <div className="relative flex-1">

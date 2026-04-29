@@ -1,11 +1,11 @@
 /**
  * 결제 관련 전역 상수
  *
- * 청구일은 전체 PT 유저 공통으로 매월 5일 고정.
+ * 청구일은 전체 PT 유저 공통으로 매월 3일 고정.
  * 변경하려면 이 파일만 수정하면 cron, UI, 안내문구 전체에 자동 반영됨.
  */
 
-export const BILLING_DAY = 5;
+export const BILLING_DAY = 3;
 
 export const PAYMENT_LOCK_LEVELS = {
   NORMAL: 0,

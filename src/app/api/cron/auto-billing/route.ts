@@ -22,7 +22,7 @@ const CRON_LOCK_TTL_SECONDS = 30 * 60;
 /**
  * GET /api/cron/auto-billing
  * vercel.json 스케줄: "0 18 * * *" (매일 UTC 18:00 = 다음날 KST 03:00).
- * KST 기준 오늘이 BILLING_DAY(매월 5일)일 때만 실제 결제 수행, 그 외는 no-op.
+ * KST 기준 오늘이 BILLING_DAY(매월 3일)일 때만 실제 결제 수행, 그 외는 no-op.
  *
  * 동시 실행 방지: postgres advisory lock 획득 실패 시 409 로 거부 (Vercel 재시도 대비).
  *
