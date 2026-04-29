@@ -310,10 +310,10 @@ export function generatePersuasionContent(
   let totalChars = enrichedBlocks.reduce((sum, b) => sum + getBlockCharCount(b), 0);
 
   // 글자수 < MIN_CHARS이면 블록 추가 (중복 텍스트 방지 — content 기준 dedup)
+  // SEO 스터핑 방지: solution 비중 축소(상품명 {product} 다수 포함). feature_detail/usage_guide 위주.
   const paddingTypes: ContentBlockType[] = [
-    'feature_detail', 'solution', 'social_proof', 'usage_guide',
-    'feature_detail', 'solution', 'social_proof', 'usage_guide',
-    'feature_detail', 'solution', 'feature_detail', 'social_proof',
+    'feature_detail', 'social_proof', 'usage_guide', 'feature_detail',
+    'solution', 'social_proof', 'usage_guide', 'feature_detail',
   ];
   const seenPadHeads = new Set<string>(
     enrichedBlocks.map(b => (b.content || '').trim().slice(0, 80)).filter(Boolean),

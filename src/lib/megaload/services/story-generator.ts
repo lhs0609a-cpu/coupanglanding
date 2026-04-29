@@ -99,6 +99,41 @@ const COMMON_VAR_FALLBACKS: Record<string, string[]> = {
   '사용감': ['만족스러운', '편안해진', '컨디션이 좋아진'],
 };
 
+/**
+ * 상품명 변형 풀 생성 — SEO 스터핑 방지용.
+ * 풀네임 / 단축형 / 대명사를 가중치 분포로 섞어 자연스러운 본문 생성.
+ */
+function _buildProductRefs(productName: string): string[] {
+  const refs: string[] = [productName];
+  const tokens = productName.split(/\s+/).filter(Boolean);
+  if (tokens.length >= 2) {
+    const short2 = tokens.slice(0, 2).join(' ');
+    if (short2.length >= 4 && short2 !== productName) refs.push(short2);
+  }
+  if (tokens.length >= 3) {
+    const short3 = tokens.slice(0, 3).join(' ');
+    if (short3.length >= 6 && !refs.includes(short3)) refs.push(short3);
+  }
+  refs.push('이 제품');
+  refs.push('이 상품');
+  return refs;
+}
+
+function _pickProductRef(refs: string[], rng: () => number): string {
+  if (refs.length === 1) return refs[0];
+  const weights = refs.length === 2 ? [0.5, 0.5]
+    : refs.length === 3 ? [0.45, 0.3, 0.25]
+    : refs.length === 4 ? [0.4, 0.25, 0.2, 0.15]
+    : [0.35, 0.25, 0.15, 0.15, 0.10];
+  const r = rng();
+  let cum = 0;
+  for (let i = 0; i < refs.length; i++) {
+    cum += weights[i] || 0;
+    if (r < cum) return refs[i];
+  }
+  return refs[0];
+}
+
 function fillTemplate(
   template: string,
   vars: Record<string, string[]>,
@@ -107,8 +142,9 @@ function fillTemplate(
 ): string {
   let result = template;
 
-  // {product} → 상품명
-  result = result.replace(/\{product\}/g, productName);
+  // {product} → 변형 풀에서 가중치 픽 (SEO 스터핑 방지)
+  const productRefs = _buildProductRefs(productName);
+  result = result.replace(/\{product\}/g, () => _pickProductRef(productRefs, rng));
 
   // {변수명} → 풀에서 랜덤 선택
   result = result.replace(/\{([^}]+)\}/g, (match, key) => {

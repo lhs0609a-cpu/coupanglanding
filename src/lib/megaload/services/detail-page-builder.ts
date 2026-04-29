@@ -180,7 +180,7 @@ function buildLayoutB(params: DetailPageParams): string {
   // 빈 슬롯/null URL 제거 — 후기 4·5번이 빈 칸으로 노출되는 문제 차단
   const bodyImages = (reviewImageUrls ?? []).filter(u => typeof u === 'string' && u.trim().length > 0);
   for (let i = 0; i < bodyImages.length; i++) {
-    sections.push(`<div style="margin:0;"><img src="${esc(bodyImages[i])}" alt="${esc(productName)} ${i + 1}" style="width:100%;display:block;" /></div>`);
+    sections.push(`<div style="margin:0;"><img src="${esc(bodyImages[i])}" alt="${esc(shortenForAlt(productName))} ${i + 1}" style="width:100%;display:block;" /></div>`);
   }
 
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
@@ -227,7 +227,7 @@ function buildLayoutC(params: DetailPageParams): string {
   // 빈 슬롯/null URL 제거 — 후기 4·5번이 빈 칸으로 노출되는 문제 차단
   const bodyImages = (reviewImageUrls ?? []).filter(u => typeof u === 'string' && u.trim().length > 0);
   if (bodyImages.length > 0) {
-    sections.push(`<div style="margin:0;"><img src="${esc(bodyImages[0])}" alt="${esc(productName)} 메인" style="width:100%;display:block;" /></div>`);
+    sections.push(`<div style="margin:0;"><img src="${esc(bodyImages[0])}" alt="${esc(shortenForAlt(productName))} 메인" style="width:100%;display:block;" /></div>`);
   }
 
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
@@ -240,7 +240,7 @@ function buildLayoutC(params: DetailPageParams): string {
     sections.push('<div style="display:flex;flex-wrap:wrap;gap:4px;padding:8px 0;">');
     for (let i = 0; i < remaining.length; i++) {
       const w = remaining.length === 1 ? '100%' : 'calc(50% - 2px)';
-      sections.push(`<div style="width:${w};"><img src="${esc(remaining[i])}" alt="${esc(productName)} ${i + 2}" style="width:100%;display:block;" /></div>`);
+      sections.push(`<div style="width:${w};"><img src="${esc(remaining[i])}" alt="${esc(shortenForAlt(productName))} ${i + 2}" style="width:100%;display:block;" /></div>`);
     }
     sections.push('</div>');
   }
@@ -368,7 +368,7 @@ function buildBlogStyleSection(
     }
     if (i < imageUrls.length && typeof imageUrls[i] === 'string' && imageUrls[i].trim().length > 0) {
       parts.push(
-        `<div style="margin:12px 0;"><img src="${esc(imageUrls[i])}" alt="${esc(productName)} ${i + 1}" style="width:100%;display:block;" /></div>`
+        `<div style="margin:12px 0;"><img src="${esc(imageUrls[i])}" alt="${esc(shortenForAlt(productName))} ${i + 1}" style="width:100%;display:block;" /></div>`
       );
     }
   }
@@ -414,7 +414,7 @@ function buildInfoSection(urls: string[], productName: string): string {
   parts.push('<div style="font-size:16px;font-weight:bold;color:#555;letter-spacing:1px;">상품정보제공고시</div>');
   parts.push('</div>');
   for (const url of urls) {
-    parts.push(`<img src="${esc(url)}" alt="${esc(productName)} 상품정보" style="width:100%;display:block;margin-bottom:4px;" />`);
+    parts.push(`<img src="${esc(url)}" alt="${esc(shortenForAlt(productName))} 상품정보" style="width:100%;display:block;margin-bottom:4px;" />`);
   }
   parts.push('</div>');
   return parts.join('\n');
@@ -646,8 +646,14 @@ export function buildPersuasionPageHtml(
   // 이미지 배분: 지정된 블록 뒤에 배치 (사용자 선택 상세이미지만 사용)
   const imageQueue = [...detailImageUrls];
 
-  // 이미지 alt 텍스트 SEO 강화
+  // 이미지 alt 텍스트 SEO 강화 — 풀네임 대신 단축형(앞 2단어)으로 SEO 스터핑 방지
   const seoAltPrefix = seoKeywords && seoKeywords.length > 0 ? seoKeywords[0] + ' ' : '';
+  const altShort = (() => {
+    const tokens = (productName || '').split(/\s+/).filter(Boolean);
+    if (tokens.length <= 2) return productName;
+    const head = tokens.slice(0, 2).join(' ');
+    return head.length >= 4 ? head : productName;
+  })();
 
   // 이미지→블록 배정 맵: imageIndex → blockIndex (뒤에 배치)
   const imageToBlockMap = new Map<number, number>();
@@ -730,7 +736,7 @@ export function buildPersuasionPageHtml(
     if (imgsForBlock) {
       for (const imgIdx of imgsForBlock) {
         const altType = useAffinity && imgIdx < detailImageTypes.length ? detailImageTypes[imgIdx] : contentBlocks[i].type;
-        sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imgIdx])}" alt="${esc(productName)} ${seoAltPrefix}${altType}" style="width:100%;display:block;" /></div>`);
+        sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imgIdx])}" alt="${esc(altShort)} ${seoAltPrefix}${altType}" style="width:100%;display:block;" /></div>`);
       }
     }
   }
@@ -738,7 +744,7 @@ export function buildPersuasionPageHtml(
   // 미배치 이미지 모두 출력
   for (let imgIdx = 0; imgIdx < imageQueue.length; imgIdx++) {
     if (!placedImages.has(imgIdx)) {
-      sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imgIdx])}" alt="${esc(productName)} ${seoAltPrefix}${imgIdx + 1}" style="width:100%;display:block;" /></div>`);
+      sections.push(`<div style="margin:12px 0;"><img src="${esc(imageQueue[imgIdx])}" alt="${esc(altShort)} ${seoAltPrefix}${imgIdx + 1}" style="width:100%;display:block;" /></div>`);
     }
   }
 
@@ -803,4 +809,13 @@ function esc(str: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/** 이미지 alt 텍스트용 단축 상품명 — 앞 2단어만 유지 (SEO 스터핑 방지) */
+function shortenForAlt(name: string): string {
+  if (!name) return '';
+  const tokens = name.split(/\s+/).filter(Boolean);
+  if (tokens.length <= 2) return name;
+  const head = tokens.slice(0, 2).join(' ');
+  return head.length >= 4 ? head : name;
 }

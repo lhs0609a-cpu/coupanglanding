@@ -1201,6 +1201,50 @@ function fixParticlesAtBoundary(text: string): string {
     .replace(new RegExp(b, 'g'), '');
 }
 
+/**
+ * 상품명 변형 생성 — SEO 스터핑 방지 (12+회 반복 → 자연스러운 분포)
+ * 시드 기반으로 풀에서 선택하여 결정성 유지.
+ */
+function buildProductRefs(productName: string): string[] {
+  const refs: string[] = [productName]; // 원본 풀네임
+  // 단축형 (앞 2~3 단어, 너무 짧으면 생략)
+  const tokens = productName.split(/\s+/).filter(Boolean);
+  if (tokens.length >= 2) {
+    const short2 = tokens.slice(0, 2).join(' ');
+    if (short2.length >= 4 && short2 !== productName) refs.push(short2);
+  }
+  if (tokens.length >= 3) {
+    const short3 = tokens.slice(0, 3).join(' ');
+    if (short3.length >= 6 && !refs.includes(short3)) refs.push(short3);
+  }
+  // 대명사 — 항상 안전
+  refs.push('이 제품');
+  refs.push('이 상품');
+  return refs;
+}
+
+/**
+ * 가중치 기반 product 변형 픽 — rng 1회 호출, 누적 분포 사용.
+ * 분포: 풀네임 35% / 단축2 25% / 단축3 15% / 이 제품 15% / 이 상품 10%
+ *  → 풀네임만큼 다양화되어 같은 페이지에 같은 변형이 12회 반복되지 않음.
+ */
+function pickProductRef(refs: string[], rng: () => number): string {
+  // refs 길이에 따라 분포 동적 생성
+  const weights: number[] = [];
+  if (refs.length === 1) return refs[0];
+  if (refs.length === 2) weights.push(0.5, 0.5);
+  else if (refs.length === 3) weights.push(0.45, 0.3, 0.25);
+  else if (refs.length === 4) weights.push(0.4, 0.25, 0.2, 0.15);
+  else weights.push(0.35, 0.25, 0.15, 0.15, 0.10);
+  const r = rng();
+  let cum = 0;
+  for (let i = 0; i < refs.length; i++) {
+    cum += weights[i] || 0;
+    if (r < cum) return refs[i];
+  }
+  return refs[0];
+}
+
 function fillTemplate(
   template: string,
   vars: Record<string, string[]>,
@@ -1208,8 +1252,10 @@ function fillTemplate(
   rng: () => number,
 ): string {
   const b = VAR_BOUNDARY;
-  // 1. {product} 치환 — 끝에 경계 마커 삽입
-  let result = template.replace(/\{product\}/g, productName + b);
+  // 1. {product} 치환 — 변형 풀에서 가중치 픽으로 자연스럽게 분포
+  //    같은 상세페이지에 풀네임이 12+회 반복되는 SEO 스터핑 방지.
+  const productRefs = buildProductRefs(productName);
+  let result = template.replace(/\{product\}/g, () => pickProductRef(productRefs, rng) + b);
   // 2. {변수} 치환 — 끝에 경계 마커 삽입
   result = result.replace(/\{([^}]+)\}/g, (match, key) => {
     const pool = vars[key];
