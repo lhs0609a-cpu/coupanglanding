@@ -1168,12 +1168,26 @@ export function maybeSeoWeave(
     // 이른 블록(강제 삽입 구간)이라면 prefix 삽입 fallback으로 강제 SEO 노출 보장.
     // — 종결어미 뒤에 키워드 붙이는 부자연스러움을 피하면서도 SEO 미포함률을 줄인다.
     if (isEarlyBlock) {
-      // 자연스러운 prefix 형태로 삽입 (시드 기반 4가지 형식 로테이션)
+      // 자연스러운 prefix 형태로 삽입 — 받침 유무로 조사(을/를) 자동 선택
+      // 풀 확장 (4 → 12) — 1만 페이지+에 같은 4문장 박히던 saturation 해결
+      const lastChar = kw.charCodeAt(kw.length - 1);
+      const hasJongseong = lastChar >= 0xAC00 && lastChar <= 0xD7A3 && (lastChar - 0xAC00) % 28 !== 0;
+      const eulReul = hasJongseong ? '을' : '를';
+      const iGa = hasJongseong ? '이' : '가';
+      const eunNeun = hasJongseong ? '은' : '는';
       const prefixForms = [
-        `${kw}을 찾고 계셨다면 좋은 기회입니다. `,
+        `${kw}${eulReul} 찾고 계셨다면 좋은 기회입니다. `,
         `${kw} 카테고리에서 한 번쯤 짚어볼 만한 제품입니다. `,
         `${kw} 분야에 관심 있으신 분이라면 주목해보세요. `,
         `${kw} 관련해서 자주 비교되는 제품 중 하나입니다. `,
+        `${kw}${iGa} 필요하셨다면 적당한 시점입니다. `,
+        `요즘 ${kw} 쪽으로 관심 가지시는 분들이 늘었습니다. `,
+        `${kw}${eunNeun} 이렇게 보시면 됩니다. `,
+        `${kw} 고민하시는 분께 참고가 될 만합니다. `,
+        `${kw} 검색하셨다면 한 번쯤 살펴볼 만합니다. `,
+        `${kw} 쪽 관심 있으시면 이 페이지가 도움이 됩니다. `,
+        `${kw}${eulReul} 둘러보시기 좋은 옵션입니다. `,
+        `${kw} 분야에서 점차 자리잡고 있는 제품입니다. `,
       ];
       const prefix = prefixForms[_seoWeaveInsertionCount % prefixForms.length];
       return prefix + content;
@@ -1376,6 +1390,26 @@ export function composeBlock(
     : getL1ForbiddenTerms(categoryPath);
   if (effectiveForbidden.length > 0) {
     actualPool = filterFragmentPool(actualPool, effectiveForbidden);
+  }
+
+  // ── 짧은 generic CTA closer 차단 (전수 감사: 1만+회 등장 saturation) ──
+  // "확인하세요./경험하세요./쉽고 간편합니다./꾸준함이 답입니다./만나보세요./
+  //  간편하게 시작하세요./시작하세요." 등이 모든 카테고리에 박혀 부자연스러움.
+  // ⚠️ 주의: 작은 fallback 풀을 자동 주입하면 그것이 새 saturation이 됨 (이전 시도에서 52~109% 등장).
+  //   대신 GLOBAL_CTA_CLOSERS(150+ 항목)를 보충 풀로 사용 — 큰 풀이라 saturation 위험 적음.
+  const SATURATED_SHORT_CLOSERS = new Set([
+    '확인하세요.', '확인해보세요.', '시작하세요.', '경험하세요.', '만나보세요.',
+    '쉽고 간편합니다.', '꾸준함이 답입니다.', '간편하게 시작하세요.', '느껴보세요.',
+    '바꿔보세요.', '지금 시작하세요.', '지금 만나보세요.', '확인',
+  ]);
+  if (actualPool.closers && actualPool.closers.length > 0) {
+    const filtered = actualPool.closers.filter(c => c && !SATURATED_SHORT_CLOSERS.has(c.trim()));
+    if (filtered.length === 0) {
+      // 완전히 비면 GLOBAL_CTA_CLOSERS(150+개)에서 시드 기반 12개 — 다양성 보장
+      actualPool = { ...actualPool, closers: pickN(filterByTone(GLOBAL_CTA_CLOSERS), 12, rng) };
+    } else {
+      actualPool = { ...actualPool, closers: filtered };
+    }
   }
 
   // ── 글로벌 다양성 풀 주입 (closer/opener 96만회 반복 문제 해결) ──
