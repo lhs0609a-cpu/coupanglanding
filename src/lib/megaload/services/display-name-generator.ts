@@ -616,21 +616,35 @@ const MUTUALLY_EXCLUSIVE_FAMILIES: { name: string; tokens: string[] }[] = [
   { name: '채소', tokens: ['채소', '야채', '배추', '당근', '양파', '대파', '마늘', '감자', '고구마', '오이', '토마토', '호박', '가지', '시금치', '브로콜리', '상추', '깻잎', '파프리카', '피망', '아스파라거스', '연근', '우엉', '도라지', '쪽파', '미나리'] },
   // 곡물
   { name: '곡물', tokens: ['쌀', '현미', '찹쌀', '보리', '귀리', '퀴노아', '메밀', '수수', '조', '잡곡', '백미'] },
-  // 육류
-  { name: '육류', tokens: ['소고기', '돼지고기', '닭고기', '오리고기', '양고기', '한우', '한돈', '한닭', '삼겹살', '목살', '등심', '안심', '갈비', '베이컨', '햄'] },
-  // 유제품/probiotic — 자몽/사과 등 단일 과일 카테고리에 잡음으로 들어가는 것 차단
-  { name: '유제품', tokens: ['유산균', '프로바이오틱스', '발효유', '요거트', '치즈', '버터', '우유', '연유', '생크림'] },
-  // 음료 — 차/주스/탄산음료 family
-  { name: '음료', tokens: ['콜라', '사이다', '탄산수', '미네랄워터', '생수', '에너지드링크', '커피', '아메리카노', '라떼'] },
-  // 차류 (개별 차종 모순 방지 — 자몽차에 녹차/홍차 잡음 차단)
+  // 육류 — sub-divide로 cross-meat 차단 (돈육 카테고리에 "한우" 차단 등)
+  { name: '소고기', tokens: ['소고기', '한우', '등심', '안심', '갈비', '채끝', '치마살', '부채살', '꽃등심', '살치살'] },
+  { name: '돼지고기', tokens: ['돼지고기', '한돈', '삼겹살', '목살', '항정살', '갈매기살', '돈가스', '베이컨', '햄', '소시지'] },
+  { name: '닭고기', tokens: ['닭고기', '한닭', '닭가슴살', '닭다리', '닭윙', '치킨'] },
+  { name: '오리고기', tokens: ['오리고기', '오리훈제', '훈제오리'] },
+  { name: '양고기', tokens: ['양고기', '램'] },
+  // 유제품 — 우유/요거트/치즈 sub-family
+  { name: '우유', tokens: ['우유', '멸균우유', '저지방우유', '딸기우유', '초코우유', '바나나우유', '커피우유'] },
+  { name: '발효유', tokens: ['유산균', '프로바이오틱스', '발효유', '요거트', '그릭요거트', '플레인요거트'] },
+  { name: '치즈', tokens: ['치즈', '모짜렐라', '체다', '파마산'] },
+  { name: '버터', tokens: ['버터', '연유', '생크림'] },
+  // 음료 — 커피/주스/탄산 sub-family (커피 카테고리에 "주스" 잡음 차단)
+  { name: '커피', tokens: ['커피', '아메리카노', '라떼', '에스프레소', '캐러멜마키아토', '카푸치노'] },
+  { name: '탄산음료', tokens: ['콜라', '사이다', '탄산수', '에너지드링크', '환타'] },
+  { name: '생수', tokens: ['생수', '미네랄워터'] },
+  // 차종 (개별 차종 모순 방지 — 자몽차에 녹차/홍차 잡음 차단)
   { name: '차종', tokens: ['녹차', '홍차', '우롱차', '보이차', '결명자차', '율무차', '둥굴레차', '메밀차', '옥수수차'] },
   // 견과류
   { name: '견과류', tokens: ['아몬드', '호두', '땅콩', '캐슈넛', '잣', '피스타치오', '헤이즐넛', '마카다미아', '브라질너트'] },
-  // 모듬/세트 — 단일 카테고리에 "과일세트", "모듬세트" 잡음 차단
-  // (의도된 모듬 상품은 leaf가 "혼합세트" 등인 카테고리에 들어가므로 cross 안 됨)
-  { name: '모듬세트', tokens: ['과일세트', '모듬세트', '혼합세트', '모둠세트', '선물세트', '모듬', '모둠'] },
-  // 보충제/건강기능식품 — 자몽 등 신선식품에 잡음 차단
-  { name: '보충제', tokens: ['오메가3', '오메가-3', '홍삼', '녹용', '비타민D', '비타민C', '비타민E', '글루코사민', '콘드로이틴', '루테인', '코엔자임Q10', '밀크씨슬'] },
+  // 모듬/세트 — leaf가 "선물세트"/"모듬세트"인 카테고리는 sanitize에서 보존됨 (단일 leaf 카테고리만 차단)
+  { name: '모듬세트', tokens: ['과일세트', '모듬세트', '혼합세트', '모둠세트', '모듬', '모둠'] },
+  // 보충제 — sub-divide로 홍삼/녹용 등 cross 차단
+  { name: '홍삼', tokens: ['홍삼', '홍삼농축액', '홍삼정', '홍삼진액', '홍삼정과'] },
+  { name: '녹용', tokens: ['녹용', '녹각'] },
+  { name: '오메가', tokens: ['오메가3', '오메가-3', '오메가6'] },
+  { name: '비타민', tokens: ['비타민D', '비타민C', '비타민E', '비타민A', '비타민B', '종합비타민'] },
+  { name: '관절보충제', tokens: ['글루코사민', '콘드로이틴', 'MSM', '보스웰리아'] },
+  { name: '눈건강', tokens: ['루테인', '지아잔틴', '아스타잔틴'] },
+  { name: '간건강', tokens: ['코엔자임Q10', '밀크씨슬', '실리마린'] },
 ];
 
 // L1별 specific 토큰 — 다른 L1에 등장하면 cross-L1 누출로 차단
@@ -713,23 +727,29 @@ function isCrossCategoryToken(word: string, categoryPath: string): boolean {
     if (!exactInFamily && !partialInFamily) continue;
 
     // family token이 path의 어떤 segment의 word-boundary 단어와 매칭되어야 family 적합.
-    // ★ substring 매칭은 false positive (예: 곡물 token "조"가 "조미료/향신료" 매칭) → word level
+    // substring 매칭은 false positive (예: 곡물 token "조"가 "조미료/향신료" 매칭) → word level
     const familyInPath = tokens.some(t => pathSegs.some(seg => {
       if (seg === t) return true;
-      // segment를 word 단위로 분할 후 정확 매칭 또는 endsWith 매칭
       const segWords = seg.split(/[\/·\s,+&\-_]+/).map(w => w.trim()).filter(Boolean);
       return segWords.some(w => w === t || (t.length >= 2 && w.length >= 2 && w.endsWith(t)));
     }));
-    if (!familyInPath) return true; // path 어디에도 family 토큰 없음 → cross-L1 (도서에 "사과")
+    if (!familyInPath) return true; // path 어디에도 family 토큰 없음 → cross-L1
 
-    if (exactInFamily) return false; // 정확 family token, 같은 family 내 모순은 sanitize에서 처리
-
-    // 부분 매칭 ("성주참외" 포함 "참외"): leaf와 매칭(endsWith leaf 또는 leaf.includes(word))일 때만 통과
-    const wordMatchesLeaf =
-      leafLower === wordLower ||
-      leafLower.includes(wordLower) ||
-      (wordLower.length >= 2 && leafLower.length >= 2 && wordLower.endsWith(leafLower));
-    return !wordMatchesLeaf;
+    // ★ 같은 family 내에서도 word가 path와 정확 매칭되어야 통과.
+    //   exactInFamily(=정확 family token)도 leaf-word 매칭 strict 적용 — sanitize의 부분 매칭 한계 보완.
+    //   - "잡곡" word, leaf "냉장 냉면" path에 "메밀" segment 있음 → familyInPath=true이지만 wordMatchesPath=false → cross ✓
+    //   - "한우" word, leaf "돈육통조림" → 다른 sub-family라 wordInFamily 자체가 false (sub-divide 효과)
+    //   - "쌀" word, leaf "백미" path에 "쌀류" segment 있음 → seg.includes(word) → wordMatchesPath=true → 통과 ✓
+    const wordMatchesPath = pathSegs.some(seg => {
+      if (seg === wordLower) return true;
+      if (seg.includes(wordLower)) return true; // segment가 word substring 포함 (백미 path "쌀류" 포함 "쌀")
+      const segWords = seg.split(/[\/·\s,+&\-_]+/).map(w => w.trim()).filter(Boolean);
+      return segWords.some(w =>
+        w === wordLower ||
+        (wordLower.length >= 2 && w.length >= 2 && wordLower.endsWith(w))
+      );
+    });
+    return !wordMatchesPath;
   }
 
   // 2. L1 specific 토큰 cross-L1 차단
