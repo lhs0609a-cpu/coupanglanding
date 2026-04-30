@@ -243,12 +243,15 @@ function buildCategorySafeWords(categoryPath: string): Set<string> {
     if (seg.length >= minLen) safe.add(seg.toLowerCase());
     // 슬래시·중점·공백·괄호·콤마·플러스·앰퍼샌드 모두로 분할
     //   "두뇌 트레이닝" → "두뇌","트레이닝"
-    //   "1/2/3급 (심화)" → "1","2","3급","심화"
+    //   "1/2/3급 (심화)" → "3급","심화"  (순수숫자 "1","2"는 의미없는 토큰이라 제외)
     //   "굴착,성토,정지용" → "굴착","성토","정지용"
     //   "키보드+마우스세트" → "키보드","마우스세트"
     //   "일러스트화보집& 캘린더" → "일러스트화보집","캘린더"
     for (const part of seg.split(/[\/·\s\(\)\[\],+&\-._''""\u2018\u2019\u201C\u201D]+/).map(s => s.trim())) {
-      if (part.length >= minLen) safe.add(part.toLowerCase());
+      if (part.length < minLen) continue;
+      // 순수 숫자 토큰 차단 — leaf split에서 의미 없는 단일 숫자가 SEO 잔류물로 남는 것 방지
+      if (/^\d+$/.test(part)) continue;
+      safe.add(part.toLowerCase());
     }
   }
   return safe;
@@ -680,14 +683,12 @@ export function generateDisplayName(
     const lower = word.toLowerCase();
     if (usedWords.has(lower)) return false;
     // 2차 방어: 브랜드/연예인이 descriptor로 빠져나온 경우 차단
-    // ★ 카테고리 안전 키워드(leaf)는 brand에 substring으로 포함되더라도 보존
+    // ★ 카테고리 안전 키워드(leaf)는 brand와 동일하거나 substring 관계여도 보존
+    //    (brand="망고", leaf="망고" 케이스 — leaf는 카테고리 검색 핵심 키워드라 SEO 우선)
+    //    leaf 명칭은 쿠팡 카테고리 공식 명사이므로 IP 충돌 위험 없음
     const isCategorySafe = categorySafeWords.has(lower);
     if (!isCategorySafe) {
       if (brandSubTokensGen.has(lower) || brandLowerGen.includes(lower) || lower.includes(brandLowerGen)) return false;
-    } else {
-      // safe 키워드라도 브랜드 자체와 정확히 일치/포함 관계면 차단
-      // (예: brand="마그네슘"인 (미친) 케이스 — leaf와 brand가 같으면 brand 우선 차단)
-      if (brandSubTokensGen.has(lower) && lower === brandLowerGen) return false;
     }
     if (CELEBRITY_NAMES.has(word)) return false;
     // 서브워드 중복 체크: 개별 단어가 이미 사용되었으면 스킵
@@ -717,14 +718,21 @@ export function generateDisplayName(
   {
     const leafRaw = (categoryPath.split('>').pop() || '').trim();
     if (leafRaw.length >= 1) {
-      const slashSplits = leafRaw.split(/[\/·\(\)\[\],+&\-._''""\u2018\u2019\u201C\u201D]+/).map(s => s.trim()).filter(s => s.length >= 1);
+      // 순수 숫자 토큰 거르기 — "1/2/3급 (심화)" → "3급","심화" (앞쪽 "1","2"는 의미 없음)
+      const slashSplits = leafRaw.split(/[\/·\(\)\[\],+&\-._''""\u2018\u2019\u201C\u201D]+/)
+        .map(s => s.trim())
+        .filter(s => s.length >= 1 && !/^\d+$/.test(s));
       const candidates = slashSplits.length > 0 ? slashSplits : [leafRaw];
       const primary = candidates[0];
-      addToken(primary);
-      // 공백 포함이면 split 토큰을 별도로도 추가 (removeBrandLeaks가 split할 때 안전)
-      if (/\s/.test(primary)) {
-        for (const w of primary.split(/\s+/).filter(s => s.length >= 1)) {
-          addToken(w);
+      if (primary && !/^\d+$/.test(primary)) {
+        // 공백 포함 leaf("노동법 1", "유아 한글")는 split 토큰만 사용 — primary 통째 추가 시
+        // 공백 토큰 사이 단일 숫자가 result join 후 잔존하는 문제 방지
+        if (/\s/.test(primary)) {
+          for (const w of primary.split(/\s+/).filter(s => s.length >= 1 && !/^\d+$/.test(s))) {
+            addToken(w);
+          }
+        } else {
+          addToken(primary);
         }
       }
     }
@@ -910,7 +918,7 @@ export function generateDisplayName(
   //   예: "모니터 벽걸이 암"의 "암"(arm) — 의약 "암(질병)" 패턴 매칭이지만 가전 부품
   //   예: "전기충격기"의 "충격" — SAFE_REPLACEMENTS로 "놀랄만한" 치환 방지
   //   예: 도서 "고혈압", "예술치료" 등은 isNonHealthCategory에서 이미 우회됨
-  const { cleanedText } = checkCompliance(result, { removeErrors: true, categoryContext: categoryPath });
+  const { cleanedText } = checkCompliance(result, { removeErrors: true, categoryContext: categoryPath, categorySafeWords });
   let postCompliance = cleanedText || result;
   // leaf 토큰이 compliance에 의해 strip/대체된 경우 복원 (카테고리 명칭 보존)
   // 안전 키워드별로 한 번씩만 복원 (이미 있으면 skip)
