@@ -280,7 +280,7 @@ export async function POST(request: NextRequest) {
 
     const { data: ptUser } = await supabase
       .from('pt_users')
-      .select('id, coupang_vendor_id, coupang_access_key, coupang_secret_key, coupang_api_connected')
+      .select('id, coupang_vendor_id, coupang_wing_user_id, coupang_access_key, coupang_secret_key, coupang_api_connected')
       .eq('profile_id', user.id)
       .maybeSingle();
 
@@ -296,6 +296,7 @@ export async function POST(request: NextRequest) {
       vendorId: ptUser.coupang_vendor_id,
       accessKey: await decryptPassword(ptUser.coupang_access_key),
       secretKey: await decryptPassword(ptUser.coupang_secret_key),
+      wingUserId: ptUser.coupang_wing_user_id || undefined,
     };
 
     const serviceClient = await createServiceClient();

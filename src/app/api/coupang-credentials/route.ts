@@ -36,8 +36,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { vendorId, accessKey, secretKey, validate, useExisting } = body as {
+    const { vendorId, wingUserId, accessKey, secretKey, validate, useExisting } = body as {
       vendorId: string;
+      wingUserId?: string;
       accessKey?: string;
       secretKey?: string;
       validate?: boolean;
@@ -77,15 +78,19 @@ export async function POST(request: NextRequest) {
 
     // Service client로 RLS bypass하여 업데이트 (유저 인증은 위에서 완료)
     const serviceClient = await createServiceClient();
+    const updatePayload: Record<string, unknown> = {
+      coupang_vendor_id: vendorId,
+      coupang_access_key: encryptedAccessKey,
+      coupang_secret_key: encryptedSecretKey,
+      coupang_api_connected: true,
+      coupang_api_key_expires_at: expiresAt.toISOString(),
+    };
+    if (wingUserId !== undefined) {
+      updatePayload.coupang_wing_user_id = wingUserId.trim() || null;
+    }
     const { error: updateError } = await serviceClient
       .from('pt_users')
-      .update({
-        coupang_vendor_id: vendorId,
-        coupang_access_key: encryptedAccessKey,
-        coupang_secret_key: encryptedSecretKey,
-        coupang_api_connected: true,
-        coupang_api_key_expires_at: expiresAt.toISOString(),
-      })
+      .update(updatePayload)
       .eq('profile_id', user.id);
 
     if (updateError) {
@@ -137,7 +142,7 @@ export async function GET() {
     const serviceClient = await createServiceClient();
     const { data: ptUser } = await serviceClient
       .from('pt_users')
-      .select('coupang_vendor_id, coupang_api_connected, coupang_api_key_expires_at, coupang_access_key, coupang_secret_key')
+      .select('coupang_vendor_id, coupang_wing_user_id, coupang_api_connected, coupang_api_key_expires_at, coupang_access_key, coupang_secret_key')
       .eq('profile_id', user.id)
       .single();
 
@@ -163,6 +168,7 @@ export async function GET() {
     return NextResponse.json({
       hasCredentials: !!ptUser.coupang_api_connected,
       vendorId: ptUser.coupang_vendor_id || null,
+      wingUserId: ptUser.coupang_wing_user_id || null,
       expiresAt: ptUser.coupang_api_key_expires_at || null,
       maskedAccessKey,
       maskedSecretKey,

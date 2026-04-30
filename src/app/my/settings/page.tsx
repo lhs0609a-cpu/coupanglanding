@@ -63,6 +63,7 @@ export default function MySettingsPage() {
   const [apiVendorId, setApiVendorId] = useState('');
   const [apiAccessKey, setApiAccessKey] = useState('');
   const [apiSecretKey, setApiSecretKey] = useState('');
+  const [apiWingUserId, setApiWingUserId] = useState('');
   const [apiHasCredentials, setApiHasCredentials] = useState(false);
   const [apiExpiresAt, setApiExpiresAt] = useState<string | null>(null);
   const [apiSaving, setApiSaving] = useState(false);
@@ -95,7 +96,7 @@ export default function MySettingsPage() {
 
     const { data: ptUser } = await supabase
       .from('pt_users')
-      .select('id, coupang_seller_id, coupang_seller_pw, business_name, business_registration_number, business_representative, business_address, business_type, business_category, coupang_api_connected, coupang_vendor_id, coupang_api_key_expires_at, is_self_business, business_relation')
+      .select('id, coupang_seller_id, coupang_seller_pw, business_name, business_registration_number, business_representative, business_address, business_type, business_category, coupang_api_connected, coupang_vendor_id, coupang_wing_user_id, coupang_api_key_expires_at, is_self_business, business_relation')
       .eq('profile_id', user.id)
       .single();
 
@@ -117,6 +118,7 @@ export default function MySettingsPage() {
       // DB에서 직접 API 연동 상태 로드 (영구 유지)
       setApiHasCredentials(!!ptUser.coupang_api_connected);
       if (ptUser.coupang_vendor_id) setApiVendorId(ptUser.coupang_vendor_id);
+      if (ptUser.coupang_wing_user_id) setApiWingUserId(ptUser.coupang_wing_user_id);
       setApiExpiresAt(ptUser.coupang_api_key_expires_at || null);
     }
 
@@ -127,6 +129,7 @@ export default function MySettingsPage() {
         const credData = await credRes.json();
         if (credData.maskedAccessKey) setMaskedAccessKey(credData.maskedAccessKey);
         if (credData.maskedSecretKey) setMaskedSecretKey(credData.maskedSecretKey);
+        if (credData.wingUserId) setApiWingUserId(credData.wingUserId);
       }
     } catch { /* ignore */ }
 
@@ -243,6 +246,7 @@ export default function MySettingsPage() {
     try {
       const payload: Record<string, unknown> = {
         vendorId: apiVendorId.trim(),
+        wingUserId: apiWingUserId.trim(),
       };
       if (hasNewKeys) {
         payload.accessKey = apiAccessKey.trim();
@@ -734,6 +738,21 @@ export default function MySettingsPage() {
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
               />
               <p className="text-xs text-gray-400 mt-1">Wing 우측 상단 업체명 클릭 시 확인 가능</p>
+            </div>
+
+            <div>
+              <label htmlFor="api-wing-user-id" className="block text-sm font-medium text-gray-700 mb-1">
+                WING 로그인 ID
+              </label>
+              <input
+                id="api-wing-user-id"
+                type="text"
+                value={apiWingUserId}
+                onChange={(e) => setApiWingUserId(e.target.value)}
+                placeholder="쿠팡 Wing 로그인 ID 입력 (다운로드 쿠폰 등록에 필요)"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+              />
+              <p className="text-xs text-gray-400 mt-1">wing.coupang.com 로그인 시 입력하는 ID. 업체코드와 다를 수 있음. 다운로드 쿠폰 일괄 등록 시 사용됩니다.</p>
             </div>
 
             <div>

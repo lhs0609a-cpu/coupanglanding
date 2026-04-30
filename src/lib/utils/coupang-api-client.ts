@@ -15,6 +15,8 @@ export interface CoupangCredentials {
   vendorId: string;
   accessKey: string;
   secretKey: string;
+  /** WING 로그인 ID — 다운로드 쿠폰 API userId 필드용. vendorId와 다른 별도 값. */
+  wingUserId?: string;
 }
 
 export interface SettlementItem {
@@ -977,11 +979,21 @@ export function toCoupangDateFormat(isoDate: string | Date): string {
 /** marketplace_openapi 쿠폰 API의 userId 필드 값을 결정
  *  쿠팡 공식 스펙: "사용자 계정 (WING 로그인 ID)" — vendorId(업체코드)와 다른 개념.
  *  응답 Example의 `vendorId: "A00013264"` vs `lastModifiedBy: "testaccout1"`이 증거.
- *  운영 환경에선 COUPANG_WING_USER_ID 환경변수로 명시 필수. 미설정 시 vendorId 폴백(잘못될 수 있음). */
+ *
+ *  우선순위:
+ *  1) credentials.wingUserId (PT생별 DB 저장값) — 멀티 테넌트 정답
+ *  2) COUPANG_WING_USER_ID 환경변수 (단일 운영자 임시 폴백)
+ *  3) credentials.vendorId 최후 폴백 + 경고 (잘못될 가능성 높음) */
 function resolveWingUserId(credentials: CoupangCredentials): string {
+  if (credentials.wingUserId && credentials.wingUserId.trim()) {
+    return credentials.wingUserId.trim();
+  }
   const envWingId = process.env.COUPANG_WING_USER_ID;
-  if (envWingId && envWingId.trim()) return envWingId.trim();
-  console.warn('[coupang] COUPANG_WING_USER_ID 환경변수 미설정 — vendorId 폴백 사용 (다운로드 쿠폰 등록이 거부될 수 있음)');
+  if (envWingId && envWingId.trim()) {
+    console.warn('[coupang] credentials.wingUserId 없음 — 환경변수 COUPANG_WING_USER_ID 폴백 사용 (멀티 테넌트에선 위험)');
+    return envWingId.trim();
+  }
+  console.warn('[coupang] WING 로그인 ID 미설정 — vendorId 폴백 사용 (다운로드 쿠폰 등록이 거부될 수 있음)');
   return credentials.vendorId;
 }
 

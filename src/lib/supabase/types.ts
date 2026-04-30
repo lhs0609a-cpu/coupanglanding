@@ -62,6 +62,7 @@ export interface PtUser {
   coupang_seller_id: string | null;
   coupang_seller_pw: string | null;
   coupang_vendor_id: string | null;
+  coupang_wing_user_id: string | null;
   coupang_access_key: string | null;
   coupang_secret_key: string | null;
   coupang_api_connected: boolean;
