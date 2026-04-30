@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
-import { fetchOrderBasedSales, CoupangApiError } from '@/lib/utils/coupang-api-client';
+import { fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
 import { getPreviousMonth, getReportTargetMonth } from '@/lib/utils/settlement';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 
@@ -113,20 +113,19 @@ export async function POST(request: NextRequest) {
 
     for (const ym of yearMonths) {
       try {
-        // 주문 기반 매출 — 쿠팡 빠른정산 이용자 실질 매출과 가장 가까움.
-        // excludeCancelled=true 로 취소/반품 제외 (유효 매출만).
-        const orderSales = await fetchOrderBasedSales(credentials, ym, { excludeCancelled: true });
+        // 정산 인식 매출 — 공식 revenue-history API. nextToken 페이지네이션 정확.
+        //   이전엔 fetchOrderBasedSales(ordersheets) 사용했으나 쿠팡이 page 파라미터를 무시하고
+        //   같은 50개 주문을 200페이지까지 반복 반환 → 매출 38배 부풀림. revenue-history 로 전환.
+        const settlement = await fetchSettlementData(credentials, ym);
         await upsertSnapshot(serviceClient, {
           pt_user_id: u.id,
           year_month: ym,
-          total_sales: orderSales.totalSales,
-          // 주문 API 는 수수료/배송비/반품비 분리 정보 미포함 → 0 으로 저장, 필요 시 별도 조회
-          total_commission: 0,
-          total_shipping: 0,
-          total_returns: 0,
-          // 정산확정 금액은 주문기반에서 알 수 없음 → totalSales 와 동일로 (UI 는 totalSales 만 표시)
-          total_settlement: orderSales.totalSales,
-          item_count: orderSales.itemCount,
+          total_sales: settlement.totalSales,
+          total_commission: settlement.totalCommission,
+          total_shipping: settlement.totalShipping,
+          total_returns: settlement.totalReturns,
+          total_settlement: settlement.totalSettlement,
+          item_count: settlement.items.length,
           synced_at: new Date().toISOString(),
           sync_error: null,
         });
