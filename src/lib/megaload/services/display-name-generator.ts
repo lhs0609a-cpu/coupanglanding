@@ -70,6 +70,56 @@ const CATEGORY_POOLS: Record<string, CategoryPool> = seoData.categoryPools;
 const SYNONYM_GROUPS: Record<string, string[]> = seoData.synonymGroups;
 // universalModifiers는 의도적으로 미사용 — 카테고리 무관 단어는 SEO 역효과(스터핑/CTR 하락)
 
+// ─── 모든 카테고리 leaf 토큰 set (cross-leaf 누출 차단용) ─────────
+// 16,259 카테고리의 leaf segment에서 한글 토큰 추출.
+// ★ 5+ 카테고리에서 등장하는 generic 토큰("커버","세트","장갑")은 over-strict 부작용 회피로 제외.
+//   specific token만 cross-leaf 차단 대상.
+const ALL_CATEGORY_LEAF_TOKENS: Set<string> = (() => {
+  const counter = new Map<string, number>();
+  for (const key of Object.keys(CATEGORY_POOLS)) {
+    const segs = key.split('>');
+    const leaf = segs[segs.length - 1] || '';
+    const tokens = new Set<string>();
+    for (const w of leaf.split(/[\/·\s\(\)\[\],+&\-_'']+/)) {
+      const trimmed = w.trim().toLowerCase();
+      if (trimmed.length >= 2 && /[가-힣]/.test(trimmed)) tokens.add(trimmed);
+    }
+    if (leaf.length >= 2 && /[가-힣]/.test(leaf)) tokens.add(leaf.toLowerCase());
+    for (const t of tokens) counter.set(t, (counter.get(t) || 0) + 1);
+  }
+  // 20+ 카테고리에 등장하는 generic 토큰("세트","커버","장갑","여성","남성")은 false positive 회피로 제외.
+  // 1~19 카테고리에 등장하는 specific 토큰은 cross-leaf 차단 대상.
+  const set = new Set<string>();
+  for (const [t, cnt] of counter) {
+    if (cnt < 20) set.add(t);
+  }
+  return set;
+})();
+
+/**
+ * word가 다른 카테고리의 leaf 토큰인지 판정 (cross-leaf 차단).
+ * - word가 현재 path의 어떤 segment와 매칭(정확/include/endsWith) → 적합 (cross 아님)
+ * - word가 ALL_CATEGORY_LEAF_TOKENS 내에 있고 위 매칭 없으면 → cross-leaf (다른 카테고리 leaf 토큰)
+ * - 그 외 (universal modifier, 일반 형용사 등) → 통과
+ */
+function isCrossLeafToken(word: string, categoryPath: string): boolean {
+  const wordLower = word.toLowerCase();
+  if (!ALL_CATEGORY_LEAF_TOKENS.has(wordLower)) return false; // 다른 카테고리 leaf 토큰이 아니면 통과
+  const pathLower = categoryPath.toLowerCase();
+  const pathSegs = pathLower.split('>').map(s => s.trim()).filter(Boolean);
+  // word가 현재 path의 어떤 segment와 매칭되면 적합
+  for (const seg of pathSegs) {
+    if (seg === wordLower) return false;
+    if (seg.includes(wordLower)) return false;
+    const segWords = seg.split(/[\/·\s,+&\-_]+/).map(w => w.trim()).filter(Boolean);
+    if (segWords.some(w =>
+      w === wordLower ||
+      (wordLower.length >= 2 && w.length >= 2 && (wordLower.endsWith(w) || w.endsWith(wordLower)))
+    )) return false;
+  }
+  return true; // 다른 카테고리 leaf 토큰 + 현재 path와 매칭 없음 → cross
+}
+
 // ─── 비상품 카테고리 (도서/미디어) ─────────────────────────
 // 이 대분류에서는 상품명에 "에센스", "라이트", "크림" 등이 있어도
 // 화장품/식품/가전 TYPE으로 분류하지 않는다 (동음이의어 방지).
@@ -428,8 +478,9 @@ export function classifyTokens(
           lower.includes(brandLower) ||
           (lower.startsWith(brandLower) && lower.length <= brandLower.length + 3)) continue;
     }
-    // ★ cross-category 차단 — brand 유무 무관 항상 적용 (정체성 보호)
+    // ★ cross-category/cross-leaf 차단 — brand 유무 무관 항상 적용 (정체성 보호)
     if (isCrossCategoryToken(token, categoryPath)) continue;
+    if (isCrossLeafToken(token, categoryPath)) continue;
 
     // 연예인/모델명 필터 — IP 리스크 방지
     if (CELEBRITY_NAMES.has(token)) continue;
@@ -668,6 +719,13 @@ const L1_SPECIFIC_TOKENS: Record<string, string[]> = {
   '패션의류잡화': [
     '오피스룩', '데일리룩', '시즌리스', '신축성', '발수', '생활방수', '베이지', '네이비',
     '스판덱스', '쿨맥스', '드라이핏',
+    '여성', '남성', '남녀공용', '공용', '임산부', '여아', '남아',
+    '상의', '하의', '아우터', '점퍼', '셔츠', '블라우스', '원피스', '스커트',
+    '바지', '니트', '가디건', '터틀넥', '브이넥', '라운드티셔츠', '잠옷',
+    '워커', '단화', '모카신', '플랫', '스니커즈', '레인부츠',
+    '벨트', '스카프', '머플러', '장갑', '안경테', '목걸이', '팔찌',
+    '팬티', '스타킹', '레깅스', '워터레깅스', '항공점퍼', '블루종', '스웨터',
+    '정장세트', '캔버스', '팔토시', '힙합모자', '스냅백',
   ],
   '도서': [
     '저자', '출판사', 'ISBN', '베스트셀러', '신간', '스테디셀러', '개정판', '한정판',
@@ -688,7 +746,8 @@ const L1_SPECIFIC_TOKENS: Record<string, string[]> = {
   ],
   '스포츠/레져': [
     '쿨링', '속건', '경량', '홈트레이닝', '캠핑', '등산', '자전거', '피트니스',
-    '카본', '드라이핏',
+    '카본', '드라이핏', '골프', '아웃도어', '실내', '낚시', '러닝', '요가',
+    '필라테스', '복싱', '수영', '스키', '보드', '서핑', '클라이밍',
   ],
   '자동차용품': [
     '발수코팅', '광택', '왁스', '12V', '24V', '시거잭', '블랙박스', '네비게이션',
@@ -842,8 +901,9 @@ export function generateDisplayName(
       if (brandLowerGen.length >= 2) {
         if (brandSubTokensGen.has(lower) || brandLowerGen.includes(lower) || lower.includes(brandLowerGen)) return false;
       }
-      // ★ cross-category 차단 — brand 유무 무관 항상 적용 (정체성 보호)
+      // ★ cross-category/cross-leaf 차단 — brand 유무 무관 항상 적용 (정체성 보호)
       if (isCrossCategoryToken(word, categoryPath)) return false;
+      if (isCrossLeafToken(word, categoryPath)) return false;
     }
     if (CELEBRITY_NAMES.has(word)) return false;
     // 서브워드 중복 체크: 개별 단어가 이미 사용되었으면 스킵
