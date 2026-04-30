@@ -974,6 +974,17 @@ export function toCoupangDateFormat(isoDate: string | Date): string {
   return `${y}-${M}-${d} ${H}:${m}:${s}`;
 }
 
+/** marketplace_openapi 쿠폰 API의 userId 필드 값을 결정
+ *  쿠팡 공식 스펙: "사용자 계정 (WING 로그인 ID)" — vendorId(업체코드)와 다른 개념.
+ *  응답 Example의 `vendorId: "A00013264"` vs `lastModifiedBy: "testaccout1"`이 증거.
+ *  운영 환경에선 COUPANG_WING_USER_ID 환경변수로 명시 필수. 미설정 시 vendorId 폴백(잘못될 수 있음). */
+function resolveWingUserId(credentials: CoupangCredentials): string {
+  const envWingId = process.env.COUPANG_WING_USER_ID;
+  if (envWingId && envWingId.trim()) return envWingId.trim();
+  console.warn('[coupang] COUPANG_WING_USER_ID 환경변수 미설정 — vendorId 폴백 사용 (다운로드 쿠폰 등록이 거부될 수 있음)');
+  return credentials.vendorId;
+}
+
 /** 다운로드 쿠폰 정책 배열을 쿠팡 API 형식으로 정규화
  *  쿠팡 공식 스펙(Body Parameter): title, typeOfDiscount, description, minimumPrice,
  *  discount, maximumDiscountPrice, maximumPerDaily 7개. 별칭 필드는 보내지 않음. */
@@ -1014,7 +1025,7 @@ export async function createDownloadCoupon(
     couponType: 'DOWNLOAD',
     startDate: toCoupangDateFormat(params.startDate),
     endDate: toCoupangDateFormat(params.endDate),
-    userId: credentials.vendorId,
+    userId: resolveWingUserId(credentials),
     policies: normalizePolicies(params.policies),
   };
 
@@ -1058,13 +1069,14 @@ export async function createDownloadCoupon(
   );
 }
 
-/** 다운로드 쿠폰에 아이템 등록 (쿠폰 생성 후 별도 호출)
+/** 다운로드 쿠폰에 아이템 등록 (쿠폰 생성 후 별도 호출 — 공식 [다운로드쿠폰] 아이템 생성 API)
  *
- *  쿠팡 공식 API:
+ *  쿠팡 공식 스펙:
  *  - PUT /v2/providers/marketplace_openapi/apis/api/v1/coupon-items
- *  - body: { couponItems: [{ couponId, userId, vendorItemIds: [number, ...] }] }
+ *  - body: { couponItems: [{ couponId(Number), userId(WING ID), vendorItemIds(Number[]) }] }
  *  - 한 번에 100개 초과 불가
- *  - 상품 추가 실패 시 해당 쿠폰 파기됨 */
+ *  - 상품 추가 실패 시 해당 쿠폰 파기됨
+ *  - 응답: { requestResultStatus: 'SUCCESS'|'FAIL', body: { couponId }, errorCode, errorMessage } */
 export async function addDownloadCouponItems(
   credentials: CoupangCredentials,
   couponId: number,
@@ -1072,14 +1084,11 @@ export async function addDownloadCouponItems(
 ): Promise<{ couponId?: number; requestResultStatus?: string }> {
   const numericIds = vendorItemIds.map(Number).filter((n) => !isNaN(n));
 
-  // 쿠팡 공식 스펙: PUT /coupon-items, body: { couponItems: [...] }
-  // ★ 참고: 쿠팡 문서에 따르면 생성 시 vendorItemIds 포함이 권장됨.
-  //   이 함수는 폴백용으로만 유지.
   const mktPath = `${MKT_OPENAPI_BASE}/coupon-items`;
   const body = {
     couponItems: [{
       couponId: Number(couponId),  // ★ Number 타입 (쿠팡 API 스펙)
-      userId: credentials.vendorId,
+      userId: resolveWingUserId(credentials),
       vendorItemIds: numericIds,
     }],
   };
