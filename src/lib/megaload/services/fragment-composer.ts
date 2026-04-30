@@ -15,6 +15,7 @@
 import fragmentData from '../data/persuasion-fragments.json';
 import storyData from '../data/story-templates.json';
 import v2TemplateData from '../data/story-templates-v2.json';
+import extendedFragmentsData from '../data/global-fragments-extended.json';
 import { resolveContentProfile } from './content-profile-resolver';
 import type { ContentProfile } from './content-profile-resolver';
 
@@ -319,6 +320,72 @@ function lockSinglePickVars(
   return result;
 }
 
+// ─── 글로벌 saturation 패턴 (audit Top 30 기반, v1+v2 공용) ────
+// 모든 카테고리에 박혀 saturation을 일으키는 fragments를 규제 차단.
+// composeFromV2Templates와 composeBlock 모두에서 사용.
+const SATURATED_PATTERNS_GLOBAL: RegExp[] = [
+  // V2 GLOBAL fragments
+  /오래\s*사용해도\s*처음\s*같은\s*사용감/,
+  /눈에\s*잘\s*띄지\s*않는\s*부분까지/,
+  /한꺼번에\s*많이\s*쓰기보다\s*꾸준히/,
+  /꾸준히\s*쓰는\s*게\s*가장\s*쉬운\s*활용법/,
+  /보관도\s*어렵지\s*않아\s*일상에서/,
+  /꺼내자마자\s*바로\s*쓸\s*수\s*있도록/,
+  /과한\s*장식\s*없이\s*본질에\s*충실/,
+  /조용히\s*자리\s*잡은\s*베스트셀러/,
+  /입문자도\s*숙련자도\s*비슷하게/,
+  /오래\s*두고\s*쓰기\s*좋은\s*견고/,
+  /구성은\s*단순하지만\s*그\s*안의\s*완성도/,
+  /꼭\s*필요한\s*부분에\s*정확히\s*힘을/,
+  /후기\s*분포가\s*한쪽으로\s*쏠리지\s*않고/,
+  /괜찮은\s*선택지로\s*자리\s*잡고/,
+  /오래\s*쓰는\s*사람이\s*늘고/,
+  /한\s*번\s*들이면\s*다시\s*안\s*찾기/,
+  /일상의\s*작은\s*차이를\s*만들어/,
+  /단순함\s*속에\s*신경\s*쓴\s*흔적/,
+  /한\s*발\s*떨어져서\s*봐도\s*매력/,
+  /꾸준히\s*입소문이\s*나는\s*데는/,
+  /시간이\s*지나도\s*변하지\s*않는\s*가치/,
+  /평범\s*속에\s*깊이가\s*있어/,
+  /선택지에\s*한\s*번쯤\s*올려볼/,
+  /계속\s*보고\s*있게\s*되는\s*이유/,
+  /입문자도\s*숙련자도\s*비슷하게\s*만족/,
+  /소재와\s*구조의\s*균형이\s*잘\s*맞춰져/,
+  /쓰는\s*동안\s*작은\s*불편을\s*줄여주는/,
+  /마감\s*디테일에\s*신경\s*쓴\s*흔적이\s*손끝/,
+  /처음\s*사용\s*시에도\s*별도\s*적응\s*기간/,
+  /특별한\s*노하우\s*없이도\s*자연스럽게/,
+  /선물했더니\s*바로\s*다시\s*주문/,
+  /번\s*써본\s*분이\s*주변에\s*추천하게/,
+  /이\s*가격에\s*이\s*퀄리티/,
+  /첫인상이\s*점점\s*바뀌는\s*이유/,
+  // 카테고리명 박힌 saturation
+  /[가-힣]+\s*카테고리에서\s*한\s*번쯤\s*짚어볼/,
+  /[가-힣]+\s*분야에\s*관심\s*있으신/,
+  /[가-힣]+\s*관련해서\s*자주\s*비교되는/,
+  /[가-힣]+을?\s*찾고\s*계셨다면\s*좋은\s*기회/,
+  // V1 풀 saturation (audit Top 30)
+  /보관할\s*때는\s*습기\s*없는\s*곳/,
+  /첫\s*사용\s*전에\s*세척\s*후\s*건조/,
+  /부모님도\s*함께\s*쓰실\s*때\s*더\s*자연/,
+  /차량\s*상태에\s*따라\s*사용\s*빈도를/,
+  /비슷한\s*가격대\s*제품과는\s*마감과\s*내구성에서/,
+  /정기적인\s*관리가\s*제품\s*수명을/,
+  /유명\s*브랜드\s*못지않은\s*품질을\s*합리적/,
+  /내구성에\s*특히\s*신경\s*쓴\s*구조라\s*오래/,
+  /시즌이\s*지나도\s*입을\s*수\s*있는\s*클래식/,
+  /집들이\s*때마다\s*['"][^'"]*어디서\s*샀/,
+  /저가형의\s*아쉬움도\s*고가형의\s*부담도/,
+  /기본\s*컬러와\s*실루엣이라\s*다양한\s*스타일/,
+  /후기\s*분포가\s*한쪽으로\s*쏠리지\s*않고\s*골고루/,
+  /번\s*드셔보시면\s*이\s*가격에\s*이\s*퀄리티/,
+];
+
+function isSaturatedFragment(s: string): boolean {
+  if (!s) return false;
+  return SATURATED_PATTERNS_GLOBAL.some(re => re.test(s));
+}
+
 // 시드 기반 N개 추출 (중복 없이)
 function pickN<T>(arr: T[], n: number, rng: () => number): T[] {
   if (arr.length === 0) return [];
@@ -330,6 +397,71 @@ function pickN<T>(arr: T[], n: number, rng: () => number): T[] {
     if (used.has(i)) continue;
     used.add(i);
     out.push(arr[i]);
+  }
+  return out;
+}
+
+// ─── 모듈 레벨 글로벌 fragment 사용 카운터 ────────────
+// 같은 fragment가 모든 본문에 박히는 saturation을 cross-call에서 분산.
+// 풀 주입 단계(pickNWithDedup)에서만 사용하고, 실제 fragment 선택은 일반 random
+// → 본문 내 단어 반복 부작용을 피하면서 cross-call 다양성 확보.
+const FRAGMENT_USAGE = new Map<string, number>();
+const USAGE_MAP_CAP = 200000;
+
+function trackUsage(s: string): void {
+  if (!s) return;
+  FRAGMENT_USAGE.set(s, (FRAGMENT_USAGE.get(s) || 0) + 1);
+  if (FRAGMENT_USAGE.size > USAGE_MAP_CAP) {
+    // 절반 prune (FIFO 근사) — 메모리 무한 증가 방지
+    const entries = Array.from(FRAGMENT_USAGE.entries());
+    FRAGMENT_USAGE.clear();
+    for (let i = Math.floor(entries.length / 2); i < entries.length; i++) {
+      FRAGMENT_USAGE.set(entries[i][0], entries[i][1]);
+    }
+  }
+}
+
+function getUsage(s: string): number {
+  return FRAGMENT_USAGE.get(s) || 0;
+}
+
+/**
+ * pickN의 dedup 버전 — 미사용 우선, 저사용 그다음, fallback 가중치 random.
+ * 풀이 충분히 크면(>n) 미사용에서 N개 채워지고 fallback이 거의 발동하지 않음.
+ */
+function pickNWithDedup(arr: string[], n: number, rng: () => number): string[] {
+  if (arr.length === 0) return [];
+  if (arr.length <= n) {
+    arr.forEach(s => trackUsage(s));
+    return [...arr];
+  }
+  const out: string[] = [];
+  const usedIdx = new Set<number>();
+
+  // 1단계: 미사용 fragment 우선
+  const freshIdx: number[] = [];
+  for (let i = 0; i < arr.length; i++) {
+    if (!FRAGMENT_USAGE.has(arr[i])) freshIdx.push(i);
+  }
+  while (out.length < n && freshIdx.length > 0) {
+    const j = Math.floor(rng() * freshIdx.length);
+    const i = freshIdx.splice(j, 1)[0];
+    usedIdx.add(i);
+    out.push(arr[i]);
+    trackUsage(arr[i]);
+  }
+  // 2단계: 사용 횟수 적은 순 fill
+  if (out.length < n) {
+    const remaining = arr
+      .map((s, i) => ({ s, i, u: getUsage(s) }))
+      .filter(x => !usedIdx.has(x.i))
+      .sort((a, b) => a.u - b.u);
+    for (const x of remaining) {
+      if (out.length >= n) break;
+      usedIdx.add(x.i);
+      out.push(x.s);
+      trackUsage(x.s);
+    }
   }
   return out;
 }
@@ -942,6 +1074,26 @@ const V2_GLOBAL_FRAGMENTS: Record<string, string[]> = {
   ],
 };
 
+// ★ V2_GLOBAL_FRAGMENTS에 외부 확장 풀 머지 — saturation 분산용 (audit [M] 대응)
+//   global-fragments-extended.json의 4개 핵심 블록(comparison/usage_guide/social_proof/feature_detail)
+//   각 100+ unique 한국어 fragment를 union하여 풀 크기 4-5배 확장.
+(() => {
+  const ext = (extendedFragmentsData as unknown as Record<string, string[]>);
+  for (const key of Object.keys(ext)) {
+    if (key.startsWith('_')) continue;
+    if (!Array.isArray(ext[key])) continue;
+    const existing = V2_GLOBAL_FRAGMENTS[key] || [];
+    const seen = new Set(existing);
+    for (const s of ext[key]) {
+      if (!seen.has(s)) {
+        existing.push(s);
+        seen.add(s);
+      }
+    }
+    V2_GLOBAL_FRAGMENTS[key] = existing;
+  }
+})();
+
 /**
  * categoryPath에서 가장 구체적인 v2 템플릿 뱅크를 반환한다.
  * 정확 매칭 → SUBCATEGORY_ALIASES 변환 → 부모 경로 폴백. 없으면 null.
@@ -1087,10 +1239,24 @@ function composeFromV2Templates(
     /[가-힣]+\s*분야에\s*관심\s*있으신/,
     /[가-힣]+\s*관련해서\s*자주\s*비교되는/,
     /[가-힣]+을?\s*찾고\s*계셨다면\s*좋은\s*기회/,
+    // v1 풀 saturation 추가 차단 (audit Top 30)
+    /보관할\s*때는\s*습기\s*없는\s*곳/,
+    /첫\s*사용\s*전에\s*세척\s*후\s*건조/,
+    /부모님도\s*함께\s*쓰실\s*때\s*더\s*자연/,
+    /차량\s*상태에\s*따라\s*사용\s*빈도를/,
+    /비슷한\s*가격대\s*제품과는\s*마감과\s*내구성에서/,
+    /정기적인\s*관리가\s*제품\s*수명을/,
+    /유명\s*브랜드\s*못지않은\s*품질을\s*합리적/,
+    /내구성에\s*특히\s*신경\s*쓴\s*구조라\s*오래/,
+    /시즌이\s*지나도\s*입을\s*수\s*있는\s*클래식/,
+    /집들이\s*때마다\s*['"][^'"]*어디서\s*샀/,
+    /저가형의\s*아쉬움도\s*고가형의\s*부담도/,
+    /기본\s*컬러와\s*실루엣이라\s*다양한\s*스타일/,
   ];
   const filteredGlobalV2 = (isFood ? globalV2.filter(s => !v2FoodUnsafePatterns.some(re => re.test(s))) : globalV2)
     .filter(s => !v2OverSaturatedPatterns.some(re => re.test(s)));
-  const extraGlobals = pickN(filterByTone(filteredGlobalV2), 3, rng);
+  // ★ pickNWithDedup: cross-call dedup으로 saturation 분산 (풀이 4-5x 확장됐으므로 fresh 충분)
+  const extraGlobals = pickNWithDedup(filterByTone(filteredGlobalV2), 3, rng);
   // 카테고리 v2 풀에도 톤 필터 적용 — 한 글 내 어미 일관성 보장
   const tonedRaw = filterByTone(rawTemplates);
   const enriched = [...tonedRaw, ...extraGlobals];
