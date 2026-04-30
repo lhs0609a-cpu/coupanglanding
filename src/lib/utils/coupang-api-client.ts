@@ -539,6 +539,8 @@ export async function fetchOrderBasedSales(
   const toStr = endDate;
 
   const excludeCancelled = options?.excludeCancelled ?? false;
+  // ordersheets page 파라미터 반복 반환 버그 방어 — orderId 중복 검출 + 신규 0개면 break
+  const seenOrderIds = new Set<string>();
   let totalSales = 0;
   let orderCount = 0;
   let itemCount = 0;
@@ -566,11 +568,16 @@ export async function fetchOrderBasedSales(
       const orders = Array.isArray(data.data) ? data.data : [];
       if (orders.length === 0) break;
 
+      let newOrdersInPage = 0;
       for (const order of orders) {
+        const oid = String(order.orderId || '');
+        if (oid && seenOrderIds.has(oid)) continue;
+        if (oid) seenOrderIds.add(oid);
         const orderStatus = String(order.status || '').toUpperCase();
         if (excludeCancelled && (orderStatus === 'CANCEL' || orderStatus === 'CANCELLED' || orderStatus === 'RETURN_DONE')) {
           continue;
         }
+        newOrdersInPage++;
         orderCount++;
         const orderItems = Array.isArray(order.orderItems) ? order.orderItems as Array<Record<string, unknown>> : [];
         for (const item of orderItems) {
@@ -583,6 +590,7 @@ export async function fetchOrderBasedSales(
         }
       }
 
+      if (newOrdersInPage === 0) break;
       const totalPages = data.pagination?.totalPages;
       if (totalPages && page >= totalPages) break;
       if (orders.length < 50) break;
@@ -613,8 +621,10 @@ export async function fetchTodaySales(
   const today = kstNow.toISOString().split('T')[0];
   const [y, m] = today.split('-');
 
-  // fetchOrderBasedSales 는 월 단위 계산이라 별도 구현
+  // 쿠팡 ordersheets v4 의 page 파라미터는 무시되는 경우가 있음(같은 50개 무한 반복 → 38배 부풀림 발생).
+  // orderId 중복 검출 + 신규 0개면 break 로 안전화. 전체 status 에 걸쳐 dedup.
   const statusList = ['ACCEPT', 'INSTRUCT', 'DEPARTURE', 'DELIVERING', 'FINAL_DELIVERY'];
+  const seenOrderIds = new Set<string>();
   let totalSales = 0;
   let orderCount = 0;
   let itemCount = 0;
@@ -635,7 +645,12 @@ export async function fetchTodaySales(
       };
       const orders = Array.isArray(data.data) ? data.data : [];
       if (orders.length === 0) break;
+      let newOrdersInPage = 0;
       for (const order of orders) {
+        const oid = String(order.orderId || '');
+        if (oid && seenOrderIds.has(oid)) continue;
+        if (oid) seenOrderIds.add(oid);
+        newOrdersInPage++;
         orderCount++;
         const orderItems = Array.isArray(order.orderItems) ? order.orderItems as Array<Record<string, unknown>> : [];
         for (const item of orderItems) {
@@ -645,6 +660,8 @@ export async function fetchTodaySales(
           totalSales += unitPrice * qty;
         }
       }
+      // 새 주문이 없으면 페이지네이션이 동일 페이지 반복 중 → break
+      if (newOrdersInPage === 0) break;
       const totalPages = data.pagination?.totalPages;
       if (totalPages && page >= totalPages) break;
       if (orders.length < 50) break;
