@@ -44,13 +44,26 @@ const PER_L1 = parseInt(process.env.PER_L1 || '60');
 const SAMPLE_CATS = stratifiedSample(ALL_CATS, PER_L1);
 console.log(`stratified sample: ${SAMPLE_CATS.length} categories (per L1 ≈ ${PER_L1})`);
 
-// leaf 토큰 추출 (1글자 이하 제외 — false positive 회피)
+// universal modifier 토큰 — audit에서 false positive 제외
+const UNIVERSAL_OK = new Set([
+  '프리미엄', '고급', '고품질', '가성비', '실속형', '신상품', '최신형',
+  '선물용', '가정용', '대용량', '소용량', '세트', '묶음', '정식수입',
+  '국내정발', '친환경', '안전인증', '컴팩트', '심플', '모던', '클래식',
+  '실용적', '편리한', '견고한', '내구성', '고효율', '다용도', '기능성',
+  '전문가용', '입문용', '어린이용', '여성용', '남성용', '시니어용',
+  '미니', '소형', '대형', '특대형', '휴대용', '리필용', '교체용',
+  '단품', '기본형', '고급형', '표준형', '베이직', '프로', '플러스',
+  '에코', '울트라', '슈퍼', '맥스', '라이트', '신선', '국내산', '국산',
+  '수입', '특가', '인기', '추천', '베스트', '한정판', '럭셔리',
+]);
+
+// leaf 토큰 추출 (1글자 이하 제외, universal 제외 — false positive 회피)
 function leafTokens(path) {
   const leaf = path.split('>').pop() || '';
   return leaf
     .split(/[\/·\s\(\)\[\],+&\-_'']+/)
     .map(s => s.trim())
-    .filter(s => s.length >= 2 && /[가-힣]/.test(s));
+    .filter(s => s.length >= 2 && /[가-힣]/.test(s) && !UNIVERSAL_OK.has(s));
 }
 
 // L1 다른지 판정 (가장 보수적 cross-L1)
@@ -102,10 +115,9 @@ for (const target of SAMPLE_CATS) {
 
     const leaked = sourceTokens.filter(tok => {
       const tokLower = tok.toLowerCase();
-      // 단어 단위 매칭
-      const wordHit = dnWords.some(w => w === tokLower || (tokLower.length >= 2 && w.endsWith(tokLower)));
+      // 정확 word 매칭만 (endsWith 제거 — "하드커버" 안의 "커버" false positive 회피)
+      const wordHit = dnWords.some(w => w === tokLower);
       if (!wordHit) return false;
-      // target path 어디에라도 같은 token이 있으면 false positive (예: "한우" 토큰이 target leaf "한우혼합세트"에 자연 등장)
       const tokInTargetPath = targetSegs.some(seg => seg.includes(tokLower));
       return !tokInTargetPath;
     });

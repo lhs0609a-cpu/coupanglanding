@@ -70,54 +70,105 @@ const CATEGORY_POOLS: Record<string, CategoryPool> = seoData.categoryPools;
 const SYNONYM_GROUPS: Record<string, string[]> = seoData.synonymGroups;
 // universalModifiers는 의도적으로 미사용 — 카테고리 무관 단어는 SEO 역효과(스터핑/CTR 하락)
 
+// ─── Universal modifier set — 카테고리 무관 통과 토큰 ─────────
+// universalModifiers + 일반 형용사/명사 (cross-leaf 검사에서 제외).
+const UNIVERSAL_OK_TOKENS: Set<string> = (() => {
+  const set = new Set<string>();
+  const um = (seoData as { universalModifiers?: string[] }).universalModifiers || [];
+  for (const m of um) set.add(m.toLowerCase());
+  // 추가 universal tokens
+  const extras = [
+    '프리미엄', '고급', '고품질', '가성비', '실속형', '신상품', '최신형',
+    '선물용', '가정용', '대용량', '소용량', '세트', '묶음', '정식수입',
+    '국내정발', '친환경', '안전인증', '컴팩트', '심플', '모던', '클래식',
+    '실용적', '편리한', '견고한', '내구성', '고효율', '다용도', '기능성',
+    '전문가용', '입문용', '어린이용', '여성용', '남성용', '시니어용',
+    '미니', '소형', '대형', '특대형', '휴대용', '리필용', '교체용',
+    '단품', '기본형', '고급형', '표준형', '베이직', '프로', '플러스',
+    '에코', '울트라', '슈퍼', '맥스', '라이트', '신선', '국내산', '국산',
+    '수입', '특가', '인기', '추천', '베스트', '한정판', '럭셔리',
+  ];
+  for (const e of extras) set.add(e.toLowerCase());
+  return set;
+})();
+
 // ─── 모든 카테고리 leaf 토큰 set (cross-leaf 누출 차단용) ─────────
-// 16,259 카테고리의 leaf segment에서 한글 토큰 추출.
-// ★ 5+ 카테고리에서 등장하는 generic 토큰("커버","세트","장갑")은 over-strict 부작용 회피로 제외.
-//   specific token만 cross-leaf 차단 대상.
+// 16,259 카테고리의 leaf segment에서 한글 토큰 추출. UNIVERSAL_OK 제외 모두 차단 대상.
 const ALL_CATEGORY_LEAF_TOKENS: Set<string> = (() => {
-  const counter = new Map<string, number>();
+  const set = new Set<string>();
   for (const key of Object.keys(CATEGORY_POOLS)) {
     const segs = key.split('>');
     const leaf = segs[segs.length - 1] || '';
-    const tokens = new Set<string>();
     for (const w of leaf.split(/[\/·\s\(\)\[\],+&\-_'']+/)) {
       const trimmed = w.trim().toLowerCase();
-      if (trimmed.length >= 2 && /[가-힣]/.test(trimmed)) tokens.add(trimmed);
+      if (trimmed.length >= 2 && /[가-힣]/.test(trimmed) && !UNIVERSAL_OK_TOKENS.has(trimmed)) {
+        set.add(trimmed);
+      }
     }
-    if (leaf.length >= 2 && /[가-힣]/.test(leaf)) tokens.add(leaf.toLowerCase());
-    for (const t of tokens) counter.set(t, (counter.get(t) || 0) + 1);
-  }
-  // 20+ 카테고리에 등장하는 generic 토큰("세트","커버","장갑","여성","남성")은 false positive 회피로 제외.
-  // 1~19 카테고리에 등장하는 specific 토큰은 cross-leaf 차단 대상.
-  const set = new Set<string>();
-  for (const [t, cnt] of counter) {
-    if (cnt < 20) set.add(t);
+    if (leaf.length >= 2 && /[가-힣]/.test(leaf) && !UNIVERSAL_OK_TOKENS.has(leaf.toLowerCase())) {
+      set.add(leaf.toLowerCase());
+    }
   }
   return set;
 })();
 
 /**
  * word가 다른 카테고리의 leaf 토큰인지 판정 (cross-leaf 차단).
- * - word가 현재 path의 어떤 segment와 매칭(정확/include/endsWith) → 적합 (cross 아님)
- * - word가 ALL_CATEGORY_LEAF_TOKENS 내에 있고 위 매칭 없으면 → cross-leaf (다른 카테고리 leaf 토큰)
- * - 그 외 (universal modifier, 일반 형용사 등) → 통과
+ * - word가 현재 path의 leaf와 매칭(정확/include/endsWith leaf word) → 통과
+ * - word가 부모 segment의 정확 word 매칭 → 통과
+ * - word가 ALL_CATEGORY_LEAF_TOKENS 내에 있고 위 매칭 없으면 → cross-leaf
+ *
+ * ★ 부모 segment에서 endsWith는 검사 안 함 ("올리고음료" endsWith "음료" 통과 false negative 방지)
  */
 function isCrossLeafToken(word: string, categoryPath: string): boolean {
   const wordLower = word.toLowerCase();
-  if (!ALL_CATEGORY_LEAF_TOKENS.has(wordLower)) return false; // 다른 카테고리 leaf 토큰이 아니면 통과
+  if (!ALL_CATEGORY_LEAF_TOKENS.has(wordLower)) return false;
   const pathLower = categoryPath.toLowerCase();
   const pathSegs = pathLower.split('>').map(s => s.trim()).filter(Boolean);
-  // word가 현재 path의 어떤 segment와 매칭되면 적합
-  for (const seg of pathSegs) {
+  const leafLower = pathSegs[pathSegs.length - 1] || '';
+
+  // 1. leaf 매칭 — 정확/include/endsWith (자몽 leaf에 "레드자몽" suffix 통과)
+  //    단 generic suffix("세트","박스","팩","통","병","용","품","류")는 endsWith 검사 제외
+  //    → "립메이크업세트"가 "벨트 세트" leaf의 "세트"에 endsWith로 통과되는 false negative 방지
+  if (leafLower === wordLower) return false;
+  if (leafLower.includes(wordLower)) return false;
+  const leafWords = leafLower.split(/[\/·\s,+&\-_]+/).map(w => w.trim()).filter(Boolean);
+  const GENERIC_SUFFIXES = new Set([
+    '세트', '박스', '팩', '통', '병', '용', '품', '류', '구', '단',
+    '팔찌', '영양제', '비누', '쿠션', '베개', '매트', '커버', '케이스',
+    '지갑', '벨트', '목걸이', '장갑', '모자', '안경', '반지', '귀걸이',
+    '필름', '스티커', '거치대', '스탠드', '랙', '바구니', '상자',
+    '주스', '음료', '차', '술', '와인', '잼', '꿀', '시럽', '소스',
+    '오일', '버터', '치즈', '우유', '요거트', '발효유',
+    '간식', '쿠키', '과자', '빵', '케이크', '디저트',
+    '사료', '간식캔', '영양', '건강식품',
+    '셔츠', '바지', '치마', '원피스', '점퍼', '코트', '재킷',
+    '신발', '슬리퍼', '운동화', '구두', '부츠',
+    '가방', '백팩', '클러치', '토트백', '크로스백',
+    '향수', '크림', '에센스', '세럼', '로션', '토너',
+    '필터', '카트리지', '교체용', '리필',
+    '파우치', '식기', '가루', '분', '액', '졸', '원', '주머니', '봉투',
+    '소스', '드레싱', '시럽', '꿀', '잼', '스프레드',
+    '컵', '잔', '머그',
+    '브러쉬', '브러시', '솔', '사용품', '용품', '관리용품', '검진용품',
+    '도구', '기구', '기기', '장치', '장비', '시계', '램프', '조명',
+  ]);
+  for (const lw of leafWords) {
+    if (lw === wordLower) return false;
+    if (lw.includes(wordLower)) return false;
+    if (wordLower.length >= 2 && lw.length >= 2 && !GENERIC_SUFFIXES.has(lw) && wordLower.endsWith(lw)) return false;
+  }
+
+  // 2. 부모 segments — 정확 word 매칭 또는 segment substring 포함만 통과 (endsWith 안 함)
+  //    "쌀" + 백미 path: 부모 seg "쌀류".includes("쌀") → 통과
+  //    "올리고음료" + 와인 path: "차/술/음료" 포함하지만 "올리고음료" 통째 substring 아님 → cross
+  for (const seg of pathSegs.slice(0, -1)) {
     if (seg === wordLower) return false;
     if (seg.includes(wordLower)) return false;
     const segWords = seg.split(/[\/·\s,+&\-_]+/).map(w => w.trim()).filter(Boolean);
-    if (segWords.some(w =>
-      w === wordLower ||
-      (wordLower.length >= 2 && w.length >= 2 && (wordLower.endsWith(w) || w.endsWith(wordLower)))
-    )) return false;
+    if (segWords.includes(wordLower)) return false;
   }
-  return true; // 다른 카테고리 leaf 토큰 + 현재 path와 매칭 없음 → cross
+  return true;
 }
 
 // ─── 비상품 카테고리 (도서/미디어) ─────────────────────────
