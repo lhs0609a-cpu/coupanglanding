@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, formatYearMonth } from '@/lib/utils/format';
-import { getReportTargetMonth, getPreviousMonth } from '@/lib/utils/settlement';
+import { getPreviousMonth } from '@/lib/utils/settlement';
 import { PT_STATUS_LABELS, PT_STATUS_COLORS } from '@/lib/utils/constants';
 import { CHANNELS, CHANNEL_SHORT_LABELS, CHANNEL_COLORS } from '@/lib/megaload/constants';
 import type { Channel } from '@/lib/megaload/types';
@@ -86,7 +86,8 @@ interface UserPerf {
 
 function getRecentMonths(count: number): string[] {
   const months: string[] = [];
-  let ym = getReportTargetMonth();
+  const now = new Date();
+  let ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   for (let i = 0; i < count; i++) {
     months.push(ym);
     ym = getPreviousMonth(ym);

@@ -9,7 +9,6 @@ import {
   PAYMENT_STATUS_COLORS,
 } from '@/lib/utils/constants';
 import {
-  getReportTargetMonth,
   getPreviousMonth,
   isEligibleForMonth,
   getSettlementStatus,
@@ -31,6 +30,8 @@ type StatusFilter = 'all' | 'pending' | 'submitted' | 'completed' | 'overdue';
 interface MonthCell {
   revenue: number;
   deposit: number;
+  /** 우리에게 들어올 수수료 (VAT 포함) — PT생 → 우리 결제 금액 */
+  fee: number;
   status: string;
   isEligible: boolean;
   /** 데이터 출처 — 'report'=PT생 확정, 'api'=쿠팡 API 자동수집 잠정, 'none'=없음 */
@@ -51,10 +52,11 @@ interface UserRow {
   latestSyncedAt: string | null;
 }
 
-/** 최근 N개월 배열 생성 (최신 → 과거) */
+/** 최근 N개월 배열 생성 (당월부터 → 과거) — 당월 진행중 매출도 표시 */
 function getRecentMonths(count: number): string[] {
   const months: string[] = [];
-  let ym = getReportTargetMonth();
+  const now = new Date();
+  let ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   for (let i = 0; i < count; i++) {
     months.push(ym);
     ym = getPreviousMonth(ym);
@@ -203,7 +205,9 @@ export default function AdminSalesOverviewPage() {
   }, [fetchData, snapshots, users, triggerAutoSync]);
 
   const months = useMemo(() => getRecentMonths(monthRange), [monthRange]);
-  const currentMonth = months[0]; // 보고 대상 월(전월)
+  const currentMonth = months[0]; // 당월 (진행중, 4월)
+  // 직전 마감월 — 청구 수수료 기준 (PT생이 보고해야 할 가장 최근 월)
+  const lastClosedMonth = months[1] || months[0];
 
   /** 사용자별 집계 계산 — monthly_reports(확정) ∪ api_revenue_snapshots(잠정) */
   const rows = useMemo<UserRow[]>(() => {
@@ -237,9 +241,12 @@ export default function AdminSalesOverviewPage() {
           const deposit = report.admin_deposit_amount
             || report.calculated_deposit
             || calculateDeposit(revenue, getReportCosts(report), user.share_percentage);
+          // 우리 수수료(VAT 포함) — report 에 저장된 값 우선, 없으면 deposit×1.1
+          const fee = Number(report.total_with_vat) || Math.round(deposit * 1.1);
           monthly.set(ym, {
             revenue,
             deposit,
+            fee,
             status: report.payment_status,
             isEligible: true,
             source: 'report',
@@ -259,6 +266,7 @@ export default function AdminSalesOverviewPage() {
           monthly.set(ym, {
             revenue,
             deposit,
+            fee: Math.round(deposit * 1.1),
             status: 'api_pending',
             isEligible,
             source: 'api',
@@ -269,6 +277,7 @@ export default function AdminSalesOverviewPage() {
           monthly.set(ym, {
             revenue: 0,
             deposit: 0,
+            fee: 0,
             status: 'none',
             isEligible,
             source: 'none',
@@ -384,14 +393,20 @@ export default function AdminSalesOverviewPage() {
       ? Math.round(((completed + submitted) / eligible.length) * 100)
       : 0;
 
-    // 이번달 청구 수수료 (PT생이 우리에게 결제할 금액, VAT 포함)
-    const currentReports = reports.filter(r => r.year_month === currentMonth);
-    let feeBilledTotal = 0; // 이번달 청구 총액
-    let feePaidTotal = 0;   // 이미 납부완료된 금액
-    let feeDueTotal = 0;    // 미납(받아야 할) 금액
+    // 직전 마감월 청구 수수료 (PT생이 우리에게 결제할 금액, VAT 포함)
+    //   currentMonth=4월(진행중) 이라 4월 보고서는 아직 없음 → 직전 마감월(3월) 기준으로 청구액 계산
+    const billingReports = reports.filter(r => r.year_month === lastClosedMonth);
+    // 당월(4월) 진행중 매출 기반 추정 수수료 — snapshot.fee 합산 (위 cell 계산 결과 활용)
+    const currentMonthFeeEstimate = rows.reduce((s, r) => {
+      const m = r.monthly.get(currentMonth);
+      return s + (m?.fee || 0);
+    }, 0);
+    let feeBilledTotal = 0;
+    let feePaidTotal = 0;
+    let feeDueTotal = 0;
     let feePaidCount = 0;
     let feeDueCount = 0;
-    for (const r of currentReports) {
+    for (const r of billingReports) {
       const amount = Number(r.total_with_vat) || 0;
       if (amount <= 0) continue;
       feeBilledTotal += amount;
@@ -418,25 +433,28 @@ export default function AdminSalesOverviewPage() {
       feeDueTotal,
       feePaidCount,
       feeDueCount,
+      currentMonthFeeEstimate,
     };
-  }, [rows, reports, currentMonth]);
+  }, [rows, reports, currentMonth, lastClosedMonth]);
 
   /** 월별 총합 (matrix 하단 합계행) */
   const monthTotals = useMemo(() => {
-    const totals: Record<string, { revenue: number; deposit: number }> = {};
+    const totals: Record<string, { revenue: number; deposit: number; fee: number }> = {};
     for (const ym of months) {
-      totals[ym] = { revenue: 0, deposit: 0 };
+      totals[ym] = { revenue: 0, deposit: 0, fee: 0 };
       for (const row of filteredRows) {
         const m = row.monthly.get(ym);
         if (m) {
           totals[ym].revenue += m.revenue;
           totals[ym].deposit += m.deposit;
+          totals[ym].fee += m.fee;
         }
       }
     }
     const totalCumRev = filteredRows.reduce((s, r) => s + r.totalRevenue, 0);
     const totalCumDep = filteredRows.reduce((s, r) => s + r.totalDeposit, 0);
-    return { totals, totalCumRev, totalCumDep };
+    const totalCumFee = Object.values(totals).reduce((s, t) => s + t.fee, 0);
+    return { totals, totalCumRev, totalCumDep, totalCumFee };
   }, [filteredRows, months]);
 
   /** 정렬 토글 */
@@ -524,7 +542,9 @@ export default function AdminSalesOverviewPage() {
       return (
         <div className="flex flex-col items-end gap-0.5">
           <span className="text-xs font-semibold text-blue-700">{formatKRW(m.revenue)}</span>
-          <span className="text-[11px] text-blue-500">→ {formatKRW(m.deposit)}</span>
+          <span className="text-[11px] text-emerald-700 font-medium" title="우리 수수료 (VAT 포함)">
+            +{formatKRW(m.fee)} 수수료
+          </span>
           <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
             <Zap className="w-2.5 h-2.5" /> API 잠정
           </span>
@@ -535,7 +555,9 @@ export default function AdminSalesOverviewPage() {
     return (
       <div className="flex flex-col items-end gap-0.5">
         <span className="text-xs font-semibold text-gray-900">{formatKRW(m.revenue)}</span>
-        <span className="text-[11px] text-gray-500">→ {formatKRW(m.deposit)}</span>
+        <span className="text-[11px] text-emerald-700 font-medium" title="우리 수수료 (VAT 포함)">
+          +{formatKRW(m.fee)} 수수료
+        </span>
         <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-medium ${statusColor}`}>
           {PAYMENT_STATUS_LABELS[m.status] || m.status}
         </span>
@@ -651,13 +673,20 @@ export default function AdminSalesOverviewPage() {
         )}
       </div>
 
-      {/* 핵심: 이번달 우리가 받을 돈 (PT생 → 우리, VAT 포함) */}
+      {/* 핵심: 우리가 받을 수수료 (PT생 → 우리, VAT 포함) */}
       <div className="bg-gradient-to-r from-[#E31837]/5 to-amber-50 border-2 border-[#E31837]/30 rounded-xl p-5">
         <div className="flex items-start justify-between flex-wrap gap-4">
-          <div>
-            <p className="text-xs font-semibold text-[#E31837] uppercase tracking-wide">이번달 청구 수수료 (PT생 → 우리)</p>
-            <p className="text-3xl font-bold text-gray-900 mt-1">{formatKRW(summary.feeBilledTotal)}</p>
-            <p className="text-[11px] text-gray-500 mt-1">VAT 포함 · 기준월 {formatYearMonth(currentMonth)} · 제출된 리포트만 집계</p>
+          <div className="flex flex-col gap-3">
+            <div>
+              <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">당월 진행중 수수료 추정 ({formatYearMonth(currentMonth)})</p>
+              <p className="text-3xl font-bold text-emerald-700 mt-1">{formatKRW(summary.currentMonthFeeEstimate)}</p>
+              <p className="text-[11px] text-gray-500 mt-1">쿠팡 API 매출 기반 자동 추정 · VAT 포함 · 광고비 0 가정</p>
+            </div>
+            <div className="border-t border-gray-200 pt-2">
+              <p className="text-xs font-semibold text-[#E31837] uppercase tracking-wide">직전 마감월 청구 수수료 ({formatYearMonth(lastClosedMonth)})</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{formatKRW(summary.feeBilledTotal)}</p>
+              <p className="text-[11px] text-gray-500 mt-1">PT생 제출 리포트 기반 · VAT 포함</p>
+            </div>
           </div>
           <div className="flex items-center gap-6">
             <div>
@@ -782,10 +811,13 @@ export default function AdminSalesOverviewPage() {
                   {[...months].reverse().map(ym => (
                     <th
                       key={ym}
-                      className="px-3 py-3 text-right text-xs font-semibold text-gray-600 border-r border-gray-200"
+                      className={`px-3 py-3 text-right text-xs font-semibold border-r border-gray-200 ${ym === currentMonth ? 'bg-emerald-50 text-emerald-800' : 'text-gray-600'}`}
                       style={{ minWidth: 130 }}
                     >
                       {formatYearMonth(ym)}
+                      {ym === currentMonth && (
+                        <span className="block text-[9px] text-emerald-600 font-medium mt-0.5">진행중</span>
+                      )}
                     </th>
                   ))}
                   <th
@@ -821,7 +853,7 @@ export default function AdminSalesOverviewPage() {
                       {row.user.created_at.slice(0, 10)}
                     </td>
                     {[...months].reverse().map(ym => (
-                      <td key={ym} className="px-3 py-3 text-right border-r border-gray-200">
+                      <td key={ym} className={`px-3 py-3 text-right border-r border-gray-200 ${ym === currentMonth ? 'bg-emerald-50/40' : ''}`}>
                         {renderCell(row.monthly.get(ym)!)}
                       </td>
                     ))}
@@ -844,9 +876,9 @@ export default function AdminSalesOverviewPage() {
                   {[...months].reverse().map(ym => {
                     const t = monthTotals.totals[ym];
                     return (
-                      <td key={ym} className="px-3 py-3 text-right border-r border-gray-200">
+                      <td key={ym} className={`px-3 py-3 text-right border-r border-gray-200 ${ym === currentMonth ? 'bg-emerald-100' : ''}`}>
                         <div className="text-xs font-semibold text-gray-900">{formatKRW(t.revenue)}</div>
-                        <div className="text-[11px] text-[#E31837]">→ {formatKRW(t.deposit)}</div>
+                        <div className="text-[11px] text-emerald-700 font-medium">+{formatKRW(t.fee)}</div>
                       </td>
                     );
                   })}
@@ -872,7 +904,7 @@ export default function AdminSalesOverviewPage() {
               {label}
             </span>
           ))}
-          <span className="ml-auto text-gray-500">셀 형식: 매출 → 정산액</span>
+          <span className="ml-auto text-gray-500">셀 형식: 매출 + 우리 수수료(VAT 포함) · {formatYearMonth(currentMonth)} 진행중</span>
         </div>
       </div>
     </div>
