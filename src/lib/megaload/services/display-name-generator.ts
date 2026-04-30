@@ -422,15 +422,14 @@ export function classifyTokens(
     }
 
     // 브랜드 필터 (양방향 + 서브토큰)
-    // ★ brand 빈 문자열 시 lower.includes('')==true 버그 회피, 대신 cross-category 차단으로 정체성 보호
+    // ★ brand 빈 문자열 시 lower.includes('')==true 버그 회피
     if (brandLower.length >= 2) {
       if (brandSubTokens.has(lower) || brandLower.includes(lower) ||
           lower.includes(brandLower) ||
           (lower.startsWith(brandLower) && lower.length <= brandLower.length + 3)) continue;
-    } else {
-      // brand 없음 — cross-category 토큰 차단 (도서에 "사과", 자몽에 "사과" 등)
-      if (isCrossCategoryToken(token, categoryPath)) continue;
     }
+    // ★ cross-category 차단 — brand 유무 무관 항상 적용 (정체성 보호)
+    if (isCrossCategoryToken(token, categoryPath)) continue;
 
     // 연예인/모델명 필터 — IP 리스크 방지
     if (CELEBRITY_NAMES.has(token)) continue;
@@ -613,8 +612,8 @@ const MUTUALLY_EXCLUSIVE_FAMILIES: { name: string; tokens: string[] }[] = [
   { name: '과일', tokens: ['사과', '배', '감', '귤', '오렌지', '레몬', '자몽', '바나나', '파인애플', '망고', '딸기', '블루베리', '포도', '복숭아', '체리', '키위', '아보카도', '수박', '멜론', '두리안', '석류', '용과', '리치', '망고스틴', '한라봉', '천혜향', '참외', '자두', '살구', '매실', '단감', '대추', '무화과'] },
   // 사과 품종/사양 — 부사/홍로/아오리/대과/10과 동시 노출 모순
   { name: '사과품종', tokens: ['부사', '홍로', '아오리', '시나노골드', '감홍', '양광', '미얀마', '청사과', '빨간사과', '대과', '소과', '중과', '못난이', '못난이사과', '햇사과', '10과', '20과', '30과'] },
-  // 채소 주요 품목
-  { name: '채소', tokens: ['배추', '무', '당근', '양파', '대파', '마늘', '감자', '고구마', '오이', '토마토', '호박', '가지', '시금치', '브로콜리', '상추', '깻잎', '파프리카', '피망', '아스파라거스', '연근', '우엉', '도라지'] },
+  // 채소 주요 품목 (+ generic "채소" 토큰)
+  { name: '채소', tokens: ['채소', '야채', '배추', '당근', '양파', '대파', '마늘', '감자', '고구마', '오이', '토마토', '호박', '가지', '시금치', '브로콜리', '상추', '깻잎', '파프리카', '피망', '아스파라거스', '연근', '우엉', '도라지', '쪽파', '미나리'] },
   // 곡물
   { name: '곡물', tokens: ['쌀', '현미', '찹쌀', '보리', '귀리', '퀴노아', '메밀', '수수', '조', '잡곡', '백미'] },
   // 육류
@@ -629,7 +628,7 @@ const MUTUALLY_EXCLUSIVE_FAMILIES: { name: string; tokens: string[] }[] = [
   { name: '견과류', tokens: ['아몬드', '호두', '땅콩', '캐슈넛', '잣', '피스타치오', '헤이즐넛', '마카다미아', '브라질너트'] },
   // 모듬/세트 — 단일 카테고리에 "과일세트", "모듬세트" 잡음 차단
   // (의도된 모듬 상품은 leaf가 "혼합세트" 등인 카테고리에 들어가므로 cross 안 됨)
-  { name: '모듬세트', tokens: ['과일세트', '모듬세트', '혼합세트', '모둠세트', '선물세트'] },
+  { name: '모듬세트', tokens: ['과일세트', '모듬세트', '혼합세트', '모둠세트', '선물세트', '모듬', '모둠'] },
   // 보충제/건강기능식품 — 자몽 등 신선식품에 잡음 차단
   { name: '보충제', tokens: ['오메가3', '오메가-3', '홍삼', '녹용', '비타민D', '비타민C', '비타민E', '글루코사민', '콘드로이틴', '루테인', '코엔자임Q10', '밀크씨슬'] },
 ];
@@ -691,59 +690,84 @@ const L1_SPECIFIC_TOKENS: Record<string, string[]> = {
 
 /**
  * 토큰이 카테고리와 family/L1 충돌하는지 판정.
- * - MUTUALLY_EXCLUSIVE_FAMILIES 내 cross-family 차단 (사과 vs 자몽)
- * - L1_SPECIFIC_TOKENS 내 cross-L1 차단 (도서에 "유산균", 뷰티에 "산지직송")
- * - 그 외 (universalModifier 등 family/L1 무관 토큰) → 통과
+ * 모든 brand 상황에서 항상 호출되어 정체성 보호.
  *
- * brand가 빈 문자열일 때 정체성 보호용.
+ * 핵심 정책:
+ *   1) word가 family token에 정확 매칭 → familyInPath이면 통과 (모순은 sanitize에서 처리)
+ *   2) word가 family token을 substring으로 포함 (예: "성주참외" 포함 "참외") →
+ *      leaf와 매칭(endsWith leaf)일 때만 통과. "햇사과"(leaf=사과 OK), "성주참외"(leaf=사과 NG)
+ *   3) word가 L1_SPECIFIC_TOKENS에 정확 매칭하고 다른 L1 → cross-L1 차단
  */
 function isCrossCategoryToken(word: string, categoryPath: string): boolean {
   const wordLower = word.toLowerCase();
-  const leafLower = (categoryPath.split('>').pop() || '').toLowerCase();
-  const top = (categoryPath.split('>')[0] || '').trim();
+  const pathLower = categoryPath.toLowerCase();
+  const pathSegs = pathLower.split('>').map(s => s.trim()).filter(Boolean);
+  const top = pathSegs[0] || '';
+  const leafLower = pathSegs[pathSegs.length - 1] || '';
 
-  // 1. mutually-exclusive family 충돌 (예: 자몽 leaf에 "사과")
+  // 1. mutually-exclusive family 충돌
   for (const family of MUTUALLY_EXCLUSIVE_FAMILIES) {
     const tokens = family.tokens.map(t => t.toLowerCase());
-    const wordInFamily = tokens.some(t => wordLower === t || wordLower.includes(t));
-    if (!wordInFamily) continue;
-    const leafInFamily = tokens.some(t => leafLower.includes(t));
-    if (!leafInFamily) return true; // family 토큰인데 leaf 외부 family
-    return !leafLower.includes(wordLower); // 둘 다 family but leaf와 word 다름 → 모순
+    const exactInFamily = tokens.some(t => wordLower === t);
+    const partialInFamily = !exactInFamily && tokens.some(t => wordLower.includes(t) || t.includes(wordLower));
+    if (!exactInFamily && !partialInFamily) continue;
+
+    // family token이 path의 어떤 segment의 word-boundary 단어와 매칭되어야 family 적합.
+    // ★ substring 매칭은 false positive (예: 곡물 token "조"가 "조미료/향신료" 매칭) → word level
+    const familyInPath = tokens.some(t => pathSegs.some(seg => {
+      if (seg === t) return true;
+      // segment를 word 단위로 분할 후 정확 매칭 또는 endsWith 매칭
+      const segWords = seg.split(/[\/·\s,+&\-_]+/).map(w => w.trim()).filter(Boolean);
+      return segWords.some(w => w === t || (t.length >= 2 && w.length >= 2 && w.endsWith(t)));
+    }));
+    if (!familyInPath) return true; // path 어디에도 family 토큰 없음 → cross-L1 (도서에 "사과")
+
+    if (exactInFamily) return false; // 정확 family token, 같은 family 내 모순은 sanitize에서 처리
+
+    // 부분 매칭 ("성주참외" 포함 "참외"): leaf와 매칭(endsWith leaf 또는 leaf.includes(word))일 때만 통과
+    const wordMatchesLeaf =
+      leafLower === wordLower ||
+      leafLower.includes(wordLower) ||
+      (wordLower.length >= 2 && leafLower.length >= 2 && wordLower.endsWith(leafLower));
+    return !wordMatchesLeaf;
   }
 
-  // 2. L1 specific 토큰 cross-L1 차단 (도서에 "유산균" 등)
+  // 2. L1 specific 토큰 cross-L1 차단
   for (const [l1, tokens] of Object.entries(L1_SPECIFIC_TOKENS)) {
-    if (l1 === top) continue; // 같은 L1이면 통과
+    if (l1 === top) continue;
     if (tokens.some(t => t.toLowerCase() === wordLower)) return true;
   }
   return false;
 }
 
 function sanitizeContradictoryTokens(name: string, categoryPath: string): string {
-  // "세트/박스/모듬/혼합/구성" 키워드가 단독 토큰으로 등장 시에만 의도된 모듬 — 그대로 유지.
-  // ★ "과일세트", "사과세트" 같이 다른 단어와 합쳐진 경우는 모듬 의도가 아니라 일반 단어로 간주.
-  //   word boundary로 단독 토큰만 매칭.
-  if (/(^|\s)(세트|박스|모듬|혼합|구성|패키지|선물포장|꾸러미|혼합세트|모듬세트)(\s|$)/.test(name)) return name;
+  // ★ 카테고리 leaf가 명시적으로 모듬/세트/혼합 카테고리인 경우에만 모순 보존.
+  //   사용자가 단일 카테고리(예: "사과")에 잘못된 input("사과 자몽 모듬 ...")을 넣은 경우 sanitize 정상 작동.
+  const leaf = (categoryPath.split('>').pop() || '').toLowerCase();
+  if (/세트|모둠|모듬|혼합|구성|꾸러미|모음|선물포장/.test(leaf)) return name;
 
   let result = name;
   const leafLower = (categoryPath.split('>').pop() || '').toLowerCase();
 
   for (const family of MUTUALLY_EXCLUSIVE_FAMILIES) {
     const matched = family.tokens.filter(t => result.includes(t));
-    if (matched.length <= 1) continue;
+    if (matched.length === 0) continue;
 
-    // 카테고리 leaf와 일치하는 토큰 우선
-    let primary = matched.find(t => leafLower.includes(t.toLowerCase()));
-    if (!primary) primary = matched[0]; // 없으면 가장 먼저 등장한 것
+    // ★ leaf가 family 외 카테고리(예: 자몽 leaf인데 "사과"/"참외" 토큰만 있음)이면 모든 family token 제거.
+    //   leaf가 family 내면 leaf 매칭 token만 보존, 나머지 제거.
+    const leafToken = matched.find(t => leafLower.includes(t.toLowerCase()));
+    const tokensToRemove = leafToken
+      ? matched.filter(t => t !== leafToken)
+      : matched;
+    if (matched.length === 1 && leafToken) continue; // leaf 매칭 1개만, 정상
 
-    // 나머지 모순 토큰 제거 (첫 1회만 — 정확한 매칭으로 다른 단어 손상 방지)
-    for (const tok of matched) {
-      if (tok === primary) continue;
-      // 단어 경계 보존: "자몽 " "자몽," "자몽\n" 등 trailing 구분자 함께 제거
-      result = result.replace(new RegExp(tok + '(?=\\s|,|$|·|/|\\)|\\])', 'g'), '');
-      // trailing 구분자 없이 끝에 붙은 케이스도 처리
-      result = result.replace(new RegExp('(?<=\\s|^|·|/|\\(|\\[)' + tok, 'g'), '');
+    // 단어 경계(앞/뒤 모두) 매칭 — "성주참외"의 "참외"는 lookbehind 매칭 안 되므로 보존
+    // ("성주참외" 통째로 isCrossCategoryToken에서 차단)
+    for (const tok of tokensToRemove) {
+      result = result.replace(
+        new RegExp(`(?<=^|[\\s,·/\\(\\[])${tok}(?=$|[\\s,·/\\)\\]])`, 'g'),
+        '',
+      );
     }
   }
   return result.replace(/\s{2,}/g, ' ').trim();
@@ -797,10 +821,9 @@ export function generateDisplayName(
     if (!isCategorySafe) {
       if (brandLowerGen.length >= 2) {
         if (brandSubTokensGen.has(lower) || brandLowerGen.includes(lower) || lower.includes(brandLowerGen)) return false;
-      } else {
-        // brand 없음 — cross-category 토큰 차단으로 정체성 보호
-        if (isCrossCategoryToken(word, categoryPath)) return false;
       }
+      // ★ cross-category 차단 — brand 유무 무관 항상 적용 (정체성 보호)
+      if (isCrossCategoryToken(word, categoryPath)) return false;
     }
     if (CELEBRITY_NAMES.has(word)) return false;
     // 서브워드 중복 체크: 개별 단어가 이미 사용되었으면 스킵
