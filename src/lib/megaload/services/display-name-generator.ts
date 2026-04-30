@@ -422,9 +422,15 @@ export function classifyTokens(
     }
 
     // 브랜드 필터 (양방향 + 서브토큰)
-    if (brandSubTokens.has(lower) || brandLower.includes(lower) ||
-        lower.includes(brandLower) ||
-        (brandLower.length >= 2 && lower.startsWith(brandLower) && lower.length <= brandLower.length + 3)) continue;
+    // ★ brand 빈 문자열 시 lower.includes('')==true 버그 회피, 대신 cross-category 차단으로 정체성 보호
+    if (brandLower.length >= 2) {
+      if (brandSubTokens.has(lower) || brandLower.includes(lower) ||
+          lower.includes(brandLower) ||
+          (lower.startsWith(brandLower) && lower.length <= brandLower.length + 3)) continue;
+    } else {
+      // brand 없음 — cross-category 토큰 차단 (도서에 "사과", 자몽에 "사과" 등)
+      if (isCrossCategoryToken(token, categoryPath)) continue;
+    }
 
     // 연예인/모델명 필터 — IP 리스크 방지
     if (CELEBRITY_NAMES.has(token)) continue;
@@ -615,9 +621,97 @@ const MUTUALLY_EXCLUSIVE_FAMILIES: { name: string; tokens: string[] }[] = [
   { name: '육류', tokens: ['소고기', '돼지고기', '닭고기', '오리고기', '양고기', '한우', '한돈'] },
 ];
 
+// L1별 specific 토큰 — 다른 L1에 등장하면 cross-L1 누출로 차단
+const L1_SPECIFIC_TOKENS: Record<string, string[]> = {
+  '식품': [
+    '유산균', '프로바이오틱스', '오메가3', '홍삼', '녹용', '비타민D', 'HACCP', 'GMP',
+    '산지직송', '국내산', '국산', '신선', '신선도', '냉장', '냉동', '발효',
+    '저칼로리', '면역', '피로회복', '단백질', '식이섬유', '대과', '소과', '못난이',
+    '특대', '대용량', '제철', '햇', '햇사과', '햇감자', '저당', '무가당', '무첨가',
+    '건강기능식품', '식품',
+  ],
+  '뷰티': [
+    '세럼', '에센스', '토너', '미백', '주름개선', '안티에이징', '리프팅', '브라이트닝',
+    '히알루론산', '콜라겐', '레티놀', '나이아신아마이드', '센텔라', '시카',
+    '스킨케어', '페이스케어', '바디케어', '클렌징', '약산성', 'AHA', 'BHA', 'PHA',
+  ],
+  '가전/디지털': [
+    '에너지효율', '음성인식', 'HEPA필터', 'LED', 'OLED', 'LCD', 'HDR', '초고화질',
+    '저소음', '절전', 'IoT', '스마트', '원터치', 'Wi-Fi', '블루투스', 'A/S',
+  ],
+  '패션의류잡화': [
+    '오피스룩', '데일리룩', '시즌리스', '신축성', '발수', '생활방수', '베이지', '네이비',
+    '스판덱스', '쿨맥스', '드라이핏',
+  ],
+  '도서': [
+    '저자', '출판사', 'ISBN', '베스트셀러', '신간', '스테디셀러', '개정판', '한정판',
+    '초등학습', '중등학습', '수험서', '자격증',
+  ],
+  '가구/홈데코': [
+    '원목', 'MDF', '메모리폼', '북유럽', '미니멀', '인테리어', '거실', '침실',
+  ],
+  '주방용품': [
+    '논스틱', '인덕션', '식기세척기', '오븐', '에어프라이어', '내열', '3중', '5중',
+  ],
+  '출산/유아동': [
+    'KC인증', '오가닉', '신생아', '영아', '유아', 'BPA-free', '프탈레이트프리',
+  ],
+  '반려/애완용품': [
+    'AAFCO인증', '무항생제', 'Non-GMO', '소형견', '대형견', '노령견', '퍼피',
+    '다묘가정', '실내견', '기호성', '모질개선', '관절건강', '구강건강',
+  ],
+  '스포츠/레져': [
+    '쿨링', '속건', '경량', '홈트레이닝', '캠핑', '등산', '자전거', '피트니스',
+    '카본', '드라이핏',
+  ],
+  '자동차용품': [
+    '발수코팅', '광택', '왁스', '12V', '24V', '시거잭', '블랙박스', '네비게이션',
+    '범용', '순정', 'OEM',
+  ],
+  '문구/오피스': [
+    '필기감', '겔잉크', '수성잉크', '유성잉크', '수험', '학습',
+  ],
+  '완구/취미': [
+    '두뇌', '오감', '연령별', '코스프레', '피규어', '보드게임', '블록',
+  ],
+};
+
+/**
+ * 토큰이 카테고리와 family/L1 충돌하는지 판정.
+ * - MUTUALLY_EXCLUSIVE_FAMILIES 내 cross-family 차단 (사과 vs 자몽)
+ * - L1_SPECIFIC_TOKENS 내 cross-L1 차단 (도서에 "유산균", 뷰티에 "산지직송")
+ * - 그 외 (universalModifier 등 family/L1 무관 토큰) → 통과
+ *
+ * brand가 빈 문자열일 때 정체성 보호용.
+ */
+function isCrossCategoryToken(word: string, categoryPath: string): boolean {
+  const wordLower = word.toLowerCase();
+  const leafLower = (categoryPath.split('>').pop() || '').toLowerCase();
+  const top = (categoryPath.split('>')[0] || '').trim();
+
+  // 1. mutually-exclusive family 충돌 (예: 자몽 leaf에 "사과")
+  for (const family of MUTUALLY_EXCLUSIVE_FAMILIES) {
+    const tokens = family.tokens.map(t => t.toLowerCase());
+    const wordInFamily = tokens.some(t => wordLower === t || wordLower.includes(t));
+    if (!wordInFamily) continue;
+    const leafInFamily = tokens.some(t => leafLower.includes(t));
+    if (!leafInFamily) return true; // family 토큰인데 leaf 외부 family
+    return !leafLower.includes(wordLower); // 둘 다 family but leaf와 word 다름 → 모순
+  }
+
+  // 2. L1 specific 토큰 cross-L1 차단 (도서에 "유산균" 등)
+  for (const [l1, tokens] of Object.entries(L1_SPECIFIC_TOKENS)) {
+    if (l1 === top) continue; // 같은 L1이면 통과
+    if (tokens.some(t => t.toLowerCase() === wordLower)) return true;
+  }
+  return false;
+}
+
 function sanitizeContradictoryTokens(name: string, categoryPath: string): string {
-  // "세트/박스/모듬/혼합/구성/혼합세트" 키워드 있으면 의도된 모듬 — 그대로 유지
-  if (/세트|박스|모듬|혼합|구성|패키지|선물포장|꾸러미/.test(name)) return name;
+  // "세트/박스/모듬/혼합/구성" 키워드가 단독 토큰으로 등장 시에만 의도된 모듬 — 그대로 유지.
+  // ★ "과일세트", "사과세트" 같이 다른 단어와 합쳐진 경우는 모듬 의도가 아니라 일반 단어로 간주.
+  //   word boundary로 단독 토큰만 매칭.
+  if (/(^|\s)(세트|박스|모듬|혼합|구성|패키지|선물포장|꾸러미|혼합세트|모듬세트)(\s|$)/.test(name)) return name;
 
   let result = name;
   const leafLower = (categoryPath.split('>').pop() || '').toLowerCase();
@@ -688,7 +782,12 @@ export function generateDisplayName(
     //    leaf 명칭은 쿠팡 카테고리 공식 명사이므로 IP 충돌 위험 없음
     const isCategorySafe = categorySafeWords.has(lower);
     if (!isCategorySafe) {
-      if (brandSubTokensGen.has(lower) || brandLowerGen.includes(lower) || lower.includes(brandLowerGen)) return false;
+      if (brandLowerGen.length >= 2) {
+        if (brandSubTokensGen.has(lower) || brandLowerGen.includes(lower) || lower.includes(brandLowerGen)) return false;
+      } else {
+        // brand 없음 — cross-category 토큰 차단으로 정체성 보호
+        if (isCrossCategoryToken(word, categoryPath)) return false;
+      }
     }
     if (CELEBRITY_NAMES.has(word)) return false;
     // 서브워드 중복 체크: 개별 단어가 이미 사용되었으면 스킵
