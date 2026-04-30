@@ -292,11 +292,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '쿠팡 API가 연동되지 않았습니다.' }, { status: 400 });
     }
 
+    if (!ptUser.coupang_wing_user_id || !ptUser.coupang_wing_user_id.trim()) {
+      return NextResponse.json({
+        error: 'WING 로그인 ID가 등록되어 있지 않습니다. 설정 > 쿠팡 API 연동 > "WING 로그인 ID" 필드를 입력 후 저장해주세요. (다운로드 쿠폰은 vendorId가 아닌 WING 로그인 ID로 등록됩니다)',
+        code: 'WING_USER_ID_MISSING',
+      }, { status: 400 });
+    }
+
     const credentials: CoupangCredentials = {
       vendorId: ptUser.coupang_vendor_id,
       accessKey: await decryptPassword(ptUser.coupang_access_key),
       secretKey: await decryptPassword(ptUser.coupang_secret_key),
-      wingUserId: ptUser.coupang_wing_user_id || undefined,
+      wingUserId: ptUser.coupang_wing_user_id.trim(),
     };
 
     const serviceClient = await createServiceClient();
