@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
       totalCount: preview.length,
       brackets: DEFAULT_BRACKETS.map((b) => ({
         ...b,
-        maxPrice: b.maxPrice === Infinity ? null : b.maxPrice,
+        maxPrice: b.maxPrice >= Number.MAX_SAFE_INTEGER ? null : b.maxPrice,
       })),
     });
   } catch (err) {
