@@ -200,6 +200,10 @@ export default function BulkRegisterPanel() {
           onUploadThirdPartyImages={actions.handleUploadThirdPartyImages}
           onRemoveThirdPartyUrl={actions.handleRemoveThirdPartyUrl}
           onClearThirdPartyUrls={actions.handleClearThirdPartyUrls}
+          onSaveSettings={actions.saveSettingsToServer}
+          savingSettings={actions.savingSettings}
+          settingsSavedAt={actions.settingsSavedAt}
+          settingsSaveError={actions.settingsSaveError}
         />
       )}
 

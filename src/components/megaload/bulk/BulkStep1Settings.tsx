@@ -3,7 +3,7 @@
 import { useRef, useState, useCallback } from 'react';
 import {
   FolderSearch, ArrowRight, Loader2, Search, Truck, MapPin, Phone,
-  Sparkles, Plus, FolderOpen, Clock, X, Folder, Shield, Check,
+  Sparkles, Plus, FolderOpen, Clock, X, Folder, Shield, Check, Save,
 } from 'lucide-react';
 import type { PriceBracket, ShippingPlace, ReturnCenter, PreventionConfig } from './types';
 import { getPreventionLevel } from '@/lib/megaload/services/item-winner-prevention';
@@ -76,6 +76,11 @@ interface BulkStep1SettingsProps {
   onUploadThirdPartyImages: () => void;
   onRemoveThirdPartyUrl: (index: number) => void;
   onClearThirdPartyUrls: () => void;
+  // 계정별 설정 영구 저장
+  onSaveSettings: () => void;
+  savingSettings: boolean;
+  settingsSavedAt: number | null;
+  settingsSaveError: string | null;
 }
 
 export default function BulkStep1Settings({
@@ -92,6 +97,7 @@ export default function BulkStep1Settings({
   preventionConfig, onSetPreventionEnabled, onSetSellerBrand, onSetAutoBarcodeGeneration,
   onRecalcPrices, onScan, onBrowseFolder,
   savedThirdPartyUrls, onUploadThirdPartyImages, onRemoveThirdPartyUrl, onClearThirdPartyUrls,
+  onSaveSettings, savingSettings, settingsSavedAt, settingsSaveError,
 }: BulkStep1SettingsProps) {
   const [folderInput, setFolderInput] = useState('');
   const [showRecentPaths, setShowRecentPaths] = useState(false);
@@ -241,9 +247,31 @@ export default function BulkStep1Settings({
 
       {/* Shipping */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          <Truck className="w-5 h-5 text-gray-500" /> 배송 / 반품 설정
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+            <Truck className="w-5 h-5 text-gray-500" /> 배송 / 반품 설정
+          </h2>
+          <div className="flex items-center gap-2">
+            {settingsSavedAt && !settingsSaveError && (
+              <span className="text-xs text-gray-400">
+                저장됨 · {new Date(settingsSavedAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+            {settingsSaveError && (
+              <span className="text-xs text-red-500">{settingsSaveError}</span>
+            )}
+            <button
+              type="button"
+              onClick={onSaveSettings}
+              disabled={savingSettings}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
+              title="현재 설정을 계정에 저장 (다른 기기/브라우저에서도 동일하게 적용)"
+            >
+              {savingSettings ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              {savingSettings ? '저장 중...' : '저장'}
+            </button>
+          </div>
+        </div>
         {loadingShipping ? (
           <div className="flex items-center gap-2 text-sm text-gray-400 py-4"><Loader2 className="w-4 h-4 animate-spin" /> 쿠팡 물류 정보 불러오는 중...</div>
         ) : shippingError ? (

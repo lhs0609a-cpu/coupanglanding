@@ -127,6 +127,12 @@ export function useBulkRegisterActions() {
   const [loadingShipping, setLoadingShipping] = useState(false);
   const [shippingError, setShippingError] = useState('');
 
+  // 사용자 설정 서버 저장 상태
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsSavedAt, setSettingsSavedAt] = useState<number | null>(null);
+  const [settingsSaveError, setSettingsSaveError] = useState<string | null>(null);
+  const [serverPrefsLoaded, setServerPrefsLoaded] = useState(false);
+
   // Step 2 state
   const [products, setProducts] = useState<EditableProduct[]>([]);
   const [autoMatchingProgress, setAutoMatchingProgress] = useState<{ done: number; total: number } | null>(null);
@@ -1525,6 +1531,78 @@ export function useBulkRegisterActions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 마운트 시 서버에 저장된 사용자 설정 로드 (계정 단위 영구 저장 — localStorage보다 우선)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/megaload/settings/bulk-register-prefs');
+        if (!res.ok || cancelled) return;
+        const { prefs } = await res.json();
+        if (!prefs || cancelled) { setServerPrefsLoaded(true); return; }
+        if (prefs.returnCharge !== undefined && prefs.returnCharge > 0) setReturnCharge(prefs.returnCharge);
+        if (prefs.deliveryCharge !== undefined) setDeliveryCharge(prefs.deliveryCharge);
+        if (prefs.freeShipOverAmount !== undefined) setFreeShipOverAmount(prefs.freeShipOverAmount);
+        if (prefs.deliveryChargeType) setDeliveryChargeType(prefs.deliveryChargeType);
+        if (prefs.contactNumber) setContactNumber(prefs.contactNumber);
+        if (prefs.selectedOutbound) setSelectedOutbound(prefs.selectedOutbound);
+        if (prefs.selectedReturn) setSelectedReturn(prefs.selectedReturn);
+        if (prefs.generateAiContent !== undefined) setGenerateAiContent(prefs.generateAiContent);
+        if (prefs.includeReviewImages !== undefined) setIncludeReviewImages(prefs.includeReviewImages);
+        if (prefs.useStockImages !== undefined) setUseStockImages(prefs.useStockImages);
+        if (prefs.preventionConfig) setPreventionConfig(prefs.preventionConfig);
+        if (Array.isArray(prefs.brackets) && prefs.brackets.length > 0) setBrackets(prefs.brackets);
+        if (prefs.savedAt) setSettingsSavedAt(prefs.savedAt);
+        setServerPrefsLoaded(true);
+      } catch {
+        if (!cancelled) setServerPrefsLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // 사용자 설정 서버 저장
+  const saveSettingsToServer = useCallback(async () => {
+    setSavingSettings(true);
+    setSettingsSaveError(null);
+    try {
+      const savedAt = Date.now();
+      const prefs = {
+        brackets,
+        selectedOutbound,
+        selectedReturn,
+        deliveryChargeType,
+        deliveryCharge,
+        freeShipOverAmount,
+        returnCharge,
+        contactNumber,
+        generateAiContent,
+        includeReviewImages,
+        useStockImages,
+        preventionConfig,
+        savedAt,
+      };
+      const res = await fetch('/api/megaload/settings/bulk-register-prefs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prefs }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || '저장 실패');
+      }
+      setSettingsSavedAt(savedAt);
+    } catch (err) {
+      setSettingsSaveError(err instanceof Error ? err.message : '저장 실패');
+    } finally {
+      setSavingSettings(false);
+    }
+  }, [
+    brackets, selectedOutbound, selectedReturn, deliveryChargeType,
+    deliveryCharge, freeShipOverAmount, returnCharge, contactNumber,
+    generateAiContent, includeReviewImages, useStockImages, preventionConfig,
+  ]);
+
   // 마운트 시 세션 복원 제안
   useEffect(() => {
     if (sessionRestoreOffered) return;
@@ -2820,5 +2898,7 @@ export function useBulkRegisterActions() {
     fetchCategorySuggestions, lowConfidenceProducts, rematchLowConfidence, rematchingCategory,
     // 제3자 이미지 관리
     handleUploadThirdPartyImages, handleRemoveThirdPartyUrl, handleClearThirdPartyUrls,
+    // 사용자 설정 서버 저장
+    saveSettingsToServer, savingSettings, settingsSavedAt, settingsSaveError, serverPrefsLoaded,
   };
 }
