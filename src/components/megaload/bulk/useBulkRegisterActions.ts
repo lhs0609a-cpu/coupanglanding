@@ -539,6 +539,8 @@ export function useBulkRegisterActions() {
   // ---- 스톡 이미지 개별 교체 (스왑 모달) ----
   const handleSwapStockImage = useCallback((uid: string, imageIndex: number, newCdnUrl: string) => {
     // 1. products 상태 업데이트 (stockMainImageUrls + scannedMainImages)
+    // ★ 기존 scannedMainImages의 autoExcludeReason/Detail flag 보존
+    //   (수동 제외한 이미지가 stock swap 시 사라져 등록되는 버그 방지)
     setProducts(prev => prev.map(p => {
       if (p.uid !== uid) return p;
 
@@ -550,11 +552,17 @@ export function useBulkRegisterActions() {
         urls.push(newCdnUrl);
       }
 
-      const stockScanned = urls.map((url, idx) => ({
-        name: `stock_${idx}.jpg`,
-        objectUrl: url,
-        handle: null as unknown as FileSystemFileHandle,
-      }));
+      const prevScanned = p.scannedMainImages || [];
+      const stockScanned = urls.map((url, idx) => {
+        const prev = prevScanned[idx];
+        return {
+          name: `stock_${idx}.jpg`,
+          objectUrl: url,
+          handle: null as unknown as FileSystemFileHandle,
+          ...(prev?.autoExcludeReason ? { autoExcludeReason: prev.autoExcludeReason } : {}),
+          ...(prev?.autoExcludeDetail ? { autoExcludeDetail: prev.autoExcludeDetail } : {}),
+        };
+      });
 
       return {
         ...p,
@@ -996,10 +1004,13 @@ export function useBulkRegisterActions() {
             const reasonMap = autoExcludeMaps[i];
 
             // origIdx 기준으로 ScannedImageFile에 사유 태깅
+            // ★ 사용자 수동 제외(autoExcludeDetail==='manual')는 절대 덮어쓰지 않음
+            //   (수동 제외가 자동 파이프라인 재실행 시 사라져 등록되는 버그 방지)
             const tagReason = (img: ScannedImageFile, origIdx: number): ScannedImageFile => {
+              if (img.autoExcludeDetail === 'manual') return img;
               const reason = reasonMap.get(origIdx);
               if (!reason) {
-                // 기존에 사유가 있었으면 클리어 (재스캔 케이스)
+                // 기존에 자동 사유가 있었으면 클리어 (재스캔 케이스)
                 if (img.autoExcludeReason) {
                   const { autoExcludeReason: _r, autoExcludeDetail: _d, ...rest } = img;
                   return rest;
@@ -1322,9 +1333,11 @@ export function useBulkRegisterActions() {
                 const shouldSetReview = reviewOrder && p.editedReviewImageOrder === undefined;
 
                 // scannedDetailImages에 자동 제외 사유 태깅
+                // ★ 수동 제외(autoExcludeDetail==='manual')는 보존
                 let taggedDetailImages = p.scannedDetailImages;
                 if (detailReasonMap && p.scannedDetailImages) {
                   taggedDetailImages = p.scannedDetailImages.map((img, j) => {
+                    if (img.autoExcludeDetail === 'manual') return img;
                     const reason = detailReasonMap.get(j);
                     if (reason) return { ...img, autoExcludeReason: reason };
                     if (img.autoExcludeReason) {
@@ -1626,22 +1639,30 @@ export function useBulkRegisterActions() {
         if (shouldRestore) {
           // 브랜드 앞 2글자 축약 + 영구 저장된 _persistedMainExcludeMap → scannedMainImages 재구축
           // (file handle은 못 살리지만 autoExcludeReason flag 보존 → unselected 이미지 누출 방지)
+          // ★ data.imagePreuploadCache에서 직접 읽기 — setImagePreuploadCache는 아직 반영 안 됨
+          // ★ excludeMap이 비어있어도 mockScanned 항상 생성 — 복원 후 사용자 "제외" 클릭이
+          //   handleToggleAutoExclude 가드(scannedMainImages 없으면 silent fail)에 막히지 않도록
+          const restoredCache = (data.imagePreuploadCache || {}) as Record<string, { mainImageUrls?: string[] }>;
           setProducts((data.products as (EditableProduct & { _persistedMainExcludeMap?: Record<number, string> })[]).map((p) => {
             const excludeMap = p._persistedMainExcludeMap;
             const cleanedP = { ...p } as EditableProduct & { _persistedMainExcludeMap?: Record<number, string> };
             delete cleanedP._persistedMainExcludeMap;
-            // 캐시된 mainImageUrls 길이만큼 mock scannedMainImages 생성 (file handle 없이 reason만)
-            const cachedMain = imagePreuploadCacheRef.current?.[p.uid]?.mainImageUrls;
-            if (excludeMap && cachedMain && Object.keys(excludeMap).length > 0) {
-              const mockScanned = cachedMain.map((_, idx) => ({
-                id: `restored-${p.uid}-${idx}`,
-                name: `restored-${idx}`,
-                path: '',
-                size: 0,
-                handle: null as unknown as FileSystemFileHandle,
-                ...(excludeMap[idx] ? { autoExcludeReason: excludeMap[idx] as 'low_score' } : {}),
-              }));
+            const cachedMain = restoredCache[p.uid]?.mainImageUrls;
+            if (cachedMain && cachedMain.length > 0) {
+              const mockScanned = cachedMain.map((url, idx) => {
+                const reason = excludeMap?.[idx];
+                return {
+                  id: `restored-${p.uid}-${idx}`,
+                  name: `restored-${idx}`,
+                  path: '',
+                  size: 0,
+                  handle: null as unknown as FileSystemFileHandle,
+                  objectUrl: url,
+                  ...(reason ? { autoExcludeReason: reason as 'low_score', autoExcludeDetail: 'manual' } : {}),
+                };
+              });
               cleanedP.scannedMainImages = mockScanned as EditableProduct['scannedMainImages'];
+              cleanedP.mainImageCount = mockScanned.length;
             }
             return {
               ...cleanedP,
@@ -1846,6 +1867,10 @@ export function useBulkRegisterActions() {
 
       // 캐시에 저장 — productsRef.current의 최신 scannedXxxImages 순서로 URL 조립
       // (preupload 도중 유저가 제거한 이미지는 Map 조회 결과에서 자연 누락됨)
+      // ★ 빈 슬롯(업로드 실패)은 그대로 보존 — scannedMainImages와 1:1 인덱스 정렬 유지.
+      //   filter(Boolean)로 시프트하면 등록 시점 autoExcludeReason 인덱스가 어긋나
+      //   사용자가 의도하지 않은 이미지가 등록되는 버그 발생 (시나리오 B).
+      //   빈 문자열은 등록 코드/서버에서 filter(Boolean)으로 자연 제거됨.
       const timestamped: Record<string, { mainImageUrls: string[]; detailImageUrls: string[]; reviewImageUrls: string[]; infoImageUrls: string[]; uploadedAt: number }> = {};
       for (const p of browserProducts) {
         const latest = productsRef.current.find(x => x.uid === p.uid);
@@ -1853,9 +1878,9 @@ export function useBulkRegisterActions() {
         const m = productUrlMap[p.uid];
         if (!m) continue;
         const mainUrls = (latest.scannedMainImages || [])
-          .map(img => m.main.get(img.name) || '')
-          .filter(Boolean);
-        if (mainUrls.length === 0) continue;
+          .map(img => m.main.get(img.name) || '');
+        // 모두 빈 슬롯이면 캐시 저장 의미 없음
+        if (mainUrls.length === 0 || mainUrls.every(u => !u)) continue;
         // detail/review는 인덱스 위치 보존 (editedDetailImageOrder가 인덱스 기반)
         // 실패/제거된 슬롯은 빈 문자열로 남고, 소비 측 filterImagesByOrder + 이후 filter(Boolean)에서 제거됨
         const detailUrls = (latest.scannedDetailImages || [])
@@ -2380,9 +2405,19 @@ export function useBulkRegisterActions() {
   }, []);
 
   // ---- Auto-exclude 토글: 자동 제외 권장 이미지를 강제 포함시키거나 다시 제외시킴 ----
+  // 서버 모드(scannedMainImages 없고 mainImages만 있음): 토글이 아닌 단순 제거로 폴백.
+  //   (서버 모드는 file handle/objectUrl이 없어 토글 후 복원이 어려우므로 제거가 유일한 안전 동작)
   const handleToggleAutoExclude = useCallback((uid: string, imageIndex: number) => {
     setProducts((prev) => prev.map((p) => {
       if (p.uid !== uid) return p;
+      // 서버 모드 폴백 — scannedMainImages 없이 mainImages만 있는 경우
+      if ((!p.scannedMainImages || p.scannedMainImages.length === 0) && p.mainImages && p.mainImages.length > 0) {
+        if (imageIndex < 0 || imageIndex >= p.mainImages.length) return p;
+        const newMain = [...p.mainImages];
+        newMain.splice(imageIndex, 1);
+        console.info(`[manual-exclude] ${p.productCode}: 서버 모드 - mainImages[${imageIndex}] 제거 (토글→제거 폴백)`);
+        return { ...p, mainImages: newMain, mainImageCount: newMain.length };
+      }
       if (!p.scannedMainImages || imageIndex < 0 || imageIndex >= p.scannedMainImages.length) return p;
       const newScanned = [...p.scannedMainImages];
       const target = newScanned[imageIndex];
@@ -2570,29 +2605,22 @@ export function useBulkRegisterActions() {
           const reviewHandlesLost = filteredReview.length === 0 && (p.reviewImages?.length ?? 0) > 0;
 
           if (hasCache) {
-            // 자동 제외 권장 이미지 필터링 — 길이 일치할 때 정상 필터, 불일치 시도 부분 필터 시도.
-            // 핵심: scannedMainImages가 있으면 autoExcludeReason flag 우선 적용 (사용자가
-            //       "선택 안 함"으로 표시한 이미지는 절대 등록되지 않음).
-            //       세션 복원 후 scannedMainImages가 부분 재구축됐을 때도 동작해야.
+            // 자동 제외 권장 이미지 필터링 — 인덱스 기반 (cached와 scannedMainImages는 1:1 정렬).
+            // ★ preupload 코드(line 1862~)가 빈 슬롯을 보존하므로 길이가 항상 일치.
+            //   사용자가 "제외"한 이미지는 절대 등록되지 않음.
             let mainUrls: string[] = cached.mainImageUrls;
             if (p.scannedMainImages && p.scannedMainImages.length > 0) {
-              if (p.scannedMainImages.length === cached.mainImageUrls.length) {
-                // 정상 1:1 정렬 — flag 적용
-                mainUrls = cached.mainImageUrls.filter((_, i) => !p.scannedMainImages![i]?.autoExcludeReason);
-              } else {
-                // 길이 불일치 — 인덱스 기반 부분 적용 (보수적: 적어도 알려진 인덱스의 exclude만 반영)
-                const excludeIndices = new Set<number>();
-                p.scannedMainImages.forEach((img, idx) => {
-                  if (img.autoExcludeReason) excludeIndices.add(idx);
-                });
-                if (excludeIndices.size > 0) {
-                  mainUrls = cached.mainImageUrls.filter((_, i) => !excludeIndices.has(i));
-                  console.warn(`[auto-exclude] ${p.productCode}: scannedMainImages(${p.scannedMainImages.length}) ↔ cached(${cached.mainImageUrls.length}) 길이 불일치 — 인덱스 기반 부분 필터 적용 (${excludeIndices.size}장 제외)`);
-                }
+              if (p.scannedMainImages.length !== cached.mainImageUrls.length) {
+                // 정상 흐름에서는 발생하지 않음 — 발생 시 진단 로그
+                console.warn(`[auto-exclude] ${p.productCode}: scannedMainImages(${p.scannedMainImages.length}) ↔ cached(${cached.mainImageUrls.length}) 길이 불일치 — 짧은 쪽 기준 필터 적용`);
               }
+              const len = Math.min(p.scannedMainImages.length, cached.mainImageUrls.length);
+              mainUrls = cached.mainImageUrls.filter((_, i) => i >= len || !p.scannedMainImages![i]?.autoExcludeReason);
             }
+            // 빈 슬롯(preupload 실패) 제거
+            mainUrls = mainUrls.filter(Boolean);
             if (cached.mainImageUrls.length !== mainUrls.length) {
-              console.info(`[auto-exclude] ${p.productCode}: 대표이미지 ${cached.mainImageUrls.length - mainUrls.length}장 자동 제외 (등록 시점)`);
+              console.info(`[auto-exclude] ${p.productCode}: 대표이미지 ${cached.mainImageUrls.length - mainUrls.length}장 제외 (자동/수동/실패 합산, 등록 시점)`);
             }
             // filter(Boolean): 사전업로드 실패로 생긴 빈 슬롯 제거 (drop 후 길이 0이면 핸들 폴백 시도)
             const cachedDetail = cached.detailImageUrls?.length
