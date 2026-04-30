@@ -5,6 +5,7 @@ import {
   applyInstantCoupon,
   createInstantCoupon,
   createDownloadCoupon,
+  addDownloadCouponItems,
   checkDownloadCouponStatus,
   checkInstantCouponStatus,
   getInstantCouponItemCount,
@@ -184,9 +185,10 @@ async function ensureInstantCoupon(
   return { couponId, couponName: config.instant_coupon_name };
 }
 
-// ── 다운로드 쿠폰 배치 생성 (생성 시 vendorItemIds 포함 — 1단계로 통합) ──
-// ★ 쿠팡 공식: "다운로드쿠폰은 최초 생성 시 설정한 쿠폰 적용 상품을 추후 바꿀 수 없습니다."
-//   → vendorItemIds를 생성 시 포함해야 함. 별도 PUT /coupon-items는 "요청불가" 발생.
+// ── 다운로드 쿠폰 배치 생성 (2단계: 쿠폰 생성 → 아이템 등록) ──
+// 쿠팡 공식: 생성 API body엔 vendorItemIds 없음. 아이템은 PUT /coupon-items 별도 호출.
+// "다운로드쿠폰은 최초 생성 시 설정한 쿠폰 적용 상품을 추후 바꿀 수 없습니다" =
+// 쿠폰별 1회만 등록 가능. 따라서 생성→등록을 한 트랜잭션처럼 묶어 실패 시 throw.
 async function createDownloadCouponBatch(
   credentials: CoupangCredentials,
   config: Config,
@@ -210,16 +212,15 @@ async function createDownloadCouponBatch(
     throw new Error('다운로드 쿠폰 정책(policies)이 설정되지 않았습니다. 기존 쿠폰에서 정책을 복사해주세요.');
   }
 
-  console.log(`[bulk-apply] 다운로드 쿠폰 기간: ${startDate.toISOString()} ~ ${endDate.toISOString()} (${durationDays}일), 아이템 ${vendorItemIds.length}개 포함`);
+  console.log(`[bulk-apply] 다운로드 쿠폰 기간: ${startDate.toISOString()} ~ ${endDate.toISOString()} (${durationDays}일), 아이템 ${vendorItemIds.length}개 등록 예정`);
 
-  // ★ 쿠폰 생성 시 vendorItemIds 포함 (별도 아이템 등록 불필요)
+  // ── 1단계: 쿠폰 생성 (공식 스펙 7필드만, vendorItemIds 미포함) ──
   const newCoupon = await createDownloadCoupon(credentials, {
     title,
     startDate: startDate.toISOString(),
     endDate: endDate.toISOString(),
     policies,
     contractId: config.contract_id,
-    vendorItemIds,
   });
 
   let couponId = newCoupon.couponId;
@@ -227,11 +228,7 @@ async function createDownloadCouponBatch(
 
   console.log(`[bulk-apply] createDownloadCoupon 응답: couponId=${couponId}, txId=${newCoupon.requestTransactionId || '없음'}`);
 
-  if (couponId === 0 && !newCoupon.requestTransactionId) {
-    throw new Error('다운로드 쿠폰 생성 실패: couponId와 requestTransactionId 모두 없음.');
-  }
-
-  // 비동기: couponId=0이면 폴링으로 확인
+  // 응답이 즉시 오지 않은 경우(비동기 폴백) — 문서엔 없지만 안전장치로 유지
   if (couponId === 0 && newCoupon.requestTransactionId) {
     for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
@@ -253,12 +250,20 @@ async function createDownloadCouponBatch(
         if (err instanceof Error && err.message.includes('생성 실패')) throw err;
       }
     }
-    if (couponId === 0) {
-      throw new Error(`다운로드 쿠폰 비동기 처리 중 (txId: ${newCoupon.requestTransactionId}).`);
-    }
   }
 
-  console.log(`[bulk-apply] 다운로드 쿠폰 완료: ${couponId} (${couponName}), ${vendorItemIds.length}개`);
+  if (couponId === 0) {
+    throw new Error(`다운로드 쿠폰 생성 실패: couponId 미수신 (txId: ${newCoupon.requestTransactionId || '없음'})`);
+  }
+
+  // ── 2단계: 아이템(vendorItemIds) 등록 (PUT /coupon-items) ──
+  console.log(`[bulk-apply] 다운로드 쿠폰 ${couponId}에 ${vendorItemIds.length}개 아이템 등록 시도`);
+  const itemResult = await addDownloadCouponItems(credentials, couponId, vendorItemIds);
+  if (itemResult.requestResultStatus && itemResult.requestResultStatus !== 'SUCCESS') {
+    throw new Error(`다운로드 쿠폰 아이템 등록 실패: ${itemResult.requestResultStatus}`);
+  }
+
+  console.log(`[bulk-apply] 다운로드 쿠폰 완료: ${couponId} (${couponName}), 아이템 ${vendorItemIds.length}개 등록`);
   return { couponId, couponName };
 }
 

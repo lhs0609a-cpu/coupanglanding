@@ -88,7 +88,6 @@ export interface CreateDownloadCouponParams {
   endDate: string;
   policies: unknown[];
   contractId: number | string;
-  vendorItemIds?: number[];  // 생성 시 아이템 포함
 }
 
 const API_CALL_TIMEOUT_MS = 30000; // 개별 API 호출 타임아웃 (30초)
@@ -958,7 +957,9 @@ export function toCoupangDateFormat(isoDate: string | Date): string {
   return `${y}-${M}-${d} ${H}:${m}:${s}`;
 }
 
-/** 다운로드 쿠폰 정책 배열을 쿠팡 API 형식으로 정규화 */
+/** 다운로드 쿠폰 정책 배열을 쿠팡 API 형식으로 정규화
+ *  쿠팡 공식 스펙(Body Parameter): title, typeOfDiscount, description, minimumPrice,
+ *  discount, maximumDiscountPrice, maximumPerDaily 7개. 별칭 필드는 보내지 않음. */
 function normalizePolicies(policies: unknown[]): Record<string, unknown>[] {
   return policies.map((p, i) => {
     const policy = p as Record<string, unknown>;
@@ -973,44 +974,35 @@ function normalizePolicies(policies: unknown[]): Record<string, unknown>[] {
       minimumPrice: Number(policy.minimumPrice || 0),
       discount: Number(policy.discount || 0),
       maximumDiscountPrice: Number(policy.maximumDiscountPrice || 0),
-      // 쿠팡 API 필드명 불일치 대응 — 3가지 이름 모두 전송
       maximumPerDaily: perDaily,
-      maximumPerDay: perDaily,
-      maxPerDaily: perDaily,
     };
   });
 }
 
-/** 다운로드 쿠폰 생성 (vendorItemIds 포함 — 쿠폰 생성과 아이템 등록을 한 번에)
+/** 다운로드 쿠폰 생성 (공식 스펙 7필드만 전송 — 아이템 등록은 별도 API)
  *
  *  쿠팡 공식 API:
  *  - POST /v2/providers/marketplace_openapi/apis/api/v1/coupons
- *  - body: { title, contractId(string), couponType:"DOWNLOAD", startDate, endDate, userId, policies, vendorItemIds }
- *  - vendorItemIds를 생성 시 포함해야 "요청불가" 없이 아이템이 등록됨
- *  - FMS 프로바이더는 즉시할인 전용이므로 다운로드 쿠폰에 사용 불가 */
+ *  - body: { title, contractId, couponType:"DOWNLOAD", startDate, endDate, userId, policies }
+ *  - 응답: { couponId, ... } 즉시 반환
+ *  - 아이템(vendorItemIds) 등록은 별도 API 호출 (addDownloadCouponItems) */
 export async function createDownloadCoupon(
   credentials: CoupangCredentials,
   params: CreateDownloadCouponParams,
 ): Promise<CoupangCoupon> {
-  // 쿠팡 공식 엔드포인트: marketplace_openapi
   const mktPath = `${MKT_OPENAPI_BASE}/coupons`;
   const body: Record<string, unknown> = {
     title: params.title,
-    contractId: Number(params.contractId), // 쿠팡 API 스펙: Number 타입
+    contractId: Number(params.contractId),
     couponType: 'DOWNLOAD',
     startDate: toCoupangDateFormat(params.startDate),
     endDate: toCoupangDateFormat(params.endDate),
-    userId: credentials.vendorId, // WING 로그인 ID
+    userId: credentials.vendorId,
     policies: normalizePolicies(params.policies),
   };
 
-  // vendorItemIds가 있으면 생성 시 포함 (별도 item API 대신 한 번에 등록)
-  if (params.vendorItemIds && params.vendorItemIds.length > 0) {
-    body.vendorItemIds = params.vendorItemIds;
-  }
-
   console.log('[createDownloadCoupon] 요청 경로:', mktPath);
-  console.log(`[createDownloadCoupon] 요청 body (${params.vendorItemIds?.length || 0}개 아이템 포함):`, JSON.stringify(body).slice(0, 800));
+  console.log('[createDownloadCoupon] 요청 body:', JSON.stringify(body).slice(0, 800));
 
   // marketplace_openapi — 다운로드 쿠폰의 유일한 공식 엔드포인트
   // FMS는 즉시할인 전용이므로 다운로드 쿠폰 생성 불가 (type=RATE/PRICE만 허용)
