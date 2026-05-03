@@ -477,6 +477,42 @@ export default function AdminSalesOverviewPage() {
     }
   }, [supabase]);
 
+  /** 결제 가능성 종합 진단 — PT생별 막힌 단계 표시 */
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [readinessData, setReadinessData] = useState<{
+    lastClosedMonth: string;
+    summary: { total: number; billable: number; already_paid: number; no_card: number; no_data: number; zero_sales: number; no_report: number; excluded: number; test: number };
+    users: Array<{
+      ptUserId: string;
+      name: string;
+      email: string;
+      contractStatus: string | null;
+      isTest: boolean;
+      isExcluded: boolean;
+      excludedUntil: string | null;
+      card: { company: string; number: string; active: boolean; primary: boolean; failedCount: number } | null;
+      snapshotTotalSales: number | null;
+      report: { id: string; feeStatus: string; totalWithVat: number; paidAt: string | null } | null;
+      billable: boolean;
+      blocker: string | null;
+      blockerDetail: string;
+    }>;
+  } | null>(null);
+
+  const runReadinessCheck = useCallback(async () => {
+    setReadinessLoading(true);
+    try {
+      const res = await fetch('/api/admin/payments/readiness-check');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '진단 실패');
+      setReadinessData(data);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '진단 실패');
+    } finally {
+      setReadinessLoading(false);
+    }
+  }, []);
+
   /** 지금 즉시 실제 결제 실행 — Toss 빌링키로 awaiting_payment 모두 결제 */
   const [executeLoading, setExecuteLoading] = useState(false);
   const [executeResult, setExecuteResult] = useState<string | null>(null);
@@ -504,6 +540,10 @@ export default function AdminSalesOverviewPage() {
     setExecuteLoading(true);
     setExecuteResult(null);
     setExecuteDetail(null);
+
+    // 결제 실행 전 readiness 자동 진단 (병렬)
+    runReadinessCheck();
+
     try {
       const res = await fetch('/api/admin/payments/execute-billing-now', { method: 'POST' });
       const data = await res.json();
@@ -540,7 +580,7 @@ export default function AdminSalesOverviewPage() {
     } finally {
       setExecuteLoading(false);
     }
-  }, [fetchData, fetchPaymentOverview]);
+  }, [fetchData, fetchPaymentOverview, runReadinessCheck]);
 
   /** 단일 PT생 즉시 결제 — 카드 클릭으로 그 사람만 */
   const handleChargeUser = useCallback(async (ptUserId: string, name: string, estimatedFee: number) => {
@@ -1933,6 +1973,91 @@ export default function AdminSalesOverviewPage() {
                 'bg-red-100 text-red-900 border border-red-300'
               }`}>
                 {executeResult}
+              </div>
+            )}
+
+            {/* 결제 가능성 종합 진단 — PT생별 막힌 단계 표 */}
+            {readinessData && (
+              <div className="mt-3 bg-white border-2 border-purple-300 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="font-bold text-purple-900 text-[13px]">
+                    🩺 결제 가능성 종합 진단 ({readinessData.lastClosedMonth})
+                  </p>
+                  <button
+                    type="button"
+                    onClick={runReadinessCheck}
+                    disabled={readinessLoading}
+                    className="text-[11px] text-purple-700 hover:underline inline-flex items-center gap-1"
+                  >
+                    {readinessLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                    재진단
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-1.5 mb-3 text-[11px]">
+                  <DiagBox label="전체" value={readinessData.summary.total} color="blue" />
+                  <DiagBox label="결제 가능" value={readinessData.summary.billable} color="green" />
+                  <DiagBox label="이미 결제" value={readinessData.summary.already_paid} color="indigo" />
+                  <DiagBox label="카드 없음" value={readinessData.summary.no_card} color="amber" />
+                  <DiagBox label="매출 없음" value={readinessData.summary.no_data} color="red" />
+                  <DiagBox label="매출 0원" value={readinessData.summary.zero_sales} color="amber" />
+                  <DiagBox label="결제 제외" value={readinessData.summary.excluded} color="slate" />
+                  <DiagBox label="테스트" value={readinessData.summary.test} color="slate" />
+                </div>
+
+                {readinessData.summary.billable === 0 && (
+                  <div className="bg-red-50 border border-red-300 rounded p-2 mb-2 text-[11px] text-red-900">
+                    🚨 <strong>결제 가능 PT생이 0명</strong>입니다 — 위 카운트 보고 어떤 단계가 막혔는지 확인하세요.
+                  </div>
+                )}
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[10px] border-collapse min-w-[800px]">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-2 py-1 text-left">사용자</th>
+                        <th className="px-2 py-1 text-center">계약</th>
+                        <th className="px-2 py-1 text-center">카드</th>
+                        <th className="px-2 py-1 text-right">4월매출(API)</th>
+                        <th className="px-2 py-1 text-center">보고서</th>
+                        <th className="px-2 py-1 text-center">결제가능</th>
+                        <th className="px-2 py-1 text-left">막힌 단계</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {readinessData.users.map((u) => (
+                        <tr key={u.ptUserId} className={`border-t border-gray-200 ${u.billable ? 'bg-green-50' : ''}`}>
+                          <td className="px-2 py-1 truncate max-w-[140px]">
+                            <div className="font-medium">{u.name}</div>
+                            <div className="text-[9px] text-gray-500 truncate">{u.email}</div>
+                          </td>
+                          <td className="px-2 py-1 text-center">
+                            {u.contractStatus === 'signed' ? <span className="text-green-700">✓</span> : <span className="text-red-600">{u.contractStatus || '없음'}</span>}
+                          </td>
+                          <td className="px-2 py-1 text-center">
+                            {u.card ? (
+                              <span className={u.card.active && u.card.primary ? 'text-green-700' : 'text-red-600'}>
+                                {u.card.active && u.card.primary ? '✓' : '비활성'}
+                              </span>
+                            ) : <span className="text-red-600">미등록</span>}
+                          </td>
+                          <td className="px-2 py-1 text-right">
+                            {u.snapshotTotalSales != null ? formatKRW(u.snapshotTotalSales) : <span className="text-red-600">없음</span>}
+                          </td>
+                          <td className="px-2 py-1 text-center">
+                            {u.report ? <span className={u.report.feeStatus === 'paid' ? 'text-green-700 font-bold' : 'text-blue-700'}>{u.report.feeStatus}</span> : <span className="text-amber-600">없음</span>}
+                          </td>
+                          <td className="px-2 py-1 text-center">
+                            {u.billable ? <span className="text-green-700 font-bold">✓ 가능</span> : <span className="text-red-600">✗</span>}
+                          </td>
+                          <td className="px-2 py-1 text-[10px]">
+                            {u.blockerDetail || '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 
