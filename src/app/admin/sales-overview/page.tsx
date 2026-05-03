@@ -729,6 +729,13 @@ export default function AdminSalesOverviewPage() {
     return sorted;
   }, [rows, search, statusFilter, sortKey, sortDir]);
 
+  /** pt_user_id → 결제 상태 빠른 조회 맵 (apiPotentialFees / 매트릭스 인라인 배지에서 사용) */
+  const paymentByUser = useMemo(() => {
+    const map = new Map<string, PaymentOverviewUser>();
+    for (const p of paymentUsers) map.set(p.pt_user_id, p);
+    return map;
+  }, [paymentUsers]);
+
   /** API 잠정 수수료 합계 — "리포트 없이도 받아야 할 추정 금액" */
   const apiPotentialFees = useMemo(() => {
     // currentMonth 제외한 마감월에서 source='api' (리포트 없음) 인 셀의 fee 합산.
@@ -736,7 +743,7 @@ export default function AdminSalesOverviewPage() {
     let totalPotential = 0;
     let lastClosedPotential = 0;
     let lastClosedUserCount = 0;
-    const lastClosedDetails: Array<{ name: string; fee: number; revenue: number }> = [];
+    const lastClosedDetails: Array<{ ptUserId: string; name: string; email: string; fee: number; revenue: number; isExcluded: boolean; excludedUntil: string | null }> = [];
 
     for (const row of rows) {
       for (const ym of months) {
@@ -748,10 +755,15 @@ export default function AdminSalesOverviewPage() {
         if (ym === lastClosedMonth) {
           lastClosedPotential += m.fee;
           lastClosedUserCount++;
+          const pay = paymentByUser.get(row.user.id);
           lastClosedDetails.push({
+            ptUserId: row.user.id,
             name: row.user.profile?.full_name || row.user.profile?.email || row.user.id.slice(0, 8),
+            email: row.user.profile?.email || '',
             fee: m.fee,
             revenue: m.revenue,
+            isExcluded: pay?.status === 'excluded',
+            excludedUntil: pay?.billing_excluded_until ?? null,
           });
         }
       }
@@ -763,7 +775,7 @@ export default function AdminSalesOverviewPage() {
       lastClosedUserCount,
       lastClosedDetails,
     };
-  }, [rows, months, currentMonth, lastClosedMonth]);
+  }, [rows, months, currentMonth, lastClosedMonth, paymentByUser]);
 
   /** 누적 수금 현황 — "지금까지 받은 돈 / 못 받은 돈" 한눈에 */
   const cashflow = useMemo(() => {
@@ -952,13 +964,6 @@ export default function AdminSalesOverviewPage() {
     const totalCumFee = Object.values(totals).reduce((s, t) => s + t.fee, 0);
     return { totals, totalCumRev, totalCumDep, totalCumFee };
   }, [filteredRows, months]);
-
-  /** pt_user_id → 결제 상태 빠른 조회 맵 */
-  const paymentByUser = useMemo(() => {
-    const map = new Map<string, PaymentOverviewUser>();
-    for (const p of paymentUsers) map.set(p.pt_user_id, p);
-    return map;
-  }, [paymentUsers]);
 
   /** 패널에 표시할 PT생 목록 (필터 적용) */
   const filteredPaymentRows = useMemo(() => {
@@ -1439,17 +1444,46 @@ export default function AdminSalesOverviewPage() {
             </div>
             {apiPotentialFees.lastClosedDetails.length > 0 && (
               <div className="mt-3">
-                <p className="text-[11px] font-semibold text-amber-800 mb-1.5">{formatYearMonth(lastClosedMonth)} 미청구 PT생 (큰 금액 순):</p>
+                <p className="text-[11px] font-semibold text-amber-800 mb-1.5 flex items-center gap-1.5">
+                  <span>{formatYearMonth(lastClosedMonth)} 미청구 PT생 (큰 금액 순)</span>
+                  <span className="text-[10px] font-normal text-amber-700">
+                    💡 클릭 = 결제 사이클에서 제외 (그 PT생은 결제 없이 프로그램 이용 가능)
+                  </span>
+                </p>
                 <div className="flex flex-wrap gap-1.5">
-                  {apiPotentialFees.lastClosedDetails.slice(0, 14).map((d, i) => (
-                    <span
-                      key={i}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-white text-amber-800 border border-amber-300"
-                    >
-                      {d.name} <span className="font-bold">{formatKRW(d.fee)}</span>
-                      <span className="text-[10px] opacity-70">(매출 {formatKRW(d.revenue)})</span>
-                    </span>
-                  ))}
+                  {apiPotentialFees.lastClosedDetails.slice(0, 14).map((d, i) => {
+                    const acting = actingUserId === d.ptUserId;
+                    if (d.isExcluded) {
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          disabled={acting}
+                          onClick={() => handleClearBillingExclusion(d.ptUserId, d.name)}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-300 hover:bg-slate-200 hover:border-slate-400 disabled:opacity-50 transition cursor-pointer line-through"
+                          title={`결제 제외 중 (${d.excludedUntil ?? '?'}까지) — 클릭하면 즉시 결제 사이클 재포함`}
+                        >
+                          {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Unlock className="w-3 h-3" />}
+                          {d.name}
+                          <span className="text-[10px] opacity-70">제외중 ~{d.excludedUntil?.slice(5) ?? ''}</span>
+                        </button>
+                      );
+                    }
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        disabled={acting}
+                        onClick={() => handleSetBillingExclusion(d.ptUserId, d.name)}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-white text-amber-800 border border-amber-300 hover:bg-amber-50 hover:border-amber-500 hover:shadow-sm disabled:opacity-50 transition cursor-pointer"
+                        title="클릭하면 이 PT생을 결제 사이클에서 제외 (결제 없이 프로그램 이용 가능)"
+                      >
+                        {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                        {d.name} <span className="font-bold">{formatKRW(d.fee)}</span>
+                        <span className="text-[10px] opacity-70">(매출 {formatKRW(d.revenue)})</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
