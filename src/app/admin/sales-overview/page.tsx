@@ -363,15 +363,27 @@ export default function AdminSalesOverviewPage() {
 
   const supabase = useMemo(() => createClient(), []);
 
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
   /** 데이터 조회. initial=true 면 로딩 스피너 표시, 주기 폴링에서는 false 로 silent */
   const fetchData = useCallback(async (initial = true) => {
     if (initial) setLoading(true);
+    setFetchError(null);
     try {
-      const { data: usersData } = await supabase
+      // pt_users 조회 — error 도 캡처해야 silent fail (RLS/schema cache/quota 등) 진단 가능
+      const { data: usersData, error: usersErr } = await supabase
         .from('pt_users')
         .select('*, profile:profiles(*)')
         .neq('status', 'terminated')
         .order('created_at', { ascending: false });
+
+      if (usersErr) {
+        console.error('[sales-overview] pt_users 조회 실패:', usersErr);
+        setFetchError(`PT 사용자 조회 실패: ${usersErr.message}${usersErr.hint ? ` (힌트: ${usersErr.hint})` : ''}`);
+        setUsers([]);
+        return;
+      }
+
       const fetchedUsers = (usersData as PtUserWithProfile[]) || [];
       setUsers(fetchedUsers);
 
@@ -381,6 +393,14 @@ export default function AdminSalesOverviewPage() {
           supabase.from('monthly_reports').select('*').in('pt_user_id', userIds),
           supabase.from('api_revenue_snapshots').select('*').in('pt_user_id', userIds),
         ]);
+        if (reportsRes.error) {
+          console.error('[sales-overview] monthly_reports 조회 실패:', reportsRes.error);
+          setFetchError((prev) => prev || `리포트 조회 실패: ${reportsRes.error.message}`);
+        }
+        if (snapshotsRes.error) {
+          console.error('[sales-overview] api_revenue_snapshots 조회 실패:', snapshotsRes.error);
+          setFetchError((prev) => prev || `매출 스냅샷 조회 실패: ${snapshotsRes.error.message}`);
+        }
         setReports((reportsRes.data as MonthlyReport[]) || []);
         setSnapshots((snapshotsRes.data as ApiRevenueSnapshot[]) || []);
       } else {
@@ -390,6 +410,7 @@ export default function AdminSalesOverviewPage() {
       setLastRefreshAt(new Date());
     } catch (err) {
       console.error('sales-overview fetch error:', err);
+      setFetchError(err instanceof Error ? err.message : '알 수 없는 오류');
     } finally {
       if (initial) setLoading(false);
     }
@@ -1112,6 +1133,34 @@ export default function AdminSalesOverviewPage() {
       {syncMessage && (
         <div className="bg-blue-50 border border-blue-200 text-blue-900 px-4 py-2 rounded-lg text-sm">
           {syncMessage}
+        </div>
+      )}
+
+      {/* 데이터 조회 에러 — Supabase RLS / quota / schema cache 등 silent fail 노출 */}
+      {fetchError && (
+        <div className="bg-red-50 border-2 border-red-300 text-red-900 px-4 py-3 rounded-lg">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-5 h-5 text-red-700 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-bold text-sm">데이터 조회 실패 — 페이지가 비어보이는 이유</p>
+              <p className="text-xs text-red-800 mt-1 break-all">{fetchError}</p>
+              <div className="mt-2 text-[11px] text-red-700 space-y-0.5">
+                <p>가능한 원인:</p>
+                <ul className="list-disc pl-5 space-y-0.5">
+                  <li><strong>Supabase quota 초과</strong>: 상단 노란 배너 확인 (5/28 grace 종료)</li>
+                  <li><strong>schema cache 미갱신</strong>: 새 컬럼 추가 직후라면 Supabase 대시보드 → API → "Reload schema" 클릭</li>
+                  <li><strong>RLS 정책 변경</strong>: pt_users / monthly_reports 의 SELECT 권한 확인</li>
+                </ul>
+              </div>
+              <button
+                type="button"
+                onClick={() => fetchData(false)}
+                className="mt-2 px-3 py-1 text-xs font-medium bg-red-600 text-white rounded hover:bg-red-700"
+              >
+                다시 시도
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
