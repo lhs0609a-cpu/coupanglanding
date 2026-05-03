@@ -595,6 +595,7 @@ export default function AdminSalesOverviewPage() {
   }, [fetchData, fetchPaymentOverview, runReadinessCheck]);
 
   /** 단일 PT생 즉시 결제 — 카드 클릭으로 그 사람만 */
+  const [chargeResultModal, setChargeResultModal] = useState<{ name: string; lines: string[]; success: boolean } | null>(null);
   const handleChargeUser = useCallback(async (ptUserId: string, name: string, estimatedFee: number) => {
     if (!confirm(
       `⚡ ${name} 사용자의 직전 마감월 수수료를 즉시 결제합니다.\n` +
@@ -603,31 +604,70 @@ export default function AdminSalesOverviewPage() {
       `이미 결제 완료된 리포트는 자동 제외됩니다 (중복 결제 방지).\n\n` +
       `진행할까요?`
     )) return;
+
+    // 30초 timeout — Vercel function hang 방지
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+
     setActingUserId(ptUserId);
     try {
-      const res = await fetch(`/api/admin/payments/${ptUserId}/charge-now`, { method: 'POST' });
-      const data = await res.json();
+      console.log(`[charge-now] ${name} 결제 시작...`);
+      const res = await fetch(`/api/admin/payments/${ptUserId}/charge-now`, {
+        method: 'POST',
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      const text = await res.text();
+      console.log(`[charge-now] ${name} 응답:`, res.status, text);
+
+      let data: {
+        error?: string;
+        code?: string;
+        success?: boolean;
+        succeededCount?: number;
+        failedCount?: number;
+        results?: Array<{ yearMonth: string; succeeded: boolean; amount: number; receiptUrl?: string | null; errorCode?: string; errorMessage?: string }>;
+      } = {};
+      try { data = JSON.parse(text); } catch { /* 파싱 실패 — text 그대로 */ }
+
       if (!res.ok) {
-        alert(`❌ 결제 실패\n사유: ${data.error || '알 수 없음'}${data.code ? ` (코드: ${data.code})` : ''}`);
+        setChargeResultModal({
+          name,
+          lines: [`❌ HTTP ${res.status}`, `사유: ${data.error || text.slice(0, 200)}`, data.code ? `코드: ${data.code}` : ''],
+          success: false,
+        });
         return;
       }
+
       const lines: string[] = [];
-      for (const r of data.results || []) {
+      const results = data.results || [];
+      if (results.length === 0) {
+        lines.push('⚠️ 결제 시도 0건 — 보고서 생성 안 됐거나 모두 paid 상태');
+      }
+      for (const r of results) {
         if (r.succeeded) {
-          lines.push(`✅ ${r.yearMonth}: ₩${r.amount.toLocaleString()} 결제 완료${r.receiptUrl ? ' (영수증 발급됨)' : ''}`);
+          lines.push(`✅ ${r.yearMonth}: ₩${r.amount.toLocaleString()} 결제 완료${r.receiptUrl ? ' — 영수증 발급됨' : ''}`);
         } else {
-          lines.push(`❌ ${r.yearMonth}: 실패 - ${r.errorMessage || r.errorCode || ''}`);
+          lines.push(`❌ ${r.yearMonth}: 실패 (${r.errorMessage || r.errorCode || '알 수 없음'})`);
         }
       }
-      alert(`${name} 결제 결과:\n\n${lines.join('\n')}\n\n성공 ${data.succeededCount}건 · 실패 ${data.failedCount}건`);
-      await fetchData(false);
-      await fetchPaymentOverview();
+      lines.push(`\n총 성공 ${data.succeededCount ?? 0}건 · 실패 ${data.failedCount ?? 0}건`);
+
+      setChargeResultModal({ name, lines, success: (data.succeededCount ?? 0) > 0 });
+
+      // 성공 시 모든 화면 데이터 갱신
+      Promise.allSettled([fetchData(false), fetchPaymentOverview(), runReadinessCheck()]);
     } catch (err) {
-      alert(err instanceof Error ? err.message : '결제 실패');
+      clearTimeout(timeoutId);
+      const msg = err instanceof Error
+        ? (err.name === 'AbortError' ? '요청 시간 초과 (60초)' : err.message)
+        : '결제 실패';
+      console.error(`[charge-now] ${name} 에러:`, err);
+      setChargeResultModal({ name, lines: [`❌ ${msg}`], success: false });
     } finally {
       setActingUserId(null);
     }
-  }, [fetchData, fetchPaymentOverview]);
+  }, [fetchData, fetchPaymentOverview, runReadinessCheck]);
 
   const handleTriggerBilling = useCallback(async (requireSignedContract: boolean) => {
     const msg = requireSignedContract
@@ -2344,6 +2384,40 @@ export default function AdminSalesOverviewPage() {
           onClose={() => setDiagOpen(false)}
           onRetry={() => runDiagnostics(true)}
         />
+      )}
+
+      {/* 단일 PT생 결제 결과 모달 */}
+      {chargeResultModal && (
+        <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={() => setChargeResultModal(null)}>
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <div className={`px-5 py-4 border-b border-gray-200 ${chargeResultModal.success ? 'bg-green-50' : 'bg-red-50'}`}>
+              <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                {chargeResultModal.success ? '✅' : '❌'} {chargeResultModal.name} 결제 결과
+              </h2>
+            </div>
+            <div className="p-5 space-y-2">
+              {chargeResultModal.lines.filter(Boolean).map((line, i) => (
+                <p key={i} className={`text-sm ${
+                  line.startsWith('✅') ? 'text-green-800 font-semibold' :
+                  line.startsWith('❌') ? 'text-red-800 font-semibold' :
+                  line.startsWith('⚠️') ? 'text-amber-800' :
+                  'text-gray-700'
+                }`}>
+                  {line}
+                </p>
+              ))}
+            </div>
+            <div className="px-5 py-3 border-t border-gray-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setChargeResultModal(null)}
+                className="px-4 py-1.5 text-sm bg-gray-900 text-white rounded hover:bg-gray-700"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 결제 사이클 제외 모달 */}
