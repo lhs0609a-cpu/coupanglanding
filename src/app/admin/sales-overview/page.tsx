@@ -266,10 +266,10 @@ export default function AdminSalesOverviewPage() {
     }
   }, []);
 
-  // 페이지 진입 시 자동 진단 (5분 주기 갱신)
+  // 페이지 진입 시 자동 진단 (30분 주기 갱신 — GB-Hrs 절감)
   useEffect(() => {
     runDiagnostics(false);
-    const id = setInterval(() => runDiagnostics(false), 5 * 60 * 1000);
+    const id = setInterval(() => runDiagnostics(false), 30 * 60 * 1000);
     return () => clearInterval(id);
   }, [runDiagnostics]);
 
@@ -733,17 +733,17 @@ export default function AdminSalesOverviewPage() {
 
   useEffect(() => { fetchData(true); }, [fetchData]);
 
-  // 오늘 실시간 매출 — 최초 진입 + 5분 주기
+  // 오늘 실시간 매출 — 최초 진입 + 15분 주기 (GB-Hrs 절감)
   useEffect(() => {
     fetchTodayRevenue();
-    const id = setInterval(fetchTodayRevenue, 5 * 60 * 1000);
+    const id = setInterval(fetchTodayRevenue, 15 * 60 * 1000);
     return () => clearInterval(id);
   }, [fetchTodayRevenue]);
 
-  // 결제 상태 — 최초 + 3분 주기 (1분 폴링은 hang 누적 위험)
+  // 결제 상태 — 최초 + 10분 주기 (Vercel Fluid Compute GB-Hrs 절감)
   useEffect(() => {
     fetchPaymentOverview();
-    const id = setInterval(fetchPaymentOverview, 3 * 60 * 1000);
+    const id = setInterval(fetchPaymentOverview, 10 * 60 * 1000);
     return () => clearInterval(id);
   }, [fetchPaymentOverview]);
 
@@ -763,17 +763,17 @@ export default function AdminSalesOverviewPage() {
     }
   }, [loading, users, snapshots, triggerAutoSync]);
 
-  /** 1분마다 자동 재조회 — 크론(15분마다)이 갱신한 스냅샷을 계속 반영 */
+  /** 5분마다 자동 재조회 — 1분 폴링은 GB-Hrs 비용 폭증 위험 */
   useEffect(() => {
-    const refreshId = setInterval(() => { fetchData(false); }, 60 * 1000);
-    /** 5분마다 stale 체크 → 자동 동기화 재트리거 */
+    const refreshId = setInterval(() => { fetchData(false); }, 5 * 60 * 1000);
+    /** 15분마다 stale 체크 → 자동 동기화 재트리거 */
     const syncCheckId = setInterval(() => {
       const latestSync = snapshots.reduce((max, s) => s.synced_at > max ? s.synced_at : max, '');
-      const stale = !latestSync || (Date.now() - new Date(latestSync).getTime() > 10 * 60 * 1000);
+      const stale = !latestSync || (Date.now() - new Date(latestSync).getTime() > 30 * 60 * 1000);
       if (stale && users.some(u => u.coupang_api_connected)) {
         triggerAutoSync();
       }
-    }, 5 * 60 * 1000);
+    }, 15 * 60 * 1000);
     return () => { clearInterval(refreshId); clearInterval(syncCheckId); };
   }, [fetchData, snapshots, users, triggerAutoSync]);
 
