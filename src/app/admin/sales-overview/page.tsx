@@ -573,8 +573,20 @@ export default function AdminSalesOverviewPage() {
           ? `✅ ${summaryParts.join(' · ')}`
           : `⚠️ 결제 0건 — ${data.message || '아래 진단 박스 참고'}`
       );
-      await fetchData(false);
-      await fetchPaymentOverview();
+
+      // 결제 결과를 즉시 반영 — 수금현황 / 카드 그리드 / 진단 모두 갱신
+      // Promise.all 로 병렬 호출 (개별 hang 영향 분리)
+      Promise.allSettled([
+        fetchData(false),
+        fetchPaymentOverview(),
+        runReadinessCheck(),
+      ]).then((results) => {
+        results.forEach((r, i) => {
+          if (r.status === 'rejected') {
+            console.error(`[execute-billing-now] 후속 ${['fetchData', 'fetchPaymentOverview', 'runReadinessCheck'][i]} 실패:`, r.reason);
+          }
+        });
+      });
     } catch (err) {
       setExecuteResult(err instanceof Error ? `❌ ${err.message}` : '❌ 결제 실행 실패');
     } finally {

@@ -142,11 +142,17 @@ export async function GET() {
         blocker = 'zero_sales';
         blockerDetail = `${lastClosedMonth} 매출 0원 — 청구할 금액 없음`;
       } else if (!report && snap) {
-        blocker = 'no_report';
-        blockerDetail = `${lastClosedMonth} 보고서 미생성 (실행 시 자동 생성됨)`;
-      } else if (report && !['awaiting_payment', 'overdue', 'suspended'].includes(report.feeStatus)) {
+        // 보고서 미생성 + snapshot 존재 → 결제 가능 (실행 시 자동 생성).
+        // billable=true 로 처리해 사용자가 즉시 결제 실행할 수 있게 한다.
+        blocker = null;
+        blockerDetail = `${lastClosedMonth} 보고서 자동 생성 후 즉시 결제 진행`;
+      } else if (report && !['awaiting_payment', 'overdue', 'suspended', 'awaiting_review'].includes(report.feeStatus)) {
         blocker = 'report_status';
         blockerDetail = `보고서 상태가 청구 가능 아님: ${report.feeStatus}`;
+      } else if (report && report.feeStatus === 'awaiting_review') {
+        // awaiting_review 도 결제 가능 (실행 시 awaiting_payment 로 자동 승급)
+        blocker = null;
+        blockerDetail = `보고서 검토대기 → 결제 시 자동 승급`;
       }
 
       return {
