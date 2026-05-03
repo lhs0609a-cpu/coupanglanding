@@ -182,14 +182,22 @@ export default function AdminSalesOverviewPage() {
   const fetchPaymentOverview = useCallback(async () => {
     setPaymentLoading(true);
     setPaymentError(null);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20_000);
     try {
-      const res = await fetch('/api/admin/payments/overview');
+      const res = await fetch('/api/admin/payments/overview', { signal: controller.signal });
+      clearTimeout(timeoutId);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '결제 상태 조회 실패');
       setPaymentUsers(data.users || []);
       setPaymentSummary(data.summary || null);
     } catch (err) {
-      setPaymentError(err instanceof Error ? err.message : '결제 상태 조회 실패');
+      clearTimeout(timeoutId);
+      const msg = err instanceof Error
+        ? (err.name === 'AbortError' ? '결제 상태 조회 시간 초과 (20초)' : err.message)
+        : '결제 상태 조회 실패';
+      setPaymentError(msg);
+      console.error('[paymentOverview]', err);
     } finally {
       setPaymentLoading(false);
     }
@@ -304,7 +312,6 @@ export default function AdminSalesOverviewPage() {
     setExclusionError(null);
     setExclusionSuccess(null);
 
-    // 30초 timeout (RLS/trigger hang / quota 초과 등 silent fail 방지)
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30_000);
 
@@ -322,7 +329,6 @@ export default function AdminSalesOverviewPage() {
       try {
         data = JSON.parse(text);
       } catch {
-        // JSON 파싱 실패 = HTML 에러 페이지 등 (Vercel 401, 502 등)
         throw new Error(`서버 응답 파싱 실패 (HTTP ${res.status}): ${text.slice(0, 200)}`);
       }
 
@@ -330,13 +336,16 @@ export default function AdminSalesOverviewPage() {
         throw new Error(data.error || `HTTP ${res.status}`);
       }
 
+      // 성공 시 즉시 UI 상태 정리 — fetchPaymentOverview hang 영향 안 받게.
       setExclusionSuccess(`✅ ${name} — ${dateStr}까지 결제 사이클에서 제외 완료`);
-      // 성공 시 1.5초 후 모달 자동 닫기
+      setActingUserId(null); // 즉시 로딩 해제
       setTimeout(() => {
         setExclusionModal(null);
         setExclusionSuccess(null);
       }, 1500);
-      await fetchPaymentOverview();
+
+      // 결제 상태 패널 갱신은 fire-and-forget — hang 해도 UI 영향 없음
+      fetchPaymentOverview().catch((e) => console.error('[billing-exemption] fetchPaymentOverview 후속 실패:', e));
     } catch (err) {
       clearTimeout(timeoutId);
       const msg = err instanceof Error
@@ -346,8 +355,7 @@ export default function AdminSalesOverviewPage() {
         : '제외 설정 실패';
       setExclusionError(msg);
       console.error('[billing-exemption]', err);
-    } finally {
-      setActingUserId(null);
+      setActingUserId(null); // 에러 시도 즉시 해제
     }
   }, [fetchPaymentOverview]);
 
@@ -355,19 +363,27 @@ export default function AdminSalesOverviewPage() {
   const handleClearBillingExclusion = useCallback(async (ptUserId: string, name: string) => {
     if (!confirm(`${name} 사용자의 결제 사이클 제외를 즉시 해제합니다. 다음 청구일부터 자동결제가 진행됩니다.\n\n진행할까요?`)) return;
     setActingUserId(ptUserId);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
     try {
       const res = await fetch(`/api/admin/payments/${ptUserId}/billing-exemption`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'clear' }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '해제 실패');
+      // 즉시 UI 상태 해제 — 후속 fetchPaymentOverview 가 hang 해도 영향 없음
+      setActingUserId(null);
       alert(`✅ ${name} 사용자가 결제 사이클에 다시 포함되었습니다.`);
-      await fetchPaymentOverview();
+      fetchPaymentOverview().catch((e) => console.error('[billing-exemption clear] fetchPaymentOverview 후속 실패:', e));
     } catch (err) {
+      clearTimeout(timeoutId);
       alert(err instanceof Error ? err.message : '해제 실패');
-    } finally {
       setActingUserId(null);
     }
   }, [fetchPaymentOverview]);
