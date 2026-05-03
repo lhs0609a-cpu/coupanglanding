@@ -77,97 +77,123 @@ export default function AdminPtUsersPage() {
 
   const supabase = useMemo(() => createClient(), []);
 
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setFetchError(null);
 
-    const { data: usersData } = await supabase
-      .from('pt_users')
-      .select('*, profile:profiles(*)')
-      .order('created_at', { ascending: false });
-
-    const users = (usersData as PtUserWithProfile[]) || [];
-    setPtUsers(users);
-
-    if (users.length > 0) {
-      const userIds = users.map((u) => u.id);
-      const { data: reportsData } = await supabase
-        .from('monthly_reports')
-        .select('*')
-        .eq('year_month', yearMonth)
-        .in('pt_user_id', userIds);
-
-      const reportMap = new Map<string, ReportWithScreenshot>();
-      (reportsData || []).forEach((r) => {
-        reportMap.set((r as ReportWithScreenshot).pt_user_id, r as ReportWithScreenshot);
-      });
-      setReports(reportMap);
-
-      // 온보딩 데이터
-      const { data: obSteps } = await supabase
-        .from('onboarding_steps')
-        .select('*')
-        .in('pt_user_id', userIds);
-
-      const stepsMap = new Map<string, OnboardingStep[]>();
-      (obSteps || []).forEach((s) => {
-        const step = s as OnboardingStep;
-        const arr = stepsMap.get(step.pt_user_id) || [];
-        arr.push(step);
-        stepsMap.set(step.pt_user_id, arr);
-      });
-      setOnboardingSteps(stepsMap);
-
-      // 계약 서명 여부
-      const { data: signedContracts } = await supabase
-        .from('contracts')
-        .select('pt_user_id')
-        .eq('status', 'signed')
-        .in('pt_user_id', userIds);
-
-      setOnboardingContracts(new Set((signedContracts || []).map((c) => (c as { pt_user_id: string }).pt_user_id)));
-
-      // 매출 정산 여부
-      const { data: anyReports } = await supabase
-        .from('monthly_reports')
-        .select('pt_user_id')
-        .in('pt_user_id', userIds);
-
-      setOnboardingReports(new Set((anyReports || []).map((r) => (r as { pt_user_id: string }).pt_user_id)));
-
-      // 트레이너-교육생 매핑 조회
-      const { data: traineeLinks } = await supabase
-        .from('trainer_trainees')
-        .select('trainee_pt_user_id, trainer_id, trainer:trainers(bonus_percentage, status, referral_code, pt_user:pt_users(profile:profiles(full_name)))')
-        .eq('is_active', true)
-        .in('trainee_pt_user_id', userIds);
-
-      const tMap = new Map<string, { trainer_id: string; bonus_percentage: number; trainer_name: string; referral_code: string }>();
-      (traineeLinks || []).forEach((link) => {
-        const l = link as unknown as { trainee_pt_user_id: string; trainer_id: string; trainer: { bonus_percentage: number; status: string; referral_code: string; pt_user: { profile: { full_name: string } } } };
-        if (l.trainer?.status === 'approved') {
-          tMap.set(l.trainee_pt_user_id, {
-            trainer_id: l.trainer_id,
-            bonus_percentage: l.trainer.bonus_percentage,
-            trainer_name: l.trainer.pt_user?.profile?.full_name || '이름 없음',
-            referral_code: l.trainer.referral_code || '',
-          });
-        }
-      });
-      setTraineeTrainerMap(tMap);
-    }
-
-    // 수동 입력 요청 조회
+    // 한 쿼리가 실패해도 나머지가 계속 진행되도록 finally 로 loading 보장.
+    // 각 단계는 개별 try/catch 로 격리해 부분적으로라도 데이터를 채운다.
     try {
-      const mirRes = await fetch(`/api/manual-input-requests?status=pending`);
-      if (mirRes.ok) {
-        const mirData = await mirRes.json();
-        setManualInputRequests(mirData || []);
-      }
-    } catch {
-      // 무시
-    }
+      const { data: usersData, error: usersErr } = await supabase
+        .from('pt_users')
+        .select('*, profile:profiles(*)')
+        .order('created_at', { ascending: false });
 
-    setLoading(false);
+      if (usersErr) {
+        console.error('[admin/pt-users] pt_users 조회 실패:', usersErr);
+        setFetchError(`PT 사용자 조회 실패: ${usersErr.message}`);
+        return;
+      }
+
+      const users = (usersData as PtUserWithProfile[]) || [];
+      setPtUsers(users);
+
+      if (users.length === 0) return;
+
+      const userIds = users.map((u) => u.id);
+
+      // 각 보조 쿼리는 독립적으로 실행 — 한 건 실패해도 나머지 진행
+      const [reportsRes, obStepsRes, contractsRes, anyReportsRes, traineeRes] = await Promise.allSettled([
+        supabase.from('monthly_reports').select('*').eq('year_month', yearMonth).in('pt_user_id', userIds),
+        supabase.from('onboarding_steps').select('*').in('pt_user_id', userIds),
+        supabase.from('contracts').select('pt_user_id').eq('status', 'signed').in('pt_user_id', userIds),
+        supabase.from('monthly_reports').select('pt_user_id').in('pt_user_id', userIds),
+        supabase
+          .from('trainer_trainees')
+          .select('trainee_pt_user_id, trainer_id, trainer:trainers(bonus_percentage, status, referral_code, pt_user:pt_users(profile:profiles(full_name)))')
+          .eq('is_active', true)
+          .in('trainee_pt_user_id', userIds),
+      ]);
+
+      // 이번 월 리포트
+      if (reportsRes.status === 'fulfilled') {
+        const reportMap = new Map<string, ReportWithScreenshot>();
+        (reportsRes.value.data || []).forEach((r) => {
+          reportMap.set((r as ReportWithScreenshot).pt_user_id, r as ReportWithScreenshot);
+        });
+        setReports(reportMap);
+      } else {
+        console.error('[admin/pt-users] reports 조회 실패:', reportsRes.reason);
+      }
+
+      // 온보딩 단계
+      if (obStepsRes.status === 'fulfilled') {
+        const stepsMap = new Map<string, OnboardingStep[]>();
+        (obStepsRes.value.data || []).forEach((s) => {
+          const step = s as OnboardingStep;
+          const arr = stepsMap.get(step.pt_user_id) || [];
+          arr.push(step);
+          stepsMap.set(step.pt_user_id, arr);
+        });
+        setOnboardingSteps(stepsMap);
+      } else {
+        console.error('[admin/pt-users] onboarding_steps 조회 실패:', obStepsRes.reason);
+      }
+
+      // 서명된 계약
+      if (contractsRes.status === 'fulfilled') {
+        setOnboardingContracts(
+          new Set((contractsRes.value.data || []).map((c) => (c as { pt_user_id: string }).pt_user_id))
+        );
+      } else {
+        console.error('[admin/pt-users] contracts 조회 실패:', contractsRes.reason);
+      }
+
+      // 매출 정산 보유 여부
+      if (anyReportsRes.status === 'fulfilled') {
+        setOnboardingReports(
+          new Set((anyReportsRes.value.data || []).map((r) => (r as { pt_user_id: string }).pt_user_id))
+        );
+      } else {
+        console.error('[admin/pt-users] any reports 조회 실패:', anyReportsRes.reason);
+      }
+
+      // 트레이너 매핑 — 가장 복잡한 nested join 이라 실패 가능성 높음
+      if (traineeRes.status === 'fulfilled') {
+        const tMap = new Map<string, { trainer_id: string; bonus_percentage: number; trainer_name: string; referral_code: string }>();
+        (traineeRes.value.data || []).forEach((link) => {
+          const l = link as unknown as { trainee_pt_user_id: string; trainer_id: string; trainer: { bonus_percentage: number; status: string; referral_code: string; pt_user: { profile: { full_name: string } } } };
+          if (l.trainer?.status === 'approved') {
+            tMap.set(l.trainee_pt_user_id, {
+              trainer_id: l.trainer_id,
+              bonus_percentage: l.trainer.bonus_percentage,
+              trainer_name: l.trainer.pt_user?.profile?.full_name || '이름 없음',
+              referral_code: l.trainer.referral_code || '',
+            });
+          }
+        });
+        setTraineeTrainerMap(tMap);
+      } else {
+        console.error('[admin/pt-users] trainer_trainees 조회 실패:', traineeRes.reason);
+      }
+    } catch (err) {
+      console.error('[admin/pt-users] fetchData 예외:', err);
+      setFetchError(err instanceof Error ? err.message : '데이터 조회 실패');
+    } finally {
+      // 수동 입력 요청은 별도 — 실패해도 무시
+      try {
+        const mirRes = await fetch(`/api/manual-input-requests?status=pending`);
+        if (mirRes.ok) {
+          const mirData = await mirRes.json();
+          setManualInputRequests(mirData || []);
+        }
+      } catch {
+        // 무시
+      }
+      setLoading(false);
+    }
   }, [yearMonth, supabase]);
 
   useEffect(() => {
@@ -698,6 +724,25 @@ export default function AdminPtUsersPage() {
                 </div>
               );
             })}
+          </div>
+        </Card>
+      )}
+
+      {fetchError && !loading && (
+        <Card>
+          <div className="py-6 px-4 bg-red-50 border-l-4 border-red-500 text-red-900">
+            <div className="flex items-center gap-2 font-semibold mb-1">
+              <AlertTriangle className="w-4 h-4" />
+              데이터 조회 실패
+            </div>
+            <p className="text-sm">{fetchError}</p>
+            <button
+              type="button"
+              onClick={fetchData}
+              className="mt-3 px-3 py-1.5 text-xs font-medium bg-red-600 text-white rounded hover:bg-red-700"
+            >
+              다시 시도
+            </button>
           </div>
         </Card>
       )}
