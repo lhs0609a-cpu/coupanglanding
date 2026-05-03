@@ -23,7 +23,7 @@ import {
 import type { PtUser, MonthlyReport, Profile, ApiRevenueSnapshot } from '@/lib/supabase/types';
 
 /* ─── 결제 상태 패널 타입 — /api/admin/payments/overview 응답 형태와 1:1 매칭 ─── */
-type PaymentStatus = 'normal' | 'retrying' | 'final_failed' | 'locked' | 'no_card' | 'no_report';
+type PaymentStatus = 'normal' | 'retrying' | 'final_failed' | 'locked' | 'no_card' | 'no_report' | 'no_contract' | 'excluded';
 
 interface PaymentOverviewUser {
   pt_user_id: string;
@@ -31,6 +31,9 @@ interface PaymentOverviewUser {
   full_name: string | null;
   email: string | null;
   status: PaymentStatus;
+  contract_status: string | null;
+  billing_excluded_until: string | null;
+  billing_exclusion_reason: string | null;
   payment_overdue_since: string | null;
   payment_lock_level: number;
   computed_lock_level: number;
@@ -60,6 +63,8 @@ interface PaymentOverviewSummary {
   locked: number;
   no_card: number;
   no_report: number;
+  no_contract: number;
+  excluded: number;
 }
 
 /* ─── 진단 응답 타입 ─── */
@@ -269,6 +274,54 @@ export default function AdminSalesOverviewPage() {
       await fetchPaymentOverview();
     } catch (err) {
       alert(err instanceof Error ? err.message : '락 해제 실패');
+    } finally {
+      setActingUserId(null);
+    }
+  }, [fetchPaymentOverview]);
+
+  /** 결제 사이클 제외 설정 */
+  const handleSetBillingExclusion = useCallback(async (ptUserId: string, name: string) => {
+    const dateStr = prompt(`${name} 사용자를 결제 사이클에서 제외합니다.\n\n언제까지 제외할까요? (YYYY-MM-DD 형식)\n예: 2026-08-31`);
+    if (!dateStr) return;
+    if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(dateStr)) {
+      alert('날짜 형식이 올바르지 않습니다 (YYYY-MM-DD)');
+      return;
+    }
+    const reason = prompt('사유 (선택, 감사 추적용)');
+    setActingUserId(ptUserId);
+    try {
+      const res = await fetch(`/api/admin/payments/${ptUserId}/billing-exemption`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set', excludedUntil: dateStr, reason: reason || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '제외 설정 실패');
+      alert(`✅ ${name} 사용자가 ${dateStr}까지 결제 사이클에서 제외되었습니다.`);
+      await fetchPaymentOverview();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '제외 설정 실패');
+    } finally {
+      setActingUserId(null);
+    }
+  }, [fetchPaymentOverview]);
+
+  /** 결제 사이클 재포함 (제외 해제) */
+  const handleClearBillingExclusion = useCallback(async (ptUserId: string, name: string) => {
+    if (!confirm(`${name} 사용자의 결제 사이클 제외를 즉시 해제합니다. 다음 청구일부터 자동결제가 진행됩니다.\n\n진행할까요?`)) return;
+    setActingUserId(ptUserId);
+    try {
+      const res = await fetch(`/api/admin/payments/${ptUserId}/billing-exemption`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clear' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '해제 실패');
+      alert(`✅ ${name} 사용자가 결제 사이클에 다시 포함되었습니다.`);
+      await fetchPaymentOverview();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '해제 실패');
     } finally {
       setActingUserId(null);
     }
@@ -1561,6 +1614,11 @@ export default function AdminSalesOverviewPage() {
             <h2 className="text-base font-bold text-gray-900">결제 상태 / 카드 등록 현황</h2>
             {paymentSummary && (
               <div className="flex items-center gap-1.5 flex-wrap">
+                {paymentSummary.no_contract > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-purple-100 text-purple-800">
+                    <AlertTriangle className="w-3 h-3" /> 계약 미서명 {paymentSummary.no_contract}
+                  </span>
+                )}
                 {paymentSummary.no_card > 0 && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800">
                     <CreditCard className="w-3 h-3" /> 카드 미등록 {paymentSummary.no_card}
@@ -1581,7 +1639,12 @@ export default function AdminSalesOverviewPage() {
                     <RefreshCw className="w-3 h-3" /> 재시도중 {paymentSummary.retrying}
                   </span>
                 )}
-                {paymentSummary.no_card === 0 && paymentSummary.locked === 0 && paymentSummary.final_failed === 0 && paymentSummary.retrying === 0 && (
+                {paymentSummary.excluded > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-slate-200 text-slate-700">
+                    <Unlock className="w-3 h-3" /> 결제 제외 {paymentSummary.excluded}
+                  </span>
+                )}
+                {paymentSummary.no_card === 0 && paymentSummary.locked === 0 && paymentSummary.final_failed === 0 && paymentSummary.retrying === 0 && paymentSummary.no_contract === 0 && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-green-100 text-green-700">
                     <CheckCircle2 className="w-3 h-3" /> 모두 정상
                   </span>
@@ -1617,11 +1680,13 @@ export default function AdminSalesOverviewPage() {
               {([
                 { key: 'problem', label: '조치 필요만', color: 'bg-[#E31837]/10 text-[#E31837] border-[#E31837]/30' },
                 { key: 'all', label: '전체', color: 'bg-gray-100 text-gray-700 border-gray-200' },
+                { key: 'no_contract', label: `계약 미서명 (${paymentSummary?.no_contract ?? 0})`, color: 'bg-purple-50 text-purple-800 border-purple-200' },
                 { key: 'no_card', label: `카드 미등록 (${paymentSummary?.no_card ?? 0})`, color: 'bg-amber-50 text-amber-800 border-amber-200' },
                 { key: 'locked', label: `락 (${paymentSummary?.locked ?? 0})`, color: 'bg-orange-50 text-orange-800 border-orange-200' },
                 { key: 'final_failed', label: `최종실패 (${paymentSummary?.final_failed ?? 0})`, color: 'bg-red-50 text-red-700 border-red-200' },
                 { key: 'retrying', label: `재시도중 (${paymentSummary?.retrying ?? 0})`, color: 'bg-blue-50 text-blue-700 border-blue-200' },
                 { key: 'no_report', label: `리포트 미제출 (${paymentSummary?.no_report ?? 0})`, color: 'bg-gray-50 text-gray-700 border-gray-200' },
+                { key: 'excluded', label: `결제 제외 (${paymentSummary?.excluded ?? 0})`, color: 'bg-slate-100 text-slate-700 border-slate-300' },
                 { key: 'normal', label: `정상 (${paymentSummary?.normal ?? 0})`, color: 'bg-green-50 text-green-700 border-green-200' },
               ] as const).map((chip) => (
                 <button
@@ -1762,6 +1827,11 @@ export default function AdminSalesOverviewPage() {
                           </td>
                           <td className="px-3 py-3 text-right align-top">
                             <div className="inline-flex flex-col gap-1 items-end">
+                              {p.status === 'excluded' && p.billing_excluded_until && (
+                                <p className="text-[10px] text-slate-600 font-medium">
+                                  ~{new Date(p.billing_excluded_until).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}까지 제외
+                                </p>
+                              )}
                               {p.status === 'no_card' && (
                                 <button
                                   type="button"
@@ -1798,8 +1868,32 @@ export default function AdminSalesOverviewPage() {
                                   락 해제
                                 </button>
                               )}
+                              {/* 결제 제외 / 재개 토글 */}
+                              {p.status === 'excluded' ? (
+                                <button
+                                  type="button"
+                                  disabled={acting}
+                                  onClick={() => handleClearBillingExclusion(p.pt_user_id, name)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+                                  title="결제 사이클 다시 포함"
+                                >
+                                  {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
+                                  결제 재개
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={acting}
+                                  onClick={() => handleSetBillingExclusion(p.pt_user_id, name)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-slate-500 text-white rounded hover:bg-slate-600 disabled:opacity-50"
+                                  title="이 PT생을 일정 기간 결제 사이클에서 제외 (자동결제/락 면제)"
+                                >
+                                  {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Unlock className="w-3 h-3" />}
+                                  결제 제외
+                                </button>
+                              )}
                               {p.status === 'normal' && !lockActive && !canRetry && (
-                                <span className="text-[10px] text-gray-400">조치 불필요</span>
+                                <span className="text-[10px] text-gray-400">정상</span>
                               )}
                             </div>
                           </td>
@@ -1926,6 +2020,16 @@ export default function AdminSalesOverviewPage() {
                         {row.apiConnected && (
                           <span title={`API 연동 · ${row.latestSyncedAt ? '최근 동기화 ' + new Date(row.latestSyncedAt).toLocaleString('ko-KR') : '동기화 이력 없음'}`}>
                             <Zap className="w-3 h-3 text-blue-500" />
+                          </span>
+                        )}
+                        {pay && pay.status === 'no_contract' && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-100 text-purple-800" title="계약 미서명 — 자동결제 대상 아님">
+                            계약 ✗
+                          </span>
+                        )}
+                        {pay && pay.status === 'excluded' && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-200 text-slate-700" title={`결제 제외 (${pay.billing_excluded_until ?? ''})`}>
+                            결제 제외
                           </span>
                         )}
                         {pay && pay.status === 'no_card' && (
@@ -2294,6 +2398,8 @@ function PaymentStatusBadge({ status }: { status: PaymentStatus }) {
     locked: { label: '락 걸림', color: 'bg-orange-100 text-orange-800', Icon: Lock },
     no_card: { label: '카드 미등록', color: 'bg-amber-100 text-amber-800', Icon: CreditCard },
     no_report: { label: '리포트 미제출', color: 'bg-gray-100 text-gray-700', Icon: AlertTriangle },
+    no_contract: { label: '계약 미서명', color: 'bg-purple-100 text-purple-800', Icon: AlertTriangle },
+    excluded: { label: '결제 제외', color: 'bg-slate-200 text-slate-700', Icon: Unlock },
   };
   const meta = map[status];
   const Icon = meta.Icon;

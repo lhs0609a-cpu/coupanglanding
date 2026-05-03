@@ -28,21 +28,27 @@ export async function GET() {
     const todayDateStr = kstDateStr(today);
     const thisMonth = kstMonthStr(today);
 
+    // signed 필터를 제거 — 모든 활성 PT생을 보여줘야 어떤 사람이 계약 미서명/카드 미등록인지
+    // 운영자가 식별하고 조치 가능. terminated 만 제외, 테스트 계정 제외.
     const { data: ptUsers, error } = await serviceClient
       .from('pt_users')
       .select(`
         id,
         profile_id,
+        status,
+        is_test_account,
         payment_overdue_since,
         payment_lock_level,
         payment_lock_exempt_until,
         admin_override_level,
         payment_retry_in_progress,
         first_billing_grace_until,
-        profile:profiles(full_name, email),
-        contracts!inner(status)
+        billing_excluded_until,
+        billing_exclusion_reason,
+        profile:profiles(full_name, email)
       `)
-      .eq('contracts.status', 'signed');
+      .neq('status', 'terminated')
+      .eq('is_test_account', false);
 
     if (error) throw error;
 
@@ -50,6 +56,22 @@ export async function GET() {
     if (ptUserIds.length === 0) {
       return NextResponse.json({ users: [], summary: emptySummary() });
     }
+
+    // 계약 상태 별도 조회 — 어떤 PT생이 signed/draft/없음인지 표시
+    const { data: contracts } = await serviceClient
+      .from('contracts')
+      .select('pt_user_id, status, created_at')
+      .in('pt_user_id', ptUserIds)
+      .order('created_at', { ascending: false });
+
+    const contractByUser = new Map<string, string>();
+    (contracts || []).forEach((c) => {
+      // 가장 최근 계약 1건만 표시 (signed 우선)
+      const existing = contractByUser.get(c.pt_user_id);
+      if (!existing || c.status === 'signed') {
+        contractByUser.set(c.pt_user_id, c.status);
+      }
+    });
 
     // 카드 — active 전체 조회 후 primary 우선 선택
     const { data: cards } = await serviceClient
@@ -126,6 +148,8 @@ export async function GET() {
       const report = reportByUser.get(u.id) ?? null;
       const latestTx = latestTxByUser.get(u.id) ?? null;
       const unpaid = unpaidSummaryByUser.get(u.id) ?? null;
+      const contractStatus = contractByUser.get(u.id) ?? null;
+      const hasSignedContract = contractStatus === 'signed';
 
       const exemptActive = u.payment_lock_exempt_until && u.payment_lock_exempt_until > todayDateStr;
       const computedLevel = exemptActive
@@ -134,10 +158,17 @@ export async function GET() {
             retryInProgress: !!u.payment_retry_in_progress,
           });
 
-      let status: 'normal' | 'retrying' | 'final_failed' | 'locked' | 'no_card' | 'no_report' = 'normal';
-      if (u.payment_retry_in_progress) status = 'retrying';
+      // 결제 제외 기간 — 관리자가 지정한 종료일까지 자동결제/락/리포트 자동생성 모두 면제
+      const billingExcluded =
+        !!(u as { billing_excluded_until?: string | null }).billing_excluded_until &&
+        (u as { billing_excluded_until?: string | null }).billing_excluded_until! >= todayDateStr;
+
+      let status: 'normal' | 'retrying' | 'final_failed' | 'locked' | 'no_card' | 'no_report' | 'no_contract' | 'excluded' = 'normal';
+      if (billingExcluded) status = 'excluded';
+      else if (u.payment_retry_in_progress) status = 'retrying';
       else if ((u.payment_lock_level ?? 0) > 0 || computedLevel > 0) status = 'locked';
       else if (latestTx?.is_final_failure && latestTx.status === 'failed') status = 'final_failed';
+      else if (!hasSignedContract) status = 'no_contract';
       else if (!card) status = 'no_card';
       else if (!report) status = 'no_report';
 
@@ -152,6 +183,9 @@ export async function GET() {
         full_name: profileTyped?.full_name ?? null,
         email: profileTyped?.email ?? null,
         status,
+        contract_status: contractStatus,
+        billing_excluded_until: (u as { billing_excluded_until?: string | null }).billing_excluded_until ?? null,
+        billing_exclusion_reason: (u as { billing_exclusion_reason?: string | null }).billing_exclusion_reason ?? null,
         payment_overdue_since: u.payment_overdue_since,
         payment_lock_level: u.payment_lock_level ?? 0,
         computed_lock_level: computedLevel,
@@ -203,15 +237,19 @@ export async function GET() {
       locked: rows.filter((r) => r.status === 'locked').length,
       no_card: rows.filter((r) => r.status === 'no_card').length,
       no_report: rows.filter((r) => r.status === 'no_report').length,
+      no_contract: rows.filter((r) => r.status === 'no_contract').length,
+      excluded: rows.filter((r) => r.status === 'excluded').length,
     };
 
     const order: Record<string, number> = {
       locked: 0,
       final_failed: 1,
       retrying: 2,
-      no_card: 3,
-      no_report: 4,
-      normal: 5,
+      no_contract: 3,
+      no_card: 4,
+      no_report: 5,
+      excluded: 6,
+      normal: 7,
     };
     rows.sort((a, b) => order[a.status] - order[b.status]);
 
@@ -223,5 +261,5 @@ export async function GET() {
 }
 
 function emptySummary() {
-  return { total: 0, normal: 0, retrying: 0, final_failed: 0, locked: 0, no_card: 0, no_report: 0 };
+  return { total: 0, normal: 0, retrying: 0, final_failed: 0, locked: 0, no_card: 0, no_report: 0, no_contract: 0, excluded: 0 };
 }

@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // signed 계약이 있는 PT 유저만 대상 (terminated/draft 제외, 테스트 계정 제외)
+    // signed 계약이 있는 PT 유저만 대상 (terminated/draft 제외, 테스트 계정 제외, 결제 제외 기간 PT생 제외)
     const { data: ptUsers } = await serviceClient
       .from('pt_users')
       .select(`
@@ -80,6 +80,7 @@ export async function GET(request: NextRequest) {
         created_at,
         is_test_account,
         payment_overdue_since,
+        billing_excluded_until,
         contracts!inner(status)
       `)
       .eq('contracts.status', 'signed')
@@ -94,9 +95,17 @@ export async function GET(request: NextRequest) {
     let failed = 0;
     let overdueMarked = 0;
     let graceSkipped = 0;
+    let billingExcludedSkipped = 0;
     let userErrors = 0;
 
     for (const ptUser of ptUsers) {
+      // 관리자가 지정한 결제 제외 기간 — 이 기간 동안 자동결제 안 함, 락 안 걸림
+      const excludedUntil = (ptUser as { billing_excluded_until?: string | null }).billing_excluded_until;
+      if (excludedUntil && todayDateStr <= excludedUntil) {
+        billingExcludedSkipped++;
+        continue;
+      }
+
       // grace 기간 — first_billing_grace_until 이 있으면 그 값, 없으면 가입 +1개월 기본
       const graceUntil = ptUser.first_billing_grace_until
         ? ptUser.first_billing_grace_until
@@ -130,6 +139,7 @@ export async function GET(request: NextRequest) {
       failed,
       overdueMarked,
       graceSkipped,
+      billingExcludedSkipped,
       userErrors,
     });
   } catch (err) {

@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
   // 활성 PT 사용자 (signed 계약, is_test_account=false)
   const { data: ptUsers } = await serviceClient
     .from('pt_users')
-    .select(`id, profile_id, contracts!inner(status)`)
+    .select(`id, profile_id, billing_excluded_until, contracts!inner(status)`)
     .eq('contracts.status', 'signed')
     .eq('is_test_account', false);
 
@@ -82,12 +82,24 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, message: '대상 PT 유저 없음', processed: 0, targetMonth });
   }
 
+  // 오늘 날짜(KST)
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const todayDateStr = kst.toISOString().slice(0, 10);
+
   let created = 0;
   let skippedExisting = 0;
   let skippedNoRevenue = 0;
+  let skippedExcluded = 0;
   let errored = 0;
 
   for (const ptUser of ptUsers) {
+    // 결제 제외 기간이면 보고서 자동 생성 skip — 결제 안 일어나니 보고서도 만들 필요 없음
+    const excludedUntil = (ptUser as { billing_excluded_until?: string | null }).billing_excluded_until;
+    if (excludedUntil && todayDateStr <= excludedUntil) {
+      skippedExcluded++;
+      continue;
+    }
+
     try {
       // 직전 달 보고서 이미 있으면 skip
       const { data: existing } = await serviceClient
@@ -195,6 +207,7 @@ export async function GET(request: NextRequest) {
     created,
     skippedExisting,
     skippedNoRevenue,
+    skippedExcluded,
     errored,
   });
 }
