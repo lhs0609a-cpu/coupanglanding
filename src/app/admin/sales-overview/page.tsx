@@ -519,6 +519,85 @@ export default function AdminSalesOverviewPage() {
     return sorted;
   }, [rows, search, statusFilter, sortKey, sortDir]);
 
+  /** 누적 수금 현황 — "지금까지 받은 돈 / 못 받은 돈" 한눈에 */
+  const cashflow = useMemo(() => {
+    let billedTotal = 0;       // 누적 청구액 (paid + awaiting + overdue + suspended)
+    let paidTotal = 0;         // 실제 수금
+    let awaitingTotal = 0;     // 결제 대기 (아직 청구일 안 옴)
+    let overdueTotal = 0;      // 미납 (청구일 지남, 재시도중)
+    let suspendedTotal = 0;    // 정지 (최종실패)
+    let paidCount = 0;
+    let awaitingCount = 0;
+    let overdueCount = 0;
+    let suspendedCount = 0;
+
+    // 이번 청구일(직전 마감월) 기준 — "오늘 자동결제로 들어온 돈"
+    let lastMonthBilled = 0;
+    let lastMonthPaid = 0;
+    let lastMonthPaidCount = 0;
+    let lastMonthBilledCount = 0;
+
+    // 미수금 PT생별 세부
+    const debtByUser = new Map<string, { name: string; amount: number; months: string[] }>();
+
+    for (const r of reports) {
+      const amount = Number(r.total_with_vat) || 0;
+      const status = r.fee_payment_status;
+      if (amount <= 0 || status === 'not_applicable' || status === 'awaiting_review') continue;
+
+      billedTotal += amount;
+
+      const u = users.find((x) => x.id === r.pt_user_id);
+      const name = u?.profile?.full_name || u?.profile?.email || r.pt_user_id.slice(0, 8);
+
+      if (status === 'paid') {
+        paidTotal += amount;
+        paidCount++;
+      } else if (status === 'awaiting_payment') {
+        awaitingTotal += amount;
+        awaitingCount++;
+      } else if (status === 'overdue') {
+        overdueTotal += amount;
+        overdueCount++;
+      } else if (status === 'suspended') {
+        suspendedTotal += amount;
+        suspendedCount++;
+      }
+
+      // 미수금 누적 (PT생별 합산)
+      if (status !== 'paid') {
+        const prev = debtByUser.get(r.pt_user_id) || { name, amount: 0, months: [] };
+        prev.amount += amount;
+        prev.months.push(r.year_month);
+        debtByUser.set(r.pt_user_id, prev);
+      }
+
+      // 이번 청구 사이클(직전 마감월)
+      if (r.year_month === lastClosedMonth) {
+        lastMonthBilled += amount;
+        lastMonthBilledCount++;
+        if (status === 'paid') {
+          lastMonthPaid += amount;
+          lastMonthPaidCount++;
+        }
+      }
+    }
+
+    const collectionRate = billedTotal > 0 ? Math.round((paidTotal / billedTotal) * 100) : 0;
+    const lastMonthRate = lastMonthBilled > 0 ? Math.round((lastMonthPaid / lastMonthBilled) * 100) : 0;
+    const unpaidTotal = awaitingTotal + overdueTotal + suspendedTotal;
+
+    return {
+      billedTotal, paidTotal, unpaidTotal,
+      awaitingTotal, overdueTotal, suspendedTotal,
+      paidCount, awaitingCount, overdueCount, suspendedCount,
+      collectionRate,
+      lastMonthBilled, lastMonthPaid, lastMonthPaidCount, lastMonthBilledCount,
+      lastMonthRate,
+      debtList: Array.from(debtByUser.values()).sort((a, b) => b.amount - a.amount),
+    };
+  }, [reports, users, lastClosedMonth]);
+
   /** 직전 마감월 결제 결과 — "내일 결제됐는지" 한눈에 보기용 */
   const billingResult = useMemo(() => {
     const lastReports = reports.filter((r) => r.year_month === lastClosedMonth);
@@ -711,14 +790,24 @@ export default function AdminSalesOverviewPage() {
   };
 
   /** 셀 렌더링 */
-  const renderCell = (m: MonthCell) => {
+  const renderCell = (m: MonthCell, ym: string) => {
+    // 직전 마감월 이전(과거 마감월)은 결제 사이클이 끝났어야 하는 달.
+    // 진행중월(currentMonth) 이외는 모두 closed 로 본다.
+    const isClosedMonth = ym !== currentMonth;
+
     if (!m.isEligible && m.source === 'none') {
       return <span className="text-xs text-gray-300">-</span>;
     }
     if (m.source === 'none') {
       return (
         <div className="flex flex-col items-end gap-0.5">
-          <span className="text-xs text-gray-400">미제출</span>
+          {isClosedMonth ? (
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-200 text-gray-800 border border-gray-300">
+              📝 리포트 미제출
+            </span>
+          ) : (
+            <span className="text-xs text-gray-400">미제출</span>
+          )}
           {m.syncError && (
             <span className="text-[9px] text-red-500" title={m.syncError}>API 오류</span>
           )}
@@ -732,9 +821,22 @@ export default function AdminSalesOverviewPage() {
           <span className="text-[11px] text-emerald-700 font-medium" title="우리 수수료 (VAT 포함)">
             +{formatKRW(m.fee)} 수수료
           </span>
-          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
-            <Zap className="w-2.5 h-2.5" /> API 잠정
-          </span>
+          {isClosedMonth ? (
+            // 마감월인데 리포트 미제출 → 결제 사이클 진입 못함을 명확히 알림
+            <span
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-200 text-gray-800 border border-gray-300"
+              title="PT생이 매출 리포트를 제출하지 않아 자동결제 대상이 아님"
+            >
+              📝 리포트 미제출
+            </span>
+          ) : (
+            <span
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-50 text-blue-700 border border-blue-200"
+              title="진행중 — API 자동수집 잠정값"
+            >
+              <Zap className="w-2.5 h-2.5" /> 진행중
+            </span>
+          )}
         </div>
       );
     }
@@ -819,6 +921,82 @@ export default function AdminSalesOverviewPage() {
           {syncMessage}
         </div>
       )}
+
+      {/* 누적 수금 현황 — 우리가 지금까지 얼마 받았는지 한눈에 */}
+      <div className="bg-gradient-to-r from-emerald-50 via-white to-amber-50 border-2 border-emerald-300 rounded-xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2 bg-white/60">
+          <div className="flex items-center gap-2">
+            <Banknote className="w-5 h-5 text-emerald-700" />
+            <h2 className="text-base font-bold text-gray-900">수금 현황 (누적)</h2>
+            <span className="text-xs text-gray-500">PT생 → 우리 수수료 결제 기준 · VAT 포함</span>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-gray-500">입금률</span>
+            <span className={`px-2 py-0.5 rounded font-bold ${
+              cashflow.collectionRate >= 90 ? 'bg-green-100 text-green-700' :
+              cashflow.collectionRate >= 70 ? 'bg-amber-100 text-amber-700' :
+              'bg-red-100 text-red-700'
+            }`}>
+              {cashflow.collectionRate}%
+            </span>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-0 divide-x divide-gray-200">
+          <div className="px-5 py-4 bg-white">
+            <p className="text-[11px] font-semibold text-gray-600 uppercase">📋 누적 청구액</p>
+            <p className="text-2xl font-bold text-gray-900 mt-1">{formatKRW(cashflow.billedTotal)}</p>
+            <p className="text-[11px] text-gray-500 mt-0.5">전체 리포트 합계 (VAT 포함)</p>
+          </div>
+          <div className="px-5 py-4 bg-green-50/60">
+            <p className="text-[11px] font-semibold text-green-700 uppercase">💰 누적 수금액</p>
+            <p className="text-2xl font-bold text-green-700 mt-1">{formatKRW(cashflow.paidTotal)}</p>
+            <p className="text-[11px] text-green-700 mt-0.5">{cashflow.paidCount}건 결제 완료</p>
+          </div>
+          <div className="px-5 py-4 bg-orange-50/60">
+            <p className="text-[11px] font-semibold text-orange-700 uppercase">⚠️ 미수금</p>
+            <p className="text-2xl font-bold text-orange-700 mt-1">{formatKRW(cashflow.unpaidTotal)}</p>
+            <p className="text-[11px] text-orange-700 mt-0.5">
+              대기 {cashflow.awaitingCount} · 미납 {cashflow.overdueCount} · 정지 {cashflow.suspendedCount}
+            </p>
+          </div>
+          <div className="px-5 py-4 bg-emerald-50/60">
+            <p className="text-[11px] font-semibold text-emerald-700 uppercase">📅 {formatYearMonth(lastClosedMonth)} 청구분</p>
+            <p className="text-2xl font-bold text-emerald-700 mt-1">
+              {formatKRW(cashflow.lastMonthPaid)}<span className="text-xs font-medium text-emerald-600 ml-1">/ {formatKRW(cashflow.lastMonthBilled)}</span>
+            </p>
+            <p className="text-[11px] text-emerald-700 mt-0.5">
+              {cashflow.lastMonthPaidCount}/{cashflow.lastMonthBilledCount}명 완료 ({cashflow.lastMonthRate}%)
+            </p>
+          </div>
+        </div>
+        {cashflow.debtList.length > 0 && (
+          <div className="px-5 py-3 border-t border-gray-200 bg-white/60">
+            <p className="text-[11px] font-semibold text-orange-700 mb-1.5 flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3" /> 미수금 보유 PT생 ({cashflow.debtList.length}명) · 큰 금액 순
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {cashflow.debtList.slice(0, 20).map((d, i) => (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-orange-50 text-orange-800 border border-orange-200"
+                  title={`미납월: ${d.months.join(', ')}`}
+                >
+                  {d.name} <span className="font-bold">{formatKRW(d.amount)}</span>
+                  <span className="text-[10px] opacity-70">({d.months.length}건)</span>
+                </span>
+              ))}
+              {cashflow.debtList.length > 20 && (
+                <span className="text-[11px] text-gray-500">외 {cashflow.debtList.length - 20}명</span>
+              )}
+            </div>
+          </div>
+        )}
+        {cashflow.billedTotal === 0 && (
+          <div className="px-5 py-3 border-t border-gray-200 bg-amber-50 text-amber-900 text-[12px]">
+            📝 아직 청구된 수수료가 없습니다 — PT생이 매출 리포트를 제출하고 관리자가 확인하면 청구액이 잡힙니다.
+          </div>
+        )}
+      </div>
 
       {/* 오늘 실시간 매출 — Wing 기준 */}
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-xl p-5">
@@ -1410,7 +1588,7 @@ export default function AdminSalesOverviewPage() {
                     </td>
                     {[...months].reverse().map(ym => (
                       <td key={ym} className={`px-3 py-3 text-right border-r border-gray-200 ${ym === currentMonth ? 'bg-emerald-50/40' : ''}`}>
-                        {renderCell(row.monthly.get(ym)!)}
+                        {renderCell(row.monthly.get(ym)!, ym)}
                       </td>
                     ))}
                     <td className="px-3 py-3 text-right border-r border-gray-200 bg-blue-50/40">
