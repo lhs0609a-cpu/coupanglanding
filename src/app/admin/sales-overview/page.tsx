@@ -286,15 +286,16 @@ export default function AdminSalesOverviewPage() {
     }
   }, [fetchPaymentOverview]);
 
-  /** 결제 사이클 제외 설정 */
-  const handleSetBillingExclusion = useCallback(async (ptUserId: string, name: string) => {
-    const dateStr = prompt(`${name} 사용자를 결제 사이클에서 제외합니다.\n\n언제까지 제외할까요? (YYYY-MM-DD 형식)\n예: 2026-08-31`);
-    if (!dateStr) return;
-    if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(dateStr)) {
-      alert('날짜 형식이 올바르지 않습니다 (YYYY-MM-DD)');
-      return;
-    }
-    const reason = prompt('사유 (선택, 감사 추적용)');
+  /** 결제 제외 모달 상태 */
+  const [exclusionModal, setExclusionModal] = useState<{ ptUserId: string; name: string } | null>(null);
+
+  /** 결제 사이클 제외 설정 — 모달 오픈 트리거 */
+  const handleSetBillingExclusion = useCallback((ptUserId: string, name: string) => {
+    setExclusionModal({ ptUserId, name });
+  }, []);
+
+  /** 모달에서 확정 시 실제 API 호출 */
+  const submitBillingExclusion = useCallback(async (ptUserId: string, name: string, dateStr: string, reason: string) => {
     setActingUserId(ptUserId);
     try {
       const res = await fetch(`/api/admin/payments/${ptUserId}/billing-exemption`, {
@@ -305,6 +306,7 @@ export default function AdminSalesOverviewPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '제외 설정 실패');
       alert(`✅ ${name} 사용자가 ${dateStr}까지 결제 사이클에서 제외되었습니다.`);
+      setExclusionModal(null);
       await fetchPaymentOverview();
     } catch (err) {
       alert(err instanceof Error ? err.message : '제외 설정 실패');
@@ -1698,6 +1700,17 @@ export default function AdminSalesOverviewPage() {
         />
       )}
 
+      {/* 결제 사이클 제외 모달 */}
+      {exclusionModal && (
+        <BillingExclusionModal
+          ptUserId={exclusionModal.ptUserId}
+          name={exclusionModal.name}
+          submitting={actingUserId === exclusionModal.ptUserId}
+          onClose={() => setExclusionModal(null)}
+          onSubmit={(dateStr, reason) => submitBillingExclusion(exclusionModal.ptUserId, exclusionModal.name, dateStr, reason)}
+        />
+      )}
+
       {/* 오늘 실시간 매출 — Wing 기준 */}
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-xl p-5">
         <div className="flex items-start justify-between flex-wrap gap-3">
@@ -2391,6 +2404,134 @@ export default function AdminSalesOverviewPage() {
             </span>
           ))}
           <span className="ml-auto text-gray-500">셀 형식: 매출 + 우리 수수료(VAT 포함) · {formatYearMonth(currentMonth)} 진행중</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── 결제 사이클 제외 모달 ─── */
+function BillingExclusionModal({
+  name,
+  submitting,
+  onClose,
+  onSubmit,
+}: {
+  ptUserId: string;
+  name: string;
+  submitting: boolean;
+  onClose: () => void;
+  onSubmit: (dateStr: string, reason: string) => void;
+}) {
+  // 기본값: 오늘로부터 6개월 후
+  const defaultUntil = (() => {
+    const d = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    d.setUTCMonth(d.getUTCMonth() + 6);
+    return d.toISOString().slice(0, 10);
+  })();
+  const [excludedUntil, setExcludedUntil] = useState(defaultUntil);
+  const [reason, setReason] = useState('');
+
+  const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const valid = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(excludedUntil) && excludedUntil >= today;
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-xl shadow-2xl max-w-md w-full"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-gray-200">
+          <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
+            <Unlock className="w-4 h-4 text-slate-600" />
+            결제 사이클 제외 — {name}
+          </h2>
+          <p className="text-[11px] text-gray-500 mt-1">
+            지정 종료일까지 자동결제/락/리포트 자동생성 모두 면제됩니다. PT생은 결제 없이 프로그램 정상 이용 가능.
+          </p>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">제외 종료일</label>
+            <input
+              type="date"
+              value={excludedUntil}
+              min={today}
+              onChange={(e) => setExcludedUntil(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-[#E31837]/20 focus:border-[#E31837]"
+            />
+            <p className="text-[10px] text-gray-500 mt-1">
+              이 날짜 이후엔 자동결제 사이클에 다시 포함됩니다.
+            </p>
+            {!valid && excludedUntil && (
+              <p className="text-[10px] text-red-600 mt-1">올바른 미래 날짜를 입력해주세요</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">사유 (선택)</label>
+            <input
+              type="text"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="예: 무료 프로모션, VIP 우대, 분쟁 조정 중 등"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-[#E31837]/20 focus:border-[#E31837]"
+              maxLength={100}
+            />
+            <p className="text-[10px] text-gray-500 mt-1">감사 추적용 — DB에 저장됩니다.</p>
+          </div>
+
+          {/* 빠른 선택 */}
+          <div>
+            <p className="text-[11px] font-semibold text-gray-700 mb-1.5">빠른 선택</p>
+            <div className="flex flex-wrap gap-1">
+              {[
+                { label: '1개월', months: 1 },
+                { label: '3개월', months: 3 },
+                { label: '6개월', months: 6 },
+                { label: '1년', months: 12 },
+                { label: '연말까지', custom: () => `${new Date().getFullYear()}-12-31` },
+              ].map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => {
+                    if ('custom' in p && p.custom) {
+                      setExcludedUntil(p.custom());
+                    } else if ('months' in p) {
+                      const d = new Date(Date.now() + 9 * 60 * 60 * 1000);
+                      d.setUTCMonth(d.getUTCMonth() + p.months);
+                      setExcludedUntil(d.toISOString().slice(0, 10));
+                    }
+                  }}
+                  className="px-2 py-1 text-[11px] font-medium bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting}
+            className="px-3 py-1.5 text-sm text-gray-700 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            onClick={() => onSubmit(excludedUntil, reason)}
+            disabled={!valid || submitting}
+            className="px-4 py-1.5 text-sm font-bold bg-slate-700 text-white rounded hover:bg-slate-800 disabled:opacity-50 inline-flex items-center gap-1"
+          >
+            {submitting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Unlock className="w-3 h-3" />}
+            결제 제외 적용
+          </button>
         </div>
       </div>
     </div>
