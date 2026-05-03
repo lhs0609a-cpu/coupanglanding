@@ -695,6 +695,11 @@ export default function AdminSalesOverviewPage() {
     return () => clearInterval(id);
   }, [fetchPaymentOverview]);
 
+  // 결제 가능성 진단 — 페이지 진입 시 1회 자동 (수동 재진단 가능)
+  useEffect(() => {
+    runReadinessCheck();
+  }, [runReadinessCheck]);
+
   /** 초기 로드 후: 스냅샷이 10분 이상 묵었으면 자동 동기화 */
   useEffect(() => {
     if (loading || users.length === 0) return;
@@ -1428,6 +1433,135 @@ export default function AdminSalesOverviewPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 결제 가능성 종합 진단 — 페이지 진입 시 자동, PT생별 상세 표 */}
+      {readinessData && (
+        <div className={`rounded-xl border-2 overflow-hidden ${
+          readinessData.summary.billable === 0 ? 'border-red-400 bg-red-50' :
+          readinessData.summary.billable < readinessData.summary.total / 2 ? 'border-amber-400 bg-amber-50' :
+          'border-green-400 bg-green-50'
+        }`}>
+          <div className={`px-5 py-3 flex items-center justify-between flex-wrap gap-2 ${
+            readinessData.summary.billable === 0 ? 'bg-red-100' :
+            readinessData.summary.billable < readinessData.summary.total / 2 ? 'bg-amber-100' :
+            'bg-green-100'
+          }`}>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Stethoscope className={`w-5 h-5 ${
+                readinessData.summary.billable === 0 ? 'text-red-700' :
+                readinessData.summary.billable < readinessData.summary.total / 2 ? 'text-amber-700' :
+                'text-green-700'
+              }`} />
+              <h2 className="text-base font-bold text-gray-900">
+                결제 가능성 진단 ({readinessData.lastClosedMonth})
+              </h2>
+              <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                readinessData.summary.billable === 0 ? 'bg-red-200 text-red-900' :
+                readinessData.summary.billable < readinessData.summary.total / 2 ? 'bg-amber-200 text-amber-900' :
+                'bg-green-200 text-green-900'
+              }`}>
+                {readinessData.summary.billable === 0 ? '🚨 결제 가능 PT생 0명' :
+                 `🟢 ${readinessData.summary.billable}/${readinessData.summary.total}명 결제 가능`}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={runReadinessCheck}
+              disabled={readinessLoading}
+              className="text-xs font-medium text-gray-700 hover:underline inline-flex items-center gap-1"
+            >
+              {readinessLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+              재진단
+            </button>
+          </div>
+
+          <div className="px-5 py-3 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-sm">
+            <DiagBox label="전체" value={readinessData.summary.total} color="blue" />
+            <DiagBox label="결제 가능" value={readinessData.summary.billable} color="green" />
+            <DiagBox label="이미 결제" value={readinessData.summary.already_paid} color="indigo" />
+            <DiagBox label="카드 없음" value={readinessData.summary.no_card} color="amber" />
+            <DiagBox label="매출 없음" value={readinessData.summary.no_data} color="red" />
+            <DiagBox label="매출 0원" value={readinessData.summary.zero_sales} color="amber" />
+            <DiagBox label="결제 제외" value={readinessData.summary.excluded} color="slate" />
+            <DiagBox label="테스트" value={readinessData.summary.test} color="slate" />
+          </div>
+
+          <details className="border-t border-gray-200">
+            <summary className="px-5 py-2 text-[12px] font-semibold cursor-pointer hover:bg-white/40">
+              📋 PT생별 막힌 단계 상세 보기 (펼치기)
+            </summary>
+            <div className="px-5 pb-3 overflow-x-auto">
+              <table className="w-full text-[11px] border-collapse min-w-[800px] bg-white">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-2 py-1.5 text-left">사용자</th>
+                    <th className="px-2 py-1.5 text-center">계약</th>
+                    <th className="px-2 py-1.5 text-center">카드</th>
+                    <th className="px-2 py-1.5 text-right">{readinessData.lastClosedMonth} 매출</th>
+                    <th className="px-2 py-1.5 text-center">보고서</th>
+                    <th className="px-2 py-1.5 text-center">결제가능</th>
+                    <th className="px-2 py-1.5 text-left">막힌 단계 / 사유</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {readinessData.users.map((u) => (
+                    <tr key={u.ptUserId} className={`border-t border-gray-200 ${u.billable ? 'bg-green-50' : ''}`}>
+                      <td className="px-2 py-1.5 max-w-[180px]">
+                        <div className="font-medium truncate">{u.name}</div>
+                        <div className="text-[9px] text-gray-500 truncate">{u.email}</div>
+                      </td>
+                      <td className="px-2 py-1.5 text-center">
+                        {u.contractStatus === 'signed' ? <span className="text-green-700">✓ signed</span> : <span className="text-red-600">{u.contractStatus || '없음'}</span>}
+                      </td>
+                      <td className="px-2 py-1.5 text-center">
+                        {u.card ? (
+                          u.card.active && u.card.primary ? (
+                            <span className="text-green-700">✓ {u.card.company}</span>
+                          ) : <span className="text-red-600">비활성</span>
+                        ) : <span className="text-red-600">미등록</span>}
+                      </td>
+                      <td className="px-2 py-1.5 text-right">
+                        {u.snapshotTotalSales != null
+                          ? (u.snapshotTotalSales > 0 ? formatKRW(u.snapshotTotalSales) : <span className="text-amber-700">0원</span>)
+                          : <span className="text-red-600">없음</span>}
+                      </td>
+                      <td className="px-2 py-1.5 text-center">
+                        {u.report
+                          ? (u.report.feeStatus === 'paid'
+                            ? <span className="text-green-700 font-bold">✓ paid</span>
+                            : <span className="text-blue-700">{u.report.feeStatus}</span>)
+                          : <span className="text-amber-600">없음</span>}
+                      </td>
+                      <td className="px-2 py-1.5 text-center">
+                        {u.billable
+                          ? <span className="text-green-700 font-bold">🟢 가능</span>
+                          : <span className="text-red-600 font-bold">🔴 불가</span>}
+                      </td>
+                      <td className="px-2 py-1.5 text-[10px]">{u.blockerDetail || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+
+          {readinessData.summary.billable > 0 && (
+            <div className="px-5 py-2 border-t border-gray-200 bg-white text-[11px] text-green-800 font-medium">
+              ✅ 결제 가능 PT생 {readinessData.summary.billable}명 — 위의 ⚡ 지금 즉시 결제 실행 버튼으로 진행 가능
+            </div>
+          )}
+          {readinessData.summary.billable === 0 && readinessData.summary.no_data > 0 && (
+            <div className="px-5 py-2 border-t border-red-200 bg-white text-[11px] text-red-900">
+              💡 <strong>해결</strong>: {readinessData.summary.no_data}명의 매출 데이터가 없습니다. 페이지 우상단의 <strong>강제 동기화</strong> 버튼으로 쿠팡 API 매출 동기화 후 재진단하세요.
+            </div>
+          )}
+          {readinessData.summary.billable === 0 && readinessData.summary.no_card > 0 && (
+            <div className="px-5 py-2 border-t border-red-200 bg-white text-[11px] text-red-900">
+              💡 <strong>해결</strong>: {readinessData.summary.no_card}명의 카드가 미등록입니다. 위의 결제 상태 패널에서 "카드 안내" 버튼으로 PT생에게 알림을 보내세요.
+            </div>
+          )}
         </div>
       )}
 
