@@ -199,6 +199,25 @@ export default function AdminSalesOverviewPage() {
     }
   }, []);
 
+  /** 미제출 PT생 일괄 리포트 요청 알림 */
+  const [bulkRequestLoading, setBulkRequestLoading] = useState(false);
+  const [bulkRequestResult, setBulkRequestResult] = useState<string | null>(null);
+  const handleBulkReportRequest = useCallback(async () => {
+    if (!confirm('리포트를 제출하지 않은 모든 PT생에게 일괄 알림을 보냅니다. 진행할까요?')) return;
+    setBulkRequestLoading(true);
+    setBulkRequestResult(null);
+    try {
+      const res = await fetch('/api/admin/payments/bulk-report-request', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '발송 실패');
+      setBulkRequestResult(`✅ ${data.notified}명에게 리포트 제출 요청 알림 발송 완료 (대상월: ${data.targetMonth})`);
+    } catch (err) {
+      setBulkRequestResult(err instanceof Error ? `❌ ${err.message}` : '❌ 발송 실패');
+    } finally {
+      setBulkRequestLoading(false);
+    }
+  }, []);
+
   /** 결제 진단 — "왜 결제가 안 됐는지" 추적. 페이지 진입 시 자동 실행. */
   const [diagOpen, setDiagOpen] = useState(false);
   const [diagLoading, setDiagLoading] = useState(false);
@@ -573,6 +592,42 @@ export default function AdminSalesOverviewPage() {
 
     return sorted;
   }, [rows, search, statusFilter, sortKey, sortDir]);
+
+  /** API 잠정 수수료 합계 — "리포트 없이도 받아야 할 추정 금액" */
+  const apiPotentialFees = useMemo(() => {
+    // currentMonth 제외한 마감월에서 source='api' (리포트 없음) 인 셀의 fee 합산.
+    // monthly_reports 가 생성 안 된 PT생/월의 잠재 청구액을 보여준다.
+    let totalPotential = 0;
+    let lastClosedPotential = 0;
+    let lastClosedUserCount = 0;
+    const lastClosedDetails: Array<{ name: string; fee: number; revenue: number }> = [];
+
+    for (const row of rows) {
+      for (const ym of months) {
+        if (ym === currentMonth) continue;
+        const m = row.monthly.get(ym);
+        if (!m || m.source !== 'api') continue;
+        if (m.fee <= 0) continue;
+        totalPotential += m.fee;
+        if (ym === lastClosedMonth) {
+          lastClosedPotential += m.fee;
+          lastClosedUserCount++;
+          lastClosedDetails.push({
+            name: row.user.profile?.full_name || row.user.profile?.email || row.user.id.slice(0, 8),
+            fee: m.fee,
+            revenue: m.revenue,
+          });
+        }
+      }
+    }
+    lastClosedDetails.sort((a, b) => b.fee - a.fee);
+    return {
+      totalPotential,
+      lastClosedPotential,
+      lastClosedUserCount,
+      lastClosedDetails,
+    };
+  }, [rows, months, currentMonth, lastClosedMonth]);
 
   /** 누적 수금 현황 — "지금까지 받은 돈 / 못 받은 돈" 한눈에 */
   const cashflow = useMemo(() => {
@@ -1161,6 +1216,64 @@ export default function AdminSalesOverviewPage() {
             </div>
           </div>
         )}
+        {/* 받아야 할 금액 (API 추정) — 리포트 미제출이라도 우리가 받았어야 할 잠재 청구액 */}
+        {apiPotentialFees.totalPotential > 0 && (
+          <div className="px-5 py-3 border-t border-amber-200 bg-amber-50">
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-700" />
+                <p className="text-sm font-bold text-amber-900">
+                  📊 받아야 할 금액 (API 추정 · 리포트 미제출이라 미청구)
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleBulkReportRequest}
+                disabled={bulkRequestLoading}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-[#E31837] text-white rounded hover:bg-red-700 disabled:opacity-50"
+              >
+                {bulkRequestLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bell className="w-3 h-3" />}
+                미제출 PT생 전체 일괄 알림
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+              <div className="bg-white rounded p-3 border border-amber-300">
+                <p className="text-[11px] font-semibold text-amber-700 uppercase">{formatYearMonth(lastClosedMonth)} 받아야 할 금액 (추정)</p>
+                <p className="text-2xl font-bold text-amber-900 mt-1">{formatKRW(apiPotentialFees.lastClosedPotential)}</p>
+                <p className="text-[11px] text-amber-700 mt-0.5">
+                  {apiPotentialFees.lastClosedUserCount}명이 리포트 미제출 — 청구 진행 안 됨
+                </p>
+              </div>
+              <div className="bg-white rounded p-3 border border-amber-300">
+                <p className="text-[11px] font-semibold text-amber-700 uppercase">전체 미청구 추정 합계 (마감월 누적)</p>
+                <p className="text-2xl font-bold text-amber-900 mt-1">{formatKRW(apiPotentialFees.totalPotential)}</p>
+                <p className="text-[11px] text-amber-700 mt-0.5">PT생들이 리포트 제출하면 실제로 청구됨</p>
+              </div>
+            </div>
+            {apiPotentialFees.lastClosedDetails.length > 0 && (
+              <div className="mt-3">
+                <p className="text-[11px] font-semibold text-amber-800 mb-1.5">{formatYearMonth(lastClosedMonth)} 미청구 PT생 (큰 금액 순):</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {apiPotentialFees.lastClosedDetails.slice(0, 14).map((d, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-white text-amber-800 border border-amber-300"
+                    >
+                      {d.name} <span className="font-bold">{formatKRW(d.fee)}</span>
+                      <span className="text-[10px] opacity-70">(매출 {formatKRW(d.revenue)})</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {bulkRequestResult && (
+              <div className={`mt-3 p-2 rounded text-[12px] ${bulkRequestResult.startsWith('✅') ? 'bg-green-100 text-green-900' : 'bg-red-100 text-red-900'}`}>
+                {bulkRequestResult}
+              </div>
+            )}
+          </div>
+        )}
+
         {cashflow.billedTotal === 0 && (
           <div className="px-5 py-3 border-t border-gray-200 bg-amber-50 text-amber-900 text-[12px] flex items-center justify-between flex-wrap gap-2">
             <span>📝 아직 청구된 수수료가 없습니다 — PT생이 매출 리포트를 제출하고 관리자가 확인하면 청구액이 잡힙니다.</span>
