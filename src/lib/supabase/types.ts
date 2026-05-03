@@ -89,6 +89,11 @@ export interface PtUser {
   payment_lock_exempt_until?: string | null;
   payment_retry_in_progress?: boolean;
   first_billing_grace_until?: string | null;
+  // 결제 사이클 제외 (관리자 지정 면제)
+  billing_excluded_until?: string | null;
+  billing_exclusion_reason?: string | null;
+  billing_excluded_by_admin_id?: string | null;
+  billing_excluded_at?: string | null;
   // Joined fields
   profile?: Profile;
 }

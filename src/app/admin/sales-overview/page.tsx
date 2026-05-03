@@ -832,28 +832,57 @@ export default function AdminSalesOverviewPage() {
     return map;
   }, [paymentUsers]);
 
-  /** API 잠정 수수료 합계 — "리포트 없이도 받아야 할 추정 금액"
-   *  결제 제외(billing_excluded) 사용자는 합산에서 제외하고 별도 그룹으로 분리. */
+  /** PT생별 결제 분류 — paid / active / excluded 세 그룹.
+   *  row.user.billing_excluded_until 직접 검출 (paymentByUser 비어있어도 동작) */
   const apiPotentialFees = useMemo(() => {
-    type Detail = { ptUserId: string; name: string; email: string; fee: number; revenue: number; isExcluded: boolean; excludedUntil: string | null };
+    type Detail = {
+      ptUserId: string;
+      name: string;
+      email: string;
+      fee: number;
+      revenue: number;
+      isExcluded: boolean;
+      excludedUntil: string | null;
+      excludedReason: string | null;
+      isPaid: boolean;
+      paidAmount: number;
+      receiptUrl: string | null;
+      paidAt: string | null;
+    };
+    const todayStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
     let totalPotentialActive = 0;
     let totalPotentialExcluded = 0;
+    let totalPaid = 0;
     let lastClosedPotentialActive = 0;
     let lastClosedPotentialExcluded = 0;
+    let lastClosedPaid = 0;
     const activeDetails: Detail[] = [];
     const excludedDetails: Detail[] = [];
+    const paidDetails: Detail[] = [];
 
     for (const row of rows) {
+      // 결제 제외 검출 — row.user 직접 사용 (paymentByUser fallback 필요 없음)
+      const excludedUntil = row.user.billing_excluded_until ?? null;
+      const isExcluded = !!excludedUntil && excludedUntil >= todayStr;
+
+      // paymentByUser 에서 영수증 정보 (있으면) 가져오기
       const pay = paymentByUser.get(row.user.id);
-      const isExcluded = pay?.status === 'excluded';
+      const successTx = pay?.last_success_tx ?? null;
 
       for (const ym of months) {
         if (ym === currentMonth) continue;
         const m = row.monthly.get(ym);
-        if (!m || m.source !== 'api') continue;
-        if (m.fee <= 0) continue;
+        if (!m) continue;
 
-        if (isExcluded) totalPotentialExcluded += m.fee;
+        // 결제완료 검출 — monthly_reports.fee_payment_status='paid' 우선
+        const isPaid = m.feeStatus === 'paid';
+
+        if (m.source !== 'api' && !isPaid) continue;
+        if (m.fee <= 0 && !isPaid) continue;
+
+        if (isPaid) totalPaid += m.fee;
+        else if (isExcluded) totalPotentialExcluded += m.fee;
         else totalPotentialActive += m.fee;
 
         if (ym === lastClosedMonth) {
@@ -864,9 +893,17 @@ export default function AdminSalesOverviewPage() {
             fee: m.fee,
             revenue: m.revenue,
             isExcluded,
-            excludedUntil: pay?.billing_excluded_until ?? null,
+            excludedUntil,
+            excludedReason: row.user.billing_exclusion_reason ?? null,
+            isPaid,
+            paidAmount: isPaid ? (successTx?.total_amount ?? m.fee) : 0,
+            receiptUrl: isPaid ? (successTx?.receipt_url ?? null) : null,
+            paidAt: isPaid ? (m.feePaidAt ?? successTx?.approved_at ?? null) : null,
           };
-          if (isExcluded) {
+          if (isPaid) {
+            lastClosedPaid += detail.paidAmount;
+            paidDetails.push(detail);
+          } else if (isExcluded) {
             lastClosedPotentialExcluded += m.fee;
             excludedDetails.push(detail);
           } else {
@@ -878,21 +915,22 @@ export default function AdminSalesOverviewPage() {
     }
     activeDetails.sort((a, b) => b.fee - a.fee);
     excludedDetails.sort((a, b) => b.fee - a.fee);
+    paidDetails.sort((a, b) => b.paidAmount - a.paidAmount);
 
     return {
-      // 받아야 할 실제 금액 (제외자 제외)
       totalPotential: totalPotentialActive,
       lastClosedPotential: lastClosedPotentialActive,
       lastClosedUserCount: activeDetails.length,
-      // 분리 합산
       totalPotentialExcluded,
       lastClosedPotentialExcluded,
       excludedUserCount: excludedDetails.length,
-      // 카드 그리드용 분리 목록
+      totalPaid,
+      lastClosedPaid,
+      paidUserCount: paidDetails.length,
       activeDetails,
       excludedDetails,
-      // 호환성 — 기존 lastClosedDetails 는 active 만
-      lastClosedDetails: activeDetails,
+      paidDetails,
+      lastClosedDetails: activeDetails, // 호환성
     };
   }, [rows, months, currentMonth, lastClosedMonth, paymentByUser]);
 
@@ -1554,11 +1592,18 @@ export default function AdminSalesOverviewPage() {
                 <p className="text-[11px] text-amber-700 mt-0.5">
                   {apiPotentialFees.lastClosedUserCount}명이 리포트 미제출 — 청구 진행 안 됨
                 </p>
-                {apiPotentialFees.excludedUserCount > 0 && (
-                  <p className="text-[10px] text-slate-600 mt-1 pt-1 border-t border-amber-200">
-                    🚫 결제 제외 {apiPotentialFees.excludedUserCount}명 ({formatKRW(apiPotentialFees.lastClosedPotentialExcluded)}) — 받지 않음
-                  </p>
-                )}
+                <div className="mt-1 pt-1 border-t border-amber-200 space-y-0.5">
+                  {apiPotentialFees.paidUserCount > 0 && (
+                    <p className="text-[10px] text-green-700">
+                      ✅ 결제 완료 {apiPotentialFees.paidUserCount}명 ({formatKRW(apiPotentialFees.lastClosedPaid)}) — 받음
+                    </p>
+                  )}
+                  {apiPotentialFees.excludedUserCount > 0 && (
+                    <p className="text-[10px] text-slate-600">
+                      🚫 결제 제외 {apiPotentialFees.excludedUserCount}명 ({formatKRW(apiPotentialFees.lastClosedPotentialExcluded)}) — 받지 않음
+                    </p>
+                  )}
+                </div>
               </div>
               <div className="bg-white rounded p-3 border border-amber-300">
                 <p className="text-[11px] font-semibold text-amber-700 uppercase">전체 미청구 추정 합계 (마감월 누적)</p>
@@ -1571,6 +1616,61 @@ export default function AdminSalesOverviewPage() {
                 )}
               </div>
             </div>
+            {/* ✅ 결제 완료 PT생 — 영수증 표시 */}
+            {apiPotentialFees.paidDetails.length > 0 && (
+              <div className="mt-3 bg-green-50 border-2 border-green-300 rounded-lg p-3">
+                <p className="text-[11px] font-bold text-green-800 mb-2 flex items-center gap-1.5 flex-wrap">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>✅ {formatYearMonth(lastClosedMonth)} 결제 완료 PT생 ({apiPotentialFees.paidDetails.length}명) — 받은 돈</span>
+                  <span className="text-[11px] font-normal text-green-700">
+                    합계 <span className="font-bold">{formatKRW(apiPotentialFees.lastClosedPaid)}</span>
+                  </span>
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+                  {apiPotentialFees.paidDetails.map((d, i) => (
+                    <div
+                      key={i}
+                      className="rounded-lg border-2 border-green-300 bg-white p-2.5"
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[12px] font-bold text-gray-900 truncate">{d.name}</p>
+                          {d.email && <p className="text-[10px] text-gray-500 truncate">{d.email}</p>}
+                        </div>
+                        <span className="text-[10px] font-bold text-green-700 bg-green-100 px-1.5 py-0.5 rounded border border-green-300">
+                          ✅ 결제완료
+                        </span>
+                      </div>
+                      <div className="text-[11px] space-y-0.5 mb-2">
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">실결제액</span>
+                          <span className="font-bold text-green-700">{formatKRW(d.paidAmount)}</span>
+                        </div>
+                        {d.paidAt && (
+                          <div className="flex justify-between text-[10px] text-gray-500">
+                            <span>결제일</span>
+                            <span>{new Date(d.paidAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                        )}
+                      </div>
+                      {d.receiptUrl ? (
+                        <a
+                          href={d.receiptUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-full inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-bold bg-green-600 text-white rounded hover:bg-green-700"
+                        >
+                          📄 영수증 보기
+                        </a>
+                      ) : (
+                        <span className="block text-[10px] text-center text-gray-500 py-1">영수증 URL 없음</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* PT생별 결제 현황 카드 그리드 — 활성 사용자만 (제외자는 아래 별도 섹션) */}
             {apiPotentialFees.activeDetails.length > 0 && (
               <div className="mt-3">
