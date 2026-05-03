@@ -15,16 +15,18 @@ import { createNotification } from '@/lib/utils/notifications';
  *  2) 직전 달(KST yearMonth - 1) 의 monthly_reports row 가 이미 있으면 skip
  *  3) api_revenue_snapshots 에 그 달 데이터가 있으면 row 자동 생성:
  *     - reported_revenue = total_sales
- *     - costs = 기본 cost rate (사용자가 후속 수정 가능)
- *     - fee_payment_status = 'awaiting_review' (사용자 확정 전)
+ *     - costs = 기본 cost rate (광고비=0 가정 — PT생이 후속 수정 가능)
+ *     - fee_payment_status = 'awaiting_payment' (즉시 청구 대상)
  *     - fee_payment_deadline = 익월 3일
  *     - input_source = 'api_auto'
  *  4) 데이터 없으면 row 생성 안 함 + 별도 알림 (사용자 직접 보고 안내)
- *  5) 사용자에게 "검토 + 확정" 알림 발송
+ *  5) 사용자에게 "광고비 입력 기회" 알림 발송 (3일 청구 전까지)
  *
  * 안전:
  *  - monthly_reports (pt_user_id, year_month) UNIQUE 가 있어 중복 insert 시 skip
- *  - awaiting_review 상태는 auto-billing cron 청구 대상 아님 (사용자 확정 후에만 청구)
+ *  - 정책: 광고비는 API 에서 못 가져오므로 PT생 미입력 시 0 가정.
+ *    PT생이 손해 보더라도 우리는 청구를 진행해야 함 (확정 대기 중 영원히 청구 안 되는 버그 방지).
+ *    PT생이 매월 3일 03:00 청구 전에 광고비 입력하면 그 값으로 청구됨.
  */
 
 function previousYearMonth(now: Date): string {
@@ -127,7 +129,7 @@ export async function GET(request: NextRequest) {
       const depositAmount = calculateDeposit(revenue, costs, 30); // 기본 30%
       const vatCalc = calculateVatOnTop(depositAmount);
 
-      // monthly_reports row 자동 생성
+      // monthly_reports row 자동 생성 — 즉시 청구 가능 상태로
       const { error: insertErr } = await serviceClient
         .from('monthly_reports')
         .insert({
@@ -135,7 +137,10 @@ export async function GET(request: NextRequest) {
           year_month: targetMonth,
           reported_revenue: revenue,
           calculated_deposit: depositAmount,
-          payment_status: 'submitted',
+          // 핵심: 자동 생성 + 즉시 reviewed 처리 (PT생 확정 단계 제거)
+          payment_status: 'reviewed',
+          admin_deposit_amount: depositAmount,
+          reviewed_at: new Date().toISOString(),
           cost_product: costs.cost_product,
           cost_commission: costs.cost_commission,
           cost_advertising: costs.cost_advertising,
@@ -148,8 +153,9 @@ export async function GET(request: NextRequest) {
           vat_amount: vatCalc.vatAmount,
           total_with_vat: vatCalc.totalWithVat,
           input_source: 'api_auto',
-          // 핵심: 사용자 확정 전이라 청구 대상 아님
-          fee_payment_status: 'awaiting_review',
+          // 핵심: 즉시 청구 대상으로 — PT생이 광고비 수정하면 그 값으로 재계산되지만
+          // 미수정 시 광고비 0 가정으로 자동결제 진행 (확정 대기로 영원히 막히는 버그 차단)
+          fee_payment_status: 'awaiting_payment',
           fee_payment_deadline: feePaymentDeadlineISO(targetMonth),
           fee_surcharge_amount: 0,
           fee_interest_amount: 0,
@@ -168,12 +174,12 @@ export async function GET(request: NextRequest) {
 
       created++;
 
-      // 사용자에게 검토 알림
+      // PT생에게 "광고비 입력 기회" 알림 — 3일 청구 전까지 입력하면 수수료 줄어듦
       await createNotification(serviceClient, {
         userId: ptUser.profile_id,
         type: 'fee_payment',
-        title: `${targetMonth} 매출 보고서 자동 생성 — 검토 필요`,
-        message: `${targetMonth} 매출(${revenue.toLocaleString()}원) 기반 보고서가 자동 생성되었습니다. /my/report 에서 비용 항목을 검토하고 "확정" 버튼을 눌러주세요. 매월 3일까지 미확정 시 단계적 서비스 락이 시작됩니다.`,
+        title: `${targetMonth} 매출 보고서 자동 생성 완료 — 매월 3일 자동결제`,
+        message: `${targetMonth} 매출(${revenue.toLocaleString()}원) 기반 수수료가 매월 3일에 자동 결제됩니다. 광고비를 직접 입력하시면 수수료가 줄어드니, 청구일 전까지 /my/report 에서 광고비를 입력해주세요. (미입력 시 광고비 0 가정으로 자동 청구)`,
         link: '/my/report',
       });
     } catch (err) {

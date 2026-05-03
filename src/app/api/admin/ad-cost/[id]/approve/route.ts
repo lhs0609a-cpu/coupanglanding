@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 import { createNotification } from '@/lib/utils/notifications';
+import { calculateDeposit, getReportCosts } from '@/lib/calculations/deposit';
+import { calculateVatOnTop } from '@/lib/calculations/vat';
 
 /**
  * POST /api/admin/ad-cost/[id]/approve
@@ -52,12 +54,46 @@ export async function POST(
 
   if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
 
-  // monthly_reports 가 이미 있으면 cost_advertising 동기화
-  await serviceClient
+  // monthly_reports 가 이미 있으면 cost_advertising 반영 + 파생값(deposit/VAT/total) 재계산
+  // 단, 이미 paid 된 리포트는 회계 무결성을 위해 재계산하지 않는다.
+  const { data: existingReport } = await serviceClient
     .from('monthly_reports')
-    .update({ cost_advertising: sub.amount })
+    .select('*')
     .eq('pt_user_id', sub.pt_user_id)
-    .eq('year_month', sub.year_month);
+    .eq('year_month', sub.year_month)
+    .maybeSingle();
+
+  if (existingReport && existingReport.fee_payment_status !== 'paid' && existingReport.payment_status !== 'confirmed') {
+    // 광고비 적용한 새 비용 구조
+    const updatedCosts = {
+      ...getReportCosts(existingReport),
+      cost_advertising: sub.amount,
+    };
+    const revenue = Number(existingReport.reported_revenue) || 0;
+    const sharePercentage = 30; // 기본 — 추후 user.share_percentage 기반으로 개선 가능
+    const newDeposit = calculateDeposit(revenue, updatedCosts, sharePercentage);
+    const newVatCalc = calculateVatOnTop(newDeposit);
+
+    await serviceClient
+      .from('monthly_reports')
+      .update({
+        cost_advertising: sub.amount,
+        calculated_deposit: newDeposit,
+        admin_deposit_amount: newDeposit,
+        supply_amount: newVatCalc.supplyAmount,
+        vat_amount: newVatCalc.vatAmount,
+        total_with_vat: newVatCalc.totalWithVat,
+      })
+      .eq('pt_user_id', sub.pt_user_id)
+      .eq('year_month', sub.year_month);
+  } else if (existingReport) {
+    // paid 리포트: 광고비만 기록 (정산엔 영향 X — 다음 사이클에서 환급 처리 필요 시 별도 프로세스)
+    await serviceClient
+      .from('monthly_reports')
+      .update({ cost_advertising: sub.amount })
+      .eq('pt_user_id', sub.pt_user_id)
+      .eq('year_month', sub.year_month);
+  }
 
   // 사용자에게 알림 — pt_users.profile_id 필요
   const { data: pt } = await serviceClient

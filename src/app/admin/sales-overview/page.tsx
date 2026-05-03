@@ -218,6 +218,10 @@ export default function AdminSalesOverviewPage() {
     }
   }, []);
 
+  /** 즉시 청구 사이클 트리거 — 직전 마감월 보고서 자동 생성 + awaiting_payment 마킹 */
+  const [triggerLoading, setTriggerLoading] = useState(false);
+  const [triggerResult, setTriggerResult] = useState<string | null>(null);
+
   /** 결제 진단 — "왜 결제가 안 됐는지" 추적. 페이지 진입 시 자동 실행. */
   const [diagOpen, setDiagOpen] = useState(false);
   const [diagLoading, setDiagLoading] = useState(false);
@@ -337,6 +341,32 @@ export default function AdminSalesOverviewPage() {
       if (initial) setLoading(false);
     }
   }, [supabase]);
+
+  const handleTriggerBilling = useCallback(async (requireSignedContract: boolean) => {
+    const msg = requireSignedContract
+      ? '직전 마감월 보고서를 자동 생성하고 즉시 청구 가능 상태로 만듭니다.\n(signed 계약 PT생만 대상, 광고비=0 가정)\n\n진행할까요?'
+      : '⚠️ 모든 PT생(미서명자 포함)에 대해 직전 마감월 보고서를 자동 생성합니다.\n광고비=0 가정으로 즉시 청구 가능 상태가 됩니다.\n\n진행할까요?';
+    if (!confirm(msg)) return;
+    setTriggerLoading(true);
+    setTriggerResult(null);
+    try {
+      const res = await fetch('/api/admin/payments/trigger-billing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requireSignedContract }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '트리거 실패');
+      setTriggerResult(
+        `✅ ${data.targetMonth} 보고서 ${data.created}건 생성 (이미 존재 ${data.skippedExisting} · 매출 없음 ${data.skippedNoRevenue} · 에러 ${data.errored}). 다음 cron(매월 3일) 또는 즉시 결제 트리거에서 청구됩니다.`
+      );
+      await fetchData(false);
+    } catch (err) {
+      setTriggerResult(err instanceof Error ? `❌ ${err.message}` : '❌ 트리거 실패');
+    } finally {
+      setTriggerLoading(false);
+    }
+  }, [fetchData]);
 
   /** 백그라운드 자동 동기화 — 조용히 실행, 실패해도 UI 방해 없음 */
   const triggerAutoSync = useCallback(async () => {
@@ -1226,15 +1256,28 @@ export default function AdminSalesOverviewPage() {
                   📊 받아야 할 금액 (API 추정 · 리포트 미제출이라 미청구)
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleBulkReportRequest}
-                disabled={bulkRequestLoading}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-[#E31837] text-white rounded hover:bg-red-700 disabled:opacity-50"
-              >
-                {bulkRequestLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bell className="w-3 h-3" />}
-                미제출 PT생 전체 일괄 알림
-              </button>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => handleTriggerBilling(true)}
+                  disabled={triggerLoading}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-[#E31837] text-white rounded hover:bg-red-700 disabled:opacity-50"
+                  title="signed 계약 PT생의 직전 마감월 보고서를 즉시 자동 생성 + 청구 가능 상태로 마킹"
+                >
+                  {triggerLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
+                  지금 즉시 청구 사이클 실행
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBulkReportRequest}
+                  disabled={bulkRequestLoading}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50"
+                  title="PT생들에게 광고비+스샷 제출 안내 알림 발송"
+                >
+                  {bulkRequestLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bell className="w-3 h-3" />}
+                  광고비 제출 안내 일괄 발송
+                </button>
+              </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
               <div className="bg-white rounded p-3 border border-amber-300">
@@ -1271,6 +1314,16 @@ export default function AdminSalesOverviewPage() {
                 {bulkRequestResult}
               </div>
             )}
+            {triggerResult && (
+              <div className={`mt-3 p-2 rounded text-[12px] ${triggerResult.startsWith('✅') ? 'bg-green-100 text-green-900' : 'bg-red-100 text-red-900'}`}>
+                {triggerResult}
+              </div>
+            )}
+            <p className="mt-2 text-[11px] text-amber-800 leading-relaxed">
+              💡 <strong>정책</strong>: PT생은 매월 <strong>1일까지</strong> 광고비 + 스크린샷을 <code className="bg-amber-100 px-1">/my/ad-cost</code>에 제출해야 수수료가 차감됩니다.
+              매월 <strong>3일 KST 03:00</strong>에는 광고비 입력 여부와 무관하게 무조건 자동결제 실행.
+              미입력 시 광고비 0 가정으로 청구되어 PT생이 손해를 봅니다.
+            </p>
           </div>
         )}
 

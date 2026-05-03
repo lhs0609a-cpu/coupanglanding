@@ -658,23 +658,25 @@ export default function MyReportPage() {
         </div>
       )}
 
-      {/* 자동 생성된 보고서 검토/확정 배너 */}
+      {/* 자동 생성된 보고서 검토/확정 배너 (legacy — 신규 보고서는 awaiting_payment 로 직접 생성) */}
       {report && report.fee_payment_status === 'awaiting_review' && (
         <div className="rounded-lg p-4 bg-amber-50 border border-amber-200 space-y-3">
           <div>
             <p className="text-sm font-bold text-amber-900">
-              ⚠️ 자동 생성된 매출 보고서 — 검토 후 확정 필요
+              ⚠️ 매월 1일까지 광고비 입력 / 스크린샷 제출 — 매월 3일 자동결제
             </p>
             <p className="text-xs text-amber-800 mt-1">
-              쿠팡 API 매출({(report.reported_revenue ?? 0).toLocaleString()}원) 기반으로 자동 생성됐습니다.
-              비용 항목(광고비 등)을 수정하고 "확정" 버튼을 눌러야 결제 사이클에 포함됩니다.
-              매월 3일까지 미확정 시 단계적 서비스 락이 시작됩니다.
+              쿠팡 API 매출({(report.reported_revenue ?? 0).toLocaleString()}원) 기반으로 보고서가 자동 생성됐습니다.
+              <strong className="text-red-700"> 광고비를 입력하지 않으면 광고비 0 가정으로 자동결제되어 손해</strong>입니다.
+              <br />
+              매월 1일까지 <code className="bg-amber-100 px-1">/my/ad-cost</code>에서 광고비 + 결제 스크린샷을 제출해주세요.
+              매월 3일 KST 03:00에는 입력 여부와 무관하게 자동결제됩니다.
             </p>
           </div>
           <button
             type="button"
             onClick={async () => {
-              if (!confirm('이 보고서를 확정합니다. 확정 후엔 수수료 결제 대상이 됩니다.')) return;
+              if (!confirm('이 보고서를 확정합니다. 광고비를 이미 /my/ad-cost 에서 제출하셨다면 확정해도 좋습니다.')) return;
               const { data, error } = await supabase.rpc('monthly_report_user_confirm', {
                 p_report_id: report.id,
               });
@@ -686,7 +688,7 @@ export default function MyReportPage() {
                 setMessage({ type: 'error', text: ((data as { error?: string }).error) || '확정 실패' });
                 return;
               }
-              setMessage({ type: 'success', text: '보고서가 확정되었습니다. 수수료 결제일에 자동 청구됩니다.' });
+              setMessage({ type: 'success', text: '보고서가 확정되었습니다. 매월 3일 KST 03:00에 자동 청구됩니다.' });
               fetchData();
             }}
             className="w-full sm:w-auto px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 transition"
