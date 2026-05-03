@@ -15,8 +15,52 @@ import {
 } from '@/lib/utils/settlement';
 import { buildCostBreakdown } from '@/lib/calculations/deposit';
 import StatCard from '@/components/ui/StatCard';
-import { Table2, Search, Download, TrendingUp, Users as UsersIcon, CheckCircle2, Banknote, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, Zap } from 'lucide-react';
+import {
+  Table2, Search, Download, TrendingUp, Users as UsersIcon, CheckCircle2, Banknote,
+  ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, Zap,
+  CreditCard, AlertTriangle, Lock, XCircle, PlayCircle, Bell, Unlock, Loader2, ChevronDown, ChevronUp,
+} from 'lucide-react';
 import type { PtUser, MonthlyReport, Profile, ApiRevenueSnapshot } from '@/lib/supabase/types';
+
+/* ─── 결제 상태 패널 타입 — /api/admin/payments/overview 응답 형태와 1:1 매칭 ─── */
+type PaymentStatus = 'normal' | 'retrying' | 'final_failed' | 'locked' | 'no_card' | 'no_report';
+
+interface PaymentOverviewUser {
+  pt_user_id: string;
+  profile_id: string;
+  full_name: string | null;
+  email: string | null;
+  status: PaymentStatus;
+  payment_overdue_since: string | null;
+  payment_lock_level: number;
+  computed_lock_level: number;
+  admin_override_level: number | null;
+  retry_in_progress: boolean;
+  card: { id: string; company: string; number: string; is_primary: boolean; failed_count: number } | null;
+  this_month_report: { id: string; year_month: string; fee_payment_status: string; total_with_vat: number; deadline: string | null } | null;
+  unpaid_summary: { count: number; total: number; suspendedCount: number; overdueCount: number } | null;
+  latest_tx: {
+    id: string;
+    status: string;
+    retry_count: number;
+    next_retry_at: string | null;
+    is_final_failure: boolean;
+    failure_code: string | null;
+    failure_label: string;
+    total_amount: number;
+    created_at: string;
+  } | null;
+}
+
+interface PaymentOverviewSummary {
+  total: number;
+  normal: number;
+  retrying: number;
+  final_failed: number;
+  locked: number;
+  no_card: number;
+  no_report: number;
+}
 
 interface PtUserWithProfile extends PtUser {
   profile: Profile;
@@ -38,6 +82,10 @@ interface MonthCell {
   source: 'report' | 'api' | 'none';
   syncedAt?: string;
   syncError?: string | null;
+  /** PT생 → 우리 수수료 결제 상태 (report 가 있을 때만 의미 있음) */
+  feeStatus?: 'not_applicable' | 'awaiting_review' | 'awaiting_payment' | 'paid' | 'overdue' | 'suspended' | null;
+  /** 결제 완료 시각 */
+  feePaidAt?: string | null;
 }
 
 interface UserRow {
@@ -85,6 +133,88 @@ export default function AdminSalesOverviewPage() {
   const [todayPerUser, setTodayPerUser] = useState<Array<{ ptUserId: string; name: string; email: string; todaySales: number; orderCount?: number; error?: string }>>([]);
   const [todayLoading, setTodayLoading] = useState(false);
   const [todayFetchedAt, setTodayFetchedAt] = useState<Date | null>(null);
+
+  // 결제 상태 (카드 등록 / 락 / 재시도 등) — 별도 API 에서 한번에 조회
+  const [paymentUsers, setPaymentUsers] = useState<PaymentOverviewUser[]>([]);
+  const [paymentSummary, setPaymentSummary] = useState<PaymentOverviewSummary | null>(null);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentPanelOpen, setPaymentPanelOpen] = useState(true);
+  const [paymentFilter, setPaymentFilter] = useState<PaymentStatus | 'problem' | 'all'>('problem');
+  const [actingUserId, setActingUserId] = useState<string | null>(null);
+
+  const fetchPaymentOverview = useCallback(async () => {
+    setPaymentLoading(true);
+    setPaymentError(null);
+    try {
+      const res = await fetch('/api/admin/payments/overview');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '결제 상태 조회 실패');
+      setPaymentUsers(data.users || []);
+      setPaymentSummary(data.summary || null);
+    } catch (err) {
+      setPaymentError(err instanceof Error ? err.message : '결제 상태 조회 실패');
+    } finally {
+      setPaymentLoading(false);
+    }
+  }, []);
+
+  /** 카드 미등록 PT생에게 카드 등록 안내 알림 발송 */
+  const handleNotifyCardRequired = useCallback(async (ptUserId: string, name: string) => {
+    if (!confirm(`${name} 사용자에게 "결제 카드 등록 필요" 안내 알림을 보냅니다. 진행할까요?`)) return;
+    setActingUserId(ptUserId);
+    try {
+      const res = await fetch(`/api/admin/payments/${ptUserId}/notify-card-required`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '알림 발송 실패');
+      alert('✅ 알림 발송 완료');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '알림 발송 실패');
+    } finally {
+      setActingUserId(null);
+    }
+  }, []);
+
+  /** 결제 락 / overdue 해제 (관리자 수동) */
+  const handleResetLock = useCallback(async (ptUserId: string, name: string) => {
+    if (!confirm(`${name} 사용자의 결제 락을 즉시 해제합니다. (overdue/lock_level/admin_override 모두 초기화)\n\n진행할까요?`)) return;
+    setActingUserId(ptUserId);
+    try {
+      const res = await fetch(`/api/admin/payment-locks/${ptUserId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '락 해제 실패');
+      alert('✅ 결제 락 해제 완료');
+      await fetchPaymentOverview();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '락 해제 실패');
+    } finally {
+      setActingUserId(null);
+    }
+  }, [fetchPaymentOverview]);
+
+  /** 즉시 결제 재시도 */
+  const handleRetryNow = useCallback(async (txId: string, name: string) => {
+    if (!confirm(`${name} 사용자의 결제를 즉시 재시도합니다. 진행할까요?`)) return;
+    setActingUserId(txId);
+    try {
+      const res = await fetch(`/api/admin/payments/${txId}/retry-now`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '재시도 실패');
+      const r = data.result;
+      if (r?.succeeded) alert('✅ 결제 성공');
+      else if (r?.finalFailed) alert(`❌ 최종 실패: ${r.errorMessage || r.errorCode}`);
+      else alert(`재시도 실패 (${r?.errorMessage || r?.errorCode || '?'}). 24시간 후 자동 재시도됩니다.`);
+      await fetchPaymentOverview();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '재시도 실패');
+    } finally {
+      setActingUserId(null);
+    }
+  }, [fetchPaymentOverview]);
 
   const fetchTodayRevenue = useCallback(async () => {
     setTodayLoading(true);
@@ -179,6 +309,13 @@ export default function AdminSalesOverviewPage() {
     return () => clearInterval(id);
   }, [fetchTodayRevenue]);
 
+  // 결제 상태 — 최초 + 1분 주기 (카드 미등록/락/재시도 변동 추적)
+  useEffect(() => {
+    fetchPaymentOverview();
+    const id = setInterval(fetchPaymentOverview, 60 * 1000);
+    return () => clearInterval(id);
+  }, [fetchPaymentOverview]);
+
   /** 초기 로드 후: 스냅샷이 10분 이상 묵었으면 자동 동기화 */
   useEffect(() => {
     if (loading || users.length === 0) return;
@@ -250,6 +387,8 @@ export default function AdminSalesOverviewPage() {
             status: report.payment_status,
             isEligible: true,
             source: 'report',
+            feeStatus: report.fee_payment_status ?? null,
+            feePaidAt: report.fee_paid_at ?? null,
           });
         } else if (snap && (snap.total_sales > 0 || !snap.sync_error)) {
           // API 스냅샷: 매출 기반 기본 비용률(원가 40%·세금 10% 등) 적용한 잠정 정산
@@ -380,6 +519,38 @@ export default function AdminSalesOverviewPage() {
     return sorted;
   }, [rows, search, statusFilter, sortKey, sortDir]);
 
+  /** 직전 마감월 결제 결과 — "내일 결제됐는지" 한눈에 보기용 */
+  const billingResult = useMemo(() => {
+    const lastReports = reports.filter((r) => r.year_month === lastClosedMonth);
+    const buckets = { paid: 0, awaiting_payment: 0, overdue: 0, suspended: 0, awaiting_review: 0, not_applicable: 0 };
+    let paidAmount = 0;
+    let unpaidAmount = 0;
+    const paidUsers: string[] = [];
+    const unpaidUsers: { name: string; status: string; amount: number }[] = [];
+    for (const r of lastReports) {
+      const status = (r.fee_payment_status || 'not_applicable') as keyof typeof buckets;
+      if (status in buckets) buckets[status]++;
+      const amount = Number(r.total_with_vat) || 0;
+      const u = users.find((x) => x.id === r.pt_user_id);
+      const name = u?.profile?.full_name || u?.profile?.email || r.pt_user_id.slice(0, 8);
+      if (status === 'paid') {
+        paidAmount += amount;
+        paidUsers.push(name);
+      } else if (status === 'awaiting_payment' || status === 'overdue' || status === 'suspended') {
+        unpaidAmount += amount;
+        unpaidUsers.push({ name, status, amount });
+      }
+    }
+    return {
+      total: lastReports.length,
+      ...buckets,
+      paidAmount,
+      unpaidAmount,
+      paidUsers,
+      unpaidUsers,
+    };
+  }, [reports, users, lastClosedMonth]);
+
   /** 요약 통계 (당월 기준) */
   const summary = useMemo(() => {
     const eligible = rows.filter(r => isEligibleForMonth(r.user.created_at, currentMonth));
@@ -456,6 +627,22 @@ export default function AdminSalesOverviewPage() {
     const totalCumFee = Object.values(totals).reduce((s, t) => s + t.fee, 0);
     return { totals, totalCumRev, totalCumDep, totalCumFee };
   }, [filteredRows, months]);
+
+  /** pt_user_id → 결제 상태 빠른 조회 맵 */
+  const paymentByUser = useMemo(() => {
+    const map = new Map<string, PaymentOverviewUser>();
+    for (const p of paymentUsers) map.set(p.pt_user_id, p);
+    return map;
+  }, [paymentUsers]);
+
+  /** 패널에 표시할 PT생 목록 (필터 적용) */
+  const filteredPaymentRows = useMemo(() => {
+    if (paymentFilter === 'all') return paymentUsers;
+    if (paymentFilter === 'problem') {
+      return paymentUsers.filter((p) => p.status !== 'normal');
+    }
+    return paymentUsers.filter((p) => p.status === paymentFilter);
+  }, [paymentUsers, paymentFilter]);
 
   /** 정렬 토글 */
   const toggleSort = (key: SortKey) => {
@@ -558,6 +745,7 @@ export default function AdminSalesOverviewPage() {
         <span className="text-[11px] text-emerald-700 font-medium" title="우리 수수료 (VAT 포함)">
           +{formatKRW(m.fee)} 수수료
         </span>
+        <FeeStatusBadge feeStatus={m.feeStatus ?? null} feePaidAt={m.feePaidAt ?? null} />
         <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-medium ${statusColor}`}>
           {PAYMENT_STATUS_LABELS[m.status] || m.status}
         </span>
@@ -734,6 +922,351 @@ export default function AdminSalesOverviewPage() {
         />
       </div>
 
+      {/* 직전 마감월 자동결제 결과 — 누가 결제했고 누가 안 했는지 즉시 파악 */}
+      {billingResult.total > 0 && (
+        <div className="bg-white border-2 border-[#E31837]/30 rounded-xl overflow-hidden">
+          <div className="bg-gradient-to-r from-[#E31837]/10 to-amber-50 px-5 py-3 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Banknote className="w-5 h-5 text-[#E31837]" />
+              <h2 className="text-base font-bold text-gray-900">
+                {formatYearMonth(lastClosedMonth)} 자동결제 결과
+              </h2>
+              <span className="text-xs text-gray-500">(매월 3일 KST 03:00 자동 청구)</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => fetchData(false)}
+              disabled={loading}
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-gray-600 hover:text-gray-900"
+            >
+              <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+              새로고침
+            </button>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-0 divide-x divide-gray-200">
+            <div className="px-5 py-4 bg-green-50/50">
+              <p className="text-[11px] font-semibold text-green-700 uppercase">✅ 결제 완료</p>
+              <p className="text-2xl font-bold text-green-700 mt-1">
+                {billingResult.paid}<span className="text-sm font-medium text-green-600 ml-1">/ {billingResult.total}명</span>
+              </p>
+              <p className="text-[11px] text-green-700 mt-0.5">{formatKRW(billingResult.paidAmount)} 입금</p>
+            </div>
+            <div className="px-5 py-4 bg-amber-50/50">
+              <p className="text-[11px] font-semibold text-amber-700 uppercase">⏳ 결제 대기</p>
+              <p className="text-2xl font-bold text-amber-700 mt-1">
+                {billingResult.awaiting_payment}<span className="text-sm font-medium text-amber-600 ml-1">명</span>
+              </p>
+              <p className="text-[11px] text-amber-700 mt-0.5">아직 결제 시도 전</p>
+            </div>
+            <div className="px-5 py-4 bg-orange-50/50">
+              <p className="text-[11px] font-semibold text-orange-700 uppercase">⚠️ 미납 (재시도)</p>
+              <p className="text-2xl font-bold text-orange-700 mt-1">
+                {billingResult.overdue}<span className="text-sm font-medium text-orange-600 ml-1">명</span>
+              </p>
+              <p className="text-[11px] text-orange-700 mt-0.5">24h 후 자동 재시도</p>
+            </div>
+            <div className="px-5 py-4 bg-red-50/50">
+              <p className="text-[11px] font-semibold text-red-700 uppercase">🚫 최종실패/정지</p>
+              <p className="text-2xl font-bold text-red-700 mt-1">
+                {billingResult.suspended}<span className="text-sm font-medium text-red-600 ml-1">명</span>
+              </p>
+              <p className="text-[11px] text-red-700 mt-0.5">{formatKRW(billingResult.unpaidAmount)} 미수</p>
+            </div>
+          </div>
+          {billingResult.unpaidUsers.length > 0 && (
+            <div className="px-5 py-3 bg-gray-50 border-t border-gray-200">
+              <p className="text-[11px] font-semibold text-gray-700 mb-1.5">미납 PT생 ({billingResult.unpaidUsers.length}명):</p>
+              <div className="flex flex-wrap gap-1.5">
+                {billingResult.unpaidUsers.map((u, i) => (
+                  <span
+                    key={i}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border ${
+                      u.status === 'suspended'
+                        ? 'bg-red-50 text-red-700 border-red-200'
+                        : u.status === 'overdue'
+                          ? 'bg-orange-50 text-orange-700 border-orange-200'
+                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                    }`}
+                  >
+                    {u.name} <span className="text-[10px] opacity-70">{formatKRW(u.amount)}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {billingResult.total === billingResult.paid && billingResult.paid > 0 && (
+            <div className="px-5 py-2 bg-green-50 border-t border-green-200 text-[12px] text-green-800 font-medium">
+              🎉 전원 결제 완료 — 미납 0명
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 결제 상태 패널 — 카드 미등록 / 락 / 재시도 / 최종실패 한눈에 */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setPaymentPanelOpen((o) => !o)}
+          className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition"
+        >
+          <div className="flex items-center gap-3 flex-wrap">
+            <CreditCard className="w-5 h-5 text-blue-600" />
+            <h2 className="text-base font-bold text-gray-900">결제 상태 / 카드 등록 현황</h2>
+            {paymentSummary && (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {paymentSummary.no_card > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800">
+                    <CreditCard className="w-3 h-3" /> 카드 미등록 {paymentSummary.no_card}
+                  </span>
+                )}
+                {paymentSummary.locked > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-orange-100 text-orange-800">
+                    <Lock className="w-3 h-3" /> 락 {paymentSummary.locked}
+                  </span>
+                )}
+                {paymentSummary.final_failed > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-red-100 text-red-700">
+                    <XCircle className="w-3 h-3" /> 최종실패 {paymentSummary.final_failed}
+                  </span>
+                )}
+                {paymentSummary.retrying > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-700">
+                    <RefreshCw className="w-3 h-3" /> 재시도중 {paymentSummary.retrying}
+                  </span>
+                )}
+                {paymentSummary.no_card === 0 && paymentSummary.locked === 0 && paymentSummary.final_failed === 0 && paymentSummary.retrying === 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-green-100 text-green-700">
+                    <CheckCircle2 className="w-3 h-3" /> 모두 정상
+                  </span>
+                )}
+              </div>
+            )}
+            {paymentLoading && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">{paymentSummary?.total ?? 0}명 중 {paymentSummary ? paymentSummary.total - paymentSummary.normal : 0}명 조치 필요</span>
+            {paymentPanelOpen ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+          </div>
+        </button>
+
+        {paymentPanelOpen && (
+          <div className="border-t border-gray-200">
+            {paymentError && (
+              <div className="bg-red-50 border-b border-red-200 text-red-900 px-4 py-2 text-sm flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" />
+                {paymentError}
+                <button
+                  type="button"
+                  onClick={fetchPaymentOverview}
+                  className="ml-auto text-xs underline"
+                >
+                  다시 시도
+                </button>
+              </div>
+            )}
+
+            {/* 필터 칩 */}
+            <div className="px-4 py-2 border-b border-gray-100 flex items-center gap-1.5 flex-wrap text-xs">
+              {([
+                { key: 'problem', label: '조치 필요만', color: 'bg-[#E31837]/10 text-[#E31837] border-[#E31837]/30' },
+                { key: 'all', label: '전체', color: 'bg-gray-100 text-gray-700 border-gray-200' },
+                { key: 'no_card', label: `카드 미등록 (${paymentSummary?.no_card ?? 0})`, color: 'bg-amber-50 text-amber-800 border-amber-200' },
+                { key: 'locked', label: `락 (${paymentSummary?.locked ?? 0})`, color: 'bg-orange-50 text-orange-800 border-orange-200' },
+                { key: 'final_failed', label: `최종실패 (${paymentSummary?.final_failed ?? 0})`, color: 'bg-red-50 text-red-700 border-red-200' },
+                { key: 'retrying', label: `재시도중 (${paymentSummary?.retrying ?? 0})`, color: 'bg-blue-50 text-blue-700 border-blue-200' },
+                { key: 'no_report', label: `리포트 미제출 (${paymentSummary?.no_report ?? 0})`, color: 'bg-gray-50 text-gray-700 border-gray-200' },
+                { key: 'normal', label: `정상 (${paymentSummary?.normal ?? 0})`, color: 'bg-green-50 text-green-700 border-green-200' },
+              ] as const).map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  onClick={() => setPaymentFilter(chip.key)}
+                  className={`px-2.5 py-1 rounded-full border font-medium transition ${
+                    paymentFilter === chip.key ? `${chip.color} ring-2 ring-offset-1 ring-current/20` : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  {chip.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={fetchPaymentOverview}
+                disabled={paymentLoading}
+                className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700"
+              >
+                <RefreshCw className={`w-3 h-3 ${paymentLoading ? 'animate-spin' : ''}`} />
+                새로고침
+              </button>
+            </div>
+
+            {filteredPaymentRows.length === 0 ? (
+              <div className="px-5 py-8 text-center text-sm text-gray-500">
+                {paymentFilter === 'problem'
+                  ? '✅ 조치 필요 PT생이 없습니다 — 모두 정상'
+                  : '해당 상태의 PT생이 없습니다'}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[1100px]">
+                  <thead className="bg-gray-50 text-gray-600 text-[11px] uppercase">
+                    <tr>
+                      <th className="px-4 py-2.5 text-left font-semibold">사용자</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">상태 / 사유</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">카드</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">미납</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">최근 결제</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">락 / 연체</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">조치</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredPaymentRows.map((p) => {
+                      const name = p.full_name || p.email || p.pt_user_id.slice(0, 8);
+                      const acting = actingUserId === p.pt_user_id || actingUserId === p.latest_tx?.id;
+                      const canRetry = p.latest_tx && p.latest_tx.status === 'failed' && !p.latest_tx.is_final_failure;
+                      const lockActive = p.payment_lock_level > 0 || p.computed_lock_level > 0 || !!p.payment_overdue_since;
+
+                      return (
+                        <tr key={p.pt_user_id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 align-top">
+                            <p className="font-medium text-gray-900">{name}</p>
+                            <p className="text-[11px] text-gray-500 truncate max-w-[180px]">{p.email}</p>
+                          </td>
+                          <td className="px-3 py-3 align-top">
+                            <PaymentStatusBadge status={p.status} />
+                            {p.latest_tx?.failure_label && p.status !== 'normal' && (
+                              <p className="text-[11px] text-red-600 mt-1 max-w-[200px]">{p.latest_tx.failure_label}</p>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 align-top">
+                            {p.card ? (
+                              <div>
+                                <p className="text-xs text-gray-900">{p.card.company}</p>
+                                <p className="text-[11px] text-gray-500">{p.card.number}</p>
+                                {p.card.failed_count > 0 && (
+                                  <p className="text-[10px] text-red-600 mt-0.5">실패 {p.card.failed_count}회 누적</p>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-amber-700 text-xs font-semibold">
+                                <CreditCard className="w-3 h-3" />
+                                미등록
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 align-top">
+                            {p.unpaid_summary && p.unpaid_summary.count > 0 ? (
+                              <div>
+                                <p className="text-xs font-semibold text-orange-700">{p.unpaid_summary.count}건</p>
+                                <p className="text-[11px] text-gray-600">{formatKRW(p.unpaid_summary.total)}</p>
+                                {p.unpaid_summary.suspendedCount > 0 && (
+                                  <p className="text-[10px] text-red-600">정지 {p.unpaid_summary.suspendedCount}</p>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-gray-400 text-xs">없음</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 align-top">
+                            {p.latest_tx ? (
+                              <div>
+                                <p className="text-xs text-gray-900">
+                                  {p.latest_tx.status === 'success' && '✅ 성공'}
+                                  {p.latest_tx.status === 'failed' && (p.latest_tx.is_final_failure ? '❌ 최종실패' : '⚠️ 실패')}
+                                  {p.latest_tx.status === 'pending' && '⏳ 진행중'}
+                                  {p.latest_tx.retry_count > 0 && (
+                                    <span className="ml-1 text-blue-600">({p.latest_tx.retry_count}/3)</span>
+                                  )}
+                                </p>
+                                {p.latest_tx.next_retry_at && (
+                                  <p className="text-[10px] text-gray-500">
+                                    다음: {new Date(p.latest_tx.next_retry_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit' })}
+                                  </p>
+                                )}
+                                <p className="text-[10px] text-gray-400">
+                                  {new Date(p.latest_tx.created_at).toLocaleDateString('ko-KR')}
+                                </p>
+                              </div>
+                            ) : (
+                              <span className="text-gray-400 text-xs">없음</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 align-top">
+                            {lockActive ? (
+                              <div>
+                                <p className="text-xs font-semibold text-orange-700">
+                                  L{p.payment_lock_level}
+                                  {p.computed_lock_level !== p.payment_lock_level && (
+                                    <span className="ml-1 text-[10px] text-orange-500">(계산 L{p.computed_lock_level})</span>
+                                  )}
+                                </p>
+                                {p.payment_overdue_since && (
+                                  <p className="text-[10px] text-gray-500">
+                                    연체 {new Date(p.payment_overdue_since).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}~
+                                  </p>
+                                )}
+                                {p.admin_override_level !== null && (
+                                  <p className="text-[10px] text-purple-600">override L{p.admin_override_level}</p>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-green-600 text-xs">정상</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 text-right align-top">
+                            <div className="inline-flex flex-col gap-1 items-end">
+                              {p.status === 'no_card' && (
+                                <button
+                                  type="button"
+                                  disabled={acting}
+                                  onClick={() => handleNotifyCardRequired(p.pt_user_id, name)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50"
+                                  title="카드 등록 안내 알림 즉시 발송"
+                                >
+                                  {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bell className="w-3 h-3" />}
+                                  카드 안내
+                                </button>
+                              )}
+                              {canRetry && p.latest_tx && (
+                                <button
+                                  type="button"
+                                  disabled={acting}
+                                  onClick={() => handleRetryNow(p.latest_tx!.id, name)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                                  title="24시간 대기 없이 즉시 재시도"
+                                >
+                                  {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
+                                  즉시 재시도
+                                </button>
+                              )}
+                              {lockActive && (
+                                <button
+                                  type="button"
+                                  disabled={acting}
+                                  onClick={() => handleResetLock(p.pt_user_id, name)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50"
+                                  title="overdue / lock_level / admin_override 초기화"
+                                >
+                                  {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Unlock className="w-3 h-3" />}
+                                  락 해제
+                                </button>
+                              )}
+                              {p.status === 'normal' && !lockActive && !canRetry && (
+                                <span className="text-[10px] text-gray-400">조치 불필요</span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* 컨트롤 바 */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap items-center gap-3">
         {/* 검색 */}
@@ -835,14 +1368,37 @@ export default function AdminSalesOverviewPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map(row => (
+                {filteredRows.map(row => {
+                  const pay = paymentByUser.get(row.user.id) || null;
+                  const lockActiveInline = pay && (pay.payment_lock_level > 0 || pay.computed_lock_level > 0 || !!pay.payment_overdue_since);
+                  return (
                   <tr key={row.user.id} className="border-b border-gray-100 hover:bg-gray-50 transition">
                     <td className="sticky left-0 z-10 bg-white px-4 py-3 border-r border-gray-200" style={{ minWidth: 200 }}>
-                      <div className="font-medium text-gray-900 flex items-center gap-1">
+                      <div className="font-medium text-gray-900 flex items-center gap-1 flex-wrap">
                         {row.user.profile?.full_name || '-'}
                         {row.apiConnected && (
                           <span title={`API 연동 · ${row.latestSyncedAt ? '최근 동기화 ' + new Date(row.latestSyncedAt).toLocaleString('ko-KR') : '동기화 이력 없음'}`}>
                             <Zap className="w-3 h-3 text-blue-500" />
+                          </span>
+                        )}
+                        {pay && pay.status === 'no_card' && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800" title="결제 카드 미등록">
+                            <CreditCard className="w-2.5 h-2.5" /> 카드 ✗
+                          </span>
+                        )}
+                        {pay && lockActiveInline && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-orange-100 text-orange-800" title={`결제 락 L${pay.payment_lock_level}`}>
+                            <Lock className="w-2.5 h-2.5" /> L{pay.payment_lock_level}
+                          </span>
+                        )}
+                        {pay && pay.status === 'final_failed' && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-100 text-red-700" title="자동결제 최종 실패">
+                            <XCircle className="w-2.5 h-2.5" /> 실패
+                          </span>
+                        )}
+                        {pay && pay.status === 'retrying' && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-700" title="재시도 진행중">
+                            <RefreshCw className="w-2.5 h-2.5" /> 재시도
                           </span>
                         )}
                       </div>
@@ -864,7 +1420,8 @@ export default function AdminSalesOverviewPage() {
                       <div className="text-sm font-semibold text-[#E31837]">{formatKRW(row.totalDeposit)}</div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
               {/* 합계 행 */}
               <tfoot>
@@ -908,5 +1465,52 @@ export default function AdminSalesOverviewPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/* ─── 수수료 결제 배지 — 셀 안에서 한눈에 ─── */
+function FeeStatusBadge({
+  feeStatus,
+  feePaidAt,
+}: {
+  feeStatus: string | null;
+  feePaidAt: string | null;
+}) {
+  if (!feeStatus || feeStatus === 'not_applicable') return null;
+  const map: Record<string, { label: string; color: string }> = {
+    paid: { label: '✅ 결제완료', color: 'bg-green-100 text-green-800 border-green-300' },
+    awaiting_payment: { label: '⏳ 결제대기', color: 'bg-amber-100 text-amber-800 border-amber-300' },
+    awaiting_review: { label: '검토대기', color: 'bg-gray-100 text-gray-700 border-gray-300' },
+    overdue: { label: '⚠️ 미납', color: 'bg-orange-100 text-orange-800 border-orange-300' },
+    suspended: { label: '🚫 정지', color: 'bg-red-100 text-red-700 border-red-300' },
+  };
+  const meta = map[feeStatus] || { label: feeStatus, color: 'bg-gray-100 text-gray-700 border-gray-300' };
+  return (
+    <span
+      className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold border ${meta.color}`}
+      title={feePaidAt ? `결제 완료 ${new Date(feePaidAt).toLocaleString('ko-KR')}` : undefined}
+    >
+      {meta.label}
+    </span>
+  );
+}
+
+/* ─── 결제 상태 배지 ─── */
+function PaymentStatusBadge({ status }: { status: PaymentStatus }) {
+  const map: Record<PaymentStatus, { label: string; color: string; Icon: typeof CheckCircle2 }> = {
+    normal: { label: '정상', color: 'bg-green-100 text-green-700', Icon: CheckCircle2 },
+    retrying: { label: '재시도중', color: 'bg-blue-100 text-blue-700', Icon: RefreshCw },
+    final_failed: { label: '최종실패', color: 'bg-red-100 text-red-700', Icon: XCircle },
+    locked: { label: '락 걸림', color: 'bg-orange-100 text-orange-800', Icon: Lock },
+    no_card: { label: '카드 미등록', color: 'bg-amber-100 text-amber-800', Icon: CreditCard },
+    no_report: { label: '리포트 미제출', color: 'bg-gray-100 text-gray-700', Icon: AlertTriangle },
+  };
+  const meta = map[status];
+  const Icon = meta.Icon;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold ${meta.color}`}>
+      <Icon className="w-3 h-3" />
+      {meta.label}
+    </span>
   );
 }

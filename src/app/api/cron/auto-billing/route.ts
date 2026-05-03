@@ -79,6 +79,7 @@ export async function GET(request: NextRequest) {
         first_billing_grace_until,
         created_at,
         is_test_account,
+        payment_overdue_since,
         contracts!inner(status)
       `)
       .eq('contracts.status', 'signed')
@@ -155,13 +156,15 @@ function defaultGraceUntil(createdAt: string | null): string | null {
 
 async function processPtUser(
   serviceClient: ServiceClient,
-  ptUser: { id: string; profile_id: string },
+  ptUser: { id: string; profile_id: string; payment_overdue_since?: string | null },
   todayDateStr: string,
 ): Promise<{ processed: number; succeeded: number; failed: number; markedOverdue: boolean }> {
   let processed = 0;
   let succeeded = 0;
   let failed = 0;
   let markedOverdue = false;
+  // 처리 시작 시점에 락 상태였는지 — 성공 알림 문구를 "정상 이용 복구" 로 분기.
+  const wasOverdueAtStart = !!ptUser.payment_overdue_since;
 
   // 활성 + primary 카드 1장 조회
   const { data: card } = await serviceClient
@@ -227,8 +230,12 @@ async function processPtUser(
   // 이 실행에서 카드 failed_count 를 이미 증가시켰는지 추적 —
   // 한 유저에 미납 리포트가 여러 개일 때 카드 1장이 N회 누적되는 걸 막는다.
   const cardFailUpdated = new Set<string>();
+  // 마지막 미납 리포트의 결제 성공 시점에만 "복구" 문구를 띄우기 위해 인덱스 추적.
+  const totalReportsToProcess = unpaidReports.length;
+  let reportIdx = 0;
 
   for (const report of unpaidReports) {
+    reportIdx++;
     processed++;
 
     const baseAmount = report.total_with_vat || 0;
@@ -325,13 +332,37 @@ async function processPtUser(
         });
       }
 
-      await createNotification(serviceClient, {
-        userId: ptUser.profile_id,
-        type: 'fee_payment',
-        title: '자동결제 및 정산 완료',
-        message: `${report.year_month} 수수료 ${totalAmount.toLocaleString()}원이 자동 결제되었습니다. 정산이 자동 확정되었습니다.`,
-        link: '/my/report',
-      });
+      // 락 해제 분기: 처리 시작 시점에 락이었고, 이번이 마지막 미납 리포트 결제이며,
+      // 이 루프에서 실패가 한 번도 없었으면 → "서비스 정상 이용 가능" 명시 알림.
+      const isLastReport = reportIdx === totalReportsToProcess;
+      const willBeFullyCleared = wasOverdueAtStart && isLastReport && allSucceeded;
+
+      if (willBeFullyCleared) {
+        await createNotification(serviceClient, {
+          userId: ptUser.profile_id,
+          type: 'fee_payment',
+          title: '자동결제 완료 — 서비스 정상 이용 가능',
+          message: `${report.year_month} 수수료 ${totalAmount.toLocaleString()}원이 자동 결제되었습니다. 미납이 모두 해소되어 결제 락이 자동 해제되었으며, 이제 모든 서비스를 정상적으로 이용하실 수 있습니다.`,
+          link: '/my/report',
+        });
+      } else if (wasOverdueAtStart) {
+        // 락 사용자인데 미납이 더 남음 → 진행중 안내
+        await createNotification(serviceClient, {
+          userId: ptUser.profile_id,
+          type: 'fee_payment',
+          title: '자동결제 진행중 — 미납 정리중',
+          message: `${report.year_month} 수수료 ${totalAmount.toLocaleString()}원이 결제되었습니다. 남은 미납분도 순차 결제 중이며, 모두 정리되면 서비스 락이 자동 해제됩니다.`,
+          link: '/my/report',
+        });
+      } else {
+        await createNotification(serviceClient, {
+          userId: ptUser.profile_id,
+          type: 'fee_payment',
+          title: '자동결제 및 정산 완료',
+          message: `${report.year_month} 수수료 ${totalAmount.toLocaleString()}원이 자동 결제되었습니다. 정산이 자동 확정되었습니다.`,
+          link: '/my/report',
+        });
+      }
 
       succeeded++;
     } catch (payErr) {

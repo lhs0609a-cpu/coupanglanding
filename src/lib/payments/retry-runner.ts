@@ -276,18 +276,29 @@ export async function retryTransaction(
     }
 
     // 락/재시도 플래그 — "이 유저의 다른 미결 결제가 없을 때만" 해제 (RPC 로 조건부)
-    await serviceClient.rpc('payment_clear_overdue_if_settled', {
+    // 반환값(bool) 으로 "이번에 락이 풀렸는지" 판정 → 알림 문구 분기.
+    const { data: lockClearedNow } = await serviceClient.rpc('payment_clear_overdue_if_settled', {
       p_pt_user_id: ptUserId,
     });
 
     if (report.profile_id) {
-      await createNotification(serviceClient, {
-        userId: report.profile_id,
-        type: 'fee_payment',
-        title: '자동 재시도 결제 성공',
-        message: `${report.year_month} 수수료 ${failedTx.total_amount.toLocaleString()}원이 ${newRetryCount}차 재시도에서 결제되었습니다. 정산이 자동 확정되었습니다.`,
-        link: '/my/report',
-      });
+      if (lockClearedNow) {
+        await createNotification(serviceClient, {
+          userId: report.profile_id,
+          type: 'fee_payment',
+          title: '재시도 결제 완료 — 서비스 정상 이용 가능',
+          message: `${report.year_month} 수수료 ${failedTx.total_amount.toLocaleString()}원이 ${newRetryCount}차 재시도에서 결제되었습니다. 미납이 모두 해소되어 결제 락이 자동 해제되었으며, 이제 모든 서비스를 정상적으로 이용하실 수 있습니다.`,
+          link: '/my/report',
+        });
+      } else {
+        await createNotification(serviceClient, {
+          userId: report.profile_id,
+          type: 'fee_payment',
+          title: '자동 재시도 결제 성공',
+          message: `${report.year_month} 수수료 ${failedTx.total_amount.toLocaleString()}원이 ${newRetryCount}차 재시도에서 결제되었습니다. 정산이 자동 확정되었습니다.`,
+          link: '/my/report',
+        });
+      }
     }
 
     return { txId: newTx.id, succeeded: true, finalFailed: false };
