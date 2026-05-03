@@ -416,6 +416,38 @@ export default function AdminSalesOverviewPage() {
     }
   }, [supabase]);
 
+  /** 지금 즉시 실제 결제 실행 — Toss 빌링키로 awaiting_payment 모두 결제 */
+  const [executeLoading, setExecuteLoading] = useState(false);
+  const [executeResult, setExecuteResult] = useState<string | null>(null);
+  const handleExecuteBillingNow = useCallback(async () => {
+    if (!confirm(
+      '⚠️ 지금 즉시 실제 결제를 실행합니다.\n\n' +
+      '대상: fee_payment_status="awaiting_payment/overdue/suspended" 인 모든 리포트\n' +
+      'Toss 빌링키로 카드 결제가 즉시 시도됩니다.\n\n' +
+      '중복 결제 방지: paid 리포트는 자동 제외, UNIQUE 제약 + 멱등 RPC + 락으로 다층 차단.\n\n' +
+      '진행할까요?'
+    )) return;
+    setExecuteLoading(true);
+    setExecuteResult(null);
+    try {
+      const res = await fetch('/api/admin/payments/execute-billing-now', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '결제 실행 실패');
+      const failureSummary = data.failures && data.failures.length > 0
+        ? ` 실패 사유: ${data.failures.slice(0, 3).map((f: { reason: string }) => f.reason).join(', ')}`
+        : '';
+      setExecuteResult(
+        `✅ 결제 시도 ${data.processed}건 — 성공 ${data.succeeded} · 실패 ${data.failed} · 카드없음 ${data.skippedNoCard} · 결제제외 ${data.skippedExcluded}.${failureSummary}`
+      );
+      await fetchData(false);
+      await fetchPaymentOverview();
+    } catch (err) {
+      setExecuteResult(err instanceof Error ? `❌ ${err.message}` : '❌ 결제 실행 실패');
+    } finally {
+      setExecuteLoading(false);
+    }
+  }, [fetchData, fetchPaymentOverview]);
+
   const handleTriggerBilling = useCallback(async (requireSignedContract: boolean) => {
     const msg = requireSignedContract
       ? '직전 마감월 보고서를 자동 생성하고 즉시 청구 가능 상태로 만듭니다.\n(signed 계약 PT생만 대상, 광고비=0 가정)\n\n진행할까요?'
@@ -1361,13 +1393,23 @@ export default function AdminSalesOverviewPage() {
               <div className="flex items-center gap-1.5 flex-wrap">
                 <button
                   type="button"
+                  onClick={handleExecuteBillingNow}
+                  disabled={executeLoading}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-red-700 text-white rounded hover:bg-red-800 disabled:opacity-50 ring-2 ring-red-300"
+                  title="Toss 빌링키로 즉시 실제 결제 시도 (awaiting_payment/overdue/suspended 전체)"
+                >
+                  {executeLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Banknote className="w-3 h-3" />}
+                  ⚡ 지금 즉시 결제 실행
+                </button>
+                <button
+                  type="button"
                   onClick={() => handleTriggerBilling(true)}
                   disabled={triggerLoading}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-[#E31837] text-white rounded hover:bg-red-700 disabled:opacity-50"
-                  title="signed 계약 PT생의 직전 마감월 보고서를 즉시 자동 생성 + 청구 가능 상태로 마킹"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-[#E31837] text-white rounded hover:bg-red-700 disabled:opacity-50"
+                  title="결제는 안 함 — 보고서만 자동 생성하고 청구 가능 상태로 마킹"
                 >
                   {triggerLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
-                  지금 즉시 청구 사이클 실행
+                  보고서만 자동 생성
                 </button>
                 <button
                   type="button"
@@ -1419,6 +1461,11 @@ export default function AdminSalesOverviewPage() {
             {triggerResult && (
               <div className={`mt-3 p-2 rounded text-[12px] ${triggerResult.startsWith('✅') ? 'bg-green-100 text-green-900' : 'bg-red-100 text-red-900'}`}>
                 {triggerResult}
+              </div>
+            )}
+            {executeResult && (
+              <div className={`mt-3 p-2 rounded text-[12px] font-medium ${executeResult.startsWith('✅') ? 'bg-green-100 text-green-900 border border-green-300' : 'bg-red-100 text-red-900 border border-red-300'}`}>
+                {executeResult}
               </div>
             )}
             <p className="mt-2 text-[11px] text-amber-800 leading-relaxed">
