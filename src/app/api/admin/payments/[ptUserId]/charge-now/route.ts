@@ -231,20 +231,48 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ p
       const orderId = generateOrderId(report.year_month, ptUserId);
       const orderName = `메가로드 수수료 ${report.year_month} (관리자 단건 실행)`;
 
-      // stale pending tx 정리 — 1시간 이상 응답 없는 pending tx 는 failed 로 마킹
-      // (hang 또는 timeout 으로 남은 stale tx 가 UNIQUE pending per report 제약 차단하는 것 방지)
-      await serviceClient
+      // stale pending tx 정리 — Toss 응답은 5초 내 도착. 1분 이상 = stale.
+      // 관리자 강제 결제 시 즉시 새 시도 가능하게.
+      const { data: stalePending } = await serviceClient
         .from('payment_transactions')
         .update({
           status: 'failed',
           failure_code: 'STALE_PENDING',
-          failure_message: '응답 없는 pending tx 자동 정리 (강제 결제 진행 위해)',
+          failure_message: '응답 없는 pending tx 자동 정리 (관리자 강제 결제)',
           failed_at: new Date().toISOString(),
           is_final_failure: false,
         })
         .eq('monthly_report_id', report.id)
         .eq('status', 'pending')
-        .lt('created_at', new Date(Date.now() - 60 * 60 * 1000).toISOString());
+        .lt('created_at', new Date(Date.now() - 60 * 1000).toISOString())
+        .select('id');
+
+      // 1분 미만 pending tx 가 남아있으면 차단 — 사용자에게 명확한 메시지.
+      // (UNIQUE pending per report 제약 위반 회피)
+      const { data: freshPending } = await serviceClient
+        .from('payment_transactions')
+        .select('id, created_at')
+        .eq('monthly_report_id', report.id)
+        .eq('status', 'pending')
+        .limit(1);
+
+      if (freshPending && freshPending.length > 0) {
+        const tx = freshPending[0] as { id: string; created_at: string };
+        const ageSec = Math.round((Date.now() - new Date(tx.created_at).getTime()) / 1000);
+        results.push({
+          yearMonth: report.year_month,
+          succeeded: false,
+          amount: totalAmount,
+          errorCode: 'PENDING_IN_PROGRESS',
+          errorMessage: `이미 진행 중인 결제 시도 있음 (${ageSec}초 전 시작). 1분 후 다시 시도하세요.`,
+        });
+        continue;
+      }
+
+      // 정리한 stale pending tx 카운트 로깅
+      if (stalePending && stalePending.length > 0) {
+        console.log(`[charge-now] ${ptUserId} ${report.year_month} stale pending ${stalePending.length}건 정리`);
+      }
 
       // 결제 직전 fresh check — 중복 청구 절대 방지
       const { data: checkData, error: checkErr } = await serviceClient
