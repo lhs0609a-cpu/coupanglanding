@@ -62,6 +62,30 @@ interface PaymentOverviewSummary {
   no_report: number;
 }
 
+/* ─── 진단 응답 타입 ─── */
+interface DiagnosticsData {
+  summary: {
+    currentMonth: string;
+    lastClosedMonth: string;
+    totalPtUsers: number;
+    signedPtUsers: number;
+    testAccounts: number;
+    usersWithCard: number;
+    lastReportCount: number;
+    lastReportTotal: number;
+    eligibleForBilling: number;
+    lastSnapshotCount: number;
+    todayAutoTxCount: number;
+  };
+  reasons: string[];
+  contractStatusDist: Record<string, number>;
+  reportFeeStatusDist: Record<string, number>;
+  reportPaymentStatusDist: Record<string, number>;
+  cronLocks: Array<{ lock_key: string; acquired_at: string; acquired_by: string | null }>;
+  todayAutoTxs: Array<{ status: string; failure_code: string | null; created_at: string }>;
+  recentErrors: Array<{ stage: string; error_code: string | null; error_message: string | null; created_at: string }>;
+}
+
 interface PtUserWithProfile extends PtUser {
   profile: Profile;
 }
@@ -175,13 +199,14 @@ export default function AdminSalesOverviewPage() {
     }
   }, []);
 
-  /** 결제 진단 — "왜 결제가 안 됐는지" 추적 */
+  /** 결제 진단 — "왜 결제가 안 됐는지" 추적. 페이지 진입 시 자동 실행. */
   const [diagOpen, setDiagOpen] = useState(false);
   const [diagLoading, setDiagLoading] = useState(false);
-  const [diagData, setDiagData] = useState<unknown>(null);
+  const [diagData, setDiagData] = useState<DiagnosticsData | null>(null);
   const [diagError, setDiagError] = useState<string | null>(null);
 
-  const runDiagnostics = useCallback(async () => {
+  /** withModal=true 면 진단 후 모달 자동 오픈, false 면 인라인 배너만 갱신 */
+  const runDiagnostics = useCallback(async (withModal = false) => {
     setDiagLoading(true);
     setDiagError(null);
     try {
@@ -189,14 +214,21 @@ export default function AdminSalesOverviewPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '진단 실패');
       setDiagData(data);
-      setDiagOpen(true);
+      if (withModal) setDiagOpen(true);
     } catch (err) {
       setDiagError(err instanceof Error ? err.message : '진단 실패');
-      setDiagOpen(true);
+      if (withModal) setDiagOpen(true);
     } finally {
       setDiagLoading(false);
     }
   }, []);
+
+  // 페이지 진입 시 자동 진단 (5분 주기 갱신)
+  useEffect(() => {
+    runDiagnostics(false);
+    const id = setInterval(() => runDiagnostics(false), 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [runDiagnostics]);
 
   /** 결제 락 / overdue 해제 (관리자 수동) */
   const handleResetLock = useCallback(async (ptUserId: string, name: string) => {
@@ -945,6 +977,121 @@ export default function AdminSalesOverviewPage() {
         </div>
       )}
 
+      {/* 자동 결제 진단 — 페이지 진입 시 자동 실행. 차단 사유가 있으면 빨간 배너로 강조. */}
+      {diagData && (() => {
+        const s = diagData.summary;
+        const hasBlocker = s.signedPtUsers === 0 || s.lastReportCount === 0 || s.eligibleForBilling === 0 || s.usersWithCard === 0;
+        const reviewStuck = (diagData.reportFeeStatusDist.awaiting_review || 0);
+        return (
+          <div className={`rounded-xl border-2 overflow-hidden ${hasBlocker ? 'border-red-400 bg-red-50' : 'border-green-400 bg-green-50'}`}>
+            <div className={`px-5 py-3 flex items-center justify-between flex-wrap gap-2 ${hasBlocker ? 'bg-red-100' : 'bg-green-100'}`}>
+              <div className="flex items-center gap-2">
+                <Stethoscope className={`w-5 h-5 ${hasBlocker ? 'text-red-700' : 'text-green-700'}`} />
+                <h2 className={`text-base font-bold ${hasBlocker ? 'text-red-900' : 'text-green-900'}`}>
+                  {hasBlocker ? '🚨 자동결제 차단 사유 감지' : '✅ 자동결제 정상 작동 중'}
+                </h2>
+                <span className="text-xs text-gray-600">5분마다 자동 진단</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => runDiagnostics(true)}
+                className="text-xs font-medium text-gray-700 hover:underline inline-flex items-center gap-1"
+              >
+                <Stethoscope className="w-3 h-3" /> 상세 리포트 열기
+              </button>
+            </div>
+
+            <div className={`px-5 py-3 grid grid-cols-2 md:grid-cols-5 gap-3 text-sm ${hasBlocker ? '' : ''}`}>
+              <DiagInline
+                label="signed 계약 PT생"
+                value={`${s.signedPtUsers}/${s.totalPtUsers}명`}
+                bad={s.signedPtUsers === 0}
+                hint={s.signedPtUsers === 0 ? '계약 서명 0명 — cron이 모두 skip' : undefined}
+              />
+              <DiagInline
+                label="활성 카드 보유"
+                value={`${s.usersWithCard}명`}
+                bad={s.usersWithCard === 0}
+                hint={s.usersWithCard === 0 ? '결제 수단 0' : undefined}
+              />
+              <DiagInline
+                label={`${s.lastClosedMonth} 보고서`}
+                value={`${s.lastReportCount}건`}
+                bad={s.lastReportCount === 0}
+                warn={reviewStuck > 0}
+                hint={s.lastReportCount === 0 ? '자동 생성 cron 미실행 또는 대상 없음' : reviewStuck > 0 ? `${reviewStuck}건 검토대기 (PT생 확정 필요)` : undefined}
+              />
+              <DiagInline
+                label="청구 가능 보고서"
+                value={`${s.eligibleForBilling}건`}
+                bad={s.eligibleForBilling === 0}
+                hint={s.eligibleForBilling === 0 ? 'awaiting_payment 0건 = 결제 대상 없음' : undefined}
+              />
+              <DiagInline
+                label="오늘 자동결제 시도"
+                value={`${s.todayAutoTxCount}건`}
+                bad={s.todayAutoTxCount === 0 && s.eligibleForBilling > 0}
+                hint={s.todayAutoTxCount === 0 && s.eligibleForBilling > 0 ? 'cron 미실행 의심 (CRON_SECRET 확인)' : undefined}
+              />
+            </div>
+
+            {/* 차단 사유 텍스트 */}
+            {diagData.reasons.length > 0 && (
+              <div className="px-5 py-3 border-t border-gray-200 space-y-1.5 bg-white">
+                {diagData.reasons.map((r, i) => (
+                  <p
+                    key={i}
+                    className={`text-sm leading-snug ${
+                      r.startsWith('🚨') ? 'text-red-800 font-semibold' :
+                      r.startsWith('⚠️') ? 'text-amber-800' :
+                      'text-green-700'
+                    }`}
+                  >
+                    {r}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {/* 즉시 해결 가이드 */}
+            {hasBlocker && (
+              <div className="px-5 py-3 bg-white border-t border-gray-200">
+                <p className="text-[12px] font-bold text-gray-700 mb-1.5">💡 다음 조치를 해주세요:</p>
+                <ul className="text-[12px] text-gray-700 space-y-1 list-disc pl-5">
+                  {s.signedPtUsers === 0 && (
+                    <li>
+                      <a href="/admin/contracts" className="text-blue-600 underline">/admin/contracts</a>에서 PT생 계약을 'signed' 상태로 처리
+                    </li>
+                  )}
+                  {s.lastReportCount === 0 && s.signedPtUsers > 0 && (
+                    <li>
+                      매월 1일 KST 03:00에 자동 생성되는 보고서가 누락됨 — Vercel 대시보드에서 <code className="bg-gray-100 px-1">/api/cron/monthly-report-auto-create</code> 실행 로그 확인. CRON_SECRET 환경변수가 설정되어 있어야 함
+                    </li>
+                  )}
+                  {reviewStuck > 0 && (
+                    <li>
+                      {reviewStuck}건이 PT생 확정 대기 중 — PT생에게 <code className="bg-gray-100 px-1">/my/report</code> 페이지에서 "확정" 버튼 클릭하라고 안내
+                    </li>
+                  )}
+                  {s.usersWithCard === 0 && s.signedPtUsers > 0 && (
+                    <li>
+                      PT생들에게 <code className="bg-gray-100 px-1">/my/settings</code>에서 결제 카드 등록 안내 (위 결제 상태 패널의 "카드 안내" 버튼 사용)
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {diagError && !diagData && (
+        <div className="bg-red-50 border border-red-200 text-red-900 px-4 py-2 rounded-lg text-sm flex items-center justify-between">
+          <span>⚠️ 진단 API 호출 실패: {diagError}</span>
+          <button type="button" onClick={() => runDiagnostics(true)} className="text-xs underline">다시 시도</button>
+        </div>
+      )}
+
       {/* 누적 수금 현황 — 우리가 지금까지 얼마 받았는지 한눈에 */}
       <div className="bg-gradient-to-r from-emerald-50 via-white to-amber-50 border-2 border-emerald-300 rounded-xl overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2 bg-white/60">
@@ -1019,7 +1166,7 @@ export default function AdminSalesOverviewPage() {
             <span>📝 아직 청구된 수수료가 없습니다 — PT생이 매출 리포트를 제출하고 관리자가 확인하면 청구액이 잡힙니다.</span>
             <button
               type="button"
-              onClick={runDiagnostics}
+              onClick={() => runDiagnostics(true)}
               disabled={diagLoading}
               className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50"
             >
@@ -1032,7 +1179,7 @@ export default function AdminSalesOverviewPage() {
           <div className="px-5 py-2 border-t border-gray-200 bg-gray-50 text-[11px] flex justify-end">
             <button
               type="button"
-              onClick={runDiagnostics}
+              onClick={() => runDiagnostics(true)}
               disabled={diagLoading}
               className="inline-flex items-center gap-1 px-2 py-1 text-gray-600 hover:text-gray-900"
             >
@@ -1049,8 +1196,8 @@ export default function AdminSalesOverviewPage() {
           data={diagData}
           error={diagError}
           loading={diagLoading}
-          onClose={() => { setDiagOpen(false); setDiagData(null); setDiagError(null); }}
-          onRetry={runDiagnostics}
+          onClose={() => setDiagOpen(false)}
+          onRetry={() => runDiagnostics(true)}
         />
       )}
 
@@ -1703,29 +1850,6 @@ export default function AdminSalesOverviewPage() {
 }
 
 /* ─── 결제 진단 모달 ─── */
-interface DiagnosticsData {
-  summary: {
-    currentMonth: string;
-    lastClosedMonth: string;
-    totalPtUsers: number;
-    signedPtUsers: number;
-    testAccounts: number;
-    usersWithCard: number;
-    lastReportCount: number;
-    lastReportTotal: number;
-    eligibleForBilling: number;
-    lastSnapshotCount: number;
-    todayAutoTxCount: number;
-  };
-  reasons: string[];
-  contractStatusDist: Record<string, number>;
-  reportFeeStatusDist: Record<string, number>;
-  reportPaymentStatusDist: Record<string, number>;
-  cronLocks: Array<{ lock_key: string; acquired_at: string; acquired_by: string | null }>;
-  todayAutoTxs: Array<{ status: string; failure_code: string | null; created_at: string }>;
-  recentErrors: Array<{ stage: string; error_code: string | null; error_message: string | null; created_at: string }>;
-}
-
 function PaymentDiagnosticsModal({
   data,
   error,
@@ -1733,13 +1857,13 @@ function PaymentDiagnosticsModal({
   onClose,
   onRetry,
 }: {
-  data: unknown;
+  data: DiagnosticsData | null;
   error: string | null;
   loading: boolean;
   onClose: () => void;
   onRetry: () => void;
 }) {
-  const d = data as DiagnosticsData | null;
+  const d = data;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 overflow-y-auto">
@@ -1904,6 +2028,30 @@ function PaymentDiagnosticsModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function DiagInline({
+  label,
+  value,
+  bad,
+  warn,
+  hint,
+}: {
+  label: string;
+  value: string;
+  bad?: boolean;
+  warn?: boolean;
+  hint?: string;
+}) {
+  const tone = bad ? 'border-red-400 bg-red-50' : warn ? 'border-amber-400 bg-amber-50' : 'border-gray-200 bg-white';
+  const valueColor = bad ? 'text-red-700' : warn ? 'text-amber-700' : 'text-gray-900';
+  return (
+    <div className={`px-3 py-2 rounded border ${tone}`}>
+      <p className="text-[10px] font-semibold text-gray-600 uppercase">{label}</p>
+      <p className={`text-base font-bold mt-0.5 ${valueColor}`}>{value}</p>
+      {hint && <p className="text-[10px] text-gray-700 mt-0.5">{hint}</p>}
     </div>
   );
 }
