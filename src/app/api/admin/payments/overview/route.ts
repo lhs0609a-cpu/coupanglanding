@@ -127,19 +127,24 @@ export async function GET() {
       unpaidSummaryByUser.set(r.pt_user_id, prev);
     });
 
-    // 최근 transaction (유저당 1건)
+    // 최근 transaction (유저당 1건) — 영수증 / paymentKey 포함
     const { data: txs, error: txErr } = await serviceClient
       .from('payment_transactions')
-      .select('id, pt_user_id, monthly_report_id, status, retry_count, next_retry_at, is_final_failure, final_failed_at, failure_code, failure_message, total_amount, created_at, parent_transaction_id')
+      .select('id, pt_user_id, monthly_report_id, status, retry_count, next_retry_at, is_final_failure, final_failed_at, failure_code, failure_message, total_amount, created_at, parent_transaction_id, toss_payment_key, receipt_url, approved_at')
       .in('pt_user_id', ptUserIds)
       .order('created_at', { ascending: false });
 
     if (txErr) throw txErr;
 
     const latestTxByUser = new Map<string, NonNullable<typeof txs>[number]>();
+    // 마지막 성공 결제(영수증 표시용) — 별도 추적
+    const lastSuccessTxByUser = new Map<string, NonNullable<typeof txs>[number]>();
     (txs || []).forEach((t) => {
       if (!latestTxByUser.has(t.pt_user_id)) {
         latestTxByUser.set(t.pt_user_id, t);
+      }
+      if (t.status === 'success' && !lastSuccessTxByUser.has(t.pt_user_id)) {
+        lastSuccessTxByUser.set(t.pt_user_id, t);
       }
     });
 
@@ -147,6 +152,7 @@ export async function GET() {
       const card = cardByUser.get(u.id) ?? null;
       const report = reportByUser.get(u.id) ?? null;
       const latestTx = latestTxByUser.get(u.id) ?? null;
+      const lastSuccessTx = lastSuccessTxByUser.get(u.id) ?? null;
       const unpaid = unpaidSummaryByUser.get(u.id) ?? null;
       const contractStatus = contractByUser.get(u.id) ?? null;
       const hasSignedContract = contractStatus === 'signed';
@@ -224,6 +230,15 @@ export async function GET() {
               failure_label: failureLabel(latestTx.failure_code, latestTx.failure_message),
               total_amount: latestTx.total_amount,
               created_at: latestTx.created_at,
+            }
+          : null,
+        last_success_tx: lastSuccessTx
+          ? {
+              id: lastSuccessTx.id,
+              total_amount: lastSuccessTx.total_amount,
+              receipt_url: (lastSuccessTx as { receipt_url?: string | null }).receipt_url ?? null,
+              toss_payment_key: (lastSuccessTx as { toss_payment_key?: string | null }).toss_payment_key ?? null,
+              approved_at: (lastSuccessTx as { approved_at?: string | null }).approved_at ?? null,
             }
           : null,
       };

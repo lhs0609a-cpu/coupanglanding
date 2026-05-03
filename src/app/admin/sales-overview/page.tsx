@@ -53,6 +53,13 @@ interface PaymentOverviewUser {
     total_amount: number;
     created_at: string;
   } | null;
+  last_success_tx: {
+    id: string;
+    total_amount: number;
+    receipt_url: string | null;
+    toss_payment_key: string | null;
+    approved_at: string | null;
+  } | null;
 }
 
 interface PaymentOverviewSummary {
@@ -445,6 +452,41 @@ export default function AdminSalesOverviewPage() {
       setExecuteResult(err instanceof Error ? `❌ ${err.message}` : '❌ 결제 실행 실패');
     } finally {
       setExecuteLoading(false);
+    }
+  }, [fetchData, fetchPaymentOverview]);
+
+  /** 단일 PT생 즉시 결제 — 카드 클릭으로 그 사람만 */
+  const handleChargeUser = useCallback(async (ptUserId: string, name: string, estimatedFee: number) => {
+    if (!confirm(
+      `⚡ ${name} 사용자의 직전 마감월 수수료를 즉시 결제합니다.\n` +
+      `예상 청구액: ₩${estimatedFee.toLocaleString()} (광고비 0 가정 추정)\n\n` +
+      `Toss 빌링키로 즉시 카드 결제가 시도됩니다.\n` +
+      `이미 결제 완료된 리포트는 자동 제외됩니다 (중복 결제 방지).\n\n` +
+      `진행할까요?`
+    )) return;
+    setActingUserId(ptUserId);
+    try {
+      const res = await fetch(`/api/admin/payments/${ptUserId}/charge-now`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`❌ 결제 실패\n사유: ${data.error || '알 수 없음'}${data.code ? ` (코드: ${data.code})` : ''}`);
+        return;
+      }
+      const lines: string[] = [];
+      for (const r of data.results || []) {
+        if (r.succeeded) {
+          lines.push(`✅ ${r.yearMonth}: ₩${r.amount.toLocaleString()} 결제 완료${r.receiptUrl ? ' (영수증 발급됨)' : ''}`);
+        } else {
+          lines.push(`❌ ${r.yearMonth}: 실패 - ${r.errorMessage || r.errorCode || ''}`);
+        }
+      }
+      alert(`${name} 결제 결과:\n\n${lines.join('\n')}\n\n성공 ${data.succeededCount}건 · 실패 ${data.failedCount}건`);
+      await fetchData(false);
+      await fetchPaymentOverview();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '결제 실패');
+    } finally {
+      setActingUserId(null);
     }
   }, [fetchData, fetchPaymentOverview]);
 
@@ -1442,46 +1484,152 @@ export default function AdminSalesOverviewPage() {
                 <p className="text-[11px] text-amber-700 mt-0.5">PT생들이 리포트 제출하면 실제로 청구됨</p>
               </div>
             </div>
+            {/* PT생별 결제 현황 카드 그리드 — 누가 결제됐고 안됐는지 한눈에 + 개별 액션 */}
             {apiPotentialFees.lastClosedDetails.length > 0 && (
               <div className="mt-3">
-                <p className="text-[11px] font-semibold text-amber-800 mb-1.5 flex items-center gap-1.5">
-                  <span>{formatYearMonth(lastClosedMonth)} 미청구 PT생 (큰 금액 순)</span>
+                <p className="text-[11px] font-semibold text-amber-800 mb-2 flex items-center gap-1.5 flex-wrap">
+                  <span>{formatYearMonth(lastClosedMonth)} PT생별 결제 현황 (큰 금액 순)</span>
                   <span className="text-[10px] font-normal text-amber-700">
-                    💡 클릭 = 결제 사이클에서 제외 (그 PT생은 결제 없이 프로그램 이용 가능)
+                    💳 결제 / 🚫 결제 제외 / ✅ 영수증 — 카드별로 액션 가능
                   </span>
                 </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {apiPotentialFees.lastClosedDetails.slice(0, 14).map((d, i) => {
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+                  {apiPotentialFees.lastClosedDetails.map((d, i) => {
                     const acting = actingUserId === d.ptUserId;
+                    const pay = paymentByUser.get(d.ptUserId);
+                    const successTx = pay?.last_success_tx ?? null;
+                    const isPaid = !!successTx;
+                    const isFailed = pay?.latest_tx?.status === 'failed' && !isPaid;
+
+                    let cardStyle = 'bg-white border-amber-300';
+                    let stateBadge: React.ReactNode = (
+                      <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">⏳ 미결제</span>
+                    );
+
                     if (d.isExcluded) {
-                      return (
-                        <button
-                          key={i}
-                          type="button"
-                          disabled={acting}
-                          onClick={() => handleClearBillingExclusion(d.ptUserId, d.name)}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-300 hover:bg-slate-200 hover:border-slate-400 disabled:opacity-50 transition cursor-pointer line-through"
-                          title={`결제 제외 중 (${d.excludedUntil ?? '?'}까지) — 클릭하면 즉시 결제 사이클 재포함`}
-                        >
-                          {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Unlock className="w-3 h-3" />}
-                          {d.name}
-                          <span className="text-[10px] opacity-70">제외중 ~{d.excludedUntil?.slice(5) ?? ''}</span>
-                        </button>
+                      cardStyle = 'bg-slate-50 border-slate-300';
+                      stateBadge = (
+                        <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-300">
+                          🚫 결제 제외 ~{d.excludedUntil?.slice(5) ?? ''}
+                        </span>
+                      );
+                    } else if (isPaid) {
+                      cardStyle = 'bg-green-50 border-green-300';
+                      stateBadge = (
+                        <span className="text-[10px] font-bold text-green-700 bg-green-100 px-1.5 py-0.5 rounded border border-green-300">✅ 결제완료</span>
+                      );
+                    } else if (isFailed) {
+                      cardStyle = 'bg-red-50 border-red-300';
+                      stateBadge = (
+                        <span className="text-[10px] font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded border border-red-300" title={pay?.latest_tx?.failure_label}>
+                          ❌ 결제실패
+                        </span>
                       );
                     }
+
                     return (
-                      <button
+                      <div
                         key={i}
-                        type="button"
-                        disabled={acting}
-                        onClick={() => handleSetBillingExclusion(d.ptUserId, d.name)}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-white text-amber-800 border border-amber-300 hover:bg-amber-50 hover:border-amber-500 hover:shadow-sm disabled:opacity-50 transition cursor-pointer"
-                        title="클릭하면 이 PT생을 결제 사이클에서 제외 (결제 없이 프로그램 이용 가능)"
+                        className={`rounded-lg border-2 p-2.5 ${cardStyle} transition`}
                       >
-                        {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                        {d.name} <span className="font-bold">{formatKRW(d.fee)}</span>
-                        <span className="text-[10px] opacity-70">(매출 {formatKRW(d.revenue)})</span>
-                      </button>
+                        {/* 헤더: 이름 + 상태 배지 */}
+                        <div className="flex items-start justify-between gap-2 mb-1.5">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[12px] font-bold text-gray-900 truncate">{d.name}</p>
+                            {d.email && <p className="text-[10px] text-gray-500 truncate">{d.email}</p>}
+                          </div>
+                          {stateBadge}
+                        </div>
+
+                        {/* 금액 정보 */}
+                        <div className="text-[11px] space-y-0.5 mb-2">
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">4월 매출</span>
+                            <span className="text-gray-900 font-medium">{formatKRW(d.revenue)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">예상 청구액</span>
+                            <span className="font-bold text-amber-700">{formatKRW(d.fee)}</span>
+                          </div>
+                          {isPaid && successTx && (
+                            <div className="flex justify-between text-green-700">
+                              <span>실결제액</span>
+                              <span className="font-bold">{formatKRW(successTx.total_amount)}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 액션 영역 */}
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {/* 결제완료: 영수증 링크 */}
+                          {isPaid && successTx?.receipt_url && (
+                            <a
+                              href={successTx.receipt_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium bg-green-600 text-white rounded hover:bg-green-700"
+                            >
+                              📄 영수증
+                            </a>
+                          )}
+                          {isPaid && !successTx?.receipt_url && (
+                            <span className="text-[10px] text-green-700">영수증 발급 안 됨</span>
+                          )}
+
+                          {/* 미결제 / 실패: 결제 버튼 */}
+                          {!d.isExcluded && !isPaid && (
+                            <button
+                              type="button"
+                              disabled={acting}
+                              onClick={() => handleChargeUser(d.ptUserId, d.name, d.fee)}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                              title="이 PT생만 즉시 카드 결제"
+                            >
+                              {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Banknote className="w-3 h-3" />}
+                              ⚡ 결제
+                            </button>
+                          )}
+
+                          {/* 결제 제외 토글 */}
+                          {d.isExcluded ? (
+                            <button
+                              type="button"
+                              disabled={acting}
+                              onClick={() => handleClearBillingExclusion(d.ptUserId, d.name)}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+                              title="결제 사이클에 다시 포함"
+                            >
+                              {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
+                              재포함
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={acting}
+                              onClick={() => handleSetBillingExclusion(d.ptUserId, d.name)}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium bg-slate-500 text-white rounded hover:bg-slate-600 disabled:opacity-50"
+                              title="결제 없이 프로그램 이용 가능 (지정 종료일까지)"
+                            >
+                              {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Unlock className="w-3 h-3" />}
+                              제외
+                            </button>
+                          )}
+                        </div>
+
+                        {/* 실패 사유 표시 */}
+                        {isFailed && pay?.latest_tx?.failure_label && (
+                          <p className="mt-1.5 text-[10px] text-red-700 break-words">
+                            ⚠ {pay.latest_tx.failure_label}
+                          </p>
+                        )}
+
+                        {/* 제외 사유 */}
+                        {d.isExcluded && pay?.billing_exclusion_reason && (
+                          <p className="mt-1.5 text-[10px] text-slate-600 italic break-words">
+                            사유: {pay.billing_exclusion_reason}
+                          </p>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
