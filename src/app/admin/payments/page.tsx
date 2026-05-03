@@ -124,6 +124,33 @@ export default function AdminPaymentsPage() {
     }
   };
 
+  /** 강제 결제 — 최종실패 / 진행중 / 대기 상관없이 PT생 단위로 시도 */
+  const handleForceCharge = async (ptUserId: string, name: string) => {
+    if (!confirm(`${name} 사용자에게 강제로 결제를 시도합니다.\n(최종실패 상태라도 카드 결제 재시도 가능)\n\n진행할까요?`)) return;
+    setActingId(ptUserId);
+    try {
+      const res = await fetch(`/api/admin/payments/${ptUserId}/charge-now`, { method: 'POST' });
+      const text = await res.text();
+      let data: { error?: string; succeededCount?: number; failedCount?: number; results?: Array<{ yearMonth: string; succeeded: boolean; amount: number; receiptUrl?: string | null; errorMessage?: string; errorCode?: string }> } = {};
+      try { data = JSON.parse(text); } catch { /* fallthrough */ }
+      if (!res.ok) {
+        alert(`❌ HTTP ${res.status}\n${data.error || text.slice(0, 200)}`);
+        return;
+      }
+      const lines = (data.results || []).map((r) =>
+        r.succeeded
+          ? `✅ ${r.yearMonth}: ₩${r.amount.toLocaleString()} 결제 완료${r.receiptUrl ? ' (영수증 발급)' : ''}`
+          : `❌ ${r.yearMonth}: ${r.errorMessage || r.errorCode || '실패'}`
+      );
+      alert(`${name} 결제 결과:\n\n${lines.join('\n') || '시도 0건'}\n\n성공 ${data.succeededCount ?? 0}건 · 실패 ${data.failedCount ?? 0}건`);
+      await fetchData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '결제 실패');
+    } finally {
+      setActingId(null);
+    }
+  };
+
   const filteredRows = useMemo(() => {
     if (filter === 'all') return rows;
     return rows.filter((r) => r.status === filter);
@@ -289,21 +316,35 @@ export default function AdminPaymentsPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {canRetryNow && r.latest_tx && (
-                        <button
-                          type="button"
-                          onClick={() => handleRetryNow(r.latest_tx!.id, name)}
-                          disabled={actingId === r.latest_tx.id}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                        >
-                          {actingId === r.latest_tx.id ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <PlayCircle className="w-3 h-3" />
-                          )}
-                          즉시 재시도
-                        </button>
-                      )}
+                      <div className="inline-flex flex-col gap-1 items-end">
+                        {/* 강제 결제 — 카드 있고 결제 제외 아닐 때 항상 표시 */}
+                        {r.card && r.status !== 'no_card' && (
+                          <button
+                            type="button"
+                            onClick={() => handleForceCharge(r.pt_user_id, name)}
+                            disabled={actingId === r.pt_user_id}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-white rounded disabled:opacity-50 ${
+                              r.status === 'final_failed' ? 'bg-red-700 hover:bg-red-800 ring-2 ring-red-300' : 'bg-red-600 hover:bg-red-700'
+                            }`}
+                            title={r.status === 'final_failed' ? '최종실패 상태에서도 강제 결제 시도' : '즉시 카드 결제'}
+                          >
+                            {actingId === r.pt_user_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
+                            ⚡ {r.status === 'final_failed' ? '강제 재결제' : '결제'}
+                          </button>
+                        )}
+                        {canRetryNow && r.latest_tx && (
+                          <button
+                            type="button"
+                            onClick={() => handleRetryNow(r.latest_tx!.id, name)}
+                            disabled={actingId === r.latest_tx.id}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                            title="기존 tx 기반 재시도 (재시도 가능 코드 한정)"
+                          >
+                            {actingId === r.latest_tx.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
+                            즉시 재시도
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );

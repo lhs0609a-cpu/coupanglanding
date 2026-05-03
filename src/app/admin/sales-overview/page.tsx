@@ -2849,6 +2849,21 @@ export default function AdminSalesOverviewPage() {
                                   ~{new Date(p.billing_excluded_until).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}까지 제외
                                 </p>
                               )}
+                              {/* 강제 결제 — 카드 있고 제외 아닐 때 항상 표시 (최종실패라도 강제 시도) */}
+                              {p.card && p.status !== 'excluded' && (
+                                <button
+                                  type="button"
+                                  disabled={acting}
+                                  onClick={() => handleChargeUser(p.pt_user_id, name, p.this_month_report?.total_with_vat ?? p.unpaid_summary?.total ?? 0)}
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-white rounded disabled:opacity-50 ${
+                                    p.status === 'final_failed' ? 'bg-red-700 hover:bg-red-800 ring-2 ring-red-300' : 'bg-red-600 hover:bg-red-700'
+                                  }`}
+                                  title={p.status === 'final_failed' ? '최종실패 상태에서도 강제로 다시 결제 시도' : '즉시 카드 결제 시도'}
+                                >
+                                  {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Banknote className="w-3 h-3" />}
+                                  ⚡ {p.status === 'final_failed' ? '강제 재결제' : '결제'}
+                                </button>
+                              )}
                               {p.status === 'no_card' && (
                                 <button
                                   type="button"
@@ -2867,7 +2882,7 @@ export default function AdminSalesOverviewPage() {
                                   disabled={acting}
                                   onClick={() => handleRetryNow(p.latest_tx!.id, name)}
                                   className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                                  title="24시간 대기 없이 즉시 재시도"
+                                  title="24시간 대기 없이 즉시 재시도 (재시도 가능 코드 한정)"
                                 >
                                   {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
                                   즉시 재시도

@@ -231,6 +231,21 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ p
       const orderId = generateOrderId(report.year_month, ptUserId);
       const orderName = `메가로드 수수료 ${report.year_month} (관리자 단건 실행)`;
 
+      // stale pending tx 정리 — 1시간 이상 응답 없는 pending tx 는 failed 로 마킹
+      // (hang 또는 timeout 으로 남은 stale tx 가 UNIQUE pending per report 제약 차단하는 것 방지)
+      await serviceClient
+        .from('payment_transactions')
+        .update({
+          status: 'failed',
+          failure_code: 'STALE_PENDING',
+          failure_message: '응답 없는 pending tx 자동 정리 (강제 결제 진행 위해)',
+          failed_at: new Date().toISOString(),
+          is_final_failure: false,
+        })
+        .eq('monthly_report_id', report.id)
+        .eq('status', 'pending')
+        .lt('created_at', new Date(Date.now() - 60 * 60 * 1000).toISOString());
+
       // 결제 직전 fresh check — 중복 청구 절대 방지
       const { data: checkData, error: checkErr } = await serviceClient
         .rpc('safe_check_report_for_billing', { p_report_id: report.id });

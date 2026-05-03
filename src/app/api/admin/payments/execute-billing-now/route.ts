@@ -309,6 +309,20 @@ export async function POST() {
 
         processed++;
 
+        // stale pending tx 정리 — UNIQUE pending per report 제약 회피
+        await serviceClient
+          .from('payment_transactions')
+          .update({
+            status: 'failed',
+            failure_code: 'STALE_PENDING',
+            failure_message: '응답 없는 pending tx 자동 정리',
+            failed_at: new Date().toISOString(),
+            is_final_failure: false,
+          })
+          .eq('monthly_report_id', report.id)
+          .eq('status', 'pending')
+          .lt('created_at', new Date(Date.now() - 60 * 60 * 1000).toISOString());
+
         // 결제 직전 fresh check — query 와 결제 시도 사이의 race 제거.
         // 'paid' 가 됐거나 success tx 가 이미 있으면 절대 재청구 안 함.
         const { data: checkData, error: checkErr } = await serviceClient
