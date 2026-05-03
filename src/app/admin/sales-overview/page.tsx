@@ -816,44 +816,67 @@ export default function AdminSalesOverviewPage() {
     return map;
   }, [paymentUsers]);
 
-  /** API 잠정 수수료 합계 — "리포트 없이도 받아야 할 추정 금액" */
+  /** API 잠정 수수료 합계 — "리포트 없이도 받아야 할 추정 금액"
+   *  결제 제외(billing_excluded) 사용자는 합산에서 제외하고 별도 그룹으로 분리. */
   const apiPotentialFees = useMemo(() => {
-    // currentMonth 제외한 마감월에서 source='api' (리포트 없음) 인 셀의 fee 합산.
-    // monthly_reports 가 생성 안 된 PT생/월의 잠재 청구액을 보여준다.
-    let totalPotential = 0;
-    let lastClosedPotential = 0;
-    let lastClosedUserCount = 0;
-    const lastClosedDetails: Array<{ ptUserId: string; name: string; email: string; fee: number; revenue: number; isExcluded: boolean; excludedUntil: string | null }> = [];
+    type Detail = { ptUserId: string; name: string; email: string; fee: number; revenue: number; isExcluded: boolean; excludedUntil: string | null };
+    let totalPotentialActive = 0;
+    let totalPotentialExcluded = 0;
+    let lastClosedPotentialActive = 0;
+    let lastClosedPotentialExcluded = 0;
+    const activeDetails: Detail[] = [];
+    const excludedDetails: Detail[] = [];
 
     for (const row of rows) {
+      const pay = paymentByUser.get(row.user.id);
+      const isExcluded = pay?.status === 'excluded';
+
       for (const ym of months) {
         if (ym === currentMonth) continue;
         const m = row.monthly.get(ym);
         if (!m || m.source !== 'api') continue;
         if (m.fee <= 0) continue;
-        totalPotential += m.fee;
+
+        if (isExcluded) totalPotentialExcluded += m.fee;
+        else totalPotentialActive += m.fee;
+
         if (ym === lastClosedMonth) {
-          lastClosedPotential += m.fee;
-          lastClosedUserCount++;
-          const pay = paymentByUser.get(row.user.id);
-          lastClosedDetails.push({
+          const detail: Detail = {
             ptUserId: row.user.id,
             name: row.user.profile?.full_name || row.user.profile?.email || row.user.id.slice(0, 8),
             email: row.user.profile?.email || '',
             fee: m.fee,
             revenue: m.revenue,
-            isExcluded: pay?.status === 'excluded',
+            isExcluded,
             excludedUntil: pay?.billing_excluded_until ?? null,
-          });
+          };
+          if (isExcluded) {
+            lastClosedPotentialExcluded += m.fee;
+            excludedDetails.push(detail);
+          } else {
+            lastClosedPotentialActive += m.fee;
+            activeDetails.push(detail);
+          }
         }
       }
     }
-    lastClosedDetails.sort((a, b) => b.fee - a.fee);
+    activeDetails.sort((a, b) => b.fee - a.fee);
+    excludedDetails.sort((a, b) => b.fee - a.fee);
+
     return {
-      totalPotential,
-      lastClosedPotential,
-      lastClosedUserCount,
-      lastClosedDetails,
+      // 받아야 할 실제 금액 (제외자 제외)
+      totalPotential: totalPotentialActive,
+      lastClosedPotential: lastClosedPotentialActive,
+      lastClosedUserCount: activeDetails.length,
+      // 분리 합산
+      totalPotentialExcluded,
+      lastClosedPotentialExcluded,
+      excludedUserCount: excludedDetails.length,
+      // 카드 그리드용 분리 목록
+      activeDetails,
+      excludedDetails,
+      // 호환성 — 기존 lastClosedDetails 는 active 만
+      lastClosedDetails: activeDetails,
     };
   }, [rows, months, currentMonth, lastClosedMonth, paymentByUser]);
 
@@ -1515,24 +1538,34 @@ export default function AdminSalesOverviewPage() {
                 <p className="text-[11px] text-amber-700 mt-0.5">
                   {apiPotentialFees.lastClosedUserCount}명이 리포트 미제출 — 청구 진행 안 됨
                 </p>
+                {apiPotentialFees.excludedUserCount > 0 && (
+                  <p className="text-[10px] text-slate-600 mt-1 pt-1 border-t border-amber-200">
+                    🚫 결제 제외 {apiPotentialFees.excludedUserCount}명 ({formatKRW(apiPotentialFees.lastClosedPotentialExcluded)}) — 받지 않음
+                  </p>
+                )}
               </div>
               <div className="bg-white rounded p-3 border border-amber-300">
                 <p className="text-[11px] font-semibold text-amber-700 uppercase">전체 미청구 추정 합계 (마감월 누적)</p>
                 <p className="text-2xl font-bold text-amber-900 mt-1">{formatKRW(apiPotentialFees.totalPotential)}</p>
                 <p className="text-[11px] text-amber-700 mt-0.5">PT생들이 리포트 제출하면 실제로 청구됨</p>
+                {apiPotentialFees.totalPotentialExcluded > 0 && (
+                  <p className="text-[10px] text-slate-600 mt-1 pt-1 border-t border-amber-200">
+                    🚫 제외 합계 ({formatKRW(apiPotentialFees.totalPotentialExcluded)}) 별도
+                  </p>
+                )}
               </div>
             </div>
-            {/* PT생별 결제 현황 카드 그리드 — 누가 결제됐고 안됐는지 한눈에 + 개별 액션 */}
-            {apiPotentialFees.lastClosedDetails.length > 0 && (
+            {/* PT생별 결제 현황 카드 그리드 — 활성 사용자만 (제외자는 아래 별도 섹션) */}
+            {apiPotentialFees.activeDetails.length > 0 && (
               <div className="mt-3">
                 <p className="text-[11px] font-semibold text-amber-800 mb-2 flex items-center gap-1.5 flex-wrap">
-                  <span>{formatYearMonth(lastClosedMonth)} PT생별 결제 현황 (큰 금액 순)</span>
+                  <span>{formatYearMonth(lastClosedMonth)} 활성 PT생 결제 현황 ({apiPotentialFees.activeDetails.length}명, 큰 금액 순)</span>
                   <span className="text-[10px] font-normal text-amber-700">
                     💳 결제 / 🚫 결제 제외 / ✅ 영수증 — 카드별로 액션 가능
                   </span>
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
-                  {apiPotentialFees.lastClosedDetails.map((d, i) => {
+                  {apiPotentialFees.activeDetails.map((d, i) => {
                     const acting = actingUserId === d.ptUserId;
                     const pay = paymentByUser.get(d.ptUserId);
                     const successTx = pay?.last_success_tx ?? null;
@@ -1673,6 +1706,67 @@ export default function AdminSalesOverviewPage() {
                 </div>
               </div>
             )}
+
+            {/* 결제 제외 PT생 별도 섹션 — 회색 배경으로 시각적 분리 */}
+            {apiPotentialFees.excludedDetails.length > 0 && (
+              <div className="mt-3 bg-slate-100 border border-slate-300 rounded-lg p-3">
+                <p className="text-[11px] font-bold text-slate-700 mb-2 flex items-center gap-1.5 flex-wrap">
+                  <Unlock className="w-3.5 h-3.5" />
+                  <span>🚫 결제 제외 PT생 ({apiPotentialFees.excludedDetails.length}명) — 받지 않는 금액</span>
+                  <span className="text-[10px] font-normal text-slate-600">
+                    합계 {formatKRW(apiPotentialFees.lastClosedPotentialExcluded)} · 클릭 = 결제 사이클 재포함
+                  </span>
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+                  {apiPotentialFees.excludedDetails.map((d, i) => {
+                    const acting = actingUserId === d.ptUserId;
+                    const pay = paymentByUser.get(d.ptUserId);
+                    return (
+                      <div
+                        key={i}
+                        className="rounded-lg border-2 border-slate-300 bg-slate-50 p-2.5"
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-1.5">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[12px] font-bold text-slate-700 line-through truncate">{d.name}</p>
+                            {d.email && <p className="text-[10px] text-slate-500 truncate">{d.email}</p>}
+                          </div>
+                          <span className="text-[10px] font-bold text-slate-700 bg-slate-200 px-1.5 py-0.5 rounded border border-slate-400">
+                            🚫 제외 ~{d.excludedUntil?.slice(5) ?? '?'}
+                          </span>
+                        </div>
+                        <div className="text-[11px] space-y-0.5 mb-2 opacity-70">
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">4월 매출</span>
+                            <span className="text-slate-700 line-through">{formatKRW(d.revenue)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">청구 안 함</span>
+                            <span className="text-slate-700 line-through">{formatKRW(d.fee)}</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={acting}
+                          onClick={() => handleClearBillingExclusion(d.ptUserId, d.name)}
+                          className="w-full inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-bold bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+                          title="결제 사이클에 다시 포함 — 다음 청구일부터 자동결제됨"
+                        >
+                          {acting ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
+                          결제 사이클 재포함
+                        </button>
+                        {pay?.billing_exclusion_reason && (
+                          <p className="mt-1.5 text-[10px] text-slate-600 italic break-words">
+                            사유: {pay.billing_exclusion_reason}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {bulkRequestResult && (
               <div className={`mt-3 p-2 rounded text-[12px] ${bulkRequestResult.startsWith('✅') ? 'bg-green-100 text-green-900' : 'bg-red-100 text-red-900'}`}>
                 {bulkRequestResult}
