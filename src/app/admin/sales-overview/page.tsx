@@ -288,28 +288,64 @@ export default function AdminSalesOverviewPage() {
 
   /** 결제 제외 모달 상태 */
   const [exclusionModal, setExclusionModal] = useState<{ ptUserId: string; name: string } | null>(null);
+  const [exclusionError, setExclusionError] = useState<string | null>(null);
+  const [exclusionSuccess, setExclusionSuccess] = useState<string | null>(null);
 
   /** 결제 사이클 제외 설정 — 모달 오픈 트리거 */
   const handleSetBillingExclusion = useCallback((ptUserId: string, name: string) => {
+    setExclusionError(null);
+    setExclusionSuccess(null);
     setExclusionModal({ ptUserId, name });
   }, []);
 
-  /** 모달에서 확정 시 실제 API 호출 */
+  /** 모달에서 확정 시 실제 API 호출 — 30초 timeout + 에러 모달 내 표시 */
   const submitBillingExclusion = useCallback(async (ptUserId: string, name: string, dateStr: string, reason: string) => {
     setActingUserId(ptUserId);
+    setExclusionError(null);
+    setExclusionSuccess(null);
+
+    // 30초 timeout (RLS/trigger hang / quota 초과 등 silent fail 방지)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
     try {
       const res = await fetch(`/api/admin/payments/${ptUserId}/billing-exemption`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'set', excludedUntil: dateStr, reason: reason || undefined }),
+        signal: controller.signal,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '제외 설정 실패');
-      alert(`✅ ${name} 사용자가 ${dateStr}까지 결제 사이클에서 제외되었습니다.`);
-      setExclusionModal(null);
+      clearTimeout(timeoutId);
+
+      const text = await res.text();
+      let data: { error?: string; success?: boolean } = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // JSON 파싱 실패 = HTML 에러 페이지 등 (Vercel 401, 502 등)
+        throw new Error(`서버 응답 파싱 실패 (HTTP ${res.status}): ${text.slice(0, 200)}`);
+      }
+
+      if (!res.ok) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+
+      setExclusionSuccess(`✅ ${name} — ${dateStr}까지 결제 사이클에서 제외 완료`);
+      // 성공 시 1.5초 후 모달 자동 닫기
+      setTimeout(() => {
+        setExclusionModal(null);
+        setExclusionSuccess(null);
+      }, 1500);
       await fetchPaymentOverview();
     } catch (err) {
-      alert(err instanceof Error ? err.message : '제외 설정 실패');
+      clearTimeout(timeoutId);
+      const msg = err instanceof Error
+        ? (err.name === 'AbortError'
+          ? '요청 시간 초과 (30초). DB schema cache / RLS / quota 문제일 수 있습니다. F12 → Network 탭에서 응답 확인 필요.'
+          : err.message)
+        : '제외 설정 실패';
+      setExclusionError(msg);
+      console.error('[billing-exemption]', err);
     } finally {
       setActingUserId(null);
     }
@@ -1706,7 +1742,13 @@ export default function AdminSalesOverviewPage() {
           ptUserId={exclusionModal.ptUserId}
           name={exclusionModal.name}
           submitting={actingUserId === exclusionModal.ptUserId}
-          onClose={() => setExclusionModal(null)}
+          error={exclusionError}
+          success={exclusionSuccess}
+          onClose={() => {
+            setExclusionModal(null);
+            setExclusionError(null);
+            setExclusionSuccess(null);
+          }}
           onSubmit={(dateStr, reason) => submitBillingExclusion(exclusionModal.ptUserId, exclusionModal.name, dateStr, reason)}
         />
       )}
@@ -2414,12 +2456,16 @@ export default function AdminSalesOverviewPage() {
 function BillingExclusionModal({
   name,
   submitting,
+  error,
+  success,
   onClose,
   onSubmit,
 }: {
   ptUserId: string;
   name: string;
   submitting: boolean;
+  error: string | null;
+  success: string | null;
   onClose: () => void;
   onSubmit: (dateStr: string, reason: string) => void;
 }) {
@@ -2514,14 +2560,27 @@ function BillingExclusionModal({
           </div>
         </div>
 
+        {/* 에러 / 성공 표시 */}
+        {error && (
+          <div className="mx-5 mb-3 p-3 bg-red-50 border border-red-300 rounded text-[12px] text-red-900">
+            <p className="font-bold mb-1">❌ 적용 실패</p>
+            <p className="break-words">{error}</p>
+            <p className="mt-2 text-[10px] text-red-700">F12 → Network 탭 → /billing-exemption 응답 코드/본문 확인</p>
+          </div>
+        )}
+        {success && (
+          <div className="mx-5 mb-3 p-3 bg-green-50 border border-green-300 rounded text-[12px] text-green-900 font-bold">
+            {success}
+          </div>
+        )}
+
         <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
-            disabled={submitting}
-            className="px-3 py-1.5 text-sm text-gray-700 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50"
+            className="px-3 py-1.5 text-sm text-gray-700 bg-gray-100 rounded hover:bg-gray-200"
           >
-            취소
+            {submitting ? '닫기 (요청 중단)' : '취소'}
           </button>
           <button
             type="button"
@@ -2530,7 +2589,7 @@ function BillingExclusionModal({
             className="px-4 py-1.5 text-sm font-bold bg-slate-700 text-white rounded hover:bg-slate-800 disabled:opacity-50 inline-flex items-center gap-1"
           >
             {submitting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Unlock className="w-3 h-3" />}
-            결제 제외 적용
+            {submitting ? '적용 중... (최대 30초)' : '결제 제외 적용'}
           </button>
         </div>
       </div>

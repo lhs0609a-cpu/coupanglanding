@@ -60,14 +60,31 @@ export async function PATCH(
         return NextResponse.json({ error: '종료일이 과거입니다' }, { status: 400 });
       }
 
-      const { error: updErr } = await serviceClient
+      // Step 1: 새 컬럼 (billing_excluded_*) 만 업데이트.
+      //   schema cache 미갱신이나 RLS 문제를 step 별로 분리해서 어디가 막혔는지 식별.
+      const { error: updErr1 } = await serviceClient
         .from('pt_users')
         .update({
           billing_excluded_until: excludedUntil,
           billing_exclusion_reason: reason || null,
           billing_excluded_by_admin_id: user!.id,
           billing_excluded_at: new Date().toISOString(),
-          // 결제 제외 시 기존 락도 함께 클리어 — 기간 중에 락이 남아있으면 어색함
+        })
+        .eq('id', ptUserId);
+
+      if (updErr1) {
+        console.error('[billing-exemption] step1 update 실패 (새 컬럼):', updErr1);
+        return NextResponse.json({
+          error: `Step 1 (billing_excluded_* 컬럼 업데이트) 실패: ${updErr1.message}. ` +
+            `Supabase 대시보드 → Settings → API → "Reload schema cache" 실행 필요할 수 있음.`,
+          details: updErr1,
+        }, { status: 500 });
+      }
+
+      // Step 2: 기존 락 컬럼 클리어 — step1 성공한 뒤 진행하므로 부분 적용 안전.
+      const { error: updErr2 } = await serviceClient
+        .from('pt_users')
+        .update({
           payment_overdue_since: null,
           payment_lock_level: 0,
           payment_retry_in_progress: false,
@@ -75,7 +92,15 @@ export async function PATCH(
         })
         .eq('id', ptUserId);
 
-      if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
+      if (updErr2) {
+        console.error('[billing-exemption] step2 update 실패 (락 클리어):', updErr2);
+        // step1 은 이미 적용되어 있으므로 250 (partial success) 대신 200 + warning 으로 응답
+        return NextResponse.json({
+          success: true,
+          warning: `결제 제외는 적용됐지만 기존 락 클리어 실패: ${updErr2.message}`,
+          billing_excluded_until: excludedUntil,
+        });
+      }
 
       await createNotification(serviceClient, {
         userId: ptUser.profile_id,
