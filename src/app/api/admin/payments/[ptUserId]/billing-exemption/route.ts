@@ -60,46 +60,22 @@ export async function PATCH(
         return NextResponse.json({ error: '종료일이 과거입니다' }, { status: 400 });
       }
 
-      // Step 1: 새 컬럼 (billing_excluded_*) 만 업데이트.
-      //   schema cache 미갱신이나 RLS 문제를 step 별로 분리해서 어디가 막혔는지 식별.
-      const { error: updErr1 } = await serviceClient
-        .from('pt_users')
-        .update({
-          billing_excluded_until: excludedUntil,
-          billing_exclusion_reason: reason || null,
-          billing_excluded_by_admin_id: user!.id,
-          billing_excluded_at: new Date().toISOString(),
-        })
-        .eq('id', ptUserId);
+      // RPC 사용 — PostgREST schema cache / 다중 컬럼 update 문제 회피.
+      // Postgres function 안에서 원자적 UPDATE 실행 → 빠르게 반환.
+      const { error: rpcErr } = await serviceClient.rpc('set_billing_exclusion', {
+        p_pt_user_id: ptUserId,
+        p_excluded_until: excludedUntil,
+        p_reason: reason || null,
+        p_admin_id: user!.id,
+      });
 
-      if (updErr1) {
-        console.error('[billing-exemption] step1 update 실패 (새 컬럼):', updErr1);
+      if (rpcErr) {
+        console.error('[billing-exemption] set_billing_exclusion RPC 실패:', rpcErr);
         return NextResponse.json({
-          error: `Step 1 (billing_excluded_* 컬럼 업데이트) 실패: ${updErr1.message}. ` +
-            `Supabase 대시보드 → Settings → API → "Reload schema cache" 실행 필요할 수 있음.`,
-          details: updErr1,
+          error: `RPC 실패: ${rpcErr.message}. ` +
+            `migration_billing_exclusion_rpc.sql 을 Supabase SQL Editor 에서 실행했는지 확인해주세요.`,
+          details: rpcErr,
         }, { status: 500 });
-      }
-
-      // Step 2: 기존 락 컬럼 클리어 — step1 성공한 뒤 진행하므로 부분 적용 안전.
-      const { error: updErr2 } = await serviceClient
-        .from('pt_users')
-        .update({
-          payment_overdue_since: null,
-          payment_lock_level: 0,
-          payment_retry_in_progress: false,
-          program_access_active: true,
-        })
-        .eq('id', ptUserId);
-
-      if (updErr2) {
-        console.error('[billing-exemption] step2 update 실패 (락 클리어):', updErr2);
-        // step1 은 이미 적용되어 있으므로 250 (partial success) 대신 200 + warning 으로 응답
-        return NextResponse.json({
-          success: true,
-          warning: `결제 제외는 적용됐지만 기존 락 클리어 실패: ${updErr2.message}`,
-          billing_excluded_until: excludedUntil,
-        });
       }
 
       await createNotification(serviceClient, {
@@ -116,18 +92,18 @@ export async function PATCH(
         reason: reason || null,
       });
     } else {
-      // clear
-      const { error: updErr } = await serviceClient
-        .from('pt_users')
-        .update({
-          billing_excluded_until: null,
-          billing_exclusion_reason: null,
-          billing_excluded_by_admin_id: null,
-          billing_excluded_at: null,
-        })
-        .eq('id', ptUserId);
+      // clear — RPC 사용
+      const { error: rpcErr } = await serviceClient.rpc('clear_billing_exclusion', {
+        p_pt_user_id: ptUserId,
+      });
 
-      if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
+      if (rpcErr) {
+        console.error('[billing-exemption] clear_billing_exclusion RPC 실패:', rpcErr);
+        return NextResponse.json({
+          error: `RPC 실패: ${rpcErr.message}. migration_billing_exclusion_rpc.sql 실행 필요.`,
+          details: rpcErr,
+        }, { status: 500 });
+      }
 
       await createNotification(serviceClient, {
         userId: ptUser.profile_id,
