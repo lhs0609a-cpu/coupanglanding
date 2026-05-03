@@ -159,7 +159,7 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ p
             supply_amount: vatCalc.supplyAmount,
             vat_amount: vatCalc.vatAmount,
             total_with_vat: vatCalc.totalWithVat,
-            input_source: 'admin_charge_now',
+            input_source: 'api_auto',
             fee_payment_status: 'awaiting_payment',
             fee_payment_deadline: deadlineUtc.toISOString(),
             fee_surcharge_amount: 0,

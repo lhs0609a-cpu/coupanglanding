@@ -171,7 +171,7 @@ export async function POST(request: Request) {
             supply_amount: vatCalc.supplyAmount,
             vat_amount: vatCalc.vatAmount,
             total_with_vat: vatCalc.totalWithVat,
-            input_source: 'admin_trigger',
+            input_source: 'api_auto',
             fee_payment_status: 'awaiting_payment',
             fee_payment_deadline: deadlineUtc.toISOString(),
             fee_surcharge_amount: 0,
