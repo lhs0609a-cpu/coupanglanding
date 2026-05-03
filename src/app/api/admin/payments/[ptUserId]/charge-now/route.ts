@@ -230,6 +230,21 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ p
       const orderId = generateOrderId(report.year_month, ptUserId);
       const orderName = `메가로드 수수료 ${report.year_month} (관리자 단건 실행)`;
 
+      // 결제 직전 fresh check — 중복 청구 절대 방지
+      const { data: checkData, error: checkErr } = await serviceClient
+        .rpc('safe_check_report_for_billing', { p_report_id: report.id });
+      const checkRow = Array.isArray(checkData) ? checkData[0] : checkData;
+      if (checkErr || !checkRow?.is_billable) {
+        results.push({
+          yearMonth: report.year_month,
+          succeeded: false,
+          amount: totalAmount,
+          errorCode: 'PRE_CHECK_BLOCKED',
+          errorMessage: `중복 청구 방지: ${checkRow?.reason || checkErr?.message || 'pre-check failed'}`,
+        });
+        continue;
+      }
+
       const { data: tx, error: txErr } = await serviceClient
         .from('payment_transactions')
         .insert({
