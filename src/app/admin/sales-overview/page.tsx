@@ -18,7 +18,7 @@ import StatCard from '@/components/ui/StatCard';
 import {
   Table2, Search, Download, TrendingUp, Users as UsersIcon, CheckCircle2, Banknote,
   ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, Zap,
-  CreditCard, AlertTriangle, Lock, XCircle, PlayCircle, Bell, Unlock, Loader2, ChevronDown, ChevronUp,
+  CreditCard, AlertTriangle, Lock, XCircle, PlayCircle, Bell, Unlock, Loader2, ChevronDown, ChevronUp, Stethoscope,
 } from 'lucide-react';
 import type { PtUser, MonthlyReport, Profile, ApiRevenueSnapshot } from '@/lib/supabase/types';
 
@@ -172,6 +172,29 @@ export default function AdminSalesOverviewPage() {
       alert(err instanceof Error ? err.message : '알림 발송 실패');
     } finally {
       setActingUserId(null);
+    }
+  }, []);
+
+  /** 결제 진단 — "왜 결제가 안 됐는지" 추적 */
+  const [diagOpen, setDiagOpen] = useState(false);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagData, setDiagData] = useState<unknown>(null);
+  const [diagError, setDiagError] = useState<string | null>(null);
+
+  const runDiagnostics = useCallback(async () => {
+    setDiagLoading(true);
+    setDiagError(null);
+    try {
+      const res = await fetch('/api/admin/payments/diagnostics');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '진단 실패');
+      setDiagData(data);
+      setDiagOpen(true);
+    } catch (err) {
+      setDiagError(err instanceof Error ? err.message : '진단 실패');
+      setDiagOpen(true);
+    } finally {
+      setDiagLoading(false);
     }
   }, []);
 
@@ -992,11 +1015,44 @@ export default function AdminSalesOverviewPage() {
           </div>
         )}
         {cashflow.billedTotal === 0 && (
-          <div className="px-5 py-3 border-t border-gray-200 bg-amber-50 text-amber-900 text-[12px]">
-            📝 아직 청구된 수수료가 없습니다 — PT생이 매출 리포트를 제출하고 관리자가 확인하면 청구액이 잡힙니다.
+          <div className="px-5 py-3 border-t border-gray-200 bg-amber-50 text-amber-900 text-[12px] flex items-center justify-between flex-wrap gap-2">
+            <span>📝 아직 청구된 수수료가 없습니다 — PT생이 매출 리포트를 제출하고 관리자가 확인하면 청구액이 잡힙니다.</span>
+            <button
+              type="button"
+              onClick={runDiagnostics}
+              disabled={diagLoading}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50"
+            >
+              {diagLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Stethoscope className="w-3 h-3" />}
+              왜 결제가 안 됐는지 진단
+            </button>
+          </div>
+        )}
+        {cashflow.billedTotal > 0 && (
+          <div className="px-5 py-2 border-t border-gray-200 bg-gray-50 text-[11px] flex justify-end">
+            <button
+              type="button"
+              onClick={runDiagnostics}
+              disabled={diagLoading}
+              className="inline-flex items-center gap-1 px-2 py-1 text-gray-600 hover:text-gray-900"
+            >
+              {diagLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Stethoscope className="w-3 h-3" />}
+              결제 진단
+            </button>
           </div>
         )}
       </div>
+
+      {/* 결제 진단 모달 */}
+      {diagOpen && (
+        <PaymentDiagnosticsModal
+          data={diagData}
+          error={diagError}
+          loading={diagLoading}
+          onClose={() => { setDiagOpen(false); setDiagData(null); setDiagError(null); }}
+          onRetry={runDiagnostics}
+        />
+      )}
 
       {/* 오늘 실시간 매출 — Wing 기준 */}
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-xl p-5">
@@ -1642,6 +1698,248 @@ export default function AdminSalesOverviewPage() {
           <span className="ml-auto text-gray-500">셀 형식: 매출 + 우리 수수료(VAT 포함) · {formatYearMonth(currentMonth)} 진행중</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ─── 결제 진단 모달 ─── */
+interface DiagnosticsData {
+  summary: {
+    currentMonth: string;
+    lastClosedMonth: string;
+    totalPtUsers: number;
+    signedPtUsers: number;
+    testAccounts: number;
+    usersWithCard: number;
+    lastReportCount: number;
+    lastReportTotal: number;
+    eligibleForBilling: number;
+    lastSnapshotCount: number;
+    todayAutoTxCount: number;
+  };
+  reasons: string[];
+  contractStatusDist: Record<string, number>;
+  reportFeeStatusDist: Record<string, number>;
+  reportPaymentStatusDist: Record<string, number>;
+  cronLocks: Array<{ lock_key: string; acquired_at: string; acquired_by: string | null }>;
+  todayAutoTxs: Array<{ status: string; failure_code: string | null; created_at: string }>;
+  recentErrors: Array<{ stage: string; error_code: string | null; error_message: string | null; created_at: string }>;
+}
+
+function PaymentDiagnosticsModal({
+  data,
+  error,
+  loading,
+  onClose,
+  onRetry,
+}: {
+  data: unknown;
+  error: string | null;
+  loading: boolean;
+  onClose: () => void;
+  onRetry: () => void;
+}) {
+  const d = data as DiagnosticsData | null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full my-8 max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Stethoscope className="w-5 h-5 text-blue-600" />
+            <h2 className="text-lg font-bold text-gray-900">자동결제 진단 리포트</h2>
+          </div>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <XCircle className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-900 px-4 py-3 rounded-lg flex items-center justify-between gap-2">
+              <span className="text-sm">{error}</span>
+              <button type="button" onClick={onRetry} className="text-xs underline">다시 시도</button>
+            </div>
+          )}
+
+          {loading && !d && (
+            <div className="py-8 flex items-center justify-center">
+              <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+            </div>
+          )}
+
+          {d && (
+            <>
+              {/* 결론 */}
+              <section>
+                <h3 className="text-sm font-bold text-gray-900 mb-2">🔍 결론 / 추정 원인</h3>
+                <div className="space-y-2">
+                  {d.reasons.map((r, i) => (
+                    <p
+                      key={i}
+                      className={`text-sm leading-relaxed px-3 py-2 rounded border ${
+                        r.startsWith('🚨') ? 'bg-red-50 border-red-200 text-red-900' :
+                        r.startsWith('⚠️') ? 'bg-amber-50 border-amber-200 text-amber-900' :
+                        'bg-green-50 border-green-200 text-green-900'
+                      }`}
+                    >
+                      {r}
+                    </p>
+                  ))}
+                </div>
+              </section>
+
+              {/* 기본 통계 */}
+              <section>
+                <h3 className="text-sm font-bold text-gray-900 mb-2">📊 기본 통계</h3>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <DiagStat label="전체 PT생" value={`${d.summary.totalPtUsers}명`} />
+                  <DiagStat
+                    label="signed 계약 보유"
+                    value={`${d.summary.signedPtUsers}명`}
+                    color={d.summary.signedPtUsers === 0 ? 'red' : 'gray'}
+                  />
+                  <DiagStat label="테스트 계정 (제외)" value={`${d.summary.testAccounts}명`} />
+                  <DiagStat
+                    label="활성 카드 보유"
+                    value={`${d.summary.usersWithCard}명`}
+                    color={d.summary.usersWithCard === 0 ? 'red' : 'gray'}
+                  />
+                  <DiagStat
+                    label={`${d.summary.lastClosedMonth} 보고서 수`}
+                    value={`${d.summary.lastReportCount}건`}
+                    color={d.summary.lastReportCount === 0 ? 'red' : 'gray'}
+                  />
+                  <DiagStat
+                    label="청구 가능 보고서"
+                    value={`${d.summary.eligibleForBilling}건`}
+                    color={d.summary.eligibleForBilling === 0 ? 'amber' : 'green'}
+                  />
+                  <DiagStat label={`${d.summary.lastClosedMonth} API 스냅샷`} value={`${d.summary.lastSnapshotCount}건`} />
+                  <DiagStat label="오늘 자동결제 시도" value={`${d.summary.todayAutoTxCount}건`} />
+                </div>
+              </section>
+
+              {/* 분포 */}
+              <section className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <DiagDist title="계약 상태" dist={d.contractStatusDist} />
+                <DiagDist title={`${d.summary.lastClosedMonth} 결제상태`} dist={d.reportFeeStatusDist} />
+                <DiagDist title={`${d.summary.lastClosedMonth} 보고상태`} dist={d.reportPaymentStatusDist} />
+              </section>
+
+              {/* Cron 락 */}
+              <section>
+                <h3 className="text-sm font-bold text-gray-900 mb-2">⏱️ 최근 Cron 실행 흔적</h3>
+                {d.cronLocks.length === 0 ? (
+                  <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded border border-red-200">
+                    cron_locks 테이블 비어있음 — cron이 한 번도 실행되지 않았거나 정상 종료됐을 수 있음. Vercel cron 로그 확인 필요.
+                  </p>
+                ) : (
+                  <div className="space-y-1 text-xs">
+                    {d.cronLocks.map((l, i) => (
+                      <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded">
+                        <span className="font-mono text-gray-700">{l.lock_key}</span>
+                        <span className="text-gray-500">{new Date(l.acquired_at).toLocaleString('ko-KR')}</span>
+                        {l.acquired_by && <span className="text-gray-400">· {l.acquired_by}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              {/* 오늘 결제 시도 */}
+              {d.todayAutoTxs.length > 0 && (
+                <section>
+                  <h3 className="text-sm font-bold text-gray-900 mb-2">💳 오늘 자동결제 시도 ({d.todayAutoTxs.length}건)</h3>
+                  <div className="space-y-1 text-xs">
+                    {d.todayAutoTxs.slice(0, 10).map((t, i) => (
+                      <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded">
+                        <span className={`font-bold ${t.status === 'success' ? 'text-green-700' : 'text-red-700'}`}>{t.status}</span>
+                        {t.failure_code && <span className="text-red-600">{t.failure_code}</span>}
+                        <span className="text-gray-500 ml-auto">{new Date(t.created_at).toLocaleString('ko-KR')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* 최근 에러 */}
+              {d.recentErrors.length > 0 && (
+                <section>
+                  <h3 className="text-sm font-bold text-red-900 mb-2">🚨 최근 24h 미해결 settlement 에러 ({d.recentErrors.length}건)</h3>
+                  <div className="space-y-1 text-xs">
+                    {d.recentErrors.slice(0, 10).map((e, i) => (
+                      <div key={i} className="px-3 py-2 bg-red-50 border border-red-200 rounded">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-red-900">{e.stage}</span>
+                          {e.error_code && <span className="text-red-700">[{e.error_code}]</span>}
+                        </div>
+                        {e.error_message && <p className="text-red-800 mt-0.5">{e.error_message}</p>}
+                        <p className="text-red-500 text-[10px] mt-0.5">{new Date(e.created_at).toLocaleString('ko-KR')}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-3 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={loading}
+            className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3 h-3 inline mr-1 ${loading ? 'animate-spin' : ''}`} />
+            재진단
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 text-sm bg-gray-900 text-white rounded hover:bg-gray-700"
+          >
+            닫기
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DiagStat({ label, value, color = 'gray' }: { label: string; value: string; color?: 'gray' | 'red' | 'green' | 'amber' }) {
+  const colorClass: Record<string, string> = {
+    gray: 'bg-gray-50 text-gray-900',
+    red: 'bg-red-50 text-red-900 border-red-200 border',
+    green: 'bg-green-50 text-green-900',
+    amber: 'bg-amber-50 text-amber-900',
+  };
+  return (
+    <div className={`px-3 py-2 rounded ${colorClass[color]}`}>
+      <p className="text-[10px] uppercase font-semibold opacity-70">{label}</p>
+      <p className="text-sm font-bold mt-0.5">{value}</p>
+    </div>
+  );
+}
+
+function DiagDist({ title, dist }: { title: string; dist: Record<string, number> }) {
+  const entries = Object.entries(dist);
+  return (
+    <div className="bg-gray-50 rounded p-3">
+      <p className="text-[11px] font-bold text-gray-700 mb-2">{title}</p>
+      {entries.length === 0 ? (
+        <p className="text-[11px] text-gray-400">데이터 없음</p>
+      ) : (
+        <div className="space-y-1">
+          {entries.map(([k, v]) => (
+            <div key={k} className="flex justify-between text-[11px]">
+              <span className="text-gray-600">{k}</span>
+              <span className="font-bold text-gray-900">{v}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
