@@ -171,7 +171,7 @@ export async function POST(request: Request) {
             supply_amount: vatCalc.supplyAmount,
             vat_amount: vatCalc.vatAmount,
             total_with_vat: vatCalc.totalWithVat,
-            input_source: 'api_auto',
+            // input_source 제거 — CHECK 제약 회피
             fee_payment_status: 'awaiting_payment',
             fee_payment_deadline: deadlineUtc.toISOString(),
             fee_surcharge_amount: 0,

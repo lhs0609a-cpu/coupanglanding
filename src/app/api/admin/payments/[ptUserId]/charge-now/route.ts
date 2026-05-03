@@ -159,7 +159,8 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ p
             supply_amount: vatCalc.supplyAmount,
             vat_amount: vatCalc.vatAmount,
             total_with_vat: vatCalc.totalWithVat,
-            input_source: 'api_auto',
+            // input_source 는 INSERT 페이로드에서 제외 — DB default 사용
+            // (CHECK 제약 위반 회피)
             fee_payment_status: 'awaiting_payment',
             fee_payment_deadline: deadlineUtc.toISOString(),
             fee_surcharge_amount: 0,
