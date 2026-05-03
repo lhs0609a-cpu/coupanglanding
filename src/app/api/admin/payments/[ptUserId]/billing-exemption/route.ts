@@ -3,6 +3,10 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 import { createNotification } from '@/lib/utils/notifications';
 
+// Vercel function 자체 timeout 명시 — supabase 응답이 늦더라도 60초까지 대기
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+
 /**
  * PATCH /api/admin/payments/[ptUserId]/billing-exemption
  * 결제 사이클 제외 설정 / 해제.

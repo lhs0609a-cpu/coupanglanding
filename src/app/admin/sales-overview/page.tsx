@@ -2566,6 +2566,29 @@ function BillingExclusionModal({
             <p className="font-bold mb-1">❌ 적용 실패</p>
             <p className="break-words">{error}</p>
             <p className="mt-2 text-[10px] text-red-700">F12 → Network 탭 → /billing-exemption 응답 코드/본문 확인</p>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const res = await fetch('/api/admin/_diag/billing-rpc-test');
+                  const data = await res.json();
+                  alert(
+                    `진단 결과 (총 ${data.totalMs}ms):\n` +
+                    (data.stages || [])
+                      .map((s: { name: string; ms: number; ok: boolean; detail?: string }) =>
+                        `${s.ok ? '✅' : '❌'} ${s.name} (${s.ms}ms)${s.detail ? ' - ' + s.detail : ''}`
+                      )
+                      .join('\n') +
+                    `\n\n${data.summary || data.blocker || ''}`,
+                  );
+                } catch (e) {
+                  alert('진단 API 호출 실패: ' + (e instanceof Error ? e.message : String(e)));
+                }
+              }}
+              className="mt-2 px-2 py-1 text-[11px] font-medium bg-red-600 text-white rounded hover:bg-red-700"
+            >
+              🩺 단계별 진단 실행 (어디서 hang 하는지 확인)
+            </button>
           </div>
         )}
         {success && (
