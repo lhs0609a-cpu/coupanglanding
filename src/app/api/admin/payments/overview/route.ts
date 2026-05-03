@@ -4,6 +4,10 @@ import { calculateLockLevel, kstDateStr, kstMonthStr } from '@/lib/payments/bill
 import { failureLabel } from '@/lib/payments/failure-codes';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 
+// Vercel function timeout 60s + 캐시 우회
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/admin/payments/overview
  * 모든 PT 유저의 결제 상태를 한 화면에서 보기 위한 통합 데이터.
@@ -127,12 +131,16 @@ export async function GET() {
       unpaidSummaryByUser.set(r.pt_user_id, prev);
     });
 
-    // 최근 transaction (유저당 1건) — 영수증 / paymentKey 포함
+    // 최근 transaction (유저당 1건) — 영수증 / paymentKey 포함.
+    // 성능: 모든 tx 가져오면 14명 * N건 으로 timeout 위험 → 최근 90일 + limit 500.
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
     const { data: txs, error: txErr } = await serviceClient
       .from('payment_transactions')
       .select('id, pt_user_id, monthly_report_id, status, retry_count, next_retry_at, is_final_failure, final_failed_at, failure_code, failure_message, total_amount, created_at, parent_transaction_id, toss_payment_key, receipt_url, approved_at')
       .in('pt_user_id', ptUserIds)
-      .order('created_at', { ascending: false });
+      .gte('created_at', ninetyDaysAgo)
+      .order('created_at', { ascending: false })
+      .limit(500);
 
     if (txErr) throw txErr;
 

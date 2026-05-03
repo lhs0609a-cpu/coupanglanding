@@ -6,6 +6,9 @@ import { calculateVatOnTop } from '@/lib/calculations/vat';
 import { kstMonthStr } from '@/lib/payments/billing-constants';
 import { createNotification } from '@/lib/utils/notifications';
 
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+
 /**
  * POST /api/admin/payments/trigger-billing
  * 관리자가 직접 직전 마감월 청구 사이클을 복구.

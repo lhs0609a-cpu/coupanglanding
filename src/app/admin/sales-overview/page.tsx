@@ -183,7 +183,7 @@ export default function AdminSalesOverviewPage() {
     setPaymentLoading(true);
     setPaymentError(null);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20_000);
+    const timeoutId = setTimeout(() => controller.abort(), 45_000);
     try {
       const res = await fetch('/api/admin/payments/overview', { signal: controller.signal });
       clearTimeout(timeoutId);
@@ -194,7 +194,7 @@ export default function AdminSalesOverviewPage() {
     } catch (err) {
       clearTimeout(timeoutId);
       const msg = err instanceof Error
-        ? (err.name === 'AbortError' ? '결제 상태 조회 시간 초과 (20초)' : err.message)
+        ? (err.name === 'AbortError' ? '결제 상태 조회 시간 초과 (45초) — Supabase quota / 무거운 쿼리' : err.message)
         : '결제 상태 조회 실패';
       setPaymentError(msg);
       console.error('[paymentOverview]', err);
@@ -615,10 +615,10 @@ export default function AdminSalesOverviewPage() {
     return () => clearInterval(id);
   }, [fetchTodayRevenue]);
 
-  // 결제 상태 — 최초 + 1분 주기 (카드 미등록/락/재시도 변동 추적)
+  // 결제 상태 — 최초 + 3분 주기 (1분 폴링은 hang 누적 위험)
   useEffect(() => {
     fetchPaymentOverview();
-    const id = setInterval(fetchPaymentOverview, 60 * 1000);
+    const id = setInterval(fetchPaymentOverview, 3 * 60 * 1000);
     return () => clearInterval(id);
   }, [fetchPaymentOverview]);
 

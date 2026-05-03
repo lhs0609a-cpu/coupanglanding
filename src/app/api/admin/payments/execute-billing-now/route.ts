@@ -9,6 +9,9 @@ import { isRetryable, failureLabel, isBillingKeyInvalid } from '@/lib/payments/f
 import { logSettlementError } from '@/lib/payments/settlement-errors';
 import { PAYMENT_RETRY_INTERVAL_HOURS, kstDateStr } from '@/lib/payments/billing-constants';
 
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+
 /**
  * POST /api/admin/payments/execute-billing-now
  * 관리자가 매월 3일 cron 을 기다리지 않고 즉시 결제 실행.

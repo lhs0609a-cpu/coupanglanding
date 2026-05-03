@@ -11,6 +11,9 @@ import { PAYMENT_RETRY_INTERVAL_HOURS, kstDateStr } from '@/lib/payments/billing
 import { buildCostBreakdown, calculateDeposit } from '@/lib/calculations/deposit';
 import { calculateVatOnTop } from '@/lib/calculations/vat';
 
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+
 /**
  * POST /api/admin/payments/[ptUserId]/charge-now
  * 특정 PT생만 즉시 결제 — 클릭 한 번으로 그 사람만.
