@@ -27,6 +27,7 @@ const STATUS_TABS: { value: BugReportStatus | 'all'; label: string }[] = [
 export default function BugReportsPage() {
   const [reports, setReports] = useState<BugReport[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<BugReportStatus | 'all'>('all');
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -38,14 +39,18 @@ export default function BugReportsPage() {
   const fetchReports = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       const params = new URLSearchParams();
       if (statusFilter !== 'all') params.set('status', statusFilter);
       const res = await fetch(`/api/megaload/bug-reports?${params}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || `HTTP ${res.status}`);
+      }
       setReports(json.data || []);
-    } catch {
-      // silent
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '오류문의 목록을 불러오지 못했습니다.');
+      setReports([]);
     } finally {
       setLoading(false);
     }
@@ -183,6 +188,19 @@ export default function BugReportsPage() {
             <div key={i} className="h-20 bg-gray-100 rounded-xl animate-pulse" />
           ))}
         </div>
+      ) : error ? (
+        <Card className="text-center py-12">
+          <Bug className="w-10 h-10 text-red-300 mx-auto mb-3" />
+          <p className="text-sm text-red-600 mb-2">목록을 불러오지 못했습니다</p>
+          <p className="text-xs text-gray-500 mb-4">{error}</p>
+          <button
+            type="button"
+            onClick={() => fetchReports()}
+            className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition"
+          >
+            다시 시도
+          </button>
+        </Card>
       ) : reports.length === 0 ? (
         <Card className="text-center py-12">
           <Bug className="w-10 h-10 text-gray-300 mx-auto mb-3" />
