@@ -29,14 +29,25 @@ export abstract class BaseAdapter implements ChannelAdapter {
   abstract getCategories(parentId?: string): Promise<{ items: { id: string; name: string; parentId?: string }[] }>;
   abstract searchCategory(keyword: string): Promise<{ items: { id: string; name: string; path: string }[] }>;
 
-  protected async apiCall<T>(url: string, options: RequestInit = {}): Promise<T> {
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-    });
+  protected async apiCall<T>(url: string, options: RequestInit = {}, timeoutMs = 25000): Promise<T> {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+        signal: options.signal ?? AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err) {
+      // AbortSignal.timeout → DOMException name='TimeoutError', fetch 자체 실패는 TypeError
+      const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+      if (isTimeout) {
+        throw new Error(`API 응답 지연 — ${Math.round(timeoutMs / 1000)}초 내 응답 없음 (프록시/네트워크 점검 필요): ${url}`);
+      }
+      throw new Error(`API 네트워크 오류: ${err instanceof Error ? err.message : String(err)} — ${url}`);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();

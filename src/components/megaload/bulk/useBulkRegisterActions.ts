@@ -2201,7 +2201,10 @@ export function useBulkRegisterActions() {
     (async () => {
       setLoadingShipping(true); setShippingError('');
       try {
-        const res = await fetch('/api/megaload/products/bulk-register/shipping-info');
+        // 클라이언트 측 30초 가드 — 서버 hang 시에도 UI는 명확한 에러로 복귀
+        const res = await fetch('/api/megaload/products/bulk-register/shipping-info', {
+          signal: AbortSignal.timeout(30000),
+        });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || '물류 정보 조회 실패');
         if (cancelled) return;
@@ -2209,7 +2212,15 @@ export function useBulkRegisterActions() {
         setReturnCenters(data.returnShippingCenters || []);
         if (data.outboundShippingPlaces?.length > 0) setSelectedOutbound(data.outboundShippingPlaces[0].outboundShippingPlaceCode);
         if (data.returnShippingCenters?.length > 0) setSelectedReturn(data.returnShippingCenters[0].returnCenterCode);
-      } catch (err) { if (!cancelled) setShippingError(err instanceof Error ? err.message : '물류 정보 조회 실패'); }
+      } catch (err) {
+        if (cancelled) return;
+        const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+        setShippingError(
+          isTimeout
+            ? '쿠팡 API 응답 지연 (30초 초과) — Fly.io 프록시 상태를 확인해주세요.'
+            : err instanceof Error ? err.message : '물류 정보 조회 실패',
+        );
+      }
       finally { if (!cancelled) setLoadingShipping(false); }
     })();
     return () => { cancelled = true; };
