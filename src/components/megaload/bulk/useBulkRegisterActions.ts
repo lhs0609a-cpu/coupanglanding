@@ -1758,12 +1758,16 @@ export function useBulkRegisterActions() {
 
       let completed = 0;
       let taskIdx = 0;
-      // CONCURRENCY: 60 → 12.
-      //   60 동시는 (a) Vercel 함수 메모리 동시 점유 (이미지당 ~10MB Buffer + Jimp 처리),
-      //   (b) Supabase Storage 초당 업로드 한도, (c) 브라우저 측 동시 fetch 한도(보통 6~10/origin)
-      //   를 모두 한계점에 몰아 'Failed to fetch' / 빈 응답 대량 발생.
-      //   12로 내리면 안정 + 사실상 throughput 거의 동일 (이미지 압축이 병목).
-      const CONCURRENCY = 12;
+      // CONCURRENCY 변천: 60 (폭주) → 12 (보수) → 20 (균형).
+      //   - 직접 업로드 성공 시: 클라 → Supabase Storage 직접. Vercel 메모리 무관.
+      //   - 폴백 시: 클라 → Vercel /upload-image (Jimp) → Supabase Storage.
+      //   직접 경로가 정상이면 20 동시로 안전 (Supabase Storage 처리 한도 충분).
+      //   폴백이 자주 발동하면 Vercel 메모리 부담이 있지만 client-folder-scanner 의 retry/4xx-skip
+      //   이 무한 폭주를 차단.
+      //   원본 60이 위험했던 이유 = (a) 5MB 버킷 cap silent reject (이미 10MB로 수정),
+      //   (b) 재시도 부재 → 동일 요청 폭주, (c) 브라우저 origin 동시 fetch 한도.
+      //   현재 (a)+(b) 해결됐으므로 20까지 안전 상향.
+      const CONCURRENCY = 20;
 
       // 실패 추적 (사용자 가시화 — silent fail 방지)
       const failureReasons: Record<string, number> = {};

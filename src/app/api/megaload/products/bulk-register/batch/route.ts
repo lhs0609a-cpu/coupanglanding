@@ -912,10 +912,8 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // 청크 간 딜레이 100ms → 50ms (쿠팡 API 측 throttle 자동 감지)
-      if (i + PARALLEL_REGISTER < products.length) {
-        await new Promise((r) => setTimeout(r, 50));
-      }
+      // 청크 간 딜레이 제거 — 쿠팡 API throttle 은 withRetry 가 429/503 응답 시
+      //  지수 백오프로 자동 처리. 사전 sleep 은 throughput 만 깎고 보호 효과 없음.
     }
 
     return NextResponse.json({
