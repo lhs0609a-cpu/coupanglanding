@@ -46,7 +46,7 @@
     },
     {
       "path": "/api/cron/megaload-replication-runner",
-      "schedule": "*/15 * * * *"
+      "schedule": "*/30 * * * *"
     },
     {
       "path": "/api/cron/monthly-report-auto-create",

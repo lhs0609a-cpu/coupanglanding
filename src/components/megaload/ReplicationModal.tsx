@@ -339,7 +339,7 @@ export default function ReplicationModal({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm text-gray-700">
               <Clock className="w-4 h-4 text-blue-500 animate-pulse" />
-              백그라운드 크론이 매 15분마다 배치 처리 중 (1회당 최대 20건)
+              백그라운드 크론이 매 30분마다 배치 처리 중 (1회당 최대 20건)
             </div>
             <span className="text-2xl font-bold text-[#E31837] tabular-nums">{progressPct}%</span>
           </div>
