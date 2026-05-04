@@ -36,9 +36,10 @@ export async function GET(request: NextRequest) {
     const serviceClient = await createServiceClient();
     console.log(`[admin/bug-reports] createServiceClient ${ms()}ms`);
 
+    // ── 1) sh_bug_reports — nested join 제거, flat 쿼리로 schema cache 의존 제거 ──
     let query = serviceClient
       .from('sh_bug_reports')
-      .select('*, megaload_user:megaload_users(id, profile_id, profile:profiles(id, full_name, email))')
+      .select('*')
       .order('created_at', { ascending: false });
 
     if (status && status !== 'all') {
@@ -52,31 +53,73 @@ export async function GET(request: NextRequest) {
     console.log(`[admin/bug-reports] sh_bug_reports query ${ms()}ms (rows=${reports?.length ?? 0}, err=${error?.message ?? 'none'})`);
     if (error) throw error;
 
-    // 안 읽은 user 메시지 수
-    const reportIds = (reports || []).map((r: Record<string, unknown>) => r.id as string);
-    let unreadMap: Record<string, number> = {};
+    const rowList = (reports || []) as Array<Record<string, unknown>>;
 
-    if (reportIds.length > 0) {
-      const { data: unreadData } = await serviceClient
-        .from('sh_bug_report_messages')
-        .select('bug_report_id')
-        .in('bug_report_id', reportIds)
-        .eq('sender_role', 'user')
-        .eq('is_read', false);
-      console.log(`[admin/bug-reports] unread query ${ms()}ms`);
+    // 빈 결과 fast-path — 추가 쿼리 전부 skip
+    if (rowList.length === 0) {
+      console.log(`[admin/bug-reports] DONE empty ${ms()}ms`);
+      return NextResponse.json({ data: [] });
+    }
 
-      if (unreadData) {
-        for (const row of unreadData) {
-          const rid = (row as Record<string, unknown>).bug_report_id as string;
-          unreadMap[rid] = (unreadMap[rid] || 0) + 1;
+    // ── 2) megaload_users + profiles 를 별도 쿼리로 (nested join 회피) ──
+    const userIds = Array.from(new Set(rowList.map((r) => r.megaload_user_id as string).filter(Boolean)));
+    let userMap = new Map<string, { id: string; profile_id: string }>();
+    let profileMap = new Map<string, { id: string; full_name: string | null; email: string | null }>();
+
+    if (userIds.length > 0) {
+      const { data: users } = await serviceClient
+        .from('megaload_users')
+        .select('id, profile_id')
+        .in('id', userIds);
+      console.log(`[admin/bug-reports] megaload_users query ${ms()}ms`);
+
+      for (const u of (users || []) as Array<{ id: string; profile_id: string }>) {
+        userMap.set(u.id, u);
+      }
+
+      const profileIds = Array.from(new Set([...userMap.values()].map((u) => u.profile_id).filter(Boolean)));
+      if (profileIds.length > 0) {
+        const { data: profiles } = await serviceClient
+          .from('profiles')
+          .select('id, full_name, email')
+          .in('id', profileIds);
+        console.log(`[admin/bug-reports] profiles query ${ms()}ms`);
+
+        for (const p of (profiles || []) as Array<{ id: string; full_name: string | null; email: string | null }>) {
+          profileMap.set(p.id, p);
         }
       }
     }
 
-    const enriched = (reports || []).map((r: Record<string, unknown>) => ({
-      ...r,
-      unread_count: unreadMap[r.id as string] || 0,
-    }));
+    // ── 3) 안 읽은 user 메시지 수 ──
+    const reportIds = rowList.map((r) => r.id as string);
+    const unreadMap: Record<string, number> = {};
+
+    const { data: unreadData } = await serviceClient
+      .from('sh_bug_report_messages')
+      .select('bug_report_id')
+      .in('bug_report_id', reportIds)
+      .eq('sender_role', 'user')
+      .eq('is_read', false);
+    console.log(`[admin/bug-reports] unread query ${ms()}ms`);
+
+    if (unreadData) {
+      for (const row of unreadData) {
+        const rid = (row as Record<string, unknown>).bug_report_id as string;
+        unreadMap[rid] = (unreadMap[rid] || 0) + 1;
+      }
+    }
+
+    // ── 4) stitch ──
+    const enriched = rowList.map((r) => {
+      const u = userMap.get(r.megaload_user_id as string);
+      const p = u ? profileMap.get(u.profile_id) : null;
+      return {
+        ...r,
+        unread_count: unreadMap[r.id as string] || 0,
+        megaload_user: u ? { id: u.id, profile_id: u.profile_id, profile: p || null } : null,
+      };
+    });
 
     console.log(`[admin/bug-reports] DONE ${ms()}ms`);
     return NextResponse.json({ data: enriched });
