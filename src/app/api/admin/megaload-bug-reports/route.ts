@@ -17,9 +17,14 @@ async function requireAdmin(supabase: ReturnType<typeof createClient> extends Pr
 }
 
 export async function GET(request: NextRequest) {
+  const t0 = Date.now();
+  const ms = () => Date.now() - t0;
   try {
     const supabase = await createClient();
+    console.log(`[admin/bug-reports] createClient ${ms()}ms`);
+
     const user = await requireAdmin(supabase);
+    console.log(`[admin/bug-reports] requireAdmin ${ms()}ms (user=${user?.id ?? 'null'})`);
     if (!user) {
       return NextResponse.json({ error: '관리자 권한이 필요합니다.' }, { status: 403 });
     }
@@ -29,6 +34,7 @@ export async function GET(request: NextRequest) {
     const priority = searchParams.get('priority');
 
     const serviceClient = await createServiceClient();
+    console.log(`[admin/bug-reports] createServiceClient ${ms()}ms`);
 
     let query = serviceClient
       .from('sh_bug_reports')
@@ -43,6 +49,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { data: reports, error } = await query;
+    console.log(`[admin/bug-reports] sh_bug_reports query ${ms()}ms (rows=${reports?.length ?? 0}, err=${error?.message ?? 'none'})`);
     if (error) throw error;
 
     // 안 읽은 user 메시지 수
@@ -56,6 +63,7 @@ export async function GET(request: NextRequest) {
         .in('bug_report_id', reportIds)
         .eq('sender_role', 'user')
         .eq('is_read', false);
+      console.log(`[admin/bug-reports] unread query ${ms()}ms`);
 
       if (unreadData) {
         for (const row of unreadData) {
@@ -70,10 +78,14 @@ export async function GET(request: NextRequest) {
       unread_count: unreadMap[r.id as string] || 0,
     }));
 
+    console.log(`[admin/bug-reports] DONE ${ms()}ms`);
     return NextResponse.json({ data: enriched });
   } catch (err) {
-    console.error('admin bug-reports GET error:', err);
-    return NextResponse.json({ error: '오류문의 목록 조회에 실패했습니다.' }, { status: 500 });
+    console.error(`[admin/bug-reports] error at ${ms()}ms:`, err);
+    return NextResponse.json({
+      error: err instanceof Error ? err.message : '오류문의 목록 조회에 실패했습니다.',
+      elapsed_ms: ms(),
+    }, { status: 500 });
   }
 }
 

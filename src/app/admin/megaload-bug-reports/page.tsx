@@ -40,14 +40,25 @@ export default function AdminMegaloadBugReportsPage() {
   const fetchReports = useCallback(async () => {
     try {
       setLoading(true);
+      setError('');
       const params = new URLSearchParams();
       if (statusFilter !== 'all') params.set('status', statusFilter);
-      const res = await fetch(`/api/admin/megaload-bug-reports?${params}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
+      const res = await fetch(`/api/admin/megaload-bug-reports?${params}`, {
+        signal: AbortSignal.timeout(15000),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || `HTTP ${res.status} ${res.statusText || ''}`);
+      }
       setReports(json.data || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '오류 발생');
+      const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+      setError(
+        isTimeout
+          ? '서버 응답 지연 (15초 초과) — Supabase 쿼터 초과 또는 함수 타임아웃 가능성. Vercel/Supabase 상태를 확인하세요.'
+          : err instanceof Error ? err.message : '오류 발생',
+      );
+      setReports([]);
     } finally {
       setLoading(false);
     }
