@@ -59,6 +59,10 @@
     {
       "path": "/api/cron/ad-cost-deadline",
       "schedule": "30 15 1 * *"
+    },
+    {
+      "path": "/api/cron/storage-gc",
+      "schedule": "0 17 * * *"
     }
   ]
 }
