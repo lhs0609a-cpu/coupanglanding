@@ -117,9 +117,10 @@ app.all('/proxy/*', async (c) => {
   const targetQuery = reqUrl.search.replace('?', '');
   const targetUrl = `${TARGET}${targetPath}${reqUrl.search}`;
 
-  // 클라이언트에서 전달받은 쿠팡 API 키
+  // 클라이언트에서 전달받은 쿠팡 API 키 + vendorId
   const accessKey = c.req.header('x-coupang-access-key') || '';
   const secretKey = c.req.header('x-coupang-secret-key') || '';
+  const vendorId = c.req.header('x-coupang-vendor-id') || '';
 
   if (!accessKey || !secretKey) {
     return c.json({ error: 'Missing X-Coupang-Access-Key or X-Coupang-Secret-Key headers' }, 400);
@@ -135,12 +136,15 @@ app.all('/proxy/*', async (c) => {
   );
 
   // 쿠팡 API로 보낼 헤더 구성
+  // X-Requested-By: vendorId — 일부 v5 endpoint(returnShippingCenters 등)는 헤더 누락 시
+  // 401/timeout으로 끊김. adapter가 X-Coupang-Vendor-Id로 전달한 값을 변환해서 전송.
   const reqHeaders: Record<string, string> = {
     Authorization: authorization,
     'Content-Type': 'application/json;charset=UTF-8',
+    ...(vendorId ? { 'X-Requested-By': vendorId, 'X-EXTENDED-Timeout': '90000' } : {}),
   };
 
-  console.log(`[proxy] ${c.req.method} ${targetPath}${reqUrl.search}`);
+  console.log(`[proxy] ${c.req.method} ${targetPath}${reqUrl.search} vendorId=${vendorId || '(none)'}`);
 
   const bodyMethods = ['POST', 'PUT', 'PATCH'];
   const fetchInit: RequestInit = { method: c.req.method, headers: reqHeaders };
@@ -148,9 +152,15 @@ app.all('/proxy/*', async (c) => {
     fetchInit.body = await c.req.text();
   }
 
+  // 20s timeout — 쿠팡 응답 지연 시 무한 hang 방지
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  fetchInit.signal = controller.signal;
+
   try {
     const startTime = Date.now();
     const res = await fetch(targetUrl, fetchInit);
+    clearTimeout(timeout);
     const body = await res.text();
     const duration = Date.now() - startTime;
 
@@ -168,8 +178,11 @@ app.all('/proxy/*', async (c) => {
       );
     }
   } catch (err) {
-    console.error(`[proxy] FETCH ERROR: ${err}`);
-    return c.json({ error: `Proxy error: ${err}` }, 502);
+    clearTimeout(timeout);
+    const isTimeout = (err as Error).name === 'AbortError';
+    const msg = isTimeout ? '쿠팡 API 응답 지연 (20초 초과)' : String(err);
+    console.error(`[proxy] FETCH ERROR: ${msg}`);
+    return c.json({ error: `Proxy error: ${msg}` }, 502);
   }
 });
 
