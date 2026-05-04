@@ -138,10 +138,13 @@ app.all('/proxy/*', async (c) => {
   // 쿠팡 API로 보낼 헤더 구성
   // X-Requested-By: vendorId — 일부 v5 endpoint(returnShippingCenters 등)는 헤더 누락 시
   // 401/timeout으로 끊김. adapter가 X-Coupang-Vendor-Id로 전달한 값을 변환해서 전송.
+  // X-EXTENDED-Timeout: 쿠팡 측에 작업 한도를 60s로 알림 → 우리 fetch 타임아웃과 일치.
+  // Accept-Encoding: undici 가 자동 디코딩하지만 명시 송신으로 압축 응답 보장 (대역폭 회귀 방지).
   const reqHeaders: Record<string, string> = {
     Authorization: authorization,
     'Content-Type': 'application/json;charset=UTF-8',
-    ...(vendorId ? { 'X-Requested-By': vendorId, 'X-EXTENDED-Timeout': '90000' } : {}),
+    'Accept-Encoding': 'gzip, deflate, br',
+    ...(vendorId ? { 'X-Requested-By': vendorId, 'X-EXTENDED-Timeout': '60000' } : {}),
   };
 
   console.log(`[proxy] ${c.req.method} ${targetPath}${reqUrl.search} vendorId=${vendorId || '(none)'}`);
@@ -152,9 +155,11 @@ app.all('/proxy/*', async (c) => {
     fetchInit.body = await c.req.text();
   }
 
-  // 20s timeout — 쿠팡 응답 지연 시 무한 hang 방지
+  // 60s timeout — 쿠팡 returnShippingCenters / 카테고리 메타 등 느린 엔드포인트 대응.
+  // adapter 측 기본 타임아웃은 65s 로 proxy 보다 길어 — proxy 가 먼저 502 로 끊고 명확한 에러를 반환.
+  const PROXY_TIMEOUT_MS = 60_000;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
+  const timeout = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
   fetchInit.signal = controller.signal;
 
   try {
@@ -180,9 +185,9 @@ app.all('/proxy/*', async (c) => {
   } catch (err) {
     clearTimeout(timeout);
     const isTimeout = (err as Error).name === 'AbortError';
-    const msg = isTimeout ? '쿠팡 API 응답 지연 (20초 초과)' : String(err);
+    const msg = isTimeout ? `쿠팡 API 응답 지연 (${PROXY_TIMEOUT_MS / 1000}초 초과)` : String(err);
     console.error(`[proxy] FETCH ERROR: ${msg}`);
-    return c.json({ error: `Proxy error: ${msg}` }, 502);
+    return c.json({ error: `Proxy error: ${msg}`, transient: isTimeout }, 502);
   }
 });
 

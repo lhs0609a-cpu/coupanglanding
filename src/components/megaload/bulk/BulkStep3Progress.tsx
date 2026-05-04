@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, Fragment } from 'react';
+import { useState, useCallback, useEffect, useMemo, Fragment } from 'react';
 import {
   CheckCircle2, XCircle, Loader2, Pause, Play, RefreshCw,
   Copy, Download, ChevronDown, ChevronUp, Lightbulb,
@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import type { EditableProduct, ErrorCategory, DetailedError } from './types';
 import { categorizeErrors } from '@/lib/megaload/services/error-classifier';
+import ReplicationModal from '@/components/megaload/ReplicationModal';
 
 interface BulkStep3ProgressProps {
   products: EditableProduct[];
@@ -67,6 +68,15 @@ export default function BulkStep3Progress({
   const [expandedRawUids, setExpandedRawUids] = useState<Set<string>>(new Set());
   const [copiedReport, setCopiedReport] = useState(false);
 
+  // 타 채널 자동 복제 상태
+  const [replicateModalOpen, setReplicateModalOpen] = useState(false);
+  const successCoupangIds = useMemo(
+    () => products
+      .filter((p) => p.status === 'success' && p.channelProductId)
+      .map((p) => p.channelProductId as string),
+    [products],
+  );
+
   const selectedProducts = products.filter(p => p.selected);
   const selectedCount = selectedProducts.length;
   const successCount = products.filter(p => p.status === 'success').length;
@@ -74,7 +84,15 @@ export default function BulkStep3Progress({
   const pendingCount = products.filter(p => p.selected && p.status === 'pending').length;
   const processedCount = successCount + failCount;
 
-  const elapsed = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
+  // Date.now()는 impure → useState + setInterval 로 분리 (render 중 호출 금지 규칙 준수)
+  const [nowTs, setNowTs] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (!registering) return;
+    const id = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [registering]);
+
+  const elapsed = startTime ? Math.floor((nowTs - startTime) / 1000) : 0;
   const avgPerProduct = processedCount > 0 ? elapsed / processedCount : 0;
   const remainingEstimate = avgPerProduct > 0 ? Math.ceil(avgPerProduct * pendingCount) : 0;
 
@@ -179,7 +197,7 @@ export default function BulkStep3Progress({
               <>
                 등록 진행 중 — 배치 {batchProgress.current}/{batchProgress.total}
                 <span className="text-sm font-normal text-gray-400 ml-2">
-                  ({imagePreuploadCacheSize > 0 ? '이미지 사전업로드 적용' : '일반 모드'}, 배치 크기 10)
+                  ({imagePreuploadCacheSize > 0 ? '이미지 사전업로드 적용' : '일반 모드'}, 배치 크기 30)
                 </span>
               </>
             ) : '등록 완료'}
@@ -403,6 +421,34 @@ export default function BulkStep3Progress({
         </div>
       </div>
 
+      {/* 타 채널 자동 복제 패널 */}
+      {!registering && successCount > 0 && (
+        <div className="bg-white rounded-xl border-2 border-[#E31837]/20 p-5">
+          <div className="flex items-start gap-4">
+            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center">
+              <Copy className="w-5 h-5 text-[#E31837]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-gray-900">다른 채널에도 복제하시겠어요?</div>
+              <p className="text-sm text-gray-600 mt-1">
+                쿠팡 등록에 성공한 <span className="font-semibold text-[#E31837]">{successCount}개</span> 상품을
+                네이버/11번가/G마켓/옥션/롯데온에 한번에 복제할 수 있습니다.
+                <br />
+                채널별 마진율은 복제 시작 시 설정할 수 있습니다.
+              </p>
+            </div>
+            <button
+              onClick={() => setReplicateModalOpen(true)}
+              disabled={successCoupangIds.length === 0}
+              className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 transition disabled:opacity-50"
+            >
+              <Copy className="w-4 h-4" />
+              다른 채널로 복제
+            </button>
+          </div>
+        </div>
+      )}
+
       {!registering && (
         <div className="flex items-center justify-center gap-3">
           {failCount > 0 && onRetryFailed && (
@@ -420,6 +466,12 @@ export default function BulkStep3Progress({
           </button>
         </div>
       )}
+
+      <ReplicationModal
+        isOpen={replicateModalOpen}
+        onClose={() => setReplicateModalOpen(false)}
+        coupangProductIds={successCoupangIds}
+      />
     </div>
   );
 }

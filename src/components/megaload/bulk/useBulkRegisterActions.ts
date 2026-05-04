@@ -174,10 +174,11 @@ export function useBulkRegisterActions() {
     uploadedAt?: number;
   }>>({});
   const IMAGE_CACHE_TTL_MS = 30 * 60 * 1000; // 30분
-  const imagePreuploadAbort = useRef<AbortController | null>(null);
-  // Ref로 최신 캐시 참조 — useCallback 클로저 stale 문제 방지
+  // Ref로 최신 캐시/진행상태 참조 — useCallback 클로저 stale 문제 방지
   const imagePreuploadCacheRef = useRef(imagePreuploadCache);
   imagePreuploadCacheRef.current = imagePreuploadCache;
+  const imagePreuploadProgressRef = useRef(imagePreuploadProgress);
+  imagePreuploadProgressRef.current = imagePreuploadProgress;
 
   // Dry-Run
   const [dryRunResults, setDryRunResults] = useState<Record<string, {
@@ -638,42 +639,6 @@ export function useBulkRegisterActions() {
         return updated;
       });
       setTitleGenProgress({ done: targets.length, total: targets.length });
-      return;
-    }
-
-    // AI 기반 생성 (폴백 — 위에서 항상 return하므로 실행 안 됨)
-    const BATCH = 100;
-    for (let i = 0; i < targets.length; i += BATCH) {
-      const batch = targets.slice(i, i + BATCH);
-      const inputs = batch.map(p => ({
-        originalName: p.editedName,
-        categoryPath: p.editedCategoryName,
-        brand: p.editedBrand,
-        keywords: p.tags,
-        // 셀러 브랜드를 personaSeed로 전달 → 셀러별 다른 톤의 AI 상품명 생성
-        personaSeed: preventionConfig.enabled && preventionConfig.sellerBrand
-          ? preventionConfig.sellerBrand : undefined,
-      }));
-
-      try {
-        const res = await fetch('/api/megaload/products/bulk-register/generate-titles', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ products: inputs }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          setProducts(prev => prev.map(p => {
-            const idx = batch.findIndex(b => b.uid === p.uid);
-            if (idx === -1 || !data.results?.[idx]) return p;
-            return { ...p, editedDisplayProductName: data.results[idx].displayName };
-          }));
-        }
-      } catch (err) {
-        console.error('[title-gen] Batch failed:', err);
-      }
-      setTitleGenProgress({ done: Math.min(i + BATCH, targets.length), total: targets.length });
     }
   }, [preventionConfig, shUserId]);
 
@@ -2508,10 +2473,14 @@ export function useBulkRegisterActions() {
 
     setStep(3); setRegistering(true); setIsPaused(false); isPausedRef.current = false; setStartTime(Date.now());
 
-    const preuploadDone = imagePreuploadProgress.phase === 'complete' || imagePreuploadProgress.phase === 'idle';
-    if (!preuploadDone) {
+    // preupload 완료까지 최대 30초 대기 (state는 ref로 읽어야 stale 방지)
+    if (imagePreuploadProgress.phase !== 'complete' && imagePreuploadProgress.phase !== 'idle') {
       const waitStart = Date.now();
-      while (Date.now() - waitStart < 30000) { await new Promise((r) => setTimeout(r, 500)); break; }
+      while (Date.now() - waitStart < 30000) {
+        await new Promise((r) => setTimeout(r, 500));
+        const phase = imagePreuploadProgressRef.current?.phase;
+        if (phase === 'complete' || phase === 'idle') break;
+      }
     }
 
     const BATCH_SIZE = 30;

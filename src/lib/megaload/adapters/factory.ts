@@ -8,6 +8,8 @@ import { NaverAdapter } from './naver.adapter';
 import { ElevenstAdapter } from './elevenst.adapter';
 import { EsmAdapter } from './esm.adapter';
 import { LotteonAdapter } from './lotteon.adapter';
+import { TossAdapter } from './toss.adapter';
+import { KakaoAdapter } from './kakao.adapter';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export function createAdapter(channel: Channel): BaseAdapter {
@@ -24,6 +26,10 @@ export function createAdapter(channel: Channel): BaseAdapter {
       return new EsmAdapter('auction');
     case 'lotteon':
       return new LotteonAdapter();
+    case 'toss':
+      return new TossAdapter();
+    case 'kakao':
+      return new KakaoAdapter();
     default:
       throw new Error(`지원하지 않는 채널: ${channel}`);
   }

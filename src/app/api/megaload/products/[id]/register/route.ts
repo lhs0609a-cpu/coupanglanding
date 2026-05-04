@@ -3,7 +3,8 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { mapCategory } from '@/lib/megaload/services/ai.service';
 import type { Channel } from '@/lib/megaload/types';
-import { CHANNELS } from '@/lib/megaload/constants';
+import { isChannelSupported } from '@/lib/megaload/types';
+import { CHANNELS, CHANNEL_LABELS } from '@/lib/megaload/constants';
 
 export async function POST(
   request: NextRequest,
@@ -19,8 +20,17 @@ export async function POST(
     const requestedChannels = (body.channels || CHANNELS.filter((c) => c !== 'coupang')) as Channel[];
     const margins = (body.margins || {}) as Record<string, number>;
 
-    // 준비 중 채널 차단은 멀티채널 확장 완료 후 활성화 (isChannelSupported 의존)
-    const targetChannels = requestedChannels.filter((c) => c !== 'coupang');
+    // 준비 중 채널(toss, kakao) 차단 — 어댑터에 도달하면 throw 되어 사용자에게는 매번 fail 로 보임.
+    // 사전에 잘라서 명시적 400 으로 응답.
+    const unsupported = requestedChannels.filter((c) => !isChannelSupported(c));
+    if (unsupported.length > 0) {
+      const names = unsupported.map((c) => CHANNEL_LABELS[c]).join(', ');
+      return NextResponse.json(
+        { error: `${names} 은(는) 준비 중인 채널입니다. 공식 API 공개 후 지원됩니다.` },
+        { status: 400 }
+      );
+    }
+    const targetChannels = requestedChannels.filter((c) => c !== 'coupang' && isChannelSupported(c));
 
     const serviceClient = await createServiceClient();
 

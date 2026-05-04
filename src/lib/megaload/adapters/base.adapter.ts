@@ -29,7 +29,12 @@ export abstract class BaseAdapter implements ChannelAdapter {
   abstract getCategories(parentId?: string): Promise<{ items: { id: string; name: string; parentId?: string }[] }>;
   abstract searchCategory(keyword: string): Promise<{ items: { id: string; name: string; path: string }[] }>;
 
-  protected async apiCall<T>(url: string, options: RequestInit = {}, timeoutMs = 25000): Promise<T> {
+  /**
+   * apiCall - 기본 타임아웃 65s (proxy 60s 보다 길게 두어 proxy 가 먼저 명시적 502 를 반환하도록 함)
+   * 호출지에서 더 짧게 줄이고 싶으면 timeoutMs 인자로 오버라이드.
+   * 502 응답에 transient:true 가 있으면 일시적 장애로 분류된 에러 메시지를 던짐 (호출자 retry 활용).
+   */
+  protected async apiCall<T>(url: string, options: RequestInit = {}, timeoutMs = 65000): Promise<T> {
     let response: Response;
     try {
       response = await fetch(url, {
@@ -41,7 +46,6 @@ export abstract class BaseAdapter implements ChannelAdapter {
         signal: options.signal ?? AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
-      // AbortSignal.timeout → DOMException name='TimeoutError', fetch 자체 실패는 TypeError
       const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
       if (isTimeout) {
         throw new Error(`API 응답 지연 — ${Math.round(timeoutMs / 1000)}초 내 응답 없음 (프록시/네트워크 점검 필요): ${url}`);
@@ -51,13 +55,16 @@ export abstract class BaseAdapter implements ChannelAdapter {
 
     if (!response.ok) {
       const errorText = await response.text();
-      // 쿠팡 API 에러 응답에서 메시지 추출 시도
       let detail = errorText;
+      let isTransient = false;
       try {
         const parsed = JSON.parse(errorText);
         detail = parsed.message || parsed.error || parsed.data || errorText;
+        isTransient = parsed?.transient === true;
       } catch { /* JSON이 아니면 원문 사용 */ }
-      throw new Error(`API ${response.status}: ${typeof detail === 'string' ? detail.slice(0, 500) : JSON.stringify(detail).slice(0, 500)}`);
+      // 502 transient → withRetry 가 인식하도록 메시지에 502 포함 + transient 표기
+      const tag = isTransient ? '[transient] ' : '';
+      throw new Error(`${tag}API ${response.status}: ${typeof detail === 'string' ? detail.slice(0, 500) : JSON.stringify(detail).slice(0, 500)}`);
     }
 
     return response.json() as Promise<T>;

@@ -6,7 +6,7 @@ import type { Channel, OrderStatus, Plan } from './types';
 
 // --- 채널 ---
 
-export const CHANNELS: Channel[] = ['coupang', 'naver', 'elevenst', 'gmarket', 'auction', 'lotteon'];
+export const CHANNELS: Channel[] = ['coupang', 'naver', 'elevenst', 'gmarket', 'auction', 'lotteon', 'toss', 'kakao'];
 
 export const CHANNEL_LABELS: Record<Channel, string> = {
   coupang: '쿠팡',
@@ -15,6 +15,8 @@ export const CHANNEL_LABELS: Record<Channel, string> = {
   gmarket: 'G마켓',
   auction: '옥션',
   lotteon: '롯데온',
+  toss: '토스쇼핑',
+  kakao: '카카오쇼핑',
 };
 
 export const CHANNEL_SHORT_LABELS: Record<Channel, string> = {
@@ -24,6 +26,8 @@ export const CHANNEL_SHORT_LABELS: Record<Channel, string> = {
   gmarket: 'G마켓',
   auction: '옥션',
   lotteon: '롯데온',
+  toss: '토스',
+  kakao: '카카오',
 };
 
 export const CHANNEL_COLORS: Record<Channel, string> = {
@@ -33,6 +37,8 @@ export const CHANNEL_COLORS: Record<Channel, string> = {
   gmarket: 'bg-emerald-100 text-emerald-700',
   auction: 'bg-blue-100 text-blue-700',
   lotteon: 'bg-pink-100 text-pink-700',
+  toss: 'bg-blue-50 text-blue-500',
+  kakao: 'bg-yellow-100 text-yellow-800',
 };
 
 export const CHANNEL_BG_COLORS: Record<Channel, string> = {
@@ -42,6 +48,8 @@ export const CHANNEL_BG_COLORS: Record<Channel, string> = {
   gmarket: '#00A862',
   auction: '#FF6F00',
   lotteon: '#E5006D',
+  toss: '#3182F6',
+  kakao: '#FEE500',
 };
 
 export const CHANNEL_ICONS: Record<Channel, string> = {
@@ -51,6 +59,8 @@ export const CHANNEL_ICONS: Record<Channel, string> = {
   gmarket: '🟩',
   auction: '🔵',
   lotteon: '🩷',
+  toss: '💙',
+  kakao: '💛',
 };
 
 // --- 주문 상태 ---
@@ -136,17 +146,19 @@ export const CHANNEL_ORDER_STATUS_MAP: Record<Channel, Record<string, OrderStatu
     CANCEL_COMPLETE: 'cancelled',
     RETURN_COMPLETE: 'returned',
   },
+  toss: {},   // 준비 중 — 공식 API 공개 시 매핑 추가
+  kakao: {},  // 준비 중 — 공식 API 공개 시 매핑 추가
 };
 
 // --- 택배사 코드 매핑 ---
 
 export const COURIER_CHANNEL_CODES: Record<string, Record<Channel, string>> = {
-  CJ대한통운: { coupang: 'CJGLS', naver: 'CJGLS', elevenst: '04', gmarket: 'CJ', auction: 'CJ', lotteon: 'CJ' },
-  한진택배: { coupang: 'HANJIN', naver: 'HANJIN', elevenst: '05', gmarket: 'HANJIN', auction: 'HANJIN', lotteon: 'HANJIN' },
-  롯데택배: { coupang: 'LOTTE', naver: 'LOTTE', elevenst: '08', gmarket: 'LOTTE', auction: 'LOTTE', lotteon: 'LOTTE' },
-  우체국택배: { coupang: 'EPOST', naver: 'EPOST', elevenst: '01', gmarket: 'EPOST', auction: 'EPOST', lotteon: 'EPOST' },
-  로젠택배: { coupang: 'LOGEN', naver: 'LOGEN', elevenst: '06', gmarket: 'LOGEN', auction: 'LOGEN', lotteon: 'LOGEN' },
-  경동택배: { coupang: 'KDEXP', naver: 'KDEXP', elevenst: '23', gmarket: 'KDEXP', auction: 'KDEXP', lotteon: 'KDEXP' },
+  CJ대한통운: { coupang: 'CJGLS', naver: 'CJGLS', elevenst: '04', gmarket: 'CJ', auction: 'CJ', lotteon: 'CJ', toss: '', kakao: '' },
+  한진택배: { coupang: 'HANJIN', naver: 'HANJIN', elevenst: '05', gmarket: 'HANJIN', auction: 'HANJIN', lotteon: 'HANJIN', toss: '', kakao: '' },
+  롯데택배: { coupang: 'LOTTE', naver: 'LOTTE', elevenst: '08', gmarket: 'LOTTE', auction: 'LOTTE', lotteon: 'LOTTE', toss: '', kakao: '' },
+  우체국택배: { coupang: 'EPOST', naver: 'EPOST', elevenst: '01', gmarket: 'EPOST', auction: 'EPOST', lotteon: 'EPOST', toss: '', kakao: '' },
+  로젠택배: { coupang: 'LOGEN', naver: 'LOGEN', elevenst: '06', gmarket: 'LOGEN', auction: 'LOGEN', lotteon: 'LOGEN', toss: '', kakao: '' },
+  경동택배: { coupang: 'KDEXP', naver: 'KDEXP', elevenst: '23', gmarket: 'KDEXP', auction: 'KDEXP', lotteon: 'KDEXP', toss: '', kakao: '' },
 };
 
 // --- 채널별 Rate Limit ---
@@ -158,6 +170,8 @@ export const CHANNEL_RATE_LIMITS: Record<Channel, { windowMs: number; maxCalls: 
   gmarket: { windowMs: 60000, maxCalls: 30 },
   auction: { windowMs: 60000, maxCalls: 30 },
   lotteon: { windowMs: 60000, maxCalls: 60 },
+  toss: { windowMs: 60000, maxCalls: 0 },
+  kakao: { windowMs: 60000, maxCalls: 0 },
 };
 
 // --- 채널별 발주확인 배치 사이즈 ---
@@ -169,6 +183,8 @@ export const CHANNEL_BATCH_SIZES: Record<Channel, number> = {
   gmarket: 30,
   auction: 30,
   lotteon: 50,
+  toss: 0,
+  kakao: 0,
 };
 
 // --- 채널별 수수료율 ---
@@ -180,6 +196,8 @@ export const CHANNEL_COMMISSION_RATES: Record<Channel, number> = {
   gmarket: 12,
   auction: 12,
   lotteon: 10,
+  toss: 0,
+  kakao: 0,
 };
 
 // --- 요금제 ---

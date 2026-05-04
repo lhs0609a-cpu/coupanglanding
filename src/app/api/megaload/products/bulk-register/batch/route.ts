@@ -52,7 +52,7 @@ async function ensureImageSpec(
   try {
     const res = await fetch(url);
     if (!res.ok) return url;
-    let buffer = Buffer.from(await res.arrayBuffer());
+    const buffer = Buffer.from(await res.arrayBuffer());
 
     const format = detectImageFormat(buffer);
     const dims = getImageDimensions(buffer, format);
@@ -272,13 +272,19 @@ export async function POST(req: NextRequest) {
       sellerBrandResult,
       existingProductsResult,
     ] = await Promise.all([
-      // 1) Wing ID (vendorUserId)
+      // 1) Wing ID (vendorUserId) — 없을 수 있음 (PT 미가입자)
       supabase
         .from('pt_users')
         .select('coupang_seller_id')
         .eq('profile_id', user.id)
         .single()
-        .then((r) => r, () => ({ data: null } as { data: Record<string, unknown> | null })),
+        .then(
+          (r) => r,
+          (err) => {
+            console.warn('[batch] pt_users 조회 실패 — wingUserId 없이 진행:', err instanceof Error ? err.message : err);
+            return { data: null } as { data: Record<string, unknown> | null };
+          },
+        ),
       // 2) 셀러 브랜드 (preventionConfig 에서 우선)
       preventionConfig?.sellerBrand
         ? Promise.resolve({ data: { seller_brand: preventionConfig.sellerBrand } })
@@ -287,19 +293,35 @@ export async function POST(req: NextRequest) {
             .select('seller_brand')
             .eq('id', shUserId)
             .single()
-            .then((r) => r, () => ({ data: null } as { data: Record<string, unknown> | null })),
+            .then(
+              (r) => r,
+              (err) => {
+                console.warn('[batch] megaload_users.seller_brand 조회 실패:', err instanceof Error ? err.message : err);
+                return { data: null } as { data: Record<string, unknown> | null };
+              },
+            ),
       // 3) 중복 등록 방지: 이미 등록된 productCode
+      //    실패 시 dedup 불가 → 명시적으로 이 사실을 추적하기 위해 sentinel(undefined) 사용
       serviceClient
         .from('sh_products')
         .select('raw_data')
         .eq('megaload_user_id', shUserId)
         .in('raw_data->>productCode', productCodes)
-        .then((r) => r, () => ({ data: null } as { data: { raw_data: Record<string, unknown> | null }[] | null })),
+        .then(
+          (r) => r,
+          (err) => {
+            console.error('[batch] 중복 검사 쿼리 실패 — dedup 비활성화 위험:', err instanceof Error ? err.message : err);
+            return { data: undefined } as { data: { raw_data: Record<string, unknown> | null }[] | undefined };
+          },
+        ),
     ]);
 
     const wingUserId = (wingUserResult.data as Record<string, unknown> | null)?.coupang_seller_id as string || '';
     const sellerBrand = (sellerBrandResult.data as Record<string, unknown> | null)?.seller_brand as string || '';
-    const existingProducts = existingProductsResult.data as { raw_data: Record<string, unknown> | null }[] | null;
+    const existingProducts = existingProductsResult.data as { raw_data: Record<string, unknown> | null }[] | null | undefined;
+    if (existingProductsResult.data === undefined) {
+      console.warn('[batch] 중복 검사 결과 unavailable — 이번 배치는 dedup skip 됨');
+    }
 
     const registeredCodes = new Set(
       (existingProducts || []).map((p) => {
@@ -536,13 +558,17 @@ export async function POST(req: NextRequest) {
       const hasUserReview = Array.isArray(product.reviewTextsOverride) && product.reviewTextsOverride.length > 0;
 
       if (!hasUserStory || !hasUserReview) {
-        const aiStoryRaw = batchAiStories.get(product.uid || product.productCode) || '';
-        try {
-          const parsed = JSON.parse(aiStoryRaw);
-          if (!hasUserStory) aiStoryParagraphs = Array.isArray(parsed.paragraphs) ? parsed.paragraphs : [];
-          if (!hasUserReview) aiReviewTexts = Array.isArray(parsed.reviewTexts) ? parsed.reviewTexts : [];
-        } catch {
-          if (!hasUserStory) aiStoryHtml = aiStoryRaw;
+        const aiStoryRaw = (batchAiStories.get(product.uid || product.productCode) || '').trim();
+        // 빈 문자열은 JSON.parse가 throw → 폴백으로 모두 빈 값. 비어있지 않은 경우만 파싱 시도.
+        if (aiStoryRaw) {
+          try {
+            const parsed = JSON.parse(aiStoryRaw);
+            if (!hasUserStory) aiStoryParagraphs = Array.isArray(parsed.paragraphs) ? parsed.paragraphs : [];
+            if (!hasUserReview) aiReviewTexts = Array.isArray(parsed.reviewTexts) ? parsed.reviewTexts : [];
+          } catch {
+            // JSON 형태가 아니면 문자열 자체를 HTML 본문으로 취급 (레거시 응답 대비)
+            if (!hasUserStory) aiStoryHtml = aiStoryRaw;
+          }
         }
       }
 
@@ -731,30 +757,53 @@ export async function POST(req: NextRequest) {
           const imageInserts: { product_id: string; image_url: string; cdn_url: string; image_type: string; sort_order: number }[] = [];
           mainImageUrls.forEach((url, i) => imageInserts.push({ product_id: savedId!, image_url: url, cdn_url: url, image_type: 'main', sort_order: i }));
           detailImageUrls.forEach((url, i) => imageInserts.push({ product_id: savedId!, image_url: url, cdn_url: url, image_type: 'detail', sort_order: i }));
-          reviewImageUrls.forEach((url, i) => imageInserts.push({ product_id: savedId!, image_url: url, cdn_url: url, image_type: 'description', sort_order: i }));
-          infoImageUrls.forEach((url, i) => imageInserts.push({ product_id: savedId!, image_url: url, cdn_url: url, image_type: 'option', sort_order: i }));
+          reviewImageUrls.forEach((url, i) => imageInserts.push({ product_id: savedId!, image_url: url, cdn_url: url, image_type: 'review', sort_order: i }));
+          infoImageUrls.forEach((url, i) => imageInserts.push({ product_id: savedId!, image_url: url, cdn_url: url, image_type: 'info', sort_order: i }));
 
-          // Supabase 빌더는 thenable (PromiseLike) — Promise.all 은 PromiseLike 도 받음.
-          const dbWrites: PromiseLike<unknown>[] = [
-            serviceClient.from('sh_product_channels').insert({
-              product_id: savedId, megaload_user_id: shUserId, channel: 'coupang',
-              channel_product_id: result.channelProductId, status: 'active', last_synced_at: new Date().toISOString(),
-            }).then((r) => r),
-            serviceClient.from('sh_product_options').insert({
-              product_id: savedId, megaload_user_id: shUserId, option_name: '기본',
-              sku: product.productCode, sale_price: product.sellingPrice, cost_price: product.sourcePrice, stock,
-            }).then((r) => r),
+          // Supabase 빌더는 thenable이며 reject 안 함 — { error } 필드를 명시적으로 검사해야 함.
+          //   기존 await Promise.all(...) 은 모든 DB 실패를 silent 처리하여 채널 매핑 / 이미지 / 옵션 누락 발생.
+          //   여기선 결과를 라벨링하여 실패 시 명시적 throw → 외부 catch 가 보상 로직(orphan 기록)으로 처리하게 함.
+          interface LabeledWrite { label: string; thenable: PromiseLike<{ error: { message?: string } | null }> }
+          const dbWrites: LabeledWrite[] = [
+            {
+              label: 'sh_product_channels',
+              thenable: serviceClient.from('sh_product_channels').insert({
+                product_id: savedId, megaload_user_id: shUserId, channel: 'coupang',
+                channel_product_id: result.channelProductId, status: 'active', last_synced_at: new Date().toISOString(),
+              }) as PromiseLike<{ error: { message?: string } | null }>,
+            },
+            {
+              label: 'sh_product_options',
+              thenable: serviceClient.from('sh_product_options').insert(
+                ((product.optionVariants && product.optionVariants.length > 0)
+                  ? product.optionVariants.map((v, i) => ({
+                      product_id: savedId, megaload_user_id: shUserId,
+                      option_name: v.optionName || `옵션${i + 1}`,
+                      sku: v.sku || `${product.productCode}-${i + 1}`,
+                      sale_price: typeof v.salePrice === 'number' ? v.salePrice : product.sellingPrice,
+                      cost_price: product.sourcePrice,
+                      stock: typeof v.stock === 'number' ? v.stock : stock,
+                    }))
+                  : [{
+                      product_id: savedId, megaload_user_id: shUserId, option_name: '기본',
+                      sku: product.productCode, sale_price: product.sellingPrice,
+                      cost_price: product.sourcePrice, stock,
+                    }]
+                ),
+              ) as PromiseLike<{ error: { message?: string } | null }>,
+            },
           ];
           if (imageInserts.length > 0) {
-            dbWrites.push(
-              serviceClient.from('sh_product_images').insert(imageInserts).then((r) => r),
-            );
+            dbWrites.push({
+              label: 'sh_product_images',
+              thenable: serviceClient.from('sh_product_images').insert(imageInserts) as PromiseLike<{ error: { message?: string } | null }>,
+            });
           }
-          // 품절 모니터 (source_url 있는 상품만)
           if (product.sourceUrl) {
             const registeredOptionName = product.sourceName || null;
-            dbWrites.push(
-              serviceClient.from('sh_stock_monitors').upsert({
+            dbWrites.push({
+              label: 'sh_stock_monitors',
+              thenable: serviceClient.from('sh_stock_monitors').upsert({
                 megaload_user_id: shUserId,
                 product_id: savedId,
                 coupang_product_id: result.channelProductId,
@@ -763,11 +812,15 @@ export async function POST(req: NextRequest) {
                 coupang_status: 'active',
                 is_active: true,
                 registered_option_name: registeredOptionName,
-              }, { onConflict: 'megaload_user_id,product_id' }).then((r) => r),
-            );
+              }, { onConflict: 'megaload_user_id,product_id' }) as PromiseLike<{ error: { message?: string } | null }>,
+            });
           }
-          await Promise.all(dbWrites);
-          // (품절 모니터 자동 등록 + source_url UPDATE 는 위 dbWrites 에 통합됨)
+          const writeResults = await Promise.all(dbWrites.map(w => w.thenable.then(r => ({ label: w.label, error: r?.error }))));
+          const failures = writeResults.filter(r => r.error).map(r => `${r.label}: ${r.error?.message || 'unknown'}`);
+          if (failures.length > 0) {
+            // sh_product_channels / sh_product_options 누락은 후속 흐름(복제, 정산)을 깨뜨리므로 예외로 승격
+            throw new Error(`DB 부분 실패: ${failures.join(' | ')}`);
+          }
         }
       } catch (dbErr) {
         // DB 실패 시 보상 로직: 고아 상품 정보를 sh_sync_jobs.result에 기록

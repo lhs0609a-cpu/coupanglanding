@@ -74,13 +74,20 @@ export class CoupangAdapter extends BaseAdapter {
     const { authorization } = this.generateSignature(method, path, query);
     const url = `${COUPANG_API_BASE}${path}${query ? '?' + query : ''}`;
 
+    // X-Requested-By 는 vendorId 가 있을 때만 송신 — 빈 문자열은 일부 엔드포인트에서 4xx 유발.
+    // (proxy 모드의 ternary 와 동일한 로직)
+    const directHeaders: Record<string, string> = {
+      Authorization: authorization,
+      'Content-Type': 'application/json;charset=UTF-8',
+      'Accept-Encoding': 'gzip, deflate, br',
+    };
+    if (this.vendorId) {
+      directHeaders['X-Requested-By'] = this.vendorId;
+      directHeaders['X-EXTENDED-Timeout'] = '60000';
+    }
     const options: RequestInit = {
       method,
-      headers: {
-        Authorization: authorization,
-        'Content-Type': 'application/json;charset=UTF-8',
-        'X-Requested-By': this.vendorId,
-      },
+      headers: directHeaders,
     };
 
     if (body) {

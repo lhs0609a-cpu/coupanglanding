@@ -63,6 +63,12 @@ build.out
 scripts/verify-output*.log
 scripts/verify-*-bundle.cjs
 scripts/verify-*-report.json
+scripts/audit-*.log
+scripts/audit-*.json
+scripts/audit-*.cjs
+
+# 빌드/타입체크 캐시
+.build-test/
 
 # Claude Code 로컬 상태
 .claude/scheduled_tasks.lock

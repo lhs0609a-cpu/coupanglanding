@@ -4,7 +4,14 @@
 
 // --- Enums ---
 
-export type Channel = 'coupang' | 'naver' | 'elevenst' | 'gmarket' | 'auction' | 'lotteon';
+export type Channel = 'coupang' | 'naver' | 'elevenst' | 'gmarket' | 'auction' | 'lotteon' | 'toss' | 'kakao';
+
+/** 실제 API 연동 여부 — 토스/카카오는 공식 셀러 API 미공개로 준비 중 */
+export const UNSUPPORTED_CHANNELS = ['toss', 'kakao'] as const;
+export type UnsupportedChannel = typeof UNSUPPORTED_CHANNELS[number];
+export function isChannelSupported(channel: Channel): boolean {
+  return !(UNSUPPORTED_CHANNELS as readonly string[]).includes(channel);
+}
 export type SourcingPlatform = 'aliexpress' | 'ali1688';
 export type Plan = 'free' | 'standard' | 'professional';
 
