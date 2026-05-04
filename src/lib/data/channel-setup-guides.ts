@@ -437,4 +437,51 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
     ],
     finalNote: '롯데온 API Key는 1년 만료입니다. Megaload에서 만료 30일 전 알림을 보내드립니다.',
   },
+
+  // ── 토스쇼핑 (스텁 — 공식 셀러 API 미공개) ──
+  toss: {
+    channel: 'toss',
+    title: '토스쇼핑 — 준비 중',
+    estimatedTime: '-',
+    prerequisites: [
+      '공식 셀러 API 미공개 — 현재 등록 불가',
+    ],
+    steps: [
+      {
+        stepNumber: 1,
+        title: '준비 중',
+        description: '토스쇼핑은 현재 셀러 직접 등록용 공식 Open API가 공개되지 않았습니다.',
+        detailedInstructions: [
+          '공식 API 공개 시 자동으로 활성화됩니다.',
+          '대안 1: 쿠팡 등록 상품의 피드를 토스에 노출 (제휴사 전용).',
+          '대안 2: 토스 알림톡으로 상품 홍보.',
+        ],
+        warning: '공식 API 공개 전까지 모든 쓰기 작업이 차단됩니다.',
+      },
+    ],
+    finalNote: '토스 셀러 API 공개 시 알림 후 자동 활성화됩니다.',
+  },
+
+  // ── 카카오쇼핑 (스텁 — 공식 셀러 API 미공개) ──
+  kakao: {
+    channel: 'kakao',
+    title: '카카오쇼핑 — 준비 중',
+    estimatedTime: '-',
+    prerequisites: [
+      '공식 셀러 Open API 미공개 — 일반 셀러 등록 불가',
+    ],
+    steps: [
+      {
+        stepNumber: 1,
+        title: '준비 중',
+        description: '카카오쇼핑/카카오 선물하기는 파트너센터 직접 입점 심사가 필요하며 일반 셀러용 Open API가 없습니다.',
+        detailedInstructions: [
+          '대형 셀러는 카카오 파트너센터에서 별도 협의가 필요합니다.',
+          '공식 Open API 공개 시 자동으로 활성화됩니다.',
+        ],
+        warning: '공식 API 공개 전까지 모든 쓰기 작업이 차단됩니다.',
+      },
+    ],
+    finalNote: '카카오 셀러 API 공개 시 알림 후 자동 활성화됩니다.',
+  },
 };
