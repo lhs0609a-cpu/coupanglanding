@@ -30,11 +30,20 @@ export abstract class BaseAdapter implements ChannelAdapter {
   abstract searchCategory(keyword: string): Promise<{ items: { id: string; name: string; path: string }[] }>;
 
   /**
-   * apiCall - 기본 타임아웃 65s (proxy 60s 보다 길게 두어 proxy 가 먼저 명시적 502 를 반환하도록 함)
-   * 호출지에서 더 짧게 줄이고 싶으면 timeoutMs 인자로 오버라이드.
-   * 502 응답에 transient:true 가 있으면 일시적 장애로 분류된 에러 메시지를 던짐 (호출자 retry 활용).
+   * apiCall - 기본 타임아웃 30s.
+   *
+   * Vercel Fluid GB-Hrs 비용 = 함수 메모리 점유 시간. fetch hang 시 함수는 timeout
+   * 만료까지 메모리를 잡고 있으므로 무작정 늘리면 비용 직격탄.
+   *   (5/5 사이클: 65s 였을 때 coupanglanding 11.5 GB-Hrs spike 발생 추정)
+   *
+   * 30s 선정 근거:
+   *   - proxy (Fly.io) 도 30s 로 동일 — adapter 가 먼저 끊지 않도록 proxy 가 먼저 502.
+   *   - returnShippingCenters / 카테고리 메타도 정상 응답은 5~15s 내 (실측 기반).
+   *   - 30s 초과 응답은 거의 100% Coupang 측 일시 장애 → retry 가 더 효율적.
+   * 호출지에서 더 짧게/길게 줄이고 싶으면 timeoutMs 인자로 오버라이드.
+   * 502 transient 표기는 withRetry 와 연동.
    */
-  protected async apiCall<T>(url: string, options: RequestInit = {}, timeoutMs = 65000): Promise<T> {
+  protected async apiCall<T>(url: string, options: RequestInit = {}, timeoutMs = 30000): Promise<T> {
     let response: Response;
     try {
       response = await fetch(url, {

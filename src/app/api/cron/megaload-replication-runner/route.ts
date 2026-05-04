@@ -26,8 +26,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 export const maxDuration = 300;
 
 const MAX_ITEMS_PER_TICK = 20;   // 타임아웃 회피
-const TICK_SOFT_DEADLINE_MS = 270_000;  // maxDuration 300s 중 30s 여유
-const PER_ITEM_TIMEOUT_MS = 60_000;     // 단일 채널 등록 1건 60초 한도 — hang 방지
+const TICK_SOFT_DEADLINE_MS = 240_000;  // maxDuration 300s 중 60s 여유 (메모리 점유 단축)
+const PER_ITEM_TIMEOUT_MS = 30_000;     // 단일 채널 등록 1건 30s 한도 — adapter/proxy 와 일치
 const MAX_ERROR_LOG_ENTRIES = 50;
 
 /** 단일 비동기 작업에 타임아웃 적용 — 한 건 hang 이 tick 전체를 stall 시키지 않도록 함 */

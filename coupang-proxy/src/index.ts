@@ -138,13 +138,14 @@ app.all('/proxy/*', async (c) => {
   // 쿠팡 API로 보낼 헤더 구성
   // X-Requested-By: vendorId — 일부 v5 endpoint(returnShippingCenters 등)는 헤더 누락 시
   // 401/timeout으로 끊김. adapter가 X-Coupang-Vendor-Id로 전달한 값을 변환해서 전송.
-  // X-EXTENDED-Timeout: 쿠팡 측에 작업 한도를 60s로 알림 → 우리 fetch 타임아웃과 일치.
-  // Accept-Encoding: undici 가 자동 디코딩하지만 명시 송신으로 압축 응답 보장 (대역폭 회귀 방지).
+  // X-EXTENDED-Timeout: 쿠팡 측 작업 한도 — 아래 PROXY_TIMEOUT_MS 와 일치 (30s).
+  //   (이전 60s/90s 는 hang 시 Vercel 함수 메모리 60s 점유 → 5/5 GB-Hrs 폭증 원인)
+  // Accept-Encoding: undici 자동 디코딩이지만 명시 송신으로 압축 응답 보장.
   const reqHeaders: Record<string, string> = {
     Authorization: authorization,
     'Content-Type': 'application/json;charset=UTF-8',
     'Accept-Encoding': 'gzip, deflate, br',
-    ...(vendorId ? { 'X-Requested-By': vendorId, 'X-EXTENDED-Timeout': '60000' } : {}),
+    ...(vendorId ? { 'X-Requested-By': vendorId, 'X-EXTENDED-Timeout': '30000' } : {}),
   };
 
   console.log(`[proxy] ${c.req.method} ${targetPath}${reqUrl.search} vendorId=${vendorId || '(none)'}`);
@@ -155,9 +156,11 @@ app.all('/proxy/*', async (c) => {
     fetchInit.body = await c.req.text();
   }
 
-  // 60s timeout — 쿠팡 returnShippingCenters / 카테고리 메타 등 느린 엔드포인트 대응.
-  // adapter 측 기본 타임아웃은 65s 로 proxy 보다 길어 — proxy 가 먼저 502 로 끊고 명확한 에러를 반환.
-  const PROXY_TIMEOUT_MS = 60_000;
+  // 30s timeout — 메모리 비용 우선. 쿠팡 정상 응답은 5~15s 내 관찰됨.
+  //   (이전 60s 는 Vercel Fluid GB-Hrs 폭증 원인 — hang 1건당 60s 메모리 점유)
+  // adapter 측 기본 타임아웃도 30s 로 동일 — adapter 의 timeout 자체가 거의 발동하지 않도록
+  // proxy 가 먼저 502 로 끊고 명확한 에러를 반환.
+  const PROXY_TIMEOUT_MS = 30_000;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
   fetchInit.signal = controller.signal;
