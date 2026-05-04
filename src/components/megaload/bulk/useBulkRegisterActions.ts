@@ -1758,7 +1758,12 @@ export function useBulkRegisterActions() {
 
       let completed = 0;
       let taskIdx = 0;
-      const CONCURRENCY = 60;
+      // CONCURRENCY: 60 → 12.
+      //   60 동시는 (a) Vercel 함수 메모리 동시 점유 (이미지당 ~10MB Buffer + Jimp 처리),
+      //   (b) Supabase Storage 초당 업로드 한도, (c) 브라우저 측 동시 fetch 한도(보통 6~10/origin)
+      //   를 모두 한계점에 몰아 'Failed to fetch' / 빈 응답 대량 발생.
+      //   12로 내리면 안정 + 사실상 throughput 거의 동일 (이미지 압축이 병목).
+      const CONCURRENCY = 12;
 
       // 실패 추적 (사용자 가시화 — silent fail 방지)
       const failureReasons: Record<string, number> = {};

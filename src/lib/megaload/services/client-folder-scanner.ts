@@ -730,47 +730,106 @@ function getSupabaseClient() {
   return _supabaseClient;
 }
 
-function generateStoragePath(name: string): string {
+function generateStoragePath(name: string, userId?: string): string {
   const ext = name.match(/\.(jpg|jpeg|png|webp|gif)$/i)?.[1]?.toLowerCase() || 'jpg';
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  return `megaload/browser/${id}.${ext}`;
+  // userId 가 있으면 "megaload/${userId}/browser/" 사용 — 추후 path-based RLS 강화에도 호환
+  // 없으면 "megaload/browser/" — 현재 RLS 정책(bucket_id 체크만)에서도 동작
+  const prefix = userId ? `megaload/${userId}/browser` : `megaload/browser`;
+  return `${prefix}/${id}.${ext}`;
 }
 
-export async function uploadSingleImage(blob: Blob, name: string): Promise<string> {
-  // 1차: Supabase 직접 업로드
+/** 인증된 유저의 megaload_user_id 캐시 — 직접 업로드 path 에 포함 */
+let _cachedUserId: string | null | undefined;
+async function getCachedUserId(): Promise<string | null> {
+  if (_cachedUserId !== undefined) return _cachedUserId;
   const supabase = getSupabaseClient();
+  if (!supabase) { _cachedUserId = null; return null; }
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    _cachedUserId = user?.id ?? null;
+  } catch {
+    _cachedUserId = null;
+  }
+  return _cachedUserId;
+}
+
+const SLEEP = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+export async function uploadSingleImage(blob: Blob, name: string): Promise<string> {
+  const supabase = getSupabaseClient();
+
+  // ── 1차: Supabase Storage 직접 업로드 (재시도 2회 + 지수 백오프) ──
   if (supabase) {
-    try {
-      const storagePath = generateStoragePath(name);
-      const ext = name.match(/\.(png|gif|webp)$/i)?.[1]?.toLowerCase();
-      const contentType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+    const userId = (await getCachedUserId()) || undefined;
+    const ext = name.match(/\.(png|gif|webp)$/i)?.[1]?.toLowerCase();
+    const contentType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
 
-      const { data, error } = await supabase.storage
-        .from('product-images')
-        .upload(storagePath, blob, { contentType, cacheControl: '31536000', upsert: false });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const storagePath = generateStoragePath(name, userId);
+        const { data, error } = await supabase.storage
+          .from('product-images')
+          .upload(storagePath, blob, { contentType, cacheControl: '31536000', upsert: false });
 
-      if (!error && data) {
-        const { data: pub } = supabase.storage.from('product-images').getPublicUrl(storagePath);
-        if (pub?.publicUrl) return pub.publicUrl;
+        if (!error && data) {
+          const { data: pub } = supabase.storage.from('product-images').getPublicUrl(storagePath);
+          if (pub?.publicUrl) return pub.publicUrl;
+        }
+
+        // 413/file size 에러는 재시도해도 동일 → 즉시 폴백
+        if (error?.message && /too\s*large|exceed|size limit|413/i.test(error.message)) {
+          console.warn(`[uploadSingleImage] 사이즈 초과 (size=${blob.size}) — 재시도 skip`);
+          break;
+        }
+        // 그 외 에러는 짧게 백오프 후 재시도
+        if (attempt < 2) {
+          await SLEEP(200 * (attempt + 1) + Math.random() * 200);
+          continue;
+        }
+        if (error) {
+          console.warn(`[uploadSingleImage] Supabase 직접 업로드 실패 (시도 ${attempt + 1}): ${error.message} (size=${blob.size})`);
+        }
+      } catch (e) {
+        if (attempt < 2) {
+          await SLEEP(200 * (attempt + 1) + Math.random() * 200);
+          continue;
+        }
+        console.warn(`[uploadSingleImage] Supabase 직접 업로드 예외:`, e);
       }
-      if (error) {
-        console.warn(`[uploadSingleImage] Supabase 직접 업로드 실패: ${error.message} (size=${blob.size})`);
-      }
-    } catch (e) {
-      console.warn(`[uploadSingleImage] Supabase 직접 업로드 예외:`, e);
     }
   }
 
-  // 2차: 서버 API 폴백
-  const formData = new FormData();
-  formData.append('file', blob, name);
-  const res = await fetch('/api/megaload/products/bulk-register/upload-image', {
-    method: 'POST',
-    body: formData,
-  });
-  if (!res.ok) return '';
-  const data = await res.json();
-  return data.url || '';
+  // ── 2차: 서버 API 폴백 (재시도 2회) ──
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const formData = new FormData();
+      formData.append('file', blob, name);
+      const res = await fetch('/api/megaload/products/bulk-register/upload-image', {
+        method: 'POST',
+        body: formData,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.url) return data.url;
+      }
+      // 4xx 는 재시도 불필요 (사이즈/형식 에러)
+      if (res.status >= 400 && res.status < 500) {
+        const errBody = await res.text().catch(() => '');
+        console.warn(`[uploadSingleImage] 서버 폴백 4xx (재시도 skip): ${res.status} ${errBody.slice(0, 200)}`);
+        break;
+      }
+      // 5xx / 빈 응답은 재시도
+      if (attempt < 2) await SLEEP(300 * (attempt + 1));
+    } catch (e) {
+      if (attempt < 2) {
+        await SLEEP(300 * (attempt + 1));
+        continue;
+      }
+      console.warn(`[uploadSingleImage] 서버 폴백 fetch 실패 (최종):`, e);
+    }
+  }
+  return '';
 }
 
 /**
