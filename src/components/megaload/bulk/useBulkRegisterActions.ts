@@ -1896,6 +1896,7 @@ export function useBulkRegisterActions() {
       for (let i = 0; i < targetProducts.length; i += BATCH) batchStarts.push(i);
 
       // 워커: 다음 배치 인덱스를 가져와 처리
+      // 개별 배치 fetch에 30s 타임아웃 + try/catch — 한 배치 hang이 전체를 막지 않게
       let nextBatch = 0;
       const runBatchWorker = async () => {
         while (true) {
@@ -1903,47 +1904,66 @@ export function useBulkRegisterActions() {
           if (batchIdx >= batchStarts.length) return;
           const start = batchStarts[batchIdx];
           const batch = targetProducts.slice(start, start + BATCH);
-          const res = await fetch('/api/megaload/products/bulk-register/validate-batch', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              products: batch.map((p) => ({
-                uid: p.uid, editedName: p.editedName, editedBrand: p.editedBrand, editedSellingPrice: p.editedSellingPrice,
-                editedCategoryCode: p.editedCategoryCode, sourcePrice: p.sourcePrice,
-                mainImageCount: p.scannedMainImages?.length ?? p.mainImageCount, detailImageCount: p.detailImageCount,
-                infoImageCount: p.infoImageCount, reviewImageCount: p.reviewImageCount,
-              })),
-              contactNumber, dryRun: true,
-              deliveryInfo: {
-                outboundShippingPlaceCode: selectedOutbound, returnCenterCode: selectedReturn,
-                deliveryChargeType, deliveryCharge: deliveryChargeType === 'FREE' ? 0 : deliveryCharge, returnCharge,
-              },
-              stock: 999,
-            }),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            setProducts((prev) => prev.map((p) => {
-              const r = data.results[p.uid];
-              if (!r) return p;
-              return { ...p, validationStatus: r.status, validationErrors: r.errors, validationWarnings: r.warnings };
-            }));
-            const newDryRun: typeof dryRunResults = {};
-            for (const [uid, r] of Object.entries(data.results) as [string, Record<string, unknown>][]) {
-              if (r.payloadPreview || r.missingRequiredFields) {
-                newDryRun[uid] = {
-                  payloadPreview: r.payloadPreview as typeof dryRunResults[string]['payloadPreview'],
-                  missingRequiredFields: r.missingRequiredFields as string[],
-                };
+          try {
+            const res = await fetch('/api/megaload/products/bulk-register/validate-batch', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              signal: AbortSignal.timeout(30_000),
+              body: JSON.stringify({
+                products: batch.map((p) => ({
+                  uid: p.uid, editedName: p.editedName, editedBrand: p.editedBrand, editedSellingPrice: p.editedSellingPrice,
+                  editedCategoryCode: p.editedCategoryCode, sourcePrice: p.sourcePrice,
+                  mainImageCount: p.scannedMainImages?.length ?? p.mainImageCount, detailImageCount: p.detailImageCount,
+                  infoImageCount: p.infoImageCount, reviewImageCount: p.reviewImageCount,
+                })),
+                contactNumber, dryRun: true,
+                deliveryInfo: {
+                  outboundShippingPlaceCode: selectedOutbound, returnCenterCode: selectedReturn,
+                  deliveryChargeType, deliveryCharge: deliveryChargeType === 'FREE' ? 0 : deliveryCharge, returnCharge,
+                },
+                stock: 999,
+              }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              setProducts((prev) => prev.map((p) => {
+                const r = data.results[p.uid];
+                if (!r) return p;
+                return { ...p, validationStatus: r.status, validationErrors: r.errors, validationWarnings: r.warnings };
+              }));
+              const newDryRun: typeof dryRunResults = {};
+              for (const [uid, r] of Object.entries(data.results) as [string, Record<string, unknown>][]) {
+                if (r.payloadPreview || r.missingRequiredFields) {
+                  newDryRun[uid] = {
+                    payloadPreview: r.payloadPreview as typeof dryRunResults[string]['payloadPreview'],
+                    missingRequiredFields: r.missingRequiredFields as string[],
+                  };
+                }
               }
+              setDryRunResults((prev) => ({ ...prev, ...newDryRun }));
+              if (data.categoryMeta) setCategoryMetaCache((prev) => ({ ...prev, ...data.categoryMeta }));
             }
-            setDryRunResults((prev) => ({ ...prev, ...newDryRun }));
-            if (data.categoryMeta) setCategoryMetaCache((prev) => ({ ...prev, ...data.categoryMeta }));
+          } catch (err) {
+            console.warn(`[validate-batch] batch ${batchIdx} 실패 — skip:`, err instanceof Error ? err.message : err);
+            // 해당 배치 상품들을 'warning'으로 표시 (검증 미완료 상태)
+            setProducts((prev) => prev.map((p) => {
+              const inBatch = batch.some((b) => b.uid === p.uid);
+              if (!inBatch) return p;
+              return {
+                ...p,
+                validationStatus: 'warning' as const,
+                validationWarnings: [
+                  ...(p.validationWarnings || []),
+                  { field: 'category', severity: 'warning', message: '검증 timeout — 카테고리 메타 응답 지연' },
+                ],
+              };
+            }));
           }
         }
       };
 
       // 동시 워커 시작 (배치 수보다 많이 만들지 않음)
-      await Promise.all(
+      // allSettled — 한 워커가 throw해도 나머지는 끝까지 실행
+      await Promise.allSettled(
         Array.from({ length: Math.min(BATCH_CONCURRENCY, batchStarts.length) }, () => runBatchWorker()),
       );
       setValidationPhase('complete');
