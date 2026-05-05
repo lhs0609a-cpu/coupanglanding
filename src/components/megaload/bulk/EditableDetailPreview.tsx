@@ -21,7 +21,7 @@
  */
 
 import { useState, useRef, useCallback } from 'react';
-import { Trash2, Plus, Pencil } from 'lucide-react';
+import { Trash2, Plus, Pencil, Sparkles } from 'lucide-react';
 
 interface EditableDetailPreviewProps {
   /** 본문 문단 (편집 가능) */
@@ -147,11 +147,20 @@ export default function EditableDetailPreview({
   }, [paragraphs, onParagraphsChange, startEdit]);
 
   return (
-    <div
-      className="bg-white rounded-lg shadow-inner overflow-y-auto"
-      style={{ maxHeight }}
-    >
-      <div style={{ padding: '20px 16px', maxWidth: 720, margin: '0 auto' }}>
+    <div className="rounded-lg overflow-hidden border-2 border-[#E31837]">
+      {/* ─── 편집 가능 안내 배너 ─── */}
+      <div className="bg-gradient-to-r from-[#E31837] to-red-600 text-white px-4 py-2.5 flex items-center gap-2">
+        <Sparkles className="w-4 h-4 shrink-0" />
+        <div className="flex-1 text-xs font-semibold leading-tight">
+          ✏️ 직접 수정 가능 — 글을 클릭해서 편집 · 마우스 올리면 🗑️ 삭제 · 문단 사이 + 로 추가 · 이미지 ✕로 제거
+        </div>
+        <span className="text-[10px] bg-white/20 rounded px-2 py-0.5 whitespace-nowrap">실시간 자동 저장</span>
+      </div>
+      <div
+        className="bg-white shadow-inner overflow-y-auto"
+        style={{ maxHeight }}
+      >
+        <div style={{ padding: '20px 16px', maxWidth: 720, margin: '0 auto' }}>
         {/* 맨 위 + 버튼 */}
         <BlockInsertButton onInsert={() => insertParagraphAfter(null)} />
 
@@ -215,6 +224,7 @@ export default function EditableDetailPreview({
             </div>
           );
         })}
+        </div>
       </div>
     </div>
   );
@@ -232,39 +242,40 @@ function ParagraphView({
   const [hover, setHover] = useState(false);
   return (
     <div
-      className="relative group my-2 cursor-text rounded transition"
+      className="relative group my-2 cursor-pointer rounded transition-all"
       style={{
         padding: '12px',
         lineHeight: 2,
         fontSize: 16,
         color: '#222',
         wordBreak: 'keep-all',
-        background: hover ? '#fafafa' : 'transparent',
+        background: hover ? '#fff8f8' : 'transparent',
+        outline: hover ? '2px dashed #E31837' : '2px dashed transparent',
       }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       onClick={onEdit}
+      title="클릭해서 편집"
     >
-      {text}
+      {text || <span className="text-gray-400">(빈 문단 — 클릭해서 작성)</span>}
       {hover && (
-        <div className="absolute top-1 right-1 flex gap-1">
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            className="p-1 bg-white border border-gray-200 rounded shadow hover:border-[#E31837] hover:text-[#E31837]"
-            title="편집"
-          >
-            <Pencil className="w-3 h-3" />
-          </button>
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); if (confirm('이 문단을 삭제할까요?')) onDelete(); }}
-            className="p-1 bg-white border border-gray-200 rounded shadow hover:border-red-500 hover:text-red-500"
-            title="삭제"
-          >
-            <Trash2 className="w-3 h-3" />
-          </button>
-        </div>
+        <>
+          {/* 좌상단 "클릭해서 편집" 힌트 */}
+          <div className="absolute -top-2 left-2 px-2 py-0.5 bg-[#E31837] text-white text-[10px] font-bold rounded shadow z-10 flex items-center gap-1">
+            <Pencil className="w-2.5 h-2.5" /> 클릭해서 편집
+          </div>
+          {/* 우상단 액션 버튼 */}
+          <div className="absolute top-1 right-1 flex gap-1 z-10">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); if (confirm('이 문단을 삭제할까요?')) onDelete(); }}
+              className="p-1 bg-white border border-gray-300 rounded shadow hover:border-red-500 hover:text-red-500 hover:bg-red-50"
+              title="문단 삭제"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </>
       )}
     </div>
   );
@@ -282,21 +293,33 @@ function ImageView({
   const [hover, setHover] = useState(false);
   return (
     <div
-      className="relative my-3"
+      className="relative my-3 transition-all"
+      style={{
+        outline: hover ? '2px dashed #E31837' : '2px dashed transparent',
+        outlineOffset: '2px',
+      }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={url} alt={alt} style={{ width: '100%', display: 'block' }} />
       {hover && (
-        <button
-          type="button"
-          onClick={() => { if (confirm('이 이미지를 상세페이지에서 제거할까요?')) onDelete(); }}
-          className="absolute top-2 right-2 p-1.5 bg-white border border-gray-200 rounded shadow hover:border-red-500 hover:text-red-500"
-          title="이 이미지를 상세페이지에서 제거 (이미지 자체는 보존)"
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
+        <>
+          {/* 어둠 오버레이 + 안내 */}
+          <div className="absolute inset-0 bg-black/30 flex items-center justify-center pointer-events-none">
+            <span className="bg-white/95 text-[#E31837] text-xs font-bold px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1">
+              <Trash2 className="w-3.5 h-3.5" /> ✕ 버튼으로 이 이미지 제거
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => { if (confirm('이 이미지를 상세페이지에서 제거할까요? (원본 이미지는 보존됨)')) onDelete(); }}
+            className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-full shadow-lg hover:bg-red-700 z-10"
+            title="이 이미지를 상세페이지에서 제거 (원본 이미지는 보존됨)"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </>
       )}
     </div>
   );
