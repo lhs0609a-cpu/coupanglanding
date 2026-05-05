@@ -71,6 +71,7 @@ interface BulkStep2ReviewProps {
   onPrewarmProduct?: (uid: string) => void;
   onPrewarmCancel?: (uid: string) => void;
   onSwapStockImage?: (uid: string, imageIndex: number, newCdnUrl: string) => void;
+  onTogglePromoteReview?: (uid: string, reviewIndex: number) => void;
   // Detail panel image URLs
   getDetailImageUrls: (uid: string) => string[];
   // Payload preview (shipping info needed for preview API)
@@ -200,7 +201,7 @@ export default memo(function BulkStep2Review({
   onSetCategorySearchTarget, onSetCategoryKeyword, onSearchCategory, onSelectCategory,
   onDeepValidation, onRegister, onBack,
   thumbnailCache, onLoadThumbnail,
-  onReorderImages, onRemoveImage, onToggleAutoExclude, onPrewarmProduct, onPrewarmCancel, onSwapStockImage, getDetailImageUrls,
+  onReorderImages, onRemoveImage, onToggleAutoExclude, onPrewarmProduct, onPrewarmCancel, onSwapStockImage, onTogglePromoteReview, getDetailImageUrls,
   selectedOutbound, selectedReturn, returnCharge, contactNumber, includeReviewImages, noticeOverrides,
   preventionConfig,
   categoryMetaCache,
@@ -1079,6 +1080,7 @@ export default memo(function BulkStep2Review({
         onRemoveImage={onRemoveImage}
         onToggleAutoExclude={onToggleAutoExclude}
         onSwapStockImage={onSwapStockImage}
+        onTogglePromoteReview={onTogglePromoteReview}
         payloadPreview={payloadPreview}
         onRequestPreview={handleRequestPreview}
         preUploadedUrls={imagePreuploadCache}

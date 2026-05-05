@@ -255,6 +255,7 @@ export default function BulkRegisterPanel() {
           onReorderImages={actions.handleReorderImages}
           onRemoveImage={actions.handleRemoveImage}
           onToggleAutoExclude={actions.handleToggleAutoExclude}
+          onTogglePromoteReview={actions.handleTogglePromoteReview}
           onPrewarmProduct={actions.handlePrewarmProduct}
           onPrewarmCancel={actions.handlePrewarmCancel}
           onSwapStockImage={actions.handleSwapStockImage}

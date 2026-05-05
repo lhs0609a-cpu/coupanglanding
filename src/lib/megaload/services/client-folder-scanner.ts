@@ -25,6 +25,12 @@ export interface ScannedImageFile {
   autoExcludeReason?: AutoExcludeReason;
   /** 자동 제외 사유 디버그 정보 (optional) */
   autoExcludeDetail?: string;
+  /**
+   * scannedReviewImages 의 인덱스 — 사용자가 리뷰 이미지를 대표 이미지로 promote 한 경우.
+   * 동일 ScannedImageFile 의 복사본이 scannedMainImages 끝에 추가되며, 이 필드로 식별.
+   * 등록 파이프라인은 scannedMainImages 만 보면 되고, 별도 분기 없이 그대로 업로드.
+   */
+  promotedFromReview?: number;
 }
 
 export interface ScannedProduct {

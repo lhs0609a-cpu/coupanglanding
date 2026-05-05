@@ -36,6 +36,8 @@ interface BulkProductDetailPanelProps {
   onRemoveImage: (uid: string, imageIndex: number) => void;
   onToggleAutoExclude?: (uid: string, imageIndex: number) => void;
   onSwapStockImage?: (uid: string, imageIndex: number, newCdnUrl: string) => void;
+  /** 리뷰 이미지를 대표 이미지로 promote 토글 */
+  onTogglePromoteReview?: (uid: string, reviewIndex: number) => void;
   payloadPreview?: PayloadPreviewState;
   onRequestPreview?: (uid: string) => void;
   preUploadedUrls?: Record<string, { mainImageUrls: string[]; detailImageUrls?: string[]; reviewImageUrls?: string[]; infoImageUrls?: string[] }>;
@@ -59,6 +61,7 @@ export default function BulkProductDetailPanel({
   onRemoveImage,
   onToggleAutoExclude,
   onSwapStockImage,
+  onTogglePromoteReview,
   payloadPreview,
   onRequestPreview,
   preUploadedUrls,
@@ -431,6 +434,7 @@ export default function BulkProductDetailPanel({
                   preUploadedUrls={preUploadedUrls?.[product.uid]}
                   noticeMeta={noticeMeta}
                   noticeOverrides={noticeOverrides}
+                  onTogglePromoteReview={onTogglePromoteReview}
                 />
               ) : activeTab === 'info' ? (
                 <CoupangFieldsSection

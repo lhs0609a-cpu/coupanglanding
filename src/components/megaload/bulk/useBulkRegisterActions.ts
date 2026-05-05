@@ -2542,6 +2542,47 @@ export function useBulkRegisterActions() {
     }));
   }, []);
 
+  // ---- 리뷰 이미지를 대표 이미지로 promote 토글 ----
+  // scannedMainImages 끝에 ScannedImageFile 복사본을 append (promotedFromReview 마커 부착).
+  // 등록 파이프라인은 scannedMainImages 만 보면 되므로 별도 분기 불필요.
+  const handleTogglePromoteReview = useCallback((uid: string, reviewIndex: number) => {
+    setProducts((prev) => prev.map((p) => {
+      if (p.uid !== uid) return p;
+      if (!p.scannedReviewImages || reviewIndex < 0 || reviewIndex >= p.scannedReviewImages.length) return p;
+
+      const scannedMain = p.scannedMainImages ?? [];
+      const existingPromotedAt = scannedMain.findIndex((img) => img.promotedFromReview === reviewIndex);
+
+      if (existingPromotedAt >= 0) {
+        // 이미 promote 됨 → 제거
+        const newScanned = [...scannedMain];
+        newScanned.splice(existingPromotedAt, 1);
+        return {
+          ...p,
+          scannedMainImages: newScanned,
+          mainImageCount: newScanned.length,
+          mainImageManuallyReordered: true,
+        };
+      }
+      // 새로 promote → 끝에 추가
+      const reviewImg = p.scannedReviewImages[reviewIndex];
+      const promoted: import('@/lib/megaload/services/client-folder-scanner').ScannedImageFile = {
+        ...reviewImg,
+        // 자동 제외 사유는 리뷰 컨텍스트의 것이므로 제거 — 대표이미지 컨텍스트에서 다시 평가
+        autoExcludeReason: undefined,
+        autoExcludeDetail: undefined,
+        promotedFromReview: reviewIndex,
+      };
+      const newScanned = [...scannedMain, promoted];
+      return {
+        ...p,
+        scannedMainImages: newScanned,
+        mainImageCount: newScanned.length,
+        mainImageManuallyReordered: true,
+      };
+    }));
+  }, []);
+
   const handleRemoveImage = useCallback((uid: string, imageIndex: number) => {
     setProducts((prev) => prev.map((p) => {
       if (p.uid !== uid) return p;
@@ -3033,6 +3074,7 @@ export function useBulkRegisterActions() {
     handleDeepValidation, handlePreflight, handleCanary,
     toggleProduct, toggleAll, updateField,
     handleReorderImages, handleRemoveImage, handleToggleAutoExclude, getDetailImageUrls, handleSwapStockImage,
+    handleTogglePromoteReview,
     handlePrewarmProduct, handlePrewarmCancel,
     handleRegister, togglePause, handleReset, retryFailed, backToStep2, retryAutoCategory,
     // 카테고리 정확도 개선

@@ -26,6 +26,8 @@ interface ImageItem {
   id: string;
   url: string;
   autoExcludeReason?: AutoExcludeReason;
+  /** 리뷰 이미지에서 promote 된 항목 표시용 — 리뷰 인덱스. 노출 시 "리뷰" 배지로 식별. */
+  promotedFromReview?: number;
 }
 
 const REASON_LABELS: Record<AutoExcludeReason, string> = {
@@ -163,6 +165,15 @@ const SortableImage = memo(function SortableImage({ image, onRemove, onToggleAut
       <div className="absolute top-1 right-8 bg-black/50 text-white text-[9px] px-1 py-0.5 rounded font-mono">
         {idx + 1}
       </div>
+      {/* "리뷰에서 가져옴" 배지 — 좌상단 (drag handle 옆) */}
+      {image.promotedFromReview !== undefined && (
+        <div
+          className="absolute top-1 left-7 px-1.5 py-0.5 bg-emerald-500/90 rounded text-[9px] text-white font-bold shadow"
+          title={`리뷰 이미지 #${image.promotedFromReview + 1} 에서 promote 됨`}
+        >
+          리뷰
+        </div>
+      )}
       {/* Main badge or set-as-main button */}
       {isMain ? (
         <div className="absolute bottom-1 left-1 flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-500 rounded text-[10px] text-white font-bold">

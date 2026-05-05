@@ -35,6 +35,8 @@ interface DetailPageContentTabProps {
   noticeMeta?: NoticeCategoryMeta[];
   /** 사용자 전역 고시정보 오버라이드 */
   noticeOverrides?: Record<string, string>;
+  /** 리뷰 이미지를 대표 이미지로 promote 토글 */
+  onTogglePromoteReview?: (uid: string, reviewIndex: number) => void;
 }
 
 interface CollapsibleProps {
@@ -66,12 +68,17 @@ interface ImageSelectorGroupProps {
   relevanceScores?: { index: number; score: number }[];
   /** 분석 버튼 레이블 (기본 'AI 자동 추천') */
   analyzeLabel?: string;
+  /** 리뷰 → 대표 promote 토글 핸들러 (있으면 각 썸네일에 ⬆ 버튼 노출) */
+  onTogglePromote?: (idx: number) => void;
+  /** 현재 대표로 promote 된 인덱스 셋 — 버튼 토글 상태 표시용 */
+  promotedSet?: Set<number>;
 }
 
 
 function ImageSelectorGroup({
   label, images, thumbnailUrls, order, onOrderChange,
   onAnalyze, isAnalyzing, relevanceScores, analyzeLabel,
+  onTogglePromote, promotedSet,
 }: ImageSelectorGroupProps) {
   // 이미지 총 개수: 스캔 핸들 있으면 그 길이, 없으면 썸네일 URL 길이 기준
   const totalCount = images?.length ?? thumbnailUrls.length;
@@ -183,7 +190,7 @@ function ImageSelectorGroup({
     return (
       <div
         key={`${label}-${imgIdx}`}
-        className={`relative w-20 h-20 rounded-lg overflow-hidden cursor-pointer border-2 transition-all flex-shrink-0 ${borderClass}`}
+        className={`group relative w-20 h-20 rounded-lg overflow-hidden cursor-pointer border-2 transition-all flex-shrink-0 ${borderClass}`}
         onClick={() => toggleImage(imgIdx)}
         draggable={opts.draggable}
         onDragStart={opts.draggable ? handleDragStart(opts.posInOrder!) : undefined}
@@ -230,6 +237,24 @@ function ImageSelectorGroup({
             {reasonLabels[autoExcludeReason] ?? autoExcludeReason}
           </div>
         )}
+        {/* 리뷰 → 대표 promote 토글 (우상단) */}
+        {onTogglePromote && (() => {
+          const isPromoted = !!promotedSet?.has(imgIdx);
+          return (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onTogglePromote(imgIdx); }}
+              className={`absolute top-0.5 right-0.5 px-1 py-0.5 rounded text-[8px] font-bold shadow transition ${
+                isPromoted
+                  ? 'bg-amber-500 text-white hover:bg-amber-600'
+                  : 'bg-white/90 text-gray-700 opacity-0 group-hover:opacity-100 hover:bg-amber-100'
+              }`}
+              title={isPromoted ? '대표 이미지에서 제외' : '대표 이미지로 추가'}
+            >
+              {isPromoted ? '★대표' : '⬆ 대표로'}
+            </button>
+          );
+        })()}
       </div>
     );
   };
@@ -325,6 +350,7 @@ export default function DetailPageContentTab({
   preUploadedUrls,
   noticeMeta,
   noticeOverrides,
+  onTogglePromoteReview,
 }: DetailPageContentTabProps) {
   const [previewOpen, setPreviewOpen] = useState(true);
   const [previewVariant, setPreviewVariant] = useState<'A' | 'B' | 'C' | 'D'>('A');
@@ -775,23 +801,32 @@ export default function DetailPageContentTab({
   return (
     <div className="space-y-3">
       {/* ─── 리뷰 이미지 선택 ─── (상세페이지 본문은 리뷰이미지 + 스토리문단 교차로 구성) */}
-      {reviewThumbnailUrls.length > 0 && (
-        <Collapsible
-          key={`review-img-${product.uid}`}
-          title="리뷰 이미지"
-          icon={<ImageIcon className="w-3.5 h-3.5 text-emerald-500" />}
-          badge={`${(product.editedReviewImageOrder ?? reviewThumbnailUrls).length}장 선택`}
-          defaultOpen={true}
-        >
-          <ImageSelectorGroup
-            label="리뷰이미지"
-            images={product.scannedReviewImages}
-            thumbnailUrls={reviewThumbnailUrls}
-            order={product.editedReviewImageOrder}
-            onOrderChange={(newOrder) => onUpdate(product.uid, 'editedReviewImageOrder', newOrder)}
-          />
-        </Collapsible>
-      )}
+      {reviewThumbnailUrls.length > 0 && (() => {
+        // 현재 대표 이미지로 promote 된 리뷰 인덱스 셋
+        const promotedSet = new Set<number>();
+        for (const m of (product.scannedMainImages ?? [])) {
+          if (m.promotedFromReview !== undefined) promotedSet.add(m.promotedFromReview);
+        }
+        return (
+          <Collapsible
+            key={`review-img-${product.uid}`}
+            title="리뷰 이미지"
+            icon={<ImageIcon className="w-3.5 h-3.5 text-emerald-500" />}
+            badge={`${(product.editedReviewImageOrder ?? reviewThumbnailUrls).length}장 선택${promotedSet.size > 0 ? ` · 대표로 ${promotedSet.size}장` : ''}`}
+            defaultOpen={true}
+          >
+            <ImageSelectorGroup
+              label="리뷰이미지"
+              images={product.scannedReviewImages}
+              thumbnailUrls={reviewThumbnailUrls}
+              order={product.editedReviewImageOrder}
+              onOrderChange={(newOrder) => onUpdate(product.uid, 'editedReviewImageOrder', newOrder)}
+              onTogglePromote={onTogglePromoteReview ? (idx) => onTogglePromoteReview(product.uid, idx) : undefined}
+              promotedSet={promotedSet}
+            />
+          </Collapsible>
+        );
+      })()}
 
       {/* ─── 상품설명 ─── */}
       <Collapsible
