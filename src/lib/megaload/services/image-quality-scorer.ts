@@ -151,12 +151,47 @@ const _analyzeDetailCache = new Map<string, { filtered: boolean; reason?: string
 // extractFeaturesForUrls는 originalIndex가 매번 다를 수 있어 features를 그대로 캐시 못함.
 // 대신 "이미지 분석 데이터" (color hist, edge orient, dominantColors 등)를 별도 캐시.
 const _imageFeaturesCache = new Map<string, ImageFeatures>();
+// 공유 픽셀 캐시 — selectDiverseImages / filterDetailPageImages / detectDuplicateImages
+// 가 같은 URL 을 3번 디코드하던 비용 제거. key = `${url}:${size}`.
+// 메모리: 36x36×4 = 5KB/이미지 + 32x32×4 = 4KB/이미지. 100 상품 × 25 이미지 × 2 size
+// ≈ 22MB worst case. clearAnalysisCache() 로 비움.
+const _pixelDataCache = new Map<string, Uint8ClampedArray>();
 
 export function clearAnalysisCache(): void {
   _scoreImageCache.clear();
   _scoreReviewCache.clear();
   _analyzeDetailCache.clear();
   _imageFeaturesCache.clear();
+  _pixelDataCache.clear();
+}
+
+/**
+ * URL 을 한 번 디코드해 size×size RGBA 픽셀 버퍼를 캐시한다.
+ * createImageBitmap (worker thread 디코드) 사용 — 메인스레드 부담 최소화.
+ * 같은 (URL, size) 재호출 시 즉시 반환.
+ */
+async function getCachedPixels(url: string, size: number): Promise<Uint8ClampedArray | null> {
+  const key = `${url}:${size}`;
+  const cached = _pixelDataCache.get(key);
+  if (cached) return cached;
+
+  let fast: { width: number; height: number; source: CanvasImageSource; close?: () => void } | null = null;
+  try {
+    fast = await loadImageFast(url);
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(fast.source, 0, 0, fast.width, fast.height, 0, 0, size, size);
+    const data = ctx.getImageData(0, 0, size, size).data;
+    _pixelDataCache.set(key, data);
+    return data;
+  } catch {
+    return null;
+  } finally {
+    fast?.close?.();
+  }
 }
 
 /** 메인스레드 양보 — UI 멈춤 방지 */
@@ -331,16 +366,8 @@ export async function filterDetailPageImages(
 async function analyzeDetailImage(
   objectUrl: string,
 ): Promise<{ filtered: boolean; reason?: string }> {
-  const img = await loadImage(objectUrl);
-
-  const canvas = document.createElement('canvas');
-  canvas.width = ANALYSIS_SIZE;
-  canvas.height = ANALYSIS_SIZE;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return { filtered: false };
-
-  ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
-  const data = ctx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE).data;
+  const data = await getCachedPixels(objectUrl, ANALYSIS_SIZE);
+  if (!data) return { filtered: false };
 
   // 1. 텍스트 배너 감지 (배송안내, 이벤트 배너 등)
   if (detectTextBanner(data, ANALYSIS_SIZE, ANALYSIS_SIZE)) {
@@ -1401,16 +1428,8 @@ async function buildColorHistogram(objectUrl: string): Promise<Float32Array> {
   const cached = _histogramCache.get(objectUrl);
   if (cached) return cached;
 
-  const img = await loadImage(objectUrl);
-
-  const canvas = document.createElement('canvas');
-  canvas.width = HISTOGRAM_SIZE;
-  canvas.height = HISTOGRAM_SIZE;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Canvas context unavailable');
-
-  ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, 0, 0, HISTOGRAM_SIZE, HISTOGRAM_SIZE);
-  const data = ctx.getImageData(0, 0, HISTOGRAM_SIZE, HISTOGRAM_SIZE).data;
+  const data = await getCachedPixels(objectUrl, HISTOGRAM_SIZE);
+  if (!data) throw new Error(`이미지 디코드 실패: ${objectUrl}`);
 
   const BINS_PER_CH = 4;
   const TOTAL_BINS = BINS_PER_CH ** 3;
@@ -2435,15 +2454,8 @@ export async function scoreProductRelevance(
   // 1. 기준 이미지 분석: dominant colors + 평균 히스토그램 + 평균 에지 방향
   const refAnalyses = await runPool(referenceUrls, IMAGE_CONCURRENCY, async (i) => {
     try {
-      const img = await loadImage(referenceUrls[i]);
-      const canvas = document.createElement('canvas');
-      canvas.width = ANALYSIS_SIZE;
-      canvas.height = ANALYSIS_SIZE;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return null;
-      ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
-      const imageData = ctx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
-      const { data } = imageData;
+      const data = await getCachedPixels(referenceUrls[i], ANALYSIS_SIZE);
+      if (!data) return null;
       const gray = new Float32Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
       for (let p = 0; p < gray.length; p++) {
         const off = p * 4;
@@ -2488,16 +2500,8 @@ export async function scoreProductRelevance(
   // 2. 각 후보 이미지 분석
   return runPool(candidateUrls, IMAGE_CONCURRENCY, async (i) => {
     try {
-      const img = await loadImage(candidateUrls[i]);
-      const canvas = document.createElement('canvas');
-      canvas.width = ANALYSIS_SIZE;
-      canvas.height = ANALYSIS_SIZE;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return { index: i, score: 0, colorOverlap: 0, histSimilarity: 0, edgeSimilarity: 0 };
-
-      ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
-      const imageData = ctx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
-      const { data } = imageData;
+      const data = await getCachedPixels(candidateUrls[i], ANALYSIS_SIZE);
+      if (!data) return { index: i, score: 0, colorOverlap: 0, histSimilarity: 0, edgeSimilarity: 0 };
       const gray = new Float32Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
       for (let p = 0; p < gray.length; p++) {
         const off = p * 4;
@@ -2874,20 +2878,8 @@ async function extractFeaturesForUrls(
       if (cached) {
         return { ...cached, originalIndex: originalIndices[i] };
       }
-      const fast = await loadImageFast(url);
-      const canvas = document.createElement('canvas');
-      canvas.width = ANALYSIS_SIZE;
-      canvas.height = ANALYSIS_SIZE;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        fast.close?.();
-        return null;
-      }
-
-      ctx.drawImage(fast.source, 0, 0, fast.width, fast.height, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
-      fast.close?.();
-      const imageData = ctx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
-      const { data } = imageData;
+      const data = await getCachedPixels(url, ANALYSIS_SIZE);
+      if (!data) return null;
 
       const gray = new Float32Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
       for (let p = 0; p < gray.length; p++) {
