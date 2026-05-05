@@ -535,19 +535,26 @@ function applyFoodVerbReplacementsAtOutput(text: string, isFood: boolean): strin
   out = out.replace(/사용\s*시\b/g, '드실 때');
   out = out.replace(/사용\s*후\b/g, '드신 후');
   out = out.replace(/간단한\s*사용으로/g, '간단히 드시는 것만으로');
-  // "쓴 지/쓰는/쓰면/쓸수록" 형태
+  // "쓴 지/쓰는/쓰면/쓸수록" 형태 — \b 제거 (한글 word boundary 불안정)
   out = out.replace(/을\s*쓴\s*지/g, '을 드신 지');
   out = out.replace(/를\s*쓴\s*지/g, '를 드신 지');
-  out = out.replace(/을\s*쓰는\b/g, '을 드시는');
-  out = out.replace(/를\s*쓰는\b/g, '를 드시는');
+  out = out.replace(/을\s*쓰는/g, '을 드시는');
+  out = out.replace(/를\s*쓰는/g, '를 드시는');
   out = out.replace(/한\s*번\s*쓰면/g, '한 번 드시면');
   out = out.replace(/오래\s*쓸수록/g, '오래 드실수록');
   out = out.replace(/잘\s*안\s*쓰면/g, '잘 안 드시면');
   out = out.replace(/잘\s*안\s*쓰는/g, '잘 안 드시는');
   out = out.replace(/사놓고\s*([^\s]+)?\s*안\s*쓰/g, '사놓고 안 드시');
-  // "쓰는 동안/오래 쓴" — audit 직접 검사 패턴
+  // audit 직접 검사 패턴 (\b 제거)
   out = out.replace(/쓰는\s*동안/g, '드시는 동안');
-  out = out.replace(/오래\s*쓴\b/g, '오래 드신');
+  out = out.replace(/오래\s*쓴/g, '오래 드신');
+  out = out.replace(/사용하니까/g, '드시니까');
+  out = out.replace(/사용해보면/g, '드셔보면');
+  // "써봤" 모든 활용형 — \w 의존 없는 단순 prefix 매칭
+  out = out.replace(/써봤([가-힣]*)/g, (full, suffix) => {
+    // suffix가 있으면 동일하게 변환
+    return '드셔봤' + suffix;
+  });
   return out;
 }
 
