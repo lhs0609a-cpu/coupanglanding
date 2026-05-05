@@ -4,6 +4,20 @@ import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
+export const maxDuration = 25;
+
+// 클라 30s 가드보다 짧게 — 서버가 먼저 명확한 에러 반환하도록.
+const PER_CALL_TIMEOUT_MS = 18000;
+
+function withFastTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} ${ms / 1000}초 응답 없음 — 쿠팡 API 지연`)), ms),
+    ),
+  ]);
+}
+
 /**
  * GET — 쿠팡 출고지/반품지/vendorId 조회
  *
@@ -28,10 +42,11 @@ export async function GET() {
 
     const vendorId = coupangAdapter.getVendorId();
 
-    // 출고지 + 반품지 병렬 조회 — 에러를 삼키지 말고 개별 캡처해 진단정보로 노출
+    // 출고지 + 반품지 병렬 조회. 어댑터 자체 30s timeout 보다 짧은 18s 강제 race —
+    // 한쪽이 hang 해도 클라 30s 가드 전에 서버가 명확한 에러로 응답.
     const [outboundSettled, returnSettled] = await Promise.allSettled([
-      coupangAdapter.getOutboundShippingPlaces(),
-      coupangAdapter.getReturnShippingCenters(),
+      withFastTimeout(coupangAdapter.getOutboundShippingPlaces(), PER_CALL_TIMEOUT_MS, '출고지'),
+      withFastTimeout(coupangAdapter.getReturnShippingCenters(), PER_CALL_TIMEOUT_MS, '반품지'),
     ]);
 
     const outboundItems = outboundSettled.status === 'fulfilled' ? outboundSettled.value.items : [];
