@@ -823,13 +823,13 @@ export default function DetailPageContentTab({
         </div>
       </Collapsible>
 
-      {/* ─── AI 스토리 문단 ─── */}
+      {/* ─── AI 스토리 문단 ─── (인라인 편집은 미리보기에서 직접 가능하므로 기본 닫힘) */}
       <Collapsible
         key={`story-${product.uid}`}
         title={contentBlocks.length > 0 ? '설득형 콘텐츠 블록' : '스토리 문단 (이미지 사이 텍스트)'}
         icon={<GripVertical className="w-3.5 h-3.5 text-purple-500" />}
         badge={contentBlocks.length > 0 ? `${contentBlocks.length}블록` : storyParagraphs.length > 0 ? `${storyParagraphs.length}개` : undefined}
-        defaultOpen={true}
+        defaultOpen={false}
       >
         <div className="pt-2 space-y-2">
           {storyParagraphs.length === 0 ? (
@@ -876,13 +876,13 @@ export default function DetailPageContentTab({
         </div>
       </Collapsible>
 
-      {/* ─── 리뷰 텍스트 ─── */}
+      {/* ─── 리뷰 텍스트 ─── (인라인 편집 우선, 텍스트만 직접 보고 싶을 때만 펼침) */}
       <Collapsible
         key={`review-text-${product.uid}`}
         title="리뷰 텍스트"
         icon={<MessageSquare className="w-3.5 h-3.5 text-green-500" />}
         badge={reviewTexts.length > 0 ? `${reviewTexts.length}개` : undefined}
-        defaultOpen={true}
+        defaultOpen={false}
       >
         <div className="pt-2 space-y-2">
           {reviewTexts.length === 0 ? (
