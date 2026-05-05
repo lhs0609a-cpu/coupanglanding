@@ -380,49 +380,59 @@ function buildBlogStyleSection(
     return parts.join('\n');
   }
 
-  // 문단/이미지 균등 인터리브 — "이미지 → 글 → 이미지 → 글" 리듬을 최우선.
+  // 문단/이미지 균등 인터리브 — "1 이미지 + 1 텍스트 묶음" = 1 슬롯 단위.
   //
   // 핵심 원칙:
-  //   1) 잔여 문단을 끝에 dump 금지 — 끝쪽 텍스트 wall 차단
-  //   2) 슬롯별 chunk를 dynamic하게 조정해 모든 문단을 이미지와 페어링
-  //   3) 한 슬롯당 최대 3문단 (3 초과 시 가독성 저하)
+  //   1) SEO를 위해 문단을 truncate 안 함 — 모든 문단 보존
+  //   2) 슬롯별 chunk를 dynamic하게 조정 — Math.ceil(남은문단/남은이미지)
+  //   3) 슬롯 내 여러 문단을 **하나의 div block**으로 묶음 — 3 문단도
+  //      "3 wall"이 아니라 "1 묶음(내부 3 단락)"으로 시각화 → 페이지 전체가
+  //      "이미지-텍스트-이미지-텍스트" 리듬으로 보이도록 함.
   //
-  // 알고리즘: 매 슬롯마다 "남은 문단 / 남은 이미지" 비율로 chunk 재계산.
-  // 30P/11I → 첫 1, 둘째 (29/10)≈3, … 마지막엔 (3/1)=3 → 자연스레 균등.
+  // 30P/11I 시뮬: chunk = 3-3-3-3-3-3-3-3-2-2-2 = 정확히 30 분배. 잔여 0.
   let pIdx = 0;
-  const HARD_MAX = 3;
   for (let i = 0; i < cleanImages.length; i++) {
     const remaining = cleanParagraphs.length - pIdx;
     const slotsLeft = cleanImages.length - i;
-    const isFirst = i === 0;
-    // 첫 슬롯은 1문단 짧게 도입(가독성). 이후엔 균등 분배.
-    const dynamicChunk = isFirst ? 1 : Math.ceil(remaining / slotsLeft);
-    const take = Math.min(dynamicChunk, HARD_MAX, remaining);
-    for (let k = 0; k < take; k++, pIdx++) {
-      parts.push(buildParagraphBlock(cleanParagraphs[pIdx], style));
+    const take = Math.min(Math.ceil(remaining / slotsLeft), remaining);
+    if (take > 0) {
+      parts.push(buildParagraphGroupBlock(cleanParagraphs.slice(pIdx, pIdx + take), style));
+      pIdx += take;
     }
     parts.push(
       `<div style="margin:12px 0;"><img src="${esc(cleanImages[i])}" alt="${esc(shortenForAlt(productName))} ${i + 1}" style="width:100%;display:block;" /></div>`
     );
   }
-  // 잔여 문단 — HARD_MAX(3) cap으로 인해 남는 경우만 도달.
-  // 2개씩 끊어 spacer로 시각 분리. 한 덩어리로 dump 금지.
-  const REMAINING_CHUNK = 2;
-  while (pIdx < cleanParagraphs.length) {
-    const end = Math.min(pIdx + REMAINING_CHUNK, cleanParagraphs.length);
-    for (; pIdx < end; pIdx++) {
-      parts.push(buildParagraphBlock(cleanParagraphs[pIdx], style));
-    }
-    if (pIdx < cleanParagraphs.length) parts.push('<div style="margin:24px 0;border-top:1px solid #eee;"></div>');
+  // 위 dynamic 분배로 잔여 0이 보장되지만, 안전망으로 마지막 슬롯에 남는 경우 합쳐서 한 묶음으로.
+  if (pIdx < cleanParagraphs.length) {
+    parts.push(buildParagraphGroupBlock(cleanParagraphs.slice(pIdx), style));
   }
 
   return parts.join('\n');
 }
 
+/** 단일 문단 — 다른 섹션(FAQ 등)에서 호출 */
 function buildParagraphBlock(text: string, style: LayoutStyle): string {
   const isHtml = /<[a-z][\s\S]*>/i.test(text);
   const content = isHtml ? text : `<p style="margin:0;">${esc(text)}</p>`;
   return `<div style="padding:${style.padding};line-height:2.2;font-size:21px;color:#222;word-break:keep-all;">\n${content}\n</div>`;
+}
+
+/**
+ * 여러 문단을 하나의 div로 묶어 시각적 "1 텍스트 단위"로 렌더.
+ * 내부 단락은 <p> 로 자연스럽게 분리(margin-bottom)되지만 padding/배경은 공유.
+ * 이미지 1장 옆에 와도 "텍스트 wall"이 아니라 "한 묶음 카드"로 보이게 한다.
+ */
+function buildParagraphGroupBlock(texts: string[], style: LayoutStyle): string {
+  const ps = texts.map((text, idx) => {
+    const isHtml = /<[a-z][\s\S]*>/i.test(text);
+    const isLast = idx === texts.length - 1;
+    const margin = isLast ? '0' : '0 0 14px 0';
+    return isHtml
+      ? `<div style="margin:${margin};">${text}</div>`
+      : `<p style="margin:${margin};">${esc(text)}</p>`;
+  }).join('\n');
+  return `<div style="padding:${style.padding};line-height:2.2;font-size:21px;color:#222;word-break:keep-all;">\n${ps}\n</div>`;
 }
 
 /** 섹션 3: FAQ — 심플 텍스트 Q&A */
