@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "noEmitOnError": false,
+    "outDir": "../.audit-build"
+  },
+  "include": [
+    "../src/lib/megaload/services/**/*.ts",
+    "../src/lib/megaload/data/**/*.json"
+  ],
+  "exclude": ["node_modules", ".next"]
+}
