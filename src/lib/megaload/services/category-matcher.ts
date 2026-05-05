@@ -77,6 +77,10 @@ import detailsJson from '../data/coupang-cat-details.json';
 let _indexData: IndexEntry[] | null = null;
 let _detailsData: Record<string, CategoryDetailRaw> | null = null;
 let _naverMap: Record<string, NaverMapEntry> | null = null;
+// leaf 이름(소문자) → IndexEntry 들. 입력이 leaf 이름과 정확 일치하면 즉시 그 카테고리.
+// "(방문설치)인덕션" / "Micro-ATX" / "낫" 처럼 기존 토크나이저로 매칭이 어려운
+// 케이스를 결정론적으로 해결.
+let _exactLeafMap: Map<string, IndexEntry[]> | null = null;
 
 /** 네이버→쿠팡 매핑 테이블 로드 (파일 없으면 빈 객체) */
 function loadNaverMap(): Record<string, NaverMapEntry> {
@@ -101,6 +105,54 @@ function loadDetails(): Record<string, CategoryDetailRaw> {
   if (_detailsData) return _detailsData;
   _detailsData = detailsJson as unknown as Record<string, CategoryDetailRaw>;
   return _detailsData;
+}
+
+/** leaf 이름(소문자) → 해당 leaf 가 등장하는 IndexEntry 들. lazy build. */
+function loadExactLeafMap(): Map<string, IndexEntry[]> {
+  if (_exactLeafMap) return _exactLeafMap;
+  const map = new Map<string, IndexEntry[]>();
+  for (const entry of loadIndex()) {
+    const leafLower = (entry[2] || '').toLowerCase().trim();
+    if (!leafLower) continue;
+    const list = map.get(leafLower);
+    if (list) list.push(entry);
+    else map.set(leafLower, [entry]);
+  }
+  _exactLeafMap = map;
+  return _exactLeafMap;
+}
+
+/**
+ * 입력이 카테고리 leaf 이름과 정확 일치하는지 검사하고, 일치 시 결정론적으로 매칭.
+ * 동명이의(같은 leaf 가 여러 path) 인 경우 가장 얕은 depth 우선 (대분류 가까운 쪽).
+ * - "(방문설치)인덕션" → 105778
+ * - "Micro-ATX" → 63068
+ * - "낫" → 78544
+ *
+ * 실제 상품명("신선 망고 5kg") 은 leaf 와 정확 일치하지 않으므로 발동 안 됨.
+ */
+function exactLeafMatch(productName: string): CategoryMatchResult | null {
+  const trimmed = productName.trim();
+  const key = trimmed.toLowerCase();
+  if (!key) return null;
+  const entries = loadExactLeafMap().get(key);
+  if (!entries || entries.length === 0) return null;
+  // 우선순위: (1) case-sensitive 정확 일치 → (2) 얕은 depth → (3) 코드 작은 쪽.
+  // "Visual Basic" 입력 시 leaf "Visual Basic" 이 leaf "Visual BASIC" 보다 우선.
+  const sorted = [...entries].sort((a, b) => {
+    const aExact = a[2] === trimmed ? 0 : 1;
+    const bExact = b[2] === trimmed ? 0 : 1;
+    return aExact - bExact || a[3] - b[3] || a[0].localeCompare(b[0]);
+  });
+  const [code, , leafName] = sorted[0];
+  const detail = loadDetails()[code];
+  return {
+    categoryCode: code,
+    categoryName: leafName,
+    categoryPath: detail?.p || leafName,
+    confidence: 0.99,
+    source: 'local_db',
+  };
 }
 
 // ─── 직접 카테고리 코드 매핑 (최고 우선순위) ─────────────────
@@ -1012,8 +1064,17 @@ export async function matchCategory(
   adapter?: CoupangAdapter,
   naverCategoryId?: string,
 ): Promise<CategoryMatchResult | null> {
+  // ── Tier -1: 입력이 카테고리 leaf 이름과 정확 일치 ──
+  // 사용자가 leaf 이름을 그대로 입력한 경우(검색/정합성 테스트) 결정론적 매칭.
+  // 셀러 정제 전 raw 입력 으로도 한 번, 정제 후로도 한 번 시도.
+  const exactRaw = exactLeafMatch(productName);
+  if (exactRaw) return exactRaw;
+
   // 셀러 키워드 스터핑/가격 마커 1차 정제 — "★19900원★" / "사과/배 과일세트 ×3" 등
   const sanitized = sanitizeSellerName(productName);
+  const exactSanitized = exactLeafMatch(sanitized);
+  if (exactSanitized) return exactSanitized;
+
   const cleaned = cleanProductName(sanitized);
   const tokens = tokenize(sanitized);
   const compoundTokens = buildCompoundTokens(tokens);
@@ -1147,6 +1208,12 @@ export async function matchCategoryBatch(
         }
       }
     }
+
+    // Tier -1: 입력이 leaf 이름과 정확 일치 — 결정론적 매칭
+    const exactRaw = exactLeafMatch(productNames[i]);
+    if (exactRaw) { results[i] = exactRaw; continue; }
+    const exactSan = exactLeafMatch(sanitizedNames[i]);
+    if (exactSan) { results[i] = exactSan; continue; }
 
     // Tier 0: 투표 기반 직접 코드 매핑 (네이버 ID 없을 때)
     const toks = productTokensList[i];
