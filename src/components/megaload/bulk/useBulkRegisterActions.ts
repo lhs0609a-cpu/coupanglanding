@@ -158,7 +158,34 @@ export function useBulkRegisterActions() {
 
   // Validation
   const [validating, setValidating] = useState(false);
-  const [categoryMetaCache, setCategoryMetaCache] = useState<Record<string, CategoryMetadata>>({});
+  // categoryMetaCache: localStorage 영속화 (7일 TTL).
+  // 동일 카테고리 코드는 init-job 에 안 보내고 캐시 hit 으로 처리 → Coupang/Supabase 호출 ↓
+  const [categoryMetaCache, setCategoryMetaCache] = useState<Record<string, CategoryMetadata>>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const raw = window.localStorage.getItem('megaload:category-meta');
+      if (!raw) return {};
+      const parsed = JSON.parse(raw) as { cachedAt: number; data: Record<string, CategoryMetadata> };
+      const TTL_MS = 7 * 24 * 60 * 60 * 1000;
+      if (!parsed?.cachedAt || Date.now() - parsed.cachedAt > TTL_MS) return {};
+      return parsed.data || {};
+    } catch { return {}; }
+  });
+  // 변경 시 localStorage 동기화 (debounced 250ms — 빈번한 setState 폭주 보호)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const codes = Object.keys(categoryMetaCache);
+    if (codes.length === 0) return;
+    const timer = setTimeout(() => {
+      try {
+        window.localStorage.setItem(
+          'megaload:category-meta',
+          JSON.stringify({ cachedAt: Date.now(), data: categoryMetaCache }),
+        );
+      } catch { /* quota — 무시 */ }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [categoryMetaCache]);
   const [validationPhase, setValidationPhase] = useState<'idle' | 'local' | 'deep' | 'dryrun' | 'preupload' | 'complete'>('idle');
 
   // Image preupload pipeline
