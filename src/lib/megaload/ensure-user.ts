@@ -36,28 +36,44 @@ export async function ensureMegaloadUser(
   if (existing) {
     const megaloadUserId = (existing as Record<string, unknown>).id as string;
 
-    // pt_users 키가 변경됐을 수 있으므로 channel_credentials 동기화
-    const { data: ptUser } = await serviceClient
-      .from('pt_users')
-      .select('coupang_vendor_id, coupang_access_key, coupang_secret_key, coupang_api_connected')
-      .eq('profile_id', profileId)
-      .single();
+    // 자격증명 동기화는 1시간 이내 last_verified_at 있으면 스킵.
+    // 매 API 호출마다 pt_users 조회 + 복호화 + upsert 가 누적되어 함수 시간/DB 부하 ↑.
+    // pt_users 키 변경 시에도 1시간 내에 자동 반영됨 (수용 가능 latency).
+    const SYNC_TTL_MS = 60 * 60 * 1000;
+    const { data: existingCred } = await serviceClient
+      .from('channel_credentials')
+      .select('last_verified_at')
+      .eq('megaload_user_id', megaloadUserId)
+      .eq('channel', 'coupang')
+      .maybeSingle();
 
-    if (ptUser?.coupang_api_connected && ptUser.coupang_access_key && ptUser.coupang_secret_key) {
-      const accessKey = await decryptPassword(ptUser.coupang_access_key);
-      const secretKey = await decryptPassword(ptUser.coupang_secret_key);
+    const lastVerifiedAt = (existingCred as { last_verified_at?: string } | null)?.last_verified_at;
+    const lastVerifiedMs = lastVerifiedAt ? new Date(lastVerifiedAt).getTime() : 0;
+    const fresh = lastVerifiedMs > 0 && Date.now() - lastVerifiedMs < SYNC_TTL_MS;
 
-      await serviceClient.from('channel_credentials').upsert({
-        megaload_user_id: megaloadUserId,
-        channel: 'coupang',
-        credentials: {
-          vendorId: ptUser.coupang_vendor_id,
-          accessKey,
-          secretKey,
-        },
-        is_connected: true,
-        last_verified_at: new Date().toISOString(),
-      }, { onConflict: 'megaload_user_id,channel' });
+    if (!fresh) {
+      const { data: ptUser } = await serviceClient
+        .from('pt_users')
+        .select('coupang_vendor_id, coupang_access_key, coupang_secret_key, coupang_api_connected')
+        .eq('profile_id', profileId)
+        .single();
+
+      if (ptUser?.coupang_api_connected && ptUser.coupang_access_key && ptUser.coupang_secret_key) {
+        const accessKey = await decryptPassword(ptUser.coupang_access_key);
+        const secretKey = await decryptPassword(ptUser.coupang_secret_key);
+
+        await serviceClient.from('channel_credentials').upsert({
+          megaload_user_id: megaloadUserId,
+          channel: 'coupang',
+          credentials: {
+            vendorId: ptUser.coupang_vendor_id,
+            accessKey,
+            secretKey,
+          },
+          is_connected: true,
+          last_verified_at: new Date().toISOString(),
+        }, { onConflict: 'megaload_user_id,channel' });
+      }
     }
 
     return megaloadUserId;
