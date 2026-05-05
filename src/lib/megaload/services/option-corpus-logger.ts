@@ -31,9 +31,16 @@ interface CorpusEntry {
 
 let warned = false;
 
+// Vercel 프로덕션은 파일시스템 읽기전용이라 모든 write 가 실패. 매 상품마다 fs 시도 → catch 의
+// 비용을 회피하기 위해 모듈 로드 시 한 번만 판정 후 no-op 화.
+const FS_WRITABLE = (() => {
+  if (typeof window !== 'undefined') return false;
+  if (process.env.VERCEL === '1' || process.env.VERCEL_ENV) return false;
+  return true;
+})();
+
 export function logExtractionCorpus(entry: Omit<CorpusEntry, 'ts'>): void {
-  // 서버 환경에서만 실행 — Node.js fs 사용
-  if (typeof window !== 'undefined') return;
+  if (!FS_WRITABLE) return;
 
   try {
     if (!fs.existsSync(LOG_DIR)) {
