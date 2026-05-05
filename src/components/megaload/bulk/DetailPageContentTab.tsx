@@ -335,10 +335,11 @@ export default function DetailPageContentTab({
   const [detailRelevanceScores, setDetailRelevanceScores] = useState<{ index: number; score: number }[] | null>(null);
   const [isAnalyzingDetailRelevance, setIsAnalyzingDetailRelevance] = useState(false);
 
-  // 상품이 바뀌면 분석 결과 초기화
+  // 상품이 바뀌면 분석 결과 + 미리보기 펼침 상태 초기화 (한 번 닫고 다른 상품 봐도 다시 보이도록)
   useEffect(() => {
     setDetailRelevanceScores(null);
     setIsAnalyzingDetailRelevance(false);
+    setPreviewOpen(true);
   }, [product.uid]);
 
   // 자동 트리거: 패널이 열렸고 분석이 한 번도 안 돌았으면 자동 실행
@@ -776,6 +777,7 @@ export default function DetailPageContentTab({
       {/* ─── 리뷰 이미지 선택 ─── (상세페이지 본문은 리뷰이미지 + 스토리문단 교차로 구성) */}
       {reviewThumbnailUrls.length > 0 && (
         <Collapsible
+          key={`review-img-${product.uid}`}
           title="리뷰 이미지"
           icon={<ImageIcon className="w-3.5 h-3.5 text-emerald-500" />}
           badge={`${(product.editedReviewImageOrder ?? reviewThumbnailUrls).length}장 선택`}
@@ -793,9 +795,11 @@ export default function DetailPageContentTab({
 
       {/* ─── 상품설명 ─── */}
       <Collapsible
+        key={`description-${product.uid}`}
         title="상품설명"
         icon={<FileText className="w-3.5 h-3.5 text-blue-500" />}
         badge={`${description.length}자`}
+        defaultOpen={true}
       >
         <div className="pt-2">
           <textarea
@@ -821,9 +825,11 @@ export default function DetailPageContentTab({
 
       {/* ─── AI 스토리 문단 ─── */}
       <Collapsible
+        key={`story-${product.uid}`}
         title={contentBlocks.length > 0 ? '설득형 콘텐츠 블록' : '스토리 문단 (이미지 사이 텍스트)'}
         icon={<GripVertical className="w-3.5 h-3.5 text-purple-500" />}
         badge={contentBlocks.length > 0 ? `${contentBlocks.length}블록` : storyParagraphs.length > 0 ? `${storyParagraphs.length}개` : undefined}
+        defaultOpen={true}
       >
         <div className="pt-2 space-y-2">
           {storyParagraphs.length === 0 ? (
@@ -872,9 +878,11 @@ export default function DetailPageContentTab({
 
       {/* ─── 리뷰 텍스트 ─── */}
       <Collapsible
+        key={`review-text-${product.uid}`}
         title="리뷰 텍스트"
         icon={<MessageSquare className="w-3.5 h-3.5 text-green-500" />}
         badge={reviewTexts.length > 0 ? `${reviewTexts.length}개` : undefined}
+        defaultOpen={true}
       >
         <div className="pt-2 space-y-2">
           {reviewTexts.length === 0 ? (
