@@ -303,8 +303,9 @@ export function useBulkRegisterActions() {
       return batchMatched;
     };
 
-    // Main pass — 2 batches 동시 fire (서버측 카테고리 매칭은 어댑터 차단됐으므로 외부 API 영향 없음)
-    const BATCH_PARALLEL = 2;
+    // Main pass — 4 batches 동시 fire. 서버측 카테고리 매칭은 어댑터 차단된 상태라
+    // 외부 API 영향 없음 (Tier 0/1 로컬 매칭만). 100건이면 25건×4 → 1라운드 처리.
+    const BATCH_PARALLEL = 4;
     const batchStarts: number[] = [];
     for (let i = 0; i < total; i += BATCH_SIZE) batchStarts.push(i);
 
@@ -829,10 +830,10 @@ export function useBulkRegisterActions() {
           const CROSS_REF_THRESHOLD = 2.0;
           const MAIN_MIN_KEEP = 8;
 
-          // Step 3 메인 스코어링 — 상품별 병렬 처리 (3개 동시)
-          // Step 3.7과 동일 패턴: Canvas 동시성은 IMAGE_CONCURRENCY로 내부 제한,
-          // 외부 워커 3개 × 내부 6 = 최대 18 동시 캔버스 (메모리 안전)
-          const SCORE_PRODUCT_PARALLEL = 3;
+          // Step 3 메인 스코어링 — 상품별 병렬 처리 (6개 동시)
+          // Canvas 동시성은 IMAGE_CONCURRENCY 로 내부 제한.
+          // 외부 워커 6개 × 내부 6 = 최대 36 동시 캔버스 — 모던 브라우저(Chrome/Edge) 메모리 안전 범위.
+          const SCORE_PRODUCT_PARALLEL = 6;
           let nextScoreIdx = 0;
 
           const processMainScoring = async (idx: number): Promise<void> => {
