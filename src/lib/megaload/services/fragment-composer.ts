@@ -1023,6 +1023,7 @@ const L2_FORBIDDEN_TERMS: Record<string, string[]> = {
 const GLOBAL_FORBIDDEN_TERMS: string[] = [
   // 과장/허세
   '이건 진짜', '진짜예요', '시간 투자', '투자 가치',
+  '체감이 확실', '체감 확실',
   // 비문
   '활용 드실', '활용 드시',
 ];

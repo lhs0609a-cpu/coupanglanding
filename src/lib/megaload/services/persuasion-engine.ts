@@ -457,6 +457,24 @@ function normalizeSentenceForDedup(s: string): string {
     .slice(0, 80); // 긴 문장도 첫 80자로 비교
 }
 
+// 최종 출력에서 절대 등장해선 안 될 글로벌 부적합 표현.
+// fragment-composer 의 GLOBAL_FORBIDDEN_TERMS 와 동기. 풀 fallback 우회로 빠져나간
+// 잔재를 최종 단계에서 잘라낸다.
+const OUTPUT_FORBIDDEN_PHRASES: RegExp[] = [
+  /이건\s*진짜/g, /진짜예요/g, /시간\s*투자/g, /투자\s*가치/g,
+  /체감이\s*확실/g, /체감\s*확실/g,
+  /활용\s*드실/g, /활용\s*드시/g,
+];
+
+function stripForbiddenPhrases(text: string): string {
+  if (!text) return text;
+  let out = text;
+  for (const re of OUTPUT_FORBIDDEN_PHRASES) out = out.replace(re, '');
+  // 해당 표현 제거 후 비어있는 문장 정리
+  out = out.replace(/\.\s*\.\s*/g, '. ').replace(/\s{2,}/g, ' ').trim();
+  return out;
+}
+
 function deduplicateSentencesInText(text: string, globalSeen: Set<string>): string {
   if (!text) return '';
   // 종결 표현(., !, ?) 으로 분리. 따옴표 안의 마침표는 일단 split됨 (대부분 안전).
@@ -492,6 +510,9 @@ function deduplicateSentencesInText(text: string, globalSeen: Set<string>): stri
 const COMMON_REPEAT_WORDS = new Set([
   '엄선한', '엄선', '재료부터', '본연의', '풍미', '프로파일',
   '준비했습니다', '말이', '인상적', '균형감',
+  // audit Round 3에서 발견된 추가 반복 단어
+  '꾸준히', '품질입니다', '검증된', '특화된', '실사용',
+  '소재로', '소재의', '동급에서', '경험해보세요',
 ]);
 function dampenWordRepetition(text: string): string {
   if (!text) return text;
@@ -533,7 +554,10 @@ export function contentBlocksToParagraphs(blocks: ContentBlock[]): string[] {
     }
     if (block.emphasis) parts.push(block.emphasis);
 
-    const joined = parts.join(' ');
+    let joined = parts.join(' ');
+    // 1. 글로벌 부적합 phrase 절단 (filter pool fallback 우회 잔재)
+    joined = stripForbiddenPhrases(joined);
+    // 2. 페이지 전역 dedup
     return deduplicateSentencesInText(joined, globalSeen);
   });
 
