@@ -7,6 +7,7 @@
 
 import { CoupangAdapter } from '../adapters/coupang.adapter';
 import { mapCategory } from './ai.service';
+import { sanitizeSellerName } from './seller-name-sanitizer';
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -261,6 +262,61 @@ const DIRECT_CODE_MAP: Record<string, { code: string; path: string }> = {
   '아이스팩': { code: '80639', path: '주방용품>보온/보냉용품>아이스팩' },
   '루테인지아잔틴': { code: '58920', path: '식품>건강식품>기타건강식품>루테인' },
   '비타민b컴플렉스': { code: '58908', path: '식품>건강식품>비타민/미네랄>비타민B군' },
+  // ── 신선식품 > 과일류 ──
+  // 셀러 키워드 스터핑("사과/배 과일세트")으로 인한 오매칭 방지: Tier 0에서 직접 결정.
+  // 단일문자 한글(배/감/무)은 동음이의 위험 커서 제외 — DIRECT 대신 localMatch에 맡김.
+  '사과': { code: '59356', path: '식품>신선식품>과일류>과일>사과' },
+  '오렌지': { code: '59363', path: '식품>신선식품>과일류>과일>오렌지' },
+  '네이블': { code: '59363', path: '식품>신선식품>과일류>과일>오렌지' },
+  '발렌시아': { code: '59363', path: '식품>신선식품>과일류>과일>오렌지' },
+  '참외': { code: '59378', path: '식품>신선식품>과일류>과일>참외' },
+  '토마토': { code: '72498', path: '식품>신선식품>과일류>과일>토마토' },
+  '방울토마토': { code: '72498', path: '식품>신선식품>과일류>과일>토마토' },
+  '대저토마토': { code: '72498', path: '식품>신선식품>과일류>과일>토마토' },
+  '망고': { code: '59393', path: '식품>신선식품>과일류>과일>망고' },
+  '메론': { code: '59377', path: '식품>신선식품>과일류>과일>메론' },
+  '멜론': { code: '59377', path: '식품>신선식품>과일류>과일>메론' },
+  '카라향': { code: '59377', path: '식품>신선식품>과일류>과일>메론' },
+  '수박': { code: '59376', path: '식품>신선식품>과일류>과일>수박' },
+  '복숭아': { code: '72499', path: '식품>신선식품>과일류>과일>복숭아' },
+  '자두': { code: '59374', path: '식품>신선식품>과일류>과일>자두' },
+  '포도': { code: '72500', path: '식품>신선식품>과일류>과일>포도' },
+  '귤': { code: '59359', path: '식품>신선식품>과일류>과일>귤' },
+  '한라봉': { code: '59359', path: '식품>신선식품>과일류>과일>귤' },
+  '천혜향': { code: '59359', path: '식품>신선식품>과일류>과일>귤' },
+  '레몬': { code: '59364', path: '식품>신선식품>과일류>과일>레몬' },
+  '체리': { code: '59382', path: '식품>신선식품>과일류>과일>체리' },
+  '블루베리': { code: '59383', path: '식품>신선식품>과일류>과일>블루베리' },
+  '딸기': { code: '59380', path: '식품>신선식품>과일류>과일>딸기' },
+  '파인애플': { code: '59391', path: '식품>신선식품>과일류>과일>파인애플' },
+  '자몽': { code: '59388', path: '식품>신선식품>과일류>과일>자몽' },
+  '바나나': { code: '59390', path: '식품>신선식품>과일류>과일>바나나' },
+  '두리안': { code: '72506', path: '식품>신선식품>과일류>과일>두리안' },
+  '석류': { code: '59389', path: '식품>신선식품>과일류>과일>석류' },
+  '매실': { code: '59387', path: '식품>신선식품>과일류>과일>매실' },
+  '오디': { code: '59385', path: '식품>신선식품>과일류>과일>오디' },
+  '무화과': { code: '72503', path: '식품>신선식품>과일류>과일>무화과' },
+  '용과': { code: '72511', path: '식품>신선식품>과일류>과일>용과' },
+  '람부탄': { code: '72509', path: '식품>신선식품>과일류>과일>람부탄' },
+  '코코넛': { code: '72507', path: '식품>신선식품>과일류>과일>코코넛' },
+  '살구': { code: '59375', path: '식품>신선식품>과일류>과일>살구' },
+  // ── 신선식품 > 채소류 ──
+  '오이': { code: '59297', path: '식품>신선식품>채소류>열매채소>오이' },
+  '당근': { code: '59290', path: '식품>신선식품>채소류>뿌리채소>당근' },
+  '감자': { code: '59289', path: '식품>신선식품>채소류>감자/고구마>감자' },
+  '양파': { code: '59308', path: '식품>신선식품>채소류>뿌리채소>양파' },
+  '마늘': { code: '59310', path: '식품>신선식품>채소류>뿌리채소>마늘' },
+  '대파': { code: '59316', path: '식품>신선식품>채소류>나물/잎줄기채소>대파' },
+  '상추': { code: '59336', path: '식품>신선식품>채소류>쌈채소/샐러드채소>상추' },
+  '배추': { code: '59318', path: '식품>신선식품>채소류>나물/잎줄기채소>배추' },
+  '호박': { code: '59299', path: '식품>신선식품>채소류>열매채소>호박' },
+  '고추': { code: '59304', path: '식품>신선식품>채소류>열매채소>고추' },
+  '피망': { code: '59306', path: '식품>신선식품>채소류>열매채소>피망' },
+  '파프리카': { code: '59307', path: '식품>신선식품>채소류>열매채소>파프리카' },
+  '시금치': { code: '59331', path: '식품>신선식품>채소류>나물/잎줄기채소>시금치' },
+  '브로콜리': { code: '59350', path: '식품>신선식품>채소류>나물/잎줄기채소>브로콜리' },
+  '콩나물': { code: '59282', path: '식품>신선식품>채소류>콩나물/숙주나물>콩나물' },
+  '쪽파': { code: '59317', path: '식품>신선식품>채소류>나물/잎줄기채소>쪽파' },
 };
 
 // ─── 동의어/별칭 사전 (토큰 확장) ────────────────────────────
@@ -403,25 +459,45 @@ function pathMatchesDomain(path: string, domain: DomainFilter): boolean {
   return true;
 }
 
-function voteTier0(candidates: string[], domainFilter: DomainFilter = null): CategoryMatchResult | null {
-  const votes = new Map<string, { entry: { code: string; path: string }; count: number; longestToken: number }>();
+function voteTier0(
+  candidates: string[],
+  domainFilter: DomainFilter = null,
+  originalTokens?: string[],
+): CategoryMatchResult | null {
+  const votes = new Map<string, {
+    entry: { code: string; path: string };
+    count: number;
+    longestToken: number;
+    earliestPos: number;
+  }>();
+  // 원본 토큰 첫 등장 위치(없으면 +Infinity) — 동률 시 더 앞에 등장한 후보 우선.
+  const positionOf = (tok: string): number => {
+    if (!originalTokens) return Infinity;
+    const i = originalTokens.indexOf(tok);
+    return i < 0 ? Infinity : i;
+  };
   for (const t of candidates) {
     const direct = DIRECT_CODE_MAP[t];
     if (!direct) continue;
     // 도메인 불일치 엔트리는 Tier 0에서 배제
     if (!pathMatchesDomain(direct.path, domainFilter)) continue;
+    const pos = positionOf(t);
     const existing = votes.get(direct.code);
     if (existing) {
       existing.count++;
       existing.longestToken = Math.max(existing.longestToken, t.length);
+      if (pos < existing.earliestPos) existing.earliestPos = pos;
     } else {
-      votes.set(direct.code, { entry: direct, count: 1, longestToken: t.length });
+      votes.set(direct.code, { entry: direct, count: 1, longestToken: t.length, earliestPos: pos });
     }
   }
   if (votes.size === 0) return null;
-  // 가장 많은 표 → 동률이면 가장 긴 토큰 매칭
+  // 우선순위: 표수 ↓ → 첫 등장 위치 ↑ (앞에 먼저 나온 토큰) → 토큰 길이 ↓
+  // "오렌지(idx2) 1표 vs 사과(idx5) 1표" → 오렌지 승.
   const best = [...votes.values()].sort((a, b) =>
-    b.count - a.count || b.longestToken - a.longestToken
+    b.count - a.count
+    || a.earliestPos - b.earliestPos
+    || b.longestToken - a.longestToken
   )[0];
   return {
     categoryCode: best.entry.code,
@@ -733,13 +809,17 @@ async function localMatch(
     score += leafScore;
 
     // === 1d. 토큰 위치 가중치 ===
-    // 상품명 앞쪽 토큰 = 상품 유형일 확률 높음 → leaf 매칭 시 위치 보너스
+    // 상품명 앞쪽 토큰 = 상품 유형일 확률 높음 → leaf 매칭 시 위치 보너스.
+    // 셀러 키워드 스터핑("오렌지...사과") 시 idx 차이만으로 동률을 깨려면 후위 토큰까지 차등 필요.
     if (leafScore > 0) {
       const matchedTokenIdx = tokens.findIndex(t =>
         t === leafLower || leafLower.includes(t)
       );
-      if (matchedTokenIdx === 0) score += 5;       // 첫 번째 토큰
-      else if (matchedTokenIdx === 1) score += 3;   // 두 번째 토큰
+      // idx 0: +8, 1: +6, 2: +4, 3: +2, 4: +1, 5+: 0
+      const POS_BONUS = [8, 6, 4, 2, 1];
+      if (matchedTokenIdx >= 0 && matchedTokenIdx < POS_BONUS.length) {
+        score += POS_BONUS[matchedTokenIdx];
+      }
     }
 
     // === 2. Path token overlap (경로 전체 매칭) ===
@@ -920,8 +1000,10 @@ export async function matchCategory(
   adapter?: CoupangAdapter,
   naverCategoryId?: string,
 ): Promise<CategoryMatchResult | null> {
-  const cleaned = cleanProductName(productName);
-  const tokens = tokenize(productName);
+  // 셀러 키워드 스터핑/가격 마커 1차 정제 — "★19900원★" / "사과/배 과일세트 ×3" 등
+  const sanitized = sanitizeSellerName(productName);
+  const cleaned = cleanProductName(sanitized);
+  const tokens = tokenize(sanitized);
   const compoundTokens = buildCompoundTokens(tokens);
 
   // ── 네이버 카테고리 매핑 (최우선 — 소싱 상품의 실제 분류) ──
@@ -942,7 +1024,7 @@ export async function matchCategory(
   const allCandidates = [...baseCompounds, ...expandedOnly];
   // 도메인 prefix 감지 (아기/유아 → baby, 강아지 → pet 등)
   const domainFilter = detectDomainFilter(allCandidates);
-  const tier0Result = voteTier0(allCandidates, domainFilter);
+  const tier0Result = voteTier0(allCandidates, domainFilter, tokens);
   if (tier0Result) return tier0Result;
 
   // ── Tier 1: Local DB matching ──
@@ -1035,7 +1117,9 @@ export async function matchCategoryBatch(
   // === Phase 0+1 통합: 네이버 매핑 최우선 → Tier 0 → 로컬 DB ===
   // 네이버 카테고리 ID는 소싱 상품의 실제 분류이므로 키워드 추론보다 신뢰도가 높다.
   // Tier 0는 네이버 ID가 없을 때만 작동.
-  const productTokensList: string[][] = productNames.map((name) => tokenize(name));
+  // 셀러 키워드 스터핑/가격 마커 1차 정제 후 토큰화.
+  const sanitizedNames = productNames.map((n) => sanitizeSellerName(n));
+  const productTokensList: string[][] = sanitizedNames.map((name) => tokenize(name));
   const unmatchedIndices: number[] = [];
   const tier1Diagnostics = new Map<number, { score: number; candidateName: string }>();
 
@@ -1062,7 +1146,7 @@ export async function matchCategoryBatch(
     const baseSet = new Set(baseComps);
     const expandedOnly = compoundTokens.filter((t) => !baseSet.has(t));
     const allCandidates = [...baseComps, ...expandedOnly];
-    const tier0Result = voteTier0(allCandidates);
+    const tier0Result = voteTier0(allCandidates, null, toks);
     if (tier0Result) {
       results[i] = tier0Result;
       continue;

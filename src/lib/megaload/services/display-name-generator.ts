@@ -46,6 +46,7 @@
 import { createSeededRandom, stringToSeed } from './seeded-random';
 import seoData from '../data/seo-keyword-pools.json';
 import { checkCompliance } from './compliance-filter';
+import { sanitizeSellerName } from './seller-name-sanitizer';
 
 // ─── 타입 ────────────────────────────────────────────────
 
@@ -914,8 +915,10 @@ export function generateDisplayName(
   const seed = stringToSeed(`${sellerSeed}::${productIndex}::${originalName}`);
   const rng = createSeededRandom(seed);
 
+  // 셀러 SEO 오염 1차 정제 — 가격(★19900원★) / 반복 phrase(사과/배 과일세트 ×3)
+  const sellerCleaned = sanitizeSellerName(originalName);
   // 정체성 모순 토큰 제거 (사과+자몽, 부사+아오리 등 동시 노출 차단)
-  const sanitizedOriginal = sanitizeContradictoryTokens(originalName, categoryPath);
+  const sanitizedOriginal = sanitizeContradictoryTokens(sellerCleaned, categoryPath);
 
   // Phase 1: 토큰 추출 & 분류
   const classified = classifyTokens(sanitizedOriginal, categoryPath, brand);
