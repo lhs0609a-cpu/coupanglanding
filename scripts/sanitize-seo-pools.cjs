@@ -42,6 +42,20 @@ function isProcessedFoodCategory(path) {
 // 일반 영양 표시는 보존 (건기식 명시 아닌 일반 식품 영양정보)
 const GENERAL_NUTRITION_KEEP = new Set(['단백질', '식이섬유']);
 
+// 건기식 효능/인증 features — 신선식품(과일/채소)에는 부적합
+// (체력/면역/피로회복 같은 효능 표현은 식약처 광고법상 식품에 사용 불가)
+const HEALTH_EFFICACY_FEATURES = new Set([
+  '체력', '면역', '피로회복', '다이어트', '저칼로리', '보충',
+  '활력', '에너지', '수면개선', '스트레스완화', '근육이완',
+  '혈관건강', '심장건강', '간건강', '장건강', '뼈건강',
+  '항산화', '주름개선', '미백', '탄력', '피부건강',
+  'HACCP', 'GMP', 'ISO',  // 인증은 가공식품에는 적합하나 신선식품에는 보통 미적용
+]);
+
+function isFreshFoodCategory(path) {
+  return /식품>신선식품/.test(path);
+}
+
 // 식품 sub-도메인 키워드 — 다른 sub-도메인에 leak 되면 부적합
 const FOOD_DOMAIN_KEYWORDS = {
   fruit: ['과일', '과일류'],
@@ -85,10 +99,13 @@ for (const [path, pool] of Object.entries(cp)) {
     }
   }
 
+  const isFresh = isFreshFoodCategory(path);
   const filterTok = (tok) => {
     if (GENERAL_NUTRITION_KEEP.has(tok)) return true;
     if (!isHealth && HEALTH_SUPPLEMENT_TOKENS.has(tok)) return false;
     if (subDomain && crossFoodTokens.has(tok)) return false;
+    // 신선식품에는 건기식 효능/인증 features 부적합 — 식약처 광고법상 식품 효능 표현 불가
+    if (isFresh && HEALTH_EFFICACY_FEATURES.has(tok)) return false;
     return true;
   };
 
