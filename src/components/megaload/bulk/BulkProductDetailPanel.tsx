@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  X, ChevronUp, ChevronDown, CheckCircle2, AlertTriangle, XCircle, Code2, FileText, ExternalLink, Ban,
+  X, ChevronUp, ChevronDown, CheckCircle2, AlertTriangle, XCircle, Code2, FileText, ExternalLink, Ban, GripVertical,
 } from 'lucide-react';
 import PayloadPreviewPanel, { type PayloadPreviewData } from './PayloadPreviewPanel';
 import CoupangFieldsSection from './CoupangFieldsSection';
@@ -72,6 +72,60 @@ export default function BulkProductDetailPanel({
 
   // Browser mode: load all main images as objectURLs
   const [browserImageUrls, setBrowserImageUrls] = useState<string[]>([]);
+
+  // ─── Resizable width (per-user localStorage) ───
+  // 좌측 가장자리 핸들로 너비 조절 → 사용자별 localStorage 영속.
+  // 최소 500px, 최대 viewport의 95%. 기본 780px.
+  const PANEL_MIN_WIDTH = 500;
+  const PANEL_DEFAULT_WIDTH = 780;
+  const PANEL_STORAGE_KEY = 'megaload:detail-panel-width';
+  const [panelWidth, setPanelWidth] = useState<number>(() => {
+    if (typeof window === 'undefined') return PANEL_DEFAULT_WIDTH;
+    try {
+      const raw = window.localStorage.getItem(PANEL_STORAGE_KEY);
+      const parsed = raw ? parseInt(raw, 10) : NaN;
+      if (Number.isFinite(parsed) && parsed >= PANEL_MIN_WIDTH) return parsed;
+    } catch { /* ignore */ }
+    return PANEL_DEFAULT_WIDTH;
+  });
+  const isResizingRef = useRef(false);
+  const [isResizing, setIsResizing] = useState(false);
+
+  const startResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizingRef.current = true;
+    setIsResizing(true);
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'ew-resize';
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizingRef.current) return;
+      // 패널은 우측 고정. 마우스 X가 왼쪽으로 갈수록 너비 증가.
+      const newWidth = window.innerWidth - e.clientX;
+      const maxWidth = Math.floor(window.innerWidth * 0.95);
+      const clamped = Math.max(PANEL_MIN_WIDTH, Math.min(maxWidth, newWidth));
+      setPanelWidth(clamped);
+    };
+    const handleMouseUp = () => {
+      if (!isResizingRef.current) return;
+      isResizingRef.current = false;
+      setIsResizing(false);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      // localStorage 저장 (resize 끝날 때 한 번)
+      try {
+        window.localStorage.setItem(PANEL_STORAGE_KEY, String(panelWidth));
+      } catch { /* ignore */ }
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [panelWidth]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -162,11 +216,12 @@ export default function BulkProductDetailPanel({
 
   // Display images: CDN/server URLs > browser objectURLs
   const displayImageUrls = imageUrls.length > 0 ? imageUrls : browserImageUrls;
-  // scannedMainImages가 있으면 자동제외 사유를 ImageItem에 전달
+  // scannedMainImages가 있으면 자동제외 사유 + 리뷰 promote 마커를 ImageItem 에 전달
   const imageItems: ImageItem[] = displayImageUrls.map((url, i) => ({
     id: `img-${i}`,
     url,
     autoExcludeReason: scannedMainImagesRef?.[i]?.autoExcludeReason,
+    promotedFromReview: scannedMainImagesRef?.[i]?.promotedFromReview,
   }));
 
   const handleImageReorder = useCallback((newOrder: ImageItem[]) => {
@@ -213,8 +268,26 @@ export default function BulkProductDetailPanel({
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="fixed top-0 right-0 h-full w-[780px] max-w-[90vw] bg-white shadow-2xl z-50 flex flex-col"
+            className="fixed top-0 right-0 h-full bg-white shadow-2xl z-50 flex flex-col"
+            style={{ width: `${panelWidth}px`, maxWidth: '95vw' }}
           >
+            {/* Resize handle (좌측 가장자리) */}
+            <div
+              onMouseDown={startResize}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="패널 너비 조절 — 드래그"
+              title="좌우로 드래그하여 패널 너비 조절"
+              className={`absolute left-0 top-0 h-full w-1.5 cursor-ew-resize z-10 group ${
+                isResizing ? 'bg-[#E31837]/40' : 'hover:bg-[#E31837]/30'
+              } transition-colors`}
+            >
+              <div className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 p-1 rounded bg-white border border-gray-300 shadow-sm transition-opacity ${
+                isResizing ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'
+              }`}>
+                <GripVertical className="w-3 h-3 text-gray-400" />
+              </div>
+            </div>
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200">
               <div className="flex items-center gap-3 min-w-0 flex-1">
