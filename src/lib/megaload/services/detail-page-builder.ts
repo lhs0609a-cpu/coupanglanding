@@ -176,20 +176,12 @@ function buildLayoutB(params: DetailPageParams): string {
   sections.push(buildWrapper(style, theme));
   sections.push(buildHeroSection(productName, brand, seoKeywords, theme));
 
-  // 본문: 리뷰이미지 모음 → 글 모음 (detailImageUrls 미사용)
-  // 빈 슬롯/null URL 제거 — 후기 4·5번이 빈 칸으로 노출되는 문제 차단
-  const bodyImages = (reviewImageUrls ?? []).filter(u => typeof u === 'string' && u.trim().length > 0);
-  for (let i = 0; i < bodyImages.length; i++) {
-    sections.push(`<div style="margin:0;"><img src="${esc(bodyImages[i])}" alt="${esc(shortenForAlt(productName))} ${i + 1}" style="width:100%;display:block;" /></div>`);
-  }
-
+  // 본문: 리뷰이미지 + 문단 균등 인터리브 (이미지당 3~5문단)
+  // 이전 "이미지 전체 dump → 텍스트 전체 dump" 패턴 폐기 — 텍스트가 끝에 몰리는 버그 차단
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
-  if (paragraphs.length > 0) {
-    sections.push(`<div style="padding:32px ${style.padding.split(' ')[1] || '32px'};">`);
-    for (const p of paragraphs) {
-      sections.push(buildParagraphBlock(p, style));
-    }
-    sections.push('</div>');
+  const bodyImages = (reviewImageUrls ?? []).filter(u => typeof u === 'string' && u.trim().length > 0);
+  if (bodyImages.length > 0 || paragraphs.length > 0) {
+    sections.push(buildBlogStyleSection(bodyImages, paragraphs, productName, style, theme));
   }
 
   if (faqItems && faqItems.length > 0) {
@@ -223,24 +215,34 @@ function buildLayoutC(params: DetailPageParams): string {
   sections.push(buildWrapper(style, theme));
   sections.push(buildHeroSection(productName, brand, seoKeywords, theme));
 
-  // 본문: 리뷰이미지 1번을 히어로로 → 글 → 나머지 리뷰이미지 그리드 (detailImageUrls 미사용)
-  // 빈 슬롯/null URL 제거 — 후기 4·5번이 빈 칸으로 노출되는 문제 차단
+  // 본문: 1번 이미지 히어로 → 나머지 이미지+문단 인터리브 → 마지막에 2열 그리드(차별화)
+  // 이전 "히어로 → 모든 텍스트 → 그리드" 패턴 폐기 — 텍스트가 한 덩어리로 쌓이는 버그 차단
   const bodyImages = (reviewImageUrls ?? []).filter(u => typeof u === 'string' && u.trim().length > 0);
+  const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
+
   if (bodyImages.length > 0) {
     sections.push(`<div style="margin:0;"><img src="${esc(bodyImages[0])}" alt="${esc(shortenForAlt(productName))} 메인" style="width:100%;display:block;" /></div>`);
   }
 
-  const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
-  if (paragraphs.length > 0) {
-    for (const p of paragraphs) sections.push(buildParagraphBlock(p, style));
+  // 가운데 본문: 2번 이후 이미지 절반 + 모든 문단을 인터리브
+  // 그리드(레이아웃 차별화)에 남길 이미지: 마지막 ~3장
+  const GRID_RESERVE = 3;
+  const interleaveImages = bodyImages.length > 1
+    ? bodyImages.slice(1, Math.max(1, bodyImages.length - GRID_RESERVE))
+    : [];
+  const gridImages = bodyImages.length > 1 + interleaveImages.length
+    ? bodyImages.slice(1 + interleaveImages.length)
+    : [];
+
+  if (interleaveImages.length > 0 || paragraphs.length > 0) {
+    sections.push(buildBlogStyleSection(interleaveImages, paragraphs, productName, style, theme));
   }
 
-  if (bodyImages.length > 1) {
-    const remaining = bodyImages.slice(1);
+  if (gridImages.length > 0) {
     sections.push('<div style="display:flex;flex-wrap:wrap;gap:4px;padding:8px 0;">');
-    for (let i = 0; i < remaining.length; i++) {
-      const w = remaining.length === 1 ? '100%' : 'calc(50% - 2px)';
-      sections.push(`<div style="width:${w};"><img src="${esc(remaining[i])}" alt="${esc(shortenForAlt(productName))} ${i + 2}" style="width:100%;display:block;" /></div>`);
+    for (let i = 0; i < gridImages.length; i++) {
+      const w = gridImages.length === 1 ? '100%' : 'calc(50% - 2px)';
+      sections.push(`<div style="width:${w};"><img src="${esc(gridImages[i])}" alt="${esc(shortenForAlt(productName))} ${interleaveImages.length + i + 2}" style="width:100%;display:block;" /></div>`);
     }
     sections.push('</div>');
   }
@@ -360,17 +362,48 @@ function buildBlogStyleSection(
   theme?: ThemeColor,
 ): string {
   const parts: string[] = [];
-  const maxLen = Math.max(imageUrls.length, paragraphs.length);
+  const cleanParagraphs = paragraphs.filter(p => p && p.trim());
+  const cleanImages = imageUrls.filter(u => typeof u === 'string' && u.trim().length > 0);
 
-  for (let i = 0; i < maxLen; i++) {
-    if (i < paragraphs.length && paragraphs[i].trim()) {
-      parts.push(buildParagraphBlock(paragraphs[i], style));
-    }
-    if (i < imageUrls.length && typeof imageUrls[i] === 'string' && imageUrls[i].trim().length > 0) {
+  // 이미지 0개 → 문단만
+  if (cleanImages.length === 0) {
+    for (const p of cleanParagraphs) parts.push(buildParagraphBlock(p, style));
+    return parts.join('\n');
+  }
+  // 문단 0개 → 이미지만
+  if (cleanParagraphs.length === 0) {
+    for (let i = 0; i < cleanImages.length; i++) {
       parts.push(
-        `<div style="margin:12px 0;"><img src="${esc(imageUrls[i])}" alt="${esc(shortenForAlt(productName))} ${i + 1}" style="width:100%;display:block;" /></div>`
+        `<div style="margin:12px 0;"><img src="${esc(cleanImages[i])}" alt="${esc(shortenForAlt(productName))} ${i + 1}" style="width:100%;display:block;" /></div>`
       );
     }
+    return parts.join('\n');
+  }
+
+  // 문단을 이미지 수만큼 균등 분배 — 이미지당 ceil(p/img) 문단씩 끼워 넣어
+  // 마지막에 텍스트 wall 쌓이지 않게 함
+  const chunkSize = Math.ceil(cleanParagraphs.length / cleanImages.length);
+  let pIdx = 0;
+  for (let i = 0; i < cleanImages.length; i++) {
+    // 첫 슬롯엔 1문단 짧게 도입(가독성), 이후 chunkSize씩 묶어 뒤에 이미지
+    const isFirst = i === 0;
+    const take = isFirst ? Math.min(1, cleanParagraphs.length - pIdx) : Math.min(chunkSize, cleanParagraphs.length - pIdx);
+    for (let k = 0; k < take && pIdx < cleanParagraphs.length; k++, pIdx++) {
+      parts.push(buildParagraphBlock(cleanParagraphs[pIdx], style));
+    }
+    parts.push(
+      `<div style="margin:12px 0;"><img src="${esc(cleanImages[i])}" alt="${esc(shortenForAlt(productName))} ${i + 1}" style="width:100%;display:block;" /></div>`
+    );
+  }
+  // 잔여 문단 — 1~3개씩 끊어 (한 덩어리로 dump 금지)
+  const REMAINING_CHUNK = 3;
+  while (pIdx < cleanParagraphs.length) {
+    const end = Math.min(pIdx + REMAINING_CHUNK, cleanParagraphs.length);
+    for (; pIdx < end; pIdx++) {
+      parts.push(buildParagraphBlock(cleanParagraphs[pIdx], style));
+    }
+    // 잔여 끊어 보일 시각적 spacer
+    if (pIdx < cleanParagraphs.length) parts.push('<div style="margin:8px 0;"></div>');
   }
 
   return parts.join('\n');
@@ -660,61 +693,67 @@ export function buildPersuasionPageHtml(
   const detailImageTypes = params.detailImageTypes;
   const useAffinity = detailImageTypes && detailImageTypes.length === detailImageUrls.length && detailImageUrls.length > 0;
 
-  if (useAffinity) {
-    // Affinity 기반 매칭: 각 이미지를 가장 적합한 블록 뒤에 배치
+  // 이미지를 전체 블록 범위에 균등 분배 — 마지막 블록들이 텍스트 wall로 쌓이지 않게
+  // affinity는 보너스 가중치 정도로만 사용, 핵심은 spread.
+  {
+    const N = contentBlocks.length;
+    const M = imageQueue.length;
     const assignedBlocks = new Set<number>();
 
-    for (let imgIdx = 0; imgIdx < imageQueue.length; imgIdx++) {
-      const imgType = imgIdx < detailImageTypes.length ? detailImageTypes[imgIdx] : 'unknown';
-      const affinityBlocks = IMAGE_BLOCK_AFFINITY[imgType] || IMAGE_BLOCK_AFFINITY['unknown'];
+    if (N > 0 && M > 0) {
+      // 1) affinity 우선 매칭 — 단 매칭 가능한 block_idx 후보를 균등 분배 위치 근처로 제한
+      //    (앞쪽 cluster 방지): img i 의 "이상적 위치"는 round((i+1)*N / (M+1))
+      const idealSlot = (i: number) => Math.min(N - 1, Math.max(0, Math.round((i + 1) * N / (M + 1)) - 1));
 
-      let matched = false;
-      for (const blockType of affinityBlocks) {
-        const blockIdx = contentBlocks.findIndex((b, bi) => b.type === blockType && !assignedBlocks.has(bi));
-        if (blockIdx >= 0) {
-          imageToBlockMap.set(imgIdx, blockIdx);
-          assignedBlocks.add(blockIdx);
-          matched = true;
-          break;
-        }
-      }
-
-      // 매칭 실패: 아직 이미지가 배정되지 않은 블록에 균등 배분
-      if (!matched) {
-        for (let bi = 0; bi < contentBlocks.length; bi++) {
-          if (!assignedBlocks.has(bi)) {
-            imageToBlockMap.set(imgIdx, bi);
-            assignedBlocks.add(bi);
-            break;
+      if (useAffinity) {
+        for (let imgIdx = 0; imgIdx < M; imgIdx++) {
+          const imgType = imgIdx < detailImageTypes.length ? detailImageTypes[imgIdx] : 'unknown';
+          const affinityTypes = IMAGE_BLOCK_AFFINITY[imgType] || IMAGE_BLOCK_AFFINITY['unknown'];
+          const target = idealSlot(imgIdx);
+          // ideal slot 기준 ±2 범위 내에서 affinity match 우선, 없으면 ideal slot 그대로
+          let chosen = -1;
+          for (let radius = 0; radius <= 3 && chosen < 0; radius++) {
+            for (const dir of [0, 1, -1]) {
+              const cand = target + dir * radius;
+              if (cand < 0 || cand >= N || assignedBlocks.has(cand)) continue;
+              if (affinityTypes.includes(contentBlocks[cand].type)) { chosen = cand; break; }
+            }
+          }
+          if (chosen < 0) {
+            // affinity 매칭 실패 — ideal slot에서 가장 가까운 미배정 블록
+            for (let r = 0; r < N; r++) {
+              for (const dir of [0, 1, -1]) {
+                const cand = target + dir * r;
+                if (cand < 0 || cand >= N || assignedBlocks.has(cand)) continue;
+                chosen = cand; break;
+              }
+              if (chosen >= 0) break;
+            }
+          }
+          if (chosen >= 0) {
+            imageToBlockMap.set(imgIdx, chosen);
+            assignedBlocks.add(chosen);
           }
         }
-      }
-    }
-  } else {
-    // 기존 로직: hook, solution, benefits_grid 뒤 우선 배치 + 나머지 균등 배분
-    const imageAfterTypes = ['hook', 'solution', 'benefits_grid'];
-    const imageAfterSet = new Set(imageAfterTypes);
-    let nextImgIdx = 0;
-
-    // 우선 배치
-    for (let bi = 0; bi < contentBlocks.length && nextImgIdx < imageQueue.length; bi++) {
-      if (imageAfterSet.has(contentBlocks[bi].type)) {
-        imageToBlockMap.set(nextImgIdx, bi);
-        nextImgIdx++;
-      }
-    }
-
-    // 남은 이미지를 비우선 블록에 균등 배분
-    if (nextImgIdx < imageQueue.length) {
-      const nonPriorityIndices = contentBlocks
-        .map((b, i) => ({ type: b.type, i }))
-        .filter(x => !imageAfterSet.has(x.type))
-        .map(x => x.i);
-      const remaining = imageQueue.length - nextImgIdx;
-      const step = Math.max(1, Math.floor(nonPriorityIndices.length / remaining));
-      for (let n = 0; n < remaining && n * step < nonPriorityIndices.length; n++) {
-        imageToBlockMap.set(nextImgIdx, nonPriorityIndices[n * step]);
-        nextImgIdx++;
+      } else {
+        // 균등 spacing — 이미지 i 를 (i+1)*N/(M+1) 번째 block 뒤에 배치
+        for (let imgIdx = 0; imgIdx < M; imgIdx++) {
+          const target = idealSlot(imgIdx);
+          // 이미 같은 위치에 배치된 이미지가 있으면 가장 가까운 빈 block 찾기
+          let chosen = -1;
+          for (let r = 0; r < N; r++) {
+            for (const dir of [0, 1, -1]) {
+              const cand = target + dir * r;
+              if (cand < 0 || cand >= N || assignedBlocks.has(cand)) continue;
+              chosen = cand; break;
+            }
+            if (chosen >= 0) break;
+          }
+          if (chosen >= 0) {
+            imageToBlockMap.set(imgIdx, chosen);
+            assignedBlocks.add(chosen);
+          }
+        }
       }
     }
   }
