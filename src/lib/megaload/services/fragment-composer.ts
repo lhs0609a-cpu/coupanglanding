@@ -1017,6 +1017,17 @@ const L2_FORBIDDEN_TERMS: Record<string, string[]> = {
 };
 
 /**
+ * 모든 카테고리에 적용되는 글로벌 forbidden terms.
+ * audit 결과 카테고리 무관하게 부적합한 표현으로 식별된 어휘.
+ */
+const GLOBAL_FORBIDDEN_TERMS: string[] = [
+  // 과장/허세
+  '이건 진짜', '진짜예요', '시간 투자', '투자 가치',
+  // 비문
+  '활용 드실', '활용 드시',
+];
+
+/**
  * 입력 categoryPath의 L1, L2, L3 모두 조회해 매칭되는 모든 forbidden terms를 합집합으로 반환.
  * 예: "식품>신선식품>과일류>과일>망고"
  *   - L1: "식품" → L1_FORBIDDEN_TERMS['식품'] (공산품/뷰티 등 차단)
@@ -1025,10 +1036,11 @@ const L2_FORBIDDEN_TERMS: Record<string, string[]> = {
  *   - L4/L5는 너무 세밀해서 매핑 불필요 (16k 카테고리 audit으로 식별 시 추가)
  */
 function getL1ForbiddenTerms(categoryPath: string): string[] {
-  if (!categoryPath) return [];
+  // 글로벌 forbidden은 항상 포함 — categoryPath 비어도 적용
+  const merged = new Set<string>(GLOBAL_FORBIDDEN_TERMS);
+  if (!categoryPath) return Array.from(merged);
   const parts = categoryPath.split('>').map(p => p.trim()).filter(Boolean);
-  if (parts.length === 0) return [];
-  const merged = new Set<string>();
+  if (parts.length === 0) return Array.from(merged);
   // L1 (대분류) — L1_FORBIDDEN_TERMS 키
   const l1Terms = L1_FORBIDDEN_TERMS[parts[0]];
   if (l1Terms) for (const t of l1Terms) merged.add(t);
@@ -1093,7 +1105,7 @@ const V2_GLOBAL_FRAGMENTS: Record<string, string[]> = {
     '집들이 선물 고민하다가 결국 {product}으로 정했어요.','부모님께 드리고 싶은 게 뭘까 한참 고민하다 {product} 골랐어요.',
     '동료한테 받은 추천 중에 가장 만족스러웠던 게 {product}이에요.','커뮤니티 후기에 자주 언급돼서 한번 사봤는데, 잘 산 {product}.',
     '안 사고는 못 배긴다는 표현이 어울리는 {product}.','일단 한 번 들이면 다시는 안 사고 못 배겨요. {product} 얘기예요.',
-    '"이건 진짜다" 싶은 순간이 있는데, {product}이 딱 그런 케이스.','쓸데없이 비싼 거 사면 후회만 남는데, {product}은 그 반대예요.',
+    '괜찮은 거 골랐다 싶은 순간이 있는데, {product}이 딱 그런 케이스.','쓸데없이 비싼 거 사면 후회만 남는데, {product}은 그 반대예요.',
     '쟁여두고 싶은 마음이 드는 {product}.','다음에 또 사야지 싶은 그런 {product}.',
     '여행 갈 때 짐에 꼭 챙겨가는 {product}이에요.','선물 받았는데 직접 사고 싶어진 {product}, 결국 또 샀어요.',
     '한 번 사봤다가 단골 된 {product}입니다.','집에 항상 떨어지지 않게 두는 {product}.',
@@ -1682,19 +1694,21 @@ export function maybeSeoWeave(
       const eulReul = hasJongseong ? '을' : '를';
       const iGa = hasJongseong ? '이' : '가';
       const eunNeun = hasJongseong ? '은' : '는';
+      // "분야/카테고리/적당한 시점" 같은 비즈니스 어휘 제거 — audit에서 식품에 부적합으로 확인됨.
+      // 자연스러운 한국어 + 카테고리 무관 generic prefix만 유지.
       const prefixForms = [
         `${kw}${eulReul} 찾고 계셨다면 좋은 기회입니다. `,
-        `${kw} 카테고리에서 한 번쯤 짚어볼 만한 제품입니다. `,
-        `${kw} 분야에 관심 있으신 분이라면 주목해보세요. `,
         `${kw} 관련해서 자주 비교되는 제품 중 하나입니다. `,
-        `${kw}${iGa} 필요하셨다면 적당한 시점입니다. `,
         `요즘 ${kw} 쪽으로 관심 가지시는 분들이 늘었습니다. `,
         `${kw}${eunNeun} 이렇게 보시면 됩니다. `,
         `${kw} 고민하시는 분께 참고가 될 만합니다. `,
         `${kw} 검색하셨다면 한 번쯤 살펴볼 만합니다. `,
         `${kw} 쪽 관심 있으시면 이 페이지가 도움이 됩니다. `,
         `${kw}${eulReul} 둘러보시기 좋은 옵션입니다. `,
-        `${kw} 분야에서 점차 자리잡고 있는 제품입니다. `,
+        `${kw}${iGa} 필요한 분께 추천드릴 만합니다. `,
+        `${kw} 한 번쯤 살펴보실 만합니다. `,
+        `${kw} 후보 중 하나로 두실 만합니다. `,
+        `${kw}${eulReul} 살펴보실 만한 가치가 있습니다. `,
       ];
       const prefix = prefixForms[_seoWeaveInsertionCount % prefixForms.length];
       return prefix + content;

@@ -63,11 +63,23 @@ const RULES = [
     return m;
   }],
   ['5_empty_review_slots', (p, t) => /리뷰\s*:\s*$|""\s*"|''\s*'/m.test(t) ? ['빈 리뷰 슬롯'] : []],
-  ['6_word_repetition', (p, t) => {
+  ['6_word_repetition', (p, t, leafName) => {
     const w = t.match(/[가-힣]{2,}/g) || [];
     const c = {};
     for (const x of w) c[x] = (c[x] || 0) + 1;
-    return Object.entries(c).filter(([x, n]) => n >= 12 && !['상품','제품','있습니다','드세요','드시면','풍미가','첫맛부터','가족이','이라면'].includes(x)).map(([x, n]) => `"${x}" ${n}회`).slice(0, 3);
+    // 카테고리 leaf 이름의 단어는 자연스러운 반복 — 제외
+    const leafWords = new Set((leafName || '').match(/[가-힣]{2,}/g) || []);
+    const ignored = new Set([
+      '상품','제품','있습니다','있어요','있는','있고','있을','있게',
+      '드세요','드시면','드셔','드시는','드실','드시기','드시고',
+      '풍미가','첫맛부터','가족이','이라면','이시라면','이시면',
+      '쓰시면','쓰시는','쓰시기','쓰실','쓰는',
+      '필요한','필요하','필요해','필요',
+      '하루','이상','정도','비교','관련',
+    ]);
+    return Object.entries(c)
+      .filter(([x, n]) => n >= 12 && !ignored.has(x) && !leafWords.has(x))
+      .map(([x, n]) => `"${x}" ${n}회`).slice(0, 3);
   }],
   ['7_unresolved_variables', (p, t) => {
     const m = t.match(/\{[^}]+\}/g);
@@ -176,7 +188,7 @@ for (const [code, fullPath, leafName] of sampledCats) {
     stats.totalSamples++;
     const hits = [];
     for (const [rid, fn] of RULES) {
-      const h = fn(fullPath, text);
+      const h = fn(fullPath, text, leafName);
       if (h.length > 0) {
         stats.byRule[rid] += h.length;
         hits.push({ rid, h });
