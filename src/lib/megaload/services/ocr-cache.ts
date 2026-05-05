@@ -19,6 +19,14 @@ interface OcrCacheEntry {
 // 인메모리 캐시 (배치 내 중복 방지)
 const memoryCache = new Map<string, OcrCacheEntry>();
 
+// Vercel 프로덕션은 파일시스템 읽기전용 + 사용자 PC 폴더 경로는 서버에 존재하지 않음.
+// 모듈 로드 시 한 번만 판정하여 파일 read/write 의 dead work 회피 (인메모리 캐시는 유지).
+const FS_AVAILABLE = (() => {
+  if (typeof window !== 'undefined') return false;
+  if (process.env.VERCEL === '1' || process.env.VERCEL_ENV) return false;
+  return true;
+})();
+
 /** 이미지 파일들의 해시를 생성 (변경 감지용) */
 function computeImageHash(imagePaths: string[]): string {
   const hash = crypto.createHash('md5');
@@ -59,20 +67,22 @@ export function getOcrCache(folderPath: string, imagePaths: string[]): Record<st
     return memEntry.specs;
   }
 
-  // 2. 파일 캐시 확인
-  const cacheFile = getCacheFilePath(folderPath);
-  try {
-    if (fs.existsSync(cacheFile)) {
-      const raw = fs.readFileSync(cacheFile, 'utf-8');
-      const entry: OcrCacheEntry = JSON.parse(raw);
-      if (entry.imageHash === currentHash) {
-        // 인메모리에도 올림
-        memoryCache.set(key, entry);
-        return entry.specs;
+  // 2. 파일 캐시 확인 (Vercel 등 fs 미사용 환경은 즉시 스킵)
+  if (FS_AVAILABLE) {
+    const cacheFile = getCacheFilePath(folderPath);
+    try {
+      if (fs.existsSync(cacheFile)) {
+        const raw = fs.readFileSync(cacheFile, 'utf-8');
+        const entry: OcrCacheEntry = JSON.parse(raw);
+        if (entry.imageHash === currentHash) {
+          // 인메모리에도 올림
+          memoryCache.set(key, entry);
+          return entry.specs;
+        }
       }
+    } catch {
+      // 캐시 파일 손상 — 무시
     }
-  } catch {
-    // 캐시 파일 손상 — 무시
   }
 
   return null;
@@ -97,7 +107,8 @@ export function setOcrCache(
   // 인메모리 저장
   memoryCache.set(key, entry);
 
-  // 파일 저장 (실패해도 무시 — 인메모리 캐시는 유효)
+  // 파일 저장 (Vercel 등 fs 미사용 환경은 스킵 — write 가 항상 실패)
+  if (!FS_AVAILABLE) return;
   try {
     const cacheFile = getCacheFilePath(folderPath);
     fs.writeFileSync(cacheFile, JSON.stringify(entry, null, 2), 'utf-8');
