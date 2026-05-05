@@ -438,24 +438,119 @@ export function generatePersuasionContent(
  * 설득형 콘텐츠를 레거시 paragraphs 형식으로 변환
  * (기존 StoryResult와 하위 호환)
  */
-export function contentBlocksToParagraphs(blocks: ContentBlock[]): string[] {
-  return blocks.map(block => {
-    const parts: string[] = [block.content];
+/**
+ * 문장 단위 dedup 헬퍼 — 한 문단 내, 그리고 페이지 전역에서 동일 문장 반복 차단.
+ *
+ * audit 결과 73% 페이지에서 중복 문장 발견 (5085중 3733). 원인:
+ *  - composeBlock의 subContent dedup이 정확 일치만 잡음
+ *  - 하지만 SEO weave/var fill 후 문자열은 약간 다르지만 본질이 같은 경우 통과
+ *  - 또 블록 간 dedup은 없어서 hook + social_proof가 같은 문장 사용 가능
+ *
+ * 해결: 정규화(SEO 키워드 제거, 상품명 변형 제거, 공백)된 문장으로 비교 후
+ * 중복이면 제거. 페이지 전역 Set으로 블록 간에도 차단.
+ */
+function normalizeSentenceForDedup(s: string): string {
+  return s
+    .replace(/\s+/g, ' ')
+    .replace(/[^가-힣a-zA-Z0-9]/g, '')
+    .toLowerCase()
+    .slice(0, 80); // 긴 문장도 첫 80자로 비교
+}
 
-    if (block.subContent) {
-      parts.push(block.subContent);
+function deduplicateSentencesInText(text: string, globalSeen: Set<string>): string {
+  if (!text) return '';
+  // 종결 표현(., !, ?) 으로 분리. 따옴표 안의 마침표는 일단 split됨 (대부분 안전).
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  const kept: string[] = [];
+  for (const s of sentences) {
+    const trimmed = s.trim();
+    if (trimmed.length === 0) continue;
+    // 짧은 문장(15자 이하)은 dedup 제외 — 헤더/CTA 같은 짧은 표현은 반복 허용
+    if (trimmed.length <= 15) {
+      kept.push(trimmed);
+      continue;
     }
+    const key = normalizeSentenceForDedup(trimmed);
+    if (key.length === 0) {
+      kept.push(trimmed);
+      continue;
+    }
+    if (globalSeen.has(key)) continue; // 페이지 어딘가에 이미 등장 → skip
+    globalSeen.add(key);
+    kept.push(trimmed);
+  }
+  return kept.join(' ');
+}
 
+/**
+ * 한 단어가 한 페이지 내 12회 이상 등장하면 일부를 동의어/대명사로 치환.
+ * audit 결과 5085중 2528 페이지에서 단어 반복 발견 (49%).
+ *
+ * 주요 반복 단어: "엄선한", "재료부터", "본연의 풍미", "프로파일"
+ * → 동일 문장 dedup으로 대부분 자동 해소되지만 보완 안전망.
+ */
+const COMMON_REPEAT_WORDS = new Set([
+  '엄선한', '엄선', '재료부터', '본연의', '풍미', '프로파일',
+  '준비했습니다', '말이', '인상적', '균형감',
+]);
+function dampenWordRepetition(text: string): string {
+  if (!text) return text;
+  const counts = new Map<string, number>();
+  // 한글 2자+ 단어 카운트
+  const words = text.match(/[가-힣]{2,}/g) || [];
+  for (const w of words) counts.set(w, (counts.get(w) || 0) + 1);
+
+  // 12회 이상 반복인 단어 식별 (단, COMMON_REPEAT_WORDS는 더 일찍 차단 = 8회)
+  let result = text;
+  for (const [word, count] of counts.entries()) {
+    const threshold = COMMON_REPEAT_WORDS.has(word) ? 8 : 12;
+    if (count < threshold) continue;
+    // 첫 N회만 남기고 나머지는 빈 문자열 치환 — 같은 문장 부분 표현이 잘려나갈 수 있어
+    // 보수적으로 (count - threshold) 만큼만 제거.
+    let keepRemaining = threshold - 1;
+    let removed = 0;
+    const re = new RegExp(`(^|[^가-힣a-zA-Z])(${word})(?=[^가-힣a-zA-Z]|$)`, 'g');
+    result = result.replace(re, (full, pre, w) => {
+      if (keepRemaining > 0) { keepRemaining--; return full; }
+      removed++;
+      return pre; // word 제거, prefix는 유지
+    });
+  }
+  return result.replace(/\s{2,}/g, ' ').trim();
+}
+
+export function contentBlocksToParagraphs(blocks: ContentBlock[]): string[] {
+  // 페이지 전역 dedup Set — 블록 간 동일 문장도 차단
+  const globalSeen = new Set<string>();
+
+  const paragraphs = blocks.map(block => {
+    const parts: string[] = [];
+
+    if (block.content) parts.push(block.content);
+    if (block.subContent) parts.push(block.subContent);
     if (block.items && block.items.length > 0) {
       parts.push(block.items.join(' | '));
     }
+    if (block.emphasis) parts.push(block.emphasis);
 
-    if (block.emphasis) {
-      parts.push(block.emphasis);
-    }
-
-    return parts.join(' ');
+    const joined = parts.join(' ');
+    return deduplicateSentencesInText(joined, globalSeen);
   });
+
+  // 페이지 전체 단어 반복 완화 — 12회+(common 단어 8회+) 등장 단어 중 초과분 제거
+  // 한 문단 단위로 적용하면 카운트가 분산되어 효과 없으니 전체 텍스트로 카운트한 뒤
+  // 각 문단별로 적용.
+  const fullText = paragraphs.join(' ');
+  const wordCounts = new Map<string, number>();
+  for (const w of (fullText.match(/[가-힣]{2,}/g) || [])) {
+    wordCounts.set(w, (wordCounts.get(w) || 0) + 1);
+  }
+  // 어떤 단어도 임계 이상이면 전체 dampen 적용
+  const needsDampen = [...wordCounts.entries()].some(([w, c]) =>
+    c >= (COMMON_REPEAT_WORDS.has(w) ? 8 : 12),
+  );
+  if (!needsDampen) return paragraphs;
+  return paragraphs.map(p => dampenWordRepetition(p));
 }
 
 /**
