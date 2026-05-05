@@ -28,6 +28,17 @@ export interface FailureDiagnostic {
   reason: string;
 }
 
+// 쿠팡 API hang 시 단일 호출이 배치 전체를 막지 않도록 강제 timeout.
+// 어댑터 자체 timeout(30s)이 호출별로 누적되면 50건 배치가 분 단위로 늘어남.
+function withFastTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`fast-timeout ${ms}ms`)), ms),
+    ),
+  ]);
+}
+
 /** Index entry: [code, tokensString, leafName, depth] */
 type IndexEntry = [string, string, string, number];
 
@@ -948,6 +959,7 @@ export async function matchCategory(
 
   // ── Tier 1.5: Coupang Category Search API ──
   // 의미있는 토큰으로 쿠팡 카테고리 검색 (Predict API보다 키워드 검색이 더 정확)
+  // 쿠팡 API hang 시 전체 배치가 막히지 않도록 5s fast-fail
   if (adapter) {
     const searchTokens = tokens.filter(t => t.length >= 2 && !NOISE_WORDS.has(t));
     // 가장 의미있는 토큰(길이 기준) 최대 2개로 검색
@@ -956,7 +968,7 @@ export async function matchCategory(
 
     for (const keyword of searchKeywords) {
       try {
-        const searchResult = await adapter.searchCategory(keyword);
+        const searchResult = await withFastTimeout(adapter.searchCategory(keyword), 5000);
         if (searchResult.items.length > 0) {
           const bestMatch = searchResult.items[0];
           const details = loadDetails();
@@ -978,9 +990,10 @@ export async function matchCategory(
   }
 
   // ── Tier 2: Coupang Predict API ──
+  // 쿠팡 API hang 시 전체 배치가 막히지 않도록 5s fast-fail
   if (adapter) {
     try {
-      const apiResult = await adapter.autoCategorize(cleaned);
+      const apiResult = await withFastTimeout(adapter.autoCategorize(cleaned), 5000);
       if (apiResult?.predictedCategoryId) {
         const details = loadDetails();
         const detail = details[apiResult.predictedCategoryId];

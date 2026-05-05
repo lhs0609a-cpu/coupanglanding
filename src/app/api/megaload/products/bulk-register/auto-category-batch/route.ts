@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient, createServiceClient } from '@/lib/supabase/server';
-import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
-import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
+import { createClient } from '@/lib/supabase/server';
 import { matchCategoryBatch, type CategoryMatchResult, type FailureDiagnostic } from '@/lib/megaload/services/category-matcher';
+
+export const maxDuration = 30;
 
 /**
  * POST — 다수 상품명에 대한 일괄 카테고리 자동매칭
@@ -25,27 +25,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '한 번에 최대 200개까지 가능합니다.' }, { status: 400 });
     }
 
-    // adapter는 Tier 1.5/2 (쿠팡 API) 호출에만 필요 — 선택적
-    // megaload 계정이나 채널 연동이 없어도 Tier 0/1 로컬 매칭으로 충분
-    let coupangAdapter: CoupangAdapter | undefined;
-    try {
-      const { data: shUser } = await supabase
-        .from('megaload_users')
-        .select('id')
-        .eq('profile_id', user.id)
-        .single();
-      if (shUser) {
-        const shUserId = (shUser as Record<string, unknown>).id as string;
-        const serviceClient = await createServiceClient();
-        const adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang');
-        coupangAdapter = adapter as CoupangAdapter;
-      }
-    } catch {
-      // megaload 계정 없거나 채널 미연동 — Tier 0/1만 사용
-    }
-
-    // 배치 매칭 — 네이버 카테고리 ID가 있으면 매핑 테이블 우선 조회
-    const { results: batchResults, failures } = await matchCategoryBatch(body.productNames, coupangAdapter, body.naverCategoryIds);
+    // Phase 2/3 (쿠팡 Search/Predict API) 일시 비활성화.
+    // 쿠팡 API hang 으로 전체 배치가 응답 안 와 진행률 0/N 고정 사례 발생.
+    // Tier 0/1 (로컬 DB) 결과만 반환 — 미매칭 건은 UI 에서 수동 선택.
+    // 쿠팡 API 안정화 후 adapter 재인입 예정.
+    const { results: batchResults, failures } = await matchCategoryBatch(
+      body.productNames,
+      undefined,
+      body.naverCategoryIds,
+    );
 
     const results: (CategoryMatchResult & { index: number })[] = batchResults.map(
       (result, i) => result
