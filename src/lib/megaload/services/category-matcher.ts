@@ -5,9 +5,10 @@
 // Tier 3: AI 키워드 추출 → 로컬 DB 재검색
 // ============================================================
 
-import { CoupangAdapter } from '../adapters/coupang.adapter';
-import { mapCategory } from './ai.service';
+import type { CoupangAdapter } from '../adapters/coupang.adapter';
 import { sanitizeSellerName } from './seller-name-sanitizer';
+// ai.service 는 Tier 3 진입 시에만 dynamic import — Gemini SDK / forbidden-terms 모듈
+// 로드 비용이 커서 cold start 절약 + 매처 모듈 단독 사용(테스트/유틸) 가능.
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -950,6 +951,7 @@ async function buildResultFromIndex(entry: IndexEntry, score: number, maxScore: 
 
 async function aiKeywordMatch(productName: string): Promise<CategoryMatchResult | null> {
   try {
+    const { mapCategory } = await import('./ai.service');
     const aiResult = await mapCategory(productName, '', 'coupang');
     if (aiResult.categoryId) {
       // Verify this category exists in our DB
