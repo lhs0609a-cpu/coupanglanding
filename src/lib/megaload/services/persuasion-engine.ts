@@ -551,10 +551,22 @@ function applyFoodVerbReplacementsAtOutput(text: string, isFood: boolean): strin
   out = out.replace(/사용하니까/g, '드시니까');
   out = out.replace(/사용해보면/g, '드셔보면');
   // "써봤" 모든 활용형 — \w 의존 없는 단순 prefix 매칭
-  out = out.replace(/써봤([가-힣]*)/g, (full, suffix) => {
-    // suffix가 있으면 동일하게 변환
-    return '드셔봤' + suffix;
-  });
+  out = out.replace(/써봤([가-힣]*)/g, (full, suffix) => '드셔봤' + suffix);
+  // "써본" 활용형 (써본 적/뒤/결과/것 등)
+  out = out.replace(/써본([가-힣\s]{0,4})/g, (full, suffix) => '드셔본' + suffix);
+  // "써보다/써본다/써봐요" 등
+  out = out.replace(/써보([가-힣]*)/g, (full, suffix) => '드셔보' + suffix);
+  // "쓰니까/쓰면/쓰다 보니" — 식품 단순 매칭. (앞에 명사 + 조사 있으면 안전, 단독은 위험하므로 보수적)
+  out = out.replace(/꾸준히\s*쓰면/g, '꾸준히 드시면');
+  out = out.replace(/오래\s*쓰면/g, '오래 드시면');
+  out = out.replace(/매일\s*쓰면/g, '매일 드시면');
+  out = out.replace(/오래\s*쓰는/g, '오래 드시는');
+  out = out.replace(/매일\s*쓰는/g, '매일 드시는');
+  // "써왔/쓰던" — 과거 활용
+  out = out.replace(/써왔([가-힣]*)/g, (full, suffix) => '드셔왔' + suffix);
+  out = out.replace(/쓰던([가-힣]*)/g, (full, suffix) => '드시던' + suffix);
+  // "쓰지" 활용 (쓰지 않/쓰지만)
+  out = out.replace(/쓰지\s*않([가-힣]*)/g, (full, suffix) => '드시지 않' + suffix);
   return out;
 }
 
