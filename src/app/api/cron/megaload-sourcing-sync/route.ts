@@ -13,11 +13,19 @@ export async function GET(request: Request) {
   }
 
   const supabase = await createServiceClient();
+  const startedAt = Date.now();
+  // soft deadline — Vercel maxDuration(300s) 직전 자동 컷. hang 누적으로 함수 강제종료되면
+  // 진행중 상품 상태 갱신 못하고 다음 cron에서 처음부터 다시 처리됨 → 비용 폭증.
+  const SOFT_DEADLINE_MS = 240_000;
+  // 한 번에 처리할 상품 cap — 외부 API hang 시 비용 누수 차단. 못 처리한 건 다음 cron에서.
+  const BATCH_LIMIT = 50;
 
   const { data: products } = await supabase
     .from('sh_sourcing_products')
     .select('*, megaload_user_id')
-    .eq('status', 'registered');
+    .eq('status', 'registered')
+    .order('updated_at', { ascending: true, nullsFirst: true })
+    .limit(BATCH_LIMIT);
 
   if (!products || products.length === 0) {
     return NextResponse.json({ message: '동기화할 소싱 상품 없음' });
@@ -26,11 +34,17 @@ export async function GET(request: Request) {
   let synced = 0;
   let priceChanged = 0;
   let outOfStock = 0;
+  let timedOut = false;
 
   // 셀러별 소싱 소스 캐시
   const sourceCache = new Map<string, Record<string, unknown>>();
 
   for (const product of products) {
+    if (Date.now() - startedAt > SOFT_DEADLINE_MS) {
+      timedOut = true;
+      console.log(`[megaload-sourcing-sync] soft deadline 도달 — ${synced}/${products.length} 처리 후 중단`);
+      break;
+    }
     const p = product as Record<string, unknown>;
     const shUserId = p.megaload_user_id as string;
     const platform = p.platform as string;
@@ -149,5 +163,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ success: true, synced, priceChanged, outOfStock });
+  return NextResponse.json({ success: true, synced, priceChanged, outOfStock, timedOut });
 }

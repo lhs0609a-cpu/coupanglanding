@@ -763,9 +763,9 @@ export default function AdminSalesOverviewPage() {
     }
   }, [loading, users, snapshots, triggerAutoSync]);
 
-  /** 5분마다 자동 재조회 — 1분 폴링은 GB-Hrs 비용 폭증 위험 */
+  /** 15분마다 자동 재조회 — cron이 어차피 30분 주기로 데이터 갱신, 5분 폴링은 무용 */
   useEffect(() => {
-    const refreshId = setInterval(() => { fetchData(false); }, 5 * 60 * 1000);
+    const refreshId = setInterval(() => { fetchData(false); }, 15 * 60 * 1000);
     /** 15분마다 stale 체크 → 자동 동기화 재트리거 */
     const syncCheckId = setInterval(() => {
       const latestSync = snapshots.reduce((max, s) => s.synced_at > max ? s.synced_at : max, '');

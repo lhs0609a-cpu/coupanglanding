@@ -42,7 +42,7 @@
     },
     {
       "path": "/api/cron/coupang-revenue-sync",
-      "schedule": "*/15 * * * *"
+      "schedule": "*/30 * * * *"
     },
     {
       "path": "/api/cron/megaload-replication-runner",
