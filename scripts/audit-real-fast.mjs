@@ -85,7 +85,11 @@ const RULES = [
     const m = t.match(/\{[^}]+\}/g);
     return m ? [`{${m.slice(0, 2).join(',')}}`] : [];
   }],
-  ['8_seo_leak', (p, t) => /사과\/배 과일세트|과일세트.*과일세트.*과일세트/.test(t) ? ['SEO stuffing'] : []],
+  ['8_seo_leak', (p, t) => {
+    // 카테고리 자체가 "사과 과일세트" 같은 SEO 묶음이면 leaf 이름 반복은 정상 — false positive 차단
+    if (p.includes('과일세트') || p.includes('선물세트')) return [];
+    return /사과\/배 과일세트|과일세트.*과일세트.*과일세트/.test(t) ? ['SEO stuffing'] : [];
+  }],
   ['9_purchase_hyperbole', (p, t) => {
     const m = [];
     for (const r of [/이건 진짜/g, /시간 투자할/g, /투자 가치/g]) {

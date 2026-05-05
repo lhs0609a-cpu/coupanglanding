@@ -453,8 +453,20 @@ function normalizeSentenceForDedup(s: string): string {
   return s
     .replace(/\s+/g, ' ')
     .replace(/[^가-힣a-zA-Z0-9]/g, '')
-    .toLowerCase()
-    .slice(0, 80); // 긴 문장도 첫 80자로 비교
+    .toLowerCase();
+}
+
+/**
+ * 문장 prefix(첫 N자)와 suffix(마지막 M자)의 조합 키.
+ * "이미 많은 분들이 선택한 \" 정말 좋아요\"라는 리뷰가 많습니다" 같이
+ * 두 문장이 동일 suffix("...라는 리뷰가 많습니다") 를 공유하면
+ * audit이 prefix-30자 정규화로 매칭 — 우리 dedup이 더 aggressive 해야 catch.
+ */
+function sentenceDedupKey(s: string): string {
+  const norm = normalizeSentenceForDedup(s);
+  const prefix = norm.slice(0, 30);
+  const suffix = norm.length > 30 ? norm.slice(-30) : '';
+  return `${prefix}|${suffix}`;
 }
 
 // 최종 출력에서 절대 등장해선 안 될 글로벌 부적합 표현.
@@ -482,6 +494,17 @@ function stripForbiddenPhrases(text: string): string {
 function applyFoodVerbReplacementsAtOutput(text: string, isFood: boolean): string {
   if (!text || !isFood) return text;
   let out = text;
+  // V2 template path 누출 패턴 — 16k audit Round 5에서 발견
+  out = out.replace(/막상\s*써보니/g, '막상 드셔보니');
+  out = out.replace(/잘\s*안\s*쓰면/g, '잘 안 드시면');
+  out = out.replace(/잘\s*안\s*쓰는/g, '잘 안 드시는');
+  out = out.replace(/사놓고\s*([^\s]+)?\s*안\s*쓰/g, '사놓고 안 드시');
+  out = out.replace(/한\s*번\s*써보니/g, '한 번 드셔보니');
+  out = out.replace(/써\s*보면/g, '드셔보면');
+  out = out.replace(/써\s*보고/g, '드셔보고');
+  out = out.replace(/써\s*보세요/g, '드셔보세요');
+  out = out.replace(/사놓고\s*잘\s*안\s*쓰면/g, '사놓고 잘 안 드시면');
+  // 기존 패턴
   out = out.replace(/을\s*쓴\s*지/g, '을 드신 지');
   out = out.replace(/를\s*쓴\s*지/g, '를 드신 지');
   out = out.replace(/을\s*쓰는\b/g, '을 드시는');
@@ -505,23 +528,32 @@ function applyFoodVerbReplacementsAtOutput(text: string, isFood: boolean): strin
  */
 function fixIncorrectParticles(text: string): string {
   if (!text) return text;
-  // "X으로" → 받침 없으면 "X로" (받침 있으면 유지)
-  const regex = /([가-힣A-Za-z0-9]+)([으|]?)(으로|은|이)\b/g;
-  return text.replace(regex, (full, word, _mid, particle) => {
-    if (!word) return full;
+  // "X으로" → 받침 없으면 "X로". 정규식 단순화 — \b 의존 제거 (한글 word boundary 불안정).
+  // X 는 한글/영문/숫자/하이픈 조합 (예: "KF-AD마스크", "1회용부직포마스크", "LED전구")
+  let out = text;
+  out = out.replace(/([가-힣A-Za-z0-9-]+)으로(?=[\s.,!?]|$)/g, (full, word) => {
     const last = word.charCodeAt(word.length - 1);
-    // 한글 완성형: 받침 검사
+    // 한글이면 받침 검사
     if (last >= 0xAC00 && last <= 0xD7A3) {
       const jong = (last - 0xAC00) % 28;
-      // 받침 없음(jong === 0) → "으로" 부적절, "로"로 교체
+      if (jong === 0) return word + '로';
+    }
+    // 영문/숫자 끝나면 발음상 받침 없음 — "로" 적용 (예: "T-shirt으로" → "T-shirt로")
+    // 단, 받침처럼 발음되는 경우 (k, g, m, n 등) 는 한국어 관습상 "으로" 유지가 일반적이므로 보수적으로 영문은 변환 X.
+    return full;
+  });
+  out = out.replace(/([가-힣]+)([은이])(?=[\s.,!?]|$)/g, (full, word, particle) => {
+    const last = word.charCodeAt(word.length - 1);
+    if (last >= 0xAC00 && last <= 0xD7A3) {
+      const jong = (last - 0xAC00) % 28;
       if (jong === 0) {
-        if (particle === '으로') return word + '로';
         if (particle === '은') return word + '는';
         if (particle === '이') return word + '가';
       }
     }
     return full;
   });
+  return out;
 }
 
 function fixOrphanParticles(text: string): string {
@@ -551,13 +583,19 @@ function deduplicateSentencesInText(text: string, globalSeen: Set<string>): stri
       kept.push(trimmed);
       continue;
     }
-    const key = normalizeSentenceForDedup(trimmed);
-    if (key.length === 0) {
-      kept.push(trimmed);
-      continue;
-    }
-    if (globalSeen.has(key)) continue; // 페이지 어딘가에 이미 등장 → skip
-    globalSeen.add(key);
+    const norm = normalizeSentenceForDedup(trimmed);
+    if (norm.length === 0) { kept.push(trimmed); continue; }
+    const fullKey = sentenceDedupKey(trimmed);
+    const pfxKey = 'PFX:' + norm.slice(0, 30);
+    const sfxKey = norm.length > 30 ? 'SFX:' + norm.slice(-30) : null;
+    // full 키, prefix 키, suffix 키 중 하나라도 이미 등록 → 중복으로 간주 skip
+    if (globalSeen.has(fullKey)) continue;
+    if (globalSeen.has(pfxKey)) continue;
+    if (sfxKey && globalSeen.has(sfxKey)) continue;
+    // 등록
+    globalSeen.add(fullKey);
+    globalSeen.add(pfxKey);
+    if (sfxKey) globalSeen.add(sfxKey);
     kept.push(trimmed);
   }
   return kept.join(' ');
