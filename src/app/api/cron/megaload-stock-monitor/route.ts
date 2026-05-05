@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { processMonitorBatch, type MonitorRecord } from '@/lib/megaload/services/stock-monitor-engine';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
+import { recordCoupangApiFailure, clearCoupangApiBlock } from '@/lib/utils/coupang-circuit-breaker';
 
 export const maxDuration = 300; // 5분 타임아웃
 
@@ -34,11 +35,68 @@ export async function GET(request: Request) {
       .limit(30); // 크론 1회당 30개씩
 
     if (needPrice && needPrice.length > 0) {
+      // ── circuit breaker — 차단된 셀러의 megaload_user_id 미리 식별 ──
+      // megaload_users.profile_id → pt_users.profile_id 매핑으로 차단 여부 확인.
+      const monitorMegaloadUserIds = Array.from(new Set(
+        (needPrice as Array<{ megaload_user_id: string }>).map(m => m.megaload_user_id),
+      ));
+      const { data: shUsers } = await supabase
+        .from('megaload_users')
+        .select('id, profile_id')
+        .in('id', monitorMegaloadUserIds);
+      const profileIds = (shUsers || []).map(u => (u as Record<string, unknown>).profile_id as string).filter(Boolean);
+      const { data: blockedPt } = await supabase
+        .from('pt_users')
+        .select('id, profile_id')
+        .in('profile_id', profileIds)
+        .gt('coupang_api_blocked_until', new Date().toISOString());
+      const blockedProfileIds = new Set(
+        (blockedPt || []).map(r => (r as Record<string, unknown>).profile_id as string),
+      );
+      const profileToPtId = new Map<string, string>();
+      for (const r of (blockedPt || []) as Array<Record<string, unknown>>) {
+        profileToPtId.set(r.profile_id as string, r.id as string);
+      }
+      // megaload_user_id → 차단여부, megaload_user_id → ptUserId 매핑
+      const blockedMegaloadUserIds = new Set<string>();
+      const megaloadToPtId = new Map<string, string>();
+      // 차단 여부와 무관하게 모든 (megaload_user_id, profile_id) 매핑 만들기
+      for (const u of (shUsers || []) as Array<Record<string, unknown>>) {
+        const pid = u.profile_id as string;
+        const mid = u.id as string;
+        if (blockedProfileIds.has(pid)) blockedMegaloadUserIds.add(mid);
+        // 차단된 셀러 매핑은 위에서 했으니, 미차단 셀러도 ptUserId 매핑 필요. 별도 쿼리.
+      }
+      if (blockedMegaloadUserIds.size > 0) {
+        console.log(`[stock-monitor-cron] Phase 1: ${blockedMegaloadUserIds.size}명 차단 셀러 skip`);
+      }
+
+      // 미차단 셀러 → ptUserId 매핑 (실패 기록 시 사용)
+      const unblockedProfileIds = profileIds.filter(p => !blockedProfileIds.has(p));
+      if (unblockedProfileIds.length > 0) {
+        const { data: activePt } = await supabase
+          .from('pt_users')
+          .select('id, profile_id')
+          .in('profile_id', unblockedProfileIds);
+        for (const r of (activePt || []) as Array<Record<string, unknown>>) {
+          profileToPtId.set(r.profile_id as string, r.id as string);
+        }
+      }
+      for (const u of (shUsers || []) as Array<Record<string, unknown>>) {
+        const pid = u.profile_id as string;
+        const mid = u.id as string;
+        const ptId = profileToPtId.get(pid);
+        if (ptId) megaloadToPtId.set(mid, ptId);
+      }
+
       // 사용자별 어댑터 캐시
       const adapterCache = new Map<string, CoupangAdapter>();
       const now = new Date().toISOString();
 
       for (const m of needPrice as { id: string; megaload_user_id: string; coupang_product_id: string; coupang_status: string }[]) {
+        // circuit breaker — 차단된 셀러는 cron skip (비용 폭증 차단)
+        if (blockedMegaloadUserIds.has(m.megaload_user_id)) continue;
+
         try {
           let adapter = adapterCache.get(m.megaload_user_id);
           if (!adapter) {
@@ -56,11 +114,21 @@ export async function GET(request: Request) {
             await supabase.from('sh_stock_monitors').update(updates).eq('id', m.id);
             priceBackfilled++;
           }
+          // 성공 — circuit breaker 해제 (이전 차단 상태에서 복구)
+          const ptId = megaloadToPtId.get(m.megaload_user_id);
+          if (ptId) await clearCoupangApiBlock(supabase, ptId);
         } catch (err) {
           const msg = err instanceof Error ? err.message : '';
           if (msg.includes('429')) {
             console.log('[stock-monitor-cron] 429 rate limit during price backfill, stopping');
             break;
+          }
+          // IP/auth 영구 오류는 vendor 차단 등록 → 다음 cron부터 skip
+          const ptId = megaloadToPtId.get(m.megaload_user_id);
+          if (ptId) {
+            await recordCoupangApiFailure(supabase, ptId, msg);
+            // 같은 셀러의 남은 모니터는 즉시 skip
+            blockedMegaloadUserIds.add(m.megaload_user_id);
           }
         }
         await sleep(1000); // 1초 딜레이 (429 방지)

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { createAdapter } from '@/lib/megaload/adapters/factory';
 import type { Channel } from '@/lib/megaload/types';
+import { clearCoupangApiBlock } from '@/lib/utils/coupang-circuit-breaker';
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,6 +19,19 @@ export async function POST(request: NextRequest) {
 
     const adapter = createAdapter(channel);
     const result = await adapter.testConnection(credentials);
+
+    // 쿠팡 연결 성공 — circuit breaker 해제 (IP/키 차단 상태에서 복구)
+    if (channel === 'coupang' && result.success) {
+      const serviceClient = await createServiceClient();
+      const { data: ptUser } = await serviceClient
+        .from('pt_users')
+        .select('id')
+        .eq('profile_id', user.id)
+        .maybeSingle();
+      if (ptUser) {
+        await clearCoupangApiBlock(serviceClient, (ptUser as { id: string }).id);
+      }
+    }
 
     return NextResponse.json(result);
   } catch (err) {

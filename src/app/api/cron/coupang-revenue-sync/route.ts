@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
 import { getPreviousMonth, getReportTargetMonth } from '@/lib/utils/settlement';
+import { recordCoupangApiFailure, clearCoupangApiBlock } from '@/lib/utils/coupang-circuit-breaker';
 
 /**
  * GET /api/cron/coupang-revenue-sync
@@ -46,6 +47,8 @@ async function runSync() {
   const serviceClient = await createServiceClient();
   const startedAt = Date.now();
 
+  // circuit breaker — IP/키 차단된 셀러는 backoff 시각 전까지 skip (cron 비용 폭증 차단)
+  const nowIso = new Date().toISOString();
   const { data: users, error } = await serviceClient
     .from('pt_users')
     .select('id, coupang_vendor_id, coupang_access_key, coupang_secret_key')
@@ -53,7 +56,8 @@ async function runSync() {
     .eq('coupang_api_connected', true)
     .not('coupang_vendor_id', 'is', null)
     .not('coupang_access_key', 'is', null)
-    .not('coupang_secret_key', 'is', null);
+    .not('coupang_secret_key', 'is', null)
+    .or(`coupang_api_blocked_until.is.null,coupang_api_blocked_until.lt.${nowIso}`);
 
   if (error) {
     console.error('[coupang-revenue-sync] users query error:', error);
@@ -121,7 +125,12 @@ async function runSync() {
       secretKey,
     };
 
+    let userBlocked = false; // 한 셀러가 첫 월에 IP 차단 받으면 나머지 월 호출 skip (비용 절감)
     for (const ym of yearMonths) {
+      if (userBlocked) {
+        results.push({ ptUserId: user.id, yearMonth: ym, success: false, error: 'skipped (circuit breaker)' });
+        continue;
+      }
       try {
         // 매출인식 기준(공식 revenue-history API). 이전엔 fetchOrderBasedSales(ordersheets)를 썼으나
         // 쿠팡 ordersheets API 의 page 파라미터가 동일 페이지를 반복 반환 → 같은 주문이 200배 부풀려져 누적되는
@@ -146,6 +155,8 @@ async function runSync() {
           totalSales: settlement.totalSales,
           itemCount: settlement.items.length,
         });
+        // 첫 성공 시 circuit breaker 해제 (이전 차단 상태에서 복구)
+        await clearCoupangApiBlock(serviceClient, user.id);
       } catch (err) {
         const message = err instanceof CoupangApiError
           ? `${err.code || 'api'}: ${err.message}`
@@ -169,6 +180,9 @@ async function runSync() {
           success: false,
           error: message.slice(0, 200),
         });
+        // circuit breaker 등록 — IP/auth 영구 오류는 다음 cron부터 skip
+        await recordCoupangApiFailure(serviceClient, user.id, message);
+        userBlocked = true; // 같은 셀러의 다음 월은 skip
       }
     }
   }
