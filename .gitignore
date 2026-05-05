@@ -72,3 +72,6 @@ scripts/audit-*.cjs
 
 # Claude Code 로컬 상태
 .claude/scheduled_tasks.lock
+
+# 카테고리 매처 audit 출력
+.test-out/

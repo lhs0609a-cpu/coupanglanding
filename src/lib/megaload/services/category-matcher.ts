@@ -608,6 +608,11 @@ function cleanProductName(name: string): string {
   // 괄호 안 텍스트 제거 (브랜드명 등)
   cleaned = cleaned.replace(/[\[\(【][^\]\)】]*[\]\)】]/g, ' ');
 
+  // 한글+숫자 / 숫자+한글 경계에 공백 — "카라향2kg" → "카라향 2kg", "5kg망고" → "5kg 망고"
+  // 셀러가 띄어쓰기 없이 붙여 쓴 케이스에 대해 토큰 경계 확보.
+  cleaned = cleaned.replace(/([가-힣])(\d)/g, '$1 $2');
+  cleaned = cleaned.replace(/(\d(?:ml|g|kg|mg|l|ea|cm|mm|m|oz|lb|개|정|병|통|매|팩|입|봉|포|장|알)?)([가-힣])/gi, '$1 $2');
+
   // 특수문자 → 공백 (한글, 영문, 숫자 유지)
   cleaned = cleaned.replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ');
 
@@ -1087,17 +1092,21 @@ export async function matchCategory(
   }
 
   // ── Tier 0: 직접 코드 매핑 (네이버 ID 없을 때 최우선) ──
-  const baseCompounds = [...tokens];
+  // voteTier0 후보 = 원본 토큰 + 2-gram + splitKoreanCompound 결과만.
+  // SYNONYM/ALIAS 확장은 의도적으로 제외 — "꿀참외" → ["꿀","참외"] split 후
+  // SYNONYM_MAP['꿀']→['벌꿀','일반꿀'] 확장이 일반꿀 표를 다중 등록해 참외 보다
+  // 더 많은 표를 받게 되는 인플레 방지.
+  const tier0Candidates: string[] = [...tokens];
   for (let i = 0; i < tokens.length - 1; i++) {
-    baseCompounds.push(tokens[i] + tokens[i + 1]);
+    tier0Candidates.push(tokens[i] + tokens[i + 1]);
   }
-  // Pass 1+2 통합: 모든 후보를 모아서 투표
-  const baseSet = new Set(baseCompounds);
-  const expandedOnly = compoundTokens.filter((t) => !baseSet.has(t));
-  const allCandidates = [...baseCompounds, ...expandedOnly];
+  for (const t of tokens) {
+    const parts = splitKoreanCompound(t);
+    for (const p of parts) tier0Candidates.push(p);
+  }
   // 도메인 prefix 감지 (아기/유아 → baby, 강아지 → pet 등)
-  const domainFilter = detectDomainFilter(allCandidates);
-  const tier0Result = voteTier0(allCandidates, domainFilter, tokens);
+  const domainFilter = detectDomainFilter(compoundTokens);
+  const tier0Result = voteTier0(tier0Candidates, domainFilter, tokens);
   if (tier0Result) return tier0Result;
 
   // ── Tier 1: Local DB matching ──
@@ -1216,16 +1225,17 @@ export async function matchCategoryBatch(
     if (exactSan) { results[i] = exactSan; continue; }
 
     // Tier 0: 투표 기반 직접 코드 매핑 (네이버 ID 없을 때)
+    // SYNONYM/ALIAS 확장 제외 — 표 인플레 차단 (matchCategory 와 동일 정책)
     const toks = productTokensList[i];
-    const baseComps: string[] = [...toks];
+    const tier0Cands: string[] = [...toks];
     for (let j = 0; j < toks.length - 1; j++) {
-      baseComps.push(toks[j] + toks[j + 1]);
+      tier0Cands.push(toks[j] + toks[j + 1]);
     }
-    const compoundTokens = buildCompoundTokens(toks);
-    const baseSet = new Set(baseComps);
-    const expandedOnly = compoundTokens.filter((t) => !baseSet.has(t));
-    const allCandidates = [...baseComps, ...expandedOnly];
-    const tier0Result = voteTier0(allCandidates, null, toks);
+    for (const t of toks) {
+      const parts = splitKoreanCompound(t);
+      for (const p of parts) tier0Cands.push(p);
+    }
+    const tier0Result = voteTier0(tier0Cands, null, toks);
     if (tier0Result) {
       results[i] = tier0Result;
       continue;

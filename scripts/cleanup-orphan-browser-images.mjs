@@ -173,13 +173,24 @@ async function flushDeleteBuffer() {
   log(`  deleted=${totalDeleted}/${totalToDelete} (${(totalBytesDeleted/1024/1024/1024).toFixed(2)} GB)`);
 }
 
+// list 호출에 retry 추가 — 대량 삭제 직후 metadata 정리 중에도 진행
+async function listWithRetry(folder, offset, attempts = 5) {
+  for (let i = 0; i < attempts; i++) {
+    const { data, error } = await supabase.storage.from(BUCKET).list(folder, {
+      limit: LIST_PAGE_SIZE,
+      offset,
+      sortBy: { column: 'created_at', order: 'asc' },
+    });
+    if (!error) return { data, error: null };
+    log(`  list attempt ${i + 1}/${attempts} failed: ${error.message} — retry in ${(i + 1) * 5}s`);
+    await new Promise(r => setTimeout(r, (i + 1) * 5000));
+  }
+  return { data: null, error: { message: 'all retries failed' } };
+}
+
 while (true) {
-  const { data, error } = await supabase.storage.from(BUCKET).list(FOLDER, {
-    limit: LIST_PAGE_SIZE,
-    offset: listOffset,
-    sortBy: { column: 'created_at', order: 'asc' },
-  });
-  if (error) { log('list error', error.message); break; }
+  const { data, error } = await listWithRetry(FOLDER, listOffset);
+  if (error) { log('list error after retries — exit', error.message); break; }
   if (!data || data.length === 0) break;
 
   for (const item of data) {
