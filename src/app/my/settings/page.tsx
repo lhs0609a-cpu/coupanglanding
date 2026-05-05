@@ -122,18 +122,22 @@ export default function MySettingsPage() {
       setApiExpiresAt(ptUser.coupang_api_key_expires_at || null);
     }
 
-    // 마스킹된 키 미리보기 로드
-    try {
-      const credRes = await fetch('/api/coupang-credentials');
-      if (credRes.ok) {
+    // 폼은 위 데이터로 즉시 노출. 마스킹 키 미리보기는 비핵심 UX(placeholder) 라
+    // background fetch + AbortController timeout 으로 분리한다.
+    setLoading(false);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    fetch('/api/coupang-credentials', { signal: controller.signal })
+      .then(async (credRes) => {
+        if (!credRes.ok) return;
         const credData = await credRes.json();
         if (credData.maskedAccessKey) setMaskedAccessKey(credData.maskedAccessKey);
         if (credData.maskedSecretKey) setMaskedSecretKey(credData.maskedSecretKey);
         if (credData.wingUserId) setApiWingUserId(credData.wingUserId);
-      }
-    } catch { /* ignore */ }
-
-    setLoading(false);
+      })
+      .catch(() => { /* hang/abort/throw 모두 무시 — placeholder 미노출이 유일한 영향 */ })
+      .finally(() => clearTimeout(timer));
   }, [supabase]);
 
   const fetchBillingCards = useCallback(async () => {
