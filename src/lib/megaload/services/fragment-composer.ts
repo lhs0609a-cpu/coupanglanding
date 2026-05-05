@@ -107,7 +107,22 @@ const SUBCATEGORY_ALIASES: Record<string, string> = {
   '가구/홈데코>쿠션/방석':'가구/홈데코>소파','가구/홈데코>패브릭소품/커버':'가구/홈데코>소파',
   '가구/홈데코>원예/가드닝':'가구/홈데코>원예','가구/홈데코>금고':'가구/홈데코>소파',
   '가구/홈데코>수선/수예도구':'가구/홈데코>소파',
-  '출산/유아동>기저귀/교체용품':'출산/유아동>기저귀','출산/유아동>분유/유아식품':'출산/유아동>분유',
+  '출산/유아동>기저귀/교체용품':'출산/유아동>기저귀',
+  // 분유/유아식품 계열은 출산/유아동 풀(공산품 어휘 — 마감/내구성/조립) 대신
+  // 식품>건강식품 풀로 redirect — 영양제 톤이 분유/이유식 마케팅에 자연스럽고
+  // "마감 디테일/내구성" 같은 비식품 어휘 누수 차단.
+  '출산/유아동>분유/유아식품':'식품>건강식품',
+  '출산/유아동>분유/유아식품>분유':'식품>건강식품',
+  '출산/유아동>분유/유아식품>이유식':'식품>건강식품',
+  '출산/유아동>분유/유아식품>유아간식/음료':'식품>건강식품',
+  '출산/유아동>분유/유아식품>유아건강식품':'식품>건강식품',
+  '출산/유아동>분유/유아식품>유아국/반찬':'식품>건강식품',
+  '출산/유아동>분유/유아식품>유아양념/식재료':'식품>건강식품',
+  '출산/유아동>분유/유아식품>일반분유':'식품>건강식품',
+  '출산/유아동>분유/유아식품>특수분유':'식품>건강식품',
+  '출산/유아동>분유/유아식품>산양분유':'식품>건강식품',
+  '출산/유아동>분유/유아식품>영유아식':'식품>건강식품',
+  // 수유/이유용품의 식품 관련 (분유 보관/포장 등)도 식품 톤
   '출산/유아동>수유/이유용품':'출산/유아동>분유','출산/유아동>이유/유아식기':'출산/유아동>유아식품',
   '출산/유아동>유아목욕/스킨케어':'출산/유아동>유아스킨케어','출산/유아동>유아물티슈/캡/홀더':'출산/유아동>기저귀',
   '출산/유아동>유아위생/건강/세제':'출산/유아동>기저귀','출산/유아동>놀이매트/안전용품':'출산/유아동>유아식품',
@@ -277,7 +292,16 @@ const FOOD_HOOK_OPENERS: string[] = [
 /** 카테고리 경로가 식품/식자재/음료/건강식품 계열인지 판정 */
 function isFoodCategory(categoryPath?: string): boolean {
   if (!categoryPath) return false;
-  return /^(식품|건강식품|영양제|비타민|음료|차류|과일|채소|곡물|수산|축산|농산|신선식품|간식|스낵|냉동식품|가공식품|조미료|장류|발효식품|양념|식자재)/.test(categoryPath);
+  // 1. 대분류가 식품/음료/건강식품/영양제 등
+  if (/^(식품|건강식품|영양제|비타민|음료|차류|과일|채소|곡물|수산|축산|농산|신선식품|간식|스낵|냉동식품|가공식품|조미료|장류|발효식품|양념|식자재)/.test(categoryPath)) return true;
+  // 2. 출산/유아동의 분유/이유식/유아식품 계열 (식기/용기는 공산품이므로 제외)
+  if (/^출산\/유아동>(?:분유\/유아식품|수유\/이유용품)/.test(categoryPath)) return true;
+  // 3. 반려용품의 사료/간식/영양제 계열
+  if (/^반려\/애완용품>[^>]*사료|>[^>]*간식|>[^>]*영양제/.test(categoryPath)) return true;
+  // 4. 기타 leaf 토큰 기반 — 분유/이유식/식품/사료 등이 leaf에 포함
+  const leaf = categoryPath.split('>').pop() || '';
+  if (/^(분유|이유식|영양제|건강식품|식품|사료|간식)/.test(leaf)) return true;
+  return false;
 }
 
 /**
@@ -861,13 +885,89 @@ const L1_FORBIDDEN_TERMS: Record<string, string[]> = {
 };
 
 /**
- * categoryPath에서 L1 대분류를 추출하여 해당 L1의 금지어를 반환.
- * CPG 프로필의 forbiddenTerms가 비어있을 때 안전망으로 사용된다.
+ * L2/L3 세분화 forbidden terms — L1 단위로 차단하기 너무 광범위한 케이스.
+ *
+ * 망고(생과일) 케이스 분석 결과 식품>신선식품에서 다음 어휘가 부적합으로 확인됨:
+ *   - "마감/소재/기능/사양/모델/스펙" → 공산품 어휘
+ *   - "사용감/사용 환경/사용 빈도/사용 패턴" → 생과일은 "먹는다", 쓰는 게 아님
+ *   - "표준편차/리뷰 분포/리뷰 키워드 분석" → SaaS/통계 어휘
+ *   - "HACCP/GMP" → 가공식품 인증 (생과일 대상 아님)
+ *   - "비타민 엄선/체감/체내 흡수율/함량" → 영양제 어휘
+ *   - "시간 투자/투자 가치/분야" → 비즈니스/허세 어휘
+ *   - "원재료" → 가공식품 어휘 (생과일은 그 자체가 원재료)
+ *   - "오래 쓴다/한 번 쓰는" → 사용 어휘 + 보관기간 모순
+ *   - "고소한" → 망고/딸기 등에 부적합 (견과/곡물 식감)
+ *
+ * 16k 카테고리 audit으로 추가 발굴된 케이스는 여기에 누적.
+ */
+const L2_FORBIDDEN_TERMS: Record<string, string[]> = {
+  // 생과일/채소 — 공산품/가공식품/영양제 어휘 광범위 차단.
+  // 16k 카테고리 audit (scripts/audit-categories.mjs) 결과 식품 대분류에 149,934건 누출.
+  '식품>신선식품': [
+    // 공산품 어휘 (audit TOP: 모델 58710, 사양 18808, 기능 9482, 마감 5620, 광택 2034)
+    '마감','소재','기능','사양','모델','스펙','동급 모델','동급에서','동급에','광택',
+    // 사용 어휘 — 생과일은 "먹는" 거지 "쓰는" 게 아님
+    '사용감','사용 환경','사용 빈도','사용 패턴','사용해보면','사용 직후','사용 주기','사용감의',
+    '오래 쓴다','한 번 쓰는','써봤','쓰는 동안','쓰지 않는','쓰는 만큼',
+    // SaaS/통계 어휘 (audit: 사용자 후기/단골 사용자/리뷰 분포 각 3017+)
+    '표준편차','리뷰 분포','리뷰 키워드 분석','단골 사용자','사용자 후기','리뷰 키워드',
+    // 가공식품 인증 (생과일 대상 아님)
+    'HACCP','GMP','검증으로 안심',
+    // 영양제 어휘 (audit: 함량 9051, 체감 2155, 체내 흡수율 2155, 정제 790)
+    '비타민 엄선','엄선한 비타민','체감','체내 흡수율','함량','정제',
+    // 비즈니스/허세 어휘 (audit: 정착하시길 431)
+    '시간 투자','투자 가치','분야','적당한 시점','정착하시길','시행착오',
+    // 가공식품 어휘 (생과일은 그 자체가 원재료)
+    '원재료','블라인드',
+    // 공구/주방기기 (audit: 코팅 2580)
+    '코팅','논스틱','인덕션','필기감','토크','드릴','절단력','발수',
+    // 가전 어휘 (audit: 냉장고 1290)
+    '냉장고','세탁기','에어컨','전자제품',
+  ],
+  '식품>신선식품>과일류': [
+    '고소한','고소함', // 망고/딸기 등 단맛 과일에 부적합
+  ],
+  '식품>신선식품>채소류': [
+    '고소한','고소함',
+  ],
+  // 가공식품 (반대로 마감/사양 등은 공산품용이라 차단, HACCP/원재료는 허용)
+  '식품>가공식품': [
+    '마감','소재','기능','사양','모델','스펙',
+    '사용감','사용 환경','사용 빈도','사용 패턴',
+    '오래 쓴다','한 번 쓰는','써봤','쓰는 동안',
+    '필기감','토크','드릴','절단력',
+  ],
+  // 건강식품 — 공산품 어휘 차단 (영양제 어휘는 허용)
+  '식품>건강식품': [
+    '마감','소재','사양','모델','스펙',
+    '필기감','토크','드릴','절단력',
+    '코팅','논스틱','인덕션',
+  ],
+};
+
+/**
+ * 입력 categoryPath의 L1, L2, L3 모두 조회해 매칭되는 모든 forbidden terms를 합집합으로 반환.
+ * 예: "식품>신선식품>과일류>과일>망고"
+ *   - L1: "식품" → L1_FORBIDDEN_TERMS['식품'] (공산품/뷰티 등 차단)
+ *   - L2: "식품>신선식품" → L2_FORBIDDEN_TERMS['식품>신선식품'] (사용감/HACCP 등 차단)
+ *   - L3: "식품>신선식품>과일류" → ['고소한'] 추가 차단
+ *   - L4/L5는 너무 세밀해서 매핑 불필요 (16k 카테고리 audit으로 식별 시 추가)
  */
 function getL1ForbiddenTerms(categoryPath: string): string[] {
   if (!categoryPath) return [];
-  const top = (categoryPath.split('>')[0] || '').trim();
-  return L1_FORBIDDEN_TERMS[top] || [];
+  const parts = categoryPath.split('>').map(p => p.trim()).filter(Boolean);
+  if (parts.length === 0) return [];
+  const merged = new Set<string>();
+  // L1 (대분류) — L1_FORBIDDEN_TERMS 키
+  const l1Terms = L1_FORBIDDEN_TERMS[parts[0]];
+  if (l1Terms) for (const t of l1Terms) merged.add(t);
+  // L2/L3 — L2_FORBIDDEN_TERMS 키 (path 점진적 확장)
+  for (let depth = 2; depth <= Math.min(parts.length, 5); depth++) {
+    const prefix = parts.slice(0, depth).join('>');
+    const terms = L2_FORBIDDEN_TERMS[prefix];
+    if (terms) for (const t of terms) merged.add(t);
+  }
+  return Array.from(merged);
 }
 
 // ─── v2 완성문 템플릿 뱅크 ────────────────────────────────
@@ -1187,12 +1287,34 @@ function composeFromV2Templates(
   const globalV2 = V2_GLOBAL_FRAGMENTS[blockType] || [];
   const isFood = isFoodCategory(categoryPath);
   const v2FoodUnsafePatterns = [
+    // 공산품 어휘 — 마감/소재/구조/디자인/설계
     /마감\s*디테일/, /손끝에서\s*느껴/, /소재와\s*구조/, /설계됐어요/, /설계된\s*점/,
-    /적응\s*기간/, /관리만\s*잘하면\s*오래/, /쓰는\s*동안\s*작은\s*불편/,
-    /노하우\s*없이도/, /매일\s*같은\s*시간대.*효과/, /조작이\s*단순/,
     /오래\s*두고\s*쓰기\s*좋은\s*견고/, /만듦새/, /구조의\s*균형/,
     /손에\s*익는/, /그립감/, /조립/, /본질에\s*충실한\s*디자인/,
-    /보관할\s*때는\s*습기/, /오래\s*쓰실\s*수/,
+    /마감/, /소재/, /[가-힣]+\s*구조/, /디자인의\s*안정감/, /실용적\s*디자인/,
+    /디테일한\s*봉제/, /봉제와\s*마감/,
+    // 사양/스펙/모델 — 공산품 비교 어휘
+    /\b모델\b/, /\b사양\b/, /\b스펙\b/, /\b라인업\b/,
+    /동급\s*모델/, /동급\s*옵션/, /동급\s*제품/, /동가격대/, /동급에서/,
+    /상위\s*모델/, /상위\s*라인업/, /고가\s*모델/, /후속\s*모델/, /인기\s*모델/,
+    /후속\s*검색/, /검색\s*결과\s*상단/, /후기\s*분포/, /리뷰\s*분포/,
+    /재구매\s*사이클/, /재구매\s*후기/, /리뷰\s*키워드\s*빈도/,
+    /무게\/?크기\s*균형/, /크기\s*균형이\s*잘\s*맞춰진/, /무게감과\s*크기/,
+    /사양과\s*사용감/, /사양표/, /사용감\s*측면/, /사용감\s*자체가/,
+    // 공산품 사용 시나리오 — 1년 후/적응/조작/관리
+    /적응\s*기간/, /관리만\s*잘하면\s*오래/, /쓰는\s*동안\s*작은\s*불편/,
+    /노하우\s*없이도/, /매일\s*같은\s*시간대.*효과/, /조작이\s*단순/,
+    /보관할\s*때는\s*습기/, /오래\s*쓰실\s*수/, /오래\s*써도/, /오래\s*쓰는/,
+    /[0-9]+년\s*(?:후|뒤|동안|간)/, /1년\s*이상/, /수년\s*동안/,
+    /내구성/, /가지고\s*놀아도/,
+    // 화장품/건기식 어조 — "꾸준히 사용/체감/시간 투자"
+    /꾸준히\s*사용/, /꾸준히\s*쓰면/, /시간\s*투자할\s*가치/,
+    /체감이\s*확실/, /변화가\s*눈에/, /효과가\s*눈에/,
+    /좋아\s*보인다는\s*말/, /손끝에/, /손에\s*잡히는/,
+    // "한 통/한 팩" 등 식품 외 단위 (식품에선 "한 입/한 봉/한 박스"가 자연스러움)
+    /한\s*통\s*드/, /통\s*들이고/,
+    // 식음료 외 도메인 어휘
+    /가방에\s*넣고\s*다니/, /외출할\s*때도\s*챙겨/,
   ];
   // 모든 카테고리에 빈번 등장하는 saturation 문구 차단 (감사 결과 3000회+ 등장)
   // 이 문구들은 어느 카테고리에서나 어색하지 않아 GLOBAL에 들어갔지만,
@@ -1253,13 +1375,32 @@ function composeFromV2Templates(
     /저가형의\s*아쉬움도\s*고가형의\s*부담도/,
     /기본\s*컬러와\s*실루엣이라\s*다양한\s*스타일/,
   ];
-  const filteredGlobalV2 = (isFood ? globalV2.filter(s => !v2FoodUnsafePatterns.some(re => re.test(s))) : globalV2)
+  // 뷰티 카테고리에서 부적절한 공산품 어휘 차단 (예: "내구성", "조립", "사양")
+  const isCosmetics = !!categoryPath && /^뷰티/.test(categoryPath);
+  const v2CosmeticsUnsafePatterns = [
+    /내구성/, /조립/, /\b모델\b/, /\b사양\b/, /그립감/, /무게감/,
+  ];
+  const cosmeticsFilter = (arr: string[]) => arr.filter(s => !v2CosmeticsUnsafePatterns.some(re => re.test(s)));
+  let intermediateGlobal = isFood ? globalV2.filter(s => !v2FoodUnsafePatterns.some(re => re.test(s))) : globalV2;
+  if (isCosmetics) intermediateGlobal = cosmeticsFilter(intermediateGlobal);
+  const filteredGlobalV2 = intermediateGlobal
     .filter(s => !v2OverSaturatedPatterns.some(re => re.test(s)));
   // ★ pickNWithDedup: cross-call dedup으로 saturation 분산 (풀이 4-5x 확장됐으므로 fresh 충분)
   const extraGlobals = pickNWithDedup(filterByTone(filteredGlobalV2), 3, rng);
-  // 카테고리 v2 풀에도 톤 필터 적용 — 한 글 내 어미 일관성 보장
-  const tonedRaw = filterByTone(rawTemplates);
-  const enriched = [...tonedRaw, ...extraGlobals];
+  // 카테고리 v2 풀에도 톤 필터 + 도메인 unsafe 패턴 적용
+  // (예: 출산/유아동 풀의 "마감 디테일/내구성" 같은 공산품 어휘가 분유/유아식품 sub-category에서,
+  //  뷰티 풀의 "내구성/조립" 같은 어휘가 화장품에서 새는 문제 차단).
+  // 폴백 안전망: 필터링 후 풀이 비면 원본 유지 (런타임 빈 풀 방지).
+  let rawTonedFiltered = filterByTone(rawTemplates);
+  if (isFood) {
+    const foodSafeRaw = rawTonedFiltered.filter(s => !v2FoodUnsafePatterns.some(re => re.test(s)));
+    if (foodSafeRaw.length > 0) rawTonedFiltered = foodSafeRaw;
+  }
+  if (isCosmetics) {
+    const cosmeticSafeRaw = cosmeticsFilter(rawTonedFiltered);
+    if (cosmeticSafeRaw.length > 0) rawTonedFiltered = cosmeticSafeRaw;
+  }
+  const enriched = [...rawTonedFiltered, ...extraGlobals];
 
   const effective = filterOut(enriched);
 
@@ -1342,6 +1483,31 @@ export function mergeVariables(
       result[key] = overrideValues;
     }
   }
+
+  // 도메인 sanity — 식품 카테고리에서 {성분}/{사용감}/{추천대상} 에 부적절 어휘 차단
+  // 셀러 상품명/노티스에서 새어 들어온 "국내산/공산품 어휘"를 후처리에서 제거.
+  if (categoryPath && isFoodCategory(categoryPath)) {
+    const FOOD_BANNED_INGREDIENT = new Set([
+      '국내산', '국산', '한국산', '수입', '수입산', '정식수입', '국내정발',
+      '모델', '사양', '스펙', '마감', '소재', '구조', '디자인', '설계',
+      '비타민', '미네랄', '콜라겐', '히알루론산', '레티놀', // 영양제 어휘 → 일반 식품에 부적절
+    ]);
+    const FOOD_BANNED_USAGE = new Set(['무맛무취', '고소한']); // 단맛 과일/생물에 부적절
+    const FOOD_INGREDIENT_FALLBACK = ['엄선한 재료', '제철 식재료', '신선한 원물'];
+    if (result['성분']) {
+      const filtered = result['성분'].filter(s => !FOOD_BANNED_INGREDIENT.has(s.trim()));
+      result['성분'] = filtered.length > 0 ? filtered : FOOD_INGREDIENT_FALLBACK;
+    }
+    if (result['성분2']) {
+      const filtered = result['성분2'].filter(s => !FOOD_BANNED_INGREDIENT.has(s.trim()));
+      result['성분2'] = filtered.length > 0 ? filtered : FOOD_INGREDIENT_FALLBACK;
+    }
+    if (result['사용감']) {
+      const filtered = result['사용감'].filter(s => !FOOD_BANNED_USAGE.has(s.trim()));
+      result['사용감'] = filtered.length > 0 ? filtered : ['신선한', '담백한', '깔끔한'];
+    }
+  }
+
   return result;
 }
 

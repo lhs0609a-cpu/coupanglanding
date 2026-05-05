@@ -19,6 +19,10 @@ export { sanitizeHealthText } from './health-sanitizer';
 const SINGLE_PICK_VAR_KEYS = new Set([
   '추천대상', '용도', '페르소나', '품종', '시즌', '상황', '대상',
   '사용방법', '복용방법', '섭취방법', '메인효과',
+  // 식감/맛 — 한 상품에 여러 식감 동시 주장(고소한+시원한+부담없는) 모순 방지
+  '식감', '맛', '향',
+  // 원산지 — 상품명이 태국망고인데 fragment가 "국내산" 주장하는 모순 방지
+  '원산지',
 ]);
 function _stableHash(s: string): number {
   let h = 5381;
