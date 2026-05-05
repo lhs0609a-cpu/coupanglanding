@@ -14,8 +14,18 @@
   "include": [
     "../src/lib/megaload/services/category-matcher.ts",
     "../src/lib/megaload/services/seller-name-sanitizer.ts",
+    "../src/lib/megaload/services/fragment-composer.ts",
+    "../src/lib/megaload/services/persuasion-engine.ts",
+    "../src/lib/megaload/services/product-name-parser.ts",
+    "../src/lib/megaload/services/display-name-generator.ts",
+    "../src/lib/megaload/services/seeded-random.ts",
+    "../src/lib/megaload/services/health-sanitizer.ts",
+    "../src/lib/megaload/services/notice-field-filler.ts",
     "../src/lib/megaload/data/coupang-cat-index.json",
-    "../src/lib/megaload/data/coupang-cat-details.json"
+    "../src/lib/megaload/data/coupang-cat-details.json",
+    "../src/lib/megaload/data/persuasion-fragments.json",
+    "../src/lib/megaload/data/story-templates.json",
+    "../src/lib/megaload/data/story-templates-v2.json"
   ],
   "exclude": ["../node_modules"]
 }
