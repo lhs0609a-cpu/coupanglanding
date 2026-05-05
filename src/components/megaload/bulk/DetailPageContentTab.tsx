@@ -7,6 +7,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { buildRichDetailPageHtml } from '@/lib/megaload/services/detail-page-builder';
+import EditableDetailPreview from './EditableDetailPreview';
 import { fillNoticeFields, type NoticeCategoryMeta } from '@/lib/megaload/services/notice-field-filler';
 import { ensureObjectUrl } from '@/lib/megaload/services/client-folder-scanner';
 import {
@@ -941,19 +942,78 @@ export default function DetailPageContentTab({
         </div>
         {previewOpen && (
           <div className="border-t border-gray-100 bg-gray-50 p-2">
-            <div className="bg-white rounded-lg shadow-inner overflow-hidden" style={{ maxHeight: '500px', overflowY: 'auto' }}>
-              <iframe
-                srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:0;}</style></head><body>${previewHtml}</body></html>`}
-                className="w-full border-0"
-                style={{ height: '500px' }}
-                title="상세페이지 미리보기"
-                sandbox="allow-same-origin"
-              />
-            </div>
-            <p className="text-[10px] text-gray-400 mt-2 text-center">
-              실제 등록 시 이미지가 CDN에 업로드된 후 최종 HTML이 생성됩니다.
-              {!preUploadedUrls && ' (현재 플레이스홀더 이미지 표시 중)'}
-            </p>
+            {previewVariant === 'A' ? (
+              // ─── Layout A 인라인 편집 미리보기 ───
+              // 본문(이미지·글 교차 섹션)만 편집 가능. 히어로/FAQ/마무리/고시정보는 read-only.
+              // 본문이 사용자 편집 후 즉시 state(editedStoryParagraphs / editedReviewImageOrder)
+              // 에 commit 되므로 페이로드 미리보기에도 즉시 반영.
+              (() => {
+                const editableParagraphs = storyParagraphs.length > 0
+                  ? storyParagraphs.filter(p => p.trim())
+                  : (description ? [description] : []);
+                // 미리보기에서 보여주는 이미지 = 사용자가 선택한(editedReviewImageOrder) 리뷰이미지.
+                // EditableDetailPreview 가 받는 imageUrls 의 index 와 1:1 매칭되도록 만든다.
+                const editableImageUrls = (() => {
+                  const reviewImageUrls = (preUploadedUrls?.reviewImageUrls?.filter(Boolean) ?? []).length > 0
+                    ? preUploadedUrls!.reviewImageUrls!.filter(Boolean)
+                    : resolvedReviewUrls.length > 0
+                      ? resolvedReviewUrls
+                      : (product.scannedReviewImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []).length > 0
+                        ? product.scannedReviewImages!.map(img => img.objectUrl).filter((u): u is string => !!u)
+                        : [];
+                  return filterByOrder(reviewImageUrls, product.editedReviewImageOrder);
+                })();
+
+                return (
+                  <>
+                    <EditableDetailPreview
+                      paragraphs={editableParagraphs}
+                      imageUrls={editableImageUrls}
+                      productName={product.editedDisplayProductName || product.name}
+                      maxHeight={500}
+                      onParagraphsChange={(next) => {
+                        // 빈 문자열 제거 후 commit. 모두 비면 빈 배열로 저장 (재생성 트리거).
+                        const cleaned = next.map(p => p.trim()).filter(Boolean);
+                        onUpdate(product.uid, 'editedStoryParagraphs', cleaned);
+                      }}
+                      onImageDelete={(renderedIdx) => {
+                        // renderedIdx 는 editableImageUrls 상의 index. 이를 source 이미지 index 로 역매핑.
+                        const totalSourceCount = (resolvedReviewUrls.length > 0
+                          ? resolvedReviewUrls.length
+                          : product.scannedReviewImages?.length ?? product.reviewImages?.length ?? 0);
+                        const currentOrder = product.editedReviewImageOrder
+                          ?? Array.from({ length: totalSourceCount }, (_, i) => i);
+                        const sourceIdxToRemove = currentOrder[renderedIdx];
+                        if (sourceIdxToRemove === undefined) return;
+                        const newOrder = currentOrder.filter(i => i !== sourceIdxToRemove);
+                        onUpdate(product.uid, 'editedReviewImageOrder', newOrder);
+                      }}
+                    />
+                    <p className="text-[10px] text-gray-400 mt-2 text-center">
+                      ✏️ 글 클릭해서 편집 · 호버 시 ✕ 삭제 · 사이 + 버튼으로 문단 추가 · 변경은 즉시 저장됨
+                    </p>
+                  </>
+                );
+              })()
+            ) : (
+              // ─── Layout B/C/D 는 기존 iframe 읽기전용 미리보기 유지 ───
+              <>
+                <div className="bg-white rounded-lg shadow-inner overflow-hidden" style={{ maxHeight: '500px', overflowY: 'auto' }}>
+                  <iframe
+                    srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:0;}</style></head><body>${previewHtml}</body></html>`}
+                    className="w-full border-0"
+                    style={{ height: '500px' }}
+                    title="상세페이지 미리보기"
+                    sandbox="allow-same-origin"
+                  />
+                </div>
+                <p className="text-[10px] text-gray-400 mt-2 text-center">
+                  실제 등록 시 이미지가 CDN에 업로드된 후 최종 HTML이 생성됩니다.
+                  {!preUploadedUrls && ' (현재 플레이스홀더 이미지 표시 중)'}
+                  · 인라인 편집은 레이아웃 A에서만 가능합니다.
+                </p>
+              </>
+            )}
           </div>
         )}
       </div>
