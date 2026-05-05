@@ -28,11 +28,18 @@ const BUCKET = 'product-images';
 
 // 폴더별 보존 기간 (일). 이 기간 미만은 무조건 보존.
 const RETENTION_DAYS: Record<string, number> = {
+  browser: 3,      // 브라우저 직접 업로드 — 매핑 미뤄지면 빠른 회수
   bulk: 7,         // 대량등록 preupload — 7일 후엔 sh_product_images 매핑 안 됐으면 고아
   resized: 30,     // 쿠팡 규격용 리사이징본
   regenerated: 30, // AI 재생성 결과
   stock: 90,       // 스톡 이미지 (재사용 빈도 고려해 길게)
 };
+
+// userId 없이 megaload/browser/ 로 들어가는 레거시 경로 — 글로벌 1패스 처리
+const GLOBAL_BROWSER_FOLDER = 'megaload/browser';
+const GLOBAL_BROWSER_RETENTION_DAYS = 3;
+const MAX_GLOBAL_BROWSER_LIST = 50000;
+const MAX_GLOBAL_BROWSER_DELETE = 5000;
 
 // 절대 안 건드리는 폴더 (사용자 첨부 등)
 const PROTECTED_FOLDERS = new Set(['bug-reports']);
@@ -240,6 +247,149 @@ async function gcFolder(
   return stats;
 }
 
+/**
+ * 글로벌 megaload/browser/ (userId prefix 없는 레거시 경로) 1회 처리
+ * - 모든 sh_product_images.image_url|cdn_url + sh_products.raw_data + sh_product_options.raw_data
+ *   에서 megaload/browser/ 참조 path 집합 수집
+ * - 미참조 + 24h 초과 + retention 초과 파일을 batch 삭제
+ */
+async function gcGlobalBrowserFolder(
+  serviceClient: SupabaseClient,
+  dryRun: boolean,
+  msFn: () => number,
+): Promise<{ scanned: number; referenced: number; recent: number; retention: number; toDelete: number; deleted: number; errors: number }> {
+  const stats = { scanned: 0, referenced: 0, recent: 0, retention: 0, toDelete: 0, deleted: 0, errors: 0 };
+
+  // 1) 글로벌 referenced set 구축
+  const refs = new Set<string>();
+  const extractBrowserPath = (url: unknown): string | null => {
+    if (typeof url !== 'string' || !url) return null;
+    const marker = '/product-images/megaload/browser/';
+    const idx = url.indexOf(marker);
+    if (idx === -1) return null;
+    return url.substring(idx + '/product-images/'.length).split('?')[0];
+  };
+  const harvest = (v: unknown): void => {
+    if (!v) return;
+    const stack: unknown[] = [v];
+    while (stack.length > 0) {
+      const cur = stack.pop();
+      if (typeof cur === 'string') {
+        const p = extractBrowserPath(cur);
+        if (p) refs.add(p);
+      } else if (Array.isArray(cur)) {
+        stack.push(...cur);
+      } else if (cur && typeof cur === 'object') {
+        stack.push(...Object.values(cur as Record<string, unknown>));
+      }
+    }
+  };
+
+  // sh_product_images
+  for (let from = 0; ; from += 1000) {
+    if (msFn() > SOFT_DEADLINE_MS - 60_000) break;
+    const { data } = await serviceClient
+      .from('sh_product_images')
+      .select('image_url, cdn_url')
+      .range(from, from + 999);
+    if (!data || data.length === 0) break;
+    for (const row of data as Array<{ image_url?: string; cdn_url?: string }>) {
+      const p1 = extractBrowserPath(row.image_url);
+      const p2 = extractBrowserPath(row.cdn_url);
+      if (p1) refs.add(p1);
+      if (p2) refs.add(p2);
+    }
+    if (data.length < 1000) break;
+  }
+  // sh_products.raw_data
+  for (let from = 0; ; from += 1000) {
+    if (msFn() > SOFT_DEADLINE_MS - 60_000) break;
+    const { data } = await serviceClient
+      .from('sh_products')
+      .select('raw_data')
+      .range(from, from + 999);
+    if (!data || data.length === 0) break;
+    for (const row of data as Array<{ raw_data?: unknown }>) harvest(row.raw_data);
+    if (data.length < 1000) break;
+  }
+  // sh_product_options.raw_data
+  for (let from = 0; ; from += 1000) {
+    if (msFn() > SOFT_DEADLINE_MS - 60_000) break;
+    const { data } = await serviceClient
+      .from('sh_product_options')
+      .select('raw_data')
+      .range(from, from + 999);
+    if (!data || data.length === 0) break;
+    for (const row of data as Array<{ raw_data?: unknown }>) harvest(row.raw_data);
+    if (data.length < 1000) break;
+  }
+
+  console.log(`[storage-gc:global-browser] refs=${refs.size}, after_ref_build_ms=${msFn()}`);
+
+  // 2) 파일 페이지네이션 + 분류 + 삭제
+  const now = Date.now();
+  const minRecentMs = 24 * 60 * 60 * 1000;
+  const retentionMs = GLOBAL_BROWSER_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const deleteBuf: string[] = [];
+  let listOffset = 0;
+
+  const flushDelete = async () => {
+    if (deleteBuf.length === 0 || dryRun) {
+      deleteBuf.length = 0;
+      return;
+    }
+    while (deleteBuf.length > 0) {
+      const chunk = deleteBuf.splice(0, 100);
+      const { error } = await serviceClient.storage.from(BUCKET).remove(chunk);
+      if (error) {
+        console.warn(`[storage-gc:global-browser] remove failed:`, error.message);
+        stats.errors += chunk.length;
+      } else {
+        stats.deleted += chunk.length;
+      }
+    }
+  };
+
+  while (stats.scanned < MAX_GLOBAL_BROWSER_LIST) {
+    if (msFn() > SOFT_DEADLINE_MS) break;
+    const { data, error } = await serviceClient.storage.from(BUCKET).list(GLOBAL_BROWSER_FOLDER, {
+      limit: 1000,
+      offset: listOffset,
+      sortBy: { column: 'created_at', order: 'asc' },
+    });
+    if (error || !data || data.length === 0) break;
+
+    for (const item of data) {
+      if (!(item as { metadata?: unknown }).metadata) continue;
+      stats.scanned++;
+
+      const path = `${GLOBAL_BROWSER_FOLDER}/${item.name}`;
+      const ts = (item as { created_at?: string }).created_at
+        ? Date.parse((item as { created_at?: string }).created_at!)
+        : 0;
+      const ageMs = ts ? now - ts : 0;
+
+      if (!ts || ageMs < minRecentMs) { stats.recent++; continue; }
+      if (refs.has(path)) { stats.referenced++; continue; }
+      if (ageMs < retentionMs) { stats.retention++; continue; }
+
+      if (stats.toDelete < MAX_GLOBAL_BROWSER_DELETE) {
+        stats.toDelete++;
+        deleteBuf.push(path);
+        if (deleteBuf.length >= 500) await flushDelete();
+      }
+    }
+
+    if (data.length < 1000) break;
+    listOffset += 1000;
+    if (stats.toDelete >= MAX_GLOBAL_BROWSER_DELETE) break;
+  }
+
+  await flushDelete();
+  console.log(`[storage-gc:global-browser] DONE scanned=${stats.scanned} ref=${stats.referenced} recent=${stats.recent} retention=${stats.retention} deleted=${stats.deleted}`);
+  return stats;
+}
+
 export async function GET(request: NextRequest) {
   const t0 = Date.now();
   const ms = () => Date.now() - t0;
@@ -313,6 +463,19 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // 글로벌 megaload/browser/ (userId prefix 없는 레거시 경로) 1회 처리
+    let globalBrowserStats: Awaited<ReturnType<typeof gcGlobalBrowserFolder>> | null = null;
+    if (ms() < SOFT_DEADLINE_MS) {
+      try {
+        globalBrowserStats = await gcGlobalBrowserFolder(serviceClient, dryRun, ms);
+        totalDeleted += globalBrowserStats.deleted;
+        totalErrors += globalBrowserStats.errors;
+      } catch (err) {
+        console.error(`[storage-gc] global-browser failed:`, err);
+        totalErrors++;
+      }
+    }
+
     console.log(`[storage-gc] DONE ${ms()}ms — deleted=${totalDeleted}, errors=${totalErrors}, dryRun=${dryRun}`);
 
     return NextResponse.json({
@@ -325,6 +488,7 @@ export async function GET(request: NextRequest) {
         total_errors: totalErrors,
       },
       users: userStats,
+      global_browser: globalBrowserStats,
     });
   } catch (err) {
     console.error(`[storage-gc] error at ${ms()}ms:`, err);
