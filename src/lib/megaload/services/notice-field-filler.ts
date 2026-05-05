@@ -453,6 +453,35 @@ function detectDomainMismatch(noticeCategoryName: string, categoryPath: string):
 }
 
 /**
+ * 상품정보제공고시의 품명/모델명 필드에 들어갈 상품명 정제.
+ *
+ * SEO stuffing 누출 방지:
+ *   - "사과/배 과일세트 사과/배 과일세트" 같은 반복 표현 제거
+ *   - 동일 단어 3회 이상 반복 → 1회로 축약
+ *   - 50자 이내로 자름
+ *
+ * 예: "망고 태국망고 골드망고 남독마이 망고선물 사과/배 과일세트 사과/배 과일세트 사과/배 과일"
+ *  → "망고 태국망고 골드망고 남독마이 망고선물"
+ */
+function sanitizeProductNameForNotice(name: string): string {
+  if (!name) return '';
+  let s = name;
+  // 카테고리 묶음 SEO 패턴 제거 (특정 단어 조합)
+  s = s.replace(/사과\/배\s*과일세트/g, '');
+  s = s.replace(/과일\s*세트(\s*과일\s*세트)+/g, '과일세트');
+  // 강조 마커 제거
+  s = s.replace(/[★☆◆◇■□●○▶▷※♥♡♠♣]/g, ' ');
+  // 가격 토큰 제거
+  s = s.replace(/\d+\s*원(?!료|두|산|어)/g, ' ');
+  // 같은 단어 2+회 연속 반복 → 1회 (예: "사과 사과 사과" → "사과")
+  s = s.replace(/(\b\S+\b)(\s+\1){1,}/g, '$1');
+  // 다중 공백 정규화
+  s = s.replace(/\s+/g, ' ').trim();
+  // 50자 컷
+  return s.slice(0, 50);
+}
+
+/**
  * 필드명 패턴으로 적절한 값을 매칭
  */
 function resolveFieldValue(
@@ -496,7 +525,8 @@ function resolveFieldValue(
 
   // 패턴 매칭 규칙 (추출된 옵션값 hints 활용)
   if (normalized.includes('품명') || normalized.includes('모델명') || normalized.includes('제품명')) {
-    return productName || '상세페이지 참조';
+    // 상품명에 SEO stuffing("사과/배 과일세트" 반복 등) 누출 방지 — 정제 후 사용
+    return sanitizeProductNameForNotice(productName) || '상세페이지 참조';
   }
   if (normalized.includes('브랜드') || normalized.includes('상호')) {
     return brand || '상세페이지 참조';
