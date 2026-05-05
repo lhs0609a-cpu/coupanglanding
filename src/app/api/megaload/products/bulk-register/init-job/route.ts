@@ -74,8 +74,10 @@ export async function POST(req: NextRequest) {
       const adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang');
       const coupangAdapter = adapter as CoupangAdapter;
 
-      // 병렬 조회 (5개 동시) — 순차에서 개선
-      const CONCURRENT = 5;
+      // 병렬 조회 — Supabase 캐시 hit 비율이 높으므로 동시성 ↑ 안전.
+      // validate-batch 와 동일 패턴(12 동시 + 청크간 delay 제거).
+      // 캐시 hit 시 라이브 API 도달 안 함, 캐시 miss 만 Coupang 자체 rate limit 작동.
+      const CONCURRENT = 10;
       const fetchCategoryMeta = async (code: string) => {
         let noticeMeta: NoticeCategoryMeta[] = [];
         let attributeMeta: AttributeMeta[] = [];
@@ -106,11 +108,6 @@ export async function POST(req: NextRequest) {
             const { code, noticeMeta: nm, attributeMeta: am } = result.value;
             categoryMeta[code] = { noticeMeta: nm, attributeMeta: am };
           }
-        }
-
-        // 청크 간 레이트 리밋
-        if (i + CONCURRENT < uniqueCodes.length) {
-          await new Promise((r) => setTimeout(r, 200));
         }
       }
     }
