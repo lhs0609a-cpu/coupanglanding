@@ -122,6 +122,24 @@ function loadExactLeafMap(): Map<string, IndexEntry[]> {
   return _exactLeafMap;
 }
 
+// substring 검사용 — multi-segment(공백/슬래시 포함) 이고 길이 >= 6 인 leaf 만.
+// 짧거나 단일 단어 leaf 는 일반 단어와 충돌 위험이 커서 제외.
+let _substringLeaves: { leafLower: string; entry: IndexEntry }[] | null = null;
+function loadSubstringLeaves(): { leafLower: string; entry: IndexEntry }[] {
+  if (_substringLeaves) return _substringLeaves;
+  const list: { leafLower: string; entry: IndexEntry }[] = [];
+  for (const entry of loadIndex()) {
+    const leaf = entry[2] || '';
+    if (leaf.length < 6) continue;
+    if (!/[\s\/]/.test(leaf)) continue; // multi-segment 만
+    list.push({ leafLower: leaf.toLowerCase(), entry });
+  }
+  // 길이 desc — 더 specific(긴) leaf 우선 매칭
+  list.sort((a, b) => b.leafLower.length - a.leafLower.length);
+  _substringLeaves = list;
+  return _substringLeaves;
+}
+
 /**
  * 입력이 카테고리 leaf 이름과 정확 일치하는지 검사하고, 일치 시 결정론적으로 매칭.
  * 동명이의(같은 leaf 가 여러 path) 인 경우 가장 얕은 depth 우선 (대분류 가까운 쪽).
@@ -131,6 +149,39 @@ function loadExactLeafMap(): Map<string, IndexEntry[]> {
  *
  * 실제 상품명("신선 망고 5kg") 은 leaf 와 정확 일치하지 않으므로 발동 안 됨.
  */
+/**
+ * 입력에 카테고리 leaf 이름이 substring 으로 포함되면 그 카테고리로 결정.
+ * "정품 선물용 못난이 사과/배 과일세트 ..." → "사과/배 과일세트" leaf(72531) 매칭.
+ *
+ * 안전성: multi-segment(공백/슬래시 포함) 이고 길이 >= 6 leaf 만 후보. 가장 긴
+ * leaf 우선(more specific). 짧은 단일 단어 leaf 는 false positive 위험으로 제외.
+ *
+ * 동명이의 leaf 가 substring 으로 매칭된 경우 가장 얕은 depth 우선.
+ */
+function leafSubstringMatch(productName: string): CategoryMatchResult | null {
+  const text = productName.toLowerCase();
+  if (text.length < 6) return null;
+  for (const { leafLower, entry } of loadSubstringLeaves()) {
+    if (text.includes(leafLower)) {
+      // 동일 leaf 의 동명이의 후보 중 가장 얕은 depth + 작은 코드 우선
+      const dupes = loadExactLeafMap().get(leafLower) || [entry];
+      const sorted = [...dupes].sort((a, b) =>
+        a[3] - b[3] || a[0].localeCompare(b[0])
+      );
+      const [code, , leafName] = sorted[0];
+      const detail = loadDetails()[code];
+      return {
+        categoryCode: code,
+        categoryName: leafName,
+        categoryPath: detail?.p || leafName,
+        confidence: 0.97,
+        source: 'local_db',
+      };
+    }
+  }
+  return null;
+}
+
 function exactLeafMatch(productName: string): CategoryMatchResult | null {
   const trimmed = productName.trim();
   const key = trimmed.toLowerCase();
@@ -1140,6 +1191,13 @@ export async function matchCategory(
     return result;
   }
 
+  // ── Tier 1.2: leaf 이름 substring 매칭 (raw 입력 — sanitize 전) ──
+  // Tier 0/1 모두 실패한 모호 입력 ("정품 선물용 못난이 사과/배 과일세트 ...
+  // 완숙 최상품 5kg(소과)") 에서 셀러가 leaf 이름을 그대로 박은 경우 캐치.
+  // raw 사용 — sanitize 가 반복 phrase 를 제거해도 원본에는 남아있음.
+  const subRaw = leafSubstringMatch(productName);
+  if (subRaw) return subRaw;
+
   // ── Tier 1.5: Coupang Category Search API ──
   // 의미있는 토큰으로 쿠팡 카테고리 검색 (Predict API보다 키워드 검색이 더 정확)
   // 쿠팡 API hang 시 전체 배치가 막히지 않도록 5s fast-fail
@@ -1269,9 +1327,15 @@ export async function matchCategoryBatch(
         Math.max(localResult.score, 20),
       );
     } else {
-      unmatchedIndices.push(i);
-      if (bestCandidate) {
-        tier1Diagnostics.set(i, { score: bestCandidate.score, candidateName: bestCandidate.entry[2] });
+      // Tier 1.2: leaf substring 매칭 (raw 입력 — sanitize 전 원본)
+      const subRaw = leafSubstringMatch(productNames[i]);
+      if (subRaw) {
+        results[i] = subRaw;
+      } else {
+        unmatchedIndices.push(i);
+        if (bestCandidate) {
+          tier1Diagnostics.set(i, { score: bestCandidate.score, candidateName: bestCandidate.entry[2] });
+        }
       }
     }
   }
