@@ -365,6 +365,14 @@ export function applyFoodVerbReplacements(text: string): string {
   out = out.replace(/사용 시/g, '드실 때');
   out = out.replace(/사용 후/g, '드신 후');
   out = out.replace(/간단한 사용으로/g, '간단히 드시는 것만으로');
+  // audit Round 3: "쓴 지" 형식 — "이 제품을 쓴 지 얼마 안 됐는데"
+  out = out.replace(/을\s*쓴\s*지\s*얼마\s*안\s*됐는데/g, '을 드신 지 얼마 안 됐는데');
+  out = out.replace(/를\s*쓴\s*지\s*얼마\s*안\s*됐는데/g, '를 드신 지 얼마 안 됐는데');
+  out = out.replace(/을\s*쓴\s*지/g, '을 드신 지');
+  out = out.replace(/를\s*쓴\s*지/g, '를 드신 지');
+  // "이 제품을 쓰는" / "이 제품을 쓴" — 식품에서는 "드시는/드신"
+  out = out.replace(/을\s*쓰는\b/g, '을 드시는');
+  out = out.replace(/를\s*쓰는\b/g, '를 드시는');
   return out;
 }
 

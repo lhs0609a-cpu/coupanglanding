@@ -475,6 +475,69 @@ function stripForbiddenPhrases(text: string): string {
   return out;
 }
 
+/**
+ * 식품 카테고리 출력 후처리 — fragment-composer.applyFoodVerbReplacements 가
+ * 모든 path를 커버 못 해 V2 path로 누출된 "쓰다" 동사를 최종 단계에서 변환.
+ */
+function applyFoodVerbReplacementsAtOutput(text: string, isFood: boolean): string {
+  if (!text || !isFood) return text;
+  let out = text;
+  out = out.replace(/을\s*쓴\s*지/g, '을 드신 지');
+  out = out.replace(/를\s*쓴\s*지/g, '를 드신 지');
+  out = out.replace(/을\s*쓰는\b/g, '을 드시는');
+  out = out.replace(/를\s*쓰는\b/g, '를 드시는');
+  out = out.replace(/한 번 쓰면/g, '한 번 드시면');
+  out = out.replace(/오래 쓸수록/g, '오래 드실수록');
+  return out;
+}
+
+/**
+ * 빈 변수 치환으로 남은 고아 조사 정리.
+ * 예: "{product}을 일상에 추가해보세요" → "{product}=''" 시 " 을 일상에" 가 됨.
+ * 앞 단어 없이 공백 뒤에 조사만 떠있는 경우 제거.
+ *
+ * audit Round 3에서 "오래 쓸수록 진가가 드러나는 부분이 매일의 루틴에 을 " 같은 패턴 다수 발견.
+ */
+/**
+ * 한글 받침 유무에 따른 조사 자동 교정.
+ * 받침 없는 단어 + "으로/은/이" → "로/는/가" 로 수정.
+ * audit Round 4에서 "박스으로", "선물으로" 다수 발견.
+ */
+function fixIncorrectParticles(text: string): string {
+  if (!text) return text;
+  // "X으로" → 받침 없으면 "X로" (받침 있으면 유지)
+  const regex = /([가-힣A-Za-z0-9]+)([으|]?)(으로|은|이)\b/g;
+  return text.replace(regex, (full, word, _mid, particle) => {
+    if (!word) return full;
+    const last = word.charCodeAt(word.length - 1);
+    // 한글 완성형: 받침 검사
+    if (last >= 0xAC00 && last <= 0xD7A3) {
+      const jong = (last - 0xAC00) % 28;
+      // 받침 없음(jong === 0) → "으로" 부적절, "로"로 교체
+      if (jong === 0) {
+        if (particle === '으로') return word + '로';
+        if (particle === '은') return word + '는';
+        if (particle === '이') return word + '가';
+      }
+    }
+    return full;
+  });
+}
+
+function fixOrphanParticles(text: string): string {
+  if (!text) return text;
+  let out = text;
+  // 앞에 공백/문장부호 뒤 단독 조사 → 제거
+  out = out.replace(/(?:^|[\s.,!?])([을를이가은는과와도만의로])\s+/g, ' ');
+  // 문장 끝 단독 조사 → 제거
+  out = out.replace(/\s([을를이가은는과와도만의로])([.!?]?)$/g, '$2');
+  // "X 을 Y" 같이 단어 + 공백 + 조사 + 공백 패턴 — 명사 직접 연결로 변환
+  out = out.replace(/(\S)\s+([을를이가은는])\s+/g, '$1$2 ');
+  // 이중 공백 정리
+  out = out.replace(/\s{2,}/g, ' ').replace(/\s+([.,!?])/g, '$1').trim();
+  return out;
+}
+
 function deduplicateSentencesInText(text: string, globalSeen: Set<string>): string {
   if (!text) return '';
   // 종결 표현(., !, ?) 으로 분리. 따옴표 안의 마침표는 일단 split됨 (대부분 안전).
@@ -514,35 +577,37 @@ const COMMON_REPEAT_WORDS = new Set([
   '꾸준히', '품질입니다', '검증된', '특화된', '실사용',
   '소재로', '소재의', '동급에서', '경험해보세요',
 ]);
-function dampenWordRepetition(text: string): string {
+/**
+ * 페이지 전체 텍스트에서 단어 반복 완화.
+ * 이전 버전은 paragraph별로 dampen해서 "꾸준히" 13회가 19 paragraph에 분산되면
+ * 각 paragraph당 1회씩 → 임계 미달 → dampen 미발동 버그.
+ * 수정: 페이지 전체 텍스트 기준으로 limit 추적, 초과분만 제거.
+ *
+ * @param keepRemaining — 페이지 전역 카운터 (단어별 남은 허용 횟수)
+ */
+function dampenWordRepetition(text: string, keepRemaining: Map<string, number>): string {
   if (!text) return text;
-  const counts = new Map<string, number>();
-  // 한글 2자+ 단어 카운트
-  const words = text.match(/[가-힣]{2,}/g) || [];
-  for (const w of words) counts.set(w, (counts.get(w) || 0) + 1);
-
-  // 12회 이상 반복인 단어 식별 (단, COMMON_REPEAT_WORDS는 더 일찍 차단 = 8회)
+  // 페이지 전체 카운터에 등록된 단어만 대상 (전역에서 임계 초과 확인됨)
   let result = text;
-  for (const [word, count] of counts.entries()) {
-    const threshold = COMMON_REPEAT_WORDS.has(word) ? 8 : 12;
-    if (count < threshold) continue;
-    // 첫 N회만 남기고 나머지는 빈 문자열 치환 — 같은 문장 부분 표현이 잘려나갈 수 있어
-    // 보수적으로 (count - threshold) 만큼만 제거.
-    let keepRemaining = threshold - 1;
-    let removed = 0;
+  for (const [word] of keepRemaining.entries()) {
     const re = new RegExp(`(^|[^가-힣a-zA-Z])(${word})(?=[^가-힣a-zA-Z]|$)`, 'g');
-    result = result.replace(re, (full, pre, w) => {
-      if (keepRemaining > 0) { keepRemaining--; return full; }
-      removed++;
-      return pre; // word 제거, prefix는 유지
+    result = result.replace(re, (full, pre) => {
+      const remaining = keepRemaining.get(word) ?? 0;
+      if (remaining > 0) {
+        keepRemaining.set(word, remaining - 1);
+        return full;
+      }
+      return pre; // word 제거
     });
   }
   return result.replace(/\s{2,}/g, ' ').trim();
 }
 
-export function contentBlocksToParagraphs(blocks: ContentBlock[]): string[] {
+export function contentBlocksToParagraphs(blocks: ContentBlock[], categoryPath?: string): string[] {
   // 페이지 전역 dedup Set — 블록 간 동일 문장도 차단
   const globalSeen = new Set<string>();
+  // 식품 카테고리 여부 — applyFoodVerbReplacementsAtOutput 적용
+  const isFood = !!categoryPath && /^식품(\>|$)/.test(categoryPath);
 
   const paragraphs = blocks.map(block => {
     const parts: string[] = [];
@@ -557,24 +622,32 @@ export function contentBlocksToParagraphs(blocks: ContentBlock[]): string[] {
     let joined = parts.join(' ');
     // 1. 글로벌 부적합 phrase 절단 (filter pool fallback 우회 잔재)
     joined = stripForbiddenPhrases(joined);
-    // 2. 페이지 전역 dedup
+    // 2. 식품 카테고리: 잔재 "쓰다" 동사 변환
+    joined = applyFoodVerbReplacementsAtOutput(joined, isFood);
+    // 3. 빈 변수 치환으로 남은 고아 조사 정리 ("을 일상에" → "일상에")
+    joined = fixOrphanParticles(joined);
+    // 4. 받침 유무로 조사 교정 ("박스으로" → "박스로")
+    joined = fixIncorrectParticles(joined);
+    // 5. 페이지 전역 dedup
     return deduplicateSentencesInText(joined, globalSeen);
   });
 
-  // 페이지 전체 단어 반복 완화 — 12회+(common 단어 8회+) 등장 단어 중 초과분 제거
-  // 한 문단 단위로 적용하면 카운트가 분산되어 효과 없으니 전체 텍스트로 카운트한 뒤
-  // 각 문단별로 적용.
+  // 페이지 전체 단어 반복 완화 — 12회+(common 단어 8회+) 등장 단어 중 초과분 제거.
+  // 페이지 전체 텍스트로 카운트 후 threshold 초과 단어 식별 → 페이지 전역 keepRemaining
+  // 카운터로 paragraph 들에 순차 적용.
   const fullText = paragraphs.join(' ');
   const wordCounts = new Map<string, number>();
   for (const w of (fullText.match(/[가-힣]{2,}/g) || [])) {
     wordCounts.set(w, (wordCounts.get(w) || 0) + 1);
   }
-  // 어떤 단어도 임계 이상이면 전체 dampen 적용
-  const needsDampen = [...wordCounts.entries()].some(([w, c]) =>
-    c >= (COMMON_REPEAT_WORDS.has(w) ? 8 : 12),
-  );
-  if (!needsDampen) return paragraphs;
-  return paragraphs.map(p => dampenWordRepetition(p));
+  // 임계 초과 단어만 keepRemaining 등록 (threshold-1만큼 허용)
+  const keepRemaining = new Map<string, number>();
+  for (const [w, c] of wordCounts.entries()) {
+    const threshold = COMMON_REPEAT_WORDS.has(w) ? 8 : 12;
+    if (c >= threshold) keepRemaining.set(w, threshold - 1);
+  }
+  if (keepRemaining.size === 0) return paragraphs;
+  return paragraphs.map(p => dampenWordRepetition(p, keepRemaining));
 }
 
 /**

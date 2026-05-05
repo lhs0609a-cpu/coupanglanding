@@ -369,7 +369,7 @@ export function generateStoryV2(
     productName, categoryPath, sellerSeed, productIndex, seoKeywords,
     categoryCode, productContext,
   );
-  const persuasionParagraphs = contentBlocksToParagraphs(persuasion.blocks);
+  const persuasionParagraphs = contentBlocksToParagraphs(persuasion.blocks, categoryPath);
 
   // 리얼후기 문단 + 설득 문단 합산 (설득 문단은 1인칭 후기 톤으로 리라이트)
   const rewrittenPersuasion = rewritePersuasionAsReview(persuasionParagraphs, rng);

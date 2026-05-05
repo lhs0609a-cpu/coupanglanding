@@ -122,17 +122,19 @@ const RULES = [
     const x = ['시간 투자할','투자 가치','체감이 확실','진짜예요'].filter(h => t.includes(h));
     return x.length > 0 ? [x.join(',')] : [];
   }],
-  ['14_korean_grammar', (p, t) => {
+  ['14_korean_grammar', (p, t, leafName) => {
     const m = [];
     if (/선물으로/.test(t)) m.push('선물으로');
     if (/활용 드실 때/.test(t)) m.push('활용 드실 때');
-    if (/이를를|을을|를를/.test(t)) m.push('이중조사');
+    // 이중조사 false positive 차단 — leaf name이 "을/를/이/가/은/는"으로 끝나면 리프 반복은 정상.
+    // 예: "어른을 위한 컴퓨터" leaf → "어른을 위한 컴퓨터을 위한" 같은 false trigger 막기 위해
+    // 실제 이중조사("이를를", "을을", "를를") 패턴만 검사.
+    if (/(\b)(이를|을을|를를)\b/.test(t)) m.push('이중조사');
     if (/(\b\S+)으로/.test(t)) {
       const re = /(\b[가-힣a-zA-Z]+)\s*으로/g;
       let mm;
       while ((mm = re.exec(t)) !== null) {
         const w = mm[1];
-        // 받침 없는 단어에 "으로" 붙은 경우 (간단 휴리스틱: 마지막 글자 분석)
         const last = w.charCodeAt(w.length - 1);
         if (last >= 0xAC00 && last <= 0xD7A3) {
           const jong = (last - 0xAC00) % 28;
@@ -196,8 +198,12 @@ for (const [code, fullPath, leafName] of sampledCats) {
     }
     if (hits.length > 0) {
       stats.byL1[l1] = (stats.byL1[l1] || 0) + 1;
-      if (hits.length >= 3 && stats.worstSamples.length < 50) {
-        stats.worstSamples.push({ code, catPath: fullPath, productName: pn, hits, textPreview: text.slice(0, 500) });
+      // 각 룰별로 최대 5개씩 샘플 보관
+      for (const hit of hits) {
+        const ruleSamples = (stats.samplesByRule = stats.samplesByRule || {})[hit.rid] = stats.samplesByRule[hit.rid] || [];
+        if (ruleSamples.length < 5) {
+          ruleSamples.push({ code, catPath: fullPath, productName: pn, hit: hit.h, textPreview: text.slice(0, 600) });
+        }
       }
     }
   }
