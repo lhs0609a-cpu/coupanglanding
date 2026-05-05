@@ -127,34 +127,13 @@ export async function POST(req: NextRequest) {
       // 쿠팡 채널 미연결 시에도 프리플라이트 구조 검증은 가능
     }
 
-    // 유니크 카테고리 코드별 메타 조회 (캐시 우선)
-    const uniqueCategoryCodes = [...new Set(products.map(p => p.categoryCode).filter(Boolean))];
-    const uncachedCodes = uniqueCategoryCodes.filter(c => !categoryMetaCache[c]);
+    // 유니크 카테고리 코드별 메타 — 클라이언트가 init-job 호출 시 받아둔 캐시 사용.
+    // (이전 코드는 init-job 을 totalCount:0 으로 호출해 항상 400 으로 실패했음 — 200ms 낭비.
+    //  메타 fetch 가 필요하면 실제 등록 단계의 init-job 에서 채워주거나 client cache 로 진입)
     const categoryMeta: Record<string, CategoryMetadata> = { ...categoryMetaCache };
 
-    if (uncachedCodes.length > 0) {
-      try {
-        const metaRes = await fetch(
-          `${req.nextUrl.origin}/api/megaload/products/bulk-register/init-job`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Cookie: req.headers.get('cookie') || '' },
-            body: JSON.stringify({ totalCount: 0, categoryCodes: uncachedCodes, preflightOnly: true }),
-          },
-        );
-        if (metaRes.ok) {
-          const metaData = await metaRes.json();
-          if (metaData.categoryMeta) {
-            Object.assign(categoryMeta, metaData.categoryMeta);
-          }
-        }
-      } catch {
-        // 메타 조회 실패는 치명적이지 않음 — product-level 메타로 대체
-      }
-    }
-
-    // 상품별 병렬 처리 (10개 동시)
-    const PARALLEL = 10;
+    // 상품별 병렬 처리 — 순수 로컬 CPU 작업이라 동시성 ↑ 가능 (Coupang/AI 호출 없음)
+    const PARALLEL = 30;
     const results: Record<string, PreflightProductResult> = {};
     let passCount = 0;
     let failCount = 0;

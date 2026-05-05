@@ -303,18 +303,35 @@ export function useBulkRegisterActions() {
       return batchMatched;
     };
 
-    // Main pass
-    for (let i = 0; i < total; i += BATCH_SIZE) {
-      const batch = targets.slice(i, i + BATCH_SIZE);
-      try {
-        const matched = await processBatch(i, batch, prods);
-        matchedCount += matched || 0;
-      } catch (err) {
-        console.error(`[auto-category] Batch ${i} failed:`, err);
-        failedBatches.push(i);
-        failedCount += batch.length;
+    // Main pass — 2 batches 동시 fire (서버측 카테고리 매칭은 어댑터 차단됐으므로 외부 API 영향 없음)
+    const BATCH_PARALLEL = 2;
+    const batchStarts: number[] = [];
+    for (let i = 0; i < total; i += BATCH_SIZE) batchStarts.push(i);
+
+    let doneCount = 0;
+    for (let g = 0; g < batchStarts.length; g += BATCH_PARALLEL) {
+      const group = batchStarts.slice(g, g + BATCH_PARALLEL);
+      const settled = await Promise.allSettled(
+        group.map(async (start) => {
+          const batch = targets.slice(start, start + BATCH_SIZE);
+          const matched = await processBatch(start, batch, prods);
+          return { start, batch, matched };
+        }),
+      );
+      for (let k = 0; k < settled.length; k++) {
+        const start = group[k];
+        const r = settled[k];
+        if (r.status === 'fulfilled') {
+          matchedCount += r.value.matched || 0;
+        } else {
+          console.error(`[auto-category] Batch ${start} failed:`, r.reason);
+          const batch = targets.slice(start, start + BATCH_SIZE);
+          failedBatches.push(start);
+          failedCount += batch.length;
+        }
+        doneCount += BATCH_SIZE;
       }
-      setAutoMatchingProgress({ done: Math.min(i + BATCH_SIZE, total), total });
+      setAutoMatchingProgress({ done: Math.min(doneCount, total), total });
     }
 
     // Retry failed batches once
