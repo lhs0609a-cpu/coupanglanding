@@ -451,8 +451,13 @@ export function generatePersuasionContent(
  */
 function normalizeSentenceForDedup(s: string): string {
   return s
+    // 상품 참조 변형 표준화 — "이 제품/이 상품/X 상품" 모두 동일 토큰으로 (변종 dedup 회피 방지).
+    // audit 결과 같은 fragment에서 productRefs picker가 "이 제품" vs "이 상품" 다른 결과 →
+    // 사실상 동일 문장이 dedup 우회.
+    .replace(/이\s*제품|이\s*상품|이\s*아이템/g, '__PROD__')
+    .replace(/[가-힣]+\s*상품|[가-힣]+\s*제품/g, '__PROD__')
     .replace(/\s+/g, ' ')
-    .replace(/[^가-힣a-zA-Z0-9]/g, '')
+    .replace(/[^가-힣a-zA-Z0-9_]/g, '')
     .toLowerCase();
 }
 
