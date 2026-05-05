@@ -13,6 +13,12 @@ import { generateRealReview, reviewToCaption } from './real-review-composer';
 import type { RealReviewResult } from './real-review-composer';
 import { extractContextOverrides } from './product-name-parser';
 import { sanitizeHealthText } from './health-sanitizer';
+import {
+  normalizeRepeatedTokens,
+  isSuspiciousFragment,
+  applyFoodVerbReplacements,
+  isFoodCategory,
+} from './fragment-composer';
 export { sanitizeHealthText } from './health-sanitizer';
 
 // 한 페이지 내 단일고정 변수 — 여러 슬롯이 다른 값을 뽑으면 모순 (샐러드용+아이간식+다이어트 동시 노출 방지)
@@ -434,12 +440,63 @@ export function generateStoryV2(
     paragraphs = deduped;
   }
 
+  // ── 통합 후처리: 토큰 중복 + 미치환 변수 reject + 식품 동사 차환 ──
+  // (composer 외 경로(realReview/persuasionEngine)에서 흘러든 fragment도 정리)
+  {
+    const isFood = isFoodCategory(categoryPath);
+    const cleanSentence = (s: string): string => {
+      let out = isFood ? applyFoodVerbReplacements(s) : s;
+      out = normalizeRepeatedTokens(out);
+      return out;
+    };
+
+    const sanitizeParas = (paras: string[]): string[] => {
+      const seen = new Set<string>();
+      const out: string[] = [];
+      for (const p of paras) {
+        const sentences = p.split(/(?<=[\.!?。요])\s+/).map(s => s.trim()).filter(Boolean);
+        const kept: string[] = [];
+        for (const s of sentences) {
+          const cleaned = cleanSentence(s);
+          if (!cleaned) continue;
+          if (isSuspiciousFragment(cleaned)) continue; // 향 수치 / 검색 비용 / placeholder
+          const key = cleaned.replace(/[\s\.,!?。]+/g, '');
+          if (seen.has(key)) continue; // cross-paragraph 중복 차단
+          seen.add(key);
+          kept.push(cleaned);
+        }
+        const joined = kept.join(' ').trim();
+        if (joined.length >= 5) out.push(joined);
+      }
+      return out;
+    };
+
+    paragraphs = sanitizeParas(paragraphs);
+  }
+
+  // reviewTexts 도 동일 후처리
+  const cleanedReviewTexts = (() => {
+    const isFood = isFoodCategory(categoryPath);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const t of reviewTexts) {
+      let s = isFood ? applyFoodVerbReplacements(t) : t;
+      s = normalizeRepeatedTokens(s);
+      if (!s || isSuspiciousFragment(s)) continue;
+      const key = s.replace(/[\s\.,!?。]+/g, '');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(s);
+    }
+    return out;
+  })();
+
   // 총 글자수 계산 (SEO 검증용)
   const totalCharCount = paragraphs.join('').length;
 
   return {
     paragraphs,
-    reviewTexts,
+    reviewTexts: cleanedReviewTexts,
     tone: tone.name,
     realReview,
     contentBlocks: [],    // 비움 → 블로그 스타일 레이아웃 유지

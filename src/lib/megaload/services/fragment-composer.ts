@@ -290,7 +290,7 @@ const FOOD_HOOK_OPENERS: string[] = [
 ];
 
 /** 카테고리 경로가 식품/식자재/음료/건강식품 계열인지 판정 */
-function isFoodCategory(categoryPath?: string): boolean {
+export function isFoodCategory(categoryPath?: string): boolean {
   if (!categoryPath) return false;
   // 1. 대분류가 식품/음료/건강식품/영양제 등
   if (/^(식품|건강식품|영양제|비타민|음료|차류|과일|채소|곡물|수산|축산|농산|신선식품|간식|스낵|냉동식품|가공식품|조미료|장류|발효식품|양념|식자재)/.test(categoryPath)) return true;
@@ -314,6 +314,59 @@ const SINGLE_PICK_VARS = new Set([
   '추천대상', '용도', '페르소나', '품종', '시즌', '상황', '대상',
   '사용방법', '복용방법', '섭취방법', '메인효과',
 ]);
+
+// ─── 출력 후처리: 토큰 중복 정규화 ─────────────────────────
+// 인접 동일 토큰 자동 제거 ("엄선한 엄선한 원물" → "엄선한 원물").
+// fragment composition 후 모든 출력에 적용.
+export function normalizeRepeatedTokens(text: string): string {
+  if (!text) return text;
+  // 1) 같은 단어가 공백 사이로 연속 — 한 번만 남김
+  let out = text.replace(/(\b[\uAC00-\uD7AF\w]+)\s+\1(?=[\s\.,!?]|$)/g, '$1');
+  // 2) 한국어 형태소 (조사 없이) 인접 반복 — 예: "꾸준히 꾸준히"
+  out = out.replace(/([가-힣]{2,})\s+\1\b/g, '$1');
+  // 3) 잔여 공백 정리
+  out = out.replace(/\s{2,}/g, ' ').trim();
+  return out;
+}
+
+// ─── 출력 후처리: 미치환 변수/의미 모호 합성 검출 ──────────
+// fragment 안에 placeholder 잔재나 의미가 안 통하는 합성이 있으면 reject 신호.
+// (예: "향 수치", "검색 비용 대비 결정 만족도")
+const SUSPICIOUS_PHRASES = [
+  /검색 비용 대비/, /결정 만족도/, /결정 시간/, /결정 망설임/,
+  /향\s*수치/, /수치가\s*안\s*좋/, /건강검진/,
+  /\{[가-힣A-Za-z_]+\}/, // 미치환 placeholder
+];
+export function isSuspiciousFragment(text: string): boolean {
+  if (!text) return false;
+  return SUSPICIOUS_PHRASES.some(re => re.test(text));
+}
+
+// ─── 출력 후처리: 식품 카테고리 동사 차환 ────────────────
+// 식품에서 "사용/실사용/써보다" → "드시다/드셔보시다" 자동 변환.
+// 차단 리스트로 못 잡은 표현이 다른 풀에서 흘러들어왔을 때 마지막 보호망.
+export function applyFoodVerbReplacements(text: string): string {
+  if (!text) return text;
+  let out = text;
+  // 명사형 "사용" 단독은 너무 광범위 — 식품 부적합 패턴에만 한정.
+  out = out.replace(/실사용자/g, '드셔본 분');
+  out = out.replace(/실사용\s*후기/g, '실제 후기');
+  out = out.replace(/실사용/g, '실제 취식');
+  out = out.replace(/한 번 사용한 분/g, '한 번 드셔본 분');
+  out = out.replace(/주기적인 사용/g, '꾸준한 섭취');
+  out = out.replace(/오래 사용 시에도/g, '여러 번 드셔도');
+  out = out.replace(/오래 사용/g, '여러 번 드심');
+  out = out.replace(/꾸준히 사용하니까/g, '꾸준히 드시니까');
+  out = out.replace(/꾸준히 사용/g, '꾸준히 드심');
+  out = out.replace(/매일 꾸준히 사용/g, '매일 꾸준히 드심');
+  out = out.replace(/한 번 써보시면/g, '한 번 드셔보시면');
+  out = out.replace(/써봤는데/g, '드셔봤는데');
+  out = out.replace(/사용해보면/g, '드셔보시면');
+  out = out.replace(/사용 시/g, '드실 때');
+  out = out.replace(/사용 후/g, '드신 후');
+  out = out.replace(/간단한 사용으로/g, '간단히 드시는 것만으로');
+  return out;
+}
 
 /** 문자열 안정 해시 (시드 기반 결정성 픽 — rng 호출 없이) */
 function stableHash(s: string): number {
@@ -906,29 +959,47 @@ const L2_FORBIDDEN_TERMS: Record<string, string[]> = {
   '식품>신선식품': [
     // 공산품 어휘 (audit TOP: 모델 58710, 사양 18808, 기능 9482, 마감 5620, 광택 2034)
     '마감','소재','기능','사양','모델','스펙','동급 모델','동급에서','동급에','광택',
+    // 디자인/공간/인테리어 어휘 (가전/가구 전용 — 식품에 부적합)
+    '직관적','디자인이','단정해','일상 공간','어울립니다','외관','외관에','조립','내구성','잡았을 때','그립감','손에 익는','만듦새',
     // 사용 어휘 — 생과일은 "먹는" 거지 "쓰는" 게 아님
     '사용감','사용 환경','사용 빈도','사용 패턴','사용해보면','사용 직후','사용 주기','사용감의',
-    '오래 쓴다','한 번 쓰는','써봤','쓰는 동안','쓰지 않는','쓰는 만큼',
-    // SaaS/통계 어휘 (audit: 사용자 후기/단골 사용자/리뷰 분포 각 3017+)
+    '주기적인 사용','꾸준히 사용','한 번 사용한','매일 꾸준히 사용','한 번 써보시면','써보시면',
+    '오래 쓴다','한 번 쓰는','써봤','쓰는 동안','쓰지 않는','쓰는 만큼','써봤는데',
+    '실사용','실사용자','실사용 후기','실사용 만족도','실사용 차이','실사용에서','실사용기',
+    '사용 후','오래 사용','오래 사용 시','간단한 사용','사용 시',
+    // 효능/효과/체감 어휘 — 식품 표시광고 위반 (식약처 규제)
+    '변화가 눈에 보여요','변화가 눈에','눈에 보여요','체감이 확실','체감이 확실해요','체감','체내 흡수율','함량','정제',
+    '결과를 만든다','결과를 만들','시간 투자할','시간 투자',
+    '컨디션을 결정','컨디션 결정','하루의 컨디션','피부 고민','피부탄력','면역력','관절건강','혈관건강','혈행개선','뼈건강','장건강',
+    // 의료/검진 암시 (식품법 위반 — 질병 치료/예방 표시 금지)
+    '건강검진','검진에서','검진 후','수치가 안 좋','향 수치','수치가 떨어졌','수치 개선',
+    // SaaS/IT/검색 어휘 (audit + 망고 케이스)
     '표준편차','리뷰 분포','리뷰 키워드 분석','단골 사용자','사용자 후기','리뷰 키워드',
+    '검색 비용','검색 비용 대비','결정 만족도','결정 시간','결정 망설임','검색 마무리','검색 끝','검색 끝에','옵션이에요','옵션입니다',
     // 가공식품 인증 (생과일 대상 아님)
     'HACCP','GMP','검증으로 안심',
-    // 영양제 어휘 (audit: 함량 9051, 체감 2155, 체내 흡수율 2155, 정제 790)
-    '비타민 엄선','엄선한 비타민','체감','체내 흡수율','함량','정제',
-    // 비즈니스/허세 어휘 (audit: 정착하시길 431)
-    '시간 투자','투자 가치','분야','적당한 시점','정착하시길','시행착오',
+    // 영양제 어휘
+    '비타민 엄선','엄선한 비타민',
+    // 비즈니스/허세 어휘
+    '투자 가치','분야','적당한 시점','정착하시길','시행착오','균형감이 도드라','균형감을','프로파일',
     // 가공식품 어휘 (생과일은 그 자체가 원재료)
     '원재료','블라인드',
     // 공구/주방기기 (audit: 코팅 2580)
     '코팅','논스틱','인덕션','필기감','토크','드릴','절단력','발수',
     // 가전 어휘 (audit: 냉장고 1290)
     '냉장고','세탁기','에어컨','전자제품',
+    // 토큰 중복 직접 차단 (composer 정규화 누락 시 보호망)
+    '엄선한 엄선한','꾸준히 꾸준히','매일 매일',
+    // 보관/사용 기간 모순 (생과일은 1주 이내 신선)
+    '1개월','한 달','수개월','오래 두고','오래 두면','1년 동안','반년','여러 달',
   ],
   '식품>신선식품>과일류': [
     '고소한','고소함', // 망고/딸기 등 단맛 과일에 부적합
+    '한 통','한 캔','한 박스 분량','1통', // 통 단위 모순 (과일은 박스/팩/kg)
   ],
   '식품>신선식품>채소류': [
     '고소한','고소함',
+    '한 통','한 캔',
   ],
   // 가공식품 (반대로 마감/사양 등은 공산품용이라 차단, HACCP/원재료는 허용)
   '식품>가공식품': [
@@ -2067,7 +2138,7 @@ export function composeAllBlocks(
   if (!enriched.includes('social_proof')) enriched.push('social_proof');
   if (!enriched.includes('usage_guide')) enriched.push('usage_guide');
   const finalBlocks = [...enriched, ...ctaPart];
-  return finalBlocks.map(blockType =>
+  const rawBlocks = finalBlocks.map(blockType =>
     composeBlock(
       blockType as ContentBlockType,
       categoryPath,
@@ -2078,6 +2149,49 @@ export function composeAllBlocks(
       forbiddenTerms,
     ),
   );
+
+  // ─── Phase A: Cross-paragraph 중복 차단 + 토큰 정규화 + 식품 동사 차환 + 미치환 변수 reject ───
+  // (F2/F3/F4/F6 통합 후처리)
+  const isFood = isFoodCategory(categoryPath);
+  const seenSentences = new Set<string>();
+
+  const splitSentences = (text: string): string[] => {
+    if (!text) return [];
+    // 한국어 종결 + 영문 종결 분리. 마침표/물음표/느낌표 뒤에 공백 또는 끝.
+    return text.split(/(?<=[\.!?])\s+/).map(s => s.trim()).filter(Boolean);
+  };
+
+  const cleanText = (text: string): string => {
+    if (!text) return text;
+    let out = text;
+    // 1) 식품이면 동사 차환
+    if (isFood) out = applyFoodVerbReplacements(out);
+    // 2) 토큰 중복 제거
+    out = normalizeRepeatedTokens(out);
+    // 3) 문장 단위로 split → 의심 패턴 + 중복 제거
+    const sents = splitSentences(out);
+    const kept: string[] = [];
+    for (const s of sents) {
+      if (isSuspiciousFragment(s)) continue;
+      // 정규화된 키 (공백/끝점 무시)로 같은 글 안 중복 차단
+      const key = s.replace(/[\s\.,!?]+/g, '').replace(/[가-힣A-Za-z0-9]/g, c => c.toLowerCase());
+      if (seenSentences.has(key)) continue;
+      seenSentences.add(key);
+      kept.push(s);
+    }
+    return kept.join(' ');
+  };
+
+  return rawBlocks.map(b => ({
+    ...b,
+    content: cleanText(b.content),
+    subContent: b.subContent ? cleanText(b.subContent) : b.subContent,
+    items: b.items?.map(it => {
+      const cleaned = cleanText(it);
+      return cleaned || it; // 통째로 비우면 안 됨 — 빈 결과 시 원본 유지
+    }),
+    emphasis: b.emphasis ? cleanText(b.emphasis) : b.emphasis,
+  }));
 }
 
 // ─── 프레임워크 / 카테고리프레임워크 외부 노출 ──────────
