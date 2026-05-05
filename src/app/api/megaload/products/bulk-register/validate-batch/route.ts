@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
-import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
-import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import type { NoticeCategoryMeta } from '@/lib/megaload/services/notice-field-filler';
 import type { AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
@@ -12,6 +10,8 @@ import {
   type CategoryMetadata,
   type DryRunResult,
 } from '@/lib/megaload/services/product-validator';
+
+export const maxDuration = 20;
 
 interface ValidateProduct {
   uid: string;
@@ -62,9 +62,8 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const serviceClient = await createServiceClient();
-    let shUserId: string;
     try {
-      shUserId = await ensureMegaloadUser(supabase, serviceClient, user.id);
+      await ensureMegaloadUser(supabase, serviceClient, user.id);
     } catch (err) {
       return NextResponse.json({ error: err instanceof Error ? err.message : 'Megaload 계정이 없습니다.' }, { status: 404 });
     }
@@ -82,59 +81,30 @@ export async function POST(req: NextRequest) {
         .filter((c): c is string => !!c && c !== '0' && c !== 'NaN'),
     )];
 
-    // 2. 카테고리별 메타 병렬 조회 (5개 동시)
+    // 2. 카테고리별 메타 — Supabase 캐시 single SELECT 만 사용.
+    // (이전: Coupang 어댑터로 라이브 fetch — 첫 호출 시 5~15s 소요 + init-job 과 중복.
+    //  이제: 캐시 hit 분만 즉시 사용, miss 분은 init-job 단계(Step 3 등록 시)에서 채워짐.
+    //  Dry-Run 검증은 캐시된 메타만으로 진행 — 미캐시 카테고리는 빈 메타로 통과시키고 등록 단계에서 강제 검증.)
     const categoryMeta: CategoryMetaMap = {};
 
     if (uniqueCodes.length > 0) {
-      let coupangAdapter: CoupangAdapter | null = null;
       try {
-        const adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang');
-        coupangAdapter = adapter as CoupangAdapter;
-      } catch { /* 채널 미연결 시 메타 조회 스킵 */ }
-      if (coupangAdapter) {
+        const { data: noticeRows } = await serviceClient
+          .from('coupang_notice_category_cache')
+          .select('category_code, notice_categories, is_empty')
+          .in('category_code', uniqueCodes);
 
-      const fetchCategoryMeta = async (code: string): Promise<{
-        code: string;
-        noticeMeta: NoticeCategoryMeta[];
-        attributeMeta: AttributeMeta[];
-      }> => {
-        let noticeMeta: NoticeCategoryMeta[] = [];
-        let attributeMeta: AttributeMeta[] = [];
-
-        try {
-          // Supabase 캐시 우선 → 미스 시 라이브 API → 결과 캐시 저장
-          const { getNoticeCategoryWithCache } = await import('@/lib/megaload/services/notice-category-cache');
-          noticeMeta = await getNoticeCategoryWithCache(serviceClient, coupangAdapter, code);
-        } catch {
-          // notices 조회 실패 → 빈 배열
-        }
-
-        try {
-          const attrResult = await coupangAdapter.getCategoryAttributes(code);
-          attributeMeta = attrResult.items;
-        } catch {
-          // attributes 조회 실패 → 빈 배열
-        }
-
-        return { code, noticeMeta, attributeMeta };
-      };
-
-      // 병렬 조회 — 캐시 히트 비율이 높으므로 동시성 상향 + inter-chunk delay 제거
-      // 12개 동시 (이전 5개) — Supabase 캐시 우선이라 라이브 API 호출은 첫 등록만 발생
-      const CONCURRENT = 12;
-      for (let i = 0; i < uniqueCodes.length; i += CONCURRENT) {
-        const chunk = uniqueCodes.slice(i, i + CONCURRENT);
-        const results = await Promise.allSettled(chunk.map(fetchCategoryMeta));
-
-        for (const result of results) {
-          if (result.status === 'fulfilled') {
-            const { code, noticeMeta: nm, attributeMeta: am } = result.value;
-            categoryMeta[code] = { noticeMeta: nm, attributeMeta: am };
+        if (Array.isArray(noticeRows)) {
+          for (const row of noticeRows as Array<{ category_code: string; notice_categories: NoticeCategoryMeta[]; is_empty: boolean }>) {
+            categoryMeta[row.category_code] = {
+              noticeMeta: row.is_empty ? [] : (row.notice_categories ?? []),
+              attributeMeta: [], // attributes 캐시는 별도 — init-job 에서 채워짐
+            };
           }
         }
-        // inter-chunk delay 제거 — 캐시 히트 시 불필요, 미스는 어차피 라이브 API에 도달하면 자체 rate limit 작동
+      } catch {
+        // 캐시 조회 실패 — 빈 메타로 진행 (validation 통과, 등록 단계 검증)
       }
-    } // if (coupangAdapter)
     }
 
     // 3. 각 상품별 검증 실행

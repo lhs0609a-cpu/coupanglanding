@@ -3,6 +3,8 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { uploadLocalImagesParallel } from '@/lib/megaload/services/local-product-reader';
 
+export const maxDuration = 55;
+
 interface PreuploadProduct {
   uid: string;
   productCode: string;

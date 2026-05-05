@@ -10,6 +10,8 @@ import type { DeliveryInfo, ReturnInfo, AttributeMeta } from '@/lib/megaload/ser
 import type { NoticeCategoryMeta } from '@/lib/megaload/services/notice-field-filler';
 import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 
+export const maxDuration = 25;
+
 interface PreflightRequestProduct {
   uid: string;
   productCode: string;

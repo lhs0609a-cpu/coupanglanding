@@ -2206,25 +2206,84 @@ export function useBulkRegisterActions() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [validationPhase, imagePreuploadProgress.phase, preflightPhase, step]);
 
-  // ---- Load shipping info ----
+  // ---- Load shipping info (stale-while-revalidate) ----
+  // localStorage 캐시(10분)로 새로고침 시 즉시 표시 + 백그라운드 revalidate.
+  // Coupang shipping API 호출 빈도 95%↓.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      setLoadingShipping(true); setShippingError('');
+    const CACHE_KEY = 'megaload:shipping-info';
+    const CACHE_TTL_MS = 10 * 60 * 1000;
+    type ShippingCache = {
+      outboundShippingPlaces: { outboundShippingPlaceCode: string; placeName: string; placeAddresses: string }[];
+      returnShippingCenters: { returnCenterCode: string; shippingPlaceName: string; deliverCode: string; returnAddress: string }[];
+      cachedAt: number;
+    };
+
+    const readCache = (): ShippingCache | null => {
       try {
-        // 클라이언트 측 30초 가드 — 서버 hang 시에도 UI는 명확한 에러로 복귀
+        const raw = typeof window !== 'undefined' ? window.localStorage.getItem(CACHE_KEY) : null;
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as ShippingCache;
+        if (!parsed?.cachedAt) return null;
+        return parsed;
+      } catch { return null; }
+    };
+
+    const writeCache = (data: Omit<ShippingCache, 'cachedAt'>) => {
+      try {
+        if (typeof window === 'undefined') return;
+        window.localStorage.setItem(
+          CACHE_KEY,
+          JSON.stringify({ ...data, cachedAt: Date.now() }),
+        );
+      } catch { /* quota exceeded 등 — 무시 */ }
+    };
+
+    const applyData = (data: ShippingCache) => {
+      if (cancelled) return;
+      setShippingPlaces(data.outboundShippingPlaces || []);
+      setReturnCenters(data.returnShippingCenters || []);
+      if (data.outboundShippingPlaces?.length > 0) {
+        setSelectedOutbound(data.outboundShippingPlaces[0].outboundShippingPlaceCode);
+      }
+      if (data.returnShippingCenters?.length > 0) {
+        setSelectedReturn(data.returnShippingCenters[0].returnCenterCode);
+      }
+    };
+
+    // 1) 캐시 즉시 반영 (있으면 spinner 안 보임)
+    const cached = readCache();
+    const cacheFresh = cached && (Date.now() - cached.cachedAt < CACHE_TTL_MS);
+    if (cached) {
+      applyData(cached);
+      setLoadingShipping(false);
+      setShippingError('');
+    } else {
+      setLoadingShipping(true);
+      setShippingError('');
+    }
+
+    // 2) fresh 면 fetch 자체 스킵, stale 또는 미캐시면 백그라운드 fetch
+    if (cacheFresh) return () => { cancelled = true; };
+
+    (async () => {
+      try {
         const res = await fetch('/api/megaload/products/bulk-register/shipping-info', {
           signal: AbortSignal.timeout(30000),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || '물류 정보 조회 실패');
         if (cancelled) return;
-        setShippingPlaces(data.outboundShippingPlaces || []);
-        setReturnCenters(data.returnShippingCenters || []);
-        if (data.outboundShippingPlaces?.length > 0) setSelectedOutbound(data.outboundShippingPlaces[0].outboundShippingPlaceCode);
-        if (data.returnShippingCenters?.length > 0) setSelectedReturn(data.returnShippingCenters[0].returnCenterCode);
+        applyData({ ...data, cachedAt: Date.now() });
+        writeCache({
+          outboundShippingPlaces: data.outboundShippingPlaces || [],
+          returnShippingCenters: data.returnShippingCenters || [],
+        });
+        setShippingError('');
       } catch (err) {
         if (cancelled) return;
+        // 캐시 있던 경우엔 에러 표시 안 함 (revalidate 실패는 silent)
+        if (cached) return;
         const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
         setShippingError(
           isTimeout

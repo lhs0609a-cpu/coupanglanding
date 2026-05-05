@@ -6,7 +6,8 @@ import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { uploadLocalImagesParallel } from '@/lib/megaload/services/local-product-reader';
 import type { DeliveryInfo, ReturnInfo, AttributeMeta, CertificationInfo, OptionVariant } from '@/lib/megaload/services/coupang-product-builder';
 import type { NoticeCategoryMeta } from '@/lib/megaload/services/notice-field-filler';
-import { generateProductStoriesBatch, type StoryBatchInput } from '@/lib/megaload/services/ai.service';
+import type { StoryBatchInput } from '@/lib/megaload/services/ai.service';
+// generateProductStoriesBatch 는 generateAiContent=true 일 때만 dynamic import — Gemini SDK 로드 비용 cold start 절감.
 import { buildProductPayload } from '@/lib/megaload/services/preflight-builder';
 import { withRetry } from '@/lib/megaload/services/retry';
 import { checkBrandProtection } from '@/lib/megaload/services/brand-checker';
@@ -406,6 +407,7 @@ export async function POST(req: NextRequest) {
             categoryPath: p.categoryPath,
           };
         });
+        const { generateProductStoriesBatch } = await import('@/lib/megaload/services/ai.service');
         const stories = await generateProductStoriesBatch(storyInputs);
         for (let i = 0; i < products.length; i++) {
           const key = products[i].uid || products[i].productCode;

@@ -53,6 +53,8 @@ interface CanaryRequestBody {
   thirdPartyImageUrls?: string[];
 }
 
+export const maxDuration = 45;
+
 /**
  * POST — 카나리 테스트
  * 1개 상품을 실제 쿠팡 API로 등록 → 성공 확인 → 판매중지 → 삭제

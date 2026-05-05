@@ -7,6 +7,8 @@ import type { NoticeCategoryMeta } from '@/lib/megaload/services/notice-field-fi
 import type { AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
 import { getNoticeCategoryWithCache } from '@/lib/megaload/services/notice-category-cache';
 
+export const maxDuration = 50;
+
 interface InitJobBody {
   totalCount: number;
   categoryCodes: string[]; // 유니크한 카테고리 코드 목록
