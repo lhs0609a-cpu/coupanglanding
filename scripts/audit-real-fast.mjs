@@ -186,7 +186,8 @@ for (const [code, fullPath, leafName] of sampledCats) {
     let text;
     try {
       const r = generatePersuasionContent(pn, categoryPath, `audit:${code}`, s, [leafName], code);
-      text = contentBlocksToParagraphs(r.blocks).join('\n');
+      // categoryPath 전달 — isFood 활성화 → applyFoodVerbReplacementsAtOutput 적용
+      text = contentBlocksToParagraphs(r.blocks, categoryPath).join('\n');
     } catch (e) {
       stats.totalErrors++;
       continue;
