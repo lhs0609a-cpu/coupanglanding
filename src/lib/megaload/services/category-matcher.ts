@@ -1158,6 +1158,28 @@ async function buildResultFromIndex(entry: IndexEntry, score: number, maxScore: 
 
 // ─── Tier 3: AI keyword extraction → Local DB ───────────────
 
+// ─── SEO 노이즈 토큰 (모든 카테고리 공통 — 매칭에 무관한 marketing 어휘) ──
+// 이 토큰들은 매칭 점수 산정에서 제외. 실제 카테고리 시그널과 분리.
+const SEO_NOISE_TOKENS = new Set([
+  '추천','비교','후기','리뷰','할인','특가','무료배송','당일발송','로켓배송','정품','무료',
+  '가성비','만족','베스트','신상','신상품','한정','특별','선물','선물용','선물세트',
+  '인기','대박','최고','최저가','최저','득템','쟁여','꿀템','갓성비','명품',
+  '정식','한국','한국어','국산','국내산','수입','직배송','직수입','직접','전용',
+  '안티에이징','보습','주름개선','미백','피부탄력','피부미백','잔주름',  // 효능 어휘 (식품 카테고리에 박히는 SEO)
+  '체감','효과','즉시','바로','금방','빠른','강력','진한','풍부한','풍성한',
+  '인증','검증','승인','자연','순수','자연스러운','진짜','진심','진정한',
+  '필수','필수템','필수품','준비','신선','싱싱한','신선함',  // (식품 정상 토큰이지만 다른 카테고리에 박히면 노이즈)
+]);
+
+// ─── 헤드 토큰 우선 매칭 ─────────────────────────────────
+// 상품명의 첫 N(=5) 토큰이 실제 상품 정체. 뒤는 SEO 스터핑.
+// 헤드와 풀의 매칭 결과 L1 이 다르면 contamination 의 강한 시그널.
+function getHeadTokens(tokens: string[], n: number = 5): string[] {
+  // SEO_NOISE_TOKENS 제외하고 의미 있는 첫 N 토큰
+  const meaningful = tokens.filter(t => !SEO_NOISE_TOKENS.has(t) && t.length >= 2);
+  return meaningful.slice(0, n);
+}
+
 // ─── L1 카테고리 오염 감지 ─────────────────────────────────
 // 셀러가 SEO 목적으로 다른 카테고리 키워드를 섞어둔 경우 감지.
 // 한 토큰 셋 안에 2+ L1 카테고리 시그널이 섞이면 contaminated.
@@ -1483,23 +1505,49 @@ export async function matchCategoryBatch(
     }
   }
 
-  // === Phase 1.5: L1 카테고리 오염 감지 + AI 강제 재검증 ===
-  // 한 상품명에 2+ L1 카테고리 토큰이 섞여있으면 SEO 스터핑 의심.
-  // (예: "파지 염장 완도 다시마 ... 안티에이징 수분 진정 뷰티 염색/파마용품 헤어소품"
-  //  → 식품 5개 + 뷰티 7개 토큰 → 토큰 수만 보면 뷰티 88% 오매칭)
-  // contaminated 상품은 결과를 무효화하고 AI(OpenAI) 재검증으로 위임.
+  // === Phase 1.5: 다중 contamination 감지 + AI 강제 재검증 ===
+  // 3가지 독립 시그널로 SEO 스터핑/오매칭 검출:
+  //   A) L1 토큰 시그널 충돌 (하드코딩 키워드 — 명확한 케이스)
+  //   B) 헤드(첫 5) vs 풀 매칭 L1 불일치 — 통계적 시그널 (새 SEO 패턴도 잡음)
+  //   C) 헤드 토큰 매칭 실패 (헤드는 실제 상품, 매칭 안 되면 의미 매칭 X)
   const contaminatedIndices = new Set<number>();
   for (let i = 0; i < productNames.length; i++) {
     const result = results[i];
     if (!result) continue;
     // 네이버 카테고리 매핑은 신뢰 (실제 소싱 분류이므로 contamination 영향 없음)
     if (naverCategoryIds?.[i]) continue;
-    const contamCheck = detectL1Contamination(productTokensList[i]);
-    if (!contamCheck.contaminated) continue;
-    // 매칭된 카테고리의 L1이 dominant L1과 다르면 오매칭 가능성 高
+
     const matchedL1 = (result.categoryPath || '').split('>')[0];
-    if (contamCheck.dominantL1 && matchedL1 && contamCheck.dominantL1 !== matchedL1) {
-      console.warn(`[category-matcher] L1 contamination detected: '${productNames[i].slice(0, 40)}' → matched=${matchedL1} but dominant=${contamCheck.dominantL1} → AI 재검증 위임`);
+    let contamReason: string | null = null;
+
+    // [A] L1 토큰 시그널 충돌
+    const contamA = detectL1Contamination(productTokensList[i]);
+    if (contamA.contaminated && contamA.dominantL1 && matchedL1 && contamA.dominantL1 !== matchedL1) {
+      contamReason = `L1 시그널 충돌: matched=${matchedL1}, dominant=${contamA.dominantL1}`;
+    }
+
+    // [B] 헤드 vs 풀 매칭 L1 불일치 — 헤드 토큰만으로 따로 매칭하고 결과 비교
+    if (!contamReason) {
+      const headTokens = getHeadTokens(productTokensList[i], 5);
+      if (headTokens.length >= 2) {
+        // tokenize 결과를 직접 활용해 head 매칭 — Tier 0 voting 으로 빠르게 판정
+        const headBaseComps: string[] = [...headTokens];
+        for (let j = 0; j < headTokens.length - 1; j++) {
+          headBaseComps.push(headTokens[j] + headTokens[j + 1]);
+        }
+        const headDomain = detectDomainFilter(headBaseComps);
+        const headResult = voteTier0(headBaseComps, headDomain, headTokens);
+        if (headResult) {
+          const headL1 = (headResult.categoryPath || '').split('>')[0];
+          if (headL1 && matchedL1 && headL1 !== matchedL1) {
+            contamReason = `헤드/풀 L1 불일치: head=${headL1}, full=${matchedL1}`;
+          }
+        }
+      }
+    }
+
+    if (contamReason) {
+      console.warn(`[category-matcher] contamination: '${productNames[i].slice(0, 40)}' — ${contamReason} → AI 재검증`);
       results[i] = null;
       contaminatedIndices.add(i);
       if (!unmatchedIndices.includes(i)) unmatchedIndices.push(i);
