@@ -1798,21 +1798,34 @@ export function useBulkRegisterActions() {
         for (const img of p.scannedDetailImages || []) otherTasks.push({ uid: p.uid, kind: 'detail', img });
         for (const img of p.scannedReviewImages || []) otherTasks.push({ uid: p.uid, kind: 'review', img });
       }
-      // main 우선 + 인터리브 (각 product의 첫 main 먼저 → 진행률 빠르게 상승)
-      const allTasks = [...mainTasks, ...otherTasks];
+      // ★ 라운드로빈 인터리브: 각 product 의 첫 main 부터 → 모든 product main 1장 → 2장 → ...
+      //   (이전: product A 의 main 전체 → B 의 main 전체 ... 순차 누적)
+      //   인터리브하면 모든 product 의 첫 main 이 빨리 채워져 progress 가 즉시 상승함.
+      const interleavedMain: { uid: string; kind: Kind; img: ScannedImageFile }[] = [];
+      {
+        const byProduct = new Map<string, ScannedImageFile[]>();
+        for (const t of mainTasks) {
+          const arr = byProduct.get(t.uid) || [];
+          arr.push(t.img);
+          byProduct.set(t.uid, arr);
+        }
+        const productList = Array.from(byProduct.entries());
+        const maxLen = Math.max(0, ...productList.map(([, arr]) => arr.length));
+        for (let i = 0; i < maxLen; i++) {
+          for (const [uid, arr] of productList) {
+            if (i < arr.length) interleavedMain.push({ uid, kind: 'main', img: arr[i] });
+          }
+        }
+      }
+      const allTasks = [...interleavedMain, ...otherTasks];
 
       let completed = 0;
       let taskIdx = 0;
-      // CONCURRENCY 변천: 60 (폭주) → 12 (보수) → 20 (균형).
-      //   - 직접 업로드 성공 시: 클라 → Supabase Storage 직접. Vercel 메모리 무관.
-      //   - 폴백 시: 클라 → Vercel /upload-image (Jimp) → Supabase Storage.
-      //   직접 경로가 정상이면 20 동시로 안전 (Supabase Storage 처리 한도 충분).
-      //   폴백이 자주 발동하면 Vercel 메모리 부담이 있지만 client-folder-scanner 의 retry/4xx-skip
-      //   이 무한 폭주를 차단.
-      //   원본 60이 위험했던 이유 = (a) 5MB 버킷 cap silent reject (이미 10MB로 수정),
-      //   (b) 재시도 부재 → 동일 요청 폭주, (c) 브라우저 origin 동시 fetch 한도.
-      //   현재 (a)+(b) 해결됐으므로 20까지 안전 상향.
-      const CONCURRENCY = 20;
+      // CONCURRENCY: 클라 → Supabase Storage 직접 업로드.
+      //   - Supabase Storage 처리 한도 충분, 브라우저 per-origin 동시 fetch 한도(보통 6)는
+      //     Storage 도메인이 별개라 우회 가능. 25 = ~12 압축워커 + 13 in-flight upload 균형.
+      //   - 30+ 는 회귀(원본 60 폭주 케이스) 위험 → 25 cap.
+      const CONCURRENCY = 25;
 
       // 실패 추적 (사용자 가시화 — silent fail 방지)
       const failureReasons: Record<string, number> = {};

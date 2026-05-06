@@ -561,13 +561,20 @@ class CompressWorkerPool {
 }
 
 let _workerPool: CompressWorkerPool | null = null;
-const WORKER_POOL_SIZE = 4;
+// hardwareConcurrency 기반 동적 풀 크기 (4~8 worker).
+// 4코어 PC는 4개, 8코어+는 8개 사용 → CPU 활용률 ↑, 메인스레드 영향 0.
+function getOptimalWorkerCount(): number {
+  if (typeof navigator === 'undefined') return 4;
+  const cores = navigator.hardwareConcurrency || 4;
+  // 메인스레드(UI)와 GC를 위해 1~2 코어 양보, 최대 8까지.
+  return Math.max(2, Math.min(8, cores - 2));
+}
 
 function getWorkerPool(): CompressWorkerPool | null {
   if (typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined') return null;
   if (_workerPool) return _workerPool;
   try {
-    _workerPool = new CompressWorkerPool(WORKER_POOL_SIZE);
+    _workerPool = new CompressWorkerPool(getOptimalWorkerCount());
     return _workerPool;
   } catch (e) {
     console.warn('[compressImage] Worker 풀 생성 실패, 메인스레드 폴백', e);
@@ -588,7 +595,9 @@ function getWorkerPool(): CompressWorkerPool | null {
  */
 export async function compressImage(file: File | Blob, sellerBrand?: string): Promise<Blob> {
   // 1) 휴리스틱 조기 탈출 — 디코드 비용 0
-  if (!sellerBrand && file.size >= 100 * 1024 && file.size <= 3 * 1024 * 1024) {
+  // 워터마크 미사용 + 30KB~3MB 사이 파일은 그대로 통과 (대부분 정상 JPEG).
+  // 30KB 미만이면 작은 아이콘일 가능성 — 차원 검증 위해 디코드.
+  if (!sellerBrand && file.size >= 30 * 1024 && file.size <= 3 * 1024 * 1024) {
     return file;
   }
 
