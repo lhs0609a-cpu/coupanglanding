@@ -823,9 +823,14 @@ export function useBulkRegisterActions() {
             if (p.productDirHandle) {
               try {
                 const rescanned = await rescanMainImagesFn(p.productDirHandle);
-                if (rescanned.length > (p.scannedMainImages?.length ?? 0)) {
+                // ★ rescan 은 main_images 만 봄. review-promoted 분리해서 보존.
+                const existing = p.scannedMainImages ?? [];
+                const existingNonPromoted = existing.filter(img => img.promotedFromReview === undefined);
+                const existingPromoted = existing.filter(img => img.promotedFromReview !== undefined);
+                if (rescanned.length > existingNonPromoted.length) {
                   rescanCount++;
-                  latest[idx] = { ...p, scannedMainImages: rescanned, mainImageCount: rescanned.length };
+                  const merged = [...rescanned, ...existingPromoted];
+                  latest[idx] = { ...p, scannedMainImages: merged, mainImageCount: merged.length };
                 }
               } catch { /* dirHandle 만료 시 기존 유지 */ }
             }
@@ -1448,7 +1453,18 @@ export function useBulkRegisterActions() {
           categoryConfidence: 0,
           categorySource: '',
           selected: true,
-          scannedMainImages: sp.mainImages,
+          // ★ review 폴더 이미지를 대표이미지 후보로 자동 promote (최대 10장).
+          //   기존: review 는 별도 보관, 사용자가 수동 토글로만 main 등록.
+          //   사용자 요청: review 폴더 사진도 대표이미지에 자동 노출되어야 함
+          //   (꽃샷/실물샷 등 좋은 이미지가 review에 자주 있음).
+          //   스코어링이 이후 자동 정렬 + 부적합한 review 사진은 자동제외 처리.
+          scannedMainImages: [
+            ...sp.mainImages,
+            ...(sp.reviewImages || []).slice(0, 10).map((img, idx) => ({
+              ...img,
+              promotedFromReview: idx,
+            })),
+          ],
           scannedDetailImages: sp.detailImages,
           scannedInfoImages: sp.infoImages,
           scannedReviewImages: sp.reviewImages,

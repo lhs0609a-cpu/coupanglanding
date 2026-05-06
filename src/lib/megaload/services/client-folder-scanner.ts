@@ -280,9 +280,11 @@ async function scanSingleProduct(
   //   2. review_images 폴더 (쿠팡PT 관행: 상세용 이미지가 여기에 있는 구조)
   //   3. main_images 오버플로우: 대표이미지 첫 3장을 제외한 나머지를 상세로 사용
   //      (쿠팡 스크랩 데이터는 main_images에 20+장이 있고 상세/리뷰 폴더가 없는 케이스가 일반적)
+  // ★ review를 detail로 "복사"만 (이동 X). 그래야 review 폴더 이미지가
+  //   대표이미지 후보로도 자동 promote 될 수 있음.
   if (detailImages.length === 0 && reviewImages.length > 0) {
-    detailImages = reviewImages;
-    reviewImages = [];
+    detailImages = [...reviewImages];
+    // reviewImages 보존 — useBulkRegisterActions 가 main 후보로 promote.
   }
   if (detailImages.length < 3 && mainImages.length > 3) {
     // 대표이미지로 쓸 첫 3장을 제외한 나머지를 상세이미지에 추가

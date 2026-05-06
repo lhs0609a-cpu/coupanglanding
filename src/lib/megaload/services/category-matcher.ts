@@ -1158,6 +1158,74 @@ async function buildResultFromIndex(entry: IndexEntry, score: number, maxScore: 
 
 // ─── Tier 3: AI keyword extraction → Local DB ───────────────
 
+// ─── L1 카테고리 오염 감지 ─────────────────────────────────
+// 셀러가 SEO 목적으로 다른 카테고리 키워드를 섞어둔 경우 감지.
+// 한 토큰 셋 안에 2+ L1 카테고리 시그널이 섞이면 contaminated.
+const L1_TOKEN_SIGNALS: Record<string, string[]> = {
+  '식품': ['다시마','미역','김','파래','매생이','황태','멸치','오징어','문어','새우','조개','굴','전복','연어','고등어','참치','삼치','갈치','홍어','명태','명란','대구','쭈꾸미','낙지','꽃게','대게','킹크랩',
+          '망고','사과','배','감','포도','딸기','복숭아','자두','수박','참외','메론','블루베리','오렌지','자몽','체리','파인애플','키위','석류','복분자','대추','곶감','밤','잣','호두','아몬드',
+          '쌀','잡곡','보리','귀리','콩','팥','녹두','참깨','들깨','옥수수','감자','고구마','당근','양파','마늘','생강','파','부추','시금치','상추','깻잎','배추','무','오이','호박','토마토','가지','버섯','콩나물','숙주',
+          '소고기','돼지고기','닭고기','오리고기','한우','삼겹살','목살','등심','안심','갈비','베이컨','소시지','햄','계란','달걀','우유','요거트','치즈','버터',
+          '신선','산지','국산','농산','수산','축산','해조류','건어물','제철','원물','HACCP','GMP','당도','등급','5kg','1kg','3kg','10kg','선물세트',
+          '간장','된장','고추장','쌈장','액젓','젓갈','김치','장아찌','반찬','조미료','소금','설탕','식초','후추','참기름','들기름','꿀','잼','시럽',
+          '라면','즉석밥','즉석국','국수','파스타','떡','만두','피자','치킨','볶음밥','김밥','샐러드','과자','초콜릿','사탕','젤리','쿠키','크래커',
+          '비타민','오메가3','홍삼','녹용','루테인','프로폴리스','콜라겐','마그네슘','칼슘','철분','아연','유산균','프로바이오틱스','글루코사민','MSM','커큐민','코엔자임',
+          '커피','차','녹차','홍차','보이차','우롱차','보리차','옥수수수염차','둥굴레차','대추차','유자차','생강차','쌍화차','음료','주스','탄산음료','이온음료','맥주','와인','막걸리','소주'],
+  '뷰티': ['안티에이징','수분','진정','뷰티','염색','파마','퍼머','헤어','샴푸','린스','트리트먼트','두피','모발','펌','드라이','컬링','스타일링',
+          '크림','에센스','세럼','로션','토너','앰플','마스크팩','시트팩','클렌징','클렌저','폼클렌징','폼','오일클렌징','립스틱','립밤','립글로스','립틴트','립스','마스카라','아이라이너','아이섀도우','블러셔','파운데이션','쿠션','컨실러','BB','CC','선크림','자외선차단','선스틱','쉐도우','네일','매니큐어','젤네일','향수','퍼퓸','오드뚜왈렛',
+          '미백','주름개선','보습','각질','블랙헤드','모공','피부','피지','잡티','다크써클','탄력','리프팅','콜라겐','히알루론','펩타이드','레티놀','비타민C','나이아신아마이드','시카','병풀','스네일','연어알'],
+  '가전/디지털': ['노트북','데스크탑','모니터','마우스','키보드','이어폰','헤드폰','이어셋','마이크','스피커','웹캠','프린터','스캐너','HDD','SSD','USB','메모리','RAM','CPU','그래픽카드','VGA','SD카드','외장하드','공유기','라우터','허브',
+                '스마트폰','휴대폰','갤럭시','아이폰','태블릿','아이패드','갤럭시탭','노트10','갤럭시버즈','에어팟','애플워치','갤럭시워치','스마트워치',
+                '냉장고','김치냉장고','세탁기','건조기','에어컨','전기레인지','인덕션','전자레인지','오븐','에어프라이어','커피머신','정수기','공기청정기','선풍기','가습기','제습기','히터','전기장판',
+                'TV','스마트TV','OLED','QLED','UHD','4K','셋톱박스','블루레이','홈시어터','사운드바','빔프로젝터','프로젝터','스피커'],
+  '패션의류잡화': ['티셔츠','셔츠','블라우스','니트','스웨터','자켓','코트','패딩','후드','맨투맨','원피스','스커트','치마','바지','청바지','데님','반바지','양말','속옷','팬티','브라','잠옷','파자마','수영복','비키니','드레스','턱시도','정장','수트',
+                '운동화','스니커즈','구두','부츠','샌들','슬리퍼','로퍼','단화','하이힐','플랫슈즈',
+                '가방','백팩','크로스백','숄더백','토트백','클러치','지갑','벨트','모자','캡','비니','버킷햇','선글라스','안경','시계','목걸이','반지','귀걸이','팔찌','브로치','스카프','머플러','장갑','넥타이'],
+  '가구/홈데코': ['소파','침대','매트리스','책상','의자','테이블','식탁','책장','옷장','서랍장','수납장','선반','거울','커튼','블라인드','러그','카펫','쿠션','베개','이불','요','담요','커버',
+                '조명','전등','스탠드','샹들리에','LED등','꽃병','액자','시계','가습기','디퓨저','인센스','캔들'],
+  '생활용품': ['화장지','휴지','물티슈','기저귀','생리대','수건','걸레','대걸레','빗자루','쓰레기통','쓰레기봉투','탈취제','방향제','섬유유연제','세탁세제','주방세제','세정제','락스','곰팡이제거제','살충제',
+              '비누','샤워젤','바디워시','바디로션','치약','칫솔','구강청결제','면도기','면도크림','면봉','반창고','밴드','연고','파스'],
+  '주방용품': ['프라이팬','냄비','전골냄비','웍','국자','뒤집개','집게','주걱','칼','도마','가위','강판','채반','체','조리기구','후라이팬','압력솥','냉면기','뚝배기',
+              '식기','그릇','접시','컵','머그컵','텀블러','보온병','텀블러','수저','젓가락','포크','나이프','수저세트','냅킨','앞치마','오븐장갑','행주','수세미'],
+  '반려/애완용품': ['강아지','고양이','개','애묘','애견','반려견','반려묘','사료','간식','츄르','캣닢','캣타워','스크래쳐','목줄','하네스','리드줄','켄넬','이동장','캐리어','쿠션','방석','매트','개껌','오리저키','동결건조','펫','펫푸드','캣','도그','우드'],
+  '스포츠/레져': ['요가매트','폼롤러','덤벨','케틀벨','짐볼','복근운동기구','런닝머신','자전거','킥보드','전기자전거','MTB','로드자전거','헬멧','보호대','스케이트','스케이트보드','스키','보드','등산','등산복','등산화','캠핑','텐트','침낭','코펠','버너','랜턴','테이블','체어','쿨러','아이스박스','낚시','낚시대','릴','루어','웜','벌레용품','골프','골프채','골프공','골프화','골프장갑','수영','수영복','물안경','튜브'],
+  '자동차용품': ['타이어','휠','오일','엔진오일','워셔액','부동액','와이퍼','블랙박스','네비게이션','후방카메라','LED램프','전조등','범퍼','휠캡','스티커','매트','시트커버','핸들커버','선바이저','방향제','세차용품','왁스','광택제','코팅제','이동가방','정비공구'],
+  '문구/오피스': ['볼펜','연필','샤프','지우개','형광펜','마커','색연필','크레용','노트','다이어리','포스트잇','스티커','파일','클리어파일','바인더','펜꽂이','수첩','메모지','테이프','풀','가위','커터칼','자','컴퍼스','각도기','계산기','프린터','복사기','파쇄기','오피스','사무용품'],
+  '완구/취미': ['장난감','블록','레고','퍼즐','보드게임','카드게임','RC','드론','피규어','인형','곰인형','봉제인형','게임기','닌텐도','플레이스테이션','PS','XBOX','게임','악기','기타','피아노','드럼','바이올린','우쿨렐레','하모니카','색칠','그리기','만들기','과학','실험','조립'],
+  '도서': ['책','도서','소설','수필','자기계발','경제경영','만화','참고서','문제집','교재','어학','외국어','영어','일본어','중국어','어린이','유아','동화','그림책','전집','시리즈'],
+};
+
+interface ContaminationResult {
+  contaminated: boolean;
+  dominantL1: string | null;
+  signalCounts: Record<string, number>;
+}
+
+function detectL1Contamination(tokens: string[]): ContaminationResult {
+  const counts: Record<string, number> = {};
+  const tokenSet = new Set(tokens);
+  for (const [l1, signals] of Object.entries(L1_TOKEN_SIGNALS)) {
+    let n = 0;
+    for (const s of signals) {
+      if (tokenSet.has(s)) n++;
+    }
+    if (n > 0) counts[l1] = n;
+  }
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (sorted.length === 0) return { contaminated: false, dominantL1: null, signalCounts: counts };
+  if (sorted.length === 1) return { contaminated: false, dominantL1: sorted[0][0], signalCounts: counts };
+
+  // 2+ L1 시그널 존재. 2번째 L1 가 1번째의 30% 이상이면 contaminated.
+  const [l1a, ca] = sorted[0];
+  const [, cb] = sorted[1];
+  const ratio = cb / Math.max(ca, 1);
+  return {
+    contaminated: ratio >= 0.3 && cb >= 2,
+    dominantL1: l1a,
+    signalCounts: counts,
+  };
+}
+
 async function aiKeywordMatch(productName: string): Promise<CategoryMatchResult | null> {
   try {
     const { mapCategory } = await import('./ai.service');
@@ -1415,6 +1483,29 @@ export async function matchCategoryBatch(
     }
   }
 
+  // === Phase 1.5: L1 카테고리 오염 감지 + AI 강제 재검증 ===
+  // 한 상품명에 2+ L1 카테고리 토큰이 섞여있으면 SEO 스터핑 의심.
+  // (예: "파지 염장 완도 다시마 ... 안티에이징 수분 진정 뷰티 염색/파마용품 헤어소품"
+  //  → 식품 5개 + 뷰티 7개 토큰 → 토큰 수만 보면 뷰티 88% 오매칭)
+  // contaminated 상품은 결과를 무효화하고 AI(OpenAI) 재검증으로 위임.
+  const contaminatedIndices = new Set<number>();
+  for (let i = 0; i < productNames.length; i++) {
+    const result = results[i];
+    if (!result) continue;
+    // 네이버 카테고리 매핑은 신뢰 (실제 소싱 분류이므로 contamination 영향 없음)
+    if (naverCategoryIds?.[i]) continue;
+    const contamCheck = detectL1Contamination(productTokensList[i]);
+    if (!contamCheck.contaminated) continue;
+    // 매칭된 카테고리의 L1이 dominant L1과 다르면 오매칭 가능성 高
+    const matchedL1 = (result.categoryPath || '').split('>')[0];
+    if (contamCheck.dominantL1 && matchedL1 && contamCheck.dominantL1 !== matchedL1) {
+      console.warn(`[category-matcher] L1 contamination detected: '${productNames[i].slice(0, 40)}' → matched=${matchedL1} but dominant=${contamCheck.dominantL1} → AI 재검증 위임`);
+      results[i] = null;
+      contaminatedIndices.add(i);
+      if (!unmatchedIndices.includes(i)) unmatchedIndices.push(i);
+    }
+  }
+
   // 전부 로컬 매칭 완료 시 바로 반환
   if (unmatchedIndices.length === 0) return { results, failures: [] };
 
@@ -1479,19 +1570,33 @@ export async function matchCategoryBatch(
   }
 
   // === Phase 3: 여전히 미매칭인 상품 — 개별 폴백 ===
+  // contaminated 상품은 Tier 0/1 우회하고 AI 직접 호출 (같은 오매칭 반복 방지)
   for (let i = 0; i < results.length; i++) {
     if (results[i]) continue;
 
+    const isContaminated = contaminatedIndices.has(i);
     const keywords = extractKeywords(productNames[i]);
     const primaryKey = keywords[0];
 
-    if (cache.has(primaryKey)) {
+    if (!isContaminated && cache.has(primaryKey)) {
       results[i] = cache.get(primaryKey) ?? null;
       continue;
     }
 
     try {
-      const result = await matchCategory(productNames[i], adapter);
+      let result: CategoryMatchResult | null;
+      if (isContaminated) {
+        // SEO 스터핑 케이스 — Tier 0/1 우회, AI 직접 호출
+        // (Tier 0/1 다시 돌리면 같은 오매칭 반환됨)
+        result = await aiKeywordMatch(productNames[i]);
+        if (!result) {
+          // AI 실패 시: sanitize 후 재매칭
+          const cleaned = sanitizeSellerName(productNames[i]);
+          result = await matchCategory(cleaned, adapter);
+        }
+      } else {
+        result = await matchCategory(productNames[i], adapter);
+      }
       cache.set(primaryKey, result);
       results[i] = result;
     } catch (err) {
