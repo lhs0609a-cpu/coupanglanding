@@ -308,6 +308,40 @@ const DIRECT_CODE_MAP: Record<string, { code: string; path: string }> = {
   '립틴트': { code: '56428', path: '뷰티>메이크업>립메이크업>립틴트' },
   '치약': { code: '63981', path: '생활용품>구강/면도>치약' },
   '칫솔': { code: '63982', path: '생활용품>구강/면도>칫솔' },
+  // ── 뷰티 > 클렌징 (스크린샷 실패 케이스 — 토큰 누락으로 도서/임산부 등으로 오매칭) ──
+  '클렌징폼': { code: '56122', path: '뷰티>스킨>클렌징>클렌징 폼' },
+  '폼클렌징': { code: '56122', path: '뷰티>스킨>클렌징>클렌징 폼' },
+  '클렌징젤': { code: '56125', path: '뷰티>스킨>클렌징>클렌징 젤' },
+  '젤클렌저': { code: '56125', path: '뷰티>스킨>클렌징>클렌징 젤' },
+  '클렌징비누': { code: '56127', path: '뷰티>스킨>클렌징>클렌징 비누' },
+  '클렌징로션': { code: '56130', path: '뷰티>스킨>클렌징>클렌징 로션/밀크' },
+  '클렌징밀크': { code: '56130', path: '뷰티>스킨>클렌징>클렌징 로션/밀크' },
+  '클렌징크림': { code: '56132', path: '뷰티>스킨>클렌징>클렌징 크림/밤' },
+  '클렌징밤': { code: '56132', path: '뷰티>스킨>클렌징>클렌징 크림/밤' },
+  '클렌징파우더': { code: '56135', path: '뷰티>스킨>클렌징>클렌징 파우더' },
+  '클렌징오일': { code: '56137', path: '뷰티>스킨>클렌징>클렌징 오일' },
+  '클렌징워터': { code: '56140', path: '뷰티>스킨>클렌징>클렌징 워터' },
+  '클렌징티슈': { code: '56142', path: '뷰티>스킨>클렌징>클렌징 티슈/시트' },
+  '클렌징시트': { code: '56142', path: '뷰티>스킨>클렌징>클렌징 티슈/시트' },
+  '리무버': { code: '56144', path: '뷰티>스킨>클렌징>립앤아이리무버' },
+  '메이크업리무버': { code: '56144', path: '뷰티>스킨>클렌징>립앤아이리무버' },
+  '클렌징세트': { code: '56147', path: '뷰티>스킨>클렌징>클렌징세트' },
+  '세안제': { code: '56122', path: '뷰티>스킨>클렌징>클렌징 폼' },
+  // ── 뷰티 > 필링/스크럽 ──
+  '페이스스크럽': { code: '56151', path: '뷰티>스킨>필링>페이스 스크럽' },
+  '얼굴스크럽': { code: '56151', path: '뷰티>스킨>필링>페이스 스크럽' },
+  '필링젤': { code: '56153', path: '뷰티>스킨>필링>필링 젤/고마쥬' },
+  '고마쥬': { code: '56153', path: '뷰티>스킨>필링>필링 젤/고마쥬' },
+  '필링파우더': { code: '56154', path: '뷰티>스킨>필링>필링 파우더' },
+  '필링토너': { code: '56155', path: '뷰티>스킨>필링>필링 토너' },
+  '필링크림': { code: '74527', path: '뷰티>스킨>필링>필링 크림' },
+  '필링패드': { code: '74528', path: '뷰티>스킨>필링>필링 패드' },
+  '각질제거': { code: '56153', path: '뷰티>스킨>필링>필링 젤/고마쥬' },
+  '각질케어': { code: '56153', path: '뷰티>스킨>필링>필링 젤/고마쥬' },
+  // 단일 토큰은 동음이의 위험 있음. compound("폼클렌징"/"클렌징젤") 우선
+  // "클렌징"만 단독으로 들어왔을 때 폴백용 — 폼이 가장 일반적
+  '클렌징': { code: '56122', path: '뷰티>스킨>클렌징>클렌징 폼' },
+  '클렌저': { code: '56122', path: '뷰티>스킨>클렌징>클렌징 폼' },
   // ── 영문 키워드 (해외직구/영문 상품명 대응) ──
   'vitamin': { code: '58913', path: '식품>건강식품>비타민/미네랄>멀티비타민' },
   'vitamina': { code: '58907', path: '식품>건강식품>비타민/미네랄>비타민A' },
@@ -322,6 +356,16 @@ const DIRECT_CODE_MAP: Record<string, { code: string; path: string }> = {
   'probiotics': { code: '58991', path: '식품>건강식품>기타건강식품>유산균' },
   'collagen': { code: '59163', path: '식품>건강식품>기타건강식품>콜라겐/히알루론산' },
   'retinol': { code: '56171', path: '뷰티>스킨>에센스/세럼/앰플>에센스/세럼' },
+  'cleanser': { code: '56122', path: '뷰티>스킨>클렌징>클렌징 폼' },
+  'cleansing': { code: '56122', path: '뷰티>스킨>클렌징>클렌징 폼' },
+  'foamcleanser': { code: '56122', path: '뷰티>스킨>클렌징>클렌징 폼' },
+  'cleansingoil': { code: '56137', path: '뷰티>스킨>클렌징>클렌징 오일' },
+  'cleansingwater': { code: '56140', path: '뷰티>스킨>클렌징>클렌징 워터' },
+  'cleansingbalm': { code: '56132', path: '뷰티>스킨>클렌징>클렌징 크림/밤' },
+  'micellar': { code: '56140', path: '뷰티>스킨>클렌징>클렌징 워터' },
+  'scrub': { code: '56151', path: '뷰티>스킨>필링>페이스 스크럽' },
+  'peeling': { code: '56153', path: '뷰티>스킨>필링>필링 젤/고마쥬' },
+  'remover': { code: '56144', path: '뷰티>스킨>클렌징>립앤아이리무버' },
   // ── 숫자 결합형 변형 ──
   '비타민d3': { code: '58910', path: '식품>건강식품>비타민/미네랄>비타민D' },
   '비타민b2': { code: '58908', path: '식품>건강식품>비타민/미네랄>비타민B군' },
@@ -742,7 +786,10 @@ function tokenize(productName: string): string[] {
 //   - 6 (현재): 낮은 신뢰도 매칭도 반환. confidence 0.3 미만은 UI 에서 빨간 배지 표시
 //     되어 사용자가 수동 검토 가능. 매칭 실패보다 "잘못 매칭" 이 식별 쉬워 UX 우월.
 //   - HIGH_CONFIDENCE_THRESHOLD = 12 이상은 confidence 0.5+ 로 자동 진행.
-const LOCAL_MATCH_THRESHOLD = 6;
+// 6 은 false positive 폭증 (예: "폼클렌징"이 "도서>잡지>청소년"으로 매칭).
+// 12 는 너무 엄격해서 정상 매칭도 fail. 8 이 sweet spot — DIRECT_CODE_MAP Tier 0
+// 매칭이 우선이고 로컬 토큰 매칭은 보수적으로 가야 noise 차단됨.
+const LOCAL_MATCH_THRESHOLD = 8;
 const HIGH_CONFIDENCE_THRESHOLD = 12;
 
 interface ScoredEntry {
@@ -1036,29 +1083,35 @@ async function localMatch(
       }
     }
 
-    // === 뷰티/식품/건강식품 토큰 → 패션 leaf 매칭 차단 ===
+    // === 뷰티/식품/건강식품 토큰 → 무관 카테고리 leaf 매칭 차단 ===
     // 풋크림, 핸드크림, 비타민, 영양제 같은 분명한 뷰티/식품 토큰이 있는데
-    // 패션 leaf와 부분매칭되는 경우(예: 가죽케어크림, 발레복) 매칭 무효화
+    // 패션/도서/음반/완구/문구 leaf와 부분매칭되는 경우(예: 폼클렌징 → 도서>청소년) 매칭 무효화
     if (leafScore > 0) {
       const path = (loadDetails() as Record<string, { p?: string }>)[code]?.p || '';
       const isFashion = path.startsWith('패션의류잡화');
+      // 도서/음반/완구/문구/사무용품 — 뷰티/식품과 명백히 다른 도메인
+      const isUnrelated = /^(도서|음반|완구|문구|사무용품|악기|컴퓨터|가구|자동차용품|반려동물용품)/.test(path);
       const BEAUTY_FOOD_TOKENS = [
         // 뷰티/화장품
         '크림', '로션', '세럼', '에센스', '앰플', '토너', '스킨', '미스트', '클렌저',
         '클렌징', '마스크팩', '시트마스크', '선크림', '핸드크림', '풋크림', '바디로션',
         '샴푸', '린스', '컨디셔너', '트리트먼트', '바디워시', '폼클렌징',
+        '클렌징폼', '클렌징젤', '클렌징오일', '클렌징워터', '클렌징밀크', '클렌징파우더',
+        '필링', '스크럽', '각질', '리무버',
         // 건강식품/식품
         '비타민', '영양제', '오메가', '홍삼', '유산균', '프로바이오틱스', '콜라겐',
         '루테인', '밀크씨슬', '글루코사민', '쏘팔메토', '코큐텐', '코엔자임', '크릴오일',
         '비오틴', '바이오틴', '아연', '마그네슘', '칼슘', '철분', '엽산', '셀레늄',
         '프로폴리스', '스피루리나', '클로렐라', '알로에', '히알루론산',
       ];
-      if (isFashion) {
-        const hasBeautyFoodToken = meaningfulTokens.some(t =>
-          BEAUTY_FOOD_TOKENS.some(kw => t === kw || t.includes(kw))
-        );
-        if (hasBeautyFoodToken) {
-          // 강한 감점으로 사실상 매칭 불가 처리
+      const hasBeautyFoodToken = meaningfulTokens.some(t =>
+        BEAUTY_FOOD_TOKENS.some(kw => t === kw || t.includes(kw))
+      );
+      if (hasBeautyFoodToken) {
+        if (isFashion) {
+          score -= 50;
+        } else if (isUnrelated) {
+          // 도서>청소년 → 폼클렌징 매칭 같은 catastrophe 차단
           score -= 50;
         }
       }
@@ -1331,14 +1384,17 @@ export async function matchCategoryBatch(
       const parts = splitKoreanCompound(t);
       for (const p of parts) tier0Cands.push(p);
     }
-    const tier0Result = voteTier0(tier0Cands, null, toks);
+    // Fix C: 도메인 필터 적용 — matchCategory 와 일관성 유지.
+    // 이전엔 batch 경로만 null 을 넘겨서 "아기홍삼"이 식품으로, "강아지샴푸"가 사람샴푸로 매칭되는 케이스 존재.
+    const domainFilter = detectDomainFilter(tier0Cands);
+    const tier0Result = voteTier0(tier0Cands, domainFilter, toks);
     if (tier0Result) {
       results[i] = tier0Result;
       continue;
     }
 
-    // Tier 1: 로컬 DB 토큰 매칭
-    const { match: localResult, bestCandidate } = await localMatch(productTokensList[i]);
+    // Tier 1: 로컬 DB 토큰 매칭 (도메인 필터 같이 전달 — 다른 도메인 path 페널티)
+    const { match: localResult, bestCandidate } = await localMatch(productTokensList[i], domainFilter);
     if (localResult) {
       results[i] = await buildResultFromIndex(
         localResult.entry,
