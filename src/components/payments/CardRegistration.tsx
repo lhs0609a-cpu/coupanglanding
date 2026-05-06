@@ -16,42 +16,69 @@ export default function CardRegistration(_props: CardRegistrationProps) {
   const handleRegister = useCallback(async () => {
     setLoading(true);
     setError('');
+    const t0 = Date.now();
+    const ms = () => Date.now() - t0;
 
     try {
       const clientKey = process.env.NEXT_PUBLIC_TOSS_PAYMENTS_CLIENT_KEY;
+      console.log(`[card-reg] start ${ms()}ms — clientKey=${clientKey ? 'set' : 'MISSING'}`);
       if (!clientKey) {
-        setError('결제 서비스 설정이 필요합니다.');
+        setError('결제 서비스 설정이 필요합니다 (NEXT_PUBLIC_TOSS_PAYMENTS_CLIENT_KEY 미설정).');
         return;
       }
 
-      // customerKey 는 서버 시크릿(TOSS_CUSTOMER_KEY_SECRET)으로 HMAC 되므로 서버에서만 계산 가능.
-      // 이전엔 generateCustomerKey() 를 클라이언트에서 직접 호출 → process.env.TOSS_PAYMENTS_SECRET_KEY 가
-      // 브라우저에서 undefined 라 항상 "결제 설정 누락" 에러 발생.
-      const ckRes = await fetch('/api/payments/customer-key', { credentials: 'include' });
+      // Step 1: customerKey 발급 (15s timeout — 서버 hang 시 명확한 에러)
+      const ckRes = await fetch('/api/payments/customer-key', {
+        credentials: 'include',
+        signal: AbortSignal.timeout(15_000),
+      });
+      console.log(`[card-reg] customer-key ${ms()}ms — status=${ckRes.status}`);
       if (!ckRes.ok) {
         const data = await ckRes.json().catch(() => ({}));
-        setError(data.error || 'customerKey 발급 실패');
+        setError(data.error || `customerKey 발급 실패 (HTTP ${ckRes.status})`);
         return;
       }
       const { customerKey } = (await ckRes.json()) as { customerKey: string };
       if (!customerKey) {
-        setError('customerKey 발급 실패');
+        setError('customerKey 발급 실패 (빈 응답)');
         return;
       }
+      console.log(`[card-reg] customerKey 발급 완료 ${ms()}ms`);
 
-      const TossPayments = await loadTossPaymentsSDK();
+      // Step 2: 토스 SDK 로드 (10s timeout — script 로드 hang 차단)
+      const sdkPromise = loadTossPaymentsSDK();
+      const sdkTimeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('토스 SDK 로드 10초 초과 — 네트워크 또는 CSP 문제')), 10_000)
+      );
+      const TossPayments = await Promise.race([sdkPromise, sdkTimeout]);
+      console.log(`[card-reg] SDK 로드 완료 ${ms()}ms`);
+
       const toss = TossPayments(clientKey);
-
       const origin = window.location.origin;
 
-      await toss.requestBillingAuth('카드', {
+      console.log(`[card-reg] requestBillingAuth 호출 직전 ${ms()}ms — 곧 토스 페이지로 redirect 됩니다`);
+
+      // Step 3: 토스 결제창 — 정상이면 페이지가 토스로 redirect 되어 finally 가 안 돌아감.
+      // 만약 5초 안에 redirect 가 안 일어나면 popup blocked 또는 SDK 내부 에러.
+      const authPromise = toss.requestBillingAuth('카드', {
         customerKey,
         successUrl: `${origin}/my/settings/payment-callback`,
         failUrl: `${origin}/my/settings/payment-callback?error=true`,
       });
+      const redirectGuard = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(
+          '토스 결제창이 열리지 않았습니다. 브라우저의 팝업 차단 / 광고 차단기 / CSP 설정을 확인해주세요. (5초 경과)'
+        )), 5_000)
+      );
+      await Promise.race([authPromise, redirectGuard]);
     } catch (err) {
-      console.error('카드 등록 에러:', err);
-      setError(err instanceof Error ? err.message : '카드 등록에 실패했습니다.');
+      console.error(`[card-reg] error at ${ms()}ms:`, err);
+      const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+      setError(
+        isTimeout
+          ? '서버 응답 지연 (15초) — Vercel/Supabase 상태를 확인해주세요.'
+          : err instanceof Error ? err.message : '카드 등록에 실패했습니다.'
+      );
     } finally {
       setLoading(false);
     }
