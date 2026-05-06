@@ -2834,11 +2834,12 @@ export function useBulkRegisterActions() {
         }
 
         try {
-          // Vercel 함수 maxDuration 300s + 응답 직렬화 여유 = 클라 timeout 320s.
-          // 함수가 죽거나 connection 이 끊겨서 응답이 영영 안 오는 경우를 명시적으로 차단.
+          // Vercel 함수 maxDuration 90s + 응답 직렬화 여유 = 클라 timeout 100s.
+          //   (5/5 spike 후 메모리 비용 절감 위해 300→90s 단축. 함수가 죽거나
+          //   connection 이 끊겨서 응답이 영영 안 오는 경우를 명시적으로 차단.)
           const batchRes = await fetch('/api/megaload/products/bulk-register/batch', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            signal: AbortSignal.timeout(320_000),
+            signal: AbortSignal.timeout(100_000),
             body: JSON.stringify({
               jobId, batchIndex: i,
               deliveryInfo: {

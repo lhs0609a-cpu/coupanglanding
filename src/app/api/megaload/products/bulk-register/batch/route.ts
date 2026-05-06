@@ -18,9 +18,12 @@ import type { PreventionConfig } from '@/lib/megaload/services/item-winner-preve
 import { detectImageFormat, getImageDimensions } from '@/lib/megaload/services/image-processor';
 import { randomUUID } from 'crypto';
 
-// Vercel 함수 한도 — 30개 상품 × (쿠팡 API + DB writes) 가 60s 기본값 안에 안 끝남.
-// 300s = Pro 플랜 (Fluid Compute) 최대치.
-export const maxDuration = 300;
+// Vercel 함수 한도 — 비용/안정 균형:
+//   - 300s 였을 때 5/5 coupanglanding 3,340 GB-Hrs spike 발생 (메모리 점유 시간 5x).
+//   - 90s 로 축소 + PARALLEL_REGISTER 20→10 → 1배치 처리량 절반이지만 메모리 점유 1/3.
+//   - 50개 상품은 5배치(10개씩)로 자동 분할되어 1배치 ~60s 안에 끝남.
+//   - 90s 한도 안에 못 끝나면 사용자에게 명시적 timeout 에러 → retry 가능.
+export const maxDuration = 90;
 
 /**
  * 비상품 이미지 감지 — 네이버/플랫폼 배너, 가이드, 로고 등 상품과 무관한 이미지 URL 필터
@@ -875,7 +878,10 @@ export async function POST(req: NextRequest) {
 
     // 동시성 10 → 20 으로 상향. 쿠팡 API 동시 20 처리 검증됨.
     // 카운터 RPC 도 청크 단위로 합산하여 1회만 호출 (이전: 상품당 sequential RPC).
-    const PARALLEL_REGISTER = 20;
+    // PARALLEL_REGISTER 변천:
+    //   20 (이전): 폭주. Jimp 동시 처리 + 쿠팡 API 동시 호출이 함수 메모리 1.5~2GB 점유.
+    //   10 (현재): 안정. throughput 절반이지만 메모리 peak 50% 감소 + 90s maxDuration 안에 들어옴.
+    const PARALLEL_REGISTER = 10;
     for (let i = 0; i < products.length; i += PARALLEL_REGISTER) {
       const chunk = products.slice(i, i + PARALLEL_REGISTER);
       const chunkResults = await Promise.allSettled(chunk.map((p, j) => registerSingleProduct(p, i + j)));
