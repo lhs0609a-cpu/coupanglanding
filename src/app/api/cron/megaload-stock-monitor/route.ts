@@ -138,7 +138,16 @@ export async function GET(request: Request) {
     console.error('[stock-monitor-cron] Price backfill error:', err);
   }
 
+  // ── soft deadline 도입 — 300s 에 걸리지 않고 240s 에서 graceful exit ──
+  // Phase 1 끝났으면 일부 시간은 소진. 240s 가 지나면 Phase 2/3 skip하고 정상 응답.
+  const startedAt = (globalThis as { __cronStartedAt?: number }).__cronStartedAt ?? Date.now();
+  (globalThis as { __cronStartedAt?: number }).__cronStartedAt = startedAt;
+  const SOFT_DEADLINE_MS = 240_000;
+  const isPastDeadline = () => Date.now() - startedAt > SOFT_DEADLINE_MS;
+
   // ── Phase 2: 정기 품절 모니터링 (기존 로직) ──
+  // limit 80 → 50 으로 축소 (50 × 1.5s + fetch ~3s ≈ 175s) — Phase 3 까지 240s 안에 완료
+  // 차단된 셀러 모니터는 query 단계에서 제외 (megaload_users → pt_users → blocked 매핑)
   const { data: monitors, error: queryErr } = await supabase
     .from('sh_stock_monitors')
     .select('id, megaload_user_id, product_id, coupang_product_id, source_url, source_status, coupang_status, option_statuses, consecutive_errors, consecutive_unknowns, registered_option_name, price_follow_rule, source_price_last, our_price_last, price_last_updated_at, price_last_applied_at, pending_price_change')
@@ -147,7 +156,7 @@ export async function GET(request: Request) {
     .not('source_url', 'eq', '') // source_url이 있는 것만 (품절 체크 가능한 것)
     .or(`last_checked_at.is.null,last_checked_at.lt.${new Date(Date.now() - 15 * 60 * 1000).toISOString()}`)
     .order('last_checked_at', { ascending: true, nullsFirst: true })
-    .limit(80); // 80 × 1.5s + fetch ~3s = ~280s (5분 제한 내), 15분 크론 → 시간당 320개
+    .limit(50); // 50 items × 평균 3s = 150s — soft deadline 240s 내 안전
 
   if (queryErr) {
     console.error('[stock-monitor-cron] Query error:', queryErr);
@@ -181,8 +190,12 @@ export async function GET(request: Request) {
   const results = await processMonitorBatch(typedMonitors, supabase);
 
   // ── Phase 3: 에러 모니터 자동 재시도 (2시간 경과, 최대 10개) ──
+  // soft deadline 도달 시 skip — Phase 2 만 처리하고 graceful exit
   let errorRetried = 0;
-  try {
+  if (isPastDeadline()) {
+    console.log('[stock-monitor-cron] soft deadline 도달 — Phase 3 skip');
+    (globalThis as { __cronStartedAt?: number }).__cronStartedAt = undefined;
+  } else try {
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
     const { data: errorMonitors } = await supabase
       .from('sh_stock_monitors')
