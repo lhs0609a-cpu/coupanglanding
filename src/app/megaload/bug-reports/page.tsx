@@ -42,14 +42,22 @@ export default function BugReportsPage() {
       setError(null);
       const params = new URLSearchParams();
       if (statusFilter !== 'all') params.set('status', statusFilter);
-      const res = await fetch(`/api/megaload/bug-reports?${params}`);
+      // 15s 타임아웃 — Supabase auth/DB 쿼리 hang 방지
+      const res = await fetch(`/api/megaload/bug-reports?${params}`, {
+        signal: AbortSignal.timeout(15_000),
+      });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(json.error || `HTTP ${res.status}`);
       }
       setReports(json.data || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '오류문의 목록을 불러오지 못했습니다.');
+      const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+      setError(
+        isTimeout
+          ? '서버 응답 지연 (15초 초과) — Supabase/Vercel 상태 확인 후 다시 시도하세요.'
+          : err instanceof Error ? err.message : '오류문의 목록을 불러오지 못했습니다.',
+      );
       setReports([]);
     } finally {
       setLoading(false);
@@ -103,18 +111,32 @@ export default function BugReportsPage() {
     const formData = new FormData();
     formData.append('file', file);
     try {
+      // 클라 측 25s timeout — 서버 maxDuration 30s 보다 짧게 설정해 hang 시 명확한 에러 노출
       const res = await fetch('/api/megaload/bug-reports/upload', {
         method: 'POST',
         body: formData,
+        signal: AbortSignal.timeout(25_000),
       });
-      const json = await res.json();
-      if (!res.ok) {
-        alert(json.error || '업로드 실패');
+      const text = await res.text();
+      let json: { error?: string; url?: string; name?: string; size?: number };
+      try {
+        json = JSON.parse(text);
+      } catch {
+        // 비-JSON 응답 (HTML 에러 페이지/타임아웃 페이지 등) — 본문 일부 노출
+        alert(`업로드 실패: HTTP ${res.status} — 응답이 JSON 아님 (${text.slice(0, 100)})`);
         return null;
       }
-      return { url: json.url, name: json.name, size: json.size };
-    } catch {
-      alert('업로드 실패');
+      if (!res.ok) {
+        alert(json.error || `업로드 실패: HTTP ${res.status}`);
+        return null;
+      }
+      return { url: json.url!, name: json.name!, size: json.size! };
+    } catch (err) {
+      const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+      const msg = isTimeout
+        ? '업로드 실패: 25초 초과 (서버 응답 없음). 네트워크/Vercel 상태 확인.'
+        : `업로드 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`;
+      alert(msg);
       return null;
     }
   };

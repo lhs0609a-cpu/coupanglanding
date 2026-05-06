@@ -3,6 +3,10 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { randomUUID } from 'crypto';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
+// 명시적 타임아웃 — 기본(10s Hobby/60s Pro) 도달 시 client 가 catch 로 빠져
+// "업로드 실패" alert 만 노출되고 원인 추적 불가. 25s 면 5MB PNG 업로드 + auth.getUser() + Storage upload 안전.
+export const maxDuration = 30;
+
 /**
  * POST — 오류문의 이미지 업로드
  * FormData: file (JPEG/PNG/WebP/GIF, 10MB)
