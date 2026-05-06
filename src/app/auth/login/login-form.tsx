@@ -120,8 +120,10 @@ export default function LoginForm() {
       return;
     }
 
+    // 35s 타임아웃 가드 — 서버 hang 시 사용자가 무한 대기하지 않도록
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 35_000);
     try {
-      // 서버 API로 회원가입 (관리자 승인 대기)
       const res = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -131,7 +133,9 @@ export default function LoginForm() {
           fullName,
           phone: cleanPhone || null,
         }),
+        signal: ctrl.signal,
       });
+      clearTimeout(tid);
 
       const result = await res.json();
 
@@ -141,12 +145,16 @@ export default function LoginForm() {
         return;
       }
 
-      // 가입 완료 → 관리자 승인 대기
       setSuccess('회원가입이 완료되었습니다. 관리자 승인 후 로그인할 수 있습니다.');
       setLoading(false);
       setIsSignup(false);
-    } catch {
-      setError('서버 오류가 발생했습니다.');
+    } catch (err) {
+      clearTimeout(tid);
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setError('서버 응답이 35초를 초과했습니다. 잠시 후 다시 시도하거나 관리자에게 문의해주세요.');
+      } else {
+        setError(err instanceof Error ? err.message : '서버 오류가 발생했습니다.');
+      }
       setLoading(false);
     }
   };
