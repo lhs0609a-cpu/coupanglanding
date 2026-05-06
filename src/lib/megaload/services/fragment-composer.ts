@@ -1563,11 +1563,13 @@ function composeFromV2Templates(
   };
 
   const content = pickOne();
-  // 2-3 문장 결합으로 분량 확대 (글 길이 부족 99% 해결용)
+  // 3-4 문장 결합으로 분량 확대 — V2 풀 작은 카테고리 length 부족 해결
+  // (이전 2문장 → 3문장으로 확장. 글 평균 길이 ~25% 증가)
   const subParts = [];
   const seen = new Set([content]);
   if (effective.length >= 2) {
-    for (let i = 0; i < 6 && subParts.length < 2; i++) {
+    const targetSubCount = Math.min(3, effective.length - 1);
+    for (let i = 0; i < 12 && subParts.length < targetSubCount; i++) {
       const s = pickOne();
       if (s && !seen.has(s)) {
         subParts.push(s);

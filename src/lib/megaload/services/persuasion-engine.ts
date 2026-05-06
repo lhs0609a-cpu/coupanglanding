@@ -328,12 +328,17 @@ export function generatePersuasionContent(
   // 글자수 < MIN_CHARS이면 블록 추가 (중복 텍스트 방지 — content 기준 dedup)
   // SEO 스터핑 방지: solution 비중 축소(상품명 {product} 다수 포함). feature_detail/usage_guide 위주.
   // ⚠️ Phase 9: 8 → 18로 확장 — 평균 1900자 → 2500+자 보장 (Coupang SEO 권장 충족)
+  // padding 풀 — 18 → 30개로 확장. dedup 후 length 부족 시 추가 블록으로 보강.
   const paddingTypes: ContentBlockType[] = [
     'feature_detail', 'social_proof', 'usage_guide', 'comparison',
     'feature_detail', 'social_proof', 'usage_guide', 'feature_detail',
     'comparison', 'feature_detail', 'social_proof', 'usage_guide',
     'feature_detail', 'comparison', 'social_proof', 'usage_guide',
     'feature_detail', 'social_proof',
+    // ✨ Phase 11: padding 추가 (length 부족 카테고리 보강)
+    'usage_guide', 'comparison', 'feature_detail', 'social_proof',
+    'usage_guide', 'feature_detail', 'comparison', 'social_proof',
+    'feature_detail', 'usage_guide', 'social_proof', 'feature_detail',
   ];
   const seenPadHeads = new Set<string>(
     enrichedBlocks.map(b => (b.content || '').trim().slice(0, 80)).filter(Boolean),
