@@ -9,6 +9,7 @@ import {
 import type { PreflightProductResult, CanaryResult } from '@/lib/megaload/types';
 import BulkProductTable from './BulkProductTable';
 import BulkProductDetailPanel, { type PayloadPreviewState } from './BulkProductDetailPanel';
+import CategoryCascadingPicker from './CategoryCascadingPicker';
 import type { PayloadPreviewData } from './PayloadPreviewPanel';
 import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import type { EditableProduct, CategoryItem, FilterMode, SortField, SortDirection, FailureDiagnostic } from './types';
@@ -912,35 +913,27 @@ export default memo(function BulkStep2Review({
         <span className="ml-auto text-xs text-gray-400">{selectedCount}개 선택됨</span>
       </div>
 
-      {/* Category search modal */}
-      {categorySearchTarget && (
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium text-gray-700">카테고리 검색 {categorySearchTarget === 'bulk' ? '(선택 상품 일괄)' : ''}</h3>
-            <button onClick={() => { onSetCategorySearchTarget(null); }} className="text-xs text-gray-400 hover:text-gray-600">닫기</button>
-          </div>
-          <div className="flex gap-2 mb-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input type="text" value={categoryKeyword} onChange={(e) => onSetCategoryKeyword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onSearchCategory()} placeholder="카테고리 검색 (예: 비오틴, 비타민)" className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm" autoFocus />
-            </div>
-            <button onClick={onSearchCategory} disabled={searchingCategory} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
-              {searchingCategory ? <Loader2 className="w-4 h-4 animate-spin" /> : '검색'}
-            </button>
-          </div>
-          {categoryResults.length > 0 && (
-            <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
-              {categoryResults.map((cat) => (
-                <button key={cat.id} onClick={() => onSelectCategory(cat)} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 transition">
-                  <span className="font-medium">{cat.name}</span>
-                  <span className="text-xs text-gray-400 ml-2">{cat.path}</span>
-                  <span className="text-xs text-gray-300 ml-1">({cat.id})</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Category cascading picker — 대분류 → 중분류 → 소분류 클릭으로 직접 선택 */}
+      <CategoryCascadingPicker
+        isOpen={!!categorySearchTarget}
+        onClose={() => onSetCategorySearchTarget(null)}
+        onSelect={(code, fullPath) => {
+          // CategoryItem 형식으로 변환해 기존 selectCategory 핸들러 재사용
+          const leafName = fullPath.split('>').pop() || '';
+          onSelectCategory({ id: code, name: leafName, path: fullPath });
+        }}
+        currentCode={(() => {
+          if (!categorySearchTarget || categorySearchTarget === 'bulk') return undefined;
+          const target = products.find(p => p.uid === categorySearchTarget);
+          return target?.editedCategoryCode || undefined;
+        })()}
+        title={(() => {
+          if (categorySearchTarget === 'bulk') return '카테고리 선택 — 선택 상품 일괄 적용';
+          if (!categorySearchTarget) return '카테고리 선택';
+          const target = products.find(p => p.uid === categorySearchTarget);
+          return target ? `카테고리 선택 — ${target.editedName || target.name}` : '카테고리 선택';
+        })()}
+      />
 
       {/* Stock check running banner */}
       {stockCheckPhase === 'running' && stockCheckProgress && (
