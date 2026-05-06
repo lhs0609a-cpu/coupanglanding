@@ -1622,7 +1622,7 @@ export async function matchCategoryBatch(
   }
 
   // === Phase 3: 여전히 미매칭인 상품 — 개별 폴백 ===
-  // contaminated 상품은 Tier 0/1 우회하고 AI 직접 호출 (같은 오매칭 반복 방지)
+  // contaminated 상품은 head/full 후보 모아 AI 검증 (같은 오매칭 반복 방지).
   for (let i = 0; i < results.length; i++) {
     if (results[i]) continue;
 
@@ -1638,13 +1638,81 @@ export async function matchCategoryBatch(
     try {
       let result: CategoryMatchResult | null;
       if (isContaminated) {
-        // SEO 스터핑 케이스 — Tier 0/1 우회, AI 직접 호출
-        // (Tier 0/1 다시 돌리면 같은 오매칭 반환됨)
-        result = await aiKeywordMatch(productNames[i]);
-        if (!result) {
-          // AI 실패 시: sanitize 후 재매칭
-          const cleaned = sanitizeSellerName(productNames[i]);
-          result = await matchCategory(cleaned, adapter);
+        // ─── SEO 스터핑 케이스 — head/full/AI 후보 비교 후 AI 검증 ───
+        const candidates: { code: string; path: string }[] = [];
+        const seenCodes = new Set<string>();
+        const addCandidate = (r: CategoryMatchResult | null) => {
+          if (!r || !r.categoryCode || seenCodes.has(r.categoryCode)) return;
+          seenCodes.add(r.categoryCode);
+          candidates.push({ code: r.categoryCode, path: r.categoryPath || r.categoryName || '' });
+        };
+
+        // 후보 1: 헤드 토큰 매칭 (실제 상품 정체)
+        const headTokens = getHeadTokens(productTokensList[i], 5);
+        if (headTokens.length >= 2) {
+          const headCands: string[] = [...headTokens];
+          for (let j = 0; j < headTokens.length - 1; j++) headCands.push(headTokens[j] + headTokens[j + 1]);
+          const headDomain = detectDomainFilter(headCands);
+          const headRes = voteTier0(headCands, headDomain, headTokens);
+          addCandidate(headRes);
+          // 헤드 토큰 로컬 매칭도 후보로
+          const { match: headLocal } = await localMatch(headTokens, headDomain);
+          if (headLocal) {
+            addCandidate(await buildResultFromIndex(headLocal.entry, headLocal.score, Math.max(headLocal.score, 20)));
+          }
+        }
+
+        // 후보 2: sanitize 후 매칭
+        const cleaned = sanitizeSellerName(productNames[i]);
+        if (cleaned !== productNames[i]) {
+          const cleanedRes = await matchCategory(cleaned, adapter);
+          addCandidate(cleanedRes);
+        }
+
+        // 후보 3: AI 키워드 매칭 (free-form)
+        const aiFree = await aiKeywordMatch(productNames[i]);
+        addCandidate(aiFree);
+
+        // AI 검증 — 후보 중 정답 선택
+        if (candidates.length > 0) {
+          try {
+            const { verifyCategoryFromCandidates } = await import('./ai.service');
+            const verified = await verifyCategoryFromCandidates(productNames[i], candidates);
+            if (verified) {
+              const details = loadDetails();
+              const detail = details[verified.code];
+              result = {
+                categoryCode: verified.code,
+                categoryName: detail?.p?.split('>').pop() || verified.path.split('>').pop() || '',
+                categoryPath: verified.path || detail?.p || '',
+                confidence: verified.confidence,
+                source: 'ai',
+              };
+            } else {
+              // AI 키 없거나 reject — 첫 후보(head 우선)
+              const first = candidates[0];
+              const details = loadDetails();
+              const detail = details[first.code];
+              result = {
+                categoryCode: first.code,
+                categoryName: detail?.p?.split('>').pop() || first.path.split('>').pop() || '',
+                categoryPath: first.path,
+                confidence: 0.5,
+                source: 'ai', // AI 검증 시도했음 표시
+              };
+            }
+          } catch {
+            result = candidates[0] ? {
+              categoryCode: candidates[0].code,
+              categoryName: candidates[0].path.split('>').pop() || '',
+              categoryPath: candidates[0].path,
+              confidence: 0.5,
+              source: 'ai',
+            } : null;
+          }
+        } else {
+          // 후보 0개 — 일반 매칭 폴백
+          result = await matchCategory(productNames[i], adapter);
         }
       } else {
         result = await matchCategory(productNames[i], adapter);

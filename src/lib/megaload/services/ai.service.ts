@@ -629,3 +629,76 @@ JSON 형식으로 답변: { "categoryId": "...", "categoryName": "...", "confide
     return { categoryId: '', categoryName: '', confidence: 0 };
   }
 }
+
+/**
+ * AI 카테고리 검증 — 로컬 DB 후보 N개 중 정답 선택.
+ *
+ * 기존 mapCategory 대비 개선:
+ *  - 로컬에서 미리 추린 후보 (상위 N개) 만 보내 AI 가 픽 → 답변 공간 제한 → 정확도 ↑
+ *  - 토큰 적게 사용 → 비용 ↓
+ *  - 후보 외 코드 반환 불가 → 환각 방지
+ *
+ * 사용처: contamination 감지된 SEO 스터핑 상품 또는 중간 신뢰도(0.5-0.9) 매칭 검증.
+ */
+export async function verifyCategoryFromCandidates(
+  productName: string,
+  candidates: Array<{ code: string; path: string }>,
+): Promise<{ code: string; path: string; confidence: number } | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) {
+    return { ...candidates[0], confidence: 0.7 }; // 후보 1개면 그대로
+  }
+
+  // 후보 목록 — code: path 형식
+  const candidateLines = candidates
+    .map((c, i) => `${i + 1}. [${c.code}] ${c.path}`)
+    .join('\n');
+
+  const prompt = `상품명에 가장 적합한 쿠팡 카테고리를 아래 후보 중 골라주세요.
+
+상품명: ${productName}
+
+후보 카테고리:
+${candidateLines}
+
+주의:
+- 상품명에 SEO 키워드가 섞여있을 수 있습니다 (예: 식품인데 뷰티 키워드 박힘).
+- 실제 상품의 본질적 카테고리를 선택하세요.
+- 후보 중에 명확히 맞는 것이 없으면 confidence를 낮게(<0.5) 반환하세요.
+
+JSON 응답: { "code": "...", "confidence": 0.0-1.0 }
+code 는 반드시 후보 목록의 [code] 값 중 하나여야 합니다.`;
+
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1, // 결정성 ↑
+        response_format: { type: 'json_object' },
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { choices: { message: { content: string } }[] };
+    const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}') as { code?: string; confidence?: number };
+    if (!parsed.code) return null;
+    // 후보 검증 — AI 가 후보 외 코드 반환하면 reject
+    const match = candidates.find(c => c.code === parsed.code);
+    if (!match) return null;
+    return {
+      code: match.code,
+      path: match.path,
+      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.8,
+    };
+  } catch {
+    return null;
+  }
+}
