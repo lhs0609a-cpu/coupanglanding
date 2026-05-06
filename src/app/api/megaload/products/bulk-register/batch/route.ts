@@ -18,6 +18,10 @@ import type { PreventionConfig } from '@/lib/megaload/services/item-winner-preve
 import { detectImageFormat, getImageDimensions } from '@/lib/megaload/services/image-processor';
 import { randomUUID } from 'crypto';
 
+// Vercel 함수 한도 — 30개 상품 × (쿠팡 API + DB writes) 가 60s 기본값 안에 안 끝남.
+// 300s = Pro 플랜 (Fluid Compute) 최대치.
+export const maxDuration = 300;
+
 /**
  * 비상품 이미지 감지 — 네이버/플랫폼 배너, 가이드, 로고 등 상품과 무관한 이미지 URL 필터
  * 파일명 또는 URL 경로에서 패턴 매칭

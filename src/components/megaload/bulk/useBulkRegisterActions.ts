@@ -2834,8 +2834,11 @@ export function useBulkRegisterActions() {
         }
 
         try {
+          // Vercel 함수 maxDuration 300s + 응답 직렬화 여유 = 클라 timeout 320s.
+          // 함수가 죽거나 connection 이 끊겨서 응답이 영영 안 오는 경우를 명시적으로 차단.
           const batchRes = await fetch('/api/megaload/products/bulk-register/batch', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(320_000),
             body: JSON.stringify({
               jobId, batchIndex: i,
               deliveryInfo: {
@@ -2856,7 +2859,7 @@ export function useBulkRegisterActions() {
               thirdPartyImageUrls: thirdPartyImageCdnUrls.length > 0 ? thirdPartyImageCdnUrls : undefined,
             }),
           });
-          const batchData = await batchRes.json();
+          const batchData = await batchRes.json().catch(() => ({}));
           if (batchRes.ok && batchData.results) {
             const batchResults = batchData.results as BatchResult[];
             totalSuccess += batchData.successCount || 0;
@@ -2868,11 +2871,16 @@ export function useBulkRegisterActions() {
             }));
           } else {
             totalError += batch.length;
-            setProducts((prev) => prev.map((p) => batchUids.has(p.uid) ? { ...p, status: 'error', errorMessage: batchData.error || '배치 실패' } : p));
+            const errMsg = batchData.error || `배치 실패 (HTTP ${batchRes.status} ${batchRes.statusText || ''})`;
+            setProducts((prev) => prev.map((p) => batchUids.has(p.uid) ? { ...p, status: 'error', errorMessage: errMsg } : p));
           }
         } catch (err) {
           totalError += batch.length;
-          setProducts((prev) => prev.map((p) => batchUids.has(p.uid) ? { ...p, status: 'error', errorMessage: err instanceof Error ? err.message : '네트워크 오류' } : p));
+          const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+          const msg = isTimeout
+            ? '서버 응답 지연 (5분 20초 초과) — Vercel 함수 timeout 또는 connection 끊김. 다음 배치로 진행.'
+            : err instanceof Error ? err.message : '네트워크 오류';
+          setProducts((prev) => prev.map((p) => batchUids.has(p.uid) ? { ...p, status: 'error', errorMessage: msg } : p));
         }
         setBatchProgress({ current: i + 1, total: batches.length });
       }
