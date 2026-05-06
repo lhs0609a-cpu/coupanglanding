@@ -20,9 +20,22 @@ export default function NotificationBell() {
   }, []);
 
   useEffect(() => {
+    // 즉시 1회 fetch (페이지 진입)
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 30000);
-    return () => clearInterval(interval);
+    // 폴링 — 2분마다 + visibility 체크 (탭 백그라운드 시 비용 0)
+    const POLL_INTERVAL = 120_000; // 2분
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') fetchNotifications();
+    }, POLL_INTERVAL);
+    // 탭이 다시 visible 되면 즉시 fetch (놓친 알림 빠르게 회수)
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') fetchNotifications();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [fetchNotifications]);
 
   useEffect(() => {

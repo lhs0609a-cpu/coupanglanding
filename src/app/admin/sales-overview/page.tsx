@@ -266,11 +266,15 @@ export default function AdminSalesOverviewPage() {
     }
   }, []);
 
-  // 페이지 진입 시 자동 진단 (30분 주기 갱신 — GB-Hrs 절감)
+  // 페이지 진입 시 자동 진단 (2시간 주기 + visibility 가드 — 백그라운드 시 0)
   useEffect(() => {
     runDiagnostics(false);
-    const id = setInterval(() => runDiagnostics(false), 30 * 60 * 1000);
-    return () => clearInterval(id);
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') runDiagnostics(false);
+    }, 2 * 60 * 60 * 1000);
+    const onVis = () => { if (document.visibilityState === 'visible') runDiagnostics(false); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVis); };
   }, [runDiagnostics]);
 
   /** 결제 락 / overdue 해제 (관리자 수동) */
@@ -733,18 +737,26 @@ export default function AdminSalesOverviewPage() {
 
   useEffect(() => { fetchData(true); }, [fetchData]);
 
-  // 오늘 실시간 매출 — 최초 진입 + 15분 주기 (GB-Hrs 절감)
+  // 오늘 실시간 매출 — 최초 진입 + 1시간 주기 + visibility 가드 (탭 백그라운드 시 호출 0)
   useEffect(() => {
     fetchTodayRevenue();
-    const id = setInterval(fetchTodayRevenue, 15 * 60 * 1000);
-    return () => clearInterval(id);
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') fetchTodayRevenue();
+    }, 60 * 60 * 1000);
+    const onVis = () => { if (document.visibilityState === 'visible') fetchTodayRevenue(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVis); };
   }, [fetchTodayRevenue]);
 
-  // 결제 상태 — 최초 + 10분 주기 (Vercel Fluid Compute GB-Hrs 절감)
+  // 결제 상태 — 최초 + 1시간 주기 + visibility 가드
   useEffect(() => {
     fetchPaymentOverview();
-    const id = setInterval(fetchPaymentOverview, 10 * 60 * 1000);
-    return () => clearInterval(id);
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') fetchPaymentOverview();
+    }, 60 * 60 * 1000);
+    const onVis = () => { if (document.visibilityState === 'visible') fetchPaymentOverview(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVis); };
   }, [fetchPaymentOverview]);
 
   // 결제 가능성 진단 — 페이지 진입 시 1회 자동 (수동 재진단 가능)
@@ -763,17 +775,20 @@ export default function AdminSalesOverviewPage() {
     }
   }, [loading, users, snapshots, triggerAutoSync]);
 
-  /** 15분마다 자동 재조회 — cron이 어차피 30분 주기로 데이터 갱신, 5분 폴링은 무용 */
+  /** 1시간마다 자동 재조회 — cron 주기와 정합. visibility 가드로 백그라운드 시 0 */
   useEffect(() => {
-    const refreshId = setInterval(() => { fetchData(false); }, 15 * 60 * 1000);
-    /** 15분마다 stale 체크 → 자동 동기화 재트리거 */
+    const refreshId = setInterval(() => {
+      if (document.visibilityState === 'visible') fetchData(false);
+    }, 60 * 60 * 1000);
+    /** 1시간마다 stale 체크 → 자동 동기화 재트리거 */
     const syncCheckId = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
       const latestSync = snapshots.reduce((max, s) => s.synced_at > max ? s.synced_at : max, '');
-      const stale = !latestSync || (Date.now() - new Date(latestSync).getTime() > 30 * 60 * 1000);
+      const stale = !latestSync || (Date.now() - new Date(latestSync).getTime() > 60 * 60 * 1000);
       if (stale && users.some(u => u.coupang_api_connected)) {
         triggerAutoSync();
       }
-    }, 15 * 60 * 1000);
+    }, 60 * 60 * 1000);
     return () => { clearInterval(refreshId); clearInterval(syncCheckId); };
   }, [fetchData, snapshots, users, triggerAutoSync]);
 
