@@ -17,10 +17,14 @@ interface BulkStep3ProgressProps {
   batchProgress: { current: number; total: number };
   startTime: number | null;
   imagePreuploadCacheSize: number;
+  /** 쿠팡 셀러 계정 차단 감지 시 사유 메시지 (null=미감지) */
+  accountBlocked?: string | null;
   onTogglePause: () => void;
   onReset: () => void;
   onRetryFailed?: () => void;
   onBackToStep2?: () => void;
+  /** 특정 에러 카테고리의 상품들을 검증 단계로 jump — quick-fix UX */
+  onJumpToErrorGroup?: (category: ErrorCategory) => void;
 }
 
 function formatTime(seconds: number) {
@@ -62,7 +66,7 @@ function getCategoryBadge(category: ErrorCategory) {
 
 export default function BulkStep3Progress({
   products, registering, isPaused, batchProgress, startTime, imagePreuploadCacheSize,
-  onTogglePause, onReset, onRetryFailed, onBackToStep2,
+  accountBlocked, onTogglePause, onReset, onRetryFailed, onBackToStep2, onJumpToErrorGroup,
 }: BulkStep3ProgressProps) {
   const [expandedErrorUids, setExpandedErrorUids] = useState<Set<string>>(new Set());
   const [expandedRawUids, setExpandedRawUids] = useState<Set<string>>(new Set());
@@ -189,6 +193,36 @@ export default function BulkStep3Progress({
 
   return (
     <div className="space-y-6">
+      {/* 셀러 계정 차단 배너 — 쿠팡이 신규 등록 막은 경우 */}
+      {accountBlocked && (
+        <div className="bg-red-50 border-2 border-red-300 rounded-xl p-5">
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="w-6 h-6 text-red-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="text-sm font-bold text-red-800">쿠팡 셀러 계정에 신규 상품 등록 차단이 걸려 있습니다</h3>
+              <p className="text-xs text-red-700 mt-1.5 whitespace-pre-wrap">{accountBlocked}</p>
+              <div className="mt-3 text-xs text-red-700 space-y-1">
+                <p className="font-medium">이 에러는 상품 문제가 아니라 계정 자격 문제라 어떤 상품도 등록되지 않습니다. 남은 배치는 자동 중단했습니다.</p>
+                <p>해결 방법:</p>
+                <ul className="list-disc pl-5 space-y-0.5">
+                  <li>쿠팡 Wing(셀러센터) 로그인 → 알림함/공지사항 확인</li>
+                  <li>셀러 등록한 대표 이메일 확인 — 쿠팡이 사유와 해소 절차 안내 메일 발송</li>
+                  <li>해결 안 되면 쿠팡 셀러 고객센터 1577-7011 또는 Wing 1:1 문의</li>
+                </ul>
+              </div>
+              <a
+                href="https://wing.coupang.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block mt-3 px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition"
+              >
+                쿠팡 Wing 열기 →
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Progress card */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <div className="flex items-center justify-between mb-4">
@@ -281,9 +315,33 @@ export default function BulkStep3Progress({
             {Object.entries(errorCounts).map(([cat, count]) => {
               const config = getCategoryBadge(cat as ErrorCategory);
               const Icon = config.icon;
+              const errorCategory = cat as ErrorCategory;
+              // auth 에러(계정 차단)는 jump 무의미 — 안내만
+              const isJumpable = onJumpToErrorGroup && errorCategory !== 'auth';
+              const tooltip = isJumpable
+                ? `이 ${count}건만 검증 단계로 이동해서 일괄 수정`
+                : errorCategory === 'auth'
+                  ? '계정 차단 에러는 쿠팡 셀러센터에서 해결해야 합니다'
+                  : '';
+              if (isJumpable) {
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => onJumpToErrorGroup(errorCategory)}
+                    title={tooltip}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${config.bgColor} ${config.color} hover:ring-2 hover:ring-offset-1 hover:ring-current transition cursor-pointer`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    {config.label} {count}
+                    <span className="text-[10px] opacity-70 ml-1">→ 수정</span>
+                  </button>
+                );
+              }
               return (
                 <span
                   key={cat}
+                  title={tooltip}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${config.bgColor} ${config.color}`}
                 >
                   <Icon className="w-3.5 h-3.5" />
@@ -292,6 +350,11 @@ export default function BulkStep3Progress({
               );
             })}
           </div>
+          {onJumpToErrorGroup && Object.keys(errorCounts).some(k => k !== 'auth') && (
+            <p className="text-[11px] text-gray-500 mt-2">
+              💡 분류 버튼을 클릭하면 해당 에러 상품만 검증 단계로 돌아가 일괄 수정할 수 있습니다.
+            </p>
+          )}
         </div>
       )}
 

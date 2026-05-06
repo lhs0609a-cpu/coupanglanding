@@ -227,6 +227,9 @@ export function useBulkRegisterActions() {
   const [registering, setRegistering] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const isPausedRef = useRef(false);
+  // 쿠팡 셀러 계정 차단 감지 — 첫 발견 시 남은 배치 중단 + 사용자 안내.
+  // null = 미감지, string = 차단 사유 메시지 (배너에 노출)
+  const [accountBlocked, setAccountBlocked] = useState<string | null>(null);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
   const [startTime, setStartTime] = useState<number | null>(null);
 
@@ -2658,7 +2661,7 @@ export function useBulkRegisterActions() {
     const selectedProducts = products.filter((p) => p.selected && p.editedCategoryCode && p.validationStatus !== 'error');
     if (selectedProducts.length === 0) { alert('등록 가능한 선택 상품이 없습니다. (카테고리 미지정 또는 검증 오류)'); return; }
 
-    setStep(3); setRegistering(true); setIsPaused(false); isPausedRef.current = false; setStartTime(Date.now());
+    setStep(3); setRegistering(true); setIsPaused(false); isPausedRef.current = false; setAccountBlocked(null); setStartTime(Date.now());
 
     // preupload 완료까지 최대 30초 대기 (state는 ref로 읽어야 stale 방지)
     if (imagePreuploadProgress.phase !== 'complete' && imagePreuploadProgress.phase !== 'idle') {
@@ -2883,6 +2886,16 @@ export function useBulkRegisterActions() {
               if (!r) return p;
               return { ...p, status: r.success ? 'success' : 'error', channelProductId: r.channelProductId, errorMessage: r.error, detailedError: r.detailedError, duration: r.duration };
             }));
+            // 셀러 계정 차단 감지 — 쿠팡이 계정 자체를 막은 경우 모든 후속 배치도 동일 실패.
+            // 첫 발견 시 즉시 중단 + 사용자에게 셀러센터 안내.
+            const blockSignals = ['쿠팡 기준에 맞지 않아', '신규 상품을 등록할 수 없', '판매이용 약관'];
+            const blocked = batchResults.find((br) => !br.success && br.error
+              && blockSignals.some((sig) => br.error!.includes(sig)));
+            if (blocked) {
+              setAccountBlocked(blocked.error || '쿠팡 셀러 계정이 신규 상품 등록 차단 상태입니다.');
+              setBatchProgress({ current: i + 1, total: batches.length });
+              break; // 남은 배치 중단 — 동일 에러로 모두 실패할 것
+            }
           } else {
             totalError += batch.length;
             const errMsg = batchData.error || `배치 실패 (HTTP ${batchRes.status} ${batchRes.statusText || ''})`;
@@ -2930,6 +2943,33 @@ export function useBulkRegisterActions() {
     setProducts(prev => prev.map(p =>
       p.status === 'error' ? { ...p, status: 'pending' as const, errorMessage: undefined, detailedError: undefined } : p
     ));
+    setStep(2);
+    setPreflightPhase('idle');
+    setPreflightResults({});
+    setPreflightStats(null);
+    setBatchProgress({ current: 0, total: 0 });
+    setStartTime(null);
+  }, []);
+
+  // ---- 에러 카테고리별 quick-fix ─ 해당 에러 상품만 검증 단계로 이동 + 선택 ----
+  // 사용자가 Step 3 의 카테고리 badge 클릭 시 호출. 같은 종류 에러를 한 번에 수정.
+  const jumpToErrorGroup = useCallback((errorCategory: import('./types').ErrorCategory) => {
+    setProducts(prev => prev.map(p => {
+      if (p.status === 'error' && p.detailedError?.category === errorCategory) {
+        // 이 에러 그룹은 재편집 대상으로 — pending 으로 되돌리고 선택
+        return {
+          ...p,
+          status: 'pending' as const,
+          errorMessage: undefined,
+          detailedError: undefined,
+          selected: true,
+        };
+      }
+      // 다른 에러나 성공 건은 선택 해제 (이번 수정 사이클에서 제외)
+      if (p.status === 'success') return { ...p, selected: false };
+      if (p.status === 'error') return { ...p, selected: false };
+      return p;
+    }));
     setStep(2);
     setPreflightPhase('idle');
     setPreflightResults({});
@@ -3083,7 +3123,7 @@ export function useBulkRegisterActions() {
     preflightPhase, preflightResults, preflightStats, preflightDurationMs,
     // Canary
     canaryPhase, canaryResult, canaryTargetUid,
-    registering, isPaused, batchProgress, startTime,
+    registering, isPaused, batchProgress, startTime, accountBlocked,
     // Computed
     selectedCount, totalSourcePrice, totalSellingPrice,
     validationReadyCount, validationErrorCount, validationWarningCount, registerableCount,
@@ -3098,7 +3138,7 @@ export function useBulkRegisterActions() {
     handleReorderImages, handleRemoveImage, handleToggleAutoExclude, getDetailImageUrls, handleSwapStockImage,
     handleTogglePromoteReview,
     handlePrewarmProduct, handlePrewarmCancel,
-    handleRegister, togglePause, handleReset, retryFailed, backToStep2, retryAutoCategory,
+    handleRegister, togglePause, handleReset, retryFailed, backToStep2, jumpToErrorGroup, retryAutoCategory,
     // 카테고리 정확도 개선
     fetchCategorySuggestions, lowConfidenceProducts, rematchLowConfidence, rematchingCategory,
     // 제3자 이미지 관리
