@@ -134,6 +134,7 @@ export class TossPaymentsAPI {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ authKey, customerKey }),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!res.ok) {
@@ -175,6 +176,7 @@ export class TossPaymentsAPI {
         orderId,
         orderName,
       }),
+      signal: AbortSignal.timeout(20_000),
     });
 
     const data = await res.json();
@@ -214,6 +216,7 @@ export class TossPaymentsAPI {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ customerKey, reason }),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!res.ok && res.status !== 404) {
@@ -234,6 +237,7 @@ export class TossPaymentsAPI {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ cancelReason: reason }),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!res.ok) {

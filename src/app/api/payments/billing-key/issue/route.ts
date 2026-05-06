@@ -11,6 +11,8 @@ import { calculateFeePenalty, getFeePaymentDDay } from '@/lib/utils/fee-penalty'
 import { isRetryable } from '@/lib/payments/failure-codes';
 import { logSettlementError } from '@/lib/payments/settlement-errors';
 
+export const maxDuration = 60;
+
 /**
  * POST /api/payments/billing-key/issue
  * 토스 SDK 콜백에서 받은 authKey로 빌링키 발급 + 카드 등록

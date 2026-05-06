@@ -39,6 +39,7 @@ export default function PaymentCallbackPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ authKey }),
+        signal: AbortSignal.timeout(55_000),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -64,9 +65,14 @@ export default function PaymentCallbackPage() {
       setTimeout(() => {
         router.push('/my/settings');
       }, 3000);
-    } catch {
+    } catch (err) {
       setStatus('error');
-      setMessage('서버 오류가 발생했습니다.');
+      const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+      setMessage(
+        isTimeout
+          ? '서버 응답 지연 (55초) — 카드 등록은 처리 중일 수 있습니다. 설정 페이지에서 카드 목록을 확인해주세요.'
+          : '서버 오류가 발생했습니다.',
+      );
     }
   };
 
