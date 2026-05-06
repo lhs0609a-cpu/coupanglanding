@@ -279,9 +279,24 @@ export function generatePersuasionContent(
   // ── Layer 3+2: 변수 병합 (상품 토큰 우선 + forbiddenTerms 필터 + L1 안전망) ──
   let vars = mergeVariables(categoryVars, productOverrides, profile?.forbiddenTerms, hasStrongContext, categoryPath);
 
+  // ── leaf 토큰 SEO 자동 주입 ──
+  // catPath 의 마지막 segment("TV장/거실장")를 슬래시·하이픈·공백으로 분리해
+  // SEO 키워드 풀에 prepend. 본문에 leaf 토큰이 한 번도 안 나오는 SEO 약점 차단.
+  const leafSegment = categoryPath.split('>').pop()?.trim() || '';
+  const leafTokens = leafSegment
+    .split(/[\/\-\s,()]+/)
+    .map(t => t.trim())
+    .filter(t => t.length >= 2 && t.length <= 12 && /[가-힣A-Za-z0-9]/.test(t));
+  const seoKeywordsArr = Array.isArray(seoKeywords) ? seoKeywords : [];
+  // 중복 제거 + leaf 토큰 prepend (높은 우선순위로 SEO weave)
+  const effectiveSeoKeywords: string[] = [];
+  for (const t of [...leafTokens, ...seoKeywordsArr]) {
+    if (t && !effectiveSeoKeywords.includes(t)) effectiveSeoKeywords.push(t);
+  }
+
   // ── Layer 4: SEO 키워드 → 변수풀 보강 ──
-  if (seoKeywords && seoKeywords.length > 0) {
-    vars = enrichVariablesWithSeo(vars, seoKeywords, rng);
+  if (effectiveSeoKeywords.length > 0) {
+    vars = enrichVariablesWithSeo(vars, effectiveSeoKeywords, rng);
   }
 
   // ── Layer 5: 프레임워크 선택 (시드 랜덤, 계층적 매칭) ──
@@ -297,14 +312,14 @@ export function generatePersuasionContent(
     categoryPath,
     vars,
     cleanName,
-    seoKeywords || [],
+    effectiveSeoKeywords,
     rng,
     profile?.forbiddenTerms,
   );
 
   // ── Layer 4: SEO 안전망 (인라인 위빙 실패 시) ──
-  const enrichedBlocks = seoKeywords && seoKeywords.length > 0
-    ? seoEnrichBlocks(blocks, seoKeywords)
+  const enrichedBlocks = effectiveSeoKeywords.length > 0
+    ? seoEnrichBlocks(blocks, effectiveSeoKeywords)
     : blocks;
 
   // ── 글자수 검증 (600~1200자 타겟) ──
@@ -374,7 +389,8 @@ export function generatePersuasionContent(
   }
 
   // ── 키워드 밀도 검증 — 모든 SEO 키워드 최소 1회 포함 보장 ──
-  if (seoKeywords && seoKeywords.length > 0) {
+  // effectiveSeoKeywords: 사용자 지정 키워드 + leaf 토큰 자동주입.
+  if (effectiveSeoKeywords.length > 0) {
     const allText = enrichedBlocks.map(b => {
       let t = b.content;
       if (b.subContent) t += ' ' + b.subContent;
@@ -383,7 +399,7 @@ export function generatePersuasionContent(
       return t;
     }).join(' ');
 
-    const missingKws = seoKeywords.filter(kw => !allText.includes(kw));
+    const missingKws = effectiveSeoKeywords.filter(kw => !allText.includes(kw));
     if (missingKws.length > 0) {
       // feature_detail / solution 블록에 강제 삽입
       const insertableBlocks = enrichedBlocks.filter(
