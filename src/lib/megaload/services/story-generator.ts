@@ -72,7 +72,8 @@ const VARIABLES: Record<string, Record<string, string[]>> = storyData.variables 
 // ─── 카테고리 매핑 ───────────────────────────────────────────
 
 function getCategoryKey(categoryPath: string): string {
-  const top = categoryPath.split('>')[0]?.trim() || '';
+  // ">" 와 공백 구분 모두 지원 (쿠팡 cat-index.json 은 공백, 시스템 내부는 ">")
+  const top = (categoryPath.split(/[>\s]/)[0] || '').trim();
   const full = categoryPath.toLowerCase();
 
   if (top.includes('뷰티') || top.includes('화장품')) return '뷰티';
@@ -88,6 +89,7 @@ function getCategoryKey(categoryPath: string): string {
   if (top.includes('문구') || top.includes('사무') || full.includes('필기') || full.includes('노트')) return '문구/오피스';
   if (top.includes('완구') || top.includes('취미') || full.includes('퍼즐') || full.includes('보드게임')) return '완구/취미';
   if (top.includes('자동차') || full.includes('블랙박스') || full.includes('세차')) return '자동차용품';
+  if (top.includes('도서') || top.includes('음반') || top.includes('DVD')) return '문구/오피스';
 
   // 나머지는 DEFAULT
   for (const key of Object.keys(TEMPLATES)) {
@@ -144,11 +146,31 @@ function _pickProductRef(refs: string[], rng: () => number): string {
   return refs[0];
 }
 
+/** 카테고리 path 의 leaf 노드를 명사로 추출 (real-review-composer 와 동일 로직) */
+function _extractCategoryNoun(categoryPath?: string, fallbackPool?: string[]): string {
+  if (categoryPath) {
+    const leaf = categoryPath.split('>').pop()?.trim();
+    if (leaf && leaf.length >= 2) {
+      const sanitized = leaf
+        .replace(/^(여성|남성|키즈|아동|유아|어른|성인)/, '')
+        .replace(/^용\s*/, '')
+        .trim();
+      if (sanitized.length >= 2) return sanitized;
+    }
+  }
+  if (fallbackPool && fallbackPool.length > 0) return fallbackPool[0];
+  return '제품';
+}
+
+/** 본문 1개 안에서 시간/단위 변수를 락 — 1주/3주/6주/한 달/3개월 동시 등장 차단 */
+const _TIME_LOCK_VAR_KEYS = new Set(['기간', '시간', '주', '개월', '일', '주기', '횟수']);
+
 function fillTemplate(
   template: string,
   vars: Record<string, string[]>,
   productName: string,
   rng: () => number,
+  categoryPath?: string,
 ): string {
   let result = template;
 
@@ -156,22 +178,37 @@ function fillTemplate(
   const productRefs = _buildProductRefs(productName);
   result = result.replace(/\{product\}/g, () => _pickProductRef(productRefs, rng));
 
+  // 본문 1개 안에서 시간/주기 일관성 락
+  const localLock: Record<string, string> = {};
+  const categoryNoun = categoryPath ? _extractCategoryNoun(categoryPath, vars['카테고리']) : undefined;
+
   // {변수명} → 풀에서 랜덤 선택
   result = result.replace(/\{([^}]+)\}/g, (match, key) => {
+    // {카테고리} 는 실제 상품 카테고리 leaf 우선 (다른 카테고리 무작위 혼합 차단)
+    if (key === '카테고리' && categoryNoun) return categoryNoun;
+
+    if (_TIME_LOCK_VAR_KEYS.has(key) && localLock[key]) return localLock[key];
+
     const pool = vars[key];
     if (pool && pool.length > 0) {
-      return pool[Math.floor(rng() * pool.length)];
+      const picked = pool[Math.floor(rng() * pool.length)];
+      if (_TIME_LOCK_VAR_KEYS.has(key)) localLock[key] = picked;
+      return picked;
     }
     // 유사 키 폴백 (효과2→효과1, 성분2→성분)
     const baseKey = key.replace(/\d+$/, '');
     const baseFallback = vars[baseKey] || vars[baseKey + '1'];
     if (baseFallback && baseFallback.length > 0) {
-      return baseFallback[Math.floor(rng() * baseFallback.length)];
+      const picked = baseFallback[Math.floor(rng() * baseFallback.length)];
+      if (_TIME_LOCK_VAR_KEYS.has(key)) localLock[key] = picked;
+      return picked;
     }
     // 공통 변수 폴백 (용량, 횟수, 기간 등)
     const common = COMMON_VAR_FALLBACKS[key];
     if (common && common.length > 0) {
-      return common[Math.floor(rng() * common.length)];
+      const picked = common[Math.floor(rng() * common.length)];
+      if (_TIME_LOCK_VAR_KEYS.has(key)) localLock[key] = picked;
+      return picked;
     }
     return ''; // 매칭 안 되면 제거
   });
@@ -831,8 +868,8 @@ export function generateFaqItems(
   const selected = shuffled.slice(0, Math.min(count, shuffled.length));
 
   return selected.map(({ q, a }) => ({
-    question: sanitizeHealthText(fillTemplate(q, vars, cleanName, rng), categoryPath, productName),
-    answer: sanitizeHealthText(fillTemplate(a, vars, cleanName, rng), categoryPath, productName),
+    question: sanitizeHealthText(fillTemplate(q, vars, cleanName, rng, categoryPath), categoryPath, productName),
+    answer: sanitizeHealthText(fillTemplate(a, vars, cleanName, rng, categoryPath), categoryPath, productName),
   }));
 }
 
@@ -973,5 +1010,5 @@ export function generateClosingText(
 
   const pool = CLOSING_TEMPLATES[catKey] || CLOSING_TEMPLATES['DEFAULT'];
   const template = pool[Math.floor(rng() * pool.length)];
-  return sanitizeHealthText(fillTemplate(template, vars, cleanName, rng), categoryPath, productName);
+  return sanitizeHealthText(fillTemplate(template, vars, cleanName, rng, categoryPath), categoryPath, productName);
 }

@@ -44,13 +44,14 @@ const VARIABLES: Record<string, Record<string, string[]>> = storyData.variables 
 // ─── 카테고리 매핑 ───────────────────────────────────────────
 
 function getReviewCategoryKey(categoryPath: string): string {
-  const top = categoryPath.split('>')[0]?.trim() || '';
+  // 카테고리 path 가 ">" 또는 공백 구분 모두 지원 — 16,259 코드 전체 커버
+  const top = (categoryPath.split(/[>\s]/)[0] || '').trim();
 
   if (top.includes('뷰티') || top.includes('화장품')) return '뷰티';
   if (top.includes('식품') || top.includes('건강식품')) return '식품';
   if (top.includes('생활') || categoryPath.includes('세제') || categoryPath.includes('욕실') || categoryPath.includes('수납')) return '생활용품';
   if (top.includes('가전') || top.includes('디지털')) return '가전/디지털';
-  if (top.includes('패션') || top.includes('의류')) return '패션의류잡화';
+  if (top.includes('패션') || top.includes('의류') || top.includes('잡화')) return '패션의류잡화';
   if (top.includes('가구') || top.includes('홈데코')) return '가구/홈데코';
   if (top.includes('출산') || top.includes('유아')) return '출산/유아동';
   if (top.includes('스포츠') || top.includes('레져')) return '스포츠/레져';
@@ -59,6 +60,8 @@ function getReviewCategoryKey(categoryPath: string): string {
   if (top.includes('문구') || top.includes('사무')) return '문구/오피스';
   if (top.includes('완구') || top.includes('취미')) return '완구/취미';
   if (top.includes('자동차')) return '자동차용품';
+  // 신규: 도서 (실제 쿠팡 인덱스에 존재하나 기존 매퍼 누락)
+  if (top.includes('도서') || top.includes('음반') || top.includes('DVD')) return '도서/문구';
 
   return 'DEFAULT';
 }
@@ -103,29 +106,79 @@ const COMMON_VAR_FALLBACKS: Record<string, string[]> = {
   '사용감': ['만족스러운', '편안해진', '컨디션이 좋아진'],
 };
 
+/**
+ * 카테고리 path 의 leaf 노드를 명사로 추출.
+ *   "생활용품>욕실세정제>핸드워시" → "핸드워시"
+ *   "뷰티>스킨" → "스킨" → 명사형 보정
+ *   path 없으면 카테고리 풀에서 첫 항목.
+ */
+function extractCategoryNoun(categoryPath: string, fallbackPool?: string[]): string {
+  if (categoryPath) {
+    const leaf = categoryPath.split('>').pop()?.trim();
+    if (leaf && leaf.length >= 2) {
+      // "스킨" → "스킨케어" 같은 명사 보정 (한 음절 제거)
+      const sanitized = leaf
+        .replace(/^(여성|남성|키즈|아동|유아|어른|성인)/, '')
+        .replace(/^용\s*/, '')
+        .trim();
+      if (sanitized.length >= 2) return sanitized;
+    }
+  }
+  if (fallbackPool && fallbackPool.length > 0) return fallbackPool[0];
+  return '제품';
+}
+
+/**
+ * 본문 1개 안에서 한 번 뽑힌 시간/단위는 그대로 유지하기 위한 슬롯 키.
+ *   같은 본문에 "1주일/3주/6주/한 달/3개월" 동시 등장 = 모순 → 락.
+ */
+const TIME_LOCK_VAR_KEYS = new Set(['기간', '시간', '주', '개월', '일', '주기', '횟수']);
+
 function fillVariables(
   text: string,
   vars: Record<string, string[]>,
   productName: string,
   rng: () => number,
+  options?: { categoryPath?: string; categoryNoun?: string },
 ): string {
   let result = text.replace(/\{product\}/g, productName);
 
+  // 본문 1개 안 시간/단위 락 — 한 번 뽑은 값을 키별로 캐시하여 같은 본문 내 일관성 유지
+  const localLock: Record<string, string> = {};
+  const categoryNoun = options?.categoryNoun
+    || (options?.categoryPath ? extractCategoryNoun(options.categoryPath, vars['카테고리']) : undefined);
+
   result = result.replace(/\{([^}]+)\}/g, (match, key) => {
+    // {카테고리} 는 실제 상품 카테고리 leaf 우선 (다른 카테고리 이름이 무작위로 섞이는 핵심 버그 차단)
+    if (key === '카테고리' && categoryNoun) {
+      return categoryNoun;
+    }
+
+    // 시간/주기 변수 락 — 같은 본문 안에 동일 키는 항상 동일 값
+    if (TIME_LOCK_VAR_KEYS.has(key) && localLock[key]) {
+      return localLock[key];
+    }
+
     const pool = vars[key];
     if (pool && pool.length > 0) {
-      return pool[Math.floor(rng() * pool.length)];
+      const picked = pool[Math.floor(rng() * pool.length)];
+      if (TIME_LOCK_VAR_KEYS.has(key)) localLock[key] = picked;
+      return picked;
     }
     // 유사 키 폴백 (효과2→효과1, 성분2→성분)
     const baseKey = key.replace(/\d+$/, '');
     const baseFallback = vars[baseKey] || vars[baseKey + '1'];
     if (baseFallback && baseFallback.length > 0) {
-      return baseFallback[Math.floor(rng() * baseFallback.length)];
+      const picked = baseFallback[Math.floor(rng() * baseFallback.length)];
+      if (TIME_LOCK_VAR_KEYS.has(key)) localLock[key] = picked;
+      return picked;
     }
     // 공통 폴백 (용량, 횟수, 기간 등)
     const common = COMMON_VAR_FALLBACKS[key];
     if (common && common.length > 0) {
-      return common[Math.floor(rng() * common.length)];
+      const picked = common[Math.floor(rng() * common.length)];
+      if (TIME_LOCK_VAR_KEYS.has(key)) localLock[key] = picked;
+      return picked;
     }
     return '';
   });
@@ -760,7 +813,7 @@ export function generateRealReview(
 
     // 브릿지가 있으면 opener 스킵 (브릿지가 opener 역할 대체)
     const raw = composeFragment(pool, rng, productName, catKey, !!bridge);
-    const filled = fillVariables(raw, vars, cleanName, rng);
+    const filled = fillVariables(raw, vars, cleanName, rng, { categoryPath });
     const sanitized = sanitizeByProductForm(filled, productName, catKey);
 
     if (sanitized.trim().length > 5) {
@@ -771,7 +824,7 @@ export function generateRealReview(
     // experience, detail 같은 핵심 섹션은 추가 문장으로 문단 보강
     if ((section === 'experience' || section === 'detail' || section === 'backstory') && pool.values.length > 2) {
       const extra = composeExtraFragment(pool, rng, productName, catKey);
-      const filledExtra = fillVariables(extra, vars, cleanName, rng);
+      const filledExtra = fillVariables(extra, vars, cleanName, rng, { categoryPath });
       const sanitizedExtra = sanitizeByProductForm(filledExtra, productName, catKey);
       if (sanitizedExtra.trim().length > 5) {
         // 이전 문단에 이어붙이기 (한 사람이 쓴 것처럼)
@@ -797,7 +850,7 @@ export function generateRealReview(
     if (!pool) continue;
 
     const raw = composeFragment(pool, rng, productName, catKey);
-    const filled = fillVariables(raw, vars, cleanName, rng);
+    const filled = fillVariables(raw, vars, cleanName, rng, { categoryPath });
     const sanitizedPad = sanitizeByProductForm(filled, productName, catKey);
 
     if (sanitizedPad.trim().length > 5) {

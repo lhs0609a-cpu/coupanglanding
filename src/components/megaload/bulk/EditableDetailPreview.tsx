@@ -217,7 +217,7 @@ export default function EditableDetailPreview({
             <div key={`i-${iIdx}-${blockIdx}`}>
               <ImageView
                 url={url}
-                alt={`${productName} ${iIdx + 1}`}
+                alt={`상품 이미지 ${iIdx + 1}`}
                 onDelete={() => onImageDelete(iIdx)}
               />
               <BlockInsertButton onInsert={() => insertParagraphAfter(null /* always append paragraph after image — but we need pIdx; use last */)} hidden />
