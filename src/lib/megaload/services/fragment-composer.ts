@@ -320,8 +320,13 @@ const SINGLE_PICK_VARS = new Set([
 // fragment composition 후 모든 출력에 적용.
 export function normalizeRepeatedTokens(text: string): string {
   if (!text) return text;
+  // 0) 변수 치환 후 발생하는 suffix-prefix 중복 — "{인증}=ISO인증" + "{인증} 인증" 템플릿 → "ISO인증 인증" → "ISO인증"
+  //    예: "ISO인증 인증", "KC안전인증 인증", "친환경인증 인증" 등을 첫 토큰으로만 압축
+  let out = text.replace(/([가-힣A-Za-z0-9]{2,})\s+([가-힣]{2,})(?=[\s\.,!?]|$)/g, (match, a, b) => {
+    return a.length > b.length && a.endsWith(b) ? a : match;
+  });
   // 1) 같은 단어가 공백 사이로 연속 — 한 번만 남김
-  let out = text.replace(/(\b[\uAC00-\uD7AF\w]+)\s+\1(?=[\s\.,!?]|$)/g, '$1');
+  out = out.replace(/(\b[\uAC00-\uD7AF\w]+)\s+\1(?=[\s\.,!?]|$)/g, '$1');
   // 2) 한국어 형태소 (조사 없이) 인접 반복 — 예: "꾸준히 꾸준히"
   out = out.replace(/([가-힣]{2,})\s+\1\b/g, '$1');
   // 3) 잔여 공백 정리

@@ -26,6 +26,7 @@ import {
   getFrameworks,
   resolveCategoryFrameworks,
   getContentProfile,
+  normalizeRepeatedTokens,
 } from './fragment-composer';
 import type { ContentBlock, ContentBlockType } from './fragment-composer';
 import { parseProductName, tokensToVariableOverrides, extractContextOverrides } from './product-name-parser';
@@ -424,6 +425,54 @@ export function generatePersuasionContent(
     const newCtaIdx = enrichedBlocks.findIndex(b => b.type === 'cta');
     const [ctaBlock] = enrichedBlocks.splice(newCtaIdx, 1);
     enrichedBlocks.push(ctaBlock);
+  }
+
+  // ── Cross-block 문장 중복 제거 (post-padding) ──
+  // composeAllBlocks의 cleanText는 초기 framework 블록만 dedup. padding 블록은 우회됨.
+  // 모든 블록의 모든 문장에 대해 sentence-level dedup으로 saturation 차단.
+  {
+    const seenKey = new Set<string>();
+    const splitSent = (text: string): string[] =>
+      text.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
+    const norm = (s: string): string =>
+      s.replace(/[\s.,!?'"`]+/g, '').replace(/[가-힣A-Za-z0-9]/g, c => c.toLowerCase());
+    const dedupText = (text: string): string => {
+      if (!text) return text;
+      // 0) 단어 인접 중복 제거 — "{인증값} 인증" → "ISO인증 인증" 같은 변수 치환 중복 차단
+      let out = normalizeRepeatedTokens(text);
+      const sents = splitSent(out);
+      const kept: string[] = [];
+      for (const s of sents) {
+        if (s.length < 4) { kept.push(s); continue; }
+        const k = norm(s);
+        if (seenKey.has(k)) continue;
+        seenKey.add(k);
+        kept.push(s);
+      }
+      return kept.join(' ');
+    };
+    for (const b of enrichedBlocks) {
+      b.content = dedupText(b.content) || b.content;
+      if (b.subContent) {
+        const cleaned = dedupText(b.subContent);
+        b.subContent = cleaned || undefined;
+      }
+      if (b.emphasis) {
+        const cleaned = dedupText(b.emphasis);
+        b.emphasis = cleaned || undefined;
+      }
+      if (b.items) {
+        const newItems: string[] = [];
+        for (const it of b.items) {
+          const k = norm(it);
+          if (seenKey.has(k)) continue;
+          seenKey.add(k);
+          newItems.push(it);
+        }
+        b.items = newItems.length > 0 ? newItems : b.items.slice(0, 1); // 최소 1개 유지
+      }
+    }
+    totalChars = enrichedBlocks.reduce((sum, bl) => sum + getBlockCharCount(bl), 0);
   }
 
   return {
