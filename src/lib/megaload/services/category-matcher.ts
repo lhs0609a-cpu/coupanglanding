@@ -737,7 +737,13 @@ function tokenize(productName: string): string[] {
 
 // ─── Tier 1: Local DB matching ──────────────────────────────
 
-const LOCAL_MATCH_THRESHOLD = 12;
+// 매칭 점수 임계값 변천:
+//   - 12 (이전): 안전 매칭만 허용. 60% 상품이 매칭 실패 → 사용자 수동 지정 부담.
+//   - 6 (현재): 낮은 신뢰도 매칭도 반환. confidence 0.3 미만은 UI 에서 빨간 배지 표시
+//     되어 사용자가 수동 검토 가능. 매칭 실패보다 "잘못 매칭" 이 식별 쉬워 UX 우월.
+//   - HIGH_CONFIDENCE_THRESHOLD = 12 이상은 confidence 0.5+ 로 자동 진행.
+const LOCAL_MATCH_THRESHOLD = 6;
+const HIGH_CONFIDENCE_THRESHOLD = 12;
 
 interface ScoredEntry {
   entry: IndexEntry;
@@ -1075,11 +1081,24 @@ async function buildResultFromIndex(entry: IndexEntry, score: number, maxScore: 
   const details = loadDetails();
   const detail = details[code];
 
+  // confidence 매핑:
+  //   - score < HIGH_CONFIDENCE_THRESHOLD (12): 0.3 ~ 0.5 (낮은 신뢰도, 수동 검토 권장)
+  //   - score >= HIGH_CONFIDENCE_THRESHOLD: 0.5 ~ 0.95 (자동 진행 가능)
+  let confidence: number;
+  if (score < HIGH_CONFIDENCE_THRESHOLD) {
+    // 6~11 → 0.3~0.5 선형 매핑
+    const low = Math.max(0, score - LOCAL_MATCH_THRESHOLD);
+    const range = HIGH_CONFIDENCE_THRESHOLD - LOCAL_MATCH_THRESHOLD;
+    confidence = 0.3 + (low / range) * 0.2;
+  } else {
+    confidence = Math.min(0.95, 0.5 + (score / maxScore) * 0.45);
+  }
+
   return {
     categoryCode: code,
     categoryName: leafName,
     categoryPath: detail?.p || leafName,
-    confidence: Math.min(0.95, 0.5 + (score / maxScore) * 0.45),
+    confidence,
     source: 'local_db',
   };
 }

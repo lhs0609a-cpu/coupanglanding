@@ -482,13 +482,19 @@ export async function POST(req: NextRequest) {
       }
 
       // 3-2. 카테고리 confidence 검증
-      if (product.categoryConfidence !== undefined && product.categoryConfidence < 0.5) {
+      //   매칭 임계값 6 (LOCAL_MATCH_THRESHOLD) 이후 confidence 0.3+ 보장.
+      //   0.3 미만은 카테고리 코드 자체가 거의 추측이라 차단.
+      //   0.3~0.5 는 brandWarning 으로 사용자에게 표시 후 진행 (수동 검토 권장).
+      if (product.categoryConfidence !== undefined && product.categoryConfidence < 0.3) {
         const error = `카테고리 매칭 신뢰도 부족 (${Math.round(product.categoryConfidence * 100)}%). 수동으로 카테고리를 확인해주세요.`;
         return {
           uid: product.uid, productCode: product.productCode, name: product.name,
           success: false, error, duration: 0,
           detailedError: { message: error, category: 'category', field: 'categoryConfidence', step: '카테고리 검증', suggestion: '카테고리 매칭 신뢰도가 낮습니다. 수동으로 카테고리를 지정해주세요.' },
         };
+      }
+      if (product.categoryConfidence !== undefined && product.categoryConfidence < 0.5 && !brandWarning) {
+        brandWarning = `카테고리 매칭 신뢰도 ${Math.round(product.categoryConfidence * 100)}% — 등록 후 카테고리 확인 권장`;
       }
 
       // 4. 이미지 처리 (부분 실패 허용)
