@@ -1329,7 +1329,11 @@ async function testApiCall(
     headers['X-Requested-By'] = credentials.vendorId;
   }
 
-  const response = await fetch(url, { method: 'GET', headers });
+  const response = await fetch(url, {
+    method: 'GET',
+    headers,
+    signal: AbortSignal.timeout(12000),
+  });
   const body = await response.text().catch(() => '');
   return { ok: response.ok, status: response.status, body: body.slice(0, 500) };
 }

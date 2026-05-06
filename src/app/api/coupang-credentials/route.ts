@@ -3,6 +3,8 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { encryptPassword, decryptPassword } from '@/lib/utils/encryption';
 import { validateApiCredentials } from '@/lib/utils/coupang-api-client';
 
+export const maxDuration = 30;
+
 /** 키를 마스킹: 앞 4자 + **** + 뒤 4자 */
 function maskKey(key: string): string {
   if (key.length <= 8) return '****';

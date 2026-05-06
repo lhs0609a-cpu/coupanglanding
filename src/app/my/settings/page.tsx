@@ -215,6 +215,7 @@ export default function MySettingsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(28000),
       });
       const data = await res.json();
 
@@ -263,6 +264,7 @@ export default function MySettingsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(28000),
       });
       const data = await res.json();
 
@@ -829,7 +831,7 @@ export default function MySettingsPage() {
               <button
                 type="button"
                 onClick={() => handleApiTest()}
-                disabled={apiTesting || !apiVendorId || (!apiAccessKey && !maskedAccessKey) || (!apiSecretKey && !maskedSecretKey)}
+                disabled={apiTesting || apiSaving || !apiVendorId || (!apiAccessKey && !maskedAccessKey) || (!apiSecretKey && !maskedSecretKey)}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border border-[#E31837] text-[#E31837] rounded-xl font-semibold hover:bg-[#FFF5F5] transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {apiTesting ? (
@@ -842,7 +844,7 @@ export default function MySettingsPage() {
               <button
                 type="button"
                 onClick={() => handleApiSave()}
-                disabled={apiSaving || !apiVendorId || (!apiAccessKey && !maskedAccessKey) || (!apiSecretKey && !maskedSecretKey)}
+                disabled={apiSaving || apiTesting || !apiVendorId || (!apiAccessKey && !maskedAccessKey) || (!apiSecretKey && !maskedSecretKey)}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-[#E31837] text-white rounded-xl font-semibold hover:bg-[#c81530] transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {apiSaving ? (
