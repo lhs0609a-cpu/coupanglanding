@@ -786,11 +786,15 @@ export async function POST(req: NextRequest) {
           //   기존 await Promise.all(...) 은 모든 DB 실패를 silent 처리하여 채널 매핑 / 이미지 / 옵션 누락 발생.
           //   여기선 결과를 라벨링하여 실패 시 명시적 throw → 외부 catch 가 보상 로직(orphan 기록)으로 처리하게 함.
           interface LabeledWrite { label: string; thenable: PromiseLike<{ error: { message?: string } | null }> }
+          // ★ schema 정합성 — migration_megaload_foundation.sql 기준 sh_product_options/channels 에는
+          //   megaload_user_id 컬럼이 없고 sh_product_options 에는 stock 컬럼이 없다.
+          //   user 격리는 sh_products.megaload_user_id (FK 조인) 으로 보장되며 RLS 도 그쪽에서 처리.
+          //   stock 은 raw_data JSONB 에 저장.
           const dbWrites: LabeledWrite[] = [
             {
               label: 'sh_product_channels',
               thenable: serviceClient.from('sh_product_channels').insert({
-                product_id: savedId, megaload_user_id: shUserId, channel: 'coupang',
+                product_id: savedId, channel: 'coupang',
                 channel_product_id: result.channelProductId, status: 'active', last_synced_at: new Date().toISOString(),
               }) as PromiseLike<{ error: { message?: string } | null }>,
             },
@@ -799,17 +803,18 @@ export async function POST(req: NextRequest) {
               thenable: serviceClient.from('sh_product_options').insert(
                 ((product.optionVariants && product.optionVariants.length > 0)
                   ? product.optionVariants.map((v, i) => ({
-                      product_id: savedId, megaload_user_id: shUserId,
+                      product_id: savedId,
                       option_name: v.optionName || `옵션${i + 1}`,
                       sku: v.sku || `${product.productCode}-${i + 1}`,
                       sale_price: typeof v.salePrice === 'number' ? v.salePrice : product.sellingPrice,
                       cost_price: product.sourcePrice,
-                      stock: typeof v.stock === 'number' ? v.stock : stock,
+                      raw_data: { stock: typeof v.stock === 'number' ? v.stock : stock },
                     }))
                   : [{
-                      product_id: savedId, megaload_user_id: shUserId, option_name: '기본',
+                      product_id: savedId, option_name: '기본',
                       sku: product.productCode, sale_price: product.sellingPrice,
-                      cost_price: product.sourcePrice, stock,
+                      cost_price: product.sourcePrice,
+                      raw_data: { stock },
                     }]
                 ),
               ) as PromiseLike<{ error: { message?: string } | null }>,
