@@ -279,7 +279,46 @@ export function useBulkRegisterActions() {
     setAutoMatchingProgress({ done: 0, total });
     setAutoMatchError('');
     setCategoryFailures([]);
-    let matchedCount = 0;
+
+    // ─── 사용자 학습 결과 사전 조회 — 같은 시그니처 상품은 즉시 적용 ───
+    // (다음 단계의 매처 호출 전에 이미 매칭된 것은 SKIP)
+    const learnedMatches = new Map<number, { code: string; path: string }>();
+    try {
+      const learnRes = await fetch('/api/megaload/categories/corrections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productNames: targets.map(p => p.name) }),
+      });
+      if (learnRes.ok) {
+        const learnData = await learnRes.json() as { matches: Record<string, { code: string; path: string; hitCount: number }> };
+        for (const [idxStr, m] of Object.entries(learnData.matches)) {
+          learnedMatches.set(Number(idxStr), { code: m.code, path: m.path });
+        }
+        if (learnedMatches.size > 0) {
+          console.info(`[auto-category] 학습 매핑 ${learnedMatches.size}/${total} 적용`);
+          setProducts((prev) => {
+            const updated = [...prev];
+            for (const [idx, m] of learnedMatches) {
+              const targetUid = targets[idx]?.uid;
+              if (!targetUid) continue;
+              const gIdx = updated.findIndex(p => p.uid === targetUid);
+              if (gIdx >= 0) {
+                updated[gIdx] = {
+                  ...updated[gIdx],
+                  editedCategoryCode: m.code,
+                  editedCategoryName: m.path,
+                  categoryConfidence: 1.0,
+                  categorySource: 'learned',
+                };
+              }
+            }
+            return updated;
+          });
+        }
+      }
+    } catch { /* 학습 조회 실패 — 일반 매칭으로 폴백 */ }
+
+    let matchedCount = learnedMatches.size;
     let failedCount = 0;
     const failedBatches: number[] = [];
     let allFailures: FailureDiagnostic[] = [];
@@ -319,6 +358,10 @@ export function useBulkRegisterActions() {
           if (!targetProduct) continue;
           const globalIdx = updated.findIndex((p) => p.uid === targetProduct.uid);
           if (globalIdx >= 0 && r.categoryCode) {
+            // ★ 사용자 학습 결과는 매처가 덮어쓰지 않음 (수동 수정 보호)
+            if (updated[globalIdx].categorySource === 'learned' || updated[globalIdx].categorySource === 'manual') {
+              continue;
+            }
             updated[globalIdx] = {
               ...updated[globalIdx],
               editedCategoryCode: r.categoryCode,
@@ -2432,10 +2475,45 @@ export function useBulkRegisterActions() {
   }, [categoryKeyword]);
 
   const selectCategory = useCallback((cat: CategoryItem) => {
+    // 사용자 학습: 이번 수정한 케이스를 Supabase 에 저장 (다음 등록 시 같은 패턴 즉시 적용)
+    const saveToLearning = (productName: string, original?: { code: string; path: string; confidence: number }) => {
+      // fire-and-forget — 응답 안 기다림
+      fetch('/api/megaload/categories/corrections', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productName,
+          correctedCode: cat.id,
+          correctedPath: cat.path || cat.name,
+          originalCode: original?.code,
+          originalPath: original?.path,
+          originalConfidence: original?.confidence,
+        }),
+      }).catch(() => { /* ignore — 학습 실패는 등록 막지 않음 */ });
+    };
+
     if (categorySearchTarget === 'bulk') {
-      setProducts((prev) => prev.map((p) => p.selected ? { ...p, editedCategoryCode: cat.id, editedCategoryName: cat.path || cat.name, categoryConfidence: 1, categorySource: 'manual' } : p));
+      setProducts((prev) => prev.map((p) => {
+        if (!p.selected) return p;
+        // 학습 저장 (각 상품별)
+        saveToLearning(p.name, p.editedCategoryCode ? {
+          code: p.editedCategoryCode,
+          path: p.editedCategoryName,
+          confidence: p.categoryConfidence ?? 0,
+        } : undefined);
+        return { ...p, editedCategoryCode: cat.id, editedCategoryName: cat.path || cat.name, categoryConfidence: 1, categorySource: 'manual' };
+      }));
     } else if (categorySearchTarget) {
-      setProducts((prev) => prev.map((p) => p.uid === categorySearchTarget ? { ...p, editedCategoryCode: cat.id, editedCategoryName: cat.path || cat.name, categoryConfidence: 1, categorySource: 'manual' } : p));
+      setProducts((prev) => prev.map((p) => {
+        if (p.uid !== categorySearchTarget) return p;
+        // 학습 저장
+        saveToLearning(p.name, p.editedCategoryCode ? {
+          code: p.editedCategoryCode,
+          path: p.editedCategoryName,
+          confidence: p.categoryConfidence ?? 0,
+        } : undefined);
+        return { ...p, editedCategoryCode: cat.id, editedCategoryName: cat.path || cat.name, categoryConfidence: 1, categorySource: 'manual' };
+      }));
     }
     setCategorySearchTarget(null); setCategoryResults([]); setCategoryKeyword('');
   }, [categorySearchTarget]);
@@ -2577,35 +2655,55 @@ export function useBulkRegisterActions() {
   // ---- 리뷰 이미지를 대표 이미지로 promote 토글 ----
   // scannedMainImages 끝에 ScannedImageFile 복사본을 append (promotedFromReview 마커 부착).
   // 등록 파이프라인은 scannedMainImages 만 보면 되므로 별도 분기 불필요.
-  const handleTogglePromoteReview = useCallback((uid: string, reviewIndex: number) => {
-    setProducts((prev) => prev.map((p) => {
-      if (p.uid !== uid) return p;
-      if (!p.scannedReviewImages || reviewIndex < 0 || reviewIndex >= p.scannedReviewImages.length) return p;
+  // 속도 최적화: setState 전에 objectURL 선확보 → 패널 useEffect가 fast-path 탐 → 즉시 표시.
+  const handleTogglePromoteReview = useCallback(async (uid: string, reviewIndex: number) => {
+    const product = productsRef.current.find(p => p.uid === uid);
+    if (!product?.scannedReviewImages || reviewIndex < 0 || reviewIndex >= product.scannedReviewImages.length) return;
 
-      const scannedMain = p.scannedMainImages ?? [];
-      const existingPromotedAt = scannedMain.findIndex((img) => img.promotedFromReview === reviewIndex);
+    const scannedMain = product.scannedMainImages ?? [];
+    const existingPromotedAt = scannedMain.findIndex((img) => img.promotedFromReview === reviewIndex);
 
-      if (existingPromotedAt >= 0) {
-        // 이미 promote 됨 → 제거
-        const newScanned = [...scannedMain];
-        newScanned.splice(existingPromotedAt, 1);
+    // 제거 케이스 — 즉시 setState
+    if (existingPromotedAt >= 0) {
+      setProducts((prev) => prev.map((p) => {
+        if (p.uid !== uid) return p;
+        const cur = p.scannedMainImages ?? [];
+        const idx = cur.findIndex((img) => img.promotedFromReview === reviewIndex);
+        if (idx < 0) return p;
+        const newScanned = [...cur];
+        newScanned.splice(idx, 1);
         return {
           ...p,
           scannedMainImages: newScanned,
           mainImageCount: newScanned.length,
           mainImageManuallyReordered: true,
         };
-      }
-      // 새로 promote → 끝에 추가
-      const reviewImg = p.scannedReviewImages[reviewIndex];
+      }));
+      return;
+    }
+
+    // 추가 케이스 — objectURL 선확보 후 setState (캐시 hit 보장 → 즉시 표시)
+    const reviewImg = product.scannedReviewImages[reviewIndex];
+    if (!reviewImg.objectUrl) {
+      try {
+        const { ensureObjectUrl } = await import('@/lib/megaload/services/client-folder-scanner');
+        await ensureObjectUrl(reviewImg);
+      } catch { /* fallback to lazy load in panel useEffect */ }
+    }
+
+    setProducts((prev) => prev.map((p) => {
+      if (p.uid !== uid) return p;
+      if (!p.scannedReviewImages || reviewIndex < 0 || reviewIndex >= p.scannedReviewImages.length) return p;
+      const cur = p.scannedMainImages ?? [];
+      // 동시 클릭 race 가드
+      if (cur.some((img) => img.promotedFromReview === reviewIndex)) return p;
       const promoted: import('@/lib/megaload/services/client-folder-scanner').ScannedImageFile = {
-        ...reviewImg,
-        // 자동 제외 사유는 리뷰 컨텍스트의 것이므로 제거 — 대표이미지 컨텍스트에서 다시 평가
+        ...p.scannedReviewImages[reviewIndex],
         autoExcludeReason: undefined,
         autoExcludeDetail: undefined,
         promotedFromReview: reviewIndex,
       };
-      const newScanned = [...scannedMain, promoted];
+      const newScanned = [...cur, promoted];
       return {
         ...p,
         scannedMainImages: newScanned,
