@@ -743,7 +743,8 @@ export async function POST(req: NextRequest) {
       //     (모두 savedId 의존이지만 서로 독립 — 동일한 DB 쓰기, 단지 순차 대기 제거)
       let savedId: string | null = null;
       try {
-        const { data: savedProduct } = await serviceClient
+        // sh_products INSERT — error 도 명시적으로 검사 (이전엔 silent 처리되어 진단 불가)
+        const insertRes = await serviceClient
           .from('sh_products')
           .insert({
             megaload_user_id: shUserId,
@@ -764,9 +765,15 @@ export async function POST(req: NextRequest) {
           .select('id')
           .single();
 
-        savedId = (savedProduct as Record<string, unknown>)?.id as string;
+        if (insertRes.error) {
+          throw new Error(`sh_products INSERT 실패: ${insertRes.error.message}${insertRes.error.code ? ` (code=${insertRes.error.code})` : ''}`);
+        }
+        savedId = (insertRes.data as Record<string, unknown>)?.id as string;
+        if (!savedId) {
+          throw new Error('sh_products INSERT 후 id 미반환 — RLS/권한 문제 가능');
+        }
 
-        if (savedId) {
+        {
           // 채널 / 옵션 / 이미지 / 품절 모니터 4개 INSERT 를 병렬 실행
           // (각 작업이 서로 독립, 모두 savedId 만 공유)
           const imageInserts: { product_id: string; image_url: string; cdn_url: string; image_type: string; sort_order: number }[] = [];
@@ -855,12 +862,19 @@ export async function POST(req: NextRequest) {
           // 보상 로직도 실패하면 최소한 로그 남김
         }
 
-        const dbError = `쿠팡 등록 성공(${result.channelProductId})이나 DB 저장 실패 — 관리자 확인 필요`;
+        // 실제 사유를 사용자 노출 에러에 포함 — 진단 가능 + 운영자가 즉시 원인 파악
+        const realReason = dbErr instanceof Error ? dbErr.message : String(dbErr);
+        const dbError = `쿠팡 등록 성공(${result.channelProductId})이나 DB 저장 실패: ${realReason}`;
         return {
           uid: product.uid, productCode: product.productCode, name: product.name,
           success: false, channelProductId: result.channelProductId,
           error: dbError, duration: Date.now() - productStart, brandWarning,
-          detailedError: { message: dbError, category: 'unknown' as const, step: 'DB 저장', suggestion: '관리자에게 문의하세요. 쿠팡에는 등록되었으나 DB 동기화에 실패했습니다.' },
+          detailedError: {
+            message: dbError,
+            category: 'unknown' as const,
+            step: 'DB 저장',
+            suggestion: `쿠팡에는 등록됐으나(상품ID: ${result.channelProductId}) 우리 DB 동기화 실패. 실패 원인: ${realReason}. 같은 상품을 재시도하면 쿠팡 측 중복 등록되므로 관리자에게 상품ID 전달 후 수동 동기화 요청.`,
+          },
         };
       }
 
