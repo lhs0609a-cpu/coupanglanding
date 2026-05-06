@@ -645,3 +645,114 @@ function resolveFieldValue(
   return '상세페이지 참조';
 }
 
+// ─── AI fallback (GPT-4o-mini) ───────────────────────────────────
+// 룰베이스 매칭이 "상세페이지 참조" 폴백한 필드만 모아서 GPT 에 일괄 query.
+// 카테고리/상품명/브랜드 컨텍스트를 줘서 합리적 default 값을 추론.
+//
+// 비용: 카테고리 path + 상품명 + 필드 목록 ≈ 300 토큰 input + ~100 토큰 output
+//   → 상품 1개당 ≈ $0.00012 (gpt-4o-mini 기준). 1만 건 = $1.2.
+// 룰베이스가 잡지 못한 필드만 진입하므로 실제 호출 빈도는 더 낮음.
+
+const AI_FILLABLE_PLACEHOLDER = '상세페이지 참조';
+
+/**
+ * filled 결과에서 "상세페이지 참조"로 남은 필드를 GPT-4o-mini 로 보강한다.
+ *
+ * 원칙:
+ *   - 룰베이스가 답한 값(브랜드/원산지/유통기한 등)은 절대 덮어쓰지 않음
+ *   - AI 답이 비합리적이면 원본 placeholder 유지 (안전 fallback)
+ *   - 한 상품 = 한 번의 GPT 호출 (필드 묶음 처리)
+ *   - OPENAI_API_KEY 미설정 시 silently skip
+ */
+export async function aiFillRemainingNotices(
+  filled: FilledNoticeCategory[],
+  productName: string,
+  categoryHint?: string,
+  brand?: string,
+): Promise<FilledNoticeCategory[]> {
+  if (filled.length === 0) return filled;
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return filled;
+
+  // 1. 채워야 할 필드 추출
+  const emptyFields: string[] = [];
+  for (const cat of filled) {
+    for (const f of cat.noticeCategoryDetailName) {
+      if (f.content === AI_FILLABLE_PLACEHOLDER) emptyFields.push(f.noticeCategoryDetailName);
+    }
+  }
+  if (emptyFields.length === 0) return filled;
+
+  // 2. GPT-4o-mini 호출
+  const systemPrompt = `당신은 쿠팡 상품 등록 전문가입니다. 카테고리와 상품명에 적합한 상품정보제공고시 필드 값을 한국어로 합리적인 default 값을 추측해 채워주세요.
+규칙:
+- 모르면 "상세페이지 참조"로 남겨주세요 (확실치 않은 값보다 안전).
+- 식약처/공정거래위원회 표시 의무 항목은 보수적으로 답하세요 ("의약품 아님", "해당사항 없음" 등).
+- 길이는 50자 이내로 간결하게.
+- 응답은 JSON 객체로만 답하세요. 설명/마크다운 없이.`;
+
+  const userPrompt = `카테고리: ${categoryHint || '미지정'}
+상품명: ${productName.slice(0, 100)}
+브랜드: ${brand || '미지정'}
+
+채워야 할 필드 목록 (JSON key 로 그대로 사용):
+${emptyFields.map((f, i) => `${i + 1}. ${f}`).join('\n')}
+
+응답 예시:
+{"제조국": "대한민국", "용량(중량)": "500g"}`;
+
+  let aiAnswers: Record<string, string> = {};
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.2,
+        response_format: { type: 'json_object' },
+        max_tokens: 800,
+      }),
+    });
+    if (!res.ok) {
+      console.warn(`[aiFillRemainingNotices] OpenAI HTTP ${res.status} — fallback 유지`);
+      return filled;
+    }
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (typeof content === 'string') {
+      const parsed = JSON.parse(content);
+      if (parsed && typeof parsed === 'object') {
+        aiAnswers = parsed as Record<string, string>;
+      }
+    }
+  } catch (err) {
+    console.warn('[aiFillRemainingNotices] AI 호출 실패 — placeholder 유지:', err instanceof Error ? err.message : err);
+    return filled;
+  }
+
+  // 3. 결과 병합 — 비어있던 필드만 AI 값으로 교체. AI 답이 비합리(빈 문자열/너무 김)이면 원본 유지.
+  let filledCount = 0;
+  const out = filled.map((cat) => ({
+    noticeCategoryName: cat.noticeCategoryName,
+    noticeCategoryDetailName: cat.noticeCategoryDetailName.map((f) => {
+      if (f.content !== AI_FILLABLE_PLACEHOLDER) return f;
+      const aiVal = aiAnswers[f.noticeCategoryDetailName];
+      if (typeof aiVal !== 'string') return f;
+      const trimmed = aiVal.trim();
+      if (trimmed.length === 0 || trimmed.length > 100) return f;
+      // AI 가 placeholder 그대로 답했으면 보존 — 불필요한 substitution 방지
+      if (trimmed === AI_FILLABLE_PLACEHOLDER) return f;
+      filledCount++;
+      return { noticeCategoryDetailName: f.noticeCategoryDetailName, content: trimmed };
+    }),
+  }));
+  console.log(`[aiFillRemainingNotices] ${filledCount}/${emptyFields.length} 필드 AI 채움 — productName="${productName.slice(0, 30)}", category="${categoryHint || '?'}"`);
+  return out;
+}

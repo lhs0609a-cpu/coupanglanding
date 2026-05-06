@@ -6,7 +6,7 @@
  */
 
 import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo, type AttributeMeta, type CertificationInfo, type OptionVariant } from './coupang-product-builder';
-import { fillNoticeFields, type NoticeCategoryMeta, type FilledNoticeCategory, type ExtractedNoticeHints } from './notice-field-filler';
+import { fillNoticeFields, aiFillRemainingNotices, type NoticeCategoryMeta, type FilledNoticeCategory, type ExtractedNoticeHints } from './notice-field-filler';
 import { extractOptionsEnhanced, type ExtractedOptions } from './option-extractor';
 import { syncDisplayNameWithOptions } from './display-name-generator';
 import { selectWithSeed } from './item-winner-prevention';
@@ -167,15 +167,23 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     if (opt.name === '수량') noticeHints.count = `${opt.value}${opt.unit || '개'}`;
   }
 
-  // notices 자동채움
+  // notices 자동채움 — 1차: 룰베이스 (notice-field-filler 의 패턴 매칭)
   const mergedNoticeOverrides = { ...(noticeOverrides || {}), ...(product.noticeValuesOverride || {}) };
-  const filledNotices = fillNoticeFields(
+  const ruleFilledNotices = fillNoticeFields(
     product.noticeMeta || [],
     { name: product.name, brand: product.brand, tags: product.tags, description: effectiveDescription },
     returnInfo.afterServiceContactNumber,
     Object.keys(mergedNoticeOverrides).length > 0 ? mergedNoticeOverrides : undefined,
     noticeHints,
     product.categoryPath || product.name,
+  );
+  // 2차: 룰베이스가 "상세페이지 참조" 폴백한 필드만 GPT-4o-mini 로 보강.
+  // OPENAI_API_KEY 없으면 silently skip → 룰베이스 결과 그대로 사용.
+  const filledNotices = await aiFillRemainingNotices(
+    ruleFilledNotices,
+    product.name,
+    product.categoryPath,
+    product.brand,
   );
 
   // 아이템위너 방지 시드 + 레이아웃 변형
