@@ -718,11 +718,13 @@ export function contentBlocksToParagraphs(blocks: ContentBlock[], categoryPath?:
     joined = stripForbiddenPhrases(joined);
     // 2. 식품 카테고리: 잔재 "쓰다" 동사 변환
     joined = applyFoodVerbReplacementsAtOutput(joined, isFood);
-    // 3. 빈 변수 치환으로 남은 고아 조사 정리 ("을 일상에" → "일상에")
+    // 3. 인접 동일 토큰 자동 제거 ("엄선한 엄선한 원물" → "엄선한 원물")
+    joined = joined.replace(/(\b[가-힣A-Za-z0-9]+)(\s+\1\b)+/g, '$1');
+    // 4. 빈 변수 치환으로 남은 고아 조사 정리 ("을 일상에" → "일상에")
     joined = fixOrphanParticles(joined);
-    // 4. 받침 유무로 조사 교정 ("박스으로" → "박스로")
+    // 5. 받침 유무로 조사 교정 ("박스으로" → "박스로")
     joined = fixIncorrectParticles(joined);
-    // 5. 페이지 전역 dedup
+    // 6. 페이지 전역 dedup
     return deduplicateSentencesInText(joined, globalSeen);
   });
 
