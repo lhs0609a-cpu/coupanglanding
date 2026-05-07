@@ -111,12 +111,32 @@ function loadDetails(): Record<string, CategoryDetailRaw> {
 function loadExactLeafMap(): Map<string, IndexEntry[]> {
   if (_exactLeafMap) return _exactLeafMap;
   const map = new Map<string, IndexEntry[]>();
+  const addAlias = (key: string, entry: IndexEntry) => {
+    const k = key.toLowerCase().trim();
+    if (!k || k.length < 2) return;
+    const list = map.get(k);
+    if (list) {
+      if (!list.some(e => e[0] === entry[0])) list.push(entry);
+    } else {
+      map.set(k, [entry]);
+    }
+  };
   for (const entry of loadIndex()) {
-    const leafLower = (entry[2] || '').toLowerCase().trim();
-    if (!leafLower) continue;
-    const list = map.get(leafLower);
-    if (list) list.push(entry);
-    else map.set(leafLower, [entry]);
+    const leaf = (entry[2] || '').trim();
+    if (!leaf) continue;
+    // 1) 원본 leaf 이름
+    addAlias(leaf, entry);
+    // 2) 슬래시·하이픈·괄호로 분리된 부분도 alias 로 등록
+    //    "양파/파/부추김치" → ["양파", "파", "부추김치"], "물김치/동치미" → ["물김치","동치미"]
+    //    셀러가 줄임말("파김치") 또는 단일 토큰("파")으로 입력해도 leaf 매칭 가능.
+    //    "파" 같이 1글자 토큰은 addAlias 의 length < 2 가드로 자동 제외.
+    if (/[\/\-]/.test(leaf)) {
+      const parts = leaf.split(/[\/\-]+/).map(p => p.trim()).filter(Boolean);
+      for (const p of parts) addAlias(p, entry);
+    }
+    // 3) 공백 제거 버전 ("양파/파/부추김치" → "양파파부추김치", "사과 배 과일세트" → "사과배과일세트")
+    const compact = leaf.replace(/[\s\/\-]+/g, '');
+    if (compact !== leaf) addAlias(compact, entry);
   }
   _exactLeafMap = map;
   return _exactLeafMap;
@@ -247,6 +267,35 @@ function exactLeafMatch(productName: string): CategoryMatchResult | null {
 // 상품명 토큰 → 쿠팡 displayCategoryCode 직접 매핑
 // 토큰 점수 계산 없이 바로 정확한 카테고리로 연결
 const DIRECT_CODE_MAP: Record<string, { code: string; path: string }> = {
+  // ── 식품 > 김치 별칭 (셀러 줄임말 ≠ 쿠팡 leaf) ──
+  '백김치': { code: '73057', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>포기김치' },
+  '파김치': { code: '58180', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>양파/파/부추김치' },
+  '대파김치': { code: '58180', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>양파/파/부추김치' },
+  '쪽파김치': { code: '58180', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>양파/파/부추김치' },
+  '깻잎김치': { code: '58443', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>기타김치' },
+  '갓김치': { code: '58442', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>갓김치' },
+  '겉절이': { code: '73060', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>겉절이김치' },
+  '맛김치': { code: '73058', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>맛김치' },
+  '묵은지': { code: '58181', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>묵은지' },
+  '동치미': { code: '58441', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>물김치/동치미' },
+  '물김치': { code: '58441', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>물김치/동치미' },
+  '나박김치': { code: '58441', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>물김치/동치미' },
+  '깍두기': { code: '58440', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>깍두기' },
+  '총각김치': { code: '58444', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>총각김치' },
+  '알타리김치': { code: '58444', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>총각김치' },
+  '알타리': { code: '58444', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>총각김치' },
+  '알타리무': { code: '58444', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>총각김치' },
+  '알타리무김치': { code: '58444', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>총각김치' },
+  '오이소박이': { code: '58182', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>오이소박이' },
+  '오이김치': { code: '58182', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>오이소박이' },
+  '열무김치': { code: '58445', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>열무김치' },
+  '포기김치': { code: '73057', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>포기김치' },
+  '배추김치': { code: '73057', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>포기김치' },
+  '볶음김치': { code: '73059', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>볶음김치' },
+  '고들빼기': { code: '58179', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>고들빼기' },
+  '김치양념': { code: '73062', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>김치양념' },
+  '부추김치': { code: '58180', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>양파/파/부추김치' },
+  '양파김치': { code: '58180', path: '식품>냉장/냉동식품>김치/반찬/젓갈>김치>양파/파/부추김치' },
   // ── 건강식품 > 비타민/미네랄 ──
   '비오틴': { code: '73132', path: '식품>건강식품>비타민/미네랄>바이오틴' },
   '바이오틴': { code: '73132', path: '식품>건강식품>비타민/미네랄>바이오틴' },
