@@ -227,6 +227,15 @@ export default function MyReportPage() {
 
   // API에서 매출 가져오기
   const handleApiFetch = async () => {
+    // 첫 정산 (isInitial) 인데 period 정보 없으면 차단 — 가입일~월말 합산이 누락되면 매출 손실
+    if (isInitialPeriod && !settlementPeriod) {
+      setMessage({
+        type: 'error',
+        text: '첫 정산 구간 계산 실패. 페이지를 새로고침 후 다시 시도해주세요.',
+      });
+      return;
+    }
+
     setApiFetching(true);
     setMessage(null);
 
@@ -236,6 +245,7 @@ export default function MyReportPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           yearMonth,
+          // 첫 정산이면 가입일~월말, 일반은 month-only (서버 default)
           ...(isInitialPeriod && settlementPeriod
             ? { periodStart: settlementPeriod.start, periodEnd: settlementPeriod.end }
             : {}),
@@ -389,8 +399,9 @@ export default function MyReportPage() {
       vat_amount: finalVatCalc.vatAmount,
       total_with_vat: finalVatCalc.totalWithVat,
       input_source: apiVerified ? 'api' : 'manual_approved',
-      period_start: settlementPeriod?.start || null,
-      period_end: settlementPeriod?.end || null,
+      // 첫 정산 구간 (isInitial) 은 반드시 저장 — 가입일 누락 시 매출 손실 방지
+      period_start: settlementPeriod?.start || (isInitialPeriod ? null : `${yearMonth}-01`),
+      period_end: settlementPeriod?.end || (isInitialPeriod ? null : `${yearMonth}-${new Date(parseInt(yearMonth.split('-')[0]), parseInt(yearMonth.split('-')[1]), 0).getDate()}`),
       // API 검증 시 자동 확인 필드
       ...(isAutoReview && {
         admin_deposit_amount: depositAmount,
