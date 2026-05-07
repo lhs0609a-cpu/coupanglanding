@@ -529,6 +529,8 @@ export default function CoupangFieldsSection({
             && titleGenProgress.total > 0
             && titleGenProgress.done >= titleGenProgress.total;
           const isGenerating = isEmpty && !!product.editedCategoryCode && !titleGenComplete;
+          // 자동 생성 100% 끝났는데 input이 비어있는 좀비 상태 — 사용자에게 직접 입력 요구
+          const isGenerationFailedZombie = isEmpty && !!product.editedCategoryCode && titleGenComplete;
           // 브랜드 누출 감지 (3자+ n-gram 매칭)
           const brandLeak = (() => {
             if (!dpn || !product.brand || product.brand.length < 2) return '';
@@ -565,7 +567,9 @@ export default function CoupangFieldsSection({
                     ? titleGenProgress
                       ? `자동 생성 중 (${titleGenProgress.done}/${titleGenProgress.total} — ${Math.round((titleGenProgress.done / titleGenProgress.total) * 100)}%)...`
                       : '자동 생성 대기 중...'
-                    : '노출상품명 입력'}
+                    : isGenerationFailedZombie
+                      ? '⚠ 자동 생성 실패 — 직접 입력 필수 (입력 안하면 등록 차단)'
+                      : '노출상품명 입력'}
                 />
                 {isGenerating && (
                   <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-purple-500" />

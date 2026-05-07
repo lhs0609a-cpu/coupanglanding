@@ -712,18 +712,33 @@ export function useBulkRegisterActions() {
           const target = targets[i];
           const globalIdx = updated.findIndex(p => p.uid === target.uid);
           if (globalIdx >= 0) {
+            // ⚠ 사용자가 자동 생성 진행 중에 직접 입력한 값은 절대 덮어쓰지 않는다.
+            //   targets는 호출 시점의 snapshot — prev 시점에는 사용자가 이미 입력했을 수 있음.
+            const currentDpn = updated[globalIdx].editedDisplayProductName ?? '';
+            if (currentDpn.trim().length > 0) {
+              // 사용자 입력 보존, sellerProductName 만 보강
+              if (!updated[globalIdx].editedSellerProductName) {
+                updated[globalIdx] = {
+                  ...updated[globalIdx],
+                  editedSellerProductName: updated[globalIdx].editedName,
+                };
+              }
+              continue;
+            }
             // 풀 브랜드명 복원 — editedBrand는 2글자 축약이라 긴 브랜드명 필터 실패
             const fullBrand = isValidBrand(target.brand) ? target.brand : extractBrandFromName(target.name);
+            const generated = generateDisplayName(
+              target.name,
+              fullBrand,
+              target.editedCategoryName,
+              displaySeed,
+              i,
+            );
             updated[globalIdx] = {
               ...updated[globalIdx],
-              editedDisplayProductName: generateDisplayName(
-                target.name,  // 원본 상품명 사용 (editedName은 브랜드+고유번호)
-                fullBrand,
-                target.editedCategoryName,
-                displaySeed,
-                i,
-              ),
-              editedSellerProductName: updated[globalIdx].editedName, // "브랜드 고유번호" 그대로 사용
+              // 생성 실패해서 빈 문자열 나오면 원본 sanitize 값으로 fallback (절대 빈값으로 두지 않음)
+              editedDisplayProductName: generated.trim() || target.name.slice(0, 100),
+              editedSellerProductName: updated[globalIdx].editedName,
             };
           }
         }

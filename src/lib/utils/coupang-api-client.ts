@@ -219,10 +219,14 @@ export async function fetchSettlementData(
   const lastDay = new Date(year, month, 0).getDate();
   const monthEnd = options?.endDateOverride || `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
-  // API는 "전일까지만 조회 가능" → endDate를 어제와 월말 중 빠른 날짜로
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().split('T')[0];
+  // API는 "전일까지만 조회 가능" → endDate를 어제(KST)와 월말 중 빠른 날짜로
+  // ⚠ 서버 UTC 기준으로 계산하면 KST와 9시간 차이 → KST 5/1 새벽에 보고하면
+  //   서버는 UTC 4/30 → yesterday=UTC 4/29 → 4/30 매출 영원히 못 가져옴.
+  //   따라서 KST 기준으로 어제를 계산해야 함.
+  const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+  const nowKst = new Date(Date.now() + KST_OFFSET_MS);
+  const yesterdayKst = new Date(nowKst.getTime() - 24 * 60 * 60 * 1000);
+  const yesterdayStr = yesterdayKst.toISOString().split('T')[0];
   const endDate = monthEnd < yesterdayStr ? monthEnd : yesterdayStr;
 
   // 시작일이 endDate보다 미래면 아직 데이터 없음

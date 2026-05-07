@@ -267,10 +267,17 @@ export function buildCoupangProductPayload(
   } = params;
 
   // ---- 1. 상품명 정리 ----
+  // ⚠ displayProductName이 비어있으면 절대 sellerProductName이나 rawName으로 fallback하지 않는다.
+  //   - 사용자가 입력한 값과 sellerProductName이 다르므로 (sellerProductName="브랜드 고유번호" 형식)
+  //     fallback 시 쿠팡 노출에 SEO 안된 원본/판매자코드가 그대로 표시되는 사고 발생
+  //   - 따라서 빈 값이면 명시적 에러로 차단해서 사용자에게 입력 강제
   const rawName = product.productJson.name || product.productJson.title || `상품_${product.productCode}`;
-  const productName = displayProductName
-    ? cleanProductName(displayProductName)
-    : cleanProductName(rawName);
+  if (!displayProductName || !displayProductName.trim()) {
+    throw new Error(
+      `노출상품명(displayProductName)이 비어있습니다. 자동 생성 실패 또는 입력 누락 — 직접 입력 후 다시 등록해주세요. (productCode: ${product.productCode})`,
+    );
+  }
+  const productName = cleanProductName(displayProductName);
 
   // 셀러별 고유 코드: preventionSeed(shUserId:productCode) 해시 → 4자리 hex
   // 같은 셀러+같은 상품 = 항상 같은 코드, 다른 셀러+같은 상품 = 다른 코드
