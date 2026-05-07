@@ -397,7 +397,7 @@ export default function AdminSalesOverviewPage() {
     if (!confirm(`${name} 사용자의 결제를 즉시 재시도합니다. 진행할까요?`)) return;
     setActingUserId(txId);
     try {
-      const res = await fetch(`/api/admin/payments/${txId}/retry-now`, { method: 'POST' });
+      const res = await fetch(`/api/admin/payments/transactions/${txId}/retry-now`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '재시도 실패');
       const r = data.result;

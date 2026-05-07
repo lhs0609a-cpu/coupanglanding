@@ -17,6 +17,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServiceClient } from '@/lib/supabase/server';
 
+// 모듈 싱글톤 — fire-and-forget 로깅이 매번 새 client 생성하면 cold init 비용 폭증.
+// 같은 process 안에서는 재사용. createServiceClient 가 비동기이므로 promise 캐시.
+let _cachedClient: Promise<SupabaseClient> | null = null;
+function getSharedServiceClient(): Promise<SupabaseClient> {
+  if (!_cachedClient) _cachedClient = createServiceClient();
+  return _cachedClient;
+}
+
 export type LogLevel = 'error' | 'warn' | 'info';
 
 export type LogCategory =
@@ -112,8 +120,18 @@ function makeFingerprint(source: string, message: string): string {
   return djb2(source + '|' + normalizeMessage(message));
 }
 
+// ── 서버사이드 circuit breaker ────────────────────────────────
+// Supabase RPC 가 실패 누적 시 30초간 RPC 시도 자체를 정지 (cost 폭증 방지).
+// 로깅 인프라 자체가 다운돼도 본 요청을 안 막고, GB-Hrs 도 안 잡아먹음.
+let _consecutiveFailures = 0;
+let _circuitOpenUntil = 0;
+const CIRCUIT_THRESHOLD = 3;
+const CIRCUIT_OPEN_MS = 30_000;
+
 // ── 메인 헬퍼 ──────────────────────────────────────────────────
 async function logSystem(level: LogLevel, params: LogParams): Promise<void> {
+  // 회로 열려 있으면 silent skip
+  if (Date.now() < _circuitOpenUntil) return;
   try {
     const errMsg = params.error instanceof Error
       ? params.error.message
@@ -132,7 +150,7 @@ async function logSystem(level: LogLevel, params: LogParams): Promise<void> {
     if (stack) context.stack = stack.split('\n').slice(0, 10).join('\n');
     if (params.error instanceof Error && params.error.name) context.errorName = params.error.name;
 
-    const client = params.client || (await createServiceClient());
+    const client = params.client || (await getSharedServiceClient());
 
     // upsert_system_log RPC — 동일 fingerprint 24시간 내면 occurrences 증가, 아니면 신규 row
     await client.rpc('upsert_system_log', {
@@ -146,7 +164,13 @@ async function logSystem(level: LogLevel, params: LogParams): Promise<void> {
       p_user_id: params.userId || null,
       p_request_id: params.requestId || null,
     });
+    _consecutiveFailures = 0; // 성공 → 카운터 리셋
   } catch (logErr) {
+    _consecutiveFailures += 1;
+    if (_consecutiveFailures >= CIRCUIT_THRESHOLD) {
+      _circuitOpenUntil = Date.now() + CIRCUIT_OPEN_MS;
+      _consecutiveFailures = 0;
+    }
     // 로깅 실패는 본 요청 흐름을 막으면 안 됨 — console 만 출력
     console.error('[system-log] logging failed:', logErr instanceof Error ? logErr.message : logErr);
   }
