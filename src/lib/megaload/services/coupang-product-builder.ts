@@ -146,6 +146,9 @@ export interface BuildCoupangPayloadParams {
   detailImageTypes?: string[];
   // Wing ID (vendorUserId) — vendorId와 다름, DB에서 조회하여 전달
   vendorUserId?: string;
+  // 카테고리별 attribute alias 학습 결과 (우리 buyOption 이름 ↔ 쿠팡 라이브 attribute 이름)
+  // 빈 배열이면 단위 fallback 만 작동. 학습된 alias 가 있으면 우선 매칭.
+  attributeAliases?: { buyOptionName: string; buyOptionUnit: string; attributeTypeName: string }[];
 }
 
 // ---- HTML 이스케이프 (XSS 방어) ----
@@ -464,8 +467,25 @@ export function buildCoupangProductPayload(
       }
 
       // 이미 metaAttributes에 존재하면 → 폴백값을 추출값으로 교체
+      // 0차: 학습된 alias 우선 (DB 에 누적된 buyOption ↔ 쿠팡 attribute 매핑)
+      let existingIdx = -1;
+      const aliases = params.attributeAliases || [];
+      if (aliases.length > 0) {
+        const aliasMatch = aliases.find(a =>
+          a.buyOptionName === opt.name
+          && (a.buyOptionUnit || '') === (opt.unit || ''),
+        ) || aliases.find(a => a.buyOptionName === opt.name);
+        if (aliasMatch) {
+          existingIdx = metaAttributes.findIndex(a => a.attributeTypeName === aliasMatch.attributeTypeName);
+          if (existingIdx >= 0) {
+            console.log(`[payload-builder] buyOption alias 매칭: "${opt.name}" → API명 "${aliasMatch.attributeTypeName}"`);
+          }
+        }
+      }
       // 1차: 정확히 일치
-      let existingIdx = metaAttributes.findIndex(a => a.attributeTypeName === opt.name);
+      if (existingIdx < 0) {
+        existingIdx = metaAttributes.findIndex(a => a.attributeTypeName === opt.name);
+      }
       // 2차: 정규화 매칭 (택1 제거, 공백 정리, 수량↔총 수량 등)
       if (existingIdx < 0) {
         const normalizedOpt = normalizeAttrName(opt.name);
