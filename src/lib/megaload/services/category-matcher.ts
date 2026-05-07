@@ -182,6 +182,43 @@ function leafSubstringMatch(productName: string): CategoryMatchResult | null {
   return null;
 }
 
+/**
+ * 토큰 단위 leaf 매칭 — 상품명 토큰 중 하나가 leaf 이름과 정확 일치하면 그 leaf 반환.
+ * 마케팅 어휘 위주 토큰("국산/재료만/사용된/순도") + 진짜 카테고리 토큰("갓김치") 조합처럼
+ * 다른 토큰 점수 부족으로 Tier 1 score threshold 미달하는 케이스 복구.
+ *
+ * 안전장치:
+ *   - 토큰 길이 ≥ 2 (1글자 false positive 차단)
+ *   - leaf 이름과 정확 일치만 (substring 매칭 X)
+ *   - 후보 여러 개면 depth 깊은(specific) 카테고리 우선
+ */
+function findLeafByToken(tokens: string[]): CategoryMatchResult | null {
+  if (!tokens || tokens.length === 0) return null;
+  const map = loadExactLeafMap();
+  type Cand = { code: string; leafName: string; depth: number; tokenLen: number };
+  const candidates: Cand[] = [];
+  for (const tok of tokens) {
+    if (!tok || tok.length < 2) continue;
+    const entries = map.get(tok.toLowerCase());
+    if (!entries) continue;
+    for (const [code, , leafName, depth] of entries) {
+      candidates.push({ code, leafName, depth, tokenLen: tok.length });
+    }
+  }
+  if (candidates.length === 0) return null;
+  // 깊은 카테고리 우선 (구체적인 leaf 가 더 정확) → 토큰 길이 긴 것 우선 → 코드 작은 것
+  candidates.sort((a, b) => b.depth - a.depth || b.tokenLen - a.tokenLen || a.code.localeCompare(b.code));
+  const winner = candidates[0];
+  const detail = loadDetails()[winner.code];
+  return {
+    categoryCode: winner.code,
+    categoryName: winner.leafName,
+    categoryPath: detail?.p || winner.leafName,
+    confidence: 0.85,
+    source: 'local_db',
+  };
+}
+
 function exactLeafMatch(productName: string): CategoryMatchResult | null {
   const trimmed = productName.trim();
   const key = trimmed.toLowerCase();
@@ -1327,6 +1364,17 @@ export async function matchCategory(
     if (naverResult) return naverResult;
   }
 
+  // ── Tier -0.5: 토큰 단위 leaf match (마케팅 어휘 dominant 케이스 복구) ──
+  // sanitize 후 토큰 → 그래도 못 찾으면 raw productName 토큰으로도 한 번 더 시도
+  // ("갓김치 갓김치 갓김치 갓김치" 같은 1단어 반복이 sanitizer 의 win=2 매칭으로 전부 제거되는 케이스 복구)
+  const tokenLeafResult = findLeafByToken(tokens);
+  if (tokenLeafResult) return tokenLeafResult;
+  const rawTokens = tokenize(productName);
+  if (rawTokens.length !== tokens.length || rawTokens.some((t, i) => t !== tokens[i])) {
+    const rawLeaf = findLeafByToken(rawTokens);
+    if (rawLeaf) return rawLeaf;
+  }
+
   // ── Tier 0: 직접 코드 매핑 (네이버 ID 없을 때 최우선) ──
   // voteTier0 후보 = 원본 토큰 + 2-gram + splitKoreanCompound 결과만.
   // SYNONYM/ALIAS 확장은 의도적으로 제외 — "꿀참외" → ["꿀","참외"] split 후
@@ -1466,6 +1514,20 @@ export async function matchCategoryBatch(
     if (exactRaw) { results[i] = exactRaw; continue; }
     const exactSan = exactLeafMatch(sanitizedNames[i]);
     if (exactSan) { results[i] = exactSan; continue; }
+
+    // Tier -0.5: 토큰 단위 leaf match — 상품명 안에 leaf 이름과 정확 일치하는 토큰이 있으면 매칭.
+    // 마케팅 어휘로 점수 낮아 fail 하던 "국산 재료만 사용된 순도 100% 갓김치" 같은 케이스 복구.
+    // sanitized → 못 찾으면 raw 도 시도 (sanitizer가 1단어 반복을 win=2 로 보고 전부 제거하는 경우 복구)
+    {
+      const tokens = productTokensList[i];
+      const tokenLeafMatch = findLeafByToken(tokens);
+      if (tokenLeafMatch) { results[i] = tokenLeafMatch; continue; }
+      const rawTokens = tokenize(productNames[i]);
+      if (rawTokens.length !== tokens.length || rawTokens.some((t, k) => t !== tokens[k])) {
+        const rawLeaf = findLeafByToken(rawTokens);
+        if (rawLeaf) { results[i] = rawLeaf; continue; }
+      }
+    }
 
     // Tier 0: 투표 기반 직접 코드 매핑 (네이버 ID 없을 때)
     // SYNONYM/ALIAS 확장 제외 — 표 인플레 차단 (matchCategory 와 동일 정책)

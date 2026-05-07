@@ -24,6 +24,7 @@ import StatisticsCards from '@/components/my/promotion/StatisticsCards';
 import TrackingList from '@/components/my/promotion/TrackingList';
 import LogsList from '@/components/my/promotion/LogsList';
 import { POLLING_INTERVAL_MS, PROMO_DESCRIPTION_BANNER } from '@/lib/data/promotion-constants';
+import { fetchJsonSafe } from '@/lib/utils/fetch-with-timeout';
 import type {
   CouponAutoSyncConfig,
   ProductCouponTracking,
@@ -130,20 +131,16 @@ export default function PromotionPage() {
 
   // ── Fetch Functions ──────────────────────────────────
   const fetchConfig = useCallback(async () => {
-    try {
-      const res = await fetch('/api/promotion/config');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.config) {
-          setConfig((prev) => ({ ...prev, ...data.config }));
-        }
-        if (data.account) {
-          setAccountInfo(data.account);
-        }
-      }
-    } catch { /* ignore */ } finally {
-      setConfigLoading(false);
+    const { data, error } = await fetchJsonSafe<{ config?: Partial<CouponAutoSyncConfig>; account?: AccountInfo }>(
+      '/api/promotion/config', {}, { timeoutMs: 15_000 },
+    );
+    if (error) {
+      setError(`설정 로드 실패: ${error}`);
+    } else if (data) {
+      if (data.config) setConfig((prev) => ({ ...prev, ...data.config }));
+      if (data.account) setAccountInfo(data.account);
     }
+    setConfigLoading(false);
   }, []);
 
   const fetchContracts = useCallback(async () => {
@@ -159,70 +156,66 @@ export default function PromotionPage() {
   }, []);
 
   const fetchCoupangData = useCallback(async () => {
-    try {
-      const [contractsRes, instantRes, downloadRes] = await Promise.all([
-        fetch('/api/promotion/contracts').then((r) => r.ok ? r.json() : { data: [] }),
-        fetch('/api/promotion/coupons/instant').then((r) => r.ok ? r.json() : { data: [] }),
-        fetch('/api/promotion/coupons/download').then((r) => r.ok ? r.json() : { data: [] }),
-      ]);
-      setContracts(contractsRes.data || []);
-      if (contractsRes.retired) setContractsRetired(true);
-      if (contractsRes.autoDetected) setContractsAutoDetected(true);
-      setInstantCoupons(instantRes.data || []);
-      setDownloadCoupons(downloadRes.data || []);
-    } catch { /* ignore */ }
+    // 쿠팡 API 호출은 hang 가능성 있어 25초 timeout + 에러는 표시.
+    const [contractsRes, instantRes, downloadRes] = await Promise.all([
+      fetchJsonSafe<{ data?: CoupangContract[]; retired?: boolean; autoDetected?: boolean }>('/api/promotion/contracts', {}, { timeoutMs: 25_000 }),
+      fetchJsonSafe<{ data?: CoupangCoupon[] }>('/api/promotion/coupons/instant', {}, { timeoutMs: 25_000 }),
+      fetchJsonSafe<{ data?: CoupangCoupon[] }>('/api/promotion/coupons/download', {}, { timeoutMs: 25_000 }),
+    ]);
+    if (contractsRes.error || instantRes.error || downloadRes.error) {
+      const errs = [contractsRes.error, instantRes.error, downloadRes.error].filter(Boolean);
+      setError(`쿠팡 데이터 로드 일부 실패: ${errs.join(' / ')}`);
+    }
+    setContracts(contractsRes.data?.data || []);
+    if (contractsRes.data?.retired) setContractsRetired(true);
+    if (contractsRes.data?.autoDetected) setContractsAutoDetected(true);
+    setInstantCoupons(instantRes.data?.data || []);
+    setDownloadCoupons(downloadRes.data?.data || []);
   }, []);
 
   const fetchProgress = useCallback(async () => {
-    try {
-      const res = await fetch('/api/promotion/progress');
-      if (res.ok) {
-        const data = await res.json();
-        setProgress(data.progress || null);
-      }
-    } catch { /* ignore */ }
+    const { data, error } = await fetchJsonSafe<{ progress?: BulkApplyProgress | null }>(
+      '/api/promotion/progress', {}, { timeoutMs: 10_000 },
+    );
+    if (!error && data) setProgress(data.progress || null);
   }, []);
 
   const fetchStats = useCallback(async () => {
     setStatsLoading(true);
-    try {
-      const res = await fetch('/api/promotion/statistics');
-      if (res.ok) {
-        const data = await res.json();
-        setStats(data);
-      }
-    } catch { /* ignore */ } finally {
-      setStatsLoading(false);
-    }
+    const { data, error } = await fetchJsonSafe<Stats>(
+      '/api/promotion/statistics', {}, { timeoutMs: 15_000 },
+    );
+    if (error) setError(`통계 로드 실패: ${error}`);
+    else if (data) setStats(data);
+    setStatsLoading(false);
   }, []);
 
   const fetchTracking = useCallback(async () => {
     setTrackingLoading(true);
-    try {
-      const statusParam = trackingFilter !== 'all' ? `&status=${trackingFilter}` : '';
-      const res = await fetch(`/api/promotion/tracking?limit=${PAGE_SIZE}&offset=${trackingPage * PAGE_SIZE}${statusParam}`);
-      if (res.ok) {
-        const data = await res.json();
-        setTrackingItems(data.data || []);
-        setTrackingTotal(data.total || 0);
-      }
-    } catch { /* ignore */ } finally {
-      setTrackingLoading(false);
+    const statusParam = trackingFilter !== 'all' ? `&status=${trackingFilter}` : '';
+    const { data, error } = await fetchJsonSafe<{ data?: ProductCouponTracking[]; total?: number }>(
+      `/api/promotion/tracking?limit=${PAGE_SIZE}&offset=${trackingPage * PAGE_SIZE}${statusParam}`,
+      {}, { timeoutMs: 15_000 },
+    );
+    if (error) setError(`추적 목록 로드 실패: ${error}`);
+    else if (data) {
+      setTrackingItems(data.data || []);
+      setTrackingTotal(data.total || 0);
     }
+    setTrackingLoading(false);
   }, [trackingFilter, trackingPage]);
 
   const fetchLogs = useCallback(async () => {
     setLogsLoading(true);
-    try {
-      const res = await fetch(`/api/promotion/logs?limit=${PAGE_SIZE}&offset=${logsPage * PAGE_SIZE}`);
-      if (res.ok) {
-        const data = await res.json();
-        setLogItems(data.data || []);
-        setLogsTotal(data.total || 0);
-      }
-    } catch { /* ignore */ } finally {
-      setLogsLoading(false);
+    const { data, error } = await fetchJsonSafe<{ data?: CouponApplyLog[]; total?: number }>(
+      `/api/promotion/logs?limit=${PAGE_SIZE}&offset=${logsPage * PAGE_SIZE}`, {}, { timeoutMs: 15_000 },
+    );
+    if (error) setError(`로그 로드 실패: ${error}`);
+    else if (data) {
+      setLogItems(data.data || []);
+      setLogsTotal(data.total || 0);
     }
+    setLogsLoading(false);
   }, [logsPage]);
 
   // ── Initial load ─────────────────────────────────────
