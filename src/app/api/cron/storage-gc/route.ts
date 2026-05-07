@@ -21,6 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 300;
 
@@ -492,6 +493,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     console.error(`[storage-gc] error at ${ms()}ms:`, err);
+    await logSystemError({ source: 'cron/storage-gc', error: err, category: 'cron', context: { elapsed_ms: ms() } });
     return NextResponse.json(
       {
         error: err instanceof Error ? err.message : 'storage-gc 실패',

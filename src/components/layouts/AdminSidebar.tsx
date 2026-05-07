@@ -32,6 +32,7 @@ import {
   BarChart3,
   Lock,
   Megaphone,
+  AlertTriangle,
 } from 'lucide-react';
 
 const navItems = [
@@ -60,6 +61,7 @@ const navItems = [
   { href: '/admin/notices', label: '공지 관리', icon: Bell },
   { href: '/admin/support', label: '문의 관리', icon: MessageCircle },
   { href: '/admin/megaload-bug-reports', label: '메가로드 오류문의', icon: Bug },
+  { href: '/admin/system-logs', label: '시스템 로그', icon: AlertTriangle },
   { href: '/admin/faqs', label: 'FAQ 관리', icon: HelpCircle },
   { href: '/admin/activity-log', label: '활동 로그', icon: ScrollText },
   { href: '/admin/settings', label: '설정', icon: Settings },

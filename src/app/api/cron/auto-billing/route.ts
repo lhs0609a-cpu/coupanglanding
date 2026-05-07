@@ -13,6 +13,7 @@ import {
 } from '@/lib/payments/billing-constants';
 import { isRetryable, failureLabel, isBillingKeyInvalid } from '@/lib/payments/failure-codes';
 import { logSettlementError } from '@/lib/payments/settlement-errors';
+import { logSystemError } from '@/lib/utils/system-log';
 
 type ServiceClient = Awaited<ReturnType<typeof createServiceClient>>;
 
@@ -144,6 +145,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     console.error('cron/auto-billing error:', err);
+    await logSystemError({ source: 'cron/auto-billing', error: err, category: 'payment' });
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   } finally {
     await serviceClient.rpc('cron_release_lock', { p_key: CRON_LOCK_KEY });

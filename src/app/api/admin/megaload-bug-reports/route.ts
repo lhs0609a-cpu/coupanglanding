@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { logActivity } from '@/lib/utils/activity-log';
+import { logSystemError } from '@/lib/utils/system-log';
 import { notifyBugReportStatusChanged } from '@/lib/utils/notifications';
 import { BUG_REPORT_STATUS_LABELS } from '@/lib/utils/constants';
 
@@ -125,6 +126,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ data: enriched });
   } catch (err) {
     console.error(`[admin/bug-reports] error at ${ms()}ms:`, err);
+    await logSystemError({ source: 'admin/megaload-bug-reports:GET', error: err, category: 'admin', context: { elapsed_ms: ms() } });
     return NextResponse.json({
       error: err instanceof Error ? err.message : '오류문의 목록 조회에 실패했습니다.',
       elapsed_ms: ms(),
@@ -185,6 +187,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ data });
   } catch (err) {
     console.error('admin bug-reports PATCH error:', err);
+    await logSystemError({ source: 'admin/megaload-bug-reports:PATCH', error: err, category: 'admin' });
     return NextResponse.json({ error: '상태 변경에 실패했습니다.' }, { status: 500 });
   }
 }

@@ -10,6 +10,7 @@ import {
   type CategoryMetadata,
   type DryRunResult,
 } from '@/lib/megaload/services/product-validator';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 20;
 
@@ -155,6 +156,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ results, categoryMeta });
   } catch (err) {
+    await logSystemError({
+      source: 'megaload/bulk-register/validate-batch',
+      error: err,
+      context: { productCount: 0 },
+    });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '검증 실패' },
       { status: 500 },
