@@ -13,6 +13,13 @@ import { logSettlementError } from '@/lib/payments/settlement-errors';
 
 export const maxDuration = 60;
 
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const tid = setTimeout(() => reject(new Error(`timeout(${ms}ms): ${label}`)), ms);
+    Promise.resolve(p).then(v => { clearTimeout(tid); resolve(v); }).catch(e => { clearTimeout(tid); reject(e); });
+  });
+}
+
 /**
  * POST /api/payments/billing-key/issue
  * 토스 SDK 콜백에서 받은 authKey로 빌링키 발급 + 카드 등록
@@ -23,33 +30,43 @@ export const maxDuration = 60;
  *   3) 성공 시에만 기존 카드 is_primary=false 로 해제 (step2 실패 시 primary 잃지 않음)
  */
 export async function POST(request: NextRequest) {
+  const t0 = Date.now();
+  const tlog = (s: string) => console.log(`[billing-key/issue] ${s} +${Date.now() - t0}ms`);
   try {
+    tlog('start');
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    tlog('supabase client created');
+
+    const got = await withTimeout(supabase.auth.getUser(), 5_000, 'auth.getUser');
+    const user = got.data.user;
+    tlog(`auth.getUser done (user=${user?.id || 'none'})`);
     if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 });
 
     const { authKey } = await request.json();
+    tlog(`body parsed (authKey=${authKey ? 'set' : 'MISSING'})`);
     if (!authKey) return NextResponse.json({ error: 'authKey 필요' }, { status: 400 });
 
-    const { data: ptUser } = await supabase
-      .from('pt_users')
-      .select('id, profile_id')
-      .eq('profile_id', user.id)
-      .single();
+    const ptRes = await withTimeout<{ data: { id: string; profile_id: string } | null }>(
+      Promise.resolve(supabase.from('pt_users').select('id, profile_id').eq('profile_id', user.id).maybeSingle()),
+      5_000,
+      'pt_users select',
+    );
+    const ptUser = ptRes.data;
+    tlog(`pt_users done (found=${!!ptUser})`);
 
     if (!ptUser) return NextResponse.json({ error: 'PT 사용자 없음' }, { status: 404 });
 
     const customerKey = generateCustomerKey(ptUser.id);
+    tlog('customerKey generated');
 
     const billing = await TossPaymentsAPI.issueBillingKey(authKey, customerKey);
+    tlog(`Toss billing key issued (cardCompany=${billing.cardCompany})`);
 
     const serviceClient = await createServiceClient();
+    tlog('service client created');
 
-    // 기존 primary demote + 새 카드 insert(is_primary=true) 를 한 트랜잭션에서 원자화.
-    // 두 단계로 쪼개면 사이에 다른 호출이 .eq('is_primary',true).maybeSingle() 했을 때
-    // 다중 행 에러로 "카드 없음" 처리되어 사용자가 잘못된 overdue 마킹을 받을 수 있음.
-    const { data: card, error: rpcError } = await serviceClient
-      .rpc('billing_card_register_primary', {
+    const rpcRes = await withTimeout<{ data: { id: string } | null; error: { message: string; code?: string } | null }>(
+      Promise.resolve(serviceClient.rpc('billing_card_register_primary', {
         p_pt_user_id: ptUser.id,
         p_customer_key: customerKey,
         p_billing_key: billing.billingKey,
@@ -57,46 +74,67 @@ export async function POST(request: NextRequest) {
         p_card_number: billing.cardNumber,
         p_card_type: billing.cardType || '신용',
         p_registered_at: billing.authenticatedAt || new Date().toISOString(),
-      });
+      })),
+      8_000,
+      'billing_card_register_primary RPC',
+    );
+    const card = rpcRes.data;
+    const rpcError = rpcRes.error;
+    tlog(`RPC billing_card_register_primary done (cardId=${card?.id || 'none'}, err=${rpcError?.message || 'none'})`);
 
     if (rpcError || !card) throw rpcError || new Error('카드 등록 실패');
 
-    // 자동결제 스케줄 자동 생성 (첫 카드 등록 시)
-    const { data: existingSchedule } = await serviceClient
-      .from('payment_schedules')
-      .select('id')
-      .eq('pt_user_id', ptUser.id)
-      .maybeSingle();
+    const schedRes = await withTimeout<{ data: { id: string } | null }>(
+      Promise.resolve(serviceClient.from('payment_schedules').select('id').eq('pt_user_id', ptUser.id).maybeSingle()),
+      5_000,
+      'payment_schedules select',
+    );
+    const existingSchedule = schedRes.data;
+    tlog(`payment_schedules check done (existing=${!!existingSchedule})`);
 
     if (!existingSchedule && card) {
-      await serviceClient
-        .from('payment_schedules')
-        .insert({
+      await withTimeout(
+        Promise.resolve(serviceClient.from('payment_schedules').insert({
           pt_user_id: ptUser.id,
           auto_payment_enabled: true,
           billing_day: BILLING_DAY,
           billing_card_id: card.id,
-        });
+        })),
+        5_000,
+        'payment_schedules insert',
+      );
+      tlog('payment_schedules insert done');
     }
 
-    // 락 상태 확인 → 연체 중이면 즉시 미납 결제 시도
-    const { data: ptUserFull } = await serviceClient
-      .from('pt_users')
-      .select('payment_overdue_since, payment_lock_level')
-      .eq('id', ptUser.id)
-      .single();
-
+    const ptFullRes = await withTimeout<{ data: { payment_overdue_since: string | null; payment_lock_level: string | null } | null }>(
+      Promise.resolve(serviceClient.from('pt_users').select('payment_overdue_since, payment_lock_level').eq('id', ptUser.id).maybeSingle()),
+      5_000,
+      'pt_users overdue check',
+    );
+    const ptUserFull = ptFullRes.data;
     const wasOverdue = !!ptUserFull?.payment_overdue_since;
+    tlog(`overdue check done (wasOverdue=${wasOverdue})`);
+
     let immediateChargeResult: { succeeded: number; failed: number; scheduledRetries: number } | null = null;
 
     if (wasOverdue && card) {
-      immediateChargeResult = await attemptImmediateCharge(
-        serviceClient,
-        ptUser.id,
-        card.id as string,
-        billing.billingKey,
-        billing.customerKey,
-      );
+      try {
+        immediateChargeResult = await withTimeout(
+          attemptImmediateCharge(
+            serviceClient,
+            ptUser.id,
+            card.id as string,
+            billing.billingKey,
+            billing.customerKey,
+          ),
+          30_000,
+          'attemptImmediateCharge',
+        );
+        tlog(`immediateCharge done (succeeded=${immediateChargeResult.succeeded}, failed=${immediateChargeResult.failed})`);
+      } catch (e) {
+        tlog(`immediateCharge TIMEOUT/ERROR — 카드는 등록됨, 미납은 cron이 처리: ${e instanceof Error ? e.message : e}`);
+        immediateChargeResult = null;
+      }
     }
 
     // 알림 분기
@@ -129,6 +167,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    tlog('returning success');
     return NextResponse.json({
       success: true,
       card,
@@ -136,6 +175,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     const detail = serializeError(err);
+    tlog(`error: ${detail.message}`);
     console.error('billing-key/issue error:', JSON.stringify(detail));
     return NextResponse.json(
       { error: detail.message, code: detail.code, detail },
