@@ -4,6 +4,31 @@ import { logSystemError, logSystemWarn, logSystemInfo, type LogLevel, type LogCa
 
 export const maxDuration = 10;
 
+// IP 별 throttle — 봇/외부 트래픽이 무한 증폭으로 cost 폭증시키는 사고 차단.
+// 같은 IP 가 30초 안에 5건 넘기면 silent drop (200 OK 로 응답해 클라가 재시도 안 함).
+const _ipBuckets = new Map<string, { count: number; windowStart: number }>();
+const THROTTLE_WINDOW_MS = 30_000;
+const THROTTLE_MAX_PER_WINDOW = 5;
+
+function shouldThrottle(ip: string): boolean {
+  if (!ip || ip === 'unknown') return false;
+  const now = Date.now();
+  const b = _ipBuckets.get(ip);
+  if (!b || now - b.windowStart > THROTTLE_WINDOW_MS) {
+    _ipBuckets.set(ip, { count: 1, windowStart: now });
+    // 메모리 누수 방지 — 1000개 넘으면 만료된 것 정리
+    if (_ipBuckets.size > 1000) {
+      const cutoff = now - THROTTLE_WINDOW_MS;
+      for (const [k, v] of _ipBuckets.entries()) {
+        if (v.windowStart < cutoff) _ipBuckets.delete(k);
+      }
+    }
+    return false;
+  }
+  b.count += 1;
+  return b.count > THROTTLE_MAX_PER_WINDOW;
+}
+
 /**
  * POST — 클라이언트 사이드 에러를 시스템 로그에 기록.
  *
@@ -35,6 +60,11 @@ export async function POST(req: NextRequest) {
     const userAgent = req.headers.get('user-agent') || 'unknown';
     const ipHeader = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '';
     const ip = ipHeader.split(',')[0].trim() || 'unknown';
+
+    // 같은 IP 가 30s 안에 5건 넘으면 silent drop — cost 폭증 차단
+    if (shouldThrottle(ip)) {
+      return NextResponse.json({ ok: true, throttled: true });
+    }
 
     let userId: string | undefined;
     try {

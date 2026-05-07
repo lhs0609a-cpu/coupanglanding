@@ -1,7 +1,9 @@
 'use client';
 
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { LogOut, Menu } from 'lucide-react';
+import { LogOut, Menu, Shield, User } from 'lucide-react';
 import NotificationBell from '@/components/ui/NotificationBell';
 
 interface DashboardHeaderProps {
@@ -11,6 +13,7 @@ interface DashboardHeaderProps {
 }
 
 export default function DashboardHeader({ userName, userRole, onMenuClick }: DashboardHeaderProps) {
+  const pathname = usePathname();
   const handleLogout = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
@@ -18,6 +21,12 @@ export default function DashboardHeader({ userName, userRole, onMenuClick }: Das
   };
 
   const roleLabel = userRole === 'admin' ? '관리자' : userRole === 'partner' ? '파트너' : 'PT 사용자';
+  const isAdmin = userRole === 'admin';
+  const inAdminMode = pathname?.startsWith('/admin') ?? false;
+  const inUserMode = pathname?.startsWith('/my') ?? false;
+  // 어드민이 PT 모드 보고 있으면 "관리자 모드 전환" / 어드민 모드면 "PT 모드 전환" 노출
+  const showAdminLink = isAdmin && inUserMode;
+  const showUserLink = isAdmin && inAdminMode;
 
   return (
     <header className="h-16 border-b border-gray-200 bg-white flex items-center justify-between px-4 lg:px-6">
@@ -36,6 +45,26 @@ export default function DashboardHeader({ userName, userRole, onMenuClick }: Das
       </div>
 
       <div className="flex items-center gap-3">
+        {showAdminLink && (
+          <Link
+            href="/admin/dashboard"
+            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg transition"
+            title="관리자 모드로 전환"
+          >
+            <Shield className="w-3.5 h-3.5" />
+            관리자 모드
+          </Link>
+        )}
+        {showUserLink && (
+          <Link
+            href="/my/dashboard"
+            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition"
+            title="PT 사용자 모드로 전환"
+          >
+            <User className="w-3.5 h-3.5" />
+            PT 모드
+          </Link>
+        )}
         <NotificationBell />
         <div className="text-right">
           <p className="text-sm font-medium text-gray-900">{userName}</p>
