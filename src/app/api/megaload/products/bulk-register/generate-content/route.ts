@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { generateProductStory } from '@/lib/megaload/services/ai.service';
 
+export const maxDuration = 30;
+
+
 /**
  * POST — AI 상세페이지 스토리 생성
  * body: { productName, category, features, description }

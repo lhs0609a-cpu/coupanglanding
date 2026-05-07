@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 import { AD_COST_WARN_RATIO } from '@/lib/payments/ad-cost';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/admin/ad-cost
  *

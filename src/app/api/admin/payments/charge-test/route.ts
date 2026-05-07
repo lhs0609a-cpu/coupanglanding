@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { TossPaymentsAPI } from '@/lib/payments/toss-client';
 import { randomBytes } from 'crypto';
 
+export const maxDuration = 30;
+
+
 /**
  * POST /api/admin/payments/charge-test
  *

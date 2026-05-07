@@ -3,6 +3,9 @@ import { createClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
 import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
 
+export const maxDuration = 30;
+
+
 const SELLER_BASE_PATH = '/v2/providers/seller_api/apis/api/v1/marketplace';
 
 async function callApi(credentials: CoupangCredentials, path: string) {

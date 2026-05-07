@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { notifyDeactivationReminder, notifyAdminOverdueAlert } from '@/lib/utils/notifications';
 
+export const maxDuration = 30;
+
+
 export async function POST() {
   try {
     const serviceClient = await createServiceClient();

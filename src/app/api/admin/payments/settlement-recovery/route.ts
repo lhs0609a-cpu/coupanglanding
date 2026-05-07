@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 import { completeSettlement } from '@/lib/payments/complete-settlement';
 
+export const maxDuration = 30;
+
+
 /**
  * 정산 후처리 누락 복구 — settlement_completed_at IS NULL 인 유료 리포트에 대해
  * completeSettlement 를 재실행한다.

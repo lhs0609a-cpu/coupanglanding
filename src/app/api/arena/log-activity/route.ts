@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { calculateDailyPoints, calculateStreakBonus, getArenaLevel } from '@/lib/utils/arena-points';
 import { generateAnonymousName } from '@/lib/utils/arena-anonymous';
 
+export const maxDuration = 30;
+
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();

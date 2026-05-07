@@ -4,6 +4,9 @@ import { requireAdminRole } from '@/lib/payments/admin-guard';
 import { createNotification } from '@/lib/utils/notifications';
 import { BILLING_DAY } from '@/lib/payments/billing-constants';
 
+export const maxDuration = 30;
+
+
 /**
  * POST /api/admin/payments/[ptUserId]/notify-card-required
  * 관리자가 카드 미등록 PT생에게 "결제 카드 등록" 안내 알림을 즉시 발송.

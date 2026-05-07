@@ -3,6 +3,9 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { notifyAdminSettlementDelay, notifyAdminOverdueAlert } from '@/lib/utils/notifications';
 import { getReportTargetMonth, getSettlementDeadline } from '@/lib/utils/settlement';
 
+export const maxDuration = 30;
+
+
 export async function POST() {
   try {
     const serviceClient = await createServiceClient();

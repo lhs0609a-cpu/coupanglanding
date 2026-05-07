@@ -12,7 +12,9 @@ export default function NotificationBell() {
 
   const fetchNotifications = useCallback(async () => {
     try {
-      const res = await fetch('/api/notifications?limit=10');
+      const res = await fetch('/api/notifications?limit=10', {
+        signal: AbortSignal.timeout(15000),
+      });
       const data = await res.json();
       setNotifications(data.notifications || []);
       setUnreadCount(data.unreadCount || 0);
@@ -53,6 +55,7 @@ export default function NotificationBell() {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ readAll: true }),
+      signal: AbortSignal.timeout(20000),
     });
     setUnreadCount(0);
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
@@ -64,6 +67,7 @@ export default function NotificationBell() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: [n.id] }),
+        signal: AbortSignal.timeout(20000),
       });
       setUnreadCount((prev) => Math.max(0, prev - 1));
       setNotifications((prev) =>

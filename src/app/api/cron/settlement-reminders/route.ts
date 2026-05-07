@@ -3,6 +3,9 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { createNotification } from '@/lib/utils/notifications';
 import { getSettlementDDay, getReportTargetMonth } from '@/lib/utils/settlement';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/cron/settlement-reminders
  *

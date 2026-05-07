@@ -10,6 +10,9 @@ import { selectWithSeed } from '@/lib/megaload/services/item-winner-prevention';
 import { createSeededRandom, stringToSeed } from '@/lib/megaload/services/seeded-random';
 import { THIRD_PARTY_IMAGE_URLS } from '@/lib/megaload/constants/third-party-images';
 
+export const maxDuration = 30;
+
+
 interface PreviewRequestBody {
   product: {
     productCode: string;

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { notifyTrainerTraineeStagnant } from '@/lib/utils/notifications';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/cron/trainer-coaching-check
  *

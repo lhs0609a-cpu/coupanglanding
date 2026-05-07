@@ -5,6 +5,9 @@ import { notifyTrainerNewTrainee, notifyTrainerBonusEarned } from '@/lib/utils/n
 import { getReportCosts } from '@/lib/calculations/deposit';
 import { calculateTrainerBonus } from '@/lib/calculations/trainer';
 
+export const maxDuration = 30;
+
+
 async function requireAdmin(supabase: ReturnType<typeof createClient> extends Promise<infer T> ? T : never) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;

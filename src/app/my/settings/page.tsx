@@ -142,7 +142,7 @@ export default function MySettingsPage() {
 
   const fetchBillingCards = useCallback(async () => {
     try {
-      const res = await fetch('/api/payments/cards');
+      const res = await fetch('/api/payments/cards', { signal: AbortSignal.timeout(15000) });
       if (res.ok) {
         const data = await res.json();
         setBillingCards(data.cards || []);
@@ -302,6 +302,7 @@ export default function MySettingsPage() {
           useExisting: true,
           validate: true,
         }),
+        signal: AbortSignal.timeout(25000),
       });
       const testData = await testRes.json();
 
@@ -318,6 +319,7 @@ export default function MySettingsPage() {
           vendorId: apiVendorId.trim(),
           useExisting: true,
         }),
+        signal: AbortSignal.timeout(25000),
       });
       const saveData = await saveRes.json();
 

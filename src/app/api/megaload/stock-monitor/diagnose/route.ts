@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/megaload/stock-monitor/diagnose
  * 전체 파이프라인 진단 — 어디서 끊기는지 단계별 확인

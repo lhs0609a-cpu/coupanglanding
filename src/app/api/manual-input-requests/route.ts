@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { createNotification } from '@/lib/utils/notifications';
 
+export const maxDuration = 30;
+
+
 /** POST: PT 사용자가 수동 입력 승인 요청 */
 export async function POST(request: NextRequest) {
   try {

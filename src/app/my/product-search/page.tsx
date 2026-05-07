@@ -257,7 +257,7 @@ export default function ProductSearchPage() {
     setError(null);
     try {
       const url = force ? `${LOCAL_CSV_URL}?t=${Date.now()}` : LOCAL_CSV_URL;
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
       if (!res.ok) throw new Error('상품 데이터를 불러오지 못했습니다.');
       const csv = await res.text();
       const parsed = parseProducts(csv);
@@ -292,6 +292,7 @@ export default function ProductSearchPage() {
           batch.map(async (p) => {
             const res = await fetch(
               `/api/naver-shopping/extract-product-image?url=${encodeURIComponent(p.url)}`,
+              { signal: AbortSignal.timeout(15000) },
             );
             if (!res.ok) return { id: p.id, image: '' };
             const data = await res.json();

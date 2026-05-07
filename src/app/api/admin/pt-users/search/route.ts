@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/admin/pt-users/search?q=...
  * 이메일 또는 이름으로 PT 사용자 검색. 최대 20개 반환.

@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/ad-cost/list
  * 본인의 광고비 제출 이력 (year_month 내림차순)

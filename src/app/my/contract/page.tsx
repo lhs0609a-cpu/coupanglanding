@@ -231,6 +231,7 @@ export default function MyContractPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contractId }),
+        signal: AbortSignal.timeout(20000),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -276,6 +277,7 @@ export default function MyContractPage() {
       const uploadRes = await fetch('/api/upload-screenshot', {
         method: 'POST',
         body: formData,
+        signal: AbortSignal.timeout(60000),
       });
       const uploadData = await uploadRes.json();
       if (!uploadRes.ok) {
@@ -288,6 +290,7 @@ export default function MyContractPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contractId, evidenceUrl: uploadData.url }),
+        signal: AbortSignal.timeout(20000),
       });
       const data = await res.json();
       if (!res.ok) {

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/admin/payments/charge-test/cards?ptUserId=...
  * 관리자가 선택한 PT 사용자의 활성 결제 카드 목록 조회.

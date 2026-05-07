@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { randomUUID } from 'crypto';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
+export const maxDuration = 30;
+
+
 /**
  * POST — 여러 이미지 파일을 한 번에 업로드 (인증 1회만)
  * FormData: file_0, file_1, ... file_N (최대 20장)

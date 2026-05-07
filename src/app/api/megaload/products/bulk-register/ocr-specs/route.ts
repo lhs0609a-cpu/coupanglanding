@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { extractSpecsFromBase64Images, extractSpecsFromProductFolder } from '@/lib/megaload/services/product-info-ocr';
 
+export const maxDuration = 30;
+
+
 /**
  * POST — 상품정보 이미지 OCR 스펙 추출
  *

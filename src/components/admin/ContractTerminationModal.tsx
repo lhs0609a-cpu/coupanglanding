@@ -42,6 +42,7 @@ export default function ContractTerminationModal({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contractId, reason: reason.trim() }),
+        signal: AbortSignal.timeout(20000),
       });
 
       const data = await res.json();

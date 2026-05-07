@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { GUIDE_POINTS, getArenaLevel } from '@/lib/utils/arena-points';
 
+export const maxDuration = 30;
+
+
 const GUIDE_MASTER_THRESHOLD = 5; // 5개 카테고리 열람 시 시크릿 배지
 
 export async function POST(request: NextRequest) {

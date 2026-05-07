@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 
+export const maxDuration = 30;
+
+
 /**
  * POST — 배치 등록 잡 완료 처리
  * body: { jobId: string; successCount: number; errorCount: number }

@@ -5,6 +5,9 @@ import { buildCostBreakdown, calculateDeposit, calculateNetProfit, totalCosts } 
 import { calculateVatOnTop } from '@/lib/calculations/vat';
 import { createNotification } from '@/lib/utils/notifications';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/cron/monthly-report-auto-create
  * vercel.json 스케줄: "0 18 * * *" 매일 UTC 18:00 = KST 03:00.

@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { createNotification } from '@/lib/utils/notifications';
 import { getSettlementDDay, getReportTargetMonth } from '@/lib/utils/settlement';
 
+export const maxDuration = 30;
+
+
 export async function POST(request: NextRequest) {
   try {
     // 1. 요청자가 admin인지 확인

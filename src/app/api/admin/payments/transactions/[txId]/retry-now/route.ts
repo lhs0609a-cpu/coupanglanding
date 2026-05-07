@@ -5,7 +5,7 @@ import { requireAdminRole } from '@/lib/payments/admin-guard';
 import { kstDateStr } from '@/lib/payments/billing-constants';
 
 /**
- * POST /api/admin/payments/[txId]/retry-now
+ * POST /api/admin/payments/transactions/[txId]/retry-now
  * 관리자가 24h 대기 없이 즉시 재시도 트리거.
  *
  * 대상: status='failed' AND is_final_failure=false 인 transaction.
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ tx
 
     return NextResponse.json({ success: true, result });
   } catch (err) {
-    console.error('POST /api/admin/payments/[txId]/retry-now error:', err);
+    console.error('POST /api/admin/payments/transactions/[txId]/retry-now error:', err);
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }

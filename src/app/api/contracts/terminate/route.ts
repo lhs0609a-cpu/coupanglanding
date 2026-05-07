@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { logActivity } from '@/lib/utils/activity-log';
 import { notifyContractTermination } from '@/lib/utils/notifications';
 
+export const maxDuration = 30;
+
+
 export async function POST(request: NextRequest) {
   try {
     // 1. 관리자 권한 확인

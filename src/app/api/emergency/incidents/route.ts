@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { logActivity } from '@/lib/utils/activity-log';
 import { notifyIncidentReported } from '@/lib/utils/notifications';
 
+export const maxDuration = 30;
+
+
 export async function GET() {
   try {
     const supabase = await createClient();

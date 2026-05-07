@@ -40,7 +40,7 @@ export default function FolderBrowserModal({ isOpen, onClose, onSelect }: Folder
       const url = targetPath
         ? `/api/megaload/products/bulk-register/browse-folders?path=${encodeURIComponent(targetPath)}`
         : '/api/megaload/products/bulk-register/browse-folders';
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
       const data = (await res.json()) as BrowseResponse & { error?: string };
       if (!res.ok) throw new Error(data.error || '폴더 탐색 실패');
       setEntries(data.entries);

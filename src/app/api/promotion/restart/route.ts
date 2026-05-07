@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 
+export const maxDuration = 30;
+
+
 /** POST: 기존 일괄 적용 취소 후 재시작 */
 export async function POST(request: NextRequest) {
   try {

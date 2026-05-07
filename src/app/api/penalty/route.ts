@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { VALID_PENALTY_CATEGORIES, DEFAULT_SCORE_IMPACTS } from '@/lib/data/penalty-response-guide';
 
+export const maxDuration = 30;
+
+
 export async function GET() {
   try {
     const supabase = await createClient();

@@ -26,7 +26,7 @@ export default function MyViolationsPage() {
 
   useEffect(() => {
     setError(null);
-    fetch('/api/violations')
+    fetch('/api/violations', { signal: AbortSignal.timeout(15000) })
       .then(res => res.json())
       .then(data => {
         if (data.data) setViolations(data.data);
@@ -47,6 +47,7 @@ export default function MyViolationsPage() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: selected.id, partner_response: response }),
+        signal: AbortSignal.timeout(20000),
       });
 
       if (res.ok) {

@@ -14,6 +14,9 @@ import {
 } from '@/lib/utils/notifications';
 import { logActivity } from '@/lib/utils/activity-log';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/cron/fee-payment-check
  *

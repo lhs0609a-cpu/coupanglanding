@@ -3,6 +3,9 @@ import { createClient } from '@/lib/supabase/server';
 import { TREND_SEED_KEYWORDS } from '@/lib/data/trend-seed-keywords';
 import { collectTrendKeywords } from '@/lib/utils/trend-collect';
 
+export const maxDuration = 30;
+
+
 export async function POST(request: NextRequest) {
   try {
     // 관리자 인증

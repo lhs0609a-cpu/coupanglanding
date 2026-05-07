@@ -67,6 +67,7 @@ export default function GuideArticlePage({ params }: PageProps) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ptUserId: ptUser.id, categoryId }),
+          signal: AbortSignal.timeout(3000),
         });
       } catch {
         // 추적 실패해도 페이지 열람에 영향 없음

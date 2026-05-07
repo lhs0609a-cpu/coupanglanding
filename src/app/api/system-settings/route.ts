@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 
+export const maxDuration = 30;
+
+
 // GET: 공개 읽기 — 비율/운영비 설정 조회용
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);

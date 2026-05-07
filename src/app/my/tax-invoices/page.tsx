@@ -30,7 +30,7 @@ export default function MyTaxInvoicesPage() {
     if (yearMonth) params.set('yearMonth', yearMonth);
 
     try {
-      const res = await fetch(`/api/tax-invoices?${params.toString()}`);
+      const res = await fetch(`/api/tax-invoices?${params.toString()}`, { signal: AbortSignal.timeout(15000) });
       if (!res.ok) {
         setError('세금계산서를 불러오지 못했습니다.');
         setInvoices([]);
@@ -57,6 +57,7 @@ export default function MyTaxInvoicesPage() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'confirmed' }),
+        signal: AbortSignal.timeout(20000),
       });
       if (res.ok) {
         fetchInvoices();

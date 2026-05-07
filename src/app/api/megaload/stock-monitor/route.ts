@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/megaload/stock-monitor
  * 사용자 모니터 목록 + 통계 조회

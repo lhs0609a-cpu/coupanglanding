@@ -4,6 +4,9 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { completeSettlement } from '@/lib/payments/complete-settlement';
 import { logSettlementError } from '@/lib/payments/settlement-errors';
 
+export const maxDuration = 30;
+
+
 // 모듈 로드 시점 env 검증 — 시크릿 미설정 채로 배포되면 즉시 명시적 경고를 남긴다.
 //   prod 빌드 시 console.error 가 Vercel 빌드/런타임 로그에 남아 운영자가 즉시 인지 가능.
 //   미설정 자체로 throw 하면 webhook 외 다른 endpoint까지 영향 가능하므로

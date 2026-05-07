@@ -4,6 +4,9 @@ import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
+export const maxDuration = 30;
+
+
 interface TestResult {
   id: string;
   label: string;

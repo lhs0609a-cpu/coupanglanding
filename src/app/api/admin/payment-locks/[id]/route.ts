@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { createNotification } from '@/lib/utils/notifications';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 
+export const maxDuration = 30;
+
+
 interface UpdateBody {
   action: 'reset' | 'exempt' | 'force_level' | 'clear_override' | 'extend_grace' | 'set_test_account';
   exempt_until?: string | null;

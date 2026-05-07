@@ -5,6 +5,9 @@ import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import type { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
 import type { PendingPriceChange } from '@/lib/supabase/types';
 
+export const maxDuration = 30;
+
+
 /**
  * POST /api/megaload/stock-monitor/price-approve
  * body: { monitorId: string }

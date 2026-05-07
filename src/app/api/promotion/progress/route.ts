@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 
+export const maxDuration = 30;
+
+
 /** GET: 최신 일괄 적용 진행 상태 조회 */
 export async function GET() {
   try {

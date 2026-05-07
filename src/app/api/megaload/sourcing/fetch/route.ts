@@ -3,6 +3,9 @@ import { createClient } from '@/lib/supabase/server';
 import { AliexpressAdapter } from '@/lib/megaload/adapters/aliexpress.adapter';
 import { Ali1688Adapter } from '@/lib/megaload/adapters/ali1688.adapter';
 
+export const maxDuration = 30;
+
+
 /**
  * URL에서 상품 ID 추출
  */

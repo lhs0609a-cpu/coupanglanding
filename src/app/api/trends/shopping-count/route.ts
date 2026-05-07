@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
+export const maxDuration = 30;
+
+
 /**
  * POST /api/trends/shopping-count
  * Batch fetch product counts from Naver Shopping Search API

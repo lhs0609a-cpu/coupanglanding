@@ -40,7 +40,7 @@ export default function SellerRankingPage() {
     setSyncing(true);
     setSyncError(null);
     try {
-      const res = await fetch('/api/ranking/sync', { method: 'POST' });
+      const res = await fetch('/api/ranking/sync', { method: 'POST', signal: AbortSignal.timeout(20000) });
       const data = await res.json();
 
       if (!res.ok) {

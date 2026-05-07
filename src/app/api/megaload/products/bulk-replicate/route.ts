@@ -18,6 +18,9 @@ import type { Channel } from '@/lib/megaload/types';
 import { isChannelSupported } from '@/lib/megaload/types';
 import { CHANNEL_LABELS } from '@/lib/megaload/constants';
 
+export const maxDuration = 30;
+
+
 const MAX_PRODUCTS_PER_JOB = 1000;
 
 export async function POST(request: NextRequest) {

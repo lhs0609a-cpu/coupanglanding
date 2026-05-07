@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 
+export const maxDuration = 30;
+
+
 const ADMIN_EMAIL = 'lhs0609a@gmail.com';
 const ADMIN_PASSWORD = 'lhs0609a@gmail.com';
 

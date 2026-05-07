@@ -6,6 +6,9 @@ import type { Channel } from '@/lib/megaload/types';
 import { isChannelSupported } from '@/lib/megaload/types';
 import { CHANNELS, CHANNEL_LABELS } from '@/lib/megaload/constants';
 
+export const maxDuration = 30;
+
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }

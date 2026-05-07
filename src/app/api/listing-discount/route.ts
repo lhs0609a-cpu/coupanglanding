@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { calculateListingDiscount } from '@/lib/calculations/listing-discount';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/listing-discount?netProfit=320000
  *

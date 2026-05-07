@@ -4,6 +4,9 @@ import { completeSettlement } from '@/lib/payments/complete-settlement';
 import { logSettlementError } from '@/lib/payments/settlement-errors';
 import { assertTossEnv } from '@/lib/payments/toss-client';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/cron/payment-reconcile
  *

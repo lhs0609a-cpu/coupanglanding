@@ -4,6 +4,9 @@ import { logActivity } from '@/lib/utils/activity-log';
 import { notifyTaxInvoiceIssued } from '@/lib/utils/notifications';
 import { generateInvoiceNumber } from '@/lib/calculations/vat';
 
+export const maxDuration = 30;
+
+
 async function requireAdmin(supabase: ReturnType<typeof createClient> extends Promise<infer T> ? T : never) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;

@@ -3,6 +3,9 @@ import { createClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
 
+export const maxDuration = 30;
+
+
 /** POST: 쿠팡 정산 데이터 조회 */
 export async function POST(request: NextRequest) {
   try {

@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { calculateLockLevel, kstDateStr } from '@/lib/payments/billing-constants';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/admin/payment-locks
  * 결제 락이 걸려 있거나 곧 걸릴 PT 유저 목록.

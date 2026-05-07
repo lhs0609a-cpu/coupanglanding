@@ -15,6 +15,9 @@ import { isRetryable, failureLabel, isBillingKeyInvalid } from '@/lib/payments/f
 import { logSettlementError } from '@/lib/payments/settlement-errors';
 import { logSystemError } from '@/lib/utils/system-log';
 
+export const maxDuration = 30;
+
+
 type ServiceClient = Awaited<ReturnType<typeof createServiceClient>>;
 
 const CRON_LOCK_KEY = 'cron:auto-billing';

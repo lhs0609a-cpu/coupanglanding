@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 
+export const maxDuration = 30;
+
+
 // 인메모리 레이트 리미팅
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 

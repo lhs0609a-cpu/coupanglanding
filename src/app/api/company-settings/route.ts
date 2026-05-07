@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { logActivity } from '@/lib/utils/activity-log';
 
+export const maxDuration = 30;
+
+
 async function requireAdmin(supabase: ReturnType<typeof createClient> extends Promise<infer T> ? T : never) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;

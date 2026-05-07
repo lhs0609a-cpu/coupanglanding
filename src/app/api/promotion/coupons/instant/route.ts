@@ -4,6 +4,9 @@ import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchInstantCoupons } from '@/lib/utils/coupang-api-client';
 import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
 
+export const maxDuration = 30;
+
+
 export async function GET() {
   try {
     const supabase = await createClient();

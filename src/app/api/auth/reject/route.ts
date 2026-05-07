@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { createClient } from '@/lib/supabase/server';
 
+export const maxDuration = 30;
+
+
 export async function POST(request: NextRequest) {
   try {
     // 요청자가 admin인지 확인

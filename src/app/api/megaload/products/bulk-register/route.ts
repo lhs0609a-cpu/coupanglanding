@@ -3,6 +3,9 @@ import { createClient } from '@/lib/supabase/server';
 import { scanProductFolder } from '@/lib/megaload/services/local-product-reader';
 import { calculateSellingPrice, DEFAULT_BRACKETS } from '@/lib/megaload/services/margin-pricing';
 
+export const maxDuration = 30;
+
+
 /**
  * GET — 폴더 스캔 + 상품 목록 미리보기
  * ?folderPath=J:\...\100-1

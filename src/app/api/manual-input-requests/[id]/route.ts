@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { logActivity } from '@/lib/utils/activity-log';
 import { createNotification } from '@/lib/utils/notifications';
 
+export const maxDuration = 30;
+
+
 /** PATCH: 관리자가 수동 입력 요청 승인/거절 */
 export async function PATCH(
   request: NextRequest,

@@ -4,6 +4,9 @@ import { getAllAuthenticatedAdapters } from '@/lib/megaload/adapters/factory';
 import { CHANNEL_ORDER_STATUS_MAP } from '@/lib/megaload/constants';
 import type { Channel, OrderStatus } from '@/lib/megaload/types';
 
+export const maxDuration = 30;
+
+
 function normalizeOrderStatus(channel: Channel, rawStatus: string): OrderStatus {
   return CHANNEL_ORDER_STATUS_MAP[channel]?.[rawStatus] || 'payment_done';
 }

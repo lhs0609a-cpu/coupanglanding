@@ -3,6 +3,9 @@ import { createClient } from '@/lib/supabase/server';
 import { getSettlementGateLevel, getReportTargetMonth } from '@/lib/utils/settlement';
 import type { PaymentStatus } from '@/lib/utils/settlement';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/my/state-debug
  *

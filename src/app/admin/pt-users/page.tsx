@@ -396,6 +396,7 @@ export default function AdminPtUsersPage() {
           vat_amount: report.vat_amount || 0,
           total_amount: report.total_with_vat || 0,
         }),
+        signal: AbortSignal.timeout(60000),
       });
     } catch { /* 실패해도 정산 확정은 유지 */ }
 

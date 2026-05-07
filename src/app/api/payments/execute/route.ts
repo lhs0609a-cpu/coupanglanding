@@ -6,6 +6,9 @@ import { createNotification } from '@/lib/utils/notifications';
 import { completeSettlement } from '@/lib/payments/complete-settlement';
 import { logSettlementError } from '@/lib/payments/settlement-errors';
 
+export const maxDuration = 30;
+
+
 /**
  * POST /api/payments/execute
  * 수동 즉시 결제 실행

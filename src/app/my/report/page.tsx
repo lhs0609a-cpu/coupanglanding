@@ -161,7 +161,7 @@ export default function MyReportPage() {
 
     // 등록 카드 유무 확인
     try {
-      const cardsRes = await fetch('/api/payments/cards');
+      const cardsRes = await fetch('/api/payments/cards', { signal: AbortSignal.timeout(15000) });
       if (cardsRes.ok) {
         const cardsData = await cardsRes.json();
         setHasCards((cardsData.cards || []).length > 0);
@@ -250,6 +250,7 @@ export default function MyReportPage() {
             ? { periodStart: settlementPeriod.start, periodEnd: settlementPeriod.end }
             : {}),
         }),
+        signal: AbortSignal.timeout(60000),
       });
 
       const data = await res.json();
@@ -300,6 +301,7 @@ export default function MyReportPage() {
     const res = await fetch('/api/upload-screenshot', {
       method: 'POST',
       body: formData,
+      signal: AbortSignal.timeout(60000),
     });
 
     const data = await res.json();

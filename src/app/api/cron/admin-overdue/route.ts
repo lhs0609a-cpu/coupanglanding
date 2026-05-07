@@ -3,6 +3,9 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { createNotification } from '@/lib/utils/notifications';
 import { getReportTargetMonth, getSettlementDeadline } from '@/lib/utils/settlement';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/cron/admin-overdue
  *

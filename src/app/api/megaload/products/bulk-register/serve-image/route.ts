@@ -3,6 +3,9 @@ import { createClient } from '@/lib/supabase/server';
 import { readFile } from 'fs/promises';
 import { resolve, extname } from 'path';
 
+export const maxDuration = 30;
+
+
 const MIME_MAP: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',

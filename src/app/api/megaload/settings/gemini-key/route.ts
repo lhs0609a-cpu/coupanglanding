@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
+export const maxDuration = 30;
+
+
 function maskKey(key: string | null | undefined): string | null {
   if (!key) return null;
   if (key.length < 12) return '****';

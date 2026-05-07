@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { grantEducationRewards } from '@/lib/utils/education-rewards';
 
+export const maxDuration = 30;
+
+
 export async function POST(request: NextRequest) {
   try {
     // 인증 확인

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { notifyTicketCreated } from '@/lib/utils/notifications';
 
+export const maxDuration = 30;
+
+
 export async function GET() {
   try {
     const supabase = await createClient();

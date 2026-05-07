@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { AD_ACADEMY_STAGES } from '@/lib/data/ad-academy-stages';
 import { grantAdAcademyRewards } from '@/lib/utils/ad-academy-rewards';
 
+export const maxDuration = 30;
+
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();

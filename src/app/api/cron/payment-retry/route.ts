@@ -4,6 +4,9 @@ import { retryTransaction } from '@/lib/payments/retry-runner';
 import { kstDateStr, MAX_PAYMENT_RETRY_COUNT } from '@/lib/payments/billing-constants';
 import { logSettlementError } from '@/lib/payments/settlement-errors';
 
+export const maxDuration = 30;
+
+
 const CRON_LOCK_KEY = 'cron:payment-retry';
 // payment-retry 배치 최대 실행 예상 시간(초). 이 시간이 지나면 stale 로 간주하고 강탈 가능.
 const CRON_LOCK_TTL_SECONDS = 30 * 60;

@@ -240,6 +240,7 @@ export default function AdminDashboardPage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId }),
+      signal: AbortSignal.timeout(20000),
     });
     fetchData();
   };
@@ -427,6 +428,7 @@ export default function AdminDashboardPage() {
           vat_amount: report.vat_amount || 0,
           total_amount: report.total_with_vat || 0,
         }),
+        signal: AbortSignal.timeout(20000),
       });
     } catch { /* 실패해도 정산 확정은 유지 */ }
 

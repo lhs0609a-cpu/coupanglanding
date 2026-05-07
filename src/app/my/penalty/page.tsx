@@ -102,7 +102,7 @@ export default function MyPenaltyPage() {
   const fetchData = async () => {
     setError(null);
     try {
-      const res = await fetch('/api/penalty');
+      const res = await fetch('/api/penalty', { signal: AbortSignal.timeout(15000) });
       if (!res.ok) {
         setError('페널티 정보를 불러오지 못했습니다.');
         return;
@@ -143,6 +143,7 @@ export default function MyPenaltyPage() {
           occurred_at: formOccurredAt,
           evidence_url: formEvidenceUrl.trim() || null,
         }),
+        signal: AbortSignal.timeout(20000),
       });
       if (res.ok) {
         setModalOpen(false);

@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { notifyBugReportCreated } from '@/lib/utils/notifications';
 
+export const maxDuration = 30;
+
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();

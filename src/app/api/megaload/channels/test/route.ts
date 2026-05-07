@@ -4,6 +4,9 @@ import { createAdapter } from '@/lib/megaload/adapters/factory';
 import type { Channel } from '@/lib/megaload/types';
 import { clearCoupangApiBlock } from '@/lib/utils/coupang-circuit-breaker';
 
+export const maxDuration = 30;
+
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();

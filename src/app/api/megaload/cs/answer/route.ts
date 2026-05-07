@@ -3,6 +3,9 @@ import { createClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import type { Channel } from '@/lib/megaload/types';
 
+export const maxDuration = 30;
+
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();

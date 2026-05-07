@@ -4,6 +4,9 @@ import { PERIOD_OPTIONS, getDateRange, transformDatalabResponse } from '@/lib/ut
 import type { PeriodOption } from '@/lib/utils/trend-chart';
 import type { TrendDataPoint } from '@/lib/supabase/types';
 
+export const maxDuration = 30;
+
+
 /**
  * Naver DataLab Shopping Insight API 프록시 + Supabase 캐시
  *

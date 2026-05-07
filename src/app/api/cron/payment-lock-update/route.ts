@@ -3,6 +3,9 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { calculateLockLevel, kstDateStr } from '@/lib/payments/billing-constants';
 import { createNotification } from '@/lib/utils/notifications';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/cron/payment-lock-update
  * 매일 04:00 KST 실행. payment_overdue_since 기준으로 lock_level 갱신.

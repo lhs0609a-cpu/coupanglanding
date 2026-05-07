@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/naver-shopping/search?query=...&display=30&sort=sim
  * 네이버 쇼핑 검색 프록시

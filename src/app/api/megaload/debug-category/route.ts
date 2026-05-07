@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { matchCategoryBatch } from '@/lib/megaload/services/category-matcher';
 
+export const maxDuration = 30;
+
+
 /**
  * 디버그용: 인증 없이 카테고리 매칭 테스트
  * GET /api/megaload/debug-category?names=비오틴+60정,오메가3+120캡슐

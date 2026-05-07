@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 
+export const maxDuration = 30;
+
+
 /**
  * GET — 쿠팡 카테고리 검색
  * ?keyword=비오틴

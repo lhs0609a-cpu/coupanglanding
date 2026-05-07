@@ -4,6 +4,9 @@ import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
+export const maxDuration = 30;
+
+
 /**
  * GET — 쿠팡 API 연결 테스트 + 디버그 정보 반환
  * 프록시 경유 출고지 목록 조회로 인증 동작 확인

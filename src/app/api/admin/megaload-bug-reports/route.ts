@@ -5,6 +5,9 @@ import { logSystemError } from '@/lib/utils/system-log';
 import { notifyBugReportStatusChanged } from '@/lib/utils/notifications';
 import { BUG_REPORT_STATUS_LABELS } from '@/lib/utils/constants';
 
+export const maxDuration = 30;
+
+
 async function requireAdmin(supabase: ReturnType<typeof createClient> extends Promise<infer T> ? T : never) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;

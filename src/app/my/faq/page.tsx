@@ -142,7 +142,7 @@ export default function FaqPage() {
   const fetchFaqs = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/faqs');
+      const res = await fetch('/api/faqs', { signal: AbortSignal.timeout(10000) });
       if (!res.ok) throw new Error('FAQ 조회 실패');
       const json = await res.json();
       setFaqs(json.data || []);

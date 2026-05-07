@@ -12,6 +12,9 @@ import {
 } from '@/lib/megaload/services/stock-image-service';
 import { resolveStockCategoryKey } from '@/lib/megaload/data/stock-image-categories';
 
+export const maxDuration = 30;
+
+
 interface StockImageProduct {
   uid: string;
   categoryPath: string;

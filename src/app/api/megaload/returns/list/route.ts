@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/megaload/returns/list?status=RETURNS_UNCHECKED&limit=50
  * megaload_return_requests에서 반품 요청 목록 조회

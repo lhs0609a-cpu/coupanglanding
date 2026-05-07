@@ -4,6 +4,9 @@ import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchProductListings } from '@/lib/utils/coupang-api-client';
 import { calculateDailyPoints } from '@/lib/utils/arena-points';
 
+export const maxDuration = 30;
+
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();

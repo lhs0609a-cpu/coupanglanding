@@ -4,6 +4,9 @@ import { randomUUID } from 'crypto';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { detectImageFormat, getImageDimensions } from '@/lib/megaload/services/image-processor';
 
+export const maxDuration = 30;
+
+
 /**
  * POST — 브라우저에서 이미지 파일을 받아 Supabase Storage에 업로드
  * FormData: file (단일 파일)

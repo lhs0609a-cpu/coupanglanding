@@ -6,6 +6,9 @@ import {
   getPreviousMonthYM,
 } from '@/lib/payments/ad-cost';
 
+export const maxDuration = 30;
+
+
 /**
  * POST /api/ad-cost/submit
  * 광고비 제출 (직전 달, screenshot URL 동봉)

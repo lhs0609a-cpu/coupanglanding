@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 
+export const maxDuration = 30;
+
+
 async function requireAdmin(supabase: ReturnType<typeof createClient> extends Promise<infer T> ? T : never) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
+export const maxDuration = 30;
+
+
 // ─── 품절 감지 패턴 (플랫폼별) ──────────────────────────────
 // HTML 텍스트에서 매칭하므로 대소문자 무시
 const SOLDOUT_PATTERNS = [

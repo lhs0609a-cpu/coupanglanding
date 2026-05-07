@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
+export const maxDuration = 30;
+
+
 /**
  * POST /api/megaload/stock-monitor/backfill
  * 기존 등록 상품(source_url 있고 쿠팡 매핑 존재)을 sh_stock_monitors에 일괄 등록

@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 
+export const maxDuration = 30;
+
+
 // POST: 만료된 계약 자동 감지 및 상태 업데이트
 export async function POST() {
   try {

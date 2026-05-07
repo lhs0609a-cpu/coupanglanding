@@ -4,6 +4,9 @@ import { requireAdminRole } from '@/lib/payments/admin-guard';
 import { createNotification } from '@/lib/utils/notifications';
 import { AD_COST_MAX_ATTEMPTS } from '@/lib/payments/ad-cost';
 
+export const maxDuration = 30;
+
+
 /**
  * POST /api/admin/ad-cost/[id]/reject
  * 광고비 제출 반려.

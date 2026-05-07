@@ -145,7 +145,7 @@ export default function PromotionPage() {
 
   const fetchContracts = useCallback(async () => {
     try {
-      const res = await fetch('/api/promotion/contracts');
+      const res = await fetch('/api/promotion/contracts', { signal: AbortSignal.timeout(15000) });
       if (res.ok) {
         const data = await res.json();
         setContracts(data.data || []);
@@ -247,7 +247,7 @@ export default function PromotionPage() {
       const poll = async () => {
         if (!active) return;
         // fetchProgress가 상태를 업데이트하면 useEffect가 재실행되어 폴링 중단
-        const freshProgress = await fetch('/api/promotion/progress').then(r => r.json()).catch(() => null);
+        const freshProgress = await fetch('/api/promotion/progress', { signal: AbortSignal.timeout(10000) }).then(r => r.json()).catch(() => null);
         const currentStatus = freshProgress?.progress?.status;
         if (currentStatus === 'cancelled' || currentStatus === 'completed' || currentStatus === 'failed') {
           await fetchProgress(); // UI 업데이트
@@ -259,6 +259,7 @@ export default function PromotionPage() {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ nextToken: collectNextTokenRef.current, collectDays: collectDaysRef.current }),
+              signal: AbortSignal.timeout(60000),
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok) {
@@ -275,7 +276,7 @@ export default function PromotionPage() {
               }
             }
           } else {
-            const res = await fetch('/api/promotion/bulk-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+            const res = await fetch('/api/promotion/bulk-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(60000) });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
               errorRetryRef.current++;
@@ -336,6 +337,7 @@ export default function PromotionPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...config, is_enabled: newEnabled }),
+        signal: AbortSignal.timeout(20000),
       });
       const data = await res.json();
       if (res.ok) {
@@ -361,6 +363,7 @@ export default function PromotionPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
+        signal: AbortSignal.timeout(20000),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -377,6 +380,7 @@ export default function PromotionPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ collectDays }),
+          signal: AbortSignal.timeout(60000),
         });
         if (!collectRes.ok) {
           const collectData = await collectRes.json();
@@ -398,7 +402,7 @@ export default function PromotionPage() {
   const handleCancel = async () => {
     setCancelling(true);
     try {
-      await fetch('/api/promotion/progress', { method: 'DELETE' });
+      await fetch('/api/promotion/progress', { method: 'DELETE', signal: AbortSignal.timeout(15000) });
       await fetchProgress();
     } catch { /* ignore */ } finally {
       setCancelling(false);
@@ -415,6 +419,7 @@ export default function PromotionPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ collectDays: daysToUse }),
+        signal: AbortSignal.timeout(20000),
       });
       await fetchProgress();
     } catch { /* ignore */ } finally {
@@ -434,6 +439,7 @@ export default function PromotionPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ collectDays: daysToUse }),
+        signal: AbortSignal.timeout(20000),
       });
       await fetchProgress();
       // polling이 collecting 상태를 감지하고 collect-products 호출
@@ -453,6 +459,7 @@ export default function PromotionPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ progressId: progress?.id }),
+        signal: AbortSignal.timeout(60000),
       });
       const data = await res.json();
       if (res.ok) {

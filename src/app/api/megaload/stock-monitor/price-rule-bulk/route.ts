@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import type { PriceFollowRule } from '@/lib/supabase/types';
 
+export const maxDuration = 30;
+
+
 /**
  * POST /api/megaload/stock-monitor/price-rule-bulk
  * body: { monitorIds: string[], rule: PriceFollowRule | null }

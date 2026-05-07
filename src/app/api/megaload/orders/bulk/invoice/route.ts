@@ -4,6 +4,9 @@ import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { COURIER_CHANNEL_CODES } from '@/lib/megaload/constants';
 import type { Channel } from '@/lib/megaload/types';
 
+export const maxDuration = 30;
+
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();

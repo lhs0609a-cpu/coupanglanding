@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 
+export const maxDuration = 30;
+
+
 /** 제조사/법인명 패턴 — brand 필드에 제조사가 들어온 경우 감지 */
 const MANUFACTURER_RE = /주식회사|법인|제조|산업|공업|식품공장|팜$|팜\s|코퍼레이션|엔터프라이즈|인터내셔널|홀딩스|그룹$|\(주\)|\(유\)|co\.,?\s*ltd|inc\.|corp\./i;
 

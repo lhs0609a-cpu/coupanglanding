@@ -5,6 +5,9 @@ import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { getCategoryDetails } from '@/lib/megaload/services/category-matcher';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/megaload/diag/attribute-check?code=58920
  *

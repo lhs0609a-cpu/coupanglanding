@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import crypto from 'crypto';
 import { parseNaverCount, calculateTrendScore } from '@/lib/utils/trend-collect';
 
+export const maxDuration = 30;
+
+
 function generateSignature(timestamp: number, method: string, path: string, secretKey: string): string {
   const message = `${timestamp}.${method}.${path}`;
   return crypto.createHmac('sha256', secretKey).update(message).digest('base64');

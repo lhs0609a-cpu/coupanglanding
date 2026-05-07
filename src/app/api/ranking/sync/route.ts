@@ -4,6 +4,9 @@ import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchTotalProductCount } from '@/lib/utils/coupang-api-client';
 import { generateAnonymousName } from '@/lib/utils/arena-anonymous';
 
+export const maxDuration = 30;
+
+
 export async function POST() {
   try {
     const supabase = await createClient();

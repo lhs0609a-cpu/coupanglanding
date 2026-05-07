@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 
+export const maxDuration = 30;
+
+
 /** POST: 쿠폰 자동 동기화 활성화/비활성화 토글 */
 export async function POST(_request: NextRequest) {
   try {

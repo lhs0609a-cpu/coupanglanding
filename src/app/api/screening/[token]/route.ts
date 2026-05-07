@@ -3,6 +3,9 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { SCREENING_QUESTIONS, FREE_TEXT_QUESTION } from '@/lib/data/screening-questions';
 import { calculateScreeningScore } from '@/lib/utils/screening-scorer';
 
+export const maxDuration = 30;
+
+
 // GET: 토큰 검증 → 질문 반환 (공개 API, 인증 불요)
 export async function GET(
   _request: NextRequest,

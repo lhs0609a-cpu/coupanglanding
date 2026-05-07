@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 import { kstMonthStr } from '@/lib/payments/billing-constants';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/admin/payments/diagnostics
  * "왜 자동결제가 안 됐는지" 진단 — 14명 PT생 vs 결제 0건 미스매치 원인 추적.

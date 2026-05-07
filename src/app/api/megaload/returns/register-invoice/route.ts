@@ -4,6 +4,9 @@ import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
 
+export const maxDuration = 30;
+
+
 /**
  * POST /api/megaload/returns/register-invoice
  * body: { receiptId, deliveryCompanyCode, invoiceNumber, regNumber? }

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/naver-shopping/extract-product-name?url=...
  * URL에서 상품명 스크래핑 (og:title → title 태그)

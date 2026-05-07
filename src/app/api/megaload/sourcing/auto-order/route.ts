@@ -3,6 +3,9 @@ import { createClient } from '@/lib/supabase/server';
 import { AliexpressAdapter } from '@/lib/megaload/adapters/aliexpress.adapter';
 import { Ali1688Adapter } from '@/lib/megaload/adapters/ali1688.adapter';
 
+export const maxDuration = 30;
+
+
 export async function POST(request: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { validateExifMetadataServer } from '@/lib/utils/exif-validation-server';
 
+export const maxDuration = 30;
+
+
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 

@@ -4,6 +4,9 @@ import { requireAdminRole } from '@/lib/payments/admin-guard';
 import { createBulkNotifications } from '@/lib/utils/notifications';
 import { kstMonthStr } from '@/lib/payments/billing-constants';
 
+export const maxDuration = 30;
+
+
 /**
  * POST /api/admin/payments/bulk-report-request
  * 직전 마감월의 monthly_reports 가 없는 PT생 전원에게 "리포트 제출 요청" 알림 일괄 발송.

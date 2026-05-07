@@ -53,6 +53,7 @@ export default function OnboardingPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ channel, credentials: creds }),
+        signal: AbortSignal.timeout(25000),
       });
       const data = await res.json();
       if (data.success) {
@@ -72,6 +73,7 @@ export default function OnboardingPage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ channel, credentials: creds }),
+      signal: AbortSignal.timeout(20000),
     });
   }, []);
 
@@ -113,7 +115,7 @@ export default function OnboardingPage() {
       // 상품 가져오기 트리거
       setLoading(true);
       try {
-        await fetch('/api/megaload/products/sync-coupang', { method: 'POST' });
+        await fetch('/api/megaload/products/sync-coupang', { method: 'POST', signal: AbortSignal.timeout(60000) });
       } catch {
         // 백그라운드 처리이므로 에러 무시
       }

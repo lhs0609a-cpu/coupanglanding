@@ -5,6 +5,9 @@ import { createNotification } from '@/lib/utils/notifications';
 import { calculateDeposit, getReportCosts } from '@/lib/calculations/deposit';
 import { calculateVatOnTop } from '@/lib/calculations/vat';
 
+export const maxDuration = 30;
+
+
 /**
  * POST /api/admin/ad-cost/[id]/approve
  * 광고비 제출 승인 — pending → approved.

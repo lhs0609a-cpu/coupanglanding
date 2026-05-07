@@ -4,6 +4,9 @@ import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import fs from 'fs/promises';
 import path from 'path';
 
+export const maxDuration = 30;
+
+
 interface CsvProduct {
   id: string;
   name: string;

@@ -117,7 +117,7 @@ export default function AdCostPage() {
       formData.append('ptUserId', ptUser.id);
       formData.append('yearMonth', targetMonth);
       formData.append('type', 'ad');
-      const upRes = await fetch('/api/upload-screenshot', { method: 'POST', body: formData });
+      const upRes = await fetch('/api/upload-screenshot', { method: 'POST', body: formData, signal: AbortSignal.timeout(60000) });
       const upData = await upRes.json();
       if (!upRes.ok) {
         setMessage({ type: 'error', text: upData.error || '업로드 실패' });
@@ -129,6 +129,7 @@ export default function AdCostPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ yearMonth: targetMonth, amount, screenshotUrl: upData.url }),
+        signal: AbortSignal.timeout(20000),
       });
       const subData = await subRes.json();
       if (!subRes.ok) {

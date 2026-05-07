@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { queryBankImages } from '@/lib/megaload/services/stock-image-service';
 
+export const maxDuration = 30;
+
+
 /**
  * GET /api/megaload/products/stock-images/bank?category=apple
  *

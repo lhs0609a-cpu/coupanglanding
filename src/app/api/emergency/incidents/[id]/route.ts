@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 
+export const maxDuration = 30;
+
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },

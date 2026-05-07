@@ -29,7 +29,7 @@ export default function MyEmergencyPage() {
       setError(null);
 
       // 인시던트 로드
-      const incidentRes = await fetch('/api/emergency/incidents');
+      const incidentRes = await fetch('/api/emergency/incidents', { signal: AbortSignal.timeout(15000) });
       const incidentData = await incidentRes.json();
       if (!incidentRes.ok) {
         console.error('인시던트 API 에러:', incidentData);
@@ -38,7 +38,7 @@ export default function MyEmergencyPage() {
       setIncidents(incidentData.data || []);
 
       // 블랙리스트 로드
-      const blRes = await fetch(`/api/emergency/blacklist${searchTerm ? `?search=${encodeURIComponent(searchTerm)}` : ''}`);
+      const blRes = await fetch(`/api/emergency/blacklist${searchTerm ? `?search=${encodeURIComponent(searchTerm)}` : ''}`, { signal: AbortSignal.timeout(15000) });
       const blData = await blRes.json();
       if (!blRes.ok) {
         console.error('블랙리스트 API 에러:', blData);

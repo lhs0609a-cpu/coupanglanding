@@ -4,6 +4,9 @@ import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
 import { matchCategory } from '@/lib/megaload/services/category-matcher';
 
+export const maxDuration = 30;
+
+
 /**
  * POST — 상품명으로 쿠팡 카테고리 자동 매칭
  * body: { productName: string }

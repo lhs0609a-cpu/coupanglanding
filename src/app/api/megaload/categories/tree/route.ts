@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import detailsData from '@/lib/megaload/data/coupang-cat-details.json';
 
+export const maxDuration = 30;
+
+
 export const runtime = 'nodejs';
 // 카테고리 데이터는 정적이라 캐싱 강력. 매 요청마다 16k 엔트리 직렬화 회피.
 export const revalidate = 86400; // 24h
