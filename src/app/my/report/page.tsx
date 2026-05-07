@@ -254,12 +254,20 @@ export default function MyReportPage() {
         return;
       }
 
-      // 매출 자동 입력
+      // 매출 자동 입력 — totalSales > 0 + itemCount > 0 둘 다 충족할 때만 검증완료
+      const hasRealData = (data.totalSales || 0) > 0 && (data.itemCount || 0) > 0;
       setRevenue(data.totalSales || 0);
-      setApiVerified(true);
-      setApiSettlementData(data.settlementData || null);
+      setApiVerified(hasRealData);
+      setApiSettlementData(hasRealData ? data.settlementData : null);
       setManualMode(false);
-      setMessage({ type: 'success', text: `API에서 매출 데이터를 가져왔습니다. (총 ${data.itemCount || 0}건)` });
+      if (hasRealData) {
+        setMessage({ type: 'success', text: `API에서 매출 데이터를 가져왔습니다. (총 ${data.itemCount || 0}건)` });
+      } else {
+        setMessage({
+          type: 'error',
+          text: 'API 응답이 비어있습니다 (정산 항목 0건). 쿠팡에 인식된 매출이 없거나 API 키가 만료되었을 수 있습니다. 수동 입력 승인을 요청해주세요.',
+        });
+      }
     } catch {
       setMessage({ type: 'error', text: 'API 조회 중 오류가 발생했습니다. 수동 입력 승인을 요청해주세요.' });
     } finally {
@@ -1015,7 +1023,13 @@ export default function MyReportPage() {
               id="revenue"
               label="이번 달 총 매출"
               value={revenue}
-              onChange={setRevenue}
+              onChange={(v) => {
+                setRevenue(v);
+                // 사용자가 직접 수정하면 API 검증 무효화 (실제 API값이 아니므로)
+                if (apiVerified && v !== (apiSettlementData?.totalSales as number | undefined)) {
+                  setApiVerified(false);
+                }
+              }}
               placeholder="0"
               suffix="원"
               disabled={!isEditable}
