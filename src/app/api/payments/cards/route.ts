@@ -3,40 +3,62 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { TossPaymentsAPI } from '@/lib/payments/toss-client';
 import { logSettlementError } from '@/lib/payments/settlement-errors';
 
+export const maxDuration = 15;
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const tid = setTimeout(() => reject(new Error(`timeout(${ms}ms): ${label}`)), ms);
+    Promise.resolve(p).then(v => { clearTimeout(tid); resolve(v); }).catch(e => { clearTimeout(tid); reject(e); });
+  });
+}
+
 /**
  * GET /api/payments/cards — 등록 카드 목록 (민감 필드는 노출하지 않음)
  * DELETE /api/payments/cards — 카드 비활성화 + 토스 빌링키 폐기
  * PATCH /api/payments/cards — 기본 카드 변경
  */
 export async function GET() {
+  const t0 = Date.now();
+  const tlog = (s: string) => console.log(`[cards.GET] ${s} +${Date.now() - t0}ms`);
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const got = await withTimeout(supabase.auth.getUser(), 5_000, 'auth.getUser');
+    const user = got.data.user;
+    tlog(`auth.getUser done (user=${user?.id || 'none'})`);
     if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 });
 
-    const { data: ptUser } = await supabase
-      .from('pt_users')
-      .select('id')
-      .eq('profile_id', user.id)
-      .single();
-
+    const ptRes = await withTimeout<{ data: { id: string } | null }>(
+      Promise.resolve(supabase.from('pt_users').select('id').eq('profile_id', user.id).maybeSingle()),
+      5_000,
+      'pt_users select',
+    );
+    const ptUser = ptRes.data;
+    tlog(`pt_users done (found=${!!ptUser})`);
     if (!ptUser) return NextResponse.json({ error: 'PT 사용자 없음' }, { status: 404 });
 
     // 민감 컬럼(billing_key, customer_key) 은 제외하고 반환
-    const { data: cards, error } = await supabase
-      .from('billing_cards')
-      .select('id, pt_user_id, card_company, card_number, card_type, is_active, is_primary, failed_count, registered_at, last_used_at, created_at')
-      .eq('pt_user_id', ptUser.id)
-      .eq('is_active', true)
-      .order('is_primary', { ascending: false })
-      .order('created_at', { ascending: false });
+    const cardsRes = await withTimeout<{ data: Record<string, unknown>[] | null; error: { message: string } | null }>(
+      Promise.resolve(supabase
+        .from('billing_cards')
+        .select('id, pt_user_id, card_company, card_number, card_type, is_active, is_primary, failed_count, registered_at, last_used_at, created_at')
+        .eq('pt_user_id', ptUser.id)
+        .eq('is_active', true)
+        .order('is_primary', { ascending: false })
+        .order('created_at', { ascending: false })),
+      5_000,
+      'billing_cards select',
+    );
+    const cards = cardsRes.data;
+    const error = cardsRes.error;
+    tlog(`billing_cards done (count=${cards?.length || 0}, err=${error?.message || 'none'})`);
 
     if (error) throw error;
 
     return NextResponse.json({ cards: cards || [] });
   } catch (err) {
+    tlog(`error: ${err instanceof Error ? err.message : String(err)}`);
     console.error('GET /api/payments/cards error:', err);
-    return NextResponse.json({ error: '서버 오류' }, { status: 500 });
+    return NextResponse.json({ error: '서버 오류', detail: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
 }
 

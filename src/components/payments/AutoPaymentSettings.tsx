@@ -22,14 +22,16 @@ export default function AutoPaymentSettings({ cards }: AutoPaymentSettingsProps)
 
   const fetchSchedule = async () => {
     try {
-      const res = await fetch('/api/payments/schedule');
+      const res = await fetch('/api/payments/schedule', {
+        signal: AbortSignal.timeout(12_000),
+      });
       const data = await res.json();
       if (data.schedule) {
         setSchedule(data.schedule);
         setSelectedCardId(data.schedule.billing_card_id || '');
       }
     } catch {
-      // ignore
+      // ignore — UI shows empty/default state
     } finally {
       setLoading(false);
     }

@@ -2,34 +2,53 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { BILLING_DAY } from '@/lib/payments/billing-constants';
 
+export const maxDuration = 15;
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const tid = setTimeout(() => reject(new Error(`timeout(${ms}ms): ${label}`)), ms);
+    Promise.resolve(p).then(v => { clearTimeout(tid); resolve(v); }).catch(e => { clearTimeout(tid); reject(e); });
+  });
+}
+
 /**
  * GET /api/payments/schedule — 자동결제 스케줄 조회
  * PUT /api/payments/schedule — 자동결제 설정 변경
  */
 export async function GET() {
+  const t0 = Date.now();
+  const tlog = (s: string) => console.log(`[schedule.GET] ${s} +${Date.now() - t0}ms`);
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const got = await withTimeout(supabase.auth.getUser(), 5_000, 'auth.getUser');
+    const user = got.data.user;
+    tlog(`auth.getUser done (user=${user?.id || 'none'})`);
     if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 });
 
-    const { data: ptUser } = await supabase
-      .from('pt_users')
-      .select('id')
-      .eq('profile_id', user.id)
-      .single();
+    const ptRes = await withTimeout<{ data: { id: string } | null }>(
+      Promise.resolve(supabase.from('pt_users').select('id').eq('profile_id', user.id).maybeSingle()),
+      5_000,
+      'pt_users select',
+    );
+    const ptUser = ptRes.data;
+    tlog(`pt_users done (found=${!!ptUser})`);
 
     if (!ptUser) return NextResponse.json({ error: 'PT 사용자 없음' }, { status: 404 });
 
-    const { data: schedule } = await supabase
-      .from('payment_schedules')
-      .select('*, billing_card:billing_cards(*)')
-      .eq('pt_user_id', ptUser.id)
-      .single();
+    // join 분리 — billing_card 조인이 RLS로 hang하는 경우 대비
+    const schedRes = await withTimeout<{ data: Record<string, unknown> | null }>(
+      Promise.resolve(supabase.from('payment_schedules').select('*').eq('pt_user_id', ptUser.id).maybeSingle()),
+      5_000,
+      'payment_schedules select',
+    );
+    const schedule = schedRes.data;
+    tlog(`schedule done (found=${!!schedule})`);
 
     return NextResponse.json({ schedule: schedule || null });
   } catch (err) {
+    tlog(`error: ${err instanceof Error ? err.message : String(err)}`);
     console.error('GET /api/payments/schedule error:', err);
-    return NextResponse.json({ error: '서버 오류' }, { status: 500 });
+    return NextResponse.json({ error: '서버 오류', detail: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
 }
 
