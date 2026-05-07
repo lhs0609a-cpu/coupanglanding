@@ -13,6 +13,7 @@
   },
   "include": [
     "../src/lib/megaload/services/category-matcher.ts",
+    "../src/lib/megaload/services/option-extractor.ts",
     "../src/lib/megaload/services/seller-name-sanitizer.ts",
     "../src/lib/megaload/services/fragment-composer.ts",
     "../src/lib/megaload/services/persuasion-engine.ts",

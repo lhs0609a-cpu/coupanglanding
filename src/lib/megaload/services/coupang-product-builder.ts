@@ -474,6 +474,23 @@ export function buildCoupangProductPayload(
           console.log(`[payload-builder] buyOption 이름 정규화 매칭: "${opt.name}" → API명 "${metaAttributes[existingIdx].attributeTypeName}"`);
         }
       }
+      // 3차: 단위 기반 fallback — 쿠팡 라이브 API 가 우리 로컬 buyOption 이름과 다른 이름을 쓸 때 (예: "개당 중량" vs "내용량(g)")
+      // 같은 단위(g/ml/개) NUMBER 속성에 매칭. 단위가 unique 한 buyOption(중량/용량/수량)에서 가장 흔한 mismatch 복구.
+      if (existingIdx < 0 && opt.unit) {
+        const targetUnit = opt.unit;
+        const candidateMeta = attributeMeta?.find(m =>
+          m.dataType === 'NUMBER'
+          && m.exposed === 'EXPOSED'
+          && (m.basicUnit === targetUnit || (m.usableUnits || []).includes(targetUnit))
+          && !extractedAttrNames.has(m.attributeTypeName), // 다른 buyOption 이 이미 차지한 attr 제외
+        );
+        if (candidateMeta) {
+          existingIdx = metaAttributes.findIndex(a => a.attributeTypeName === candidateMeta.attributeTypeName);
+          if (existingIdx >= 0) {
+            console.log(`[payload-builder] buyOption 단위 매칭 fallback: "${opt.name}" (${opt.unit}) → API명 "${candidateMeta.attributeTypeName}"`);
+          }
+        }
+      }
 
       if (existingIdx >= 0) {
         const oldVal = metaAttributes[existingIdx].attributeValueName;
