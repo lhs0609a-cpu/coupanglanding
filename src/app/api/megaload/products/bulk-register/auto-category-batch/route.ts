@@ -59,6 +59,23 @@ export async function POST(req: NextRequest) {
       }).catch(() => {});
     }
 
+    // 저신뢰도(<0.5) 매칭 — 매칭은 됐지만 잘못 분류 가능성 — 사용자가 답답할 수 있음
+    const lowConfidence = batchResults.filter((r) => r && r.confidence > 0 && r.confidence < 0.5);
+    if (lowConfidence.length > 0) {
+      const sample = lowConfidence.slice(0, 3).map((r) => ({
+        name: r!.categoryName,
+        confidence: r!.confidence,
+        path: r!.categoryPath,
+      }));
+      void logSystemWarn({
+        source: 'megaload/category-low-confidence',
+        category: 'megaload',
+        message: `저신뢰도 카테고리 매칭 ${lowConfidence.length}건 (전체 ${body.productNames.length}) — confidence < 0.5`,
+        userId: user.id,
+        context: { totalCount: body.productNames.length, lowCount: lowConfidence.length, sample },
+      }).catch(() => {});
+    }
+
     return NextResponse.json({ results, failures });
   } catch (err) {
     console.error('[auto-category-batch] ERROR:', err);

@@ -19,7 +19,7 @@
 
 import { reportClientError } from './client-error-reporter';
 
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 20_000; // 30s → 20s (hung 시 함수 메모리 점유 시간 1/3 단축, Vercel cost 폭증 방지)
 
 export interface FetchOptions {
   timeoutMs?: number;          // 기본 30초

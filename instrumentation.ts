@@ -5,7 +5,41 @@
  *   - 매 fetch 가 새 TCP/TLS 연결을 만들면 핸드셰이크에 100~300ms 소요.
  *   - 같은 호스트(쿠팡 프록시, Supabase 등) 반복 호출 시 연결 재사용으로 절감.
  *   - cron/배치 register 등 동일 호스트에 수십 회 fetch 하는 경로에서 누적 효과 큼.
+ *
+ * 또한 onRequestError hook 으로 catch 안 된 모든 서버 에러를 system_logs 에 자동 기록.
  */
+
+/**
+ * 모든 라우트의 catch 안 된 에러 / unhandled promise rejection 자동 캡처.
+ * Next.js 15+ 의 onRequestError hook — 라우트 단위로 try/catch 없어도 잡힘.
+ */
+export async function onRequestError(
+  error: unknown,
+  request: { path: string; method: string; headers: Record<string, string> },
+  context: { routePath?: string; routeType?: string },
+) {
+  if (process.env.NEXT_RUNTIME !== 'nodejs') return;
+  try {
+    // 서버 사이드 import — runtime에서만
+    const { logSystemError } = await import('./src/lib/utils/system-log');
+    const path = request.path || context.routePath || 'unknown';
+    const method = request.method || 'GET';
+    await logSystemError({
+      source: `route-uncaught/${path}`,
+      error,
+      context: {
+        path,
+        method,
+        routeType: context.routeType,
+        // Header 일부만 (PII 방지)
+        userAgent: request.headers?.['user-agent']?.slice(0, 200),
+      },
+    });
+  } catch {
+    // 로깅 실패는 silent
+  }
+}
+
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
 

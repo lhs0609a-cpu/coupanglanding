@@ -11,7 +11,15 @@
  */
 
 const recentReports = new Map<string, number>();
-const DEDUP_WINDOW_MS = 60_000;
+const DEDUP_WINDOW_MS = 5 * 60_000; // 60s → 5분 (보고 폭주 차단, Vercel cost 폭증 방지)
+
+// URL kill-switch — 특정 source 가 짧은 시간에 3회 넘게 보고되면 30분 보고 정지.
+// 한 라우트가 모든 사용자에 timeout cascade 일으킬 때 사용자 N명 × 5분 보고가
+// N × 6회 보고되는 폭증을 차단.
+const _killSwitch = new Map<string, { count: number; windowStart: number; until: number }>();
+const KILL_THRESHOLD = 3;
+const KILL_WINDOW_MS = 60_000;
+const KILL_DURATION_MS = 30 * 60_000;
 
 export interface ClientReportParams {
   source: string;
@@ -29,6 +37,19 @@ export async function reportClientError(params: ClientReportParams): Promise<voi
     const last = recentReports.get(dedupKey);
     if (last && now - last < DEDUP_WINDOW_MS) return;
     recentReports.set(dedupKey, now);
+
+    // kill-switch — 같은 source 가 1분 내 3회 넘으면 30분 정지
+    const ks = _killSwitch.get(params.source);
+    if (ks && now < ks.until) return; // 정지 중
+    if (!ks || now - ks.windowStart > KILL_WINDOW_MS) {
+      _killSwitch.set(params.source, { count: 1, windowStart: now, until: 0 });
+    } else {
+      ks.count += 1;
+      if (ks.count > KILL_THRESHOLD) {
+        ks.until = now + KILL_DURATION_MS;
+        return;
+      }
+    }
 
     // 메모리 누수 방지
     if (recentReports.size > 200) {

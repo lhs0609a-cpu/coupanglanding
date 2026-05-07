@@ -7,7 +7,7 @@ import { uploadLocalImagesParallel } from '@/lib/megaload/services/local-product
 import type { DeliveryInfo, ReturnInfo, AttributeMeta, CertificationInfo, OptionVariant } from '@/lib/megaload/services/coupang-product-builder';
 import type { NoticeCategoryMeta } from '@/lib/megaload/services/notice-field-filler';
 import type { StoryBatchInput } from '@/lib/megaload/services/ai.service';
-import { logSystemError } from '@/lib/utils/system-log';
+import { logSystemError, logSystemWarn } from '@/lib/utils/system-log';
 // generateProductStoriesBatch 는 generateAiContent=true 일 때만 dynamic import — Gemini SDK 로드 비용 cold start 절감.
 import { buildProductPayload } from '@/lib/megaload/services/preflight-builder';
 import { withRetry } from '@/lib/megaload/services/retry';
@@ -955,6 +955,23 @@ export async function POST(req: NextRequest) {
       //  지수 백오프로 자동 처리. 사전 sleep 은 throughput 만 깎고 보호 효과 없음.
     }
 
+    // 도메인 사고 보고 — 등록 partial / 전체 실패 시 어드민이 한눈에 파악 가능
+    const totalCount = successCount + errorCount;
+    if (totalCount > 0 && errorCount > 0) {
+      const failureRate = errorCount / totalCount;
+      const failureSamples = results
+        .filter((r) => !r.success)
+        .slice(0, 3)
+        .map((r) => ({ name: r.name, error: r.error?.slice(0, 200) }));
+      const reporter = failureRate >= 0.5 ? logSystemError : logSystemWarn;
+      void reporter({
+        source: 'megaload/bulk-register/batch-failures',
+        category: 'megaload',
+        message: `등록 ${errorCount}/${totalCount}건 실패 (${Math.round(failureRate * 100)}%) — batch ${body.batchIndex}`,
+        context: { totalCount, errorCount, successCount, batchIndex: body.batchIndex, samples: failureSamples },
+      }).catch(() => {});
+    }
+
     return NextResponse.json({
       batchIndex: body.batchIndex,
       results,
@@ -962,6 +979,7 @@ export async function POST(req: NextRequest) {
       errorCount,
     });
   } catch (err) {
+    void logSystemError({ source: 'megaload/bulk-register/batch', error: err }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '배치 등록 실패' },
       { status: 500 },

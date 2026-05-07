@@ -734,10 +734,27 @@ export function useBulkRegisterActions() {
               displaySeed,
               i,
             );
+            const generatedTrim = generated.trim();
+            const usedFallback = !generatedTrim;
+            // 노출상품명 자동 생성이 빈 문자열로 떨어진 경우 — 어드민에 보고 (silent fallback 추적)
+            // setProducts 콜백은 sync이므로 fire-and-forget dynamic import.
+            if (usedFallback) {
+              import('@/lib/utils/client-error-reporter')
+                .then(({ reportClientError }) => {
+                  reportClientError({
+                    source: 'megaload/display-name-fallback',
+                    level: 'warn',
+                    category: 'megaload',
+                    message: `노출상품명 자동 생성 실패 → 원본 100자 fallback: "${target.name.slice(0, 80)}"`,
+                    context: { brand: fullBrand, category: target.editedCategoryName },
+                  });
+                })
+                .catch(() => { /* silent */ });
+            }
             updated[globalIdx] = {
               ...updated[globalIdx],
               // 생성 실패해서 빈 문자열 나오면 원본 sanitize 값으로 fallback (절대 빈값으로 두지 않음)
-              editedDisplayProductName: generated.trim() || target.name.slice(0, 100),
+              editedDisplayProductName: generatedTrim || target.name.slice(0, 100),
               editedSellerProductName: updated[globalIdx].editedName,
             };
           }
