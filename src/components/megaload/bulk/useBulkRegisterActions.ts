@@ -2516,7 +2516,13 @@ export function useBulkRegisterActions() {
       }));
     }
     setCategorySearchTarget(null); setCategoryResults([]); setCategoryKeyword('');
-  }, [categorySearchTarget]);
+    // 수동 카테고리 지정 후 → displayName 비어있는 상품에 자동 생성 재트리거
+    // (자동 매칭 실패한 상품도 사용자 수동 지정 시 정상 흐름 복구)
+    setTimeout(() => {
+      const latest = productsRef.current;
+      runTitleGeneration(latest);
+    }, 100);
+  }, [categorySearchTarget, runTitleGeneration]);
 
   // ---- Toggle / update ----
   const toggleProduct = useCallback((uid: string) => {

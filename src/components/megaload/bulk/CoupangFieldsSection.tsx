@@ -524,7 +524,11 @@ export default function CoupangFieldsSection({
           const dpn = product.editedDisplayProductName ?? '';
           const isEmpty = !dpn;
           // 카테고리 있는데 노출상품명 없으면 → 자동 생성 대기 중
-          const isGenerating = isEmpty && !!product.editedCategoryCode;
+          // titleGenProgress 가 done==total 이면 자동 생성 끝 — 빈 상태면 사용자 수동 입력 가능하게 잠금 해제
+          const titleGenComplete = !!titleGenProgress
+            && titleGenProgress.total > 0
+            && titleGenProgress.done >= titleGenProgress.total;
+          const isGenerating = isEmpty && !!product.editedCategoryCode && !titleGenComplete;
           // 브랜드 누출 감지 (3자+ n-gram 매칭)
           const brandLeak = (() => {
             if (!dpn || !product.brand || product.brand.length < 2) return '';
