@@ -26,7 +26,7 @@ interface CoupangFieldsSectionProps {
   previewData: PayloadPreviewData | null;
   previewLoading: boolean;
   previewError: string;
-  onUpdate: (uid: string, field: string, value: string | number | string[] | number[] | Record<string, string>) => void;
+  onUpdate: (uid: string, field: string, value: string | number | boolean | string[] | number[] | Record<string, string>) => void;
   onCategoryClick: (uid: string) => void;
   imageItems: ImageItem[];
   onImageReorder: (newOrder: ImageItem[]) => void;
@@ -658,7 +658,7 @@ export default function CoupangFieldsSection({
               <span className="inline-flex items-center gap-1">
                 매칭 신뢰도:
                 <span className={`font-medium ${
-                  product.categoryConfidence >= 0.8 ? 'text-green-600' :
+                  product.categoryConfidence >= 0.85 ? 'text-green-600' :
                   product.categoryConfidence >= 0.5 ? 'text-yellow-600' : 'text-gray-400'
                 }`}>
                   {Math.round(product.categoryConfidence * 100)}%
@@ -667,6 +667,25 @@ export default function CoupangFieldsSection({
             )}
             {product.categorySource && (
               <span>소스: <span className="text-gray-700">{product.categorySource}</span></span>
+            )}
+            {/* low-confidence 자동 매칭 → 사용자 확인 필요 표시 */}
+            {product.categoryConfidence < 0.85
+              && product.categorySource !== 'manual'
+              && product.categorySource !== 'learned'
+              && !product.categoryReviewed && (
+              <button
+                type="button"
+                onClick={() => onUpdate(product.uid, 'categoryReviewed', true)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 hover:bg-orange-200 transition text-[10px] font-medium"
+                title="카테고리 자동 매칭 신뢰도가 낮습니다. 클릭해 사용자 확인 처리하면 등록 가능."
+              >
+                <AlertTriangle className="w-3 h-3" /> 확인 필요 (클릭해 승인)
+              </button>
+            )}
+            {product.categoryReviewed && product.categorySource !== 'manual' && product.categorySource !== 'learned' && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-medium">
+                <CheckCircle2 className="w-3 h-3" /> 확인됨
+              </span>
             )}
           </div>
         )}

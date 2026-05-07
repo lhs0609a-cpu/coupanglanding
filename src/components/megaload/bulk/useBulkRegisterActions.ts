@@ -2516,7 +2516,7 @@ export function useBulkRegisterActions() {
           path: p.editedCategoryName,
           confidence: p.categoryConfidence ?? 0,
         } : undefined);
-        return { ...p, editedCategoryCode: cat.id, editedCategoryName: cat.path || cat.name, categoryConfidence: 1, categorySource: 'manual' };
+        return { ...p, editedCategoryCode: cat.id, editedCategoryName: cat.path || cat.name, categoryConfidence: 1, categorySource: 'manual', categoryReviewed: true };
       }));
     } else if (categorySearchTarget) {
       setProducts((prev) => prev.map((p) => {
@@ -2527,7 +2527,7 @@ export function useBulkRegisterActions() {
           path: p.editedCategoryName,
           confidence: p.categoryConfidence ?? 0,
         } : undefined);
-        return { ...p, editedCategoryCode: cat.id, editedCategoryName: cat.path || cat.name, categoryConfidence: 1, categorySource: 'manual' };
+        return { ...p, editedCategoryCode: cat.id, editedCategoryName: cat.path || cat.name, categoryConfidence: 1, categorySource: 'manual', categoryReviewed: true };
       }));
     }
     setCategorySearchTarget(null); setCategoryResults([]); setCategoryKeyword('');
@@ -2551,7 +2551,7 @@ export function useBulkRegisterActions() {
     });
   }, []);
 
-  const updateField = useCallback((uid: string, field: string, value: string | number | string[] | number[] | Record<string, string>) => {
+  const updateField = useCallback((uid: string, field: string, value: string | number | boolean | string[] | number[] | Record<string, string>) => {
     setProducts((prev) => prev.map((p) => p.uid === uid ? { ...p, [field]: value } : p));
   }, []);
 
@@ -2795,6 +2795,24 @@ export function useBulkRegisterActions() {
 
     const selectedProducts = products.filter((p) => p.selected && p.editedCategoryCode && p.validationStatus !== 'error');
     if (selectedProducts.length === 0) { alert('등록 가능한 선택 상품이 없습니다. (카테고리 미지정 또는 검증 오류)'); return; }
+
+    // ─── Low-confidence 매칭 가드 ───
+    // 자동 매칭 confidence < 0.85 이거나 source 가 'auto' 인 상품은 사용자 확인 필요.
+    // "확인 필요" 상품이 있으면 등록 차단 + 목록 alert.
+    const LOW_CONFIDENCE_THRESHOLD = 0.85;
+    const unverified = selectedProducts.filter((p) => {
+      // 사용자가 수동 지정했거나 학습된 매칭은 확인 완료로 간주
+      if (p.categorySource === 'manual' || p.categorySource === 'learned' || p.categoryReviewed === true) return false;
+      // confidence 가 임계값 미만이면 미확인
+      const conf = p.categoryConfidence ?? 0;
+      return conf < LOW_CONFIDENCE_THRESHOLD;
+    });
+    if (unverified.length > 0) {
+      const sample = unverified.slice(0, 3).map(p => `· ${p.name.slice(0, 40)} (신뢰도 ${((p.categoryConfidence ?? 0) * 100).toFixed(0)}%)`).join('\n');
+      const more = unverified.length > 3 ? `\n... 외 ${unverified.length - 3}개` : '';
+      alert(`자동 카테고리 매칭 신뢰도가 낮은 상품 ${unverified.length}개가 있습니다. 카테고리를 직접 확인하거나 다시 지정해 주세요.\n\n${sample}${more}`);
+      return;
+    }
 
     setStep(3); setRegistering(true); setIsPaused(false); isPausedRef.current = false; setAccountBlocked(null); setStartTime(Date.now());
 

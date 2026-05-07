@@ -53,7 +53,7 @@ interface BulkStep2ReviewProps {
   onSetProducts: React.Dispatch<React.SetStateAction<EditableProduct[]>>;
   onToggle: (uid: string) => void;
   onToggleAll: () => void;
-  onUpdate: (uid: string, field: string, value: string | number | string[] | number[] | Record<string, string>) => void;
+  onUpdate: (uid: string, field: string, value: string | number | boolean | string[] | number[] | Record<string, string>) => void;
   onCategoryClick: (uid: string) => void;
   onSetCategorySearchTarget: (v: string | null) => void;
   onSetCategoryKeyword: (v: string) => void;

@@ -47,6 +47,8 @@ export interface EditableProduct extends PreviewProduct {
   editedCategoryName: string;
   categoryConfidence: number;
   categorySource: string;
+  /** 사용자가 카테고리 결과를 직접 확인했음 — low-confidence 가드 통과 마커 */
+  categoryReviewed?: boolean;
   selected: boolean;
   scannedMainImages?: ScannedImageFile[];
   scannedDetailImages?: ScannedImageFile[];
