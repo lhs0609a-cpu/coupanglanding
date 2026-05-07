@@ -2,10 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { randomUUID } from 'crypto';
 
+export const maxDuration = 20;
+
 export async function POST(request: NextRequest) {
+  const t0 = Date.now();
+  const log = (step: string, extra?: Record<string, unknown>) => {
+    console.log(`[sign-operator] +${Date.now() - t0}ms ${step}`, extra ?? '');
+  };
   try {
+    log('start');
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
+    log('auth-checked', { hasUser: !!user });
 
     if (!user) {
       return NextResponse.json({ error: '인증이 필요합니다.' }, { status: 401 });
@@ -24,6 +32,7 @@ export async function POST(request: NextRequest) {
       .select('id')
       .eq('profile_id', user.id)
       .single();
+    log('pt_users-fetched', { hasPtUser: !!ptUser });
 
     if (!ptUser) {
       return NextResponse.json({ error: 'PT 사용자를 찾을 수 없습니다.' }, { status: 404 });
@@ -36,6 +45,7 @@ export async function POST(request: NextRequest) {
       .eq('id', contractId)
       .eq('pt_user_id', ptUser.id)
       .single();
+    log('contract-fetched', { hasContract: !!contract, status: contract?.status });
 
     if (!contract) {
       return NextResponse.json({ error: '계약을 찾을 수 없습니다.' }, { status: 404 });
@@ -62,6 +72,7 @@ export async function POST(request: NextRequest) {
         .select('start_date')
         .single();
 
+      log('contract-updated-single', { error: updateError?.message });
       if (updateError) {
         return NextResponse.json({ error: `서명 실패: ${updateError.message}` }, { status: 500 });
       }
@@ -76,8 +87,10 @@ export async function POST(request: NextRequest) {
           .update({ first_billing_grace_until: graceUntil.toISOString().slice(0, 10) })
           .eq('id', ptUser.id)
           .is('first_billing_grace_until', null);
+        log('grace-set');
       }
 
+      log('done-single');
       return NextResponse.json({ success: true, contractMode: 'single' });
     }
 
@@ -97,17 +110,19 @@ export async function POST(request: NextRequest) {
       })
       .eq('id', contractId);
 
+    log('contract-updated-triple', { error: updateError?.message });
     if (updateError) {
       return NextResponse.json({ error: `서명 실패: ${updateError.message}` }, { status: 500 });
     }
 
+    log('done-triple');
     return NextResponse.json({
       success: true,
       contractMode: 'triple',
       businessSignToken: token,
     });
   } catch (err) {
-    console.error('sign-operator error:', err);
+    console.error('[sign-operator] error:', err);
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

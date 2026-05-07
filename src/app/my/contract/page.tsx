@@ -135,20 +135,22 @@ export default function MyContractPage() {
     setSignError('');
 
     try {
-      // 실제 IP 캡처
+      // 실제 IP 캡처 (3초 timeout — 실패해도 서명 진행)
       let clientIp = 'unknown';
       try {
-        const ipRes = await fetch('/api/ip');
+        const ipRes = await fetch('/api/ip', { signal: AbortSignal.timeout(3000) });
         const ipData = await ipRes.json();
         clientIp = ipData.ip || 'unknown';
       } catch {
-        // IP 캡처 실패 시 계속 진행
+        // IP 캡처 실패/타임아웃 시 계속 진행
       }
 
+      // 서명 저장 (18초 timeout — 서버 maxDuration 20s 보다 짧게)
       const res = await fetch('/api/contracts/sign-operator', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contractId, signatureData, clientIp }),
+        signal: AbortSignal.timeout(18000),
       });
 
       const data = await res.json();
@@ -191,8 +193,13 @@ export default function MyContractPage() {
       }
       setAgreed(false);
       setSignatureData(null);
-    } catch {
-      setSignError('서명 중 오류가 발생했습니다.');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      if (err instanceof DOMException && err.name === 'TimeoutError') {
+        setSignError('서명 처리가 지연되고 있습니다. 페이지를 새로고침 후 다시 시도해주세요. 이미 저장됐을 수 있으니 새로고침 후 확인하세요.');
+      } else {
+        setSignError(msg || '서명 중 오류가 발생했습니다.');
+      }
     } finally {
       setSigning(false);
     }

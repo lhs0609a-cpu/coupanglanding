@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 
+export const maxDuration = 20;
+
 // GET: 토큰으로 계약 정보 조회 (비로그인)
 export async function GET(request: NextRequest) {
   try {
@@ -57,7 +59,12 @@ export async function GET(request: NextRequest) {
 
 // POST: 사업자 대표 서명 제출 (비로그인)
 export async function POST(request: NextRequest) {
+  const t0 = Date.now();
+  const log = (step: string, extra?: Record<string, unknown>) => {
+    console.log(`[sign-business] +${Date.now() - t0}ms ${step}`, extra ?? '');
+  };
   try {
+    log('start');
     const body = await request.json();
     const { token, signerName, signatureData } = body;
 
@@ -73,6 +80,7 @@ export async function POST(request: NextRequest) {
       .select('id, status, contract_mode, signed_at, business_signed_at, business_sign_token_expires_at, pt_user_id')
       .eq('business_sign_token', token)
       .single();
+    log('contract-fetched', { hasContract: !!contract });
 
     if (!contract) {
       return NextResponse.json({ error: '유효하지 않은 링크입니다.' }, { status: 404 });
@@ -115,6 +123,7 @@ export async function POST(request: NextRequest) {
       .eq('id', contract.id)
       .select('start_date, pt_user_id')
       .single();
+    log('contract-updated', { error: updateError?.message });
 
     if (updateError) {
       return NextResponse.json({ error: `서명 저장 실패: ${updateError.message}` }, { status: 500 });
@@ -129,11 +138,13 @@ export async function POST(request: NextRequest) {
         .update({ first_billing_grace_until: graceUntil.toISOString().slice(0, 10) })
         .eq('id', updatedContract.pt_user_id)
         .is('first_billing_grace_until', null);
+      log('grace-set');
     }
 
+    log('done');
     return NextResponse.json({ success: true });
   } catch (err) {
-    console.error('sign-business POST error:', err);
+    console.error('[sign-business] POST error:', err);
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

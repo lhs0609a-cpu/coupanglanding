@@ -76,10 +76,12 @@ export default function BusinessSignPage() {
     setSignError('');
 
     try {
+      // 18초 timeout — 서버 maxDuration 20s 보다 짧게
       const res = await fetch('/api/contracts/sign-business', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, signerName: signerName.trim(), signatureData }),
+        signal: AbortSignal.timeout(18000),
       });
 
       const data = await res.json();
@@ -87,7 +89,11 @@ export default function BusinessSignPage() {
 
       setCompleted(true);
     } catch (err) {
-      setSignError(err instanceof Error ? err.message : '서명 중 오류가 발생했습니다.');
+      if (err instanceof DOMException && err.name === 'TimeoutError') {
+        setSignError('서명 처리가 지연되고 있습니다. 페이지를 새로고침 후 다시 시도해주세요.');
+      } else {
+        setSignError(err instanceof Error ? err.message : '서명 중 오류가 발생했습니다.');
+      }
     } finally {
       setSigning(false);
     }
