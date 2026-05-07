@@ -134,7 +134,7 @@ export async function updateSession(request: NextRequest) {
   if (isMutationMethod(request.method) && isLockTargetPath(pathname)) {
     const { data: ptUser } = await supabase
       .from('pt_users')
-      .select('payment_lock_level, payment_lock_exempt_until, admin_override_level, is_test_account')
+      .select('payment_lock_level, payment_lock_exempt_until, billing_excluded_until, admin_override_level, is_test_account')
       .eq('profile_id', user.id)
       .maybeSingle();
 
@@ -144,8 +144,11 @@ export async function updateSession(request: NextRequest) {
         return supabaseResponse;
       }
       const today = new Date().toISOString().slice(0, 10);
+      // 결제 제외(billing_excluded_until) 와 락 면제(payment_lock_exempt_until) 둘 다 체크
+      const ptUserAny = ptUser as Record<string, unknown>;
       const exemptActive =
-        ptUser.payment_lock_exempt_until && ptUser.payment_lock_exempt_until > today;
+        (ptUser.payment_lock_exempt_until && ptUser.payment_lock_exempt_until > today) ||
+        (typeof ptUserAny.billing_excluded_until === 'string' && ptUserAny.billing_excluded_until > today);
       const baseLevel = ptUser.admin_override_level ?? ptUser.payment_lock_level ?? 0;
       const level = exemptActive ? 0 : baseLevel;
 

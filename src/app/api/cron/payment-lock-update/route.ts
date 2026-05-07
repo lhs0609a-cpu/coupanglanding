@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     // 연체 중이거나 락이 걸려 있거나 관리자 override 상태인 사용자만 대상
     const { data: candidates } = await serviceClient
       .from('pt_users')
-      .select('id, profile_id, payment_overdue_since, payment_lock_level, payment_lock_exempt_until, admin_override_level, payment_retry_in_progress');
+      .select('id, profile_id, payment_overdue_since, payment_lock_level, payment_lock_exempt_until, billing_excluded_until, admin_override_level, payment_retry_in_progress');
 
     if (!candidates || candidates.length === 0) {
       return NextResponse.json({ success: true, scanned: 0, updated: 0 });
@@ -51,8 +51,11 @@ export async function GET(request: NextRequest) {
       }
 
       // 2순위: exempt 활성 → 강제 0
+      // ⚠ payment_lock_exempt_until + billing_excluded_until 둘 중 하나라도 활성이면 면제
+      //   (관리자 "결제 제외" 는 billing_excluded_until 만 세팅 → 두 컬럼 sync 안 되는 사고 방지)
       const exemptActive =
-        u.payment_lock_exempt_until && u.payment_lock_exempt_until > todayDateStr;
+        (u.payment_lock_exempt_until && u.payment_lock_exempt_until > todayDateStr) ||
+        (u.billing_excluded_until && u.billing_excluded_until > todayDateStr);
 
       // 3순위: payment_overdue_since 기반 자동 계산
       // 재시도 진행 중이면 락 유예 (D+3까지 자동 재시도가 마지막 결정 → 그 후에야 lock 시작)
