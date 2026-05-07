@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 25;
 
@@ -59,7 +60,9 @@ export async function GET() {
       : null;
 
     if (outboundError) console.error('[shipping-info] 출고지 조회 실패:', outboundError);
+    void logSystemError({ source: 'megaload/products/bulk-register/shipping-info', error: outboundError }).catch(() => {});
     if (returnError) console.error('[shipping-info] 반품지 조회 실패:', returnError);
+    void logSystemError({ source: 'megaload/products/bulk-register/shipping-info', error: returnError }).catch(() => {});
 
     const usableOutbound = outboundItems.filter((p) => p.usable);
     const usableReturn = returnItems.filter((c) => c.usable);

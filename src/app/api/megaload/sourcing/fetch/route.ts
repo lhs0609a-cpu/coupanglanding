@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { AliexpressAdapter } from '@/lib/megaload/adapters/aliexpress.adapter';
 import { Ali1688Adapter } from '@/lib/megaload/adapters/ali1688.adapter';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -122,6 +123,7 @@ export async function POST(request: NextRequest) {
     }
   } catch (err) {
     console.error('[sourcing/fetch] error:', err);
+    void logSystemError({ source: 'megaload/sourcing/fetch', error: err }).catch(() => {});
     return NextResponse.json({ error: err instanceof Error ? err.message : '상품 정보 가져오기 실패' }, { status: 500 });
   }
 }

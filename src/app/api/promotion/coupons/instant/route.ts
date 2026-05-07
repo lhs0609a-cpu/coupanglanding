@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchInstantCoupons } from '@/lib/utils/coupang-api-client';
 import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -41,6 +42,7 @@ export async function GET() {
     return NextResponse.json({ data: coupons });
   } catch (err) {
     console.error('promotion instant coupons error:', err);
+    void logSystemError({ source: 'promotion/coupons/instant', error: err }).catch(() => {});
     const message = err instanceof Error ? err.message : '서버 오류가 발생했습니다.';
     return NextResponse.json({ error: message }, { status: 500 });
   }

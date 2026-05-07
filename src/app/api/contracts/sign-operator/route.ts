@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { randomUUID } from 'crypto';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 20;
 
@@ -123,6 +124,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error('[sign-operator] error:', err);
+    void logSystemError({ source: 'contracts/sign-operator', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { logActivity } from '@/lib/utils/activity-log';
 import { notifyBugReportReplied } from '@/lib/utils/notifications';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -50,6 +51,7 @@ export async function GET(
     return NextResponse.json({ data: data || [] });
   } catch (err) {
     console.error('admin bug-report messages GET error:', err);
+    void logSystemError({ source: 'admin/megaload-bug-reports/[id]/messages', error: err }).catch(() => {});
     return NextResponse.json({ error: '메시지 조회에 실패했습니다.' }, { status: 500 });
   }
 }
@@ -130,6 +132,7 @@ export async function POST(
     return NextResponse.json({ data });
   } catch (err) {
     console.error('admin bug-report messages POST error:', err);
+    void logSystemError({ source: 'admin/megaload-bug-reports/[id]/messages', error: err }).catch(() => {});
     return NextResponse.json({ error: '답변 등록에 실패했습니다.' }, { status: 500 });
   }
 }

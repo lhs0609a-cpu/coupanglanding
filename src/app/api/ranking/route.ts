@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -33,6 +34,7 @@ export async function GET() {
 
     if (error) {
       console.error('Ranking query error:', error);
+      void logSystemError({ source: 'ranking', error: error }).catch(() => {});
       // 테이블이 없을 수 있음 - 빈 결과 반환
       return NextResponse.json({
         ranking: [],
@@ -94,6 +96,7 @@ export async function GET() {
     });
   } catch (error) {
     console.error('Ranking error:', error);
+    void logSystemError({ source: 'ranking', error: error }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

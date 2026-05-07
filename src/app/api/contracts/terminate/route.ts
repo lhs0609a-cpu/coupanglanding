@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { logActivity } from '@/lib/utils/activity-log';
 import { notifyContractTermination } from '@/lib/utils/notifications';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -107,6 +108,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error('contract terminate error:', err);
+    void logSystemError({ source: 'contracts/terminate', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

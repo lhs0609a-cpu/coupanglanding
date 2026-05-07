@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -42,12 +43,14 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('관리자 페널티 조회 오류:', error);
+      void logSystemError({ source: 'admin/penalty', error: error }).catch(() => {});
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({ data });
   } catch (err) {
     console.error('관리자 페널티 조회 서버 오류:', err);
+    void logSystemError({ source: 'admin/penalty', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }
@@ -88,6 +91,7 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       console.error('관리자 페널티 등록 오류:', insertError);
+      void logSystemError({ source: 'admin/penalty', error: insertError }).catch(() => {});
       return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
 
@@ -97,11 +101,13 @@ export async function POST(request: NextRequest) {
 
     if (rpcError) {
       console.error('페널티 요약 재계산 오류:', rpcError);
+      void logSystemError({ source: 'admin/penalty', error: rpcError }).catch(() => {});
     }
 
     return NextResponse.json({ data: record });
   } catch (err) {
     console.error('관리자 페널티 등록 서버 오류:', err);
+    void logSystemError({ source: 'admin/penalty', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }
@@ -151,6 +157,7 @@ export async function PATCH(request: NextRequest) {
 
     if (updateError) {
       console.error('페널티 업데이트 오류:', updateError);
+      void logSystemError({ source: 'admin/penalty', error: updateError }).catch(() => {});
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
@@ -164,11 +171,13 @@ export async function PATCH(request: NextRequest) {
 
     if (rpcError) {
       console.error('페널티 요약 재계산 오류:', rpcError);
+      void logSystemError({ source: 'admin/penalty', error: rpcError }).catch(() => {});
     }
 
     return NextResponse.json({ data: record });
   } catch (err) {
     console.error('페널티 업데이트 서버 오류:', err);
+    void logSystemError({ source: 'admin/penalty', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

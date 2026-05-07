@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { TossPaymentsAPI } from '@/lib/payments/toss-client';
 import { logSettlementError } from '@/lib/payments/settlement-errors';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 15;
 
@@ -58,6 +59,7 @@ export async function GET() {
   } catch (err) {
     tlog(`error: ${err instanceof Error ? err.message : String(err)}`);
     console.error('GET /api/payments/cards error:', err);
+    void logSystemError({ source: 'payments/cards', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류', detail: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
 }
@@ -182,6 +184,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('DELETE /api/payments/cards error:', err);
+    void logSystemError({ source: 'payments/cards', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }
@@ -239,6 +242,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('PATCH /api/payments/cards error:', err);
+    void logSystemError({ source: 'payments/cards', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }

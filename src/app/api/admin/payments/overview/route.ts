@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { calculateLockLevel, kstDateStr, kstMonthStr } from '@/lib/payments/billing-constants';
 import { failureLabel } from '@/lib/payments/failure-codes';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
+import { logSystemError } from '@/lib/utils/system-log';
 
 // Vercel function timeout 60s + 캐시 우회
 export const maxDuration = 60;
@@ -279,6 +280,7 @@ export async function GET() {
     return NextResponse.json({ users: rows, summary });
   } catch (err) {
     console.error('GET /api/admin/payments/overview error:', err);
+    void logSystemError({ source: 'admin/payments/overview', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }

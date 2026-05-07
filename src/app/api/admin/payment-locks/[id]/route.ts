@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { createNotification } from '@/lib/utils/notifications';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -122,6 +123,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     return NextResponse.json({ success: true, updates });
   } catch (err) {
     console.error('PATCH /api/admin/payment-locks/[id] error:', err);
+    void logSystemError({ source: 'admin/payment-locks/[id]', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }

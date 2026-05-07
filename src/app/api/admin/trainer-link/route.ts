@@ -4,6 +4,7 @@ import { logActivity } from '@/lib/utils/activity-log';
 import { notifyTrainerNewTrainee, notifyTrainerBonusEarned } from '@/lib/utils/notifications';
 import { getReportCosts } from '@/lib/calculations/deposit';
 import { calculateTrainerBonus } from '@/lib/calculations/trainer';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -207,6 +208,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('trainer-link POST error:', error);
+    void logSystemError({ source: 'admin/trainer-link', error: error }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }
@@ -250,6 +252,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('trainer-link DELETE error:', error);
+    void logSystemError({ source: 'admin/trainer-link', error: error }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

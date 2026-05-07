@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -35,6 +36,7 @@ export async function POST(request: NextRequest) {
 
     if (cancelError) {
       console.error('기존 진행 취소 오류:', cancelError);
+      void logSystemError({ source: 'promotion/restart', error: cancelError }).catch(() => {});
       return NextResponse.json({ error: '기존 작업 취소에 실패했습니다.' }, { status: 500 });
     }
 
@@ -46,6 +48,7 @@ export async function POST(request: NextRequest) {
 
     if (deleteError) {
       console.error('트래킹 레코드 삭제 오류:', deleteError);
+      void logSystemError({ source: 'promotion/restart', error: deleteError }).catch(() => {});
       return NextResponse.json({ error: '상품 데이터 초기화에 실패했습니다.' }, { status: 500 });
     }
 
@@ -64,12 +67,14 @@ export async function POST(request: NextRequest) {
 
     if (createError || !newProgress) {
       console.error('새 진행 상태 생성 오류:', createError);
+      void logSystemError({ source: 'promotion/restart', error: createError }).catch(() => {});
       return NextResponse.json({ error: '재시작에 실패했습니다.' }, { status: 500 });
     }
 
     return NextResponse.json({ progress: newProgress });
   } catch (err) {
     console.error('일괄 적용 재시작 서버 오류:', err);
+    void logSystemError({ source: 'promotion/restart', error: err }).catch(() => {});
     const message = err instanceof Error ? err.message : '서버 오류가 발생했습니다.';
     return NextResponse.json({ error: message }, { status: 500 });
   }

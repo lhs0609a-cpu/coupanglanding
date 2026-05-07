@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 import { createBulkNotifications } from '@/lib/utils/notifications';
 import { kstMonthStr } from '@/lib/payments/billing-constants';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -86,6 +87,7 @@ export async function POST() {
     });
   } catch (err) {
     console.error('POST /api/admin/payments/bulk-report-request error:', err);
+    void logSystemError({ source: 'admin/payments/bulk-report-request', error: err }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '서버 오류' },
       { status: 500 },

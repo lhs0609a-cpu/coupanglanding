@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { retryTransaction } from '@/lib/payments/retry-runner';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 import { kstDateStr } from '@/lib/payments/billing-constants';
+import { logSystemError } from '@/lib/utils/system-log';
 
 /**
  * POST /api/admin/payments/transactions/[txId]/retry-now
@@ -47,6 +48,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ tx
     return NextResponse.json({ success: true, result });
   } catch (err) {
     console.error('POST /api/admin/payments/transactions/[txId]/retry-now error:', err);
+    void logSystemError({ source: 'admin/payments/transactions/[txId]/retry-now', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }

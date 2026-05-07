@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { SCREENING_QUESTIONS, FREE_TEXT_QUESTION } from '@/lib/data/screening-questions';
 import { calculateScreeningScore } from '@/lib/utils/screening-scorer';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -75,6 +76,7 @@ export async function GET(
     });
   } catch (err) {
     console.error('screening GET error:', err);
+    void logSystemError({ source: 'screening/[token]', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }
@@ -156,6 +158,7 @@ export async function POST(
 
     if (insertError) {
       console.error('screening result insert error:', insertError);
+      void logSystemError({ source: 'screening/[token]', error: insertError }).catch(() => {});
       return NextResponse.json({ error: '결과 저장에 실패했습니다.' }, { status: 500 });
     }
 
@@ -168,6 +171,7 @@ export async function POST(
     return NextResponse.json({ success: true, grade: result.grade });
   } catch (err) {
     console.error('screening POST error:', err);
+    void logSystemError({ source: 'screening/[token]', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

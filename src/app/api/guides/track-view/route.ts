@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { GUIDE_POINTS, getArenaLevel } from '@/lib/utils/arena-points';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -55,6 +56,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ pointsAwarded: 0, badgesUnlocked: [] });
       }
       console.error('Guide view tracking error:', insertError);
+      void logSystemError({ source: 'guides/track-view', error: insertError }).catch(() => {});
       return NextResponse.json({ error: '저장에 실패했습니다.' }, { status: 500 });
     }
 
@@ -110,6 +112,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ pointsAwarded, badgesUnlocked });
   } catch (err) {
     console.error('Guide track-view error:', err);
+    void logSystemError({ source: 'guides/track-view', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

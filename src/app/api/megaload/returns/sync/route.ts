@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -230,6 +231,7 @@ export async function POST() {
     });
   } catch (err) {
     console.error('returns/sync error:', err);
+    void logSystemError({ source: 'megaload/returns/sync', error: err }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '반품 요청 수집 실패' },
       { status: 500 },

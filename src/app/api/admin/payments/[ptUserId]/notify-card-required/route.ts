@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 import { createNotification } from '@/lib/utils/notifications';
 import { BILLING_DAY } from '@/lib/payments/billing-constants';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -47,6 +48,7 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ p
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('POST /api/admin/payments/[ptUserId]/notify-card-required error:', err);
+    void logSystemError({ source: 'admin/payments/[ptUserId]/notify-card-required', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }

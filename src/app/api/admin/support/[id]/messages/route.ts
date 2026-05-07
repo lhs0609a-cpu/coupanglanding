@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { logActivity } from '@/lib/utils/activity-log';
 import { notifyTicketReplied } from '@/lib/utils/notifications';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -42,6 +43,7 @@ export async function GET(
     return NextResponse.json({ data: data || [] });
   } catch (error) {
     console.error('admin ticket messages GET error:', error);
+    void logSystemError({ source: 'admin/support/[id]/messages', error: error }).catch(() => {});
     return NextResponse.json({ error: '메시지 조회에 실패했습니다.' }, { status: 500 });
   }
 }
@@ -109,6 +111,7 @@ export async function POST(
     return NextResponse.json({ data });
   } catch (error) {
     console.error('admin ticket messages POST error:', error);
+    void logSystemError({ source: 'admin/support/[id]/messages', error: error }).catch(() => {});
     return NextResponse.json({ error: '답변 등록에 실패했습니다.' }, { status: 500 });
   }
 }

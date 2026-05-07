@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchProductListings, fetchTotalProductCount } from '@/lib/utils/coupang-api-client';
 import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 55; // Vercel 함수 최대 실행 시간 (초)
 
@@ -190,6 +191,7 @@ export async function POST(request: NextRequest) {
 
       if (upsertError) {
         console.error('[collect-products] upsert 오류:', upsertError);
+        void logSystemError({ source: 'promotion/collect-products', error: upsertError }).catch(() => {});
       } else {
         insertedCount += rows.length;
       }

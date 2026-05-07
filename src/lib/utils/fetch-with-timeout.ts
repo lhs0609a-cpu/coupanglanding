@@ -12,9 +12,12 @@
 //   2. !response.ok → throw FetchError (status + body)
 //   3. JSON 파싱 자동
 //   4. AbortError → "요청 시간 초과" 메시지로 정규화
+//   5. 모든 timeout/5xx/네트워크 실패는 system_logs 에 자동 보고 (사용자 막힘 추적)
 //
 // 273개 silent fetch 가 hang 시 finally 도달 못해 loading 영구되는 근본 문제 해결.
 // ============================================================
+
+import { reportClientError } from './client-error-reporter';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -94,12 +97,36 @@ export async function fetchJson<T = unknown>(
           await new Promise(r => setTimeout(r, retryDelayMs * (attempt + 1)));
           continue;
         }
+        // 무한로딩 캡처 — 사용자가 막힌 사고로 분류
+        reportClientError({
+          source: 'fetchJson/timeout',
+          level: 'warn',
+          message: `[timeout ${timeoutMs / 1000}s] ${url}`,
+          context: { url, method: init.method || 'GET', timeoutMs, attempt: attempt + 1 },
+        });
         throw new FetchTimeoutError(timeoutMs);
       }
-      // FetchError 5xx → retry candidate
-      if (err instanceof FetchError && err.status >= 500 && attempt < retries) {
-        await new Promise(r => setTimeout(r, retryDelayMs * (attempt + 1)));
-        continue;
+      // FetchError 5xx → retry candidate + 보고
+      if (err instanceof FetchError && err.status >= 500) {
+        reportClientError({
+          source: 'fetchJson/5xx',
+          level: 'error',
+          message: `[${err.status}] ${url} — ${err.message}`,
+          context: { url, method: init.method || 'GET', status: err.status },
+        });
+        if (attempt < retries) {
+          await new Promise(r => setTimeout(r, retryDelayMs * (attempt + 1)));
+          continue;
+        }
+      }
+      // 네트워크 실패 (TypeError) — fetch 자체가 실패
+      if (err instanceof TypeError && err.message.toLowerCase().includes('fetch')) {
+        reportClientError({
+          source: 'fetchJson/network',
+          level: 'error',
+          message: `[network] ${url} — ${err.message}`,
+          context: { url, method: init.method || 'GET' },
+        });
       }
       throw err;
     }

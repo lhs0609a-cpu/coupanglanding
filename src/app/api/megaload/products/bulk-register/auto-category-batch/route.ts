@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { matchCategoryBatch, type CategoryMatchResult, type FailureDiagnostic } from '@/lib/megaload/services/category-matcher';
+import { logSystemError, logSystemWarn } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -41,9 +42,27 @@ export async function POST(req: NextRequest) {
         : { index: i, categoryCode: '', categoryName: '', categoryPath: '', confidence: 0, source: 'ai' as const },
     );
 
+    // 도메인 실패 보고 — failures 가 있으면 어드민 시스템 로그에 누적
+    if (failures && failures.length > 0) {
+      const failureCount = failures.length;
+      const sampleNames = failures.slice(0, 3).map((f) => f.productName).join(' / ');
+      void logSystemWarn({
+        source: 'megaload/category-match-failed',
+        category: 'megaload',
+        message: `카테고리 매칭 실패 ${failureCount}건 (${body.productNames.length}건 중) — 예: ${sampleNames}`,
+        userId: user.id,
+        context: {
+          totalCount: body.productNames.length,
+          failureCount,
+          sample: failures.slice(0, 5).map((f) => ({ name: f.productName, reason: f.reason })),
+        },
+      }).catch(() => {});
+    }
+
     return NextResponse.json({ results, failures });
   } catch (err) {
     console.error('[auto-category-batch] ERROR:', err);
+    void logSystemError({ source: 'megaload/products/bulk-register/auto-category-batch', error: err }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '일괄 카테고리 매칭 실패' },
       { status: 500 },

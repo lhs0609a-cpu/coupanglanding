@@ -433,6 +433,7 @@ export async function GET(request: NextRequest) {
         referenced = await buildReferencedSet(serviceClient, shUserId);
       } catch (err) {
         console.error(`[storage-gc] buildReferencedSet failed for ${shUserId}:`, err);
+        void logSystemError({ source: 'cron/storage-gc', error: err }).catch(() => {});
         continue; // 이 유저 skip — 참조 못 구하면 위험해서 절대 삭제 안 함
       }
 
@@ -453,6 +454,7 @@ export async function GET(request: NextRequest) {
           totalErrors += folderStats.errors;
         } catch (err) {
           console.error(`[storage-gc] folder ${folder} failed for ${shUserId}:`, err);
+          void logSystemError({ source: 'cron/storage-gc', error: err }).catch(() => {});
           stats.folders[folder] = { ...makeFolderStats(), errors: 1 };
           totalErrors++;
         }
@@ -473,6 +475,7 @@ export async function GET(request: NextRequest) {
         totalErrors += globalBrowserStats.errors;
       } catch (err) {
         console.error(`[storage-gc] global-browser failed:`, err);
+        void logSystemError({ source: 'cron/storage-gc', error: err }).catch(() => {});
         totalErrors++;
       }
     }

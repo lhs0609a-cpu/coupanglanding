@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { getAllAuthenticatedAdapters } from '@/lib/megaload/adapters/factory';
 import { CHANNEL_ORDER_STATUS_MAP } from '@/lib/megaload/constants';
 import type { Channel, OrderStatus } from '@/lib/megaload/types';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 300;
 
@@ -111,6 +112,7 @@ export async function GET(request: Request) {
         } catch (err) {
           totalErrors++;
           console.error(`[order-collect] ${shUserId}/${channel}:`, err);
+          void logSystemError({ source: 'cron/megaload-order-collect', error: err }).catch(() => {});
         }
       }
     } catch {

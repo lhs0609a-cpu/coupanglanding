@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { TREND_SEED_KEYWORDS } from '@/lib/data/trend-seed-keywords';
 import { collectTrendKeywords } from '@/lib/utils/trend-collect';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -42,6 +43,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error('trend collect error:', err);
+    void logSystemError({ source: 'trends/collect', error: err }).catch(() => {});
     const message = err instanceof Error ? err.message : '서버 오류가 발생했습니다.';
     return NextResponse.json({ error: message }, { status: 500 });
   }

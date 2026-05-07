@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
+import { logSystemError } from '@/lib/utils/system-log';
 import {
   getFeePaymentDDay,
   calculateFeePenalty,
@@ -250,6 +251,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     console.error('cron/fee-payment-check error:', err);
+    void logSystemError({ source: 'cron/fee-payment-check', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }

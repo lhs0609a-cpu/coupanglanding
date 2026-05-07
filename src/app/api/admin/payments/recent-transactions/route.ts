@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 export const dynamic = 'force-dynamic';
@@ -68,6 +69,7 @@ export async function GET() {
     });
   } catch (err) {
     console.error('GET /api/admin/payments/recent-transactions error:', err);
+    void logSystemError({ source: 'admin/payments/recent-transactions', error: err }).catch(() => {});
     return NextResponse.json({ error: err instanceof Error ? err.message : '서버 오류' }, { status: 500 });
   }
 }

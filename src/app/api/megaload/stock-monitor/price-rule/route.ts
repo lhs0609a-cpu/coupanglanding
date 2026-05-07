@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import type { PriceFollowRule } from '@/lib/supabase/types';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -99,6 +100,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ success: true, rule: normalizedRule });
   } catch (err) {
     console.error('price-rule PUT error:', err);
+    void logSystemError({ source: 'megaload/stock-monitor/price-rule', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }

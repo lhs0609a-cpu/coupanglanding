@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -55,6 +56,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(data);
   } catch (err) {
     console.error('naver-shopping search error:', err);
+    void logSystemError({ source: 'naver-shopping/search', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

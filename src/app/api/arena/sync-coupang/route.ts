@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchProductListings } from '@/lib/utils/coupang-api-client';
 import { calculateDailyPoints } from '@/lib/utils/arena-points';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -73,6 +74,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ data: activity, listings_count: count });
   } catch (err) {
     console.error('arena sync-coupang error:', err);
+    void logSystemError({ source: 'arena/sync-coupang', error: err }).catch(() => {});
     const message = err instanceof Error ? err.message : '서버 오류가 발생했습니다.';
     return NextResponse.json({ error: message }, { status: 500 });
   }

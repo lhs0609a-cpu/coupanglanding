@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import crypto from 'crypto';
 import { parseNaverCount, calculateTrendScore } from '@/lib/utils/trend-collect';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -70,6 +71,7 @@ export async function POST(request: NextRequest) {
     if (!response.ok) {
       const errText = await response.text();
       console.error('Naver API error:', response.status, errText);
+      void logSystemError({ source: 'trends/naver', error: errText }).catch(() => {});
       return NextResponse.json({ error: `네이버 API 오류: ${response.status}` }, { status: 502 });
     }
 
@@ -143,6 +145,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error('naver trend error:', err);
+    void logSystemError({ source: 'trends/naver', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -50,12 +51,14 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('쿠폰 추적 목록 조회 오류:', error);
+      void logSystemError({ source: 'promotion/tracking', error: error }).catch(() => {});
       return NextResponse.json({ error: '추적 목록 조회에 실패했습니다.' }, { status: 500 });
     }
 
     return NextResponse.json({ data: data || [], total: count || 0 });
   } catch (err) {
     console.error('쿠폰 추적 조회 서버 오류:', err);
+    void logSystemError({ source: 'promotion/tracking', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

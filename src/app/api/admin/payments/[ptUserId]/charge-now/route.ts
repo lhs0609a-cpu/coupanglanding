@@ -10,6 +10,7 @@ import { logSettlementError } from '@/lib/payments/settlement-errors';
 import { PAYMENT_RETRY_INTERVAL_HOURS, kstDateStr } from '@/lib/payments/billing-constants';
 import { buildCostBreakdown, calculateDeposit } from '@/lib/calculations/deposit';
 import { calculateVatOnTop } from '@/lib/calculations/vat';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -426,6 +427,7 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ p
     });
   } catch (err) {
     console.error('POST /api/admin/payments/[ptUserId]/charge-now error:', err);
+    void logSystemError({ source: 'admin/payments/[ptUserId]/charge-now', error: err }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '서버 오류' },
       { status: 500 },

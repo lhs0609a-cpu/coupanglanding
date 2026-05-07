@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -35,6 +36,7 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('Leaderboard query error:', error);
+      void logSystemError({ source: 'arena/leaderboard', error: error }).catch(() => {});
       return NextResponse.json({ error: '리더보드 조회에 실패했습니다.' }, { status: 500 });
     }
 
@@ -98,6 +100,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('Leaderboard error:', error);
+    void logSystemError({ source: 'arena/leaderboard', error: error }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

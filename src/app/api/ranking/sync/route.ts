@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchTotalProductCount } from '@/lib/utils/coupang-api-client';
 import { generateAnonymousName } from '@/lib/utils/arena-anonymous';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -62,6 +63,7 @@ export async function POST() {
 
     if (error) {
       console.error('Ranking sync upsert error:', error);
+      void logSystemError({ source: 'ranking/sync', error: error }).catch(() => {});
       return NextResponse.json({ error: '동기화에 실패했습니다.' }, { status: 500 });
     }
 
@@ -71,6 +73,7 @@ export async function POST() {
     });
   } catch (err) {
     console.error('Ranking sync error:', err);
+    void logSystemError({ source: 'ranking/sync', error: err }).catch(() => {});
     const message = err instanceof Error ? err.message : '서버 오류가 발생했습니다.';
     return NextResponse.json({ error: message }, { status: 500 });
   }

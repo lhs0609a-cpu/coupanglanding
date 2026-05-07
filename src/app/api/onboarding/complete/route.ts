@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { grantEducationRewards } from '@/lib/utils/education-rewards';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -84,11 +85,13 @@ export async function POST(request: NextRequest) {
       });
     } catch (rewardErr) {
       console.error('Education reward error:', rewardErr);
+      void logSystemError({ source: 'onboarding/complete', error: rewardErr }).catch(() => {});
       // 보상 지급 실패해도 완료 처리는 유지
       return NextResponse.json({ success: true });
     }
   } catch (err) {
     console.error('Onboarding complete error:', err);
+    void logSystemError({ source: 'onboarding/complete', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

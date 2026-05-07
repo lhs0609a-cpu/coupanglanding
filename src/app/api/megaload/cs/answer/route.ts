@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import type { Channel } from '@/lib/megaload/types';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -59,6 +60,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, channelSent: !!channelInquiryId });
   } catch (err) {
     console.error('[cs/answer] error:', err);
+    void logSystemError({ source: 'megaload/cs/answer', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }

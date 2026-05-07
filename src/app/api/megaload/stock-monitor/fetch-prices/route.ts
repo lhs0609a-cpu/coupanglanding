@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -114,6 +115,7 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     console.error('fetch-prices error:', err);
+    void logSystemError({ source: 'megaload/stock-monitor/fetch-prices', error: err }).catch(() => {});
     return NextResponse.json({ error: err instanceof Error ? err.message : '서버 오류' }, { status: 500 });
   }
 }

@@ -17,6 +17,7 @@ import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import type { Channel } from '@/lib/megaload/types';
 import { isChannelSupported } from '@/lib/megaload/types';
 import { CHANNEL_LABELS } from '@/lib/megaload/constants';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -86,6 +87,7 @@ export async function POST(request: NextRequest) {
         .eq('megaload_user_id', shUserId);
       if (error) {
         console.error('[bulk-replicate] sh_products by id 조회 실패:', error);
+        void logSystemError({ source: 'megaload/products/bulk-replicate', error: error }).catch(() => {});
         return NextResponse.json({ error: `상품 조회 실패: ${error.message}` }, { status: 500 });
       }
       products = (data || []) as Array<Record<string, unknown>>;
@@ -98,6 +100,7 @@ export async function POST(request: NextRequest) {
         .eq('megaload_user_id', shUserId);
       if (error) {
         console.error('[bulk-replicate] sh_products by coupang_product_id 조회 실패:', error);
+        void logSystemError({ source: 'megaload/products/bulk-replicate', error: error }).catch(() => {});
         return NextResponse.json({ error: `상품 조회 실패: ${error.message}` }, { status: 500 });
       }
       const seen = new Set(products.map((p) => p.id as string));
@@ -192,6 +195,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error('[bulk-replicate] error:', err);
+    void logSystemError({ source: 'megaload/products/bulk-replicate', error: err }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '복제 잡 생성 실패' },
       { status: 500 }

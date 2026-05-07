@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { TossPaymentsAPI } from '@/lib/payments/toss-client';
 import { randomBytes } from 'crypto';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -94,6 +95,7 @@ export async function POST(request: NextRequest) {
     return await runChargeTest(serviceClient, admin.id, ptUserId, amount, cardId, note);
   } catch (err) {
     console.error('POST /api/admin/payments/charge-test error:', err);
+    void logSystemError({ source: 'admin/payments/charge-test', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }
@@ -178,6 +180,7 @@ async function runChargeTest(
 
     if (txError || !tx) {
       console.error('[charge-test] pending tx insert 실패:', txError);
+      void logSystemError({ source: 'admin/payments/charge-test', error: txError }).catch(() => {});
       return NextResponse.json({ error: '트랜잭션 생성 실패: ' + (txError?.message || 'unknown') }, { status: 500 });
     }
 
@@ -239,6 +242,7 @@ async function runChargeTest(
     }
   } catch (err) {
     console.error('POST /api/admin/payments/charge-test error:', err);
+    void logSystemError({ source: 'admin/payments/charge-test', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }
@@ -301,6 +305,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     console.error('GET /api/admin/payments/charge-test error:', err);
+    void logSystemError({ source: 'admin/payments/charge-test', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }

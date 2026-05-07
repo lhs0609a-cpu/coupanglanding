@@ -4,6 +4,7 @@ import { processMonitorBatch, type MonitorRecord } from '@/lib/megaload/services
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
 import { recordCoupangApiFailure, clearCoupangApiBlock } from '@/lib/utils/coupang-circuit-breaker';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 300; // 5분 타임아웃
 
@@ -136,6 +137,7 @@ export async function GET(request: Request) {
     }
   } catch (err) {
     console.error('[stock-monitor-cron] Price backfill error:', err);
+    void logSystemError({ source: 'cron/megaload-stock-monitor', error: err }).catch(() => {});
   }
 
   // ── soft deadline 도입 — 300s 에 걸리지 않고 240s 에서 graceful exit ──
@@ -160,6 +162,7 @@ export async function GET(request: Request) {
 
   if (queryErr) {
     console.error('[stock-monitor-cron] Query error:', queryErr);
+    void logSystemError({ source: 'cron/megaload-stock-monitor', error: queryErr }).catch(() => {});
     return NextResponse.json({ error: queryErr.message, priceBackfilled }, { status: 500 });
   }
 
@@ -235,6 +238,7 @@ export async function GET(request: Request) {
     }
   } catch (err) {
     console.error('[stock-monitor-cron] Phase 3 error retry failed:', err);
+    void logSystemError({ source: 'cron/megaload-stock-monitor', error: err }).catch(() => {});
   }
 
   const rateLimited = results.filter(r => r.error?.includes('429')).length;

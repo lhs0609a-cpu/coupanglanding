@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 import { kstDateStr, kstMonthStr } from '@/lib/payments/billing-constants';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -194,6 +195,7 @@ export async function GET() {
     return NextResponse.json({ lastClosedMonth, users: rows, summary });
   } catch (err) {
     console.error('GET /api/admin/payments/readiness-check error:', err);
+    void logSystemError({ source: 'admin/payments/readiness-check', error: err }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '서버 오류' },
       { status: 500 },

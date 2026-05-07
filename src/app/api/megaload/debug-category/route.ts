@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { matchCategoryBatch } from '@/lib/megaload/services/category-matcher';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -35,6 +36,7 @@ export async function GET(req: NextRequest) {
     });
   } catch (err) {
     console.error('[debug-category] ERROR:', err);
+    void logSystemError({ source: 'megaload/debug-category', error: err }).catch(() => {});
     return NextResponse.json({
       error: err instanceof Error ? err.message : String(err),
       stack: err instanceof Error ? err.stack : undefined,
@@ -66,6 +68,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error('[debug-category] ERROR:', err);
+    void logSystemError({ source: 'megaload/debug-category', error: err }).catch(() => {});
     return NextResponse.json({
       error: err instanceof Error ? err.message : String(err),
       stack: err instanceof Error ? err.stack : undefined,

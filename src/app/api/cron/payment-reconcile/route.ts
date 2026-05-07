@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { completeSettlement } from '@/lib/payments/complete-settlement';
 import { logSettlementError } from '@/lib/payments/settlement-errors';
 import { assertTossEnv } from '@/lib/payments/toss-client';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -203,6 +204,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     console.error('cron/payment-reconcile error:', err);
+    void logSystemError({ source: 'cron/payment-reconcile', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }

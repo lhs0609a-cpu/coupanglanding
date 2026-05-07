@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { calculateDailyPoints, calculateStreakBonus, getArenaLevel } from '@/lib/utils/arena-points';
 import { generateAnonymousName } from '@/lib/utils/arena-anonymous';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest) {
 
     if (activityError) {
       console.error('Activity upsert error:', activityError);
+      void logSystemError({ source: 'arena/log-activity', error: activityError }).catch(() => {});
       return NextResponse.json({ error: '활동 기록 저장에 실패했습니다.' }, { status: 500 });
     }
 
@@ -157,6 +159,7 @@ export async function POST(request: NextRequest) {
 
     if (pointsError) {
       console.error('Points upsert error:', pointsError);
+      void logSystemError({ source: 'arena/log-activity', error: pointsError }).catch(() => {});
       return NextResponse.json({ error: '포인트 업데이트에 실패했습니다.' }, { status: 500 });
     }
 
@@ -172,6 +175,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Log activity error:', error);
+    void logSystemError({ source: 'arena/log-activity', error: error }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

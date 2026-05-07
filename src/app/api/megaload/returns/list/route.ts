@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -69,6 +70,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     console.error('returns/list error:', err);
+    void logSystemError({ source: 'megaload/returns/list', error: err }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '목록 조회 실패' },
       { status: 500 },

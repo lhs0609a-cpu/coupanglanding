@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { calculateLockLevel, kstDateStr } from '@/lib/payments/billing-constants';
 import { createNotification } from '@/lib/utils/notifications';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -86,6 +87,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, scanned, updated, escalated });
   } catch (err) {
     console.error('cron/payment-lock-update error:', err);
+    void logSystemError({ source: 'cron/payment-lock-update', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }

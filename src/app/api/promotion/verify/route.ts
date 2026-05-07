@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
+import { logSystemError } from '@/lib/utils/system-log';
 import {
   verifyInstantCoupon,
   verifyDownloadCoupon,
@@ -142,6 +143,7 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('쿠폰 검증 서버 오류:', message);
+    void logSystemError({ source: 'promotion/verify', error: message }).catch(() => {});
     return NextResponse.json({ error: `검증 오류: ${message}` }, { status: 500 });
   }
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 import { createNotification } from '@/lib/utils/notifications';
+import { logSystemError } from '@/lib/utils/system-log';
 
 // Vercel function 자체 timeout 명시 — supabase 응답이 늦더라도 60초까지 대기
 export const maxDuration = 60;
@@ -75,6 +76,7 @@ export async function PATCH(
 
       if (rpcErr) {
         console.error('[billing-exemption] set_billing_exclusion RPC 실패:', rpcErr);
+        void logSystemError({ source: 'admin/payments/[ptUserId]/billing-exemption', error: rpcErr }).catch(() => {});
         return NextResponse.json({
           error: `RPC 실패: ${rpcErr.message}. ` +
             `migration_billing_exclusion_rpc.sql 을 Supabase SQL Editor 에서 실행했는지 확인해주세요.`,
@@ -103,6 +105,7 @@ export async function PATCH(
 
       if (rpcErr) {
         console.error('[billing-exemption] clear_billing_exclusion RPC 실패:', rpcErr);
+        void logSystemError({ source: 'admin/payments/[ptUserId]/billing-exemption', error: rpcErr }).catch(() => {});
         return NextResponse.json({
           error: `RPC 실패: ${rpcErr.message}. migration_billing_exclusion_rpc.sql 실행 필요.`,
           details: rpcErr,
@@ -121,6 +124,7 @@ export async function PATCH(
     }
   } catch (err) {
     console.error('PATCH /api/admin/payments/[ptUserId]/billing-exemption error:', err);
+    void logSystemError({ source: 'admin/payments/[ptUserId]/billing-exemption', error: err }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '서버 오류' },
       { status: 500 },

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -369,6 +370,7 @@ export async function POST(request: NextRequest) {
 
   } catch (err) {
     console.error('stock-check error:', err);
+    void logSystemError({ source: 'megaload/stock-check', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

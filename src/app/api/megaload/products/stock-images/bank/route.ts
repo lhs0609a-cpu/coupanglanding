@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { queryBankImages } from '@/lib/megaload/services/stock-image-service';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -28,6 +29,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ images });
   } catch (err) {
     console.error('[stock-images/bank] Error:', err);
+    void logSystemError({ source: 'megaload/products/stock-images/bank', error: err }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '뱅크 이미지 조회 실패' },
       { status: 500 },

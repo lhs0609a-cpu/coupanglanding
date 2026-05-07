@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getAllAuthenticatedAdapters } from '@/lib/megaload/adapters/factory';
 import { CHANNEL_ORDER_STATUS_MAP } from '@/lib/megaload/constants';
 import type { Channel, OrderStatus } from '@/lib/megaload/types';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -106,6 +107,7 @@ export async function POST() {
         channelResults[channel] = -1;
         channelErrors[channel] = err instanceof Error ? err.message : '알 수 없는 오류';
         console.error(`[order-sync] ${channel} error:`, err);
+        void logSystemError({ source: 'megaload/orders/sync', error: err }).catch(() => {});
       }
     }
 

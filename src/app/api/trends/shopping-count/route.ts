@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -84,6 +85,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(results);
   } catch (err) {
     console.error('shopping-count error:', err);
+    void logSystemError({ source: 'trends/shopping-count', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

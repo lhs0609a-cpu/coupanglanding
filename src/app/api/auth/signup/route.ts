@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { logActivity } from '@/lib/utils/activity-log';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30; // hang 시 비용 폭증 방지
 
@@ -97,6 +98,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, autoApproved: false, userId: data.user.id });
   } catch (err) {
     console.error('signup error:', err);
+    void logSystemError({ source: 'auth/signup', error: err }).catch(() => {});
     return NextResponse.json({ error: err instanceof Error ? err.message : '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

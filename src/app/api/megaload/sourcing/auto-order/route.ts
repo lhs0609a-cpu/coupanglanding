@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { AliexpressAdapter } from '@/lib/megaload/adapters/aliexpress.adapter';
 import { Ali1688Adapter } from '@/lib/megaload/adapters/ali1688.adapter';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -136,6 +137,7 @@ export async function POST(request: Request) {
   } catch (err) {
     // 자동 발주 실패 → pending 유지
     console.error(`[auto-order] ${platform} error:`, err);
+    void logSystemError({ source: 'megaload/sourcing/auto-order', error: err }).catch(() => {});
     return NextResponse.json({
       success: true,
       sourcingOrder: sourcingOrderData,

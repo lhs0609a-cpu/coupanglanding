@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { VALID_PENALTY_CATEGORIES, DEFAULT_SCORE_IMPACTS } from '@/lib/data/penalty-response-guide';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -33,6 +34,7 @@ export async function GET() {
 
     if (recordsError) {
       console.error('penalty_records 조회 오류:', recordsError);
+      void logSystemError({ source: 'penalty', error: recordsError }).catch(() => {});
       return NextResponse.json({ error: recordsError.message }, { status: 500 });
     }
 
@@ -46,6 +48,7 @@ export async function GET() {
     return NextResponse.json({ records, summary: summary || null });
   } catch (err) {
     console.error('페널티 조회 서버 오류:', err);
+    void logSystemError({ source: 'penalty', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }
@@ -108,6 +111,7 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       console.error('페널티 등록 오류:', insertError);
+      void logSystemError({ source: 'penalty', error: insertError }).catch(() => {});
       return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
 
@@ -117,11 +121,13 @@ export async function POST(request: NextRequest) {
 
     if (rpcError) {
       console.error('페널티 요약 재계산 오류:', rpcError);
+      void logSystemError({ source: 'penalty', error: rpcError }).catch(() => {});
     }
 
     return NextResponse.json({ data: record });
   } catch (err) {
     console.error('페널티 자가보고 서버 오류:', err);
+    void logSystemError({ source: 'penalty', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

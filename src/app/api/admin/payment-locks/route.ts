@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { calculateLockLevel, kstDateStr } from '@/lib/payments/billing-constants';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -54,6 +55,7 @@ export async function GET() {
     return NextResponse.json({ users: enriched });
   } catch (err) {
     console.error('GET /api/admin/payment-locks error:', err);
+    void logSystemError({ source: 'admin/payment-locks', error: err }).catch(() => {});
     // 컬럼/관계 누락 같은 구체적 DB 에러 원문을 그대로 노출 (관리자 전용 라우트)
     const message = err instanceof Error ? err.message : String(err);
     const isSchemaMissing =

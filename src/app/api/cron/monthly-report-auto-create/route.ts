@@ -4,6 +4,7 @@ import { kstDay, kstMonthStr } from '@/lib/payments/billing-constants';
 import { buildCostBreakdown, calculateDeposit, calculateNetProfit, totalCosts } from '@/lib/calculations/deposit';
 import { calculateVatOnTop } from '@/lib/calculations/vat';
 import { createNotification } from '@/lib/utils/notifications';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -200,6 +201,7 @@ export async function GET(request: NextRequest) {
     } catch (err) {
       errored++;
       console.error(`[monthly-report-auto-create] ${ptUser.id} 처리 중 예외:`, err);
+      void logSystemError({ source: 'cron/monthly-report-auto-create', error: err }).catch(() => {});
     }
   }
 

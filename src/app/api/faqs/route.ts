@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -32,6 +33,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ data: data || [] });
   } catch (error) {
     console.error('faqs GET error:', error);
+    void logSystemError({ source: 'faqs', error: error }).catch(() => {});
     return NextResponse.json({ error: 'FAQ 조회에 실패했습니다.' }, { status: 500 });
   }
 }

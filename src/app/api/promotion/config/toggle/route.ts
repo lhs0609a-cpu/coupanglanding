@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -36,6 +37,7 @@ export async function POST(_request: NextRequest) {
 
     if (fetchError) {
       console.error('쿠폰 설정 조회 오류:', fetchError);
+      void logSystemError({ source: 'promotion/config/toggle', error: fetchError }).catch(() => {});
       return NextResponse.json({ error: '설정 조회에 실패했습니다.' }, { status: 500 });
     }
 
@@ -54,12 +56,14 @@ export async function POST(_request: NextRequest) {
 
     if (updateError) {
       console.error('쿠폰 설정 토글 오류:', updateError);
+      void logSystemError({ source: 'promotion/config/toggle', error: updateError }).catch(() => {});
       return NextResponse.json({ error: '설정 변경에 실패했습니다.' }, { status: 500 });
     }
 
     return NextResponse.json({ config: updated });
   } catch (err) {
     console.error('쿠폰 설정 토글 서버 오류:', err);
+    void logSystemError({ source: 'promotion/config/toggle', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

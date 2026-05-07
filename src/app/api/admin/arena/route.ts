@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getArenaLevel } from '@/lib/utils/arena-points';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -38,6 +39,7 @@ export async function GET() {
 
     if (usersError) {
       console.error('Admin arena users error:', usersError);
+      void logSystemError({ source: 'admin/arena', error: usersError }).catch(() => {});
       return NextResponse.json({ error: '사용자 목록 조회에 실패했습니다.' }, { status: 500 });
     }
 
@@ -49,6 +51,7 @@ export async function GET() {
 
     if (challengesError) {
       console.error('Admin arena challenges error:', challengesError);
+      void logSystemError({ source: 'admin/arena', error: challengesError }).catch(() => {});
       return NextResponse.json({ error: '챌린지 목록 조회에 실패했습니다.' }, { status: 500 });
     }
 
@@ -58,6 +61,7 @@ export async function GET() {
     });
   } catch (error) {
     console.error('Admin arena GET error:', error);
+    void logSystemError({ source: 'admin/arena', error: error }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }
@@ -107,12 +111,14 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error('Challenge create error:', error);
+      void logSystemError({ source: 'admin/arena', error: error }).catch(() => {});
       return NextResponse.json({ error: '챌린지 생성에 실패했습니다.' }, { status: 500 });
     }
 
     return NextResponse.json({ data: challenge });
   } catch (error) {
     console.error('Admin arena POST error:', error);
+    void logSystemError({ source: 'admin/arena', error: error }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }
@@ -151,6 +157,7 @@ export async function PATCH(request: NextRequest) {
 
         if (error) {
           console.error('Challenge update error:', error);
+          void logSystemError({ source: 'admin/arena', error: error }).catch(() => {});
           return NextResponse.json({ error: '챌린지 수정에 실패했습니다.' }, { status: 500 });
         }
 
@@ -190,6 +197,7 @@ export async function PATCH(request: NextRequest) {
 
         if (error) {
           console.error('Award points error:', error);
+          void logSystemError({ source: 'admin/arena', error: error }).catch(() => {});
           return NextResponse.json({ error: '포인트 지급에 실패했습니다.' }, { status: 500 });
         }
 
@@ -228,6 +236,7 @@ export async function PATCH(request: NextRequest) {
 
         if (error) {
           console.error('Toggle challenge error:', error);
+          void logSystemError({ source: 'admin/arena', error: error }).catch(() => {});
           return NextResponse.json({ error: '챌린지 상태 변경에 실패했습니다.' }, { status: 500 });
         }
 
@@ -239,6 +248,7 @@ export async function PATCH(request: NextRequest) {
     }
   } catch (error) {
     console.error('Admin arena PATCH error:', error);
+    void logSystemError({ source: 'admin/arena', error: error }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

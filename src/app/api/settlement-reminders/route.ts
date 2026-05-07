@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { createNotification } from '@/lib/utils/notifications';
 import { getSettlementDDay, getReportTargetMonth } from '@/lib/utils/settlement';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -128,6 +129,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error('settlement-reminders error:', err);
+    void logSystemError({ source: 'settlement-reminders', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { logActivity } from '@/lib/utils/activity-log';
 import { notifyIncidentReported } from '@/lib/utils/notifications';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -38,6 +39,7 @@ export async function GET() {
     return NextResponse.json({ data: data || [] });
   } catch (err) {
     console.error('[incidents GET] Unexpected error:', err);
+    void logSystemError({ source: 'emergency/incidents', error: err }).catch(() => {});
     return NextResponse.json({ error: err instanceof Error ? err.message : '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { logActivity } from '@/lib/utils/activity-log';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -54,6 +55,7 @@ export async function GET(
     });
   } catch (error) {
     console.error('admin screening [id] GET error:', error);
+    void logSystemError({ source: 'admin/screening/[id]', error: error }).catch(() => {});
     return NextResponse.json({ error: '스크리닝 상세 조회에 실패했습니다.' }, { status: 500 });
   }
 }
@@ -120,6 +122,7 @@ export async function PATCH(
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('admin screening [id] PATCH error:', error);
+    void logSystemError({ source: 'admin/screening/[id]', error: error }).catch(() => {});
     return NextResponse.json({ error: '판정 저장에 실패했습니다.' }, { status: 500 });
   }
 }

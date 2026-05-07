@@ -5,6 +5,7 @@ import { calculateFeePenalty, getFeePaymentDDay } from '@/lib/utils/fee-penalty'
 import { createNotification } from '@/lib/utils/notifications';
 import { completeSettlement } from '@/lib/payments/complete-settlement';
 import { logSettlementError } from '@/lib/payments/settlement-errors';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -182,6 +183,7 @@ export async function POST(request: NextRequest) {
     }
   } catch (err) {
     console.error('POST /api/payments/execute error:', err);
+    void logSystemError({ source: 'payments/execute', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }

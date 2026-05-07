@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { createNotification } from '@/lib/utils/notifications';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -88,6 +89,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     console.error('cron/api-nudge error:', err);
+    void logSystemError({ source: 'cron/api-nudge', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }

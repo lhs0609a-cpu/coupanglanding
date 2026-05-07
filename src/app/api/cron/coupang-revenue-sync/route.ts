@@ -4,6 +4,7 @@ import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
 import { getPreviousMonth, getReportTargetMonth } from '@/lib/utils/settlement';
 import { recordCoupangApiFailure, clearCoupangApiBlock } from '@/lib/utils/coupang-circuit-breaker';
+import { logSystemError } from '@/lib/utils/system-log';
 
 /**
  * GET /api/cron/coupang-revenue-sync
@@ -61,6 +62,7 @@ async function runSync() {
 
   if (error) {
     console.error('[coupang-revenue-sync] users query error:', error);
+    void logSystemError({ source: 'cron/coupang-revenue-sync', error: error }).catch(() => {});
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -96,6 +98,7 @@ async function runSync() {
       secretKey = await decryptPassword(user.coupang_secret_key as string);
     } catch (err) {
       console.error(`[coupang-revenue-sync] decrypt failed for ${user.id}:`, err);
+      void logSystemError({ source: 'cron/coupang-revenue-sync', error: err }).catch(() => {});
       for (const ym of yearMonths) {
         results.push({
           ptUserId: user.id,
@@ -162,6 +165,7 @@ async function runSync() {
           ? `${err.code || 'api'}: ${err.message}`
           : err instanceof Error ? err.message : String(err);
         console.error(`[coupang-revenue-sync] ${user.id} ${ym} failed:`, message);
+        void logSystemError({ source: 'cron/coupang-revenue-sync', error: message }).catch(() => {});
         await upsertSnapshot(serviceClient, {
           pt_user_id: user.id,
           year_month: ym,
@@ -230,5 +234,6 @@ async function upsertSnapshot(
 
   if (error) {
     console.error('[coupang-revenue-sync] upsert error:', error);
+    void logSystemError({ source: 'cron/coupang-revenue-sync', error: error }).catch(() => {});
   }
 }

@@ -5,6 +5,7 @@ import { buildCostBreakdown, calculateDeposit } from '@/lib/calculations/deposit
 import { calculateVatOnTop } from '@/lib/calculations/vat';
 import { kstMonthStr } from '@/lib/payments/billing-constants';
 import { createNotification } from '@/lib/utils/notifications';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -202,6 +203,7 @@ export async function POST(request: Request) {
       } catch (err) {
         errored++;
         console.error(`[trigger-billing] ${pt.id} 처리 중 예외:`, err);
+        void logSystemError({ source: 'admin/payments/trigger-billing', error: err }).catch(() => {});
       }
     }
 
@@ -217,6 +219,7 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     console.error('POST /api/admin/payments/trigger-billing error:', err);
+    void logSystemError({ source: 'admin/payments/trigger-billing', error: err }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '서버 오류' },
       { status: 500 },

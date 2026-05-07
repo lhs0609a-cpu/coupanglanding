@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { AD_ACADEMY_STAGES } from '@/lib/data/ad-academy-stages';
 import { grantAdAcademyRewards } from '@/lib/utils/ad-academy-rewards';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -76,6 +77,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error('ad-academy complete error:', err);
+    void logSystemError({ source: 'ad-academy/complete', error: err }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed' },
       { status: 500 }

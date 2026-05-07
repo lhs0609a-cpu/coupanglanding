@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getQuizQuestions } from '@/lib/data/quiz-registry';
 import { grantEducationRewards } from '@/lib/utils/education-rewards';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -98,6 +99,7 @@ export async function POST(request: NextRequest) {
         });
       } catch (rewardErr) {
         console.error('Education reward error:', rewardErr);
+        void logSystemError({ source: 'onboarding/quiz-complete', error: rewardErr }).catch(() => {});
         // 보상 지급 실패해도 퀴즈 완료는 유지
       }
     }
@@ -105,6 +107,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ passed: allCorrect, results });
   } catch (err) {
     console.error('Quiz complete error:', err);
+    void logSystemError({ source: 'onboarding/quiz-complete', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

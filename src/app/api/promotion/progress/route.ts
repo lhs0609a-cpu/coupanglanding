@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -35,12 +36,14 @@ export async function GET() {
 
     if (error) {
       console.error('일괄 적용 진행 상태 조회 오류:', error);
+      void logSystemError({ source: 'promotion/progress', error: error }).catch(() => {});
       return NextResponse.json({ error: '진행 상태 조회에 실패했습니다.' }, { status: 500 });
     }
 
     return NextResponse.json({ progress: progress || null });
   } catch (err) {
     console.error('진행 상태 조회 서버 오류:', err);
+    void logSystemError({ source: 'promotion/progress', error: err }).catch(() => {});
     const message = err instanceof Error ? err.message : '서버 오류가 발생했습니다.';
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -79,6 +82,7 @@ export async function DELETE() {
 
     if (cancelError) {
       console.error('일괄 적용 취소 오류:', cancelError);
+      void logSystemError({ source: 'promotion/progress', error: cancelError }).catch(() => {});
       return NextResponse.json({ error: '취소 처리에 실패했습니다.' }, { status: 500 });
     }
 
@@ -95,12 +99,14 @@ export async function DELETE() {
 
     if (skipError) {
       console.error('pending 레코드 skipped 처리 오류:', skipError);
+      void logSystemError({ source: 'promotion/progress', error: skipError }).catch(() => {});
       // 진행 상태는 이미 취소되었으므로 경고만 로깅
     }
 
     return NextResponse.json({ progress: cancelledProgress });
   } catch (err) {
     console.error('일괄 적용 취소 서버 오류:', err);
+    void logSystemError({ source: 'promotion/progress', error: err }).catch(() => {});
     const message = err instanceof Error ? err.message : '서버 오류가 발생했습니다.';
     return NextResponse.json({ error: message }, { status: 500 });
   }

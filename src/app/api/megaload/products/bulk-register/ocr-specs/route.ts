@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { extractSpecsFromBase64Images, extractSpecsFromProductFolder } from '@/lib/megaload/services/product-info-ocr';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -38,6 +39,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ specs, fieldCount: Object.keys(specs).length });
   } catch (err) {
     console.error('[ocr-specs] 오류:', err);
+    void logSystemError({ source: 'megaload/products/bulk-register/ocr-specs', error: err }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'OCR 처리 실패' },
       { status: 500 },

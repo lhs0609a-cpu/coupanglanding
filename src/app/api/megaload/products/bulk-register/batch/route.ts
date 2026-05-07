@@ -7,6 +7,7 @@ import { uploadLocalImagesParallel } from '@/lib/megaload/services/local-product
 import type { DeliveryInfo, ReturnInfo, AttributeMeta, CertificationInfo, OptionVariant } from '@/lib/megaload/services/coupang-product-builder';
 import type { NoticeCategoryMeta } from '@/lib/megaload/services/notice-field-filler';
 import type { StoryBatchInput } from '@/lib/megaload/services/ai.service';
+import { logSystemError } from '@/lib/utils/system-log';
 // generateProductStoriesBatch 는 generateAiContent=true 일 때만 dynamic import — Gemini SDK 로드 비용 cold start 절감.
 import { buildProductPayload } from '@/lib/megaload/services/preflight-builder';
 import { withRetry } from '@/lib/megaload/services/retry';
@@ -852,6 +853,7 @@ export async function POST(req: NextRequest) {
       } catch (dbErr) {
         // DB 실패 시 보상 로직: 고아 상품 정보를 sh_sync_jobs.result에 기록
         console.error(`[batch] DB 저장 실패 — 쿠팡 상품 ID ${result.channelProductId} 고아 발생:`, dbErr);
+        void logSystemError({ source: 'megaload/products/bulk-register/batch', error: dbErr }).catch(() => {});
         try {
           await serviceClient.from('sh_sync_jobs').update({
             result: {

@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { PERIOD_OPTIONS, getDateRange, transformDatalabResponse } from '@/lib/utils/trend-chart';
 import type { PeriodOption } from '@/lib/utils/trend-chart';
 import type { TrendDataPoint } from '@/lib/supabase/types';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -99,6 +100,7 @@ export async function POST(request: NextRequest) {
     if (!response.ok) {
       const errText = await response.text();
       console.error('DataLab API error:', response.status, errText);
+      void logSystemError({ source: 'trends/datalab', error: errText }).catch(() => {});
       return NextResponse.json(
         { error: `DataLab API 오류: ${response.status}` },
         { status: 502 }
@@ -137,6 +139,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error('DataLab proxy error:', err);
+    void logSystemError({ source: 'trends/datalab', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

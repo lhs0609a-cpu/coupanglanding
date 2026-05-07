@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { notifyAdminSettlementDelay, notifyAdminOverdueAlert } from '@/lib/utils/notifications';
 import { getReportTargetMonth, getSettlementDeadline } from '@/lib/utils/settlement';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -74,6 +75,7 @@ export async function POST() {
     });
   } catch (err) {
     console.error('admin-settlement-overdue error:', err);
+    void logSystemError({ source: 'admin-settlement-overdue', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

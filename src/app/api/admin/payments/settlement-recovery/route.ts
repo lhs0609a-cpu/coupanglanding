@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 import { completeSettlement } from '@/lib/payments/complete-settlement';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -83,6 +84,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     console.error('GET /api/admin/payments/settlement-recovery error:', err);
+    void logSystemError({ source: 'admin/payments/settlement-recovery', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }
@@ -158,6 +160,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error('POST /api/admin/payments/settlement-recovery error:', err);
+    void logSystemError({ source: 'admin/payments/settlement-recovery', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }

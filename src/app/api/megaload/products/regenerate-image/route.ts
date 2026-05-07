@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { randomUUID } from 'crypto';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { GoogleGenAI, Modality } from '@google/genai';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 60;
 
@@ -132,6 +133,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error('[regenerate-image]', err);
+    void logSystemError({ source: 'megaload/products/regenerate-image', error: err }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '재생성 실패' },
       { status: 500 },

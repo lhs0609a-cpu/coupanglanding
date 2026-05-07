@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ cards: cards || [] });
   } catch (err) {
     console.error('GET /api/admin/payments/charge-test/cards error:', err);
+    void logSystemError({ source: 'admin/payments/charge-test/cards', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }

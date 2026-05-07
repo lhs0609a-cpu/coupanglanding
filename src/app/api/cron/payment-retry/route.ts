@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { retryTransaction } from '@/lib/payments/retry-runner';
 import { kstDateStr, MAX_PAYMENT_RETRY_COUNT } from '@/lib/payments/billing-constants';
 import { logSettlementError } from '@/lib/payments/settlement-errors';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -102,6 +103,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     console.error('cron/payment-retry error:', err);
+    void logSystemError({ source: 'cron/payment-retry', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   } finally {
     await serviceClient.rpc('cron_release_lock', { p_key: CRON_LOCK_KEY });

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Noto_Sans_KR } from "next/font/google";
+import GlobalErrorCapture from "@/components/system/GlobalErrorCapture";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -56,6 +57,7 @@ export default function RootLayout({
         >
           본문으로 건너뛰기
         </a>
+        <GlobalErrorCapture />
         {children}
       </body>
     </html>

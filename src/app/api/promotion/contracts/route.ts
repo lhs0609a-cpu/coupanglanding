@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchContracts } from '@/lib/utils/coupang-api-client';
 import type { CoupangCredentials, CoupangContract } from '@/lib/utils/coupang-api-client';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -72,6 +73,7 @@ export async function GET() {
     });
   } catch (err) {
     console.error('promotion contracts error:', err);
+    void logSystemError({ source: 'promotion/contracts', error: err }).catch(() => {});
     const message = err instanceof Error ? err.message : '서버 오류가 발생했습니다.';
     return NextResponse.json({ error: message }, { status: 500 });
   }

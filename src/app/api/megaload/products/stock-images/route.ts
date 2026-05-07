@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
+import { logSystemError } from '@/lib/utils/system-log';
 import {
   isCommodityCategory,
   getCategoryQueries,
@@ -150,6 +151,7 @@ export async function POST(req: NextRequest) {
                 serviceClient,
               ).catch(err => {
                 console.error(`[stock-images] Upload failed for photo ${photo.id}:`, err);
+                void logSystemError({ source: 'megaload/products/stock-images', error: err }).catch(() => {});
                 return null;
               }),
             );
@@ -168,6 +170,7 @@ export async function POST(req: NextRequest) {
           }
         } catch (err) {
           console.error(`[stock-images] Pexels fallback failed for "${catPath}":`, err);
+          void logSystemError({ source: 'megaload/products/stock-images', error: err }).catch(() => {});
           for (const p of prods) skipped.push(p.uid);
         }
       }
@@ -181,6 +184,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ results, skipped });
   } catch (err) {
     console.error('[stock-images] Error:', err);
+    void logSystemError({ source: 'megaload/products/stock-images', error: err }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '스톡 이미지 처리 실패' },
       { status: 500 },

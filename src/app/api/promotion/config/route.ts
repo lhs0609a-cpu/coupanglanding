@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -41,6 +42,7 @@ export async function GET() {
 
     if (error) {
       console.error('쿠폰 자동 동기화 설정 조회 오류:', error);
+      void logSystemError({ source: 'promotion/config', error: error }).catch(() => {});
       return NextResponse.json({ error: '설정 조회에 실패했습니다.' }, { status: 500 });
     }
 
@@ -52,6 +54,7 @@ export async function GET() {
     return NextResponse.json({ config: config || null, account });
   } catch (err) {
     console.error('쿠폰 설정 조회 서버 오류:', err);
+    void logSystemError({ source: 'promotion/config', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }
@@ -134,6 +137,7 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error('쿠폰 자동 동기화 설정 저장 오류:', error);
+      void logSystemError({ source: 'promotion/config', error: error }).catch(() => {});
       const detail = error.message || error.code || '';
       return NextResponse.json(
         { error: `설정 저장에 실패했습니다.${detail ? ` (${detail})` : ''}` },
@@ -144,6 +148,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ config });
   } catch (err) {
     console.error('쿠폰 설정 저장 서버 오류:', err);
+    void logSystemError({ source: 'promotion/config', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
   }
 }

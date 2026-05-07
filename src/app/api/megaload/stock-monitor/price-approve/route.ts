@@ -4,6 +4,7 @@ import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import type { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
 import type { PendingPriceChange } from '@/lib/supabase/types';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -118,6 +119,7 @@ export async function POST(request: NextRequest) {
     }
   } catch (err) {
     console.error('price-approve POST error:', err);
+    void logSystemError({ source: 'megaload/stock-monitor/price-approve', error: err }).catch(() => {});
     return NextResponse.json({ error: '서버 오류' }, { status: 500 });
   }
 }

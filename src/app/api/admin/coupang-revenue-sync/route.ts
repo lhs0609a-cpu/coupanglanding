@@ -4,6 +4,7 @@ import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
 import { getPreviousMonth, getReportTargetMonth } from '@/lib/utils/settlement';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
+import { logSystemError } from '@/lib/utils/system-log';
 
 /**
  * POST /api/admin/coupang-revenue-sync
@@ -192,4 +193,5 @@ async function upsertSnapshot(
     .from('api_revenue_snapshots')
     .upsert(snapshot, { onConflict: 'pt_user_id,year_month' });
   if (error) console.error('[admin/coupang-revenue-sync] upsert error:', error);
+  void logSystemError({ source: 'admin/coupang-revenue-sync', error: error }).catch(() => {});
 }

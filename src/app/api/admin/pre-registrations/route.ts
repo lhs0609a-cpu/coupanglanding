@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { logActivity } from '@/lib/utils/activity-log';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -37,6 +38,7 @@ export async function GET() {
     return NextResponse.json({ data: data || [] });
   } catch (error) {
     console.error('pre-registrations GET error:', error);
+    void logSystemError({ source: 'admin/pre-registrations', error: error }).catch(() => {});
     return NextResponse.json({ error: '사전등록 목록 조회에 실패했습니다.' }, { status: 500 });
   }
 }
@@ -108,6 +110,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ data });
   } catch (error) {
     console.error('pre-registrations POST error:', error);
+    void logSystemError({ source: 'admin/pre-registrations', error: error }).catch(() => {});
     return NextResponse.json({ error: '사전등록 생성에 실패했습니다.' }, { status: 500 });
   }
 }
@@ -163,6 +166,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('pre-registrations PATCH error:', error);
+    void logSystemError({ source: 'admin/pre-registrations', error: error }).catch(() => {});
     return NextResponse.json({ error: '사전등록 취소에 실패했습니다.' }, { status: 500 });
   }
 }

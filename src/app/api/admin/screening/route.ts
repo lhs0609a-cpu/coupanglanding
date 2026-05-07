@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { logActivity } from '@/lib/utils/activity-log';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -47,6 +48,7 @@ export async function GET() {
     return NextResponse.json({ data: normalized });
   } catch (error) {
     console.error('admin screening GET error:', error);
+    void logSystemError({ source: 'admin/screening', error: error }).catch(() => {});
     return NextResponse.json({ error: '스크리닝 목록 조회에 실패했습니다.' }, { status: 500 });
   }
 }
@@ -100,6 +102,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ data: { ...data, token } });
   } catch (error) {
     console.error('admin screening POST error:', error);
+    void logSystemError({ source: 'admin/screening', error: error }).catch(() => {});
     return NextResponse.json({ error: '스크리닝 링크 생성에 실패했습니다.' }, { status: 500 });
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -93,6 +94,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ data: logs || [], stats });
   } catch (err) {
     console.error('admin/system-logs GET error:', err);
+    void logSystemError({ source: 'admin/system-logs', error: err }).catch(() => {});
     return NextResponse.json({ error: err instanceof Error ? err.message : '조회 실패' }, { status: 500 });
   }
 }
@@ -139,6 +141,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ data });
   } catch (err) {
     console.error('admin/system-logs PATCH error:', err);
+    void logSystemError({ source: 'admin/system-logs', error: err }).catch(() => {});
     return NextResponse.json({ error: err instanceof Error ? err.message : '업데이트 실패' }, { status: 500 });
   }
 }

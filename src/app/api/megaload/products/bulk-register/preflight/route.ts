@@ -9,6 +9,7 @@ import type { PreflightProductResult, PreflightIssue } from '@/lib/megaload/type
 import type { DeliveryInfo, ReturnInfo, AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
 import type { NoticeCategoryMeta } from '@/lib/megaload/services/notice-field-filler';
 import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 25;
 
@@ -279,6 +280,7 @@ export async function POST(req: NextRequest) {
           const errMsg = settled.reason instanceof Error ? settled.reason.message : '빌드 실패';
           // chunk에서 어떤 상품인지 식별 어려움 → skip
           console.error('[preflight] Product build error:', errMsg);
+          void logSystemError({ source: 'megaload/products/bulk-register/preflight', error: errMsg }).catch(() => {});
         }
       }
     }

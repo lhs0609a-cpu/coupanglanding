@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { notifyTrainerTraineeStagnant } from '@/lib/utils/notifications';
+import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
@@ -83,6 +84,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('Trainer coaching check error:', error);
+    void logSystemError({ source: 'cron/trainer-coaching-check', error: error }).catch(() => {});
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 },
