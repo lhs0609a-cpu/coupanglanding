@@ -1424,6 +1424,24 @@ export async function matchCategory(
     if (rawLeaf) return rawLeaf;
   }
 
+  // ── Tier -0.4: 괄호 안 텍스트 leaf 매칭 ──
+  // "농가직송 (가구부속자재)" 같이 셀러가 leaf 이름을 괄호로 강조하는 케이스.
+  // cleanProductName 이 괄호 텍스트를 brand 처리로 제거하므로 raw 입력에서 직접 추출.
+  const parenMatches = productName.match(/[\[\(【]([^\]\)】]{2,30})[\]\)】]/g);
+  if (parenMatches) {
+    for (const pm of parenMatches) {
+      const inner = pm.replace(/^[\[\(【]|[\]\)】]$/g, '').trim();
+      if (!inner) continue;
+      // 괄호 안 텍스트 자체가 leaf 이름인 경우
+      const direct = exactLeafMatch(inner);
+      if (direct) return direct;
+      // 괄호 안 토큰 단위 leaf 매칭
+      const innerTokens = tokenize(inner);
+      const parenLeaf = findLeafByToken(innerTokens);
+      if (parenLeaf) return parenLeaf;
+    }
+  }
+
   // ── Tier 0: 직접 코드 매핑 (네이버 ID 없을 때 최우선) ──
   // voteTier0 후보 = 원본 토큰 + 2-gram + splitKoreanCompound 결과만.
   // SYNONYM/ALIAS 확장은 의도적으로 제외 — "꿀참외" → ["꿀","참외"] split 후
@@ -1575,6 +1593,21 @@ export async function matchCategoryBatch(
       if (rawTokens.length !== tokens.length || rawTokens.some((t, k) => t !== tokens[k])) {
         const rawLeaf = findLeafByToken(rawTokens);
         if (rawLeaf) { results[i] = rawLeaf; continue; }
+      }
+      // 괄호 안 leaf
+      const parenMatches = productNames[i].match(/[\[\(【]([^\]\)】]{2,30})[\]\)】]/g);
+      if (parenMatches) {
+        let parenHit: CategoryMatchResult | null = null;
+        for (const pm of parenMatches) {
+          const inner = pm.replace(/^[\[\(【]|[\]\)】]$/g, '').trim();
+          if (!inner) continue;
+          const direct = exactLeafMatch(inner);
+          if (direct) { parenHit = direct; break; }
+          const innerTokens = tokenize(inner);
+          const parenLeaf = findLeafByToken(innerTokens);
+          if (parenLeaf) { parenHit = parenLeaf; break; }
+        }
+        if (parenHit) { results[i] = parenHit; continue; }
       }
     }
 
