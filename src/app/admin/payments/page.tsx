@@ -13,9 +13,20 @@ import {
   FileWarning,
   CreditCardIcon,
   Check,
+  FileX,
+  Ban,
+  HelpCircle,
 } from 'lucide-react';
 
-type Status = 'normal' | 'retrying' | 'final_failed' | 'locked' | 'no_card' | 'no_report';
+type Status =
+  | 'normal'
+  | 'retrying'
+  | 'final_failed'
+  | 'locked'
+  | 'no_card'
+  | 'no_report'
+  | 'no_contract'
+  | 'excluded';
 type Filter = 'all' | Status;
 
 interface UserRow {
@@ -60,6 +71,8 @@ interface Summary {
   locked: number;
   no_card: number;
   no_report: number;
+  no_contract?: number;
+  excluded?: number;
 }
 
 const STATUS_META: Record<Status, { label: string; color: string; icon: typeof CheckCircle2 }> = {
@@ -69,7 +82,15 @@ const STATUS_META: Record<Status, { label: string; color: string; icon: typeof C
   locked: { label: '락 걸림', color: 'bg-orange-100 text-orange-800', icon: Lock },
   no_card: { label: '카드 미등록', color: 'bg-amber-100 text-amber-800', icon: CreditCardIcon },
   no_report: { label: '리포트 미제출', color: 'bg-gray-100 text-gray-700', icon: FileWarning },
+  no_contract: { label: '계약 미서명', color: 'bg-yellow-100 text-yellow-800', icon: FileX },
+  excluded: { label: '결제 제외', color: 'bg-purple-100 text-purple-700', icon: Ban },
 };
+
+const UNKNOWN_STATUS_META = {
+  label: '알수없음',
+  color: 'bg-gray-100 text-gray-500',
+  icon: HelpCircle,
+} as const;
 
 const LOCK_LEVEL_LABEL: Record<number, string> = {
   0: '정상',
@@ -312,7 +333,7 @@ export default function AdminPaymentsPage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredRows.map((r) => {
-                const meta = STATUS_META[r.status];
+                const meta = STATUS_META[r.status] ?? UNKNOWN_STATUS_META;
                 const StatusIcon = meta.icon;
                 const name = r.full_name || r.email || r.pt_user_id.slice(0, 8);
                 const canRetryNow =
