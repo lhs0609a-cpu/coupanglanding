@@ -53,6 +53,7 @@ const navItems = [
   { href: '/admin/violations', label: '계약위반 관리', icon: Gavel },
   { href: '/admin/ad-cost-review', label: '광고비 검토', icon: Megaphone },
   { href: '/admin/payments', label: '결제 통합 대시보드', icon: CreditCard },
+  { href: '/admin/payments/transactions', label: '결제 내역 / 중복 취소', icon: CreditCard },
   { href: '/admin/payments/test', label: '테스트 결제', icon: CreditCard },
   { href: '/admin/payment-locks', label: '결제 락 관리', icon: Lock },
   { href: '/admin/tax-invoices', label: '세금계산서', icon: Receipt },
