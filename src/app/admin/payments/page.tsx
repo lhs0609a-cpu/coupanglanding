@@ -212,14 +212,27 @@ export default function AdminPaymentsPage() {
         alert(`❌ 실패: ${data.error || '서버 오류'}`);
         return;
       }
+      const errorDetail = (data.errors || [])
+        .slice(0, 5)
+        .map((e: { stage: string; message: string }) => `   - [${e.stage}] ${e.message}`)
+        .join('\n');
       alert(
         `✅ 동기화 완료\n\n` +
-          `• 미스매치 검출: ${data.scannedDesyncReports}건\n` +
-          `• 리포트 paid 정정: ${data.fixedReports?.length ?? 0}건\n` +
-          `• 영향 사용자: ${data.affectedPtUsers}명\n` +
-          `• 락 자동 해제: ${data.locksCleared}명\n` +
-          `• 락 보존(다른 미납 잔존): ${data.locksStillHeld}명\n` +
-          `• 에러: ${data.errors?.length ?? 0}건`,
+          `[Pass A] success tx ↔ overdue 미스매치\n` +
+          `• 미스매치 검출: ${data.scannedDesyncReports ?? 0}건\n` +
+          `• 리포트 paid 정정: ${data.fixedReports?.length ?? 0}건\n\n` +
+          `[Pass B] failed tx 토스 재검증\n` +
+          `• 의심 tx 스캔: ${data.scannedSuspectFailedTx ?? 0}건\n` +
+          `• 토스 DONE 확인 (success 복구): ${data.tossVerifiedDone ?? 0}건  ⭐\n` +
+          `• 토스 DONE 아님 (실패 확정): ${data.tossVerifiedNotDone ?? 0}건\n` +
+          `• 토스 호출 에러: ${data.tossVerifyErrors ?? 0}건\n\n` +
+          `[락 처리]\n` +
+          `• 영향 사용자: ${data.affectedPtUsers ?? 0}명\n` +
+          `• 락 자동 해제: ${data.locksCleared ?? 0}명\n` +
+          `• 락 보존(다른 미납 잔존): ${data.locksStillHeld ?? 0}명\n\n` +
+          (data.errors?.length
+            ? `[에러 ${data.errors.length}건]\n${errorDetail}`
+            : ''),
       );
       await fetchData();
     } catch (err) {
