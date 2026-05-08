@@ -37,6 +37,10 @@
       "schedule": "15 * * * *"
     },
     {
+      "path": "/api/cron/payment-desync-recovery",
+      "schedule": "30 * * * *"
+    },
+    {
       "path": "/api/cron/fee-payment-check",
       "schedule": "0 21 * * *"
     },

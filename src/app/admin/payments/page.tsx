@@ -126,6 +126,47 @@ export default function AdminPaymentsPage() {
   };
 
   /**
+   * 자동 동기화 실행 — payment_transactions success ↔ monthly_report overdue 미스매치 일괄 복구.
+   * 같은 로직이 매시간 cron 으로도 실행됨. 즉시 효과 보려면 이 버튼 사용.
+   */
+  const [syncing, setSyncing] = useState(false);
+  const handleSyncLocks = async () => {
+    if (
+      !confirm(
+        '🔄 결제 동기화 자동 복구를 실행합니다.\n\n' +
+          '✓ payment_transactions 에 success tx 있는데 리포트가 paid 가 아닌 케이스 모두 자동 정정\n' +
+          '✓ 영향받은 사용자의 결제 락 자동 해제\n' +
+          '✓ 토스 환불 발생 안 함 (이미 결제된 건만 시스템 동기화)\n\n' +
+          '실행할까요?',
+      )
+    )
+      return;
+    setSyncing(true);
+    try {
+      const res = await fetch('/api/admin/payments/sync-locks', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`❌ 실패: ${data.error || '서버 오류'}`);
+        return;
+      }
+      alert(
+        `✅ 동기화 완료\n\n` +
+          `• 미스매치 검출: ${data.scannedDesyncReports}건\n` +
+          `• 리포트 paid 정정: ${data.fixedReports?.length ?? 0}건\n` +
+          `• 영향 사용자: ${data.affectedPtUsers}명\n` +
+          `• 락 자동 해제: ${data.locksCleared}명\n` +
+          `• 락 보존(다른 미납 잔존): ${data.locksStillHeld}명\n` +
+          `• 에러: ${data.errors?.length ?? 0}건`,
+      );
+      await fetchData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '동기화 실패');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  /**
    * 수동 paid 처리 — 외부수단(계좌이체) 결제 또는 webhook 누락 사고 복구.
    * 토스 환불 발생 안 함. 미납 리포트 모두 paid 로 강제 마킹 + 락 해제.
    */
@@ -206,9 +247,19 @@ export default function AdminPaymentsPage() {
         <h1 className="text-2xl font-bold text-gray-900">결제 통합 대시보드</h1>
         <button
           type="button"
+          onClick={handleSyncLocks}
+          disabled={syncing || loading}
+          className="ml-auto inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-emerald-600 text-white font-semibold rounded hover:bg-emerald-700 disabled:opacity-50"
+          title="payment_transactions success ↔ report overdue 미스매치 자동 정정 + 락 해제 (매시간 cron 도 같은 로직 실행)"
+        >
+          {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+          🔄 자동 동기화 실행
+        </button>
+        <button
+          type="button"
           onClick={fetchData}
           disabled={loading}
-          className="ml-auto inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50"
+          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           새로고침
