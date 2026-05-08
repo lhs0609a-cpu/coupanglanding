@@ -61,6 +61,9 @@ export default function PaymentCallbackPage() {
       setStatus('success');
       setMessage('카드가 성공적으로 등록되었습니다.');
 
+      // 카드 등록 + 즉시 미납 결제까지 처리됐을 수 있음 → layout 의 payment_lock_level 재평가
+      router.refresh();
+
       // 3초 후 설정 페이지로 리다이렉트
       setTimeout(() => {
         router.push('/my/settings');

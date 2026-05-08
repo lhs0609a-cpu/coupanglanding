@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { CreditCard, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import type { BillingCard } from '@/lib/supabase/types';
@@ -21,6 +22,7 @@ export default function PaymentButton({
   yearMonth,
   onSuccess,
 }: PaymentButtonProps) {
+  const router = useRouter();
   const [modalOpen, setModalOpen] = useState(false);
   const [cards, setCards] = useState<BillingCard[]>([]);
   const [selectedCardId, setSelectedCardId] = useState('');
@@ -78,6 +80,9 @@ export default function PaymentButton({
       }
 
       setResult('success');
+      // 결제 락 해제 결과를 layout 서버 컴포넌트에 즉시 반영하여 강제 모달이 사라지도록.
+      // page-level fetchData() 만으로는 megaload/layout.tsx 의 payment_lock_level 이 갱신 안 됨.
+      router.refresh();
       setTimeout(() => {
         setModalOpen(false);
         onSuccess();

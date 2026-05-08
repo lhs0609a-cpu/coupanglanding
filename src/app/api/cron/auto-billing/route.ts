@@ -219,9 +219,16 @@ async function processPtUser(
     if (hasEverReported) {
       // 과거엔 보고했는데 이번 청구일에 미납 리포트 0건 = 모두 결제 완료 상태. 정상.
       // 조건부 해제 RPC 사용 — 다른 미결 tx 가 있으면 해제하지 않음.
-      await serviceClient.rpc('payment_clear_overdue_if_settled', {
+      const { error: clearErr } = await serviceClient.rpc('payment_clear_overdue_if_settled', {
         p_pt_user_id: ptUser.id,
       });
+      if (clearErr) {
+        await logSettlementError(serviceClient, {
+          stage: 'auto_billing_no_unpaid_clear_overdue_rpc',
+          ptUserId: ptUser.id,
+          error: clearErr,
+        });
+      }
     } else {
       // 한 번도 보고 안 함 + grace도 지남 → 엄격 처리 (락 마킹)
       const marked = await markOverdue(serviceClient, ptUser.id, todayDateStr);
@@ -476,9 +483,16 @@ async function processPtUser(
   // 모든 리포트가 성공했으면 조건부로 overdue/retry_in_progress 클리어
   // 재시도 예정된 건이 있으면 아직 해제하지 않는다.
   if (allSucceeded && processed > 0 && !anyRetryScheduled) {
-    await serviceClient.rpc('payment_clear_overdue_if_settled', {
+    const { error: clearErr } = await serviceClient.rpc('payment_clear_overdue_if_settled', {
       p_pt_user_id: ptUser.id,
     });
+    if (clearErr) {
+      await logSettlementError(serviceClient, {
+        stage: 'auto_billing_clear_overdue_rpc',
+        ptUserId: ptUser.id,
+        error: clearErr,
+      });
+    }
   }
 
   return { processed, succeeded, failed, markedOverdue };

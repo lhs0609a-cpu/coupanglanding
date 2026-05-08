@@ -215,9 +215,16 @@ async function attemptImmediateCharge(
 
   if (!unpaidReports || unpaidReports.length === 0) {
     // 미납 리포트 0건이어도 overdue 플래그가 남아있을 수 있음 → 조건부 클리어
-    await serviceClient.rpc('payment_clear_overdue_if_settled', {
+    const { error: clearErr } = await serviceClient.rpc('payment_clear_overdue_if_settled', {
       p_pt_user_id: ptUserId,
     });
+    if (clearErr) {
+      await logSettlementError(serviceClient, {
+        stage: 'immediate_charge_no_unpaid_clear_overdue_rpc',
+        ptUserId,
+        error: clearErr,
+      });
+    }
     return { succeeded: 0, failed: 0, scheduledRetries: 0 };
   }
 
@@ -332,9 +339,16 @@ async function attemptImmediateCharge(
 
   // 모든 리포트가 성공했고 다른 미결 재시도도 없으면 조건부 해제
   if (failed === 0 && succeeded > 0) {
-    await serviceClient.rpc('payment_clear_overdue_if_settled', {
+    const { error: clearErr } = await serviceClient.rpc('payment_clear_overdue_if_settled', {
       p_pt_user_id: ptUserId,
     });
+    if (clearErr) {
+      await logSettlementError(serviceClient, {
+        stage: 'immediate_charge_clear_overdue_rpc',
+        ptUserId,
+        error: clearErr,
+      });
+    }
   }
 
   return { succeeded, failed, scheduledRetries };

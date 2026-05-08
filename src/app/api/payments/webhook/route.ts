@@ -167,9 +167,17 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          await serviceClient.rpc('payment_clear_overdue_if_settled', {
+          const { error: clearErr } = await serviceClient.rpc('payment_clear_overdue_if_settled', {
             p_pt_user_id: tx.pt_user_id,
           });
+          if (clearErr) {
+            await logSettlementError(serviceClient, {
+              stage: 'webhook_clear_overdue_rpc',
+              monthlyReportId: tx.monthly_report_id,
+              ptUserId: tx.pt_user_id,
+              error: clearErr,
+            });
+          }
           break;
         }
 

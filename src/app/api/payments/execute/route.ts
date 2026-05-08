@@ -140,10 +140,18 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      // 조건부 락 해제
-      await serviceClient.rpc('payment_clear_overdue_if_settled', {
+      // 조건부 락 해제 — RPC 실패 시 락이 영구 유지되는 사고 방지를 위해 에러 명시 로깅
+      const { error: clearErr } = await serviceClient.rpc('payment_clear_overdue_if_settled', {
         p_pt_user_id: ptUser.id,
       });
+      if (clearErr) {
+        await logSettlementError(serviceClient, {
+          stage: 'execute_clear_overdue_rpc',
+          monthlyReportId: report.id,
+          ptUserId: ptUser.id,
+          error: clearErr,
+        });
+      }
 
       await createNotification(serviceClient, {
         userId: ptUser.profile_id,
