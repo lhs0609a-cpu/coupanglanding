@@ -16,6 +16,7 @@ import {
   FileX,
   Ban,
   HelpCircle,
+  Search,
 } from 'lucide-react';
 
 type Status =
@@ -141,6 +142,47 @@ export default function AdminPaymentsPage() {
       await fetchData();
     } catch (err) {
       alert(err instanceof Error ? err.message : '재시도 실패');
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  /**
+   * 토스 직접 조회 — 특정 tx 의 toss_order_id 로 토스 API 호출. raw 응답 alert.
+   * 토스 status='DONE' 이고 우리 시스템이 success 가 아니면 자동 복구.
+   */
+  const handleTossVerify = async (txId: string, name: string) => {
+    if (!confirm(`${name} 의 결제 tx 를 토스 API 로 직접 조회합니다.\n\n토스 응답이 DONE 이면 자동으로 success 복구 + 락 해제됩니다.`))
+      return;
+    setActingId(txId);
+    try {
+      const res = await fetch(`/api/admin/payments/transactions/${txId}/toss-verify`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`❌ ${data.error || '실패'}\n\n${data.detail || ''}`);
+        return;
+      }
+      const lines = [
+        `🧾 토스 응답 결과 (orderId: ${data.toss_order_id})`,
+        '',
+        `• 토스에 존재: ${data.tossFound ? 'YES' : 'NO'}`,
+        `• 토스 status: ${data.tossStatus || '-'}`,
+        `• 토스 paymentKey: ${data.tossPaymentKey ? data.tossPaymentKey.slice(0, 24) + '...' : '-'}`,
+        `• 토스 승인시각: ${data.tossApprovedAt || '-'}`,
+        `• 토스 결제금액: ${data.tossTotalAmount ? data.tossTotalAmount.toLocaleString() + '원' : '-'}`,
+        '',
+        `• 우리 시스템 status: ${data.ourStatus}`,
+        `• 우리 시스템 failure_code: ${data.ourFailureCode || '-'}`,
+        '',
+        `→ ${data.recoveryNote}`,
+        data.recovered ? '\n✅ 자동 복구 완료 — 화면 새로고침' : '',
+      ];
+      alert(lines.filter(Boolean).join('\n'));
+      if (data.recovered) await fetchData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '조회 실패');
     } finally {
       setActingId(null);
     }
@@ -457,6 +499,23 @@ export default function AdminPaymentsPage() {
                           >
                             {actingId === r.latest_tx.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
                             즉시 재시도
+                          </button>
+                        )}
+                        {/* 토스 직접 조회 — failed/success/pending 모두 가능. 토스가 진실의 원천 */}
+                        {r.latest_tx && (
+                          <button
+                            type="button"
+                            onClick={() => handleTossVerify(r.latest_tx!.id, name)}
+                            disabled={actingId === r.latest_tx.id}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+                            title="토스 API 직접 조회 — DONE 이면 자동 복구"
+                          >
+                            {actingId === r.latest_tx.id ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Search className="w-3 h-3" />
+                            )}
+                            토스 확인
                           </button>
                         )}
                         {/* 수동 paid 처리 — 락 또는 미납 리포트 있을 때 표시. 외부 결제·webhook 사고 복구용 */}
