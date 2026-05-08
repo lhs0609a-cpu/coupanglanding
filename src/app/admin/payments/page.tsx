@@ -12,6 +12,7 @@ import {
   PlayCircle,
   FileWarning,
   CreditCardIcon,
+  Check,
 } from 'lucide-react';
 
 type Status = 'normal' | 'retrying' | 'final_failed' | 'locked' | 'no_card' | 'no_report';
@@ -119,6 +120,48 @@ export default function AdminPaymentsPage() {
       await fetchData();
     } catch (err) {
       alert(err instanceof Error ? err.message : '재시도 실패');
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  /**
+   * 수동 paid 처리 — 외부수단(계좌이체) 결제 또는 webhook 누락 사고 복구.
+   * 토스 환불 발생 안 함. 미납 리포트 모두 paid 로 강제 마킹 + 락 해제.
+   */
+  const handleMarkPaid = async (ptUserId: string, name: string) => {
+    const reason = prompt(
+      `${name} 사용자의 모든 미납 리포트를 "결제 완료" 처리합니다.\n\n` +
+        '※ 이 액션은 토스 환불을 발생시키지 않습니다.\n' +
+        '※ 사용자가 외부 수단(계좌이체 등)으로 실제 결제했거나 webhook 누락 사고일 때만 사용하세요.\n\n' +
+        '처리 사유를 입력하세요 (감사 추적용, 2자 이상):',
+    );
+    if (!reason || reason.trim().length < 2) return;
+
+    setActingId(ptUserId);
+    try {
+      const res = await fetch(`/api/admin/payments/${ptUserId}/mark-report-paid`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`❌ 실패: ${data.error || '서버 오류'}`);
+        return;
+      }
+      const lines = (data.markedReports || []).map(
+        (r: { yearMonth: string; previousStatus: string; amount: number }) =>
+          `✓ ${r.yearMonth} (${r.previousStatus} → paid, ₩${r.amount.toLocaleString()})`,
+      );
+      alert(
+        `✅ 수동 paid 처리 완료\n\n` +
+          `${lines.join('\n')}\n\n` +
+          `락 해제: ${data.lockCleared ? 'YES' : 'NO (다른 미납·재시도 잔존)'}`,
+      );
+      await fetchData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '처리 실패');
     } finally {
       setActingId(null);
     }
@@ -342,6 +385,27 @@ export default function AdminPaymentsPage() {
                           >
                             {actingId === r.latest_tx.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
                             즉시 재시도
+                          </button>
+                        )}
+                        {/* 수동 paid 처리 — 락 또는 미납 리포트 있을 때 표시. 외부 결제·webhook 사고 복구용 */}
+                        {(r.status === 'locked' ||
+                          (r.this_month_report &&
+                            ['awaiting_payment', 'overdue', 'suspended'].includes(
+                              r.this_month_report.fee_payment_status,
+                            ))) && (
+                          <button
+                            type="button"
+                            onClick={() => handleMarkPaid(r.pt_user_id, name)}
+                            disabled={actingId === r.pt_user_id}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+                            title="외부 결제 또는 webhook 사고 복구 — 토스 환불 발생 안 함"
+                          >
+                            {actingId === r.pt_user_id ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Check className="w-3 h-3" />
+                            )}
+                            수동 paid
                           </button>
                         )}
                       </div>

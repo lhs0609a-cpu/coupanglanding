@@ -16,7 +16,7 @@ WITH paid_reports AS (
     pt_user_id,
     COUNT(*) FILTER (WHERE fee_payment_status = 'paid') AS paid_count,
     COUNT(*) FILTER (WHERE fee_payment_status IN ('awaiting_payment','overdue','suspended')) AS unpaid_count,
-    MAX(fee_paid_at) FILTER (WHERE fee_payment_status = 'paid') AS last_paid_at
+    MAX(payment_confirmed_at) FILTER (WHERE fee_payment_status = 'paid') AS last_paid_at
   FROM monthly_reports
   GROUP BY pt_user_id
 ),
