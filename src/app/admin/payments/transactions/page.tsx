@@ -71,6 +71,7 @@ export default function AdminPaymentTransactionsPage() {
   const [cancelForce, setCancelForce] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState('');
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -158,6 +159,39 @@ export default function AdminPaymentTransactionsPage() {
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setSearch(searchInput);
+  };
+
+  const handleTossVerify = async (tx: Tx) => {
+    if (!confirm(`${tx.name} (${tx.yearMonth}) 의 tx 를 토스 API 로 직접 조회합니다.\n\n토스 status=DONE 이면 자동 success 복구 + 락 해제됩니다.`))
+      return;
+    setVerifyingId(tx.id);
+    try {
+      const res = await fetch(`/api/admin/payments/transactions/${tx.id}/toss-verify`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`❌ ${data.error || '실패'}\n\n${data.detail || ''}`);
+        return;
+      }
+      alert(
+        `🧾 토스 응답 (orderId: ${data.toss_order_id})\n\n` +
+          `• 토스에 존재: ${data.tossFound ? 'YES' : 'NO'}\n` +
+          `• 토스 status: ${data.tossStatus || '-'}\n` +
+          `• 토스 paymentKey: ${data.tossPaymentKey ? data.tossPaymentKey.slice(0, 24) + '...' : '-'}\n` +
+          `• 토스 승인시각: ${data.tossApprovedAt || '-'}\n` +
+          `• 토스 결제금액: ${data.tossTotalAmount ? data.tossTotalAmount.toLocaleString() + '원' : '-'}\n\n` +
+          `• 우리 시스템 status: ${data.ourStatus}\n` +
+          `• 우리 시스템 failure_code: ${data.ourFailureCode || '-'}\n\n` +
+          `→ ${data.recoveryNote}\n` +
+          (data.recovered ? '\n✅ 자동 복구 완료' : ''),
+      );
+      if (data.recovered) await fetchData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '조회 실패');
+    } finally {
+      setVerifyingId(null);
+    }
   };
 
   const copyText = async (text: string) => {
@@ -362,19 +396,37 @@ export default function AdminPaymentTransactionsPage() {
                       )}
                     </td>
                     <td className="px-3 py-2.5">
-                      {tx.status === 'success' ? (
-                        <button
-                          type="button"
-                          onClick={() => openCancel(tx)}
-                          className="px-2.5 py-1 bg-red-600 text-white rounded-md text-xs font-medium hover:bg-red-700"
-                        >
-                          취소
-                        </button>
-                      ) : tx.status === 'cancelled' ? (
-                        <span className="text-xs text-gray-400">취소됨</span>
-                      ) : (
-                        <span className="text-xs text-gray-300">-</span>
-                      )}
+                      <div className="flex flex-col gap-1 items-stretch">
+                        {/* 토스 확인 — 모든 상태(success/failed/pending)에서 가능. 취소된 건만 제외 */}
+                        {tx.status !== 'cancelled' && tx.orderId && (
+                          <button
+                            type="button"
+                            onClick={() => handleTossVerify(tx)}
+                            disabled={verifyingId === tx.id}
+                            className="px-2.5 py-1 bg-indigo-600 text-white rounded-md text-xs font-medium hover:bg-indigo-700 disabled:opacity-50 inline-flex items-center justify-center gap-1"
+                            title="토스 API 직접 조회 — DONE 이면 자동 복구"
+                          >
+                            {verifyingId === tx.id ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Search className="w-3 h-3" />
+                            )}
+                            토스 확인
+                          </button>
+                        )}
+                        {tx.status === 'success' && (
+                          <button
+                            type="button"
+                            onClick={() => openCancel(tx)}
+                            className="px-2.5 py-1 bg-red-600 text-white rounded-md text-xs font-medium hover:bg-red-700"
+                          >
+                            취소
+                          </button>
+                        )}
+                        {tx.status === 'cancelled' && (
+                          <span className="text-xs text-gray-400">취소됨</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
