@@ -173,25 +173,91 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // ── 3) TTL 만료 좀비 pending 강제 종결 ─────────────────
-    // 위 2)까지 처리한 뒤에도 pending 상태로 남은 tx 중 24h+ 된 건은 실패로 확정.
+    // ── 3) TTL 만료 좀비 pending — 토스 마지막 조회 후 실패 확정 ─────────────────
+    // 24h+ pending 상태인 tx 는 그대로 두면 락이 영구 잔존. 그러나 토스에 안 물어보고
+    // 무조건 failed 마킹하면 "실제로는 결제됐는데 시스템만 모르는" 사고 발생.
+    // → 각 tx 마다 토스 한 번 더 조회. DONE 이면 success 로 마킹, 그 외만 failed.
     const ttlThreshold = new Date(Date.now() - STALE_TTL_HOURS * 60 * 60 * 1000).toISOString();
-    const { data: zombiePending } = await serviceClient
+    const { data: ttlCandidates } = await serviceClient
       .from('payment_transactions')
-      .update({
-        status: 'failed',
-        failure_code: 'RECONCILE_TTL_EXPIRED',
-        failure_message: `${STALE_TTL_HOURS}h 이상 pending 상태로 방치되어 자동 실패 처리`,
-        failed_at: new Date().toISOString(),
-        is_final_failure: true,
-        final_failed_at: new Date().toISOString(),
-        next_retry_at: null,
-      })
+      .select('id, pt_user_id, monthly_report_id, toss_order_id')
       .eq('status', 'pending')
       .lte('created_at', ttlThreshold)
-      .select('id');
+      .limit(100);
 
-    const ttlExpired = (zombiePending || []).length;
+    let ttlExpired = 0;
+    let ttlSavedByToss = 0;
+
+    for (const tx of ttlCandidates || []) {
+      let resolved = false;
+      try {
+        const res = await fetch(
+          `https://api.tosspayments.com/v1/payments/orders/${encodeURIComponent(tx.toss_order_id as string)}`,
+          {
+            headers: {
+              Authorization: 'Basic ' + Buffer.from(tossSecretKey + ':').toString('base64'),
+            },
+            signal: AbortSignal.timeout(10_000),
+          },
+        );
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === 'DONE') {
+            const { error: rpcErr } = await serviceClient.rpc('payment_mark_success', {
+              p_tx_id: tx.id,
+              p_payment_key: data.paymentKey,
+              p_receipt_url: data.receipt?.url ?? null,
+              p_raw: data,
+              p_approved_at: data.approvedAt,
+            });
+            if (!rpcErr) {
+              const { data: fullReport } = await serviceClient
+                .from('monthly_reports')
+                .select('*')
+                .eq('id', tx.monthly_report_id as string)
+                .single();
+              if (fullReport) {
+                try {
+                  await completeSettlement(serviceClient, fullReport);
+                } catch (settleErr) {
+                  await logSettlementError(serviceClient, {
+                    stage: 'reconcile_ttl_complete_settlement',
+                    monthlyReportId: tx.monthly_report_id as string,
+                    ptUserId: tx.pt_user_id as string,
+                    error: settleErr,
+                  });
+                }
+              }
+              await serviceClient.rpc('payment_clear_overdue_if_settled', {
+                p_pt_user_id: tx.pt_user_id,
+              });
+              ttlSavedByToss++;
+              resolved = true;
+            }
+          }
+        }
+      } catch {
+        // 토스 호출 실패 — 안전하게 failed 처리로 fallback (아래)
+      }
+
+      if (!resolved) {
+        await serviceClient
+          .from('payment_transactions')
+          .update({
+            status: 'failed',
+            failure_code: 'RECONCILE_TTL_EXPIRED',
+            failure_message: `${STALE_TTL_HOURS}h 이상 pending — 토스 재조회 후 DONE 아님 확정`,
+            failed_at: new Date().toISOString(),
+            is_final_failure: true,
+            final_failed_at: new Date().toISOString(),
+            next_retry_at: null,
+          })
+          .eq('id', tx.id)
+          .eq('status', 'pending');
+        ttlExpired++;
+      }
+    }
 
     return NextResponse.json({
       success: true,
@@ -201,6 +267,7 @@ export async function GET(request: NextRequest) {
       zombieCandidates: (possibleZombies || []).length,
       flagsCleared,
       ttlExpired,
+      ttlSavedByToss,
     });
   } catch (err) {
     console.error('cron/payment-reconcile error:', err);

@@ -1,30 +1,53 @@
 /**
  * 결제 동기화 사고 자동 복구
  *
- * 시나리오:
- *   사용자가 토스 카드결제로 실제 결제 → payment_transactions.status='success'
- *   그런데 webhook 누락/RPC 오류로 monthly_reports 가 paid 로 못 바뀜
- *   → 사용자에게 결제 락이 걸려 화면에 강제 모달 표시
+ * Pass A — 시스템에 success tx 가 있는데 monthly_report 가 paid 가 아닌 케이스
+ *   webhook 누락/RPC 오류로 리포트가 못 따라온 경우. report 만 paid 마킹하면 끝.
  *
- * 자동 복구:
- *   1) status='success' tx 가 있는 monthly_report 중 fee_payment_status 가 paid 가 아닌 것 추출
- *   2) 해당 리포트들 모두 paid 로 강제 마킹 (settlement_completed_at 도 세팅)
- *   3) 영향받은 pt_user_id 별로 payment_clear_overdue_if_settled RPC 호출 → 락 해제
+ * Pass B — 토스에선 결제 성공인데 우리 시스템이 임의로 failed 마킹한 케이스
+ *   사고 패턴: payment-reconcile Section 3 / charge-now stale-pending 정리가
+ *   토스 API 조회 없이 일방적으로 failed 처리. 사용자는 카드 결제됐는데 시스템엔 실패.
+ *   대상 failure_code: RECONCILE_TTL_EXPIRED, STALE_PENDING, RECONCILE_NOT_FOUND
+ *   → 토스에 toss_order_id 로 재조회. status='DONE' 이면 success 로 복구 + report paid + 락 해제.
  *
  * 안전:
- *   - 토스 환불 발생 안 함 (이미 결제 성공했으므로)
- *   - admin_override_level set 된 사용자는 RPC 가드에 의해 락 보존
- *   - 다른 미납 리포트 / 미결 재시도 있으면 락 해제 안 됨 (정상 동작)
+ *   - 토스 환불 발생 안 함 (이미 결제 성공한 건만 시스템 동기화)
+ *   - admin_override_level 셋된 사용자는 RPC 가드에 의해 락 보존
+ *   - 다른 미납 리포트 / 미결 재시도 있으면 락 해제 안 됨
+ *   - 토스 호출은 per-run limit (기본 50건) 으로 rate-limit 보호
  *
- * 멱등: 동일 효과만 반복. 이미 paid 면 skip.
+ * 멱등: 동일 효과만 반복. 이미 paid/success 면 skip.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logSettlementError } from './settlement-errors';
+import { assertTossEnv } from './toss-client';
+import { completeSettlement } from './complete-settlement';
+
+const TOSS_PAYMENTS_BASE = 'https://api.tosspayments.com/v1/payments';
+
+/** 토스에 안 물어보고 시스템이 일방적으로 실패 처리한 코드들 — 재검증 대상 */
+const TOSS_VERIFY_TARGET_CODES = new Set([
+  'RECONCILE_TTL_EXPIRED',
+  'STALE_PENDING',
+  'RECONCILE_NOT_FOUND',
+]);
+
+const TOSS_VERIFY_PER_RUN = 50;
 
 export interface DesyncRecoveryResult {
+  // Pass A
   scannedDesyncReports: number;
   fixedReports: { id: string; ptUserId: string; yearMonth: string; previousStatus: string }[];
+
+  // Pass B
+  scannedSuspectFailedTx: number;
+  tossVerifiedDone: number;
+  tossVerifiedNotDone: number;
+  tossVerifyErrors: number;
+  recoveredFailedTxs: { txId: string; ptUserId: string; orderId: string; tossStatus: string }[];
+
+  // 공통
   affectedPtUsers: number;
   locksCleared: number;
   locksStillHeld: number;
@@ -37,15 +60,68 @@ export async function runDesyncRecovery(
   const result: DesyncRecoveryResult = {
     scannedDesyncReports: 0,
     fixedReports: [],
+    scannedSuspectFailedTx: 0,
+    tossVerifiedDone: 0,
+    tossVerifiedNotDone: 0,
+    tossVerifyErrors: 0,
+    recoveredFailedTxs: [],
     affectedPtUsers: 0,
     locksCleared: 0,
     locksStillHeld: 0,
     errors: [],
   };
 
-  // 1) success tx 가 있는데 리포트가 paid 아닌 케이스 검출
-  //    - payment_transactions 와 monthly_reports 를 join 해서 desync 추출
-  //    - DISTINCT 로 같은 리포트에 여러 success tx 있어도 1번만 처리
+  const affectedPtUserIds = new Set<string>();
+
+  // ─────────────────────────────────────────────────────────
+  // Pass A: success tx 있는데 리포트 paid 아닌 케이스
+  // ─────────────────────────────────────────────────────────
+  await runPassA(serviceClient, result, affectedPtUserIds);
+
+  // ─────────────────────────────────────────────────────────
+  // Pass B: 토스 재검증 — 시스템이 잘못 failed 마킹한 tx 복구
+  // ─────────────────────────────────────────────────────────
+  try {
+    await runPassB(serviceClient, result, affectedPtUserIds);
+  } catch (envErr) {
+    // 토스 env 미설정 등 — Pass A 결과는 유지
+    result.errors.push({
+      stage: 'toss_verify_env',
+      message: envErr instanceof Error ? envErr.message : String(envErr),
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // 공통: 영향받은 pt_user 락 해제 RPC 호출
+  // ─────────────────────────────────────────────────────────
+  result.affectedPtUsers = affectedPtUserIds.size;
+
+  for (const ptUserId of affectedPtUserIds) {
+    const { data: cleared, error: clearErr } = await serviceClient.rpc(
+      'payment_clear_overdue_if_settled',
+      { p_pt_user_id: ptUserId },
+    );
+    if (clearErr) {
+      await logSettlementError(serviceClient, {
+        stage: 'desync_recovery_clear_overdue_rpc',
+        ptUserId,
+        error: clearErr,
+      });
+      result.errors.push({ stage: 'clear_overdue', message: clearErr.message });
+      continue;
+    }
+    if (cleared === true) result.locksCleared++;
+    else result.locksStillHeld++;
+  }
+
+  return result;
+}
+
+async function runPassA(
+  serviceClient: SupabaseClient,
+  result: DesyncRecoveryResult,
+  affectedPtUserIds: Set<string>,
+): Promise<void> {
   const { data: desyncRows, error: scanErr } = await serviceClient
     .from('payment_transactions')
     .select(`
@@ -60,10 +136,9 @@ export async function runDesyncRecovery(
 
   if (scanErr) {
     result.errors.push({ stage: 'scan_desync', message: scanErr.message });
-    return result;
+    return;
   }
 
-  // monthly_report 단위로 dedupe
   const reportMap = new Map<string, { id: string; ptUserId: string; yearMonth: string; previousStatus: string }>();
   for (const row of (desyncRows || []) as Array<{
     monthly_report_id: string;
@@ -83,9 +158,8 @@ export async function runDesyncRecovery(
   }
 
   result.scannedDesyncReports = reportMap.size;
-  if (reportMap.size === 0) return result;
+  if (reportMap.size === 0) return;
 
-  // 2) 일괄 paid 마킹
   const reportIds = Array.from(reportMap.keys());
   const nowIso = new Date().toISOString();
 
@@ -107,32 +181,128 @@ export async function runDesyncRecovery(
       error: updErr,
     });
     result.errors.push({ stage: 'bulk_update', message: updErr.message });
-    return result;
+    return;
   }
 
   result.fixedReports = Array.from(reportMap.values());
+  for (const r of result.fixedReports) {
+    affectedPtUserIds.add(r.ptUserId);
+  }
+}
 
-  // 3) 영향받은 pt_user 별로 락 해제 RPC 호출
-  const ptUserIds = Array.from(new Set(Array.from(reportMap.values()).map(r => r.ptUserId)));
-  result.affectedPtUsers = ptUserIds.length;
+async function runPassB(
+  serviceClient: SupabaseClient,
+  result: DesyncRecoveryResult,
+  affectedPtUserIds: Set<string>,
+): Promise<void> {
+  const { secretKey: tossSecretKey } = assertTossEnv();
+  const authHeader = 'Basic ' + Buffer.from(tossSecretKey + ':').toString('base64');
 
-  for (const ptUserId of ptUserIds) {
-    const { data: cleared, error: clearErr } = await serviceClient.rpc(
-      'payment_clear_overdue_if_settled',
-      { p_pt_user_id: ptUserId },
-    );
-    if (clearErr) {
-      await logSettlementError(serviceClient, {
-        stage: 'desync_recovery_clear_overdue_rpc',
-        ptUserId,
-        error: clearErr,
-      });
-      result.errors.push({ stage: 'clear_overdue', message: clearErr.message });
-      continue;
-    }
-    if (cleared === true) result.locksCleared++;
-    else result.locksStillHeld++;
+  // 의심 failed tx 추출 — TOSS_VERIFY_TARGET_CODES 코드만
+  const { data: suspectTxs, error: scanErr } = await serviceClient
+    .from('payment_transactions')
+    .select('id, pt_user_id, monthly_report_id, toss_order_id, total_amount, failure_code, created_at')
+    .eq('status', 'failed')
+    .in('failure_code', Array.from(TOSS_VERIFY_TARGET_CODES))
+    .order('created_at', { ascending: false })
+    .limit(TOSS_VERIFY_PER_RUN);
+
+  if (scanErr) {
+    result.errors.push({ stage: 'scan_suspect_failed', message: scanErr.message });
+    return;
   }
 
-  return result;
+  result.scannedSuspectFailedTx = (suspectTxs || []).length;
+  if (!suspectTxs || suspectTxs.length === 0) return;
+
+  for (const tx of suspectTxs) {
+    if (!tx.toss_order_id) continue;
+
+    let tossData: Record<string, unknown> | null = null;
+    let tossStatus: string | null = null;
+
+    try {
+      const res = await fetch(
+        `${TOSS_PAYMENTS_BASE}/orders/${encodeURIComponent(tx.toss_order_id as string)}`,
+        { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(10_000) },
+      );
+
+      if (res.status === 404) {
+        // 토스에도 정말 없음 — 우리 마킹이 맞았던 케이스. skip.
+        result.tossVerifiedNotDone++;
+        continue;
+      }
+      if (!res.ok) {
+        result.tossVerifyErrors++;
+        continue;
+      }
+      tossData = await res.json();
+      tossStatus = (tossData?.status as string | undefined) ?? null;
+    } catch (err) {
+      result.tossVerifyErrors++;
+      await logSettlementError(serviceClient, {
+        stage: 'toss_verify_fetch',
+        monthlyReportId: tx.monthly_report_id as string,
+        ptUserId: tx.pt_user_id as string,
+        error: err,
+      });
+      continue;
+    }
+
+    if (tossStatus !== 'DONE') {
+      result.tossVerifiedNotDone++;
+      continue;
+    }
+
+    // ★ 토스에선 DONE — 시스템 마킹이 잘못됨. success 로 복구.
+    result.tossVerifiedDone++;
+
+    // payment_mark_success 는 status IN (pending, failed) 일 때만 동작 — failed 도 가능. 적합.
+    const { error: rpcErr } = await serviceClient.rpc('payment_mark_success', {
+      p_tx_id: tx.id,
+      p_payment_key: (tossData?.paymentKey as string | undefined) ?? null,
+      p_receipt_url: ((tossData?.receipt as { url?: string } | undefined)?.url) ?? null,
+      p_raw: tossData,
+      p_approved_at: (tossData?.approvedAt as string | undefined) ?? new Date().toISOString(),
+    });
+
+    if (rpcErr) {
+      await logSettlementError(serviceClient, {
+        stage: 'toss_verify_mark_success_rpc',
+        monthlyReportId: tx.monthly_report_id as string,
+        ptUserId: tx.pt_user_id as string,
+        error: rpcErr,
+      });
+      result.errors.push({ stage: 'toss_verify_mark_success', message: rpcErr.message });
+      continue;
+    }
+
+    // 정산 후처리
+    const { data: fullReport } = await serviceClient
+      .from('monthly_reports')
+      .select('*')
+      .eq('id', tx.monthly_report_id as string)
+      .single();
+
+    if (fullReport) {
+      try {
+        await completeSettlement(serviceClient, fullReport);
+      } catch (settleErr) {
+        await logSettlementError(serviceClient, {
+          stage: 'toss_verify_complete_settlement',
+          monthlyReportId: tx.monthly_report_id as string,
+          ptUserId: tx.pt_user_id as string,
+          error: settleErr,
+        });
+      }
+    }
+
+    affectedPtUserIds.add(tx.pt_user_id as string);
+    result.recoveredFailedTxs.push({
+      txId: tx.id as string,
+      ptUserId: tx.pt_user_id as string,
+      orderId: tx.toss_order_id as string,
+      tossStatus,
+    });
+  }
 }
