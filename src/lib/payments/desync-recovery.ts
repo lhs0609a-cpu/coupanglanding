@@ -26,14 +26,7 @@ import { completeSettlement } from './complete-settlement';
 
 const TOSS_PAYMENTS_BASE = 'https://api.tosspayments.com/v1/payments';
 
-/** 토스에 안 물어보고 시스템이 일방적으로 실패 처리한 코드들 — 재검증 대상 */
-const TOSS_VERIFY_TARGET_CODES = new Set([
-  'RECONCILE_TTL_EXPIRED',
-  'STALE_PENDING',
-  'RECONCILE_NOT_FOUND',
-]);
-
-const TOSS_VERIFY_PER_RUN = 50;
+const TOSS_VERIFY_PER_RUN = 100;
 
 export interface DesyncRecoveryResult {
   // Pass A
@@ -198,12 +191,47 @@ async function runPassB(
   const { secretKey: tossSecretKey } = assertTossEnv();
   const authHeader = 'Basic ' + Buffer.from(tossSecretKey + ':').toString('base64');
 
-  // 의심 failed tx 추출 — TOSS_VERIFY_TARGET_CODES 코드만
+  // 적극 검사 대상 추출:
+  //   "락 걸린 사용자(payment_lock_level > 0 OR payment_overdue_since IS NOT NULL OR admin_override_level > 0)"
+  //   의 미납 monthly_report (fee_payment_status != 'paid') 에 속한 모든 failed/pending tx.
+  //
+  // 즉 락 걸린 사용자는 failure_code 무관하게 모든 의심 tx 를 토스로 재검증.
+  // 이전 로직은 RECONCILE_TTL_EXPIRED 같은 특정 코드만 봐서 다른 코드로 잘못 마킹된 tx 를 놓쳤음.
+  const { data: lockedUsers, error: lockErr } = await serviceClient
+    .from('pt_users')
+    .select('id')
+    .or('payment_lock_level.gt.0,payment_overdue_since.not.is.null,admin_override_level.gt.0');
+
+  if (lockErr) {
+    result.errors.push({ stage: 'scan_locked_users', message: lockErr.message });
+    return;
+  }
+  const lockedIds = (lockedUsers || []).map((u) => u.id);
+  if (lockedIds.length === 0) {
+    result.scannedSuspectFailedTx = 0;
+    return;
+  }
+
+  // 락 걸린 사용자의 미납 monthly_report 추출
+  const { data: unpaidReports } = await serviceClient
+    .from('monthly_reports')
+    .select('id')
+    .in('pt_user_id', lockedIds)
+    .neq('fee_payment_status', 'paid');
+
+  const unpaidReportIds = (unpaidReports || []).map((r) => r.id);
+  if (unpaidReportIds.length === 0) {
+    result.scannedSuspectFailedTx = 0;
+    return;
+  }
+
+  // 그 리포트들의 모든 의심 tx (failed/pending). 최신순.
   const { data: suspectTxs, error: scanErr } = await serviceClient
     .from('payment_transactions')
-    .select('id, pt_user_id, monthly_report_id, toss_order_id, total_amount, failure_code, created_at')
-    .eq('status', 'failed')
-    .in('failure_code', Array.from(TOSS_VERIFY_TARGET_CODES))
+    .select('id, pt_user_id, monthly_report_id, toss_order_id, total_amount, failure_code, status, created_at')
+    .in('monthly_report_id', unpaidReportIds)
+    .in('status', ['failed', 'pending'])
+    .not('toss_order_id', 'is', null)
     .order('created_at', { ascending: false })
     .limit(TOSS_VERIFY_PER_RUN);
 
