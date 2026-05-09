@@ -133,10 +133,11 @@ function _buildProductRefs(productName: string): string[] {
 
 function _pickProductRef(refs: string[], rng: () => number): string {
   if (refs.length === 1) return refs[0];
-  const weights = refs.length === 2 ? [0.5, 0.5]
-    : refs.length === 3 ? [0.45, 0.3, 0.25]
-    : refs.length === 4 ? [0.4, 0.25, 0.2, 0.15]
-    : [0.35, 0.25, 0.15, 0.15, 0.10];
+  // 정체성 강화: 풀네임 비중 50% 이상, 대명사 합산 25% 이하 (1.6만 audit 정체성붕괴 0건 만들기)
+  const weights = refs.length === 2 ? [0.7, 0.3]
+    : refs.length === 3 ? [0.6, 0.25, 0.15]
+    : refs.length === 4 ? [0.55, 0.25, 0.15, 0.05]
+    : [0.5, 0.25, 0.10, 0.10, 0.05];
   const r = rng();
   let cum = 0;
   for (let i = 0; i < refs.length; i++) {
@@ -456,10 +457,24 @@ export function generateStoryV2(
   //   또한 문단 내부에 동일 문장이 여러 번 반복되는 경우에도 문장 단위로 dedup 한다.
   {
     const SEO_TAIL_RE = /\s*(고함량|천연|건강기능식품|정품|프리미엄|GMP인증|식약처인증|무첨가|국산원료|저온추출)[.!?。]*\s*$/;
+    // ⚠️ persuasion-engine 의 키워드 강제 삽입이 문장 끝에 leaf 토큰을 append 하면
+    //    "...품질입니다 국내도서." vs "...품질입니다." 가 dedup 통과해서 같은 문장 2회 노출.
+    //    카테고리 leaf 의 첫 토큰을 dedup 키에서 strip 하여 동일 문장으로 인식.
+    const leafForDedup = (() => {
+      const leafRaw = categoryPath.split('>').pop()?.trim() || '';
+      const tok = leafRaw.split(/[\s/(),\[\]]+/).filter(t => t.length >= 2)[0] || '';
+      return tok;
+    })();
+    const escLeaf = leafForDedup.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const LEAF_TAIL_RE = leafForDedup.length >= 2
+      ? new RegExp('\\s+' + escLeaf + '\\s*[.!?。]*\\s*$')
+      : /(?!)/; // 매치 안 됨
+
     const normalizeKey = (s: string): string =>
       s.trim()
         .replace(/\s+/g, ' ')
         .replace(SEO_TAIL_RE, '')
+        .replace(LEAF_TAIL_RE, '')
         .replace(/[.!?。,\s]+$/g, '')
         .toLowerCase();
 
@@ -565,6 +580,16 @@ export function generateStoryV2(
       if (!allFinal.includes(leafToken) && !allFinal.includes(leafRaw)) {
         finalParagraphs.push(`이 ${leafToken}는 일상에 자연스럽게 어울리는 선택입니다.`);
       }
+    }
+  }
+
+  // ── CTA 안전망: 구매 유도 키워드가 0건이면 마지막에 자연스러운 CTA 한 줄 추가 ──
+  //   1.6만 카테고리 검증에서 1,824건의 CTA 부재 발견.
+  {
+    const allFinal = finalParagraphs.join(' ');
+    const CTA_RE = /(사세요|구매하세요|만나보세요|시작해보세요|담아두세요|선택하세요|준비해보세요|시도해보세요|지금\s*담)/;
+    if (!CTA_RE.test(allFinal) && finalParagraphs.length > 0) {
+      finalParagraphs[finalParagraphs.length - 1] += ' 지금 담아두시면 후회 없는 선택이 됩니다.';
     }
   }
 

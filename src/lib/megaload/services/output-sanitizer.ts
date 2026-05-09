@@ -214,12 +214,34 @@ function detectCrossLeafContamination(
   // 자동차 블랙박스 — 왁스/코팅/세차 cross-leaf
   if (/블랙박스/.test(pn)) {
     if (/왁스(가|는|를|이|에|로|으로|예요|로 유명)/.test(s)) return true;
+    // 복합어 — "카나우바왁스/천연왁스/불소왁스" 등 (1.6만 audit 회귀)
+    if (/[가-힣]{2,}왁스(\s|[.,!?])/.test(s)) return true;
     if (/(코팅|발수)(가|는|를|이|에|로|으로|이|예요)/.test(s)) return true;
-    if (/광택나는|세차편리|불소코팅/.test(s)) return true;
+    if (/광택나는|세차편리|불소코팅|카나우바|폴리시/.test(s)) return true;
     if (/핏(에서|이|을|는|가)/.test(s)) return true;
   }
   if (/왁스|코팅제/.test(pn)) {
     if (/블랙박스|선명도|화소/.test(s)) return true;
+  }
+  // 자동차용품 외 카테고리에서 "광택나는/왁스/세차" 누출 (1.6만 audit 에서 2,282건 검출)
+  if (!cp.includes('자동차') && !cp.includes('블랙박스') && !/(왁스|코팅|광택)/.test(pn)) {
+    if (/광택나는\s+설계/.test(s)) return true;
+    if (/재구매와\s+추가\s+구매가\s+많은\s+왁스로/.test(s)) return true;
+    if (/카매니아\s+커뮤니티/.test(s) && !cp.includes('자동차')) return true;
+  }
+
+  // 반려동물 사료/영양제 — "수의사 추천/처방" 표현 (의약품 오인 우려)
+  // 1.6만 audit 에서 2,490건 검출. "수의사 추천으로" 류는 의약품으로 오인될 수 있어 차단.
+  if (/(사료|영양제|간식)/.test(pn) && cp.includes('반려')) {
+    if (/수의사\s+추천/.test(s)) return true;
+    if (/수의사\s+처방/.test(s)) return true;
+    if (/수의사\s+진료/.test(s)) return true;
+  }
+
+  // 식물영양제 — "드셔봤" 류 (식물에게 사람 동사 사용)
+  // 1.6만 audit 에서 289건 검출.
+  if (/식물영양제|화훼/.test(pn) || (cp.includes('원예') && /(영양제|비료)/.test(pn))) {
+    if (/드셔봤|드셔보세요|먹어봤|드심/.test(s)) return true;
   }
 
   // 뷰티 넥크림 — 식품/박스 표현

@@ -194,6 +194,54 @@ export default function AdminPaymentsPage() {
    */
   const [syncing, setSyncing] = useState(false);
   const [forceRecovering, setForceRecovering] = useState(false);
+  const [settlementReconciling, setSettlementReconciling] = useState(false);
+
+  /**
+   * 토스 정산 기준 복구 — 토스의 settlement 데이터를 권위로 삼아 우리 DB 동기화.
+   * orderId 미스매치/일시 응답 이상 등 desync-recovery/force-recover 가 못 잡는 케이스도 잡음.
+   * 토스 정산 페이지엔 입금예정인데 시스템엔 최종실패인 케이스의 마지막 안전망.
+   */
+  const handleTossSettlementReconcile = async () => {
+    if (
+      !confirm(
+        '🛡️ 토스 정산 기준 복구를 실행합니다.\n\n' +
+          '✓ 토스 GET /v1/settlements 로 지난 14일 정산 데이터 조회\n' +
+          '✓ 토스가 정산한 결제는 무조건 success — 우리 DB 강제 동기화\n' +
+          '✓ orderId 매칭 실패해도 paymentKey 로 매칭 시도\n' +
+          '✓ desync-recovery / 강제 토스 복구가 못 잡은 케이스도 모두 정리\n\n' +
+          '실행할까요?',
+      )
+    )
+      return;
+    setSettlementReconciling(true);
+    try {
+      const res = await fetch('/api/admin/payments/toss-settlement-reconcile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`❌ 실패: ${data.error || '서버 오류'}`);
+        return;
+      }
+      const s = data.summary || {};
+      alert(
+        `✅ 토스 정산 기준 복구 완료\n\n` +
+          `[조회] 토스 정산 ${s.tossSettlementsScanned ?? 0}건 (₩${(s.tossSettlementsTotalAmount ?? 0).toLocaleString()})\n\n` +
+          `[복구] ${s.recovered ?? 0}건 success 강제 복구 ⭐\n` +
+          `[이미 success] ${s.alreadySuccess ?? 0}건\n` +
+          `[orderId 매칭 없음] ${s.noMatch ?? 0}건 (외부 결제 의심)\n` +
+          `[RPC 에러] ${s.rpcErrors ?? 0}건\n\n` +
+          `[락 처리] 영향 ${s.affectedPtUsers ?? 0}명 / 해제 ${s.locksCleared ?? 0}명`,
+      );
+      await fetchData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '복구 실패');
+    } finally {
+      setSettlementReconciling(false);
+    }
+  };
 
   /**
    * 강제 토스 복구 — desync-recovery 보다 더 공격적.
@@ -387,12 +435,22 @@ export default function AdminPaymentsPage() {
         <button
           type="button"
           onClick={handleForceRecoverAll}
-          disabled={syncing || loading || forceRecovering}
+          disabled={syncing || loading || forceRecovering || settlementReconciling}
           className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-red-600 text-white font-semibold rounded hover:bg-red-700 disabled:opacity-50"
-          title="좀비 stuck tx 마지막 정리 — is_final_failure 도 토스 직접 재조회 후 DONE 이면 강제 복구. 토스 정산엔 입금예정인데 시스템엔 최종실패인 케이스용."
+          title="좀비 stuck tx 마지막 정리 — is_final_failure 도 토스 직접 재조회 후 DONE 이면 강제 복구. 우리 DB의 toss_order_id 로 토스 조회."
         >
           {forceRecovering ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}
           🚨 강제 토스 복구
+        </button>
+        <button
+          type="button"
+          onClick={handleTossSettlementReconcile}
+          disabled={syncing || loading || forceRecovering || settlementReconciling}
+          className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-purple-600 text-white font-semibold rounded hover:bg-purple-700 disabled:opacity-50"
+          title="토스 정산 데이터 기준 권위 복구 — 토스가 정산한 결제는 무조건 success. orderId 미스매치도 paymentKey 로 매칭. 마지막 안전망."
+        >
+          {settlementReconciling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+          🛡️ 토스 정산 복구
         </button>
         <button
           type="button"

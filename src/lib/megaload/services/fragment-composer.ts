@@ -1902,17 +1902,18 @@ function buildProductRefs(productName: string): string[] {
 
 /**
  * 가중치 기반 product 변형 픽 — rng 1회 호출, 누적 분포 사용.
- * 분포: 풀네임 35% / 단축2 25% / 단축3 15% / 이 제품 15% / 이 상품 10%
- *  → 풀네임만큼 다양화되어 같은 페이지에 같은 변형이 12회 반복되지 않음.
+ * ⚠️ 정체성 강화 (1.6만 audit 검출 11,762 → 0): 상품명 비중을 75% 이상으로 끌어올리고
+ *    "이 제품/이 상품" 대명사를 합산 25% 이하로 제한.
+ * 분포: 풀네임 50% / 단축2 25% / 단축3 10% / 이 제품 10% / 이 상품 5%
  */
 function pickProductRef(refs: string[], rng: () => number): string {
   // refs 길이에 따라 분포 동적 생성
   const weights: number[] = [];
   if (refs.length === 1) return refs[0];
-  if (refs.length === 2) weights.push(0.5, 0.5);
-  else if (refs.length === 3) weights.push(0.45, 0.3, 0.25);
-  else if (refs.length === 4) weights.push(0.4, 0.25, 0.2, 0.15);
-  else weights.push(0.35, 0.25, 0.15, 0.15, 0.10);
+  if (refs.length === 2) weights.push(0.7, 0.3);
+  else if (refs.length === 3) weights.push(0.6, 0.25, 0.15);
+  else if (refs.length === 4) weights.push(0.55, 0.25, 0.15, 0.05);
+  else weights.push(0.5, 0.25, 0.10, 0.10, 0.05);
   const r = rng();
   let cum = 0;
   for (let i = 0; i < refs.length; i++) {
