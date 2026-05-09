@@ -467,6 +467,8 @@ export function generatePersuasionContent(
   // 모든 블록의 모든 문장에 대해 sentence-level dedup으로 saturation 차단.
   {
     const seenKey = new Set<string>();
+    const seenPrefix = new Set<string>(); // leaf-suffix-tolerant dedup (3,969건)
+    const PREFIX_LEN = 30; // 30자 prefix 동일 → 거의 동일 문장으로 간주
     const splitSent = (text: string): string[] =>
       text.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
     const norm = (s: string): string =>
@@ -481,6 +483,12 @@ export function generatePersuasionContent(
         if (s.length < 4) { kept.push(s); continue; }
         const k = norm(s);
         if (seenKey.has(k)) continue;
+        // 30자 prefix 매칭 — leaf token suffix 만 다른 거의 동일 문장 차단
+        if (k.length >= PREFIX_LEN) {
+          const pref = k.slice(0, PREFIX_LEN);
+          if (seenPrefix.has(pref)) continue;
+          seenPrefix.add(pref);
+        }
         seenKey.add(k);
         kept.push(s);
       }

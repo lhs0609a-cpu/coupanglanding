@@ -169,15 +169,26 @@ const CHECKS: PatternCheck[] = [
       const words = allText.match(/[가-힣]{2,5}/g) ?? [];
       const counts = new Map<string, number>();
       for (const w of words) counts.set(w, (counts.get(w) ?? 0) + 1);
-      // 흔한 단어 + leaf 토큰은 제외 (자연스러운 반복)
-      const leafTok = (ctx.categoryPath.split('>').pop() || '').split(/[\s/(),\[\]]+/).filter(Boolean)[0] || '';
-      const ALLOWED = new Set([
+      // 흔한 단어 + leaf 토큰(전체/부분 prefix) 은 제외 (자연스러운 반복)
+      const leafFull = (ctx.categoryPath.split('>').pop() || '');
+      const leafSplits = leafFull.split(/[\s/(),\[\]]+/).filter(Boolean);
+      const ALLOWED = new Set<string>([
         '있어요','있습니다','됩니다','제품','상품','사용','경우','이에요','이라','마다',
         '한번','이건','이거','우리','매일','모두','정말','너무','진짜','직접','이번',
         '하나','다시','계속','지금','다른','다릅','만족','꾸준', '가격', '디자인',
-        leafTok,
+        '가격에','이라면','관리도','쓰자마자','이래서','만족도',
       ]);
-      const heavy = [...counts.entries()].filter(([w, c]) => c >= 12 && !ALLOWED.has(w));
+      // leaf 토큰의 모든 2~5자 prefix 도 자연스러운 반복으로 간주
+      for (const lt of leafSplits) {
+        for (let l = 2; l <= Math.min(5, lt.length); l++) ALLOWED.add(lt.slice(0, l));
+      }
+      const heavy = [...counts.entries()].filter(([w, c]) => {
+        if (c < 12) return false;
+        if (ALLOWED.has(w)) return false;
+        // leaf 토큰의 substring 이면 자연스러운 반복으로 간주
+        if (leafSplits.some(lt => lt.includes(w))) return false;
+        return true;
+      });
       if (heavy.length > 0) return `${heavy[0][0]}×${heavy[0][1]}`;
       return null;
     } },
@@ -221,9 +232,11 @@ const CHECKS: PatternCheck[] = [
     exemptIfCategoryHas: ['식품','주방','반려','애완','출산','분유'] },
   { category: '11.카테고리자체틀림', name: '식품 카테고리에 "착용/입어"', severity: 'MAJOR',
     re: /(착용감|입어보|입어요|입었더니)/,
-    // ⚠️ wearable 헬스용품 (건강팔찌/건강목걸이/발패치/안마기/보호대 등) 도 exempt
-    exemptIfCategoryHas: ['패션','의류','잡화','신발','가방','뷰티','반려','목걸이','팔찌','반지','패치','안마','보호대','마스크','장갑','양말','벨트','스타킹','모자','벙어리','시계','악세사리','악세서리'],
-    exemptIfProductHas: ['팔찌','목걸이','반지','벨트','시계','패치','보호대','안마기','마스크','장갑','양말','모자'] },
+    // ⚠️ wearable 헬스용품 (건강팔찌/건강목걸이/발패치/안마기/보호대/측정기/액세서리 등) 도 exempt
+    // - "액세서리"(l) 와 "악세서리"(ㅏ) 둘 다. 64086 "기타건강액세서리" path 매칭용.
+    // - "건강용품","측정","측정기","측정용품" — 64064 "기타 건강측정기" path 매칭용.
+    exemptIfCategoryHas: ['패션','의류','잡화','신발','가방','뷰티','반려','목걸이','팔찌','반지','패치','안마','보호대','마스크','장갑','양말','벨트','스타킹','모자','벙어리','시계','악세사리','악세서리','액세서리','건강용품','건강측정','측정기','측정용품'],
+    exemptIfProductHas: ['팔찌','목걸이','반지','벨트','시계','패치','보호대','안마기','마스크','장갑','양말','모자','측정기','액세서리','악세서리'] },
 
   // 12. 모순/사실 오류
   { category: '12.모순사실오류', name: '주말+매일 빈도 모순', severity: 'MAJOR',
