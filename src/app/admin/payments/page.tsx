@@ -193,6 +193,59 @@ export default function AdminPaymentsPage() {
    * 같은 로직이 매시간 cron 으로도 실행됨. 즉시 효과 보려면 이 버튼 사용.
    */
   const [syncing, setSyncing] = useState(false);
+  const [forceRecovering, setForceRecovering] = useState(false);
+
+  /**
+   * 강제 토스 복구 — desync-recovery 보다 더 공격적.
+   * is_final_failure=true 인 좀비 tx 도 토스 재조회해서 DONE 이면 강제 복구.
+   * 토스 정산엔 입금예정인데 우리 시스템 최종실패인 케이스 정리용.
+   */
+  const handleForceRecoverAll = async () => {
+    if (
+      !confirm(
+        '🚨 강제 토스 복구를 실행합니다.\n\n' +
+          '✓ 모든 미납 사용자의 모든 failed/pending tx 를 토스에 직접 재조회\n' +
+          '✓ 토스가 DONE 인 결제는 모두 success 로 강제 복구 (is_final_failure=true 도 포함)\n' +
+          '✓ desync-recovery 보다 공격적 — silent stuck 을 마지막으로 정리\n' +
+          '✓ 토스 환불 발생 안 함 (이미 결제된 건만 시스템 동기화)\n\n' +
+          '실행할까요?',
+      )
+    )
+      return;
+    setForceRecovering(true);
+    try {
+      const res = await fetch('/api/admin/payments/force-recover-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`❌ 실패: ${data.error || '서버 오류'}`);
+        return;
+      }
+      const recoveredLines = (data.details?.recovered || []).slice(0, 10).map(
+        (r: { orderId: string; amount: number; tossPaymentKey: string | null }) =>
+          `   ✓ ${r.orderId.slice(0, 32)}... ₩${r.amount.toLocaleString()}`,
+      );
+      const stillNotDoneCount = data.details?.stillNotDone?.length ?? 0;
+      const errCount = data.details?.errors?.length ?? 0;
+      alert(
+        `✅ 강제 토스 복구 완료\n\n` +
+          `[스캔] ${data.scannedTxs}건의 의심 tx 검사\n\n` +
+          `[복구] ${data.recovered}건 success 강제 복구 ⭐\n` +
+          (recoveredLines.length > 0 ? recoveredLines.join('\n') + '\n\n' : '') +
+          `[NOT DONE] ${stillNotDoneCount}건 (토스도 미결제 확인)\n` +
+          `[에러] ${errCount}건 (토스 호출/RPC 실패)\n\n` +
+          `[락 처리] 영향 ${data.affectedPtUsers}명 / 해제 ${data.locksCleared}명`,
+      );
+      await fetchData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '강제 복구 실패');
+    } finally {
+      setForceRecovering(false);
+    }
+  };
   const handleSyncLocks = async () => {
     if (
       !confirm(
@@ -324,12 +377,22 @@ export default function AdminPaymentsPage() {
         <button
           type="button"
           onClick={handleSyncLocks}
-          disabled={syncing || loading}
+          disabled={syncing || loading || forceRecovering}
           className="ml-auto inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-emerald-600 text-white font-semibold rounded hover:bg-emerald-700 disabled:opacity-50"
           title="payment_transactions success ↔ report overdue 미스매치 자동 정정 + 락 해제 (매시간 cron 도 같은 로직 실행)"
         >
           {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
           🔄 자동 동기화 실행
+        </button>
+        <button
+          type="button"
+          onClick={handleForceRecoverAll}
+          disabled={syncing || loading || forceRecovering}
+          className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-red-600 text-white font-semibold rounded hover:bg-red-700 disabled:opacity-50"
+          title="좀비 stuck tx 마지막 정리 — is_final_failure 도 토스 직접 재조회 후 DONE 이면 강제 복구. 토스 정산엔 입금예정인데 시스템엔 최종실패인 케이스용."
+        >
+          {forceRecovering ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}
+          🚨 강제 토스 복구
         </button>
         <button
           type="button"

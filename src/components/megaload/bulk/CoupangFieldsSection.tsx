@@ -260,7 +260,7 @@ function ImageSectionWithPreview({
                                 idx === 0 ? 'border-amber-400 ring-2 ring-amber-300' : 'border-gray-200'
                               }`}
                             >
-                              <img src={img.url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                              <img src={img.url} alt="" width={48} height={48} className="w-full h-full object-cover" loading="lazy" decoding="async" />
                               {idx === 0 && (
                                 <div className="absolute bottom-0 left-0 right-0 bg-amber-500 text-white text-[7px] text-center font-bold leading-tight py-px">
                                   대표
@@ -292,7 +292,7 @@ function ImageSectionWithPreview({
                           idx === 0 ? 'border-amber-400 ring-2 ring-amber-300' : 'border-gray-200'
                         }`}
                       >
-                        <img src={img.url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                        <img src={img.url} alt="" width={48} height={48} className="w-full h-full object-cover" loading="lazy" decoding="async" />
                         {idx === 0 && (
                           <div className="absolute bottom-0 left-0 right-0 bg-amber-500 text-white text-[7px] text-center font-bold leading-tight py-px">
                             대표

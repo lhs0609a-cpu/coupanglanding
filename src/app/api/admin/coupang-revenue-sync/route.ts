@@ -4,7 +4,8 @@ import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
 import { getPreviousMonth, getReportTargetMonth } from '@/lib/utils/settlement';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
-import { logSystemError } from '@/lib/utils/system-log';
+import { classifyError } from '@/lib/utils/coupang-circuit-breaker';
+import { logSystemError, logSystemSuccess } from '@/lib/utils/system-log';
 
 /**
  * POST /api/admin/coupang-revenue-sync
@@ -135,6 +136,18 @@ export async function POST(request: NextRequest) {
         const message = err instanceof CoupangApiError
           ? `${err.code || 'api'}: ${err.message}`
           : err instanceof Error ? err.message : String(err);
+        const reason = classifyError(message);
+        void logSystemError({
+          source: 'admin/coupang-revenue-sync',
+          error: message,
+          context: {
+            ptUserId: u.id,
+            vendorId: u.coupang_vendor_id,
+            yearMonth: ym,
+            reason,
+          },
+          userId: u.id,
+        }).catch(() => {});
         await upsertSnapshot(serviceClient, {
           pt_user_id: u.id,
           year_month: ym,
@@ -159,6 +172,11 @@ export async function POST(request: NextRequest) {
   for (let i = 0; i < users.length; i += CONCURRENCY) {
     const batch = users.slice(i, i + CONCURRENCY);
     await Promise.allSettled(batch.map(processUser));
+  }
+
+  // 완전 성공 — 미해결 사고 자동 해결
+  if (failedCount === 0 && successCount > 0) {
+    await logSystemSuccess({ source: 'admin/coupang-revenue-sync' });
   }
 
   return NextResponse.json({
@@ -192,6 +210,8 @@ async function upsertSnapshot(
   const { error } = await serviceClient
     .from('api_revenue_snapshots')
     .upsert(snapshot, { onConflict: 'pt_user_id,year_month' });
-  if (error) console.error('[admin/coupang-revenue-sync] upsert error:', error);
-  void logSystemError({ source: 'admin/coupang-revenue-sync', error: error }).catch(() => {});
+  if (error) {
+    console.error('[admin/coupang-revenue-sync] upsert error:', error);
+    void logSystemError({ source: 'admin/coupang-revenue-sync', error, context: { stage: 'upsert' } }).catch(() => {});
+  }
 }

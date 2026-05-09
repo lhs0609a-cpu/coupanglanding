@@ -76,7 +76,7 @@ export default function WishlistPage() {
             <div key={item.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <div className="aspect-square bg-gray-100 relative">
                 {item.image_url && (
-                  <img src={item.image_url} alt={item.title} className="w-full h-full object-cover" />
+                  <img src={item.image_url} alt={item.title} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                 )}
                 {item.price_changed && (
                   <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-0.5 bg-orange-500 text-white text-xs rounded">

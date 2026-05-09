@@ -26,7 +26,10 @@ import { completeSettlement } from './complete-settlement';
 
 const TOSS_PAYMENTS_BASE = 'https://api.tosspayments.com/v1/payments';
 
-const TOSS_VERIFY_PER_RUN = 100;
+// Pass B 의 토스 API 호출 한도. 값이 너무 작으면 stuck 한 오래된 tx 가 영영 안 검사됨
+// (order by created_at DESC + LIMIT N → 항상 최신 N건만 봄). 500 이면 1년치 stuck 도 커버.
+// Toss /v1/payments/orders/{orderId} 는 무료 API, rate limit 보호는 forEach 직렬 처리로 충분.
+const TOSS_VERIFY_PER_RUN = 500;
 
 export interface DesyncRecoveryResult {
   // Pass A
@@ -192,32 +195,24 @@ async function runPassB(
   const authHeader = 'Basic ' + Buffer.from(tossSecretKey + ':').toString('base64');
 
   // 적극 검사 대상 추출:
-  //   "락 걸린 사용자(payment_lock_level > 0 OR payment_overdue_since IS NOT NULL OR admin_override_level > 0)"
-  //   의 미납 monthly_report (fee_payment_status != 'paid') 에 속한 모든 failed/pending tx.
+  //   미납 monthly_report (fee_payment_status != 'paid') 에 속한 모든 failed/pending tx.
   //
-  // 즉 락 걸린 사용자는 failure_code 무관하게 모든 의심 tx 를 토스로 재검증.
-  // 이전 로직은 RECONCILE_TTL_EXPIRED 같은 특정 코드만 봐서 다른 코드로 잘못 마킹된 tx 를 놓쳤음.
-  const { data: lockedUsers, error: lockErr } = await serviceClient
-    .from('pt_users')
-    .select('id')
-    .or('payment_lock_level.gt.0,payment_overdue_since.not.is.null,admin_override_level.gt.0');
-
-  if (lockErr) {
-    result.errors.push({ stage: 'scan_locked_users', message: lockErr.message });
-    return;
-  }
-  const lockedIds = (lockedUsers || []).map((u) => u.id);
-  if (lockedIds.length === 0) {
-    result.scannedSuspectFailedTx = 0;
-    return;
-  }
-
-  // 락 걸린 사용자의 미납 monthly_report 추출
-  const { data: unpaidReports } = await serviceClient
+  // 락 걸린 사용자만 보던 이전 로직은 "토스에선 결제 성공인데 우리 시스템이 임의로 failed
+  // 마킹" 사고를 락이 안 걸린 사용자에 대해서만 영구히 놓쳤다 (예: payment_mark_success
+  // RPC 가 토스 결제 후 실패해서 catch 가 failed 로 마킹했지만 markOverdue 가 안 호출된
+  // 단건 즉시결제 / 동시 정산 클리어로 락이 풀린 직후 사고 등). Toss 호출은 어차피
+  // TOSS_VERIFY_PER_RUN 으로 cap 되어 있어 안전.
+  const { data: unpaidReports, error: reportsErr } = await serviceClient
     .from('monthly_reports')
     .select('id')
-    .in('pt_user_id', lockedIds)
-    .neq('fee_payment_status', 'paid');
+    .neq('fee_payment_status', 'paid')
+    .order('updated_at', { ascending: false })
+    .limit(2000);
+
+  if (reportsErr) {
+    result.errors.push({ stage: 'scan_unpaid_reports', message: reportsErr.message });
+    return;
+  }
 
   const unpaidReportIds = (unpaidReports || []).map((r) => r.id);
   if (unpaidReportIds.length === 0) {
@@ -243,8 +238,20 @@ async function runPassB(
   result.scannedSuspectFailedTx = (suspectTxs || []).length;
   if (!suspectTxs || suspectTxs.length === 0) return;
 
+  // soft deadline — TOSS_VERIFY_PER_RUN=500 × seq 호출은 cron maxDuration(60s) 초과 위험.
+  // 50s 도달 시 남은 tx 는 다음 cron 회차로 미룸. 직렬 처리는 멱등하므로 다음 run 에서 자연 보충.
+  const passBStartedAt = Date.now();
+  const PASS_B_SOFT_DEADLINE_MS = 50_000;
+
   for (const tx of suspectTxs) {
     if (!tx.toss_order_id) continue;
+
+    if (Date.now() - passBStartedAt > PASS_B_SOFT_DEADLINE_MS) {
+      console.warn(
+        `[desync-recovery][PassB] soft deadline 도달 — ${result.tossVerifiedDone + result.tossVerifiedNotDone}/${(suspectTxs || []).length} 처리 후 중단. 다음 cron 에서 이어짐.`,
+      );
+      break;
+    }
 
     let tossData: Record<string, unknown> | null = null;
     let tossStatus: string | null = null;
@@ -252,7 +259,7 @@ async function runPassB(
     try {
       const res = await fetch(
         `${TOSS_PAYMENTS_BASE}/orders/${encodeURIComponent(tx.toss_order_id as string)}`,
-        { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(10_000) },
+        { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(5_000) },
       );
 
       if (res.status === 404) {
@@ -283,6 +290,12 @@ async function runPassB(
     }
 
     // ★ 토스에선 DONE — 시스템 마킹이 잘못됨. success 로 복구.
+    // 명시적 로깅: 어떤 tx 가 silent stuck 이었는지 추적 가능하도록.
+    console.log(
+      `[desync-recovery][PassB][DONE_FOUND] tx=${tx.id} ptUser=${tx.pt_user_id} ` +
+      `report=${tx.monthly_report_id} orderId=${tx.toss_order_id} amount=${tx.total_amount} ` +
+      `prevStatus=${tx.status} prevFailureCode=${tx.failure_code ?? 'null'}`,
+    );
     result.tossVerifiedDone++;
 
     // payment_mark_success 는 status IN (pending, failed) 일 때만 동작 — failed 도 가능. 적합.
@@ -295,11 +308,23 @@ async function runPassB(
     });
 
     if (rpcErr) {
+      // RPC 실패는 silent stuck 의 주범. 무조건 명시적 알림 로깅.
+      console.error(
+        `[desync-recovery][PassB][RPC_FAIL] payment_mark_success 실패. ` +
+        `tx=${tx.id} ptUser=${tx.pt_user_id} error=${rpcErr.message} ` +
+        `→ 사용자 결제는 됐는데 시스템 복구 못함. 즉시 수동 조사 필요!`,
+      );
       await logSettlementError(serviceClient, {
         stage: 'toss_verify_mark_success_rpc',
         monthlyReportId: tx.monthly_report_id as string,
         ptUserId: tx.pt_user_id as string,
         error: rpcErr,
+        detail: {
+          orderId: tx.toss_order_id,
+          tossPaymentKey: (tossData?.paymentKey as string | undefined) ?? null,
+          totalAmount: tx.total_amount,
+          severity: 'CRITICAL_DESYNC',
+        },
       });
       result.errors.push({ stage: 'toss_verify_mark_success', message: rpcErr.message });
       continue;

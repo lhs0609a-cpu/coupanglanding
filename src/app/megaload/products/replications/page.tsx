@@ -101,11 +101,18 @@ export default function ReplicationsPage() {
     if (focusJobId) setExpandedId(focusJobId);
   }, [focusJobId]);
 
+  // 진행 중 잡 폴링 — visibility gate + 30초 간격 (5초 폴링은 Vercel cost 폭증 주범).
+  // 크론은 15분 주기이므로 5초 폴링은 의미 없음. 백그라운드 탭 시 0.
   useEffect(() => {
     const hasRunning = jobs.some((j) => j.status === 'pending' || j.status === 'running');
     if (!hasRunning) return;
-    const interval = setInterval(fetchJobs, 5000);
-    return () => clearInterval(interval);
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      fetchJobs();
+    }, 30_000);
+    const onVis = () => { if (document.visibilityState === 'visible') fetchJobs(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', onVis); };
   }, [jobs, fetchJobs]);
 
   const toggleExpand = (id: string) => {

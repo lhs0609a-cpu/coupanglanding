@@ -425,7 +425,7 @@ export default function BulkStep1Settings({
           <div className="flex flex-wrap gap-2">
             {savedThirdPartyUrls.map((url, i) => (
               <div key={i} className="relative group w-16 h-16 rounded-lg overflow-hidden border border-gray-200">
-                <img src={url} alt={`제3자 ${i + 1}`} className="w-full h-full object-cover" />
+                <img src={url} alt={`제3자 ${i + 1}`} width={64} height={64} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                 <button
                   onClick={() => onRemoveThirdPartyUrl(i)}
                   className="absolute top-0 right-0 bg-black/60 text-white p-0.5 rounded-bl opacity-0 group-hover:opacity-100 transition"

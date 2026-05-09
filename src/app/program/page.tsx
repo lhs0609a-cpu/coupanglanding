@@ -69,7 +69,7 @@ function Header() {
           <div className="flex items-center justify-between h-16 lg:h-[72px]">
             <a href="#" className="flex items-center gap-2.5 group">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#E31837] to-[#ff4d6a] flex items-center justify-center shadow-lg shadow-red-200/50"><Zap className="w-[18px] h-[18px] text-white" strokeWidth={2.5} /></div>
-              <span className={`text-lg font-bold transition-colors ${isScrolled ? 'text-gray-900' : 'text-white'}`}>쿠팡 자동화</span>
+              <span className={`text-lg font-bold transition-colors ${isScrolled ? 'text-gray-900' : 'text-white'}`}>메가로드</span>
             </a>
             <nav className="hidden md:flex items-center gap-1">
               {[{ label: '기능', href: '#features' }, { label: '화면 미리보기', href: '#screenshots' }, { label: '요금제', href: '#pricing' }, { label: 'FAQ', href: '#faq' }].map((item) => (
@@ -115,8 +115,8 @@ function DashboardMockup() {
     <div className="relative">
       <div className="absolute -inset-6 bg-gradient-to-r from-red-100/50 via-red-100/25 to-red-100/50 rounded-[32px] blur-2xl" />
       <div className="relative bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
-        <WindowChrome title="쿠팡 자동화 - 대시보드" />
-        <img src="/images/screenshots/chrome_GHfSYZNoVf.png" alt="쿠팡 자동화 대시보드 - 전체 상품 300개, 등록 추이, 상품 상태 분포" className="w-full" />
+        <WindowChrome title="메가로드 - 대시보드" />
+        <img src="/images/screenshots/chrome_GHfSYZNoVf.png" alt="메가로드 대시보드 - 전체 상품 300개, 등록 추이, 상품 상태 분포" className="w-full" />
       </div>
       <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 1.2 }}
         className="absolute -right-3 top-14 bg-white rounded-xl border border-gray-200 shadow-xl p-3 flex items-center gap-2.5 z-10">
@@ -126,7 +126,7 @@ function DashboardMockup() {
       <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 1.6 }}
         className="absolute -left-3 bottom-24 bg-white rounded-xl border border-gray-200 shadow-xl p-3 flex items-center gap-2.5 z-10">
         <div className="w-8 h-8 rounded-full bg-red-50 border border-red-100 flex items-center justify-center"><Sparkles className="w-4 h-4 text-[#E31837]" /></div>
-        <div><div className="text-[11px] font-bold text-gray-800">AI 매칭 완료</div><div className="text-[10px] text-gray-400">정확도 94.2%</div></div>
+        <div><div className="text-[11px] font-bold text-gray-800">AI 매칭 완료</div><div className="text-[10px] text-gray-400">정확도 94%</div></div>
       </motion.div>
     </div>
   );
@@ -157,7 +157,7 @@ function HeroSection() {
             </motion.h1>
             <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
               className="text-lg sm:text-xl text-white/70 leading-relaxed mb-8 text-shadow-sm">
-              AI가 카테고리 매칭, 상품명 생성, 가격 계산, 검색태그까지 전부 자동으로.<br className="hidden sm:block" />네이버 스마트스토어 상품도 쿠팡으로 원클릭 변환.
+              AI가 카테고리 매칭, 상품명 생성, 가격 계산, 검색태그까지 전부 자동으로 처리합니다.<br className="hidden sm:block" />네이버 스마트스토어 상품도 쿠팡으로 원클릭 변환.
             </motion.p>
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="flex flex-col sm:flex-row gap-3 mb-8">
               <a href={CTA_URL} className="group inline-flex items-center justify-center gap-2.5 px-7 py-3.5 text-base font-semibold text-white bg-[#E31837] rounded-2xl shadow-xl shadow-red-900/30 hover:bg-[#c81530] transition-all hover:-translate-y-0.5">
@@ -171,7 +171,7 @@ function HeroSection() {
               {['1일 무료 체험', '카드 등록 불필요', '언제든 해지'].map((t) => (<span key={t} className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-red-400" />{t}</span>))}
             </motion.div>
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.65 }} className="grid grid-cols-3 gap-3">
-              {[{ value: '48h → 10min', label: '등록 시간 단축' }, { value: '3.4배', label: '검색 노출 증가' }, { value: '~80만원', label: '월 인건비 절감' }].map((stat, i) => (
+              {[{ value: '50h → 10min', label: '등록 시간 단축' }, { value: '3.4배', label: '검색 노출 증가' }, { value: '~80만원', label: '월 인건비 절감' }].map((stat, i) => (
                 <div key={i} className="glass-card rounded-xl px-4 py-3 text-center"><div className="text-base sm:text-lg font-extrabold text-white">{stat.value}</div><div className="text-[11px] text-white/50 mt-0.5">{stat.label}</div></div>
               ))}
             </motion.div>
@@ -193,7 +193,7 @@ function TrustBar() {
     <AnimatedSection className="py-12 bg-gray-50/60 border-y border-gray-100">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div variants={fadeIn} className="flex flex-wrap items-center justify-center gap-x-10 gap-y-4">
-          {[{ icon: <Shield className="w-5 h-5 text-[#E31837]" />, text: '쿠팡 Wing API 공식 연동' }, { icon: <Brain className="w-5 h-5 text-[#E31837]" />, text: 'GPT-4 기반 AI 엔진' }, { icon: <Globe className="w-5 h-5 text-[#E31837]" />, text: '네이버 → 쿠팡 자동 변환' }, { icon: <Cpu className="w-5 h-5 text-[#E31837]" />, text: '9단계 자동화 파이프라인' }, { icon: <Shield className="w-5 h-5 text-gray-600" />, text: '256-bit SSL 암호화' }].map((item, i) => (
+          {[{ icon: <Shield className="w-5 h-5 text-[#E31837]" />, text: '쿠팡 Wing Open API 연동' }, { icon: <Brain className="w-5 h-5 text-[#E31837]" />, text: 'GPT-4 기반 AI 엔진' }, { icon: <Globe className="w-5 h-5 text-[#E31837]" />, text: '네이버 → 쿠팡 자동 변환' }, { icon: <Cpu className="w-5 h-5 text-[#E31837]" />, text: '9단계 자동화 파이프라인' }, { icon: <Shield className="w-5 h-5 text-gray-600" />, text: '256-bit SSL 암호화' }].map((item, i) => (
             <div key={i} className="flex items-center gap-2 text-sm font-medium text-gray-600">{item.icon}{item.text}</div>
           ))}
         </motion.div>
@@ -207,7 +207,7 @@ function TrustBar() {
 // ============================================================================
 function PainPointsSection() {
   const painPoints = [
-    { icon: <Clock className="w-6 h-6" />, title: '상품 하나에 30분씩 걸리는 등록', desc: '상품명 짓고, 카테고리 찾고, 옵션 설정하고... 100개면 이틀 밤새워야 합니다.' },
+    { icon: <Clock className="w-6 h-6" />, title: '상품 하나에 30분씩 걸리는 등록', desc: '상품명 짓고, 카테고리 찾고, 옵션 설정하고... 100개면 꼬박 이틀 밤낮을 갈아 넣어야 합니다.' },
     { icon: <Search className="w-6 h-6" />, title: '카테고리 매칭, 매번 헷갈림', desc: '쿠팡 카테고리 트리가 너무 복잡합니다. 잘못 매칭하면 검색에서 완전히 사라집니다.' },
     { icon: <Tag className="w-6 h-6" />, title: '검색 노출 안 되는 상품명', desc: '키워드 빠진 상품명은 고객 눈에 보이지 않습니다. SEO가 매출의 핵심입니다.' },
     { icon: <Calculator className="w-6 h-6" />, title: '가격 계산 실수 = 마진 손실', desc: '수수료, 배송비, 마진율 계산을 틀리면 주문마다 적자가 쌓입니다.' },
@@ -243,9 +243,9 @@ function PainPointsSection() {
 // ============================================================================
 function StorytellingSection() {
   const storySteps = [
-    { text: '매일 밤 12시, 사무실에 혼자 남아 상품을 등록합니다. 상품 하나에 30분. 100개면 50시간. 꼬박 이틀 밤.', emotion: 'pain' },
+    { text: '매일 밤 12시, 사무실에 혼자 남아 상품을 등록합니다. 상품 하나에 30분. 100개면 50시간. 꼬박 이틀 밤낮.', emotion: 'pain' },
     { text: '카테고리가 틀려서 검색에서 사라진 상품 23개. 다시 수정. 키워드 빠진 상품명 때문에 매출 0원인 상품 17개.', emotion: 'pain' },
-    { text: '알바생이 퇴사했습니다. 교육에 일주일, 인건비 월 160만원. 또 처음부터 반복.', emotion: 'pain' },
+    { text: '알바생이 퇴사했습니다. 교육에 또 일주일을 쓰고, 월 160만원 인건비를 또 처음부터 태웁니다.', emotion: 'pain' },
     { text: '그때 발견했습니다. AI가 10분 만에 100개를 등록한다는 것을. 처음엔 믿지 않았습니다. 하지만...', emotion: 'turning' },
   ];
 
@@ -302,7 +302,7 @@ function StorytellingSection() {
 function SolutionSection() {
   const steps = [
     { num: '01', time: '30초', icon: <FolderUp className="w-7 h-7" />, title: '이미지 폴더 업로드', desc: '상품 이미지가 담긴 폴더를 드래그 앤 드롭. 엑셀 데이터도 자동 매칭됩니다.', detail: '폴더 구조 자동 인식 · 엑셀 데이터 매칭', gradient: 'from-[#E31837] to-red-700', bg: 'bg-red-50', dotColor: 'bg-red-400' },
-    { num: '02', time: '3초', icon: <Brain className="w-7 h-7" />, title: 'AI가 자동 처리', desc: 'AI가 카테고리 매칭, SEO 상품명 생성, 마진율 기반 가격 계산, 검색 태그 생성을 동시에 처리합니다.', detail: '카테고리 · 상품명 · 가격 · 태그 동시 생성', gradient: 'from-[#E31837] to-red-700', bg: 'bg-red-50', dotColor: 'bg-red-400' },
+    { num: '02', time: '3초', icon: <Brain className="w-7 h-7" />, title: 'AI가 자동 처리', desc: 'AI가 카테고리 매칭, SEO 상품명 생성, 마진율 기반 가격 계산, 검색태그 생성을 동시에 처리합니다.', detail: '카테고리 · 상품명 · 가격 · 태그 동시 생성', gradient: 'from-[#E31837] to-red-700', bg: 'bg-red-50', dotColor: 'bg-red-400' },
     { num: '03', time: '선택', icon: <MonitorSmartphone className="w-7 h-7" />, title: '검수 및 수정', desc: 'AI 결과를 대시보드에서 한눈에 확인. 수정이 필요한 부분만 클릭해서 변경.', detail: '원클릭 수정 · 일괄 승인 가능', gradient: 'from-[#E31837] to-red-700', bg: 'bg-red-50', dotColor: 'bg-red-400' },
     { num: '04', time: '자동', icon: <Cpu className="w-7 h-7" />, title: '쿠팡 자동 등록', desc: 'R2 스토리지에 이미지 업로드 후 쿠팡 Wing API로 자동 등록. Google Sheets에 이력 백업.', detail: '9단계 파이프라인 · R2 스토리지 · Wing API', gradient: 'from-[#E31837] to-[#ff4d6a]', bg: 'bg-red-50', dotColor: 'bg-[#E31837]' },
   ];
@@ -312,7 +312,7 @@ function SolutionSection() {
         <motion.div variants={fadeInUp} className="text-center mb-16">
           <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-red-50 border border-red-100 text-[#E31837] text-sm font-medium mb-4">4단계로 끝</span>
           <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold text-gray-900 mb-4">폴더 하나 넣으면, <span className="bg-gradient-to-r from-[#E31837] to-[#ff6b81] bg-clip-text text-transparent">나머지는 AI가</span></h2>
-          <p className="text-lg text-gray-500 max-w-2xl mx-auto">기존 48시간 걸리던 100개 상품 등록, 이제 10분이면 완료됩니다.</p>
+          <p className="text-lg text-gray-500 max-w-2xl mx-auto">기존 50시간 걸리던 100개 상품 등록, 이제 10분이면 완료됩니다.</p>
         </motion.div>
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-5">
           {steps.map((step, i) => (
@@ -364,20 +364,20 @@ function ScreenMockupsSection() {
         <motion.div variants={fadeInUp} className="max-w-4xl mx-auto">
           {activeTab === 0 && (
             <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
-              <WindowChrome title="쿠팡 자동화 - 상품 등록" />
-              <img src="/images/screenshots/chrome_hVDXr3wvNP.png" alt="쿠팡 자동화 상품 등록 - 폴더 대량 업로드, 사용 가이드" className="w-full" />
+              <WindowChrome title="메가로드 - 상품 등록" />
+              <img src="/images/screenshots/chrome_hVDXr3wvNP.png" alt="메가로드 상품 등록 - 폴더 대량 업로드, 사용 가이드" className="w-full" />
             </div>
           )}
           {activeTab === 1 && (
             <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
-              <WindowChrome title="쿠팡 자동화 - 자동 등록" />
-              <img src="/images/screenshots/chrome_6MyaK5awma.png" alt="쿠팡 자동화 자동 등록 - 1,004건 대기, 122건 처리중" className="w-full" />
+              <WindowChrome title="메가로드 - 자동 등록" />
+              <img src="/images/screenshots/chrome_6MyaK5awma.png" alt="메가로드 자동 등록 - 1,004건 대기, 122건 처리중" className="w-full" />
             </div>
           )}
           {activeTab === 2 && (
             <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xl overflow-hidden">
-              <WindowChrome title="쿠팡 자동화 - 가격 정책" />
-              <img src="/images/screenshots/chrome_C93UkbvoWu.png" alt="쿠팡 자동화 마진율 설정 - 100원 절삭, 마크업, 마진 적용" className="w-full" />
+              <WindowChrome title="메가로드 - 가격 정책" />
+              <img src="/images/screenshots/chrome_C93UkbvoWu.png" alt="메가로드 마진율 설정 - 100원 절삭, 마크업, 마진 적용" className="w-full" />
             </div>
           )}
           {activeTab === 3 && (
@@ -453,12 +453,12 @@ const FEATURE_IMAGES = [
 
 function FeatureShowcase() {
   const features = [
-    { title: 'AI 카테고리 매칭', subtitle: 'GPT-4 기반 · 90%+ 정확도', desc: '상품 데이터를 분석해 쿠팡 카테고리를 자동 매칭합니다.', highlights: ['GPT-4 기반 분석', '90% 이상 정확도', '신뢰도 점수 표시', '수동 보정 가능'] },
+    { title: 'AI 카테고리 매칭', subtitle: 'GPT-4 기반 · 94% 정확도', desc: '상품 데이터를 분석해 쿠팡 카테고리를 자동 매칭합니다.', highlights: ['GPT-4 기반 분석', '94% 수준 정확도', '신뢰도 점수 표시', '수동 보정 가능'] },
     { title: 'AI 상품명 & 검색태그', subtitle: '검색 최적화 · SEO 특화', desc: '쿠팡 검색 알고리즘에 최적화된 상품명과 태그를 자동 생성합니다.', highlights: ['검색 키워드 분석', 'SEO 최적화 타이틀', '자동 검색태그 생성', '카테고리별 포맷'] },
     { title: '자동 가격 계산', subtitle: '마진율 · 100원 절삭 · 마크업', desc: '마진 규칙에 따라 판매가를 자동 계산합니다.', highlights: ['퍼센트/고정 마진', '100원 단위 절삭', '정가 자동 마크업', '카테고리별 규칙'] },
     { title: '네이버 → 쿠팡 변환', subtitle: 'URL 입력만으로 완료', desc: '네이버 스마트스토어 상품을 쿠팡 형식으로 자동 변환합니다.', highlights: ['URL 또는 Excel', '상품 정보 추출', '쿠팡 형식 변환', '일괄 등록 가능'] },
     { title: '24시간 자동 등록', subtitle: '9단계 파이프라인', desc: '9단계 자동화 파이프라인으로 등록을 완전 자동화합니다.', highlights: ['스케줄링 설정', 'R2 이미지 스토리지', 'Wing API 연동', '실시간 추적'] },
-    { title: '데스크탑 & 모바일', subtitle: 'PC + 모바일 지원', desc: 'PC 프로그램과 모바일 앱으로 언제 어디서나 관리합니다.', highlights: ['데스크탑 프로그램', '모바일 앱 지원', '실시간 알림', '원격 관리'] },
+    { title: 'PC & 모바일 웹', subtitle: 'PC + 모바일 지원', desc: 'PC와 모바일 어디서든 웹으로 접속해 관리합니다.', highlights: ['PC 웹 지원', '모바일 웹 지원', '실시간 알림', '원격 관리'] },
   ];
 
   return (
@@ -545,9 +545,9 @@ function PricingSection() {
 // ============================================================================
 function TestimonialsSection() {
   const testimonials = [
-    { name: '김도현', role: '패션 카테고리 셀러', detail: '월 매출 3억', stars: 5, quote: '혼자서 하루 50개씩 등록하던 걸 이제 500개도 가능합니다. 상품명 품질이 좋아서 검색 노출이 눈에 띄게 올랐어요. 알바 2명 인건비가 그대로 절약됩니다.', metric: '등록 속도 10배 향상', metricColor: 'text-[#E31837]', metricBg: 'bg-red-50', gradient: 'from-[#E31837] to-red-700' },
+    { name: '김도현', role: '패션 카테고리 셀러', detail: '월 매출 3억 · 엔터프라이즈', stars: 5, quote: '혼자서 하루 50개씩 등록하던 걸 이제 500개도 가능합니다. 상품명 품질이 좋아서 검색 노출이 눈에 띄게 올랐어요. 알바 2명 인건비가 그대로 절약됩니다.', metric: '등록 속도 10배 향상', metricColor: 'text-[#E31837]', metricBg: 'bg-red-50', gradient: 'from-[#E31837] to-red-700' },
     { name: '박서연', role: '생활용품 셀러', detail: '월 매출 1.5억', stars: 5, quote: '카테고리 매칭이 정말 정확해요. AI가 생성한 상품명도 제가 직접 쓴 것보다 훨씬 키워드가 풍부하고, 실제로 판매가 늘었습니다.', metric: '월 매출 47% 성장', metricColor: 'text-[#E31837]', metricBg: 'bg-red-50', gradient: 'from-[#E31837] to-red-700' },
-    { name: '이준호', role: '전자제품 셀러', detail: '쿠팡 5개 계정 운영', stars: 5, quote: '계정 5개를 동시에 운영하는데, 하나의 대시보드에서 전부 관리할 수 있어서 혼란이 사라졌어요. Google Sheets 연동도 편합니다.', metric: '운영 시간 80% 절감', metricColor: 'text-[#E31837]', metricBg: 'bg-red-50', gradient: 'from-[#E31837] to-red-700' },
+    { name: '이준호', role: '전자제품 셀러', detail: '쿠팡 5개 계정 · 엔터프라이즈', stars: 5, quote: '계정 5개를 동시에 운영하는데, 하나의 대시보드에서 전부 관리할 수 있어서 혼란이 사라졌어요. Google Sheets 연동도 편합니다.', metric: '운영 시간 80% 절감', metricColor: 'text-[#E31837]', metricBg: 'bg-red-50', gradient: 'from-[#E31837] to-red-700' },
   ];
 
   return (
@@ -586,11 +586,11 @@ function TestimonialsSection() {
 function FAQSection() {
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const faqs = [
-    { q: 'AI 카테고리 매칭 정확도는 어느 정도인가요?', a: 'GPT-4 기반으로 90% 이상의 정확도를 보입니다. 매칭 결과와 함께 신뢰도 점수를 제공하여 확인이 필요한 항목을 쉽게 파악할 수 있습니다.' },
+    { q: 'AI 카테고리 매칭 정확도는 어느 정도인가요?', a: 'GPT-4 기반으로 94% 수준의 정확도를 보입니다. 매칭 결과와 함께 신뢰도 점수를 제공하여 확인이 필요한 항목을 쉽게 파악할 수 있습니다.' },
     { q: '네이버 스마트스토어 상품을 어떻게 가져오나요?', a: '네이버 변환 메뉴에서 상품 URL을 입력하거나 Excel 파일을 업로드하면 됩니다. 상품 정보가 자동으로 추출되고, 쿠팡 형식으로 변환됩니다.' },
     { q: '자동 등록은 어떻게 동작하나요?', a: '자동 등록 메뉴에서 일정과 빈도를 설정하면, AI가 자동으로 카테고리 매칭, 상품명 최적화를 진행하고 쿠팡에 등록합니다.' },
     { q: '가격 정책은 어떻게 설정하나요?', a: '가격 정책 메뉴에서 기본 마진율을 설정합니다. 100원 단위 절삭, 정가 마크업률도 설정 가능하며 카테고리별 별도 규칙도 추가할 수 있습니다.' },
-    { q: '대량 상품 등록 시 제한이 있나요?', a: '배치당 최대 100개 상품을 처리합니다. 완료 후 바로 다음 배치를 시작할 수 있어 실질적으로 무제한입니다.' },
+    { q: '대량 상품 등록 시 제한이 있나요?', a: '배치당 최대 100개 상품을 처리하며, 가입 플랜의 월 등록 한도 내에서 배치를 반복 실행할 수 있습니다. 엔터프라이즈 플랜은 한도 없이 무제한입니다.' },
     { q: '이미지는 어떻게 처리되나요?', a: '업로드된 이미지는 Cloudflare R2 스토리지에 안전하게 저장됩니다. 쿠팡 등록 시 이미지 URL로 자동 변환됩니다.' },
     { q: '쿠팡 API 키는 어떻게 발급받나요?', a: '쿠팡 Wing → Open API 관리에서 허용 IP를 등록하면 됩니다. 대시보드에서 안내하는 IP 주소를 등록하시면 24시간 내 활성화됩니다.' },
   ];
@@ -645,7 +645,7 @@ function FinalCTASection() {
           <a href="#pricing" className="inline-flex items-center justify-center gap-2 px-8 py-4 text-base font-semibold text-gray-300 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-all backdrop-blur-sm">요금제 비교하기</a>
         </motion.div>
         <motion.div variants={fadeIn} className="flex flex-wrap justify-center gap-x-8 gap-y-3 mt-14 text-sm text-gray-500">
-          {[{ icon: <Shield className="w-4 h-4" />, text: '256-bit SSL 암호화' }, { icon: <Clock className="w-4 h-4" />, text: '99.9% 가동률 보장' }, { icon: <Users className="w-4 h-4" />, text: '실시간 고객 지원' }].map((item, i) => (<span key={i} className="flex items-center gap-2">{item.icon}{item.text}</span>))}
+          {[{ icon: <Shield className="w-4 h-4" />, text: '256-bit SSL 암호화' }, { icon: <Clock className="w-4 h-4" />, text: '99.9% 가동률 목표' }, { icon: <Users className="w-4 h-4" />, text: '실시간 고객 지원' }].map((item, i) => (<span key={i} className="flex items-center gap-2">{item.icon}{item.text}</span>))}
         </motion.div>
       </div>
     </AnimatedSection>

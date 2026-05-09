@@ -63,7 +63,10 @@ export async function GET(request: NextRequest) {
       unread_count: unreadMap[r.id as string] || 0,
     }));
 
-    return NextResponse.json({ data: enriched });
+    // 사용자 본인 데이터 → private. back/forward 또는 짧은 시간 내 재방문 시 DB 안 침.
+    return NextResponse.json({ data: enriched }, {
+      headers: { 'Cache-Control': 'private, max-age=30, must-revalidate' },
+    });
   } catch (err) {
     console.error('bug-reports GET error:', err);
     void logSystemError({ source: 'megaload/bug-reports', error: err }).catch(() => {});

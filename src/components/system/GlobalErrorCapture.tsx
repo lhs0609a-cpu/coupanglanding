@@ -86,8 +86,11 @@ export default function GlobalErrorCapture() {
         if (!isSelfReport) {
           const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
           const isAbort = err instanceof DOMException && err.name === 'AbortError';
+          // RSC prefetch (Next.js Link hover) — 사용자가 페이지 떠나면 흔히 cancel.
+          // 일부 브라우저는 AbortError 대신 Failed to fetch 로 throw 하므로 여기서 별도 차단.
+          const isRscPrefetch = url.includes('_rsc=');
           // AbortError 는 의도적인 cancel 이 많음 (페이지 이동 등) — 보고 안 함
-          if (!isAbort) {
+          if (!isAbort && !isRscPrefetch) {
             reportClientError({
               source: isTimeout ? 'window.fetch/timeout' : 'window.fetch/network',
               level: isTimeout ? 'warn' : 'error',

@@ -110,7 +110,11 @@ const SortableImage = memo(function SortableImage({ image, onRemove, onToggleAut
             className={`w-full aspect-square object-cover bg-gray-100 ${
               isAutoExcluded ? 'opacity-40 grayscale' : ''
             }`}
-            loading="lazy"
+            // 첫 4개(첫 행)는 LCP 영향 — 즉시 페치 + 동기 디코드 우선순위.
+            loading={idx < 4 ? 'eager' : 'lazy'}
+            decoding="async"
+            // @ts-expect-error fetchpriority 는 React 19 표준이지만 일부 타입버전 누락
+            fetchpriority={idx === 0 ? 'high' : idx < 4 ? 'auto' : 'low'}
             onError={() => setImgError(true)}
           />
         )}

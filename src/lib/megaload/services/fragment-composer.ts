@@ -325,13 +325,12 @@ export function normalizeRepeatedTokens(text: string): string {
   let out = text.replace(/([가-힣A-Za-z0-9]{2,})\s+([가-힣]{2,})(?=[\s\.,!?]|$)/g, (match, a, b) => {
     return a.length > b.length && a.endsWith(b) ? a : match;
   });
-  // 0.5) 부사·형용사 인접 중복 (단일 토큰) — "꾸준히 꾸준히", "정말 정말", "확실히 확실히" 등.
-  //      문장 경계 무시하고 띄어쓰기로만 연속된 동일 토큰을 한 번으로.
-  out = out.replace(/([가-힣]{2,4})\s+\1(?=\s|$|[.,!?])/g, '$1');
-  // 1) 같은 단어가 공백 사이로 연속 — 한 번만 남김
+  // 0.5) 부사·형용사 인접 중복 — "꾸준히 꾸준히", "만족스러운 만족스러운" 등 2~7자 토큰 모두 커버.
+  out = out.replace(/([가-힣]{2,7})\s+\1(?=\s|$|[.,!?])/g, '$1');
+  // 1) 같은 단어가 공백 사이로 연속 — 한 번만 남김 (\b 의존 제거 — 한국어 word boundary 불안정)
   out = out.replace(/(\b[\uAC00-\uD7AF\w]+)\s+\1(?=[\s\.,!?]|$)/g, '$1');
-  // 2) 한국어 형태소 (조사 없이) 인접 반복 — 예: "꾸준히 꾸준히"
-  out = out.replace(/([가-힣]{2,})\s+\1\b/g, '$1');
+  // 2) 한국어 형태소 인접 반복 — \b 의존 제거 (lookahead 로 종결 검사)
+  out = out.replace(/([가-힣]{2,})\s+\1(?=[\s.,!?]|$)/g, '$1');
   // 3) 잔여 공백 정리
   out = out.replace(/\s{2,}/g, ' ').trim();
   return out;
@@ -356,31 +355,57 @@ export function isSuspiciousFragment(text: string): boolean {
 export function applyFoodVerbReplacements(text: string): string {
   if (!text) return text;
   let out = text;
-  // 명사형 "사용" 단독은 너무 광범위 — 식품 부적합 패턴에만 한정.
+  // ── Step 1: 동사 활용형 우선 변환 (어미 보존)
+  // "사용해도/사용하면/사용한/사용했/사용합니다" → "드셔도/드시면/드신/드셨/드십니다"
+  out = out.replace(/사용하셨/g, '드셨');
+  out = out.replace(/사용해도/g, '드셔도');
+  out = out.replace(/사용해보면/g, '드셔보시면');
+  out = out.replace(/사용해보/g, '드셔보');
+  out = out.replace(/사용해/g, '드셔');
+  out = out.replace(/사용했습니다/g, '드셨습니다');
+  out = out.replace(/사용했/g, '드셨');
+  out = out.replace(/사용합니다/g, '드십니다');
+  out = out.replace(/사용한/g, '드신');
+  out = out.replace(/사용하면/g, '드시면');
+  out = out.replace(/사용하니까/g, '드시니까');
+  out = out.replace(/사용하니/g, '드시니');
+  out = out.replace(/사용하시/g, '드시');
+  out = out.replace(/사용하/g, '드시');
+  out = out.replace(/사용 시/g, '드실 때');
+  out = out.replace(/사용 중/g, '드시는 중');
+  out = out.replace(/사용 후/g, '드신 후');
+
+  // ── Step 2: 명사형 "사용" — 어미 부담 없는 형태로 치환
   out = out.replace(/실사용자/g, '드셔본 분');
   out = out.replace(/실사용\s*후기/g, '실제 후기');
   out = out.replace(/실사용/g, '실제 취식');
   out = out.replace(/한 번 사용한 분/g, '한 번 드셔본 분');
   out = out.replace(/주기적인 사용/g, '꾸준한 섭취');
   out = out.replace(/오래 사용 시에도/g, '여러 번 드셔도');
-  out = out.replace(/오래 사용/g, '여러 번 드심');
-  out = out.replace(/꾸준히 사용하니까/g, '꾸준히 드시니까');
-  out = out.replace(/꾸준히 사용/g, '꾸준히 드심');
-  out = out.replace(/매일 꾸준히 사용/g, '매일 꾸준히 드심');
+  out = out.replace(/오래 사용/g, '여러 번 드시는 일');
+  out = out.replace(/매일 꾸준히 사용/g, '매일 꾸준히 드시는 일');
+  out = out.replace(/꾸준히 사용/g, '꾸준히 드시는 것');
   out = out.replace(/한 번 써보시면/g, '한 번 드셔보시면');
   out = out.replace(/써봤는데/g, '드셔봤는데');
-  out = out.replace(/사용해보면/g, '드셔보시면');
-  out = out.replace(/사용 시/g, '드실 때');
-  out = out.replace(/사용 후/g, '드신 후');
   out = out.replace(/간단한 사용으로/g, '간단히 드시는 것만으로');
-  // audit Round 3: "쓴 지" 형식 — "이 제품을 쓴 지 얼마 안 됐는데"
+
+  // ── Step 3: "쓴 지" / "쓰는" — 식품 화법으로 변환
   out = out.replace(/을\s*쓴\s*지\s*얼마\s*안\s*됐는데/g, '을 드신 지 얼마 안 됐는데');
   out = out.replace(/를\s*쓴\s*지\s*얼마\s*안\s*됐는데/g, '를 드신 지 얼마 안 됐는데');
   out = out.replace(/을\s*쓴\s*지/g, '을 드신 지');
   out = out.replace(/를\s*쓴\s*지/g, '를 드신 지');
-  // "이 제품을 쓰는" / "이 제품을 쓴" — 식품에서는 "드시는/드신"
   out = out.replace(/을\s*쓰는\b/g, '을 드시는');
   out = out.replace(/를\s*쓰는\b/g, '를 드시는');
+
+  // ── Step 4: 합성 깨짐 차단 — "드심" + 어미는 항상 "드시"/"드셔" 활용형으로
+  out = out.replace(/드심해도/g, '드셔도');
+  out = out.replace(/드심하면/g, '드시면');
+  out = out.replace(/드심하니까/g, '드시니까');
+  out = out.replace(/드심하/g, '드시');
+  out = out.replace(/드심한/g, '드신');
+  out = out.replace(/드심했/g, '드셨');
+  out = out.replace(/드심합니다/g, '드십니다');
+  out = out.replace(/여러 번 드심(?=[^가-힣])/g, '여러 번 드셔도');
   return out;
 }
 

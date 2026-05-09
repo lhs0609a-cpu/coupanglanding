@@ -686,11 +686,14 @@ function fixOrphanParticles(text: string): string {
   if (!text) return text;
   let out = text;
   // 앞에 공백/문장부호 뒤 단독 조사 → 제거
-  out = out.replace(/(?:^|[\s.,!?])([을를이가은는과와도만의로])\s+/g, ' ');
+  // ⚠️ "이/은" 은 관형사("이 상품" / "이 때" / "이 정도")로도 쓰이므로 alternation에서 제외.
+  //    "이"는 뒤에 한글이 오면 관형사 가능성이 높아 보존.
+  out = out.replace(/(?:^|[\s.,!?])([을를가는과와도만의로])\s+/g, ' ');
   // 문장 끝 단독 조사 → 제거
-  out = out.replace(/\s([을를이가은는과와도만의로])([.!?]?)$/g, '$2');
+  out = out.replace(/\s([을를가는과와도만의로])([.!?]?)$/g, '$2');
   // "X 을 Y" 같이 단어 + 공백 + 조사 + 공백 패턴 — 명사 직접 연결로 변환
-  out = out.replace(/(\S)\s+([을를이가은는])\s+/g, '$1$2 ');
+  // ⚠️ "이/은"은 관형사 가능성이 있어 제외
+  out = out.replace(/(\S)\s+([을를가는])\s+/g, '$1$2 ');
   // 이중 공백 정리
   out = out.replace(/\s{2,}/g, ' ').replace(/\s+([.,!?])/g, '$1').trim();
   return out;

@@ -17,6 +17,7 @@ import {
 } from '@/lib/utils/constants';
 import BugReportThread from '@/components/megaload/bug-report/BugReportThread';
 import ImageLightbox from '@/components/megaload/bug-report/ImageLightbox';
+import { uploadBugReportImage } from '@/lib/megaload/services/bug-report-uploader';
 
 const STATUS_FILTER: { value: BugReportStatus | 'all'; label: string }[] = [
   { value: 'all', label: '전체' },
@@ -121,21 +122,11 @@ export default function AdminMegaloadBugReportsPage() {
   };
 
   const handleUploadImage = async (file: File): Promise<BugReportAttachment | null> => {
-    const formData = new FormData();
-    formData.append('file', file);
+    // 직접 Supabase Storage 업로드 (Vercel 함수 경유 X). 실패 시 API 폴백.
     try {
-      const res = await fetch('/api/megaload/bug-reports/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        alert(json.error || '업로드 실패');
-        return null;
-      }
-      return { url: json.url, name: json.name, size: json.size };
-    } catch {
-      alert('업로드 실패');
+      return await uploadBugReportImage(file);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '업로드 실패');
       return null;
     }
   };

@@ -397,8 +397,14 @@ const DIRECT_CODE_MAP: Record<string, { code: string; path: string }> = {
   // ── 뷰티 > 클렌징 (스크린샷 실패 케이스 — 토큰 누락으로 도서/임산부 등으로 오매칭) ──
   '클렌징폼': { code: '56122', path: '뷰티>스킨>클렌징>클렌징 폼' },
   '폼클렌징': { code: '56122', path: '뷰티>스킨>클렌징>클렌징 폼' },
+  '폼클렌저': { code: '56122', path: '뷰티>스킨>클렌징>클렌징 폼' },
+  '클렌징폼클렌저': { code: '56122', path: '뷰티>스킨>클렌징>클렌징 폼' },
+  '딥클렌징폼': { code: '56122', path: '뷰티>스킨>클렌징>클렌징 폼' },
+  '오일투폼': { code: '56122', path: '뷰티>스킨>클렌징>클렌징 폼' },
+  '거품클렌저': { code: '56122', path: '뷰티>스킨>클렌징>클렌징 폼' },
   '클렌징젤': { code: '56125', path: '뷰티>스킨>클렌징>클렌징 젤' },
   '젤클렌저': { code: '56125', path: '뷰티>스킨>클렌징>클렌징 젤' },
+  '젤클렌징': { code: '56125', path: '뷰티>스킨>클렌징>클렌징 젤' },
   '클렌징비누': { code: '56127', path: '뷰티>스킨>클렌징>클렌징 비누' },
   '클렌징로션': { code: '56130', path: '뷰티>스킨>클렌징>클렌징 로션/밀크' },
   '클렌징밀크': { code: '56130', path: '뷰티>스킨>클렌징>클렌징 로션/밀크' },
@@ -805,6 +811,10 @@ const NOISE_PATTERNS = [
 function cleanProductName(name: string): string {
   let cleaned = name;
 
+  // 노이즈 반복 패턴 제거 — "징 징 징", "ㅋ ㅋ ㅋ", "abc abc abc"
+  // 셀러가 SEO/플레이스홀더로 같은 짧은 토큰을 3회+ 반복한 경우 토큰 풀 오염 방지.
+  cleaned = cleaned.replace(/\b(\S{1,4})(?:\s+\1){2,}\b/gu, ' ');
+
   // 괄호 안 텍스트 제거 (브랜드명 등)
   cleaned = cleaned.replace(/[\[\(【][^\]\)】]*[\]\)】]/g, ' ');
 
@@ -897,6 +907,9 @@ const COMPOUND_SPLIT_SUFFIXES = [
   '건강', '영양', '보조', '기능',
   '세트', '묶음', '팩', '박스',
   '크림', '로션', '세럼', '에센스',
+  // 뷰티 클렌징/스킨/메이크업 제형 — "클리어딥클렌징폼"/"반전클렌저"/"오일투폼" 분해
+  '클렌징', '클렌저', '폼', '젤', '밤', '오일', '워터', '밀크',
+  '토너', '미스트', '앰플', '스크럽', '리무버', '비누',
   // 생활용품/유아 — "아기물티슈" → ["아기", "물티슈"]
   '물티슈', '화장지', '기저귀', '티슈',
   // 과일 — "골드망고/애플망고/무지개망고" 같은 품종+과일 합성어를 분리해
@@ -1563,6 +1576,16 @@ export async function matchCategoryBatch(
   const unmatchedIndices: number[] = [];
   const tier1Diagnostics = new Map<number, { score: number; candidateName: string }>();
 
+  // Tier -2: 학습된 alias 캐시 — 과거 사용자 매칭 결과 즉시 활용
+  // matchByAlias 는 한 번 캐시 로드 후 메모리 lookup. 50건 배치 추가 비용 ~5ms.
+  let aliasMatchFn: ((name: string) => Promise<CategoryMatchResult | null>) | null = null;
+  try {
+    const mod = await import('./category-alias-store');
+    aliasMatchFn = mod.matchByAlias;
+  } catch {
+    aliasMatchFn = null;
+  }
+
   for (let i = 0; i < productNames.length; i++) {
     // 네이버 카테고리 매핑 (최우선 — 소싱 상품의 실제 분류)
     if (naverCategoryIds) {
@@ -1574,6 +1597,12 @@ export async function matchCategoryBatch(
           continue;
         }
       }
+    }
+
+    // Tier -2: alias 학습 캐시 — 과거에 매칭된 키워드는 즉시 매칭
+    if (aliasMatchFn) {
+      const aliasHit = await aliasMatchFn(sanitizedNames[i] || productNames[i]);
+      if (aliasHit) { results[i] = aliasHit; continue; }
     }
 
     // Tier -1: 입력이 leaf 이름과 정확 일치 — 결정론적 매칭
@@ -1704,6 +1733,84 @@ export async function matchCategoryBatch(
 
   // 전부 로컬 매칭 완료 시 바로 반환
   if (unmatchedIndices.length === 0) return { results, failures: [] };
+
+  // === Phase 1.7: 임베딩 시맨틱 매칭 (Tier 1) ===
+  // 토큰/substring 매칭 실패한 케이스 — 글루합성어, 서술형 상품명, 사전 미등록 변형.
+  // 16k 카테고리 임베딩(text-embedding-3-small, 512-dim)과 코사인 유사도 비교.
+  //   ≥ 0.85 : 자동 매칭 (high confidence)
+  //   0.65~0.85 : LLM rerank 후보 (Tier 2, 후속 단계에서 처리)
+  //   < 0.65 : 미매칭 유지 → Phase 2/3 폴백
+  // OPENAI_API_KEY 미설정 / 임베딩 미빌드 시 빈 결과 → 기존 폴백 그대로.
+  try {
+    const { findTopKByEmbedding, EMBEDDING_AUTO_THRESHOLD, EMBEDDING_RERANK_THRESHOLD } =
+      await import('./category-embedder');
+    const stillUnmatched = [...unmatchedIndices];
+    const rerankNeeded: { idx: number; candidates: { code: string; path: string }[] }[] = [];
+
+    for (const idx of stillUnmatched) {
+      if (results[idx]) continue;
+      const top = await findTopKByEmbedding(sanitizedNames[idx] || productNames[idx], 10);
+      if (top.length === 0) continue;
+      const best = top[0];
+      if (best.similarity >= EMBEDDING_AUTO_THRESHOLD) {
+        const detail = loadDetails()[best.categoryCode];
+        results[idx] = {
+          categoryCode: best.categoryCode,
+          categoryName: best.leafName,
+          categoryPath: detail?.p || best.categoryPath,
+          confidence: best.similarity,
+          source: 'ai',
+        };
+      } else if (best.similarity >= EMBEDDING_RERANK_THRESHOLD) {
+        // Tier 2 LLM rerank 대상 — 후보 모아두고 일괄 처리
+        rerankNeeded.push({
+          idx,
+          candidates: top.map(t => ({ code: t.categoryCode, path: t.categoryPath })),
+        });
+      }
+    }
+
+    // Tier 2: LLM rerank — 0.65~0.85 신뢰도 후보들에 대해 GPT-4o-mini 로 최적 카테고리 선택
+    if (rerankNeeded.length > 0) {
+      try {
+        const { rerankCategoryCandidates } = await import('./category-llm-reranker');
+        for (const { idx, candidates } of rerankNeeded) {
+          if (results[idx]) continue;
+          const picked = await rerankCategoryCandidates(productNames[idx], candidates);
+          if (picked) {
+            const detail = loadDetails()[picked.code];
+            results[idx] = {
+              categoryCode: picked.code,
+              categoryName: detail?.p?.split('>').pop() || '',
+              categoryPath: detail?.p || picked.path,
+              confidence: picked.confidence,
+              source: 'ai',
+            };
+          } else {
+            // rerank 실패 → top-1 fallback
+            const detail = loadDetails()[candidates[0].code];
+            results[idx] = {
+              categoryCode: candidates[0].code,
+              categoryName: detail?.p?.split('>').pop() || '',
+              categoryPath: detail?.p || candidates[0].path,
+              confidence: 0.55,
+              source: 'ai',
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('[category-matcher] LLM rerank skipped:', err instanceof Error ? err.message : err);
+      }
+    }
+
+    // unmatchedIndices 갱신 — 매칭된 인덱스 제거
+    for (let k = unmatchedIndices.length - 1; k >= 0; k--) {
+      if (results[unmatchedIndices[k]]) unmatchedIndices.splice(k, 1);
+    }
+    if (unmatchedIndices.length === 0) return { results, failures: [] };
+  } catch (err) {
+    console.warn('[category-matcher] embedding tier skipped:', err instanceof Error ? err.message : err);
+  }
 
   // === Phase 2: 미매칭 상품 — 교차 Document Frequency 분석 → API ===
   if (adapter && unmatchedIndices.length > 0) {

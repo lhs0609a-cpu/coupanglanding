@@ -155,7 +155,7 @@ export default function SourcingPage() {
             <div key={product.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-md transition">
               <div className="aspect-square bg-gray-100 relative">
                 {product.image_url && (
-                  <img src={product.image_url} alt={product.title} className="w-full h-full object-cover" />
+                  <img src={product.image_url} alt={product.title} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                 )}
                 <button
                   onClick={() => addToWishlist(product)}

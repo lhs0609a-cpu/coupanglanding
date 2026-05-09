@@ -302,7 +302,7 @@ function ImageView({
       onMouseLeave={() => setHover(false)}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={url} alt={alt} style={{ width: '100%', display: 'block' }} />
+      <img src={url} alt={alt} loading="lazy" decoding="async" style={{ width: '100%', display: 'block' }} />
       {hover && (
         <>
           {/* 어둠 오버레이 + 안내 */}

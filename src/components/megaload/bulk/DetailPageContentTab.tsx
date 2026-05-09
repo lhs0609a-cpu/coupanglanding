@@ -200,7 +200,7 @@ function ImageSelectorGroup({
         title={`${imageNameAt(imgIdx)}${opts.selected ? ` (순서 ${opts.posInOrder! + 1})` : ' (제외됨)'}${relText}${reasonText}`}
       >
         {url ? (
-          <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
+          <img src={url} alt="" width={80} height={80} className="w-full h-full object-cover" loading="lazy" decoding="async" />
         ) : (
           <div className="w-full h-full bg-gray-100 flex items-center justify-center">
             <ImageIcon className="w-5 h-5 text-gray-300" />

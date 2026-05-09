@@ -92,8 +92,12 @@ function fixKoreanParticles(text: string): string {
       prev + (hasFinalConsonant(prev) ? '은' : '는') + sp)
     .replace(/([\uAC00-\uD7A3])(을|를)(\s)/g, (_, prev, _p, sp) =>
       prev + (hasFinalConsonant(prev) ? '을' : '를') + sp)
-    .replace(/([\uAC00-\uD7A3])(으로|로)(\s)/g, (_, prev, _p, sp) =>
-      prev + (hasFinalConsonant(prev) ? '으로' : '로') + sp);
+    // 으로/로: ㄹ받침이거나 무받침 → "로", 그 외 받침 → "으로"
+    .replace(/([\uAC00-\uD7A3])(으로|로)(\s)/g, (_, prev, _p, sp) => {
+      const code = prev.charCodeAt(0);
+      const jong = (code - 0xAC00) % 28;
+      return prev + (jong === 0 || jong === 8 ? '로' : '으로') + sp;
+    });
 }
 
 const COMMON_VAR_FALLBACKS: Record<string, string[]> = {
@@ -694,8 +698,8 @@ function sanitizeByProductForm(text: string, productName: string, categoryKey: s
   const blocklist = FORM_BLOCKLIST[form];
   if (!blocklist) return text;
 
-  // 문장 단위로 분리 (마침표 기준 + 구어체 "~요" 기준)
-  const sentences = text.split(/(?<=[.!?。요])\s+/);
+  // 문장 단위로 분리 — ⚠️ "요" 어미 split 은 명사 "필요/주요/중요" 를 잘못 끊으므로 제외.
+  const sentences = text.split(/(?<=[.!?。])\s+/);
   const cleaned = sentences.filter(s => !blocklist.test(s));
 
   // 전부 제거된 경우 빈 문자열 (caller가 length > 5 체크로 스킵)

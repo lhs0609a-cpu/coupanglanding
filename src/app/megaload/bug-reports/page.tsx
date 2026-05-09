@@ -15,6 +15,7 @@ import {
 import BugReportForm from '@/components/megaload/bug-report/BugReportForm';
 import BugReportThread from '@/components/megaload/bug-report/BugReportThread';
 import ImageLightbox from '@/components/megaload/bug-report/ImageLightbox';
+import { uploadBugReportImage } from '@/lib/megaload/services/bug-report-uploader';
 
 const STATUS_TABS: { value: BugReportStatus | 'all'; label: string }[] = [
   { value: 'all', label: '전체' },
@@ -108,35 +109,12 @@ export default function BugReportsPage() {
   };
 
   const handleUploadImage = async (file: File): Promise<BugReportAttachment | null> => {
-    const formData = new FormData();
-    formData.append('file', file);
+    // 직접 Supabase Storage 업로드 (Vercel 함수 경유 X) → 1.5~3s → 0.3~0.8s 단축.
+    // 실패 시 자동으로 API 라우트로 폴백.
     try {
-      // 클라 측 25s timeout — 서버 maxDuration 30s 보다 짧게 설정해 hang 시 명확한 에러 노출
-      const res = await fetch('/api/megaload/bug-reports/upload', {
-        method: 'POST',
-        body: formData,
-        signal: AbortSignal.timeout(25_000),
-      });
-      const text = await res.text();
-      let json: { error?: string; url?: string; name?: string; size?: number };
-      try {
-        json = JSON.parse(text);
-      } catch {
-        // 비-JSON 응답 (HTML 에러 페이지/타임아웃 페이지 등) — 본문 일부 노출
-        alert(`업로드 실패: HTTP ${res.status} — 응답이 JSON 아님 (${text.slice(0, 100)})`);
-        return null;
-      }
-      if (!res.ok) {
-        alert(json.error || `업로드 실패: HTTP ${res.status}`);
-        return null;
-      }
-      return { url: json.url!, name: json.name!, size: json.size! };
+      return await uploadBugReportImage(file);
     } catch (err) {
-      const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
-      const msg = isTimeout
-        ? '업로드 실패: 25초 초과 (서버 응답 없음). 네트워크/Vercel 상태 확인.'
-        : `업로드 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`;
-      alert(msg);
+      alert(err instanceof Error ? err.message : '업로드 실패');
       return null;
     }
   };
@@ -319,6 +297,10 @@ export default function BugReportsPage() {
                       key={idx}
                       src={att.url}
                       alt={att.name}
+                      width={80}
+                      height={80}
+                      loading="lazy"
+                      decoding="async"
                       className="w-20 h-20 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition"
                       onClick={() => setLightbox({
                         images: selectedReport.attachments.map(a => a.url),

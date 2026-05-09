@@ -14,11 +14,11 @@
     },
     {
       "path": "/api/cron/trends",
-      "schedule": "0 */2 * * *"
+      "schedule": "0 */6 * * *"
     },
     {
       "path": "/api/cron/megaload-stock-monitor",
-      "schedule": "*/30 * * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/cron/auto-billing",
@@ -34,11 +34,11 @@
     },
     {
       "path": "/api/cron/payment-reconcile",
-      "schedule": "15 * * * *"
+      "schedule": "15 */3 * * *"
     },
     {
       "path": "/api/cron/payment-desync-recovery",
-      "schedule": "30 * * * *"
+      "schedule": "30 */6 * * *"
     },
     {
       "path": "/api/cron/fee-payment-check",
@@ -46,7 +46,7 @@
     },
     {
       "path": "/api/cron/coupang-revenue-sync",
-      "schedule": "0 */2 * * *"
+      "schedule": "0 */4 * * *"
     },
     {
       "path": "/api/cron/megaload-replication-runner",
@@ -67,6 +67,10 @@
     {
       "path": "/api/cron/storage-gc",
       "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/cron/payment-stuck-monitor",
+      "schedule": "0 22 * * *"
     }
   ]
 }

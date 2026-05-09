@@ -113,9 +113,12 @@ const BulkProductRow = memo(function BulkProductRow({
           <img
             src={thumbnailUrl}
             alt=""
+            width={36}
+            height={36}
             className={`w-9 h-9 rounded object-cover bg-gray-100 transition-opacity ${thumbLoaded ? 'opacity-100' : 'opacity-0'}`}
             onLoad={() => setThumbLoaded(true)}
             loading="lazy"
+            decoding="async"
           />
         ) : (
           <div className="w-9 h-9 rounded bg-gray-100 flex items-center justify-center text-[10px] text-gray-400">

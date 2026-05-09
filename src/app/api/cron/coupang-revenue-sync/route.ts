@@ -3,8 +3,8 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
 import { getPreviousMonth, getReportTargetMonth } from '@/lib/utils/settlement';
-import { recordCoupangApiFailure, clearCoupangApiBlock } from '@/lib/utils/coupang-circuit-breaker';
-import { logSystemError } from '@/lib/utils/system-log';
+import { recordCoupangApiFailure, clearCoupangApiBlock, classifyError } from '@/lib/utils/coupang-circuit-breaker';
+import { logSystemError, logSystemSuccess } from '@/lib/utils/system-log';
 
 /**
  * GET /api/cron/coupang-revenue-sync
@@ -165,7 +165,18 @@ async function runSync() {
           ? `${err.code || 'api'}: ${err.message}`
           : err instanceof Error ? err.message : String(err);
         console.error(`[coupang-revenue-sync] ${user.id} ${ym} failed:`, message);
-        void logSystemError({ source: 'cron/coupang-revenue-sync', error: message }).catch(() => {});
+        const reason = classifyError(message);
+        void logSystemError({
+          source: 'cron/coupang-revenue-sync',
+          error: message,
+          context: {
+            ptUserId: user.id,
+            vendorId: user.coupang_vendor_id,
+            yearMonth: ym,
+            reason,
+          },
+          userId: user.id,
+        }).catch(() => {});
         await upsertSnapshot(serviceClient, {
           pt_user_id: user.id,
           year_month: ym,
@@ -199,6 +210,11 @@ async function runSync() {
   const successCount = results.filter(r => r.success).length;
   const failedCount = results.length - successCount;
   const elapsed = Date.now() - startedAt;
+
+  // 완전 성공 — 미해결 사고 자동 해결
+  if (failedCount === 0 && successCount > 0) {
+    await logSystemSuccess({ source: 'cron/coupang-revenue-sync' });
+  }
 
   return NextResponse.json({
     success: true,
@@ -234,6 +250,6 @@ async function upsertSnapshot(
 
   if (error) {
     console.error('[coupang-revenue-sync] upsert error:', error);
-    void logSystemError({ source: 'cron/coupang-revenue-sync', error: error }).catch(() => {});
+    void logSystemError({ source: 'cron/coupang-revenue-sync', error, context: { stage: 'upsert' } }).catch(() => {});
   }
 }

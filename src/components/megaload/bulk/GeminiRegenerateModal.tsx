@@ -99,7 +99,7 @@ export default function GeminiRegenerateModal({
             <div>
               <div className="text-[11px] font-medium text-gray-600 mb-1.5">원본</div>
               <div className="aspect-square rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
-                <img src={currentImageUrl} alt="원본" className="w-full h-full object-contain" />
+                <img src={currentImageUrl} alt="원본" loading="lazy" decoding="async" className="w-full h-full object-contain" />
               </div>
             </div>
             <div>
@@ -114,7 +114,7 @@ export default function GeminiRegenerateModal({
                     <span className="text-[10px] text-gray-400">보통 10~30초</span>
                   </div>
                 ) : generatedUrl ? (
-                  <img src={generatedUrl} alt="생성 결과" className="w-full h-full object-contain" />
+                  <img src={generatedUrl} alt="생성 결과" loading="lazy" decoding="async" className="w-full h-full object-contain" />
                 ) : (
                   <div className="text-xs text-gray-300">아직 생성되지 않았습니다</div>
                 )}

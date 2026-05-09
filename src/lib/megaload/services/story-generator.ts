@@ -360,6 +360,7 @@ function rewritePersuasionAsReview(
 import { generatePersuasionContent, contentBlocksToParagraphs } from './persuasion-engine';
 import type { ContentBlock, PersuasionResult, ProductContext } from './persuasion-engine';
 import { resolveSeoCategoryPool, getUniversalModifiers } from './seo-keyword-resolver';
+import { sanitizeStoryParagraphs, sanitizeReviewCaptions } from './output-sanitizer';
 
 export interface StoryResultV2 extends StoryResult {
   contentBlocks: ContentBlock[];   // 설득형 블록 배열
@@ -398,9 +399,20 @@ export function generateStoryV2(
 
   // ── 설득 엔진 재활성화: SEO 텍스트 강화 ──
   const seoPool = resolveSeoCategoryPool(categoryPath);
+  // SEO 정체성 보강: 카테고리 leaf 의 첫 토큰을 항상 키워드에 포함
+  // (1.6만 카테고리 전수 검증에서 leaf 누락 1,480건 발견 — persuasion 의 키워드 강제 삽입 로직이 걸어줌)
+  const leafFirst = (() => {
+    const leafRaw = categoryPath.split('>').pop()?.trim() || '';
+    if (!leafRaw) return '';
+    // 영문 단어 (rust/Mice 등) 도 포함, 슬래시·괄호·콤마는 분리
+    const tok = leafRaw.split(/[\s/,()\[\]]+/).filter(t => t.length >= 2)[0] || '';
+    // 한국어 prefix (여성/남성/키즈/유아 등) 제거
+    return tok.replace(/^(여성|남성|키즈|아동|유아|어른|성인)/, '').trim();
+  })();
   const seoKeywords = [
     ...(seoPool.features || []).slice(0, 2),
     ...(seoPool.generic || []).slice(0, 1),
+    ...(leafFirst.length >= 2 ? [leafFirst] : []),
   ];
   const persuasion = generatePersuasionContent(
     productName, categoryPath, sellerSeed, productIndex, seoKeywords,
@@ -428,7 +440,8 @@ export function generateStoryV2(
     if (!isFoodOrHealth) {
       const FOOD_TERM_RE = /복용|섭취|공복|식후\s*\d|1일\s*권장량|1일\s*섭취량|건강기능식품|영양제|캡슐|정제|1정|1포/;
       paragraphs = paragraphs.map(p => {
-        const sentences = p.split(/(?<=[.!?。요])\s+/);
+        // ⚠️ "요" 어미 split 은 "필요/주요/중요/조용" 명사를 어미로 오인하므로 제외.
+        const sentences = p.split(/(?<=[.!?。])\s+/);
         const filtered = sentences.filter(s => !FOOD_TERM_RE.test(s));
         return filtered.join(' ').trim();
       }).filter(p => p.length > 5);
@@ -457,7 +470,8 @@ export function generateStoryV2(
       if (normalized.length < 10) continue;
 
       // 문단 내 문장 단위 dedup (동일 문장이 반복되는 경우 방지)
-      const sentences = normalized.split(/(?<=[.!?。요])\s+/);
+      // ⚠️ "요" 어미 split 은 "필요/주요/중요" 명사를 어미로 오인하므로 제외.
+      const sentences = normalized.split(/(?<=[.!?。])\s+/);
       const innerSeen = new Set<string>();
       const uniqueSentences: string[] = [];
       for (const sent of sentences) {
@@ -491,7 +505,8 @@ export function generateStoryV2(
       const seen = new Set<string>();
       const out: string[] = [];
       for (const p of paras) {
-        const sentences = p.split(/(?<=[\.!?。요])\s+/).map(s => s.trim()).filter(Boolean);
+        // ⚠️ "요" 어미 split 은 명사 "필요/주요/중요" 를 잘못 끊으므로 제외.
+        const sentences = p.split(/(?<=[\.!?。])\s+/).map(s => s.trim()).filter(Boolean);
         const kept: string[] = [];
         for (const s of sentences) {
           const cleaned = cleanSentence(s);
@@ -528,12 +543,37 @@ export function generateStoryV2(
     return out;
   })();
 
+  // ── 마스터 산타이저 (output-sanitizer): 모든 출력의 최종 게이트 ──
+  //   ㄹ받침 으로 → 로, 형용사 불규칙(없은→없는), 드심 합성 깨짐,
+  //   상품/제품 fallback 노출, 카테고리 cross-leaf 오염, 빈도 모순,
+  //   미치환 placeholder, ". " 잘림 등 일괄 차단.
+  const cleanProductName = productName
+    .replace(/[\[\(【][^\]\)】]*[\]\)】]/g, '')
+    .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
+    .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ') || productName;
+  const sanitizerOpts = { productName, categoryPath, cleanProductName };
+  const finalParagraphs = sanitizeStoryParagraphs(paragraphs, sanitizerOpts);
+  const finalReviewTexts = sanitizeReviewCaptions(cleanedReviewTexts, sanitizerOpts);
+
+  // ── SEO 정체성 안전망: leaf 토큰이 본문에 등장하지 않으면 마지막 단락에 자연스럽게 보강 ──
+  //   1.6만 카테고리 검증에서 0.22% (36건) 의 잔여 누락을 모두 흡수.
+  {
+    const leafRaw = categoryPath.split('>').pop()?.trim() || '';
+    const leafToken = leafRaw.split(/[\s/(),\[\]]+/).filter(t => t.length >= 2)[0] || '';
+    if (leafToken.length >= 2) {
+      const allFinal = finalParagraphs.join(' ');
+      if (!allFinal.includes(leafToken) && !allFinal.includes(leafRaw)) {
+        finalParagraphs.push(`이 ${leafToken}는 일상에 자연스럽게 어울리는 선택입니다.`);
+      }
+    }
+  }
+
   // 총 글자수 계산 (SEO 검증용)
-  const totalCharCount = paragraphs.join('').length;
+  const totalCharCount = finalParagraphs.join('').length;
 
   return {
-    paragraphs,
-    reviewTexts: cleanedReviewTexts,
+    paragraphs: finalParagraphs,
+    reviewTexts: finalReviewTexts,
     tone: tone.name,
     realReview,
     contentBlocks: [],    // 비움 → 블로그 스타일 레이아웃 유지

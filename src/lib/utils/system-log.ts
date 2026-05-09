@@ -69,6 +69,8 @@ function inferCategory(source: string, errMsg: string): LogCategory {
 
 // ── 알려진 패턴별 해결 가이드 ──────────────────────────────────
 const RESOLUTION_PATTERNS: { re: RegExp; hint: string }[] = [
+  { re: /not allowed for this request|ip address.+(?:not allowed|blocked)/i,
+                                                  hint: '쿠팡 Wing 허용 IP 미등록. 해당 PT생의 Wing 콘솔 → 마이정보 → 사용자 정보 → 오픈API 사용신청 → 허용IP 에 `209.71.88.111` 등록 필요. context.vendorId / context.ptUserId 로 어느 셀러인지 식별. 등록 후 다음 cron(매시 정각)부터 자동 복구.' },
   { re: /coupang.+(?:hang|timeout|abort)/i,      hint: '쿠팡 Wing API timeout. (1) Fly.io NRT egress IP `209.71.88.111` 가 쿠팡 허용 IP 인지 확인 (2) coupang-proxy 로그 확인.' },
   { re: /(?:fetch|request).+abort/i,             hint: 'Fetch가 AbortSignal 로 중단됨 (timeout). 클라이언트 timeout 또는 서버 응답 지연. fetch에 AbortSignal.timeout(N) 추가했는지 확인.' },
   { re: /econnrefused|connection refused/i,      hint: 'TCP 연결 거부. 대상 서버 다운/방화벽. 외부 서비스(Supabase / Coupang / Toss / Naver)인 경우 해당 status page 확인.' },
@@ -132,6 +134,8 @@ const CIRCUIT_OPEN_MS = 30_000;
 async function logSystem(level: LogLevel, params: LogParams): Promise<void> {
   // 회로 열려 있으면 silent skip
   if (Date.now() < _circuitOpenUntil) return;
+  // 에러도 메시지도 없으면 호출자 실수 — 가짜 '(no message)' 로그 방지
+  if (!params.error && !params.message) return;
   try {
     const errMsg = params.error instanceof Error
       ? params.error.message
@@ -184,4 +188,21 @@ export async function logSystemWarn(params: LogParams): Promise<void> {
 }
 export async function logSystemInfo(params: LogParams): Promise<void> {
   return logSystem('info', params);
+}
+
+/**
+ * 이벤트 기반 자동 해결 — 호출자가 "완전 성공"에 도달했을 때 호출.
+ * 동일 source 의 모든 미해결 row 를 resolved=true 로 마킹.
+ *
+ * 주의: partial success 일 때는 호출하지 말 것 (다른 vendor 사고가 가려질 수 있음).
+ *      반드시 totalFailed === 0 / 모든 path 성공일 때만 호출.
+ */
+export async function logSystemSuccess(params: { source: string; client?: SupabaseClient }): Promise<void> {
+  if (Date.now() < _circuitOpenUntil) return;
+  try {
+    const client = params.client || (await getSharedServiceClient());
+    await client.rpc('resolve_system_logs_by_source', { p_source: params.source });
+  } catch (err) {
+    console.error('[system-log] auto-resolve failed:', err instanceof Error ? err.message : err);
+  }
 }
