@@ -92,31 +92,81 @@ export async function POST(request: NextRequest) {
     const SOFT_DEADLINE_MS = 80_000;
 
     // ── 1) 토스 settlements 페이지네이션 ──
+    // Toss API 응답 형식이 환경/권한에 따라 다양 — array 직접 또는 { data: [...] } wrap.
+    // 둘 다 처리하고 raw response 일부를 debug 에 포함 (왜 0건 인지 추적 가능).
     const allSettlements: TossSettlementItem[] = [];
+    const debugLog: Array<{ page: number; received: number; sample?: unknown }> = [];
     let page = 1;
-    const SIZE = 100;
+    const SIZE = 5000;  // Toss settlements 일부 환경: 페이지 사이즈 작으면 빈 배열 반환 — 크게 잡아 페이징 우회
     while (true) {
       if (Date.now() - startedAt > SOFT_DEADLINE_MS) break;
+      const url = `${TOSS_BASE}/settlements?startDate=${startDate}&endDate=${endDate}&page=${page}&size=${SIZE}`;
       const res = await fetch(
-        `${TOSS_BASE}/settlements?startDate=${startDate}&endDate=${endDate}&page=${page}&size=${SIZE}`,
+        url,
         { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(15_000) },
       );
       if (!res.ok) {
+        const errText = await res.text().catch(() => '');
         return NextResponse.json({
           error: `토스 settlements API 실패 (HTTP ${res.status})`,
-          detail: await res.text().catch(() => ''),
+          detail: errText.slice(0, 500),
+          requestUrl: url,
         }, { status: 502 });
       }
-      const items = (await res.json()) as TossSettlementItem[];
-      if (!Array.isArray(items) || items.length === 0) break;
+      const raw = await res.json();
+      // 응답 형식 정규화 — array 직접 또는 wrapper 객체 (Toss API 환경에 따라 다름)
+      let items: TossSettlementItem[] = [];
+      if (Array.isArray(raw)) {
+        items = raw as TossSettlementItem[];
+      } else if (raw && typeof raw === 'object') {
+        const obj = raw as Record<string, unknown>;
+        if (Array.isArray(obj.data)) items = obj.data as TossSettlementItem[];
+        else if (Array.isArray(obj.items)) items = obj.items as TossSettlementItem[];
+        else if (Array.isArray(obj.settlements)) items = obj.settlements as TossSettlementItem[];
+      }
+
+      debugLog.push({
+        page,
+        received: items.length,
+        sample: page === 1 ? (Array.isArray(raw) ? raw.slice(0, 2) : raw) : undefined,
+      });
+
+      if (items.length === 0) break;
       allSettlements.push(...items);
-      if (items.length < SIZE) break;  // 마지막 페이지
+      if (items.length < SIZE) break;
       page++;
-      if (page > 50) break;  // 안전장치 5000건
+      if (page > 10) break;
     }
 
     // 음수 amount = 환불/취소. 양수만 복구 대상.
     const positiveSettlements = allSettlements.filter((s) => s.amount > 0);
+
+    // settlements 가 0건이면 즉시 진단 정보와 함께 응답
+    if (positiveSettlements.length === 0) {
+      return NextResponse.json({
+        success: true,
+        dryRun,
+        dateRange: { startDate, endDate },
+        summary: {
+          tossSettlementsScanned: 0,
+          tossSettlementsTotalAmount: 0,
+          recovered: 0,
+          alreadySuccess: 0,
+          noMatch: 0,
+          rpcErrors: 0,
+          fetchErrors: 0,
+          affectedPtUsers: 0,
+          locksCleared: 0,
+        },
+        items: [],
+        debug: {
+          message: '토스 settlements API 가 양수 amount 0건 반환 — Toss 정산 데이터가 비어있거나 API 응답 형식이 예상과 다름',
+          allSettlementsRaw: allSettlements.length,
+          pageLog: debugLog,
+          hint: 'paymentKey 를 알면 /api/admin/payments/recover-by-payment-key 로 직접 복구 가능',
+        },
+      });
+    }
 
     type RecoveryItem = {
       paymentKey: string;

@@ -17,6 +17,7 @@ import {
   Ban,
   HelpCircle,
   Search,
+  Key,
 } from 'lucide-react';
 
 type Status =
@@ -195,6 +196,59 @@ export default function AdminPaymentsPage() {
   const [syncing, setSyncing] = useState(false);
   const [forceRecovering, setForceRecovering] = useState(false);
   const [settlementReconciling, setSettlementReconciling] = useState(false);
+  const [paymentKeyRecovering, setPaymentKeyRecovering] = useState(false);
+
+  /**
+   * paymentKey 직접 복구 — Toss 머천트 대시보드에서 paymentKey 복사 → 입력 → 즉시 복구.
+   * orderId 미스매치 / settlement API 응답 이상 등 자동 도구 모두 실패한 케이스의 마지막 수단.
+   */
+  const handleRecoverByPaymentKey = async () => {
+    const paymentKey = prompt(
+      '🔑 Toss paymentKey 직접 복구\n\n' +
+        'Toss 머천트 대시보드 → 거래내역 → 해당 결제 → paymentKey 복사 → 여기 붙여넣기:\n' +
+        '(우리 DB orderId 매칭 실패 시 ptUserIdOrEmail 도 prompt 됨)',
+    );
+    if (!paymentKey || paymentKey.trim().length < 10) return;
+
+    const ptUserIdOrEmail = prompt(
+      '사용자 식별자 (선택, orderId 매칭 실패 시 amount 매칭 범위 좁힘):\n' +
+        '— 이메일 (예: kecmok@gmail.com) 또는\n' +
+        '— pt_user_id (UUID) 또는\n' +
+        '— 비워두면 orderId 매칭만 시도',
+    ) || undefined;
+
+    setPaymentKeyRecovering(true);
+    try {
+      const res = await fetch('/api/admin/payments/recover-by-payment-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentKey: paymentKey.trim(), ptUserIdOrEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`❌ ${data.error || '서버 오류'}\n\n${JSON.stringify(data, null, 2).slice(0, 500)}`);
+        return;
+      }
+      if (data.message) {
+        alert(`ℹ️ ${data.message}\ntxId: ${data.txId}`);
+      } else {
+        alert(
+          `✅ 복구 완료\n\n` +
+            `tx: ${data.txId}\n` +
+            `이전 상태: ${data.prevStatus} → success\n` +
+            `매칭 방법: ${data.matchedBy}\n` +
+            `금액: ₩${data.amount?.toLocaleString()}\n` +
+            `Toss orderId: ${data.tossOrderId}\n` +
+            `락 해제: ${data.lockCleared ? 'YES' : 'NO (다른 미납 잔존)'}`,
+        );
+      }
+      await fetchData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '복구 실패');
+    } finally {
+      setPaymentKeyRecovering(false);
+    }
+  };
 
   /**
    * 토스 정산 기준 복구 — 토스의 settlement 데이터를 권위로 삼아 우리 DB 동기화.
@@ -445,12 +499,22 @@ export default function AdminPaymentsPage() {
         <button
           type="button"
           onClick={handleTossSettlementReconcile}
-          disabled={syncing || loading || forceRecovering || settlementReconciling}
+          disabled={syncing || loading || forceRecovering || settlementReconciling || paymentKeyRecovering}
           className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-purple-600 text-white font-semibold rounded hover:bg-purple-700 disabled:opacity-50"
           title="토스 정산 데이터 기준 권위 복구 — 토스가 정산한 결제는 무조건 success. orderId 미스매치도 paymentKey 로 매칭. 마지막 안전망."
         >
           {settlementReconciling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
           🛡️ 토스 정산 복구
+        </button>
+        <button
+          type="button"
+          onClick={handleRecoverByPaymentKey}
+          disabled={syncing || loading || forceRecovering || settlementReconciling || paymentKeyRecovering}
+          className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-indigo-700 text-white font-semibold rounded hover:bg-indigo-800 disabled:opacity-50"
+          title="Toss 머천트 대시보드에서 paymentKey 복사해 입력 → 즉시 복구. 자동 도구 모두 실패한 케이스의 마지막 수단."
+        >
+          {paymentKeyRecovering ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+          🔑 paymentKey 직접 복구
         </button>
         <button
           type="button"

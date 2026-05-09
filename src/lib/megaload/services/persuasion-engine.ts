@@ -407,16 +407,30 @@ export function generatePersuasionContent(
     const missingKws = effectiveSeoKeywords.filter(kw => !allText.includes(kw));
     if (missingKws.length > 0) {
       // feature_detail / solution 블록에 강제 삽입
+      // ⚠️ 4,087건의 "거의 동일 문장 반복" 원인: 동일 sentence stem (leaf 만 다름) 이 두 번 등장.
+      //    → 같은 sentence stem(leaf 제외) 이 이미 다른 블록에 있으면 inject 스킵.
       const insertableBlocks = enrichedBlocks.filter(
         b => b.type === 'feature_detail' || b.type === 'solution',
       );
       for (let mi = 0; mi < missingKws.length; mi++) {
         const target = insertableBlocks[mi % insertableBlocks.length];
-        if (target) {
-          target.content = target.content.replace(/([.?!。])$/, ` ${missingKws[mi]}$1`);
-          if (!target.content.endsWith(missingKws[mi]) && !target.content.includes(missingKws[mi])) {
-            target.content += ' ' + missingKws[mi];
+        if (!target) continue;
+        const kw = missingKws[mi];
+        // target 의 마지막 sentence (leaf 추가 후) 가 다른 블록에 동일 stem 으로 이미 있으면 스킵
+        const lastSent = (target.content.match(/[^.!?。]+[.!?。]\s*$/)?.[0] || '').trim();
+        if (lastSent.length > 10) {
+          const stemNorm = lastSent.replace(/\s+/g, ' ').replace(/[.!?。]+$/, '').toLowerCase();
+          const existingStems = enrichedBlocks
+            .filter(b => b !== target)
+            .flatMap(b => (b.content || '').match(/[^.!?。]+[.!?。]/g) || [])
+            .map(s => s.trim().replace(/\s+/g, ' ').replace(/[.!?。]+$/, '').toLowerCase());
+          if (existingStems.some(s => s === stemNorm || s.startsWith(stemNorm.slice(0, 30)))) {
+            continue; // 동일 stem 이미 있음 → leaf 만 추가하면 거의 동일 문장 2회 → 스킵
           }
+        }
+        target.content = target.content.replace(/([.?!。])$/, ` ${kw}$1`);
+        if (!target.content.endsWith(kw) && !target.content.includes(kw)) {
+          target.content += ' ' + kw;
         }
       }
       totalChars = enrichedBlocks.reduce((sum, bl) => sum + getBlockCharCount(bl), 0);

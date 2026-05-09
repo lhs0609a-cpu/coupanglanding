@@ -325,8 +325,11 @@ export function normalizeRepeatedTokens(text: string): string {
   let out = text.replace(/([가-힣A-Za-z0-9]{2,})\s+([가-힣]{2,})(?=[\s\.,!?]|$)/g, (match, a, b) => {
     return a.length > b.length && a.endsWith(b) ? a : match;
   });
-  // 0.5) 부사·형용사 인접 중복 — "꾸준히 꾸준히", "만족스러운 만족스러운" 등 2~7자 토큰 모두 커버.
-  out = out.replace(/([가-힣]{2,7})\s+\1(?=\s|$|[.,!?])/g, '$1');
+  // 0.5) 부사·형용사 인접 중복 — "꾸준히 꾸준히", "만족스러운 만족스러운", "담백한 담백한",
+  //      "스타일 스타일", "위생관리 관리" 등 2~8자 토큰. " | " 같은 bullet separator 도 통과.
+  out = out.replace(/([가-힣]{2,8})\s+\1(?=\s|$|[.,!?|])/g, '$1');
+  // 부분 중복 — "위생관리 관리" → "위생관리" (suffix 중복 inline)
+  out = out.replace(/([가-힣]{3,6})([가-힣]{2,3})\s+\2(?=\s|$|[.,!?|])/g, '$1$2');
   // 1) 같은 단어가 공백 사이로 연속 — 한 번만 남김 (\b 의존 제거 — 한국어 word boundary 불안정)
   out = out.replace(/(\b[\uAC00-\uD7AF\w]+)\s+\1(?=[\s\.,!?]|$)/g, '$1');
   // 2) 한국어 형태소 인접 반복 — \b 의존 제거 (lookahead 로 종결 검사)
@@ -1894,7 +1897,13 @@ function buildProductRefs(productName: string): string[] {
     const short3 = tokens.slice(0, 3).join(' ');
     if (short3.length >= 6 && !refs.includes(short3)) refs.push(short3);
   }
-  // 대명사 — 항상 안전
+  // ⚠️ 정체성 강화: 마지막 단어(보통 leaf 명사) 도 ref 풀에 추가하여 product 등장 빈도 ↑
+  //    (1.6만 audit 정체성붕괴 1,823건 잔여 → product 마지막 토큰을 자연스럽게 본문에 등장시킴)
+  if (tokens.length >= 2) {
+    const last = tokens[tokens.length - 1];
+    if (last.length >= 2 && !refs.includes(last) && !/^\d/.test(last)) refs.push(last);
+  }
+  // 대명사 — 항상 안전 (가중치 5%로 제한)
   refs.push('이 제품');
   refs.push('이 상품');
   return refs;

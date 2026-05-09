@@ -230,18 +230,33 @@ function detectCrossLeafContamination(
     if (/카매니아\s+커뮤니티/.test(s) && !cp.includes('자동차')) return true;
   }
 
-  // 반려동물 사료/영양제 — "수의사 추천/처방" 표현 (의약품 오인 우려)
-  // 1.6만 audit 에서 2,490건 검출. "수의사 추천으로" 류는 의약품으로 오인될 수 있어 차단.
-  if (/(사료|영양제|간식)/.test(pn) && cp.includes('반려')) {
-    if (/수의사\s+추천/.test(s)) return true;
-    if (/수의사\s+처방/.test(s)) return true;
-    if (/수의사\s+진료/.test(s)) return true;
+  // 자동차 매트류 (방음/흡음/실내) — 자동차 path 안에 있지만 왁스/광택과 무관 (2,279건)
+  if (/(방음매트|흡음매트|실내매트|차량매트|러그|시트커버)/.test(pn)) {
+    if (/광택나는\s+설계/.test(s)) return true;
+    if (/왁스로\s+유명/.test(s)) return true;
+    if (/카나우바|발수|코팅(가|는|를|이|로|예요)|카매니아/.test(s)) return true;
+  }
+
+  // 반려동물 사료/영양제/사육장 — "수의사 추천/처방" 표현 (의약품 오인 우려)
+  // 1.6만 audit 2,080건 잔여 — 가축사육장/낚시토끼 등 미커버 카테고리 확장.
+  if ((cp.includes('반려') || cp.includes('애완') || cp.includes('가축')) ||
+      /(사료|영양제|간식|사육장|용품|급식기|급수기|패드)/.test(pn)) {
+    if (cp.includes('반려') || cp.includes('애완') || cp.includes('가축') ||
+        /(강아지|고양이|토끼|닭|병아리|햄스터|페럿)/.test(pn)) {
+      if (/수의사\s+(추천|처방|진료|언급)/.test(s)) return true;
+    }
   }
 
   // 식물영양제 — "드셔봤" 류 (식물에게 사람 동사 사용)
   // 1.6만 audit 에서 289건 검출.
   if (/식물영양제|화훼/.test(pn) || (cp.includes('원예') && /(영양제|비료)/.test(pn))) {
     if (/드셔봤|드셔보세요|먹어봤|드심/.test(s)) return true;
+  }
+
+  // 가전 메이커류 (간식메이커/와플메이커/아이스크림메이커 등) — 식품 동사 차단
+  // 1.6만 audit 에서 279건. 가전인데 "드셔봤/먹어봤" 사용.
+  if (/(메이커|머신|기계|오븐|포트|인덕션|레인지)/.test(pn) && cp.includes('가전')) {
+    if (/드셔봤|드셔보세요|먹어봤|드심해|드신\s+후/.test(s)) return true;
   }
 
   // 뷰티 넥크림 — 식품/박스 표현

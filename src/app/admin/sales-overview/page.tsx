@@ -735,6 +735,95 @@ export default function AdminSalesOverviewPage() {
     }
   }, [fetchData]);
 
+  // ── 결제 복구 도구들 (토스 정산 / 강제 토스 재조회) ─────────────────────
+  // 미수금 PT생이 토스에선 결제 완료인데 시스템엔 최종실패로 stuck 인 케이스의 일괄 복구.
+  // 결제 통합 대시보드 (/admin/payments) 와 동일 동작 — 매출 현황 페이지에서도 즉시 트리거.
+  const [forceRecovering, setForceRecovering] = useState(false);
+  const [settlementReconciling, setSettlementReconciling] = useState(false);
+
+  const handleTossSettlementReconcile = useCallback(async () => {
+    if (
+      !confirm(
+        '🛡️ 토스 정산 기준 권위 복구를 실행합니다.\n\n' +
+          '✓ 토스 GET /v1/settlements 로 지난 14일 정산 데이터 조회\n' +
+          '✓ 토스가 정산한 결제는 무조건 success — 우리 DB 강제 동기화\n' +
+          '✓ orderId 미스매치/desync-recovery 못 잡은 케이스 모두 정리\n' +
+          '✓ 토스 환불 발생 안 함 (이미 결제된 건만 시스템 동기화)\n\n' +
+          '실행할까요?',
+      )
+    )
+      return;
+    setSettlementReconciling(true);
+    try {
+      const res = await fetch('/api/admin/payments/toss-settlement-reconcile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`❌ 실패: ${data.error || '서버 오류'}`);
+        return;
+      }
+      const s = data.summary || {};
+      alert(
+        `✅ 토스 정산 기준 복구 완료\n\n` +
+          `[조회] 토스 정산 ${s.tossSettlementsScanned ?? 0}건 (₩${(s.tossSettlementsTotalAmount ?? 0).toLocaleString()})\n\n` +
+          `[복구] ${s.recovered ?? 0}건 success 강제 복구 ⭐\n` +
+          `[이미 success] ${s.alreadySuccess ?? 0}건\n` +
+          `[orderId 매칭 없음] ${s.noMatch ?? 0}건 (외부 결제 의심)\n` +
+          `[RPC 에러] ${s.rpcErrors ?? 0}건\n\n` +
+          `[락 처리] 영향 ${s.affectedPtUsers ?? 0}명 / 해제 ${s.locksCleared ?? 0}명`,
+      );
+      await fetchData(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '복구 실패');
+    } finally {
+      setSettlementReconciling(false);
+    }
+  }, [fetchData]);
+
+  const handleForceRecoverAll = useCallback(async () => {
+    if (
+      !confirm(
+        '🚨 강제 토스 복구를 실행합니다.\n\n' +
+          '✓ 모든 미납 사용자의 모든 failed/pending tx 를 토스에 직접 재조회\n' +
+          '✓ 토스가 DONE 인 결제는 모두 success 강제 복구 (is_final_failure=true 도 포함)\n' +
+          '✓ desync-recovery 보다 공격적 — silent stuck 마지막 정리\n\n' +
+          '실행할까요?',
+      )
+    )
+      return;
+    setForceRecovering(true);
+    try {
+      const res = await fetch('/api/admin/payments/force-recover-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`❌ 실패: ${data.error || '서버 오류'}`);
+        return;
+      }
+      const errCount = data.details?.errors?.length ?? 0;
+      const stillNotDoneCount = data.details?.stillNotDone?.length ?? 0;
+      alert(
+        `✅ 강제 토스 복구 완료\n\n` +
+          `[스캔] ${data.scannedTxs}건 의심 tx 검사\n\n` +
+          `[복구] ${data.recovered}건 success 강제 복구 ⭐\n` +
+          `[NOT DONE] ${stillNotDoneCount}건 (토스도 미결제 확인)\n` +
+          `[에러] ${errCount}건\n\n` +
+          `[락 처리] 영향 ${data.affectedPtUsers}명 / 해제 ${data.locksCleared}명`,
+      );
+      await fetchData(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '강제 복구 실패');
+    } finally {
+      setForceRecovering(false);
+    }
+  }, [fetchData]);
+
   useEffect(() => { fetchData(true); }, [fetchData]);
 
   // 오늘 실시간 매출 — 최초 진입 + 1시간 주기 + visibility 가드 (탭 백그라운드 시 호출 0)
@@ -1448,12 +1537,30 @@ export default function AdminSalesOverviewPage() {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={handleTossSettlementReconcile}
+            disabled={settlementReconciling || forceRecovering || syncing || loading}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 disabled:opacity-50 transition"
+            title="토스 정산 데이터 기준 권위 복구 — 토스가 정산한 결제는 무조건 success. 토스 정산엔 입금예정인데 시스템엔 최종실패인 케이스용."
+          >
+            {settlementReconciling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+            🛡️ 토스 정산 복구
+          </button>
+          <button
+            onClick={handleForceRecoverAll}
+            disabled={settlementReconciling || forceRecovering || syncing || loading}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
+            title="모든 미납 사용자의 failed/pending tx 토스 재조회 후 DONE 이면 강제 복구 (is_final_failure 포함)"
+          >
+            {forceRecovering ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}
+            🚨 강제 토스 복구
+          </button>
           <button
             onClick={handleSyncNow}
             disabled={syncing || loading}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
-            title="자동 동기화와 별개로 즉시 강제 동기화"
+            title="자동 동기화와 별개로 즉시 강제 동기화 (쿠팡 매출 재동기화)"
           >
             <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
             {syncing ? '동기화 중...' : '강제 동기화'}
