@@ -28,6 +28,12 @@
     "src/lib/megaload/services/health-sanitizer.ts",
     "src/lib/megaload/services/detail-page-builder.ts",
     "src/lib/megaload/services/option-extractor-test-shim.ts",
+    "src/lib/megaload/services/display-name-generator.ts",
+    "src/lib/megaload/services/mobile-golden-zone.ts",
+    "src/lib/megaload/services/compliance-filter.ts",
+    "src/lib/megaload/services/seller-name-sanitizer.ts",
+    "src/lib/megaload/services/category-attribute-resolver.ts",
+    "src/lib/megaload/services/v2-pool-resolver.ts",
     "src/lib/megaload/data/**/*.json"
   ],
   "exclude": ["node_modules", "coupang-proxy"]

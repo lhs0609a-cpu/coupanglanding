@@ -47,6 +47,13 @@ import { createSeededRandom, stringToSeed } from './seeded-random';
 import seoData from '../data/seo-keyword-pools.json';
 import { checkCompliance } from './compliance-filter';
 import { sanitizeSellerName } from './seller-name-sanitizer';
+import {
+  resolveCategoryAttributes,
+  flattenAttributes,
+  getKoreanSupplements,
+  isEnglishOnlyCategory,
+} from './category-attribute-resolver';
+import { getV2Pool, v2ToV1Pool } from './v2-pool-resolver';
 
 // ─── 타입 ────────────────────────────────────────────────
 
@@ -199,6 +206,12 @@ const CELEBRITY_NAMES = new Set([
   '장민호', '영탁', '이찬원', '김희선', '고현정', '김태희', '한가인',
   '전현무', '백종원', '안성재', '류수영', '정해인', '위너', '방탄소년단',
   '블랙핑크', '아이유', '수지', '설현', '아이린', '제니', '지수',
+  // 추가 (stress test 누출 발견)
+  '정유미', '한혜진', '김혜수', '박은빈', '김고은', '박서준', '나영석',
+  '이영자', '김국진', '신동엽', '이수근', '김히어라', '이민정', '배두나',
+  '이정재', '소지섭', '강동원', '장기하', '이효리', '엄정화', '비',
+  // 인플루언서/유튜버
+  '이사배', '레오제이', '회사원A', '미나미', '곽튜브', '풍자', '쯔양',
 ]);
 
 /** 토큰 분할 전에 제거할 복합 구문 (공백 포함 패턴) */
@@ -627,6 +640,23 @@ export function classifyTokens(
 // ─── 카테고리 풀 매칭 (세그먼트 기반) ─────────────────────
 
 export function findBestPool(categoryPath: string): CategoryPool {
+  // v2 풀 우선 사용 (데이터 품질 충분한 경우)
+  // v2는 네이버 자동완성+검색광고 실데이터 기반 → 더 정확한 SEO 매칭
+  const v2 = getV2Pool(categoryPath);
+  if (v2) {
+    const converted = v2ToV1Pool(v2);
+    // v2의 features가 충분하지 않으면 v1과 합성 (보강 모드)
+    if (converted.features.length < 5 && CATEGORY_POOLS[categoryPath]) {
+      const v1 = CATEGORY_POOLS[categoryPath];
+      return {
+        generic: [...converted.generic, ...v1.generic].slice(0, 8),
+        ingredients: v1.ingredients,
+        features: [...converted.features, ...v1.features].slice(0, 12),
+      };
+    }
+    return converted;
+  }
+
   if (CATEGORY_POOLS[categoryPath]) return CATEGORY_POOLS[categoryPath];
 
   const segments = categoryPath.split('>').map(s => s.trim());
@@ -688,9 +718,13 @@ function selectSubset<T>(items: T[], count: number, rng: () => number): T[] {
 
 // ─── Phase 3: 구조적 SEO 배치 ──────────────────────────
 
-const TARGET_MIN_CHARS = 50;
-const TARGET_MAX_CHARS = 70;
-const HARD_MAX_CHARS = 100;
+// 쿠팡 모바일 검색결과 첫 줄 약 40자에서 잘림 → 모바일 잘림 최소화
+//   TARGET_MIN: 모바일 골든존 안에서 leaf+핵심modifier 3~5개 들어갈 길이
+//   TARGET_MAX: 잘려도 의미 있는 키워드까지 들어갈 길이
+//   HARD_MAX: 검색 인덱싱은 100자까지지만, 80자로 보수적 cap (추가 키워드는 잘림 영역에서도 SEO에 기여)
+const TARGET_MIN_CHARS = 42;
+const TARGET_MAX_CHARS = 60;
+const HARD_MAX_CHARS = 80;
 
 /**
  * 쿠팡 SEO 최적화 노출상품명 생성 v4.1
@@ -993,6 +1027,18 @@ export function generateDisplayName(
         .filter(s => s.length >= 1 && !/^\d+$/.test(s));
       const candidates = slashSplits.length > 0 ? slashSplits : [leafRaw];
       const primary = candidates[0];
+
+      // ★ 영문/숫자 포함 leaf는 split 결과와 별개로 leaf 통째도 강제 추가:
+      //   "2.5인치" split → "5인치"만 ⓞ에 들어감 → "2.5인치" 통째도 SEO 매칭 위해 추가
+      //   "C++" split → "C", leaf 통째 "C++" 도 추가
+      //   "ASP.NET" → "ASP" + "NET" + leaf 통째 "ASP.NET"
+      //   순한글 leaf는 split만 사용 (슬래시·괄호 포함된 leaf 통째는 노출명에 보기 안 좋음)
+      //   addToken 내부 dedup이 있으므로 중복 risk 없음
+      const hasAlphaNum = /[a-zA-Z0-9]/.test(leafRaw);
+      if (hasAlphaNum && leafRaw.length >= 2 && primary !== leafRaw && !/\s/.test(leafRaw)) {
+        addToken(leafRaw);
+      }
+
       if (primary && !/^\d+$/.test(primary)) {
         // 공백 포함 leaf("노동법 1", "유아 한글")는 split 토큰만 사용 — primary 통째 추가 시
         // 공백 토큰 사이 단일 숫자가 result join 후 잔존하는 문제 방지
@@ -1003,6 +1049,20 @@ export function generateDisplayName(
         } else {
           addToken(primary);
         }
+      }
+    }
+  }
+
+  // ⓞ-2 영문 카테고리(외국도서 등) — 한글 supplements 강제 주입
+  //   "Marketing & Communications" leaf 단독이면 한국 검색 매칭 0.
+  //   "원서/영문책/도서" 같은 한글 보조 토큰을 leaf 다음에 1~2개 배치.
+  if (isEnglishOnlyCategory(categoryPath)) {
+    const supplements = getKoreanSupplements(categoryPath);
+    if (supplements.length > 0) {
+      // 시드 기반 1~2개 선택 (셀러간 다양성)
+      const supSubset = selectSubset(supplements, 2, rng);
+      for (const sup of supSubset) {
+        addToken(sup);
       }
     }
   }
@@ -1151,8 +1211,43 @@ export function generateDisplayName(
     }
   }
 
+  // ★ 다양성 강화 풀 — 셀러 시드별로 다른 1~3개 토큰 강제 주입
+  //   풀이 빈약한 카테고리(패션 잡화 등)에서 1,000명 셀러 모두 다른 노출명 보장.
+  //   selectSubset의 시드 기반 셔플로 ~28개 풀 × 3개 선택 = 3276개 조합 (1000명 충분 커버)
+  //   카테고리 leaf 매칭과 무관한 일반 수식어라 SEO 영향 최소.
+  {
+    const DIVERSITY_POOL = [
+      '실속형', '베스트셀러', '인기상품', '추천상품', '신상품', '신상',
+      '한정수량', '컴팩트', '심플한', '모던한', '클래식한', '실용적',
+      '베이직', '프로페셔널', '에코', '울트라', '슈퍼', '맥스', '라이트',
+      '명품급', '고품질', '특별한', '한정판', '럭셔리', '실용', '편리한',
+      '견고한', '내구성', '장인정신', '품격있는',
+    ];
+    const available = DIVERSITY_POOL.filter(t => !usedWords.has(t.toLowerCase()));
+    const diversitySubset = selectSubset(available, 3, rng);
+    for (const t of diversitySubset) {
+      if (parts.join(' ').length >= TARGET_MAX_CHARS) break;
+      addToken(t);
+    }
+  }
+
   if (parts.join(' ').length < targetWithoutSpec) {
-    // 패딩 소스 5 (폴백): 카테고리 경로 세그먼트 — 풀이 빈약한 소분류 대비
+    // 패딩 소스 5: 카테고리 속성 마스터 (다양성 + 검색 매칭 강화)
+    //   audience/function/material/occasion 등 — 셀러간 시드별 다른 조합으로 차별화
+    const attrs = resolveCategoryAttributes(categoryPath);
+    const allAttrs = flattenAttributes(attrs);
+    const attrSubset = selectSubset(
+      allAttrs.filter(a => !usedWords.has(a.toLowerCase())),
+      3, rng,
+    );
+    for (const a of attrSubset) {
+      if (parts.join(' ').length >= targetWithoutSpec) break;
+      addToken(a);
+    }
+  }
+
+  if (parts.join(' ').length < targetWithoutSpec) {
+    // 패딩 소스 6 (폴백): 카테고리 경로 세그먼트 — 풀이 빈약한 소분류 대비
     const catSegments = categoryPath.split('>').map(s => s.trim()).filter(s => s.length >= 2);
     for (const seg of catSegments) {
       if (parts.join(' ').length >= targetWithoutSpec) break;
