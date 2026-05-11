@@ -13,7 +13,7 @@ export const BUSINESS_INFO = {
   phone: '[미정]',
   serviceName: '메가로드',
   serviceNameEn: 'Megaload',
-  domain: 'megaload.kr',
+  domain: 'megaload.co.kr',
   effectiveDate: '2025년 1월 1일',
 } as const;
 
