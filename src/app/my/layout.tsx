@@ -24,7 +24,7 @@ export default async function MyLayout({ children }: { children: React.ReactNode
   // 1단계: profile + ptUser 병렬 조회
   const [{ data: profile }, { data: ptUser }] = await Promise.all([
     supabase.from('profiles').select('full_name, role').eq('id', user.id).single(),
-    supabase.from('pt_users').select('id, created_at, coupang_api_connected, coupang_vendor_id, payment_lock_level, payment_overdue_since, admin_override_level, payment_lock_exempt_until, is_test_account').eq('profile_id', user.id).maybeSingle(),
+    supabase.from('pt_users').select('id, created_at, coupang_api_connected, coupang_vendor_id, payment_lock_level, payment_overdue_since, admin_override_level, payment_lock_exempt_until, billing_excluded_until, is_test_account').eq('profile_id', user.id).maybeSingle(),
   ]);
 
   // 트레이너 여부 확인 + 정산 D-Day 뱃지 데이터
@@ -92,12 +92,22 @@ export default async function MyLayout({ children }: { children: React.ReactNode
     isTestAccount || !!ptUserRow?.coupang_api_connected || hasVendorId;
 
   // Lock 정보 — admin_override_level 우선. 테스트 계정이면 전부 정상(0)으로 리턴
-  const rawLevel = (ptUserRow?.admin_override_level as number | null) ?? (ptUserRow?.payment_lock_level as number | null) ?? 0;
+  // 결제 제외(billing_excluded_until) 또는 락 면제(payment_lock_exempt_until) 활성 시 lockLevel=0 강제.
+  // middleware/cron/megaload-layout 과 동일하게 >= today (D-Day 포함).
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const exemptUntil = (ptUserRow?.payment_lock_exempt_until as string | null) ?? null;
+  const billingExcludedUntil = (ptUserRow?.billing_excluded_until as string | null) ?? null;
+  const exemptActive =
+    (!!exemptUntil && exemptUntil >= todayStr) ||
+    (!!billingExcludedUntil && billingExcludedUntil >= todayStr);
+  const rawLevel = exemptActive
+    ? 0
+    : ((ptUserRow?.admin_override_level as number | null) ?? (ptUserRow?.payment_lock_level as number | null) ?? 0);
   const paymentLock = ptUserRow && !isTestAccount ? {
     lockLevel: Math.max(0, Math.min(3, rawLevel)) as 0 | 1 | 2 | 3,
     overdueSince: (ptUserRow.payment_overdue_since as string | null) ?? null,
     hasCard: hasPaymentCards,
-    exemptUntil: (ptUserRow.payment_lock_exempt_until as string | null) ?? null,
+    exemptUntil,
   } : undefined;
 
   // 테스트 계정 → 수수료 뱃지도 숨김 (결제 팝업 억제)

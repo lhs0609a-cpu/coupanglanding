@@ -25,7 +25,7 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
   const [{ data: profile }, { data: shUser }, { data: ptUser }] = await Promise.all([
     supabase.from('profiles').select('full_name, role, is_active').eq('id', user.id).single(),
     supabase.from('megaload_users').select('id, plan, onboarding_done').eq('profile_id', user.id).maybeSingle(),
-    supabase.from('pt_users').select('id, created_at, payment_lock_level, payment_overdue_since, admin_override_level, payment_lock_exempt_until, is_test_account').eq('profile_id', user.id).maybeSingle(),
+    supabase.from('pt_users').select('id, created_at, payment_lock_level, payment_overdue_since, admin_override_level, payment_lock_exempt_until, billing_excluded_until, is_test_account').eq('profile_id', user.id).maybeSingle(),
   ]);
 
   // 카드 유무
@@ -43,11 +43,16 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
   const isTestAccount = !!ptUserRow?.is_test_account;
 
   // 결제 락 3단계(완전 차단) → 결제 설정 페이지로 강제 이동
-  // 판정 로직 미들웨어와 통일: admin_override_level 우선, exempt_until 기간엔 0으로 간주.
+  // 판정 로직 미들웨어와 통일: admin_override_level 우선, exempt_until/billing_excluded_until 기간엔 0으로 간주.
   // admin/partner · 테스트 계정은 면제. /my/settings는 별도 레이아웃.
   const todayStr = new Date().toISOString().slice(0, 10);
   const exemptUntil = ptUserRow?.payment_lock_exempt_until as string | null | undefined;
-  const exemptActive = !!exemptUntil && exemptUntil > todayStr;
+  const billingExcludedUntil = ptUserRow?.billing_excluded_until as string | null | undefined;
+  // 결제 제외(billing_excluded_until) 또는 락 면제(payment_lock_exempt_until) 둘 중
+  // 하나라도 오늘 이후면 락 완전 면제. middleware/cron 과 동일하게 >= today 사용 (D-Day 포함).
+  const exemptActive =
+    (!!exemptUntil && exemptUntil >= todayStr) ||
+    (!!billingExcludedUntil && billingExcludedUntil >= todayStr);
   const adminOverride = ptUserRow?.admin_override_level as number | null | undefined;
   const rawLockLevel = (ptUser as unknown as { payment_lock_level?: number | null } | null)?.payment_lock_level ?? 0;
   const effectiveLockLevel = exemptActive ? 0 : (adminOverride ?? rawLockLevel);
@@ -118,9 +123,9 @@ export default async function MegaloadLayout({ children }: { children: React.Rea
       gateDDay={gateDDay}
       gateTargetMonth={gateTargetMonth}
       gateDeadline={gateDeadline}
-      paymentLockLevel={isTestAccount ? 0 : rawLockLevel}
-      paymentOverdueSince={isTestAccount ? null : ((ptUserRow?.payment_overdue_since as string | null | undefined) ?? null)}
-      adminOverrideLevel={isTestAccount ? null : (adminOverride ?? null)}
+      paymentLockLevel={isTestAccount || exemptActive ? 0 : rawLockLevel}
+      paymentOverdueSince={isTestAccount || exemptActive ? null : ((ptUserRow?.payment_overdue_since as string | null | undefined) ?? null)}
+      adminOverrideLevel={isTestAccount || exemptActive ? null : (adminOverride ?? null)}
       paymentLockExemptUntil={(exemptUntil ?? null)}
       hasPaymentCards={isTestAccount ? true : hasPaymentCards}
     >
