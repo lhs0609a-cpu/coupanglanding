@@ -22,6 +22,15 @@ const notoSansKR = Noto_Sans_KR({
 
 const SITE_URL = "https://megaload.co.kr";
 
+// Some users paste the full <meta ... /> tag into env vars instead of just the content value.
+// Strip to raw content so the resulting tag isn't double-nested.
+function extractVerificationContent(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  const match = trimmed.match(/content=["']([^"']+)["']/i);
+  return match ? match[1] : trimmed;
+}
+
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
@@ -92,17 +101,26 @@ export const metadata: Metadata = {
     },
   },
   verification: {
-    google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || undefined,
+    // env may be a raw content string OR a pasted full meta tag — extract content value safely
+    google: extractVerificationContent(
+      process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
+    ),
     other: {
       "naver-site-verification":
-        process.env.NEXT_PUBLIC_NAVER_SITE_VERIFICATION ||
-        "3dafac8b547ac0b0c073126d3a46face421c3eb2",
+        extractVerificationContent(
+          process.env.NEXT_PUBLIC_NAVER_SITE_VERIFICATION
+        ) || "3dafac8b547ac0b0c073126d3a46face421c3eb2",
       ...(process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION && {
-        "msvalidate.01": process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION,
+        "msvalidate.01":
+          extractVerificationContent(
+            process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION
+          ) || undefined,
       }),
       ...(process.env.NEXT_PUBLIC_YANDEX_SITE_VERIFICATION && {
         "yandex-verification":
-          process.env.NEXT_PUBLIC_YANDEX_SITE_VERIFICATION,
+          extractVerificationContent(
+            process.env.NEXT_PUBLIC_YANDEX_SITE_VERIFICATION
+          ) || undefined,
       }),
     },
   },
