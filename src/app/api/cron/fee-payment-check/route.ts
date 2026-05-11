@@ -14,6 +14,7 @@ import {
   notifyProgramSuspension,
 } from '@/lib/utils/notifications';
 import { logActivity } from '@/lib/utils/activity-log';
+import { getBillingExcludedPtUserIds } from '@/lib/payments/billing-exclusion-guard';
 
 export const maxDuration = 30;
 
@@ -38,6 +39,12 @@ export async function GET(request: NextRequest) {
     let remindersSent = 0;
     let overdueTransitions = 0;
     let suspensions = 0;
+    let billingExcludedSkipped = 0;
+
+    // 결제 제외 활성 PT생은 cron 처리에서 완전 제외.
+    // 그 사람들의 awaiting_payment 보고서를 overdue/suspended 로 전환하면 안 됨
+    // (자동결제 자체를 면제했으니 연체로 처리하는 건 정책 위반).
+    const excludedPtUserIds = await getBillingExcludedPtUserIds(serviceClient);
 
     // 1. awaiting_payment 리포트 조회
     const { data: awaitingReports } = await serviceClient
@@ -47,6 +54,10 @@ export async function GET(request: NextRequest) {
 
     for (const report of (awaitingReports || [])) {
       if (!report.fee_payment_deadline) continue;
+      if (excludedPtUserIds.has(report.pt_user_id)) {
+        billingExcludedSkipped++;
+        continue;
+      }
 
       const dday = getFeePaymentDDay(report.fee_payment_deadline);
 
@@ -133,6 +144,10 @@ export async function GET(request: NextRequest) {
 
     for (const report of (overdueReports || [])) {
       if (!report.fee_payment_deadline) continue;
+      if (excludedPtUserIds.has(report.pt_user_id)) {
+        billingExcludedSkipped++;
+        continue;
+      }
 
       const dday = getFeePaymentDDay(report.fee_payment_deadline);
       const daysOverdue = Math.abs(dday);
@@ -248,6 +263,7 @@ export async function GET(request: NextRequest) {
       remindersSent,
       overdueTransitions,
       suspensions,
+      billingExcludedSkipped,
     });
   } catch (err) {
     console.error('cron/fee-payment-check error:', err);

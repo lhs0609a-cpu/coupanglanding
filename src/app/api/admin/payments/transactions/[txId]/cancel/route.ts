@@ -159,12 +159,22 @@ export async function POST(
         })
         .eq('id', tx.monthly_report_id);
 
-      // payment_overdue_since 가 비어있다면 오늘로 마킹
-      await serviceClient
+      // 결제 제외 활성 PT생은 overdue 마킹 skip — 관리자 면제 의도 보존
+      const todayDateStr = new Date().toISOString().slice(0, 10);
+      const { data: ptRow } = await serviceClient
         .from('pt_users')
-        .update({ payment_overdue_since: new Date().toISOString().slice(0, 10) })
+        .select('billing_excluded_until')
         .eq('id', tx.pt_user_id)
-        .is('payment_overdue_since', null);
+        .maybeSingle();
+      const excludedUntil = (ptRow as { billing_excluded_until?: string | null } | null)?.billing_excluded_until;
+      const isExcluded = !!excludedUntil && excludedUntil >= todayDateStr;
+      if (!isExcluded) {
+        await serviceClient
+          .from('pt_users')
+          .update({ payment_overdue_since: todayDateStr })
+          .eq('id', tx.pt_user_id)
+          .is('payment_overdue_since', null);
+      }
 
       reportReverted = true;
     }

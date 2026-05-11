@@ -407,6 +407,25 @@ async function markFinalFailure(
   ptUserId: string,
   todayDateStr: string,
 ) {
+  // 결제 제외 활성 PT생은 overdue 마킹 자체를 skip. 관리자가 자동결제 면제 처리한
+  // 상태에서 race 로 결제가 일어났더라도 연체 마킹은 하지 않는다 (정책 일관성).
+  const { data: ptRow } = await serviceClient
+    .from('pt_users')
+    .select('billing_excluded_until')
+    .eq('id', ptUserId)
+    .maybeSingle();
+  const excludedUntil = (ptRow as { billing_excluded_until?: string | null } | null)?.billing_excluded_until;
+  const isExcluded = !!excludedUntil && excludedUntil >= todayDateStr;
+
+  if (isExcluded) {
+    // retry 플래그만 정리, overdue 는 손대지 않음
+    await serviceClient
+      .from('pt_users')
+      .update({ payment_retry_in_progress: false })
+      .eq('id', ptUserId);
+    return;
+  }
+
   // overdue 가 비어있을 때만 오늘로 세팅 + retry_in_progress 해제를 한 번에.
   await serviceClient
     .from('pt_users')

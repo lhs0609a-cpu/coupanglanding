@@ -110,8 +110,9 @@ export default async function MyLayout({ children }: { children: React.ReactNode
     exemptUntil,
   } : undefined;
 
-  // 테스트 계정 → 수수료 뱃지도 숨김 (결제 팝업 억제)
-  if (isTestAccount) {
+  // 테스트 계정 또는 결제 제외 활성 → 수수료 뱃지도 숨김 (결제 팝업 억제)
+  // 결제 제외 PT생은 관리자가 면제 처리한 상태라 미납 알림이 부적절.
+  if (isTestAccount || exemptActive) {
     feePaymentBadge = undefined;
   }
 
