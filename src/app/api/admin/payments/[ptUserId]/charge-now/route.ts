@@ -116,19 +116,23 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ p
       if (!existingReport) {
         const { data: snap } = await serviceClient
           .from('api_revenue_snapshots')
-          .select('total_sales, total_commission, total_shipping, total_returns, total_settlement')
+          .select('total_sales, total_commission, total_shipping, total_returns, total_settlement, total_sales_orders')
           .eq('pt_user_id', ptUserId)
           .eq('year_month', targetMonth)
           .maybeSingle();
 
-        if (!snap || !snap.total_sales || snap.total_sales <= 0) {
+        const effective = snap
+          ? Math.max(Number(snap.total_sales) || 0, Number((snap as { total_sales_orders?: number }).total_sales_orders) || 0)
+          : 0;
+
+        if (!snap || effective <= 0) {
           return NextResponse.json({
             error: `${targetMonth} 매출 데이터 없음 — 결제할 청구 금액 0원`,
             code: 'NO_REVENUE',
           }, { status: 400 });
         }
 
-        const revenue = Number(snap.total_sales);
+        const revenue = effective;
         const sharePct = ptUser.share_percentage ?? 30;
         const costs = buildCostBreakdown(revenue, 0);
         const depositAmount = calculateDeposit(revenue, costs, sharePct);

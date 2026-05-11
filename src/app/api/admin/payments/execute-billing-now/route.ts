@@ -136,21 +136,25 @@ export async function POST() {
             continue;
           }
 
-          // 매출 스냅샷 → 보고서 생성
+          // 매출 스냅샷 → 보고서 생성 (settlement + orders 중 큰 값 사용)
           const { data: snap } = await serviceClient
             .from('api_revenue_snapshots')
-            .select('total_sales, total_commission, total_shipping, total_returns, total_settlement')
+            .select('total_sales, total_commission, total_shipping, total_returns, total_settlement, total_sales_orders')
             .eq('pt_user_id', pt.id)
             .eq('year_month', lastClosedMonth)
             .maybeSingle();
 
-          if (!snap || !snap.total_sales || snap.total_sales <= 0) {
+          const effective = snap
+            ? Math.max(Number(snap.total_sales) || 0, Number((snap as { total_sales_orders?: number }).total_sales_orders) || 0)
+            : 0;
+
+          if (!snap || effective <= 0) {
             noSnapshotCount++;
             autoGenDetails.push({ name, reason: `${lastClosedMonth} API 매출 스냅샷 없음 — 보고서 생성 불가` });
             continue;
           }
 
-          const revenue = Number(snap.total_sales);
+          const revenue = effective;
           const sharePct = (pt as { share_percentage?: number }).share_percentage ?? 30;
           const costs = buildCostBreakdown(revenue, 0);
           const depositAmount = calculateDeposit(revenue, costs, sharePct);

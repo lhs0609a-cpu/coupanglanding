@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
-import { fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
+import { fetchSettlementData, fetchOrderBasedSales, CoupangApiError } from '@/lib/utils/coupang-api-client';
 import { getPreviousMonth, getReportTargetMonth } from '@/lib/utils/settlement';
 import { recordCoupangApiFailure, clearCoupangApiBlock, classifyError } from '@/lib/utils/coupang-circuit-breaker';
 import { logSystemError, logSystemSuccess } from '@/lib/utils/system-log';
@@ -115,8 +115,12 @@ async function runSync() {
           total_returns: 0,
           total_settlement: 0,
           item_count: 0,
+          total_sales_orders: 0,
+          item_count_orders: 0,
+          order_count: 0,
           synced_at: new Date().toISOString(),
           sync_error: 'decrypt_failed',
+          orders_sync_error: 'decrypt_failed',
         });
       }
       return;
@@ -134,41 +138,59 @@ async function runSync() {
         results.push({ ptUserId: user.id, yearMonth: ym, success: false, error: 'skipped (circuit breaker)' });
         continue;
       }
+
+      // 두 API 병행 호출 — settlement(정산 인식) + orders(주문 기준).
+      // 신규 셀러는 정산이 ~15일 지연되므로 settlement=0 인데 orders>0 인 케이스가 많다.
+      // 둘 다 저장하고, 표시 시 GREATEST 로 누락을 막는다.
+      let settlement: Awaited<ReturnType<typeof fetchSettlementData>> | null = null;
+      let settlementError: string | null = null;
       try {
-        // 매출인식 기준(공식 revenue-history API). 이전엔 fetchOrderBasedSales(ordersheets)를 썼으나
-        // 쿠팡 ordersheets API 의 page 파라미터가 동일 페이지를 반복 반환 → 같은 주문이 200배 부풀려져 누적되는
-        // 버그가 확인되어 제거. revenue-history 는 한 달 범위로 nextToken 기반 페이지네이션이 정확히 동작.
-        const settlement = await fetchSettlementData(credentials, ym);
-        await upsertSnapshot(serviceClient, {
-          pt_user_id: user.id,
-          year_month: ym,
-          total_sales: settlement.totalSales,
-          total_commission: settlement.totalCommission,
-          total_shipping: settlement.totalShipping,
-          total_returns: settlement.totalReturns,
-          total_settlement: settlement.totalSettlement,
-          item_count: settlement.items.length,
-          synced_at: new Date().toISOString(),
-          sync_error: null,
-        });
-        results.push({
-          ptUserId: user.id,
-          yearMonth: ym,
-          success: true,
-          totalSales: settlement.totalSales,
-          itemCount: settlement.items.length,
-        });
-        // 첫 성공 시 circuit breaker 해제 (이전 차단 상태에서 복구)
-        await clearCoupangApiBlock(serviceClient, user.id);
+        settlement = await fetchSettlementData(credentials, ym);
       } catch (err) {
-        const message = err instanceof CoupangApiError
+        settlementError = err instanceof CoupangApiError
           ? `${err.code || 'api'}: ${err.message}`
           : err instanceof Error ? err.message : String(err);
-        console.error(`[coupang-revenue-sync] ${user.id} ${ym} failed:`, message);
+        console.error(`[coupang-revenue-sync] ${user.id} ${ym} settlement failed:`, settlementError);
+      }
+
+      let orderBased: Awaited<ReturnType<typeof fetchOrderBasedSales>> | null = null;
+      let ordersError: string | null = null;
+      try {
+        orderBased = await fetchOrderBasedSales(credentials, ym);
+      } catch (err) {
+        ordersError = err instanceof CoupangApiError
+          ? `${err.code || 'api'}: ${err.message}`
+          : err instanceof Error ? err.message : String(err);
+        console.error(`[coupang-revenue-sync] ${user.id} ${ym} orders failed:`, ordersError);
+      }
+
+      // 둘 다 실패하면 circuit breaker 등록 + 다음 월 skip.
+      // 한 쪽만 실패하면 그쪽 에러만 기록하고 진행 (매출 누락 < 부분 누락).
+      const bothFailed = !!settlementError && !!ordersError;
+
+      await upsertSnapshot(serviceClient, {
+        pt_user_id: user.id,
+        year_month: ym,
+        total_sales: settlement?.totalSales ?? 0,
+        total_commission: settlement?.totalCommission ?? 0,
+        total_shipping: settlement?.totalShipping ?? 0,
+        total_returns: settlement?.totalReturns ?? 0,
+        total_settlement: settlement?.totalSettlement ?? 0,
+        item_count: settlement?.items.length ?? 0,
+        total_sales_orders: orderBased?.totalSales ?? 0,
+        item_count_orders: orderBased?.itemCount ?? 0,
+        order_count: orderBased?.orderCount ?? 0,
+        synced_at: new Date().toISOString(),
+        sync_error: settlementError ? settlementError.slice(0, 500) : null,
+        orders_sync_error: ordersError ? ordersError.slice(0, 500) : null,
+      });
+
+      if (bothFailed) {
+        const message = settlementError!;
         const reason = classifyError(message);
         void logSystemError({
           source: 'cron/coupang-revenue-sync',
-          error: message,
+          error: `settlement: ${settlementError}; orders: ${ordersError}`,
           context: {
             ptUserId: user.id,
             vendorId: user.coupang_vendor_id,
@@ -177,27 +199,26 @@ async function runSync() {
           },
           userId: user.id,
         }).catch(() => {});
-        await upsertSnapshot(serviceClient, {
-          pt_user_id: user.id,
-          year_month: ym,
-          total_sales: 0,
-          total_commission: 0,
-          total_shipping: 0,
-          total_returns: 0,
-          total_settlement: 0,
-          item_count: 0,
-          synced_at: new Date().toISOString(),
-          sync_error: message.slice(0, 500),
-        });
         results.push({
           ptUserId: user.id,
           yearMonth: ym,
           success: false,
           error: message.slice(0, 200),
         });
-        // circuit breaker 등록 — IP/auth 영구 오류는 다음 cron부터 skip
         await recordCoupangApiFailure(serviceClient, user.id, message);
-        userBlocked = true; // 같은 셀러의 다음 월은 skip
+        userBlocked = true;
+      } else {
+        // 적어도 한 쪽은 성공
+        const effectiveSales = Math.max(settlement?.totalSales ?? 0, orderBased?.totalSales ?? 0);
+        const effectiveItems = Math.max(settlement?.items.length ?? 0, orderBased?.itemCount ?? 0);
+        results.push({
+          ptUserId: user.id,
+          yearMonth: ym,
+          success: true,
+          totalSales: effectiveSales,
+          itemCount: effectiveItems,
+        });
+        await clearCoupangApiBlock(serviceClient, user.id);
       }
     }
   }
@@ -236,8 +257,12 @@ type SnapshotInsert = {
   total_returns: number;
   total_settlement: number;
   item_count: number;
+  total_sales_orders: number;
+  item_count_orders: number;
+  order_count: number;
   synced_at: string;
   sync_error: string | null;
+  orders_sync_error: string | null;
 };
 
 async function upsertSnapshot(

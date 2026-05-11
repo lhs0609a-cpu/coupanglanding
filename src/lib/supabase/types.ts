@@ -102,15 +102,32 @@ export interface ApiRevenueSnapshot {
   id: string;
   pt_user_id: string;
   year_month: string;
+  /** revenue-history(정산 인식) 기준 매출 — 발송 후 ~15일 지연 반영 */
   total_sales: number;
   total_commission: number;
   total_shipping: number;
   total_returns: number;
   total_settlement: number;
   item_count: number;
+  /** ordersheets(주문) 기준 매출 — 주문 발생 즉시 (신규 셀러 정산 지연 대응) */
+  total_sales_orders: number;
+  item_count_orders: number;
+  order_count: number;
   synced_at: string;
   sync_error: string | null;
+  orders_sync_error: string | null;
   created_at: string;
+}
+
+/** 표시용 effective 매출 — settlement(확정) vs orders(주문) 중 큰 값을 사용해 신규 셀러 매출 누락 방지 */
+export function effectiveSales(snap: Pick<ApiRevenueSnapshot, 'total_sales' | 'total_sales_orders'> | null | undefined): number {
+  if (!snap) return 0;
+  return Math.max(Number(snap.total_sales) || 0, Number(snap.total_sales_orders) || 0);
+}
+
+export function effectiveItemCount(snap: Pick<ApiRevenueSnapshot, 'item_count' | 'item_count_orders'> | null | undefined): number {
+  if (!snap) return 0;
+  return Math.max(Number(snap.item_count) || 0, Number(snap.item_count_orders) || 0);
 }
 
 /** 광고비 월별 제출 (관리자 검토 후 monthly_reports.cost_advertising 에 반영) */

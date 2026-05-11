@@ -930,11 +930,14 @@ export default function AdminSalesOverviewPage() {
             feeStatus: report.fee_payment_status ?? null,
             feePaidAt: report.fee_paid_at ?? null,
           });
-        } else if (snap && (snap.total_sales > 0 || !snap.sync_error)) {
-          // API 스냅샷: 매출 기반 기본 비용률(원가 40%·세금 10% 등) 적용한 잠정 정산
+        } else if (snap && (Math.max(Number(snap.total_sales) || 0, Number((snap as { total_sales_orders?: number }).total_sales_orders) || 0) > 0 || !snap.sync_error)) {
+          // API 스냅샷: settlement(정산) vs orders(주문) 중 큰 값 사용 — 신규 셀러 정산 지연 대응
           //   - 광고비는 PT생이 리포트 제출해야 알 수 있으므로 0 가정
           //   - 실제보다 과대평가될 수 있음 (광고비 미반영)
-          const revenue = Number(snap.total_sales) || 0;
+          const revenue = Math.max(
+            Number(snap.total_sales) || 0,
+            Number((snap as { total_sales_orders?: number }).total_sales_orders) || 0,
+          );
           const deposit = revenue > 0
             ? calculateDeposit(
                 revenue,
@@ -977,7 +980,11 @@ export default function AdminSalesOverviewPage() {
       }
       for (const s of userSnaps) {
         if (reportMonths.has(s.year_month)) continue;
-        const rev = Number(s.total_sales) || 0;
+        // settlement vs orders 중 큰 값 — 신규 셀러 정산 지연 대응
+        const rev = Math.max(
+          Number(s.total_sales) || 0,
+          Number((s as { total_sales_orders?: number }).total_sales_orders) || 0,
+        );
         if (rev <= 0) continue;
         totalRevenue += rev;
         totalDeposit += calculateDeposit(
@@ -2078,7 +2085,7 @@ export default function AdminSalesOverviewPage() {
                       cardStyle = 'bg-slate-50 border-slate-300';
                       stateBadge = (
                         <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-300">
-                          🚫 결제 제외 ~{d.excludedUntil?.slice(5) ?? ''}
+                          🚫 결제 제외 ~{d.excludedUntil ?? ''}
                         </span>
                       );
                     } else if (isPaid) {
@@ -2968,7 +2975,7 @@ export default function AdminSalesOverviewPage() {
                             <div className="inline-flex flex-col gap-1 items-end">
                               {p.status === 'excluded' && p.billing_excluded_until && (
                                 <p className="text-[10px] text-slate-600 font-medium">
-                                  ~{new Date(p.billing_excluded_until).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}까지 제외
+                                  ~{new Date(p.billing_excluded_until).toLocaleDateString('ko-KR', { year: 'numeric', month: 'numeric', day: 'numeric' })}까지 제외
                                 </p>
                               )}
                               {/* 강제 결제 — 카드 있고 제외 아닐 때 항상 표시 (최종실패라도 강제 시도) */}

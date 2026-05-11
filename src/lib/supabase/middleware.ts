@@ -145,10 +145,11 @@ export async function updateSession(request: NextRequest) {
       }
       const today = new Date().toISOString().slice(0, 10);
       // 결제 제외(billing_excluded_until) 와 락 면제(payment_lock_exempt_until) 둘 다 체크
+      // >= today (D-Day 포함) — execute-billing-now / readiness-check 등 다른 결제 파이프라인과 통일
       const ptUserAny = ptUser as Record<string, unknown>;
       const exemptActive =
-        (ptUser.payment_lock_exempt_until && ptUser.payment_lock_exempt_until > today) ||
-        (typeof ptUserAny.billing_excluded_until === 'string' && ptUserAny.billing_excluded_until > today);
+        (ptUser.payment_lock_exempt_until && ptUser.payment_lock_exempt_until >= today) ||
+        (typeof ptUserAny.billing_excluded_until === 'string' && ptUserAny.billing_excluded_until >= today);
       const baseLevel = ptUser.admin_override_level ?? ptUser.payment_lock_level ?? 0;
       const level = exemptActive ? 0 : baseLevel;
 

@@ -118,14 +118,20 @@ export async function GET(request: NextRequest) {
       }
 
       // 쿠팡 API 자동 sync 데이터 조회
+      // settlement(정산) + orders(주문) 둘 다 가져와 더 큰 값을 매출로 사용.
+      // 신규 셀러는 정산 지연으로 total_sales=0인데 orders는 매출 있는 케이스가 많다.
       const { data: snapshot } = await serviceClient
         .from('api_revenue_snapshots')
-        .select('total_sales, total_commission, total_shipping, total_returns, total_settlement')
+        .select('total_sales, total_commission, total_shipping, total_returns, total_settlement, total_sales_orders')
         .eq('pt_user_id', ptUser.id)
         .eq('year_month', targetMonth)
         .maybeSingle();
 
-      if (!snapshot || !snapshot.total_sales || snapshot.total_sales <= 0) {
+      const effectiveTotal = snapshot
+        ? Math.max(Number(snapshot.total_sales) || 0, Number((snapshot as { total_sales_orders?: number }).total_sales_orders) || 0)
+        : 0;
+
+      if (!snapshot || effectiveTotal <= 0) {
         // 매출 데이터 없음 — 사용자 직접 보고 안내 알림
         skippedNoRevenue++;
         await createNotification(serviceClient, {
@@ -139,7 +145,8 @@ export async function GET(request: NextRequest) {
       }
 
       // 비용 계산 — 기본 rate (사용자가 후속 수정 가능)
-      const revenue = Number(snapshot.total_sales);
+      // 정산 vs 주문 중 큰 값을 사용 — 신규 셀러 정산 지연으로 매출 누락 방지
+      const revenue = effectiveTotal;
       const costs = buildCostBreakdown(revenue, 0); // 광고비는 사용자가 추가 입력
       const netProfit = calculateNetProfit(revenue, costs);
       const depositAmount = calculateDeposit(revenue, costs, 30); // 기본 30%

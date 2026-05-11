@@ -76,15 +76,17 @@ export async function GET() {
       }
     });
 
-    // 4. 직전 마감월 API 매출 snapshot
+    // 4. 직전 마감월 API 매출 snapshot — settlement + orders 중 큰 값 사용
     const { data: snapshots } = await serviceClient
       .from('api_revenue_snapshots')
-      .select('pt_user_id, total_sales, synced_at')
+      .select('pt_user_id, total_sales, total_sales_orders, synced_at')
       .in('pt_user_id', ptUserIds)
       .eq('year_month', lastClosedMonth);
     const snapshotMap = new Map<string, { totalSales: number; syncedAt: string }>();
     (snapshots || []).forEach((s) => {
-      snapshotMap.set(s.pt_user_id, { totalSales: Number(s.total_sales) || 0, syncedAt: s.synced_at });
+      const settle = Number(s.total_sales) || 0;
+      const orders = Number((s as { total_sales_orders?: number }).total_sales_orders) || 0;
+      snapshotMap.set(s.pt_user_id, { totalSales: Math.max(settle, orders), syncedAt: s.synced_at });
     });
 
     // 5. 직전 마감월 monthly_report

@@ -42,7 +42,28 @@ export async function GET(request: NextRequest) {
     for (const u of candidates) {
       scanned++;
 
-      // 1순위: 관리자 override — cron이 덮어쓰지 않음
+      // 1순위: exempt 활성 → 강제 0
+      // ⚠ admin_override 보다 먼저 평가해야 함. 관리자 "결제 제외"가 RPC로
+      //   admin_override_level=NULL 까지 같이 클리어하지만, 과거 데이터/race로 둘이
+      //   공존 가능. 그 경우에도 결제 제외가 우선이어야 한다 (사용자가 명시적으로 면제 의도).
+      // ⚠ payment_lock_exempt_until + billing_excluded_until 둘 중 하나라도 활성이면 면제
+      // ⚠ >= today (D-Day 포함) — 다른 결제 파이프라인(execute-billing-now 등)과 통일
+      const exemptActive =
+        (u.payment_lock_exempt_until && u.payment_lock_exempt_until >= todayDateStr) ||
+        (u.billing_excluded_until && u.billing_excluded_until >= todayDateStr);
+
+      if (exemptActive) {
+        if (u.payment_lock_level !== 0) {
+          await serviceClient
+            .from('pt_users')
+            .update({ payment_lock_level: 0 })
+            .eq('id', u.id);
+          updated++;
+        }
+        continue;
+      }
+
+      // 2순위: 관리자 override — cron이 덮어쓰지 않음
       if (u.admin_override_level !== null && u.admin_override_level !== undefined) {
         if (u.admin_override_level !== u.payment_lock_level) {
           await serviceClient
@@ -54,20 +75,11 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      // 2순위: exempt 활성 → 강제 0
-      // ⚠ payment_lock_exempt_until + billing_excluded_until 둘 중 하나라도 활성이면 면제
-      //   (관리자 "결제 제외" 는 billing_excluded_until 만 세팅 → 두 컬럼 sync 안 되는 사고 방지)
-      const exemptActive =
-        (u.payment_lock_exempt_until && u.payment_lock_exempt_until > todayDateStr) ||
-        (u.billing_excluded_until && u.billing_excluded_until > todayDateStr);
-
       // 3순위: payment_overdue_since 기반 자동 계산
       // 재시도 진행 중이면 락 유예 (D+3까지 자동 재시도가 마지막 결정 → 그 후에야 lock 시작)
-      const newLevel = exemptActive
-        ? 0
-        : calculateLockLevel(u.payment_overdue_since, today, {
-            retryInProgress: !!u.payment_retry_in_progress,
-          });
+      const newLevel = calculateLockLevel(u.payment_overdue_since, today, {
+        retryInProgress: !!u.payment_retry_in_progress,
+      });
 
       if (newLevel === u.payment_lock_level) continue;
 

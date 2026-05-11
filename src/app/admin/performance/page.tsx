@@ -64,8 +64,15 @@ interface SnapshotRow {
   pt_user_id: string;
   year_month: string;
   total_sales: number;
+  total_sales_orders: number | null;
   synced_at: string;
   sync_error: string | null;
+}
+
+/** settlement(정산) vs orders(주문) 중 큰 값 — 신규 셀러 정산 지연 대응 */
+function snapshotRevenue(s: SnapshotRow | undefined | null): number {
+  if (!s) return 0;
+  return Math.max(Number(s.total_sales) || 0, Number(s.total_sales_orders) || 0);
 }
 
 type SortKey = 'name' | 'products' | 'currentRevenue' | 'totalRevenue';
@@ -137,7 +144,7 @@ export default function AdminPerformancePage() {
           .select('id, megaload_user_id, status, channels:sh_product_channels(channel, status)'),
         supabase
           .from('api_revenue_snapshots')
-          .select('pt_user_id, year_month, total_sales, synced_at, sync_error'),
+          .select('pt_user_id, year_month, total_sales, total_sales_orders, synced_at, sync_error'),
       ]);
 
       setPtUsers((usersRes.data as PtUserWithProfile[]) || []);
@@ -201,14 +208,14 @@ export default function AdminPerformancePage() {
     return m;
   }, [snapshots]);
 
-  /** report 우선, 없으면 snapshot(total_sales) */
+  /** report 우선, 없으면 snapshot(settlement vs orders 중 큰 값) */
   const resolveRevenue = useCallback((ptUserId: string, ym: string): number => {
     const reports = reportsByUser.get(ptUserId) || [];
     const r = reports.find(rr => rr.year_month === ym);
     if (r) return r.reported_revenue || 0;
     const snaps = snapshotsByUser.get(ptUserId) || [];
     const s = snaps.find(ss => ss.year_month === ym);
-    return s ? Number(s.total_sales) || 0 : 0;
+    return snapshotRevenue(s);
   }, [reportsByUser, snapshotsByUser]);
 
   // ── Per-user performance rows ──
@@ -245,7 +252,7 @@ export default function AdminPerformancePage() {
       for (const r of userReports) totalRevenue += r.reported_revenue || 0;
       for (const s of userSnaps) {
         if (reportMonths.has(s.year_month)) continue;
-        totalRevenue += Number(s.total_sales) || 0;
+        totalRevenue += snapshotRevenue(s);
       }
 
       const recentMonths = [...last3].reverse().map(ym => ({

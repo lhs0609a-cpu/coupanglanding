@@ -24,6 +24,7 @@ BEGIN
          billing_excluded_at = now(),
          payment_overdue_since = NULL,
          payment_lock_level = 0,
+         admin_override_level = NULL,
          payment_retry_in_progress = false,
          program_access_active = true
    WHERE id = p_pt_user_id
