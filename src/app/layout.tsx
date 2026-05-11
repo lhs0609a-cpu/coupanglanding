@@ -94,10 +94,9 @@ export const metadata: Metadata = {
   verification: {
     google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || undefined,
     other: {
-      ...(process.env.NEXT_PUBLIC_NAVER_SITE_VERIFICATION && {
-        "naver-site-verification":
-          process.env.NEXT_PUBLIC_NAVER_SITE_VERIFICATION,
-      }),
+      "naver-site-verification":
+        process.env.NEXT_PUBLIC_NAVER_SITE_VERIFICATION ||
+        "3dafac8b547ac0b0c073126d3a46face421c3eb2",
       ...(process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION && {
         "msvalidate.01": process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION,
       }),
