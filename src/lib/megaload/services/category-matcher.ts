@@ -790,6 +790,11 @@ const NOISE_WORDS = new Set([
   // 일반 서술어
   '함유', '효능', '효과', '예방', '개선', '상품상세참조', '풍성한',
   'new', 'box', 'haccp',
+  // 색상 spec (단독 leaf "블루" 만 존재 — 다른 색상은 leaf 일부로 들어가도 토큰 단위 비교라 safe).
+  //   "리클라이너 L사이즈 블랙" 류가 leaf "블랙/칼라보드/게시판" 으로 잘못 흡수되는 회귀 차단.
+  '블랙', '화이트', '그레이', '베이지', '네이비', '옐로우', '핑크', '퍼플',
+  '버건디', '코랄', '카키', '브라운', '아이보리', '실버', '골드',
+  'black', 'white', 'gray', 'grey', 'beige', 'navy', 'yellow', 'pink',
 ]);
 
 const NOISE_PATTERNS = [
@@ -800,6 +805,9 @@ const NOISE_PATTERNS = [
   /^\d+(정|개|병|통|캡슐|포|봉|팩|매|장|알|입|갑|회|포기|줄|켤레|롤|겹|소프트젤|베지캡|베지캡슐)$/, // 60정, 80개, 30캡슐, 30롤
   /^\d+x\d+$/i, // 3x5, 2X3
   /^\d+%$/, // 3000%
+  // 사이즈 spec — "L사이즈", "XL", "XXL" 등은 옵션 spec 일 뿐 카테고리 매칭에 무관.
+  /^(xs|s|m|l|xl|xxl|xxxl|3xl|4xl|5xl|free)$/i,
+  /^[xs]?[smlx]사이즈$/i,
 ];
 
 /**
@@ -1077,8 +1085,14 @@ async function localMatch(
         }
       }
       if (wordMatchCount > 0) {
-        // 여러 leaf 단어 매칭 시 보너스 (수식어면 ×0.3 제한)
-        const raw = 6 + wordMatchCount * 3;
+        // leaf 단어 매칭 점수.
+        //   기본: 6 + matchCount * 3
+        //   다중 단어 leaf 전체 매칭 (예: leaf="가방/백팩", 입력 토큰에 둘 다 존재):
+        //     leaf 정확 일치(20) 와 동일 수준으로 가산 — 슬래시 leaf 의 한 단어만 다른
+        //     카테고리에 박힌 경우보다 명확히 우위.
+        const totalLeafWords = leafWords.length;
+        const allMatched = totalLeafWords >= 2 && wordMatchCount === totalLeafWords;
+        const raw = allMatched ? 20 : 6 + wordMatchCount * 3;
         const hasModifier = compoundTokens.some(t => t.length >= 2 && leafWords.some(lw => lw === t) && MODIFIER_TOKENS.has(t));
         leafScore = hasModifier ? Math.round(raw * 0.3) : raw;
       }

@@ -229,12 +229,12 @@ function extractCountRaw(name: string, composite: CompositeResult, excludeSachet
     if (sheetMatch) return { value: parseInt(sheetMatch[1], 10), found: true };
   }
 
-  // "N개입" — 용량/중량 단위가 있으면 총 수량 (250ml 24개입 = 24병 세트)
-  const hasVolumeOrWeight = /\d+\s*(ml|mL|ML|㎖|L|리터|ℓ|g|kg|㎏)/i.test(name);
-  if (hasVolumeOrWeight) {
-    const gaepipMatch = name.match(/(\d+)\s*개입/);
-    if (gaepipMatch) return { value: parseInt(gaepipMatch[1], 10), found: true };
-  }
+  // "N개입" — 묶음 수량으로 인식.
+  //   volume/weight 동반: "250ml 24개입" → count=24 (24병 세트)
+  //   단독: "50개입" → count=50 (50개 묶음)
+  // 카테고리에 "개당 수량" 옵션이 별도로 있으면 extractPerCount에서 perCount로도 동시 매핑.
+  const gaepipMatch = name.match(/(\d+)\s*개입/);
+  if (gaepipMatch) return { value: parseInt(gaepipMatch[1], 10), found: true };
 
   return { value: 1, found: false }; // 기본값 (실제 패턴 없음)
 }
