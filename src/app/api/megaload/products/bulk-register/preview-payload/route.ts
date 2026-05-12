@@ -6,9 +6,7 @@ import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo, type AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
 import { fillNoticeFields, type NoticeCategoryMeta, type ExtractedNoticeHints } from '@/lib/megaload/services/notice-field-filler';
 import { extractOptionsEnhanced } from '@/lib/megaload/services/option-extractor';
-import { selectWithSeed } from '@/lib/megaload/services/item-winner-prevention';
-import { createSeededRandom, stringToSeed } from '@/lib/megaload/services/seeded-random';
-import { THIRD_PARTY_IMAGE_URLS } from '@/lib/megaload/constants/third-party-images';
+import type { ContentBlock } from '@/lib/megaload/services/persuasion-engine';
 
 export const maxDuration = 30;
 
@@ -29,6 +27,15 @@ interface PreviewRequestBody {
     detailImages: string[];
     reviewImages: string[];
     infoImages: string[];
+    // 사용자가 카테고리 수동 변경 후 클라이언트에서 재생성한 본문/제목/리뷰를
+    // 그대로 미리보기에 반영하기 위한 override 필드들.
+    // (등록 경로 preflight-builder.ts:46-58 과 동일 필드명/시맨틱)
+    displayProductNameOverride?: string;
+    descriptionOverride?: string;
+    storyParagraphsOverride?: string[];
+    reviewTextsOverride?: string[];
+    contentBlocksOverride?: ContentBlock[];
+    noticeValuesOverride?: Record<string, string>;
   };
   deliveryInfo: DeliveryInfo;
   returnInfo: ReturnInfo;
@@ -93,12 +100,14 @@ export async function POST(req: NextRequest) {
 
     // 4. 구매옵션 자동 추출 — 원본 상품명에서 추출 (가공된 이름엔 수량 정보 없음)
     const optionSourceName = product.sourceName || product.name;
+    // 사용자가 편집한 description 우선 — 옵션 추출/고시 채움에 일관성 부여
+    const effectiveDescription = product.descriptionOverride ?? product.description;
     const extracted = await extractOptionsEnhanced({
       productName: optionSourceName,
       categoryCode: product.categoryCode,
       brand: product.brand,
       tags: product.tags,
-      description: product.description,
+      description: effectiveDescription,
     });
 
     // 추출된 옵션값을 notices용 hints로 변환
@@ -117,12 +126,17 @@ export async function POST(req: NextRequest) {
     const categoryPath = categoryDetails?.path || '';
 
     // 5. notices 자동채움 — categoryPath + 상품명을 모두 hint로 전달 (path 우선)
+    // 글로벌 noticeOverrides 와 상품별 noticeValuesOverride 병합 (상품별 우선)
+    const mergedNoticeOverrides = {
+      ...(noticeOverrides || {}),
+      ...(product.noticeValuesOverride || {}),
+    };
     const noticeHint = categoryPath || product.name;
     const filledNotices = fillNoticeFields(
       noticeMeta,
-      { name: product.name, brand: product.brand, tags: product.tags, description: product.description },
+      { name: product.name, brand: product.brand, tags: product.tags, description: effectiveDescription },
       returnInfo.afterServiceContactNumber,
-      noticeOverrides,
+      Object.keys(mergedNoticeOverrides).length > 0 ? mergedNoticeOverrides : undefined,
       noticeHints,
       noticeHint,
     );
@@ -135,20 +149,17 @@ export async function POST(req: NextRequest) {
       : [];
     const infoImageUrls = body.preUploadedUrls?.infoImageUrls?.filter(Boolean) || product.infoImages;
 
-    // 6-1. 제3자 이미지: 미리보기는 단일 상품 모드 — 20% 폴백으로 1장 선정 (preflight-builder의 single-product 분기와 동일)
-    let selectedThirdPartyUrls: string[] = [];
-    const tpRng = createSeededRandom(stringToSeed(`tp-select:${product.productCode}`));
-    if (Math.floor(tpRng() * 10) < 2) {
-      selectedThirdPartyUrls = [selectWithSeed(THIRD_PARTY_IMAGE_URLS, `tp-pick:${product.productCode}`)];
-    }
+    // 제3자(스톡) 이미지 자동 삽입 제거 — 풀에서 랜덤 선정되어 'CS CENTER 위탁배송 안내' 등이
+    // 자동으로 본문에 들어가던 동작 비활성. 미리보기 페이로드도 실제 등록 동작과 일치시킨다.
+    const selectedThirdPartyUrls: string[] = [];
 
-    // 7. 페이로드 빌드
+    // 7. 페이로드 빌드 — 클라이언트에서 카테고리 변경 후 재생성된 본문/제목/리뷰를 그대로 사용
     const payload = buildCoupangProductPayload({
       vendorId,
       product: {
         folderPath: product.folderPath,
         productCode: product.productCode,
-        productJson: { name: optionSourceName, brand: product.brand, tags: product.tags, description: product.description, price: product.sourcePrice },
+        productJson: { name: optionSourceName, brand: product.brand, tags: product.tags, description: effectiveDescription, price: product.sourcePrice },
         mainImages: product.mainImages,
         detailImages: product.detailImages,
         infoImages: product.infoImages,
@@ -169,6 +180,13 @@ export async function POST(req: NextRequest) {
       thirdPartyImageUrls: selectedThirdPartyUrls,
       extractedBuyOptions: extracted.buyOptions,
       totalUnitCount: extracted.totalUnitCount,
+      // ★ 카테고리 변경 → 본문/제목/리뷰 재생성 결과를 미리보기에 즉시 반영.
+      // 등록 경로(preflight/canary/batch)와 동일하게 displayProductName/aiStory* 사용.
+      displayProductName: product.displayProductNameOverride,
+      aiStoryParagraphs: product.storyParagraphsOverride,
+      aiReviewTexts: product.reviewTextsOverride,
+      contentBlocks: product.contentBlocksOverride,
+      categoryPath: categoryPath || undefined,
     });
 
     const payloadJson = JSON.stringify(payload);

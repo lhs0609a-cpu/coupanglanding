@@ -10,11 +10,9 @@ import { fillNoticeFields, aiFillRemainingNotices, type NoticeCategoryMeta, type
 import { extractOptionsEnhanced, type ExtractedOptions } from './option-extractor';
 import { syncDisplayNameWithOptions } from './display-name-generator';
 import { selectWithSeed } from './item-winner-prevention';
-import { createSeededRandom, stringToSeed } from './seeded-random';
 import type { PreventionConfig } from './item-winner-prevention';
 import type { ExtractedBuyOption } from './coupang-product-builder';
 import { generateFaqItems, extractSeoKeywords, generateClosingText } from './story-generator';
-import { THIRD_PARTY_IMAGE_URLS } from '@/lib/megaload/constants/third-party-images';
 
 export interface BuildPayloadProduct {
   uid?: string;
@@ -203,45 +201,10 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
   const faqItems: ReturnType<typeof generateFaqItems> = [];
   const closingText = generateClosingText(product.name, categoryPath, shUserId, productIndex);
 
-  // 제3자 이미지: 10개 그룹당 정확히 2개 상품만 선택, 각 1장
-  const tpPool = (thirdPartyImageUrls && thirdPartyImageUrls.length > 0)
-    ? thirdPartyImageUrls
-    : THIRD_PARTY_IMAGE_URLS;
-  let selectedThirdPartyUrls: string[] = [];
-
-  if (productIndexInBatch != null && totalProductsInBatch != null) {
-    // 배치 모드: 10개 그룹 기반으로 정확히 2개 선택
-    const groupSize = 10;
-    const groupNum = Math.floor(productIndexInBatch / groupSize);
-    const posInGroup = productIndexInBatch % groupSize;
-    const groupStart = groupNum * groupSize;
-    const groupEnd = Math.min(groupStart + groupSize, totalProductsInBatch);
-    const groupLen = groupEnd - groupStart;
-
-    // 그룹 내에서 Fisher-Yates 셔플로 정확히 2개 위치 선택
-    const pickCount = Math.min(2, groupLen);
-    const positions = Array.from({ length: groupLen }, (_, i) => i);
-    const rng = createSeededRandom(stringToSeed(`tp-group:${shUserId}:${groupNum}`));
-    for (let k = 0; k < pickCount; k++) {
-      const remaining = groupLen - k;
-      const pick = k + Math.floor(rng() * remaining);
-      [positions[k], positions[pick]] = [positions[pick], positions[k]];
-    }
-    const selectedPositions = new Set(positions.slice(0, pickCount));
-
-    if (selectedPositions.has(posInGroup)) {
-      const picked = selectWithSeed(tpPool, `tp-pick:${product.productCode}`);
-      selectedThirdPartyUrls = [picked];
-    }
-  } else {
-    // 단일 상품 (preflight/canary): 20% 확률 폴백
-    const tpRng = createSeededRandom(stringToSeed(`tp-select:${product.productCode}`));
-    const tpSlot = Math.floor(tpRng() * 10);
-    if (tpSlot < 2) {
-      const picked = selectWithSeed(tpPool, `tp-pick:${product.productCode}`);
-      selectedThirdPartyUrls = [picked];
-    }
-  }
+  // 제3자(스톡) 이미지 자동 삽입 제거 — 사용자 의도와 무관한 'CS CENTER 위탁배송' 등의
+  // 풀 이미지가 상세페이지에 자동 삽입되는 동작 차단. 사용자가 폴더에 직접 넣은 경우에도
+  // 별도 명시 UI가 도입되기 전까지는 비활성.
+  const selectedThirdPartyUrls: string[] = [];
 
   // 페이로드 빌드
   const effectiveStock = product.stockOverride ?? stock;
