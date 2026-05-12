@@ -282,6 +282,15 @@ export default memo(function BulkStep2Review({
             detailImages: filterByOrder(product.detailImages || [], product.editedDetailImageOrder),
             reviewImages: filterByOrder(product.reviewImages || [], product.editedReviewImageOrder),
             infoImages: product.infoImages,
+            // ★ 카테고리 수동 변경 시 클라이언트에서 재생성된 본문/제목/리뷰를 서버 미리보기에 전달.
+            //   누락 시 서버는 빈 본문으로 detailHtml 생성 → 카테고리 바뀌어도 미리보기 동일.
+            //   등록 경로(useBulkRegisterActions.ts:2161-2170) 와 동일 override 필드명.
+            displayProductNameOverride: product.editedDisplayProductName,
+            descriptionOverride: product.editedDescription,
+            storyParagraphsOverride: product.editedStoryParagraphs,
+            reviewTextsOverride: product.editedReviewTexts,
+            contentBlocksOverride: product.editedContentBlocks,
+            noticeValuesOverride: product.editedNoticeValues,
           },
           deliveryInfo: {
             deliveryCompanyCode: 'CJGLS',

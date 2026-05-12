@@ -16,9 +16,6 @@ import {
   detectDuplicateImages,
   type ProductRelevanceScore,
 } from '@/lib/megaload/services/image-quality-scorer';
-import { createSeededRandom, stringToSeed } from '@/lib/megaload/services/seeded-random';
-import { selectWithSeed } from '@/lib/megaload/services/item-winner-prevention';
-import { THIRD_PARTY_IMAGE_URLS } from '@/lib/megaload/constants/third-party-images';
 import type { ContentBlock } from '@/lib/megaload/services/persuasion-engine';
 import type { EditableProduct, ScannedImageFile } from './types';
 
@@ -753,11 +750,9 @@ export default function DetailPageContentTab({
 
     const previewReviewTexts = reviewTexts.filter(t => t.trim());
 
-    // 제3자 이미지: 실제 등록 단일 모드와 동일한 시드 로직(20% 확률, productCode 시드)
-    const tpRng = createSeededRandom(stringToSeed(`tp-select:${product.productCode}`));
-    const previewThirdPartyUrls = Math.floor(tpRng() * 10) < 2
-      ? [selectWithSeed([...THIRD_PARTY_IMAGE_URLS], `tp-pick:${product.productCode}`)]
-      : [];
+    // 제3자(스톡) 이미지 자동 삽입 제거 — 'CS CENTER 위탁배송 안내' 등 풀 이미지가
+    // 사용자 의도와 무관하게 자동 삽입되던 동작 비활성. 미리보기도 실제 등록과 일치.
+    const previewThirdPartyUrls: string[] = [];
 
     // 고시정보(상품정보제공고시) — 서버 등록 경로(coupang-product-builder.ts:366)와 동일한 fillNoticeFields() 사용
     //   noticeMeta가 없으면(카테고리 메타 미캐싱) 빈 배열 → buildNoticeTable 호출 안 됨
