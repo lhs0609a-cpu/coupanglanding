@@ -773,8 +773,40 @@ async function getCachedUserId(): Promise<string | null> {
 
 const SLEEP = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * 업로드 실패 사유 — 호출자가 사용자에게 정확한 원인을 보여주기 위해
+ * 마지막 시도의 reason 을 메시지에 포함해서 throw.
+ */
+export class ImageUploadError extends Error {
+  reason: 'oversize' | 'bad_extension' | 'network' | 'permission' | 'rate_limited' | 'server_5xx' | 'server_4xx' | 'supabase_error' | 'unknown';
+  size?: number;
+  constructor(reason: ImageUploadError['reason'], message: string, size?: number) {
+    super(message);
+    this.name = 'ImageUploadError';
+    this.reason = reason;
+    this.size = size;
+  }
+}
+
+function classifySupabaseError(msg: string): ImageUploadError['reason'] {
+  const m = msg.toLowerCase();
+  if (/too\s*large|exceed|size\s*limit|413/.test(m)) return 'oversize';
+  if (/permission|denied|not\s*allowed|unauthorized|forbidden|rls/.test(m)) return 'permission';
+  if (/rate|429|throttle/.test(m)) return 'rate_limited';
+  if (/network|fetch|aborted|timeout|econnreset|socket/.test(m)) return 'network';
+  return 'supabase_error';
+}
+
 export async function uploadSingleImage(blob: Blob, name: string): Promise<string> {
   const supabase = getSupabaseClient();
+  // 마지막 실패 사유 — 양쪽 경로(direct + server) 다 실패하면 이걸로 throw
+  let lastReason: ImageUploadError['reason'] = 'unknown';
+  let lastMsg = '';
+
+  // 사전 검증: 확장자
+  if (!/\.(jpg|jpeg|png|webp|gif)$/i.test(name)) {
+    throw new ImageUploadError('bad_extension', `확장자 미지원: ${name}`, blob.size);
+  }
 
   // ── 1차: Supabase Storage 직접 업로드 (재시도 2회 + 지수 백오프) ──
   if (supabase) {
@@ -792,22 +824,28 @@ export async function uploadSingleImage(blob: Blob, name: string): Promise<strin
         if (!error && data) {
           const { data: pub } = supabase.storage.from('product-images').getPublicUrl(storagePath);
           if (pub?.publicUrl) return pub.publicUrl;
+          lastReason = 'supabase_error';
+          lastMsg = 'public URL 조회 실패';
         }
 
-        // 413/file size 에러는 재시도해도 동일 → 즉시 폴백
-        if (error?.message && /too\s*large|exceed|size limit|413/i.test(error.message)) {
-          console.warn(`[uploadSingleImage] 사이즈 초과 (size=${blob.size}) — 재시도 skip`);
-          break;
+        if (error) {
+          lastMsg = error.message;
+          lastReason = classifySupabaseError(error.message);
+          // 413/file size 에러는 재시도해도 동일 → 즉시 폴백 시도
+          if (lastReason === 'oversize') {
+            console.warn(`[uploadSingleImage] 사이즈 초과 (size=${blob.size}) — 재시도 skip`);
+            break;
+          }
         }
-        // 그 외 에러는 짧게 백오프 후 재시도
+
         if (attempt < 2) {
           await SLEEP(200 * (attempt + 1) + Math.random() * 200);
           continue;
         }
-        if (error) {
-          console.warn(`[uploadSingleImage] Supabase 직접 업로드 실패 (시도 ${attempt + 1}): ${error.message} (size=${blob.size})`);
-        }
+        console.warn(`[uploadSingleImage] Supabase 직접 업로드 최종 실패: ${lastMsg} (size=${blob.size})`);
       } catch (e) {
+        lastMsg = e instanceof Error ? e.message : String(e);
+        lastReason = classifySupabaseError(lastMsg);
         if (attempt < 2) {
           await SLEEP(200 * (attempt + 1) + Math.random() * 200);
           continue;
@@ -829,16 +867,27 @@ export async function uploadSingleImage(blob: Blob, name: string): Promise<strin
       if (res.ok) {
         const data = await res.json();
         if (data?.url) return data.url;
-      }
-      // 4xx 는 재시도 불필요 (사이즈/형식 에러)
-      if (res.status >= 400 && res.status < 500) {
+        lastReason = 'server_5xx';
+        lastMsg = '서버가 url 미반환';
+      } else if (res.status >= 400 && res.status < 500) {
+        // 4xx — 재시도 불필요 (사이즈/형식/권한)
         const errBody = await res.text().catch(() => '');
-        console.warn(`[uploadSingleImage] 서버 폴백 4xx (재시도 skip): ${res.status} ${errBody.slice(0, 200)}`);
+        lastMsg = `${res.status} ${errBody.slice(0, 200)}`;
+        lastReason = res.status === 413 ? 'oversize' : 'server_4xx';
+        console.warn(`[uploadSingleImage] 서버 폴백 4xx (재시도 skip): ${lastMsg}`);
         break;
+      } else {
+        // 5xx — 재시도
+        lastReason = 'server_5xx';
+        lastMsg = `서버 ${res.status}`;
+        if (attempt < 2) {
+          await SLEEP(300 * (attempt + 1));
+          continue;
+        }
       }
-      // 5xx / 빈 응답은 재시도
-      if (attempt < 2) await SLEEP(300 * (attempt + 1));
     } catch (e) {
+      lastMsg = e instanceof Error ? e.message : String(e);
+      lastReason = 'network';
       if (attempt < 2) {
         await SLEEP(300 * (attempt + 1));
         continue;
@@ -846,7 +895,9 @@ export async function uploadSingleImage(blob: Blob, name: string): Promise<strin
       console.warn(`[uploadSingleImage] 서버 폴백 fetch 실패 (최종):`, e);
     }
   }
-  return '';
+
+  // 모든 경로 실패 — 구체적 사유로 throw (호출자가 사용자에게 표시)
+  throw new ImageUploadError(lastReason, lastMsg || '업로드 실패', blob.size);
 }
 
 /**
