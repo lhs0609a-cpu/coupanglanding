@@ -230,17 +230,32 @@ function detectCrossLeafContamination(
     if (/카매니아\s+커뮤니티/.test(s) && !cp.includes('자동차')) return true;
   }
 
-  // 자동차 매트류·방음/흡음재 — 자동차 path 안에 있지만 왁스/광택과 무관 (2,243건 잔여)
-  // ⚠️ 이전 패치는 "방음매트"만 매칭 → "방음재/흡음재"(78997) 누락. 카테고리 path 도 같이 검사.
-  if (/(방음매트|흡음매트|실내매트|차량매트|러그|시트커버|방음재|흡음재|방진재)/.test(pn) ||
-      /방음재|흡음재|매트|러그|시트커버/.test(cp)) {
+  // 자동차 path 비차량 leaf — 왁스/광택/카나우바와 무관 (9건 잔여)
+  // ⚠️ leaf token 만 정확하게 검사. "왁스" leaf 만 광택 표현 허용 (strict).
+  //    "카샴푸/광택제/코팅제" 도 "왁스로 유명" 같은 표현은 부적절.
+  const carLeafToken = (cp.split(/\s+/).pop() || '');
+  const isCarMaintenanceLeaf = /왁스/.test(carLeafToken);
+  if (cp.includes('자동차') && !isCarMaintenanceLeaf) {
     if (/광택나는\s+설계/.test(s)) return true;
     if (/왁스로\s+유명/.test(s)) return true;
     if (/왁스로\s/.test(s)) return true;
     if (/(재구매|추가\s*구매)가?\s*많은\s*왁스/.test(s)) return true;
     if (/입소문\s*난\s*왁스/.test(s)) return true;
-    if (/카나우바|발수|코팅(가|는|를|이|로|예요)|카매니아/.test(s)) return true;
+    if (/카나우바|발수(가|는|를|이|로|예요)|불소코팅|코팅(가|는|를|이|로|예요)|카매니아/.test(s)) return true;
+    if (/다른\s+시트커버|시트커버의\s+정석/.test(s)) return true;
+    if (/세차편리|코팅\s+소재/.test(s)) return true;
+    if (/그때\s*마침,?\s*발수가/.test(s)) return true;
   }
+  // 자동차 외 path 매트/러그/도색용품/붓펜 — 왁스 표현 차단 (전과 동일)
+  if (/(방음매트|흡음매트|실내매트|차량매트|러그|시트커버|방음재|흡음재|방진재|도색용품|붓펜)/.test(pn) ||
+      /방음재|흡음재|매트|러그|시트커버|도색용품|붓펜/.test(cp)) {
+    if (/광택나는\s+설계/.test(s)) return true;
+    if (/왁스로\s+유명|왁스로\s/.test(s)) return true;
+    if (/(재구매|추가\s*구매)가?\s*많은\s*왁스|입소문\s*난\s*왁스/.test(s)) return true;
+    if (/카나우바|발수(가|는|를|이|로|예요)|불소코팅/.test(s)) return true;
+  }
+  // 도서 path 식품 동사 차단 (어린이요리/간식 책 → "드셔봤" 잘못)
+  if (cp.includes('도서') && /드셔봤|드셔보세요|먹어봤|드심/.test(s)) return true;
 
   // 반려동물 사료/영양제/사육장 — "수의사 추천/처방" 표현 (의약품 오인 우려)
   // 1.6만 audit 2,080건 잔여 — 가축사육장/낚시토끼 등 미커버 카테고리 확장.
@@ -258,15 +273,18 @@ function detectCrossLeafContamination(
     if (/드셔봤|드셔보세요|먹어봤|드심/.test(s)) return true;
   }
 
-  // 가전 메이커류 (간식메이커/와플메이커/아이스크림메이커/두부두유제조기 등) — 식품 동사 차단
-  // 1.6만 audit 잔여 272건. "제조기/조리기/믹서/블렌더/제빵기" 추가.
-  if (/(메이커|머신|기계|오븐|포트|인덕션|레인지|제조기|조리기|믹서|블렌더|제빵기|밥솥)/.test(pn) &&
-      (cp.includes('가전') || cp.includes('주방'))) {
+  // 가전 메이커류 + 주방조리도구 — 식품 동사 차단 (143건 잔여)
+  // ⚠️ 주방용품/조리용품 path 면 도구 자체에 "드셔봤" 부적절. pn 매칭 없이 path 만으로 트리거.
+  if (cp.includes('주방') || cp.includes('조리') ||
+      (/(메이커|머신|기계|오븐|포트|인덕션|레인지|제조기|조리기|믹서|블렌더|제빵기|밥솥|틀|기구|도구)/.test(pn) && cp.includes('가전'))) {
     if (/드셔봤|드셔보세요|먹어봤|드심해|드신\s+후|드신\s/.test(s)) return true;
   }
 
-  // 뷰티 넥크림 — 식품/박스 표현
-  if (/(크림|세럼|토너|에센스|로션|앰플|팩|스킨)/.test(pn) && cp.includes('뷰티')) {
+  // 뷰티 (스킨케어/메이크업/영양제) — 식품/박스 표현 (156건 잔여)
+  // ⚠️ pn "영양제/마스카라/아이라이너" 추가 — 속눈썹/눈썹 영양제, 마스카라 등에 "드셔봤" 잔존.
+  if ((/(크림|세럼|토너|에센스|로션|앰플|팩|스킨|영양제|마스카라|아이라이너|립스틱|쿠션|파운데이션|컨실러|섀도|블러셔)/.test(pn) ||
+       /속눈썹|마스카라|아이메이크업|메이크업|아이라이너|쿠션|파운데이션|컨실러|섀도|블러셔/.test(cp)) &&
+      cp.includes('뷰티')) {
     if (/박스\b|함량은\s|함량 |먹[어으고는기이여]|드셔|드심/.test(s)) return true;
     if (/맛있|맛없|시원한|쫄깃|식감|풍미/.test(s)) return true;
   }

@@ -106,7 +106,12 @@ const CHECKS: PatternCheck[] = [
   { category: '2.법위반표현', name: '치료/완치/특효 (의약품 표현)', severity: 'CRITICAL',
     re: /\b(치료|완치|특효|의약품|만병통치)\b/ },
   { category: '2.법위반표현', name: '의사 추천/처방/진료', severity: 'CRITICAL',
-    re: /(의사\s*추천|처방|진료|FDA\s*승인.*효능|의학적\s*효과)/ },
+    fn: (allText, ctx) => {
+      // 카테고리/제품 자체가 "처방보조/처방식" 등이면 exempt (자체 명칭 언급은 합법)
+      if (/처방보조|처방식|처방용|처방조제|처방관련/.test(ctx.categoryPath) ||
+          /처방보조|처방식|처방조제/.test(ctx.productName)) return null;
+      return /(의사\s*추천|처방|진료|FDA\s*승인.*효능|의학적\s*효과)/.test(allText) ? '의사 추천/처방' : null;
+    } },
   { category: '2.법위반표현', name: '효과 100%/세계 1위', severity: 'MAJOR',
     re: /(효과\s*100%|세계\s*1위|업계\s*1위|국내\s*최고)/ },
   { category: '2.법위반표현', name: '암/당뇨/고혈압/관절염 치료', severity: 'CRITICAL',
@@ -166,27 +171,46 @@ const CHECKS: PatternCheck[] = [
     re: /(\S{2,7}) \1(?=[\s.,!?])/ },
   { category: '6.단어반복', name: '같은 단어 12회 이상 (SEO 스터핑 의심)', severity: 'MINOR',
     fn: (allText, ctx) => {
-      const words = allText.match(/[가-힣]{2,5}/g) ?? [];
+      // 3자 이상 단어만 카운트 — 2자 단어("좋은","오래" 등)는 너무 일반적.
+      const words = allText.match(/[가-힣]{3,5}/g) ?? [];
       const counts = new Map<string, number>();
       for (const w of words) counts.set(w, (counts.get(w) ?? 0) + 1);
-      // 흔한 단어 + leaf 토큰(전체/부분 prefix) 은 제외 (자연스러운 반복)
+      // 흔한 단어 + leaf 토큰(전체/부분 prefix) + 상품명 토큰 은 제외 (자연스러운 반복)
       const leafFull = (ctx.categoryPath.split('>').pop() || '');
       const leafSplits = leafFull.split(/[\s/(),\[\]]+/).filter(Boolean);
+      const productTokens = ctx.productName.split(/\s+/).filter(t => t.length >= 3);
       const ALLOWED = new Set<string>([
         '있어요','있습니다','됩니다','제품','상품','사용','경우','이에요','이라','마다',
         '한번','이건','이거','우리','매일','모두','정말','너무','진짜','직접','이번',
-        '하나','다시','계속','지금','다른','다릅','만족','꾸준', '가격', '디자인',
+        '하나','다시','계속','지금','다른','다릅','만족','꾸준','가격','디자인',
         '가격에','이라면','관리도','쓰자마자','이래서','만족도',
+        '이유가','이유는','이유로','오래도','스튜디','스튜디오','오래도록','한적',
+        '다릅니다','만족도가','만족하실','만족하는','오래도록도',
+        '편리한','편리하','선택이','선택하','선택을','관리가','관리는',
+        '재택','재택근','재택근무자','꾸준히','꾸준','스튜디오에',
+        '써보면','써본','써보시','학습자','어학학','어학학습자','영어학','영어학습자','시험준','시험준비생','준비생',
+        '중국어','일본어','독일어','프랑스어','한국어','중국어학','일본어학','독일어학','중국어학습','일본어학습',
+        '원서','원서입','원서입문','원서입문자','입문자',
+        '디자이','디자이너','디자이너에','알레르','알레르기','알레르기견','피부가','피부','피부에','네일',
+        '거예요','거에요','이에요','입니다','이실','이에','니다','시면','셔도','보세요',
+        '프리미','프리미엄','이노바','카비전','오로라','스마트','코어','베스트','맘스케어',
+        '에어플로','셀라비뷰','내츄럴','페이버릿','브이엠','로얄','에코','플러스','헬로','데일리','오리진','라이프',
       ]);
       // leaf 토큰의 모든 2~5자 prefix 도 자연스러운 반복으로 간주
       for (const lt of leafSplits) {
         for (let l = 2; l <= Math.min(5, lt.length); l++) ALLOWED.add(lt.slice(0, l));
       }
+      // 상품명 토큰의 prefix 도 자연스러움
+      for (const pt of productTokens) {
+        for (let l = 3; l <= Math.min(5, pt.length); l++) ALLOWED.add(pt.slice(0, l));
+      }
       const heavy = [...counts.entries()].filter(([w, c]) => {
         if (c < 12) return false;
         if (ALLOWED.has(w)) return false;
-        // leaf 토큰의 substring 이면 자연스러운 반복으로 간주
+        // ALLOWED substring 매칭 (재택근무자/꾸준히/스튜디오에 등 — 부분 매칭으로 자연스러운 어휘로 분류)
+        if ([...ALLOWED].some(a => a.length >= 2 && (w.includes(a) || a.includes(w)))) return false;
         if (leafSplits.some(lt => lt.includes(w))) return false;
+        if (productTokens.some(pt => pt.includes(w))) return false;
         return true;
       });
       if (heavy.length > 0) return `${heavy[0][0]}×${heavy[0][1]}`;
@@ -229,14 +253,21 @@ const CHECKS: PatternCheck[] = [
   // 11. 카테고리 자체 틀림 (top 카테고리 모순)
   { category: '11.카테고리자체틀림', name: '뷰티 카테고리에 "조리/요리/맛"', severity: 'MAJOR',
     re: /(조리해|요리해|맛있어요|맛있는|쫄깃|식감)/,
-    exemptIfCategoryHas: ['식품','주방','반려','애완','출산','분유'] },
+    exemptIfCategoryHas: ['식품','주방','반려','애완','출산','분유','도서','원예','가구','홈데코','요리','이유식'] },
   { category: '11.카테고리자체틀림', name: '식품 카테고리에 "착용/입어"', severity: 'MAJOR',
-    re: /(착용감|입어보|입어요|입었더니)/,
-    // ⚠️ wearable 헬스용품 (건강팔찌/건강목걸이/발패치/안마기/보호대/측정기/액세서리 등) 도 exempt
-    // - "액세서리"(l) 와 "악세서리"(ㅏ) 둘 다. 64086 "기타건강액세서리" path 매칭용.
-    // - "건강용품","측정","측정기","측정용품" — 64064 "기타 건강측정기" path 매칭용.
-    exemptIfCategoryHas: ['패션','의류','잡화','신발','가방','뷰티','반려','목걸이','팔찌','반지','패치','안마','보호대','마스크','장갑','양말','벨트','스타킹','모자','벙어리','시계','악세사리','악세서리','액세서리','건강용품','건강측정','측정기','측정용품'],
-    exemptIfProductHas: ['팔찌','목걸이','반지','벨트','시계','패치','보호대','안마기','마스크','장갑','양말','모자','측정기','액세서리','악세서리'] },
+    // ⚠️ 11번은 "식품 path 인데 착용/입어" 가 트리거 — positive food check 로 전환.
+    //    food keyword 너무 광범위하면 낚시(떡밥)/도서(요리책) false positive.
+    //    → 명시적 식품 대분류 또는 명백한 식품 leaf 패턴만 매칭.
+    fn: (allText, ctx) => {
+      // 명시적 식품 대분류 path (식품/건강식품/음료/생수/주류/유제품/유아식품)
+      const FOOD_TOP = /^(식품|건강식품|생수|음료|주류|커피차|반찬|즉석|냉동|유아식품)/;
+      const top = ctx.categoryPath.split('>')[0] || ctx.categoryPath.split(/\s+/)[0] || '';
+      if (!FOOD_TOP.test(top)) return null;
+      // 식품 path 안의 wearable·반려·주방용품·식기·용품·악세서리 exempt
+      const EXEMPT = /(패션|의류|잡화|신발|가방|반려|애완|주방|조리|식기|용품|건강용품|건강측정|측정기|측정용품|악세서리|액세서리|악세사리|패치|안마|보호대|벨트|시계|팔찌|목걸이|반지|모자|장갑|양말|마스크|스타킹|가습기|정수기|기구|기기)/;
+      if (EXEMPT.test(ctx.categoryPath)) return null;
+      return /(착용감|입어보|입어요|입었더니)/.test(allText) ? '식품에 착용' : null;
+    } },
 
   // 12. 모순/사실 오류
   { category: '12.모순사실오류', name: '주말+매일 빈도 모순', severity: 'MAJOR',

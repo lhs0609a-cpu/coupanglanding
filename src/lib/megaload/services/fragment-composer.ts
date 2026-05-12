@@ -336,6 +336,43 @@ export function normalizeRepeatedTokens(text: string): string {
   out = out.replace(/([가-힣]{2,})\s+\1(?=[\s.,!?]|$)/g, '$1');
   // 3) 잔여 공백 정리
   out = out.replace(/\s{2,}/g, ' ').trim();
+  // 4) ⚠️ iterative 재적용 — JS regex g 플래그 lastIndex 이동으로 첫 패스에서 놓친 케이스 잡기.
+  //    예: "체감되는 위생관리 관리" → 첫 매칭("체감되는 위생관리") 후 lastIndex 가 "관리 팁" 시작 →
+  //    두번째 "위생관리 관리" 패턴 매칭 안 됨. 안정 상태(최대 5회)까지 재적용.
+  let iter = 0;
+  let prevOut: string;
+  do {
+    prevOut = out;
+    out = out.replace(/([가-힣A-Za-z0-9]{2,})\s+([가-힣]{2,})(?=[\s\.,!?|]|$)/g, (m, a, b) =>
+      a !== b && a.length > b.length && a.endsWith(b) ? a : m);
+    out = out.replace(/([가-힣]{2,8})\s+\1(?=\s|$|[.,!?|])/g, '$1');
+    out = out.replace(/([가-힣]{3,6})([가-힣]{2,3})\s+\2(?=\s|$|[.,!?|])/g, '$1$2');
+    iter++;
+  } while (out !== prevOut && iter < 5);
+  // 5) ⚠️ Token-based dedup — 정규식 g 플래그 lastIndex 한계로 정규식이 못 잡는 케이스 (예:
+  //    "체감되는 위생관리 관리 팁" 에서 "위생관리 관리" 패턴) 잡기. 공백 기준 split 후 인접 토큰 비교.
+  {
+    const tokens = out.split(/(\s+)/);
+    const result: string[] = [];
+    for (let i = 0; i < tokens.length; i++) {
+      const cur = tokens[i];
+      if (!cur || /^\s+$/.test(cur)) { result.push(cur); continue; }
+      const j = i + 2;
+      if (j >= tokens.length) { result.push(cur); continue; }
+      const next = tokens[j];
+      if (!next) { result.push(cur); continue; }
+      const isExact = cur === next;
+      const isSuffix = cur.length > next.length && next.length >= 2 &&
+        /^[가-힣]+$/.test(next) && cur.endsWith(next);
+      if (isExact || isSuffix) {
+        result.push(cur);
+        i += 2; // skip space + next
+        continue;
+      }
+      result.push(cur);
+    }
+    out = result.join('');
+  }
   return out;
 }
 
@@ -1911,18 +1948,21 @@ function buildProductRefs(productName: string): string[] {
 
 /**
  * 가중치 기반 product 변형 픽 — rng 1회 호출, 누적 분포 사용.
- * ⚠️ 정체성 강화 (1.6만 audit 검출 11,762 → 0): 상품명 비중을 75% 이상으로 끌어올리고
- *    "이 제품/이 상품" 대명사를 합산 25% 이하로 제한.
- * 분포: 풀네임 50% / 단축2 25% / 단축3 10% / 이 제품 10% / 이 상품 5%
+ * ⚠️ 정체성 강화 (1.6만 audit 검출 1,127 잔여): proxy("이 제품/이 상품") 합산 ≤ 7% 로 추가 축소.
+ *    refs.length=6 (풀네임/단축2/단축3/leaf/이 제품/이 상품) 케이스 대응.
+ * 분포: 풀네임 55% / 단축2 25% / 단축3 10% / leaf 3% / 이 제품 5% / 이 상품 2%
  */
 function pickProductRef(refs: string[], rng: () => number): string {
   // refs 길이에 따라 분포 동적 생성
   const weights: number[] = [];
   if (refs.length === 1) return refs[0];
-  if (refs.length === 2) weights.push(0.7, 0.3);
-  else if (refs.length === 3) weights.push(0.6, 0.25, 0.15);
-  else if (refs.length === 4) weights.push(0.55, 0.25, 0.15, 0.05);
-  else weights.push(0.5, 0.25, 0.10, 0.10, 0.05);
+  // ⚠️ 정체성 극단화 (70건 잔여 → 0 목표): proxy 합 ≤ 1% 로 축소.
+  //   짧은 product (전기철도/Television Radio 등) refs.length=4일 때 proxy 10% 누적시 4회 fill 중 평균 0.4회 → 일부 페이지 3회 도달.
+  if (refs.length === 2) weights.push(0.98, 0.02);
+  else if (refs.length === 3) weights.push(0.92, 0.07, 0.01);
+  else if (refs.length === 4) weights.push(0.85, 0.10, 0.04, 0.01);
+  else if (refs.length === 5) weights.push(0.65, 0.20, 0.13, 0.015, 0.005);
+  else weights.push(0.55, 0.25, 0.13, 0.06, 0.008, 0.002);
   const r = rng();
   let cum = 0;
   for (let i = 0; i < refs.length; i++) {

@@ -479,6 +479,10 @@ export function generateStoryV2(
         .toLowerCase();
 
     const seenKeys = new Set<string>();
+    const seenPrefixes = new Set<string>(); // 동의어 ending 다른 거의-동일 문장 차단
+    const PREFIX_LEN = 15;
+    const normForPrefix = (s: string): string =>
+      s.replace(/[\s.,!?'"`「」『』·…]+/g, '').toLowerCase();
     const deduped: string[] = [];
     for (const p of paragraphs) {
       const normalized = p.trim().replace(/\s+/g, ' ');
@@ -488,10 +492,18 @@ export function generateStoryV2(
       // ⚠️ "요" 어미 split 은 "필요/주요/중요" 명사를 어미로 오인하므로 제외.
       const sentences = normalized.split(/(?<=[.!?。])\s+/);
       const innerSeen = new Set<string>();
+      const innerPrefix = new Set<string>();
       const uniqueSentences: string[] = [];
       for (const sent of sentences) {
         const sk = normalizeKey(sent);
         if (!sk || innerSeen.has(sk)) continue;
+        // 15자 prefix 기반 중복 — 동의어 ending 만 다른 경우 차단 (호평받고/추천합니다)
+        const np = normForPrefix(sent);
+        if (np.length >= PREFIX_LEN) {
+          const pref = np.slice(0, PREFIX_LEN);
+          if (innerPrefix.has(pref) || seenPrefixes.has(pref)) continue;
+          innerPrefix.add(pref);
+        }
         innerSeen.add(sk);
         uniqueSentences.push(sent);
       }
@@ -501,6 +513,11 @@ export function generateStoryV2(
       const key = normalizeKey(innerDeduped);
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
+      // 페이지 전역 prefix set에도 모두 등록 — 다음 문단 비교용
+      for (const sent of uniqueSentences) {
+        const np = normForPrefix(sent);
+        if (np.length >= PREFIX_LEN) seenPrefixes.add(np.slice(0, PREFIX_LEN));
+      }
       deduped.push(innerDeduped);
     }
     paragraphs = deduped;

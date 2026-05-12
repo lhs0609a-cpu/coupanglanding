@@ -467,8 +467,10 @@ export function generatePersuasionContent(
   // 모든 블록의 모든 문장에 대해 sentence-level dedup으로 saturation 차단.
   {
     const seenKey = new Set<string>();
-    const seenPrefix = new Set<string>(); // leaf-suffix-tolerant dedup (3,969건)
-    const PREFIX_LEN = 30; // 30자 prefix 동일 → 거의 동일 문장으로 간주
+    const seenPrefix = new Set<string>(); // leaf-suffix-tolerant dedup (3,963건 잔여)
+    // 한글 stem 평균 15-25자. 15자 prefix 동일 → 거의 동일 문장으로 간주.
+    // (3차 PREFIX_LEN=30 은 너무 길어서 25자 stem 들이 prefix set에 등록 안 됨 → 효과 0)
+    const PREFIX_LEN = 15;
     const splitSent = (text: string): string[] =>
       text.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
     const norm = (s: string): string =>
@@ -483,7 +485,7 @@ export function generatePersuasionContent(
         if (s.length < 4) { kept.push(s); continue; }
         const k = norm(s);
         if (seenKey.has(k)) continue;
-        // 30자 prefix 매칭 — leaf token suffix 만 다른 거의 동일 문장 차단
+        // 15자 prefix 매칭 — leaf token suffix 만 다른 거의 동일 문장 차단
         if (k.length >= PREFIX_LEN) {
           const pref = k.slice(0, PREFIX_LEN);
           if (seenPrefix.has(pref)) continue;
@@ -813,8 +815,9 @@ export function contentBlocksToParagraphs(blocks: ContentBlock[], categoryPath?:
     joined = stripForbiddenPhrases(joined);
     // 2. 식품 카테고리: 잔재 "쓰다" 동사 변환
     joined = applyFoodVerbReplacementsAtOutput(joined, isFood);
-    // 3. 인접 동일 토큰 자동 제거 ("엄선한 엄선한 원물" → "엄선한 원물")
-    joined = joined.replace(/(\b[가-힣A-Za-z0-9]+)(\s+\1\b)+/g, '$1');
+    // 3. 인접 동일 토큰 자동 제거 — 한국어/영문/숫자 모두 대응 (담백한 담백한 / 스타일 스타일 / 위생관리 관리)
+    //    \b 의존 정규식은 한국어 word boundary 인식 못 하므로 lookahead 사용.
+    joined = normalizeRepeatedTokens(joined);
     // 4. 빈 변수 치환으로 남은 고아 조사 정리 ("을 일상에" → "일상에")
     joined = fixOrphanParticles(joined);
     // 5. 받침 유무로 조사 교정 ("박스으로" → "박스로")
