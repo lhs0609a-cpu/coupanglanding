@@ -47,6 +47,8 @@ interface BulkProductDetailPanelProps {
   noticeMeta?: NoticeCategoryMeta[];
   /** 사용자 전역 고시정보 오버라이드 (예: 제조국, A/S 안내) */
   noticeOverrides?: Record<string, string>;
+  /** 동일 카테고리 선택 상품 전체에 attribute 일괄 적용 — 적용된 상품 수 반환 */
+  onBulkApplyAttribute?: (attrName: string, value: string, categoryCode: string) => number;
 }
 
 export default function BulkProductDetailPanel({
@@ -69,6 +71,7 @@ export default function BulkProductDetailPanel({
   titleGenProgress,
   noticeMeta,
   noticeOverrides,
+  onBulkApplyAttribute,
 }: BulkProductDetailPanelProps) {
   const [activeTab, setActiveTab] = useState<'info' | 'detail' | 'payload'>('info');
   const [issuesExpanded, setIssuesExpanded] = useState(false);
@@ -463,6 +466,7 @@ export default function BulkProductDetailPanel({
                   preventionConfig={preventionConfig}
                   titleGenProgress={titleGenProgress}
                   onSwapStockImage={onSwapStockImage}
+                  onBulkApplyAttribute={onBulkApplyAttribute}
                 />
               ) : (
                 <PayloadPreviewPanel

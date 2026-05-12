@@ -235,6 +235,32 @@ export default memo(function BulkStep2Review({
     previewAbortRef.current?.abort();
   }, [selectedUid]);
 
+  /**
+   * Attribute 값을 동일 카테고리의 모든 선택된 상품에 일괄 적용.
+   * 반환: 적용된 상품 수 (호출자 토스트 표시용)
+   */
+  const handleBulkApplyAttribute = useCallback(
+    (attrName: string, value: string, categoryCode: string): number => {
+      if (!attrName || !value || !categoryCode) return 0;
+      let count = 0;
+      onSetProducts((prev) =>
+        prev.map((p) => {
+          if (!p.selected) return p;
+          if (p.editedCategoryCode !== categoryCode) return p;
+          const current = p.editedAttributeValues || {};
+          if (current[attrName] === value) return p; // 이미 같은 값이면 skip
+          count++;
+          return {
+            ...p,
+            editedAttributeValues: { ...current, [attrName]: value },
+          };
+        }),
+      );
+      return count;
+    },
+    [onSetProducts],
+  );
+
   const handleRequestPreview = useCallback(async (uid: string) => {
     const product = products.find(p => p.uid === uid);
     if (!product) return;
@@ -1090,6 +1116,7 @@ export default memo(function BulkStep2Review({
         titleGenProgress={titleGenProgress}
         noticeMeta={selectedProduct?.editedCategoryCode ? categoryMetaCache?.[selectedProduct.editedCategoryCode]?.noticeMeta : undefined}
         noticeOverrides={noticeOverrides}
+        onBulkApplyAttribute={handleBulkApplyAttribute}
       />
     </div>
   );

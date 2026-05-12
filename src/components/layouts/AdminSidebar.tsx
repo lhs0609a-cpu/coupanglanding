@@ -33,6 +33,8 @@ import {
   Lock,
   Megaphone,
   AlertTriangle,
+  Package,
+  Activity,
 } from 'lucide-react';
 
 const navItems = [
@@ -62,6 +64,8 @@ const navItems = [
   { href: '/admin/notices', label: '공지 관리', icon: Bell },
   { href: '/admin/support', label: '문의 관리', icon: MessageCircle },
   { href: '/admin/megaload-bug-reports', label: '메가로드 오류문의', icon: Bug },
+  { href: '/admin/megaload-catalog', label: '메가로드 카탈로그', icon: Package },
+  { href: '/admin/megaload-meta-audit', label: '카테고리 메타 감사', icon: Activity },
   { href: '/admin/system-logs', label: '시스템 로그', icon: AlertTriangle },
   { href: '/admin/faqs', label: 'FAQ 관리', icon: HelpCircle },
   { href: '/admin/activity-log', label: '활동 로그', icon: ScrollText },

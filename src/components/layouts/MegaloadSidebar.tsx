@@ -7,13 +7,14 @@ import {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
   Receipt, BarChart3, Zap, Globe, Link as LinkIcon, Settings, X,
   Upload, User, ArrowRight, Search, ExternalLink, Loader2, Lock, RotateCcw, RefreshCw, Bug,
+  BookOpen,
 } from 'lucide-react';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
 import type { SettlementGateLevel } from '@/lib/utils/settlement';
 
 const iconMap = {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
-  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug,
+  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug, BookOpen,
 } as const;
 
 const navItems = [
@@ -22,6 +23,7 @@ const navItems = [
   { href: '/megaload/returns', label: '반품수거', icon: 'RotateCcw' as const },
   { href: '/megaload/products', label: '상품관리', icon: 'Package' as const },
   { href: '/megaload/products/bulk-register', label: '상품등록', icon: 'Upload' as const },
+  { href: '/megaload/catalog', label: '카탈로그', icon: 'BookOpen' as const },
   { href: '/megaload/stock-monitor', label: '품절동기화', icon: 'RefreshCw' as const },
   { href: '/megaload/inventory', label: '재고관리', icon: 'Warehouse' as const },
   { href: '/megaload/cs', label: '문의관리', icon: 'MessageSquare' as const, badgeKey: 'pendingInquiries' as const },

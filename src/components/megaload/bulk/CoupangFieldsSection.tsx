@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   ChevronDown, ChevronRight, FileText, Hash, Tag, Truck,
   Settings2, Loader2, AlertTriangle, Package, Image as ImageIcon,
   DollarSign, Layers, CheckCircle2, Settings, Shuffle, Eye,
+  Copy, Pencil, Check, X as XIcon,
 } from 'lucide-react';
 import BulkImageGrid from './BulkImageGrid';
 import StockImageSwapModal from './StockImageSwapModal';
@@ -35,6 +36,85 @@ interface CoupangFieldsSectionProps {
   preventionConfig?: PreventionConfig;
   titleGenProgress?: { done: number; total: number } | null;
   onSwapStockImage?: (uid: string, imageIndex: number, newCdnUrl: string) => void;
+  /** 동일 카테고리 선택 상품 전체에 attribute 값 일괄 적용 */
+  onBulkApplyAttribute?: (attrName: string, value: string, categoryCode: string) => number;
+}
+
+/* ─── 인라인 편집형 추출 옵션 태그 ─── */
+function EditableExtractedTag({
+  name,
+  value,
+  unit,
+  edited,
+  onSave,
+  onClear,
+}: {
+  name: string;
+  value: string;
+  unit?: string;
+  edited: boolean;
+  onSave: (newValue: string) => void;
+  onClear: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.select();
+  }, [editing]);
+
+  useEffect(() => { setDraft(value); }, [value]);
+
+  const commit = () => {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== value) onSave(trimmed);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-yellow-50 border border-yellow-400 rounded text-xs">
+        <span className="text-gray-500">{name}:</span>
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') { setDraft(value); setEditing(false); }
+          }}
+          onBlur={commit}
+          className="w-14 px-1 border border-yellow-300 rounded text-xs text-gray-900 outline-none focus:border-[#E31837]"
+        />
+        {unit && <span className="text-gray-500">{unit}</span>}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      onClick={() => setEditing(true)}
+      className={`group inline-flex items-center gap-1 px-2 py-1 border rounded text-xs cursor-pointer hover:border-[#E31837] hover:bg-red-50/40 transition ${
+        edited ? 'bg-red-50 border-[#E31837]' : 'bg-white border-gray-200'
+      }`}
+      title="클릭해서 수정"
+    >
+      <span className="text-gray-500">{name}:</span>
+      <span className="font-medium text-gray-800">{value}{unit || ''}</span>
+      {edited ? (
+        <button
+          onClick={(e) => { e.stopPropagation(); onClear(); }}
+          className="ml-0.5 text-gray-400 hover:text-red-500"
+          title="원래대로"
+        >
+          <XIcon className="w-3 h-3" />
+        </button>
+      ) : (
+        <Pencil className="w-2.5 h-2.5 text-gray-300 group-hover:text-gray-500" />
+      )}
+    </span>
+  );
 }
 
 /* ─── Required field input styling ─── */
@@ -379,6 +459,7 @@ export default function CoupangFieldsSection({
   preventionConfig,
   titleGenProgress,
   onSwapStockImage,
+  onBulkApplyAttribute,
 }: CoupangFieldsSectionProps) {
   const meta = previewData?.meta;
   const payload = previewData?.payload as Record<string, unknown> | undefined;
@@ -394,6 +475,22 @@ export default function CoupangFieldsSection({
     const current = product.editedAttributeValues || {};
     onUpdate(product.uid, 'editedAttributeValues', { ...current, [attrName]: value });
   }, [product.uid, product.editedAttributeValues, onUpdate]);
+
+  const handleClearAttribute = useCallback((attrName: string) => {
+    const current = product.editedAttributeValues || {};
+    if (!(attrName in current)) return;
+    const next = { ...current };
+    delete next[attrName];
+    onUpdate(product.uid, 'editedAttributeValues', next);
+  }, [product.uid, product.editedAttributeValues, onUpdate]);
+
+  const [bulkAppliedTip, setBulkAppliedTip] = useState<{ attr: string; count: number } | null>(null);
+  const handleBulkApply = useCallback((attrName: string, value: string) => {
+    if (!onBulkApplyAttribute || !product.editedCategoryCode || !value) return;
+    const count = onBulkApplyAttribute(attrName, value, product.editedCategoryCode);
+    setBulkAppliedTip({ attr: attrName, count });
+    setTimeout(() => setBulkAppliedTip(null), 2500);
+  }, [onBulkApplyAttribute, product.editedCategoryCode]);
 
   // ─── Required field missing counts ───
   const basicMissing = useMemo(() => {
@@ -902,6 +999,20 @@ export default function CoupangFieldsSection({
                       placeholder={attr.dataType === 'NUMBER' ? '숫자' : '값 입력'}
                     />
                   )}
+                  {onBulkApplyAttribute && editedValue && product.editedCategoryCode && (
+                    <button
+                      onClick={() => handleBulkApply(attr.name, editedValue)}
+                      className="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded border border-gray-200 text-gray-400 hover:text-[#E31837] hover:border-[#E31837] transition"
+                      title={`동일 카테고리 선택 상품 전체에 "${attr.name}=${editedValue}" 일괄 적용`}
+                    >
+                      <Copy className="w-3 h-3" />
+                    </button>
+                  )}
+                  {bulkAppliedTip?.attr === attr.name && (
+                    <span className="text-[10px] text-green-600 shrink-0 whitespace-nowrap">
+                      ✓ {bulkAppliedTip.count}개 적용
+                    </span>
+                  )}
                 </div>
               );
             })}
@@ -951,17 +1062,39 @@ export default function CoupangFieldsSection({
           />
         </div>
 
-        {/* 추출된 옵션 태그 */}
+        {/* 추출된 옵션 태그 — 클릭해서 인라인 편집 */}
         {meta && meta.extractedOptions.length > 0 && (
           <div className="mt-2">
-            <OptionalLabel>추출된 옵션 태그</OptionalLabel>
+            <div className="flex items-center justify-between mb-1">
+              <OptionalLabel>추출된 옵션 태그 <span className="text-gray-400 font-normal">(클릭해서 수정)</span></OptionalLabel>
+              <span
+                className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                  meta.optionConfidence >= 80 ? 'bg-green-100 text-green-700' :
+                  meta.optionConfidence >= 50 ? 'bg-yellow-100 text-yellow-700' :
+                  'bg-gray-100 text-gray-500'
+                }`}
+                title="옵션 추출 신뢰도"
+              >
+                신뢰도 {meta.optionConfidence}%
+              </span>
+            </div>
             <div className="flex flex-wrap gap-1.5">
-              {meta.extractedOptions.map((opt, i) => (
-                <span key={i} className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-gray-200 rounded text-xs">
-                  <span className="text-gray-500">{opt.name}:</span>
-                  <span className="font-medium text-gray-800">{opt.value}{opt.unit || ''}</span>
-                </span>
-              ))}
+              {meta.extractedOptions.map((opt, i) => {
+                const override = product.editedAttributeValues?.[opt.name];
+                const displayValue = override ?? String(opt.value);
+                const edited = override !== undefined && override !== String(opt.value);
+                return (
+                  <EditableExtractedTag
+                    key={`${opt.name}-${i}`}
+                    name={opt.name}
+                    value={displayValue}
+                    unit={opt.unit}
+                    edited={edited}
+                    onSave={(newVal) => handleAttributeChange(opt.name, newVal)}
+                    onClear={() => handleClearAttribute(opt.name)}
+                  />
+                );
+              })}
             </div>
             <div className="flex items-center gap-4 text-[10px] text-gray-500 mt-1.5">
               <span>
