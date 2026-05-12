@@ -3,7 +3,7 @@
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  X, ChevronUp, ChevronDown, CheckCircle2, AlertTriangle, XCircle, Code2, FileText, ExternalLink, Ban, GripVertical,
+  X, ChevronUp, ChevronDown, CheckCircle2, AlertTriangle, XCircle, Code2, FileText, ExternalLink, Ban, GripVertical, Search,
 } from 'lucide-react';
 import PayloadPreviewPanel, { type PayloadPreviewData } from './PayloadPreviewPanel';
 import CoupangFieldsSection from './CoupangFieldsSection';
@@ -297,12 +297,24 @@ export default function BulkProductDetailPanel({
                 <a
                   href={product.sourceUrl || `https://search.shopping.naver.com/catalog/${product.productCode}`}
                   target="_blank"
-                  rel="noopener noreferrer"
+                  // noreferrer 제거: 네이버/쿠팡 안티봇 봇 의심 방지. origin 만 전송.
+                  rel="noopener"
+                  referrerPolicy="strict-origin-when-cross-origin"
                   className="inline-flex items-center gap-1 text-xs font-mono text-gray-400 hover:text-blue-600 transition shrink-0"
                   title="원본 상품 보기"
                 >
                   {product.productCode}
                   <ExternalLink className="w-3 h-3" />
+                </a>
+                {/* 구글 검색 우회 — 직접 링크 캡차/IP차단 걸렸을 때 사용. Referer=google.com 이라 회피 확률 높음. */}
+                <a
+                  href={`https://www.google.com/search?q=${encodeURIComponent(product.name || product.productCode)}`}
+                  target="_blank"
+                  rel="noopener"
+                  className="inline-flex items-center text-gray-300 hover:text-emerald-600 transition shrink-0"
+                  title="구글 검색으로 우회 (캡차/IP차단 회피)"
+                >
+                  <Search className="w-3 h-3" />
                 </a>
                 {product.validationStatus === 'ready' && <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />}
                 {product.validationStatus === 'warning' && <AlertTriangle className="w-4 h-4 text-orange-500 shrink-0" />}

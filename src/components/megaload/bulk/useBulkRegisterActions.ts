@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { pickAndScanFolder, uploadScannedImages, uploadSingleImage, compressImage, rescanMainImages, type ScannedImageFile } from '@/lib/megaload/services/client-folder-scanner';
+import { pickAndScanFolder, uploadScannedImages, uploadSingleImage, compressImage, rescanMainImages, ImageUploadError, type ScannedImageFile } from '@/lib/megaload/services/client-folder-scanner';
 import { validateProductLocal } from '@/lib/megaload/services/product-validator';
 import type {
   EditableProduct, PriceBracket, ShippingPlace, ReturnCenter,
@@ -1943,15 +1943,41 @@ export function useBulkRegisterActions() {
       };
 
       function categorizeError(err: unknown): string {
+        // uploadSingleImage가 throw하는 ImageUploadError는 reason을 직접 보유 — 추측 불필요
+        if (err instanceof ImageUploadError) return err.reason;
         const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
         if (msg.includes('quota') || msg.includes('storage')) return 'quota_exceeded';
         if (msg.includes('cors') || msg.includes('cross-origin')) return 'cors';
         if (msg.includes('network') || msg.includes('fetch') || msg.includes('aborted')) return 'network';
         if (msg.includes('permission') || msg.includes('denied') || msg.includes('not allowed')) return 'permission';
         if (msg.includes('handle') || msg.includes('notfound')) return 'file_handle_invalid';
-        if (msg.includes('413') || msg.includes('too large')) return 'too_large';
+        if (msg.includes('413') || msg.includes('too large')) return 'oversize';
         if (msg.includes('rate') || msg.includes('429')) return 'rate_limited';
         return 'unknown';
+      }
+
+      function describeFailure(name: string, err: unknown): string {
+        if (err instanceof ImageUploadError) {
+          const sizeKb = err.size ? ` (${Math.round(err.size / 1024)}KB)` : '';
+          const hint =
+            err.reason === 'oversize'
+              ? '파일이 너무 큽니다 (5MB 초과). 원본 해상도를 줄이거나 jpg 압축률을 높이세요.'
+              : err.reason === 'bad_extension'
+              ? '지원하지 않는 확장자입니다. jpg/png/webp/gif만 가능합니다.'
+              : err.reason === 'permission'
+              ? 'Storage 권한 오류 (RLS/버킷 정책). 운영자에게 문의하세요.'
+              : err.reason === 'rate_limited'
+              ? 'Supabase rate limit. 잠시 후 다시 시도하세요.'
+              : err.reason === 'network'
+              ? '네트워크 일시 장애. 다시 등록하면 보통 성공합니다.'
+              : err.reason === 'server_5xx'
+              ? '서버 일시 오류. 다시 등록 시도해주세요.'
+              : err.reason === 'server_4xx'
+              ? '파일 형식/크기 거부. 파일을 확인하세요.'
+              : '업로드 실패';
+          return `${name}${sizeKb}: ${hint} [${err.reason}]`;
+        }
+        return `${name}: ${err instanceof Error ? err.message : String(err)}`;
       }
 
       async function worker() {
@@ -1964,20 +1990,15 @@ export function useBulkRegisterActions() {
             const brand = preventionConfig.enabled ? preventionConfig.sellerBrand : undefined;
             const compressed = await compressImage(file, brand);
             const url = await uploadSingleImage(compressed, task.img.name);
-            if (url) {
-              productUrlMap[task.uid][task.kind].set(task.img.name, url);
-            } else {
-              // url 빈 문자열 = silent fail — 카운트
-              failureCount++;
-              failureReasons['empty_response'] = (failureReasons['empty_response'] || 0) + 1;
-              if (!sampleFailure) sampleFailure = `${task.img.name}: 업로드 응답 비어있음 (Supabase RLS/버킷 권한 의심)`;
-            }
+            // uploadSingleImage는 성공 시 항상 truthy url 반환, 실패 시 throw —
+            // 빈 응답 케이스는 정의상 발생하지 않음 (이전 silent-fail 제거).
+            productUrlMap[task.uid][task.kind].set(task.img.name, url);
           } catch (err) {
             failureCount++;
             const reason = categorizeError(err);
             failureReasons[reason] = (failureReasons[reason] || 0) + 1;
             if (!sampleFailure) {
-              sampleFailure = `${task.img.name}: ${err instanceof Error ? err.message : String(err)}`;
+              sampleFailure = describeFailure(task.img.name, err);
               console.warn(`[preupload] 첫 실패 — ${task.uid}/${task.kind}/${task.img.name}:`, err);
             }
           }
@@ -2524,6 +2545,27 @@ export function useBulkRegisterActions() {
       }).catch(() => { /* ignore — 학습 실패는 등록 막지 않음 */ });
     };
 
+    // 카테고리가 실제로 바뀐 상품은 노출상품명/본문/리뷰텍스트를 비워서
+    // 새 카테고리 기준으로 재생성되도록 한다. 옛 카테고리(예: 전자기기) 본문이
+    // 새 카테고리(예: 사과) 상품에 그대로 남는 문제를 차단.
+    // persuasion-engine 의 generatePersuasionContent 는 categoryPath 를
+    // 시드와 변수풀 양쪽에 사용하므로 1.6만 카테고리 전부 자동 적용된다.
+    const resetCategoryDerivedFields = (p: EditableProduct, nextCode: string): EditableProduct => {
+      const categoryChanged = p.editedCategoryCode && p.editedCategoryCode !== nextCode;
+      if (!categoryChanged) return p;
+      return {
+        ...p,
+        editedDisplayProductName: '',
+        editedSellerProductName: '',
+        editedStoryParagraphs: [],
+        editedReviewTexts: [],
+        editedContentBlocks: [],
+        // 카테고리별 고시정보/속성은 카테고리가 바뀌면 스키마 자체가 달라지므로 폐기
+        editedNoticeValues: {},
+        editedAttributeValues: {},
+      };
+    };
+
     if (categorySearchTarget === 'bulk') {
       setProducts((prev) => prev.map((p) => {
         if (!p.selected) return p;
@@ -2533,7 +2575,8 @@ export function useBulkRegisterActions() {
           path: p.editedCategoryName,
           confidence: p.categoryConfidence ?? 0,
         } : undefined);
-        return { ...p, editedCategoryCode: cat.id, editedCategoryName: cat.path || cat.name, categoryConfidence: 1, categorySource: 'manual', categoryReviewed: true };
+        const reset = resetCategoryDerivedFields(p, cat.id);
+        return { ...reset, editedCategoryCode: cat.id, editedCategoryName: cat.path || cat.name, categoryConfidence: 1, categorySource: 'manual', categoryReviewed: true };
       }));
     } else if (categorySearchTarget) {
       setProducts((prev) => prev.map((p) => {
@@ -2544,17 +2587,20 @@ export function useBulkRegisterActions() {
           path: p.editedCategoryName,
           confidence: p.categoryConfidence ?? 0,
         } : undefined);
-        return { ...p, editedCategoryCode: cat.id, editedCategoryName: cat.path || cat.name, categoryConfidence: 1, categorySource: 'manual', categoryReviewed: true };
+        const reset = resetCategoryDerivedFields(p, cat.id);
+        return { ...reset, editedCategoryCode: cat.id, editedCategoryName: cat.path || cat.name, categoryConfidence: 1, categorySource: 'manual', categoryReviewed: true };
       }));
     }
     setCategorySearchTarget(null); setCategoryResults([]); setCategoryKeyword('');
-    // 수동 카테고리 지정 후 → displayName 비어있는 상품에 자동 생성 재트리거
-    // (자동 매칭 실패한 상품도 사용자 수동 지정 시 정상 흐름 복구)
+    // 수동 카테고리 지정 후 → displayName/본문 비어있는 상품에 자동 재생성 트리거
+    // runTitleGeneration 과 runContentGeneration 모두 빈 값 체크가 있어
+    // 카테고리가 바뀌지 않은 상품은 건드리지 않는다.
     setTimeout(() => {
       const latest = productsRef.current;
       runTitleGeneration(latest);
+      runContentGeneration(latest);
     }, 100);
-  }, [categorySearchTarget, runTitleGeneration]);
+  }, [categorySearchTarget, runTitleGeneration, runContentGeneration]);
 
   // ---- Toggle / update ----
   const toggleProduct = useCallback((uid: string) => {
@@ -2843,7 +2889,10 @@ export function useBulkRegisterActions() {
       }
     }
 
-    const BATCH_SIZE = 30;
+    // 서버 maxDuration=90s + PARALLEL_REGISTER=10 설계 일치 (batch/route.ts:25 주석).
+    //   30: 3 chunk × ~30s = 90s 빠듯 → 쿠팡 API 지연 시 504 폭주 (전 배치 실패).
+    //   10: 1 chunk × ~30s = 30s 여유 마감, 504 안 남. 비용도 절감 (504는 90s 풀 과금).
+    const BATCH_SIZE = 10;
     setProducts((prev) => prev.map((p) => p.selected && p.editedCategoryCode ? { ...p, status: 'pending' } : p));
 
     try {

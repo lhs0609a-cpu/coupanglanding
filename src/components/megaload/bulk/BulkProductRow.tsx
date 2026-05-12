@@ -2,7 +2,7 @@
 
 import { memo, useState, useEffect } from 'react';
 import {
-  CheckCircle2, AlertTriangle, XCircle, Pencil, ChevronDown, ExternalLink, Ban,
+  CheckCircle2, AlertTriangle, XCircle, Pencil, ChevronDown, ExternalLink, Ban, Search,
 } from 'lucide-react';
 import type { EditableProduct } from './types';
 import type { StockStatus } from './useStockCheck';
@@ -132,13 +132,29 @@ const BulkProductRow = memo(function BulkProductRow({
         <a
           href={p.sourceUrl || `https://search.shopping.naver.com/catalog/${p.productCode}`}
           target="_blank"
-          rel="noopener noreferrer"
+          // noreferrer 제거: 네이버/쿠팡 안티봇이 Referer 없는 deep-link 접근을
+          // 봇 의심 → CAPTCHA/IP rate-limit 트리거. origin (우리 사이트) 만 전송하면
+          // 정상 사용자 흐름으로 인식.
+          rel="noopener"
+          referrerPolicy="strict-origin-when-cross-origin"
           className="inline-flex items-center gap-0.5 text-gray-500 hover:text-blue-600 transition"
           title="원본 상품 보기"
           onClick={(e) => e.stopPropagation()}
         >
           {p.productCode}
           <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+        </a>
+        {/* 구글 검색 우회 — 직접 deep-link가 캡차/IP차단 걸렸을 때 사용.
+            Referer=google.com 이라 네이버/쿠팡이 "정상 외부 유입" 으로 인식해 캡차 회피 확률 높음. */}
+        <a
+          href={`https://www.google.com/search?q=${encodeURIComponent(p.name || p.productCode)}`}
+          target="_blank"
+          rel="noopener"
+          className="ml-1 inline-flex items-center text-gray-400 hover:text-emerald-600 transition"
+          title="구글 검색으로 우회 (캡차/IP차단 회피)"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Search className="w-2.5 h-2.5 shrink-0" />
         </a>
         {stockStatus && STOCK_BADGE[stockStatus] && (
           <span className={`ml-1 px-1 py-px rounded text-[9px] font-medium ${STOCK_BADGE[stockStatus]!.bg} ${STOCK_BADGE[stockStatus]!.text}`}>
