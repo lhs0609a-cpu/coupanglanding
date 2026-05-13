@@ -171,7 +171,8 @@
       "Bash(find . -type f -name \"DetailPageContentTab.tsx\")",
       "Bash(esbuild scripts/verify-content-quality.ts --bundle --platform=node --format=cjs --target=node18 --outfile=scripts/verify-bundle.cjs)",
       "Bash(esbuild scripts/verify-category-match.ts --bundle --platform=node --format=cjs --target=node18 --outfile=scripts/verify-category-bundle.cjs)",
-      "Bash(esbuild src/lib/megaload/services/category-matcher.ts --bundle --platform=node --format=cjs --target=node18 --outfile=scripts/_mm.cjs)"
+      "Bash(esbuild src/lib/megaload/services/category-matcher.ts --bundle --platform=node --format=cjs --target=node18 --outfile=scripts/_mm.cjs)",
+      "PowerShell(git log --pretty=oneline -S \"noreferrer\" -- \"src/components/megaload/bulk/BulkProductRow.tsx\" | Select-Object -First 10)"
     ]
   }
 }

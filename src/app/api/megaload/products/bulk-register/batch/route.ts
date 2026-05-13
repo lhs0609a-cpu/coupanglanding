@@ -340,8 +340,11 @@ export async function POST(req: NextRequest) {
     );
 
     // ---- 카테고리 메타 일괄 prefetch (누락된 코드만 한 번에 조회) ----
-    // 이전: 상품마다 개별 재조회 → 카테고리 N개 × 1~2초 누적 (병목 #3)
-    // 개선: 누락된 카테고리 코드 dedup → Promise.all 병렬 조회 (1.5~2초 1회로 단축)
+    //   개선 (2026-05-13):
+    //     - Notice 는 getNoticeCategoriesWithCacheBatch 로 Supabase 캐시를 in() 1쿼리로 일괄 조회.
+    //       → 캐시 hit 시 라이브 API 0회, 캐시 미스만 코드별 fallback.
+    //     - Attribute 는 캐시 미적용이므로 코드별 병렬 라이브 호출 유지.
+    //     - Notice 와 Attribute 를 한 코드 안에서 sequential 처리하지 않고 분리 진행 (Promise.all).
     {
       const missingNoticeCodes = new Set<string>();
       const missingAttrCodes = new Set<string>();
@@ -349,39 +352,43 @@ export async function POST(req: NextRequest) {
         if (!p.noticeMeta || p.noticeMeta.length === 0) missingNoticeCodes.add(p.categoryCode);
         if (!p.attributeMeta || p.attributeMeta.length === 0) missingAttrCodes.add(p.categoryCode);
       }
-      const allMissing = new Set([...missingNoticeCodes, ...missingAttrCodes]);
-      if (allMissing.size > 0) {
-        const noticeCache = new Map<string, NoticeCategoryMeta[]>();
+      if (missingNoticeCodes.size > 0 || missingAttrCodes.size > 0) {
+        const { getNoticeCategoriesWithCacheBatch } = await import('@/lib/megaload/services/notice-category-cache');
+        const noticeMissingArr = [...missingNoticeCodes];
+        const attrMissingArr = [...missingAttrCodes];
+
+        // Notice: Supabase 캐시 우선 batch
+        const noticePromise: Promise<Record<string, NoticeCategoryMeta[]>> =
+          noticeMissingArr.length > 0
+            ? getNoticeCategoriesWithCacheBatch(serviceClient, coupangAdapter, noticeMissingArr, { concurrency: 8, delayMs: 100 })
+            : Promise.resolve({});
+
+        // Attribute: 캐시 없음 — 코드별 병렬 라이브
         const attrCache = new Map<string, AttributeMeta[]>();
-        await Promise.allSettled(
-          [...allMissing].map(async (code) => {
-            if (missingNoticeCodes.has(code)) {
-              try {
-                const r = await coupangAdapter.getNoticeCategoryFields(code);
-                noticeCache.set(code, r.items.map((item) => ({
-                  noticeCategoryName: item.noticeCategoryName,
-                  fields: item.noticeCategoryDetailNames.map((d) => ({ name: d.name, required: d.required })),
-                })));
-              } catch { /* 개별 실패 무시 */ }
-            }
-            if (missingAttrCodes.has(code)) {
-              try {
-                const r = await coupangAdapter.getCategoryAttributes(code);
-                attrCache.set(code, r.items);
-              } catch { /* 개별 실패 무시 */ }
-            }
-          }),
-        );
+        const ATTR_CONCURRENT = 10;
+        let attrIdx = 0;
+        const attrWorkers = Array.from({ length: Math.min(ATTR_CONCURRENT, attrMissingArr.length) }, async () => {
+          while (attrIdx < attrMissingArr.length) {
+            const code = attrMissingArr[attrIdx++];
+            try {
+              const r = await coupangAdapter.getCategoryAttributes(code);
+              attrCache.set(code, r.items);
+            } catch { /* 개별 실패 무시 */ }
+          }
+        });
+        const [noticeMap] = await Promise.all([noticePromise, Promise.all(attrWorkers)]);
+
         // 상품에 채워넣기
         for (const p of products) {
-          if ((!p.noticeMeta || p.noticeMeta.length === 0) && noticeCache.has(p.categoryCode)) {
-            p.noticeMeta = noticeCache.get(p.categoryCode)!;
+          if ((!p.noticeMeta || p.noticeMeta.length === 0) && noticeMap[p.categoryCode]) {
+            p.noticeMeta = noticeMap[p.categoryCode];
           }
           if ((!p.attributeMeta || p.attributeMeta.length === 0) && attrCache.has(p.categoryCode)) {
             p.attributeMeta = attrCache.get(p.categoryCode)!;
           }
         }
-        console.log(`[batch] 메타 prefetch: notice=${noticeCache.size}, attr=${attrCache.size} / 누락카테고리=${allMissing.size}`);
+        const noticeHit = Object.keys(noticeMap).filter(c => noticeMap[c].length > 0).length;
+        console.log(`[batch] 메타 prefetch: notice=${noticeHit}/${noticeMissingArr.length} (Supabase 캐시 batch), attr=${attrCache.size}/${attrMissingArr.length}`);
       }
     }
 

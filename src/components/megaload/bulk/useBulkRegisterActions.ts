@@ -186,6 +186,26 @@ export function useBulkRegisterActions() {
     }, 250);
     return () => clearTimeout(timer);
   }, [categoryMetaCache]);
+
+  // 카테고리 메타 캐시 머지 — 빈 배열로 채워진 메타가 기존 채워진 메타를 덮어쓰지 않도록 가드.
+  //   validate-batch 는 attribute=[] 로 응답하고(라이브 호출 회피), preflight/init-job 은 채워서 응답.
+  //   prev: { 12345: { notice: [...], attr: [...] } } + next: { 12345: { notice: [...], attr: [] } }
+  //   → 가드 없으면 attr 손실, 다음 등록 때 init-job 재조회 발생.
+  const mergeCategoryMeta = useCallback(
+    (prev: Record<string, CategoryMetadata>, next: Record<string, CategoryMetadata> | undefined) => {
+      if (!next) return prev;
+      const merged: Record<string, CategoryMetadata> = { ...prev };
+      for (const [code, meta] of Object.entries(next)) {
+        const existing = merged[code];
+        merged[code] = {
+          noticeMeta: meta.noticeMeta?.length ? meta.noticeMeta : (existing?.noticeMeta || []),
+          attributeMeta: meta.attributeMeta?.length ? meta.attributeMeta : (existing?.attributeMeta || []),
+        };
+      }
+      return merged;
+    },
+    [],
+  );
   const [validationPhase, setValidationPhase] = useState<'idle' | 'local' | 'deep' | 'dryrun' | 'preupload' | 'complete'>('idle');
 
   // Image preupload pipeline
@@ -2113,7 +2133,7 @@ export function useBulkRegisterActions() {
                 }
               }
               setDryRunResults((prev) => ({ ...prev, ...newDryRun }));
-              if (data.categoryMeta) setCategoryMetaCache((prev) => ({ ...prev, ...data.categoryMeta }));
+              if (data.categoryMeta) setCategoryMetaCache((prev) => mergeCategoryMeta(prev, data.categoryMeta));
             }
           } catch (err) {
             console.warn(`[validate-batch] batch ${batchIdx} 실패 — skip:`, err instanceof Error ? err.message : err);
@@ -2241,7 +2261,7 @@ export function useBulkRegisterActions() {
         setPreflightResults(data.results || {});
         setPreflightStats(data.stats || null);
         setPreflightDurationMs(data.durationMs || 0);
-        if (data.categoryMeta) setCategoryMetaCache(prev => ({ ...prev, ...data.categoryMeta }));
+        if (data.categoryMeta) setCategoryMetaCache(prev => mergeCategoryMeta(prev, data.categoryMeta));
         setPreflightPhase('complete');
       } else {
         const errData = await res.json().catch(() => ({ error: '프리플라이트 실패' }));
@@ -2907,6 +2927,11 @@ export function useBulkRegisterActions() {
 
       const { jobId } = initData;
       const categoryMeta = { ...categoryMetaCache, ...(initData.categoryMeta || {}) };
+      // init-job 이 새로 받은 메타를 localStorage 캐시에 즉시 적재 → 같은 카테고리가 들어간
+      // 다음 배치 등록은 init-job 라이브 호출 0회 (preflight 와 동일 패턴).
+      if (initData.categoryMeta && Object.keys(initData.categoryMeta).length > 0) {
+        setCategoryMetaCache((prev) => mergeCategoryMeta(prev, initData.categoryMeta));
+      }
 
       // 제3자 이미지: 저장된 CDN URL 우선 → 없으면 스캔 이미지 업로드
       let thirdPartyImageCdnUrls: string[] = [];
@@ -2975,9 +3000,12 @@ export function useBulkRegisterActions() {
           // 이미지 타입 정보 전달 (의미적 매칭용)
           if (p.detailImageSelectionMeta?.imageTypes?.length) product.detailImageTypes = p.detailImageSelectionMeta.imageTypes;
           const cached = imagePreuploadCacheRef.current[p.uid];
-          const cacheValid = cached && cached.uploadedAt && (Date.now() - cached.uploadedAt < IMAGE_CACHE_TTL_MS);
+          // 이미지 사전업로드 캐시는 CDN URL이라 영속 — TTL 검사 안 한다.
+          //   과거 30분 TTL을 두면 새로고침 후 세션 복원 + 30분 경과 시점 등록에서
+          //   hasCache=false 로 떨어져 mockScanned(handle=null) 폴백을 타고
+          //   uploadScannedImages 가 getFile() 호출하다 전멸 → "대표이미지 최소 1장 필요" 오류.
           // 이미지 업로드: 캐시 → 브라우저 업로드 → 서버 업로드 순서
-          const hasCache = cacheValid && cached.mainImageUrls?.length;
+          const hasCache = !!cached?.mainImageUrls?.length;
           const hasScanned = (p.scannedMainImages?.length ?? 0) > 0;
           const hasLocalPaths = (p.mainImages?.length ?? 0) > 0;
 
