@@ -130,9 +130,14 @@ function loadExactLeafMap(): Map<string, IndexEntry[]> {
     //    "양파/파/부추김치" → ["양파", "파", "부추김치"], "물김치/동치미" → ["물김치","동치미"]
     //    셀러가 줄임말("파김치") 또는 단일 토큰("파")으로 입력해도 leaf 매칭 가능.
     //    "파" 같이 1글자 토큰은 addAlias 의 length < 2 가드로 자동 제외.
+    //    SEO 일반 단어("브랜드","마케팅" 등)는 NOISE_WORDS 체크로 alias 등록 제외 →
+    //    "마케팅/브랜드" leaf 의 alias "브랜드" 로 인한 도서 카테고리 회귀 차단.
     if (/[\/\-]/.test(leaf)) {
       const parts = leaf.split(/[\/\-]+/).map(p => p.trim()).filter(Boolean);
-      for (const p of parts) addAlias(p, entry);
+      for (const p of parts) {
+        if (NOISE_WORDS.has(p.toLowerCase())) continue;
+        addAlias(p, entry);
+      }
     }
     // 3) 공백 제거 버전 ("양파/파/부추김치" → "양파파부추김치", "사과 배 과일세트" → "사과배과일세트")
     const compact = leaf.replace(/[\s\/\-]+/g, '');
@@ -790,6 +795,9 @@ const NOISE_WORDS = new Set([
   // 일반 서술어
   '함유', '효능', '효과', '예방', '개선', '상품상세참조', '풍성한',
   'new', 'box', 'haccp',
+  // SEO 일반 단어 — leaf alias 로 등록되면 도서/마케팅/세일즈 류 카테고리에 hit (예: "마케팅/브랜드" leaf 의 alias "브랜드").
+  //   "꽉 채운 영양밸런스 반려동물 자연식 전문 브랜드 춤추는 도기넛 사료" → 도서>마케팅/브랜드 회귀 차단.
+  '브랜드', '마케팅', '세일즈', '신상', '럭셔리', '내구성', '학생', '전문', '자연식', '영양밸런스', '꽉', '채운',
   // 색상 spec (단독 leaf "블루" 만 존재 — 다른 색상은 leaf 일부로 들어가도 토큰 단위 비교라 safe).
   //   "리클라이너 L사이즈 블랙" 류가 leaf "블랙/칼라보드/게시판" 으로 잘못 흡수되는 회귀 차단.
   '블랙', '화이트', '그레이', '베이지', '네이비', '옐로우', '핑크', '퍼플',
@@ -819,9 +827,12 @@ const NOISE_PATTERNS = [
 function cleanProductName(name: string): string {
   let cleaned = name;
 
-  // 노이즈 반복 패턴 제거 — "징 징 징", "ㅋ ㅋ ㅋ", "abc abc abc"
-  // 셀러가 SEO/플레이스홀더로 같은 짧은 토큰을 3회+ 반복한 경우 토큰 풀 오염 방지.
-  cleaned = cleaned.replace(/\b(\S{1,4})(?:\s+\1){2,}\b/gu, ' ');
+  // 노이즈 반복 패턴 정리 — "사료 사료 사료", "갓김치 갓김치 갓김치", "ㅋ ㅋ ㅋ"
+  // 셀러가 SEO 목적으로 반복한 토큰은 카테고리 매칭의 핵심 키워드일 수 있다.
+  //   이전: 통째로 공백 대체 → "사료" 같은 도메인 키워드가 사라져 도서/마케팅 등 엉뚱한
+  //         카테고리에 매칭되는 회귀 발생.
+  //   이후: 1회로 축약 (3회+ 반복 → 1회). 이후 단어 dedup 이 한 번 더 보장.
+  cleaned = cleaned.replace(/\b(\S{1,4})(?:\s+\1){2,}\b/gu, '$1');
 
   // 괄호 안 텍스트 제거 (브랜드명 등)
   cleaned = cleaned.replace(/[\[\(【][^\]\)】]*[\]\)】]/g, ' ');

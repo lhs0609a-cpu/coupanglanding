@@ -142,11 +142,11 @@ export async function scanDirectoryHandle(
 
   onProgress?.({ current: 0, total: productDirs.length, phase: 'scanning' });
 
-  // Phase 2: 워커 풀 — 12 → 6 으로 하향 (FS API 동시 호출 폭주 방지).
-  // 12 워커가 동시에 collectImagesFromSubdir을 부르면 각자 5 getFile = 60 동시 호출 → 35개 이후 throttle.
-  // 6 워커로 줄이면 30 동시 호출 — 브라우저 FS 큐 한계 내.
-  // 추가: 매 상품 처리 후 setTimeout(0) yield 로 메인스레드 starvation 방지 (UI 응답성 + GC 기회 확보).
-  const SCAN_CONCURRENCY = 10;
+  // Phase 2: 워커 풀.
+  //   scanSingleProduct 가 한 상품 안에서 6 슬롯(json/summary/main/review/detail/info)을 동시 진행하므로
+  //   워커 수 × 6 ≈ 동시 FS 호출 상한. 7 × 6 = 42 — 브라우저 FS 큐 한계(50 안팎) 안쪽.
+  //   (이전 10 워커 × sequential 슬롯에서 → 7 워커 × 병렬 슬롯, 한 상품 wall time 단축이 더 큰 효과)
+  const SCAN_CONCURRENCY = 7;
   const products: ScannedProduct[] = new Array(productDirs.length);
   let nextProductIdx = 0;
   let doneCount = 0;
@@ -199,6 +199,14 @@ export async function scanDirectoryHandle(
 
 /**
  * 단일 product_* 폴더를 스캔
+ *
+ * 성능 (2026-05-13 개선):
+ *   - 상품 안의 모든 독립 I/O 를 Promise.all 로 동시 진행
+ *     (이전: json → summary → main → review → detail → info 6단계 sequential await)
+ *   - review/detail/info 폴더명 후보 probe 도 슬롯 간 병렬 (캐시 hit 후엔 1회 probe)
+ *   - info 폴더 objectURL 도 lazy 로 전환 (필요 시점에 ensureObjectUrl)
+ *   - 한 워커 안 동시 FS 호출 ≈ 5 (json+summary+main+review+detail+info 중 동시진행 슬롯)
+ *     SCAN_CONCURRENCY 7 × 워커 내 5 = 35 동시 FS — 브라우저 FS 큐 한계 안쪽.
  */
 async function scanSingleProduct(
   name: string,
@@ -207,46 +215,13 @@ async function scanSingleProduct(
 ): Promise<ScannedProduct> {
   const productCode = name.replace('product_', '');
 
-  // product.json 읽기
-  let productJson: ScannedProduct['productJson'] = {};
-  try {
-    const jsonHandle = await productDirHandle.getFileHandle('product.json');
-    const file = await jsonHandle.getFile();
-    const text = await file.text();
-    productJson = JSON.parse(text);
-  } catch {
-    // product.json 없거나 파싱 실패
-  }
-
-  // product_summary.txt에서 원본 URL 추출
-  let sourceUrl: string | undefined;
-  try {
-    const summaryHandle = await productDirHandle.getFileHandle('product_summary.txt');
-    const summaryFile = await summaryHandle.getFile();
-    const summaryText = await summaryFile.text();
-    const urlMatch = summaryText.match(/URL:\s*(https?:\/\/\S+)/i);
-    if (urlMatch) sourceUrl = urlMatch[1];
-  } catch {
-    // product_summary.txt 없음
-  }
-
-  // P1-4: main_images만 objectURL 즉시 생성, 나머지는 핸들만 수집 (lazy)
-  // (이전엔 productDirHandle 전체를 for await로 pre-enumerate 했으나,
-  //  병렬 워커 12개가 동시에 열거 시 브라우저 FS API가 지연 → 원래 방식으로 복원)
-  const rawMainImages = await collectImagesFromSubdir(productDirHandle, 'main_images', MAIN_IMAGE_PATTERN, true, true);
-  // 대량 배치에서는 dHash(메인스레드 O(N²)) 스킵 — 파일명 기반 광고 필터로 대체
-  const mainImages = options.skipDhash ? rawMainImages : await filterMainImageOutliers(rawMainImages, name);
-
-  // 폴백: 사용자 폴더 구조가 표준 이름과 다를 수 있으므로 여러 후보 검사.
-  // 배치 단위 캐시 적용 — 첫 상품에서 성공한 폴더명을 후속 상품에서 우선 시도.
-  // 150개 일괄 시 후속 149개 상품은 8회 시도 → 1회로 단축 (배치 95% 단축).
   const collectFirstMatch = async (
     slot: FolderSlot,
     names: string[],
     eagerObjectUrls: boolean,
     applyAdFilter: boolean,
   ): Promise<ScannedImageFile[]> => {
-    // 캐시된 폴더명 우선 시도
+    // 캐시된 폴더명 우선 시도 — 첫 상품은 sequential probe, 후속 상품은 캐시 hit 으로 1회 만에 완료.
     const cached = folderNameCache[slot];
     const ordered = cached ? [cached, ...names.filter((n) => n !== cached)] : names;
     for (const n of ordered) {
@@ -259,21 +234,57 @@ async function scanSingleProduct(
     return [];
   };
 
-  let reviewImages = await collectFirstMatch(
-    'review',
-    ['review_images', 'reviews', 'review', '리뷰이미지', '리뷰 이미지', '리뷰', 'customer_reviews'],
-    false, false,
-  );
-  let detailImages = await collectFirstMatch(
-    'detail',
-    ['detail_images', 'details', 'detail', 'detail-images', 'detailImages', '상세이미지', '상세 이미지', '상세', 'description_images'],
-    false, false,
-  );
-  const infoImages = await collectFirstMatch(
-    'info',
-    ['product_info', 'info', 'product-info', 'productInfo', '상품정보', '정보', 'info_images'],
-    true, false,
-  );
+  // 한 상품 안의 모든 독립 I/O 를 동시에 시작.
+  //   product.json, product_summary.txt, main_images, review_images, detail_images, product_info
+  //   서로 의존 없음 → wall time = max(slot) 으로 단축 (이전: sum(slot)).
+  // info 는 eager → lazy 전환: 사용자가 즉시 표시할 필요 거의 없음 (등록 시점에만 사용),
+  //   eager 유지하면 한 상품당 추가 N getFile + createObjectURL 비용.
+  const [productJson, sourceUrl, rawMainImages, reviewImagesInit, detailImagesInit, infoImages] = await Promise.all([
+    (async () => {
+      try {
+        const jsonHandle = await productDirHandle.getFileHandle('product.json');
+        const file = await jsonHandle.getFile();
+        const text = await file.text();
+        return JSON.parse(text) as ScannedProduct['productJson'];
+      } catch {
+        return {} as ScannedProduct['productJson'];
+      }
+    })(),
+    (async () => {
+      try {
+        const summaryHandle = await productDirHandle.getFileHandle('product_summary.txt');
+        const summaryFile = await summaryHandle.getFile();
+        const summaryText = await summaryFile.text();
+        const urlMatch = summaryText.match(/URL:\s*(https?:\/\/\S+)/i);
+        return urlMatch ? urlMatch[1] : undefined;
+      } catch {
+        return undefined;
+      }
+    })(),
+    collectImagesFromSubdir(productDirHandle, 'main_images', MAIN_IMAGE_PATTERN, true, true),
+    collectFirstMatch(
+      'review',
+      ['review_images', 'reviews', 'review', '리뷰이미지', '리뷰 이미지', '리뷰', 'customer_reviews'],
+      false, false,
+    ),
+    collectFirstMatch(
+      'detail',
+      ['detail_images', 'details', 'detail', 'detail-images', 'detailImages', '상세이미지', '상세 이미지', '상세', 'description_images'],
+      false, false,
+    ),
+    collectFirstMatch(
+      'info',
+      ['product_info', 'info', 'product-info', 'productInfo', '상품정보', '정보', 'info_images'],
+      false, false, // lazy — 즉시 표시 필요 없음, 등록 시점에 ensureObjectUrl
+    ),
+  ]);
+
+  // dHash 는 rawMainImages 가 준비된 후에만 가능 — Promise.all 이후 처리.
+  // 대량 배치에서는 dHash(메인스레드 O(N²)) 스킵 — 파일명 기반 광고 필터로 대체.
+  const mainImages = options.skipDhash ? rawMainImages : await filterMainImageOutliers(rawMainImages, name);
+
+  let reviewImages = reviewImagesInit;
+  let detailImages = detailImagesInit;
 
   // 상세페이지 본문 이미지 소스 폴백 (우선순위):
   //   1. detail_images 폴더 (명시적 상세이미지)
