@@ -1,0 +1,1509 @@
+{
+  "meta": {
+    "totalCategories": 16259,
+    "variantsPerCategory": 30,
+    "totalGenerated": 487770,
+    "elapsedSecMax": 3050.4,
+    "finishedAt": "2026-05-13T03:55:21.144Z",
+    "shardsCount": 6
+  },
+  "summary": {
+    "pass": 469091,
+    "fail": 18679,
+    "passRate": 96.17
+  },
+  "lengthDistribution": {
+    "<20": 144,
+    "20-30": 8296,
+    "31-40": 64305,
+    "41-50": 302702,
+    "51-70": 112323,
+    "71-100": 0,
+    ">100": 0
+  },
+  "issueBreakdown": {
+    "tooManyTokens": {
+      "count": 205217,
+      "pct": 42.07
+    },
+    "overRecommended": {
+      "count": 112323,
+      "pct": 23.03
+    },
+    "hypeBanned": {
+      "count": 16368,
+      "pct": 3.36
+    },
+    "celebrityLeak": {
+      "count": 2170,
+      "pct": 0.44
+    },
+    "promoBanned": {
+      "count": 157,
+      "pct": 0.03
+    },
+    "tooShort": {
+      "count": 144,
+      "pct": 0.03
+    },
+    "keywordStuffing": {
+      "count": 60,
+      "pct": 0.01
+    },
+    "mildRepetition": {
+      "count": 26,
+      "pct": 0.01
+    }
+  },
+  "failureSamples": {
+    "hypeBanned": [
+      {
+        "cat": "가구>홈데코>가구부속자재",
+        "leaf": "가구부속자재",
+        "input": "명품 가구부속자재 대용량 신상품 가구부속자재 효과만점 100% 보장",
+        "brand": "프리미엄",
+        "generated": "가구부속자재 보장 명품 신상품 효과만점 홈데코 맥스 장인정신 프로페셔널",
+        "len": 39
+      },
+      {
+        "cat": "가구>홈데코>리클라이너",
+        "leaf": "리클라이너",
+        "input": "명품 리클라이너 대용량 신상품 리클라이너 효과만점 100% 보장",
+        "brand": "프리미엄",
+        "generated": "리클라이너 명품 신상품 효과만점 보장 가구 홈데코 심플한 실속형 실용적",
+        "len": 39
+      },
+      {
+        "cat": "가구>홈데코>매트리스>본넬스프링매트리스",
+        "leaf": "본넬스프링매트리스",
+        "input": "명품 본넬스프링매트리스 대용량 신상품 본넬스프링매트리스 효과만점 100% 보장",
+        "brand": "프리미엄",
+        "generated": "본넬스프링매트리스 명품 신상품 효과만점 보장 가구 홈데코 실속형 클래식한",
+        "len": 40
+      },
+      {
+        "cat": "가구>홈데코>소파",
+        "leaf": "소파",
+        "input": "명품 소파 대용량 신상품 소파 효과만점 100% 보장",
+        "brand": "프리미엄",
+        "generated": "소파 명품 보장 신상품 효과만점 가구 홈데코 컴팩트 에코",
+        "len": 31
+      },
+      {
+        "cat": "가구>홈데코>수납가구>서랍>수납장>서랍장",
+        "leaf": "서랍장",
+        "input": "명품 서랍장 대용량 신상품 서랍장 효과만점 100% 보장",
+        "brand": "프리미엄",
+        "generated": "서랍장 신상품 효과만점 명품 보장 홈데코 수납가구 수납장 특별한 상품",
+        "len": 38
+      },
+      {
+        "cat": "가구>홈데코>거실테이블>리프트테이블",
+        "leaf": "리프트테이블",
+        "input": "명품 리프트테이블 대용량 신상품 리프트테이블 효과만점 100% 보장",
+        "brand": "프리미엄",
+        "generated": "리프트테이블 보장 효과만점 명품 신상품 가구 홈데코 거실테이블 실속형 모던한 에코",
+        "len": 45
+      },
+      {
+        "cat": "가구>홈데코>매트리스>기타매트리스/내장재",
+        "leaf": "기타매트리스/내장재",
+        "input": "명품 기타매트리스 대용량 신상품 기타매트리스 효과만점 100% 보장",
+        "brand": "프리미엄",
+        "generated": "기타매트리스 명품 효과만점 내장재 신상품 보장 가구 실용적 모던한 맥스 홈데코",
+        "len": 43
+      },
+      {
+        "cat": "가구>홈데코>매트리스>유아매트리스",
+        "leaf": "유아매트리스",
+        "input": "명품 유아매트리스 대용량 신상품 유아매트리스 효과만점 100% 보장",
+        "brand": "프리미엄",
+        "generated": "유아매트리스 효과만점 명품 신상품 보장 가구 홈데코 맥스 심플한 편리한",
+        "len": 39
+      }
+    ],
+    "tooShort": [
+      {
+        "cat": "가구>홈데코>리클라이너",
+        "leaf": "리클라이너",
+        "input": "[정품] 리클라이너 무료배송 특가 ★당일발송★ 리클라이너 리클라이너",
+        "brand": "메가셀러",
+        "generated": "리클라이너 가구 홈데코 실용 베이직",
+        "len": 19
+      },
+      {
+        "cat": "가구>홈데코>야외가구>야외테이블>야외테이블",
+        "leaf": "야외테이블",
+        "input": "[정품] 야외테이블 무료배송 특가 ★당일발송★ 야외테이블 야외테이블",
+        "brand": "메가셀러",
+        "generated": "야외테이블 가구 홈데코 상품 슈퍼",
+        "len": 18
+      },
+      {
+        "cat": "가구>홈데코>쿠션>방석>대형방석",
+        "leaf": "대형방석",
+        "input": "대형방석 (대용량) 사은품 증정 리뷰이벤트 대형방석",
+        "brand": "에코",
+        "generated": "대형방석 가구 홈데코 신상 쿠션",
+        "len": 17
+      },
+      {
+        "cat": "스포츠>레져>구기스포츠>볼링>볼링공",
+        "leaf": "볼링공",
+        "input": "볼링공 (대용량) 사은품 증정 리뷰이벤트 볼링공",
+        "brand": "에코",
+        "generated": "볼링공 구기스포츠 레져 수량 상품",
+        "len": 18
+      },
+      {
+        "cat": "스포츠>레져>구기스포츠>하키>하키복",
+        "leaf": "하키복",
+        "input": "하키복",
+        "brand": "데일리",
+        "generated": "하키복 레져 스포츠 슈퍼 실용 신상",
+        "len": 19
+      },
+      {
+        "cat": "가구>홈데코>의자>안락의자",
+        "leaf": "안락의자",
+        "input": "[정품] 안락의자 무료배송 특가 ★당일발송★ 안락의자 안락의자",
+        "brand": "메가셀러",
+        "generated": "안락의자 가구 홈데코 에코 컴팩트",
+        "len": 18
+      },
+      {
+        "cat": "가구>홈데코>행거>폴행거",
+        "leaf": "폴행거",
+        "input": "폴행거 (대용량) 사은품 증정 리뷰이벤트 폴행거",
+        "brand": "에코",
+        "generated": "폴행거 가구 홈데코 슈퍼 상품 맥스",
+        "len": 19
+      },
+      {
+        "cat": "가구>홈데코>금고>가정용금고",
+        "leaf": "가정용금고",
+        "input": "[정품] 가정용금고 무료배송 특가 ★당일발송★ 가정용금고 가정용금고",
+        "brand": "메가셀러",
+        "generated": "가정용금고 가구 홈데코 럭셔리",
+        "len": 16
+      }
+    ],
+    "tooManyTokens": [
+      {
+        "cat": "가구>홈데코>수납가구>서랍>수납장>서랍장",
+        "leaf": "서랍장",
+        "input": "리빙 명품 서랍장 인기상품 500g",
+        "brand": "리빙",
+        "generated": "서랍장 정리장 명품 인기상품 수납장 홈데코 수납가구 신상품 울트라 슈퍼 500g",
+        "len": 44
+      },
+      {
+        "cat": "가구>홈데코>수납가구>서랍>수납장>청소기보관함",
+        "leaf": "청소기보관함",
+        "input": "명품 청소기보관함 대용량 신상품 청소기보관함 효과만점 100% 보장",
+        "brand": "프리미엄",
+        "generated": "청소기보관함 보장 효과만점 명품 신상품 수납장 홈데코 가구 울트라 상품 에코",
+        "len": 42
+      },
+      {
+        "cat": "가구>홈데코>옷장>드레스룸>장롱>붙박이장>긴옷장",
+        "leaf": "긴옷장",
+        "input": "데일리 프리미엄 긴옷장 인기상품 100g",
+        "brand": "데일리",
+        "generated": "긴옷장 인기상품 프리미엄 가구 홈데코 편리한 울트라 신상 드레스룸 장롱 100g",
+        "len": 44
+      },
+      {
+        "cat": "가구>홈데코>옷장>드레스룸>장롱>붙박이장>긴옷장",
+        "leaf": "긴옷장",
+        "input": "리빙 명품 긴옷장 인기상품 500g",
+        "brand": "리빙",
+        "generated": "긴옷장 명품 인기상품 장롱 붙박이장 드레스룸 슈퍼 라이트 품격있는 가구 500g",
+        "len": 44
+      },
+      {
+        "cat": "가구>홈데코>옷장>드레스룸>장롱>붙박이장>긴옷장",
+        "leaf": "긴옷장",
+        "input": "에코프렌즈 긴옷장 1개",
+        "brand": "데일리",
+        "generated": "긴옷장 에코프렌즈 가구 홈데코 장롱 신상품 울트라 고품질 드레스룸 붙박이장 1개",
+        "len": 44
+      },
+      {
+        "cat": "가구>홈데코>거실테이블>리프트테이블",
+        "leaf": "리프트테이블",
+        "input": "명품 리프트테이블 대용량 신상품 리프트테이블 효과만점 100% 보장",
+        "brand": "프리미엄",
+        "generated": "리프트테이블 보장 효과만점 명품 신상품 가구 홈데코 거실테이블 실속형 모던한 에코",
+        "len": 45
+      },
+      {
+        "cat": "가구>홈데코>매트리스>기타매트리스/내장재",
+        "leaf": "기타매트리스/내장재",
+        "input": "명품 기타매트리스 대용량 신상품 기타매트리스 효과만점 100% 보장",
+        "brand": "프리미엄",
+        "generated": "기타매트리스 명품 효과만점 내장재 신상품 보장 가구 실용적 모던한 맥스 홈데코",
+        "len": 43
+      },
+      {
+        "cat": "가구>홈데코>수납가구>서랍>수납장>TV장/거실장",
+        "leaf": "TV장/거실장",
+        "input": "프리미엄 TV장 500g",
+        "brand": "에코",
+        "generated": "TV장/거실장 프리미엄 홈데코 가구 서랍 특별한 프로페셔널 심플한 수납장 500g",
+        "len": 45
+      }
+    ],
+    "overRecommended": [
+      {
+        "cat": "가구>홈데코>수선>수예도구>가죽공예용품>가죽공예diy패키지>여권/다이어리",
+        "leaf": "여권/다이어리",
+        "input": "데일리 프리미엄 여권 인기상품 100g",
+        "brand": "데일리",
+        "generated": "여권 인기상품 프리미엄 다이어리 가죽공예diy패키지 홈데코 가구 특별한 수량 울트라 100g",
+        "len": 51
+      },
+      {
+        "cat": "가구>홈데코>수선>수예도구>가죽공예용품>가죽공예diy패키지>여권/다이어리",
+        "leaf": "여권/다이어리",
+        "input": "에코 친환경 여권 인기상품 500ml",
+        "brand": "에코",
+        "generated": "여권 친환경 인기상품 다이어리 수예도구 가죽공예diy패키지 가죽공예용품 상품 내구성 500ml",
+        "len": 52
+      },
+      {
+        "cat": "가구>홈데코>수선>수예도구>가죽공예용품>가죽공예diy패키지>여권/다이어리",
+        "leaf": "여권/다이어리",
+        "input": "리빙 명품 여권 인기상품 500g",
+        "brand": "리빙",
+        "generated": "여권 인기상품 다이어리 명품 가구 수예도구 가죽공예diy패키지 편리한 품격있는 슈퍼 500g",
+        "len": 51
+      },
+      {
+        "cat": "가구>홈데코>수선>수예도구>가죽공예용품>가죽공예diy패키지>여권/다이어리",
+        "leaf": "여권/다이어리",
+        "input": "명품 여권 대용량 신상품 여권 효과만점 100% 보장",
+        "brand": "프리미엄",
+        "generated": "여권 효과만점 다이어리 명품 신상품 보장 가죽공예diy패키지 홈데코 가구 장인정신 베이직 내구성",
+        "len": 53
+      },
+      {
+        "cat": "가구>홈데코>수선>수예도구>가죽공예용품>가죽공예diy패키지>여권/다이어리",
+        "leaf": "여권/다이어리",
+        "input": "베스트마켓 여권 L사이즈 100ml",
+        "brand": "베스트",
+        "generated": "여권 L사이즈 다이어리 가죽공예diy패키지 가죽공예용품 수예도구 베이직 견고한 에코 100ml",
+        "len": 52
+      },
+      {
+        "cat": "가구>홈데코>옷장>드레스룸>장롱>붙박이장>락커/캐비닛/사물함",
+        "leaf": "락커/캐비닛/사물함",
+        "input": "프리미엄스토어 락커 대형 100ml",
+        "brand": "에코",
+        "generated": "락커 대형 캐비닛 사물함 프리미엄스토어 홈데코 드레스룸 가구 수량 품격있는 내구성 100ml",
+        "len": 51
+      },
+      {
+        "cat": "가구>홈데코>수선>수예도구>가죽공예용품>가죽공예diy패키지>지갑/명함케이스/파우치",
+        "leaf": "지갑/명함케이스/파우치",
+        "input": "지갑 1개",
+        "brand": "베스트",
+        "generated": "지갑 명함케이스 파우치 수선 홈데코 가구 실용적 수예도구 가죽공예용품 가죽공예diy패키지 1개",
+        "len": 52
+      },
+      {
+        "cat": "가구>홈데코>수선>수예도구>가죽공예용품>가죽공예diy패키지>지갑/명함케이스/파우치",
+        "leaf": "지갑/명함케이스/파우치",
+        "input": "데일리 프리미엄 지갑 인기상품 100g",
+        "brand": "데일리",
+        "generated": "지갑 프리미엄 인기상품 명함케이스 파우치 수선 가구 가죽공예diy패키지 프로페셔널 라이트 에코 100g",
+        "len": 57
+      }
+    ],
+    "promoBanned": [
+      {
+        "cat": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "leaf": "금꽃/금장미",
+        "input": "금꽃",
+        "brand": "데일리",
+        "generated": "금꽃 금장미 원예 홈데코 가드닝 클래식한 인기상품 가구 이벤트꽃",
+        "len": 35
+      },
+      {
+        "cat": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "leaf": "금꽃/금장미",
+        "input": "금꽃 1개",
+        "brand": "베스트",
+        "generated": "금꽃 금장미 홈데코 이벤트꽃 품격있는 실용적 가구 원예 가드닝 1개",
+        "len": 37
+      },
+      {
+        "cat": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "leaf": "금꽃/금장미",
+        "input": "베스트 인기 금꽃 인기상품 1개",
+        "brand": "베스트",
+        "generated": "금꽃 인기상품 금장미 가드닝 이벤트꽃 베이직 편리한 컴팩트 가구 홈데코 1개",
+        "len": 42
+      },
+      {
+        "cat": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "leaf": "금꽃/금장미",
+        "input": "리빙 명품 금꽃 인기상품 500g",
+        "brand": "리빙",
+        "generated": "금꽃 명품 금장미 인기상품 가드닝 가구 실속형 심플한 홈데코 원예 이벤트꽃 500g",
+        "len": 46
+      },
+      {
+        "cat": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "leaf": "금꽃/금장미",
+        "input": "데일리홈 금꽃 1개",
+        "brand": "데일리",
+        "generated": "금꽃 금장미 가드닝 원예 홈데코 장인정신 프로페셔널 컴팩트 가구 이벤트꽃 1개",
+        "len": 43
+      },
+      {
+        "cat": "가구>홈데코>원예>가드닝>이벤트꽃>용돈박스",
+        "leaf": "용돈박스",
+        "input": "용돈박스",
+        "brand": "데일리",
+        "generated": "용돈박스 홈데코 이벤트꽃 원예 심플한 슈퍼 가구 가드닝",
+        "len": 30
+      },
+      {
+        "cat": "가구>홈데코>원예>가드닝>이벤트꽃>용돈박스",
+        "leaf": "용돈박스",
+        "input": "용돈박스 1개",
+        "brand": "베스트",
+        "generated": "용돈박스 홈데코 원예 가드닝 견고한 상품 프로페셔널 가구 이벤트꽃 1개",
+        "len": 39
+      },
+      {
+        "cat": "가구>홈데코>원예>가드닝>이벤트꽃>용돈박스",
+        "leaf": "용돈박스",
+        "input": "프리미엄 용돈박스 500g",
+        "brand": "에코",
+        "generated": "용돈박스 프리미엄 가드닝 원예 이벤트꽃 내구성 명품급 인기상품 가구 500g",
+        "len": 42
+      }
+    ],
+    "celebrityLeak": [
+      {
+        "cat": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>유무선공유기",
+        "leaf": "유무선공유기",
+        "input": "유무선공유기",
+        "brand": "데일리",
+        "generated": "유무선공유기 네트워크 가전 맥스 고품질 실용적 디지털 컴퓨터 게임 sw cctv",
+        "len": 44
+      },
+      {
+        "cat": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>유무선공유기",
+        "leaf": "유무선공유기",
+        "input": "유무선공유기 1개",
+        "brand": "베스트",
+        "generated": "유무선공유기 컴퓨터 네트워크 디지털 실속형 인기상품 프로페셔널 가전 게임 1개",
+        "len": 43
+      },
+      {
+        "cat": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>유무선공유기",
+        "leaf": "유무선공유기",
+        "input": "프리미엄 유무선공유기 500g",
+        "brand": "에코",
+        "generated": "유무선공유기 프리미엄 sw 네트워크 가전 럭셔리 모던한 실용 디지털 500g",
+        "len": 42
+      },
+      {
+        "cat": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>유무선공유기",
+        "leaf": "유무선공유기",
+        "input": "데일리 프리미엄 유무선공유기 인기상품 100g",
+        "brand": "데일리",
+        "generated": "유무선공유기 인기상품 프리미엄 cctv 랜카드 sw 라이트 프로페셔널 특별한 100g",
+        "len": 47
+      },
+      {
+        "cat": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>유무선공유기",
+        "leaf": "유무선공유기",
+        "input": "베스트 인기 유무선공유기 인기상품 1개",
+        "brand": "베스트",
+        "generated": "유무선공유기 인기상품 가전 cctv 게임 럭셔리 베이직 장인정신 디지털 1개",
+        "len": 42
+      },
+      {
+        "cat": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>유선공유기",
+        "leaf": "유선공유기",
+        "input": "유선공유기",
+        "brand": "데일리",
+        "generated": "유선공유기 네트워크 랜카드 라이트 장인정신 모던한 가전 디지털 컴퓨터 게임 sw",
+        "len": 44
+      },
+      {
+        "cat": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>유선공유기",
+        "leaf": "유선공유기",
+        "input": "유선공유기 1개",
+        "brand": "베스트",
+        "generated": "유선공유기 cctv 컴퓨터 sw 내구성 명품급 품격있는 가전 디지털 게임 1개",
+        "len": 43
+      },
+      {
+        "cat": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>유선공유기",
+        "leaf": "유선공유기",
+        "input": "프리미엄 유선공유기 500g",
+        "brand": "에코",
+        "generated": "유선공유기 프리미엄 랜카드 디지털 네트워크 수량 클래식한 특별한 500g",
+        "len": 40
+      }
+    ],
+    "keywordStuffing": [
+      {
+        "cat": "생활용품>성인용품(19)>성인>완구>게임(19)>케어/기타용품(19)",
+        "leaf": "케어/기타용품(19)",
+        "input": "베스트 인기 케어 인기상품 1개",
+        "brand": "베스트",
+        "generated": "케어/기타용품(19) 인기상품 성인용품(19) 게임(19) 울트라 실용적 상품 1개",
+        "len": 46
+      },
+      {
+        "cat": "생활용품>성인용품(19)>성인>완구>게임(19)>케어/기타용품(19)",
+        "leaf": "케어/기타용품(19)",
+        "input": "데일리홈 케어 1개",
+        "brand": "데일리",
+        "generated": "케어/기타용품(19) 게임(19) 성인용품(19) 완구 명품급 럭셔리 슈퍼 1개",
+        "len": 44
+      },
+      {
+        "cat": "생활용품>성인용품(19)>성인>완구>게임(19)>케어/기타용품(19)",
+        "leaf": "케어/기타용품(19)",
+        "input": "[정품] 케어 무료배송 특가 ★당일발송★ 케어 케어",
+        "brand": "메가셀러",
+        "generated": "케어/기타용품(19) 성인용품(19) 게임(19) 상품 견고한 고품질 가정용",
+        "len": 42
+      },
+      {
+        "cat": "생활용품>성인용품(19)>성인>완구>게임(19)>케어/기타용품(19)",
+        "leaf": "케어/기타용품(19)",
+        "input": "명품 케어 대용량 신상품 케어 효과만점 100% 보장",
+        "brand": "프리미엄",
+        "generated": "케어/기타용품(19) 보장 명품 신상품 효과만점 게임(19) 성인용품(19) 견고한 컴팩트",
+        "len": 50
+      },
+      {
+        "cat": "생활용품>성인용품(19)>성인>완구>게임(19)>케어/기타용품(19)",
+        "leaf": "케어/기타용품(19)",
+        "input": "케어 (대용량) 사은품 증정 리뷰이벤트 케어",
+        "brand": "에코",
+        "generated": "케어/기타용품(19) 생활용품 게임(19) 완구 특별한 클래식한 가정용 성인용품(19)",
+        "len": 48
+      },
+      {
+        "cat": "생활용품>성인용품(19)>성인>완구>게임(19)>남성 자위기구/인형(19)",
+        "leaf": "남성 자위기구/인형(19)",
+        "input": "에코 친환경 남성 자위기구 인기상품 500ml",
+        "brand": "에코",
+        "generated": "남성 자위기구 인기상품 인형(19) 친환경 성인용품(19) 게임(19) 내구성 슈퍼 컴팩트 500ml",
+        "len": 56
+      },
+      {
+        "cat": "생활용품>성인용품(19)>성인>완구>게임(19)>남성 자위기구/인형(19)",
+        "leaf": "남성 자위기구/인형(19)",
+        "input": "리빙플러스 남성 자위기구 1개",
+        "brand": "데일리",
+        "generated": "남성 자위기구 리빙플러스 인형(19) 생활용품 게임(19) 성인용품(19) 신상 슈퍼 1개",
+        "len": 50
+      },
+      {
+        "cat": "생활용품>성인용품(19)>성인>완구>게임(19)>남성 자위기구/인형(19)",
+        "leaf": "남성 자위기구/인형(19)",
+        "input": "메가샵 남성 자위기구 5개입",
+        "brand": "에코",
+        "generated": "남성 자위기구 메가샵 인형(19) 5개입 성인용품(19) 게임(19) 컴팩트 신상",
+        "len": 45
+      }
+    ],
+    "mildRepetition": [
+      {
+        "cat": "완구>취미>악기>음향기기>기타(guitar)>우쿨렐레>기타(guitar)음향기기>기타(guitar)이펙터>이펙터페달",
+        "leaf": "이펙터페달",
+        "input": "스마트 신상품 이펙터페달 인기상품 대용량",
+        "brand": "스마트",
+        "generated": "이펙터페달 인기상품 신상품 완구 기타(guitar)음향기기 기타(guitar)이펙터 컴팩트 실용적",
+        "len": 54
+      },
+      {
+        "cat": "완구>취미>악기>음향기기>기타(guitar)>우쿨렐레>기타(guitar)음향기기>기타(guitar)이펙터>이펙터페달",
+        "leaf": "이펙터페달",
+        "input": "프리미엄스토어 이펙터페달 화이트 100ml",
+        "brand": "스마트",
+        "generated": "이펙터페달 프리미엄스토어 기타(guitar)이펙터 기타(guitar)음향기기 울트라 인기상품 편리한 100ml",
+        "len": 61
+      },
+      {
+        "cat": "완구>취미>악기>음향기기>기타(guitar)>우쿨렐레>기타(guitar)음향기기>기타(guitar)앰프>다용도앰프",
+        "leaf": "다용도앰프",
+        "input": "메가샵 다용도앰프 2개입",
+        "brand": "베스트",
+        "generated": "다용도앰프 2개입 메가샵 우쿨렐레 기타(guitar)앰프 기타(guitar)음향기기 견고한 장인정신 신상품",
+        "len": 59
+      },
+      {
+        "cat": "완구>취미>악기>음향기기>기타(guitar)>우쿨렐레>기타(guitar)음향기기>기타(guitar)앰프>다용도앰프",
+        "leaf": "다용도앰프",
+        "input": "에코프렌즈 다용도앰프 500ml",
+        "brand": "스마트",
+        "generated": "다용도앰프 에코프렌즈 취미 기타(guitar)앰프 기타(guitar)음향기기 품격있는 클래식한 고품질 500ml",
+        "len": 62
+      },
+      {
+        "cat": "완구>취미>악기>음향기기>기타(guitar)>우쿨렐레>기타(guitar)음향기기>기타(guitar)앰프>프리앰프",
+        "leaf": "프리앰프",
+        "input": "베스트마켓 프리앰프 2개입",
+        "brand": "베스트",
+        "generated": "프리앰프 2개입 기타(guitar)앰프 기타(guitar)음향기기 취미 클래식한 장인정신 신상품",
+        "len": 53
+      },
+      {
+        "cat": "완구>취미>악기>음향기기>기타(guitar)>우쿨렐레>기타(guitar)음향기기>기타(guitar)앰프>프리앰프",
+        "leaf": "프리앰프",
+        "input": "한국유통 프리앰프 10개입",
+        "brand": "스마트",
+        "generated": "프리앰프 10개입 한국유통 기타(guitar)앰프 우쿨렐레 기타(guitar)음향기기 컴팩트 실속형 수량",
+        "len": 58
+      },
+      {
+        "cat": "완구>취미>악기>음향기기>기타(guitar)>우쿨렐레>기타(guitar)음향기기>기타(guitar)앰프>프리앰프",
+        "leaf": "프리앰프",
+        "input": "코리아셀러 프리앰프 50g",
+        "brand": "리빙",
+        "generated": "프리앰프 코리아셀러 기타(guitar)앰프 완구 기타(guitar)음향기기 클래식한 편리한 50g",
+        "len": 54
+      },
+      {
+        "cat": "완구>취미>악기>음향기기>기타(guitar)>우쿨렐레>기타(guitar)음향기기>기타(guitar)앰프>베이스앰프",
+        "leaf": "베이스앰프",
+        "input": "한국유통 베이스앰프 50g",
+        "brand": "리빙",
+        "generated": "베이스앰프 한국유통 기타(guitar)음향기기 기타(guitar)앰프 럭셔리 컴팩트 장인정신 50g",
+        "len": 55
+      }
+    ]
+  },
+  "worstCategories": [
+    {
+      "code": "63137",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>유무선공유기",
+      "leaf": "유무선공유기",
+      "pass": 0,
+      "fail": 30,
+      "issues": {
+        "celebrityLeak": 30,
+        "tooManyTokens": 6,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63136",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>유선공유기",
+      "leaf": "유선공유기",
+      "pass": 0,
+      "fail": 30,
+      "issues": {
+        "celebrityLeak": 30,
+        "tooManyTokens": 14,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "104468",
+      "path": "생활용품>의료>간호용품>병원>의료용품>저주파치료기",
+      "leaf": "저주파치료기",
+      "pass": 0,
+      "fail": 30,
+      "issues": {
+        "hypeBanned": 30,
+        "tooManyTokens": 2
+      }
+    },
+    {
+      "code": "77428",
+      "path": "완구>취미>보드게임>복불복>룰렛게임>이벤트원돌림판/다트룰렛",
+      "leaf": "이벤트원돌림판/다트룰렛",
+      "pass": 0,
+      "fail": 30,
+      "issues": {
+        "promoBanned": 30,
+        "overRecommended": 1,
+        "tooManyTokens": 4,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "35254",
+      "path": "도서>국내도서>대학교재>의약학>간호>계열>한의학>통증치료",
+      "leaf": "통증치료",
+      "pass": 0,
+      "fail": 30,
+      "issues": {
+        "hypeBanned": 30,
+        "tooManyTokens": 4
+      }
+    },
+    {
+      "code": "103833",
+      "path": "도서>국내도서>인문>심리학>심리일반>카운셀링/심리치료",
+      "leaf": "카운셀링/심리치료",
+      "pass": 0,
+      "fail": 30,
+      "issues": {
+        "hypeBanned": 30,
+        "tooManyTokens": 12,
+        "overRecommended": 5
+      }
+    },
+    {
+      "code": "104467",
+      "path": "생활용품>의료>간호용품>병원>의료용품>적외선치료기",
+      "leaf": "적외선치료기",
+      "pass": 0,
+      "fail": 30,
+      "issues": {
+        "hypeBanned": 30,
+        "tooManyTokens": 2,
+        "overRecommended": 1
+      }
+    },
+    {
+      "code": "52045",
+      "path": "도서>국내도서>건강>취미>한의학/한방치료",
+      "leaf": "한의학/한방치료",
+      "pass": 0,
+      "fail": 30,
+      "issues": {
+        "hypeBanned": 30,
+        "tooManyTokens": 11,
+        "overRecommended": 2
+      }
+    },
+    {
+      "code": "52016",
+      "path": "도서>국내도서>예술>예술치료",
+      "leaf": "예술치료",
+      "pass": 0,
+      "fail": 30,
+      "issues": {
+        "hypeBanned": 30,
+        "celebrityLeak": 10,
+        "tooManyTokens": 9,
+        "overRecommended": 1
+      }
+    },
+    {
+      "code": "36784",
+      "path": "도서>국내도서>경제>경영>마케팅>영업/세일즈",
+      "leaf": "영업/세일즈",
+      "pass": 0,
+      "fail": 30,
+      "issues": {
+        "promoBanned": 30,
+        "tooManyTokens": 18,
+        "overRecommended": 2,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "36509",
+      "path": "도서>국내도서>종교>역학>사주>풍수지리",
+      "leaf": "풍수지리",
+      "pass": 0,
+      "fail": 30,
+      "issues": {
+        "celebrityLeak": 30,
+        "tooManyTokens": 8,
+        "hypeBanned": 1,
+        "overRecommended": 1
+      }
+    },
+    {
+      "code": "112382",
+      "path": "문구>오피스>학용품>포장>파티용품>용돈이벤트",
+      "leaf": "용돈이벤트",
+      "pass": 0,
+      "fail": 30,
+      "issues": {
+        "promoBanned": 30,
+        "tooManyTokens": 9,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "64331",
+      "path": "생활용품>접착용품>에폭시/수지경화제",
+      "leaf": "에폭시/수지경화제",
+      "pass": 0,
+      "fail": 30,
+      "issues": {
+        "celebrityLeak": 30,
+        "hypeBanned": 1,
+        "tooManyTokens": 1
+      }
+    },
+    {
+      "code": "35253",
+      "path": "도서>국내도서>대학교재>의약학>간호>계열>한의학>재활/물리치료",
+      "leaf": "재활/물리치료",
+      "pass": 0,
+      "fail": 30,
+      "issues": {
+        "hypeBanned": 30,
+        "tooManyTokens": 13,
+        "overRecommended": 2
+      }
+    },
+    {
+      "code": "110700",
+      "path": "가구>홈데코>원예>가드닝>이벤트꽃>용돈박스",
+      "leaf": "용돈박스",
+      "pass": 6,
+      "fail": 24,
+      "issues": {
+        "promoBanned": 24,
+        "tooManyTokens": 11,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "78478",
+      "path": "가구>홈데코>원예>가드닝>이벤트꽃>초콜릿/사탕 꽃다발",
+      "leaf": "초콜릿/사탕 꽃다발",
+      "pass": 8,
+      "fail": 22,
+      "issues": {
+        "promoBanned": 22,
+        "tooManyTokens": 29,
+        "hypeBanned": 1,
+        "overRecommended": 1
+      }
+    },
+    {
+      "code": "78479",
+      "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+      "leaf": "금꽃/금장미",
+      "pass": 9,
+      "fail": 21,
+      "issues": {
+        "promoBanned": 20,
+        "tooManyTokens": 20,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63146",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>네트워크 카메라",
+      "leaf": "네트워크 카메라",
+      "pass": 12,
+      "fail": 18,
+      "issues": {
+        "celebrityLeak": 17,
+        "tooManyTokens": 19,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63125",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>액세서리>스티커",
+      "leaf": "스티커",
+      "pass": 13,
+      "fail": 17,
+      "issues": {
+        "celebrityLeak": 17,
+        "tooManyTokens": 18,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63123",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>액세서리>증폭기",
+      "leaf": "증폭기",
+      "pass": 14,
+      "fail": 16,
+      "issues": {
+        "celebrityLeak": 15,
+        "tooManyTokens": 23,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63895",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>액세서리>기타",
+      "leaf": "기타",
+      "pass": 14,
+      "fail": 16,
+      "issues": {
+        "celebrityLeak": 15,
+        "tooManyTokens": 23,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63130",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>데스크탑용",
+      "leaf": "데스크탑용",
+      "pass": 14,
+      "fail": 16,
+      "issues": {
+        "celebrityLeak": 16,
+        "tooManyTokens": 15,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63126",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>액세서리>렌즈",
+      "leaf": "렌즈",
+      "pass": 14,
+      "fail": 16,
+      "issues": {
+        "celebrityLeak": 16,
+        "tooManyTokens": 27,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63141",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>네트워크장비>스위칭허브>서버>KVM",
+      "leaf": "KVM",
+      "pass": 14,
+      "fail": 16,
+      "issues": {
+        "tooManyTokens": 15,
+        "celebrityLeak": 16,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63119",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>감시카메라>실내외겸용",
+      "leaf": "실내외겸용",
+      "pass": 15,
+      "fail": 15,
+      "issues": {
+        "celebrityLeak": 14,
+        "tooManyTokens": 13,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "52061",
+      "path": "도서>국내도서>잡지>문예지",
+      "leaf": "문예지",
+      "pass": 16,
+      "fail": 14,
+      "issues": {
+        "celebrityLeak": 13,
+        "tooManyTokens": 18,
+        "overRecommended": 4,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63131",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>노트북용",
+      "leaf": "노트북용",
+      "pass": 16,
+      "fail": 14,
+      "issues": {
+        "celebrityLeak": 13,
+        "tooManyTokens": 14,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63122",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>액세서리>컨트롤러",
+      "leaf": "컨트롤러",
+      "pass": 16,
+      "fail": 14,
+      "issues": {
+        "celebrityLeak": 13,
+        "tooManyTokens": 14,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63117",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>감시카메라>실내용",
+      "leaf": "실내용",
+      "pass": 16,
+      "fail": 14,
+      "issues": {
+        "celebrityLeak": 13,
+        "tooManyTokens": 17,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63127",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>액세서리>송수신기",
+      "leaf": "송수신기",
+      "pass": 16,
+      "fail": 14,
+      "issues": {
+        "celebrityLeak": 14,
+        "tooManyTokens": 18,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63118",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>감시카메라>실외용",
+      "leaf": "실외용",
+      "pass": 16,
+      "fail": 14,
+      "issues": {
+        "celebrityLeak": 13,
+        "tooManyTokens": 18,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63140",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>네트워크장비>스위칭허브>스위칭허브",
+      "leaf": "스위칭허브",
+      "pass": 16,
+      "fail": 14,
+      "issues": {
+        "celebrityLeak": 14,
+        "tooManyTokens": 11,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "82598",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>아기모니터",
+      "leaf": "아기모니터",
+      "pass": 17,
+      "fail": 13,
+      "issues": {
+        "celebrityLeak": 12,
+        "tooManyTokens": 14,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "35313",
+      "path": "도서>국내도서>대학교재>경상계열>경영학>생산운영관리",
+      "leaf": "생산운영관리",
+      "pass": 17,
+      "fail": 13,
+      "issues": {
+        "tooManyTokens": 25,
+        "overRecommended": 15,
+        "celebrityLeak": 12,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "35311",
+      "path": "도서>국내도서>대학교재>경상계열>경영학>투자론",
+      "leaf": "투자론",
+      "pass": 17,
+      "fail": 13,
+      "issues": {
+        "celebrityLeak": 12,
+        "tooManyTokens": 24,
+        "overRecommended": 14,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "58958",
+      "path": "식품>건강식품>전통건강식품>건강즙>복분자즙",
+      "leaf": "복분자즙",
+      "pass": 18,
+      "fail": 12,
+      "issues": {
+        "hypeBanned": 12,
+        "tooManyTokens": 5
+      }
+    },
+    {
+      "code": "34982",
+      "path": "도서>국내도서>여행>국내여행>제주",
+      "leaf": "제주",
+      "pass": 18,
+      "fail": 12,
+      "issues": {
+        "celebrityLeak": 11,
+        "tooManyTokens": 19,
+        "overRecommended": 2,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63120",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>CCTV 녹화기",
+      "leaf": "CCTV 녹화기",
+      "pass": 18,
+      "fail": 12,
+      "issues": {
+        "celebrityLeak": 12,
+        "tooManyTokens": 21,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "36287",
+      "path": "도서>국내도서>문학>소설>프랑스소설",
+      "leaf": "프랑스소설",
+      "pass": 18,
+      "fail": 12,
+      "issues": {
+        "celebrityLeak": 11,
+        "tooManyTokens": 16,
+        "overRecommended": 5,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "34913",
+      "path": "도서>국내도서>예술>미술>스케치/일러스트",
+      "leaf": "스케치/일러스트",
+      "pass": 18,
+      "fail": 12,
+      "issues": {
+        "tooManyTokens": 29,
+        "overRecommended": 14,
+        "celebrityLeak": 11,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "34503",
+      "path": "도서>국내도서>자연과학>수학>수학사",
+      "leaf": "수학사",
+      "pass": 18,
+      "fail": 12,
+      "issues": {
+        "celebrityLeak": 11,
+        "tooManyTokens": 14,
+        "overRecommended": 3,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "36517",
+      "path": "도서>국내도서>종교>세계종교>증산도",
+      "leaf": "증산도",
+      "pass": 18,
+      "fail": 12,
+      "issues": {
+        "celebrityLeak": 11,
+        "tooManyTokens": 19,
+        "overRecommended": 1,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "34526",
+      "path": "도서>국내도서>자연과학>인체>법의학",
+      "leaf": "법의학",
+      "pass": 19,
+      "fail": 11,
+      "issues": {
+        "celebrityLeak": 10,
+        "overRecommended": 4,
+        "tooManyTokens": 19,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "34516",
+      "path": "도서>국내도서>자연과학>천문학>별자리와 천체관측",
+      "leaf": "별자리와 천체관측",
+      "pass": 19,
+      "fail": 11,
+      "issues": {
+        "celebrityLeak": 10,
+        "tooManyTokens": 23,
+        "overRecommended": 15,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "85937",
+      "path": "생활용품>성인용품(19)>성인>완구>게임(19)>펌프/확대기(19)",
+      "leaf": "펌프/확대기(19)",
+      "pass": 19,
+      "fail": 11,
+      "issues": {
+        "keywordStuffing": 10,
+        "tooManyTokens": 30,
+        "overRecommended": 9,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "34989",
+      "path": "도서>국내도서>여행>테마여행>맛집여행",
+      "leaf": "맛집여행",
+      "pass": 19,
+      "fail": 11,
+      "issues": {
+        "celebrityLeak": 10,
+        "tooManyTokens": 13,
+        "overRecommended": 5,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63145",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>네트워크장비>광통신>장비>랜케이블/랜장비",
+      "leaf": "랜케이블/랜장비",
+      "pass": 19,
+      "fail": 11,
+      "issues": {
+        "tooManyTokens": 15,
+        "celebrityLeak": 10,
+        "hypeBanned": 1,
+        "overRecommended": 1
+      }
+    },
+    {
+      "code": "34927",
+      "path": "도서>국내도서>예술>사진>사진실기",
+      "leaf": "사진실기",
+      "pass": 19,
+      "fail": 11,
+      "issues": {
+        "overRecommended": 3,
+        "celebrityLeak": 10,
+        "tooManyTokens": 13,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "63134",
+      "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>무선랜>증폭기>내장안테나",
+      "leaf": "내장안테나",
+      "pass": 19,
+      "fail": 11,
+      "issues": {
+        "tooManyTokens": 13,
+        "celebrityLeak": 11,
+        "hypeBanned": 1
+      }
+    },
+    {
+      "code": "35987",
+      "path": "도서>국내도서>어린이>초등학습>과학/환경",
+      "leaf": "과학/환경",
+      "pass": 19,
+      "fail": 11,
+      "issues": {
+        "tooManyTokens": 26,
+        "overRecommended": 13,
+        "celebrityLeak": 10,
+        "hypeBanned": 1
+      }
+    }
+  ],
+  "bestCategoriesSample": [
+    {
+      "code": "92208",
+      "path": "도서>외국도서>Design, Drafting, Drawing & Presentation",
+      "leaf": "Design, Drafting, Drawing & Presentation",
+      "pass": 30
+    },
+    {
+      "code": "92532",
+      "path": "도서>외국도서>biography>autobiography>Artists, Architects, Photographers",
+      "leaf": "Artists, Architects, Photographers",
+      "pass": 30
+    },
+    {
+      "code": "92561",
+      "path": "도서>외국도서>biography>Social Scientists & Psychologists",
+      "leaf": "Social Scientists & Psychologists",
+      "pass": 30
+    },
+    {
+      "code": "97236",
+      "path": "도서>외국도서>Marriage & Long-Term Relationships",
+      "leaf": "Marriage & Long-Term Relationships",
+      "pass": 30
+    },
+    {
+      "code": "97439",
+      "path": "도서>외국도서>foreign>English as a Second Language",
+      "leaf": "English as a Second Language",
+      "pass": 30
+    },
+    {
+      "code": "99316",
+      "path": "도서>외국도서>juvenile>nonfiction>history>Symbols, Monuments, National Parks, etc.",
+      "leaf": "Symbols, Monuments, National Parks, etc.",
+      "pass": 30
+    },
+    {
+      "code": "99386",
+      "path": "도서>외국도서>juvenile>nonfiction>people>Caribbean & Latin America",
+      "leaf": "Caribbean & Latin America",
+      "pass": 30
+    },
+    {
+      "code": "99469",
+      "path": "도서>외국도서>juvenile>nonfiction>science>Environmental Conservation & Protection",
+      "leaf": "Environmental Conservation & Protection",
+      "pass": 30
+    },
+    {
+      "code": "99482",
+      "path": "도서>외국도서>juvenile>nonfiction>social>science>Customs, Traditions, Anthropology",
+      "leaf": "Customs, Traditions, Anthropology",
+      "pass": 30
+    },
+    {
+      "code": "99649",
+      "path": "도서>외국도서>Ethics & Professional Responsibility",
+      "leaf": "Ethics & Professional Responsibility",
+      "pass": 30
+    },
+    {
+      "code": "99662",
+      "path": "도서>외국도서>law>State, Provincial & Municipal",
+      "leaf": "State, Provincial & Municipal",
+      "pass": 30
+    },
+    {
+      "code": "99773",
+      "path": "도서>외국도서>literary>Children's & Young Adult Literature",
+      "leaf": "Children's & Young Adult Literature",
+      "pass": 30
+    },
+    {
+      "code": "99786",
+      "path": "도서>외국도서>Fairy Tales, Folk Tales, Legends & Mythology",
+      "leaf": "Fairy Tales, Folk Tales, Legends & Mythology",
+      "pass": 30
+    },
+    {
+      "code": "99929",
+      "path": "도서>외국도서>Dictionaries & Terminology",
+      "leaf": "Dictionaries & Terminology",
+      "pass": 30
+    },
+    {
+      "code": "100032",
+      "path": "도서>외국도서>Reproductive Medicine & Technology",
+      "leaf": "Reproductive Medicine & Technology",
+      "pass": 30
+    },
+    {
+      "code": "100123",
+      "path": "도서>외국도서>music>Piano & Keyboard Repertoire",
+      "leaf": "Piano & Keyboard Repertoire",
+      "pass": 30
+    },
+    {
+      "code": "100173",
+      "path": "도서>외국도서>Environmental Conservation & Protection",
+      "leaf": "Environmental Conservation & Protection",
+      "pass": 30
+    },
+    {
+      "code": "100557",
+      "path": "도서>외국도서>psychology>psychopathology>Dissociative Identity Disorder",
+      "leaf": "Dissociative Identity Disorder",
+      "pass": 30
+    },
+    {
+      "code": "100719",
+      "path": "도서>외국도서>religion>Church of Jesus Christ of Latter-day Saints (Mormon)",
+      "leaf": "Church of Jesus Christ of Latter-day Saints (Mormon)",
+      "pass": 30
+    },
+    {
+      "code": "100964",
+      "path": "도서>외국도서>Eating Disorders & Body Image",
+      "leaf": "Eating Disorders & Body Image",
+      "pass": 30
+    },
+    {
+      "code": "100983",
+      "path": "도서>외국도서>self-help>Post-Traumatic Stress Disorder (PTSD)",
+      "leaf": "Post-Traumatic Stress Disorder (PTSD)",
+      "pass": 30
+    },
+    {
+      "code": "101061",
+      "path": "도서>외국도서>Social Classes & Economic Disparity",
+      "leaf": "Social Classes & Economic Disparity",
+      "pass": 30
+    },
+    {
+      "code": "101234",
+      "path": "도서>외국도서>technology>Drafting & Mechanical Drawing",
+      "leaf": "Drafting & Mechanical Drawing",
+      "pass": 30
+    },
+    {
+      "code": "101574",
+      "path": "도서>외국도서>young>adult>fiction>historical>united>Colonial & Revolutionary Periods",
+      "leaf": "Colonial & Revolutionary Periods",
+      "pass": 30
+    },
+    {
+      "code": "101681",
+      "path": "도서>외국도서>young>adult>fiction>social>Disabilities & Special Needs",
+      "leaf": "Disabilities & Special Needs",
+      "pass": 30
+    },
+    {
+      "code": "101800",
+      "path": "도서>외국도서>young>adult>nonfiction>foreign>English as a Second Language",
+      "leaf": "English as a Second Language",
+      "pass": 30
+    },
+    {
+      "code": "101813",
+      "path": "도서>외국도서>young>adult>nonfiction>health>daily>Diseases, Illnesses & Injuries",
+      "leaf": "Diseases, Illnesses & Injuries",
+      "pass": 30
+    },
+    {
+      "code": "101953",
+      "path": "도서>외국도서>young>adult>nonfiction>social>topics>Drugs, Alcohol, Substance Abuse",
+      "leaf": "Drugs, Alcohol, Substance Abuse",
+      "pass": 30
+    },
+    {
+      "code": "101992",
+      "path": "도서>외국도서>young>adult>nonfiction>Aeronautics, Astronautics & Space Science",
+      "leaf": "Aeronautics, Astronautics & Space Science",
+      "pass": 30
+    },
+    {
+      "code": "92698",
+      "path": "도서>외국도서>business>economics>Computers & Information Technology",
+      "leaf": "Computers & Information Technology",
+      "pass": 30
+    },
+    {
+      "code": "92942",
+      "path": "도서>외국도서>computers>Management Information Systems",
+      "leaf": "Management Information Systems",
+      "pass": 30
+    },
+    {
+      "code": "93030",
+      "path": "도서>외국도서>computers>Distributed Systems & Computing",
+      "leaf": "Distributed Systems & Computing",
+      "pass": 30
+    },
+    {
+      "code": "95389",
+      "path": "도서>외국도서>Russian & Former Soviet Union",
+      "leaf": "Russian & Former Soviet Union",
+      "pass": 30
+    },
+    {
+      "code": "95449",
+      "path": "도서>외국도서>education>Behavioral, Emotional & Social Disabilities",
+      "leaf": "Behavioral, Emotional & Social Disabilities",
+      "pass": 30
+    },
+    {
+      "code": "99098",
+      "path": "도서>외국도서>juvenile>fiction>social>themes>Drugs, Alcohol, Substance Abuse",
+      "leaf": "Drugs, Alcohol, Substance Abuse",
+      "pass": 30
+    },
+    {
+      "code": "99267",
+      "path": "도서>외국도서>juvenile>nonfiction>foreign>English as a Second Language",
+      "leaf": "English as a Second Language",
+      "pass": 30
+    },
+    {
+      "code": "99600",
+      "path": "도서>Administrative Law & Regulatory Practice",
+      "leaf": "Administrative Law & Regulatory Practice",
+      "pass": 30
+    },
+    {
+      "code": "99606",
+      "path": "도서>외국도서>law>Arbitration, Negotiation, Mediation",
+      "leaf": "Arbitration, Negotiation, Mediation",
+      "pass": 30
+    },
+    {
+      "code": "99936",
+      "path": "도서>외국도서>Endocrinology & Metabolism",
+      "leaf": "Endocrinology & Metabolism",
+      "pass": 30
+    },
+    {
+      "code": "99996",
+      "path": "도서>외국도서>medical>Social, Ethical & Legal Issues",
+      "leaf": "Social, Ethical & Legal Issues",
+      "pass": 30
+    },
+    {
+      "code": "100091",
+      "path": "도서>외국도서>Individual Composer & Musician",
+      "leaf": "Individual Composer & Musician",
+      "pass": 30
+    },
+    {
+      "code": "102022",
+      "path": "도서>외국도서>Sports, Recreation & Outdoors",
+      "leaf": "Sports, Recreation & Outdoors",
+      "pass": 30
+    },
+    {
+      "code": "100397",
+      "path": "도서>외국도서>poetry>european>English, Irish, Scottish, Welsh",
+      "leaf": "English, Irish, Scottish, Welsh",
+      "pass": 30
+    },
+    {
+      "code": "100407",
+      "path": "도서>외국도서>Russian & Former Soviet Union",
+      "leaf": "Russian & Former Soviet Union",
+      "pass": 30
+    },
+    {
+      "code": "100531",
+      "path": "도서>Industrial & Organizational Psychology",
+      "leaf": "Industrial & Organizational Psychology",
+      "pass": 30
+    },
+    {
+      "code": "100552",
+      "path": "도서>외국도서>psychology>psychopathology>Attention-Deficit Disorder (ADD-ADHD)",
+      "leaf": "Attention-Deficit Disorder (ADD-ADHD)",
+      "pass": 30
+    },
+    {
+      "code": "100654",
+      "path": "도서>외국도서>religion>christian>Canon & Ecclesiastical Law",
+      "leaf": "Canon & Ecclesiastical Law",
+      "pass": 30
+    },
+    {
+      "code": "100862",
+      "path": "도서>외국도서>Electron Microscopes & Microscopy",
+      "leaf": "Electron Microscopes & Microscopy",
+      "pass": 30
+    },
+    {
+      "code": "100959",
+      "path": "도서>외국도서>self-help>compulsive>Obsessive Compulsive Disorder (OCD)",
+      "leaf": "Obsessive Compulsive Disorder (OCD)",
+      "pass": 30
+    },
+    {
+      "code": "101306",
+      "path": "도서>외국도서>technology>Remote Sensing & Geographic Information Systems",
+      "leaf": "Remote Sensing & Geographic Information Systems",
+      "pass": 30
+    }
+  ]
+}

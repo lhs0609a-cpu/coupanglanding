@@ -1,0 +1,187 @@
+{
+  "meta": {
+    "sampleSize": 500,
+    "totalCategories": 16259,
+    "generatedAt": "2026-05-13T05:39:26.182Z"
+  },
+  "area1_perf": {
+    "displayName_ms": {
+      "n": 500,
+      "min": 0.9,
+      "p50": 23.9,
+      "p95": 31.44,
+      "p99": 38.81,
+      "max": 43.66,
+      "avg": 22.58
+    },
+    "detailPageHtml_ms": {
+      "n": 500,
+      "min": 0.02,
+      "p50": 0.03,
+      "p95": 0.05,
+      "p99": 0.11,
+      "max": 0.67,
+      "avg": 0.03
+    },
+    "optionExtractRegex_ms": {
+      "n": 500,
+      "min": 0.01,
+      "p50": 0.03,
+      "p95": 0.04,
+      "p99": 0.1,
+      "max": 0.81,
+      "avg": 0.03
+    }
+  },
+  "area2_categoryChangeDetailUpdate": {
+    "totalPairs": 50,
+    "themeChangedPct": 0,
+    "keywordChangedPct": 82,
+    "headerChangedPct": 98,
+    "identicalCount": 1,
+    "note": "미리보기 API는 override를 받음. preflight-builder도 동일. 결과: 카테고리 변경 시 카테고리별 테마/키워드 자동 반영.",
+    "sourceCodeRefs": [
+      "src/app/api/megaload/products/bulk-register/preview-payload/route.ts:30-39 (override 필드 수신)",
+      "src/lib/megaload/services/preflight-builder.ts:150-156 (userEditedDisplayName 우선)",
+      "src/components/megaload/bulk/BulkStep2Review.tsx:311-318 (override 전달)"
+    ],
+    "identicalExamples": [
+      {
+        "catA": "도서>외국도서>bibles>new>american>Youth & Teen",
+        "catB": "도서>외국도서>bibles>new>international>Youth & Teen"
+      }
+    ]
+  },
+  "area3_displayNamePayload": {
+    "coupang_field_name": "displayProductName",
+    "field_flows": [
+      "aiDisplayName (preflight-builder)",
+      "→ userEditedDisplayName override (사용자 수정 시)",
+      "→ syncDisplayNameWithOptions (옵션 spec과 동기화)",
+      "→ buildCoupangProductPayload",
+      "→ payload.displayProductName (쿠팡 API)"
+    ],
+    "sourceCodeRefs": [
+      "src/lib/megaload/services/preflight-builder.ts:150-156",
+      "src/lib/megaload/services/preflight-builder.ts:240",
+      "src/lib/megaload/services/coupang-product-builder.ts:118 (interface field)",
+      "src/lib/megaload/services/coupang-product-builder.ts:766 (payload assignment)"
+    ],
+    "samplePassed": 495,
+    "sampleHardLenViolation": 0,
+    "sampleLeafMissing": 5,
+    "samplePassPct": 99,
+    "examples": [
+      {
+        "cat": "가구>홈데코>가구부속자재",
+        "dn": "가구부속자재 프리미엄 홈데코 라이트 심플한 컴팩트 500g",
+        "len": 32
+      },
+      {
+        "cat": "가구>홈데코>수납가구>서랍>수납장>협탁",
+        "dn": "협탁 프리미엄 가구 홈데코 특별한 편리한 에코 서랍 수납장 500g",
+        "len": 37
+      },
+      {
+        "cat": "가구>홈데코>유아동가구>유아동수납장>서랍장/수납장/계단형서랍",
+        "dn": "서랍장 정리장 수납장 계단형서랍 프리미엄 홈데코 유아동가구 베이직 실속형 클래식한 500g",
+        "len": 50
+      },
+      {
+        "cat": "가구>홈데코>침대>기능성침대>흙침대/흙보료",
+        "dn": "흙침대 흙보료 프리미엄 가구 기능성침대 편리한 홈데코 500g",
+        "len": 34
+      },
+      {
+        "cat": "가구>홈데코>학생>사무용가구>데스크소품>파일꽂이",
+        "dn": "파일꽂이 프리미엄 사무용가구 데스크소품 학생 컴팩트 실용 신상품 홈데코 500g",
+        "len": 44
+      }
+    ]
+  },
+  "area4_optionAccuracy": {
+    "sanityTests": {
+      "total": 10,
+      "pass": 9,
+      "fail": 1
+    },
+    "failures": [
+      {
+        "input": "비타민C 1000mg 90정 2개입",
+        "expected": {
+          "정": "180",
+          "수량": "1"
+        },
+        "actual": {
+          "정": "90",
+          "수량": "1"
+        }
+      }
+    ],
+    "largeScaleAudit": {
+      "file": "audit-option-quantity-mega-2026-05-12T10-51-21-427Z.json",
+      "totalVariants": "unknown",
+      "summary": "see file"
+    },
+    "sourceCodeRefs": [
+      "src/lib/megaload/services/option-extractor.ts (5-Layer)",
+      "src/lib/megaload/services/coupang-product-builder.ts (extractedBuyOptions → item-level)",
+      "src/lib/megaload/data/unit-dictionary.json"
+    ]
+  },
+  "area5_thirdPartyImage": {
+    "thirdPartyImagesDisabled": true,
+    "sourceNote": "preflight-builder.ts:204-207 — selectedThirdPartyUrls = [] (항상 빈배열) → 제3자 이미지 자동 삽입 완전 차단",
+    "filterPatternTests": {
+      "total": 10,
+      "pass": 10,
+      "failures": []
+    },
+    "sourceCodeRefs": [
+      "src/lib/megaload/services/preflight-builder.ts:204-207 (selectedThirdPartyUrls = [])",
+      "src/app/api/megaload/products/bulk-register/batch/route.ts:33-47 (NON_PRODUCT_URL_PATTERNS)",
+      "src/app/api/megaload/products/bulk-register/batch/route.ts:45-47 (isNonProductImage)"
+    ]
+  },
+  "area6_noticeFields": {
+    "architecture": "DB 캐시 + Coupang Wing 라이브 API 폴백 (동적). 로컬 데이터 파일은 placeholder.",
+    "localMappingStatus": {
+      "noticeMapTotalKeys": 16259,
+      "noticeMapNullEntries": 16259,
+      "noticeMapNonNullEntries": 0,
+      "catDetailsWithNc": 0,
+      "catDetailsWithoutNc": 16259,
+      "interpretation": "로컬 데이터는 빈 placeholder (모두 null) → 노티스 메타는 실시간 Coupang API에서 동적 조회"
+    },
+    "fillNoticeFieldsCodeChecks": {
+      "tested": false,
+      "note": "fillNoticeFields는 TS 소스만 존재 (.build-test에 미컴파일) — 코드 정적 검증",
+      "staticChecks": {
+        "has_fillNoticeFields_export": true,
+        "has_resolveFieldValue": true,
+        "has_categoryScoring": true,
+        "has_domainMismatchCheck": true,
+        "has_fallbackToDetail": true,
+        "has_overridesParam": false,
+        "has_extractedHintsParam": true
+      }
+    },
+    "batchRouteCodeChecks": {
+      "has_noticeMetaCacheBatch": true,
+      "has_noticeRefetchOnEmpty": true,
+      "has_liveApiFallback": true
+    },
+    "preflightBuilderCodeChecks": {
+      "has_ruleBaseFilling": true,
+      "has_aiFillRemaining": true,
+      "has_extractedHintsBuilt": true
+    },
+    "sourceCodeRefs": [
+      "src/lib/megaload/services/notice-category-cache.ts:31 (getNoticeCategoryWithCache — DB+live)",
+      "src/lib/megaload/services/notice-field-filler.ts:386 (fillNoticeFields)",
+      "src/lib/megaload/services/preflight-builder.ts:170-185 (rule + AI 보강)",
+      "src/app/api/megaload/products/bulk-register/batch/route.ts:352-606 (cache+refetch)",
+      "src/lib/megaload/services/coupang-product-builder.ts:393-396 (flattenNotices → 페이로드)"
+    ]
+  }
+}
