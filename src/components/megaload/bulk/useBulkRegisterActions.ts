@@ -2957,9 +2957,26 @@ export function useBulkRegisterActions() {
       let totalSuccess = 0;
       let totalError = 0;
 
-      for (let i = 0; i < batches.length; i++) {
-        while (isPausedRef.current) { await new Promise((r) => setTimeout(r, 500)); }
+      // 배치 간 동시 처리 — CHUNK_PARALLEL 개의 배치를 Promise.allSettled 로 동시 호출.
+      //   Vercel 함수는 호출당 별개 Lambda 인스턴스 → 메모리 충돌 없음, 함수-시간 합 동일 (비용 영향 0).
+      //   쿠팡 API rate limit: CHUNK_PARALLEL × PARALLEL_REGISTER(10) = 동시 createProduct 호출 수.
+      //   CHUNK_PARALLEL=2 → 20 동시 = 2 req/sec 평균, 쿠팡 일반 한도 5~10 req/sec 안전 범위.
+      //   효과: 10배치 sequential 200초 → 5 라운드 chunk 100초 (50% 단축).
+      const CHUNK_PARALLEL = 2;
+      let blockedReason: string | null = null;
+      let completedBatches = 0;
 
+      for (let cstart = 0; cstart < batches.length; cstart += CHUNK_PARALLEL) {
+        if (blockedReason) break;
+        // 일시정지: chunk 시작 전에만 대기 (chunk 안 동시 배치들은 한꺼번에 진행)
+        while (isPausedRef.current) { await new Promise((r) => setTimeout(r, 500)); }
+        if (blockedReason) break;
+
+        const cend = Math.min(cstart + CHUNK_PARALLEL, batches.length);
+        const indicesInChunk: number[] = [];
+        for (let k = cstart; k < cend; k++) indicesInChunk.push(k);
+
+        await Promise.allSettled(indicesInChunk.map(async (i) => {
         const batch = batches[i];
         const batchUids = new Set(batch.map((p) => p.uid));
         setProducts((prev) => prev.map((p) => batchUids.has(p.uid) ? { ...p, status: 'registering' } : p));
@@ -3138,10 +3155,10 @@ export function useBulkRegisterActions() {
             const blockSignals = ['쿠팡 기준에 맞지 않아', '신규 상품을 등록할 수 없', '판매이용 약관'];
             const blocked = batchResults.find((br) => !br.success && br.error
               && blockSignals.some((sig) => br.error!.includes(sig)));
-            if (blocked) {
-              setAccountBlocked(blocked.error || '쿠팡 셀러 계정이 신규 상품 등록 차단 상태입니다.');
-              setBatchProgress({ current: i + 1, total: batches.length });
-              break; // 남은 배치 중단 — 동일 에러로 모두 실패할 것
+            if (blocked && !blockedReason) {
+              // chunk 안에서는 break 불가 — flag 로 외부 chunk loop 종료 신호.
+              //   현재 chunk 의 다른 배치는 이미 진행 중이라 완료까지 기다리고, 다음 chunk 부터 중단.
+              blockedReason = blocked.error || '쿠팡 셀러 계정이 신규 상품 등록 차단 상태입니다.';
             }
           } else {
             totalError += batch.length;
@@ -3156,7 +3173,16 @@ export function useBulkRegisterActions() {
             : err instanceof Error ? err.message : '네트워크 오류';
           setProducts((prev) => prev.map((p) => batchUids.has(p.uid) ? { ...p, status: 'error', errorMessage: msg } : p));
         }
-        setBatchProgress({ current: i + 1, total: batches.length });
+        // setBatchProgress 는 chunk 외부에서 일괄 — chunk 안 동시 배치가 같은 setter 호출하면 race.
+      })); // ─ Promise.allSettled 닫기
+
+        // chunk 종료 — 진행률 + blocked 체크
+        completedBatches = Math.min(cstart + CHUNK_PARALLEL, batches.length);
+        setBatchProgress({ current: completedBatches, total: batches.length });
+        if (blockedReason) {
+          setAccountBlocked(blockedReason);
+          break;
+        }
       }
 
       await fetch('/api/megaload/products/bulk-register/complete-job', {

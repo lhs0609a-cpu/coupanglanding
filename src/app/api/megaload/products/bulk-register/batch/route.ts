@@ -58,6 +58,13 @@ async function ensureImageSpec(
 ): Promise<string> {
   if (!url || url.startsWith('preflight-placeholder://')) return url;
 
+  // self-CDN skip — 우리 Supabase Storage 의 product-images 버킷에서 가져온 URL 은
+  //   클라이언트가 이미 1000px / JPEG quality 0.75 로 압축한 안전 이미지 (500~1000px, < 1MB).
+  //   쿠팡 규격 (500~5000px, 10MB 이하) 안에 100% 들어가므로 fetch + buffer + decode 자체가 낭비.
+  //   배치당 3~5초 절감 (10건 배치 × ensureAllImageSpecs 병렬 fetch + jimp decode).
+  //   외부 도메인 URL 은 그대로 검증 — 보안/규격 보장.
+  if (url.includes('/storage/v1/object/public/product-images/')) return url;
+
   try {
     const res = await fetch(url);
     if (!res.ok) return url;
