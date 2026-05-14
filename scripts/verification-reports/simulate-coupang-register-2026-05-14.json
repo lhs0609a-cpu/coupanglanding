@@ -1,0 +1,52 @@
+{
+  "meta": {
+    "cachedCats": 15430,
+    "simulatedCats": 15430,
+    "totalCalls": 138870,
+    "totalAttrs": 238563,
+    "payloadGenFails": 0,
+    "totalViolations": 0,
+    "elapsedSec": 27
+  },
+  "violations": {
+    "V1_REQUIRED_UNFILLED": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    },
+    "V2_NUMBER_INVALID": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    },
+    "V3_STRING_INVALID": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    },
+    "V4_ENUM_INVALID": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    },
+    "V5_VALUE_TOO_LONG": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    },
+    "V6_GROUP_DUPLICATE": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    }
+  },
+  "samples": {
+    "1": [],
+    "2": [],
+    "3": [],
+    "4": [],
+    "5": [],
+    "6": [],
+    "gen": []
+  }
+}
