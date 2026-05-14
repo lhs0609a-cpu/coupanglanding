@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   RefreshCw, Package, XCircle, AlertTriangle, PauseCircle, Loader2,
   CheckCircle2, ExternalLink, Clock, Activity, Download, Settings, Bell, Link2Off,
+  PlayCircle,
 } from 'lucide-react';
 import StockStatusBadge from './StockStatusBadge';
 import PriceRuleModal from './PriceRuleModal';
@@ -260,6 +261,38 @@ export default function StockMonitorDashboard() {
     }
   };
 
+  const [bulkResuming, setBulkResuming] = useState(false);
+
+  const handleBulkResume = async () => {
+    if (!confirm('네이버 차단으로 잘못 일시중지된 쿠팡 상품을 일괄 재개합니다.\n\n수백~수천 건의 쿠팡 API 호출이 발생할 수 있으며, 시간이 오래 걸릴 수 있습니다 (최대 5분).\n\n계속하시겠습니까?')) return;
+    setBulkResuming(true);
+    try {
+      const res = await fetch('/api/megaload/stock-monitor/bulk-resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(
+          `일괄 재개 완료\n\n` +
+          `재개 성공: ${data.resumed}건\n` +
+          `재개 실패: ${data.failed}건\n` +
+          `대상 총: ${data.total}건` +
+          (data.errors?.length > 0 ? `\n\n실패 샘플 (최대 5건):\n${data.errors.slice(0, 5).map((e: { error: string }) => `- ${e.error}`).join('\n')}` : ''),
+        );
+        await fetchData();
+      } else {
+        alert(`일괄 재개 실패: ${data.error || '알 수 없는 오류'}`);
+      }
+    } catch (err) {
+      console.error('bulk resume error:', err);
+      alert('일괄 재개 중 오류가 발생했습니다.');
+    } finally {
+      setBulkResuming(false);
+    }
+  };
+
   const handleResetErrors = async () => {
     try {
       const res = await fetch('/api/megaload/stock-monitor/check', {
@@ -426,6 +459,15 @@ export default function StockMonitorDashboard() {
           >
             <Settings className="w-4 h-4" />
             가격 추종 일괄 설정
+          </button>
+          <button
+            onClick={handleBulkResume}
+            disabled={bulkResuming || loading}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition"
+            title="네이버 차단으로 잘못 일시중지된 쿠팡 상품들을 일괄 재개합니다"
+          >
+            {bulkResuming ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+            잘못 중지된 상품 일괄 재개
           </button>
           <button
             onClick={handleCheckAll}
