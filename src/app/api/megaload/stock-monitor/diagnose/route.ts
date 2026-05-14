@@ -266,6 +266,79 @@ export async function GET() {
       });
     }
 
+    // ── 11단계: Google Translate proxy 우회 테스트 (Vercel 직접 fetch) ──
+    // 10단계 fail (Fly.io 프록시 차단) 시 우회 가능성 검증.
+    // smartstore.naver.com → smartstore-naver-com.translate.goog 변환하여 구글 IP 경유.
+    // Vercel 서버에서 직접 fetch (Fly 프록시 미경유) — 구글 서버가 페이지 fetch 해줌.
+    const { data: oneSample } = await serviceClient
+      .from('sh_stock_monitors')
+      .select('source_url')
+      .eq('megaload_user_id', shUserId)
+      .not('source_url', 'eq', '')
+      .limit(1)
+      .single();
+
+    const sampleUrl = (oneSample as { source_url?: string } | null)?.source_url
+      || 'https://smartstore.naver.com/main';
+
+    let gtUrl: string | null = null;
+    try {
+      const u = new URL(sampleUrl);
+      const translatedHost = u.hostname.replace(/\./g, '-') + '.translate.goog';
+      u.hostname = translatedHost;
+      u.searchParams.set('_x_tr_sl', 'ko');
+      u.searchParams.set('_x_tr_tl', 'en');
+      u.searchParams.set('_x_tr_hl', 'en');
+      gtUrl = u.toString();
+    } catch { /* skip */ }
+
+    if (gtUrl) {
+      try {
+        const t0 = Date.now();
+        const gtRes = await fetch(gtUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8',
+          },
+          signal: AbortSignal.timeout(20000),
+        });
+        const html = await gtRes.text();
+        const elapsed = Date.now() - t0;
+        // 네이버 데이터 포함 여부 검증
+        const hasNaverData = /__PRELOADED_STATE__|smartstore|naver-shop|productId/i.test(html);
+        const hasPrice = /[\d,]+원|\bdispDiscountedSalePrice\b|salePrice/i.test(html);
+        steps.push({
+          step: '11_google_translate_bypass',
+          status: gtRes.ok && hasNaverData ? 'ok' : (gtRes.status === 429 || gtRes.status === 403 ? 'fail' : 'warn'),
+          detail: {
+            originalUrl: sampleUrl,
+            translatedUrl: gtUrl,
+            status: gtRes.status,
+            htmlBytes: html.length,
+            hasNaverData,
+            hasPrice,
+            responseMs: elapsed,
+            hint: gtRes.ok && hasNaverData
+              ? '✅ Google Translate 우회 성공! 네이버 데이터 포함 확인. 무료로 차단 회피 가능.'
+              : gtRes.status === 429
+              ? '구글까지 429 차단 — 호출 빈도 너무 높거나 구글이 우리 IP 차단.'
+              : !hasNaverData
+              ? '응답은 받았으나 네이버 데이터 미포함 — 구글 번역 페이지 구조 변경 가능성.'
+              : `예상치 못한 응답 (status=${gtRes.status})`,
+          },
+        });
+      } catch (gtErr) {
+        steps.push({
+          step: '11_google_translate_bypass',
+          status: 'fail',
+          detail: {
+            translatedUrl: gtUrl,
+            error: gtErr instanceof Error ? gtErr.message : String(gtErr),
+          },
+        });
+      }
+    }
+
     return NextResponse.json({ steps });
   } catch (err) {
     steps.push({ step: 'unexpected', status: 'fail', detail: err instanceof Error ? err.message : 'Unknown' });
