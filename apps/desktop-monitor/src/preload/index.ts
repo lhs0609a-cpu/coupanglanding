@@ -16,6 +16,9 @@ const api = {
   setAutoLaunch: (enabled: boolean): Promise<boolean> =>
     ipcRenderer.invoke('app:set-auto-launch', enabled),
   hideWindow: (): Promise<void> => ipcRenderer.invoke('app:hide-window'),
+  login: (token: string): Promise<{ success: boolean; error?: string; megaloadUserId?: string }> =>
+    ipcRenderer.invoke('auth:login', token),
+  logout: (): Promise<{ success: boolean }> => ipcRenderer.invoke('auth:logout'),
 };
 
 contextBridge.exposeInMainWorld('megaload', api);

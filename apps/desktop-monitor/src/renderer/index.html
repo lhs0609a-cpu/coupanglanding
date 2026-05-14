@@ -157,14 +157,25 @@
   </div>
 
   <div class="container">
-    <!-- 로그인 안내 (Phase 2에서 구현) -->
+    <!-- 로그인 -->
     <div class="card" id="login-card" style="display:none;">
       <div class="login-area">
-        <h2 style="margin-bottom: 12px;">로그인이 필요합니다</h2>
+        <h2 style="margin-bottom: 12px;">인증 토큰 입력</h2>
         <p style="color: #64748b; margin-bottom: 24px; font-size: 14px;">
-          메가로드 계정으로 로그인하면 자동으로 품절 모니터링이 시작됩니다.
+          메가로드 웹의 <strong>설정 → 데스크탑 앱</strong> 페이지에서 발급받은<br>
+          64자 토큰을 붙여넣으세요.
         </p>
-        <button class="btn-primary" id="btn-login">메가로드로 로그인</button>
+        <input
+          type="text"
+          id="token-input"
+          placeholder="64자 hex 토큰 (예: a3f2c8...)"
+          style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-family: monospace; font-size: 13px; margin-bottom: 12px;"
+        />
+        <div id="login-error" style="color:#dc2626; font-size:12px; margin-bottom:12px; min-height:16px;"></div>
+        <button class="btn-primary" id="btn-login">로그인</button>
+        <div style="margin-top:16px;">
+          <a href="https://coupanglanding.vercel.app/megaload/desktop-app" id="open-token-page" style="color:#E31837; font-size:13px;">토큰 발급 페이지 열기 →</a>
+        </div>
       </div>
     </div>
 

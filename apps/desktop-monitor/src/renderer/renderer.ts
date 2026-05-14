@@ -3,6 +3,8 @@
 // preload 에서 노출한 window.megaload API 사용
 // ============================================================
 
+export {}; // make this a module so global augmentation is allowed
+
 declare global {
   interface Window {
     megaload: {
@@ -15,6 +17,8 @@ declare global {
       }>;
       setAutoLaunch(enabled: boolean): Promise<boolean>;
       hideWindow(): Promise<void>;
+      login(token: string): Promise<{ success: boolean; error?: string; megaloadUserId?: string }>;
+      logout(): Promise<{ success: boolean }>;
     };
   }
 }
@@ -96,9 +100,37 @@ async function init(): Promise<void> {
     void window.megaload.hideWindow();
   });
 
-  // 로그인 (Phase 2에서 구현)
-  $('btn-login')?.addEventListener('click', () => {
-    alert('Phase 2에서 구현 예정 — 메가로드 OAuth 로그인 연동');
+  // 로그인 — 토큰 입력 후 검증
+  $('btn-login')?.addEventListener('click', async () => {
+    const input = $('token-input') as HTMLInputElement | null;
+    const errorEl = $('login-error');
+    if (!input) return;
+    const token = input.value.trim();
+    if (errorEl) errorEl.textContent = '';
+    if (!token) {
+      if (errorEl) errorEl.textContent = '토큰을 입력하세요.';
+      return;
+    }
+    const btn = $('btn-login') as HTMLButtonElement | null;
+    if (btn) { btn.disabled = true; btn.textContent = '검증 중...'; }
+    try {
+      const res = await window.megaload.login(token);
+      if (res.success) {
+        input.value = '';
+        await refresh();
+      } else {
+        if (errorEl) errorEl.textContent = res.error || '로그인 실패';
+      }
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '로그인'; }
+    }
+  });
+
+  // 토큰 발급 페이지 — 외부 브라우저로 열기 (Electron shell)
+  $('open-token-page')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    // window.open 으로 외부 브라우저 (renderer 에선 shell 직접 호출 불가)
+    window.open('https://coupanglanding.vercel.app/megaload/desktop-app', '_blank');
   });
 
   await refresh();

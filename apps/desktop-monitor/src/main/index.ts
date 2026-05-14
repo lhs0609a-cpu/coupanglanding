@@ -13,6 +13,8 @@ import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog } from 'el
 import path from 'node:path';
 import { setupAutoLaunch, getAutoLaunchEnabled } from './auto-launch';
 import { getStore } from './store';
+import { startMonitorCron, stopMonitorCron } from './monitor-cron';
+import { saveToken, clearToken, verifyToken } from './api-client';
 
 // 단일 인스턴스 락 — 중복 실행 차단
 const gotLock = app.requestSingleInstanceLock();
@@ -157,6 +159,11 @@ app.whenReady().then(async () => {
 
   // 트레이 메뉴 정기 갱신 (마지막 체크 시각 등)
   setInterval(rebuildTrayMenu, 30_000);
+
+  // 로그인되어 있으면 cron 자동 시작
+  if (store.get('isLoggedIn')) {
+    startMonitorCron();
+  }
 });
 
 // ─── 모든 창 닫혀도 앱은 종료하지 않음 (트레이 유지) ──────────
@@ -186,4 +193,31 @@ ipcMain.handle('app:set-auto-launch', async (_e, enabled: boolean) => {
 });
 ipcMain.handle('app:hide-window', () => {
   mainWindow?.hide();
+});
+
+// ─── 로그인/로그아웃 ─────────────────────────────────────────
+ipcMain.handle('auth:login', async (_e, token: string) => {
+  if (!token || token.length !== 64) {
+    return { success: false, error: '토큰은 64자여야 합니다 (메가로드 웹에서 발급).' };
+  }
+  // 토큰 임시 저장 + 검증
+  saveToken(token);
+  const verified = await verifyToken();
+  if (!verified.valid) {
+    clearToken();
+    return { success: false, error: verified.expired ? '토큰이 만료되었습니다 (재발급 필요).' : '토큰이 유효하지 않습니다.' };
+  }
+  // 검증 성공 — megaloadUserId 갱신
+  saveToken(token, verified.megaloadUserId);
+  // cron 시작
+  startMonitorCron();
+  rebuildTrayMenu();
+  return { success: true, megaloadUserId: verified.megaloadUserId };
+});
+
+ipcMain.handle('auth:logout', () => {
+  stopMonitorCron();
+  clearToken();
+  rebuildTrayMenu();
+  return { success: true };
 });
