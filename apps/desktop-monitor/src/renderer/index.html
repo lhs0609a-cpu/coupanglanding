@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://*.supabase.co https://coupanglanding.vercel.app https://*.vercel.app" />
+  <title>Megaload Monitor</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Malgun Gothic', '맑은 고딕', sans-serif;
+      background: #f8fafc;
+      color: #1e293b;
+      min-height: 100vh;
+    }
+    .header {
+      background: linear-gradient(135deg, #E31837 0%, #c1132d 100%);
+      color: white;
+      padding: 24px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .header h1 {
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .header .version {
+      font-size: 12px;
+      opacity: 0.8;
+    }
+    .container {
+      padding: 28px;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    .card {
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+    .card h2 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 16px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .stat {
+      padding: 16px;
+      background: #f1f5f9;
+      border-radius: 8px;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: #64748b;
+      margin-bottom: 4px;
+    }
+    .stat-value {
+      font-size: 20px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .row:last-child { border-bottom: none; }
+    .row-label {
+      font-size: 14px;
+      color: #334155;
+    }
+    .row-desc {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-top: 2px;
+    }
+    .toggle {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      background: #cbd5e1;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle.on { background: #10b981; }
+    .toggle::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 20px;
+      height: 20px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle.on::after { transform: translateX(20px); }
+    .login-area {
+      text-align: center;
+      padding: 32px 16px;
+    }
+    .btn-primary {
+      background: #E31837;
+      color: white;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-primary:hover { background: #c1132d; }
+    .btn-secondary {
+      background: white;
+      color: #475569;
+      padding: 8px 16px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .status-dot.active { background: #10b981; }
+    .status-dot.idle { background: #94a3b8; }
+    .footer-note {
+      text-align: center;
+      color: #94a3b8;
+      font-size: 12px;
+      margin-top: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Megaload Monitor</h1>
+    <div class="version" id="version">v0.1.0</div>
+  </div>
+
+  <div class="container">
+    <!-- 로그인 안내 (Phase 2에서 구현) -->
+    <div class="card" id="login-card" style="display:none;">
+      <div class="login-area">
+        <h2 style="margin-bottom: 12px;">로그인이 필요합니다</h2>
+        <p style="color: #64748b; margin-bottom: 24px; font-size: 14px;">
+          메가로드 계정으로 로그인하면 자동으로 품절 모니터링이 시작됩니다.
+        </p>
+        <button class="btn-primary" id="btn-login">메가로드로 로그인</button>
+      </div>
+    </div>
+
+    <!-- 상태 카드 -->
+    <div class="card" id="status-card">
+      <h2>모니터링 상태</h2>
+      <div class="stat-grid">
+        <div class="stat">
+          <div class="stat-label">누적 체크</div>
+          <div class="stat-value" id="stat-checked">-</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">마지막 체크</div>
+          <div class="stat-value" id="stat-last" style="font-size:14px;">-</div>
+        </div>
+      </div>
+      <div style="margin-top: 16px; font-size: 13px; color: #64748b;">
+        <span class="status-dot active" id="status-dot"></span>
+        <span id="status-text">백그라운드에서 동작 중</span>
+      </div>
+    </div>
+
+    <!-- 설정 카드 -->
+    <div class="card">
+      <h2>설정</h2>
+      <div class="row">
+        <div>
+          <div class="row-label">OS 시작 시 자동 실행</div>
+          <div class="row-desc">컴퓨터 부팅 시 트레이로 자동 시작</div>
+        </div>
+        <div class="toggle on" id="toggle-autolaunch"></div>
+      </div>
+      <div class="row">
+        <div>
+          <div class="row-label">설정 창 닫기 → 트레이로 이동</div>
+          <div class="row-desc">백그라운드 모니터링 유지 (트레이 우클릭으로 종료)</div>
+        </div>
+        <button class="btn-secondary" id="btn-hide">창 닫기</button>
+      </div>
+    </div>
+
+    <div class="footer-note">
+      ⓘ 이 앱은 메가로드 계정의 품절 모니터를 사용자 PC IP로 직접 체크하여<br>
+      네이버 차단을 회피합니다. 백그라운드에서 실행되며 PC 자원 사용은 미미합니다.
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

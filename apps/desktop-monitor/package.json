@@ -1,0 +1,38 @@
+{
+  "name": "megaload-desktop-monitor",
+  "version": "0.1.0",
+  "description": "Megaload 품절동기화 데스크탑 앱 — 사용자 IP에서 네이버 직접 호출하여 차단 회피",
+  "private": true,
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "tsc -p tsconfig.json && electron . --dev",
+    "build": "tsc -p tsconfig.json",
+    "build:win": "npm run build && electron-builder --win",
+    "build:mac": "npm run build && electron-builder --mac",
+    "build:linux": "npm run build && electron-builder --linux",
+    "build:all": "npm run build && electron-builder -mwl",
+    "lint": "eslint src --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "electron",
+    "megaload",
+    "naver",
+    "stock-monitor"
+  ],
+  "author": "Megaload",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "auto-launch": "^5.0.6",
+    "electron-store": "^10.0.0",
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "@types/auto-launch": "^5.0.5",
+    "@types/node": "^22.0.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,58 @@
+appId: com.megaload.desktop-monitor
+productName: Megaload Monitor
+copyright: Copyright © 2026 Megaload
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - package.json
+  - "!**/*.ts"
+  - "!**/tsconfig*.json"
+
+# Windows 빌드 (NSIS installer)
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Megaload Monitor
+
+# macOS 빌드 (DMG)
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: build/icon.icns
+  category: public.app-category.business
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+dmg:
+  title: ${productName} ${version}
+
+# Linux 빌드 (AppImage)
+linux:
+  target:
+    - AppImage
+  icon: build/icon.png
+  category: Office
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+# Auto-update 배포 (GitHub Releases 사용)
+publish:
+  provider: github
+  owner: lhs0609a-cpu
+  repo: coupanglanding
+  releaseType: release
