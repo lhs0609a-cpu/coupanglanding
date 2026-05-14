@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Upload, X, Loader2, Image as ImageIcon } from 'lucide-react';
 import type { BugReportAttachment, BugReportCategory } from '@/lib/supabase/types';
 import { BUG_REPORT_CATEGORY_LABELS } from '@/lib/utils/constants';
@@ -40,17 +40,23 @@ export default function BugReportForm({ onSubmit, onUploadImage, submitting }: B
     }
   }, [onUploadImage]);
 
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (const item of Array.from(items)) {
-      if (item.type.startsWith('image/')) {
-        e.preventDefault();
-        const file = item.getAsFile();
-        if (file) handleUpload(file);
-        break;
+  // window 레벨 paste — form 마운트된 동안 모달 어디서 Ctrl+V 눌러도 이미지 첨부.
+  // textarea 외 (카테고리 select, 제목 input, 빈 공간) 에서도 작동.
+  useEffect(() => {
+    const handler = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (file) handleUpload(file);
+          break;
+        }
       }
-    }
+    };
+    window.addEventListener('paste', handler);
+    return () => window.removeEventListener('paste', handler);
   }, [handleUpload]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -127,7 +133,6 @@ export default function BugReportForm({ onSubmit, onUploadImage, submitting }: B
         <textarea
           value={description}
           onChange={e => setDescription(e.target.value)}
-          onPaste={handlePaste}
           placeholder="어떤 상황에서 오류가 발생했는지 자세히 설명해주세요.&#10;Ctrl+V로 클립보드 이미지를 바로 첨부할 수 있습니다."
           rows={5}
           required

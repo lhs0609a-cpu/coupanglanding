@@ -47,19 +47,25 @@ export default function BugReportThread({
     }
   }, [onUploadImage]);
 
-  // Ctrl+V 클립보드 이미지 붙여넣기
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (const item of Array.from(items)) {
-      if (item.type.startsWith('image/')) {
-        e.preventDefault();
-        const file = item.getAsFile();
-        if (file) handleUpload(file);
-        break;
+  // window 레벨 paste — thread 마운트된 동안 모달 어디서 Ctrl+V 눌러도 이미지 첨부.
+  // textarea 외 (메시지 영역, 빈 공간, 첨부 버튼 등) 어디서든 작동.
+  useEffect(() => {
+    if (disabled) return;
+    const handler = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (file) handleUpload(file);
+          break;
+        }
       }
-    }
-  }, [handleUpload]);
+    };
+    window.addEventListener('paste', handler);
+    return () => window.removeEventListener('paste', handler);
+  }, [handleUpload, disabled]);
 
   const handleSend = async () => {
     if ((!content.trim() && pendingAttachments.length === 0) || sending) return;
@@ -196,7 +202,6 @@ export default function BugReportThread({
               ref={textareaRef}
               value={content}
               onChange={e => setContent(e.target.value)}
-              onPaste={handlePaste}
               onKeyDown={e => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
