@@ -1,12 +1,12 @@
 {
   "meta": {
-    "cachedCats": 13980,
-    "erroredCats": 1498,
-    "auditedCats": 13980,
-    "totalCalls": 125820,
-    "totalAttrsChecked": 215865,
-    "totalRequiredGroups": 23985,
-    "elapsedSec": 1.8
+    "cachedCats": 14380,
+    "erroredCats": 1098,
+    "auditedCats": 14380,
+    "totalCalls": 129420,
+    "totalAttrsChecked": 222156,
+    "totalRequiredGroups": 24684,
+    "elapsedSec": 2.2
   },
   "bugs": {
     "A_STRING_UNIT_SENTINEL": {

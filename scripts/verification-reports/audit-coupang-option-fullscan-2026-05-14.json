@@ -4,7 +4,7 @@
     "totalCatsWithRequired": 16259,
     "specsPerCategory": 9,
     "totalCalls": 146331,
-    "elapsedSec": 2.3
+    "elapsedSec": 2.1
   },
   "anomalies": {
     "A_unitMissingNumeric": 0,
