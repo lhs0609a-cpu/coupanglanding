@@ -427,25 +427,33 @@ export function buildCoupangProductPayload(
       //   예: "90정" (O), "1개" (O), "200ml" (O), "90" (X — 단위 누락)
       //   ⚠️ 단위는 반드시 usableUnits 배열 안에 있어야 유효!
       //      basicUnit이 usableUnits에 없으면 사용 불가 (검증 에러 발생)
+      //
+      //   STRING 타입: 자유 텍스트. 단위 부착 금지 (basicUnit="없음" 같은 ENUM-text
+      //   sentinel이 함께 들어오면 "17없음" anomaly 생성됨).
       let attrValue: string;
 
       // 매칭되는 attributeMeta 찾기 (단위 정보 참조)
       const matchedMeta = attributeMeta?.find(m => m.attributeTypeName === opt.name)
         || attributeMeta?.find(m => normalizeAttrName(m.attributeTypeName) === normalizeAttrName(opt.name));
 
-      if (opt.unit || matchedMeta?.basicUnit || (matchedMeta?.usableUnits && matchedMeta.usableUnits.length > 0)) {
+      // STRING dataType: 단위 부착 절대 금지 (농산물/수산물 중량 등 basicUnit="없음")
+      const isStringType = matchedMeta?.dataType === 'STRING';
+      // basicUnit="없음" 은 literal sentinel — 단위 없음을 의미. 부착하면 UI "17없음" anomaly.
+      const basicIsSentinel = matchedMeta?.basicUnit === '없음' || matchedMeta?.basicUnit === '없음 ';
+
+      if (!isStringType && (opt.unit || (matchedMeta?.basicUnit && !basicIsSentinel) || (matchedMeta?.usableUnits && matchedMeta.usableUnits.length > 0))) {
         // 단위형: 숫자 추출 후 유효 단위 부착
         const numMatch = opt.value.match(/(\d+(?:\.\d+)?)/);
         const numStr = numMatch ? numMatch[1] : '1';
 
-        // usableUnits��� 진짜 유효 단위 ��록 — basicUnit은 usableUnits에 포함된 경우만 유효
+        // usableUnits이 진짜 유효 단위 목록 — basicUnit은 usableUnits에 포함된 경우만 유효
         const usable = matchedMeta?.usableUnits || [];
         const basic = matchedMeta?.basicUnit || '';
-        const basicIsValid = basic && usable.includes(basic);
+        const basicIsValid = basic && !basicIsSentinel && usable.includes(basic);
 
         let unit = '';
         if (opt.unit && usable.includes(opt.unit)) {
-          // 1순위: 추출된 단위�� usableUnits에 있으면 그대로 사용
+          // 1순위: 추출된 단위가 usableUnits에 있으면 그대로 사용
           unit = opt.unit;
         } else if (opt.unit && basicIsValid && opt.unit === basic) {
           // 2순위: 추출된 단위 = basicUnit이고 basicUnit이 유효하면 사용
@@ -453,8 +461,8 @@ export function buildCoupangProductPayload(
         } else if (usable.length > 0) {
           // 3순위: usableUnits 첫 번째 사용 (가장 안전)
           unit = usable[0];
-        } else if (basic) {
-          // 4순위: usableUnits 없으면 basicUnit 사용 (레��시 카테고리)
+        } else if (basic && !basicIsSentinel) {
+          // 4순위: usableUnits 없으면 basicUnit 사용 (레거시 카테고리, sentinel 제외)
           unit = basic;
         } else if (opt.unit) {
           // 5순위: API 메타에 단위 정보 전혀 없으면 로컬 JSON 단위 사용
@@ -463,6 +471,7 @@ export function buildCoupangProductPayload(
 
         attrValue = unit ? `${numStr}${unit}` : numStr;
       } else {
+        // STRING dataType 또는 단위 정보 없음 → 추출값 그대로 (자유 텍스트)
         attrValue = opt.value;
       }
 
@@ -508,6 +517,23 @@ export function buildCoupangProductPayload(
           existingIdx = metaAttributes.findIndex(a => a.attributeTypeName === candidateMeta.attributeTypeName);
           if (existingIdx >= 0) {
             console.log(`[payload-builder] buyOption 단위 매칭 fallback: "${opt.name}" (${opt.unit}) → API명 "${candidateMeta.attributeTypeName}"`);
+          }
+        }
+      }
+      // 4차: suffix 매칭 — 로컬 generic 명("사이즈")이 라이브 specific 명("패션의류/잡화 사이즈")의 마지막 토큰일 때.
+      // 안전 가드: EXACTLY 1개의 EXPOSED 후보가 끝부분이 일치하고, 아직 다른 buyOption 이 차지하지 않은 경우만.
+      // (다중 매칭이면 ambiguous → skip 하여 buildAttributes 폴백에 맡김)
+      if (existingIdx < 0) {
+        const optNameNorm = normalizeAttrName(opt.name);
+        const suffixCandidates = (attributeMeta || []).filter(m =>
+          m.exposed === 'EXPOSED'
+          && !extractedAttrNames.has(m.attributeTypeName)
+          && normalizeAttrName(m.attributeTypeName).endsWith(' ' + optNameNorm)
+        );
+        if (suffixCandidates.length === 1) {
+          existingIdx = metaAttributes.findIndex(a => a.attributeTypeName === suffixCandidates[0].attributeTypeName);
+          if (existingIdx >= 0) {
+            console.log(`[payload-builder] buyOption suffix 매칭: "${opt.name}" → API명 "${suffixCandidates[0].attributeTypeName}"`);
           }
         }
       }

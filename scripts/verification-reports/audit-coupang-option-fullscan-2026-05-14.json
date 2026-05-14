@@ -1,0 +1,26 @@
+{
+  "meta": {
+    "totalCategories": 16259,
+    "totalCatsWithRequired": 16259,
+    "specsPerCategory": 9,
+    "totalCalls": 146331,
+    "elapsedSec": 2.3
+  },
+  "anomalies": {
+    "A_unitMissingNumeric": 0,
+    "A_pct": 0,
+    "A_categoryCount": 0,
+    "C_valueOversized": 0,
+    "C_pct": 0,
+    "C_categoryCount": 0,
+    "D_valueEmpty": 0,
+    "E_valueIsTextInUnitOpt": 0,
+    "F_valueNegativeOrZero": 0
+  },
+  "unitMissingByOptName": [],
+  "samples": {
+    "A_unitMissingNumeric": [],
+    "C_oversized": [],
+    "E_textInUnit": []
+  }
+}

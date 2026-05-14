@@ -1,0 +1,69 @@
+{
+  "meta": {
+    "cachedCats": 13980,
+    "erroredCats": 1498,
+    "auditedCats": 13980,
+    "totalCalls": 125820,
+    "totalAttrsChecked": 215865,
+    "totalRequiredGroups": 23985,
+    "elapsedSec": 1.8
+  },
+  "bugs": {
+    "A_STRING_UNIT_SENTINEL": {
+      "count": 0,
+      "pct": 0,
+      "catCount": 0
+    },
+    "B_NUMBER_NO_UNIT": {
+      "count": 0,
+      "pct": 0,
+      "catCount": 0
+    },
+    "C_NUMBER_INVALID_UNIT": {
+      "count": 0,
+      "pct": 0,
+      "catCount": 0
+    },
+    "D_ENUM_INVALID": {
+      "count": 0,
+      "pct": 0,
+      "catCount": 0
+    },
+    "E_REQUIRED_GROUP_UNFILLED": {
+      "count": 0,
+      "pct": 0,
+      "catCount": 0
+    },
+    "F_VALUE_EMPTY": {
+      "count": 0,
+      "pct": 0,
+      "catCount": 0
+    },
+    "G_VALUE_TOO_LONG": {
+      "count": 0,
+      "pct": 0,
+      "catCount": 0
+    },
+    "H_NUMBER_ZERO_OR_NEG": {
+      "count": 0,
+      "pct": 0,
+      "catCount": 0
+    },
+    "I_NAME_MISMATCH": {
+      "count": 0,
+      "pct": 0,
+      "catCount": 0
+    }
+  },
+  "samples": {
+    "A": [],
+    "B": [],
+    "C": [],
+    "D": [],
+    "E": [],
+    "F": [],
+    "G": [],
+    "H": [],
+    "I": []
+  }
+}

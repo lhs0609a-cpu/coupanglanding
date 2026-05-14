@@ -1,0 +1,43 @@
+{
+  "summary": {
+    "meta": {
+      "totalCached": 14030,
+      "perfectCats": 14029,
+      "driftedCats": 1,
+      "driftRate": 0.01
+    },
+    "kinds": {
+      "nameOnly": 0,
+      "missingInLocal": 0,
+      "extraInLocal": 1,
+      "groupChanged": 0
+    },
+    "topDriftCats": [
+      {
+        "code": "63020",
+        "path": "가전>디지털>컴퓨터>게임>sw>pc>부품>주변기기>마우스>키보드>타블렛>일반키보드>유선키보드",
+        "missingInLocal": [],
+        "extraInLocal": [
+          {
+            "n": "키 스위치 종류",
+            "c1": false
+          }
+        ]
+      }
+    ],
+    "allDriftCount": 1
+  },
+  "drift": [
+    {
+      "code": "63020",
+      "path": "가전>디지털>컴퓨터>게임>sw>pc>부품>주변기기>마우스>키보드>타블렛>일반키보드>유선키보드",
+      "missingInLocal": [],
+      "extraInLocal": [
+        {
+          "n": "키 스위치 종류",
+          "c1": false
+        }
+      ]
+    }
+  ]
+}

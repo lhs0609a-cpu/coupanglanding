@@ -590,9 +590,16 @@ export function extractOptionsFromDetails(productName: string, details: Category
       const ml = extractVolumeMl(productName, composite);
       if (ml !== null) value = String(ml);
     } else if (name.includes('중량') && unit === 'g') {
-      // "개당 중량", "최소 중량", "중량" 모두 매칭 (농수산물 중량은 unit 없으므로 제외)
+      // "개당 중량", "최소 중량", "중량" 모두 매칭
       const g = extractWeightG(productName, composite);
       if (g !== null) value = String(g);
+    } else if (name.includes('중량') && !unit) {
+      // 농수산물 중량 등 schema 에 unit 없는 중량 옵션 — 단위 포함 문자열 반환.
+      // 순수 숫자만 반환하면 쿠팡윙 UI 가 단위 dropdown 을 "없음"으로 표시 → "17000없음" 같은 anomaly.
+      const g = extractWeightG(productName, composite);
+      if (g !== null) {
+        value = g >= 1000 && g % 100 === 0 ? `${g / 1000}kg` : `${g}g`;
+      }
     } else if (name.includes('수량') && name !== '수량' && unit === '개') {
       const perCount = extractPerCount(productName, composite);
       if (perCount !== null) value = String(perCount);
@@ -972,11 +979,17 @@ function getRequiredFallback(optionName: string, productName: string, unit?: str
   }
 
   // 수산물/농산물 중량
+  //   주의: 일부 카테고리(오렌지 등 신선식품)의 농산물 중량 옵션은 schema 에 unit 필드가 없음.
+  //   unit=undefined 인 채 숫자만 반환하면 쿠팡윙 UI 에서 "17000없음" 처럼 표시되어 사용자 혼란.
+  //   → 단위 미정의 카테고리는 value 에 단위 포함 문자열 반환 ("17kg" / "500g") — 윙은 free-text 수용.
   if ((n.includes('수산물') || n.includes('농산물')) && n.includes('중량')) {
     const wt = extractWeightG(productName, {});
     if (wt !== null) {
       if (unit === 'kg') return String(wt / 1000);
-      return String(wt);
+      if (unit === 'g') return String(wt);
+      // unit 미정의 — 단위 포함 문자열
+      if (wt >= 1000 && wt % 100 === 0) return `${wt / 1000}kg`;
+      return `${wt}g`;
     }
     return numericFallback;
   }
@@ -1321,6 +1334,13 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
     } else if (name.includes('중량') && unit === 'g') {
       const g = extractWeightG(context.productName, composite);
       if (g !== null) value = String(g);
+    } else if (name.includes('중량') && !unit) {
+      // 농수산물 중량 등 schema 에 unit 없는 중량 옵션 — 단위 포함 문자열 반환.
+      // 순수 숫자만 반환하면 쿠팡윙 UI 가 단위 dropdown 을 "없음"으로 표시 → "17000없음" 같은 anomaly.
+      const g = extractWeightG(context.productName, composite);
+      if (g !== null) {
+        value = g >= 1000 && g % 100 === 0 ? `${g / 1000}kg` : `${g}g`;
+      }
     } else if (name.includes('수량') && name !== '수량' && unit === '개') {
       const perCount = extractPerCount(context.productName, composite);
       if (perCount !== null) value = String(perCount);
@@ -1366,6 +1386,11 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
       } else if (name.includes('중량') && unit === 'g') {
         const g = extractWeightG(context.displayName, displayComposite);
         if (g !== null) value = String(g);
+      } else if (name.includes('중량') && !unit) {
+        const g = extractWeightG(context.displayName, displayComposite);
+        if (g !== null) {
+          value = g >= 1000 && g % 100 === 0 ? `${g / 1000}kg` : `${g}g`;
+        }
       } else if (name.includes('캡슐') || name.includes('정')) {
         const tabletCount = extractTabletCount(context.displayName);
         if (tabletCount !== null) {
@@ -1490,7 +1515,12 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
       const opt = buyOpts.find(o => o.name === optName || normalizeOptionName(o.name) === optName);
       if (opt && !layer1.has(opt.name)) {
         // AI 추론 값도 sanitize — 숫자 옵션에 텍스트가 들어가는 것 방지
-        const sanitized = sanitizeBuyOptionValue(aiValue, opt.unit);
+        let sanitized = sanitizeBuyOptionValue(aiValue, opt.unit);
+        // 농수산물 중량 등 schema unit 없는 중량 옵션: 순수 숫자면 단위 부착 (Wing "X없음" 방지).
+        if (sanitized && !opt.unit && /중량|무게/.test(normalizeOptionName(opt.name)) && /^\d+(?:\.\d+)?$/.test(sanitized)) {
+          const n = parseFloat(sanitized);
+          sanitized = n >= 1000 && n % 100 === 0 ? `${n / 1000}kg` : `${n}g`;
+        }
         if (sanitized) {
           layer1.set(opt.name, { value: sanitized, unit: opt.unit });
         }
