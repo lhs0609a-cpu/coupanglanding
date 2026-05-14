@@ -1,0 +1,60 @@
+{
+  "meta": {
+    "cachedCats": 15474,
+    "simulatedCats": 15474,
+    "variantsPerCat": 30,
+    "totalCalls": 464220,
+    "totalAttrs": 797100,
+    "payloadGenFails": 0,
+    "extractFails": 0,
+    "elapsedSec": 101.1
+  },
+  "violations": {
+    "V1_REQUIRED_UNFILLED": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    },
+    "V2_NUMBER_INVALID": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    },
+    "V3_STRING_INVALID": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    },
+    "V4_ENUM_INVALID": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    },
+    "V5_VALUE_TOO_LONG": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    },
+    "V6_GROUP_DUPLICATE": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    },
+    "V7_ATTR_VALUE_EMPTY": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    }
+  },
+  "samples": {
+    "1": [],
+    "2": [],
+    "3": [],
+    "4": [],
+    "5": [],
+    "6": [],
+    "7": [],
+    "gen": [],
+    "ext": []
+  }
+}
