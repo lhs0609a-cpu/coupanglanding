@@ -7,7 +7,7 @@
     "totalAttrs": 797100,
     "payloadGenFails": 0,
     "extractFails": 0,
-    "elapsedSec": 101.1
+    "elapsedSec": 78.9
   },
   "violations": {
     "V1_REQUIRED_UNFILLED": {

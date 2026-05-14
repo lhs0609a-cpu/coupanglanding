@@ -1,0 +1,55 @@
+{
+  "meta": {
+    "totalCats": 16259,
+    "totalCalls": 357698,
+    "specsPerCat": 22,
+    "elapsedSec": 5.4,
+    "evaluatedPerDim": {
+      "count": 129780,
+      "weight": 17154,
+      "volume": 7036,
+      "tablet": 444,
+      "perCount": 1164
+    }
+  },
+  "mismatches": {
+    "S1_COUNT_MISMATCH": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    },
+    "S2_WEIGHT_MISMATCH": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    },
+    "S3_VOLUME_MISMATCH": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    },
+    "S4_TABLET_MISMATCH": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    },
+    "S5_PERCOUNT_MISMATCH": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    },
+    "S6_EXTRA_COUNT_VALUE": {
+      "count": 0,
+      "pct": 0,
+      "cats": 0
+    }
+  },
+  "samples": {
+    "1": [],
+    "2": [],
+    "3": [],
+    "4": [],
+    "5": [],
+    "6": []
+  }
+}

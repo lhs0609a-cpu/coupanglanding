@@ -818,11 +818,17 @@ function validateUnitWeightPlausibility(
   result: { name: string; value: string; unit?: string }[],
   warnings: string[],
 ): void {
+  // ⚠️ 농산물 leaf name 매칭 — Korean 단어 경계가 없어 부분 매칭 false positive 위험.
+  //    예: '리무버'(cosmetic)의 '무', '양파김치'(가공식품)의 '양파' 가 vegetable 로 오인 → 수량 폴백 1.
+  //    해결: (1) 농산물 keyword 앞에 (시작|공백) 요구 (2) 가공식품 marker 있으면 skip.
+  const PROCESSED_FOOD_MARKERS = /김치|장아찌|볶음|조림|찜|즙|말랭이|국|찌개|샐러드|믹스|간편식|즉석|냉동|건조|튀김|구이|무침|장|소스|드레싱|피클|발효|숙성/;
+  if (PROCESSED_FOOD_MARKERS.test(productName)) return;
   const MIN_UNIT_WEIGHT_G: { pattern: RegExp; minG: number; label: string }[] = [
-    { pattern: /사과|배(?!송|치|터|터리)|망고|파인애플|수박|멜론|두리안/, minG: 100, label: '큰 과일' },
-    { pattern: /감(?!자|기|미)|귤|오렌지|레몬|자몽|복숭아|키위|아보카도|석류/, minG: 50, label: '중간 과일' },
-    { pattern: /닭고기|소고기|돼지고기|오리고기|한우|한돈|삼겹살|목살|등심|안심|갈비/, minG: 100, label: '육류' },
-    { pattern: /감자|고구마|양파|당근|무(?!침|료|선|언|관)|배추|호박|가지/, minG: 80, label: '뿌리/엽채' },
+    { pattern: /(^|\s)(사과|배(?!송|치|터|터리|드|기|관|면)|망고|파인애플|수박|멜론|두리안)/, minG: 100, label: '큰 과일' },
+    { pattern: /(^|\s)(감(?!자|기|미|동|성|독|찰|상|미|마)|귤|오렌지|레몬|자몽|복숭아|키위|아보카도|석류)/, minG: 50, label: '중간 과일' },
+    { pattern: /(^|\s)(닭고기|소고기|돼지고기|오리고기|한우|한돈|삼겹살|목살|등심|안심|갈비)/, minG: 100, label: '육류' },
+    // 신선 채소 raw form 만 (가공식품은 위에서 skip). 무는 단독 '무' 매치 안 함 (리무버 false positive).
+    { pattern: /(^|\s)(감자|고구마|양파|당근|배추|호박|가지)/, minG: 80, label: '뿌리/엽채' },
   ];
 
   const lower = productName.toLowerCase();
@@ -836,6 +842,13 @@ function validateUnitWeightPlausibility(
   const weightG = parseFloat(weightOpt.value);
   const count = parseInt(countOpt.value, 10);
   if (!Number.isFinite(weightG) || !Number.isFinite(count) || count <= 1) return;
+  // ⚠️ weightG=1 은 거의 항상 getRequiredFallback sentinel — 실제 추출값이 아님.
+  //    productName 에 중량이 명시되지 않은 경우 fallback "1g" 가 들어가는데,
+  //    이걸 실제 중량으로 오인하여 perUnit ≈ 0g/개 → count 폴백 1 강제하면
+  //    사용자가 명시한 count 값을 부당하게 폴백. fallback weight 면 검증 skip.
+  if (weightG <= 1) return;
+  // 또한 productName 에 중량 명시(\d+\s*(g|kg|그램)) 없으면 검증 skip — fallback 의존이므로 신뢰 불가.
+  if (!/\d+(?:\.\d+)?\s*(g|kg|㎏|그램)\b/.test(productName)) return;
 
   const perUnit = weightG / count;
   if (perUnit < matched.minG) {
