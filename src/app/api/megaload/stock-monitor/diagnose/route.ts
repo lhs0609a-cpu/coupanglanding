@@ -294,37 +294,60 @@ export async function GET() {
 
     if (gtUrl) {
       try {
-        const t0 = Date.now();
-        const gtRes = await fetch(gtUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8',
-          },
-          signal: AbortSignal.timeout(20000),
-        });
-        const html = await gtRes.text();
-        const elapsed = Date.now() - t0;
+        // 재시도 로직 — region block 시 최대 3회 재시도
+        let gtRes: Response | null = null;
+        let html = '';
+        let elapsed = 0;
+        let attemptCount = 0;
+        let regionBlockCount = 0;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          if (attempt > 0) await new Promise(r => setTimeout(r, 1000));
+          attemptCount++;
+          const t0 = Date.now();
+          gtRes = await fetch(gtUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+              'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8',
+            },
+            signal: AbortSignal.timeout(20000),
+          });
+          html = await gtRes.text();
+          elapsed += Date.now() - t0;
+          // region block 감지 → 재시도
+          const isRegionBlock = /translation\s*service\s*isn'?t\s*available\s*in\s*your\s*region/i.test(html)
+            && !/__PRELOADED_STATE__|productId/i.test(html);
+          if (isRegionBlock) {
+            regionBlockCount++;
+            continue;
+          }
+          break;
+        }
+        const finalRes = gtRes!;
         // 네이버 데이터 포함 여부 검증
         const hasNaverData = /__PRELOADED_STATE__|smartstore|naver-shop|productId/i.test(html);
         const hasPrice = /[\d,]+원|\bdispDiscountedSalePrice\b|salePrice/i.test(html);
         steps.push({
           step: '11_google_translate_bypass',
-          status: gtRes.ok && hasNaverData ? 'ok' : (gtRes.status === 429 || gtRes.status === 403 ? 'fail' : 'warn'),
+          status: finalRes.ok && hasNaverData ? 'ok' : (finalRes.status === 429 || finalRes.status === 403 ? 'fail' : 'warn'),
           detail: {
             originalUrl: sampleUrl,
             translatedUrl: gtUrl,
-            status: gtRes.status,
+            status: finalRes.status,
             htmlBytes: html.length,
             hasNaverData,
             hasPrice,
             responseMs: elapsed,
-            hint: gtRes.ok && hasNaverData
+            attemptCount,
+            regionBlockCount,
+            hint: finalRes.ok && hasNaverData
               ? '✅ Google Translate 우회 성공! 네이버 데이터 포함 확인. 무료로 차단 회피 가능.'
-              : gtRes.status === 429
+              : finalRes.status === 429
               ? '구글까지 429 차단 — 호출 빈도 너무 높거나 구글이 우리 IP 차단.'
+              : regionBlockCount === attemptCount
+              ? `❌ 모든 시도(${attemptCount}회)에서 region block — Vercel server가 region 제한 region에 위치. Edge Function 또는 다른 region 필요.`
               : !hasNaverData
               ? '응답은 받았으나 네이버 데이터 미포함 — 구글 번역 페이지 구조 변경 가능성.'
-              : `예상치 못한 응답 (status=${gtRes.status})`,
+              : `예상치 못한 응답 (status=${finalRes.status})`,
           },
         });
       } catch (gtErr) {

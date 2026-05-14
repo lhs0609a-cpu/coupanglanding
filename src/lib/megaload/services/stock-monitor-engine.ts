@@ -129,13 +129,22 @@ async function checkUrl(url: string, retryCount = 0): Promise<CheckResult> {
     }
   }
 
-  // 3차: Google Translate proxy (마지막 폴백)
+  // 3차: Google Translate proxy (재시도 패턴)
+  // ⚠️ Google Translate가 처음 호출 시 region check (HTML "translation service isn't
+  //    available in your region") 응답하지만, 동일 URL 재호출 시 통과하는 패턴이 있음.
+  //    사용자가 새로고침 시 페이지 정상 로드되는 것으로 검증됨 (2026-05-14).
+  //    → 1차 region block 감지 시 1초 후 재시도 (최대 2회).
   const gtUrl = toGoogleTranslateUrl(url);
   if (gtUrl) {
-    const result3 = await checkUrlSingle(gtUrl, 0);
-    if (result3.status !== 'error') {
-      console.log(`[stock-monitor] Google Translate 폴백 성공: ${url.slice(0, 60)}`);
-      return result3;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await sleep(1000);
+      const resultGt = await checkUrlSingle(gtUrl, 0);
+      if (resultGt.status !== 'error') {
+        console.log(`[stock-monitor] Google Translate 폴백 성공 (attempt ${attempt + 1}): ${url.slice(0, 60)}`);
+        return resultGt;
+      }
+      // region block 감지 → 재시도. 다른 에러(429/403) 면 즉시 break
+      if (!/region|translation\s*service/i.test(resultGt.matchedPattern || '')) break;
     }
   }
 
@@ -242,6 +251,12 @@ async function checkUrlSingle(url: string, retryCount = 0): Promise<CheckResult>
         matchedPattern: proxyFellThroughToFail ? `${proxyError} → 직접 fetch HTTP ${statusCode}` : `HTTP ${statusCode}`,
         errorClass: proxyFellThroughToFail ? 'infra' : 'naver',
       };
+    }
+
+    // Google Translate region block 감지 — 본문에 region 안내만 있고 네이버 데이터 없음
+    if (/translation\s*service\s*isn'?t\s*available\s*in\s*your\s*region/i.test(html)
+        && !/__PRELOADED_STATE__|productId|smartstore-content/i.test(html)) {
+      return { status: 'error', matchedPattern: 'region block (translation service)', errorClass: 'transient' };
     }
 
     for (const p of REMOVED_PATTERNS) {
