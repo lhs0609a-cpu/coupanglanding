@@ -54,6 +54,7 @@ import {
   isEnglishOnlyCategory,
 } from './category-attribute-resolver';
 import { getV2Pool, v2ToV1Pool } from './v2-pool-resolver';
+import { sanitizeCrossCategory } from './cross-category-guard';
 
 // ─── 타입 ────────────────────────────────────────────────
 
@@ -195,7 +196,23 @@ const NOISE = new Set([
   '무료배송', '당일발송', '특가', '할인', '증정', '사은품', '리뷰이벤트',
   '추천', '인기', '베스트', '상품상세참조', '상세페이지참조', '상페참조',
   '참조', '상세참조', '페이지참조',
+  // 광고/효능 과장 (hypeBanned) — audit-30x-coupang-seo 결과 3.36% 잔존
+  '효과만점', '효과', '완치', '치료', '의학적', '의료적',
+  '100%', '100프로', '최고', '최상', '최강', '최우수', '넘버원',
+  '명품', '명품급', '럭셔리', '프리미엄급', '특A급',
+  '보장', '약속', '확실',
 ]);
+
+// hypeBanned 사후 패턴 (substring) — addToken 이후 사후 제거
+// audit 결과 입력 노이즈 ("효과만점 100% 보장", "이서진 추천") 등이 토큰에 잔존
+const HYPE_POSTFILTER = /효과만점|100\s*%|100\s*프로|효능보장|확실보장|완치|치료효과|의학적효과|최강추천|넘버원/g;
+
+// 셀러 이름 흔적 패턴 — "메가샵", "인기마켓", "베스트마켓" 등이 출력에 들어가지 않도록
+const SELLER_TRACE_POSTFILTER = /인기마켓|인기셀러|메가셀러|메가샵|베스트마켓|프리미엄스토어|에코프렌즈|리빙플러스|굿라이프|스마트홈|코리아셀러|데일리홈|한국유통/g;
+
+// attribute KEY 누출 차단 — "수량"이 단독 토큰으로 등장하면 의미없는 메타데이터
+const ATTRIBUTE_KEY_TOKENS = new Set(['수량', '용량', '중량', '사이즈', '색상', '구성', '구분', '종류', '타입']);
+
 
 // 광고 모델 / 연예인 / 인플루언서 이름 — 노출상품명에 포함 시 IP 리스크
 const CELEBRITY_NAMES = new Set([
@@ -1211,18 +1228,48 @@ export function generateDisplayName(
     }
   }
 
-  // ★ 다양성 강화 풀 — 셀러 시드별로 다른 1~3개 토큰 강제 주입
-  //   풀이 빈약한 카테고리(패션 잡화 등)에서 1,000명 셀러 모두 다른 노출명 보장.
-  //   selectSubset의 시드 기반 셔플로 ~28개 풀 × 3개 선택 = 3276개 조합 (1000명 충분 커버)
-  //   카테고리 leaf 매칭과 무관한 일반 수식어라 SEO 영향 최소.
+  // ★ 다양성 강화 풀 — 셀러 시드별로 다른 1~3개 토큰 강제 주입.
+  //   2026-05-13 fix: 카테고리 L1 분기. 이전엔 단일 풀에서 무차별 주입 →
+  //   식품(오렌지)에 "프로페셔널/럭셔리/명품급/편리한/모던한/베이직" 같은
+  //   가전·가구 어휘가 들어가는 부적합 회귀 발생.
+  //
+  //   GENERIC(모든 카테고리 안전) + L1 추가 단어로 구성. 풀 크기는 셀러 ~1,000명
+  //   다양성 확보에 충분(GENERIC 10 + L1 6~8 = 약 17 × 3 선택 = 4,000+ 조합).
   {
-    const DIVERSITY_POOL = [
+    const topL1 = categoryPath.split('>')[0]?.trim() || '';
+    const GENERIC_SAFE = [
       '실속형', '베스트셀러', '인기상품', '추천상품', '신상품', '신상',
-      '한정수량', '컴팩트', '심플한', '모던한', '클래식한', '실용적',
-      '베이직', '프로페셔널', '에코', '울트라', '슈퍼', '맥스', '라이트',
-      '명품급', '고품질', '특별한', '한정판', '럭셔리', '실용', '편리한',
-      '견고한', '내구성', '장인정신', '품격있는',
+      '한정수량', '특별한', '한정판', '고품질',
     ];
+    let l1Pool: string[];
+    if (topL1.includes('식품')) {
+      // 식품 — 신선/원산지/맛 어휘
+      l1Pool = ['엄선', '신선한', '제철', '국내산', '자연산', '정성', '담백한', '깊은맛'];
+    } else if (topL1.includes('뷰티')) {
+      l1Pool = ['집중', '진정', '광채', '데일리', '저자극', '순한', '고보습'];
+    } else if (topL1.includes('가전') || topL1.includes('디지털')) {
+      l1Pool = ['컴팩트', '슈퍼', '울트라', '맥스', '라이트', '프로페셔널', '에코', '편리한', '고성능'];
+    } else if (topL1.includes('패션')) {
+      l1Pool = ['베이직', '모던한', '클래식한', '심플한', '데일리', '트렌디', '세련된'];
+    } else if (topL1.includes('가구') || topL1.includes('홈데코')) {
+      l1Pool = ['모던한', '클래식한', '심플한', '내구성', '견고한', '럭셔리', '실용적', '인테리어'];
+    } else if (topL1.includes('생활')) {
+      l1Pool = ['편리한', '실용적', '컴팩트', '에코', '다용도'];
+    } else if (topL1.includes('주방')) {
+      l1Pool = ['편리한', '실용적', '컴팩트', '견고한', '내구성', '다용도'];
+    } else if (topL1.includes('스포츠') || topL1.includes('레져')) {
+      l1Pool = ['프로페셔널', '울트라', '맥스', '라이트', '에코', '편리한', '기능성'];
+    } else if (topL1.includes('반려') || topL1.includes('애완')) {
+      l1Pool = ['엄선', '신선한', '저자극', '순한', '편안한', '안전한'];
+    } else if (topL1.includes('출산') || topL1.includes('유아동')) {
+      l1Pool = ['안전한', '순한', '부드러운', '편안한', '저자극'];
+    } else if (topL1.includes('도서')) {
+      l1Pool = ['추천도서', '필독서', '베스트', '교양'];
+    } else {
+      // 기타 카테고리 — GENERIC 만으로
+      l1Pool = [];
+    }
+    const DIVERSITY_POOL = [...GENERIC_SAFE, ...l1Pool];
     const available = DIVERSITY_POOL.filter(t => !usedWords.has(t.toLowerCase()));
     const diversitySubset = selectSubset(available, 3, rng);
     for (const t of diversitySubset) {
@@ -1321,6 +1368,26 @@ export function generateDisplayName(
     }
   }
   result = postCompliance;
+
+  // ── 사후 sanitize: hypeBanned 패턴 + 셀러 흔적 + attribute KEY ──
+  // audit 결과: 입력 노이즈("효과만점 100% 보장", "이서진 추천", "메가셀러")가 토큰 단계
+  // 다중 필터를 통과해 잔존하는 케이스 3.36%. 마지막 보호망으로 substring 제거.
+  result = result.replace(HYPE_POSTFILTER, '').replace(/\s{2,}/g, ' ').trim();
+  result = result.replace(SELLER_TRACE_POSTFILTER, '').replace(/\s{2,}/g, ' ').trim();
+  // 연예인 이름 사후 제거 (CELEBRITY_NAMES set 기반 word match)
+  for (const celeb of CELEBRITY_NAMES) {
+    if (result.includes(celeb)) {
+      result = result.replace(new RegExp(`(^|\\s)${celeb}(?=\\s|$)`, 'g'), '$1').replace(/\s{2,}/g, ' ').trim();
+    }
+  }
+  // attribute KEY 단독 토큰 제거
+  result = result.split(/\s+/).filter(t => !ATTRIBUTE_KEY_TOKENS.has(t)).join(' ');
+
+  // ── 크로스카테고리 가드 (시스템 안전망) ──
+  // 어떤 풀/attrs/path token 에서든 카테고리에 부적합한 단어가 흘러나오면
+  // 최종 단계에서 강제 제거. 새로운 풀이 추가되거나 데이터가 오염돼도
+  // 런타임에서 자동 차단.
+  result = sanitizeCrossCategory(result, categoryPath);
 
   // fallback: 생성 실패 시 원본 사용 — 노이즈 구문 + 모순 토큰 제거
   if (!result) {

@@ -327,21 +327,29 @@ function buildLayoutD(params: DetailPageParams): string {
 // ─── 공통 섹션 빌더 ─────────────────────────────────────────
 
 function buildWrapper(style: LayoutStyle, theme: ThemeColor): string {
-  return `<div style="width:100%;max-width:${style.maxWidth};margin:0 auto;font-family:'Malgun Gothic','맑은 고딕','Apple SD Gothic Neo',sans-serif;color:#222;background:#fff;">`;
+  // 카테고리 L1 테마 색상 적용 — bgLight를 page 배경으로
+  return `<div style="width:100%;max-width:${style.maxWidth};margin:0 auto;font-family:'Malgun Gothic','맑은 고딕','Apple SD Gothic Neo',sans-serif;color:#222;background:${theme.bgLight};">`;
 }
 
 /** 섹션 1: 히어로 헤더 — 상품명만 크게 */
-function buildHeroSection(productName: string, brand?: string, seoKeywords?: string[], _theme?: ThemeColor): string {
+function buildHeroSection(productName: string, brand?: string, seoKeywords?: string[], theme?: ThemeColor): string {
   const parts: string[] = [];
-  parts.push(`<div style="text-align:center;padding:48px 20px 36px;">`);
+  const primary = theme?.primary || '#222';
+  const accent = theme?.textAccent || '#999';
+  parts.push(`<div style="text-align:center;padding:48px 20px 36px;background:${theme?.bgLight || '#fff'};">`);
   if (brand) {
-    parts.push(`<div style="font-size:14px;color:#999;letter-spacing:2px;margin-bottom:10px;">${esc(brand)}</div>`);
+    parts.push(`<div style="font-size:14px;color:${accent};letter-spacing:2px;margin-bottom:10px;font-weight:bold;">${esc(brand)}</div>`);
   }
-  parts.push(`<div style="font-size:24px;font-weight:bold;color:#222;line-height:1.6;word-break:keep-all;">${esc(productName)}</div>`);
+  parts.push(`<div style="font-size:24px;font-weight:bold;color:${primary};line-height:1.6;word-break:keep-all;">${esc(productName)}</div>`);
 
-  // SEO 키워드 — 쉼표 구분 텍스트
+  // SEO 키워드 — 카테고리 테마 색상 적용
   if (seoKeywords && seoKeywords.length > 0) {
-    parts.push(`<div style="font-size:14px;color:#888;margin-top:14px;line-height:1.8;">${seoKeywords.slice(0, 6).map(k => esc(k)).join(', ')}</div>`);
+    const bgAccent = theme?.bgAccent || '#F5F5F5';
+    const textAccent = theme?.textAccent || '#666';
+    const badges = seoKeywords.slice(0, 6).map(k =>
+      `<span style="display:inline-block;padding:4px 10px;margin:2px 4px;background:${bgAccent};color:${textAccent};border-radius:12px;font-size:13px;">${esc(k)}</span>`,
+    ).join('');
+    parts.push(`<div style="margin-top:14px;line-height:1.8;">${badges}</div>`);
   }
 
   parts.push('</div>');
@@ -436,13 +444,13 @@ function buildParagraphGroupBlock(texts: string[], style: LayoutStyle): string {
 }
 
 /** 섹션 3: FAQ — 심플 텍스트 Q&A */
-function buildFaqSection(items: FaqItem[], _theme: ThemeColor): string {
+function buildFaqSection(items: FaqItem[], theme: ThemeColor): string {
   const parts: string[] = [];
-  parts.push('<div style="padding:36px 20px 20px;">');
+  parts.push(`<div style="padding:36px 20px 20px;background:${theme.bgLight};">`);
 
   for (const item of items) {
-    parts.push(`<div style="margin-bottom:28px;">`);
-    parts.push(`<div style="font-size:21px;font-weight:bold;color:#222;line-height:2.2;word-break:keep-all;">Q. ${esc(item.question)}</div>`);
+    parts.push(`<div style="margin-bottom:28px;padding:16px;background:${theme.bgAccent};border-radius:8px;border-left:4px solid ${theme.primary};">`);
+    parts.push(`<div style="font-size:21px;font-weight:bold;color:${theme.textAccent};line-height:2.2;word-break:keep-all;">Q. ${esc(item.question)}</div>`);
     parts.push(`<div style="font-size:21px;color:#222;line-height:2.2;margin-top:8px;word-break:keep-all;">A. ${esc(item.answer)}</div>`);
     parts.push('</div>');
   }
@@ -452,8 +460,8 @@ function buildFaqSection(items: FaqItem[], _theme: ThemeColor): string {
 }
 
 /** 섹션 5: 키워드 마무리 — 텍스트만 */
-function buildClosingSection(closingText: string, _productName: string, _theme: ThemeColor): string {
-  return `<div style="padding:32px 20px;text-align:center;"><div style="font-size:21px;color:#222;line-height:2.2;word-break:keep-all;">${esc(closingText)}</div></div>`;
+function buildClosingSection(closingText: string, _productName: string, theme: ThemeColor): string {
+  return `<div style="padding:32px 20px;text-align:center;background:${theme.bgLight};"><div style="font-size:21px;color:${theme.textAccent};line-height:2.2;font-weight:bold;word-break:keep-all;">${esc(closingText)}</div></div>`;
 }
 
 function buildDivider(): string {

@@ -108,16 +108,19 @@ const SUBCATEGORY_ALIASES: Record<string, string> = {
   '가구/홈데코>원예/가드닝':'가구/홈데코>원예','가구/홈데코>금고':'가구/홈데코>소파',
   '가구/홈데코>수선/수예도구':'가구/홈데코>소파',
   '출산/유아동>기저귀/교체용품':'출산/유아동>기저귀',
-  // 분유/유아식품 계열은 출산/유아동 풀(공산품 어휘 — 마감/내구성/조립) 대신
-  // 식품>건강식품 풀로 redirect — 영양제 톤이 분유/이유식 마케팅에 자연스럽고
-  // "마감 디테일/내구성" 같은 비식품 어휘 누수 차단.
+  // 분유/이유식/특수분유는 식품>건강식품 풀로 redirect — 영양제 톤이 분유/이유식
+  // 마케팅에 자연스럽고 "마감 디테일/내구성" 같은 비식품 어휘 누수 차단.
+  // ⚠️ 유아간식/음료/유아국/유아양념은 일반 가공식품이므로 신선식품 풀로 redirect
+  //    (영양제 풀 사용 시 "영양제/건강기능식품" 어휘 누출 — audit 16k 발견).
   '출산/유아동>분유/유아식품':'식품>건강식품',
   '출산/유아동>분유/유아식품>분유':'식품>건강식품',
   '출산/유아동>분유/유아식품>이유식':'식품>건강식품',
-  '출산/유아동>분유/유아식품>유아간식/음료':'식품>건강식품',
+  // ⚠️ 유아간식/음료는 '식품>음료' (V2 템플릿 존재) 로 redirect — '식품>가공식품'은 V2 미정의라 폴백 시 건강식품으로 잘못 매칭됨.
+  '출산/유아동>분유/유아식품>유아간식/음료':'식품>음료',
   '출산/유아동>분유/유아식품>유아건강식품':'식품>건강식품',
-  '출산/유아동>분유/유아식품>유아국/반찬':'식품>건강식품',
-  '출산/유아동>분유/유아식품>유아양념/식재료':'식품>건강식품',
+  // 유아국/반찬, 유아양념/식재료는 '식품' (generic) 사용 — 영양제 풀 누출 방지
+  '출산/유아동>분유/유아식품>유아국/반찬':'식품',
+  '출산/유아동>분유/유아식품>유아양념/식재료':'식품',
   '출산/유아동>분유/유아식품>일반분유':'식품>건강식품',
   '출산/유아동>분유/유아식품>특수분유':'식품>건강식품',
   '출산/유아동>분유/유아식품>산양분유':'식품>건강식품',
@@ -387,6 +390,247 @@ const SUSPICIOUS_PHRASES = [
 export function isSuspiciousFragment(text: string): boolean {
   if (!text) return false;
   return SUSPICIOUS_PHRASES.some(re => re.test(text));
+}
+
+// ─── 카테고리 L1 → 동사 양방향 sanitize ─────────────────
+// audit-30x-detail-page 결과: 비식품에 "드시", 식품에 "쓰시/익히" 등 부적합 동사 12.7% 검출.
+// L1별 화이트리스트 강제로 부적합 동사 → 적합 동사로 치환.
+type CategoryL1Kind = 'food' | 'beauty' | 'electronics' | 'fashion' | 'furniture' | 'kitchen' | 'book' | 'pet' | 'stationery' | 'toy' | 'sports' | 'auto' | 'baby' | 'living' | 'default';
+
+function detectCategoryL1(categoryPath?: string): CategoryL1Kind {
+  if (!categoryPath) return 'default';
+  const top = categoryPath.split('>')[0]?.trim() || '';
+  if (top.includes('식품')) return 'food';
+  if (top.includes('뷰티')) return 'beauty';
+  if (top.includes('가전') || top.includes('디지털')) return 'electronics';
+  if (top.includes('패션')) return 'fashion';
+  if (top.includes('가구')) return 'furniture';
+  if (top.includes('주방')) return 'kitchen';
+  if (top.includes('도서')) return 'book';
+  if (top.includes('반려') || top.includes('애완')) return 'pet';
+  if (top.includes('문구')) return 'stationery';
+  if (top.includes('완구')) return 'toy';
+  if (top.includes('스포츠') || top.includes('레져')) return 'sports';
+  if (top.includes('자동차')) return 'auto';
+  if (top.includes('출산')) return 'baby';
+  if (top.includes('생활')) return 'living';
+  return 'default';
+}
+
+// 식품 카테고리: 잔존 "쓰" 동사 → "드시"
+export function applyFoodVerbStrengthen(text: string): string {
+  if (!text) return text;
+  let out = text;
+  // applyFoodVerbReplacements에서 못 잡은 잔존 "쓰" 활용형 강화
+  out = out.replace(/쓰시는데/g, '드시는데');
+  out = out.replace(/쓰시면/g, '드시면');
+  out = out.replace(/쓰시니/g, '드시니');
+  out = out.replace(/쓰시는/g, '드시는');
+  out = out.replace(/쓰신/g, '드신');
+  out = out.replace(/쓰셔도/g, '드셔도');
+  out = out.replace(/쓰는 분/g, '드시는 분');
+  out = out.replace(/쓰는 사람/g, '드시는 분');
+  out = out.replace(/쓸수록/g, '드실수록');
+  out = out.replace(/써본/g, '드셔본');
+  out = out.replace(/써보면/g, '드셔보면');
+  out = out.replace(/써봤/g, '드셔봤');
+  out = out.replace(/먹어보면 좋습니다/g, '드시면 좋습니다');
+  return out;
+}
+
+// 비식품 카테고리 동사 sanitizer — "드시/먹/맛보" → "사용/쓰시" 변환
+function applyNonFoodVerbReplacements(text: string): string {
+  if (!text) return text;
+  let out = text;
+  // 식품 전용 동사를 일반 동사로 치환
+  out = out.replace(/드셨\s*는데/g, '써봤는데');
+  out = out.replace(/드셨습니다/g, '사용했습니다');
+  out = out.replace(/드십니다/g, '사용합니다');
+  out = out.replace(/드셔도/g, '사용해도');
+  out = out.replace(/드셔보시면/g, '사용해보시면');
+  out = out.replace(/드셔보/g, '사용해보');
+  out = out.replace(/드셔본/g, '사용해본');
+  out = out.replace(/드셔/g, '사용해');
+  out = out.replace(/드시는 중/g, '사용 중');
+  out = out.replace(/드신 후/g, '사용 후');
+  out = out.replace(/드시면/g, '쓰시면');
+  out = out.replace(/드시니까/g, '쓰시니까');
+  out = out.replace(/드신/g, '쓰신');
+  out = out.replace(/드시/g, '쓰시');
+  out = out.replace(/맛\s*보시면/g, '써보시면');
+  out = out.replace(/맛보/g, '써보');
+  out = out.replace(/매일 챙겨 드시는/g, '매일 쓰시는');
+  out = out.replace(/매일 드시는/g, '매일 쓰시는');
+  out = out.replace(/꾸준히 드시는/g, '꾸준히 쓰시는');
+  out = out.replace(/먹어보면/g, '써보면');
+  out = out.replace(/먹어보/g, '써보');
+  out = out.replace(/섭취하/g, '사용하');
+  // "사료"/"반려동물" 명사 — 비반려 카테고리에서 일반 "제품"으로 치환
+  return out;
+}
+
+// 패션 카테고리: 부적합 동사 차단
+function applyFashionVerbReplacements(text: string): string {
+  if (!text) return text;
+  let out = text;
+  out = out.replace(/드시는/g, '입으시는');
+  out = out.replace(/드십니다/g, '입으십니다');
+  out = out.replace(/드셔보시면/g, '입어보시면');
+  out = out.replace(/익히신/g, '착용하신');
+  out = out.replace(/익혀\s*보시면/g, '입어보시면');
+  return out;
+}
+
+// 가전/디지털: "드시/익히" → "사용/연결"
+function applyElectronicsVerbReplacements(text: string): string {
+  if (!text) return text;
+  let out = text;
+  out = out.replace(/드시는/g, '쓰시는');
+  out = out.replace(/드십니다/g, '사용합니다');
+  out = out.replace(/드셔보시면/g, '써보시면');
+  out = out.replace(/익히신 분/g, '써보신 분');
+  out = out.replace(/익혀/g, '익혀'); // "사용법을 익혀" — keep
+  return out;
+}
+
+// ─── Cross-Category 시그니처 sanitizer ────────────────────
+// audit 결과: 세탁기/냉장고/러닝화/반려동물/화장품/간식/캠핑족 등
+// 다른 카테고리 시그니처가 5.71% 본문에 침투.
+//
+// 전략: 카테고리 외 시그니처를 등장 시 일반 "제품"/"이 상품"으로 치환 또는 문장 drop.
+// 모든 cross-cat 시그니처 풀 (자기 카테고리 시그니처는 OWN_SIG에서 자동 제외)
+const ALL_CROSS_TOKENS: string[] = [
+  // 식품 시그니처
+  '김치', '한우', '삼겹살', '된장', '국수', '간식', '주스', '커피', '식빵', '베이커리', '라면',
+  // 가전 시그니처
+  '세탁기', '냉장고', '노트북', '모니터', '전자기기',
+  // 패션 시그니처
+  '러닝화', '구두', '치마', '스커트', '원피스', '코트', '셔츠', '운동화',
+  // 반려 시그니처
+  '강아지', '고양이', '반려동물', '반려인', '사료', '캣맘', '댕댕이',
+  // 캠핑 시그니처
+  '캠핑족', '캠핑카', '오토캠핑',
+  // 뷰티 시그니처
+  '세럼', '에센스', '립스틱', '파운데이션', '마스카라', '화장품',
+  // 주방 시그니처
+  '프라이팬', '인덕션', '논스틱',
+];
+
+// 카테고리 L1 → 자기 시그니처 매핑 (sanitize에서 제외할 토큰)
+const OWN_SIG_TOKENS: Record<string, Set<string>> = {
+  food:        new Set(['김치', '한우', '삼겹살', '된장', '국수', '간식', '주스', '커피', '식빵', '베이커리', '라면']),
+  kitchen:     new Set(['프라이팬', '인덕션', '논스틱', '식빵', '베이커리', '커피']),
+  electronics: new Set(['세탁기', '냉장고', '노트북', '모니터', '전자기기']),
+  fashion:     new Set(['러닝화', '구두', '치마', '스커트', '원피스', '코트', '셔츠', '운동화']),
+  pet:         new Set(['강아지', '고양이', '반려동물', '반려인', '사료', '캣맘', '댕댕이']),
+  sports:      new Set(['캠핑족', '캠핑카', '오토캠핑']),
+  auto:        new Set(['캠핑족', '캠핑카', '오토캠핑']),
+  beauty:      new Set(['세럼', '에센스', '립스틱', '파운데이션', '마스카라', '화장품']),
+};
+
+function getOwnTokens(kind: string): Set<string> {
+  return OWN_SIG_TOKENS[kind] || new Set();
+}
+
+function getCrossTokens(kind: string): string[] {
+  const own = getOwnTokens(kind);
+  return ALL_CROSS_TOKENS.filter(t => !own.has(t));
+}
+
+// 카테고리 L1 기반 cross-cat 시그니처를 본문에서 제거(또는 안전한 일반어로 치환).
+// 어절 경계 검사: 앞 문자가 한글이면 어절 일부 → skip (false positive 방지)
+export function applyCrossCategorySanitizer(text: string, categoryPath?: string): string {
+  if (!text || !categoryPath) return text;
+  const kind = detectCategoryL1(categoryPath);
+  const banned = getCrossTokens(kind);
+  if (banned.length === 0) return text;
+  const leafLower = (categoryPath.split('>').pop() || '').toLowerCase();
+  const pathLower = categoryPath.toLowerCase();
+  let out = text;
+  for (const w of banned) {
+    if (leafLower.includes(w.toLowerCase())) continue; // leaf에 포함되면 합법
+    if (pathLower.includes(w.toLowerCase())) continue; // path에 포함되면 합법
+    // 어절 경계 매칭 — 앞은 한글 아님 (단독 명사 시작), 뒤는 한글 OK (합성어 prefix도 잡음)
+    //   "화장품정리예요" → "제품정리예요" (cross-cat 단어 prefix만 sanitize)
+    //   "반려동물 가정" → "제품 가정" (단독 명사)
+    //   "수반려동물" → 앞 한글 → skip (안전)
+    const re = new RegExp(`(^|[^가-힣])${w}`, 'g');
+    let prev = '';
+    while (prev !== out) { prev = out; out = out.replace(re, '$1제품'); }
+  }
+  return out;
+}
+
+// 톤 통일 후처리 (시드 미보유 시 텍스트 자체 어미 분포 보고 결정)
+// audit 톤 혼재 27% → 출력 단계에서 단일 톤으로 통일
+export function unifyToneByMajority(text: string): string {
+  if (!text) return text;
+  // 텍스트 내 어미 카운트로 도미넌트 톤 결정
+  const formal = (text.match(/(합니다|입니다|됩니다|있습니다|없습니다|드립니다)/g) || []).length;
+  const casual = (text.match(/(에요|예요|어요|아요|네요|돼요)/g) || []).length;
+  if (formal === 0 && casual === 0) return text;
+  const dominant = formal >= casual ? 'formal' : 'casual';
+  let out = text;
+  if (dominant === 'formal') {
+    // casual → formal 치환
+    out = out.replace(/([가-힣])이에요(?=[\s.,!?]|$)/g, '$1입니다');
+    out = out.replace(/([가-힣])예요(?=[\s.,!?]|$)/g, '$1입니다');
+    out = out.replace(/([가-힣])에요(?=[\s.,!?]|$)/g, '$1입니다');
+    out = out.replace(/평이 많아요/g, '평가가 많습니다');
+    out = out.replace(/볼 수 있어요/g, '볼 수 있습니다');
+    out = out.replace(/될 수 있어요/g, '될 수 있습니다');
+    out = out.replace(/할 수 있어요/g, '할 수 있습니다');
+    out = out.replace(/(?<=[가-힣])들어요(?=[\s.,!?]|$)/g, '듭니다');
+    out = out.replace(/(?<=[가-힣])보여요(?=[\s.,!?]|$)/g, '보입니다');
+    out = out.replace(/있어요(?=[\s.,!?]|$)/g, '있습니다');
+    out = out.replace(/없어요(?=[\s.,!?]|$)/g, '없습니다');
+    out = out.replace(/좋아요(?=[\s.,!?]|$)/g, '좋습니다');
+    out = out.replace(/싶어요(?=[\s.,!?]|$)/g, '싶습니다');
+    out = out.replace(/돼요(?=[\s.,!?]|$)/g, '됩니다');
+    out = out.replace(/이죠(?=[\s.,!?]|$)/g, '입니다');
+    out = out.replace(/네요(?=[\s.,!?]|$)/g, '습니다');
+  } else {
+    out = out.replace(/입니다(?=[\s.,!?]|$)/g, '이에요');
+    out = out.replace(/됩니다(?=[\s.,!?]|$)/g, '돼요');
+    out = out.replace(/있습니다(?=[\s.,!?]|$)/g, '있어요');
+    out = out.replace(/없습니다(?=[\s.,!?]|$)/g, '없어요');
+    out = out.replace(/합니다(?=[\s.,!?]|$)/g, '해요');
+    out = out.replace(/만족하실 수 있습니다/g, '만족하실 수 있어요');
+    out = out.replace(/하실 수 있습니다(?=[\s.,!?]|$)/g, '하실 수 있어요');
+    out = out.replace(/늘었습니다/g, '늘었어요');
+    out = out.replace(/늘고 있습니다/g, '늘고 있어요');
+    out = out.replace(/이어지고 있습니다/g, '이어지고 있어요');
+  }
+  return out;
+}
+
+// 카테고리별 동사 sanitizer 디스패치
+export function applyCategoryVerbSanitizer(text: string, categoryPath?: string): string {
+  if (!text || !categoryPath) return text;
+  const kind = detectCategoryL1(categoryPath);
+  switch (kind) {
+    case 'food':
+      return applyFoodVerbStrengthen(applyFoodVerbReplacements(text));
+    case 'kitchen':  // 주방용품은 식품 동사 적합 (요리 도구 → "조리하시는")
+      return applyFoodVerbReplacements(text);
+    case 'fashion':
+      return applyFashionVerbReplacements(applyNonFoodVerbReplacements(text));
+    case 'electronics':
+      return applyElectronicsVerbReplacements(applyNonFoodVerbReplacements(text));
+    case 'beauty':
+    case 'furniture':
+    case 'book':
+    case 'pet':
+    case 'stationery':
+    case 'toy':
+    case 'sports':
+    case 'auto':
+    case 'baby':
+    case 'living':
+      return applyNonFoodVerbReplacements(text);
+    default:
+      return text;
+  }
 }
 
 // ─── 출력 후처리: 식품 카테고리 동사 차환 ────────────────
@@ -674,7 +918,11 @@ function matchesTone(s: string): boolean {
 function filterByTone(arr: string[]): string[] {
   if (_currentTone === 'mixed') return arr;
   const filtered = arr.filter(s => matchesTone(s));
-  return filtered.length > 0 ? filtered : arr; // 안전망
+  // 안전망 약화: 필터 결과 비면 mixed 톤만 통과 (tone-neutral fragment)
+  // 무조건 원본 반환하던 동작은 톤 누출의 주요 원인이라 제거.
+  if (filtered.length > 0) return filtered;
+  // tone-neutral (어미가 ~다/~요 둘 다 아닌 명사구·체언) 만 통과
+  return arr.filter(s => !FORMAL_RE.test(s) && !CASUAL_RE.test(s));
 }
 
 /**
@@ -2285,7 +2533,9 @@ export function composeAllBlocks(
 ): ContentBlock[] {
   resetSeoWeaveCounter();
   // 시드 기반 톤 결정 — 한 글에서 ~다/~요 일관성 유지
-  setToneMode(rng() < 0.6 ? 'formal' : 'casual');
+  // 60% formal / 40% casual — rng는 페이지 시드로 결정성 픽
+  const chosenTone: 'formal' | 'casual' = rng() < 0.6 ? 'formal' : 'casual';
+  setToneMode(chosenTone);
   // 블록 시퀀스 보강 — 쿠팡 SEO 권장 2000자+ 충족 위해 신뢰/사용가이드 블록 강제 추가.
   // cta는 항상 마지막에 두어 행동 유도가 글 끝에 위치하도록 보장.
   const baseBlocks = [...framework.blocks];
@@ -2308,30 +2558,70 @@ export function composeAllBlocks(
     ),
   );
 
-  // ─── Phase A: Cross-paragraph 중복 차단 + 토큰 정규화 + 식품 동사 차환 + 미치환 변수 reject ───
+  // ─── Phase A: Cross-paragraph 중복 차단 + 토큰 정규화 + 카테고리별 동사 sanitize + cross-cat 시그니처 제거 ───
   // (F2/F3/F4/F6 통합 후처리)
-  const isFood = isFoodCategory(categoryPath);
   const seenSentences = new Set<string>();
 
   const splitSentences = (text: string): string[] => {
     if (!text) return [];
-    // 한국어 종결 + 영문 종결 분리. 마침표/물음표/느낌표 뒤에 공백 또는 끝.
     return text.split(/(?<=[\.!?])\s+/).map(s => s.trim()).filter(Boolean);
+  };
+
+  // 톤 통일 사후 치환 — chosenTone 외 어미 발견 시 chosenTone으로 변환
+  // audit 결과: 톤 혼재 26.76% 발견 → 사후 치환으로 단일 톤 보장
+  const unifyTone = (s: string): string => {
+    if (!s) return s;
+    let out = s;
+    if (chosenTone === 'formal') {
+      // 친근체 → 격식체 사후 치환
+      out = out.replace(/([가-힣])이에요(?=[\s.,!?]|$)/g, '$1입니다');
+      out = out.replace(/([가-힣])예요(?=[\s.,!?]|$)/g, '$1입니다');
+      out = out.replace(/([가-힣])에요(?=[\s.,!?]|$)/g, '$1입니다');
+      out = out.replace(/네요(?=[\s.,!?]|$)/g, '네요'); // skip (neutral)
+      out = out.replace(/이라는 평이 많아요/g, '이라는 평가가 많습니다');
+      out = out.replace(/평이 많아요/g, '평가가 많습니다');
+      out = out.replace(/볼 수 있어요/g, '볼 수 있습니다');
+      out = out.replace(/될 수 있어요/g, '될 수 있습니다');
+      out = out.replace(/할 수 있어요/g, '할 수 있습니다');
+      out = out.replace(/들어요(?=[\s.,!?]|$)/g, '듭니다');
+      out = out.replace(/보여요(?=[\s.,!?]|$)/g, '보입니다');
+      out = out.replace(/있어요(?=[\s.,!?]|$)/g, '있습니다');
+      out = out.replace(/없어요(?=[\s.,!?]|$)/g, '없습니다');
+      out = out.replace(/좋아요(?=[\s.,!?]|$)/g, '좋습니다');
+      out = out.replace(/싶어요(?=[\s.,!?]|$)/g, '싶습니다');
+      out = out.replace(/돼요(?=[\s.,!?]|$)/g, '됩니다');
+      out = out.replace(/이죠(?=[\s.,!?]|$)/g, '입니다');
+    } else {
+      // 격식체 → 친근체 (덜 공격적 — 핵심 어미만)
+      out = out.replace(/입니다(?=[\s.,!?]|$)/g, '이에요');
+      out = out.replace(/됩니다(?=[\s.,!?]|$)/g, '돼요');
+      out = out.replace(/있습니다(?=[\s.,!?]|$)/g, '있어요');
+      out = out.replace(/없습니다(?=[\s.,!?]|$)/g, '없어요');
+      out = out.replace(/만족하실 수 있습니다/g, '만족하실 수 있어요');
+      out = out.replace(/하실 수 있습니다(?=[\s.,!?]|$)/g, '하실 수 있어요');
+      out = out.replace(/늘었습니다/g, '늘었어요');
+      out = out.replace(/늘고 있습니다/g, '늘고 있어요');
+      out = out.replace(/이어지고 있습니다/g, '이어지고 있어요');
+    }
+    return out;
   };
 
   const cleanText = (text: string): string => {
     if (!text) return text;
     let out = text;
-    // 1) 식품이면 동사 차환
-    if (isFood) out = applyFoodVerbReplacements(out);
-    // 2) 토큰 중복 제거
+    // 1) 카테고리 L1 기반 동사 sanitize (식품→드시다, 비식품→사용/쓰시, 패션→입으시 등)
+    out = applyCategoryVerbSanitizer(out, categoryPath);
+    // 2) cross-category 시그니처 단어 제거 (세탁기/냉장고/러닝화/반려동물 등 → "제품")
+    out = applyCrossCategorySanitizer(out, categoryPath);
+    // 3) 톤 통일 (chosenTone 으로 어미 사후 치환)
+    out = unifyTone(out);
+    // 4) 토큰 중복 제거
     out = normalizeRepeatedTokens(out);
-    // 3) 문장 단위로 split → 의심 패턴 + 중복 제거
+    // 5) 문장 단위로 split → 의심 패턴 + 중복 제거
     const sents = splitSentences(out);
     const kept: string[] = [];
     for (const s of sents) {
       if (isSuspiciousFragment(s)) continue;
-      // 정규화된 키 (공백/끝점 무시)로 같은 글 안 중복 차단
       const key = s.replace(/[\s\.,!?]+/g, '').replace(/[가-힣A-Za-z0-9]/g, c => c.toLowerCase());
       if (seenSentences.has(key)) continue;
       seenSentences.add(key);

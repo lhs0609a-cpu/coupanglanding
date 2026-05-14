@@ -16,6 +16,7 @@ import { resolveContentProfile } from './content-profile-resolver';
 import type { ContentProfile } from './content-profile-resolver';
 import { extractContextOverrides } from './product-name-parser';
 import type { ProductContext } from './product-name-parser';
+import { sanitizeCrossCategory } from './cross-category-guard';
 
 // ─── 타입 ────────────────────────────────────────────────────
 
@@ -36,19 +37,57 @@ type FrameId = 'CONCLUSION_FIRST' | 'COMPARISON' | 'DAILY_LIFE' | 'GIFT_STORY' |
 // ─── 데이터 로드 ─────────────────────────────────────────────
 
 const FRAMES: Record<string, ReviewFrame> = reviewFrameData.frames as Record<string, ReviewFrame>;
-const FRAGMENTS: Record<string, Record<string, FragmentPool>> = reviewFrameData.fragments as Record<string, Record<string, FragmentPool>>;
+const FRAGMENTS: Record<string, Record<string, FragmentPool>> = reviewFrameData.fragments as unknown as Record<string, Record<string, FragmentPool>>;
 const CATEGORY_ALIASES: Record<string, string> = reviewFrameData.categoryAliases as Record<string, string>;
 const TRANSITIONS: Record<string, string[]> = (reviewFrameData as Record<string, unknown>).transitions as Record<string, string[]> || {};
 const VARIABLES: Record<string, Record<string, string[]>> = storyData.variables as Record<string, Record<string, string[]>>;
 
 // ─── 카테고리 매핑 ───────────────────────────────────────────
 
-function getReviewCategoryKey(categoryPath: string): string {
+/**
+ * 카테고리 path → review fragment pool 키 매핑.
+ *
+ * ⚠️ 식품은 product form 기반으로 세분화 (영양제 어휘 cross-pollution 차단):
+ *   - 신선식품(과일/채소/축산/수산) → '식품>신선식품'  (신선도/산지/박스/kg 어휘)
+ *   - 가공식품(라면/김치/스낵/소스) → '식품>가공식품'  (한 끼/멀티팩/조리 어휘)
+ *   - 건강식품(영양제/캡슐/홍삼)    → '식품'             (한 포/정제/함량/효도 어휘)
+ *
+ * audit 결과 기존 단일 '식품' 풀이 영양제 어휘 위주로 작성되어 신선/가공식품에
+ * cross-pollution 발생 (오렌지에 "한 포 뜯어서", 사과에 "부원료" 등).
+ */
+function getReviewCategoryKey(categoryPath: string, productName?: string): string {
   // 카테고리 path 가 ">" 또는 공백 구분 모두 지원 — 16,259 코드 전체 커버
   const top = (categoryPath.split(/[>\s]/)[0] || '').trim();
 
   if (top.includes('뷰티') || top.includes('화장품')) return '뷰티';
-  if (top.includes('식품') || top.includes('건강식품')) return '식품';
+  if (top.includes('식품') || top.includes('건강식품')) {
+    // 식품 세분화: 카테고리 경로 + 상품명 form 으로 분기
+    const path = categoryPath;
+    // ⚠️ 음료/생수/차/커피/주류 path 는 항상 가공식품으로 우선 분류
+    //    (비타민음료/홍삼음료 등 — '비타민/홍삼' 단순 매치는 supplement 오인을 유발)
+    if (path.includes('생수/음료') || path.includes('음료') || path.includes('주류')
+        || path.includes('전통주') || path.includes('차/원두') || path.includes('커피/차')
+        || path.includes('우유/두유') || path.includes('생수')) return '식품>가공식품';
+    if (path.includes('건강식품') || path.includes('영양제') || path.includes('비타민/미네랄')
+        || path.includes('비타민제') || path.includes('홍삼>') || path.endsWith('홍삼')) return '식품';
+    if (path.includes('신선식품') || path.includes('과일') || path.includes('채소') || path.includes('축산')
+        || path.includes('수산') || path.includes('정육') || path.includes('농산')) return '식품>신선식품';
+    if (path.includes('가공') || path.includes('즉석') || path.includes('스낵') || path.includes('간식')
+        || path.includes('김치') || path.includes('반찬') || path.includes('젓갈') || path.includes('면류')
+        || path.includes('소스') || path.includes('장') || path.includes('조미료') || path.includes('향신료')
+        || path.includes('빵') || path.includes('베이커리') || path.includes('유제품') || path.includes('아이스크림')) return '식품>가공식품';
+    if (path.includes('음료') || path.includes('생수') || path.includes('차') || path.includes('커피')
+        || path.includes('전통주')) return '식품>가공식품'; // 음료도 가공식품 톤이 자연스러움
+    // 상품명 기반 fallback
+    if (productName) {
+      const pn = productName;
+      if (/비타민|오메가|유산균|프로바이오|루테인|밀크씨슬|홍삼|캡슐|정제|영양제|글루코사민|콜라겐|비오틴|마그네슘|쏘팔메토|엽산|가르시니아|스피루리나|클로렐라|크릴|코엔자임|MSM|쏘팔|프로폴리스/.test(pn)) return '식품';
+      if (/과일|채소|한라봉|사과|배|딸기|토마토|감귤|블루베리|포도|수박|참외|복숭아|자두|체리|키위|망고|바나나|오렌지|레몬|자몽|귤|쌀|잡곡|정육|한우|돼지|닭|소고기|수산물|생선|새우|오징어|갈비|등심|안심|삼겹살|연어|광어/.test(pn)) return '식품>신선식품';
+      if (/라면|통조림|냉동|즉석|과자|쿠키|빵|소스|장류|김치|반찬|밀키트|간편식|스낵|젓갈/.test(pn)) return '식품>가공식품';
+    }
+    // 최종 fallback: 가공식품(가장 일반적인 경우)
+    return '식품>가공식품';
+  }
   if (top.includes('생활') || categoryPath.includes('세제') || categoryPath.includes('욕실') || categoryPath.includes('수납')) return '생활용품';
   if (top.includes('가전') || top.includes('디지털')) return '가전/디지털';
   if (top.includes('패션') || top.includes('의류') || top.includes('잡화')) return '패션의류잡화';
@@ -83,21 +122,47 @@ function hasFinalConsonant(char: string): boolean {
   return (code - 0xAC00) % 28 !== 0;
 }
 
-/** 한국어 조사 자동 처리 — "효과1이/가", "효과1은/는", "효과1을/를" */
+/**
+ * 한국어 조사 자동 처리 — "효과1이/가", "효과1은/는", "효과1을/를".
+ *
+ * ⚠️ 보호 명사 — "나이/사이/거리" 같이 "이/가/은/는/을/를" 가 어휘의 일부인 일반명사는
+ *    조사로 오인하여 변환되면 안 됨 (audit Round 5: "나이 들면서" → "나가 들면서" 발견).
+ *    이런 명사는 "이/가" 매칭에서 prev 가 그 명사의 끝 음절이면 변환 스킵.
+ *    매칭 prev 는 단일 char 만 잡으므로, 매칭 위치 직전 1~2 자를 추가 검사한다.
+ */
+const PARTICLE_PROTECTED_NOUNS = /(?:^|[^\uAC00-\uD7A3])(나이|사이|거리|마음|이름|아이|차이|허리|머리|진리|관리|처리|정리|준비|기회|시기|상태|관계|시작|이야기|얘기|시간|기간|이유|차원|이미|근거|이용|이해|이상|이전)$/;
+
 function fixKoreanParticles(text: string): string {
-  return text
-    .replace(/([\uAC00-\uD7A3])(이|가)(\s)/g, (_, prev, _p, sp) =>
-      prev + (hasFinalConsonant(prev) ? '이' : '가') + sp)
-    .replace(/([\uAC00-\uD7A3])(은|는)(\s)/g, (_, prev, _p, sp) =>
-      prev + (hasFinalConsonant(prev) ? '은' : '는') + sp)
-    .replace(/([\uAC00-\uD7A3])(을|를)(\s)/g, (_, prev, _p, sp) =>
-      prev + (hasFinalConsonant(prev) ? '을' : '를') + sp)
-    // 으로/로: ㄹ받침이거나 무받침 → "로", 그 외 받침 → "으로"
-    .replace(/([\uAC00-\uD7A3])(으로|로)(\s)/g, (_, prev, _p, sp) => {
-      const code = prev.charCodeAt(0);
-      const jong = (code - 0xAC00) % 28;
-      return prev + (jong === 0 || jong === 8 ? '로' : '으로') + sp;
-    });
+  // helper: 매칭 위치를 포함한 substring 이 보호 명사 + (이/가/은/는/을/를) 패턴이면 변환 스킵.
+  //
+  // 입력 "나이 들면서" → match offset=0, prev='나', particle='이', sp=' '.
+  // 우리가 검사할 것은 "나이" 자체가 보호 명사인지. slice = text[max(0, idx-3) .. idx+2)
+  // → "나이"가 substring 끝에 위치 → PARTICLE_PROTECTED_NOUNS 매치.
+  const isProtectedAt = (text: string, idx: number): boolean => {
+    // prev 1자 + particle 1자 = 2자 단어 검사. 단, "큰 차이" 같이 prev 앞에 공백이 와도 매칭 가능하도록 3자 추가 buffer.
+    const slice = text.slice(Math.max(0, idx - 3), idx + 2);
+    return PARTICLE_PROTECTED_NOUNS.test(slice);
+  };
+  let out = text;
+  out = out.replace(/([\uAC00-\uD7A3])(이|가)(\s)/g, (match, prev, _p, sp, offset) => {
+    if (isProtectedAt(out, offset)) return match; // 보호: "나이 " "차이 " 등은 변환 스킵
+    return prev + (hasFinalConsonant(prev) ? '이' : '가') + sp;
+  });
+  out = out.replace(/([\uAC00-\uD7A3])(은|는)(\s)/g, (match, prev, _p, sp, offset) => {
+    if (isProtectedAt(out, offset)) return match;
+    return prev + (hasFinalConsonant(prev) ? '은' : '는') + sp;
+  });
+  out = out.replace(/([\uAC00-\uD7A3])(을|를)(\s)/g, (match, prev, _p, sp, offset) => {
+    if (isProtectedAt(out, offset)) return match;
+    return prev + (hasFinalConsonant(prev) ? '을' : '를') + sp;
+  });
+  // 으로/로: ㄹ받침이거나 무받침 → "로", 그 외 받침 → "으로"
+  out = out.replace(/([\uAC00-\uD7A3])(으로|로)(\s)/g, (_, prev, _p, sp) => {
+    const code = prev.charCodeAt(0);
+    const jong = (code - 0xAC00) % 28;
+    return prev + (jong === 0 || jong === 8 ? '로' : '으로') + sp;
+  });
+  return out;
 }
 
 const COMMON_VAR_FALLBACKS: Record<string, string[]> = {
@@ -198,6 +263,8 @@ function fillVariables(
 const CATEGORY_FRAME_WEIGHTS: Record<string, FrameId[]> = {
   '뷰티': ['CONCLUSION_FIRST', 'COMPARISON', 'DAILY_LIFE', 'GIFT_STORY', 'REPURCHASE'],
   '식품': ['CONCLUSION_FIRST', 'REPURCHASE', 'GIFT_STORY', 'DAILY_LIFE', 'COMPARISON'],
+  '식품>신선식품': ['DAILY_LIFE', 'GIFT_STORY', 'REPURCHASE', 'CONCLUSION_FIRST', 'COMPARISON'],
+  '식품>가공식품': ['DAILY_LIFE', 'CONCLUSION_FIRST', 'REPURCHASE', 'COMPARISON', 'GIFT_STORY'],
   '생활용품': ['DAILY_LIFE', 'REPURCHASE', 'CONCLUSION_FIRST', 'GIFT_STORY', 'COMPARISON'],
   '가전/디지털': ['COMPARISON', 'CONCLUSION_FIRST', 'DAILY_LIFE', 'REPURCHASE', 'GIFT_STORY'],
   '패션의류잡화': ['DAILY_LIFE', 'CONCLUSION_FIRST', 'COMPARISON', 'GIFT_STORY', 'REPURCHASE'],
@@ -246,16 +313,23 @@ function detectProductForm(productName: string, categoryKey: string): ProductFor
     return 'baby_skincare'; // 출산/유아동 기본 = 스킨케어 계열
   }
 
-  // 식품
-  if (categoryKey === '식품') {
+  // 식품 (catKey가 '식품' / '식품>신선식품' / '식품>가공식품' 모두 처리)
+  if (categoryKey === '식품' || categoryKey?.startsWith('식품>')) {
+    // 신선식품 catKey면 product form은 fresh_food 우선 (영양제 어휘 차단)
+    if (categoryKey === '식품>신선식품') {
+      if (/과일|채소|한라봉|사과|배|딸기|토마토|감귤|블루베리|포도|수박|참외|복숭아|자두|체리|키위|망고|바나나|오렌지|레몬|자몽|귤|쌀|잡곡|정육|한우|돼지|닭|소고기|수산물|생선|새우|오징어|갈비|등심|안심|삼겹살|연어|광어/.test(n)) return 'fresh_food';
+      return 'fresh_food';
+    }
+    if (categoryKey === '식품>가공식품') {
+      if (/즙|쥬스|주스|음료|드링크|시럽|진액|원액|농축액|엑기스|액/.test(n)) return 'processed_food';
+      return 'processed_food';
+    }
+    // catKey === '식품' (건강식품) — 영양제 form 우선
     if (/즙|쥬스|주스|음료|드링크|시럽|진액|원액|농축액|엑기스|액/.test(n)) return 'supplement_liquid';
     if (/캡슐|정제|알약|타블렛|소프트젤/.test(n)) return 'supplement_capsule';
     if (/분말|파우더|가루|환|스틱/.test(n)) return 'supplement_powder';
     if (/비타민|오메가|유산균|프로바이오|루테인|밀크씨슬|홍삼|글루코사민|영양제|콜라겐/.test(n)) return 'supplement_capsule';
-    if (/과일|채소|한라봉|사과|배|딸기|토마토|감귤|블루베리|포도|수박|참외|복숭아|자두|체리|키위|망고|바나나|오렌지|레몬|자몽|귤/.test(n)) return 'fresh_food';
-    if (/쌀|잡곡|정육|한우|돼지|닭|소고기|수산물|생선|새우|오징어|갈비|등심|안심|삼겹살/.test(n)) return 'fresh_food';
-    if (/라면|통조림|냉동|즉석|과자|쿠키|빵|소스|장류|김치|반찬|밀키트/.test(n)) return 'processed_food';
-    return 'processed_food'; // 기본 식품 = 가공식품(안전)
+    return 'supplement_capsule'; // 건강식품 기본 = 캡슐 (안전)
   }
 
   // 뷰티
@@ -277,12 +351,16 @@ function detectProductForm(productName: string, categoryKey: string): ProductFor
 
 // ─── form별 금지어 블록리스트 ────────────────────────────────
 
+// ⚠️ FORM_BLOCKLIST는 fragment value 단위 차단 (defense-in-depth — fragment pool 분리가 1차 방어).
+//    fresh_food/processed_food: 영양제 어휘 (한 포/정제/캡슐/부원료/함량/수치/권장량/효도 제대로/정기배송/건강검진) 광범위 차단.
+//    한국어 수사 "한/두/세/네/다섯" + 포는 powder packet 의미 — fresh/processed 에 부적합.
 const FORM_BLOCKLIST: Partial<Record<ProductForm, RegExp>> = {
-  fresh_food:         /섭취|\d정|\d포|캡슐|정제|알약|삼키|바르|발라|피부에|도포/,
-  processed_food:     /섭취|\d정|\d포|캡슐|정제|알약|삼키|바르|발라|피부에|도포/,
-  supplement_liquid:  /캡슐|알약|삼키|넘기기|목에 안|정제|바르|발라|피부에/,
+  fresh_food:         /섭취|\d정|\d포|[한두세네]\s*포|캡슐|정제|알약|소프트젤|삼키|바르|발라|피부에|도포|부원료|함량\s*비교|하루\s*권장량|수치가\s*정상|건강검진|효도\s*제대로|정기배송|영양제|건강기능식품|복용/,
+  processed_food:     /섭취|\d정|\d포|[한두세네]\s*포|캡슐|정제|알약|소프트젤|삼키|바르|발라|피부에|도포|부원료|함량\s*비교|하루\s*권장량|수치가\s*정상|건강검진|효도\s*제대로|정기배송|영양제|건강기능식품|복용/,
+  // ⚠️ supplement_liquid/capsule: 분말 어휘 ("한 포 뜯어서") 도 차단 — 캡슐/액상에 부적합.
+  supplement_liquid:  /캡슐|알약|삼키|넘기기|목에 안|정제|바르|발라|피부에|[한두세네]\s*포\s*뜯|\d+포\s*뜯/,
   supplement_powder:  /캡슐|알약|삼키|넘기기|목에 안|정제|바르|발라|피부에/,
-  supplement_capsule: /바르|발라|피부에|도포|씻어서|샐러드|조리|데워/,
+  supplement_capsule: /바르|발라|피부에|도포|씻어서|샐러드|조리|데워|[한두세네]\s*포\s*뜯|\d+포\s*뜯/,
   skincare:           /먹[어으고는기이]|섭취|\d정|맛있|삼키|캡슐|알약|충전|세차/,
   haircare:           /먹[어으고는기이]|섭취|\d정|맛있|삼키|캡슐|알약|충전|세차/,
   makeup:             /먹[어으고는기이]|섭취|\d정|맛있|삼키|캡슐|알약|충전|세차/,
@@ -520,7 +598,10 @@ function resolveVariablePoolCore(
   }
 
   // ── 레거시 로직 ──
-  const parentVars = VARIABLES[catKey] || VARIABLES['DEFAULT'];
+  // 식품 세분 catKey ('식품>신선식품', '식품>가공식품')는 부모 '식품' 변수풀로 폴백
+  // (story-templates.json 에 세분 키가 없음. fragment 풀만 세분화)
+  const parentVarKey = (catKey === '식품>신선식품' || catKey === '식품>가공식품') ? '식품' : catKey;
+  const parentVars = VARIABLES[parentVarKey] || VARIABLES['DEFAULT'];
 
   // 서브카테고리 키 추론: categoryPath에서 "대분류>중분류" 패턴 검색
   const parts = categoryPath.split('>').map(p => p.trim());
@@ -553,6 +634,18 @@ function resolveVariablePoolCore(
       const sub = VARIABLES['출산/유아동>유아식품'];
       if (sub) return { ...parentVars, ...sub };
     }
+  }
+
+  // 식품 세분 catKey 직접 처리 — story-templates.json '식품>신선식품'/'식품>가공식품' 풀 인입
+  if (catKey === '식품>신선식품') {
+    const sub = VARIABLES['식품>신선식품'];
+    if (sub) return { ...parentVars, ...sub };
+    return parentVars;
+  }
+  if (catKey === '식품>가공식품') {
+    const sub = VARIABLES['식품>가공식품'];
+    if (sub) return { ...parentVars, ...sub };
+    return parentVars;
   }
 
   if (catKey === '식품') {
@@ -693,13 +786,40 @@ function resolveVariablePool(
 
 // ─── 후처리 새니타이저 ──────────────────────────────────────
 
+/**
+ * 식품 카테고리 동사 변환 — 공산품 동사("쓰다/사용하다") → 식품 동사("드시다/먹다") 치환.
+ * persuasion-engine.applyFoodVerbReplacementsAtOutput 와 동기. 신선/가공/건강식품 모두 적용.
+ */
+function applyFoodVerbsForReview(text: string, categoryKey: string): string {
+  if (!categoryKey || !(categoryKey === '식품' || categoryKey.startsWith('식품>'))) return text;
+  let out = text;
+  // 핵심 활용형 — 식품 cat 에 부적합 표현
+  out = out.replace(/써봤([가-힣]*)/g, (_, suffix) => '드셔봤' + suffix);
+  out = out.replace(/써본([가-힣\s]{0,4})/g, (_, suffix) => '드셔본' + suffix);
+  out = out.replace(/써보([가-힣]*)/g, (_, suffix) => '드셔보' + suffix);
+  out = out.replace(/써왔([가-힣]*)/g, (_, suffix) => '드셔왔' + suffix);
+  out = out.replace(/쓰던([가-힣]*)/g, (_, suffix) => '드시던' + suffix);
+  out = out.replace(/사용하니까/g, '드시니까');
+  out = out.replace(/사용해보면/g, '드셔보면');
+  out = out.replace(/실사용/g, '실제 취식');
+  out = out.replace(/매일\s*꾸준히\s*사용하니까/g, '매일 꾸준히 드시니까');
+  out = out.replace(/꾸준히\s*사용/g, '꾸준히 드심');
+  out = out.replace(/계속\s*쓰는/g, '계속 드시는');
+  out = out.replace(/오래\s*쓸/g, '오래 드실');
+  return out;
+}
+
 function sanitizeByProductForm(text: string, productName: string, categoryKey: string): string {
+  // 1. 식품 동사 변환 먼저
+  let out = applyFoodVerbsForReview(text, categoryKey);
+
+  // 2. form 별 BLOCKLIST 적용
   const form = detectProductForm(productName, categoryKey);
   const blocklist = FORM_BLOCKLIST[form];
-  if (!blocklist) return text;
+  if (!blocklist) return out;
 
   // 문장 단위로 분리 — ⚠️ "요" 어미 split 은 명사 "필요/주요/중요" 를 잘못 끊으므로 제외.
-  const sentences = text.split(/(?<=[.!?。])\s+/);
+  const sentences = out.split(/(?<=[.!?。])\s+/);
   const cleaned = sentences.filter(s => !blocklist.test(s));
 
   // 전부 제거된 경우 빈 문자열 (caller가 length > 5 체크로 스킵)
@@ -776,7 +896,7 @@ export function generateRealReview(
   categoryCode?: string,
   productContext?: ProductContext,
 ): RealReviewResult {
-  const catKey = getReviewCategoryKey(categoryPath);
+  const catKey = getReviewCategoryKey(categoryPath, productName);
   const fragCatKey = resolveFragmentCategory(catKey);
 
   // 변수 풀 (CPG 프로필 우선, 없으면 서브카테고리 라우팅 + productContext 오버라이드)
@@ -821,7 +941,9 @@ export function generateRealReview(
     const sanitized = sanitizeByProductForm(filled, productName, catKey);
 
     if (sanitized.trim().length > 5) {
-      const paragraph = bridge ? (bridge + ' ' + sanitized.trim()) : sanitized.trim();
+      // bridge 도 식품 동사 변환 통과 (transitions hardcoded "써봤는데" 등 차단)
+      const safeBridge = bridge ? applyFoodVerbsForReview(bridge, catKey) : '';
+      const paragraph = safeBridge ? (safeBridge + ' ' + sanitized.trim()) : sanitized.trim();
       paragraphs.push(paragraph);
     }
 
@@ -884,8 +1006,11 @@ export function generateRealReview(
     }
     paragraphs[i] = deduped.join(' ').trim();
   }
-  // 빈 문단 제거
-  const cleanedParagraphs = paragraphs.filter(p => p.trim().length > 5);
+  // 빈 문단 제거 + 크로스카테고리 가드 (시스템 안전망)
+  const cleanedParagraphs = paragraphs
+    .filter(p => p.trim().length > 5)
+    .map(p => sanitizeCrossCategory(p, categoryPath))
+    .filter(p => p.trim().length > 5);
 
   return {
     paragraphs: cleanedParagraphs,

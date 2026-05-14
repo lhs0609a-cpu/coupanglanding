@@ -1,0 +1,558 @@
+{
+  "summary": {
+    "total": 487770,
+    "avgScore": 99.16172581339566,
+    "crossPollution": 0,
+    "optionMismatch": 210
+  },
+  "total": 487770,
+  "elapsed": 3961.369,
+  "scoreSum": 48368115,
+  "crossPollution": 0,
+  "optionMismatch": 210,
+  "seoIssues": {
+    "tooShort": 803,
+    "overRecommended": 28293,
+    "promoBanned": 162,
+    "tooManyTokens": 2030,
+    "celebrityLeak": 2161,
+    "hypeBanned": 240,
+    "keywordStuffing": 59,
+    "mildRepetition": 29,
+    "leafMissing": 90
+  },
+  "scoreBuckets": {
+    "90-100": 482861,
+    "80-89": 1402,
+    "70-79": 1250,
+    "60-69": 2206,
+    "<60": 51
+  },
+  "lengthBuckets": {
+    "<20": 803,
+    "20-30": 29861,
+    "31-40": 228202,
+    "41-50": 200611,
+    "51-70": 28293,
+    "71-100": 0,
+    ">100": 0
+  },
+  "groupStats": {
+    "furniture": {
+      "total": 20010,
+      "cross": 0,
+      "seoFail": 255,
+      "optFail": 0,
+      "scoreSum": 1994170
+    },
+    "electronics": {
+      "total": 25530,
+      "cross": 0,
+      "seoFail": 494,
+      "optFail": 0,
+      "scoreSum": 2539150
+    },
+    "book": {
+      "total": 190770,
+      "cross": 0,
+      "seoFail": 23743,
+      "optFail": 210,
+      "scoreSum": 18790095
+    },
+    "office": {
+      "total": 17910,
+      "cross": 0,
+      "seoFail": 50,
+      "optFail": 0,
+      "scoreSum": 1789595
+    },
+    "pet": {
+      "total": 12870,
+      "cross": 0,
+      "seoFail": 96,
+      "optFail": 0,
+      "scoreSum": 1283850
+    },
+    "beauty": {
+      "total": 13620,
+      "cross": 0,
+      "seoFail": 911,
+      "optFail": 0,
+      "scoreSum": 1352460
+    },
+    "household": {
+      "total": 23700,
+      "cross": 0,
+      "seoFail": 1098,
+      "optFail": 0,
+      "scoreSum": 2354780
+    },
+    "sports": {
+      "total": 27960,
+      "cross": 0,
+      "seoFail": 204,
+      "optFail": 0,
+      "scoreSum": 2790745
+    },
+    "food_processed": {
+      "total": 19140,
+      "cross": 0,
+      "seoFail": 49,
+      "optFail": 0,
+      "scoreSum": 1913640
+    },
+    "food_supplement": {
+      "total": 6180,
+      "cross": 0,
+      "seoFail": 188,
+      "optFail": 0,
+      "scoreSum": 613870
+    },
+    "food_misc": {
+      "total": 2040,
+      "cross": 0,
+      "seoFail": 2,
+      "optFail": 0,
+      "scoreSum": 203930
+    },
+    "food_fresh": {
+      "total": 13950,
+      "cross": 0,
+      "seoFail": 308,
+      "optFail": 0,
+      "scoreSum": 1391720
+    },
+    "toy": {
+      "total": 22830,
+      "cross": 0,
+      "seoFail": 356,
+      "optFail": 0,
+      "scoreSum": 2273360
+    },
+    "automotive": {
+      "total": 9960,
+      "cross": 0,
+      "seoFail": 273,
+      "optFail": 0,
+      "scoreSum": 993240
+    },
+    "kitchen": {
+      "total": 16380,
+      "cross": 0,
+      "seoFail": 499,
+      "optFail": 0,
+      "scoreSum": 1632605
+    },
+    "baby": {
+      "total": 7410,
+      "cross": 0,
+      "seoFail": 38,
+      "optFail": 0,
+      "scoreSum": 740120
+    },
+    "fashion": {
+      "total": 57510,
+      "cross": 0,
+      "seoFail": 3811,
+      "optFail": 0,
+      "scoreSum": 5710785
+    }
+  },
+  "failureSamples": {
+    "cross": [],
+    "seo": [
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 금장미 원예 홈데코 가드닝 실속형 가구 이벤트꽃",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 금장미 홈데코 이벤트꽃 내구성 견고한 럭셔리 가구 원예 가드닝 1개",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 프리미엄 금장미 홈데코 가구 실속형 원예 가드닝 이벤트꽃 500g",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 5개입 금장미 인기상품 이벤트꽃 원예 신상 모던한 견고한 가구 홈데코 가드닝",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 인기상품 금장미 가드닝 홈데코 내구성 가구 원예 이벤트꽃 500g",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 금장미 가드닝 원예 홈데코 고품질 특별한 견고한 가구 이벤트꽃 1개",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 2개입 금장미 가드닝 가구 인기상품 럭셔리 실속형 홈데코 원예 이벤트꽃",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 10개입 금장미 가구 이벤트꽃 럭셔리 고품질 홈데코",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 금장미 홈데코 가구 신상품 실용적 원예 가드닝 이벤트꽃 50g",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 금장미 가구 가드닝 이벤트꽃 고품질 모던한 신상 홈데코 200g",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 금장미 가드닝 원예 고품질 신상 가구 홈데코 이벤트꽃 500g",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 금장미 이벤트꽃 원예 가구 클래식한 실용적 인기상품 500ml",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 금장미 홈데코 원예 상품 신상품 가구 가드닝 이벤트꽃 1L",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 금장미 이벤트꽃 가드닝 신상 클래식한 실용적 가구 홈데코 원예",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 모음 금장미 원예 가구 홈데코 실용적 럭셔리 특별한 가드닝 이벤트꽃",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 신상품 금장미 이벤트꽃 홈데코 가구 심플한 상품 럭셔리 원예 가드닝",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 금장미 가드닝 홈데코 원예 상품 클래식한 가구 이벤트꽃",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 광고모델 금장미 이벤트꽃 원예 홈데코 특별한 실용적 럭셔리 가구 가드닝",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 금장미 가드닝 홈데코 신상 특별한 가구 원예 이벤트꽃 100ml",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 금장미 가구 가드닝 홈데코 원예 이벤트꽃 100ml",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 M사이즈 금장미 원예 이벤트꽃 럭셔리 신상 가구 100ml",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 금장미 L사이즈 홈데코 이벤트꽃 럭셔리 고품질 실용적 100ml",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 대형 금장미 가구 이벤트꽃 특별한 내구성 신상품 홈데코 100ml",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가구>홈데코>원예>가드닝>이벤트꽃>금꽃/금장미",
+        "name": "금꽃 소형 금장미 가구 원예 이벤트꽃 실용적 견고한 상품 100ml",
+        "issues": [
+          "promoBanned"
+        ]
+      },
+      {
+        "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>유무선공유기",
+        "name": "유무선공유기 네트워크 가전 고품질 프로페셔널 컴팩트 디지털 컴퓨터 게임 sw",
+        "issues": [
+          "celebrityLeak"
+        ]
+      },
+      {
+        "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>유무선공유기",
+        "name": "유무선공유기 컴퓨터 네트워크 디지털 라이트 실속형 가전 게임 sw cctv 1개",
+        "issues": [
+          "celebrityLeak"
+        ]
+      },
+      {
+        "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>유무선공유기",
+        "name": "유무선공유기 프리미엄 sw 네트워크 가전 라이트 고성능 디지털 컴퓨터 500g",
+        "issues": [
+          "celebrityLeak"
+        ]
+      },
+      {
+        "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>유무선공유기",
+        "name": "유무선공유기 인기상품 프리미엄 cctv 랜카드 sw 라이트 100g",
+        "issues": [
+          "celebrityLeak"
+        ]
+      },
+      {
+        "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>유무선공유기",
+        "name": "유무선공유기 인기상품 5개입 랜카드 디지털 라이트 프로페셔널 가전 컴퓨터 게임",
+        "issues": [
+          "celebrityLeak"
+        ]
+      },
+      {
+        "path": "가전>디지털>컴퓨터>게임>sw>공유기>네트워크>cctv>랜카드>유무선공유기",
+        "name": "유무선공유기 친환경 인기상품 가전 디지털 고품질 프로페셔널 맥스 컴퓨터 500ml",
+        "issues": [
+          "celebrityLeak"
+        ]
+      }
+    ],
+    "option": [
+      {
+        "path": "도서>외국도서>architecture>Public, Commercial & Industrial",
+        "name": "Public 수입도서 영문책 Industrial Commercial 인기상품 도서",
+        "expected": 5,
+        "original": "베스트 인기 Public, Commercial & Industrial 인기상품 5개입"
+      },
+      {
+        "path": "도서>외국도서>Design, Drafting, Drawing & Presentation",
+        "name": "Design 영문책 수입도서 Drawing Presentation Drafting 도서 고품질 신상",
+        "expected": 5,
+        "original": "베스트 인기 Design, Drafting, Drawing & Presentation 인기상품 5개입"
+      },
+      {
+        "path": "도서>외국도서>Design, Drafting, Drawing & Presentation",
+        "name": "Design 원서 도서 Drawing Drafting Presentation 인기상품 특별한",
+        "expected": 2,
+        "original": "굿라이프 Design, Drafting, Drawing & Presentation 2개입"
+      },
+      {
+        "path": "도서>외국도서>Design, Drafting, Drawing & Presentation",
+        "name": "Design 도서 Drawing Drafting Presentation 신상 판",
+        "expected": 5,
+        "original": "스마트홈 Design, Drafting, Drawing & Presentation 5개입"
+      },
+      {
+        "path": "도서>외국도서>Design, Drafting, Drawing & Presentation",
+        "name": "Design 수입도서 영문책 Drawing Presentation 신상 상품",
+        "expected": 10,
+        "original": "에코프렌즈 Design, Drafting, Drawing & Presentation 10개입"
+      },
+      {
+        "path": "도서>외국도서>biography>Social Scientists & Psychologists",
+        "name": "Social Scientists 수입도서 원서 Psychologists 인기상품 도서 신상품",
+        "expected": 5,
+        "original": "베스트 인기 Social Scientists & Psychologists 인기상품 5개입"
+      },
+      {
+        "path": "도서>외국도서>biography>Social Scientists & Psychologists",
+        "name": "Social Scientists 수입도서 Psychologists 필독서 특별한 신상품",
+        "expected": 2,
+        "original": "리빙플러스 Social Scientists & Psychologists 2개입"
+      },
+      {
+        "path": "도서>외국도서>biography>Social Scientists & Psychologists",
+        "name": "Social Scientists 영문책 수입도서 Psychologists 인기상품 도서",
+        "expected": 5,
+        "original": "데일리홈 Social Scientists & Psychologists 5개입"
+      },
+      {
+        "path": "도서>외국도서>business>economics>industries>Natural Resource Extraction",
+        "name": "Natural Resource Extraction 수입도서 영문책 신상 고품질",
+        "expected": 5,
+        "original": "베스트마켓 Natural Resource Extraction 5개입"
+      },
+      {
+        "path": "도서>외국도서>Philosophy, Theory & Social Aspects",
+        "name": "Philosophy 전공서 Theory Social Aspects 실속형 판",
+        "expected": 2,
+        "original": "에코프렌즈 Philosophy, Theory & Social Aspects 2개입"
+      },
+      {
+        "path": "도서>외국도서>Philosophy, Theory & Social Aspects",
+        "name": "Philosophy 영문책 도서 Social Theory Aspects 인기 특별한",
+        "expected": 5,
+        "original": "리빙플러스 Philosophy, Theory & Social Aspects 5개입"
+      },
+      {
+        "path": "도서>외국도서>Marriage & Long-Term Relationships",
+        "name": "Marriage 도서 원서 Relationships Term Long 신상 특별한 필독서",
+        "expected": 10,
+        "original": "메가샵 Marriage & Long-Term Relationships 10개입"
+      },
+      {
+        "path": "도서>외국도서>foreign>English as a Second Language",
+        "name": "English as a Second Language 전공서 수입도서 인기상품 필독서",
+        "expected": 5,
+        "original": "베스트 인기 English as a Second Language 인기상품 5개입"
+      },
+      {
+        "path": "도서>외국도서>house>Cleaning, Caretaking & Organizing",
+        "name": "Cleaning 전공서 원서 Caretaking Organizing 신상 상품 인기",
+        "expected": 10,
+        "original": "프리미엄스토어 Cleaning, Caretaking & Organizing 10개입"
+      },
+      {
+        "path": "도서>외국도서>juvenile>nonfiction>history>Symbols, Monuments, National Parks, etc.",
+        "name": "Symbols 수입도서 인기상품 Monuments National Parks 실속형 도서",
+        "expected": 5,
+        "original": "베스트 인기 Symbols, Monuments, National Parks, etc. 인기상품 5개입"
+      },
+      {
+        "path": "도서>외국도서>juvenile>nonfiction>history>Symbols, Monuments, National Parks, etc.",
+        "name": "Symbols 영문책 도서 etc Monuments National Parks 고품질 상품",
+        "expected": 2,
+        "original": "베스트마켓 Symbols, Monuments, National Parks, etc. 2개입"
+      },
+      {
+        "path": "도서>외국도서>juvenile>nonfiction>science>Environmental Conservation & Protection",
+        "name": "Environmental Conservation 도서 영문책 인기상품 Protection",
+        "expected": 5,
+        "original": "베스트 인기 Environmental Conservation & Protection 인기상품 5개입"
+      },
+      {
+        "path": "도서>외국도서>juvenile>nonfiction>science>Environmental Conservation & Protection",
+        "name": "Environmental Conservation 영문책 전공서 Protection 인기상품",
+        "expected": 2,
+        "original": "한국유통 Environmental Conservation & Protection 2개입"
+      },
+      {
+        "path": "도서>외국도서>juvenile>nonfiction>science>Environmental Conservation & Protection",
+        "name": "Environmental Conservation 원서 전공서 Protection 인기 인기상품 필독서",
+        "expected": 5,
+        "original": "코리아셀러 Environmental Conservation & Protection 5개입"
+      },
+      {
+        "path": "도서>외국도서>juvenile>nonfiction>science>Environmental Conservation & Protection",
+        "name": "Environmental Conservation 도서 원서 Protection 필독서 인기상품 특별한",
+        "expected": 10,
+        "original": "굿라이프 Environmental Conservation & Protection 10개입"
+      },
+      {
+        "path": "도서>외국도서>juvenile>nonfiction>social>science>Customs, Traditions, Anthropology",
+        "name": "Customs 수입도서 원서 인기상품 Traditions Anthropology 도서 필독서",
+        "expected": 5,
+        "original": "베스트 인기 Customs, Traditions, Anthropology 인기상품 5개입"
+      },
+      {
+        "path": "도서>외국도서>Ethics & Professional Responsibility",
+        "name": "Ethics 영문책 인기상품 Professional Responsibility 실속형 특별한",
+        "expected": 5,
+        "original": "베스트 인기 Ethics & Professional Responsibility 인기상품 5개입"
+      },
+      {
+        "path": "도서>외국도서>Ethics & Professional Responsibility",
+        "name": "Ethics 영문책 수입도서 Professional Responsibility 상품 판",
+        "expected": 5,
+        "original": "프리미엄스토어 Ethics & Professional Responsibility 5개입"
+      },
+      {
+        "path": "도서>외국도서>Ethics & Professional Responsibility",
+        "name": "Ethics 전공서 Responsibility Professional 특별한 신상 실속형",
+        "expected": 10,
+        "original": "한국유통 Ethics & Professional Responsibility 10개입"
+      },
+      {
+        "path": "도서>외국도서>literary>Children's & Young Adult Literature",
+        "name": "Children 전공서 영문책 Young Literature Adult 상품 실속형",
+        "expected": 5,
+        "original": "베스트마켓 Children's & Young Adult Literature 5개입"
+      },
+      {
+        "path": "도서>외국도서>Fairy Tales, Folk Tales, Legends & Mythology",
+        "name": "Fairy Tales 원서 인기상품 Mythology Folk Legends 상품 필독서",
+        "expected": 5,
+        "original": "베스트 인기 Fairy Tales, Folk Tales, Legends & Mythology 인기상품 5개입"
+      },
+      {
+        "path": "도서>외국도서>Fairy Tales, Folk Tales, Legends & Mythology",
+        "name": "Fairy Tales 전공서 도서 Mythology Folk Legends 인기 인기상품",
+        "expected": 5,
+        "original": "한국유통 Fairy Tales, Folk Tales, Legends & Mythology 5개입"
+      },
+      {
+        "path": "도서>외국도서>Fairy Tales, Folk Tales, Legends & Mythology",
+        "name": "Fairy Tales 도서 영문책 Folk Legends Mythology 고품질 인기 신상",
+        "expected": 10,
+        "original": "코리아셀러 Fairy Tales, Folk Tales, Legends & Mythology 10개입"
+      },
+      {
+        "path": "도서>외국도서>Alternative & Complementary Medicine",
+        "name": "Alternative 영문책 전공서 Complementary Medicine 상품 특별한",
+        "expected": 2,
+        "original": "데일리홈 Alternative & Complementary Medicine 2개입"
+      },
+      {
+        "path": "도서>외국도서>Alternative & Complementary Medicine",
+        "name": "Alternative 도서 원서 Medicine Complementary 고품질 신상",
+        "expected": 5,
+        "original": "메가샵 Alternative & Complementary Medicine 5개입"
+      }
+    ]
+  }
+}

@@ -34,6 +34,9 @@
     "src/lib/megaload/services/seller-name-sanitizer.ts",
     "src/lib/megaload/services/category-attribute-resolver.ts",
     "src/lib/megaload/services/v2-pool-resolver.ts",
+    "src/lib/megaload/services/cross-category-guard.ts",
+    "src/lib/megaload/services/real-review-composer.ts",
+    "src/lib/megaload/services/content-profile-resolver.ts",
     "src/lib/megaload/data/**/*.json"
   ],
   "exclude": ["node_modules", "coupang-proxy"]

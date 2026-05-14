@@ -27,11 +27,15 @@ import {
   resolveCategoryFrameworks,
   getContentProfile,
   normalizeRepeatedTokens,
+  applyCategoryVerbSanitizer,
+  applyCrossCategorySanitizer,
+  unifyToneByMajority,
 } from './fragment-composer';
 import type { ContentBlock, ContentBlockType } from './fragment-composer';
 import { parseProductName, tokensToVariableOverrides, extractContextOverrides } from './product-name-parser';
 import type { ProductContext } from './product-name-parser';
 import { sanitizeHealthText } from './health-sanitizer';
+import { sanitizeCrossCategory } from './cross-category-guard';
 
 // ─── 타입 re-export (원본은 fragment-composer.ts) ────────────
 
@@ -815,6 +819,13 @@ export function contentBlocksToParagraphs(blocks: ContentBlock[], categoryPath?:
     joined = stripForbiddenPhrases(joined);
     // 2. 식품 카테고리: 잔재 "쓰다" 동사 변환
     joined = applyFoodVerbReplacementsAtOutput(joined, isFood);
+    // 2.5. 카테고리 L1 기반 동사 sanitize (audit-30x-detail-page 12.7% verb mismatch 차단)
+    //      padding 블록은 composeAllBlocks의 cleanText 우회 → 여기서 모든 블록에 강제 적용.
+    if (categoryPath) {
+      joined = applyCategoryVerbSanitizer(joined, categoryPath);
+      // 2.6. cross-category 시그니처 단어 제거 (세탁기/냉장고/러닝화/반려동물 등 → "제품")
+      joined = applyCrossCategorySanitizer(joined, categoryPath);
+    }
     // 3. 인접 동일 토큰 자동 제거 — 한국어/영문/숫자 모두 대응 (담백한 담백한 / 스타일 스타일 / 위생관리 관리)
     //    \b 의존 정규식은 한국어 word boundary 인식 못 하므로 lookahead 사용.
     joined = normalizeRepeatedTokens(joined);
@@ -823,8 +834,24 @@ export function contentBlocksToParagraphs(blocks: ContentBlock[], categoryPath?:
     // 5. 받침 유무로 조사 교정 ("박스으로" → "박스로")
     joined = fixIncorrectParticles(joined);
     // 6. 페이지 전역 dedup
-    return deduplicateSentencesInText(joined, globalSeen);
+    let dedupedPara = deduplicateSentencesInText(joined, globalSeen);
+    // 7. 크로스카테고리 가드 — 시스템 안전망 (모든 카테고리 cross-pollution 차단)
+    if (categoryPath) dedupedPara = sanitizeCrossCategory(dedupedPara, categoryPath);
+    return dedupedPara;
   });
+
+  // ── 페이지 전체 톤 통일 (audit 톤 혼재 27% → 단일 톤 강제) ──
+  // 모든 paragraph의 어미를 도미넌트 톤으로 통일
+  const fullTextForTone = paragraphs.join(' ');
+  const formal = (fullTextForTone.match(/(합니다|입니다|됩니다|있습니다)/g) || []).length;
+  const casual = (fullTextForTone.match(/(에요|예요|어요|아요|네요|돼요)/g) || []).length;
+  // 도미넌트 톤이 압도적이지 않으면 (60% 미만) 페이지 전체를 도미넌트로 강제 통일
+  const total = formal + casual;
+  if (total > 0) {
+    const tonedParagraphs = paragraphs.map(p => unifyToneByMajority(p));
+    // tonedParagraphs로 교체
+    for (let i = 0; i < paragraphs.length; i++) paragraphs[i] = tonedParagraphs[i];
+  }
 
   // 페이지 전체 단어 반복 완화 — 12회+(common 단어 8회+) 등장 단어 중 초과분 제거.
   // 페이지 전체 텍스트로 카운트 후 threshold 초과 단어 식별 → 페이지 전역 keepRemaining
