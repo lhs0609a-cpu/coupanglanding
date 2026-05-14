@@ -63,7 +63,87 @@ const NAVER_PROXY_URL = process.env.COUPANG_PROXY_URL || '';
 // Fly.io 측의 PROXY_SECRET은 COUPANG_PROXY_SECRET과 동일 값 — coupang-api-client와 같은 fallback 규칙 사용
 const NAVER_PROXY_SECRET = process.env.COUPANG_PROXY_SECRET || process.env.PROXY_SECRET || '';
 
+/**
+ * 네이버 데스크탑 URL → 모바일 URL 변환.
+ * 모바일 페이지는 anti-scraping 검사가 약한 경우가 많아 1차 차단 시 폴백으로 시도.
+ *   smartstore.naver.com/STORE/products/ID → m.smartstore.naver.com/STORE/products/ID
+ *   shopping.naver.com/... → m.shopping.naver.com/...
+ */
+function toMobileUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.hostname === 'smartstore.naver.com') {
+      u.hostname = 'm.smartstore.naver.com';
+      return u.toString();
+    }
+    if (u.hostname === 'shopping.naver.com') {
+      u.hostname = 'm.shopping.naver.com';
+      return u.toString();
+    }
+    if (u.hostname === 'brand.naver.com') {
+      u.hostname = 'm.brand.naver.com';
+      return u.toString();
+    }
+    return null;
+  } catch { return null; }
+}
+
+/**
+ * Google Translate proxy URL 변환.
+ * 구글 서버가 페이지 fetch + iframe → 네이버에 구글 IP 노출 (우리 IP 숨김).
+ *   smartstore.naver.com/STORE/products/ID
+ *   → smartstore-naver-com.translate.goog/STORE/products/ID?_x_tr_sl=ko&_x_tr_tl=en
+ * 마지막 폴백 — 캐시 지연/HTML 변형 가능하나 차단 회피용.
+ */
+function toGoogleTranslateUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    const translatedHost = u.hostname.replace(/\./g, '-') + '.translate.goog';
+    u.hostname = translatedHost;
+    u.searchParams.set('_x_tr_sl', 'ko');
+    u.searchParams.set('_x_tr_tl', 'en');
+    u.searchParams.set('_x_tr_hl', 'en');
+    return u.toString();
+  } catch { return null; }
+}
+
 async function checkUrl(url: string, retryCount = 0): Promise<CheckResult> {
+  // ── 다단계 폴백 시퀀스 (IP 변경 X, 비용 X) ──
+  // 1차: 원본 URL (Fly.io 프록시 → 직접 fetch 폴백 자동) — 가장 정확
+  // 2차: 모바일 URL — 동일 IP 이지만 모바일은 검사 약함
+  // 3차: Google Translate proxy — 구글 IP 경유 (우리 IP 숨김), 캐시 지연 ↑
+  const result1 = await checkUrlSingle(url, retryCount);
+  if (result1.status !== 'error') return result1;
+
+  // 1차가 429/403 차단인 경우만 폴백 시도 (404/500 등은 진짜 에러로 간주)
+  const isBlocked = /429|403|차단|속도제한/.test(result1.matchedPattern || '');
+  if (!isBlocked) return result1;
+
+  // 2차: 모바일 URL
+  const mobileUrl = toMobileUrl(url);
+  if (mobileUrl) {
+    const result2 = await checkUrlSingle(mobileUrl, 0);
+    if (result2.status !== 'error') {
+      console.log(`[stock-monitor] 모바일 폴백 성공: ${url.slice(0, 60)}`);
+      return result2;
+    }
+  }
+
+  // 3차: Google Translate proxy (마지막 폴백)
+  const gtUrl = toGoogleTranslateUrl(url);
+  if (gtUrl) {
+    const result3 = await checkUrlSingle(gtUrl, 0);
+    if (result3.status !== 'error') {
+      console.log(`[stock-monitor] Google Translate 폴백 성공: ${url.slice(0, 60)}`);
+      return result3;
+    }
+  }
+
+  // 모두 실패 — 1차 결과 반환 (transient 으로 분류되어 consecutive_errors 누적 X)
+  return result1;
+}
+
+async function checkUrlSingle(url: string, retryCount = 0): Promise<CheckResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 25000);
 
@@ -72,7 +152,7 @@ async function checkUrl(url: string, retryCount = 0): Promise<CheckResult> {
     let html = '';
 
     // 네이버 URL이고 프록시가 설정돼 있으면 Fly.io 프록시 경유 (Vercel 직접 fetch 시 403 차단 방지)
-    const isNaverUrl = /smartstore\.naver|shop\.naver|brand\.naver|shopping\.naver/.test(url);
+    const isNaverUrl = /smartstore\.naver|shop\.naver|brand\.naver|shopping\.naver|naver\.com|translate\.goog/.test(url);
     let proxyTried = false;
     let proxySucceeded = false;
     let proxyError: string | null = null;
@@ -144,7 +224,7 @@ async function checkUrl(url: string, retryCount = 0): Promise<CheckResult> {
     }
     if (statusCode === 429 && retryCount < 1) {
       await sleep(8000);
-      return checkUrl(url, retryCount + 1);
+      return checkUrlSingle(url, retryCount + 1);
     }
     if (statusCode === 429) {
       return { status: 'error', matchedPattern: 'HTTP 429 (속도제한)', errorClass: 'transient' };
@@ -442,16 +522,20 @@ export async function processMonitorBatch(
       continue;
     }
 
-    // 1개씩 순차 처리 + 1.5초 딜레이 (네이버 429 방지)
+    // 1개씩 순차 처리 + jitter 딜레이 (네이버 429 방지)
+    // ⚠️ 2026-05-14: 1.5초 고정 → 5~9초 랜덤 jitter 로 변경. burst 패턴 (1.5초 정확 간격)
+    //    이 봇으로 인식되어 NRT IP 차단 발생. 사람 패턴(랜덤 간격) 으로 위장 + 절대 시간 ↑.
     // 429 발생 시 backoff하지만 배치 중단하지 않음 — 일부가 막혀도 나머지는 진행
+    const BASE_DELAY_MS = 5000;
+    const JITTER_MS = 4000; // 5~9초 랜덤
     let consecutive429 = 0;
     for (let i = 0; i < userMonitors.length; i++) {
-      if (i > 0) await sleep(1500);
+      if (i > 0) await sleep(BASE_DELAY_MS + Math.random() * JITTER_MS);
 
-      // 429 연속 2회 — 30초 휴식 후 계속 (이전엔 배치 전체 중단했음)
+      // 429 연속 2회 — 60초 휴식 후 계속 (이전 30초 → IP cool-down 강화)
       if (consecutive429 >= 2) {
-        console.log(`[stock-monitor] 429 backoff at ${i}/${userMonitors.length} — 30s 휴식 후 계속`);
-        await sleep(30000);
+        console.log(`[stock-monitor] 429 backoff at ${i}/${userMonitors.length} — 60s 휴식 후 계속`);
+        await sleep(60000);
         consecutive429 = 0;
       }
 
@@ -461,7 +545,7 @@ export async function processMonitorBatch(
 
         if (result.error?.includes('429')) {
           consecutive429++;
-          await sleep(5000);
+          await sleep(15000); // 5초 → 15초 (IP throttling 회복 시간 ↑)
         } else {
           consecutive429 = 0;
         }

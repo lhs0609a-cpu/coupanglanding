@@ -147,18 +147,23 @@ export async function GET(request: Request) {
   const SOFT_DEADLINE_MS = 240_000;
   const isPastDeadline = () => Date.now() - startedAt > SOFT_DEADLINE_MS;
 
-  // ── Phase 2: 정기 품절 모니터링 (기존 로직) ──
-  // limit 80 → 50 으로 축소 (50 × 1.5s + fetch ~3s ≈ 175s) — Phase 3 까지 240s 안에 완료
-  // 차단된 셀러 모니터는 query 단계에서 제외 (megaload_users → pt_users → blocked 매핑)
+  // ── Phase 2: 정기 품절 모니터링 ──
+  // ⚠️ 2026-05-14 capacity 조정: 모니터 2,500+ 환경에서 한 cron 50개 burst → 같은 NRT IP
+  //    에서 75초간 호출 → 네이버 IP throttling → 모든 모니터 429 차단 발생.
+  //    해결: 한도 50→20 (40초간 분산) + 체크 주기 15분→6시간 (시간당 부담 1/24).
+  //    capacity: 2500개 ÷ 20개/시간 = 125시간(5.2일) → 6시간 주기와 일치하지 않으나
+  //    네이버 차단 회피가 우선. 빈도는 Phase 1 결과 보고 점진 ↑.
+  const CHECK_INTERVAL_MIN = 360; // 6시간 (이전 15분)
+  const PHASE2_LIMIT = 20; // burst 축소 (이전 50)
   const { data: monitors, error: queryErr } = await supabase
     .from('sh_stock_monitors')
     .select('id, megaload_user_id, product_id, coupang_product_id, source_url, source_status, coupang_status, option_statuses, consecutive_errors, consecutive_unknowns, registered_option_name, price_follow_rule, source_price_last, our_price_last, price_last_updated_at, price_last_applied_at, pending_price_change')
     .eq('is_active', true)
     .lt('consecutive_errors', 10)
     .not('source_url', 'eq', '') // source_url이 있는 것만 (품절 체크 가능한 것)
-    .or(`last_checked_at.is.null,last_checked_at.lt.${new Date(Date.now() - 15 * 60 * 1000).toISOString()}`)
+    .or(`last_checked_at.is.null,last_checked_at.lt.${new Date(Date.now() - CHECK_INTERVAL_MIN * 60 * 1000).toISOString()}`)
     .order('last_checked_at', { ascending: true, nullsFirst: true })
-    .limit(50); // 50 items × 평균 3s = 150s — soft deadline 240s 내 안전
+    .limit(PHASE2_LIMIT);
 
   if (queryErr) {
     console.error('[stock-monitor-cron] Query error:', queryErr);
