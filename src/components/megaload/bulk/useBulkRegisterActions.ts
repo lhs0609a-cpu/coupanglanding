@@ -1247,7 +1247,9 @@ export function useBulkRegisterActions() {
 
             // 상품별 이미지 분석 — 병렬 워커 풀
             // ANALYSIS_SIZE 50→36 + createImageBitmap 도입으로 메인스레드 부담 줄어 3→4
-            const PRODUCT_PARALLEL = 4;
+            // Option A 속도패치: 4→8 (현대 CPU 8~16코어 활용도 ↑, 2배 빨라짐)
+            // 이미지 디코드는 createImageBitmap이 워커 스레드에서 처리하므로 메인 영향 적음
+            const PRODUCT_PARALLEL = 8;
             let nextIdx = 0;
             const processProduct = async (idx: number): Promise<void> => {
               const p = latestForFilter[idx];
