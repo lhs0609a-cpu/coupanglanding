@@ -262,6 +262,22 @@ export default function StockMonitorDashboard() {
   };
 
   const [bulkResuming, setBulkResuming] = useState(false);
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [diagnoseResult, setDiagnoseResult] = useState<{ steps: { step: string; status: string; detail: unknown }[] } | null>(null);
+
+  const handleDiagnose = async () => {
+    setDiagnosing(true);
+    setDiagnoseResult(null);
+    try {
+      const res = await fetch('/api/megaload/stock-monitor/diagnose');
+      const data = await res.json();
+      setDiagnoseResult(data);
+    } catch (err) {
+      alert('진단 실패: ' + (err instanceof Error ? err.message : '알 수 없는 오류'));
+    } finally {
+      setDiagnosing(false);
+    }
+  };
 
   const handleBulkResume = async () => {
     if (!confirm('네이버 차단으로 잘못 일시중지된 쿠팡 상품을 일괄 재개합니다.\n\n수백~수천 건의 쿠팡 API 호출이 발생할 수 있으며, 시간이 오래 걸릴 수 있습니다 (최대 5분).\n\n계속하시겠습니까?')) return;
@@ -459,6 +475,15 @@ export default function StockMonitorDashboard() {
           >
             <Settings className="w-4 h-4" />
             가격 추종 일괄 설정
+          </button>
+          <button
+            onClick={handleDiagnose}
+            disabled={diagnosing}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-yellow-50 border border-yellow-300 rounded-lg hover:bg-yellow-100 disabled:opacity-50 transition"
+            title="네이버 차단/cron/프록시 등 어디서 막히는지 단계별 진단합니다"
+          >
+            {diagnosing ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}
+            진단 실행
           </button>
           <button
             onClick={handleBulkResume}
@@ -918,6 +943,43 @@ export default function StockMonitorDashboard() {
           onClose={() => setShowPendingList(false)}
           onUpdated={fetchData}
         />
+      )}
+
+      {/* 진단 결과 모달 */}
+      {diagnoseResult && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setDiagnoseResult(null)}>
+          <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold">📊 품절동기화 진단 결과</h2>
+              <button onClick={() => setDiagnoseResult(null)} className="text-gray-500 hover:text-gray-900 text-xl">×</button>
+            </div>
+            <div className="p-6 space-y-3">
+              <p className="text-sm text-gray-600 mb-4">
+                각 단계별로 어디서 막히는지 확인합니다. <strong>fail</strong>이 있으면 그 단계가 근본 원인입니다.
+                특히 마지막 <strong>10_proxy_naver_check</strong>가 핵심 — 네이버 프록시 차단 여부.
+              </p>
+              {diagnoseResult.steps?.map((s, i) => (
+                <div key={i} className={`p-3 rounded-lg border ${
+                  s.status === 'ok' ? 'bg-green-50 border-green-200' :
+                  s.status === 'warn' ? 'bg-yellow-50 border-yellow-200' :
+                  'bg-red-50 border-red-200'
+                }`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                      s.status === 'ok' ? 'bg-green-600 text-white' :
+                      s.status === 'warn' ? 'bg-yellow-600 text-white' :
+                      'bg-red-600 text-white'
+                    }`}>{s.status.toUpperCase()}</span>
+                    <span className="font-mono text-sm font-semibold">{s.step}</span>
+                  </div>
+                  <pre className="text-xs text-gray-700 whitespace-pre-wrap break-all bg-white/60 p-2 rounded mt-2 overflow-x-auto max-h-64">
+                    {typeof s.detail === 'string' ? s.detail : JSON.stringify(s.detail, null, 2)}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
