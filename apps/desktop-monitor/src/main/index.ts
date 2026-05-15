@@ -296,14 +296,16 @@ ipcMain.handle('app:hide-window', () => {
 // ─── 로그인/로그아웃 ─────────────────────────────────────────
 ipcMain.handle('auth:login', async (_e, token: string) => {
   if (!token || token.length !== 64) {
-    return { success: false, error: '토큰은 64자여야 합니다 (메가로드 웹에서 발급).' };
+    return { success: false, error: `인증코드는 64자여야 합니다. 입력 길이: ${token?.length || 0}` };
   }
   // 토큰 임시 저장 + 검증
   saveToken(token);
   const verified = await verifyToken();
   if (!verified.valid) {
     clearToken();
-    return { success: false, error: verified.expired ? '토큰이 만료되었습니다 (재발급 필요).' : '토큰이 유효하지 않습니다.' };
+    const baseInfo = verified.usedBase ? ` [base: ${verified.usedBase}]` : '';
+    if (verified.expired) return { success: false, error: '인증코드가 만료되었습니다 (재발급 필요).' };
+    return { success: false, error: `검증 실패${baseInfo}: ${verified.error || '알 수 없는 오류'}` };
   }
   // 검증 성공 — megaloadUserId 갱신
   saveToken(token, verified.megaloadUserId);

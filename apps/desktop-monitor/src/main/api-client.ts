@@ -4,7 +4,10 @@
 
 import { getStore } from './store';
 
-const DEFAULT_API_BASE = 'https://coupanglanding.vercel.app';
+// 프로덕션 도메인 우선 (www.megaload.co.kr) — Vercel 내부 URL은 폴백.
+// 사용자 사이트가 커스텀 도메인이라 vercel.app 직접 호출 시 DNS/SSL/배포 차이로 fetch 실패 가능.
+const DEFAULT_API_BASE = 'https://www.megaload.co.kr';
+const FALLBACK_API_BASE = 'https://coupanglanding.vercel.app';
 
 export interface MonitorTask {
   id: string;
@@ -35,12 +38,9 @@ function getToken(): string | null {
   return (store.get('authToken') as string | undefined) || null;
 }
 
-/** 토큰 검증 + heartbeat 갱신 */
-export async function verifyToken(): Promise<{ valid: boolean; megaloadUserId?: string; expired?: boolean }> {
-  const token = getToken();
-  if (!token) return { valid: false };
+async function verifyTokenAtBase(token: string, base: string): Promise<{ valid: boolean; megaloadUserId?: string; expired?: boolean; error?: string }> {
   try {
-    const res = await fetch(`${getApiBase()}/api/megaload/desktop/auth`, {
+    const res = await fetch(`${base}/api/megaload/desktop/auth`, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -49,14 +49,49 @@ export async function verifyToken(): Promise<{ valid: boolean; megaloadUserId?: 
       return { valid: true, megaloadUserId: data.megaloadUserId };
     }
     if (res.status === 401) {
-      const data = await res.json().catch(() => ({})) as { expired?: boolean };
-      return { valid: false, expired: data.expired };
+      const data = await res.json().catch(() => ({})) as { expired?: boolean; error?: string };
+      return { valid: false, expired: data.expired, error: `401 ${data.error || ''}` };
     }
-    return { valid: false };
+    return { valid: false, error: `HTTP ${res.status}` };
   } catch (err) {
-    console.warn('[api-client] verifyToken 실패:', err);
-    return { valid: false };
+    return { valid: false, error: `네트워크: ${err instanceof Error ? err.message : 'unknown'}` };
   }
+}
+
+/** 토큰 검증 — 프로덕션 도메인 우선, 실패 시 fallback Vercel URL 시도 */
+export async function verifyToken(): Promise<{ valid: boolean; megaloadUserId?: string; expired?: boolean; error?: string; usedBase?: string }> {
+  const token = getToken();
+  if (!token) return { valid: false, error: 'no token saved' };
+
+  // 1차: 프로덕션 도메인 (또는 store 설정값)
+  const primaryBase = getApiBase();
+  const primary = await verifyTokenAtBase(token, primaryBase);
+  if (primary.valid) {
+    // 다음 호출부터 같은 base 재사용
+    const store = getStore();
+    if (store.get('apiBase') !== primaryBase) store.set('apiBase', primaryBase);
+    return { ...primary, usedBase: primaryBase };
+  }
+
+  // 401(서버가 명시적으로 거부)이면 폴백 시도 안 함
+  if (primary.error?.startsWith('401')) {
+    console.warn('[api-client] verifyToken 401:', primary.error);
+    return { ...primary, usedBase: primaryBase };
+  }
+
+  // 2차: Vercel 내부 URL 폴백
+  if (primaryBase !== FALLBACK_API_BASE) {
+    console.warn(`[api-client] primary 실패 (${primary.error}) — fallback ${FALLBACK_API_BASE} 시도`);
+    const fallback = await verifyTokenAtBase(token, FALLBACK_API_BASE);
+    if (fallback.valid) {
+      const store = getStore();
+      store.set('apiBase', FALLBACK_API_BASE);
+      return { ...fallback, usedBase: FALLBACK_API_BASE };
+    }
+    return { ...fallback, usedBase: FALLBACK_API_BASE, error: `primary: ${primary.error} | fallback: ${fallback.error}` };
+  }
+
+  return { ...primary, usedBase: primaryBase };
 }
 
 /** 처리할 모니터 목록 fetch */
