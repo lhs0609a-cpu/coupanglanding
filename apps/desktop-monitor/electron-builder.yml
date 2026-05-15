@@ -2,6 +2,12 @@ appId: com.megaload.desktop-monitor
 productName: Megaload Monitor
 copyright: Copyright © 2026 Megaload
 
+# Custom URL scheme — megaload-monitor:// 클릭 시 앱 자동 호출
+protocols:
+  - name: Megaload Monitor
+    schemes:
+      - megaload-monitor
+
 directories:
   output: release
   buildResources: build
@@ -22,8 +28,12 @@ win:
   artifactName: ${productName}-Setup-${version}.${ext}
 
 nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
+  # ⚠️ 사용자 친화: oneClick=true → 묻지 않고 즉시 설치 + 설치 후 자동 실행
+  oneClick: true
+  perMachine: false  # 사용자별 설치 (UAC 프롬프트 X)
+  allowElevation: false
+  runAfterFinish: true  # 설치 완료 시 자동 실행
+  deleteAppDataOnUninstall: false
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: Megaload Monitor

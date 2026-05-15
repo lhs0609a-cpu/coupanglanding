@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Download, Key, RefreshCw, Copy, CheckCircle2, AlertCircle, Monitor } from 'lucide-react';
+import { useState } from 'react';
+import { Download, Key, RefreshCw, Copy, CheckCircle2, AlertCircle, Monitor, Zap } from 'lucide-react';
 
 export default function DesktopAppPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -86,6 +86,63 @@ export default function DesktopAppPage() {
           <li>PC 켜져 있으면 자동으로 백그라운드 동작, 사용자 액션 불필요</li>
           <li>비용 0원, 사용자 IP 사용으로 안정적</li>
         </ul>
+      </div>
+
+      {/* ⚡ 원클릭 자동 설정 (가장 추천) */}
+      <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 rounded-xl p-6">
+        <h2 className="font-semibold text-emerald-900 mb-2 flex items-center gap-2">
+          <Zap className="w-5 h-5" />
+          ⚡ 원클릭 자동 설정 (추천)
+        </h2>
+        <p className="text-sm text-emerald-800 mb-4">
+          버튼 한 번 클릭으로 토큰 자동 발급 + 클립보드 복사 + installer 다운로드.
+          설치 후 자동 실행 시 클립보드에서 토큰을 자동 인식하여 즉시 모니터링 시작합니다.
+        </p>
+        <button
+          onClick={async () => {
+            // 1. 토큰 발급
+            setIssuing(true);
+            setError(null);
+            try {
+              const res = await fetch('/api/megaload/desktop/auth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({}),
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error || '토큰 발급 실패');
+              setToken(data.token);
+              setIssuedAt(data.issuedAt);
+              // 2. 클립보드 복사
+              await navigator.clipboard.writeText(data.token);
+              setCopied(true);
+              // 3. installer 다운로드 (Win 기본, Mac은 별도)
+              const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+              const downloadUrl = isMac
+                ? 'https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload-Monitor-0.1.0-x64.dmg'
+                : 'https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload-Monitor-Setup-0.1.0.exe';
+              window.location.href = downloadUrl;
+              alert(
+                '✅ 토큰이 클립보드에 복사되었습니다.\n\n다운로드된 installer를 더블클릭하면:\n' +
+                '1. 자동 설치 (묻지 않음)\n' +
+                '2. 자동 실행 (트레이로 이동)\n' +
+                '3. 클립보드에서 토큰 자동 인식 → 모니터링 즉시 시작',
+              );
+            } catch (e) {
+              setError(e instanceof Error ? e.message : '실패');
+            } finally {
+              setIssuing(false);
+            }
+          }}
+          disabled={issuing}
+          className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 font-semibold text-base"
+        >
+          {issuing ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
+          원클릭 자동 설정
+        </button>
+        <div className="text-xs text-emerald-700 mt-3">
+          ⓘ 토큰은 7일 동안 유효합니다. 만료 시 같은 버튼 다시 누르면 재발급 + 자동 적용.
+        </div>
       </div>
 
       {/* Step 1: 다운로드 */}

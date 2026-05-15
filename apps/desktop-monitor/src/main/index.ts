@@ -9,7 +9,7 @@
 //   - Phase 3에서 백그라운드 cron 추가 예정
 // ============================================================
 
-import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog, clipboard, Notification } from 'electron';
 import path from 'node:path';
 import { setupAutoLaunch, getAutoLaunchEnabled } from './auto-launch';
 import { getStore } from './store';
@@ -21,6 +21,70 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
   process.exit(0);
+}
+
+// Custom URL scheme 등록 — megaload-monitor://login?token=xxx
+// Windows: 설치 시 protocols 으로 자동 등록 (electron-builder), dev 모드는 수동 호출
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('megaload-monitor', process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('megaload-monitor');
+}
+
+/**
+ * 토큰 자동 등록 (클립보드 또는 URL scheme).
+ * 64자 hex만 토큰으로 인정. 검증 통과 시 cron 자동 시작 + 알림.
+ */
+async function tryAutoLogin(token: string, source: 'clipboard' | 'url'): Promise<boolean> {
+  if (!token || !/^[a-f0-9]{64}$/i.test(token)) return false;
+  const store = getStore();
+  // 이미 로그인되어 있고 같은 토큰이면 스킵
+  if (store.get('isLoggedIn') && store.get('authToken') === token) return false;
+
+  saveToken(token);
+  const verified = await verifyToken();
+  if (!verified.valid) {
+    // 클립보드에서 잘못된 토큰 발견 — 사용자에게 알리지 않고 무시 (다른 hex 문자열일 수도)
+    if (source === 'clipboard') {
+      clearToken();
+      return false;
+    }
+    // URL scheme은 명시적이므로 알림
+    new Notification({
+      title: 'Megaload Monitor',
+      body: '토큰이 유효하지 않거나 만료되었습니다. 메가로드 웹에서 재발급하세요.',
+    }).show();
+    clearToken();
+    return false;
+  }
+
+  saveToken(token, verified.megaloadUserId);
+  startMonitorCron();
+  rebuildTrayMenu();
+
+  new Notification({
+    title: 'Megaload Monitor',
+    body: source === 'clipboard'
+      ? '클립보드에서 토큰을 자동 인식했습니다. 백그라운드 모니터링 시작!'
+      : '자동 로그인 완료. 백그라운드 모니터링 시작!',
+  }).show();
+
+  // 클립보드에서 자동 인식한 경우 보안상 클립보드 비움
+  if (source === 'clipboard') {
+    try { clipboard.writeText(''); } catch { /* skip */ }
+  }
+  return true;
+}
+
+/** 명령줄/URL scheme 인자에서 토큰 추출 — megaload-monitor://login?token=xxx */
+function extractTokenFromArgv(argv: readonly string[]): string | null {
+  for (const arg of argv) {
+    const m = arg.match(/megaload-monitor:\/\/login\?token=([a-f0-9]{64})/i);
+    if (m) return m[1];
+  }
+  return null;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -135,9 +199,19 @@ function getIconPath(): string {
   return icoPath;
 }
 
-// ─── 두 번째 인스턴스 시도 → 기존 창 표시 ─────────────────────
-app.on('second-instance', () => {
+// ─── 두 번째 인스턴스 시도 → URL scheme 토큰 처리 + 기존 창 표시 ──
+app.on('second-instance', (_event, argv) => {
+  // URL scheme 으로 호출되면 두 번째 인스턴스가 됨 → 토큰 추출 후 자동 로그인
+  const token = extractTokenFromArgv(argv);
+  if (token) void tryAutoLogin(token, 'url');
   createMainWindow();
+});
+
+// macOS — open-url 이벤트로 URL scheme 처리
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  const m = url.match(/megaload-monitor:\/\/login\?token=([a-f0-9]{64})/i);
+  if (m) void tryAutoLogin(m[1], 'url');
 });
 
 // ─── 앱 부팅 ──────────────────────────────────────────────────
@@ -163,6 +237,30 @@ app.whenReady().then(async () => {
   // 로그인되어 있으면 cron 자동 시작
   if (store.get('isLoggedIn')) {
     startMonitorCron();
+  } else {
+    // ── 로그인 전 자동 인식 시도 ──
+    // 1) 명령줄 인자 (URL scheme 으로 처음 호출된 경우 — Windows)
+    const argvToken = extractTokenFromArgv(process.argv);
+    if (argvToken) {
+      const ok = await tryAutoLogin(argvToken, 'url');
+      if (ok) {
+        // 자동 로그인 성공 → 창 숨김 (트레이만)
+        mainWindow?.hide();
+        return;
+      }
+    }
+
+    // 2) 클립보드에서 64자 hex 토큰 자동 감지
+    try {
+      const cb = clipboard.readText().trim();
+      if (cb && /^[a-f0-9]{64}$/i.test(cb)) {
+        const ok = await tryAutoLogin(cb, 'clipboard');
+        if (ok) {
+          mainWindow?.hide();
+          return;
+        }
+      }
+    } catch { /* skip */ }
   }
 });
 
