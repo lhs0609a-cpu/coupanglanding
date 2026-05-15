@@ -1,9 +1,20 @@
 'use client';
 
 import { useState } from 'react';
-import { Download, Key, RefreshCw, Copy, CheckCircle2, AlertCircle, Monitor, Zap } from 'lucide-react';
+import { Download, Key, RefreshCw, Copy, CheckCircle2, AlertCircle, Monitor, Zap, Activity } from 'lucide-react';
 
 const APP_VERSION = '0.1.2';
+
+interface StatusInfo {
+  isAlive: boolean;
+  tokenIssued: boolean;
+  lastHeartbeatAt: string | null;
+  heartbeatAgeMin: number;
+  monitorsTotal: number;
+  monitorsPending: number;
+  monitorsCheckedRecently: number;
+  diagnosis: string;
+}
 
 export default function DesktopAppPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -12,6 +23,22 @@ export default function DesktopAppPage() {
   const [copied, setCopied] = useState(false);
   const [issuedAt, setIssuedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<StatusInfo | null>(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+
+  const handleCheckStatus = async () => {
+    setCheckingStatus(true);
+    try {
+      const res = await fetch('/api/megaload/desktop/status');
+      const data = await res.json();
+      if (res.ok) setStatus(data);
+      else setError(data.error || '진단 실패');
+    } catch {
+      setError('네트워크 오류');
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
 
   const handleIssue = async () => {
     setIssuing(true);
@@ -80,6 +107,58 @@ export default function DesktopAppPage() {
         <p className="text-sm text-gray-500 mt-1">
           내 PC에서 등록 상품의 품절·가격 변동을 자동으로 확인해 주는 보조 프로그램입니다.
         </p>
+      </div>
+
+      {/* 연결 상태 진단 */}
+      <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+            <Activity className="w-5 h-5 text-gray-500" />
+            연결 상태 확인
+          </h2>
+          <button
+            onClick={handleCheckStatus}
+            disabled={checkingStatus}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg disabled:opacity-50"
+          >
+            {checkingStatus ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            진단 실행
+          </button>
+        </div>
+        {!status && (
+          <p className="text-sm text-gray-500">설치한 프로그램이 정상 동작 중인지, 데이터를 받고 있는지 확인합니다.</p>
+        )}
+        {status && (
+          <div className="space-y-2 text-sm">
+            <div className={`p-3 rounded-lg ${status.isAlive ? 'bg-emerald-50 border border-emerald-200' : 'bg-amber-50 border border-amber-200'}`}>
+              <div className="flex items-center gap-2 font-medium">
+                <span className={`w-2 h-2 rounded-full ${status.isAlive ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+                {status.isAlive ? '데스크탑 앱 정상 연결 중' : '데스크탑 앱 연결 끊김 또는 미실행'}
+              </div>
+              <div className="text-xs text-gray-600 mt-1">{status.diagnosis}</div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+              <div className="p-2 bg-gray-50 rounded">
+                <div className="text-gray-500">마지막 접속</div>
+                <div className="font-semibold text-gray-900">
+                  {status.heartbeatAgeMin < 0 ? '없음' : status.heartbeatAgeMin === 0 ? '방금 전' : `${status.heartbeatAgeMin}분 전`}
+                </div>
+              </div>
+              <div className="p-2 bg-gray-50 rounded">
+                <div className="text-gray-500">전체 모니터</div>
+                <div className="font-semibold text-gray-900">{status.monitorsTotal.toLocaleString()}개</div>
+              </div>
+              <div className="p-2 bg-gray-50 rounded">
+                <div className="text-gray-500">처리 대기</div>
+                <div className="font-semibold text-amber-700">{status.monitorsPending.toLocaleString()}개</div>
+              </div>
+              <div className="p-2 bg-gray-50 rounded">
+                <div className="text-gray-500">최근 1h 처리</div>
+                <div className="font-semibold text-emerald-700">{status.monitorsCheckedRecently.toLocaleString()}건</div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 안내 카드 */}
