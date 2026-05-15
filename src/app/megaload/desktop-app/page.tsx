@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { Download, Key, RefreshCw, Copy, CheckCircle2, AlertCircle, Monitor, Zap } from 'lucide-react';
 
+const APP_VERSION = '0.1.1';
+
 export default function DesktopAppPage() {
   const [token, setToken] = useState<string | null>(null);
   const [issuing, setIssuing] = useState(false);
@@ -71,6 +73,9 @@ export default function DesktopAppPage() {
         <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
           <Monitor className="w-6 h-6" />
           상품 모니터링 도우미
+          <span className="ml-1 px-2 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-700 rounded-full">
+            최신 v{APP_VERSION}
+          </span>
         </h1>
         <p className="text-sm text-gray-500 mt-1">
           내 PC에서 등록 상품의 품절·가격 변동을 자동으로 확인해 주는 보조 프로그램입니다.
@@ -119,8 +124,8 @@ export default function DesktopAppPage() {
               // 3. installer 다운로드 (Win 기본, Mac은 별도)
               const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
               const downloadUrl = isMac
-                ? 'https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload.Monitor-0.1.1-x64.dmg'
-                : 'https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload.Monitor-Setup-0.1.1.exe';
+                ? `https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload.Monitor-${APP_VERSION}-x64.dmg`
+                : `https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload.Monitor-Setup-${APP_VERSION}.exe`;
               window.location.href = downloadUrl;
               alert(
                 '✅ 인증코드가 복사되었습니다.\n\n다운로드된 설치 파일을 더블클릭하면:\n' +
@@ -151,35 +156,35 @@ export default function DesktopAppPage() {
           <span className="w-6 h-6 bg-[#E31837] text-white rounded-full flex items-center justify-center text-sm">1</span>
           프로그램 다운로드
         </h2>
-        <p className="text-sm text-gray-600 mb-4">사용 중인 OS에 맞는 설치 파일을 받아주세요.</p>
+        <p className="text-sm text-gray-600 mb-4">사용 중인 OS에 맞는 설치 파일을 받아주세요. <span className="text-emerald-700 font-medium">현재 최신 v{APP_VERSION}</span></p>
         <div className="grid grid-cols-3 gap-3">
           <a
-            href="https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload.Monitor-Setup-0.1.1.exe"
-            className="flex items-center justify-center gap-2 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
+            href={`https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload.Monitor-Setup-${APP_VERSION}.exe`}
+            className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
             target="_blank" rel="noopener"
           >
-            <Download className="w-4 h-4" />
-            Windows (.exe)
+            <span className="flex items-center gap-2"><Download className="w-4 h-4" /> Windows (.exe)</span>
+            <span className="text-xs text-gray-400">v{APP_VERSION}</span>
           </a>
           <a
-            href="https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload.Monitor-0.1.1-x64.dmg"
-            className="flex items-center justify-center gap-2 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
+            href={`https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload.Monitor-${APP_VERSION}-x64.dmg`}
+            className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
             target="_blank" rel="noopener"
           >
-            <Download className="w-4 h-4" />
-            macOS Intel (.dmg)
+            <span className="flex items-center gap-2"><Download className="w-4 h-4" /> macOS Intel (.dmg)</span>
+            <span className="text-xs text-gray-400">v{APP_VERSION}</span>
           </a>
           <a
-            href="https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload.Monitor-0.1.1-arm64.dmg"
-            className="flex items-center justify-center gap-2 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
+            href={`https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload.Monitor-${APP_VERSION}-arm64.dmg`}
+            className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
             target="_blank" rel="noopener"
           >
-            <Download className="w-4 h-4" />
-            macOS M1/M2 (.dmg)
+            <span className="flex items-center gap-2"><Download className="w-4 h-4" /> macOS M1/M2 (.dmg)</span>
+            <span className="text-xs text-gray-400">v{APP_VERSION}</span>
           </a>
         </div>
         <p className="text-xs text-gray-400 mt-3">
-          ⓘ 설치 파일은 준비가 완료되는 대로 자동으로 제공됩니다.
+          ⓘ 새 버전이 나오면 앱이 자동으로 알림 + 다운로드합니다 (실행 중일 때).
         </p>
       </div>
 
