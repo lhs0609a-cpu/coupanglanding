@@ -34,12 +34,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: apps/desktop-monitor/package-lock.json
 
       - name: Install dependencies
         working-directory: apps/desktop-monitor
-        run: npm ci || npm install
+        run: npm install
 
       - name: TypeScript build
         working-directory: apps/desktop-monitor
