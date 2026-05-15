@@ -19,12 +19,16 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 export const maxDuration = 55;
 
 // ── 배치 크기 설정 ──────────────────────────────────────
-const INSTANT_BATCH_SIZE = 50;     // 즉시할인 쿠폰 1회 API 호출당 아이템 수
-const DOWNLOAD_BATCH_SIZE = 100;   // 다운로드 쿠폰 1개당 최대 아이템 수
+// 다운로드 쿠폰 1개=100건 한도(쿠팡 스펙)에 즉시할인 batch도 맞춰 1회 호출당 instant→download 풀스루풋.
+// 이전엔 instant 50 / download 100 → 다운로드 공급이 50으로 굶주려 매 쿠폰이 50건만 됐음.
+const INSTANT_BATCH_SIZE = 100;    // 즉시할인 쿠폰 1회 API 호출당 아이템 수
+const DOWNLOAD_BATCH_SIZE = 100;   // 다운로드 쿠폰 1개당 최대 아이템 수 (쿠팡 하드 한도)
 const INSTANT_COUPON_MAX_ITEMS = 10000; // 즉시할인 쿠폰 1개당 최대 아이템 수
 const POLL_INTERVAL_MS = 3000;     // 비동기 상태 확인 간격 (3초)
 const POLL_MAX_ATTEMPTS = 5;       // 비동기 상태 확인 최대 횟수 (FAIL 감지용)
 const TIMEOUT_SAFETY_MS = 40000;   // Phase 전환 안전 한계 (40초)
+// 같은 항목이 N회 연속 다운로드 실패 시 영구 격리. 그 전까지는 pending으로 두고 재시도.
+const DOWNLOAD_MAX_RETRIES = 3;
 
 interface Config {
   id: string;
@@ -574,12 +578,16 @@ export async function POST(request: NextRequest) {
     }
 
     if (hasDownload && !skipDownload) {
-      // 다운로드 대상: pending 상태 + 즉시할인이 활성이면 instant_coupon_applied=true만
+      // 다운로드 대상 = 다운로드 미적용 항목 전부.
+      // ★ status='completed'도 포함: 과거 download_coupon_enabled=false 시점에 instant만 적용되고
+      //   completed로 굳어버린 항목들이 "다운로드 활성화 후"에도 영영 잡히지 않던 버그 수정.
+      //   (2026-05-15 발견: instant 1080건 vs download 200건의 880건 누락 원인)
       let downloadQuery = serviceClient
         .from('product_coupon_tracking')
         .select('*')
         .eq('pt_user_id', ptUser.id)
-        .eq('status', 'pending');
+        .in('status', ['pending', 'completed'])
+        .or('download_coupon_applied.is.null,download_coupon_applied.eq.false');
 
       if (hasInstant) {
         // 즉시할인 완료된 아이템만 다운로드 (순서 보장)
@@ -648,9 +656,54 @@ export async function POST(request: NextRequest) {
                 error_message: errMsg,
               })),
             );
-            await serviceClient.from('product_coupon_tracking')
-              .update({ status: 'failed', download_coupon_applied: false, error_message: `다운로드 쿠폰 실패: ${errMsg}` })
-              .in('id', validItems.map((p) => p.id));
+
+            // ── 영구 vs 일시 실패 분류 ──
+            // 영구: 정책/스펙 문제 → 재시도해도 같은 결과 → status='failed'로 격리
+            // 일시: 네트워크/타임아웃/쿠팡 큐 지연 → status='pending' 유지하여 다음 호출에서 재시도
+            // 단, 같은 항목이 DOWNLOAD_MAX_RETRIES회 이상 실패하면 격리 (무한 루프 방지)
+            const isPermanent = /정책|policies|vendorItemId|invalid|존재하지|missing/i.test(errMsg);
+
+            // 기존 error_message에서 재시도 카운트 파싱
+            const itemRetryCounts = new Map<string, number>();
+            for (const item of validItems) {
+              const prevMsg = (item as { error_message?: string | null }).error_message || '';
+              const match = prevMsg.match(/\[다운로드 재시도 (\d+)\/\d+\]/);
+              const prevCount = match ? Number(match[1]) : 0;
+              itemRetryCounts.set(item.id, prevCount + 1);
+            }
+
+            // 재시도 가능 vs 격리 항목 분리
+            const toFail: typeof validItems = [];
+            const toRetry: typeof validItems = [];
+            for (const item of validItems) {
+              const tries = itemRetryCounts.get(item.id) || 1;
+              if (isPermanent || tries >= DOWNLOAD_MAX_RETRIES) {
+                toFail.push(item);
+              } else {
+                toRetry.push(item);
+              }
+            }
+
+            if (toFail.length > 0) {
+              await serviceClient.from('product_coupon_tracking')
+                .update({ status: 'failed', download_coupon_applied: false, error_message: `다운로드 쿠폰 실패(영구): ${errMsg}` })
+                .in('id', toFail.map((p) => p.id));
+              console.warn(`[bulk-apply] 영구 격리: ${toFail.length}건 (영구사유=${isPermanent}, 재시도소진=${toFail.length - (isPermanent ? toFail.length : 0)})`);
+            }
+            // 일시 실패는 항목별로 재시도 카운트가 다르므로 개별 update
+            for (const item of toRetry) {
+              const tries = itemRetryCounts.get(item.id) || 1;
+              await serviceClient.from('product_coupon_tracking')
+                .update({
+                  status: 'pending',
+                  download_coupon_applied: false,
+                  error_message: `[다운로드 재시도 ${tries}/${DOWNLOAD_MAX_RETRIES}] ${errMsg}`,
+                })
+                .eq('id', item.id);
+            }
+            if (toRetry.length > 0) {
+              console.log(`[bulk-apply] 재시도 큐로 복귀: ${toRetry.length}건 (다음 호출에서 재시도)`);
+            }
           }
         }
       }
