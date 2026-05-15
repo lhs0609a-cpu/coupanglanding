@@ -788,6 +788,11 @@ export interface CouponAutoSyncConfig {
   // 옵션
   apply_delay_days: number;
   last_sync_at: string | null;
+  // 5일 주기 자동 적용 (cron)
+  auto_apply_enabled: boolean;
+  auto_apply_cycle_days: number;
+  last_auto_apply_at: string | null;
+  last_auto_apply_summary: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }

@@ -81,6 +81,8 @@ export default function PromotionPage() {
     download_coupon_duration_days: 30,
     download_coupon_policies: [],
     apply_delay_days: 0,
+    auto_apply_enabled: false,
+    auto_apply_cycle_days: 5,
   });
   const [configLoading, setConfigLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -745,6 +747,45 @@ export default function PromotionPage() {
                     </div>
                   </div>
                 )}
+
+                {/* 5일 주기 자동 적용 (cron) */}
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!config.auto_apply_enabled}
+                      onChange={(e) => handleConfigChange('auto_apply_enabled', e.target.checked)}
+                      className="w-4 h-4 text-[#E31837] border-gray-300 rounded focus:ring-[#E31837]/30"
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-gray-700">주기적 자동 적용 (서버 cron)</span>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        설정한 주기마다 신규 상품 자동 감지 → 즉시할인 + 다운로드 쿠폰 자동 적용
+                      </p>
+                    </div>
+                  </label>
+                  {config.auto_apply_enabled && (
+                    <div className="mt-3 ml-7 flex items-center gap-2">
+                      <span className="text-xs text-gray-500">주기:</span>
+                      <select
+                        value={config.auto_apply_cycle_days || 5}
+                        onChange={(e) => handleConfigChange('auto_apply_cycle_days', Number(e.target.value))}
+                        className="px-2 py-1 text-xs border border-gray-200 rounded"
+                      >
+                        <option value={3}>3일</option>
+                        <option value={5}>5일</option>
+                        <option value={7}>7일</option>
+                        <option value={14}>14일</option>
+                        <option value={30}>30일</option>
+                      </select>
+                      {config.last_auto_apply_at && (
+                        <span className="text-xs text-gray-400 ml-2">
+                          마지막 실행: {new Date(config.last_auto_apply_at).toLocaleString('ko-KR')}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
               </Card>
 
               {/* Buttons: Cancel + Save & Apply */}

@@ -11,25 +11,56 @@ const COLLECT_BATCH_SIZE = 100; // upsert batch size
 const PAGES_PER_CALL = 3; // 한 호출당 3페이지 — 시간 초과 시 자동 중단 (maxTimeMs 보호)
 const MAX_FETCH_TIME_MS = 45000; // fetchProductListings 최대 실행 시간 (45초)
 
-/** POST: 쿠팡 상품 수집 → product_coupon_tracking에 저장 (배치 방식) */
+/** POST: 쿠팡 상품 수집 → product_coupon_tracking에 저장 (배치 방식)
+ *
+ * Cron 호출 (서비스 모드) 지원:
+ *   - Header: Authorization: Bearer ${CRON_SECRET}
+ *   - Query:  ?ptUserId=<uuid>
+ *   - 위 두 조건 충족 시 supabase.auth 우회하여 해당 ptUser로 실행. */
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const authHeader = request.headers.get('authorization');
+    const cronSecret = process.env.CRON_SECRET;
+    const isCron = !!cronSecret && authHeader === `Bearer ${cronSecret}`;
+    const reqUrl = new URL(request.url);
+    const cronPtUserId = isCron ? reqUrl.searchParams.get('ptUserId')?.trim() : null;
 
-    if (!user) {
-      return NextResponse.json({ error: '인증이 필요합니다.' }, { status: 401 });
+    type PtUser = {
+      id: string;
+      coupang_vendor_id: string;
+      coupang_access_key: string;
+      coupang_secret_key: string;
+      coupang_api_connected: boolean;
+    };
+
+    let rawPtUser: PtUser | null = null;
+
+    if (isCron && cronPtUserId) {
+      const sc = await createServiceClient();
+      const { data } = await sc
+        .from('pt_users')
+        .select('id, coupang_vendor_id, coupang_access_key, coupang_secret_key, coupang_api_connected')
+        .eq('id', cronPtUserId)
+        .maybeSingle();
+      rawPtUser = (data as PtUser | null) ?? null;
+    } else {
+      const supabase = await createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return NextResponse.json({ error: '인증이 필요합니다.' }, { status: 401 });
+      }
+      const { data } = await supabase
+        .from('pt_users')
+        .select('id, coupang_vendor_id, coupang_access_key, coupang_secret_key, coupang_api_connected')
+        .eq('profile_id', user.id)
+        .maybeSingle();
+      rawPtUser = (data as PtUser | null) ?? null;
     }
 
-    const { data: ptUser } = await supabase
-      .from('pt_users')
-      .select('id, coupang_vendor_id, coupang_access_key, coupang_secret_key, coupang_api_connected')
-      .eq('profile_id', user.id)
-      .maybeSingle();
-
-    if (!ptUser) {
+    if (!rawPtUser) {
       return NextResponse.json({ error: 'PT 사용자 정보를 찾을 수 없습니다.' }, { status: 404 });
     }
+    const ptUser: PtUser = rawPtUser;
 
     if (!ptUser.coupang_api_connected || !ptUser.coupang_vendor_id || !ptUser.coupang_access_key || !ptUser.coupang_secret_key) {
       return NextResponse.json({ error: '쿠팡 API가 연동되지 않았습니다.' }, { status: 400 });

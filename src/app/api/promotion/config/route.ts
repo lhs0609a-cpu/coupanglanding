@@ -102,6 +102,8 @@ export async function POST(request: NextRequest) {
       download_coupon_duration_days,
       download_coupon_policies,
       apply_delay_days,
+      auto_apply_enabled,
+      auto_apply_cycle_days,
     } = body;
 
     const serviceClient = await createServiceClient();
@@ -129,6 +131,8 @@ export async function POST(request: NextRequest) {
           download_coupon_duration_days,
           download_coupon_policies,
           apply_delay_days,
+          ...(typeof auto_apply_enabled === 'boolean' ? { auto_apply_enabled } : {}),
+          ...(typeof auto_apply_cycle_days === 'number' && auto_apply_cycle_days > 0 ? { auto_apply_cycle_days } : {}),
         },
         { onConflict: 'pt_user_id' },
       )

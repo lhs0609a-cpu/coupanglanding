@@ -71,6 +71,10 @@
     {
       "path": "/api/cron/payment-stuck-monitor",
       "schedule": "0 22 * * *"
+    },
+    {
+      "path": "/api/cron/coupon-auto-apply",
+      "schedule": "*/30 * * * *"
     }
   ]
 }
