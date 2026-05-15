@@ -153,7 +153,8 @@ export async function GET(request: Request) {
   //   PHASE2_LIMIT 50으로 복원, 주기 60분 (capacity: 2500 ÷ 50/h = 50h, 점진 ↑ 가능).
   //   미확인/오류 상태는 별도 우선 처리됨 (.or 절 참고).
   const CHECK_INTERVAL_MIN = 60;
-  const PHASE2_LIMIT = 50;
+  // 5분 maxDuration 안에 안전하게 처리 가능한 수: 30개 × 7s = 210s (여유 90s)
+  const PHASE2_LIMIT = 30;
   const cutoff = new Date(Date.now() - CHECK_INTERVAL_MIN * 60 * 1000).toISOString();
   const { data: monitors, error: queryErr } = await supabase
     .from('sh_stock_monitors')
