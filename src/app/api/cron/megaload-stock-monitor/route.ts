@@ -148,12 +148,13 @@ export async function GET(request: Request) {
   const isPastDeadline = () => Date.now() - startedAt > SOFT_DEADLINE_MS;
 
   // ── Phase 2: 정기 품절 모니터링 ──
-  // 2026-05-15 변경: Google Translate proxy를 1차 경로로 승격 → Fly IP 우회.
-  //   GT는 Google IP 경유라 네이버 throttling 무관 → 빈도 ↑ + burst ↑ 가능.
-  //   PHASE2_LIMIT 50으로 복원, 주기 60분 (capacity: 2500 ÷ 50/h = 50h, 점진 ↑ 가능).
-  //   미확인/오류 상태는 별도 우선 처리됨 (.or 절 참고).
-  const CHECK_INTERVAL_MIN = 60;
-  // 5분 maxDuration 안에 안전하게 처리 가능한 수: 30개 × 7s = 210s (여유 90s)
+  // 2026-05-15 정책: 모니터 1상품당 하루 1회 체크.
+  //   - CHECK_INTERVAL_MIN = 1200 (20h) — 24h 안에 한 번씩 갱신 (4h 버퍼)
+  //   - cron 15분마다 × 30개 = 2880/day capacity (모니터 2519개 + 여유 14%)
+  //   - 미확인/오류는 인터벌 무시하고 즉시 우선 처리 (or 절 참고)
+  // 비용: Vercel function compute ~84 GB-h/month, bandwidth ~26GB/month → Hobby plan 내 OK
+  // GT는 무료, Google IP 경유라 네이버 throttling 무관.
+  const CHECK_INTERVAL_MIN = 1200;
   const PHASE2_LIMIT = 30;
   const cutoff = new Date(Date.now() - CHECK_INTERVAL_MIN * 60 * 1000).toISOString();
   const { data: monitors, error: queryErr } = await supabase
