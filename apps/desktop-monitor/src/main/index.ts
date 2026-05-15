@@ -265,8 +265,8 @@ app.whenReady().then(async () => {
 });
 
 // ─── 모든 창 닫혀도 앱은 종료하지 않음 (트레이 유지) ──────────
-app.on('window-all-closed', (e: Event) => {
-  e.preventDefault();
+app.on('window-all-closed', () => {
+  // 트레이로만 동작 — quit 호출 안 하면 앱 유지됨
 });
 
 app.on('before-quit', () => {

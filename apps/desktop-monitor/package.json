@@ -1,7 +1,7 @@
 {
   "name": "megaload-desktop-monitor",
   "version": "0.1.0",
-  "description": "Megaload 품절동기화 데스크탑 앱 — 사용자 IP에서 네이버 직접 호출하여 차단 회피",
+  "description": "Megaload 상품 모니터링 도우미 — 등록 상품의 품절·가격 변동 자동 확인",
   "private": true,
   "main": "dist/main/index.js",
   "scripts": {
@@ -25,7 +25,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
     "auto-launch": "^5.0.6",
-    "electron-store": "^10.0.0",
+    "electron-store": "^8.2.0",
     "electron-updater": "^6.3.9"
   },
   "devDependencies": {
