@@ -4,10 +4,11 @@
 
 import { getStore } from './store';
 
-// 프로덕션 도메인 우선 (megaload.co.kr apex) — 사용자 직접 hit 으로 응답 확인됨.
-// www, vercel.app 폴백.
-const DEFAULT_API_BASE = 'https://megaload.co.kr';
-const FALLBACK_API_BASE = 'https://www.megaload.co.kr';
+// www 우선 — apex(megaload.co.kr)는 307 redirect 발생.
+// Electron/Node fetch는 cross-host redirect 시 Authorization 헤더를 보안상 자동 제거 →
+// 토큰 누락으로 401 invalid token 발생. www 직접 호출로 redirect 회피.
+const DEFAULT_API_BASE = 'https://www.megaload.co.kr';
+const FALLBACK_API_BASE = 'https://megaload.co.kr';
 const FALLBACK_API_BASE2 = 'https://coupanglanding.vercel.app';
 
 export interface MonitorTask {
