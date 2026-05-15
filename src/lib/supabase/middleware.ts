@@ -29,8 +29,11 @@ const PUBLIC_API_PREFIXES: string[] = [
   '/api/auth/signup',
   '/api/auth/find-id',
   '/api/auth/reset-password',
-  '/api/webhook/',           // 외부에서 호출, 자체 서명 검증
-  '/api/cron/',              // Vercel cron — Bearer 자체 검증
+  '/api/webhook/',                 // 외부에서 호출, 자체 서명 검증
+  '/api/cron/',                    // Vercel cron — Bearer 자체 검증
+  '/api/megaload/desktop/auth',    // 데스크탑 앱 토큰 검증 (Bearer 자체)
+  '/api/megaload/desktop/monitors', // 데스크탑 앱 모니터 목록 fetch (Bearer 자체)
+  '/api/megaload/desktop/results',  // 데스크탑 앱 결과 전송 (Bearer 자체)
 ];
 
 /**
