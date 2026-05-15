@@ -40,6 +40,29 @@ export default function DesktopAppPage() {
     }
   };
 
+  const handleTestVerify = async () => {
+    if (!token) {
+      setError('먼저 인증코드를 발급하세요');
+      return;
+    }
+    try {
+      const res = await fetch('/api/megaload/desktop/auth', {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      const data = await res.json();
+      alert(
+        `검증 결과: ${res.status} ${res.ok ? 'OK' : 'FAIL'}\n\n` +
+        `응답: ${JSON.stringify(data, null, 2)}\n\n` +
+        (res.ok
+          ? '✅ 토큰이 DB에서 정상 조회됨. 데스크탑 앱이 이 토큰으로 로그인 안 되면 데스크탑 → 서버 네트워크 문제.'
+          : '❌ 토큰 자체가 DB에 없거나 만료됨. 새로 발급 후 즉시 시도하세요.'),
+      );
+    } catch (e) {
+      alert(`네트워크 오류: ${e instanceof Error ? e.message : 'unknown'}`);
+    }
+  };
+
   const handleIssue = async () => {
     setIssuing(true);
     setError(null);
@@ -335,6 +358,12 @@ export default function DesktopAppPage() {
                 className="px-4 py-2 border border-red-300 text-red-600 rounded-lg text-sm hover:bg-red-50 disabled:opacity-50"
               >
                 인증코드 해제
+              </button>
+              <button
+                onClick={handleTestVerify}
+                className="px-4 py-2 border border-blue-300 text-blue-600 rounded-lg text-sm hover:bg-blue-50"
+              >
+                토큰 검증 테스트
               </button>
             </div>
             <p className="text-xs text-gray-500 mt-1">
