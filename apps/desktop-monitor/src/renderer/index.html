@@ -152,29 +152,29 @@
 </head>
 <body>
   <div class="header">
-    <h1>Megaload Monitor</h1>
-    <div class="version" id="version">v0.1.0</div>
+    <h1>상품 모니터링 도우미</h1>
+    <div class="version" id="version">로딩 중…</div>
   </div>
 
   <div class="container">
     <!-- 로그인 -->
     <div class="card" id="login-card" style="display:none;">
       <div class="login-area">
-        <h2 style="margin-bottom: 12px;">인증 토큰 입력</h2>
+        <h2 style="margin-bottom: 12px;">인증코드 입력</h2>
         <p style="color: #64748b; margin-bottom: 24px; font-size: 14px;">
-          메가로드 웹의 <strong>설정 → 데스크탑 앱</strong> 페이지에서 발급받은<br>
-          64자 토큰을 붙여넣으세요.
+          메가로드 웹의 <strong>모니터링 도우미</strong> 페이지에서 발급받은<br>
+          64자 인증코드를 붙여넣으세요.
         </p>
         <input
           type="text"
           id="token-input"
-          placeholder="64자 hex 토큰 (예: a3f2c8...)"
+          placeholder="64자 인증코드 (예: a3f2c8...)"
           style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-family: monospace; font-size: 13px; margin-bottom: 12px;"
         />
         <div id="login-error" style="color:#dc2626; font-size:12px; margin-bottom:12px; min-height:16px;"></div>
-        <button class="btn-primary" id="btn-login">로그인</button>
+        <button class="btn-primary" id="btn-login">등록</button>
         <div style="margin-top:16px;">
-          <a href="https://coupanglanding.vercel.app/megaload/desktop-app" id="open-token-page" style="color:#E31837; font-size:13px;">토큰 발급 페이지 열기 →</a>
+          <a href="https://coupanglanding.vercel.app/megaload/desktop-app" id="open-token-page" style="color:#E31837; font-size:13px;">인증코드 발급 페이지 열기 →</a>
         </div>
       </div>
     </div>
@@ -218,8 +218,8 @@
     </div>
 
     <div class="footer-note">
-      ⓘ 이 앱은 메가로드 계정의 품절 모니터를 사용자 PC IP로 직접 체크하여<br>
-      네이버 차단을 회피합니다. 백그라운드에서 실행되며 PC 자원 사용은 미미합니다.
+      ⓘ 이 앱은 등록 상품의 품절·가격 변동을 내 PC에서 자동으로 확인합니다.<br>
+      백그라운드에서 실행되며 PC 자원 사용은 미미합니다.
     </div>
   </div>
 

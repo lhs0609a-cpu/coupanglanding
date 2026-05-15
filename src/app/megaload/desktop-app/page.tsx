@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Download, Key, RefreshCw, Copy, CheckCircle2, AlertCircle, Monitor, Zap } from 'lucide-react';
 
-const APP_VERSION = '0.1.1';
+const APP_VERSION = '0.1.2';
 
 export default function DesktopAppPage() {
   const [token, setToken] = useState<string | null>(null);
