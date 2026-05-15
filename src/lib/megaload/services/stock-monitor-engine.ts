@@ -109,17 +109,37 @@ function toGoogleTranslateUrl(url: string): string | null {
 
 async function checkUrl(url: string, retryCount = 0): Promise<CheckResult> {
   // ── 다단계 폴백 시퀀스 (IP 변경 X, 비용 X) ──
-  // 1차: 원본 URL (Fly.io 프록시 → 직접 fetch 폴백 자동) — 가장 정확
-  // 2차: 모바일 URL — 동일 IP 이지만 모바일은 검사 약함
-  // 3차: Google Translate proxy — 구글 IP 경유 (우리 IP 숨김), 캐시 지연 ↑
+  // 1차: Google Translate proxy — 구글 IP 경유 (우리/Fly IP 차단 회피), 안정적
+  // 2차: 원본 URL (Fly.io 프록시 → 직접 fetch 폴백)
+  // 3차: 모바일 URL
+  // 우선순위: GT가 실패해도 본진 시도 → 시간 낭비 방지
+
+  // 1차: Google Translate (네이버 URL인 경우만)
+  const isNaverUrl = /smartstore\.naver|shop\.naver|brand\.naver|shopping\.naver|naver\.com/.test(url);
+  if (isNaverUrl) {
+    const gtUrl = toGoogleTranslateUrl(url);
+    if (gtUrl) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) await sleep(1000);
+        const resultGt = await checkUrlSingle(gtUrl, 0);
+        if (resultGt.status !== 'error') {
+          if (attempt > 0) console.log(`[stock-monitor] GT 1차 성공 (attempt ${attempt + 1}): ${url.slice(0, 60)}`);
+          return resultGt;
+        }
+        if (!/region|translation\s*service/i.test(resultGt.matchedPattern || '')) break;
+      }
+    }
+  }
+
+  // 2차: 원본 URL (GT 실패 시 폴백 — 비네이버 URL은 항상 여기로)
   const result1 = await checkUrlSingle(url, retryCount);
   if (result1.status !== 'error') return result1;
 
-  // 1차가 429/403 차단인 경우만 폴백 시도 (404/500 등은 진짜 에러로 간주)
+  // 1차가 429/403 차단인 경우만 추가 폴백 시도 (404/500 등은 진짜 에러로 간주)
   const isBlocked = /429|403|차단|속도제한/.test(result1.matchedPattern || '');
   if (!isBlocked) return result1;
 
-  // 2차: 모바일 URL
+  // 3차: 모바일 URL
   const mobileUrl = toMobileUrl(url);
   if (mobileUrl) {
     const result2 = await checkUrlSingle(mobileUrl, 0);
@@ -129,30 +149,11 @@ async function checkUrl(url: string, retryCount = 0): Promise<CheckResult> {
     }
   }
 
-  // 3차: Google Translate proxy (재시도 패턴)
-  // ⚠️ Google Translate가 처음 호출 시 region check (HTML "translation service isn't
-  //    available in your region") 응답하지만, 동일 URL 재호출 시 통과하는 패턴이 있음.
-  //    사용자가 새로고침 시 페이지 정상 로드되는 것으로 검증됨 (2026-05-14).
-  //    → 1차 region block 감지 시 1초 후 재시도 (최대 2회).
-  const gtUrl = toGoogleTranslateUrl(url);
-  if (gtUrl) {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) await sleep(1000);
-      const resultGt = await checkUrlSingle(gtUrl, 0);
-      if (resultGt.status !== 'error') {
-        console.log(`[stock-monitor] Google Translate 폴백 성공 (attempt ${attempt + 1}): ${url.slice(0, 60)}`);
-        return resultGt;
-      }
-      // region block 감지 → 재시도. 다른 에러(429/403) 면 즉시 break
-      if (!/region|translation\s*service/i.test(resultGt.matchedPattern || '')) break;
-    }
-  }
-
   // 모두 실패 — 1차 결과 반환 (transient 으로 분류되어 consecutive_errors 누적 X)
   return result1;
 }
 
-async function checkUrlSingle(url: string, retryCount = 0): Promise<CheckResult> {
+async function checkUrlSingle(url: string, retryCount = 0, forceDirect = false): Promise<CheckResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 25000);
 
@@ -160,8 +161,12 @@ async function checkUrlSingle(url: string, retryCount = 0): Promise<CheckResult>
     let statusCode = 0;
     let html = '';
 
+    // Google Translate URL은 절대 Fly 프록시 경유 X — Fly IP가 네이버에 차단된 상태이고,
+    // translate.goog는 Vercel에서 직접 fetch해도 Google IP 경유라 안전.
+    const isGoogleTranslate = /translate\.goog/.test(url);
     // 네이버 URL이고 프록시가 설정돼 있으면 Fly.io 프록시 경유 (Vercel 직접 fetch 시 403 차단 방지)
-    const isNaverUrl = /smartstore\.naver|shop\.naver|brand\.naver|shopping\.naver|naver\.com|translate\.goog/.test(url);
+    const isNaverUrl = !isGoogleTranslate && !forceDirect
+      && /smartstore\.naver|shop\.naver|brand\.naver|shopping\.naver|naver\.com/.test(url);
     let proxyTried = false;
     let proxySucceeded = false;
     let proxyError: string | null = null;
