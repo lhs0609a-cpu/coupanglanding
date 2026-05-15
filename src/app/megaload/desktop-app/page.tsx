@@ -226,8 +226,8 @@ export default function DesktopAppPage() {
               // 3. installer 다운로드 (Win 기본, Mac은 별도)
               const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
               const downloadUrl = isMac
-                ? `https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload.Monitor-${APP_VERSION}-x64.dmg`
-                : `https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload.Monitor-Setup-${APP_VERSION}.exe`;
+                ? `https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload-Monitor-${APP_VERSION}-x64.dmg`
+                : `https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload-Monitor-Setup-${APP_VERSION}.exe`;
               window.location.href = downloadUrl;
               alert(
                 '✅ 인증코드가 복사되었습니다.\n\n다운로드된 설치 파일을 더블클릭하면:\n' +
@@ -261,7 +261,7 @@ export default function DesktopAppPage() {
         <p className="text-sm text-gray-600 mb-4">사용 중인 OS에 맞는 설치 파일을 받아주세요. <span className="text-emerald-700 font-medium">현재 최신 v{APP_VERSION}</span></p>
         <div className="grid grid-cols-3 gap-3">
           <a
-            href={`https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload.Monitor-Setup-${APP_VERSION}.exe`}
+            href={`https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload-Monitor-Setup-${APP_VERSION}.exe`}
             className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
             target="_blank" rel="noopener"
           >
@@ -269,7 +269,7 @@ export default function DesktopAppPage() {
             <span className="text-xs text-gray-400">v{APP_VERSION}</span>
           </a>
           <a
-            href={`https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload.Monitor-${APP_VERSION}-x64.dmg`}
+            href={`https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload-Monitor-${APP_VERSION}-x64.dmg`}
             className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
             target="_blank" rel="noopener"
           >
@@ -277,7 +277,7 @@ export default function DesktopAppPage() {
             <span className="text-xs text-gray-400">v{APP_VERSION}</span>
           </a>
           <a
-            href={`https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload.Monitor-${APP_VERSION}-arm64.dmg`}
+            href={`https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload-Monitor-${APP_VERSION}-arm64.dmg`}
             className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
             target="_blank" rel="noopener"
           >
