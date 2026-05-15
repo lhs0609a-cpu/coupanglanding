@@ -4,10 +4,11 @@
 
 import { getStore } from './store';
 
-// 프로덕션 도메인 우선 (www.megaload.co.kr) — Vercel 내부 URL은 폴백.
-// 사용자 사이트가 커스텀 도메인이라 vercel.app 직접 호출 시 DNS/SSL/배포 차이로 fetch 실패 가능.
-const DEFAULT_API_BASE = 'https://www.megaload.co.kr';
-const FALLBACK_API_BASE = 'https://coupanglanding.vercel.app';
+// 프로덕션 도메인 우선 (megaload.co.kr apex) — 사용자 직접 hit 으로 응답 확인됨.
+// www, vercel.app 폴백.
+const DEFAULT_API_BASE = 'https://megaload.co.kr';
+const FALLBACK_API_BASE = 'https://www.megaload.co.kr';
+const FALLBACK_API_BASE2 = 'https://coupanglanding.vercel.app';
 
 export interface MonitorTask {
   id: string;
@@ -79,19 +80,20 @@ export async function verifyToken(): Promise<{ valid: boolean; megaloadUserId?: 
     return { ...primary, usedBase: primaryBase };
   }
 
-  // 2차: Vercel 내부 URL 폴백
-  if (primaryBase !== FALLBACK_API_BASE) {
-    console.warn(`[api-client] primary 실패 (${primary.error}) — fallback ${FALLBACK_API_BASE} 시도`);
-    const fallback = await verifyTokenAtBase(token, FALLBACK_API_BASE);
-    if (fallback.valid) {
+  // 2차/3차: 폴백 URL 순차 시도
+  const fallbacks = [FALLBACK_API_BASE, FALLBACK_API_BASE2].filter(b => b !== primaryBase);
+  const errors: string[] = [`primary(${primaryBase}): ${primary.error}`];
+  for (const fb of fallbacks) {
+    console.warn(`[api-client] primary 실패 — fallback ${fb} 시도`);
+    const result = await verifyTokenAtBase(token, fb);
+    if (result.valid) {
       const store = getStore();
-      store.set('apiBase', FALLBACK_API_BASE);
-      return { ...fallback, usedBase: FALLBACK_API_BASE };
+      store.set('apiBase', fb);
+      return { ...result, usedBase: fb };
     }
-    return { ...fallback, usedBase: FALLBACK_API_BASE, error: `primary: ${primary.error} | fallback: ${fallback.error}` };
+    errors.push(`fallback(${fb}): ${result.error}`);
   }
-
-  return { ...primary, usedBase: primaryBase };
+  return { valid: false, usedBase: primaryBase, error: errors.join(' | ') };
 }
 
 /** 처리할 모니터 목록 fetch */
