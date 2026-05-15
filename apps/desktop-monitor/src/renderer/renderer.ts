@@ -1,27 +1,10 @@
 // ============================================================
 // Renderer — 설정 창 UI 로직
 // preload 에서 노출한 window.megaload API 사용
+// ⚠️ 이 파일은 export/import 금지 — 전역 스크립트로 컴파일되어야 브라우저에서 동작
+//    (export 있으면 tsc가 CommonJS wrapper 추가 → "exports is not defined" 런타임 에러)
+//    Window 타입은 global.d.ts 에 분리.
 // ============================================================
-
-export {}; // make this a module so global augmentation is allowed
-
-declare global {
-  interface Window {
-    megaload: {
-      getVersion(): Promise<string>;
-      getStats(): Promise<{
-        totalChecked: number;
-        lastCheckAt?: string;
-        isLoggedIn: boolean;
-        autoLaunch: boolean;
-      }>;
-      setAutoLaunch(enabled: boolean): Promise<boolean>;
-      hideWindow(): Promise<void>;
-      login(token: string): Promise<{ success: boolean; error?: string; megaloadUserId?: string }>;
-      logout(): Promise<{ success: boolean }>;
-    };
-  }
-}
 
 function $(id: string): HTMLElement | null {
   return document.getElementById(id);
