@@ -25,7 +25,7 @@ const navItems = [
   { href: '/megaload/products/bulk-register', label: '상품등록', icon: 'Upload' as const },
   { href: '/megaload/catalog', label: '카탈로그', icon: 'BookOpen' as const },
   { href: '/megaload/stock-monitor', label: '품절동기화', icon: 'RefreshCw' as const },
-  { href: '/megaload/desktop-app', label: '데스크탑 앱', icon: 'Monitor' as const },
+  { href: '/megaload/desktop-app', label: '모니터링 도우미', icon: 'Monitor' as const },
   { href: '/megaload/inventory', label: '재고관리', icon: 'Warehouse' as const },
   { href: '/megaload/cs', label: '문의관리', icon: 'MessageSquare' as const, badgeKey: 'pendingInquiries' as const },
   { href: '/megaload/settlement', label: '정산', icon: 'Receipt' as const },

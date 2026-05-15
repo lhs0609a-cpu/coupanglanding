@@ -70,21 +70,21 @@ export default function DesktopAppPage() {
       <div>
         <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
           <Monitor className="w-6 h-6" />
-          Megaload Desktop App
+          상품 모니터링 도우미
         </h1>
         <p className="text-sm text-gray-500 mt-1">
-          데스크탑 앱을 PC에 설치하면 사용자 IP에서 네이버를 직접 호출하여 차단을 회피합니다.
+          내 PC에서 등록 상품의 품절·가격 변동을 자동으로 확인해 주는 보조 프로그램입니다.
         </p>
       </div>
 
       {/* 안내 카드 */}
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
-        <h2 className="font-semibold text-blue-900 mb-2">왜 데스크탑 앱이 필요한가요?</h2>
+        <h2 className="font-semibold text-blue-900 mb-2">어떤 프로그램인가요?</h2>
         <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
-          <li>Megaload 서버 IP는 네이버 anti-scraping에 차단됨 (HTTP 429)</li>
-          <li>사용자 PC IP는 가정/회사 네트워크라 네이버 친화적 — 차단 거의 0%</li>
-          <li>PC 켜져 있으면 자동으로 백그라운드 동작, 사용자 액션 불필요</li>
-          <li>비용 0원, 사용자 IP 사용으로 안정적</li>
+          <li>등록한 상품의 원본 페이지를 주기적으로 열어 품절·가격 정보를 가져옵니다</li>
+          <li>내 PC의 일반 네트워크에서 동작하므로 안정적이고 정확합니다</li>
+          <li>한 번 설치하면 PC 켜져 있을 때 자동으로 백그라운드 동작 — 별도 조작 불필요</li>
+          <li>설치·이용 모두 무료, 결과는 메가로드 품절동기화 페이지에 자동 반영</li>
         </ul>
       </div>
 
@@ -92,11 +92,11 @@ export default function DesktopAppPage() {
       <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 rounded-xl p-6">
         <h2 className="font-semibold text-emerald-900 mb-2 flex items-center gap-2">
           <Zap className="w-5 h-5" />
-          ⚡ 원클릭 자동 설정 (추천)
+          ⚡ 원클릭 자동 설치 (추천)
         </h2>
         <p className="text-sm text-emerald-800 mb-4">
-          버튼 한 번 클릭으로 토큰 자동 발급 + 클립보드 복사 + installer 다운로드.
-          설치 후 자동 실행 시 클립보드에서 토큰을 자동 인식하여 즉시 모니터링 시작합니다.
+          버튼 한 번 클릭으로 인증코드 자동 발급 + 설치 파일 다운로드.
+          설치 후 자동 실행 시 인증코드까지 자동 인식하여 즉시 모니터링이 시작됩니다.
         </p>
         <button
           onClick={async () => {
@@ -123,10 +123,10 @@ export default function DesktopAppPage() {
                 : 'https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload-Monitor-Setup-0.1.0.exe';
               window.location.href = downloadUrl;
               alert(
-                '✅ 토큰이 클립보드에 복사되었습니다.\n\n다운로드된 installer를 더블클릭하면:\n' +
-                '1. 자동 설치 (묻지 않음)\n' +
-                '2. 자동 실행 (트레이로 이동)\n' +
-                '3. 클립보드에서 토큰 자동 인식 → 모니터링 즉시 시작',
+                '✅ 인증코드가 복사되었습니다.\n\n다운로드된 설치 파일을 더블클릭하면:\n' +
+                '1. 자동 설치\n' +
+                '2. 자동 실행 (작업표시줄로 이동)\n' +
+                '3. 인증코드 자동 인식 → 모니터링 즉시 시작',
               );
             } catch (e) {
               setError(e instanceof Error ? e.message : '실패');
@@ -138,10 +138,10 @@ export default function DesktopAppPage() {
           className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 font-semibold text-base"
         >
           {issuing ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
-          원클릭 자동 설정
+          원클릭 자동 설치
         </button>
         <div className="text-xs text-emerald-700 mt-3">
-          ⓘ 토큰은 7일 동안 유효합니다. 만료 시 같은 버튼 다시 누르면 재발급 + 자동 적용.
+          ⓘ 인증코드는 7일간 유효합니다. 만료 시 같은 버튼 다시 누르면 자동 갱신됩니다.
         </div>
       </div>
 
@@ -149,9 +149,9 @@ export default function DesktopAppPage() {
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
           <span className="w-6 h-6 bg-[#E31837] text-white rounded-full flex items-center justify-center text-sm">1</span>
-          앱 다운로드
+          프로그램 다운로드
         </h2>
-        <p className="text-sm text-gray-600 mb-4">아래에서 OS에 맞는 installer를 다운로드하세요.</p>
+        <p className="text-sm text-gray-600 mb-4">사용 중인 OS에 맞는 설치 파일을 받아주세요.</p>
         <div className="grid grid-cols-3 gap-3">
           <a
             href="https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload-Monitor-Setup-0.1.0.exe"
@@ -179,18 +179,18 @@ export default function DesktopAppPage() {
           </a>
         </div>
         <p className="text-xs text-gray-400 mt-3">
-          ⓘ 데스크탑 앱은 Phase 5 (빌드 단계)에서 GitHub Releases로 배포됩니다. 현재는 Phase 2 진행 중.
+          ⓘ 설치 파일은 준비가 완료되는 대로 자동으로 제공됩니다.
         </p>
       </div>
 
-      {/* Step 2: 토큰 발급 */}
+      {/* Step 2: 인증코드 발급 */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
           <span className="w-6 h-6 bg-[#E31837] text-white rounded-full flex items-center justify-center text-sm">2</span>
-          인증 토큰 발급
+          인증코드 발급
         </h2>
         <p className="text-sm text-gray-600 mb-4">
-          데스크탑 앱 첫 실행 시 입력할 토큰을 발급받으세요. (7일 유효, 만료 시 재발급)
+          프로그램 첫 실행 시 입력할 인증코드를 발급받으세요. (7일 유효, 만료 시 재발급)
         </p>
 
         {!token && (
@@ -200,14 +200,14 @@ export default function DesktopAppPage() {
             className="flex items-center gap-2 px-5 py-2.5 bg-[#E31837] text-white rounded-lg hover:bg-red-700 disabled:opacity-50 font-medium"
           >
             {issuing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
-            토큰 발급
+            인증코드 발급
           </button>
         )}
 
         {token && (
           <div className="space-y-3">
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <div className="text-xs text-gray-500 mb-1">발급된 토큰 (데스크탑 앱에 입력)</div>
+              <div className="text-xs text-gray-500 mb-1">발급된 인증코드 (프로그램에 입력)</div>
               <div className="flex items-center gap-2">
                 <code className="flex-1 font-mono text-xs break-all bg-white p-2 rounded border">{token}</code>
                 <button
@@ -231,14 +231,14 @@ export default function DesktopAppPage() {
                 disabled={issuing}
                 className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50"
               >
-                새 토큰 발급
+                새 인증코드 발급
               </button>
               <button
                 onClick={handleRevoke}
                 disabled={revoking}
                 className="px-4 py-2 border border-red-300 text-red-600 rounded-lg text-sm hover:bg-red-50 disabled:opacity-50"
               >
-                토큰 폐기
+                인증코드 해제
               </button>
             </div>
           </div>
@@ -259,14 +259,14 @@ export default function DesktopAppPage() {
           설치 및 첫 실행
         </h2>
         <ol className="text-sm text-gray-700 space-y-2 list-decimal list-inside">
-          <li>다운로드한 installer 더블클릭 → 설치</li>
-          <li>첫 실행 시 위에서 발급받은 토큰 입력</li>
-          <li>로그인 완료 → 트레이로 자동 이동 (작업표시줄 우측 시계 근처)</li>
-          <li>OS 부팅 시 자동 실행됨 (트레이 메뉴에서 OFF 가능)</li>
-          <li>모니터링 결과는 메가로드 웹의 <strong>품절동기화</strong> 페이지에서 자동 반영</li>
+          <li>다운로드한 설치 파일을 더블클릭 → 자동 설치</li>
+          <li>첫 실행 시 위에서 발급받은 인증코드 입력</li>
+          <li>등록 완료 → 작업표시줄 우측 시계 근처로 자동 최소화</li>
+          <li>PC 부팅 시 자동 실행 (필요 시 메뉴에서 OFF 가능)</li>
+          <li>확인 결과는 메가로드 웹의 <strong>품절동기화</strong> 페이지에 자동 반영</li>
         </ol>
         <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-          ⓘ PC가 켜져 있어야 모니터링이 동작합니다. PC 꺼지면 일시 중단되며, 다시 켜면 자동 재개됩니다.
+          ⓘ PC가 켜져 있을 때만 동작합니다. PC를 꺼도 다시 켜면 자동으로 이어서 진행합니다.
         </div>
       </div>
     </div>
