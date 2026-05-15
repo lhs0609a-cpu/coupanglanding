@@ -12,9 +12,11 @@ import { fetchMonitors, postResults, verifyToken, type ResultPayload, type Monit
 import { fetchNaverProduct } from './naver-fetcher';
 import { getStore } from './store';
 
-const CRON_TICK_MS = 5 * 60 * 1000; // 5분마다 모니터 목록 fetch
-const ITEM_INTERVAL_MS = 7000; // 7초 간격 (5~9초 랜덤)
-const ITEM_JITTER_MS = 4000;
+// 페이싱 — 가정 IP 기준 네이버 스마트스토어 안전선 안쪽
+// 분당 ~15건 (사람 브라우징 수준). 2519개 한 바퀴 약 3시간.
+const CRON_TICK_MS = 2 * 60 * 1000; // 2분마다 모니터 목록 fetch (배치 종료 후 idle gap 단축)
+const ITEM_INTERVAL_MS = 3000; // 3초 base + jitter → 실제 3~5초
+const ITEM_JITTER_MS = 2000;
 const BATCH_FLUSH_SIZE = 10; // 10개 모이면 즉시 전송
 const BATCH_FLUSH_INTERVAL_MS = 60000; // 1분마다 강제 flush
 
