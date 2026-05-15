@@ -34,7 +34,6 @@ export async function GET(request: NextRequest) {
   if (!shUser) return NextResponse.json({ error: 'token not found' }, { status: 401 });
   const shUserId = (shUser as { id: string }).id;
 
-  const url = new URL(request.url);
   const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200);
   // 데스크탑 IP는 깨끗하므로 짧은 간격 OK (기본 15분, 최대 1시간으로 clamp)
   // 옛 클라이언트가 21600 (6h) 보내도 서버에서 clamp → 즉시 처리 가능
