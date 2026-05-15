@@ -83,10 +83,23 @@ export async function POST(request: NextRequest) {
  * Header: Authorization: Bearer {token}
  */
 export async function GET(request: NextRequest) {
+  // 토큰 추출: Authorization Bearer 우선, 없으면 ?token= query 폴백
+  // (일부 Electron/프록시 환경에서 Authorization 헤더가 전송되지 않는 경우 대응)
   const authHeader = request.headers.get('authorization');
-  const token = authHeader?.replace(/^Bearer\s+/i, '').trim();
+  const url = new URL(request.url);
+  const queryToken = url.searchParams.get('token')?.trim();
+  const token = authHeader?.replace(/^Bearer\s+/i, '').trim() || queryToken;
   if (!token || token.length !== 64) {
-    return NextResponse.json({ error: 'invalid token' }, { status: 401 });
+    return NextResponse.json({
+      error: 'invalid token',
+      debug: {
+        hasAuthHeader: !!authHeader,
+        authHeaderLen: authHeader?.length || 0,
+        hasQueryToken: !!queryToken,
+        queryTokenLen: queryToken?.length || 0,
+        receivedTokenLen: token?.length || 0,
+      },
+    }, { status: 401 });
   }
 
   const serviceClient = await createServiceClient();

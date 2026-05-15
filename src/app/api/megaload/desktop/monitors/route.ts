@@ -17,7 +17,9 @@ export const maxDuration = 30;
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
-  const token = authHeader?.replace(/^Bearer\s+/i, '').trim();
+  const url = new URL(request.url);
+  const queryToken = url.searchParams.get('token')?.trim();
+  const token = authHeader?.replace(/^Bearer\s+/i, '').trim() || queryToken;
   if (!token || token.length !== 64) {
     return NextResponse.json({ error: 'invalid token' }, { status: 401 });
   }

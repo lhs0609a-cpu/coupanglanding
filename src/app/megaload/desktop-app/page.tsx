@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Download, Key, RefreshCw, Copy, CheckCircle2, AlertCircle, Monitor, Zap, Activity } from 'lucide-react';
 
-const APP_VERSION = '0.1.6';
+const APP_VERSION = '0.1.7';
 
 interface StatusInfo {
   isAlive: boolean;

@@ -41,7 +41,8 @@ function getToken(): string | null {
 
 async function verifyTokenAtBase(token: string, base: string): Promise<{ valid: boolean; megaloadUserId?: string; expired?: boolean; error?: string }> {
   try {
-    const res = await fetch(`${base}/api/megaload/desktop/auth`, {
+    // 토큰을 헤더 + query 양쪽에 전송 (Electron fetch가 Authorization 누락하는 환경 대응)
+    const res = await fetch(`${base}/api/megaload/desktop/auth?token=${encodeURIComponent(token)}`, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -100,7 +101,8 @@ export async function verifyToken(): Promise<{ valid: boolean; megaloadUserId?: 
 export async function fetchMonitors(limit = 50, minIntervalSec = 21600): Promise<MonitorTask[]> {
   const token = getToken();
   if (!token) return [];
-  const url = `${getApiBase()}/api/megaload/desktop/monitors?limit=${limit}&minIntervalSec=${minIntervalSec}`;
+  // 토큰을 query 에도 함께 전송 (Authorization 누락 환경 대응)
+  const url = `${getApiBase()}/api/megaload/desktop/monitors?limit=${limit}&minIntervalSec=${minIntervalSec}&token=${encodeURIComponent(token)}`;
   const res = await fetch(url, {
     headers: { 'Authorization': `Bearer ${token}` },
   });
@@ -116,7 +118,7 @@ export async function fetchMonitors(limit = 50, minIntervalSec = 21600): Promise
 export async function postResults(results: ResultPayload[]): Promise<{ updated: number; skipped: number }> {
   const token = getToken();
   if (!token || results.length === 0) return { updated: 0, skipped: 0 };
-  const res = await fetch(`${getApiBase()}/api/megaload/desktop/results`, {
+  const res = await fetch(`${getApiBase()}/api/megaload/desktop/results?token=${encodeURIComponent(token)}`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
