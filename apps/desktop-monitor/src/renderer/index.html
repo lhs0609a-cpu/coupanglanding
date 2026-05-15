@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://*.supabase.co https://coupanglanding.vercel.app https://*.vercel.app" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co https://coupanglanding.vercel.app https://*.vercel.app" />
   <title>Megaload Monitor</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -157,8 +157,8 @@
   </div>
 
   <div class="container">
-    <!-- 로그인 -->
-    <div class="card" id="login-card" style="display:none;">
+    <!-- 로그인 — JS 실패 대비 기본 표시 (renderer.ts가 isLoggedIn 확인 후 숨김) -->
+    <div class="card" id="login-card">
       <div class="login-area">
         <h2 style="margin-bottom: 12px;">인증코드 입력</h2>
         <p style="color: #64748b; margin-bottom: 24px; font-size: 14px;">
@@ -179,8 +179,8 @@
       </div>
     </div>
 
-    <!-- 상태 카드 -->
-    <div class="card" id="status-card">
+    <!-- 상태 카드 — 로그인 후에만 표시 (renderer.ts가 토글) -->
+    <div class="card" id="status-card" style="display:none;">
       <h2>모니터링 상태</h2>
       <div class="stat-grid">
         <div class="stat">
@@ -224,5 +224,53 @@
   </div>
 
   <script src="renderer.js"></script>
+  <script>
+    // 폴백: renderer.js 로드 실패 시에도 로그인 작동 보장
+    // window.megaload (preload) 가 없으면 명시적 에러 표시
+    (function fallback() {
+      setTimeout(function () {
+        const versionEl = document.getElementById('version');
+        if (versionEl && versionEl.textContent === '로딩 중…') {
+          // renderer.ts init이 안 돈 상태 — 직접 처리
+          if (!window.megaload) {
+            versionEl.textContent = '⚠ preload 실패';
+            const errEl = document.getElementById('login-error');
+            if (errEl) errEl.textContent = 'preload 스크립트 로드 실패. 앱을 재설치하거나 재시작하세요.';
+          } else {
+            // 직접 호출 시도
+            window.megaload.getVersion().then(function (v) { versionEl.textContent = 'v' + v; }).catch(function () {});
+            window.megaload.getStats().then(function (s) {
+              const checked = document.getElementById('stat-checked');
+              if (checked) checked.textContent = (s.totalChecked || 0).toLocaleString() + '건';
+              const loginCard = document.getElementById('login-card');
+              const statusCard = document.getElementById('status-card');
+              if (loginCard) loginCard.style.display = s.isLoggedIn ? 'none' : 'block';
+              if (statusCard) statusCard.style.display = s.isLoggedIn ? 'block' : 'none';
+            }).catch(function () {});
+            // 로그인 버튼 폴백
+            const btn = document.getElementById('btn-login');
+            if (btn && !btn.dataset.bound) {
+              btn.dataset.bound = '1';
+              btn.addEventListener('click', async function () {
+                const input = document.getElementById('token-input');
+                const errEl = document.getElementById('login-error');
+                if (!input) return;
+                const token = (input.value || '').trim();
+                if (!token) { if (errEl) errEl.textContent = '인증코드를 입력하세요.'; return; }
+                if (errEl) errEl.textContent = '검증 중…';
+                try {
+                  const res = await window.megaload.login(token);
+                  if (res.success) location.reload();
+                  else if (errEl) errEl.textContent = res.error || '로그인 실패';
+                } catch (e) {
+                  if (errEl) errEl.textContent = '오류: ' + (e && e.message ? e.message : 'unknown');
+                }
+              });
+            }
+          }
+        }
+      }, 1500);
+    })();
+  </script>
 </body>
 </html>
