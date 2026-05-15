@@ -367,6 +367,16 @@ function parseNaverMainPrice(html: string): number | null {
     }
   }
 
+  // HTML DOM 폴백 — <span class="blind">상품 가격</span><span>25,900</span><span>원</span>
+  // CSS-in-JS 해시 클래스명 의존 X, 라벨/숫자/원 구조로 매칭
+  const domMatch = html.match(
+    /<span[^>]*>\s*상품\s*가격\s*<\/span>\s*<span[^>]*>\s*([\d,]+)\s*<\/span>\s*<span[^>]*>\s*원/,
+  );
+  if (domMatch) {
+    const v = parseInt(domMatch[1].replace(/,/g, ''), 10);
+    if (!Number.isNaN(v) && v > 0) return v;
+  }
+
   // JSON-LD fallback
   const ldMatch = html.match(/"@type"\s*:\s*"Product"[\s\S]*?"price"\s*:\s*"?(\d{2,10})/);
   if (ldMatch) {
