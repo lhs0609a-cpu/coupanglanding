@@ -51,14 +51,15 @@ export async function GET() {
     }
     const shUserId = adminUser ? (adminUser as Record<string, unknown>).id as string : null;
 
-    // ── 4단계: pt_users 쿠팡 API 연동 상태 ──
+    // ── 4단계: pt_users 쿠팡 API 연동 상태 (레거시 — 실 sync는 ⑤ channel_credentials 사용) ──
     const { data: ptUser, error: ptErr } = await serviceClient
       .from('pt_users')
       .select('id, coupang_vendor_id, coupang_api_connected, coupang_access_key, coupang_secret_key')
       .eq('profile_id', user.id)
-      .single();
+      .maybeSingle();
     if (!ptUser) {
-      steps.push({ step: '4_pt_users', status: 'fail', detail: ptErr?.message || 'pt_users row not found' });
+      // pt_users 없음은 실제 sync 동작과 무관 — warn으로 강등
+      steps.push({ step: '4_pt_users', status: 'warn', detail: { note: 'pt_users row 없음 (레거시 테이블 — 실 sync는 channel_credentials 사용). 무시 가능.', error: ptErr?.message } });
     } else {
       const pt = ptUser as Record<string, unknown>;
       steps.push({
@@ -276,7 +277,7 @@ export async function GET() {
       .eq('megaload_user_id', shUserId)
       .not('source_url', 'eq', '')
       .limit(1)
-      .single();
+      .maybeSingle();
 
     const sampleUrl = (oneSample as { source_url?: string } | null)?.source_url
       || 'https://smartstore.naver.com/main';
