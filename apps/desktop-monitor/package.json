@@ -1,12 +1,13 @@
 {
   "name": "megaload-desktop-monitor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Megaload 상품 모니터링 도우미 — 등록 상품의 품절·가격 변동 자동 확인",
   "private": true,
   "main": "dist/main/index.js",
   "scripts": {
-    "dev": "tsc -p tsconfig.json && electron . --dev",
-    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json && npm run copy:assets && electron . --dev",
+    "build": "tsc -p tsconfig.json && npm run copy:assets",
+    "copy:assets": "node -e \"require('fs').mkdirSync('dist/renderer',{recursive:true});require('fs').copyFileSync('src/renderer/index.html','dist/renderer/index.html')\"",
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux",
