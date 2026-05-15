@@ -309,7 +309,19 @@ export default function DesktopAppPage() {
               )}
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => {
+                  if (!token) return;
+                  // URL scheme 으로 데스크탑 앱 호출 (megaload-monitor://login?token=xxx)
+                  // → 설치된 앱이 자동으로 받아서 로그인 + cron 시작
+                  window.location.href = `megaload-monitor://login?token=${token}`;
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 font-medium"
+              >
+                <Zap className="w-4 h-4" />
+                데스크탑 앱에 즉시 전송 (자동 로그인)
+              </button>
               <button
                 onClick={handleIssue}
                 disabled={issuing}
@@ -325,6 +337,9 @@ export default function DesktopAppPage() {
                 인증코드 해제
               </button>
             </div>
+            <p className="text-xs text-gray-500 mt-1">
+              💡 <b>데스크탑 앱에 즉시 전송</b>을 누르면 브라우저가 &quot;Megaload Monitor 열기?&quot;를 묻습니다 → <b>열기</b> 클릭하면 자동 로그인 (수동 복사·붙여넣기 불필요)
+            </p>
           </div>
         )}
 
