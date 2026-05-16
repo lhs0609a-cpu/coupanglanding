@@ -86,19 +86,28 @@ function parseNaverOptions(html: string): { name: string; soldOut: boolean; pric
   } catch { return null; }
 }
 
-/** 네이버 메인 가격 파싱 */
+/** 네이버 메인 가격 파싱 — server stock-monitor-engine.parseNaverMainPrice 와 동일 로직 */
 function parseNaverMainPrice(html: string): number | undefined {
-  // 1) JSON 우선
-  const dispMatch = html.match(/"dispDiscountedSalePrice"\s*:\s*(\d+)/);
-  if (dispMatch) return parseInt(dispMatch[1], 10);
-  const saleMatch = html.match(/"salePrice"\s*:\s*(\d+)/);
-  if (saleMatch) return parseInt(saleMatch[1], 10);
+  // 1) JSON 필드 — 정수/문자열 모두 허용. dispDiscountedSalePrice 최우선.
+  const fieldCandidates = [
+    'dispDiscountedSalePrice',
+    'salePrice', 'dispSalePrice', 'dispPrice',
+    'productSalePrice', 'productPrice',
+    'discountedSalePrice', 'discountedPrice',
+    'price',
+  ];
+  for (const field of fieldCandidates) {
+    const re = new RegExp(`"${field}"\\s*:\\s*"?(\\d{2,10})"?`);
+    const m = html.match(re);
+    if (m) {
+      const v = parseInt(m[1], 10);
+      if (!Number.isNaN(v) && v > 0) return v;
+    }
+  }
 
-  // 2) HTML DOM 폴백
-  // <span class="blind">상품 가격</span><span>25,900</span><span>원</span>
-  // CSS-in-JS 해시 클래스라 클래스명 의존 X — 라벨/숫자/원 구조로 매칭
+  // 2) HTML DOM 폴백 — <span class="blind">상품 가격</span><span>25,900</span><span>원</span>
   const domMatch = html.match(
-    /<span[^>]*>\s*상품\s*가격\s*<\/span>\s*<span[^>]*>\s*([\d,]+)\s*<\/span>\s*<span[^>]*>\s*원/,
+    /<span[^>]*>[\s\S]{0,200}?(?:상품\s*가격|Product\s*price|Product\s*amount)[\s\S]{0,200}?<\/span>\s*<span[^>]*>\s*([\d,]+)\s*<\/span>\s*<span[^>]*>\s*(?:원|won|KRW)/i,
   );
   if (domMatch) {
     const v = parseInt(domMatch[1].replace(/,/g, ''), 10);

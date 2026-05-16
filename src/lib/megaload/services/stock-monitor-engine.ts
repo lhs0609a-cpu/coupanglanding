@@ -269,9 +269,11 @@ async function checkUrlSingle(url: string, retryCount = 0, forceDirect = false):
     }
 
     // 옵션 + 메인가 파싱 (네이버)
+    // GT 프록시 경유 시 hostname 이 smartstore-naver-com.translate.goog 로 바뀌므로
+    // dash variant 까지 매칭 — 이전 dot-only 패턴은 GT 경로에서 price 파싱을 통째로 스킵하던 버그.
     let options: OptionStockStatus[] | undefined;
     let mainPrice: number | undefined;
-    if (/smartstore\.naver|shop\.naver/i.test(url)) {
+    if (/(?:smartstore[.\-]naver|shop[.\-]naver|brand[.\-]naver)/i.test(url)) {
       options = parseNaverOptionsInline(html) ?? undefined;
       mainPrice = parseNaverMainPrice(html) ?? undefined;
       // 전체 옵션 품절은 여기서 판정하지 않음 — 등록 옵션 기준으로 아래에서 판정
@@ -303,88 +305,87 @@ async function checkUrlSingle(url: string, retryCount = 0, forceDirect = false):
 }
 
 function parseNaverOptionsInline(html: string): OptionStockStatus[] | null {
-  const preloadMatch = html.match(/window\.__PRELOADED_STATE__\s*=\s*({[\s\S]*?});?\s*<\/script>/);
-  if (preloadMatch) {
-    try {
-      const optCombMatch = preloadMatch[1].match(/"optionCombinations"\s*:\s*(\[[\s\S]*?\])\s*[,}]/);
-      if (optCombMatch) {
-        const combos = JSON.parse(optCombMatch[1]) as {
-          optionName1?: string; optionName2?: string;
-          stockQuantity?: number; usable?: boolean;
-          price?: number; priceRelative?: number;
-        }[];
-        if (combos.length > 0) {
-          return combos.map(c => {
-            const name = [c.optionName1, c.optionName2].filter(Boolean).join(' / ');
-            const soldOut = (c.stockQuantity !== undefined && c.stockQuantity <= 0) || c.usable === false;
-            const result: OptionStockStatus = {
-              optionName: name || '기본',
-              status: soldOut ? 'sold_out' : 'in_stock',
-            };
-            if (typeof c.price === 'number' && c.price > 0) result.price = c.price;
-            if (typeof c.priceRelative === 'number') result.priceRelative = c.priceRelative;
-            return result;
-          });
-        }
-      }
-    } catch { /* skip */ }
-  }
+  // HTML 전체에서 optionCombinations 배열 검색 — PRELOADED_STATE 가 사라져도(NEXT_DATA로 이전 등)
+  // 인라인 JSON 어디에 있든 매칭. 첫 매칭만 사용.
+  const optCombMatch = html.match(/"optionCombinations"\s*:\s*(\[[\s\S]*?\])\s*[,}]/);
+  if (!optCombMatch) return null;
+  try {
+    const combos = JSON.parse(optCombMatch[1]) as {
+      optionName1?: string; optionName2?: string;
+      stockQuantity?: number; usable?: boolean;
+      price?: number; priceRelative?: number;
+    }[];
+    if (combos.length > 0) {
+      return combos.map(c => {
+        const name = [c.optionName1, c.optionName2].filter(Boolean).join(' / ');
+        const soldOut = (c.stockQuantity !== undefined && c.stockQuantity <= 0) || c.usable === false;
+        const result: OptionStockStatus = {
+          optionName: name || '기본',
+          status: soldOut ? 'sold_out' : 'in_stock',
+        };
+        if (typeof c.price === 'number' && c.price > 0) result.price = c.price;
+        if (typeof c.priceRelative === 'number') result.priceRelative = c.priceRelative;
+        return result;
+      });
+    }
+  } catch { /* skip */ }
   return null;
 }
 
 /**
  * 네이버 스마트스토어 메인 상품 판매가 파싱
- *  - __PRELOADED_STATE__ JSON 내 salePrice / dispPrice / productPrice / price 순차 시도
- *  - JSON-LD "price":"12345" fallback
- *  - <meta property="product:price:amount"> fallback
+ *  - JSON 필드 검색 (PRELOADED_STATE 한정 X — Naver 가 __NEXT_DATA__ 등으로 옮겨도 동작하도록 HTML 전체에서 검색)
+ *  - DOM "상품 가격" 라벨 (GT 번역 시 "Product price" 도 매칭)
+ *  - JSON-LD / Open Graph fallback
  *  - 실패 시 null
  *
- * NOTE: 초기 롤아웃 시 실제 필드명이 다를 수 있음. DEBUG_NAVER_PRICE=1 환경변수로 preload state 앞부분을 로깅.
+ * dispDiscountedSalePrice 가 최우선 — desktop-monitor 에서 검증된 가장 신뢰도 높은 필드.
+ * DEBUG_NAVER_PRICE=1 환경변수로 preload state 앞부분을 로깅.
  */
 function parseNaverMainPrice(html: string): number | null {
-  const preloadMatch = html.match(/window\.__PRELOADED_STATE__\s*=\s*({[\s\S]*?});?\s*<\/script>/);
-  if (preloadMatch) {
-    const preload = preloadMatch[1];
+  if (process.env.DEBUG_NAVER_PRICE === '1') {
+    const preloadMatch = html.match(/window\.__PRELOADED_STATE__\s*=\s*({[\s\S]*?});?\s*<\/script>/);
+    console.log('[parseNaverMainPrice] preload head:', preloadMatch ? preloadMatch[1].slice(0, 2000) : '(no preload state)');
+  }
 
-    if (process.env.DEBUG_NAVER_PRICE === '1') {
-      console.log('[parseNaverMainPrice] preload head:', preload.slice(0, 2000));
-    }
-
-    // salePrice → dispPrice → productPrice → discountedSalePrice → price
-    const fieldCandidates = [
-      'salePrice', 'dispSalePrice', 'dispPrice',
-      'productSalePrice', 'productPrice',
-      'discountedSalePrice', 'discountedPrice',
-      'price',
-    ];
-    for (const field of fieldCandidates) {
-      const re = new RegExp(`"${field}"\\s*:\\s*(\\d{2,10})`);
-      const m = preload.match(re);
-      if (m) {
-        const v = parseInt(m[1], 10);
-        if (!Number.isNaN(v) && v > 0) return v;
-      }
+  // 1) JSON 필드 — HTML 전체 검색 (PRELOADED_STATE / __NEXT_DATA__ / 인라인 JSON 어디에 있든)
+  //    dispDiscountedSalePrice → salePrice → 나머지 순.
+  //    값은 정수 또는 문자열(따옴표) 둘 다 허용.
+  const fieldCandidates = [
+    'dispDiscountedSalePrice',
+    'salePrice', 'dispSalePrice', 'dispPrice',
+    'productSalePrice', 'productPrice',
+    'discountedSalePrice', 'discountedPrice',
+    'price',
+  ];
+  for (const field of fieldCandidates) {
+    const re = new RegExp(`"${field}"\\s*:\\s*"?(\\d{2,10})"?`);
+    const m = html.match(re);
+    if (m) {
+      const v = parseInt(m[1], 10);
+      if (!Number.isNaN(v) && v > 0) return v;
     }
   }
 
-  // HTML DOM 폴백 — <span class="blind">상품 가격</span><span>25,900</span><span>원</span>
-  // CSS-in-JS 해시 클래스명 의존 X, 라벨/숫자/원 구조로 매칭
+  // 2) HTML DOM 폴백 — <span class="blind">상품 가격</span><span>25,900</span><span>원</span>
+  //    GT 번역 시 라벨이 "Product price" / 단위가 "won" 으로 바뀔 수 있음.
+  //    CSS-in-JS 해시 클래스명 의존 X, 라벨/숫자/단위 구조로 매칭.
   const domMatch = html.match(
-    /<span[^>]*>\s*상품\s*가격\s*<\/span>\s*<span[^>]*>\s*([\d,]+)\s*<\/span>\s*<span[^>]*>\s*원/,
+    /<span[^>]*>[\s\S]{0,200}?(?:상품\s*가격|Product\s*price|Product\s*amount)[\s\S]{0,200}?<\/span>\s*<span[^>]*>\s*([\d,]+)\s*<\/span>\s*<span[^>]*>\s*(?:원|won|KRW)/i,
   );
   if (domMatch) {
     const v = parseInt(domMatch[1].replace(/,/g, ''), 10);
     if (!Number.isNaN(v) && v > 0) return v;
   }
 
-  // JSON-LD fallback
+  // 3) JSON-LD fallback
   const ldMatch = html.match(/"@type"\s*:\s*"Product"[\s\S]*?"price"\s*:\s*"?(\d{2,10})/);
   if (ldMatch) {
     const v = parseInt(ldMatch[1], 10);
     if (!Number.isNaN(v) && v > 0) return v;
   }
 
-  // Open Graph meta
+  // 4) Open Graph meta
   const ogMatch = html.match(/<meta\s+property="product:price:amount"\s+content="(\d+(?:\.\d+)?)"/i);
   if (ogMatch) {
     const v = Math.round(parseFloat(ogMatch[1]));
