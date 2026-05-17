@@ -143,10 +143,10 @@ export async function scanDirectoryHandle(
   onProgress?.({ current: 0, total: productDirs.length, phase: 'scanning' });
 
   // Phase 2: 워커 풀.
-  //   scanSingleProduct 가 한 상품 안에서 6 슬롯(json/summary/main/review/detail/info)을 동시 진행하므로
-  //   워커 수 × 6 ≈ 동시 FS 호출 상한. 7 × 6 = 42 — 브라우저 FS 큐 한계(50 안팎) 안쪽.
-  //   (이전 10 워커 × sequential 슬롯에서 → 7 워커 × 병렬 슬롯, 한 상품 wall time 단축이 더 큰 효과)
-  const SCAN_CONCURRENCY = 7;
+  //   main_images 가 lazy(objectURL 생성 안 함) 로 바뀐 뒤 워커당 FS 부하가
+  //   대폭 줄었음 — getDirectoryHandle 4~5회 + getFile 2회(json/summary) 정도.
+  //   10 워커 × ~7 동시 FS = 70 — Chromium FS 큐(보통 100+) 안쪽.
+  const SCAN_CONCURRENCY = 10;
   const products: ScannedProduct[] = new Array(productDirs.length);
   let nextProductIdx = 0;
   let doneCount = 0;
@@ -157,8 +157,6 @@ export async function scanDirectoryHandle(
       products[idx] = await scanSingleProduct(name, handle, { skipDhash });
       doneCount++;
       onProgress?.({ current: doneCount, total: productDirs.length, currentName: name, phase: 'scanning' });
-      // 메인스레드에 작은 호흡 — 5상품마다 한 번
-      if (doneCount % 5 === 0) await new Promise((r) => setTimeout(r, 0));
     }
   }
   await Promise.all(
@@ -221,14 +219,24 @@ async function scanSingleProduct(
     eagerObjectUrls: boolean,
     applyAdFilter: boolean,
   ): Promise<ScannedImageFile[]> => {
-    // 캐시된 폴더명 우선 시도 — 첫 상품은 sequential probe, 후속 상품은 캐시 hit 으로 1회 만에 완료.
+    // 1) 캐시된 이름 먼저 단독 시도 — hit 률이 높으므로 불필요한 병렬 work 회피.
     const cached = folderNameCache[slot];
-    const ordered = cached ? [cached, ...names.filter((n) => n !== cached)] : names;
-    for (const n of ordered) {
-      const imgs = await collectImagesFromSubdir(productDirHandle, n, IMAGE_PATTERN, eagerObjectUrls, applyAdFilter);
-      if (imgs.length > 0) {
-        if (folderNameCache[slot] !== n) folderNameCache[slot] = n;
-        return imgs;
+    if (cached) {
+      const imgs = await collectImagesFromSubdir(productDirHandle, cached, IMAGE_PATTERN, eagerObjectUrls, applyAdFilter);
+      if (imgs.length > 0) return imgs;
+    }
+    // 2) cache miss — 나머지 후보를 모두 병렬 probe.
+    //    각 probe 는 getDirectoryHandle 1회(없으면 throw → []) 로 매우 가벼움.
+    //    names 우선순위는 결과 선택 시 유지.
+    const fallback = cached ? names.filter((n) => n !== cached) : names;
+    if (fallback.length === 0) return [];
+    const results = await Promise.all(
+      fallback.map((n) => collectImagesFromSubdir(productDirHandle, n, IMAGE_PATTERN, eagerObjectUrls, applyAdFilter)),
+    );
+    for (let i = 0; i < fallback.length; i++) {
+      if (results[i].length > 0) {
+        folderNameCache[slot] = fallback[i];
+        return results[i];
       }
     }
     return [];
@@ -261,7 +269,11 @@ async function scanSingleProduct(
         return undefined;
       }
     })(),
-    collectImagesFromSubdir(productDirHandle, 'main_images', MAIN_IMAGE_PATTERN, true, true),
+    // main_images 도 lazy objectURL — 썸네일은 useThumbnailCache 가 매번 handle.getFile() 로 재생성하고,
+    // 디테일 패널도 objectUrl 없으면 fallback 으로 handle 직접 로드 (BulkProductDetailPanel:188-201).
+    // 대량 배치(>30)는 dHash 도 스킵되므로 eager objectURL 은 쓰이는 곳이 없음 → 통째로 제거하여
+    // 상품당 15장 × getFile + createObjectURL 콜을 lazy 로 미룸.
+    collectImagesFromSubdir(productDirHandle, 'main_images', MAIN_IMAGE_PATTERN, false, true),
     collectFirstMatch(
       'review',
       ['review_images', 'reviews', 'review', '리뷰이미지', '리뷰 이미지', '리뷰', 'customer_reviews'],
