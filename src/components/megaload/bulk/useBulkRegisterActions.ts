@@ -1249,6 +1249,10 @@ export function useBulkRegisterActions() {
             // ANALYSIS_SIZE 50→36 + createImageBitmap 도입으로 메인스레드 부담 줄어 3→4
             // Option A 속도패치: 4→8 (현대 CPU 8~16코어 활용도 ↑, 2배 빨라짐)
             // 이미지 디코드는 createImageBitmap이 워커 스레드에서 처리하므로 메인 영향 적음
+            // Option B 속도패치:
+            //   - selectDiverse + filterDetail + detectDuplicate 를 Promise.all 로 병렬화 (3→1 wave)
+            //   - detail / review 도 Promise.all 로 동시 실행 (2→1 wave)
+            //   - 픽셀캐시 + in-flight promise 로 race-free 디코드 1회만
             const PRODUCT_PARALLEL = 8;
             let nextIdx = 0;
             const processProduct = async (idx: number): Promise<void> => {
@@ -1260,9 +1264,10 @@ export function useBulkRegisterActions() {
                 .filter((u): u is string => !!u)
                 .slice(0, 3);
 
-              // (1) 상세이미지 다양성 선택
+              // ─── 상세이미지 다양성 선택 ───────────────────────
               const detailImgs = p.scannedDetailImages ?? [];
-              if (detailImgs.length > 0) {
+              const detailTask = (async () => {
+                if (detailImgs.length === 0) return;
                 const detailUrls: (string | null)[] = [];
                 for (const img of detailImgs) {
                   const url = await ensureObjectUrl(img);
@@ -1272,114 +1277,112 @@ export function useBulkRegisterActions() {
                 for (let j = 0; j < detailUrls.length; j++) {
                   if (detailUrls[j]) validDetailMap.push({ origIdx: j, url: detailUrls[j]! });
                 }
+                if (validDetailMap.length === 0) return;
 
-                if (validDetailMap.length > 0) {
-                  try {
-                    const result = await selectDiverseImages(
-                      validDetailMap.map(e => e.url),
+                const urls = validDetailMap.map(e => e.url);
+                try {
+                  // 3개 분석을 병렬 실행 — 픽셀캐시 공유로 디코드 1회만 일어남
+                  const [result, adFilter, dup] = await Promise.all([
+                    selectDiverseImages(
+                      urls,
                       // trustFolderContents: review_images 폴더에서 승격된 사용자 큐레이션 이미지는
                       //   품질필터(어두운 배경/고채도/배너)를 건너뛴다 (리뷰 사진 특성상 과도 필터링됨)
                       { maxCount: 10, referenceUrls: mainUrls, trustFolderContents: true },
-                    );
-                    // selectedIndices는 validDetailMap 내의 인덱스 → origIdx로 변환
-                    const selectedOrigIndices = result.selectedIndices.map(i => validDetailMap[i].origIdx);
+                    ),
+                    // 광고/텍스트/빈 이미지 검출 (trustFolder와 무관하게 강제 실행)
+                    filterDetailPageImages(urls).catch(() => [] as Awaited<ReturnType<typeof filterDetailPageImages>>),
+                    // 중복 검출 — 색상 히스토그램 코사인 0.95+
+                    detectDuplicateImages(urls, 0.95).catch(() => ({ keptIndices: [], duplicateIndices: [] as number[], clusterMap: new Map<number, number>() })),
+                  ]);
 
-                    // ─── 자동 제외 검출 (광고/텍스트 + 중복) ───
-                    const detailReasonMap = new Map<number, AutoExcludeReason>();
-                    const urls = validDetailMap.map(e => e.url);
+                  // selectedIndices는 validDetailMap 내의 인덱스 → origIdx로 변환
+                  const selectedOrigIndices = result.selectedIndices.map(i => validDetailMap[i].origIdx);
 
-                    // (1) 광고/텍스트/빈 이미지 검출 (trustFolder와 무관하게 강제 실행)
-                    try {
-                      const adFilter = await filterDetailPageImages(urls);
-                      for (const r of adFilter) {
-                        if (r.filtered) {
-                          const origIdx = validDetailMap[r.index].origIdx;
-                          // text_banner / dark_background / colored_banner / promotional_image → text_banner
-                          // empty_image → empty_image
-                          const reason: AutoExcludeReason =
-                            r.reason === 'empty_image' ? 'empty_image' : 'text_banner';
-                          detailReasonMap.set(origIdx, reason);
-                        }
-                      }
-                    } catch { /* skip */ }
-
-                    // (2) 중복 검출 — 색상 히스토그램 코사인 0.95+
-                    try {
-                      const dup = await detectDuplicateImages(urls, 0.95);
-                      for (const dupIdx of dup.duplicateIndices) {
-                        const origIdx = validDetailMap[dupIdx].origIdx;
-                        // 텍스트 배너로 이미 태깅된 이미지는 그대로 두기
-                        if (!detailReasonMap.has(origIdx)) {
-                          detailReasonMap.set(origIdx, 'duplicate');
-                        }
-                      }
-                    } catch { /* skip */ }
-
-                    // ─── 안전장치: MIN_KEEP 보호 (상세이미지) ───
-                    // 자동 제외 후 selectedOrigIndices에 5장 미만 남으면 원본순으로 보충
-                    const DETAIL_MIN_KEEP = 5;
-                    const minKeep = Math.min(DETAIL_MIN_KEEP, selectedOrigIndices.length);
-                    let filteredSelected = selectedOrigIndices.filter(i => !detailReasonMap.has(i));
-
-                    if (filteredSelected.length < minKeep && detailReasonMap.size > 0) {
-                      // 우선순위: duplicate < text_banner < empty_image (중복부터 풀어주기)
-                      const reasonPriority: Record<AutoExcludeReason, number> = {
-                        duplicate: 1,
-                        text_banner: 2,
-                        empty_image: 3,
-                        hard_filter: 2,
-                        low_score: 1,
-                        color_outlier: 2,
-                        unrelated_to_main: 3,
-                      };
-                      const taggedSorted = selectedOrigIndices
-                        .filter(i => detailReasonMap.has(i))
-                        .sort((a, b) => (reasonPriority[detailReasonMap.get(a)!] ?? 99) - (reasonPriority[detailReasonMap.get(b)!] ?? 99));
-                      let releaseCount = minKeep - filteredSelected.length;
-                      for (const origIdx of taggedSorted) {
-                        if (releaseCount <= 0) break;
-                        detailReasonMap.delete(origIdx);
-                        releaseCount--;
-                      }
-                      filteredSelected = selectedOrigIndices.filter(i => !detailReasonMap.has(i));
-                      console.warn(`[detail-auto-exclude] ${p.productCode}: MIN_KEEP=${minKeep} 보호 — ${minKeep - (selectedOrigIndices.length - taggedSorted.length)}장 자동제외에서 해제`);
+                  // ─── 자동 제외 검출 (광고/텍스트 + 중복) ───
+                  const detailReasonMap = new Map<number, AutoExcludeReason>();
+                  for (const r of adFilter) {
+                    if (r.filtered) {
+                      const origIdx = validDetailMap[r.index].origIdx;
+                      // text_banner / dark_background / colored_banner / promotional_image → text_banner
+                      // empty_image → empty_image
+                      const reason: AutoExcludeReason =
+                        r.reason === 'empty_image' ? 'empty_image' : 'text_banner';
+                      detailReasonMap.set(origIdx, reason);
                     }
-
-                    if (detailReasonMap.size > 0) {
-                      const summary = Array.from(detailReasonMap.entries())
-                        .map(([i, r]) => `#${i}=${r}`)
-                        .slice(0, 8)
-                        .join(', ');
-                      console.info(`[detail-auto-exclude] ${p.productCode}: ${detailReasonMap.size}장 자동 제외 — ${summary}${detailReasonMap.size > 8 ? '...' : ''}`);
-                      detailAutoExcludeMaps.set(idx, detailReasonMap);
-                    }
-
-                    // 전부 필터 탈락 시 order를 설정하지 않음 (undefined = 전체 선택)
-                    if (filteredSelected.length > 0) {
-                      detailOrderMap.set(idx, filteredSelected);
-                    } else if (selectedOrigIndices.length > 0) {
-                      // 자동 제외 후 0장 → 일단 selectedOrigIndices 그대로 사용 (안전장치)
-                      detailOrderMap.set(idx, selectedOrigIndices);
-                    }
-                    detailMetaMap.set(idx, {
-                      diversityScore: result.diversityScore,
-                      imageTypes: result.imageTypes,
-                      clusterCount: result.clusterCount,
-                      watermarkScores: result.watermarkScores,
-                      relevanceScores: result.relevanceScores?.map(r => ({
-                        index: validDetailMap[r.index]?.origIdx ?? r.index,
-                        score: r.score,
-                      })),
-                    });
-                  } catch (e) {
-                    console.warn(`[detail-diversity] ${p.productCode}: 다양성 선택 실패`, e);
                   }
-                }
-              }
+                  for (const dupIdx of dup.duplicateIndices) {
+                    const origIdx = validDetailMap[dupIdx].origIdx;
+                    // 텍스트 배너로 이미 태깅된 이미지는 그대로 두기
+                    if (!detailReasonMap.has(origIdx)) {
+                      detailReasonMap.set(origIdx, 'duplicate');
+                    }
+                  }
 
-              // (2) 리뷰이미지 다양성 선택
+                  // ─── 안전장치: MIN_KEEP 보호 (상세이미지) ───
+                  // 자동 제외 후 selectedOrigIndices에 5장 미만 남으면 원본순으로 보충
+                  const DETAIL_MIN_KEEP = 5;
+                  const minKeep = Math.min(DETAIL_MIN_KEEP, selectedOrigIndices.length);
+                  let filteredSelected = selectedOrigIndices.filter(i => !detailReasonMap.has(i));
+
+                  if (filteredSelected.length < minKeep && detailReasonMap.size > 0) {
+                    // 우선순위: duplicate < text_banner < empty_image (중복부터 풀어주기)
+                    const reasonPriority: Record<AutoExcludeReason, number> = {
+                      duplicate: 1,
+                      text_banner: 2,
+                      empty_image: 3,
+                      hard_filter: 2,
+                      low_score: 1,
+                      color_outlier: 2,
+                      unrelated_to_main: 3,
+                    };
+                    const taggedSorted = selectedOrigIndices
+                      .filter(i => detailReasonMap.has(i))
+                      .sort((a, b) => (reasonPriority[detailReasonMap.get(a)!] ?? 99) - (reasonPriority[detailReasonMap.get(b)!] ?? 99));
+                    let releaseCount = minKeep - filteredSelected.length;
+                    for (const origIdx of taggedSorted) {
+                      if (releaseCount <= 0) break;
+                      detailReasonMap.delete(origIdx);
+                      releaseCount--;
+                    }
+                    filteredSelected = selectedOrigIndices.filter(i => !detailReasonMap.has(i));
+                    console.warn(`[detail-auto-exclude] ${p.productCode}: MIN_KEEP=${minKeep} 보호 — ${minKeep - (selectedOrigIndices.length - taggedSorted.length)}장 자동제외에서 해제`);
+                  }
+
+                  if (detailReasonMap.size > 0) {
+                    const summary = Array.from(detailReasonMap.entries())
+                      .map(([i, r]) => `#${i}=${r}`)
+                      .slice(0, 8)
+                      .join(', ');
+                    console.info(`[detail-auto-exclude] ${p.productCode}: ${detailReasonMap.size}장 자동 제외 — ${summary}${detailReasonMap.size > 8 ? '...' : ''}`);
+                    detailAutoExcludeMaps.set(idx, detailReasonMap);
+                  }
+
+                  // 전부 필터 탈락 시 order를 설정하지 않음 (undefined = 전체 선택)
+                  if (filteredSelected.length > 0) {
+                    detailOrderMap.set(idx, filteredSelected);
+                  } else if (selectedOrigIndices.length > 0) {
+                    // 자동 제외 후 0장 → 일단 selectedOrigIndices 그대로 사용 (안전장치)
+                    detailOrderMap.set(idx, selectedOrigIndices);
+                  }
+                  detailMetaMap.set(idx, {
+                    diversityScore: result.diversityScore,
+                    imageTypes: result.imageTypes,
+                    clusterCount: result.clusterCount,
+                    watermarkScores: result.watermarkScores,
+                    relevanceScores: result.relevanceScores?.map(r => ({
+                      index: validDetailMap[r.index]?.origIdx ?? r.index,
+                      score: r.score,
+                    })),
+                  });
+                } catch (e) {
+                  console.warn(`[detail-diversity] ${p.productCode}: 다양성 선택 실패`, e);
+                }
+              })();
+
+              // ─── 리뷰이미지 다양성 선택 ───────────────────────
               const reviewImgs = p.scannedReviewImages ?? [];
-              if (reviewImgs.length > 0) {
+              const reviewTask = (async () => {
+                if (reviewImgs.length === 0) return;
                 const reviewUrls: (string | null)[] = [];
                 for (const img of reviewImgs) {
                   const url = await ensureObjectUrl(img);
@@ -1389,32 +1392,34 @@ export function useBulkRegisterActions() {
                 for (let j = 0; j < reviewUrls.length; j++) {
                   if (reviewUrls[j]) validReviewMap.push({ origIdx: j, url: reviewUrls[j]! });
                 }
+                if (validReviewMap.length === 0) return;
 
-                if (validReviewMap.length > 0) {
-                  try {
-                    const result = await selectDiverseImages(
-                      validReviewMap.map(e => e.url),
-                      { maxCount: 5, referenceUrls: mainUrls, trustFolderContents: true },
-                    );
-                    const selectedOrigIndices = result.selectedIndices.map(i => validReviewMap[i].origIdx);
-                    if (selectedOrigIndices.length > 0) {
-                      reviewOrderMap.set(idx, selectedOrigIndices);
-                    }
-                    reviewMetaMap.set(idx, {
-                      diversityScore: result.diversityScore,
-                      imageTypes: result.imageTypes,
-                      clusterCount: result.clusterCount,
-                      watermarkScores: result.watermarkScores,
-                      relevanceScores: result.relevanceScores?.map(r => ({
-                        index: validReviewMap[r.index]?.origIdx ?? r.index,
-                        score: r.score,
-                      })),
-                    });
-                  } catch (e) {
-                    console.warn(`[review-diversity] ${p.productCode}: 다양성 선택 실패`, e);
+                try {
+                  const result = await selectDiverseImages(
+                    validReviewMap.map(e => e.url),
+                    { maxCount: 5, referenceUrls: mainUrls, trustFolderContents: true },
+                  );
+                  const selectedOrigIndices = result.selectedIndices.map(i => validReviewMap[i].origIdx);
+                  if (selectedOrigIndices.length > 0) {
+                    reviewOrderMap.set(idx, selectedOrigIndices);
                   }
+                  reviewMetaMap.set(idx, {
+                    diversityScore: result.diversityScore,
+                    imageTypes: result.imageTypes,
+                    clusterCount: result.clusterCount,
+                    watermarkScores: result.watermarkScores,
+                    relevanceScores: result.relevanceScores?.map(r => ({
+                      index: validReviewMap[r.index]?.origIdx ?? r.index,
+                      score: r.score,
+                    })),
+                  });
+                } catch (e) {
+                  console.warn(`[review-diversity] ${p.productCode}: 다양성 선택 실패`, e);
                 }
-              }
+              })();
+
+              // 상세 + 리뷰 병렬 실행 (서로 독립 — 픽셀캐시 공유로 race-free)
+              await Promise.all([detailTask, reviewTask]);
 
               // 5개마다 yield (워커별로 yield)
               if ((idx + 1) % 5 === 0) await new Promise(r => setTimeout(r, 0));

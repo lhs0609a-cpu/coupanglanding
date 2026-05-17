@@ -131,8 +131,10 @@ export interface DiverseSelectionResult {
 
 // 성능 최적화: 200→100→50→36 (8x 적은 픽셀 vs 100, 32bin 히스토그램에 충분)
 const ANALYSIS_SIZE = 36;
-// 히스토그램: 64→32 (4x 적은 픽셀, 이상치 감지에 충분)
-const HISTOGRAM_SIZE = 32;
+// 히스토그램도 ANALYSIS_SIZE 와 동일하게 — 픽셀 캐시 공유로 디코드 1회로 통합 (Option B 속도패치).
+//   이전 32 는 별도 캐시 키 → URL 당 2회 디코드 발생. 36 으로 통일 시 1회로 단축 (~30% 가속).
+//   36² = 1296 픽셀 — 4 빈 quantization 히스토그램에 차고 넘침.
+const HISTOGRAM_SIZE = ANALYSIS_SIZE;
 const DEFAULT_MIN_SCORE = 40;
 
 // Canvas 동시성 — 디바이스 코어 수에 비례, 최대 16. createImageBitmap이 디코딩을
@@ -154,9 +156,12 @@ const _analyzeDetailCache = new Map<string, { filtered: boolean; reason?: string
 const _imageFeaturesCache = new Map<string, ImageFeatures>();
 // 공유 픽셀 캐시 — selectDiverseImages / filterDetailPageImages / detectDuplicateImages
 // 가 같은 URL 을 3번 디코드하던 비용 제거. key = `${url}:${size}`.
-// 메모리: 36x36×4 = 5KB/이미지 + 32x32×4 = 4KB/이미지. 100 상품 × 25 이미지 × 2 size
-// ≈ 22MB worst case. clearAnalysisCache() 로 비움.
+// 메모리: 36x36×4 = 5KB/이미지. 100 상품 × 25 이미지 × 1 size
+// ≈ 12MB worst case. clearAnalysisCache() 로 비움.
 const _pixelDataCache = new Map<string, Uint8ClampedArray>();
+// In-flight 디코드 promise 캐시 — 같은 URL+size 가 동시에 3번 호출될 때 3번 디코드되던 race 제거.
+// (selectDiverseImages + filterDetailPageImages + detectDuplicateImages 병렬 실행 시 발생)
+const _pixelDataInFlight = new Map<string, Promise<Uint8ClampedArray | null>>();
 
 export function clearAnalysisCache(): void {
   _scoreImageCache.clear();
@@ -164,6 +169,7 @@ export function clearAnalysisCache(): void {
   _analyzeDetailCache.clear();
   _imageFeaturesCache.clear();
   _pixelDataCache.clear();
+  _pixelDataInFlight.clear();
 }
 
 /**
@@ -175,23 +181,34 @@ async function getCachedPixels(url: string, size: number): Promise<Uint8ClampedA
   const key = `${url}:${size}`;
   const cached = _pixelDataCache.get(key);
   if (cached) return cached;
+  // In-flight 디코드가 있으면 그 promise 를 공유 — 동시 호출 race 제거
+  const inFlight = _pixelDataInFlight.get(key);
+  if (inFlight) return inFlight;
 
-  let fast: { width: number; height: number; source: CanvasImageSource; close?: () => void } | null = null;
+  const promise = (async (): Promise<Uint8ClampedArray | null> => {
+    let fast: { width: number; height: number; source: CanvasImageSource; close?: () => void } | null = null;
+    try {
+      fast = await loadImageFast(url);
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(fast.source, 0, 0, fast.width, fast.height, 0, 0, size, size);
+      const data = ctx.getImageData(0, 0, size, size).data;
+      _pixelDataCache.set(key, data);
+      return data;
+    } catch {
+      return null;
+    } finally {
+      fast?.close?.();
+    }
+  })();
+  _pixelDataInFlight.set(key, promise);
   try {
-    fast = await loadImageFast(url);
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-    ctx.drawImage(fast.source, 0, 0, fast.width, fast.height, 0, 0, size, size);
-    const data = ctx.getImageData(0, 0, size, size).data;
-    _pixelDataCache.set(key, data);
-    return data;
-  } catch {
-    return null;
+    return await promise;
   } finally {
-    fast?.close?.();
+    _pixelDataInFlight.delete(key);
   }
 }
 
