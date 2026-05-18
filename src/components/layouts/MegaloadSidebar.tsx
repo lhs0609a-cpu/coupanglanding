@@ -90,12 +90,19 @@ export default function MegaloadSidebar({ isOpen, onClose, badges, gateLevel }: 
     }
     setIsSearching(true);
     try {
-      const res = await fetch(`/api/megaload/products/quick-search?q=${encodeURIComponent(query.trim())}`);
-      const { results } = await res.json();
-      setSearchResults(results || []);
+      const res = await fetch(`/api/megaload/products/quick-search?q=${encodeURIComponent(query.trim())}`, {
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await res.json().catch(() => ({ results: [] }));
+      if (!res.ok) {
+        console.warn('[quick-search] HTTP', res.status, data?.error);
+      }
+      setSearchResults(data.results || []);
       setShowDropdown(true);
-    } catch {
+    } catch (e) {
+      console.warn('[quick-search] fetch 실패:', e instanceof Error ? e.message : e);
       setSearchResults([]);
+      setShowDropdown(true); // 드롭다운은 열어서 "결과 없음" 표시
     } finally {
       setIsSearching(false);
     }

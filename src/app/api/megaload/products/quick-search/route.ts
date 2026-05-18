@@ -78,26 +78,48 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      return NextResponse.json({ results: [] }, { status: 401 });
+      return NextResponse.json({ results: [], error: '로그인 필요' }, { status: 401 });
     }
 
     const serviceClient = await createServiceClient();
     let shUserId: string;
     try {
       shUserId = await ensureMegaloadUser(supabase, serviceClient, user.id);
-    } catch {
-      return NextResponse.json({ results: [] }, { status: 401 });
+    } catch (e) {
+      console.warn('[quick-search] ensureMegaloadUser 실패:', e instanceof Error ? e.message : e);
+      return NextResponse.json({ results: [], error: '메가로드 계정 없음' }, { status: 401 });
+    }
+
+    // PostgREST .or() 의 syntax-breaking 문자 escape — comma/괄호/and/or 키워드가 q 에 들어와도
+    // SQL injection 이 아닌 PostgREST 파서가 깨져 500 을 던지므로 사전 제거 (백슬래시는 PostgREST 가 안 받음).
+    // 대신 ilike 와이일드카드 충돌 가능한 %, _ 도 escape.
+    const qSafe = q.replace(/[,()%_]/g, ' ').trim();
+    if (!qSafe) {
+      return NextResponse.json({ results: [] });
     }
 
     // 상품명, 브랜드, 상품코드에서 검색 (최대 20개)
-    const { data } = await supabase
+    // RLS 가 admin/일반사용자 다 통과하는 경우 supabase, 아닌 경우 serviceClient 폴백
+    const runQuery = async (client: typeof supabase) => client
       .from('sh_products')
       .select('id, product_name, display_name, brand, coupang_product_id, raw_data, created_at')
       .eq('megaload_user_id', shUserId)
       .neq('status', 'deleted')
-      .or(`product_name.ilike.%${q}%,display_name.ilike.%${q}%,brand.ilike.%${q}%,manufacturer.ilike.%${q}%,coupang_product_id.ilike.%${q}%`)
+      .or(`product_name.ilike.%${qSafe}%,display_name.ilike.%${qSafe}%,brand.ilike.%${qSafe}%,manufacturer.ilike.%${qSafe}%,coupang_product_id.ilike.%${qSafe}%`)
       .order('created_at', { ascending: false })
       .limit(20);
+
+    let { data, error: dbErr } = await runQuery(supabase);
+    if (dbErr) {
+      console.warn('[quick-search] RLS 쿼리 실패, serviceClient 폴백:', dbErr.message);
+      const fallback = await runQuery(serviceClient);
+      data = fallback.data;
+      dbErr = fallback.error;
+    }
+    if (dbErr) {
+      console.error('[quick-search] DB 쿼리 실패 (서비스 클라이언트):', dbErr.message);
+      return NextResponse.json({ results: [], error: `DB 오류: ${dbErr.message}` }, { status: 500 });
+    }
 
     const dbResults = (data || []).map((item) => {
       const raw = item.raw_data as Record<string, unknown> | null;
@@ -137,7 +159,10 @@ export async function GET(request: NextRequest) {
     ];
 
     return NextResponse.json({ results: merged, total: merged.length });
-  } catch {
-    return NextResponse.json({ results: [] });
+  } catch (err) {
+    // silent fail 금지 — 어디서 throw 됐는지 로그에 남기고 5xx 로 반환
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[quick-search] 예외 발생:', msg, err instanceof Error ? err.stack : '');
+    return NextResponse.json({ results: [], error: msg }, { status: 500 });
   }
 }
