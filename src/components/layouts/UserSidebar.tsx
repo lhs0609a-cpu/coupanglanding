@@ -28,6 +28,7 @@ const baseNavItems = [
   { href: '/my/ad-tips', label: '광고 노하우', icon: Lightbulb },
   { href: '/my/promotion', label: '프로모션', icon: Megaphone },
   { href: '/my/education', label: '교육', icon: School },
+  { href: '/my/curriculum', label: '쿠팡 PT 교육 현황', icon: GraduationCap },
   { href: '/my/ad-academy', label: '광고 아카데미', icon: Tv },
   { href: '/my/guides', label: '운영 가이드', icon: BookOpen },
   { href: '/my/notices', label: '공지사항', icon: Bell },
