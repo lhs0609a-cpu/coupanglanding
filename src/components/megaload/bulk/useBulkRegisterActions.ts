@@ -1246,14 +1246,13 @@ export function useBulkRegisterActions() {
             const reviewMetaMap: Map<number, ImageSelectionMeta> = new Map();
 
             // 상품별 이미지 분석 — 병렬 워커 풀
-            // ANALYSIS_SIZE 50→36 + createImageBitmap 도입으로 메인스레드 부담 줄어 3→4
-            // Option A 속도패치: 4→8 (현대 CPU 8~16코어 활용도 ↑, 2배 빨라짐)
-            // 이미지 디코드는 createImageBitmap이 워커 스레드에서 처리하므로 메인 영향 적음
-            // Option B 속도패치:
-            //   - selectDiverse + filterDetail + detectDuplicate 를 Promise.all 로 병렬화 (3→1 wave)
-            //   - detail / review 도 Promise.all 로 동시 실행 (2→1 wave)
-            //   - 픽셀캐시 + in-flight promise 로 race-free 디코드 1회만
-            const PRODUCT_PARALLEL = 8;
+            // Option C 속도패치:
+            //   - PRODUCT_PARALLEL을 하드웨어 코어 수 기반 dynamic (8→최대 16)
+            //   - ensureObjectUrl 호출을 Promise.all로 병렬화 (이전 sequential await → 30장 100~300ms 절약)
+            //   - 리뷰이미지 relevance scoring 스킵 (trustFolder=true, UI 표시용일 뿐 필터링 미사용)
+            const PRODUCT_PARALLEL = typeof navigator !== 'undefined'
+              ? Math.min(16, Math.max(8, navigator.hardwareConcurrency || 8))
+              : 8;
             let nextIdx = 0;
             const processProduct = async (idx: number): Promise<void> => {
               const p = latestForFilter[idx];
@@ -1268,11 +1267,10 @@ export function useBulkRegisterActions() {
               const detailImgs = p.scannedDetailImages ?? [];
               const detailTask = (async () => {
                 if (detailImgs.length === 0) return;
-                const detailUrls: (string | null)[] = [];
-                for (const img of detailImgs) {
-                  const url = await ensureObjectUrl(img);
-                  detailUrls.push(url ?? null);
-                }
+                // Option C: 순차 await → Promise.all 병렬화 (30장 기준 100~300ms 절약)
+                const detailUrls: (string | null)[] = await Promise.all(
+                  detailImgs.map(async img => (await ensureObjectUrl(img)) ?? null),
+                );
                 const validDetailMap: { origIdx: number; url: string }[] = [];
                 for (let j = 0; j < detailUrls.length; j++) {
                   if (detailUrls[j]) validDetailMap.push({ origIdx: j, url: detailUrls[j]! });
@@ -1383,11 +1381,10 @@ export function useBulkRegisterActions() {
               const reviewImgs = p.scannedReviewImages ?? [];
               const reviewTask = (async () => {
                 if (reviewImgs.length === 0) return;
-                const reviewUrls: (string | null)[] = [];
-                for (const img of reviewImgs) {
-                  const url = await ensureObjectUrl(img);
-                  reviewUrls.push(url ?? null);
-                }
+                // Option C: 순차 await → Promise.all 병렬화
+                const reviewUrls: (string | null)[] = await Promise.all(
+                  reviewImgs.map(async img => (await ensureObjectUrl(img)) ?? null),
+                );
                 const validReviewMap: { origIdx: number; url: string }[] = [];
                 for (let j = 0; j < reviewUrls.length; j++) {
                   if (reviewUrls[j]) validReviewMap.push({ origIdx: j, url: reviewUrls[j]! });
@@ -1395,9 +1392,11 @@ export function useBulkRegisterActions() {
                 if (validReviewMap.length === 0) return;
 
                 try {
+                  // Option C: referenceUrls 제거 — trustFolder=true이므로 cross-reference outlier는 이미 스킵.
+                  // 잔존하던 scoreProductRelevance(Step 2.5)도 UI 표시용일 뿐 필터링 미사용 → 안전하게 제거.
                   const result = await selectDiverseImages(
                     validReviewMap.map(e => e.url),
-                    { maxCount: 5, referenceUrls: mainUrls, trustFolderContents: true },
+                    { maxCount: 5, trustFolderContents: true },
                   );
                   const selectedOrigIndices = result.selectedIndices.map(i => validReviewMap[i].origIdx);
                   if (selectedOrigIndices.length > 0) {
