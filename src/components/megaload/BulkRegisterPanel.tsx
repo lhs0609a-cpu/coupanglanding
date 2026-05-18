@@ -11,6 +11,7 @@ import BulkStep1Settings from './bulk/BulkStep1Settings';
 import BulkStep2Review from './bulk/BulkStep2Review';
 import BulkStep3Progress from './bulk/BulkStep3Progress';
 import AutoModeModal from './bulk/AutoModeModal';
+import FinalReviewModal from './bulk/FinalReviewModal';
 import { useAutoMode } from './bulk/useAutoMode';
 import { Zap } from 'lucide-react';
 
@@ -20,24 +21,54 @@ export default function BulkRegisterPanel() {
   const { state: stockState, runStockCheck } = useStockCheck();
   const autoMode = useAutoMode();
   const [autoModalOpen, setAutoModalOpen] = useState(false);
+  // ─── 자동 모드 최종 확인 게이트 ───
+  // preflight 완료 → 사용자가 썸네일/가격/원본링크/노출상품명 확인 → 확정 → register
+  const [finalReviewOpen, setFinalReviewOpen] = useState(false);
+  const [excludedUids, setExcludedUids] = useState<Set<string>>(new Set());
   // 자동 모드: handleRegister 가 한 번만 호출되도록 가드
   const autoRegisterFiredRef = useRef(false);
+  const finalReviewShownRef = useRef(false);
   // 자동 모드: 체크포인트 마지막 진행 인덱스 추적 (delta 계산용)
   const autoCheckpointLastIdxRef = useRef(0);
   const autoCheckpointLastSuccessRef = useRef(0);
   const autoCheckpointLastFailRef = useRef(0);
 
-  // ─── 자동 모드 chain: preflight 완료 + canRegister → handleRegister 자동 호출 ───
+  // ─── 자동 모드 chain: preflight 완료 → 최종 확인 모달 → 확정 시 handleRegister ───
   useEffect(() => {
     if (!autoMode.activeJobId) return;
-    if (autoRegisterFiredRef.current) return;
+    if (finalReviewShownRef.current) return;
     if (actions.step !== 2) return;
     if (actions.preflightPhase !== 'complete') return;
     if (!actions.canRegister) return;
+    finalReviewShownRef.current = true;
+    setExcludedUids(new Set());
+    setFinalReviewOpen(true);
+    console.log('[auto-mode] preflight 완료 → 최종 확인 게이트 노출');
+  }, [autoMode.activeJobId, actions.step, actions.preflightPhase, actions.canRegister]);
+
+  const handleFinalConfirm = useCallback(() => {
+    if (autoRegisterFiredRef.current) return;
     autoRegisterFiredRef.current = true;
-    console.log('[auto-mode] preflight 완료 → handleRegister 자동 호출');
-    actions.handleRegister();
-  }, [autoMode.activeJobId, actions.step, actions.preflightPhase, actions.canRegister, actions]);
+    // 사용자가 체크 해제한 상품은 selected=false 로 전환 → handleRegister 가 자동 skip
+    if (excludedUids.size > 0) {
+      actions.setProducts(prev => prev.map(p =>
+        excludedUids.has(p.uid) ? { ...p, selected: false } : p,
+      ));
+    }
+    setFinalReviewOpen(false);
+    // 다음 tick 에 handleRegister — setProducts 반영 후 실행
+    setTimeout(() => actions.handleRegister(), 50);
+  }, [excludedUids, actions]);
+
+  const handleFinalAbort = useCallback(() => {
+    setFinalReviewOpen(false);
+    if (autoMode.activeJobId) {
+      autoMode.finalizeJob(autoMode.activeJobId, 'aborted', { reason: 'user_cancelled_final_review' });
+    }
+    // 자동 모드 종료 — 사용자가 step 2 에서 수동 검토 후 직접 등록 가능
+    autoRegisterFiredRef.current = false;
+    finalReviewShownRef.current = false;
+  }, [autoMode]);
 
   // ─── 자동 모드: products status 변화 시 체크포인트 영속화 + Gate 2 watchdog ───
   // batchProgress 는 { current, total } 만 제공하므로 success/failed 는 products[].status 에서 집계.
@@ -403,6 +434,22 @@ export default function BulkRegisterPanel() {
           onJumpToErrorGroup={actions.jumpToErrorGroup}
         />
       )}
+
+      {/* 자동 모드 최종 확인 게이트 — 등록 직전 썸네일/가격/링크/상품명 검토 */}
+      <FinalReviewModal
+        open={finalReviewOpen}
+        products={actions.products}
+        imagePreuploadCache={actions.imagePreuploadCache}
+        excludedUids={excludedUids}
+        onToggleExclude={(uid) => setExcludedUids(prev => {
+          const next = new Set(prev);
+          if (next.has(uid)) next.delete(uid);
+          else next.add(uid);
+          return next;
+        })}
+        onConfirm={handleFinalConfirm}
+        onAbort={handleFinalAbort}
+      />
 
       {/* 올인원 자동 등록 모달 — 폴더 1번 선택 → 사전분석 → Gate 1 확인 → 자동 실행 */}
       <AutoModeModal
