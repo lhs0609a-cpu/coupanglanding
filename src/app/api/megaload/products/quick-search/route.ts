@@ -121,16 +121,52 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ results: [], error: `DB 오류: ${dbErr.message}` }, { status: 500 });
     }
 
-    const dbResults = (data || []).map((item) => {
-      const raw = item.raw_data as Record<string, unknown> | null;
-      return {
-        id: item.id,
-        productName: item.product_name || item.display_name || '',
-        brand: item.brand || '',
-        coupangProductId: item.coupang_product_id || '',
-        sourceUrl: (raw?.sourceUrl as string) || null,
-      };
+    // ─── 옵션 레벨 검색: 옵션명/SKU/raw_data 에 코드가 박힌 경우 ───
+    // 예: 옵션명 "5/26일 출고 5CBE-281526032,1개" 처럼 sellerProductId 가 텍스트에 임베드되어
+    //     마스터 필드 검색만으로는 찾을 수 없는 케이스.
+    const seenProductIds = new Set((data || []).map((r) => r.id));
+    const optionQuery = async (client: typeof supabase) => client
+      .from('sh_product_options')
+      .select('product_id, sku, option_name, option_value, raw_data, sh_products!inner(id, product_name, display_name, brand, coupang_product_id, raw_data, megaload_user_id, status)')
+      .eq('sh_products.megaload_user_id', shUserId)
+      .neq('sh_products.status', 'deleted')
+      .or(`sku.ilike.%${qSafe}%,option_name.ilike.%${qSafe}%,option_value.ilike.%${qSafe}%`)
+      .limit(20);
+    let { data: optionData, error: optErr } = await optionQuery(supabase);
+    if (optErr) {
+      const fallback = await optionQuery(serviceClient);
+      optionData = fallback.data;
+      optErr = fallback.error;
+    }
+    if (optErr) {
+      console.warn('[quick-search] 옵션 검색 실패 (무시):', optErr.message);
+    }
+    const optionMatches = (optionData || []).flatMap((row) => {
+      const parent = (row as unknown as { sh_products: { id: string; product_name: string; display_name: string | null; brand: string | null; coupang_product_id: string | null; raw_data: Record<string, unknown> | null } }).sh_products;
+      if (!parent || seenProductIds.has(parent.id)) return [];
+      seenProductIds.add(parent.id);
+      return [{
+        id: parent.id,
+        productName: parent.product_name || parent.display_name || '',
+        brand: parent.brand || '',
+        coupangProductId: parent.coupang_product_id || '',
+        sourceUrl: (parent.raw_data?.sourceUrl as string) || null,
+      }];
     });
+
+    const dbResults = [
+      ...(data || []).map((item) => {
+        const raw = item.raw_data as Record<string, unknown> | null;
+        return {
+          id: item.id,
+          productName: item.product_name || item.display_name || '',
+          brand: item.brand || '',
+          coupangProductId: item.coupang_product_id || '',
+          sourceUrl: (raw?.sourceUrl as string) || null,
+        };
+      }),
+      ...optionMatches,
+    ];
 
     // CSV (자동 위탁 플랫폼 상품 리스트) 토큰 매칭: 공백/하이픈 분리 AND 매칭
     const tokens = q.toLowerCase().split(/[\s\-]+/).filter((t) => t.length > 0);

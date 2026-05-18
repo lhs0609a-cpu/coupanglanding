@@ -13,12 +13,29 @@ export async function GET() {
 
     const { data: ptUser } = await supabase
       .from('pt_users')
-      .select('id')
+      .select('id, coupang_vendor_id, coupang_wing_user_id, coupang_api_connected')
       .eq('profile_id', user.id)
       .maybeSingle();
     if (!ptUser) return NextResponse.json({ error: 'PT 사용자 정보를 찾을 수 없습니다.' }, { status: 404 });
 
     const sc = await createServiceClient();
+
+    const { data: cfg } = await sc
+      .from('coupon_auto_sync_config')
+      .select('instant_coupon_enabled, instant_coupon_id, download_coupon_enabled, download_coupon_id, download_coupon_policies, download_coupon_duration_days, contract_id')
+      .eq('pt_user_id', ptUser.id)
+      .maybeSingle();
+
+    const policies = (cfg?.download_coupon_policies as unknown[] | null) || [];
+    const configValidation = {
+      wingUserIdSet: !!(ptUser.coupang_wing_user_id && (ptUser.coupang_wing_user_id as string).trim()),
+      downloadEnabled: !!cfg?.download_coupon_enabled,
+      contractIdSet: !!(cfg?.contract_id && String(cfg.contract_id).trim()),
+      contractId: cfg?.contract_id || null,
+      policiesCount: policies.length,
+      policiesSample: policies[0] || null,
+      durationDays: cfg?.download_coupon_duration_days || null,
+    };
 
     const head = (q: ReturnType<typeof sc.from>) => q.select('*', { count: 'exact', head: true }).eq('pt_user_id', ptUser.id);
 
@@ -50,6 +67,22 @@ export async function GET() {
       .ilike('error_message', '%다운로드%')
       .order('updated_at', { ascending: false })
       .limit(10);
+
+    // coupon_apply_log: 다운로드 시도의 실제 쿠팡 응답 (성공/실패 모두)
+    const { data: recentDownloadLogs } = await sc
+      .from('coupon_apply_log')
+      .select('vendor_item_id, coupon_id, success, error_message, created_at')
+      .eq('pt_user_id', ptUser.id)
+      .eq('coupon_type', 'download')
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    const downloadLogBuckets: Record<string, number> = {};
+    (recentDownloadLogs || []).forEach((r) => {
+      const row = r as { success: boolean; error_message: string | null };
+      const key = row.success ? '__SUCCESS__' : (row.error_message || '__NULL_ERROR__').slice(0, 120);
+      downloadLogBuckets[key] = (downloadLogBuckets[key] || 0) + 1;
+    });
 
     const { data: errorPatternRows } = await sc
       .from('product_coupon_tracking')
@@ -89,6 +122,9 @@ export async function GET() {
       },
       topErrors,
       recentDownloadFailures: recentDownloadFailures || [],
+      configValidation,
+      downloadLogBuckets,
+      recentDownloadLogs: (recentDownloadLogs || []).slice(0, 10),
     });
   } catch (err) {
     console.error('promotion diagnose error:', err);
