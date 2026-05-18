@@ -887,19 +887,32 @@ export function useBulkRegisterActions() {
       setPipelineRan(true);
       (async () => {
         const latest = productsRef.current;
+        console.info(`[auto-pipeline] 시작: ${latest.length}개 상품`);
 
         // ========== 순차 파이프라인 (UI 응답성 최우선) ==========
-        // Canvas가 CPU를 차단하므로 제목/콘텐츠를 먼저 즉시 생성
-        // 이미지 필터는 대표이미지 스코어링만 (이상치/상세/교차비교 완전 생략)
+        // 각 step을 try/catch 로 감싸 silent fail 방지 — 한 step 실패해도 다음 step 진행.
+        // 이전: IIFE 내 throw → unhandled rejection → 진행 상태바가 영원히 '대기'에 멈춤.
 
         // Step 1. 상품명 생성 — 즉시 완료 (템플릿 기반, <100ms)
-        await runTitleGeneration(latest);
+        try {
+          await runTitleGeneration(latest);
+        } catch (e) {
+          console.error('[auto-pipeline] Step 1 (상품명) 실패:', e);
+        }
         await new Promise(r => setTimeout(r, 50));
 
         // Step 2. 상세페이지 생성 — 즉시 완료 (템플릿 기반, <100ms)
-        await runContentGeneration(productsRef.current);
+        try {
+          await runContentGeneration(productsRef.current);
+        } catch (e) {
+          console.error('[auto-pipeline] Step 2 (상세페이지) 실패:', e);
+        }
         await new Promise(r => setTimeout(r, 50));
 
+        // Step 3 + 3.7 — 이미지 분석 파이프라인 (실패해도 진행 상태바를 'complete'로
+        // 강제 갱신하여 UI가 '대기'에 멈추지 않도록 함)
+        console.info('[auto-pipeline] Step 3 (대표이미지 선정) 진입');
+        try {
         // Step 3. 대표이미지 선정
         // main_images 폴더의 모든 이미지를 스코어링하여 누끼 우선 정렬
         {
@@ -1598,8 +1611,24 @@ export function useBulkRegisterActions() {
           }
         }
 
+        } catch (e) {
+          console.error('[auto-pipeline] Step 3/3.7 (이미지 분석) 실패:', e);
+          // UI 응답성 보장 — 진행 상태바를 강제로 'complete'로 갱신
+          setImageFilterProgress(prev => ({
+            done: prev.total || latest.length,
+            total: prev.total || latest.length,
+            phase: 'complete',
+          }));
+        }
+
         // Step 4. 스톡 이미지 fetch
-        await runStockImageFetch(productsRef.current);
+        try {
+          await runStockImageFetch(productsRef.current);
+        } catch (e) {
+          console.error('[auto-pipeline] Step 4 (스톡 이미지) 실패:', e);
+        }
+
+        console.info('[auto-pipeline] 종료');
       })();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
