@@ -342,7 +342,15 @@ function parseNaverOptionsInline(html: string): OptionStockStatus[] | null {
  * dispDiscountedSalePrice 가 최우선 — desktop-monitor 에서 검증된 가장 신뢰도 높은 필드.
  * DEBUG_NAVER_PRICE=1 환경변수로 preload state 앞부분을 로깅.
  */
-function parseNaverMainPrice(html: string): number | null {
+export interface PriceParseTrace {
+  method: 'json-field' | 'dom-label' | 'json-ld' | 'og-meta' | 'none';
+  value: number | null;
+  matchedField?: string;
+  matchedSnippet?: string;
+  attempted: { name: string; matched: boolean; value?: number | null }[];
+}
+
+function parseNaverMainPrice(html: string, trace?: PriceParseTrace): number | null {
   if (process.env.DEBUG_NAVER_PRICE === '1') {
     const preloadMatch = html.match(/window\.__PRELOADED_STATE__\s*=\s*({[\s\S]*?});?\s*<\/script>/);
     console.log('[parseNaverMainPrice] preload head:', preloadMatch ? preloadMatch[1].slice(0, 2000) : '(no preload state)');
@@ -350,7 +358,7 @@ function parseNaverMainPrice(html: string): number | null {
 
   // 1) JSON 필드 — HTML 전체 검색 (PRELOADED_STATE / __NEXT_DATA__ / 인라인 JSON 어디에 있든)
   //    dispDiscountedSalePrice → salePrice → 나머지 순.
-  //    값은 정수 또는 문자열(따옴표) 둘 다 허용.
+  //    값은 정수 또는 문자열(따옴표 + 콤마 포맷팅) 둘 다 허용.
   const fieldCandidates = [
     'dispDiscountedSalePrice',
     'salePrice', 'dispSalePrice', 'dispPrice',
@@ -359,41 +367,88 @@ function parseNaverMainPrice(html: string): number | null {
     'price',
   ];
   for (const field of fieldCandidates) {
-    const re = new RegExp(`"${field}"\\s*:\\s*"?(\\d{2,10})"?`);
+    // 콤마 포맷팅("12,345") + 정수(12345) + 문자열("12345") 모두 매칭
+    const re = new RegExp(`"${field}"\\s*:\\s*"?([\\d,]{2,15})"?`);
     const m = html.match(re);
     if (m) {
-      const v = parseInt(m[1], 10);
-      if (!Number.isNaN(v) && v > 0) return v;
+      const cleaned = m[1].replace(/,/g, '');
+      const v = parseInt(cleaned, 10);
+      if (!Number.isNaN(v) && v >= 100) {
+        if (trace) {
+          trace.method = 'json-field';
+          trace.value = v;
+          trace.matchedField = field;
+          trace.matchedSnippet = m[0];
+          trace.attempted.push({ name: `json:${field}`, matched: true, value: v });
+        }
+        return v;
+      }
+      if (trace) trace.attempted.push({ name: `json:${field}`, matched: false, value: v });
+    } else if (trace) {
+      trace.attempted.push({ name: `json:${field}`, matched: false });
     }
   }
 
   // 2) HTML DOM 폴백 — <span class="blind">상품 가격</span><span>25,900</span><span>원</span>
-  //    GT 번역 시 라벨이 "Product price" / 단위가 "won" 으로 바뀔 수 있음.
-  //    CSS-in-JS 해시 클래스명 의존 X, 라벨/숫자/단위 구조로 매칭.
   const domMatch = html.match(
     /<span[^>]*>[\s\S]{0,200}?(?:상품\s*가격|Product\s*price|Product\s*amount)[\s\S]{0,200}?<\/span>\s*<span[^>]*>\s*([\d,]+)\s*<\/span>\s*<span[^>]*>\s*(?:원|won|KRW)/i,
   );
   if (domMatch) {
     const v = parseInt(domMatch[1].replace(/,/g, ''), 10);
-    if (!Number.isNaN(v) && v > 0) return v;
+    if (!Number.isNaN(v) && v >= 100) {
+      if (trace) {
+        trace.method = 'dom-label';
+        trace.value = v;
+        trace.matchedSnippet = domMatch[0].slice(0, 200);
+        trace.attempted.push({ name: 'dom-label', matched: true, value: v });
+      }
+      return v;
+    }
   }
+  if (trace) trace.attempted.push({ name: 'dom-label', matched: !!domMatch });
 
-  // 3) JSON-LD fallback
-  const ldMatch = html.match(/"@type"\s*:\s*"Product"[\s\S]*?"price"\s*:\s*"?(\d{2,10})/);
+  // 3) JSON-LD fallback — 콤마 포맷팅도 허용
+  const ldMatch = html.match(/"@type"\s*:\s*"Product"[\s\S]*?"price"\s*:\s*"?([\d,]+)/);
   if (ldMatch) {
-    const v = parseInt(ldMatch[1], 10);
-    if (!Number.isNaN(v) && v > 0) return v;
+    const v = parseInt(ldMatch[1].replace(/,/g, ''), 10);
+    if (!Number.isNaN(v) && v >= 100) {
+      if (trace) {
+        trace.method = 'json-ld';
+        trace.value = v;
+        trace.attempted.push({ name: 'json-ld', matched: true, value: v });
+      }
+      return v;
+    }
   }
+  if (trace) trace.attempted.push({ name: 'json-ld', matched: !!ldMatch });
 
   // 4) Open Graph meta
-  const ogMatch = html.match(/<meta\s+property="product:price:amount"\s+content="(\d+(?:\.\d+)?)"/i);
+  const ogMatch = html.match(/<meta\s+property="product:price:amount"\s+content="([\d.,]+)"/i);
   if (ogMatch) {
-    const v = Math.round(parseFloat(ogMatch[1]));
-    if (!Number.isNaN(v) && v > 0) return v;
+    const v = Math.round(parseFloat(ogMatch[1].replace(/,/g, '')));
+    if (!Number.isNaN(v) && v >= 100) {
+      if (trace) {
+        trace.method = 'og-meta';
+        trace.value = v;
+        trace.attempted.push({ name: 'og-meta', matched: true, value: v });
+      }
+      return v;
+    }
   }
+  if (trace) trace.attempted.push({ name: 'og-meta', matched: !!ogMatch });
 
+  // 모든 폴백 실패 — 진단용 로깅 (env-flag 무관)
+  // PRELOADED_STATE 가 있긴 한지, 가격 관련 키워드가 페이지에 있는지만 짧게 기록.
+  const hasPreload = /__PRELOADED_STATE__|__NEXT_DATA__/.test(html);
+  const hasPriceKeyword = /salePrice|상품\s*가격|product:price/i.test(html);
+  const htmlLen = html.length;
+  console.warn(`[parseNaverMainPrice] FAILED — all 4 fallbacks empty. htmlLen=${htmlLen}, hasPreload=${hasPreload}, hasPriceKeyword=${hasPriceKeyword}`);
+
+  if (trace) trace.method = 'none';
   return null;
 }
+
+export { parseNaverMainPrice as parseNaverMainPriceForDiag };
 
 /**
  * 등록한 옵션의 품절 상태 판정
