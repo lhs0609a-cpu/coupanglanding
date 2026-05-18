@@ -361,6 +361,7 @@ export async function POST(req: NextRequest) {
       }
       if (missingNoticeCodes.size > 0 || missingAttrCodes.size > 0) {
         const { getNoticeCategoriesWithCacheBatch } = await import('@/lib/megaload/services/notice-category-cache');
+        const { getAttributesWithCacheBatch } = await import('@/lib/megaload/services/attribute-cache');
         const noticeMissingArr = [...missingNoticeCodes];
         const attrMissingArr = [...missingAttrCodes];
 
@@ -370,20 +371,14 @@ export async function POST(req: NextRequest) {
             ? getNoticeCategoriesWithCacheBatch(serviceClient, coupangAdapter, noticeMissingArr, { concurrency: 8, delayMs: 100 })
             : Promise.resolve({});
 
-        // Attribute: 캐시 없음 — 코드별 병렬 라이브
-        const attrCache = new Map<string, AttributeMeta[]>();
-        const ATTR_CONCURRENT = 10;
-        let attrIdx = 0;
-        const attrWorkers = Array.from({ length: Math.min(ATTR_CONCURRENT, attrMissingArr.length) }, async () => {
-          while (attrIdx < attrMissingArr.length) {
-            const code = attrMissingArr[attrIdx++];
-            try {
-              const r = await coupangAdapter.getCategoryAttributes(code);
-              attrCache.set(code, r.items);
-            } catch { /* 개별 실패 무시 */ }
-          }
-        });
-        const [noticeMap] = await Promise.all([noticePromise, Promise.all(attrWorkers)]);
+        // Attribute: Supabase 캐시 우선 batch (이전: 코드별 라이브만)
+        const attrPromise: Promise<Record<string, AttributeMeta[]>> =
+          attrMissingArr.length > 0
+            ? (getAttributesWithCacheBatch(serviceClient, coupangAdapter, attrMissingArr, { concurrency: 8, delayMs: 100 }) as Promise<Record<string, AttributeMeta[]>>)
+            : Promise.resolve({});
+
+        const [noticeMap, attrMap] = await Promise.all([noticePromise, attrPromise]);
+        const attrCache = new Map<string, AttributeMeta[]>(Object.entries(attrMap));
 
         // 상품에 채워넣기
         for (const p of products) {
@@ -617,16 +612,17 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // 5.6 attributeMeta가 비어있으면 쿠팡 API에서 직접 재조회
+      // 5.6 attributeMeta가 비어있으면 쿠팡 API에서 직접 재조회 (캐시 우선)
       // (init-job에서 getCategoryAttributes 실패 시 빈 배열 → 구매옵션 미전송 → API 에러)
       if (!product.attributeMeta || product.attributeMeta.length === 0) {
         try {
           console.log(`[batch] attributeMeta 비어있음 → 재조회: category=${product.categoryCode}`);
-          const attrResult = await coupangAdapter.getCategoryAttributes(product.categoryCode);
-          if (attrResult.items.length > 0) {
-            product.attributeMeta = attrResult.items;
-            const exposedCount = attrResult.items.filter(a => a.exposed === 'EXPOSED').length;
-            console.log(`[batch] attributeMeta 재조회 성공: ${attrResult.items.length}개 속성 (EXPOSED=${exposedCount})`);
+          const { getAttributesWithCache } = await import('@/lib/megaload/services/attribute-cache');
+          const items = await getAttributesWithCache(serviceClient, coupangAdapter, product.categoryCode);
+          if (items.length > 0) {
+            product.attributeMeta = items as AttributeMeta[];
+            const exposedCount = items.filter(a => a.exposed === 'EXPOSED').length;
+            console.log(`[batch] attributeMeta 재조회 성공: ${items.length}개 속성 (EXPOSED=${exposedCount})`);
           } else {
             console.warn(`[batch] attributeMeta 재조회했으나 비어있음 → 구매옵션 없는 카테고리이거나 API 오류`);
           }
@@ -915,11 +911,19 @@ export async function POST(req: NextRequest) {
     // 카운터 RPC 도 청크 단위로 합산하여 1회만 호출 (이전: 상품당 sequential RPC).
     // PARALLEL_REGISTER 변천:
     //   20 (이전): 폭주. Jimp 동시 처리 + 쿠팡 API 동시 호출이 함수 메모리 1.5~2GB 점유.
-    //   10 (현재): 안정. throughput 절반이지만 메모리 peak 50% 감소 + 90s maxDuration 안에 들어옴.
+    //   10 + 무 stagger (직전): 동시 burst 로 쿠팡 429 다발 → withRetry 백오프로 시간 낭비.
+    //   10 + 150ms stagger (현재): 첫 chunk 시작이 1.35s 에 걸쳐 분산 → 쿠팡 5/sec 한도와 호환.
+    //                             전체 chunk 완료 시간은 거의 동일하지만 429 retry 거의 0건으로 감소.
     const PARALLEL_REGISTER = 10;
+    const STAGGER_MS = 150;
     for (let i = 0; i < products.length; i += PARALLEL_REGISTER) {
       const chunk = products.slice(i, i + PARALLEL_REGISTER);
-      const chunkResults = await Promise.allSettled(chunk.map((p, j) => registerSingleProduct(p, i + j)));
+      const chunkResults = await Promise.allSettled(
+        chunk.map((p, j) =>
+          new Promise<void>(r => setTimeout(r, j * STAGGER_MS))
+            .then(() => registerSingleProduct(p, i + j))
+        ),
+      );
 
       // 결과 집계 (RPC 호출 전 동기 처리)
       let chunkProcessed = 0;

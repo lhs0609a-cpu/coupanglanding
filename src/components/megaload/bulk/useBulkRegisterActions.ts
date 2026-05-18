@@ -837,46 +837,10 @@ export function useBulkRegisterActions() {
         return updated;
       });
       setContentGenProgress({ done: targets.length, total: targets.length });
-      return;
     }
-
-    // AI 기반 생성 (방지 비활성 + AI 활성 시)
-    const BATCH = 50;
-    for (let i = 0; i < targets.length; i += BATCH) {
-      const batch = targets.slice(i, i + BATCH);
-      try {
-        const res = await fetch('/api/megaload/products/bulk-register/generate-content-batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            products: batch.map(p => ({
-              productName: p.editedDisplayProductName || p.editedName,
-              category: p.editedCategoryName,
-              features: p.tags,
-              description: p.description,
-            })),
-          }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          setProducts(prev => prev.map(p => {
-            const idx = batch.findIndex(b => b.uid === p.uid);
-            if (idx === -1 || !data.results?.[idx]) return p;
-            const r = data.results[idx];
-            return {
-              ...p,
-              editedStoryParagraphs: r.paragraphs || [],
-              editedReviewTexts: r.reviewTexts || [],
-            };
-          }));
-        }
-      } catch (err) {
-        console.error('[content-gen] Batch failed:', err);
-      }
-      setContentGenProgress({ done: Math.min(i + BATCH, targets.length), total: targets.length });
-    }
-  }, [generateAiContent, preventionConfig, shUserId]);
+    // 이전: AI fallback 경로 (generate-content-batch 호출) — early return 으로 도달 불가했던 dead code 제거.
+    //   템플릿(generateStoryV2)이 항상 실행되므로 AI 호출 없음. OpenAI 비용 0.
+  }, [shUserId]);
 
   // ---- Auto-fill pipeline trigger: after category matching completes ----
   const productsRef = useRef<EditableProduct[]>(products);
@@ -1741,6 +1705,82 @@ export function useBulkRegisterActions() {
     }
   }, [brackets, runAutoCategory]);
 
+  // ---- Auto-mode: 이미 스캔된 결과를 주입해서 step 2 로 자동 진입 ----
+  // useAutoMode 가 pickAndScanFolder 를 이미 호출했기 때문에 picker 를 두 번 띄우지 않으려고 분리.
+  // handleBrowseFolder 의 변환 로직과 동일 (코드 중복 있으나 격리된 진입점 유지 우선).
+  const startFromScannedResult = useCallback((scan: Awaited<ReturnType<typeof pickAndScanFolder>>) => {
+    const { dirName, products: scanned, thirdPartyImages: tpImages } = scan;
+    if (scanned.length === 0) {
+      setScanError(`"${dirName}" 폴더에 product_* 하위 폴더가 없습니다.`);
+      return;
+    }
+    if (tpImages.length > 0) setThirdPartyImages(tpImages);
+
+    const editableProducts: EditableProduct[] = scanned.map((sp) => {
+      const sourcePrice = sp.productJson.price || 0;
+      const rawName = sp.productJson.name || sp.productJson.title || '';
+      const rawBrand = sp.productJson.brand || '';
+      const resolvedBrand = isValidBrand(rawBrand) ? rawBrand : extractBrandFromName(rawName);
+      return {
+        productCode: sp.productCode,
+        sourceUrl: sp.sourceUrl,
+        name: rawName || `product_${sp.productCode}`,
+        brand: resolvedBrand,
+        tags: sp.productJson.tags || [],
+        description: sp.productJson.description || '',
+        sourcePrice,
+        sellingPrice: sourcePrice,
+        mainImageCount: sp.mainImages.length,
+        detailImageCount: sp.detailImages.length,
+        infoImageCount: sp.infoImages.length,
+        reviewImageCount: sp.reviewImages.length,
+        mainImages: [],
+        detailImages: [],
+        infoImages: [],
+        reviewImages: [],
+        folderPath: `browser://${dirName}/${sp.folderName}`,
+        hasProductJson: !!(sp.productJson.name || sp.productJson.title),
+        naverCategoryId: (sp.productJson.naverCategoryId as string)
+          || (sp.productJson.sourceCategory as { categoryId?: string })?.categoryId
+          || undefined,
+        uid: `browser://${dirName}/${sp.folderName}::${sp.productCode}`,
+        editedName: `${resolvedBrand} ${sp.productCode}`,
+        editedBrand: resolvedBrand.slice(0, 2),
+        editedSellingPrice: sourcePrice,
+        editedOriginalPrice: Math.ceil((sourcePrice * 1.5) / 100) * 100,
+        editedDisplayProductName: '',
+        editedCategoryCode: '',
+        editedCategoryName: '',
+        categoryConfidence: 0,
+        categorySource: '',
+        selected: true,
+        scannedMainImages: [
+          ...sp.mainImages,
+          ...(sp.reviewImages || []).slice(0, 10).map((img, idx) => ({ ...img, promotedFromReview: idx })),
+        ],
+        scannedDetailImages: sp.detailImages,
+        scannedInfoImages: sp.infoImages,
+        scannedReviewImages: sp.reviewImages,
+        productDirHandle: sp.dirHandle,
+        status: 'pending' as const,
+      };
+    });
+
+    const withPricing = editableProducts.map((p) => {
+      const bracket = brackets.find((b) => p.sourcePrice >= b.minPrice && p.sourcePrice < (b.maxPrice ?? Infinity));
+      const rate = bracket ? bracket.marginRate : 25;
+      const sellingPrice = Math.ceil((p.sourcePrice * (1 + rate / 100)) / 100) * 100;
+      const originalPrice = Math.ceil((sellingPrice * 1.5) / 100) * 100;
+      return { ...p, sellingPrice, editedSellingPrice: sellingPrice, editedOriginalPrice: originalPrice };
+    });
+
+    setProducts(withPricing);
+    const browserPath = `browser://${dirName}`;
+    setFolderPaths((prev) => prev.includes(browserPath) ? prev : [...prev, browserPath]);
+    setStep(2);
+    runAutoCategory(withPricing);
+  }, [brackets, runAutoCategory]);
+
   // ---- #16 Session recovery: 자동저장 (2초 debounce, Step 2에서만) ----
   const SESSION_KEY = 'megaload_bulk_session';
   const SESSION_TTL_MS = 30 * 60 * 1000; // 30분
@@ -2151,6 +2191,14 @@ export function useBulkRegisterActions() {
         return `${name}: ${err instanceof Error ? err.message : String(err)}`;
       }
 
+      // ─── 세션-스코프 dedup 캐시 ──────────────────────────────
+      // 같은 파일(name+size+lastModified) 이 여러 상품에 등장하면 1회만 업로드.
+      // 워터마크가 켜져 있으면 sellerBrand 가 다른 셀러는 다른 결과물 → seed 에 brand 도 포함.
+      // dedupInflight 는 같은 키에 대해 두 worker 가 동시 진입 시 1번만 업로드되도록 보장.
+      const dedupCache = new Map<string, string>();
+      const dedupInflight = new Map<string, Promise<string>>();
+      let dedupHits = 0;
+
       async function worker() {
         while (taskIdx < allTasks.length) {
           const idx = taskIdx++;
@@ -2159,8 +2207,31 @@ export function useBulkRegisterActions() {
           try {
             const file = await task.img.handle.getFile();
             const brand = preventionConfig.enabled ? preventionConfig.sellerBrand : undefined;
-            const compressed = await compressImage(file, brand);
-            const url = await uploadSingleImage(compressed, task.img.name);
+            // dedup 키: 파일 식별자 + 워터마크 brand (brand 가 다르면 결과물도 다름)
+            const dedupKey = `${file.name}|${file.size}|${file.lastModified}|${brand || ''}`;
+            const cached = dedupCache.get(dedupKey);
+            let url: string;
+            if (cached) {
+              dedupHits++;
+              url = cached;
+            } else {
+              // 동시 진입 방지 — 다른 worker 가 같은 키 업로드 중이면 기다림
+              let inflight = dedupInflight.get(dedupKey);
+              if (!inflight) {
+                inflight = (async () => {
+                  const compressed = await compressImage(file, brand);
+                  const u = await uploadSingleImage(compressed, task.img.name);
+                  dedupCache.set(dedupKey, u);
+                  return u;
+                })();
+                dedupInflight.set(dedupKey, inflight);
+              }
+              try {
+                url = await inflight;
+              } finally {
+                dedupInflight.delete(dedupKey);
+              }
+            }
             // uploadSingleImage는 성공 시 항상 truthy url 반환, 실패 시 throw —
             // 빈 응답 케이스는 정의상 발생하지 않음 (이전 silent-fail 제거).
             productUrlMap[task.uid][task.kind].set(task.img.name, url);
@@ -2182,6 +2253,9 @@ export function useBulkRegisterActions() {
         Array.from({ length: Math.min(CONCURRENCY, allTasks.length) }, () => worker()),
       );
       updateProgress(true); // 완료 시 강제 마지막 업데이트
+      if (dedupHits > 0) {
+        console.log(`[preupload] dedup hit ${dedupHits}건 — 동일 파일 재업로드 회피 (egress/시간 절감)`);
+      }
 
       // 캐시에 저장 — productsRef.current의 최신 scannedXxxImages 순서로 URL 조립
       // (preupload 도중 유저가 제거한 이미지는 Map 조회 결과에서 자연 누락됨)
@@ -3555,7 +3629,7 @@ export function useBulkRegisterActions() {
     // Actions
     addFolderPath, removeFolderPath,
     recalcPrices,
-    handleScan, handleBrowseFolder,
+    handleScan, handleBrowseFolder, startFromScannedResult,
     handleSearchCategory, selectCategory,
     handleDeepValidation, handlePreflight, handleCanary,
     toggleProduct, toggleAll, updateField,

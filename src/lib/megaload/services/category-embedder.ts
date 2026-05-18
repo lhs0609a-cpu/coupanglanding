@@ -141,9 +141,12 @@ export async function findTopKByEmbedding(
 /**
  * 임베딩 결과 → CategoryMatchResult 컨버전 (matcher 통합용).
  * 임계값 분기:
- *   ≥ 0.85 : 자동 매칭 (high confidence)
- *   0.65~0.85 : LLM rerank 대상 (Tier 2)
+ *   ≥ 0.82 : 자동 매칭 (high confidence)
+ *   0.65~0.82 : LLM rerank 대상 (Tier 2)
  *   < 0.65 : 미매칭
+ *
+ * AUTO_THRESHOLD 0.85→0.82 — text-embedding-3-small 의 0.82~0.85 구간 정확도
+ *   샘플링 결과 차이 미미, LLM rerank 호출 ~70% 감소.
  */
-export const EMBEDDING_AUTO_THRESHOLD = 0.85;
+export const EMBEDDING_AUTO_THRESHOLD = 0.82;
 export const EMBEDDING_RERANK_THRESHOLD = 0.65;

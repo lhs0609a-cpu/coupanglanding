@@ -13,6 +13,7 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 /**
  * GET /api/cron/megaload-stock-monitor
  * 30분마다 실행 — 품절 모니터링 배치 처리 + 가격 자동 백필
+ * (이전 15분마다 × 30개 → 30분마다 × 60개로 변경 — 동일 throughput, 함수 호출 절반)
  */
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
@@ -150,12 +151,13 @@ export async function GET(request: Request) {
   // ── Phase 2: 정기 품절 모니터링 ──
   // 2026-05-15 정책: 모니터 1상품당 하루 1회 체크.
   //   - CHECK_INTERVAL_MIN = 1200 (20h) — 24h 안에 한 번씩 갱신 (4h 버퍼)
-  //   - cron 15분마다 × 30개 = 2880/day capacity (모니터 2519개 + 여유 14%)
+  //   - cron 30분마다 × 60개 = 2880/day capacity (이전: 15분마다 × 30개 — 동일 throughput)
+  //     → 함수 호출 횟수 절반 (월 2880회 → 1440회), GB-sec/egress 동일
   //   - 미확인/오류는 인터벌 무시하고 즉시 우선 처리 (or 절 참고)
   // 비용: Vercel function compute ~84 GB-h/month, bandwidth ~26GB/month → Hobby plan 내 OK
   // GT는 무료, Google IP 경유라 네이버 throttling 무관.
   const CHECK_INTERVAL_MIN = 1200;
-  const PHASE2_LIMIT = 30;
+  const PHASE2_LIMIT = 60;
   const cutoff = new Date(Date.now() - CHECK_INTERVAL_MIN * 60 * 1000).toISOString();
   const { data: monitors, error: queryErr } = await supabase
     .from('sh_stock_monitors')

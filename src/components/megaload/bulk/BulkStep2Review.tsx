@@ -650,21 +650,32 @@ export default memo(function BulkStep2Review({
               </div>
               <span className="text-[10px] text-gray-400 w-20 text-right">{imagePreuploadProgress.phase === 'complete' ? '완료' : imagePreuploadProgress.total > 0 ? `${imagePreuploadProgress.done}/${imagePreuploadProgress.total} (${Math.round((imagePreuploadProgress.done / imagePreuploadProgress.total) * 100)}%)` : '대기'}</span>
             </div>
-            {(imagePreuploadProgress.failureCount ?? 0) > 0 && (
-              <div className="ml-[10.25rem] -mt-1 text-[11px] text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">
-                <div className="font-medium">⚠ 업로드 실패 {imagePreuploadProgress.failureCount}건</div>
-                {imagePreuploadProgress.failureReasons && Object.keys(imagePreuploadProgress.failureReasons).length > 0 && (
-                  <div className="text-[10px] text-red-500 mt-0.5">
-                    원인: {Object.entries(imagePreuploadProgress.failureReasons).map(([k, v]) => `${k}=${v}`).join(', ')}
-                  </div>
-                )}
-                {imagePreuploadProgress.sampleFailure && (
-                  <div className="text-[10px] text-red-400 mt-0.5 truncate" title={imagePreuploadProgress.sampleFailure}>
-                    예: {imagePreuploadProgress.sampleFailure}
-                  </div>
-                )}
-              </div>
-            )}
+            {(imagePreuploadProgress.failureCount ?? 0) > 0 && (() => {
+              const reasons = imagePreuploadProgress.failureReasons ?? {};
+              const total = imagePreuploadProgress.failureCount ?? 0;
+              const permCount = reasons.permission ?? 0;
+              const authDominant = total > 0 && permCount / total >= 0.5;
+              return (
+                <div className="ml-[10.25rem] -mt-1 text-[11px] text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">
+                  <div className="font-medium">⚠ 업로드 실패 {total}건</div>
+                  {authDominant && (
+                    <div className="text-[11px] text-red-700 font-semibold mt-0.5 bg-red-100 px-1.5 py-0.5 rounded">
+                      세션 만료로 추정됩니다 — 페이지를 새로고침(F5)하거나 재로그인 후 다시 시도하세요.
+                    </div>
+                  )}
+                  {Object.keys(reasons).length > 0 && (
+                    <div className="text-[10px] text-red-500 mt-0.5">
+                      원인: {Object.entries(reasons).map(([k, v]) => `${k}=${v}`).join(', ')}
+                    </div>
+                  )}
+                  {imagePreuploadProgress.sampleFailure && (
+                    <div className="text-[10px] text-red-400 mt-0.5 truncate" title={imagePreuploadProgress.sampleFailure}>
+                      예: {imagePreuploadProgress.sampleFailure}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             {/* Preflight pipeline row */}
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5 w-36 text-xs">

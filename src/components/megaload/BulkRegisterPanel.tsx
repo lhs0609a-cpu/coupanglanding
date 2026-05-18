@@ -10,11 +10,95 @@ import { useStockCheck } from './bulk/useStockCheck';
 import BulkStep1Settings from './bulk/BulkStep1Settings';
 import BulkStep2Review from './bulk/BulkStep2Review';
 import BulkStep3Progress from './bulk/BulkStep3Progress';
+import AutoModeModal from './bulk/AutoModeModal';
+import { useAutoMode } from './bulk/useAutoMode';
+import { Zap } from 'lucide-react';
 
 export default function BulkRegisterPanel() {
   const actions = useBulkRegisterActions();
   const { getThumbnail, loadThumbnail, cleanup } = useThumbnailCache(actions.products, actions.imagePreuploadCache);
   const { state: stockState, runStockCheck } = useStockCheck();
+  const autoMode = useAutoMode();
+  const [autoModalOpen, setAutoModalOpen] = useState(false);
+  // 자동 모드: handleRegister 가 한 번만 호출되도록 가드
+  const autoRegisterFiredRef = useRef(false);
+  // 자동 모드: 체크포인트 마지막 진행 인덱스 추적 (delta 계산용)
+  const autoCheckpointLastIdxRef = useRef(0);
+  const autoCheckpointLastSuccessRef = useRef(0);
+  const autoCheckpointLastFailRef = useRef(0);
+
+  // ─── 자동 모드 chain: preflight 완료 + canRegister → handleRegister 자동 호출 ───
+  useEffect(() => {
+    if (!autoMode.activeJobId) return;
+    if (autoRegisterFiredRef.current) return;
+    if (actions.step !== 2) return;
+    if (actions.preflightPhase !== 'complete') return;
+    if (!actions.canRegister) return;
+    autoRegisterFiredRef.current = true;
+    console.log('[auto-mode] preflight 완료 → handleRegister 자동 호출');
+    actions.handleRegister();
+  }, [autoMode.activeJobId, actions.step, actions.preflightPhase, actions.canRegister, actions]);
+
+  // ─── 자동 모드: products status 변화 시 체크포인트 영속화 + Gate 2 watchdog ───
+  // batchProgress 는 { current, total } 만 제공하므로 success/failed 는 products[].status 에서 집계.
+  useEffect(() => {
+    const jobId = autoMode.activeJobId;
+    if (!jobId) return;
+    if (actions.step !== 3) return;
+    const total = actions.products.length;
+    if (total === 0) return;
+
+    const successNow = actions.products.filter(p => p.status === 'success').length;
+    const failedNow = actions.products.filter(p => p.status === 'error').length;
+    const processedNow = successNow + failedNow;
+    if (processedNow === autoCheckpointLastIdxRef.current) return;
+
+    const processedDelta = processedNow - autoCheckpointLastIdxRef.current;
+    const successDelta = successNow - autoCheckpointLastSuccessRef.current;
+    const failedDelta = failedNow - autoCheckpointLastFailRef.current;
+    autoCheckpointLastIdxRef.current = processedNow;
+    autoCheckpointLastSuccessRef.current = successNow;
+    autoCheckpointLastFailRef.current = failedNow;
+
+    // 체크포인트 비동기 영속화 (fire-and-forget — 실패해도 등록 진행)
+    autoMode.checkpoint(jobId, {
+      processedDelta,
+      successDelta,
+      failedDelta,
+      lastIdx: processedNow,
+    });
+
+    // Gate 2 watchdog: 실패율 임계치 초과 시 자동 일시정지
+    // 최소 표본 20개 후부터 평가 (초반 한두 개 실패로 멈추는 노이즈 방지)
+    if (processedNow >= 20 && !actions.isPaused) {
+      const failureRate = failedNow / processedNow;
+      if (failureRate >= 0.10) {
+        console.warn(`[auto-mode] Gate 2 트리거 — 실패율 ${(failureRate * 100).toFixed(1)}% (>= 10%)`);
+        autoMode.pauseJob(jobId, 'failure_rate', {
+          rate: failureRate,
+          processed: processedNow,
+          failed: failedNow,
+        });
+        actions.togglePause();
+      }
+    }
+
+    // 모든 상품 처리 완료 → finalize
+    if (processedNow >= total) {
+      const finalStatus: 'completed' | 'failed' = failedNow > 0 && failedNow === total ? 'failed' : 'completed';
+      autoMode.finalizeJob(jobId, finalStatus, {
+        total,
+        success: successNow,
+        failed: failedNow,
+      });
+      console.log(`[auto-mode] 완료 — ${successNow}/${total} 성공`);
+    }
+  }, [actions.products, actions.step, actions.isPaused, autoMode, actions]);
+
+  // 진입 시 미완료 잡 확인 (탭 닫혀도 resume 가능)
+  useEffect(() => {
+    autoMode.checkResumable();
+  }, [autoMode]);
 
   // Thumbnail cache for BulkProductTable
   const [thumbnailCache, setThumbnailCache] = useState<Record<string, string | null>>({});
@@ -133,8 +217,19 @@ export default function BulkRegisterPanel() {
             </div>
           </div>
         ))}
+        <div className="ml-auto flex items-center gap-3">
+          {/* 올인원 자동 등록 진입 — 사전분석 + Gate 1 확인 모달 */}
+          <button
+            onClick={() => setAutoModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg font-medium transition"
+            title="최상위 폴더 1번 선택 → 자동 스캔 + 등록"
+          >
+            <Zap className="w-3.5 h-3.5" />
+            올인원 자동
+          </button>
+        </div>
         {products.length > 0 && (
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-3 flex items-center gap-3">
             <span className="flex items-center gap-1 text-xs text-gray-400">
               <Package className="w-3.5 h-3.5" /> {products.length}개 스캔됨
             </span>
@@ -308,6 +403,23 @@ export default function BulkRegisterPanel() {
           onJumpToErrorGroup={actions.jumpToErrorGroup}
         />
       )}
+
+      {/* 올인원 자동 등록 모달 — 폴더 1번 선택 → 사전분석 → Gate 1 확인 → 자동 실행 */}
+      <AutoModeModal
+        open={autoModalOpen}
+        onClose={() => setAutoModalOpen(false)}
+        onPickAndAnalyze={autoMode.pickAndAnalyze}
+        onStart={async (params) => {
+          // 1) 잡 생성 + Gate 1 confirm (서버 영속)
+          await autoMode.startJob(params);
+          // 2) 스캔 결과 재사용 — picker 재호출 없이 즉시 step 2 진입
+          const scan = autoMode.consumeLastScan() as Awaited<ReturnType<typeof import('@/lib/megaload/services/client-folder-scanner').pickAndScanFolder>> | null;
+          if (scan) {
+            actions.startFromScannedResult(scan);
+            // 이후 자동 chain 은 BulkRegisterPanel 의 useEffect 가 autoMode.activeJobId 를 감지해서 처리.
+          }
+        }}
+      />
     </div>
   );
 }

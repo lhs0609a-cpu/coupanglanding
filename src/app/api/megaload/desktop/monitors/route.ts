@@ -35,9 +35,10 @@ export async function GET(request: NextRequest) {
   const shUserId = (shUser as { id: string }).id;
 
   const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200);
-  // 데스크탑 IP는 깨끗하므로 짧은 간격 OK (기본 15분, 최대 1시간으로 clamp)
-  // 옛 클라이언트가 21600 (6h) 보내도 서버에서 clamp → 즉시 처리 가능
-  const requestedInterval = parseInt(url.searchParams.get('minIntervalSec') || '900');
+  // 데스크탑 IP는 깨끗하므로 짧은 간격 OK
+  // 기본 30분 (이전 15분에서 상향 — 함수 호출 비용 절감, 모니터링 신뢰도 영향 미미)
+  // 최대 1시간으로 clamp. 옛 클라이언트가 21600 (6h) 보내도 서버에서 clamp → 즉시 처리 가능
+  const requestedInterval = parseInt(url.searchParams.get('minIntervalSec') || '1800');
   const minIntervalSec = Math.min(requestedInterval, 3600);
 
   // 우선순위 fetch:
@@ -69,6 +70,10 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     monitors: data || [],
     count: data?.length || 0,
-    nextPollSec: Math.max(60, minIntervalSec / 4),
+    // 최소 폴링 간격 180초 (3분) — 옛 데스크탑 앱이 minIntervalSec=60 보내도 함수 호출 폭주 방지
+    // 처리할 모니터 0개면 더 길게 (5분) — 빈 응답으로 cycle 돌리는 비용 절감
+    nextPollSec: (data?.length || 0) === 0
+      ? Math.max(300, minIntervalSec / 4)
+      : Math.max(180, minIntervalSec / 4),
   });
 }

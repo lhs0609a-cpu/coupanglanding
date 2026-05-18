@@ -14,11 +14,11 @@
     },
     {
       "path": "/api/cron/trends",
-      "schedule": "0 */6 * * *"
+      "schedule": "7 */6 * * *"
     },
     {
       "path": "/api/cron/megaload-stock-monitor",
-      "schedule": "*/15 * * * *"
+      "schedule": "*/30 * * * *"
     },
     {
       "path": "/api/cron/auto-billing",
@@ -34,11 +34,11 @@
     },
     {
       "path": "/api/cron/payment-reconcile",
-      "schedule": "15 */3 * * *"
+      "schedule": "25 */3 * * *"
     },
     {
       "path": "/api/cron/payment-desync-recovery",
-      "schedule": "30 */6 * * *"
+      "schedule": "40 */6 * * *"
     },
     {
       "path": "/api/cron/fee-payment-check",
@@ -46,15 +46,15 @@
     },
     {
       "path": "/api/cron/coupang-revenue-sync",
-      "schedule": "0 */4 * * *"
+      "schedule": "17 */4 * * *"
     },
     {
       "path": "/api/cron/megaload-replication-runner",
-      "schedule": "0 * * * *"
+      "schedule": "7 * * * *"
     },
     {
       "path": "/api/cron/monthly-report-auto-create",
-      "schedule": "0 18 * * *"
+      "schedule": "10 18 * * *"
     },
     {
       "path": "/api/cron/ad-cost-reminder",
@@ -66,7 +66,7 @@
     },
     {
       "path": "/api/cron/storage-gc",
-      "schedule": "0 17 * * *"
+      "schedule": "35 17 * * *"
     },
     {
       "path": "/api/cron/payment-stuck-monitor",
@@ -74,7 +74,7 @@
     },
     {
       "path": "/api/cron/coupon-auto-apply",
-      "schedule": "*/30 * * * *"
+      "schedule": "13,43 * * * *"
     }
   ]
 }

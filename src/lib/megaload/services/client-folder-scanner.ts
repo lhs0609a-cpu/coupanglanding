@@ -466,17 +466,20 @@ export async function imageFilesToFormData(
 }
 
 // ---- 클라이언트 이미지 압축/리사이즈 (업로드 전) ----
-const UPLOAD_MAX_DIMENSION = 1000; // 쿠팡 권장: 1000px이면 충분 (크기 초과 방지)
+// egress/스토리지 비용 절감 (2026-05-18):
+//   MAX 1000→900 + QUALITY 0.75→0.72 — 시각적 차이 거의 없으면서 파일 크기 ~30% 감소
+//   쿠팡 모바일/PC 표시는 600~900px이라 900px 압축 결과로 충분
+const UPLOAD_MAX_DIMENSION = 900;  // 쿠팡 권장: 900px이면 충분 (이전 1000)
 const UPLOAD_MIN_DIMENSION = 500;  // 쿠팡 필수: 최소 500×500
-const UPLOAD_JPEG_QUALITY = 0.75;  // 파일 크기 제한 (Supabase 5MB, Vercel 4.5MB)
+const UPLOAD_JPEG_QUALITY = 0.72;  // 파일 크기 ~30% 감소 (이전 0.75)
 
 // ─── Web Worker Pool — 메인스레드 freezing 완전 해소 ──────────────
 // 인라인 Blob Worker로 빌드 설정 영향 없음. OffscreenCanvas 지원 브라우저에서만 활성.
 // 4개 워커 = 4개 압축 동시 실행 (메인스레드는 자유)
 const COMPRESS_WORKER_CODE = `
 const MIN_DIM = 500;
-const MAX_DIM = 1200;
-const QUALITY = 0.75;
+const MAX_DIM = 900;
+const QUALITY = 0.72;
 
 async function compress(file, sellerBrand) {
   if (!sellerBrand && file.size >= 100*1024 && file.size <= 3*1024*1024) return file;
@@ -779,19 +782,54 @@ function generateStoragePath(name: string, userId?: string): string {
   return `${prefix}/${id}.${ext}`;
 }
 
-/** 인증된 유저의 megaload_user_id 캐시 — 직접 업로드 path 에 포함 */
+/** 인증된 유저의 megaload_user_id 캐시 — 직접 업로드 path 에 포함. 5분 TTL */
+const USER_ID_CACHE_TTL_MS = 5 * 60 * 1000;
 let _cachedUserId: string | null | undefined;
+let _cachedUserIdAt = 0;
 async function getCachedUserId(): Promise<string | null> {
-  if (_cachedUserId !== undefined) return _cachedUserId;
+  const now = Date.now();
+  if (_cachedUserId !== undefined && (now - _cachedUserIdAt) < USER_ID_CACHE_TTL_MS) {
+    return _cachedUserId;
+  }
   const supabase = getSupabaseClient();
-  if (!supabase) { _cachedUserId = null; return null; }
+  if (!supabase) { _cachedUserId = null; _cachedUserIdAt = now; return null; }
   try {
     const { data: { user } } = await supabase.auth.getUser();
     _cachedUserId = user?.id ?? null;
   } catch {
     _cachedUserId = null;
   }
+  _cachedUserIdAt = now;
   return _cachedUserId;
+}
+
+/**
+ * 업로드 시작 전 세션 신선도 보장 — access token 이 60초 이내 만료되면 refresh.
+ * 만료된 채로 직접 업로드(400) + 서버 폴백(401) 둘 다 실패하는 시나리오 차단.
+ * 호출 빈도 제어를 위해 30초 TTL 로 throttle.
+ */
+const SESSION_CHECK_TTL_MS = 30 * 1000;
+let _lastSessionCheckAt = 0;
+async function ensureFreshSession(): Promise<void> {
+  const now = Date.now();
+  if ((now - _lastSessionCheckAt) < SESSION_CHECK_TTL_MS) return;
+  _lastSessionCheckAt = now;
+  const supabase = getSupabaseClient();
+  if (!supabase) return;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const expiresAt = session.expires_at ? session.expires_at * 1000 : 0;
+    if (expiresAt > 0 && (expiresAt - now) < 60_000) {
+      const { data: refreshed } = await supabase.auth.refreshSession();
+      if (refreshed?.user) {
+        _cachedUserId = refreshed.user.id;
+        _cachedUserIdAt = now;
+      }
+    }
+  } catch {
+    /* 실패해도 업로드는 진행 — 정확한 사유는 업로드 응답으로 분류됨 */
+  }
 }
 
 const SLEEP = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -814,7 +852,8 @@ export class ImageUploadError extends Error {
 function classifySupabaseError(msg: string): ImageUploadError['reason'] {
   const m = msg.toLowerCase();
   if (/too\s*large|exceed|size\s*limit|413/.test(m)) return 'oversize';
-  if (/permission|denied|not\s*allowed|unauthorized|forbidden|rls/.test(m)) return 'permission';
+  // RLS 위반 / 인증 만료 / 권한 부족 — Supabase Storage 가 흔히 400 으로 반환하는 메시지 패턴
+  if (/permission|denied|not\s*allowed|unauthorized|forbidden|rls|row[-\s]level\s*security|jwt|invalid\s*token|expired/.test(m)) return 'permission';
   if (/rate|429|throttle/.test(m)) return 'rate_limited';
   if (/network|fetch|aborted|timeout|econnreset|socket/.test(m)) return 'network';
   return 'supabase_error';
@@ -830,6 +869,9 @@ export async function uploadSingleImage(blob: Blob, name: string): Promise<strin
   if (!/\.(jpg|jpeg|png|webp|gif)$/i.test(name)) {
     throw new ImageUploadError('bad_extension', `확장자 미지원: ${name}`, blob.size);
   }
+
+  // 세션 만료 직전이면 미리 refresh — 200개 업로드 중간에 토큰 만료로 전부 실패하는 케이스 차단
+  await ensureFreshSession();
 
   // ── 1차: Supabase Storage 직접 업로드 (재시도 2회 + 지수 백오프) ──
   if (supabase) {
@@ -858,6 +900,11 @@ export async function uploadSingleImage(blob: Blob, name: string): Promise<strin
           if (lastReason === 'oversize') {
             console.warn(`[uploadSingleImage] 사이즈 초과 (size=${blob.size}) — 재시도 skip`);
             break;
+          }
+          // RLS/세션 만료 — 1회만 강제 refresh 시도 (다음 attempt 에서 효과)
+          if (lastReason === 'permission' && attempt === 0) {
+            _lastSessionCheckAt = 0; // throttle 해제
+            await ensureFreshSession();
           }
         }
 
@@ -893,11 +940,15 @@ export async function uploadSingleImage(blob: Blob, name: string): Promise<strin
         lastReason = 'server_5xx';
         lastMsg = '서버가 url 미반환';
       } else if (res.status >= 400 && res.status < 500) {
-        // 4xx — 재시도 불필요 (사이즈/형식/권한)
+        // 4xx — 재시도 불필요 (사이즈/형식/권한/인증)
         const errBody = await res.text().catch(() => '');
         lastMsg = `${res.status} ${errBody.slice(0, 200)}`;
-        lastReason = res.status === 413 ? 'oversize' : 'server_4xx';
-        console.warn(`[uploadSingleImage] 서버 폴백 4xx (재시도 skip): ${lastMsg}`);
+        // 401/403 은 세션 만료/권한 — 'permission' 으로 분리해 정확한 안내 노출
+        lastReason =
+          res.status === 413 ? 'oversize'
+          : res.status === 401 || res.status === 403 ? 'permission'
+          : 'server_4xx';
+        console.warn(`[uploadSingleImage] 서버 폴백 ${res.status} (재시도 skip): ${lastMsg}`);
         break;
       } else {
         // 5xx — 재시도
