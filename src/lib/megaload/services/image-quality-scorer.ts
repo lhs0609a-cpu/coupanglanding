@@ -173,6 +173,26 @@ export function clearAnalysisCache(): void {
 }
 
 /**
+ * 캔버스 생성 헬퍼 — main thread 와 worker thread 양쪽에서 동작.
+ * OffscreenCanvas 우선 (worker 호환), 미지원 시 HTMLCanvasElement 폴백.
+ */
+function createCanvas2D(w: number, h: number): {
+  canvas: OffscreenCanvas | HTMLCanvasElement;
+  ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null;
+} {
+  if (typeof OffscreenCanvas !== 'undefined') {
+    const canvas = new OffscreenCanvas(w, h);
+    return { canvas, ctx: canvas.getContext('2d') as OffscreenCanvasRenderingContext2D | null };
+  }
+  // Fallback: 구형 브라우저 (worker context에선 도달 불가)
+  const canvas = (typeof document !== 'undefined' ? document.createElement('canvas') : null) as HTMLCanvasElement | null;
+  if (!canvas) return { canvas: null as unknown as HTMLCanvasElement, ctx: null };
+  canvas.width = w;
+  canvas.height = h;
+  return { canvas, ctx: canvas.getContext('2d') };
+}
+
+/**
  * URL 을 한 번 디코드해 size×size RGBA 픽셀 버퍼를 캐시한다.
  * createImageBitmap (worker thread 디코드) 사용 — 메인스레드 부담 최소화.
  * 같은 (URL, size) 재호출 시 즉시 반환.
@@ -189,10 +209,7 @@ async function getCachedPixels(url: string, size: number): Promise<Uint8ClampedA
     let fast: { width: number; height: number; source: CanvasImageSource; close?: () => void } | null = null;
     try {
       fast = await loadImageFast(url);
-      const canvas = document.createElement('canvas');
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext('2d');
+      const { ctx } = createCanvas2D(size, size);
       if (!ctx) return null;
       ctx.drawImage(fast.source, 0, 0, fast.width, fast.height, 0, 0, size, size);
       const data = ctx.getImageData(0, 0, size, size).data;
@@ -784,19 +801,17 @@ export async function analyzeReviewImages(
  * 하드필터 해당 시 overall = 0으로 강제.
  */
 async function scoreImage(objectUrl: string): Promise<ImageScore> {
-  const img = await loadImage(objectUrl);
-  const origW = img.naturalWidth;
-  const origH = img.naturalHeight;
+  const fast = await loadImageFast(objectUrl);
+  const origW = fast.width;
+  const origH = fast.height;
 
-  const canvas = document.createElement('canvas');
-  canvas.width = ANALYSIS_SIZE;
-  canvas.height = ANALYSIS_SIZE;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Canvas context unavailable');
+  const { ctx } = createCanvas2D(ANALYSIS_SIZE, ANALYSIS_SIZE);
+  if (!ctx) { fast.close?.(); throw new Error('Canvas context unavailable'); }
 
-  ctx.drawImage(img, 0, 0, origW, origH, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  ctx.drawImage(fast.source, 0, 0, origW, origH, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
   const imageData = ctx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
   const { data } = imageData;
+  fast.close?.();
 
   // 그레이스케일 변환 (분석용)
   const gray = new Float32Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
@@ -894,19 +909,17 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
  * 정면 촬영된 선명한 단일 상품 사진에 높은 점수.
  */
 async function scoreReviewImage(objectUrl: string): Promise<ImageScore> {
-  const img = await loadImage(objectUrl);
-  const origW = img.naturalWidth;
-  const origH = img.naturalHeight;
+  const fast = await loadImageFast(objectUrl);
+  const origW = fast.width;
+  const origH = fast.height;
 
-  const canvas = document.createElement('canvas');
-  canvas.width = ANALYSIS_SIZE;
-  canvas.height = ANALYSIS_SIZE;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Canvas context unavailable');
+  const { ctx } = createCanvas2D(ANALYSIS_SIZE, ANALYSIS_SIZE);
+  if (!ctx) { fast.close?.(); throw new Error('Canvas context unavailable'); }
 
-  ctx.drawImage(img, 0, 0, origW, origH, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
+  ctx.drawImage(fast.source, 0, 0, origW, origH, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
   const imageData = ctx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
   const { data } = imageData;
+  fast.close?.();
 
   const gray = new Float32Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
   for (let i = 0; i < gray.length; i++) {

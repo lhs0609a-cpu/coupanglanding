@@ -1234,6 +1234,11 @@ export function useBulkRegisterActions() {
           // Step 3.7. 상세/리뷰 이미지 다양성 기반 자동 선택
           {
             const { selectDiverseImages, detectDuplicateImages, filterDetailPageImages } = await import('@/lib/megaload/services/image-quality-scorer');
+            const { imageAnalysisPool } = await import('@/lib/megaload/services/image-analysis-pool');
+            // 워커풀 초기화 (idempotent)
+            imageAnalysisPool.init();
+            const useWorkerPool = imageAnalysisPool.isAvailable();
+            console.info(`[image-diversity] worker pool ${useWorkerPool ? '사용' : '미사용 (메인 thread)'}`);
             type ImageSelectionMeta = import('./types').ImageSelectionMeta;
             type AutoExcludeReason = import('@/lib/megaload/services/client-folder-scanner').AutoExcludeReason;
             // 상세이미지 자동 제외 사유 맵: 상품 idx → (이미지 origIdx → reason)
@@ -1424,12 +1429,123 @@ export function useBulkRegisterActions() {
               if ((idx + 1) % 5 === 0) await new Promise(r => setTimeout(r, 0));
             };
 
+            // 워커풀 path: 상품 분석을 Web Worker에 dispatch (CPU 작업을 워커 thread로)
+            const processProductInWorkerThread = async (idx: number): Promise<void> => {
+              const p = latestForFilter[idx];
+              const detailImgs = p.scannedDetailImages ?? [];
+              const reviewImgs = p.scannedReviewImages ?? [];
+              const mainImgs = p.scannedMainImages ?? [];
+
+              // 1. handle → File 변환 (병렬)
+              const [detailFileResults, reviewFileResults, mainFileResults] = await Promise.all([
+                Promise.all(detailImgs.map(img => img.handle.getFile().catch(() => null))),
+                Promise.all(reviewImgs.map(img => img.handle.getFile().catch(() => null))),
+                Promise.all(mainImgs.slice(0, 3).map(img => img.handle.getFile().catch(() => null))),
+              ]);
+
+              const detailFilesWithIdx: { origIdx: number; file: File }[] = [];
+              detailFileResults.forEach((f, j) => { if (f) detailFilesWithIdx.push({ origIdx: j, file: f }); });
+              const reviewFilesWithIdx: { origIdx: number; file: File }[] = [];
+              reviewFileResults.forEach((f, j) => { if (f) reviewFilesWithIdx.push({ origIdx: j, file: f }); });
+              const mainFiles: File[] = mainFileResults.filter((f): f is File => !!f);
+
+              if (detailFilesWithIdx.length === 0 && reviewFilesWithIdx.length === 0) return;
+
+              // 2. 워커풀에 분석 위임
+              let result;
+              try {
+                result = await imageAnalysisPool.analyzeProduct({
+                  detailFiles: detailFilesWithIdx.map(e => e.file),
+                  reviewFiles: reviewFilesWithIdx.map(e => e.file),
+                  mainFiles,
+                  detailMaxCount: 10,
+                  reviewMaxCount: 5,
+                });
+              } catch (e) {
+                console.warn(`[image-diversity-worker] 상품 ${idx} 실패 — 메인 thread fallback`, e);
+                return processProduct(idx);
+              }
+
+              // 3. detail 결과 적용 (메인 thread path와 동일 후처리)
+              if (result.detail && detailFilesWithIdx.length > 0) {
+                const { diverse, adFilter, dup } = result.detail;
+                const selectedOrigIndices = diverse.selectedIndices.map(i => detailFilesWithIdx[i]?.origIdx ?? i);
+
+                const detailReasonMap = new Map<number, AutoExcludeReason>();
+                for (const r of adFilter) {
+                  if (r.filtered) {
+                    const origIdx = detailFilesWithIdx[r.index]?.origIdx;
+                    if (origIdx === undefined) continue;
+                    const reason: AutoExcludeReason = r.reason === 'empty_image' ? 'empty_image' : 'text_banner';
+                    detailReasonMap.set(origIdx, reason);
+                  }
+                }
+                for (const dupIdx of dup.duplicateIndices) {
+                  const origIdx = detailFilesWithIdx[dupIdx]?.origIdx;
+                  if (origIdx === undefined) continue;
+                  if (!detailReasonMap.has(origIdx)) detailReasonMap.set(origIdx, 'duplicate');
+                }
+
+                const DETAIL_MIN_KEEP = 5;
+                const minKeep = Math.min(DETAIL_MIN_KEEP, selectedOrigIndices.length);
+                let filteredSelected = selectedOrigIndices.filter(i => !detailReasonMap.has(i));
+                if (filteredSelected.length < minKeep && detailReasonMap.size > 0) {
+                  const reasonPriority: Record<AutoExcludeReason, number> = {
+                    duplicate: 1, text_banner: 2, empty_image: 3,
+                    hard_filter: 2, low_score: 1, color_outlier: 2, unrelated_to_main: 3,
+                  };
+                  const taggedSorted = selectedOrigIndices
+                    .filter(i => detailReasonMap.has(i))
+                    .sort((a, b) => (reasonPriority[detailReasonMap.get(a)!] ?? 99) - (reasonPriority[detailReasonMap.get(b)!] ?? 99));
+                  let releaseCount = minKeep - filteredSelected.length;
+                  for (const origIdx of taggedSorted) {
+                    if (releaseCount <= 0) break;
+                    detailReasonMap.delete(origIdx);
+                    releaseCount--;
+                  }
+                  filteredSelected = selectedOrigIndices.filter(i => !detailReasonMap.has(i));
+                }
+
+                if (detailReasonMap.size > 0) detailAutoExcludeMaps.set(idx, detailReasonMap);
+                if (filteredSelected.length > 0) {
+                  detailOrderMap.set(idx, filteredSelected);
+                } else if (selectedOrigIndices.length > 0) {
+                  detailOrderMap.set(idx, selectedOrigIndices);
+                }
+                detailMetaMap.set(idx, {
+                  diversityScore: diverse.diversityScore,
+                  imageTypes: diverse.imageTypes,
+                  clusterCount: diverse.clusterCount,
+                  watermarkScores: diverse.watermarkScores,
+                  relevanceScores: diverse.relevanceScores?.map(r => ({
+                    index: detailFilesWithIdx[r.index]?.origIdx ?? r.index,
+                    score: r.score,
+                  })),
+                });
+              }
+
+              // 4. review 결과 적용
+              if (result.review && reviewFilesWithIdx.length > 0) {
+                const selectedOrigIndices = result.review.selectedIndices.map(i => reviewFilesWithIdx[i]?.origIdx ?? i);
+                if (selectedOrigIndices.length > 0) reviewOrderMap.set(idx, selectedOrigIndices);
+                reviewMetaMap.set(idx, {
+                  diversityScore: result.review.diversityScore,
+                  imageTypes: result.review.imageTypes,
+                  clusterCount: result.review.clusterCount,
+                  watermarkScores: result.review.watermarkScores,
+                });
+              }
+            };
+
             // 워커 풀 실행
             const productWorker = async () => {
               while (true) {
                 const idx = nextIdx++;
                 if (idx >= latestForFilter.length) return;
-                try { await processProduct(idx); }
+                try {
+                  if (useWorkerPool) await processProductInWorkerThread(idx);
+                  else await processProduct(idx);
+                }
                 catch (e) { console.warn(`[image-diversity] 상품 ${idx} 처리 실패`, e); }
               }
             };
@@ -1991,7 +2107,7 @@ export function useBulkRegisterActions() {
               : err.reason === 'bad_extension'
               ? '지원하지 않는 확장자입니다. jpg/png/webp/gif만 가능합니다.'
               : err.reason === 'permission'
-              ? 'Storage 권한 오류 (RLS/버킷 정책). 운영자에게 문의하세요.'
+              ? '세션 만료/권한 오류. 페이지를 새로고침(F5) 후 다시 시도하세요. 계속되면 재로그인 필요.'
               : err.reason === 'rate_limited'
               ? 'Supabase rate limit. 잠시 후 다시 시도하세요.'
               : err.reason === 'network'
