@@ -2204,7 +2204,7 @@ function buildProductRefs(productName: string): string[] {
   const tokens = productName.split(/\s+/).filter(Boolean);
   // ⚠️ 관형형(형용사)으로 끝나는 단축형 금지 — "고급 메가로드 튼튼한"(원본 "...튼튼한 의자")처럼
   //    leaf 명사가 잘려 형용사로 끝나면 "{product}을" → "튼튼한을" 비문이 된다.
-  const endsAdnominal = (w) => /(한|운|던|는|은)$/.test(w);
+  const endsAdnominal = (w: string) => /(한|운|던|는|은)$/.test(w);
   if (tokens.length >= 2) {
     const short2 = tokens.slice(0, 2).join(' ');
     if (short2.length >= 4 && short2 !== productName && !endsAdnominal(tokens[1])) refs.push(short2);
