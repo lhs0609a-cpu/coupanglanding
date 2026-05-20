@@ -50,6 +50,14 @@ function isFreshProduce(p) {
   if (/가공식품|가공\/즉석|건강식품|음료|커피|차|디저트|아이스크림|스낵|간식|소스|조미료|전통주/.test(p)) return false;
   return p.split('>').some(s => /^(과일류?|채소류?|정육|계란|쌀\/잡곡|잡곡|버섯|나물)$/.test(s.trim()));
 }
+// 범용 스팸 필러/포럼 노이즈
+const FLUFF = new Set(['상품', '신상', '신상품', '인기상품', '추천상품', '베스트상품', '히트상품', '뽐뿌', '뽐뿌휴대폰', '컴퓨터존', '뽐뿌폰']);
+// 반려 비식품에 사료/영양 descriptor
+const PET_FOOD = new Set(['영양균형', '기호성', '관절건강', '장건강', '체중관리', '모질개선', '모질관리', '피모건강', '무항생제', '소화흡수', '눈물자국', '면역균형', '영양간식', '식이관리', '사료']);
+function isPetNonFood(p) { return /반려|애완|강아지|고양이/.test(p) && !/사료|간식|영양제|먹이|트릿|육포|껌/.test(p); }
+// 향수에 스킨케어 효능어
+const SKINCARE = new Set(['주름개선', '주름', '모공', '모공축소', '각질', '각질제거', '리프팅', '탄력', '미백', '알부틴', '판테놀', 'pha', 'aha', 'bha', '약산성', '재생', '진정', '고보습', '보습', '수분공급', '피부장벽']);
+function isFragrance(p) { return /향수|퍼퓸|오드|디퓨저|방향제|룸스프레이/.test(p); }
 
 // 일반 수식어 (도메인 중립 — 노이즈)
 const NEUTRAL = ['', '', '프리미엄', '고급', '인기', '정품', '신상', '국내산', '가성비', '베스트', '대용량', '미니', '실속'];
@@ -67,7 +75,7 @@ function genName(rng, leaf, injectCross) {
 
 const stats = {
   cats: 0, calls: 0, freshCats: 0, freshCalls: 0,
-  D: { CROSSCAT: 0, FRESH: 0, LEAF: 0, EMPTY: 0, CRASH: 0 },
+  D: { CROSSCAT: 0, FRESH: 0, FLUFF: 0, PET: 0, FRAGRANCE: 0, LEAF: 0, EMPTY: 0, CRASH: 0 },
   failCats: {}, samples: {}, crossTokens: {}, freshTokens: {},
 };
 for (const k of Object.keys(stats.D)) { stats.failCats[k] = new Set(); stats.samples[k] = []; }
@@ -115,6 +123,23 @@ async function run() {
       if (cc.length > 0) {
         for (const t of cc) stats.crossTokens[t] = (stats.crossTokens[t] || 0) + 1;
         fail('CROSSCAT', { code, leaf, path, name, disp: dispName, tokens: [...new Set(cc)].slice(0, 6) });
+      }
+
+      const toksLower = dispName.split(/[\s/]+/).map(t => t.toLowerCase());
+      // D_FLUFF — 범용 스팸 필러/포럼 노이즈 (전 카테고리)
+      {
+        const bad = [...new Set(toksLower.filter(t => FLUFF.has(t)))];
+        if (bad.length) fail('FLUFF', { code, leaf, path, name, disp: dispName, bad });
+      }
+      // D_PET — 반려 비식품에 사료/영양 descriptor
+      if (isPetNonFood(path)) {
+        const bad = [...new Set(toksLower.filter(t => PET_FOOD.has(t)))];
+        if (bad.length) fail('PET', { code, leaf, path, name, disp: dispName, bad });
+      }
+      // D_FRAGRANCE — 향수에 스킨케어 효능어
+      if (isFragrance(path)) {
+        const bad = [...new Set(toksLower.filter(t => SKINCARE.has(t)))];
+        if (bad.length) fail('FRAGRANCE', { code, leaf, path, name, disp: dispName, bad });
       }
 
       // D_FRESH — 신선식품 부적합 descriptor

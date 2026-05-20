@@ -992,6 +992,36 @@ function isFreshProduceCategory(categoryPath: string): boolean {
   return categoryPath.split('>').some(seg => /^(과일류?|채소류?|정육|계란|쌀\/잡곡|잡곡|버섯|나물)$/.test(seg.trim()));
 }
 
+// ── 범용 부적합 토큰 — 모든 카테고리에서 노출상품명에 부적합 ──
+// 스팸성 마케팅 필러("상품/신상/인기상품")와 커뮤니티/포럼 노이즈("뽐뿌"). SEO·정체성 가치 0.
+const UNIVERSAL_FORBIDDEN_DESCRIPTORS = new Set<string>([
+  '상품', '신상', '신상품', '인기상품', '추천상품', '베스트상품', '히트상품',
+  '뽐뿌', '뽐뿌휴대폰', '컴퓨터존', '뽐뿌폰',
+]);
+
+// ── 반려 비식품(미용/목욕·식기·의류·하우스·배변 등)에 부적합한 사료/영양 descriptor ──
+const PET_FOOD_DESCRIPTORS = new Set<string>([
+  '영양균형', '기호성', '관절건강', '장건강', '체중관리', '모질개선', '모질관리', '피모건강',
+  '무항생제', '소화흡수', '눈물자국', '면역균형', '영양간식', '식이관리', '사료',
+]);
+/** 반려동물 비식품 카테고리(미용/목욕·식기·의류·하우스 등). 사료/간식/영양제는 식품이므로 제외. */
+function isPetNonFoodCategory(categoryPath: string): boolean {
+  if (!categoryPath) return false;
+  if (!/반려|애완|강아지|고양이/.test(categoryPath)) return false;
+  return !/사료|간식|영양제|먹이|트릿|육포|껌/.test(categoryPath);
+}
+
+// ── 향수(퍼퓸/디퓨저)에 부적합한 스킨케어 시술/효능 descriptor ──
+const SKINCARE_TREATMENT_DESCRIPTORS = new Set<string>([
+  '주름개선', '주름', '모공', '모공축소', '각질', '각질제거', '리프팅', '탄력', '미백', '알부틴',
+  '판테놀', 'pha', 'aha', 'bha', '약산성', '재생', '진정', '고보습', '보습', '수분공급', '피부장벽',
+]);
+/** 향수/디퓨저 등 발향 제품 카테고리 (스킨케어 효능어 부적합) */
+function isFragranceCategory(categoryPath: string): boolean {
+  if (!categoryPath) return false;
+  return /향수|퍼퓸|오드|디퓨저|방향제|룸스프레이/.test(categoryPath);
+}
+
 export function generateDisplayName(
   originalName: string,
   brand: string,
@@ -1000,6 +1030,8 @@ export function generateDisplayName(
   productIndex: number,
 ): string {
   const isFreshProduce = isFreshProduceCategory(categoryPath);
+  const isPetNonFood = isPetNonFoodCategory(categoryPath);
+  const isFragrance = isFragranceCategory(categoryPath);
   // 시드 기반 RNG
   const seed = stringToSeed(`${sellerSeed}::${productIndex}::${originalName}`);
   const rng = createSeededRandom(seed);
@@ -1035,8 +1067,14 @@ export function generateDisplayName(
   const addToken = (word: string): boolean => {
     const lower = word.toLowerCase();
     if (usedWords.has(lower)) return false;
+    // 범용 스팸 필러/포럼 노이즈 차단 (상품/신상/인기상품/뽐뿌 등)
+    if (UNIVERSAL_FORBIDDEN_DESCRIPTORS.has(lower)) return false;
     // 신선식품 부적합 descriptor 차단 (단백질/무첨가/담백한/봉지/신상/저탄소 등)
     if (isFreshProduce && FRESH_PRODUCE_FORBIDDEN_DESCRIPTORS.has(lower)) return false;
+    // 반려 비식품에 사료/영양 descriptor 차단 (샴푸에 기호성/영양균형 등)
+    if (isPetNonFood && PET_FOOD_DESCRIPTORS.has(lower)) return false;
+    // 향수에 스킨케어 효능어 차단 (주름개선/모공/리프팅 등)
+    if (isFragrance && SKINCARE_TREATMENT_DESCRIPTORS.has(lower)) return false;
     // 2차 방어: 브랜드/연예인이 descriptor로 빠져나온 경우 차단
     // ★ 카테고리 안전 키워드(leaf)는 brand와 동일하거나 substring 관계여도 보존
     //    (brand="망고", leaf="망고" 케이스 — leaf는 카테고리 검색 핵심 키워드라 SEO 우선)
@@ -1473,6 +1511,10 @@ export function syncDisplayNameWithOptions(
   stripped = stripped.replace(/[,\s]*\d{1,3}\s*,?\s*$/, '').trim();
 
   // canonical spec 빌드 — choose1 우선(용량/중량/캡슐/정), 그 다음 수량
+  // ★ "상세페이지 참조", "옵션 참조" 같은 플레이스홀더(숫자 없는 값)는 제목에 절대 주입하지 않는다.
+  //   추출 실패 시 옵션값은 fallback("상세페이지 참조")인데, 이걸 제목 꼬리에 넣으면
+  //   "...특별한 상세페이지 참조, 1개" 같은 비정상 노출상품명이 된다 → 차라리 스펙을 뺀다.
+  const isRealSpecValue = (v: string) => /\d/.test(v);
   const parts: string[] = [];
   const specPriority = ['용량', '캡슐', '정', '중량'];
   for (const key of specPriority) {
@@ -1480,13 +1522,13 @@ export function syncDisplayNameWithOptions(
       const n = o.name.replace(/\s+/g, '');
       return n.includes(key);
     });
-    if (opt && opt.value) {
+    if (opt && opt.value && isRealSpecValue(opt.value)) {
       parts.push(`${opt.value}${opt.unit || ''}`);
       break;
     }
   }
   const countOpt = buyOptions.find(o => o.name.replace(/\s+/g, '') === '수량' || o.name.replace(/\s+/g, '') === '총수량');
-  if (countOpt && countOpt.value) {
+  if (countOpt && countOpt.value && isRealSpecValue(countOpt.value)) {
     parts.push(`${countOpt.value}${countOpt.unit || '개'}`);
   }
 
