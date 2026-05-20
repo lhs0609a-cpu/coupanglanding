@@ -65,6 +65,10 @@ export interface ImageScore {
   edgeCrop: number;
   /** 프레임 점유율 — 상품이 이미지 프레임을 얼마나 채우는지 (썸네일 가시성) */
   fillRatio: number;
+  /** 지재권 안전도 0~100 — 높을수록 안전(직접촬영/리뷰컷), 낮을수록 위험(워터마크/모델얼굴/문구/인포그래픽) */
+  safety: number;
+  /** 감지된 지재권 위험 신호 목록 (watermark/face/text_overlay/infographic) */
+  safetyRisks?: string[];
   /** 하드필터 사유 (해당 시) */
   hardFilterReason?: string;
 }
@@ -277,8 +281,64 @@ const ZERO_SCORE: ImageScore = {
   overall: 0, background: 0, backgroundSaturation: 0, centering: 0,
   aspect: 0, textDensity: 0, sharpness: 0, skinTone: 0,
   contentSufficiency: 0, colorDiversity: 0, symmetry: 0, productCompactness: 0,
-  edgeCrop: 0, fillRatio: 0,
+  edgeCrop: 0, fillRatio: 0, safety: 0,
 };
+
+/**
+ * 지재권 안전도 점수 (0~100, 높을수록 안전).
+ *
+ * "남이 만든 가공물"임을 시사하는 시각 신호를 감점한다 — 대표이미지로 올라오면
+ * 안 되는(워터마크·모델얼굴·판매자 문구·인포그래픽) 사진을 식별하기 위함.
+ * ★ 제외(삭제)가 아니라 "대표 자리에서 밀어내기"용 — 호출부에서 overall × safetyFactor 로 결합.
+ *
+ * 신호별 감점:
+ *  - 워터마크/코너로고 (detectVisualWatermark)  : 강함
+ *  - 모델 얼굴 상단중앙 집중 (detectFaceRegion)  : 강함 (초상권)
+ *  - 텍스트 배너/문구 오버레이 (detectTextBanner): 강함
+ *  - 인포그래픽/홍보 고채도 그래픽 (highSatRatio): 중간
+ */
+function scoreSafety(
+  data: Uint8ClampedArray,
+  gray: Float32Array,
+  w: number,
+  h: number,
+): { safety: number; risks: string[] } {
+  let safety = 100;
+  const risks: string[] = [];
+
+  // 1) 워터마크 / 코너 로고
+  const wm = detectVisualWatermark(data, gray, w, h); // 0~1
+  if (wm >= 0.4) {
+    safety -= 45;
+    risks.push('watermark');
+  } else if (wm >= 0.25) {
+    safety -= 20;
+    risks.push('watermark_weak');
+  }
+
+  // 2) 모델 얼굴 (상단 중앙 피부톤 집중) — 초상권 + 광고컷
+  if (detectFaceRegion(data, w, h)) {
+    safety -= 50;
+    risks.push('face');
+  }
+
+  // 3) 텍스트 배너 / 판매자 문구 오버레이
+  if (detectTextBanner(data, w, h)) {
+    safety -= 40;
+    risks.push('text_overlay');
+  }
+
+  // 4) 인포그래픽 / 홍보 — 고채도 그래픽 블록이 넓게 분포
+  const satRatio = getHighSaturationRatio(data, w, h);
+  if (satRatio > 0.35) {
+    safety -= 30;
+    risks.push('infographic');
+  } else if (satRatio > 0.25) {
+    safety -= 12;
+  }
+
+  return { safety: Math.max(0, Math.min(100, safety)), risks };
+}
 
 /**
  * 여러 이미지를 스코어링하여 점수 순으로 정렬된 결과를 반환한다.
@@ -893,12 +953,16 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
     aspect * 0.005 +
     colorDiversity * 0.005;
 
+  // ---- 지재권 안전도 (대표 자동 선정 시 위험 사진을 밀어내기 위함) ----
+  const { safety, risks } = scoreSafety(data, gray, ANALYSIS_SIZE, ANALYSIS_SIZE);
+
   // 하드필터: hardFilterReason만 표기, overall 점수는 유지 (정렬용)
   // → useBulkRegisterActions에서 하드필터 무시하고 점수 순 정렬
   return {
     overall, background, backgroundSaturation, centering, aspect,
     textDensity, sharpness, skinTone, contentSufficiency, colorDiversity,
-    symmetry, productCompactness, edgeCrop, fillRatio,
+    symmetry, productCompactness, edgeCrop, fillRatio, safety,
+    ...(risks.length ? { safetyRisks: risks } : {}),
     ...(hardFilterReason ? { hardFilterReason } : {}),
   };
 }
@@ -958,7 +1022,7 @@ async function scoreReviewImage(objectUrl: string): Promise<ImageScore> {
     return {
       overall: 0, background, backgroundSaturation, centering, aspect,
       textDensity, sharpness, skinTone, contentSufficiency, colorDiversity,
-      symmetry, productCompactness, edgeCrop, fillRatio, hardFilterReason,
+      symmetry, productCompactness, edgeCrop, fillRatio, safety: 0, hardFilterReason,
     };
   }
 
@@ -976,10 +1040,13 @@ async function scoreReviewImage(objectUrl: string): Promise<ImageScore> {
     background * 0.02;            // 배경은 거의 무시
   // skinTone, backgroundSaturation, aspect → 0% (무시)
 
+  const { safety, risks } = scoreSafety(data, gray, ANALYSIS_SIZE, ANALYSIS_SIZE);
+
   return {
     overall, background, backgroundSaturation, centering, aspect,
     textDensity, sharpness, skinTone, contentSufficiency, colorDiversity,
-    symmetry, productCompactness, edgeCrop, fillRatio,
+    symmetry, productCompactness, edgeCrop, fillRatio, safety,
+    ...(risks.length ? { safetyRisks: risks } : {}),
   };
 }
 
@@ -2621,7 +2688,7 @@ export async function selectDiverseImages(
     const basicFilter = trustFolder
       ? objectUrls.map((_, i) => ({ index: i, filtered: false }))
       : await filterDetailPageImages(objectUrls);
-    let passed = basicFilter.filter(r => !r.filtered);
+    const passed = basicFilter.filter(r => !r.filtered);
 
     // 최소 보장: 필터 통과 장수 < minKeep이면 탈락 이미지를 원본순으로 보충
     if (passed.length < minKeep) {
@@ -2808,7 +2875,7 @@ export async function selectDiverseImages(
   const { medoids, clusters } = kMedoids(distMatrix, k);
 
   // Step 6: 각 클러스터 대표 선택 (medoid 우선)
-  let selected: number[] = [...medoids];
+  const selected: number[] = [...medoids];
 
   // Step 7: 유형별 쿼터 보충
   const typeQuota: Partial<Record<ImageType, { min: number; max: number }>> = {
