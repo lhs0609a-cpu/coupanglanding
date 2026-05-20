@@ -363,6 +363,52 @@ function extractPerCount(name: string, composite: CompositeResult): number | nul
 }
 
 /**
+ * totalUnitCount 계산용 "개당수량 × 수량" 곱셈 배수를 결정한다.
+ *
+ * 곱셈은 perCount 와 count 가 **서로 다른 토큰**에서 왔을 때만 정당하다:
+ *   "46개입 2팩"  → 46(개입) × 2(팩) = 92        ✅
+ *   "80매 x 10팩" → 80(매) × 10(팩) = 800 (composite) ✅
+ *   "100개입"     → 개입 하나뿐(perCount==count 동일 토큰) → null (곱하면 10000 폭증) ❌
+ *   "100매"       → 매 하나뿐 → null
+ * 반환값이 null 이면 totalUnitCount = count (곱셈 없음).
+ */
+function resolvePerCountMultiplier(name: string, composite: CompositeResult): number | null {
+  // composite.perCount: "매 x 팩"/"매입 x 팩" 명시 복합패턴 — 항상 곱셈 대상
+  if (composite.perCount) return composite.perCount;
+
+  // "N개입" + 개입과 별개의 count 단위(팩/개/병/세트/박스/봉/통/족/켤레/롤)가 함께 있을 때만 곱함.
+  // (매는 단독 "100매"가 흔해 false positive 위험 → 제외; 매×팩은 위 composite 에서 이미 처리됨)
+  const gaepip = name.match(/(\d+)\s*개입/);
+  if (!gaepip) return null;
+  const stripped = name.replace(/\d+\s*개입/g, ' ');
+  const hasSeparateCount = /\d+\s*(개(?!입|월|년)|팩|세트|박스|봉|병|통|족|켤레|롤)/.test(stripped);
+  return hasSeparateCount ? parseInt(gaepip[1], 10) : null;
+}
+
+/**
+ * 수량(count)으로 추출된 값이 사실은 "N개입" 하나에서 메아리친(echo) 값인지 판별.
+ * "100개입" 단독은 extractCountRaw 가 개입 폴백으로 100을 count 로도 반환하는데,
+ * 카테고리에 "개당 수량"(perCount) 옵션이 따로 있으면 그 100은 perCount 몫이다.
+ * → 이 경우 count 옵션까지 100으로 채우면 "개당수량=100, 수량=100" 중복. count 는 1이어야 함.
+ * "46개입 2팩"처럼 개입과 별개의 count 토큰(2팩)이 있으면 echo 가 아님(진짜 count).
+ */
+function countIsGaepipEcho(name: string, composite: CompositeResult): boolean {
+  if (composite.count) return false;            // 명시 복합 count 존재
+  if (!/\d+\s*개입/.test(name)) return false;   // 개입 자체가 없음
+  const stripped = name.replace(/\d+\s*개입/g, ' ');
+  const hasSeparateCount = /\d+\s*(개(?!입|월|년)|팩|세트|박스|봉|병|통|족|켤레|롤|입|매)/.test(stripped);
+  return !hasSeparateCount;                     // 개입 외 다른 count 토큰 없음 → echo
+}
+
+/** 카테고리에 "개당 수량"류(perCount) 구매옵션이 있는지 */
+function hasPerCountOption(buyOpts: { name: string; unit?: string }[]): boolean {
+  return buyOpts.some(o => {
+    const n = normalizeOptionName(o.name);
+    return n.includes('수량') && n !== '수량' && o.unit === '개';
+  });
+}
+
+/**
  * 개당 캡슐/정 수 추출 (건강보조식품)
  *
  * ⚠️ 주의: "콘드로이친1200정 60정" → 60만 추출 (1200은 성분 함량)
@@ -483,6 +529,16 @@ function extractColor(name: string): string | null {
 
 // ─── Option name normalization ──────────────────────────────
 
+/**
+ * "캡슐/정" 계열 정제(tablet) 구매옵션명을 정확히 판별한다.
+ * ⚠️ 단순 includes('정') 은 "최대 측정 가능 중량"의 "측정", "수정테이프"의 "수정" 등을
+ *    tablet 옵션으로 오인 → hasTabletOpt 오탐 → 수량 곱셈 폭주. 토큰 경계로 '정'을 매칭한다.
+ *    실제 옵션명 예: "개당 캡슐/정", "캡슐/정", "정".
+ */
+function isTabletOptionName(name: string): boolean {
+  return /캡슐|(?:^|[\/\s(])정(?:$|[\/\s)])/.test(name);
+}
+
 /** 택1 그룹 이름에서 "(택1)" 제거 + "총 수량" → "수량" 동의어 처리 */
 function normalizeOptionName(name: string): string {
   let n = name.replace(/\(택\d+\)\s*/g, '').trim();
@@ -572,11 +628,12 @@ export function extractOptionsFromDetails(productName: string, details: Category
   // 개당 캡슐/정 택1 옵션 존재 여부 확인
   const hasTabletOpt = buyOpts.some(o => {
     const n = normalizeOptionName(o.name);
-    return n.includes('캡슐') || n.includes('정');
+    return isTabletOptionName(n);
   });
 
   // 포(sachet) 여부 추적: 포 유래 값은 수량과 곱하지 않음
   let tabletFromSachet = false;
+  const hasPerCountOpt = hasPerCountOption(buyOpts);
 
   for (const opt of buyOpts) {
     const name = normalizeOptionName(opt.name);
@@ -584,7 +641,10 @@ export function extractOptionsFromDetails(productName: string, details: Category
     let value: string | null = null;
 
     if ((name === '수량' || name === '총 수량') && unit === '개') {
-      value = String(extractCount(productName, composite, hasTabletOpt));
+      // 단독 "100개입" + 개당수량 옵션 존재 → 100은 perCount 몫이므로 수량은 1.
+      value = hasPerCountOpt && countIsGaepipEcho(productName, composite)
+        ? '1'
+        : String(extractCount(productName, composite, hasTabletOpt));
     } else if (name.includes('용량') && unit === 'ml') {
       // "개당 용량", "최소 용량", "용량" 모두 매칭 (저장용량(MB)은 unit≠ml이므로 제외)
       const ml = extractVolumeMl(productName, composite);
@@ -603,7 +663,7 @@ export function extractOptionsFromDetails(productName: string, details: Category
     } else if (name.includes('수량') && name !== '수량' && unit === '개') {
       const perCount = extractPerCount(productName, composite);
       if (perCount !== null) value = String(perCount);
-    } else if (name.includes('캡슐') || name.includes('정')) {
+    } else if (isTabletOptionName(name)) {
       const tabletCount = extractTabletCount(productName);
       if (tabletCount !== null) {
         value = String(tabletCount);
@@ -641,7 +701,7 @@ export function extractOptionsFromDetails(productName: string, details: Category
     let tabletVal = 0;
     for (const [key, entry] of extracted) {
       const n = normalizeOptionName(key);
-      if (n.includes('캡슐') || n.includes('정')) {
+      if (isTabletOptionName(n)) {
         tabletKey = key;
         tabletVal = parseInt(entry.value, 10) || 0;
         break;
@@ -665,6 +725,13 @@ export function extractOptionsFromDetails(productName: string, details: Category
       const tabletEntry = extracted.get(tabletKey)!;
       extracted.set(tabletKey, { value: String(totalTablets), unit: tabletEntry.unit });
       extracted.set(countKey, { value: '1', unit: '개' });
+    } else if (tabletKey && !countKey && tabletVal >= 1) {
+      // 수량 옵션이 없는 카테고리: 묶음 수량을 개당 정/캡슐에 흡수 ("90정 2통" = 180정)
+      const bundle = extractCount(productName, composite, false);
+      if (bundle > 1) {
+        const tabletEntry = extracted.get(tabletKey)!;
+        extracted.set(tabletKey, { value: String(tabletVal * bundle), unit: tabletEntry.unit });
+      }
     }
 
     // 개월분 기반 추정: "2개월 1캡슐" → 1캡슐/일 × 60일 = 60캡슐
@@ -777,7 +844,8 @@ export function extractOptionsFromDetails(productName: string, details: Category
   const sachetCountForUnit = tabletCountForUnit === null ? extractSachetCount(productName) : null;
   const doseCountForUnit = tabletCountForUnit ?? sachetCountForUnit;
   const countForUnit = composite.count || extractCount(productName, composite, doseCountForUnit !== null);
-  const perCount = composite.perCount || null;
+  // 개당수량 곱셈 게이트 — enhanced 와 동일 규칙 ("46개입 2팩"=92, "100개입"≠10000)
+  const perCount = resolvePerCountMultiplier(productName, composite);
 
   let totalUnitCount: number;
   if (doseCountForUnit !== null && doseCountForUnit >= 1) {
@@ -838,6 +906,11 @@ function validateUnitWeightPlausibility(
   const weightOpt = result.find(r => r.unit === 'g' && /중량|무게|순중량/.test(r.name));
   const countOpt = result.find(r => r.unit === '개' && (r.name === '수량' || r.name === '총 수량'));
   if (!weightOpt || !countOpt) return;
+  // ⚠️ per-unit 의미의 중량 옵션("개당 중량"·"최소 중량")은 이미 단위중량 그 자체 →
+  //    count로 나누면 안 됨. "감잎차 100g 7개"의 최소중량 100g 은 14g/개(=100÷7)가 아니라
+  //    100g/개. per-unit 옵션을 총중량으로 오인해 분할하면 정상 수량을 부당하게 1로 폴백한다.
+  //    (총중량 입력오류 검출은 plain "중량"/"총 중량" 옵션에만 적용)
+  if (/개당|개\s*당|최소/.test(weightOpt.name)) return;
 
   const weightG = parseFloat(weightOpt.value);
   const count = parseInt(countOpt.value, 10);
@@ -1326,11 +1399,13 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
 
   const hasTabletOpt = buyOpts.some(o => {
     const n = normalizeOptionName(o.name);
-    return n.includes('캡슐') || n.includes('정');
+    return isTabletOptionName(n);
   });
 
   // 포(sachet) 여부 추적: 포 유래 값은 수량과 곱하지 않음
   let tabletFromSachetEnhanced = false;
+  // "개당 수량"(perCount) 옵션 존재 시, 단독 "N개입"의 count echo 를 수량에서 억제
+  const hasPerCountOpt = hasPerCountOption(buyOpts);
 
   for (const opt of buyOpts) {
     const name = normalizeOptionName(opt.name);
@@ -1340,7 +1415,10 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
     if (name === '수량' && unit === '개') {
       // extractCountRaw 사용: found=false(기본값 1)이면 value=null → Layer 1.5에서 displayName 시도
       const countResult = extractCountRaw(context.productName, composite, hasTabletOpt);
-      if (countResult.found) value = String(countResult.value);
+      // 단독 "100개입" + 개당수량 옵션 존재 → 100은 perCount 몫. 수량은 1(폴백)로 둠.
+      if (countResult.found && !(hasPerCountOpt && countIsGaepipEcho(context.productName, composite))) {
+        value = String(countResult.value);
+      }
     } else if (name.includes('용량') && unit === 'ml') {
       const ml = extractVolumeMl(context.productName, composite);
       if (ml !== null) value = String(ml);
@@ -1357,7 +1435,7 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
     } else if (name.includes('수량') && name !== '수량' && unit === '개') {
       const perCount = extractPerCount(context.productName, composite);
       if (perCount !== null) value = String(perCount);
-    } else if (name.includes('캡슐') || name.includes('정')) {
+    } else if (isTabletOptionName(name)) {
       const tabletCount = extractTabletCount(context.productName);
       if (tabletCount !== null) {
         value = String(tabletCount);
@@ -1404,7 +1482,7 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
         if (g !== null) {
           value = g >= 1000 && g % 100 === 0 ? `${g / 1000}kg` : `${g}g`;
         }
-      } else if (name.includes('캡슐') || name.includes('정')) {
+      } else if (isTabletOptionName(name)) {
         const tabletCount = extractTabletCount(context.displayName);
         if (tabletCount !== null) {
           value = String(tabletCount);
@@ -1418,7 +1496,9 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
       } else if ((name === '수량' || name === '총 수량') && unit === '개') {
         // extractCountRaw 사용: displayName에 실제 수량 패턴이 있을 때만 설정
         const displayCountResult = extractCountRaw(context.displayName!, displayComposite, hasTabletOpt);
-        if (displayCountResult.found) value = String(displayCountResult.value);
+        if (displayCountResult.found && !(hasPerCountOpt && countIsGaepipEcho(context.displayName!, displayComposite))) {
+          value = String(displayCountResult.value);
+        }
       } else if (name === '개당 수량' && unit === '개') {
         const perCount = extractPerCount(context.displayName, displayComposite);
         if (perCount !== null) value = String(perCount);
@@ -1473,7 +1553,7 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
     let tabletVal = 0;
     for (const [key, entry] of layer1) {
       const n = normalizeOptionName(key);
-      if (n.includes('캡슐') || n.includes('정')) {
+      if (isTabletOptionName(n)) {
         tabletKey = key;
         tabletVal = parseInt(entry.value, 10) || 0;
         break;
@@ -1494,6 +1574,15 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
       const tabletEntry = layer1.get(tabletKey)!;
       layer1.set(tabletKey, { value: String(totalTablets), unit: tabletEntry.unit });
       layer1.set(countKey, { value: '1', unit: '개' });
+    } else if (tabletKey && !countKey && tabletVal >= 1) {
+      // 수량 옵션이 없는 카테고리("개당 캡슐/정"만 존재): 묶음 수량(2통/3박스 등)을
+      // 담을 곳이 없으므로 개당 정/캡슐에 흡수 → "90정 2통" = 180정.
+      // (이렇게 해야 totalUnitCount(=정수×묶음)와 옵션 표시값이 일치)
+      const bundle = extractCount(context.productName, composite, false);
+      if (bundle > 1) {
+        const tabletEntry = layer1.get(tabletKey)!;
+        layer1.set(tabletKey, { value: String(tabletVal * bundle), unit: tabletEntry.unit });
+      }
     }
 
     if (tabletKey && tabletVal <= 1) {
@@ -1635,7 +1724,12 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
   } else {
     countForUnit = 1;
   }
-  const perCount = composite.perCount || null;
+  // 개당수량(perCount) × 수량(count) 곱셈은 두 값이 "서로 다른 토큰"에서 왔을 때만.
+  //   "46개입 2팩" → perCount=46(개입), count=2(팩) → 92  ✅ 곱함
+  //   "100개입"    → perCount/count 모두 같은 개입 토큰 → 곱하면 10000 폭증  ❌ 곱하지 않음
+  //   "80매 x 10팩"→ composite.perCount=80, composite.count=10 → 800        ✅ 곱함
+  // (기존엔 composite.perCount 만 봐서 "46개입 2팩" 류가 전부 누락 → 단가 폭증)
+  const perCount = resolvePerCountMultiplier(context.productName, composite);
 
   let totalUnitCount: number;
   if (doseCountForUnit !== null && doseCountForUnit >= 1) {
