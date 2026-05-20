@@ -582,7 +582,7 @@ export function generateStoryV2(
   const cleanProductName = productName
     .replace(/[\[\(【][^\]\)】]*[\]\)】]/g, '')
     .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
-    .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ') || productName;
+    .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ').replace(/ [^ ]*(?:한|운|던|는|은)$/, '') || productName;
   const sanitizerOpts = { productName, categoryPath, cleanProductName };
   const finalParagraphs = sanitizeStoryParagraphs(paragraphs, sanitizerOpts);
   const finalReviewTexts = sanitizeReviewCaptions(cleanedReviewTexts, sanitizerOpts);
@@ -935,7 +935,7 @@ export function generateFaqItems(
   let cleanName = productName
     .replace(/[\[\(【][^\]\)】]*[\]\)】]/g, '')
     .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
-    .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ');
+    .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ').replace(/ [^ ]*(?:한|운|던|는|은)$/, '');
 
   // 숫자 6자리 이상이면 상품코드로 간주 → 카테고리 리프명으로 대체
   if (/\d{6,}/.test(cleanName)) {
@@ -1080,7 +1080,7 @@ export function generateClosingText(
   let cleanName = productName
     .replace(/[\[\(【][^\]\)】]*[\]\)】]/g, '')
     .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
-    .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ');
+    .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ').replace(/ [^ ]*(?:한|운|던|는|은)$/, '');
 
   // 숫자 6자리 이상이면 상품코드로 간주 → 카테고리 리프명으로 대체
   if (/\d{6,}/.test(cleanName)) {

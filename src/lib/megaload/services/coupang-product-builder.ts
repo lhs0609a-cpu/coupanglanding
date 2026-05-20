@@ -337,8 +337,15 @@ export function buildCoupangProductPayload(
 
   // ---- 상세페이지 텍스트 compliance 필터링 (쿠팡 AI 검수 대응) ----
   const complianceCtx = categoryPath;
+  // 카테고리 leaf 토큰은 금칙어 제거에서 보호 — 카테고리 자체 명칭("탈모관리기"의 "탈모",
+  // "충격흡수 매트"의 "충격" 등)이 제거되어 상품 정체성이 사라지는 것을 막는다.
+  const complianceSafeWords = (() => {
+    const leaf = (categoryPath || '').split('>').pop()?.trim() || '';
+    if (!leaf) return undefined;
+    return new Set<string>([leaf, ...leaf.split(/[\s/,()\[\]]+/).filter(t => t.length >= 2)]);
+  })();
   const cleanText = (t: string) => {
-    const { cleanedText } = checkCompliance(t, { removeErrors: true, categoryContext: complianceCtx });
+    const { cleanedText } = checkCompliance(t, { removeErrors: true, categoryContext: complianceCtx, categorySafeWords: complianceSafeWords });
     return cleanedText || t;
   };
   const safeParagraphs = aiStoryParagraphs?.map(cleanText);

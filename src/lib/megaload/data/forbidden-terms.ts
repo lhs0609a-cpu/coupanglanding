@@ -167,7 +167,10 @@ const AD_LAW: ForbiddenCategory = {
     { pattern: /완벽/g, label: '완벽', severity: 'error', category: '표시광고법' },
     { pattern: /100%보장/g, label: '100%보장', severity: 'error', category: '표시광고법' },
     { pattern: /놀라운/g, label: '놀라운', severity: 'error', category: '표시광고법' },
-    { pattern: /충격/g, label: '충격', severity: 'error', category: '표시광고법' },
+    // ⚠️ "충격" 단독(명사)은 표시광고법 위반 아님 — "충격을 잘 견디는"(내구성) 등 정상 용법.
+    //    과장 광고형(충격적/충격특가/가격충격)만 차단. 단독 명사를 형용사 "놀랄만한"으로 치환하면
+    //    "충격을"→"놀랄만한을" 비문이 됨. 과장형 전체를 매칭해 "놀랄만한"(형용사)으로 깔끔히 치환.
+    { pattern: /충격적인|충격적|충격\s*(?:특가|세일|할인|가격)|가격\s*충격/g, label: '충격', severity: 'error', category: '표시광고법' },
     { pattern: /폭발적/g, label: '폭발적', severity: 'error', category: '표시광고법' },
     // warning
     { pattern: /특허/g, label: '특허', severity: 'warning', category: '표시광고법' },

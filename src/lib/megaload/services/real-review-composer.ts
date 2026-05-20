@@ -203,6 +203,20 @@ function extractCategoryNoun(categoryPath: string, fallbackPool?: string[]): str
  */
 const TIME_LOCK_VAR_KEYS = new Set(['기간', '시간', '주', '개월', '일', '주기', '횟수']);
 
+/**
+ * {사용감} 명사화 — 치환값이 관형형("편안해진","만족스러운")인데 템플릿은 명사 자리
+ * ("{사용감}이에요","{사용감}이 느껴지더라고요","{사용감}을 체감")로 써서 비문이 됨.
+ * 관형형이면 "느낌"을 붙여 명사구로 만든다. (key 가 사용감일 때만 적용)
+ */
+function nominalizeUsageFeel(key: string, v: string): string {
+  if (key !== '사용감') return v;
+  const t = (v || '').trim();
+  if (!t) return t;
+  if (/(느낌|개선|보충|보호|관리|품질|타입|모드|기|함|움|점|것|감)$/.test(t)) return t;
+  if (/(진|운|한|던|는|은|인|긴)$/.test(t)) return t + ' 느낌';
+  return t;
+}
+
 function fillVariables(
   text: string,
   vars: Record<string, string[]>,
@@ -230,7 +244,7 @@ function fillVariables(
 
     const pool = vars[key];
     if (pool && pool.length > 0) {
-      const picked = pool[Math.floor(rng() * pool.length)];
+      const picked = nominalizeUsageFeel(key, pool[Math.floor(rng() * pool.length)]);
       if (TIME_LOCK_VAR_KEYS.has(key)) localLock[key] = picked;
       return picked;
     }
@@ -238,7 +252,7 @@ function fillVariables(
     const baseKey = key.replace(/\d+$/, '');
     const baseFallback = vars[baseKey] || vars[baseKey + '1'];
     if (baseFallback && baseFallback.length > 0) {
-      const picked = baseFallback[Math.floor(rng() * baseFallback.length)];
+      const picked = nominalizeUsageFeel(baseKey, baseFallback[Math.floor(rng() * baseFallback.length)]);
       if (TIME_LOCK_VAR_KEYS.has(key)) localLock[key] = picked;
       return picked;
     }
@@ -869,19 +883,24 @@ function composeFragment(
   return parts.join(' ');
 }
 
-/** 같은 풀에서 다른 조합의 문장을 추가로 뽑는다 */
+/** 같은 풀에서 다른 조합의 문장을 추가로 뽑는다.
+ *  avoidText: 같은 문단에 이미 들어간 fragment 텍스트 — 동일 value/closer 재선택을 피해
+ *  "디테일이 좋아서 만족도 높아요"가 한 문단에 2회 등장하는 절 중복을 막는다. */
 function composeExtraFragment(
   pool: FragmentPool,
   rng: () => number,
   productName?: string,
   categoryKey?: string,
+  avoidText?: string,
 ): string {
   const filteredValues = productName ? filterByProductForm(pool.values, productName, categoryKey) : pool.values;
-  const values = filteredValues.length > 0 ? filteredValues : pool.values;
+  let values = filteredValues.length > 0 ? filteredValues : pool.values;
+  if (avoidText) { const v2 = values.filter(v => !avoidText.includes(v)); if (v2.length > 0) values = v2; }
   const value = values[Math.floor(rng() * values.length)] || '';
 
   const filteredClosers = productName ? filterByProductForm(pool.closers, productName, categoryKey) : pool.closers;
-  const closers = filteredClosers.length > 0 ? filteredClosers : pool.closers;
+  let closers = filteredClosers.length > 0 ? filteredClosers : pool.closers;
+  if (avoidText) { const c2 = closers.filter(c => !avoidText.includes(c)); if (c2.length > 0) closers = c2; }
   const closer = closers[Math.floor(rng() * closers.length)] || '';
 
   const parts = [value, closer].filter(p => p.length > 0);
@@ -963,7 +982,7 @@ export function generateRealReview(
 
     // experience, detail 같은 핵심 섹션은 추가 문장으로 문단 보강
     if ((section === 'experience' || section === 'detail' || section === 'backstory') && pool.values.length > 2) {
-      const extra = composeExtraFragment(pool, rng, productName, catKey);
+      const extra = composeExtraFragment(pool, rng, productName, catKey, raw);
       const filledExtra = fillVariables(extra, vars, cleanName, rng, { categoryPath });
       const sanitizedExtra = sanitizeByProductForm(filledExtra, productName, catKey);
       if (sanitizedExtra.trim().length > 5) {

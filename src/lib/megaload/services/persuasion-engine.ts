@@ -236,10 +236,19 @@ export function generatePersuasionContent(
   const rng = createSeededRandom(seed);
 
   // 이름 정리
-  const cleanName = productName
+  // 1) 괄호/특수문자 제거 → 토큰 3개로 축약
+  // 2) cross-category 부적합 토큰 제거 — audit-100x 결과 "프로틴 듬뿍"/"BCAA 함유" 같은
+  //    셀러 입력 contamination 이 마지막 토큰으로 살아남아 buildProductRefs 를 통해
+  //    {product} 슬롯 → 본문에 누출되는 경로 차단.
+  // 3) 정제 후 비어 있으면 leaf 로 폴백 (정체성 보장)
+  const cleanNameRaw = productName
     .replace(/[\[\(【][^\]\)】]*[\]\)】]/g, '')
     .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
-    .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ');
+    .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ').replace(/ [^ ]*(?:한|운|던|는|은)$/, '');
+  const cleanNameSanitized = sanitizeCrossCategory(cleanNameRaw, categoryPath).trim();
+  const cleanName = cleanNameSanitized.length >= 2
+    ? cleanNameSanitized
+    : (categoryPath.split('>').pop() || cleanNameRaw || productName).trim();
 
   // ── Layer 3: 상품명 파싱 → 변수 오버라이드 ──
   const tokens = parseProductName(productName, categoryPath, '');
@@ -554,6 +563,13 @@ function normalizeSentenceForDedup(s: string): string {
     // 사실상 동일 문장이 dedup 우회.
     .replace(/이\s*제품|이\s*상품|이\s*아이템/g, '__PROD__')
     .replace(/[가-힣]+\s*상품|[가-힣]+\s*제품/g, '__PROD__')
+    // ⚠️ 톤 어미 normalize — unifyToneByMajority 가 dedup 이후 실행되므로
+    // "X 품질입니다" 와 "X 품질이에요" 가 dedup 시점에 다른 key 로 분류되었다가
+    // 톤 통일 후 동일 텍스트가 됨. 어미를 표준화해 사전 차단.
+    .replace(/이에요|예요|에요|이죠/g, '__POL__')
+    .replace(/입니다|됩니다|드립니다|있습니다|없습니다|아닙니다/g, '__POL__')
+    .replace(/(?<=[가-힣])(?:어요|아요|네요|돼요|군요|거예요|들어요|보여요|되네요)/g, '__POL__')
+    .replace(/(?<=[가-힣])(?:합니다|시킵니다|만듭니다|받습니다|줍니다|제공합니다|준비합니다)/g, '__POL__')
     .replace(/\s+/g, ' ')
     .replace(/[^가-힣a-zA-Z0-9_]/g, '')
     .toLowerCase();
@@ -696,14 +712,16 @@ function fixIncorrectParticles(text: string): string {
     // 단, 받침처럼 발음되는 경우 (k, g, m, n 등) 는 한국어 관습상 "으로" 유지가 일반적이므로 보수적으로 영문은 변환 X.
     return full;
   });
-  out = out.replace(/([가-힣]+)([은이])(?=[\s.,!?]|$)/g, (full, word, particle) => {
+  // ⚠️ "이→가" 변환은 비활성화 — 그리디 정규식이 "베드트레이."를 "베드트레" + "이"(주격)
+  // 로 잘못 분리해 "베드트레가."로 망가뜨림. 명사 자체가 "이"로 끝나는 경우(베드트레이/
+  // 다이어리/믹서기/카메라 등) 와 주격 조사를 표면적으로 구분 불가.
+  // "은→는"만 보존 (명사 끝 "은"은 드물어 false positive 거의 없음).
+  // 또한 명사 앞 공백 강제 (?<!\S) — 명사 중간 매칭 방지.
+  out = out.replace(/(?<!\S)([가-힣]{2,})(은)(?=[\s.,!?]|$)/g, (full, word, particle) => {
     const last = word.charCodeAt(word.length - 1);
     if (last >= 0xAC00 && last <= 0xD7A3) {
       const jong = (last - 0xAC00) % 28;
-      if (jong === 0) {
-        if (particle === '은') return word + '는';
-        if (particle === '이') return word + '가';
-      }
+      if (jong === 0 && particle === '은') return word + '는';
     }
     return full;
   });
@@ -735,8 +753,10 @@ function deduplicateSentencesInText(text: string, globalSeen: Set<string>): stri
   for (const s of sentences) {
     const trimmed = s.trim();
     if (trimmed.length === 0) continue;
-    // 짧은 문장(15자 이하)은 dedup 제외 — 헤더/CTA 같은 짧은 표현은 반복 허용
-    if (trimmed.length <= 15) {
+    // 짧은 문장(8자 이하)만 dedup 제외 — 헤더 같은 매우 짧은 표현만 반복 허용.
+    // audit-100x: "지금 바로 시작하세요"(10), "변화를 경험해보세요"(10) 같은 CTA 가
+    // 페이지당 여러 번 등장하던 문제 차단 (이전 15자 threshold 가 너무 관대).
+    if (trimmed.length <= 8) {
       kept.push(trimmed);
       continue;
     }
@@ -841,16 +861,22 @@ export function contentBlocksToParagraphs(blocks: ContentBlock[], categoryPath?:
   });
 
   // ── 페이지 전체 톤 통일 (audit 톤 혼재 27% → 단일 톤 강제) ──
-  // 모든 paragraph의 어미를 도미넌트 톤으로 통일
-  const fullTextForTone = paragraphs.join(' ');
-  const formal = (fullTextForTone.match(/(합니다|입니다|됩니다|있습니다)/g) || []).length;
-  const casual = (fullTextForTone.match(/(에요|예요|어요|아요|네요|돼요)/g) || []).length;
-  // 도미넌트 톤이 압도적이지 않으면 (60% 미만) 페이지 전체를 도미넌트로 강제 통일
-  const total = formal + casual;
-  if (total > 0) {
-    const tonedParagraphs = paragraphs.map(p => unifyToneByMajority(p));
-    // tonedParagraphs로 교체
-    for (let i = 0; i < paragraphs.length; i++) paragraphs[i] = tonedParagraphs[i];
+  // ⚠️ 페이지 도미넌트를 단일 결정 후 전체 paragraph에 같은 톤으로 적용해야 한다.
+  //    이전 구현은 paragraph 별로 unifyToneByMajority 를 돌려서 인접 단락이 다른 톤을 갖는
+  //    audit-100x 결과 30% toneMixed 잔존. 텍스트를 합쳐 단일 도미넌트로 변환 후 분리한다.
+  const TONE_SEP = '\u0002';
+  const concatForTone = paragraphs.join(TONE_SEP);
+  const formal = (concatForTone.match(/(합니다|입니다|됩니다|있습니다)/g) || []).length;
+  const casual = (concatForTone.match(/(에요|예요|어요|아요|네요|돼요)/g) || []).length;
+  if (formal + casual > 0) {
+    const unified = unifyToneByMajority(concatForTone);
+    const splitBack = unified.split(TONE_SEP);
+    if (splitBack.length === paragraphs.length) {
+      for (let i = 0; i < paragraphs.length; i++) paragraphs[i] = splitBack[i];
+    } else {
+      // 안전 폴백: 길이가 안 맞으면 paragraph 별 unify (기존 동작)
+      for (let i = 0; i < paragraphs.length; i++) paragraphs[i] = unifyToneByMajority(paragraphs[i]);
+    }
   }
 
   // 페이지 전체 단어 반복 완화 — 12회+(common 단어 8회+) 등장 단어 중 초과분 제거.

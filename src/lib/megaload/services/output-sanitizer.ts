@@ -369,11 +369,19 @@ function fixCommonGrammarBugs(text: string): string {
 //   템플릿 시그니처(첫 8어절)가 같으면 첫 문장만 유지.
 function dedupeWithinParagraph(sentences: string[]): string[] {
   const seenSig = new Set<string>();
+  const seenClauses = new Set<string>(); // 절(쉼표 분리) 정규화 키 — 꼬리절 중복 탐지
   const out: string[] = [];
+  const normClause = (c: string) => c.replace(/[\s.,!?~()[\]"'·]/g, '');
   for (const s of sentences) {
     const sig = s.replace(/\s+/g, ' ').trim().split(' ').slice(0, 5).join(' ');
     if (seenSig.has(sig)) continue;
+    // 절 단위 중복: 이 문장을 이루는 모든 절(≥10자)이 이미 다른 문장에서 등장했으면
+    //   새 정보가 없는 반복 → 문장 통째 드롭. (예: "...써봤는데, 주변에서도 알아채더라고요"
+    //   뒤에 독립 문장 "주변에서도 알아채더라고요." 가 또 나오는 절 중복 차단)
+    const clauses = s.split(/,\s*/).map(c => c.trim()).filter(c => normClause(c).length >= 10);
+    if (clauses.length > 0 && clauses.every(c => seenClauses.has(normClause(c)))) continue;
     seenSig.add(sig);
+    for (const c of clauses) seenClauses.add(normClause(c));
     out.push(s);
   }
   return out;

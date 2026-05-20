@@ -2202,13 +2202,16 @@ function buildProductRefs(productName: string): string[] {
   const refs: string[] = [productName]; // 원본 풀네임
   // 단축형 (앞 2~3 단어, 너무 짧으면 생략)
   const tokens = productName.split(/\s+/).filter(Boolean);
+  // ⚠️ 관형형(형용사)으로 끝나는 단축형 금지 — "고급 메가로드 튼튼한"(원본 "...튼튼한 의자")처럼
+  //    leaf 명사가 잘려 형용사로 끝나면 "{product}을" → "튼튼한을" 비문이 된다.
+  const endsAdnominal = (w) => /(한|운|던|는|은)$/.test(w);
   if (tokens.length >= 2) {
     const short2 = tokens.slice(0, 2).join(' ');
-    if (short2.length >= 4 && short2 !== productName) refs.push(short2);
+    if (short2.length >= 4 && short2 !== productName && !endsAdnominal(tokens[1])) refs.push(short2);
   }
   if (tokens.length >= 3) {
     const short3 = tokens.slice(0, 3).join(' ');
-    if (short3.length >= 6 && !refs.includes(short3)) refs.push(short3);
+    if (short3.length >= 6 && !refs.includes(short3) && !endsAdnominal(tokens[2])) refs.push(short3);
   }
   // ⚠️ 정체성 강화: 마지막 단어(보통 leaf 명사) 도 ref 풀에 추가하여 product 등장 빈도 ↑
   //    (1.6만 audit 정체성붕괴 1,823건 잔여 → product 마지막 토큰을 자연스럽게 본문에 등장시킴)
@@ -2248,6 +2251,25 @@ function pickProductRef(refs: string[], rng: () => number): string {
   return refs[0];
 }
 
+/**
+ * {사용감} 값 명사화 — 치환값이 전부 관형형("부드러운","피부가 촉촉해진")인데
+ * 템플릿은 명사 자리("{사용감}을 체감","{사용감}이에요","{사용감}이 느껴지더라고요")로
+ * 사용해 "부드러운을/촉촉해진이" 같은 비문이 생긴다. 관형형이면 "느낌"을 붙여 명사구로 만든다.
+ *   "부드러운"        → "부드러운 느낌"
+ *   "피부가 촉촉해진"  → "피부가 촉촉해진 느낌"
+ *   "건강해진 느낌"    → 그대로 (이미 명사)
+ *   "수치 개선"/"영양 보충" → 그대로 (명사)
+ */
+function nominalizeUsageFeel(v: string): string {
+  const t = v.trim();
+  if (!t) return t;
+  // 이미 명사로 끝나면 그대로
+  if (/(느낌|개선|보충|보호|관리|품질|타입|모드|기|함|움|점|것|감)$/.test(t)) return t;
+  // 관형형 어미(-ㄴ/은/는/한/운/던/진/인/긴)로 끝나면 "느낌" 부착
+  if (/(진|운|한|던|는|은|인|긴)$/.test(t)) return t + ' 느낌';
+  return t;
+}
+
 function fillTemplate(
   template: string,
   vars: Record<string, string[]>,
@@ -2263,13 +2285,17 @@ function fillTemplate(
   result = result.replace(/\{([^}]+)\}/g, (match, key) => {
     const pool = vars[key];
     if (pool && pool.length > 0) {
-      return pool[Math.floor(rng() * pool.length)] + b;
+      let val = pool[Math.floor(rng() * pool.length)];
+      if (key === '사용감') val = nominalizeUsageFeel(val);
+      return val + b;
     }
     // 미해결 변수: 유사 키에서 폴백 시도 (성분2→성분, 효과2→효과1)
     const baseKey = key.replace(/\d+$/, '');
     const fallback = vars[baseKey] || vars[baseKey + '1'];
     if (fallback && fallback.length > 0) {
-      return fallback[Math.floor(rng() * fallback.length)] + b;
+      let val = fallback[Math.floor(rng() * fallback.length)];
+      if (baseKey === '사용감') val = nominalizeUsageFeel(val);
+      return val + b;
     }
     return '';
   });
@@ -2361,6 +2387,9 @@ export function composeBlock(
   if (effectiveForbidden.length > 0) {
     actualPool = filterFragmentPool(actualPool, effectiveForbidden);
   }
+
+  // 블록 내 fragment 중복 사용 방지 — 이 블록에서 뽑는 opener/value/closer 는 가능한 한 서로 다르게.
+  blockFragLock = new Set();
 
   switch (blockType) {
     case 'hook':
@@ -2539,9 +2568,21 @@ function composeOneSentence(
   return raw;
 }
 
-/** 배열에서 랜덤 1개 선택 (빈 배열이면 '') */
+// 한 블록(=문단) 내에서 이미 사용한 fragment(opener/value/closer) 추적 — 같은 절이
+// 한 문단에 2회 이상 등장하는 중복(예: "안전하고 신뢰할 수 있는 품질이에요" ×2) 차단.
+// composeBlock 시작 시 새 Set 으로 초기화 (블록 단위 dedup 범위).
+let blockFragLock: Set<string> | null = null;
+
+/** 배열에서 랜덤 1개 선택 (빈 배열이면 ''). 블록 lock 활성 시 이미 쓴 fragment 회피. */
 function pickRandom(arr: string[], rng: () => number): string {
   if (!arr || arr.length === 0) return '';
+  if (blockFragLock) {
+    const avail = arr.filter(x => !blockFragLock!.has(x));
+    const src = avail.length > 0 ? avail : arr; // 다 소진되면 원래 풀에서 (재사용 허용)
+    const picked = src[Math.floor(rng() * src.length)];
+    blockFragLock.add(picked);
+    return picked;
+  }
   return arr[Math.floor(rng() * arr.length)];
 }
 
