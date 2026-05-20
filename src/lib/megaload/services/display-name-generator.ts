@@ -193,7 +193,7 @@ const NON_PRODUCT_TOP = new Set(['도서', '도서/음반/DVD']);
 const SPEC_PATTERN = /\d+(?:\.\d+)?\s*(개월분?|일분|주분|ml|g|kg|mg|mcg|iu|L|정|개(?!입|월|년)|매|팩|세트|입|병|통|포|봉|캡슐|알|ea|p|장|m|cm|mm|인치|oz|lb)/gi;
 
 const NOISE = new Set([
-  '무료배송', '당일발송', '특가', '할인', '증정', '사은품', '리뷰이벤트',
+  '무료배송', '당일발송', '특가', '할인', '세일', '증정', '사은품', '리뷰이벤트',
   '추천', '인기', '베스트', '상품상세참조', '상세페이지참조', '상페참조',
   '참조', '상세참조', '페이지참조',
   // 광고/효능 과장 (hypeBanned) — audit-30x-coupang-seo 결과 3.36% 잔존
@@ -201,11 +201,21 @@ const NOISE = new Set([
   '100%', '100프로', '최고', '최상', '최강', '최우수', '넘버원',
   '명품', '명품급', '럭셔리', '프리미엄급', '특A급',
   '보장', '약속', '확실',
+  // audit-100x: 컴파운드 promo (단일 토큰으로 잔존하는 입력 패턴)
+  '사은품증정', '리뷰이벤트', '쿠폰', '적립', '이벤트', '공식정품',
+  '오늘출발', '오늘발송', '오늘배송', '당일출고', '즉시배송', '빠른배송',
+  '특가세일', '할인특가', '세일특가', '핫딜', '단독특가',
+  '신상특가', '깜짝특가', '특별가', '할인가', '세일가',
+  '★당일발송★', '【공식】', '★★', '★',
 ]);
 
 // hypeBanned 사후 패턴 (substring) — addToken 이후 사후 제거
 // audit 결과 입력 노이즈 ("효과만점 100% 보장", "이서진 추천") 등이 토큰에 잔존
 const HYPE_POSTFILTER = /효과만점|100\s*%|100\s*프로|효능보장|확실보장|완치|치료효과|의학적효과|최강추천|넘버원/g;
+
+// promoBanned 사후 패턴 (substring) — 컴파운드/장식 토큰에 promo 키워드가 끼어 있는 경우 제거.
+// audit-100x: "사은품증정", "쿠폰", "리뷰이벤트", "★당일발송★" 등이 단일 토큰으로 잔존.
+const PROMO_POSTFILTER = /(?:무료배송|당일발송|당일출고|오늘출발|오늘발송|즉시배송|빠른배송|특가|할인|세일|증정|사은품|리뷰이벤트|쿠폰|적립|이벤트|공식정품|핫딜|단독특가|깜짝특가|할인가|세일가|특별가|특가세일|할인특가|세일특가)/g;
 
 // 셀러 이름 흔적 패턴 — "메가샵", "인기마켓", "베스트마켓" 등이 출력에 들어가지 않도록
 const SELLER_TRACE_POSTFILTER = /인기마켓|인기셀러|메가셀러|메가샵|베스트마켓|프리미엄스토어|에코프렌즈|리빙플러스|굿라이프|스마트홈|코리아셀러|데일리홈|한국유통/g;
@@ -955,6 +965,33 @@ function sanitizeContradictoryTokens(name: string, categoryPath: string): string
   return result.replace(/\s{2,}/g, ' ').trim();
 }
 
+// 신선식품(과일/채소/정육/수산/계란/쌀잡곡)에 부적합한 descriptor — 가공식품·건강식품·
+// 마케팅·조리 표현이 풀/셀러원본을 통해 노출상품명에 누출되는 것을 차단한다.
+//   예: 사과 노출명에 "단백질/무첨가/담백한/깊은맛/신상/봉지/저탄소" 가 섞이던 문제.
+const FRESH_PRODUCE_FORBIDDEN_DESCRIPTORS = new Set<string>([
+  // 건강/다이어트/보충 (건기식·가공식품 descriptor)
+  '단백질', '고단백', '단백질보충', '식이섬유', '저칼로리', '다이어트', '키토제닉', '저탄수', '고지방', '글루텐프리', '비건', '저당',
+  // 무첨가류 — 신선 농산물엔 무의미
+  '무첨가', '무방부제', '무색소', '무설탕', '무가당', 'msg무첨가',
+  // 가공식품 맛 표현
+  '담백한', '깊은맛',
+  // 포장/마케팅 노이즈
+  '봉지', '신상', '신상품', '인기상품', '추천상품', '저탄소',
+  // 조리식품
+  '찌개', '탕', '볶음', '조림', '구이', '튀김', '즉석', '전자레인지', '에어프라이어', '안주', '술안주', '밥반찬', '국물', '야식',
+]);
+
+/** 신선식품(과일/채소/축산/수산 등 1차 농수산물) 카테고리 판별.
+ *  ⚠️ 가공식품(과일주스/채소칩 등) 오판 방지를 위해 경로 세그먼트 단위로만 매칭한다. */
+function isFreshProduceCategory(categoryPath: string): boolean {
+  if (!categoryPath) return false;
+  if (categoryPath.includes('신선식품') || categoryPath.includes('농산물') || categoryPath.includes('축산물') || categoryPath.includes('수산물')) return true;
+  // 폴백: 가공식품 경로면 신선 아님
+  if (categoryPath.includes('가공식품') || categoryPath.includes('건강식품') || categoryPath.includes('음료')) return false;
+  // 경로 세그먼트가 정확히 신선 분류명일 때만 (과일주스 같은 부분문자열 오판 차단)
+  return categoryPath.split('>').some(seg => /^(과일류?|채소류?|정육|계란|쌀\/잡곡|잡곡|버섯|나물)$/.test(seg.trim()));
+}
+
 export function generateDisplayName(
   originalName: string,
   brand: string,
@@ -962,6 +999,7 @@ export function generateDisplayName(
   sellerSeed: string,
   productIndex: number,
 ): string {
+  const isFreshProduce = isFreshProduceCategory(categoryPath);
   // 시드 기반 RNG
   const seed = stringToSeed(`${sellerSeed}::${productIndex}::${originalName}`);
   const rng = createSeededRandom(seed);
@@ -997,6 +1035,8 @@ export function generateDisplayName(
   const addToken = (word: string): boolean => {
     const lower = word.toLowerCase();
     if (usedWords.has(lower)) return false;
+    // 신선식품 부적합 descriptor 차단 (단백질/무첨가/담백한/봉지/신상/저탄소 등)
+    if (isFreshProduce && FRESH_PRODUCE_FORBIDDEN_DESCRIPTORS.has(lower)) return false;
     // 2차 방어: 브랜드/연예인이 descriptor로 빠져나온 경우 차단
     // ★ 카테고리 안전 키워드(leaf)는 brand와 동일하거나 substring 관계여도 보존
     //    (brand="망고", leaf="망고" 케이스 — leaf는 카테고리 검색 핵심 키워드라 SEO 우선)
@@ -1373,6 +1413,8 @@ export function generateDisplayName(
   // audit 결과: 입력 노이즈("효과만점 100% 보장", "이서진 추천", "메가셀러")가 토큰 단계
   // 다중 필터를 통과해 잔존하는 케이스 3.36%. 마지막 보호망으로 substring 제거.
   result = result.replace(HYPE_POSTFILTER, '').replace(/\s{2,}/g, ' ').trim();
+  // audit-100x: promo 컴파운드 ("사은품증정","쿠폰","★당일발송★") 잔존 → 사후 제거
+  result = result.replace(PROMO_POSTFILTER, '').replace(/\s{2,}/g, ' ').trim();
   result = result.replace(SELLER_TRACE_POSTFILTER, '').replace(/\s{2,}/g, ' ').trim();
   // 연예인 이름 사후 제거 (CELEBRITY_NAMES set 기반 word match)
   for (const celeb of CELEBRITY_NAMES) {
