@@ -1,0 +1,46 @@
+{
+  "_comment": "예제 SDXL 인페인트 워크플로 (API format). 누끼 PNG의 투명영역을 마스크로 삼아 배경만 새로 생성하고 상품 픽셀은 보존한다. ★중요: ckpt_name을 본인 ComfyUI/models/checkpoints에 있는 SDXL 체크포인트 파일명으로 바꿔야 한다. 가장 확실한 방법은 ComfyUI UI에서 직접 워크플로를 만들고 'Save (API Format)'으로 내보내 이 파일을 대체하는 것. 워커는 LoadImage/KSampler를 자동 인식해 입력이미지·프롬프트·시드를 주입한다.",
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": { "ckpt_name": "sd_xl_base_1.0.safetensors" }
+  },
+  "2": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "__INPUT_IMAGE__", "upload": "image" }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "clip": ["1", 1], "text": "professional product thumbnail, pure white studio background" }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "clip": ["1", 1], "text": "text, watermark, clutter, colored background" }
+  },
+  "5": {
+    "class_type": "VAEEncodeForInpaint",
+    "inputs": { "pixels": ["2", 0], "vae": ["1", 2], "mask": ["2", 1], "grow_mask_by": 8 }
+  },
+  "6": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["1", 0],
+      "positive": ["3", 0],
+      "negative": ["4", 0],
+      "latent_image": ["5", 0],
+      "seed": 0,
+      "steps": 25,
+      "cfg": 7,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 1.0
+    }
+  },
+  "7": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["6", 0], "vae": ["1", 2] }
+  },
+  "8": {
+    "class_type": "SaveImage",
+    "inputs": { "images": ["7", 0], "filename_prefix": "coupang_thumb" }
+  }
+}

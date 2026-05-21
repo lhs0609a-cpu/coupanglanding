@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>쿠팡 썸네일 워커</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>쿠팡 썸네일 워커</h1>
+    <span id="badge" class="badge off">정지됨</span>
+  </header>
+
+  <!-- 1. 엔진 설치 -->
+  <section id="sec-install" class="card">
+    <h2>1. 엔진 설치 <span id="install-status" class="muted"></span></h2>
+    <button id="btn-gpu" class="btn-ghost">GPU 점검</button>
+    <span id="gpu-result" class="muted"></span>
+    <div id="install-progress" class="hidden">
+      <div class="prog"><label>ComfyUI 다운로드</label><div class="bar"><i id="p-comfy-download"></i></div></div>
+      <div class="prog"><label>압축 해제</label><div class="bar"><i id="p-comfy-extract"></i></div></div>
+      <div class="prog"><label>SDXL 모델 (~6.5GB)</label><div class="bar"><i id="p-model-download"></i></div></div>
+      <p id="install-detail" class="muted small"></p>
+    </div>
+    <button id="btn-install" class="btn">엔진 설치 / 확인</button>
+  </section>
+
+  <!-- 2. 로그인 -->
+  <section id="sec-login" class="card">
+    <h2>2. 로그인 <span id="login-status" class="muted"></span></h2>
+    <label>Supabase URL</label>
+    <input id="supabaseUrl" placeholder="https://xxxx.supabase.co" />
+    <label>anon 키 <span class="warn">(공개키 — service_role 금지)</span></label>
+    <input id="anonKey" placeholder="eyJ..." />
+    <label>이메일</label>
+    <input id="email" type="email" placeholder="megaload 로그인 이메일" />
+    <label>비밀번호</label>
+    <input id="password" type="password" placeholder="비밀번호 (저장 안 됨)" />
+    <button id="btn-login" class="btn">로그인</button>
+    <span id="login-msg" class="muted small"></span>
+  </section>
+
+  <!-- 3. 실행 -->
+  <section id="sec-run" class="card">
+    <h2>3. 실행</h2>
+    <div class="stats">
+      <div><b id="st-processed">0</b><span>처리</span></div>
+      <div><b id="st-ok" class="ok">0</b><span>성공</span></div>
+      <div><b id="st-fail" class="fail">0</b><span>실패</span></div>
+    </div>
+    <p id="current" class="muted small"></p>
+    <div class="row">
+      <button id="btn-start" class="btn">워커 시작</button>
+      <button id="btn-stop" class="btn-ghost">정지</button>
+      <button id="btn-logs" class="btn-ghost">데이터 폴더</button>
+    </div>
+    <pre id="log" class="log"></pre>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

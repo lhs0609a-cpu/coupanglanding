@@ -849,6 +849,99 @@ export function useBulkRegisterActions() {
   const productsRef = useRef<EditableProduct[]>(products);
   productsRef.current = products;
 
+  // ---- 로컬 GPU 워커로 대표 썸네일 일괄 재생성 ----
+  const [thumbnailRegen, setThumbnailRegen] = useState<
+    { total: number; done: number; error: number; running: boolean; message?: string } | null
+  >(null);
+
+  /** 워커가 다운로드 가능한 http URL 확보 (preupload 캐시 우선, 없으면 업로드) */
+  const resolveRepImageUrl = useCallback(async (p: EditableProduct): Promise<string | null> => {
+    const cached = imagePreuploadCacheRef.current[p.uid]?.mainImageUrls?.[0];
+    if (cached && /^https?:\/\//i.test(cached)) return cached;
+    const rep = p.scannedMainImages?.[0];
+    if (!rep) return null;
+    if (rep.objectUrl && /^https?:\/\//i.test(rep.objectUrl)) return rep.objectUrl;
+    let blob: Blob | null = null;
+    if (rep.handle) { try { blob = await rep.handle.getFile(); } catch { /* ignore */ } }
+    if (!blob && rep.objectUrl) { try { blob = await (await fetch(rep.objectUrl)).blob(); } catch { /* ignore */ } }
+    if (!blob) return null;
+    const compressed = await compressImage(blob);
+    return uploadSingleImage(compressed, rep.name || `${p.productCode || p.uid}.jpg`);
+  }, []);
+
+  const handleBulkRegenerateThumbnails = useCallback(async (uids: string[]) => {
+    const targets = productsRef.current.filter(p => uids.includes(p.uid));
+    if (targets.length === 0) return;
+    const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+    setThumbnailRegen({ total: targets.length, done: 0, error: 0, running: true, message: '이미지 준비 중...' });
+
+    // 1) 워커가 받을 http URL 확보 (필요 시 업로드)
+    const jobs: { sourceUrl: string; productCode?: string; label: string }[] = [];
+    for (const p of targets) {
+      try {
+        const url = await resolveRepImageUrl(p);
+        if (url) jobs.push({ sourceUrl: url, productCode: p.productCode, label: p.uid });
+      } catch { /* skip */ }
+    }
+    if (jobs.length === 0) {
+      setThumbnailRegen({ total: targets.length, done: 0, error: targets.length, running: false, message: '재생성할 대표이미지를 찾지 못했습니다.' });
+      return;
+    }
+
+    // 2) enqueue
+    setThumbnailRegen({ total: jobs.length, done: 0, error: 0, running: true, message: `${jobs.length}건 큐 등록 중...` });
+    let batchId: string;
+    try {
+      const res = await fetch('/api/megaload/products/thumbnail-jobs/enqueue', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobs }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '큐 등록 실패');
+      batchId = data.batchId;
+    } catch (e) {
+      setThumbnailRegen({ total: jobs.length, done: 0, error: jobs.length, running: false, message: e instanceof Error ? e.message : '큐 등록 실패' });
+      return;
+    }
+
+    // 3) 워커 연결 확인 — 꺼져 있어도 잡은 큐에 남으니, 안내만 다르게
+    let workerOnline = false;
+    try {
+      const ws = await fetch('/api/megaload/products/thumbnail-jobs/worker-status');
+      workerOnline = ws.ok ? !!(await ws.json()).online : false;
+    } catch { /* ignore */ }
+
+    // 4) 폴링 — done 잡은 즉시 대표이미지 교체
+    setThumbnailRegen({
+      total: jobs.length, done: 0, error: 0, running: true,
+      message: workerOnline
+        ? '로컬 GPU 워커가 처리 중입니다...'
+        : '워커가 감지되지 않습니다 — 데스크톱 앱을 켜면 자동으로 처리됩니다 (큐에 등록됨)',
+    });
+    const applied = new Set<string>();
+    const deadline = Date.now() + 30 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await sleep(4000);
+      let data: { counts?: Record<string, number>; jobs?: { label?: string; status: string; result_url?: string }[] };
+      try {
+        const res = await fetch(`/api/megaload/products/thumbnail-jobs?batchId=${batchId}`);
+        if (!res.ok) continue;
+        data = await res.json();
+      } catch { continue; }
+      for (const j of data.jobs || []) {
+        if (j.status === 'done' && j.result_url && j.label && !applied.has(j.label)) {
+          applied.add(j.label);
+          handleSwapStockImage(j.label, 0, j.result_url);
+        }
+      }
+      const done = data.counts?.done || 0;
+      const error = data.counts?.error || 0;
+      const running = (done + error) < jobs.length;
+      setThumbnailRegen({ total: jobs.length, done, error, running, message: running ? undefined : '완료' });
+      if (!running) break;
+    }
+  }, [resolveRepImageUrl, handleSwapStockImage]);
+
   useEffect(() => {
     if (autoMatchingProgress === null && autoMatchStats && !pipelineRan && step === 2) {
       setPipelineRan(true);
@@ -2412,6 +2505,7 @@ export function useBulkRegisterActions() {
             : undefined,
           noticeValuesOverride: p.editedNoticeValues,
           attributeValuesOverride: p.editedAttributeValues,
+          buyOptionValuesOverride: p.editedAgriWeight ? { '농산물 중량': p.editedAgriWeight } : undefined,
           descriptionOverride: p.editedDescription,
           storyParagraphsOverride: p.editedStoryParagraphs,
           reviewTextsOverride: p.editedReviewTexts,
@@ -3225,6 +3319,7 @@ export function useBulkRegisterActions() {
           if (p.editedBarcode) product.barcode = p.editedBarcode;
           if (p.editedNoticeValues && Object.keys(p.editedNoticeValues).length > 0) product.noticeValuesOverride = p.editedNoticeValues;
           if (p.editedAttributeValues && Object.keys(p.editedAttributeValues).length > 0) product.attributeValuesOverride = p.editedAttributeValues;
+          if (p.editedAgriWeight) product.buyOptionValuesOverride = { '농산물 중량': p.editedAgriWeight };
           // 상세페이지 콘텐츠 오버라이드
           if (p.editedDescription !== undefined) product.descriptionOverride = p.editedDescription;
           if (p.editedStoryParagraphs && p.editedStoryParagraphs.length > 0) product.storyParagraphsOverride = p.editedStoryParagraphs;
@@ -3626,6 +3721,8 @@ export function useBulkRegisterActions() {
     toggleProduct, toggleAll, updateField,
     handleReorderImages, handleRemoveImage, handleToggleAutoExclude, getDetailImageUrls, handleSwapStockImage,
     handleTogglePromoteReview,
+    // 로컬 GPU 워커 — 대표 썸네일 일괄 재생성
+    handleBulkRegenerateThumbnails, thumbnailRegen,
     handlePrewarmProduct, handlePrewarmCancel,
     handleRegister, togglePause, handleReset, retryFailed, backToStep2, jumpToErrorGroup, retryAutoCategory,
     // 카테고리 정확도 개선

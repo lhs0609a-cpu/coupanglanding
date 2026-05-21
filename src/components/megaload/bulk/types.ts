@@ -84,6 +84,8 @@ export interface EditableProduct extends PreviewProduct {
   editedTaxType?: 'TAX' | 'FREE' | 'ZERO';
   editedAdultOnly?: 'EVERYONE' | 'ADULT_ONLY';
   editedBarcode?: string;
+  /** 다변량(택1) 상품에서 사용자가 고른 농산물 중량 (예: "5kg" 또는 "상세페이지 참조") */
+  editedAgriWeight?: string;
   editedParallelImported?: 'NOT_PARALLEL_IMPORTED' | 'PARALLEL_IMPORTED';
   editedOverseasPurchased?: 'NOT_OVERSEAS_PURCHASED' | 'OVERSEAS_PURCHASED';
   editedNoticeValues?: Record<string, string>;

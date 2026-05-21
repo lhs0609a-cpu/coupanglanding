@@ -1,0 +1,27 @@
+appId: com.megaload.thumbnailworker
+productName: CoupangThumbnailWorker
+# ESM import(runtime/*.mjs) + 동봉 바이너리(7zip-bin) 실행 안정성을 위해 asar 비활성.
+asar: false
+
+directories:
+  output: dist
+  # 아이콘을 쓰려면 build/icon.ico 추가 (없으면 Electron 기본 아이콘 사용)
+  buildResources: build
+
+files:
+  - main/**
+  - renderer/**
+  - runtime/**
+  - package.json
+  - node_modules/**
+
+win:
+  target:
+    - nsis
+
+# 원클릭 설치기 (사용자가 더블클릭 → 바로 설치)
+nsis:
+  oneClick: true
+  perMachine: false
+  shortcutName: 쿠팡썸네일워커
+  createDesktopShortcut: true

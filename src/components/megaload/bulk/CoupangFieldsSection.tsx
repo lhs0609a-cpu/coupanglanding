@@ -12,6 +12,7 @@ import StockImageSwapModal from './StockImageSwapModal';
 import GeminiRegenerateModal from './GeminiRegenerateModal';
 import { STOCK_CATEGORY_MAP } from '@/lib/megaload/data/stock-image-categories';
 import { shuffleWithSeed, type PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
+import { detectWeightCandidates, REFER_DETAIL } from './option-candidates';
 import type { PayloadPreviewData } from './PayloadPreviewPanel';
 import type { EditableProduct } from './types';
 
@@ -615,6 +616,32 @@ export default function CoupangFieldsSection({
           />
           <p className="text-[10px] text-gray-400 mt-0.5">{product.editedName.length}자</p>
         </div>
+
+        {/* 다변량(택1) 농산물 중량 선택 — 원본에 중량이 여러 개면 자동 확정 불가 → 사용자 택1 */}
+        {(() => {
+          const cands = detectWeightCandidates(product.name);
+          if (cands.length < 2) return null;
+          const picked = product.editedAgriWeight ?? '';
+          const unresolved = !picked;
+          return (
+            <div className={unresolved ? 'border-l-2 border-l-amber-400 pl-3' : ''}>
+              <RequiredLabel empty={unresolved}>농산물 중량 — 택1 선택 필요</RequiredLabel>
+              <select
+                value={picked}
+                onChange={(e) => onUpdate(product.uid, 'editedAgriWeight', e.target.value)}
+                className={inputRequired(unresolved)}
+              >
+                <option value="">선택하세요…</option>
+                {cands.map((o) => <option key={o} value={o}>{o}</option>)}
+                <option value={REFER_DETAIL}>{REFER_DETAIL}</option>
+              </select>
+              <p className="text-[10px] text-gray-400 mt-0.5">
+                원본에 여러 중량({cands.join(', ')})이 있어 자동 확정이 안 됩니다. 등록할 중량을 고르세요.
+                미선택 시 &quot;{REFER_DETAIL}&quot;로 등록됩니다.
+              </p>
+            </div>
+          );
+        })()}
 
         {/* 노출상품명 */}
         {(() => {

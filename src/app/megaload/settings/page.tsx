@@ -3,14 +3,16 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Settings, Save, Loader2, User, Gift, Tag, FileText, Bell, Sparkles } from 'lucide-react';
+import { Settings, Save, Loader2, User, Gift, Tag, FileText, Bell, Sparkles, Cpu } from 'lucide-react';
 import GeminiKeySettings from '@/components/megaload/settings/GeminiKeySettings';
+import LocalGpuWorkerSettings from '@/components/megaload/settings/LocalGpuWorkerSettings';
 
-type SettingsTab = 'account' | 'ai' | 'gifts' | 'sku' | 'names' | 'notifications';
+type SettingsTab = 'account' | 'ai' | 'localgpu' | 'gifts' | 'sku' | 'names' | 'notifications';
 
 const TABS: { key: SettingsTab; label: string; icon: typeof Settings }[] = [
   { key: 'account', label: '계정 설정', icon: User },
   { key: 'ai', label: 'AI 이미지', icon: Sparkles },
+  { key: 'localgpu', label: '로컬 GPU 썸네일', icon: Cpu },
   { key: 'gifts', label: '사은품 규칙', icon: Gift },
   { key: 'sku', label: 'SKU 매핑', icon: Tag },
   { key: 'names', label: '상품명 관리', icon: FileText },
@@ -21,7 +23,7 @@ export default function SettingsPage() {
   const supabase = useMemo(() => createClient(), []);
   const searchParams = useSearchParams();
   const initialTab = (searchParams.get('tab') as SettingsTab) || 'account';
-  const validTabs: SettingsTab[] = ['account', 'ai', 'gifts', 'sku', 'names', 'notifications'];
+  const validTabs: SettingsTab[] = ['account', 'ai', 'localgpu', 'gifts', 'sku', 'names', 'notifications'];
   const [activeTab, setActiveTab] = useState<SettingsTab>(
     validTabs.includes(initialTab) ? initialTab : 'account',
   );
@@ -188,6 +190,8 @@ export default function SettingsPage() {
           )}
 
           {activeTab === 'ai' && <GeminiKeySettings />}
+
+          {activeTab === 'localgpu' && <LocalGpuWorkerSettings />}
 
           {activeTab === 'gifts' && (
             <div className="bg-white rounded-xl border border-gray-200 p-6">

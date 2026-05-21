@@ -52,6 +52,8 @@ export interface BuildPayloadProduct {
   shippingDaysOverride?: number;
   noticeValuesOverride?: Record<string, string>;
   attributeValuesOverride?: Record<string, string>;
+  /** 다변량(택1) 상품에서 사용자가 검수 화면에서 고른 옵션값 (예: { "농산물 중량": "5kg" }) */
+  buyOptionValuesOverride?: Record<string, string>;
   descriptionOverride?: string;
   storyParagraphsOverride?: string[];
   reviewTextsOverride?: string[];
@@ -140,6 +142,19 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     ocrSpecs: product.ocrSpecs,
     categoryPath: product.categoryPath,
   });
+
+  // 다변량(택1) 상품에서 사용자가 검수 화면에서 고른 옵션값 적용.
+  //   추출기가 후보 2개↑를 "상세페이지 참조"로 둔 것을 사용자 선택값으로 확정한다.
+  //   override 문자열은 표시값 그대로(예 "5kg") — unit 없는 농산물 중량 옵션 대상이라 unit은 비운다.
+  if (product.buyOptionValuesOverride) {
+    for (const opt of extracted.buyOptions) {
+      const picked = product.buyOptionValuesOverride[opt.name];
+      if (picked != null && picked !== '') {
+        opt.value = picked;
+        opt.unit = undefined;
+      }
+    }
+  }
 
   // 노출상품명(title) 꼬리 spec 처리.
   // - 사용자가 검수 화면에서 직접 편집한 displayProductNameOverride 는 "사용자 의사"로

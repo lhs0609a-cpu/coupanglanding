@@ -385,6 +385,8 @@ export default function BulkRegisterPanel() {
           onPrewarmProduct={actions.handlePrewarmProduct}
           onPrewarmCancel={actions.handlePrewarmCancel}
           onSwapStockImage={actions.handleSwapStockImage}
+          onBulkRegenerateThumbnails={actions.handleBulkRegenerateThumbnails}
+          thumbnailRegen={actions.thumbnailRegen}
           getDetailImageUrls={actions.getDetailImageUrls}
           selectedOutbound={actions.selectedOutbound}
           selectedReturn={actions.selectedReturn}

@@ -63,6 +63,10 @@ export interface ExtractedOptions {
   warnings: string[];  // missing required fields
   /** 총 수량 (unitCount용): perCount × count 또는 count. 쿠팡의 unitCount는 묶음 내 총 수량. */
   totalUnitCount?: number;
+  /** 다변량(택1) 상품이라 단일 옵션값을 자동 확정할 수 없음 — 사용자 선택 필요 */
+  ambiguous?: boolean;
+  /** 모호한 옵션별 후보값 목록 (예: 농산물 중량 → ["5kg","10kg"]). 사용자가 택1. */
+  optionCandidates?: { name: string; candidates: string[] }[];
 }
 
 /** 5-Layer 추출을 위한 확장 컨텍스트 */
@@ -1751,10 +1755,54 @@ export async function extractOptionsEnhanced(context: ProductContext): Promise<E
   // ── 정합성 검증: 단위중량 비현실 (예: "사과 10과 240g" = 24g/개) ──
   validateUnitWeightPlausibility(context.productName, result, warnings);
 
+  // ── 다변량(택1) 감지: 상품명에 서로 다른 중량이 2개 이상이면 (예: "수박 5kg 9kg 14kg 택1")
+  //    단일 옵션값을 자동 확정할 수 없다. "마지막 kg 강제선택"(오선택의 주원인)을 멈추고
+  //    unit 없는 중량옵션(농산물 중량 등)을 "상세페이지 참조"로 두되 후보를 노출해 사용자가 택1.
+  //    ⚠️ 단일 중량/범위(7~9kg=후보1개)는 건드리지 않음 → 기존 동작/회귀검증 영향 없음.
+  const { ambiguous, optionCandidates } = detectVariantAmbiguity(context.productName, result);
+
   return {
     buyOptions: result,
     confidence: Math.round(confidence * 100) / 100,
     warnings,
     totalUnitCount: totalUnitCount > 0 ? totalUnitCount : undefined,
+    ambiguous: ambiguous || undefined,
+    optionCandidates: optionCandidates.length > 0 ? optionCandidates : undefined,
   };
+}
+
+/**
+ * 다변량(택1) 중량 감지 — 상품명에 distinct kg 후보가 2개 이상이면,
+ * unit 없는 중량옵션을 "상세페이지 참조"로 전환하고 후보 목록을 반환한다.
+ * result 를 in-place 로 수정한다.
+ */
+function detectVariantAmbiguity(
+  productName: string,
+  result: { name: string; value: string; unit?: string }[],
+): { ambiguous: boolean; optionCandidates: { name: string; candidates: string[] }[] } {
+  const PLACEHOLDER = '상세페이지 참조';
+  const optionCandidates: { name: string; candidates: string[] }[] = [];
+
+  // 한글 콤마 소수점(2,5kg) 정규화 후 distinct kg 후보 수집. "x N"(묶음수량) 패턴은 제외.
+  const normalized = productName.replace(/(\d),(\d{1,2})(?=\s*(?:kg|KG|㎏))/g, '$1.$2');
+  const kgRe = /(\d+(?:\.\d+)?)\s*(?:kg|KG|㎏)(?!\s*[xX×]\s*\d)/gi;
+  const kgSet = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = kgRe.exec(normalized)) !== null) {
+    const v = parseFloat(m[1]);
+    if (v > 0) kgSet.add(`${v}kg`);
+  }
+  if (kgSet.size < 2) return { ambiguous: false, optionCandidates };
+
+  const candidates = [...kgSet].sort((a, b) => parseFloat(a) - parseFloat(b));
+  let ambiguous = false;
+  for (const opt of result) {
+    // 농수산물 중량 등 unit 없는 중량옵션만 대상 (unit='g' 단위형은 숫자 강제라 placeholder 부적합)
+    if (!opt.unit && /중량|무게/.test(opt.name)) {
+      opt.value = PLACEHOLDER;
+      optionCandidates.push({ name: opt.name, candidates });
+      ambiguous = true;
+    }
+  }
+  return { ambiguous, optionCandidates };
 }

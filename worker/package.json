@@ -1,0 +1,17 @@
+{
+  "name": "coupang-thumbnail-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "로컬 GPU(ComfyUI SDXL)로 쿠팡 썸네일을 일괄 재생성하는 워커. 의존성 0.",
+  "type": "module",
+  "bin": {
+    "coupang-thumbnail-regen": "regenerate-thumbnails.mjs"
+  },
+  "scripts": {
+    "regen": "node regenerate-thumbnails.mjs",
+    "dry-run": "node regenerate-thumbnails.mjs --dry-run"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

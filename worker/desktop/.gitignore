@@ -1,0 +1,6 @@
+node_modules/
+dist/
+# sync-runtime.mjs 가 ../lib 에서 생성하는 빌드 산출물
+runtime/
+# 선택: 아이콘은 로컬에만
+build/icon.ico

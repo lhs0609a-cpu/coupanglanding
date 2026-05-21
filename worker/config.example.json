@@ -1,0 +1,24 @@
+{
+  "_comment": "이 파일을 config.json 으로 복사해서 사용. CLI 인자가 항상 우선한다.",
+  "root": "C:\\Users\\me\\Desktop\\배치폴더",
+  "comfyUrl": "http://127.0.0.1:8188",
+  "workflow": "workflows/sdxl-inpaint-thumbnail.example.json",
+  "write": "sibling",
+  "timeoutSec": 300,
+  "positivePrompt": "professional Coupang e-commerce product thumbnail, the product centered on a pure seamless white studio background (#FFFFFF), soft diffused studio lighting, subtle natural contact shadow directly beneath the product, photorealistic commercial product photography, sharp focus, clean and minimal, 1:1 square composition",
+  "negativePrompt": "text, watermark, logo, extra objects, props, lifestyle scene, hands, people, colored background, gradient background, dark shadows, blurry, low quality, distorted, deformed, duplicated product, frame, border",
+  "nodeIds": {
+    "_comment": "워커가 class_type으로 자동탐지하므로 보통 비워둬도 됨. 자동탐지가 틀리면 여기에 노드 ID를 직접 지정.",
+    "loadImage": null,
+    "positive": null,
+    "negative": null
+  },
+  "cloud": {
+    "_comment": "cloud-worker.mjs (풀 워커) 전용. ★anonKey는 반드시 공개 anon 키 — service_role 키 금지.",
+    "supabaseUrl": "https://xxxx.supabase.co",
+    "anonKey": "eyJ...(NEXT_PUBLIC_SUPABASE_ANON_KEY 값)",
+    "email": "내 megaload 로그인 이메일",
+    "password": "비밀번호 (또는 환경변수 WORKER_PASSWORD 권장)",
+    "pollSec": 5
+  }
+}
