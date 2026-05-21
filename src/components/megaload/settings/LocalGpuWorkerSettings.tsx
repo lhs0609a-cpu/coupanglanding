@@ -4,10 +4,18 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Cpu, Download, CheckCircle2, AlertCircle, Loader2, Wifi, WifiOff,
   MonitorDown, Sparkles, ExternalLink, Gauge, XCircle, MinusCircle,
+  Wand2, Save, RotateCcw,
 } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
 
 // 빌드한 설치 .exe 의 GitHub Releases 링크. 배포 시 환경변수로 주입.
 const DOWNLOAD_URL = process.env.NEXT_PUBLIC_WORKER_DOWNLOAD_URL || '';
+
+// 워커 내장 기본 프롬프트와 동일 — 비워두면 워커가 이 기본값을 사용한다(placeholder로만 표시).
+const BUILTIN_POSITIVE =
+  'professional Coupang e-commerce product thumbnail, the product centered on a pure seamless white studio background (#FFFFFF), soft diffused studio lighting, subtle natural contact shadow directly beneath the product, photorealistic commercial product photography, sharp focus, clean and minimal, 1:1 square composition';
+const BUILTIN_NEGATIVE =
+  'text, watermark, logo, extra objects, props, lifestyle scene, hands, people, colored background, gradient background, dark shadows, blurry, low quality, distorted, deformed, duplicated product, frame, border';
 
 interface WorkerStatus {
   online: boolean;
@@ -113,6 +121,13 @@ export default function LocalGpuWorkerSettings() {
   const [loading, setLoading] = useState(true);
   const [spec, setSpec] = useState<SpecCheck | null>(null);
 
+  // 계정 기본 프롬프트 (비우면 워커 내장 기본값 사용). enqueue 시 서버가 자동 첨부.
+  const [promptPos, setPromptPos] = useState('');
+  const [promptNeg, setPromptNeg] = useState('');
+  const [promptLoading, setPromptLoading] = useState(true);
+  const [promptSaving, setPromptSaving] = useState(false);
+  const [promptSavedAt, setPromptSavedAt] = useState<number | null>(null);
+
   const loadStatus = useCallback(async () => {
     try {
       const res = await fetch('/api/megaload/products/thumbnail-jobs/worker-status');
@@ -124,11 +139,51 @@ export default function LocalGpuWorkerSettings() {
     }
   }, []);
 
+  const loadPrompts = useCallback(async () => {
+    try {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from('megaload_users')
+        .select('thumbnail_prompt, thumbnail_negative_prompt')
+        .eq('profile_id', user.id)
+        .single();
+      if (data) {
+        setPromptPos((data.thumbnail_prompt as string | null) || '');
+        setPromptNeg((data.thumbnail_negative_prompt as string | null) || '');
+      }
+    } catch { /* ignore */ } finally {
+      setPromptLoading(false);
+    }
+  }, []);
+
+  const savePrompts = useCallback(async () => {
+    setPromptSaving(true);
+    try {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await supabase
+        .from('megaload_users')
+        .update({
+          thumbnail_prompt: promptPos.trim() || null,
+          thumbnail_negative_prompt: promptNeg.trim() || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('profile_id', user.id);
+      setPromptSavedAt(Date.now());
+    } catch { /* ignore */ } finally {
+      setPromptSaving(false);
+    }
+  }, [promptPos, promptNeg]);
+
   useEffect(() => {
     loadStatus();
+    loadPrompts();
     const id = setInterval(loadStatus, 10_000); // 10초마다 갱신
     return () => clearInterval(id);
-  }, [loadStatus]);
+  }, [loadStatus, loadPrompts]);
 
   return (
     <div className="space-y-5 max-w-2xl">
@@ -244,6 +299,77 @@ export default function LocalGpuWorkerSettings() {
           <div className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-400 rounded-lg font-semibold text-sm cursor-not-allowed">
             <MonitorDown className="w-4 h-4" />
             다운로드 준비 중 (관리자 등록 대기)
+          </div>
+        )}
+      </div>
+
+      {/* 생성 프롬프트 (계정 기본값) */}
+      <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <h4 className="text-sm font-semibold text-gray-800 mb-1 flex items-center gap-1.5">
+          <Wand2 className="w-4 h-4 text-indigo-500" /> 생성 프롬프트 (선택)
+        </h4>
+        <p className="text-xs text-gray-500 mb-3">
+          썸네일 배경을 어떤 스타일로 만들지 직접 지정합니다. <b>비워두면</b> 기본값(쿠팡식 순백 스튜디오 배경)으로 생성됩니다.
+          저장 후 새로 누르는 “로컬 GPU로 대표 썸네일 재생성”부터 적용돼요.
+        </p>
+
+        {promptLoading ? (
+          <p className="text-xs text-gray-400">불러오는 중...</p>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">원하는 스타일 (positive)</label>
+              <textarea
+                value={promptPos}
+                onChange={(e) => setPromptPos(e.target.value)}
+                rows={3}
+                placeholder={BUILTIN_POSITIVE}
+                className="w-full text-xs rounded-md border border-gray-300 px-2.5 py-2 leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 resize-y"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">제외할 요소 (negative)</label>
+              <textarea
+                value={promptNeg}
+                onChange={(e) => setPromptNeg(e.target.value)}
+                rows={2}
+                placeholder={BUILTIN_NEGATIVE}
+                className="w-full text-xs rounded-md border border-gray-300 px-2.5 py-2 leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 resize-y"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={savePrompts}
+                disabled={promptSaving}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-md text-xs font-semibold hover:bg-indigo-700 disabled:opacity-60 transition"
+              >
+                {promptSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                {promptSaving ? '저장 중...' : '프롬프트 저장'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setPromptPos(''); setPromptNeg(''); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-300 text-gray-600 rounded-md text-xs font-semibold hover:bg-gray-50 transition"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                기본값으로 비우기
+              </button>
+              {promptSavedAt && !promptSaving && (
+                <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> 저장됨
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-start gap-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-2">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px" />
+              <span>
+                로컬 워커는 누끼의 <b>배경만</b> 새로 그리고 상품 픽셀은 보존합니다. 잘리거나 불완전한 상품을 <b>복원·완성</b>하려면
+                상품 화면의 <b>Gemini 재생성</b>을 사용하세요(전체 재생성).
+              </span>
+            </div>
           </div>
         )}
       </div>

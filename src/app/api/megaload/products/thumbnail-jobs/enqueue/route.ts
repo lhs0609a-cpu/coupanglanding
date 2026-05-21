@@ -47,8 +47,18 @@ export async function POST(req: NextRequest) {
     }
 
     const batchId = randomUUID();
-    const prompt = body.prompt?.trim() || null;
-    const negativePrompt = body.negativePrompt?.trim() || null;
+    // 우선순위: 요청에 명시된 프롬프트 > 계정 기본값(설정 화면 저장) > NULL(워커 내장 기본값)
+    let prompt = body.prompt?.trim() || null;
+    let negativePrompt = body.negativePrompt?.trim() || null;
+    if (prompt === null || negativePrompt === null) {
+      const { data: defaults } = await serviceClient
+        .from('megaload_users')
+        .select('thumbnail_prompt, thumbnail_negative_prompt')
+        .eq('id', shUserId)
+        .single();
+      if (prompt === null) prompt = (defaults?.thumbnail_prompt as string | null)?.trim() || null;
+      if (negativePrompt === null) negativePrompt = (defaults?.thumbnail_negative_prompt as string | null)?.trim() || null;
+    }
 
     const rows = cleaned.map((j) => ({
       megaload_user_id: shUserId,
