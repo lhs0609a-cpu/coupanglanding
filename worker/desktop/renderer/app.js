@@ -15,13 +15,13 @@ function setBadge(running) {
 
 async function refresh() {
   const s = await api.invoke('state:get');
-  // settings 채우기
-  $('supabaseUrl').value = s.settings.supabaseUrl || '';
-  $('anonKey').value = s.settings.anonKey || '';
-  $('email').value = s.settings.email || '';
   $('install-status').textContent = s.installed ? '✅ 설치됨' : '미설치';
-  $('login-status').textContent = s.loggedIn ? '✅ 로그인됨' : '미로그인';
+  $('pair-status').textContent = s.loggedIn ? '✅ 연결됨' : '미연결';
+  $('btn-pair').disabled = s.loggedIn;
+  $('btn-pair').textContent = s.loggedIn ? '✅ 메가로드 연결됨' : '메가로드 자동 연결';
   $('btn-start').disabled = !(s.installed && s.loggedIn) || s.running;
+  $('btn-stop').disabled = !s.running;
+  $('auto-hint').textContent = (s.installed && s.loggedIn && !s.running) ? '— 자동 시작 가능' : '';
   setBadge(s.running);
   $('st-processed').textContent = s.stats.processed;
   $('st-ok').textContent = s.stats.ok;
@@ -55,23 +55,20 @@ api.on('install:progress', (p) => {
   if (p.detail) $('install-detail').textContent = `${p.detail} (${p.pct ?? 0}%)`;
 });
 
-// ── 로그인 ──
-$('btn-login').onclick = async () => {
-  $('login-msg').textContent = '로그인 중...';
+// ── 메가로드 자동 연결 ──
+$('btn-pair').onclick = async () => {
+  $('pair-msg').textContent = '브라우저를 여는 중... 메가로드 페이지에서 자동 처리됩니다.';
   try {
-    await api.invoke('auth:login', {
-      supabaseUrl: $('supabaseUrl').value.trim(),
-      anonKey: $('anonKey').value.trim(),
-      email: $('email').value.trim(),
-      password: $('password').value,
-    });
-    $('password').value = '';
-    $('login-msg').textContent = '✅ 로그인 성공';
-    await refresh();
+    await api.invoke('pair:open');
   } catch (e) {
-    $('login-msg').textContent = '❌ ' + e.message;
+    $('pair-msg').textContent = '❌ ' + e.message;
   }
 };
+api.on('pair:done', async () => {
+  $('pair-msg').textContent = '✅ 메가로드 연결 완료';
+  logLine('메가로드 자동 연결 성공');
+  await refresh();
+});
 
 // ── 워커 ──
 $('btn-start').onclick = async () => {
@@ -80,6 +77,10 @@ $('btn-start').onclick = async () => {
 };
 $('btn-stop').onclick = async () => { await api.invoke('worker:stop'); logLine('워커 정지'); await refresh(); };
 $('btn-logs').onclick = () => api.invoke('logs:openData');
+
+api.on('auto:started', async (ok) => {
+  if (ok) { logLine('🚀 자동 시작됨'); await refresh(); }
+});
 
 api.on('worker:event', (e) => {
   switch (e.type) {
@@ -94,3 +95,4 @@ api.on('worker:event', (e) => {
 api.on('comfy:log', (m) => logLine('[ComfyUI] ' + m));
 
 refresh();
+setInterval(refresh, 5000);

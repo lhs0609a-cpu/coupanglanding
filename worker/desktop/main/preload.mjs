@@ -1,10 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 const invokable = new Set([
-  'state:get', 'gpu:check', 'settings:save', 'install:start',
-  'auth:login', 'worker:start', 'worker:stop', 'comfy:stop', 'logs:openData',
+  'state:get', 'gpu:check', 'install:start',
+  'pair:open',
+  'worker:start', 'worker:stop', 'comfy:stop', 'logs:openData',
 ]);
-const events = new Set(['install:progress', 'worker:event', 'comfy:log']);
+const events = new Set(['install:progress', 'worker:event', 'comfy:log', 'pair:done', 'auto:started']);
 
 contextBridge.exposeInMainWorld('api', {
   invoke: (channel, payload) => {

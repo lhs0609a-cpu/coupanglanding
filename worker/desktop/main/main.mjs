@@ -4,15 +4,21 @@ import { fileURLToPath } from 'node:url';
 import { Store } from './store.mjs';
 import { ComfyManager } from './comfy-manager.mjs';
 import { WorkerRunner } from './worker-runner.mjs';
+import { startPairServer } from './pair-server.mjs';
 import * as bootstrap from './bootstrap.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = join(here, '..');
 const DEFAULT_WORKFLOW = join(appRoot, 'runtime', 'workflows', 'sdxl-inpaint-thumbnail.example.json');
 
+// ── 임베드 설정 (공개키 — 사용자 입력 불필요) ─────────────────────────
+const SUPABASE_URL = 'https://dwfhcshvkxyokvtbgluw.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR3Zmhjc2h2a3h5b2t2dGJnbHV3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0MzExODEsImV4cCI6MjA4ODAwNzE4MX0.i4WbW-k6oaHX-LqJ2VDd14RAK-g8C9a5bHVEkwF1GPM';
+const WEB_ORIGIN = 'https://www.megaload.co.kr';
+
 let win = null;
 let tray = null;
-let store, comfy, runner;
+let store, comfy, runner, pair;
 let installDir, comfyPort;
 const stats = { processed: 0, ok: 0, fail: 0, current: null };
 
@@ -41,7 +47,7 @@ function onWorkerEvent(e) {
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 520, height: 680, resizable: true,
+    width: 520, height: 620, resizable: true,
     title: '쿠팡 썸네일 워커',
     webPreferences: {
       preload: join(here, 'preload.mjs'),
@@ -52,13 +58,12 @@ function createWindow() {
   });
   win.removeMenu();
   win.loadFile(join(appRoot, 'renderer', 'index.html'));
-  win.on('close', (e) => {           // 닫기 → 트레이로 최소화 (백그라운드 유지)
+  win.on('close', (e) => {
     if (!app.isQuitting) { e.preventDefault(); win.hide(); }
   });
 }
 
 function trayIcon() {
-  // 간단한 단색 아이콘 (별도 에셋 없이 동작)
   const img = nativeImage.createFromDataURL(
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAQUlEQVR4nGNgGAWjYBSMglEwCkbBKBgFo2AUjIJRMApGwSgYBaNgFIyCUTAKRsEoGAWjYBSMglEwCkbBKBgFAFb4AAGcm5pVAAAAAElFTkSuQmCC',
   );
@@ -99,6 +104,19 @@ async function stopWorker() {
   updateTray();
 }
 
+async function autoStartIfReady() {
+  try {
+    if (runner.running) return;
+    if (!runner.loggedIn) return;
+    if (!(await bootstrap.isInstalled(installDir))) return;
+    await startWorker();
+    send('auto:started', true);
+  } catch (e) {
+    send('auto:started', false);
+    send('comfy:log', '자동 시작 실패: ' + (e.message || e));
+  }
+}
+
 // ── IPC ───────────────────────────────────────────────────
 function registerIpc() {
   ipcMain.handle('state:get', async () => ({
@@ -106,19 +124,12 @@ function registerIpc() {
     comfyRunning: await comfy.isUp(),
     loggedIn: runner.loggedIn,
     running: runner.running,
+    paired: !!pair && pair.isPaired(),
+    webOrigin: WEB_ORIGIN,
     stats,
-    settings: {
-      supabaseUrl: store.get('supabaseUrl', ''),
-      anonKey: store.get('anonKey', ''),
-      email: store.get('email', ''),
-      comfyArchiveUrl: store.get('comfyArchiveUrl', bootstrap.DEFAULTS.comfyArchiveUrl),
-      modelUrl: store.get('modelUrl', bootstrap.DEFAULTS.modelUrl),
-    },
   }));
 
   ipcMain.handle('gpu:check', () => bootstrap.checkGpu());
-
-  ipcMain.handle('settings:save', (_e, patch) => { store.merge(patch); return true; });
 
   ipcMain.handle('install:start', async () => {
     await bootstrap.install({
@@ -129,12 +140,15 @@ function registerIpc() {
       },
       onProgress: (p) => send('install:progress', p),
     });
+    // 설치 완료 후, 이미 로그인되어 있으면 자동 시작
+    autoStartIfReady();
     return true;
   });
 
-  ipcMain.handle('auth:login', async (_e, { supabaseUrl, anonKey, email, password }) => {
-    await runner.login(supabaseUrl, anonKey, email, password);
-    store.merge({ supabaseUrl, anonKey, email });   // 비밀번호는 저장 안 함 (.session.json 토큰만 캐시)
+  ipcMain.handle('pair:open', () => {
+    if (!pair) throw new Error('페어링 서버 준비 안 됨');
+    const url = `${WEB_ORIGIN}/worker/activate?port=${pair.port}&nonce=${encodeURIComponent(pair.nonce)}`;
+    shell.openExternal(url);
     return true;
   });
 
@@ -152,15 +166,30 @@ app.whenReady().then(async () => {
   createWindow();
   tray = new Tray(trayIcon());
   updateTray();
-  // 저장된 세션 자동 복구
-  await runner.tryRestoreSession(store.get('supabaseUrl'), store.get('anonKey'));
+
+  // 1) 저장된 세션 자동 복구 (임베드된 SUPABASE_URL/anon 사용)
+  await runner.tryRestoreSession(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // 2) 로컬 페어링 서버 시작 (웹이 세션 토큰 전달용)
+  pair = await startPairServer({
+    onPair: async (tokens) => {
+      await runner.pair(SUPABASE_URL, SUPABASE_ANON_KEY, tokens);
+      send('pair:done', true);
+      win?.show(); win?.focus();
+      // 페어 직후, 엔진이 설치되어 있으면 자동 워커 시작
+      autoStartIfReady();
+    },
+  });
+
+  // 3) 이미 로그인되어 있고 엔진도 설치되어 있으면 자동 시작
+  autoStartIfReady();
 });
 
 app.on('before-quit', async (e) => {
   if (app.isQuitting) return;
   app.isQuitting = true;
   e.preventDefault();
-  try { await stopWorker(); await comfy.stop(); } catch { /* ignore */ }
+  try { await stopWorker(); await comfy.stop(); await pair?.close(); } catch { /* ignore */ }
   app.quit();
 });
 

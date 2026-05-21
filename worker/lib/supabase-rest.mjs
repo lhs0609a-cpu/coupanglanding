@@ -79,6 +79,27 @@ export class Session {
     this.s = await login(this.supabaseUrl, this.anonKey, email, password);
     await this._persist();
   }
+  /** 웹 페어링으로 받은 세션을 직접 주입 (로그인 호출 없이) */
+  async seed({ access_token, refresh_token, expires_at }) {
+    if (!access_token || !refresh_token) throw new Error('access_token/refresh_token 필수');
+    this.s = {
+      access_token,
+      refresh_token,
+      expires_at: typeof expires_at === 'number' ? expires_at : Date.now() + 3600 * 1000,
+    };
+    await this._persist();
+  }
+  /** 저장된 세션만 복구 시도 (로그인 안 함). 성공 시 true */
+  async tryRestore() {
+    if (!this.filePath) return false;
+    try {
+      const saved = JSON.parse(await readFile(this.filePath, 'utf8'));
+      if (!saved.refresh_token) return false;
+      this.s = await refresh(this.supabaseUrl, this.anonKey, saved.refresh_token);
+      await this._persist();
+      return true;
+    } catch { return false; }
+  }
   async _persist() {
     if (this.filePath && this.s) {
       try { await writeFile(this.filePath, JSON.stringify(this.s, null, 2)); } catch { /* ignore */ }

@@ -31,14 +31,21 @@ export class WorkerRunner {
     this.session = s;
   }
 
+  /** 웹 페어링으로 받은 세션 주입 */
+  async pair(supabaseUrl, anonKey, sessionTokens) {
+    const s = new Session(supabaseUrl, anonKey, join(this.userDataDir, '.session.json'));
+    await s.seed(sessionTokens);
+    this.session = s;
+  }
+
   /** 저장된 세션(.session.json)으로 자동 로그인 시도 — 성공 시 true */
   async tryRestoreSession(supabaseUrl, anonKey) {
     if (!supabaseUrl || !anonKey) return false;
     try {
       const s = new Session(supabaseUrl, anonKey, join(this.userDataDir, '.session.json'));
-      await s.loadOrLogin();
-      this.session = s;
-      return true;
+      const ok = await s.tryRestore();
+      if (ok) { this.session = s; return true; }
+      return false;
     } catch { return false; }
   }
 
