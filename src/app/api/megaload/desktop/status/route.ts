@@ -42,14 +42,19 @@ export async function GET() {
       : 0;
     const heartbeatAgeMin = heartbeatMs ? Math.floor((now - heartbeatMs) / 60_000) : -1;
 
-    // 최근 1시간 데스크탑 체크 수
+    // 최근 1시간 동안 실제로 체크된 모니터 수.
+    // ⚠️ 과거엔 sh_stock_monitor_logs(event_type='desktop_check') 행을 셌으나,
+    //    그 로그는 results 라우트에서 "상태가 바뀌고 + 에러가 아닐 때"만 기록된다.
+    //    → 상태가 안정적이거나(대부분) 에러(네이버 속도제한)면 0건이 되어,
+    //      데스크탑이 정상 동작 중인데도 "동작하지 않음" 오진(false alarm)이 발생했다.
+    //    실제 체크 신호는 results 라우트가 매 결과마다 갱신하는 last_checked_at 이다.
     const oneHourAgo = new Date(now - 60 * 60_000).toISOString();
     const { count: recentChecks } = await serviceClient
-      .from('sh_stock_monitor_logs')
+      .from('sh_stock_monitors')
       .select('*', { count: 'exact', head: true })
       .eq('megaload_user_id', shUserId)
-      .eq('event_type', 'desktop_check')
-      .gte('created_at', oneHourAgo);
+      .eq('is_active', true)
+      .gte('last_checked_at', oneHourAgo);
 
     // 전체 모니터 수
     const { count: totalMonitors } = await serviceClient
