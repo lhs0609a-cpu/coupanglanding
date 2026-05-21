@@ -1,6 +1,6 @@
 {
   "name": "coupang-thumbnail-worker-desktop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "쿠팡 썸네일 재생성 로컬 GPU 워커 (Electron 트레이 앱, ComfyUI 자동 설치).",
   "author": "Megaload",
