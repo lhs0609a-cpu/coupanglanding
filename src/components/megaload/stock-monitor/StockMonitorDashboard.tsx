@@ -142,6 +142,35 @@ export default function StockMonitorDashboard() {
 
   const [apiError, setApiError] = useState<string | null>(null);
 
+  // 데스크탑 앱 (모니터링 도우미) 상태 — 죽으면 서버 cron 단일 IP가 네이버에 차단당해
+  // 모든 모니터가 "조회 실패" 로 떨어진다. 사용자가 즉시 인지할 수 있도록 상단 배너로 표시.
+  interface DesktopStatus {
+    isAlive: boolean;
+    tokenIssued: boolean;
+    lastHeartbeatAt: string | null;
+    heartbeatAgeMin: number;
+    monitorsCheckedRecently: number;
+    diagnosis: string;
+  }
+  const [desktopStatus, setDesktopStatus] = useState<DesktopStatus | null>(null);
+
+  const fetchDesktopStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/megaload/desktop/status');
+      if (res.ok) {
+        const data = await res.json();
+        setDesktopStatus(data);
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => {
+    fetchDesktopStatus();
+    // 5분마다 갱신
+    const id = setInterval(fetchDesktopStatus, 5 * 60_000);
+    return () => clearInterval(id);
+  }, [fetchDesktopStatus]);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     setApiError(null);
@@ -311,10 +340,13 @@ export default function StockMonitorDashboard() {
 
   const handleResetErrors = async () => {
     try {
+      // 'error_state' — source_status='error' 인 모니터 전체 리셋.
+      //   consecutive_errors=0 이지만 인프라 에러(403/프록시 미배포)로 error 상태인 모니터까지
+      //   포함해야 데스크탑 앱 복구 후 일괄 정상화 가능. 'errors' 는 누적 1회 이상만 잡아서 누락 있음.
       const res = await fetch('/api/megaload/stock-monitor/check', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'errors' }),
+        body: JSON.stringify({ scope: 'error_state' }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -440,8 +472,53 @@ export default function StockMonitorDashboard() {
     { tab: 'no_source_url', label: '원본 URL 필요', count: stats?.needsSourceUrl ?? 0 },
   ];
 
+  // 데스크탑 앱 배너 표시 여부 — 토큰 발급된 사용자에 한해, 비정상 상태일 때만
+  const showDesktopBanner = !!desktopStatus
+    && desktopStatus.tokenIssued
+    && (!desktopStatus.isAlive || desktopStatus.monitorsCheckedRecently === 0);
+
   return (
     <div className="space-y-6">
+      {/* 데스크탑 앱 (모니터링 도우미) 비정상 알림 — "네이버 조회 실패" 의 1번 원인 */}
+      {showDesktopBanner && desktopStatus && (
+        <div className="flex items-start gap-3 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+          <AlertTriangle className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <div className="text-sm font-semibold text-orange-900">
+              모니터링 도우미가 동작하지 않고 있습니다 — 네이버 가격 조회 실패의 가장 큰 원인
+            </div>
+            <div className="text-xs text-orange-800 mt-1">
+              {desktopStatus.diagnosis}
+              {desktopStatus.heartbeatAgeMin >= 0 && (
+                <span className="ml-1 text-orange-700">
+                  (마지막 접속 {desktopStatus.heartbeatAgeMin >= 60
+                    ? `${Math.floor(desktopStatus.heartbeatAgeMin / 60)}시간`
+                    : `${desktopStatus.heartbeatAgeMin}분`} 전)
+                </span>
+              )}
+            </div>
+            <div className="text-xs text-orange-700 mt-1">
+              데스크탑 앱이 멈추면 서버가 단일 IP로 대신 호출하게 되어 네이버가 봇으로 인식하고 차단합니다.
+              트레이 아이콘을 우클릭해서 재시작하거나 PC 를 재부팅한 뒤, 아래 "에러 일괄 리셋" 버튼으로 모니터를 정상화하세요.
+            </div>
+            <div className="mt-2 flex gap-2">
+              <a
+                href="/megaload/desktop-app"
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-orange-900 bg-white border border-orange-300 rounded hover:bg-orange-100 transition"
+              >
+                모니터링 도우미 설치/점검 페이지로 이동 <ExternalLink className="w-3 h-3" />
+              </a>
+              <button
+                onClick={handleResetErrors}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-orange-900 bg-white border border-orange-300 rounded hover:bg-orange-100 transition"
+              >
+                <RefreshCw className="w-3 h-3" /> 에러 일괄 리셋 (재체크 예약)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 헤더 */}
       <div className="flex items-center justify-between">
         <div>
@@ -717,9 +794,13 @@ export default function StockMonitorDashboard() {
                             ? 'unknown'
                             : m.source_status as 'in_stock' | 'sold_out' | 'removed' | 'unknown' | 'error'
                       } />
-                      {m.source_url && m.source_status === 'error' && m.consecutive_errors > 0 && (
+                      {m.source_url && m.source_status === 'error' && (
                         <div className="text-[9px] text-orange-500 mt-0.5">
-                          {m.consecutive_errors >= 5 ? '네이버 속도제한' : `연속 ${m.consecutive_errors}회 실패`}
+                          {m.consecutive_errors === 0
+                            ? 'IP 차단(서버 인프라)' /* infra-class: 누적 0 → 차단으로 일괄 영향 */
+                            : m.consecutive_errors >= 5
+                              ? '네이버 속도제한'
+                              : `연속 ${m.consecutive_errors}회 실패`}
                         </div>
                       )}
                     </td>

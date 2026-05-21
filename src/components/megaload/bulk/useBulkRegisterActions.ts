@@ -238,6 +238,7 @@ export function useBulkRegisterActions() {
   const [preflightResults, setPreflightResults] = useState<Record<string, PreflightProductResult>>({});
   const [preflightStats, setPreflightStats] = useState<{ total: number; pass: number; fail: number; warn: number } | null>(null);
   const [preflightDurationMs, setPreflightDurationMs] = useState(0);
+  const [preflightErrorReason, setPreflightErrorReason] = useState<string | null>(null);
 
   // Canary
   const [canaryPhase, setCanaryPhase] = useState<'idle' | 'running' | 'complete' | 'error'>('idle');
@@ -2461,12 +2462,37 @@ export function useBulkRegisterActions() {
 
   // ---- Preflight ----
   const handlePreflight = useCallback(async () => {
-    const selectedProds = products.filter(p => p.selected && p.editedCategoryCode && p.validationStatus !== 'error');
-    if (selectedProds.length === 0) return;
+    const allSelected = products.filter(p => p.selected);
+    const selectedProds = allSelected.filter(p => p.editedCategoryCode && p.validationStatus !== 'error');
+    if (selectedProds.length === 0) {
+      // ⚠️ silent fail 차단: 0건이면 phase='error' 로 노출 + 사유 진단 로그.
+      const noSelected = allSelected.length === 0;
+      const allValidationError = allSelected.length > 0 && allSelected.every(p => p.validationStatus === 'error');
+      const noCategoryCount = allSelected.filter(p => !p.editedCategoryCode).length;
+      const reason = noSelected
+        ? '선택된 상품이 없습니다.'
+        : allValidationError
+          ? `선택된 ${allSelected.length}개 모두 검증 오류 상태입니다.`
+          : noCategoryCount > 0
+            ? `${noCategoryCount}개 상품의 카테고리 매칭이 비어있습니다. Step 1 에서 카테고리를 확인하세요.`
+            : '프리플라이트 대상 상품이 없습니다 (필터 통과 0건).';
+      console.warn('[preflight] 0건 차단:', {
+        selected: allSelected.length,
+        validationErrors: allSelected.filter(p => p.validationStatus === 'error').length,
+        noCategory: noCategoryCount,
+      });
+      setPreflightPhase('error');
+      setPreflightStats({ total: 0, pass: 0, fail: 0, warn: 0 });
+      setPreflightResults({});
+      setPreflightErrorReason(reason);
+      if (typeof window !== 'undefined') console.error(`[프리플라이트 차단] ${reason}`);
+      return;
+    }
 
     setPreflightPhase('running');
     setPreflightResults({});
     setPreflightStats(null);
+    setPreflightErrorReason(null);
 
     try {
       // Ref로 최신 캐시 읽기 — useCallback 클로저 stale 방지
@@ -2528,9 +2554,12 @@ export function useBulkRegisterActions() {
         if (cached?.uploadedAt) imageTimestamps[p.uid] = cached.uploadedAt;
       }
 
+      // ⚠️ 클라이언트 타임아웃 60s (서버 maxDuration=25s 보다 여유 있게).
+      // 이전엔 fetch 가 무한 hang 가능 → preflightPhase='running' 영구 stuck.
       const res = await fetch('/api/megaload/products/bulk-register/preflight', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(60_000),
         body: JSON.stringify({
           products: batchProducts,
           deliveryInfo: {
@@ -2565,12 +2594,17 @@ export function useBulkRegisterActions() {
         if (data.categoryMeta) setCategoryMetaCache(prev => mergeCategoryMeta(prev, data.categoryMeta));
         setPreflightPhase('complete');
       } else {
-        const errData = await res.json().catch(() => ({ error: '프리플라이트 실패' }));
-        console.error('[preflight] Error:', errData.error);
+        const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        console.error('[preflight] Server error:', res.status, errData.error);
+        setPreflightErrorReason(`서버 오류 (${res.status}): ${errData.error || '응답 없음'}`);
         setPreflightPhase('error');
       }
     } catch (err) {
-      console.error('[preflight] Error:', err);
+      const isTimeout = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+      console.error('[preflight] ' + (isTimeout ? 'Timeout (60s)' : 'Error') + ':', err);
+      setPreflightErrorReason(isTimeout
+        ? '서버 응답 60초 초과 (timeout). 네트워크/서버 상태 확인 후 재시도.'
+        : `네트워크 오류: ${err instanceof Error ? err.message : String(err)}`);
       setPreflightPhase('error');
     }
   // imagePreuploadCache는 ref로 읽으므로 deps에서 제거 — stale closure 완전 방지
@@ -3572,7 +3606,7 @@ export function useBulkRegisterActions() {
     setImageFilterProgress({ done: 0, total: 0, phase: 'idle' });
     setStockImageProgress(null);
     setCategoryFailures([]);
-    setPreflightPhase('idle'); setPreflightResults({}); setPreflightStats(null); setPreflightDurationMs(0);
+    setPreflightPhase('idle'); setPreflightResults({}); setPreflightStats(null); setPreflightDurationMs(0); setPreflightErrorReason(null);
     setCanaryPhase('idle'); setCanaryResult(null);
     // #16 세션 삭제
     try { sessionStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
@@ -3704,7 +3738,7 @@ export function useBulkRegisterActions() {
     dryRunResults,
     titleGenProgress, contentGenProgress, imageFilterProgress, stockImageProgress,
     // Preflight
-    preflightPhase, preflightResults, preflightStats, preflightDurationMs,
+    preflightPhase, preflightResults, preflightStats, preflightDurationMs, preflightErrorReason,
     // Canary
     canaryPhase, canaryResult, canaryTargetUid,
     registering, isPaused, batchProgress, startTime, accountBlocked,

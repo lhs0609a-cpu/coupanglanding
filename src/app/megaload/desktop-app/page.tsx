@@ -3,7 +3,13 @@
 import { useState } from 'react';
 import { Download, Key, RefreshCw, Copy, CheckCircle2, AlertCircle, Monitor, Zap, Activity } from 'lucide-react';
 
-const APP_VERSION = '0.1.10';
+const APP_VERSION = '0.1.11';
+// Release URL 은 명시적 태그를 가리켜야 함.
+// `releases/latest/download/` 는 같은 repo 의 다른 프로젝트(gpu-worker) release 가 더 최근일 때
+// 그쪽으로 redirect 되어 desktop-monitor 파일을 찾지 못해 404 가 떴음.
+// desktop-monitor-release.yml workflow 의 tag 규칙: `desktop-v*.*.*`
+const RELEASE_TAG = `desktop-v${APP_VERSION}`;
+const RELEASE_BASE = `https://github.com/lhs0609a-cpu/coupanglanding/releases/download/${RELEASE_TAG}`;
 
 interface StatusInfo {
   isAlive: boolean;
@@ -226,8 +232,8 @@ export default function DesktopAppPage() {
               // 3. installer 다운로드 (Win 기본, Mac은 별도)
               const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
               const downloadUrl = isMac
-                ? `https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload-Monitor-${APP_VERSION}-x64.dmg`
-                : `https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload-Monitor-Setup-${APP_VERSION}.exe`;
+                ? `${RELEASE_BASE}/Megaload-Monitor-${APP_VERSION}-x64.dmg`
+                : `${RELEASE_BASE}/Megaload-Monitor-Setup-${APP_VERSION}.exe`;
               window.location.href = downloadUrl;
               alert(
                 '✅ 인증코드가 복사되었습니다.\n\n다운로드된 설치 파일을 더블클릭하면:\n' +
@@ -248,7 +254,7 @@ export default function DesktopAppPage() {
           원클릭 자동 설치
         </button>
         <div className="text-xs text-emerald-700 mt-3">
-          ⓘ 인증코드는 7일간 유효합니다. 만료 시 같은 버튼 다시 누르면 자동 갱신됩니다.
+          ⓘ 인증코드는 폐기/재발급 전까지 영구 유효합니다. 다른 PC 로 옮기거나 도난 우려 시 같은 버튼을 다시 눌러 새로 발급하세요 (이전 코드는 자동 폐기됨).
         </div>
       </div>
 
@@ -261,7 +267,7 @@ export default function DesktopAppPage() {
         <p className="text-sm text-gray-600 mb-4">사용 중인 OS에 맞는 설치 파일을 받아주세요. <span className="text-emerald-700 font-medium">현재 최신 v{APP_VERSION}</span></p>
         <div className="grid grid-cols-3 gap-3">
           <a
-            href={`https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload-Monitor-Setup-${APP_VERSION}.exe`}
+            href={`${RELEASE_BASE}/Megaload-Monitor-Setup-${APP_VERSION}.exe`}
             className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
             target="_blank" rel="noopener"
           >
@@ -269,7 +275,7 @@ export default function DesktopAppPage() {
             <span className="text-xs text-gray-400">v{APP_VERSION}</span>
           </a>
           <a
-            href={`https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload-Monitor-${APP_VERSION}-x64.dmg`}
+            href={`${RELEASE_BASE}/Megaload-Monitor-${APP_VERSION}-x64.dmg`}
             className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
             target="_blank" rel="noopener"
           >
@@ -277,7 +283,7 @@ export default function DesktopAppPage() {
             <span className="text-xs text-gray-400">v{APP_VERSION}</span>
           </a>
           <a
-            href={`https://github.com/lhs0609a-cpu/coupanglanding/releases/latest/download/Megaload-Monitor-${APP_VERSION}-arm64.dmg`}
+            href={`${RELEASE_BASE}/Megaload-Monitor-${APP_VERSION}-arm64.dmg`}
             className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
             target="_blank" rel="noopener"
           >

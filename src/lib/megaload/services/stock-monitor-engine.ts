@@ -244,10 +244,21 @@ async function checkUrlSingle(url: string, retryCount = 0, forceDirect = false):
       return { status: 'error', matchedPattern: 'HTTP 429 (속도제한)', errorClass: 'transient' };
     }
     if (statusCode === 403) {
+      // 네이버는 상품 단위로 403 을 주지 않음 — IP/User-Agent 차단. 모든 모니터 공통 이슈이므로
+      // 항상 'infra' 로 분류해 consecutive_errors 누적 차단. (이전엔 proxy 성공·실패에 따라
+      // 'naver' 도 섞여 들어와서 10회 누적 후 모니터가 영구 비활성화되는 부작용이 있었음.)
       return {
         status: 'error',
         matchedPattern: proxyFellThroughToFail ? `${proxyError} → 직접 fetch 403` : 'HTTP 403 (접근 차단)',
-        errorClass: proxyFellThroughToFail ? 'infra' : 'naver',
+        errorClass: 'infra',
+      };
+    }
+    // 502/503/504 도 네이버 서버 또는 프록시 인프라 문제 — naver 가 상품별로 게이트웨이 에러 안 줌
+    if (statusCode === 502 || statusCode === 503 || statusCode === 504) {
+      return {
+        status: 'error',
+        matchedPattern: `HTTP ${statusCode} (게이트웨이/서버 일시 오류)`,
+        errorClass: 'infra',
       };
     }
     if (statusCode < 200 || statusCode >= 400) {
@@ -682,13 +693,18 @@ async function processSingleMonitor(
     const isInfra = check.errorClass === 'infra';
     const isTransient = check.errorClass === 'transient';
     const shouldAccumulate = !isInfra && !isTransient;
-    const newErrors = shouldAccumulate ? monitor.consecutive_errors + 1 : monitor.consecutive_errors;
+    // 카운터는 10에서 캡 — 무한 증가 막아 메트릭/대시보드 표시값 일관성 유지.
+    // ⚠️ 자동 is_active=false 처리는 제거 (사용자 동의 없이 모니터 영구 비활성화 차단).
+    //   IP 차단(naver→infra 분류 후에도 회복 안 됨) 같은 *일시 인프라 이슈*가 user 의 모니터를
+    //   영구 OFF 시키는 회귀를 막는다. 회복은 data 들어오면 자동(consecutive_errors=0 리셋).
+    const newErrors = shouldAccumulate
+      ? Math.min(monitor.consecutive_errors + 1, 10)
+      : monitor.consecutive_errors;
 
     await supabase.from('sh_stock_monitors').update({
       source_status: 'error',
       last_checked_at: now,
       consecutive_errors: newErrors,
-      is_active: newErrors >= 10 ? false : true,
       updated_at: now,
     }).eq('id', monitor.id);
 

@@ -92,6 +92,7 @@ interface BulkStep2ReviewProps {
   preflightResults?: Record<string, PreflightProductResult>;
   preflightStats?: { total: number; pass: number; fail: number; warn: number } | null;
   preflightDurationMs?: number;
+  preflightErrorReason?: string | null;
   // Canary
   canaryPhase?: 'idle' | 'running' | 'complete' | 'error';
   canaryResult?: CanaryResult | null;
@@ -210,7 +211,7 @@ export default memo(function BulkStep2Review({
   selectedOutbound, selectedReturn, returnCharge, contactNumber, includeReviewImages, noticeOverrides,
   preventionConfig,
   categoryMetaCache,
-  preflightPhase, preflightResults, preflightStats, preflightDurationMs,
+  preflightPhase, preflightResults, preflightStats, preflightDurationMs, preflightErrorReason,
   canaryPhase, canaryResult, canaryTargetUid, canRegister,
   onPreflight, onCanary,
   lowConfidenceCount, rematchingCategory, onRematchLowConfidence,
@@ -698,6 +699,11 @@ export default memo(function BulkStep2Review({
                 {preflightPhase === 'complete' ? `${preflightStats?.pass ?? 0}/${preflightStats?.total ?? 0} (${preflightStats?.total ? Math.round(((preflightStats?.pass ?? 0) / preflightStats.total) * 100) : 0}%)` : preflightPhase === 'running' ? '검사중' : preflightPhase === 'error' ? '오류' : '대기'}
               </span>
             </div>
+            {preflightPhase === 'error' && preflightErrorReason && (
+              <div className="ml-36 -mt-1 text-[11px] text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">
+                {preflightErrorReason}
+              </div>
+            )}
             {/* Canary pipeline row */}
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5 w-36 text-xs">

@@ -16,8 +16,9 @@ export const maxDuration = 30;
  *   4. 사용자가 데스크탑 앱 첫 실행 시 토큰 입력 → 인증 완료
  *
  * 보안:
- *   - 슬라이딩 만료: 앱이 검증할 때마다(2분) issued_at 갱신 → 켜져 있는 한 계속 유효
- *   - 7일 이상 앱 미실행(미검증) 시에만 만료 → 재발급 필요 (도난/방치 토큰 자동 무효화)
+ *   - 영구 토큰: 사용자가 명시적으로 "토큰 폐기" 를 누르거나 새로 발급할 때까지 유효.
+ *     (이전: 7일 슬라이딩 만료 → 앱이 며칠 꺼져 있으면 강제 재로그인 발생.
+ *      사용자 데이터 정합성 vs. 도난 방어 무게: 도난은 web UI 폐기 + 신규 발급으로 처리.)
  *   - 사용자가 웹에서 "토큰 폐기" 가능 (도난 시)
  */
 export async function POST(request: NextRequest) {
@@ -113,23 +114,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'token not found or revoked' }, { status: 401 });
   }
 
-  // ── 슬라이딩 만료 (7일 "미사용" 기준) ──
-  // 앱이 실행 중이면 매 검증(2분)마다 issued_at 을 갱신 → 만료시계가 계속 리셋되어
-  // "한 번 설치하면 켜져 있는 한 계속" 동작. 앱이 7일 이상 꺼져 있을 때만 만료(보안 유지).
-  // (이전: 발급 후 7일 절대 만료 → 활성 사용자도 7일마다 재로그인 강제되던 문제)
-  const issued = (shUser as { desktop_app_token_issued_at?: string }).desktop_app_token_issued_at;
-  if (issued) {
-    const ageDays = (Date.now() - new Date(issued).getTime()) / (1000 * 60 * 60 * 24);
-    if (ageDays > 7) {
-      return NextResponse.json({ error: 'token expired', expired: true }, { status: 401 });
-    }
-  }
-
-  // heartbeat + 토큰 만료시계 갱신 (슬라이딩)
+  // 영구 토큰 — 별도 만료 검사 없음. (도난 시 사용자가 web 에서 명시적 폐기.)
+  // heartbeat 만 갱신 — 대시보드 "마지막 접속" 표시용.
   const nowIso = new Date().toISOString();
   await serviceClient
     .from('megaload_users')
-    .update({ desktop_app_last_heartbeat: nowIso, desktop_app_token_issued_at: nowIso })
+    .update({ desktop_app_last_heartbeat: nowIso })
     .eq('id', (shUser as { id: string }).id);
 
   return NextResponse.json({

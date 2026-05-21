@@ -30,23 +30,48 @@ const TRANSIENT_BACKOFF_MS = 60_000;
 
 let cronTimer: NodeJS.Timeout | null = null;
 let flushTimer: NodeJS.Timeout | null = null;
+let watchdogTimer: NodeJS.Timeout | null = null;
 let isProcessing = false;
 const pendingResults: ResultPayload[] = [];
+
+// ── 워치독 ──
+// 마지막으로 처리에 성공한 시각. tick 진입 자체가 아니라 "한 건이라도 처리/전송 성공" 시점.
+// 1시간 동안 갱신 안 되면 cron 이 사실상 멈춘 것 → self relaunch 로 회복.
+let lastSuccessAt = Date.now();
+const WATCHDOG_INTERVAL_MS = 5 * 60 * 1000; // 5분마다 검사
+const WATCHDOG_IDLE_THRESHOLD_MS = 60 * 60 * 1000; // 1시간 무활동 = freeze 판정
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 export function startMonitorCron(): void {
   if (cronTimer) return;
   console.log('[monitor-cron] 시작');
+  lastSuccessAt = Date.now();
   // 즉시 1회 실행
   void tick();
   cronTimer = setInterval(() => void tick(), CRON_TICK_MS);
   flushTimer = setInterval(() => void flushPending(), BATCH_FLUSH_INTERVAL_MS);
+  // 워치독 — cron 시작 시점에만 동작 (stop 후엔 비활성)
+  watchdogTimer = setInterval(() => {
+    const idleMs = Date.now() - lastSuccessAt;
+    if (idleMs > WATCHDOG_IDLE_THRESHOLD_MS) {
+      console.warn(`[monitor-cron] 워치독 — ${Math.floor(idleMs / 60000)}분 무활동 → self relaunch 요청`);
+      const relaunch = (globalThis as { __safeRelaunch?: (reason: string) => void }).__safeRelaunch;
+      if (relaunch) {
+        relaunch(`watchdog idle ${Math.floor(idleMs / 60000)}min`);
+      } else {
+        // fallback — handle 없으면 cron 만 재시작 (in-process 회복 시도)
+        stopMonitorCron();
+        startMonitorCron();
+      }
+    }
+  }, WATCHDOG_INTERVAL_MS);
 }
 
 export function stopMonitorCron(): void {
   if (cronTimer) { clearInterval(cronTimer); cronTimer = null; }
   if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
+  if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null; }
   console.log('[monitor-cron] 정지');
 }
 
@@ -70,13 +95,12 @@ async function tick(): Promise<void> {
     // 토큰 검증
     const auth = await verifyToken();
     if (!auth.valid) {
-      // 만료/거부(서버가 명시적으로 401)와 일시적 네트워크 실패를 구분.
-      //   - 만료/거부: 조용히 멈추면 화면은 "대기 중"인데 실제론 영원히 안 돈다(이번 버그).
-      //     → isLoggedIn 해제 + 알림 + cron 정지. 재로그인 시 auth:login 이 startMonitorCron 재호출.
-      //   - 네트워크 일시 실패: 로그인 상태 유지하고 다음 tick 재시도.
-      const rejected = auth.expired === true || (auth.error || '').includes('401');
-      if (rejected) {
-        console.warn('[monitor-cron] 토큰 만료/거부 — 로그인 해제 후 cron 정지');
+      // 영구 토큰 정책 — 자동 만료 없음. 401 은 사용자가 명시적으로 web 에서 폐기한 경우만.
+      //   - 명시적 폐기: 로그아웃 처리 + 알림 (cron 정지, 재로그인 필요)
+      //   - 그 외 (네트워크 일시 실패, 5xx, 타임아웃 등): 로그인 유지 + 다음 tick 재시도
+      const explicitlyRevoked = (auth.error || '').includes('401') || (auth.error || '').includes('not found or revoked');
+      if (explicitlyRevoked) {
+        console.warn('[monitor-cron] 토큰 명시적 폐기 — 로그인 해제 후 cron 정지');
         getStore().set('isLoggedIn', false);
         notifyTokenExpired();
         stopMonitorCron();
@@ -138,10 +162,12 @@ async function processMonitor(m: MonitorTask): Promise<'transient' | 'naver' | '
       errorClass: result.errorClass,
       fetchedAt: new Date().toISOString(),
     });
-    // 통계 갱신
+    // 통계 갱신 + 워치독 heartbeat
     const total = (store.get('totalChecked') as number | undefined) || 0;
     store.set('totalChecked', total + 1);
     store.set('lastCheckAt', new Date().toISOString());
+    lastSuccessAt = Date.now(); // 한 건 처리 성공 = cron 살아있음
+
     if (result.status === 'error') {
       const errs = (store.get('totalErrors') as number | undefined) || 0;
       store.set('totalErrors', errs + 1);
@@ -167,6 +193,7 @@ async function flushPending(): Promise<void> {
   try {
     const res = await postResults(batch);
     console.log(`[monitor-cron] 전송 완료: ${res.updated}/${batch.length}`);
+    lastSuccessAt = Date.now(); // 전송 성공도 cron 정상 신호
   } catch (err) {
     console.error('[monitor-cron] flushPending 실패:', err);
     // 실패 시 다시 큐에 (1번까지만)

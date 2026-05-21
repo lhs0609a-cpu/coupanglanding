@@ -23,6 +23,49 @@ if (!gotLock) {
   process.exit(0);
 }
 
+// ─── 자동 재시작 (Self-healing) ─────────────────────────────────
+// 모니터링이 5일째 안 돈 사례 재발 방지. 가능한 모든 crash/freeze 시나리오에서 self relaunch.
+//   1) Node uncaught exception / unhandled rejection — 로그 후 relaunch
+//   2) Renderer 또는 GPU/child process 죽음 — relaunch
+//   3) 워치독(monitor-cron) 에서 "1시간 무활동" 감지 시 → 호출 가능한 export 함수
+// 외부에서 SIGKILL/Task Manager 강제 종료는 OS 차원이라 in-process 핸들러로는 못 잡음
+// (Windows 의 작업 스케줄러 등록은 admin 권한 필요해서 사용자 동의 흐름 필요 — 별도 PR).
+let isRestarting = false;
+function safeRelaunch(reason: string): void {
+  if (isRestarting) return;
+  isRestarting = true;
+  console.error(`[self-heal] relaunch 사유: ${reason}`);
+  try {
+    app.relaunch();
+    // exit 0 — relaunch 직후 호출되어야 새 인스턴스가 살아남음. quit() 은 단일 인스턴스 락이
+    // 새 프로세스에서 풀리기 전에 해제되어 race condition 위험.
+    app.exit(0);
+  } catch (e) {
+    console.error('[self-heal] relaunch 실패:', e);
+    process.exit(1); // OS 자동 시작 등록(setupAutoLaunch) 이 다음 부팅에서 살림.
+  }
+}
+
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+  safeRelaunch(`uncaughtException: ${err?.message || 'unknown'}`);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+  safeRelaunch(`unhandledRejection: ${(reason as Error)?.message || String(reason).slice(0, 80)}`);
+});
+
+app.on('render-process-gone', (_e, _wc, details) => {
+  // crashed / killed / oom — 모두 자동 재시작
+  if (details.reason !== 'clean-exit') safeRelaunch(`render-gone: ${details.reason}`);
+});
+app.on('child-process-gone', (_e, details) => {
+  if (details.reason !== 'clean-exit') safeRelaunch(`child-gone: ${details.type}/${details.reason}`);
+});
+
+// 워치독에서 호출 가능한 핸들 — monitor-cron 이 1시간 idle 감지 시 사용
+(globalThis as { __safeRelaunch?: (reason: string) => void }).__safeRelaunch = safeRelaunch;
+
 // Custom URL scheme 등록 — megaload-monitor://login?token=xxx
 // Windows: 설치 시 protocols 으로 자동 등록 (electron-builder), dev 모드는 수동 호출
 if (process.defaultApp) {

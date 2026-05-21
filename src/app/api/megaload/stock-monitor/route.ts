@@ -52,7 +52,9 @@ export async function GET(request: NextRequest) {
 
     if (statusFilter && statusFilter !== 'all') {
       if (statusFilter === 'error') {
-        query = query.gte('consecutive_errors', 1);
+        // 인프라 에러(403/프록시 미배포 등)는 consecutive_errors 누적 0 이지만 source_status='error'.
+        // 사용자가 "오류" 탭에서 모두 보고 일괄 처리할 수 있도록 둘 다 매칭.
+        query = query.or('consecutive_errors.gte.1,source_status.eq.error');
       } else if (statusFilter === 'no_source_url') {
         query = query.or('source_url.is.null,source_url.eq.');
       } else {
@@ -137,7 +139,9 @@ export async function GET(request: NextRequest) {
         case 'removed': stats.removed++; break;
       }
       if (rec.coupang_status === 'suspended') stats.suspended++;
-      if ((rec.consecutive_errors as number) > 0) stats.error++;
+      // error 카운트: consecutive_errors > 0 또는 source_status='error' — IP 차단(infra)으로 누적은 0 이지만
+      //   상태는 error 로 남아있는 모니터까지 포함해서 사용자가 즉시 인지할 수 있도록 한다.
+      if ((rec.consecutive_errors as number) > 0 || rec.source_status === 'error') stats.error++;
     }
 
     // 최근 이력 조회 (최신 30건)
