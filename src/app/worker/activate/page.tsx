@@ -1,12 +1,33 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { Suspense, useEffect, useState, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 type Status = 'loading' | 'no-session' | 'sending' | 'success' | 'error';
 
 export default function WorkerActivatePage() {
+  return (
+    <Suspense fallback={<ActivateShell />}>
+      <ActivateInner />
+    </Suspense>
+  );
+}
+
+function ActivateShell() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
+      <div className="max-w-md w-full bg-white rounded-2xl shadow-sm border border-gray-200 p-8 text-center">
+        <div className="mx-auto w-14 h-14 rounded-full bg-indigo-50 flex items-center justify-center mb-4">
+          <div className="w-7 h-7 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />
+        </div>
+        <h1 className="text-xl font-bold text-gray-900">로딩 중...</h1>
+      </div>
+    </div>
+  );
+}
+
+function ActivateInner() {
   const params = useSearchParams();
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
