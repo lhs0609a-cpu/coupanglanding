@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Cpu, Download, CheckCircle2, AlertCircle, Loader2, Wifi, WifiOff,
-  MonitorDown, Sparkles, ExternalLink,
+  MonitorDown, Sparkles, ExternalLink, Gauge, XCircle, MinusCircle,
 } from 'lucide-react';
 
 // 빌드한 설치 .exe 의 GitHub Releases 링크. 배포 시 환경변수로 주입.
@@ -12,6 +12,92 @@ const DOWNLOAD_URL = process.env.NEXT_PUBLIC_WORKER_DOWNLOAD_URL || '';
 interface WorkerStatus {
   online: boolean;
   workers: { worker_id: string; hostname: string | null; last_seen: string }[];
+}
+
+type Grade = 'recommended' | 'ok' | 'low' | 'unsupported';
+type CheckRow = { label: string; value: string; grade: Grade; hint?: string };
+type SpecCheck = { rows: CheckRow[]; overall: Grade; message: string };
+
+const GRADE_STYLE: Record<Grade, { bg: string; border: string; text: string; icon: typeof CheckCircle2; label: string }> = {
+  recommended: { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', icon: CheckCircle2, label: '권장 충족' },
+  ok:          { bg: 'bg-sky-50',     border: 'border-sky-200',     text: 'text-sky-700',     icon: CheckCircle2, label: '동작 가능' },
+  low:         { bg: 'bg-amber-50',   border: 'border-amber-200',   text: 'text-amber-700',   icon: MinusCircle,  label: '미달 가능' },
+  unsupported: { bg: 'bg-rose-50',    border: 'border-rose-200',    text: 'text-rose-700',    icon: XCircle,      label: '미지원' },
+};
+
+function readGpuRenderer(): string {
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = (canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl')) as WebGLRenderingContext | null;
+    if (!gl) return '';
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    if (!dbg) return '';
+    return (gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) as string) || '';
+  } catch { return ''; }
+}
+
+function gradeGpu(renderer: string): { grade: Grade; name: string; estVram: string } {
+  if (!renderer) return { grade: 'unsupported', name: '확인 불가 (브라우저 차단)', estVram: '-' };
+  const r = renderer.toUpperCase();
+  const cleanName = renderer.replace(/ANGLE\s*\(/i, '').replace(/Direct3D.*$/i, '').replace(/\)$/, '').trim();
+
+  const rtx50 = r.match(/RTX\s*50(\d{2})/);
+  if (rtx50) return { grade: 'recommended', name: `RTX 50${rtx50[1]}`, estVram: '12-32GB' };
+  const rtx40 = r.match(/RTX\s*40(\d{2})/);
+  if (rtx40) {
+    const n = parseInt(rtx40[1], 10);
+    return { grade: 'recommended', name: `RTX 40${rtx40[1]}`, estVram: n >= 70 ? '12-24GB' : '8-16GB' };
+  }
+  const rtx30 = r.match(/RTX\s*30(\d{2})/);
+  if (rtx30) {
+    const n = parseInt(rtx30[1], 10);
+    if (n >= 60) return { grade: 'recommended', name: `RTX 30${rtx30[1]}`, estVram: '8-24GB' };
+    return { grade: 'ok', name: `RTX 30${rtx30[1]}`, estVram: '8GB' };
+  }
+  const rtx20 = r.match(/RTX\s*20(\d{2})/);
+  if (rtx20) return { grade: 'ok', name: `RTX 20${rtx20[1]}`, estVram: '6-11GB (느림)' };
+  if (/GTX\s*16\d{2}/.test(r)) return { grade: 'low', name: r.match(/GTX\s*16\d{2}[\s\w]*/i)?.[0]?.trim() || 'GTX 16xx', estVram: '4-6GB (느림)' };
+  if (/GTX\s*10\d{2}/.test(r)) return { grade: 'low', name: 'GTX 10xx', estVram: '4-8GB (매우 느림)' };
+  if (/NVIDIA|GEFORCE/.test(r)) return { grade: 'low', name: cleanName.slice(0, 50) || 'NVIDIA (구형)', estVram: '확인 필요' };
+  if (/RADEON|AMD/.test(r))    return { grade: 'unsupported', name: cleanName.slice(0, 50) || 'AMD Radeon', estVram: '-' };
+  if (/INTEL/.test(r))         return { grade: 'unsupported', name: cleanName.slice(0, 50) || 'Intel 내장', estVram: '-' };
+  if (/APPLE|METAL|M\d/.test(r)) return { grade: 'unsupported', name: 'Apple Silicon', estVram: '-' };
+  return { grade: 'unsupported', name: cleanName.slice(0, 50) || '알 수 없음', estVram: '-' };
+}
+
+function detectOs(): { grade: Grade; name: string } {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  if (/Windows NT/i.test(ua)) return { grade: 'recommended', name: 'Windows' };
+  if (/Mac OS X/i.test(ua))   return { grade: 'unsupported', name: 'macOS (워커 미지원)' };
+  if (/Linux/i.test(ua))      return { grade: 'unsupported', name: 'Linux (워커 미지원)' };
+  return { grade: 'unsupported', name: '알 수 없음' };
+}
+
+function runSpecCheck(): SpecCheck {
+  const os = detectOs();
+  const gpu = gradeGpu(readGpuRenderer());
+  const ramGB = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? null;
+  const cores = navigator.hardwareConcurrency ?? null;
+
+  const ramGrade: Grade = ramGB === null ? 'ok' : ramGB >= 16 ? 'recommended' : ramGB >= 8 ? 'ok' : 'low';
+  const cpuGrade: Grade = cores === null ? 'ok' : cores >= 8 ? 'recommended' : cores >= 4 ? 'ok' : 'low';
+
+  const rows: CheckRow[] = [
+    { label: 'OS', value: os.name, grade: os.grade, hint: os.grade === 'recommended' ? '워커 앱 설치 가능' : '워커 앱은 Windows 전용' },
+    { label: 'GPU', value: gpu.name, grade: gpu.grade, hint: `추정 VRAM ${gpu.estVram} · SDXL은 8GB 이상 권장` },
+    { label: 'RAM', value: ramGB ? `약 ${ramGB}GB 이상` : '확인 불가', grade: ramGrade, hint: '16GB 이상 권장 (8GB도 동작은 함)' },
+    { label: 'CPU', value: cores ? `${cores} 스레드` : '확인 불가', grade: cpuGrade, hint: 'GPU 처리라 CPU 영향 적음' },
+  ];
+
+  const order: Grade[] = ['unsupported', 'low', 'ok', 'recommended'];
+  const overall = rows.reduce<Grade>((acc, r) => (order.indexOf(r.grade) < order.indexOf(acc) ? r.grade : acc), 'recommended');
+
+  const message =
+    overall === 'recommended' ? '권장 사양을 충족합니다. 워커 앱을 설치하시면 바로 무제한 재생성이 가능해요.' :
+    overall === 'ok'          ? '동작은 가능하지만 처리 속도가 느릴 수 있어요. 우선 설치해보시고 만족스럽지 않으면 Gemini 재생성을 쓰세요.' :
+    overall === 'low'         ? 'GPU 사양이 미달입니다. 동작하더라도 매우 느려서 Gemini 재생성을 권장합니다.' :
+                                '워커가 동작하지 않는 환경입니다. 상품 화면의 Gemini 재생성(무료 500장/일)을 사용하세요.';
+  return { rows, overall, message };
 }
 
 const STEPS = [
@@ -25,6 +111,7 @@ const STEPS = [
 export default function LocalGpuWorkerSettings() {
   const [status, setStatus] = useState<WorkerStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [spec, setSpec] = useState<SpecCheck | null>(null);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -79,12 +166,65 @@ export default function LocalGpuWorkerSettings() {
       </div>
 
       {/* 요건 */}
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex gap-2">
-        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-        <div className="text-xs text-amber-800 leading-relaxed">
-          <b>요건:</b> NVIDIA 그래픽카드(RTX 권장) + Windows. GPU가 없거나 설치가 부담되면,
-          상품 화면의 기존 <b>Gemini 재생성</b>(무료 티어 하루 500장)을 그대로 쓰셔도 됩니다.
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+        <div className="flex gap-2">
+          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-xs text-amber-800 leading-relaxed flex-1">
+            <b>요건:</b> NVIDIA 그래픽카드(RTX 권장) + Windows. GPU가 없거나 설치가 부담되면,
+            상품 화면의 기존 <b>Gemini 재생성</b>(무료 티어 하루 500장)을 그대로 쓰셔도 됩니다.
+          </div>
+          <button
+            type="button"
+            onClick={() => setSpec(runSpecCheck())}
+            className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 bg-white border border-amber-300 text-amber-800 hover:bg-amber-100 rounded-md text-xs font-semibold transition"
+          >
+            <Gauge className="w-3.5 h-3.5" />
+            내 사양 체크
+          </button>
         </div>
+
+        {spec && (
+          <div className="mt-3 space-y-2">
+            {/* 종합 판정 */}
+            {(() => {
+              const s = GRADE_STYLE[spec.overall];
+              const Icon = s.icon;
+              return (
+                <div className={`rounded-md border ${s.border} ${s.bg} p-2.5 flex items-start gap-2`}>
+                  <Icon className={`w-4 h-4 ${s.text} shrink-0 mt-0.5`} />
+                  <div className="flex-1">
+                    <div className={`text-xs font-semibold ${s.text}`}>종합: {s.label}</div>
+                    <div className="text-xs text-gray-700 mt-0.5">{spec.message}</div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* 항목별 */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              {spec.rows.map((row) => {
+                const s = GRADE_STYLE[row.grade];
+                const Icon = s.icon;
+                return (
+                  <div key={row.label} className={`rounded-md border ${s.border} ${s.bg} px-2.5 py-2 flex items-start gap-2`}>
+                    <Icon className={`w-3.5 h-3.5 ${s.text} shrink-0 mt-0.5`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-[11px] font-semibold text-gray-500">{row.label}</span>
+                        <span className={`text-[10px] font-semibold ${s.text}`}>{s.label}</span>
+                      </div>
+                      <div className="text-xs font-medium text-gray-800 truncate" title={row.value}>{row.value}</div>
+                      {row.hint && <div className="text-[10px] text-gray-500 mt-0.5">{row.hint}</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-gray-400 leading-snug">
+              * GPU/VRAM은 브라우저가 제공하는 정보로 추정한 값입니다. 정확한 VRAM은 작업관리자 → 성능 → GPU에서 확인하세요.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* 다운로드 */}
