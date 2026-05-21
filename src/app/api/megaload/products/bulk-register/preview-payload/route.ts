@@ -6,6 +6,7 @@ import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo, type AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
 import { fillNoticeFields, type NoticeCategoryMeta, type ExtractedNoticeHints } from '@/lib/megaload/services/notice-field-filler';
 import { extractOptionsEnhanced } from '@/lib/megaload/services/option-extractor';
+import { syncDisplayNameWithOptions } from '@/lib/megaload/services/display-name-generator';
 import type { ContentBlock } from '@/lib/megaload/services/persuasion-engine';
 
 export const maxDuration = 30;
@@ -30,12 +31,15 @@ interface PreviewRequestBody {
     // 사용자가 카테고리 수동 변경 후 클라이언트에서 재생성한 본문/제목/리뷰를
     // 그대로 미리보기에 반영하기 위한 override 필드들.
     // (등록 경로 preflight-builder.ts:46-58 과 동일 필드명/시맨틱)
+    aiDisplayName?: string;
     displayProductNameOverride?: string;
     descriptionOverride?: string;
     storyParagraphsOverride?: string[];
     reviewTextsOverride?: string[];
     contentBlocksOverride?: ContentBlock[];
     noticeValuesOverride?: Record<string, string>;
+    /** 다변량(택1) 상품에서 사용자가 검수 화면에서 고른 옵션값 (예: { "농산물 중량": "5kg" }) */
+    buyOptionValuesOverride?: Record<string, string>;
   };
   deliveryInfo: DeliveryInfo;
   returnInfo: ReturnInfo;
@@ -110,6 +114,18 @@ export async function POST(req: NextRequest) {
       description: effectiveDescription,
     });
 
+    // 다변량(택1) 사용자 선택값 적용 — preflight-builder.ts:149-157 과 동일 시맨틱.
+    // 미리보기에서도 user pick 반영해야 옵션값/notices hints/노출상품명 sync 모두 일관됨.
+    if (product.buyOptionValuesOverride) {
+      for (const opt of extracted.buyOptions) {
+        const picked = product.buyOptionValuesOverride[opt.name];
+        if (picked != null && picked !== '') {
+          opt.value = picked;
+          opt.unit = undefined;
+        }
+      }
+    }
+
     // 추출된 옵션값을 notices용 hints로 변환
     const noticeHints: ExtractedNoticeHints = {};
     for (const opt of extracted.buyOptions) {
@@ -182,7 +198,12 @@ export async function POST(req: NextRequest) {
       totalUnitCount: extracted.totalUnitCount,
       // ★ 카테고리 변경 → 본문/제목/리뷰 재생성 결과를 미리보기에 즉시 반영.
       // 등록 경로(preflight/canary/batch)와 동일하게 displayProductName/aiStory* 사용.
-      displayProductName: product.displayProductNameOverride,
+      // - displayProductNameOverride: 사용자가 자동값을 손본 경우 → 그대로 보존.
+      // - aiDisplayName: 자동 생성값 → 옵션 추출값과 꼬리 spec 동기화 (preflight-builder 와 동일).
+      displayProductName: product.displayProductNameOverride
+        ?? (product.aiDisplayName
+          ? syncDisplayNameWithOptions(product.aiDisplayName, extracted.buyOptions)
+          : undefined),
       aiStoryParagraphs: product.storyParagraphsOverride,
       aiReviewTexts: product.reviewTextsOverride,
       contentBlocks: product.contentBlocksOverride,
