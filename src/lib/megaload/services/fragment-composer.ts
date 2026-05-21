@@ -307,15 +307,34 @@ const FOOD_HOOK_OPENERS: string[] = [
 /** 카테고리 경로가 식품/식자재/음료/건강식품 계열인지 판정 */
 export function isFoodCategory(categoryPath?: string): boolean {
   if (!categoryPath) return false;
+  const top = (categoryPath.split('>')[0] || '').trim();
+  // ⚠️ 절대 식품 아닌 대분류 — leaf 가 식품 토픽("분유포트","영양제","식품과영양")이어도 식품 동사 주입 차단.
+  //   16k audit 발견 production 오분류:
+  //     - 도서>...>식품과영양 (요리책)        — 도서
+  //     - 가전>...>분유포트/이유식제조기/두유제조기 — 가전 appliance
+  //     - 뷰티>...>속눈썹 영양제                  — 화장품
+  //     - 가구/홈데코>...>식기/주방가구          — 가구
+  //     - 주방용품>...>이유식기/간식메이커        — 주방기구 (식품 아님)
+  //   대분류 확정 — leaf 검사로 false positive 막음.
+  if (top.includes('도서') || top.includes('음반') || top.includes('DVD')) return false;
+  if (top.includes('가전') || top.includes('디지털')) return false;
+  if (top.includes('뷰티') || top.includes('화장품')) return false;
+  if (top.includes('가구') || top.includes('홈데코')) return false;
+  if (top.includes('주방')) return false; // 주방용품은 도구 — 식품 아님 (식기/조리기구)
+  if (top.includes('패션') || top.includes('의류')) return false;
+  if (top.includes('생활')) return false;
+  if (top.includes('스포츠') || top.includes('레져')) return false;
+  if (top.includes('자동차')) return false;
+  if (top.includes('완구') || top.includes('취미')) return false;
+  if (top.includes('문구') || top.includes('사무')) return false;
   // 1. 대분류가 식품/음료/건강식품/영양제 등
   if (/^(식품|건강식품|영양제|비타민|음료|차류|과일|채소|곡물|수산|축산|농산|신선식품|간식|스낵|냉동식품|가공식품|조미료|장류|발효식품|양념|식자재)/.test(categoryPath)) return true;
   // 2. 출산/유아동의 분유/이유식/유아식품 계열 (식기/용기는 공산품이므로 제외)
   if (/^출산\/유아동>(?:분유\/유아식품|수유\/이유용품)/.test(categoryPath)) return true;
   // 3. 반려용품의 사료/간식/영양제 계열
   if (/^반려\/애완용품>[^>]*사료|>[^>]*간식|>[^>]*영양제/.test(categoryPath)) return true;
-  // 4. 기타 leaf 토큰 기반 — 분유/이유식/식품/사료 등이 leaf에 포함
-  const leaf = categoryPath.split('>').pop() || '';
-  if (/^(분유|이유식|영양제|건강식품|식품|사료|간식)/.test(leaf)) return true;
+  // 4. (위 1-3 에 해당하지 않은 잔여 카테고리) leaf 토큰 기반 — 단, 대분류 음식인 경우만
+  //    leaf 가 "분유/이유식/식품" 으로 시작해도 top 이 보장된 식품 대분류 안에서만 true.
   return false;
 }
 
@@ -2198,26 +2217,50 @@ function fixParticlesAtBoundary(text: string): string {
  * 상품명 변형 생성 — SEO 스터핑 방지 (12+회 반복 → 자연스러운 분포)
  * 시드 기반으로 풀에서 선택하여 결정성 유지.
  */
+// ⚠️ 관형형(형용사) 종결 판정 — particle/copula 결합 시 비문 유발하는 형태.
+//   * 한/운/던/는/은 종결 — 한국어 관형형 어미 (튼튼한/귀여운/그러던/사는/작은)
+//   * "적인" 종결 — 형용사 "X적이다" 의 관형형 (실용적인, 효율적인)
+//   * 단순 "인" 종결은 명사 false positive 다수 ("와인","라인","디자인","어른") → 제외.
+function endsWithAdnominal(w: string): boolean {
+  return /(한|운|던|는|은)$/.test(w) || /적인$/.test(w);
+}
+
 function buildProductRefs(productName: string): string[] {
-  const refs: string[] = [productName]; // 원본 풀네임
-  // 단축형 (앞 2~3 단어, 너무 짧으면 생략)
   const tokens = productName.split(/\s+/).filter(Boolean);
-  // ⚠️ 관형형(형용사)으로 끝나는 단축형 금지 — "고급 메가로드 튼튼한"(원본 "...튼튼한 의자")처럼
-  //    leaf 명사가 잘려 형용사로 끝나면 "{product}을" → "튼튼한을" 비문이 된다.
-  const endsAdnominal = (w: string) => /(한|운|던|는|은)$/.test(w);
+
+  // ⚠️ 풀네임이 관형형으로 끝나는 경우 — SEO 노출명 "수박 안전한 달콤한" 같이 trailing descriptor 가 남은 형태.
+  //    이 상태로 "{product}이에요/입니다/이/을" 결합하면 "달콤한이에요" 같은 비문이 발생한다.
+  //    trailing modifier 를 제거한 핵심 명사형(coreNoun)을 1순위 ref 로 두어 particle 안전성을 확보.
+  const nounTokens = [...tokens];
+  while (nounTokens.length > 1 && endsWithAdnominal(nounTokens[nounTokens.length - 1])) {
+    nounTokens.pop();
+  }
+  const coreNoun = nounTokens.join(' ');
+  const fullEndsAdnominal = tokens.length > 0 && endsWithAdnominal(tokens[tokens.length - 1]);
+
+  const refs: string[] = [];
+  if (fullEndsAdnominal && coreNoun && coreNoun !== productName) {
+    refs.push(coreNoun);     // 1순위 — particle/copula 결합 안전
+    refs.push(productName);  // 2순위 — 풀네임 노출 빈도 유지 (단, particle 직결 시 caller 가 coreNoun 으로 재치환)
+  } else {
+    refs.push(productName);
+  }
+
+  // 단축형 (앞 2~3 단어, 너무 짧으면 생략)
   if (tokens.length >= 2) {
     const short2 = tokens.slice(0, 2).join(' ');
-    if (short2.length >= 4 && short2 !== productName && !endsAdnominal(tokens[1])) refs.push(short2);
+    if (short2.length >= 4 && !refs.includes(short2) && !endsWithAdnominal(tokens[1])) refs.push(short2);
   }
   if (tokens.length >= 3) {
     const short3 = tokens.slice(0, 3).join(' ');
-    if (short3.length >= 6 && !refs.includes(short3) && !endsAdnominal(tokens[2])) refs.push(short3);
+    if (short3.length >= 6 && !refs.includes(short3) && !endsWithAdnominal(tokens[2])) refs.push(short3);
   }
   // ⚠️ 정체성 강화: 마지막 단어(보통 leaf 명사) 도 ref 풀에 추가하여 product 등장 빈도 ↑
   //    (1.6만 audit 정체성붕괴 1,823건 잔여 → product 마지막 토큰을 자연스럽게 본문에 등장시킴)
+  //    관형형 토큰("달콤한","튼튼한")은 단독 ref 가 되면 "달콤한이에요" 비문 → 제외.
   if (tokens.length >= 2) {
     const last = tokens[tokens.length - 1];
-    if (last.length >= 2 && !refs.includes(last) && !/^\d/.test(last)) refs.push(last);
+    if (last.length >= 2 && !refs.includes(last) && !/^\d/.test(last) && !endsWithAdnominal(last)) refs.push(last);
   }
   // 대명사 — 항상 안전 (가중치 5%로 제한)
   refs.push('이 제품');
@@ -2279,8 +2322,25 @@ function fillTemplate(
   const b = VAR_BOUNDARY;
   // 1. {product} 치환 — 변형 풀에서 가중치 픽으로 자연스럽게 분포
   //    같은 상세페이지에 풀네임이 12+회 반복되는 SEO 스터핑 방지.
+  //
+  //    ⚠️ particle 직결 가드 — {product} 직후가 한국어 조사/계사("이에요/입니다/을/를/이/은/은/는/이라/이고")이고
+  //    picked ref 가 관형형(한/운/던/는/은/적인)으로 끝나면 "달콤한이에요" 류 비문이 됨.
+  //    이 경우 refs 의 첫 항목(coreNoun) 또는 대명사로 폴백한다.
   const productRefs = buildProductRefs(productName);
-  let result = template.replace(/\{product\}/g, () => pickProductRef(productRefs, rng) + b);
+  // coreNoun fallback — buildProductRefs 가 fullEndsAdnominal 일 때 refs[0] 에 coreNoun 을 둠
+  const coreNounFallback = productRefs[0];
+  const PARTICLE_PREFIX_RE = /^(이에요|이에|입니다|이라|이고|이며|이지만|이라고|이라는|을|를|이|은|는|도|만)/;
+  const REF_ENDS_ADNOM_RE = /(한|운|던|는|은)$|적인$/;
+  let result = template.replace(/\{product\}(.{0,4})/g, (_m, afterRaw) => {
+    const after = afterRaw || '';
+    const picked = pickProductRef(productRefs, rng);
+    // particle 직결인데 picked 가 관형형 종결이면 coreNoun(또는 대명사)으로 교체
+    if (PARTICLE_PREFIX_RE.test(after) && REF_ENDS_ADNOM_RE.test(picked)) {
+      const safe = REF_ENDS_ADNOM_RE.test(coreNounFallback) ? '이 제품' : coreNounFallback;
+      return safe + b + after;
+    }
+    return picked + b + after;
+  });
   // 2. {변수} 치환 — 끝에 경계 마커 삽입
   result = result.replace(/\{([^}]+)\}/g, (match, key) => {
     const pool = vars[key];

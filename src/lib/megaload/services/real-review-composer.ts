@@ -217,6 +217,26 @@ function nominalizeUsageFeel(key: string, v: string): string {
   return t;
 }
 
+/**
+ * 풀네임이 관형형으로 끝나면 trailing modifier 를 제거한 핵심 명사형 반환.
+ * "수박 안전한 달콤한" → "수박"  ("달콤한이에요" 같은 particle 결합 비문 차단)
+ * "튼튼한 와인" → "튼튼한 와인"  (와인은 명사로 분류 — "인" 단독은 명사 다수)
+ *
+ * 관형형 판정: 한/운/던/는/은 종결 또는 "적인" 종결("실용적인").
+ * 단순 "인" 종결은 명사 FP ("와인","라인","디자인") 다수 → 제외.
+ */
+function getProductNounForm(productName: string): string {
+  const tokens = productName.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return productName;
+  const endsAdnominal = (w: string) => /(한|운|던|는|은)$/.test(w) || /적인$/.test(w);
+  if (!endsAdnominal(tokens[tokens.length - 1])) return productName;
+  const nounTokens = [...tokens];
+  while (nounTokens.length > 1 && endsAdnominal(nounTokens[nounTokens.length - 1])) {
+    nounTokens.pop();
+  }
+  return nounTokens.join(' ') || productName;
+}
+
 function fillVariables(
   text: string,
   vars: Record<string, string[]>,
@@ -224,7 +244,11 @@ function fillVariables(
   rng: () => number,
   options?: { categoryPath?: string; categoryNoun?: string },
 ): string {
-  let result = text.replace(/\{product\}/g, productName);
+  // {product} → 관형형 종결시 핵심 명사형 사용 ("수박 안전한 달콤한" → "수박")
+  //   particle 결합("{product}이에요","{product}을","{product}이 만드는")이 빈번한 후기 프레임에서
+  //   "달콤한이에요" 류 비문이 사용자에게 노출된 사고를 차단.
+  const productNoun = getProductNounForm(productName);
+  let result = text.replace(/\{product\}/g, productNoun);
 
   // 본문 1개 안 시간/단위 락 — 한 번 뽑은 값을 키별로 캐시하여 같은 본문 내 일관성 유지
   const localLock: Record<string, string> = {};

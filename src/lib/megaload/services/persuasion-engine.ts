@@ -295,11 +295,20 @@ export function generatePersuasionContent(
   // ── leaf 토큰 SEO 자동 주입 ──
   // catPath 의 마지막 segment("TV장/거실장")를 슬래시·하이픈·공백으로 분리해
   // SEO 키워드 풀에 prepend. 본문에 leaf 토큰이 한 번도 안 나오는 SEO 약점 차단.
+  //
+  // ⚠️ 관형형/조사 종결 토큰 차단 — "어른을 위한 컴퓨터" leaf 에서 "어른을"(조사 종결),
+  //   "위한"(관형형 종결) 같은 토큰이 SEO 풀에 들어가면 {효과1}/{효과2} 변수로 픽되어
+  //   "통찰과 위한을 동시에 만족하는" 같은 비문이 생긴다. 명사형 토큰만 통과시킨다.
+  //   (16k audit 결과: 도서/요리책 카테고리 leaf 다수 "X을 위한 Y" 형태)
   const leafSegment = categoryPath.split('>').pop()?.trim() || '';
   const leafTokens = leafSegment
     .split(/[\/\-\s,()]+/)
     .map(t => t.trim())
-    .filter(t => t.length >= 2 && t.length <= 12 && /[가-힣A-Za-z0-9]/.test(t));
+    .filter(t => t.length >= 2 && t.length <= 12 && /[가-힣A-Za-z0-9]/.test(t))
+    // 한국어 조사(을/를/이/가/은/는/도/만/의/로) 종결 → 명사 자리 부적합
+    .filter(t => !/(을|를|이|가|은|는|도|만|의|로)$/.test(t) || /[a-zA-Z0-9]/.test(t.slice(-1)))
+    // 관형형(한/운/던) 종결 → 명사 자리에 비문 ("위한을","튼튼한이") 차단. 명사로 끝나는 "적인"도 포함.
+    .filter(t => !/(한|운|던)$/.test(t) && !/적인$/.test(t));
   const seoKeywordsArr = Array.isArray(seoKeywords) ? seoKeywords : [];
   // 중복 제거 + leaf 토큰 prepend (높은 우선순위로 SEO weave)
   const effectiveSeoKeywords: string[] = [];

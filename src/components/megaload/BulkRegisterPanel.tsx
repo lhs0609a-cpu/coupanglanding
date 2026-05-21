@@ -400,6 +400,7 @@ export default function BulkRegisterPanel() {
           preflightResults={actions.preflightResults}
           preflightStats={actions.preflightStats}
           preflightDurationMs={actions.preflightDurationMs}
+          preflightErrorReason={actions.preflightErrorReason}
           canaryPhase={actions.canaryPhase}
           canaryResult={actions.canaryResult}
           canaryTargetUid={actions.canaryTargetUid}

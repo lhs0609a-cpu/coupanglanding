@@ -28,6 +28,8 @@
     "src/lib/megaload/services/health-sanitizer.ts",
     "src/lib/megaload/services/detail-page-builder.ts",
     "src/lib/megaload/services/option-extractor-test-shim.ts",
+    "src/lib/megaload/services/option-extractor.ts",
+    "src/lib/megaload/services/category-matcher.ts",
     "src/lib/megaload/services/display-name-generator.ts",
     "src/lib/megaload/services/mobile-golden-zone.ts",
     "src/lib/megaload/services/compliance-filter.ts",

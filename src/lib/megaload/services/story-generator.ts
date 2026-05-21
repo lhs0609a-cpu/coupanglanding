@@ -115,16 +115,38 @@ const COMMON_VAR_FALLBACKS: Record<string, string[]> = {
  * 상품명 변형 풀 생성 — SEO 스터핑 방지용.
  * 풀네임 / 단축형 / 대명사를 가중치 분포로 섞어 자연스러운 본문 생성.
  */
+// 관형형 종결 — particle 결합 시 비문 ("달콤한이에요"). 한/운/던/는/은 또는 "적인" 매칭.
+// 단순 "인"은 명사 false positive("와인","라인") 다수 → 제외, "적인" 한정.
+function _endsWithAdnominal(w: string): boolean {
+  return /(한|운|던|는|은)$/.test(w) || /적인$/.test(w);
+}
+
 function _buildProductRefs(productName: string): string[] {
-  const refs: string[] = [productName];
   const tokens = productName.split(/\s+/).filter(Boolean);
+
+  // 풀네임이 관형형으로 끝나면 trailing modifier 제거한 coreNoun 을 1순위로
+  const nounTokens = [...tokens];
+  while (nounTokens.length > 1 && _endsWithAdnominal(nounTokens[nounTokens.length - 1])) {
+    nounTokens.pop();
+  }
+  const coreNoun = nounTokens.join(' ');
+  const fullEndsAdnominal = tokens.length > 0 && _endsWithAdnominal(tokens[tokens.length - 1]);
+
+  const refs: string[] = [];
+  if (fullEndsAdnominal && coreNoun && coreNoun !== productName) {
+    refs.push(coreNoun);
+    refs.push(productName);
+  } else {
+    refs.push(productName);
+  }
+
   if (tokens.length >= 2) {
     const short2 = tokens.slice(0, 2).join(' ');
-    if (short2.length >= 4 && short2 !== productName) refs.push(short2);
+    if (short2.length >= 4 && !refs.includes(short2) && !_endsWithAdnominal(tokens[1])) refs.push(short2);
   }
   if (tokens.length >= 3) {
     const short3 = tokens.slice(0, 3).join(' ');
-    if (short3.length >= 6 && !refs.includes(short3)) refs.push(short3);
+    if (short3.length >= 6 && !refs.includes(short3) && !_endsWithAdnominal(tokens[2])) refs.push(short3);
   }
   refs.push('이 제품');
   refs.push('이 상품');
@@ -176,8 +198,21 @@ function fillTemplate(
   let result = template;
 
   // {product} → 변형 풀에서 가중치 픽 (SEO 스터핑 방지)
+  //   ⚠️ particle 직결 가드: picked ref 가 관형형 종결이면 coreNoun 으로 교체.
+  //   ("수박 안전한 달콤한" → 풀네임이 "{product}이에요" 직결 시 "수박이에요" 로 폴백)
   const productRefs = _buildProductRefs(productName);
-  result = result.replace(/\{product\}/g, () => _pickProductRef(productRefs, rng));
+  const _coreNounFallback = productRefs[0];
+  const _PARTICLE_PREFIX_RE = /^(이에요|이에|입니다|이라|이고|이며|이지만|이라고|이라는|을|를|이|은|는|도|만)/;
+  const _REF_ENDS_ADNOM_RE = /(한|운|던|는|은)$|적인$/;
+  result = result.replace(/\{product\}(.{0,4})/g, (_m, afterRaw) => {
+    const after = afterRaw || '';
+    const picked = _pickProductRef(productRefs, rng);
+    if (_PARTICLE_PREFIX_RE.test(after) && _REF_ENDS_ADNOM_RE.test(picked)) {
+      const safe = _REF_ENDS_ADNOM_RE.test(_coreNounFallback) ? '이 제품' : _coreNounFallback;
+      return safe + after;
+    }
+    return picked + after;
+  });
 
   // 본문 1개 안에서 시간/주기 일관성 락
   const localLock: Record<string, string> = {};
