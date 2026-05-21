@@ -8,12 +8,14 @@
 //   4. 통계 store 갱신
 // ============================================================
 
+import { Notification } from 'electron';
 import { fetchMonitors, postResults, verifyToken, type ResultPayload, type MonitorTask } from './api-client';
 import { fetchNaverProduct } from './naver-fetcher';
 import { getStore } from './store';
 
 // 페이싱 — 가정 IP 기준 네이버 스마트스토어 안전선 안쪽
 // v0.1.10: v0.1.9 의 3~5초 페이싱은 ~44% 429 발생. 5~8초 로 완화 + 429 백오프 추가.
+// v0.1.11: 토큰 만료 시 조용히 멈추던 버그 수정 — isLoggedIn 해제 + 알림 + cron 정지(재로그인 시 재개).
 // 분당 ~9건. 2519개 한 바퀴 약 4.5시간 (전 사이클 3시간 → 약간 늘어남, 대신 성공률 ↑).
 const CRON_TICK_MS = 2 * 60 * 1000; // 2분마다 모니터 목록 fetch (배치 종료 후 idle gap 단축)
 const ITEM_INTERVAL_MS = 5000; // 5초 base + jitter → 실제 5~8초
@@ -48,6 +50,16 @@ export function stopMonitorCron(): void {
   console.log('[monitor-cron] 정지');
 }
 
+/** 토큰 만료/거부 시 사용자에게 재로그인 필요를 알린다 (조용한 정지 방지) */
+function notifyTokenExpired(): void {
+  try {
+    new Notification({
+      title: 'Megaload Monitor — 재로그인 필요',
+      body: '인증코드가 만료되어 품절 동기화가 멈췄습니다. 메가로드 웹에서 코드를 재발급해 다시 로그인하세요.',
+    }).show();
+  } catch { /* Notification 미지원 환경 무시 */ }
+}
+
 async function tick(): Promise<void> {
   if (isProcessing) {
     console.log('[monitor-cron] 이전 tick 진행 중 — 스킵');
@@ -58,7 +70,19 @@ async function tick(): Promise<void> {
     // 토큰 검증
     const auth = await verifyToken();
     if (!auth.valid) {
-      console.warn('[monitor-cron] 토큰 무효 (만료=' + (auth.expired ? 'Y' : 'N') + ')');
+      // 만료/거부(서버가 명시적으로 401)와 일시적 네트워크 실패를 구분.
+      //   - 만료/거부: 조용히 멈추면 화면은 "대기 중"인데 실제론 영원히 안 돈다(이번 버그).
+      //     → isLoggedIn 해제 + 알림 + cron 정지. 재로그인 시 auth:login 이 startMonitorCron 재호출.
+      //   - 네트워크 일시 실패: 로그인 상태 유지하고 다음 tick 재시도.
+      const rejected = auth.expired === true || (auth.error || '').includes('401');
+      if (rejected) {
+        console.warn('[monitor-cron] 토큰 만료/거부 — 로그인 해제 후 cron 정지');
+        getStore().set('isLoggedIn', false);
+        notifyTokenExpired();
+        stopMonitorCron();
+      } else {
+        console.warn('[monitor-cron] 토큰 검증 일시 실패(네트워크?) — 다음 tick 재시도:', auth.error);
+      }
       return;
     }
 
