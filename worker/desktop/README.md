@@ -38,16 +38,30 @@ desktop/
 
 ---
 
-## 개발 / 빌드
+## 빌드 (원샷 — 권장)
+
+```powershell
+# worker/desktop 에서 우클릭 → "PowerShell로 실행", 또는:
+powershell -ExecutionPolicy Bypass -File build-installer.ps1
+```
+
+`build-installer.ps1` 한 번이면: **로컬 복사(Drive FS 회피) → npm 설치 → winCodeSign 심링크 우회 →
+설치기 빌드**까지 끝나고, `.exe` 경로를 알려줍니다. 관리자 권한·개발자 모드 불필요.
+
+> ⚠️ Google Drive("내 드라이브") 폴더에서 `npm run dist` 를 **직접** 돌리면 파일잠금/심링크
+> 문제로 실패합니다. 반드시 위 스크립트(로컬 빌드)를 쓰세요.
+
+## 개발 실행 / 수동 빌드
 
 ```bash
 cd worker/desktop
 npm install
-npm start          # = sync-runtime + electron .  (개발 실행)
-npm run dist       # = sync-runtime + electron-builder  → dist/ 에 설치 .exe 생성
+npm start          # 개발 실행 (앱 바로 뜸)
+npm run dist       # 수동 빌드 (단, Drive 폴더에선 실패 — build-installer.ps1 사용 권장)
 ```
 
 > 아이콘을 넣으려면 `desktop/build/icon.ico` 를 추가하세요(없어도 빌드됨).
+> 빌드 산출물 `.exe` 는 `dist/` 에 생성됩니다(git 미포함 — GitHub Releases 에 업로드).
 
 ### 다운로드 URL (환경 따라 조정 필요)
 `main/bootstrap.mjs` 의 `DEFAULTS`:
