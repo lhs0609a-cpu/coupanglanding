@@ -7,6 +7,7 @@ import { WorkerRunner } from './worker-runner.mjs';
 import { AdRunner } from './ad-runner.mjs';
 import { startPairServer } from './pair-server.mjs';
 import * as bootstrap from './bootstrap.mjs';
+import { setupAutoUpdate } from './auto-update.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = join(here, '..');
@@ -180,6 +181,9 @@ app.whenReady().then(async () => {
   createWindow();
   tray = new Tray(trayIcon());
   updateTray();
+
+  // 자동 업데이트 — 새 버전 감지 시 "설치하시겠습니까?" → 수락 시 다운로드+재시작 설치
+  setupAutoUpdate({ getWindow: () => win });
 
   // 1) 저장된 세션 자동 복구 (임베드된 SUPABASE_URL/anon 사용)
   await runner.tryRestoreSession(SUPABASE_URL, SUPABASE_ANON_KEY);

@@ -1,6 +1,6 @@
 {
   "name": "coupang-thumbnail-worker-desktop",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "쿠팡 썸네일 재생성 로컬 GPU 워커 (Electron 트레이 앱, ComfyUI 자동 설치).",
   "author": "Megaload",
@@ -12,7 +12,8 @@
     "dist": "node sync-runtime.mjs && electron-builder"
   },
   "dependencies": {
-    "7zip-bin": "^5.2.0"
+    "7zip-bin": "^5.2.0",
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
     "electron": "^33.2.0",

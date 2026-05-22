@@ -52,17 +52,55 @@ try {
 }
 finally { Pop-Location }
 
-$exe = Get-ChildItem (Join-Path $desktopDst 'dist\*Setup*.exe') | Select-Object -First 1
+$buildDistDir = Join-Path $desktopDst 'dist'
+$exe = Get-ChildItem (Join-Path $buildDistDir '*Setup*.exe') | Select-Object -First 1
 # 결과물을 Drive 의 worker/desktop/dist 로도 복사(찾기 쉽게)
 $driveDist = Join-Path $desktopSrc 'dist'
 New-Item -ItemType Directory -Path $driveDist -Force | Out-Null
 Copy-Item $exe.FullName $driveDist -Force
+
+# ── 자동 업데이트 피드 발행 ──────────────────────────────────────────
+# electron-updater(generic) 가 읽는 고정 태그 'gpu-worker-update' 릴리스에
+# latest.yml + Setup.exe + .blockmap 을 덮어쓰기 업로드한다. (모니터 릴리스와 격리)
+# gh CLI 가 인증돼 있어야 함. 없거나 실패하면 빌드는 성공 처리하고 수동 안내만 출력.
+$repo = 'lhs0609a-cpu/coupanglanding'
+$feedTag = 'gpu-worker-update'
+$ymlPath = Join-Path $buildDistDir 'latest.yml'
+$blockmap = Get-ChildItem (Join-Path $buildDistDir '*Setup*.exe.blockmap') -ErrorAction SilentlyContinue | Select-Object -First 1
+$assets = @($exe.FullName)
+if (Test-Path $ymlPath) { $assets += $ymlPath; Copy-Item $ymlPath $driveDist -Force }
+if ($blockmap) { $assets += $blockmap.FullName }
+
+$published = $false
+if (-not (Test-Path $ymlPath)) {
+  Write-Host "[경고] dist\latest.yml 이 없습니다 — electron-builder publish 설정 확인 필요. 자동 업데이트 피드 업로드 건너뜀." -ForegroundColor Yellow
+} elseif (Get-Command gh -ErrorAction SilentlyContinue) {
+  Write-Host "5/5  자동 업데이트 피드 업로드 ($feedTag)..." -ForegroundColor Cyan
+  try {
+    gh release view $feedTag --repo $repo 1>$null 2>$null
+    if ($LASTEXITCODE -ne 0) {
+      gh release create $feedTag --repo $repo --title "쿠팡 썸네일 워커 — 자동업데이트 피드" --notes "electron-updater 자동업데이트용 롤링 릴리스. 항상 최신 빌드의 latest.yml / Setup.exe / .blockmap 이 여기에 덮어써집니다." | Out-Null
+    }
+    gh release upload $feedTag @assets --clobber --repo $repo
+    if ($LASTEXITCODE -eq 0) { $published = $true }
+  } catch { Write-Host "[경고] gh 업로드 실패: $_" -ForegroundColor Yellow }
+} else {
+  Write-Host "[안내] gh CLI 가 없어 자동 업로드를 건너뜁니다." -ForegroundColor Yellow
+}
 
 Write-Host ""
 Write-Host "완료! 원클릭 설치기:" -ForegroundColor Green
 Write-Host "  $($exe.FullName)" -ForegroundColor Green
 Write-Host "  (사본) $driveDist\$($exe.Name)" -ForegroundColor Green
 Write-Host ""
-Write-Host "다음: 이 .exe 를 GitHub Releases 에 올리고, Vercel 환경변수" -ForegroundColor Yellow
-Write-Host "      NEXT_PUBLIC_WORKER_DOWNLOAD_URL 에 다운로드 링크를 설정하면" -ForegroundColor Yellow
-Write-Host "      메가로드 '로컬 GPU 썸네일' 탭의 다운로드 버튼이 활성화됩니다." -ForegroundColor Yellow
+if ($published) {
+  Write-Host "자동 업데이트 피드 발행 완료 → $feedTag 릴리스에 latest.yml/Setup.exe 업로드됨." -ForegroundColor Green
+  Write-Host "기존 사용자(자동업데이트 포함 버전)는 다음 체크 때 업데이트 알림을 받습니다." -ForegroundColor Green
+  Write-Host "다운로드 버튼용 Vercel 환경변수(최초 1회): NEXT_PUBLIC_WORKER_DOWNLOAD_URL =" -ForegroundColor Yellow
+  Write-Host "  https://github.com/$repo/releases/download/$feedTag/$($exe.Name)" -ForegroundColor Yellow
+} else {
+  Write-Host "다음(수동): 아래 3개 파일을 GitHub '$feedTag' 릴리스에 덮어쓰기 업로드하세요:" -ForegroundColor Yellow
+  Write-Host "  - $($exe.Name)`n  - latest.yml`n  - $($exe.Name).blockmap" -ForegroundColor Yellow
+  Write-Host "그리고 Vercel 환경변수 NEXT_PUBLIC_WORKER_DOWNLOAD_URL 에 다운로드 링크를 설정하면" -ForegroundColor Yellow
+  Write-Host "메가로드 '로컬 GPU 썸네일' 탭의 다운로드 버튼이 활성화됩니다." -ForegroundColor Yellow
+}
