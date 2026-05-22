@@ -7,14 +7,14 @@ import {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
   Receipt, BarChart3, Zap, Globe, Link as LinkIcon, Settings, X,
   Upload, User, ArrowRight, Search, ExternalLink, Loader2, Lock, RotateCcw, RefreshCw, Bug,
-  BookOpen, Monitor,
+  BookOpen, Monitor, Megaphone,
 } from 'lucide-react';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
 import type { SettlementGateLevel } from '@/lib/utils/settlement';
 
 const iconMap = {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
-  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug, BookOpen, Monitor,
+  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug, BookOpen, Monitor, Megaphone,
 } as const;
 
 const navItems = [
@@ -30,6 +30,7 @@ const navItems = [
   { href: '/megaload/cs', label: '문의관리', icon: 'MessageSquare' as const, badgeKey: 'pendingInquiries' as const },
   { href: '/megaload/settlement', label: '정산', icon: 'Receipt' as const },
   { href: '/megaload/analytics', label: '통계', icon: 'BarChart3' as const },
+  { href: '/megaload/ads', label: '광고 자동화', icon: 'Megaphone' as const },
   { href: '/megaload/automation', label: '자동화', icon: 'Zap' as const },
   { href: '/megaload/sourcing', label: '해외소싱', icon: 'Globe' as const },
   { href: '/megaload/channels', label: '채널관리', icon: 'Link' as const },
