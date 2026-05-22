@@ -204,13 +204,33 @@ export async function collectMetrics(win, _opts = {}) {
 }
 
 /**
- * 윙 광고화면에서 특정 캠페인/키워드의 입찰가를 변경한다.
- * 입력칸 클릭→값 교체→저장→확인 흐름은 윙 UX 의존이라 DOM 확보 후 P3에서 완성.
- * @param {import('electron').BrowserWindow} _win
- * @param {{campaignId:string, keyword:string|null, newBid:number}} _target
+ * 윙 광고화면에서 특정 캠페인의 입찰가를 변경한다. (설정 주도)
+ * 행 탐색(campaignIdAttr) → 입찰 입력칸 값 교체(React 제어 input 대응) → 저장 클릭.
+ * ⚠️ 저장 후 확인 모달/토스트 처리와 증빙 스크린샷은 윙 실제 UX 확인 후 보강 필요.
+ * @param {import('electron').BrowserWindow} win
+ * @param {{campaignId:string, keyword:string|null, newBid:number}} target
  * @returns {Promise<{ok:boolean, screenshotUrl?:string, error?:string}>}
  */
-export async function applyBidChange(_win, _target) {
+export async function applyBidChange(win, { campaignId, newBid }) {
   assertConfigured(WING.bidEdit, 'applyBidChange(bidEdit)');
-  throw new Error('[ad-automation] applyBidChange: 윙 입찰 변경 조작 흐름 미구현 — DOM/조작 순서 확보 후 P3에서 완성');
+  assertConfigured(WING.metricsTable.rowSelector, 'applyBidChange(rowSelector)');
+  assertConfigured(WING.metricsTable.campaignIdAttr, 'applyBidChange(campaignIdAttr)');
+  const cfg = WING;
+  return win.webContents.executeJavaScript(`(() => {
+    const rows = [...document.querySelectorAll(${JSON.stringify(cfg.metricsTable.rowSelector)})];
+    const row = rows.find(r => (r.getAttribute(${JSON.stringify(cfg.metricsTable.campaignIdAttr)}) || '') === ${JSON.stringify(String(campaignId))});
+    if (!row) return { ok:false, error:'행을 찾지 못함: ' + ${JSON.stringify(String(campaignId))} };
+    const input = row.querySelector(${JSON.stringify(cfg.bidEdit.bidInputSelector)});
+    if (!input) return { ok:false, error:'입찰 입력칸 없음' };
+    // React 제어 input 대응: prototype native setter 로 값 설정 후 이벤트 발생
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(input, String(${Number(newBid)}));
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    const save = row.querySelector(${JSON.stringify(cfg.bidEdit.saveButtonSelector)})
+      || document.querySelector(${JSON.stringify(cfg.bidEdit.saveButtonSelector)});
+    if (!save) return { ok:false, error:'저장 버튼 없음' };
+    save.click();
+    return { ok:true };
+  })()`);
 }

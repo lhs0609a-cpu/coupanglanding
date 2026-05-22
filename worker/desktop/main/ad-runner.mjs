@@ -1,0 +1,114 @@
+/**
+ * 쿠팡 애즈 입찰 자동조정 — 워커 통합 (P3 배선)
+ * ---------------------------------------------------------------------------
+ * 숨김 BrowserWindow 로 윙 광고화면을 띄워(쿠팡 로그인 세션은 별도 쿠키 파티션에
+ * 영속) 성과를 읽고 입찰가를 바꾼다. 평가/영속화는 runtime/ad-loop 에 위임.
+ *
+ * ⚠️ 실제 동작은 runtime/ad-automation 의 WING 셀렉터 설정(__TODO__)을 채워야 함.
+ *    미설정이면 onEvent 로 "윙 설정 필요"를 알리고 안전하게 종료한다.
+ *
+ * 배선 안내: main.mjs 에서
+ *   import { AdRunner } from './ad-runner.mjs';
+ *   const ads = new AdRunner({ getSession: () => runner.session, onEvent: e => send('ads:evt', e) });
+ *   ipcMain.handle('ads:run-once', () => ads.runOnce());
+ *   ipcMain.handle('ads:start',    () => ads.start());
+ *   ipcMain.handle('ads:stop',     () => ads.stop());
+ * 처럼 연결한다. (DOM 설정·실기기 검증 전까지 자동 시작은 하지 않는다.)
+ */
+
+import { BrowserWindow } from 'electron';
+import { selectRows } from '../runtime/supabase-rest.mjs';
+import { runAdEvaluation, makeSupabaseDb } from '../runtime/ad-loop.mjs';
+import { ensureWingSession, collectMetrics, applyBidChange } from '../runtime/ad-automation.mjs';
+
+const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6시간마다 평가
+
+export class AdRunner {
+  constructor({ getSession, onEvent = () => {} }) {
+    this.getSession = getSession;
+    this.onEvent = onEvent;
+    this.win = null;
+    this.timer = null;
+    this.busy = false;
+  }
+
+  get running() { return !!this.timer; }
+
+  _ensureWin() {
+    if (this.win && !this.win.isDestroyed()) return this.win;
+    this.win = new BrowserWindow({
+      show: false,
+      width: 1280,
+      height: 900,
+      webPreferences: { partition: 'persist:wing' }, // 쿠팡 로그인 쿠키 영속(비번 저장 X)
+    });
+    return this.win;
+  }
+
+  async _context() {
+    const session = this.getSession?.();
+    if (!session) throw new Error('메가로드 로그인이 필요합니다.');
+    const users = await selectRows(session, 'megaload_users', 'select=id&limit=1');
+    const muId = users?.[0]?.id;
+    if (!muId) throw new Error('메가로드 계정을 찾지 못했습니다.');
+    const rules = await selectRows(
+      session, 'megaload_ad_rules',
+      'scope_type=eq.account&enabled=eq.true&select=*&limit=1',
+    );
+    return { session, muId, rule: rules?.[0] ?? null };
+  }
+
+  /** 1회 평가 실행 */
+  async runOnce() {
+    if (this.busy) { this.onEvent({ type: 'warn', message: '이미 실행 중' }); return; }
+    this.busy = true;
+    try {
+      const { session, muId, rule } = await this._context();
+      if (!rule) { this.onEvent({ type: 'idle', message: '활성화된 광고 규칙이 없습니다(설정에서 켜세요).' }); return; }
+
+      const win = this._ensureWin();
+      let loggedIn = false;
+      try {
+        loggedIn = await ensureWingSession(win);
+      } catch (e) {
+        // WING 셀렉터 미설정 등
+        this.onEvent({ type: 'error', message: e.message });
+        return;
+      }
+      if (!loggedIn) {
+        win.show(); // 사용자가 직접 윙 로그인하도록 창을 보여줌
+        this.onEvent({ type: 'login-required', message: '윙에 로그인해 주세요. 로그인 후 다시 실행하면 진행됩니다.' });
+        return;
+      }
+
+      const db = makeSupabaseDb(session, muId);
+      const summary = await runAdEvaluation({
+        ruleRow: rule,
+        collect: (opts) => collectMetrics(win, opts),
+        apply: (t) => applyBidChange(win, t),
+        db,
+        workerId: 'desktop-ads',
+        onEvent: this.onEvent,
+      });
+      this.onEvent({ type: 'done', ...summary });
+    } catch (e) {
+      this.onEvent({ type: 'error', message: e.message });
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  /** 주기 실행 시작 */
+  async start({ intervalMs = DEFAULT_INTERVAL_MS } = {}) {
+    if (this.timer) return;
+    await this.runOnce();
+    this.timer = setInterval(() => { this.runOnce().catch(() => {}); }, intervalMs);
+    this.onEvent({ type: 'started', intervalMs });
+  }
+
+  stop() {
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    if (this.win && !this.win.isDestroyed()) { this.win.destroy(); this.win = null; }
+    this.onEvent({ type: 'stopped' });
+  }
+}
