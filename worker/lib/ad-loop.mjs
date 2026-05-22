@@ -185,6 +185,18 @@ export async function runDeletePass({ ruleRow, db, deleteApply, workerId, onEven
  */
 export async function runRegisterQueue({ ruleRow, db, register, workerId, onEvent = () => {} }) {
   if (!ruleRow.auto_register_enabled) return { registered: 0, failed: 0, capped: false };
+
+  // 신규 상품 전체(all_new): 쿠팡 등록된 최근 상품을 큐에 자동 보충 (중복 제외)
+  if (ruleRow.register_scope === 'all_new' && db.enqueueNewProducts) {
+    try {
+      const n = await db.enqueueNewProducts(200, {
+        initialBid: Number(ruleRow.register_initial_bid),
+        dailyBudget: Number(ruleRow.register_daily_budget),
+      });
+      if (n) onEvent({ type: 'register-enqueued', count: n });
+    } catch (e) { onEvent({ type: 'warn', message: '신규상품 자동큐 실패: ' + e.message }); }
+  }
+
   const maxPerDay = Number(ruleRow.register_max_per_day) || 10;
   const remaining = Math.max(0, maxPerDay - await db.countRegisteredToday());
   if (remaining <= 0) { onEvent({ type: 'register-capped', message: `일일 자동등록 상한(${maxPerDay}개) 도달` }); return { registered: 0, failed: 0, capped: true }; }
@@ -265,6 +277,31 @@ export function makeSupabaseDb(session, megaloadUserId) {
     },
     async markRegister(id, patch) {
       return patchRow(session, 'megaload_ad_register_queue', `id=eq.${id}`, patch);
+    },
+    /** all_new: 쿠팡 등록된(상품ID 있는) 최근 상품 중 큐에 없는 것을 자동 추가 → 추가 개수 */
+    async enqueueNewProducts(limit, defaults) {
+      const prods = await selectRows(
+        session, 'sh_products',
+        `megaload_user_id=eq.${megaloadUserId}&coupang_product_id=not.is.null&status=neq.deleted`
+        + `&select=coupang_product_id,product_name&order=created_at.desc&limit=${Number(limit) || 100}`,
+      );
+      if (!prods || prods.length === 0) return 0;
+      const existing = await selectRows(
+        session, 'megaload_ad_register_queue',
+        `megaload_user_id=eq.${megaloadUserId}&select=coupang_product_id`,
+      );
+      const have = new Set((existing || []).map((e) => e.coupang_product_id));
+      const fresh = prods.filter((p) => p.coupang_product_id && !have.has(p.coupang_product_id));
+      if (fresh.length === 0) return 0;
+      await insertRows(session, 'megaload_ad_register_queue', fresh.map((p) => ({
+        megaload_user_id: megaloadUserId,
+        coupang_product_id: p.coupang_product_id,
+        product_name: p.product_name ?? null,
+        initial_bid: defaults.initialBid,
+        daily_budget: defaults.dailyBudget,
+        status: 'pending',
+      })));
+      return fresh.length;
     },
     async saveMetrics(rows) {
       const today = new Date().toISOString().slice(0, 10);

@@ -77,6 +77,31 @@ export default function ProductsPage() {
     }
   };
 
+  const addToAdQueue = async () => {
+    const sel = products.filter((p) => selectedIds.includes(p.id) && (p as { coupang_product_id?: string }).coupang_product_id);
+    if (sel.length === 0) {
+      alert('선택한 상품 중 쿠팡에 등록된(상품ID가 있는) 상품이 없습니다.');
+      return;
+    }
+    try {
+      const res = await fetch('/api/megaload/ads/register-queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          products: sel.map((p) => ({
+            coupangProductId: (p as { coupang_product_id?: string }).coupang_product_id,
+            productName: p.product_name,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) alert(`광고 자동등록 큐에 ${data.queued}개 추가했습니다.\n(설정 → 광고 자동화에서 "상품 광고 자동 등록"을 켜면 워커가 처리합니다)`);
+      else alert('실패: ' + (data.error || ''));
+    } catch (e) {
+      alert('실패: ' + (e instanceof Error ? e.message : ''));
+    }
+  };
+
   const getChannelStatus = (channels: ProductChannel[] | undefined, channel: Channel): string => {
     const ch = channels?.find((c) => c.channel === channel);
     return ch ? ch.status : 'not_registered';
@@ -214,6 +239,9 @@ export default function ProductsPage() {
               </button>
               <button className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
                 가격 변경
+              </button>
+              <button onClick={addToAdQueue} className="px-3 py-1.5 text-xs font-medium text-indigo-700 bg-white border border-indigo-300 rounded-lg hover:bg-indigo-50">
+                광고 자동등록 추가
               </button>
             </div>
           )}
