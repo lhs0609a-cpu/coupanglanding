@@ -136,6 +136,35 @@ export async function patchRow(session, table, filter, patch) {
   if (!res.ok) throw new Error(`PATCH ${table} 실패: ${res.status} ${await res.text().catch(() => '')}`);
 }
 
+/** 행 조회 (GET /rest/v1/<table>?<query>). query 에 select=, 필터, order 등 포함. */
+export async function selectRows(session, table, query) {
+  const token = await session.token();
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/${table}?${query}`, {
+    headers: authHeaders(session.anonKey, token),
+  });
+  if (!res.ok) throw new Error(`GET ${table} 실패: ${res.status} ${await res.text().catch(() => '')}`);
+  return res.json();
+}
+
+/**
+ * 행 삽입 (POST /rest/v1/<table>). upsert=true 면 중복키 병합(merge-duplicates).
+ * @returns {Promise<any>} return=representation 이면 삽입된 행들
+ */
+export async function insertRows(session, table, rows, { upsert = false, returning = false } = {}) {
+  const token = await session.token();
+  const prefer = [
+    upsert ? 'resolution=merge-duplicates' : null,
+    returning ? 'return=representation' : 'return=minimal',
+  ].filter(Boolean).join(',');
+  const res = await fetch(`${session.supabaseUrl}/rest/v1/${table}`, {
+    method: 'POST',
+    headers: { ...authHeaders(session.anonKey, token), 'Content-Type': 'application/json', Prefer: prefer },
+    body: JSON.stringify(rows),
+  });
+  if (!res.ok) throw new Error(`POST ${table} 실패: ${res.status} ${await res.text().catch(() => '')}`);
+  return returning ? res.json() : null;
+}
+
 /** Storage 업로드 → 공개 URL 반환 */
 export async function uploadToStorage(session, bucket, path, buffer, contentType) {
   const token = await session.token();

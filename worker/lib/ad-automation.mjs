@@ -112,35 +112,105 @@ export function evaluateBid({ currentBid, metrics, rule, changedTodayPct = 0 }) 
 // 아래는 윙 실제 DOM이 필요한 부분 — P2/P3에서 구현 (지금은 명시적 스텁)
 // ───────────────────────────────────────────────────────────────────────────
 
-const NOT_IMPL = (fn) =>
-  new Error(`[ad-automation] ${fn}() 미구현 — 윙 광고화면 DOM 확보 후 P2/P3에서 구현 예정`);
-
 /**
- * 윙 광고화면이 로그인된 세션인지 확인. 미로그인이면 로그인 창을 띄우고 대기.
- * 비밀번호는 저장하지 않는다(사용자가 직접 1회 로그인 → 쿠키 세션 유지).
- * @param {import('electron').BrowserWindow} _win
- * @returns {Promise<boolean>}
+ * 윙 광고화면 셀렉터/URL 설정 — 실제 DOM 확보 후 '__TODO__' 를 채운다.
+ * 값이 채워지면 collectMetrics 는 코드 수정 없이 동작한다(설정 주도).
  */
-export async function ensureWingSession(_win) {
-  throw NOT_IMPL('ensureWingSession');
+export const WING = {
+  loginUrl: 'https://wing.coupang.com/',
+  reportUrl: '__TODO__',            // 광고 성과 리포트 페이지 URL
+  loggedInSelector: '__TODO__',     // 로그인 상태에서만 존재하는 요소(예: 헤더 셀러명)
+  metricsTable: {
+    rowSelector: '__TODO__',        // 캠페인/키워드 한 행(tr 등)
+    campaignIdAttr: '__TODO__',     // 행에서 캠페인 식별자를 담은 속성(data-campaign-id 등)
+    cell: {                         // 행 내부 상대 셀렉터 — textContent 를 숫자 파싱
+      campaignName: '__TODO__',
+      keyword: null,                // 키워드 단위가 아니면 null 유지
+      impressions: '__TODO__',
+      clicks: '__TODO__',
+      spend: '__TODO__',
+      sales: '__TODO__',
+      conversions: '__TODO__',
+      currentBid: '__TODO__',
+    },
+  },
+  bidEdit: {
+    bidInputSelector: '__TODO__',
+    saveButtonSelector: '__TODO__',
+  },
+};
+
+function assertConfigured(obj, label) {
+  if (JSON.stringify(obj).includes('__TODO__')) {
+    throw new Error(`[ad-automation] ${label}: 윙 셀렉터 미설정(__TODO__) — 실제 화면 DOM 확보 후 WING 설정을 채우세요.`);
+  }
+}
+
+/** 페이지 안에서 selector 가 나타날 때까지 폴링 대기 */
+function waitFor(win, selector, timeoutMs = 15000) {
+  return win.webContents.executeJavaScript(`new Promise((res, rej) => {
+    const t0 = Date.now();
+    const id = setInterval(() => {
+      if (document.querySelector(${JSON.stringify(selector)})) { clearInterval(id); res(true); }
+      else if (Date.now() - t0 > ${timeoutMs}) { clearInterval(id); rej(new Error('timeout: ' + ${JSON.stringify(selector)})); }
+    }, 300);
+  })`);
 }
 
 /**
- * 윙 광고 리포트에서 캠페인/키워드 성과를 읽어온다.
- * @param {import('electron').BrowserWindow} _win
- * @param {{ lookbackDays: number }} _opts
- * @returns {Promise<Array<{campaignId:string, campaignName:string, keyword:string|null, currentBid:number} & Metrics>>}
+ * 윙 로그인 세션 확인. 미로그인이면 로그인 페이지를 띄우고 사용자가 직접 로그인할
+ * 때까지 대기(비밀번호 저장 안 함 — 쿠키 세션 유지). 로그인되면 true.
+ * @param {import('electron').BrowserWindow} win
  */
-export async function collectMetrics(_win, _opts) {
-  throw NOT_IMPL('collectMetrics');
+export async function ensureWingSession(win, { timeoutMs = 180000 } = {}) {
+  assertConfigured(WING.loggedInSelector, 'ensureWingSession(loggedInSelector)');
+  await win.loadURL(WING.reportUrl !== '__TODO__' ? WING.reportUrl : WING.loginUrl);
+  try { await waitFor(win, WING.loggedInSelector, timeoutMs); return true; }
+  catch { return false; }
+}
+
+/**
+ * 윙 광고 리포트에서 캠페인/키워드 성과를 읽어온다. (설정 주도 추출)
+ * ⚠️ 기간(lookbackDays) 적용용 날짜선택 UI 조작은 DOM 확보 후 추가 필요.
+ * @param {import('electron').BrowserWindow} win
+ * @param {{ lookbackDays?: number }} [_opts]
+ * @returns {Promise<Array<{campaignId:string,campaignName:string,keyword:string|null,currentBid:number}&Metrics>>}
+ */
+export async function collectMetrics(win, _opts = {}) {
+  assertConfigured(WING.reportUrl, 'collectMetrics(reportUrl)');
+  assertConfigured(WING.metricsTable, 'collectMetrics(metricsTable)');
+  const cfg = WING.metricsTable;
+  await win.loadURL(WING.reportUrl);
+  await waitFor(win, cfg.rowSelector);
+  return win.webContents.executeJavaScript(`(() => {
+    const parseNum = (t) => { if (t==null) return 0; const n=String(t).replace(/[^0-9.\\-]/g,''); return n===''?0:Number(n); };
+    const out = [];
+    document.querySelectorAll(${JSON.stringify(cfg.rowSelector)}).forEach((row) => {
+      const txt = (sel) => sel ? (row.querySelector(sel)?.textContent ?? '') : '';
+      out.push({
+        campaignId: ${cfg.campaignIdAttr !== '__TODO__' ? `row.getAttribute(${JSON.stringify(cfg.campaignIdAttr)}) || ''` : `''`},
+        campaignName: txt(${JSON.stringify(cfg.cell.campaignName)}).trim(),
+        keyword: ${cfg.cell.keyword ? `(txt(${JSON.stringify(cfg.cell.keyword)}).trim() || null)` : 'null'},
+        impressions: parseNum(txt(${JSON.stringify(cfg.cell.impressions)})),
+        clicks: parseNum(txt(${JSON.stringify(cfg.cell.clicks)})),
+        spend: parseNum(txt(${JSON.stringify(cfg.cell.spend)})),
+        sales: parseNum(txt(${JSON.stringify(cfg.cell.sales)})),
+        conversions: parseNum(txt(${JSON.stringify(cfg.cell.conversions)})),
+        currentBid: parseNum(txt(${JSON.stringify(cfg.cell.currentBid)})),
+      });
+    });
+    return out;
+  })()`);
 }
 
 /**
  * 윙 광고화면에서 특정 캠페인/키워드의 입찰가를 변경한다.
+ * 입력칸 클릭→값 교체→저장→확인 흐름은 윙 UX 의존이라 DOM 확보 후 P3에서 완성.
  * @param {import('electron').BrowserWindow} _win
  * @param {{campaignId:string, keyword:string|null, newBid:number}} _target
- * @returns {Promise<{ok:boolean, screenshotPath?:string, error?:string}>}
+ * @returns {Promise<{ok:boolean, screenshotUrl?:string, error?:string}>}
  */
 export async function applyBidChange(_win, _target) {
-  throw NOT_IMPL('applyBidChange');
+  assertConfigured(WING.bidEdit, 'applyBidChange(bidEdit)');
+  throw new Error('[ad-automation] applyBidChange: 윙 입찰 변경 조작 흐름 미구현 — DOM/조작 순서 확보 후 P3에서 완성');
 }
