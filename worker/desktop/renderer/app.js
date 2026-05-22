@@ -94,5 +94,27 @@ bridge.on('worker:event', (e) => {
 });
 bridge.on('comfy:log', (m) => logLine('[ComfyUI] ' + m));
 
+// ── 광고 자동화 (베타) ──
+const adsMsg = (m) => { $('ads-msg').textContent = m; };
+$('btn-ads-capture-open').onclick = async () => {
+  adsMsg('윙 창을 여는 중... 로그인 후 광고 성과 리포트 화면까지 이동하세요.');
+  try { await bridge.invoke('ads:capture-open'); }
+  catch (e) { adsMsg('❌ ' + e.message); }
+};
+$('btn-ads-capture-save').onclick = async () => {
+  try { const fp = await bridge.invoke('ads:capture-save'); adsMsg('✅ 저장됨: ' + fp + ' — 이 파일을 전달해 주세요.'); }
+  catch (e) { adsMsg('❌ ' + e.message); }
+};
+$('btn-ads-run').onclick = async () => {
+  adsMsg('평가 실행 중...');
+  try { await bridge.invoke('ads:run-once'); }
+  catch (e) { adsMsg('❌ ' + e.message); }
+};
+bridge.on('ads:event', (e) => {
+  if (e.type === 'capture-saved') { adsMsg('✅ 저장됨: ' + e.path + ' — 이 파일을 전달해 주세요.'); return; }
+  if (e.message) adsMsg(e.message);
+  logLine('[광고] ' + (e.type + (e.message ? ' — ' + e.message : '')));
+});
+
 refresh();
 setInterval(refresh, 5000);

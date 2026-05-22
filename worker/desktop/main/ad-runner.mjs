@@ -17,6 +17,7 @@
  */
 
 import { BrowserWindow } from 'electron';
+import { writeFile } from 'node:fs/promises';
 import { selectRows } from '../runtime/supabase-rest.mjs';
 import { runAdEvaluation, makeSupabaseDb } from '../runtime/ad-loop.mjs';
 import { ensureWingSession, collectMetrics, applyBidChange } from '../runtime/ad-automation.mjs';
@@ -110,5 +111,24 @@ export class AdRunner {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
     if (this.win && !this.win.isDestroyed()) { this.win.destroy(); this.win = null; }
     this.onEvent({ type: 'stopped' });
+  }
+
+  // ── 윙 DOM 캡처 도우미 (WING 셀렉터 설정값을 알아내기 위한 1회용) ──
+  /** 윙 창을 띄워 사용자가 로그인 후 광고 리포트 화면까지 이동하게 한다. */
+  async openCapture() {
+    const win = this._ensureWin();
+    win.show();
+    await win.loadURL('https://wing.coupang.com/');
+    this.onEvent({ type: 'capture-open', message: '윙에 로그인하고 광고 성과 리포트 화면까지 이동한 뒤 "HTML 저장"을 누르세요.' });
+    return true;
+  }
+
+  /** 현재 윙 창의 전체 HTML을 파일로 저장 → 그 파일을 공유하면 셀렉터를 채울 수 있다. */
+  async saveCaptureHtml(filePath) {
+    if (!this.win || this.win.isDestroyed()) throw new Error('윙 창이 없습니다. 먼저 "윙 열기"를 누르세요.');
+    const html = await this.win.webContents.executeJavaScript('document.documentElement.outerHTML');
+    await writeFile(filePath, html, 'utf8');
+    this.onEvent({ type: 'capture-saved', path: filePath });
+    return filePath;
   }
 }

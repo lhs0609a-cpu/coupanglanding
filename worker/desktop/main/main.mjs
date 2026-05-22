@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { Store } from './store.mjs';
 import { ComfyManager } from './comfy-manager.mjs';
 import { WorkerRunner } from './worker-runner.mjs';
+import { AdRunner } from './ad-runner.mjs';
 import { startPairServer } from './pair-server.mjs';
 import * as bootstrap from './bootstrap.mjs';
 
@@ -18,7 +19,7 @@ const WEB_ORIGIN = 'https://www.megaload.co.kr';
 
 let win = null;
 let tray = null;
-let store, comfy, runner, pair;
+let store, comfy, runner, pair, ads;
 let installDir, comfyPort;
 const stats = { processed: 0, ok: 0, fail: 0, current: null };
 
@@ -34,6 +35,7 @@ function setupServices() {
   comfyPort = store.get('comfyPort', 8188);
   comfy = new ComfyManager(installDir, { port: comfyPort, onLog: (m) => send('comfy:log', m) });
   runner = new WorkerRunner(userData, { onEvent: onWorkerEvent });
+  ads = new AdRunner({ getSession: () => runner.session, onEvent: (e) => send('ads:event', e) });
 }
 
 function onWorkerEvent(e) {
@@ -156,6 +158,18 @@ function registerIpc() {
   ipcMain.handle('worker:stop', async () => { await stopWorker(); return true; });
   ipcMain.handle('comfy:stop', async () => { await comfy.stop(); return true; });
   ipcMain.handle('logs:openData', () => shell.openPath(app.getPath('userData')));
+
+  // ── 광고 자동화 (베타) ──
+  ipcMain.handle('ads:run-once', async () => { await ads.runOnce(); return true; });
+  ipcMain.handle('ads:start', async () => { await ads.start(); return true; });
+  ipcMain.handle('ads:stop', () => { ads.stop(); return true; });
+  ipcMain.handle('ads:capture-open', async () => { await ads.openCapture(); return true; });
+  ipcMain.handle('ads:capture-save', async () => {
+    const fp = join(app.getPath('userData'), 'wing-capture.html');
+    await ads.saveCaptureHtml(fp);
+    shell.showItemInFolder(fp);
+    return fp;
+  });
 }
 
 app.on('second-instance', () => { if (win) { win.show(); win.focus(); } });
@@ -189,7 +203,7 @@ app.on('before-quit', async (e) => {
   if (app.isQuitting) return;
   app.isQuitting = true;
   e.preventDefault();
-  try { await stopWorker(); await comfy.stop(); await pair?.close(); } catch { /* ignore */ }
+  try { ads?.stop(); await stopWorker(); await comfy.stop(); await pair?.close(); } catch { /* ignore */ }
   app.quit();
 });
 
