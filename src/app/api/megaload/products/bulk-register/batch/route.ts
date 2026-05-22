@@ -525,15 +525,18 @@ export async function POST(req: NextRequest) {
 
         // 세션 복원 후 핸들 유실 시 preUploadedUrls에 detail/review가 빈 배열이지만
         // product.detailImages/reviewImages에 로컬 경로가 남아있을 수 있음 → 서버 업로드 폴백
-        if (detailImageUrls.length === 0 && product.detailImages?.length > 0) {
-          console.log(`[batch] ${product.productCode} detail 폴백: preUploaded=0, localPaths=${product.detailImages.length}`);
-          const detailFallbackUrls = await uploadLocalImagesParallel(product.detailImages, shUserId, 20, true, sellerBrand || undefined);
-          detailImageUrls = detailFallbackUrls.filter(Boolean);
-        }
-        if (reviewImageUrls.length === 0 && includeReviewImages && product.reviewImages?.length > 0) {
-          console.log(`[batch] ${product.productCode} review 폴백: preUploaded=0, localPaths=${product.reviewImages.length}`);
-          const reviewFallbackUrls = await uploadLocalImagesParallel(product.reviewImages, shUserId, 20, true, sellerBrand || undefined);
-          reviewImageUrls = reviewFallbackUrls.filter(Boolean);
+        // detail/review 폴백 업로드는 서로 독립 → 병렬 실행(순차 await 제거). 동작·결과 동일.
+        const needDetailFallback = detailImageUrls.length === 0 && (product.detailImages?.length ?? 0) > 0;
+        const needReviewFallback = reviewImageUrls.length === 0 && includeReviewImages && (product.reviewImages?.length ?? 0) > 0;
+        if (needDetailFallback) console.log(`[batch] ${product.productCode} detail 폴백: preUploaded=0, localPaths=${product.detailImages.length}`);
+        if (needReviewFallback) console.log(`[batch] ${product.productCode} review 폴백: preUploaded=0, localPaths=${product.reviewImages.length}`);
+        if (needDetailFallback || needReviewFallback) {
+          const [detailFb, reviewFb] = await Promise.all([
+            needDetailFallback ? uploadLocalImagesParallel(product.detailImages, shUserId, 20, true, sellerBrand || undefined) : Promise.resolve(null),
+            needReviewFallback ? uploadLocalImagesParallel(product.reviewImages, shUserId, 20, true, sellerBrand || undefined) : Promise.resolve(null),
+          ]);
+          if (detailFb) detailImageUrls = detailFb.filter(Boolean);
+          if (reviewFb) reviewImageUrls = reviewFb.filter(Boolean);
         }
       } else {
         const reviewPaths = includeReviewImages ? product.reviewImages : [];
@@ -597,39 +600,44 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // 5.5 noticeMeta가 비어있으면 캐시 우선 + 라이브 API 폴백으로 재조회
+      // 5.5/5.6 noticeMeta·attributeMeta 재조회 (둘 다 비어있을 때) — 서로 독립이므로 병렬 실행.
+      // 별개 캐시 테이블/API 호출이라 동시 실행 안전(init-job 도 Promise.all 로 동일 패턴). 결과 동일.
+      const metaRefetch: Promise<void>[] = [];
       if (!product.noticeMeta || product.noticeMeta.length === 0) {
-        try {
-          console.log(`[batch] noticeMeta 비어있음 → 캐시+재조회: category=${product.categoryCode}`);
-          const { getNoticeCategoryWithCache } = await import('@/lib/megaload/services/notice-category-cache');
-          const fresh = await getNoticeCategoryWithCache(serviceClient, coupangAdapter, product.categoryCode);
-          if (fresh.length > 0) {
-            product.noticeMeta = fresh;
-            console.log(`[batch] noticeMeta 재조회 성공: ${fresh[0].noticeCategoryName} (${fresh[0].fields.length}개 필드)`);
+        metaRefetch.push((async () => {
+          try {
+            console.log(`[batch] noticeMeta 비어있음 → 캐시+재조회: category=${product.categoryCode}`);
+            const { getNoticeCategoryWithCache } = await import('@/lib/megaload/services/notice-category-cache');
+            const fresh = await getNoticeCategoryWithCache(serviceClient, coupangAdapter, product.categoryCode);
+            if (fresh.length > 0) {
+              product.noticeMeta = fresh;
+              console.log(`[batch] noticeMeta 재조회 성공: ${fresh[0].noticeCategoryName} (${fresh[0].fields.length}개 필드)`);
+            }
+          } catch (e) {
+            console.warn(`[batch] noticeMeta 재조회 실패:`, e);
           }
-        } catch (e) {
-          console.warn(`[batch] noticeMeta 재조회 실패:`, e);
-        }
+        })());
       }
-
-      // 5.6 attributeMeta가 비어있으면 쿠팡 API에서 직접 재조회 (캐시 우선)
       // (init-job에서 getCategoryAttributes 실패 시 빈 배열 → 구매옵션 미전송 → API 에러)
       if (!product.attributeMeta || product.attributeMeta.length === 0) {
-        try {
-          console.log(`[batch] attributeMeta 비어있음 → 재조회: category=${product.categoryCode}`);
-          const { getAttributesWithCache } = await import('@/lib/megaload/services/attribute-cache');
-          const items = await getAttributesWithCache(serviceClient, coupangAdapter, product.categoryCode);
-          if (items.length > 0) {
-            product.attributeMeta = items as AttributeMeta[];
-            const exposedCount = items.filter(a => a.exposed === 'EXPOSED').length;
-            console.log(`[batch] attributeMeta 재조회 성공: ${items.length}개 속성 (EXPOSED=${exposedCount})`);
-          } else {
-            console.warn(`[batch] attributeMeta 재조회했으나 비어있음 → 구매옵션 없는 카테고리이거나 API 오류`);
+        metaRefetch.push((async () => {
+          try {
+            console.log(`[batch] attributeMeta 비어있음 → 재조회: category=${product.categoryCode}`);
+            const { getAttributesWithCache } = await import('@/lib/megaload/services/attribute-cache');
+            const items = await getAttributesWithCache(serviceClient, coupangAdapter, product.categoryCode);
+            if (items.length > 0) {
+              product.attributeMeta = items as AttributeMeta[];
+              const exposedCount = items.filter(a => a.exposed === 'EXPOSED').length;
+              console.log(`[batch] attributeMeta 재조회 성공: ${items.length}개 속성 (EXPOSED=${exposedCount})`);
+            } else {
+              console.warn(`[batch] attributeMeta 재조회했으나 비어있음 → 구매옵션 없는 카테고리이거나 API 오류`);
+            }
+          } catch (e) {
+            console.warn(`[batch] attributeMeta 재조회 실패:`, e instanceof Error ? e.message : e);
           }
-        } catch (e) {
-          console.warn(`[batch] attributeMeta 재조회 실패:`, e instanceof Error ? e.message : e);
-        }
+        })());
       }
+      if (metaRefetch.length > 0) await Promise.all(metaRefetch);
 
       // 6~9. 공유 빌더로 페이로드 빌드 (옵션 추출, 고시정보, 아이템위너 방지 포함)
       const { payload, extractedOptions } = await buildProductPayload({

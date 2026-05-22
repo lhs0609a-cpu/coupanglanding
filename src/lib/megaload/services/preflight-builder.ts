@@ -90,6 +90,10 @@ export interface BuildPayloadParams {
   vendorUserId?: string;
   // 셀러 고유 브랜드 (상품 차별화)
   sellerBrand?: string;
+  // 고시정보 빈 필드의 GPT 보강을 생략한다 (룰베이스 결과만 사용).
+  // 순수 검증/미리보기(preflight)에서 true — 반복 실행 시 상품당 OpenAI 호출 비용·지연 제거.
+  // 실제 등록(batch)·카나리에서는 omit(=false)하여 AI 보강 유지.
+  skipAiNoticeFill?: boolean;
 }
 
 export interface BuildPayloadResult {
@@ -115,6 +119,7 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     totalProductsInBatch,
     vendorUserId,
     sellerBrand,
+    skipAiNoticeFill = false,
   } = params;
 
   const preventionEnabled = preventionConfig?.enabled ?? false;
@@ -192,12 +197,18 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
   );
   // 2차: 룰베이스가 "상세페이지 참조" 폴백한 필드만 GPT-4o-mini 로 보강.
   // OPENAI_API_KEY 없으면 silently skip → 룰베이스 결과 그대로 사용.
-  const filledNotices = await aiFillRemainingNotices(
-    ruleFilledNotices,
-    product.name,
-    product.categoryPath,
-    product.brand,
-  );
+  // ⚠️ skipAiNoticeFill(preflight 등 순수 검증): AI 호출 생략하고 룰베이스 결과만 사용한다.
+  //   preflight 는 카테고리 변경마다 반복 실행 → 매번 상품당 OpenAI 호출 시 비용·지연 폭증.
+  //   구조 검증엔 룰베이스 placeholder("상세페이지 참조")로 필수 필드가 충족되어 pass/fail 불변.
+  //   실제 등록(batch)·카나리에서는 AI 보강을 그대로 적용.
+  const filledNotices = skipAiNoticeFill
+    ? ruleFilledNotices
+    : await aiFillRemainingNotices(
+        ruleFilledNotices,
+        product.name,
+        product.categoryPath,
+        product.brand,
+      );
 
   // 아이템위너 방지 시드 + 레이아웃 변형
   // prevention enabled면 항상 시드 생성 (바코드 제거, 브랜드 고유화 등에 사용)

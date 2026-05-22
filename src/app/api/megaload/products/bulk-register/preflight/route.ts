@@ -228,6 +228,8 @@ export async function POST(req: NextRequest) {
             reviewImageUrls,
             infoImageUrls,
             thirdPartyImageUrls: body.thirdPartyImageUrls,
+            // 순수 검증 단계 — 고시 빈 필드의 OpenAI 보강 생략 (비용·지연 제거, 구조 검증 결과 불변).
+            skipAiNoticeFill: true,
           });
 
           // 구조 검증
