@@ -108,6 +108,27 @@ export function evaluateBid({ currentBid, metrics, rule, changedTodayPct = 0 }) 
   return { action: 'down', newBid: down, measuredRoas, reason: `ROAS ${measuredRoas}% < 목표 ${rule.targetRoas}% → 입찰 -${effStep}% (${currentBid}→${down}원)` };
 }
 
+/**
+ * 캠페인 단위 액션(OFF) 판정 — 순수 함수.
+ * "광고비 N원 소진 & 판매(전환매출)가 기준 이하" → OFF.
+ * @param {Object} o
+ * @param {Metrics & {spend:number, sales:number}} o.metrics  룩백 합계
+ * @param {{autoOffEnabled:boolean, offSpendThreshold:number, offMaxSales:number}} o.rule
+ * @returns {{action:'off', reason:string}|null}
+ */
+export function evaluateCampaignAction({ metrics, rule }) {
+  if (!rule.autoOffEnabled) return null;
+  const spend = metrics.spend ?? 0;
+  const sales = metrics.sales ?? 0;
+  if (spend >= rule.offSpendThreshold && sales <= rule.offMaxSales) {
+    return {
+      action: 'off',
+      reason: `광고비 ${Math.round(spend).toLocaleString()}원 소진 & 판매 ${Math.round(sales).toLocaleString()}원 ≤ 기준 ${Number(rule.offMaxSales).toLocaleString()}원 → 캠페인 OFF`,
+    };
+  }
+  return null;
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // 아래는 윙 실제 DOM이 필요한 부분 — P2/P3에서 구현 (지금은 명시적 스텁)
 // ───────────────────────────────────────────────────────────────────────────
@@ -137,6 +158,17 @@ export const WING = {
   bidEdit: {
     bidInputSelector: '__TODO__',
     saveButtonSelector: '__TODO__',
+  },
+  // B-1: 캠페인 ON/OFF·삭제 (행 내 또는 전역 셀렉터)
+  campaignActions: {
+    offToggleSelector: '__TODO__',     // 캠페인을 끄는 토글/버튼
+    deleteButtonSelector: '__TODO__',  // 삭제 버튼
+    confirmButtonSelector: '__TODO__', // 삭제 확인 모달의 확인 버튼
+  },
+  // B-2: 캠페인 생성/상품 추가 흐름 — 다단계 UX라 DOM 확보 후 채움
+  campaignCreate: {
+    url: '__TODO__',
+    flow: '__TODO__',
   },
 };
 
@@ -233,4 +265,58 @@ export async function applyBidChange(win, { campaignId, newBid }) {
     save.click();
     return { ok:true };
   })()`);
+}
+
+/** 행 탐색 후 OFF 토글 클릭 (설정 주도). @returns {Promise<{ok,error?}>} */
+export async function toggleCampaign(win, { campaignId, on = false }) {
+  assertConfigured(WING.campaignActions.offToggleSelector, 'toggleCampaign(offToggleSelector)');
+  assertConfigured(WING.metricsTable.rowSelector, 'toggleCampaign(rowSelector)');
+  const cfg = WING;
+  return win.webContents.executeJavaScript(`(() => {
+    const row = [...document.querySelectorAll(${JSON.stringify(cfg.metricsTable.rowSelector)})]
+      .find(r => (r.getAttribute(${JSON.stringify(cfg.metricsTable.campaignIdAttr)}) || '') === ${JSON.stringify(String(campaignId))});
+    if (!row) return { ok:false, error:'행을 찾지 못함: ' + ${JSON.stringify(String(campaignId))} };
+    const t = row.querySelector(${JSON.stringify(cfg.campaignActions.offToggleSelector)});
+    if (!t) return { ok:false, error:'OFF 토글 없음' };
+    // TODO: 현재 ON/OFF 상태 확인 후 목표 상태(${on ? 'ON' : 'OFF'})와 다를 때만 클릭 — DOM 확보 후
+    t.click();
+    return { ok:true };
+  })()`);
+}
+
+/** 행 탐색 → 삭제 버튼 → 확인 모달 (설정 주도). 되돌릴 수 없으니 승인 모드 권장. */
+export async function deleteCampaign(win, { campaignId }) {
+  assertConfigured(WING.campaignActions, 'deleteCampaign(campaignActions)');
+  assertConfigured(WING.metricsTable.rowSelector, 'deleteCampaign(rowSelector)');
+  const cfg = WING;
+  const r1 = await win.webContents.executeJavaScript(`(() => {
+    const row = [...document.querySelectorAll(${JSON.stringify(cfg.metricsTable.rowSelector)})]
+      .find(r => (r.getAttribute(${JSON.stringify(cfg.metricsTable.campaignIdAttr)}) || '') === ${JSON.stringify(String(campaignId))});
+    if (!row) return { ok:false, error:'행을 찾지 못함' };
+    const del = row.querySelector(${JSON.stringify(cfg.campaignActions.deleteButtonSelector)});
+    if (!del) return { ok:false, error:'삭제 버튼 없음' };
+    del.click();
+    return { ok:true };
+  })()`);
+  if (!r1.ok) return r1;
+  // 확인 모달 대기 후 확인 클릭
+  try {
+    await waitFor(win, WING.campaignActions.confirmButtonSelector, 8000);
+    return win.webContents.executeJavaScript(`(() => {
+      const c = document.querySelector(${JSON.stringify(cfg.campaignActions.confirmButtonSelector)});
+      if (!c) return { ok:false, error:'삭제 확인 버튼 없음' };
+      c.click();
+      return { ok:true };
+    })()`);
+  } catch { return { ok:false, error:'삭제 확인 모달이 안 떴습니다' }; }
+}
+
+/**
+ * 상품을 광고 캠페인에 자동 등록. 캠페인 생성/상품추가는 다단계 UX라
+ * 실제 흐름은 윙 화면 확보 후 P-B에서 구현. (입찰·일예산은 인자로 받음)
+ * @returns {Promise<{ok:boolean, campaignId?:string, error?:string}>}
+ */
+export async function registerItem(_win, _opts) {
+  assertConfigured(WING.campaignCreate, 'registerItem(campaignCreate)');
+  throw new Error('[ad-automation] registerItem: 윙 캠페인 생성/상품추가 흐름 미구현 — 화면 확보 후 구현');
 }

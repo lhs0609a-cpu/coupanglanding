@@ -19,8 +19,8 @@
 import { BrowserWindow } from 'electron';
 import { writeFile } from 'node:fs/promises';
 import { selectRows } from '../runtime/supabase-rest.mjs';
-import { runAdEvaluation, makeSupabaseDb } from '../runtime/ad-loop.mjs';
-import { ensureWingSession, collectMetrics, applyBidChange } from '../runtime/ad-automation.mjs';
+import { runAdEvaluation, runDeletePass, runRegisterQueue, makeSupabaseDb } from '../runtime/ad-loop.mjs';
+import { ensureWingSession, collectMetrics, applyBidChange, toggleCampaign, deleteCampaign, registerItem } from '../runtime/ad-automation.mjs';
 
 const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6시간마다 평가
 
@@ -87,9 +87,22 @@ export class AdRunner {
         ruleRow: rule,
         collect: (opts) => collectMetrics(win, opts),
         apply: (t) => applyBidChange(win, t),
+        offApply: (t) => toggleCampaign(win, { campaignId: t.campaignId, on: false }),
         db,
         workerId: 'desktop-ads',
         onEvent: this.onEvent,
+      });
+      // B-1 삭제 패스 (OFF 후 N일 경과분)
+      await runDeletePass({
+        ruleRow: rule, db,
+        deleteApply: (t) => deleteCampaign(win, { campaignId: t.campaignId }),
+        workerId: 'desktop-ads', onEvent: this.onEvent,
+      });
+      // B-2 자동등록 큐 처리 (일일 상한 내)
+      await runRegisterQueue({
+        ruleRow: rule, db,
+        register: (t) => registerItem(win, t),
+        workerId: 'desktop-ads', onEvent: this.onEvent,
       });
       this.onEvent({ type: 'done', ...summary });
     } catch (e) {

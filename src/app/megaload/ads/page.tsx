@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
   Megaphone, Save, Loader2, CheckCircle2, XCircle,
-  TrendingUp, TrendingDown, Minus, Info,
+  TrendingUp, TrendingDown, Minus, Info, AlertTriangle, Power, Trash2,
 } from 'lucide-react';
 
 type Mode = 'dryrun' | 'approval' | 'auto';
@@ -23,10 +23,24 @@ interface AdRule {
   pause_on_zero_conv: boolean;
   zero_conv_min_clicks: number;
   zero_conv_min_spend: number;
+  // B-1: 자동 OFF/삭제
+  auto_off_enabled: boolean;
+  off_spend_threshold: number;
+  off_max_sales: number;
+  auto_delete_enabled: boolean;
+  delete_after_off_days: number;
+  // B-2: 아이템 자동 등록
+  auto_register_enabled: boolean;
+  register_scope: 'selected' | 'all_new';
+  register_initial_bid: number;
+  register_daily_budget: number;
+  register_max_per_day: number;
+  global_daily_budget_cap: number | null;
 }
 
 interface BidChange {
   id: string;
+  action?: 'bid' | 'off' | 'delete';
   campaign_name: string | null;
   keyword: string | null;
   before_bid: number | null;
@@ -50,6 +64,17 @@ const DEFAULT_RULE: AdRule = {
   pause_on_zero_conv: true,
   zero_conv_min_clicks: 30,
   zero_conv_min_spend: 10000,
+  auto_off_enabled: false,
+  off_spend_threshold: 10000,
+  off_max_sales: 0,
+  auto_delete_enabled: false,
+  delete_after_off_days: 7,
+  auto_register_enabled: false,
+  register_scope: 'selected',
+  register_initial_bid: 200,
+  register_daily_budget: 5000,
+  register_max_per_day: 10,
+  global_daily_budget_cap: null,
 };
 
 const MODE_INFO: Record<Mode, { label: string; desc: string; cls: string }> = {
@@ -96,7 +121,7 @@ export default function AdsAutomationPage() {
 
       const { data: c } = await supabase
         .from('megaload_ad_bid_changes')
-        .select('id, campaign_name, keyword, before_bid, after_bid, measured_roas, reason, status, created_at')
+        .select('id, action, campaign_name, keyword, before_bid, after_bid, measured_roas, reason, status, created_at')
         .eq('megaload_user_id', mu.id)
         .order('created_at', { ascending: false })
         .limit(50);
@@ -128,6 +153,17 @@ export default function AdsAutomationPage() {
         pause_on_zero_conv: rule.pause_on_zero_conv,
         zero_conv_min_clicks: rule.zero_conv_min_clicks,
         zero_conv_min_spend: rule.zero_conv_min_spend,
+        auto_off_enabled: rule.auto_off_enabled,
+        off_spend_threshold: rule.off_spend_threshold,
+        off_max_sales: rule.off_max_sales,
+        auto_delete_enabled: rule.auto_delete_enabled,
+        delete_after_off_days: rule.delete_after_off_days,
+        auto_register_enabled: rule.auto_register_enabled,
+        register_scope: rule.register_scope,
+        register_initial_bid: rule.register_initial_bid,
+        register_daily_budget: rule.register_daily_budget,
+        register_max_per_day: rule.register_max_per_day,
+        global_daily_budget_cap: rule.global_daily_budget_cap,
         updated_at: new Date().toISOString(),
       };
       // scope_id 가 NULL이라 onConflict upsert가 불안정 → 수동 update/insert
@@ -240,6 +276,64 @@ export default function AdsAutomationPage() {
           )}
         </div>
 
+        {/* B-1: 지는 광고 자동 정리 */}
+        <div className="rounded-lg border border-gray-200 p-3 space-y-3">
+          <label className="inline-flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={rule.auto_off_enabled} onChange={(e) => setRule((p) => ({ ...p, auto_off_enabled: e.target.checked }))} className="w-4 h-4 accent-[#E31837]" />
+            <span className="text-sm font-medium text-gray-700">지는 광고 자동 OFF (광고비 소진 + 판매 0)</span>
+          </label>
+          {rule.auto_off_enabled && (
+            <div className="grid grid-cols-2 gap-4 pl-6">
+              <Field label="광고비 소진 ≥ (원)" hint="이만큼 쓰고도"><input type="number" value={rule.off_spend_threshold} onChange={num('off_spend_threshold')} className={inputCls} /></Field>
+              <Field label="판매(전환매출) ≤ (원)" hint="이하면 OFF (0 = 한 건도 없으면)"><input type="number" value={rule.off_max_sales} onChange={num('off_max_sales')} className={inputCls} /></Field>
+            </div>
+          )}
+          <label className="inline-flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={rule.auto_delete_enabled} onChange={(e) => setRule((p) => ({ ...p, auto_delete_enabled: e.target.checked }))} className="w-4 h-4 accent-[#E31837]" />
+            <span className="text-sm font-medium text-gray-700">OFF 후에도 개선 없으면 자동 삭제</span>
+          </label>
+          {rule.auto_delete_enabled && (
+            <div className="grid grid-cols-2 gap-4 pl-6">
+              <Field label="OFF 후 며칠 뒤 삭제 (일)"><input type="number" value={rule.delete_after_off_days} onChange={num('delete_after_off_days')} className={inputCls} /></Field>
+            </div>
+          )}
+          <p className="text-[11px] text-rose-600 pl-6">⚠ 삭제는 되돌릴 수 없습니다. “승인 후 적용” 모드를 권장합니다.</p>
+        </div>
+
+        {/* B-2: 아이템 자동 등록 */}
+        <div className="rounded-lg border border-gray-200 p-3 space-y-3">
+          <label className="inline-flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={rule.auto_register_enabled} onChange={(e) => setRule((p) => ({ ...p, auto_register_enabled: e.target.checked }))} className="w-4 h-4 accent-[#E31837]" />
+            <span className="text-sm font-medium text-gray-700">상품 광고 자동 등록</span>
+          </label>
+          <div className="flex items-start gap-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-2">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+            <span><b>광고비 폭증 주의:</b> 아래 <b>상품당 일 예산 · 하루 등록 개수 · 전체 일예산 상한</b>으로 비용을 통제합니다. 처음엔 작게 설정하세요.</span>
+          </div>
+          {rule.auto_register_enabled && (
+            <div className="space-y-3 pl-6">
+              <div className="grid grid-cols-2 gap-2">
+                {(['selected', 'all_new'] as const).map((sc) => (
+                  <button key={sc} type="button" onClick={() => setRule((p) => ({ ...p, register_scope: sc }))}
+                    className={`rounded-lg border px-3 py-2 text-left text-xs transition ${rule.register_scope === sc ? 'border-[#E31837] ring-1 ring-[#E31837]/30' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <b>{sc === 'selected' ? '내가 고른 상품만' : '신규 등록 상품 전체'}</b>
+                    <span className="block text-gray-500 mt-0.5">{sc === 'selected' ? '상품관리에서 선택한 것만' : '새로 올라간 상품 자동 (상한 내)'}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="초기 입찰가 (원)"><input type="number" value={rule.register_initial_bid} onChange={num('register_initial_bid')} className={inputCls} /></Field>
+                <Field label="상품당 일 예산 (원)" hint="직접 지정"><input type="number" value={rule.register_daily_budget} onChange={num('register_daily_budget')} className={inputCls} /></Field>
+                <Field label="하루 자동등록 상한 (개)" hint="폭증 방지"><input type="number" value={rule.register_max_per_day} onChange={num('register_max_per_day')} className={inputCls} /></Field>
+                <Field label="전체 광고 일예산 상한 (원)" hint="비우면 무제한">
+                  <input type="number" value={rule.global_daily_budget_cap ?? ''} placeholder="무제한"
+                    onChange={(e) => setRule((p) => ({ ...p, global_daily_budget_cap: e.target.value === '' ? null : Number(e.target.value) }))} className={inputCls} />
+                </Field>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="flex items-center gap-3 pt-1">
           <button type="button" onClick={save} disabled={saving}
             className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#E31837] text-white rounded-lg text-sm font-semibold hover:bg-[#c5142f] disabled:opacity-60 transition">
@@ -258,15 +352,19 @@ export default function AdsAutomationPage() {
         ) : (
           <div className="space-y-2">
             {changes.map((c) => {
-              const Icon = c.after_bid != null && c.before_bid != null
-                ? (c.after_bid > c.before_bid ? TrendingUp : c.after_bid < c.before_bid ? TrendingDown : Minus)
-                : Minus;
+              const Icon = c.action === 'off' ? Power
+                : c.action === 'delete' ? Trash2
+                : c.after_bid != null && c.before_bid != null
+                  ? (c.after_bid > c.before_bid ? TrendingUp : c.after_bid < c.before_bid ? TrendingDown : Minus)
+                  : Minus;
+              const actionTag = c.action === 'off' ? 'OFF' : c.action === 'delete' ? '삭제' : null;
               const isProposed = c.status === 'proposed';
               return (
                 <div key={c.id} className="flex items-center gap-3 rounded-lg border border-gray-100 px-3 py-2.5">
                   <Icon className={`w-4 h-4 shrink-0 ${c.after_bid != null && c.before_bid != null && c.after_bid > c.before_bid ? 'text-emerald-500' : c.after_bid != null && c.before_bid != null && c.after_bid < c.before_bid ? 'text-rose-500' : 'text-gray-400'}`} />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm text-gray-800 truncate">
+                      {actionTag && <span className={`inline-block text-[10px] font-bold px-1 py-0.5 rounded mr-1 ${c.action === 'delete' ? 'bg-rose-100 text-rose-700' : 'bg-gray-200 text-gray-700'}`}>{actionTag}</span>}
                       {c.campaign_name || '캠페인'}{c.keyword ? ` · ${c.keyword}` : ''}
                       {c.before_bid != null && c.after_bid != null && <span className="text-gray-500"> — {c.before_bid}→{c.after_bid}원</span>}
                     </div>
