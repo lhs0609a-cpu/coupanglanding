@@ -15,6 +15,7 @@ import { setupAutoLaunch, getAutoLaunchEnabled } from './auto-launch';
 import { getStore } from './store';
 import { startMonitorCron, stopMonitorCron } from './monitor-cron';
 import { saveToken, clearToken, verifyToken } from './api-client';
+import { setupAutoUpdate } from './auto-update';
 
 // 단일 인스턴스 락 — 중복 실행 차단
 const gotLock = app.requestSingleInstanceLock();
@@ -267,6 +268,12 @@ app.whenReady().then(async () => {
   }
 
   createTray();
+
+  // 자동 업데이트 — 새 버전 감지 시 "설치하시겠습니까?" 다이얼로그 → 수락 시 다운로드+재시작 설치
+  setupAutoUpdate({
+    getMainWindow: () => mainWindow,
+    onBeforeInstall: () => { isQuitting = true; },
+  });
 
   // dev 모드 또는 첫 실행 시 창 표시 (로그인 필요)
   if (isDev || !store.get('isLoggedIn')) {
