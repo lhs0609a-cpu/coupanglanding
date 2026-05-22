@@ -347,12 +347,18 @@ export function validateDryRun(
   const missingRequiredFields: string[] = [];
 
   // 배송 설정 검증
+  // ⚠️ 출고지/반품지는 전 상품 공통 "전역 설정"이다. 누락 시 이를 per-product error 로
+  //    찍으면 상품 N개가 전부 '검증 오류'로 둔갑해 "N개 모두 검증 오류" 로 프리플라이트가
+  //    아예 차단되고(handlePreflight 0건 차단), 사용자는 진짜 원인(출고지 하나)을 못 본다.
+  //    → warning 으로만 표시한다. 실제 차단은 프리플라이트 라우트의 payload 구조 검증
+  //      (validatePayloadStructure 의 NO_OUTBOUND/NO_RETURN_CENTER) 이 per-product 로 잡아
+  //      "실패 상세" 에 명확한 단일 메시지로 노출 + 등록 차단을 유지한다.
   if (!product.outboundShippingPlaceCode) {
-    errors.push({ field: 'delivery', severity: 'error', message: '출고지가 설정되지 않았습니다.', fixSuggestion: 'Step 1에서 출고지를 선택해주세요.' });
+    warnings.push({ field: 'delivery', severity: 'warning', message: '출고지가 설정되지 않았습니다.', fixSuggestion: 'Step 1에서 출고지를 선택해주세요.' });
     missingRequiredFields.push('outboundShippingPlaceCode');
   }
   if (!product.returnCenterCode) {
-    errors.push({ field: 'delivery', severity: 'error', message: '반품지가 설정되지 않았습니다.', fixSuggestion: 'Step 1에서 반품지를 선택해주세요.' });
+    warnings.push({ field: 'delivery', severity: 'warning', message: '반품지가 설정되지 않았습니다.', fixSuggestion: 'Step 1에서 반품지를 선택해주세요.' });
     missingRequiredFields.push('returnCenterCode');
   }
 
