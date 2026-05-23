@@ -163,14 +163,19 @@ export const WING = {
   // 예산 수정 = 캠페인 편집 폼(광고 수정, 캡처 2026-05). 표에서 캠페인명 클릭 → 폼 진입 → 일예산 변경 → 완료.
   // 캠페인 레벨엔 "입찰가"가 없고 "예산"뿐이므로 newBid 를 일예산으로 적용한다.
   budgetEdit: {
-    nameLink: '[data-bigfoot-component="campaign_name"]',                 // 표에서 클릭 시 편집 폼 진입
+    editButton: '[data-bigfoot-component="edit_button"]',                 // 행 호버 시 나타나는 "수정" 버튼
     ready: '[data-bigfoot-component="campaign_budget_input"] [data-testid="budget-input"], [data-testid="budget-input"]',
     budgetInput: '[data-testid="budget-input"]',
     submitButton: 'footer[data-bigfoot-component="pa_form_buttons"] button.ant-btn-primary', // "완료"
     reviewConfirmButton: '[data-bigfoot-component="review"] button.ant-btn-primary',          // 검토 모달 "완료"
   },
-  // 삭제 — 행 메뉴/버튼 DOM 추가 캡처 필요.
-  deleteAction: { __todo: '__TODO__' },
+  // 삭제 — 행 호버 시 나타나는 "삭제" 버튼(캡처 2026-05) → 확인 모달.
+  deleteAction: {
+    deleteButton: '[data-bigfoot-component="delete_button"]',             // 행의 "삭제" 버튼
+    // 확인 모달(Ant Design): 위험/주확인 버튼 후보(텍스트로 재확인). 모달 DOM 미캡처라 방어적 선택.
+    confirmButton: '.ant-modal-confirm .ant-btn-dangerous, .ant-modal-confirm .ant-btn-primary, .ant-modal .ant-btn-primary',
+    confirmText: ['삭제', '확인'],
+  },
   // 캠페인 생성 마법사 (등록 폼 캡처 2026-05 기반). 매출성장 → 자동운영/매출최적화 + 수동상품선택.
   campaignCreate: {
     url: 'https://advertising.coupang.com/marketing/campaign/type',
@@ -313,9 +318,9 @@ export async function applyBidChange(win, t = {}) {
     const row = [...panel.querySelectorAll(${JSON.stringify(WING.table.row)})]
       .find(r => norm(r.querySelector(${JSON.stringify(WING.table.name)})?.textContent) === ${JSON.stringify(name)});
     if (!row) return { ok:false, error:'행을 찾지 못함: ' + ${JSON.stringify(name)} };
-    const link = row.querySelector(${JSON.stringify(be.nameLink)}) || row.querySelector(${JSON.stringify(WING.table.name)});
-    if (!link) return { ok:false, error:'캠페인명 링크 없음' };
-    (link.querySelector('a') || link).click();
+    const btn = row.querySelector(${JSON.stringify(be.editButton)});
+    if (!btn) return { ok:false, error:'수정 버튼 없음' };
+    btn.click();
     return { ok:true };
   })()`);
   if (!clicked || !clicked.ok) return { ok: false, error: clicked?.error || '편집 폼 진입 실패' };
@@ -349,10 +354,44 @@ export async function applyBidChange(win, t = {}) {
   return { ok: !!submitted?.ok, error: submitted?.error };
 }
 
-/** 캠페인 삭제 — 삭제 버튼/메뉴 DOM 추가 캡처 필요. */
-export async function deleteCampaign(_win, _t) {
+/**
+ * 캠페인 삭제 — 표에서 이름으로 행 탐색 → 행의 "삭제" 버튼 클릭 → 확인 모달의 확인 버튼 클릭.
+ * @param {import('electron').BrowserWindow} win
+ * @param {{campaignId:string}} t  campaignId = 캠페인 이름
+ */
+export async function deleteCampaign(win, t = {}) {
   assertConfigured(WING.deleteAction, 'deleteCampaign(deleteAction)');
-  throw new Error('[ad-automation] deleteCampaign: 삭제 버튼 DOM 미확보 — 캠페인 행 메뉴/삭제 화면 캡처 필요');
+  const da = WING.deleteAction;
+  const name = String(t.campaignId || '').trim();
+  if (!name) throw new Error('[deleteCampaign] campaignId(캠페인 이름) 필요');
+
+  if (WING.adsUrl && !WING.adsUrl.includes('__TODO__')) await win.loadURL(WING.adsUrl);
+  await waitFor(win, WING.table.row, 20000);
+
+  return win.webContents.executeJavaScript(`(async () => {
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const norm = (s) => (s||'').replace(/\\s+/g,' ').trim();
+    const panel = document.querySelector(${JSON.stringify(WING.table.panel)}) || document;
+    const row = [...panel.querySelectorAll(${JSON.stringify(WING.table.row)})]
+      .find(r => norm(r.querySelector(${JSON.stringify(WING.table.name)})?.textContent) === ${JSON.stringify(name)});
+    if (!row) return { ok:false, error:'행을 찾지 못함: ' + ${JSON.stringify(name)} };
+    const del = row.querySelector(${JSON.stringify(da.deleteButton)});
+    if (!del) return { ok:false, error:'삭제 버튼 없음' };
+    del.click();
+    // 확인 모달 대기 → 텍스트로 확인 버튼 검증 후 클릭
+    const wants = ${JSON.stringify(da.confirmText)};
+    let btn = null;
+    for (let i=0;i<30;i++){
+      await sleep(300);
+      const cands = [...document.querySelectorAll(${JSON.stringify(da.confirmButton)})]
+        .filter(b => b.offsetParent !== null && !b.disabled);
+      btn = cands.find(b => wants.some(w => norm(b.textContent).includes(w))) || null;
+      if (btn) break;
+    }
+    if (!btn) return { ok:false, error:'삭제 확인 모달/버튼 미확인 — 중단' };
+    btn.click();
+    return { ok:true };
+  })()`);
 }
 
 /**
