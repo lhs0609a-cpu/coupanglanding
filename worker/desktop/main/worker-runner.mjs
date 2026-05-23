@@ -1,9 +1,9 @@
 /** 로그인 + 풀 루프 시작/정지 래퍼 (공통 runtime/pull-loop 사용) */
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { Session } from '../runtime/supabase-rest.mjs';
-import { loadWorkflow } from '../runtime/comfyui-client.mjs';
+import { loadWorkflow, generateThumbnail } from '../runtime/comfyui-client.mjs';
 import { runPullLoop } from '../runtime/pull-loop.mjs';
 import { processCutoutThumbnail } from './thumbnail-processor.mjs';
 
@@ -58,6 +58,21 @@ export class WorkerRunner {
     const host = hostname();
     const workerId = `${host}-${randomUUID().slice(0, 8)}`;
 
+    // 재생성(regenerate) 모드용 SDXL img2img — ComfyUI(GPU)가 수행.
+    // 같은 workflows/ 폴더의 img2img-thumbnail 워크플로 로드. 실패 시 재생성 비활성(누끼 폴백).
+    let img2imgFn = undefined;
+    try {
+      const i2iWf = await loadWorkflow(fsp, join(dirname(workflowPath), 'img2img-thumbnail.example.json'));
+      img2imgFn = (rgbPng) => generateThumbnail(comfyUrl, {
+        imageBuffer: rgbPng,
+        inputName: `i2i_${randomUUID().slice(0, 8)}.png`,
+        workflow: i2iWf,
+        timeoutMs: timeoutSec * 1000, // 프롬프트는 워크플로 기본값 사용(상품 스튜디오 컷)
+      });
+    } catch (e) {
+      this.onEvent({ type: 'warn', message: `img2img 워크플로 로드 실패 — 재생성 비활성: ${e.message}` });
+    }
+
     this.loopPromise = runPullLoop({
       session: this.session,
       comfyUrl,
@@ -70,9 +85,13 @@ export class WorkerRunner {
       hostname: host,
       signal: this.abort.signal,
       onEvent: this.onEvent,
-      // 메인: 누끼(BiRefNet) + 흰배경 1:1 무크롭. 인페인트 없음(정면/깨끗한 컷 선택으로 대체).
+      // 기본: 누끼+흰배경 1:1. job.mode==='regenerate' 면 prefill+SDXL img2img+재누끼.
       // 모델(BiRefNet_lite)은 userData/hf-cache 에 최초 1회 다운로드 후 영구 캐시.
-      processImage: (buf) => processCutoutThumbnail(buf, { cacheDir: join(this.userDataDir, 'hf-cache') }),
+      processImage: (buf, job) => processCutoutThumbnail(buf, {
+        cacheDir: join(this.userDataDir, 'hf-cache'),
+        mode: job?.mode,
+        img2imgFn,
+      }),
     }).catch((e) => this.onEvent({ type: 'error', message: e.message }))
       .finally(() => { this.abort = null; this.loopPromise = null; });
   }

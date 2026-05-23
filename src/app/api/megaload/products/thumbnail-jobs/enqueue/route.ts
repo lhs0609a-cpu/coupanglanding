@@ -15,6 +15,8 @@ interface EnqueueBody {
   jobs: JobInput[];
   prompt?: string;
   negativePrompt?: string;
+  /** 'cutout'(기본): 누끼+흰배경 / 'regenerate': SDXL img2img 재생성(잘림·지저분·흐림 대표사진 정리) */
+  mode?: 'cutout' | 'regenerate';
 }
 
 const MAX_JOBS = 2000;
@@ -47,6 +49,7 @@ export async function POST(req: NextRequest) {
     }
 
     const batchId = randomUUID();
+    const mode = body.mode === 'regenerate' ? 'regenerate' : 'cutout';
     // 우선순위: 요청에 명시된 프롬프트 > 계정 기본값(설정 화면 저장) > NULL(워커 내장 기본값)
     let prompt = body.prompt?.trim() || null;
     let negativePrompt = body.negativePrompt?.trim() || null;
@@ -68,6 +71,7 @@ export async function POST(req: NextRequest) {
       label: j.label ?? null,
       prompt,
       negative_prompt: negativePrompt,
+      mode,
       status: 'pending',
     }));
 
