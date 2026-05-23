@@ -22,6 +22,11 @@ app.whenReady().then(async () => {
     webPreferences: { partition: 'persist:wing' },
   });
 
+  // Akamai 봇 차단 회피 — 'Electron' 토큰 없는 실제 Chrome UA 로 위장
+  const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+  try { win.webContents.setUserAgent(CHROME_UA); } catch { /* ignore */ }
+  try { win.webContents.session.setUserAgent(CHROME_UA); } catch { /* ignore */ }
+
   log('윙 로그인 창을 엽니다. 쿠팡 윙에 로그인하면 자동으로 점검을 시작합니다… (최대 5분 대기)');
   let loggedIn = false;
   try { loggedIn = await ensureWingSession(win, { timeoutMs: 300000 }); }

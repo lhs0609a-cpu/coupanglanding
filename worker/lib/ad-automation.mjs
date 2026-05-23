@@ -219,6 +219,10 @@ function waitFor(win, selector, timeoutMs = 15000) {
  * @param {import('electron').BrowserWindow} win
  */
 export async function ensureWingSession(win, { timeoutMs = 180000 } = {}) {
+  // Akamai 봇 차단(403 on xauth) 회피 — 'Electron' 토큰 없는 실제 Chrome UA 로 위장
+  const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+  try { win.webContents.setUserAgent(CHROME_UA); } catch { /* ignore */ }
+  try { win.webContents.session.setUserAgent(CHROME_UA); } catch { /* ignore */ }
   if (WING.adsUrl && !WING.adsUrl.includes('__TODO__')) await win.loadURL(WING.adsUrl);
   try { await waitFor(win, WING.loggedInSelector, 8000); return true; }
   catch { /* 미로그인 → 로그인 페이지 띄우고 대기 */ }
