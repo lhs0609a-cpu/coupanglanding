@@ -3,7 +3,7 @@ import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { Session } from '../runtime/supabase-rest.mjs';
-import { loadWorkflow, generateThumbnail } from '../runtime/comfyui-client.mjs';
+import { loadWorkflow } from '../runtime/comfyui-client.mjs';
 import { runPullLoop } from '../runtime/pull-loop.mjs';
 import { processCutoutThumbnail } from './thumbnail-processor.mjs';
 
@@ -58,18 +58,6 @@ export class WorkerRunner {
     const host = hostname();
     const workerId = `${host}-${randomUUID().slice(0, 8)}`;
 
-    // ComfyUI SDXL 인페인트 — 누끼의 "파인 부분"(알파=0 영역)을 GPU로 자연스럽게 채운다.
-    // 업로드 RGBA 의 알파에서 ComfyUI LoadImage 가 mask(1=inpaint)를 추출 → VAEEncodeForInpaint.
-    // 실패하면 thumbnail-processor 가 누끼-only 로 폴백하므로 안전.
-    const inpaintFn = async (rgbaPng) => generateThumbnail(comfyUrl, {
-      imageBuffer: rgbaPng,
-      inputName: `inpaint_${randomUUID().slice(0, 8)}.png`,
-      workflow,
-      positivePrompt: positivePrompt || DEFAULT_POSITIVE,
-      negativePrompt: negativePrompt || DEFAULT_NEGATIVE,
-      timeoutMs: timeoutSec * 1000,
-    });
-
     this.loopPromise = runPullLoop({
       session: this.session,
       comfyUrl,
@@ -82,10 +70,9 @@ export class WorkerRunner {
       hostname: host,
       signal: this.abort.signal,
       onEvent: this.onEvent,
-      // 누끼(BiRefNet) + 파인 부분 SDXL 인페인트 + 흰배경 1:1 무크롭.
+      // 메인: 누끼(BiRefNet) + 흰배경 1:1 무크롭. 인페인트 없음(정면/깨끗한 컷 선택으로 대체).
       // 모델(BiRefNet_lite)은 userData/hf-cache 에 최초 1회 다운로드 후 영구 캐시.
-      // 인페인트는 ComfyUI(GPU) — 실패 시 누끼-only 폴백.
-      processImage: (buf) => processCutoutThumbnail(buf, { cacheDir: join(this.userDataDir, 'hf-cache'), inpaintFn }),
+      processImage: (buf) => processCutoutThumbnail(buf, { cacheDir: join(this.userDataDir, 'hf-cache') }),
     }).catch((e) => this.onEvent({ type: 'error', message: e.message }))
       .finally(() => { this.abort = null; this.loopPromise = null; });
   }
