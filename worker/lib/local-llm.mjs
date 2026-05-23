@@ -44,7 +44,7 @@ export async function generate({ model, prompt, system, options = {}, format } =
     prompt,
     system,
     stream: false,
-    options: { temperature: 0.7, top_p: 0.9, num_ctx: 8192, ...options },
+    options: { temperature: 0.7, top_p: 0.9, num_ctx: 4096, num_gpu: 99, ...options },
   };
   if (format) body.format = format;
   const t0 = Date.now();
