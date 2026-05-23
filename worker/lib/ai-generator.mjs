@@ -12,6 +12,27 @@ import { checkMini } from './compliance-mini.mjs';
 const AVOID = (violations) =>
   violations.length ? `\n\n[재작성] 다음 표현은 법적 위반이라 절대 쓰지 말 것: ${violations.join(', ')}. 같은 의미도 우회 금지.` : '';
 
+const catTokens = (s) => (String(s || '').toLowerCase().match(/[가-힣a-z0-9]+/g) || []).filter((t) => t.length >= 2);
+
+/** LLM이 출력한 카테고리 문자열을 실제 후보 중 가장 가까운 것으로 강제 매핑(코드 보장). */
+function snapToCandidate(llmPath, candidates) {
+  if (!candidates || candidates.length === 0) return { code: null, path: llmPath, snapped: false };
+  const qt = new Set(catTokens(llmPath));
+  let best = null, bestScore = -1;
+  for (const c of candidates) {
+    const ct = catTokens(c.path);
+    let score = 0;
+    for (const t of ct) if (qt.has(t)) score++;
+    // leaf(마지막 토큰) 일치 가중
+    const leaf = ct[ct.length - 1];
+    if (leaf && qt.has(leaf)) score += 2;
+    if (score > bestScore) { bestScore = score; best = c; }
+  }
+  // 겹치는 토큰이 전혀 없으면 후보 1순위로 폴백
+  if (bestScore <= 0) return { code: candidates[0].code, path: candidates[0].path, snapped: true, weak: true };
+  return { code: best.code, path: best.path, snapped: true };
+}
+
 /** 텍스트 1필드 생성 + 금지어 검사 + 1회 재생성 */
 async function genText({ model, system, prompt, options, format, ctx }) {
   let res = await generate({ model, system, prompt, options, format });
@@ -45,10 +66,12 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   const titleRaw = await genText({ model, ...tp, ctx });
   const titleJson = parseJsonLoose(titleRaw.text) || {};
 
-  // 2) 카테고리
-  const cp = buildCategoryPrompt(product, categoryCandidates);
+  // 2) 카테고리 — 후보 path 로 프롬프트, 결과는 실제 후보 코드로 강제 매핑
+  const candObjs = (categoryCandidates || []).map((c) => (typeof c === 'string' ? { code: null, path: c } : c));
+  const cp = buildCategoryPrompt(product, candObjs.map((c) => c.path));
   const catRaw = await genText({ model, ...cp, ctx });
   const catJson = parseJsonLoose(catRaw.text) || {};
+  const snapped = snapToCandidate(catJson.categoryPath || catRaw.text, candObjs);
 
   // 3) 상세페이지
   const dp = buildDetailPrompt(product, persona, { maxTokens: maxDetailTokens });
@@ -63,7 +86,10 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
     persona: persona.key,
     displayName: titleJson.displayName || titleRaw.text,
     keywords: titleJson.keywords || [],
-    categoryPath: catJson.categoryPath || catRaw.text,
+    categoryCode: snapped.code,
+    categoryPath: snapped.path,
+    categoryLlmRaw: catJson.categoryPath || catRaw.text,
+    categorySnapped: snapped.snapped,
     categoryConfidence: catJson.confidence ?? null,
     detail: detailRaw.text,
     compliance: { ok: allOk, byField: {

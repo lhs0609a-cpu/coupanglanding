@@ -39,12 +39,12 @@ async function main() {
   for (const p of SAMPLES) {
     console.log('\n────────────────────────────────────────');
     console.log('원본:', p.originalName);
-    const cands = topCandidates(p.originalName, 8).map((c) => c.path);
+    const cands = topCandidates(p.originalName, 8); // {code, path}[]
     const r = await generateAllFields(p, { model: MODEL, personaSeed: 'seller-A', categoryCandidates: cands, maxDetailTokens: 800 });
     console.log(`페르소나: ${r.persona}`);
     console.log('노출상품명:', r.displayName);
     console.log('키워드:', (r.keywords || []).join(', '));
-    console.log('카테고리:', r.categoryPath, r.categoryConfidence != null ? `(conf ${r.categoryConfidence})` : '');
+    console.log('카테고리:', r.categoryPath, r.categoryCode ? `[code ${r.categoryCode}]` : '(코드없음)');
     console.log('상세(첫 200자):', r.detail.slice(0, 200).replace(/\n/g, ' '), '…');
     console.log(`⏱  총 ${ms(r.timings.totalMs)} | 제목 ${ms(r.timings.titleMs)} · 카테고리 ${ms(r.timings.categoryMs)} · 상세 ${ms(r.timings.detailMs)}`);
     console.log(`   tok/s — 제목 ${r.timings.tokPerSec.title} · 카테고리 ${r.timings.tokPerSec.category} · 상세 ${r.timings.tokPerSec.detail}`);
