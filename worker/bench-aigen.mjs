@@ -9,6 +9,7 @@
  */
 import { isUp, listModels } from './lib/local-llm.mjs';
 import { generateAllFields } from './lib/ai-generator.mjs';
+import { topCandidates } from './lib/category-candidates-mini.mjs';
 
 const MODEL = process.argv[2] || 'qwen2.5:7b-instruct';
 
@@ -38,7 +39,8 @@ async function main() {
   for (const p of SAMPLES) {
     console.log('\n────────────────────────────────────────');
     console.log('원본:', p.originalName);
-    const r = await generateAllFields(p, { model: MODEL, personaSeed: 'seller-A', maxDetailTokens: 800 });
+    const cands = topCandidates(p.originalName, 8).map((c) => c.path);
+    const r = await generateAllFields(p, { model: MODEL, personaSeed: 'seller-A', categoryCandidates: cands, maxDetailTokens: 800 });
     console.log(`페르소나: ${r.persona}`);
     console.log('노출상품명:', r.displayName);
     console.log('키워드:', (r.keywords || []).join(', '));
