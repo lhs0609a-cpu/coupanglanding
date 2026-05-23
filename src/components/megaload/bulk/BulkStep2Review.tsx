@@ -73,8 +73,8 @@ interface BulkStep2ReviewProps {
   onPrewarmCancel?: (uid: string) => void;
   onSwapStockImage?: (uid: string, imageIndex: number, newCdnUrl: string) => void;
   onTogglePromoteReview?: (uid: string, reviewIndex: number) => void;
-  // 로컬 GPU 워커 — 대표 썸네일 일괄 재생성
-  onBulkRegenerateThumbnails?: (uids: string[]) => void;
+  // 로컬 GPU 워커 — 대표 썸네일 일괄 재생성 (cutout=누끼 / regenerate=SDXL img2img 보정)
+  onBulkRegenerateThumbnails?: (uids: string[], mode?: 'cutout' | 'regenerate') => void;
   thumbnailRegen?: { total: number; done: number; error: number; running: boolean; message?: string } | null;
   // Detail panel image URLs
   getDetailImageUrls: (uid: string) => string[];
@@ -960,15 +960,26 @@ export default memo(function BulkStep2Review({
         )}
         {onBulkRegenerateThumbnails && (
           <button
-            onClick={() => onBulkRegenerateThumbnails(products.filter(p => p.selected).map(p => p.uid))}
+            onClick={() => onBulkRegenerateThumbnails(products.filter(p => p.selected).map(p => p.uid), 'cutout')}
             disabled={thumbnailRegen?.running || selectedCount === 0}
-            title="선택 상품의 대표 썸네일을 로컬 GPU(ComfyUI/SDXL) 워커로 재생성합니다. 워커 앱이 실행 중이어야 합니다."
+            title="선택 상품의 대표사진을 로컬 GPU 워커로 누끼+흰배경 처리합니다(상품 그대로 보존). 워커 앱이 실행 중이어야 합니다."
             className="px-3 py-1.5 text-xs rounded-lg border border-indigo-300 text-indigo-600 hover:bg-indigo-50 transition flex items-center gap-1 disabled:opacity-50"
           >
             {thumbnailRegen?.running ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
             {thumbnailRegen?.running
-              ? `대표 재생성 ${thumbnailRegen.done + thumbnailRegen.error}/${thumbnailRegen.total}`
-              : '로컬 GPU로 대표 썸네일 재생성'}
+              ? `처리 ${thumbnailRegen.done + thumbnailRegen.error}/${thumbnailRegen.total}`
+              : '로컬 GPU 누끼 (흰배경)'}
+          </button>
+        )}
+        {onBulkRegenerateThumbnails && (
+          <button
+            onClick={() => onBulkRegenerateThumbnails(products.filter(p => p.selected).map(p => p.uid), 'regenerate')}
+            disabled={thumbnailRegen?.running || selectedCount === 0}
+            title="대표사진이 잘리거나 지저분/흐릴 때만 사용. 로컬 GPU(SDXL)로 깨끗한 스튜디오 컷으로 재생성합니다. ⚠️ 생성이라 실물과 미세 차이가 있을 수 있으니 결과를 확인 후 사용하세요."
+            className="px-3 py-1.5 text-xs rounded-lg border border-orange-300 text-orange-600 hover:bg-orange-50 transition flex items-center gap-1 disabled:opacity-50"
+          >
+            <Sparkles className="w-3 h-3" />
+            잘림/흐림 보정 재생성
           </button>
         )}
         {thumbnailRegen?.message && (

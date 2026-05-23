@@ -870,7 +870,7 @@ export function useBulkRegisterActions() {
     return uploadSingleImage(compressed, rep.name || `${p.productCode || p.uid}.jpg`);
   }, []);
 
-  const handleBulkRegenerateThumbnails = useCallback(async (uids: string[]) => {
+  const handleBulkRegenerateThumbnails = useCallback(async (uids: string[], mode: 'cutout' | 'regenerate' = 'cutout') => {
     const targets = productsRef.current.filter(p => uids.includes(p.uid));
     if (targets.length === 0) return;
     const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -895,7 +895,7 @@ export function useBulkRegisterActions() {
     try {
       const res = await fetch('/api/megaload/products/thumbnail-jobs/enqueue', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobs }),
+        body: JSON.stringify({ jobs, mode }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '큐 등록 실패');
