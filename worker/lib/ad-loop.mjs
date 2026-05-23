@@ -209,6 +209,7 @@ export async function runRegisterQueue({ ruleRow, db, register, workerId, onEven
     try {
       const res = await register({
         coupangProductId: item.coupang_product_id,
+        productName: item.product_name ?? undefined,   // 검색은 상품명 우선(상품ID 매칭 불가 대비)
         initialBid: item.initial_bid ?? Number(ruleRow.register_initial_bid),
         dailyBudget: item.daily_budget ?? Number(ruleRow.register_daily_budget),
       });

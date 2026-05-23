@@ -164,12 +164,23 @@ export const WING = {
   budgetEdit: { __todo: '__TODO__' },
   // 삭제 — 행 메뉴/버튼 DOM 추가 캡처 필요.
   deleteAction: { __todo: '__TODO__' },
-  // 캠페인 생성 마법사. 1단계 확인됨(목표 선택), 2단계+(상품선택·예산·목표ROAS·확인) 캡처 필요.
+  // 캠페인 생성 마법사 (등록 폼 캡처 2026-05 기반). 매출성장 → 자동운영/매출최적화 + 수동상품선택.
   campaignCreate: {
     url: 'https://advertising.coupang.com/marketing/campaign/type',
-    step1_goalCard: '.goal-type-card',               // 첫 카드(매출 성장)가 기본 .active
-    step1_nextButton: '.button--goto-registration',  // "다음"
-    step2_flow: '__TODO__',                           // 상품선택/예산/목표ROAS/확인 — 추가 캡처 필요
+    step1_nextButton: '.button--goto-registration',          // 목표(매출성장) 선택 후 "다음"
+    form: {
+      ready: '[data-bigfoot-component="budget_setting"]',     // 등록 폼 로드 완료 신호
+      campaignNameInput: '.campaign-name-input input.ant-input',
+      adGroupNameInput: '#reg_ad_group_name',
+      productSearchInput: 'input[placeholder="판매 상품을 검색해보세요"]',
+      productSearchButton: '.ant-input-search-button',
+      availableRow: '.available-items-pane .virtualized-list [class*="ittmDq"], .available-items-pane .ant-list-item', // 검색결과 행(클릭=추가) — 실데이터 캡처로 확정 필요
+      selectedCount: '.added-items-pane .count',               // 선택한 상품 수
+      budgetInput: '[data-testid="budget-input"]',
+      roasInput: '.roas-target-input input, .roas-input input',
+      submitButton: 'footer[data-bigfoot-component="pa_form_buttons"] button.ant-btn-primary', // "완료"
+      reviewConfirmButton: '[data-bigfoot-component="review"] button.ant-btn-primary',          // 검토 모달 "완료"
+    },
   },
 };
 
@@ -286,8 +297,93 @@ export async function deleteCampaign(_win, _t) {
   throw new Error('[ad-automation] deleteCampaign: 삭제 버튼 DOM 미확보 — 캠페인 행 메뉴/삭제 화면 캡처 필요');
 }
 
-/** 상품 광고 자동 등록 — 캠페인 생성 흐름 DOM 추가 캡처 필요. */
-export async function registerItem(_win, _opts) {
+/**
+ * 상품 광고 자동 등록 — 매출성장 캠페인(자동운영/매출최적화) 생성.
+ * 안전설계: 상품이 실제로 1개 이상 추가되고 예산이 입력된 경우에만 "완료"를 누른다.
+ * 상품 추가가 확인되지 않으면 즉시 중단(돈 쓰는 캠페인을 잘못된 셀렉터로 생성하지 않음).
+ * @param {import('electron').BrowserWindow} win
+ * @param {{coupangProductId?:string, productName?:string, campaignName?:string, dailyBudget:number, targetRoas?:number, dryRun?:boolean}} opts
+ */
+export async function registerItem(win, opts = {}) {
   assertConfigured(WING.campaignCreate, 'registerItem(campaignCreate)');
-  throw new Error('[ad-automation] registerItem: "캠페인 추가" 생성 흐름 DOM 미확보 — 캡처 필요');
+  const cc = WING.campaignCreate;
+  const f = cc.form;
+  const query = String(opts.productName || opts.coupangProductId || '').trim();
+  const budget = Number(opts.dailyBudget);
+  if (!query) throw new Error('[registerItem] productName/coupangProductId 필요');
+  if (!Number.isFinite(budget) || budget <= 0) throw new Error('[registerItem] dailyBudget 양수 필요');
+
+  // 1) 생성 폼 진입 (목표=매출성장 기본 활성 → 다음)
+  await win.loadURL(cc.url);
+  await waitFor(win, cc.step1_nextButton, 20000);
+  await win.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(cc.step1_nextButton)})?.click()`);
+  await waitFor(win, f.ready, 20000);
+  await waitFor(win, f.productSearchInput, 10000);
+
+  // 2) 상품 검색 → 첫 결과 추가, 선택수 증가 확인
+  const added = await win.webContents.executeJavaScript(`(async () => {
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const setVal = (el, v) => {
+      const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    const countNow = () => {
+      const c = document.querySelector(${JSON.stringify(f.selectedCount)});
+      return c ? parseInt((c.textContent||'').replace(/[^0-9]/g,''),10) || 0 : 0;
+    };
+    const before = countNow();
+    const si = document.querySelector(${JSON.stringify(f.productSearchInput)});
+    if (!si) return { ok:false, error:'검색창 없음' };
+    setVal(si, ${JSON.stringify(query)});
+    document.querySelector(${JSON.stringify(f.productSearchButton)})?.click();
+    si.dispatchEvent(new KeyboardEvent('keydown', { key:'Enter', keyCode:13, bubbles:true }));
+    // 결과 행 대기
+    let row = null;
+    for (let i=0;i<40;i++){ await sleep(300); row = document.querySelector(${JSON.stringify(f.availableRow)}); if (row && !/상품이 없습니다/.test(row.textContent||'')) break; row=null; }
+    if (!row) return { ok:false, error:'검색 결과 행 없음(상품 없음 또는 셀렉터 불일치)' };
+    row.click();
+    // 추가 반영 대기
+    let after = before;
+    for (let i=0;i<20;i++){ await sleep(200); after = countNow(); if (after > before) break; }
+    return { ok: after > before, before, after };
+  })()`);
+  if (!added || !added.ok) {
+    return { ok: false, created: false, error: `상품 추가 실패: ${added?.error || `선택수 ${added?.before}→${added?.after}`}` };
+  }
+
+  // 3) 일예산 + (선택) 목표 ROAS 입력
+  await win.webContents.executeJavaScript(`(() => {
+    const setVal = (el, v) => { if(!el) return; const d=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value'); d.set.call(el, v); el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); };
+    setVal(document.querySelector(${JSON.stringify(f.budgetInput)}), ${JSON.stringify(String(Math.round(budget)))});
+    ${Number.isFinite(opts.targetRoas) && opts.targetRoas > 0
+      ? `setVal(document.querySelector(${JSON.stringify(f.roasInput)}), ${JSON.stringify(String(Math.round(opts.targetRoas)))});`
+      : ''}
+  })()`);
+
+  // 4) 캠페인/그룹 이름(선택)
+  if (opts.campaignName) {
+    await win.webContents.executeJavaScript(`(() => {
+      const setVal = (el, v) => { if(!el) return; const d=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value'); d.set.call(el, v); el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); };
+      setVal(document.querySelector(${JSON.stringify(f.campaignNameInput)}), ${JSON.stringify(String(opts.campaignName))});
+    })()`);
+  }
+
+  // dryRun: 여기까지(완료 누르지 않음) — 잘못 생성 방지 검증용
+  if (opts.dryRun) return { ok: true, created: false, dryRun: true, selected: added.after };
+
+  // 5) 완료 → 검토 모달 완료
+  const submitted = await win.webContents.executeJavaScript(`(async () => {
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const btn = document.querySelector(${JSON.stringify(f.submitButton)});
+    if (!btn) return { ok:false, error:'완료 버튼 없음' };
+    if (btn.disabled) return { ok:false, error:'완료 버튼 비활성(필수값 누락)' };
+    btn.click();
+    // 검토 모달
+    let cb=null; for (let i=0;i<30;i++){ await sleep(300); cb=document.querySelector(${JSON.stringify(f.reviewConfirmButton)}); if (cb && cb.offsetParent!==null && !cb.disabled) break; cb=null; }
+    if (cb) cb.click();
+    return { ok:true };
+  })()`);
+  return { ok: !!submitted?.ok, created: !!submitted?.ok, error: submitted?.error };
 }
