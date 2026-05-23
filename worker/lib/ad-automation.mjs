@@ -484,3 +484,84 @@ export async function registerItem(win, opts = {}) {
   })()`);
   return { ok: !!submitted?.ok, created: !!submitted?.ok, error: submitted?.error };
 }
+
+/**
+ * 전체 기능 안전 점검 — 돈/삭제/생성 없이 5개 액션의 DOM 셀렉터가 실제로 맞는지만 확인.
+ * (제출/완료/삭제확인 버튼은 절대 누르지 않는다.)
+ * @param {import('electron').BrowserWindow} win
+ * @returns {Promise<{steps:Array<{name:string,ok:boolean,detail:string}>}>}
+ */
+export async function verifyDomActions(win) {
+  const steps = [];
+  const add = (name, ok, detail = '') => steps.push({ name, ok, detail });
+  const t = WING.table, be = WING.budgetEdit, da = WING.deleteAction, cc = WING.campaignCreate;
+
+  // 1) 로그인 + 캠페인 표 + 성과 수집(read-only)
+  if (WING.adsUrl && !WING.adsUrl.includes('__TODO__')) await win.loadURL(WING.adsUrl);
+  try { await waitFor(win, t.row, 20000); }
+  catch { add('캠페인 표 로드', false, '표/행을 찾지 못함(로그인 또는 셀렉터 확인)'); return { steps }; }
+  let rows = [];
+  try { rows = await collectMetrics(win); } catch (e) { add('성과 수집(collectMetrics)', false, e.message); }
+  if (rows.length || steps.length === 0) {
+    const f0 = rows[0];
+    add('성과 수집(collectMetrics)', rows.length > 0,
+      `${rows.length}개 캠페인 읽음` + (f0 ? ` · 첫=‘${f0.campaignName}’ 예산=${f0.budget} ON=${f0.on}` : ''));
+  }
+  const firstName = rows[0]?.campaignName || null;
+
+  // 2) 행 액션 버튼(수정/삭제/ON·OFF) 존재 확인 — 클릭 안 함
+  const btnReport = await win.webContents.executeJavaScript(`(() => {
+    const norm = (s) => (s||'').replace(/\s+/g,' ').trim();
+    const panel = document.querySelector(${JSON.stringify(t.panel)}) || document;
+    const rowsEl = [...panel.querySelectorAll(${JSON.stringify(t.row)})];
+    const row = ${firstName ? `rowsEl.find(r => norm(r.querySelector(${JSON.stringify(t.name)})?.textContent) === ${JSON.stringify(firstName)})` : 'rowsEl[0]'};
+    if (!row) return { edit:false, del:false, sw:false };
+    return {
+      edit: !!row.querySelector(${JSON.stringify(be.editButton)}),
+      del:  !!row.querySelector(${JSON.stringify(da.deleteButton)}),
+      sw:   !!row.querySelector(${JSON.stringify(t.onSwitch)}),
+    };
+  })()`);
+  add('행 버튼: 수정(applyBidChange 진입)', !!btnReport.edit, be.editButton);
+  add('행 버튼: 삭제(deleteCampaign)', !!btnReport.del, da.deleteButton);
+  add('행 버튼: ON/OFF(toggleCampaign)', !!btnReport.sw, t.onSwitch);
+
+  // 3) 예산 편집 폼 진입(수정 클릭) → 일예산 input 확인 → 제출하지 않고 복귀
+  if (firstName && btnReport.edit) {
+    try {
+      await win.webContents.executeJavaScript(`(() => {
+        const norm=(s)=>(s||'').replace(/\s+/g,' ').trim();
+        const panel=document.querySelector(${JSON.stringify(t.panel)})||document;
+        const row=[...panel.querySelectorAll(${JSON.stringify(t.row)})].find(r=>norm(r.querySelector(${JSON.stringify(t.name)})?.textContent)===${JSON.stringify(firstName)});
+        row?.querySelector(${JSON.stringify(be.editButton)})?.click();
+      })()`);
+      await waitFor(win, be.ready, 20000);
+      const val = await win.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(be.budgetInput)})?.value ?? null`);
+      add('예산 편집 폼: 일예산 입력칸', val !== null, `현재값=${val} (제출 안 함)`);
+    } catch (e) {
+      add('예산 편집 폼: 일예산 입력칸', false, e.message);
+    } finally {
+      if (WING.adsUrl && !WING.adsUrl.includes('__TODO__')) await win.loadURL(WING.adsUrl).catch(() => {});
+    }
+  }
+
+  // 4) 캠페인 생성 폼 도달(registerItem 경로) → 상품검색·일예산 입력칸 확인 → 제출 안 함
+  try {
+    await win.loadURL(cc.url);
+    await waitFor(win, cc.step1_nextButton, 20000);
+    await win.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(cc.step1_nextButton)})?.click()`);
+    await waitFor(win, cc.form.ready, 20000);
+    const has = await win.webContents.executeJavaScript(`(() => ({
+      search: !!document.querySelector(${JSON.stringify(cc.form.productSearchInput)}),
+      budget: !!document.querySelector(${JSON.stringify(cc.form.budgetInput)}),
+    }))()`);
+    add('생성 폼 도달: 상품검색칸', !!has.search, cc.form.productSearchInput);
+    add('생성 폼 도달: 일예산칸', !!has.budget, cc.form.budgetInput);
+  } catch (e) {
+    add('캠페인 생성 폼 도달(registerItem 경로)', false, e.message);
+  } finally {
+    if (WING.adsUrl && !WING.adsUrl.includes('__TODO__')) await win.loadURL(WING.adsUrl).catch(() => {});
+  }
+
+  return { steps };
+}

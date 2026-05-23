@@ -105,13 +105,24 @@ $('btn-ads-capture-save').onclick = async () => {
   try { const fp = await bridge.invoke('ads:capture-save'); adsMsg('✅ 저장됨: ' + fp + ' — 이 파일을 전달해 주세요.'); }
   catch (e) { adsMsg('❌ ' + e.message); }
 };
+$('btn-ads-verify').onclick = async () => {
+  adsMsg('전체 기능 점검 중... (돈 지출·삭제·생성 안 함)');
+  try { await bridge.invoke('ads:verify'); }
+  catch (e) { adsMsg('❌ ' + e.message); }
+};
 $('btn-ads-run').onclick = async () => {
+  if (!confirm('실제로 예산변경·OFF·삭제·캠페인등록을 수행합니다. 진행할까요?')) return;
   adsMsg('평가 실행 중...');
   try { await bridge.invoke('ads:run-once'); }
   catch (e) { adsMsg('❌ ' + e.message); }
 };
 bridge.on('ads:event', (e) => {
   if (e.type === 'capture-saved') { adsMsg('✅ 저장됨: ' + e.path + ' — 이 파일을 전달해 주세요.'); return; }
+  if (e.type === 'verify-step') {
+    logLine('[광고점검] ' + (e.ok ? '✅' : '❌') + ' ' + e.name + (e.detail ? ' — ' + e.detail : ''));
+    return;
+  }
+  if (e.type === 'verify-done') { adsMsg(`점검 완료: ${e.ok}/${e.total} 통과`); logLine(`[광고점검] 완료 ${e.ok}/${e.total}`); return; }
   if (e.message) adsMsg(e.message);
   logLine('[광고] ' + (e.type + (e.message ? ' — ' + e.message : '')));
 });

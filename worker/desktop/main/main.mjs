@@ -161,6 +161,7 @@ function registerIpc() {
   ipcMain.handle('logs:openData', () => shell.openPath(app.getPath('userData')));
 
   // ── 광고 자동화 (베타) ──
+  ipcMain.handle('ads:verify', async () => { await ads.verify(); return true; });
   ipcMain.handle('ads:run-once', async () => { await ads.runOnce(); return true; });
   ipcMain.handle('ads:start', async () => { await ads.start(); return true; });
   ipcMain.handle('ads:stop', () => { ads.stop(); return true; });

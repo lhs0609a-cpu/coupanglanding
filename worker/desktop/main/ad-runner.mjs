@@ -20,7 +20,7 @@ import { BrowserWindow } from 'electron';
 import { writeFile } from 'node:fs/promises';
 import { selectRows } from '../runtime/supabase-rest.mjs';
 import { runAdEvaluation, runDeletePass, runRegisterQueue, makeSupabaseDb } from '../runtime/ad-loop.mjs';
-import { ensureWingSession, collectMetrics, applyBidChange, toggleCampaign, deleteCampaign, registerItem } from '../runtime/ad-automation.mjs';
+import { ensureWingSession, collectMetrics, applyBidChange, toggleCampaign, deleteCampaign, registerItem, verifyDomActions } from '../runtime/ad-automation.mjs';
 
 const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6시간마다 평가
 
@@ -105,6 +105,35 @@ export class AdRunner {
         workerId: 'desktop-ads', onEvent: this.onEvent,
       });
       this.onEvent({ type: 'done', ...summary });
+    } catch (e) {
+      this.onEvent({ type: 'error', message: e.message });
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  /**
+   * 전체 기능 안전 점검 — 돈/삭제/생성 없이 5개 액션의 DOM 셀렉터만 확인.
+   * 규칙·DB 없이 윙 로그인만 되면 실행 가능.
+   */
+  async verify() {
+    if (this.busy) { this.onEvent({ type: 'warn', message: '이미 실행 중' }); return; }
+    this.busy = true;
+    try {
+      const win = this._ensureWin();
+      let loggedIn = false;
+      try { loggedIn = await ensureWingSession(win); }
+      catch (e) { this.onEvent({ type: 'error', message: e.message }); return; }
+      if (!loggedIn) {
+        win.show();
+        this.onEvent({ type: 'login-required', message: '윙에 로그인해 주세요. 로그인 후 다시 "전체 점검"을 누르면 진행됩니다.' });
+        return;
+      }
+      this.onEvent({ type: 'verify-start', message: '돈/삭제 없이 5개 기능 DOM을 점검합니다…' });
+      const { steps } = await verifyDomActions(win);
+      for (const s of steps) this.onEvent({ type: 'verify-step', ok: s.ok, name: s.name, detail: s.detail });
+      const okN = steps.filter((s) => s.ok).length;
+      this.onEvent({ type: 'verify-done', ok: okN, total: steps.length });
     } catch (e) {
       this.onEvent({ type: 'error', message: e.message });
     } finally {
