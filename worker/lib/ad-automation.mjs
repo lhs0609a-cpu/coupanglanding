@@ -140,7 +140,7 @@ export function evaluateCampaignAction({ metrics, rule }) {
  */
 export const WING = {
   loginUrl: 'https://wing.coupang.com/',
-  adsUrl: '__TODO_URL__',                                  // 광고관리 화면 URL (advertising.coupang.com/...). 미설정이면 현재 페이지에서 동작
+  adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales',  // 광고 관리(매출 성장) — "모든 캠페인" 표가 있는 화면
   loggedInSelector: '#cap-sidebar',                        // 로그인 상태에서만 존재하는 좌측 사이드바
   table: {
     panel: '[data-bigfoot-component="campaigns_table"]',
