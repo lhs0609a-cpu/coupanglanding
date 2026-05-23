@@ -26,11 +26,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * @param {boolean} [o.once=false]       pending 비면 종료
  * @param {AbortSignal} [o.signal]
  * @param {(e: object) => void} [o.onEvent]
+ * @param {(buf: Buffer, job: object) => Promise<Buffer>} [o.processImage]
+ *        원본 버퍼 → 결과 버퍼 변환기. 지정하면 ComfyUI 대신 이걸 사용한다(데스크탑: 누끼+흰배경 합성).
+ *        미지정이면 기존 ComfyUI 생성 경로 사용(클라우드 워커는 무의존성 유지).
  * @returns {Promise<{processed:number, ok:number, fail:number}>}
  */
 export async function runPullLoop({
   session, comfyUrl, workflow, defaultPositive, defaultNegative,
   timeoutMs, pollMs, workerId, hostname, maxJobs = Infinity, once = false, signal, onEvent = () => {},
+  processImage,
 }) {
   const stopped = () => signal?.aborted;
   let processed = 0, ok = 0, fail = 0;
@@ -75,14 +79,16 @@ export async function runPullLoop({
         if (!res.ok) throw new Error(`원본 다운로드 ${res.status}`);
         const buf = Buffer.from(await res.arrayBuffer());
 
-        const out = await comfy.generateThumbnail(comfyUrl, {
-          imageBuffer: buf,
-          inputName: `coupang_in_${job.id}.png`,
-          workflow,
-          positivePrompt: job.prompt || defaultPositive,
-          negativePrompt: job.negative_prompt || defaultNegative,
-          timeoutMs,
-        });
+        const out = processImage
+          ? await processImage(buf, job)
+          : await comfy.generateThumbnail(comfyUrl, {
+              imageBuffer: buf,
+              inputName: `coupang_in_${job.id}.png`,
+              workflow,
+              positivePrompt: job.prompt || defaultPositive,
+              negativePrompt: job.negative_prompt || defaultNegative,
+              timeoutMs,
+            });
 
         const path = `megaload/${job.megaload_user_id}/thumbnails/${randomUUID()}.png`;
         const url = await uploadToStorage(session, 'product-images', path, out, 'image/png');

@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "7zip-bin": "^5.2.0",
-    "electron-updater": "^6.3.9"
+    "@imgly/background-removal-node": "^1.4.5",
+    "electron-updater": "^6.3.9",
+    "sharp": "^0.33.5"
   },
   "devDependencies": {
     "electron": "^33.2.0",

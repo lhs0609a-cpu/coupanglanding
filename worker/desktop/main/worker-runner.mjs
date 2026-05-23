@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { Session } from '../runtime/supabase-rest.mjs';
 import { loadWorkflow } from '../runtime/comfyui-client.mjs';
 import { runPullLoop } from '../runtime/pull-loop.mjs';
+import { processCutoutThumbnail } from './thumbnail-processor.mjs';
 
 const DEFAULT_POSITIVE =
   'professional Coupang e-commerce product thumbnail, the product centered on a pure seamless white studio background (#FFFFFF), soft diffused studio lighting, subtle natural contact shadow directly beneath the product, photorealistic commercial product photography, sharp focus, clean and minimal, 1:1 square composition';
@@ -69,6 +70,8 @@ export class WorkerRunner {
       hostname: host,
       signal: this.abort.signal,
       onEvent: this.onEvent,
+      // 1단계: 누끼 + 흰배경 + 1:1 무크롭 합성(상품 픽셀 보존). ComfyUI 생성 대신 사용.
+      processImage: (buf) => processCutoutThumbnail(buf),
     }).catch((e) => this.onEvent({ type: 'error', message: e.message }))
       .finally(() => { this.abort = null; this.loopPromise = null; });
   }
