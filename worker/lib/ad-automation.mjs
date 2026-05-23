@@ -134,47 +134,43 @@ export function evaluateCampaignAction({ metrics, rule }) {
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
- * 윙 광고화면 셀렉터/URL 설정 — 실제 DOM 확보 후 '__TODO__' 를 채운다.
- * 값이 채워지면 collectMetrics 는 코드 수정 없이 동작한다(설정 주도).
+ * 쿠팡 애즈 광고관리 화면 셀렉터 — 실제 캡처(2026-05) 기준으로 채움.
+ * react-table(rt-*) 구조 + data-bigfoot-component 안정 앵커 사용.
+ * 캠페인 식별자(id)가 DOM에 없어 "캠페인 이름"(.dashboard-title)으로 행을 찾는다.
  */
 export const WING = {
   loginUrl: 'https://wing.coupang.com/',
-  reportUrl: '__TODO__',            // 광고 성과 리포트 페이지 URL
-  loggedInSelector: '__TODO__',     // 로그인 상태에서만 존재하는 요소(예: 헤더 셀러명)
-  metricsTable: {
-    rowSelector: '__TODO__',        // 캠페인/키워드 한 행(tr 등)
-    campaignIdAttr: '__TODO__',     // 행에서 캠페인 식별자를 담은 속성(data-campaign-id 등)
-    cell: {                         // 행 내부 상대 셀렉터 — textContent 를 숫자 파싱
-      campaignName: '__TODO__',
-      keyword: null,                // 키워드 단위가 아니면 null 유지
-      impressions: '__TODO__',
-      clicks: '__TODO__',
-      spend: '__TODO__',
-      sales: '__TODO__',
-      conversions: '__TODO__',
-      currentBid: '__TODO__',
+  adsUrl: '__TODO_URL__',                                  // 광고관리 화면 URL (advertising.coupang.com/...). 미설정이면 현재 페이지에서 동작
+  loggedInSelector: '#cap-sidebar',                        // 로그인 상태에서만 존재하는 좌측 사이드바
+  table: {
+    panel: '[data-bigfoot-component="campaigns_table"]',
+    headerCell: '.rt-thead .rt-th',                        // 라벨로 컬럼 index 매핑
+    row: '.rt-tbody .rt-tr',
+    name: '[data-bigfoot-component="campaign_name"] .dashboard-title',
+    cell: '.rt-td',
+    onSwitch: 'button[role="switch"]',                     // aria-checked 로 ON/OFF 상태
+    // 헤더 라벨(부분일치) → 우리 지표
+    labels: {
+      spend: ['집행 광고비'],
+      sales: ['광고 전환매출', '전환매출'],
+      conversions: ['판매수', '전환수'],
+      clicks: ['클릭수', '클릭'],
+      impressions: ['노출'],
+      budget: ['예산'],
+      roas: ['광고수익률'],
     },
   },
-  bidEdit: {
-    bidInputSelector: '__TODO__',
-    saveButtonSelector: '__TODO__',
-  },
-  // B-1: 캠페인 ON/OFF·삭제 (행 내 또는 전역 셀렉터)
-  campaignActions: {
-    offToggleSelector: '__TODO__',     // 캠페인을 끄는 토글/버튼
-    deleteButtonSelector: '__TODO__',  // 삭제 버튼
-    confirmButtonSelector: '__TODO__', // 삭제 확인 모달의 확인 버튼
-  },
-  // B-2: 캠페인 생성/상품 추가 흐름 — 다단계 UX라 DOM 확보 후 채움
-  campaignCreate: {
-    url: '__TODO__',
-    flow: '__TODO__',
-  },
+  // 예산/입찰 수정 — 캠페인 레벨은 "예산". 수정 팝업 DOM 추가 캡처 필요.
+  budgetEdit: { __todo: '__TODO__' },
+  // 삭제 — 행 메뉴/버튼 DOM 추가 캡처 필요.
+  deleteAction: { __todo: '__TODO__' },
+  // 캠페인 생성/상품추가 — 다단계 UX, 추가 캡처 필요.
+  campaignCreate: { __todo: '__TODO__' },
 };
 
 function assertConfigured(obj, label) {
   if (JSON.stringify(obj).includes('__TODO__')) {
-    throw new Error(`[ad-automation] ${label}: 윙 셀렉터 미설정(__TODO__) — 실제 화면 DOM 확보 후 WING 설정을 채우세요.`);
+    throw new Error(`[ad-automation] ${label}: 윙 셀렉터 미설정(__TODO__) — 해당 화면 DOM 캡처 후 WING 설정을 채우세요.`);
   }
 }
 
@@ -190,45 +186,58 @@ function waitFor(win, selector, timeoutMs = 15000) {
 }
 
 /**
- * 윙 로그인 세션 확인. 미로그인이면 로그인 페이지를 띄우고 사용자가 직접 로그인할
- * 때까지 대기(비밀번호 저장 안 함 — 쿠키 세션 유지). 로그인되면 true.
+ * 윙 로그인 세션 확인. adsUrl 이 설정돼 있으면 그 화면으로 이동, 아니면 현재 페이지에서
+ * 사이드바(#cap-sidebar) 존재로 판단. 미로그인이면 로그인 페이지를 띄우고 대기.
  * @param {import('electron').BrowserWindow} win
  */
 export async function ensureWingSession(win, { timeoutMs = 180000 } = {}) {
-  assertConfigured(WING.loggedInSelector, 'ensureWingSession(loggedInSelector)');
-  await win.loadURL(WING.reportUrl !== '__TODO__' ? WING.reportUrl : WING.loginUrl);
+  if (WING.adsUrl && !WING.adsUrl.includes('__TODO__')) await win.loadURL(WING.adsUrl);
+  try { await waitFor(win, WING.loggedInSelector, 8000); return true; }
+  catch { /* 미로그인 → 로그인 페이지 띄우고 대기 */ }
+  await win.loadURL(WING.loginUrl);
   try { await waitFor(win, WING.loggedInSelector, timeoutMs); return true; }
   catch { return false; }
 }
 
 /**
- * 윙 광고 리포트에서 캠페인/키워드 성과를 읽어온다. (설정 주도 추출)
- * ⚠️ 기간(lookbackDays) 적용용 날짜선택 UI 조작은 DOM 확보 후 추가 필요.
+ * 쿠팡 애즈 "모든 캠페인" 표에서 캠페인별 성과/상태를 읽는다.
+ * 헤더 라벨로 컬럼 index 를 동적 매핑(컬럼 순서/구성 바뀌어도 견고).
+ * 캠페인 식별자는 이름(name)을 사용(DOM에 id 없음).
  * @param {import('electron').BrowserWindow} win
- * @param {{ lookbackDays?: number }} [_opts]
- * @returns {Promise<Array<{campaignId:string,campaignName:string,keyword:string|null,currentBid:number}&Metrics>>}
+ * @returns {Promise<Array<{campaignId:string,campaignName:string,keyword:null,on:boolean|null,budget:number,currentBid:number}&Metrics>>}
  */
 export async function collectMetrics(win, _opts = {}) {
-  assertConfigured(WING.reportUrl, 'collectMetrics(reportUrl)');
-  assertConfigured(WING.metricsTable, 'collectMetrics(metricsTable)');
-  const cfg = WING.metricsTable;
-  await win.loadURL(WING.reportUrl);
-  await waitFor(win, cfg.rowSelector);
+  if (WING.adsUrl && !WING.adsUrl.includes('__TODO__')) await win.loadURL(WING.adsUrl);
+  await waitFor(win, WING.table.row, 20000);
+  const t = WING.table;
   return win.webContents.executeJavaScript(`(() => {
-    const parseNum = (t) => { if (t==null) return 0; const n=String(t).replace(/[^0-9.\\-]/g,''); return n===''?0:Number(n); };
+    const parseNum = (s) => { if (s==null) return 0; const n=String(s).replace(/[^0-9.\\-]/g,''); return n===''?0:Number(n); };
+    const norm = (s) => (s||'').replace(/\\s+/g,' ').trim();
+    const panel = document.querySelector(${JSON.stringify(t.panel)}) || document;
+    const heads = [...panel.querySelectorAll(${JSON.stringify(t.headerCell)})].map(th => norm(th.textContent));
+    const colOf = (cands) => { for (const c of cands) { const i = heads.findIndex(h => h.includes(c)); if (i>=0) return i; } return -1; };
+    const idx = {
+      spend: colOf(${JSON.stringify(t.labels.spend)}),
+      sales: colOf(${JSON.stringify(t.labels.sales)}),
+      conversions: colOf(${JSON.stringify(t.labels.conversions)}),
+      clicks: colOf(${JSON.stringify(t.labels.clicks)}),
+      impressions: colOf(${JSON.stringify(t.labels.impressions)}),
+      budget: colOf(${JSON.stringify(t.labels.budget)}),
+    };
     const out = [];
-    document.querySelectorAll(${JSON.stringify(cfg.rowSelector)}).forEach((row) => {
-      const txt = (sel) => sel ? (row.querySelector(sel)?.textContent ?? '') : '';
+    panel.querySelectorAll(${JSON.stringify(t.row)}).forEach((row) => {
+      const name = norm(row.querySelector(${JSON.stringify(t.name)})?.textContent);
+      if (!name) return;
+      const sw = row.querySelector(${JSON.stringify(t.onSwitch)});
+      const on = sw ? sw.getAttribute('aria-checked') === 'true' : null;
+      const cells = [...row.querySelectorAll(${JSON.stringify(t.cell)})];
+      const val = (i) => (i >= 0 && cells[i]) ? parseNum(cells[i].textContent) : 0;
+      const budget = val(idx.budget);
       out.push({
-        campaignId: ${cfg.campaignIdAttr !== '__TODO__' ? `row.getAttribute(${JSON.stringify(cfg.campaignIdAttr)}) || ''` : `''`},
-        campaignName: txt(${JSON.stringify(cfg.cell.campaignName)}).trim(),
-        keyword: ${cfg.cell.keyword ? `(txt(${JSON.stringify(cfg.cell.keyword)}).trim() || null)` : 'null'},
-        impressions: parseNum(txt(${JSON.stringify(cfg.cell.impressions)})),
-        clicks: parseNum(txt(${JSON.stringify(cfg.cell.clicks)})),
-        spend: parseNum(txt(${JSON.stringify(cfg.cell.spend)})),
-        sales: parseNum(txt(${JSON.stringify(cfg.cell.sales)})),
-        conversions: parseNum(txt(${JSON.stringify(cfg.cell.conversions)})),
-        currentBid: parseNum(txt(${JSON.stringify(cfg.cell.currentBid)})),
+        campaignId: name, campaignName: name, keyword: null, on,
+        impressions: val(idx.impressions), clicks: val(idx.clicks),
+        spend: val(idx.spend), sales: val(idx.sales), conversions: val(idx.conversions),
+        budget, currentBid: budget,
       });
     });
     return out;
@@ -236,87 +245,44 @@ export async function collectMetrics(win, _opts = {}) {
 }
 
 /**
- * 윙 광고화면에서 특정 캠페인의 입찰가를 변경한다. (설정 주도)
- * 행 탐색(campaignIdAttr) → 입찰 입력칸 값 교체(React 제어 input 대응) → 저장 클릭.
- * ⚠️ 저장 후 확인 모달/토스트 처리와 증빙 스크린샷은 윙 실제 UX 확인 후 보강 필요.
+ * 캠페인 ON/OFF — 이름으로 행을 찾아 ant-switch 토글. 현재 상태가 목표와 다를 때만 클릭.
  * @param {import('electron').BrowserWindow} win
- * @param {{campaignId:string, keyword:string|null, newBid:number}} target
- * @returns {Promise<{ok:boolean, screenshotUrl?:string, error?:string}>}
+ * @param {{campaignId:string, on?:boolean}} t  campaignId = 캠페인 이름
  */
-export async function applyBidChange(win, { campaignId, newBid }) {
-  assertConfigured(WING.bidEdit, 'applyBidChange(bidEdit)');
-  assertConfigured(WING.metricsTable.rowSelector, 'applyBidChange(rowSelector)');
-  assertConfigured(WING.metricsTable.campaignIdAttr, 'applyBidChange(campaignIdAttr)');
-  const cfg = WING;
-  return win.webContents.executeJavaScript(`(() => {
-    const rows = [...document.querySelectorAll(${JSON.stringify(cfg.metricsTable.rowSelector)})];
-    const row = rows.find(r => (r.getAttribute(${JSON.stringify(cfg.metricsTable.campaignIdAttr)}) || '') === ${JSON.stringify(String(campaignId))});
-    if (!row) return { ok:false, error:'행을 찾지 못함: ' + ${JSON.stringify(String(campaignId))} };
-    const input = row.querySelector(${JSON.stringify(cfg.bidEdit.bidInputSelector)});
-    if (!input) return { ok:false, error:'입찰 입력칸 없음' };
-    // React 제어 input 대응: prototype native setter 로 값 설정 후 이벤트 발생
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-    setter.call(input, String(${Number(newBid)}));
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    const save = row.querySelector(${JSON.stringify(cfg.bidEdit.saveButtonSelector)})
-      || document.querySelector(${JSON.stringify(cfg.bidEdit.saveButtonSelector)});
-    if (!save) return { ok:false, error:'저장 버튼 없음' };
-    save.click();
-    return { ok:true };
-  })()`);
-}
-
-/** 행 탐색 후 OFF 토글 클릭 (설정 주도). @returns {Promise<{ok,error?}>} */
 export async function toggleCampaign(win, { campaignId, on = false }) {
-  assertConfigured(WING.campaignActions.offToggleSelector, 'toggleCampaign(offToggleSelector)');
-  assertConfigured(WING.metricsTable.rowSelector, 'toggleCampaign(rowSelector)');
-  const cfg = WING;
+  const cfg = WING.table;
   return win.webContents.executeJavaScript(`(() => {
-    const row = [...document.querySelectorAll(${JSON.stringify(cfg.metricsTable.rowSelector)})]
-      .find(r => (r.getAttribute(${JSON.stringify(cfg.metricsTable.campaignIdAttr)}) || '') === ${JSON.stringify(String(campaignId))});
+    const norm = (s) => (s||'').replace(/\\s+/g,' ').trim();
+    const panel = document.querySelector(${JSON.stringify(cfg.panel)}) || document;
+    const row = [...panel.querySelectorAll(${JSON.stringify(cfg.row)})]
+      .find(r => norm(r.querySelector(${JSON.stringify(cfg.name)})?.textContent) === ${JSON.stringify(String(campaignId))});
     if (!row) return { ok:false, error:'행을 찾지 못함: ' + ${JSON.stringify(String(campaignId))} };
-    const t = row.querySelector(${JSON.stringify(cfg.campaignActions.offToggleSelector)});
-    if (!t) return { ok:false, error:'OFF 토글 없음' };
-    // TODO: 현재 ON/OFF 상태 확인 후 목표 상태(${on ? 'ON' : 'OFF'})와 다를 때만 클릭 — DOM 확보 후
-    t.click();
+    const sw = row.querySelector(${JSON.stringify(cfg.onSwitch)});
+    if (!sw) return { ok:false, error:'ON/OFF 토글 없음' };
+    const checked = sw.getAttribute('aria-checked') === 'true';
+    if (checked === ${on ? 'true' : 'false'}) return { ok:true, noop:true };
+    sw.click();
     return { ok:true };
   })()`);
-}
-
-/** 행 탐색 → 삭제 버튼 → 확인 모달 (설정 주도). 되돌릴 수 없으니 승인 모드 권장. */
-export async function deleteCampaign(win, { campaignId }) {
-  assertConfigured(WING.campaignActions, 'deleteCampaign(campaignActions)');
-  assertConfigured(WING.metricsTable.rowSelector, 'deleteCampaign(rowSelector)');
-  const cfg = WING;
-  const r1 = await win.webContents.executeJavaScript(`(() => {
-    const row = [...document.querySelectorAll(${JSON.stringify(cfg.metricsTable.rowSelector)})]
-      .find(r => (r.getAttribute(${JSON.stringify(cfg.metricsTable.campaignIdAttr)}) || '') === ${JSON.stringify(String(campaignId))});
-    if (!row) return { ok:false, error:'행을 찾지 못함' };
-    const del = row.querySelector(${JSON.stringify(cfg.campaignActions.deleteButtonSelector)});
-    if (!del) return { ok:false, error:'삭제 버튼 없음' };
-    del.click();
-    return { ok:true };
-  })()`);
-  if (!r1.ok) return r1;
-  // 확인 모달 대기 후 확인 클릭
-  try {
-    await waitFor(win, WING.campaignActions.confirmButtonSelector, 8000);
-    return win.webContents.executeJavaScript(`(() => {
-      const c = document.querySelector(${JSON.stringify(cfg.campaignActions.confirmButtonSelector)});
-      if (!c) return { ok:false, error:'삭제 확인 버튼 없음' };
-      c.click();
-      return { ok:true };
-    })()`);
-  } catch { return { ok:false, error:'삭제 확인 모달이 안 떴습니다' }; }
 }
 
 /**
- * 상품을 광고 캠페인에 자동 등록. 캠페인 생성/상품추가는 다단계 UX라
- * 실제 흐름은 윙 화면 확보 후 P-B에서 구현. (입찰·일예산은 인자로 받음)
- * @returns {Promise<{ok:boolean, campaignId?:string, error?:string}>}
+ * 예산/입찰 변경 — 캠페인 레벨은 "예산" 수정. 수정 팝업 DOM 추가 캡처 필요.
+ * (키워드 단위 입찰은 별도 화면)
  */
+export async function applyBidChange(_win, _t) {
+  assertConfigured(WING.budgetEdit, 'applyBidChange(budgetEdit)');
+  throw new Error('[ad-automation] applyBidChange: 예산 수정 팝업 DOM 미확보 — "예산" 클릭 시 화면 캡처 필요');
+}
+
+/** 캠페인 삭제 — 삭제 버튼/메뉴 DOM 추가 캡처 필요. */
+export async function deleteCampaign(_win, _t) {
+  assertConfigured(WING.deleteAction, 'deleteCampaign(deleteAction)');
+  throw new Error('[ad-automation] deleteCampaign: 삭제 버튼 DOM 미확보 — 캠페인 행 메뉴/삭제 화면 캡처 필요');
+}
+
+/** 상품 광고 자동 등록 — 캠페인 생성 흐름 DOM 추가 캡처 필요. */
 export async function registerItem(_win, _opts) {
   assertConfigured(WING.campaignCreate, 'registerItem(campaignCreate)');
-  throw new Error('[ad-automation] registerItem: 윙 캠페인 생성/상품추가 흐름 미구현 — 화면 확보 후 구현');
+  throw new Error('[ad-automation] registerItem: "캠페인 추가" 생성 흐름 DOM 미확보 — 캡처 필요');
 }

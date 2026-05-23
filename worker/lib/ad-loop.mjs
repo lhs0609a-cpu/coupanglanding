@@ -73,7 +73,8 @@ export async function runAdEvaluation({ ruleRow, collect, apply, offApply, db, w
     summary.evaluated++;
 
     // B-1: 먼저 "이 캠페인 꺼야 하나?" 판정 — OFF면 입찰 조정은 건너뜀
-    const camAction = evaluateCampaignAction({ metrics: row, rule });
+    // (이미 꺼진 캠페인 row.on===false 은 대상 제외)
+    const camAction = row.on === false ? null : evaluateCampaignAction({ metrics: row, rule });
     if (camAction) {
       const offBase = {
         rule_id: ruleRow.id ?? null, action: 'off',
