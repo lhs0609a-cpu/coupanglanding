@@ -71,7 +71,8 @@ export class WorkerRunner {
       signal: this.abort.signal,
       onEvent: this.onEvent,
       // 1단계: 누끼 + 흰배경 + 1:1 무크롭 합성(상품 픽셀 보존). ComfyUI 생성 대신 사용.
-      processImage: (buf) => processCutoutThumbnail(buf),
+      // 모델(BiRefNet_lite)은 userData/hf-cache 에 최초 1회 다운로드 후 영구 캐시.
+      processImage: (buf) => processCutoutThumbnail(buf, { cacheDir: join(this.userDataDir, 'hf-cache') }),
     }).catch((e) => this.onEvent({ type: 'error', message: e.message }))
       .finally(() => { this.abort = null; this.loopPromise = null; });
   }
