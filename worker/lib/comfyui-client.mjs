@@ -52,6 +52,15 @@ export async function loadWorkflow(fs, path) {
  */
 export function patchWorkflow(graph, { inputFilename, positivePrompt, negativePrompt, seed, nodeIds = {} }) {
   const g = structuredClone(graph);
+
+  // 비-노드 키 제거 (예: "_comment" 설명 문자열).
+  // ComfyUI 0.22+ 의 validate_prompt 는 prompt 의 모든 키를 노드로 간주해
+  // node_data.get('_meta') 를 호출 → 문자열 값이면 500(AttributeError) 발생.
+  // class_type 없는 값은 모두 제거해서 어떤 ComfyUI 버전에서도 안전하게.
+  for (const k of Object.keys(g)) {
+    if (!g[k] || typeof g[k] !== 'object' || !g[k].class_type) delete g[k];
+  }
+
   const findByClass = (cls) =>
     Object.entries(g).filter(([, n]) => n?.class_type === cls).map(([id]) => id);
 
