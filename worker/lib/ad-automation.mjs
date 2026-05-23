@@ -160,8 +160,15 @@ export const WING = {
       roas: ['광고수익률'],
     },
   },
-  // 예산/입찰 수정 — 캠페인 레벨은 "예산". 수정 팝업 DOM 추가 캡처 필요.
-  budgetEdit: { __todo: '__TODO__' },
+  // 예산 수정 = 캠페인 편집 폼(광고 수정, 캡처 2026-05). 표에서 캠페인명 클릭 → 폼 진입 → 일예산 변경 → 완료.
+  // 캠페인 레벨엔 "입찰가"가 없고 "예산"뿐이므로 newBid 를 일예산으로 적용한다.
+  budgetEdit: {
+    nameLink: '[data-bigfoot-component="campaign_name"]',                 // 표에서 클릭 시 편집 폼 진입
+    ready: '[data-bigfoot-component="campaign_budget_input"] [data-testid="budget-input"], [data-testid="budget-input"]',
+    budgetInput: '[data-testid="budget-input"]',
+    submitButton: 'footer[data-bigfoot-component="pa_form_buttons"] button.ant-btn-primary', // "완료"
+    reviewConfirmButton: '[data-bigfoot-component="review"] button.ant-btn-primary',          // 검토 모달 "완료"
+  },
   // 삭제 — 행 메뉴/버튼 DOM 추가 캡처 필요.
   deleteAction: { __todo: '__TODO__' },
   // 캠페인 생성 마법사 (등록 폼 캡처 2026-05 기반). 매출성장 → 자동운영/매출최적화 + 수동상품선택.
@@ -283,12 +290,63 @@ export async function toggleCampaign(win, { campaignId, on = false }) {
 }
 
 /**
- * 예산/입찰 변경 — 캠페인 레벨은 "예산" 수정. 수정 팝업 DOM 추가 캡처 필요.
- * (키워드 단위 입찰은 별도 화면)
+ * 예산(=입찰) 변경 — 표에서 캠페인명 클릭 → 편집 폼 진입 → 일예산 input 값교체 → 완료.
+ * 캠페인 레벨엔 입찰가가 없어 newBid 를 일예산으로 적용한다.
+ * 안전설계: 편집 폼(budget-input)이 뜨고 값이 실제로 반영된 경우에만 완료를 누른다.
+ * @param {import('electron').BrowserWindow} win
+ * @param {{campaignId:string, keyword?:string|null, newBid:number}} t  campaignId=캠페인 이름
  */
-export async function applyBidChange(_win, _t) {
+export async function applyBidChange(win, t = {}) {
   assertConfigured(WING.budgetEdit, 'applyBidChange(budgetEdit)');
-  throw new Error('[ad-automation] applyBidChange: 예산 수정 팝업 DOM 미확보 — "예산" 클릭 시 화면 캡처 필요');
+  const be = WING.budgetEdit;
+  const name = String(t.campaignId || '').trim();
+  const budget = Number(t.newBid);
+  if (!name) throw new Error('[applyBidChange] campaignId(캠페인 이름) 필요');
+  if (!Number.isFinite(budget) || budget <= 0) throw new Error('[applyBidChange] newBid(일예산) 양수 필요');
+
+  // 1) 표에서 캠페인명 클릭 → 편집 폼 진입
+  if (WING.adsUrl && !WING.adsUrl.includes('__TODO__')) await win.loadURL(WING.adsUrl);
+  await waitFor(win, WING.table.row, 20000);
+  const clicked = await win.webContents.executeJavaScript(`(() => {
+    const norm = (s) => (s||'').replace(/\\s+/g,' ').trim();
+    const panel = document.querySelector(${JSON.stringify(WING.table.panel)}) || document;
+    const row = [...panel.querySelectorAll(${JSON.stringify(WING.table.row)})]
+      .find(r => norm(r.querySelector(${JSON.stringify(WING.table.name)})?.textContent) === ${JSON.stringify(name)});
+    if (!row) return { ok:false, error:'행을 찾지 못함: ' + ${JSON.stringify(name)} };
+    const link = row.querySelector(${JSON.stringify(be.nameLink)}) || row.querySelector(${JSON.stringify(WING.table.name)});
+    if (!link) return { ok:false, error:'캠페인명 링크 없음' };
+    (link.querySelector('a') || link).click();
+    return { ok:true };
+  })()`);
+  if (!clicked || !clicked.ok) return { ok: false, error: clicked?.error || '편집 폼 진입 실패' };
+
+  // 2) 편집 폼 로드 대기 → 일예산 값교체(반영 확인)
+  try { await waitFor(win, be.ready, 20000); }
+  catch { return { ok: false, error: '편집 폼(일예산) 미로드 — 중단(과금변경 안 함)' }; }
+  const set = await win.webContents.executeJavaScript(`(() => {
+    const el = document.querySelector(${JSON.stringify(be.budgetInput)});
+    if (!el) return { ok:false, error:'일예산 input 없음' };
+    const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    d.set.call(el, ${JSON.stringify(String(Math.round(budget)))});
+    el.dispatchEvent(new Event('input', { bubbles:true }));
+    el.dispatchEvent(new Event('change', { bubbles:true }));
+    const got = String(el.value).replace(/[^0-9]/g,'');
+    return { ok: got === ${JSON.stringify(String(Math.round(budget)))}, got };
+  })()`);
+  if (!set || !set.ok) return { ok: false, error: `일예산 반영 실패(${set?.got}) — 중단` };
+
+  // 3) 완료 → 검토 모달 완료
+  const submitted = await win.webContents.executeJavaScript(`(async () => {
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const btn = document.querySelector(${JSON.stringify(be.submitButton)});
+    if (!btn) return { ok:false, error:'완료 버튼 없음' };
+    if (btn.disabled) return { ok:false, error:'완료 버튼 비활성' };
+    btn.click();
+    let cb=null; for (let i=0;i<30;i++){ await sleep(300); cb=document.querySelector(${JSON.stringify(be.reviewConfirmButton)}); if (cb && cb.offsetParent!==null && !cb.disabled) break; cb=null; }
+    if (cb) cb.click();
+    return { ok:true };
+  })()`);
+  return { ok: !!submitted?.ok, error: submitted?.error };
 }
 
 /** 캠페인 삭제 — 삭제 버튼/메뉴 DOM 추가 캡처 필요. */
