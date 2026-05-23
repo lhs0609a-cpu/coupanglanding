@@ -938,16 +938,18 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
 
   // ---- 가중 합산 (100%) ----
   // ★ 흰배경이 최우선 — 쿠팡 썸네일에서 흰배경 누끼가 가장 중요
+  // ★ 정면(symmetry) 가중치 상향(0.10→0.16): "정면컷 우선 선택" 요구 반영.
+  //   덜 중요한 sharpness/centering/contentSufficiency 를 줄여 총합 1.00 유지(점수 스케일·필터 임계 보존).
   const overall =
     background * 0.20 +            // 흰배경 ★★★ (최우선)
-    backgroundSaturation * 0.12 +  // 무채색 배경 ★★ (컬러 배경 강력 감점)
+    symmetry * 0.16 +             // 정면 촬영 ★★★ (상향 — 정면컷 우선)
     productCompactness * 0.15 +    // 누끼 단일상품 ★★
+    backgroundSaturation * 0.12 +  // 무채색 배경 ★★ (컬러 배경 강력 감점)
     fillRatio * 0.12 +             // 프레임 점유율 ★ (썸네일 가시성)
     edgeCrop * 0.10 +              // 상품 완전 포함 ★
-    symmetry * 0.10 +              // 정면 촬영 ★
-    sharpness * 0.07 +             // 선명도
-    centering * 0.04 +
-    contentSufficiency * 0.04 +
+    sharpness * 0.05 +             // 선명도
+    centering * 0.02 +
+    contentSufficiency * 0.02 +
     skinTone * 0.03 +
     textDensity * 0.02 +
     aspect * 0.005 +
