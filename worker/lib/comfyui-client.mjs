@@ -137,9 +137,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export async function waitForResult(comfyUrl, promptId, { timeoutMs = 300_000, pollMs = 1500 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const res = await fetch(`${comfyUrl}/history/${promptId}`);
+    // ⚠️ 폴링 fetch 의 일시적 실패를 throw 하지 않는다.
+    //   CPU/저사양 환경에선 ComfyUI 가 무거운 샘플링 중 HTTP 응답을 잠깐 못 해
+    //   fetch 가 "fetch failed"(ECONNRESET 등) 로 던질 수 있다. 그때 작업을 포기하면
+    //   (워커가 실제로 처리 중인데도) 폴백돼 버림 → 다음 폴링으로 재시도하고 deadline 까지 버틴다.
+    let res;
+    try {
+      res = await fetch(`${comfyUrl}/history/${promptId}`);
+    } catch {
+      await sleep(pollMs);
+      continue;
+    }
     if (res.ok) {
-      const hist = await res.json();
+      const hist = await res.json().catch(() => ({}));
       const entry = hist[promptId];
       if (entry) {
         const status = entry.status?.status_str;
