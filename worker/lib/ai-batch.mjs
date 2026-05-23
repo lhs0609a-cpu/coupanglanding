@@ -1,0 +1,66 @@
+/**
+ * 올인원 배치 생성 오케스트레이터
+ * ---------------------------------------------------------------------------
+ * 상품 배열 → 각 상품마다 (카테고리 후보[임베딩 우선, 없으면 토큰] → 4필드 생성)
+ * → 등록용 레코드 배열. 단일 GPU라 LLM은 순차. 이미지(대표이미지)는 별도 단계.
+ *
+ * 아이템위너 회피: personaSeed = `${sellerId}:${상품식별}` 로 셀러마다 톤 분산.
+ */
+import { generateAllFields } from './ai-generator.mjs';
+import { topCandidates } from './category-candidates-mini.mjs';
+import { topCandidatesEmbed, isBuilt as embedBuilt } from './category-embed-matcher.mjs';
+
+async function candidatesFor(name, k) {
+  if (embedBuilt()) {
+    try { const c = await topCandidatesEmbed(name, k); if (c.length) return c; } catch { /* fallback */ }
+  }
+  return topCandidates(name, k);
+}
+
+/**
+ * @param {Array<{originalName:string, brand?:string, features?:string[], id?:string, categoryPath?:string}>} products
+ * @param {Object} o
+ * @param {string} o.model
+ * @param {string} [o.sellerId]            아이템위너 회피용 셀러 시드
+ * @param {number} [o.maxDetailTokens=800]
+ * @param {(i:number, total:number, rec:Object)=>void} [o.onItem]
+ * @returns {Promise<{records:Object[], summary:Object}>}
+ */
+export async function generateBatch(products, { model, sellerId = '', maxDetailTokens = 800, onItem } = {}) {
+  if (!model) throw new Error('[ai-batch] model 필요');
+  const records = [];
+  let ok = 0, review = 0, totalMs = 0;
+  const t0 = Date.now();
+  for (let i = 0; i < products.length; i++) {
+    const p = products[i];
+    const seed = `${sellerId}:${p.id || p.originalName}`;
+    const cands = await candidatesFor(p.originalName, 8);
+    const r = await generateAllFields(p, { model, personaSeed: seed, categoryCandidates: cands, maxDetailTokens });
+    const rec = {
+      sourceId: p.id ?? null,
+      originalName: p.originalName,
+      displayName: r.displayName,
+      keywords: r.keywords,
+      categoryCode: r.categoryCode,
+      categoryPath: r.categoryPath,
+      detail: r.detail,
+      persona: r.persona,
+      needsReview: r.needsReview,
+      compliance: r.compliance,
+      ms: r.timings.totalMs,
+    };
+    records.push(rec);
+    totalMs += rec.ms;
+    if (rec.needsReview) review++; else ok++;
+    onItem?.(i, products.length, rec);
+  }
+  return {
+    records,
+    summary: {
+      total: products.length, ok, needsReview: review,
+      avgMs: products.length ? Math.round(totalMs / products.length) : 0,
+      wallMs: Date.now() - t0,
+      candidateSource: embedBuilt() ? 'embedding' : 'token',
+    },
+  };
+}

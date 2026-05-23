@@ -62,6 +62,21 @@ export async function generate({ model, prompt, system, options = {}, format } =
   return { text: (j.response || '').trim(), ms, evalCount, tokPerSec };
 }
 
+/**
+ * 임베딩 (ollama /api/embed). input: string | string[].
+ * @returns {Promise<number[][]>} 벡터 배열
+ */
+export async function embed(model, input) {
+  const r = await fetch(`${OLLAMA}/api/embed`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, input }),
+  });
+  if (!r.ok) throw new Error(`[local-llm] embed HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const j = await r.json();
+  return j.embeddings || [];
+}
+
 /** JSON 응답을 안전 파싱 (코드펜스/잡텍스트 제거 후 첫 객체) */
 export function parseJsonLoose(text) {
   if (!text) return null;

@@ -10,6 +10,7 @@
 import { isUp, listModels } from './lib/local-llm.mjs';
 import { generateAllFields } from './lib/ai-generator.mjs';
 import { topCandidates } from './lib/category-candidates-mini.mjs';
+import { topCandidatesEmbed, isBuilt as embedBuilt } from './lib/category-embed-matcher.mjs';
 
 const MODEL = process.argv[2] || 'qwen2.5:7b-instruct';
 
@@ -39,7 +40,7 @@ async function main() {
   for (const p of SAMPLES) {
     console.log('\n────────────────────────────────────────');
     console.log('원본:', p.originalName);
-    const cands = topCandidates(p.originalName, 8); // {code, path}[]
+    const cands = embedBuilt() ? await topCandidatesEmbed(p.originalName, 8) : topCandidates(p.originalName, 8); // {code, path}[]
     const r = await generateAllFields(p, { model: MODEL, personaSeed: 'seller-A', categoryCandidates: cands, maxDetailTokens: 800 });
     console.log(`페르소나: ${r.persona}`);
     console.log('노출상품명:', r.displayName);

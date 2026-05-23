@@ -1,7 +1,9 @@
-# 자격증명/세션 — 커밋 금지
-config.json
-.session.json
 
-# 워크플로 개인본 (예제 제외)
-workflows/*.json
 !workflows/*.example.json
+# 워크플로 개인본 (예제 제외)
+# 자격증명/세션 — 커밋 금지
+.session.json
+config.json
+lib/data/cat-embeddings.f32
+lib/data/cat-embeddings.meta.json
+workflows/*.json
