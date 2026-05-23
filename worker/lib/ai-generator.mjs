@@ -6,7 +6,7 @@
  * 이미지(대표이미지)는 별도(ComfyUI) 단계 — 여기선 텍스트만.
  */
 import { generate, parseJsonLoose } from './local-llm.mjs';
-import { pickPersona, buildTitlePrompt, buildCategoryPrompt, buildDetailPrompt } from './ai-prompts.mjs';
+import { pickPersona, buildTitlePrompt, buildCategoryPrompt, buildDetailPrompt, buildOptionsPrompt } from './ai-prompts.mjs';
 import { checkMini } from './compliance-mini.mjs';
 
 const AVOID = (violations) =>
@@ -73,7 +73,13 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   const catJson = parseJsonLoose(catRaw.text) || {};
   const snapped = snapToCandidate(catJson.categoryPath || catRaw.text, candObjs);
 
-  // 3) 상세페이지
+  // 3) 옵션
+  const op = buildOptionsPrompt(product);
+  const optRaw = await genText({ model, ...op, ctx });
+  const optJson = parseJsonLoose(optRaw.text) || {};
+  const options = Array.isArray(optJson.options) ? optJson.options.filter((o) => o && o.name && o.value) : [];
+
+  // 4) 상세페이지
   const dp = buildDetailPrompt(product, persona, { maxTokens: maxDetailTokens });
   const detailRaw = await genText({ model, ...dp, ctx });
 
@@ -92,6 +98,7 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
     categorySnapped: snapped.snapped,
     categoryConfidence: catJson.confidence ?? null,
     detail: detailRaw.text,
+    options,
     compliance: { ok: allOk, byField: {
       title: titleRaw.violations, category: catRaw.violations, detail: detailRaw.violations,
     } },

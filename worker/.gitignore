@@ -7,3 +7,9 @@ config.json
 lib/data/cat-embeddings.f32
 lib/data/cat-embeddings.meta.json
 workflows/*.json
+
+sample*.json
+sample*.jsonl
+sample*.html
+*.generated.jsonl
+*.review.html

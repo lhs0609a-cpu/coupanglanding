@@ -52,6 +52,16 @@ export function buildCategoryPrompt(p, candidates = []) {
   return { system, prompt, format: 'json', options: { temperature: 0.2, num_predict: 120 } };
 }
 
+/** 옵션 — JSON {options:[{name,value,unit?}]}. 상품명/특징에서 도출 가능한 것만(환각 금지) */
+export function buildOptionsPrompt(p) {
+  const system = `당신은 쿠팡 상품 옵션 추출기다. 출력은 JSON만: {"options":[{"name":"옵션명","value":"옵션값","unit":"단위(없으면 생략)"}]}.
+규칙: 상품명/특징에 실제로 드러난 정보(용량·수량·색상·사이즈·맛/종류 등)만 옵션으로. 없는 스펙은 절대 지어내지 말 것. 1~4개. 한자 금지.`;
+  const prompt = `상품명: ${p.originalName}
+특징: ${(p.features || []).join(', ') || '없음'}
+→ 위에서 확인되는 구매옵션만 JSON으로. (예: 용량 50ml, 수량 120정, 색상 베이지)`;
+  return { system, prompt, format: 'json', options: { temperature: 0.1, num_predict: 200 } };
+}
+
 /** 상세페이지(스토리) — 섹션형 한국어 카피. 일반 텍스트(마크다운 허용). */
 export function buildDetailPrompt(p, persona, { maxTokens = 900 } = {}) {
   const system = `당신은 쿠팡 상세페이지 카피라이터다. ${persona.style}. ${FORBIDDEN_RULE}

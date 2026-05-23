@@ -9,6 +9,7 @@
 import { generateAllFields } from './ai-generator.mjs';
 import { topCandidates } from './category-candidates-mini.mjs';
 import { topCandidatesEmbed, isBuilt as embedBuilt } from './category-embed-matcher.mjs';
+import { calculateSellingPrice } from './margin-mini.mjs';
 
 async function candidatesFor(name, k) {
   if (embedBuilt()) {
@@ -36,13 +37,21 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
     const seed = `${sellerId}:${p.id || p.originalName}`;
     const cands = await candidatesFor(p.originalName, 8);
     const r = await generateAllFields(p, { model, personaSeed: seed, categoryCandidates: cands, maxDetailTokens });
+    const sellingPrice = calculateSellingPrice(p.sourcePrice);
     const rec = {
       sourceId: p.id ?? null,
       originalName: p.originalName,
+      // 소스 통과 필드(검수화면 표시용)
+      sourceUrl: p.sourceUrl ?? null,
+      sourcePrice: p.sourcePrice ?? null,
+      sellingPrice,                       // 마진 계산 판매가
+      mainImage: p.mainImage ?? (Array.isArray(p.mainImages) ? p.mainImages[0] : null),
+      // AI 생성 필드
       displayName: r.displayName,
       keywords: r.keywords,
       categoryCode: r.categoryCode,
       categoryPath: r.categoryPath,
+      options: r.options,
       detail: r.detail,
       persona: r.persona,
       needsReview: r.needsReview,
