@@ -164,8 +164,13 @@ export const WING = {
   budgetEdit: { __todo: '__TODO__' },
   // 삭제 — 행 메뉴/버튼 DOM 추가 캡처 필요.
   deleteAction: { __todo: '__TODO__' },
-  // 캠페인 생성/상품추가 — 다단계 UX, 추가 캡처 필요.
-  campaignCreate: { __todo: '__TODO__' },
+  // 캠페인 생성 마법사. 1단계 확인됨(목표 선택), 2단계+(상품선택·예산·목표ROAS·확인) 캡처 필요.
+  campaignCreate: {
+    url: 'https://advertising.coupang.com/marketing/campaign/type',
+    step1_goalCard: '.goal-type-card',               // 첫 카드(매출 성장)가 기본 .active
+    step1_nextButton: '.button--goto-registration',  // "다음"
+    step2_flow: '__TODO__',                           // 상품선택/예산/목표ROAS/확인 — 추가 캡처 필요
+  },
 };
 
 function assertConfigured(obj, label) {
