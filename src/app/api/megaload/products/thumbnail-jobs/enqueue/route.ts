@@ -10,6 +10,9 @@ interface JobInput {
   sourceUrl: string;
   productCode?: string;
   label?: string;
+  /** 이 잡 전용 프롬프트(상품명 기반 등). 없으면 배치 prompt / 계정 기본값 사용 */
+  prompt?: string;
+  negativePrompt?: string;
 }
 interface EnqueueBody {
   jobs: JobInput[];
@@ -69,8 +72,9 @@ export async function POST(req: NextRequest) {
       source_url: j.sourceUrl,
       product_code: j.productCode ?? null,
       label: j.label ?? null,
-      prompt,
-      negative_prompt: negativePrompt,
+      // 잡별 프롬프트(상품명 기반) 우선 → 없으면 배치/계정 기본값
+      prompt: j.prompt?.trim() || prompt,
+      negative_prompt: j.negativePrompt?.trim() || negativePrompt,
       mode,
       status: 'pending',
     }));

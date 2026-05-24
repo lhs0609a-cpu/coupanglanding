@@ -90,14 +90,14 @@ async function prefillOnWhite(cutoutPng) {
  * @param {{canvas?:number,padRatio?:number,cacheDir?:string,
  *          mode?:'cutout'|'regenerate', img2imgFn?:(rgbPng:Buffer)=>Promise<Buffer>}} [opts]
  */
-export async function processCutoutThumbnail(inputBuffer, { canvas = CANVAS, padRatio = PAD_RATIO, cacheDir, mode = 'cutout', img2imgFn } = {}) {
+export async function processCutoutThumbnail(inputBuffer, { canvas = CANVAS, padRatio = PAD_RATIO, cacheDir, mode = 'cutout', img2imgFn, regenPrompt, regenNegative } = {}) {
   const cut = await cutout(inputBuffer, cacheDir);
 
   if (mode === 'regenerate' && img2imgFn) {
     try {
       const prefilled = await prefillOnWhite(cut);            // 파임 채운 흰배경 입력
       if (prefilled) {
-        const regen = await img2imgFn(prefilled);             // ComfyUI SDXL img2img(전체 균일 재생성)
+        const regen = await img2imgFn(prefilled, regenPrompt, regenNegative); // 상품명 프롬프트로 img2img
         const recut = await cutout(regen, cacheDir);          // 재누끼
         return composeWhite(recut, canvas, padRatio);
       }

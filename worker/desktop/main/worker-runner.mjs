@@ -63,11 +63,13 @@ export class WorkerRunner {
     let img2imgFn = undefined;
     try {
       const i2iWf = await loadWorkflow(fsp, join(dirname(workflowPath), 'img2img-thumbnail.example.json'));
-      img2imgFn = (rgbPng) => generateThumbnail(comfyUrl, {
+      img2imgFn = (rgbPng, positivePrompt, negativePrompt) => generateThumbnail(comfyUrl, {
         imageBuffer: rgbPng,
         inputName: `i2i_${randomUUID().slice(0, 8)}.png`,
         workflow: i2iWf,
-        timeoutMs: timeoutSec * 1000, // 프롬프트는 워크플로 기본값 사용(상품 스튜디오 컷)
+        positivePrompt: positivePrompt || undefined, // 상품명 기반(없으면 워크플로 기본값)
+        negativePrompt: negativePrompt || undefined,
+        timeoutMs: timeoutSec * 1000,
       });
     } catch (e) {
       this.onEvent({ type: 'warn', message: `img2img 워크플로 로드 실패 — 재생성 비활성: ${e.message}` });
@@ -90,6 +92,8 @@ export class WorkerRunner {
       processImage: (buf, job) => processCutoutThumbnail(buf, {
         cacheDir: join(this.userDataDir, 'hf-cache'),
         mode: job?.mode,
+        regenPrompt: job?.prompt,
+        regenNegative: job?.negative_prompt,
         img2imgFn,
       }),
     }).catch((e) => this.onEvent({ type: 'error', message: e.message }))

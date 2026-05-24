@@ -877,11 +877,16 @@ export function useBulkRegisterActions() {
     setThumbnailRegen({ total: targets.length, done: 0, error: 0, running: true, message: '이미지 준비 중...' });
 
     // 1) 워커가 받을 http URL 확보 (필요 시 업로드)
-    const jobs: { sourceUrl: string; productCode?: string; label: string }[] = [];
+    const jobs: { sourceUrl: string; productCode?: string; label: string; prompt?: string }[] = [];
     for (const p of targets) {
       try {
         const url = await resolveRepImageUrl(p);
-        if (url) jobs.push({ sourceUrl: url, productCode: p.productCode, label: p.uid });
+        if (!url) continue;
+        // 재생성: 상품명 기반 프롬프트로 SDXL 변형(drift) 억제 — 범용 프롬프트보다 자연스러움.
+        const regenPrompt = mode === 'regenerate'
+          ? `a single ${p.editedDisplayProductName || p.editedName || p.editedCategoryName || 'product'}, clean studio product photo on pure white background, photorealistic, sharp focus, natural texture, centered, no hands, no clutter`
+          : undefined;
+        jobs.push({ sourceUrl: url, productCode: p.productCode, label: p.uid, ...(regenPrompt ? { prompt: regenPrompt } : {}) });
       } catch { /* skip */ }
     }
     if (jobs.length === 0) {
