@@ -13,6 +13,7 @@ import { DEFAULT_PREVENTION_CONFIG, DISABLED_PREVENTION_CONFIG } from '@/lib/meg
 import { isCommodityCategory } from '@/lib/megaload/services/stock-image-service';
 import { addRecentPath } from './BulkStep1Settings';
 import { createClient } from '@/lib/supabase/client';
+import { saveDraft, loadDraft, clearDraft } from '@/lib/megaload/bulk-draft-store';
 
 // ---- 브랜드 자동 추출 (상품명에서) ----
 function extractBrandFromName(name: string): string {
@@ -1860,14 +1861,14 @@ export function useBulkRegisterActions() {
 
   // ---- #16 Session recovery: 자동저장 (2초 debounce, Step 2에서만) ----
   const SESSION_KEY = 'megaload_bulk_session';
-  const SESSION_TTL_MS = 30 * 60 * 1000; // 30분
+  const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7일 (IndexedDB 영속 — 브라우저 닫혀도/크래시나도 유지)
   /** 스캐너 로직 변경 시 bump → 이전 세션 무효화 (detailImageCount 등 scan-time 필드가 달라질 때) */
   const SCANNER_VERSION = 4;
   const [sessionRestoreOffered, setSessionRestoreOffered] = useState(false);
 
-  // 자동저장
+  // 자동저장 (Step 2 검수 + Step 3 등록 중 — 프리플라이트/등록 오류 시에도 작업 보존)
   useEffect(() => {
-    if (step !== 2 || products.length === 0) return;
+    if (step < 2 || products.length === 0) return;
     const timer = setTimeout(() => {
       try {
         const sessionData = {
@@ -1901,7 +1902,7 @@ export function useBulkRegisterActions() {
           // CDN URL은 직렬화 가능 → 새로고침 후에도 이미지 URL 유지
           imagePreuploadCache: imagePreuploadCacheRef.current,
         };
-        sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
+        void saveDraft(SESSION_KEY, JSON.stringify(sessionData));
         // 사용자 설정(returnCharge 등)은 별도 localStorage에 영구 저장
         // (sessionStorage 30분 TTL 만료 후에도 사용자 입력값 유지)
         try {
@@ -2008,21 +2009,23 @@ export function useBulkRegisterActions() {
     generateAiContent, includeReviewImages, useStockImages, preventionConfig,
   ]);
 
-  // 마운트 시 세션 복원 제안
+  // 마운트 시 세션 복원 제안 (IndexedDB 비동기 로드)
   useEffect(() => {
     if (sessionRestoreOffered) return;
+    let cancelled = false;
+    void (async () => {
     try {
-      const raw = sessionStorage.getItem(SESSION_KEY);
-      if (!raw) return;
+      const raw = await loadDraft<string>(SESSION_KEY);
+      if (cancelled || !raw) return;
       const data = JSON.parse(raw);
       if (!data.savedAt || Date.now() - data.savedAt > SESSION_TTL_MS) {
-        sessionStorage.removeItem(SESSION_KEY);
+        void clearDraft(SESSION_KEY);
         return;
       }
       // 스캐너 버전 불일치 → 세션 폐기 (scan-time 필드가 달라지므로 재스캔 필수)
       if (data.scannerVersion !== SCANNER_VERSION) {
         console.info(`[session] 스캐너 버전 변경(${data.scannerVersion ?? 'none'} → ${SCANNER_VERSION}) — 이전 세션 폐기, 재스캔 필요`);
-        sessionStorage.removeItem(SESSION_KEY);
+        void clearDraft(SESSION_KEY);
         return;
       }
       if (data.products?.length > 0 && step === 1 && products.length === 0) {
@@ -2079,10 +2082,12 @@ export function useBulkRegisterActions() {
           }
           setStep(2);
         } else {
-          sessionStorage.removeItem(SESSION_KEY);
+          void clearDraft(SESSION_KEY);
         }
       }
     } catch { /* ignore parse errors */ }
+    })();
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -3614,7 +3619,7 @@ export function useBulkRegisterActions() {
     setPreflightPhase('idle'); setPreflightResults({}); setPreflightStats(null); setPreflightDurationMs(0); setPreflightErrorReason(null);
     setCanaryPhase('idle'); setCanaryResult(null);
     // #16 세션 삭제
-    try { sessionStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
+    try { void clearDraft(SESSION_KEY); } catch { /* ignore */ }
   }, []);
 
   // ---- Computed values (P2-3: useMemo로 불필요한 배열 순회 방지) ----
