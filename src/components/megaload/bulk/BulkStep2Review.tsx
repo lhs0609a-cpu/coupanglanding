@@ -10,6 +10,7 @@ import type { PreflightProductResult, CanaryResult } from '@/lib/megaload/types'
 import BulkProductTable from './BulkProductTable';
 import BulkProductDetailPanel, { type PayloadPreviewState } from './BulkProductDetailPanel';
 import CategoryCascadingPicker from './CategoryCascadingPicker';
+import WorkerInstallNotice from '@/components/megaload/WorkerInstallNotice';
 import type { PayloadPreviewData } from './PayloadPreviewPanel';
 import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import type { EditableProduct, CategoryItem, FilterMode, SortField, SortDirection, FailureDiagnostic } from './types';
@@ -957,6 +958,9 @@ export default memo(function BulkStep2Review({
             <Ban className="w-3 h-3" />
             품절 상품 제외 ({soldOutCount})
           </button>
+        )}
+        {onBulkRegenerateThumbnails && (
+          <WorkerInstallNotice context="regenerate" className="basis-full" />
         )}
         {onBulkRegenerateThumbnails && (
           <button

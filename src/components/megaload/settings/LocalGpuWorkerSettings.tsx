@@ -7,9 +7,10 @@ import {
   Wand2, Save, RotateCcw,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { WORKER_DOWNLOAD_URL } from '@/lib/megaload/worker-download';
 
-// 빌드한 설치 .exe 의 GitHub Releases 링크. 배포 시 환경변수로 주입.
-const DOWNLOAD_URL = process.env.NEXT_PUBLIC_WORKER_DOWNLOAD_URL || '';
+// 고정 태그(gpu-worker-update) 자산 → env 미설정이어도 동작. 배포 시 env 로 덮어쓰기 가능.
+const DOWNLOAD_URL = WORKER_DOWNLOAD_URL;
 
 // 워커 내장 기본 프롬프트와 동일 — 비워두면 워커가 이 기본값을 사용한다(placeholder로만 표시).
 const BUILTIN_POSITIVE =
@@ -149,10 +150,9 @@ export default function LocalGpuWorkerSettings() {
         .select('thumbnail_prompt, thumbnail_negative_prompt')
         .eq('profile_id', user.id)
         .single();
-      if (data) {
-        setPromptPos((data.thumbnail_prompt as string | null) || '');
-        setPromptNeg((data.thumbnail_negative_prompt as string | null) || '');
-      }
+      // 저장된 값이 없으면 기본 프롬프트를 채워서 보여준다 — 모르는 사용자도 바로 쓸 수 있게.
+      setPromptPos((data?.thumbnail_prompt as string | null)?.trim() || BUILTIN_POSITIVE);
+      setPromptNeg((data?.thumbnail_negative_prompt as string | null)?.trim() || BUILTIN_NEGATIVE);
     } catch { /* ignore */ } finally {
       setPromptLoading(false);
     }
@@ -309,8 +309,8 @@ export default function LocalGpuWorkerSettings() {
           <Wand2 className="w-4 h-4 text-indigo-500" /> 생성 프롬프트 (선택)
         </h4>
         <p className="text-xs text-gray-500 mb-3">
-          썸네일 배경을 어떤 스타일로 만들지 직접 지정합니다. <b>비워두면</b> 기본값(쿠팡식 순백 스튜디오 배경)으로 생성됩니다.
-          저장 후 새로 누르는 “로컬 GPU로 대표 썸네일 재생성”부터 적용돼요.
+          <b>기본값(쿠팡식 순백 스튜디오 배경)이 미리 채워져 있습니다.</b> 잘 모르겠으면 그대로 두세요.
+          원하면 자유롭게 수정한 뒤 <b>저장</b>하면 새로 누르는 “로컬 GPU로 대표 썸네일 재생성”부터 적용돼요.
         </p>
 
         {promptLoading ? (
@@ -350,11 +350,11 @@ export default function LocalGpuWorkerSettings() {
               </button>
               <button
                 type="button"
-                onClick={() => { setPromptPos(''); setPromptNeg(''); }}
+                onClick={() => { setPromptPos(BUILTIN_POSITIVE); setPromptNeg(BUILTIN_NEGATIVE); }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-300 text-gray-600 rounded-md text-xs font-semibold hover:bg-gray-50 transition"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                기본값으로 비우기
+                기본값으로 되돌리기
               </button>
               {promptSavedAt && !promptSaving && (
                 <span className="inline-flex items-center gap-1 text-xs text-emerald-600">

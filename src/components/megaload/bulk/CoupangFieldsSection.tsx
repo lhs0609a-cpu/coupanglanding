@@ -9,7 +9,6 @@ import {
 } from 'lucide-react';
 import BulkImageGrid from './BulkImageGrid';
 import StockImageSwapModal from './StockImageSwapModal';
-import GeminiRegenerateModal from './GeminiRegenerateModal';
 import { STOCK_CATEGORY_MAP } from '@/lib/megaload/data/stock-image-categories';
 import { shuffleWithSeed, type PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import { detectWeightCandidates, REFER_DETAIL, rewriteDisplayNameForPickedWeight } from './option-candidates';
@@ -215,9 +214,6 @@ function ImageSectionWithPreview({
   // 스왑 모달 상태
   const [swapModalOpen, setSwapModalOpen] = useState(false);
   const [swapTargetIndex, setSwapTargetIndex] = useState(0);
-  // Gemini 재생성 모달 상태
-  const [regenModalOpen, setRegenModalOpen] = useState(false);
-  const [regenTargetIndex, setRegenTargetIndex] = useState(0);
 
   // 스톡 이미지 카테고리 정보 해석
   const resolvedCategory = useMemo(() => {
@@ -240,18 +236,6 @@ function ImageSectionWithPreview({
       onSwapStockImage(productUid, swapTargetIndex, cdnUrl);
     }
   }, [onSwapStockImage, productUid, swapTargetIndex]);
-
-  const handleRegenerateClick = useCallback((_id: string, index: number) => {
-    if (!onSwapStockImage) return;
-    setRegenTargetIndex(index);
-    setRegenModalOpen(true);
-  }, [onSwapStockImage]);
-
-  const handleRegenerateApply = useCallback((newUrl: string) => {
-    if (onSwapStockImage && productUid) {
-      onSwapStockImage(productUid, regenTargetIndex, newUrl);
-    }
-  }, [onSwapStockImage, productUid, regenTargetIndex]);
 
   // 셀러 A/B/C 시드로 각각 다른 셔플 결과 미리보기
   const shuffledPreviews = useMemo(() => {
@@ -289,7 +273,6 @@ function ImageSectionWithPreview({
               onImageReorder(newOrder);
             }}
             onImageClick={stockCategoryKey ? handleImageClick : undefined}
-            onRegenerateClick={onSwapStockImage ? handleRegenerateClick : undefined}
           />
 
           {/* 스톡 이미지 스왑 모달 */}
@@ -303,14 +286,6 @@ function ImageSectionWithPreview({
               onSelect={handleSwapSelect}
             />
           )}
-
-          {/* Gemini 재생성 모달 */}
-          <GeminiRegenerateModal
-            isOpen={regenModalOpen}
-            onClose={() => setRegenModalOpen(false)}
-            currentImageUrl={imageItems[regenTargetIndex]?.url || ''}
-            onApply={handleRegenerateApply}
-          />
 
           {/* 업로드 순서 미리보기 — 이미지 2장 이상이면 항상 표시 */}
           {imageItems.length > 1 && (
