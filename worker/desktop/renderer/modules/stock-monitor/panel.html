@@ -1,0 +1,30 @@
+<header class="m-head">
+  <h1>상품 모니터링 <span id="sm-badge" class="badge off">정지</span></h1>
+  <p class="muted small">
+    등록한 상품의 네이버 원본 <b>품절·가격</b>을 내 PC(가정 IP)에서 확인해 서버에 보냅니다.
+    서버는 datacenter IP라 네이버에 차단되므로, 이 앱이 켜져 있어야 원본상태/원본가가 채워집니다.
+  </p>
+</header>
+
+<section class="card">
+  <h2>1. 연결 <span id="sm-conn" class="muted"></span></h2>
+  <p class="muted small">웹 발급 인증코드(64자)를 붙여넣으세요. <a href="#" id="sm-web">발급 페이지 열기</a></p>
+  <div class="row wrap">
+    <input id="sm-token" class="tok" placeholder="인증코드 붙여넣기" style="flex:1;min-width:220px;padding:8px;border:1px solid var(--line);border-radius:7px;font-size:12px;" />
+    <button id="sm-save" class="btn-ghost">저장</button>
+    <button id="sm-verify" class="btn-ghost">연결 확인</button>
+  </div>
+</section>
+
+<section class="card">
+  <h2>2. 모니터링</h2>
+  <div class="stats">
+    <div><b id="sm-checked">0</b><span>확인됨</span></div>
+    <div><b id="sm-last" class="ok">-</b><span>마지막</span></div>
+  </div>
+  <div class="row">
+    <button id="sm-start" class="btn" disabled>모니터링 시작</button>
+    <button id="sm-stop" class="btn-ghost" disabled>정지</button>
+  </div>
+  <pre id="sm-log" class="log" style="height:220px;"></pre>
+</section>

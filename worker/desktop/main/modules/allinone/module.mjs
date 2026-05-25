@@ -21,14 +21,14 @@ export default {
     'allinone:run': (ctx, { folder, noThumb } = {}) => {
       if (!folder) throw new Error('폴더를 먼저 선택하세요.');
       if (child) throw new Error('이미 생성이 진행 중입니다.');
-      // run-folder.mjs 는 worker/ 루트(=앱 appRoot 의 상위). 상대 import(./lib)가 풀리도록 cwd 도 거기로.
-      const workerRoot = join(ctx.paths.appRoot, '..');
-      const script = join(workerRoot, 'run-folder.mjs');
+      // sync-runtime 가 runtime/ 에 복사한 run-folder.mjs 실행 (dev+packaged 모두 번들 포함).
+      const runtimeDir = join(ctx.paths.appRoot, 'runtime');
+      const script = join(runtimeDir, 'run-folder.mjs');
       const args = [script, folder];
       if (noThumb) args.push('--no-thumb');
 
       child = spawn(process.execPath, args, {
-        cwd: workerRoot,
+        cwd: runtimeDir,
         env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
       });
 
