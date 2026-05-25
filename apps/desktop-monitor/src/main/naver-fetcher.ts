@@ -86,6 +86,25 @@ function parseNaverOptions(html: string): { name: string; soldOut: boolean; pric
   } catch { return null; }
 }
 
+/**
+ * __PRELOADED_STATE__ 의 권위있는 판매 상태 — 난독화 CSS 클래스(weP_mymkqG 등)에 의존하지 않음.
+ * 네이버는 품절이어도 "구매하기" 버튼을 렌더링하므로 텍스트 패턴보다 이 필드가 정확하다.
+ *   productStatusType: SALE(판매중) / OUTOFSTOCK(품절) / SUSPENSION·CLOSE·PROHIBITION·DELETE(중지·삭제)
+ *   channelProductDisplayStatusType: ON(노출) / SUSPENSION·WAIT(미노출 → 사실상 내려감)
+ * product.A 블록은 빈 상태라 값이 null → 정규식이 "문자열" 값만 잡아 simpleProductForDetailPage 의 실제 값을 집는다.
+ */
+function parseNaverState(html: string): 'in_stock' | 'sold_out' | 'removed' | undefined {
+  const disp = html.match(/"channelProductDisplayStatusType"\s*:\s*"([A-Z_]+)"/)?.[1];
+  if (disp && disp !== 'ON') return 'removed'; // SUSPENSION / WAIT 등 미노출
+
+  const st = html.match(/"productStatusType"\s*:\s*"([A-Z_]+)"/)?.[1];
+  if (!st) return undefined;
+  if (st === 'SALE') return 'in_stock';
+  if (st === 'OUTOFSTOCK' || st === 'EXHAUSTION') return 'sold_out';
+  // SUSPENSION, CLOSE, PROHIBITION, DELETE, UNADMISSION, REJECTION …
+  return 'removed';
+}
+
 /** 네이버 메인 가격 파싱 — server stock-monitor-engine.parseNaverMainPrice 와 동일 로직 */
 function parseNaverMainPrice(html: string): number | undefined {
   // 1) JSON 필드 — 정수/문자열 모두 허용. dispDiscountedSalePrice 최우선.
@@ -153,10 +172,20 @@ export async function fetchNaverProduct(url: string): Promise<FetchResult> {
 
     let options: FetchResult['options'];
     let mainPrice: number | undefined;
+    let state: ReturnType<typeof parseNaverState>;
     if (/smartstore\.naver|shop\.naver/i.test(url)) {
       const parsed = parseNaverOptions(body);
       if (parsed) options = parsed;
       mainPrice = parseNaverMainPrice(body);
+      state = parseNaverState(body);
+    }
+
+    // 권위있는 __PRELOADED_STATE__ 상태 최우선. 단, 메인은 판매중이어도 옵션이 전부 품절이면 품절.
+    if (state) {
+      if (state === 'in_stock' && options && options.length > 0 && options.every(o => o.soldOut)) {
+        return { status: 'sold_out', matchedPattern: 'PRELOADED_STATE+옵션전체품절', options, mainPrice };
+      }
+      return { status: state, matchedPattern: 'PRELOADED_STATE', options, mainPrice };
     }
 
     let soldOut: string | null = null;

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Download, Key, RefreshCw, Copy, CheckCircle2, AlertCircle, Monitor, Zap, Activity } from 'lucide-react';
 
-const APP_VERSION = '0.1.12';
+const APP_VERSION = '0.1.13';
 // Release URL 은 명시적 태그를 가리켜야 함.
 // `releases/latest/download/` 는 같은 repo 의 다른 프로젝트(gpu-worker) release 가 더 최근일 때
 // 그쪽으로 redirect 되어 desktop-monitor 파일을 찾지 못해 404 가 떴음.

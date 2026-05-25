@@ -284,11 +284,16 @@ async function checkUrlSingle(url: string, retryCount = 0, forceDirect = false):
     // dash variant 까지 매칭 — 이전 dot-only 패턴은 GT 경로에서 price 파싱을 통째로 스킵하던 버그.
     let options: OptionStockStatus[] | undefined;
     let mainPrice: number | undefined;
+    let state: 'in_stock' | 'sold_out' | 'removed' | undefined;
     if (/(?:smartstore[.\-]naver|shop[.\-]naver|brand[.\-]naver)/i.test(url)) {
       options = parseNaverOptionsInline(html) ?? undefined;
       mainPrice = parseNaverMainPrice(html) ?? undefined;
+      state = parseNaverState(html);
       // 전체 옵션 품절은 여기서 판정하지 않음 — 등록 옵션 기준으로 아래에서 판정
     }
+
+    // 권위있는 __PRELOADED_STATE__ 상태 최우선 (텍스트 패턴은 폴백)
+    if (state) return { status: state, matchedPattern: 'PRELOADED_STATE', options, mainPrice };
 
     let soldOut: string | null = null;
     for (const p of SOLDOUT_PATTERNS) {
@@ -313,6 +318,23 @@ async function checkUrlSingle(url: string, retryCount = 0, forceDirect = false):
       errorClass: isTimeout ? 'transient' : 'naver',
     };
   }
+}
+
+/**
+ * __PRELOADED_STATE__ 의 권위있는 판매 상태 — 난독화 CSS 클래스에 의존하지 않음.
+ * 네이버는 품절이어도 "구매하기" 버튼을 렌더링하므로 텍스트 패턴보다 이 필드가 정확.
+ *   productStatusType: SALE(판매중)/OUTOFSTOCK·EXHAUSTION(품절)/그 외(중지·삭제)
+ *   channelProductDisplayStatusType: ON(노출)/그 외(미노출 → 사실상 내려감)
+ * (product.A 빈 블록은 값이 null → 정규식이 "문자열" 값만 잡아 실제 상품 값을 집음)
+ */
+function parseNaverState(html: string): 'in_stock' | 'sold_out' | 'removed' | undefined {
+  const disp = html.match(/"channelProductDisplayStatusType"\s*:\s*"([A-Z_]+)"/)?.[1];
+  if (disp && disp !== 'ON') return 'removed';
+  const st = html.match(/"productStatusType"\s*:\s*"([A-Z_]+)"/)?.[1];
+  if (!st) return undefined;
+  if (st === 'SALE') return 'in_stock';
+  if (st === 'OUTOFSTOCK' || st === 'EXHAUSTION') return 'sold_out';
+  return 'removed';
 }
 
 function parseNaverOptionsInline(html: string): OptionStockStatus[] | null {
