@@ -1865,6 +1865,8 @@ export function useBulkRegisterActions() {
   /** 스캐너 로직 변경 시 bump → 이전 세션 무효화 (detailImageCount 등 scan-time 필드가 달라질 때) */
   const SCANNER_VERSION = 4;
   const [sessionRestoreOffered, setSessionRestoreOffered] = useState(false);
+  const [restoreCandidate, setRestoreCandidate] = useState<{ count: number; savedAt: number } | null>(null);
+  const restoreDataRef = useRef<Record<string, unknown> | null>(null);
 
   // 자동저장 (Step 2 검수 + Step 3 등록 중 — 프리플라이트/등록 오류 시에도 작업 보존)
   useEffect(() => {
@@ -2029,66 +2031,66 @@ export function useBulkRegisterActions() {
         return;
       }
       if (data.products?.length > 0 && step === 1 && products.length === 0) {
+        // 즉시 confirm 대신 배너로 제안 → 사용자가 "이어하기/새로 시작" 선택 (applyRestore/discardRestore)
         setSessionRestoreOffered(true);
-        const shouldRestore = confirm(`이전 작업 세션이 있습니다 (${data.products.length}개 상품, ${Math.round((Date.now() - data.savedAt) / 60000)}분 전). 복원하시겠습니까?`);
-        if (shouldRestore) {
-          // 브랜드 앞 2글자 축약 + 영구 저장된 _persistedMainExcludeMap → scannedMainImages 재구축
-          // (file handle은 못 살리지만 autoExcludeReason flag 보존 → unselected 이미지 누출 방지)
-          // ★ data.imagePreuploadCache에서 직접 읽기 — setImagePreuploadCache는 아직 반영 안 됨
-          // ★ excludeMap이 비어있어도 mockScanned 항상 생성 — 복원 후 사용자 "제외" 클릭이
-          //   handleToggleAutoExclude 가드(scannedMainImages 없으면 silent fail)에 막히지 않도록
-          const restoredCache = (data.imagePreuploadCache || {}) as Record<string, { mainImageUrls?: string[] }>;
-          setProducts((data.products as (EditableProduct & { _persistedMainExcludeMap?: Record<number, string> })[]).map((p) => {
-            const excludeMap = p._persistedMainExcludeMap;
-            const cleanedP = { ...p } as EditableProduct & { _persistedMainExcludeMap?: Record<number, string> };
-            delete cleanedP._persistedMainExcludeMap;
-            const cachedMain = restoredCache[p.uid]?.mainImageUrls;
-            if (cachedMain && cachedMain.length > 0) {
-              const mockScanned = cachedMain.map((url, idx) => {
-                const reason = excludeMap?.[idx];
-                return {
-                  id: `restored-${p.uid}-${idx}`,
-                  name: `restored-${idx}`,
-                  path: '',
-                  size: 0,
-                  handle: null as unknown as FileSystemFileHandle,
-                  objectUrl: url,
-                  ...(reason ? { autoExcludeReason: reason as 'low_score', autoExcludeDetail: 'manual' } : {}),
-                };
-              });
-              cleanedP.scannedMainImages = mockScanned as EditableProduct['scannedMainImages'];
-              cleanedP.mainImageCount = mockScanned.length;
-            }
-            return {
-              ...cleanedP,
-              editedBrand: cleanedP.editedBrand ? cleanedP.editedBrand.slice(0, 2) : '',
-            };
-          }));
-          setBrackets(data.brackets || brackets);
-          setSelectedOutbound(data.selectedOutbound || '');
-          setSelectedReturn(data.selectedReturn || '');
-          setDeliveryChargeType(data.deliveryChargeType || 'FREE');
-          setDeliveryCharge(data.deliveryCharge || 0);
-          setFreeShipOverAmount(data.freeShipOverAmount || 0);
-          setReturnCharge(data.returnCharge || 5000);
-          setContactNumber(data.contactNumber || '');
-          setGenerateAiContent(data.generateAiContent || false);
-          setIncludeReviewImages(data.includeReviewImages ?? true);
-          if (data.useStockImages) setUseStockImages(data.useStockImages);
-          if (data.preventionConfig) setPreventionConfig(data.preventionConfig);
-          // 이미지 CDN URL 캐시 복원 (scannedMainImages는 소실되지만 URL은 유지)
-          if (data.imagePreuploadCache && Object.keys(data.imagePreuploadCache).length > 0) {
-            setImagePreuploadCache(data.imagePreuploadCache);
-          }
-          setStep(2);
-        } else {
-          void clearDraft(SESSION_KEY);
-        }
+        restoreDataRef.current = data;
+        setRestoreCandidate({ count: data.products.length, savedAt: data.savedAt });
       }
     } catch { /* ignore parse errors */ }
     })();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 이어하기(복원 적용) — 배너 "이어하기" 클릭 시
+  const applyRestore = useCallback(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = restoreDataRef.current as any;
+    if (!data) return;
+    const restoredCache = (data.imagePreuploadCache || {}) as Record<string, { mainImageUrls?: string[] }>;
+    setProducts((data.products as (EditableProduct & { _persistedMainExcludeMap?: Record<number, string> })[]).map((p) => {
+      const excludeMap = p._persistedMainExcludeMap;
+      const cleanedP = { ...p } as EditableProduct & { _persistedMainExcludeMap?: Record<number, string> };
+      delete cleanedP._persistedMainExcludeMap;
+      const cachedMain = restoredCache[p.uid]?.mainImageUrls;
+      if (cachedMain && cachedMain.length > 0) {
+        const mockScanned = cachedMain.map((url, idx) => {
+          const reason = excludeMap?.[idx];
+          return {
+            id: `restored-${p.uid}-${idx}`, name: `restored-${idx}`, path: '', size: 0,
+            handle: null as unknown as FileSystemFileHandle, objectUrl: url,
+            ...(reason ? { autoExcludeReason: reason as 'low_score', autoExcludeDetail: 'manual' } : {}),
+          };
+        });
+        cleanedP.scannedMainImages = mockScanned as EditableProduct['scannedMainImages'];
+        cleanedP.mainImageCount = mockScanned.length;
+      }
+      return { ...cleanedP, editedBrand: cleanedP.editedBrand ? cleanedP.editedBrand.slice(0, 2) : '' };
+    }));
+    setBrackets(data.brackets || brackets);
+    setSelectedOutbound(data.selectedOutbound || '');
+    setSelectedReturn(data.selectedReturn || '');
+    setDeliveryChargeType(data.deliveryChargeType || 'FREE');
+    setDeliveryCharge(data.deliveryCharge || 0);
+    setFreeShipOverAmount(data.freeShipOverAmount || 0);
+    setReturnCharge(data.returnCharge || 5000);
+    setContactNumber(data.contactNumber || '');
+    setGenerateAiContent(data.generateAiContent || false);
+    setIncludeReviewImages(data.includeReviewImages ?? true);
+    if (data.useStockImages) setUseStockImages(data.useStockImages);
+    if (data.preventionConfig) setPreventionConfig(data.preventionConfig);
+    if (data.imagePreuploadCache && Object.keys(data.imagePreuploadCache).length > 0) setImagePreuploadCache(data.imagePreuploadCache);
+    setStep(2);
+    setRestoreCandidate(null);
+    restoreDataRef.current = null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 새로 시작 — 배너 "새로 시작" 클릭 시 드래프트 삭제
+  const discardRestore = useCallback(() => {
+    void clearDraft(SESSION_KEY);
+    setRestoreCandidate(null);
+    restoreDataRef.current = null;
   }, []);
 
   // ---- Local validation auto-run ----
@@ -3721,6 +3723,7 @@ export function useBulkRegisterActions() {
 
   return {
     step, setStep,
+    restoreCandidate, applyRestore, discardRestore,
     folderPaths, brackets,
     shippingPlaces, returnCenters,
     selectedOutbound, setSelectedOutbound,

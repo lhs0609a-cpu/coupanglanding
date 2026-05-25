@@ -280,6 +280,18 @@ export default function BulkRegisterPanel() {
         )}
       </div>
 
+      {/* 이어하기 배너 — IndexedDB에 저장된 이전 작업 복원 제안 */}
+      {actions.restoreCandidate && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+          <span className="text-sm text-amber-900">
+            💾 저장된 이전 작업이 있습니다 — <b>{actions.restoreCandidate.count}개 상품</b>, {Math.round((Date.now() - actions.restoreCandidate.savedAt) / 60000)}분 전. 이어서 진행할까요?
+          </span>
+          <span className="flex-1" />
+          <button onClick={actions.applyRestore} className="px-3 py-1.5 text-sm font-semibold bg-[#E31837] text-white rounded-lg hover:bg-[#c5142f]">이어하기</button>
+          <button onClick={actions.discardRestore} className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">새로 시작</button>
+        </div>
+      )}
+
       {/* Step 1 */}
       {step === 1 && (
         <BulkStep1Settings
