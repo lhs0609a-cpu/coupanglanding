@@ -1,0 +1,33 @@
+<header class="m-head">
+  <h1>썸네일 GPU <span id="tg-badge" class="badge off">대기 중</span></h1>
+  <p class="muted small">내 PC GPU로 네이버 누끼 이미지를 쿠팡용 흰 배경 썸네일로 무료·무제한 재생성합니다.</p>
+</header>
+
+<section class="card">
+  <h2>1. 엔진 설치 <span id="tg-install-status" class="muted"></span></h2>
+  <p class="muted small">ComfyUI와 SDXL 모델(약 6.5GB)을 자동 다운로드합니다. 한 번만 받으면 됩니다.</p>
+  <button id="tg-btn-gpu" class="btn-ghost">GPU 점검</button>
+  <span id="tg-gpu-result" class="muted"></span>
+  <div id="tg-install-progress" class="hidden">
+    <div class="prog"><label>ComfyUI 다운로드</label><div class="bar"><i id="tg-p-comfy-download"></i></div></div>
+    <div class="prog"><label>압축 해제</label><div class="bar"><i id="tg-p-comfy-extract"></i></div></div>
+    <div class="prog"><label>SDXL 모델 (~6.5GB)</label><div class="bar"><i id="tg-p-model-download"></i></div></div>
+    <p id="tg-install-detail" class="muted small"></p>
+  </div>
+  <button id="tg-btn-install" class="btn">엔진 설치 / 확인</button>
+</section>
+
+<section class="card">
+  <h2>2. 실행 <span id="tg-auto-hint" class="muted small"></span></h2>
+  <div class="stats">
+    <div><b id="tg-st-processed">0</b><span>처리</span></div>
+    <div><b id="tg-st-ok" class="ok">0</b><span>성공</span></div>
+    <div><b id="tg-st-fail" class="fail">0</b><span>실패</span></div>
+  </div>
+  <p id="tg-current" class="muted small"></p>
+  <div class="row">
+    <button id="tg-btn-start" class="btn">워커 시작</button>
+    <button id="tg-btn-stop" class="btn-ghost">정지</button>
+  </div>
+  <pre id="tg-log" class="log"></pre>
+</section>

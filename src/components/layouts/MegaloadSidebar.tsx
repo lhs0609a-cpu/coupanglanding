@@ -23,6 +23,7 @@ const navItems = [
   { href: '/megaload/returns', label: '반품수거', icon: 'RotateCcw' as const },
   { href: '/megaload/products', label: '상품관리', icon: 'Package' as const },
   { href: '/megaload/products/bulk-register', label: '상품등록', icon: 'Upload' as const },
+  { href: '/megaload/products/allinone', label: '올인원 등록 (폴더)', icon: 'Zap' as const },
   { href: '/megaload/catalog', label: '카탈로그', icon: 'BookOpen' as const },
   { href: '/megaload/stock-monitor', label: '품절동기화', icon: 'RefreshCw' as const },
   { href: '/megaload/desktop-app', label: '모니터링 도우미', icon: 'Monitor' as const },

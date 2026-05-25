@@ -6,7 +6,7 @@
 //   이 고정 URL 을 기본값으로 둔다(배포 환경에서 NEXT_PUBLIC_WORKER_DOWNLOAD_URL 로 덮어쓰기 가능).
 export const WORKER_DOWNLOAD_URL =
   process.env.NEXT_PUBLIC_WORKER_DOWNLOAD_URL ||
-  'https://github.com/lhs0609a-cpu/coupanglanding/releases/download/gpu-worker-update/CoupangThumbnailWorker-Setup.exe';
+  'https://github.com/lhs0609a-cpu/coupanglanding/releases/download/megaload-desktop-update/MegaloadDesktop-Setup.exe';
 
 // 워커 설치 방법·사양 체크가 있는 설정 탭.
 export const WORKER_SETTINGS_URL = '/megaload/settings?tab=localgpu';

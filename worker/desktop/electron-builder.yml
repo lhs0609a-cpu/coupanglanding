@@ -1,5 +1,5 @@
-appId: com.megaload.thumbnailworker
-productName: CoupangThumbnailWorker
+appId: com.megaload.desktop
+productName: MegaloadDesktop
 # ESM import(runtime/*.mjs) + 동봉 바이너리(7zip-bin) 실행 안정성을 위해 asar 비활성.
 asar: false
 
@@ -22,7 +22,7 @@ files:
 #    이 블록이 있으면 electron-builder 가 빌드 시 dist/latest.yml 과 app-update.yml 을 생성한다.
 publish:
   provider: generic
-  url: https://github.com/lhs0609a-cpu/coupanglanding/releases/download/gpu-worker-update
+  url: https://github.com/lhs0609a-cpu/coupanglanding/releases/download/megaload-desktop-update
   channel: latest
 
 win:
@@ -33,10 +33,10 @@ win:
 nsis:
   # 버전 없는 고정 파일명 → 고정 태그(gpu-worker-update)와 합쳐 다운로드 URL 영구 불변.
   # electron-updater 는 latest.yml 의 path/version 으로 갱신을 판단하므로 파일명 고정과 무관하게 동작.
-  artifactName: CoupangThumbnailWorker-Setup.${ext}
+  artifactName: MegaloadDesktop-Setup.${ext}
   oneClick: true
   perMachine: false
-  shortcutName: 쿠팡썸네일워커
+  shortcutName: 메가로드 도우미
   createDesktopShortcut: true
   # asar:false(파일 수천 개) + 백신 실시간검사 환경에서, 설치 직후 자동실행이
   # 시작메뉴 바로가기(.lnk) 디스크 반영보다 먼저 발사돼 "lnk 못 찾음" 에러가 났다.

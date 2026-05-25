@@ -1,8 +1,8 @@
 {
-  "name": "coupang-thumbnail-worker-desktop",
-  "version": "0.1.3",
+  "name": "megaload-desktop",
+  "version": "0.2.0",
   "private": true,
-  "description": "쿠팡 썸네일 재생성 로컬 GPU 워커 (Electron 트레이 앱, ComfyUI 자동 설치).",
+  "description": "메가로드 도우미 — 로컬 실행 프로그램(썸네일 GPU·광고 자동화·향후 추가)을 모듈로 통합한 단일 Electron 데스크탑 앱.",
   "author": "Megaload",
   "type": "module",
   "main": "main/main.mjs",

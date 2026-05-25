@@ -256,7 +256,7 @@ export default function BulkRegisterPanel() {
             title="최상위 폴더 1번 선택 → 자동 스캔 + 등록"
           >
             <Zap className="w-3.5 h-3.5" />
-            올인원 자동
+            무인 자동등록
           </button>
         </div>
         {products.length > 0 && (

@@ -3,72 +3,24 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>쿠팡 썸네일 워커</title>
+  <title>메가로드 도우미</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header>
-    <h1>쿠팡 썸네일 워커</h1>
-    <span id="badge" class="badge off">정지됨</span>
-  </header>
+  <div class="shell">
+    <!-- 사이드: 로그인 상태 + 모듈 탭 (레지스트리에서 자동 생성) -->
+    <nav class="sidebar">
+      <div class="brand">메가로드 도우미</div>
+      <div id="conn" class="conn off">연결 확인 중…</div>
+      <button id="btn-pair" class="btn-pair">메가로드 연결</button>
+      <ul id="tabs" class="tabs"></ul>
+      <button id="btn-data" class="btn-ghost data-btn">데이터 폴더</button>
+    </nav>
 
-  <!-- 1. 엔진 설치 -->
-  <section id="sec-install" class="card">
-    <h2>1. 엔진 설치 <span id="install-status" class="muted"></span></h2>
-    <p class="muted small">ComfyUI와 SDXL 모델(약 6.5GB)을 자동 다운로드합니다. 한 번만 받으면 됩니다.</p>
-    <button id="btn-gpu" class="btn-ghost">GPU 점검</button>
-    <span id="gpu-result" class="muted"></span>
-    <div id="install-progress" class="hidden">
-      <div class="prog"><label>ComfyUI 다운로드</label><div class="bar"><i id="p-comfy-download"></i></div></div>
-      <div class="prog"><label>압축 해제</label><div class="bar"><i id="p-comfy-extract"></i></div></div>
-      <div class="prog"><label>SDXL 모델 (~6.5GB)</label><div class="bar"><i id="p-model-download"></i></div></div>
-      <p id="install-detail" class="muted small"></p>
-    </div>
-    <button id="btn-install" class="btn">엔진 설치 / 확인</button>
-  </section>
+    <!-- 본문: 선택된 모듈 패널이 주입됨 -->
+    <main id="panel" class="panel"></main>
+  </div>
 
-  <!-- 2. 자동 연결 -->
-  <section id="sec-pair" class="card">
-    <h2>2. 메가로드 자동 연결 <span id="pair-status" class="muted"></span></h2>
-    <p class="muted small">버튼을 누르면 브라우저가 열리고, <b>메가로드에 이미 로그인되어 있다면</b> 자동으로 연결됩니다.</p>
-    <button id="btn-pair" class="btn">메가로드 자동 연결</button>
-    <span id="pair-msg" class="muted small"></span>
-  </section>
-
-  <!-- 3. 실행 -->
-  <section id="sec-run" class="card">
-    <h2>3. 실행 <span id="auto-hint" class="muted small"></span></h2>
-    <div class="stats">
-      <div><b id="st-processed">0</b><span>처리</span></div>
-      <div><b id="st-ok" class="ok">0</b><span>성공</span></div>
-      <div><b id="st-fail" class="fail">0</b><span>실패</span></div>
-    </div>
-    <p id="current" class="muted small"></p>
-    <div class="row">
-      <button id="btn-start" class="btn">워커 시작</button>
-      <button id="btn-stop" class="btn-ghost">정지</button>
-      <button id="btn-logs" class="btn-ghost">데이터 폴더</button>
-    </div>
-    <pre id="log" class="log"></pre>
-  </section>
-
-  <!-- 4. 광고 자동화 (베타) -->
-  <section id="sec-ads" class="card">
-    <h2>4. 광고 자동화 <span class="muted small">(베타)</span></h2>
-    <p class="muted small">
-      쿠팡 애즈를 목표 ROAS에 맞춰 자동 운영합니다(웹 “광고 자동화”에서 규칙 설정).
-      먼저 <b>윙 열기</b>로 로그인한 뒤 <b>전체 기능 점검</b>으로 안전하게 동작을 확인하세요.
-      <br>※ “전체 점검”은 <b>돈 지출·삭제·생성을 하지 않고</b> 셀렉터만 확인합니다. “1회 실행”은 실제로 예산변경·OFF·삭제·등록을 수행합니다.
-    </p>
-    <div class="row">
-      <button id="btn-ads-capture-open" class="btn-ghost">윙 열기</button>
-      <button id="btn-ads-verify" class="btn-ghost">전체 기능 점검(안전)</button>
-      <button id="btn-ads-capture-save" class="btn-ghost">현재 화면 HTML 저장</button>
-      <button id="btn-ads-run" class="btn-ghost">1회 실행(실제)</button>
-    </div>
-    <p id="ads-msg" class="muted small"></p>
-  </section>
-
-  <script src="app.js"></script>
+  <script src="shell.js"></script>
 </body>
 </html>

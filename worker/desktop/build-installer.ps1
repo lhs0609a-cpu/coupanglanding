@@ -64,7 +64,7 @@ Copy-Item $exe.FullName $driveDist -Force
 # latest.yml + Setup.exe + .blockmap 을 덮어쓰기 업로드한다. (모니터 릴리스와 격리)
 # gh CLI 가 인증돼 있어야 함. 없거나 실패하면 빌드는 성공 처리하고 수동 안내만 출력.
 $repo = 'lhs0609a-cpu/coupanglanding'
-$feedTag = 'gpu-worker-update'
+$feedTag = 'megaload-desktop-update'
 $ymlPath = Join-Path $buildDistDir 'latest.yml'
 $blockmap = Get-ChildItem (Join-Path $buildDistDir '*Setup*.exe.blockmap') -ErrorAction SilentlyContinue | Select-Object -First 1
 $assets = @($exe.FullName)
@@ -79,7 +79,7 @@ if (-not (Test-Path $ymlPath)) {
   try {
     gh release view $feedTag --repo $repo 1>$null 2>$null
     if ($LASTEXITCODE -ne 0) {
-      gh release create $feedTag --repo $repo --title "쿠팡 썸네일 워커 — 자동업데이트 피드" --notes "electron-updater 자동업데이트용 롤링 릴리스. 항상 최신 빌드의 latest.yml / Setup.exe / .blockmap 이 여기에 덮어써집니다." | Out-Null
+      gh release create $feedTag --repo $repo --title "메가로드 도우미 — 자동업데이트 피드" --notes "electron-updater 자동업데이트용 롤링 릴리스. 항상 최신 빌드의 latest.yml / MegaloadDesktop-Setup.exe / .blockmap 이 여기에 덮어써집니다." | Out-Null
     }
     gh release upload $feedTag @assets --clobber --repo $repo
     if ($LASTEXITCODE -eq 0) { $published = $true }

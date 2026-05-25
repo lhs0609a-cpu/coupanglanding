@@ -9,9 +9,10 @@ export default function AllInOneRegisterPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">올인원 자동등록</h1>
+          <h1 className="text-2xl font-bold text-gray-900">올인원 등록 (폴더)</h1>
           <p className="text-sm text-gray-500 mt-1">
-            로컬 워커가 생성한 노출명·카테고리·가격·옵션·상세·대표이미지를 불러와 검수 후 쿠팡에 등록합니다.
+            로컬 워커(올인원 생성)가 폴더에 만들어둔 노출명·카테고리·가격·옵션·상세·대표이미지를 불러와 검수 후 쿠팡에 등록합니다.
+            <br className="hidden sm:block" />※ 대량등록 화면의 <b>무인 자동등록</b>과는 다릅니다(그건 일반 소싱 폴더를 서버가 생성·무인등록).
           </p>
         </div>
         <Link href="/megaload/products" className="text-sm text-gray-500 hover:text-gray-700 transition">

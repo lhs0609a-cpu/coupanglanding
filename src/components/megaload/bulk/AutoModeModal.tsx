@@ -86,7 +86,7 @@ export default function AutoModeModal({ open, onClose, onPickAndAnalyze, onStart
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div className="flex items-center gap-2">
             <Zap className="w-5 h-5 text-amber-500" />
-            <h2 className="text-lg font-bold">올인원 자동 등록</h2>
+            <h2 className="text-lg font-bold">무인 자동 등록 (대량등록)</h2>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X className="w-5 h-5" />
