@@ -13,6 +13,33 @@ export const AD_COST_MAX_ATTEMPTS = 2;
 export const AD_COST_HARD_REJECT_RATIO = 2.0;   // 200% 초과 → 자동 거부
 export const AD_COST_WARN_RATIO = 0.3;          // 30% 이상 → 경고 + admin flag
 
+/**
+ * 표준 광고비 상한 비율 — 수수료에서 "차감 인정"되는 광고비의 표준 한도(매출 대비).
+ * 이 비율을 넘는 광고비는 승인되더라도 차감에 반영되지 않는다(상한 캡).
+ * 진짜 고지출 셀러는 관리자가 승인 시 전액 인정(allowOverCap)으로 개별 상향할 수 있다.
+ * ※ 사업 정책 값 — 실제 표준에 맞게 조정하세요.
+ */
+export const AD_COST_STANDARD_RATIO = 0.3;
+
+/**
+ * 차감 인정 광고비 계산: 청구액을 매출×표준비율로 캡.
+ * - monthlyRevenue<=0 이면 비율 캡 불가 → 청구액 그대로(절대 한도는 제출 단계 validateAdCostAmount 가 담당)
+ * - overrideRatio: 셀러별 상향 비율(관리자), 미지정 시 표준 비율
+ * @returns { deductible: 차감 반영액, capped: 캡 발동 여부, capAmount: 적용된 상한액 }
+ */
+export function capDeductibleAdCost(
+  claimedAmount: number,
+  monthlyRevenue: number,
+  overrideRatio?: number,
+): { deductible: number; capped: boolean; capAmount: number } {
+  const claim = Math.max(0, Math.round(Number(claimedAmount) || 0));
+  if (!(monthlyRevenue > 0)) return { deductible: claim, capped: false, capAmount: claim };
+  const ratio = overrideRatio && overrideRatio > 0 ? overrideRatio : AD_COST_STANDARD_RATIO;
+  const capAmount = Math.round(monthlyRevenue * ratio);
+  if (claim > capAmount) return { deductible: capAmount, capped: true, capAmount };
+  return { deductible: claim, capped: false, capAmount };
+}
+
 export interface ResolvedAdCost {
   amount: number;                              // 0 if not approved or no submission
   source: 'approved' | 'pending' | 'rejected' | 'missed' | 'locked' | 'none';
