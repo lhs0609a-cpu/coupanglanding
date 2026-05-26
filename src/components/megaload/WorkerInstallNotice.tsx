@@ -12,12 +12,12 @@ interface WorkerStatus {
 
 const COPY = {
   allinone: {
-    title: '올인원 자동등록에는 로컬 GPU 워커가 필요합니다',
-    desc: '워커가 내 PC에서 노출명·카테고리·가격·옵션·상세·대표이미지를 미리 생성합니다. 설치 후 워커를 켜고 폴더를 처리하면 여기서 결과를 불러올 수 있어요.',
+    title: '올인원 등록에는 메가로드 도우미(데스크탑 앱)가 필요합니다',
+    desc: '도우미의 "올인원 생성" 탭이 내 PC에서 노출명·카테고리·가격·옵션·상세·대표이미지를 미리 생성합니다. 설치 후 폴더를 처리하면 여기서 결과를 불러올 수 있어요.',
   },
   regenerate: {
-    title: '대표 썸네일 재생성에는 로컬 GPU 워커가 필요합니다',
-    desc: '내 PC GPU로 누끼·재생성을 무료·무제한 처리합니다(서버 비용 0원). 설치 후 워커를 켜면 아래 버튼이 자동으로 동작해요.',
+    title: '대표 썸네일 재생성에는 메가로드 도우미가 필요합니다',
+    desc: '도우미의 "썸네일 GPU" 탭이 내 PC GPU로 누끼·재생성을 무료·무제한 처리합니다(서버 비용 0원). 설치 후 켜면 아래 버튼이 자동으로 동작해요.',
   },
 } as const;
 
@@ -69,7 +69,7 @@ export default function WorkerInstallNotice({
       <div className={className}>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
           <CheckCircle2 className="w-3.5 h-3.5" />
-          로컬 GPU 워커 연결됨{names ? ` · ${names}` : ''}
+          메가로드 도우미 연결됨{names ? ` · ${names}` : ''}
         </span>
       </div>
     );
@@ -93,7 +93,7 @@ export default function WorkerInstallNotice({
               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#E31837] text-white rounded-md text-xs font-semibold hover:bg-[#c5142f] transition"
             >
               <Download className="w-3.5 h-3.5" />
-              워커 앱 다운로드 (Windows)
+              메가로드 도우미 다운로드 (Windows)
               <ExternalLink className="w-3 h-3 opacity-70" />
             </a>
             <Link
