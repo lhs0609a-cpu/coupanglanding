@@ -3,11 +3,13 @@
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  X, ChevronUp, ChevronDown, CheckCircle2, AlertTriangle, XCircle, Code2, FileText, ExternalLink, Ban, GripVertical, Search,
+  X, ChevronUp, ChevronDown, CheckCircle2, AlertTriangle, XCircle, Code2, FileText, ExternalLink, Ban, GripVertical, Search, Cpu, Loader2,
 } from 'lucide-react';
 import PayloadPreviewPanel, { type PayloadPreviewData } from './PayloadPreviewPanel';
 import CoupangFieldsSection from './CoupangFieldsSection';
 import DetailPageContentTab from './DetailPageContentTab';
+import LlmRegenModal from './LlmRegenModal';
+import type { LlmTask } from './useBulkRegisterActions';
 import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import type { EditableProduct } from './types';
 import type { NoticeCategoryMeta } from '@/lib/megaload/services/notice-field-filler';
@@ -49,6 +51,11 @@ interface BulkProductDetailPanelProps {
   noticeOverrides?: Record<string, string>;
   /** 동일 카테고리 선택 상품 전체에 attribute 일괄 적용 — 적용된 상품 수 반환 */
   onBulkApplyAttribute?: (attrName: string, value: string, categoryCode: string) => number;
+  /** 로컬 GPU LLM 재생성 (노출상품명/상세글/옵션/카테고리) */
+  onLlmRegen?: (targets: { uid: string; tasks: LlmTask[] }[]) => void;
+  llmRegen?: { total: number; done: number; error: number; running: boolean; message?: string } | null;
+  llmCanUndo?: boolean;
+  onUndoLlm?: () => void;
 }
 
 export default function BulkProductDetailPanel({
@@ -72,9 +79,14 @@ export default function BulkProductDetailPanel({
   noticeMeta,
   noticeOverrides,
   onBulkApplyAttribute,
+  onLlmRegen,
+  llmRegen,
+  llmCanUndo,
+  onUndoLlm,
 }: BulkProductDetailPanelProps) {
   const [activeTab, setActiveTab] = useState<'info' | 'detail' | 'payload'>('info');
   const [issuesExpanded, setIssuesExpanded] = useState(false);
+  const [llmModalOpen, setLlmModalOpen] = useState(false);
 
   // Browser mode: load all main images as objectURLs
   const [browserImageUrls, setBrowserImageUrls] = useState<string[]>([]);
@@ -438,7 +450,33 @@ export default function BulkProductDetailPanel({
                 <Code2 className="w-3.5 h-3.5" />
                 페이로드 미리보기
               </button>
+              {onLlmRegen && (
+                <button
+                  onClick={() => setLlmModalOpen(true)}
+                  disabled={llmRegen?.running}
+                  title="이 상품의 노출상품명·상세글·옵션수량·카테고리를 로컬 GPU(LLM)로 재생성/재매칭합니다."
+                  className="ml-auto my-1.5 flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-indigo-400 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition disabled:opacity-50"
+                >
+                  {llmRegen?.running ? <Loader2 className="w-3 h-3 animate-spin" /> : <Cpu className="w-3 h-3" />}
+                  이 상품 LLM 재생성
+                </button>
+              )}
             </div>
+
+            {/* 이 상품 LLM 재생성 모달 (단일) */}
+            {onLlmRegen && (
+              <LlmRegenModal
+                isOpen={llmModalOpen}
+                onClose={() => setLlmModalOpen(false)}
+                singleProductName={product.editedDisplayProductName || product.editedName || product.name}
+                selectedCount={1}
+                totalCount={1}
+                progress={llmRegen ?? null}
+                canUndo={!!llmCanUndo}
+                onUndo={() => onUndoLlm?.()}
+                onRun={(_scope, tasks) => onLlmRegen([{ uid: product.uid, tasks }])}
+              />
+            )}
 
             {/* Scrollable content */}
             <div className="flex-1 overflow-y-auto p-6">

@@ -15,6 +15,9 @@ import { addRecentPath } from './BulkStep1Settings';
 import { createClient } from '@/lib/supabase/client';
 import { saveDraft, loadDraft, clearDraft } from '@/lib/megaload/bulk-draft-store';
 
+// 로컬 GPU(LLM) 재생성/재매칭 대상
+export type LlmTask = 'display_name' | 'content' | 'options' | 'category';
+
 // ---- 브랜드 자동 추출 (상품명에서) ----
 function extractBrandFromName(name: string): string {
   if (!name) return '';
@@ -948,6 +951,158 @@ export function useBulkRegisterActions() {
       if (!running) break;
     }
   }, [resolveRepImageUrl, handleSwapStockImage]);
+
+  // ─── LLM 재생성/재매칭 (로컬 GPU 워커) ──────────────────────────────
+  // 노출상품명·상세글·옵션수량·카테고리를 잡 큐(megaload_llm_jobs)로 보내고,
+  // 도우미(Ollama/임베딩)가 처리한 결과를 폴링해 해당 필드에 반영. 되돌리기 1단계 지원.
+  const [llmRegen, setLlmRegen] = useState<
+    { total: number; done: number; error: number; running: boolean; message?: string } | null
+  >(null);
+  const [llmCanUndo, setLlmCanUndo] = useState(false);
+  const llmUndoRef = useRef<Record<string, Partial<EditableProduct>>>({});
+
+  const buildLlmInput = useCallback((p: EditableProduct): Record<string, unknown> => {
+    const features = [
+      ...(p.tags || []),
+      ...(p.editedAttributeValues ? Object.entries(p.editedAttributeValues).map(([k, v]) => `${k}: ${v}`) : []),
+    ].filter(Boolean).slice(0, 12);
+    return {
+      originalName: p.name || p.editedName,
+      displayName: p.editedDisplayProductName || '',
+      brand: p.editedBrand || p.brand || '',
+      categoryPath: p.editedCategoryName || '',
+      features,
+      description: (p.description || '').slice(0, 600),
+      seed: `${shUserId || 'seed'}_${p.uid}`,
+    };
+  }, [shUserId]);
+
+  const applyLlmResult = useCallback((uid: string, task: LlmTask, result: Record<string, unknown> | null) => {
+    if (!result) return;
+    setProducts(prev => prev.map(p => {
+      if (p.uid !== uid) return p;
+      if (task === 'display_name' && result.displayName) {
+        return { ...p, editedDisplayProductName: String(result.displayName).slice(0, 100) };
+      }
+      if (task === 'content' && Array.isArray(result.blocks)) {
+        return {
+          ...p,
+          editedStoryParagraphs: Array.isArray(result.paragraphs) ? (result.paragraphs as string[]) : p.editedStoryParagraphs,
+          editedContentBlocks: result.blocks as EditableProduct['editedContentBlocks'],
+        };
+      }
+      if (task === 'options' && Array.isArray(result.options)) {
+        const merged: Record<string, string> = { ...(p.editedAttributeValues || {}) };
+        let weight: string | undefined;
+        for (const o of result.options as { name?: string; value?: string; unit?: string }[]) {
+          if (!o?.name || !o?.value) continue;
+          const v = o.unit ? `${o.value}${o.unit}` : String(o.value);
+          merged[o.name] = v;
+          if (!weight && /중량|용량|수량|무게|g|kg|ml|리터|정|개|매|팩|포/.test(`${o.name}${o.unit || ''}`)) weight = v;
+        }
+        return { ...p, editedAttributeValues: merged, ...(weight ? { editedAgriWeight: weight } : {}) };
+      }
+      if (task === 'category' && result.categoryCode) {
+        return {
+          ...p,
+          editedCategoryCode: String(result.categoryCode),
+          editedCategoryName: result.categoryPath ? String(result.categoryPath) : p.editedCategoryName,
+          categoryConfidence: typeof result.confidence === 'number' ? result.confidence : p.categoryConfidence,
+          categorySource: 'embed',
+          categoryReviewed: false,
+        };
+      }
+      return p;
+    }));
+  }, []);
+
+  const regenerateLlm = useCallback(async (targets: { uid: string; tasks: LlmTask[] }[]) => {
+    const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+    const jobs: { label: string; taskType: LlmTask; input: Record<string, unknown> }[] = [];
+    const undo: Record<string, Partial<EditableProduct>> = {};
+    for (const t of targets) {
+      const p = productsRef.current.find(x => x.uid === t.uid);
+      if (!p) continue;
+      // 되돌리기 스냅샷 — 영향 필드 백업(최초 1회)
+      undo[t.uid] = {
+        editedDisplayProductName: p.editedDisplayProductName,
+        editedStoryParagraphs: p.editedStoryParagraphs,
+        editedContentBlocks: p.editedContentBlocks,
+        editedAttributeValues: p.editedAttributeValues,
+        editedAgriWeight: p.editedAgriWeight,
+        editedCategoryCode: p.editedCategoryCode,
+        editedCategoryName: p.editedCategoryName,
+        categoryConfidence: p.categoryConfidence,
+        categorySource: p.categorySource,
+      };
+      for (const task of t.tasks) {
+        jobs.push({ label: `${t.uid}:${task}`, taskType: task, input: buildLlmInput(p) });
+      }
+    }
+    if (jobs.length === 0) return;
+    llmUndoRef.current = undo;
+    setLlmCanUndo(false);
+    setLlmRegen({ total: jobs.length, done: 0, error: 0, running: true, message: '작업 큐 등록 중...' });
+
+    let batchId: string;
+    try {
+      const res = await fetch('/api/megaload/products/llm-jobs/enqueue', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobs }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '큐 등록 실패');
+      batchId = data.batchId;
+    } catch (e) {
+      setLlmRegen({ total: jobs.length, done: 0, error: jobs.length, running: false, message: e instanceof Error ? e.message : '큐 등록 실패' });
+      return;
+    }
+
+    let workerOnline = false;
+    try {
+      const ws = await fetch('/api/megaload/products/thumbnail-jobs/worker-status');
+      workerOnline = ws.ok ? !!(await ws.json()).online : false;
+    } catch { /* ignore */ }
+    setLlmRegen({
+      total: jobs.length, done: 0, error: 0, running: true,
+      message: workerOnline
+        ? '로컬 GPU(LLM)가 처리 중입니다...'
+        : '메가로드 도우미가 감지되지 않습니다 — 데스크톱 앱을 켜면 자동 처리됩니다 (큐 등록됨).',
+    });
+
+    const applied = new Set<string>();
+    const deadline = Date.now() + 30 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await sleep(3500);
+      let data: { counts?: Record<string, number>; jobs?: { label?: string; status: string; result?: Record<string, unknown> }[] };
+      try {
+        const res = await fetch(`/api/megaload/products/llm-jobs?batchId=${batchId}`);
+        if (!res.ok) continue;
+        data = await res.json();
+      } catch { continue; }
+      for (const j of data.jobs || []) {
+        if (j.status === 'done' && j.result && j.label && !applied.has(j.label)) {
+          applied.add(j.label);
+          const [uid, task] = String(j.label).split(':');
+          applyLlmResult(uid, task as LlmTask, j.result);
+          setLlmCanUndo(true);
+        }
+      }
+      const done = data.counts?.done || 0;
+      const error = data.counts?.error || 0;
+      const running = (done + error) < jobs.length;
+      setLlmRegen({ total: jobs.length, done, error, running, message: running ? undefined : '완료' });
+      if (!running) break;
+    }
+  }, [buildLlmInput, applyLlmResult]);
+
+  const undoLastLlmRegen = useCallback(() => {
+    const undo = llmUndoRef.current;
+    if (!undo || Object.keys(undo).length === 0) return;
+    setProducts(prev => prev.map(p => (undo[p.uid] ? { ...p, ...undo[p.uid] } : p)));
+    setLlmCanUndo(false);
+    setLlmRegen(null);
+  }, []);
 
   useEffect(() => {
     if (autoMatchingProgress === null && autoMatchStats && !pipelineRan && step === 2) {
@@ -3775,6 +3930,8 @@ export function useBulkRegisterActions() {
     handleTogglePromoteReview,
     // 로컬 GPU 워커 — 대표 썸네일 일괄 재생성
     handleBulkRegenerateThumbnails, thumbnailRegen,
+    // 로컬 GPU LLM 재생성 (노출상품명/상세글/옵션/카테고리)
+    regenerateLlm, llmRegen, llmCanUndo, undoLastLlmRegen,
     handlePrewarmProduct, handlePrewarmCancel,
     handleRegister, togglePause, handleReset, retryFailed, backToStep2, jumpToErrorGroup, retryAutoCategory,
     // 카테고리 정확도 개선

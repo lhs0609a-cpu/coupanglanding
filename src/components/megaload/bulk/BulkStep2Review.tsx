@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo, useEffect, useRef, memo } from 'react';
 import {
   ArrowLeft, ArrowRight, Loader2, CheckCircle2, XCircle, AlertTriangle,
   Search, Zap, Filter, Upload, Eye, BarChart3, CircleDot, Package, ClipboardCopy, ChevronDown, ChevronUp, Ban,
-  ShieldCheck, FlaskConical, Lock, Image as ImageIcon, FileText, Type, PackageX, Sparkles,
+  ShieldCheck, FlaskConical, Lock, Image as ImageIcon, FileText, Type, PackageX, Sparkles, Cpu,
 } from 'lucide-react';
 import type { PreflightProductResult, CanaryResult } from '@/lib/megaload/types';
 import BulkProductTable from './BulkProductTable';
@@ -15,6 +15,8 @@ import type { PayloadPreviewData } from './PayloadPreviewPanel';
 import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import type { EditableProduct, CategoryItem, FilterMode, SortField, SortDirection, FailureDiagnostic } from './types';
 import type { CategoryMetadata } from '@/lib/megaload/services/product-validator';
+import LlmRegenModal from './LlmRegenModal';
+import type { LlmTask } from './useBulkRegisterActions';
 
 interface BulkStep2ReviewProps {
   products: EditableProduct[];
@@ -77,6 +79,11 @@ interface BulkStep2ReviewProps {
   // 로컬 GPU 워커 — 대표 썸네일 일괄 재생성 (cutout=누끼 / regenerate=SDXL img2img 보정)
   onBulkRegenerateThumbnails?: (uids: string[], mode?: 'cutout' | 'regenerate') => void;
   thumbnailRegen?: { total: number; done: number; error: number; running: boolean; message?: string } | null;
+  // 로컬 GPU LLM — 노출상품명/상세글/옵션/카테고리 재생성·재매칭
+  onLlmRegen?: (targets: { uid: string; tasks: LlmTask[] }[]) => void;
+  llmRegen?: { total: number; done: number; error: number; running: boolean; message?: string } | null;
+  llmCanUndo?: boolean;
+  onUndoLlm?: () => void;
   // Detail panel image URLs
   getDetailImageUrls: (uid: string) => string[];
   // Payload preview (shipping info needed for preview API)
@@ -209,6 +216,7 @@ export default memo(function BulkStep2Review({
   thumbnailCache, onLoadThumbnail,
   onReorderImages, onRemoveImage, onToggleAutoExclude, onPrewarmProduct, onPrewarmCancel, onSwapStockImage, onTogglePromoteReview, getDetailImageUrls,
   onBulkRegenerateThumbnails, thumbnailRegen,
+  onLlmRegen, llmRegen, llmCanUndo, onUndoLlm,
   selectedOutbound, selectedReturn, returnCharge, contactNumber, includeReviewImages, noticeOverrides,
   preventionConfig,
   categoryMetaCache,
@@ -219,6 +227,7 @@ export default memo(function BulkStep2Review({
   stockCheckPhase, stockCheckProgress, stockCheckResults, stockCheckStats, onStockCheck, onExcludeSoldOut,
 }: BulkStep2ReviewProps) {
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
+  const [llmModalOpen, setLlmModalOpen] = useState(false);
   const [showFailures, setShowFailures] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -992,6 +1001,32 @@ export default memo(function BulkStep2Review({
             {thumbnailRegen.error > 0 ? ` · 실패 ${thumbnailRegen.error}` : ''}
           </span>
         )}
+        {onLlmRegen && (
+          <button
+            onClick={() => setLlmModalOpen(true)}
+            disabled={llmRegen?.running}
+            title="노출상품명·상세글·옵션수량·카테고리를 로컬 GPU(LLM)로 재생성/재매칭합니다. 항목과 범위(선택/전체)를 고를 수 있어요."
+            className="px-3 py-1.5 text-xs rounded-lg border border-indigo-400 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition flex items-center gap-1 disabled:opacity-50"
+          >
+            {llmRegen?.running ? <Loader2 className="w-3 h-3 animate-spin" /> : <Cpu className="w-3 h-3" />}
+            {llmRegen?.running ? `LLM ${llmRegen.done + llmRegen.error}/${llmRegen.total}` : '전체 상품 LLM 재생성'}
+          </button>
+        )}
+        {onLlmRegen && (
+          <LlmRegenModal
+            isOpen={llmModalOpen}
+            onClose={() => setLlmModalOpen(false)}
+            selectedCount={selectedCount}
+            totalCount={products.length}
+            progress={llmRegen ?? null}
+            canUndo={!!llmCanUndo}
+            onUndo={() => onUndoLlm?.()}
+            onRun={(scope, tasks) => {
+              const list = scope === 'all' ? products : products.filter((p) => p.selected);
+              onLlmRegen(list.map((p) => ({ uid: p.uid, tasks })));
+            }}
+          />
+        )}
         {bulkAction === 'brand' && (
           <div className="flex items-center gap-2">
             <input type="text" value={bulkBrandValue} onChange={(e) => setBulkBrandValue(e.target.value)} placeholder="브랜드명" className="px-2 py-1 border border-gray-300 rounded text-xs w-32" />
@@ -1177,6 +1212,10 @@ export default memo(function BulkStep2Review({
         noticeMeta={selectedProduct?.editedCategoryCode ? categoryMetaCache?.[selectedProduct.editedCategoryCode]?.noticeMeta : undefined}
         noticeOverrides={noticeOverrides}
         onBulkApplyAttribute={handleBulkApplyAttribute}
+        onLlmRegen={onLlmRegen}
+        llmRegen={llmRegen}
+        llmCanUndo={llmCanUndo}
+        onUndoLlm={onUndoLlm}
       />
     </div>
   );

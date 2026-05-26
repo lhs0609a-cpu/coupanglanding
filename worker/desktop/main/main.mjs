@@ -224,7 +224,7 @@ app.on('before-quit', async (e) => {
   if (app.isQuitting) return;
   app.isQuitting = true;
   e.preventDefault();
-  try { ads?.stop(); await stopWorker(); await comfy.stop(); await pair?.close(); } catch { /* ignore */ }
+  try { ads?.stop(); await runner?.stopLlmLoop(); await stopWorker(); await comfy.stop(); await pair?.close(); } catch { /* ignore */ }
   app.quit();
 });
 

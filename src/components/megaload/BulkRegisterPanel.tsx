@@ -411,6 +411,10 @@ export default function BulkRegisterPanel() {
           onSwapStockImage={actions.handleSwapStockImage}
           onBulkRegenerateThumbnails={actions.handleBulkRegenerateThumbnails}
           thumbnailRegen={actions.thumbnailRegen}
+          onLlmRegen={actions.regenerateLlm}
+          llmRegen={actions.llmRegen}
+          llmCanUndo={actions.llmCanUndo}
+          onUndoLlm={actions.undoLastLlmRegen}
           getDetailImageUrls={actions.getDetailImageUrls}
           selectedOutbound={actions.selectedOutbound}
           selectedReturn={actions.selectedReturn}

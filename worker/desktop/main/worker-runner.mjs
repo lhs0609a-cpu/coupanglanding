@@ -5,6 +5,7 @@ import { join, dirname } from 'node:path';
 import { Session } from '../runtime/supabase-rest.mjs';
 import { loadWorkflow, generateThumbnail } from '../runtime/comfyui-client.mjs';
 import { runPullLoop } from '../runtime/pull-loop.mjs';
+import { runLlmPullLoop } from '../runtime/llm-pull-loop.mjs';
 import { processCutoutThumbnail } from './thumbnail-processor.mjs';
 
 const DEFAULT_POSITIVE =
@@ -21,6 +22,9 @@ export class WorkerRunner {
     this.session = null;
     this.abort = null;
     this.loopPromise = null;
+    // LLM 재생성 루프(텍스트) — 썸네일 루프와 독립. 로그인되면 상시 폴링(가벼움).
+    this.llmAbort = null;
+    this.llmLoopPromise = null;
   }
 
   get running() { return !!this.abort; }
@@ -30,6 +34,7 @@ export class WorkerRunner {
     const s = new Session(supabaseUrl, anonKey, join(this.userDataDir, '.session.json'));
     await s.loadOrLogin(email, password);
     this.session = s;
+    this.startLlmLoop();
   }
 
   /** 웹 페어링으로 받은 세션 주입 */
@@ -37,6 +42,7 @@ export class WorkerRunner {
     const s = new Session(supabaseUrl, anonKey, join(this.userDataDir, '.session.json'));
     await s.seed(sessionTokens);
     this.session = s;
+    this.startLlmLoop();
   }
 
   /** 저장된 세션(.session.json)으로 자동 로그인 시도 — 성공 시 true */
@@ -45,9 +51,32 @@ export class WorkerRunner {
     try {
       const s = new Session(supabaseUrl, anonKey, join(this.userDataDir, '.session.json'));
       const ok = await s.tryRestore();
-      if (ok) { this.session = s; return true; }
+      if (ok) { this.session = s; this.startLlmLoop(); return true; }
       return false;
     } catch { return false; }
+  }
+
+  /** 로그인되면 상시 도는 LLM 재생성 폴링 루프 (노출상품명/상세글/옵션/카테고리). */
+  startLlmLoop() {
+    if (this.llmAbort || !this.session) return;
+    this.llmAbort = new AbortController();
+    const host = hostname();
+    const workerId = `${host}-llm`;
+    this.llmLoopPromise = runLlmPullLoop({
+      session: this.session,
+      workerId,
+      hostname: host,
+      pollMs: 4000,
+      signal: this.llmAbort.signal,
+      onEvent: (e) => this.onEvent({ scope: 'llm', ...e }),
+    })
+      .catch((e) => this.onEvent({ type: 'warn', message: `LLM 루프 종료: ${e.message}` }))
+      .finally(() => { this.llmAbort = null; this.llmLoopPromise = null; });
+  }
+
+  async stopLlmLoop() {
+    if (this.llmAbort) this.llmAbort.abort();
+    try { await this.llmLoopPromise; } catch { /* ignore */ }
   }
 
   async start({ comfyUrl, workflowPath, positivePrompt, negativePrompt, timeoutSec = 300, pollSec = 5 }) {
