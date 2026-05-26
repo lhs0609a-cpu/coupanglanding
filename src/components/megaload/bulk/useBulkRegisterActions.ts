@@ -2877,7 +2877,10 @@ export function useBulkRegisterActions() {
       const bracket = newBrackets.find((b) => p.sourcePrice >= b.minPrice && p.sourcePrice < (b.maxPrice ?? Infinity));
       const rate = bracket ? bracket.marginRate : 25;
       const sellingPrice = Math.ceil((p.sourcePrice * (1 + rate / 100)) / 100) * 100;
-      return { ...p, editedSellingPrice: sellingPrice, sellingPrice };
+      // 정가(할인표시용)도 판매가에 비례해 재계산 — 스캔 시 공식(판매가×1.5)과 동일하게 유지.
+      // 이렇게 해야 공격적 프리셋으로 판매가를 올려도 정가>판매가가 유지돼 할인 배지가 사라지지 않는다.
+      const editedOriginalPrice = Math.ceil((sellingPrice * 1.5) / 100) * 100;
+      return { ...p, editedSellingPrice: sellingPrice, sellingPrice, editedOriginalPrice };
     }));
   }, []);
 

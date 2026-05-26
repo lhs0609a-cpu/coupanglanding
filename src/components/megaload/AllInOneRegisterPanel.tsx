@@ -19,6 +19,9 @@ import {
   type ScannedProduct,
   type ScannedImageFile,
 } from '@/lib/megaload/services/client-folder-scanner';
+import {
+  MARGIN_PRESETS, applyMarginPreset, calculateSellingPrice, type MarginPresetLevel,
+} from '@/lib/megaload/services/margin-pricing';
 
 const BATCH_SIZE = 10;
 const IMG_RE = /\.(png|jpg|jpeg|webp)$/i;
@@ -67,6 +70,15 @@ const won = (n: number | null | undefined) => (n == null ? '-' : Number(n).toLoc
 /** 등록 가능 최소 조건 — 서버가 거절할 항목(카테고리코드 없음/판매가<100)을 기본 승인에서 제외 */
 function isEligible(g: GenRecord | null): boolean {
   return !!g && !!g.categoryCode && !!g.sellingPrice && g.sellingPrice >= 100;
+}
+
+/** 검수화면 프리셋 적용 시 유효 판매가 — level=null이면 워커 생성값 유지.
+ *  원가(sourcePrice)가 있어야 재계산, 없으면 워커값 폴백. */
+function effSellingPrice(g: GenRecord | null, level: MarginPresetLevel | null): number | null {
+  if (!g) return null;
+  if (level == null) return g.sellingPrice;
+  if (!g.sourcePrice || g.sourcePrice <= 0) return g.sellingPrice;
+  return calculateSellingPrice(g.sourcePrice, applyMarginPreset(level));
 }
 
 /** product_<코드> 폴더의 main_images_regen 을 ScannedImageFile[] 로 읽기(페이지 로컬 — 공용 스캐너 무수정) */
@@ -120,6 +132,8 @@ export default function AllInOneRegisterPanel() {
   const [registering, setRegistering] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const [openDetail, setOpenDetail] = useState<Record<string, boolean>>({});
+  // 마진 프리셋: null = 워커 생성값 그대로. 선택 시 원가×프리셋으로 판매가 재계산.
+  const [marginLevel, setMarginLevel] = useState<MarginPresetLevel | null>(null);
 
   // 물류 정보
   const [outbounds, setOutbounds] = useState<OutboundPlace[]>([]);
@@ -250,6 +264,9 @@ export default function AllInOneRegisterPanel() {
           const g = r.gen!;
           const catCode = g.categoryCode ? String(g.categoryCode) : '';
           const meta = (catCode && categoryMeta[catCode]) || { noticeMeta: [], attributeMeta: [] };
+          // 프리셋 적용 시 원가×마진으로 재계산, 미적용 시 워커 생성값. 정가는 판매가×1.5(할인 배지용).
+          const effSelling = effSellingPrice(g, marginLevel) ?? g.sellingPrice ?? 0;
+          const effOriginal = effSelling > 0 ? Math.ceil((effSelling * 1.5) / 100) * 100 : undefined;
           const wm = sellerBrandRef.current;
           // 이미지 업로드: 대표(가공본 우선) + 상세/리뷰/정보
           const mainUrls = (await uploadScannedImages(r.mainImages, 10, wm)).filter(Boolean);
@@ -266,7 +283,8 @@ export default function AllInOneRegisterPanel() {
             sourceName: g.originalName,
             sourceUrl: g.sourceUrl || r.scanned.sourceUrl,
             brand: (typeof pj.brand === 'string' ? pj.brand : '') || '',
-            sellingPrice: g.sellingPrice ?? 0,
+            sellingPrice: effSelling,
+            originalPrice: effOriginal,
             sourcePrice: g.sourcePrice ?? (typeof pj.price === 'number' ? pj.price : 0),
             categoryCode: catCode,
             categoryPath: g.categoryPath || '',
@@ -391,6 +409,30 @@ export default function AllInOneRegisterPanel() {
       {scanMsg && <p className="text-xs text-gray-500">{scanMsg}</p>}
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
 
+      {/* 마진 프리셋 — 원가×마진으로 판매가 즉시 재계산(워커 재실행 불필요). '워커 기본'은 생성값 유지 */}
+      {rows.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-3 py-2">
+          <span className="text-xs text-gray-500 mr-1">마진 프리셋:</span>
+          <button type="button" onClick={() => setMarginLevel(null)} disabled={registering}
+            className={`px-2.5 py-1 text-xs rounded-md border transition ${marginLevel === null ? 'bg-gray-900 text-white border-gray-900' : 'text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
+            워커 기본
+          </button>
+          {MARGIN_PRESETS.map((preset) => {
+            const isActive = marginLevel === preset.level;
+            const tone = preset.tone === 'conservative' ? 'text-blue-600 border-blue-200 hover:bg-blue-50'
+              : preset.tone === 'aggressive' ? 'text-rose-600 border-rose-200 hover:bg-rose-50'
+              : 'text-gray-700 border-gray-300 hover:bg-gray-50';
+            return (
+              <button key={preset.level} type="button" disabled={registering} onClick={() => setMarginLevel(preset.level)}
+                className={`px-2.5 py-1 text-xs rounded-md border transition ${isActive ? 'bg-[#E31837] text-white border-[#E31837]' : tone}`}>
+                {preset.label}
+              </button>
+            );
+          })}
+          <span className="text-[11px] text-gray-400 ml-1">원가 기반 재계산 · 정가는 판매가×1.5(할인배지)</span>
+        </div>
+      )}
+
       {/* 카드 그리드 */}
       <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(360px,1fr))]">
         {rows.map((r) => {
@@ -414,7 +456,7 @@ export default function AllInOneRegisterPanel() {
                   </div>
                   <div className="text-sm font-semibold text-gray-900 leading-snug">{g?.displayName || r.scanned.productJson?.name || r.productCode}</div>
                   <div className="text-xs text-blue-600">{g?.categoryPath}{g?.categoryCode ? ` [${g.categoryCode}]` : ''}</div>
-                  <div className="text-sm"><b className="text-[#E0245E]">{won(g?.sellingPrice)}</b>{g?.sourcePrice ? <span className="text-xs text-gray-400 line-through ml-1">{won(g.sourcePrice)}</span> : null}</div>
+                  <div className="text-sm"><b className="text-[#E0245E]">{won(effSellingPrice(g, marginLevel))}</b>{g?.sourcePrice ? <span className="text-xs text-gray-400 line-through ml-1">{won(g.sourcePrice)}</span> : null}{marginLevel && effSellingPrice(g, marginLevel) !== g?.sellingPrice ? <span className="text-[10px] text-rose-500 ml-1">프리셋</span> : null}</div>
                 </div>
               </div>
               {g && g.options.length > 0 && (
