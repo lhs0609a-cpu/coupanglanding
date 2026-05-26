@@ -5,6 +5,10 @@ name: Megaload Desktop — Build & Release
 #   (electron-updater generic 프로바이더가 그 고정 URL 의 latest.yml 을 읽음)
 on:
   push:
+    branches: [master]
+    paths:
+      - 'worker/desktop/**'
+      - '.github/workflows/desktop-app-release.yml'
     tags:
       - 'megaload-desktop-v*'
   workflow_dispatch:
