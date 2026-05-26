@@ -270,7 +270,7 @@ export async function POST(req: NextRequest) {
         }),
       );
 
-      for (const settled of chunkResults) {
+      chunkResults.forEach((settled, idx) => {
         if (settled.status === 'fulfilled') {
           const { uid, result } = settled.value;
           results[uid] = result;
@@ -278,13 +278,26 @@ export async function POST(req: NextRequest) {
           else failCount++;
           if (result.warnings.length > 0) warnCount++;
         } else {
-          // Promise rejected — 빌드 자체 실패
-          const errMsg = settled.reason instanceof Error ? settled.reason.message : '빌드 실패';
-          // chunk에서 어떤 상품인지 식별 어려움 → skip
-          console.error('[preflight] Product build error:', errMsg);
-          void logSystemError({ source: 'megaload/products/bulk-register/preflight', error: errMsg }).catch(() => {});
+          // Promise rejected — 빌드 자체 실패. allSettled 인덱스로 상품을 식별해
+          // results 에 명시적 실패로 기록한다(과거엔 skip 해서 상품이 조용히 사라짐 → UI 가
+          // "검증 오류"로 오인하고 원인을 못 봄).
+          const product = chunk[idx];
+          const errMsg = settled.reason instanceof Error ? settled.reason.message : '페이로드 빌드 실패';
+          results[product.uid] = {
+            pass: false,
+            errors: [{ code: 'BUILD_FAILED', field: 'payload', message: `페이로드 생성 실패: ${errMsg}` }],
+            warnings: [],
+            payloadSnapshot: {
+              sellerProductName: '', displayProductName: '', imageCount: 0,
+              noticeCategoryCount: 0, attributeCount: 0, hasDetailPage: false, payloadSizeKB: 0,
+            },
+            imageStatus: 'missing',
+          } as PreflightProductResult;
+          failCount++;
+          console.error(`[preflight] build error (${product.productCode}):`, errMsg);
+          void logSystemError({ source: 'megaload/products/bulk-register/preflight', error: errMsg, context: { productCode: product.productCode } }).catch(() => {});
         }
-      }
+      });
     }
 
     return NextResponse.json({

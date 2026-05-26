@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
-  CheckCircle2, Package, Upload, Image as ImageIcon,
+  CheckCircle2, Package, Upload, Image as ImageIcon, Loader2,
 } from 'lucide-react';
 import { useBulkRegisterActions } from './bulk/useBulkRegisterActions';
 import { useThumbnailCache } from './bulk/useThumbnailCache';
@@ -180,6 +180,7 @@ export default function BulkRegisterPanel() {
 
   const {
     step, products, imagePreuploadProgress, imagePreuploadCache,
+    draftSaveState, draftSavedAt,
   } = actions;
 
   // P0-4: 안정적 콜백 참조 — 인라인 화살표 함수 제거로 자식 re-render 방지
@@ -274,6 +275,17 @@ export default function BulkRegisterPanel() {
               <span className="flex items-center gap-1 text-xs text-green-500">
                 <ImageIcon className="w-3.5 h-3.5" />
                 {Object.keys(imagePreuploadCache).length}개 업로드 완료
+              </span>
+            )}
+            {/* 자동저장 상태 — Step 2+ 에서 편집사항이 저장되고 있음을 명시 */}
+            {step >= 2 && draftSaveState === 'saving' && (
+              <span className="flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> 자동저장 중…
+              </span>
+            )}
+            {step >= 2 && draftSaveState === 'saved' && (
+              <span className="flex items-center gap-1 text-xs font-medium text-green-600 bg-green-50 border border-green-200 rounded-full px-2 py-0.5" title="편집사항은 브라우저에 자동 저장됩니다. 탭을 닫거나 크래시가 나도 '이어하기'로 복구됩니다.">
+                <CheckCircle2 className="w-3.5 h-3.5" /> 자동저장됨{draftSavedAt ? ` · ${new Date(draftSavedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}` : ''}
               </span>
             )}
           </div>

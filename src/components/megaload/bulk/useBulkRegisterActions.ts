@@ -1867,6 +1867,9 @@ export function useBulkRegisterActions() {
   const [sessionRestoreOffered, setSessionRestoreOffered] = useState(false);
   const [restoreCandidate, setRestoreCandidate] = useState<{ count: number; savedAt: number } | null>(null);
   const restoreDataRef = useRef<Record<string, unknown> | null>(null);
+  // 자동저장 상태(UI 배지용) — 사용자가 "저장되고 있다"를 눈으로 확인
+  const [draftSaveState, setDraftSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
 
   // 변경값 전부를 IndexedDB에 저장 (서버·비용 0). 디바운스 + 탭 이탈 시 즉시 flush 로 유실 최소화.
   const saveDraftNow = useCallback(() => {
@@ -1887,7 +1890,10 @@ export function useBulkRegisterActions() {
         }),
         imagePreuploadCache: imagePreuploadCacheRef.current, // CDN URL은 직렬화 가능 → 복원 시 이미지 유지
       };
-      void saveDraft(SESSION_KEY, JSON.stringify(sessionData));
+      setDraftSaveState('saving');
+      void saveDraft(SESSION_KEY, JSON.stringify(sessionData))
+        .then(() => { setDraftSaveState('saved'); setDraftSavedAt(Date.now()); })
+        .catch(() => { setDraftSaveState('idle'); });
       try {
         localStorage.setItem('megaload_user_prefs', JSON.stringify({
           brackets, selectedOutbound, selectedReturn, deliveryChargeType,
@@ -2471,24 +2477,22 @@ export function useBulkRegisterActions() {
   // ---- Preflight ----
   const handlePreflight = useCallback(async () => {
     const allSelected = products.filter(p => p.selected);
-    const selectedProds = allSelected.filter(p => p.editedCategoryCode && p.validationStatus !== 'error');
+    // 프리플라이트는 "차단"이 아니라 "진단" 도구다. 로컬 validationStatus 가 error 라도
+    // 실행해서 상품별 실제 원인(어느 필드가 왜)을 보여줘야 한다. (이전엔 status==='error' 를
+    // 제외해, 전부 error 면 라우트 호출조차 못 하고 "모두 검증 오류"만 떠 원인 진단이 막혔음)
+    // 카테고리 코드가 있어야 메타 빌드가 의미 있으므로 그것만 최소 요건으로 둔다.
+    const selectedProds = allSelected.filter(p => p.editedCategoryCode);
     if (selectedProds.length === 0) {
-      // ⚠️ silent fail 차단: 0건이면 phase='error' 로 노출 + 사유 진단 로그.
       const noSelected = allSelected.length === 0;
-      const allValidationError = allSelected.length > 0 && allSelected.every(p => p.validationStatus === 'error');
-      const noCategoryCount = allSelected.filter(p => !p.editedCategoryCode).length;
+      // ★ 카테고리 자동매칭이 끝나기 전이면 전 상품 카테고리가 비어 차단된다.
+      //   "Step 1에서 확인" 문구는 오해 소지(사용자가 손댈 일 아님) → 매칭 대기 안내로.
+      const matchingInProgress = autoMatchingProgress !== null;
       const reason = noSelected
         ? '선택된 상품이 없습니다.'
-        : allValidationError
-          ? `선택된 ${allSelected.length}개 모두 검증 오류 상태입니다.`
-          : noCategoryCount > 0
-            ? `${noCategoryCount}개 상품의 카테고리 매칭이 비어있습니다. Step 1 에서 카테고리를 확인하세요.`
-            : '프리플라이트 대상 상품이 없습니다 (필터 통과 0건).';
-      console.warn('[preflight] 0건 차단:', {
-        selected: allSelected.length,
-        validationErrors: allSelected.filter(p => p.validationStatus === 'error').length,
-        noCategory: noCategoryCount,
-      });
+        : matchingInProgress
+          ? `카테고리 자동매칭 진행 중입니다 (${autoMatchingProgress!.done}/${autoMatchingProgress!.total}). 완료되면 자동으로 검증·등록 준비가 됩니다 — 잠시만 기다려주세요.`
+          : `선택된 ${allSelected.length}개의 카테고리가 아직 매칭되지 않았습니다. 카테고리 자동매칭이 끝난 뒤 다시 시도해주세요. (계속 비어 있으면 Step 1에서 카테고리를 확인하세요.)`;
+      console.warn('[preflight] 0건 차단:', { selected: allSelected.length, noCategory: allSelected.filter(p => !p.editedCategoryCode).length, matchingInProgress });
       setPreflightPhase('error');
       setPreflightStats({ total: 0, pass: 0, fail: 0, warn: 0 });
       setPreflightResults({});
@@ -2616,7 +2620,7 @@ export function useBulkRegisterActions() {
       setPreflightPhase('error');
     }
   // imagePreuploadCache는 ref로 읽으므로 deps에서 제거 — stale closure 완전 방지
-  }, [products, categoryMetaCache, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, noticeOverrides, preventionConfig]);
+  }, [products, categoryMetaCache, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, noticeOverrides, preventionConfig, autoMatchingProgress]);
 
   // ---- Canary ----
   const handleCanary = useCallback(async (targetUid: string) => {
@@ -3758,6 +3762,8 @@ export function useBulkRegisterActions() {
     selectedCount, totalSourcePrice, totalSellingPrice,
     validationReadyCount, validationErrorCount, validationWarningCount, registerableCount,
     canRegister,
+    // 자동저장 상태(UI 배지)
+    draftSaveState, draftSavedAt,
     // Actions
     addFolderPath, removeFolderPath,
     recalcPrices,

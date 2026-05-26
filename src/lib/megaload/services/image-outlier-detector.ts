@@ -133,12 +133,16 @@ export async function detectVisualOutliers(images: ScannedImageFile[]): Promise<
     return { outlierIndices: new Set(), debug: `skipped valid=${valid.length}<${MIN_IMAGES}` };
   }
 
-  // medoid: 다른 모든 해시와의 합 해밍 거리가 최소인 원소
+  // medoid: 다른 모든 해시와의 합 해밍 거리가 최소인 원소.
+  // 합은 단조증가하므로 현재 최소(medoidTotal)를 넘는 순간 내부 루프를 끊는다(결과 동일, 연산 절감).
   let medoidI = valid[0].i;
   let medoidTotal = Infinity;
   for (const { h: hi, i } of valid) {
     let sum = 0;
-    for (const { h: hj } of valid) sum += hamming(hi, hj);
+    for (const { h: hj } of valid) {
+      sum += hamming(hi, hj);
+      if (sum >= medoidTotal) break; // 이미 최소 후보보다 크면 더 볼 필요 없음
+    }
     if (sum < medoidTotal) { medoidTotal = sum; medoidI = i; }
   }
   const medoid = hashes[medoidI]!;
