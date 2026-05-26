@@ -63,6 +63,24 @@ export async function generate({ model, prompt, system, options = {}, format } =
 }
 
 /**
+ * 모델을 GPU/메모리에서 언로드 (keep_alive:0). VRAM 을 ComfyUI 등에 양보할 때 사용.
+ * 실패해도 throw 하지 않음(베스트에포트).
+ */
+export async function unload(model) {
+  if (!model) return false;
+  try {
+    const r = await fetch(`${OLLAMA}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, keep_alive: 0 }),
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 임베딩 (ollama /api/embed). input: string | string[].
  * @returns {Promise<number[][]>} 벡터 배열
  */

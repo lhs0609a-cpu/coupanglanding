@@ -61,7 +61,8 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
     records.push(rec);
     totalMs += rec.ms;
     if (rec.needsReview) review++; else ok++;
-    onItem?.(i, products.length, rec);
+    // onItem 이 비동기(예: ComfyUI 대표이미지 가공)일 수 있으므로 await — GPU 직렬 보장.
+    await onItem?.(i, products.length, rec);
   }
   return {
     records,

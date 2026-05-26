@@ -223,12 +223,27 @@ export async function ensureWingSession(win, { timeoutMs = 180000 } = {}) {
   const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
   try { win.webContents.setUserAgent(CHROME_UA); } catch { /* ignore */ }
   try { win.webContents.session.setUserAgent(CHROME_UA); } catch { /* ignore */ }
-  if (WING.adsUrl && !WING.adsUrl.includes('__TODO__')) await win.loadURL(WING.adsUrl);
-  try { await waitFor(win, WING.loggedInSelector, 8000); return true; }
-  catch { /* 미로그인 → 로그인 페이지 띄우고 대기 */ }
-  await win.loadURL(WING.loginUrl);
-  try { await waitFor(win, WING.loggedInSelector, timeoutMs); return true; }
-  catch { return false; }
+  const sel = JSON.stringify(WING.loggedInSelector);
+  const hasSidebar = () => win.webContents.executeJavaScript(`!!document.querySelector(${sel})`).catch(() => false);
+
+  if (WING.adsUrl && !WING.adsUrl.includes('__TODO__')) await win.loadURL(WING.adsUrl).catch(() => {});
+  // 광고화면(advertising.coupang.com)에서만 #cap-sidebar 가 존재한다.
+  // 로그인 후 윙 홈/리다이렉트로 빠질 수 있으므로, 폴링하며 광고화면이 아니면 광고화면으로 유도한다.
+  const t0 = Date.now();
+  let lastNudge = 0;
+  while (Date.now() - t0 < timeoutMs) {
+    if (await hasSidebar()) return true;
+    const url = win.webContents.getURL() || '';
+    const onLogin = /xauth\.coupang\.com|\/login|openid-connect/i.test(url);
+    const onAds = /advertising\.coupang\.com\/marketing/i.test(url);
+    // 로그인 절차 중이 아니고(=차단/입력 방해 X) 광고화면도 아니면, 6초마다 광고화면으로 재이동
+    if (!onLogin && !onAds && Date.now() - lastNudge > 6000) {
+      lastNudge = Date.now();
+      win.loadURL(WING.adsUrl).catch(() => {});
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return false;
 }
 
 /**
