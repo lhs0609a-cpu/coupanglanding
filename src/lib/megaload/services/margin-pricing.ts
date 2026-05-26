@@ -53,3 +53,60 @@ export function getMarginRate(
   );
   return bracket ? bracket.marginRate : 25;
 }
+
+// ============================================================
+// 마진율 프리셋 (원클릭) — 보수적(마진↓·가격경쟁력↑) ~ 공격적(마진↑·수익↑)
+// 기본 구간(DEFAULT_BRACKETS)의 marginRate 에 배율을 곱해 생성한다.
+// ============================================================
+
+export type MarginPresetLevel =
+  | 'conservative3' | 'conservative2' | 'conservative1'
+  | 'default'
+  | 'aggressive1' | 'aggressive2' | 'aggressive3';
+
+/** 프리셋별 기본 마진율 대비 배율 */
+export const MARGIN_PRESET_FACTORS: Record<MarginPresetLevel, number> = {
+  conservative3: 0.55,
+  conservative2: 0.7,
+  conservative1: 0.85,
+  default: 1,
+  aggressive1: 1.2,
+  aggressive2: 1.45,
+  aggressive3: 1.75,
+};
+
+/** UI 표시용 프리셋 목록(보수 → 기본 → 공격 순) */
+export const MARGIN_PRESETS: { level: MarginPresetLevel; label: string; tone: 'conservative' | 'default' | 'aggressive' }[] = [
+  { level: 'conservative3', label: '보수 ↓↓↓', tone: 'conservative' },
+  { level: 'conservative2', label: '보수 ↓↓', tone: 'conservative' },
+  { level: 'conservative1', label: '보수 ↓', tone: 'conservative' },
+  { level: 'default', label: '기본', tone: 'default' },
+  { level: 'aggressive1', label: '공격 ↑', tone: 'aggressive' },
+  { level: 'aggressive2', label: '공격 ↑↑', tone: 'aggressive' },
+  { level: 'aggressive3', label: '공격 ↑↑↑', tone: 'aggressive' },
+];
+
+/** 프리셋 배율을 기본 구간에 적용한 새 brackets (marginRate 정수 반올림, 최소 1%) */
+export function applyMarginPreset(
+  level: MarginPresetLevel,
+  base: PriceBracket[] = DEFAULT_BRACKETS,
+): PriceBracket[] {
+  const f = MARGIN_PRESET_FACTORS[level] ?? 1;
+  return base.map((b) => ({ ...b, marginRate: Math.max(1, Math.round(b.marginRate * f)) }));
+}
+
+/** 현재 brackets 가 어떤 프리셋과 일치하는지 판별(일치 없으면 null) — UI 활성표시용.
+ *  marginRate 만 비교하므로 maxPrice 가 nullable 인 변형 타입도 그대로 받는다. */
+export function detectMarginPreset(
+  brackets: { marginRate: number }[],
+  base: PriceBracket[] = DEFAULT_BRACKETS,
+): MarginPresetLevel | null {
+  for (const { level } of MARGIN_PRESETS) {
+    const preset = applyMarginPreset(level, base);
+    if (preset.length === brackets.length
+      && preset.every((p, i) => p.marginRate === brackets[i]?.marginRate)) {
+      return level;
+    }
+  }
+  return null;
+}

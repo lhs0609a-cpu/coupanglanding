@@ -27,7 +27,7 @@ async function candidatesFor(name, k) {
  * @param {(i:number, total:number, rec:Object)=>void} [o.onItem]
  * @returns {Promise<{records:Object[], summary:Object}>}
  */
-export async function generateBatch(products, { model, sellerId = '', maxDetailTokens = 800, onItem } = {}) {
+export async function generateBatch(products, { model, sellerId = '', maxDetailTokens = 800, onItem, marginBrackets } = {}) {
   if (!model) throw new Error('[ai-batch] model 필요');
   const records = [];
   let ok = 0, review = 0, totalMs = 0;
@@ -37,7 +37,7 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
     const seed = `${sellerId}:${p.id || p.originalName}`;
     const cands = await candidatesFor(p.originalName, 8);
     const r = await generateAllFields(p, { model, personaSeed: seed, categoryCandidates: cands, maxDetailTokens });
-    const sellingPrice = calculateSellingPrice(p.sourcePrice);
+    const sellingPrice = marginBrackets ? calculateSellingPrice(p.sourcePrice, marginBrackets) : calculateSellingPrice(p.sourcePrice);
     const rec = {
       sourceId: p.id ?? null,
       originalName: p.originalName,

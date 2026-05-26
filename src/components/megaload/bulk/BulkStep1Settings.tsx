@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import type { PriceBracket, ShippingPlace, ReturnCenter, PreventionConfig } from './types';
 import { getPreventionLevel } from '@/lib/megaload/services/item-winner-prevention';
+import { MARGIN_PRESETS, applyMarginPreset, detectMarginPreset } from '@/lib/megaload/services/margin-pricing';
 import IntegrationTestCard from './IntegrationTestCard';
 
 const RECENT_PATHS_KEY = 'bulk_register_recent_paths';
@@ -461,7 +462,24 @@ export default function BulkStep1Settings({
 
       {/* Margin Rate */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">가격대별 마진율 설정</h2>
+        <h2 className="text-lg font-semibold text-gray-900 mb-2">가격대별 마진율 설정</h2>
+        {/* 원클릭 프리셋 — 기본 구간 × 배율(보수 ↓ / 공격 ↑). 클릭 시 아래 표를 즉시 채움 */}
+        <div className="flex flex-wrap items-center gap-1.5 mb-4">
+          <span className="text-xs text-gray-500 mr-1">프리셋:</span>
+          {(() => { const active = detectMarginPreset(brackets); return MARGIN_PRESETS.map((preset) => {
+            const isActive = active === preset.level;
+            const tone = preset.tone === 'conservative' ? 'text-blue-600 border-blue-200 hover:bg-blue-50'
+              : preset.tone === 'aggressive' ? 'text-rose-600 border-rose-200 hover:bg-rose-50'
+              : 'text-gray-700 border-gray-300 hover:bg-gray-50';
+            return (
+              <button key={preset.level} type="button" onClick={() => onRecalcPrices(applyMarginPreset(preset.level))}
+                className={`px-2.5 py-1 text-xs rounded-md border transition ${isActive ? 'bg-[#E31837] text-white border-[#E31837]' : tone}`}>
+                {preset.label}
+              </button>
+            );
+          }); })()}
+          <span className="text-[11px] text-gray-400 ml-1">보수=마진↓·가격경쟁력↑ · 공격=마진↑·수익↑</span>
+        </div>
         <table className="w-full">
           <thead>
             <tr className="text-xs text-gray-500 border-b border-gray-200">
