@@ -8,6 +8,8 @@ import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell, dialog } f
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
+import { hostname } from 'node:os';
+import { rpc } from '../runtime/supabase-rest.mjs';
 import { Store } from './store.mjs';
 import { ComfyManager } from './comfy-manager.mjs';
 import { WorkerRunner } from './worker-runner.mjs';
@@ -187,6 +189,13 @@ app.whenReady().then(async () => {
 
   setupAutoUpdate({ getWindow: () => win });
 
+  // 로그인(세션) 상태면 30초마다 하트비트 → 웹 연결 표시등이 "연결됨"으로 표시(썸네일 워커 미가동이어도).
+  const SHELL_WORKER_ID = `${hostname()}-app`;
+  const sendHeartbeat = () => {
+    if (!runner?.session) return;
+    rpc(runner.session, 'worker_heartbeat', { p_worker_id: SHELL_WORKER_ID, p_hostname: hostname() }).catch(() => {});
+  };
+
   // 저장된 세션 자동 복구
   await runner.tryRestoreSession(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -196,10 +205,13 @@ app.whenReady().then(async () => {
       await runner.pair(SUPABASE_URL, SUPABASE_ANON_KEY, tokens);
       send('shell:pair-done', true);
       win?.show(); win?.focus();
+      sendHeartbeat();
       autoStartIfReady();
     },
   });
 
+  sendHeartbeat();
+  setInterval(sendHeartbeat, 30_000);
   autoStartIfReady();
 });
 

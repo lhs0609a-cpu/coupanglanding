@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import DesktopStatusIndicator from '@/components/megaload/DesktopStatusIndicator';
 import {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
   Receipt, BarChart3, Zap, Globe, Link as LinkIcon, Settings, X,
@@ -163,6 +164,10 @@ export default function MegaloadSidebar({ isOpen, onClose, badges, gateLevel }: 
           >
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        <div className="px-3 pt-3">
+          <DesktopStatusIndicator />
         </div>
 
         <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 65px)' }}>
