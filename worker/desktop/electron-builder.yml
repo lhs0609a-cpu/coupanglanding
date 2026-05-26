@@ -38,7 +38,5 @@ nsis:
   perMachine: false
   shortcutName: 메가로드 도우미
   createDesktopShortcut: true
-  # asar:false(파일 수천 개) + 백신 실시간검사 환경에서, 설치 직후 자동실행이
-  # 시작메뉴 바로가기(.lnk) 디스크 반영보다 먼저 발사돼 "lnk 못 찾음" 에러가 났다.
-  # 자동실행을 끄고 바탕화면/시작메뉴 바로가기로 사용자가 직접 열게 한다.
-  runAfterFinish: false
+  # 설치 직후 자동 실행 ON — 사용자가 일일이 안 켜도 바로 동작. (앱은 OS 시작 자동실행도 등록)
+  runAfterFinish: true
