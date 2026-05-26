@@ -219,13 +219,13 @@ function nominalizeUsageFeel(key: string, v: string): string {
 
 /**
  * 풀네임이 관형형으로 끝나면 trailing modifier 를 제거한 핵심 명사형 반환.
- * "수박 안전한 달콤한" → "수박"  ("달콤한이에요" 같은 particle 결합 비문 차단)
- * "튼튼한 와인" → "튼튼한 와인"  (와인은 명사로 분류 — "인" 단독은 명사 다수)
+ * "수박 안전한 달콤한" → "수박"
+ * "고급스러운 떠먹는" + leaf "요구르트" → "요구르트"  (모든 토큰 관형형 → leaf 폴백)
  *
  * 관형형 판정: 한/운/던/는/은 종결 또는 "적인" 종결("실용적인").
  * 단순 "인" 종결은 명사 FP ("와인","라인","디자인") 다수 → 제외.
  */
-function getProductNounForm(productName: string): string {
+function getProductNounForm(productName: string, leafFallback?: string): string {
   const tokens = productName.split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return productName;
   const endsAdnominal = (w: string) => /(한|운|던|는|은)$/.test(w) || /적인$/.test(w);
@@ -233,6 +233,16 @@ function getProductNounForm(productName: string): string {
   const nounTokens = [...tokens];
   while (nounTokens.length > 1 && endsAdnominal(nounTokens[nounTokens.length - 1])) {
     nounTokens.pop();
+  }
+  // 마지막 남은 토큰도 관형형이면 명사 없음 — leaf 폴백 또는 대명사
+  if (nounTokens.length === 1 && endsAdnominal(nounTokens[0])) {
+    if (leafFallback) {
+      // leaf 의 첫 토큰만 — "떠먹는 요구르트" → "요구르트"
+      const leafTokens = leafFallback.split(/[\s/,()\[\]]+/).filter(Boolean);
+      const leafNoun = leafTokens.find(t => !endsAdnominal(t)) || leafTokens[leafTokens.length - 1];
+      if (leafNoun && !endsAdnominal(leafNoun)) return leafNoun;
+    }
+    return '이 제품';
   }
   return nounTokens.join(' ') || productName;
 }
@@ -247,7 +257,9 @@ function fillVariables(
   // {product} → 관형형 종결시 핵심 명사형 사용 ("수박 안전한 달콤한" → "수박")
   //   particle 결합("{product}이에요","{product}을","{product}이 만드는")이 빈번한 후기 프레임에서
   //   "달콤한이에요" 류 비문이 사용자에게 노출된 사고를 차단.
-  const productNoun = getProductNounForm(productName);
+  //   모든 토큰이 관형형이면 (예: "고급스러운 떠먹는") category leaf 의 명사 토큰으로 폴백.
+  const leafRaw = options?.categoryPath ? (options.categoryPath.split('>').pop() || '') : '';
+  const productNoun = getProductNounForm(productName, leafRaw);
   let result = text.replace(/\{product\}/g, productNoun);
 
   // 본문 1개 안 시간/단위 락 — 한 번 뽑은 값을 키별로 캐시하여 같은 본문 내 일관성 유지
@@ -964,10 +976,22 @@ export function generateRealReview(
   const rng = createSeededRandom(seed);
 
   // 상품명 정리
-  const cleanName = productName
+  //   ⚠️ 1자 한글 명사(귤/쌀/술/차/빵/오) 보존 — 이전 `length >= 2` 필터가
+  //   "편안한 귤" 같은 modifier+1자leaf 상품명에서 leaf 를 떨궈 cleanName="편안한"(관형형 단독)이 됨.
+  //   그 결과 fillVariables 가 {product}=편안한 으로 채워 "편안한은" 비문 양산.
+  //   1자 토큰 유지 + 관형형 단독이면 leaf 로 폴백.
+  const cleanNameTokens = productName
     .replace(/[\[\(【][^\]\)】]*[\]\)】]/g, '')
     .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
-    .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ');
+    .split(/\s+/)
+    .filter(w => w.length >= 1 && /[가-힣A-Za-z0-9]/.test(w))
+    .slice(0, 3);
+  const cleanNameJoined = cleanNameTokens.join(' ');
+  const cleanNameLooksAdnominalOnly = /^[가-힣]+(?:한|운|던|는|은)$/.test(cleanNameJoined)
+    && !cleanNameJoined.includes(' ');
+  const cleanName = (cleanNameJoined.length >= 2 && !cleanNameLooksAdnominalOnly)
+    ? cleanNameJoined
+    : (categoryPath.split('>').pop() || productName).trim();
 
   // 프레임 선택
   const frameId = selectFrame(catKey, rng);

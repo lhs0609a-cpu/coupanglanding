@@ -241,12 +241,24 @@ export function generatePersuasionContent(
   //    셀러 입력 contamination 이 마지막 토큰으로 살아남아 buildProductRefs 를 통해
   //    {product} 슬롯 → 본문에 누출되는 경로 차단.
   // 3) 정제 후 비어 있으면 leaf 로 폴백 (정체성 보장)
+  //
+  // ⚠️ 1자 한글 명사(귤/쌀/술/차/빵/오) 보존 — 이전 `length >= 2` 필터가 "편안한 귤" 같은
+  //    "modifier + 1자 leaf" 상품명에서 "귤"을 떨궈 cleanName="편안한"(관형형만)이 됨.
+  //    이 cleanName 이 {product} 자리에 들어가 "편안한은" 같은 비문을 양산.
+  //    1자 한글 토큰은 유지하고, cleanName 이 끝까지 관형형으로만 남으면 leaf 로 폴백.
   const cleanNameRaw = productName
     .replace(/[\[\(【][^\]\)】]*[\]\)】]/g, '')
     .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
-    .split(/\s+/).filter(w => w.length >= 2).slice(0, 3).join(' ').replace(/ [^ ]*(?:한|운|던|는|은)$/, '');
+    .split(/\s+/)
+    .filter(w => w.length >= 1 && /[가-힣A-Za-z0-9]/.test(w))
+    .slice(0, 3)
+    .join(' ')
+    .replace(/ [^ ]*(?:한|운|던|는|은)$/, '');
   const cleanNameSanitized = sanitizeCrossCategory(cleanNameRaw, categoryPath).trim();
-  const cleanName = cleanNameSanitized.length >= 2
+  // 관형형 종결로만 남았으면 (e.g. "편안한") leaf 로 폴백
+  const looksAdnominalOnly = /^[가-힣]+(?:한|운|던|는|은)$/.test(cleanNameSanitized)
+    && !cleanNameSanitized.includes(' ');
+  const cleanName = (cleanNameSanitized.length >= 2 && !looksAdnominalOnly)
     ? cleanNameSanitized
     : (categoryPath.split('>').pop() || cleanNameRaw || productName).trim();
 
@@ -305,10 +317,20 @@ export function generatePersuasionContent(
     .split(/[\/\-\s,()]+/)
     .map(t => t.trim())
     .filter(t => t.length >= 2 && t.length <= 12 && /[가-힣A-Za-z0-9]/.test(t))
-    // 한국어 조사(을/를/이/가/은/는/도/만/의/로) 종결 → 명사 자리 부적합
-    .filter(t => !/(을|를|이|가|은|는|도|만|의|로)$/.test(t) || /[a-zA-Z0-9]/.test(t.slice(-1)))
-    // 관형형(한/운/던) 종결 → 명사 자리에 비문 ("위한을","튼튼한이") 차단. 명사로 끝나는 "적인"도 포함.
-    .filter(t => !/(한|운|던)$/.test(t) && !/적인$/.test(t));
+    // 한국어 조사 종결 → 명사 자리 부적합. 단, 영문/숫자 끝나면 한국어 조사 매칭이 아님.
+    //   "어른을"/"X를" → 조사, "MX-7"/"PRO" → 통과.
+    //   "재미있는"/"신선한"/"안전한"/"멋진" 같은 관형형 leaf 토큰도 제외 — 16k audit
+    //   에서 "재미있는을 써보면" / "재미있는이 중요하다면" 비문 다수 검출.
+    .filter(t => {
+      if (/[a-zA-Z0-9]$/.test(t)) return true; // 영문/숫자 종결은 OK
+      // 조사 종결 (을/를/이/가/도/만/의/로) — leaf 가 SEO 노출명에 그대로 들어가면 비문
+      if (/(을|를|가|도|만|의|로)$/.test(t)) return false;
+      // 관형형 종결 (한/운/던/는/은) — 명사 자리에 들어가면 "X을/X이" 비문 ("재미있는을")
+      if (/(한|운|던|는|은)$/.test(t)) return false;
+      // "적인" 종결 — 형용사 관형형 ("효율적인")
+      if (/적인$/.test(t)) return false;
+      return true;
+    });
   const seoKeywordsArr = Array.isArray(seoKeywords) ? seoKeywords : [];
   // 중복 제거 + leaf 토큰 prepend (높은 우선순위로 SEO weave)
   const effectiveSeoKeywords: string[] = [];

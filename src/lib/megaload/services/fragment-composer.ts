@@ -642,8 +642,12 @@ export function applyCategoryVerbSanitizer(text: string, categoryPath?: string):
   switch (kind) {
     case 'food':
       return applyFoodVerbStrengthen(applyFoodVerbReplacements(text));
-    case 'kitchen':  // 주방용품은 식품 동사 적합 (요리 도구 → "조리하시는")
-      return applyFoodVerbReplacements(text);
+    case 'kitchen':
+      // ⚠️ 주방용품(식기/조리도구/유아식판/도시락통)은 도구 — 사용자가 "사용/씻는" 대상이지 "먹는" 대상이 아님.
+      //   이전 구현은 "조리하시는" 의도로 applyFoodVerbReplacements 적용 → "쓰는"→"드시는" 자동 치환되어
+      //   "식기세척기에 넣어 드시면" 같은 도구를 먹는 비문 다수 생성.
+      //   (16k audit 결과: 주방용품>유아식판 카테고리 호출 100건 중 80%+ 가 식품 동사 누출)
+      return applyNonFoodVerbReplacements(text);
     case 'fashion':
       return applyFashionVerbReplacements(applyNonFoodVerbReplacements(text));
     case 'electronics':
@@ -2342,22 +2346,42 @@ function fillTemplate(
     return picked + b + after;
   });
   // 2. {변수} 치환 — 끝에 경계 마커 삽입
-  result = result.replace(/\{([^}]+)\}/g, (match, key) => {
+  //   ⚠️ particle 직결 가드: 변수 값이 관형형(한/운/던/는/은/적인)으로 끝나는데
+  //   직후 템플릿 문자가 한국어 조사("을/를/이/은/이에요")면 비문 ("재미있는을 써보면").
+  //   풀에서 명사형 다른 값으로 retry, 끝까지 관형형만 있으면 " 점" 부착해 명사화.
+  const VAR_PARTICLE_PREFIX_RE = /^(이에요|이에|입니다|이라|이고|이며|을|를|이|은|는|도|만)/;
+  const VAR_ENDS_ADNOM_RE = /(한|운|던|는|은)$|적인$/;
+  const pickNonAdnominal = (poolArr: string[]): string | null => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const v = poolArr[Math.floor(rng() * poolArr.length)];
+      if (!VAR_ENDS_ADNOM_RE.test(v)) return v;
+    }
+    return poolArr.find((v: string) => !VAR_ENDS_ADNOM_RE.test(v)) || null;
+  };
+  result = result.replace(/\{([^}]+)\}(.{0,4})/g, (match, key, afterRaw) => {
+    const after = afterRaw || '';
+    const needsNoun = VAR_PARTICLE_PREFIX_RE.test(after);
     const pool = vars[key];
     if (pool && pool.length > 0) {
-      let val = pool[Math.floor(rng() * pool.length)];
+      let val = needsNoun
+        ? (pickNonAdnominal(pool) ?? pool[Math.floor(rng() * pool.length)])
+        : pool[Math.floor(rng() * pool.length)];
+      if (needsNoun && VAR_ENDS_ADNOM_RE.test(val)) val = val + ' 점';
       if (key === '사용감') val = nominalizeUsageFeel(val);
-      return val + b;
+      return val + b + after;
     }
     // 미해결 변수: 유사 키에서 폴백 시도 (성분2→성분, 효과2→효과1)
     const baseKey = key.replace(/\d+$/, '');
     const fallback = vars[baseKey] || vars[baseKey + '1'];
     if (fallback && fallback.length > 0) {
-      let val = fallback[Math.floor(rng() * fallback.length)];
+      let val = needsNoun
+        ? (pickNonAdnominal(fallback) ?? fallback[Math.floor(rng() * fallback.length)])
+        : fallback[Math.floor(rng() * fallback.length)];
+      if (needsNoun && VAR_ENDS_ADNOM_RE.test(val)) val = val + ' 점';
       if (baseKey === '사용감') val = nominalizeUsageFeel(val);
-      return val + b;
+      return val + b + after;
     }
-    return '';
+    return after;
   });
   // 3. 경계 직후의 조사만 교정 + 경계 마커 제거
   //    "{효과1}은 물론" → "콜레스테롤관리\u0001은 물론" → "콜레스테롤관리는 물론"
