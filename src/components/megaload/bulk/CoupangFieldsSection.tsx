@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import BulkImageGrid from './BulkImageGrid';
 import StockImageSwapModal from './StockImageSwapModal';
+import LocalGpuRegenerateModal from './LocalGpuRegenerateModal';
 import { STOCK_CATEGORY_MAP } from '@/lib/megaload/data/stock-image-categories';
 import { shuffleWithSeed, type PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import { detectWeightCandidates, REFER_DETAIL, rewriteDisplayNameForPickedWeight } from './option-candidates';
@@ -197,7 +198,7 @@ function CollapsibleSection({
 /* ─── Image Section with Prevention Preview ─── */
 function ImageSectionWithPreview({
   imageItems, onImageReorder, onImageRemove, onImageToggleAutoExclude, preventionConfig, productCode,
-  stockCategoryKey, onSwapStockImage, productUid,
+  stockCategoryKey, onSwapStockImage, productUid, productName,
 }: {
   imageItems: ImageItem[];
   onImageReorder: (newOrder: ImageItem[]) => void;
@@ -208,12 +209,16 @@ function ImageSectionWithPreview({
   stockCategoryKey?: string;
   onSwapStockImage?: (uid: string, imageIndex: number, newCdnUrl: string) => void;
   productUid?: string;
+  productName?: string;
 }) {
   const isShuffleEnabled = preventionConfig?.enabled && preventionConfig?.imageOrderShuffle;
 
   // 스왑 모달 상태
   const [swapModalOpen, setSwapModalOpen] = useState(false);
   const [swapTargetIndex, setSwapTargetIndex] = useState(0);
+  // 로컬 GPU 개별 재생성 모달
+  const [regenModalOpen, setRegenModalOpen] = useState(false);
+  const [regenTargetIndex, setRegenTargetIndex] = useState(0);
 
   // 스톡 이미지 카테고리 정보 해석
   const resolvedCategory = useMemo(() => {
@@ -273,6 +278,7 @@ function ImageSectionWithPreview({
               onImageReorder(newOrder);
             }}
             onImageClick={stockCategoryKey ? handleImageClick : undefined}
+            onRegenerateClick={onSwapStockImage && productUid ? (_id, idx) => { setRegenTargetIndex(idx); setRegenModalOpen(true); } : undefined}
           />
 
           {/* 스톡 이미지 스왑 모달 */}
@@ -284,6 +290,18 @@ function ImageSectionWithPreview({
               categoryLabel={resolvedCategory.label}
               currentImageUrl={imageItems[swapTargetIndex]?.url || ''}
               onSelect={handleSwapSelect}
+            />
+          )}
+
+          {/* 로컬 GPU 개별 재생성 모달 — 결과는 대표이미지 새 후보로 추가(원본 보존) */}
+          {regenModalOpen && productUid && (
+            <LocalGpuRegenerateModal
+              isOpen={regenModalOpen}
+              onClose={() => setRegenModalOpen(false)}
+              sourceImageUrl={imageItems[regenTargetIndex]?.url || ''}
+              productCode={productCode}
+              productName={productName}
+              onApply={(newUrl) => onSwapStockImage?.(productUid, imageItems.length, newUrl)}
             />
           )}
 
@@ -892,6 +910,7 @@ export default function CoupangFieldsSection({
         stockCategoryKey={product.stockCategoryKey}
         onSwapStockImage={onSwapStockImage}
         productUid={product.uid}
+        productName={product.editedDisplayProductName || product.editedName || product.name}
       />
       </div>
 

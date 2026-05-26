@@ -155,12 +155,12 @@ const SortableImage = memo(function SortableImage({ image, onRemove, onToggleAut
       >
         <X className="w-3.5 h-3.5" />
       </button>
-      {/* Gemini regenerate button */}
+      {/* 로컬 GPU 개별 재생성 버튼 */}
       {onRegenerateClick && (
         <button
           onClick={(e) => { e.stopPropagation(); onRegenerateClick(image.id, idx); }}
-          className="absolute bottom-1 right-1 p-1 bg-purple-500/85 rounded text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-purple-600 shadow"
-          title="Gemini으로 이 이미지 재생성"
+          className="absolute bottom-1 right-1 p-1 bg-indigo-500/85 rounded text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-indigo-600 shadow"
+          title="로컬 GPU로 이 이미지 재생성 (누끼/AI 재생성)"
         >
           <Sparkles className="w-3.5 h-3.5" />
         </button>

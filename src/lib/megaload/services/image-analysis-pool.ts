@@ -32,7 +32,10 @@ class ImageAnalysisPool {
     if (this.initialized) return;
     this.initialized = true;
     const cores = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency || 4) : 4;
-    const poolSize = size ?? Math.min(8, Math.max(2, Math.floor(cores / 2)));
+    // ★ 속도패치: cores/2(보통 4개) → cores-1(메인스레드용 1코어만 남김). 디코드를 size×size로
+    //   직접 축소(getCachedPixels)해 워커당 작업이 가벼워졌으므로 워커 수를 늘려 병렬도↑.
+    //   로컬 CPU만 사용(서버/비용 무관).
+    const poolSize = size ?? Math.min(12, Math.max(4, cores - 1));
     for (let i = 0; i < poolSize; i++) {
       try {
         const worker = new Worker(

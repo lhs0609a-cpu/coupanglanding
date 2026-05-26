@@ -210,6 +210,30 @@ async function getCachedPixels(url: string, size: number): Promise<Uint8ClampedA
   if (inFlight) return inFlight;
 
   const promise = (async (): Promise<Uint8ClampedArray | null> => {
+    // ★ 속도패치: 분석은 size×size(=36) 정사각 버퍼만 쓰므로 풀해상도 디코드는 순수 낭비.
+    //   createImageBitmap의 resize 옵션으로 "디코드 단계에서 바로 size×size로 축소"하면
+    //   2000px+ 원본도 JPEG scaled-decode로 즉시 작게 디코드된다 (대량 처리 핵심 가속).
+    //   기존 drawImage(full→size)와 동일하게 정사각으로 squash → 히스토그램/다양성 결과 불변.
+    if (typeof createImageBitmap === 'function') {
+      try {
+        const res = await fetch(url);
+        const blob = await res.blob();
+        const bitmap = await createImageBitmap(blob, {
+          resizeWidth: size, resizeHeight: size, resizeQuality: 'low',
+        });
+        try {
+          const { ctx } = createCanvas2D(size, size);
+          if (!ctx) return null;
+          ctx.drawImage(bitmap, 0, 0, size, size);
+          const data = ctx.getImageData(0, 0, size, size).data;
+          _pixelDataCache.set(key, data);
+          return data;
+        } finally { bitmap.close(); }
+      } catch {
+        // resize 미지원/디코드 실패 → 아래 폴백
+      }
+    }
+    // 폴백: 기존 전체 디코드 후 축소 경로
     let fast: { width: number; height: number; source: CanvasImageSource; close?: () => void } | null = null;
     try {
       fast = await loadImageFast(url);
