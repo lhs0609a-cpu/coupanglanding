@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
 import { fetchTotalProductCount, fetchSettlementData, CoupangApiError } from '@/lib/utils/coupang-api-client';
 import { buildCostBreakdown, calculateNetProfit, calculateDeposit } from '@/lib/calculations/deposit';
-import { resolveAdCostForMonth } from '@/lib/payments/ad-cost';
+import { resolveAdCostForMonth, capDeductibleAdCost } from '@/lib/payments/ad-cost';
 
 export const maxDuration = 60;
 
@@ -132,7 +132,10 @@ export async function GET() {
     const adCost = ptId
       ? await resolveAdCostForMonth(supabase, ptId, yearMonth)
       : { amount: 0, source: 'none' as const, submission_id: null };
-    const estimatedCosts = buildCostBreakdown(monthlySales, adCost.amount);
+    // 차감 인정 캡(매출의 표준비율) 적용 — 청구 로직과 동일 기준으로 순이익/수수료 추정 일치.
+    // (관리자가 전액 인정한 케이스는 드물어, 추정 화면에선 표준 캡으로 일관 표시)
+    const deductibleAdCost = capDeductibleAdCost(adCost.amount, monthlySales).deductible;
+    const estimatedCosts = buildCostBreakdown(monthlySales, deductibleAdCost);
     const estimatedNetProfit = monthlySales > 0 ? calculateNetProfit(monthlySales, estimatedCosts) : 0;
     const estimatedProgramFee = monthlySales > 0 ? calculateDeposit(monthlySales, estimatedCosts, sharePercentage) : 0;
 

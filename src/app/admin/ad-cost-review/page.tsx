@@ -5,6 +5,7 @@ import Card from '@/components/ui/Card';
 import { Loader2, AlertTriangle, CheckCircle2, XCircle, Megaphone, ExternalLink } from 'lucide-react';
 import { formatKRW } from '@/lib/utils/format';
 import type { AdCostSubmissionStatus } from '@/lib/supabase/types';
+import { AD_COST_STANDARD_RATIO, capDeductibleAdCost } from '@/lib/payments/ad-cost';
 
 interface EnrichedSubmission {
   id: string;
@@ -62,13 +63,17 @@ export default function AdCostReviewPage() {
     return m;
   }, [submissions]);
 
-  const handleApprove = async (id: string) => {
-    if (!confirm('이 광고비 제출을 승인하시겠습니까?')) return;
+  const handleApprove = async (id: string, allowOverCap = false) => {
+    const stdPct = Math.round(AD_COST_STANDARD_RATIO * 100);
+    const msg = allowOverCap
+      ? `표준(매출 ${stdPct}%)을 초과하는 청구 전액을 인정하여 승인하시겠습니까?`
+      : `승인하시겠습니까? 표준 한도(매출 ${stdPct}%)까지만 정산에서 차감 인정됩니다.`;
+    if (!confirm(msg)) return;
     setActioningId(id);
     const res = await fetch(`/api/admin/ad-cost/${id}/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ allowOverCap }),
     });
     if (res.ok) {
       fetchData();
@@ -142,6 +147,8 @@ export default function AdCostReviewPage() {
           {submissions.map((s) => {
             const ratioPct = s.ratio !== null ? Math.round(s.ratio * 100) : null;
             const isRejecting = rejectingId === s.id;
+            const cap = capDeductibleAdCost(s.amount, s.monthly_revenue);
+            const stdPct = Math.round(AD_COST_STANDARD_RATIO * 100);
             return (
               <Card key={s.id}>
                 <div className="flex items-start gap-4">
@@ -221,20 +228,38 @@ export default function AdCostReviewPage() {
 
                     {/* 액션 버튼 (pending 일 때만) */}
                     {s.status === 'pending' && !isRejecting && (
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          onClick={() => handleApprove(s.id)}
-                          disabled={actioningId === s.id}
-                          className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" /> 승인
-                        </button>
-                        <button
-                          onClick={() => { setRejectingId(s.id); setRejectReason(''); }}
-                          className="px-3 py-1.5 text-xs bg-white text-red-600 border border-red-300 rounded hover:bg-red-50 flex items-center gap-1"
-                        >
-                          <XCircle className="w-3.5 h-3.5" /> 반려
-                        </button>
+                      <div className="mt-3 space-y-2">
+                        {cap.capped && (
+                          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                            표준 한도(매출 {stdPct}%) = <b>{formatKRW(cap.capAmount)}</b>. 청구 {formatKRW(s.amount)} 중 초과분 <b>{formatKRW(s.amount - cap.capAmount)}</b>은 기본 승인 시 <b>차감 불인정</b>됩니다.
+                          </div>
+                        )}
+                        <div className="flex gap-2 flex-wrap items-center">
+                          <button
+                            onClick={() => handleApprove(s.id, false)}
+                            disabled={actioningId === s.id}
+                            className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
+                          >
+                            {actioningId === s.id && <Loader2 className="w-3 h-3 animate-spin" />}
+                            <CheckCircle2 className="w-3.5 h-3.5" /> {cap.capped ? `표준까지 승인 (${formatKRW(cap.deductible)})` : '승인'}
+                          </button>
+                          {cap.capped && (
+                            <button
+                              onClick={() => handleApprove(s.id, true)}
+                              disabled={actioningId === s.id}
+                              className="px-3 py-1.5 text-xs bg-amber-500 text-white rounded hover:bg-amber-600 disabled:opacity-50 flex items-center gap-1"
+                              title="표준을 초과하는 청구 전액을 정산 차감에 반영합니다(고지출 셀러 개별 상향)."
+                            >
+                              전액 인정 승인 ({formatKRW(s.amount)})
+                            </button>
+                          )}
+                          <button
+                            onClick={() => { setRejectingId(s.id); setRejectReason(''); }}
+                            className="px-3 py-1.5 text-xs bg-white text-red-600 border border-red-300 rounded hover:bg-red-50 flex items-center gap-1"
+                          >
+                            <XCircle className="w-3.5 h-3.5" /> 반려
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
