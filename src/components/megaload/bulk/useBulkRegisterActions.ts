@@ -1868,56 +1868,52 @@ export function useBulkRegisterActions() {
   const [restoreCandidate, setRestoreCandidate] = useState<{ count: number; savedAt: number } | null>(null);
   const restoreDataRef = useRef<Record<string, unknown> | null>(null);
 
-  // 자동저장 (Step 2 검수 + Step 3 등록 중 — 프리플라이트/등록 오류 시에도 작업 보존)
-  useEffect(() => {
+  // 변경값 전부를 IndexedDB에 저장 (서버·비용 0). 디바운스 + 탭 이탈 시 즉시 flush 로 유실 최소화.
+  const saveDraftNow = useCallback(() => {
     if (step < 2 || products.length === 0) return;
-    const timer = setTimeout(() => {
+    try {
+      const sessionData = {
+        savedAt: Date.now(),
+        scannerVersion: SCANNER_VERSION,
+        step, brackets, selectedOutbound, selectedReturn, deliveryChargeType,
+        deliveryCharge, freeShipOverAmount, returnCharge, contactNumber,
+        generateAiContent, includeReviewImages, useStockImages, preventionConfig,
+        // file handle은 직렬화 불가 → strip하되 autoExcludeReason(수동제외 flag)은 별도 맵 보관(복원 시 재적용)
+        products: products.map((p) => {
+          const { scannedMainImages, scannedDetailImages, scannedInfoImages, scannedReviewImages, ...rest } = p;
+          const mainExcludeMap: Record<number, string> = {};
+          scannedMainImages?.forEach((img, idx) => { if (img.autoExcludeReason) mainExcludeMap[idx] = img.autoExcludeReason; });
+          return { ...rest, _persistedMainExcludeMap: mainExcludeMap };
+        }),
+        imagePreuploadCache: imagePreuploadCacheRef.current, // CDN URL은 직렬화 가능 → 복원 시 이미지 유지
+      };
+      void saveDraft(SESSION_KEY, JSON.stringify(sessionData));
       try {
-        const sessionData = {
-          savedAt: Date.now(),
-          scannerVersion: SCANNER_VERSION,
-          step,
-          brackets,
-          selectedOutbound,
-          selectedReturn,
-          deliveryChargeType,
-          deliveryCharge,
-          freeShipOverAmount,
-          returnCharge,
-          contactNumber,
-          generateAiContent,
-          includeReviewImages,
-          useStockImages,
-          preventionConfig,
-          // ⚠️ scannedMainImages의 file handle은 직렬화 불가 — 통째로 strip하면
-          //   autoExcludeReason(사용자 수동 제외 flag)도 같이 유실되어 등록 시 unselected
-          //   이미지가 그대로 등록되는 버그 발생.
-          //   → autoExcludeMaps에 인덱스→reason 별도 보관해 복원 시 재적용.
-          products: products.map((p) => {
-            const { scannedMainImages, scannedDetailImages, scannedInfoImages, scannedReviewImages, ...rest } = p;
-            const mainExcludeMap: Record<number, string> = {};
-            scannedMainImages?.forEach((img, idx) => {
-              if (img.autoExcludeReason) mainExcludeMap[idx] = img.autoExcludeReason;
-            });
-            return { ...rest, _persistedMainExcludeMap: mainExcludeMap };
-          }),
-          // CDN URL은 직렬화 가능 → 새로고침 후에도 이미지 URL 유지
-          imagePreuploadCache: imagePreuploadCacheRef.current,
-        };
-        void saveDraft(SESSION_KEY, JSON.stringify(sessionData));
-        // 사용자 설정(returnCharge 등)은 별도 localStorage에 영구 저장
-        // (sessionStorage 30분 TTL 만료 후에도 사용자 입력값 유지)
-        try {
-          localStorage.setItem('megaload_user_prefs', JSON.stringify({
-            brackets, selectedOutbound, selectedReturn, deliveryChargeType,
-            deliveryCharge, freeShipOverAmount, returnCharge, contactNumber,
-            generateAiContent, includeReviewImages, useStockImages, preventionConfig,
-          }));
-        } catch { /* localStorage 사용 불가 환경 */ }
-      } catch { /* sessionStorage full or unavailable */ }
-    }, 2000);
-    return () => clearTimeout(timer);
+        localStorage.setItem('megaload_user_prefs', JSON.stringify({
+          brackets, selectedOutbound, selectedReturn, deliveryChargeType,
+          deliveryCharge, freeShipOverAmount, returnCharge, contactNumber,
+          generateAiContent, includeReviewImages, useStockImages, preventionConfig,
+        }));
+      } catch { /* localStorage 불가 */ }
+    } catch { /* 직렬화/저장 실패 무시 */ }
   }, [step, products, brackets, selectedOutbound, selectedReturn, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, contactNumber, generateAiContent, includeReviewImages, useStockImages, preventionConfig]);
+
+  // 변경 0.8초 후 자동저장 (이전 2초 → 단축, 크래시 유실구간 최소화)
+  useEffect(() => {
+    const timer = setTimeout(saveDraftNow, 800);
+    return () => clearTimeout(timer);
+  }, [saveDraftNow]);
+
+  // 탭 닫기/새로고침/백그라운드 전환 "순간" 즉시 저장 — 디바운스 대기분도 절대 안 날아가게
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === 'hidden') saveDraftNow(); };
+    window.addEventListener('pagehide', saveDraftNow);
+    document.addEventListener('visibilitychange', onHide);
+    return () => {
+      window.removeEventListener('pagehide', saveDraftNow);
+      document.removeEventListener('visibilitychange', onHide);
+    };
+  }, [saveDraftNow]);
 
   // 마운트 시 사용자 설정 영구 복원 (sessionStorage 만료와 무관)
   useEffect(() => {
