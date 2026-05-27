@@ -120,6 +120,29 @@ async function smoke() {
 
 await smoke();
 
+// ── 7) 설치기 스모크 — Setup.exe 를 실제 /S 무인설치해서 끝까지 되는지 ──
+//    (앱 실행 스모크는 win-unpacked 를 직접 띄우므로 "설치기(installer.nsh/NSIS)" 버그는 못 잡는다.
+//     설치가 중간에 깨지는 류는 이 테스트만 잡을 수 있음.)
+async function installerSmoke() {
+  const setup = join(dist, 'MegaloadDesktop-Setup.exe');
+  if (!existsSync(setup)) return ok('설치기 스모크 (/S 무인설치)', false, 'Setup.exe 없음');
+  const installDir = join(process.env.LOCALAPPDATA || '', 'Programs', 'megaload-desktop');
+  const pkgPath = join(installDir, 'resources', 'app', 'package.json');
+  const pkgV = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version;
+  try { spawnSync('taskkill', ['/im', 'MegaloadDesktop.exe', '/f', '/t'], { stdio: 'ignore' }); } catch { /* */ }
+  await new Promise((r) => setTimeout(r, 1000));
+  // oneClick 무인 설치
+  spawnSync(setup, ['/S'], { timeout: 150000, stdio: 'ignore' });
+  await new Promise((r) => setTimeout(r, 8000));
+  // 설치 후 runAfterFinish 로 떴을 수 있으니 정리
+  try { spawnSync('taskkill', ['/im', 'MegaloadDesktop.exe', '/f', '/t'], { stdio: 'ignore' }); } catch { /* */ }
+  let installedV = null;
+  if (existsSync(pkgPath)) { try { installedV = JSON.parse(readFileSync(pkgPath, 'utf8')).version; } catch { /* */ } }
+  ok('설치기 스모크 (/S 무인설치)', installedV === pkgV,
+    installedV ? `설치 완료 v${installedV}` : '설치 실패 — 설치 폴더/버전 확인 불가(중간에 깨짐)');
+}
+await installerSmoke();
+
 // ── 결과 보드 ──
 console.log('\n┌─────────────── 발행 전 신호기 ───────────────');
 let allGreen = true;
