@@ -69,6 +69,15 @@ const ok = (name, pass, detail = '') => results.push({ name, pass, detail });
   ok('runtime 필수 파일', missing.length === 0, missing.length ? `누락: ${missing.join(', ')}` : '');
 }
 
+// ── 3.5) preload 구성 — CommonJS(.cjs) 존재 + main 이 .cjs 참조 (ESM preload 타이밍버그 재발 방지) ──
+{
+  const hasCjs = existsSync(join(appDir, 'main', 'preload.cjs'));
+  let refsCjs = false;
+  try { refsCjs = readFileSync(join(appDir, 'main', 'main.mjs'), 'utf8').includes('preload.cjs'); } catch { /* */ }
+  ok('preload(cjs) 구성', hasCjs && refsCjs,
+    !hasCjs ? 'preload.cjs 없음' : (!refsCjs ? 'main.mjs 가 preload.cjs 미참조' : ''));
+}
+
 // ── 4) renderer 자산 ──
 {
   const need = ['renderer/index.html', 'renderer/shell.js', 'renderer/style.css'];

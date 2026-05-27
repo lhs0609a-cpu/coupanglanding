@@ -116,7 +116,7 @@ function createWindow(startHidden = false) {
   win = new BrowserWindow({
     width: 560, height: 680, resizable: true, show: false,
     title: APP_TITLE,
-    webPreferences: { preload: join(here, 'preload.mjs'), contextIsolation: true, nodeIntegration: false, sandbox: false },
+    webPreferences: { preload: join(here, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: false },
   });
   win.removeMenu();
   win.loadFile(join(appRoot, 'renderer', 'index.html'));
