@@ -96,6 +96,10 @@ const ok = (name, pass, detail = '') => results.push({ name, pass, detail });
 // ── 6) 시작 스모크 (exe 12초 생존 + stderr 무에러) ──
 async function smoke() {
   if (!existsSync(exe)) return ok('시작 스모크 (12초 생존)', false, `exe 없음: ${exe}`);
+  // ★ 단일실행 잠금 회피 — 기존 인스턴스(설치본/이전 테스트)를 먼저 종료해야
+  //   새 인스턴스가 lock 에 막혀 즉시종료(code=0)하는 가짜 실패를 막는다.
+  try { spawnSync('taskkill', ['/im', 'MegaloadDesktop.exe', '/f', '/t'], { stdio: 'ignore' }); } catch { /* */ }
+  await new Promise((r) => setTimeout(r, 1500));
   let stderr = '';
   let exitedEarly = null;
   const child = spawn(exe, ['--hidden', '--smoke-test'], { stdio: ['ignore', 'ignore', 'pipe'] });
