@@ -1,8 +1,10 @@
 // 셸 렌더러 — 모듈 목록으로 탭 생성, 클릭 시 해당 모듈 패널(panel.html + panel.js) 동적 로드.
 // 새 모듈은 main/modules + renderer/modules 에 추가하면 자동으로 탭이 생긴다.
-const api = window.api;
-// 방어: preload 가 api 를 노출 못 하면(과거 ESM preload 타이밍 버그 등) 빈 화면으로 멈추지 말고 원인 표시.
-if (!api || !api.manifest) {
+// ⚠️ contextBridge 가 노출한 전역 `api` 를 "그대로" 사용한다.
+//    `const api = window.api` 로 재선언하면 비구성(non-configurable) 전역과 충돌해
+//    "Identifier 'api' has already been declared" SyntaxError → shell.js 전체가 안 돈다(탭/연결 멈춤).
+//    절대 재선언 금지.
+if (typeof api === 'undefined' || !api || !api.manifest) {
   document.getElementById('panel').innerHTML =
     '<div style="padding:24px;color:#ef4444;font-size:13px;line-height:1.6">앱 내부 연결(preload)이 로드되지 않았습니다.<br>앱을 완전히 종료(트레이 우클릭→종료) 후 다시 실행하거나, 최신 버전으로 재설치해 주세요.</div>';
   throw new Error('window.api(preload) 미로드');
