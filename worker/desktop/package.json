@@ -9,7 +9,9 @@
   "scripts": {
     "sync": "node sync-runtime.mjs",
     "start": "node sync-runtime.mjs && electron .",
-    "dist": "node sync-runtime.mjs && electron-builder"
+    "dist": "node sync-runtime.mjs && electron-builder",
+    "healthcheck": "node healthcheck.mjs",
+    "release": "node sync-runtime.mjs && electron-builder && node healthcheck.mjs"
   },
   "dependencies": {
     "7zip-bin": "^5.2.0",
