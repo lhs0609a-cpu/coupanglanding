@@ -7,7 +7,7 @@ import {
   Wand2, Save, RotateCcw,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { WORKER_DOWNLOAD_URL } from '@/lib/megaload/worker-download';
+import { WORKER_DOWNLOAD_URL, WORKER_APP_VERSION } from '@/lib/megaload/worker-download';
 
 // 고정 태그(gpu-worker-update) 자산 → env 미설정이어도 동작. 배포 시 env 로 덮어쓰기 가능.
 const DOWNLOAD_URL = WORKER_DOWNLOAD_URL;
@@ -292,7 +292,8 @@ export default function LocalGpuWorkerSettings() {
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#E31837] text-white rounded-lg font-semibold text-sm hover:bg-[#c5142f] transition"
           >
             <Download className="w-4 h-4" />
-            워커 앱 다운로드 (Windows)
+            메가로드 도우미 다운로드 (Windows)
+            <span className="px-1.5 py-0.5 text-[10px] font-medium bg-white/20 rounded-full">v{WORKER_APP_VERSION}</span>
             <ExternalLink className="w-3 h-3 opacity-70" />
           </a>
         ) : (

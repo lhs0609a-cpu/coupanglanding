@@ -158,6 +158,7 @@ function registerShellIpc(manifest) {
     paired: !!pair && pair.isPaired(),
     webOrigin: WEB_ORIGIN,
     appTitle: APP_TITLE,
+    appVersion: app.getVersion(),
   }));
   ipcMain.handle('shell:pair-open', () => {
     if (!pair) throw new Error('페어링 서버 준비 안 됨');

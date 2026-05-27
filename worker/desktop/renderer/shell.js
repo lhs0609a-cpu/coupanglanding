@@ -6,6 +6,7 @@ const manifest = api.manifest;
 const $tabs = document.getElementById('tabs');
 const $panel = document.getElementById('panel');
 const $conn = document.getElementById('conn');
+const $ver = document.getElementById('ver');
 const $pair = document.getElementById('btn-pair');
 
 const loaded = {};      // id -> { root, mod }
@@ -53,6 +54,7 @@ async function refreshConn() {
     $conn.textContent = ok ? '✅ 메가로드 연결됨' : '⚪ 미연결';
     $conn.className = 'conn ' + (ok ? 'on' : 'off');
     $pair.style.display = ok ? 'none' : 'block';
+    if ($ver && s.appVersion) $ver.textContent = `v${s.appVersion}`;
   } catch { /* skip */ }
 }
 

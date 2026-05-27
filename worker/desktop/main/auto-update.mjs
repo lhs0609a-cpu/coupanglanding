@@ -47,14 +47,14 @@ export function setupAutoUpdate(opts) {
       buttons: ['지금 업데이트', '나중에'],
       defaultId: 0,
       cancelId: 1,
-      title: '쿠팡 썸네일 워커 업데이트',
+      title: '메가로드 도우미 업데이트',
       message: `새 버전 v${info.version} 이(가) 있습니다.`,
       detail: '지금 업데이트하면 자동으로 다운로드한 뒤 재시작하여 최신 버전으로 전환됩니다.\n(작업은 잠시 멈췄다가 설치 후 자동으로 다시 시작됩니다.)',
     };
     const { response } = win ? await dialog.showMessageBox(win, box) : await dialog.showMessageBox(box);
     if (response === 0) {
       autoUpdater.downloadUpdate().catch((e) => console.error('[auto-update] 다운로드 실패:', e));
-      try { new Notification({ title: '쿠팡 썸네일 워커', body: `v${info.version} 다운로드를 시작합니다…` }).show(); } catch { /* noop */ }
+      try { new Notification({ title: '메가로드 도우미', body: `v${info.version} 다운로드를 시작합니다…` }).show(); } catch { /* noop */ }
     } else {
       declinedVersion = info.version;
     }
@@ -67,7 +67,7 @@ export function setupAutoUpdate(opts) {
       buttons: ['지금 재시작하여 설치', '나중에'],
       defaultId: 0,
       cancelId: 1,
-      title: '쿠팡 썸네일 워커 업데이트 준비 완료',
+      title: '메가로드 도우미 업데이트 준비 완료',
       message: `v${info.version} 다운로드가 완료되었습니다.`,
       detail: '지금 재시작하면 설치 후 자동으로 다시 실행됩니다.\n나중에 선택해도 다음 종료 시 자동으로 설치됩니다.',
     };

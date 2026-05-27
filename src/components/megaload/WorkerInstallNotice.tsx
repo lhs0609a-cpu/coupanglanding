@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Cpu, Download, Settings2, CheckCircle2, Loader2, ExternalLink } from 'lucide-react';
-import { WORKER_DOWNLOAD_URL, WORKER_SETTINGS_URL } from '@/lib/megaload/worker-download';
+import { WORKER_DOWNLOAD_URL, WORKER_SETTINGS_URL, WORKER_APP_VERSION } from '@/lib/megaload/worker-download';
 
 interface WorkerStatus {
   online: boolean;
@@ -69,7 +69,7 @@ export default function WorkerInstallNotice({
       <div className={className}>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
           <CheckCircle2 className="w-3.5 h-3.5" />
-          메가로드 도우미 연결됨{names ? ` · ${names}` : ''}
+          메가로드 도우미 연결됨{names ? ` · ${names}` : ''} · 최신 v{WORKER_APP_VERSION}
         </span>
       </div>
     );
@@ -83,7 +83,9 @@ export default function WorkerInstallNotice({
           <Cpu className="w-4 h-4 text-indigo-600" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold text-gray-900">{copy.title}</div>
+          <div className="text-sm font-semibold text-gray-900">{copy.title}
+            <span className="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium bg-indigo-100 text-indigo-700 rounded-full align-middle">최신 v{WORKER_APP_VERSION}</span>
+          </div>
           <p className="text-xs text-gray-600 mt-1 leading-relaxed">{copy.desc}</p>
           <div className="flex flex-wrap items-center gap-2 mt-3">
             <a
