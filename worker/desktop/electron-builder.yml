@@ -40,3 +40,5 @@ nsis:
   createDesktopShortcut: true
   # 설치 직후 자동 실행 ON — 사용자가 일일이 안 켜도 바로 동작. (앱은 OS 시작 자동실행도 등록)
   runAfterFinish: true
+  # 설치/업데이트 시작 시 실행 중인 앱을 강제 종료(파일 잠금으로 설치 깨짐 방지). build/installer.nsh 참고.
+  include: build/installer.nsh
