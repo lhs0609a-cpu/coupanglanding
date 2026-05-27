@@ -1,11 +1,9 @@
-// 로컬 GPU 썸네일 워커(설치형 .exe) 배포 위치.
-//
-// electron-builder(generic) 가 읽는 고정 태그 'gpu-worker-update' 릴리스에
-// build-installer.ps1 이 CoupangThumbnailWorker-Setup.exe 를 항상 덮어쓰기 업로드한다.
-// → 태그/파일명이 불변이라 다운로드 URL 도 영구 불변. 따라서 env 없이도 동작하도록
-//   이 고정 URL 을 기본값으로 둔다(배포 환경에서 NEXT_PUBLIC_WORKER_DOWNLOAD_URL 로 덮어쓰기 가능).
+// 메가로드 도우미(통합 데스크톱 앱) 설치파일 — 고정 태그 'megaload-desktop-update' 릴리스의
+// MegaloadDesktop-Setup.exe (파일명/태그 불변 → URL 영구 불변).
+// ⚠️ 과거 env(NEXT_PUBLIC_WORKER_DOWNLOAD_URL)로 덮어쓰던 방식은 제거했다 —
+//    그 env 가 통합 전 옛 'CoupangThumbnailWorker-Setup.exe' URL 로 남아 있어,
+//    홈페이지에서 엉뚱하게 옛 워커가 받아지는 사고가 있었음. 이제 코드값을 강제 사용.
 export const WORKER_DOWNLOAD_URL =
-  process.env.NEXT_PUBLIC_WORKER_DOWNLOAD_URL ||
   'https://github.com/lhs0609a-cpu/coupanglanding/releases/download/megaload-desktop-update/MegaloadDesktop-Setup.exe';
 
 // 워커 설치 방법·사양 체크가 있는 설정 탭.
