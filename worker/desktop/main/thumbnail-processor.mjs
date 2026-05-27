@@ -10,8 +10,22 @@
 // 모델: onnx-community/BiRefNet_lite (MIT). userData/hf-cache 에 최초 1회 캐시.
 // ============================================================
 
-import sharp from 'sharp';
-import { pipeline, env, RawImage } from '@huggingface/transformers';
+// ⚠️ sharp(네이티브) + @huggingface/transformers(onnxruntime 네이티브)는 무겁고,
+//    패키징된 Electron 에서 top-level import 시 로드 실패하면 메인 프로세스가
+//    창을 띄우기도 전에 즉시 죽는다(= "앱이 아무것도 안 뜸"). 그래서 지연 로딩한다 —
+//    썸네일 누끼/재생성을 실제로 호출할 때만 로드하고, 실패해도 앱·다른 모듈(LLM 등)은 정상.
+let sharp, pipeline, env, RawImage;
+let _depsPromise = null;
+async function ensureDeps() {
+  if (!_depsPromise) {
+    _depsPromise = (async () => {
+      sharp = (await import('sharp')).default;
+      const tf = await import('@huggingface/transformers');
+      pipeline = tf.pipeline; env = tf.env; RawImage = tf.RawImage;
+    })();
+  }
+  return _depsPromise;
+}
 
 const MODEL = 'onnx-community/BiRefNet_lite';
 const CANVAS = 1000;
@@ -91,6 +105,7 @@ async function prefillOnWhite(cutoutPng) {
  *          mode?:'cutout'|'regenerate', img2imgFn?:(rgbPng:Buffer)=>Promise<Buffer>}} [opts]
  */
 export async function processCutoutThumbnail(inputBuffer, { canvas = CANVAS, padRatio = PAD_RATIO, cacheDir, mode = 'cutout', img2imgFn, regenPrompt, regenNegative } = {}) {
+  await ensureDeps(); // 무거운 네이티브 의존성 지연 로딩 (이 함수가 실제 호출될 때만)
   const cut = await cutout(inputBuffer, cacheDir);
 
   if (mode === 'regenerate' && img2imgFn) {

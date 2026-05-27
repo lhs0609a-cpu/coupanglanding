@@ -4,7 +4,7 @@
 //   기능은 main/modules/<id>/module.mjs 플러그인으로 자동 탑재된다.
 //   (미래 프로그램도 모듈 파일만 추가하면 같은 설치본/자동업데이트로 따라 들어옴)
 // ============================================================
-import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell, dialog } from 'electron';
+import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell, dialog, Notification } from 'electron';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
@@ -126,8 +126,9 @@ function createWindow(startHidden = false) {
 }
 
 function trayIcon() {
+  // 브랜드 빨강(#E31837) 16x16 — 투명/빈 아이콘이면 트레이에서 안 보여 "앱이 안 떴다"고 오해함.
   return nativeImage.createFromDataURL(
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAQUlEQVR4nGNgGAWjYBSMglEwCkbBKBgFo2AUjIJRMApGwSgYBaNgFIyCUTAKRsEoGAWjYBSMglEwCkbBKBgFAFb4AAGcm5pVAAAAAElFTkSuQmCC',
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAJUlEQVR4nGN4LGHOAMX/ScRgfQzUMIBUjSh41IBRA4aRAQObGwFL1SEvAOLhigAAAABJRU5ErkJggg==',
   );
 }
 
@@ -190,7 +191,16 @@ app.whenReady().then(async () => {
   const openedAtLogin = app.getLoginItemSettings().wasOpenedAtLogin || process.argv.includes('--hidden');
   createWindow(openedAtLogin); // 부팅 자동실행이면 창 숨김(트레이만), 직접 실행이면 창 표시
   tray = new Tray(trayIcon());
+  tray.on('click', () => { win?.show(); win?.focus(); });        // 좌클릭으로 창 열기
+  tray.on('double-click', () => { win?.show(); win?.focus(); });
   updateTray();
+
+  // 백그라운드(숨김)로 떴으면 사용자가 인지하도록 1회 알림 — 트레이 아이콘을 못 찾는 문제 완화.
+  if (openedAtLogin) {
+    try {
+      new Notification({ title: APP_TITLE, body: '백그라운드에서 실행 중입니다. 작업표시줄 오른쪽 트레이의 빨간 아이콘을 클릭하면 창이 열립니다.' }).show();
+    } catch { /* 알림 미지원 무시 */ }
+  }
 
   setupAutoUpdate({ getWindow: () => win });
 
@@ -218,6 +228,9 @@ app.whenReady().then(async () => {
   sendHeartbeat();
   setInterval(sendHeartbeat, 30_000);
   autoStartIfReady();
+}).catch((e) => {
+  // 시작 중 예외가 나면 조용히 죽지 않고 원인을 보여준다(= "아무것도 안 뜸" 방지/진단).
+  try { dialog.showErrorBox('메가로드 도우미 시작 오류', String(e?.stack || e?.message || e)); } catch { /* ignore */ }
 });
 
 app.on('before-quit', async (e) => {
