@@ -76,6 +76,20 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
 
   // Deposit confirm modal (deposited -> confirmed + tax invoice)
   const [depositConfirmModal, setDepositConfirmModal] = useState<{ report: MonthlyReport } | null>(null);
+  // 수수료율(순수익 share %) 인라인 편집 — 0~100, PT생별 지정. 저장 시 모든 정산·청구 계산에 즉시 반영.
+  const [editingShare, setEditingShare] = useState(false);
+  const [shareInput, setShareInput] = useState('');
+  const [savingShare, setSavingShare] = useState(false);
+  const saveShare = useCallback(async () => {
+    const val = Number(shareInput);
+    if (!Number.isFinite(val) || val < 0 || val > 100) { alert('수수료율은 0~100 사이 숫자여야 합니다.'); return; }
+    setSavingShare(true);
+    const { error } = await supabase.from('pt_users').update({ share_percentage: val }).eq('id', id);
+    setSavingShare(false);
+    if (error) { alert('저장 실패: ' + error.message); return; }
+    setPtUser((prev) => (prev ? { ...prev, share_percentage: val } : prev));
+    setEditingShare(false);
+  }, [shareInput, supabase, id]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -362,8 +376,32 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
             <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider">PT 설정</h3>
             <div className="space-y-2">
               <div>
-                <span className="text-xs text-gray-400">수수료율</span>
-                <p className="text-sm font-medium text-gray-900">{formatPercent(ptUser.share_percentage)}</p>
+                <span className="text-xs text-gray-400">수수료율 <span className="text-gray-300">(순수익 share)</span></span>
+                {editingShare ? (
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <input
+                      type="number" min={0} max={100} step={1} autoFocus
+                      value={shareInput}
+                      onChange={(e) => setShareInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') saveShare(); if (e.key === 'Escape') setEditingShare(false); }}
+                      className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
+                    />
+                    <span className="text-sm text-gray-500">%</span>
+                    <button onClick={saveShare} disabled={savingShare}
+                      className="px-2 py-1 text-xs bg-[#E31837] text-white rounded hover:bg-red-700 disabled:opacity-50">
+                      {savingShare ? '저장…' : '저장'}
+                    </button>
+                    <button onClick={() => setEditingShare(false)} className="px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 rounded">취소</button>
+                  </div>
+                ) : (
+                  <p className="text-sm font-medium text-gray-900 flex items-center gap-2">
+                    {formatPercent(ptUser.share_percentage)}
+                    <button
+                      onClick={() => { setShareInput(String(ptUser.share_percentage ?? 30)); setEditingShare(true); }}
+                      className="text-xs text-blue-600 hover:underline"
+                    >수정</button>
+                  </p>
+                )}
               </div>
               {totalListings > 0 && (() => {
                 const d = calculateListingDiscount(totalListings, 1000000);
