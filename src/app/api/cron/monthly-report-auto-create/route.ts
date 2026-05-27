@@ -153,6 +153,12 @@ export async function GET(request: NextRequest) {
       const sharePct = (ptUser as { share_percentage?: number | null }).share_percentage ?? 30;
       const depositAmount = calculateDeposit(revenue, costs, sharePct);
       const vatCalc = calculateVatOnTop(depositAmount);
+      // 청구액 0원(수수료율 0% 또는 순이익≤0)이면 청구 사이클에 넣지 않는다.
+      //   awaiting_payment 로 두면 auto-billing 은 0원이라 skip 하지만, fee-payment-check 가
+      //   마감일 초과 시 overdue→suspended(프로그램 접근 락)로 올려버려 "0원인데 락" 버그가 됨.
+      //   → 즉시 'paid'(청구 불필요)로 종결.
+      const nothingToBill = vatCalc.totalWithVat <= 0;
+      const nowIso = new Date().toISOString();
 
       // monthly_reports row 자동 생성 — 즉시 청구 가능 상태로
       const { error: insertErr } = await serviceClient
@@ -180,8 +186,9 @@ export async function GET(request: NextRequest) {
           input_source: 'api_auto',
           // 핵심: 즉시 청구 대상으로 — PT생이 광고비 수정하면 그 값으로 재계산되지만
           // 미수정 시 광고비 0 가정으로 자동결제 진행 (확정 대기로 영원히 막히는 버그 차단)
-          fee_payment_status: 'awaiting_payment',
-          fee_payment_deadline: feePaymentDeadlineISO(targetMonth),
+          fee_payment_status: nothingToBill ? 'paid' : 'awaiting_payment',
+          fee_payment_deadline: nothingToBill ? null : feePaymentDeadlineISO(targetMonth),
+          fee_paid_at: nothingToBill ? nowIso : null,
           fee_surcharge_amount: 0,
           fee_interest_amount: 0,
         });

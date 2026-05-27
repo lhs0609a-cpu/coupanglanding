@@ -54,6 +54,14 @@ export async function GET(request: NextRequest) {
 
     for (const report of (awaitingReports || [])) {
       if (!report.fee_payment_deadline) continue;
+      // 청구액 0원(수수료율 0%/순이익≤0)은 낼 게 없으므로 연체/정지 대상 아님 → 락 방지.
+      if ((report.total_with_vat || 0) <= 0) {
+        await serviceClient
+          .from('monthly_reports')
+          .update({ fee_payment_status: 'paid', fee_paid_at: new Date().toISOString() })
+          .eq('id', report.id);
+        continue;
+      }
       if (excludedPtUserIds.has(report.pt_user_id)) {
         billingExcludedSkipped++;
         continue;
@@ -144,6 +152,14 @@ export async function GET(request: NextRequest) {
 
     for (const report of (overdueReports || [])) {
       if (!report.fee_payment_deadline) continue;
+      // 0원 청구는 정지(락) 대상 아님 → 자동 종결.
+      if ((report.total_with_vat || 0) <= 0) {
+        await serviceClient
+          .from('monthly_reports')
+          .update({ fee_payment_status: 'paid', fee_paid_at: new Date().toISOString() })
+          .eq('id', report.id);
+        continue;
+      }
       if (excludedPtUserIds.has(report.pt_user_id)) {
         billingExcludedSkipped++;
         continue;
