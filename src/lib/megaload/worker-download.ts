@@ -14,4 +14,4 @@ export const WORKER_SETTINGS_URL = '/megaload/settings?tab=localgpu';
 // 현재 발행된 "메가로드 도우미(데스크톱 앱)" 버전. 다운로드 URL 은 버전 무관 고정이라,
 // 사용자에게 "지금 받으면/돌고 있는 게 몇 버전인지" 알리는 라벨로 쓴다.
 // ⚠️ 도우미 릴리스(worker/desktop/package.json) 올릴 때 이 값도 함께 올린다.
-export const WORKER_APP_VERSION = '0.2.4';
+export const WORKER_APP_VERSION = '0.2.5';

@@ -5,7 +5,8 @@ import { join, dirname } from 'node:path';
 import { Session } from '../runtime/supabase-rest.mjs';
 import { loadWorkflow, generateThumbnail } from '../runtime/comfyui-client.mjs';
 import { runPullLoop } from '../runtime/pull-loop.mjs';
-import { runLlmPullLoop } from '../runtime/llm-pull-loop.mjs';
+// ⚠️ runLlmPullLoop 는 startLlmLoop() 안에서 동적 import 한다 — 이 파일이 패키지에 누락돼도
+//    (top-level import 였을 때처럼) 메인 프로세스가 로드 단계에서 죽지 않게 하기 위함.
 import { processCutoutThumbnail } from './thumbnail-processor.mjs';
 
 const DEFAULT_POSITIVE =
@@ -62,14 +63,16 @@ export class WorkerRunner {
     this.llmAbort = new AbortController();
     const host = hostname();
     const workerId = `${host}-llm`;
-    this.llmLoopPromise = runLlmPullLoop({
-      session: this.session,
-      workerId,
-      hostname: host,
-      pollMs: 4000,
-      signal: this.llmAbort.signal,
-      onEvent: (e) => this.onEvent({ scope: 'llm', ...e }),
-    })
+    // 동적 import — 파일 누락/로드 실패해도 앱 본체엔 영향 없음(LLM 재생성만 비활성).
+    this.llmLoopPromise = import('../runtime/llm-pull-loop.mjs')
+      .then(({ runLlmPullLoop }) => runLlmPullLoop({
+        session: this.session,
+        workerId,
+        hostname: host,
+        pollMs: 4000,
+        signal: this.llmAbort.signal,
+        onEvent: (e) => this.onEvent({ scope: 'llm', ...e }),
+      }))
       .catch((e) => this.onEvent({ type: 'warn', message: `LLM 루프 종료: ${e.message}` }))
       .finally(() => { this.llmAbort = null; this.llmLoopPromise = null; });
   }
