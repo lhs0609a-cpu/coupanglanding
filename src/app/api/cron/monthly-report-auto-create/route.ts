@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
   // 활성 PT 사용자 (signed 계약, is_test_account=false)
   const { data: ptUsers } = await serviceClient
     .from('pt_users')
-    .select(`id, profile_id, billing_excluded_until, contracts!inner(status)`)
+    .select(`id, profile_id, share_percentage, billing_excluded_until, contracts!inner(status)`)
     .eq('contracts.status', 'signed')
     .eq('is_test_account', false);
 
@@ -149,7 +149,9 @@ export async function GET(request: NextRequest) {
       const revenue = effectiveTotal;
       const costs = buildCostBreakdown(revenue, 0); // 광고비는 사용자가 추가 입력
       const netProfit = calculateNetProfit(revenue, costs);
-      const depositAmount = calculateDeposit(revenue, costs, 30); // 기본 30%
+      // PT생별 지정 수수료율 사용(미지정 시 30%). auto-billing 이 이 리포트를 그대로 청구하므로 핵심.
+      const sharePct = (ptUser as { share_percentage?: number | null }).share_percentage ?? 30;
+      const depositAmount = calculateDeposit(revenue, costs, sharePct);
       const vatCalc = calculateVatOnTop(depositAmount);
 
       // monthly_reports row 자동 생성 — 즉시 청구 가능 상태로

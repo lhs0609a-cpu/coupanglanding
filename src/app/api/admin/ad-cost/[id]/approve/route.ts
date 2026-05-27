@@ -70,6 +70,14 @@ export async function POST(
     .eq('year_month', sub.year_month)
     .maybeSingle();
 
+  // PT생별 지정 수수료율 — 30% 고정이 아니라 사용자 설정값 사용(정산 일관성).
+  const { data: ptShare } = await serviceClient
+    .from('pt_users')
+    .select('share_percentage')
+    .eq('id', sub.pt_user_id)
+    .single();
+  const sharePercentage = (ptShare as { share_percentage?: number | null } | null)?.share_percentage ?? 30;
+
   // 차감 인정액 = 표준 상한 캡 적용 (allowOverCap 이면 전액 인정).
   //   reported_revenue 기준으로 캡 — 청구 계산이 쓰는 매출과 동일 기준.
   const revenueForCap = Number(existingReport?.reported_revenue) || 0;
@@ -84,7 +92,6 @@ export async function POST(
       cost_advertising: deductibleAdCost,
     };
     const revenue = revenueForCap;
-    const sharePercentage = 30; // 기본 — 추후 user.share_percentage 기반으로 개선 가능
     const newDeposit = calculateDeposit(revenue, updatedCosts, sharePercentage);
     const newVatCalc = calculateVatOnTop(newDeposit);
 
