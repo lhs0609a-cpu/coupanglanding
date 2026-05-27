@@ -76,3 +76,15 @@ manifest.modules.forEach((m) => $tabs.appendChild(makeTab(m)));
 if (manifest.modules[0]) selectTab(manifest.modules[0].id);
 refreshConn();
 setInterval(refreshConn, 10_000);
+
+// 자가진단 보고 — healthcheck 가 이 결과(탭 수/api)를 읽어 "UI 실제 렌더"를 검증한다.
+setTimeout(() => {
+  try {
+    api.invoke('shell:selftest', {
+      hasApi: true,
+      tabs: $tabs.querySelectorAll('.tab').length,
+      conn: $conn ? $conn.textContent : '',
+      ver: $ver ? $ver.textContent : '',
+    });
+  } catch { /* ignore */ }
+}, 2500);

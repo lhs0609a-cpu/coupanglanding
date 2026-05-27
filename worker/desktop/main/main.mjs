@@ -7,8 +7,8 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell, dialog, Notification } from 'electron';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
-import { hostname } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { hostname, tmpdir } from 'node:os';
 import { rpc } from '../runtime/supabase-rest.mjs';
 import { Store } from './store.mjs';
 import { ComfyManager } from './comfy-manager.mjs';
@@ -167,6 +167,15 @@ function registerShellIpc(manifest) {
   });
   ipcMain.handle('shell:open-data', () => shell.openPath(app.getPath('userData')));
 
+  // 렌더러 자가진단 — shell.js 가 로드 끝나면 호출. healthcheck 가 이 파일을 읽어 "UI 실제 렌더" 검증.
+  ipcMain.handle('shell:selftest', (_e, payload = {}) => {
+    try {
+      writeFileSync(join(tmpdir(), 'megaload-desktop-selftest.json'),
+        JSON.stringify({ ...payload, ver: app.getVersion(), t: Date.now() }));
+    } catch { /* ignore */ }
+    return true;
+  });
+
   // 모듈 패널 자산(panel.html/panel.js) 을 IPC 로 읽어 렌더러에 전달 — file:// fetch 차단 회피.
   ipcMain.handle('shell:asset', (_e, { id, file } = {}) => {
     if (!/^[a-z0-9-]+$/i.test(id || '') || !/^[a-z0-9.]+$/i.test(file || '')) throw new Error('잘못된 자산 경로');
@@ -183,7 +192,7 @@ app.whenReady().then(async () => {
   const { manifest, trayContribs: contribs } = await loadModules(ctx);
   trayContribs = contribs;
   // 셸 채널을 manifest 에 합쳐 preload allowlist 에 포함
-  manifest.invokable.push('shell:state', 'shell:pair-open', 'shell:open-data', 'shell:asset');
+  manifest.invokable.push('shell:state', 'shell:pair-open', 'shell:open-data', 'shell:asset', 'shell:selftest');
   manifest.events.push('shell:pair-done');
   registerShellIpc(manifest);
 

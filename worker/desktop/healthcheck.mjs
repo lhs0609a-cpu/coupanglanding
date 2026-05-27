@@ -11,10 +11,11 @@
 //   5) 버전 일치 (package.json == latest.yml == 웹 WORKER_APP_VERSION)
 //   6) 시작 스모크 — exe 를 --hidden 으로 띄워 12초 생존 + stderr 무에러
 // ============================================================
-import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, statSync, rmSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, 'dist');
@@ -151,6 +152,26 @@ async function installerSmoke() {
     installedV ? `설치 완료 v${installedV}` : '설치 실패 — 설치 폴더/버전 확인 불가(중간에 깨짐)');
 }
 await installerSmoke();
+
+// ── 8) 렌더러 스모크 — 앱을 실제로 띄워 UI(window.api·탭)가 렌더되는지 자가진단 파일로 확인 ──
+//    (프로세스 생존 스모크는 main 만 보므로 preload/렌더러 깨짐을 못 잡음 → 이 테스트가 잡는다)
+async function rendererSmoke() {
+  if (!existsSync(exe)) return ok('렌더러 스모크 (UI 렌더)', false, 'exe 없음');
+  const stFile = join(tmpdir(), 'megaload-desktop-selftest.json');
+  try { if (existsSync(stFile)) rmSync(stFile, { force: true }); } catch { /* */ }
+  try { spawnSync('taskkill', ['/im', 'MegaloadDesktop.exe', '/f', '/t'], { stdio: 'ignore' }); } catch { /* */ }
+  await new Promise((r) => setTimeout(r, 1500));
+  const child = spawn(exe, [], { stdio: 'ignore' }); // --hidden 없이 → 창+렌더러 완전 로드
+  await new Promise((r) => setTimeout(r, 15000));
+  try { child.kill(); } catch { /* */ }
+  try { spawnSync('taskkill', ['/im', 'MegaloadDesktop.exe', '/f', '/t'], { stdio: 'ignore' }); } catch { /* */ }
+  let st = null;
+  if (existsSync(stFile)) { try { st = JSON.parse(readFileSync(stFile, 'utf8')); } catch { /* */ } }
+  ok('렌더러 스모크 (UI 렌더+탭)', !!(st && st.hasApi && st.tabs > 0),
+    st ? `탭=${st.tabs}, api=${st.hasApi}, 연결="${st.conn}"`
+       : 'selftest 미기록 — 렌더러 동작 안 함(preload/탭 실패)');
+}
+await rendererSmoke();
 
 // ── 결과 보드 ──
 console.log('\n┌─────────────── 발행 전 신호기 ───────────────');
