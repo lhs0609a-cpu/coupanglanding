@@ -50,6 +50,54 @@ function imageSortKey(name: string): string {
   return name.replace(/(\d+)/g, (n) => n.padStart(8, '0')).toLowerCase();
 }
 
+const CATALOG_BUCKET = 'product-images';
+
+function inferExt(name: string, mimeType?: string): string {
+  const m = (name || '').match(/\.([a-z0-9]+)$/i);
+  if (m) return m[1].toLowerCase();
+  if (mimeType?.includes('png')) return 'png';
+  if (mimeType?.includes('webp')) return 'webp';
+  return 'jpg';
+}
+
+/**
+ * GDrive 이미지를 "공유 카탈로그 경로"(catalog/{folderId}/...)로 1벌만 복사하고 cdn_url 을 채운다.
+ * - 모든 PT생이 이 한 벌을 재사용 → 등록마다·PT생마다 복사하던 비용 폭증 회피.
+ * - 변경된 폴더에서만 호출됨(상위 skip 로직). upsert:true 라 재동기화 시 안전 덮어쓰기.
+ * - 개별 실패 시 cdn_url=null → 등록 단계가 GDrive 직접 다운로드로 폴백 가능.
+ */
+async function copySharedImages(
+  serviceClient: Awaited<ReturnType<typeof createServiceClient>>,
+  folderId: string,
+  imagesPayload: Array<Record<string, unknown>>,
+): Promise<Array<Record<string, unknown>>> {
+  const CONC = 4;
+  const out = new Array<Record<string, unknown>>(imagesPayload.length);
+  let next = 0;
+  async function worker() {
+    while (next < imagesPayload.length) {
+      const i = next++;
+      const img = imagesPayload[i];
+      try {
+        const { buffer, mimeType } = await downloadFile(img.id as string);
+        const ext = inferExt(img.name as string, mimeType || (img.mime_type as string));
+        const path = `catalog/${folderId}/${String(i).padStart(3, '0')}_${img.id}.${ext}`;
+        const { error } = await serviceClient.storage
+          .from(CATALOG_BUCKET)
+          .upload(path, buffer, { contentType: mimeType || (img.mime_type as string) || 'image/jpeg', cacheControl: '31536000', upsert: true });
+        if (error) throw new Error(error.message);
+        const { data: pub } = serviceClient.storage.from(CATALOG_BUCKET).getPublicUrl(path);
+        out[i] = { ...img, cdn_url: pub.publicUrl };
+      } catch (e) {
+        console.warn(`[catalog-sync] 이미지 복사 실패 folder=${folderId} ${img.name}:`, e instanceof Error ? e.message : e);
+        out[i] = { ...img, cdn_url: null };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONC, imagesPayload.length) }, () => worker()));
+  return out;
+}
+
 async function readProductJson(folderId: string, files: DriveFile[]): Promise<ProductJson | null> {
   const meta = files.find((f) => f.name.toLowerCase() === 'product.json');
   if (!meta) return null;
@@ -120,6 +168,10 @@ async function syncFolder(
       }
     }
 
+    // 변경/신규 폴더만: 이미지를 공유 Supabase 경로로 1벌 복사 + cdn_url 채움.
+    //   (등록 단계에서 PT생마다 복사하던 것을 여기로 옮겨 비용·속도 모두 개선)
+    const imagesWithUrl = await copySharedImages(serviceClient, folder.id, imagesPayload);
+
     const payload = {
       drive_folder_id: folder.id,
       drive_folder_name: folder.name,
@@ -131,7 +183,7 @@ async function syncFolder(
       coupang_category_code: productJson?.coupang_category_code ?? null,
       suggested_price: productJson?.suggested_price ?? null,
       cost_price: productJson?.cost_price ?? null,
-      images: imagesPayload,
+      images: imagesWithUrl,
       main_image_count: mainCount,
       detail_image_count: detailCount,
       options: productJson?.options ?? [],

@@ -15,6 +15,7 @@ interface CatalogImage {
   height: number | null;
   thumbnail_link: string | null;
   kind: 'main' | 'detail' | 'option';
+  cdn_url?: string | null; // 동기화 때 공유 경로로 1벌 복사된 URL (있으면 재복사 없이 재사용)
 }
 
 interface CatalogProductRow {
@@ -154,27 +155,23 @@ export async function POST(
 
     const uploadResults = await Promise.all(
       images.map(async (img, idx) => {
-        const { buffer, mimeType } = await downloadFile(img.id);
-        const ext = inferExt(img.name, mimeType);
-        const storagePath = `megaload/${shUserId}/catalog/${catalogProductId}/${idx.toString().padStart(3, '0')}_${img.id}.${ext}`;
-
-        const { error: uploadErr } = await serviceClient.storage
-          .from('product-images')
-          .upload(storagePath, buffer, {
-            contentType: mimeType || 'image/jpeg',
-            cacheControl: '31536000',
-            upsert: true,
-          });
-        if (uploadErr) {
-          throw new Error(`이미지 업로드 실패 (${img.name}): ${uploadErr.message}`);
+        // ✅ 동기화 때 공유 경로로 1벌 복사된 cdn_url 이 있으면 재복사 없이 그대로 사용.
+        //    (PT생마다·등록마다 GDrive 다운로드+재업로드하던 비용·지연 제거 → 빠르고 저렴)
+        let url = img.cdn_url || '';
+        if (!url) {
+          // 폴백: 아직 공유 복사 안 된 구(舊) 카탈로그 항목 → GDrive 에서 1회 복사
+          const { buffer, mimeType } = await downloadFile(img.id);
+          const ext = inferExt(img.name, mimeType);
+          const storagePath = `catalog/${product.id}/${idx.toString().padStart(3, '0')}_${img.id}.${ext}`;
+          const { error: uploadErr } = await serviceClient.storage
+            .from('product-images')
+            .upload(storagePath, buffer, { contentType: mimeType || 'image/jpeg', cacheControl: '31536000', upsert: true });
+          if (uploadErr) throw new Error(`이미지 업로드 실패 (${img.name}): ${uploadErr.message}`);
+          url = serviceClient.storage.from('product-images').getPublicUrl(storagePath).data.publicUrl;
         }
 
-        const { data: pub } = serviceClient.storage
-          .from('product-images')
-          .getPublicUrl(storagePath);
-
         return {
-          url: pub.publicUrl,
+          url,
           kind: img.kind,
           width: img.width,
           height: img.height,
