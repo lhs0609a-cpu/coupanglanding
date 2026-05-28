@@ -71,6 +71,8 @@ $pair.onclick = async () => {
   try { await api.invoke('shell:pair-open'); } catch (e) { $pair.textContent = '연결 실패: ' + e.message; }
 };
 document.getElementById('btn-data').onclick = () => api.invoke('shell:open-data');
+const $log = document.getElementById('btn-log');
+if ($log) $log.onclick = () => api.invoke('shell:open-update-log');
 const $upd = document.getElementById('btn-update');
 if ($upd) $upd.onclick = async () => {
   $upd.disabled = true; const t = $upd.textContent; $upd.textContent = '확인 중…';

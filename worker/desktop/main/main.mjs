@@ -172,6 +172,8 @@ function registerShellIpc(manifest) {
   });
   ipcMain.handle('shell:open-data', () => shell.openPath(app.getPath('userData')));
   ipcMain.handle('shell:check-update', () => { checkForUpdatesNow(() => win); return true; });
+  // 자동업데이트 로그 파일 열기 — 업데이트가 안 될 때 무슨 일이 있었는지 사용자가 직접 확인.
+  ipcMain.handle('shell:open-update-log', () => shell.openPath(join(tmpdir(), 'megaload-autoupdate.log')));
 
   // 렌더러 자가진단 — shell.js 가 로드 끝나면 호출. healthcheck 가 이 파일을 읽어 "UI 실제 렌더" 검증.
   ipcMain.handle('shell:selftest', (_e, payload = {}) => {
@@ -198,7 +200,7 @@ app.whenReady().then(async () => {
   const { manifest, trayContribs: contribs } = await loadModules(ctx);
   trayContribs = contribs;
   // 셸 채널을 manifest 에 합쳐 preload allowlist 에 포함
-  manifest.invokable.push('shell:state', 'shell:pair-open', 'shell:open-data', 'shell:asset', 'shell:selftest', 'shell:check-update');
+  manifest.invokable.push('shell:state', 'shell:pair-open', 'shell:open-data', 'shell:asset', 'shell:selftest', 'shell:check-update', 'shell:open-update-log');
   manifest.events.push('shell:pair-done');
   registerShellIpc(manifest);
 
