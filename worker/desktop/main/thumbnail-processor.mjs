@@ -161,6 +161,75 @@ async function cropToMainProduct(cutoutPng) {
 }
 
 /**
+ * 누끼(RGBA)에서 '명백히 기울어진 직사각형 상품'만 수평 보정(deskew).
+ * 안전 원칙 — 더 나빠질 일이 없게:
+ *   1) 잘린 상품(경계 접촉↑)·둥근/불규칙 상품(직사각도 낮음)·미세각(<4°)·과대각(>22°)은 건드리지 않음
+ *   2) 추정각으로 ±양방향 회전 후 '축정렬 bbox 면적이 실제로 더 작아질 때만' 적용(아니면 원본)
+ * @param {Buffer} cutoutPng 투명배경 RGBA
+ */
+async function deskewIfTilted(cutoutPng) {
+  try {
+    const meta = await sharp(cutoutPng).metadata();
+    const W0 = meta.width, H0 = meta.height;
+    if (!W0 || !H0) return cutoutPng;
+    const LW = Math.min(360, W0), scale = (Math.min(360, W0)) / W0;
+    const LH = Math.max(1, Math.round(H0 * scale));
+    const raw = await sharp(cutoutPng).resize(LW, LH, { fit: 'fill' }).ensureAlpha().raw().toBuffer();
+    const on = (x, y) => raw[(y * LW + x) * 4 + 3] > 96;
+
+    // 경계 접촉 → 잘림 의심 시 보정 안 함(형태 불완전)
+    let edgeHits = 0;
+    for (let x = 0; x < LW; x++) { if (on(x, 0)) edgeHits++; if (on(x, LH - 1)) edgeHits++; }
+    for (let y = 0; y < LH; y++) { if (on(0, y)) edgeHits++; if (on(LW - 1, y)) edgeHits++; }
+    if (edgeHits / (2 * (LW + LH)) > 0.12) return cutoutPng;
+
+    // 윤곽점 → 볼록껍질
+    const pts = [];
+    for (let y = 0; y < LH; y++) { let l = -1, r = -1; for (let x = 0; x < LW; x++) if (on(x, y)) { if (l < 0) l = x; r = x; } if (l >= 0) { pts.push([l, y]); pts.push([r, y]); } }
+    if (pts.length < 8) return cutoutPng;
+    pts.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const lo = []; for (const p of pts) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+    const up = []; for (let i = pts.length - 1; i >= 0; i--) { const p = pts[i]; while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); }
+    const hull = lo.slice(0, -1).concat(up.slice(0, -1));
+    if (hull.length < 4) return cutoutPng;
+    let hullArea = 0; for (let i = 0, j = hull.length - 1; i < hull.length; j = i++) hullArea += hull[j][0] * hull[i][1] - hull[i][0] * hull[j][1];
+    hullArea = Math.abs(hullArea) / 2;
+    if (hullArea < LW * LH * 0.03) return cutoutPng;
+
+    // 최소면적 외접 사각형 각도(0~89° 스윕) + 직사각도
+    let bestArea = Infinity, bestDeg = 0;
+    for (let deg = 0; deg < 90; deg++) {
+      const t = deg * Math.PI / 180, ct = Math.cos(t), st = Math.sin(t);
+      let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity;
+      for (const [px, py] of hull) { const rx = px * ct - py * st, ry = px * st + py * ct; if (rx < mnx) mnx = rx; if (rx > mxx) mxx = rx; if (ry < mny) mny = ry; if (ry > mxy) mxy = ry; }
+      const area = (mxx - mnx) * (mxy - mny);
+      if (area < bestArea) { bestArea = area; bestDeg = deg; }
+    }
+    if (hullArea / bestArea < 0.72) return cutoutPng; // 직사각형 아님 → 보정 안 함
+    let ang = bestDeg > 45 ? bestDeg - 90 : bestDeg;
+    if (Math.abs(ang) < 4 || Math.abs(ang) > 22) return cutoutPng; // 미세/과대각 제외
+
+    // ±양방향 회전 후 더 반듯해진(트림 면적 작은) 쪽만 채택. 둘 다 원본보다 안 작으면 원본 유지.
+    const trimArea = async (a) => {
+      try {
+        const r = await sharp(cutoutPng).rotate(a, { background: { r: 0, g: 0, b: 0, alpha: 0 } }).trim().png().toBuffer();
+        const m = await sharp(r).metadata();
+        return { area: (m.width || 1e9) * (m.height || 1e9), buf: r };
+      } catch { return { area: Infinity, buf: cutoutPng }; }
+    };
+    const base = (await sharp(cutoutPng).trim().metadata().catch(() => ({}))) || {};
+    const baseArea = (base.width || W0) * (base.height || H0);
+    const pos = await trimArea(ang), neg = await trimArea(-ang);
+    const best = pos.area <= neg.area ? pos : neg;
+    return best.area < baseArea * 0.97 ? best.buf : cutoutPng; // 3%+ 더 반듯할 때만 적용
+  } catch (e) {
+    console.warn('[thumb] deskew 건너뜀:', e?.message || e);
+    return cutoutPng;
+  }
+}
+
+/**
  * @param {Buffer} inputBuffer
  * @param {{canvas?:number,padRatio?:number,cacheDir?:string,
  *          mode?:'cutout'|'regenerate', img2imgFn?:(rgbPng:Buffer)=>Promise<Buffer>}} [opts]
@@ -183,7 +252,9 @@ export async function processCutoutThumbnail(inputBuffer, { canvas = CANVAS, pad
     }
   }
 
-  // 누끼 모드(및 재생성 폴백): 메인 상품으로 크롭 → 중앙정렬 흰배경. 실물 글자 그대로 보존(재생성 X).
+  // 누끼 모드(및 재생성 폴백): 메인 상품 크롭 → 수평보정(기울어진 직사각 상품만) → 중앙정렬 흰배경.
+  //   실물 글자 그대로 보존(재생성 X). deskew 는 자기검증식이라 더 반듯해질 때만 적용.
   const main = await cropToMainProduct(cut);
-  return composeWhite(main, canvas, padRatio);
+  const leveled = await deskewIfTilted(main);
+  return composeWhite(leveled, canvas, padRatio);
 }
