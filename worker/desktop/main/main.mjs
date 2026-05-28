@@ -19,6 +19,11 @@ import * as bootstrap from './bootstrap.mjs';
 import { setupAutoUpdate } from './auto-update.mjs';
 import { loadModules } from './shell/registry.mjs';
 
+// ⚠️ 자동업데이트 피드 fetch 시 "net::ERR_FAILED / Network service crashed" 회피.
+//    일부 Windows/보안SW 환경에서 Electron 네트워크 서비스 샌드박스가 죽어 electron-updater 가 실패함.
+//    (app.commandLine 은 app ready 전에 호출해야 적용됨)
+app.commandLine.appendSwitch('disable-features', 'NetworkServiceSandbox');
+
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = join(here, '..');
 const DEFAULT_WORKFLOW = join(appRoot, 'runtime', 'workflows', 'sdxl-inpaint-thumbnail.example.json');
