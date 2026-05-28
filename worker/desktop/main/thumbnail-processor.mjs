@@ -100,6 +100,67 @@ async function prefillOnWhite(cutoutPng) {
 }
 
 /**
+ * 누끼(RGBA) 에서 "메인(가장 큰) 상품" 덩어리를 찾아 그 영역으로 크롭한다.
+ *   여러 상품/잡동사니가 찍힌 사진에서 가장 큰 연결요소(=주요 상품)만 남겨,
+ *   이어지는 img2img 가 "단일 상품 확대 정면"을 안정적으로 만들도록.
+ *   (서로 붙은 상품은 한 덩어리라 분리는 안 되지만, 배경 여백을 잘라 확대 효과는 있음)
+ * @param {Buffer} cutoutPng  투명 배경 RGBA PNG
+ * @returns {Promise<Buffer>}
+ */
+async function cropToMainProduct(cutoutPng) {
+  try {
+    const meta = await sharp(cutoutPng).metadata();
+    const W0 = meta.width, H0 = meta.height;
+    if (!W0 || !H0) return cutoutPng;
+    // 라벨링은 축소본(최대 400px)에서 — 빠르게. bbox 는 원본 비율로 환산.
+    const LW = Math.min(400, W0);
+    const scale = LW / W0;
+    const LH = Math.max(1, Math.round(H0 * scale));
+    const raw = await sharp(cutoutPng).resize(LW, LH, { fit: 'fill' }).ensureAlpha().raw().toBuffer();
+    const N = LW * LH;
+    const on = new Uint8Array(N);
+    for (let i = 0; i < N; i++) on[i] = raw[i * 4 + 3] > 96 ? 1 : 0;
+    // 4-연결 연결요소 라벨링(스택 flood fill) → 최대 면적 덩어리의 bbox
+    const seen = new Uint8Array(N);
+    const stack = new Int32Array(N);
+    let best = { area: 0, minx: 0, miny: 0, maxx: 0, maxy: 0 };
+    for (let s = 0; s < N; s++) {
+      if (!on[s] || seen[s]) continue;
+      let sp = 0; stack[sp++] = s; seen[s] = 1;
+      let area = 0, minx = LW, miny = LH, maxx = 0, maxy = 0;
+      while (sp > 0) {
+        const q = stack[--sp];
+        const qx = q % LW, qy = (q / LW) | 0;
+        area++;
+        if (qx < minx) minx = qx; if (qx > maxx) maxx = qx;
+        if (qy < miny) miny = qy; if (qy > maxy) maxy = qy;
+        if (qx > 0)      { const n = q - 1;  if (on[n] && !seen[n]) { seen[n] = 1; stack[sp++] = n; } }
+        if (qx < LW - 1) { const n = q + 1;  if (on[n] && !seen[n]) { seen[n] = 1; stack[sp++] = n; } }
+        if (qy > 0)      { const n = q - LW; if (on[n] && !seen[n]) { seen[n] = 1; stack[sp++] = n; } }
+        if (qy < LH - 1) { const n = q + LW; if (on[n] && !seen[n]) { seen[n] = 1; stack[sp++] = n; } }
+      }
+      if (area > best.area) best = { area, minx, miny, maxx, maxy };
+    }
+    if (best.area === 0 || best.area / N < 0.02) return cutoutPng; // 내용 없음/노이즈 → 원본
+    // bbox → 원본 해상도 + 8% 패딩
+    const pad = 0.08;
+    let x0 = best.minx / scale, y0 = best.miny / scale;
+    let x1 = (best.maxx + 1) / scale, y1 = (best.maxy + 1) / scale;
+    const bw = x1 - x0, bh = y1 - y0;
+    x0 = Math.max(0, x0 - bw * pad); y0 = Math.max(0, y0 - bh * pad);
+    x1 = Math.min(W0, x1 + bw * pad); y1 = Math.min(H0, y1 + bh * pad);
+    const left = Math.round(x0), top = Math.round(y0);
+    const width = Math.max(1, Math.round(x1 - x0)), height = Math.max(1, Math.round(y1 - y0));
+    // 이미 거의 전체면(잘라낼 여백 거의 없음) 굳이 크롭 안 함
+    if (width >= W0 * 0.96 && height >= H0 * 0.96) return cutoutPng;
+    return sharp(cutoutPng).extract({ left, top, width, height }).png().toBuffer();
+  } catch (e) {
+    console.warn('[thumb] 메인상품 크롭 실패 → 원본 사용:', e?.message || e);
+    return cutoutPng;
+  }
+}
+
+/**
  * @param {Buffer} inputBuffer
  * @param {{canvas?:number,padRatio?:number,cacheDir?:string,
  *          mode?:'cutout'|'regenerate', img2imgFn?:(rgbPng:Buffer)=>Promise<Buffer>}} [opts]
@@ -110,7 +171,8 @@ export async function processCutoutThumbnail(inputBuffer, { canvas = CANVAS, pad
 
   if (mode === 'regenerate' && img2imgFn) {
     try {
-      const prefilled = await prefillOnWhite(cut);            // 파임 채운 흰배경 입력
+      const main = await cropToMainProduct(cut);              // 메인(가장 큰) 상품만 크롭 → 단일상품 확대
+      const prefilled = await prefillOnWhite(main);           // 파임 채운 흰배경 입력
       if (prefilled) {
         const regen = await img2imgFn(prefilled, regenPrompt, regenNegative); // 상품명 프롬프트로 img2img
         const recut = await cutout(regen, cacheDir);          // 재누끼

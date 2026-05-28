@@ -1,6 +1,6 @@
 {
   "name": "megaload-desktop",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "private": true,
   "description": "메가로드 도우미 — 로컬 실행 프로그램(썸네일 GPU·광고 자동화·향후 추가)을 모듈로 통합한 단일 Electron 데스크탑 앱.",
   "author": "Megaload",
