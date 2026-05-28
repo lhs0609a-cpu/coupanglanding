@@ -105,8 +105,8 @@ export default function LocalGpuRegenerateModal({
     } catch { offline = true; }
     setWorkerOffline(offline);
     setStatusMsg(offline
-      ? '로컬 GPU 워커가 감지되지 않습니다 — 메가로드 도우미(데스크톱 앱)를 켜면 자동으로 처리됩니다.'
-      : '로컬 GPU 워커가 처리 중입니다... (보통 10~40초)');
+      ? '메가로드 도우미가 감지되지 않습니다 — 도우미를 켜면 자동으로 처리됩니다.'
+      : 'AI가 이미지를 생성하는 중입니다... (보통 10~40초)');
 
     // 4) 폴링 (최대 5분)
     const deadline = Date.now() + 5 * 60 * 1000;
@@ -153,7 +153,7 @@ export default function LocalGpuRegenerateModal({
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
           <div className="flex items-center gap-2">
             <Cpu className="w-4 h-4 text-indigo-500" />
-            <h3 className="text-sm font-semibold text-gray-800">로컬 GPU로 이미지 재생성</h3>
+            <h3 className="text-sm font-semibold text-gray-800">AI 이미지 재생성</h3>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded transition">
             <X className="w-4 h-4 text-gray-500" />
@@ -175,7 +175,7 @@ export default function LocalGpuRegenerateModal({
               >
                 <Sparkles className={`w-4 h-4 shrink-0 mt-0.5 ${mode === 'regenerate' ? 'text-indigo-600' : 'text-gray-400'}`} />
                 <div>
-                  <div className={`text-xs font-semibold ${mode === 'regenerate' ? 'text-indigo-700' : 'text-gray-700'}`}>AI 재생성 (SDXL)</div>
+                  <div className={`text-xs font-semibold ${mode === 'regenerate' ? 'text-indigo-700' : 'text-gray-700'}`}>AI 재생성</div>
                   <div className="text-[10px] text-gray-500">잘림·지저분·흐림 사진을 깨끗하게 재구성</div>
                 </div>
               </button>
@@ -246,7 +246,7 @@ export default function LocalGpuRegenerateModal({
             <div className="flex items-start gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
               <MonitorSmartphone className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <span className="text-xs text-amber-800">
-                로컬 GPU 워커(메가로드 도우미)가 감지되지 않습니다. 데스크톱 앱을 켜면 큐의 작업이 자동으로 처리됩니다.
+                메가로드 도우미가 감지되지 않습니다. 도우미를 켜면 대기 중인 작업이 자동으로 처리됩니다.
               </span>
             </div>
           )}
@@ -263,7 +263,7 @@ export default function LocalGpuRegenerateModal({
         {/* Footer */}
         <div className="flex items-center justify-between gap-2 px-5 py-3 border-t border-gray-200">
           <div className="text-[10px] text-gray-400">
-            내 PC GPU로 처리 — 추가 비용 없음 · 결과는 <b className="text-gray-500">대표이미지 새 후보로 추가</b>됩니다(원본 보존)
+            결과는 <b className="text-gray-500">대표이미지 새 후보로 추가</b>됩니다 (원본 보존)
           </div>
           <div className="flex gap-2">
             <button

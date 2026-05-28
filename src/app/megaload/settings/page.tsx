@@ -12,7 +12,7 @@ type SettingsTab = 'account' | 'ai' | 'localgpu' | 'gifts' | 'sku' | 'names' | '
 const TABS: { key: SettingsTab; label: string; icon: typeof Settings }[] = [
   { key: 'account', label: '계정 설정', icon: User },
   { key: 'ai', label: 'AI 이미지', icon: Sparkles },
-  { key: 'localgpu', label: '로컬 GPU 썸네일', icon: Cpu },
+  { key: 'localgpu', label: 'AI 썸네일', icon: Cpu },
   { key: 'gifts', label: '사은품 규칙', icon: Gift },
   { key: 'sku', label: 'SKU 매핑', icon: Tag },
   { key: 'names', label: '상품명 관리', icon: FileText },

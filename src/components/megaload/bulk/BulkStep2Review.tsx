@@ -975,20 +975,20 @@ export default memo(function BulkStep2Review({
           <button
             onClick={() => onBulkRegenerateThumbnails(products.filter(p => p.selected).map(p => p.uid), 'cutout')}
             disabled={thumbnailRegen?.running || selectedCount === 0}
-            title="선택 상품의 대표사진을 로컬 GPU 워커로 누끼+흰배경 처리합니다(상품 그대로 보존). 워커 앱이 실행 중이어야 합니다."
+            title="선택 상품의 대표사진을 AI로 누끼+흰배경 처리합니다(상품 그대로 보존). 메가로드 도우미가 실행 중이어야 합니다."
             className="px-3 py-1.5 text-xs rounded-lg border border-indigo-300 text-indigo-600 hover:bg-indigo-50 transition flex items-center gap-1 disabled:opacity-50"
           >
             {thumbnailRegen?.running ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
             {thumbnailRegen?.running
               ? `처리 ${thumbnailRegen.done + thumbnailRegen.error}/${thumbnailRegen.total}`
-              : '로컬 GPU 누끼 (흰배경)'}
+              : 'AI 누끼 (흰배경)'}
           </button>
         )}
         {onBulkRegenerateThumbnails && (
           <button
             onClick={() => onBulkRegenerateThumbnails(products.filter(p => p.selected).map(p => p.uid), 'regenerate')}
             disabled={thumbnailRegen?.running || selectedCount === 0}
-            title="대표사진이 잘리거나 지저분/흐릴 때만 사용. 로컬 GPU(SDXL)로 깨끗한 스튜디오 컷으로 재생성합니다. ⚠️ 생성이라 실물과 미세 차이가 있을 수 있으니 결과를 확인 후 사용하세요."
+            title="대표사진이 잘리거나 지저분/흐릴 때만 사용. AI로 깨끗한 스튜디오 컷으로 재생성합니다. ⚠️ 생성이라 실물과 미세 차이가 있을 수 있으니 결과를 확인 후 사용하세요."
             className="px-3 py-1.5 text-xs rounded-lg border border-orange-300 text-orange-600 hover:bg-orange-50 transition flex items-center gap-1 disabled:opacity-50"
           >
             <Sparkles className="w-3 h-3" />
@@ -1005,11 +1005,11 @@ export default memo(function BulkStep2Review({
           <button
             onClick={() => setLlmModalOpen(true)}
             disabled={llmRegen?.running}
-            title="노출상품명·상세글·옵션수량·카테고리를 로컬 GPU(LLM)로 재생성/재매칭합니다. 항목과 범위(선택/전체)를 고를 수 있어요."
+            title="노출상품명·상세글·옵션수량·카테고리를 AI로 재생성/재매칭합니다. 항목과 범위(선택/전체)를 고를 수 있어요."
             className="px-3 py-1.5 text-xs rounded-lg border border-indigo-400 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition flex items-center gap-1 disabled:opacity-50"
           >
             {llmRegen?.running ? <Loader2 className="w-3 h-3 animate-spin" /> : <Cpu className="w-3 h-3" />}
-            {llmRegen?.running ? `LLM ${llmRegen.done + llmRegen.error}/${llmRegen.total}` : '전체 상품 LLM 재생성'}
+            {llmRegen?.running ? `AI ${llmRegen.done + llmRegen.error}/${llmRegen.total}` : '전체 상품 AI 재생성'}
           </button>
         )}
         {onLlmRegen && (

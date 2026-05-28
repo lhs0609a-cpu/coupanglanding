@@ -60,7 +60,7 @@ export default function LlmRegenModal({
           <div className="flex items-center gap-2">
             <Cpu className="w-4 h-4 text-indigo-500" />
             <h3 className="text-sm font-semibold text-gray-800">
-              {single ? '이 상품 LLM 재생성' : '전체 상품 LLM 재생성'}
+              {single ? '이 상품 AI 재생성' : '전체 상품 AI 재생성'}
             </h3>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded transition">
@@ -136,7 +136,7 @@ export default function LlmRegenModal({
           <div className="flex items-start gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
             <MonitorSmartphone className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <span className="text-[11px] text-amber-800">
-              내 PC GPU(Ollama)로 처리 — <b>메가로드 도우미(데스크톱 앱)</b>가 켜져 있어야 합니다. 꺼져 있으면 큐에 등록되고 앱을 켜면 자동 처리됩니다. 추가 비용 없음.
+              AI 처리를 위해 <b>메가로드 도우미</b>가 실행 중이어야 합니다. 꺼져 있으면 작업이 대기열에 등록되고, 도우미를 켜면 자동으로 처리됩니다.
             </span>
           </div>
         </div>
@@ -164,7 +164,7 @@ export default function LlmRegenModal({
               className="flex items-center gap-1.5 px-4 py-1.5 text-xs text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition"
             >
               {running ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-              {running ? '처리 중...' : 'LLM 재생성 시작'}
+              {running ? '처리 중...' : 'AI 재생성 시작'}
             </button>
           </div>
         </div>

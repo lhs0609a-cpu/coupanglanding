@@ -2,7 +2,7 @@
 // 서비스(comfy/runner/bootstrap)는 셸이 ctx.services 로 주입. 무거운 엔진은 이 탭을 쓸 때만 설치.
 export default {
   id: 'thumbnail-gpu',
-  label: '썸네일 GPU',
+  label: 'AI 썸네일',
   icon: '🖼️',
   order: 2,
   events: [
@@ -13,8 +13,8 @@ export default {
   ],
   trayItems: (ctx) =>
     ctx.services.runner.running
-      ? [{ label: '썸네일 워커 정지', click: () => ctx.services.stopWorker().catch(() => {}) }]
-      : [{ label: '썸네일 워커 시작', click: () => ctx.services.startWorker().catch(() => {}) }],
+      ? [{ label: 'AI 썸네일 정지', click: () => ctx.services.stopWorker().catch(() => {}) }]
+      : [{ label: 'AI 썸네일 시작', click: () => ctx.services.startWorker().catch(() => {}) }],
   ipc: {
     'thumbnail-gpu:state': async (ctx) => ({
       installed: await ctx.services.bootstrap.isInstalled(ctx.services.installDir),

@@ -134,7 +134,7 @@ export default function DesktopAppPage() {
           </span>
         </h1>
         <p className="text-sm text-gray-500 mt-1">
-          내 PC에서 등록 상품의 품절·가격 변동을 자동으로 확인해 주는 보조 프로그램입니다.
+          등록 상품의 품절·가격 변동을 자동으로 확인해 주는 보조 프로그램입니다.
         </p>
       </div>
 
@@ -194,10 +194,10 @@ export default function DesktopAppPage() {
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
         <h2 className="font-semibold text-blue-900 mb-2">어떤 프로그램인가요?</h2>
         <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
-          <li>등록한 상품의 원본 페이지를 주기적으로 열어 품절·가격 정보를 가져옵니다</li>
-          <li>내 PC의 일반 네트워크에서 동작하므로 안정적이고 정확합니다</li>
-          <li>한 번 설치하면 PC 켜져 있을 때 자동으로 백그라운드 동작 — 별도 조작 불필요</li>
-          <li>설치·이용 모두 무료, 결과는 메가로드 품절동기화 페이지에 자동 반영</li>
+          <li>등록한 상품의 원본 페이지를 주기적으로 확인해 품절·가격 정보를 가져옵니다</li>
+          <li>안정적인 환경에서 동작해 원본 상태를 정확하게 수집합니다</li>
+          <li>한 번 설치하면 PC가 켜져 있을 때 자동으로 백그라운드 동작 — 별도 조작 불필요</li>
+          <li>결과는 메가로드 품절동기화 페이지에 자동 반영됩니다</li>
         </ul>
       </div>
 

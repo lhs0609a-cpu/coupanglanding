@@ -925,7 +925,7 @@ export function useBulkRegisterActions() {
     setThumbnailRegen({
       total: jobs.length, done: 0, error: 0, running: true,
       message: workerOnline
-        ? '로컬 GPU 워커가 처리 중입니다...'
+        ? 'AI가 처리 중입니다...'
         : '워커가 감지되지 않습니다 — 데스크톱 앱을 켜면 자동으로 처리됩니다 (큐에 등록됨)',
     });
     const applied = new Set<string>();
@@ -1066,7 +1066,7 @@ export function useBulkRegisterActions() {
     setLlmRegen({
       total: jobs.length, done: 0, error: 0, running: true,
       message: workerOnline
-        ? '로컬 GPU(LLM)가 처리 중입니다...'
+        ? 'AI가 처리 중입니다...'
         : '메가로드 도우미가 감지되지 않습니다 — 데스크톱 앱을 켜면 자동 처리됩니다 (큐 등록됨).',
     });
 

@@ -454,11 +454,11 @@ export default function BulkProductDetailPanel({
                 <button
                   onClick={() => setLlmModalOpen(true)}
                   disabled={llmRegen?.running}
-                  title="이 상품의 노출상품명·상세글·옵션수량·카테고리를 로컬 GPU(LLM)로 재생성/재매칭합니다."
+                  title="이 상품의 노출상품명·상세글·옵션수량·카테고리를 AI로 재생성/재매칭합니다."
                   className="ml-auto my-1.5 flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-indigo-400 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition disabled:opacity-50"
                 >
                   {llmRegen?.running ? <Loader2 className="w-3 h-3 animate-spin" /> : <Cpu className="w-3 h-3" />}
-                  이 상품 LLM 재생성
+                  이 상품 AI 재생성
                 </button>
               )}
             </div>

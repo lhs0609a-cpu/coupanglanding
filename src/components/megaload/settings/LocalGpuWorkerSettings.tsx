@@ -114,7 +114,7 @@ const STEPS = [
   { t: '엔진 설치 (처음 1회)', d: '앱에서 "엔진 설치"를 누르면 ComfyUI와 AI 모델(약 6.5GB)을 자동으로 받습니다. 한 번만 받으면 됩니다.' },
   { t: '로그인', d: '메가로드 계정(이메일/비밀번호)으로 앱에 로그인합니다.' },
   { t: '워커 시작', d: '"워커 시작"을 누르면 아래 상태가 "연결됨"으로 바뀝니다. 창을 닫아도 트레이에 상주합니다.' },
-  { t: '대량등록에서 사용', d: '상품 검수 화면에서 상품을 고르고 "로컬 GPU로 대표 썸네일 재생성"을 누르면 자동 처리됩니다.' },
+  { t: '대량등록에서 사용', d: '상품 검수 화면에서 상품을 고르고 "AI 대표 썸네일 재생성"을 누르면 자동 처리됩니다.' },
 ];
 
 export default function LocalGpuWorkerSettings() {
@@ -191,10 +191,10 @@ export default function LocalGpuWorkerSettings() {
       <div className="flex items-start gap-3">
         <div className="p-2 bg-indigo-50 rounded-lg"><Cpu className="w-5 h-5 text-indigo-600" /></div>
         <div>
-          <h3 className="text-base font-semibold text-gray-900">로컬 GPU 썸네일 재생성</h3>
+          <h3 className="text-base font-semibold text-gray-900">AI 썸네일 재생성</h3>
           <p className="text-sm text-gray-500 mt-0.5">
-            내 PC의 그래픽카드로 네이버 누끼 이미지를 쿠팡용 깔끔한 흰 배경 썸네일로
-            <b className="text-gray-700"> 무료·무제한</b> 재생성합니다. (서버 비용 0원)
+            네이버 누끼 이미지를 쿠팡용 깔끔한 흰 배경 썸네일로
+            <b className="text-gray-700"> AI</b>가 자동 재생성합니다.
           </p>
         </div>
       </div>
@@ -225,8 +225,7 @@ export default function LocalGpuWorkerSettings() {
         <div className="flex gap-2">
           <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
           <div className="text-xs text-amber-800 leading-relaxed flex-1">
-            <b>요건:</b> NVIDIA 그래픽카드(RTX 권장) + Windows. GPU가 없거나 설치가 부담되면,
-            상품 화면의 기존 <b>Gemini 재생성</b>(무료 티어 하루 500장)을 그대로 쓰셔도 됩니다.
+            <b>권장 사양:</b> NVIDIA 그래픽카드(RTX 권장) + Windows. 사양이 낮으면 생성 속도가 느려질 수 있습니다.
           </div>
           <button
             type="button"
@@ -311,7 +310,7 @@ export default function LocalGpuWorkerSettings() {
         </h4>
         <p className="text-xs text-gray-500 mb-3">
           <b>기본값(쿠팡식 순백 스튜디오 배경)이 미리 채워져 있습니다.</b> 잘 모르겠으면 그대로 두세요.
-          원하면 자유롭게 수정한 뒤 <b>저장</b>하면 새로 누르는 “로컬 GPU로 대표 썸네일 재생성”부터 적용돼요.
+          원하면 자유롭게 수정한 뒤 <b>저장</b>하면 새로 누르는 “AI 대표 썸네일 재생성”부터 적용돼요.
         </p>
 
         {promptLoading ? (
