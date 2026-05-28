@@ -69,7 +69,7 @@ export class WorkerRunner {
         session: this.session,
         workerId,
         hostname: host,
-        pollMs: 4000,
+        pollMs: 700,   // 활성 시 0.7초로 빠르게 집음(루프 내부에서 장기 유휴 시 자동 백오프)
         signal: this.llmAbort.signal,
         onEvent: (e) => this.onEvent({ scope: 'llm', ...e }),
       }))

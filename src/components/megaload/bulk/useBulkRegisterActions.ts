@@ -937,7 +937,7 @@ export function useBulkRegisterActions() {
     const applied = new Set<string>();
     const deadline = Date.now() + 30 * 60 * 1000;
     while (Date.now() < deadline) {
-      await sleep(4000);
+      await sleep(1500);
       let data: { counts?: Record<string, number>; jobs?: { label?: string; status: string; result_url?: string }[] };
       try {
         const res = await fetch(`/api/megaload/products/thumbnail-jobs?batchId=${batchId}`);
@@ -1079,7 +1079,7 @@ export function useBulkRegisterActions() {
     const applied = new Set<string>();
     const deadline = Date.now() + 30 * 60 * 1000;
     while (Date.now() < deadline) {
-      await sleep(3500);
+      await sleep(800);   // LLM 결과 폴링 — 생성이 빠르므로 0.8초로 촘촘히(체감 속도↑)
       let data: { counts?: Record<string, number>; jobs?: { label?: string; status: string; result?: Record<string, unknown> }[] };
       try {
         const res = await fetch(`/api/megaload/products/llm-jobs?batchId=${batchId}`);

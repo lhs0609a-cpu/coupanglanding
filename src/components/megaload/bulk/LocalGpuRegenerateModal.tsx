@@ -113,7 +113,7 @@ export default function LocalGpuRegenerateModal({
     // 4) 폴링 (최대 5분)
     const deadline = Date.now() + 5 * 60 * 1000;
     while (Date.now() < deadline) {
-      await sleep(3000);
+      await sleep(1500);
       try {
         const res = await fetch(`/api/megaload/products/thumbnail-jobs?batchId=${batchId}`);
         if (!res.ok) continue;

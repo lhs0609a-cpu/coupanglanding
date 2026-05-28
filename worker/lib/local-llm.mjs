@@ -37,13 +37,15 @@ export async function listModels() {
  * @param {string} [o.format]   'json' 이면 JSON 강제
  * @returns {Promise<{text:string, ms:number, evalCount:number, tokPerSec:number}>}
  */
-export async function generate({ model, prompt, system, options = {}, format } = {}) {
+export async function generate({ model, prompt, system, options = {}, format, keep_alive } = {}) {
   if (!model) throw new Error('[local-llm] model 필요');
   const body = {
     model,
     prompt,
     system,
     stream: false,
+    // 모델을 VRAM에 30분 유지 → 매 생성마다 콜드 로드(5.5초) 반복 방지(웜 0.2초).
+    keep_alive: keep_alive ?? '30m',
     options: { temperature: 0.7, top_p: 0.9, num_ctx: 4096, num_gpu: 99, ...options },
   };
   if (format) body.format = format;

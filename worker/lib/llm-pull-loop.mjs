@@ -112,11 +112,22 @@ async function runCategory(input) {
  * @param {string} [o.model]   선호 모델(없으면 자동 선택)
  */
 export async function runLlmPullLoop({
-  session, workerId, hostname, pollMs = 3000, signal, onEvent = () => {}, model: preferModel,
+  session, workerId, hostname, pollMs = 700, signal, onEvent = () => {}, model: preferModel,
 }) {
   const stopped = () => signal?.aborted;
   let model = null;
-  let processed = 0, ok = 0, fail = 0, idleLogged = false, lastBeat = 0;
+  let processed = 0, ok = 0, fail = 0, idleLogged = false, lastBeat = 0, idleTicks = 0;
+
+  // 워커 시작 시 모델 예열 — 첫 생성의 콜드 로드(5.5초)를 미리 끝내 둔다(이후 웜 0.2초, keep_alive 30분).
+  try {
+    if (await isUp()) {
+      model = await pickModel(preferModel);
+      if (model) {
+        await generate({ model, prompt: '준비', options: { num_predict: 1 } });
+        onEvent({ type: 'info', message: `LLM 모델 예열 완료: ${model}` });
+      }
+    }
+  } catch { /* best-effort 예열 — 실패해도 첫 잡에서 로드됨 */ }
 
   const beat = async () => {
     if (Date.now() - lastBeat < 30_000) return;
@@ -137,10 +148,13 @@ export async function runLlmPullLoop({
     }
     if (!jobs || jobs.length === 0) {
       if (!idleLogged) { onEvent({ type: 'idle' }); idleLogged = true; }
-      await sleep(pollMs);
+      idleTicks++;
+      // 활성: pollMs(0.7초)로 빠르게 집음. 장기 유휴(약 10초+): 2.5초로 백오프해 불필요한 RPC 절감.
+      await sleep(idleTicks > 15 ? 2500 : pollMs);
       continue;
     }
     idleLogged = false;
+    idleTicks = 0;
 
     // 텍스트 잡이 있을 때만 ollama/모델 확인 (불필요한 기동 방지)
     if (!model) {
