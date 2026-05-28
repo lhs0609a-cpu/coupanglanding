@@ -44,9 +44,9 @@ jobs:
           body: |
             메가로드 도우미 (통합 데스크탑 앱)
             모듈: 📦 상품 모니터링 · ⚙️ 올인원 생성 · 🖼️ 썸네일 GPU · 📢 광고 자동화
-            항상 최신 빌드의 MegaloadDesktop-Setup.exe / latest.yml / .blockmap 이 여기에 덮어써집니다.
+            최신 빌드의 MegaloadDesktop-Setup-<버전>.exe / latest.yml / .blockmap 이 발행됩니다.
           files: |
-            worker/desktop/dist/MegaloadDesktop-Setup.exe
+            worker/desktop/dist/MegaloadDesktop-Setup-*.exe
             worker/desktop/dist/latest.yml
             worker/desktop/dist/*.blockmap
           draft: false
