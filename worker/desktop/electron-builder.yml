@@ -37,6 +37,9 @@ nsis:
   oneClick: true
   perMachine: false
   shortcutName: 메가로드 도우미
+  # Windows '앱 및 기능'/제거 목록에 버전 노출 → 사용자가 설치된 버전을 한눈에 확인.
+  #   (파일명/URL 은 영구 불변 유지 — 404 위험·과거 사고 회피)
+  uninstallDisplayName: 메가로드 도우미 ${version}
   createDesktopShortcut: true
   # 설치 직후 자동 실행 ON — 사용자가 일일이 안 켜도 바로 동작. (앱은 OS 시작 자동실행도 등록)
   runAfterFinish: true
