@@ -145,10 +145,14 @@ export async function runLlmPullLoop({
     idleLogged = false;
 
     // 텍스트 잡이 있을 때만 ollama/모델 확인 (불필요한 기동 방지)
-    const needsLlm = jobs.some((j) => j.task_type !== 'category');
-    if (needsLlm && !model) {
+    if (!model) {
       if (!(await isUp())) {
-        onEvent({ type: 'warn', message: 'Ollama 데몬이 실행 중이 아닙니다. (잡 대기)' });
+        // Ollama 미실행 → 이미 claim 한 잡을 pending 으로 되돌려 'processing' 에 갇히지 않게(즉시 재처리 대기).
+        onEvent({ type: 'warn', message: 'Ollama 데몬이 실행 중이 아닙니다. (잡 반환 후 대기)' });
+        for (const job of jobs) {
+          try { await patchRow(session, 'megaload_llm_jobs', `id=eq.${job.id}`, { status: 'pending', worker_id: null, claimed_at: null }); }
+          catch { /* ignore */ }
+        }
         await sleep(pollMs * 2);
         continue;
       }
