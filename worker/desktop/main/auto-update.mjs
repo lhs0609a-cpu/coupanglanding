@@ -92,9 +92,14 @@ async function downloadAndInstall(ver, file, sha, win) {
     if (response !== 0) { busy = false; return; }
 
     // NSIS 설치기 실행 → customInit 이 실행중 앱(MegaloadDesktop) 종료 후 설치 + runAfterFinish 로 재실행.
-    spawn(dest, [], { detached: true, stdio: 'ignore' }).unref();
+    // ⚠️ 반드시 cmd `start` 로 앱의 프로세스 트리에서 "분리"해 실행한다.
+    //    그냥 spawn(dest) 하면 설치기가 MegaloadDesktop 의 자식이 되고, 설치기 customInit 의
+    //    `taskkill /F /IM MegaloadDesktop.exe /T` 가 /T(트리)로 방금 뜬 설치기 자신까지 죽여
+    //    앱만 종료되고 설치가 무반응으로 멈춘다(0.2.19 버그). cmd 가 즉시 종료되며 설치기는 고아가 돼 트리에서 빠진다.
+    spawn('cmd.exe', ['/c', 'start', '', dest], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    ulog(`설치기 실행(트리 분리): ${dest}`);
     app.isQuitting = true;
-    setTimeout(() => app.quit(), 800);
+    setTimeout(() => app.quit(), 1500);
   } catch (e) {
     ulog(`설치 실패: ${e.message}`);
     try { new Notification({ title: '메가로드 도우미', body: `업데이트 실패: ${e.message}` }).show(); } catch { /* noop */ }
