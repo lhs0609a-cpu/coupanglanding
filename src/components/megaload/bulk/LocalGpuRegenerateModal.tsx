@@ -32,7 +32,9 @@ export default function LocalGpuRegenerateModal({
   productName,
   onApply,
 }: LocalGpuRegenerateModalProps) {
-  const [mode, setMode] = useState<Mode>('regenerate');
+  // 기본 누끼 — 글자·포장 있는 상품은 재생성하면 글자가 깨지므로(SDXL 한계) 픽셀 보존 누끼가 안전.
+  // 잘린/지저분한 사진만 사용자가 'AI 재생성'으로 전환.
+  const [mode, setMode] = useState<Mode>('cutout');
   const [prompt, setPrompt] = useState(buildDefaultPrompt(productName));
   const [phase, setPhase] = useState<Phase>('idle');
   const [statusMsg, setStatusMsg] = useState('');
@@ -42,7 +44,7 @@ export default function LocalGpuRegenerateModal({
 
   useEffect(() => {
     if (isOpen) {
-      setMode('regenerate');
+      setMode('cutout');
       setPrompt(buildDefaultPrompt(productName));
       setPhase('idle');
       setStatusMsg('');
@@ -167,6 +169,22 @@ export default function LocalGpuRegenerateModal({
             <div className="text-[11px] font-medium text-gray-600 mb-1.5">처리 방식</div>
             <div className="grid grid-cols-2 gap-2">
               <button
+                onClick={() => setMode('cutout')}
+                disabled={working}
+                className={`flex items-start gap-2 p-2.5 rounded-lg border text-left transition disabled:opacity-50 ${
+                  mode === 'cutout' ? 'bg-indigo-50 border-indigo-300' : 'bg-white border-gray-200 hover:border-indigo-200'
+                }`}
+              >
+                <Scissors className={`w-4 h-4 shrink-0 mt-0.5 ${mode === 'cutout' ? 'text-indigo-600' : 'text-gray-400'}`} />
+                <div>
+                  <div className={`text-xs font-semibold flex items-center gap-1 ${mode === 'cutout' ? 'text-indigo-700' : 'text-gray-700'}`}>
+                    누끼 (흰 배경)
+                    <span className="text-[9px] font-bold text-white bg-indigo-500 rounded px-1 py-px">권장</span>
+                  </div>
+                  <div className="text-[10px] text-gray-500">배경만 제거 + 흰배경 정사각. <b className="text-gray-600">글자·포장 그대로 보존</b> (글자 상품은 이걸로)</div>
+                </div>
+              </button>
+              <button
                 onClick={() => setMode('regenerate')}
                 disabled={working}
                 className={`flex items-start gap-2 p-2.5 rounded-lg border text-left transition disabled:opacity-50 ${
@@ -176,20 +194,7 @@ export default function LocalGpuRegenerateModal({
                 <Sparkles className={`w-4 h-4 shrink-0 mt-0.5 ${mode === 'regenerate' ? 'text-indigo-600' : 'text-gray-400'}`} />
                 <div>
                   <div className={`text-xs font-semibold ${mode === 'regenerate' ? 'text-indigo-700' : 'text-gray-700'}`}>AI 재생성</div>
-                  <div className="text-[10px] text-gray-500">잘림·지저분·흐림 사진을 깨끗하게 재구성</div>
-                </div>
-              </button>
-              <button
-                onClick={() => setMode('cutout')}
-                disabled={working}
-                className={`flex items-start gap-2 p-2.5 rounded-lg border text-left transition disabled:opacity-50 ${
-                  mode === 'cutout' ? 'bg-indigo-50 border-indigo-300' : 'bg-white border-gray-200 hover:border-indigo-200'
-                }`}
-              >
-                <Scissors className={`w-4 h-4 shrink-0 mt-0.5 ${mode === 'cutout' ? 'text-indigo-600' : 'text-gray-400'}`} />
-                <div>
-                  <div className={`text-xs font-semibold ${mode === 'cutout' ? 'text-indigo-700' : 'text-gray-700'}`}>누끼 (흰 배경)</div>
-                  <div className="text-[10px] text-gray-500">배경 제거 + 순수 흰 배경으로 정리</div>
+                  <div className="text-[10px] text-gray-500">잘린·지저분한 사진을 완성·재구성. <b className="text-amber-600">글자·로고 변형될 수 있음</b></div>
                 </div>
               </button>
             </div>
