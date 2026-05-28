@@ -486,8 +486,11 @@ function applyNonFoodVerbReplacements(text: string): string {
   out = out.replace(/드신 후/g, '사용 후');
   out = out.replace(/드시면/g, '쓰시면');
   out = out.replace(/드시니까/g, '쓰시니까');
-  out = out.replace(/드신/g, '쓰신');
-  out = out.replace(/드시/g, '쓰시');
+  // ⚠️ 명사 보호 — "스탠드시계/사운드시스템/핸드시계" 의 "드신/드시" 부분문자열이
+  //   동사 치환에 걸려 "스탠쓰시계" 로 정체성·SEO 가 깨지던 버그.
+  //   뒤에 동사 어미가 올 때만 치환하고, 명사 연속(시계의 '계', 시스템의 '스' 등)은 제외.
+  out = out.replace(/드신(?=\s|$|[다지가은을]|\s*[후분뒤])/g, '쓰신');
+  out = out.replace(/드시(?=고|는|면|니|까|거|기|죠|지|나|라|어|게|도|구|군|네|세|십|실|겠|었)/g, '쓰시');
   out = out.replace(/맛\s*보시면/g, '써보시면');
   out = out.replace(/맛보/g, '써보');
   out = out.replace(/매일 챙겨 드시는/g, '매일 쓰시는');
@@ -2358,31 +2361,49 @@ function fillTemplate(
     }
     return poolArr.find((v: string) => !VAR_ENDS_ADNOM_RE.test(v)) || null;
   };
-  result = result.replace(/\{([^}]+)\}(.{0,4})/g, (match, key, afterRaw) => {
-    const after = afterRaw || '';
-    const needsNoun = VAR_PARTICLE_PREFIX_RE.test(after);
-    const pool = vars[key];
-    if (pool && pool.length > 0) {
-      let val = needsNoun
-        ? (pickNonAdnominal(pool) ?? pool[Math.floor(rng() * pool.length)])
-        : pool[Math.floor(rng() * pool.length)];
-      if (needsNoun && VAR_ENDS_ADNOM_RE.test(val)) val = val + ' 점';
-      if (key === '사용감') val = nominalizeUsageFeel(val);
-      return val + b + after;
-    }
-    // 미해결 변수: 유사 키에서 폴백 시도 (성분2→성분, 효과2→효과1)
-    const baseKey = key.replace(/\d+$/, '');
-    const fallback = vars[baseKey] || vars[baseKey + '1'];
-    if (fallback && fallback.length > 0) {
-      let val = needsNoun
-        ? (pickNonAdnominal(fallback) ?? fallback[Math.floor(rng() * fallback.length)])
-        : fallback[Math.floor(rng() * fallback.length)];
-      if (needsNoun && VAR_ENDS_ADNOM_RE.test(val)) val = val + ' 점';
-      if (baseKey === '사용감') val = nominalizeUsageFeel(val);
-      return val + b + after;
-    }
-    return after;
-  });
+  // 효과류 키가 카테고리 변수풀에도 없을 때(영양제 아닌 비프로필 leaf 등) 마지막 폴백 —
+  // 어떤 상품에도 자연스러운 일반 강점 명사. "만족/품질" 류는 인접 어휘와 겹쳐 제외.
+  const GENERIC_BENEFIT_FALLBACK = ['실용성', '완성도', '내구성', '활용도', '효율', '편리함', '마감', '디테일'];
+  const BENEFIT_KEYS = new Set(['효과', '효능', '강점', '장점', '혜택', '가치', '효과1', '효과2', '효능1', '효능2']);
+  const substVars = (input: string): string =>
+    input.replace(/\{([^}]+)\}(.{0,4})/g, (match, key, afterRaw) => {
+      const after = afterRaw || '';
+      const needsNoun = VAR_PARTICLE_PREFIX_RE.test(after);
+      const pool = vars[key];
+      if (pool && pool.length > 0) {
+        let val = needsNoun
+          ? (pickNonAdnominal(pool) ?? pool[Math.floor(rng() * pool.length)])
+          : pool[Math.floor(rng() * pool.length)];
+        if (needsNoun && VAR_ENDS_ADNOM_RE.test(val)) val = val + ' 점';
+        if (key === '사용감') val = nominalizeUsageFeel(val);
+        return val + b + after;
+      }
+      // 미해결 변수: 유사 키에서 폴백 시도 (성분2→성분, 효과2→효과1) → 효과류면 일반 명사
+      const baseKey = key.replace(/\d+$/, '');
+      let fallback = vars[baseKey] || vars[baseKey + '1'];
+      if ((!fallback || fallback.length === 0) && BENEFIT_KEYS.has(key)) fallback = GENERIC_BENEFIT_FALLBACK;
+      if (fallback && fallback.length > 0) {
+        let val = needsNoun
+          ? (pickNonAdnominal(fallback) ?? fallback[Math.floor(rng() * fallback.length)])
+          : fallback[Math.floor(rng() * fallback.length)];
+        if (needsNoun && VAR_ENDS_ADNOM_RE.test(val)) val = val + ' 점';
+        if (baseKey === '사용감') val = nominalizeUsageFeel(val);
+        return val + b + after;
+      }
+      return after;
+    });
+  // ⚠️ 인접 변수 "{효과1}과 {효과2}를" 에서 위 (.{0,4}) 캡처가 뒤 변수의 '{' 를 삼켜
+  //    둘째 변수가 미치환으로 재조립되던 버그(콘텐츠 90% 누출) → 변화 없을 때까지 반복 치환.
+  let prevPass = '';
+  let guard = 0;
+  do {
+    prevPass = result;
+    result = substVars(result);
+  } while (result !== prevPass && /\{[^}]+\}/.test(result) && guard++ < 5);
+  // 최종 안전망 — 어떤 경로로든 남은 {…} 와 직후 조사 1개를 함께 제거(비문/잔여 차단).
+  result = result
+    .replace(/\{[^}]*\}(을|를|이|가|은|는|와|과|도|의|로|에서|에|까지|)/g, '')
+    .replace(/\s{2,}/g, ' ');
   // 3. 경계 직후의 조사만 교정 + 경계 마커 제거
   //    "{효과1}은 물론" → "콜레스테롤관리\u0001은 물론" → "콜레스테롤관리는 물론"
   //    템플릿 내부의 "있는/없는/뭔가"는 경계가 없으므로 보호됨.

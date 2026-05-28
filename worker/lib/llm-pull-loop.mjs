@@ -8,7 +8,8 @@
 
 import { rpc, patchRow } from './supabase-rest.mjs';
 import { generate, listModels, isUp } from './local-llm.mjs';
-import { buildTitlePrompt, buildOptionsPrompt, buildDetailPrompt, pickPersona } from './ai-prompts.mjs';
+import { buildTitlePrompt, buildOptionsPrompt, pickPersona } from './ai-prompts.mjs';
+import { generatePerfectDetail } from './detail-content-gen.mjs';
 import { topCandidatesEmbed, isBuilt as embedBuilt } from './category-embed-matcher.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -71,23 +72,20 @@ async function runOptions(model, input) {
 }
 
 async function runContent(model, input) {
-  const persona = pickPersona(input.seed || input.originalName || 'seed');
-  const { system, prompt, options } = buildDetailPrompt(
-    { originalName: input.displayName || input.originalName, features: input.features || [], category: input.categoryPath },
-    persona,
-    { maxTokens: 900 },
-  );
-  const { text } = await generate({ model, prompt, system, options });
-  const paras = String(text || '')
-    .split(/\n{2,}/)
-    .map((s) => s.replace(/^#+\s*/, '').replace(/^[-*]\s*/, '').trim())
-    .filter((s) => s.length >= 8);
-  if (paras.length === 0) throw new Error('빈 상세글 결과');
-  const blocks = paras.map((content, i) => ({
-    type: BLOCK_TYPE_ORDER[Math.min(i, BLOCK_TYPE_ORDER.length - 1)],
-    content,
-  }));
-  return { paragraphs: paras, blocks };
+  // 생성→검증→실패 시 자동 재생성(통과까지). 카테고리 정합·순한국어·SEO·구매욕 구조 보장.
+  const { paragraphs, blocks, ok, issues, attempts } = await generatePerfectDetail({
+    model,
+    originalName: input.displayName || input.originalName,
+    categoryPath: input.categoryPath,
+    leaf: input.leaf,
+    features: input.features || [],
+    seoKeywords: input.seoKeywords || input.keywords || [],
+    seed: input.seed || input.originalName,
+    maxTokens: 1300,
+    maxAttempts: 4,
+  });
+  if (!paragraphs || paragraphs.length === 0) throw new Error('빈 상세글 결과');
+  return { paragraphs, blocks, generationOk: ok, generationIssues: issues, attempts };
 }
 
 async function runCategory(input) {
