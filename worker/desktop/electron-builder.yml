@@ -33,7 +33,10 @@ win:
 nsis:
   # 버전 없는 고정 파일명 → 고정 태그(gpu-worker-update)와 합쳐 다운로드 URL 영구 불변.
   # electron-updater 는 latest.yml 의 path/version 으로 갱신을 판단하므로 파일명 고정과 무관하게 동작.
-  artifactName: MegaloadDesktop-Setup.${ext}
+  # 파일명에 버전 포함 → 받은 파일이 몇 버전인지 한눈에. 예: MegaloadDesktop-Setup-0.2.20.exe
+  #   자동업데이트(auto-update.mjs)는 latest.yml 의 path 를 동적으로 읽어 받으므로 무관하게 동작.
+  #   ⚠️ 웹 다운로드 URL(worker-download.ts)도 같은 파일명을 가리켜야 함 → 릴리스 시 함께 갱신.
+  artifactName: MegaloadDesktop-Setup-${version}.${ext}
   oneClick: true
   perMachine: false
   shortcutName: 메가로드 도우미
