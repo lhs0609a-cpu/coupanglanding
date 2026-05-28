@@ -503,6 +503,7 @@ function PricingSection() {
     { name: '베이직', period: '월', price: '1,490,000', products: '월 3,000개', addon: '월 3,300회', accounts: '1개', popular: true, cta: '시작하기' },
     { name: '프로', period: '월', price: '2,100,000', products: '월 9,000개', addon: '월 9,900회', accounts: '3개', popular: false, cta: '시작하기' },
     { name: '엔터프라이즈', period: '월', price: '2,500,000', products: '무제한', addon: '무제한', accounts: '5개', popular: false, cta: '시작하기' },
+    { name: '쿠팡PT용 AI 프로그램', period: '월', price: '3,000,000', products: '무제한', addon: '무제한', accounts: '무제한', popular: false, cta: '시작하기' },
   ];
 
   return (
@@ -514,7 +515,7 @@ function PricingSection() {
           <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold text-gray-900 mb-4">알바비보다 <span className="bg-gradient-to-r from-[#E31837] to-[#ff6b81] bg-clip-text text-transparent">훨씬 효율적인</span> 자동화</h2>
           <p className="text-lg text-gray-500 max-w-2xl mx-auto">1일 무료 체험 후 결정하세요. 결제 후 즉시 이용 가능합니다.</p>
         </motion.div>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 max-w-6xl mx-auto items-start">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4 max-w-7xl mx-auto items-start">
           {plans.map((plan, i) => (
             <motion.div key={i} variants={fadeInUp}
               className={`relative bg-white rounded-2xl border flex flex-col ${plan.popular ? 'border-[#E31837]/20 shadow-xl shadow-red-100/40 ring-1 ring-[#E31837]/10 lg:-mt-4' : 'border-gray-200 shadow-sm'} p-6 hover:shadow-xl transition-all hover:-translate-y-1`}>
