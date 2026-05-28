@@ -11,7 +11,10 @@
     <!-- 사이드: 로그인 상태 + 모듈 탭 (레지스트리에서 자동 생성) -->
     <nav class="sidebar">
       <div class="brand">메가로드 도우미</div>
-      <div id="ver" class="ver">버전 확인 중…</div>
+      <div class="ver-row">
+        <span id="ver" class="ver">버전 확인 중…</span>
+        <button id="btn-update" class="ver-btn" title="최신 버전이 있는지 확인">업데이트 확인</button>
+      </div>
       <div id="conn" class="conn off">연결 확인 중…</div>
       <button id="btn-pair" class="btn-pair">메가로드 연결</button>
       <ul id="tabs" class="tabs"></ul>

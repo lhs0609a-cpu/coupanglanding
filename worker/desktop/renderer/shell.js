@@ -71,6 +71,12 @@ $pair.onclick = async () => {
   try { await api.invoke('shell:pair-open'); } catch (e) { $pair.textContent = '연결 실패: ' + e.message; }
 };
 document.getElementById('btn-data').onclick = () => api.invoke('shell:open-data');
+const $upd = document.getElementById('btn-update');
+if ($upd) $upd.onclick = async () => {
+  $upd.disabled = true; const t = $upd.textContent; $upd.textContent = '확인 중…';
+  try { await api.invoke('shell:check-update'); } catch { /* ignore */ }
+  setTimeout(() => { $upd.disabled = false; $upd.textContent = t; }, 2500);
+};
 api.on('shell:pair-done', refreshConn);
 
 // 탭 생성 + 첫 탭 활성화

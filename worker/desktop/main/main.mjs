@@ -16,7 +16,7 @@ import { WorkerRunner } from './worker-runner.mjs';
 import { AdRunner } from './ad-runner.mjs';
 import { startPairServer } from './pair-server.mjs';
 import * as bootstrap from './bootstrap.mjs';
-import { setupAutoUpdate } from './auto-update.mjs';
+import { setupAutoUpdate, checkForUpdatesNow } from './auto-update.mjs';
 import { loadModules } from './shell/registry.mjs';
 
 // ⚠️ 자동업데이트 피드 fetch 시 "net::ERR_FAILED / Network service crashed" 회피.
@@ -171,6 +171,7 @@ function registerShellIpc(manifest) {
     return true;
   });
   ipcMain.handle('shell:open-data', () => shell.openPath(app.getPath('userData')));
+  ipcMain.handle('shell:check-update', () => { checkForUpdatesNow(() => win); return true; });
 
   // 렌더러 자가진단 — shell.js 가 로드 끝나면 호출. healthcheck 가 이 파일을 읽어 "UI 실제 렌더" 검증.
   ipcMain.handle('shell:selftest', (_e, payload = {}) => {
@@ -197,7 +198,7 @@ app.whenReady().then(async () => {
   const { manifest, trayContribs: contribs } = await loadModules(ctx);
   trayContribs = contribs;
   // 셸 채널을 manifest 에 합쳐 preload allowlist 에 포함
-  manifest.invokable.push('shell:state', 'shell:pair-open', 'shell:open-data', 'shell:asset', 'shell:selftest');
+  manifest.invokable.push('shell:state', 'shell:pair-open', 'shell:open-data', 'shell:asset', 'shell:selftest', 'shell:check-update');
   manifest.events.push('shell:pair-done');
   registerShellIpc(manifest);
 

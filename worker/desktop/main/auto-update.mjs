@@ -35,33 +35,36 @@ function cmpVer(a, b) {
   return 0;
 }
 
-async function checkAndPrompt(getWindow) {
+async function checkAndPrompt(getWindow, manual = false) {
   if (busy) return;
+  const win = () => getWindow?.() ?? null;
+  const say = async (box) => { const w = win(); return w ? dialog.showMessageBox(w, box) : dialog.showMessageBox(box); };
   let yml;
   try {
     const res = await fetch(`${FEED}/latest.yml`, { redirect: 'follow', cache: 'no-store' });
-    if (!res.ok) { ulog(`feed HTTP ${res.status}`); return; }
+    if (!res.ok) { ulog(`feed HTTP ${res.status}`); if (manual) await say({ type: 'warning', title: '업데이트 확인', message: `업데이트 정보를 가져오지 못했습니다 (HTTP ${res.status}).`, detail: '잠시 후 다시 시도해주세요.' }); return; }
     yml = await res.text();
-  } catch (e) { ulog(`feed fetch 실패: ${e.message}`); return; }
+  } catch (e) { ulog(`feed fetch 실패: ${e.message}`); if (manual) await say({ type: 'warning', title: '업데이트 확인', message: '업데이트 정보를 가져오지 못했습니다.', detail: `네트워크 상태를 확인 후 다시 시도해주세요.\n(${e.message})` }); return; }
 
   const ver = (yml.match(/^version:\s*(.+)$/m) || [])[1]?.trim();
   const file = (yml.match(/^path:\s*(.+)$/m) || [])[1]?.trim() || 'MegaloadDesktop-Setup.exe';
   const sha = (yml.match(/^sha512:\s*(.+)$/m) || [])[1]?.trim();
   const cur = app.getVersion();
-  ulog(`현재 v${cur}, 최신 v${ver}`);
-  if (!ver || cmpVer(ver, cur) <= 0) return;     // 이미 최신
-  if (declinedVersion === ver) return;
+  ulog(`${manual ? '[수동] ' : ''}현재 v${cur}, 최신 v${ver}`);
+  if (!ver || cmpVer(ver, cur) <= 0) {           // 이미 최신
+    if (manual) await say({ type: 'info', title: '업데이트 확인', message: `이미 최신 버전입니다. (v${cur})` });
+    return;
+  }
+  if (declinedVersion === ver && !manual) return; // 수동 확인은 거절 기록 무시
 
-  const win = getWindow?.() ?? null;
-  const box = {
+  const { response } = await say({
     type: 'info', buttons: ['지금 업데이트', '나중에'], defaultId: 0, cancelId: 1,
     title: '메가로드 도우미 업데이트',
     message: `새 버전 v${ver} 이(가) 있습니다.`,
     detail: '지금 업데이트하면 자동으로 다운로드한 뒤 설치하고 재시작합니다.\n(작업은 잠시 멈췄다가 설치 후 다시 시작됩니다.)',
-  };
-  const { response } = win ? await dialog.showMessageBox(win, box) : await dialog.showMessageBox(box);
+  });
   if (response !== 0) { declinedVersion = ver; return; }
-  await downloadAndInstall(ver, file, sha, win);
+  await downloadAndInstall(ver, file, sha, win());
 }
 
 async function downloadAndInstall(ver, file, sha, win) {
@@ -110,4 +113,9 @@ export function setupAutoUpdate(opts) {
   const check = () => checkAndPrompt(opts.getWindow).catch((e) => ulog(`체크 예외: ${e.message}`));
   setTimeout(check, 12_000);                  // 부팅 12초 후
   setInterval(check, 6 * 60 * 60 * 1000);     // 이후 6시간마다
+}
+
+/** 수동 "업데이트 확인" — 최신이면 안내, 새 버전이면 다이얼로그. (앱의 버튼에서 호출) */
+export function checkForUpdatesNow(getWindow) {
+  return checkAndPrompt(getWindow, true).catch((e) => ulog(`수동체크 예외: ${e.message}`));
 }

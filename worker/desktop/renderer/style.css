@@ -7,7 +7,11 @@ body { font-family: 'Noto Sans KR', 'Malgun Gothic', -apple-system, system-ui, s
 /* 사이드바 */
 .sidebar { width: 184px; background: #1f2430; color: #e5e7eb; display: flex; flex-direction: column; padding: 14px 10px; gap: 8px; }
 .brand { font-weight: 800; font-size: 15px; padding: 4px 6px 2px; }
-.ver { font-size: 11px; color: #6b7280; padding: 0 6px 8px; }
+.ver-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 6px 8px; }
+.ver { font-size: 11px; color: #6b7280; }
+.ver-btn { font-size: 10px; color: #93c5fd; background: #2b3140; border: 0; border-radius: 5px; padding: 3px 7px; cursor: pointer; }
+.ver-btn:hover { background: #374151; color: #fff; }
+.ver-btn:disabled { opacity: .5; cursor: default; }
 .conn { font-size: 12px; padding: 6px 8px; border-radius: 6px; background: #2b3140; }
 .conn.on { color: #34d399; } .conn.off { color: #9ca3af; }
 .btn-pair { background: var(--red); color: #fff; border: 0; border-radius: 6px; padding: 8px; font-size: 13px; font-weight: 700; cursor: pointer; }
