@@ -305,6 +305,7 @@ export function useBulkRegisterActions() {
     setAutoMatchError('');
     setCategoryFailures([]);
 
+    try {
     // ─── 사용자 학습 결과 사전 조회 — 같은 시그니처 상품은 즉시 적용 ───
     // (다음 단계의 매처 호출 전에 이미 매칭된 것은 SKIP)
     const learnedMatches = new Map<number, { code: string; path: string }>();
@@ -312,6 +313,7 @@ export function useBulkRegisterActions() {
       const learnRes = await fetch('/api/megaload/categories/corrections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(15_000), // 멈춤 방지 — 학습조회 실패해도 일반매칭으로 폴백
         body: JSON.stringify({ productNames: targets.map(p => p.name) }),
       });
       if (learnRes.ok) {
@@ -355,6 +357,7 @@ export function useBulkRegisterActions() {
       const res = await fetch('/api/megaload/products/bulk-register/auto-category-batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(30_000), // 배치 한 건이 매달려도 전체가 멈추지 않게
         body: JSON.stringify({
           productNames: names,
           ...(hasNaverIds ? { naverCategoryIds } : {}),
@@ -467,7 +470,10 @@ export function useBulkRegisterActions() {
       console.log('[카테고리 매칭 실패 목록]', JSON.stringify(allFailures, null, 2));
     }
 
-    setAutoMatchingProgress(null);
+    } finally {
+      // ★ 무슨 일이 있어도 진행상태를 해제 — 멈추면 자동 파이프라인(이미지 다양성)·프리플라이트가 영구 차단됨.
+      setAutoMatchingProgress(null);
+    }
   }, []);
 
   // Retry auto-category for unmatched products (max 3 retries, exponential backoff)
