@@ -183,5 +183,7 @@ export async function processCutoutThumbnail(inputBuffer, { canvas = CANVAS, pad
     }
   }
 
-  return composeWhite(cut, canvas, padRatio);
+  // 누끼 모드(및 재생성 폴백): 메인 상품으로 크롭 → 중앙정렬 흰배경. 실물 글자 그대로 보존(재생성 X).
+  const main = await cropToMainProduct(cut);
+  return composeWhite(main, canvas, padRatio);
 }
