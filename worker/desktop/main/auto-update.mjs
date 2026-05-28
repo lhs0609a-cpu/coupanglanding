@@ -12,7 +12,7 @@
 //       후 설치 + runAfterFinish 로 재실행) → 앱 종료.
 // 비용: GitHub Releases 무료. Windows(NSIS)만. 진행/오류는 tmp 로그에 기록.
 // ============================================================
-import { app, dialog, Notification } from 'electron';
+import { app, dialog, Notification, shell } from 'electron';
 import { writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -92,14 +92,27 @@ async function downloadAndInstall(ver, file, sha, win) {
     if (response !== 0) { busy = false; return; }
 
     // NSIS 설치기 실행 → customInit 이 실행중 앱(MegaloadDesktop) 종료 후 설치 + runAfterFinish 로 재실행.
-    // ⚠️ 반드시 cmd `start` 로 앱의 프로세스 트리에서 "분리"해 실행한다.
-    //    그냥 spawn(dest) 하면 설치기가 MegaloadDesktop 의 자식이 되고, 설치기 customInit 의
-    //    `taskkill /F /IM MegaloadDesktop.exe /T` 가 /T(트리)로 방금 뜬 설치기 자신까지 죽여
-    //    앱만 종료되고 설치가 무반응으로 멈춘다(0.2.19 버그). cmd 가 즉시 종료되며 설치기는 고아가 돼 트리에서 빠진다.
-    spawn('cmd.exe', ['/c', 'start', '', dest], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
-    ulog(`설치기 실행(트리 분리): ${dest}`);
+    // ⚠️ 반드시 OS 셸로 실행해 앱의 프로세스 트리/잡오브젝트 "밖"에서 돌게 한다.
+    //    그냥 spawn/cmd start 하면 설치기가 앱의 자식이 되어, 설치기 customInit 의
+    //    `taskkill /F /IM MegaloadDesktop.exe /T`(/T=트리) 또는 앱 잡오브젝트 종료에 설치기 자신까지 죽어
+    //    → 앱만 종료되고 설치가 무반응으로 멈춘다(0.2.19~0.2.23 버그, OS레벨 테스트로 확인).
+    //  ① shell.openPath = ShellExecute(탐색기가 실행) = 사용자가 더블클릭한 것과 동일(트리/잡 밖) — 가장 안전.
+    //  ② 실패 시 WMI(Win32_Process.Create, 부모=WmiPrvSE)로 폴백.
+    let launched = false;
+    try {
+      const openErr = await shell.openPath(dest);   // '' 이면 성공
+      if (!openErr) { launched = true; ulog(`설치기 실행(shell.openPath): ${dest}`); }
+      else ulog(`shell.openPath 실패(${openErr}) — WMI 폴백`);
+    } catch (e3) { ulog(`shell.openPath 예외(${e3.message}) — WMI 폴백`); }
+    if (!launched) {
+      const psScript = `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine='"${dest}"'} | Out-Null`;
+      const enc = Buffer.from(psScript, 'utf16le').toString('base64');
+      spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', enc], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+      ulog(`설치기 실행(WMI 폴백): ${dest}`);
+      await new Promise((r) => setTimeout(r, 4000));  // WMI 모듈 로드+생성 시간 확보
+    }
     app.isQuitting = true;
-    setTimeout(() => app.quit(), 1500);
+    setTimeout(() => app.quit(), 2000);
   } catch (e) {
     ulog(`설치 실패: ${e.message}`);
     try { new Notification({ title: '메가로드 도우미', body: `업데이트 실패: ${e.message}` }).show(); } catch { /* noop */ }
