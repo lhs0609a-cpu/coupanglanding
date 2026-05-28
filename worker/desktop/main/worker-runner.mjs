@@ -95,6 +95,25 @@ export class WorkerRunner {
     let img2imgFn = undefined;
     try {
       const i2iWf = await loadWorkflow(fsp, join(dirname(workflowPath), 'img2img-thumbnail.example.json'));
+      // SDXL Lightning LoRA 미설치 환경 폴백 — 워크플로를 기존 26스텝 base 로 되돌려 깨지지 않게.
+      try {
+        const loraName = i2iWf['9']?.inputs?.lora_name;
+        if (loraName) {
+          let hasLora = false;
+          try {
+            const oi = await (await fetch(`${comfyUrl}/object_info/LoraLoader`)).json();
+            const list = oi?.LoraLoader?.input?.required?.lora_name?.[0] || [];
+            hasLora = Array.isArray(list) && list.includes(loraName);
+          } catch { hasLora = false; }
+          if (!hasLora) {
+            delete i2iWf['9'];
+            if (i2iWf['3']?.inputs) i2iWf['3'].inputs.clip = ['1', 1];
+            if (i2iWf['4']?.inputs) i2iWf['4'].inputs.clip = ['1', 1];
+            if (i2iWf['6']?.inputs) Object.assign(i2iWf['6'].inputs, { model: ['1', 0], steps: 26, cfg: 7, sampler_name: 'dpmpp_2m', scheduler: 'karras' });
+            this.onEvent({ type: 'warn', message: 'Lightning LoRA 미설치 — 기존 26스텝으로 진행(LoRA 설치 시 자동 가속).' });
+          }
+        }
+      } catch { /* 폴백 점검 실패 시 워크플로 원본 사용 */ }
       img2imgFn = (rgbPng, positivePrompt, negativePrompt) => generateThumbnail(comfyUrl, {
         imageBuffer: rgbPng,
         inputName: `i2i_${randomUUID().slice(0, 8)}.png`,

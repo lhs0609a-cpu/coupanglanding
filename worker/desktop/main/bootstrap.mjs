@@ -15,6 +15,9 @@ export const DEFAULTS = {
   comfyArchiveUrl: 'https://github.com/comfyanonymous/ComfyUI/releases/latest/download/ComfyUI_windows_portable_nvidia.7z',
   modelUrl: 'https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors?download=true',
   modelFileName: 'sd_xl_base_1.0.safetensors',
+  // 이미지 생성 가속용 SDXL Lightning 8스텝 LoRA (~400MB) — img2img 워크플로가 26→8스텝(약 2배 빠름).
+  loraUrl: 'https://huggingface.co/ByteDance/SDXL-Lightning/resolve/main/sdxl_lightning_8step_lora.safetensors?download=true',
+  loraFileName: 'sdxl_lightning_8step_lora.safetensors',
 };
 
 const exists = (p) => stat(p).then(() => true, () => false);
@@ -39,6 +42,9 @@ export function comfyRoot(installDir) {
 }
 export function checkpointsDir(installDir) {
   return join(comfyRoot(installDir), 'ComfyUI', 'models', 'checkpoints');
+}
+export function lorasDir(installDir) {
+  return join(comfyRoot(installDir), 'ComfyUI', 'models', 'loras');
 }
 
 /** 설치 완료 여부 — 실행 bat + 체크포인트 1개 이상 */
@@ -119,6 +125,23 @@ export async function install({ installDir, urls = {}, onProgress = () => {} }) 
     await downloadFile(u.modelUrl, modelPath, (pct) => onProgress({ phase: 'model-download', pct }));
   } else {
     onProgress({ phase: 'model-download', pct: 100, detail: '이미 있음' });
+  }
+
+  // 3) SDXL Lightning LoRA (이미지 생성 가속 — 26→8스텝). 실패해도 설치는 진행(기본 26스텝 폴백 가능).
+  if (u.loraUrl && u.loraFileName) {
+    try {
+      const lDir = lorasDir(installDir);
+      await mkdir(lDir, { recursive: true });
+      const loraPath = join(lDir, u.loraFileName);
+      if (!(await exists(loraPath))) {
+        onProgress({ phase: 'lora-download', pct: 0, detail: `${u.loraFileName} (~400MB, 생성 가속)` });
+        await downloadFile(u.loraUrl, loraPath, (pct) => onProgress({ phase: 'lora-download', pct }));
+      } else {
+        onProgress({ phase: 'lora-download', pct: 100, detail: '이미 있음' });
+      }
+    } catch (e) {
+      onProgress({ phase: 'lora-download', pct: 100, detail: `LoRA 생략(${String(e.message).slice(0, 60)})` });
+    }
   }
 
   onProgress({ phase: 'done', pct: 100 });

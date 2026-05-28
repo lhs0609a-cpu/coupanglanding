@@ -1,11 +1,12 @@
 {
-  "_comment": "SDXL img2img 워크플로 (API format). 누끼+파임prefill 한 상품(흰배경)을 입력으로 받아 전체를 균일 재생성 → 깨끗한 스튜디오 컷. denoise 로 충실도↔정리 조절(기본 0.5). patchWorkflow 가 LoadImage.image/프롬프트/seed 를 주입하고 비-노드 키(_comment)는 제거한다.",
+  "_comment": "SDXL img2img 워크플로 (API format). 누끼+흰배경 상품을 입력으로 받아 전체를 균일 재생성 → 깨끗한 스튜디오 컷. SDXL Lightning 8스텝 LoRA 로 가속(26→8스텝, 약 2배 빠름). Lightning 권장값: euler + sgm_uniform + cfg 1.8 + 8 steps. patchWorkflow 가 LoadImage.image/프롬프트/seed 를 주입하고 비-노드 키(_comment)는 제거한다. LoRA 파일(sdxl_lightning_8step_lora.safetensors)이 ComfyUI/models/loras 에 있어야 함.",
   "1": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "sd_xl_base_1.0.safetensors"}},
+  "9": {"class_type": "LoraLoader", "inputs": {"model": ["1", 0], "clip": ["1", 1], "lora_name": "sdxl_lightning_8step_lora.safetensors", "strength_model": 1.0, "strength_clip": 1.0}},
   "2": {"class_type": "LoadImage", "inputs": {"image": "__INPUT_IMAGE__", "upload": "image"}},
-  "3": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["1", 1], "text": "a single product, front-facing straight-on view, product enlarged and centered to fill the frame, isolated on pure white background, clean e-commerce studio thumbnail, photorealistic, sharp focus, soft even lighting"}},
-  "4": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["1", 1], "text": "blurry, low quality, hands, fingers, clutter, watermark, overlay text, multiple objects, multiple products, several items, tilted, angled, perspective, side view, deformed, frame, border"}},
+  "3": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["9", 1], "text": "a single product, front-facing straight-on view, product enlarged and centered to fill the frame, isolated on pure white background, clean e-commerce studio thumbnail, photorealistic, sharp focus, soft even lighting"}},
+  "4": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["9", 1], "text": "blurry, low quality, hands, fingers, clutter, watermark, overlay text, multiple objects, multiple products, several items, tilted, angled, perspective, side view, deformed, frame, border"}},
   "5": {"class_type": "VAEEncode", "inputs": {"pixels": ["2", 0], "vae": ["1", 2]}},
-  "6": {"class_type": "KSampler", "inputs": {"model": ["1", 0], "positive": ["3", 0], "negative": ["4", 0], "latent_image": ["5", 0], "seed": 0, "steps": 26, "cfg": 7, "sampler_name": "dpmpp_2m", "scheduler": "karras", "denoise": 0.6}},
+  "6": {"class_type": "KSampler", "inputs": {"model": ["9", 0], "positive": ["3", 0], "negative": ["4", 0], "latent_image": ["5", 0], "seed": 0, "steps": 8, "cfg": 1.8, "sampler_name": "euler", "scheduler": "sgm_uniform", "denoise": 0.6}},
   "7": {"class_type": "VAEDecode", "inputs": {"samples": ["6", 0], "vae": ["1", 2]}},
   "8": {"class_type": "SaveImage", "inputs": {"images": ["7", 0], "filename_prefix": "i2i_thumb"}}
 }
