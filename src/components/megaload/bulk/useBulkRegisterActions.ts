@@ -894,7 +894,7 @@ export function useBulkRegisterActions() {
         if (!url) continue;
         // 재생성: 상품명 기반 프롬프트로 SDXL 변형(drift) 억제 — 범용 프롬프트보다 자연스러움.
         const regenPrompt = mode === 'regenerate'
-          ? `a single ${p.editedDisplayProductName || p.editedName || p.editedCategoryName || 'product'}, clean studio product photo on pure white background, photorealistic, sharp focus, natural texture, centered, no hands, no clutter`
+          ? `a single ${p.editedDisplayProductName || p.editedName || p.editedCategoryName || 'product'}, front-facing straight-on view (camera directly facing the product front, no tilt, no angle), the product enlarged and centered to fill most of the frame, isolated on a pure white background, clean e-commerce studio thumbnail, photorealistic, sharp focus, soft even lighting, only one product, no other objects, no clutter, no hands, no text overlay`
           : undefined;
         jobs.push({ sourceUrl: url, productCode: p.productCode, label: p.uid, ...(regenPrompt ? { prompt: regenPrompt } : {}) });
       } catch { /* skip */ }

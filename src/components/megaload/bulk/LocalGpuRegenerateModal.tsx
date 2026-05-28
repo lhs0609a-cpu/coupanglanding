@@ -20,7 +20,7 @@ type Mode = 'cutout' | 'regenerate';
 type Phase = 'idle' | 'working' | 'done' | 'error';
 
 const buildDefaultPrompt = (name?: string) =>
-  `a single ${name?.trim() || 'product'}, clean studio product photo on pure white background, photorealistic, sharp focus, natural texture, centered, no hands, no clutter`;
+  `a single ${name?.trim() || 'product'}, front-facing straight-on view (camera directly facing the product front, no tilt, no angle, no perspective), the product enlarged and centered to fill most of the frame, isolated on a pure white background (#FFFFFF), clean e-commerce studio thumbnail, photorealistic, sharp focus, soft even lighting, subtle shadow beneath, only one product, no other objects, no clutter, no hands, no people, no text overlay`;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
