@@ -24,6 +24,7 @@ import {
   Sparkles,
   ArrowRight,
   RotateCcw,
+  Monitor,
 } from 'lucide-react';
 import {
   ROADMAP_STEPS,
@@ -49,6 +50,7 @@ const STEP_ICONS: Record<string, React.ElementType> = {
   Shield,
   Heart,
   ShoppingBag,
+  Monitor,
 };
 
 const ALL_STEP_SUB_IDS = ROADMAP_STEPS.map((s) =>
