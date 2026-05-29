@@ -11,7 +11,7 @@
 //    2) cd worker/desktop && npm run dist  (→ MegaloadDesktop-Setup-<버전>.exe + latest.yml)
 //    3) GitHub 릴리스 'megaload-desktop-update' 에 위 2개 업로드
 //    4) 그 다음에 이 값을 올려 배포  ← 업로드 전에 올리면 없는 파일을 가리켜 404
-export const WORKER_APP_VERSION = '0.2.27';
+export const WORKER_APP_VERSION = '0.2.28';
 
 // 버전 포함 다운로드 URL — WORKER_APP_VERSION 단일 출처에서 구성(파일명과 자동 일치).
 export const WORKER_DOWNLOAD_URL =
