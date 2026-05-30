@@ -1368,6 +1368,7 @@ export function useBulkRegisterActions() {
               const safetyFactor = 0.4 + 0.6 * (safety / 100);
               return {
                 img: tagReason(p.scannedMainImages![s.index], s.index),
+                origIdx: s.index,
                 rank: s.score.overall * safetyFactor,
                 safety,
                 risks: s.score.safetyRisks,
@@ -1387,6 +1388,20 @@ export function useBulkRegisterActions() {
               .filter(({ j }) => !scoredIdxSet.has(j))
               .map(({ img, j }) => tagReason(img, j));
             const finalImages = [...orderedImages, ...unscoredImages].slice(0, 10);
+
+            // ─── 안전망: 자동 제외가 "전부"를 덮으면 대표 1장은 살린다 ───
+            // 스코어러가 모든 사진을 hard_filter 로 찍으면 등록 시 메인 0장이 되어
+            // "이상한 대표 + 나머지 전부 삭제"처럼 보이는 사고가 난다. 이미 품질×안전도
+            // 순으로 정렬돼 finalImages[0] = 그중 최선이므로, 이 1장만 자동제외를 해제한다.
+            // ★ 수동 제외(autoExcludeDetail==='manual')는 절대 건드리지 않음.
+            const everyAutoExcluded = finalImages.length > 0
+              && finalImages.every(img => img.autoExcludeReason && img.autoExcludeDetail !== 'manual');
+            if (everyAutoExcluded) {
+              const { autoExcludeReason: _ar, autoExcludeDetail: _ad, ...revived } = finalImages[0];
+              finalImages[0] = revived;
+              reasonMap.delete(taggedScored[0]?.origIdx);  // 재태깅/세션복원 일관성
+              console.warn(`[image-score] ${p.productCode}: 전 사진 자동제외 감지 → 대표 1장(${revived.name}) 강제 보존`);
+            }
             const rep = taggedScored[0];
             console.info(
               `[image-score] ${p.productCode}: 대표=자동승격(${finalImages[0]?.name}, 안전도=${rep?.safety ?? '-'}${rep?.risks?.length ? `, 위험=${rep.risks.join('/')}` : ''}), 총 ${finalImages.length}장 보존, 자동제외표시=${reasonMap.size}장`,
@@ -3577,6 +3592,20 @@ export function useBulkRegisterActions() {
             if (cached.mainImageUrls.length !== mainUrls.length) {
               console.info(`[auto-exclude] ${p.productCode}: 대표이미지 ${cached.mainImageUrls.length - mainUrls.length}장 제외 (자동/수동/실패 합산, 등록 시점)`);
             }
+            // 안전망: 제외/실패로 0장이 되면 대표 1장 강제 보존 (메인 0장 등록 방지).
+            // 자동 제외분 우선 복원(수동 제외 의도 존중), 없으면 첫 유효 URL.
+            if (mainUrls.length === 0 && cached.mainImageUrls.some(Boolean)) {
+              const len = Math.min(p.scannedMainImages?.length ?? 0, cached.mainImageUrls.length);
+              let reviveIdx = -1;
+              for (let i = 0; i < len; i++) {
+                if (cached.mainImageUrls[i] && p.scannedMainImages![i]?.autoExcludeDetail !== 'manual') { reviveIdx = i; break; }
+              }
+              if (reviveIdx === -1) reviveIdx = cached.mainImageUrls.findIndex(Boolean);
+              if (reviveIdx >= 0) {
+                mainUrls = [cached.mainImageUrls[reviveIdx]];
+                console.warn(`[auto-exclude] ${p.productCode}: 전 대표이미지 제외/실패 → 1장 강제 보존 (#${reviveIdx})`);
+              }
+            }
             // filter(Boolean): 사전업로드 실패로 생긴 빈 슬롯 제거 (drop 후 길이 0이면 핸들 폴백 시도)
             const cachedDetail = cached.detailImageUrls?.length
               ? filterImagesByOrder(cached.detailImageUrls, p.editedDetailImageOrder).filter(Boolean)
@@ -3613,9 +3642,17 @@ export function useBulkRegisterActions() {
             }
           } else if (hasScanned) {
             // 브라우저 모드: scannedMainImages를 직접 업로드 (자동 제외 권장 필터링)
-            const filteredMain = p.scannedMainImages!.filter(img => !img.autoExcludeReason);
+            let filteredMain = p.scannedMainImages!.filter(img => !img.autoExcludeReason);
             if (filteredMain.length !== p.scannedMainImages!.length) {
               console.info(`[auto-exclude] ${p.productCode}: 대표이미지 ${p.scannedMainImages!.length - filteredMain.length}장 자동 제외 (직접 업로드 경로)`);
+            }
+            // 안전망: 제외로 0장이 되면 대표 1장 강제 보존 (쿠팡은 이미지 0장 등록 불가).
+            // 자동 제외분 우선 복원(수동 제외 의도는 최대한 존중), 전부 수동이면 첫 장.
+            if (filteredMain.length === 0 && p.scannedMainImages!.length > 0) {
+              const revive = p.scannedMainImages!.find(img => img.autoExcludeDetail !== 'manual')
+                ?? p.scannedMainImages![0];
+              filteredMain = [revive];
+              console.warn(`[auto-exclude] ${p.productCode}: 전 대표이미지 제외 → 1장 강제 보존 (${revive.name})`);
             }
             const mainUrls = await uploadScannedImages(filteredMain, 10, wmBrand);
             const detailUrls = detailHandlesLost ? [] : await uploadScannedImages(filteredDetail, 10, wmBrand);
