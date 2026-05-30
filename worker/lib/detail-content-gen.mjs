@@ -73,6 +73,9 @@ export function cleanDetailOutput(raw) {
     .join('\n');
   t = t.replace(/^\s*#{1,6}\s*/gm, '');        // 마크다운 헤더(###) 제거 — 텍스트는 유지
   t = t.replace(/\*\*\s*-\s*/g, '- ');          // "**- " 깨진 불릿 마커 정리
+  // 문장 종결 직후 같은 줄에 붙은 불릿("…했어요.- **☀️")을 새 단락의 불릿 줄로 분리.
+  // [ \t]만 허용 → 줄바꿈은 넘지 않으므로 이미 분리된/연속된 불릿은 건드리지 않는다.
+  t = t.replace(/([^\n\t ])[ \t]*-[ \t]+(\*\*)/g, '$1\n\n- $2');
   t = softenSuperlatives(t);
   return t.replace(/\n{3,}/g, '\n\n').trim();
 }
