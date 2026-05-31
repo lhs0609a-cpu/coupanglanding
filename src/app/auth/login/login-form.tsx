@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Eye, EyeOff } from 'lucide-react';
@@ -16,14 +16,25 @@ export default function LoginForm() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  // 429(레이트리밋) 쿨다운 — 남은 초. 0보다 크면 로그인 버튼 잠금 + 카운트다운.
+  // 사용자가 계속 눌러 한도를 스스로 늘리는 걸 막는다(루트 원인은 IP당 sign-in 한도).
+  const [cooldown, setCooldown] = useState(0);
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams.get('redirect');
   const type = searchParams.get('type');
   const [isSignup, setIsSignup] = useState(type === 'signup');
 
+  // 쿨다운 1초마다 감소
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (cooldown > 0) return; // 쿨다운 중엔 시도 자체를 막아 한도 악화 방지
     setError('');
     setSuccess('');
     setLoading(true);
@@ -51,6 +62,7 @@ export default function LoginForm() {
           setError('이메일 또는 비밀번호가 올바르지 않습니다.');
         } else if (authError.status === 429) {
           setError('요청이 너무 많습니다. 잠시 후 다시 시도해주세요.');
+          setCooldown(60); // 60초 잠금 — 연타로 IP 한도가 더 늘어나는 것 방지
         } else if (!authError.message || authError.message === '0' || authError.message === 'Failed to fetch') {
           setError('서버에 연결할 수 없습니다. 인터넷 연결을 확인하고 다시 시도해주세요.');
         } else if (authError.message === 'Email not confirmed') {
@@ -322,10 +334,10 @@ export default function LoginForm() {
 
       <button
         type="submit"
-        disabled={loading}
+        disabled={loading || cooldown > 0}
         className="w-full py-3 bg-[#E31837] text-white font-semibold rounded-lg hover:bg-[#c01530] transition disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {loading ? '로그인 중...' : '로그인'}
+        {cooldown > 0 ? `${cooldown}초 후 다시 시도` : loading ? '로그인 중...' : '로그인'}
       </button>
 
       <div className="flex justify-center gap-3 text-sm text-gray-500">

@@ -18,9 +18,21 @@ async function fetchPage(url) {
     const res = await fetch(url, {
       method: 'GET', redirect: 'follow', signal: ac.signal, cache: 'no-store',
       headers: {
+        // 쿠키없는 헤드리스 요청은 네이버가 봇으로 보고 즉시 429를 던진다. 실제 크롬과
+        // 동일한 Sec-Fetch / Sec-Ch-Ua / Referer 를 붙여 일반 브라우저 진입처럼 위장한다.
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Referer': 'https://shopping.naver.com/',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'cross-site',
+        'Sec-Fetch-User': '?1',
+        'Sec-Ch-Ua': '"Chromium";v="131", "Not_A Brand";v="24", "Google Chrome";v="131"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Upgrade-Insecure-Requests': '1',
+        'Cache-Control': 'max-age=0',
       },
     });
     let body = await res.text();

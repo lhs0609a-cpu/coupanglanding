@@ -50,7 +50,11 @@ async function processOne(ctx, m) {
   pending.push({ monitorId: m.id, status: r.status, mainPrice: r.mainPrice ?? null, options: r.options ?? null, errorClass: r.errorClass || null, fetchedAt: new Date().toISOString() });
   stats.checked++; stats.lastCheckAt = Date.now();
   const ico = r.status === 'in_stock' ? '✅' : r.status === 'sold_out' ? '⛔' : r.status === 'removed' ? '🗑' : '⚠';
-  ctx.send('stock-monitor:log', `${ico} ${(m.source_url || '').slice(0, 55)} → ${r.status}${r.mainPrice ? ' ' + r.mainPrice.toLocaleString() + '원' : ''}`);
+  // 에러면 실제 사유(HTTP 429 / timeout / 예외)와 분류를 함께 찍어 진단 가능하게 한다.
+  const detail = r.status === 'error'
+    ? ` (${r.errorClass || '?'}: ${r.matchedPattern || '사유미상'})`
+    : (r.mainPrice ? ' ' + r.mainPrice.toLocaleString() + '원' : '');
+  ctx.send('stock-monitor:log', `${ico} ${(m.source_url || '').slice(0, 55)} → ${r.status}${detail}`);
   ctx.send('stock-monitor:stats', { ...stats });
   return r;
 }

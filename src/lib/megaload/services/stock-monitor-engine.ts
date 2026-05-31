@@ -224,7 +224,10 @@ async function checkUrlSingle(url: string, retryCount = 0, forceDirect = false):
         cache: 'no-store',
       });
       statusCode = res.status;
-      html = (await res.text()).slice(0, 500_000);
+      // 본문 캡 2.5MB — 네이버 상품 페이지가 커서(리뷰/추천/SVG 등) __PRELOADED_STATE__ 가
+      // 뒤쪽에 위치한다. 과거 500KB 캡은 state JSON 을 잘라 가격/품절 파싱 실패를 유발.
+      // (워커 naver-fetch.mjs 의 MAX_BODY 와 동일.)
+      html = (await res.text()).slice(0, 2_500_000);
     }
     clearTimeout(timeout);
 

@@ -82,6 +82,27 @@ export async function unload(model) {
   }
 }
 
+/** 현재 VRAM/메모리에 로드돼 "떠 있는" 모델 이름 목록 (/api/ps). 베스트에포트. */
+export async function psLoaded() {
+  try {
+    const r = await fetch(`${OLLAMA}/api/ps`);
+    if (!r.ok) return [];
+    const j = await r.json();
+    return (j.models || []).map((m) => m.name).filter(Boolean);
+  } catch { return []; }
+}
+
+/**
+ * 지금 로드돼 있는 모든 ollama 모델을 즉시 언로드해 VRAM 을 비운다(ComfyUI/SDXL 양보용).
+ * 로드된 게 없으면 아무 것도 안 함(네트워크 1회). 언로드한 모델 이름 배열을 반환.
+ */
+export async function freeVram() {
+  const loaded = await psLoaded();
+  if (loaded.length === 0) return [];
+  await Promise.all(loaded.map((m) => unload(m)));
+  return loaded;
+}
+
 /**
  * 임베딩 (ollama /api/embed). input: string | string[].
  * @returns {Promise<number[][]>} 벡터 배열

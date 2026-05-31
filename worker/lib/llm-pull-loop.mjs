@@ -11,6 +11,7 @@ import { generate, listModels, isUp } from './local-llm.mjs';
 import { buildTitlePrompt, buildOptionsPrompt, pickPersona } from './ai-prompts.mjs';
 import { generatePerfectDetail } from './detail-content-gen.mjs';
 import { topCandidatesEmbed, isBuilt as embedBuilt } from './category-embed-matcher.mjs';
+import { withGpu } from './gpu-lease.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -178,17 +179,19 @@ export async function runLlmPullLoop({
       try {
         const input = job.input || {};
         let result;
+        // GPU 리스('llm' 모드)로 감싼다 — 이미지(SDXL) 잡과 직렬화되어 동시 실행 시
+        // VRAM 스왑 thrash 를 막는다. 이미지→텍스트 전환 시 Ollama 가 지연 로드된다.
         if (job.task_type === 'display_name') {
           if (!model) throw new Error('설치된 Ollama 모델이 없습니다 (예: ollama pull qwen2.5:7b-instruct).');
-          result = await runDisplayName(model, input);
+          result = await withGpu('llm', () => runDisplayName(model, input));
         } else if (job.task_type === 'options') {
           if (!model) throw new Error('설치된 Ollama 모델이 없습니다.');
-          result = await runOptions(model, input);
+          result = await withGpu('llm', () => runOptions(model, input));
         } else if (job.task_type === 'content') {
           if (!model) throw new Error('설치된 Ollama 모델이 없습니다.');
-          result = await runContent(model, input);
+          result = await withGpu('llm', () => runContent(model, input));
         } else if (job.task_type === 'category') {
-          result = await runCategory(input);
+          result = await withGpu('llm', () => runCategory(input));
         } else {
           throw new Error(`알 수 없는 task_type: ${job.task_type}`);
         }

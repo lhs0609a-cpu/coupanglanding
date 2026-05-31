@@ -5,6 +5,8 @@ import { join, dirname } from 'node:path';
 import { Session } from '../runtime/supabase-rest.mjs';
 import { loadWorkflow, generateThumbnail } from '../runtime/comfyui-client.mjs';
 import { runPullLoop } from '../runtime/pull-loop.mjs';
+import { freeVram } from '../runtime/local-llm.mjs';
+import { withGpu } from '../runtime/gpu-lease.mjs';
 // ⚠️ runLlmPullLoop 는 startLlmLoop() 안에서 동적 import 한다 — 이 파일이 패키지에 누락돼도
 //    (top-level import 였을 때처럼) 메인 프로세스가 로드 단계에서 죽지 않게 하기 위함.
 import { processCutoutThumbnail } from './thumbnail-processor.mjs';
@@ -114,14 +116,28 @@ export class WorkerRunner {
           }
         }
       } catch { /* 폴백 점검 실패 시 워크플로 원본 사용 */ }
-      img2imgFn = (rgbPng, positivePrompt, negativePrompt) => generateThumbnail(comfyUrl, {
-        imageBuffer: rgbPng,
-        inputName: `i2i_${randomUUID().slice(0, 8)}.png`,
-        workflow: i2iWf,
-        positivePrompt: positivePrompt || undefined, // 상품명 기반(없으면 워크플로 기본값)
-        negativePrompt: negativePrompt || undefined,
-        timeoutMs: timeoutSec * 1000,
-      });
+      img2imgFn = (rgbPng, positivePrompt, negativePrompt) => withGpu(
+        'image',
+        () => generateThumbnail(comfyUrl, {
+          imageBuffer: rgbPng,
+          inputName: `i2i_${randomUUID().slice(0, 8)}.png`,
+          workflow: i2iWf,
+          positivePrompt: positivePrompt || undefined, // 상품명 기반(없으면 워크플로 기본값)
+          negativePrompt: negativePrompt || undefined,
+          timeoutMs: timeoutSec * 1000,
+        }),
+        {
+          // ★ LLM→이미지 전환 시에만 Ollama 언로드해 SDXL에 VRAM 양보. LLM이 keep_alive
+          //   30분으로 상주하면 SDXL이 매번 스왑/부분 CPU 실행되어 10~40초로 느려진다.
+          //   비우면 SDXL이 VRAM 독점 → 첫 1회만 체크포인트 로드, 이후 웜.
+          onSwitch: async (from) => {
+            if (from === 'llm' || from === null) {
+              const freed = await freeVram();
+              if (freed.length) this.onEvent({ scope: 'image', type: 'info', message: `VRAM 양보: LLM 언로드(${freed.join(', ')})` });
+            }
+          },
+        },
+      );
     } catch (e) {
       this.onEvent({ type: 'warn', message: `img2img 워크플로 로드 실패 — 재생성 비활성: ${e.message}` });
     }
