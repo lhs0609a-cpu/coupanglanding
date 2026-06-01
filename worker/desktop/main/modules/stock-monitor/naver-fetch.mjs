@@ -58,9 +58,14 @@ function loadInWindow(url) {
       const onFail = (_e, errCode, errDesc, _vurl, isMain) => { if (isMain) finish(`load ${errCode} ${errDesc}`); };
       const onFinish = async () => {
         try {
-          // __PRELOADED_STATE__ 가 들어간 최종 HTML 추출.
-          const html = await wc.executeJavaScript('document.documentElement.outerHTML', true);
-          finish(null, status || 200, html);
+          // ★ window.__PRELOADED_STATE__ 객체를 직접 직렬화해 추출 — 렌더된 outerHTML 은 너무 커서
+          //   2.5MB 캡에 benefitsView(가격)가 잘려나가 가격을 못 읽던 문제 해결(상태는 앞쪽이라 살아남음).
+          //   state 가 없으면(드묾) outerHTML 로 폴백.
+          const body = await wc.executeJavaScript(
+            '(function(){try{var s=window.__PRELOADED_STATE__;return s?JSON.stringify(s):document.documentElement.outerHTML}catch(e){return document.documentElement.outerHTML}})()',
+            true,
+          );
+          finish(null, status || 200, body);
         } catch (e) { finish('extract: ' + (e?.message || e)); }
       };
       function cleanup() {
