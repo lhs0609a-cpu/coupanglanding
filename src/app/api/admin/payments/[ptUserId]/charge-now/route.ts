@@ -11,6 +11,7 @@ import { PAYMENT_RETRY_INTERVAL_HOURS, kstDateStr } from '@/lib/payments/billing
 import { buildCostBreakdown, calculateDeposit } from '@/lib/calculations/deposit';
 import { calculateVatOnTop } from '@/lib/calculations/vat';
 import { logSystemError } from '@/lib/utils/system-log';
+import { hasPendingAdCost } from '@/lib/payments/ad-cost';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -219,6 +220,18 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ p
     }> = [];
 
     for (const report of reports) {
+      // 안전장치: 그 달 광고비가 검토 대기(pending)면 차감이 아직 리포트에 반영 안 됨 → 청구 보류.
+      //   (승인 전 청구 시 0광고로 청구되어 차감 누락 → 결제 후 환불 불가)
+      if (await hasPendingAdCost(serviceClient, ptUserId, report.year_month)) {
+        results.push({
+          yearMonth: report.year_month,
+          succeeded: false,
+          amount: report.total_with_vat || 0,
+          errorCode: 'AD_COST_PENDING',
+          errorMessage: '광고비가 검토 대기 중입니다. 승인(또는 반려) 후 청구하세요.',
+        });
+        continue;
+      }
       const baseAmount = report.total_with_vat || 0;
       if (baseAmount <= 0) continue;
 

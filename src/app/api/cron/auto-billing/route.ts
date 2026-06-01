@@ -4,6 +4,7 @@ import { TossPaymentsAPI, generateOrderId } from '@/lib/payments/toss-client';
 import { calculateFeePenalty, getFeePaymentDDay } from '@/lib/utils/fee-penalty';
 import { createNotification } from '@/lib/utils/notifications';
 import { completeSettlement } from '@/lib/payments/complete-settlement';
+import { hasPendingAdCost } from '@/lib/payments/ad-cost';
 import {
   BILLING_DAY,
   PAYMENT_RETRY_INTERVAL_HOURS,
@@ -259,6 +260,11 @@ async function processPtUser(
   for (const report of unpaidReports) {
     reportIdx++;
     processed++;
+
+    // 안전장치: 광고비 검토 대기(pending) 중이면 차감 미반영 → 자동 청구 보류(승인 후 청구).
+    if (await hasPendingAdCost(serviceClient, ptUser.id, report.year_month)) {
+      continue;
+    }
 
     const baseAmount = report.total_with_vat || 0;
     if (baseAmount <= 0) continue;

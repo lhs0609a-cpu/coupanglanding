@@ -177,6 +177,27 @@ export async function getNextAttemptNo(
   return { canSubmit: true, nextAttemptNo: maxAttempt + 1 };
 }
 
+/**
+ * 해당 (pt_user, year_month) 에 '검토 대기(pending)' 광고비 제출이 있는지.
+ * 청구/결제 전에 호출 — pending 이면 광고비 차감이 아직 리포트에 반영 안 됐으므로 청구를 막아야 한다
+ * (승인 전 청구 시 0광고로 청구되어 차감 누락 → 결제 후엔 환불 불가).
+ */
+export async function hasPendingAdCost(
+  supabase: SupabaseClient,
+  ptUserId: string,
+  yearMonth: string,
+): Promise<boolean> {
+  const { data } = await supabase
+    .from('ad_cost_submissions')
+    .select('id')
+    .eq('pt_user_id', ptUserId)
+    .eq('year_month', yearMonth)
+    .eq('status', 'pending')
+    .limit(1)
+    .maybeSingle();
+  return !!data;
+}
+
 /** 직전 달 'YYYY-MM' (KST 기준) — 매월 1일 마감 대상 */
 export function getPreviousMonthYM(): string {
   const now = new Date();

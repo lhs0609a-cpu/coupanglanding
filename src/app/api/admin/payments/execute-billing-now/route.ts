@@ -11,6 +11,7 @@ import { PAYMENT_RETRY_INTERVAL_HOURS, kstDateStr, kstMonthStr } from '@/lib/pay
 import { buildCostBreakdown, calculateDeposit } from '@/lib/calculations/deposit';
 import { calculateVatOnTop } from '@/lib/calculations/vat';
 import { logSystemError } from '@/lib/utils/system-log';
+import { hasPendingAdCost } from '@/lib/payments/ad-cost';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -292,6 +293,12 @@ export async function POST() {
         if (!card) {
           skippedNoCard++;
           perUserResults.push({ ptUserId: report.pt_user_id, yearMonth: report.year_month, status: 'no_card', reason: '결제 카드 미등록' });
+          continue;
+        }
+
+        // 안전장치: 광고비 검토 대기(pending) 중이면 차감 미반영 → 청구 보류(승인 후 청구).
+        if (await hasPendingAdCost(serviceClient, report.pt_user_id, report.year_month)) {
+          perUserResults.push({ ptUserId: report.pt_user_id, yearMonth: report.year_month, status: 'pre_check_blocked', reason: '광고비 검토 대기 중 — 승인 후 청구' });
           continue;
         }
 
