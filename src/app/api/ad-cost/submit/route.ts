@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import {
   validateAdCostAmount,
+  netProfitBeforeAd,
   getNextAttemptNo,
   getPreviousMonthYM,
 } from '@/lib/payments/ad-cost';
@@ -59,8 +60,9 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
     const monthlyRevenue = Number(snap?.total_sales) || 0;
 
-    // 과대청구 가드
-    const validation = validateAdCostAmount(amount, monthlyRevenue);
+    // 과대청구 가드 — 광고 차감 전 순수익(매출−광고외비용)의 10% 상한(보수적).
+    const npBeforeAd = netProfitBeforeAd(monthlyRevenue);
+    const validation = validateAdCostAmount(amount, npBeforeAd);
     if (!validation.ok) {
       return NextResponse.json(
         { error: validation.reason, ratio: validation.ratio },

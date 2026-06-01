@@ -4,50 +4,52 @@ export interface ExifValidationResult {
   isValid: boolean;
   hasSoftware: boolean;
   hasDateTime: boolean;
+  flagged: boolean;          // EXIF 없음/부족 → 관리자 검토 플래그(차단은 안 함)
   warningMessage: string | null;
 }
 
 /**
- * EXIF 메타데이터를 파싱하여 실제 스크린샷 여부를 판별합니다.
- * AI 생성 이미지는 EXIF 메타데이터가 없으므로 차단됩니다.
+ * EXIF 메타데이터를 파싱해 "관리자 검토 플래그"를 만든다.
+ * ⚠️ EXIF 없음으로 '차단'하지 않는다 — 캡처도구·PrtScn 등 정상 스크린샷(PNG)도 EXIF 가 없기 때문.
+ *    (EXIF 는 카메라 사진 메타데이터) 위변조 의심은 flagged 로 표시하고 관리자가 수동 검증한다.
  */
 export async function validateExifMetadata(file: File): Promise<ExifValidationResult> {
   try {
     const exifData = await exifr.parse(file, {
-      // 스크린샷 판별에 필요한 태그만 파싱
       pick: ['Software', 'DateTime', 'DateTimeOriginal', 'Make', 'Model', 'CreateDate'],
     });
 
     if (!exifData) {
       return {
-        isValid: false,
+        isValid: true,
         hasSoftware: false,
         hasDateTime: false,
-        warningMessage: 'EXIF 메타데이터가 없습니다. 실제 스크린샷을 업로드해주세요. (AI 생성 이미지 불가)',
+        flagged: true,
+        warningMessage: 'EXIF 메타데이터가 없습니다(스크린샷은 정상일 수 있음). 관리자 검토 대상으로 표시됩니다.',
       };
     }
 
     const hasSoftware = !!(exifData.Software);
     const hasDateTime = !!(exifData.DateTime || exifData.DateTimeOriginal || exifData.CreateDate);
     const hasMakeModel = !!(exifData.Make || exifData.Model);
-
-    // Software 또는 DateTime 중 하나라도 있으면 유효
-    const isValid = hasSoftware || hasDateTime || hasMakeModel;
+    const flagged = !(hasSoftware || hasDateTime || hasMakeModel);
 
     return {
-      isValid,
+      isValid: true,
       hasSoftware,
       hasDateTime,
-      warningMessage: isValid
-        ? null
-        : 'EXIF 메타데이터가 부족합니다. 실제 스크린샷을 업로드해주세요.',
+      flagged,
+      warningMessage: flagged
+        ? 'EXIF 메타데이터가 부족합니다. 관리자 검토 대상으로 표시됩니다.'
+        : null,
     };
   } catch {
     return {
-      isValid: false,
+      isValid: true,
       hasSoftware: false,
       hasDateTime: false,
-      warningMessage: '이미지 메타데이터를 읽을 수 없습니다. 다른 파일을 시도해주세요.',
+      flagged: true,
+      warningMessage: '이미지 메타데이터를 읽지 못했습니다. 관리자 검토 대상으로 표시됩니다.',
     };
   }
 }

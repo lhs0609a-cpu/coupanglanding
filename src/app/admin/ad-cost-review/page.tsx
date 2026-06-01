@@ -5,7 +5,7 @@ import Card from '@/components/ui/Card';
 import { Loader2, AlertTriangle, CheckCircle2, XCircle, Megaphone, ExternalLink } from 'lucide-react';
 import { formatKRW } from '@/lib/utils/format';
 import type { AdCostSubmissionStatus } from '@/lib/supabase/types';
-import { AD_COST_STANDARD_RATIO, capDeductibleAdCost } from '@/lib/payments/ad-cost';
+import { AD_COST_STANDARD_RATIO, capDeductibleAdCost, netProfitBeforeAd } from '@/lib/payments/ad-cost';
 
 interface EnrichedSubmission {
   id: string;
@@ -147,7 +147,7 @@ export default function AdCostReviewPage() {
           {submissions.map((s) => {
             const ratioPct = s.ratio !== null ? Math.round(s.ratio * 100) : null;
             const isRejecting = rejectingId === s.id;
-            const cap = capDeductibleAdCost(s.amount, s.monthly_revenue);
+            const cap = capDeductibleAdCost(s.amount, netProfitBeforeAd(s.monthly_revenue));
             const stdPct = Math.round(AD_COST_STANDARD_RATIO * 100);
             return (
               <Card key={s.id}>

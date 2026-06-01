@@ -136,10 +136,10 @@ export default function MyReportPage() {
         // 기존 제출된 스크린샷은 이미 검증 완료 상태로 표시
         // (서버에 저장된 스크린샷 → 재검증 불필요, UI에서 "확인 완료" 배지 표시용)
         if (r.screenshot_url) {
-          setRevenueExifResult({ isValid: true, hasSoftware: true, hasDateTime: true, warningMessage: null });
+          setRevenueExifResult({ isValid: true, hasSoftware: true, hasDateTime: true, flagged: false, warningMessage: null });
         }
         if (r.ad_screenshot_url) {
-          setAdExifResult({ isValid: true, hasSoftware: true, hasDateTime: true, warningMessage: null });
+          setAdExifResult({ isValid: true, hasSoftware: true, hasDateTime: true, flagged: false, warningMessage: null });
         }
       } else {
         setReport(null);

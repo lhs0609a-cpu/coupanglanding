@@ -8,34 +8,49 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AdCostSubmissionStatus } from '@/lib/supabase/types';
+import { calculateAutoCosts } from '@/lib/calculations/deposit';
 
 export const AD_COST_MAX_ATTEMPTS = 2;
-export const AD_COST_HARD_REJECT_RATIO = 2.0;   // 200% 초과 → 자동 거부
-export const AD_COST_WARN_RATIO = 0.3;          // 30% 이상 → 경고 + admin flag
 
 /**
- * 표준 광고비 상한 비율 — 수수료에서 "차감 인정"되는 광고비의 표준 한도(매출 대비).
- * 이 비율을 넘는 광고비는 승인되더라도 차감에 반영되지 않는다(상한 캡).
- * 진짜 고지출 셀러는 관리자가 승인 시 전액 인정(allowOverCap)으로 개별 상향할 수 있다.
- * ※ 사업 정책 값 — 매출의 12%까지만 차감 인정(그 이상은 관리자 전액인정 시에만).
+ * 광고비 인정/제출 상한 비율 — "광고 차감 전 순수익"의 10%까지만 제출·차감 인정한다(보수적 정책).
+ * 이 비율을 넘는 광고비는 제출 거부되고, 승인되더라도 차감에 반영되지 않는다(초과분 미인정).
+ * 결제(자동결제)는 (순수익 − 인정광고비) × share%(기본 30%) 로 계산된다.
+ * 진짜 고지출 셀러는 관리자가 승인 시 전액 인정(allowOverCap) 또는 overrideRatio 로 개별 상향 가능.
+ * @deprecated AD_COST_STANDARD_RATIO/HARD_REJECT/WARN(매출 기준) — 순수익 10% 정책으로 대체됨.
  */
-export const AD_COST_STANDARD_RATIO = 0.12;
+export const AD_COST_NETPROFIT_RATIO = 0.10;
+export const AD_COST_STANDARD_RATIO = 0.10;     // 하위호환 export(=NETPROFIT_RATIO)
+/** @deprecated 관리자 목록의 'high' 뱃지용(매출 대비 30%) — 정산 정책은 순수익 10%로 이관됨. */
+export const AD_COST_WARN_RATIO = 0.3;
 
 /**
- * 차감 인정 광고비 계산: 청구액을 매출×표준비율로 캡.
- * - monthlyRevenue<=0 이면 비율 캡 불가 → 청구액 그대로(절대 한도는 제출 단계 validateAdCostAmount 가 담당)
- * - overrideRatio: 셀러별 상향 비율(관리자), 미지정 시 표준 비율
+ * 광고 차감 전 순수익 = 매출 − 광고외 자동비용(기본율 합 68% → 순수익≈매출×32%).
+ * 리포트 생성(buildCostBreakdown(revenue,0))과 동일 기준이라 제출/승인 일관.
+ */
+export function netProfitBeforeAd(revenue: number): number {
+  if (!(revenue > 0)) return 0;
+  const c = calculateAutoCosts(revenue);
+  const nonAd = c.cost_product + c.cost_commission + c.cost_returns + c.cost_shipping + c.cost_tax;
+  return Math.max(0, revenue - nonAd);
+}
+
+/**
+ * 차감 인정 광고비 계산: 청구액을 (광고 차감 전 순수익)×10% 로 캡.
+ * - npBeforeAd<=0 이면 차감할 순수익이 없음 → 인정액 0(보수적).
+ * - overrideRatio: 셀러별 상향 비율(관리자), 미지정 시 순수익 10%.
+ * @param npBeforeAd 광고 차감 전 순수익(netProfitBeforeAd). 호출부에서 매출−광고외비용으로 산출.
  * @returns { deductible: 차감 반영액, capped: 캡 발동 여부, capAmount: 적용된 상한액 }
  */
 export function capDeductibleAdCost(
   claimedAmount: number,
-  monthlyRevenue: number,
+  npBeforeAd: number,
   overrideRatio?: number,
 ): { deductible: number; capped: boolean; capAmount: number } {
   const claim = Math.max(0, Math.round(Number(claimedAmount) || 0));
-  if (!(monthlyRevenue > 0)) return { deductible: claim, capped: false, capAmount: claim };
-  const ratio = overrideRatio && overrideRatio > 0 ? overrideRatio : AD_COST_STANDARD_RATIO;
-  const capAmount = Math.round(monthlyRevenue * ratio);
+  if (!(npBeforeAd > 0)) return { deductible: 0, capped: claim > 0, capAmount: 0 };
+  const ratio = overrideRatio && overrideRatio > 0 ? overrideRatio : AD_COST_NETPROFIT_RATIO;
+  const capAmount = Math.round(npBeforeAd * ratio);
   if (claim > capAmount) return { deductible: capAmount, capped: true, capAmount };
   return { deductible: claim, capped: false, capAmount };
 }
@@ -79,35 +94,30 @@ export interface AdCostValidation {
   ratio?: number;
 }
 
-/** 청구 금액 검증 — 매출 대비 비율 체크 */
+/** 청구 금액 검증 — 광고 차감 전 순수익의 10% 상한(보수적). @param npBeforeAd netProfitBeforeAd(매출−광고외비용) */
 export function validateAdCostAmount(
   amount: number,
-  monthlyRevenue: number,
+  npBeforeAd: number,
 ): AdCostValidation {
   if (amount < 0) {
     return { ok: false, reason: '광고비는 0원 이상이어야 합니다', level: 'reject' };
   }
-  if (monthlyRevenue <= 0) {
-    // 매출 0 이면 비율 판단 불가 — 절대값만 1억 초과 차단
-    if (amount > 100_000_000) {
-      return { ok: false, reason: '매출 0원인 달에 광고비 1억 초과는 입력할 수 없습니다', level: 'reject', ratio: Infinity };
-    }
-    return { ok: true };
-  }
-  const ratio = amount / monthlyRevenue;
-  if (ratio > AD_COST_HARD_REJECT_RATIO) {
-    return {
-      ok: false,
-      reason: `광고비가 매출의 ${Math.round(ratio * 100)}% 입니다. 200% 를 초과할 수 없습니다 (오타 확인 필요)`,
-      level: 'reject',
-      ratio,
-    };
-  }
-  if (ratio >= AD_COST_WARN_RATIO) {
+  if (!(npBeforeAd > 0)) {
+    // 광고 차감 전 순수익이 0 이하 → 차감할 순수익 없음. 제출은 허용하되 차감 반영 0.
     return {
       ok: true,
-      reason: `광고비가 매출의 ${Math.round(ratio * 100)}% 로 평균보다 높습니다. 정확한 금액인지 다시 확인해 주세요`,
       level: 'warn',
+      reason: '광고 차감 전 순수익이 0원 이하입니다. 제출은 되지만 광고비가 수수료 차감에 반영되지 않습니다.',
+      ratio: Infinity,
+    };
+  }
+  const cap = Math.round(npBeforeAd * AD_COST_NETPROFIT_RATIO);
+  const ratio = amount / npBeforeAd;
+  if (amount > cap) {
+    return {
+      ok: false,
+      reason: `광고비는 순수익(광고 차감 전 ${npBeforeAd.toLocaleString()}원)의 10%인 ${cap.toLocaleString()}원까지만 제출할 수 있습니다 (현재 ${Math.round(ratio * 100)}%).`,
+      level: 'reject',
       ratio,
     };
   }

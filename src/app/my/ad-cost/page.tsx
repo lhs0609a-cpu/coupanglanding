@@ -200,8 +200,8 @@ export default function AdCostPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">광고비 금액</label>
               <NumberInput value={amount} onChange={setAmount} placeholder="원 단위 입력" suffix="원" />
-              <p className="text-[11px] text-gray-400 mt-1">
-                * 매출의 30% 초과 시 경고, 200% 초과 시 자동 거부됩니다.
+              <p className="text-[11px] text-gray-500 mt-1">
+                * 광고비는 순수익(광고 차감 전)의 10%까지만 제출·차감 인정됩니다. (보수적 정책)
               </p>
             </div>
 

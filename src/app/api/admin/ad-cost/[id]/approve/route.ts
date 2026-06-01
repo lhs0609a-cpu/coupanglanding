@@ -78,10 +78,15 @@ export async function POST(
     .single();
   const sharePercentage = (ptShare as { share_percentage?: number | null } | null)?.share_percentage ?? 30;
 
-  // 차감 인정액 = 표준 상한 캡 적용 (allowOverCap 이면 전액 인정).
-  //   reported_revenue 기준으로 캡 — 청구 계산이 쓰는 매출과 동일 기준.
+  // 차감 인정액 = 광고 차감 전 순수익의 10% 캡 적용 (allowOverCap 이면 전액 인정).
+  //   순수익_광고전 = reported_revenue − 광고외 비용(리포트 저장값). 결제식((순수익−인정광고비)×share%)과 일관.
   const revenueForCap = Number(existingReport?.reported_revenue) || 0;
-  const cap = capDeductibleAdCost(sub.amount, revenueForCap, overrideRatio);
+  const rc = existingReport ? getReportCosts(existingReport) : null;
+  const nonAdCostTotal = rc
+    ? rc.cost_product + rc.cost_commission + rc.cost_returns + rc.cost_shipping + rc.cost_tax
+    : 0;
+  const npBeforeAd = Math.max(0, revenueForCap - nonAdCostTotal);
+  const cap = capDeductibleAdCost(sub.amount, npBeforeAd, overrideRatio);
   const deductibleAdCost = allowOverCap ? Math.round(sub.amount) : cap.deductible;
   const capApplied = !allowOverCap && cap.capped;
 
