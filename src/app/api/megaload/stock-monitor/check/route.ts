@@ -40,7 +40,7 @@ export async function PATCH(request: NextRequest) {
           last_checked_at: null,
           is_active: true,
           updated_at: new Date().toISOString(),
-        })
+        }, { count: 'exact' })
         .eq('megaload_user_id', shUserId)
         .eq('source_status', 'error');
 
@@ -50,12 +50,13 @@ export async function PATCH(request: NextRequest) {
 
     if (scope === 'recheck_all') {
       // 전체 모니터의 last_checked_at을 null로 리셋 → 크론이 다음 실행에서 우선 체크
+      // ⚠️ supabase-js update 는 { count: 'exact' } 없으면 count=null → 0 으로 잘못 표시되던 버그.
       const { count, error } = await serviceClient
         .from('sh_stock_monitors')
         .update({
           last_checked_at: null,
           updated_at: new Date().toISOString(),
-        })
+        }, { count: 'exact' })
         .eq('megaload_user_id', shUserId)
         .eq('is_active', true);
 
@@ -71,7 +72,7 @@ export async function PATCH(request: NextRequest) {
         .update({
           last_checked_at: null,
           updated_at: new Date().toISOString(),
-        })
+        }, { count: 'exact' })
         .eq('megaload_user_id', shUserId)
         .eq('coupang_status', 'suspended')
         .eq('is_active', true);
@@ -89,7 +90,7 @@ export async function PATCH(request: NextRequest) {
         last_checked_at: null,
         is_active: true,
         updated_at: new Date().toISOString(),
-      })
+      }, { count: 'exact' })
       .eq('megaload_user_id', shUserId)
       .gte('consecutive_errors', 1);
 
