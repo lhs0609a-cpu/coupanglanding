@@ -94,7 +94,12 @@ export interface AdCostValidation {
   ratio?: number;
 }
 
-/** 청구 금액 검증 — 광고 차감 전 순수익의 10% 상한(보수적). @param npBeforeAd netProfitBeforeAd(매출−광고외비용) */
+/**
+ * 청구 금액 검증 — 제출 자체는 막지 않는다(음수만 거부).
+ * 결제금 계산 시 광고비는 capDeductibleAdCost 가 "순수익의 10%"까지만 자동 차감하므로,
+ * 10% 초과 제출은 거부가 아니라 안내(warn)만 한다(초과분은 차감 미반영).
+ * @param npBeforeAd netProfitBeforeAd(매출−광고외비용)
+ */
 export function validateAdCostAmount(
   amount: number,
   npBeforeAd: number,
@@ -114,10 +119,11 @@ export function validateAdCostAmount(
   const cap = Math.round(npBeforeAd * AD_COST_NETPROFIT_RATIO);
   const ratio = amount / npBeforeAd;
   if (amount > cap) {
+    // 거부 아님 — 제출은 허용하고, 차감은 10%(=cap)까지만 자동 반영됨을 안내.
     return {
-      ok: false,
-      reason: `광고비는 순수익(광고 차감 전 ${npBeforeAd.toLocaleString()}원)의 10%인 ${cap.toLocaleString()}원까지만 제출할 수 있습니다 (현재 ${Math.round(ratio * 100)}%).`,
-      level: 'reject',
+      ok: true,
+      level: 'warn',
+      reason: `제출은 됩니다. 단 수수료 차감은 순수익(광고 차감 전 ${npBeforeAd.toLocaleString()}원)의 10%인 ${cap.toLocaleString()}원까지만 반영됩니다(초과분 미반영).`,
       ratio,
     };
   }

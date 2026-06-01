@@ -201,7 +201,7 @@ export default function AdCostPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1.5">광고비 금액</label>
               <NumberInput value={amount} onChange={setAmount} placeholder="원 단위 입력" suffix="원" />
               <p className="text-[11px] text-gray-500 mt-1">
-                * 광고비는 순수익(광고 차감 전)의 10%까지만 제출·차감 인정됩니다. (보수적 정책)
+                * 광고비는 금액 제한 없이 제출 가능합니다. 단 수수료 차감은 순수익(광고 차감 전)의 10%까지만 자동 반영되어 결제금이 줄어듭니다.
               </p>
             </div>
 
