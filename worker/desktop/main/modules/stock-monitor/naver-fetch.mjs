@@ -81,9 +81,23 @@ function loadInWindow(url) {
   });
 }
 
+const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let _warmedUp = false;
+
 /** 직렬화된 BrowserWindow 로드(창 1개 재사용). electron 미가용/실패 시 throw 로 폴백 유도. */
 async function fetchPageViaBrowser(url) {
-  const run = _chain.then(() => loadInWindow(url));
+  const run = _chain.then(async () => {
+    // 최초 1회: 네이버 쇼핑 진입으로 세션 쿠키(NNB 등)를 시드한다. smartstore 는 brand 보다 게이트가
+    // 엄격해 쿠키없는 첫 방문을 429로 막는다(brand 는 통과). 쿠키가 있으면 상품 페이지가 통과한다.
+    if (!_warmedUp) {
+      _warmedUp = true;
+      try { await loadInWindow('https://shopping.naver.com/'); await _sleep(800); } catch { /* best-effort */ }
+    }
+    let r = await loadInWindow(url);
+    // 429 면 잠깐 뒤 1회 재시도 — 직전 429 응답이 쿠키를 심어 재시도 시 통과하는 경우가 있다.
+    if (r.status === 429) { await _sleep(3000); r = await loadInWindow(url); }
+    return r;
+  });
   _chain = run.then(() => {}, () => {});
   const r = await run;
   if (r.error && !r.body) throw new Error(r.error);
