@@ -78,8 +78,11 @@ export default function StockMonitorDashboard() {
 
   useEffect(() => {
     fetchDesktopStatus();
-    const id = setInterval(fetchDesktopStatus, 5 * 60_000);
-    return () => clearInterval(id);
+    // 30초 폴링 + 창 포커스 복귀 시 즉시 갱신 — 도우미를 막 켰을 때 "꺼짐"이 오래 남던 문제 해소.
+    const id = setInterval(fetchDesktopStatus, 30_000);
+    const onFocus = () => fetchDesktopStatus();
+    window.addEventListener('focus', onFocus);
+    return () => { clearInterval(id); window.removeEventListener('focus', onFocus); };
   }, [fetchDesktopStatus]);
 
   const fetchData = useCallback(async () => {
