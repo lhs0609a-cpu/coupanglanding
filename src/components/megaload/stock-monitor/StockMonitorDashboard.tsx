@@ -3,56 +3,23 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   RefreshCw, Package, XCircle, AlertTriangle, PauseCircle, Loader2,
-  CheckCircle2, ExternalLink, Clock, Activity, Download, Settings, Bell, Link2Off,
-  PlayCircle,
+  CheckCircle2, ExternalLink, Clock, Link2Off, PlayCircle,
 } from 'lucide-react';
 import StockStatusBadge from './StockStatusBadge';
-import PriceRuleModal from './PriceRuleModal';
-import PendingPriceApprovalList from './PendingPriceApprovalList';
-import type { PriceFollowRule, PendingPriceChange } from '@/lib/supabase/types';
 
 interface MonitorItem {
   id: string;
-  product_id: string;
   coupang_product_id: string;
   source_url: string;
   source_status: string;
   coupang_status: string;
-  option_statuses: { optionName: string; status: string }[];
   is_active: boolean;
   last_checked_at: string | null;
-  last_changed_at: string | null;
-  last_action_at: string | null;
   consecutive_errors: number;
-  created_at: string;
-  // 가격 추종
-  price_follow_rule: PriceFollowRule | null;
   source_price_last: number | null;
   our_price_last: number | null;
   price_last_updated_at: string | null;
-  price_last_applied_at: string | null;
-  pending_price_change: PendingPriceChange | null;
   sh_products: { product_name: string; display_name: string; brand: string };
-}
-
-interface LogItem {
-  id: string;
-  monitor_id: string;
-  event_type: string;
-  source_status_before: string | null;
-  source_status_after: string | null;
-  coupang_status_before: string | null;
-  coupang_status_after: string | null;
-  option_name: string | null;
-  action_taken: string | null;
-  action_success: boolean | null;
-  error_message: string | null;
-  source_price_before: number | null;
-  source_price_after: number | null;
-  our_price_before: number | null;
-  our_price_after: number | null;
-  price_skip_reason: string | null;
-  created_at: string;
 }
 
 interface Stats {
@@ -65,52 +32,9 @@ interface Stats {
   inactive: number;
   unchecked: number;
   needsSourceUrl: number;
-  pendingApprovalCount: number;
 }
 
 type FilterTab = 'all' | 'in_stock' | 'sold_out' | 'error' | 'no_source_url';
-type LogFilter = 'all' | 'stock' | 'price';
-
-const EVENT_LABELS: Record<string, { label: string; color: string }> = {
-  source_sold_out: { label: '품절 감지', color: 'text-red-600' },
-  source_restocked: { label: '재입고', color: 'text-green-600' },
-  source_removed: { label: '상품 삭제', color: 'text-gray-600' },
-  coupang_suspended: { label: '쿠팡 중지', color: 'text-red-600' },
-  coupang_resumed: { label: '쿠팡 재개', color: 'text-green-600' },
-  check_error: { label: '체크 오류', color: 'text-orange-600' },
-  check_ok: { label: '정상', color: 'text-gray-500' },
-  price_changed_source: { label: '소스가 변동', color: 'text-blue-600' },
-  price_updated_coupang: { label: '가격 적용', color: 'text-green-600' },
-  price_update_skipped: { label: '가격 스킵', color: 'text-gray-500' },
-  price_update_flagged: { label: '가격 플래그', color: 'text-orange-600' },
-  price_update_failed: { label: '가격 실패', color: 'text-red-600' },
-  price_update_pending: { label: '승인 대기', color: 'text-yellow-600' },
-  price_approved: { label: '승인 완료', color: 'text-green-600' },
-  price_rejected: { label: '거부됨', color: 'text-gray-600' },
-};
-
-const PRICE_EVENT_TYPES = new Set([
-  'price_changed_source', 'price_updated_coupang', 'price_update_skipped',
-  'price_update_flagged', 'price_update_failed', 'price_update_pending',
-  'price_approved', 'price_rejected',
-]);
-
-function ruleSummary(rule: PriceFollowRule | null): { label: string; colorClass: string } {
-  if (!rule || !rule.enabled) return { label: 'OFF', colorClass: 'bg-gray-100 text-gray-500 ring-1 ring-gray-200' };
-  let label = '';
-  switch (rule.type) {
-    case 'exact': label = '정가'; break;
-    case 'markup_amount': label = `+${(rule.amount ?? 0).toLocaleString()}원`; break;
-    case 'markup_percent': label = `+${rule.percent ?? 0}%`; break;
-    case 'fixed_margin':
-      label = rule.captured_margin != null
-        ? `마진고정(₩${rule.captured_margin.toLocaleString()})`
-        : '마진고정';
-      break;
-  }
-  const ring = rule.mode === 'auto' ? 'ring-2 ring-blue-400' : 'ring-2 ring-yellow-400';
-  return { label, colorClass: `bg-white text-gray-700 ${ring}` };
-}
 
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return '-';
@@ -127,23 +51,14 @@ function timeAgo(dateStr: string | null): string {
 export default function StockMonitorDashboard() {
   const [monitors, setMonitors] = useState<MonitorItem[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
-  const [recentLogs, setRecentLogs] = useState<LogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterTab, setFilterTab] = useState<FilterTab>('all');
-  const [checkingIds, setCheckingIds] = useState<Set<string>>(new Set());
-  const [backfilling, setBackfilling] = useState(false);
-  const [logFilter, setLogFilter] = useState<LogFilter>('all');
-  const [priceRuleModal, setPriceRuleModal] = useState<
-    { mode: 'single'; monitor: MonitorItem } | { mode: 'bulk' } | null
-  >(null);
-  const [showPendingList, setShowPendingList] = useState(false);
-  const [fetchingPrices, setFetchingPrices] = useState(false);
-  const [priceProgress, setPriceProgress] = useState('');
-
   const [apiError, setApiError] = useState<string | null>(null);
 
-  // 데스크탑 앱 (모니터링 도우미) 상태 — 죽으면 서버 cron 단일 IP가 네이버에 차단당해
-  // 모든 모니터가 "조회 실패" 로 떨어진다. 사용자가 즉시 인지할 수 있도록 상단 배너로 표시.
+  const [starting, setStarting] = useState(false);
+  const [startMsg, setStartMsg] = useState('');
+
+  // 데스크탑 앱 (메가로드 도우미) 상태 — 꺼져 있으면 네이버 조회가 전부 실패한다.
   interface DesktopStatus {
     isAlive: boolean;
     tokenIssued: boolean;
@@ -157,16 +72,12 @@ export default function StockMonitorDashboard() {
   const fetchDesktopStatus = useCallback(async () => {
     try {
       const res = await fetch('/api/megaload/desktop/status');
-      if (res.ok) {
-        const data = await res.json();
-        setDesktopStatus(data);
-      }
+      if (res.ok) setDesktopStatus(await res.json());
     } catch { /* silent */ }
   }, []);
 
   useEffect(() => {
     fetchDesktopStatus();
-    // 5분마다 갱신
     const id = setInterval(fetchDesktopStatus, 5 * 60_000);
     return () => clearInterval(id);
   }, [fetchDesktopStatus]);
@@ -179,19 +90,13 @@ export default function StockMonitorDashboard() {
       const res = await fetch(`/api/megaload/stock-monitor?${statusParam}`);
       const data = await res.json();
       if (!res.ok) {
-        const errMsg = `GET ${res.status}: ${data.error || JSON.stringify(data)}`;
-        console.error('stock-monitor API error:', errMsg);
-        setApiError(errMsg);
+        setApiError(`GET ${res.status}: ${data.error || JSON.stringify(data)}`);
         return;
       }
-      console.log('[stock-monitor] loaded:', { monitors: data.monitors?.length, stats: data.stats });
       setMonitors(data.monitors || []);
       setStats(data.stats || null);
-      setRecentLogs(data.recentLogs || []);
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      console.error('stock-monitor fetch error:', errMsg);
-      setApiError(errMsg);
+      setApiError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -201,75 +106,29 @@ export default function StockMonitorDashboard() {
     fetchData();
   }, [fetchData]);
 
-  const handleCheckNow = async (monitorId: string) => {
-    setCheckingIds(prev => new Set(prev).add(monitorId));
+  /**
+   * 단 하나의 버튼 — "전체 점검 시작".
+   * 1) 신규 쿠팡 상품을 모니터에 합류 (조용히, 실패 무시)
+   * 2) 조회 실패(에러) 상태 복구 → 다시 점검 대상에 포함
+   * 3) 전체 상품을 새로 점검하도록 예약 (last_checked_at 리셋)
+   * 이후엔 PC의 메가로드 도우미가 켜져 있는 한 24시간 자동으로 갱신한다.
+   */
+  const handleStartScan = async () => {
+    setStarting(true);
+    setStartMsg('신규 상품 확인...');
     try {
-      const res = await fetch('/api/megaload/stock-monitor/check', {
-        method: 'POST',
+      try {
+        await fetch('/api/megaload/stock-monitor/backfill', { method: 'POST' });
+      } catch { /* 신규 상품 없거나 실패해도 진행 */ }
+
+      setStartMsg('실패 상품 복구...');
+      await fetch('/api/megaload/stock-monitor/check', {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ monitorIds: [monitorId] }),
+        body: JSON.stringify({ scope: 'error_state' }),
       });
-      if (res.ok) {
-        // 결과 반영을 위해 목록 새로고침
-        await fetchData();
-      }
-    } catch (err) {
-      console.error('check error:', err);
-    } finally {
-      setCheckingIds(prev => {
-        const next = new Set(prev);
-        next.delete(monitorId);
-        return next;
-      });
-    }
-  };
 
-  const handleFetchPrices = async () => {
-    setFetchingPrices(true);
-    setPriceProgress('가격 조회 시작...');
-    let totalUpdated = 0;
-    let cursor: string | undefined;
-    try {
-      // 반복 호출로 전체 처리 (50개씩)
-      for (let round = 0; round < 100; round++) {
-        const res = await fetch('/api/megaload/stock-monitor/fetch-prices', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cursor }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setPriceProgress(`오류: ${data.error}`);
-          break;
-        }
-        totalUpdated += data.updated || 0;
-        setPriceProgress(`${totalUpdated}개 조회 완료, 남은 ${data.remaining}개...`);
-        if (data.done) {
-          setPriceProgress(`완료! 총 ${totalUpdated}개 가격 업데이트`);
-          break;
-        }
-        cursor = data.cursor;
-        // 429 발생 시 5초 대기 후 재시도
-        if (data.rateLimited) {
-          setPriceProgress(`API 속도 제한 — 5초 대기 중... (${totalUpdated}개 완료)`);
-          await new Promise(r => setTimeout(r, 5000));
-        }
-      }
-      await fetchData();
-    } catch (err) {
-      console.error('fetch-prices error:', err);
-      setPriceProgress('가격 조회 중 오류 발생');
-    } finally {
-      setFetchingPrices(false);
-    }
-  };
-
-  const [recheckScheduled, setRecheckScheduled] = useState(false);
-
-  const handleCheckAll = async () => {
-    // 즉시 재체크 예약: last_checked_at을 null로 리셋 → 크론이 다음 실행에서 우선 처리
-    setRecheckScheduled(true);
-    try {
+      setStartMsg('전체 점검 예약...');
       const res = await fetch('/api/megaload/stock-monitor/check', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -277,190 +136,21 @@ export default function StockMonitorDashboard() {
       });
       const data = await res.json();
       if (res.ok) {
-        alert(`${data.reset}개 모니터가 재체크 예약되었습니다.\n30분마다 60개씩 자동 처리됩니다.`);
-        await fetchData();
-      } else {
-        alert(`재체크 예약 실패: ${data.error || '알 수 없는 오류'}`);
-      }
-    } catch (err) {
-      console.error('recheck all error:', err);
-      alert('재체크 예약 중 오류가 발생했습니다.');
-    } finally {
-      setRecheckScheduled(false);
-    }
-  };
-
-  const [bulkResuming, setBulkResuming] = useState(false);
-  const [diagnosing, setDiagnosing] = useState(false);
-  const [diagnoseResult, setDiagnoseResult] = useState<{ steps: { step: string; status: string; detail: unknown }[] } | null>(null);
-
-  const handleDiagnose = async () => {
-    setDiagnosing(true);
-    setDiagnoseResult(null);
-    try {
-      const res = await fetch('/api/megaload/stock-monitor/diagnose');
-      const data = await res.json();
-      setDiagnoseResult(data);
-    } catch (err) {
-      alert('진단 실패: ' + (err instanceof Error ? err.message : '알 수 없는 오류'));
-    } finally {
-      setDiagnosing(false);
-    }
-  };
-
-  const handleBulkResume = async () => {
-    if (!confirm('네이버 차단으로 잘못 일시중지된 쿠팡 상품을 일괄 재개합니다.\n\n수백~수천 건의 쿠팡 API 호출이 발생할 수 있으며, 시간이 오래 걸릴 수 있습니다 (최대 5분).\n\n계속하시겠습니까?')) return;
-    setBulkResuming(true);
-    try {
-      const res = await fetch('/api/megaload/stock-monitor/bulk-resume', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      if (res.ok) {
         alert(
-          `일괄 재개 완료\n\n` +
-          `재개 성공: ${data.resumed}건\n` +
-          `재개 실패: ${data.failed}건\n` +
-          `대상 총: ${data.total}건` +
-          (data.errors?.length > 0 ? `\n\n실패 샘플 (최대 5건):\n${data.errors.slice(0, 5).map((e: { error: string }) => `- ${e.error}`).join('\n')}` : ''),
+          `전체 ${data.reset ?? ''}개 상품 점검을 시작했습니다.\n\n` +
+          `PC의 메가로드 도우미가 켜져 있으면 24시간 자동으로 원본 상태·가격을 갱신합니다.\n` +
+          `한 바퀴 도는 데 약 4~5시간 걸리고, 끝나면 자동으로 다시 돕니다.`,
         );
         await fetchData();
       } else {
-        alert(`일괄 재개 실패: ${data.error || '알 수 없는 오류'}`);
+        alert(`점검 시작 실패: ${data.error || '알 수 없는 오류'}`);
       }
     } catch (err) {
-      console.error('bulk resume error:', err);
-      alert('일괄 재개 중 오류가 발생했습니다.');
+      console.error('start scan error:', err);
+      alert('점검 시작 중 오류가 발생했습니다.');
     } finally {
-      setBulkResuming(false);
-    }
-  };
-
-  const handleResetErrors = async () => {
-    try {
-      // 'error_state' — source_status='error' 인 모니터 전체 리셋.
-      //   consecutive_errors=0 이지만 인프라 에러(403/프록시 미배포)로 error 상태인 모니터까지
-      //   포함해야 데스크탑 앱 복구 후 일괄 정상화 가능. 'errors' 는 누적 1회 이상만 잡아서 누락 있음.
-      const res = await fetch('/api/megaload/stock-monitor/check', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'error_state' }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        alert(`${data.reset}개 모니터의 에러 상태를 초기화했습니다.\n다음 크론 실행 시 자동으로 재체크됩니다.`);
-        await fetchData();
-      }
-    } catch (err) {
-      console.error('reset errors:', err);
-    }
-  };
-
-  /** 파이프라인 진단 실행 — 어디서 끊기는지 확인 */
-  const runDiagnose = async (): Promise<string> => {
-    try {
-      const res = await fetch('/api/megaload/stock-monitor/diagnose');
-      const data = await res.json();
-      const steps = (data.steps || []) as { step: string; status: string; detail: unknown }[];
-      const lines: string[] = ['=== 파이프라인 진단 결과 ===\n'];
-      const labels: Record<string, string> = {
-        '1_auth': '① 로그인',
-        '2_megaload_users_rls': '② DB 계정(RLS)',
-        '3_megaload_users_admin': '③ DB 계정(Admin)',
-        '4_pt_users': '④ PT 쿠팡 연동',
-        '5_channel_credentials': '⑤ API 인증정보',
-        '6_coupang_api': '⑥ 쿠팡 API 호출',
-        '7_products': '⑦ 상품 DB',
-        '8_monitors': '⑧ 모니터 DB',
-        '9_inner_join_test': '⑨ 조인 테스트',
-      };
-      const icons: Record<string, string> = { ok: '[OK]', fail: '[실패]', warn: '[경고]' };
-      for (const s of steps) {
-        const label = labels[s.step] || s.step;
-        const icon = icons[s.status] || s.status;
-        const detail = typeof s.detail === 'string' ? s.detail : JSON.stringify(s.detail, null, 1);
-        lines.push(`${icon} ${label}\n   ${detail}`);
-      }
-      return lines.join('\n');
-    } catch {
-      return '진단 API 호출 실패';
-    }
-  };
-
-  const handleBackfill = async () => {
-    setBackfilling(true);
-    try {
-      // 1단계: backfill 시도
-      const res = await fetch('/api/megaload/stock-monitor/backfill', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) {
-        const diag = await runDiagnose();
-        alert(`기존 상품 가져오기 실패: ${data.error || '알 수 없는 오류'}\n\n${diag}`);
-        return;
-      }
-
-      // 상품이 0개면 → 쿠팡 동기화 먼저 실행
-      if (data.totalScanned === 0) {
-        const doSync = confirm(
-          '등록된 상품이 없습니다.\n\n쿠팡에서 판매중인 상품을 자동으로 가져올까요?\n(쿠팡 API 연동이 필요합니다)'
-        );
-        if (doSync) {
-          try {
-            const syncRes = await fetch('/api/megaload/products/sync-coupang', { method: 'POST' });
-            const syncData = await syncRes.json();
-            if (!syncRes.ok) {
-              const diag = await runDiagnose();
-              alert(`쿠팡 동기화 실패: ${syncData.error || '알 수 없는 오류'}\n\n${diag}`);
-              return;
-            }
-            if (syncData.synced === 0) {
-              const diag = await runDiagnose();
-              alert(`쿠팡 API에서 가져온 상품이 0개입니다.\n\n${diag}`);
-              return;
-            }
-            alert(`쿠팡 상품 ${syncData.synced}개 동기화 완료!\n모니터 ${syncData.monitorCreated || 0}개 자동 등록`);
-            await fetchData();
-            return;
-          } catch (syncErr) {
-            console.error('sync-coupang error:', syncErr);
-            const diag = await runDiagnose();
-            alert(`쿠팡 동기화 중 오류 발생\n\n${diag}`);
-            return;
-          }
-        }
-        return;
-      }
-
-      const msgs: string[] = [];
-      msgs.push(`신규 등록: ${data.created}개`);
-      if (data.alreadyMonitored > 0) msgs.push(`이미 등록됨: ${data.alreadyMonitored}개`);
-      if (data.recoveredUrls > 0) msgs.push(`⭐ 원본 URL 복구: ${data.recoveredUrls}개 (크론 재체크 예약됨)`);
-      if (data.missingUrl > 0) msgs.push(`원본 URL 없음: ${data.missingUrl}개`);
-      if (data.missingChannel > 0) msgs.push(`쿠팡 매핑 없음: ${data.missingChannel}개`);
-      alert(`기존 상품 가져오기 완료\n\n${msgs.join('\n')}\n\n(전체 스캔 ${data.totalScanned}개)`);
-
-      if (data.created === 0 && data.alreadyMonitored === 0) {
-        const diag = await runDiagnose();
-        console.log(diag);
-      }
-      await fetchData();
-    } catch (err) {
-      console.error('backfill error:', err);
-      const diag = await runDiagnose();
-      alert(`기존 상품 가져오기 중 오류 발생\n\n${diag}`);
-    } finally {
-      setBackfilling(false);
-    }
-  };
-
-  const handleDeactivate = async (monitorId: string) => {
-    try {
-      await fetch(`/api/megaload/stock-monitor?id=${monitorId}`, { method: 'DELETE' });
-      await fetchData();
-    } catch (err) {
-      console.error('deactivate error:', err);
+      setStarting(false);
+      setStartMsg('');
     }
   };
 
@@ -472,23 +162,23 @@ export default function StockMonitorDashboard() {
     { tab: 'no_source_url', label: '원본 URL 필요', count: stats?.needsSourceUrl ?? 0 },
   ];
 
-  // 데스크탑 앱 배너 표시 여부 — 토큰 발급된 사용자에 한해, 비정상 상태일 때만
+  // 데스크탑 앱 배너 — 토큰 발급된 사용자에 한해, 비정상일 때만
   const showDesktopBanner = !!desktopStatus
     && desktopStatus.tokenIssued
     && (!desktopStatus.isAlive || desktopStatus.monitorsCheckedRecently === 0);
 
   return (
     <div className="space-y-6">
-      {/* 데스크탑 앱 (모니터링 도우미) 비정상 알림 — "네이버 조회 실패" 의 1번 원인 */}
+      {/* 메가로드 도우미가 꺼져 있을 때만 뜨는 경고 */}
       {showDesktopBanner && desktopStatus && (
         <div className="flex items-start gap-3 p-4 bg-orange-50 border border-orange-200 rounded-lg">
           <AlertTriangle className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1">
             <div className="text-sm font-semibold text-orange-900">
-              모니터링 도우미가 동작하지 않고 있습니다 — 네이버 가격 조회 실패의 가장 큰 원인
+              메가로드 도우미(PC 프로그램)가 꺼져 있습니다 — 켜야 자동 점검이 됩니다
             </div>
             <div className="text-xs text-orange-800 mt-1">
-              {desktopStatus.diagnosis}
+              도우미가 켜져 있으면 원본 상태·가격을 24시간 자동으로 갱신합니다. 꺼져 있으면 조회가 실패합니다.
               {desktopStatus.heartbeatAgeMin >= 0 && (
                 <span className="ml-1 text-orange-700">
                   (마지막 접속 {desktopStatus.heartbeatAgeMin >= 60
@@ -497,111 +187,37 @@ export default function StockMonitorDashboard() {
                 </span>
               )}
             </div>
-            <div className="text-xs text-orange-700 mt-1">
-              데스크탑 앱이 멈추면 서버가 단일 IP로 대신 호출하게 되어 네이버가 봇으로 인식하고 차단합니다.
-              트레이 아이콘을 우클릭해서 재시작하거나 PC 를 재부팅한 뒤, 아래 "에러 일괄 리셋" 버튼으로 모니터를 정상화하세요.
-            </div>
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2">
               <a
                 href="/megaload/desktop-app"
                 className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-orange-900 bg-white border border-orange-300 rounded hover:bg-orange-100 transition"
               >
-                모니터링 도우미 설치/점검 페이지로 이동 <ExternalLink className="w-3 h-3" />
+                메가로드 도우미 켜기 / 설치하기 <ExternalLink className="w-3 h-3" />
               </a>
-              <button
-                onClick={handleResetErrors}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-orange-900 bg-white border border-orange-300 rounded hover:bg-orange-100 transition"
-              >
-                <RefreshCw className="w-3 h-3" /> 에러 일괄 리셋 (재체크 예약)
-              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 헤더 */}
+      {/* 헤더 — 버튼은 단 하나 */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">품절 동기화</h1>
-          <p className="text-sm text-gray-500 mt-0.5">원본(네이버) 품절 상태를 감시하여 쿠팡 상품을 자동 중지/재개합니다</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            버튼 한 번이면 전체 상품의 원본 상태·가격을 점검합니다. 이후 PC의 메가로드 도우미가 24시간 자동으로 갱신합니다.
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleBackfill}
-            disabled={backfilling || loading}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition"
-            title="이미 등록된 쿠팡 상품들을 모니터 목록에 일괄 추가합니다"
-          >
-            {backfilling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            기존 상품 가져오기
-          </button>
-          <button
-            onClick={handleFetchPrices}
-            disabled={fetchingPrices || loading || monitors.length === 0}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition"
-            title="쿠팡 API에서 전체 상품 판매가를 일괄 조회합니다"
-          >
-            {fetchingPrices ? <Loader2 className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
-            {fetchingPrices ? priceProgress : '가격 일괄 조회'}
-          </button>
-          <button
-            onClick={() => setPriceRuleModal({ mode: 'bulk' })}
-            disabled={loading || monitors.length === 0}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition"
-            title="필터된 모니터 전체에 가격 추종 규칙을 일괄 적용합니다"
-          >
-            <Settings className="w-4 h-4" />
-            가격 추종 일괄 설정
-          </button>
-          <button
-            onClick={handleDiagnose}
-            disabled={diagnosing}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-yellow-50 border border-yellow-300 rounded-lg hover:bg-yellow-100 disabled:opacity-50 transition"
-            title="네이버 차단/cron/프록시 등 어디서 막히는지 단계별 진단합니다"
-          >
-            {diagnosing ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}
-            진단 실행
-          </button>
-          <button
-            onClick={handleBulkResume}
-            disabled={bulkResuming || loading}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition"
-            title="네이버 차단으로 잘못 일시중지된 쿠팡 상품들을 일괄 재개합니다"
-          >
-            {bulkResuming ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
-            잘못 중지된 상품 일괄 재개
-          </button>
-          <button
-            onClick={handleCheckAll}
-            disabled={recheckScheduled || loading}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
-          >
-            {recheckScheduled ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            전체 재체크 예약
-          </button>
-        </div>
+        <button
+          onClick={handleStartScan}
+          disabled={starting || loading}
+          className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
+        >
+          {starting ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+          {starting ? (startMsg || '시작 중...') : '전체 점검 시작'}
+        </button>
       </div>
 
-      {/* 승인 대기 배너 */}
-      {stats && stats.pendingApprovalCount > 0 && (
-        <button
-          onClick={() => setShowPendingList(true)}
-          className="w-full flex items-center gap-3 px-4 py-3 bg-yellow-50 border border-yellow-300 rounded-lg hover:bg-yellow-100 transition text-left"
-        >
-          <Bell className="w-5 h-5 text-yellow-600 shrink-0" />
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-yellow-900">
-              가격 변경 승인 대기 {stats.pendingApprovalCount}건
-            </p>
-            <p className="text-xs text-yellow-700 mt-0.5">
-              소스 가격 변동으로 인한 가격 업데이트가 승인을 기다리고 있습니다.
-            </p>
-          </div>
-          <span className="text-xs text-yellow-700 font-medium">자세히 →</span>
-        </button>
-      )}
-
-      {/* 요약 카드 */}
+      {/* 요약 카드 (읽기 전용) */}
       {stats && (
         <div className="grid grid-cols-6 gap-3">
           <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
@@ -612,22 +228,13 @@ export default function StockMonitorDashboard() {
               <div className="text-[9px] text-gray-400 mt-0.5">{stats.unchecked}개 대기중</div>
             )}
           </div>
-          <button
-            onClick={() => setFilterTab('no_source_url')}
-            className={`bg-white rounded-xl border p-4 text-center transition hover:bg-orange-50 ${
-              stats.needsSourceUrl > 0 ? 'border-orange-300' : 'border-gray-200'
-            }`}
-            title="원본(네이버) URL이 매핑되지 않은 모니터. 품절 감시를 위해 URL이 필요합니다."
-          >
+          <div className={`bg-white rounded-xl border p-4 text-center ${stats.needsSourceUrl > 0 ? 'border-orange-300' : 'border-gray-200'}`}>
             <Link2Off className={`w-5 h-5 mx-auto mb-1 ${stats.needsSourceUrl > 0 ? 'text-orange-500' : 'text-gray-300'}`} />
             <div className={`text-2xl font-bold ${stats.needsSourceUrl > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
               {stats.needsSourceUrl}
             </div>
             <div className="text-xs text-gray-500">원본 URL 필요</div>
-            {stats.needsSourceUrl > 0 && (
-              <div className="text-[9px] text-orange-400 mt-0.5">매핑 후 감시 시작</div>
-            )}
-          </button>
+          </div>
           <div className="bg-white rounded-xl border border-green-200 p-4 text-center">
             <CheckCircle2 className="w-5 h-5 mx-auto text-green-500 mb-1" />
             <div className="text-2xl font-bold text-green-600">{stats.inStock}</div>
@@ -638,27 +245,15 @@ export default function StockMonitorDashboard() {
             <div className="text-2xl font-bold text-red-600">{stats.soldOut + stats.removed}</div>
             <div className="text-xs text-gray-500">품절 감지</div>
           </div>
-          <div className="bg-white rounded-xl border border-orange-200 p-4 text-center" title="쿠팡에서 판매 중지된 상품 수. 원본이 판매중이면 다음 체크 시 자동 재개됩니다.">
+          <div className="bg-white rounded-xl border border-orange-200 p-4 text-center">
             <PauseCircle className="w-5 h-5 mx-auto text-orange-500 mb-1" />
             <div className="text-2xl font-bold text-orange-600">{stats.suspended}</div>
             <div className="text-xs text-gray-500">쿠팡 중지</div>
-            {stats.suspended > stats.soldOut + stats.removed && (
-              <div className="text-[9px] text-orange-400 mt-0.5">원본 확인 후 자동 재개</div>
-            )}
           </div>
-          <div className="bg-white rounded-xl border border-yellow-200 p-4 text-center relative">
+          <div className="bg-white rounded-xl border border-yellow-200 p-4 text-center">
             <AlertTriangle className="w-5 h-5 mx-auto text-yellow-500 mb-1" />
             <div className="text-2xl font-bold text-yellow-600">{stats.error}</div>
-            <div className="text-xs text-gray-500">에러</div>
-            {stats.error > 0 && (
-              <button
-                onClick={handleResetErrors}
-                className="absolute top-1 right-1 px-1.5 py-0.5 text-[9px] text-yellow-700 bg-yellow-50 border border-yellow-300 rounded hover:bg-yellow-100 transition"
-                title="에러 상태를 초기화하여 다음 크론에서 재체크합니다"
-              >
-                리셋
-              </button>
-            )}
+            <div className="text-xs text-gray-500">오류</div>
           </div>
         </div>
       )}
@@ -689,12 +284,13 @@ export default function StockMonitorDashboard() {
           onClick={fetchData}
           disabled={loading}
           className="ml-auto text-xs text-gray-400 hover:text-gray-600 transition"
+          title="새로고침"
         >
           {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
         </button>
       </div>
 
-      {/* 상품 테이블 */}
+      {/* 상품 테이블 — 원본상태 · 쿠팡상태 · 원본가 · 판매가 · 마지막확인 */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-16">
@@ -711,18 +307,15 @@ export default function StockMonitorDashboard() {
             )}
             <RefreshCw className="w-10 h-10 mx-auto mb-3 text-gray-300" />
             <p className="text-sm font-medium text-gray-600">모니터링 대상 상품이 없습니다</p>
-            <p className="text-xs mt-1">아래 버튼을 눌러 쿠팡 판매중인 상품을 가져오세요</p>
+            <p className="text-xs mt-1">아래 버튼을 누르면 쿠팡 판매중 상품을 가져와 점검을 시작합니다</p>
             <button
-              onClick={handleBackfill}
-              disabled={backfilling}
+              onClick={handleStartScan}
+              disabled={starting}
               className="mt-4 inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
             >
-              {backfilling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-              {backfilling ? '상품 동기화 중...' : '쿠팡 상품 가져오기'}
+              {starting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PlayCircle className="w-3.5 h-3.5" />}
+              {starting ? (startMsg || '시작 중...') : '전체 점검 시작'}
             </button>
-            <p className="text-[10px] text-gray-400 mt-2">
-              이미 등록된 상품은 자동 감지하며, 없으면 쿠팡 API에서 직접 가져옵니다
-            </p>
           </div>
         ) : (
           <table className="w-full text-sm">
@@ -733,56 +326,50 @@ export default function StockMonitorDashboard() {
                 <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">쿠팡 상태</th>
                 <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">원본가(네이버)</th>
                 <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">판매가(쿠팡)</th>
-                <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">추종 규칙</th>
                 <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">마지막 확인</th>
-                <th className="text-center px-3 py-3 text-xs font-medium text-gray-500">동작</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {monitors.map((m) => {
                 const product = m.sh_products;
-                const isChecking = checkingIds.has(m.id);
-
                 return (
                   <tr key={m.id} className="hover:bg-gray-50 transition">
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-gray-900 truncate max-w-[300px]">
-                            {product?.display_name || product?.product_name || '상품명 없음'}
-                          </p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {product?.brand && (
-                              <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-                                {product.brand}
-                              </span>
-                            )}
-                            {m.source_url ? (
-                              <a
-                                href={m.source_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5"
-                              >
-                                원본 <ExternalLink className="w-2.5 h-2.5" />
-                              </a>
-                            ) : (
-                              <span className="text-[10px] text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">
-                                원본 URL 필요
-                              </span>
-                            )}
-                            {m.coupang_product_id && (
-                              <a
-                                href={`https://wing.coupang.com/tenants/manage-product/products/list?searchKeyword=${m.coupang_product_id}&searchType=SELLER_PRODUCT_ID`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-[10px] text-purple-500 hover:text-purple-700 flex items-center gap-0.5"
-                                title="쿠팡 Wing 셀러센터에서 보기"
-                              >
-                                쿠팡 <ExternalLink className="w-2.5 h-2.5" />
-                              </a>
-                            )}
-                          </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-gray-900 truncate max-w-[300px]">
+                          {product?.display_name || product?.product_name || '상품명 없음'}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {product?.brand && (
+                            <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                              {product.brand}
+                            </span>
+                          )}
+                          {m.source_url ? (
+                            <a
+                              href={m.source_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5"
+                            >
+                              원본 <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                          ) : (
+                            <span className="text-[10px] text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">
+                              원본 URL 필요
+                            </span>
+                          )}
+                          {m.coupang_product_id && (
+                            <a
+                              href={`https://wing.coupang.com/tenants/manage-product/products/list?searchKeyword=${m.coupang_product_id}&searchType=SELLER_PRODUCT_ID`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[10px] text-purple-500 hover:text-purple-700 flex items-center gap-0.5"
+                              title="쿠팡 Wing 셀러센터에서 보기"
+                            >
+                              쿠팡 <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -797,7 +384,7 @@ export default function StockMonitorDashboard() {
                       {m.source_url && m.source_status === 'error' && (
                         <div className="text-[9px] text-orange-500 mt-0.5">
                           {m.consecutive_errors === 0
-                            ? 'IP 차단(서버 인프라)' /* infra-class: 누적 0 → 차단으로 일괄 영향 */
+                            ? '도우미 꺼짐(조회 실패)'
                             : m.consecutive_errors >= 5
                               ? '네이버 속도제한'
                               : `연속 ${m.consecutive_errors}회 실패`}
@@ -856,21 +443,6 @@ export default function StockMonitorDashboard() {
                           {!m.last_checked_at ? '미조회' : '조회 중'}
                         </span>
                       )}
-                      {m.pending_price_change && (
-                        <div className="text-[10px] text-yellow-700 mt-0.5">
-                          → ₩{m.pending_price_change.newPrice.toLocaleString()} 대기
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      {(() => {
-                        const s = ruleSummary(m.price_follow_rule);
-                        return (
-                          <span className={`inline-block px-2 py-0.5 text-[10px] font-medium rounded ${s.colorClass}`}>
-                            {s.label}
-                          </span>
-                        );
-                      })()}
                     </td>
                     <td className="px-3 py-3 text-center">
                       {m.last_checked_at ? (
@@ -887,32 +459,6 @@ export default function StockMonitorDashboard() {
                         <span className="text-[10px] text-gray-400">미확인</span>
                       )}
                     </td>
-                    <td className="px-3 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => setPriceRuleModal({ mode: 'single', monitor: m })}
-                          className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition"
-                          title="가격 추종 설정"
-                        >
-                          <Settings className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleCheckNow(m.id)}
-                          disabled={isChecking}
-                          className="px-2 py-1 text-[10px] font-medium text-blue-600 bg-blue-50 rounded hover:bg-blue-100 disabled:opacity-50 transition"
-                          title="지금 확인"
-                        >
-                          {isChecking ? <Loader2 className="w-3 h-3 animate-spin" /> : '확인'}
-                        </button>
-                        <button
-                          onClick={() => handleDeactivate(m.id)}
-                          className="px-2 py-1 text-[10px] font-medium text-gray-500 bg-gray-50 rounded hover:bg-gray-100 transition"
-                          title="모니터링 중지"
-                        >
-                          중지
-                        </button>
-                      </div>
-                    </td>
                   </tr>
                 );
               })}
@@ -920,148 +466,6 @@ export default function StockMonitorDashboard() {
           </table>
         )}
       </div>
-
-      {/* 최근 이력 */}
-      {recentLogs.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-              <Activity className="w-4 h-4 text-gray-500" />
-              최근 변경 이력
-            </h3>
-            <div className="flex items-center gap-1">
-              {(['all', 'stock', 'price'] as LogFilter[]).map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setLogFilter(f)}
-                  className={`px-3 py-1 text-[11px] rounded-full border transition ${
-                    logFilter === f
-                      ? 'bg-gray-900 text-white border-gray-900'
-                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
-                  }`}
-                >
-                  {f === 'all' ? '전체' : f === 'stock' ? '품절' : '가격'}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="space-y-2 max-h-80 overflow-y-auto">
-            {recentLogs
-              .filter((log) => {
-                if (logFilter === 'all') return true;
-                const isPrice = PRICE_EVENT_TYPES.has(log.event_type);
-                return logFilter === 'price' ? isPrice : !isPrice;
-              })
-              .map((log) => {
-                const eventConfig = EVENT_LABELS[log.event_type] || { label: log.event_type, color: 'text-gray-500' };
-                const isPrice = PRICE_EVENT_TYPES.has(log.event_type);
-                return (
-                  <div key={log.id} className="flex items-center gap-3 text-xs py-1.5 border-b border-gray-50 last:border-b-0">
-                    <span className="text-gray-400 w-24 shrink-0">
-                      {new Date(log.created_at).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    <span className={`font-medium w-20 shrink-0 ${eventConfig.color}`}>
-                      {eventConfig.label}
-                    </span>
-                    {isPrice ? (
-                      <span className="text-gray-600 font-mono">
-                        {log.source_price_before != null || log.source_price_after != null ? (
-                          <>소스 ₩{log.source_price_before?.toLocaleString() ?? '-'} → ₩{log.source_price_after?.toLocaleString() ?? '-'}</>
-                        ) : null}
-                        {log.our_price_before != null && log.our_price_after != null && (
-                          <span className="ml-2">우리 ₩{log.our_price_before.toLocaleString()} → ₩{log.our_price_after.toLocaleString()}</span>
-                        )}
-                      </span>
-                    ) : (
-                      log.source_status_before && log.source_status_after && (
-                        <span className="text-gray-500">
-                          {log.source_status_before} → {log.source_status_after}
-                        </span>
-                      )
-                    )}
-                    {log.option_name && (
-                      <span className="text-gray-400">옵션: {log.option_name}</span>
-                    )}
-                    {log.action_taken && (
-                      <span className={`${log.action_success ? 'text-green-600' : 'text-red-600'}`}>
-                        [{log.action_taken}]
-                      </span>
-                    )}
-                    {log.price_skip_reason && (
-                      <span className="text-gray-400 truncate max-w-[200px]">{log.price_skip_reason}</span>
-                    )}
-                    {log.error_message && (
-                      <span className="text-red-500 truncate max-w-[200px]">{log.error_message}</span>
-                    )}
-                  </div>
-                );
-              })}
-          </div>
-        </div>
-      )}
-
-      {/* 가격 추종 규칙 모달 */}
-      {priceRuleModal && (
-        <PriceRuleModal
-          open={true}
-          onClose={() => setPriceRuleModal(null)}
-          monitor={priceRuleModal.mode === 'single' ? {
-            id: priceRuleModal.monitor.id,
-            source_price_last: priceRuleModal.monitor.source_price_last,
-            our_price_last: priceRuleModal.monitor.our_price_last,
-            price_follow_rule: priceRuleModal.monitor.price_follow_rule,
-            productName: priceRuleModal.monitor.sh_products?.display_name || priceRuleModal.monitor.sh_products?.product_name || '',
-          } : undefined}
-          monitorIds={priceRuleModal.mode === 'bulk' ? monitors.map((m) => m.id) : undefined}
-          onSaved={() => { setPriceRuleModal(null); fetchData(); }}
-        />
-      )}
-
-      {/* 승인 대기 목록 모달 */}
-      {showPendingList && (
-        <PendingPriceApprovalList
-          open={true}
-          onClose={() => setShowPendingList(false)}
-          onUpdated={fetchData}
-        />
-      )}
-
-      {/* 진단 결과 모달 */}
-      {diagnoseResult && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setDiagnoseResult(null)}>
-          <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between">
-              <h2 className="text-lg font-bold">📊 품절동기화 진단 결과</h2>
-              <button onClick={() => setDiagnoseResult(null)} className="text-gray-500 hover:text-gray-900 text-xl">×</button>
-            </div>
-            <div className="p-6 space-y-3">
-              <p className="text-sm text-gray-600 mb-4">
-                각 단계별로 어디서 막히는지 확인합니다. <strong>fail</strong>이 있으면 그 단계가 근본 원인입니다.
-                특히 마지막 <strong>10_proxy_naver_check</strong>가 핵심 — 네이버 프록시 차단 여부.
-              </p>
-              {diagnoseResult.steps?.map((s, i) => (
-                <div key={i} className={`p-3 rounded-lg border ${
-                  s.status === 'ok' ? 'bg-green-50 border-green-200' :
-                  s.status === 'warn' ? 'bg-yellow-50 border-yellow-200' :
-                  'bg-red-50 border-red-200'
-                }`}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${
-                      s.status === 'ok' ? 'bg-green-600 text-white' :
-                      s.status === 'warn' ? 'bg-yellow-600 text-white' :
-                      'bg-red-600 text-white'
-                    }`}>{s.status.toUpperCase()}</span>
-                    <span className="font-mono text-sm font-semibold">{s.step}</span>
-                  </div>
-                  <pre className="text-xs text-gray-700 whitespace-pre-wrap break-all bg-white/60 p-2 rounded mt-2 overflow-x-auto max-h-64">
-                    {typeof s.detail === 'string' ? s.detail : JSON.stringify(s.detail, null, 2)}
-                  </pre>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
