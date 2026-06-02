@@ -35,6 +35,9 @@ export interface ExtractedNoticeHints {
   size?: string;      // "M"
   count?: string;     // "3개"
   material?: string;  // 소재 (향후 확장)
+  brix?: string;      // 당도 "13brix" (과일)
+  grade?: string;     // 등급 "특상품" (농산물)
+  origin?: string;    // 실제 산지 "청송" (과일/농산물)
 }
 
 // ─── 노출고시 카테고리 선택 규칙 ──────────────────────────────
@@ -532,8 +535,19 @@ function resolveFieldValue(
     return brand || '상세페이지 참조';
   }
   if (normalized.includes('제조국') || normalized.includes('원산지')) {
-    if (isHealthFunctionalFood) return '대한민국';  // 건기식은 명시 의무
-    if (isGeneralFood) return '대한민국';  // 일반 식품도 식품표시광고법상 명시 필수
+    // 원본에서 추출한 실제 산지가 있으면 그것을 사용 (셀러가 직접 표기한 값).
+    // 추측으로 "대한민국"을 박지 않는다 — 수입과일 등에서 허위표시 위험.
+    if (hints?.origin) return hints.origin;
+    return '상세페이지 참조';
+  }
+  // 당도(Brix) — 과일 신선식품. 원본 추출값 있으면 명시, 없으면 참조.
+  if (normalized.includes('당도') || normalized.includes('brix') || normalized.includes('브릭스')) {
+    if (hints?.brix) return hints.brix;
+    return '상세페이지 참조';
+  }
+  // 등급 — 농산물 품질 등급. 원본 추출값 있으면 명시, 없으면 참조.
+  if (normalized.includes('등급')) {
+    if (hints?.grade) return hints.grade;
     return '상세페이지 참조';
   }
   // 건기식 의약품 여부 — "의약품 아님" 명시

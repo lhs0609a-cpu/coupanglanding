@@ -13,6 +13,7 @@ import { selectWithSeed } from './item-winner-prevention';
 import type { PreventionConfig } from './item-winner-prevention';
 import type { ExtractedBuyOption } from './coupang-product-builder';
 import { generateFaqItems, extractSeoKeywords, generateClosingText } from './story-generator';
+import { isFreshProduceCategory, extractFruitInfo, sanitizeFruitClaims, type FruitInfo } from './fruit-compliance';
 
 export interface BuildPayloadProduct {
   uid?: string;
@@ -175,6 +176,22 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
       ? syncDisplayNameWithOptions(rawDisplayName, extracted.buyOptions)
       : rawDisplayName;
 
+  // ── 과일/신선식품 표시규정 자동 준수 (쿠팡 신뢰관리센터 가이드) ──
+  //   원본에서 당도/등급/산지를 추출 → 근거 있으면 노출문구에 근거 표기 + 고시 채움,
+  //   없으면 근거 없는 주장(고당도/유명산지/특상품 등)을 노출문구에서 자동 삭제.
+  const isFruit = isFreshProduceCategory(product.categoryPath, optionSourceName);
+  const fruitInfo: FruitInfo | null = isFruit
+    ? extractFruitInfo({
+        name: optionSourceName,
+        displayName: rawDisplayName,
+        tags: product.tags,
+        description: effectiveDescription,
+        ocrSpecs: product.ocrSpecs,
+      })
+    : null;
+  const gatedDisplayName = isFruit ? sanitizeFruitClaims(syncedDisplayName, fruitInfo) : syncedDisplayName;
+  const gatedSellerName = isFruit ? sanitizeFruitClaims(product.aiSellerName, fruitInfo) : product.aiSellerName;
+
   // 추출된 옵션값을 notices용 hints로 변환
   const noticeHints: ExtractedNoticeHints = {};
   for (const opt of extracted.buyOptions) {
@@ -183,6 +200,12 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     if (opt.name.includes('색상') || opt.name.includes('컬러')) noticeHints.color = opt.value;
     if (opt.name.includes('사이즈') || opt.name.includes('크기')) noticeHints.size = opt.value;
     if (opt.name === '수량') noticeHints.count = `${opt.value}${opt.unit || '개'}`;
+  }
+  // 과일 근거를 고시 hints에 주입 (원산지/당도/등급)
+  if (fruitInfo) {
+    if (fruitInfo.brix != null) noticeHints.brix = `${fruitInfo.brix}brix`;
+    if (fruitInfo.grade) noticeHints.grade = fruitInfo.grade;
+    if (fruitInfo.origin) noticeHints.origin = fruitInfo.origin;
   }
 
   // notices 자동채움 — 1차: 룰베이스 (notice-field-filler 의 패턴 매칭)
@@ -258,13 +281,15 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     attributeValues: product.attributeValuesOverride,
     reviewImageUrls,
     infoImageUrls,
-    aiStoryHtml,
-    aiStoryParagraphs: finalStoryParagraphs,
+    aiStoryHtml: isFruit ? sanitizeFruitClaims(aiStoryHtml, fruitInfo) : aiStoryHtml,
+    aiStoryParagraphs: isFruit
+      ? finalStoryParagraphs.map((p) => sanitizeFruitClaims(p, fruitInfo) || p)
+      : finalStoryParagraphs,
     aiReviewTexts: finalReviewTexts,
     extractedBuyOptions: extracted.buyOptions as ExtractedBuyOption[],
     totalUnitCount: product.unitCountOverride ?? extracted.totalUnitCount,
-    displayProductName: syncedDisplayName,
-    sellerProductName: product.aiSellerName,
+    displayProductName: gatedDisplayName,
+    sellerProductName: gatedSellerName,
     manufacturer: product.manufacturerOverride,
     maximumBuyForPerson: product.maxBuyPerPersonOverride,
     outboundShippingTimeDay: product.shippingDaysOverride,
@@ -279,7 +304,7 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     categoryPath,
     seoKeywords,
     faqItems,
-    closingText,
+    closingText: isFruit ? sanitizeFruitClaims(closingText, fruitInfo) : closingText,
     contentBlocks: product.contentBlocksOverride || contentBlocks,
     detailImageTypes,
     thirdPartyImageUrls: selectedThirdPartyUrls,
