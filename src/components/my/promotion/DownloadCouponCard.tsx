@@ -183,7 +183,8 @@ export default function DownloadCouponCard({
                     minimumPrice: 10000,
                     discount: 1000,
                     maximumDiscountPrice: 1000,
-                    maximumPerDaily: 1,
+                    // 하루 발급 한도. 쿠팡 한도 9999 = 사실상 무제한.
+                    maximumPerDaily: 9999,
                   },
                 ])}
                 className="px-3 py-1.5 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-[#c81530] transition"

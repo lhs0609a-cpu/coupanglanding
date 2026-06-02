@@ -1090,14 +1090,16 @@ export async function createDownloadCoupon(
  *  쿠팡 공식 스펙:
  *  - PUT /v2/providers/marketplace_openapi/apis/api/v1/coupon-items
  *  - body: { couponItems: [{ couponId(Number), userId(WING ID), vendorItemIds(Number[]) }] }
- *  - 한 번에 100개 초과 불가
- *  - 상품 추가 실패 시 해당 쿠폰 파기됨
- *  - 응답: { requestResultStatus: 'SUCCESS'|'FAIL', body: { couponId }, errorCode, errorMessage } */
+ *  - 한 번에 최대 10,000개
+ *  - ★ 비동기 API — 200 응답은 "큐 등록"이지 "등록 완료"가 아님.
+ *    실제 결과는 /coupons/transactionStatus?requestTransactionId= 로 폴링해야 함.
+ *  - 상품 추가 실패 시 해당 쿠폰 전체 파기됨 → 폴링으로 실패 감지 필수
+ *  - 응답: { requestResultStatus, body: { requestTransactionId }, errorCode, errorMessage } */
 export async function addDownloadCouponItems(
   credentials: CoupangCredentials,
   couponId: number,
   vendorItemIds: (string | number)[],
-): Promise<{ couponId?: number; requestResultStatus?: string }> {
+): Promise<{ couponId?: number; requestResultStatus?: string; failedVendorItemIds?: number[] }> {
   const numericIds = vendorItemIds.map(Number).filter((n) => !isNaN(n));
 
   const mktPath = `${MKT_OPENAPI_BASE}/coupon-items`;
@@ -1123,18 +1125,88 @@ export async function addDownloadCouponItems(
   const errorMsg = String(data.errorMessage || rawData.errorMessage || '');
   const errorCode = String(data.errorCode || rawData.errorCode || '');
 
-  // 에러 체크
+  // 동기 FAIL 즉시 throw
   if (status === 'FAIL') {
     throw new CoupangApiError(
-      `다운로드 쿠폰 아이템 등록 실패: ${errorMsg || errorCode || '알 수 없는 오류'}`,
+      `다운로드 쿠폰 아이템 등록 실패(동기): ${errorMsg || errorCode || '알 수 없는 오류'}`,
       400,
       errorCode,
     );
   }
 
+  // ★ 비동기 결과 폴링 — requestTransactionId 추출 후 transactionStatus 확인
+  const txId = String(
+    resultBody?.requestTransactionId
+    || data.requestTransactionId
+    || rawData.requestTransactionId
+    || '',
+  );
+
+  if (!txId) {
+    // txId 없음 → 쿠팡 응답 비표준. 동기 SUCCESS로 가정하되 경고.
+    console.warn('[addDownloadCouponItems] requestTransactionId 없음 — 비동기 검증 불가, 동기 응답으로 가정');
+    return {
+      couponId: resultBody?.couponId as number | undefined,
+      requestResultStatus: status || 'SUCCESS',
+      failedVendorItemIds: [],
+    };
+  }
+
+  console.log(`[addDownloadCouponItems] 비동기 폴링 시작 — txId=${txId}`);
+
+  // 폴링: 최대 5회 × 3초 = 15초
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    let statusResult: Record<string, unknown>;
+    try {
+      statusResult = await checkDownloadCouponStatus(credentials, txId) as Record<string, unknown>;
+    } catch (pollErr) {
+      console.warn(`[addDownloadCouponItems] 폴링 #${attempt + 1} API 오류 (재시도):`, pollErr instanceof Error ? pollErr.message : pollErr);
+      continue;
+    }
+
+    const sd = (statusResult.data || statusResult) as Record<string, unknown>;
+    const tsr = (sd.transactionStatusResponse || sd) as Record<string, unknown>;
+    const pollStatus = String(tsr.status || sd.status || '').toUpperCase();
+    const total = Number(tsr.total || sd.total || 0);
+    const succeeded = Number(tsr.succeeded || sd.succeeded || 0);
+    const failedList = (tsr.couponFailedVendorItemIdResponses || sd.couponFailedVendorItemIdResponses || []) as unknown[];
+    const failedIds = failedList
+      .map((f) => Number((f as Record<string, unknown>).vendorItemId))
+      .filter((n) => !isNaN(n) && n > 0);
+
+    console.log(`[addDownloadCouponItems] 폴링 #${attempt + 1}: status=${pollStatus}, total=${total}, succeeded=${succeeded}, failed=${failedIds.length}`);
+
+    // 완료 상태 — 부분 실패도 쿠팡은 쿠폰 전체 파기하므로 실패로 간주
+    if (['DONE', 'SUCCESS', 'COMPLETED', 'COMPLETE'].includes(pollStatus)) {
+      if (failedIds.length > 0) {
+        throw new CoupangApiError(
+          `다운로드 쿠폰 아이템 등록 부분 실패 (${failedIds.length}/${numericIds.length}건) — 쿠팡 스펙상 쿠폰 전체 파기됨`,
+          400,
+          'ITEM_ADD_PARTIAL_FAIL',
+        );
+      }
+      return {
+        couponId: Number(resultBody?.couponId || couponId),
+        requestResultStatus: 'SUCCESS',
+        failedVendorItemIds: [],
+      };
+    }
+    if (['FAIL', 'FAILED', 'ERROR'].includes(pollStatus)) {
+      throw new CoupangApiError(
+        `다운로드 쿠폰 아이템 등록 실패(비동기): status=${pollStatus}, 실패 ${failedIds.length}/${numericIds.length}건`,
+        400,
+        'ITEM_ADD_FAILED',
+      );
+    }
+    // PROCESSING/PENDING — 다음 attempt 로
+  }
+
+  // 15초 내 결과 미확정 → PENDING 반환하여 bulk-apply 가 재시도하도록
+  console.warn(`[addDownloadCouponItems] 비동기 폴링 시한 초과 (15초) — 결과 미확정, txId=${txId}`);
   return {
-    couponId: resultBody?.couponId as number | undefined,
-    requestResultStatus: status || 'SUCCESS', // API가 200 반환했으면 성공으로 간주
+    couponId,
+    requestResultStatus: 'PENDING',
   };
 }
 

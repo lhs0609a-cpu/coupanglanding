@@ -264,6 +264,11 @@ async function createDownloadCouponBatch(
   // ── 2단계: 아이템(vendorItemIds) 등록 (PUT /coupon-items) ──
   console.log(`[bulk-apply] 다운로드 쿠폰 ${couponId}에 ${vendorItemIds.length}개 아이템 등록 시도`);
   const itemResult = await addDownloadCouponItems(credentials, couponId, vendorItemIds);
+
+  // PENDING = 비동기 결과 미확정 → throw 하여 일시 실패 재시도 큐로 보냄 (영구 격리 아님)
+  if (itemResult.requestResultStatus === 'PENDING') {
+    throw new Error('다운로드 쿠폰 아이템 등록 비동기 결과 미확정 (15초 시한 초과) — 다음 사이클 재시도');
+  }
   if (itemResult.requestResultStatus && itemResult.requestResultStatus !== 'SUCCESS') {
     throw new Error(`다운로드 쿠폰 아이템 등록 실패: ${itemResult.requestResultStatus}`);
   }
@@ -358,6 +363,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '쿠폰 설정을 찾을 수 없습니다.' }, { status: 400 });
     }
     const config = configRow as Config;
+
+    // 다운로드 쿠폰 활성화 시 contract_id 필수 — 빠지면 조용히 스킵되던 사고 방지
+    if (config.download_coupon_enabled && !String(config.contract_id || '').trim()) {
+      return NextResponse.json({
+        error: '다운로드 쿠폰이 활성화되어 있으나 계약서 ID가 비어 있습니다. 설정 페이지의 "다운로드 쿠폰 > 계약서 선택"을 완료한 후 다시 시도해주세요.',
+        code: 'CONTRACT_ID_MISSING',
+      }, { status: 400 });
+    }
+
+    // 다운로드 쿠폰 활성화 시 정책 1개 이상 필수
+    if (config.download_coupon_enabled
+        && (!Array.isArray(config.download_coupon_policies) || config.download_coupon_policies.length === 0)) {
+      return NextResponse.json({
+        error: '다운로드 쿠폰이 활성화되어 있으나 할인 정책이 비어 있습니다. 설정 페이지의 "다운로드 쿠폰 > 정책"을 1개 이상 추가해주세요.',
+        code: 'POLICIES_MISSING',
+      }, { status: 400 });
+    }
 
     let { data: progress } = await serviceClient
       .from('bulk_apply_progress')
@@ -693,10 +715,11 @@ export async function POST(request: NextRequest) {
             );
 
             // ── 영구 vs 일시 실패 분류 ──
-            // 영구: 정책/스펙 문제 → 재시도해도 같은 결과 → status='failed'로 격리
-            // 일시: 네트워크/타임아웃/쿠팡 큐 지연 → status='pending' 유지하여 다음 호출에서 재시도
+            // 영구: vendorItemId 자체가 유효하지 않은 경우 → 재시도해도 같은 결과 → status='failed'로 격리
+            // 일시: 네트워크/타임아웃/쿠팡 큐 지연/비동기 미확정/쿠폰 정책 미설정 → status='pending' 유지하여 다음 호출에서 재시도
+            //   (정책/policies 누락은 사용자가 설정 페이지에서 고칠 수 있는 일시 문제 → 영구격리 금지)
             // 단, 같은 항목이 DOWNLOAD_MAX_RETRIES회 이상 실패하면 격리 (무한 루프 방지)
-            const isPermanent = /정책|policies|vendorItemId|invalid|존재하지|missing/i.test(errMsg);
+            const isPermanent = /vendorItemId|invalid|존재하지|missing/i.test(errMsg);
 
             // 기존 error_message에서 재시도 카운트 파싱
             const itemRetryCounts = new Map<string, number>();
