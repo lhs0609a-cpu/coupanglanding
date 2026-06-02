@@ -17,6 +17,7 @@ import type { EditableProduct, CategoryItem, FilterMode, SortField, SortDirectio
 import type { CategoryMetadata } from '@/lib/megaload/services/product-validator';
 import LlmRegenModal from './LlmRegenModal';
 import type { LlmTask } from './useBulkRegisterActions';
+import { resolveAgriWeight } from './option-candidates';
 
 interface BulkStep2ReviewProps {
   products: EditableProduct[];
@@ -336,7 +337,10 @@ export default memo(function BulkStep2Review({
             reviewTextsOverride: product.editedReviewTexts,
             contentBlocksOverride: product.editedContentBlocks,
             noticeValuesOverride: product.editedNoticeValues,
-            buyOptionValuesOverride: product.editedAgriWeight ? { '농산물 중량': product.editedAgriWeight } : undefined,
+            buyOptionValuesOverride: (() => {
+              const w = resolveAgriWeight(product.editedDisplayProductName, product.name, product.editedAgriWeight);
+              return w ? { '농산물 중량': w } : undefined;
+            })(),
           },
           deliveryInfo: {
             deliveryCompanyCode: 'CJGLS',

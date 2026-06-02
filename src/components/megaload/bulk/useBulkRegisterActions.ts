@@ -12,6 +12,7 @@ import type { PreflightProductResult, CanaryResult } from '@/lib/megaload/types'
 import { DEFAULT_PREVENTION_CONFIG, DISABLED_PREVENTION_CONFIG } from '@/lib/megaload/services/item-winner-prevention';
 import { isCommodityCategory } from '@/lib/megaload/services/stock-image-service';
 import { addRecentPath } from './BulkStep1Settings';
+import { isAgriProduct, resolveAgriWeight } from './option-candidates';
 import { createClient } from '@/lib/supabase/client';
 import { saveDraft, loadDraft, clearDraft } from '@/lib/megaload/bulk-draft-store';
 
@@ -2719,7 +2720,10 @@ export function useBulkRegisterActions() {
             : undefined,
           noticeValuesOverride: p.editedNoticeValues,
           attributeValuesOverride: p.editedAttributeValues,
-          buyOptionValuesOverride: p.editedAgriWeight ? { '농산물 중량': p.editedAgriWeight } : undefined,
+          buyOptionValuesOverride: (() => {
+            const w = resolveAgriWeight(p.editedDisplayProductName, p.name, p.editedAgriWeight);
+            return w ? { '농산물 중량': w } : undefined;
+          })(),
           descriptionOverride: p.editedDescription,
           storyParagraphsOverride: p.editedStoryParagraphs,
           reviewTextsOverride: p.editedReviewTexts,
@@ -3426,6 +3430,20 @@ export function useBulkRegisterActions() {
       return;
     }
 
+    // ─── 농산물 중량 미확정 가드 ───
+    // 신선식품/농산물인데 중량이 확정 안 되면(빈 값/모호/"상세페이지 참조") 등록 차단.
+    // 그대로 등록하면 쿠팡윙에서 "옵션 용량 오류"가 난다. 상품을 펼쳐 "농산물 중량"을 입력/선택해야 통과.
+    const agriUnresolved = selectedProducts.filter((p) =>
+      isAgriProduct(p.editedCategoryName)
+      && !resolveAgriWeight(p.editedDisplayProductName, p.name, p.editedAgriWeight)
+    );
+    if (agriUnresolved.length > 0) {
+      const sample = agriUnresolved.slice(0, 5).map(p => `· ${(p.editedDisplayProductName || p.name).slice(0, 40)}`).join('\n');
+      const more = agriUnresolved.length > 5 ? `\n... 외 ${agriUnresolved.length - 5}개` : '';
+      alert(`농산물 중량이 확정되지 않은 상품 ${agriUnresolved.length}개가 있습니다.\n쿠팡윙 "옵션 용량 오류"를 막으려면 각 상품을 펼쳐 "농산물 중량"을 입력/선택해 주세요.\n\n${sample}${more}`);
+      return;
+    }
+
     setStep(3); setRegistering(true); setIsPaused(false); isPausedRef.current = false; setAccountBlocked(null); setStartTime(Date.now());
 
     // preupload 완료까지 최대 30초 대기 (state는 ref로 읽어야 stale 방지)
@@ -3544,7 +3562,10 @@ export function useBulkRegisterActions() {
           if (p.editedBarcode) product.barcode = p.editedBarcode;
           if (p.editedNoticeValues && Object.keys(p.editedNoticeValues).length > 0) product.noticeValuesOverride = p.editedNoticeValues;
           if (p.editedAttributeValues && Object.keys(p.editedAttributeValues).length > 0) product.attributeValuesOverride = p.editedAttributeValues;
-          if (p.editedAgriWeight) product.buyOptionValuesOverride = { '농산물 중량': p.editedAgriWeight };
+          {
+            const agriWeight = resolveAgriWeight(p.editedDisplayProductName, p.name, p.editedAgriWeight);
+            if (agriWeight) product.buyOptionValuesOverride = { '농산물 중량': agriWeight };
+          }
           // 상세페이지 콘텐츠 오버라이드
           if (p.editedDescription !== undefined) product.descriptionOverride = p.editedDescription;
           if (p.editedStoryParagraphs && p.editedStoryParagraphs.length > 0) product.storyParagraphsOverride = p.editedStoryParagraphs;
