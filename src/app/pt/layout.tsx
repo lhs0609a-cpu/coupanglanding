@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import KakaoChatFloat from "@/components/KakaoChatFloat";
 
 const SITE_URL = "https://megaload.co.kr";
 
@@ -131,6 +132,7 @@ export default function PTLayout({
         dangerouslySetInnerHTML={{ __html: JSON.stringify(ptBreadcrumbJsonLd) }}
       />
       {children}
+      <KakaoChatFloat />
     </>
   );
 }
