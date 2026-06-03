@@ -5,6 +5,9 @@ import { usePathname } from 'next/navigation';
 // 상담 버튼을 숨길 경로(로그인 후 영역). 새 인증 영역 추가 시 여기 한 줄만 늘리면 된다.
 const HIDDEN_PATH_PREFIXES = ['/admin', '/my', '/megaload', '/auth'];
 
+// 하단에 자체 fixed bar(메가로드 CTA 등)를 띄우는 경로 — 카톡 버튼을 그 위로 올린다.
+const HAS_BOTTOM_BAR = (pathname: string) => pathname === '/';
+
 /**
  * 떠다니는 카카오톡 상담 버튼.
  * 페이지 오른쪽 아래 고정, 스크롤해도 따라다닌다. 클릭 시 카카오 오픈채팅 새 탭으로 이동.
@@ -22,13 +25,18 @@ export default function KakaoChatFloat({
     return null;
   }
 
+  // 하단 fixed bar가 있는 페이지(홈)에선 그 위로 올림. 그 외엔 기본 하단 위치.
+  const offsetClass = HAS_BOTTOM_BAR(pathname)
+    ? 'bottom-[76px] right-4 sm:bottom-[84px] sm:right-6'
+    : 'bottom-5 right-5 sm:bottom-6 sm:right-6';
+
   return (
     <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
       aria-label="카카오톡으로 바로 상담하기"
-      className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-full bg-[#FEE500] px-4 py-3 text-sm font-bold text-[#3C1E1E] shadow-lg shadow-black/15 ring-1 ring-black/5 transition hover:scale-105 hover:shadow-xl active:scale-95 sm:bottom-6 sm:right-6 sm:px-5 sm:py-3.5"
+      className={`fixed ${offsetClass} z-50 flex items-center gap-2 rounded-full bg-[#FEE500] px-4 py-3 text-sm font-bold text-[#3C1E1E] shadow-lg shadow-black/15 ring-1 ring-black/5 transition hover:scale-105 hover:shadow-xl active:scale-95 sm:px-5 sm:py-3.5`}
     >
       {/* 카카오톡 말풍선 아이콘 */}
       <svg
