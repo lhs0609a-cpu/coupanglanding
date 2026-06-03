@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import { Geist, Geist_Mono, Noto_Sans_KR } from "next/font/google";
 import GlobalErrorCapture from "@/components/system/GlobalErrorCapture";
+import KakaoChatFloat from "@/components/KakaoChatFloat";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -245,6 +246,8 @@ export default function RootLayout({
         </a>
         <GlobalErrorCapture />
         {children}
+        {/* 떠다니는 카카오톡 상담 버튼 — 컴포넌트 내부에서 admin/my/megaload/auth 경로는 자동 숨김 */}
+        <KakaoChatFloat />
         {/* Google Analytics 4 */}
         {process.env.NEXT_PUBLIC_GA_ID && (
           <>

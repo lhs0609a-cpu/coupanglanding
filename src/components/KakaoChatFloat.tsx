@@ -1,8 +1,14 @@
 'use client';
 
+import { usePathname } from 'next/navigation';
+
+// 상담 버튼을 숨길 경로(로그인 후 영역). 새 인증 영역 추가 시 여기 한 줄만 늘리면 된다.
+const HIDDEN_PATH_PREFIXES = ['/admin', '/my', '/megaload', '/auth'];
+
 /**
  * 떠다니는 카카오톡 상담 버튼.
  * 페이지 오른쪽 아래 고정, 스크롤해도 따라다닌다. 클릭 시 카카오 오픈채팅 새 탭으로 이동.
+ * 공개 랜딩(/, /pt, /program, /start, /guide, 정책 페이지)에서만 노출, 로그인 후 영역에선 숨김.
  */
 export default function KakaoChatFloat({
   href = 'https://open.kakao.com/o/skLRf9li',
@@ -11,6 +17,11 @@ export default function KakaoChatFloat({
   href?: string;
   label?: string;
 }) {
+  const pathname = usePathname() || '/';
+  if (HIDDEN_PATH_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+    return null;
+  }
+
   return (
     <a
       href={href}
