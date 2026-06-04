@@ -124,6 +124,19 @@ export async function updateSession(request: NextRequest) {
     return redirectResponse;
   }
 
+  // ─── 비밀번호 강제 변경 가드 ───────────────────────────────────
+  // 관리자 초기화로 user_metadata.must_change_password 가 켜진 회원은,
+  // 새 비밀번호를 설정하기 전까지 모든 페이지가 /my/change-password 로 강제 이동된다.
+  // JWT(user_metadata) 기반이라 DB 조회 없음. /auth/* 는 이미 위에서 early-return.
+  const mustChangePw =
+    (user.user_metadata as Record<string, unknown> | undefined)?.must_change_password === true;
+  if (mustChangePw && !isApiRoute && pathname !== '/my/change-password') {
+    const url = request.nextUrl.clone();
+    url.pathname = '/my/change-password';
+    url.search = '';
+    return NextResponse.redirect(url);
+  }
+
   // ─── 결제 락 가드 ─────────────────────────────────────────────
   //
   // 범위: `/api/*` 의 모든 mutation (POST/PUT/PATCH/DELETE) + 일부 `/megaload/*` 쓰기.

@@ -27,7 +27,7 @@ import Modal from '@/components/ui/Modal';
 import PaymentProgress from '@/components/ui/PaymentProgress';
 import NumberInput from '@/components/ui/NumberInput';
 import { calculateListingDiscount } from '@/lib/calculations/listing-discount';
-import { ArrowLeft, Eye, Check, X, Undo2, User, ClipboardList, FileText, Banknote, Search, ExternalLink, Plug, Shield, Award, Building2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Eye, Check, X, Undo2, User, ClipboardList, FileText, Banknote, Search, ExternalLink, Plug, Shield, Award, Building2, AlertTriangle, KeyRound, Copy } from 'lucide-react';
 import type { PtUser, MonthlyReport, Profile, OnboardingStep, Contract } from '@/lib/supabase/types';
 
 interface PtUserWithProfile extends PtUser {
@@ -80,6 +80,11 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
   const [editingShare, setEditingShare] = useState(false);
   const [shareInput, setShareInput] = useState('');
   const [savingShare, setSavingShare] = useState(false);
+  // 비밀번호 초기화
+  const [pwResetting, setPwResetting] = useState(false);
+  const [pwResetResult, setPwResetResult] = useState<{ tempPassword: string; name: string | null; email: string | null } | null>(null);
+  const [pwResetError, setPwResetError] = useState('');
+  const [tempPwCopied, setTempPwCopied] = useState(false);
   const saveShare = useCallback(async () => {
     const val = Number(shareInput);
     if (!Number.isFinite(val) || val < 0 || val > 100) { alert('수수료율은 0~100 사이 숫자여야 합니다.'); return; }
@@ -154,6 +159,30 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
   }, [fetchData]);
 
   // Review: submitted -> reviewed
+  const handleResetPassword = async () => {
+    if (!ptUser) return;
+    const name = ptUser.profile?.full_name || '이 회원';
+    if (!confirm(`${name}의 비밀번호를 초기화하시겠습니까?\n\n임시 비밀번호가 발급되며, 회원은 다음 로그인 시 새 비밀번호를 반드시 설정해야 합니다.`)) {
+      return;
+    }
+    setPwResetting(true);
+    setPwResetError('');
+    setTempPwCopied(false);
+    try {
+      const res = await fetch(`/api/admin/pt-users/${ptUser.id}/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '초기화 실패');
+      setPwResetResult({ tempPassword: data.tempPassword, name: data.name, email: data.email });
+    } catch (err) {
+      setPwResetError(err instanceof Error ? err.message : '초기화 중 오류가 발생했습니다.');
+    } finally {
+      setPwResetting(false);
+    }
+  };
+
   const handleOpenReviewModal = (report: MonthlyReport) => {
     if (!ptUser) return;
     const costs = getReportCosts(report);
@@ -339,7 +368,58 @@ export default function PtUserDetailPage({ params }: { params: Promise<{ id: str
             <p className="text-sm text-gray-500 mt-0.5">{ptUser.profile?.email}</p>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={handleResetPassword}
+          disabled={pwResetting}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition disabled:opacity-50"
+        >
+          <KeyRound className="w-4 h-4" />
+          {pwResetting ? '초기화 중...' : '비밀번호 초기화'}
+        </button>
       </div>
+
+      {pwResetError && (
+        <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          {pwResetError}
+        </div>
+      )}
+
+      {/* 비밀번호 초기화 결과 모달 */}
+      <Modal
+        isOpen={!!pwResetResult}
+        onClose={() => setPwResetResult(null)}
+        title="임시 비밀번호 발급 완료"
+      >
+        {pwResetResult && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              아래 임시 비밀번호를 <span className="font-semibold">{pwResetResult.name || '회원'}</span>
+              {pwResetResult.email ? ` (${pwResetResult.email})` : ''} 님께 전달해 주세요.
+              회원은 이 비밀번호로 로그인 후 <span className="font-semibold">새 비밀번호를 반드시 설정</span>하게 됩니다.
+            </p>
+            <div className="flex items-center justify-between gap-3 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+              <code className="text-lg font-mono font-bold tracking-wider text-gray-900 select-all">
+                {pwResetResult.tempPassword}
+              </code>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(pwResetResult.tempPassword);
+                  setTempPwCopied(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-[#c81530] transition shrink-0"
+              >
+                <Copy className="w-4 h-4" />
+                {tempPwCopied ? '복사됨' : '복사'}
+              </button>
+            </div>
+            <p className="text-xs text-amber-600">
+              ⚠️ 이 비밀번호는 지금만 표시됩니다. 창을 닫으면 다시 볼 수 없으니 꼭 전달·복사하세요. (보안상 평문 저장 안 함)
+            </p>
+          </div>
+        )}
+      </Modal>
 
       {/* Profile Info Card */}
       <Card>
