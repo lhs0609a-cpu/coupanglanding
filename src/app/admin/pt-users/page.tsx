@@ -29,7 +29,7 @@ import Input from '@/components/ui/Input';
 import NumberInput from '@/components/ui/NumberInput';
 import Select from '@/components/ui/Select';
 import PaymentProgress from '@/components/ui/PaymentProgress';
-import { Users, CheckCircle2, XCircle, ExternalLink, Eye, EyeOff, UserPlus, AlertTriangle, ClipboardList, Search, Banknote, BarChart3, Key, Plug, Shield, MessageSquare, Clock } from 'lucide-react';
+import { Users, CheckCircle2, XCircle, ExternalLink, Eye, EyeOff, UserPlus, AlertTriangle, ClipboardList, Search, Banknote, BarChart3, Key, KeyRound, Copy, Plug, Shield, MessageSquare, Clock } from 'lucide-react';
 import type { PtUser, MonthlyReport, Profile, OnboardingStep, ManualInputRequest } from '@/lib/supabase/types';
 import { calculateFeePenalty, getFeePaymentDDay, GRACE_PERIOD_DAYS } from '@/lib/utils/fee-penalty';
 import OnboardingReviewModal from '@/components/onboarding/OnboardingReviewModal';
@@ -57,6 +57,10 @@ export default function AdminPtUsersPage() {
   const [loading, setLoading] = useState(true);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [screenshotModal, setScreenshotModal] = useState<string | null>(null);
+  // 비밀번호 초기화
+  const [pwResettingId, setPwResettingId] = useState<string | null>(null);
+  const [pwResetResult, setPwResetResult] = useState<{ tempPassword: string; name: string | null; email: string | null } | null>(null);
+  const [tempPwCopied, setTempPwCopied] = useState(false);
 
   // 매출 확인 모달
   const [reviewModalData, setReviewModalData] = useState<ReviewModalData | null>(null);
@@ -457,6 +461,27 @@ export default function AdminPtUsersPage() {
     fetchData();
   };
 
+  const handleResetPassword = async (ptUserId: string, userName: string) => {
+    if (!confirm(`${userName || '이 회원'}의 비밀번호를 초기화하시겠습니까?\n\n임시 비밀번호가 발급되며, 회원은 다음 로그인 시 새 비밀번호를 반드시 설정해야 합니다.`)) {
+      return;
+    }
+    setPwResettingId(ptUserId);
+    setTempPwCopied(false);
+    try {
+      const res = await fetch(`/api/admin/pt-users/${ptUserId}/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '초기화 실패');
+      setPwResetResult({ tempPassword: data.tempPassword, name: data.name, email: data.email });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '초기화 중 오류가 발생했습니다.');
+    } finally {
+      setPwResettingId(null);
+    }
+  };
+
   const handleAddUser = async () => {
     const { data: profile } = await supabase
       .from('profiles')
@@ -837,6 +862,16 @@ export default function AdminPtUsersPage() {
                       >
                         {user.program_access_active ? '접근 중지' : '접근 허용'}
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => handleResetPassword(user.id, user.profile?.full_name || '')}
+                        disabled={pwResettingId === user.id}
+                        title="비밀번호 초기화"
+                        className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 transition disabled:opacity-50"
+                      >
+                        <KeyRound className="w-3.5 h-3.5" />
+                        {pwResettingId === user.id ? '초기화 중...' : '비번 초기화'}
+                      </button>
                     </div>
                   </div>
 
@@ -1150,6 +1185,42 @@ export default function AdminPtUsersPage() {
       )}
 
       {/* 사용자 추가 모달 */}
+      {/* 비밀번호 초기화 결과 모달 */}
+      <Modal
+        isOpen={!!pwResetResult}
+        onClose={() => setPwResetResult(null)}
+        title="임시 비밀번호 발급 완료"
+      >
+        {pwResetResult && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              아래 임시 비밀번호를 <span className="font-semibold">{pwResetResult.name || '회원'}</span>
+              {pwResetResult.email ? ` (${pwResetResult.email})` : ''} 님께 전달해 주세요.
+              회원은 이 비밀번호로 로그인 후 <span className="font-semibold">새 비밀번호를 반드시 설정</span>하게 됩니다.
+            </p>
+            <div className="flex items-center justify-between gap-3 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+              <code className="text-lg font-mono font-bold tracking-wider text-gray-900 select-all">
+                {pwResetResult.tempPassword}
+              </code>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(pwResetResult.tempPassword);
+                  setTempPwCopied(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-[#E31837] rounded-lg hover:bg-[#c81530] transition shrink-0"
+              >
+                <Copy className="w-4 h-4" />
+                {tempPwCopied ? '복사됨' : '복사'}
+              </button>
+            </div>
+            <p className="text-xs text-amber-600">
+              ⚠️ 이 비밀번호는 지금만 표시됩니다. 창을 닫으면 다시 볼 수 없으니 꼭 전달·복사하세요. (보안상 평문 저장 안 함)
+            </p>
+          </div>
+        )}
+      </Modal>
+
       <Modal
         isOpen={addModalOpen}
         onClose={() => setAddModalOpen(false)}
