@@ -88,8 +88,9 @@ export const CONTRACT_ARTICLES: ContractArticle[] = [
     paragraphs: [
       '① 정산은 매월 1회 진행되며, 회원은 매월 3일까지 해당 월의 매출을 보고합니다.',
       '② 매출 정산 시 쿠팡 메가로드 매출 스크린샷을 증빙자료로 첨부하여야 합니다.',
-      '③ 비용 항목(상품원가, 수수료, 광고비, 반품비, 배송비, 세금)은 시스템에서 자동 계산되며, 순이익 기준으로 수수료가 산정됩니다.',
+      '③ 비용 항목(상품원가, 수수료, 광고비, 반품비, 배송비, 세금)은 시스템에서 자동 계산되며, 순이익 기준으로 수수료가 산정됩니다. 다만 광고비의 비용 인정 한도는 제5항에 따릅니다.',
       '④ 회사는 수수료 정산 확정 시 부가가치세법 제32조에 따라 전자세금계산서를 발행하며, 회원은 사업자등록 정보를 시스템에 등록하여야 합니다.',
+      '⑤ 광고비는 회사가 회원의 비용 부담을 덜어주기 위하여 호의로 비용 인정해 주는 항목으로서, 그 차감 한도는 해당 월 순이익(광고비를 차감하기 전 기준)의 10%를 상한으로 합니다. 회원이 제출한 광고비 중 위 상한을 초과하는 금액은 정산에 반영되지 않습니다. 회사는 본 광고비 인정 혜택의 조건 및 상한을 사전 통지 후 변경하거나 종료할 수 있습니다.',
     ],
   },
   {
@@ -299,8 +300,9 @@ const TRIPLE_CONTRACT_ARTICLES: ContractArticle[] = [
     paragraphs: [
       '① 정산은 매월 1회 진행되며, 병은 매월 3일까지 해당 월의 매출을 보고합니다.',
       '② 매출 정산 시 쿠팡 메가로드 매출 스크린샷을 증빙자료로 첨부하여야 합니다.',
-      '③ 비용 항목(상품원가, 수수료, 광고비, 반품비, 배송비, 세금)은 시스템에서 자동 계산되며, 순이익 기준으로 수수료가 산정됩니다.',
+      '③ 비용 항목(상품원가, 수수료, 광고비, 반품비, 배송비, 세금)은 시스템에서 자동 계산되며, 순이익 기준으로 수수료가 산정됩니다. 다만 광고비의 비용 인정 한도는 제5항에 따릅니다.',
       '④ 갑은 수수료 정산 확정 시 부가가치세법 제32조에 따라 전자세금계산서를 을 앞으로 발행하며, 을은 사업자등록 정보를 시스템에 등록하여야 합니다.',
+      '⑤ 광고비는 갑이 병의 비용 부담을 덜어주기 위하여 호의로 비용 인정해 주는 항목으로서, 그 차감 한도는 해당 월 순이익(광고비를 차감하기 전 기준)의 10%를 상한으로 합니다. 병이 제출한 광고비 중 위 상한을 초과하는 금액은 정산에 반영되지 않습니다. 갑은 본 광고비 인정 혜택의 조건 및 상한을 사전 통지 후 변경하거나 종료할 수 있습니다.',
     ],
   },
   {
@@ -417,4 +419,50 @@ const TRIPLE_CONTRACT_ARTICLES: ContractArticle[] = [
 export function getContractArticles(mode: 'single' | 'triple' = 'single'): ContractArticle[] {
   if (mode === 'triple') return TRIPLE_CONTRACT_ARTICLES;
   return CONTRACT_ARTICLES;
+}
+
+/**
+ * 약관 버전 — 본문(CONTRACT_ARTICLES / TRIPLE_CONTRACT_ARTICLES)을 개정할 때마다 +1.
+ *   v1: 최초 약관
+ *   v2: 제8조⑤(단일)/제9조⑤(3자) — 광고비 차감 한도 = 순이익(광고 차감 전)의 10% 신설
+ * 서명 시 contracts.terms_version 에 기록되고, 이 값보다 작은 버전으로 서명한 회원은
+ * 계약 페이지에서 개정 재동의가 요구된다.
+ */
+export const CONTRACT_TERMS_VERSION = 2;
+
+export interface ContractTermsSnapshot {
+  version: number;
+  mode: 'single' | 'triple';
+  title: string;
+  snapshotAt: string;
+  articles: Array<{
+    number: number;
+    title: string;
+    paragraphs: string[];
+    subItems?: ContractSubItem[];
+  }>;
+}
+
+/**
+ * 서명 시점의 약관 원문을 변수 치환까지 끝낸 상태로 동결(freeze)한다.
+ * contracts.terms(JSONB)에 저장 → 추후 본문이 개정돼도 "이 회원이 실제 서명한 내용"이 증거로 남는다.
+ */
+export function buildTermsSnapshot(
+  mode: 'single' | 'triple',
+  vars: ContractVariables,
+  snapshotAt: string,
+): ContractTermsSnapshot {
+  const articles = getContractArticles(mode);
+  return {
+    version: CONTRACT_TERMS_VERSION,
+    mode,
+    title: mode === 'triple' ? '쿠팡 메가로드 PT 코칭 3자 계약서' : '쿠팡 메가로드 PT 코칭 계약서',
+    snapshotAt,
+    articles: articles.map((a) => ({
+      number: a.number,
+      title: a.title,
+      paragraphs: a.paragraphs.map((p) => renderArticleText(p, vars)),
+      subItems: a.subItems?.map((s) => ({ label: s.label, text: renderArticleText(s.text, vars) })),
+    })),
+  };
 }

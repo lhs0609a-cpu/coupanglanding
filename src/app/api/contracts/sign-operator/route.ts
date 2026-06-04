@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { randomUUID } from 'crypto';
 import { logSystemError } from '@/lib/utils/system-log';
+import { buildTermsSnapshot, CONTRACT_TERMS_VERSION } from '@/lib/data/contract-terms';
 
 export const maxDuration = 20;
 
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
     // 계약 확인
     const { data: contract } = await supabase
       .from('contracts')
-      .select('id, pt_user_id, status, contract_mode')
+      .select('id, pt_user_id, status, contract_mode, share_percentage, start_date, end_date')
       .eq('id', contractId)
       .eq('pt_user_id', ptUser.id)
       .single();
@@ -59,6 +60,26 @@ export async function POST(request: NextRequest) {
     const contractMode = contract.contract_mode || 'single';
     const now = new Date().toISOString();
 
+    // 서명 시점의 약관 원문을 변수 치환까지 끝낸 스냅샷으로 동결 → 추후 개정돼도 증거 보존.
+    // 지금 서명하는 회원은 현재(최신) 버전에 동의하는 것이므로 재동의 버전도 최신으로 기록.
+    const termsSnapshot = buildTermsSnapshot(
+      contractMode,
+      {
+        share_percentage: Number(contract.share_percentage),
+        start_date: String(contract.start_date),
+        end_date: (contract.end_date as string | null) ?? null,
+        contract_mode: contractMode,
+      },
+      now,
+    );
+    const versionFields = {
+      terms: termsSnapshot as unknown as Record<string, unknown>,
+      terms_version: CONTRACT_TERMS_VERSION,
+      amendment_agreed_version: CONTRACT_TERMS_VERSION,
+      amendment_agreed_at: now,
+      amendment_agreed_ip: clientIp || 'unknown',
+    };
+
     if (contractMode === 'single') {
       // 2자 계약: 기존과 동일하게 바로 signed
       const { data: updatedContract, error: updateError } = await supabase
@@ -68,6 +89,7 @@ export async function POST(request: NextRequest) {
           signed_at: now,
           signed_ip: clientIp || 'unknown',
           signature_data: signatureData,
+          ...versionFields,
         })
         .eq('id', contractId)
         .select('start_date')
@@ -108,6 +130,7 @@ export async function POST(request: NextRequest) {
         signature_data: signatureData,
         business_sign_token: token,
         business_sign_token_expires_at: tokenExpires.toISOString(),
+        ...versionFields,
       })
       .eq('id', contractId);
 

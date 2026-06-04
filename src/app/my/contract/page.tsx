@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatDate, formatPercent } from '@/lib/utils/format';
 import { CONTRACT_STATUS_LABELS, CONTRACT_STATUS_COLORS, CONTRACT_MODE_LABELS } from '@/lib/utils/constants';
-import { renderArticleText, getContractArticles } from '@/lib/data/contract-terms';
+import { renderArticleText, getContractArticles, CONTRACT_TERMS_VERSION } from '@/lib/data/contract-terms';
 import type { ContractVariables } from '@/lib/data/contract-terms';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -58,6 +58,14 @@ function ContractContent({ vars, mode = 'single' }: { vars: ContractVariables; m
   );
 }
 
+/** 기존 서명자가 현재 약관 버전에 아직 재동의하지 않았으면 true (개정 재동의 필요). */
+function needsAmendmentConsent(c: Contract): boolean {
+  if (!c.signed_at) return false; // 미서명 계약은 어차피 최신 약관으로 새로 서명
+  if (c.status === 'terminated' || c.status === 'expired') return false;
+  const agreed = c.amendment_agreed_version ?? c.terms_version ?? 1;
+  return agreed < CONTRACT_TERMS_VERSION;
+}
+
 export default function MyContractPage() {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,6 +87,9 @@ export default function MyContractPage() {
   // 3자 계약 사업자 서명 토큰
   const [businessSignToken, setBusinessSignToken] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
+  // 개정 약관 재동의
+  const [amendmentAgreeing, setAmendmentAgreeing] = useState(false);
+  const [amendmentMsg, setAmendmentMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -202,6 +213,45 @@ export default function MyContractPage() {
       }
     } finally {
       setSigning(false);
+    }
+  };
+
+  const handleAgreeAmendment = async (contractId: string) => {
+    setAmendmentAgreeing(true);
+    setAmendmentMsg(null);
+    try {
+      let clientIp = 'unknown';
+      try {
+        const ipRes = await fetch('/api/ip', { signal: AbortSignal.timeout(3000) });
+        const ipData = await ipRes.json();
+        clientIp = ipData.ip || 'unknown';
+      } catch {
+        // IP 캡처 실패해도 진행
+      }
+
+      const res = await fetch('/api/contracts/agree-amendment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contractId, clientIp }),
+        signal: AbortSignal.timeout(18000),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '동의 처리 실패');
+
+      const now = new Date().toISOString();
+      setContracts((prev) =>
+        prev.map((c) =>
+          c.id === contractId
+            ? { ...c, amendment_agreed_version: CONTRACT_TERMS_VERSION, amendment_agreed_at: now }
+            : c
+        )
+      );
+      setAmendmentMsg({ type: 'success', text: '개정 약관에 동의해 주셔서 감사합니다. 정상 반영되었습니다.' });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      setAmendmentMsg({ type: 'error', text: msg || '동의 처리 중 오류가 발생했습니다.' });
+    } finally {
+      setAmendmentAgreeing(false);
     }
   };
 
@@ -376,6 +426,54 @@ export default function MyContractPage() {
                 }}
                 mode={activeContract.contract_mode || 'single'}
               />
+
+              {/* 개정 약관 재동의 배너 — 기존 서명자 대상 */}
+              {needsAmendmentConsent(activeContract) && (
+                <div className="mt-6 p-5 bg-amber-50 border border-amber-200 rounded-xl">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <h3 className="text-sm font-bold text-amber-800">정산 약관이 일부 개정되었습니다 — 확인 및 동의 요청</h3>
+                      <p className="text-sm text-amber-700 mt-1">
+                        광고비 처리에 관한 조항(제{activeContract.contract_mode === 'triple' ? 9 : 8}조 정산)이 개정되었습니다.
+                        광고비는 회사가 회원님의 부담을 덜어드리기 위해 <span className="font-semibold">호의로 비용 인정</span>해 드리는 항목으로,
+                        그 <span className="font-semibold">차감 한도가 해당 월 순이익(광고비 차감 전 기준)의 10%</span>로 정해졌습니다.
+                        광고비 제출 자체에는 제한이 없으며, 정상적으로 운영하시는 회원님께는 실질적인 변화가 거의 없습니다.
+                      </p>
+                      <p className="text-xs text-amber-600 mt-2">
+                        본 개정은 2026년 6월 귀속 매출(2026년 7월 정산분)부터 적용됩니다. 아래 버튼을 눌러 개정 약관에 동의해 주세요.
+                      </p>
+                      {amendmentMsg && (
+                        <p className={`text-sm mt-3 ${amendmentMsg.type === 'success' ? 'text-green-700' : 'text-red-600'}`}>
+                          {amendmentMsg.text}
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleAgreeAmendment(activeContract.id)}
+                        disabled={amendmentAgreeing}
+                        className="mt-3 inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-amber-600 rounded-lg hover:bg-amber-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {amendmentAgreeing ? (
+                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : (
+                          <CheckCircle className="w-4 h-4" />
+                        )}
+                        {amendmentAgreeing ? '처리 중...' : '개정 약관에 동의합니다'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 개정 약관 재동의 완료 표시 (구버전 서명자가 재동의한 경우) */}
+              {activeContract.amendment_agreed_at &&
+                (activeContract.terms_version ?? 1) < CONTRACT_TERMS_VERSION && (
+                  <div className="mt-4 flex items-center gap-2 text-sm text-green-700">
+                    <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                    개정 약관(v{CONTRACT_TERMS_VERSION}) 동의 완료 · {formatDate(activeContract.amendment_agreed_at)}
+                  </div>
+                )}
 
               {/* Sign Section */}
               {activeContract.status === 'sent' && !isTripleWaitingBusiness(activeContract) && (
