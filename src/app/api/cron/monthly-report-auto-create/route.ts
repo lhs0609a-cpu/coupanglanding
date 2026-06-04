@@ -5,6 +5,7 @@ import { buildCostBreakdown, calculateDeposit, calculateNetProfit, totalCosts } 
 import { calculateVatOnTop } from '@/lib/calculations/vat';
 import { createNotification } from '@/lib/utils/notifications';
 import { logSystemError } from '@/lib/utils/system-log';
+import { isEligibleForMonth } from '@/lib/utils/settlement';
 
 export const maxDuration = 30;
 
@@ -78,7 +79,7 @@ export async function GET(request: NextRequest) {
   // 활성 PT 사용자 (signed 계약, is_test_account=false)
   const { data: ptUsers } = await serviceClient
     .from('pt_users')
-    .select(`id, profile_id, share_percentage, billing_excluded_until, contracts!inner(status)`)
+    .select(`id, profile_id, created_at, share_percentage, billing_excluded_until, contracts!inner(status)`)
     .eq('contracts.status', 'signed')
     .eq('is_test_account', false);
 
@@ -94,6 +95,7 @@ export async function GET(request: NextRequest) {
   let skippedExisting = 0;
   let skippedNoRevenue = 0;
   let skippedExcluded = 0;
+  let skippedGrace = 0;
   let errored = 0;
 
   for (const ptUser of ptUsers) {
@@ -101,6 +103,14 @@ export async function GET(request: NextRequest) {
     const excludedUntil = (ptUser as { billing_excluded_until?: string | null }).billing_excluded_until;
     if (excludedUntil && todayDateStr <= excludedUntil) {
       skippedExcluded++;
+      continue;
+    }
+
+    // 등록월 유예 — 첫 대상월(등록 다음 달) 이전이면 정산 대상 아님.
+    //   리포트 자동생성 + "직접 보고 필요" 알림 모두 skip. (가입월을 청구하던 버그 차단)
+    const createdAt = (ptUser as { created_at?: string }).created_at;
+    if (createdAt && !isEligibleForMonth(createdAt, targetMonth)) {
+      skippedGrace++;
       continue;
     }
 
@@ -229,6 +239,7 @@ export async function GET(request: NextRequest) {
     skippedExisting,
     skippedNoRevenue,
     skippedExcluded,
+    skippedGrace,
     errored,
   });
 }

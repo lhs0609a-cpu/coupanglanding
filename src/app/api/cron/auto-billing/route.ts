@@ -182,6 +182,37 @@ async function processPtUser(
   // 처리 시작 시점에 락 상태였는지 — 성공 알림 문구를 "정상 이용 복구" 로 분기.
   const wasOverdueAtStart = !!ptUser.payment_overdue_since;
 
+  // 미납 리포트 조회 — suspended 도 포함 (자동결제로 복구 가능하게)
+  const { data: unpaidReports } = await serviceClient
+    .from('monthly_reports')
+    .select('*')
+    .eq('pt_user_id', ptUser.id)
+    .in('fee_payment_status', ['awaiting_payment', 'overdue', 'suspended'])
+    .order('year_month', { ascending: true });
+
+  // 실제로 낼 돈이 있는 리포트만 "청구 대상"으로 본다 (total_with_vat > 0).
+  // 매출 0 / 등록월 유예 등으로 청구액이 없으면, 카드 유무·보고 유무와 무관하게
+  // 락을 걸지 않는다. (판매도 없는데 "정산 안 했다"고 락 거는 버그 차단)
+  const billableReports = (unpaidReports || []).filter(
+    (r) => (Number((r as { total_with_vat?: number }).total_with_vat) || 0) > 0,
+  );
+
+  if (billableReports.length === 0) {
+    // 낼 돈 없음 → 락 금지. 과거에 잘못 걸린 연체만 조건부 해제.
+    const { error: clearErr } = await serviceClient.rpc('payment_clear_overdue_if_settled', {
+      p_pt_user_id: ptUser.id,
+    });
+    if (clearErr) {
+      await logSettlementError(serviceClient, {
+        stage: 'auto_billing_no_billable_clear_overdue_rpc',
+        ptUserId: ptUser.id,
+        error: clearErr,
+      });
+    }
+    return { processed, succeeded, failed, markedOverdue };
+  }
+
+  // 여기부터는 실제 미납 청구액(>0)이 있는 회원만 도달.
   // 활성 + primary 카드 1장 조회
   const { data: card } = await serviceClient
     .from('billing_cards')
@@ -191,52 +222,12 @@ async function processPtUser(
     .eq('is_primary', true)
     .maybeSingle();
 
-  // 카드 없음 → overdue 마킹 후 종료
+  // 낼 돈은 있는데 카드 없음 → overdue 마킹 후 종료 (정당한 락)
   if (!card) {
     const marked = await markOverdue(serviceClient, ptUser.id, todayDateStr);
     if (marked) {
       markedOverdue = true;
       await notifyMissingCard(serviceClient, ptUser.profile_id);
-    }
-    return { processed, succeeded, failed, markedOverdue };
-  }
-
-  // 미납 리포트 조회 — suspended 도 포함 (자동결제로 복구 가능하게)
-  const { data: unpaidReports } = await serviceClient
-    .from('monthly_reports')
-    .select('*')
-    .eq('pt_user_id', ptUser.id)
-    .in('fee_payment_status', ['awaiting_payment', 'overdue', 'suspended'])
-    .order('year_month', { ascending: true });
-
-  if (!unpaidReports || unpaidReports.length === 0) {
-    const { count: totalReportCount } = await serviceClient
-      .from('monthly_reports')
-      .select('id', { count: 'exact', head: true })
-      .eq('pt_user_id', ptUser.id);
-
-    const hasEverReported = (totalReportCount ?? 0) > 0;
-
-    if (hasEverReported) {
-      // 과거엔 보고했는데 이번 청구일에 미납 리포트 0건 = 모두 결제 완료 상태. 정상.
-      // 조건부 해제 RPC 사용 — 다른 미결 tx 가 있으면 해제하지 않음.
-      const { error: clearErr } = await serviceClient.rpc('payment_clear_overdue_if_settled', {
-        p_pt_user_id: ptUser.id,
-      });
-      if (clearErr) {
-        await logSettlementError(serviceClient, {
-          stage: 'auto_billing_no_unpaid_clear_overdue_rpc',
-          ptUserId: ptUser.id,
-          error: clearErr,
-        });
-      }
-    } else {
-      // 한 번도 보고 안 함 + grace도 지남 → 엄격 처리 (락 마킹)
-      const marked = await markOverdue(serviceClient, ptUser.id, todayDateStr);
-      if (marked) {
-        markedOverdue = true;
-        await notifyMissingReports(serviceClient, ptUser.profile_id);
-      }
     }
     return { processed, succeeded, failed, markedOverdue };
   }
@@ -254,10 +245,10 @@ async function processPtUser(
   // 한 유저에 미납 리포트가 여러 개일 때 카드 1장이 N회 누적되는 걸 막는다.
   const cardFailUpdated = new Set<string>();
   // 마지막 미납 리포트의 결제 성공 시점에만 "복구" 문구를 띄우기 위해 인덱스 추적.
-  const totalReportsToProcess = unpaidReports.length;
+  const totalReportsToProcess = billableReports.length;
   let reportIdx = 0;
 
-  for (const report of unpaidReports) {
+  for (const report of billableReports) {
     reportIdx++;
     processed++;
 
@@ -530,15 +521,5 @@ async function notifyMissingCard(serviceClient: ServiceClient, profileId: string
     title: '결제 카드 미등록',
     message: '청구일이 도래했지만 등록된 결제 카드가 없습니다. 단계적 서비스 제한이 시작됩니다. 즉시 카드를 등록해주세요.',
     link: '/my/settings',
-  });
-}
-
-async function notifyMissingReports(serviceClient: ServiceClient, profileId: string) {
-  await createNotification(serviceClient, {
-    userId: profileId,
-    type: 'fee_payment',
-    title: '매출 보고 누락',
-    message: '정산 대상 월인데 매출 보고가 한 번도 제출되지 않았습니다. 단계적 서비스 제한이 시작됩니다. 즉시 매출을 보고해주세요.',
-    link: '/my/report',
   });
 }
