@@ -1452,12 +1452,16 @@ export async function matchCategory(
   }
 
   // ── Tier -0.5: 토큰 단위 leaf match (마케팅 어휘 dominant 케이스 복구) ──
-  // sanitize 후 토큰 → 그래도 못 찾으면 raw productName 토큰으로도 한 번 더 시도
-  // ("갓김치 갓김치 갓김치 갓김치" 같은 1단어 반복이 sanitizer 의 win=2 매칭으로 전부 제거되는 케이스 복구)
+  // sanitize 후 토큰으로 leaf 매칭.
   const tokenLeafResult = findLeafByToken(tokens);
   if (tokenLeafResult) return tokenLeafResult;
-  const rawTokens = tokenize(productName);
-  if (rawTokens.length !== tokens.length || rawTokens.some((t, i) => t !== tokens[i])) {
+  // raw 토큰 fallback — sanitize 가 전부 제거해 sanitized 토큰이 비었을 때만.
+  //   ("갓김치 갓김치 갓김치 갓김치" → sanitized "" → raw 로 갓김치 복구)
+  //   ⚠️ sanitized 토큰이 남아있으면 그게 진짜 상품이므로 raw 의 도배 키워드를 끌어들이면 안 됨.
+  //   (예: "완숙토마토 ... 사과/배 과일세트 ×3" → sanitized=[완숙토마토,...] 비지 않음 →
+  //        raw 의 스팸 "사과"를 잡지 않고 localMatch 로 내려가 토마토로 매칭)
+  if (tokens.length === 0) {
+    const rawTokens = tokenize(productName);
     const rawLeaf = findLeafByToken(rawTokens);
     if (rawLeaf) return rawLeaf;
   }
