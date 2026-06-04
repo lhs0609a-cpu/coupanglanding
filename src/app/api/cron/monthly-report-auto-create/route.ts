@@ -5,7 +5,7 @@ import { buildCostBreakdown, calculateDeposit, calculateNetProfit, totalCosts } 
 import { calculateVatOnTop } from '@/lib/calculations/vat';
 import { createNotification } from '@/lib/utils/notifications';
 import { logSystemError } from '@/lib/utils/system-log';
-import { isEligibleForMonth } from '@/lib/utils/settlement';
+import { isEligibleForMonth, getPreviousMonth } from '@/lib/utils/settlement';
 
 export const maxDuration = 30;
 
@@ -64,7 +64,11 @@ export async function GET(request: NextRequest) {
   const now = new Date();
   const todayDay = kstDay(now);
   const currentMonth = kstMonthStr(now);
-  const targetMonth = previousYearMonth(now);
+  // 방법1(정산 확정분만 청구): 매출 인식 대상을 전월(M-1)이 아니라 전전월(M-2)로.
+  //   쿠팡 정산이 ~15일 지연돼 전월은 청구일(당월 3일)에 미확정 → 과다청구 원인이었음.
+  //   전전월은 정산이 사실상 100% 확정(net, 반품·취소 반영)돼 과다청구가 구조적으로 불가능.
+  const billingAnchorMonth = previousYearMonth(now);          // M-1 — 마감일 계산 기준(익월=당월 3일)
+  const targetMonth = getPreviousMonth(billingAnchorMonth);   // M-2 — 정산 확정된 매출 인식월
 
   // KST 기준 매월 1일에만 실행
   if (todayDay !== 1) {
@@ -137,11 +141,12 @@ export async function GET(request: NextRequest) {
         .eq('year_month', targetMonth)
         .maybeSingle();
 
-      const effectiveTotal = snapshot
-        ? Math.max(Number(snapshot.total_sales) || 0, Number((snapshot as { total_sales_orders?: number }).total_sales_orders) || 0)
-        : 0;
+      // 방법1: 청구 매출 = 쿠팡 "정산기준(net, 반품·취소 반영)" 만 사용.
+      //   주문기준(total_sales_orders, 반품 차감 전 총액)은 청구에 쓰지 않는다 (과다청구 차단).
+      //   대상월이 전전월이라 정산은 이미 확정 상태.
+      const settlementNet = snapshot ? Number(snapshot.total_sales) || 0 : 0;
 
-      if (!snapshot || effectiveTotal <= 0) {
+      if (!snapshot || settlementNet <= 0) {
         // 매출 데이터 없음 — 사용자 직접 보고 안내 알림
         skippedNoRevenue++;
         await createNotification(serviceClient, {
@@ -155,8 +160,8 @@ export async function GET(request: NextRequest) {
       }
 
       // 비용 계산 — 기본 rate (사용자가 후속 수정 가능)
-      // 정산 vs 주문 중 큰 값을 사용 — 신규 셀러 정산 지연으로 매출 누락 방지
-      const revenue = effectiveTotal;
+      // 매출 = 정산 확정 net (반품 이미 반영). 주문기준 미사용.
+      const revenue = settlementNet;
       const costs = buildCostBreakdown(revenue, 0); // 광고비는 사용자가 추가 입력
       const netProfit = calculateNetProfit(revenue, costs);
       // PT생별 지정 수수료율 사용(미지정 시 30%). auto-billing 이 이 리포트를 그대로 청구하므로 핵심.
@@ -197,7 +202,7 @@ export async function GET(request: NextRequest) {
           // 핵심: 즉시 청구 대상으로 — PT생이 광고비 수정하면 그 값으로 재계산되지만
           // 미수정 시 광고비 0 가정으로 자동결제 진행 (확정 대기로 영원히 막히는 버그 차단)
           fee_payment_status: nothingToBill ? 'paid' : 'awaiting_payment',
-          fee_payment_deadline: nothingToBill ? null : feePaymentDeadlineISO(targetMonth),
+          fee_payment_deadline: nothingToBill ? null : feePaymentDeadlineISO(billingAnchorMonth),
           fee_paid_at: nothingToBill ? nowIso : null,
           fee_surcharge_amount: 0,
           fee_interest_amount: 0,
