@@ -71,6 +71,9 @@ export async function GET(request: Request) {
     apply_calls: 0,
     error: null as string | null,
   };
+  // 이번 틱에 모든 쿠폰 적용이 끝났는지(hasMore=false 도달). 미완료면 last_auto_apply_at 을
+  // 갱신하지 않아 다음 틱에 같은 유저를 다시 골라 이어서 처리한다(대량 작업 5일 방치 버그 수정).
+  let completed = false;
 
   try {
     // ── 3) collect-products 반복 (신규 상품 수집) ──
@@ -110,7 +113,7 @@ export async function GET(request: Request) {
       }
       const data = await res.json() as { hasMore?: boolean; lastError?: string };
       if (data.lastError) summary.last_error = data.lastError;
-      if (!data.hasMore) break;
+      if (!data.hasMore) { completed = true; break; }
     }
   } catch (err) {
     summary.error = err instanceof Error ? err.message : String(err);
@@ -119,14 +122,19 @@ export async function GET(request: Request) {
 
   summary.finished_at = new Date().toISOString();
   summary.elapsed_ms = Date.now() - tickStart;
+  summary.completed = completed;
 
-  // ── 5) last_auto_apply_at 갱신 (실패해도 갱신 — 다음 사이클에 재시도, 폭주 방지) ──
+  // ── 5) last_auto_apply_at 갱신 정책 ──
+  //   완료(hasMore=false) 또는 하드에러 → now() 로 갱신(다음 사이클까지 제외, 폭주 방지).
+  //   미완료(시간초과/루프맥스, 에러 없음) → 갱신하지 않음 → 다음 틱에 같은 유저를 다시 골라
+  //   이어서 처리(908건 같은 대량 작업이 한 틱에 안 끝나 5일 방치되던 버그 수정).
+  //   ※ 재시도 소진 항목은 bulk-apply 가 'failed' 로 격리해 pending→0 으로 수렴하므로 무한 독점 없음.
+  const advance = completed || summary.error != null;
+  const updatePayload: Record<string, unknown> = { last_auto_apply_summary: summary };
+  if (advance) updatePayload.last_auto_apply_at = new Date().toISOString();
   await sc
     .from('coupon_auto_sync_config')
-    .update({
-      last_auto_apply_at: new Date().toISOString(),
-      last_auto_apply_summary: summary,
-    })
+    .update(updatePayload)
     .eq('pt_user_id', ptUserId);
 
   return NextResponse.json({
