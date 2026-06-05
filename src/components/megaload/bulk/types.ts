@@ -86,6 +86,8 @@ export interface EditableProduct extends PreviewProduct {
   editedBarcode?: string;
   /** 다변량(택1) 상품에서 사용자가 고른 농산물 중량 (예: "5kg" 또는 "상세페이지 참조") */
   editedAgriWeight?: string;
+  /** 카테고리별 필수 구매옵션(EXPOSED) 사용자 입력값 — 예: { "개당 중량": "1000", "수량": "1" }. 농산물 중량은 editedAgriWeight 별도 */
+  editedBuyOptionValues?: Record<string, string>;
   editedParallelImported?: 'NOT_PARALLEL_IMPORTED' | 'PARALLEL_IMPORTED';
   editedOverseasPurchased?: 'NOT_OVERSEAS_PURCHASED' | 'OVERSEAS_PURCHASED';
   editedNoticeValues?: Record<string, string>;

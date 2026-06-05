@@ -13,6 +13,7 @@ import type { LlmTask } from './useBulkRegisterActions';
 import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import type { EditableProduct } from './types';
 import type { NoticeCategoryMeta } from '@/lib/megaload/services/notice-field-filler';
+import type { AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
 
 interface ImageItem {
   id: string;
@@ -47,6 +48,8 @@ interface BulkProductDetailPanelProps {
   titleGenProgress?: { done: number; total: number } | null;
   /** 현재 product의 카테고리 고시정보 메타 — 상세페이지 미리보기 하단 고시정보 테이블 렌더용 */
   noticeMeta?: NoticeCategoryMeta[];
+  /** 현재 product의 카테고리 속성/옵션 메타 — 필수 구매옵션 영역 렌더 + 차단 가드용 */
+  attributeMeta?: AttributeMeta[];
   /** 사용자 전역 고시정보 오버라이드 (예: 제조국, A/S 안내) */
   noticeOverrides?: Record<string, string>;
   /** 동일 카테고리 선택 상품 전체에 attribute 일괄 적용 — 적용된 상품 수 반환 */
@@ -77,6 +80,7 @@ export default function BulkProductDetailPanel({
   preventionConfig,
   titleGenProgress,
   noticeMeta,
+  attributeMeta,
   noticeOverrides,
   onBulkApplyAttribute,
   onLlmRegen,
@@ -505,6 +509,7 @@ export default function BulkProductDetailPanel({
                   titleGenProgress={titleGenProgress}
                   onSwapStockImage={onSwapStockImage}
                   onBulkApplyAttribute={onBulkApplyAttribute}
+                  attributeMeta={attributeMeta}
                 />
               ) : (
                 <PayloadPreviewPanel

@@ -339,7 +339,9 @@ export default memo(function BulkStep2Review({
             noticeValuesOverride: product.editedNoticeValues,
             buyOptionValuesOverride: (() => {
               const w = resolveAgriWeight(product.editedDisplayProductName, product.name, product.editedAgriWeight);
-              return w ? { '농산물 중량': w } : undefined;
+              const merged: Record<string, string> = { ...(product.editedBuyOptionValues || {}) };
+              if (w) merged['농산물 중량'] = w;
+              return Object.keys(merged).length > 0 ? merged : undefined;
             })(),
           },
           deliveryInfo: {
@@ -1214,6 +1216,7 @@ export default memo(function BulkStep2Review({
         preventionConfig={preventionConfig}
         titleGenProgress={titleGenProgress}
         noticeMeta={selectedProduct?.editedCategoryCode ? categoryMetaCache?.[selectedProduct.editedCategoryCode]?.noticeMeta : undefined}
+        attributeMeta={selectedProduct?.editedCategoryCode ? categoryMetaCache?.[selectedProduct.editedCategoryCode]?.attributeMeta : undefined}
         noticeOverrides={noticeOverrides}
         onBulkApplyAttribute={handleBulkApplyAttribute}
         onLlmRegen={onLlmRegen}

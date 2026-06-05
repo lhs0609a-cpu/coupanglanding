@@ -2722,7 +2722,9 @@ export function useBulkRegisterActions() {
           attributeValuesOverride: p.editedAttributeValues,
           buyOptionValuesOverride: (() => {
             const w = resolveAgriWeight(p.editedDisplayProductName, p.name, p.editedAgriWeight);
-            return w ? { '농산물 중량': w } : undefined;
+            const merged: Record<string, string> = { ...(p.editedBuyOptionValues || {}) };
+            if (w) merged['농산물 중량'] = w;
+            return Object.keys(merged).length > 0 ? merged : undefined;
           })(),
           descriptionOverride: p.editedDescription,
           storyParagraphsOverride: p.editedStoryParagraphs,
@@ -3430,17 +3432,38 @@ export function useBulkRegisterActions() {
       return;
     }
 
-    // ─── 농산물 중량 미확정 가드 ───
-    // 신선식품/농산물인데 중량이 확정 안 되면(빈 값/모호/"상세페이지 참조") 등록 차단.
-    // 그대로 등록하면 쿠팡윙에서 "옵션 용량 오류"가 난다. 상품을 펼쳐 "농산물 중량"을 입력/선택해야 통과.
-    const agriUnresolved = selectedProducts.filter((p) =>
-      isAgriProduct(p.editedCategoryName)
-      && !resolveAgriWeight(p.editedDisplayProductName, p.name, p.editedAgriWeight)
-    );
-    if (agriUnresolved.length > 0) {
-      const sample = agriUnresolved.slice(0, 5).map(p => `· ${(p.editedDisplayProductName || p.name).slice(0, 40)}`).join('\n');
-      const more = agriUnresolved.length > 5 ? `\n... 외 ${agriUnresolved.length - 5}개` : '';
-      alert(`농산물 중량이 확정되지 않은 상품 ${agriUnresolved.length}개가 있습니다.\n쿠팡윙 "옵션 용량 오류"를 막으려면 각 상품을 펼쳐 "농산물 중량"을 입력/선택해 주세요.\n\n${sample}${more}`);
+    // ─── 필수 구매옵션(buyOption) 미확정 가드 ───
+    // 카테고리가 정의한 필수 EXPOSED 옵션(농산물 중량/개당 중량/수량 등)이 미입력이고
+    // 자동 추출값도 없으면 등록 차단. 그대로 등록하면 쿠팡윙 "옵션 용량 오류".
+    const buyOptUnresolved: { product: typeof selectedProducts[number]; missing: string[] }[] = [];
+    for (const p of selectedProducts) {
+      const meta = categoryMetaCache[p.editedCategoryCode];
+      const requiredBuy = (meta?.attributeMeta || []).filter(
+        (a) => a.required && a.exposed === 'EXPOSED',
+      );
+      if (requiredBuy.length === 0) continue;
+      const override = p.editedBuyOptionValues || {};
+      const missing: string[] = [];
+      for (const attr of requiredBuy) {
+        if (attr.attributeTypeName === '농산물 중량') {
+          // 농산물 중량은 별도 자동확정 경로(resolveAgriWeight)
+          if (!resolveAgriWeight(p.editedDisplayProductName, p.name, p.editedAgriWeight)) {
+            missing.push('농산물 중량');
+          }
+          continue;
+        }
+        if (!override[attr.attributeTypeName]?.trim()) {
+          missing.push(attr.attributeTypeName);
+        }
+      }
+      if (missing.length > 0) buyOptUnresolved.push({ product: p, missing });
+    }
+    if (buyOptUnresolved.length > 0) {
+      const sample = buyOptUnresolved.slice(0, 5).map(({ product: p, missing }) =>
+        `· ${(p.editedDisplayProductName || p.name).slice(0, 36)} → ${missing.join(', ')}`,
+      ).join('\n');
+      const more = buyOptUnresolved.length > 5 ? `\n... 외 ${buyOptUnresolved.length - 5}개` : '';
+      alert(`필수 구매옵션이 비어 있는 상품 ${buyOptUnresolved.length}개가 있습니다.\n쿠팡윙 "옵션 용량 오류"를 막으려면 각 상품을 펼쳐 "옵션/아이템 > 필수 구매옵션"을 입력해 주세요. 자동 추출값이 있으면 비워둬도 됩니다.\n\n${sample}${more}`);
       return;
     }
 
@@ -3564,7 +3587,9 @@ export function useBulkRegisterActions() {
           if (p.editedAttributeValues && Object.keys(p.editedAttributeValues).length > 0) product.attributeValuesOverride = p.editedAttributeValues;
           {
             const agriWeight = resolveAgriWeight(p.editedDisplayProductName, p.name, p.editedAgriWeight);
-            if (agriWeight) product.buyOptionValuesOverride = { '농산물 중량': agriWeight };
+            const merged: Record<string, string> = { ...(p.editedBuyOptionValues || {}) };
+            if (agriWeight) merged['농산물 중량'] = agriWeight;
+            if (Object.keys(merged).length > 0) product.buyOptionValuesOverride = merged;
           }
           // 상세페이지 콘텐츠 오버라이드
           if (p.editedDescription !== undefined) product.descriptionOverride = p.editedDescription;

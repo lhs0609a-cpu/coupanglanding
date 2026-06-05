@@ -15,6 +15,7 @@ import { shuffleWithSeed, type PreventionConfig } from '@/lib/megaload/services/
 import { detectAllWeights, isAgriProduct, resolveAgriWeight, rewriteDisplayNameForPickedWeight } from './option-candidates';
 import type { PayloadPreviewData } from './PayloadPreviewPanel';
 import type { EditableProduct } from './types';
+import type { AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
 
 
 interface ImageItem {
@@ -39,6 +40,8 @@ interface CoupangFieldsSectionProps {
   onSwapStockImage?: (uid: string, imageIndex: number, newCdnUrl: string) => void;
   /** 동일 카테고리 선택 상품 전체에 attribute 값 일괄 적용 */
   onBulkApplyAttribute?: (attrName: string, value: string, categoryCode: string) => number;
+  /** 카테고리 속성/옵션 메타 — 필수 구매옵션 영역 렌더에 사용 */
+  attributeMeta?: AttributeMeta[];
 }
 
 /* ─── 인라인 편집형 추출 옵션 태그 ─── */
@@ -454,6 +457,7 @@ export default function CoupangFieldsSection({
   titleGenProgress,
   onSwapStockImage,
   onBulkApplyAttribute,
+  attributeMeta,
 }: CoupangFieldsSectionProps) {
   const meta = previewData?.meta;
   const payload = previewData?.payload as Record<string, unknown> | undefined;
@@ -1093,11 +1097,11 @@ export default function CoupangFieldsSection({
         <div className="flex-1 h-px bg-gray-200" />
       </div>
 
-      {/* ❼ 옵션/아이템 */}
+      {/* ❼ 옵션/아이템 — 쿠팡윙 "옵션 용량 오류" 직접 수정 영역, 기본 펼침 */}
       <CollapsibleSection
         title="옵션/아이템"
         icon={<Tag className="w-3.5 h-3.5 text-blue-500" />}
-        defaultOpen={false}
+        defaultOpen={true}
         missingCount={optionMissing}
         allComplete={optionMissing === 0}
         badge={meta?.extractedOptions.length ? `${meta.extractedOptions.length}개 추출` : undefined}
@@ -1125,6 +1129,82 @@ export default function CoupangFieldsSection({
             min={1}
           />
         </div>
+
+        {/* 필수 구매옵션(쿠팡 카테고리 정의) — 쿠팡윙 옵션 용량 오류 직접 수정 영역.
+            attributeMeta.exposed='EXPOSED' && required → 필수 buyOption.
+            농산물 중량은 별도 영역(editedAgriWeight)에서 이미 다루므로 여기선 제외하여 중복 방지. */}
+        {(() => {
+          const requiredBuyOptions = (attributeMeta || []).filter(
+            (a) => a.required && a.exposed === 'EXPOSED' && a.attributeTypeName !== '농산물 중량',
+          );
+          if (requiredBuyOptions.length === 0) return null;
+          const extracted = meta?.extractedOptions || [];
+          return (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-amber-900">
+                  필수 구매옵션 ({requiredBuyOptions.length}개) — 쿠팡윙 옵션 용량 오류 시 여기서 수정
+                </span>
+                <span className="text-[10px] text-amber-700">미입력 시 등록 차단</span>
+              </div>
+              {requiredBuyOptions.map((attr) => {
+                const name = attr.attributeTypeName;
+                const unit = attr.basicUnit || '';
+                const ext = extracted.find((o) => o.name === name);
+                const override = product.editedBuyOptionValues?.[name];
+                const value = override ?? (ext ? String(ext.value) : '');
+                const empty = !value;
+                const allowed = attr.attributeValues?.map((v) => v.attributeValueName) || [];
+                const isEnum = allowed.length > 0;
+
+                const setValue = (v: string) => {
+                  const next = { ...(product.editedBuyOptionValues || {}) };
+                  if (v) next[name] = v; else delete next[name];
+                  onUpdate(product.uid, 'editedBuyOptionValues', next);
+                };
+
+                return (
+                  <div key={name} className={empty ? 'border-l-2 border-l-red-400 pl-2' : ''}>
+                    <div className="flex items-center justify-between mb-0.5">
+                      <RequiredLabel empty={empty}>{name}{unit ? ` (${unit})` : ''}</RequiredLabel>
+                      {ext && override !== undefined && (
+                        <button
+                          type="button"
+                          onClick={() => setValue('')}
+                          className="text-[10px] text-gray-400 hover:text-gray-700"
+                          title="자동 추출값으로 되돌리기"
+                        >↺ 자동값</button>
+                      )}
+                    </div>
+                    {isEnum ? (
+                      <select
+                        value={value}
+                        onChange={(e) => setValue(e.target.value)}
+                        className={inputRequired(empty)}
+                      >
+                        <option value="">선택하세요…</option>
+                        {allowed.map((v) => <option key={v} value={v}>{v}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={value}
+                        onChange={(e) => setValue(e.target.value)}
+                        className={inputRequired(empty)}
+                        placeholder={unit ? `숫자만 입력 (${unit})` : '값 입력'}
+                      />
+                    )}
+                    {ext && override === undefined && (
+                      <p className="text-[10px] text-gray-400 mt-0.5">
+                        자동 추출값: <span className="font-mono">{String(ext.value)}{ext.unit || ''}</span>
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {/* 추출된 옵션 태그 — 클릭해서 인라인 편집 */}
         {meta && meta.extractedOptions.length > 0 && (

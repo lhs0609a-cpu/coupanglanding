@@ -46,6 +46,14 @@ export interface CategoryMetadata {
     attributeTypeName: string;
     required: boolean;
     dataType: string;
+    /** "EXPOSED" = 구매옵션(buyOption), "NONE" = 검색속성. 없으면 검색속성으로 간주 */
+    exposed?: string;
+    /** 기본 단위 (예: "g", "ml", "개") */
+    basicUnit?: string;
+    /** 사용 가능 단위 목록 */
+    usableUnits?: string[];
+    /** 택1 그룹 번호 ("1", "2", "NONE") */
+    groupNumber?: string;
     attributeValues?: { attributeValueName: string }[];
   }[];
 }
