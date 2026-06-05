@@ -416,22 +416,25 @@ function QuickSummaryCard({ items, scrollToSection }: { items: QuickSummaryItem[
           {readyCount}/{items.length} {allReady ? '✅' : ''}
         </span>
       </div>
-      <div className="flex gap-2">
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
         {items.map((item) => (
           <button
-            key={item.sectionId}
-            onClick={() => !item.ok && scrollToSection(item.sectionId)}
-            className={`flex-1 flex flex-col items-center gap-1 p-2 rounded-lg border transition ${
+            key={`${item.sectionId}-${item.label}`}
+            onClick={() => scrollToSection(item.sectionId)}
+            title={`${item.label}: ${item.value} — 클릭해서 이동`}
+            className={`flex flex-col items-center gap-0.5 p-2 rounded-lg border transition cursor-pointer ${
               item.ok
-                ? 'border-green-200 bg-white'
-                : 'border-red-200 bg-red-50 cursor-pointer hover:border-red-400'
+                ? 'border-green-200 bg-white hover:border-green-400'
+                : 'border-red-200 bg-red-50 hover:border-red-400'
             }`}
           >
             <span className={`text-sm ${item.ok ? 'text-green-500' : 'text-red-500'}`}>
               {item.ok ? '✅' : '❌'}
             </span>
             <span className="text-[10px] font-medium text-gray-600 leading-tight text-center">{item.label}</span>
-            <span className={`text-[9px] leading-tight truncate max-w-full ${item.ok ? 'text-gray-400' : 'text-red-500 font-medium'}`}>
+            <span
+              className={`text-[10px] leading-tight max-w-full whitespace-nowrap overflow-hidden text-ellipsis font-mono ${item.ok ? 'text-gray-700' : 'text-red-600 font-semibold'}`}
+            >
               {item.value}
             </span>
           </button>
@@ -542,21 +545,46 @@ export default function CoupangFieldsSection({
     sectionRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
-  // Quick summary items
+  // Quick summary items — 핵심 값(노출명/가격/옵션 등)을 한눈에 보이게 실제 값 표시
   const displayName = product.editedDisplayProductName ?? '';
-  const nameLen = displayName.length || product.editedName.length;
+  const isAgri = isAgriProduct(product.editedCategoryName);
+  const agriResolved = resolveAgriWeight(product.editedDisplayProductName, product.name, product.editedAgriWeight);
+  // 사용자가 명시적으로 비운 buyOption — 차단 가드 발동 조건과 일치
+  const userClearedBuyOpts = Object.entries(product.editedBuyOptionValues || {})
+    .filter(([, v]) => v !== undefined && !v.trim())
+    .map(([k]) => k);
+  // 사용자가 채운 buyOption (요약 표시용)
+  const userFilledBuyOpts = Object.entries(product.editedBuyOptionValues || {})
+    .filter(([, v]) => !!v?.trim());
+
+  const optionOk = (!isAgri || !!agriResolved) && userClearedBuyOpts.length === 0;
+  const optionValue: string = (() => {
+    if (isAgri && !agriResolved) return '중량 미확정';
+    if (userClearedBuyOpts.length > 0) return `${userClearedBuyOpts[0]} 비움`;
+    const parts: string[] = [];
+    if (agriResolved) parts.push(agriResolved);
+    for (const [k, v] of userFilledBuyOpts.slice(0, 2)) parts.push(`${k}:${v}`);
+    return parts.length > 0 ? parts.join(' / ') : '자동';
+  })();
+
   const summaryItems: QuickSummaryItem[] = useMemo(() => [
     {
       label: '노출상품명',
-      value: displayName ? `${nameLen}자` : '미입력',
+      value: displayName ? (displayName.length > 24 ? `${displayName.slice(0, 22)}…` : displayName) : '미입력',
       ok: !!displayName,
       sectionId: 'basic',
     },
     {
       label: '판매가',
-      value: product.editedSellingPrice > 0 ? `${(product.editedSellingPrice / 10000).toFixed(1)}만` : '미입력',
+      value: product.editedSellingPrice > 0 ? `₩${product.editedSellingPrice.toLocaleString()}` : '미입력',
       ok: product.editedSellingPrice > 0,
       sectionId: 'price',
+    },
+    {
+      label: '옵션',
+      value: optionValue,
+      ok: optionOk,
+      sectionId: 'option',
     },
     {
       label: '카테고리',
@@ -576,7 +604,7 @@ export default function CoupangFieldsSection({
       ok: !!product.editedBrand,
       sectionId: 'basic',
     },
-  ], [displayName, nameLen, product.editedSellingPrice, product.editedCategoryCode, product.editedCategoryName, imageItems.length, product.editedBrand]);
+  ], [displayName, product.editedSellingPrice, optionValue, optionOk, product.editedCategoryCode, product.editedCategoryName, imageItems.length, product.editedBrand]);
 
   return (
     <div className="space-y-2.5">
@@ -1098,6 +1126,7 @@ export default function CoupangFieldsSection({
       </div>
 
       {/* ❼ 옵션/아이템 — 쿠팡윙 "옵션 용량 오류" 직접 수정 영역, 기본 펼침 */}
+      <div ref={(el) => { sectionRefs.current['option'] = el; }}>
       <CollapsibleSection
         title="옵션/아이템"
         icon={<Tag className="w-3.5 h-3.5 text-blue-500" />}
@@ -1248,6 +1277,7 @@ export default function CoupangFieldsSection({
           </div>
         )}
       </CollapsibleSection>
+      </div>
 
       {/* ❽ 배송/반품 */}
       <CollapsibleSection
