@@ -1102,6 +1102,15 @@ export async function addDownloadCouponItems(
 ): Promise<{ couponId?: number; requestResultStatus?: string; failedVendorItemIds?: number[] }> {
   const numericIds = vendorItemIds.map(Number).filter((n) => !isNaN(n));
 
+  // 쿠팡 공식 스펙: "한 번에 적용할 옵션ID 수는 100개를 초과할 수 없음"
+  if (numericIds.length > 100) {
+    throw new CoupangApiError(
+      `vendorItemIds 100개 초과(${numericIds.length}개) — 쿠팡 스펙상 1회 최대 100개`,
+      400,
+      'TOO_MANY_ITEMS',
+    );
+  }
+
   const mktPath = `${MKT_OPENAPI_BASE}/coupon-items`;
   const body = {
     couponItems: [{
@@ -1118,23 +1127,38 @@ export async function addDownloadCouponItems(
 
   console.log('[addDownloadCouponItems] 응답 전체:', JSON.stringify(rawData).slice(0, 800));
 
-  // 응답이 { data: { requestResultStatus, body } } 또는 { requestResultStatus, body } 형태일 수 있음
+  // 공식 스펙(Add_VENDOR_ITEMS_TO_COUPON) 동기 응답:
+  //   { requestResultStatus: 'SUCCESS'|'FAIL', body: { couponId }, errorCode, errorMessage }
+  //   "상품 추가에 실패하면 해당 쿠폰은 파기됩니다" → FAIL 이면 쿠폰 자체가 삭제됨.
   const data = (rawData.data || rawData) as Record<string, unknown>;
-  const status = String(data.requestResultStatus || rawData.requestResultStatus || '');
+  const status = String(data.requestResultStatus || rawData.requestResultStatus || '').toUpperCase();
   const resultBody = (data.body || rawData.body) as Record<string, unknown> | undefined;
   const errorMsg = String(data.errorMessage || rawData.errorMessage || '');
   const errorCode = String(data.errorCode || rawData.errorCode || '');
 
-  // 동기 FAIL 즉시 throw
+  // ── 동기 SUCCESS — 스펙상 유일한 성공 신호. 이때만 성공으로 간주 ──
+  if (status === 'SUCCESS') {
+    return {
+      couponId: Number(resultBody?.couponId || couponId),
+      requestResultStatus: 'SUCCESS',
+      failedVendorItemIds: [],
+    };
+  }
+
+  // ── 동기 FAIL — 쿠폰 파기됨. 재시도는 새 쿠폰을 만들어야 함(파기된 ID 재사용 금지) ──
   if (status === 'FAIL') {
     throw new CoupangApiError(
-      `다운로드 쿠폰 아이템 등록 실패(동기): ${errorMsg || errorCode || '알 수 없는 오류'}`,
+      `다운로드 쿠폰 아이템 등록 실패(FAIL): ${errorMsg || errorCode || '쿠팡 FAIL'} — 이 쿠폰은 파기됨`,
       400,
-      errorCode,
+      errorCode || 'ITEM_ADD_FAIL',
     );
   }
 
-  // ★ 비동기 결과 폴링 — requestTransactionId 추출 후 transactionStatus 확인
+  // ── requestResultStatus 불명확 ──
+  //   일부 환경은 비동기(requestTransactionId)일 수 있어, txId 가 있으면 폴링한다.
+  //   ★ 핵심 수정: txId 도 없고 SUCCESS 도 아니면 절대 "성공으로 가정하지 않는다".
+  //     (기존 버그: status||'SUCCESS' 로 가정 → 파기된 쿠폰을 success 로 기록 →
+  //      쿠팡엔 NOT_FOUND 인데 앱은 성공 표시 → "1000개 중 200개만 실제 등록")
   const txId = String(
     resultBody?.requestTransactionId
     || data.requestTransactionId
@@ -1143,13 +1167,12 @@ export async function addDownloadCouponItems(
   );
 
   if (!txId) {
-    // txId 없음 → 쿠팡 응답 비표준. 동기 SUCCESS로 가정하되 경고.
-    console.warn('[addDownloadCouponItems] requestTransactionId 없음 — 비동기 검증 불가, 동기 응답으로 가정');
-    return {
-      couponId: resultBody?.couponId as number | undefined,
-      requestResultStatus: status || 'SUCCESS',
-      failedVendorItemIds: [],
-    };
+    throw new CoupangApiError(
+      `다운로드 쿠폰 아이템 등록 결과 불명확 — requestResultStatus=${status || 'undefined'}, txId 없음. ` +
+      `성공 미확정이므로 실패 처리(재시도): ${JSON.stringify(rawData).slice(0, 200)}`,
+      502,
+      'ITEM_ADD_UNCONFIRMED',
+    );
   }
 
   console.log(`[addDownloadCouponItems] 비동기 폴링 시작 — txId=${txId}`);

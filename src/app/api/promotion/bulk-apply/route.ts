@@ -7,6 +7,7 @@ import {
   createInstantCoupon,
   createDownloadCoupon,
   addDownloadCouponItems,
+  verifyDownloadCoupon,
   checkDownloadCouponStatus,
   checkInstantCouponStatus,
   getInstantCouponItemCount,
@@ -273,8 +274,20 @@ async function createDownloadCouponBatch(
     throw new Error(`다운로드 쿠폰 아이템 등록 실패: ${itemResult.requestResultStatus}`);
   }
 
-  console.log(`[bulk-apply] 다운로드 쿠폰 완료: ${couponId} (${couponName}), 아이템 ${vendorItemIds.length}개 등록`);
-  return { couponId, couponName };
+  // ── 쿠팡 실측 검증 ──
+  //   add 가 SUCCESS 라도 실제 쿠폰이 쿠팡에 존재하는지 한 번 더 확인한다.
+  //   "상품 추가 실패 시 쿠폰 파기" 스펙 + 추천가 수집 단계 거부 등으로, SUCCESS 응답 후에도
+  //   쿠폰이 사라질 수 있어 NOT_FOUND 가 발생했음 → 존재 확인된 경우에만 success 로 기록.
+  const finalCouponId = Number(itemResult.couponId || couponId);
+  const verify = await verifyDownloadCoupon(credentials, finalCouponId);
+  if (!verify.exists) {
+    throw new Error(
+      `다운로드 쿠폰 ${finalCouponId} 생성 후 쿠팡에서 미확인(${verify.status}) — 파기/거부로 보고 재시도`,
+    );
+  }
+
+  console.log(`[bulk-apply] 다운로드 쿠폰 완료(검증됨): ${finalCouponId} (${couponName}), 아이템 ${vendorItemIds.length}개 등록`);
+  return { couponId: finalCouponId, couponName };
 }
 
 /** POST: 쿠폰 일괄 적용 (클라이언트 주도 배치 — 1회 호출당 1 Phase만 실행)
