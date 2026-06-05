@@ -3433,8 +3433,10 @@ export function useBulkRegisterActions() {
     }
 
     // ─── 필수 구매옵션(buyOption) 미확정 가드 ───
-    // 카테고리가 정의한 필수 EXPOSED 옵션(농산물 중량/개당 중량/수량 등)이 미입력이고
-    // 자동 추출값도 없으면 등록 차단. 그대로 등록하면 쿠팡윙 "옵션 용량 오류".
+    // ⚠️ 자동 추출값은 서버 빌더(option-extractor)에서 계산되므로 클라이언트는 모름.
+    //     따라서 "사용자가 명시적으로 빈 값으로 클리어한 경우"만 차단한다.
+    //     undefined(=사용자가 안 건드림)는 서버 자동 추출에 맡긴다.
+    //     농산물 중량만 예외: 클라이언트에서 resolveAgriWeight()로 사전 판단 가능.
     const buyOptUnresolved: { product: typeof selectedProducts[number]; missing: string[] }[] = [];
     for (const p of selectedProducts) {
       const meta = categoryMetaCache[p.editedCategoryCode];
@@ -3446,13 +3448,15 @@ export function useBulkRegisterActions() {
       const missing: string[] = [];
       for (const attr of requiredBuy) {
         if (attr.attributeTypeName === '농산물 중량') {
-          // 농산물 중량은 별도 자동확정 경로(resolveAgriWeight)
+          // 농산물 중량은 사전 판단 가능(원본명·노출명에서 추출 시도). 그래도 안 잡히면 차단.
           if (!resolveAgriWeight(p.editedDisplayProductName, p.name, p.editedAgriWeight)) {
             missing.push('농산물 중량');
           }
           continue;
         }
-        if (!override[attr.attributeTypeName]?.trim()) {
+        // 명시적 클리어("")만 차단. undefined는 서버 자동 추출에 맡긴다.
+        const v = override[attr.attributeTypeName];
+        if (v !== undefined && !v.trim()) {
           missing.push(attr.attributeTypeName);
         }
       }
@@ -3463,7 +3467,7 @@ export function useBulkRegisterActions() {
         `· ${(p.editedDisplayProductName || p.name).slice(0, 36)} → ${missing.join(', ')}`,
       ).join('\n');
       const more = buyOptUnresolved.length > 5 ? `\n... 외 ${buyOptUnresolved.length - 5}개` : '';
-      alert(`필수 구매옵션이 비어 있는 상품 ${buyOptUnresolved.length}개가 있습니다.\n쿠팡윙 "옵션 용량 오류"를 막으려면 각 상품을 펼쳐 "옵션/아이템 > 필수 구매옵션"을 입력해 주세요. 자동 추출값이 있으면 비워둬도 됩니다.\n\n${sample}${more}`);
+      alert(`필수 구매옵션이 비어 있는 상품 ${buyOptUnresolved.length}개가 있습니다.\n각 상품을 펼쳐 "옵션/아이템 > 필수 구매옵션"을 입력하거나 ↺ 자동값으로 되돌려 주세요.\n\n${sample}${more}`);
       return;
     }
 
