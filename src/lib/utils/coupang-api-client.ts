@@ -1235,28 +1235,43 @@ export async function addDownloadCouponItems(
   //   쿠팡 스펙: "상품 추가 실패 시 쿠폰 파기" → exists=true 면 최소 1건 이상 등록되어 쿠폰이 살아있음.
   //   또한 마지막 폴링에서 succeeded == total 이면 부분 등록 의심 없음.
   console.warn(`[addDownloadCouponItems] 비동기 폴링 시한 초과 (30초) — verify 실측 확인, txId=${txId}, lastPoll=${lastPollSucceeded}/${lastPollTotal}`);
+  let verifyExists = false;
+  let verifyStatus = 'UNKNOWN';
   try {
     const verify = await verifyDownloadCoupon(credentials, couponId);
-    if (verify.exists) {
-      const fullyDone = lastPollTotal > 0 && lastPollSucceeded === lastPollTotal;
-      if (fullyDone || lastPollTotal === 0) {
-        // total=0 인 경우(쿠팡이 진행도를 안 줌)도 쿠폰 실존 = 등록 진행 중 → 보수적 SUCCESS.
-        // 부분 등록 케이스는 bulk-apply 의 후속 verify 가 한 번 더 잡음.
-        console.log(`[addDownloadCouponItems] verify=exists(${verify.status}), lastPoll=${lastPollSucceeded}/${lastPollTotal} — SUCCESS 처리`);
-        return { couponId, requestResultStatus: 'SUCCESS', failedVendorItemIds: [] };
-      }
-      console.warn(`[addDownloadCouponItems] verify=exists 이나 lastPoll 부분(${lastPollSucceeded}/${lastPollTotal}) — PENDING 유지`);
-    } else {
-      console.warn(`[addDownloadCouponItems] verify 결과 NOT_FOUND/${verify.status} — PENDING 반환(쿠폰 파기 가능성)`);
-    }
+    verifyExists = verify.exists;
+    verifyStatus = verify.status;
   } catch (verifyErr) {
     console.warn(`[addDownloadCouponItems] verify 호출 실패 — PENDING 반환:`, verifyErr instanceof Error ? verifyErr.message : verifyErr);
   }
 
+  const outcome = decideTimeoutOutcome({ exists: verifyExists, status: verifyStatus }, lastPollSucceeded, lastPollTotal);
+  console.log(`[addDownloadCouponItems] decideTimeoutOutcome: verify=${verifyExists}/${verifyStatus}, lastPoll=${lastPollSucceeded}/${lastPollTotal} → ${outcome}`);
+
   return {
     couponId,
-    requestResultStatus: 'PENDING',
+    requestResultStatus: outcome,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// 폴링 시한 초과 후 결정 로직 — 순수 함수 (단위 테스트 가능, side-effect 없음).
+// 분기:
+//   verify.exists=false  → PENDING (쿠폰 파기/거부 가능성, 재시도 안전)
+//   verify.exists=true && lastPollTotal=0 → SUCCESS (진행도 미제공 + 쿠폰 살아있음 → 보수적 성공)
+//   verify.exists=true && lastPollSucceeded==lastPollTotal → SUCCESS (등록 완전 종료)
+//   verify.exists=true && lastPollSucceeded<lastPollTotal → PENDING (부분 등록 의심, 재시도)
+// 핵심: "쿠폰이 살아있다 + 등록이 끝났거나 진행도 미제공"인 경우만 SUCCESS로 인정.
+// ─────────────────────────────────────────────────────────────────
+export function decideTimeoutOutcome(
+  verify: { exists: boolean; status?: string },
+  lastPollSucceeded: number,
+  lastPollTotal: number,
+): 'SUCCESS' | 'PENDING' {
+  if (!verify.exists) return 'PENDING';
+  if (lastPollTotal === 0) return 'SUCCESS';
+  if (lastPollSucceeded === lastPollTotal) return 'SUCCESS';
+  return 'PENDING';
 }
 
 /** 다운로드 쿠폰 요청 상태 확인
