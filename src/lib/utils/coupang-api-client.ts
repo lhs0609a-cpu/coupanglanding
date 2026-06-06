@@ -1177,8 +1177,11 @@ export async function addDownloadCouponItems(
 
   console.log(`[addDownloadCouponItems] 비동기 폴링 시작 — txId=${txId}`);
 
-  // 폴링: 최대 5회 × 3초 = 15초
-  for (let attempt = 0; attempt < 5; attempt++) {
+  // 폴링: 최대 10회 × 3초 = 30초 (이전 15초 → 30초). 쿠팡 큐 지연 시에도 대부분 잡힘.
+  // bulk-apply maxDuration 55s 안에서 Phase 1(40s safety 이내) 후 30초 폴링 = 안전 마진 확보.
+  let lastPollSucceeded = 0;
+  let lastPollTotal = 0;
+  for (let attempt = 0; attempt < 10; attempt++) {
     await new Promise((r) => setTimeout(r, 3000));
     let statusResult: Record<string, unknown>;
     try {
@@ -1198,6 +1201,8 @@ export async function addDownloadCouponItems(
       .map((f) => Number((f as Record<string, unknown>).vendorItemId))
       .filter((n) => !isNaN(n) && n > 0);
 
+    lastPollSucceeded = succeeded;
+    lastPollTotal = total;
     console.log(`[addDownloadCouponItems] 폴링 #${attempt + 1}: status=${pollStatus}, total=${total}, succeeded=${succeeded}, failed=${failedIds.length}`);
 
     // 완료 상태 — 부분 실패도 쿠팡은 쿠폰 전체 파기하므로 실패로 간주
@@ -1225,8 +1230,29 @@ export async function addDownloadCouponItems(
     // PROCESSING/PENDING — 다음 attempt 로
   }
 
-  // 15초 내 결과 미확정 → PENDING 반환하여 bulk-apply 가 재시도하도록
-  console.warn(`[addDownloadCouponItems] 비동기 폴링 시한 초과 (15초) — 결과 미확정, txId=${txId}`);
+  // 30초 내 결과 미확정 → verifyDownloadCoupon 으로 쿠폰 실존 + 마지막 폴링 진행도 확인.
+  //   PR#9의 가짜 success 차단 원칙 유지: 실측으로 "쿠폰이 살아있고 등록 진행이 거의 끝난" 경우만 SUCCESS.
+  //   쿠팡 스펙: "상품 추가 실패 시 쿠폰 파기" → exists=true 면 최소 1건 이상 등록되어 쿠폰이 살아있음.
+  //   또한 마지막 폴링에서 succeeded == total 이면 부분 등록 의심 없음.
+  console.warn(`[addDownloadCouponItems] 비동기 폴링 시한 초과 (30초) — verify 실측 확인, txId=${txId}, lastPoll=${lastPollSucceeded}/${lastPollTotal}`);
+  try {
+    const verify = await verifyDownloadCoupon(credentials, couponId);
+    if (verify.exists) {
+      const fullyDone = lastPollTotal > 0 && lastPollSucceeded === lastPollTotal;
+      if (fullyDone || lastPollTotal === 0) {
+        // total=0 인 경우(쿠팡이 진행도를 안 줌)도 쿠폰 실존 = 등록 진행 중 → 보수적 SUCCESS.
+        // 부분 등록 케이스는 bulk-apply 의 후속 verify 가 한 번 더 잡음.
+        console.log(`[addDownloadCouponItems] verify=exists(${verify.status}), lastPoll=${lastPollSucceeded}/${lastPollTotal} — SUCCESS 처리`);
+        return { couponId, requestResultStatus: 'SUCCESS', failedVendorItemIds: [] };
+      }
+      console.warn(`[addDownloadCouponItems] verify=exists 이나 lastPoll 부분(${lastPollSucceeded}/${lastPollTotal}) — PENDING 유지`);
+    } else {
+      console.warn(`[addDownloadCouponItems] verify 결과 NOT_FOUND/${verify.status} — PENDING 반환(쿠폰 파기 가능성)`);
+    }
+  } catch (verifyErr) {
+    console.warn(`[addDownloadCouponItems] verify 호출 실패 — PENDING 반환:`, verifyErr instanceof Error ? verifyErr.message : verifyErr);
+  }
+
   return {
     couponId,
     requestResultStatus: 'PENDING',
