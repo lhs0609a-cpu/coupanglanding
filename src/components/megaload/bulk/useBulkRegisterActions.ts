@@ -3471,6 +3471,41 @@ export function useBulkRegisterActions() {
       return;
     }
 
+    // ─── 옵션 자동값 경고 (강한 경고 — 확인하면 강행 가능) ───
+    //   필수 "중량/용량" 옵션인데 상품명에서 중량을 못 뽑고 사용자도 안 채운 경우,
+    //   서버가 기본값(예: 1ml)으로 채워 쿠팡에 잘못 등록될 수 있음 → 확인창으로 경고.
+    //   (중량/용량은 택1 그룹이어도 하나만 채워지거나 이름에서 추출되면 OK 로 본다)
+    const WEIGHT_OPT_RE = /중량|용량/;
+    const autoDefaultRisk: { product: typeof selectedProducts[number]; options: string[] }[] = [];
+    for (const p of selectedProducts) {
+      const meta = categoryMetaCache[p.editedCategoryCode];
+      const weightOpts = (meta?.attributeMeta || []).filter(
+        (a) => a.required && a.exposed === 'EXPOSED' && WEIGHT_OPT_RE.test(a.attributeTypeName),
+      );
+      if (weightOpts.length === 0) continue;
+      const filled = p.editedBuyOptionValues || {};
+      const anyWeightFilled = weightOpts.some((a) => filled[a.attributeTypeName]?.trim());
+      const weightFromName = !!resolveAgriWeight(p.editedDisplayProductName, p.name, p.editedAgriWeight);
+      if (!anyWeightFilled && !weightFromName) {
+        autoDefaultRisk.push({ product: p, options: [...new Set(weightOpts.map((a) => a.attributeTypeName))] });
+      }
+    }
+    if (autoDefaultRisk.length > 0) {
+      const sample = autoDefaultRisk.slice(0, 5).map(({ product: p, options }) =>
+        `· ${(p.editedDisplayProductName || p.name).slice(0, 34)} → ${options.join('/')}`,
+      ).join('\n');
+      const more = autoDefaultRisk.length > 5 ? `\n... 외 ${autoDefaultRisk.length - 5}개` : '';
+      const proceed = window.confirm(
+        `⚠️ 옵션 자동값 경고 (${autoDefaultRisk.length}개 상품)\n\n` +
+        `아래 상품들은 필수 "중량/용량" 옵션을 상품명에서 추출하지 못해,\n` +
+        `쿠팡에 기본값(예: 1ml)으로 잘못 등록될 수 있습니다.\n\n` +
+        `${sample}${more}\n\n` +
+        `각 상품의 "옵션/아이템 > 중량/용량"에 실제값을 넣는 것을 강력히 권장합니다.\n\n` +
+        `그래도 이대로 등록하시겠습니까?`,
+      );
+      if (!proceed) return;
+    }
+
     setStep(3); setRegistering(true); setIsPaused(false); isPausedRef.current = false; setAccountBlocked(null); setStartTime(Date.now());
 
     // preupload 완료까지 최대 30초 대기 (state는 ref로 읽어야 stale 방지)
