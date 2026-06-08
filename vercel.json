@@ -79,6 +79,10 @@
     {
       "path": "/api/cron/coupon-reverify",
       "schedule": "23,53 * * * *"
+    },
+    {
+      "path": "/api/cron/category-attribute-sync",
+      "schedule": "8,38 * * * *"
     }
   ]
 }
