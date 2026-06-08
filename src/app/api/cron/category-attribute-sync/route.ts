@@ -11,8 +11,8 @@ export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
 
 // 한 번에 라이브 호출할 카테고리 수 (쿠팡 rate limit 고려해 보수적으로).
-//   500 × (concurrency 3, delay 400ms) ≈ 130초 → maxDuration 300 안.
-const MAX_PER_RUN = 500;
+//   350 × (concurrency 2, delay 500ms) ≈ 160초 → maxDuration 300 안. 429 false-empty 최소화.
+const MAX_PER_RUN = 350;
 
 /**
  * GET /api/cron/category-attribute-sync  ("1.6만 정확히 맞추기" 백필)
@@ -74,7 +74,7 @@ export async function GET(request: Request) {
 
     // 4) 이번 런 배치 처리 (라이브 조회 + 캐시 upsert)
     const batch = uncached.slice(0, MAX_PER_RUN);
-    await getAttributesWithCacheBatch(sc, adapter, batch, { concurrency: 3, delayMs: 400 });
+    await getAttributesWithCacheBatch(sc, adapter, batch, { concurrency: 2, delayMs: 500 });
 
     // 처리 후 실제 캐시된 수 재확인(429 등으로 일부 미저장될 수 있음)
     const { count: cachedNow } = await sc

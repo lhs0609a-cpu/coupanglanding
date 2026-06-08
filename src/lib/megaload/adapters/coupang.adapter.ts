@@ -640,7 +640,11 @@ export class CoupangAdapter extends BaseAdapter {
       }
     }
 
-    console.warn(`[getCategoryAttributes] 모든 엔드포인트 실패: categoryCode=${categoryCode}`);
-    return { items: [] };
+    // 모든 엔드포인트가 attributes 를 못 줌 = 라이브 API 실패(429/5xx/네트워크)일 가능성 높음.
+    //   빈 배열을 캐시로 굳히지 않도록 throw → 호출측 getAttributesWithCache 가 미저장 후 다음에 재시도.
+    //   (1.6만 백필이 rate limit 으로 false-empty 를 대량 캐싱하던 문제 차단. cat-details 상 전 카테고리가
+    //    필수옵션 b 를 가지므로 "진짜 빈" 은 사실상 없음 → 빈 응답 = 실패로 간주가 안전.)
+    console.warn(`[getCategoryAttributes] 모든 엔드포인트 attributes 없음(실패로 throw): categoryCode=${categoryCode}`);
+    throw new Error(`getCategoryAttributes 실패: category=${categoryCode} (라이브 API 에서 attributes 미수신)`);
   }
 }
