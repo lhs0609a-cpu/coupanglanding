@@ -595,8 +595,11 @@ export default function CoupangFieldsSection({
     let count = 0;
     const itemName = product.editedItemName ?? (firstItem?.itemName as string) ?? product.editedName;
     if (!itemName) count++;
+    // 서버 미리보기가 감지한 옵션 경고 = 필수옵션(택1 포함)이 기본값/추출실패로 떨어진 상태.
+    //   카운트해서 "옵션 자동"이 초록(OK)으로 통과하지 않고 ⚠️ 로 뜨게 한다(쿠팡 필수옵션 누락 방지).
+    if (meta?.optionWarnings?.length) count += meta.optionWarnings.length;
     return count;
-  }, [product.editedItemName, firstItem]);
+  }, [product.editedItemName, firstItem, product.editedName, meta?.optionWarnings]);
 
   const noticeMissing = useMemo(() => {
     if (!meta) return 0;
@@ -1011,6 +1014,22 @@ export default function CoupangFieldsSection({
 
         {/* 중량/용량 옵션값 — 항상 편집 가능 (단일 100g 같은 것도 여기서 수정, 후보 칩 클릭) */}
         <WeightOptionField product={product} onUpdate={onUpdate} />
+
+        {/* 옵션 자동추출 경고 — 서버(미리보기)가 필수옵션을 기본값/추출실패로 채운 경우.
+            "자동"으로 잘못 올라가는 걸 막기 위해 빨갛게 노출 + 위 입력칸에서 실제값 입력 유도. */}
+        {meta?.optionWarnings && meta.optionWarnings.length > 0 && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-2.5 space-y-1">
+            <p className="text-[11px] font-bold text-red-700 flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3" /> 옵션 자동값 경고 — 등록 전 실제값 입력 필요
+            </p>
+            {meta.optionWarnings.map((w, i) => (
+              <p key={i} className="text-[11px] text-red-600">· {w}</p>
+            ))}
+            <p className="text-[10px] text-red-500 mt-0.5">
+              위 &quot;중량/용량&quot; 또는 아래 &quot;필수 구매옵션&quot;에 실제값을 넣으면 사라집니다. (안 넣으면 쿠팡에 기본값으로 등록됨)
+            </p>
+          </div>
+        )}
 
         {/* 필수 구매옵션(쿠팡 카테고리 정의) — 쿠팡윙 옵션 용량 오류 직접 수정 영역.
             attributeMeta.exposed='EXPOSED' && required → 필수 buyOption.
