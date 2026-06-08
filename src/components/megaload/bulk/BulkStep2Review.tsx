@@ -385,6 +385,15 @@ export default memo(function BulkStep2Review({
     }
   }, [products, deliveryChargeType, deliveryCharge, freeShipOverAmount, returnCharge, selectedOutbound, selectedReturn, contactNumber, includeReviewImages, noticeOverrides, imagePreuploadCache]);
 
+  // 패널 열릴 때(선택 상품 변경) 미리보기 자동 로드 → 옵션 자동값 경고/필수값을 readiness 에 즉시 반영.
+  //   (이전엔 "페이로드 미리보기" 탭을 눌러야만 로드돼, 옵션이 기본값(자동)으로 떨어진 걸 못 보고 통과했음)
+  useEffect(() => {
+    if (!selectedUid) return;
+    const p = products.find((pp) => pp.uid === selectedUid);
+    if (p?.editedCategoryCode) handleRequestPreview(selectedUid);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUid]);
+
   // Debounce search
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
