@@ -529,6 +529,45 @@ function QuickSummaryCard({ items, scrollToSection }: { items: QuickSummaryItem[
   );
 }
 
+/** 속성 입력 컨트롤 (enum→select / 그 외→input). 상단 '필수 미입력' 블록과 하단 속성 섹션이 공유. */
+type AttrLike = {
+  name: string;
+  required?: boolean;
+  dataType?: string;
+  attributeValues?: { attributeValueName: string }[];
+};
+function AttrControl({ attr, value, required, onChange }: {
+  attr: AttrLike;
+  value: string;
+  required: boolean;
+  onChange: (v: string) => void;
+}) {
+  const missing = required && !value;
+  const cls = `flex-1 px-2 py-1 border rounded text-xs focus:ring-1 focus:ring-[#E31837] outline-none ${
+    missing ? 'border-red-300 bg-red-50' :
+    value ? 'border-[#E31837] bg-red-50/30' : 'border-gray-200'
+  }`;
+  if (attr.attributeValues && attr.attributeValues.length > 0) {
+    return (
+      <select value={value} onChange={(e) => onChange(e.target.value)} className={cls}>
+        <option value="">선택하세요</option>
+        {attr.attributeValues.map((av, j) => (
+          <option key={j} value={av.attributeValueName}>{av.attributeValueName}</option>
+        ))}
+      </select>
+    );
+  }
+  return (
+    <input
+      type={attr.dataType === 'NUMBER' ? 'number' : 'text'}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={cls}
+      placeholder={attr.dataType === 'NUMBER' ? '숫자' : '값 입력'}
+    />
+  );
+}
+
 /* ─── Main Component ─── */
 export default function CoupangFieldsSection({
   product,
@@ -626,6 +665,32 @@ export default function CoupangFieldsSection({
     return count;
   }, [meta, product.editedAttributeValues]);
 
+  // 필수 속성/고시정보 존재 여부 (readiness 칩 표시 조건) + 미입력 항목 목록 (상단 노출용)
+  const requiredAttrCount = useMemo(
+    () => (meta ? meta.attributes.filter((a) => a.required).length : 0),
+    [meta],
+  );
+  const noticeFieldCount = useMemo(
+    () => (meta ? meta.noticeCategories.reduce((s, c) => s + c.fields.length, 0) : 0),
+    [meta],
+  );
+  const missingRequiredAttrs = useMemo(
+    () => (meta ? meta.attributes.filter((a) => a.required && !(product.editedAttributeValues?.[a.name])) : []),
+    [meta, product.editedAttributeValues],
+  );
+  const missingRequiredNotices = useMemo(() => {
+    if (!meta) return [] as { ncName: string; fieldName: string; key: string }[];
+    const out: { ncName: string; fieldName: string; key: string }[] = [];
+    for (const nc of meta.noticeCategories) {
+      for (const f of nc.fields) {
+        const key = `${nc.name}::${f.noticeCategoryDetailName}`;
+        const val = product.editedNoticeValues?.[key] ?? f.content;
+        if (!val) out.push({ ncName: nc.name, fieldName: f.noticeCategoryDetailName, key });
+      }
+    }
+    return out;
+  }, [meta, product.editedNoticeValues]);
+
   // Section refs for scroll-to
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -655,50 +720,112 @@ export default function CoupangFieldsSection({
     return parts.length > 0 ? parts.join(' / ') : '자동';
   })();
 
-  const summaryItems: QuickSummaryItem[] = useMemo(() => [
-    {
-      label: '노출상품명',
-      value: displayName ? (displayName.length > 24 ? `${displayName.slice(0, 22)}…` : displayName) : '미입력',
-      ok: !!displayName,
-      sectionId: 'basic',
-    },
-    {
-      label: '판매가',
-      value: product.editedSellingPrice > 0 ? `₩${product.editedSellingPrice.toLocaleString()}` : '미입력',
-      ok: product.editedSellingPrice > 0,
-      sectionId: 'price',
-    },
-    {
-      label: '옵션',
-      value: optionValue,
-      ok: optionOk,
-      sectionId: 'option',
-    },
-    {
-      label: '카테고리',
-      value: product.editedCategoryCode ? product.editedCategoryName.split('>').pop()?.trim() || '선택됨' : '미선택',
-      ok: !!product.editedCategoryCode,
-      sectionId: 'category',
-    },
-    {
-      label: '이미지',
-      value: `${imageItems.length}장`,
-      ok: imageItems.length > 0,
-      sectionId: 'image',
-    },
-    {
-      label: '브랜드',
-      value: product.editedBrand || '미입력',
-      ok: !!product.editedBrand,
-      sectionId: 'basic',
-    },
-  ], [displayName, product.editedSellingPrice, optionValue, optionOk, product.editedCategoryCode, product.editedCategoryName, imageItems.length, product.editedBrand]);
+  const summaryItems: QuickSummaryItem[] = useMemo(() => {
+    const base: QuickSummaryItem[] = [
+      {
+        label: '노출상품명',
+        value: displayName ? (displayName.length > 24 ? `${displayName.slice(0, 22)}…` : displayName) : '미입력',
+        ok: !!displayName,
+        sectionId: 'basic',
+      },
+      {
+        label: '판매가',
+        value: product.editedSellingPrice > 0 ? `₩${product.editedSellingPrice.toLocaleString()}` : '미입력',
+        ok: product.editedSellingPrice > 0,
+        sectionId: 'price',
+      },
+      {
+        label: '옵션',
+        value: optionValue,
+        ok: optionOk,
+        sectionId: 'option',
+      },
+      {
+        label: '카테고리',
+        value: product.editedCategoryCode ? product.editedCategoryName.split('>').pop()?.trim() || '선택됨' : '미선택',
+        ok: !!product.editedCategoryCode,
+        sectionId: 'category',
+      },
+      {
+        label: '이미지',
+        value: `${imageItems.length}장`,
+        ok: imageItems.length > 0,
+        sectionId: 'image',
+      },
+      {
+        label: '브랜드',
+        value: product.editedBrand || '미입력',
+        ok: !!product.editedBrand,
+        sectionId: 'basic',
+      },
+    ];
+    // 카테고리 연동 필수 항목 — readiness 가 6/6 거짓 초록으로 뜨던 누락. 속성/고시정보를 정직하게 반영.
+    if (meta && requiredAttrCount > 0) {
+      base.push({
+        label: '속성',
+        value: attrMissing > 0 ? `${attrMissing}개 미입력` : '완료',
+        ok: attrMissing === 0,
+        sectionId: 'attr',
+      });
+    }
+    if (meta && noticeFieldCount > 0) {
+      base.push({
+        label: '고시정보',
+        value: noticeMissing > 0 ? `${noticeMissing}개 미입력` : '완료',
+        ok: noticeMissing === 0,
+        sectionId: 'notice',
+      });
+    }
+    return base;
+  }, [displayName, product.editedSellingPrice, optionValue, optionOk, product.editedCategoryCode, product.editedCategoryName, imageItems.length, product.editedBrand, meta, requiredAttrCount, noticeFieldCount, attrMissing, noticeMissing]);
 
   return (
     <div className="space-y-2.5">
 
       {/* Quick Summary Card */}
       <QuickSummaryCard items={summaryItems} scrollToSection={scrollToSection} />
+
+      {/* 필수 미입력 — 등록 차단 항목을 스크롤 없이 맨 위에서 바로 채우게 노출 */}
+      {meta && (missingRequiredAttrs.length > 0 || missingRequiredNotices.length > 0) && (
+        <div className="rounded-lg border-2 border-red-300 bg-red-50/60 p-3 mb-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
+            <span className="text-xs font-semibold text-red-700">
+              필수 미입력 — 등록 차단 ({missingRequiredAttrs.length + missingRequiredNotices.length}개)
+            </span>
+          </div>
+          <div className="space-y-1.5">
+            {missingRequiredAttrs.map((attr, i) => (
+              <div key={`a-${i}`} className="flex items-center gap-2 border-l-2 border-l-red-400 pl-2">
+                <label className="text-[10px] w-28 shrink-0 truncate text-red-600 font-medium" title={attr.name}>
+                  {attr.name}<span className="text-red-500">*</span>
+                </label>
+                <AttrControl
+                  attr={attr}
+                  value={product.editedAttributeValues?.[attr.name] ?? ''}
+                  required
+                  onChange={(v) => handleAttributeChange(attr.name, v)}
+                />
+              </div>
+            ))}
+            {missingRequiredNotices.map((n, i) => (
+              <div key={`n-${i}`} className="flex items-center gap-2 border-l-2 border-l-red-400 pl-2">
+                <label className="text-[10px] w-28 shrink-0 truncate text-red-600 font-medium" title={`${n.ncName} · ${n.fieldName}`}>
+                  {n.fieldName}<span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={product.editedNoticeValues?.[n.key] ?? ''}
+                  onChange={(e) => handleNoticeChange(n.key, e.target.value)}
+                  className="flex-1 px-2 py-1 border border-red-300 bg-red-50 rounded text-xs focus:ring-1 focus:ring-[#E31837] outline-none"
+                  placeholder="값 입력"
+                />
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-red-500/80 mt-1.5">채우면 자동으로 사라지고 아래 해당 섹션·상단 상태에 반영됩니다.</p>
+        </div>
+      )}
 
       {/* ❶ 기본정보 */}
       <div ref={(el) => { sectionRefs.current['basic'] = el; }}>
@@ -1175,6 +1302,7 @@ export default function CoupangFieldsSection({
       </div>
 
       {/* ❺ 고시정보 */}
+      <div ref={(el) => { sectionRefs.current['notice'] = el; }}>
       <CollapsibleSection
         title="고시정보"
         icon={<FileText className="w-3.5 h-3.5 text-purple-500" />}
@@ -1232,8 +1360,10 @@ export default function CoupangFieldsSection({
           <span className="text-xs text-gray-400 block">고시정보 없음</span>
         )}
       </CollapsibleSection>
+      </div>
 
       {/* ❻ 속성 */}
+      <div ref={(el) => { sectionRefs.current['attr'] = el; }}>
       <CollapsibleSection
         title="속성"
         icon={<Hash className="w-3.5 h-3.5 text-teal-500" />}
@@ -1254,39 +1384,18 @@ export default function CoupangFieldsSection({
             {meta.attributes.map((attr, i) => {
               const editedValue = product.editedAttributeValues?.[attr.name] ?? '';
               const isEmpty = attr.required && !editedValue;
-              const hasEnum = attr.attributeValues && attr.attributeValues.length > 0;
 
               return (
                 <div key={i} className={`flex items-center gap-2 ${isEmpty ? 'border-l-2 border-l-red-400 pl-2' : ''}`}>
                   <label className={`text-[10px] w-28 shrink-0 truncate ${attr.required ? (isEmpty ? 'text-red-600 font-medium' : 'text-gray-700 font-medium') : 'text-gray-500'}`} title={attr.name}>
                     {attr.name}{attr.required && <span className="text-red-500">*</span>}
                   </label>
-                  {hasEnum ? (
-                    <select
-                      value={editedValue}
-                      onChange={(e) => handleAttributeChange(attr.name, e.target.value)}
-                      className={`flex-1 px-2 py-1 border rounded text-xs focus:ring-1 focus:ring-[#E31837] outline-none ${
-                        isEmpty ? 'border-red-300 bg-red-50' :
-                        editedValue ? 'border-[#E31837] bg-red-50/30' : 'border-gray-200'
-                      }`}
-                    >
-                      <option value="">선택하세요</option>
-                      {attr.attributeValues!.map((av, j) => (
-                        <option key={j} value={av.attributeValueName}>{av.attributeValueName}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      type={attr.dataType === 'NUMBER' ? 'number' : 'text'}
-                      value={editedValue}
-                      onChange={(e) => handleAttributeChange(attr.name, e.target.value)}
-                      className={`flex-1 px-2 py-1 border rounded text-xs focus:ring-1 focus:ring-[#E31837] outline-none ${
-                        isEmpty ? 'border-red-300 bg-red-50' :
-                        editedValue ? 'border-[#E31837] bg-red-50/30' : 'border-gray-200'
-                      }`}
-                      placeholder={attr.dataType === 'NUMBER' ? '숫자' : '값 입력'}
-                    />
-                  )}
+                  <AttrControl
+                    attr={attr}
+                    value={editedValue}
+                    required={!!attr.required}
+                    onChange={(v) => handleAttributeChange(attr.name, v)}
+                  />
                   {onBulkApplyAttribute && editedValue && product.editedCategoryCode && (
                     <button
                       onClick={() => handleBulkApply(attr.name, editedValue)}
@@ -1309,6 +1418,7 @@ export default function CoupangFieldsSection({
           <span className="text-xs text-gray-400 block">속성 없음</span>
         )}
       </CollapsibleSection>
+      </div>
 
       {/* ── 자동 설정 항목 ── */}
       <div className="flex items-center gap-2 pt-1">
