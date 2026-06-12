@@ -141,12 +141,12 @@ const ANALYSIS_SIZE = 36;
 const HISTOGRAM_SIZE = ANALYSIS_SIZE;
 const DEFAULT_MIN_SCORE = 40;
 
-// Canvas 동시성 — 디바이스 코어 수에 비례, 최대 16. createImageBitmap이 디코딩을
-// 워커스레드로 옮겨 메인스레드 부담이 줄어 6→12→16로 안전하게 상향 (Option A 속도패치).
-// hardwareConcurrency × 2 — I/O 위주 작업이라 코어 수보다 많이 띄워도 OK
+// Canvas 동시성 — createImageBitmap 디코딩은 브라우저 내부 디코드 스레드로 오프로드되어
+// JS 스레드(워커)를 거의 안 쓴다. 따라서 코어 수보다 높게 띄울수록 디코드 스레드 포화 →
+// 디코드 throughput↑. 16→24 상향 (Option D). 픽셀버퍼 36²×4=5KB/장이라 메모리 영향 무시.
 const IMAGE_CONCURRENCY = typeof navigator !== 'undefined'
-  ? Math.min(16, Math.max(8, (navigator.hardwareConcurrency || 6) * 2))
-  : 8;
+  ? Math.min(24, Math.max(12, (navigator.hardwareConcurrency || 6) * 2))
+  : 12;
 
 // ─── URL 기반 분석 결과 캐시 ────────────────────────────────────
 // 같은 이미지를 Step 3 / Step 3.7 / 패널 자동분석에서 반복 호출 — 재계산 방지.
@@ -2975,8 +2975,10 @@ export async function selectDiverseImages(
   }
 
   // Step 8: Greedy maximin 순서 정렬
+  // 이미 만든 distMatrix(full n×n)를 selected 인덱스로 슬라이스해 재사용 → 거리 재계산 생략.
   const orderedFeatures = selected.map(i => features[i]);
-  const orderedIndices = greedyMaximinOrder(orderedFeatures);
+  const orderedSubDist = selected.map(a => selected.map(b => distMatrix[a][b]));
+  const orderedIndices = greedyMaximinOrder(orderedFeatures, orderedSubDist);
 
   const finalTypes = orderedIndices.map(i => {
     const feat = features.find(f => f.originalIndex === i);
@@ -3036,17 +3038,24 @@ async function extractFeaturesForUrls(
  * 첫 이미지: 누끼가 있으면 누끼 우선, 아니면 첫 번째
  * 이후: 이미 선택된 이미지들과의 최소 거리가 가장 큰 이미지를 선택
  */
-function greedyMaximinOrder(features: ImageFeatures[]): number[] {
+// precomputedDist: features 배열 위치(0..n-1) 기준 거리 행렬. 제공되면 재계산 생략
+// (selectDiverseImages가 이미 만든 행렬을 슬라이스해 넘김 → featureDistance O(n²) 중복 호출 제거).
+function greedyMaximinOrder(features: ImageFeatures[], precomputedDist?: number[][]): number[] {
   if (features.length === 0) return [];
   if (features.length === 1) return [features[0].originalIndex];
 
   const n = features.length;
-  const distMat: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
-  for (let i = 0; i < n; i++) {
-    for (let j = i + 1; j < n; j++) {
-      const d = featureDistance(features[i], features[j]);
-      distMat[i][j] = d;
-      distMat[j][i] = d;
+  let distMat: number[][];
+  if (precomputedDist) {
+    distMat = precomputedDist;
+  } else {
+    distMat = Array.from({ length: n }, () => new Array(n).fill(0));
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const d = featureDistance(features[i], features[j]);
+        distMat[i][j] = d;
+        distMat[j][i] = d;
+      }
     }
   }
 

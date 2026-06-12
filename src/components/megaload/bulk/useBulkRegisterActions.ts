@@ -1152,6 +1152,13 @@ export function useBulkRegisterActions() {
           clearHistogramCache();
           clearAnalysisCache();
 
+          // ★ 워커풀 예열(pre-warm): Step 3.7(다양성 분석)에서 처음 쓰지만, 여기서 미리
+          //   spawn 해두면 워커 생성 + 모듈 번들 로드(콜드스타트)가 Step 3 대표이미지 선정과
+          //   겹쳐 끝나, 3.7 진입 시 즉시 분석 시작 → 콜드스타트 지연 제거. 로컬 CPU만 사용.
+          import('@/lib/megaload/services/image-analysis-pool')
+            .then(({ imageAnalysisPool }) => imageAnalysisPool.init())
+            .catch(() => { /* 예열 실패해도 3.7에서 재시도(idempotent) */ });
+
           // ★ Step 3a: main_images 자동 리스캔 (코드 업데이트 후 누락 이미지 복구)
           // dirHandle이 있으면 현재 코드의 패턴으로 다시 스캔
           let rescanCount = 0;
