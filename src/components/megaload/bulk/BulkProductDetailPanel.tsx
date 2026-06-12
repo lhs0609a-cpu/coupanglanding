@@ -3,9 +3,10 @@
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  X, ChevronUp, ChevronDown, CheckCircle2, AlertTriangle, XCircle, Code2, FileText, ExternalLink, Ban, GripVertical, Search, Cpu, Loader2,
+  X, ChevronUp, ChevronDown, CheckCircle2, AlertTriangle, XCircle, Code2, FileText, ExternalLink, Ban, GripVertical, Search, Cpu, Loader2, Smartphone,
 } from 'lucide-react';
 import PayloadPreviewPanel, { type PayloadPreviewData } from './PayloadPreviewPanel';
+import MobilePreview from './MobilePreview';
 import CoupangFieldsSection from './CoupangFieldsSection';
 import DetailPageContentTab from './DetailPageContentTab';
 import LlmRegenModal from './LlmRegenModal';
@@ -91,6 +92,23 @@ export default function BulkProductDetailPanel({
   const [activeTab, setActiveTab] = useState<'info' | 'detail' | 'payload'>('info');
   const [issuesExpanded, setIssuesExpanded] = useState(false);
   const [llmModalOpen, setLlmModalOpen] = useState(false);
+
+  // ─── 모바일 미리보기 (쿠팡윙 스타일 — 패널 왼쪽에 폰 목업 핀) ───
+  const MOBILE_PREVIEW_KEY = 'megaload:detail-panel-mobile-preview';
+  const [mobilePreviewOpen, setMobilePreviewOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const raw = window.localStorage.getItem(MOBILE_PREVIEW_KEY);
+      return raw === null ? true : raw === '1';
+    } catch { return true; }
+  });
+  const toggleMobilePreview = useCallback(() => {
+    setMobilePreviewOpen(prev => {
+      const next = !prev;
+      try { window.localStorage.setItem(MOBILE_PREVIEW_KEY, next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
 
   // Browser mode: load all main images as objectURLs
   const [browserImageUrls, setBrowserImageUrls] = useState<string[]>([]);
@@ -344,6 +362,17 @@ export default function BulkProductDetailPanel({
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <button
+                  onClick={toggleMobilePreview}
+                  title={mobilePreviewOpen ? '모바일 미리보기 끄기' : '모바일 미리보기 켜기 — 실제 모바일 노출 화면'}
+                  className={`p-1.5 rounded transition mr-1 ${
+                    mobilePreviewOpen
+                      ? 'text-[#E31837] bg-red-50 hover:bg-red-100'
+                      : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <Smartphone className="w-4 h-4" />
+                </button>
+                <button
                   onClick={() => onToggle(product.uid)}
                   title={product.selected ? '등록에서 제외 (Delete)' : '등록에 포함 (Delete)'}
                   className={`p-1.5 rounded transition ${
@@ -527,6 +556,20 @@ export default function BulkProductDetailPanel({
               </p>
             </div>
           </motion.div>
+
+          {/* 모바일 미리보기 (쿠팡윙 스타일 — 패널 왼쪽 핀) */}
+          {mobilePreviewOpen && (
+            <MobilePreview
+              product={product}
+              mainImageUrls={displayImageUrls}
+              previewData={payloadPreview?.data ?? null}
+              preUploadedUrls={preUploadedUrls?.[product.uid]}
+              noticeMeta={noticeMeta}
+              noticeOverrides={noticeOverrides}
+              panelWidth={panelWidth}
+              onClose={toggleMobilePreview}
+            />
+          )}
         </>
       )}
     </AnimatePresence>
