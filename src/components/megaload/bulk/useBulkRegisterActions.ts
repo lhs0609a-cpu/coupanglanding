@@ -2389,11 +2389,17 @@ export function useBulkRegisterActions() {
 
       let completed = 0;
       let taskIdx = 0;
-      // CONCURRENCY: 클라 → Supabase Storage 직접 업로드.
-      //   - Supabase Storage 처리 한도 충분, 브라우저 per-origin 동시 fetch 한도(보통 6)는
-      //     Storage 도메인이 별개라 우회 가능. 25 = ~12 압축워커 + 13 in-flight upload 균형.
-      //   - 30+ 는 회귀(원본 60 폭주 케이스) 위험 → 25 cap.
-      const CONCURRENCY = 25;
+      // CONCURRENCY: 클라 → Supabase Storage 직접 업로드 (우리 서버 안 거침 → Vercel 비용 0).
+      //   - 업로드는 네트워크 I/O라 메인스레드 CPU 거의 안 씀. 압축은 별도 Web Worker 풀에서
+      //     처리되므로 in-flight 업로드를 높여도 메인스레드 freezing 없음.
+      //   - 과거 "60 폭주"는 압축이 메인스레드에서 돌던 시절 회귀. 지금은 워커풀로 격리됨.
+      //   - 36 = 빠른 처리량. Supabase가 429(rate limit)를 주면 아래 적응형 가드가
+      //     자동으로 잠깐 쉬었다 재개 → 안전하게 높은 동시성 유지.
+      const CONCURRENCY = 36;
+
+      // 적응형 rate-limit 가드: 429를 감지하면 잠깐(1.2s) 전 워커를 멈췄다 재개.
+      // egress 바이트/스토리지 비용은 동시성과 무관하므로 비용 영향 없음 — 순수 속도/안정성용.
+      let rateLimitPauseUntil = 0;
 
       // 실패 추적 (사용자 가시화 — silent fail 방지)
       const failureReasons: Record<string, number> = {};
@@ -2464,6 +2470,9 @@ export function useBulkRegisterActions() {
 
       async function worker() {
         while (taskIdx < allTasks.length) {
+          // 적응형 가드: 최근 429를 봤으면 쿨다운이 끝날 때까지 대기 후 진행
+          const pauseMs = rateLimitPauseUntil - Date.now();
+          if (pauseMs > 0) await new Promise(r => setTimeout(r, Math.min(pauseMs, 1200)));
           const idx = taskIdx++;
           if (idx >= allTasks.length) return;
           const task = allTasks[idx];
@@ -2502,6 +2511,8 @@ export function useBulkRegisterActions() {
             failureCount++;
             const reason = categorizeError(err);
             failureReasons[reason] = (failureReasons[reason] || 0) + 1;
+            // 429 감지 → 전 워커 1.2s 쿨다운 (Supabase가 한도를 줄 때만 자동 감속)
+            if (reason === 'rate_limited') rateLimitPauseUntil = Date.now() + 1200;
             if (!sampleFailure) {
               sampleFailure = describeFailure(task.img.name, err);
               console.warn(`[preupload] 첫 실패 — ${task.uid}/${task.kind}/${task.img.name}:`, err);

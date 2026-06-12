@@ -589,13 +589,15 @@ class CompressWorkerPool {
 }
 
 let _workerPool: CompressWorkerPool | null = null;
-// hardwareConcurrency 기반 동적 풀 크기 (4~8 worker).
-// 4코어 PC는 4개, 8코어+는 8개 사용 → CPU 활용률 ↑, 메인스레드 영향 0.
+// hardwareConcurrency 기반 동적 풀 크기 (4~12 worker).
+// 워터마크(아이템위너 방지) 모드에서는 모든 이미지가 디코드+재인코딩되어 CPU 바운드 →
+// 워커 수가 곧 압축 처리량. 업로드는 네트워크 I/O라 메인스레드 CPU를 거의 안 쓰므로
+// 코어를 1개만 양보하고 나머지를 압축에 투입(로컬 CPU만 사용 — 서버/비용 영향 0).
+//   8코어: 7 worker (이전 6), 12코어: 11, 16코어+: 12 cap.
 function getOptimalWorkerCount(): number {
   if (typeof navigator === 'undefined') return 4;
   const cores = navigator.hardwareConcurrency || 4;
-  // 메인스레드(UI)와 GC를 위해 1~2 코어 양보, 최대 8까지.
-  return Math.max(2, Math.min(8, cores - 2));
+  return Math.max(4, Math.min(12, cores - 1));
 }
 
 function getWorkerPool(): CompressWorkerPool | null {
@@ -757,7 +759,7 @@ async function renderEmptyCanvas(): Promise<Blob> {
 
 // ---- Supabase 직접 업로드 (Vercel 경유 없음) ----
 // 브라우저 → Supabase Storage 직접 업로드: 인증 0회, 네트워크 홉 1단계
-const DIRECT_CONCURRENCY = 20; // 직접 업로드 동시성
+const DIRECT_CONCURRENCY = 32; // 직접 업로드 동시성 (Supabase 직접 — Vercel 서버 비용 0, egress 바이트는 동시성과 무관)
 
 import { createClient as createBrowserSupabase } from '@/lib/supabase/client';
 
