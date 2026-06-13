@@ -2396,13 +2396,11 @@ export function useBulkRegisterActions() {
 
       let completed = 0;
       let taskIdx = 0;
-      // CONCURRENCY: 클라 → Supabase Storage 직접 업로드 (우리 서버 안 거침 → Vercel 비용 0).
-      //   - 업로드는 네트워크 I/O라 메인스레드 CPU 거의 안 씀. 압축은 별도 Web Worker 풀에서
-      //     처리되므로 in-flight 업로드를 높여도 메인스레드 freezing 없음.
-      //   - 과거 "60 폭주"는 압축이 메인스레드에서 돌던 시절 회귀. 지금은 워커풀로 격리됨.
-      //   - 36 = 빠른 처리량. Supabase가 429(rate limit)를 주면 아래 적응형 가드가
-      //     자동으로 잠깐 쉬었다 재개 → 안전하게 높은 동시성 유지.
-      const CONCURRENCY = 36;
+      // CONCURRENCY: 클라 → Supabase Storage 직접 업로드.
+      //   ★ 25로 롤백 (검증된 안전값). 36으로 올렸더니 업로드 실패 신고 → 원저자의
+      //     "30+ 폭주 위험 → 25 cap" 경고가 맞았던 것으로 판단. 아래 적응형 rate-limit
+      //     가드는 유지(무해, 안전망). 추후 원인 확정 후 신중히 재상향.
+      const CONCURRENCY = 25;
 
       // 적응형 rate-limit 가드: 429를 감지하면 잠깐(1.2s) 전 워커를 멈췄다 재개.
       // egress 바이트/스토리지 비용은 동시성과 무관하므로 비용 영향 없음 — 순수 속도/안정성용.
