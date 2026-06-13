@@ -1,13 +1,17 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import {
   Cpu, Download, CheckCircle2, AlertCircle, Loader2, Wifi, WifiOff,
   MonitorDown, Sparkles, ExternalLink, Gauge, XCircle, MinusCircle,
-  Wand2, Save, RotateCcw,
+  Wand2, Save, RotateCcw, Monitor, Apple, KeyRound,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { WORKER_DOWNLOAD_URL, WORKER_APP_VERSION } from '@/lib/megaload/worker-download';
+import {
+  WORKER_DOWNLOAD_URL, WORKER_APP_VERSION,
+  MONITOR_DOWNLOAD_URLS, MONITOR_APP_VERSION, MONITOR_AUTH_URL,
+} from '@/lib/megaload/worker-download';
 
 // 고정 태그(gpu-worker-update) 자산 → env 미설정이어도 동작. 배포 시 env 로 덮어쓰기 가능.
 const DOWNLOAD_URL = WORKER_DOWNLOAD_URL;
@@ -215,7 +219,7 @@ export default function LocalGpuWorkerSettings() {
           </p>
         ) : (
           <p className="text-xs text-gray-500 mt-1.5">
-            아래에서 워커 앱을 설치·실행하면 여기가 "연결됨"으로 바뀝니다.
+            아래에서 워커 앱을 설치·실행하면 여기가 &quot;연결됨&quot;으로 바뀝니다.
           </p>
         )}
       </div>
@@ -281,26 +285,84 @@ export default function LocalGpuWorkerSettings() {
         )}
       </div>
 
-      {/* 다운로드 */}
-      <div>
-        {DOWNLOAD_URL ? (
-          <a
-            href={DOWNLOAD_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#E31837] text-white rounded-lg font-semibold text-sm hover:bg-[#c5142f] transition"
-          >
-            <Download className="w-4 h-4" />
-            메가로드 도우미 다운로드 (Windows)
-            <span className="px-1.5 py-0.5 text-[10px] font-medium bg-white/20 rounded-full">v{WORKER_APP_VERSION}</span>
-            <ExternalLink className="w-3 h-3 opacity-70" />
-          </a>
-        ) : (
-          <div className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-400 rounded-lg font-semibold text-sm cursor-not-allowed">
-            <MonitorDown className="w-4 h-4" />
-            다운로드 준비 중 (관리자 등록 대기)
+      {/* ⭐ 다운로드 센터 — 모든 도우미 설치파일을 받는 단일 허브.
+          다른 화면(검수·올인원·재생성 배너, 모니터링 페이지)은 여기로 링크만 한다. */}
+      <div className="rounded-xl border-2 border-indigo-200 bg-indigo-50/40 p-4 space-y-4">
+        <div className="flex items-center gap-1.5">
+          <MonitorDown className="w-4 h-4 text-indigo-600" />
+          <h4 className="text-sm font-bold text-gray-900">다운로드 센터</h4>
+          <span className="text-[10px] text-gray-500">— 도우미 설치파일은 여기 한곳에서 받습니다</span>
+        </div>
+
+        {/* ① 메가로드 도우미 (등록·썸네일·올인원·GPU) */}
+        <div className="rounded-lg border border-gray-200 bg-white p-3">
+          <div className="flex items-center gap-1.5 mb-1">
+            <Cpu className="w-4 h-4 text-indigo-600" />
+            <span className="text-sm font-semibold text-gray-900">메가로드 도우미</span>
+            <span className="text-[10px] text-gray-500">등록·대표썸네일·올인원·로컬 GPU</span>
           </div>
-        )}
+          {DOWNLOAD_URL ? (
+            <a
+              href={DOWNLOAD_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#E31837] text-white rounded-lg font-semibold text-sm hover:bg-[#c5142f] transition"
+            >
+              <Download className="w-4 h-4" />
+              메가로드 도우미 다운로드 (Windows)
+              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-white/20 rounded-full">v{WORKER_APP_VERSION}</span>
+              <ExternalLink className="w-3 h-3 opacity-70" />
+            </a>
+          ) : (
+            <div className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-400 rounded-lg font-semibold text-sm cursor-not-allowed">
+              <MonitorDown className="w-4 h-4" />
+              다운로드 준비 중 (관리자 등록 대기)
+            </div>
+          )}
+        </div>
+
+        {/* ② 상품 모니터링 도우미 (품절·가격 모니터 — 별도 앱) */}
+        <div className="rounded-lg border border-gray-200 bg-white p-3">
+          <div className="flex items-center gap-1.5 mb-1">
+            <Monitor className="w-4 h-4 text-emerald-600" />
+            <span className="text-sm font-semibold text-gray-900">상품 모니터링 도우미</span>
+            <span className="text-[10px] text-gray-500">품절·가격 자동 확인 · v{MONITOR_APP_VERSION}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href={MONITOR_DOWNLOAD_URLS.win}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg font-semibold text-sm hover:bg-emerald-700 transition"
+            >
+              <Download className="w-4 h-4" /> Windows (.exe)
+              <ExternalLink className="w-3 h-3 opacity-70" />
+            </a>
+            <a
+              href={MONITOR_DOWNLOAD_URLS.macIntel}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition"
+            >
+              <Apple className="w-4 h-4" /> macOS Intel
+            </a>
+            <a
+              href={MONITOR_DOWNLOAD_URLS.macArm}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition"
+            >
+              <Apple className="w-4 h-4" /> macOS M1/M2
+            </a>
+          </div>
+          <Link
+            href={MONITOR_AUTH_URL}
+            className="inline-flex items-center gap-1.5 mt-2 text-xs font-medium text-emerald-700 hover:text-emerald-900"
+          >
+            <KeyRound className="w-3.5 h-3.5" />
+            인증코드 발급 · 연결 진단 →
+          </Link>
+        </div>
       </div>
 
       {/* 생성 프롬프트 (계정 기본값) */}

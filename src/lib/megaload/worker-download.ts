@@ -18,4 +18,21 @@ export const WORKER_DOWNLOAD_URL =
   `https://github.com/lhs0609a-cpu/coupanglanding/releases/download/megaload-desktop-update/MegaloadDesktop-Setup-${WORKER_APP_VERSION}.exe`;
 
 // 워커 설치 방법·사양 체크가 있는 설정 탭.
+// ⭐ 메가로드 도우미·모니터링 도우미 **다운로드 단일 허브**. 다른 화면은 여기로 링크만 한다.
 export const WORKER_SETTINGS_URL = '/megaload/settings?tab=localgpu';
+
+// ─────────────────────────────────────────────────────────────────────────
+// 상품 모니터링 도우미(desktop-monitor) — 별도 exe·별도 버전. 다운로드 URL 단일 출처.
+//   release workflow(desktop-monitor-release.yml) 태그 규칙: `desktop-v*.*.*`
+//   ⚠️ releases/latest/download 는 다른 프로젝트 release 로 redirect 되어 404 나므로 명시 태그 사용.
+//   버전 올릴 때: 1) 릴리스 업로드 → 2) 이 값 변경 (순서 지킬 것).
+export const MONITOR_APP_VERSION = '0.1.13';
+const MONITOR_RELEASE_BASE =
+  `https://github.com/lhs0609a-cpu/coupanglanding/releases/download/desktop-v${MONITOR_APP_VERSION}`;
+export const MONITOR_DOWNLOAD_URLS = {
+  win: `${MONITOR_RELEASE_BASE}/Megaload-Monitor-Setup-${MONITOR_APP_VERSION}.exe`,
+  macIntel: `${MONITOR_RELEASE_BASE}/Megaload-Monitor-${MONITOR_APP_VERSION}-x64.dmg`,
+  macArm: `${MONITOR_RELEASE_BASE}/Megaload-Monitor-${MONITOR_APP_VERSION}-arm64.dmg`,
+} as const;
+// 모니터링 도우미 인증코드 발급·연결 진단 페이지.
+export const MONITOR_AUTH_URL = '/megaload/desktop-app';

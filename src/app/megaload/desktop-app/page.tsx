@@ -1,15 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { Download, Key, RefreshCw, Copy, CheckCircle2, AlertCircle, Monitor, Zap, Activity } from 'lucide-react';
+import { Download, Key, RefreshCw, Copy, CheckCircle2, AlertCircle, Monitor, Zap, Activity, Settings2 } from 'lucide-react';
+import Link from 'next/link';
+import { MONITOR_APP_VERSION, MONITOR_DOWNLOAD_URLS, WORKER_SETTINGS_URL } from '@/lib/megaload/worker-download';
 
-const APP_VERSION = '0.1.13';
-// Release URL 은 명시적 태그를 가리켜야 함.
-// `releases/latest/download/` 는 같은 repo 의 다른 프로젝트(gpu-worker) release 가 더 최근일 때
-// 그쪽으로 redirect 되어 desktop-monitor 파일을 찾지 못해 404 가 떴음.
-// desktop-monitor-release.yml workflow 의 tag 규칙: `desktop-v*.*.*`
-const RELEASE_TAG = `desktop-v${APP_VERSION}`;
-const RELEASE_BASE = `https://github.com/lhs0609a-cpu/coupanglanding/releases/download/${RELEASE_TAG}`;
+// 다운로드 URL·버전은 worker-download.ts 단일 출처에서 가져온다(설정 다운로드 허브와 동일 값 보장).
+const APP_VERSION = MONITOR_APP_VERSION;
 
 interface StatusInfo {
   isAlive: boolean;
@@ -231,9 +228,7 @@ export default function DesktopAppPage() {
               setCopied(true);
               // 3. installer 다운로드 (Win 기본, Mac은 별도)
               const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
-              const downloadUrl = isMac
-                ? `${RELEASE_BASE}/Megaload-Monitor-${APP_VERSION}-x64.dmg`
-                : `${RELEASE_BASE}/Megaload-Monitor-Setup-${APP_VERSION}.exe`;
+              const downloadUrl = isMac ? MONITOR_DOWNLOAD_URLS.macIntel : MONITOR_DOWNLOAD_URLS.win;
               window.location.href = downloadUrl;
               alert(
                 '✅ 인증코드가 복사되었습니다.\n\n다운로드된 설치 파일을 더블클릭하면:\n' +
@@ -267,7 +262,7 @@ export default function DesktopAppPage() {
         <p className="text-sm text-gray-600 mb-4">사용 중인 OS에 맞는 설치 파일을 받아주세요. <span className="text-emerald-700 font-medium">현재 최신 v{APP_VERSION}</span></p>
         <div className="grid grid-cols-3 gap-3">
           <a
-            href={`${RELEASE_BASE}/Megaload-Monitor-Setup-${APP_VERSION}.exe`}
+            href={MONITOR_DOWNLOAD_URLS.win}
             className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
             target="_blank" rel="noopener"
           >
@@ -275,7 +270,7 @@ export default function DesktopAppPage() {
             <span className="text-xs text-gray-400">v{APP_VERSION}</span>
           </a>
           <a
-            href={`${RELEASE_BASE}/Megaload-Monitor-${APP_VERSION}-x64.dmg`}
+            href={MONITOR_DOWNLOAD_URLS.macIntel}
             className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
             target="_blank" rel="noopener"
           >
@@ -283,7 +278,7 @@ export default function DesktopAppPage() {
             <span className="text-xs text-gray-400">v{APP_VERSION}</span>
           </a>
           <a
-            href={`${RELEASE_BASE}/Megaload-Monitor-${APP_VERSION}-arm64.dmg`}
+            href={MONITOR_DOWNLOAD_URLS.macArm}
             className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
             target="_blank" rel="noopener"
           >
@@ -294,6 +289,13 @@ export default function DesktopAppPage() {
         <p className="text-xs text-gray-400 mt-3">
           ⓘ 새 버전이 나오면 앱이 자동으로 알림 + 다운로드합니다 (실행 중일 때).
         </p>
+        <Link
+          href={WORKER_SETTINGS_URL}
+          className="inline-flex items-center gap-1.5 mt-3 text-xs font-medium text-indigo-600 hover:text-indigo-800"
+        >
+          <Settings2 className="w-3.5 h-3.5" />
+          설정 → 다운로드 센터에서 메가로드 도우미와 함께 받기
+        </Link>
       </div>
 
       {/* Step 2: 인증코드 발급 */}

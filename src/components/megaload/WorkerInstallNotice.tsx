@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Cpu, Download, Settings2, CheckCircle2, Loader2, ExternalLink } from 'lucide-react';
-import { WORKER_DOWNLOAD_URL, WORKER_SETTINGS_URL, WORKER_APP_VERSION } from '@/lib/megaload/worker-download';
+import { Cpu, Download, CheckCircle2, Loader2 } from 'lucide-react';
+import { WORKER_SETTINGS_URL, WORKER_APP_VERSION } from '@/lib/megaload/worker-download';
 
 interface WorkerStatus {
   online: boolean;
@@ -88,22 +88,13 @@ export default function WorkerInstallNotice({
           </div>
           <p className="text-xs text-gray-600 mt-1 leading-relaxed">{copy.desc}</p>
           <div className="flex flex-wrap items-center gap-2 mt-3">
-            <a
-              href={WORKER_DOWNLOAD_URL}
-              target="_blank"
-              rel="noopener noreferrer"
+            {/* 다운로드는 단일 허브(설정 → 로컬GPU 탭)에서만. 여기는 링크만. */}
+            <Link
+              href={WORKER_SETTINGS_URL}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#E31837] text-white rounded-md text-xs font-semibold hover:bg-[#c5142f] transition"
             >
               <Download className="w-3.5 h-3.5" />
-              메가로드 도우미 다운로드 (Windows)
-              <ExternalLink className="w-3 h-3 opacity-70" />
-            </a>
-            <Link
-              href={WORKER_SETTINGS_URL}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-indigo-300 text-indigo-700 rounded-md text-xs font-semibold hover:bg-indigo-100 transition"
-            >
-              <Settings2 className="w-3.5 h-3.5" />
-              설치 방법 · 내 사양 체크
+              메가로드 도우미 받기 · 설치 방법
             </Link>
           </div>
         </div>

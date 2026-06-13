@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X, School, Flame, ShieldAlert, Gavel, Receipt, MessageSquare, Map, ShieldCheck, Trophy, Search, Megaphone, Lightbulb, Building2, Bell, MessageCircle, HelpCircle, Tv, Zap, ArrowRight, ChevronDown } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X, School, Flame, ShieldAlert, Gavel, Receipt, MessageSquare, Map, ShieldCheck, Trophy, Search, Megaphone, Lightbulb, Building2, Bell, MessageCircle, HelpCircle, Tv, PlaySquare, Zap, ArrowRight, ChevronDown } from 'lucide-react';
 import type { SettlementBadgeData, FeePaymentBadgeData } from './DashboardLayout';
 import FeePaymentBanner from '@/components/settlement/FeePaymentBanner';
 import type { FeePaymentStatus } from '@/lib/supabase/types';
@@ -30,6 +30,7 @@ const baseNavItems = [
   { href: '/my/education', label: '교육', icon: School },
   { href: '/my/curriculum', label: '쿠팡 PT 교육 현황', icon: GraduationCap },
   { href: '/my/ad-academy', label: '광고 아카데미', icon: Tv },
+  { href: '/my/training-videos', label: '교육 영상', icon: PlaySquare },
   { href: '/my/guides', label: '운영 가이드', icon: BookOpen },
   { href: '/my/notices', label: '공지사항', icon: Bell },
   { href: '/my/support', label: '1:1 문의', icon: MessageCircle },
