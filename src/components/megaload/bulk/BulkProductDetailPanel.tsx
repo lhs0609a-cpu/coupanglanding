@@ -568,6 +568,8 @@ export default function BulkProductDetailPanel({
               noticeOverrides={noticeOverrides}
               panelWidth={panelWidth}
               onClose={toggleMobilePreview}
+              onUpdate={onUpdate}
+              onRemoveImage={onRemoveImage}
             />
           )}
         </>

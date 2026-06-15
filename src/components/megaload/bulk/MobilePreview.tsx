@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Star, ShoppingCart, Search, ChevronLeft as Back, Menu, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Star, ShoppingCart, Search, ChevronLeft as Back, Menu, X, Pencil, Trash2 } from 'lucide-react';
 import { buildRichDetailPageHtml } from '@/lib/megaload/services/detail-page-builder';
 import { fillNoticeFields, type NoticeCategoryMeta } from '@/lib/megaload/services/notice-field-filler';
 import { ensureObjectUrl } from '@/lib/megaload/services/client-folder-scanner';
@@ -26,6 +26,10 @@ interface MobilePreviewProps {
   /** 우측 검수 패널 너비 — 폰을 그 왼쪽에 핀 고정 */
   panelWidth: number;
   onClose: () => void;
+  /** 폰에서 직접 편집 — 노출상품명/판매가/정가 등 */
+  onUpdate?: (uid: string, field: string, value: string | number) => void;
+  /** 대표이미지 삭제 (index = mainImageUrls 기준) */
+  onRemoveImage?: (uid: string, imageIndex: number) => void;
 }
 
 /** order 배열로 이미지 필터링 (DetailPageContentTab와 동일 규칙) */
@@ -48,8 +52,29 @@ export default function MobilePreview({
   noticeOverrides,
   panelWidth,
   onClose,
+  onUpdate,
+  onRemoveImage,
 }: MobilePreviewProps) {
   const [carouselIdx, setCarouselIdx] = useState(0);
+  // 인라인 편집 상태 (노출상품명/판매가/정가)
+  const [editing, setEditing] = useState<null | 'title' | 'price' | 'original'>(null);
+  const [draft, setDraft] = useState('');
+  const editable = !!onUpdate;
+  const startEdit = (which: 'title' | 'price' | 'original', cur: string) => {
+    if (!editable) return;
+    setDraft(cur); setEditing(which);
+  };
+  const commitEdit = () => {
+    if (!onUpdate || !editing) { setEditing(null); return; }
+    if (editing === 'title') {
+      onUpdate(product.uid, 'editedDisplayProductName', draft.trim());
+    } else if (editing === 'price') {
+      onUpdate(product.uid, 'editedSellingPrice', Math.max(0, Math.round(Number(draft) || 0)));
+    } else if (editing === 'original') {
+      onUpdate(product.uid, 'editedOriginalPrice', Math.max(0, Math.round(Number(draft) || 0)));
+    }
+    setEditing(null);
+  };
   // 상세/리뷰 이미지는 lazy objectURL — 폰 하단 상세영역 렌더용
   const [detailUrls, setDetailUrls] = useState<string[]>([]);
   const [reviewUrls, setReviewUrls] = useState<string[]>([]);
@@ -260,21 +285,41 @@ export default function MobilePreview({
                 </div>
               </>
             )}
+            {/* 현재 이미지 삭제 */}
+            {images.length > 0 && onRemoveImage && (
+              <button
+                onClick={() => onRemoveImage(product.uid, Math.min(carouselIdx, images.length - 1))}
+                title="이 대표이미지 삭제"
+                className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/45 text-white flex items-center justify-center hover:bg-red-500 transition"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
-          {/* 썸네일 스트립 */}
+          {/* 썸네일 스트립 — 호버 시 ✕ 삭제 */}
           {images.length > 1 && (
             <div className="flex gap-1.5 px-3 py-2 overflow-x-auto border-b border-gray-100">
               {images.map((url, i) => (
-                <button
-                  key={i}
-                  onClick={() => setCarouselIdx(i)}
-                  className={`w-11 h-11 rounded border-2 overflow-hidden shrink-0 transition ${
-                    i === carouselIdx ? 'border-[#E31837]' : 'border-gray-200 opacity-70'
-                  }`}
-                >
-                  <img src={url} alt="" className="w-full h-full object-cover" decoding="async" />
-                </button>
+                <div key={i} className="relative group shrink-0">
+                  <button
+                    onClick={() => setCarouselIdx(i)}
+                    className={`w-11 h-11 rounded border-2 overflow-hidden block transition ${
+                      i === carouselIdx ? 'border-[#E31837]' : 'border-gray-200 opacity-70'
+                    }`}
+                  >
+                    <img src={url} alt="" className="w-full h-full object-cover" decoding="async" />
+                  </button>
+                  {onRemoveImage && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onRemoveImage(product.uid, i); }}
+                      title="이 이미지 삭제"
+                      className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-red-500 transition"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           )}
@@ -289,10 +334,30 @@ export default function MobilePreview({
               <span className="text-[10px] text-gray-400">판매자배송</span>
             </div>
 
-            {/* 노출상품명 */}
-            <h1 className="text-[15px] leading-snug text-gray-900 font-normal break-words">
-              {displayName}
-            </h1>
+            {/* 노출상품명 — 클릭 인라인 편집 */}
+            {editing === 'title' ? (
+              <textarea
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commitEdit}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.currentTarget.blur(); }
+                  if (e.key === 'Escape') { setEditing(null); }
+                }}
+                rows={3}
+                className="w-full text-[15px] leading-snug text-gray-900 border border-[#E31837] rounded px-1.5 py-1 outline-none resize-none"
+              />
+            ) : (
+              <h1
+                onClick={() => startEdit('title', displayName)}
+                title={editable ? '클릭해서 노출상품명 수정' : undefined}
+                className={`text-[15px] leading-snug text-gray-900 font-normal break-words ${editable ? 'cursor-text hover:bg-yellow-50 rounded px-0.5 -mx-0.5' : ''}`}
+              >
+                {displayName}
+                {editable && <Pencil className="inline w-3 h-3 text-gray-300 ml-1 align-text-bottom" />}
+              </h1>
+            )}
 
             {/* 평점 placeholder */}
             <div className="flex items-center gap-1 mt-1.5">
@@ -304,23 +369,50 @@ export default function MobilePreview({
               <span className="text-[10px] text-gray-300">등록 후 리뷰 표시</span>
             </div>
 
-            {/* 가격 */}
+            {/* 가격 — 판매가/정가 클릭 편집 */}
             <div className="mt-3">
-              {originalPrice > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-gray-400 line-through tabular-nums">
-                    {originalPrice.toLocaleString()}원
-                  </span>
-                </div>
+              {/* 정가(할인태그용) */}
+              {editing === 'original' ? (
+                <input
+                  type="number" autoFocus value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onBlur={commitEdit}
+                  onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setEditing(null); }}
+                  className="w-24 text-xs tabular-nums border-b-2 border-[#E31837] outline-none mb-0.5"
+                  placeholder="정가"
+                />
+              ) : (originalPrice > 0 || editable) && (
+                <button
+                  onClick={() => startEdit('original', String(originalPrice || ''))}
+                  title={editable ? '클릭해서 정가(할인 표시용) 수정' : undefined}
+                  className={`text-xs text-gray-400 tabular-nums ${originalPrice > 0 ? 'line-through' : ''} ${editable ? 'hover:bg-yellow-50 rounded cursor-text' : ''}`}
+                >
+                  {originalPrice > 0 ? `${originalPrice.toLocaleString()}원` : '+ 정가 입력'}
+                </button>
               )}
               <div className="flex items-baseline gap-1.5">
                 {discountPct > 0 && (
                   <span className="text-[#E31837] text-xl font-bold tabular-nums">{discountPct}%</span>
                 )}
-                <span className="text-gray-900 text-2xl font-bold tabular-nums">
-                  {sellingPrice.toLocaleString()}
-                </span>
+                {editing === 'price' ? (
+                  <input
+                    type="number" autoFocus value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onBlur={commitEdit}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setEditing(null); }}
+                    className="w-32 text-gray-900 text-2xl font-bold tabular-nums border-b-2 border-[#E31837] outline-none"
+                  />
+                ) : (
+                  <span
+                    onClick={() => startEdit('price', String(sellingPrice))}
+                    title={editable ? '클릭해서 판매가 수정' : undefined}
+                    className={`text-gray-900 text-2xl font-bold tabular-nums ${editable ? 'cursor-text hover:bg-yellow-50 rounded' : ''}`}
+                  >
+                    {sellingPrice.toLocaleString()}
+                  </span>
+                )}
                 <span className="text-gray-900 text-lg font-bold">원</span>
+                {editable && editing !== 'price' && <Pencil className="w-3 h-3 text-gray-300 self-center" />}
               </div>
             </div>
 
