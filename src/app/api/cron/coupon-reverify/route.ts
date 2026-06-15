@@ -51,9 +51,12 @@ export async function GET(request: Request) {
   };
 
   try {
+    // 커서를 호출 간 전달 → 호출마다 과거 쿠폰 40개로 전진 (835개도 한 틱에 완주).
+    let cursor: string | null = null;
     for (let i = 0; i < REVERIFY_LOOP_MAX; i++) {
       if (Date.now() - tickStart > ABS_DEADLINE_MS) break;
-      const res = await fetch(`${baseUrl}/api/promotion/reverify-reset?ptUserId=${encodeURIComponent(ptUserId)}`, {
+      const qs = `ptUserId=${encodeURIComponent(ptUserId)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+      const res = await fetch(`${baseUrl}/api/promotion/reverify-reset?${qs}`, {
         method: 'POST',
         headers: { ...cronAuth, 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -63,22 +66,29 @@ export async function GET(request: Request) {
         const txt = await res.text().catch(() => '');
         throw new Error(`reverify-reset HTTP ${res.status}: ${txt.slice(0, 200)}`);
       }
-      const data = await res.json() as { verified?: number; notFound?: number; resetItems?: number; hasMore?: boolean };
+      const data = await res.json() as { verified?: number; notFound?: number; resetItems?: number; hasMore?: boolean; nextCursor?: string | null };
       summary.verified = (summary.verified as number) + (data.verified || 0);
       summary.notFound = (summary.notFound as number) + (data.notFound || 0);
       summary.resetItems = (summary.resetItems as number) + (data.resetItems || 0);
-      if (!data.hasMore) break;
+      if (!data.hasMore || !data.nextCursor) break;
+      cursor = data.nextCursor;
     }
   } catch (err) {
     summary.error = err instanceof Error ? err.message : String(err);
     void logSystemError({ source: 'cron/coupon-reverify', error: err, context: { ptUserId } }).catch(() => {});
   }
 
-  // 완료 마킹 (에러여도 마킹 — 다음 사이클에 coupon-auto-apply 가 재적용 시도하므로 무한 재검증 방지)
-  await sc
-    .from('coupon_auto_sync_config')
-    .update({ download_reverified_at: new Date().toISOString() })
-    .eq('pt_user_id', ptUserId);
+  // 완료 마킹 — ★ 에러 없이 완주한 경우에만.
+  //   (예전 버그: 에러여도 마킹 → API 한 번 삐끗으로 그 유저는 영구 재검증 제외 →
+  //    STANDBY/가짜 쿠폰이 영영 복구 안 됨. 이제 에러면 마킹 안 해 다음 사이클에 재시도.)
+  //   reverify-reset 내부는 일시 오류를 per-coupon skip 하므로, summary.error 는
+  //   reverify-reset 자체가 HTTP 실패(인증/네트워크)한 하드에러일 때만 set 된다.
+  if (summary.error == null) {
+    await sc
+      .from('coupon_auto_sync_config')
+      .update({ download_reverified_at: new Date().toISOString() })
+      .eq('pt_user_id', ptUserId);
+  }
 
   summary.elapsed_ms = Date.now() - tickStart;
   return NextResponse.json({ processed: 1, summary });

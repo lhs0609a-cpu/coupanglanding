@@ -1034,10 +1034,23 @@ export async function createDownloadCoupon(
   credentials: CoupangCredentials,
   params: CreateDownloadCouponParams,
 ): Promise<CoupangCoupon> {
+  // ★ 계약서(예산) 없이 만든 다운로드 쿠폰은 시작일이 지나도 영원히 STANDBY 로 남아
+  //   할인이 발효되지 않는다(2026-04 사고: contractId=0 쿠폰 다수가 STANDBY 방치).
+  //   생성 단계에서 차단해 "죽은 쿠폰"을 애초에 안 만든다.
+  const contractIdNum = Number(params.contractId);
+  if (!contractIdNum || contractIdNum <= 0) {
+    throw new CoupangApiError(
+      `다운로드 쿠폰 생성 차단: 계약서 ID(contractId)가 없습니다(${params.contractId}). ` +
+      `계약서 없이 만든 쿠폰은 영구 STANDBY 로 남아 할인이 발효되지 않습니다.`,
+      400,
+      'CONTRACT_ID_MISSING',
+    );
+  }
+
   const mktPath = `${MKT_OPENAPI_BASE}/coupons`;
   const body: Record<string, unknown> = {
     title: params.title,
-    contractId: Number(params.contractId),
+    contractId: contractIdNum,
     couponType: 'DOWNLOAD',
     startDate: toCoupangDateFormat(params.startDate),
     endDate: toCoupangDateFormat(params.endDate),

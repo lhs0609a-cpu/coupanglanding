@@ -1,7 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { decryptPassword } from '@/lib/utils/encryption';
-import { verifyDownloadCoupon } from '@/lib/utils/coupang-api-client';
+import { verifyDownloadCoupon, fetchDownloadCoupon } from '@/lib/utils/coupang-api-client';
+
+/** 다운로드 쿠폰이 "죽었는지"(할인 미발효) 판정.
+ *  - contractId<=0: 예산계약 없음 → 시작일 지나도 영구 STANDBY (2026-04 사고).
+ *  - STANDBY 인데 시작일이 1시간 넘게 지남 → 활성화 실패로 굳은 상태.
+ *  반환: { dead, reason } / 단, 일시 오류(null+ERROR)는 dead=false 로 두어 live 쿠폰 오리셋 방지. */
+async function classifyCoupon(
+  credentials: Parameters<typeof fetchDownloadCoupon>[0],
+  couponId: number,
+): Promise<{ dead: boolean; reason: string }> {
+  const coupon = await fetchDownloadCoupon(credentials, couponId);
+  if (coupon) {
+    const status = String(coupon.couponStatus || '').toUpperCase();
+    const start = coupon.startDate ? new Date(coupon.startDate).getTime() : 0;
+    // ① 활성 상태면 무조건 보호 — 작동 중인 할인은 절대 리셋 안 함(contractId 에코가 0이어도).
+    if (['APPLIED', 'NORMAL', 'ISSUED', 'ACTIVE'].includes(status)) return { dead: false, reason: status };
+    // ② STANDBY: 시작 1시간 넘게 지났는데도 STANDBY = 활성화 실패로 굳음(대개 contractId=0) → 죽음.
+    //    아직 시작 전 STANDBY 는 정상이므로 보호.
+    if (status === 'STANDBY') {
+      return (start > 0 && start < Date.now() - 3_600_000)
+        ? { dead: true, reason: `STANDBY(시작일 ${coupon.startDate} 경과했으나 미활성)` }
+        : { dead: false, reason: 'STANDBY(시작 전)' };
+    }
+    // ③ 그 외 비활성 상태 + 예산계약 없음 → 죽음.
+    if (Number(coupon.contractId || 0) <= 0) return { dead: true, reason: 'contractId=0(예산계약 없음)' };
+    return { dead: false, reason: status };
+  }
+  // null = 404(실제 없음) 또는 일시 오류 — verify 로 구분. NOT_FOUND 만 dead, ERROR 는 skip.
+  const v = await verifyDownloadCoupon(credentials, couponId);
+  if (!v.exists && v.status === 'NOT_FOUND') return { dead: true, reason: 'NOT_FOUND(쿠팡에 없음)' };
+  return { dead: false, reason: v.status || 'UNKNOWN' };
+}
 import type { CoupangCredentials } from '@/lib/utils/coupang-api-client';
 import { logSystemError } from '@/lib/utils/system-log';
 
@@ -69,21 +100,36 @@ export async function POST(request: NextRequest) {
 
     const sc = await createServiceClient();
 
-    // success 로 기록된 다운로드 쿠폰 ID 수집 (중복 제거)
-    const { data: logs } = await sc
+    // ── 커서 기반 수집 (★ 핵심 수정) ──────────────────────────────
+    //   예전 버그: 매 호출이 항상 "최신 40개"만 봐서, 쿠폰이 40개 넘는 유저는
+    //   나머지가 영영 재검증 안 됐다(835개 유저 → 39개만 처리되고 종료).
+    //   이제 cursor(created_at) 보다 과거 쿠폰만 골라, 호출마다 다음 40개로 전진한다.
+    const cursor = url.searchParams.get('cursor')?.trim() || null;
+    let logQuery = sc
       .from('coupon_apply_log')
-      .select('coupon_id')
+      .select('coupon_id, created_at')
       .eq('pt_user_id', ptUser.id)
       .eq('coupon_type', 'download')
       .eq('success', true)
       .order('created_at', { ascending: false })
       .limit(5000);
+    if (cursor) logQuery = logQuery.lt('created_at', cursor);
+    const { data: logs } = await logQuery;
 
-    const couponIds = [...new Set(
-      (logs || [])
-        .map((l) => String((l as { coupon_id: string }).coupon_id || ''))
-        .filter((c) => c && c !== 'VERIFY' && !isNaN(Number(c))),
-    )].slice(0, MAX_COUPONS_PER_RUN);
+    // 등장 순서(최신→과거)대로 distinct 쿠폰 수집 + 각 쿠폰의 created_at 기억
+    const seen = new Map<string, string>(); // coupon_id → created_at
+    for (const l of (logs || []) as { coupon_id: string; created_at: string }[]) {
+      const cid = String(l.coupon_id || '');
+      if (!cid || cid === 'VERIFY' || isNaN(Number(cid))) continue;
+      if (!seen.has(cid)) seen.set(cid, l.created_at);
+    }
+    const allOrdered = [...seen.entries()];
+    const batch = allOrdered.slice(0, MAX_COUPONS_PER_RUN);
+    const couponIds = batch.map(([cid]) => cid);
+    // 다음 커서 = 이번 배치 마지막 쿠폰의 created_at (그보다 과거부터 다음 호출)
+    const nextCursor = batch.length > 0 ? batch[batch.length - 1][1] : null;
+    // 더 남았나: 이번 윈도에 40개 초과 distinct 가 있었거나, 로그 5000행을 꽉 채워 더 있을 수 있음
+    const hasMore = allOrdered.length > MAX_COUPONS_PER_RUN || (logs?.length || 0) >= 5000;
 
     let verified = 0;
     let notFound = 0;
@@ -91,10 +137,10 @@ export async function POST(request: NextRequest) {
 
     for (const cid of couponIds) {
       const num = Number(cid);
-      const v = await verifyDownloadCoupon(credentials, num);
+      const { dead, reason } = await classifyCoupon(credentials, num);
       verified++;
-      if (v.exists) continue;
-      notFound++;
+      if (!dead) continue;
+      notFound++; // "죽은 쿠폰" 카운트 (NOT_FOUND + STANDBY/contractId=0 포함)
 
       // 이 쿠폰에 묶였던 옵션ID(vendor_item_id) 수집
       const { data: items } = await sc
@@ -115,7 +161,7 @@ export async function POST(request: NextRequest) {
         .update({
           status: 'pending',
           download_coupon_applied: false,
-          error_message: `재검증: 다운로드 쿠폰 ${cid} 쿠팡에서 NOT_FOUND — 재적용 대기`,
+          error_message: `재검증: 다운로드 쿠폰 ${cid} ${reason} — 재적용 대기`,
         }, { count: 'exact' })
         .eq('pt_user_id', ptUser.id)
         .in('vendor_item_id', vids)
@@ -127,9 +173,10 @@ export async function POST(request: NextRequest) {
       ptUserId: ptUser.id,
       checkedCoupons: couponIds.length,
       verified,
-      notFound,
+      notFound, // 죽은 쿠폰 수 (NOT_FOUND + STANDBY/contractId=0)
       resetItems,
-      hasMore: couponIds.length >= MAX_COUPONS_PER_RUN,
+      nextCursor, // 다음 호출에 ?cursor= 로 전달 → 과거 쿠폰으로 전진
+      hasMore,
     });
   } catch (err) {
     console.error('[reverify-reset] error:', err);
