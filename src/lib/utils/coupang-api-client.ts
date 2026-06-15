@@ -1136,18 +1136,24 @@ export async function addDownloadCouponItems(
   console.log(`[addDownloadCouponItems] PUT ${mktPath} — 쿠폰 ${couponId}에 ${numericIds.length}개 아이템 등록`);
   console.log(`[addDownloadCouponItems] body: ${JSON.stringify(body).slice(0, 500)}`);
 
-  const rawData = await callCoupangApi(credentials, 'PUT', mktPath, body) as Record<string, unknown>;
+  const rawData = await callCoupangApi(credentials, 'PUT', mktPath, body) as unknown;
 
   console.log('[addDownloadCouponItems] 응답 전체:', JSON.stringify(rawData).slice(0, 800));
 
   // 공식 스펙(Add_VENDOR_ITEMS_TO_COUPON) 동기 응답:
-  //   { requestResultStatus: 'SUCCESS'|'FAIL', body: { couponId }, errorCode, errorMessage }
+  //   { requestResultStatus: 'SUCCESS'|'FAIL', body: { couponId, requestTransactionId }, errorCode, errorMessage }
   //   "상품 추가에 실패하면 해당 쿠폰은 파기됩니다" → FAIL 이면 쿠폰 자체가 삭제됨.
-  const data = (rawData.data || rawData) as Record<string, unknown>;
-  const status = String(data.requestResultStatus || rawData.requestResultStatus || '').toUpperCase();
-  const resultBody = (data.body || rawData.body) as Record<string, unknown> | undefined;
-  const errorMsg = String(data.errorMessage || rawData.errorMessage || '');
-  const errorCode = String(data.errorCode || rawData.errorCode || '');
+  // ★ 쿠팡이 실측에서 **배열** [{requestResultStatus:'SUCCESS', body:{...}}] 로 응답함(couponItems 1:1).
+  //   객체로만 읽던 기존 코드는 array.requestResultStatus=undefined → SUCCESS 인데도 "불명확 실패"로
+  //   throw → 매 재시도마다 새 쿠폰 양산(중복) + 아이템 미반영. 배열/래핑 모두 평탄화한다.
+  const unwrap = (x: unknown): Record<string, unknown> =>
+    (Array.isArray(x) ? (x[0] ?? {}) : (x ?? {})) as Record<string, unknown>;
+  const root = unwrap(rawData);
+  const data = unwrap(root.data ?? root);
+  const status = String(data.requestResultStatus || root.requestResultStatus || '').toUpperCase();
+  const resultBody = unwrap(data.body ?? root.body) as Record<string, unknown> | undefined;
+  const errorMsg = String(data.errorMessage || root.errorMessage || '');
+  const errorCode = String(data.errorCode || root.errorCode || '');
 
   // ── 동기 SUCCESS — 스펙상 유일한 성공 신호. 이때만 성공으로 간주 ──
   if (status === 'SUCCESS') {
@@ -1175,7 +1181,7 @@ export async function addDownloadCouponItems(
   const txId = String(
     resultBody?.requestTransactionId
     || data.requestTransactionId
-    || rawData.requestTransactionId
+    || root.requestTransactionId
     || '',
   );
 
