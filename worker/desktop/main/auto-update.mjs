@@ -26,6 +26,9 @@ const ulog = (m) => { try { appendFileSync(AU_LOG, `[${new Date().toISOString()}
 let initialized = false;
 let declinedVersion = null;
 let busy = false;
+// 다운로드 완료됐지만 사용자가 "지금 재시작"을 미룬 설치본 — 다음 앱 종료 시 자동 설치.
+//   트레이 상주 앱이라 재시작을 잘 안 해 업데이트가 영영 안 깔리던 문제 해소(0.2.31에 묶이던 케이스).
+let pendingInstall = null;
 
 /** semver 비교: a>b 면 양수 */
 function cmpVer(a, b) {
@@ -89,7 +92,13 @@ async function downloadAndInstall(ver, file, sha, win) {
       detail: '지금 설치하면 앱이 종료되고 설치 후 자동으로 다시 실행됩니다.',
     };
     const { response } = win ? await dialog.showMessageBox(win, box) : await dialog.showMessageBox(box);
-    if (response !== 0) { busy = false; return; }
+    if (response !== 0) {
+      // 지금 재시작 거절 → 설치본을 보류로 두고 다음 종료 시 자동 설치.
+      pendingInstall = { dest, ver };
+      ulog(`재시작 미룸 — 다음 종료 시 자동 설치 예약 (v${ver})`);
+      try { new Notification({ title: '메가로드 도우미', body: `v${ver} 업데이트는 다음에 도우미를 종료할 때 자동 설치됩니다.` }).show(); } catch { /* noop */ }
+      busy = false; return;
+    }
 
     // NSIS 설치기 실행 → customInit 이 실행중 앱(MegaloadDesktop) 종료 후 설치 + runAfterFinish 로 재실행.
     // ⚠️ 반드시 OS 셸로 실행해 앱의 프로세스 트리/잡오브젝트 "밖"에서 돌게 한다.
@@ -128,6 +137,12 @@ export function setupAutoUpdate(opts) {
   if (!app.isPackaged) { ulog('dev 모드 — 업데이트 체크 비활성'); return; }
   if (initialized) return;
   initialized = true;
+  // 보류 설치본이 있으면 앱 종료 시 자동 설치 실행(트리/잡 밖에서 도는 shell.openPath 사용 — install-now 와 동일 방식).
+  app.on('before-quit', () => {
+    if (!pendingInstall) return;
+    try { shell.openPath(pendingInstall.dest); ulog(`종료 시 보류 업데이트 설치 실행: ${pendingInstall.dest}`); }
+    catch (e) { ulog(`종료 시 설치 실패: ${e?.message || e}`); }
+  });
   const check = () => checkAndPrompt(opts.getWindow).catch((e) => ulog(`체크 예외: ${e.message}`));
   setTimeout(check, 12_000);                  // 부팅 12초 후
   setInterval(check, 6 * 60 * 60 * 1000);     // 이후 6시간마다
