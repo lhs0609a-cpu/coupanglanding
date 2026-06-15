@@ -90,6 +90,10 @@ async function tick(ctx) {
 }
 function start(ctx) {
   if (running) return;
+  // 사용자가 켰음을 영속화 → 앱 재시작(또는 자동업데이트 후) 시 setup()에서 자동 재개.
+  //   stop()에서는 플래그를 건드리지 않음(앱 종료 onQuit도 stop을 부르므로). 명시적 정지는
+  //   ipc 'stock-monitor:stop' 핸들러에서만 플래그를 끈다.
+  try { ctx.store.set('monitorEnabled', true); } catch { /* ignore */ }
   running = true; stats.online = true; ctx.send('stock-monitor:stats', { ...stats });
   void tick(ctx);
   cronTimer = setInterval(() => { if (running) void tick(ctx); }, CRON_TICK_MS);
@@ -108,14 +112,27 @@ export default {
   icon: '📦',
   order: 0,
   events: ['stock-monitor:log', 'stock-monitor:stats'],
-  trayItems: (ctx) => (running ? [{ label: '모니터링 정지', click: () => stop(ctx) }] : []),
+  // 앱 시작 시: 직전에 켜져 있었고(monitorEnabled) 토큰이 있으면 자동 재개.
+  //   → 앱 재시작/자동업데이트로 모듈이 조용히 멈추던 문제 해소. 토큰 무효면 tick이
+  //     '인증 실패'만 로깅하고 idle(쿠팡/네이버 호출 안 함)하므로 안전.
+  setup: (ctx) => {
+    try {
+      if (ctx.store.get('monitorEnabled') === true && tokenOf(ctx)) {
+        ctx.send('stock-monitor:log', '이전에 켜져 있어 품절 모니터링을 자동 재개합니다…');
+        start(ctx);
+      }
+    } catch { /* ignore */ }
+  },
+  trayItems: (ctx) => (running ? [{ label: '모니터링 정지', click: () => { stop(ctx); try { ctx.store.set('monitorEnabled', false); } catch {} } }] : []),
   ipc: {
     'stock-monitor:state': (ctx) => ({ hasToken: !!tokenOf(ctx), running, stats }),
     'stock-monitor:set-token': (ctx, { token } = {}) => { ctx.store.set('monitorToken', (token || '').trim()); return true; },
     'stock-monitor:verify': (ctx) => verifyToken(ctx),
     'stock-monitor:start': (ctx) => { start(ctx); return true; },
-    'stock-monitor:stop': (ctx) => { stop(ctx); return true; },
+    // 명시적 정지 — 자동 재개 플래그도 끔(다음 시작 때 자동 재개 안 함).
+    'stock-monitor:stop': (ctx) => { stop(ctx); try { ctx.store.set('monitorEnabled', false); } catch {} return true; },
     'stock-monitor:open-web': (ctx) => { ctx.shell.openExternal(ctx.services.webOrigin + '/megaload/desktop-app'); return true; },
   },
+  // 앱 종료 시엔 plain stop만(플래그 보존) → 다음 실행에서 자동 재개.
   onQuit: (ctx) => stop(ctx),
 };
