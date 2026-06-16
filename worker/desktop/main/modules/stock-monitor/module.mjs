@@ -112,13 +112,15 @@ export default {
   icon: '📦',
   order: 0,
   events: ['stock-monitor:log', 'stock-monitor:stats'],
-  // 앱 시작 시: 직전에 켜져 있었고(monitorEnabled) 토큰이 있으면 자동 재개.
-  //   → 앱 재시작/자동업데이트로 모듈이 조용히 멈추던 문제 해소. 토큰 무효면 tick이
-  //     '인증 실패'만 로깅하고 idle(쿠팡/네이버 호출 안 함)하므로 안전.
+  // 앱 시작 시: 토큰이 있고 사용자가 명시적으로 "정지"하지 않았으면 자동 시작.
+  //   ★ 기본값 ON — monitorEnabled 가 undefined(첫 실행/앱 전환) 여도 켠다.
+  //     오직 명시적 정지(monitorEnabled===false)만 OFF. → "도우미 연결되면 모니터링도 자동",
+  //     매번 수동 '시작' 누를 필요 없음(예전 함정: ===true 게이트라 첫 실행엔 영영 수동).
+  //   토큰 무효면 tick 이 '인증 실패'만 로깅하고 idle(외부 호출 안 함)하므로 안전.
   setup: (ctx) => {
     try {
-      if (ctx.store.get('monitorEnabled') === true && tokenOf(ctx)) {
-        ctx.send('stock-monitor:log', '이전에 켜져 있어 품절 모니터링을 자동 재개합니다…');
+      if (ctx.store.get('monitorEnabled') !== false && tokenOf(ctx)) {
+        ctx.send('stock-monitor:log', '연결됨 — 품절 모니터링을 자동 시작합니다…');
         start(ctx);
       }
     } catch { /* ignore */ }
@@ -126,7 +128,12 @@ export default {
   trayItems: (ctx) => (running ? [{ label: '모니터링 정지', click: () => { stop(ctx); try { ctx.store.set('monitorEnabled', false); } catch {} } }] : []),
   ipc: {
     'stock-monitor:state': (ctx) => ({ hasToken: !!tokenOf(ctx), running, stats }),
-    'stock-monitor:set-token': (ctx, { token } = {}) => { ctx.store.set('monitorToken', (token || '').trim()); return true; },
+    'stock-monitor:set-token': (ctx, { token } = {}) => {
+      ctx.store.set('monitorToken', (token || '').trim());
+      // 코드 저장 즉시 자동 시작(명시적 정지 상태가 아니면) → "저장" 후 "시작"을 또 누를 필요 없음.
+      if (tokenOf(ctx) && ctx.store.get('monitorEnabled') !== false) start(ctx);
+      return true;
+    },
     'stock-monitor:verify': (ctx) => verifyToken(ctx),
     'stock-monitor:start': (ctx) => { start(ctx); return true; },
     // 명시적 정지 — 자동 재개 플래그도 끔(다음 시작 때 자동 재개 안 함).
