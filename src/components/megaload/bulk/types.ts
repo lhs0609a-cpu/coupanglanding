@@ -92,6 +92,8 @@ export interface EditableProduct extends PreviewProduct {
   editedOverseasPurchased?: 'NOT_OVERSEAS_PURCHASED' | 'OVERSEAS_PURCHASED';
   editedNoticeValues?: Record<string, string>;
   editedAttributeValues?: Record<string, string>;
+  /** 자동기입했지만 "추정(불확실)"한 속성명 — ENUM을 상품명 매칭 없이 첫값으로 찍은 것. UI가 "확인 필요(클릭선택)"로 노출. 사용자가 확인하면 제거. */
+  autoFilledUncertain?: string[];
   // 상세페이지 콘텐츠 오버라이드
   editedDescription?: string;
   editedStoryParagraphs?: string[];

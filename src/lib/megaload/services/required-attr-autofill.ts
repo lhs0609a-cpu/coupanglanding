@@ -72,38 +72,54 @@ function extractWeightForAttr(text: string, m: AutofillAttrMeta): string | null 
  * - 중량/용량(NUMBER): 상품명에서 추출되면 채우고, 못 뽑으면 결과에서 생략(경고 유지)
  * - 그 외 전부: ENUM 첫값/키워드, 수량 등 NUMBER "1{단위}", TEXT 폴백 → 항상 채움
  */
-/** 단일 속성의 자동기입 후보값 계산. extracted=true 면 상품명에서 실제로 뽑은 값(기본값 아님). */
-function computeAttrValue(attr: AutofillAttrMeta, text: string): { value: string | null; extracted: boolean } {
+/**
+ * 단일 속성의 자동기입 후보값 계산.
+ * - extracted=true : 상품명에서 실제로 뽑은 값(확실)
+ * - isEnum=true    : 선택형(허용값 목록 존재). extracted=false 인 ENUM = "첫값으로 찍은 추정"(불확실)
+ */
+function computeAttrValue(attr: AutofillAttrMeta, text: string): { value: string | null; extracted: boolean; isEnum: boolean } {
   // 방어적: attributeValues 가 배열이 아니거나 항목이 null 이어도 안전(부분/손상 캐시 대비)
   const rawVals = Array.isArray(attr.attributeValues) ? attr.attributeValues : [];
   const allowed = rawVals
     .map((v: unknown) => (v && typeof v === 'object' ? (v as { attributeValueName?: unknown }).attributeValueName : undefined))
     .filter((a): a is string => typeof a === 'string' && !!a);
-  // ENUM(선택형): 상품명 키워드 매칭 → 없으면 첫 허용값
+  // ENUM(선택형): 상품명 키워드 매칭 → 없으면 첫 허용값(추정)
   if (allowed.length > 0) {
     const matched = allowed.find((a) => a && text.includes(a));
-    return { value: matched || allowed[0], extracted: !!matched };
+    return { value: matched || allowed[0], extracted: !!matched, isEnum: true };
   }
   const typeName = typeof attr.attributeTypeName === 'string' ? attr.attributeTypeName : '';
   const isWeight = WEIGHT_RE.test(typeName);
   if (attr.dataType === 'NUMBER') {
     if (isWeight) {
       const v = extractWeightForAttr(text, attr);
-      return { value: v, extracted: !!v }; // 못 뽑으면 null(안전우선)
+      return { value: v, extracted: !!v, isEnum: false }; // 못 뽑으면 null(안전우선)
     }
     const unit = pickUnit(attr);
-    return { value: unit ? `1${unit}` : '1', extracted: false };
+    return { value: unit ? `1${unit}` : '1', extracted: false, isEnum: false };
   }
   // TEXT/STRING/기타
-  return { value: textFallback(typeName), extracted: false };
+  return { value: textFallback(typeName), extracted: false, isEnum: false };
 }
 
-export function computeRequiredAttrAutofill(
+export interface AutofillResult {
+  /** editedAttributeValues 에 머지할 자동기입값 */
+  values: Record<string, string>;
+  /**
+   * "불확실 추정" 속성명 — 상품명에 매칭이 없어 ENUM 첫 허용값으로 찍은 것들.
+   * UI 가 "확인 필요(클릭해서 선택)" 로 노출 → 사용자가 한 번에 확정.
+   */
+  uncertainEnum: string[];
+}
+
+/** 자동기입 + 불확실 추정 목록까지 반환 (전자동 + 클릭확인 UI 용) */
+export function computeRequiredAttrAutofillDetailed(
   product: { editedDisplayProductName?: string; name?: string },
   attributeMeta: AutofillAttrMeta[] | undefined,
-): Record<string, string> {
+): AutofillResult {
   const out: Record<string, string> = {};
-  if (!Array.isArray(attributeMeta) || attributeMeta.length === 0) return out;
+  const uncertainEnum: string[] = [];
+  if (!Array.isArray(attributeMeta) || attributeMeta.length === 0) return { values: out, uncertainEnum };
   const text = `${product?.editedDisplayProductName || ''} ${product?.name || ''}`;
 
   // 필수 EXPOSED 만(농산물 중량 제외) → 단독 / 택1그룹 분리
@@ -120,33 +136,42 @@ export function computeRequiredAttrAutofill(
     else singles.push(attr);
   }
 
-  // 단독: 각각 채움(값 있으면)
+  // 단독: 각각 채움(값 있으면). ENUM 을 첫값으로 찍었으면(불확실) 표시.
   for (const attr of singles) {
-    const { value } = computeAttrValue(attr, text);
-    if (value) out[attr.attributeTypeName] = value;
+    const { value, extracted, isEnum } = computeAttrValue(attr, text);
+    if (value) {
+      out[attr.attributeTypeName] = value;
+      if (isEnum && !extracted) uncertainEnum.push(attr.attributeTypeName);
+    }
   }
 
   // ★ 택1 그룹: 멤버 중 "하나만" 채운다(서버 buildAttributes 561-593 과 동일).
   //   우선순위: 상품명에서 추출된 멤버 > 기본값이라도 채울 수 있는 첫 멤버.
   //   전부 못 채우면(예: 중량/용량 둘 다 추출 실패) 비워 둠 → 서버가 한쪽 기본값 채움 + 경고.
   for (const members of groups.values()) {
-    if (members.length === 1) {
-      const { value } = computeAttrValue(members[0], text);
-      if (value) out[members[0].attributeTypeName] = value;
-      continue;
-    }
-    let chosen: { name: string; value: string } | null = null;
+    let chosen: { name: string; value: string; isEnum: boolean; extracted: boolean } | null = null;
     // pass1: 상품명에서 실제 추출된 멤버
     for (const m of members) {
-      const { value, extracted } = computeAttrValue(m, text);
-      if (value && extracted) { chosen = { name: m.attributeTypeName, value }; break; }
+      const { value, extracted, isEnum } = computeAttrValue(m, text);
+      if (value && extracted) { chosen = { name: m.attributeTypeName, value, isEnum, extracted }; break; }
     }
     // pass2: 추출 없으면 기본값이라도 채울 수 있는 첫 멤버
     if (!chosen) for (const m of members) {
-      const { value } = computeAttrValue(m, text);
-      if (value) { chosen = { name: m.attributeTypeName, value }; break; }
+      const { value, extracted, isEnum } = computeAttrValue(m, text);
+      if (value) { chosen = { name: m.attributeTypeName, value, isEnum, extracted }; break; }
     }
-    if (chosen) out[chosen.name] = chosen.value;
+    if (chosen) {
+      out[chosen.name] = chosen.value;
+      if (chosen.isEnum && !chosen.extracted) uncertainEnum.push(chosen.name);
+    }
   }
-  return out;
+  return { values: out, uncertainEnum };
+}
+
+/** 값만 반환(기존 호출 호환) */
+export function computeRequiredAttrAutofill(
+  product: { editedDisplayProductName?: string; name?: string },
+  attributeMeta: AutofillAttrMeta[] | undefined,
+): Record<string, string> {
+  return computeRequiredAttrAutofillDetailed(product, attributeMeta).values;
 }

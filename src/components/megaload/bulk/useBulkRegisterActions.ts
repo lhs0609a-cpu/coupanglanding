@@ -11,7 +11,7 @@ import type {
 import type { PreflightProductResult, CanaryResult } from '@/lib/megaload/types';
 import { DEFAULT_PREVENTION_CONFIG, DISABLED_PREVENTION_CONFIG } from '@/lib/megaload/services/item-winner-prevention';
 import { isCommodityCategory } from '@/lib/megaload/services/stock-image-service';
-import { computeRequiredAttrAutofill } from '@/lib/megaload/services/required-attr-autofill';
+import { computeRequiredAttrAutofillDetailed } from '@/lib/megaload/services/required-attr-autofill';
 import { addRecentPath } from './BulkStep1Settings';
 import { isAgriProduct, resolveAgriWeight } from './option-candidates';
 import { createClient } from '@/lib/supabase/client';
@@ -220,7 +220,7 @@ export function useBulkRegisterActions() {
   //   상품×카테고리 단위로 1회만 실행(autofilledAttrsRef 가드) → 사용자가 지운 값 재채움 방지·루프 방지.
   const autofilledAttrsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const updates = new Map<string, Record<string, string>>();
+    const updates = new Map<string, { editedAttributeValues: Record<string, string>; autoFilledUncertain: string[] }>();
     for (const p of products) {
       if (!p.editedCategoryCode) continue;
       const meta = categoryMetaCache[p.editedCategoryCode];
@@ -228,17 +228,23 @@ export function useBulkRegisterActions() {
       const key = `${p.uid}:${p.editedCategoryCode}`;
       if (autofilledAttrsRef.current.has(key)) continue;
       autofilledAttrsRef.current.add(key);
-      const fill = computeRequiredAttrAutofill(p, meta.attributeMeta);
+      const { values: fill, uncertainEnum } = computeRequiredAttrAutofillDetailed(p, meta.attributeMeta);
       const cur = p.editedAttributeValues || {};
       const merged = { ...cur };
       let any = false;
       for (const [k, v] of Object.entries(fill)) {
         if (cur[k] === undefined && v) { merged[k] = v; any = true; } // 미설정(undefined)만 채움 — 사용자 입력·클리어 보존
       }
-      if (any) updates.set(p.uid, merged);
+      // 이미 사용자가 값을 가진 속성은 "불확실"에서 제외(자동 추정값을 새로 넣은 것만 확인 대상)
+      const uncertain = uncertainEnum.filter((n) => cur[n] === undefined);
+      if (any || uncertain.length > 0) {
+        updates.set(p.uid, { editedAttributeValues: merged, autoFilledUncertain: uncertain });
+      }
     }
     if (updates.size > 0) {
-      setProducts((prev) => prev.map((p) => updates.has(p.uid) ? { ...p, editedAttributeValues: updates.get(p.uid)! } : p));
+      setProducts((prev) => prev.map((p) => updates.has(p.uid)
+        ? { ...p, editedAttributeValues: updates.get(p.uid)!.editedAttributeValues, autoFilledUncertain: updates.get(p.uid)!.autoFilledUncertain }
+        : p));
     }
   }, [products, categoryMetaCache]);
 

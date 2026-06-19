@@ -678,6 +678,21 @@ export default function CoupangFieldsSection({
     () => (meta ? meta.attributes.filter((a) => a.required && !(product.editedAttributeValues?.[a.name])) : []),
     [meta, product.editedAttributeValues],
   );
+  // 자동기입했지만 "추정(불확실)"한 ENUM 속성 — meta.attributes 에서 해당 항목(허용값 포함)만 추림
+  const uncertainAttrs = useMemo(
+    () => {
+      if (!meta || !product.autoFilledUncertain?.length) return [];
+      const set = new Set(product.autoFilledUncertain);
+      return meta.attributes.filter((a) => set.has(a.name));
+    },
+    [meta, product.autoFilledUncertain],
+  );
+  // 추정값 확인(확정) — autoFilledUncertain 에서 제거하면 "확인 필요" 목록에서 사라짐
+  const confirmUncertain = useCallback((attrName: string) => {
+    const cur = product.autoFilledUncertain || [];
+    onUpdate(product.uid, 'autoFilledUncertain', cur.filter((n) => n !== attrName));
+  }, [product.uid, product.autoFilledUncertain, onUpdate]);
+
   const missingRequiredNotices = useMemo(() => {
     if (!meta) return [] as { ncName: string; fieldName: string; key: string }[];
     const out: { ncName: string; fieldName: string; key: string }[] = [];
@@ -824,6 +839,41 @@ export default function CoupangFieldsSection({
             ))}
           </div>
           <p className="text-[10px] text-red-500/80 mt-1.5">채우면 자동으로 사라지고 아래 해당 섹션·상단 상태에 반영됩니다.</p>
+        </div>
+      )}
+
+      {/* 확인 필요 — 자동으로 채웠지만 상품명에서 확실히 못 찾은 "추정값"(주로 ENUM 첫값). 클릭 한 번으로 확정/변경. */}
+      {meta && uncertainAttrs.length > 0 && (
+        <div className="rounded-lg border-2 border-blue-300 bg-blue-50/60 p-3 mb-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-blue-500" />
+            <span className="text-xs font-semibold text-blue-700">
+              확인 필요 — 자동 추정값 ({uncertainAttrs.length}개) · 맞으면 ✓, 아니면 선택
+            </span>
+          </div>
+          <div className="space-y-1.5">
+            {uncertainAttrs.map((attr, i) => (
+              <div key={`u-${i}`} className="flex items-center gap-2 border-l-2 border-l-blue-400 pl-2">
+                <label className="text-[10px] w-28 shrink-0 truncate text-blue-700 font-medium" title={attr.name}>
+                  {attr.name}
+                </label>
+                <AttrControl
+                  attr={attr}
+                  value={product.editedAttributeValues?.[attr.name] ?? ''}
+                  required
+                  onChange={(v) => { handleAttributeChange(attr.name, v); confirmUncertain(attr.name); }}
+                />
+                <button
+                  onClick={() => confirmUncertain(attr.name)}
+                  title="이 추정값이 맞음 — 확정"
+                  className="text-[10px] px-2 py-1 rounded bg-blue-500 text-white hover:bg-blue-600 shrink-0"
+                >
+                  ✓ 확인
+                </button>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-blue-500/80 mt-1.5">자동으로 채웠지만 상품명에서 확실히 못 찾은 값입니다. ✓ 누르거나 선택하면 사라집니다.</p>
         </div>
       )}
 
