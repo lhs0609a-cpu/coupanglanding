@@ -604,7 +604,10 @@ export function generateStoryV2(
     const normC = (s: string): string => s.replace(/[\s.,!?。~()[\]"'·…]/g, '');
     const out: string[] = [];
     for (const p of paragraphs) {
-      const sentences = p.split(/(?<=[.!?。])\s+/);
+      // 문장 경계: 종결부호 + '다 '(한국어 평서문 종결) — 하버스 DUP/CROSSDUP 세그먼트와 일치시켜
+      //   run-on 에 박힌 마무리 꼬리("…제품입니다")도 별도 단위로 잡는다. '다' 보존(lookbehind)이라
+      //   공백 재결합이 무손실.
+      const sentences = p.split(/(?<=[.!?。다])\s+/);
       const keptSents: string[] = [];
       for (const sent of sentences) {
         const m = sent.match(/[.!?。]\s*$/);
