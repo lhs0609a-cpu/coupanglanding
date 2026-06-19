@@ -601,6 +601,7 @@ export function generateStoryV2(
   //     쉼표/접속 경계로 분해(하버스 CROSSDUP 규칙과 동일), 문장 종결부호는 보존.
   {
     const seenClause = new Set<string>();
+    const seenSent = new Set<string>(); // 문장 전체 dedup — 짧은 절(<10자)로만 이뤄진 문장 반복 차단
     const normC = (s: string): string => s.replace(/[\s.,!?。~()[\]"'·…]/g, '');
     const out: string[] = [];
     for (const p of paragraphs) {
@@ -610,6 +611,10 @@ export function generateStoryV2(
       const sentences = p.split(/(?<=[.!?。다])\s+/);
       const keptSents: string[] = [];
       for (const sent of sentences) {
+        // 문장 전체가 이미 등장했으면 통째로 제거 (예 "ISO인증, 프리미엄 품질입니다." — 각 절은
+        //   <10자라 절-dedup 이 못 잡지만 문장 전체는 반복).
+        const sk = normC(sent);
+        if (sk.length >= 12) { if (seenSent.has(sk)) continue; seenSent.add(sk); }
         const m = sent.match(/[.!?。]\s*$/);
         const endPunct = m ? m[0].trim() : '';
         const core = m ? sent.slice(0, sent.length - m[0].length) : sent;
