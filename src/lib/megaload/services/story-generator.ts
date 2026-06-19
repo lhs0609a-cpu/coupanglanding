@@ -593,6 +593,40 @@ export function generateStoryV2(
     paragraphs = sanitizeParas(paragraphs);
   }
 
+  // ── 절(clause) 단위 교차문단 dedup ──────────────────────────────
+  //   문제: closer/CTA 가 블록마다 pickRandom 으로 뽑혀(dedup 없음) 같은 마무리 절이
+  //     여러 문단에 반복됨("더 좋은 결과를 만드세요" ×8 등). 문장 단위 dedup 은 varied
+  //     문장에 같은 절이 붙으면 못 잡아 16k×100 실측 CROSSDUP 37.7% 였음.
+  //   해결: 본문 전역에서 동일 정규화 절(≥10자)이 2회+ 나오면 뒤 것을 제거(첫 등장만 유지).
+  //     쉼표/접속 경계로 분해(하버스 CROSSDUP 규칙과 동일), 문장 종결부호는 보존.
+  {
+    const seenClause = new Set<string>();
+    const normC = (s: string): string => s.replace(/[\s.,!?。~()[\]"'·…]/g, '');
+    const out: string[] = [];
+    for (const p of paragraphs) {
+      const sentences = p.split(/(?<=[.!?。])\s+/);
+      const keptSents: string[] = [];
+      for (const sent of sentences) {
+        const m = sent.match(/[.!?。]\s*$/);
+        const endPunct = m ? m[0].trim() : '';
+        const core = m ? sent.slice(0, sent.length - m[0].length) : sent;
+        const parts = core.split(/,\s*|\s+(?=막상|그리고|하지만|또한)/);
+        const keptParts: string[] = [];
+        for (const part of parts) {
+          const t = part.trim();
+          if (!t) continue;
+          const k = normC(t);
+          if (k.length >= 10) { if (seenClause.has(k)) continue; seenClause.add(k); }
+          keptParts.push(t);
+        }
+        if (keptParts.length) keptSents.push(keptParts.join(', ') + endPunct);
+      }
+      const joined = keptSents.join(' ').trim();
+      if (joined.replace(/[\s.,!?]/g, '').length >= 5) out.push(joined);
+    }
+    paragraphs = out;
+  }
+
   // reviewTexts 도 동일 후처리
   const cleanedReviewTexts = (() => {
     const isFood = isFoodCategory(categoryPath);

@@ -70,7 +70,10 @@ function genName(rng, leaf, clean) {
 const PLACEHOLDER_RE = /\{[^}]*\}|\$\{|\[\[|\]\]|__[A-Za-z가-힣]+__|\(\s*\)|（\s*）|�/;
 const ISOLATED_JAMO_RE = /(^|\s)[ㄱ-ㅎㅏ-ㅣ]+(\s|$)/;
 const ADJ_DUP_RE = /([가-힣]{2,})\s+\1(?=[\s.,!?]|$)/;
-const CTA_RE = /(담아두|구매|주문|장바구니|선택|소장|만나보|경험해|준비하세요|후회 없)/;
+const CTA_RE = /(담아두|구매|주문|장바구니|선택|소장|만나보|경험해|준비하세요|후회 없|추천|강추|준비하|만나|챙기|함께하)/;
+// ── 설득력 사전 (SEO·설득 확장 검사용) ──
+const BENEFIT_RE = /(만족|좋[았으은아]|편[하리해]|효과|도움|해결|깔끔|튼튼|가성비|품질|꼼꼼|넉넉|편안|간편|든든|실용|예쁘|이쁘|고급|부드럽|쾌적|안심|걱정\s*없|손쉽|빠르)/;
+const SOCIAL_RE = /(후기|샀|구매|써보|써봤|재구매|받았|선물|주문|배송|딸|아들|엄마|아빠|친구|지인|모두|다들|인기|애용|단골|입소문|추천받)/;
 const FORMAL_RE = /(습니다|입니다|됩니다|합니다|니다[.!]|다[.!])/g;
 const CASUAL_RE = /(에요|예요|어요|아요|해요|네요|세요|요[.!])/g;
 
@@ -89,7 +92,8 @@ function splitClauses(text) {
 
 const stats = {
   cats: 0, calls: 0, clean: 0, noisy: 0, charSum: 0,
-  D: { CRASH: 0, PLACEHOLDER: 0, LEAF: 0, CROSSCAT: 0, FORBIDDEN: 0, DUP: 0, CLAUSEDUP: 0, CROSSDUP: 0, GRAMMAR: 0, LEN: 0, BROKEN: 0, TONE: 0 },
+  D: { CRASH: 0, PLACEHOLDER: 0, LEAF: 0, CROSSCAT: 0, FORBIDDEN: 0, DUP: 0, CLAUSEDUP: 0, CROSSDUP: 0, GRAMMAR: 0, LEN: 0, BROKEN: 0, TONE: 0,
+    S_THIN: 0, S_KWDENSITY: 0, P_PARAS: 0, P_BENEFIT: 0, P_SOCIAL: 0, P_CTA: 0, P_WEAK: 0 },
   failCats: {}, samples: {},
 };
 for (const k of Object.keys(stats.D)) { stats.failCats[k] = new Set(); stats.samples[k] = []; }
@@ -203,6 +207,24 @@ async function run() {
       const cm = (body.match(CASUAL_RE) || []).length;
       const tot = fm + cm;
       if (tot >= 6) { const minor = Math.min(fm, cm) / tot; if (minor > 0.3) fail('TONE', { code, leaf, name, formal: fm, casual: cm, minorPct: +(minor * 100).toFixed(0) }); }
+
+      // ── SEO + 설득력 (확장: 사용자 요청 — 글길이·SEO·설득 전수검사) ──
+      // S_THIN: 쿠팡 상세 SEO 본문 과소 — 600자 미만(thin content, 검색노출 불리). 400은 crash 신호용.
+      if (body.length < 600) fail('S_THIN', { code, leaf, name, len: body.length });
+      // S_KWDENSITY: 카테고리 키워드 SEO 밀도 — 정체성 토큰이 본문에 2회 미만(너무 희박)
+      if (ident && ident.length >= 2) { const occ = body.split(ident).length - 1; if (occ < 2) fail('S_KWDENSITY', { code, leaf, name, ident, occ }); }
+      // P_PARAS: 설득 구조 — 문단 3개 미만이면 설득 전개 불가
+      if (paras.length < 3) fail('P_PARAS', { code, leaf, name, paras: paras.length });
+      // P_BENEFIT / P_SOCIAL / P_CTA: 설득 3요소 존재 여부
+      const hasBenefit = BENEFIT_RE.test(body);
+      const hasSocial = SOCIAL_RE.test(body);
+      const hasCta = CTA_RE.test(body);
+      if (!hasBenefit) fail('P_BENEFIT', { code, leaf, name, head: body.slice(0, 90) });
+      if (!hasSocial) fail('P_SOCIAL', { code, leaf, name, head: body.slice(0, 90) });
+      if (!hasCta) fail('P_CTA', { code, leaf, name, head: body.slice(0, 90) });
+      // P_WEAK: 설득 3요소 중 2개+ 결여 = 설득력 약함(핵심 결함)
+      const missingCnt = (hasBenefit ? 0 : 1) + (hasSocial ? 0 : 1) + (hasCta ? 0 : 1);
+      if (missingCnt >= 2) fail('P_WEAK', { code, leaf, name, missing: { benefit: !hasBenefit, social: !hasSocial, cta: !hasCta }, head: body.slice(0, 110) });
     }
 
     if ((ci + 1) % 500 === 0) {
