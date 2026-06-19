@@ -29,8 +29,8 @@ export interface AutofillAttrMeta {
 const WEIGHT_RE = /중량|용량|무게/;
 
 function pickUnit(m: AutofillAttrMeta): string {
-  const usable = m.usableUnits || [];
-  const basic = m.basicUnit || '';
+  const usable = (Array.isArray(m.usableUnits) ? m.usableUnits : []).filter((u): u is string => typeof u === 'string' && !!u);
+  const basic = typeof m.basicUnit === 'string' ? m.basicUnit : '';
   if (usable.length > 0) return usable.includes(basic) ? basic : usable[0];
   return basic;
 }
@@ -52,7 +52,8 @@ const RE_ESCAPE = /[.*+?^${}()|[\]\\]/g;
  * 단위가 안 잡히면 null(=안전우선, 비워서 경고 유지).
  */
 function extractWeightForAttr(text: string, m: AutofillAttrMeta): string | null {
-  const units = [...(m.usableUnits || []), m.basicUnit].filter((u): u is string => !!u);
+  const usable = Array.isArray(m.usableUnits) ? m.usableUnits : [];
+  const units = [...usable, m.basicUnit].filter((u): u is string => typeof u === 'string' && !!u);
   if (units.length === 0) return null;
   // 긴 단위 우선(예: "kg" 가 "g" 보다 먼저 매칭되도록)
   const uniq = Array.from(new Set(units)).sort((a, b) => b.length - a.length);
@@ -73,13 +74,18 @@ function extractWeightForAttr(text: string, m: AutofillAttrMeta): string | null 
  */
 /** 단일 속성의 자동기입 후보값 계산. extracted=true 면 상품명에서 실제로 뽑은 값(기본값 아님). */
 function computeAttrValue(attr: AutofillAttrMeta, text: string): { value: string | null; extracted: boolean } {
-  const allowed = (attr.attributeValues || []).map((v) => v.attributeValueName).filter(Boolean);
+  // 방어적: attributeValues 가 배열이 아니거나 항목이 null 이어도 안전(부분/손상 캐시 대비)
+  const rawVals = Array.isArray(attr.attributeValues) ? attr.attributeValues : [];
+  const allowed = rawVals
+    .map((v: unknown) => (v && typeof v === 'object' ? (v as { attributeValueName?: unknown }).attributeValueName : undefined))
+    .filter((a): a is string => typeof a === 'string' && !!a);
   // ENUM(선택형): 상품명 키워드 매칭 → 없으면 첫 허용값
   if (allowed.length > 0) {
     const matched = allowed.find((a) => a && text.includes(a));
     return { value: matched || allowed[0], extracted: !!matched };
   }
-  const isWeight = WEIGHT_RE.test(attr.attributeTypeName);
+  const typeName = typeof attr.attributeTypeName === 'string' ? attr.attributeTypeName : '';
+  const isWeight = WEIGHT_RE.test(typeName);
   if (attr.dataType === 'NUMBER') {
     if (isWeight) {
       const v = extractWeightForAttr(text, attr);
@@ -89,7 +95,7 @@ function computeAttrValue(attr: AutofillAttrMeta, text: string): { value: string
     return { value: unit ? `1${unit}` : '1', extracted: false };
   }
   // TEXT/STRING/기타
-  return { value: textFallback(attr.attributeTypeName), extracted: false };
+  return { value: textFallback(typeName), extracted: false };
 }
 
 export function computeRequiredAttrAutofill(
@@ -97,14 +103,16 @@ export function computeRequiredAttrAutofill(
   attributeMeta: AutofillAttrMeta[] | undefined,
 ): Record<string, string> {
   const out: Record<string, string> = {};
-  if (!attributeMeta?.length) return out;
-  const text = `${product.editedDisplayProductName || ''} ${product.name || ''}`;
+  if (!Array.isArray(attributeMeta) || attributeMeta.length === 0) return out;
+  const text = `${product?.editedDisplayProductName || ''} ${product?.name || ''}`;
 
   // 필수 EXPOSED 만(농산물 중량 제외) → 단독 / 택1그룹 분리
   const singles: AutofillAttrMeta[] = [];
   const groups = new Map<string, AutofillAttrMeta[]>();
   for (const attr of attributeMeta) {
-    if (!attr.required || !attr.attributeTypeName || attr.attributeTypeName === '농산물 중량') continue;
+    // 방어적: 손상/부분 캐시로 null·비객체 항목이 섞여도 스킵(throw 금지 — useEffect 안에서 돌므로)
+    if (!attr || typeof attr !== 'object') continue;
+    if (!attr.required || typeof attr.attributeTypeName !== 'string' || !attr.attributeTypeName || attr.attributeTypeName === '농산물 중량') continue;
     // exposed 정보가 있으면 EXPOSED 만(검색속성 제외) — 서버 buildAttributes 와 동일 기준
     if (attr.exposed && attr.exposed !== 'EXPOSED') continue;
     const g = attr.groupNumber && attr.groupNumber !== 'NONE' ? attr.groupNumber : null;
