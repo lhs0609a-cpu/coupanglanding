@@ -18,6 +18,7 @@ import { shuffleWithSeed, selectWithSeed } from './item-winner-prevention';
 import { stringToSeed } from './seeded-random';
 import { generateEAN13 } from './barcode-generator';
 import { checkCompliance, containsForbiddenTerm } from './compliance-filter';
+import { isProtectedCoupangBrand } from './brand-checker';
 import type { ContentBlock } from './fragment-composer';
 
 // ---- 입력 타입 ----
@@ -295,14 +296,20 @@ export function buildCoupangProductPayload(
     ? cleanProductName(sellerProductName.replace(product.productCode, uniqueProductCode))
     : productName;
 
-  // brand: 셀러 브랜드가 설정되어 있으면 우선 사용
-  // 아이템위너 방지 모드: sellerBrand || '자체' (원본 브랜드로 매칭되는 것 방지)
+  // brand: 셀러 자체 브랜드 우선 → 없으면 안전 폴백 '자체'.
+  // ⚠️ 원본 메이커 브랜드(rawBrand) passthrough 금지 — 두 가지 사고를 막는다:
+  //   1) 아이템위너: 원본 브랜드로 보내면 기존 카탈로그에 매칭됨.
+  //   2) 상표 충돌: 옛 코드 `rawBrand.slice(0,2)` 가 "현대농산"→"현대"(Hyundai),
+  //      "삼성전자"→"삼성" 처럼 쿠팡 등록 보호상표를 만들어 "브랜드 ID가 필요합니다" 에러.
+  //   위탁/사입 상품은 셀러 자체 브랜드(WING 등록)로 보내는 게 정석.
   const rawBrand = brand || product.productJson.brand || '';
-  const resolvedBrand = preventionSeed
-    ? (sellerBrand || '자체')
-    : (rawBrand ? rawBrand.slice(0, 2) : '자체');
-  if (!rawBrand && !preventionSeed) {
-    console.warn(`[payload-builder] ⚠️ brand 미설정 → "자체" 폴백 | "${rawName}"`);
+  const candidateBrand = (sellerBrand && sellerBrand.trim()) || '자체';
+  // 후보(셀러 브랜드)가 보호상표와 충돌하면 안전 폴백 — brandId 요구 에러 원천 차단.
+  const resolvedBrand = isProtectedCoupangBrand(candidateBrand) ? '자체' : candidateBrand;
+  if (!sellerBrand) {
+    console.warn(`[payload-builder] ⚠️ sellerBrand 미설정 → brand "자체" 폴백 | "${rawName}"`);
+  } else if (resolvedBrand === '자체' && candidateBrand !== '자체') {
+    console.warn(`[payload-builder] ⚠️ sellerBrand "${candidateBrand}" 보호상표 충돌 → "자체" 폴백 | "${rawName}"`);
   }
   // manufacturer: 셀러 브랜드가 있으면 제조사에도 적용
   const resolvedManufacturer = preventionSeed
