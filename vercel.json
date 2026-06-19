@@ -83,6 +83,10 @@
     {
       "path": "/api/cron/category-attribute-sync",
       "schedule": "8,38 * * * *"
+    },
+    {
+      "path": "/api/cron/megaload-llm-maintenance",
+      "schedule": "18,48 * * * *"
     }
   ]
 }

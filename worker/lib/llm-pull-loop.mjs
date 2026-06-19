@@ -15,6 +15,11 @@ import { withGpu } from './gpu-lease.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// 같은 잡이 N회 넘게 claim 되면 영구 실패로 종결(무한 reclaim 차단).
+// ※ ollama 다운 같은 일시 사유는 attempts 를 되돌리므로(아래) 이 한도에 안 쌓임 — 실제 처리 실패만 카운트.
+const MAX_ATTEMPTS = 8;
+const OLLAMA_DOWN_BACKOFF_MS = 15000; // ollama 미실행 시 재claim 백오프(기존 1.4초 → 15초, 스래싱 방지)
+
 // 상세글 단락 → 블록 타입 시퀀스(쿠팡 설득형 렌더러용). 길면 마지막 타입 반복.
 const BLOCK_TYPE_ORDER = [
   'hook', 'problem', 'agitation', 'solution', 'benefits_grid',
@@ -160,13 +165,15 @@ export async function runLlmPullLoop({
     // 텍스트 잡이 있을 때만 ollama/모델 확인 (불필요한 기동 방지)
     if (!model) {
       if (!(await isUp())) {
-        // Ollama 미실행 → 이미 claim 한 잡을 pending 으로 되돌려 'processing' 에 갇히지 않게(즉시 재처리 대기).
+        // Ollama 미실행 → 이미 claim 한 잡을 pending 으로 되돌려 'processing' 에 갇히지 않게.
+        //   ★ claim 이 올린 attempts 를 되돌린다(−1) — ollama 가 오래 꺼져 있으면 claim→되돌림→재claim 이
+        //     반복되며 attempts 가 수천(실측 1198)까지 폭증하던 버그. 일시 사유는 한도에 안 쌓이게 한다.
         onEvent({ type: 'warn', message: 'Ollama 데몬이 실행 중이 아닙니다. (잡 반환 후 대기)' });
         for (const job of jobs) {
-          try { await patchRow(session, 'megaload_llm_jobs', `id=eq.${job.id}`, { status: 'pending', worker_id: null, claimed_at: null }); }
+          try { await patchRow(session, 'megaload_llm_jobs', `id=eq.${job.id}`, { status: 'pending', worker_id: null, claimed_at: null, attempts: Math.max(0, (job.attempts || 1) - 1) }); }
           catch { /* ignore */ }
         }
-        await sleep(pollMs * 2);
+        await sleep(OLLAMA_DOWN_BACKOFF_MS); // 긴 백오프로 재claim 빈도 자체를 낮춤
         continue;
       }
       model = await pickModel(preferModel);
@@ -175,6 +182,14 @@ export async function runLlmPullLoop({
     for (const job of jobs) {
       if (stopped()) break;
       processed++;
+      // ★ 재시도 한도 초과 안전망 — 어떤 이유로든 N회 넘게 claim 된 잡은 영구 실패로 종결(무한 reclaim 차단).
+      if ((job.attempts || 0) > MAX_ATTEMPTS) {
+        try { await patchRow(session, 'megaload_llm_jobs', `id=eq.${job.id}`, { status: 'error', error_message: `재시도 한도(${MAX_ATTEMPTS}회) 초과 — 영구 실패로 종결`, completed_at: new Date().toISOString() }); }
+        catch { /* ignore */ }
+        fail++;
+        onEvent({ type: 'error', jobId: job.id, label: job.label, message: '재시도 한도 초과 — 종결', ok, fail, processed });
+        continue;
+      }
       onEvent({ type: 'claimed', jobId: job.id, label: job.label, task: job.task_type, processed });
       try {
         const input = job.input || {};
