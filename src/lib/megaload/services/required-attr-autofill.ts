@@ -71,6 +71,27 @@ function extractWeightForAttr(text: string, m: AutofillAttrMeta): string | null 
  * - 중량/용량(NUMBER): 상품명에서 추출되면 채우고, 못 뽑으면 결과에서 생략(경고 유지)
  * - 그 외 전부: ENUM 첫값/키워드, 수량 등 NUMBER "1{단위}", TEXT 폴백 → 항상 채움
  */
+/** 단일 속성의 자동기입 후보값 계산. extracted=true 면 상품명에서 실제로 뽑은 값(기본값 아님). */
+function computeAttrValue(attr: AutofillAttrMeta, text: string): { value: string | null; extracted: boolean } {
+  const allowed = (attr.attributeValues || []).map((v) => v.attributeValueName).filter(Boolean);
+  // ENUM(선택형): 상품명 키워드 매칭 → 없으면 첫 허용값
+  if (allowed.length > 0) {
+    const matched = allowed.find((a) => a && text.includes(a));
+    return { value: matched || allowed[0], extracted: !!matched };
+  }
+  const isWeight = WEIGHT_RE.test(attr.attributeTypeName);
+  if (attr.dataType === 'NUMBER') {
+    if (isWeight) {
+      const v = extractWeightForAttr(text, attr);
+      return { value: v, extracted: !!v }; // 못 뽑으면 null(안전우선)
+    }
+    const unit = pickUnit(attr);
+    return { value: unit ? `1${unit}` : '1', extracted: false };
+  }
+  // TEXT/STRING/기타
+  return { value: textFallback(attr.attributeTypeName), extracted: false };
+}
+
 export function computeRequiredAttrAutofill(
   product: { editedDisplayProductName?: string; name?: string },
   attributeMeta: AutofillAttrMeta[] | undefined,
@@ -79,34 +100,45 @@ export function computeRequiredAttrAutofill(
   if (!attributeMeta?.length) return out;
   const text = `${product.editedDisplayProductName || ''} ${product.name || ''}`;
 
+  // 필수 EXPOSED 만(농산물 중량 제외) → 단독 / 택1그룹 분리
+  const singles: AutofillAttrMeta[] = [];
+  const groups = new Map<string, AutofillAttrMeta[]>();
   for (const attr of attributeMeta) {
-    if (!attr.required) continue;
-    const name = attr.attributeTypeName;
-    if (!name || name === '농산물 중량') continue;
+    if (!attr.required || !attr.attributeTypeName || attr.attributeTypeName === '농산물 중량') continue;
+    // exposed 정보가 있으면 EXPOSED 만(검색속성 제외) — 서버 buildAttributes 와 동일 기준
+    if (attr.exposed && attr.exposed !== 'EXPOSED') continue;
+    const g = attr.groupNumber && attr.groupNumber !== 'NONE' ? attr.groupNumber : null;
+    if (g) { const arr = groups.get(g) || []; arr.push(attr); groups.set(g, arr); }
+    else singles.push(attr);
+  }
 
-    const allowed = (attr.attributeValues || []).map((v) => v.attributeValueName).filter(Boolean);
+  // 단독: 각각 채움(값 있으면)
+  for (const attr of singles) {
+    const { value } = computeAttrValue(attr, text);
+    if (value) out[attr.attributeTypeName] = value;
+  }
 
-    // ENUM(선택형): 상품명 키워드 매칭 → 없으면 첫 허용값
-    if (allowed.length > 0) {
-      const matched = allowed.find((a) => a && text.includes(a));
-      out[name] = matched || allowed[0];
+  // ★ 택1 그룹: 멤버 중 "하나만" 채운다(서버 buildAttributes 561-593 과 동일).
+  //   우선순위: 상품명에서 추출된 멤버 > 기본값이라도 채울 수 있는 첫 멤버.
+  //   전부 못 채우면(예: 중량/용량 둘 다 추출 실패) 비워 둠 → 서버가 한쪽 기본값 채움 + 경고.
+  for (const members of groups.values()) {
+    if (members.length === 1) {
+      const { value } = computeAttrValue(members[0], text);
+      if (value) out[members[0].attributeTypeName] = value;
       continue;
     }
-
-    const isWeight = WEIGHT_RE.test(name);
-    if (attr.dataType === 'NUMBER') {
-      if (isWeight) {
-        const v = extractWeightForAttr(text, attr);
-        if (v) out[name] = v; // 못 뽑으면 생략(안전우선)
-      } else {
-        const unit = pickUnit(attr);
-        out[name] = unit ? `1${unit}` : '1';
-      }
-      continue;
+    let chosen: { name: string; value: string } | null = null;
+    // pass1: 상품명에서 실제 추출된 멤버
+    for (const m of members) {
+      const { value, extracted } = computeAttrValue(m, text);
+      if (value && extracted) { chosen = { name: m.attributeTypeName, value }; break; }
     }
-
-    // TEXT/STRING/기타
-    out[name] = textFallback(name);
+    // pass2: 추출 없으면 기본값이라도 채울 수 있는 첫 멤버
+    if (!chosen) for (const m of members) {
+      const { value } = computeAttrValue(m, text);
+      if (value) { chosen = { name: m.attributeTypeName, value }; break; }
+    }
+    if (chosen) out[chosen.name] = chosen.value;
   }
   return out;
 }
