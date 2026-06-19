@@ -50,6 +50,34 @@ function fixAlphanumParticle(text: string): string {
     .replace(/([A-Za-z0-9])은(\s+[가-힣])/g, '$1는$2');
 }
 
+// ── 받침 자음 + "로" → "으로" 보정 (fixRieulParticle 의 역방향) ──
+//   "프로틴로/단백질로(X)" → 받침(ㄹ 제외) 있으면 "으로". ("프로틴으로")
+//   ㄹ받침/무받침은 "로" 가 맞으므로 보존.
+function fixConsonantRoParticle(text: string): string {
+  return text.replace(/([가-힣])로(?=[\s.,!?]|$)/g, (m, char) => {
+    const code = char.charCodeAt(0);
+    if (code < 0xAC00 || code > 0xD7A3) return m;
+    const jong = (code - 0xAC00) % 28;
+    if (jong === 0 || jong === 8) return m; // 무받침/ㄹ → "로" 유지
+    return char + '으로';
+  });
+}
+
+// ── 문장 끝 L1 카테고리 토큰 누출 보정 ──────────────────────
+//   "…후기가 많습니다 뷰티" / "…표기했습니다 식품" 처럼 서술어 뒤에
+//   대분류명이 그대로 붙어버린 누출. 서술어 종결 뒤 L1토큰만 제거.
+const _L1_TOKENS = '뷰티|식품|가전|디지털|생활용품|패션의류잡화|패션|가구|홈데코|홈인테리어|주방용품|주방|스포츠|레저|레져|반려|애완|출산|유아동|자동차용품|자동차|문구|오피스|완구|취미';
+const _TRAILING_L1_RE = new RegExp(`(다|요|죠|까|니다|습니다|어요|아요|에요|예요)\\s+(?:${_L1_TOKENS})([.!?]?)\\s*$`);
+function fixTrailingCategoryToken(text: string): string {
+  return text.replace(_TRAILING_L1_RE, '$1$2');
+}
+
+// ── 관형형 + 목적격조사 비문 보정 ──────────────────────────
+//   "세련된을 체감하는" 처럼 관형형(된/한/운/인) + 을/를 → "느낌" 보강.
+function fixAdnominalObjectParticle(text: string): string {
+  return text.replace(/([가-힣]{2,}(?:된|한|운|인))(을|를)(\s+(?:체감|느낄|경험|만끽))/g, '$1 느낌$2$3');
+}
+
 // ── 형용사 불규칙 관형형 ────────────────────────────────────
 //   "없다/있다/맛없다/맛있다" → 관형형 "는" (받침 무관)
 function fixIrregularAdj(text: string): string {
@@ -82,6 +110,9 @@ const ABSTRACT_NOUN_PARTICLE_FIX: Array<[RegExp, string]> = [
   [/(고민)에게/g, '$1 있는 분께'],
   // 한테 + 에게 모두 → 에 (추상명사용)
   [/(식단|식습관|루틴|일상|생활|습관|취향|컨디션|스타일|분위기|환경|조건|성향|상황|체질|건강|몸|컨셉|기분|마음)(한테|에게)/g, '$1에'],
+  // 장소/공간형 추천대상 — 사람이 아니므로 "에게/한테" → "에"
+  //   "아파트에게 최적화된" / "새집에게 특히 잘 맞아요" → "에"
+  [/(아파트|새집|원룸|투룸|사무실|오피스|스튜디오|자취방|신혼집|화장실|주방|거실|침실|베란다|현관|사무공간|작업실|매장|가게)(한테|에게)/g, '$1에'],
 ];
 function fixAbstractParticle(text: string): string {
   let out = text;
@@ -127,10 +158,40 @@ const BROKEN_PATTERNS: RegExp[] = [
   // 형용사 관형형 + "이라" — 비문 ("매끈한이라/부드러운이라/따뜻한이라")
   // 정상은 "매끈해서/부드러우니/따뜻해서". 변환 어휘 의존성이 커서 드롭.
   /[가-힣](한|운|은|인)이라(?=[\s가-힣])/,
+  // 관형형(는/한/된) 직후 noun 슬롯이 비어 부사+독립절이 바로 붙은 비문.
+  //   "…동시에 만족하는 오래도록 만족하실 수 있습니다" / "…집중한 오래도록 만족하실"
+  //   "…확실한 꾸준히 사용할수록 만족도가 높아집니다"
+  //   ⚠️ "만족하는 프리미엄 품질이에요"(정상)는 건드리지 않도록 부사절 한정.
+  /(만족하는|집중한|특화된|만드는|해결하는|좋은)\s+오래도록\s+만족하실/,
+  /(확실한|만족하는|집중한|특화된)\s+꾸준히\s+사용할수록/,
 ];
 function isBrokenSentence(s: string): boolean {
   if (!s.trim()) return true;
   return BROKEN_PATTERNS.some(re => re.test(s));
+}
+
+// ── dangling 라벨(서술어 없는 토막) 검출 ──────────────────────
+//   문단 끝에 SEO 태그/효과2/인증 값이 통합 안 된 채 단독으로 떨어진 케이스.
+//   "올인원" "맞춤 제작" "본질 집중" "품질보증." "친환경인증." "내구성" "핵심 장점 보조배터리"
+//   판정: 종결어미(다/요/죠/까/네 등)·문장부호로 안 끝나는 명사 토막 + 짧음(≤3어절).
+//   ⚠️ benefit pipe-list("A | B | C")·정상 종결문장은 보존.
+const _PREDICATE_END_RE = /(다|요|죠|까|네|군|음|걸|래|함|셈|봐|와|워|자|마|구나|거든|는데|니다)[.!?]?$/;
+const _KNOWN_DANGLING_LABELS = new Set([
+  '올인원', '맞춤 제작', '맞춤제작', '본질 집중', '본질집중', '품질보증', '내구성',
+  '친환경인증', 'KC인증', 'KC안전인증', '가성비', '프리미엄', '본질', '핵심', '정품인증',
+]);
+function isDanglingLabel(s: string): boolean {
+  const t = s.replace(/[.!?·\s]+$/, '').trim();
+  if (!t) return false;
+  if (t.includes('|') || t.includes(',') || t.includes('，')) return false; // pipe/콤마 리스트 보존
+  if (_KNOWN_DANGLING_LABELS.has(t)) return true;
+  if (/^핵심 장점/.test(t)) return true; // "핵심 장점 보조배터리" 류 헤딩 토막
+  // 일반 규칙: 종결어미 없고, 짧고(≤3어절·≤12자), 명사형 접미('성/증/감/품/질/작/중/원/력/용')로 끝남
+  const tokens = t.split(/\s+/);
+  if (tokens.length <= 3 && t.length <= 12 && !_PREDICATE_END_RE.test(t)) {
+    if (/(성|증|감|품|질|작|중|원|력|용|화|함|품질|디자인)$/.test(t)) return true;
+  }
+  return false;
 }
 
 // ── 상품/제품 fallback 잔재 검출 ─────────────────────────
@@ -328,6 +389,30 @@ function detectCrossLeafContamination(
     if (/'\s*[가-힣]+\s*'\s*스마트\.\s*$/.test(s)) return true;
   }
 
+  // ── Layer-3: 리터럴 템플릿에 박힌 "활동 동사" 누출 ──────────
+  //   효과1/성분(변수)이 아니라 리뷰 오프너/클로저 문장 자체에 박힌
+  //   타 카테고리 활동어. 홈 카테고리(경로/상품명)가 아니면 문장 폐기.
+  const leaf2 = (cp.split('>').pop() || '');
+  const ctx = pn + ' ' + cp + ' ' + leaf2;
+  // 세차/왁스/광택/외관개선 — 자동차 세차·광택용품에서만 유효 (충전거치대 등 전자기기 차단)
+  if (/세차|셀프\s*세차|왁스로|광택나는|외관개선|발수코팅|차\s*표면/.test(s)
+      && !/세차|왁스|광택|코팅제|디테일링|익스테리어|카샴푸/.test(ctx)) return true;
+  // 빨래/세탁/세제 — 세탁·세제 카테고리에서만 (치약/구강 등 차단)
+  if (/빨래|세탁할|세탁세제|섬유유연|표백제/.test(s)
+      && !/세탁|세제|빨래|섬유유연|표백|얼룩/.test(ctx)) return true;
+  // 끓이다/면/국물/식사 — 면류·국·즉석에서만 (커피/차/스낵 차단)
+  if (/면의\s*식감|면발|여러\s*번\s*끓여|국물이|끓여\s*드시|요리에\s*활용|식사로\s*즐/.test(s)
+      && !/면|국수|라면|즉석|찌개|탕|국\b|밀키트|만두|떡국/.test(ctx)) return true;
+  // 조립 — 가구·완구·DIY 조립품에서만 (의류/식품 등 차단)
+  if (/조립\s*(정밀도|편의|이\s*간편|이\s*쉬)/.test(s)
+      && !/가구|선반|책상|침대|옷장|수납|조립|완구|diy|렉|행거|프레임|거치/.test(ctx)) return true;
+  // 방수성 — 의류는 아우터/레인/스포츠/수영만 (일반 면티 등 차단)
+  if (/방수성/.test(s) && cp.includes('패션')
+      && !/아우터|코트|점퍼|패딩|바람막이|우비|레인|등산|스포츠|수영|트레이닝/.test(ctx)) return true;
+  // 보온성 — 의류는 겨울/아우터/니트만 (여름 티셔츠 등 차단)
+  if (/보온성/.test(s) && cp.includes('패션')
+      && !/패딩|코트|니트|기모|겨울|점퍼|플리스|내복|발열|스웨터|머플러/.test(ctx)) return true;
+
   return false;
 }
 
@@ -408,6 +493,7 @@ export function sanitizeStoryParagraphs(
 
       // 1) 문법/조사/합성 보정
       s = fixRieulParticle(s);
+      s = fixConsonantRoParticle(s);
       s = fixAlphanumParticle(s);
       s = fixIrregularAdj(s);
       s = fixDrinkVerbConjugation(s);
@@ -416,6 +502,8 @@ export function sanitizeStoryParagraphs(
       s = fixCommonGrammarBugs(s);
       s = fixAdjectiveParticleClash(s);
       s = fixAdjacentAdjDup(s);
+      s = fixTrailingCategoryToken(s);
+      s = fixAdnominalObjectParticle(s);
 
       // {product} 잔재 보정 (만일을 대비)
       s = s.replace(/\{product\}/g, opts.cleanProductName);
@@ -425,6 +513,7 @@ export function sanitizeStoryParagraphs(
 
       // 2) 폐기 검사
       if (isBrokenSentence(s)) continue;
+      if (isDanglingLabel(s)) continue;
       if (isProductFallbackBroken(s)) continue;
       if (detectCrossLeafContamination(s, opts.productName, opts.categoryPath)) continue;
       if (hasFrequencyContradiction(s)) continue;
