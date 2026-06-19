@@ -2433,11 +2433,12 @@ export function useBulkRegisterActions() {
 
       let completed = 0;
       let taskIdx = 0;
-      // CONCURRENCY: 클라 → Supabase Storage 직접 업로드.
-      //   ★ 25로 롤백 (검증된 안전값). 36으로 올렸더니 업로드 실패 신고 → 원저자의
-      //     "30+ 폭주 위험 → 25 cap" 경고가 맞았던 것으로 판단. 아래 적응형 rate-limit
-      //     가드는 유지(무해, 안전망). 추후 원인 확정 후 신중히 재상향.
-      const CONCURRENCY = 25;
+      // CONCURRENCY: 클라 → Supabase Storage 직접 업로드 (우리 서버 무관, egress 비용은 동시성과 무관).
+      //   ★ 36 재상향. 이전 "업로드 실패"의 진짜 원인은 동시성이 아니라 배포 차단(scripts 타입체크로
+      //     next build 실패 → 36이 애초에 배포된 적 없음)이었음이 확인됨. 압축은 Web Worker 풀에서
+      //     돌아 메인스레드 freezing 없고, 아래 적응형 rate-limit 가드가 429 시 자동 감속하므로 안전.
+      //     업로드는 파이프라인 최장 구간이라 동시성↑ = 전체 속도 직접 단축.
+      const CONCURRENCY = 36;
 
       // 적응형 rate-limit 가드: 429를 감지하면 잠깐(1.2s) 전 워커를 멈췄다 재개.
       // egress 바이트/스토리지 비용은 동시성과 무관하므로 비용 영향 없음 — 순수 속도/안정성용.

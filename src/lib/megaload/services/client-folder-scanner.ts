@@ -759,7 +759,7 @@ async function renderEmptyCanvas(): Promise<Blob> {
 
 // ---- Supabase 직접 업로드 (Vercel 경유 없음) ----
 // 브라우저 → Supabase Storage 직접 업로드: 인증 0회, 네트워크 홉 1단계
-const DIRECT_CONCURRENCY = 20; // 직접 업로드 동시성 (★ 32→20 롤백: 고동시성 업로드 실패 신고 — 검증된 안전값 복귀)
+const DIRECT_CONCURRENCY = 32; // 직접 업로드 동시성 (★ 32 재상향 — 이전 실패는 배포차단 탓이지 동시성 아님이 확인됨. Supabase 직접=서버/비용 무관)
 
 import { createClient as createBrowserSupabase } from '@/lib/supabase/client';
 
