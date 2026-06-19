@@ -17,6 +17,7 @@ import type { ContentProfile } from './content-profile-resolver';
 import { extractContextOverrides } from './product-name-parser';
 import type { ProductContext } from './product-name-parser';
 import { sanitizeCrossCategory } from './cross-category-guard';
+import { narrowVarsBySubtype } from './subtype-vocab';
 
 // ─── 타입 ────────────────────────────────────────────────────
 
@@ -833,7 +834,15 @@ function resolveVariablePool(
   productContext?: ProductContext,
 ): Record<string, string[]> {
   // Core에서 카테고리/상품명 기반 변수풀 해석
-  const vars = { ...resolveVariablePoolCore(categoryPath, catKey, productName, categoryCode) };
+  let vars = { ...resolveVariablePoolCore(categoryPath, catKey, productName, categoryCode) };
+
+  // ⚠️ 서브타입 어휘 잠금 — 레거시(L1-broad) 폴백일 때만.
+  // CPG 격리 프로필이 매칭됐으면 이미 L3 격리이므로 좁히지 않는다(curated downgrade 방지).
+  const _cpg = resolveContentProfile(categoryPath, categoryCode);
+  const _isolated = !!(_cpg && _cpg.variables && Object.keys(_cpg.variables).length > 0);
+  if (!_isolated) {
+    vars = narrowVarsBySubtype(vars, categoryPath, productName);
+  }
 
   // productContext 오버라이드 — 모든 경로에 공통 적용
   if (productContext) {

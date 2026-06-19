@@ -54,7 +54,9 @@ export function classifyCategoryGroup(categoryPath: string): CategoryGroup {
   if (top.includes('뷰티') || top.includes('화장품')) return 'beauty';
   if (top.includes('가전') || top.includes('디지털')) return 'electronics';
   if (top.includes('패션') || top.includes('의류') || top.includes('잡화')) return 'fashion';
-  if (top.includes('가구') || top.includes('홈데코')) return 'furniture';
+  // 침구(이불/베개/매트리스커버)는 가구가 아님 — MDF/합판 등 가구 시그니처를 금지해야 함.
+  if (path.includes('침구') || path.includes('이불') || path.includes('베개') || path.includes('매트리스커버')) return 'household';
+  if (top.includes('가구') || top.includes('홈데코') || top.includes('홈인테리어') || top.includes('인테리어')) return 'furniture';
   if (top.includes('주방')) return 'kitchen';
   if (top.includes('생활')) return 'household';
   if (top.includes('스포츠') || top.includes('레져')) return 'sports';

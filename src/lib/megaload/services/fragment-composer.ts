@@ -18,6 +18,7 @@ import v2TemplateData from '../data/story-templates-v2.json';
 import extendedFragmentsData from '../data/global-fragments-extended.json';
 import { resolveContentProfile } from './content-profile-resolver';
 import type { ContentProfile } from './content-profile-resolver';
+import { narrowVarsBySubtype } from './subtype-vocab';
 
 // ─── 타입 (여기가 원본 — persuasion-engine에서 re-export) ──
 
@@ -1079,7 +1080,10 @@ export function resolveVariables(
     result = { ...profile.variables };
   } else {
     // ── 레거시 로직 (미매핑 카테고리) ──
-    result = legacyResolveVariables(categoryPath);
+    // legacyResolveVariables 는 L1-broad 풀이라 효과1/성분이 형제 서브카테고리 어휘로 샌다
+    // (보조배터리에 "흡입력", 이불에 "MDF" 등). 서브타입 잠금으로 좁힌다.
+    // ⚠️ CPG 프로필이 매칭된 위쪽 분기는 이미 L3 격리이므로 좁히지 않는다.
+    result = narrowVarsBySubtype(legacyResolveVariables(categoryPath), categoryPath, productName);
   }
 
   // ⚠️ 건강식품 성분 cross-leak 방지 — 상품명 + categoryPath 검사하여
@@ -1187,6 +1191,9 @@ function detectHealthIngredient(pn: string): Record<string, string[]> | null {
   }
   if (/프로틴|단백질|wpc|wpi|bcaa|크레아틴|카제인/.test(pn)) {
     return { 성분: ['프로틴', 'BCAA'], 효과1: ['근육성장', '운동회복'] };
+  }
+  if (/아로니아|안토시아닌|빌베리|블루베리|크랜베리|아사이|복분자|베리/.test(pn)) {
+    return { 성분: ['안토시아닌', '폴리페놀', '플라보노이드'], 효과1: ['항산화', '눈건강', '혈관건강'] };
   }
   return null;
 }

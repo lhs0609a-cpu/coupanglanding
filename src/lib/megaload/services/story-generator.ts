@@ -195,6 +195,12 @@ function fillTemplate(
   rng: () => number,
   categoryPath?: string,
 ): string {
+  // ⚠️ 서브타입 어휘 잠금: {효과1}{성분} 가 형제 서브카테고리 어휘로 새는 것 차단.
+  // fillTemplate 은 FAQ/클로징 등 치환의 공통 길목 → 여기서 좁히면 전부 적용.
+  // (본문 vars 는 fragment-composer/real-review-composer 가 자체적으로 좁힌다.)
+  if (categoryPath) {
+    vars = _narrowVarsBySubtype(vars, categoryPath, productName);
+  }
   let result = template;
 
   // {product} → 변형 풀에서 가중치 픽 (SEO 스터핑 방지)
@@ -397,6 +403,7 @@ import { generatePersuasionContent, contentBlocksToParagraphs } from './persuasi
 import type { ContentBlock, PersuasionResult, ProductContext } from './persuasion-engine';
 import { resolveSeoCategoryPool, getUniversalModifiers } from './seo-keyword-resolver';
 import { sanitizeStoryParagraphs, sanitizeReviewCaptions } from './output-sanitizer';
+import { narrowVarsBySubtype as _narrowVarsBySubtype } from './subtype-vocab';
 
 export interface StoryResultV2 extends StoryResult {
   contentBlocks: ContentBlock[];   // 설득형 블록 배열
