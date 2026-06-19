@@ -635,6 +635,34 @@ export function generateStoryV2(
     paragraphs = out;
   }
 
+  // ── 의미(테마) 반복 제거 + 문단 수 캡 ─────────────────────────────
+  //   exact-dedup 후에도 "리뷰 분포 안정적"·"세심한 설계"·"재구매율" 같은 같은 테마가
+  //   다른 표현으로 4~5번 재탕되어 28문단까지 늘며 읽으면 지루(semantic 반복).
+  //   핵심어 집합 overlap 으로 의미 중복 문단을 걷어내고 최대 12문단으로 캡한다.
+  {
+    const STOP = new Set(['제품', '사용', '정도', '경우', '부분', '느낌', '생각', '정말', '진짜', '이런', '그런', '우리', '분들', '분께', '하나', '비교', '모델', '평가', '신호']);
+    const sig = (p: string): Set<string> => new Set((p.match(/[가-힣]{2,}/g) || []).filter((t) => !STOP.has(t)));
+    const overlap = (a: Set<string>, b: Set<string>): number => {
+      const small = a.size <= b.size ? a : b;
+      if (small.size < 3) return 0; // 짧은 문단(후기 등)은 의미비교 제외
+      let inter = 0; for (const x of small) if ((small === a ? b : a).has(x)) inter++;
+      return inter / small.size;
+    };
+    // 캡 16 + overlap 0.58 — 12·0.5 는 형식체 설득문단을 과하게 잘라 톤 균형이 무너짐(TONE 33%↑)
+    //   + CTA 문단 유실. 덜 공격적으로 두어 의미반복만 걷어내고 길이·톤·CTA 는 보존한다.
+    const MAX_PARAS = 16;
+    const keptSigs: Set<string>[] = [];
+    const kept: string[] = [];
+    for (const p of paragraphs) {
+      if (kept.length >= MAX_PARAS) break;
+      const s = sig(p);
+      if (keptSigs.some((ks) => overlap(s, ks) >= 0.58)) continue; // 핵심어 58%+ 겹치면 의미중복 → 스킵
+      keptSigs.push(s); kept.push(p);
+    }
+    if (kept.length >= 4) paragraphs = kept; // 과도 축소 방지 안전장치
+    else paragraphs = paragraphs.slice(0, MAX_PARAS);
+  }
+
   // reviewTexts 도 동일 후처리
   const cleanedReviewTexts = (() => {
     const isFood = isFoodCategory(categoryPath);

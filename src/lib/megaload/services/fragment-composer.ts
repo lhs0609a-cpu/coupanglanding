@@ -2107,8 +2107,12 @@ export function maybeSeoWeave(
   if (rng() > threshold) return content;
 
   // 키워드 로테이션 — 모든 키워드 균등 사용
-  const kw = seoKeywords[_seoWeaveInsertionCount % seoKeywords.length];
+  let kw = seoKeywords[_seoWeaveInsertionCount % seoKeywords.length];
   _seoWeaveInsertionCount++;
+
+  // ★ kw 가 형용사 관형형(순한/편안한/고급스러운…)이면 명사가 아니라 "순한은 이렇게…" 비문이 된다.
+  //   명사구로 보정("순한 제품")해 조사·prefix 템플릿이 자연스럽게 붙도록 한다.
+  if (/(한|운|던)$/.test(kw) && kw.length >= 2) kw = `${kw} 제품`;
 
   // 이미 포함되어 있으면 스킵
   if (content.includes(kw)) return content;
