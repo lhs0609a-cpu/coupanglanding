@@ -211,8 +211,8 @@ async function run() {
       // ── SEO + 설득력 (확장: 사용자 요청 — 글길이·SEO·설득 전수검사) ──
       // S_THIN: 쿠팡 상세 SEO 본문 과소 — 600자 미만(thin content, 검색노출 불리). 400은 crash 신호용.
       if (body.length < 600) fail('S_THIN', { code, leaf, name, len: body.length });
-      // S_KWDENSITY: 카테고리 키워드 SEO 밀도 — 정체성 토큰이 본문에 2회 미만(너무 희박)
-      if (ident && ident.length >= 2) { const occ = body.split(ident).length - 1; if (occ < 2) fail('S_KWDENSITY', { code, leaf, name, ident, occ }); }
+      // (S_KWDENSITY 제거: 정체성 토큰(예 "다도")이 핵심 키워드("차")와 달라 거짓양성 다수.
+      //  키워드 부재는 D_LEAF 가 이미 검출하므로 밀도 검사는 노이즈만 유발 → 폐기.)
       // P_PARAS: 설득 구조 — 문단 3개 미만이면 설득 전개 불가
       if (paras.length < 3) fail('P_PARAS', { code, leaf, name, paras: paras.length });
       // P_BENEFIT / P_SOCIAL / P_CTA: 설득 3요소 존재 여부
