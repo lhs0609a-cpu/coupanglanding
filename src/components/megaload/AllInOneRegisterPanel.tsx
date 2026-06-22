@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   scanDirectoryHandle,
   uploadScannedImages,
+  ensureObjectUrl,
   type ScannedProduct,
   type ScannedImageFile,
 } from '@/lib/megaload/services/client-folder-scanner';
@@ -195,6 +196,11 @@ export default function AllInOneRegisterPanel() {
         const gen = genMap.get(sp.productCode) || null;
         const regen = await readRegenImages(sp.dirHandle);
         const mainImages = regen.length > 0 ? regen : (sp.mainImages || []);
+        // 썸네일 표시용 objectURL 보장 — 공용 스캐너는 main_images 를 lazy(objectUrl 미생성)로 읽으므로
+        // 가공본(regen)이 없는 상품은 첫 장 URL 을 즉시 만들어야 카드 썸네일이 보인다.
+        if (mainImages[0] && !mainImages[0].objectUrl) {
+          await ensureObjectUrl(mainImages[0]);
+        }
         built.push({
           uid: sp.productCode || crypto.randomUUID(),
           productCode: sp.productCode,
@@ -357,7 +363,7 @@ export default function AllInOneRegisterPanel() {
     } finally {
       setRegistering(false);
     }
-  }, [rows, selectedOutbound, selectedReturn, contactNumber]);
+  }, [rows, selectedOutbound, selectedReturn, contactNumber, marginLevel]);
 
   return (
     <div className="space-y-5">
