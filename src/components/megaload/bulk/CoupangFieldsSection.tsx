@@ -248,6 +248,75 @@ function WeightOptionField({
   );
 }
 
+/* ─── 필수 구매옵션 단일 필드 ───
+   쿠팡 카테고리 정의 필수 buyOption 입력. 텍스트 입력은 draft 로컬상태로 버퍼링하고
+   onBlur/Enter 시에만 전역(onUpdate) 커밋한다. 예전엔 onChange마다 곧바로 전역 products를
+   갱신 → selectedProduct가 매 글자 새 객체 → 상세 패널/테이블 전체 리렌더 → input 포커스가
+   유실되어 "글자 하나 치면 다음 칸으로 넘어가는" 증상이 있었음 (WeightOptionField와 동일 패턴). */
+function RequiredBuyOptionField({
+  attr,
+  value,
+  ext,
+  override,
+  onCommit,
+}: {
+  attr: AttributeMeta;
+  value: string;
+  ext: { name: string; value: string; unit?: string } | undefined;
+  override: string | undefined;
+  onCommit: (v: string) => void;
+}) {
+  const name = attr.attributeTypeName;
+  const unit = attr.basicUnit || '';
+  const empty = !value;
+  const allowed = attr.attributeValues?.map((v) => v.attributeValueName) || [];
+  const isEnum = allowed.length > 0;
+
+  const [draft, setDraft] = useState(value);
+  useEffect(() => { setDraft(value); }, [value]);
+
+  return (
+    <div className={empty ? 'border-l-2 border-l-red-400 pl-2' : ''}>
+      <div className="flex items-center justify-between mb-0.5">
+        <RequiredLabel empty={empty}>{name}{unit ? ` (${unit})` : ''}</RequiredLabel>
+        {ext && override !== undefined && (
+          <button
+            type="button"
+            onClick={() => onCommit('')}
+            className="text-[10px] text-gray-400 hover:text-gray-700"
+            title="자동 추출값으로 되돌리기"
+          >↺ 자동값</button>
+        )}
+      </div>
+      {isEnum ? (
+        <select
+          value={value}
+          onChange={(e) => onCommit(e.target.value)}
+          className={inputRequired(empty)}
+        >
+          <option value="">선택하세요…</option>
+          {allowed.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      ) : (
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+          onBlur={() => { if (draft !== value) onCommit(draft); }}
+          className={inputRequired(empty)}
+          placeholder={unit ? `숫자만 입력 (${unit})` : '값 입력'}
+        />
+      )}
+      {ext && override === undefined && (
+        <p className="text-[10px] text-gray-400 mt-0.5">
+          자동 추출값: <span className="font-mono">{String(ext.value)}{ext.unit || ''}</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
 /* ─── CollapsibleSection ─── */
 interface CollapsibleSectionProps {
   title: string;
@@ -1227,57 +1296,22 @@ export default function CoupangFieldsSection({
               </div>
               {requiredBuyOptions.map((attr) => {
                 const name = attr.attributeTypeName;
-                const unit = attr.basicUnit || '';
                 const ext = extracted.find((o) => o.name === name);
                 const override = product.editedBuyOptionValues?.[name];
                 const value = override ?? (ext ? String(ext.value) : '');
-                const empty = !value;
-                const allowed = attr.attributeValues?.map((v) => v.attributeValueName) || [];
-                const isEnum = allowed.length > 0;
-
-                const setValue = (v: string) => {
-                  const next = { ...(product.editedBuyOptionValues || {}) };
-                  if (v) next[name] = v; else delete next[name];
-                  onUpdate(product.uid, 'editedBuyOptionValues', next);
-                };
-
                 return (
-                  <div key={name} className={empty ? 'border-l-2 border-l-red-400 pl-2' : ''}>
-                    <div className="flex items-center justify-between mb-0.5">
-                      <RequiredLabel empty={empty}>{name}{unit ? ` (${unit})` : ''}</RequiredLabel>
-                      {ext && override !== undefined && (
-                        <button
-                          type="button"
-                          onClick={() => setValue('')}
-                          className="text-[10px] text-gray-400 hover:text-gray-700"
-                          title="자동 추출값으로 되돌리기"
-                        >↺ 자동값</button>
-                      )}
-                    </div>
-                    {isEnum ? (
-                      <select
-                        value={value}
-                        onChange={(e) => setValue(e.target.value)}
-                        className={inputRequired(empty)}
-                      >
-                        <option value="">선택하세요…</option>
-                        {allowed.map((v) => <option key={v} value={v}>{v}</option>)}
-                      </select>
-                    ) : (
-                      <input
-                        type="text"
-                        value={value}
-                        onChange={(e) => setValue(e.target.value)}
-                        className={inputRequired(empty)}
-                        placeholder={unit ? `숫자만 입력 (${unit})` : '값 입력'}
-                      />
-                    )}
-                    {ext && override === undefined && (
-                      <p className="text-[10px] text-gray-400 mt-0.5">
-                        자동 추출값: <span className="font-mono">{String(ext.value)}{ext.unit || ''}</span>
-                      </p>
-                    )}
-                  </div>
+                  <RequiredBuyOptionField
+                    key={name}
+                    attr={attr}
+                    value={value}
+                    ext={ext}
+                    override={override}
+                    onCommit={(v) => {
+                      const next = { ...(product.editedBuyOptionValues || {}) };
+                      if (v) next[name] = v; else delete next[name];
+                      onUpdate(product.uid, 'editedBuyOptionValues', next);
+                    }}
+                  />
                 );
               })}
             </div>

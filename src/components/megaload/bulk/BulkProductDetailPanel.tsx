@@ -171,18 +171,24 @@ export default function BulkProductDetailPanel({
   useEffect(() => {
     if (!product) return;
     const handleKeyDown = (e: KeyboardEvent) => {
+      // 입력 중(input/textarea/select)에는 패널 단축키가 발동하지 않도록 가드.
+      // 예전엔 ArrowUp/Down에 가드가 없어, 옵션값 입력칸에서 방향키/편집 중 상품이
+      // 이전/다음으로 넘어가 버렸음.
+      const active = document.activeElement;
+      const inEditable = !!active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || (active as HTMLElement).isContentEditable);
       if (e.key === 'Escape') {
         onClose();
       } else if (e.key === 'ArrowUp') {
+        if (inEditable) return;
         e.preventDefault();
         onNavigate('prev');
       } else if (e.key === 'ArrowDown') {
+        if (inEditable) return;
         e.preventDefault();
         onNavigate('next');
       } else if (e.key === 'Delete') {
         // Skip/restore toggle — only if not focused on an input
-        const active = document.activeElement;
-        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return;
+        if (inEditable) return;
         e.preventDefault();
         onToggle(product.uid);
       }
