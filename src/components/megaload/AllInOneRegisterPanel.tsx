@@ -135,22 +135,57 @@ async function readRegenImages(dirHandle?: FileSystemDirectoryHandle): Promise<S
   }
 }
 
-/** 루트 폴더의 _allinone.generated.jsonl 을 productCode→레코드 맵으로 */
-async function readGenerated(root: FileSystemDirectoryHandle): Promise<Map<string, GenRecord>> {
+interface GenScan {
+  /** sourceId(=productCode) → 레코드 */
+  map: Map<string, GenRecord>;
+  /** _allinone.generated.jsonl 파일을 실제로 찾았는지 */
+  fileFound: boolean;
+  /** 파일 내 총 레코드 수(파싱 성공분) */
+  recordCount: number;
+  /** 매칭 디버그용 sourceId 샘플 */
+  sampleSourceIds: string[];
+  /** 파일을 찾은 위치(루트명 또는 하위폴더명) */
+  foundIn?: string;
+}
+
+/** _allinone.generated.jsonl 을 productCode→레코드 맵으로. 루트에 없으면 한 단계 하위까지 탐색.
+ *  진단을 위해 파일 존재 여부·레코드 수·키 샘플을 함께 반환한다. */
+async function readGenerated(root: FileSystemDirectoryHandle): Promise<GenScan> {
   const map = new Map<string, GenRecord>();
-  try {
-    const fh = await root.getFileHandle('_allinone.generated.jsonl');
-    const text = await (await fh.getFile()).text();
-    for (const line of text.split('\n')) {
-      const s = line.trim();
-      if (!s) continue;
-      try {
-        const r = JSON.parse(s) as GenRecord;
-        if (r.sourceId != null) map.set(String(r.sourceId), r);
-      } catch { /* skip bad line */ }
-    }
-  } catch { /* no file */ }
-  return map;
+  let fileFound = false;
+  let recordCount = 0;
+  let foundIn: string | undefined;
+
+  const tryRead = async (dir: FileSystemDirectoryHandle, label: string): Promise<boolean> => {
+    try {
+      const fh = await dir.getFileHandle('_allinone.generated.jsonl');
+      const text = await (await fh.getFile()).text();
+      fileFound = true;
+      foundIn = label;
+      for (const line of text.split('\n')) {
+        const s = line.trim();
+        if (!s) continue;
+        try {
+          const r = JSON.parse(s) as GenRecord;
+          recordCount++;
+          if (r.sourceId != null) map.set(String(r.sourceId), r);
+        } catch { /* skip bad line */ }
+      }
+      return true;
+    } catch { return false; }
+  };
+
+  // 1) 루트에서 시도. 2) 못 찾으면 product_* 가 아닌 하위 폴더에서 시도(상위 폴더를 선택한 경우 대비).
+  if (!(await tryRead(root, root.name))) {
+    try {
+      for await (const [name, handle] of root as unknown as AsyncIterable<[string, FileSystemHandle]>) {
+        if (handle.kind !== 'directory' || name.startsWith('product_')) continue;
+        if (await tryRead(handle as FileSystemDirectoryHandle, name)) break;
+      }
+    } catch { /* ignore */ }
+  }
+
+  return { map, fileFound, recordCount, sampleSourceIds: [...map.keys()].slice(0, 3), foundIn };
 }
 
 export default function AllInOneRegisterPanel() {
@@ -213,7 +248,8 @@ export default function AllInOneRegisterPanel() {
         .showDirectoryPicker({ mode: 'read' });
 
       setScanMsg('워커 생성결과(_allinone.generated.jsonl) 읽는 중…');
-      const genMap = await readGenerated(root);
+      const gscan = await readGenerated(root);
+      const genMap = gscan.map;
 
       setScanMsg('상품 폴더 스캔 중…');
       const { products } = await scanDirectoryHandle(root, (p) =>
@@ -248,7 +284,24 @@ export default function AllInOneRegisterPanel() {
       const withGen = built.filter((r) => r.gen).length;
       setScanMsg(`상품 ${built.length}개 · 워커결과 매칭 ${withGen}개 · 대표가공 ${built.filter((r) => r.usingRegen).length}개`);
       if (withGen === 0) {
-        setError('이 폴더에서 워커 생성결과(_allinone.generated.jsonl)를 찾지 못했습니다. 먼저 워커에서 run-folder.mjs 를 실행하세요.');
+        const sampleCodes = built.slice(0, 3).map((r) => r.productCode);
+        if (!gscan.fileFound) {
+          // 파일 자체가 없음 — 가장 흔한 원인. product_* 는 찾았으므로 폴더는 맞고, 워커만 안 돌린 상태.
+          setError(
+            `product_* 폴더 ${built.length}개는 찾았지만 같은 폴더에 _allinone.generated.jsonl 이 없습니다. ` +
+            `이 폴더에서 워커를 아직 실행하지 않았습니다. 터미널에서 먼저 실행하세요:  node run-folder.mjs "<선택한 폴더 경로>"  ` +
+            `(워커는 ollama 로컬 LLM 이 떠 있어야 합니다.)`,
+          );
+        } else if (gscan.recordCount === 0) {
+          setError('_allinone.generated.jsonl 파일은 있으나 레코드가 0건입니다. 워커가 중간에 중단됐을 수 있으니 다시 실행하세요.');
+        } else {
+          // 파일·레코드는 있는데 폴더코드와 키가 안 맞음 — 다른 폴더에서 생성된 파일일 가능성.
+          setError(
+            `_allinone.generated.jsonl(${gscan.foundIn || '루트'})에 ${gscan.recordCount}건이 있으나 폴더와 매칭 0개입니다(키 불일치). ` +
+            `워커 sourceId 예: [${gscan.sampleSourceIds.join(', ') || '없음'}] ↔ 현재 폴더코드 예: [${sampleCodes.join(', ')}]. ` +
+            `워커를 바로 이 폴더에서 다시 실행했는지 확인하세요.`,
+          );
+        }
       }
     } catch (e) {
       if ((e as Error)?.name === 'AbortError') { setScanMsg(''); }
