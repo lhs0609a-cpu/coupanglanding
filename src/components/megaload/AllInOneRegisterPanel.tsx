@@ -48,12 +48,27 @@ interface GenRecord {
 
 type RowStatus = 'idle' | 'registering' | 'success' | 'error';
 
+interface OptionField { name: string; value: string; unit?: string }
+
+/** 카드에서 직접 수정 가능한 등록값 — 워커 생성값(gen)을 초기값으로 복제해 보관한다.
+ *  등록 시에는 gen 이 아니라 이 값을 전송한다(사용자가 한눈에 고친 결과 반영). */
+interface RowEdit {
+  displayName: string;
+  sellingPrice: number | null;
+  categoryCode: string;
+  categoryPath: string;
+  detail: string;
+  options: OptionField[];
+}
+
 interface Row {
   uid: string;
   productCode: string;
   folderPath: string;
   scanned: ScannedProduct;
   gen: GenRecord | null;
+  /** 사용자가 카드에서 수정한 등록값(초기값 = gen 복제) */
+  edit: RowEdit;
   /** 대표이미지: 워커 가공본(main_images_regen) 우선, 없으면 원본 main_images */
   mainImages: ScannedImageFile[];
   usingRegen: boolean;
@@ -68,14 +83,27 @@ interface ReturnCenter { returnCenterCode: number; shippingPlaceName: string; re
 
 const won = (n: number | null | undefined) => (n == null ? '-' : Number(n).toLocaleString() + '원');
 
-/** 등록 가능 최소 조건 — 서버가 거절할 항목(카테고리코드 없음/판매가<100)을 기본 승인에서 제외 */
-function isEligible(g: GenRecord | null): boolean {
-  return !!g && !!g.categoryCode && !!g.sellingPrice && g.sellingPrice >= 100;
+/** gen → 초기 편집값 복제(불변 baseline 보존). gen 없으면 빈 값. */
+function initEdit(g: GenRecord | null): RowEdit {
+  return {
+    displayName: g?.displayName || '',
+    sellingPrice: g?.sellingPrice ?? null,
+    categoryCode: g?.categoryCode || '',
+    categoryPath: g?.categoryPath || '',
+    detail: g?.detail || '',
+    options: (g?.options || []).map((o) => ({ name: o.name, value: o.value, unit: o.unit })),
+  };
 }
 
-/** 검수화면 프리셋 적용 시 유효 판매가 — level=null이면 워커 생성값 유지.
- *  원가(sourcePrice)가 있어야 재계산, 없으면 워커값 폴백. */
-function effSellingPrice(g: GenRecord | null, level: MarginPresetLevel | null): number | null {
+/** 등록 가능 최소 조건 — 서버가 거절할 항목(카테고리코드 없음/판매가<100)을 기본 승인에서 제외.
+ *  이제 gen 이 아니라 사용자 수정값(edit) 기준으로 판정한다. */
+function isEligible(e: RowEdit): boolean {
+  return !!e.categoryCode && e.sellingPrice != null && e.sellingPrice >= 100;
+}
+
+/** 프리셋 적용가 — level=null이면 워커 생성값. 원가(sourcePrice) 없으면 워커값 폴백.
+ *  '프리셋' 버튼이 각 행 edit.sellingPrice 로 일괄 기록하는 데 사용(개별 수정은 그 뒤 덮어쓰기 가능). */
+function presetPrice(g: GenRecord | null, level: MarginPresetLevel | null): number | null {
   if (!g) return null;
   if (level == null) return g.sellingPrice;
   if (!g.sourcePrice || g.sourcePrice <= 0) return g.sellingPrice;
@@ -201,15 +229,17 @@ export default function AllInOneRegisterPanel() {
         if (mainImages[0] && !mainImages[0].objectUrl) {
           await ensureObjectUrl(mainImages[0]);
         }
+        const edit = initEdit(gen);
         built.push({
           uid: sp.productCode || crypto.randomUUID(),
           productCode: sp.productCode,
           folderPath: sp.folderName || sp.productCode,
           scanned: sp,
           gen,
+          edit,
           mainImages,
           usingRegen: regen.length > 0,
-          approved: isEligible(gen) && !gen?.needsReview,
+          approved: isEligible(edit) && !gen?.needsReview,
           status: 'idle',
         });
       }
@@ -231,7 +261,34 @@ export default function AllInOneRegisterPanel() {
   const toggleApprove = (uid: string) =>
     setRows((prev) => prev.map((r) => (r.uid === uid ? { ...r, approved: !r.approved } : r)));
   const setAll = (v: boolean) =>
-    setRows((prev) => prev.map((r) => (r.status === 'success' ? r : { ...r, approved: v && isEligible(r.gen) })));
+    setRows((prev) => prev.map((r) => (r.status === 'success' ? r : { ...r, approved: v && isEligible(r.edit) })));
+
+  // ── 인라인 편집 ──────────────────────────────────────────────────
+  const patchEdit = (uid: string, patch: Partial<RowEdit>) =>
+    setRows((prev) => prev.map((r) => (r.uid === uid ? { ...r, edit: { ...r.edit, ...patch } } : r)));
+  const patchOption = (uid: string, idx: number, patch: Partial<OptionField>) =>
+    setRows((prev) => prev.map((r) => {
+      if (r.uid !== uid) return r;
+      const options = r.edit.options.map((o, i) => (i === idx ? { ...o, ...patch } : o));
+      return { ...r, edit: { ...r.edit, options } };
+    }));
+  const addOption = (uid: string) =>
+    setRows((prev) => prev.map((r) => (r.uid === uid
+      ? { ...r, edit: { ...r.edit, options: [...r.edit.options, { name: '', value: '' }] } } : r)));
+  const removeOption = (uid: string, idx: number) =>
+    setRows((prev) => prev.map((r) => (r.uid === uid
+      ? { ...r, edit: { ...r.edit, options: r.edit.options.filter((_, i) => i !== idx) } } : r)));
+
+  // 마진 프리셋 일괄 적용 — 각 행 edit.sellingPrice 에 원가×프리셋 결과를 기록(개별 수정은 그 뒤 덮어쓰기 가능).
+  // level=null('워커 기본')은 워커 생성가로 되돌림.
+  const applyPreset = (level: MarginPresetLevel | null) => {
+    setMarginLevel(level);
+    setRows((prev) => prev.map((r) => {
+      if (r.status === 'success') return r;
+      const p = presetPrice(r.gen, level);
+      return p == null ? r : { ...r, edit: { ...r.edit, sellingPrice: p } };
+    }));
+  };
 
   // ── 등록 ─────────────────────────────────────────────────────────
   const handleRegister = useCallback(async () => {
@@ -247,8 +304,8 @@ export default function AllInOneRegisterPanel() {
     setRegistering(true);
     setProgress({ done: 0, total: targets.length });
     try {
-      // 1) init-job — 카테고리 메타 일괄 로드
-      const uniqueCats = [...new Set(targets.map((r) => r.gen!.categoryCode).filter(Boolean).map(String))];
+      // 1) init-job — 카테고리 메타 일괄 로드 (사용자가 수정한 카테고리코드 기준)
+      const uniqueCats = [...new Set(targets.map((r) => r.edit.categoryCode).filter(Boolean).map(String))];
       const initRes = await fetch('/api/megaload/products/bulk-register/init-job', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ totalCount: targets.length, categoryCodes: uniqueCats }),
@@ -268,11 +325,17 @@ export default function AllInOneRegisterPanel() {
         const products: Record<string, unknown>[] = [];
         for (const r of batch) {
           const g = r.gen!;
-          const catCode = g.categoryCode ? String(g.categoryCode) : '';
+          const e = r.edit;
+          const catCode = e.categoryCode ? String(e.categoryCode) : '';
           const meta = (catCode && categoryMeta[catCode]) || { noticeMeta: [], attributeMeta: [] };
-          // 프리셋 적용 시 원가×마진으로 재계산, 미적용 시 워커 생성값. 정가는 판매가×1.5(할인 배지용).
-          const effSelling = effSellingPrice(g, marginLevel) ?? g.sellingPrice ?? 0;
+          // 사용자가 카드에서 수정한 판매가 사용(미입력 시 워커값 폴백). 정가는 판매가×1.5(할인 배지용).
+          const effSelling = e.sellingPrice ?? g.sellingPrice ?? 0;
           const effOriginal = effSelling > 0 ? Math.ceil((effSelling * 1.5) / 100) * 100 : undefined;
+          const dispName = e.displayName.trim() || g.displayName || g.originalName;
+          // 편집한 서술형 옵션 → 태그로 안전 반영(가격·재고 판매변형 optionVariants 로는 보내지 않음).
+          const optionTags = e.options
+            .map((o) => `${o.name} ${o.value}${o.unit || ''}`.trim())
+            .filter(Boolean);
           const wm = sellerBrandRef.current;
           // 이미지 업로드: 대표(가공본 우선) + 상세/리뷰/정보
           const mainUrls = (await uploadScannedImages(r.mainImages, 10, wm)).filter(Boolean);
@@ -281,11 +344,12 @@ export default function AllInOneRegisterPanel() {
           const infoUrls = (await uploadScannedImages(r.scanned.infoImages || [], 10, wm)).filter(Boolean);
 
           const pj = r.scanned.productJson || {};
+          const baseTags = Array.isArray(pj.tags) ? (pj.tags as string[]) : (g.keywords || []);
           products.push({
             uid: r.uid,
             productCode: r.productCode,
             folderPath: r.folderPath,
-            name: g.displayName || g.originalName,
+            name: dispName,
             sourceName: g.originalName,
             sourceUrl: g.sourceUrl || r.scanned.sourceUrl,
             brand: (typeof pj.brand === 'string' ? pj.brand : '') || '',
@@ -293,14 +357,14 @@ export default function AllInOneRegisterPanel() {
             originalPrice: effOriginal,
             sourcePrice: g.sourcePrice ?? (typeof pj.price === 'number' ? pj.price : 0),
             categoryCode: catCode,
-            categoryPath: g.categoryPath || '',
-            tags: Array.isArray(pj.tags) ? pj.tags : (g.keywords || []),
-            description: g.detail || '',
+            categoryPath: e.categoryPath || '',
+            tags: [...new Set([...baseTags, ...optionTags])].slice(0, 20),
+            description: e.detail || '',
             mainImages: [], detailImages: [], reviewImages: [], infoImages: [],
             noticeMeta: meta.noticeMeta, attributeMeta: meta.attributeMeta,
-            // 워커 생성값을 그대로 사용(서버 재생성 방지)
-            aiDisplayName: g.displayName || undefined,
-            descriptionOverride: g.detail || undefined,
+            // 사용자 수정값을 그대로 사용(서버 재생성 방지)
+            aiDisplayName: dispName || undefined,
+            descriptionOverride: e.detail || undefined,
             preUploadedUrls: {
               mainImageUrls: mainUrls,
               detailImageUrls: detailUrls,
@@ -363,7 +427,7 @@ export default function AllInOneRegisterPanel() {
     } finally {
       setRegistering(false);
     }
-  }, [rows, selectedOutbound, selectedReturn, contactNumber, marginLevel]);
+  }, [rows, selectedOutbound, selectedReturn, contactNumber]);
 
   return (
     <div className="space-y-5">
@@ -415,11 +479,11 @@ export default function AllInOneRegisterPanel() {
       {scanMsg && <p className="text-xs text-gray-500">{scanMsg}</p>}
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
 
-      {/* 마진 프리셋 — 원가×마진으로 판매가 즉시 재계산(워커 재실행 불필요). '워커 기본'은 생성값 유지 */}
+      {/* 마진 프리셋 — 원가×마진으로 전 카드 판매가 일괄 기록(개별 수정은 그 뒤 카드에서 덮어쓰기). '워커 기본'은 생성값 복원 */}
       {rows.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-3 py-2">
           <span className="text-xs text-gray-500 mr-1">마진 프리셋:</span>
-          <button type="button" onClick={() => setMarginLevel(null)} disabled={registering}
+          <button type="button" onClick={() => applyPreset(null)} disabled={registering}
             className={`px-2.5 py-1 text-xs rounded-md border transition ${marginLevel === null ? 'bg-gray-900 text-white border-gray-900' : 'text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
             워커 기본
           </button>
@@ -429,13 +493,13 @@ export default function AllInOneRegisterPanel() {
               : preset.tone === 'aggressive' ? 'text-rose-600 border-rose-200 hover:bg-rose-50'
               : 'text-gray-700 border-gray-300 hover:bg-gray-50';
             return (
-              <button key={preset.level} type="button" disabled={registering} onClick={() => setMarginLevel(preset.level)}
+              <button key={preset.level} type="button" disabled={registering} onClick={() => applyPreset(preset.level)}
                 className={`px-2.5 py-1 text-xs rounded-md border transition ${isActive ? 'bg-[#E31837] text-white border-[#E31837]' : tone}`}>
                 {preset.label}
               </button>
             );
           })}
-          <span className="text-[11px] text-gray-400 ml-1">원가 기반 재계산 · 정가는 판매가×1.5(할인배지)</span>
+          <span className="text-[11px] text-gray-400 ml-1">전 카드 판매가 일괄 적용 · 정가는 판매가×1.5(할인배지)</span>
         </div>
       )}
 
@@ -443,7 +507,10 @@ export default function AllInOneRegisterPanel() {
       <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(360px,1fr))]">
         {rows.map((r) => {
           const g = r.gen;
+          const e = r.edit;
           const thumb = r.mainImages[0]?.objectUrl;
+          const editable = !!g && r.status !== 'success' && !registering;
+          const priceLow = e.sellingPrice != null && e.sellingPrice < 100;
           const statusColor = r.status === 'success' ? 'border-green-400' : r.status === 'error' ? 'border-red-400'
             : g?.needsReview ? 'border-amber-300' : 'border-gray-200';
           return (
@@ -452,7 +519,7 @@ export default function AllInOneRegisterPanel() {
                 {thumb
                   ? <img src={thumb} alt="" className="w-20 h-20 object-cover rounded-lg bg-gray-100 flex-none" />
                   : <div className="w-20 h-20 rounded-lg bg-gray-100 flex-none" />}
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-center gap-1 flex-wrap">
                     {r.usingRegen && <span className="text-[10px] text-emerald-600 font-medium">AI 가공 대표</span>}
                     {g?.needsReview && <span className="text-[10px] bg-amber-400 text-white rounded px-1">검수필요</span>}
@@ -460,23 +527,60 @@ export default function AllInOneRegisterPanel() {
                     {r.status === 'success' && <span className="text-[10px] bg-green-500 text-white rounded px-1">등록완료</span>}
                     {r.status === 'error' && <span className="text-[10px] bg-red-500 text-white rounded px-1">실패</span>}
                   </div>
-                  <div className="text-sm font-semibold text-gray-900 leading-snug">{g?.displayName || r.scanned.productJson?.name || r.productCode}</div>
-                  <div className="text-xs text-blue-600">{g?.categoryPath}{g?.categoryCode ? ` [${g.categoryCode}]` : ''}</div>
-                  <div className="text-sm"><b className="text-[#E0245E]">{won(effSellingPrice(g, marginLevel))}</b>{g?.sourcePrice ? <span className="text-xs text-gray-400 line-through ml-1">{won(g.sourcePrice)}</span> : null}{marginLevel && effSellingPrice(g, marginLevel) !== g?.sellingPrice ? <span className="text-[10px] text-rose-500 ml-1">프리셋</span> : null}</div>
+                  {/* 노출명 — 직접 수정 */}
+                  <input value={e.displayName} disabled={!editable}
+                    onChange={(ev) => patchEdit(r.uid, { displayName: ev.target.value })}
+                    placeholder={r.scanned.productJson?.name || r.productCode}
+                    className="w-full text-sm font-semibold text-gray-900 leading-snug border border-transparent hover:border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-transparent" />
+                  {/* 카테고리 경로 + 코드 — 직접 수정 */}
+                  <div className="flex items-center gap-1">
+                    <input value={e.categoryPath} disabled={!editable}
+                      onChange={(ev) => patchEdit(r.uid, { categoryPath: ev.target.value })} placeholder="카테고리 경로"
+                      className="flex-1 min-w-0 text-xs text-blue-600 border border-transparent hover:border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-transparent" />
+                    <input value={e.categoryCode} disabled={!editable} inputMode="numeric"
+                      onChange={(ev) => patchEdit(r.uid, { categoryCode: ev.target.value.replace(/[^0-9]/g, '') })} placeholder="코드"
+                      className="w-20 text-xs text-gray-700 border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
+                  </div>
+                  {/* 판매가 — 직접 수정 */}
+                  <div className="flex items-center gap-1">
+                    <span className="text-[#E0245E] font-bold text-sm">₩</span>
+                    <input type="number" value={e.sellingPrice ?? ''} disabled={!editable}
+                      onChange={(ev) => { const n = Number(ev.target.value); patchEdit(r.uid, { sellingPrice: ev.target.value === '' || !Number.isFinite(n) ? null : Math.max(0, Math.floor(n)) }); }}
+                      placeholder="판매가"
+                      className={`w-28 text-sm font-bold text-[#E0245E] border ${priceLow ? 'border-red-400' : 'border-gray-200'} focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50`} />
+                    {g?.sourcePrice ? <span className="text-xs text-gray-400 line-through ml-1">{won(g.sourcePrice)}</span> : null}
+                    {priceLow && <span className="text-[10px] text-red-500">최소 100원</span>}
+                  </div>
                 </div>
               </div>
-              {g && g.options.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {g.options.map((o, i) => (<span key={i} className="text-[11px] bg-blue-50 text-blue-700 rounded px-1.5 py-0.5">{o.name}: {o.value}{o.unit || ''}</span>))}
+              {/* 옵션 — 서술형(편집 가능). 등록 시 태그/스펙으로 반영(가격·재고 판매변형 아님) */}
+              {g && (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-gray-500">옵션 (스펙)</span>
+                    <button type="button" disabled={!editable} onClick={() => addOption(r.uid)} className="text-[11px] text-blue-600 disabled:opacity-40">+ 옵션 추가</button>
+                  </div>
+                  {e.options.map((o, i) => (
+                    <div key={i} className="flex items-center gap-1">
+                      <input value={o.name} disabled={!editable} onChange={(ev) => patchOption(r.uid, i, { name: ev.target.value })} placeholder="항목" className="w-20 text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
+                      <input value={o.value} disabled={!editable} onChange={(ev) => patchOption(r.uid, i, { value: ev.target.value })} placeholder="값" className="flex-1 min-w-0 text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
+                      <input value={o.unit || ''} disabled={!editable} onChange={(ev) => patchOption(r.uid, i, { unit: ev.target.value })} placeholder="단위" className="w-12 text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
+                      <button type="button" disabled={!editable} onClick={() => removeOption(r.uid, i)} className="text-gray-400 hover:text-red-500 text-sm px-1 leading-none disabled:opacity-40">×</button>
+                    </div>
+                  ))}
                 </div>
               )}
               {g?.sourceUrl && <a href={g.sourceUrl} target="_blank" rel="noreferrer" className="text-[11px] text-emerald-600 break-all">원본: {g.sourceUrl}</a>}
               {g && (
                 <div>
                   <button onClick={() => setOpenDetail((p) => ({ ...p, [r.uid]: !p[r.uid] }))} className="text-xs text-gray-600 border border-gray-200 rounded px-2 py-1">
-                    상세페이지 보기 {openDetail[r.uid] ? '▴' : '▾'}
+                    상세페이지 편집 {openDetail[r.uid] ? '▴' : '▾'}
                   </button>
-                  {openDetail[r.uid] && <pre className="mt-1 text-[12px] whitespace-pre-wrap leading-relaxed bg-gray-50 border border-gray-100 rounded p-2 max-h-72 overflow-auto">{g.detail}</pre>}
+                  {openDetail[r.uid] && (
+                    <textarea value={e.detail} disabled={!editable}
+                      onChange={(ev) => patchEdit(r.uid, { detail: ev.target.value })}
+                      className="mt-1 w-full text-[12px] whitespace-pre-wrap leading-relaxed bg-gray-50 border border-gray-200 focus:border-blue-300 rounded p-2 h-72 overflow-auto focus:outline-none disabled:bg-gray-100" />
+                  )}
                 </div>
               )}
               {r.message && <p className="text-[11px] text-red-600">{r.message}</p>}
