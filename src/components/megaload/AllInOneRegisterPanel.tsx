@@ -23,6 +23,7 @@ import {
 import {
   MARGIN_PRESETS, applyMarginPreset, calculateSellingPrice, type MarginPresetLevel,
 } from '@/lib/megaload/services/margin-pricing';
+import { focusNextField } from './focusNextField';
 
 const BATCH_SIZE = 10;
 const IMG_RE = /\.(png|jpg|jpeg|webp)$/i;
@@ -99,6 +100,48 @@ function initEdit(g: GenRecord | null): RowEdit {
  *  이제 gen 이 아니라 사용자 수정값(edit) 기준으로 판정한다. */
 function isEligible(e: RowEdit): boolean {
   return !!e.categoryCode && e.sellingPrice != null && e.sellingPrice >= 100;
+}
+
+/**
+ * 로컬 draft 로 버퍼링하는 입력칸.
+ * 예전엔 onChange 마다 곧바로 전역 rows(setRows)를 갱신 → 카드 전체가 리렌더되며
+ * 포커스가 날아가, 한 글자만 쳐도 다음 칸으로 튀는 문제가 있었음.
+ * → 타이핑은 로컬 state 에만 반영하고, onBlur/Enter 에서만 전역 커밋한다.
+ *   Enter 는 커밋 후 같은 카드의 다음 입력칸으로 포커스를 옮긴다(Tab 과 동일 효과).
+ */
+function DraftField({
+  value, onCommit, disabled, placeholder, className, inputMode, sanitize,
+}: {
+  value: string;
+  onCommit: (v: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  className?: string;
+  inputMode?: 'numeric' | 'text';
+  /** 타이핑 즉시 정규화(예: 숫자만 남기기). 미지정이면 원문 그대로. */
+  sanitize?: (v: string) => string;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => { setDraft(value); }, [value]);
+  const commit = () => { if (draft !== value) onCommit(draft); };
+  return (
+    <input
+      value={draft}
+      inputMode={inputMode}
+      disabled={disabled}
+      placeholder={placeholder}
+      className={className}
+      onChange={(e) => setDraft(sanitize ? sanitize(e.target.value) : e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commit();
+          focusNextField(e.currentTarget);
+        }
+      }}
+    />
+  );
 }
 
 /** 프리셋 적용가 — level=null이면 워커 생성값. 원가(sourcePrice) 없으면 워커값 폴백.
@@ -567,7 +610,7 @@ export default function AllInOneRegisterPanel() {
           const statusColor = r.status === 'success' ? 'border-green-400' : r.status === 'error' ? 'border-red-400'
             : g?.needsReview ? 'border-amber-300' : 'border-gray-200';
           return (
-            <div key={r.uid} className={`bg-white border ${statusColor} rounded-xl p-3 flex flex-col gap-2`}>
+            <div key={r.uid} data-field-scope className={`bg-white border ${statusColor} rounded-xl p-3 flex flex-col gap-2`}>
               <div className="flex gap-3">
                 {thumb
                   ? <img src={thumb} alt="" className="w-20 h-20 object-cover rounded-lg bg-gray-100 flex-none" />
@@ -580,25 +623,27 @@ export default function AllInOneRegisterPanel() {
                     {r.status === 'success' && <span className="text-[10px] bg-green-500 text-white rounded px-1">등록완료</span>}
                     {r.status === 'error' && <span className="text-[10px] bg-red-500 text-white rounded px-1">실패</span>}
                   </div>
-                  {/* 노출명 — 직접 수정 */}
-                  <input value={e.displayName} disabled={!editable}
-                    onChange={(ev) => patchEdit(r.uid, { displayName: ev.target.value })}
+                  {/* 노출명 — 직접 수정(버퍼링: Enter/blur 에만 커밋) */}
+                  <DraftField value={e.displayName} disabled={!editable}
+                    onCommit={(v) => patchEdit(r.uid, { displayName: v })}
                     placeholder={r.scanned.productJson?.name || r.productCode}
                     className="w-full text-sm font-semibold text-gray-900 leading-snug border border-transparent hover:border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-transparent" />
                   {/* 카테고리 경로 + 코드 — 직접 수정 */}
                   <div className="flex items-center gap-1">
-                    <input value={e.categoryPath} disabled={!editable}
-                      onChange={(ev) => patchEdit(r.uid, { categoryPath: ev.target.value })} placeholder="카테고리 경로"
+                    <DraftField value={e.categoryPath} disabled={!editable}
+                      onCommit={(v) => patchEdit(r.uid, { categoryPath: v })} placeholder="카테고리 경로"
                       className="flex-1 min-w-0 text-xs text-blue-600 border border-transparent hover:border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-transparent" />
-                    <input value={e.categoryCode} disabled={!editable} inputMode="numeric"
-                      onChange={(ev) => patchEdit(r.uid, { categoryCode: ev.target.value.replace(/[^0-9]/g, '') })} placeholder="코드"
+                    <DraftField value={e.categoryCode} disabled={!editable} inputMode="numeric"
+                      sanitize={(v) => v.replace(/[^0-9]/g, '')}
+                      onCommit={(v) => patchEdit(r.uid, { categoryCode: v })} placeholder="코드"
                       className="w-20 text-xs text-gray-700 border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
                   </div>
                   {/* 판매가 — 직접 수정 */}
                   <div className="flex items-center gap-1">
                     <span className="text-[#E0245E] font-bold text-sm">₩</span>
-                    <input type="number" value={e.sellingPrice ?? ''} disabled={!editable}
-                      onChange={(ev) => { const n = Number(ev.target.value); patchEdit(r.uid, { sellingPrice: ev.target.value === '' || !Number.isFinite(n) ? null : Math.max(0, Math.floor(n)) }); }}
+                    <DraftField value={e.sellingPrice != null ? String(e.sellingPrice) : ''} disabled={!editable} inputMode="numeric"
+                      sanitize={(v) => v.replace(/[^0-9]/g, '')}
+                      onCommit={(v) => { const n = Number(v); patchEdit(r.uid, { sellingPrice: v === '' || !Number.isFinite(n) ? null : Math.max(0, Math.floor(n)) }); }}
                       placeholder="판매가"
                       className={`w-28 text-sm font-bold text-[#E0245E] border ${priceLow ? 'border-red-400' : 'border-gray-200'} focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50`} />
                     {g?.sourcePrice ? <span className="text-xs text-gray-400 line-through ml-1">{won(g.sourcePrice)}</span> : null}
@@ -615,9 +660,9 @@ export default function AllInOneRegisterPanel() {
                   </div>
                   {e.options.map((o, i) => (
                     <div key={i} className="flex items-center gap-1">
-                      <input value={o.name} disabled={!editable} onChange={(ev) => patchOption(r.uid, i, { name: ev.target.value })} placeholder="항목" className="w-20 text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
-                      <input value={o.value} disabled={!editable} onChange={(ev) => patchOption(r.uid, i, { value: ev.target.value })} placeholder="값" className="flex-1 min-w-0 text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
-                      <input value={o.unit || ''} disabled={!editable} onChange={(ev) => patchOption(r.uid, i, { unit: ev.target.value })} placeholder="단위" className="w-12 text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
+                      <DraftField value={o.name} disabled={!editable} onCommit={(v) => patchOption(r.uid, i, { name: v })} placeholder="항목" className="w-20 text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
+                      <DraftField value={o.value} disabled={!editable} onCommit={(v) => patchOption(r.uid, i, { value: v })} placeholder="값" className="flex-1 min-w-0 text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
+                      <DraftField value={o.unit || ''} disabled={!editable} onCommit={(v) => patchOption(r.uid, i, { unit: v })} placeholder="단위" className="w-12 text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
                       <button type="button" disabled={!editable} onClick={() => removeOption(r.uid, i)} className="text-gray-400 hover:text-red-500 text-sm px-1 leading-none disabled:opacity-40">×</button>
                     </div>
                   ))}

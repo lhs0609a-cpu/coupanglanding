@@ -16,6 +16,7 @@ import { detectAllWeights, isAgriProduct, resolveAgriWeight, rewriteDisplayNameF
 import type { PayloadPreviewData } from './PayloadPreviewPanel';
 import type { EditableProduct } from './types';
 import type { AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
+import { focusNextField } from '../focusNextField';
 
 
 interface ImageItem {
@@ -302,7 +303,13 @@ function RequiredBuyOptionField({
           type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              if (draft !== value) onCommit(draft);
+              focusNextField(e.currentTarget); // Enter → 다음 옵션칸으로 이동
+            }
+          }}
           onBlur={() => { if (draft !== value) onCommit(draft); }}
           className={inputRequired(empty)}
           placeholder={unit ? `숫자만 입력 (${unit})` : '값 입력'}
@@ -1287,7 +1294,7 @@ export default function CoupangFieldsSection({
           if (requiredBuyOptions.length === 0) return null;
           const extracted = meta?.extractedOptions || [];
           return (
-            <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 space-y-2.5">
+            <div data-field-scope className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-amber-900">
                   필수 구매옵션 ({requiredBuyOptions.length}개) — 쿠팡윙 옵션 용량 오류 시 여기서 수정
