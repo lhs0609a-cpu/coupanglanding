@@ -38,10 +38,75 @@ export const metadata: Metadata = {
   },
 };
 
+const programBreadcrumbJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    {
+      "@type": "ListItem",
+      position: 1,
+      name: "쿠팡PT 메가로드",
+      item: SITE_URL,
+    },
+    {
+      "@type": "ListItem",
+      position: 2,
+      name: "메가로드 프로그램",
+      item: `${SITE_URL}/program`,
+    },
+  ],
+};
+
+const programSoftwareJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "@id": `${SITE_URL}/program#app`,
+  name: "메가로드 (Megaload)",
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Web",
+  description:
+    "GPT-4 기반 쿠팡 상품 대량등록 자동화 프로그램. 카테고리 매칭, 노출상품명, 가격·옵션·재고를 자동화해 100개 등록을 10분 이내로 단축합니다.",
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "KRW",
+    description: "1일 무료 체험 제공",
+  },
+  url: `${SITE_URL}/program`,
+  provider: {
+    "@type": "Organization",
+    name: "플라트마케팅",
+    url: SITE_URL,
+  },
+  featureList: [
+    "GPT-4 AI 카테고리 자동 매칭",
+    "노출상품명 자동 생성",
+    "가격·옵션·재고 자동화",
+    "100개 상품 10분 대량등록",
+    "쿠팡 Wing 자동 연동",
+  ],
+};
+
 export default function ProgramLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return children;
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(programBreadcrumbJsonLd),
+        }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(programSoftwareJsonLd),
+        }}
+      />
+      {children}
+    </>
+  );
 }

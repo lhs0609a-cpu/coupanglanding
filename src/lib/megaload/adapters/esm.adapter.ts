@@ -13,6 +13,10 @@
  */
 import { BaseAdapter } from './base.adapter';
 import type { Channel } from '../types';
+import type {
+  CanonicalProduct, ChannelCapabilities, ChannelMappingContext, ChannelMappingResult,
+} from '../services/canonical-product';
+import { pickImages, composeDetail, cleanName } from './mapping-helpers';
 import crypto from 'crypto';
 
 const ESM_API_BASE = 'https://sa2.esmplus.com';
@@ -24,10 +28,61 @@ export class EsmAdapter extends BaseAdapter {
   private sellerId = '';    // 사이트별 셀러ID (G마켓 또는 옥션)
   private siteType: number; // 1=옥션, 2=G마켓
 
+  capabilities: ChannelCapabilities = {
+    canCreate: true,
+    multiOption: false,        // ESM 옵션 등록은 별도 — P4는 단일
+    optionPrice: 'absolute',
+    maxImages: 10,
+    selfHostedImages: false,   // 외부 URL 허용(실연동 검증)
+    requiresNotice: false,
+    requiresShipTemplate: true,
+  };
+
   constructor(channel: 'gmarket' | 'auction') {
     super();
     this.channel = channel;
     this.siteType = channel === 'gmarket' ? 2 : 1;
+  }
+
+  /**
+   * Canonical → ESM goods 등록 페이로드 (POST /item/v1/goods).
+   * siteType(1=옥션,2=G마켓)로 마켓 구분. 한 어댑터 인스턴스 = 한 마켓.
+   * ⚠️ ESM goods 스키마는 방대 → 실연동 시 etapi.gmarket.com 가이드로 필드 검증 필요.
+   */
+  mapFromCanonical(product: CanonicalProduct, ctx: ChannelMappingContext): ChannelMappingResult {
+    const t = ctx.shippingTemplate;
+    if (!t?.outboundPlaceCode) {
+      return { ok: false, status: 'needs_input', missing: [{ field: 'ship_template', reason: 'ESM 발송정보(출고지) 필요' }] };
+    }
+    const { representative, extras } = pickImages(product, ctx);
+    const totalStock = product.options.reduce((s, o) => s + (o.stock ?? 0), 0) || 999;
+
+    const payload: Record<string, unknown> = {
+      siteType: this.siteType,                 // 1=옥션, 2=G마켓
+      goodsName: cleanName(product, 100),
+      categoryCode: ctx.channelCategoryId,
+      sellPrice: ctx.sellingPrice,
+      goodsAmt: totalStock,                    // 재고수량
+      goodsDescription: composeDetail(product, ctx),
+      imageUrl: representative,
+      addImageUrls: extras.slice(0, 9),
+      brandName: product.brand || undefined,
+      // 배송/반품/AS (템플릿)
+      deliveryType: t.deliveryChargeType === 'FREE' ? 'FREE' : 'CHARGE',
+      deliveryFee: t.deliveryCharge ?? 0,
+      returnFee: t.returnCharge ?? 0,
+      exchangeFee: t.exchangeCharge ?? 0,
+      shippingPlaceCode: t.outboundPlaceCode,
+      returnPlaceCode: t.returnCenterCode,
+      asInfo: t.afterServiceGuide || '판매자 문의',
+      asTelephone: t.afterServiceTel || '',
+      sellerManageCode: product.options[0]?.sku || undefined,
+    };
+
+    const warnings: string[] = ['ESM goods 페이로드 필드명은 실연동 시 가이드로 검증 필요'];
+    if (product.options.length > 1) warnings.push(`다옵션 ${product.options.length}개 — ESM 단일 등록(옵션 P5)`);
+
+    return { ok: true, payload, warnings };
   }
 
   /**

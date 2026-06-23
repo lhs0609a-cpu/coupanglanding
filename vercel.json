@@ -53,6 +53,10 @@
       "schedule": "7 * * * *"
     },
     {
+      "path": "/api/cron/megaload-replication-reconcile",
+      "schedule": "2,32 * * * *"
+    },
+    {
       "path": "/api/cron/monthly-report-auto-create",
       "schedule": "10 18 * * *"
     },

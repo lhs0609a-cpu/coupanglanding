@@ -82,6 +82,7 @@ export const metadata: Metadata = {
     description:
       "초기비용 0원, 3개월 매출 보장형 쿠팡PT. GPT-4 AI가 카테고리 매칭·상품명·가격·대량등록을 자동화하는 메가로드와 함께 시작하세요.",
     // OG image is auto-injected from src/app/opengraph-image.tsx
+    countryName: "Korea",
   },
   twitter: {
     card: "summary_large_image",
@@ -145,7 +146,7 @@ export const viewport: Viewport = {
   maximumScale: 5,
 };
 
-// JSON-LD: Organization + WebSite + Service(쿠팡PT) + SoftwareApplication(메가로드)
+// JSON-LD: Organization + WebSite + Service(쿠팡PT) + SoftwareApplication(메가로드) + Speakable
 const jsonLd = {
   "@context": "https://schema.org",
   "@graph": [
@@ -163,6 +164,11 @@ const jsonLd = {
         addressLocality: "용인시",
         streetAddress: "기흥구 강남서로 9, 7층 703호-b721",
       },
+      contactPoint: {
+        "@type": "ContactPoint",
+        contactType: "customer service",
+        availableLanguage: "Korean",
+      },
     },
     {
       "@type": "WebSite",
@@ -177,6 +183,21 @@ const jsonLd = {
         "@type": "SearchAction",
         target: `${SITE_URL}/?q={search_term_string}`,
         "query-input": "required name=search_term_string",
+      },
+    },
+    {
+      "@type": "WebPage",
+      "@id": `${SITE_URL}/#webpage`,
+      url: SITE_URL,
+      name: "쿠팡PT | 쿠팡 1:1 전문가 코칭 + AI 자동등록 프로그램 — 메가로드",
+      isPartOf: { "@id": `${SITE_URL}/#website` },
+      about: { "@id": `${SITE_URL}/#organization` },
+      description:
+        "쿠팡PT 공식 안내. 초기비용 0원, 3개월 매출 보장형 1:1 쿠팡 전문가 코칭(PT)과 GPT-4 AI 기반 쿠팡 상품 대량등록 자동화 프로그램 메가로드.",
+      inLanguage: "ko-KR",
+      speakable: {
+        "@type": "SpeakableSpecification",
+        cssSelector: ["h1", ".sr-only p"],
       },
     },
     {

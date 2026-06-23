@@ -4,14 +4,18 @@
  * 1. 네이버 원본 페이지 크롤링 (stock-check 로직 재사용)
  * 2. 등록한 옵션(registered_option_name)이 품절이면 → 해당 상품 품절 판정
  * 3. 상태 변경 감지 시 쿠팡 suspend/resume 호출
+ * 3-c. 멀티채널 전파 — 쿠팡 외 전 채널 재고 0/복구 (오버셀 방지)
  * 4. unknown 연속 3회 → 네이버 구조 변경 의심 알림
  * 5. DB 업데이트 + 로그 기록 + 알림 생성
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getAuthenticatedAdapter } from '../adapters/factory';
 import type { CoupangAdapter } from '../adapters/coupang.adapter';
+import type { BaseAdapter } from '../adapters/base.adapter';
+import type { Channel } from '../types';
 import type { OptionStockStatus } from './option-name-matcher';
 import { normalizeOptionName, detectOptionChanges } from './option-name-matcher';
+import { propagateStockToOtherChannels } from './multichannel-stock-sync';
 import type { PriceFollowRule, PendingPriceChange } from '@/lib/supabase/types';
 
 type StockStatus = 'in_stock' | 'sold_out' | 'removed' | 'unknown' | 'error';
@@ -26,6 +30,39 @@ const PRICE_FOLLOW_DRY_RUN = process.env.PRICE_FOLLOW_DRY_RUN === '1';
  * 긴급 전체 정지 킬스위치. 1이면 모든 가격 추종 로직을 건너뜀.
  */
 const PRICE_FOLLOW_KILLSWITCH = process.env.PRICE_FOLLOW_KILLSWITCH === '1';
+
+/**
+ * 판매 on/off(중지·재개) 안전장치.
+ *  - SALE_TOGGLE_DRY_RUN=1: 실제 쿠팡 호출 없이 로그만 (롤아웃 초기 검증)
+ *  - SALE_TOGGLE_KILLSWITCH=1: 모든 판매중지/재개 건너뜀 (긴급 정지)
+ */
+const SALE_TOGGLE_DRY_RUN = process.env.SALE_TOGGLE_DRY_RUN === '1';
+const SALE_TOGGLE_KILLSWITCH = process.env.SALE_TOGGLE_KILLSWITCH === '1';
+
+/**
+ * 쿠팡 승인 라이프사이클 분류.
+ * ⚠️ status/statusName 은 "승인 상태"이지 "판매중/중지"가 아니다 — 판매 on/off 토글 가능 여부 판정용.
+ *   - live: 승인완료/부분승인 → 판매 on/off 토글 가능
+ *   - removed: 상품삭제 → 더 이상 토글 불가, 모니터 비활성화
+ *   - rejected: 승인반려 → 토글 불가, 사용자 조치 필요
+ *   - pending: 임시저장/심사중/승인대기 → 이번 사이클 토글 스킵(다음에 재시도)
+ * 영문 status(APPROVED 등)와 한글 statusName(승인완료 등) 둘 다로 판정 — 쿠팡 응답 변형 대비.
+ */
+type CoupangLifecycle = 'live' | 'removed' | 'rejected' | 'pending' | 'unknown';
+function classifyCoupangLifecycle(status: string, statusName: string): CoupangLifecycle {
+  const s = (status || '').toUpperCase();
+  const n = statusName || '';
+  if (s === 'DELETED' || n.includes('삭제')) return 'removed';
+  if (s === 'DENIED' || s === 'REJECTED' || n.includes('반려')) return 'rejected';
+  if (s === 'APPROVED' || s === 'PARTIAL_APPROVED' || s === 'PARTIAL_APPROVAL' || n.includes('승인완료')) return 'live';
+  if (s === 'SAVED' || s === 'IN_REVIEW' || s === 'APPROVING' || n.includes('심사') || n.includes('임시') || n.includes('승인대기')) return 'pending';
+  return 'unknown';
+}
+
+/** 쿠팡 재개/중지 호출이 "이미 그 상태"라서 거부된 경우 — 목표 상태는 이미 달성된 것이므로 성공으로 간주 */
+function isAlreadyInTargetState(msg: string): boolean {
+  return /이미|already|판매\s*중|중지\s*상태|SUCCESS/i.test(msg || '');
+}
 
 const SOLDOUT_PATTERNS = [
   /품절/, /일시\s*품절/, /매진/, /구매\s*불가/, /판매\s*종료/, /판매\s*중지/,
@@ -534,42 +571,73 @@ function determineEffectiveStatus(
 }
 
 /**
- * 쿠팡 API로 실제 상품 상태 + 판매가를 조회하여 DB 반영
- * - statusName: APPROVE → 'active', SUSPEND/기타 → 'suspended'
- * - our_price_last: 첫 번째 item의 salePrice
+ * 쿠팡 상세를 조회해 라이프사이클 + 옵션(vendorItemId) + 현재 판매가를 반환.
+ * ⚠️ coupang_status(판매 on/off) 는 절대 여기서 덮어쓰지 않는다.
+ *    승인상태(APPROVED 등)는 판매중/중지와 무관하므로, 과거처럼 status→coupang_status 로
+ *    매핑하면 멀쩡히 팔리는 상품이 전부 'suspended'로 오기록되어 재개 무한실패가 났다.
+ *    coupang_status 는 오직 우리가 실제로 stop/resume 를 호출했을 때만 바뀐다.
+ * 반환:
+ *   - lifecycle: live/removed/rejected/pending/unknown
+ *   - vendorItemIds: 옵션 단위 판매토글/가격변경 대상
+ *   - coupangPrice: 첫 옵션 salePrice (our_price_last 갱신용)
+ * 조회 실패(403/네트워크 등)면 null → 호출측은 이번 사이클 토글 스킵.
  */
-async function fetchAndUpdateCoupangStatus(
-  monitor: { id: string; coupang_product_id: string; coupang_status: 'active' | 'suspended'; our_price_last: number | null },
+async function fetchCoupangState(
+  monitor: { id: string; coupang_product_id: string },
   adapter: CoupangAdapter,
-  supabase: SupabaseClient,
-  now: string,
-): Promise<{ coupangApiStatus: 'active' | 'suspended'; coupangApiPrice: number | null } | null> {
+): Promise<{ lifecycle: CoupangLifecycle; vendorItemIds: string[]; coupangPrice: number | null } | null> {
   try {
     const detail = await adapter.getProductDetail(monitor.coupang_product_id);
     if (!detail) return null;
-
-    const ACTIVE_STATUSES = new Set(['APPROVE', 'PARTIAL_APPROVAL', 'WAITING_FOR_APPROVAL', 'REGISTRATION']);
-    const coupangApiStatus: 'active' | 'suspended' = ACTIVE_STATUSES.has(String(detail.statusName || '').toUpperCase()) ? 'active' : 'suspended';
-    const coupangApiPrice = detail.items?.[0]?.salePrice ?? null;
-
-    // DB 업데이트 — 변경분만
-    const updates: Record<string, unknown> = { updated_at: now };
-    if (coupangApiStatus !== monitor.coupang_status) {
-      updates.coupang_status = coupangApiStatus;
-      console.log(`[stock-monitor] coupang status mismatch: monitor=${monitor.id} DB=${monitor.coupang_status} API=${coupangApiStatus}`);
-    }
-    if (coupangApiPrice != null && coupangApiPrice > 0) {
-      updates.our_price_last = coupangApiPrice;
-    }
-
-    if (Object.keys(updates).length > 1) { // updated_at 외에 변경이 있을 때만
-      await supabase.from('sh_stock_monitors').update(updates).eq('id', monitor.id);
-    }
-
-    return { coupangApiStatus, coupangApiPrice };
+    return {
+      lifecycle: classifyCoupangLifecycle(detail.status, detail.statusName),
+      vendorItemIds: detail.items.map(i => i.vendorItemId).filter(Boolean),
+      coupangPrice: detail.items?.[0]?.salePrice ?? null,
+    };
   } catch (err) {
-    console.warn(`[stock-monitor] fetchAndUpdateCoupangStatus failed for ${monitor.coupang_product_id}:`, err);
+    console.warn(`[stock-monitor] fetchCoupangState failed for ${monitor.coupang_product_id}:`, err);
     return null;
+  }
+}
+
+/**
+ * 쿠팡에서 삭제(또는 영구 반려)된 상품 — 모니터를 비활성화해 무한 재시도를 멈춘다.
+ */
+async function deactivateMonitor(
+  supabase: SupabaseClient,
+  monitor: { id: string; megaload_user_id: string; product_id: string; source_status: StockStatus },
+  authUserId: string | null,
+  reason: 'removed' | 'rejected',
+  now: string,
+): Promise<void> {
+  await supabase.from('sh_stock_monitors').update({
+    is_active: false,
+    coupang_status: 'suspended',
+    last_checked_at: now,
+    updated_at: now,
+  }).eq('id', monitor.id);
+
+  await supabase.from('sh_stock_monitor_logs').insert({
+    monitor_id: monitor.id,
+    megaload_user_id: monitor.megaload_user_id,
+    event_type: 'check_ok',
+    coupang_status_before: 'suspended',
+    coupang_status_after: 'suspended',
+    notes: reason === 'removed'
+      ? '쿠팡에서 상품삭제 감지 — 모니터 자동 비활성화'
+      : '쿠팡 승인반려 상태 — 모니터 자동 비활성화(조치 필요)',
+  });
+
+  if (authUserId) {
+    await supabase.from('notifications').insert({
+      user_id: authUserId,
+      type: 'system',
+      title: reason === 'removed' ? '쿠팡 상품 삭제됨' : '쿠팡 상품 승인반려',
+      message: reason === 'removed'
+        ? '쿠팡에서 삭제된 상품이라 품절 동기화를 중단했습니다.'
+        : '쿠팡 승인반려 상태라 판매 재개가 불가합니다. 상품을 확인해주세요.',
+      link: '/megaload/stock-monitor',
+    });
   }
 }
 
@@ -644,6 +712,9 @@ export async function processMonitorBatch(
       continue;
     }
 
+    // 멀티채널 재고 전파용 어댑터 캐시 (이 유저 배치 내 채널별 1회만 인증)
+    const channelAdapterCache = new Map<Channel, BaseAdapter>();
+
     // 1개씩 순차 처리 + jitter 딜레이 (네이버 429 방지)
     // ⚠️ 2026-05-14: 1.5초 고정 → 5~9초 랜덤 jitter 로 변경. burst 패턴 (1.5초 정확 간격)
     //    이 봇으로 인식되어 NRT IP 차단 발생. 사람 패턴(랜덤 간격) 으로 위장 + 절대 시간 ↑.
@@ -662,7 +733,7 @@ export async function processMonitorBatch(
       }
 
       try {
-        const result = await processSingleMonitor(userMonitors[i], adapter!, supabase, authUserId);
+        const result = await processSingleMonitor(userMonitors[i], adapter!, supabase, authUserId, channelAdapterCache);
         results.push(result);
 
         if (result.error?.includes('429')) {
@@ -690,18 +761,21 @@ async function processSingleMonitor(
   adapter: CoupangAdapter,
   supabase: SupabaseClient,
   authUserId: string | null,
+  channelAdapterCache?: Map<Channel, BaseAdapter>,
 ): Promise<ProcessResult> {
   const now = new Date().toISOString();
 
-  // source_url 미설정 모니터 — 소스 체크는 불가하지만 쿠팡 실제 상태/가격은 조회
+  // source_url 미설정 모니터 — 소스 체크는 불가하지만 쿠팡 현재가/삭제여부는 조회
   if (!monitor.source_url) {
-    // 쿠팡 API로 실제 상태 + 판매가 조회
-    await fetchAndUpdateCoupangStatus(monitor, adapter, supabase, now);
-
-    // last_checked_at 갱신
+    const cstate = await fetchCoupangState(monitor, adapter);
+    if (cstate?.lifecycle === 'removed') {
+      await deactivateMonitor(supabase, monitor, authUserId, 'removed', now);
+      return { monitorId: monitor.id, checked: true, changed: true, action: 'deactivated_removed' };
+    }
     await supabase.from('sh_stock_monitors').update({
       last_checked_at: now,
       updated_at: now,
+      ...(cstate?.coupangPrice != null && cstate.coupangPrice > 0 && { our_price_last: cstate.coupangPrice }),
     }).eq('id', monitor.id);
 
     return { monitorId: monitor.id, checked: true, changed: false };
@@ -789,14 +863,42 @@ async function processSingleMonitor(
   const prevStatus = monitor.source_status;
   const statusChanged = prevStatus !== effectiveStatus;
 
+  // 3-b. 쿠팡 라이프사이클 + 옵션(vendorItemId) + 현재가 조회 (토글 전에 필요)
+  const cstate = await fetchCoupangState(monitor, adapter);
+  const lifecycle: CoupangLifecycle = cstate?.lifecycle ?? 'unknown';
+  const vendorItemIds = cstate?.vendorItemIds ?? [];
+  if (cstate?.coupangPrice != null && cstate.coupangPrice > 0) monitor.our_price_last = cstate.coupangPrice;
+
+  // 삭제/반려 → 토글 무한재시도 중단 (모니터 비활성화)
+  if (lifecycle === 'removed' || lifecycle === 'rejected') {
+    // 소스 상태/가격은 기록해두고 비활성화
+    await supabase.from('sh_stock_monitors').update({
+      source_status: effectiveStatus,
+      option_statuses: check.options || monitor.option_statuses,
+      consecutive_errors: 0,
+      consecutive_unknowns: 0,
+    }).eq('id', monitor.id);
+    await deactivateMonitor(supabase, monitor, authUserId, lifecycle, now);
+    return { monitorId: monitor.id, checked: true, changed: true, action: `deactivated_${lifecycle}` };
+  }
+
+  // 판매 on/off 토글 가능 여부 — 승인완료(live) + 킬스위치 OFF + vendorItemId 존재
+  const canToggle = lifecycle === 'live' && !SALE_TOGGLE_KILLSWITCH && vendorItemIds.length > 0;
+
   // 4. 쿠팡 액션 실행
   let actionTaken: string | undefined;
   let actionSuccess = true;
+  let actionError: string | undefined;
 
-  // 4-a. 품절/삭제 감지 → 쿠팡 판매중지 (상태 변경 시만)
-  if (statusChanged && (effectiveStatus === 'sold_out' || effectiveStatus === 'removed') && monitor.coupang_status === 'active') {
-    try {
-      await adapter.suspendProduct(monitor.coupang_product_id);
+  // 4-a. 품절/삭제 감지 → 쿠팡 판매중지
+  //  statusChanged 무관 — (sold_out, coupang active) 불일치를 reconcile 쿼리로 끌어왔을 때도
+  //  중지해 정합성 회복(4-b resume 과 대칭). suspendProduct 는 멱등이고 isAlreadyInTargetState 가
+  //  "이미 중지됨"을 흡수. 성공하면 coupang_status='suspended' 라 다음 사이클부터 조건 미충족 → 자기제한.
+  if (canToggle && (effectiveStatus === 'sold_out' || effectiveStatus === 'removed') && monitor.coupang_status === 'active') {
+    if (SALE_TOGGLE_DRY_RUN) {
+      actionTaken = 'coupang_suspend_dryrun';
+    } else try {
+      await adapter.suspendProduct(monitor.coupang_product_id, vendorItemIds);
       actionTaken = 'coupang_suspended';
 
       await supabase.from('sh_product_channels')
@@ -804,18 +906,25 @@ async function processSingleMonitor(
         .eq('product_id', monitor.product_id)
         .eq('channel', 'coupang');
     } catch (e) {
-      actionTaken = 'coupang_suspend_failed';
-      actionSuccess = false;
-      console.error(`[stock-monitor] suspend failed for ${monitor.coupang_product_id}:`, e);
+      const msg = e instanceof Error ? e.message : 'suspend failed';
+      if (isAlreadyInTargetState(msg)) {
+        actionTaken = 'coupang_suspended'; // 이미 중지 상태 — 목표 달성
+      } else {
+        actionTaken = 'coupang_suspend_failed';
+        actionSuccess = false;
+        actionError = msg.slice(0, 480);
+        console.error(`[stock-monitor] suspend failed for ${monitor.coupang_product_id}:`, msg);
+      }
     }
   }
 
   // 4-b. 원본 판매중인데 쿠팡 중지됨 → 재개 (상태 변경 여부와 무관)
-  //  기존 버그: sold_out/removed → in_stock 전환만 resume했음
-  //  수정: error/unknown → in_stock, 또는 in_stock 유지 중 쿠팡만 suspended인 경우도 resume
-  if (effectiveStatus === 'in_stock' && monitor.coupang_status === 'suspended') {
-    try {
-      await adapter.resumeProduct(monitor.coupang_product_id);
+  //  in_stock 유지 중 쿠팡만 suspended인 경우(과거 오기록 포함)도 재개해 정합성 회복.
+  if (canToggle && effectiveStatus === 'in_stock' && monitor.coupang_status === 'suspended') {
+    if (SALE_TOGGLE_DRY_RUN) {
+      actionTaken = 'coupang_resume_dryrun';
+    } else try {
+      await adapter.resumeProduct(monitor.coupang_product_id, vendorItemIds);
       actionTaken = 'coupang_resumed';
 
       await supabase.from('sh_product_channels')
@@ -823,9 +932,15 @@ async function processSingleMonitor(
         .eq('product_id', monitor.product_id)
         .eq('channel', 'coupang');
     } catch (e) {
-      actionTaken = 'coupang_resume_failed';
-      actionSuccess = false;
-      console.error(`[stock-monitor] resume failed for ${monitor.coupang_product_id}:`, e);
+      const msg = e instanceof Error ? e.message : 'resume failed';
+      if (isAlreadyInTargetState(msg)) {
+        actionTaken = 'coupang_resumed'; // 이미 판매중 — 목표 달성(정합성 회복)
+      } else {
+        actionTaken = 'coupang_resume_failed';
+        actionSuccess = false;
+        actionError = msg.slice(0, 480);
+        console.error(`[stock-monitor] resume failed for ${monitor.coupang_product_id}:`, msg);
+      }
     }
   }
 
@@ -833,6 +948,34 @@ async function processSingleMonitor(
   let optionChanges: ReturnType<typeof detectOptionChanges> = [];
   if (check.options && monitor.option_statuses?.length > 0) {
     optionChanges = detectOptionChanges(monitor.option_statuses, check.options);
+  }
+
+  // 4-c. 멀티채널 전파 — 쿠팡 외 전 채널 재고 0/복구 (오버셀 방지)
+  //   쿠팡 토글(canToggle/lifecycle)과 무관하게 다른 채널은 독립적으로 처리한다.
+  //   상태 전이가 일어난 경우에만 호출 → 마켓 API 과호출 방지.
+  //   품절/삭제 → 재고 0, 재입고(품절/삭제→판매중) → 재고 복구.
+  let multichannelSummary: string | undefined;
+  if (statusChanged) {
+    const goingDown = effectiveStatus === 'sold_out' || effectiveStatus === 'removed';
+    const comingUp = effectiveStatus === 'in_stock' && (prevStatus === 'sold_out' || prevStatus === 'removed');
+    if (goingDown || comingUp) {
+      try {
+        const mc = await propagateStockToOtherChannels(supabase, {
+          productId: monitor.product_id,
+          megaloadUserId: monitor.megaload_user_id,
+          soldOut: goingDown,
+          adapterCache: channelAdapterCache,
+        });
+        if (mc.attempted > 0) {
+          multichannelSummary = `mc_${goingDown ? 'zeroed' : 'restocked'} ${mc.succeeded}/${mc.attempted}ch${mc.failed ? ` (fail ${mc.failed})` : ''}`;
+        } else if (mc.skippedReason) {
+          multichannelSummary = `mc_skip:${mc.skippedReason}`;
+        }
+      } catch (e) {
+        console.error(`[stock-monitor] multichannel propagate error for ${monitor.id}:`, e);
+        multichannelSummary = 'mc_error';
+      }
+    }
   }
 
   // 5. DB 업데이트
@@ -870,6 +1013,8 @@ async function processSingleMonitor(
     // 소스 가격 항상 저장 (가격추종 룰 유무와 무관)
     ...(observedSourcePrice != null && { source_price_last: observedSourcePrice }),
     ...(sourcePriceChanged && { price_last_updated_at: now }),
+    // 쿠팡 현재 판매가 (위 3-b에서 조회한 값)
+    ...(monitor.our_price_last != null && monitor.our_price_last > 0 && { our_price_last: monitor.our_price_last }),
   }).eq('id', monitor.id);
 
   // 5-a2. 소스 가격 변동 로그 (가격추종 룰 유무와 무관)
@@ -883,12 +1028,9 @@ async function processSingleMonitor(
     });
   }
 
-  // 5-a3. 쿠팡 API로 실제 상태/판매가 조회 (our_price_last + coupang_status 갱신)
-  const coupangDetail = await fetchAndUpdateCoupangStatus(monitor, adapter, supabase, now);
-  if (coupangDetail?.coupangApiPrice != null && coupangDetail.coupangApiPrice > 0) {
-    monitor.our_price_last = coupangDetail.coupangApiPrice;
-  } else if (monitor.our_price_last == null) {
-    // 쿠팡 API 실패 시 DB 폴백
+  // 5-a3. our_price_last 가 여전히 없으면 DB(sh_product_options) 폴백
+  //   (쿠팡 현재가는 위 3-b fetchCoupangState 에서 이미 monitor.our_price_last 에 반영됨)
+  if (monitor.our_price_last == null) {
     try {
       const cachedOurPrice = await fetchCurrentOurPrice(supabase, monitor.product_id);
       if (cachedOurPrice != null) {
@@ -901,21 +1043,20 @@ async function processSingleMonitor(
     } catch { /* 캐시 실패해도 진행 */ }
   }
 
-  // 5-b. 가격 자동 추종 — 재고가 정상이고 이번 사이클에 suspend/resume 액션이 없을 때만
+  // 5-b. 가격 자동 추종 — 재고가 정상이고, 토글 가능(live)하며, 이번 사이클에 suspend/resume 액션이 없을 때만
   let priceAction: PriceFollowActionResult | undefined;
   const safeForPrice =
     !PRICE_FOLLOW_KILLSWITCH
+    && lifecycle === 'live'
     && effectiveStatus === 'in_stock'
-    && actionTaken !== 'coupang_suspended'
-    && actionTaken !== 'coupang_suspend_failed'
-    && actionTaken !== 'coupang_resumed'
-    && actionTaken !== 'coupang_resume_failed';
+    && actionTaken == null;
 
   if (safeForPrice) {
     try {
       priceAction = await processPriceFollow({
         monitor,
         observedSourcePrice,
+        vendorItemIds,
         adapter,
         supabase,
         authUserId,
@@ -941,9 +1082,10 @@ async function processSingleMonitor(
       source_status_after: effectiveStatus,
       coupang_status_before: monitor.coupang_status,
       coupang_status_after: coupangStatus,
-      action_taken: actionTaken || null,
+      action_taken: [actionTaken, multichannelSummary].filter(Boolean).join(' | ') || null,
       action_success: actionSuccess,
       option_name: matchedOption || monitor.registered_option_name || null,
+      ...(actionError && { error_message: actionError }),
     });
 
     // 옵션별 변경 로그
@@ -1060,12 +1202,13 @@ async function fetchCurrentOurPrice(
 async function processPriceFollow(input: {
   monitor: MonitorRecord;
   observedSourcePrice: number | null;
+  vendorItemIds: string[];
   adapter: CoupangAdapter;
   supabase: SupabaseClient;
   authUserId: string | null;
   now: string;
 }): Promise<PriceFollowActionResult> {
-  const { monitor, observedSourcePrice, adapter, supabase, authUserId, now } = input;
+  const { monitor, observedSourcePrice, vendorItemIds, adapter, supabase, authUserId, now } = input;
   const rule = monitor.price_follow_rule;
 
   // 0. 규칙 비활성 → no-op
@@ -1243,7 +1386,22 @@ async function processPriceFollow(input: {
   }
 
   try {
-    await adapter.updatePrice(monitor.coupang_product_id, targetPrice);
+    // 옵션(vendorItem) 단위로 가격 변경 — vendorItemId 가 있으면 옵션별, 없으면 상품단위 폴백
+    if (vendorItemIds.length > 0) {
+      const failures: string[] = [];
+      for (const vid of vendorItemIds) {
+        try {
+          await adapter.updateItemPrice(vid, targetPrice);
+        } catch (e) {
+          failures.push(`${vid}: ${e instanceof Error ? e.message.slice(0, 100) : 'fail'}`);
+        }
+      }
+      if (failures.length === vendorItemIds.length) {
+        throw new Error(`전 옵션 가격변경 실패 — ${failures.join(' | ').slice(0, 400)}`);
+      }
+    } else {
+      await adapter.updatePrice(monitor.coupang_product_id, targetPrice);
+    }
 
     // DB 동기화
     await supabase.from('sh_stock_monitors').update({

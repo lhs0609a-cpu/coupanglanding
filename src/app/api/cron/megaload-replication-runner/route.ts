@@ -18,6 +18,13 @@ import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { mapCategory } from '@/lib/megaload/services/ai.service';
+import { buildCanonical, canonicalHash } from '@/lib/megaload/services/canonical-product';
+import type { ChannelMappingContext, ChannelShippingTemplate } from '@/lib/megaload/services/canonical-product';
+import { mapForChannel } from '@/lib/megaload/services/replication-mapper';
+import { loadShippingTemplates } from '@/lib/megaload/services/shipping-template';
+import { checkCertRequired } from '@/lib/megaload/services/cert-category-guard';
+import { checkPriceGuard } from '@/lib/megaload/services/cross-channel-price-guard';
+import { rehostImages, extractImageUrls } from '@/lib/megaload/services/channel-image-rehost';
 import { createNotification } from '@/lib/utils/notifications';
 import type { Channel } from '@/lib/megaload/types';
 import type { BaseAdapter } from '@/lib/megaload/adapters/base.adapter';
@@ -96,6 +103,17 @@ export async function GET(request: Request) {
     .eq('megaload_user_id', job.megaload_user_id);
   const headers = (headerRows || []) as Array<Record<string, unknown>>;
 
+  // ── 배송/반품/AS 템플릿 1회 로딩 (채널별) ──
+  const shippingTemplates = await loadShippingTemplates(supabase, job.megaload_user_id);
+
+  // ── 인증 카테고리 ack 1회 로딩 (운영자가 보유 확인한 인증 라벨) ──
+  const { data: certUserRow } = await supabase
+    .from('megaload_users')
+    .select('cert_acknowledged')
+    .eq('id', job.megaload_user_id)
+    .single();
+  const certAcknowledged = ((certUserRow as Record<string, unknown> | null)?.cert_acknowledged as string[]) || [];
+
   // ── 어댑터 캐시 (인증 1회) ──
   const adapterCache = new Map<Channel, BaseAdapter>();
   async function getAdapter(channel: Channel): Promise<BaseAdapter> {
@@ -133,6 +151,8 @@ export async function GET(request: Request) {
         megaloadUserId: job.megaload_user_id,
         marginPercent: job.margin_settings[channel] ?? 0,
         headers,
+        shippingTemplate: shippingTemplates.get(channel) ?? null,
+        certAcknowledged,
         getAdapter,
       }),
       PER_ITEM_TIMEOUT_MS,
@@ -145,7 +165,8 @@ export async function GET(request: Request) {
     processed++;
     processedThisTick++;
     if (result.outcome === 'success') succeeded++;
-    else if (result.outcome === 'skipped') skipped++;
+    // needs_input = 필수값 누락으로 보류(예외큐). 실패가 아니므로 skipped 로 집계, 상태는 채널 행에 보존.
+    else if (result.outcome === 'skipped' || result.outcome === 'needs_input') skipped++;
     else {
       failed++;
       if (errorLog.length < MAX_ERROR_LOG_ENTRIES) {
@@ -242,56 +263,74 @@ interface ItemContext {
   megaloadUserId: string;
   marginPercent: number;
   headers: Array<Record<string, unknown>>;
+  shippingTemplate: ChannelShippingTemplate | null;
+  certAcknowledged: string[];
   getAdapter: (channel: Channel) => Promise<BaseAdapter>;
 }
 
 type ItemResult =
   | { outcome: 'success'; channelProductId: string }
   | { outcome: 'skipped'; reason: string }
+  | { outcome: 'needs_input'; fields: string[] }
   | { outcome: 'failed'; error: string };
 
 async function processItem(supabase: SupabaseClient, ctx: ItemContext): Promise<ItemResult> {
   try {
-    // ── 중복 등록 체크 ──
-    //   - active/pending 모두 skip (pending = 이전 tick 이 createProduct 직전에 placeholder 박은 상태)
-    //   - failed/deleted 는 재시도 허용
+    // ── 현재 상태 조회 ──
+    //   - 진행중/보류(pending/registering/needs_input/queued/mapping)는 스킵(중복호출·파킹)
+    //   - active 는 변경감지(해시) 위해 통과 → 동일하면 스킵, 다르면 updateProduct(라이프사이클 전파)
+    //   - failed/deleted/없음 → createProduct
     const { data: existing } = await supabase
       .from('sh_product_channels')
-      .select('channel_product_id, status')
+      .select('channel_product_id, status, last_pushed_hash')
       .eq('product_id', ctx.productId)
       .eq('channel', ctx.channel)
       .maybeSingle();
 
     const ex = existing as Record<string, unknown> | null;
-    if (ex && ex.status !== 'deleted' && ex.status !== 'failed') {
-      // pending 인데 채널ID가 없으면 → 이전 시도가 중단된 placeholder. 안전하게 skip(수동 정리 필요).
-      // active(channel_product_id 보유) → 정상 완료 상태. skip.
-      return { outcome: 'skipped', reason: ex.channel_product_id ? 'already-registered' : 'pending-from-previous-tick' };
+    const exStatus = ex?.status as string | undefined;
+    if (exStatus && ['pending', 'registering', 'needs_input', 'queued', 'mapping'].includes(exStatus)) {
+      return { outcome: 'skipped', reason: `in-flight:${exStatus}` };
     }
 
-    // ── 상품 로드 (서비스 클라이언트는 RLS bypass — megaload_user_id 명시 필터로 cross-tenant 차단) ──
-    const { data: productRow } = await supabase
-      .from('sh_products')
-      .select('*, sh_product_options(*)')
-      .eq('id', ctx.productId)
-      .eq('megaload_user_id', ctx.megaloadUserId)
-      .single();
+    // ── Canonical 조립 (채널 독립 마스터) ──
+    const canonical = await buildCanonical(supabase, ctx.productId, ctx.megaloadUserId);
+    if (!canonical) return { outcome: 'failed', error: '상품을 찾을 수 없습니다' };
 
-    if (!productRow) return { outcome: 'failed', error: '상품을 찾을 수 없습니다' };
+    const categoryId = canonical.internalCategoryId;
 
-    const product = productRow as Record<string, unknown>;
-    const productName = product.product_name as string;
-    const categoryId = product.category_id as string | null;
-    const rawData = (product.raw_data as Record<string, unknown>) || {};
-    const options = (product.sh_product_options as Array<Record<string, unknown>>) || [];
-
-    // ── 기준 가격: 첫 옵션의 sale_price (없으면 raw_data.sellerProductPrice) ──
-    const basePrice = Number(options[0]?.sale_price || rawData.sellerProductPrice || 0);
+    // ── 기준 가격: 첫 옵션 판매가(없으면 소스가) ──
+    const basePrice = canonical.options[0]?.salePrice || canonical.sourcePrice || 0;
     if (basePrice <= 0) {
       return { outcome: 'failed', error: '판매가 정보 없음' };
     }
-
     const adjustedPrice = Math.round(basePrice * (1 + (ctx.marginPercent || 0) / 100));
+
+    // ── 안전 가드 (채널 호출 전): 인증필요 카테고리 + 가격정합 ──
+    //   위반 시 채널 API 호출 없이 needs_input/blocked 로 보류 (위법 리스팅·역마진·쿠팡 최저가 위반 차단)
+    const guardMissing = [
+      ...checkCertRequired(canonical, ctx.certAcknowledged),
+      ...checkPriceGuard({
+        basePrice,
+        adjustedPrice,
+        costPrice: canonical.options[0]?.costPrice ?? null,
+        marginPercent: ctx.marginPercent || 0,
+      }),
+    ];
+    if (guardMissing.length > 0) {
+      await supabase
+        .from('sh_product_channels')
+        .upsert({
+          product_id: ctx.productId,
+          megaload_user_id: ctx.megaloadUserId,
+          channel: ctx.channel,
+          status: 'needs_input',
+          needs_input_fields: guardMissing,
+          error_message: guardMissing.map((m) => m.reason).join('; ').slice(0, 500),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'product_id,channel' });
+      return { outcome: 'needs_input', fields: guardMissing.map((m) => m.field) };
+    }
 
     // ── 카테고리 매핑 (AI + 캐시) ──
     let channelCategoryId: string | null = null;
@@ -310,10 +349,8 @@ async function processItem(supabase: SupabaseClient, ctx: ItemContext): Promise<
       const c = cached as Record<string, unknown> | null;
       if (c?.channel_category_id) {
         channelCategoryId = c.channel_category_id as string;
-        channelCategoryName = c.channel_category_name as string | null;
-        categoryConfidence = c.confidence as number | null;
       } else {
-        const mapping = await mapCategory(productName, categoryId, ctx.channel);
+        const mapping = await mapCategory(canonical.name, categoryId, ctx.channel);
         channelCategoryId = mapping.categoryId || null;
         channelCategoryName = mapping.categoryName || null;
         categoryConfidence = mapping.confidence || null;
@@ -341,18 +378,98 @@ async function processItem(supabase: SupabaseClient, ctx: ItemContext): Promise<
     const headerHtml = (header?.content as string) || '';
     const footerHtml = (footer?.content as string) || '';
 
-    // ── 멱등성 placeholder: 채널 호출 전에 'pending' 행을 미리 박아둠 ──
-    //   - createProduct 성공 후 sh_product_channels.upsert 가 실패하면 (DB 장애 등)
-    //     cursor 가 진행 안 되어 다음 tick 에 동일 상품이 재호출 → 채널에 중복 등록.
-    //   - 사전에 placeholder 를 박아두면 중복 등록 방지(상단 dedup 가드가 'pending' 도 차단).
-    //   - upsert 실패 시 즉시 에러 반환 → 다음 tick 에서 createProduct 호출 안 됨.
+    // ── Canonical → 채널 페이로드 매핑 (채널 지식은 어댑터 안에서; ACL) ──
+    const adapter = await ctx.getAdapter(ctx.channel);
+
+    // ── 이미지 재호스팅 (네이버 등 selfHostedImages 채널) — 매핑 전 미리 업로드 ──
+    let rehostedImages: Map<string, string> | undefined;
+    if (adapter.capabilities.selfHostedImages) {
+      const urls = [
+        ...canonical.images.map((i) => i.url),
+        ...extractImageUrls(canonical.detailHtml),
+        ...extractImageUrls(`${headerHtml}${footerHtml}`),
+      ].slice(0, 30); // per-item 30s 예산 보호 (캐시로 다음 사이클 가속)
+      rehostedImages = await rehostImages(supabase, adapter, {
+        megaloadUserId: ctx.megaloadUserId,
+        channel: ctx.channel,
+        urls,
+      });
+    }
+
+    const mappingCtx: ChannelMappingContext = {
+      channel: ctx.channel,
+      channelCategoryId,
+      sellingPrice: adjustedPrice,
+      marginPercent: ctx.marginPercent || 0,
+      headerHtml,
+      footerHtml,
+      shippingTemplate: ctx.shippingTemplate,
+      rehostedImages,
+    };
+    const mapped = mapForChannel(adapter, canonical, mappingCtx);
+    const mappingHash = canonicalHash(canonical);
+
+    // ── needs_input: 채널 호출 없이 보류 기록 (예외큐 노출, 그 채널만 보류) ──
+    if (!mapped.ok) {
+      await supabase
+        .from('sh_product_channels')
+        .upsert({
+          product_id: ctx.productId,
+          megaload_user_id: ctx.megaloadUserId,
+          channel: ctx.channel,
+          status: 'needs_input',
+          needs_input_fields: mapped.missing,
+          mapping_hash: mappingHash,
+          channel_category_id: channelCategoryId,
+          error_message: mapped.missing.map((m) => m.reason).join('; ').slice(0, 500),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'product_id,channel' });
+      return { outcome: 'needs_input', fields: mapped.missing.map((m) => m.field) };
+    }
+
+    // ── 라이프사이클 전파: 이미 active 면 변경(해시) 감지 → updateProduct, 무변경 → 스킵 ──
+    if (ex && ex.status === 'active' && ex.channel_product_id) {
+      const channelProductId = ex.channel_product_id as string;
+      if (ex.last_pushed_hash === mappingHash) {
+        // 실변경 없음 — last_synced_at 만 갱신해 reconcile 재플래그 중단
+        await supabase
+          .from('sh_product_channels')
+          .update({ last_synced_at: new Date().toISOString() })
+          .eq('product_id', ctx.productId)
+          .eq('channel', ctx.channel);
+        return { outcome: 'skipped', reason: 'no-change' };
+      }
+      // 쿠팡 원본 변경 → 채널 리스팅 업데이트
+      await adapter.updateProduct(channelProductId, mapped.payload);
+      const upd = await supabase
+        .from('sh_product_channels')
+        .update({
+          status: 'active',
+          price_rule: { mode: 'margin', margin_percent: ctx.marginPercent, base_price: basePrice, final_price: adjustedPrice },
+          channel_category_id: channelCategoryId,
+          mapping_hash: mappingHash,
+          last_pushed_hash: mappingHash,
+          last_synced_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('product_id', ctx.productId)
+        .eq('channel', ctx.channel);
+      if (upd.error) {
+        return { outcome: 'failed', error: `채널 업데이트 성공이나 DB 갱신 실패: ${upd.error.message}` };
+      }
+      return { outcome: 'success', channelProductId };
+    }
+
+    // ── 멱등성 placeholder: 채널 호출 전에 'registering' 행을 미리 박아둠 ──
+    //   createProduct 성공 후 DB 갱신 실패 시에도 dedup 가드가 재호출을 차단(중복 등록 방지).
     const placeholder = await supabase
       .from('sh_product_channels')
       .upsert({
         product_id: ctx.productId,
         megaload_user_id: ctx.megaloadUserId,
         channel: ctx.channel,
-        status: 'pending',
+        status: 'registering',
+        mapping_hash: mappingHash,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'product_id,channel' });
     if (placeholder.error) {
@@ -360,17 +477,7 @@ async function processItem(supabase: SupabaseClient, ctx: ItemContext): Promise<
     }
 
     // ── 어댑터 호출 ──
-    const adapter = await ctx.getAdapter(ctx.channel);
-    const channelProduct = {
-      productName,
-      categoryId: channelCategoryId || categoryId,
-      description: `${headerHtml}${(rawData.content as string) || ''}${footerHtml}`,
-      salePrice: adjustedPrice,
-      options,
-      images: (rawData.images as unknown[]) || [],
-    };
-
-    const result = await adapter.createProduct(channelProduct as Record<string, unknown>);
+    const result = await adapter.createProduct(mapped.payload);
 
     // ── 매핑 갱신 (placeholder → 실제 channel_product_id) ──
     const finalize = await supabase
@@ -383,6 +490,11 @@ async function processItem(supabase: SupabaseClient, ctx: ItemContext): Promise<
         status: 'active',
         price_rule: { mode: 'margin', margin_percent: ctx.marginPercent, base_price: basePrice, final_price: adjustedPrice },
         channel_category_id: channelCategoryId,
+        mapping_hash: mappingHash,
+        last_pushed_hash: mappingHash,
+        needs_input_fields: [],
+        last_error_class: null,
+        last_synced_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'product_id,channel' });
     if (finalize.error) {

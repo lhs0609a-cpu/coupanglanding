@@ -20,6 +20,10 @@
  */
 import { BaseAdapter } from './base.adapter';
 import type { Channel } from '../types';
+import type {
+  CanonicalProduct, ChannelCapabilities, ChannelMappingContext, ChannelMappingResult,
+} from '../services/canonical-product';
+import { pickImages, composeDetail, cleanName } from './mapping-helpers';
 
 // 11번가 셀러 API Base URL (판매자 로그인 후 확인 필요)
 const ELEVENST_SELLER_API_BASE = 'https://openapi.11st.co.kr/openapi';
@@ -30,6 +34,56 @@ export class ElevenstAdapter extends BaseAdapter {
   channel: Channel = 'elevenst';
   private apiKey = '';       // 셀러 API Key (openapikey)
   private skAppKey = '';     // SK Open API Key (선택, 카테고리용)
+
+  capabilities: ChannelCapabilities = {
+    canCreate: true,
+    multiOption: false,        // 11번가 옵션 등록은 별도 — P4는 단일
+    optionPrice: 'absolute',
+    maxImages: 10,             // prdImage01~10
+    selfHostedImages: false,   // 외부 URL 허용(추후 검증 — 11번가 이미지 업로드 필요 시 P5)
+    requiresNotice: false,
+    requiresShipTemplate: true,
+  };
+
+  /**
+   * Canonical → 11번가 상품등록 페이로드 (POST /rest/sellerApi/product).
+   * ⚠️ 11번가 셀러 API 는 XML 기반이 많고 필드명이 셀러 가이드별로 상이 →
+   *    실연동 시 판매자 개발가이드로 필드명 검증 필요. 아래는 공개 문서 기반 best-effort.
+   */
+  mapFromCanonical(product: CanonicalProduct, ctx: ChannelMappingContext): ChannelMappingResult {
+    const t = ctx.shippingTemplate;
+    if (!t?.outboundPlaceCode) {
+      return { ok: false, status: 'needs_input', missing: [{ field: 'ship_template', reason: '11번가 발송정보(출고지) 필요' }] };
+    }
+    const { representative, extras } = pickImages(product, ctx);
+    const totalStock = product.options.reduce((s, o) => s + (o.stock ?? 0), 0) || 999;
+
+    const imageFields: Record<string, string> = { prdImage01: representative };
+    extras.slice(0, 9).forEach((url, i) => { imageFields[`prdImage${String(i + 2).padStart(2, '0')}`] = url; });
+
+    const payload: Record<string, unknown> = {
+      selPrdNm: cleanName(product, 100),     // 상품명
+      dispCtgrNo: ctx.channelCategoryId,     // 전시 카테고리 번호
+      selPrice: ctx.sellingPrice,            // 판매가
+      prdStockAmt: totalStock,               // 재고
+      htmlDetail: composeDetail(product, ctx),
+      ...imageFields,
+      // 배송/반품/AS (템플릿)
+      dlvCstInstBasiCd: t.deliveryChargeType === 'FREE' ? '01' : '02', // 무료/유료(코드 검증 필요)
+      dlvCst1: t.deliveryCharge ?? 0,
+      rtngdDlvCst: t.returnCharge ?? 0,
+      exchDlvCst: t.exchangeCharge ?? 0,
+      asDetail: t.afterServiceGuide || '판매자 문의',
+      asTel: t.afterServiceTel || '',
+      outsideDlvCnYn: 'N',
+      brandNm: product.brand || undefined,
+    };
+
+    const warnings: string[] = ['11번가 페이로드 필드명은 실연동 시 셀러 가이드로 검증 필요'];
+    if (product.options.length > 1) warnings.push(`다옵션 ${product.options.length}개 — 11번가 단일 등록(옵션 P5)`);
+
+    return { ok: true, payload, warnings };
+  }
 
   /**
    * 11번가 셀러 API 호출

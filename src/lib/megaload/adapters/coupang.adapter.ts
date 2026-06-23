@@ -1,5 +1,6 @@
 import { BaseAdapter } from './base.adapter';
 import type { Channel } from '../types';
+import type { ChannelCapabilities } from '../services/canonical-product';
 import crypto from 'crypto';
 
 const COUPANG_API_BASE = 'https://api-gateway.coupang.com';
@@ -13,6 +14,18 @@ export class CoupangAdapter extends BaseAdapter {
   private vendorId = '';
   private accessKey = '';
   private secretKey = '';
+
+  // 쿠팡은 마스터(소스)이므로 복제 대상이 아니다. capabilities 는 문서/대칭용 선언.
+  // mapFromCanonical 은 coupang-product-builder 로 별도 구축되므로 P1 범위에서 override 안 함.
+  capabilities: ChannelCapabilities = {
+    canCreate: true,
+    multiOption: true,
+    optionPrice: 'absolute',
+    selfHostedImages: false,   // 쿠팡은 외부 이미지 URL 허용
+    maxImages: 10,
+    requiresNotice: true,
+    requiresShipTemplate: true,
+  };
 
   /** vendorId 외부 접근 (페이로드 빌드에 필요) */
   getVendorId(): string {
@@ -233,10 +246,18 @@ export class CoupangAdapter extends BaseAdapter {
     }
   }
 
-  /** 상품 상세 조회 — 실제 쿠팡 상태/판매가 확인용 */
+  /**
+   * 상품 상세 조회 — 실제 쿠팡 상태/판매가/옵션(vendorItem) 확인용
+   *  - status: 영문 enum (APPROVED / DENIED / DELETED 등) — 승인 라이프사이클
+   *  - statusName: 한글 표시 (승인완료 / 승인반려 / 상품삭제 등)
+   *  - items[].vendorItemId: 옵션 단위 판매중지/재개/가격변경에 필요 (쿠팡 판매 on/off는 옵션 단위)
+   *  ⚠️ status/statusName 은 "승인 상태"이지 "판매중/중지" 상태가 아니다.
+   *     판매 on/off 토글은 vendor-items/{vendorItemId}/sales/stop|resume 로만 제어.
+   */
   async getProductDetail(sellerProductId: string): Promise<{
+    status: string;
     statusName: string;
-    items: { salePrice: number; maximumBuyCount: number }[];
+    items: { vendorItemId: string; salePrice: number; maximumBuyCount: number }[];
   } | null> {
     try {
       const path = `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/${sellerProductId}`;
@@ -245,8 +266,10 @@ export class CoupangAdapter extends BaseAdapter {
       const data = raw?.data ?? raw;
       if (!data) return null;
       return {
+        status: String(data.status || '').toUpperCase(),
         statusName: data.statusName || '',
-        items: ((data.items || data.sellerProductItemList || []) as { salePrice?: number; maximumBuyCount?: number }[]).map(item => ({
+        items: ((data.items || data.sellerProductItemList || []) as { vendorItemId?: number | string; salePrice?: number; maximumBuyCount?: number }[]).map(item => ({
+          vendorItemId: item.vendorItemId != null ? String(item.vendorItemId) : '',
           salePrice: item.salePrice ?? 0,
           maximumBuyCount: item.maximumBuyCount ?? 0,
         })),
@@ -280,18 +303,68 @@ export class CoupangAdapter extends BaseAdapter {
     return this.updateProduct(channelProductId, { sellerProductItemList: [{ maximumBuyCount: stock }] });
   }
 
-  async suspendProduct(channelProductId: string) {
-    // 공식 스펙: 상품 판매중지 — marketplace/seller-products 경로
-    const path = `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/${channelProductId}/suspend`;
+  // ── 옵션(vendorItem) 단위 판매 on/off · 가격 ──
+  // 쿠팡 공식 스펙: 판매중지/재개·가격변경은 seller-products 가 아니라 vendor-items 단위다.
+  //   판매중지: PUT .../marketplace/vendor-items/{vendorItemId}/sales/stop
+  //   판매재개: PUT .../marketplace/vendor-items/{vendorItemId}/sales/resume
+  //   가격변경: PUT .../marketplace/vendor-items/{vendorItemId}/prices/{price}
+  // (이전 seller-products/{id}/suspend|resume 는 옵션 단위가 아니라 재개가 항상 거부됐음.)
+
+  /** 옵션 1개 판매중지 */
+  async stopItemSale(vendorItemId: string) {
+    const path = `/v2/providers/seller_api/apis/api/v1/marketplace/vendor-items/${vendorItemId}/sales/stop`;
     await this.coupangApi('PUT', path);
     return { success: true };
   }
 
-  async resumeProduct(channelProductId: string) {
-    // 공식 스펙: 상품 판매재개 — marketplace/seller-products 경로
-    const path = `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/${channelProductId}/resume`;
+  /** 옵션 1개 판매재개 */
+  async resumeItemSale(vendorItemId: string) {
+    const path = `/v2/providers/seller_api/apis/api/v1/marketplace/vendor-items/${vendorItemId}/sales/resume`;
     await this.coupangApi('PUT', path);
     return { success: true };
+  }
+
+  /** 옵션 1개 판매가 변경 (가격은 path 파라미터) */
+  async updateItemPrice(vendorItemId: string, price: number) {
+    const path = `/v2/providers/seller_api/apis/api/v1/marketplace/vendor-items/${vendorItemId}/prices/${Math.round(price)}`;
+    await this.coupangApi('PUT', path);
+    return { success: true };
+  }
+
+  /**
+   * 여러 옵션 일괄 판매중지/재개. 하나라도 실패하면 사유를 모아 throw (호출측이 로깅).
+   * vendorItemIds 가 비어 있으면 getProductDetail 로 조회해서 채운다.
+   */
+  private async toggleItemsSale(channelProductId: string, action: 'stop' | 'resume', vendorItemIds?: string[]) {
+    let ids = (vendorItemIds || []).filter(Boolean);
+    if (ids.length === 0) {
+      const detail = await this.getProductDetail(channelProductId);
+      ids = (detail?.items || []).map(i => i.vendorItemId).filter(Boolean);
+    }
+    if (ids.length === 0) {
+      throw new Error(`vendorItemId 없음 (상품 ${channelProductId}) — 판매상태 변경 불가`);
+    }
+    const failures: string[] = [];
+    for (const vid of ids) {
+      try {
+        if (action === 'stop') await this.stopItemSale(vid);
+        else await this.resumeItemSale(vid);
+      } catch (e) {
+        failures.push(`${vid}: ${e instanceof Error ? e.message.slice(0, 120) : 'fail'}`);
+      }
+    }
+    if (failures.length > 0) {
+      throw new Error(`${action} 실패 ${failures.length}/${ids.length}개 — ${failures.join(' | ').slice(0, 400)}`);
+    }
+    return { success: true };
+  }
+
+  async suspendProduct(channelProductId: string, vendorItemIds?: string[]) {
+    return this.toggleItemsSale(channelProductId, 'stop', vendorItemIds);
+  }
+
+  async resumeProduct(channelProductId: string, vendorItemIds?: string[]) {
+    return this.toggleItemsSale(channelProductId, 'resume', vendorItemIds);
   }
 
   async getOrders(params: { startDate: string; endDate: string; status?: string; page?: number }) {

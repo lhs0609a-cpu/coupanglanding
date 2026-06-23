@@ -18,6 +18,10 @@
  */
 import { BaseAdapter } from './base.adapter';
 import type { Channel } from '../types';
+import type {
+  CanonicalProduct, ChannelCapabilities, ChannelMappingContext, ChannelMappingResult,
+} from '../services/canonical-product';
+import { pickImages, composeDetail, cleanName } from './mapping-helpers';
 
 // 운영 API: ecapi.lotteon.com, 문서 포털: api.lotteon.com
 const LOTTEON_API_BASE = 'https://ecapi.lotteon.com';
@@ -29,6 +33,56 @@ export class LotteonAdapter extends BaseAdapter {
   private accountNo = '';       // 거래처번호
   private accessToken = '';
   private tokenExpiresAt = 0;
+
+  capabilities: ChannelCapabilities = {
+    canCreate: true,
+    multiOption: false,
+    optionPrice: 'absolute',
+    maxImages: 10,
+    selfHostedImages: false,
+    requiresNotice: false,
+    requiresShipTemplate: true,
+  };
+
+  /**
+   * Canonical → 롯데온 상품등록 페이로드 (POST /api/v1/product/register).
+   * ⚠️ 롯데온 OpenAPI 는 파트너 승인·IP화이트리스트 필요 + 스키마가 SPA 가이드에만 있음 →
+   *    실연동 시 스토어센터 OpenAPI 가이드로 필드 검증 필요. best-effort.
+   */
+  mapFromCanonical(product: CanonicalProduct, ctx: ChannelMappingContext): ChannelMappingResult {
+    const t = ctx.shippingTemplate;
+    if (!t?.outboundPlaceCode) {
+      return { ok: false, status: 'needs_input', missing: [{ field: 'ship_template', reason: '롯데온 발송정보(출고지) 필요' }] };
+    }
+    const { representative, extras } = pickImages(product, ctx);
+    const totalStock = product.options.reduce((s, o) => s + (o.stock ?? 0), 0) || 999;
+
+    const payload: Record<string, unknown> = {
+      accountNo: this.accountNo,
+      productName: cleanName(product, 100),
+      categoryId: ctx.channelCategoryId,
+      salePrice: ctx.sellingPrice,
+      stockQty: totalStock,
+      detailContent: composeDetail(product, ctx),
+      mainImageUrl: representative,
+      subImageUrls: extras.slice(0, 9),
+      brandName: product.brand || undefined,
+      deliveryFeeType: t.deliveryChargeType === 'FREE' ? 'FREE' : 'PAID',
+      deliveryFee: t.deliveryCharge ?? 0,
+      returnFee: t.returnCharge ?? 0,
+      exchangeFee: t.exchangeCharge ?? 0,
+      outboundPlaceCode: t.outboundPlaceCode,
+      returnPlaceCode: t.returnCenterCode,
+      asGuide: t.afterServiceGuide || '판매자 문의',
+      asTelephone: t.afterServiceTel || '',
+      sellerProductCode: product.options[0]?.sku || undefined,
+    };
+
+    const warnings: string[] = ['롯데온 페이로드 필드명은 실연동 시 가이드로 검증 필요'];
+    if (product.options.length > 1) warnings.push(`다옵션 ${product.options.length}개 — 롯데온 단일 등록(옵션 P5)`);
+
+    return { ok: true, payload, warnings };
+  }
 
   /**
    * Identity 토큰 발급 (apiNo=207)

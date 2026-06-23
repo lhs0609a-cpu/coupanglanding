@@ -1,8 +1,42 @@
 import type { ChannelAdapter, Channel } from '../types';
+import type {
+  CanonicalProduct,
+  ChannelCapabilities,
+  ChannelMappingContext,
+  ChannelMappingResult,
+} from '../services/canonical-product';
+import { DEFAULT_CAPABILITIES } from '../services/canonical-product';
 
 export abstract class BaseAdapter implements ChannelAdapter {
   abstract channel: Channel;
   protected credentials: Record<string, unknown> = {};
+
+  /**
+   * 채널 능력 선언. 기본은 "자동등록 불가"(canCreate:false) — 매퍼가 즉시 needs_input 처리.
+   * 자동등록을 지원하는 채널만 override.
+   */
+  capabilities: ChannelCapabilities = DEFAULT_CAPABILITIES;
+
+  /**
+   * Canonical → 채널 등록 페이로드 번역.
+   * 기본 구현은 "미구현 채널"로 안전하게 needs_input 반환 — 채널별 어댑터가 override.
+   * 채널 지식(필드/카테고리/옵션모델/이미지규격)은 오직 여기(어댑터) 안에만 존재해야 한다(ACL).
+   */
+  mapFromCanonical(_product: CanonicalProduct, _ctx: ChannelMappingContext): ChannelMappingResult {
+    return {
+      ok: false,
+      status: 'needs_input',
+      missing: [{ field: 'channel_mapping', reason: `${this.channel} 자동등록 매핑이 아직 구현되지 않았습니다` }],
+    };
+  }
+
+  /**
+   * 원본 이미지 URL 을 채널 자체 이미지서버에 업로드하고 채널 URL 반환.
+   * 기본은 무동작(원본 URL 그대로) — capabilities.selfHostedImages=true 인 채널만 override.
+   */
+  async uploadImage(sourceUrl: string): Promise<string> {
+    return sourceUrl;
+  }
 
   abstract authenticate(credentials: Record<string, unknown>): Promise<boolean>;
   abstract testConnection(credentials: Record<string, unknown>): Promise<{ success: boolean; message: string }>;

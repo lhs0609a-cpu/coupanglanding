@@ -12,8 +12,6 @@ const nextConfig: NextConfig = {
   // 이미지 최적화
   images: {
     formats: ['image/avif', 'image/webp'],
-    // Why: 기본값 60s 라 같은 이미지를 1분마다 재최적화 → Image Optimization 비용 폭증.
-    // 30일로 늘려 동일 이미지 재최적화 회피 (비용↓ + CDN 캐시 히트로 속도↑).
     minimumCacheTTL: 2592000,
     remotePatterns: [
       { protocol: 'https', hostname: '*.supabase.co', pathname: '/storage/v1/object/public/**' },
@@ -25,6 +23,25 @@ const nextConfig: NextConfig = {
   // 실험적 최적화
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts', 'framer-motion'],
+  },
+  // SEO 보안 헤더 — 검색엔진 신뢰도·Core Web Vitals 보안 점수 향상
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          { key: 'X-XSS-Protection', value: '1; mode=block' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=63072000; includeSubDomains; preload',
+          },
+        ],
+      },
+    ];
   },
 };
 

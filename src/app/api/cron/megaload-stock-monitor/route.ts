@@ -109,10 +109,15 @@ export async function GET(request: Request) {
           const detail = await adapter.getProductDetail(m.coupang_product_id);
           if (detail) {
             const price = detail.items?.[0]?.salePrice ?? null;
-            const status: 'active' | 'suspended' = detail.statusName === 'APPROVE' ? 'active' : 'suspended';
             const updates: Record<string, unknown> = { updated_at: now, last_checked_at: now };
             if (price != null && price > 0) updates.our_price_last = price;
-            if (status !== m.coupang_status) updates.coupang_status = status;
+            // ⚠️ coupang_status(판매 on/off)는 승인상태로 덮어쓰지 않는다 — 승인완료/심사중 등은
+            //    판매중/중지와 무관. 상품삭제만 비활성화 처리하고, 토글은 Phase 2 엔진이 담당.
+            const sName = String(detail.statusName || '');
+            const sEnum = String(detail.status || '').toUpperCase();
+            if (sEnum === 'DELETED' || sName.includes('삭제')) {
+              updates.is_active = false;
+            }
             await supabase.from('sh_stock_monitors').update(updates).eq('id', m.id);
             priceBackfilled++;
           }
@@ -166,12 +171,17 @@ export async function GET(request: Request) {
     .lt('consecutive_errors', 10)
     .not('source_url', 'is', null)
     .neq('source_url', '')
-    // 처리 대상: 한 번도 안 본 것 + 60분 지난 것 + 미확인/오류 상태 (즉시 재시도)
+    // 처리 대상: 한 번도 안 본 것 + 20h 지난 것 + 미확인/오류 상태
+    //   + 정합성 불일치(reconcile): 재입고됐는데 쿠팡 중지 / 품절인데 쿠팡 판매중
+    //     → 인터벌과 무관하게 우선 처리해 backlog(과거 오기록 12k건)를 빠르게 회복.
+    //       limit(60) + last_checked_at 오름차순이라 가장 오래된 것부터 순환 처리(레이트 안전).
     .or(
       [
         'last_checked_at.is.null',
         `last_checked_at.lt.${cutoff}`,
         'source_status.in.(미확인,확인불가,오류,unknown,error)',
+        'and(source_status.eq.in_stock,coupang_status.eq.suspended)',
+        'and(source_status.eq.sold_out,coupang_status.eq.active)',
       ].join(','),
     )
     .order('last_checked_at', { ascending: true, nullsFirst: true })

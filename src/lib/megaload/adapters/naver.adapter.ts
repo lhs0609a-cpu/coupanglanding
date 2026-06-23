@@ -9,6 +9,13 @@
  */
 import { BaseAdapter } from './base.adapter';
 import type { Channel } from '../types';
+import type {
+  CanonicalProduct,
+  ChannelCapabilities,
+  ChannelMappingContext,
+  ChannelMappingResult,
+  MissingField,
+} from '../services/canonical-product';
 import bcrypt from 'bcryptjs';
 
 const NAVER_API_BASE = 'https://api.commerce.naver.com/external';
@@ -19,6 +26,182 @@ export class NaverAdapter extends BaseAdapter {
   private clientSecret = ''; // bcrypt salt (starts with $2a$)
   private accessToken = '';
   private tokenExpiresAt = 0;
+
+  capabilities: ChannelCapabilities = {
+    canCreate: true,
+    multiOption: true,           // P3: optionInfo 상대가 옵션 등록
+    optionPrice: 'relative',     // 네이버 옵션가는 대표가 대비 상대가
+    maxImages: 10,               // 대표 1 + 추가 9
+    selfHostedImages: true,      // 상세/대표 이미지 네이버 서버 재호스팅 필요(P3)
+    requiresNotice: false,       // P1: 일반 고시 폴백 사용(경고). 정밀 고시매핑은 P3
+    requiresShipTemplate: true,  // 출고지·반품지·배송비·AS 필수
+  };
+
+  /**
+   * Canonical → 네이버 커머스 v2 /v2/products 페이로드.
+   * 필수 셀러값(배송템플릿)은 매퍼가 사전 검증하지만, 어댑터에서도 방어적으로 재확인.
+   * P1 범위: 단일 대표가 등록. 다옵션 옵션단위·이미지 재호스팅·정밀 고시는 P3.
+   */
+  mapFromCanonical(product: CanonicalProduct, ctx: ChannelMappingContext): ChannelMappingResult {
+    const missing: MissingField[] = [];
+    const warnings: string[] = [];
+
+    if (!ctx.channelCategoryId) {
+      missing.push({ field: 'category', reason: '네이버 카테고리 매핑이 필요합니다' });
+    }
+
+    const mainImages = product.images.filter((i) => i.role === 'main').map((i) => i.url);
+    const extraImages = product.images.filter((i) => i.role !== 'main').map((i) => i.url);
+    const representative = mainImages[0] || product.images[0]?.url;
+    if (!representative) {
+      missing.push({ field: 'image', reason: '대표 이미지가 없습니다' });
+    }
+
+    const name = (product.displayName || product.name || '').trim().slice(0, 100);
+    if (!name) missing.push({ field: 'name', reason: '상품명이 비어 있습니다' });
+    if (ctx.sellingPrice <= 0) missing.push({ field: 'price', reason: '판매가가 0입니다' });
+
+    const tpl = ctx.shippingTemplate;
+    if (!tpl?.outboundPlaceCode || !tpl?.returnCenterCode) {
+      missing.push({ field: 'ship_template', reason: '출고지/반품지 코드가 필요합니다 (채널 배송 설정)' });
+    }
+    if (!tpl?.afterServiceTel || !tpl?.afterServiceGuide) {
+      missing.push({ field: 'as_info', reason: 'A/S 전화·안내가 필요합니다 (채널 배송 설정)' });
+    }
+
+    if (missing.length > 0) {
+      return { ok: false, status: 'needs_input', missing };
+    }
+
+    // ── 이미지 재호스팅 적용 (네이버는 외부 URL 거부) — 러너가 사전 업로드한 맵으로 치환 ──
+    const swap = (u: string): string => ctx.rehostedImages?.get(u) || u;
+    const repHosted = swap(representative as string);
+    const optionalHosted = extraImages.slice(0, 9).map(swap);
+    if (this.capabilities.selfHostedImages && !ctx.rehostedImages) {
+      warnings.push('이미지 재호스팅 맵 미주입 — 외부 URL로 등록 시도(거부 가능)');
+    }
+    if (Object.keys(product.notices).length === 0) {
+      warnings.push('상품정보고시 일반 폴백 사용(상세페이지 참조)');
+    }
+
+    // 상세 HTML 내 <img src> 도 재호스팅 URL 로 치환
+    let detailHtml = `${ctx.headerHtml || ''}${product.detailHtml || ''}${ctx.footerHtml || ''}`;
+    detailHtml = detailHtml.replace(/(<img[^>]+src=["'])([^"']+)(["'])/gi, (_m, a, src, c) => `${a}${swap(src)}${c}`);
+    if (!detailHtml) detailHtml = '<p>상세페이지 참조</p>';
+
+    // ── 가격/옵션 (다옵션은 상대가 optionInfo 구성) ──
+    const m = ctx.marginPercent || 0;
+    const adj = (p: number) => Math.round(p * (1 + m / 100));
+    const isMulti = product.options.length > 1;
+    const optionAdjusted = product.options.map((o) => adj(o.salePrice)).filter((p) => p > 0);
+    const baseSalePrice = isMulti && optionAdjusted.length > 0 ? Math.min(...optionAdjusted) : ctx.sellingPrice;
+    const totalStock = product.options.reduce((s, o) => s + (o.stock ?? 0), 0) || 999;
+
+    const optionInfo = isMulti
+      ? {
+          optionCombinationGroupNames: { optionGroupName1: '옵션' },
+          optionCombinations: product.options.map((o) => ({
+            optionName1: o.optionName,
+            stockQuantity: o.stock ?? 999,
+            price: Math.max(0, adj(o.salePrice) - baseSalePrice), // 대표가 대비 상대가(>=0)
+            sellerManagerCode: o.sku || undefined,
+            usable: true,
+          })),
+          useStockManagement: true,
+        }
+      : undefined;
+
+    const detailAttribute: Record<string, unknown> = {
+      naverShoppingSearchInfo: {
+        manufacturerName: product.manufacturer || product.brand || '제조사',
+        brandName: product.brand || undefined,
+      },
+      afterServiceInfo: {
+        afterServiceTelephoneNumber: tpl!.afterServiceTel,
+        afterServiceGuideContent: tpl!.afterServiceGuide,
+      },
+      originAreaInfo: {
+        originAreaCode: tpl!.originCode || '0200037', // 기타(상세설명참조)
+        content: product.origin || undefined,
+      },
+      sellerCodeInfo: {
+        sellerManagementCode: ctx.sellerManagementCode || product.options[0]?.sku || product.productId.slice(0, 24),
+      },
+      minorPurchasable: true,
+      ...(optionInfo ? { optionInfo } : {}),
+    };
+
+    const payload: Record<string, unknown> = {
+      originProduct: {
+        statusType: 'SALE',
+        saleType: 'NEW',
+        leafCategoryId: ctx.channelCategoryId,
+        name,
+        detailContent: detailHtml,
+        images: {
+          representativeImage: { url: repHosted },
+          optionalImages: optionalHosted.map((url) => ({ url })),
+        },
+        salePrice: baseSalePrice,
+        stockQuantity: totalStock,
+        deliveryInfo: {
+          deliveryType: 'DELIVERY',
+          deliveryAttributeType: 'NORMAL',
+          deliveryFee: {
+            deliveryFeeType: tpl!.deliveryChargeType === 'FREE' ? 'FREE'
+              : tpl!.deliveryChargeType === 'CONDITIONAL_FREE' ? 'CONDITIONAL_FREE' : 'PAID',
+            baseFee: tpl!.deliveryCharge ?? 0,
+            freeConditionalAmount: tpl!.freeShipOverAmount ?? 0,
+            deliveryFeePayType: 'PREPAID',
+          },
+          claimDeliveryInfo: {
+            returnDeliveryFee: tpl!.returnCharge ?? 0,
+            exchangeDeliveryFee: tpl!.exchangeCharge ?? (tpl!.returnCharge ?? 0) * 2,
+          },
+          outboundLocationId: tpl!.outboundPlaceCode,
+          returnLocationId: tpl!.returnCenterCode,
+        },
+        detailAttribute,
+      },
+      smartstoreChannelProduct: {
+        naverShoppingRegistration: true,
+        channelProductDisplayStatusType: 'ON',
+        channelProductName: name,
+      },
+    };
+
+    return { ok: true, payload, warnings: warnings.length ? warnings : undefined };
+  }
+
+  /**
+   * 원본 이미지 URL → 네이버 이미지서버 업로드 후 네이버 URL 반환.
+   * 네이버는 외부 URL 을 거부하므로 등록 전 필수. (캐시는 channel-image-rehost 가 담당)
+   */
+  async uploadImage(sourceUrl: string): Promise<string> {
+    const imgRes = await fetch(sourceUrl);
+    if (!imgRes.ok) throw new Error(`이미지 다운로드 실패 ${imgRes.status}: ${sourceUrl.slice(0, 80)}`);
+    const buf = await imgRes.arrayBuffer();
+    const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+    const ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
+
+    const token = await this.ensureToken();
+    const form = new FormData();
+    form.append('imageFiles', new Blob([buf], { type: contentType }), `image.${ext}`);
+
+    const res = await fetch(`${NAVER_API_BASE}/v1/product-images/upload`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` }, // multipart boundary 는 fetch 가 자동 설정
+      body: form,
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(`네이버 이미지 업로드 실패 ${res.status}: ${t.slice(0, 200)}`);
+    }
+    const data = (await res.json()) as { images?: { url: string }[] };
+    const url = data.images?.[0]?.url;
+    if (!url) throw new Error('네이버 이미지 업로드 응답에 URL 없음');
+    return url;
+  }
 
   /**
    * OAuth 2.0 토큰 발급

@@ -16,6 +16,52 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tokenOf = (ctx) => (ctx.store.get('monitorToken') || '').trim();
 const apiUrl = (ctx, path) => (ctx.store.get('apiBase') || ctx.services.webOrigin) + path;
 
+// ── 인증코드 자동 발급 ───────────────────────────────────────────────
+// 도우미는 이미 로그인 세션(runner.session)을 갖고 있으므로, 그 access token 으로
+// 서버에서 64자 인증코드를 자동 발급받는다 → 사용자가 코드를 복사·붙여넣을 필요 없음.
+let lastAutoIssueAt = 0;
+let warnedNoSession = false;
+async function ensureToken(ctx) {
+  if (tokenOf(ctx)) return true;
+  const session = ctx.services?.runner?.session;
+  if (!session) {
+    // 앱 부팅 직후엔 세션 복구가 아직 안 됐을 수 있음 — 조용히 다음 틱 재시도(1회만 안내).
+    if (!warnedNoSession) {
+      ctx.send('stock-monitor:log', '로그인 대기 중 — 도우미 로그인(페어링)되면 인증코드를 자동 발급합니다');
+      warnedNoSession = true;
+    }
+    return false;
+  }
+  warnedNoSession = false;
+  // 발급 실패가 반복될 때(예: 쿠팡 미연동) 매 틱 폭주 방지 — 5분 쿨다운.
+  if (Date.now() - lastAutoIssueAt < 5 * 60 * 1000) return false;
+  lastAutoIssueAt = Date.now();
+  try {
+    const accessToken = await session.token();
+    const res = await fetch(apiUrl(ctx, '/api/megaload/desktop/auth/self-issue'), {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      ctx.send('stock-monitor:log', `자동 연결 실패(HTTP ${res.status}) ${t.slice(0, 120)}`);
+      return false;
+    }
+    const d = await res.json().catch(() => ({}));
+    if (d && d.token) {
+      ctx.store.set('monitorToken', d.token);
+      lastAutoIssueAt = 0; // 성공 — 쿨다운 해제
+      ctx.send('stock-monitor:log', '🔑 로그인 세션으로 인증코드 자동발급 — 연결 완료');
+      return true;
+    }
+    ctx.send('stock-monitor:log', '자동 연결 실패: 토큰 응답이 비어 있음');
+    return false;
+  } catch (e) {
+    ctx.send('stock-monitor:log', '자동 연결 오류: ' + e.message);
+    return false;
+  }
+}
+
 async function verifyToken(ctx) {
   const t = tokenOf(ctx);
   if (!t) return { valid: false, error: '토큰 없음' };
@@ -63,6 +109,11 @@ async function tick(ctx) {
   if (ticking) return;
   ticking = true;
   try {
+    // 토큰이 없으면 로그인 세션으로 자동 발급 시도 — 실패 시 조용히 다음 틱 재시도.
+    if (!tokenOf(ctx)) {
+      const ok = await ensureToken(ctx);
+      if (!ok) return;
+    }
     const v = await verifyToken(ctx);
     if (!v.valid) { ctx.send('stock-monitor:log', '인증 실패: ' + (v.error || '')); return; }
     const monitors = await fetchMonitors(ctx, 50);
@@ -119,8 +170,13 @@ export default {
   //   토큰 무효면 tick 이 '인증 실패'만 로깅하고 idle(외부 호출 안 함)하므로 안전.
   setup: (ctx) => {
     try {
-      if (ctx.store.get('monitorEnabled') !== false && tokenOf(ctx)) {
-        ctx.send('stock-monitor:log', '연결됨 — 품절 모니터링을 자동 시작합니다…');
+      // 토큰 유무와 무관하게 자동 시작 — 토큰이 없으면 tick 이 로그인 세션으로 자동 발급한다.
+      //   (예전엔 tokenOf(ctx) 게이트라 코드 붙여넣기 전엔 영영 수동이었음)
+      //   오직 명시적 정지(monitorEnabled===false)일 때만 시작 안 함.
+      if (ctx.store.get('monitorEnabled') !== false) {
+        ctx.send('stock-monitor:log', tokenOf(ctx)
+          ? '연결됨 — 품절 모니터링을 자동 시작합니다…'
+          : '품절 모니터링 자동 시작 — 로그인 세션으로 인증코드를 자동 발급합니다…');
         start(ctx);
       }
     } catch { /* ignore */ }
