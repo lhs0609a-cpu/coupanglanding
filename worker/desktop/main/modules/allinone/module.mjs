@@ -18,9 +18,30 @@ export default {
       const r = await ctx.dialog.showOpenDialog({ properties: ['openDirectory'], title: '소싱 폴더 선택 (product_*/ 들을 담은 상위 폴더)' });
       return r.canceled ? null : r.filePaths[0];
     },
-    'allinone:run': (ctx, { folder, noThumb } = {}) => {
+    'allinone:run': async (ctx, { folder, noThumb } = {}) => {
       if (!folder) throw new Error('폴더를 먼저 선택하세요.');
       if (child) throw new Error('이미 생성이 진행 중입니다.');
+
+      // 엔진 자동 기동 — run-folder.mjs 는 ollama(텍스트)·ComfyUI(누끼) 가 떠 있어야 동작하므로
+      // 스폰 전에 도우미가 보장한다. ollama 는 없으면 자동 설치·기동·모델 다운로드까지 한다.
+      try {
+        ctx.send('allinone:log', '엔진 준비 중 — ollama(텍스트 생성)…');
+        await ctx.services.ollama?.start();
+      } catch (e) {
+        ctx.send('allinone:log', '❌ ollama 준비 실패: ' + (e.message || e));
+        ctx.send('allinone:done', { code: -1 });
+        return false;
+      }
+      if (!noThumb) {
+        try {
+          ctx.send('allinone:log', '엔진 준비 중 — ComfyUI(대표사진 누끼)…');
+          await ctx.services.comfy?.start();
+        } catch (e) {
+          // 누끼 엔진 실패는 치명적이지 않음 — 텍스트만 진행(원본 사진 폴백).
+          ctx.send('allinone:log', '⚠️ ComfyUI 준비 실패 — 누끼 없이 텍스트만 진행: ' + (e.message || e));
+        }
+      }
+
       // sync-runtime 가 runtime/ 에 복사한 run-folder.mjs 실행 (dev+packaged 모두 번들 포함).
       const runtimeDir = join(ctx.paths.appRoot, 'runtime');
       const script = join(runtimeDir, 'run-folder.mjs');

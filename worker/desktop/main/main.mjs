@@ -12,6 +12,7 @@ import { hostname, tmpdir } from 'node:os';
 import { rpc } from '../runtime/supabase-rest.mjs';
 import { Store } from './store.mjs';
 import { ComfyManager } from './comfy-manager.mjs';
+import { OllamaManager } from './ollama-manager.mjs';
 import { WorkerRunner } from './worker-runner.mjs';
 import { AdRunner } from './ad-runner.mjs';
 import { startPairServer } from './pair-server.mjs';
@@ -36,7 +37,7 @@ const APP_TITLE = '메가로드 도우미';
 
 let win = null;
 let tray = null;
-let store, comfy, runner, pair, ads;
+let store, comfy, runner, pair, ads, ollama;
 let installDir, comfyPort;
 let trayContribs = [];
 const stats = { processed: 0, ok: 0, fail: 0, current: null };
@@ -99,6 +100,7 @@ function setupServices() {
   installDir = join(userData, 'engine');
   comfyPort = store.get('comfyPort', 8188);
   comfy = new ComfyManager(installDir, { port: comfyPort, onLog: (m) => send('thumbnail-gpu:comfy-log', m) });
+  ollama = new OllamaManager(installDir, { model: store.get('ollamaModel', bootstrap.DEFAULTS.ollamaModel), onLog: (m) => send('allinone:log', m) });
   runner = new WorkerRunner(userData, { onEvent: onWorkerEvent });
   ads = new AdRunner({ getSession: () => runner.session, onEvent: (e) => send('ads:event', e) });
 }
@@ -109,7 +111,7 @@ function buildContext() {
     paths: { userData: app.getPath('userData'), appRoot },
     store, send, log,
     services: {
-      comfy, runner, ads, bootstrap,
+      comfy, ollama, runner, ads, bootstrap,
       installDir, stats,
       startWorker, stopWorker, installEngine, autoStartIfReady,
       pair: () => pair, webOrigin: WEB_ORIGIN,
@@ -255,7 +257,7 @@ app.on('before-quit', async (e) => {
   if (app.isQuitting) return;
   app.isQuitting = true;
   e.preventDefault();
-  try { ads?.stop(); await runner?.stopLlmLoop(); await stopWorker(); await comfy.stop(); await pair?.close(); } catch { /* ignore */ }
+  try { ads?.stop(); await runner?.stopLlmLoop(); await stopWorker(); await comfy.stop(); await ollama?.stop(); await pair?.close(); } catch { /* ignore */ }
   app.quit();
 });
 

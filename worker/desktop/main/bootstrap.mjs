@@ -21,6 +21,10 @@ export const DEFAULTS = {
   // 대표이미지 자동 누끼용 ComfyUI 커스텀 노드(InspyrenetRembg) — custom_nodes 에 설치.
   // 인페인트 워크플로가 이 노드로 사진→상품 마스크를 만들어 배경만 흰 스튜디오로 재생성한다.
   rembgNodeUrl: 'https://github.com/john-mnz/ComfyUI-Inspyrenet-Rembg/archive/refs/heads/main.zip',
+  // 텍스트 생성용 ollama 포터블 바이너리(zip) + 기본 모델. 올인원의 노출명·카테고리·옵션·상세·가격 생성에 필요.
+  // run-folder.mjs 기본 모델과 일치시켜 모델 불일치(미보유) 방지.
+  ollamaZipUrl: 'https://github.com/ollama/ollama/releases/latest/download/ollama-windows-amd64.zip',
+  ollamaModel: 'exaone3.5:7.8b',
 };
 
 const exists = (p) => stat(p).then(() => true, () => false);
@@ -51,6 +55,31 @@ export function lorasDir(installDir) {
 }
 export function customNodesDir(installDir) {
   return join(comfyRoot(installDir), 'ComfyUI', 'custom_nodes');
+}
+export function ollamaDir(installDir) {
+  return join(installDir, 'ollama');
+}
+export function ollamaExePath(installDir) {
+  return join(ollamaDir(installDir), 'ollama.exe');
+}
+
+/**
+ * 포터블 ollama 바이너리 보장 — idempotent. ollama.exe 가 없으면 zip 다운로드·해제.
+ * (모델은 서버 기동 후 OllamaManager.ensureModel 에서 받는다.) 실패 시 throw.
+ */
+export async function ensureOllama({ installDir, url = DEFAULTS.ollamaZipUrl, onProgress = () => {} } = {}) {
+  const exe = ollamaExePath(installDir);
+  if (await exists(exe)) { onProgress({ phase: 'ollama', pct: 100, detail: 'ollama 이미 설치됨' }); return exe; }
+  const dir = ollamaDir(installDir);
+  await mkdir(dir, { recursive: true });
+  const zip = join(installDir, 'ollama_portable.zip');
+  onProgress({ phase: 'ollama-download', pct: 0, detail: 'ollama 다운로드(~수백MB)' });
+  await downloadFile(url, zip, (pct) => onProgress({ phase: 'ollama-download', pct }));
+  onProgress({ phase: 'ollama-extract', pct: 0, detail: 'ollama 설치' });
+  await extract7z(zip, dir, (pct) => onProgress({ phase: 'ollama-extract', pct }));
+  await rm(zip, { force: true });
+  onProgress({ phase: 'ollama', pct: 100, detail: 'ollama 준비 완료' });
+  return exe;
 }
 function embeddedPython(installDir) {
   return join(comfyRoot(installDir), 'python_embeded', 'python.exe');
@@ -206,6 +235,10 @@ export async function install({ installDir, urls = {}, onProgress = () => {} }) 
 
   // 4) 누끼 커스텀 노드(InspyrenetRembg) — 대표이미지 자동 누끼에 필요. 실패해도 설치는 완료 처리.
   await ensureRembgNode({ installDir, url: u.rembgNodeUrl, onProgress });
+
+  // 5) ollama 바이너리(텍스트 LLM) — 모델은 첫 올인원 실행 시 받음. 실패해도 설치는 완료 처리.
+  try { await ensureOllama({ installDir, url: u.ollamaZipUrl, onProgress }); }
+  catch (e) { onProgress({ phase: 'ollama', pct: 100, detail: `ollama 생략(${String(e.message).slice(0, 60)})` }); }
 
   onProgress({ phase: 'done', pct: 100 });
 }
