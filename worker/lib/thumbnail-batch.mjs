@@ -22,6 +22,14 @@ import * as comfy from './comfyui-client.mjs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const exists = (p) => access(p).then(() => true, () => false);
 
+/** 미설치 노드별 설치 힌트(누끼 노드 등 자주 막히는 것 안내). */
+function why(missing) {
+  if (missing.includes('InspyrenetRembg')) {
+    return `누끼 노드(InspyrenetRembg)가 없습니다 — ComfyUI-Manager > Custom Nodes 에서 'Inspyrenet' 검색 설치(첫 실행 시 모델 자동 다운로드).`;
+  }
+  return '';
+}
+
 /** 기본 워크플로 위치 탐색 — lib/(worker) 와 평면 runtime/ 양쪽 지원 */
 function defaultWorkflowPath() {
   const name = 'sdxl-inpaint-thumbnail.example.json';
@@ -58,8 +66,18 @@ export async function makeThumbnailProcessor(o = {}) {
   try {
     const health = await comfy.checkHealth(comfyUrl);
     workflow = await comfy.loadWorkflow({ readFile }, workflowPath);
-    ready = true;
-    info = `ComfyUI ${health.comfyVersion} · ${health.device} (VRAM ${health.vramTotalMb}MB)`;
+    // 누끼 등 커스텀 노드가 설치돼 있는지 확인 — 없으면 매 이미지가 조용히 실패/폴백하므로
+    // 여기서 한 번에 잡아 명확히 안내하고, 차라리 전체를 원본 폴백시킨다(시간 낭비 방지).
+    const missing = comfy.missingNodeTypes(workflow, await comfy.listNodeTypes(comfyUrl));
+    if (missing.length > 0) {
+      ready = false;
+      info = `워크플로 노드 미설치 [${missing.join(', ')}] — 원본 사진으로 폴백. ` +
+        why(missing) +
+        ` ComfyUI-Manager 에서 해당 커스텀 노드를 설치 후 다시 실행하세요.`;
+    } else {
+      ready = true;
+      info = `ComfyUI ${health.comfyVersion} · ${health.device} (VRAM ${health.vramTotalMb}MB) · 누끼 자동`;
+    }
   } catch (e) {
     ready = false;
     info = `ComfyUI 미연결 — 원본 사진으로 폴백: ${e.message}`;

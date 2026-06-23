@@ -1,5 +1,5 @@
 {
-  "_comment": "예제 SDXL 인페인트 워크플로 (API format). 누끼 PNG의 투명영역을 마스크로 삼아 배경만 새로 생성하고 상품 픽셀은 보존한다. ★중요: ckpt_name을 본인 ComfyUI/models/checkpoints에 있는 SDXL 체크포인트 파일명으로 바꿔야 한다. 가장 확실한 방법은 ComfyUI UI에서 직접 워크플로를 만들고 'Save (API Format)'으로 내보내 이 파일을 대체하는 것. 워커는 LoadImage/KSampler를 자동 인식해 입력이미지·프롬프트·시드를 주입한다.",
+  "_comment": "SDXL 인페인트 + 자동 누끼 워크플로 (API format). 입력이 '배경 있는 일반 상품 사진'이어도 자동으로 누끼된다: (9) InspyrenetRembg 가 사진에서 상품 마스크를 만들고 → (10) InvertMask 로 '배경=1' 마스크로 뒤집어 → (5) VAEEncodeForInpaint 가 배경영역만 흰 스튜디오로 재생성(상품 픽셀은 보존). ★필요 커스텀 노드: ComfyUI-Inspyrenet-Rembg (ComfyUI-Manager 에서 'Inspyrenet' 검색 후 설치, 첫 실행 시 모델 자동 다운로드). 다른 RMBG 노드를 쓰려면 9번 class_type 과 MASK 출력 인덱스만 맞추면 됨(예: ComfyUI-RMBG의 'RMBG'). ★ckpt_name 은 본인 ComfyUI/models/checkpoints 의 SDXL 체크포인트 파일명으로 교체. 워커는 LoadImage/KSampler 를 자동 인식해 입력이미지·프롬프트·시드를 주입하므로 누끼 노드는 그대로 둬도 된다.",
   "1": {
     "class_type": "CheckpointLoaderSimple",
     "inputs": { "ckpt_name": "sd_xl_base_1.0.safetensors" }
@@ -7,6 +7,14 @@
   "2": {
     "class_type": "LoadImage",
     "inputs": { "image": "__INPUT_IMAGE__", "upload": "image" }
+  },
+  "9": {
+    "class_type": "InspyrenetRembg",
+    "inputs": { "image": ["2", 0], "torchscript_jit": "default" }
+  },
+  "10": {
+    "class_type": "InvertMask",
+    "inputs": { "mask": ["9", 1] }
   },
   "3": {
     "class_type": "CLIPTextEncode",
@@ -18,7 +26,7 @@
   },
   "5": {
     "class_type": "VAEEncodeForInpaint",
-    "inputs": { "pixels": ["2", 0], "vae": ["1", 2], "mask": ["2", 1], "grow_mask_by": 8 }
+    "inputs": { "pixels": ["2", 0], "vae": ["1", 2], "mask": ["10", 0], "grow_mask_by": 8 }
   },
   "6": {
     "class_type": "KSampler",

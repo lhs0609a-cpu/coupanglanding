@@ -28,6 +28,23 @@ export async function checkHealth(comfyUrl) {
   };
 }
 
+/** ComfyUI 에 설치된 노드 class_type 목록(Set). /object_info 키가 곧 사용가능 노드. */
+export async function listNodeTypes(comfyUrl) {
+  const res = await fetch(`${comfyUrl}/object_info`);
+  if (!res.ok) throw new Error(`/object_info 응답 실패 (${res.status})`);
+  const info = await res.json();
+  return new Set(Object.keys(info));
+}
+
+/** 워크플로가 요구하는 class_type 중 ComfyUI 에 설치 안 된 것 목록(커스텀 노드 누락 탐지용). */
+export function missingNodeTypes(graph, availableSet) {
+  const required = new Set();
+  for (const n of Object.values(graph)) {
+    if (n && typeof n === 'object' && n.class_type) required.add(n.class_type);
+  }
+  return [...required].filter((c) => !availableSet.has(c));
+}
+
 /** API-format 워크플로 JSON 로드 */
 export async function loadWorkflow(fs, path) {
   const raw = await fs.readFile(path, 'utf8');
