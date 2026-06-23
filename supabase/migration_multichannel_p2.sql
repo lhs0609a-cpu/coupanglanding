@@ -62,7 +62,16 @@ CREATE POLICY "admin_all_ship_templates" ON sh_channel_shipping_templates
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
   );
 
--- ── updated_at 트리거 (set_updated_at_column 은 기존 마이그레이션에서 정의됨) ──
+-- ── updated_at 트리거 ──
+-- set_updated_at_column 함수가 DB 에 없을 수 있으므로 self-contained 로 보장(멱등).
+CREATE OR REPLACE FUNCTION set_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 DROP TRIGGER IF EXISTS trg_sh_ship_tpl_updated_at ON sh_channel_shipping_templates;
 CREATE TRIGGER trg_sh_ship_tpl_updated_at
   BEFORE UPDATE ON sh_channel_shipping_templates
