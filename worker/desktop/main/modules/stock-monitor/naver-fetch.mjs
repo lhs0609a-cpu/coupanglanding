@@ -14,6 +14,22 @@ const MAX_BODY = 2_500_000;
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
+// ─── Google Translate 우회 URL ───
+// 가정 IP가 네이버에 429로 막혀도, translate.goog 는 "구글 서버가 네이버를 대신 fetch" 하므로
+// 네이버는 구글 IP를 보고 우리 IP의 레이트리밋과 무관하게 응답한다(서버 엔진에서 검증된 경로).
+// 본문에 __PRELOADED_STATE__ JSON(productStatusType/salePrice/optionCombinations)이 그대로 남아
+// 기존 파서가 동작한다. 우리 IP→구글 요청은 네이버가 429를 줄 수 없다.
+function toGoogleTranslateUrl(url) {
+  try {
+    const u = new URL(url);
+    u.hostname = u.hostname.replace(/\./g, '-') + '.translate.goog';
+    u.searchParams.set('_x_tr_sl', 'ko');
+    u.searchParams.set('_x_tr_tl', 'en');
+    u.searchParams.set('_x_tr_hl', 'en');
+    return u.toString();
+  } catch { return null; }
+}
+
 // ─── 진짜 크롬(BrowserWindow) 페처 ───
 // 네이버 안티봇이 undici(Node fetch)를 진짜 크롬과 구분해 즉시 429를 던진다(헤더·쿠키로도 안 풀림, 실측).
 // 도우미는 Electron 이라 내장 Chromium 으로 페이지를 실제 로드하면 진짜 브라우저 핑거프린트+쿠키+JS 로
@@ -109,12 +125,46 @@ async function fetchPageViaBrowser(url) {
   return { status: r.status, body: r.body };
 }
 
+// 가정 IP가 네이버에 지속적으로 429를 맞으면(이 PC IP가 차단됨) BrowserWindow 로 매번 11초씩
+// 헛수고하지 말고 GT(구글 IP) 경로를 먼저 탄다. 가끔 BrowserWindow 를 재탐색해 회복 시 복귀.
+let _browser429Streak = 0;
+
 async function fetchPage(url) {
-  // 1차: 진짜 크롬(BrowserWindow) — 안티봇 통과. 실패 시 2차: undici 직접 fetch.
+  const gt = toGoogleTranslateUrl(url);
+  const preferGT = gt && _browser429Streak >= 3;
+
+  // 가정 IP가 막힌 상태면 GT(구글 IP) 우선 — 빠른 경로.
+  if (preferGT) {
+    try {
+      const r = await fetchPageDirect(gt);
+      if (r.status >= 200 && r.status < 400 && r.body) return r;
+    } catch { /* GT 실패 → 아래에서 BrowserWindow 재탐색 */ }
+  }
+
+  // 1차(기본): 진짜 크롬(BrowserWindow) — 가정 IP, 안티봇 통과 시 가장 정확.
   try {
-    return await fetchPageViaBrowser(url);
-  } catch {
+    const r = await fetchPageViaBrowser(url);
+    if (r.status === 429) {
+      _browser429Streak++;
+    } else if (r.status) {
+      _browser429Streak = 0;
+      return r;
+    }
+  } catch { /* electron 미가용/로드 실패 → 폴백 */ }
+
+  // 2차: Google Translate 경유(undici) — 가정 IP가 429일 때 구글 IP로 네이버 우회.
+  if (gt && !preferGT) {
+    try {
+      const r = await fetchPageDirect(gt);
+      if (r.status >= 200 && r.status < 400 && r.body) return r;
+    } catch { /* fall through */ }
+  }
+
+  // 3차: undici 직접(원본) — 마지막 시도.
+  try {
     return await fetchPageDirect(url);
+  } catch {
+    return { status: 429, body: '' };
   }
 }
 
@@ -197,6 +247,12 @@ export async function fetchNaverProduct(url) {
     if (status === 429) return { status: 'error', matchedPattern: 'HTTP 429 (속도제한)', errorClass: 'transient' };
     if (status === 403) return { status: 'error', matchedPattern: 'HTTP 403 (접근 차단)', errorClass: 'naver' };
     if (status < 200 || status >= 400) return { status: 'error', matchedPattern: `HTTP ${status}`, errorClass: 'naver' };
+
+    // GT 지역차단 — 본문에 region 안내만 있고 네이버 데이터 없음(드묾, KR IP면 거의 없음). transient 처리.
+    if (/translation\s*service\s*isn'?t\s*available\s*in\s*your\s*region/i.test(body)
+        && !/__PRELOADED_STATE__|productStatusType|optionCombinations/i.test(body)) {
+      return { status: 'error', matchedPattern: 'GT region block', errorClass: 'transient' };
+    }
 
     for (const p of REMOVED_PATTERNS) if (p.test(body)) return { status: 'removed', matchedPattern: p.source };
 
