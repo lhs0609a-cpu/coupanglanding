@@ -4,7 +4,7 @@
  */
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
-import { comfyRoot } from './bootstrap.mjs';
+import { comfyRoot, ensureRembgNode } from './bootstrap.mjs';
 import { checkHealth } from '../runtime/comfyui-client.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -25,6 +25,12 @@ export class ComfyManager {
   /** 실행 + 헬스 대기. 이미 떠 있으면 그대로 사용. */
   async start({ timeoutMs = 180_000 } = {}) {
     if (await this.isUp()) { this.onLog('ComfyUI 이미 실행 중'); return this.url; }
+
+    // 누끼 노드(InspyrenetRembg) 보장 — 기존 설치 자가치유. ComfyUI 가 스캔하기 전에
+    // custom_nodes 에 있어야 하므로 spawn 직전에 한다. 실패해도 시작은 그대로 진행(원본 폴백).
+    try {
+      await ensureRembgNode({ installDir: this.installDir, onProgress: (p) => this.onLog(`[누끼노드] ${p.detail || p.phase}${p.pct != null ? ' ' + p.pct + '%' : ''}`) });
+    } catch (e) { this.onLog(`[누끼노드] 보장 실패(무시): ${e.message}`); }
 
     const root = comfyRoot(this.installDir);
     const python = join(root, 'python_embeded', 'python.exe');

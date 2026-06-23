@@ -18,6 +18,9 @@ export const DEFAULTS = {
   // 이미지 생성 가속용 SDXL Lightning 8스텝 LoRA (~400MB) — img2img 워크플로가 26→8스텝(약 2배 빠름).
   loraUrl: 'https://huggingface.co/ByteDance/SDXL-Lightning/resolve/main/sdxl_lightning_8step_lora.safetensors?download=true',
   loraFileName: 'sdxl_lightning_8step_lora.safetensors',
+  // 대표이미지 자동 누끼용 ComfyUI 커스텀 노드(InspyrenetRembg) — custom_nodes 에 설치.
+  // 인페인트 워크플로가 이 노드로 사진→상품 마스크를 만들어 배경만 흰 스튜디오로 재생성한다.
+  rembgNodeUrl: 'https://github.com/john-mnz/ComfyUI-Inspyrenet-Rembg/archive/refs/heads/main.zip',
 };
 
 const exists = (p) => stat(p).then(() => true, () => false);
@@ -45,6 +48,63 @@ export function checkpointsDir(installDir) {
 }
 export function lorasDir(installDir) {
   return join(comfyRoot(installDir), 'ComfyUI', 'models', 'loras');
+}
+export function customNodesDir(installDir) {
+  return join(comfyRoot(installDir), 'ComfyUI', 'custom_nodes');
+}
+function embeddedPython(installDir) {
+  return join(comfyRoot(installDir), 'python_embeded', 'python.exe');
+}
+
+/** 임베디드 파이썬으로 명령 실행 (pip 등). 실패 시 reject. */
+function runPython(py, args, cwd) {
+  return new Promise((resolve, reject) => {
+    const p = spawn(py, args, { cwd, windowsHide: true });
+    let err = '';
+    p.stderr?.on('data', (d) => (err += d));
+    p.on('error', reject);
+    p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`pip 실패(${code}): ${err.slice(0, 200)}`))));
+  });
+}
+
+/** 커스텀 노드의 requirements.txt 를 임베디드 파이썬으로 설치(있을 때만). */
+async function installNodeDeps(installDir, nodeDir, onProgress) {
+  const py = embeddedPython(installDir);
+  const req = join(nodeDir, 'requirements.txt');
+  if (!(await exists(py)) || !(await exists(req))) return;
+  onProgress({ phase: 'rembg-deps', pct: 0, detail: '누끼 노드 의존성 설치(pip, 수 분 소요)' });
+  await runPython(py, ['-s', '-m', 'pip', 'install', '-r', req], comfyRoot(installDir));
+}
+
+/**
+ * 누끼 커스텀 노드(InspyrenetRembg) 보장 — idempotent.
+ * custom_nodes 에 이미 있으면 의존성만 보장 후 스킵, 없으면 zip 다운로드·해제 + pip 설치.
+ * ⚠️ 실패해도 throw 하지 않는다(누끼 노드 없으면 워커가 원본 사진으로 폴백 + 안내).
+ */
+export async function ensureRembgNode({ installDir, url = DEFAULTS.rembgNodeUrl, onProgress = () => {} } = {}) {
+  try {
+    const cnDir = customNodesDir(installDir);
+    await mkdir(cnDir, { recursive: true });
+    const present = (await readdir(cnDir).catch(() => [])).find((d) => d.toLowerCase().includes('inspyrenet'));
+    if (present) {
+      await installNodeDeps(installDir, join(cnDir, present), onProgress);
+      onProgress({ phase: 'rembg', pct: 100, detail: '누끼 노드 이미 설치됨' });
+      return true;
+    }
+    onProgress({ phase: 'rembg-download', pct: 0, detail: '누끼 노드(Inspyrenet) 다운로드' });
+    const zip = join(installDir, 'inspyrenet_node.zip');
+    await downloadFile(url, zip, (pct) => onProgress({ phase: 'rembg-download', pct }));
+    onProgress({ phase: 'rembg-extract', pct: 0, detail: '누끼 노드 설치' });
+    await extract7z(zip, cnDir, (pct) => onProgress({ phase: 'rembg-extract', pct }));
+    await rm(zip, { force: true });
+    const dir = (await readdir(cnDir)).find((d) => d.toLowerCase().includes('inspyrenet'));
+    if (dir) await installNodeDeps(installDir, join(cnDir, dir), onProgress);
+    onProgress({ phase: 'rembg', pct: 100, detail: '누끼 노드 준비 완료' });
+    return true;
+  } catch (e) {
+    onProgress({ phase: 'rembg', pct: 100, detail: `누끼 노드 자동설치 실패(${String(e.message).slice(0, 60)}) — ComfyUI-Manager 에서 'Inspyrenet' 수동 설치` });
+    return false;
+  }
 }
 
 /** 설치 완료 여부 — 실행 bat + 체크포인트 1개 이상 */
@@ -143,6 +203,9 @@ export async function install({ installDir, urls = {}, onProgress = () => {} }) 
       onProgress({ phase: 'lora-download', pct: 100, detail: `LoRA 생략(${String(e.message).slice(0, 60)})` });
     }
   }
+
+  // 4) 누끼 커스텀 노드(InspyrenetRembg) — 대표이미지 자동 누끼에 필요. 실패해도 설치는 완료 처리.
+  await ensureRembgNode({ installDir, url: u.rembgNodeUrl, onProgress });
 
   onProgress({ phase: 'done', pct: 100 });
 }
