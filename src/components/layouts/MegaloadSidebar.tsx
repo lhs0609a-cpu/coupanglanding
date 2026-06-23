@@ -8,14 +8,14 @@ import {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
   Receipt, BarChart3, Zap, Globe, Link as LinkIcon, Settings, X,
   Upload, User, ArrowRight, Search, ExternalLink, Loader2, Lock, RotateCcw, RefreshCw, Bug,
-  BookOpen, Monitor, Megaphone, AlertTriangle,
+  BookOpen, Monitor, Megaphone, AlertTriangle, Grid3x3,
 } from 'lucide-react';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
 import type { SettlementGateLevel } from '@/lib/utils/settlement';
 
 const iconMap = {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
-  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug, BookOpen, Monitor, Megaphone, AlertTriangle,
+  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug, BookOpen, Monitor, Megaphone, AlertTriangle, Grid3x3,
 } as const;
 
 const navItems = [
@@ -27,7 +27,6 @@ const navItems = [
   { href: '/megaload/products/allinone', label: '올인원 등록 (폴더)', icon: 'Zap' as const },
   { href: '/megaload/catalog', label: '카탈로그', icon: 'BookOpen' as const },
   { href: '/megaload/stock-monitor', label: '품절동기화', icon: 'RefreshCw' as const },
-  { href: '/megaload/products/exceptions', label: '예외큐', icon: 'AlertTriangle' as const },
   { href: '/megaload/desktop-app', label: '모니터링 도우미', icon: 'Monitor' as const },
   { href: '/megaload/inventory', label: '재고관리', icon: 'Warehouse' as const },
   { href: '/megaload/cs', label: '문의관리', icon: 'MessageSquare' as const, badgeKey: 'pendingInquiries' as const },
@@ -36,8 +35,10 @@ const navItems = [
   { href: '/megaload/ads', label: '광고 자동화', icon: 'Megaphone' as const },
   { href: '/megaload/automation', label: '자동화', icon: 'Zap' as const },
   { href: '/megaload/sourcing', label: '해외소싱', icon: 'Globe' as const },
-  { href: '/megaload/channels', label: '채널관리', icon: 'Link' as const },
-  { href: '/megaload/channels/automation', label: '자동전파', icon: 'Zap' as const },
+  { href: '/megaload/channels', label: '채널관리 (연동)', icon: 'Link' as const },
+  { href: '/megaload/channels/automation', label: '멀티채널 자동전파', icon: 'Zap' as const },
+  { href: '/megaload/products/channel-status', label: '채널 등록현황', icon: 'Grid3x3' as const },
+  { href: '/megaload/products/exceptions', label: '등록 예외큐', icon: 'AlertTriangle' as const },
   { href: '/megaload/bug-reports', label: '오류문의', icon: 'Bug' as const, badgeKey: 'unreadBugReports' as const },
   { href: '/megaload/settings', label: '설정', icon: 'Settings' as const },
 ];

@@ -10,6 +10,7 @@ import type { StoryBatchInput } from '@/lib/megaload/services/ai.service';
 import { logSystemError, logSystemWarn } from '@/lib/utils/system-log';
 // generateProductStoriesBatch 는 generateAiContent=true 일 때만 dynamic import — Gemini SDK 로드 비용 cold start 절감.
 import { buildProductPayload } from '@/lib/megaload/services/preflight-builder';
+import { enqueueAutoReplication } from '@/lib/megaload/services/replication-enqueue';
 import { withRetry } from '@/lib/megaload/services/retry';
 import { checkBrandProtection } from '@/lib/megaload/services/brand-checker';
 import { classifyError } from '@/lib/megaload/services/error-classifier';
@@ -223,6 +224,7 @@ interface ProductResult {
   name: string;
   success: boolean;
   channelProductId?: string;
+  productId?: string;          // sh_products.id — 자동전파 inline hook 용
   error?: string;
   detailedError?: DetailedError;
   duration?: number;
@@ -906,6 +908,7 @@ export async function POST(req: NextRequest) {
       return {
         uid: product.uid, productCode: product.productCode, name: product.name,
         success: true, channelProductId: result.channelProductId,
+        productId: savedId ?? undefined,
         duration: Date.now() - productStart, brandWarning,
       };
     }
@@ -996,6 +999,17 @@ export async function POST(req: NextRequest) {
         message: `등록 ${errorCount}/${totalCount}건 실패 (${Math.round(failureRate * 100)}%) — batch ${body.batchIndex}`,
         context: { totalCount, errorCount, successCount, batchIndex: body.batchIndex, samples: failureSamples },
       }).catch(() => {});
+    }
+
+    // ── 즉시 전파 hook: auto_replicate_enabled 면 등록 성공분을 바로 복제 큐에 ──
+    //   실패해도 무시 — reconcile 크론이 백스톱으로 보정(eventually consistent).
+    try {
+      const newIds = results.filter((r) => r.success && r.productId).map((r) => r.productId as string);
+      if (newIds.length > 0) {
+        await enqueueAutoReplication(serviceClient, shUserId, newIds);
+      }
+    } catch (e) {
+      console.warn('[batch] inline 자동전파 enqueue 실패(무시, reconcile 보정):', e instanceof Error ? e.message : e);
     }
 
     return NextResponse.json({
