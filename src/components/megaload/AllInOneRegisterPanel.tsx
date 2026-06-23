@@ -332,8 +332,9 @@ export default function AllInOneRegisterPanel() {
           // 파일 자체가 없음 — 가장 흔한 원인. product_* 는 찾았으므로 폴더는 맞고, 워커만 안 돌린 상태.
           setError(
             `product_* 폴더 ${built.length}개는 찾았지만 같은 폴더에 _allinone.generated.jsonl 이 없습니다. ` +
-            `이 폴더에서 워커를 아직 실행하지 않았습니다. 터미널에서 먼저 실행하세요:  node run-folder.mjs "<선택한 폴더 경로>"  ` +
-            `(워커는 ollama 로컬 LLM 이 떠 있어야 합니다.)`,
+            `이 폴더에서 워커를 아직 실행하지 않았습니다. 프로젝트 루트 터미널에서 실행하세요:  node worker/run-folder.mjs "<선택한 폴더 절대경로>"  ` +
+            `(가격·카테고리·옵션·상세 = ollama 로컬 LLM, 대표사진 누끼·흰배경 = ComfyUI 가 떠 있어야 합니다. ` +
+            `누끼 없이 텍스트만 빠르게 만들려면 명령 끝에 --no-thumb 를 붙이세요.)`,
           );
         } else if (gscan.recordCount === 0) {
           setError('_allinone.generated.jsonl 파일은 있으나 레코드가 0건입니다. 워커가 중간에 중단됐을 수 있으니 다시 실행하세요.');
@@ -694,7 +695,7 @@ export default function AllInOneRegisterPanel() {
 
       {rows.length === 0 && !scanning && (
         <div className="text-center text-sm text-gray-400 py-16 border-2 border-dashed border-gray-200 rounded-xl">
-          소싱 폴더를 선택하세요. 워커(run-folder.mjs)가 생성한 결과를 자동으로 불러옵니다.
+          소싱 폴더를 선택하세요. 워커(node worker/run-folder.mjs &quot;&lt;폴더&gt;&quot;)가 생성한 결과를 자동으로 불러옵니다.
         </div>
       )}
     </div>
