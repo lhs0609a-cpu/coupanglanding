@@ -364,6 +364,22 @@ export async function POST(req: NextRequest) {
     const brandResolveCache = new Map<string, ResolvedBrand | null>();
     const brandUidMetaCache = new Map<string, boolean>();
 
+    // 자체 브랜드 default — 위탁판매 정석: 셀러 자체 브랜드 1개를 전 상품 기본 brandId 로.
+    //  seller_brand 가 enrolled 에 있으면 그 brandId 를 모든 상품 default 로 부착(상품별 실제
+    //  브랜드가 잡히고 그것도 enrolled 면 그쪽이 우선). enrolled 미보유면 null → '자체' 폴백.
+    let defaultBrand: ResolvedBrand | null = null;
+    if (enrolledBrands.length > 0 && sellerBrand) {
+      defaultBrand = await resolveCoupangBrandId(coupangCreds, sellerBrand, {
+        enrolledCache: enrolledBrands,
+        uidMetaCache: brandUidMetaCache,
+      }).catch(() => null);
+      if (defaultBrand) {
+        console.log(`[batch] 자체 브랜드 default 적용: "${defaultBrand.brandName}" (${defaultBrand.brandId}) → 전 상품 기본 brandId`);
+      } else {
+        console.warn(`[batch] 자체 브랜드 "${sellerBrand}" 가 enrolled 에 없음 — WING 브랜드 관리에서 등록 필요(/megaload/brand-setup). 이번 배치는 '자체' 폴백.`);
+      }
+    }
+
     // ---- 카테고리 메타 일괄 prefetch (누락된 코드만 한 번에 조회) ----
     //   개선 (2026-05-13):
     //     - Notice 는 getNoticeCategoriesWithCacheBatch 로 Supabase 캐시를 in() 1쿼리로 일괄 조회.
@@ -657,13 +673,16 @@ export async function POST(req: NextRequest) {
       }
       if (metaRefetch.length > 0) await Promise.all(metaRefetch);
 
-      // 5.7 브랜드 자동해석 — 상품의 감지 브랜드 → enrolled+UID검증 통과 시 brandId.
-      //     미해석(대다수)이면 undefined → 빌더가 기존 '자체' 폴백 유지.
-      let resolvedBrandId: string | undefined;
-      let resolvedBrandName: string | undefined;
+      // 5.7 브랜드 자동해석 — 기본값=자체 브랜드 default, 상품의 실제 감지 브랜드가
+      //     enrolled+UID검증을 통과하면 그쪽 우선. 둘 다 없으면 undefined → 빌더 '자체' 폴백.
+      let resolvedBrandId: string | undefined = defaultBrand?.brandId;
+      let resolvedBrandName: string | undefined = defaultBrand?.brandName;
       if (enrolledBrands.length > 0) {
         const detectedBrand = (product.brand || '').trim();
-        if (detectedBrand) {
+        // 자체 브랜드명과 동일하면 default 그대로 사용(중복 해석 스킵)
+        const isSameAsSeller = detectedBrand.toLowerCase().replace(/\s+/g, '')
+          === (sellerBrand || '').toLowerCase().replace(/\s+/g, '');
+        if (detectedBrand && !isSameAsSeller) {
           const key = detectedBrand.toLowerCase().replace(/\s+/g, '');
           let res = brandResolveCache.get(key);
           if (res === undefined) {

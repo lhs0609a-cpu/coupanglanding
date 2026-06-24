@@ -310,18 +310,22 @@ export function buildCoupangProductPayload(
   //      "삼성전자"→"삼성" 처럼 쿠팡 등록 보호상표를 만들어 "브랜드 ID가 필요합니다" 에러.
   //   위탁/사입 상품은 셀러 자체 브랜드(WING 등록)로 보내는 게 정석.
   const rawBrand = brand || product.productJson.brand || '';
-  const candidateBrand = (sellerBrand && sellerBrand.trim()) || '자체';
+  // 무브랜드 폴백 토큰 — 쿠팡 공식 가이드: "브랜드명이 없다면 '비브랜드' 입력".
+  //  위탁/사입은 brandId 없이 이 텍스트로 등록 → brandId 요구 에러 회피 + 아이템위너 안 묶임
+  //  (고유 텍스트라 타 카탈로그 매칭 안 됨) + 상표 안전. '자체'(옛 토큰)는 쿠팡 비공식이라 폐기.
+  const NO_BRAND = '비브랜드';
+  const candidateBrand = (sellerBrand && sellerBrand.trim()) || NO_BRAND;
   // 후보(셀러 브랜드)가 보호상표와 충돌하면 안전 폴백 — brandId 요구 에러 원천 차단.
-  let resolvedBrand = isProtectedCoupangBrand(candidateBrand) ? '자체' : candidateBrand;
+  let resolvedBrand = isProtectedCoupangBrand(candidateBrand) ? NO_BRAND : candidateBrand;
   // ★ 자동 해석된 brandId(enrolled+UID검증 통과)가 있으면 그 브랜드로 등록 — 정품 리셀 경로.
   //   이때만 실 브랜드명을 brand 필드로 전송(아이템위너/상표충돌은 enrolled+brandId 로 정당).
   if (brandId && brandNameOverride && brandNameOverride.trim()) {
     resolvedBrand = brandNameOverride.trim();
     console.log(`[payload-builder] ✅ brandId 자동해석 적용: brandId=${brandId}, brand="${resolvedBrand}" | "${rawName}"`);
   } else if (!sellerBrand) {
-    console.warn(`[payload-builder] ⚠️ sellerBrand 미설정 → brand "자체" 폴백 | "${rawName}"`);
-  } else if (resolvedBrand === '자체' && candidateBrand !== '자체') {
-    console.warn(`[payload-builder] ⚠️ sellerBrand "${candidateBrand}" 보호상표 충돌 → "자체" 폴백 | "${rawName}"`);
+    console.warn(`[payload-builder] ⚠️ sellerBrand 미설정 → brand "${NO_BRAND}" 폴백 | "${rawName}"`);
+  } else if (resolvedBrand === NO_BRAND && candidateBrand !== NO_BRAND) {
+    console.warn(`[payload-builder] ⚠️ sellerBrand "${candidateBrand}" 보호상표 충돌 → "${NO_BRAND}" 폴백 | "${rawName}"`);
   }
   // manufacturer: 셀러 브랜드가 있으면 제조사에도 적용
   const resolvedManufacturer = preventionSeed
