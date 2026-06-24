@@ -91,6 +91,9 @@ export interface BuildPayloadParams {
   vendorUserId?: string;
   // 셀러 고유 브랜드 (상품 차별화)
   sellerBrand?: string;
+  // 쿠팡 Brand Library 자동 해석 결과 (enrolled+UID검증 통과 시에만 전달). 미설정이면 '자체' 폴백.
+  resolvedBrandId?: string;
+  resolvedBrandName?: string;
   // 고시정보 빈 필드의 GPT 보강을 생략한다 (룰베이스 결과만 사용).
   // 순수 검증/미리보기(preflight)에서 true — 반복 실행 시 상품당 OpenAI 호출 비용·지연 제거.
   // 실제 등록(batch)·카나리에서는 omit(=false)하여 AI 보강 유지.
@@ -120,6 +123,8 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     totalProductsInBatch,
     vendorUserId,
     sellerBrand,
+    resolvedBrandId,
+    resolvedBrandName,
     skipAiNoticeFill = false,
   } = params;
 
@@ -310,6 +315,8 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     thirdPartyImageUrls: selectedThirdPartyUrls,
     vendorUserId,
     sellerBrand,
+    brandId: resolvedBrandId,
+    brandNameOverride: resolvedBrandName,
   });
 
   return { payload, filledNotices, extractedOptions: extracted };

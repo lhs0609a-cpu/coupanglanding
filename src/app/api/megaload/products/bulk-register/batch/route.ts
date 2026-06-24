@@ -13,6 +13,7 @@ import { buildProductPayload } from '@/lib/megaload/services/preflight-builder';
 import { enqueueAutoReplication } from '@/lib/megaload/services/replication-enqueue';
 import { withRetry } from '@/lib/megaload/services/retry';
 import { checkBrandProtection } from '@/lib/megaload/services/brand-checker';
+import { fetchEnrolledCoupangBrands, resolveCoupangBrandId, type CoupangBrand, type ResolvedBrand } from '@/lib/utils/coupang-api-client';
 import { classifyError } from '@/lib/megaload/services/error-classifier';
 import { logExtractionCorpus } from '@/lib/megaload/services/option-corpus-logger';
 import type { DetailedError } from '@/components/megaload/bulk/types';
@@ -348,6 +349,21 @@ export async function POST(req: NextRequest) {
       }).filter(Boolean),
     );
 
+    // ---- 브랜드 자동해석 준비 ("상품별 실제 브랜드 자동매칭") ----
+    //  enrolled("내 브랜드 목록") 1회 조회 → 상품별 감지 브랜드를 enrolled+UID검증으로 매칭.
+    //  enrolled 0개거나 조회 실패면 enrolledBrands=[] → 전 상품 '자체' 폴백(회귀 0).
+    const coupangCreds = coupangAdapter.getCredentials();
+    let enrolledBrands: CoupangBrand[] = [];
+    try {
+      enrolledBrands = await fetchEnrolledCoupangBrands(coupangCreds);
+      console.log(`[batch] 브랜드 자동해석: enrolled ${enrolledBrands.length}개 (${enrolledBrands.map(b => b.brandName).slice(0, 10).join(', ') || '없음'})`);
+    } catch (e) {
+      console.warn('[batch] enrolled 브랜드 조회 실패 — brandId 자동해석 생략, 전 상품 자체 폴백:', e instanceof Error ? e.message : e);
+    }
+    // 배치 내 동일 브랜드명 중복 해석 방지 캐시 (정규화 키 → 결과/null)
+    const brandResolveCache = new Map<string, ResolvedBrand | null>();
+    const brandUidMetaCache = new Map<string, boolean>();
+
     // ---- 카테고리 메타 일괄 prefetch (누락된 코드만 한 번에 조회) ----
     //   개선 (2026-05-13):
     //     - Notice 는 getNoticeCategoriesWithCacheBatch 로 Supabase 캐시를 in() 1쿼리로 일괄 조회.
@@ -641,6 +657,33 @@ export async function POST(req: NextRequest) {
       }
       if (metaRefetch.length > 0) await Promise.all(metaRefetch);
 
+      // 5.7 브랜드 자동해석 — 상품의 감지 브랜드 → enrolled+UID검증 통과 시 brandId.
+      //     미해석(대다수)이면 undefined → 빌더가 기존 '자체' 폴백 유지.
+      let resolvedBrandId: string | undefined;
+      let resolvedBrandName: string | undefined;
+      if (enrolledBrands.length > 0) {
+        const detectedBrand = (product.brand || '').trim();
+        if (detectedBrand) {
+          const key = detectedBrand.toLowerCase().replace(/\s+/g, '');
+          let res = brandResolveCache.get(key);
+          if (res === undefined) {
+            res = await resolveCoupangBrandId(coupangCreds, detectedBrand, {
+              enrolledCache: enrolledBrands,
+              hasBarcode: !!product.barcode,
+              uidMetaCache: brandUidMetaCache,
+            }).catch((e) => {
+              console.warn(`[batch] 브랜드 해석 실패(${detectedBrand}):`, e instanceof Error ? e.message : e);
+              return null;
+            });
+            brandResolveCache.set(key, res);
+          }
+          if (res) {
+            resolvedBrandId = res.brandId;
+            resolvedBrandName = res.brandName;
+          }
+        }
+      }
+
       // 6~9. 공유 빌더로 페이로드 빌드 (옵션 추출, 고시정보, 아이템위너 방지 포함)
       const { payload, extractedOptions } = await buildProductPayload({
         product,
@@ -665,6 +708,8 @@ export async function POST(req: NextRequest) {
         totalProductsInBatch: products.length,
         vendorUserId: wingUserId || undefined,
         sellerBrand,
+        resolvedBrandId,
+        resolvedBrandName,
       });
 
       // 10. 쿠팡 API 호출 (고시정보 에러 시 notices 제거 후 자동 재시도)

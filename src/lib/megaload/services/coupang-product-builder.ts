@@ -120,6 +120,11 @@ export interface BuildCoupangPayloadParams {
   sellerProductName?: string;
   // 셀러 고유 브랜드 (상품 차별화)
   sellerBrand?: string;
+  // 쿠팡 Brand Library 에서 자동 해석된 brandId (enrolled + UID검증 통과 시에만 전달).
+  //  설정되면 payload.brandId 로 전송하고 brand 필드도 매칭 브랜드명(brandNameOverride)으로 덮어쓴다.
+  //  미설정(대다수)이면 기존 '자체'/sellerBrand 폴백 동작 그대로 — 회귀 0.
+  brandId?: string;
+  brandNameOverride?: string;
   // KC인증
   certifications?: CertificationInfo[];
   // 멀티옵션 (제공 시 sellerProductItemList에 여러 item 생성)
@@ -268,6 +273,8 @@ export function buildCoupangProductPayload(
     detailImageTypes,
     vendorUserId,
     sellerBrand,
+    brandId,
+    brandNameOverride,
   } = params;
 
   // ---- 1. 상품명 정리 ----
@@ -305,8 +312,13 @@ export function buildCoupangProductPayload(
   const rawBrand = brand || product.productJson.brand || '';
   const candidateBrand = (sellerBrand && sellerBrand.trim()) || '자체';
   // 후보(셀러 브랜드)가 보호상표와 충돌하면 안전 폴백 — brandId 요구 에러 원천 차단.
-  const resolvedBrand = isProtectedCoupangBrand(candidateBrand) ? '자체' : candidateBrand;
-  if (!sellerBrand) {
+  let resolvedBrand = isProtectedCoupangBrand(candidateBrand) ? '자체' : candidateBrand;
+  // ★ 자동 해석된 brandId(enrolled+UID검증 통과)가 있으면 그 브랜드로 등록 — 정품 리셀 경로.
+  //   이때만 실 브랜드명을 brand 필드로 전송(아이템위너/상표충돌은 enrolled+brandId 로 정당).
+  if (brandId && brandNameOverride && brandNameOverride.trim()) {
+    resolvedBrand = brandNameOverride.trim();
+    console.log(`[payload-builder] ✅ brandId 자동해석 적용: brandId=${brandId}, brand="${resolvedBrand}" | "${rawName}"`);
+  } else if (!sellerBrand) {
     console.warn(`[payload-builder] ⚠️ sellerBrand 미설정 → brand "자체" 폴백 | "${rawName}"`);
   } else if (resolvedBrand === '자체' && candidateBrand !== '자체') {
     console.warn(`[payload-builder] ⚠️ sellerBrand "${candidateBrand}" 보호상표 충돌 → "자체" 폴백 | "${rawName}"`);
@@ -805,6 +817,8 @@ export function buildCoupangProductPayload(
     saleEndedAt: '2099-01-01T23:59:59',
     displayProductName: productName,
     brand: resolvedBrand,
+    // brandId 는 자동 해석 통과 시에만 전송. 미전송(대다수)이면 쿠팡이 brand 명만 사용(기존 동작).
+    ...(brandId ? { brandId } : {}),
     generalProductName: extractGeneralProductName(categoryPath, productName),
     productGroup: '',
     deliveryMethod: 'SEQUENCIAL',

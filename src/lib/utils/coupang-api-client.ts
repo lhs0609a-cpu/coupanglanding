@@ -1576,3 +1576,146 @@ export async function validateApiCredentials(
     };
   }
 }
+
+// ── 브랜드 API ─────────────────────────────────────────
+// 쿠팡 Brand Library 연동. 상품 등록(seller-products) 시 brandId 자동 해석용.
+//  - GET  /brands/{brandId}        Get Brand by ID  (brandId 검증 + isUIDRequired 확인)
+//  - GET  /brands/enrolled         Enrolled Brands  (셀러가 "내 브랜드 목록"에 등록한 브랜드)
+//  - POST /brands/search           Brand Search     (브랜드명 → brandId 조회, 라이브러리 전체)
+// ⚠️ 신규 브랜드 "내 브랜드에 등록/신청"은 API가 없음 → WING 브랜드 관리에서 수동 1회.
+//    enrolled 에 없는 브랜드의 brandId 는 상품 등록에 사용 불가할 수 있음(셀러 미등록).
+
+export interface CoupangBrand {
+  brandId: string;             // 예: "KR-5"
+  brandName: string;           // 예: "NIKE"
+  brandLogoUrl?: string | null;
+  isUIDRequired?: boolean;     // true 면 GTIN/MPN(바코드) 필수 → 바코드 없으면 등록 불가
+  allowedUIDTypes?: string[];  // 예: ["GTIN", "MPN"]
+}
+
+/** Get Brand by ID — brandId 단건 조회/검증. 없으면 null. */
+export async function fetchCoupangBrandById(
+  credentials: CoupangCredentials,
+  brandId: string,
+): Promise<CoupangBrand | null> {
+  if (!brandId || !/^KR-\d+$/i.test(brandId.trim())) {
+    console.warn(`[coupang-brand] 잘못된 brandId 형식: "${brandId}"`);
+    return null;
+  }
+  const path = `${SELLER_BASE_PATH}/brands/${encodeURIComponent(brandId.trim())}`;
+  try {
+    const raw = await callCoupangApi(credentials, 'GET', path) as Record<string, unknown>;
+    const d = (raw.data || raw) as Record<string, unknown>;
+    if (!d || !d.brandId) return null;
+    return {
+      brandId: String(d.brandId),
+      brandName: String(d.brandName || ''),
+      brandLogoUrl: (d.brandLogoUrl as string) ?? null,
+      isUIDRequired: Boolean(d.isUIDRequired),
+      allowedUIDTypes: Array.isArray(d.allowedUIDTypes) ? d.allowedUIDTypes.map(String) : [],
+    };
+  } catch (err) {
+    // 400 = 유효하지 않은 brandId → null (등록 흐름을 막지 않음)
+    if (err instanceof CoupangApiError && err.statusCode === 400) {
+      console.warn(`[coupang-brand] brandId 조회 실패(400): ${brandId}`);
+      return null;
+    }
+    throw err;
+  }
+}
+
+/** Enrolled Brands List — 셀러가 "내 브랜드 목록"에 등록한 브랜드 전체.
+ *  반환에는 brandId/brandName 만 있음(UID 여부는 별도 조회 필요). */
+export async function fetchEnrolledCoupangBrands(
+  credentials: CoupangCredentials,
+): Promise<CoupangBrand[]> {
+  const path = `${SELLER_BASE_PATH}/brands/enrolled`;
+  const raw = await callCoupangApi(credentials, 'GET', path) as Record<string, unknown>;
+  const arr = Array.isArray(raw.data) ? raw.data as Array<Record<string, unknown>> : [];
+  return arr
+    .filter((b) => b && b.brandId)
+    .map((b) => ({
+      brandId: String(b.brandId),
+      brandName: String(b.brandName || ''),
+    }));
+}
+
+/** Brand Search — 브랜드명으로 쿠팡 Brand Library 검색. 페이지당 최대 10개. */
+export async function searchCoupangBrands(
+  credentials: CoupangCredentials,
+  brandName: string,
+  options?: { page?: number; countPerPage?: number },
+): Promise<{ page: number; countPerPage: number; totalCount: number; items: CoupangBrand[] }> {
+  const name = (brandName || '').trim();
+  if (!name) {
+    return { page: 1, countPerPage: 10, totalCount: 0, items: [] };
+  }
+  const path = `${SELLER_BASE_PATH}/brands/search`;
+  const body = {
+    brandName: name,
+    countPerPage: Math.min(Math.max(options?.countPerPage ?? 10, 1), 10),
+    page: Math.max(options?.page ?? 1, 1),
+  };
+  const raw = await callCoupangApi(credentials, 'POST', path, body) as Record<string, unknown>;
+  const d = (raw.data || {}) as Record<string, unknown>;
+  const items = Array.isArray(d.items) ? d.items as Array<Record<string, unknown>> : [];
+  return {
+    page: Number(d.page ?? body.page),
+    countPerPage: Number(d.countPerPage ?? body.countPerPage),
+    totalCount: Number(d.totalCount ?? items.length),
+    items: items.map((b) => ({
+      brandId: String(b.brandId || ''),
+      brandName: String(b.brandName || ''),
+      brandLogoUrl: (b.brandLogoUrl as string) ?? null,
+      isUIDRequired: Boolean(b.isUIDRequired),
+      allowedUIDTypes: Array.isArray(b.allowedUIDTypes) ? b.allowedUIDTypes.map(String) : [],
+    })),
+  };
+}
+
+export interface ResolvedBrand {
+  brandId: string;
+  brandName: string;
+  source: 'enrolled' | 'library';
+}
+
+/**
+ * 상품의 감지 브랜드명 → 등록에 안전한 brandId 자동 해석 (등록 파이프라인용).
+ *
+ * 정책(유저 확정 "상품별 실제 브랜드 자동매칭"):
+ *   1) 셀러 "내 브랜드 목록"(enrolled)에 **정확 일치**하는 브랜드만 후보. 없으면 null → 자체 폴백.
+ *      (enrolled 에 없는 브랜드의 brandId 로 등록하면 거부/타셀러 카탈로그 충돌 위험.)
+ *   2) 후보가 **isUIDRequired=true(GTIN/MPN 바코드 필수)**면 제외 → null.
+ *      바코드(hasBarcode=false) 없는 위탁/사입 상품은 그 브랜드로 등록 불가.
+ *   못 찾으면 null → 호출측이 기존 '자체' 폴백 유지(회귀 0).
+ *
+ * @param enrolledCache 미리 받아둔 enrolled 목록(배치 반복 호출 비용 절감). 권장.
+ * @param uidMetaCache  brandId→isUIDRequired 캐시(getById 중복 호출 방지). 선택.
+ */
+export async function resolveCoupangBrandId(
+  credentials: CoupangCredentials,
+  brandName: string,
+  options?: { enrolledCache?: CoupangBrand[]; hasBarcode?: boolean; uidMetaCache?: Map<string, boolean> },
+): Promise<ResolvedBrand | null> {
+  const name = (brandName || '').trim();
+  if (!name) return null;
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, '');
+  const target = norm(name);
+
+  const enrolled = options?.enrolledCache ?? await fetchEnrolledCoupangBrands(credentials);
+  const hit = enrolled.find((b) => norm(b.brandName) === target);
+  if (!hit) return null; // enrolled 미보유 → 자체 폴백
+
+  // UID(바코드) 필수 여부 검증 — enrolled 목록엔 없으므로 getById 로 보강(캐시).
+  if (!options?.hasBarcode) {
+    let uidRequired = options?.uidMetaCache?.get(hit.brandId);
+    if (uidRequired === undefined) {
+      const detail = await fetchCoupangBrandById(credentials, hit.brandId).catch(() => null);
+      uidRequired = Boolean(detail?.isUIDRequired);
+      options?.uidMetaCache?.set(hit.brandId, uidRequired);
+    }
+    if (uidRequired) return null; // 바코드 필수인데 없음 → 자체 폴백
+  }
+
+  return { brandId: hit.brandId, brandName: hit.brandName, source: 'enrolled' };
+}

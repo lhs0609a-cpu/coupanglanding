@@ -32,6 +32,12 @@ export class CoupangAdapter extends BaseAdapter {
     return this.vendorId;
   }
 
+  /** 인증 정보 외부 접근 — 브랜드 API(coupang-api-client) 등 어댑터 밖 호출에 사용.
+   *  authenticate() 후에만 유효. wingUserId 는 어댑터가 보관하지 않으므로 미포함. */
+  getCredentials(): { vendorId: string; accessKey: string; secretKey: string } {
+    return { vendorId: this.vendorId, accessKey: this.accessKey, secretKey: this.secretKey };
+  }
+
   private generateSignature(method: string, path: string, query: string): { authorization: string } {
     // 쿠팡 공식 스펙: 2자리 연도 (yyMMdd'T'HHmmss'Z')
     const now = new Date();
