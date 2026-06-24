@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { CHANNELS, CHANNEL_LABELS, CHANNEL_BG_COLORS, CHANNEL_COMMISSION_RATES } from '@/lib/megaload/constants';
 import type { Channel, ChannelCredential } from '@/lib/megaload/types';
 import { Link as LinkIcon, Check, X, RefreshCw, Key, AlertTriangle, Loader2 } from 'lucide-react';
-import ChannelSetupGuide from '@/components/megaload/ChannelSetupGuide';
+import ChannelConnectWizard from '@/components/megaload/ChannelConnectWizard';
 
 export default function ChannelsPage() {
   const supabase = useMemo(() => createClient(), []);
@@ -112,7 +112,11 @@ export default function ChannelsPage() {
                       {testingChannel === ch ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                       연결 확인
                     </button>
-                    <button className="px-3 py-2 text-xs font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+                    <button
+                      onClick={() => setGuideChannel(ch)}
+                      title="키 다시 입력"
+                      className="px-3 py-2 text-xs font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+                    >
                       <Key className="w-3.5 h-3.5" />
                     </button>
                   </>
@@ -131,12 +135,13 @@ export default function ChannelsPage() {
         })}
       </div>
 
-      {/* 채널 연동 가이드 모달 */}
+      {/* 채널 연동 마법사 (가이드 + 키입력 + 테스트 + 저장 통합) */}
       {guideChannel && (
-        <ChannelSetupGuide
+        <ChannelConnectWizard
           channel={guideChannel}
           isOpen={!!guideChannel}
           onClose={() => setGuideChannel(null)}
+          onConnected={fetchCredentials}
         />
       )}
     </div>
