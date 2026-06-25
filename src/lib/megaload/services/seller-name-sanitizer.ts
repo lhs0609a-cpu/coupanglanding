@@ -69,6 +69,24 @@ function collapseRepeatedPhrases(input: string): string {
  * 셀러가 박은 SEO 오염을 1차 정제한다.
  * 결과는 카테고리 매처 / 노출상품명 생성기 입력으로 그대로 사용 가능.
  */
+/**
+ * 연속 동일 단어 반복을 1개로 축약 — "스파게티면 스파게티면 스파게티면" → "스파게티면".
+ * collapseRepeatedPhrases 는 window>=2(다단어 phrase)만 처리해 단일 단어 반복(win=1)을
+ * 못 잡았고, 짧은 이름은 length<4 로 early-return 되어 누락 → 카테고리 매칭 실패 유발.
+ * (phrase 처럼 전부 제거하지 않고 1개는 보존 — 실제 상품 키워드이므로)
+ *
+ * ⚠️ 정규식 backreference(\1) 방식은 "정상 상품명"→"정상품명" 처럼 단어 경계를 넘어
+ *    오합치하므로 사용 금지. 단어 배열로 연속 중복만 제거.
+ */
+function collapseRepeatedWords(input: string): string {
+  const words = input.split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (const w of words) {
+    if (out.length === 0 || out[out.length - 1] !== w) out.push(w);
+  }
+  return out.join(' ');
+}
+
 export function sanitizeSellerName(input: string): string {
   if (!input) return '';
 
@@ -82,6 +100,9 @@ export function sanitizeSellerName(input: string): string {
 
   // 3) 공백 정규화 (반복 dedup 정확도용)
   s = s.replace(/\s+/g, ' ').trim();
+
+  // 3.5) 연속 단일 단어 반복 축약 (phrase collapse가 못 잡는 win=1 케이스)
+  s = collapseRepeatedWords(s);
 
   // 4) 반복 phrase 축약
   s = collapseRepeatedPhrases(s);
