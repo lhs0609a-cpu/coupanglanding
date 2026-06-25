@@ -32,26 +32,30 @@ export async function getNoticeCategoryWithCache(
   serviceClient: SupabaseClient,
   adapter: CoupangAdapter,
   categoryCode: string,
+  opts?: { forceRefresh?: boolean },
 ): Promise<NoticeCategoryMeta[]> {
-  // 1) 캐시 조회
-  try {
-    const { data, error } = await serviceClient
-      .from('coupang_notice_category_cache')
-      .select('notice_categories, is_empty')
-      .eq('category_code', categoryCode)
-      .maybeSingle();
+  // 1) 캐시 조회 — forceRefresh 면 건너뛴다(일시적 빈 응답이 is_empty=true 로 캐시된 stale 우회).
+  //    고시정보 에러 재시도가 같은 캐시를 다시 읽어 동일 실패하던 문제 해소.
+  if (!opts?.forceRefresh) {
+    try {
+      const { data, error } = await serviceClient
+        .from('coupang_notice_category_cache')
+        .select('notice_categories, is_empty')
+        .eq('category_code', categoryCode)
+        .maybeSingle();
 
-    if (!error && data) {
-      const row = data as Pick<CacheRow, 'notice_categories' | 'is_empty'>;
-      if (row.is_empty) {
-        return [];
+      if (!error && data) {
+        const row = data as Pick<CacheRow, 'notice_categories' | 'is_empty'>;
+        if (row.is_empty) {
+          return [];
+        }
+        if (Array.isArray(row.notice_categories)) {
+          return row.notice_categories;
+        }
       }
-      if (Array.isArray(row.notice_categories)) {
-        return row.notice_categories;
-      }
+    } catch (e) {
+      console.warn(`[notice-cache] 조회 실패 (live API 폴백): code=${categoryCode}`, e instanceof Error ? e.message : e);
     }
-  } catch (e) {
-    console.warn(`[notice-cache] 조회 실패 (live API 폴백): code=${categoryCode}`, e instanceof Error ? e.message : e);
   }
 
   // 2) 캐시 미스 → 라이브 API

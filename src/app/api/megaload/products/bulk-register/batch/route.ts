@@ -778,7 +778,8 @@ export async function POST(req: NextRequest) {
           // noticeMeta 재조회 후 notices를 올바르게 채워 재시도
           try {
             const { getNoticeCategoryWithCache } = await import('@/lib/megaload/services/notice-category-cache');
-            const freshMeta = await getNoticeCategoryWithCache(serviceClient, coupangAdapter, product.categoryCode);
+            // forceRefresh: stale is_empty 캐시 우회하고 라이브 재조회 (재시도가 같은 빈값 반복하던 문제)
+            const freshMeta = await getNoticeCategoryWithCache(serviceClient, coupangAdapter, product.categoryCode, { forceRefresh: true });
             if (freshMeta.length > 0 && diagItems) {
               // fillNoticeFields 호출하여 올바른 notices 생성
               const { fillNoticeFields } = await import('@/lib/megaload/services/notice-field-filler');
