@@ -157,6 +157,11 @@ export interface BuildCoupangPayloadParams {
   attributeAliases?: { buyOptionName: string; buyOptionUnit: string; attributeTypeName: string }[];
 }
 
+// 쿠팡 판매가는 10원 단위만 허용 (1원 단위 입력 불가). 등록 전 강제 반올림.
+function round10(n: number): number {
+  return Math.round((Number(n) || 0) / 10) * 10;
+}
+
 // ---- HTML 이스케이프 (XSS 방어) ----
 
 function escHtml(str: string): string {
@@ -278,17 +283,23 @@ export function buildCoupangProductPayload(
   } = params;
 
   // ---- 1. 상품명 정리 ----
-  // ⚠ displayProductName이 비어있으면 절대 sellerProductName이나 rawName으로 fallback하지 않는다.
-  //   - 사용자가 입력한 값과 sellerProductName이 다르므로 (sellerProductName="브랜드 고유번호" 형식)
-  //     fallback 시 쿠팡 노출에 SEO 안된 원본/판매자코드가 그대로 표시되는 사고 발생
-  //   - 따라서 빈 값이면 명시적 에러로 차단해서 사용자에게 입력 강제
+  // 노출명(displayProductName) 자동생성 실패 시 처리:
+  //   - 과거: 무조건 차단 → 특정 상품이 무한 재시도/미등록 + 로그 폭주.
+  //   - 변경: **원본 상품명(name/title)이 있으면 그걸로 폴백**(SEO 미흡하나 미등록보다 나음).
+  //   - 단 원본명도 없으면(판매자코드 placeholder 뿐) 차단 유지 — "판매자코드 그대로 노출" 사고 방지.
   const rawName = product.productJson.name || product.productJson.title || `상품_${product.productCode}`;
-  if (!displayProductName || !displayProductName.trim()) {
-    throw new Error(
-      `노출상품명(displayProductName)이 비어있습니다. 자동 생성 실패 또는 입력 누락 — 직접 입력 후 다시 등록해주세요. (productCode: ${product.productCode})`,
-    );
+  let effectiveDisplayName = (displayProductName || '').trim();
+  if (!effectiveDisplayName) {
+    const fallbackBase = (product.productJson.name || product.productJson.title || '').trim();
+    if (!fallbackBase) {
+      throw new Error(
+        `노출상품명(displayProductName)이 비어있고 원본 상품명도 없습니다 — 직접 입력 후 다시 등록해주세요. (productCode: ${product.productCode})`,
+      );
+    }
+    console.warn(`[payload-builder] ⚠️ 노출명 자동생성 실패 → 원본명 폴백 "${fallbackBase.slice(0, 40)}" (productCode: ${product.productCode})`);
+    effectiveDisplayName = fallbackBase;
   }
-  const productName = cleanProductName(displayProductName);
+  const productName = cleanProductName(effectiveDisplayName);
 
   // 셀러별 고유 코드: preventionSeed(shUserId:productCode) 해시 → 4자리 hex
   // 같은 셀러+같은 상품 = 항상 같은 코드, 다른 셀러+같은 상품 = 다른 코드
@@ -310,10 +321,10 @@ export function buildCoupangProductPayload(
   //      "삼성전자"→"삼성" 처럼 쿠팡 등록 보호상표를 만들어 "브랜드 ID가 필요합니다" 에러.
   //   위탁/사입 상품은 셀러 자체 브랜드(WING 등록)로 보내는 게 정석.
   const rawBrand = brand || product.productJson.brand || '';
-  // 무브랜드 폴백 토큰 — 쿠팡 공식 가이드: "브랜드명이 없다면 '비브랜드' 입력".
-  //  위탁/사입은 brandId 없이 이 텍스트로 등록 → brandId 요구 에러 회피 + 아이템위너 안 묶임
-  //  (고유 텍스트라 타 카탈로그 매칭 안 됨) + 상표 안전. '자체'(옛 토큰)는 쿠팡 비공식이라 폐기.
-  const NO_BRAND = '비브랜드';
+  // 무브랜드 폴백 — ⚠️ 2026-06 정책: brandId 없이 brand'명'(과거 '비브랜드' 포함)을 보내면
+  //  쿠팡이 "WING 브랜드관리에 등록된 브랜드냐"를 검사 → 미등록이면 "브랜드 ID가 필요합니다" 에러.
+  //  따라서 무브랜드는 brand 를 빈값으로 두고 payload 에서 필드 자체를 생략(아래 조건부 전송).
+  const NO_BRAND = '';
   const candidateBrand = (sellerBrand && sellerBrand.trim()) || NO_BRAND;
   // 후보(셀러 브랜드)가 보호상표와 충돌하면 안전 폴백 — brandId 요구 에러 원천 차단.
   let resolvedBrand = isProtectedCoupangBrand(candidateBrand) ? NO_BRAND : candidateBrand;
@@ -754,8 +765,8 @@ export function buildCoupangProductPayload(
 
       return {
         itemName: (variant.optionName || '').slice(0, 100),
-        originalPrice: variant.originalPrice ?? variant.salePrice,
-        salePrice: variant.salePrice,
+        originalPrice: round10(variant.originalPrice ?? variant.salePrice),
+        salePrice: round10(variant.salePrice),
         maximumBuyCount: variant.stock ?? stock,
         maximumBuyForPerson,
         maximumBuyForPersonPeriod: 1,
@@ -784,8 +795,8 @@ export function buildCoupangProductPayload(
     // 단일 옵션 상품
     sellerProductItemList = [{
       itemName: baseItemName,
-      originalPrice: resolvedOriginalPrice,
-      salePrice: sellingPrice,
+      originalPrice: round10(resolvedOriginalPrice),
+      salePrice: round10(sellingPrice),
       maximumBuyCount: stock,
       maximumBuyForPerson,
       maximumBuyForPersonPeriod: 1,
@@ -820,8 +831,9 @@ export function buildCoupangProductPayload(
     saleStartedAt: formatCoupangDateTime(new Date()),
     saleEndedAt: '2099-01-01T23:59:59',
     displayProductName: productName,
-    brand: resolvedBrand,
-    // brandId 는 자동 해석 통과 시에만 전송. 미전송(대다수)이면 쿠팡이 brand 명만 사용(기존 동작).
+    // brand: 빈값(무브랜드)이면 필드 생략 → "브랜드 ID 필요" 에러 회피.
+    //  brandId 는 자동해석(enrolled) 통과 시에만 전송.
+    ...(resolvedBrand ? { brand: resolvedBrand } : {}),
     ...(brandId ? { brandId } : {}),
     generalProductName: extractGeneralProductName(categoryPath, productName),
     productGroup: '',

@@ -224,6 +224,7 @@ interface ProductResult {
   productCode: string;
   name: string;
   success: boolean;
+  skipped?: boolean;           // 중복 등 — 실패 아님(집계/로그 제외)
   channelProductId?: string;
   productId?: string;          // sh_products.id — 자동전파 inline hook 용
   error?: string;
@@ -480,7 +481,7 @@ export async function POST(req: NextRequest) {
         const error = `이미 등록된 상품입니다 (productCode: ${product.productCode})`;
         return {
           uid: product.uid, productCode: product.productCode, name: product.name,
-          success: false, error, duration: 0,
+          success: false, skipped: true, error, duration: 0,
           detailedError: { message: error, category: 'duplicate', step: '중복 검사', suggestion: '상품 관리에서 확인하거나 선택 해제 후 다시 등록하세요.' },
         };
       }
@@ -1010,6 +1011,7 @@ export async function POST(req: NextRequest) {
         if (result.status === 'fulfilled') {
           results.push(result.value);
           if (result.value.success) { successCount++; }
+          else if (result.value.skipped) { /* 중복 등 — 실패 아님, 집계 제외 */ }
           else { errorCount++; chunkErrors++; }
         } else {
           const errMsg = result.reason instanceof Error ? result.reason.message : '알 수 없는 오류';
@@ -1053,7 +1055,7 @@ export async function POST(req: NextRequest) {
     if (totalCount > 0 && errorCount > 0) {
       const failureRate = errorCount / totalCount;
       const failureSamples = results
-        .filter((r) => !r.success)
+        .filter((r) => !r.success && !r.skipped)
         .slice(0, 3)
         .map((r) => ({ name: r.name, error: r.error?.slice(0, 200) }));
       const reporter = failureRate >= 0.5 ? logSystemError : logSystemWarn;
