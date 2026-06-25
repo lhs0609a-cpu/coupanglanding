@@ -11,7 +11,6 @@ import { logSystemError, logSystemWarn } from '@/lib/utils/system-log';
 // generateProductStoriesBatch 는 generateAiContent=true 일 때만 dynamic import — Gemini SDK 로드 비용 cold start 절감.
 import { buildProductPayload } from '@/lib/megaload/services/preflight-builder';
 import { enqueueAutoReplication } from '@/lib/megaload/services/replication-enqueue';
-import { withRetry } from '@/lib/megaload/services/retry';
 import { checkBrandProtection } from '@/lib/megaload/services/brand-checker';
 import { fetchEnrolledCoupangBrands, resolveCoupangBrandId, type CoupangBrand, type ResolvedBrand } from '@/lib/utils/coupang-api-client';
 import { classifyError } from '@/lib/megaload/services/error-classifier';
@@ -733,12 +732,36 @@ export async function POST(req: NextRequest) {
       });
 
       // 10. 쿠팡 API 호출 (고시정보 에러 시 notices 제거 후 자동 재시도)
+      // ⚠️ 멱등 재시도: timeout/5xx 는 쿠팡이 "이미 생성했는데 응답만 느린" 경우가 있어
+      //   blind 재호출 시 쿠팡에 중복 리스팅이 생길 수 있다. 재시도 전 외부SKU 로 존재확인 →
+      //   이미 있으면 그 sellerProductId 를 성공으로 반환(중복생성 차단 + 느린-성공을 성공으로).
+      const externalSku = (() => {
+        const items = (payload.sellerProductItemList || payload.items) as Record<string, unknown>[] | undefined;
+        return (items?.[0]?.externalVendorSku as string) || '';
+      })();
+      const idempotentCreate = async (): Promise<{ channelProductId: string }> => {
+        const RETRYABLE = /timeout|응답\s*지연|econnreset|socket hang up|\b(?:429|502|503)\b/i;
+        let lastErr: unknown;
+        for (let attempt = 0; attempt <= 2; attempt++) {
+          try {
+            return await coupangAdapter.createProduct(payload);
+          } catch (err) {
+            lastErr = err;
+            const msg = err instanceof Error ? err.message : String(err);
+            if (!RETRYABLE.test(msg) || attempt === 2) throw err;
+            if (externalSku) {
+              const existingId = await coupangAdapter.findByExternalSku(externalSku);
+              if (existingId) return { channelProductId: existingId };
+            }
+            await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+          }
+        }
+        throw lastErr;
+      };
+
       let result: { channelProductId: string };
       try {
-        result = await withRetry(
-          () => coupangAdapter.createProduct(payload),
-          { maxRetries: 2, initialDelayMs: 1000, retryableErrors: ['timeout', 'econnreset', 'socket hang up', '429', '503', '502'] },
-        );
+        result = await idempotentCreate();
       } catch (apiErr) {
         const errMsg = apiErr instanceof Error ? apiErr.message : '쿠팡 API 등록 실패';
         const isNoticeError = /고시정보|notices|subschemas?\s*matched/i.test(errMsg);
@@ -780,10 +803,7 @@ export async function POST(req: NextRequest) {
               }
               console.log(`[batch] notices 재구성 완료: ${freshMeta[0].noticeCategoryName} (${flatNotices.length}개 필드)`);
             }
-            result = await withRetry(
-              () => coupangAdapter.createProduct(payload),
-              { maxRetries: 2, initialDelayMs: 1000, retryableErrors: ['timeout', 'econnreset', 'socket hang up', '429', '503', '502'] },
-            );
+            result = await idempotentCreate();
           } catch (retryErr) {
             const retryMsg = retryErr instanceof Error ? retryErr.message : '쿠팡 API 등록 실패 (재시도)';
             return {

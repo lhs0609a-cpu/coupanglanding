@@ -169,6 +169,26 @@ export class CoupangAdapter extends BaseAdapter {
     return { items, totalCount: items.length };
   }
 
+  /**
+   * 외부 vendor SKU 로 등록된 상품 조회 — createProduct 타임아웃/5xx 후
+   * "쿠팡이 이미 만들었나" 확인해 중복 생성을 방지하는 용도. 없으면 null.
+   */
+  async findByExternalSku(externalSku: string): Promise<string | null> {
+    if (!externalSku) return null;
+    const path = `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/external-vendor-sku-codes/${encodeURIComponent(externalSku)}`;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const raw = await this.coupangApi<any>('GET', path);
+      const data = raw?.data ?? raw;
+      const list = Array.isArray(data) ? data : (Array.isArray(data?.content) ? data.content : []);
+      const first = list?.[0];
+      const id = first?.sellerProductId ?? first?.productId;
+      return id != null ? String(id) : null;
+    } catch {
+      return null; // 조회 실패는 등록 흐름을 막지 않음
+    }
+  }
+
   async createProduct(product: Record<string, unknown>) {
     const path = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
 
