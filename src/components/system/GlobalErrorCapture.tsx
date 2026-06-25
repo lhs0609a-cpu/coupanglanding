@@ -20,6 +20,11 @@ export default function GlobalErrorCapture() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
+    // 페이지 언로드/숨김 중에는 in-flight fetch 가 흔히 abort 됨(navigation/탭닫기).
+    //  이때의 실패는 서버 문제가 아니므로 보고 제외.
+    let pageUnloading = false;
+    const markUnload = () => { pageUnloading = true; };
+
     const onError = (event: ErrorEvent) => {
       const message = event.error instanceof Error
         ? `${event.error.name}: ${event.error.message}`
@@ -58,6 +63,8 @@ export default function GlobalErrorCapture() {
 
     window.addEventListener('error', onError);
     window.addEventListener('unhandledrejection', onRejection);
+    window.addEventListener('pagehide', markUnload);
+    window.addEventListener('beforeunload', markUnload);
 
     // window.fetch 인터셉트 — raw fetch 의 timeout/5xx/network 실패 자동 보고
     // 호출자에게 결과/에러는 그대로 전파, 보고는 silent.
@@ -87,13 +94,26 @@ export default function GlobalErrorCapture() {
           const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
           const isAbort = err instanceof DOMException && err.name === 'AbortError';
           // RSC prefetch (Next.js Link hover) — 사용자가 페이지 떠나면 흔히 cancel.
-          // 일부 브라우저는 AbortError 대신 Failed to fetch 로 throw 하므로 여기서 별도 차단.
           const isRscPrefetch = url.includes('_rsc=');
-          // AbortError 는 의도적인 cancel 이 많음 (페이지 이동 등) — 보고 안 함
-          if (!isAbort && !isRscPrefetch) {
+          // "Failed to fetch"/"NetworkError"/"Load failed" = 응답 받기 전 네트워크 단절/취소.
+          //   페이지 이동·탭 닫기·절전·일시 와이파이 끊김이 대부분이라 서버 actionable 아님.
+          //   (브라우저가 navigation abort 를 AbortError 대신 TypeError 로 던지는 케이스 포함)
+          const msg = err instanceof Error ? err.message : '';
+          const isBareNetwork = err instanceof TypeError
+            && /failed to fetch|networkerror|load failed|network request failed/i.test(msg);
+          if (isTimeout) {
+            // timeout 만 보고(실제 느린 엔드포인트 신호) — warn
             reportClientError({
-              source: isTimeout ? 'window.fetch/timeout' : 'window.fetch/network',
-              level: isTimeout ? 'warn' : 'error',
+              source: 'window.fetch/timeout',
+              level: 'warn',
+              message: `${(err as Error).name}: ${(err as Error).message} — ${url.slice(0, 200)}`,
+              context: { url, method: init?.method || 'GET' },
+            });
+          } else if (!isAbort && !isRscPrefetch && !isBareNetwork && !pageUnloading) {
+            // 진짜 예외적 네트워크 실패만 error 로 (대부분의 노이즈는 위에서 걸러짐)
+            reportClientError({
+              source: 'window.fetch/network',
+              level: 'error',
               message: err instanceof Error
                 ? `${err.name}: ${err.message} — ${url.slice(0, 200)}`
                 : `unknown error — ${url.slice(0, 200)}`,
@@ -109,6 +129,8 @@ export default function GlobalErrorCapture() {
     return () => {
       window.removeEventListener('error', onError);
       window.removeEventListener('unhandledrejection', onRejection);
+      window.removeEventListener('pagehide', markUnload);
+      window.removeEventListener('beforeunload', markUnload);
       // 다른 컴포넌트가 fetch 를 또 wrap 했을 수 있으니 ===로 검사
       if (window.fetch === wrappedFetch) window.fetch = originalFetch;
     };
