@@ -3,6 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { randomUUID } from 'crypto';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
 import { detectImageFormat, getImageDimensions } from '@/lib/megaload/services/image-processor';
+import { logSystemError, logSystemWarn } from '@/lib/utils/system-log';
+
+const LOG_SOURCE = 'megaload/products/bulk-register/upload-image';
 
 export const maxDuration = 30;
 
@@ -70,30 +73,41 @@ export async function POST(req: NextRequest) {
       } catch { /* jimp unavailable */ }
 
       if (Jimp) {
-        let image = await Jimp.read(buffer);
-        const jW: number = image.getWidth?.() ?? image.bitmap?.width ?? 0;
-        const jH: number = image.getHeight?.() ?? image.bitmap?.height ?? 0;
-        if (dimUnknown && jW > 0 && jH > 0) dims = { width: jW, height: jH };
-        const w = dims.width || jW;
-        const h = dims.height || jH;
+        // Jimp 처리(손상/특이포맷/메모리)가 throw 하면 과거엔 catch-all 500.
+        //  → 실패 시 원본 버퍼 그대로 업로드 폴백(500 방지). 규격은 등록 단계 게이트가 재검증.
+        try {
+          let image = await Jimp.read(buffer);
+          const jW: number = image.getWidth?.() ?? image.bitmap?.width ?? 0;
+          const jH: number = image.getHeight?.() ?? image.bitmap?.height ?? 0;
+          if (dimUnknown && jW > 0 && jH > 0) dims = { width: jW, height: jH };
+          const w = dims.width || jW;
+          const h = dims.height || jH;
 
-        if (w > 0 && h > 0 && (w < 500 || h < 500)) {
-          const scale = Math.max(800 / w, 800 / h);
-          image = image.resize(Math.round(w * scale), Math.round(h * scale));
-        } else if (w > 5000 || h > 5000) {
-          const scale = Math.min(4500 / w, 4500 / h);
-          image = image.resize(Math.round(w * scale), Math.round(h * scale));
-        }
+          if (w > 0 && h > 0 && (w < 500 || h < 500)) {
+            const scale = Math.max(800 / w, 800 / h);
+            image = image.resize(Math.round(w * scale), Math.round(h * scale));
+          } else if (w > 5000 || h > 5000) {
+            const scale = Math.min(4500 / w, 4500 / h);
+            image = image.resize(Math.round(w * scale), Math.round(h * scale));
+          }
 
-        const MIME_JPEG = Jimp.MIME_JPEG || 'image/jpeg';
-        let quality = 92;
-        let outBuf = await image.quality(quality).getBufferAsync(MIME_JPEG);
-        while (outBuf.length > 10 * 1024 * 1024 && quality > 40) {
-          quality -= 10;
-          outBuf = await image.quality(quality).getBufferAsync(MIME_JPEG);
+          const MIME_JPEG = Jimp.MIME_JPEG || 'image/jpeg';
+          let quality = 92;
+          let outBuf = await image.quality(quality).getBufferAsync(MIME_JPEG);
+          while (outBuf.length > 10 * 1024 * 1024 && quality > 40) {
+            quality -= 10;
+            outBuf = await image.quality(quality).getBufferAsync(MIME_JPEG);
+          }
+          buffer = Buffer.from(outBuf);
+          finalExt = 'jpg';
+        } catch (jimpErr) {
+          void logSystemWarn({
+            source: LOG_SOURCE,
+            message: `jimp 처리 실패 — 원본 업로드 폴백: ${jimpErr instanceof Error ? jimpErr.message : 'unknown'}`,
+            context: { name: originalName, size: file.size, dims },
+          }).catch(() => {});
+          // buffer/finalExt 원본 유지
         }
-        buffer = Buffer.from(outBuf);
-        finalExt = 'jpg';
       } else if (needsUpscale) {
         return NextResponse.json({ error: '이미지가 500×500 미만입니다.' }, { status: 400 });
       } else if (needsDownscale) {
@@ -118,6 +132,11 @@ export async function POST(req: NextRequest) {
       });
 
     if (error || !data) {
+      void logSystemError({
+        source: LOG_SOURCE,
+        message: `storage 업로드 실패: ${error?.message || 'no data'}`,
+        context: { path: storagePath, size: buffer.length, contentType },
+      }).catch(() => {});
       return NextResponse.json(
         { error: `업로드 실패: ${error?.message}` },
         { status: 500 },
@@ -130,6 +149,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ url: publicData.publicUrl });
   } catch (err) {
+    void logSystemError({ source: LOG_SOURCE, error: err }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '업로드 실패' },
       { status: 500 },
