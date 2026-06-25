@@ -137,11 +137,19 @@ async function logSystem(level: LogLevel, params: LogParams): Promise<void> {
   // 에러도 메시지도 없으면 호출자 실수 — 가짜 '(no message)' 로그 방지
   if (!params.error && !params.message) return;
   try {
-    const errMsg = params.error instanceof Error
-      ? params.error.message
-      : params.error
-        ? String(params.error)
-        : params.message || '(no message)';
+    const errMsg = (() => {
+      const e = params.error;
+      if (e instanceof Error) return e.message;
+      // Supabase PostgrestError/StorageError 등은 Error 인스턴스가 아닌 plain object →
+      //  과거 String(e) 가 "[object Object]" 로 박혔다. message 필드 우선 추출, 없으면 JSON.
+      if (e && typeof e === 'object') {
+        const o = e as Record<string, unknown>;
+        if (typeof o.message === 'string' && o.message) return o.message;
+        try { return JSON.stringify(o).slice(0, 500); } catch { return '[unserializable error object]'; }
+      }
+      if (e) return String(e);
+      return params.message || '(no message)';
+    })();
     const stack = params.error instanceof Error ? params.error.stack : undefined;
 
     const category: LogCategory = params.category || inferCategory(params.source, errMsg);
