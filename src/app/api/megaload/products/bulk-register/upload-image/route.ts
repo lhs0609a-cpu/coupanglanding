@@ -68,6 +68,15 @@ export async function POST(req: NextRequest) {
     const needsDownscale = dims.width > 5000 || dims.height > 5000;
 
     if (dimUnknown || needsUpscale || needsDownscale) {
+      // OOM 가드: 거대 해상도는 Jimp 디코딩 시 함수 메모리 초과로 프로세스가 강제종료됨
+      //  (try/catch 로도 못 잡는 500). 디코딩 전에 차단해 명시적 400 으로 전환.
+      const MAX_DECODE_PIXELS = 40_000_000; // ~40MP(예 6300×6300). 디코딩 ~160MB + Jimp 작업 피크 고려.
+      if (!dimUnknown && dims.width * dims.height > MAX_DECODE_PIXELS) {
+        return NextResponse.json(
+          { error: `이미지 해상도가 너무 큽니다 (${dims.width}×${dims.height}). 더 작은 이미지로 등록해주세요.` },
+          { status: 400 },
+        );
+      }
       try {
         Jimp = (await import('jimp')).default || (await import('jimp'));
       } catch { /* jimp unavailable */ }
