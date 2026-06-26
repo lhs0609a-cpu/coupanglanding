@@ -115,11 +115,27 @@ export async function updateSession(request: NextRequest) {
     url.searchParams.set('redirect', pathname);
     const redirectResponse = NextResponse.redirect(url);
 
-    request.cookies.getAll().forEach((cookie) => {
-      if (cookie.name.startsWith('sb-')) {
-        redirectResponse.cookies.delete(cookie.name);
-      }
-    });
+    // sb-* 쿠키 삭제는 "refresh token 이 확실히 무효" 일 때만 한다.
+    //  getSession() 의 refresh 가 429/네트워크/5xx 등 일시적 사유로 실패해도 session 은
+    //  null 이 되는데, 이때 쿠키를 지우면 아직 재사용 가능한 refresh token 까지 파기돼
+    //  "로그인 직후 자동 로그아웃" 이 된다(일시 장애를 하드 로그아웃으로 증폭).
+    //  → 불확실하면 쿠키를 보존하고 로그인 페이지로만 보낸다. 동일 쿠키로 다음 시도/탭의
+    //     브라우저 클라이언트가 세션을 복구할 수 있고, 진짜 만료면 자연히 다시 로그인한다.
+    //  /auth/* 는 위에서 early-return 하므로 쿠키를 남겨도 리다이렉트 루프는 없다.
+    const msg = (sessionError?.message || '').toLowerCase();
+    const isDefinitivelyInvalid =
+      msg.includes('invalid refresh token') ||
+      msg.includes('refresh token not found') ||
+      msg.includes('already used') ||
+      msg.includes('revoked');
+
+    if (isDefinitivelyInvalid) {
+      request.cookies.getAll().forEach((cookie) => {
+        if (cookie.name.startsWith('sb-')) {
+          redirectResponse.cookies.delete(cookie.name);
+        }
+      });
+    }
 
     return redirectResponse;
   }
