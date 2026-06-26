@@ -77,9 +77,24 @@ export async function POST(req: NextRequest) {
           { status: 400 },
         );
       }
-      try {
-        Jimp = (await import('jimp')).default || (await import('jimp'));
-      } catch { /* jimp unavailable */ }
+
+      // 차원 미상(매직바이트 파싱 실패/특이 포맷) + 대용량은 픽셀 가드를 못 거치므로
+      //  Jimp 디코딩 시 함수 메모리 초과로 프로세스가 강제종료됨 → try/catch 로도 못 잡는 500.
+      //  압축 JPEG 는 디코딩 시 원본의 수십 배까지 부풀 수 있어, 차원을 모르면 3MB 초과 파일은
+      //  디코딩하지 않고 원본 그대로 업로드 폴백. 규격은 등록 단계 게이트가 재검증.
+      const SAFE_UNKNOWN_DECODE_BYTES = 3 * 1024 * 1024;
+      const skipDecode = dimUnknown && buffer.length > SAFE_UNKNOWN_DECODE_BYTES;
+      if (skipDecode) {
+        void logSystemWarn({
+          source: LOG_SOURCE,
+          message: `차원 미상 대용량(${(buffer.length / 1024 / 1024).toFixed(1)}MB) — jimp 디코딩 생략, 원본 업로드 폴백`,
+          context: { name: originalName, size: file.size, format },
+        }).catch(() => {});
+      } else {
+        try {
+          Jimp = (await import('jimp')).default || (await import('jimp'));
+        } catch { /* jimp unavailable */ }
+      }
 
       if (Jimp) {
         // Jimp 처리(손상/특이포맷/메모리)가 throw 하면 과거엔 catch-all 500.
