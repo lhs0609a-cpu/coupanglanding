@@ -836,6 +836,32 @@ async function ensureFreshSession(): Promise<void> {
 
 const SLEEP = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+// 서버 폴백(Vercel `upload-image` 라우트) 전용 동시성 제한 — 직접 업로드(DIRECT_CONCURRENCY=32)와 별개.
+//  직접 업로드는 Supabase 로 직접 가서 서버 메모리와 무관하지만, 폴백은 Vercel 함수에서 jimp 디코딩을 한다.
+//  폴백이 32개 동시에 한 인스턴스로 몰리면 (formData 버퍼 + jimp 디코딩) 메모리가 누적돼 프로세스가
+//  강제종료됨 → try/catch 로도 못 잡는 500. 폴백 동시성만 4 로 제한해 인스턴스당 피크를 억제한다.
+const SERVER_FALLBACK_CONCURRENCY = 4;
+let _serverFallbackActive = 0;
+const _serverFallbackQueue: Array<() => void> = [];
+async function acquireServerFallbackSlot(): Promise<() => void> {
+  await new Promise<void>((resolve) => {
+    if (_serverFallbackActive < SERVER_FALLBACK_CONCURRENCY) {
+      _serverFallbackActive++;
+      resolve();
+    } else {
+      _serverFallbackQueue.push(() => { _serverFallbackActive++; resolve(); });
+    }
+  });
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    _serverFallbackActive--;
+    const next = _serverFallbackQueue.shift();
+    if (next) next();
+  };
+}
+
 /**
  * 업로드 실패 사유 — 호출자가 사용자에게 정확한 원인을 보여주기 위해
  * 마지막 시도의 reason 을 메시지에 포함해서 throw.
@@ -928,48 +954,54 @@ export async function uploadSingleImage(blob: Blob, name: string): Promise<strin
   }
 
   // ── 2차: 서버 API 폴백 (재시도 2회) ──
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const formData = new FormData();
-      formData.append('file', blob, name);
-      const res = await fetch('/api/megaload/products/bulk-register/upload-image', {
-        method: 'POST',
-        body: formData,
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.url) return data.url;
-        lastReason = 'server_5xx';
-        lastMsg = '서버가 url 미반환';
-      } else if (res.status >= 400 && res.status < 500) {
-        // 4xx — 재시도 불필요 (사이즈/형식/권한/인증)
-        const errBody = await res.text().catch(() => '');
-        lastMsg = `${res.status} ${errBody.slice(0, 200)}`;
-        // 401/403 은 세션 만료/권한 — 'permission' 으로 분리해 정확한 안내 노출
-        lastReason =
-          res.status === 413 ? 'oversize'
-          : res.status === 401 || res.status === 403 ? 'permission'
-          : 'server_4xx';
-        console.warn(`[uploadSingleImage] 서버 폴백 ${res.status} (재시도 skip): ${lastMsg}`);
-        break;
-      } else {
-        // 5xx — 재시도
-        lastReason = 'server_5xx';
-        lastMsg = `서버 ${res.status}`;
+  // 서버 jimp 디코딩이 메모리 집약적이라 동시성 제한(4) 하에서만 호출 → 인스턴스 OOM 500 차단.
+  const releaseSlot = await acquireServerFallbackSlot();
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const formData = new FormData();
+        formData.append('file', blob, name);
+        const res = await fetch('/api/megaload/products/bulk-register/upload-image', {
+          method: 'POST',
+          body: formData,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.url) return data.url;
+          lastReason = 'server_5xx';
+          lastMsg = '서버가 url 미반환';
+        } else if (res.status >= 400 && res.status < 500) {
+          // 4xx — 재시도 불필요 (사이즈/형식/권한/인증)
+          const errBody = await res.text().catch(() => '');
+          lastMsg = `${res.status} ${errBody.slice(0, 200)}`;
+          // 401/403 은 세션 만료/권한 — 'permission' 으로 분리해 정확한 안내 노출
+          lastReason =
+            res.status === 413 ? 'oversize'
+            : res.status === 401 || res.status === 403 ? 'permission'
+            : 'server_4xx';
+          console.warn(`[uploadSingleImage] 서버 폴백 ${res.status} (재시도 skip): ${lastMsg}`);
+          break;
+        } else {
+          // 5xx — 재시도
+          lastReason = 'server_5xx';
+          lastMsg = `서버 ${res.status}`;
+          if (attempt < 2) {
+            await SLEEP(300 * (attempt + 1));
+            continue;
+          }
+        }
+      } catch (e) {
+        lastMsg = e instanceof Error ? e.message : String(e);
+        lastReason = 'network';
         if (attempt < 2) {
           await SLEEP(300 * (attempt + 1));
           continue;
         }
+        console.warn(`[uploadSingleImage] 서버 폴백 fetch 실패 (최종):`, e);
       }
-    } catch (e) {
-      lastMsg = e instanceof Error ? e.message : String(e);
-      lastReason = 'network';
-      if (attempt < 2) {
-        await SLEEP(300 * (attempt + 1));
-        continue;
-      }
-      console.warn(`[uploadSingleImage] 서버 폴백 fetch 실패 (최종):`, e);
     }
+  } finally {
+    releaseSlot();
   }
 
   // 모든 경로 실패 — 구체적 사유로 throw (호출자가 사용자에게 표시)
