@@ -623,7 +623,14 @@ function AttrControl({ attr, value, required, onChange }: {
     missing ? 'border-red-300 bg-red-50' :
     value ? 'border-[#E31837] bg-red-50/30' : 'border-gray-200'
   }`;
+  // draft 로컬상태 — 타이핑마다 전역 commit 하면 부모 products 가 새 객체로 바뀌어
+  //   리스트(missingRequired/uncertain)에서 빠지며 input 이 리마운트되고, 한글 IME 조합이 끊겨
+  //   "상" 이 "ㅅ ㅏ ㅇ" 으로 분해됨. blur/Enter 에만 commit 해 조합 중 리렌더를 차단.
+  //   (WeightOptionField/RequiredBuyOptionField 와 동일 패턴)
+  const [draft, setDraft] = useState(value);
+  useEffect(() => { setDraft(value); }, [value]);
   if (attr.attributeValues && attr.attributeValues.length > 0) {
+    // select 는 IME 조합이 없으므로 즉시 commit 유지.
     return (
       <select value={value} onChange={(e) => onChange(e.target.value)} className={cls}>
         <option value="">선택하세요</option>
@@ -636,10 +643,48 @@ function AttrControl({ attr, value, required, onChange }: {
   return (
     <input
       type={attr.dataType === 'NUMBER' ? 'number' : 'text'}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (draft !== value) onChange(draft);
+          focusNextField(e.currentTarget); // Enter → 다음 칸으로 이동
+        }
+      }}
+      onBlur={() => { if (draft !== value) onChange(draft); }}
       className={cls}
       placeholder={attr.dataType === 'NUMBER' ? '숫자' : '값 입력'}
+    />
+  );
+}
+
+/* ─── 한글 IME 안전 텍스트 입력 ───
+   draft 로컬상태로 버퍼링하고 blur/Enter 에만 commit. 타이핑마다 전역 갱신 시
+   부모 리렌더/리마운트로 한글 조합이 끊겨 "상"→"ㅅ ㅏ ㅇ" 분해되는 문제를 차단. */
+function DraftTextInput({ value, onCommit, className, placeholder }: {
+  value: string;
+  onCommit: (v: string) => void;
+  className: string;
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => { setDraft(value); }, [value]);
+  return (
+    <input
+      type="text"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (draft !== value) onCommit(draft);
+          focusNextField(e.currentTarget);
+        }
+      }}
+      onBlur={() => { if (draft !== value) onCommit(draft); }}
+      className={className}
+      placeholder={placeholder}
     />
   );
 }
@@ -904,10 +949,9 @@ export default function CoupangFieldsSection({
                 <label className="text-[10px] w-28 shrink-0 truncate text-red-600 font-medium" title={`${n.ncName} · ${n.fieldName}`}>
                   {n.fieldName}<span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
+                <DraftTextInput
                   value={product.editedNoticeValues?.[n.key] ?? ''}
-                  onChange={(e) => handleNoticeChange(n.key, e.target.value)}
+                  onCommit={(v) => handleNoticeChange(n.key, v)}
                   className="flex-1 px-2 py-1 border border-red-300 bg-red-50 rounded text-xs focus:ring-1 focus:ring-[#E31837] outline-none"
                   placeholder="값 입력"
                 />
@@ -1430,10 +1474,9 @@ export default function CoupangFieldsSection({
                         <label className={`text-[10px] w-28 shrink-0 pt-1.5 truncate ${isEmpty ? 'text-red-600 font-medium' : 'text-gray-500'}`} title={f.noticeCategoryDetailName}>
                           {f.noticeCategoryDetailName}<span className="text-red-500">*</span>
                         </label>
-                        <input
-                          type="text"
+                        <DraftTextInput
                           value={val}
-                          onChange={(e) => handleNoticeChange(key, e.target.value)}
+                          onCommit={(v) => handleNoticeChange(key, v)}
                           className={`flex-1 px-2 py-1 border rounded text-xs focus:ring-1 focus:ring-[#E31837] outline-none ${
                             isEmpty ? 'border-red-300 bg-red-50' :
                             editedValue !== undefined && editedValue !== f.content ? 'border-[#E31837] bg-red-50/30' :
