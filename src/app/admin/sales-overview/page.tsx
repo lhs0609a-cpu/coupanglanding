@@ -430,6 +430,12 @@ export default function AdminSalesOverviewPage() {
 
   const [fetchError, setFetchError] = useState<string | null>(null);
 
+  // 수수료율(순수익 비율) 인라인 편집 — 사람별로 이 화면에서 바로 %를 바꿔 자동결제에 반영
+  const [editingShareId, setEditingShareId] = useState<string | null>(null);
+  const [shareInput, setShareInput] = useState('');
+  const [savingShareId, setSavingShareId] = useState<string | null>(null);
+  // saveShareInline 은 fetchData 정의 이후에 선언 (저장 성공 후 데이터 재조회 위해)
+
   /** 데이터 조회. initial=true 면 로딩 스피너 표시, 주기 폴링에서는 false 로 silent */
   const fetchData = useCallback(async (initial = true) => {
     if (initial) setLoading(true);
@@ -480,6 +486,37 @@ export default function AdminSalesOverviewPage() {
       if (initial) setLoading(false);
     }
   }, [supabase]);
+
+  /**
+   * 수수료율 저장 — 서버 API 호출.
+   * DB 저장 + 아직 결제 안 된(awaiting_payment) 리포트의 청구액을 새 %로 재계산까지 한 번에.
+   * 성공 후 fetchData 로 재조회해 화면 청구액/표시를 최신값으로 갱신.
+   */
+  const saveShareInline = useCallback(async (ptUserId: string) => {
+    const val = Number(shareInput);
+    if (!Number.isFinite(val) || val < 0 || val > 100) { alert('수수료율은 0~100 사이 숫자여야 합니다.'); return; }
+    setSavingShareId(ptUserId);
+    try {
+      const res = await fetch(`/api/admin/pt-users/${ptUserId}/share-percentage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ share_percentage: val }),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert('저장 실패: ' + (data.error || res.statusText)); return; }
+      setEditingShareId(null);
+      await fetchData(false);
+      if (data.recomputedCount > 0) {
+        setSyncMessage(`수수료율 ${val}% 저장 · 미납 청구서 ${data.recomputedCount}건을 새 비율로 재계산했습니다.`);
+      } else {
+        setSyncMessage(`수수료율 ${val}% 저장 완료 (재계산할 미납 청구서 없음 — 다음 정산분부터 적용).`);
+      }
+    } catch (err) {
+      alert('저장 실패: ' + (err instanceof Error ? err.message : '네트워크 오류'));
+    } finally {
+      setSavingShareId(null);
+    }
+  }, [shareInput, fetchData]);
 
   /** 결제 가능성 종합 진단 — PT생별 막힌 단계 표시 */
   const [readinessLoading, setReadinessLoading] = useState(false);
@@ -3215,7 +3252,50 @@ export default function AdminSalesOverviewPage() {
                         )}
                       </div>
                       <div className="text-[11px] text-gray-500 truncate max-w-[180px]">{row.user.profile?.email}</div>
-                      <div className="text-[10px] text-gray-400 mt-0.5">수수료 {row.user.share_percentage}%{!row.apiConnected && <span className="ml-1 text-amber-600">· API 미연동</span>}</div>
+                      <div className="text-[10px] text-gray-400 mt-0.5 flex items-center gap-1">
+                        {editingShareId === row.user.id ? (
+                          <span className="inline-flex items-center gap-1">
+                            <span>수수료</span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={0.1}
+                              autoFocus
+                              value={shareInput}
+                              onChange={(e) => setShareInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') saveShareInline(row.user.id);
+                                if (e.key === 'Escape') setEditingShareId(null);
+                              }}
+                              className="w-14 px-1 py-0.5 text-[11px] border border-gray-300 rounded text-right focus:outline-none focus:ring-1 focus:ring-[#E31837]"
+                            />
+                            <span>%</span>
+                            <button
+                              onClick={() => saveShareInline(row.user.id)}
+                              disabled={savingShareId === row.user.id}
+                              className="px-1.5 py-0.5 rounded bg-[#E31837] text-white text-[10px] font-bold disabled:opacity-50"
+                            >
+                              {savingShareId === row.user.id ? '저장…' : '저장'}
+                            </button>
+                            <button
+                              onClick={() => setEditingShareId(null)}
+                              className="px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 text-[10px]"
+                            >
+                              취소
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => { setShareInput(String(row.user.share_percentage ?? 30)); setEditingShareId(row.user.id); }}
+                            className="inline-flex items-center gap-0.5 hover:text-[#E31837] hover:underline"
+                            title="수수료율(순수익 비율) 수정 — 매달 자동결제에 반영됩니다"
+                          >
+                            수수료 {row.user.share_percentage}% <span className="text-[9px]">✎</span>
+                          </button>
+                        )}
+                        {!row.apiConnected && <span className="ml-1 text-amber-600">· API 미연동</span>}
+                      </div>
                     </td>
                     <td className="px-3 py-3 border-r border-gray-200 text-xs text-gray-600 whitespace-nowrap">
                       {row.user.created_at.slice(0, 10)}

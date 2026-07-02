@@ -147,13 +147,41 @@ export async function POST(req: NextRequest) {
 
     const storagePath = `megaload/${shUserId}/bulk/${randomUUID()}.${finalExt}`;
 
-    const { data, error } = await serviceClient.storage
+    // Storage 과부하(503) 시 upload() 가 maxDuration(30s)까지 hang → 30초 풀과금 후 무로그 500.
+    //  타임아웃을 걸어 ~12s 에 깨끗이 실패시키고 503 + 명시 로그로 전환(Vercel 과금시간 단축 + 진단 가능).
+    //  타임아웃 후 늦게 떨어지는 upload promise 는 unhandled rejection 방지를 위해 swallow.
+    const STORAGE_TIMEOUT_MS = 12_000;
+    const uploadPromise = serviceClient.storage
       .from('product-images')
       .upload(storagePath, buffer, {
         contentType,
         cacheControl: '31536000',
         upsert: false,
       });
+    uploadPromise.catch(() => {}); // late-rejection guard
+
+    let timedOut = false;
+    const { data, error } = await Promise.race([
+      uploadPromise,
+      new Promise<{ data: null; error: { message: string } }>((resolve) =>
+        setTimeout(() => {
+          timedOut = true;
+          resolve({ data: null, error: { message: 'storage upload timeout' } });
+        }, STORAGE_TIMEOUT_MS),
+      ),
+    ]);
+
+    if (timedOut) {
+      void logSystemError({
+        source: LOG_SOURCE,
+        message: `storage 업로드 타임아웃 (${STORAGE_TIMEOUT_MS / 1000}s) — Storage 과부하 추정`,
+        context: { path: storagePath, size: buffer.length, contentType },
+      }).catch(() => {});
+      return NextResponse.json(
+        { error: 'Storage 일시 과부하 — 잠시 후 재시도해주세요.' },
+        { status: 503 },
+      );
+    }
 
     if (error || !data) {
       void logSystemError({

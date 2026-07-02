@@ -16,6 +16,7 @@ import {
   BUG_REPORT_PRIORITY_COLORS,
 } from '@/lib/utils/constants';
 import BugReportThread from '@/components/megaload/bug-report/BugReportThread';
+import BugReportImageViewer from '@/components/megaload/bug-report/BugReportImageViewer';
 import ImageLightbox from '@/components/megaload/bug-report/ImageLightbox';
 import { uploadBugReportImage } from '@/lib/megaload/services/bug-report-uploader';
 
@@ -294,111 +295,112 @@ export default function AdminMegaloadBugReportsPage() {
         isOpen={!!selectedReport}
         onClose={() => setSelectedReport(null)}
         title="오류문의 상세"
-        maxWidth="max-w-2xl"
+        maxWidth={selectedReport && selectedReport.attachments.length > 0 ? 'max-w-5xl' : 'max-w-2xl'}
       >
         {selectedReport && (
-          <div>
-            {/* 헤더 정보 */}
-            <div className="mb-4 pb-4 border-b border-gray-100">
-              <div className="flex items-center gap-2 mb-2">
-                <Badge
-                  label={BUG_REPORT_STATUS_LABELS[selectedReport.status] || selectedReport.status}
-                  colorClass={BUG_REPORT_STATUS_COLORS[selectedReport.status]}
-                />
-                <Badge
-                  label={BUG_REPORT_CATEGORY_LABELS[selectedReport.category] || selectedReport.category}
-                  colorClass={BUG_REPORT_CATEGORY_COLORS[selectedReport.category]}
-                />
-                <Badge
-                  label={BUG_REPORT_PRIORITY_LABELS[selectedReport.priority] || selectedReport.priority}
-                  colorClass={BUG_REPORT_PRIORITY_COLORS[selectedReport.priority]}
-                />
+          <div className="flex flex-col lg:flex-row gap-5">
+            {/* 왼쪽: 오류 내용 + 대화 */}
+            <div className="flex-1 min-w-0">
+              {/* 헤더 정보 */}
+              <div className="mb-4 pb-4 border-b border-gray-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <Badge
+                    label={BUG_REPORT_STATUS_LABELS[selectedReport.status] || selectedReport.status}
+                    colorClass={BUG_REPORT_STATUS_COLORS[selectedReport.status]}
+                  />
+                  <Badge
+                    label={BUG_REPORT_CATEGORY_LABELS[selectedReport.category] || selectedReport.category}
+                    colorClass={BUG_REPORT_CATEGORY_COLORS[selectedReport.category]}
+                  />
+                  <Badge
+                    label={BUG_REPORT_PRIORITY_LABELS[selectedReport.priority] || selectedReport.priority}
+                    colorClass={BUG_REPORT_PRIORITY_COLORS[selectedReport.priority]}
+                  />
+                </div>
+                <h3 className="font-bold text-gray-900">{selectedReport.title}</h3>
+                <p className="text-sm text-gray-600 mt-1 whitespace-pre-wrap">{selectedReport.description}</p>
+                <p className="text-xs text-gray-400 mt-2">
+                  {getUserName(selectedReport)} · {new Date(selectedReport.created_at).toLocaleString('ko-KR')}
+                </p>
+
+                {/* 컨텍스트 정보 */}
+                {(selectedReport.page_url || selectedReport.browser_info || selectedReport.screen_size) && (
+                  <div className="mt-3 p-2 bg-gray-50 rounded-lg text-xs text-gray-500 space-y-0.5">
+                    {selectedReport.page_url && <p>페이지: {selectedReport.page_url}</p>}
+                    {selectedReport.screen_size && <p>화면: {selectedReport.screen_size}</p>}
+                    {selectedReport.browser_info && <p className="truncate">브라우저: {selectedReport.browser_info}</p>}
+                  </div>
+                )}
               </div>
-              <h3 className="font-bold text-gray-900">{selectedReport.title}</h3>
-              <p className="text-sm text-gray-600 mt-1 whitespace-pre-wrap">{selectedReport.description}</p>
-              <p className="text-xs text-gray-400 mt-2">
-                {getUserName(selectedReport)} · {new Date(selectedReport.created_at).toLocaleString('ko-KR')}
-              </p>
 
-              {/* 컨텍스트 정보 */}
-              {(selectedReport.page_url || selectedReport.browser_info || selectedReport.screen_size) && (
-                <div className="mt-3 p-2 bg-gray-50 rounded-lg text-xs text-gray-500 space-y-0.5">
-                  {selectedReport.page_url && <p>페이지: {selectedReport.page_url}</p>}
-                  {selectedReport.screen_size && <p>화면: {selectedReport.screen_size}</p>}
-                  {selectedReport.browser_info && <p className="truncate">브라우저: {selectedReport.browser_info}</p>}
-                </div>
-              )}
-
-              {/* 첨부 이미지 */}
-              {selectedReport.attachments.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {selectedReport.attachments.map((att, idx) => (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      key={idx}
-                      src={att.url}
-                      alt={att.name}
-                      className="w-20 h-20 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition"
-                      onClick={() => setLightbox({
-                        images: selectedReport.attachments.map(a => a.url),
-                        index: idx,
-                      })}
-                    />
+              {/* 상태 변경 버튼 */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                {(['pending', 'confirmed', 'in_progress', 'resolved', 'closed'] as BugReportStatus[])
+                  .filter(s => s !== selectedReport.status)
+                  .map(s => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => handleStatusChange(selectedReport.id, s)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${BUG_REPORT_STATUS_COLORS[s]} hover:opacity-80`}
+                    >
+                      {BUG_REPORT_STATUS_LABELS[s]}
+                    </button>
                   ))}
-                </div>
-              )}
-            </div>
+              </div>
 
-            {/* 상태 변경 버튼 */}
-            <div className="flex flex-wrap gap-2 mb-4">
-              {(['pending', 'confirmed', 'in_progress', 'resolved', 'closed'] as BugReportStatus[])
-                .filter(s => s !== selectedReport.status)
-                .map(s => (
+              {/* 우선도 변경 */}
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-xs text-gray-500">우선도:</span>
+                {(['low', 'normal', 'high', 'critical'] as BugReportPriority[]).map(p => (
                   <button
-                    key={s}
+                    key={p}
                     type="button"
-                    onClick={() => handleStatusChange(selectedReport.id, s)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${BUG_REPORT_STATUS_COLORS[s]} hover:opacity-80`}
+                    onClick={() => handlePriorityChange(selectedReport.id, p)}
+                    className={`px-2.5 py-1 text-xs rounded-full transition ${
+                      selectedReport.priority === p
+                        ? BUG_REPORT_PRIORITY_COLORS[p] + ' ring-2 ring-offset-1 ring-gray-300'
+                        : 'bg-gray-50 text-gray-400 hover:bg-gray-100'
+                    }`}
                   >
-                    {BUG_REPORT_STATUS_LABELS[s]}
+                    {BUG_REPORT_PRIORITY_LABELS[p]}
                   </button>
                 ))}
-            </div>
-
-            {/* 우선도 변경 */}
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-xs text-gray-500">우선도:</span>
-              {(['low', 'normal', 'high', 'critical'] as BugReportPriority[]).map(p => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => handlePriorityChange(selectedReport.id, p)}
-                  className={`px-2.5 py-1 text-xs rounded-full transition ${
-                    selectedReport.priority === p
-                      ? BUG_REPORT_PRIORITY_COLORS[p] + ' ring-2 ring-offset-1 ring-gray-300'
-                      : 'bg-gray-50 text-gray-400 hover:bg-gray-100'
-                  }`}
-                >
-                  {BUG_REPORT_PRIORITY_LABELS[p]}
-                </button>
-              ))}
-            </div>
-
-            {/* 메시지 스레드 */}
-            <div className="border-t border-gray-100 pt-4">
-              <div className="flex items-center gap-2 mb-3">
-                <MessageSquare className="w-4 h-4 text-gray-400" />
-                <span className="text-sm font-medium text-gray-700">대화</span>
               </div>
-              <BugReportThread
-                messages={messages}
-                loading={messagesLoading}
-                disabled={selectedReport.status === 'closed'}
-                onSendMessage={handleSendMessage}
-                onUploadImage={handleUploadImage}
-                role="admin"
-              />
+
+              {/* 메시지 스레드 */}
+              <div className="border-t border-gray-100 pt-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <MessageSquare className="w-4 h-4 text-gray-400" />
+                  <span className="text-sm font-medium text-gray-700">대화</span>
+                </div>
+                <BugReportThread
+                  messages={messages}
+                  loading={messagesLoading}
+                  disabled={selectedReport.status === 'closed'}
+                  onSendMessage={handleSendMessage}
+                  onUploadImage={handleUploadImage}
+                  role="admin"
+                />
+              </div>
             </div>
+
+            {/* 오른쪽: 첨부 스크린샷 뷰어 (내용과 동시에 크게 보기) */}
+            {selectedReport.attachments.length > 0 && (
+              <div className="lg:w-[420px] shrink-0 flex flex-col lg:sticky lg:top-0 lg:self-start">
+                <div className="text-xs font-medium text-gray-500 mb-2">
+                  첨부 스크린샷 ({selectedReport.attachments.length}건)
+                </div>
+                <BugReportImageViewer
+                  key={selectedReport.id}
+                  images={selectedReport.attachments.map(a => ({ url: a.url, name: a.name }))}
+                  onZoom={idx => setLightbox({
+                    images: selectedReport.attachments.map(a => a.url),
+                    index: idx,
+                  })}
+                />
+              </div>
+            )}
           </div>
         )}
       </Modal>

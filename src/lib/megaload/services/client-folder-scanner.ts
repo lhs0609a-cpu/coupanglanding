@@ -481,8 +481,8 @@ const MIN_DIM = 500;
 const MAX_DIM = 900;
 const QUALITY = 0.72;
 
-async function compress(file, sellerBrand) {
-  if (!sellerBrand && file.size >= 100*1024 && file.size <= 3*1024*1024) return file;
+async function compress(file, sellerBrand, forceReencode) {
+  if (!sellerBrand && !forceReencode && file.size >= 100*1024 && file.size <= 3*1024*1024) return file;
 
   let bitmap;
   try { bitmap = await createImageBitmap(file); }
@@ -503,6 +503,7 @@ async function compress(file, sellerBrand) {
     render = true;
   }
   if (sellerBrand) render = true;
+  if (forceReencode) render = true; // 대용량 PNG → JPEG 재인코딩 강제
 
   if (!render) { bitmap.close(); return file; }
 
@@ -534,9 +535,9 @@ async function renderEmpty() {
 }
 
 self.addEventListener('message', async (e) => {
-  const { id, file, sellerBrand } = e.data;
+  const { id, file, sellerBrand, forceReencode } = e.data;
   try {
-    const blob = await compress(file, sellerBrand);
+    const blob = await compress(file, sellerBrand, forceReencode);
     self.postMessage({ id, blob });
   } catch (err) {
     self.postMessage({ id, error: (err && err.message) || 'compress failed' });
@@ -577,13 +578,13 @@ class CompressWorkerPool {
     URL.revokeObjectURL(url);
   }
 
-  compress(file: Blob, sellerBrand?: string): Promise<Blob> {
+  compress(file: Blob, sellerBrand?: string, forceReencode?: boolean): Promise<Blob> {
     return new Promise((resolve, reject) => {
       const id = ++this.nextId;
       this.pending.set(id, { resolve, reject });
       const worker = this.workers[this.rrIdx];
       this.rrIdx = (this.rrIdx + 1) % this.workers.length;
-      worker.postMessage({ id, file, sellerBrand });
+      worker.postMessage({ id, file, sellerBrand, forceReencode });
     });
   }
 }
@@ -624,10 +625,17 @@ function getWorkerPool(): CompressWorkerPool | null {
  * sellerBrand가 제공되면 반투명 워터마크를 삽입하여 CNN 임베딩 차별화
  */
 export async function compressImage(file: File | Blob, sellerBrand?: string): Promise<Blob> {
+  // 대용량 PNG 는 무압축 통과를 막고 JPEG 로 재인코딩한다.
+  //   PNG 원본은 압축률이 낮아 1~3MB 가 흔하고, 그대로 32병렬 업로드하면 Storage 가 503 으로 과부하됨(실측).
+  //   재인코딩은 업로드 용량·egress·Storage 사용량·시간을 모두 줄이고, 비용은 클라 CPU 뿐(서버 무관).
+  const fileName = typeof (file as File).name === 'string' ? (file as File).name : '';
+  const isPng = file.type === 'image/png' || /\.png$/i.test(fileName);
+  const forceReencode = isPng && file.size > 1024 * 1024; // PNG & >1MB
+
   // 1) 휴리스틱 조기 탈출 — 디코드 비용 0
   // 워터마크 미사용 + 30KB~3MB 사이 파일은 그대로 통과 (대부분 정상 JPEG).
   // 30KB 미만이면 작은 아이콘일 가능성 — 차원 검증 위해 디코드.
-  if (!sellerBrand && file.size >= 30 * 1024 && file.size <= 3 * 1024 * 1024) {
+  if (!sellerBrand && !forceReencode && file.size >= 30 * 1024 && file.size <= 3 * 1024 * 1024) {
     return file;
   }
 
@@ -635,7 +643,7 @@ export async function compressImage(file: File | Blob, sellerBrand?: string): Pr
   const pool = getWorkerPool();
   if (pool) {
     try {
-      return await pool.compress(file, sellerBrand);
+      return await pool.compress(file, sellerBrand, forceReencode);
     } catch (e) {
       console.warn('[compressImage] worker 실패, 메인스레드 폴백', e);
       // fallthrough → 메인스레드 처리
@@ -643,10 +651,10 @@ export async function compressImage(file: File | Blob, sellerBrand?: string): Pr
   }
 
   // 3-4) 메인스레드 폴백
-  return compressInMain(file, sellerBrand);
+  return compressInMain(file, sellerBrand, forceReencode);
 }
 
-async function compressInMain(file: File | Blob, sellerBrand?: string): Promise<Blob> {
+async function compressInMain(file: File | Blob, sellerBrand?: string, forceReencode?: boolean): Promise<Blob> {
   let bitmap: ImageBitmap | null = null;
   try {
     bitmap = await createImageBitmap(file);
@@ -675,6 +683,7 @@ async function compressInMain(file: File | Blob, sellerBrand?: string): Promise<
   }
 
   if (sellerBrand) needsRender = true;
+  if (forceReencode) needsRender = true; // 대용량 PNG → JPEG 재인코딩 강제
 
   if (!needsRender) {
     bitmap.close();
@@ -759,7 +768,15 @@ async function renderEmptyCanvas(): Promise<Blob> {
 
 // ---- Supabase 직접 업로드 (Vercel 경유 없음) ----
 // 브라우저 → Supabase Storage 직접 업로드: 인증 0회, 네트워크 홉 1단계
-const DIRECT_CONCURRENCY = 32; // 직접 업로드 동시성 (★ 32 재상향 — 이전 실패는 배포차단 탓이지 동시성 아님이 확인됨. Supabase 직접=서버/비용 무관)
+//
+// 동시성 정책 (2026-06-28 재설계):
+//   과거 고정 32 는 단일 세션 버스트가 Supabase Storage 를 503(Service Unavailable)으로 몰아넣고,
+//   그 실패분이 비용 드는 서버 폴백(upload-image 라우트)으로 흘러가 [500] 을 유발했다(실측 로그 확인).
+//   → 고정값 추측 대신 "적응형 한도(AIMD)" 로 전환: Storage 가 버티는 만큼만 보낸다.
+//   상한을 16 으로 낮춰 버스트 피크를 억제(직접 경로라 서버/비용과 무관, 손해 없음).
+const DIRECT_CONCURRENCY = 16;     // 직접 업로드 동시성 상한 (적응형 한도의 최대치). 이전 32 → 16.
+const DIRECT_CONCURRENCY_START = 12; // 초기 동시성 (성공 누적 시 상한까지 +1 복원)
+const DIRECT_CONCURRENCY_MIN = 4;   // 503/429 누적 시 최소치 (이 밑으로는 안 떨어뜨림)
 
 import { createClient as createBrowserSupabase } from '@/lib/supabase/client';
 
@@ -883,15 +900,81 @@ function classifySupabaseError(msg: string): ImageUploadError['reason'] {
   // RLS 위반 / 인증 만료 / 권한 부족 — Supabase Storage 가 흔히 400 으로 반환하는 메시지 패턴
   if (/permission|denied|not\s*allowed|unauthorized|forbidden|rls|row[-\s]level\s*security|jwt|invalid\s*token|expired/.test(m)) return 'permission';
   if (/rate|429|throttle/.test(m)) return 'rate_limited';
+  // 503/Service Unavailable/과부하 — Storage 백엔드 과부하. 'rate_limited' 로 묶어 동시성 백오프 트리거.
+  if (/503|service\s*unavailable|temporarily\s*unavailable|overload/.test(m)) return 'rate_limited';
   if (/network|fetch|aborted|timeout|econnreset|socket/.test(m)) return 'network';
   return 'supabase_error';
 }
 
-export async function uploadSingleImage(blob: Blob, name: string): Promise<string> {
+// ─── 적응형 업로드 동시성 (AIMD) ──────────────────────────────────
+// Storage 503/429 가 보이면 동시성을 절반으로 줄이고(곱셈 감소), 연속 성공이 쌓이면 +1 복원(가산 증가).
+// 고정 동시성 추측을 없애고 "Storage 가 버티는 만큼만" 보내 503 버스트를 자가-억제한다.
+// 전부 브라우저 측 로직 — Vercel 서버/비용과 무관.
+class AdaptiveUploadLimiter {
+  private limit: number;
+  private active = 0;
+  private readonly min: number;
+  private readonly max: number;
+  private streak = 0;
+  private readonly waiters: Array<() => void> = [];
+  private static readonly GROW_AFTER = 8; // 연속 성공 8회마다 +1
+
+  constructor(start: number, min: number, max: number) {
+    this.min = min;
+    this.max = max;
+    this.limit = Math.max(min, Math.min(start, max));
+  }
+
+  async acquire(): Promise<void> {
+    // limit 가 동적으로 줄 수 있으므로 매 깨어남마다 재확인 (while)
+    while (this.active >= this.limit) {
+      await new Promise<void>((resolve) => this.waiters.push(resolve));
+    }
+    this.active++;
+  }
+
+  release(): void {
+    this.active--;
+    const next = this.waiters.shift();
+    if (next) next();
+  }
+
+  /** 503/429 감지 — 동시성 절반(최소 min)으로 즉시 축소 */
+  onOverload(): void {
+    this.streak = 0;
+    this.limit = Math.max(this.min, Math.floor(this.limit / 2));
+  }
+
+  /** 성공 — 누적 시 상한까지 천천히 복원 */
+  onSuccess(): void {
+    if (this.limit >= this.max) return;
+    this.streak++;
+    if (this.streak >= AdaptiveUploadLimiter.GROW_AFTER) {
+      this.streak = 0;
+      this.limit++;
+      const next = this.waiters.shift(); // 늘어난 슬롯만큼 대기자 깨움
+      if (next) next();
+    }
+  }
+}
+
+export async function uploadSingleImage(
+  blob: Blob,
+  name: string,
+  opts?: { onOverload?: () => void },
+): Promise<string> {
   const supabase = getSupabaseClient();
   // 마지막 실패 사유 — 양쪽 경로(direct + server) 다 실패하면 이걸로 throw
   let lastReason: ImageUploadError['reason'] = 'unknown';
   let lastMsg = '';
+  // 직접 경로에서 503/429 가 한 번이라도 보이면(최종 성공 여부와 무관하게) 호출자에게 과부하 신호.
+  //  적응형 한도가 동시성을 줄여 후속 업로드의 503 을 선제 차단한다.
+  const signalOverload = () => { try { opts?.onOverload?.(); } catch { /* noop */ } };
+  // 직접 경로 백오프 — 일반 실패는 짧게(200~), 과부하(rate_limited/503)는 지수(1s→2s→4s)로 길게.
+  const directBackoff = (attempt: number) =>
+    lastReason === 'rate_limited'
+      ? 1000 * Math.pow(2, attempt) + Math.random() * 500  // 1s, 2s, 4s (+jitter)
+      : 200 * (attempt + 1) + Math.random() * 200;
 
   // 사전 검증: 확장자
   if (!/\.(jpg|jpeg|png|webp|gif)$/i.test(name)) {
@@ -929,6 +1012,8 @@ export async function uploadSingleImage(blob: Blob, name: string): Promise<strin
             console.warn(`[uploadSingleImage] 사이즈 초과 (size=${blob.size}) — 재시도 skip`);
             break;
           }
+          // 503/429 — Storage 과부하. 호출자 동시성 백오프 트리거.
+          if (lastReason === 'rate_limited') signalOverload();
           // RLS/세션 만료 — 1회만 강제 refresh 시도 (다음 attempt 에서 효과)
           if (lastReason === 'permission' && attempt === 0) {
             _lastSessionCheckAt = 0; // throttle 해제
@@ -937,15 +1022,16 @@ export async function uploadSingleImage(blob: Blob, name: string): Promise<strin
         }
 
         if (attempt < 2) {
-          await SLEEP(200 * (attempt + 1) + Math.random() * 200);
+          await SLEEP(directBackoff(attempt));
           continue;
         }
         console.warn(`[uploadSingleImage] Supabase 직접 업로드 최종 실패: ${lastMsg} (size=${blob.size})`);
       } catch (e) {
         lastMsg = e instanceof Error ? e.message : String(e);
         lastReason = classifySupabaseError(lastMsg);
+        if (lastReason === 'rate_limited') signalOverload();
         if (attempt < 2) {
-          await SLEEP(200 * (attempt + 1) + Math.random() * 200);
+          await SLEEP(directBackoff(attempt));
           continue;
         }
         console.warn(`[uploadSingleImage] Supabase 직접 업로드 예외:`, e);
@@ -985,8 +1071,10 @@ export async function uploadSingleImage(blob: Blob, name: string): Promise<strin
           // 5xx — 재시도
           lastReason = 'server_5xx';
           lastMsg = `서버 ${res.status}`;
+          // 503 = 서버 라우트가 Storage 과부하/타임아웃을 명시적으로 보고한 것 → 동시성 백오프.
+          if (res.status === 503) signalOverload();
           if (attempt < 2) {
-            await SLEEP(300 * (attempt + 1));
+            await SLEEP((res.status === 503 ? 1000 : 300) * (attempt + 1));
             continue;
           }
         }
@@ -1023,14 +1111,35 @@ export async function uploadScannedImages(
   const failures: string[] = [];
   let nextIndex = 0;
 
+  // 호출자가 넘긴 concurrency 는 "희망 상한"으로만 취급하고 적응형 한도로 캡한다.
+  //   일부 호출부가 concurrency=images.length(무제한) 로 부르는데, 이게 Storage 503 버스트의 주범.
+  //   상한을 DIRECT_CONCURRENCY(16) 로 강제하고, 503/429 가 보이면 자동으로 더 줄인다.
+  const cap = Math.max(DIRECT_CONCURRENCY_MIN, Math.min(concurrency, DIRECT_CONCURRENCY));
+  const limiter = new AdaptiveUploadLimiter(
+    Math.min(DIRECT_CONCURRENCY_START, cap),
+    DIRECT_CONCURRENCY_MIN,
+    cap,
+  );
+
   async function worker() {
     while (nextIndex < images.length) {
       const idx = nextIndex++;
       try {
+        // 압축(클라 CPU)은 한도 밖에서 — 업로드 슬롯을 점유하지 않고 미리 파이프라인.
         const file = await images[idx].handle.getFile();
         const compressed = await compressImage(file, sellerBrand);
-        results[idx] = await uploadSingleImage(compressed, images[idx].name);
-        if (!results[idx]) {
+        // 실제 네트워크 업로드만 적응형 한도로 게이트.
+        await limiter.acquire();
+        try {
+          results[idx] = await uploadSingleImage(compressed, images[idx].name, {
+            onOverload: () => limiter.onOverload(),
+          });
+        } finally {
+          limiter.release();
+        }
+        if (results[idx]) {
+          limiter.onSuccess();
+        } else {
           failures.push(images[idx].name);
           console.warn(`[upload] 업로드 실패 (빈 응답): ${images[idx].name}`);
         }
@@ -1043,7 +1152,7 @@ export async function uploadScannedImages(
   }
 
   await Promise.all(
-    Array.from({ length: Math.min(concurrency, images.length) }, () => worker()),
+    Array.from({ length: Math.min(cap, images.length) }, () => worker()),
   );
 
   if (failures.length > 0) {

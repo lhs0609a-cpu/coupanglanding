@@ -208,6 +208,30 @@ async function callCoupangApi(
   return json;
 }
 
+/**
+ * [startDate, endDate] (YYYY-MM-DD, 둘 다 포함) 구간을 달력 월 경계로 잘라
+ * 각 조각이 단일 달 내부에 들어가도록 분할한다.
+ *   예: 2026-05-20 ~ 2026-06-30 → [['2026-05-20','2026-05-31'], ['2026-06-01','2026-06-30']]
+ * 단일 달 내부 구간은 시작일+1개월(=다음달 같은 날)보다 항상 이르므로
+ * 쿠팡 revenue-history 의 "1개월 미만" 제약을 항상 만족한다.
+ */
+export function splitByCalendarMonth(startDate: string, endDate: string): Array<[string, string]> {
+  const chunks: Array<[string, string]> = [];
+  let [y, m] = startDate.split('-').map(Number);
+  let cursor = startDate;
+  // 방어: 최대 24개월 (무한루프 차단)
+  for (let i = 0; i < 24 && cursor <= endDate; i++) {
+    const lastDay = new Date(y, m, 0).getDate();
+    const monthEnd = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    const chunkEnd = monthEnd < endDate ? monthEnd : endDate;
+    chunks.push([cursor, chunkEnd]);
+    // 다음 달 1일로 이동
+    if (m === 12) { y += 1; m = 1; } else { m += 1; }
+    cursor = `${y}-${String(m).padStart(2, '0')}-01`;
+  }
+  return chunks;
+}
+
 /** 월별 정산 데이터 조회 (전체 페이지 순회) */
 export async function fetchSettlementData(
   credentials: CoupangCredentials,
@@ -235,13 +259,20 @@ export async function fetchSettlementData(
   }
 
   const allItems: SettlementItem[] = [];
-  let token = '';
   let lastRaw: unknown = null;
   const maxPerPage = 50; // API 최대값 50
   const maxPages = 200;
 
+  // 쿠팡 revenue-history 는 조회 구간이 "1개월 미만" 이어야 함
+  //   (초과 시 400 "Date range period must be less than 1 months").
+  //   첫 정산(가입월~익월말)처럼 달을 걸치는 구간은 그대로 보내면 거부되므로,
+  //   달력 월 경계로 잘라 각 조각(단일 달 내부)을 개별 조회 후 합산한다.
+  const chunks = splitByCalendarMonth(startDate, endDate);
+
+  for (const [chunkStart, chunkEnd] of chunks) {
+  let token = '';
   for (let page = 0; page < maxPages; page++) {
-    const path = `${REVENUE_BASE_PATH}/revenue-history?vendorId=${credentials.vendorId}&recognitionDateFrom=${startDate}&recognitionDateTo=${endDate}&token=${encodeURIComponent(token)}&maxPerPage=${maxPerPage}`;
+    const path = `${REVENUE_BASE_PATH}/revenue-history?vendorId=${credentials.vendorId}&recognitionDateFrom=${chunkStart}&recognitionDateTo=${chunkEnd}&token=${encodeURIComponent(token)}&maxPerPage=${maxPerPage}`;
 
     const data = await callCoupangApi(credentials, 'GET', path) as Record<string, unknown>;
     lastRaw = data;
@@ -296,8 +327,9 @@ export async function fetchSettlementData(
     // nextToken 확인 (필드명이 다를 수 있으므로 여러 가능성 체크)
     const next = data.nextToken ?? data.token ?? '';
     token = String(next);
-    console.log(`[revenue-history] page ${page}: ${orders.length}건, nextToken=${token ? 'yes' : 'none'}`);
+    console.log(`[revenue-history] ${chunkStart}~${chunkEnd} page ${page}: ${orders.length}건, nextToken=${token ? 'yes' : 'none'}`);
     if (!token) break;
+  }
   }
 
   const totalSales = allItems.reduce((sum, i) => sum + i.salePrice, 0);
