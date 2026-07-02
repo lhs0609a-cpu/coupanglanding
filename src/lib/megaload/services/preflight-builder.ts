@@ -14,6 +14,7 @@ import type { PreventionConfig } from './item-winner-prevention';
 import type { ExtractedBuyOption } from './coupang-product-builder';
 import { generateFaqItems, extractSeoKeywords, generateClosingText } from './story-generator';
 import { isFreshProduceCategory, extractFruitInfo, sanitizeFruitClaims, type FruitInfo } from './fruit-compliance';
+import { buildOriginEvidence, sanitizeOriginClaims } from './origin-claim-guard';
 
 export interface BuildPayloadProduct {
   uid?: string;
@@ -194,8 +195,22 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
         ocrSpecs: product.ocrSpecs,
       })
     : null;
-  const gatedDisplayName = isFruit ? sanitizeFruitClaims(syncedDisplayName, fruitInfo) : syncedDisplayName;
-  const gatedSellerName = isFruit ? sanitizeFruitClaims(product.aiSellerName, fruitInfo) : product.aiSellerName;
+  const fruitGatedDisplayName = isFruit ? sanitizeFruitClaims(syncedDisplayName, fruitInfo) : syncedDisplayName;
+  const fruitGatedSellerName = isFruit ? sanitizeFruitClaims(product.aiSellerName, fruitInfo) : product.aiSellerName;
+
+  // ── 원산지·인증 주장 자동생성 차단 (모든 카테고리) ──
+  //   근거(셀러 원본) 없는 국내산/자연산/HACCP 등을 노출문구·본문에서 자동 삭제.
+  //   셀러가 원본에 직접 기입한 주장은 근거로 인정 → 유지.
+  const originEvidence = buildOriginEvidence({
+    name: optionSourceName,
+    tags: product.tags,
+    description: effectiveDescription,
+    ocrSpecs: product.ocrSpecs,
+    certifications: product.certifications,
+  });
+  // 제목(노출/등록상품명): 토큰형 → 인증 명칭까지 제거
+  const gatedDisplayName = sanitizeOriginClaims(fruitGatedDisplayName, originEvidence, { includeCert: true });
+  const gatedSellerName = sanitizeOriginClaims(fruitGatedSellerName, originEvidence, { includeCert: true });
 
   // 추출된 옵션값을 notices용 hints로 변환
   const noticeHints: ExtractedNoticeHints = {};
@@ -286,10 +301,14 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     attributeValues: product.attributeValuesOverride,
     reviewImageUrls,
     infoImageUrls,
-    aiStoryHtml: isFruit ? sanitizeFruitClaims(aiStoryHtml, fruitInfo) : aiStoryHtml,
-    aiStoryParagraphs: isFruit
-      ? finalStoryParagraphs.map((p) => sanitizeFruitClaims(p, fruitInfo) || p)
-      : finalStoryParagraphs,
+    aiStoryHtml: sanitizeOriginClaims(
+      isFruit ? sanitizeFruitClaims(aiStoryHtml, fruitInfo) : aiStoryHtml,
+      originEvidence,
+    ),
+    aiStoryParagraphs: finalStoryParagraphs.map((p) => {
+      const fruitGated = isFruit ? (sanitizeFruitClaims(p, fruitInfo) || p) : p;
+      return sanitizeOriginClaims(fruitGated, originEvidence) || fruitGated;
+    }),
     aiReviewTexts: finalReviewTexts,
     extractedBuyOptions: extracted.buyOptions as ExtractedBuyOption[],
     totalUnitCount: product.unitCountOverride ?? extracted.totalUnitCount,
@@ -309,7 +328,10 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     categoryPath,
     seoKeywords,
     faqItems,
-    closingText: isFruit ? sanitizeFruitClaims(closingText, fruitInfo) : closingText,
+    closingText: sanitizeOriginClaims(
+      isFruit ? sanitizeFruitClaims(closingText, fruitInfo) : closingText,
+      originEvidence,
+    ),
     contentBlocks: product.contentBlocksOverride || contentBlocks,
     detailImageTypes,
     thirdPartyImageUrls: selectedThirdPartyUrls,

@@ -931,8 +931,10 @@ export default function CoupangFieldsSection({
             </span>
           </div>
           <div className="space-y-1.5">
-            {missingRequiredAttrs.map((attr, i) => (
-              <div key={`a-${i}`} className="flex items-center gap-2 border-l-2 border-l-red-400 pl-2">
+            {missingRequiredAttrs.map((attr) => (
+              // key는 attr.name(안정) — index 키를 쓰면 필드를 채워 리스트에서 빠질 때
+              // 형제들의 index가 밀려 리마운트되며 포커스 손실·한글 IME 조합이 끊긴다.
+              <div key={attr.name} className="flex items-center gap-2 border-l-2 border-l-red-400 pl-2">
                 <label className="text-[10px] w-28 shrink-0 truncate text-red-600 font-medium" title={attr.name}>
                   {attr.name}<span className="text-red-500">*</span>
                 </label>
@@ -944,8 +946,8 @@ export default function CoupangFieldsSection({
                 />
               </div>
             ))}
-            {missingRequiredNotices.map((n, i) => (
-              <div key={`n-${i}`} className="flex items-center gap-2 border-l-2 border-l-red-400 pl-2">
+            {missingRequiredNotices.map((n) => (
+              <div key={n.key} className="flex items-center gap-2 border-l-2 border-l-red-400 pl-2">
                 <label className="text-[10px] w-28 shrink-0 truncate text-red-600 font-medium" title={`${n.ncName} · ${n.fieldName}`}>
                   {n.fieldName}<span className="text-red-500">*</span>
                 </label>
@@ -972,8 +974,8 @@ export default function CoupangFieldsSection({
             </span>
           </div>
           <div className="space-y-1.5">
-            {uncertainAttrs.map((attr, i) => (
-              <div key={`u-${i}`} className="flex items-center gap-2 border-l-2 border-l-blue-400 pl-2">
+            {uncertainAttrs.map((attr) => (
+              <div key={attr.name} className="flex items-center gap-2 border-l-2 border-l-blue-400 pl-2">
                 <label className="text-[10px] w-28 shrink-0 truncate text-blue-700 font-medium" title={attr.name}>
                   {attr.name}
                 </label>
@@ -1017,10 +1019,9 @@ export default function CoupangFieldsSection({
         {/* 판매자상품명 */}
         <div className={!product.editedName ? 'border-l-2 border-l-red-400 pl-3' : ''}>
           <RequiredLabel empty={!product.editedName}>판매자상품명 (sellerProductName)</RequiredLabel>
-          <input
-            type="text"
+          <DraftTextInput
             value={product.editedName}
-            onChange={(e) => onUpdate(product.uid, 'editedName', e.target.value)}
+            onCommit={(v) => onUpdate(product.uid, 'editedName', v)}
             className={inputRequired(!product.editedName)}
             placeholder="판매자상품명 입력"
           />
@@ -1062,10 +1063,9 @@ export default function CoupangFieldsSection({
             <div className={isEmpty ? (isGenerating ? 'border-l-2 border-l-purple-400 pl-3' : 'border-l-2 border-l-red-400 pl-3') : ''}>
               <RequiredLabel empty={isEmpty && !isGenerating}>노출상품명 (displayProductName)</RequiredLabel>
               <div className="relative">
-                <input
-                  type="text"
+                <DraftTextInput
                   value={dpn}
-                  onChange={(e) => onUpdate(product.uid, 'editedDisplayProductName', e.target.value)}
+                  onCommit={(v) => onUpdate(product.uid, 'editedDisplayProductName', v)}
                   className={isGenerating
                     ? 'w-full px-3 py-2 border border-purple-300 bg-purple-50 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition'
                     : brandLeak
@@ -1104,10 +1104,9 @@ export default function CoupangFieldsSection({
         {/* 브랜드 */}
         <div className={!product.editedBrand ? 'border-l-2 border-l-red-400 pl-3' : ''}>
           <RequiredLabel empty={!product.editedBrand}>브랜드</RequiredLabel>
-          <input
-            type="text"
+          <DraftTextInput
             value={product.editedBrand}
-            onChange={(e) => onUpdate(product.uid, 'editedBrand', e.target.value)}
+            onCommit={(v) => onUpdate(product.uid, 'editedBrand', v)}
             className={inputRequired(!product.editedBrand)}
             placeholder="브랜드 입력"
           />
@@ -1116,10 +1115,9 @@ export default function CoupangFieldsSection({
         {/* 제조사 */}
         <div>
           <OptionalLabel>제조사</OptionalLabel>
-          <input
-            type="text"
+          <DraftTextInput
             value={product.editedManufacturer ?? ''}
-            onChange={(e) => onUpdate(product.uid, 'editedManufacturer', e.target.value)}
+            onCommit={(v) => onUpdate(product.uid, 'editedManufacturer', v)}
             className={inputNormal}
             placeholder="비워두면 브랜드와 동일"
           />
@@ -1288,10 +1286,9 @@ export default function CoupangFieldsSection({
         {/* 아이템명 */}
         <div className={!(product.editedItemName ?? (firstItem?.itemName as string) ?? product.editedName) ? 'border-l-2 border-l-red-400 pl-3' : ''}>
           <RequiredLabel empty={!(product.editedItemName ?? (firstItem?.itemName as string) ?? product.editedName)}>아이템명 (itemName)</RequiredLabel>
-          <input
-            type="text"
+          <DraftTextInput
             value={product.editedItemName ?? (firstItem?.itemName as string) ?? product.editedName}
-            onChange={(e) => onUpdate(product.uid, 'editedItemName', e.target.value)}
+            onCommit={(v) => onUpdate(product.uid, 'editedItemName', v)}
             className={inputRequired(!(product.editedItemName ?? (firstItem?.itemName as string) ?? product.editedName))}
             placeholder="자동 생성"
           />
@@ -1515,12 +1512,12 @@ export default function CoupangFieldsSection({
           <p className="text-xs text-gray-400 py-2">카테고리를 먼저 선택하세요</p>
         ) : meta.attributes.length > 0 ? (
           <div className="space-y-1.5">
-            {meta.attributes.map((attr, i) => {
+            {meta.attributes.map((attr) => {
               const editedValue = product.editedAttributeValues?.[attr.name] ?? '';
               const isEmpty = attr.required && !editedValue;
 
               return (
-                <div key={i} className={`flex items-center gap-2 ${isEmpty ? 'border-l-2 border-l-red-400 pl-2' : ''}`}>
+                <div key={attr.name} className={`flex items-center gap-2 ${isEmpty ? 'border-l-2 border-l-red-400 pl-2' : ''}`}>
                   <label className={`text-[10px] w-28 shrink-0 truncate ${attr.required ? (isEmpty ? 'text-red-600 font-medium' : 'text-gray-700 font-medium') : 'text-gray-500'}`} title={attr.name}>
                     {attr.name}{attr.required && <span className="text-red-500">*</span>}
                   </label>
