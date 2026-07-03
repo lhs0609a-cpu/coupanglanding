@@ -73,17 +73,6 @@ export const CONTRACT_ARTICLES: ContractArticle[] = [
   },
   {
     number: 7,
-    title: '이행보증금',
-    paragraphs: [
-      '① 회원은 본 계약 체결과 동시에 이행보증금으로 금 3,000,000원(삼백만원)을 회사에 납부하여야 합니다.',
-      '② 이행보증금은 회원이 계약 개시일로부터 50일 이내에 쿠팡 셀러 계정에 상품 3,000개 이상을 등록 완료한 경우, 등록 완료 확인일로부터 7영업일 이내에 전액 반환합니다.',
-      '③ 회원이 제2항의 기한(50일) 내에 상품 3,000개 등록을 달성하지 못한 경우, 이행보증금은 전액 반환되지 않으며, 이는 민법 제398조에 따른 손해배상액의 예정으로서 회사가 투입한 교육비용, 프로그램 설정비용, 인력 투입비용 등에 대한 합리적 보상에 해당합니다.',
-      '④ 상품 등록 수의 산정은 쿠팡 Wing 관리자 페이지의 "상품관리" 메뉴에서 확인되는 "판매중" 상태의 상품 수를 기준으로 합니다.',
-      '⑤ 회원은 계약 체결일로부터 7일 이내에 서면으로 청약 철회를 할 수 있으며, 이 경우 이행보증금은 전액 반환합니다.',
-    ],
-  },
-  {
-    number: 8,
     title: '정산',
     paragraphs: [
       '① 정산은 매월 1회 진행되며, 회원은 매월 3일까지 해당 월의 매출을 보고합니다.',
@@ -94,7 +83,7 @@ export const CONTRACT_ARTICLES: ContractArticle[] = [
     ],
   },
   {
-    number: 9,
+    number: 8,
     title: '계약 기간',
     paragraphs: [
       '① 본 계약은 {{start_date}}부터 {{end_date}}까지 유효합니다.',
@@ -102,7 +91,7 @@ export const CONTRACT_ARTICLES: ContractArticle[] = [
     ],
   },
   {
-    number: 10,
+    number: 9,
     title: '계약 해지',
     paragraphs: [
       '① 양 당사자는 30일 전 서면 통보로 본 계약을 해지할 수 있습니다.',
@@ -111,12 +100,12 @@ export const CONTRACT_ARTICLES: ContractArticle[] = [
     subItems: [
       { label: '1', text: '상대방이 본 계약의 중요한 조항을 위반하고, 통보 후 7일 이내에 시정하지 않은 경우' },
       { label: '2', text: '회원이 3개월 연속 수수료를 미납한 경우' },
-      { label: '3', text: '회원이 제4조(프로그램 접근 권한) 또는 제13조(비밀유지)를 위반한 경우' },
+      { label: '3', text: '회원이 제4조(프로그램 접근 권한) 또는 제12조(비밀유지)를 위반한 경우' },
       { label: '4', text: '회원이 쿠팡 이용약관을 위반하여 셀러 계정이 정지된 경우' },
     ],
   },
   {
-    number: 11,
+    number: 10,
     title: '계약 종료 시 의무',
     paragraphs: [
       '① 계약 종료 시 회원은 종료일로부터 14일 이내에 회사의 자동화 프로그램을 통해 등록한 모든 상품을 비활성화(철거)하여야 합니다.',
@@ -125,16 +114,16 @@ export const CONTRACT_ARTICLES: ContractArticle[] = [
     ],
   },
   {
-    number: 12,
+    number: 11,
     title: '위약금',
     paragraphs: [
-      '① 회원이 제11조 제1항의 상품 철거 의무를 이행하지 않은 경우, 미철거 기간 동안 해당 상품에서 발생한 매출의 수수료율의 2배에 해당하는 금액을 위약금으로 지급하여야 합니다.',
-      '② 회원이 제13조(비밀유지)를 위반한 경우, 위반 건당 300만원의 위약금을 지급하여야 합니다.',
+      '① 회원이 제10조 제1항의 상품 철거 의무를 이행하지 않은 경우, 미철거 기간 동안 해당 상품에서 발생한 매출의 수수료율의 2배에 해당하는 금액을 위약금으로 지급하여야 합니다.',
+      '② 회원이 제12조(비밀유지)를 위반한 경우, 위반 건당 300만원의 위약금을 지급하여야 합니다.',
       '③ 위약금은 실제 손해배상과 별도로 청구할 수 있습니다.',
     ],
   },
   {
-    number: 13,
+    number: 12,
     title: '비밀유지',
     paragraphs: [
       '① 양 당사자는 본 계약 과정에서 알게 된 상대방의 사업 정보, 전략, 기술, 고객 정보 등 일체의 비밀 정보를 제3자에게 공개하지 않습니다.',
@@ -142,7 +131,7 @@ export const CONTRACT_ARTICLES: ContractArticle[] = [
     ],
   },
   {
-    number: 14,
+    number: 13,
     title: '영업비밀 보호',
     paragraphs: [
       '① 회원은 회사가 제공하는 자동화 프로그램의 알고리즘, 소싱 전략, 데이터 분석 방법론, 가격 책정 로직 등 영업비밀을 부정경쟁방지 및 영업비밀보호에 관한 법률에 따라 보호하여야 합니다.',
@@ -151,7 +140,7 @@ export const CONTRACT_ARTICLES: ContractArticle[] = [
     ],
   },
   {
-    number: 15,
+    number: 14,
     title: '개인정보 처리',
     paragraphs: [
       '① 회사는 서비스 제공을 위해 다음 개인정보를 수집·이용합니다:',
@@ -164,7 +153,7 @@ export const CONTRACT_ARTICLES: ContractArticle[] = [
     ],
   },
   {
-    number: 16,
+    number: 15,
     title: '면책',
     paragraphs: [
       '① 회사는 다음 사유로 인한 회원의 손해에 대해 책임을 지지 않습니다:',
@@ -181,7 +170,7 @@ export const CONTRACT_ARTICLES: ContractArticle[] = [
     ],
   },
   {
-    number: 17,
+    number: 16,
     title: '분쟁 해결',
     paragraphs: [
       '① 본 계약은 대한민국 법률에 따라 해석됩니다.',
@@ -285,17 +274,6 @@ const TRIPLE_CONTRACT_ARTICLES: ContractArticle[] = [
   },
   {
     number: 8,
-    title: '이행보증금',
-    paragraphs: [
-      '① 을 또는 병은 본 계약 체결과 동시에 이행보증금으로 금 3,000,000원(삼백만원)을 갑에 납부하여야 합니다.',
-      '② 이행보증금은 병이 계약 개시일로부터 50일 이내에 쿠팡 셀러 계정에 상품 3,000개 이상을 등록 완료한 경우, 등록 완료 확인일로부터 7영업일 이내에 전액 반환합니다.',
-      '③ 병이 제2항의 기한(50일) 내에 상품 3,000개 등록을 달성하지 못한 경우, 이행보증금은 전액 반환되지 않으며, 이는 민법 제398조에 따른 손해배상액의 예정으로서 갑이 투입한 교육비용, 프로그램 설정비용, 인력 투입비용 등에 대한 합리적 보상에 해당합니다.',
-      '④ 상품 등록 수의 산정은 쿠팡 Wing 관리자 페이지의 "상품관리" 메뉴에서 확인되는 "판매중" 상태의 상품 수를 기준으로 합니다.',
-      '⑤ 을 또는 병은 계약 체결일로부터 7일 이내에 서면으로 청약 철회를 할 수 있으며, 이 경우 이행보증금은 전액 반환합니다.',
-    ],
-  },
-  {
-    number: 9,
     title: '정산',
     paragraphs: [
       '① 정산은 매월 1회 진행되며, 병은 매월 3일까지 해당 월의 매출을 보고합니다.',
@@ -306,7 +284,7 @@ const TRIPLE_CONTRACT_ARTICLES: ContractArticle[] = [
     ],
   },
   {
-    number: 10,
+    number: 9,
     title: '계약 기간',
     paragraphs: [
       '① 본 계약은 {{start_date}}부터 {{end_date}}까지 유효합니다.',
@@ -314,7 +292,7 @@ const TRIPLE_CONTRACT_ARTICLES: ContractArticle[] = [
     ],
   },
   {
-    number: 11,
+    number: 10,
     title: '계약 해지',
     paragraphs: [
       '① 삼자 모두 30일 전 서면 통보로 본 계약을 해지할 수 있습니다.',
@@ -323,12 +301,12 @@ const TRIPLE_CONTRACT_ARTICLES: ContractArticle[] = [
     subItems: [
       { label: '1', text: '을 또는 병이 본 계약의 중요한 조항을 위반하고, 통보 후 7일 이내에 시정하지 않은 경우' },
       { label: '2', text: '3개월 연속 수수료를 미납한 경우' },
-      { label: '3', text: '병이 제5조(프로그램 접근 권한) 또는 제14조(비밀유지)를 위반한 경우' },
+      { label: '3', text: '병이 제5조(프로그램 접근 권한) 또는 제13조(비밀유지)를 위반한 경우' },
       { label: '4', text: '병이 쿠팡 이용약관을 위반하여 셀러 계정이 정지된 경우' },
     ],
   },
   {
-    number: 12,
+    number: 11,
     title: '계약 종료 시 의무',
     paragraphs: [
       '① 계약 종료 시 병은 종료일로부터 14일 이내에 갑의 자동화 프로그램을 통해 등록한 모든 상품을 비활성화(철거)하여야 합니다.',
@@ -337,16 +315,16 @@ const TRIPLE_CONTRACT_ARTICLES: ContractArticle[] = [
     ],
   },
   {
-    number: 13,
+    number: 12,
     title: '위약금',
     paragraphs: [
-      '① 병이 제12조 제1항의 상품 철거 의무를 이행하지 않은 경우, 미철거 기간 동안 해당 상품에서 발생한 매출의 수수료율의 2배에 해당하는 금액을 위약금으로 을과 병이 연대하여 지급하여야 합니다.',
-      '② 을 또는 병이 제14조(비밀유지)를 위반한 경우, 위반 건당 300만원의 위약금을 지급하여야 합니다.',
+      '① 병이 제11조 제1항의 상품 철거 의무를 이행하지 않은 경우, 미철거 기간 동안 해당 상품에서 발생한 매출의 수수료율의 2배에 해당하는 금액을 위약금으로 을과 병이 연대하여 지급하여야 합니다.',
+      '② 을 또는 병이 제13조(비밀유지)를 위반한 경우, 위반 건당 300만원의 위약금을 지급하여야 합니다.',
       '③ 위약금은 실제 손해배상과 별도로 청구할 수 있습니다.',
     ],
   },
   {
-    number: 14,
+    number: 13,
     title: '비밀유지',
     paragraphs: [
       '① 갑, 을, 병은 본 계약 과정에서 알게 된 상대방의 사업 정보, 전략, 기술, 고객 정보 등 일체의 비밀 정보를 제3자에게 공개하지 않습니다.',
@@ -354,7 +332,7 @@ const TRIPLE_CONTRACT_ARTICLES: ContractArticle[] = [
     ],
   },
   {
-    number: 15,
+    number: 14,
     title: '영업비밀 보호',
     paragraphs: [
       '① 을과 병은 갑이 제공하는 자동화 프로그램의 알고리즘, 소싱 전략, 데이터 분석 방법론, 가격 책정 로직 등 영업비밀을 부정경쟁방지 및 영업비밀보호에 관한 법률에 따라 보호하여야 합니다.',
@@ -363,7 +341,7 @@ const TRIPLE_CONTRACT_ARTICLES: ContractArticle[] = [
     ],
   },
   {
-    number: 16,
+    number: 15,
     title: '개인정보 처리',
     paragraphs: [
       '① 갑은 서비스 제공을 위해 다음 개인정보를 수집·이용합니다:',
@@ -376,7 +354,7 @@ const TRIPLE_CONTRACT_ARTICLES: ContractArticle[] = [
     ],
   },
   {
-    number: 17,
+    number: 16,
     title: '면책',
     paragraphs: [
       '① 갑은 다음 사유로 인한 을 또는 병의 손해에 대해 책임을 지지 않습니다:',
@@ -393,16 +371,16 @@ const TRIPLE_CONTRACT_ARTICLES: ContractArticle[] = [
     ],
   },
   {
-    number: 18,
+    number: 17,
     title: '연대책임',
     paragraphs: [
-      '① 을과 병은 본 계약에서 정한 모든 금전 채무(수수료, 이행보증금, 위약금, 손해배상금 등)에 대하여 민법 제413조에 따라 연대하여 이행할 의무를 부담합니다.',
+      '① 을과 병은 본 계약에서 정한 모든 금전 채무(수수료, 위약금, 손해배상금 등)에 대하여 민법 제413조에 따라 연대하여 이행할 의무를 부담합니다.',
       '② 갑은 을 또는 병 어느 일방에게 단독으로 또는 양자에게 동시에 채무 전액의 이행을 청구할 수 있습니다.',
       '③ 을과 병 사이의 내부적 부담 비율은 본 계약의 효력에 영향을 미치지 않습니다.',
     ],
   },
   {
-    number: 19,
+    number: 18,
     title: '분쟁 해결',
     paragraphs: [
       '① 본 계약은 대한민국 법률에 따라 해석됩니다.',
@@ -413,8 +391,8 @@ const TRIPLE_CONTRACT_ARTICLES: ContractArticle[] = [
 
 /**
  * 계약 모드에 따른 조항 배열 반환
- * single: 기존 CONTRACT_ARTICLES (17조)
- * triple: TRIPLE_CONTRACT_ARTICLES (19조)
+ * single: 기존 CONTRACT_ARTICLES (16조)
+ * triple: TRIPLE_CONTRACT_ARTICLES (18조)
  */
 export function getContractArticles(mode: 'single' | 'triple' = 'single'): ContractArticle[] {
   if (mode === 'triple') return TRIPLE_CONTRACT_ARTICLES;
@@ -424,7 +402,8 @@ export function getContractArticles(mode: 'single' | 'triple' = 'single'): Contr
 /**
  * 약관 버전 — 본문(CONTRACT_ARTICLES / TRIPLE_CONTRACT_ARTICLES)을 개정할 때마다 +1.
  *   v1: 최초 약관
- *   v2: 제8조⑤(단일)/제9조⑤(3자) — 광고비 차감 한도 = 순이익(광고 차감 전)의 10% 신설
+ *   v2: (1) 광고비 차감 한도 = 순이익(광고 차감 전)의 10% 신설 — 제7조⑤(단일)/제8조⑤(3자)
+ *       (2) 이행보증금 조항 폐지·삭제 — 재동의 없이 반영, 이후 조 번호가 앞으로 당겨짐
  * 서명 시 contracts.terms_version 에 기록되고, 이 값보다 작은 버전으로 서명한 회원은
  * 계약 페이지에서 개정 재동의가 요구된다.
  */

@@ -169,7 +169,6 @@ const testimonials = [
 
 const guaranteeItems = [
   { icon: Shield, title: '3개월 내 매출 미발생 시 비용 0원', desc: '매출이 안 나오면 한 푼도 받지 않습니다. 저희의 자신감입니다.' },
-  { icon: CheckCircle, title: '보증금 100% 환급', desc: '보증금 300만원은 미션 수행 시 100% 돌려드립니다. 무조건 돌려드릴 거니 걱정하지 마세요. 다만, 하루에 1시간도 투자하지 않으시면 어렵습니다.' },
   { icon: FileText, title: '투명한 정산 리포트', desc: '매월 상세한 엑셀 리포트 제공. 매출, 원가, 광고비, 순이익 모두 공개.' },
 ];
 
