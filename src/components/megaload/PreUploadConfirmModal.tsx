@@ -22,30 +22,13 @@ interface Props {
   onCancel: () => void;
 }
 
-/** 내장 SVG 목업 썸네일 — good=정상 예시, bad=위반 예시 */
-function ExampleThumb({ variant }: { variant: 'ip-good' | 'ip-bad' | 'opt-good' | 'opt-bad' }) {
-  const isGood = variant === 'ip-good' || variant === 'opt-good';
+/** 내장 SVG 목업 썸네일 — 옵션명 예시(good/bad) 전용. 지재권 예시는 실제 이미지 사용. */
+function ExampleThumb({ variant }: { variant: 'opt-good' | 'opt-bad' }) {
+  const isGood = variant === 'opt-good';
   const ring = isGood ? '#16a34a' : '#E31837';
   return (
     <svg viewBox="0 0 120 90" className="w-full h-auto rounded-md border" style={{ borderColor: ring }} role="img" aria-hidden>
       <rect x="0" y="0" width="120" height="90" fill={isGood ? '#f0fdf4' : '#fef2f2'} />
-      {variant === 'ip-good' && (
-        <>
-          {/* 정품/직접촬영 상품 박스 */}
-          <rect x="34" y="24" width="52" height="42" rx="4" fill="#bbf7d0" stroke="#16a34a" />
-          <rect x="42" y="34" width="36" height="6" rx="3" fill="#16a34a" opacity="0.6" />
-          <rect x="42" y="46" width="24" height="6" rx="3" fill="#16a34a" opacity="0.35" />
-        </>
-      )}
-      {variant === 'ip-bad' && (
-        <>
-          {/* 캐릭터/브랜드 로고 무단 사용 느낌 — 별 + 말풍선 */}
-          <circle cx="46" cy="42" r="14" fill="#fecaca" stroke="#E31837" />
-          <path d="M46 32 l3 6 6 1 -4.5 4 1 6 -5.5 -3 -5.5 3 1 -6 -4.5 -4 6 -1 z" fill="#E31837" opacity="0.7" />
-          <rect x="66" y="34" width="30" height="16" rx="8" fill="#fff" stroke="#E31837" />
-          <text x="81" y="45" fontSize="9" fill="#E31837" textAnchor="middle" fontWeight="bold">TM®</text>
-        </>
-      )}
       {variant === 'opt-good' && (
         <>
           <rect x="14" y="24" width="92" height="14" rx="3" fill="#fff" stroke="#16a34a" />
@@ -144,16 +127,26 @@ export default function PreUploadConfirmModal({ open, count, onConfirm, onCancel
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <ExampleThumb variant="ip-good" />
-                <p className="text-[11px] text-green-700 font-medium text-center">✅ 직접 촬영·정품 이미지</p>
+                <img
+                  src="/megaload/guide/ip-safe-nukki.jpg"
+                  alt="누끼 딴 상품 이미지 예시 (안전)"
+                  className="w-full aspect-square object-contain rounded-md border-2 bg-white"
+                  style={{ borderColor: '#16a34a' }}
+                />
+                <p className="text-[11px] text-green-700 font-medium text-center">✅ 누끼 딴 이미지 (직접 가공)</p>
               </div>
               <div className="space-y-1">
-                <ExampleThumb variant="ip-bad" />
-                <p className="text-[11px] text-[#E31837] font-medium text-center">❌ 캐릭터·브랜드 로고 무단 사용</p>
+                <img
+                  src="/megaload/guide/ip-risk-vendor.jpg"
+                  alt="업체 제작 연출 이미지 예시 (지재권 위험)"
+                  className="w-full aspect-square object-contain rounded-md border-2 bg-white"
+                  style={{ borderColor: '#E31837' }}
+                />
+                <p className="text-[11px] text-[#E31837] font-medium text-center">❌ 업체(제조사) 제작 이미지</p>
               </div>
             </div>
             <p className="text-xs text-gray-500 leading-relaxed">
-              타인의 상표·저작권·디자인권을 침해하는 이미지/문구(브랜드 로고, 캐릭터, 유명 제품 사진 무단 도용 등)는 판매 중지·계정 정지·손해배상 사유가 됩니다.
+              제조사·도매업체가 만든 연출·상세 이미지를 무단으로 사용하면 저작권 침해입니다. 배경을 제거해 누끼로 직접 가공한 이미지를 사용하세요. 위반 시 판매 중지·계정 정지·손해배상 사유가 됩니다.
             </p>
             <CheckRow checked={ipChecked} onChange={setIpChecked}>
               상표·저작권·디자인권 등 타인의 <b>지식재산권을 침해하지 않음</b>을 확인했습니다.
