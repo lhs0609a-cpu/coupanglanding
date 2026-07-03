@@ -12,6 +12,7 @@ import BulkStep2Review from './bulk/BulkStep2Review';
 import BulkStep3Progress from './bulk/BulkStep3Progress';
 import AutoModeModal from './bulk/AutoModeModal';
 import FinalReviewModal from './bulk/FinalReviewModal';
+import PreUploadConfirmModal from './PreUploadConfirmModal';
 import { useAutoMode } from './bulk/useAutoMode';
 import { Zap } from 'lucide-react';
 
@@ -25,6 +26,25 @@ export default function BulkRegisterPanel() {
   // preflight 완료 → 사용자가 썸네일/가격/원본링크/노출상품명 확인 → 확정 → register
   const [finalReviewOpen, setFinalReviewOpen] = useState(false);
   const [excludedUids, setExcludedUids] = useState<Set<string>>(new Set());
+  // ─── 업로드 전 책임 확인 게이트 (지재권/옵션명/책임동의) — 수동·자동 등록 공통 ───
+  const [preUploadOpen, setPreUploadOpen] = useState(false);
+  const pendingRegisterRef = useRef<null | (() => void)>(null);
+  const openPreUpload = useCallback((action: () => void) => {
+    pendingRegisterRef.current = action;
+    setPreUploadOpen(true);
+  }, []);
+  const handlePreUploadConfirm = useCallback(() => {
+    setPreUploadOpen(false);
+    const action = pendingRegisterRef.current;
+    pendingRegisterRef.current = null;
+    if (action) action();
+  }, []);
+  const handlePreUploadCancel = useCallback(() => {
+    setPreUploadOpen(false);
+    pendingRegisterRef.current = null;
+    // 자동 모드에서 취소한 경우 재확인이 가능하도록 가드 해제
+    autoRegisterFiredRef.current = false;
+  }, []);
   // 자동 모드: handleRegister 가 한 번만 호출되도록 가드
   const autoRegisterFiredRef = useRef(false);
   const finalReviewShownRef = useRef(false);
@@ -56,9 +76,9 @@ export default function BulkRegisterPanel() {
       ));
     }
     setFinalReviewOpen(false);
-    // 다음 tick 에 handleRegister — setProducts 반영 후 실행
-    setTimeout(() => actions.handleRegister(), 50);
-  }, [excludedUids, actions]);
+    // 책임 확인 게이트(지재권/옵션명/책임동의) 통과 후 등록 — setProducts 반영 위해 다음 tick 실행
+    openPreUpload(() => setTimeout(() => actions.handleRegister(), 50));
+  }, [excludedUids, actions, openPreUpload]);
 
   const handleFinalAbort = useCallback(() => {
     setFinalReviewOpen(false);
@@ -398,7 +418,7 @@ export default function BulkRegisterPanel() {
           onSearchCategory={actions.handleSearchCategory}
           onSelectCategory={actions.selectCategory}
           onDeepValidation={actions.handleDeepValidation}
-          onRegister={actions.handleRegister}
+          onRegister={() => openPreUpload(() => actions.handleRegister())}
           onBack={handleBack}
           thumbnailCache={thumbnailCache}
           onLoadThumbnail={handleLoadThumbnail}
@@ -480,6 +500,14 @@ export default function BulkRegisterPanel() {
         })}
         onConfirm={handleFinalConfirm}
         onAbort={handleFinalAbort}
+      />
+
+      {/* 업로드 전 책임 확인 게이트 — 지재권/옵션명/책임동의 (수동·자동 공통) */}
+      <PreUploadConfirmModal
+        open={preUploadOpen}
+        count={actions.products.filter(p => p.selected).length}
+        onConfirm={handlePreUploadConfirm}
+        onCancel={handlePreUploadCancel}
       />
 
       {/* 올인원 자동 등록 모달 — 폴더 1번 선택 → 사전분석 → Gate 1 확인 → 자동 실행 */}

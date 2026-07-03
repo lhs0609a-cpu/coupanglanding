@@ -24,6 +24,7 @@ import {
   MARGIN_PRESETS, applyMarginPreset, calculateSellingPrice, type MarginPresetLevel,
 } from '@/lib/megaload/services/margin-pricing';
 import { focusNextField } from './focusNextField';
+import PreUploadConfirmModal from './PreUploadConfirmModal';
 
 const BATCH_SIZE = 10;
 const IMG_RE = /\.(png|jpg|jpeg|webp)$/i;
@@ -387,6 +388,23 @@ export default function AllInOneRegisterPanel() {
     }));
   };
 
+  // ── 업로드 전 책임 확인 게이트 ───────────────────────────────────
+  const [preUploadOpen, setPreUploadOpen] = useState(false);
+  const [preUploadCount, setPreUploadCount] = useState(0);
+  // 버튼 클릭 → 필드 검증 통과 시에만 책임 확인 게이트 노출 (확인 후 handleRegister 실행)
+  const requestRegister = useCallback(() => {
+    setError('');
+    const targets = rows.filter((r) => r.approved && r.gen && r.status !== 'success');
+    if (targets.length === 0) { setError('승인된 상품이 없습니다.'); return; }
+    if (!selectedOutbound) { setError('출고지를 선택해주세요. (쿠팡 Wing에 등록 필요)'); return; }
+    if (!selectedReturn) { setError('반품지를 선택해주세요. (쿠팡 Wing에 등록 필요)'); return; }
+    if (!contactNumber.trim()) { setError('고객센터 연락처를 입력해주세요.'); return; }
+    const missingImg = targets.filter((r) => r.mainImages.length === 0);
+    if (missingImg.length > 0) { setError(`대표이미지가 없는 상품 ${missingImg.length}개가 있습니다. 워커에서 대표이미지 가공 후 다시 시도하세요.`); return; }
+    setPreUploadCount(targets.length);
+    setPreUploadOpen(true);
+  }, [rows, selectedOutbound, selectedReturn, contactNumber]);
+
   // ── 등록 ─────────────────────────────────────────────────────────
   const handleRegister = useCallback(async () => {
     setError('');
@@ -566,7 +584,7 @@ export default function AllInOneRegisterPanel() {
             <button onClick={() => setAll(false)} disabled={registering} className="text-sm border border-gray-300 rounded-lg px-3 py-2">전체 해제</button>
             <span className="text-sm text-gray-500">승인 <b className="text-gray-900">{approvedCount}</b> / {rows.length}건</span>
             <span className="flex-1" />
-            <button onClick={handleRegister} disabled={registering || approvedCount === 0}
+            <button onClick={requestRegister} disabled={registering || approvedCount === 0}
               className="bg-gray-900 text-white text-sm font-semibold rounded-lg px-5 py-2 disabled:opacity-50">
               {registering ? `등록 중… ${progress.done}/${progress.total}` : `승인분 등록 (${approvedCount})`}
             </button>
@@ -575,6 +593,14 @@ export default function AllInOneRegisterPanel() {
       </div>
       {scanMsg && <p className="text-xs text-gray-500">{scanMsg}</p>}
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+
+      {/* 업로드 전 책임 확인 게이트 — 지재권/옵션명/책임동의 */}
+      <PreUploadConfirmModal
+        open={preUploadOpen}
+        count={preUploadCount}
+        onConfirm={() => { setPreUploadOpen(false); handleRegister(); }}
+        onCancel={() => setPreUploadOpen(false)}
+      />
 
       {/* 마진 프리셋 — 원가×마진으로 전 카드 판매가 일괄 기록(개별 수정은 그 뒤 카드에서 덮어쓰기). '워커 기본'은 생성값 복원 */}
       {rows.length > 0 && (
