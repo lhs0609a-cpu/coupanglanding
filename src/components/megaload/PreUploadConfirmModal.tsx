@@ -11,7 +11,7 @@ import { ShieldCheck, Tag, AlertTriangle, X } from 'lucide-react';
  * 프론트에서만 막는 게이트 — 별도 백엔드 동의 기록은 남기지 않는다.
  *
  * 예시 이미지는 외부 핫링크 대신 내장 SVG 목업을 사용한다(저작권/링크깨짐 리스크 0).
- * 실제 스크린샷으로 교체하려면 아래 <ExampleThumb> 자리에 <img src="/megaload/guide/xxx.png" /> 로 바꾸면 된다.
+ * 예시 이미지는 public/guide/ 에 두고 /guide/xxx.jpg 로 참조한다(미들웨어 인증에 안 걸리는 공개 경로).
  */
 
 interface Props {
@@ -128,7 +128,7 @@ export default function PreUploadConfirmModal({ open, count, onConfirm, onCancel
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <img
-                  src="/megaload/guide/ip-safe-nukki.jpg"
+                  src="/guide/ip-safe-nukki.jpg"
                   alt="누끼 딴 상품 이미지 예시 (안전)"
                   className="w-full aspect-square object-contain rounded-md border-2 bg-white"
                   style={{ borderColor: '#16a34a' }}
@@ -137,7 +137,7 @@ export default function PreUploadConfirmModal({ open, count, onConfirm, onCancel
               </div>
               <div className="space-y-1">
                 <img
-                  src="/megaload/guide/ip-risk-vendor.jpg"
+                  src="/guide/ip-risk-vendor.jpg"
                   alt="업체 제작 연출 이미지 예시 (지재권 위험)"
                   className="w-full aspect-square object-contain rounded-md border-2 bg-white"
                   style={{ borderColor: '#E31837' }}
