@@ -1534,6 +1534,26 @@ export function useBulkRegisterActions() {
             const PRODUCT_PARALLEL = typeof navigator !== 'undefined'
               ? Math.min(16, Math.max(8, navigator.hardwareConcurrency || 8))
               : 8;
+
+            // ─── 분석 후보 상한 (속도패치) ──────────────────────────────────
+            //   상세페이지는 20~50장씩 들어오지만 최종 선택은 detail 10 / review 5 장뿐.
+            //   후보가 상한을 넘으면 "위치기반 균등 샘플링"으로 추려서 디코드·O(N²) 쌍비교를
+            //   후보 수에 비례해 줄인다. 순서(첫·끝 포함)를 보존해 상세페이지 서사 커버리지 유지.
+            //   유지 장수의 3배 headroom(30/16)이라 다양성 선택 품질 영향은 사실상 없음.
+            const CANDIDATE_CAP_DETAIL = 30; // detail maxCount=10 → 3배
+            const CANDIDATE_CAP_REVIEW = 16; // review maxCount=5 → 3배+
+            const sampleEvenly = <T,>(arr: T[], cap: number): T[] => {
+              if (arr.length <= cap) return arr;
+              const step = (arr.length - 1) / (cap - 1);
+              const seen = new Set<number>();
+              const out: T[] = [];
+              for (let i = 0; i < cap; i++) {
+                const idx = Math.round(i * step);
+                if (!seen.has(idx)) { seen.add(idx); out.push(arr[idx]); }
+              }
+              return out;
+            };
+
             let nextIdx = 0;
             const processProduct = async (idx: number): Promise<void> => {
               const p = latestForFilter[idx];
@@ -1552,11 +1572,13 @@ export function useBulkRegisterActions() {
                 const detailUrls: (string | null)[] = await Promise.all(
                   detailImgs.map(async img => (await ensureObjectUrl(img)) ?? null),
                 );
-                const validDetailMap: { origIdx: number; url: string }[] = [];
+                const rawDetailMap: { origIdx: number; url: string }[] = [];
                 for (let j = 0; j < detailUrls.length; j++) {
-                  if (detailUrls[j]) validDetailMap.push({ origIdx: j, url: detailUrls[j]! });
+                  if (detailUrls[j]) rawDetailMap.push({ origIdx: j, url: detailUrls[j]! });
                 }
-                if (validDetailMap.length === 0) return;
+                if (rawDetailMap.length === 0) return;
+                // 후보 상한 — 30장 초과 시 균등 샘플링 (origIdx 보존, 다운스트림 매핑 일관)
+                const validDetailMap = sampleEvenly(rawDetailMap, CANDIDATE_CAP_DETAIL);
 
                 const urls = validDetailMap.map(e => e.url);
                 try {
@@ -1666,11 +1688,12 @@ export function useBulkRegisterActions() {
                 const reviewUrls: (string | null)[] = await Promise.all(
                   reviewImgs.map(async img => (await ensureObjectUrl(img)) ?? null),
                 );
-                const validReviewMap: { origIdx: number; url: string }[] = [];
+                const rawReviewMap: { origIdx: number; url: string }[] = [];
                 for (let j = 0; j < reviewUrls.length; j++) {
-                  if (reviewUrls[j]) validReviewMap.push({ origIdx: j, url: reviewUrls[j]! });
+                  if (reviewUrls[j]) rawReviewMap.push({ origIdx: j, url: reviewUrls[j]! });
                 }
-                if (validReviewMap.length === 0) return;
+                if (rawReviewMap.length === 0) return;
+                const validReviewMap = sampleEvenly(rawReviewMap, CANDIDATE_CAP_REVIEW);
 
                 try {
                   // Option C: referenceUrls 제거 — trustFolder=true이므로 cross-reference outlier는 이미 스킵.
@@ -1719,10 +1742,13 @@ export function useBulkRegisterActions() {
                 Promise.all(mainImgs.slice(0, 3).map(img => img.handle.getFile().catch(() => null))),
               ]);
 
-              const detailFilesWithIdx: { origIdx: number; file: File }[] = [];
-              detailFileResults.forEach((f, j) => { if (f) detailFilesWithIdx.push({ origIdx: j, file: f }); });
-              const reviewFilesWithIdx: { origIdx: number; file: File }[] = [];
-              reviewFileResults.forEach((f, j) => { if (f) reviewFilesWithIdx.push({ origIdx: j, file: f }); });
+              const rawDetailFiles: { origIdx: number; file: File }[] = [];
+              detailFileResults.forEach((f, j) => { if (f) rawDetailFiles.push({ origIdx: j, file: f }); });
+              const rawReviewFiles: { origIdx: number; file: File }[] = [];
+              reviewFileResults.forEach((f, j) => { if (f) rawReviewFiles.push({ origIdx: j, file: f }); });
+              // 후보 상한 — 균등 샘플링 (origIdx 보존). 워커로 넘기는 파일 수 자체를 줄여 디코드·O(N²) 절감
+              const detailFilesWithIdx = sampleEvenly(rawDetailFiles, CANDIDATE_CAP_DETAIL);
+              const reviewFilesWithIdx = sampleEvenly(rawReviewFiles, CANDIDATE_CAP_REVIEW);
               const mainFiles: File[] = mainFileResults.filter((f): f is File => !!f);
 
               if (detailFilesWithIdx.length === 0 && reviewFilesWithIdx.length === 0) return;
