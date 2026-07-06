@@ -14,6 +14,7 @@ import {
   getSettlementStatus,
 } from '@/lib/utils/settlement';
 import { buildCostBreakdown } from '@/lib/calculations/deposit';
+import { getBillableThroughMonth } from '@/lib/payments/billing-cycle';
 import StatCard from '@/components/ui/StatCard';
 import {
   Table2, Search, Download, TrendingUp, Users as UsersIcon, CheckCircle2, Banknote,
@@ -639,9 +640,13 @@ export default function AdminSalesOverviewPage() {
   const [chargeResultModal, setChargeResultModal] = useState<{ name: string; lines: string[]; success: boolean } | null>(null);
   const handleChargeUser = useCallback(async (ptUserId: string, name: string, estimatedFee: number) => {
     if (!confirm(
-      `⚡ ${name} 사용자의 직전 마감월 수수료를 즉시 결제합니다.\n` +
-      `예상 청구액: ₩${estimatedFee.toLocaleString()} (광고비 0 가정 추정)\n\n` +
-      `Toss 빌링키로 즉시 카드 결제가 시도됩니다.\n` +
+      `⚡ ${name} 사용자의 미청구 수수료를 즉시 결제합니다.\n` +
+      `화면 표시 추정액: ₩${estimatedFee.toLocaleString()} (광고비 0 가정)\n` +
+      `※ 실제 청구액은 결제 직전 최신 정산 net 기준으로 서버가 재계산합니다.\n` +
+      (estimatedFee <= 0
+        ? `※ 표시액이 0원인 것은 정산 net 동기화 전 화면일 수 있습니다. 확정 net이 있으면 그 금액으로 청구되고, 정말 청구할 게 없으면 결제 없이 종료됩니다.\n`
+        : '') +
+      `\nToss 빌링키로 즉시 카드 결제가 시도됩니다.\n` +
       `이미 결제 완료된 리포트는 자동 제외됩니다 (중복 결제 방지).\n\n` +
       `진행할까요?`
     )) return;
@@ -919,9 +924,10 @@ export default function AdminSalesOverviewPage() {
   }, [fetchData, snapshots, users, triggerAutoSync]);
 
   const months = useMemo(() => getRecentMonths(monthRange), [monthRange]);
-  const currentMonth = months[0]; // 당월 (진행중, 4월)
-  // 직전 마감월 — 청구 수수료 기준 (PT생이 보고해야 할 가장 최근 월)
-  const lastClosedMonth = months[1] || months[0];
+  const currentMonth = months[0]; // 당월 (진행중)
+  // 직전 마감월(M-1) — 화면 헤드라인용. 실제 청구는 net-driven rolling(과거 미청구 net 전부)이라
+  //   유저 행에는 월별 net/청구상태가 모두 표시된다.
+  const lastClosedMonth = getBillableThroughMonth();
 
   /** 사용자별 집계 계산 — monthly_reports(확정) ∪ api_revenue_snapshots(잠정) */
   const rows = useMemo<UserRow[]>(() => {
@@ -2156,7 +2162,7 @@ export default function AdminSalesOverviewPage() {
                         {/* 금액 정보 */}
                         <div className="text-[11px] space-y-0.5 mb-2">
                           <div className="flex justify-between">
-                            <span className="text-gray-500">4월 매출</span>
+                            <span className="text-gray-500">{`${Number(lastClosedMonth.slice(5))}월 매출`}</span>
                             <span className="text-gray-900 font-medium">{formatKRW(d.revenue)}</span>
                           </div>
                           <div className="flex justify-between">
