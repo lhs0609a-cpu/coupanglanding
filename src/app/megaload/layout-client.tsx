@@ -73,18 +73,19 @@ export default function MegaloadLayoutClient({
 
       const shUserId = (shUser as Record<string, unknown>).id as string;
 
-      // count: 'planned' — PostgreSQL 통계 기반 추정값 (1~2ms). 정확도 95%+ 라 뱃지엔 충분.
-      // 'exact' 는 BIGINT 풀 카운팅(50~100ms × 4) → 뱃지 첫 표시 200~400ms 지연. 사용자 체감↓.
+      // count: 'exact' — 정확 카운트. 'planned'(플래너 추정)는 스캔 행수를 최소 1로
+      // 클램프해서 실제 0건일 때도 항상 1을 반환 → 배지가 영구히 "1"로 박히는 버그.
+      // 배지는 head:true 라 페이로드 0, 인덱스 컬럼 필터라 병렬 4쿼리도 체감 지연 미미.
       // channels 는 0/1 판단만 필요해서 limit(1) 로 head 회피.
       const [ordersRes, inquiriesRes, channelsRes, bugReportMsgsRes] = await Promise.all([
         supabase
           .from('sh_orders')
-          .select('id', { count: 'planned', head: true })
+          .select('id', { count: 'exact', head: true })
           .eq('megaload_user_id', shUserId)
           .eq('order_status', 'payment_done'),
         supabase
           .from('sh_cs_inquiries')
-          .select('id', { count: 'planned', head: true })
+          .select('id', { count: 'exact', head: true })
           .eq('megaload_user_id', shUserId)
           .eq('status', 'pending'),
         supabase
@@ -95,7 +96,7 @@ export default function MegaloadLayoutClient({
           .limit(1),
         supabase
           .from('sh_bug_report_messages')
-          .select('id', { count: 'planned', head: true })
+          .select('id', { count: 'exact', head: true })
           .eq('sender_role', 'admin')
           .eq('is_read', false),
       ]);
