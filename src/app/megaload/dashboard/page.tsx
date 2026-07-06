@@ -52,7 +52,9 @@ export default function DashboardPage() {
 
     const megaloadUserId = (shUser as Record<string, unknown>).id as string;
 
-    // count: 'planned' — PostgreSQL 통계 추정값 (1~2ms). 'exact' 4번 = 200~400ms 지연 → 대시보드 LCP 단축.
+    // count: 'exact' — 정확 카운트. 'planned'(플래너 추정)는 필터 스캔에서 실제 0건도
+    // 최소 1로 클램프(clamp_row_est) → 데이터 없어도 카드가 영구히 "1"로 박히는 팬텀 버그.
+    // head:true 라 페이로드 0, 인덱스 컬럼 필터라 병렬 4쿼리도 체감 지연 미미.
     // todayStats 까지 Promise.all 합류해서 직렬 1회(100~200ms) 절약.
     const today = new Date().toISOString().slice(0, 10);
     const [
@@ -64,13 +66,13 @@ export default function DashboardPage() {
       channelsRes,
       todayStatsRes,
     ] = await Promise.all([
-      supabase.from('sh_orders').select('id', { count: 'planned', head: true })
+      supabase.from('sh_orders').select('id', { count: 'exact', head: true })
         .eq('megaload_user_id', megaloadUserId).eq('order_status', 'payment_done'),
-      supabase.from('sh_orders').select('id', { count: 'planned', head: true })
+      supabase.from('sh_orders').select('id', { count: 'exact', head: true })
         .eq('megaload_user_id', megaloadUserId).eq('order_status', 'order_confirmed'),
-      supabase.from('sh_orders').select('id', { count: 'planned', head: true })
+      supabase.from('sh_orders').select('id', { count: 'exact', head: true })
         .eq('megaload_user_id', megaloadUserId).eq('order_status', 'shipping_ready'),
-      supabase.from('sh_cs_inquiries').select('id', { count: 'planned', head: true })
+      supabase.from('sh_cs_inquiries').select('id', { count: 'exact', head: true })
         .eq('megaload_user_id', megaloadUserId).eq('status', 'pending'),
       // 최근 주문 10건 — list 표시 컬럼만 가져오면 페이로드 50%↓ (raw_data, channel_response 제외)
       supabase.from('sh_orders').select('id, channel, channel_order_id, ordered_at, order_status, total_amount, customer_name, sh_order_items(id, product_option_id, quantity, sale_price, option_name)')
