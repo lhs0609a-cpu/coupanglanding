@@ -1,6 +1,93 @@
 import { createServiceClient } from '@/lib/supabase/server';
 import { randomUUID } from 'crypto';
 
+// ============================================================
+// sharp(네이티브 libvips) 이미지 처리 — jimp(순수 JS) 대체
+//   디코드/리사이즈/워터마크/인코드를 5~10배 빠르게. 로드 실패 시 null 반환 →
+//   호출부가 기존 jimp 경로로 자동 폴백 (데스크톱 번들 등 sharp 미탑재 환경 안전).
+// ============================================================
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _sharp: any | null | undefined;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getSharp(): Promise<any | null> {
+  if (_sharp !== undefined) return _sharp;
+  try {
+    const mod = await import('sharp');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    _sharp = (mod as any).default ?? mod;
+  } catch {
+    _sharp = null;
+  }
+  return _sharp;
+}
+
+/** sharp 사용 가능 여부 (호출부에서 needsProcessing 판단용) */
+export async function isSharpAvailable(): Promise<boolean> {
+  return (await getSharp()) !== null;
+}
+
+/**
+ * 버퍼를 sharp로 처리: 규격 리사이즈(500~5000) + 셀러 워터마크 + JPEG 인코드(≤10MB).
+ * @returns 처리된 JPEG 버퍼, sharp 미탑재/실패 시 null (호출부 jimp 폴백).
+ */
+export async function processImageBufferWithSharp(
+  buffer: Buffer,
+  sellerBrand?: string,
+): Promise<{ buffer: Buffer; ext: 'jpg' } | null> {
+  const sharp = await getSharp();
+  if (!sharp) return null;
+  try {
+    // failOn:'none' — 약간 손상된 JPEG도 최대한 디코드(기존 jimp 관대함과 정합).
+    // limitInputPixels — jimp OOM 가드와 동일 취지(과대 해상도 차단, 네이티브라 훨씬 안전).
+    const base = sharp(buffer, { failOn: 'none', limitInputPixels: 100_000_000 });
+    const meta = await base.metadata();
+    let w = meta.width || 0;
+    let h = meta.height || 0;
+
+    let pipeline = base;
+    if (w > 0 && h > 0) {
+      if (w < 500 || h < 500) {
+        const scale = Math.max(800 / w, 800 / h);
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+        pipeline = pipeline.resize(w, h);
+      } else if (w > 5000 || h > 5000) {
+        const scale = Math.min(4500 / w, 4500 / h);
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+        pipeline = pipeline.resize(w, h);
+      }
+    }
+
+    // 셀러 워터마크 — 하단 0.5% 컬러바(alpha 0.12)를 브랜드 시드 색으로 합성.
+    //   CNN 임베딩 차별화용. sharp composite(blend 'over')가 alpha 블렌딩 수행.
+    if (sellerBrand && w > 0 && h > 0) {
+      const { stringToSeed } = await import('./seeded-random');
+      const seed = stringToSeed(sellerBrand);
+      const r = (seed >> 16) & 0xff;
+      const g = (seed >> 8) & 0xff;
+      const b = seed & 0xff;
+      const barH = Math.max(3, Math.round(h * 0.005));
+      const overlay = await sharp({
+        create: { width: w, height: barH, channels: 4, background: { r, g, b, alpha: 0.12 } },
+      }).png().toBuffer();
+      pipeline = pipeline.composite([{ input: overlay, top: h - barH, left: 0 }]);
+    }
+
+    // 품질 단계 압축 (10MB 이하까지)
+    let quality = 90;
+    let out = await pipeline.jpeg({ quality, mozjpeg: true }).toBuffer();
+    while (out.length > 10 * 1024 * 1024 && quality > 40) {
+      quality -= 10;
+      out = await pipeline.jpeg({ quality, mozjpeg: true }).toBuffer();
+    }
+    return { buffer: out, ext: 'jpg' };
+  } catch {
+    return null;
+  }
+}
+
 export interface ProcessedImage {
   originalUrl: string;
   cdnUrl?: string;

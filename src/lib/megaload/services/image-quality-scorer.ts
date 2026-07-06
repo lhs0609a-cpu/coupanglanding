@@ -166,6 +166,9 @@ const _pixelDataCache = new Map<string, Uint8ClampedArray>();
 // In-flight 디코드 promise 캐시 — 같은 URL+size 가 동시에 3번 호출될 때 3번 디코드되던 race 제거.
 // (selectDiverseImages + filterDetailPageImages + detectDuplicateImages 병렬 실행 시 발생)
 const _pixelDataInFlight = new Map<string, Promise<Uint8ClampedArray | null>>();
+// URL 원본 크기 캐시 — scoreImage 의 aspect 점수(가중치 0.5%)용.
+//   getCachedPixels 가 blob 헤더에서 싸게 파싱해 채움 → scoreImage 는 풀디코드 없이 크기 획득.
+const _imageDimsCache = new Map<string, { width: number; height: number }>();
 
 export function clearAnalysisCache(): void {
   _scoreImageCache.clear();
@@ -174,6 +177,59 @@ export function clearAnalysisCache(): void {
   _imageFeaturesCache.clear();
   _pixelDataCache.clear();
   _pixelDataInFlight.clear();
+  _imageDimsCache.clear();
+}
+
+/**
+ * 이미지 blob 헤더(선두 수십 KB)에서 원본 픽셀 크기를 파싱한다.
+ * 풀디코드 없이 JPEG/PNG/GIF/WebP 의 width/height 만 싸게 추출.
+ * 실패 시 {0,0} 반환 (호출부에서 정사각 폴백).
+ */
+function parseImageDimsFromHeader(buf: ArrayBuffer): { width: number; height: number } {
+  const v = new DataView(buf);
+  const len = v.byteLength;
+  if (len < 24) return { width: 0, height: 0 };
+
+  // PNG: 8바이트 시그니처 + IHDR(길이4+타입4) → offset 16 에 width/height (BE)
+  if (v.getUint32(0) === 0x89504e47) {
+    return { width: v.getUint32(16), height: v.getUint32(20) };
+  }
+  // GIF: 'GIF8' + logical screen descriptor width/height (LE) at offset 6
+  if (v.getUint32(0) === 0x47494638) {
+    return { width: v.getUint16(6, true), height: v.getUint16(8, true) };
+  }
+  // WebP: 'RIFF'....'WEBP'
+  if (v.getUint32(0) === 0x52494646 && len >= 30 && v.getUint32(8) === 0x57454250) {
+    const fourcc = v.getUint32(12); // 'VP8 ' | 'VP8L' | 'VP8X'
+    if (fourcc === 0x56503820) { // 'VP8 ' (lossy)
+      return { width: (v.getUint16(26, true) & 0x3fff), height: (v.getUint16(28, true) & 0x3fff) };
+    }
+    if (fourcc === 0x5650384c) { // 'VP8L' (lossless)
+      const b = v.getUint32(21, true);
+      return { width: (b & 0x3fff) + 1, height: ((b >> 14) & 0x3fff) + 1 };
+    }
+    if (fourcc === 0x56503858) { // 'VP8X' (extended) — 24bit LE at offset 24/27
+      const w = 1 + (v.getUint8(24) | (v.getUint8(25) << 8) | (v.getUint8(26) << 16));
+      const h = 1 + (v.getUint8(27) | (v.getUint8(28) << 8) | (v.getUint8(29) << 16));
+      return { width: w, height: h };
+    }
+  }
+  // JPEG: 0xFFD8 → SOF0..SOF15 마커 스캔 (0xFFC0~0xFFCF, 단 C4/C8/CC 제외)
+  if (v.getUint16(0) === 0xffd8) {
+    let off = 2;
+    while (off + 9 < len) {
+      if (v.getUint8(off) !== 0xff) { off++; continue; }
+      const marker = v.getUint8(off + 1);
+      // SOF 마커: 높이(off+5) 너비(off+7) BE
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        return { width: v.getUint16(off + 7), height: v.getUint16(off + 5) };
+      }
+      const segLen = v.getUint16(off + 2);
+      if (segLen < 2) break;
+      off += 2 + segLen;
+    }
+  }
+  return { width: 0, height: 0 };
 }
 
 /**
@@ -218,6 +274,14 @@ async function getCachedPixels(url: string, size: number): Promise<Uint8ClampedA
       try {
         const res = await fetch(url);
         const blob = await res.blob();
+        // 원본 크기를 헤더에서 싸게 파싱해 캐시 (aspect 점수용) — 풀디코드 회피.
+        if (!_imageDimsCache.has(url)) {
+          try {
+            const headBuf = await blob.slice(0, 65536).arrayBuffer();
+            const d = parseImageDimsFromHeader(headBuf);
+            if (d.width > 0 && d.height > 0) _imageDimsCache.set(url, d);
+          } catch { /* 헤더 파싱 실패 — aspect 는 정사각 폴백 */ }
+        }
         const bitmap = await createImageBitmap(blob, {
           resizeWidth: size, resizeHeight: size, resizeQuality: 'low',
         });
@@ -885,17 +949,14 @@ export async function analyzeReviewImages(
  * 하드필터 해당 시 overall = 0으로 강제.
  */
 async function scoreImage(objectUrl: string): Promise<ImageScore> {
-  const fast = await loadImageFast(objectUrl);
-  const origW = fast.width;
-  const origH = fast.height;
-
-  const { ctx } = createCanvas2D(ANALYSIS_SIZE, ANALYSIS_SIZE);
-  if (!ctx) { fast.close?.(); throw new Error('Canvas context unavailable'); }
-
-  ctx.drawImage(fast.source, 0, 0, origW, origH, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
-  const imageData = ctx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
-  const { data } = imageData;
-  fast.close?.();
+  // ★ 속도패치: 풀해상도 loadImageFast 대신 공유 스케일드 디코드(getCachedPixels) 사용.
+  //   36×36 정사각 squash 결과는 기존 drawImage(full→36) 와 동일 → 점수 불변.
+  //   selectDiverse/duplicate/detail 패스와 픽셀 캐시 공유로 이미지당 디코드 1회로 통합.
+  const data = await getCachedPixels(objectUrl, ANALYSIS_SIZE);
+  if (!data) throw new Error('Canvas context unavailable');
+  const dims = _imageDimsCache.get(objectUrl);
+  const origW = dims?.width || ANALYSIS_SIZE;
+  const origH = dims?.height || ANALYSIS_SIZE;
 
   // 그레이스케일 변환 (분석용)
   const gray = new Float32Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
@@ -999,17 +1060,12 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
  * 정면 촬영된 선명한 단일 상품 사진에 높은 점수.
  */
 async function scoreReviewImage(objectUrl: string): Promise<ImageScore> {
-  const fast = await loadImageFast(objectUrl);
-  const origW = fast.width;
-  const origH = fast.height;
-
-  const { ctx } = createCanvas2D(ANALYSIS_SIZE, ANALYSIS_SIZE);
-  if (!ctx) { fast.close?.(); throw new Error('Canvas context unavailable'); }
-
-  ctx.drawImage(fast.source, 0, 0, origW, origH, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
-  const imageData = ctx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
-  const { data } = imageData;
-  fast.close?.();
+  // ★ 속도패치: scoreImage 와 동일 — 공유 스케일드 디코드로 통합 (풀디코드 제거).
+  const data = await getCachedPixels(objectUrl, ANALYSIS_SIZE);
+  if (!data) throw new Error('Canvas context unavailable');
+  const dims = _imageDimsCache.get(objectUrl);
+  const origW = dims?.width || ANALYSIS_SIZE;
+  const origH = dims?.height || ANALYSIS_SIZE;
 
   const gray = new Float32Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
   for (let i = 0; i < gray.length; i++) {

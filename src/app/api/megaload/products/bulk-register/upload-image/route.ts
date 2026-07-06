@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { randomUUID } from 'crypto';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
-import { detectImageFormat, getImageDimensions } from '@/lib/megaload/services/image-processor';
+import { detectImageFormat, getImageDimensions, processImageBufferWithSharp } from '@/lib/megaload/services/image-processor';
 import { logSystemError, logSystemWarn } from '@/lib/utils/system-log';
 
 const LOG_SOURCE = 'megaload/products/bulk-register/upload-image';
@@ -67,7 +67,19 @@ export async function POST(req: NextRequest) {
     const needsUpscale = !dimUnknown && (dims.width < 500 || dims.height < 500);
     const needsDownscale = dims.width > 5000 || dims.height > 5000;
 
+    // ★ 속도패치: 리사이즈 필요 시 sharp(네이티브) 우선 처리 → 성공 시 jimp 경로 스킵.
+    //   sharp 는 limitInputPixels 로 과대 해상도를 안전 처리하므로 OOM 가드도 대체.
+    let sharpDone = false;
     if (dimUnknown || needsUpscale || needsDownscale) {
+      const sres = await processImageBufferWithSharp(buffer);
+      if (sres) {
+        buffer = sres.buffer;
+        finalExt = 'jpg';
+        sharpDone = true;
+      }
+    }
+
+    if (!sharpDone && (dimUnknown || needsUpscale || needsDownscale)) {
       // OOM 가드: 거대 해상도는 Jimp 디코딩 시 함수 메모리 초과로 프로세스가 강제종료됨
       //  (try/catch 로도 못 잡는 500). 디코딩 전에 차단해 명시적 400 으로 전환.
       const MAX_DECODE_PIXELS = 40_000_000; // ~40MP(예 6300×6300). 디코딩 ~160MB + Jimp 작업 피크 고려.

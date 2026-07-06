@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { createServiceClient } from '@/lib/supabase/server';
 import { randomUUID } from 'crypto';
-import { detectImageFormat, getImageDimensions } from './image-processor';
+import { detectImageFormat, getImageDimensions, processImageBufferWithSharp } from './image-processor';
 import { withRetry } from './retry';
 
 // ---- 보안: 허용 경로 + 이미지 크기 제한 ----
@@ -206,14 +206,15 @@ export async function uploadLocalImage(
   filePath: string,
   megaloadUserId: string,
   sellerBrand?: string,
+  client?: Awaited<ReturnType<typeof createServiceClient>>,
 ): Promise<string> {
-  // 파일 크기 검증
-  const stat = fs.statSync(filePath);
+  // 파일 크기 검증 — 비동기 stat/read 로 이벤트루프 블로킹 제거 (동시성 실제 중첩).
+  const stat = await fs.promises.stat(filePath);
   if (stat.size > MAX_IMAGE_SIZE_BYTES) {
     throw new Error(`이미지 크기 초과 (${path.basename(filePath)}): ${(stat.size / 1024 / 1024).toFixed(1)}MB > 10MB`);
   }
 
-  let buffer: Buffer = fs.readFileSync(filePath);
+  let buffer: Buffer = await fs.promises.readFile(filePath);
 
   let format = detectImageFormat(buffer);
   let ext = format === 'unknown' ? 'jpg' : format;
@@ -243,7 +244,21 @@ export async function uploadLocalImage(
   const needsCompress = buffer.length > 10 * 1024 * 1024;
   const needsJimp = dimUnknown || needsUpscale || needsDownscale || needsCompress;
 
-  if (needsJimp) {
+  // ★ 속도패치: 리사이즈/워터마크가 필요하면 먼저 sharp(네이티브)로 처리 시도.
+  //   성공 시 jimp(순수 JS) 경로 전체를 건너뜀 → 이미지당 5~10배 가속.
+  //   sharp 미탑재/실패 시 sharpDone=false 로 남아 기존 jimp 폴백이 그대로 동작.
+  let sharpDone = false;
+  if (needsJimp || sellerBrand) {
+    const sres = await processImageBufferWithSharp(buffer, sellerBrand);
+    if (sres) {
+      buffer = sres.buffer;
+      format = 'jpg';
+      ext = 'jpg';
+      sharpDone = true;
+    }
+  }
+
+  if (!sharpDone && needsJimp) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let Jimp: any;
@@ -341,8 +356,8 @@ export async function uploadLocalImage(
     }
   }
 
-  // jimp 리사이징 불필요했으나 워터마크는 적용해야 하는 경우
-  if (!needsJimp && sellerBrand) {
+  // jimp 리사이징 불필요했으나 워터마크는 적용해야 하는 경우 (sharp 실패 시 폴백)
+  if (!sharpDone && !needsJimp && sellerBrand) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let Jimp: any;
@@ -389,8 +404,9 @@ export async function uploadLocalImage(
     : 'image/jpeg';
 
   // Retry로 일시적 네트워크 장애 대응
+  // client 재사용 — 이미지마다 createServiceClient() 하던 비용 제거 (호출부에서 1회 생성 후 주입).
+  const supabase = client ?? await createServiceClient();
   return withRetry(async () => {
-    const supabase = await createServiceClient();
     const storagePath = `megaload/${megaloadUserId}/bulk/${randomUUID()}.${ext}`;
 
     const { data, error } = await supabase.storage
@@ -425,9 +441,10 @@ export async function uploadLocalImages(
   megaloadUserId: string,
   sellerBrand?: string,
 ): Promise<string[]> {
+  const client = await createServiceClient();
   const urls: string[] = [];
   for (const fp of filePaths) {
-    const url = await uploadLocalImage(fp, megaloadUserId, sellerBrand);
+    const url = await uploadLocalImage(fp, megaloadUserId, sellerBrand, client);
     urls.push(url);
   }
   return urls;
@@ -445,9 +462,12 @@ export async function uploadLocalImagesParallel(
   concurrency = 5,
   allowPartialFailure = false,
   sellerBrand?: string,
+  client?: Awaited<ReturnType<typeof createServiceClient>>,
 ): Promise<string[]> {
   if (filePaths.length === 0) return [];
 
+  // service client 1회 생성 후 전 이미지가 공유 (이미지마다 재생성 제거).
+  const sharedClient = client ?? await createServiceClient();
   const results: (string | Error)[] = new Array(filePaths.length);
   let nextIndex = 0;
 
@@ -455,7 +475,7 @@ export async function uploadLocalImagesParallel(
     while (nextIndex < filePaths.length) {
       const idx = nextIndex++;
       try {
-        results[idx] = await uploadLocalImage(filePaths[idx], megaloadUserId, sellerBrand);
+        results[idx] = await uploadLocalImage(filePaths[idx], megaloadUserId, sellerBrand, sharedClient);
       } catch (err) {
         results[idx] = err instanceof Error ? err : new Error(String(err));
       }
