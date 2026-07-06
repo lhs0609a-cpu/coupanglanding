@@ -1116,6 +1116,18 @@ export default function AdminSalesOverviewPage() {
     return map;
   }, [paymentUsers]);
 
+  /** pt_user_id → 직전 마감월 net 기반 예상 수수료(VAT 포함).
+   *  리포트가 아직 생성 안 된 달도 정산 net(api_revenue_snapshots)으로 추정 →
+   *  즉시결제 팝업이 ₩0 대신 실제 청구 예정액을 보여주도록 fallback 으로 사용. */
+  const lastClosedFeeByUser = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of rows) {
+      const cell = row.monthly.get(lastClosedMonth);
+      if (cell && cell.fee > 0) map.set(row.user.id, cell.fee);
+    }
+    return map;
+  }, [rows, lastClosedMonth]);
+
   /** PT생별 결제 분류 — paid / active / excluded 세 그룹.
    *  row.user.billing_excluded_until 직접 검출 (paymentByUser 비어있어도 동작) */
   const apiPotentialFees = useMemo(() => {
@@ -3026,7 +3038,7 @@ export default function AdminSalesOverviewPage() {
                                 <button
                                   type="button"
                                   disabled={acting}
-                                  onClick={() => handleChargeUser(p.pt_user_id, name, p.this_month_report?.total_with_vat ?? p.unpaid_summary?.total ?? 0)}
+                                  onClick={() => handleChargeUser(p.pt_user_id, name, p.this_month_report?.total_with_vat ?? p.unpaid_summary?.total ?? lastClosedFeeByUser.get(p.pt_user_id) ?? 0)}
                                   className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-white rounded disabled:opacity-50 ${
                                     p.status === 'final_failed' ? 'bg-red-700 hover:bg-red-800 ring-2 ring-red-300' : 'bg-red-600 hover:bg-red-700'
                                   }`}
