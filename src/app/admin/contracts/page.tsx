@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatDate, formatPercent } from '@/lib/utils/format';
 import {
@@ -13,7 +13,7 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import { renderArticleText, getContractArticles } from '@/lib/data/contract-terms';
-import { FileText, Plus, RefreshCw, Send, XCircle, Eye, Download, CheckCircle2, AlertTriangle, Image, Copy, Link2 } from 'lucide-react';
+import { FileText, Plus, RefreshCw, Send, XCircle, Eye, Download, CheckCircle2, AlertTriangle, Image, Copy, Link2, Search, ChevronDown } from 'lucide-react';
 import { downloadContractPdf } from '@/lib/utils/contract-pdf';
 import ContractTerminationModal from '@/components/admin/ContractTerminationModal';
 import WithdrawalReviewModal from '@/components/admin/WithdrawalReviewModal';
@@ -58,6 +58,11 @@ export default function AdminContractsPage() {
   const [newContractMode, setNewContractMode] = useState<'single' | 'triple'>('single');
   const [creating, setCreating] = useState(false);
   const [linkCopied, setLinkCopied] = useState<string | null>(null);
+
+  // PT 사용자 검색 콤보박스
+  const [ptSearch, setPtSearch] = useState('');
+  const [ptDropdownOpen, setPtDropdownOpen] = useState(false);
+  const ptComboRef = useRef<HTMLDivElement>(null);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -149,6 +154,42 @@ export default function AdminContractsPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // 콤보박스 외부 클릭 시 닫기
+  useEffect(() => {
+    if (!ptDropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ptComboRef.current && !ptComboRef.current.contains(e.target as Node)) {
+        setPtDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [ptDropdownOpen]);
+
+  const ptStatusLabel = (status: string) => (status === 'active' ? '활성' : status);
+
+  const selectedPtUser = ptUsers.find((u) => u.id === newPtUserId);
+
+  const ptUserDisplayName = (u: PtUserWithProfile) =>
+    u.profile?.full_name || u.profile?.email || '이름 없음';
+
+  const filteredPtUsers = ptUsers.filter((u) => {
+    if (!ptSearch.trim()) return true;
+    const q = ptSearch.trim().toLowerCase();
+    return (
+      ptUserDisplayName(u).toLowerCase().includes(q) ||
+      (u.profile?.email || '').toLowerCase().includes(q)
+    );
+  });
+
+  const selectPtUser = (u: PtUserWithProfile) => {
+    setNewPtUserId(u.id);
+    setNewSharePercentage(String(u.share_percentage));
+    setNewContractMode(u.is_self_business === false ? 'triple' : 'single');
+    setPtDropdownOpen(false);
+    setPtSearch('');
+  };
 
   const handleCreate = async () => {
     if (!newPtUserId || !newStartDate) return;
@@ -600,28 +641,59 @@ export default function AdminContractsPage() {
                 </button>
               </div>
             ) : (
-              <select
-                id="pt-user"
-                value={newPtUserId}
-                onChange={(e) => {
-                  setNewPtUserId(e.target.value);
-                  const selected = ptUsers.find((u) => u.id === e.target.value);
-                  if (selected) {
-                    setNewSharePercentage(String(selected.share_percentage));
-                    // 타인 명의 사업자인 경우 자동으로 3자 계약 선택
-                    const selfBiz = selected.is_self_business;
-                    setNewContractMode(selfBiz === false ? 'triple' : 'single');
-                  }
-                }}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
-              >
-                <option value="">선택하세요</option>
-                {ptUsers.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.profile?.full_name || u.profile?.email || '이름 없음'} ({u.status === 'active' ? '활성' : u.status})
-                  </option>
-                ))}
-              </select>
+              <div ref={ptComboRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPtDropdownOpen((v) => !v);
+                    setPtSearch('');
+                  }}
+                  className="w-full flex items-center justify-between px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                >
+                  <span className={selectedPtUser ? 'text-gray-900' : 'text-gray-400'}>
+                    {selectedPtUser
+                      ? `${ptUserDisplayName(selectedPtUser)} (${ptStatusLabel(selectedPtUser.status)})`
+                      : '선택하세요'}
+                  </span>
+                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${ptDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {ptDropdownOpen && (
+                  <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg">
+                    <div className="p-2 border-b border-gray-100">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type="text"
+                          autoFocus
+                          value={ptSearch}
+                          onChange={(e) => setPtSearch(e.target.value)}
+                          placeholder="이름 또는 이메일로 검색"
+                          className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                        />
+                      </div>
+                    </div>
+                    <ul className="max-h-60 overflow-y-auto py-1">
+                      {filteredPtUsers.length === 0 ? (
+                        <li className="px-4 py-3 text-sm text-gray-400 text-center">검색 결과가 없습니다.</li>
+                      ) : (
+                        filteredPtUsers.map((u) => (
+                          <li key={u.id}>
+                            <button
+                              type="button"
+                              onClick={() => selectPtUser(u)}
+                              className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center justify-between ${u.id === newPtUserId ? 'bg-red-50 text-[#E31837]' : 'text-gray-700'}`}
+                            >
+                              <span className="truncate">{ptUserDisplayName(u)}</span>
+                              <span className="ml-2 shrink-0 text-xs text-gray-400">({ptStatusLabel(u.status)})</span>
+                            </button>
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
