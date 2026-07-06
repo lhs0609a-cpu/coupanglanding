@@ -94,11 +94,14 @@ export default function MegaloadLayoutClient({
           .eq('megaload_user_id', shUserId)
           .eq('is_connected', true)
           .limit(1),
+        // 내 오류문의에 달린 admin 미읽음 답변만 — sh_bug_reports 조인으로 소유자 스코프.
+        // (필터 없으면 다른 셀러의 오류문의 답변까지 이 배지에 잡힘)
         supabase
           .from('sh_bug_report_messages')
-          .select('id', { count: 'exact', head: true })
+          .select('id, sh_bug_reports!inner(megaload_user_id)', { count: 'exact', head: true })
           .eq('sender_role', 'admin')
-          .eq('is_read', false),
+          .eq('is_read', false)
+          .eq('sh_bug_reports.megaload_user_id', shUserId),
       ]);
 
       if (cancelled) return;
