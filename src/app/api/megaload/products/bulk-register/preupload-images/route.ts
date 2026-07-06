@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
             };
           }
 
-          const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, IMAGE_CONCURRENCY, false, body.sellerBrand || undefined);
+          const allUrls = await uploadLocalImagesParallel(allPaths, shUserId, IMAGE_CONCURRENCY, false, body.sellerBrand || undefined, serviceClient);
 
           let offset = 0;
           const mainImageUrls = allUrls.slice(offset, offset + product.mainImages.length);
