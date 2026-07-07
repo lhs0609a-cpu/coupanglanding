@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Download, Key, RefreshCw, Copy, CheckCircle2, AlertCircle, Monitor, Zap, Activity, Settings2 } from 'lucide-react';
+import { Download, Key, RefreshCw, Copy, CheckCircle2, AlertCircle, Monitor, Zap, Activity, Settings2, ShieldAlert } from 'lucide-react';
 import Link from 'next/link';
 import { MONITOR_APP_VERSION, MONITOR_DOWNLOAD_URLS, WORKER_SETTINGS_URL } from '@/lib/megaload/worker-download';
 
@@ -296,6 +296,71 @@ export default function DesktopAppPage() {
           <Settings2 className="w-3.5 h-3.5" />
           설정 → 다운로드 센터에서 메가로드 도우미와 함께 받기
         </Link>
+      </div>
+
+      {/* SmartScreen 경고 안내 — 설치 파일 실행 시 뜨는 파란 화면 대처법 */}
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-6">
+        <h2 className="font-semibold text-amber-900 mb-1 flex items-center gap-2">
+          <ShieldAlert className="w-5 h-5" />
+          설치할 때 이 파란 화면이 뜨면? — 정상이에요, 당황하지 마세요
+        </h2>
+        <p className="text-sm text-amber-800 mb-4 leading-relaxed">
+          다운로드한 파일을 실행하면 Windows가 <b>&quot;Windows의 PC 보호&quot;</b> 화면을 띄웁니다.
+          바이러스가 아니라, 아직 유료 코드서명이 안 된 <b>자체 배포 프로그램</b>이라 Windows가 한 번 확인하는 것뿐입니다.
+          아래처럼 <b>①추가 정보 → ②실행</b> 두 번만 누르면 됩니다.
+        </p>
+
+        <div className="grid md:grid-cols-2 gap-4">
+          {/* 1단계 재현 */}
+          <div>
+            <div className="flex items-center gap-1.5 mb-2 text-sm font-semibold text-amber-900">
+              <span className="w-5 h-5 rounded-full bg-amber-500 text-white text-xs flex items-center justify-center">1</span>
+              &quot;추가 정보&quot;를 클릭
+            </div>
+            <div className="rounded-lg overflow-hidden shadow-md select-none" style={{ backgroundColor: '#0b57a4' }}>
+              <div className="flex justify-end px-2 pt-1.5"><span className="text-white/60 text-xs">✕</span></div>
+              <div className="px-4 pb-4 text-white">
+                <div className="font-bold text-[15px] mb-2">Windows의 PC 보호</div>
+                <p className="text-[11px] leading-relaxed text-white/90 mb-2">
+                  Microsoft Defender SmartScreen에서 인식할 수 없는 앱의 시작을 차단했습니다. 이 앱을 실행하면 PC가 위험에 노출될 수 있습니다.
+                </p>
+                <span className="inline-block text-[12px] text-white underline underline-offset-2 rounded px-1 ring-2 ring-yellow-300 bg-white/10">추가 정보</span>
+                <div className="flex justify-end mt-8">
+                  <span className="text-[11px] bg-gray-200 text-gray-800 rounded px-3 py-1.5">실행 안 함</span>
+                </div>
+              </div>
+            </div>
+            <p className="text-[11px] text-amber-700 mt-1.5">왼쪽 위 <b>&quot;추가 정보&quot;</b> 글자를 클릭하세요.</p>
+          </div>
+
+          {/* 2단계 재현 */}
+          <div>
+            <div className="flex items-center gap-1.5 mb-2 text-sm font-semibold text-amber-900">
+              <span className="w-5 h-5 rounded-full bg-amber-500 text-white text-xs flex items-center justify-center">2</span>
+              새로 나타난 &quot;실행&quot; 버튼 클릭
+            </div>
+            <div className="rounded-lg overflow-hidden shadow-md select-none" style={{ backgroundColor: '#0b57a4' }}>
+              <div className="flex justify-end px-2 pt-1.5"><span className="text-white/60 text-xs">✕</span></div>
+              <div className="px-4 pb-4 text-white">
+                <div className="font-bold text-[15px] mb-2">Windows의 PC 보호</div>
+                <p className="text-[11px] leading-relaxed text-white/90 mb-1.5">
+                  Microsoft Defender SmartScreen에서 인식할 수 없는 앱의 시작을 차단했습니다. 이 앱을 실행하면 PC가 위험에 노출될 수 있습니다.
+                </p>
+                <p className="text-[11px] text-white/80 mb-3">앱: 메가로드 도우미<br />게시자: 알 수 없는 게시자</p>
+                <div className="flex justify-end gap-2 mt-4">
+                  <span className="text-[11px] bg-yellow-300 text-gray-900 font-bold rounded px-3 py-1.5 ring-2 ring-yellow-400">실행</span>
+                  <span className="text-[11px] bg-gray-200 text-gray-800 rounded px-3 py-1.5">실행 안 함</span>
+                </div>
+              </div>
+            </div>
+            <p className="text-[11px] text-amber-700 mt-1.5"><b>&quot;추가 정보&quot;</b>를 누르면 <b>&quot;실행&quot;</b> 버튼이 생깁니다 → 클릭.</p>
+          </div>
+        </div>
+
+        <div className="mt-4 bg-white/70 border border-amber-200 rounded-lg p-3 text-[12px] text-amber-800 leading-relaxed">
+          <b>안심하세요.</b> 이 프로그램은 등록한 상품의 원본 페이지(품절·가격)만 확인해 메가로드에 전달합니다. 개인 파일이나 다른 앱엔 접근하지 않습니다.
+          <b>&quot;실행 안 함&quot;</b>을 누르면 설치가 취소되니, 꼭 <b>&quot;실행&quot;</b>을 눌러주세요.
+        </div>
       </div>
 
       {/* Step 2: 인증코드 발급 */}
