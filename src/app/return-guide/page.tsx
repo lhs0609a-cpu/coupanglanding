@@ -22,6 +22,40 @@ interface ProductInfo {
   qty?: number | null;
 }
 
+/**
+ * 전화번호를 앞/중간/뒤 3부분으로 분리 — CJ·우체국 모두 전화 입력이 3칸으로 나뉘어 있고
+ * 풀번호를 붙여넣어도 자동 분리가 안 되므로, 각 칸에 붙여넣을 수 있게 쪼갠다.
+ */
+function splitPhone(phone: string): { p1: string; p2: string; p3: string } | null {
+  if (!phone) return null;
+  const trimmed = phone.trim();
+  if (trimmed.includes('-')) {
+    const parts = trimmed.split('-').map((s) => s.trim()).filter(Boolean);
+    if (parts.length === 3) return { p1: parts[0], p2: parts[1], p3: parts[2] };
+  }
+  const d = trimmed.replace(/[^0-9]/g, '');
+  if (d.length === 11) return { p1: d.slice(0, 3), p2: d.slice(3, 7), p3: d.slice(7) };
+  if (d.length === 10) {
+    return d.startsWith('02')
+      ? { p1: '02', p2: d.slice(2, 6), p3: d.slice(6) }
+      : { p1: d.slice(0, 3), p2: d.slice(3, 6), p3: d.slice(6) };
+  }
+  return null;
+}
+
+/** 전화번호 복사 카드 — 3칸 분리 성공 시 앞/중간/뒤 3개, 아니면 통짜 1개. */
+function phoneCopies(phone: string): { label: string; value: string }[] {
+  const sp = splitPhone(phone);
+  if (sp) {
+    return [
+      { label: '연락처 · 앞자리', value: sp.p1 },
+      { label: '중간자리', value: sp.p2 },
+      { label: '뒷자리', value: sp.p3 },
+    ];
+  }
+  return [{ label: '연락처', value: phone }];
+}
+
 interface GuideStep {
   icon: LucideIcon;
   title: string;
@@ -32,15 +66,16 @@ interface GuideStep {
 
 const SESSION_KEY = 'megaload_return_guide';
 
-// ★ 실제 CJ대한통운 반품예약(reservation-return) 폼 순서에 정확히 매칭한 단계.
-//   실제 폼: 01 약관 3종 동의 → 02 개인정보 동의 → 03 보내는분/받는분/상품정보 입력 → 04 완료.
-//   (원운송장 조회는 CJ 원송장 역조회용이라 쿠팡 셀러 신규 수거 접수엔 해당 없음 → 생략)
+// ★ CJ대한통운 "개인택배예약(방문접수, reservation-general)" 폼 순서에 매칭.
+//   보내는분(구매자)·받는분(창고)·상품명을 모두 직접 입력하는 페이지.
+//   ※ "반품예약" 페이지는 원래 CJ 송장을 원운송장 조회로 역조회하는 전용 — 받는분·상품칸이
+//     잠겨(disabled/readonly) 있어, 원배송 택배사가 제각각인 쿠팡 반품엔 못 씀 → 개인택배예약 사용.
 function buildCjSteps(sender: AddressInfo, dest: AddressInfo, product?: ProductInfo): GuideStep[] {
   return [
     {
       icon: PlayCircle,
       title: '준비하기',
-      description: '오른쪽에 CJ대한통운 반품예약 사이트가 열렸는지 확인하세요. 열리지 않았다면 위쪽 빨간 버튼을 눌러 사이트를 여세요.',
+      description: '오른쪽에 CJ대한통운 "개인택배예약(방문접수)" 페이지가 열렸는지 확인하세요. 안 열렸으면 위쪽 빨간 버튼을 누르세요. 반품 상품을 구매자 → 우리 창고로 보내는 접수입니다.',
       hint: '이 창을 사이트 옆에 두고 순서대로 따라 하면 됩니다.',
     },
     {
@@ -65,8 +100,8 @@ function buildCjSteps(sender: AddressInfo, dest: AddressInfo, product?: ProductI
     {
       icon: Phone,
       title: '보내는 분 연락처',
-      description: '"보내는 분" 휴대폰번호 칸을 클릭한 뒤 아래 번호를 붙여넣으세요. 하이픈(-)은 칸에 맞게 자동으로 나뉩니다.',
-      copies: [{ label: '연락처', value: sender.phone }],
+      description: '"보내는 분" 휴대폰번호는 앞/중간/뒤 3칸으로 나뉘어 있습니다. 아래 3개 값을 각 칸에 순서대로 붙여넣으세요.',
+      copies: phoneCopies(sender.phone),
       hint: '휴대폰번호 또는 전화번호 중 1개는 반드시 입력해야 합니다.',
     },
     {
@@ -86,8 +121,8 @@ function buildCjSteps(sender: AddressInfo, dest: AddressInfo, product?: ProductI
     {
       icon: Smartphone,
       title: '받는 분 연락처',
-      description: '"받는 분" 휴대폰번호 칸에 아래 번호를 붙여넣으세요.',
-      copies: [{ label: '연락처', value: dest.phone }],
+      description: '"받는 분" 휴대폰번호 3칸(앞/중간/뒤)에 아래 값을 각각 붙여넣으세요.',
+      copies: phoneCopies(dest.phone),
       hint: '거의 다 왔습니다.',
     },
     {
@@ -173,8 +208,8 @@ function buildEpostSteps(sender: AddressInfo, dest: AddressInfo, product?: Produ
     {
       icon: Phone,
       title: '보내는 분 연락처',
-      description: '"휴대전화" 칸에 아래 번호를 붙여넣으세요. 하이픈은 칸에 맞게 자동으로 나뉩니다.',
-      copies: [{ label: '연락처', value: sender.phone }],
+      description: '"휴대전화"는 앞/중간/뒤 3칸입니다. 아래 3개 값을 각 칸에 순서대로 붙여넣으세요.',
+      copies: phoneCopies(sender.phone),
       hint: '휴대전화 또는 일반전화 중 하나는 필수입니다.',
     },
     {
@@ -200,8 +235,8 @@ function buildEpostSteps(sender: AddressInfo, dest: AddressInfo, product?: Produ
     {
       icon: Smartphone,
       title: '받는 분 연락처',
-      description: '"휴대전화" 칸에 아래 번호를 붙여넣으세요.',
-      copies: [{ label: '연락처', value: dest.phone }],
+      description: '"휴대전화" 3칸(앞/중간/뒤)에 아래 값을 각각 붙여넣으세요.',
+      copies: phoneCopies(dest.phone),
       hint: '휴대전화 또는 일반전화 중 하나는 필수입니다.',
     },
     {
