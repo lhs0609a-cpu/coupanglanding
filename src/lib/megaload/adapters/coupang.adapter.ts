@@ -393,18 +393,60 @@ export class CoupangAdapter extends BaseAdapter {
     return this.toggleItemsSale(channelProductId, 'resume', vendorItemIds);
   }
 
-  async getOrders(params: { startDate: string; endDate: string; status?: string; page?: number }) {
-    const { startDate, endDate, status, page = 1 } = params;
-    const path = `/v2/providers/openapi/apis/api/v4/vendors/${this.vendorId}/ordersheets`;
-    // 쿠팡 ordersheets API는 epoch milliseconds 형식 필요
-    const fromMs = new Date(startDate + 'T00:00:00+09:00').getTime();
-    const toMs = new Date(endDate + 'T23:59:59+09:00').getTime();
-    const queryParts = [`createdAtFrom=${fromMs}`, `createdAtTo=${toMs}`, `maxPerPage=50`, `page=${page}`];
-    if (status) queryParts.push(`status=${status}`);
-    const query = queryParts.join('&');
+  // 쿠팡 ordersheets createdAt 조회는 status가 필수 파라미터.
+  // 한 번의 호출로 전체 상태를 못 가져오므로 상태별로 순회 수집한다.
+  private static readonly ORDER_STATUSES = [
+    'ACCEPT',          // 결제완료
+    'INSTRUCT',        // 상품준비중(발주확인)
+    'DEPARTURE',       // 배송지시
+    'DELIVERING',      // 배송중
+    'FINAL_DELIVERY',  // 배송완료
+  ];
 
-    const data = await this.coupangApi<{ data: unknown[]; pagination: { totalElements: number } }>('GET', path, query);
-    return { items: (data.data || []) as Record<string, unknown>[], totalCount: data.pagination?.totalElements || 0 };
+  async getOrders(params: { startDate: string; endDate: string; status?: string; page?: number }) {
+    const { startDate, endDate, status } = params;
+    // 쿠팡 "PO list query (paging by day)": createdAt은 date(yyyy-MM-dd) 형식,
+    // status는 필수, 페이징은 nextToken 기반. (epoch ms/page 파라미터는 오류)
+    const createdAtFrom = startDate;
+    const createdAtTo = endDate;
+
+    // status가 명시되면 해당 상태만, 아니면 전체 상태 순회 수집.
+    const statuses = status ? [status] : CoupangAdapter.ORDER_STATUSES;
+
+    const path = `/v2/providers/openapi/apis/api/v4/vendors/${this.vendorId}/ordersheets`;
+    const bySbox = new Map<string, Record<string, unknown>>();
+
+    for (const st of statuses) {
+      let nextToken = '1';
+      let guard = 0;
+      while (nextToken && guard < 50) {
+        guard++;
+        const query = [
+          `createdAtFrom=${createdAtFrom}`,
+          `createdAtTo=${createdAtTo}`,
+          `status=${st}`,
+          `maxPerPage=50`,
+          `nextToken=${nextToken}`,
+        ].join('&');
+
+        const data = await this.coupangApi<{
+          data: Record<string, unknown>[];
+          nextToken?: string;
+        }>('GET', path, query);
+
+        const rows = (data.data || []) as Record<string, unknown>[];
+        for (const row of rows) {
+          const key = String(row.shipmentBoxId || row.orderId || '');
+          if (key) bySbox.set(key, row);
+        }
+
+        // nextToken이 비어있으면 마지막 페이지
+        nextToken = data.nextToken ? String(data.nextToken) : '';
+      }
+    }
+
+    const items = Array.from(bySbox.values());
+    return { items, totalCount: items.length };
   }
 
   /** 반품 요청 목록 조회 — v6 */

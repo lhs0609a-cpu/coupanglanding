@@ -46,7 +46,8 @@ export async function GET(request: Request) {
           const result = await adapter.getOrders({ startDate, endDate });
 
           for (const item of result.items) {
-            const channelOrderId = String(item.orderId || item.orderNo || item.productOrderId || '');
+            // 쿠팡: 발주확인/송장등록 API가 shipmentBoxId 기준이므로 이를 우선 사용
+            const channelOrderId = String(item.shipmentBoxId || item.orderId || item.orderNo || item.productOrderId || '');
             if (!channelOrderId) continue;
 
             const rawStatus = String(item.status || item.orderStatus || '');
@@ -64,7 +65,7 @@ export async function GET(request: Request) {
                 receiver_name: String(item.receiverName || (item.receiver as Record<string, unknown>)?.name || ''),
                 receiver_phone: String(item.receiverPhone || (item.receiver as Record<string, unknown>)?.tel1 || ''),
                 receiver_address: String(item.receiverAddress || (item.receiver as Record<string, unknown>)?.addr1 || ''),
-                total_price: totalPrice,
+                total_amount: totalPrice,
                 ordered_at: String(item.orderedAt || item.orderDate || new Date().toISOString()),
                 raw_data: item,
                 updated_at: new Date().toISOString(),

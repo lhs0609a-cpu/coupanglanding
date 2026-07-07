@@ -47,7 +47,8 @@ export async function POST() {
         channelResults[channel] = result.items.length;
 
         for (const item of result.items) {
-          const channelOrderId = String(item.orderId || item.orderNo || item.productOrderId || '');
+          // 쿠팡: 발주확인/송장등록 API가 shipmentBoxId 기준이므로 이를 우선 사용
+          const channelOrderId = String(item.shipmentBoxId || item.orderId || item.orderNo || item.productOrderId || '');
           if (!channelOrderId) continue;
 
           const rawStatus = String(item.status || item.orderStatus || '');
@@ -72,7 +73,7 @@ export async function POST() {
               receiver_name: receiverName,
               receiver_phone: receiverPhone,
               receiver_address: receiverAddress,
-              total_price: totalPrice,
+              total_amount: totalPrice,
               ordered_at: orderedAt,
               raw_data: item,
               updated_at: new Date().toISOString(),
