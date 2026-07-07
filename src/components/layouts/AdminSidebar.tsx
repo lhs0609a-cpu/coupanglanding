@@ -36,12 +36,14 @@ import {
   Package,
   Activity,
   PlaySquare,
+  ShoppingBag,
 } from 'lucide-react';
 
 const navItems = [
   { href: '/admin/dashboard', label: '대시보드', icon: LayoutDashboard },
   { href: '/admin/sales-overview', label: '매출 현황', icon: Table2 },
   { href: '/admin/performance', label: 'PT생 성과', icon: BarChart3 },
+  { href: '/admin/product-insights', label: '상품 판매 인사이트', icon: ShoppingBag },
   { href: '/admin/applications', label: '신청 관리', icon: ClipboardList },
   { href: '/admin/screening', label: '파트너 스크리닝', icon: UserCheck },
   { href: '/admin/pre-registrations', label: '사전등록 관리', icon: UserPlus },
@@ -68,6 +70,7 @@ const navItems = [
   { href: '/admin/support', label: '문의 관리', icon: MessageCircle },
   { href: '/admin/megaload-bug-reports', label: '메가로드 오류문의', icon: Bug },
   { href: '/admin/megaload-catalog', label: '메가로드 카탈로그', icon: Package },
+  { href: '/admin/supplier-catalog', label: '공급사 상품 검수', icon: ClipboardList },
   { href: '/admin/megaload-meta-audit', label: '카테고리 메타 감사', icon: Activity },
   { href: '/admin/system-logs', label: '시스템 로그', icon: AlertTriangle },
   { href: '/admin/faqs', label: 'FAQ 관리', icon: HelpCircle },
