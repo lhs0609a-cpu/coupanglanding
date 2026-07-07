@@ -1,11 +1,16 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import {
   RefreshCw, Package, XCircle, AlertTriangle, PauseCircle, Loader2,
   CheckCircle2, ExternalLink, Clock, Link2Off, PlayCircle,
+  ChevronRight, ChevronDown, Zap,
 } from 'lucide-react';
 import StockStatusBadge from './StockStatusBadge';
+import MonitorHistoryPanel from './MonitorHistoryPanel';
+import PriceRuleModal from './PriceRuleModal';
+import { effectivePriceFollowRule } from '@/lib/megaload/price-follow-default';
+import type { PriceFollowRule } from '@/lib/supabase/types';
 
 interface MonitorItem {
   id: string;
@@ -19,6 +24,7 @@ interface MonitorItem {
   source_price_last: number | null;
   our_price_last: number | null;
   price_last_updated_at: string | null;
+  price_follow_rule: PriceFollowRule | null;
   sh_products: { product_name: string; display_name: string; brand: string };
 }
 
@@ -57,6 +63,13 @@ export default function StockMonitorDashboard() {
 
   const [starting, setStarting] = useState(false);
   const [startMsg, setStartMsg] = useState('');
+
+  // 상품별 이력 토글 (펼친 모니터 id)
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // 가격 자동추종 설정 모달
+  const [ruleTarget, setRuleTarget] = useState<MonitorItem | null>(null);
+  const [bulkRuleOpen, setBulkRuleOpen] = useState(false);
 
   // 데스크탑 앱 (메가로드 도우미) 상태 — 꺼져 있으면 네이버 조회가 전부 실패한다.
   interface DesktopStatus {
@@ -170,6 +183,42 @@ export default function StockMonitorDashboard() {
     && desktopStatus.tokenIssued
     && (!desktopStatus.isAlive || desktopStatus.monitorsCheckedRecently === 0);
 
+  // 신호등 — 메가로드 도우미 실시간 연동 상태 (헤더에 항상 표시)
+  const light: {
+    color: 'green' | 'yellow' | 'red' | 'gray';
+    label: string;
+    detail: string;
+    pulse: boolean;
+  } = !desktopStatus
+    ? { color: 'gray', label: '연동 확인 중', detail: '도우미 상태를 확인하고 있습니다…', pulse: false }
+    : !desktopStatus.tokenIssued
+      ? { color: 'gray', label: '도우미 미설치', detail: '메가로드 도우미를 설치·연결해야 자동 점검이 됩니다.', pulse: false }
+      : !desktopStatus.isAlive
+        ? {
+            color: 'red',
+            label: '연동 끊김',
+            detail: desktopStatus.heartbeatAgeMin >= 0
+              ? `마지막 접속 ${desktopStatus.heartbeatAgeMin >= 60 ? `${Math.floor(desktopStatus.heartbeatAgeMin / 60)}시간` : `${desktopStatus.heartbeatAgeMin}분`} 전 — 도우미가 꺼져 있습니다.`
+              : '도우미가 한 번도 접속한 적 없습니다.',
+            pulse: false,
+          }
+        : desktopStatus.monitorsCheckedRecently === 0
+          ? { color: 'yellow', label: '연결됨 · 대기중', detail: '도우미는 접속 중이며 곧 점검 결과가 도착합니다.', pulse: true }
+          : {
+              color: 'green',
+              label: '실시간 연동중',
+              detail: `정상 동작 중 — 최근 1시간 ${desktopStatus.monitorsCheckedRecently}건 갱신`,
+              pulse: true,
+            };
+
+  const lightStyles: Record<typeof light.color, { wrap: string; dot: string; text: string }> = {
+    green: { wrap: 'bg-green-50 border-green-200', dot: 'bg-green-500', text: 'text-green-700' },
+    yellow: { wrap: 'bg-yellow-50 border-yellow-200', dot: 'bg-yellow-400', text: 'text-yellow-700' },
+    red: { wrap: 'bg-red-50 border-red-200', dot: 'bg-red-500', text: 'text-red-700' },
+    gray: { wrap: 'bg-gray-50 border-gray-200', dot: 'bg-gray-400', text: 'text-gray-500' },
+  };
+  const ls = lightStyles[light.color];
+
   return (
     <div className="space-y-6">
       {/* 메가로드 도우미가 꺼져 있을 때만 뜨는 경고 */}
@@ -205,19 +254,46 @@ export default function StockMonitorDashboard() {
       {/* 헤더 — 버튼은 단 하나 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">품절 동기화</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-bold text-gray-900">품절 동기화</h1>
+            {/* 신호등 — 메가로드 도우미 실시간 연동 상태 */}
+            <a
+              href="/megaload/desktop-app"
+              title={light.detail}
+              className={`inline-flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-full border text-xs font-semibold transition hover:brightness-95 ${ls.wrap} ${ls.text}`}
+            >
+              <span className="relative flex h-2.5 w-2.5">
+                {light.pulse && (
+                  <span className={`absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping ${ls.dot}`} />
+                )}
+                <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${ls.dot}`} />
+              </span>
+              도우미 {light.label}
+            </a>
+          </div>
           <p className="text-sm text-gray-500 mt-0.5">
             버튼 한 번이면 전체 상품의 원본 상태·가격을 점검합니다. 이후 PC의 메가로드 도우미가 24시간 자동으로 갱신합니다.
           </p>
         </div>
-        <button
-          onClick={handleStartScan}
-          disabled={starting || loading}
-          className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
-        >
-          {starting ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
-          {starting ? (startMsg || '시작 중...') : '전체 점검 시작'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setBulkRuleOpen(true)}
+            disabled={loading || monitors.length === 0}
+            className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition"
+            title="원본가 변동 시 우리 판매가를 자동으로 따라 올리거나 내립니다"
+          >
+            <Zap className="w-4 h-4 text-amber-500" />
+            가격 자동추종 일괄설정
+          </button>
+          <button
+            onClick={handleStartScan}
+            disabled={starting || loading}
+            className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
+          >
+            {starting ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+            {starting ? (startMsg || '시작 중...') : '전체 점검 시작'}
+          </button>
+        </div>
       </div>
 
       {/* 요약 카드 (읽기 전용) */}
@@ -335,13 +411,26 @@ export default function StockMonitorDashboard() {
             <tbody className="divide-y divide-gray-100">
               {monitors.map((m) => {
                 const product = m.sh_products;
+                const isOpen = expandedId === m.id;
                 return (
-                  <tr key={m.id} className="hover:bg-gray-50 transition">
+                  <Fragment key={m.id}>
+                  <tr className={`hover:bg-gray-50 transition ${isOpen ? 'bg-gray-50' : ''}`}>
                     <td className="px-4 py-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-gray-900 truncate max-w-[300px]">
+                      <div className="flex items-start gap-2">
+                        <button
+                          onClick={() => setExpandedId(isOpen ? null : m.id)}
+                          className="mt-0.5 text-gray-400 hover:text-gray-700 shrink-0"
+                          title="가격·품절 변동 이력 보기"
+                        >
+                          {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                        </button>
+                        <div className="min-w-0 flex-1">
+                        <button
+                          onClick={() => setExpandedId(isOpen ? null : m.id)}
+                          className="text-sm font-medium text-gray-900 truncate max-w-[300px] text-left hover:text-[#E31837] block"
+                        >
                           {product?.display_name || product?.product_name || '상품명 없음'}
-                        </p>
+                        </button>
                         <div className="flex items-center gap-2 mt-0.5">
                           {product?.brand && (
                             <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
@@ -373,6 +462,7 @@ export default function StockMonitorDashboard() {
                               쿠팡 <ExternalLink className="w-2.5 h-2.5" />
                             </a>
                           )}
+                        </div>
                         </div>
                       </div>
                     </td>
@@ -446,6 +536,38 @@ export default function StockMonitorDashboard() {
                           {!m.last_checked_at ? '미조회' : '조회 중'}
                         </span>
                       )}
+                      <div className="mt-1">
+                        {(() => {
+                          const eff = effectivePriceFollowRule(m.price_follow_rule);
+                          const isDefault = !m.price_follow_rule; // 명시 설정 없이 기본 자동추종
+                          return (
+                            <button
+                              onClick={() => setRuleTarget(m)}
+                              className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium border transition ${
+                                eff.enabled
+                                  ? eff.mode === 'auto'
+                                    ? 'text-green-700 bg-green-50 border-green-200 hover:bg-green-100'
+                                    : 'text-blue-700 bg-blue-50 border-blue-200 hover:bg-blue-100'
+                                  : 'text-gray-400 bg-gray-50 border-gray-200 hover:bg-gray-100'
+                              }`}
+                              title={
+                                !eff.enabled
+                                  ? '가격 추종 꺼짐 — 클릭해 설정'
+                                  : isDefault
+                                    ? '기본값: 원본가 변동 시 마진 유지하며 자동 추종 (클릭해 변경)'
+                                    : '원본가 변동 시 판매가 자동 추종 설정'
+                              }
+                            >
+                              <Zap className="w-2.5 h-2.5" />
+                              {!eff.enabled
+                                ? '추종 꺼짐'
+                                : eff.mode === 'auto'
+                                  ? (isDefault ? '자동추종·기본' : '자동추종')
+                                  : '승인후추종'}
+                            </button>
+                          );
+                        })()}
+                      </div>
                     </td>
                     <td className="px-3 py-3 text-center">
                       {m.last_checked_at ? (
@@ -463,12 +585,46 @@ export default function StockMonitorDashboard() {
                       )}
                     </td>
                   </tr>
+                  {isOpen && (
+                    <tr key={`${m.id}-history`}>
+                      <td colSpan={6} className="p-0 border-t border-gray-100">
+                        <MonitorHistoryPanel monitorId={m.id} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
           </table>
         )}
       </div>
+
+      {/* 가격 자동추종 — 단일 상품 설정 */}
+      {ruleTarget && (
+        <PriceRuleModal
+          open={!!ruleTarget}
+          onClose={() => setRuleTarget(null)}
+          onSaved={() => { setRuleTarget(null); fetchData(); }}
+          monitor={{
+            id: ruleTarget.id,
+            source_price_last: ruleTarget.source_price_last,
+            our_price_last: ruleTarget.our_price_last,
+            price_follow_rule: ruleTarget.price_follow_rule,
+            productName: ruleTarget.sh_products?.display_name || ruleTarget.sh_products?.product_name || '상품',
+          }}
+        />
+      )}
+
+      {/* 가격 자동추종 — 전체 일괄 설정 */}
+      {bulkRuleOpen && (
+        <PriceRuleModal
+          open={bulkRuleOpen}
+          onClose={() => setBulkRuleOpen(false)}
+          onSaved={() => { setBulkRuleOpen(false); fetchData(); }}
+          monitorIds={monitors.map((m) => m.id)}
+        />
+      )}
     </div>
   );
 }

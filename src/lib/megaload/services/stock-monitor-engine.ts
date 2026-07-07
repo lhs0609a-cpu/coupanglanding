@@ -16,6 +16,7 @@ import type { Channel } from '../types';
 import type { OptionStockStatus } from './option-name-matcher';
 import { normalizeOptionName, detectOptionChanges } from './option-name-matcher';
 import { propagateStockToOtherChannels } from './multichannel-stock-sync';
+import { DEFAULT_PRICE_FOLLOW_RULE } from '../price-follow-default';
 import type { PriceFollowRule, PendingPriceChange } from '@/lib/supabase/types';
 
 type StockStatus = 'in_stock' | 'sold_out' | 'removed' | 'unknown' | 'error';
@@ -1209,10 +1210,11 @@ async function processPriceFollow(input: {
   now: string;
 }): Promise<PriceFollowActionResult> {
   const { monitor, observedSourcePrice, vendorItemIds, adapter, supabase, authUserId, now } = input;
-  const rule = monitor.price_follow_rule;
+  // 규칙 미설정(null) → 기본 자동추종 규칙 적용. 명시적 규칙이 있으면 그대로 존중.
+  const rule = monitor.price_follow_rule ?? DEFAULT_PRICE_FOLLOW_RULE;
 
-  // 0. 규칙 비활성 → no-op
-  if (!rule || rule.enabled !== true) return { action: 'none' };
+  // 0. 규칙이 명시적으로 비활성 → no-op
+  if (rule.enabled !== true) return { action: 'none' };
 
   // 1. 관찰 가격 없음 → no-op
   if (observedSourcePrice == null || observedSourcePrice <= 0) {

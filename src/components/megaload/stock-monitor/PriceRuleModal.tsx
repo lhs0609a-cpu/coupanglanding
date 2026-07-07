@@ -5,6 +5,7 @@ import { AlertTriangle, Loader2 } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import NumberInput from '@/components/ui/NumberInput';
 import type { PriceFollowRule, PriceFollowMode, PriceFollowType } from '@/lib/supabase/types';
+import { DEFAULT_PRICE_FOLLOW_RULE } from '@/lib/megaload/price-follow-default';
 
 interface MonitorLite {
   id: string;
@@ -24,15 +25,8 @@ interface Props {
   monitorIds?: string[];
 }
 
-const DEFAULT_RULE: PriceFollowRule = {
-  enabled: false,
-  mode: 'manual_approval',
-  type: 'exact',
-  min_change_pct: 1,
-  max_change_pct: 30,
-  follow_down: true,
-  cooldown_minutes: 60,
-};
+// 기본값 = 완전 자동추종(마진 고정). 사용자가 안 만져도 원본가 변동을 자동 반영.
+const DEFAULT_RULE: PriceFollowRule = { ...DEFAULT_PRICE_FOLLOW_RULE };
 
 function roundTo10(n: number): number {
   return Math.round(n / 10) * 10;
