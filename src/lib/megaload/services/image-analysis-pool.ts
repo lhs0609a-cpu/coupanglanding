@@ -51,6 +51,11 @@ class ImageAnalysisPool {
             this.workerInflight.delete(worker);
             task.reject(new Error(`worker error: ${err.message || 'unknown'}`));
           }
+          // 죽은 워커를 풀에서 제거 → isAvailable()/dispatch 정확도 유지.
+          //   (로드 단계 실패 등으로 전 워커가 죽으면 isAvailable()=false → 메인스레드 폴백)
+          this.workers = this.workers.filter((w) => w !== worker);
+          this.idleWorkers = this.idleWorkers.filter((w) => w !== worker);
+          try { worker.terminate(); } catch { /* already dead */ }
         };
         this.workers.push(worker);
         this.idleWorkers.push(worker);
@@ -97,11 +102,35 @@ class ImageAnalysisPool {
     }
     return new Promise<AnalyzeProductResult>((resolve, reject) => {
       const id = ++this.nextId;
+      // ★ 태스크 타임아웃: 워커가 (로드 실패/디코드 무한대기 등으로) 응답 안 하면
+      //   파이프라인 전체가 영구 대기("시작조차 안 됨" 프리즈)에 빠진다. 25초 넘으면
+      //   reject → 호출부(processProductInWorkerThread)가 메인스레드 폴백으로 이 상품만 처리.
+      //   늦게 오는 응답은 settled 가드로 무시하고 handleMessage 가 워커를 idle 로 회수.
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        // pending 큐에 아직 남아있으면 제거 (dispatch 전 타임아웃)
+        const pi = this.pending.indexOf(task);
+        if (pi >= 0) this.pending.splice(pi, 1);
+        console.warn(`[image-analysis-pool] task ${id} 타임아웃(25s) — 메인스레드 폴백`);
+        reject(new Error('worker task timeout'));
+      }, 25000);
       const task: PendingTask = {
         id,
         request: { id, op: 'analyzeProduct', args },
-        resolve: (r) => r ? resolve(r) : reject(new Error('null result')),
-        reject,
+        resolve: (r) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          r ? resolve(r) : reject(new Error('null result'));
+        },
+        reject: (e) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          reject(e);
+        },
       };
       this.pending.push(task);
       this.dispatchNext();
