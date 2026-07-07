@@ -54,12 +54,29 @@ export async function POST() {
           const rawStatus = String(item.status || item.orderStatus || '');
           const orderStatus = normalizeOrderStatus(channel, rawStatus);
 
-          const receiverName = String(item.receiverName || (item.receiver as Record<string, unknown>)?.name || '');
-          const receiverPhone = String(item.receiverPhone || (item.receiver as Record<string, unknown>)?.tel1 || '');
-          const receiverAddress = String(item.receiverAddress || (item.receiver as Record<string, unknown>)?.addr1 || '');
-          const orderedAt = String(item.orderedAt || item.orderDate || item.paymentDate || new Date().toISOString());
-          const totalPrice = Number(item.totalPrice || item.paymentAmount || item.settlePrice || 0);
-          const buyerName = String(item.buyerName || (item.orderer as Record<string, unknown>)?.name || '');
+          const receiver = (item.receiver as Record<string, unknown>) || {};
+          const orderer = (item.orderer as Record<string, unknown>) || {};
+          const lineItems = (item.orderItems || item.productOrderItems || []) as Record<string, unknown>[];
+
+          const receiverName = String(item.receiverName || receiver.name || '');
+          const receiverPhone = String(item.receiverPhone || receiver.receiverNumber || receiver.safeNumber || receiver.tel1 || '');
+          const receiverAddress = String(
+            item.receiverAddress ||
+            [receiver.addr1, receiver.addr2].filter(Boolean).join(' ') ||
+            ''
+          );
+          const orderedAt = String(item.orderedAt || item.orderDate || item.paidAt || item.paymentDate || new Date().toISOString());
+          const buyerName = String(item.buyerName || orderer.name || '');
+
+          // 금액: 쿠팡 ordersheet 은 박스 레벨 총액 필드가 없으므로
+          // orderItems 합산(orderPrice, 없으면 salesPrice×수량) + 배송비로 계산한다.
+          const itemsTotal = lineItems.reduce((sum, oi) =>
+            sum + (Number(oi.orderPrice) || Number(oi.salesPrice || 0) * Number(oi.shippingCount || oi.quantity || 1)), 0);
+          const shippingPrice = Number(item.shippingPrice || 0);
+          const totalPrice = Number(item.totalPrice || item.paymentAmount || item.settlePrice || 0) || (itemsTotal + shippingPrice);
+
+          const courierCode = String(item.courierCode || item.deliveryCompanyName || '');
+          const invoiceNumber = String(item.invoiceNumber || '');
 
           // 주문 저장 — sh_orders 에는 (megaload_user_id,channel,channel_order_id)
           // 유니크 제약이 없어 upsert(onConflict) 가 42P10 으로 실패한다.
@@ -75,6 +92,8 @@ export async function POST() {
             receiver_address: receiverAddress,
             total_amount: totalPrice,
             ordered_at: orderedAt,
+            ...(courierCode && { courier_code: courierCode }),
+            ...(invoiceNumber && { invoice_number: invoiceNumber }),
             raw_data: item,
             updated_at: new Date().toISOString(),
           };
@@ -101,16 +120,15 @@ export async function POST() {
           // 주문 상품 저장 — sh_order_items 는 order_id 로 delete 후 재삽입(멱등).
           // (megaload_user_id/updated_at 컬럼은 스키마에 없으므로 넣지 않는다)
           if (orderId) {
-            const lineItems = (item.orderItems || item.productOrderItems || []) as Record<string, unknown>[];
             await serviceClient.from('sh_order_items').delete().eq('order_id', orderId);
             if (lineItems.length > 0) {
               const rows = lineItems.map((orderItem) => ({
                 order_id: orderId,
-                product_name: String(orderItem.productName || orderItem.itemName || ''),
-                option_name: String(orderItem.optionName || orderItem.optionValue || ''),
-                quantity: Number(orderItem.quantity || orderItem.qty || 1),
-                unit_price: Number(orderItem.unitPrice || orderItem.salePrice || 0),
-                channel_product_id: String(orderItem.productId || orderItem.vendorItemId || ''),
+                product_name: String(orderItem.vendorItemName || orderItem.sellerProductName || orderItem.productName || orderItem.itemName || ''),
+                option_name: String(orderItem.sellerProductItemName || orderItem.firstSellerProductItemName || orderItem.optionName || orderItem.optionValue || ''),
+                quantity: Number(orderItem.shippingCount || orderItem.quantity || orderItem.qty || 1),
+                unit_price: Number(orderItem.salesPrice || orderItem.orderPrice || orderItem.unitPrice || orderItem.salePrice || 0),
+                channel_product_id: String(orderItem.vendorItemId || orderItem.productId || ''),
               }));
               await serviceClient.from('sh_order_items').insert(rows);
             }

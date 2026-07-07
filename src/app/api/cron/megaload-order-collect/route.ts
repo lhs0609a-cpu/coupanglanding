@@ -52,7 +52,18 @@ export async function GET(request: Request) {
 
             const rawStatus = String(item.status || item.orderStatus || '');
             const orderStatus = normalizeOrderStatus(channel, rawStatus);
-            const totalPrice = Number(item.totalPrice || item.paymentAmount || 0);
+
+            const receiver = (item.receiver as Record<string, unknown>) || {};
+            const orderer = (item.orderer as Record<string, unknown>) || {};
+            const lineItems = (item.orderItems || item.productOrderItems || []) as Record<string, unknown>[];
+
+            // 금액: 쿠팡은 박스 총액 필드가 없어 orderItems 합산 + 배송비로 계산
+            const itemsTotal = lineItems.reduce((sum, oi) =>
+              sum + (Number(oi.orderPrice) || Number(oi.salesPrice || 0) * Number(oi.shippingCount || oi.quantity || 1)), 0);
+            const totalPrice = Number(item.totalPrice || item.paymentAmount || 0) || (itemsTotal + Number(item.shippingPrice || 0));
+
+            const courierCode = String(item.courierCode || item.deliveryCompanyName || '');
+            const invoiceNumber = String(item.invoiceNumber || '');
 
             // sh_orders 유니크 제약이 없어 upsert(onConflict) 가 실패한다.
             // 자연키로 조회 후 update/insert 로 멱등 저장하고, 신규일 때만 재고 차감.
@@ -61,12 +72,14 @@ export async function GET(request: Request) {
               channel,
               channel_order_id: channelOrderId,
               order_status: orderStatus,
-              buyer_name: String(item.buyerName || (item.orderer as Record<string, unknown>)?.name || ''),
-              receiver_name: String(item.receiverName || (item.receiver as Record<string, unknown>)?.name || ''),
-              receiver_phone: String(item.receiverPhone || (item.receiver as Record<string, unknown>)?.tel1 || ''),
-              receiver_address: String(item.receiverAddress || (item.receiver as Record<string, unknown>)?.addr1 || ''),
+              buyer_name: String(item.buyerName || orderer.name || ''),
+              receiver_name: String(item.receiverName || receiver.name || ''),
+              receiver_phone: String(item.receiverPhone || receiver.receiverNumber || receiver.safeNumber || receiver.tel1 || ''),
+              receiver_address: String(item.receiverAddress || [receiver.addr1, receiver.addr2].filter(Boolean).join(' ') || ''),
               total_amount: totalPrice,
-              ordered_at: String(item.orderedAt || item.orderDate || new Date().toISOString()),
+              ordered_at: String(item.orderedAt || item.orderDate || item.paidAt || new Date().toISOString()),
+              ...(courierCode && { courier_code: courierCode }),
+              ...(invoiceNumber && { invoice_number: invoiceNumber }),
               raw_data: item,
               updated_at: new Date().toISOString(),
             };
@@ -87,14 +100,12 @@ export async function GET(request: Request) {
             }
 
             // 재고 차감 — 신규 주문만 (재수집 시 이중 차감 방지)
-            const orderItems = isNewOrder
-              ? ((item.orderItems || item.productOrderItems || []) as Record<string, unknown>[])
-              : [];
+            const orderItems = isNewOrder ? lineItems : [];
             for (const oi of orderItems) {
-              const sku = String(oi.sellerItemCode || oi.vendorSku || '');
+              const sku = String(oi.externalVendorSkuCode || oi.sellerItemCode || oi.vendorSku || '');
               if (!sku) continue;
 
-              const qty = Number(oi.quantity || oi.qty || 1);
+              const qty = Number(oi.shippingCount || oi.quantity || oi.qty || 1);
               const { data: inv } = await supabase
                 .from('sh_inventory')
                 .select('id, quantity')
