@@ -61,44 +61,58 @@ export async function POST() {
           const totalPrice = Number(item.totalPrice || item.paymentAmount || item.settlePrice || 0);
           const buyerName = String(item.buyerName || (item.orderer as Record<string, unknown>)?.name || '');
 
-          // Upsert order
-          const { data: upsertedOrder } = await serviceClient
+          // 주문 저장 — sh_orders 에는 (megaload_user_id,channel,channel_order_id)
+          // 유니크 제약이 없어 upsert(onConflict) 가 42P10 으로 실패한다.
+          // 자연키로 직접 조회 후 update/insert 로 멱등 저장한다.
+          const orderPayload = {
+            megaload_user_id: shUserId,
+            channel,
+            channel_order_id: channelOrderId,
+            order_status: orderStatus,
+            buyer_name: buyerName,
+            receiver_name: receiverName,
+            receiver_phone: receiverPhone,
+            receiver_address: receiverAddress,
+            total_amount: totalPrice,
+            ordered_at: orderedAt,
+            raw_data: item,
+            updated_at: new Date().toISOString(),
+          };
+
+          const { data: existingOrder } = await serviceClient
             .from('sh_orders')
-            .upsert({
-              megaload_user_id: shUserId,
-              channel,
-              channel_order_id: channelOrderId,
-              order_status: orderStatus,
-              buyer_name: buyerName,
-              receiver_name: receiverName,
-              receiver_phone: receiverPhone,
-              receiver_address: receiverAddress,
-              total_amount: totalPrice,
-              ordered_at: orderedAt,
-              raw_data: item,
-              updated_at: new Date().toISOString(),
-            }, { onConflict: 'megaload_user_id,channel,channel_order_id' })
             .select('id')
-            .single();
+            .eq('megaload_user_id', shUserId)
+            .eq('channel', channel)
+            .eq('channel_order_id', channelOrderId)
+            .maybeSingle();
 
-          const orderId = (upsertedOrder as Record<string, unknown>)?.id as string;
-
-          // Upsert order items
+          let orderId = (existingOrder as Record<string, unknown>)?.id as string | undefined;
           if (orderId) {
-            const items = (item.orderItems || item.productOrderItems || []) as Record<string, unknown>[];
-            for (const orderItem of items) {
-              await serviceClient
-                .from('sh_order_items')
-                .upsert({
-                  order_id: orderId,
-                  megaload_user_id: shUserId,
-                  product_name: String(orderItem.productName || orderItem.itemName || ''),
-                  option_name: String(orderItem.optionName || orderItem.optionValue || ''),
-                  quantity: Number(orderItem.quantity || orderItem.qty || 1),
-                  unit_price: Number(orderItem.unitPrice || orderItem.salePrice || 0),
-                  channel_product_id: String(orderItem.productId || orderItem.vendorItemId || ''),
-                  updated_at: new Date().toISOString(),
-                }, { onConflict: 'order_id,megaload_user_id,channel_product_id' });
+            const { error: updErr } = await serviceClient.from('sh_orders').update(orderPayload).eq('id', orderId);
+            if (updErr) throw new Error(`sh_orders update: ${updErr.message}`);
+          } else {
+            const { data: inserted, error: insErr } = await serviceClient
+              .from('sh_orders').insert(orderPayload).select('id').single();
+            if (insErr) throw new Error(`sh_orders insert: ${insErr.message}`);
+            orderId = (inserted as Record<string, unknown>)?.id as string;
+          }
+
+          // 주문 상품 저장 — sh_order_items 는 order_id 로 delete 후 재삽입(멱등).
+          // (megaload_user_id/updated_at 컬럼은 스키마에 없으므로 넣지 않는다)
+          if (orderId) {
+            const lineItems = (item.orderItems || item.productOrderItems || []) as Record<string, unknown>[];
+            await serviceClient.from('sh_order_items').delete().eq('order_id', orderId);
+            if (lineItems.length > 0) {
+              const rows = lineItems.map((orderItem) => ({
+                order_id: orderId,
+                product_name: String(orderItem.productName || orderItem.itemName || ''),
+                option_name: String(orderItem.optionName || orderItem.optionValue || ''),
+                quantity: Number(orderItem.quantity || orderItem.qty || 1),
+                unit_price: Number(orderItem.unitPrice || orderItem.salePrice || 0),
+                channel_product_id: String(orderItem.productId || orderItem.vendorItemId || ''),
+              }));
+              await serviceClient.from('sh_order_items').insert(rows);
             }
           }
 

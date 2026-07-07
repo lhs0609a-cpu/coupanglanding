@@ -54,25 +54,42 @@ export async function GET(request: Request) {
             const orderStatus = normalizeOrderStatus(channel, rawStatus);
             const totalPrice = Number(item.totalPrice || item.paymentAmount || 0);
 
-            await supabase
-              .from('sh_orders')
-              .upsert({
-                megaload_user_id: shUserId,
-                channel,
-                channel_order_id: channelOrderId,
-                order_status: orderStatus,
-                buyer_name: String(item.buyerName || (item.orderer as Record<string, unknown>)?.name || ''),
-                receiver_name: String(item.receiverName || (item.receiver as Record<string, unknown>)?.name || ''),
-                receiver_phone: String(item.receiverPhone || (item.receiver as Record<string, unknown>)?.tel1 || ''),
-                receiver_address: String(item.receiverAddress || (item.receiver as Record<string, unknown>)?.addr1 || ''),
-                total_amount: totalPrice,
-                ordered_at: String(item.orderedAt || item.orderDate || new Date().toISOString()),
-                raw_data: item,
-                updated_at: new Date().toISOString(),
-              }, { onConflict: 'megaload_user_id,channel,channel_order_id' });
+            // sh_orders 유니크 제약이 없어 upsert(onConflict) 가 실패한다.
+            // 자연키로 조회 후 update/insert 로 멱등 저장하고, 신규일 때만 재고 차감.
+            const orderPayload = {
+              megaload_user_id: shUserId,
+              channel,
+              channel_order_id: channelOrderId,
+              order_status: orderStatus,
+              buyer_name: String(item.buyerName || (item.orderer as Record<string, unknown>)?.name || ''),
+              receiver_name: String(item.receiverName || (item.receiver as Record<string, unknown>)?.name || ''),
+              receiver_phone: String(item.receiverPhone || (item.receiver as Record<string, unknown>)?.tel1 || ''),
+              receiver_address: String(item.receiverAddress || (item.receiver as Record<string, unknown>)?.addr1 || ''),
+              total_amount: totalPrice,
+              ordered_at: String(item.orderedAt || item.orderDate || new Date().toISOString()),
+              raw_data: item,
+              updated_at: new Date().toISOString(),
+            };
 
-            // 재고 차감 (신규 주문만)
-            const orderItems = (item.orderItems || item.productOrderItems || []) as Record<string, unknown>[];
+            const { data: existingOrder } = await supabase
+              .from('sh_orders')
+              .select('id')
+              .eq('megaload_user_id', shUserId)
+              .eq('channel', channel)
+              .eq('channel_order_id', channelOrderId)
+              .maybeSingle();
+
+            const isNewOrder = !existingOrder;
+            if (existingOrder) {
+              await supabase.from('sh_orders').update(orderPayload).eq('id', (existingOrder as Record<string, unknown>).id);
+            } else {
+              await supabase.from('sh_orders').insert(orderPayload);
+            }
+
+            // 재고 차감 — 신규 주문만 (재수집 시 이중 차감 방지)
+            const orderItems = isNewOrder
+              ? ((item.orderItems || item.productOrderItems || []) as Record<string, unknown>[])
+              : [];
             for (const oi of orderItems) {
               const sku = String(oi.sellerItemCode || oi.vendorSku || '');
               if (!sku) continue;
