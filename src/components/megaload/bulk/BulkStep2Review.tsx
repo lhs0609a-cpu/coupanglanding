@@ -16,6 +16,7 @@ import type { PreventionConfig } from '@/lib/megaload/services/item-winner-preve
 import type { EditableProduct, CategoryItem, FilterMode, SortField, SortDirection, FailureDiagnostic } from './types';
 import type { CategoryMetadata } from '@/lib/megaload/services/product-validator';
 import LlmRegenModal from './LlmRegenModal';
+import SystemSpecCheckButton from './SystemSpecCheckButton';
 import type { LlmTask } from './useBulkRegisterActions';
 import { resolveAgriWeight } from './option-candidates';
 
@@ -168,7 +169,11 @@ const PipelineProgress = memo(function PipelineProgress({
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-4">
-      <h4 className="text-xs font-semibold text-gray-700 mb-3">자동 파이프라인</h4>
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <h4 className="text-xs font-semibold text-gray-700 pt-1">자동 파이프라인</h4>
+        {/* 다양성 분석이 멈추거나 느린 사용자용 — 내 PC 사양 적합도 즉석 진단 */}
+        <SystemSpecCheckButton />
+      </div>
       <div className="space-y-2.5">
         {steps.map((s, i) => {
           const pct = s.total > 0 ? Math.round((s.done / s.total) * 100) : (s.phase === 'complete' ? 100 : 0);
