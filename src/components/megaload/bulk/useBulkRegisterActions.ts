@@ -1544,11 +1544,13 @@ export function useBulkRegisterActions() {
             //   상세페이지는 20~50장씩 들어오지만 최종 선택은 detail 10 / review 5 장뿐.
             //   후보가 상한을 넘으면 "위치기반 균등 샘플링"으로 추려서 디코드·O(N²) 쌍비교를
             //   후보 수에 비례해 줄인다. 순서(첫·끝 포함)를 보존해 상세페이지 서사 커버리지 유지.
-            //   ★ 속도패치2: 상한 30/16 → 16/10 으로 하향. 다양성 분석의 병목은 후보 이미지를
-            //   디스크에서 읽고 디코드하는 I/O 이므로, 후보 장수를 절반으로 줄이면 읽기·디코드도 절반.
-            //   유지 장수(10/5) 대비 1.6~2배 headroom은 유지 → 다양성 선택 품질 영향 미미.
-            const CANDIDATE_CAP_DETAIL = 16; // detail maxCount=10 → 1.6배 headroom
-            const CANDIDATE_CAP_REVIEW = 10; // review maxCount=5 → 2배 headroom
+            //   ★ 속도패치3: 상한 16/10 → 12/6 으로 추가 하향. 다양성 분석의 병목은 후보 이미지를
+            //   디스크에서 읽고 디코드하는 I/O 이므로, 후보 장수가 곧 속도. 원본(30/16) 대비
+            //   상세 60%↓·리뷰 62%↓ 로 읽기·디코드 대폭 감소. 상세는 최종 10장 선택 자리에서
+            //   후보 12장이라 ad/dup 자동제외는 유지하되 헤비 상품(30~50장)의 I/O 를 크게 절감.
+            //   리뷰는 UI 표시 순서용이라 6장이면 충분.
+            const CANDIDATE_CAP_DETAIL = 12; // detail maxCount=10 → 후보 12
+            const CANDIDATE_CAP_REVIEW = 6;  // review maxCount=5 → 후보 6
             const sampleEvenly = <T,>(arr: T[], cap: number): T[] => {
               if (arr.length <= cap) return arr;
               const step = (arr.length - 1) / (cap - 1);
