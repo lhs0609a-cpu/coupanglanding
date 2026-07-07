@@ -129,6 +129,8 @@ export async function POST() {
                 quantity: Number(orderItem.shippingCount || orderItem.quantity || orderItem.qty || 1),
                 unit_price: Number(orderItem.salesPrice || orderItem.orderPrice || orderItem.unitPrice || orderItem.salePrice || 0),
                 channel_product_id: String(orderItem.vendorItemId || orderItem.productId || ''),
+                // 공급사 SKU — 셀러 간 동일 상품 교차 집계(관리자 상품 인사이트)의 그룹 키
+                sku: String(orderItem.externalVendorSkuCode || orderItem.sellerItemCode || orderItem.vendorSku || ''),
               }));
               await serviceClient.from('sh_order_items').insert(rows);
             }
