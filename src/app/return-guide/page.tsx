@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react';
 import {
   Copy, Check, ChevronLeft, ChevronRight, RotateCcw, ExternalLink,
-  LogIn, User, Phone, Home, UserCheck, Smartphone, MapPin, Package,
-  CheckCircle2, PlayCircle, Search, ClipboardList, Truck, Loader2, AlertCircle,
+  User, Phone, Home, UserCheck, Smartphone, MapPin, Package,
+  CheckCircle2, PlayCircle, ClipboardList, Truck, Loader2, AlertCircle,
+  FileText, ShieldCheck, Coins, Calendar,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -12,6 +13,13 @@ interface AddressInfo {
   name: string;
   phone: string;
   address: string;
+}
+
+/** 반품 상품 정보 — CJ 상품정보 단계 매칭용 */
+interface ProductInfo {
+  name?: string | null;
+  price?: number | null;
+  qty?: number | null;
 }
 
 interface GuideStep {
@@ -24,73 +32,104 @@ interface GuideStep {
 
 const SESSION_KEY = 'megaload_return_guide';
 
-function buildCjSteps(sender: AddressInfo, dest: AddressInfo): GuideStep[] {
+// ★ 실제 CJ대한통운 반품예약(reservation-return) 폼 순서에 정확히 매칭한 단계.
+//   실제 폼: 01 약관 3종 동의 → 02 개인정보 동의 → 03 보내는분/받는분/상품정보 입력 → 04 완료.
+//   (원운송장 조회는 CJ 원송장 역조회용이라 쿠팡 셀러 신규 수거 접수엔 해당 없음 → 생략)
+function buildCjSteps(sender: AddressInfo, dest: AddressInfo, product?: ProductInfo): GuideStep[] {
   return [
     {
       icon: PlayCircle,
       title: '준비하기',
-      description: 'CJ대한통운 반품예약 사이트가 옆에 열렸는지 확인해주세요. 열리지 않았다면 위쪽의 빨간 버튼을 눌러 사이트를 여세요.',
-      hint: '사이트와 이 가이드 창을 나란히 배치하면 따라하기 편합니다.',
+      description: '오른쪽에 CJ대한통운 반품예약 사이트가 열렸는지 확인하세요. 열리지 않았다면 위쪽 빨간 버튼을 눌러 사이트를 여세요.',
+      hint: '이 창을 사이트 옆에 두고 순서대로 따라 하면 됩니다.',
     },
     {
-      icon: LogIn,
-      title: '로그인 또는 비회원 접수',
-      description: 'CJ 사이트에서 로그인을 하거나, 아이디가 없으면 "비회원 접수" 버튼을 선택하세요.',
-      hint: '처음 이용한다면 비회원 접수가 간편합니다.',
+      icon: FileText,
+      title: '1단계 · 약관 동의',
+      description: '"홈페이지 이용약관", "택배 이용약관", "만 14세 이상"에 각각 체크하거나 맨 아래 "위 항목을 모두 동의합니다"를 체크한 뒤 [다음 단계로] 버튼을 누르세요.',
+      hint: '약관에 동의해야 다음 단계로 넘어갑니다.',
+    },
+    {
+      icon: ShieldCheck,
+      title: '2단계 · 개인정보 수집 동의',
+      description: '"개인정보 수집 및 이용안내에 동의합니다"에 체크하세요. 그 아래 이메일·비밀번호는 예약 확인용 선택 항목이라 비워둬도 됩니다.',
+      hint: '필수 항목만 체크하면 됩니다.',
     },
     {
       icon: User,
-      title: '보내는 분 이름 입력',
-      description: '"보내는 분" 이름 칸을 클릭하고, 아래 복사 버튼을 누른 뒤 입력란에 Ctrl+V로 붙여넣으세요.',
+      title: '보내는 분(구매자) 이름',
+      description: '3단계 "보내는 분" 이름 칸을 클릭하고, 아래 복사 버튼을 누른 뒤 Ctrl+V로 붙여넣으세요.',
       copies: [{ label: '보내는 분 이름', value: sender.name }],
-      hint: '입력란 안에 커서를 둔 상태에서 붙여넣기하세요.',
+      hint: '"보내는 분"은 반품 상품을 보내는 구매자입니다.',
     },
     {
       icon: Phone,
-      title: '보내는 분 연락처 입력',
-      description: '"보내는 분 연락처" 칸을 클릭한 다음, 아래 번호를 복사해서 붙여넣으세요.',
+      title: '보내는 분 연락처',
+      description: '"보내는 분" 휴대폰번호 칸을 클릭한 뒤 아래 번호를 붙여넣으세요. 하이픈(-)은 칸에 맞게 자동으로 나뉩니다.',
       copies: [{ label: '연락처', value: sender.phone }],
-      hint: '하이픈(-) 포함 그대로 붙여넣어도 됩니다.',
+      hint: '휴대폰번호 또는 전화번호 중 1개는 반드시 입력해야 합니다.',
     },
     {
       icon: Home,
-      title: '보내는 분 주소 입력',
-      description: '"주소 검색" 버튼을 눌러 검색창을 연 뒤, 아래 주소를 복사해서 검색하세요. 주소 선택 후 상세주소가 자동으로 채워집니다.',
+      title: '보내는 분 주소',
+      description: '"주소검색" 버튼을 눌러 검색창을 연 뒤 아래 주소로 검색하고 선택하세요. 상세주소가 자동으로 안 채워지면 직접 입력하세요.',
       copies: [{ label: '주소', value: sender.address }],
-      hint: '동/읍/면 이름으로 검색하면 더 잘 찾아집니다.',
+      hint: '도로명이나 동 이름으로 검색하면 더 잘 찾아집니다.',
     },
     {
       icon: UserCheck,
-      title: '받는 분 이름 입력',
-      description: '이제 "받는 분" 차례입니다. "받는 분 이름" 칸을 클릭한 다음 아래 이름을 붙여넣으세요.',
+      title: '받는 분(도착지) 이름',
+      description: '이제 "받는 분" 차례입니다. "받는 분" 이름 칸에 아래 이름을 붙여넣으세요.',
       copies: [{ label: '받는 분 이름', value: dest.name }],
-      hint: '보내는 분 정보 바로 아래 섹션에 있습니다.',
+      hint: '"받는 분"은 반품이 도착할 우리 창고(또는 공급처)입니다.',
     },
     {
       icon: Smartphone,
-      title: '받는 분 연락처 입력',
-      description: '"받는 분 연락처" 칸에 아래 번호를 복사해서 붙여넣으세요.',
+      title: '받는 분 연락처',
+      description: '"받는 분" 휴대폰번호 칸에 아래 번호를 붙여넣으세요.',
       copies: [{ label: '연락처', value: dest.phone }],
-      hint: '절반 이상 진행되었습니다. 조금만 더 힘내세요.',
+      hint: '거의 다 왔습니다.',
     },
     {
       icon: MapPin,
-      title: '받는 분 주소 입력',
-      description: '"받는 분 주소 검색" 버튼을 눌러 검색창을 연 뒤, 아래 주소로 검색하세요.',
+      title: '받는 분 주소',
+      description: '"받는 분 주소검색"을 눌러 검색창을 연 뒤 아래 주소로 검색하세요.',
       copies: [{ label: '주소', value: dest.address }],
-      hint: '주소 선택 후 상세주소가 비어 있다면 직접 입력해주세요.',
+      hint: '상세주소가 비어 있으면 직접 입력해 주세요.',
+    },
+    {
+      icon: ClipboardList,
+      title: '상품정보 유의사항 동의',
+      description: '상품 정보 영역에서 "상품 정보 유의사항 보기"를 눌러 확인한 뒤, "유의사항 안내를 확인하였으며 이에 동의합니다"에 체크하세요.',
+      hint: '체크해야 예약 신청 버튼이 활성화됩니다.',
     },
     {
       icon: Package,
-      title: '물품 정보 선택',
-      description: '물품 종류를 선택합니다. "의류", "잡화", "기타" 중 적합한 항목을 선택하세요.',
-      hint: '수량은 특별한 경우가 아니면 1개로 두시면 됩니다.',
+      title: '상품명 입력',
+      description: product?.name
+        ? '"상품명" 칸에 아래 값을 붙여넣으세요.'
+        : '"상품명" 칸에 품목을 적으세요. 예: 의류, 잡화, 신발.',
+      copies: [{ label: '상품명', value: product?.name || '의류' }],
+      hint: '상품명은 사고 시 배상 기준이 되니 구체적으로 적는 것이 좋습니다.',
+    },
+    {
+      icon: Coins,
+      title: '상품가격 · 포장수량 · 부피',
+      description: '"상품가격"을 입력하고, "포장수량"은 보통 1, "부피"는 상품 크기에 맞게(대부분 "소" 또는 "중")로 선택하세요.',
+      ...(product?.price ? { copies: [{ label: '상품가격(원)', value: String(product.price) }] } : {}),
+      hint: '2박스 이상이면 1박스당 가격을 적으세요. 300만원 초과 상품은 접수 불가입니다.',
+    },
+    {
+      icon: Calendar,
+      title: '방문 희망일 선택',
+      description: '택배기사가 구매자에게 방문할 "방문희망일"을 선택하세요. 보통 다음 영업일이 기본으로 잡혀 있습니다.',
+      hint: '오전/오후·특정 시간 지정은 반영되지 않습니다.',
     },
     {
       icon: CheckCircle2,
-      title: '예약 접수 완료',
-      description: '화면 아래쪽의 "예약접수" 또는 "접수완료" 버튼을 눌러 최종 제출하세요.',
-      hint: '이 버튼을 누르면 접수가 완료됩니다.',
+      title: '예약 신청하기',
+      description: '맨 아래 [예약 신청하기] 버튼을 눌러 최종 접수하세요.',
+      hint: '이 버튼을 누르면 반품 수거 접수가 완료됩니다.',
     },
     {
       icon: CheckCircle2,
@@ -100,79 +139,91 @@ function buildCjSteps(sender: AddressInfo, dest: AddressInfo): GuideStep[] {
   ];
 }
 
-function buildEpostSteps(sender: AddressInfo, dest: AddressInfo): GuideStep[] {
+// ★ 실제 우체국 "방문접수소포 반품예약"(general.RetrieveGeneralGubunLoginReturn) 폼 순서에 매칭.
+//   실제 폼: 취급제한품목·손해배상 동의 → 01 보내는 분 → 02 방문접수 소포정보 →
+//   03 받는 분 → 04 물품정보 → [받는 분 목록에 추가] → (사전결제 시 06 결제) → [신청].
+function buildEpostSteps(sender: AddressInfo, dest: AddressInfo, product?: ProductInfo): GuideStep[] {
   return [
     {
       icon: PlayCircle,
       title: '준비하기',
-      description: '우체국택배 사이트가 옆에 열렸는지 확인해주세요. 열리지 않았다면 위쪽의 빨간 버튼을 눌러 사이트를 여세요.',
-      hint: '사이트와 이 가이드 창을 나란히 배치하면 따라하기 편합니다.',
+      description: '오른쪽에 우체국 "방문접수소포 반품예약" 페이지가 열렸는지 확인하세요. 안 열렸으면 위쪽 빨간 버튼을 누르세요.',
+      hint: '이 창을 사이트 옆에 두고 순서대로 따라 하세요.',
     },
     {
-      icon: ClipboardList,
-      title: '방문접수 메뉴 진입',
-      description: '우체국 사이트에서 "방문접수" 또는 "택배 예약" 메뉴를 찾아 클릭하세요.',
-      hint: '메인 페이지 상단이나 배너에서 찾을 수 있습니다.',
-    },
-    {
-      icon: LogIn,
-      title: '로그인 또는 비회원 예약',
-      description: '로그인을 하거나 "비회원 예약"을 선택하세요.',
-      hint: '처음이라면 비회원 예약이 간편합니다.',
+      icon: ShieldCheck,
+      title: '취급제한품목·손해배상 안내 확인',
+      description: '맨 위 "우편금지물품·취급제한품목 및 손해배상 안내 확인"에 체크하세요. (필수)',
+      hint: '이 체크를 안 하면 마지막에 신청이 안 됩니다.',
     },
     {
       icon: User,
-      title: '보내는 분 이름 입력',
-      description: '"보내는 사람" 이름 칸을 클릭하고, 아래 복사 버튼을 누른 뒤 Ctrl+V로 붙여넣으세요.',
+      title: '01 보내는 분(구매자) 이름',
+      description: '"01 보내는 분" 이름 칸을 클릭하고, 아래 복사 버튼을 누른 뒤 Ctrl+V로 붙여넣으세요.',
       copies: [{ label: '보내는 분 이름', value: sender.name }],
-      hint: '입력란 안에 커서를 둔 상태에서 붙여넣기하세요.',
+      hint: '"보내는 분"은 반품 상품을 보내는 구매자입니다.',
+    },
+    {
+      icon: Home,
+      title: '보내는 분 주소',
+      description: '"주소찾기" 버튼을 눌러 아래 주소로 검색·선택하세요. 우편번호가 자동 입력되고, 상세주소를 확인하세요.',
+      copies: [{ label: '주소', value: sender.address }],
+      hint: '도로명/동 이름으로 검색하면 잘 찾아집니다.',
     },
     {
       icon: Phone,
-      title: '보내는 분 연락처 입력',
-      description: '"보내는 사람 연락처" 칸에 아래 번호를 복사해서 붙여넣으세요.',
+      title: '보내는 분 연락처',
+      description: '"휴대전화" 칸에 아래 번호를 붙여넣으세요. 하이픈은 칸에 맞게 자동으로 나뉩니다.',
       copies: [{ label: '연락처', value: sender.phone }],
-      hint: '하이픈(-) 포함 그대로 붙여넣어도 됩니다.',
+      hint: '휴대전화 또는 일반전화 중 하나는 필수입니다.',
     },
     {
-      icon: Search,
-      title: '보내는 분 주소 입력',
-      description: '"우편번호 검색" 버튼을 눌러 팝업을 연 뒤, 아래 주소로 검색하세요. 주소 선택 후 상세주소가 자동으로 채워집니다.',
-      copies: [{ label: '주소', value: sender.address }],
-      hint: '동/읍/면 이름으로 검색하면 더 잘 찾아집니다.',
+      icon: Calendar,
+      title: '02 방문접수 소포정보',
+      description: '"요금부담여부"를 고르고(반품은 보통 착불), "희망방문접수일"을 선택하세요. 사전결제를 고르면 "보관장소"도 선택해야 합니다.',
+      hint: '착불로 하면 받는 분(창고)이 요금을 부담합니다.',
     },
     {
       icon: UserCheck,
-      title: '받는 분 이름 입력',
-      description: '이제 "받는 사람" 차례입니다. "받는 사람 이름" 칸에 아래 이름을 붙여넣으세요.',
+      title: '03 받는 분(도착지) 이름',
+      description: '"03 받는 분" 이름 칸에 아래 이름을 붙여넣으세요.',
       copies: [{ label: '받는 분 이름', value: dest.name }],
-      hint: '보내는 사람 정보 아래에 있습니다.',
-    },
-    {
-      icon: Smartphone,
-      title: '받는 분 연락처 입력',
-      description: '"받는 사람 연락처" 칸에 아래 번호를 붙여넣으세요.',
-      copies: [{ label: '연락처', value: dest.phone }],
-      hint: '거의 다 왔습니다.',
+      hint: '"받는 분"은 반품이 도착할 우리 창고(또는 공급처)입니다.',
     },
     {
       icon: MapPin,
-      title: '받는 분 주소 입력',
-      description: '"받는 사람 우편번호 검색"을 눌러 팝업을 연 뒤 아래 주소로 검색하세요.',
+      title: '받는 분 주소',
+      description: '"주소찾기"를 눌러 아래 주소로 검색하세요.',
       copies: [{ label: '주소', value: dest.address }],
-      hint: '주소 선택 후 상세주소를 확인해주세요.',
+      hint: '상세주소가 비어 있으면 직접 입력하세요.',
+    },
+    {
+      icon: Smartphone,
+      title: '받는 분 연락처',
+      description: '"휴대전화" 칸에 아래 번호를 붙여넣으세요.',
+      copies: [{ label: '연락처', value: dest.phone }],
+      hint: '휴대전화 또는 일반전화 중 하나는 필수입니다.',
     },
     {
       icon: Package,
-      title: '물품 정보 선택',
-      description: '물품 종류를 선택합니다. "의류" 또는 "잡화"가 일반적입니다.',
-      hint: '수량은 특별한 경우가 아니면 1개로 두시면 됩니다.',
+      title: '04 물품정보 — 규격·내용물',
+      description: product?.name
+        ? '"포장박스크기"에서 중량(예: 5kg)·크기(예: 80cm)를 고르고, "내용물코드"는 [25]의류/패션잡화 등 알맞게 선택, "내용물"에는 아래 상품명을 붙여넣으세요.'
+        : '"포장박스크기"에서 중량(예: 5kg)·크기(예: 80cm)를 고르고, "내용물코드"([25]의류/패션잡화 등)와 "내용물"(품목)을 입력하세요.',
+      copies: [{ label: '내용물(상품명)', value: product?.name || '의류' }],
+      hint: '소포개수는 보통 1입니다.',
     },
     {
       icon: CheckCircle2,
-      title: '접수 완료',
-      description: '화면 아래쪽의 "접수" 또는 "신청" 버튼을 눌러 최종 제출하세요.',
-      hint: '이 버튼을 누르면 접수가 완료됩니다.',
+      title: '받는 분 목록에 추가',
+      description: '물품정보까지 입력했으면 "받는 분 목록에 추가" 버튼을 누르세요. "05 받는 분 목록"에 이 건이 올라갑니다.',
+      hint: '이 버튼을 눌러야 신청 대상에 포함됩니다.',
+    },
+    {
+      icon: CheckCircle2,
+      title: '신청하기',
+      description: '(사전결제를 골랐다면 "06 결제수단 등록"에서 카드 검증 후) 맨 아래 "신청" 버튼을 눌러 최종 접수하세요.',
+      hint: '착불이면 결제 없이 바로 신청됩니다.',
     },
     {
       icon: CheckCircle2,
@@ -230,6 +281,7 @@ export default function ReturnGuidePage() {
     destination: AddressInfo;
     courierUrl?: string;
     receiptId?: number | null;
+    product?: ProductInfo;
   } | null>(null);
 
   const [currentStep, setCurrentStep] = useState(0);
@@ -282,8 +334,8 @@ export default function ReturnGuidePage() {
   }
 
   const baseSteps = data.courier === 'cj'
-    ? buildCjSteps(data.sender, data.destination)
-    : buildEpostSteps(data.sender, data.destination);
+    ? buildCjSteps(data.sender, data.destination, data.product)
+    : buildEpostSteps(data.sender, data.destination, data.product);
 
   // receiptId가 있을 때는 마지막에 "회수 운송장 등록" 단계 추가
   const hasInvoiceStep = !!data.receiptId;

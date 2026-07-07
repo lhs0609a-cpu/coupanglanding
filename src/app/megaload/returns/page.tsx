@@ -82,6 +82,8 @@ export default function ReturnsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('RETURNS_UNCHECKED');
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [selectedReceiptId, setSelectedReceiptId] = useState<number | null>(null);
+  // 선택된 반품 건의 상품 정보 — CJ 가이드 "상품명" 단계 자동 매칭용
+  const [selectedProduct, setSelectedProduct] = useState<{ name?: string | null } | null>(null);
   const [expandedCardId, setExpandedCardId] = useState<number | null>(null);
   const [invoiceForms, setInvoiceForms] = useState<Record<number, { courier: string; invoice: string }>>({});
   const [invoiceSubmitting, setInvoiceSubmitting] = useState<number | null>(null);
@@ -196,6 +198,10 @@ export default function ReturnsPage() {
       address: req.requester_address || '',
     });
     setSelectedReceiptId(req.receipt_id);
+    // 상품명(+옵션)을 CJ 상품명 단계용으로 보관
+    setSelectedProduct({
+      name: [req.product_name, req.option_name].filter(Boolean).join(' / ') || null,
+    });
     setTimeout(() => {
       formSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 50);
@@ -250,6 +256,7 @@ export default function ReturnsPage() {
       destination,
       courierUrl: urls[courier],
       receiptId: selectedReceiptId,
+      product: selectedProduct || undefined,
     };
 
     // 폴백용 sessionStorage (일반 팝업 경로에서 사용)
