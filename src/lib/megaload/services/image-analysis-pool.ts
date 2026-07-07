@@ -167,3 +167,51 @@ class ImageAnalysisPool {
 }
 
 export const imageAnalysisPool = new ImageAnalysisPool();
+
+/**
+ * 워커 스폰/동작 가능 여부를 실측한다 (사양 체크용).
+ *
+ * 실제 image-analysis.worker.ts 를 새로 띄워 clearCache 핑에 응답하는지 확인 →
+ * "이미지 다양성 분석 워커가 이 PC/브라우저에서 실제로 뜨는가"를 그대로 검증한다.
+ * (파이프라인이 멈추는 "시작조차 안 됨"의 진짜 원인 진단용)
+ *
+ * @returns ok: 워커가 응답하면 true, latencyMs: 스폰~첫응답 지연, error: 실패 사유
+ */
+export async function probeWorkerSupport(
+  timeoutMs = 5000,
+): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
+  const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  if (typeof Worker === 'undefined') {
+    return { ok: false, latencyMs: 0, error: 'Web Worker 미지원 브라우저' };
+  }
+  const start = now();
+  let worker: Worker;
+  try {
+    worker = new Worker(new URL('./image-analysis.worker.ts', import.meta.url), { type: 'module' });
+  } catch (e) {
+    return { ok: false, latencyMs: 0, error: `워커 스폰 실패: ${e instanceof Error ? e.message : 'unknown'}` };
+  }
+  const w = worker;
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (r: { ok: boolean; latencyMs: number; error?: string }) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      w.removeEventListener('message', onMsg);
+      w.removeEventListener('error', onErr as EventListener);
+      try { w.terminate(); } catch { /* already dead */ }
+      resolve(r);
+    };
+    const timer = setTimeout(
+      () => finish({ ok: false, latencyMs: now() - start, error: '워커 응답 타임아웃 — 로드 실패 추정' }),
+      timeoutMs,
+    );
+    const onMsg = () => finish({ ok: true, latencyMs: now() - start });
+    const onErr = (e: ErrorEvent) => finish({ ok: false, latencyMs: now() - start, error: `워커 오류: ${e.message || 'unknown'}` });
+    w.addEventListener('message', onMsg);
+    w.addEventListener('error', onErr as EventListener);
+    // clearCache 는 인자 없이 워커가 처리 후 응답 → 가장 가벼운 왕복 핑
+    w.postMessage({ id: -1, op: 'clearCache' });
+  });
+}
