@@ -246,7 +246,10 @@ export default function ReturnsPage() {
   // 지원하지 않는 브라우저(Firefox/Safari 등)는 일반 팝업으로 폴백.
   const handleStartPickup = async () => {
     const urls: Record<CourierType, string> = {
-      cj: 'https://www.cjlogistics.com/ko/tool/parcel/reservation-return',
+      // ★ 개인택배예약(방문접수) — 보내는분/받는분/상품명 모두 직접 입력 가능.
+      //   'reservation-return'(반품예약)은 원래 CJ 송장을 원운송장 조회로 역조회하는 전용이라
+      //   받는분·상품칸이 잠겨 있어, 원배송 택배사가 제각각인 쿠팡 반품엔 쓸 수 없음.
+      cj: 'https://www.cjlogistics.com/ko/tool/parcel/reservation-general',
       epost: 'https://parcel.epost.go.kr',
     };
 
@@ -736,7 +739,7 @@ export default function ReturnsPage() {
 
         <div className="grid grid-cols-2 gap-4">
           {([
-            { value: 'cj' as CourierType, label: 'CJ대한통운', desc: '반품 예약 접수' },
+            { value: 'cj' as CourierType, label: 'CJ대한통운', desc: '개인택배 방문접수' },
             { value: 'epost' as CourierType, label: '우체국택배', desc: '방문접수 신청' },
           ] as const).map(opt => (
             <button
