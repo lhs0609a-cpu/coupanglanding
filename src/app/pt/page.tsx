@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useInView } from 'framer-motion';
 import Link from 'next/link';
 import SharedFooter from '@/components/sections/Footer';
+import LiveSellerRevenue from '@/components/sections/LiveSellerRevenue';
 import {
   AlertTriangle,
   ArrowRight,
@@ -612,6 +613,10 @@ export default function PTPage() {
       {/* S2. 신뢰 바 */}
       <section className="py-16 sm:py-20 px-5 sm:px-8 bg-gray-50/60 border-y border-gray-100">
         <div className="max-w-5xl mx-auto">
+          {/* 실시간 누적 매출 배너 (데이터 로드 실패 시 자동 숨김) */}
+          <div className="mb-10 sm:mb-12 flex justify-center">
+            <LiveSellerRevenue variant="bar" />
+          </div>
           <div className="grid grid-cols-3 gap-6 sm:gap-12">
             <div className="text-center" ref={stat1.ref}><div className="flex items-center justify-center mb-2"><HandCoins className="w-5 h-5 text-[#E31837] mr-2" /><span className="text-3xl sm:text-4xl font-extrabold text-gray-900">&#8361;{stat1.count.toLocaleString()}만</span></div><span className="text-sm text-gray-500 font-medium">직접 검증 일 매출</span></div>
             <div className="text-center" ref={stat2.ref}><div className="flex items-center justify-center mb-2"><BarChart3 className="w-5 h-5 text-[#E31837] mr-2" /><span className="text-3xl sm:text-4xl font-extrabold text-gray-900">{stat2.count}건</span></div><span className="text-sm text-gray-500 font-medium">일간 판매 건수</span></div>

@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X, School, Flame, ShieldAlert, Gavel, Receipt, MessageSquare, Map, ShieldCheck, Trophy, Search, Megaphone, Lightbulb, Building2, Bell, MessageCircle, HelpCircle, Tv, PlaySquare, Zap, ArrowRight, ChevronDown } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X, School, Flame, ShieldAlert, Gavel, Receipt, MessageSquare, Map, ShieldCheck, Trophy, Search, Megaphone, Lightbulb, Building2, Bell, MessageCircle, HelpCircle, Tv, PlaySquare, Zap, ArrowRight, ChevronDown, Store } from 'lucide-react';
 import type { SettlementBadgeData, FeePaymentBadgeData } from './DashboardLayout';
 import FeePaymentBanner from '@/components/settlement/FeePaymentBanner';
 import type { FeePaymentStatus } from '@/lib/supabase/types';
@@ -22,6 +22,7 @@ const baseNavItems = [
   { href: '/my/cs-templates', label: 'CS 템플릿', icon: MessageSquare },
   { href: '/my/growth', label: '성장 로드맵', icon: Map },
   { href: '/my/scaling-guide', label: '사업 확장', icon: Building2 },
+  { href: '/supplier', label: '공급사 센터', icon: Store },
   { href: '/my/penalty', label: '페널티 트래커', icon: ShieldCheck },
   { href: '/my/arena', label: '상품등록 랭킹', icon: Trophy },
   { href: '/my/product-search', label: '상품검색', icon: Search },

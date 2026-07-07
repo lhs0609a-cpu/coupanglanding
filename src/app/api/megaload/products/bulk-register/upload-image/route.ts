@@ -54,8 +54,10 @@ export async function POST(req: NextRequest) {
     }
     const ext = extMatch[1].toLowerCase();
 
-    // Buffer<ArrayBufferLike> 로 명시 — sharp/jimp 반환 버퍼(Buffer<ArrayBufferLike>) 재할당 허용
-    // (Buffer.from(ArrayBuffer) 는 Buffer<ArrayBuffer> 로 좁게 추론돼 재할당 시 타입 충돌)
+    // @types/node 버전에 따라 bare Buffer 의 기본 제네릭이 ArrayBuffer/ArrayBufferLike 로 갈리는데,
+    // Buffer.from(ArrayBuffer) 는 Buffer<ArrayBuffer> 로 좁게 추론됨. sharp/jimp 반환 버퍼는
+    // Buffer<ArrayBufferLike> 라 그대로 재할당 시 환경(예: Vercel)에서 타입 충돌.
+    // → 재할당 지점마다 `as typeof buffer` 로 변수 선언 타입에 맞춰 캐스팅한다.
     let buffer: Buffer = Buffer.from(await file.arrayBuffer());
 
     // 이미지 차원 검증 + 자동 리사이징 (쿠팡: 최소 500×500, 최대 5000×5000)
@@ -75,7 +77,7 @@ export async function POST(req: NextRequest) {
     if (dimUnknown || needsUpscale || needsDownscale) {
       const sres = await processImageBufferWithSharp(buffer);
       if (sres) {
-        buffer = sres.buffer;
+        buffer = sres.buffer as typeof buffer;
         finalExt = 'jpg';
         sharpDone = true;
       }
@@ -136,7 +138,7 @@ export async function POST(req: NextRequest) {
             quality -= 10;
             outBuf = await image.quality(quality).getBufferAsync(MIME_JPEG);
           }
-          buffer = Buffer.from(outBuf);
+          buffer = Buffer.from(outBuf) as typeof buffer;
           finalExt = 'jpg';
         } catch (jimpErr) {
           void logSystemWarn({

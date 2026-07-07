@@ -91,6 +91,22 @@
     {
       "path": "/api/cron/megaload-llm-maintenance",
       "schedule": "18,48 * * * *"
+    },
+    {
+      "path": "/api/cron/supplier-listing-register",
+      "schedule": "4,14,24,34,44,54 * * * *"
+    },
+    {
+      "path": "/api/cron/supplier-attribution",
+      "schedule": "9,24,39,54 * * * *"
+    },
+    {
+      "path": "/api/cron/supplier-sales-confirm",
+      "schedule": "30 22 * * *"
+    },
+    {
+      "path": "/api/cron/supplier-settlement",
+      "schedule": "30 3 3 * *"
     }
   ]
 }

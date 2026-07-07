@@ -251,7 +251,7 @@ export async function uploadLocalImage(
   if (needsJimp || sellerBrand) {
     const sres = await processImageBufferWithSharp(buffer, sellerBrand);
     if (sres) {
-      buffer = sres.buffer;
+      buffer = sres.buffer as typeof buffer;
       format = 'jpg';
       ext = 'jpg';
       sharpDone = true;
@@ -340,7 +340,7 @@ export async function uploadLocalImage(
           }
         }
 
-        buffer = Buffer.from(outBuf);
+        buffer = Buffer.from(outBuf) as typeof buffer;
         format = 'jpg';
         ext = 'jpg';
       } else if (needsUpscale) {
@@ -387,7 +387,7 @@ export async function uploadLocalImage(
           });
           const MIME_JPEG = Jimp.MIME_JPEG || 'image/jpeg';
           const outBuf = await image.quality(92).getBufferAsync(MIME_JPEG);
-          buffer = Buffer.from(outBuf);
+          buffer = Buffer.from(outBuf) as typeof buffer;
           format = 'jpg';
           ext = 'jpg';
         }

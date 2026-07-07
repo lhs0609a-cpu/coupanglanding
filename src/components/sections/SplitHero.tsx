@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, TrendingUp, Shield, Zap, Bot, Check, Package, BarChart3, DollarSign, Sparkles } from 'lucide-react';
+import LiveSellerRevenue from '@/components/sections/LiveSellerRevenue';
 
 // ─── PT Side CSS Mockup Background ───
 function PTMockupBG() {
@@ -434,6 +435,18 @@ export default function SplitHero() {
           </AnimatePresence>
         </div>
       </motion.div>
+
+      {/* Live 누적 매출 필 (상단 중앙) */}
+      {mounted && (
+        <motion.div
+          initial={{ opacity: 0, y: -12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.9, duration: 0.5 }}
+          className="absolute top-4 sm:top-6 left-1/2 -translate-x-1/2 z-20"
+        >
+          <LiveSellerRevenue variant="hero" />
+        </motion.div>
+      )}
 
       {/* Center Logo */}
       {mounted && (
