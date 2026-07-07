@@ -1514,7 +1514,12 @@ export function useBulkRegisterActions() {
             // 워커풀 초기화 (idempotent)
             imageAnalysisPool.init();
             const useWorkerPool = imageAnalysisPool.isAvailable();
-            console.info(`[image-diversity] worker pool ${useWorkerPool ? '사용' : '미사용 (메인 thread)'}`);
+            // 워커 미사용이면 전 분석이 메인스레드에서 돌아 UI 프리즈 → 눈에 띄게 warn 으로 알림.
+            if (useWorkerPool) {
+              console.info('[image-diversity] worker pool 사용 (백그라운드 스레드)');
+            } else {
+              console.warn('[image-diversity] worker pool 미사용 — 메인 thread 실행 (UI 지연 가능). new Worker 스폰 실패 추정.');
+            }
             type ImageSelectionMeta = import('./types').ImageSelectionMeta;
             type AutoExcludeReason = import('@/lib/megaload/services/client-folder-scanner').AutoExcludeReason;
             // 상세이미지 자동 제외 사유 맵: 상품 idx → (이미지 origIdx → reason)
@@ -1539,9 +1544,11 @@ export function useBulkRegisterActions() {
             //   상세페이지는 20~50장씩 들어오지만 최종 선택은 detail 10 / review 5 장뿐.
             //   후보가 상한을 넘으면 "위치기반 균등 샘플링"으로 추려서 디코드·O(N²) 쌍비교를
             //   후보 수에 비례해 줄인다. 순서(첫·끝 포함)를 보존해 상세페이지 서사 커버리지 유지.
-            //   유지 장수의 3배 headroom(30/16)이라 다양성 선택 품질 영향은 사실상 없음.
-            const CANDIDATE_CAP_DETAIL = 30; // detail maxCount=10 → 3배
-            const CANDIDATE_CAP_REVIEW = 16; // review maxCount=5 → 3배+
+            //   ★ 속도패치2: 상한 30/16 → 16/10 으로 하향. 다양성 분석의 병목은 후보 이미지를
+            //   디스크에서 읽고 디코드하는 I/O 이므로, 후보 장수를 절반으로 줄이면 읽기·디코드도 절반.
+            //   유지 장수(10/5) 대비 1.6~2배 headroom은 유지 → 다양성 선택 품질 영향 미미.
+            const CANDIDATE_CAP_DETAIL = 16; // detail maxCount=10 → 1.6배 headroom
+            const CANDIDATE_CAP_REVIEW = 10; // review maxCount=5 → 2배 headroom
             const sampleEvenly = <T,>(arr: T[], cap: number): T[] => {
               if (arr.length <= cap) return arr;
               const step = (arr.length - 1) / (cap - 1);

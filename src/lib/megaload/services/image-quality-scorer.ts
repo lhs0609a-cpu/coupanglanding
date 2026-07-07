@@ -257,7 +257,10 @@ function createCanvas2D(w: number, h: number): {
  * createImageBitmap (worker thread 디코드) 사용 — 메인스레드 부담 최소화.
  * 같은 (URL, size) 재호출 시 즉시 반환.
  */
-async function getCachedPixels(url: string, size: number): Promise<Uint8ClampedArray | null> {
+// captureDims: 원본 크기를 헤더에서 파싱해 캐시할지 (scoreImage 의 aspect 점수용).
+//   기본 false — 다양성/히스토그램/중복 경로는 dims 불필요하므로 64KB 헤더 읽기를 건너뛴다
+//   (이미지 수가 가장 많은 경로라 이 스킵이 대량 처리 속도에 직접 영향).
+async function getCachedPixels(url: string, size: number, captureDims = false): Promise<Uint8ClampedArray | null> {
   const key = `${url}:${size}`;
   const cached = _pixelDataCache.get(key);
   if (cached) return cached;
@@ -274,8 +277,8 @@ async function getCachedPixels(url: string, size: number): Promise<Uint8ClampedA
       try {
         const res = await fetch(url);
         const blob = await res.blob();
-        // 원본 크기를 헤더에서 싸게 파싱해 캐시 (aspect 점수용) — 풀디코드 회피.
-        if (!_imageDimsCache.has(url)) {
+        // 원본 크기를 헤더에서 싸게 파싱해 캐시 (aspect 점수용) — scoreImage 요청 시에만.
+        if (captureDims && !_imageDimsCache.has(url)) {
           try {
             const headBuf = await blob.slice(0, 65536).arrayBuffer();
             const d = parseImageDimsFromHeader(headBuf);
@@ -952,7 +955,7 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
   // ★ 속도패치: 풀해상도 loadImageFast 대신 공유 스케일드 디코드(getCachedPixels) 사용.
   //   36×36 정사각 squash 결과는 기존 drawImage(full→36) 와 동일 → 점수 불변.
   //   selectDiverse/duplicate/detail 패스와 픽셀 캐시 공유로 이미지당 디코드 1회로 통합.
-  const data = await getCachedPixels(objectUrl, ANALYSIS_SIZE);
+  const data = await getCachedPixels(objectUrl, ANALYSIS_SIZE, true); // captureDims: aspect 점수용
   if (!data) throw new Error('Canvas context unavailable');
   const dims = _imageDimsCache.get(objectUrl);
   const origW = dims?.width || ANALYSIS_SIZE;
@@ -1061,7 +1064,7 @@ async function scoreImage(objectUrl: string): Promise<ImageScore> {
  */
 async function scoreReviewImage(objectUrl: string): Promise<ImageScore> {
   // ★ 속도패치: scoreImage 와 동일 — 공유 스케일드 디코드로 통합 (풀디코드 제거).
-  const data = await getCachedPixels(objectUrl, ANALYSIS_SIZE);
+  const data = await getCachedPixels(objectUrl, ANALYSIS_SIZE, true); // captureDims: aspect 점수용
   if (!data) throw new Error('Canvas context unavailable');
   const dims = _imageDimsCache.get(objectUrl);
   const origW = dims?.width || ANALYSIS_SIZE;
