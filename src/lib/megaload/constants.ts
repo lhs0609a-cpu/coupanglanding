@@ -97,10 +97,11 @@ export const ORDER_STATUS_COLORS: Record<OrderStatus, string> = {
 
 export const CHANNEL_ORDER_STATUS_MAP: Record<Channel, Record<string, OrderStatus>> = {
   coupang: {
-    ACCEPT: 'payment_done',
-    INSTRUCT: 'order_confirmed',
-    DEPARTURE: 'shipping',
-    DELIVRD: 'delivered',
+    ACCEPT: 'payment_done',       // 결제완료
+    INSTRUCT: 'order_confirmed',  // 상품준비중(발주확인)
+    DEPARTURE: 'shipping',        // 배송지시
+    DELIVERING: 'shipping',       // 배송중
+    FINAL_DELIVERY: 'delivered',  // 배송완료
     CANCEL: 'cancelled',
     RETURN: 'returned',
   },

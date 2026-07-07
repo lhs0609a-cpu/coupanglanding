@@ -4,7 +4,11 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { CHANNELS, CHANNEL_SHORT_LABELS, CHANNEL_COLORS, ORDER_STATUS_LABELS, ORDER_STATUS_COLORS } from '@/lib/megaload/constants';
 import type { Channel, Order, OrderStatus } from '@/lib/megaload/types';
-import { ShoppingCart, Search, RefreshCw, ChevronLeft, ChevronRight, Check, Truck, Package, AlertTriangle, Filter } from 'lucide-react';
+import { ShoppingCart, Search, RefreshCw, ChevronLeft, ChevronRight, Check, Truck, Package } from 'lucide-react';
+import InvoiceModal, { type InvoiceTarget, type InvoiceInput } from '@/components/megaload/InvoiceModal';
+
+// 송장등록(배송중 전환) 가능한 상태 — 발주확인 이후 & 배송준비(지마켓/옥션)
+const INVOICEABLE: OrderStatus[] = ['order_confirmed', 'shipping_ready'];
 
 const STATUS_TABS: { key: OrderStatus | 'all'; label: string; icon: typeof ShoppingCart }[] = [
   { key: 'all', label: '전체', icon: ShoppingCart },
@@ -26,6 +30,8 @@ export default function OrdersPage() {
   const [total, setTotal] = useState(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
+  const [confirming, setConfirming] = useState(false);
+  const [invoiceTargets, setInvoiceTargets] = useState<InvoiceTarget[] | null>(null);
   const PAGE_SIZE = 20;
 
   // 검색 debounce: 매 키 입력 fetch → 400ms 안정화 후 1회만
@@ -66,7 +72,7 @@ export default function OrdersPage() {
     // 페이지에서 표시되는 정보만 select → 대역폭 절감 + 응답 시간 단축
     let query = supabase
       .from('sh_orders')
-      .select('id, channel, channel_order_id, order_status, ordered_at, buyer_name, receiver_name, total_amount, sh_order_items(id, product_name, quantity, item_price), sh_order_tags(tag)', { count: 'exact' })
+      .select('id, channel, channel_order_id, order_status, ordered_at, buyer_name, receiver_name, total_amount, courier_code, invoice_number, items:sh_order_items(id, product_name, quantity, unit_price), tags:sh_order_tags(tag)', { count: 'exact' })
       .eq('megaload_user_id', megaloadUserId)
       .order('ordered_at', { ascending: false })
       .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
@@ -91,17 +97,106 @@ export default function OrdersPage() {
 
   const handleQuickSync = async () => {
     setLoading(true);
-    await fetch('/api/megaload/orders/sync', { method: 'POST' });
-    await fetchOrders();
+    try {
+      const res = await fetch('/api/megaload/orders/sync', { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        // 대표 케이스: 연결된 채널이 없음(400) → 채널 연동 안내
+        if (res.status === 400 && /채널/.test(json.error || '')) {
+          alert('연결된 판매 채널이 없습니다.\n\n[채널관리(연동)] 에서 쿠팡 API(업체코드·액세스키·시크릿키)를 먼저 연결해주세요.');
+        } else {
+          alert(`주문 수집 실패: ${json.error || res.status}`);
+        }
+        return;
+      }
+
+      // 채널별 에러(부분 실패) 표면화
+      if (json.errors && Object.keys(json.errors).length > 0) {
+        const lines = Object.entries(json.errors as Record<string, string>)
+          .map(([ch, msg]) => `· ${ch}: ${msg}`)
+          .join('\n');
+        alert(`일부 채널 수집 실패:\n${lines}\n\n(수집 성공 ${json.totalCollected ?? 0}건)`);
+      } else if ((json.totalCollected ?? 0) === 0) {
+        const per = json.channels
+          ? Object.entries(json.channels as Record<string, number>).map(([c, n]) => `${c}:${n}`).join(', ')
+          : '';
+        alert(`최근 7일 신규 주문이 없습니다.${per ? `\n채널별: ${per}` : ''}`);
+      } else {
+        alert(`주문 ${json.totalCollected}건 수집 완료`);
+      }
+    } catch (err) {
+      alert(`주문 수집 오류: ${err instanceof Error ? err.message : '네트워크 오류'}`);
+    } finally {
+      await fetchOrders();
+    }
   };
 
+  const orderLabel = (o: Order) =>
+    `${CHANNEL_SHORT_LABELS[o.channel]} · ${o.channel_order_id} · ${o.receiver_name || o.buyer_name || ''}`;
+
   const handleBulkConfirm = async () => {
-    if (selectedIds.length === 0) return;
-    await fetch('/api/megaload/orders/bulk/confirm', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderIds: selectedIds }),
-    });
+    if (selectedIds.length === 0 || confirming) return;
+    setConfirming(true);
+    try {
+      const res = await fetch('/api/megaload/orders/bulk/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderIds: selectedIds }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (json.failed > 0) alert(`발주확인: 성공 ${json.success ?? 0}건, 실패 ${json.failed}건`);
+      await fetchOrders();
+      setSelectedIds([]);
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  // 단건 송장등록 모달 오픈
+  const openInvoiceSingle = (o: Order) => {
+    setInvoiceTargets([{ id: o.id, label: orderLabel(o) }]);
+  };
+
+  // 일괄 송장등록 모달 오픈 (선택 중 송장등록 가능한 상태만)
+  const openInvoiceBulk = () => {
+    const targets = orders
+      .filter((o) => selectedIds.includes(o.id) && INVOICEABLE.includes(o.order_status))
+      .map((o) => ({ id: o.id, label: orderLabel(o) }));
+    if (targets.length === 0) {
+      alert('송장등록은 발주확인(또는 배송준비) 상태의 주문만 가능합니다.');
+      return;
+    }
+    setInvoiceTargets(targets);
+  };
+
+  // 모달 제출 → 단건/일괄 API 라우팅
+  const submitInvoices = async (invoices: InvoiceInput[]) => {
+    if (invoices.length === 1) {
+      const { orderId, courierCode, invoiceNumber } = invoices[0];
+      const res = await fetch(`/api/megaload/orders/${orderId}/invoice`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ courierCode, invoiceNumber }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        alert(`송장등록 실패: ${j.error || res.status}`);
+        throw new Error('invoice failed');
+      }
+    } else {
+      const res = await fetch('/api/megaload/orders/bulk/invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoices }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(`일괄 송장등록 실패: ${j.error || res.status}`);
+        throw new Error('bulk invoice failed');
+      }
+      if (j.failed > 0) alert(`송장등록: 성공 ${j.success ?? 0}건, 실패 ${j.failed}건`);
+    }
     await fetchOrders();
     setSelectedIds([]);
   };
@@ -183,10 +278,19 @@ export default function OrdersPage() {
       {selectedIds.length > 0 && (
         <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
           <span className="text-sm font-medium text-blue-700">{selectedIds.length}개 선택</span>
-          <button onClick={handleBulkConfirm} className="px-3 py-1.5 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700">
+          <button
+            onClick={handleBulkConfirm}
+            disabled={confirming}
+            className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50"
+          >
+            {confirming && <RefreshCw className="w-3 h-3 animate-spin" />}
             발주확인
           </button>
-          <button className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+          <button
+            onClick={openInvoiceBulk}
+            className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            <Truck className="w-3 h-3" />
             송장등록
           </button>
         </div>
@@ -239,7 +343,11 @@ export default function OrdersPage() {
                 {order.order_status === 'payment_done' && (
                   <button
                     onClick={async () => {
-                      await fetch(`/api/megaload/orders/${order.id}/confirm`, { method: 'POST' });
+                      const res = await fetch(`/api/megaload/orders/${order.id}/confirm`, { method: 'POST' });
+                      if (!res.ok) {
+                        const j = await res.json().catch(() => ({}));
+                        alert(`발주확인 실패: ${j.error || res.status}`);
+                      }
                       fetchOrders();
                     }}
                     className="px-3 py-1.5 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700"
@@ -247,10 +355,19 @@ export default function OrdersPage() {
                     발주확인
                   </button>
                 )}
-                {order.order_status === 'order_confirmed' && (
-                  <button className="px-3 py-1.5 text-xs font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700">
+                {INVOICEABLE.includes(order.order_status) && (
+                  <button
+                    onClick={() => openInvoiceSingle(order)}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700"
+                  >
+                    <Truck className="w-3 h-3" />
                     송장등록
                   </button>
+                )}
+                {(order.order_status === 'shipping' || order.order_status === 'delivered') && order.invoice_number && (
+                  <span className="text-xs text-gray-400 whitespace-nowrap">
+                    {order.courier_code} {order.invoice_number}
+                  </span>
                 )}
               </div>
             </div>
@@ -273,6 +390,14 @@ export default function OrdersPage() {
           </div>
         </div>
       )}
+
+      {/* 송장등록 모달 (단건/일괄 공용) */}
+      <InvoiceModal
+        isOpen={invoiceTargets !== null}
+        onClose={() => setInvoiceTargets(null)}
+        orders={invoiceTargets || []}
+        onSubmit={submitInvoices}
+      />
     </div>
   );
 }

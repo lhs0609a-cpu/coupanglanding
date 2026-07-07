@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatDate, formatPercent } from '@/lib/utils/format';
 import {
@@ -13,7 +13,8 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import { renderArticleText, getContractArticles } from '@/lib/data/contract-terms';
-import { FileText, Plus, RefreshCw, Send, XCircle, Eye, Download, CheckCircle2, AlertTriangle, Image, Copy, Link2 } from 'lucide-react';
+import { FileText, Plus, RefreshCw, Send, XCircle, Eye, Download, CheckCircle2, AlertTriangle, Image, Copy, Link2, Search, ChevronDown, Pencil } from 'lucide-react';
+import { createNotification } from '@/lib/utils/notifications';
 import { downloadContractPdf } from '@/lib/utils/contract-pdf';
 import ContractTerminationModal from '@/components/admin/ContractTerminationModal';
 import WithdrawalReviewModal from '@/components/admin/WithdrawalReviewModal';
@@ -58,6 +59,19 @@ export default function AdminContractsPage() {
   const [newContractMode, setNewContractMode] = useState<'single' | 'triple'>('single');
   const [creating, setCreating] = useState(false);
   const [linkCopied, setLinkCopied] = useState<string | null>(null);
+
+  // PT 사용자 검색 콤보박스
+  const [ptSearch, setPtSearch] = useState('');
+  const [ptDropdownOpen, setPtDropdownOpen] = useState(false);
+  const ptComboRef = useRef<HTMLDivElement>(null);
+
+  // 계약 수정(재발송) 모달
+  const [editTarget, setEditTarget] = useState<ContractWithUser | null>(null);
+  const [editSharePercentage, setEditSharePercentage] = useState('');
+  const [editStartDate, setEditStartDate] = useState('');
+  const [editEndDate, setEditEndDate] = useState('');
+  const [editContractMode, setEditContractMode] = useState<'single' | 'triple'>('single');
+  const [editing, setEditing] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -150,6 +164,42 @@ export default function AdminContractsPage() {
     fetchData();
   }, [fetchData]);
 
+  // 콤보박스 외부 클릭 시 닫기
+  useEffect(() => {
+    if (!ptDropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ptComboRef.current && !ptComboRef.current.contains(e.target as Node)) {
+        setPtDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [ptDropdownOpen]);
+
+  const ptStatusLabel = (status: string) => (status === 'active' ? '활성' : status);
+
+  const selectedPtUser = ptUsers.find((u) => u.id === newPtUserId);
+
+  const ptUserDisplayName = (u: PtUserWithProfile) =>
+    u.profile?.full_name || u.profile?.email || '이름 없음';
+
+  const filteredPtUsers = ptUsers.filter((u) => {
+    if (!ptSearch.trim()) return true;
+    const q = ptSearch.trim().toLowerCase();
+    return (
+      ptUserDisplayName(u).toLowerCase().includes(q) ||
+      (u.profile?.email || '').toLowerCase().includes(q)
+    );
+  });
+
+  const selectPtUser = (u: PtUserWithProfile) => {
+    setNewPtUserId(u.id);
+    setNewSharePercentage(String(u.share_percentage));
+    setNewContractMode(u.is_self_business === false ? 'triple' : 'single');
+    setPtDropdownOpen(false);
+    setPtSearch('');
+  };
+
   const handleCreate = async () => {
     if (!newPtUserId || !newStartDate) return;
     setCreating(true);
@@ -198,6 +248,58 @@ export default function AdminContractsPage() {
     setContracts((prev) =>
       prev.map((c) => (c.id === id ? { ...c, status: 'sent' as const } : c))
     );
+  };
+
+  const openEdit = (contract: ContractWithUser) => {
+    setEditTarget(contract);
+    setEditSharePercentage(String(contract.share_percentage ?? ''));
+    setEditStartDate(contract.start_date || '');
+    setEditEndDate(contract.end_date || '');
+    setEditContractMode((contract.contract_mode as 'single' | 'triple') || 'single');
+  };
+
+  const handleUpdate = async () => {
+    if (!editTarget || !editStartDate) return;
+    setEditing(true);
+
+    const wasSent = editTarget.status === 'sent';
+    const { data, error } = await supabase
+      .from('contracts')
+      .update({
+        share_percentage: parseFloat(editSharePercentage) || 0,
+        start_date: editStartDate,
+        end_date: editEndDate || null,
+        contract_mode: editContractMode,
+      })
+      .eq('id', editTarget.id)
+      .select('*, pt_user:pt_users(*, profile:profiles(*))')
+      .single();
+
+    if (error) {
+      alert(`계약 수정 실패: ${error.message}`);
+      setEditing(false);
+      return;
+    }
+
+    // 이미 발송된 계약이면 사용자에게 재확인/재서명 알림 (best-effort)
+    if (wasSent && editTarget.pt_user?.profile_id) {
+      await createNotification(supabase, {
+        userId: editTarget.pt_user.profile_id,
+        type: 'contract',
+        title: '계약 내용이 수정되었습니다',
+        message: '관리자가 계약 조건을 수정하여 재발송했습니다. 변경된 내용을 확인하고 서명해주세요.',
+        link: '/my/contract',
+      });
+    }
+
+    if (data) {
+      setContracts((prev) =>
+        prev.map((c) => (c.id === editTarget.id ? (data as ContractWithUser) : c))
+      );
+    }
+
+    setEditTarget(null);
+    setEditing(false);
   };
 
   const handleTerminate = (contract: ContractWithUser) => {
@@ -354,6 +456,17 @@ export default function AdminContractsPage() {
                           <Download className="w-3.5 h-3.5" />
                           PDF
                         </button>
+                        {(contract.status === 'draft' || contract.status === 'sent') && !contract.withdrawal_status && (
+                          <button
+                            type="button"
+                            onClick={() => openEdit(contract)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
+                            title="수정"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                            수정
+                          </button>
+                        )}
                         {contract.status === 'draft' && (
                           <button
                             type="button"
@@ -600,28 +713,59 @@ export default function AdminContractsPage() {
                 </button>
               </div>
             ) : (
-              <select
-                id="pt-user"
-                value={newPtUserId}
-                onChange={(e) => {
-                  setNewPtUserId(e.target.value);
-                  const selected = ptUsers.find((u) => u.id === e.target.value);
-                  if (selected) {
-                    setNewSharePercentage(String(selected.share_percentage));
-                    // 타인 명의 사업자인 경우 자동으로 3자 계약 선택
-                    const selfBiz = selected.is_self_business;
-                    setNewContractMode(selfBiz === false ? 'triple' : 'single');
-                  }
-                }}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
-              >
-                <option value="">선택하세요</option>
-                {ptUsers.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.profile?.full_name || u.profile?.email || '이름 없음'} ({u.status === 'active' ? '활성' : u.status})
-                  </option>
-                ))}
-              </select>
+              <div ref={ptComboRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPtDropdownOpen((v) => !v);
+                    setPtSearch('');
+                  }}
+                  className="w-full flex items-center justify-between px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                >
+                  <span className={selectedPtUser ? 'text-gray-900' : 'text-gray-400'}>
+                    {selectedPtUser
+                      ? `${ptUserDisplayName(selectedPtUser)} (${ptStatusLabel(selectedPtUser.status)})`
+                      : '선택하세요'}
+                  </span>
+                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${ptDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {ptDropdownOpen && (
+                  <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg">
+                    <div className="p-2 border-b border-gray-100">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type="text"
+                          autoFocus
+                          value={ptSearch}
+                          onChange={(e) => setPtSearch(e.target.value)}
+                          placeholder="이름 또는 이메일로 검색"
+                          className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+                        />
+                      </div>
+                    </div>
+                    <ul className="max-h-60 overflow-y-auto py-1">
+                      {filteredPtUsers.length === 0 ? (
+                        <li className="px-4 py-3 text-sm text-gray-400 text-center">검색 결과가 없습니다.</li>
+                      ) : (
+                        filteredPtUsers.map((u) => (
+                          <li key={u.id}>
+                            <button
+                              type="button"
+                              onClick={() => selectPtUser(u)}
+                              className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center justify-between ${u.id === newPtUserId ? 'bg-red-50 text-[#E31837]' : 'text-gray-700'}`}
+                            >
+                              <span className="truncate">{ptUserDisplayName(u)}</span>
+                              <span className="ml-2 shrink-0 text-xs text-gray-400">({ptStatusLabel(u.status)})</span>
+                            </button>
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
@@ -704,6 +848,117 @@ export default function AdminContractsPage() {
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* Edit Contract Modal (수정 후 재발송) */}
+      <Modal
+        isOpen={!!editTarget}
+        onClose={() => setEditTarget(null)}
+        title="계약 수정"
+        maxWidth="max-w-lg"
+      >
+        {editTarget && (
+          <div className="space-y-4">
+            <div className="px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+              <span className="text-gray-500">PT 사용자:</span>{' '}
+              <span className="font-medium text-gray-900">
+                {editTarget.pt_user?.profile?.full_name || editTarget.pt_user?.profile?.email || '이름 없음'}
+              </span>
+              <span className="ml-2 text-xs text-gray-400">
+                (현재 상태: {editTarget.status === 'sent' ? '발송됨' : '초안'})
+              </span>
+            </div>
+
+            {editTarget.status === 'sent' && (
+              <div className="px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+                이미 발송된 계약입니다. 수정 후 저장하면 변경된 조건이 사용자 화면에 즉시 반영되고, 재확인·서명 요청 알림이 전송됩니다.
+              </div>
+            )}
+
+            <div>
+              <label htmlFor="edit-share" className="block text-sm font-medium text-gray-700 mb-1">
+                수수료율 (%)
+              </label>
+              <input
+                id="edit-share"
+                type="number"
+                min="0"
+                max="100"
+                value={editSharePercentage}
+                onChange={(e) => setEditSharePercentage(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="edit-start-date" className="block text-sm font-medium text-gray-700 mb-1">
+                시작일 <span className="text-[#E31837]">*</span>
+              </label>
+              <input
+                id="edit-start-date"
+                type="date"
+                value={editStartDate}
+                onChange={(e) => setEditStartDate(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="edit-end-date" className="block text-sm font-medium text-gray-700 mb-1">
+                종료일 <span className="text-gray-400 font-normal">(비워두면 무기한)</span>
+              </label>
+              <input
+                id="edit-end-date"
+                type="date"
+                value={editEndDate}
+                onChange={(e) => setEditEndDate(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="edit-contract-mode" className="block text-sm font-medium text-gray-700 mb-1">
+                계약 모드
+              </label>
+              <select
+                id="edit-contract-mode"
+                value={editContractMode}
+                onChange={(e) => setEditContractMode(e.target.value as 'single' | 'triple')}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
+              >
+                <option value="single">2자 계약 (갑-을)</option>
+                <option value="triple">3자 계약 (갑-을-병)</option>
+              </select>
+              <p className="text-xs text-gray-400 mt-1">
+                {editContractMode === 'triple'
+                  ? '사업자 명의인과 실운영자가 다른 경우 (연대책임)'
+                  : '본인 명의 사업자인 경우'}
+              </p>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setEditTarget(null)}
+                className="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={handleUpdate}
+                disabled={editing || !editStartDate}
+                className="px-4 py-2 text-sm text-white bg-[#E31837] rounded-lg hover:bg-[#c81530] transition disabled:opacity-50"
+              >
+                {editing
+                  ? '저장 중...'
+                  : editTarget.status === 'sent'
+                    ? '저장 후 재발송'
+                    : '저장'}
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

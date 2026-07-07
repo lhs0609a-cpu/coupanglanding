@@ -54,7 +54,9 @@ export async function POST(req: NextRequest) {
     }
     const ext = extMatch[1].toLowerCase();
 
-    let buffer = Buffer.from(await file.arrayBuffer());
+    // Buffer<ArrayBufferLike> 로 명시 — sharp/jimp 반환 버퍼(Buffer<ArrayBufferLike>) 재할당 허용
+    // (Buffer.from(ArrayBuffer) 는 Buffer<ArrayBuffer> 로 좁게 추론돼 재할당 시 타입 충돌)
+    let buffer: Buffer = Buffer.from(await file.arrayBuffer());
 
     // 이미지 차원 검증 + 자동 리사이징 (쿠팡: 최소 500×500, 최대 5000×5000)
     const format = detectImageFormat(buffer);
