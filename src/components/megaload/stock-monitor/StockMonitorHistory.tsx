@@ -22,6 +22,7 @@ interface HistoryLog {
   action_success: boolean | null;
   price_skip_reason: string | null;
   error_message: string | null;
+  notes: string | null;
   created_at: string;
 }
 
@@ -219,6 +220,9 @@ export default function StockMonitorHistory({ monitorId }: { monitorId: string }
                     )}
                     {log.price_skip_reason && (
                       <div className="text-[11px] text-gray-400">사유: {log.price_skip_reason}</div>
+                    )}
+                    {log.notes && (
+                      <div className="text-[11px] text-gray-500">비고: {log.notes}</div>
                     )}
                     {log.error_message && (
                       <div className="text-[11px] text-red-500">오류: {log.error_message}</div>

@@ -184,10 +184,12 @@ export default function StockMonitorDashboard() {
     { tab: 'no_source_url', label: '원본 URL 필요', count: stats?.needsSourceUrl ?? 0 },
   ];
 
-  // 데스크탑 앱 배너 — 토큰 발급된 사용자에 한해, 비정상일 때만
+  // 데스크탑 앱 배너 — 토큰 발급된 사용자에 한해, 앱이 정말 꺼져 있을 때만.
+  // isAlive 는 이제 워커 하트비트(30초 주기)까지 반영하므로 사이드바 "연결됨"과 일치한다.
+  // (결과 제출이 뜸해도 앱이 켜져 있으면 배너를 띄우지 않아 오탐 제거)
   const showDesktopBanner = !!desktopStatus
     && desktopStatus.tokenIssued
-    && (!desktopStatus.isAlive || desktopStatus.monitorsCheckedRecently === 0);
+    && !desktopStatus.isAlive;
 
   return (
     <div className="space-y-6">

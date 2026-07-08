@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '모니터를 찾을 수 없습니다.' }, { status: 404 });
     }
 
-    // 이력 — 최신순, 최대 200건. notes 컬럼은 스키마 미정의라 제외.
+    // 이력 — 최신순, 최대 200건.
     const { data: logs, error: logErr } = await serviceClient
       .from('sh_stock_monitor_logs')
       .select(`
@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
         source_price_before, source_price_after,
         our_price_before, our_price_after,
         option_name, action_taken, action_success,
-        price_skip_reason, error_message, created_at
+        price_skip_reason, error_message, notes, created_at
       `)
       .eq('monitor_id', monitorId)
       .eq('megaload_user_id', shUserId)
