@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, useInView, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import SharedFooter from '@/components/sections/Footer';
+import SupplierNetworkStats from '@/components/sections/SupplierNetworkStats';
 import {
   ArrowRight, Boxes, Store, Wallet, ShieldCheck, Sparkles, Menu, X,
   PackagePlus, CreditCard, TrendingUp, CheckCircle, ChevronDown, Layers,
@@ -149,6 +150,9 @@ export default function SupplierProgramPage() {
           </motion.div>
         </div>
       </section>
+
+      {/* LIVE 셀러 네트워크 실시간 현황 (데이터 로드 실패 시 자동 숨김) */}
+      <SupplierNetworkStats />
 
       {/* PAIN */}
       <section className="py-20 sm:py-28 px-5 sm:px-8">
