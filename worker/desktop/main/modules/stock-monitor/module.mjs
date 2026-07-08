@@ -21,6 +21,32 @@ const apiUrl = (ctx, path) => (ctx.store.get('apiBase') || ctx.services.webOrigi
 // 서버에서 64자 인증코드를 자동 발급받는다 → 사용자가 코드를 복사·붙여넣을 필요 없음.
 let lastAutoIssueAt = 0;
 let warnedNoSession = false;
+// 세션(runner.session)의 로그인 JWT 로 서버에서 64자 인증코드를 (재)발급받아 반환한다.
+// ★ store 는 건드리지 않는다 — 호출자가 '성공했을 때만' 저장하게 해서, 재발급 실패 시
+//   기존 토큰을 잃지 않도록 한다(예전 버그: 먼저 비우고 재발급 실패 → 토큰 유실로 영구 정지).
+// 멱등: DB에 토큰이 있으면 그 값을, 없으면 신규를 돌려준다.
+async function reissueToken(ctx) {
+  const session = ctx.services?.runner?.session;
+  if (!session) return null;
+  try {
+    const accessToken = await session.token();
+    const res = await fetch(apiUrl(ctx, '/api/megaload/desktop/auth/self-issue'), {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      ctx.send('stock-monitor:log', `인증코드 재발급 실패(HTTP ${res.status}) ${t.slice(0, 120)}`);
+      return null;
+    }
+    const d = await res.json().catch(() => ({}));
+    return (d && d.token) ? d.token : null;
+  } catch (e) {
+    ctx.send('stock-monitor:log', '인증코드 재발급 오류: ' + e.message);
+    return null;
+  }
+}
+
 async function ensureToken(ctx) {
   if (tokenOf(ctx)) return true;
   const session = ctx.services?.runner?.session;
@@ -36,30 +62,14 @@ async function ensureToken(ctx) {
   // 발급 실패가 반복될 때(예: 쿠팡 미연동) 매 틱 폭주 방지 — 5분 쿨다운.
   if (Date.now() - lastAutoIssueAt < 5 * 60 * 1000) return false;
   lastAutoIssueAt = Date.now();
-  try {
-    const accessToken = await session.token();
-    const res = await fetch(apiUrl(ctx, '/api/megaload/desktop/auth/self-issue'), {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    });
-    if (!res.ok) {
-      const t = await res.text().catch(() => '');
-      ctx.send('stock-monitor:log', `자동 연결 실패(HTTP ${res.status}) ${t.slice(0, 120)}`);
-      return false;
-    }
-    const d = await res.json().catch(() => ({}));
-    if (d && d.token) {
-      ctx.store.set('monitorToken', d.token);
-      lastAutoIssueAt = 0; // 성공 — 쿨다운 해제
-      ctx.send('stock-monitor:log', '🔑 로그인 세션으로 인증코드 자동발급 — 연결 완료');
-      return true;
-    }
-    ctx.send('stock-monitor:log', '자동 연결 실패: 토큰 응답이 비어 있음');
-    return false;
-  } catch (e) {
-    ctx.send('stock-monitor:log', '자동 연결 오류: ' + e.message);
-    return false;
+  const token = await reissueToken(ctx);
+  if (token) {
+    ctx.store.set('monitorToken', token);
+    lastAutoIssueAt = 0; // 성공 — 쿨다운 해제
+    ctx.send('stock-monitor:log', '🔑 로그인 세션으로 인증코드 자동발급 — 연결 완료');
+    return true;
   }
+  return false;
 }
 
 async function verifyToken(ctx) {
@@ -116,20 +126,24 @@ async function tick(ctx) {
     }
     let v = await verifyToken(ctx);
     if (!v.valid) {
-      // ★ 자가복구: 저장된 토큰이 서버 DB와 안 맞아(폐기/재발급/환경 변경) 401/403 이면,
-      //   스테일 토큰을 버리고 로그인 세션으로 재발급한다. self-issue 는 멱등이라
-      //   DB에 토큰이 있으면 그 값을, 없으면 신규를 돌려줘 로컬↔DB 를 다시 맞춘다.
-      //   (이전 버그: 토큰이 "있으면" 재발급을 안 해 401 을 매 틱 무한 반복했음)
+      // ★ 자가복구(비파괴): 저장된 토큰이 서버 DB와 어긋나(폐기/재발급/환경 변경) 401/403 이면,
+      //   세션으로 최신 토큰을 재동기화한다. self-issue 는 멱등이라 DB에 토큰이 있으면 그 값을,
+      //   없으면 신규를 돌려줘 로컬↔DB 를 다시 맞춘다.
+      //   ★ 새 토큰을 '성공적으로 받은 뒤에만' 교체한다 — 예전엔 먼저 토큰을 비워, 재발급이
+      //     실패하면(세션 일시장애 등) 멀쩡할 수도 있는 토큰마저 잃고 영구 정지했다.
       const authRejected = /HTTP 40[013]/.test(v.error || '');
       const hasSession = !!ctx.services?.runner?.session;
       if (authRejected && hasSession) {
-        ctx.send('stock-monitor:log', `인증 토큰 무효(${v.error}) — 폐기 후 재발급 시도`);
-        ctx.store.set('monitorToken', '');
-        lastAutoIssueAt = 0; // 쿨다운 무시하고 즉시 재발급
-        if (await ensureToken(ctx)) v = await verifyToken(ctx);
+        ctx.send('stock-monitor:log', `인증 토큰 재동기화 시도(${v.error})`);
+        const fresh = await reissueToken(ctx);
+        if (fresh) {
+          ctx.store.set('monitorToken', fresh);
+          lastAutoIssueAt = 0;
+          v = await verifyToken(ctx);
+        }
       }
       if (!v.valid) {
-        ctx.send('stock-monitor:log', '인증 실패: ' + (v.error || '') + (hasSession ? '' : ' — 도우미 로그인(연결)이 필요합니다'));
+        ctx.send('stock-monitor:log', '인증 실패: ' + (v.error || '') + (hasSession ? ' — 잠시 후 자동 재시도' : ' — 도우미 로그인(연결)이 필요합니다'));
         return;
       }
     }
