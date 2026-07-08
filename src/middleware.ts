@@ -11,6 +11,7 @@ export const config = {
     '/admin/:path*',
     '/auth/:path*',
     '/megaload/:path*',
+    '/supplier/:path*',
     // /api/* 전체 — 락 allowlist 는 updateSession 내부에서 적용.
     // _next/static, _next/image, favicon.ico 등 정적 자원은 매칭에서 제외.
     '/api/:path*',
