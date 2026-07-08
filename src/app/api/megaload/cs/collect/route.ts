@@ -6,7 +6,7 @@ import { logSystemError } from '@/lib/utils/system-log';
 export const maxDuration = 30;
 
 const MAX_PAGES = 20;
-const WINDOW_DAYS = 7; // 쿠팡 온라인문의 조회 최대 기간
+const WINDOW_DAYS = 6; // 쿠팡 온라인문의 조회 최대 7일(경계 포함) → 6일로 안전 마진
 
 /**
  * 쿠팡 온라인(상품) 고객문의 수집 → sh_cs_inquiries 저장.
