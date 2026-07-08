@@ -48,9 +48,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ revoked: true });
     }
 
-    // 신규 토큰 발급 (32바이트 → 64자 hex)
-    const token = crypto.randomBytes(32).toString('hex');
     const now = new Date().toISOString();
+
+    // ★ 근본원인 수정 — 발급을 멱등으로.
+    //   과거엔 이 엔드포인트가 누를 때마다 새 토큰을 생성해 DB를 덮어썼다.
+    //   → 실행 중인 도우미 앱이 들고 있던 이전 토큰이 즉시 무효화되어 매 틱 401 무한루프
+    //     ("발급"을 다시 누를수록 악화). 이제 유효한 토큰이 있으면 그대로 돌려줘
+    //     앱 ↔ DB 를 항상 일치시킨다. 진짜 재발급(도난/기기이전)은 action:'revoke' 로
+    //     폐기 후 재발급하거나 action:'rotate' 로 강제 회전.
+    const forceRotate = action === 'rotate';
+    const { data: existing } = await serviceClient
+      .from('megaload_users')
+      .select('desktop_app_token, desktop_app_token_issued_at')
+      .eq('id', shUserId)
+      .single();
+    const existingToken = (existing as { desktop_app_token?: string } | null)?.desktop_app_token || '';
+
+    if (!forceRotate && existingToken.length === 64) {
+      return NextResponse.json({
+        token: existingToken,
+        issuedAt: (existing as { desktop_app_token_issued_at?: string } | null)?.desktop_app_token_issued_at || now,
+        megaloadUserId: shUserId,
+        userEmail: user.email,
+        reused: true,
+        expiresHint: '기존 인증코드를 재사용했습니다. 실행 중인 도우미 앱과 동일한 코드라 재입력 없이 계속 유효합니다.',
+      });
+    }
+
+    // 최초 발급 또는 명시적 rotate — 신규 토큰 생성 (32바이트 → 64자 hex)
+    const token = crypto.randomBytes(32).toString('hex');
 
     const { error } = await serviceClient
       .from('megaload_users')
@@ -68,8 +94,8 @@ export async function POST(request: NextRequest) {
       issuedAt: now,
       megaloadUserId: shUserId,
       userEmail: user.email,
-      // 슬라이딩 만료: 앱이 켜져 있으면 매 검증마다 갱신되어 계속 유효.
-      expiresHint: '도우미 앱이 켜져 있으면 계속 유효합니다. 7일 이상 앱을 실행하지 않은 경우에만 재발급이 필요합니다.',
+      issued: true,
+      expiresHint: '도우미 앱이 켜져 있으면 폐기/재발급 전까지 계속 유효합니다.',
     });
   } catch (err) {
     return NextResponse.json({
