@@ -53,7 +53,18 @@ try {
 finally { Pop-Location }
 
 $buildDistDir = Join-Path $desktopDst 'dist'
-$exe = Get-ChildItem (Join-Path $buildDistDir '*Setup*.exe') | Select-Object -First 1
+# ⚠️ dist 에는 과거 빌드 산출물(구버전·구제품명 exe)이 남아 있을 수 있다.
+#    '*Setup*.exe | Select -First 1' 은 이름 알파벳순 첫 파일(=구버전)을 집어
+#    latest.yml(신버전) 과 불일치한 exe 를 업로드 → 자동업데이트 sha512 검증 실패를 유발했다.
+#    → package.json 버전과 정확히 일치하는 산출물을 선택(폴백: 최신 수정시각).
+$pkgVer = (Get-Content (Join-Path $desktopDst 'package.json') -Raw | ConvertFrom-Json).version
+$exe = Get-ChildItem (Join-Path $buildDistDir "*Setup*$pkgVer*.exe") -ErrorAction SilentlyContinue |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if (-not $exe) {
+  $exe = Get-ChildItem (Join-Path $buildDistDir '*Setup*.exe') |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+}
+if (-not $exe) { throw "빌드 산출물(*Setup*.exe)을 찾지 못했습니다: $buildDistDir" }
 # 결과물을 Drive 의 worker/desktop/dist 로도 복사(찾기 쉽게)
 $driveDist = Join-Path $desktopSrc 'dist'
 New-Item -ItemType Directory -Path $driveDist -Force | Out-Null
@@ -66,7 +77,10 @@ Copy-Item $exe.FullName $driveDist -Force
 $repo = 'lhs0609a-cpu/coupanglanding'
 $feedTag = 'megaload-desktop-update'
 $ymlPath = Join-Path $buildDistDir 'latest.yml'
-$blockmap = Get-ChildItem (Join-Path $buildDistDir '*Setup*.exe.blockmap') -ErrorAction SilentlyContinue | Select-Object -First 1
+# blockmap 은 반드시 위에서 고른 $exe 에 종속시킨다(같은 First-1 버그로 구버전 blockmap 을 올리면
+# 차등 다운로드가 깨진다). "<exe>.blockmap" 규칙으로 정확히 매칭.
+$blockmapPath = "$($exe.FullName).blockmap"
+$blockmap = if (Test-Path $blockmapPath) { Get-Item $blockmapPath } else { $null }
 $assets = @($exe.FullName)
 if (Test-Path $ymlPath) { $assets += $ymlPath; Copy-Item $ymlPath $driveDist -Force }
 if ($blockmap) { $assets += $blockmap.FullName }
