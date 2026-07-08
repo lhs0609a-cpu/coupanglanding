@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import {
   RefreshCw, Package, XCircle, AlertTriangle, PauseCircle, Loader2,
-  CheckCircle2, ExternalLink, Clock, Link2Off, PlayCircle,
+  CheckCircle2, ExternalLink, Clock, Link2Off, PlayCircle, ChevronDown, ChevronRight, History,
 } from 'lucide-react';
 import StockStatusBadge from './StockStatusBadge';
+import StockMonitorHistory from './StockMonitorHistory';
 
 interface MonitorItem {
   id: string;
@@ -48,12 +49,30 @@ function timeAgo(dateStr: string | null): string {
   return `${days}일 전`;
 }
 
+// 절대 날짜+시각 (예: 07/08 06:04) — 상대시간과 함께 "언제 체크됐는지" 정확히 표기
+function fmtDate(dateStr: string | null): string {
+  if (!dateStr) return '-';
+  return new Date(dateStr).toLocaleString('ko-KR', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+// 마우스오버 시 전체 날짜(연도 포함)
+function fmtFull(dateStr: string | null): string {
+  if (!dateStr) return '';
+  return new Date(dateStr).toLocaleString('ko-KR', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+}
+
 export default function StockMonitorDashboard() {
   const [monitors, setMonitors] = useState<MonitorItem[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [filterTab, setFilterTab] = useState<FilterTab>('all');
   const [apiError, setApiError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const [starting, setStarting] = useState(false);
   const [startMsg, setStartMsg] = useState('');
@@ -335,44 +354,59 @@ export default function StockMonitorDashboard() {
             <tbody className="divide-y divide-gray-100">
               {monitors.map((m) => {
                 const product = m.sh_products;
+                const isExpanded = expandedId === m.id;
                 return (
-                  <tr key={m.id} className="hover:bg-gray-50 transition">
+                  <Fragment key={m.id}>
+                  <tr
+                    onClick={() => setExpandedId(isExpanded ? null : m.id)}
+                    className={`transition cursor-pointer ${isExpanded ? 'bg-red-50/40' : 'hover:bg-gray-50'}`}
+                  >
                     <td className="px-4 py-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-gray-900 truncate max-w-[300px]">
-                          {product?.display_name || product?.product_name || '상품명 없음'}
-                        </p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          {product?.brand && (
-                            <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-                              {product.brand}
+                      <div className="flex items-start gap-2">
+                        {isExpanded
+                          ? <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
+                          : <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0 mt-0.5" />}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-gray-900 truncate max-w-[280px]">
+                            {product?.display_name || product?.product_name || '상품명 없음'}
+                          </p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {product?.brand && (
+                              <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                                {product.brand}
+                              </span>
+                            )}
+                            {m.source_url ? (
+                              <a
+                                href={m.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5"
+                              >
+                                원본 <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            ) : (
+                              <span className="text-[10px] text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">
+                                원본 URL 필요
+                              </span>
+                            )}
+                            {m.coupang_product_id && (
+                              <a
+                                href={`https://wing.coupang.com/tenants/manage-product/products/list?searchKeyword=${m.coupang_product_id}&searchType=SELLER_PRODUCT_ID`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-[10px] text-purple-500 hover:text-purple-700 flex items-center gap-0.5"
+                                title="쿠팡 Wing 셀러센터에서 보기"
+                              >
+                                쿠팡 <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            )}
+                            <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
+                              <History className="w-2.5 h-2.5" /> 이력
                             </span>
-                          )}
-                          {m.source_url ? (
-                            <a
-                              href={m.source_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5"
-                            >
-                              원본 <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          ) : (
-                            <span className="text-[10px] text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">
-                              원본 URL 필요
-                            </span>
-                          )}
-                          {m.coupang_product_id && (
-                            <a
-                              href={`https://wing.coupang.com/tenants/manage-product/products/list?searchKeyword=${m.coupang_product_id}&searchType=SELLER_PRODUCT_ID`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[10px] text-purple-500 hover:text-purple-700 flex items-center gap-0.5"
-                              title="쿠팡 Wing 셀러센터에서 보기"
-                            >
-                              쿠팡 <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          )}
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -393,6 +427,11 @@ export default function StockMonitorDashboard() {
                               : `연속 ${m.consecutive_errors}회 실패`}
                         </div>
                       )}
+                      {m.last_checked_at && (
+                        <div className="text-[9px] text-gray-400 mt-0.5" title={fmtFull(m.last_checked_at)}>
+                          {fmtDate(m.last_checked_at)} 확인
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-center">
                       <StockStatusBadge status={
@@ -404,6 +443,11 @@ export default function StockMonitorDashboard() {
                       {m.last_checked_at && m.coupang_status === 'suspended' && m.source_status === 'error' && (
                         <div className="text-[9px] text-gray-400 mt-0.5">확인 후 재개</div>
                       )}
+                      {m.last_checked_at && (
+                        <div className="text-[9px] text-gray-400 mt-0.5" title={fmtFull(m.last_checked_at)}>
+                          {fmtDate(m.last_checked_at)} 확인
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-center">
                       {m.source_price_last != null ? (
@@ -412,8 +456,8 @@ export default function StockMonitorDashboard() {
                             ₩{m.source_price_last.toLocaleString()}
                           </span>
                           {m.price_last_updated_at && (
-                            <div className="text-[10px] text-gray-400 mt-0.5">
-                              {timeAgo(m.price_last_updated_at)} 감지
+                            <div className="text-[10px] text-gray-400 mt-0.5" title={fmtFull(m.price_last_updated_at)}>
+                              {fmtDate(m.price_last_updated_at)} 변동
                             </div>
                           )}
                         </>
@@ -436,8 +480,8 @@ export default function StockMonitorDashboard() {
                             ₩{m.our_price_last.toLocaleString()}
                           </span>
                           {m.last_checked_at && (
-                            <div className="text-[10px] text-gray-400 mt-0.5">
-                              {timeAgo(m.last_checked_at)} 조회
+                            <div className="text-[10px] text-gray-400 mt-0.5" title={fmtFull(m.last_checked_at)}>
+                              {fmtDate(m.last_checked_at)} 조회
                             </div>
                           )}
                         </>
@@ -454,8 +498,8 @@ export default function StockMonitorDashboard() {
                             <Clock className="w-3 h-3" />
                             {timeAgo(m.last_checked_at)}
                           </span>
-                          <div className="text-[10px] text-gray-400">
-                            {new Date(m.last_checked_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+                          <div className="text-[10px] text-gray-400" title={fmtFull(m.last_checked_at)}>
+                            {fmtDate(m.last_checked_at)}
                           </div>
                         </>
                       ) : (
@@ -463,6 +507,14 @@ export default function StockMonitorDashboard() {
                       )}
                     </td>
                   </tr>
+                  {isExpanded && (
+                    <tr className="bg-gray-50">
+                      <td colSpan={6} className="p-0 border-t border-gray-200">
+                        <StockMonitorHistory monitorId={m.id} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
