@@ -114,8 +114,25 @@ async function tick(ctx) {
       const ok = await ensureToken(ctx);
       if (!ok) return;
     }
-    const v = await verifyToken(ctx);
-    if (!v.valid) { ctx.send('stock-monitor:log', '인증 실패: ' + (v.error || '')); return; }
+    let v = await verifyToken(ctx);
+    if (!v.valid) {
+      // ★ 자가복구: 저장된 토큰이 서버 DB와 안 맞아(폐기/재발급/환경 변경) 401/403 이면,
+      //   스테일 토큰을 버리고 로그인 세션으로 재발급한다. self-issue 는 멱등이라
+      //   DB에 토큰이 있으면 그 값을, 없으면 신규를 돌려줘 로컬↔DB 를 다시 맞춘다.
+      //   (이전 버그: 토큰이 "있으면" 재발급을 안 해 401 을 매 틱 무한 반복했음)
+      const authRejected = /HTTP 40[013]/.test(v.error || '');
+      const hasSession = !!ctx.services?.runner?.session;
+      if (authRejected && hasSession) {
+        ctx.send('stock-monitor:log', `인증 토큰 무효(${v.error}) — 폐기 후 재발급 시도`);
+        ctx.store.set('monitorToken', '');
+        lastAutoIssueAt = 0; // 쿨다운 무시하고 즉시 재발급
+        if (await ensureToken(ctx)) v = await verifyToken(ctx);
+      }
+      if (!v.valid) {
+        ctx.send('stock-monitor:log', '인증 실패: ' + (v.error || '') + (hasSession ? '' : ' — 도우미 로그인(연결)이 필요합니다'));
+        return;
+      }
+    }
     const monitors = await fetchMonitors(ctx, 50);
     if (!monitors.length) { ctx.send('stock-monitor:log', '확인할 대상 없음 (대기)'); return; }
     ctx.send('stock-monitor:log', `${monitors.length}개 확인 시작…`);
