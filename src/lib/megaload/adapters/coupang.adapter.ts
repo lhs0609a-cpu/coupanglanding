@@ -489,11 +489,42 @@ export class CoupangAdapter extends BaseAdapter {
     return { success: true };
   }
 
+  /**
+   * 온라인(상품) 고객문의 조회 — Wing Open API onlineInquiries
+   * 조회 기간은 쿠팡 제약상 최대 7일(호출부에서 창 관리).
+   * raw 아이템을 그대로 반환하고, sh_cs_inquiries 매핑은 collect 라우트가 담당.
+   */
   async getInquiries(params: { startDate: string; endDate: string; page?: number }) {
-    // Coupang doesn't have a dedicated inquiry API through Wing Open API
-    return { items: [], totalCount: 0 };
+    const { startDate, endDate, page = 1 } = params;
+    const path = `/v2/providers/openapi/apis/api/v4/vendors/${this.vendorId}/onlineInquiries`;
+    const query = [
+      `vendorId=${this.vendorId}`,
+      `answeredType=ALL`,
+      `inquiryStartAt=${startDate}`,
+      `inquiryEndAt=${endDate}`,
+      `pageNum=${page}`,
+      `pageSize=10`,
+    ].join('&');
+
+    const raw = await this.coupangApi<Record<string, unknown>>('GET', path, query);
+    // 프록시/직접 모드에 따라 { data: {...} } 또는 {...} 로 올 수 있어 방어적 파싱
+    const payload = ((raw?.data ?? raw) || {}) as Record<string, unknown>;
+    const content = (payload.content
+      ?? (payload.data as Record<string, unknown>)?.content
+      ?? []) as Record<string, unknown>[];
+    const pagination = payload.pagination as { totalElements?: number } | undefined;
+    console.log(`[CoupangAdapter] getInquiries: page=${page}, rawKeys=${Object.keys(raw || {}).join(',')}, items=${content.length}`);
+    return { items: content, totalCount: pagination?.totalElements ?? content.length };
   }
 
+  /**
+   * 온라인 문의 답변 — 미구현(현재 {success:false} 반환, 화면은 DB에만 저장).
+   * 실제 답변 등록 endpoint:
+   *   POST /v2/providers/openapi/apis/api/v4/vendors/{vendorId}/onlineInquiries/{inquiryId}/replies
+   *   body: { content, vendorId, replyBy }
+   * replyBy 는 Wing 로그인 id 인데 channel_credentials(vendorId/accessKey/secretKey)에 없음.
+   * 활성화하려면 wingId 를 크레덴셜에 추가해야 함. replyBy 추측 시 4xx 유발하므로 미구현 유지.
+   */
   async answerInquiry(_inquiryId: string, _answer: string) {
     return { success: false };
   }

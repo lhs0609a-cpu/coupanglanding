@@ -76,7 +76,27 @@ export default function CsPage() {
   };
 
   const [sendLoading, setSendLoading] = useState(false);
+  const [collecting, setCollecting] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const collectInquiries = async () => {
+    setCollecting(true);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/megaload/cs/collect', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage({ type: 'error', text: data.error || '문의 수집에 실패했습니다.' });
+        return;
+      }
+      setMessage({ type: 'success', text: `${data.new}건의 새 문의를 가져왔습니다 (조회 ${data.collected}건)` });
+      await fetchInquiries();
+    } catch {
+      setMessage({ type: 'error', text: '문의 수집 중 오류가 발생했습니다.' });
+    } finally {
+      setCollecting(false);
+    }
+  };
 
   const sendAnswer = async () => {
     if (!selectedInquiry || !answer.trim()) return;
@@ -134,13 +154,23 @@ export default function CsPage() {
           <h1 className="text-2xl font-bold text-gray-900">문의관리</h1>
           <p className="text-sm text-gray-500 mt-1">6채널 문의 통합 인박스</p>
         </div>
-        <button
-          onClick={fetchInquiries}
-          className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition"
-        >
-          <RefreshCw className="w-4 h-4" />
-          새로고침
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={collectInquiries}
+            disabled={collecting}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-white bg-[#E31837] rounded-lg hover:bg-red-700 transition disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${collecting ? 'animate-spin' : ''}`} />
+            {collecting ? '가져오는 중...' : '문의 가져오기'}
+          </button>
+          <button
+            onClick={fetchInquiries}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+          >
+            <RefreshCw className="w-4 h-4" />
+            새로고침
+          </button>
+        </div>
       </div>
 
       {message && (
