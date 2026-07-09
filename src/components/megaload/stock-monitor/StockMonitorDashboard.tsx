@@ -74,6 +74,12 @@ export default function StockMonitorDashboard() {
   const [apiError, setApiError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // 페이지네이션 — 서버(route.ts)는 page/limit + pagination.total 을 이미 지원. 프론트가 안 쓰고 있었음.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [total, setTotal] = useState(0);
+  const PAGE_SIZES = [50, 100, 500, 1000];
+
   const [starting, setStarting] = useState(false);
   const [startMsg, setStartMsg] = useState('');
 
@@ -109,7 +115,7 @@ export default function StockMonitorDashboard() {
     setApiError(null);
     try {
       const statusParam = filterTab === 'all' ? '' : `&status=${filterTab}`;
-      const res = await fetch(`/api/megaload/stock-monitor?${statusParam}`);
+      const res = await fetch(`/api/megaload/stock-monitor?page=${page}&limit=${pageSize}${statusParam}`);
       const data = await res.json();
       if (!res.ok) {
         setApiError(`GET ${res.status}: ${data.error || JSON.stringify(data)}`);
@@ -117,12 +123,13 @@ export default function StockMonitorDashboard() {
       }
       setMonitors(data.monitors || []);
       setStats(data.stats || null);
+      setTotal(data.pagination?.total ?? 0);
     } catch (err) {
       setApiError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, [filterTab]);
+  }, [filterTab, page, pageSize]);
 
   useEffect(() => {
     fetchData();
@@ -287,7 +294,7 @@ export default function StockMonitorDashboard() {
         {tabButtons.map(({ tab, label, count }) => (
           <button
             key={tab}
-            onClick={() => setFilterTab(tab)}
+            onClick={() => { setFilterTab(tab); setPage(1); }}
             className={`px-4 py-1.5 text-xs rounded-full border transition ${
               filterTab === tab
                 ? 'bg-[#E31837] text-white border-[#E31837]'
@@ -304,10 +311,20 @@ export default function StockMonitorDashboard() {
             )}
           </button>
         ))}
+        <select
+          value={pageSize}
+          onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+          className="ml-auto text-xs border border-gray-300 rounded-lg px-2 py-1 text-gray-600 bg-white hover:bg-gray-50 cursor-pointer"
+          title="페이지당 표시 개수"
+        >
+          {PAGE_SIZES.map((n) => (
+            <option key={n} value={n}>{n}개씩 보기</option>
+          ))}
+        </select>
         <button
           onClick={fetchData}
           disabled={loading}
-          className="ml-auto text-xs text-gray-400 hover:text-gray-600 transition"
+          className="text-xs text-gray-400 hover:text-gray-600 transition"
           title="새로고침"
         >
           {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
@@ -523,6 +540,59 @@ export default function StockMonitorDashboard() {
           </table>
         )}
       </div>
+
+      {/* 페이지네이션 — total(전체 필터결과 수) 기준. 목록은 pageSize 만큼만 서버에서 받아온다. */}
+      {!loading && total > pageSize && (() => {
+        const totalPages = Math.ceil(total / pageSize);
+        const from = (page - 1) * pageSize + 1;
+        const to = Math.min(page * pageSize, total);
+        // 현재 페이지 주변 ±2 + 처음/끝 페이지만 노출 (… 로 축약)
+        const nums: number[] = [];
+        for (let p = 1; p <= totalPages; p++) {
+          if (p === 1 || p === totalPages || (p >= page - 2 && p <= page + 2)) nums.push(p);
+        }
+        return (
+          <div className="flex items-center justify-between px-1">
+            <span className="text-xs text-gray-500">
+              전체 {total.toLocaleString()}개 중 {from.toLocaleString()}–{to.toLocaleString()}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="px-2.5 py-1 text-xs rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                이전
+              </button>
+              {nums.map((p, i) => {
+                const gap = i > 0 && p - nums[i - 1] > 1;
+                return (
+                  <Fragment key={p}>
+                    {gap && <span className="px-1 text-xs text-gray-400">…</span>}
+                    <button
+                      onClick={() => setPage(p)}
+                      className={`min-w-[30px] px-2 py-1 text-xs rounded-lg border transition ${
+                        p === page
+                          ? 'bg-[#E31837] text-white border-[#E31837]'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  </Fragment>
+                );
+              })}
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="px-2.5 py-1 text-xs rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                다음
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
