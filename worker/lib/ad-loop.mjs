@@ -22,6 +22,9 @@ export function ruleFromRow(r) {
     pauseOnZeroConv: !!r.pause_on_zero_conv,
     zeroConvMinClicks: Number(r.zero_conv_min_clicks),
     zeroConvMinSpend: Number(r.zero_conv_min_spend),
+    // ROAS 입찰 자동조정을 명시적으로 켠 경우에만 evaluateBid 실행(기본 꺼짐).
+    // (자동 OFF만 켠 사용자에게 원치 않는 입찰/예산 변경이 발생하지 않도록)
+    bidAdjustEnabled: !!r.bid_adjust_enabled,
     // B-1: 자동 OFF
     autoOffEnabled: !!r.auto_off_enabled,
     offSpendThreshold: Number(r.off_spend_threshold),
@@ -96,6 +99,9 @@ export async function runAdEvaluation({ ruleRow, collect, apply, offApply, db, w
       }
       continue;
     }
+
+    // ROAS 입찰 자동조정을 켜지 않았으면 여기서 종료(OFF/자동등록만 사용하는 경우).
+    if (!rule.bidAdjustEnabled) { summary.skipped++; continue; }
 
     const changedTodayPct = pctMap.get(scopeKey(row.campaignId, row.keyword)) ?? 0;
     const decision = evaluateBid({ currentBid: row.currentBid, metrics: row, rule, changedTodayPct });

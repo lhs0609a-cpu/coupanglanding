@@ -21,6 +21,24 @@ $('ads-run').onclick = async () => {
   msg('평가 실행 중...');
   try { await api.invoke('ads:run-once'); } catch (e) { msg('❌ ' + e.message); }
 };
+$('ads-start').onclick = async () => {
+  msg('자동 실행(6시간 주기) 시작... 규칙 모드에 따라 동작합니다.');
+  try { await api.invoke('ads:start'); } catch (e) { msg('❌ ' + e.message); }
+};
+$('ads-stop').onclick = async () => {
+  msg('자동 실행 중지');
+  try { await api.invoke('ads:stop'); } catch (e) { msg('❌ ' + e.message); }
+};
+$('ads-auto').onchange = async (ev) => {
+  try {
+    const on = await api.invoke('ads:set-auto', { on: ev.target.checked });
+    msg(on ? '✅ 앱 시작 시 자동 실행 켜짐' : '앱 시작 시 자동 실행 꺼짐');
+  } catch (e) { msg('❌ ' + e.message); }
+};
+// 초기 상태 로드
+(async () => {
+  try { $('ads-auto').checked = !!(await api.invoke('ads:get-auto')); } catch { /* ignore */ }
+})();
 
 api.on('ads:event', (e) => {
   if (e.type === 'capture-saved') { msg('✅ 저장됨: ' + e.path + ' — 이 파일을 전달해 주세요.'); return; }

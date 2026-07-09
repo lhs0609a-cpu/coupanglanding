@@ -83,6 +83,14 @@ async function installEngine() {
   autoStartIfReady();
 }
 async function autoStartIfReady() {
+  // 광고 자동화 옵트인 자동시작 — 로그인돼 있고 "자동 실행"을 켠 경우에만.
+  // (썸네일 엔진 설치 여부와 무관하므로 아래 엔진 가드보다 먼저 시도)
+  try {
+    if (runner.loggedIn && store.get('adsAutoRun', false)) {
+      ads.autoStart?.().catch(() => {});
+    }
+  } catch { /* 광고 자동시작 실패는 썸네일 자동시작을 막지 않음 */ }
+
   try {
     if (runner.running || !runner.loggedIn) return;
     if (!(await bootstrap.isInstalled(installDir))) return;

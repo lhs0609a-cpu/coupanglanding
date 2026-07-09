@@ -59,8 +59,13 @@ export class AdRunner {
     return { session, muId, rule: rules?.[0] ?? null };
   }
 
-  /** 1회 평가 실행 */
-  async runOnce() {
+  /**
+   * 1회 평가 실행.
+   * @param {{silent?:boolean}} [opts] silent=true 면 윙 미로그인 시 창을 띄우지 않고 조용히 건너뛴다
+   *   (부팅 자동시작에서 사용자 몰래 로그인창이 뜨는 것을 방지).
+   */
+  async runOnce(opts = {}) {
+    const { silent = false } = opts;
     if (this.busy) { this.onEvent({ type: 'warn', message: '이미 실행 중' }); return; }
     this.busy = true;
     try {
@@ -70,15 +75,20 @@ export class AdRunner {
       const win = this._ensureWin();
       let loggedIn = false;
       try {
-        loggedIn = await ensureWingSession(win);
+        loggedIn = await ensureWingSession(win, silent ? { timeoutMs: 8000 } : {});
       } catch (e) {
         // WING 셀렉터 미설정 등
         this.onEvent({ type: 'error', message: e.message });
         return;
       }
       if (!loggedIn) {
-        win.show(); // 사용자가 직접 윙 로그인하도록 창을 보여줌
-        this.onEvent({ type: 'login-required', message: '윙에 로그인해 주세요. 로그인 후 다시 실행하면 진행됩니다.' });
+        if (!silent) win.show(); // 수동 실행일 때만 사용자가 직접 윙 로그인하도록 창을 보여줌
+        this.onEvent({
+          type: 'login-required',
+          message: silent
+            ? '윙 미로그인 — 자동 실행 건너뜀(광고 자동화 탭에서 1회 로그인하면 이후 자동 진행).'
+            : '윙에 로그인해 주세요. 로그인 후 다시 실행하면 진행됩니다.',
+        });
         return;
       }
 
@@ -142,11 +152,28 @@ export class AdRunner {
   }
 
   /** 주기 실행 시작 */
-  async start({ intervalMs = DEFAULT_INTERVAL_MS } = {}) {
+  async start({ intervalMs = DEFAULT_INTERVAL_MS, silent = false } = {}) {
     if (this.timer) return;
-    await this.runOnce();
-    this.timer = setInterval(() => { this.runOnce().catch(() => {}); }, intervalMs);
+    await this.runOnce({ silent });
+    this.timer = setInterval(() => { this.runOnce({ silent }).catch(() => {}); }, intervalMs);
     this.onEvent({ type: 'started', intervalMs });
+  }
+
+  /**
+   * 부팅 옵트인 자동시작 — 사용자가 "자동 실행"을 켠 경우에만 호출된다.
+   * 활성 규칙이 없으면 타이머를 걸지 않고 조용히 종료(불필요한 윙 접근 방지).
+   * 미로그인 시에도 창을 띄우지 않도록 silent 로 주기 실행한다.
+   */
+  async autoStart() {
+    if (this.timer) return;
+    try {
+      const { rule } = await this._context();
+      if (!rule) { this.onEvent({ type: 'idle', message: '활성 광고 규칙 없음 — 자동 실행 대기.' }); return; }
+    } catch (e) {
+      this.onEvent({ type: 'idle', message: '자동 실행 준비 안 됨: ' + (e.message || e) });
+      return;
+    }
+    await this.start({ silent: true });
   }
 
   stop() {
