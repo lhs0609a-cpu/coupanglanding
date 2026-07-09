@@ -64,6 +64,7 @@ export class Session {
     this.anonKey = anonKey;
     this.filePath = filePath;
     this.s = null;
+    this._refreshing = null; // 진행 중 refresh 프로미스 (single-flight)
   }
   async loadOrLogin(email, password) {
     if (this.filePath) {
@@ -108,8 +109,18 @@ export class Session {
   async token() {
     if (!this.s) throw new Error('세션 없음 — loadOrLogin 먼저 호출');
     if (Date.now() > this.s.expires_at - 60_000) {
-      this.s = await refresh(this.supabaseUrl, this.anonKey, this.s.refresh_token);
-      await this._persist();
+      // ★ single-flight refresh — 근본 수정.
+      //   워커 heartbeat·썸네일 pull·LLM pull·품절모니터 루프가 이 Session 하나를 공유하며
+      //   동시에 token() 을 호출한다. 만료 시 각자 refresh() 를 돌리면 같은 refresh_token 으로
+      //   중복 회전(rotation)이 일어나고, Supabase 가 재사용을 탐지해 토큰 패밀리 전체를 폐기한다
+      //   → 세션이 영구히 깨져 모든 호출이 401 ("잘 되다 갑자기 전부 401"의 원인).
+      //   진행 중인 refresh 를 하나로 합쳐(=single-flight) 직렬화하면 중복 회전이 사라진다.
+      if (!this._refreshing) {
+        this._refreshing = refresh(this.supabaseUrl, this.anonKey, this.s.refresh_token)
+          .then(async (ns) => { this.s = ns; await this._persist(); })
+          .finally(() => { this._refreshing = null; });
+      }
+      await this._refreshing;
     }
     return this.s.access_token;
   }

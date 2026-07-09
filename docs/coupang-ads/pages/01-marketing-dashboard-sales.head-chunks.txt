@@ -1,0 +1,35 @@
+# cmg-self-service 마이크로프론트엔드가 로드하는 JS 청크 (build 20260708171629)
+# 내부 모듈 구조 파악용 — 자동화 대상/입력창 존재 여부 확인.
+# (토큰/PII 없음. head의 modulepreload 목록에서 추출)
+
+# --- 자동화 직접 관련 (입찰/예산/토글/API) ---
+ad-config-api            # 내부 광고설정 API 클라이언트 (XHR 엔드포인트 후킹 후보)
+CampaignsTable           # 캠페인 목록 테이블
+CpSwitch                 # ON/OFF 토글 컴포넌트 (ant-switch)
+MainCampaignDataInputGroup  # 캠페인 기본정보(예산/기간/목표) 입력군
+TargetRoasCalcInput      # 목표 광고수익률(ROAS) 입력 = 입찰 조정 레버
+useBudgetInputValidator  # 예산 입력 검증
+OOBBudgetRuleInput       # (Out-Of-Budget) 예산 규칙 입력
+budget-utils / campaignUtils / formatByUnit
+AdGroupForm              # 광고그룹 폼 (키워드/입찰 후보)
+KeywordBudgetProgressBar
+QuickCampaignModal       # 빠른 캠페인 생성 모달
+AutomatedRuleModal / NotificationRuleResultPopup  # 쿠팡 자체 자동규칙
+ChangeHistoryPage        # 변경 이력
+ROASTooltip
+DateRangePicker
+useSelectProducts        # 상품 선택 (상품 자동등록 B-2 관련)
+submit / useSubmitErrorModal / useCampaignRegistrationLogging
+
+# --- 성과/대시보드 ---
+Dashboard / productDashboard / DoughnutChart / recommendation / TableSettingProvider
+
+# --- 로드 소스 ---
+# 쉘: advertising.coupang.com/_next/...  (Next.js SSR)
+# SPA: front.coupangcdn.com/cmg-self-service/prod/20260708171629/js/*.chunk.js
+# 봇탐지: advertising.coupang.com/Jkxj/zro3/.../xTPhUDE3gB  (Akamai류, 헤드리스 차단 주의)
+# 분석 SDK: front.coupangcdn.com/cmg-bigfoot-sdk/v1.8.0  → data-bigfoot-component 부여
+
+# 시사점: ad-config-api 청크가 있으므로, DOM 클릭 대신 내부 XHR(광고설정 API)을
+#   로그인 세션의 쿠키/토큰으로 직접 호출하는 방식도 가능성 있음(네트워크 탭 캡처 필요).
+#   DOM 조작보다 안정적이지만, 엔드포인트/페이로드 역설계가 선행돼야 함.

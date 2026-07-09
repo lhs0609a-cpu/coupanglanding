@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import {
   RefreshCw, Package, XCircle, AlertTriangle, PauseCircle, Loader2,
-  CheckCircle2, ExternalLink, Clock, Link2Off, PlayCircle,
+  CheckCircle2, ExternalLink, Clock, Link2Off, PlayCircle, ChevronDown, ChevronRight, History,
 } from 'lucide-react';
 import StockStatusBadge from './StockStatusBadge';
+import StockMonitorHistory from './StockMonitorHistory';
+import LiveDetectionMonitor from './LiveDetectionMonitor';
 
 interface MonitorItem {
   id: string;
@@ -48,12 +50,36 @@ function timeAgo(dateStr: string | null): string {
   return `${days}일 전`;
 }
 
+// 절대 날짜+시각 (예: 07/08 06:04) — 상대시간과 함께 "언제 체크됐는지" 정확히 표기
+function fmtDate(dateStr: string | null): string {
+  if (!dateStr) return '-';
+  return new Date(dateStr).toLocaleString('ko-KR', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+// 마우스오버 시 전체 날짜(연도 포함)
+function fmtFull(dateStr: string | null): string {
+  if (!dateStr) return '';
+  return new Date(dateStr).toLocaleString('ko-KR', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+}
+
 export default function StockMonitorDashboard() {
   const [monitors, setMonitors] = useState<MonitorItem[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [filterTab, setFilterTab] = useState<FilterTab>('all');
   const [apiError, setApiError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // 페이지네이션 — 서버(route.ts)는 page/limit + pagination.total 을 이미 지원. 프론트가 안 쓰고 있었음.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [total, setTotal] = useState(0);
+  const PAGE_SIZES = [50, 100, 500, 1000];
 
   const [starting, setStarting] = useState(false);
   const [startMsg, setStartMsg] = useState('');
@@ -90,7 +116,7 @@ export default function StockMonitorDashboard() {
     setApiError(null);
     try {
       const statusParam = filterTab === 'all' ? '' : `&status=${filterTab}`;
-      const res = await fetch(`/api/megaload/stock-monitor?${statusParam}`);
+      const res = await fetch(`/api/megaload/stock-monitor?page=${page}&limit=${pageSize}${statusParam}`);
       const data = await res.json();
       if (!res.ok) {
         setApiError(`GET ${res.status}: ${data.error || JSON.stringify(data)}`);
@@ -98,12 +124,13 @@ export default function StockMonitorDashboard() {
       }
       setMonitors(data.monitors || []);
       setStats(data.stats || null);
+      setTotal(data.pagination?.total ?? 0);
     } catch (err) {
       setApiError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, [filterTab]);
+  }, [filterTab, page, pageSize]);
 
   useEffect(() => {
     fetchData();
@@ -165,10 +192,12 @@ export default function StockMonitorDashboard() {
     { tab: 'no_source_url', label: '원본 URL 필요', count: stats?.needsSourceUrl ?? 0 },
   ];
 
-  // 데스크탑 앱 배너 — 토큰 발급된 사용자에 한해, 비정상일 때만
+  // 데스크탑 앱 배너 — 토큰 발급된 사용자에 한해, 앱이 정말 꺼져 있을 때만.
+  // isAlive 는 이제 워커 하트비트(30초 주기)까지 반영하므로 사이드바 "연결됨"과 일치한다.
+  // (결과 제출이 뜸해도 앱이 켜져 있으면 배너를 띄우지 않아 오탐 제거)
   const showDesktopBanner = !!desktopStatus
     && desktopStatus.tokenIssued
-    && (!desktopStatus.isAlive || desktopStatus.monitorsCheckedRecently === 0);
+    && !desktopStatus.isAlive;
 
   return (
     <div className="space-y-6">
@@ -220,6 +249,13 @@ export default function StockMonitorDashboard() {
         </button>
       </div>
 
+      {/* 실시간 감지 신호등 + "방금 ○○ 확인완료" 피드 — 도우미가 지금 돌고 있는지 눈으로 확인 */}
+      <LiveDetectionMonitor
+        isAlive={desktopStatus ? desktopStatus.isAlive : null}
+        tokenIssued={!!desktopStatus?.tokenIssued}
+        heartbeatAgeMin={desktopStatus?.heartbeatAgeMin ?? -1}
+      />
+
       {/* 요약 카드 (읽기 전용) */}
       {stats && (
         <div className="grid grid-cols-6 gap-3">
@@ -266,7 +302,7 @@ export default function StockMonitorDashboard() {
         {tabButtons.map(({ tab, label, count }) => (
           <button
             key={tab}
-            onClick={() => setFilterTab(tab)}
+            onClick={() => { setFilterTab(tab); setPage(1); }}
             className={`px-4 py-1.5 text-xs rounded-full border transition ${
               filterTab === tab
                 ? 'bg-[#E31837] text-white border-[#E31837]'
@@ -283,10 +319,20 @@ export default function StockMonitorDashboard() {
             )}
           </button>
         ))}
+        <select
+          value={pageSize}
+          onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+          className="ml-auto text-xs border border-gray-300 rounded-lg px-2 py-1 text-gray-600 bg-white hover:bg-gray-50 cursor-pointer"
+          title="페이지당 표시 개수"
+        >
+          {PAGE_SIZES.map((n) => (
+            <option key={n} value={n}>{n}개씩 보기</option>
+          ))}
+        </select>
         <button
           onClick={fetchData}
           disabled={loading}
-          className="ml-auto text-xs text-gray-400 hover:text-gray-600 transition"
+          className="text-xs text-gray-400 hover:text-gray-600 transition"
           title="새로고침"
         >
           {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
@@ -335,44 +381,59 @@ export default function StockMonitorDashboard() {
             <tbody className="divide-y divide-gray-100">
               {monitors.map((m) => {
                 const product = m.sh_products;
+                const isExpanded = expandedId === m.id;
                 return (
-                  <tr key={m.id} className="hover:bg-gray-50 transition">
+                  <Fragment key={m.id}>
+                  <tr
+                    onClick={() => setExpandedId(isExpanded ? null : m.id)}
+                    className={`transition cursor-pointer ${isExpanded ? 'bg-red-50/40' : 'hover:bg-gray-50'}`}
+                  >
                     <td className="px-4 py-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-gray-900 truncate max-w-[300px]">
-                          {product?.display_name || product?.product_name || '상품명 없음'}
-                        </p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          {product?.brand && (
-                            <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-                              {product.brand}
+                      <div className="flex items-start gap-2">
+                        {isExpanded
+                          ? <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
+                          : <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0 mt-0.5" />}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-gray-900 truncate max-w-[280px]">
+                            {product?.display_name || product?.product_name || '상품명 없음'}
+                          </p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {product?.brand && (
+                              <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                                {product.brand}
+                              </span>
+                            )}
+                            {m.source_url ? (
+                              <a
+                                href={m.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5"
+                              >
+                                원본 <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            ) : (
+                              <span className="text-[10px] text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">
+                                원본 URL 필요
+                              </span>
+                            )}
+                            {m.coupang_product_id && (
+                              <a
+                                href={`https://wing.coupang.com/tenants/manage-product/products/list?searchKeyword=${m.coupang_product_id}&searchType=SELLER_PRODUCT_ID`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-[10px] text-purple-500 hover:text-purple-700 flex items-center gap-0.5"
+                                title="쿠팡 Wing 셀러센터에서 보기"
+                              >
+                                쿠팡 <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            )}
+                            <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
+                              <History className="w-2.5 h-2.5" /> 이력
                             </span>
-                          )}
-                          {m.source_url ? (
-                            <a
-                              href={m.source_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5"
-                            >
-                              원본 <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          ) : (
-                            <span className="text-[10px] text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">
-                              원본 URL 필요
-                            </span>
-                          )}
-                          {m.coupang_product_id && (
-                            <a
-                              href={`https://wing.coupang.com/tenants/manage-product/products/list?searchKeyword=${m.coupang_product_id}&searchType=SELLER_PRODUCT_ID`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[10px] text-purple-500 hover:text-purple-700 flex items-center gap-0.5"
-                              title="쿠팡 Wing 셀러센터에서 보기"
-                            >
-                              쿠팡 <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          )}
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -393,6 +454,11 @@ export default function StockMonitorDashboard() {
                               : `연속 ${m.consecutive_errors}회 실패`}
                         </div>
                       )}
+                      {m.last_checked_at && (
+                        <div className="text-[9px] text-gray-400 mt-0.5" title={fmtFull(m.last_checked_at)}>
+                          {fmtDate(m.last_checked_at)} 확인
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-center">
                       <StockStatusBadge status={
@@ -404,6 +470,11 @@ export default function StockMonitorDashboard() {
                       {m.last_checked_at && m.coupang_status === 'suspended' && m.source_status === 'error' && (
                         <div className="text-[9px] text-gray-400 mt-0.5">확인 후 재개</div>
                       )}
+                      {m.last_checked_at && (
+                        <div className="text-[9px] text-gray-400 mt-0.5" title={fmtFull(m.last_checked_at)}>
+                          {fmtDate(m.last_checked_at)} 확인
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-center">
                       {m.source_price_last != null ? (
@@ -412,8 +483,8 @@ export default function StockMonitorDashboard() {
                             ₩{m.source_price_last.toLocaleString()}
                           </span>
                           {m.price_last_updated_at && (
-                            <div className="text-[10px] text-gray-400 mt-0.5">
-                              {timeAgo(m.price_last_updated_at)} 감지
+                            <div className="text-[10px] text-gray-400 mt-0.5" title={fmtFull(m.price_last_updated_at)}>
+                              {fmtDate(m.price_last_updated_at)} 변동
                             </div>
                           )}
                         </>
@@ -436,8 +507,8 @@ export default function StockMonitorDashboard() {
                             ₩{m.our_price_last.toLocaleString()}
                           </span>
                           {m.last_checked_at && (
-                            <div className="text-[10px] text-gray-400 mt-0.5">
-                              {timeAgo(m.last_checked_at)} 조회
+                            <div className="text-[10px] text-gray-400 mt-0.5" title={fmtFull(m.last_checked_at)}>
+                              {fmtDate(m.last_checked_at)} 조회
                             </div>
                           )}
                         </>
@@ -454,8 +525,8 @@ export default function StockMonitorDashboard() {
                             <Clock className="w-3 h-3" />
                             {timeAgo(m.last_checked_at)}
                           </span>
-                          <div className="text-[10px] text-gray-400">
-                            {new Date(m.last_checked_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+                          <div className="text-[10px] text-gray-400" title={fmtFull(m.last_checked_at)}>
+                            {fmtDate(m.last_checked_at)}
                           </div>
                         </>
                       ) : (
@@ -463,12 +534,73 @@ export default function StockMonitorDashboard() {
                       )}
                     </td>
                   </tr>
+                  {isExpanded && (
+                    <tr className="bg-gray-50">
+                      <td colSpan={6} className="p-0 border-t border-gray-200">
+                        <StockMonitorHistory monitorId={m.id} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
           </table>
         )}
       </div>
+
+      {/* 페이지네이션 — total(전체 필터결과 수) 기준. 목록은 pageSize 만큼만 서버에서 받아온다. */}
+      {!loading && total > pageSize && (() => {
+        const totalPages = Math.ceil(total / pageSize);
+        const from = (page - 1) * pageSize + 1;
+        const to = Math.min(page * pageSize, total);
+        // 현재 페이지 주변 ±2 + 처음/끝 페이지만 노출 (… 로 축약)
+        const nums: number[] = [];
+        for (let p = 1; p <= totalPages; p++) {
+          if (p === 1 || p === totalPages || (p >= page - 2 && p <= page + 2)) nums.push(p);
+        }
+        return (
+          <div className="flex items-center justify-between px-1">
+            <span className="text-xs text-gray-500">
+              전체 {total.toLocaleString()}개 중 {from.toLocaleString()}–{to.toLocaleString()}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="px-2.5 py-1 text-xs rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                이전
+              </button>
+              {nums.map((p, i) => {
+                const gap = i > 0 && p - nums[i - 1] > 1;
+                return (
+                  <Fragment key={p}>
+                    {gap && <span className="px-1 text-xs text-gray-400">…</span>}
+                    <button
+                      onClick={() => setPage(p)}
+                      className={`min-w-[30px] px-2 py-1 text-xs rounded-lg border transition ${
+                        p === page
+                          ? 'bg-[#E31837] text-white border-[#E31837]'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  </Fragment>
+                );
+              })}
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="px-2.5 py-1 text-xs rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                다음
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

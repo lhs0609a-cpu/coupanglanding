@@ -48,7 +48,8 @@ export async function GET(request: NextRequest) {
         price_last_updated_at, price_last_applied_at, pending_price_change
       `, { count: 'exact' })
       .eq('megaload_user_id', shUserId)
-      .order('last_checked_at', { ascending: false, nullsFirst: true });
+      .order('last_checked_at', { ascending: false, nullsFirst: true })
+      .order('id', { ascending: true }); // 안정 정렬 — 도우미 갱신으로 last_checked_at 이 바뀌어도 페이지 경계에서 항목이 밀리지 않게 함
 
     if (statusFilter && statusFilter !== 'all') {
       if (statusFilter === 'error') {
