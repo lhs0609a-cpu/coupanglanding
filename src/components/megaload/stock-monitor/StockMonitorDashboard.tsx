@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import StockStatusBadge from './StockStatusBadge';
 import StockMonitorHistory from './StockMonitorHistory';
+import LiveDetectionMonitor from './LiveDetectionMonitor';
 
 interface MonitorItem {
   id: string;
@@ -247,6 +248,13 @@ export default function StockMonitorDashboard() {
           {starting ? (startMsg || '시작 중...') : '전체 점검 시작'}
         </button>
       </div>
+
+      {/* 실시간 감지 신호등 + "방금 ○○ 확인완료" 피드 — 도우미가 지금 돌고 있는지 눈으로 확인 */}
+      <LiveDetectionMonitor
+        isAlive={desktopStatus ? desktopStatus.isAlive : null}
+        tokenIssued={!!desktopStatus?.tokenIssued}
+        heartbeatAgeMin={desktopStatus?.heartbeatAgeMin ?? -1}
+      />
 
       {/* 요약 카드 (읽기 전용) */}
       {stats && (
