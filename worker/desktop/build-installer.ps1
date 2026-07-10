@@ -85,6 +85,31 @@ $assets = @($exe.FullName)
 if (Test-Path $ymlPath) { $assets += $ymlPath; Copy-Item $ymlPath $driveDist -Force }
 if ($blockmap) { $assets += $blockmap.FullName }
 
+# ── 발행 전 무결성 검증(자동업데이트 "손상" 사고 근본 차단) ──────────────
+#   과거: dist 에 남은 구버전 exe 를 올리고 latest.yml 은 신규 빌드 것을 올려
+#   자동업데이트가 sha512 불일치("손상")로 영구 실패한 사고 발생(2026-07-08, v0.2.40).
+#   electron 빌드는 재현 불가능하므로 latest.yml 과 exe 는 반드시 "같은 빌드" 여야 한다.
+#   여기서 latest.yml 이 서술하는 path/size/sha512 가 업로드할 $exe 와 정확히 일치하는지
+#   대조하고, 하나라도 어긋나면 업로드 전에 중단한다(깨진 피드를 릴리스에 올리지 않음).
+if (Test-Path $ymlPath) {
+  $ymlText = Get-Content $ymlPath -Raw
+  $ymlPath_name = ([regex]::Match($ymlText, '(?m)^path:\s*(.+)$')).Groups[1].Value.Trim()
+  $ymlSize = [int64]([regex]::Match($ymlText, '(?m)^\s+size:\s*(\d+)$')).Groups[1].Value
+  $ymlSha  = ([regex]::Match($ymlText, '(?m)^sha512:\s*(.+)$')).Groups[1].Value.Trim()
+  if ($ymlPath_name -ne $exe.Name) {
+    throw "무결성 실패: latest.yml path($ymlPath_name) != 업로드 exe($($exe.Name)). dist 에 구버전 산출물이 섞였을 수 있습니다. dist 를 비우고 재빌드하세요."
+  }
+  if ($ymlSize -ne $exe.Length) {
+    throw "무결성 실패: latest.yml size($ymlSize) != exe 실제크기($($exe.Length)). latest.yml 과 exe 가 서로 다른 빌드입니다. dist 를 비우고 재빌드하세요."
+  }
+  # 앱(auto-update.mjs)이 검증하는 방식과 동일하게 sha512 를 base64 로 재계산해 대조.
+  $exeSha = [Convert]::ToBase64String([System.Security.Cryptography.SHA512]::Create().ComputeHash([System.IO.File]::ReadAllBytes($exe.FullName)))
+  if ($exeSha -ne $ymlSha) {
+    throw "무결성 실패: exe 실제 sha512 가 latest.yml 과 다릅니다. 자동업데이트가 '손상'으로 거부됩니다. dist 를 비우고 재빌드하세요.`n  yml: $ymlSha`n  exe: $exeSha"
+  }
+  Write-Host "무결성 검증 통과: latest.yml <-> $($exe.Name) (size/sha512 일치)" -ForegroundColor Green
+}
+
 $published = $false
 if (-not (Test-Path $ymlPath)) {
   Write-Host "[경고] dist\latest.yml 이 없습니다 — electron-builder publish 설정 확인 필요. 자동 업데이트 피드 업로드 건너뜀." -ForegroundColor Yellow
