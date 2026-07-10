@@ -500,11 +500,15 @@ export default function StockMonitorDashboard() {
                       } />
                       {m.source_url && m.source_status === 'error' && (
                         <div className="text-[9px] text-orange-500 mt-0.5">
-                          {m.consecutive_errors === 0
+                          {/* 429/타임아웃(transient)은 consecutive_errors=0 이라 '도우미 꺼짐'으로 오표기되던 버그 수정.
+                              실제 도우미 생존여부(isAlive)로 구분하고, 0=일시 속도제한(자동 재시도)로 정확히 표기. */}
+                          {desktopStatus && desktopStatus.isAlive === false
                             ? '도우미 꺼짐(조회 실패)'
                             : m.consecutive_errors >= 5
-                              ? '네이버 속도제한'
-                              : `연속 ${m.consecutive_errors}회 실패`}
+                              ? `지속 실패 ${m.consecutive_errors}회`
+                              : m.consecutive_errors >= 1
+                                ? `연속 ${m.consecutive_errors}회 실패`
+                                : '일시 속도제한(429·자동 재시도)'}
                         </div>
                       )}
                       {m.last_checked_at && (

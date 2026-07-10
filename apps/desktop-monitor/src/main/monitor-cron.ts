@@ -16,10 +16,12 @@ import { getStore } from './store';
 // 페이싱 — 가정 IP 기준 네이버 스마트스토어 안전선 안쪽
 // v0.1.10: v0.1.9 의 3~5초 페이싱은 ~44% 429 발생. 5~8초 로 완화 + 429 백오프 추가.
 // v0.1.11: 토큰 만료 시 조용히 멈추던 버그 수정 — isLoggedIn 해제 + 알림 + cron 정지(재로그인 시 재개).
+// v0.1.14: 429 완화 — 페이싱 8~12초 + AIMD 적응형 지연 + 조회 헤더/지속쿠키 위장(naver-fetcher).
 // 분당 ~9건. 2519개 한 바퀴 약 4.5시간 (전 사이클 3시간 → 약간 늘어남, 대신 성공률 ↑).
 const CRON_TICK_MS = 2 * 60 * 1000; // 2분마다 모니터 목록 fetch (배치 종료 후 idle gap 단축)
-const ITEM_INTERVAL_MS = 5000; // 5초 base + jitter → 실제 5~8초
-const ITEM_JITTER_MS = 3000;
+// v0.1.14: 429 완화 — base 5→8초, jitter 3→4초(실제 8~12초) + AIMD 적응형.
+const ITEM_INTERVAL_MS = 8000; // base 8초
+const ITEM_JITTER_MS = 4000;   // + 0~4초 jitter → 실제 8~12초
 const BATCH_FLUSH_SIZE = 10; // 10개 모이면 즉시 전송
 const BATCH_FLUSH_INTERVAL_MS = 60000; // 1분마다 강제 flush
 
@@ -27,6 +29,13 @@ const BATCH_FLUSH_INTERVAL_MS = 60000; // 1분마다 강제 flush
 // 3회 연속 transient → 60초 휴식 (IP throttling 회복 시간 확보)
 const TRANSIENT_BACKOFF_THRESHOLD = 3;
 const TRANSIENT_BACKOFF_MS = 60_000;
+
+// AIMD 적응형 지연 — 429(transient) 뜨면 곱셈 증가, 성공하면 덧셈 감소.
+// 네이버 스로틀링에 실시간 적응해 429 를 최소화(고정 페이싱보다 효과적).
+const ADAPTIVE_MAX_MS = 30_000;   // 지연 상한 30초
+const ADAPTIVE_INC_FACTOR = 1.5;  // 429 시 ×1.5
+const ADAPTIVE_DEC_MS = 1_000;    // 성공 시 −1초 (base 까지)
+let adaptiveDelayMs = ITEM_INTERVAL_MS; // 모듈 전역 — tick 간 스로틀링 상태 유지
 
 let cronTimer: NodeJS.Timeout | null = null;
 let flushTimer: NodeJS.Timeout | null = null;
@@ -122,22 +131,28 @@ async function tick(): Promise<void> {
     for (const m of monitors) {
       const lastStatus = await processMonitor(m);
 
-      // 429 (transient) 연속 감지 → cool-down
+      // AIMD 적응형 지연 갱신 + 429 연속 감지 cool-down
       if (lastStatus === 'transient') {
+        // 429 → 곱셈 증가 (네이버가 지금 느리라고 신호)
+        adaptiveDelayMs = Math.min(ADAPTIVE_MAX_MS, Math.round(adaptiveDelayMs * ADAPTIVE_INC_FACTOR));
         consecutiveTransient++;
         if (consecutiveTransient >= TRANSIENT_BACKOFF_THRESHOLD) {
-          console.warn(`[monitor-cron] transient ${consecutiveTransient}회 연속 — ${TRANSIENT_BACKOFF_MS / 1000}초 휴식`);
+          console.warn(`[monitor-cron] transient ${consecutiveTransient}회 연속 — ${TRANSIENT_BACKOFF_MS / 1000}초 휴식 (지연 ${adaptiveDelayMs}ms)`);
           await flushPending(); // 휴식 전 결과 비우기
           await sleep(TRANSIENT_BACKOFF_MS);
           consecutiveTransient = 0;
         }
       } else {
         consecutiveTransient = 0;
+        // 성공(정상 응답) → 덧셈 감소로 base 까지 서서히 회복
+        if (lastStatus === null) {
+          adaptiveDelayMs = Math.max(ITEM_INTERVAL_MS, adaptiveDelayMs - ADAPTIVE_DEC_MS);
+        }
       }
 
       // 결과 batch flush 트리거
       if (pendingResults.length >= BATCH_FLUSH_SIZE) await flushPending();
-      await sleep(ITEM_INTERVAL_MS + Math.random() * ITEM_JITTER_MS);
+      await sleep(adaptiveDelayMs + Math.random() * ITEM_JITTER_MS);
     }
 
     await flushPending();

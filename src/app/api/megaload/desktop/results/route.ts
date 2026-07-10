@@ -108,16 +108,30 @@ export async function POST(request: NextRequest) {
 
       await serviceClient.from('sh_stock_monitors').update(updates).eq('id', r.monitorId);
 
-      // 상태 변경 로그
-      if (m.source_status !== r.status && r.status !== 'error') {
-        await serviceClient.from('sh_stock_monitor_logs').insert({
-          monitor_id: r.monitorId,
-          megaload_user_id: shUserId,
-          event_type: 'desktop_check',
-          source_status_before: m.source_status,
-          source_status_after: r.status,
-          notes: `데스크탑 앱 체크: ${r.matchedPattern || ''}`,
-        });
+      // 상태 변경 로그 (error 진입 transition 시에만 기록 → 스팸 방지)
+      if (m.source_status !== r.status) {
+        if (r.status === 'error') {
+          // ⚠️ 그동안 도우미 조회 실패는 source_status='error'만 저장하고 사유(errorClass/matchedPattern)를
+          //   버려서, DB에서 429/타임아웃/차단을 구분할 수 없었다(진단 사각지대).
+          //   도우미가 보내주는 사유를 check_error 로그로 남겨 대시보드 이력에서 원인을 볼 수 있게 한다.
+          await serviceClient.from('sh_stock_monitor_logs').insert({
+            monitor_id: r.monitorId,
+            megaload_user_id: shUserId,
+            event_type: 'check_error',
+            source_status_before: m.source_status,
+            source_status_after: 'error',
+            error_message: `도우미: ${r.errorClass || 'naver'} — ${r.matchedPattern || '조회 실패'}`,
+          });
+        } else {
+          await serviceClient.from('sh_stock_monitor_logs').insert({
+            monitor_id: r.monitorId,
+            megaload_user_id: shUserId,
+            event_type: 'desktop_check',
+            source_status_before: m.source_status,
+            source_status_after: r.status,
+            notes: `데스크탑 앱 체크: ${r.matchedPattern || ''}`,
+          });
+        }
       }
 
       updated++;
