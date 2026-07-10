@@ -585,14 +585,26 @@ function determineEffectiveStatus(
 async function fetchCoupangState(
   monitor: { id: string; coupang_product_id: string },
   adapter: CoupangAdapter,
-): Promise<{ lifecycle: CoupangLifecycle; vendorItemIds: string[]; coupangPrice: number | null } | null> {
+): Promise<{ lifecycle: CoupangLifecycle; vendorItemIds: string[]; coupangPrice: number | null; coupangSelling: boolean | null } | null> {
   try {
     const detail = await adapter.getProductDetail(monitor.coupang_product_id);
     if (!detail) return null;
+    const vendorItemIds = detail.items.map(i => i.vendorItemId).filter(Boolean);
+
+    // 실측: 첫 옵션의 실판매상태(onSale/재고) — coupang_status 라벨을 진실로 교정하는 근거.
+    // ⚠️ 상세(statusName)로는 판매 on/off 를 못 읽으므로 inventories API 로 별도 조회한다.
+    //    첫 옵션만 조회해 호출량을 옵션당 +1 로 제한(대표값). null=조회실패 → 라벨 유지.
+    let coupangSelling: boolean | null = null;
+    if (vendorItemIds.length > 0) {
+      const inv = await adapter.getVendorItemInventory(vendorItemIds[0]);
+      if (inv) coupangSelling = inv.onSale && (inv.amountInStock == null || inv.amountInStock > 0);
+    }
+
     return {
       lifecycle: classifyCoupangLifecycle(detail.status, detail.statusName),
-      vendorItemIds: detail.items.map(i => i.vendorItemId).filter(Boolean),
+      vendorItemIds,
       coupangPrice: detail.items?.[0]?.salePrice ?? null,
+      coupangSelling,
     };
   } catch (err) {
     console.warn(`[stock-monitor] fetchCoupangState failed for ${monitor.coupang_product_id}:`, err);
@@ -979,8 +991,13 @@ async function processSingleMonitor(
   }
 
   // 5. DB 업데이트
+  //  coupang_status 는 (1) 우리가 이번 사이클에 실제 토글한 결과를 최우선으로,
+  //  (2) 토글이 없었으면 쿠팡 실측(onSale/재고)으로 라벨을 진실에 맞춘다(self-heal).
+  //  실측이 없을 때만(조회 실패) 기존 값 유지. → "중지됨인데 실제 판매중" stale 라벨 자동교정.
   const coupangStatus = actionTaken === 'coupang_suspended' ? 'suspended'
     : actionTaken === 'coupang_resumed' ? 'active'
+    : cstate?.coupangSelling === true ? 'active'
+    : cstate?.coupangSelling === false ? 'suspended'
     : monitor.coupang_status;
 
   // 5-a. 소스 가격 관찰값 계산 (등록 옵션 매칭 우선, 아니면 메인가)
@@ -1151,6 +1168,35 @@ function roundTo10(n: number): number {
   return Math.round(n / 10) * 10;
 }
 
+/**
+ * 가격추종 기본 규칙 — 규칙 미설정 상품에 자동 적용(기본 ON).
+ *  · fixed_margin: 마진(절대액) 고정 → 네이버가 +N 오르면 쿠팡도 +N (마진 유지)
+ *  · captured_margin 미지정: 첫 사이클에 (현재 쿠팡가 - 네이버가)로 마진 캡처, 그 사이클은 무변경
+ *  · max_change_pct 30: 30% 초과 급변동은 자동반영 대신 승인 대기(pending)
+ *  · cooldown 60분 / min_change 1% / 하락도 추종
+ */
+const DEFAULT_PRICE_FOLLOW_RULE: PriceFollowRule = {
+  enabled: true,
+  mode: 'auto',
+  type: 'fixed_margin',
+  follow_down: true,
+  min_change_pct: 1,
+  max_change_pct: 30,
+  cooldown_minutes: 60,
+};
+
+/**
+ * 적용할 실효 규칙 결정 — 기본 ON 정책.
+ *  · 명시적 opt-out(enabled === false) 만 미추종(null 반환).
+ *  · 규칙 미설정(null) → 기본 규칙 적용(첫 사이클에 마진 캡처·persist).
+ *  · 저장된 규칙 존재 → 그대로 사용.
+ */
+function resolveEffectiveRule(stored: PriceFollowRule | null): PriceFollowRule | null {
+  if (stored && stored.enabled === false) return null;
+  if (!stored) return { ...DEFAULT_PRICE_FOLLOW_RULE };
+  return stored;
+}
+
 function computeTargetPrice(
   rule: PriceFollowRule,
   sourcePrice: number,
@@ -1209,10 +1255,9 @@ async function processPriceFollow(input: {
   now: string;
 }): Promise<PriceFollowActionResult> {
   const { monitor, observedSourcePrice, vendorItemIds, adapter, supabase, authUserId, now } = input;
-  const rule = monitor.price_follow_rule;
-
-  // 0. 규칙 비활성 → no-op
-  if (!rule || rule.enabled !== true) return { action: 'none' };
+  // 0. 실효 규칙 결정 — 기본 ON(미설정도 추종). 명시적 enabled:false 만 opt-out.
+  const rule = resolveEffectiveRule(monitor.price_follow_rule);
+  if (!rule) return { action: 'none', reason: 'price-follow opted out' };
 
   // 1. 관찰 가격 없음 → no-op
   if (observedSourcePrice == null || observedSourcePrice <= 0) {

@@ -306,6 +306,57 @@ export class CoupangAdapter extends BaseAdapter {
     }
   }
 
+  /**
+   * 옵션(vendorItem) 실재고·판매상태 — 쿠팡의 진짜 "판매중/품절/판매중지" 신호.
+   * ⚠️ seller-products 상세로는 옵션 판매 on/off 를 못 읽는다(승인상태만 나옴).
+   *    이 inventories API 만 onSale(판매중 여부) + amountInStock(재고) 을 반환한다.
+   *    응답 예: { sellerItemId, amountInStock, salePrice, onSale }
+   */
+  async getVendorItemInventory(vendorItemId: string): Promise<{ onSale: boolean; amountInStock: number | null; salePrice: number | null } | null> {
+    try {
+      const path = `/v2/providers/seller_api/apis/api/v1/marketplace/vendor-items/${vendorItemId}/inventories`;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const raw = await this.coupangApi<any>('GET', path);
+      const d = raw?.data ?? raw;
+      if (!d) return null;
+      return {
+        onSale: !!d.onSale,
+        amountInStock: typeof d.amountInStock === 'number' ? d.amountInStock : null,
+        salePrice: typeof d.salePrice === 'number' ? d.salePrice : null,
+      };
+    } catch (err) {
+      console.warn(`[CoupangAdapter] getVendorItemInventory(${vendorItemId}) failed:`, err instanceof Error ? err.message : err);
+      return null;
+    }
+  }
+
+  /**
+   * 상품이 지금 쿠팡에서 실제로 팔리는지 실측(라벨 교정용 진실 소스).
+   * 옵션(vendorItem) 중 하나라도 onSale && 재고>0 이면 판매중으로 판정.
+   * @param maxOptions 조회할 옵션 수 상한(호출량 제어). 기본 3.
+   */
+  async getCoupangSaleTruth(sellerProductId: string, maxOptions = 3): Promise<{
+    statusName: string;
+    sellable: boolean;
+    optionsChecked: number;
+    firstStock: number | null;
+  } | null> {
+    const detail = await this.getProductDetail(sellerProductId);
+    if (!detail) return null;
+    const vids = detail.items.map(i => i.vendorItemId).filter(Boolean).slice(0, maxOptions);
+    let sellable = false;
+    let firstStock: number | null = null;
+    let checked = 0;
+    for (const vid of vids) {
+      const inv = await this.getVendorItemInventory(vid);
+      checked++;
+      if (!inv) continue;
+      if (checked === 1) firstStock = inv.amountInStock;
+      if (inv.onSale && (inv.amountInStock == null || inv.amountInStock > 0)) { sellable = true; break; }
+    }
+    return { statusName: detail.statusName, sellable, optionsChecked: checked, firstStock };
+  }
+
   async updateProduct(channelProductId: string, product: Record<string, unknown>) {
     // 공식 스펙: PUT /v2/providers/seller_api/apis/api/v1/marketplace/seller-products/{sellerProductId}
     const path = `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/${channelProductId}`;

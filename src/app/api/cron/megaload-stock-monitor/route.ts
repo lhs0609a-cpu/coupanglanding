@@ -182,6 +182,8 @@ export async function GET(request: Request) {
         'source_status.in.(미확인,확인불가,오류,unknown,error)',
         'and(source_status.eq.in_stock,coupang_status.eq.suspended)',
         'and(source_status.eq.sold_out,coupang_status.eq.active)',
+        // ⚠️ removed(원본 삭제)인데 쿠팡 판매중 — 누락돼 있던 오버셀 케이스(165건). sold_out 과 대칭으로 추가.
+        'and(source_status.eq.removed,coupang_status.eq.active)',
       ].join(','),
     )
     .order('last_checked_at', { ascending: true, nullsFirst: true })

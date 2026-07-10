@@ -84,6 +84,10 @@ export default function StockMonitorDashboard() {
   const [starting, setStarting] = useState(false);
   const [startMsg, setStartMsg] = useState('');
 
+  // 실측 라벨 교정 — 쿠팡 실제 판매상태(onSale/재고)로 coupang_status 를 진실에 맞춘다.
+  const [reconciling, setReconciling] = useState(false);
+  const [reconcileMsg, setReconcileMsg] = useState('');
+
   // 데스크탑 앱 (메가로드 도우미) 상태 — 꺼져 있으면 네이버 조회가 전부 실패한다.
   interface DesktopStatus {
     isAlive: boolean;
@@ -184,6 +188,44 @@ export default function StockMonitorDashboard() {
     }
   };
 
+  /**
+   * 실측 라벨 교정 — "쿠팡 상태"가 실제와 어긋난(대부분 '중지됨'인데 실제 판매중) 항목을
+   * inventories API 실측으로 바로잡는다. stop/resume 쓰기 없이 라벨만 교정(안전).
+   * suspended 백로그를 cursor 로 끝까지 훑는다.
+   */
+  const handleReconcile = async () => {
+    if (reconciling) return;
+    setReconciling(true);
+    let cursor: string | undefined;
+    let scanned = 0;
+    let corrected = 0;
+    try {
+      for (let guard = 0; guard < 200; guard++) {
+        setReconcileMsg(`실측 확인 ${scanned}건 · 교정 ${corrected}건...`);
+        const res = await fetch('/api/megaload/stock-monitor/reconcile-coupang', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scope: 'suspended', cursor, limit: 25 }),
+        });
+        const data = await res.json();
+        if (!res.ok) { alert(`교정 실패: ${data.error || '알 수 없는 오류'}`); break; }
+        scanned += data.scanned || 0;
+        corrected += data.corrected || 0;
+        cursor = data.cursor;
+        if (data.rateLimited) { await new Promise((r) => setTimeout(r, 2000)); continue; }
+        if (data.done || !cursor) break;
+      }
+      alert(`실측 교정 완료\n\n확인 ${scanned}건 중 ${corrected}건의 "쿠팡 상태"를 실제와 일치시켰습니다.\n(중지됨으로 잘못 표시됐지만 실제로는 판매중이던 항목 등)`);
+      await fetchData();
+    } catch (err) {
+      console.error('reconcile error:', err);
+      alert('교정 중 오류가 발생했습니다.');
+    } finally {
+      setReconciling(false);
+      setReconcileMsg('');
+    }
+  };
+
   const tabButtons: { tab: FilterTab; label: string; count: number }[] = [
     { tab: 'all', label: '전체', count: stats?.total ?? 0 },
     { tab: 'in_stock', label: '판매중', count: stats?.inStock ?? 0 },
@@ -239,14 +281,25 @@ export default function StockMonitorDashboard() {
             버튼 한 번이면 전체 상품의 원본 상태·가격을 점검합니다. 이후 PC의 메가로드 도우미가 24시간 자동으로 갱신합니다.
           </p>
         </div>
-        <button
-          onClick={handleStartScan}
-          disabled={starting || loading}
-          className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
-        >
-          {starting ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
-          {starting ? (startMsg || '시작 중...') : '전체 점검 시작'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleReconcile}
+            disabled={reconciling || starting || loading}
+            title="쿠팡 실제 판매상태(재고·판매중지)를 조회해 대시보드의 '쿠팡 상태'를 실제와 일치시킵니다"
+            className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition"
+          >
+            {reconciling ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
+            {reconciling ? (reconcileMsg || '교정 중...') : '쿠팡 실제상태 맞추기'}
+          </button>
+          <button
+            onClick={handleStartScan}
+            disabled={starting || loading}
+            className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
+          >
+            {starting ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+            {starting ? (startMsg || '시작 중...') : '전체 점검 시작'}
+          </button>
+        </div>
       </div>
 
       {/* 실시간 감지 신호등 + "방금 ○○ 확인완료" 피드 — 도우미가 지금 돌고 있는지 눈으로 확인 */}
