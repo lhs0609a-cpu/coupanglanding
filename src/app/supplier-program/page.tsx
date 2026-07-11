@@ -11,10 +11,10 @@ import {
   Building2, BadgeCheck, Zap,
 } from 'lucide-react';
 
-// 공급사 가입/상품등록 진입점 (로그인 게이트 → /supplier 센터)
-// 공급사 가입 진입점 — 공급사 실기능(/supplier)은 사전조건(프로덕션 DB·토스키) 확인 후 라이브.
-// 그 전까지는 카톡 상담으로 연결(문의 → 온보딩).
-const SIGNUP_URL = 'https://open.kakao.com/o/skLRf9li';
+// 공급사 가입/상품등록 진입점 → 회원가입 폼(로그인 후 /supplier 공급사 센터로 이동).
+// /auth/login 은 type=signup 로 회원가입 폼을 열고, 로그인 성공 시 redirect 로 이동한다.
+// (카톡 상담은 우측 하단 KakaoChatFloat 버튼으로 별도 유지)
+const SIGNUP_URL = '/auth/login?type=signup&redirect=/supplier';
 
 const fadeUp = { hidden: { opacity: 0, y: 28 }, visible: (i = 0) => ({ opacity: 1, y: 0, transition: { duration: 0.6, delay: i * 0.08, ease: [0.22, 1, 0.36, 1] } }) };
 const stagger = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.08 } } };
