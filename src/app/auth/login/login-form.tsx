@@ -91,8 +91,8 @@ export default function LoginForm() {
         return;
       }
 
-      // 미승인 유저 차단 (admin/partner는 제외)
-      if (profile && profile.role !== 'admin' && profile.role !== 'partner' && !profile.is_active) {
+      // 미승인 유저 차단 (admin/partner 제외, 공급사는 로그인 허용 후 센터에서 심사상태로 게이트)
+      if (profile && profile.role !== 'admin' && profile.role !== 'partner' && profile.role !== 'supplier' && !profile.is_active) {
         await supabase.auth.signOut();
         setError('관리자 승인 대기 중입니다. 승인 후 로그인할 수 있습니다.');
         return;
@@ -102,6 +102,8 @@ export default function LoginForm() {
         router.push(redirect);
       } else if (profile?.role === 'admin' || profile?.role === 'partner') {
         router.push('/admin/dashboard');
+      } else if (profile?.role === 'supplier') {
+        router.push('/supplier');
       } else {
         router.push('/my/dashboard');
       }

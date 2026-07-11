@@ -11,10 +11,10 @@ import {
   Building2, BadgeCheck, Zap,
 } from 'lucide-react';
 
-// 공급사 가입/상품등록 진입점 → 회원가입 폼(로그인 후 /supplier 공급사 센터로 이동).
-// /auth/login 은 type=signup 로 회원가입 폼을 열고, 로그인 성공 시 redirect 로 이동한다.
+// 공급사 가입/상품등록 진입점 → 공급사 전용 회원가입(서류 제출 → 관리자 승인 → 로그인).
+// 파트너(pt_user) 회원가입과 분리된 별도 페이지.
 // (카톡 상담은 우측 하단 KakaoChatFloat 버튼으로 별도 유지)
-const SIGNUP_URL = '/auth/login?type=signup&redirect=/supplier';
+const SIGNUP_URL = '/supplier/signup';
 
 const fadeUp = { hidden: { opacity: 0, y: 28 }, visible: (i = 0) => ({ opacity: 1, y: 0, transition: { duration: 0.6, delay: i * 0.08, ease: [0.22, 1, 0.36, 1] } }) };
 const stagger = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.08 } } };

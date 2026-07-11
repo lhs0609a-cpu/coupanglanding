@@ -27,6 +27,7 @@ const LOCK_ALLOWLIST_PREFIXES: string[] = [
  */
 const PUBLIC_API_PREFIXES: string[] = [
   '/api/auth/signup',
+  '/api/supplier/signup',          // 공급사 회원가입 — 세션 없이 신청(서류 업로드), service-role 처리
   '/api/auth/find-id',
   '/api/auth/reset-password',
   '/api/webhook/',                 // 외부에서 호출, 자체 서명 검증
@@ -97,12 +98,16 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (sessionError || !user) {
+    // 공급사 회원가입 페이지는 로그인 전 접근 가능해야 함(신청 자체가 로그인 없는 흐름)
+    const isSupplierSignup = pathname === '/supplier/signup';
     const isProtected =
-      pathname.startsWith('/my') ||
-      pathname.startsWith('/admin') ||
-      pathname.startsWith('/megaload') ||
-      pathname.startsWith('/supplier') ||
-      isApiRoute;
+      !isSupplierSignup && (
+        pathname.startsWith('/my') ||
+        pathname.startsWith('/admin') ||
+        pathname.startsWith('/megaload') ||
+        pathname.startsWith('/supplier') ||
+        isApiRoute
+      );
 
     if (!isProtected) {
       return supabaseResponse;
