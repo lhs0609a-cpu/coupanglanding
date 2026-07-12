@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Plus, Trash2, RefreshCw, Save, Send, PackagePlus, Smartphone, X, Eye } from 'lucide-react';
+import { Loader2, Plus, Trash2, RefreshCw, Save, Send, PackagePlus, Smartphone, X, Eye, Wand2, BookmarkPlus, Check } from 'lucide-react';
 import type { SupplierCategoryMeta } from '@/lib/megaload/supplier/category-meta';
 import ImageGallery from '@/components/supplier/ImageGallery';
 import SupplierPhonePreview from '@/components/supplier/SupplierPhonePreview';
@@ -32,23 +32,92 @@ export default function SupplierProductNewPage() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
   const [mobilePreview, setMobilePreview] = useState(false);
+  const [catLoading, setCatLoading] = useState(false);
+  const [catConfidence, setCatConfidence] = useState<number | null>(null);
+  const [uncertainAttrs, setUncertainAttrs] = useState<string[]>([]);
+  const [savingDefault, setSavingDefault] = useState(false);
 
   const set = (k: keyof typeof f, v: string) => setF((p) => ({ ...p, [k]: v }));
 
-  const loadMeta = useCallback(async () => {
-    if (!f.category_code) { setMsg({ type: 'error', text: '카테고리 코드를 먼저 입력하세요.' }); return; }
+  // 계정의 기본 배송/AS 프로필 → 신규 상품에 자동 상속(반복입력 제거)
+  useEffect(() => {
+    fetch('/api/supplier/account').then((r) => r.json()).then((d) => {
+      const sp = d?.supplier?.default_shipping_profile as Record<string, unknown> | undefined;
+      if (sp && typeof sp === 'object' && Object.keys(sp).length > 0) {
+        setF((p) => ({
+          ...p,
+          courier: (sp.courier as string) ?? p.courier,
+          delivery_charge_type: (sp.deliveryChargeType as string) ?? p.delivery_charge_type,
+          delivery_charge: sp.deliveryCharge != null ? String(sp.deliveryCharge) : p.delivery_charge,
+          return_charge: sp.returnCharge != null ? String(sp.returnCharge) : p.return_charge,
+          return_address: (sp.returnAddress as string) ?? p.return_address,
+          return_zip: (sp.returnZipCode as string) ?? p.return_zip,
+          as_tel: (sp.afterServiceTel as string) ?? p.as_tel,
+          as_guide: (sp.afterServiceGuide as string) ?? p.as_guide,
+        }));
+      }
+    }).catch(() => {});
+  }, []);
+
+  const loadMeta = useCallback(async (codeArg?: string) => {
+    const code = codeArg ?? f.category_code;
+    if (!code) { setMsg({ type: 'error', text: '카테고리 코드를 먼저 입력하세요.' }); return; }
     setMetaLoading(true); setMsg(null);
     try {
-      const res = await fetch(`/api/supplier/category-meta?categoryCode=${encodeURIComponent(f.category_code)}`);
+      const qs = `categoryCode=${encodeURIComponent(code)}&productName=${encodeURIComponent(f.seller_product_name)}`;
+      const res = await fetch(`/api/supplier/category-meta?${qs}`);
       const data = await res.json();
       if (!res.ok && !data.notices) throw new Error(data.error || '메타 조회 실패');
       setMeta({ notices: data.notices || [], attributes: data.attributes || [] });
+      // 자동채움 제안값을 빈 칸에만 채움(사용자 입력 우선)
+      const suggested = (data.suggestedAttributes || {}) as Record<string, string>;
+      if (Object.keys(suggested).length > 0) setAttrVals((prev) => ({ ...suggested, ...prev }));
+      setUncertainAttrs(Array.isArray(data.uncertainAttributes) ? data.uncertainAttributes : []);
       if ((data.notices?.length ?? 0) === 0 && (data.attributes?.length ?? 0) === 0) {
         setMsg({ type: 'error', text: '이 카테고리의 고시/속성 메타가 없습니다. 직접 입력해도 됩니다.' });
       }
     } catch (e) { setMsg({ type: 'error', text: e instanceof Error ? e.message : '메타 조회 실패' }); }
     finally { setMetaLoading(false); }
-  }, [f.category_code]);
+  }, [f.category_code, f.seller_product_name]);
+
+  // 상품명으로 카테고리 자동 추천 → 코드/경로 채우고 고시·속성까지 자동 로드
+  const autoCategory = useCallback(async () => {
+    if (!f.seller_product_name.trim()) { setMsg({ type: 'error', text: '먼저 상품명을 입력해주세요.' }); return; }
+    setCatLoading(true); setMsg(null); setCatConfidence(null);
+    try {
+      const res = await fetch('/api/supplier/auto-category', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productName: f.seller_product_name }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setMsg({ type: 'error', text: data.error || '카테고리 추천 실패' }); return; }
+      setF((p) => ({ ...p, category_code: data.categoryCode, category_path: data.categoryPath || data.categoryName || p.category_path }));
+      setCatConfidence(typeof data.confidence === 'number' ? data.confidence : null);
+      await loadMeta(data.categoryCode);
+    } catch (e) { setMsg({ type: 'error', text: e instanceof Error ? e.message : '카테고리 추천 실패' }); }
+    finally { setCatLoading(false); }
+  }, [f.seller_product_name, loadMeta]);
+
+  // 현재 배송/AS 정보를 계정 기본값으로 저장(다음 상품부터 자동 적용)
+  const saveShippingDefault = useCallback(async () => {
+    setSavingDefault(true); setMsg(null);
+    try {
+      const profile = {
+        courier: f.courier, deliveryChargeType: f.delivery_charge_type,
+        deliveryCharge: Number(f.delivery_charge) || 0, returnCharge: Number(f.return_charge) || 0,
+        returnAddress: f.return_address, returnZipCode: f.return_zip,
+        afterServiceTel: f.as_tel, afterServiceGuide: f.as_guide,
+      };
+      const res = await fetch('/api/supplier/account', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ default_shipping_profile: profile }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setMsg({ type: 'error', text: data.error || '기본값 저장 실패' }); return; }
+      setMsg({ type: 'success', text: '기본 배송정보로 저장했습니다. 다음 상품부터 자동으로 채워집니다.' });
+    } catch (e) { setMsg({ type: 'error', text: e instanceof Error ? e.message : '기본값 저장 실패' }); }
+    finally { setSavingDefault(false); }
+  }, [f]);
 
   const submit = async (doSubmit: boolean) => {
     setSaving(true); setMsg(null);
@@ -119,18 +188,29 @@ export default function SupplierProductNewPage() {
           {/* ─── 좌: 입력 폼 ─── */}
           <div className="space-y-5 min-w-0">
             {/* 기본 정보 */}
-            <Card title="기본 정보" desc="쿠팡 카테고리 코드를 넣고 '고시/속성 불러오기'를 누르면 필수 항목이 자동으로 뜹니다.">
+            <Card title="기본 정보" desc="상품명만 입력하고 '상품명으로 자동'을 누르면 카테고리·필수속성이 자동으로 채워집니다. 코드를 몰라도 됩니다.">
               <div className="grid grid-cols-2 gap-3">
-                <div className="col-span-2 flex gap-2 items-end">
-                  <F label="쿠팡 카테고리 코드 *" v={f.category_code} on={(v) => set('category_code', v)} ph="예: 56137" />
-                  <button onClick={loadMeta} disabled={metaLoading}
-                    className="shrink-0 h-[42px] px-3.5 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white text-sm font-medium flex items-center gap-1.5 shadow-lg shadow-emerald-500/25 disabled:opacity-50">
-                    {metaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} 고시/속성 불러오기
-                  </button>
+                <F label="상품명 *" v={f.seller_product_name} on={(v) => set('seller_product_name', v)} span ph="예: 국내산 햇 감자 5kg 특품 박스" hint="구체적일수록 잘 팔려요 (원산지·용량·등급 포함)" />
+                <div className="col-span-2 space-y-2">
+                  <div className="flex gap-2 items-end">
+                    <F label="쿠팡 카테고리 코드 *" v={f.category_code} on={(v) => set('category_code', v)} ph="예: 56137" />
+                    <button onClick={autoCategory} disabled={catLoading}
+                      className="shrink-0 h-[42px] px-3.5 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white text-sm font-semibold flex items-center gap-1.5 shadow-lg shadow-emerald-500/25 disabled:opacity-50">
+                      {catLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />} 상품명으로 자동
+                    </button>
+                    <button onClick={() => loadMeta()} disabled={metaLoading} title="현재 코드로 고시/속성 다시 불러오기"
+                      className="shrink-0 h-[42px] px-3 rounded-xl bg-white/80 border border-gray-200 text-gray-600 text-sm flex items-center gap-1.5 disabled:opacity-50">
+                      {metaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  {catConfidence !== null && (
+                    <p className="text-xs text-emerald-600 flex items-center gap-1">
+                      <Check className="w-3 h-3" /> 자동 추천됨 (신뢰도 {Math.round(catConfidence * 100)}%){f.category_path ? ` · ${f.category_path}` : ''}. 다르면 코드를 직접 고치세요.
+                    </p>
+                  )}
                 </div>
                 <F label="카테고리 경로" v={f.category_path} on={(v) => set('category_path', v)} ph="예: 식품>농산물>감자" />
                 <F label="원산지" v={f.origin} on={(v) => set('origin', v)} ph="예: 국내산(강원도)" />
-                <F label="상품명 *" v={f.seller_product_name} on={(v) => set('seller_product_name', v)} span ph="예: 국내산 햇 감자 5kg 특품 박스" hint="구체적일수록 잘 팔려요 (원산지·용량·등급 포함)" />
                 <F label="브랜드" v={f.brand} on={(v) => set('brand', v)} ph="예: 메가로드팜" />
                 <F label="제조사" v={f.manufacturer} on={(v) => set('manufacturer', v)} ph="예: 메가로드팜" />
                 <F label="검색태그 (쉼표 구분)" v={f.search_tags} on={(v) => set('search_tags', v)} span ph="감자, 국내산, 5kg, 요리용, 알감자" />
@@ -168,12 +248,16 @@ export default function SupplierProductNewPage() {
 
             {/* 동적 속성 */}
             {meta && meta.attributes.length > 0 && (
-              <Card title="필수 속성 (카테고리)">
+              <Card title="필수 속성 (카테고리)" desc="상품명 기준으로 채울 수 있는 값은 미리 넣었어요. 노란색은 꼭 확인·수정하세요.">
                 <div className="grid grid-cols-2 gap-2">
-                  {meta.attributes.map((a) => (
-                    <F key={a.name} label={a.name + (a.required ? ' *' : '') + (a.unit ? ` (${a.unit})` : '')}
-                      v={attrVals[a.name] || ''} on={(v) => setAttrVals((p) => ({ ...p, [a.name]: v }))} />
-                  ))}
+                  {meta.attributes.map((a) => {
+                    const uncertain = uncertainAttrs.includes(a.name);
+                    return (
+                      <F key={a.name} label={a.name + (a.required ? ' *' : '') + (a.unit ? ` (${a.unit})` : '')}
+                        v={attrVals[a.name] || ''} on={(v) => setAttrVals((p) => ({ ...p, [a.name]: v }))}
+                        warn={uncertain} hint={uncertain ? '자동입력됨 · 확인 필요' : undefined} />
+                    );
+                  })}
                 </div>
               </Card>
             )}
@@ -207,7 +291,7 @@ export default function SupplierProductNewPage() {
             </Card>
 
             {/* 배송/반품/AS */}
-            <Card title="배송 · 반품 · A/S" desc="드롭십(공급사 발송) 기준입니다.">
+            <Card title="배송 · 반품 · A/S" desc="드롭십(공급사 발송) 기준. 한 번 '기본값으로 저장'하면 다음 상품부터 자동으로 채워집니다.">
               <div className="grid grid-cols-2 gap-3">
                 <F label="택배사 코드" v={f.courier} on={(v) => set('courier', v)} ph="예: CJGLS" />
                 <label className="text-sm"><span className="block text-gray-500 mb-1.5 text-[13px]">배송비 유형</span>
@@ -222,6 +306,10 @@ export default function SupplierProductNewPage() {
                 <F label="A/S 전화" v={f.as_tel} on={(v) => set('as_tel', v)} ph="예: 010-0000-0000" />
                 <F label="A/S 안내" v={f.as_guide} on={(v) => set('as_guide', v)} span ph="예: 평일 09~18시" />
               </div>
+              <button onClick={saveShippingDefault} disabled={savingDefault}
+                className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-2 text-sm rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50">
+                {savingDefault ? <Loader2 className="w-4 h-4 animate-spin" /> : <BookmarkPlus className="w-4 h-4" />} 이 배송정보를 기본값으로 저장
+              </button>
             </Card>
 
             {msg && <p className={`text-sm ${msg.type === 'error' ? 'text-rose-600' : 'text-emerald-600'}`}>{msg.text}</p>}
@@ -277,13 +365,13 @@ function Card({ title, desc, children }: { title: string; desc?: string; childre
   );
 }
 
-function F({ label, v, on, span, ph, hint }: { label: string; v: string; on: (v: string) => void; span?: boolean; ph?: string; hint?: string }) {
+function F({ label, v, on, span, ph, hint, warn }: { label: string; v: string; on: (v: string) => void; span?: boolean; ph?: string; hint?: string; warn?: boolean }) {
   return (
     <label className={`text-sm ${span ? 'col-span-2' : ''}`}>
       <span className="block text-gray-500 mb-1.5 text-[13px]">{label}</span>
       <input value={v} onChange={(e) => on(e.target.value)} placeholder={ph}
-        className="w-full bg-white/80 border border-gray-200/80 rounded-xl px-3.5 py-2.5 text-gray-900 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400 transition" />
-      {hint && <span className="block text-[11px] text-emerald-600/80 mt-1">{hint}</span>}
+        className={`w-full bg-white/80 border rounded-xl px-3.5 py-2.5 text-gray-900 placeholder:text-gray-300 focus:outline-none focus:ring-2 transition ${warn ? 'border-amber-300 focus:ring-amber-400/40 focus:border-amber-400' : 'border-gray-200/80 focus:ring-emerald-400/40 focus:border-emerald-400'}`} />
+      {hint && <span className={`block text-[11px] mt-1 ${warn ? 'text-amber-600' : 'text-emerald-600/80'}`}>{hint}</span>}
     </label>
   );
 }

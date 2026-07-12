@@ -17,13 +17,14 @@ export async function GET(request: NextRequest) {
 
   const categoryCode = request.nextUrl.searchParams.get('categoryCode');
   if (!categoryCode) return NextResponse.json({ error: 'categoryCode가 필요합니다.' }, { status: 400 });
+  const productName = request.nextUrl.searchParams.get('productName') || undefined;
 
   const serviceClient = await createServiceClient();
   const supplier = await getSupplierByProfile(serviceClient, user.id);
   if (!supplier) return NextResponse.json({ error: '공급사 등록을 먼저 완료해주세요.' }, { status: 403 });
 
   try {
-    const meta = await getSupplierCategoryMeta(serviceClient, categoryCode);
+    const meta = await getSupplierCategoryMeta(serviceClient, categoryCode, productName);
     return NextResponse.json({ ok: true, ...meta });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : '카테고리 메타 조회 실패', notices: [], attributes: [] });

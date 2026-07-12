@@ -62,6 +62,8 @@ export interface Supplier {
   submitted_at: string | null;
   reviewed_at: string | null;
   reviewed_by: string | null;
+  // 기본 배송/반품/A/S 프로필 (migration_supplier_default_shipping.sql) — 상품 등록 시 자동 상속
+  default_shipping_profile?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }

@@ -10,6 +10,7 @@ import type { CoupangAdapter } from '../adapters/coupang.adapter';
 import { getAuthenticatedAdapter } from '../adapters/factory';
 import { getNoticeCategoryWithCache } from '../services/notice-category-cache';
 import { getAttributesWithCache } from '../services/attribute-cache';
+import { computeRequiredAttrAutofillDetailed, type AutofillAttrMeta } from '../services/required-attr-autofill';
 
 export interface SupplierNoticeField { name: string; required: boolean }
 export interface SupplierNoticeGroup { noticeCategoryName: string; fields: SupplierNoticeField[] }
@@ -22,6 +23,10 @@ export interface SupplierAttributeField {
 export interface SupplierCategoryMeta {
   notices: SupplierNoticeGroup[];
   attributes: SupplierAttributeField[];
+  /** 상품명 기반 필수속성 자동채움 제안값 (productName 전달 시) */
+  suggestedAttributes?: Record<string, string>;
+  /** 자동채움했지만 확인이 필요한 속성명(ENUM 첫값 등) */
+  uncertainAttributes?: string[];
 }
 
 /** 연결된 쿠팡 셀러 아무나의 어댑터 (공유 카테고리 메타 조회용). 없으면 null. */
@@ -48,6 +53,7 @@ async function getSharedCoupangAdapter(serviceClient: SupabaseClient): Promise<C
 export async function getSupplierCategoryMeta(
   serviceClient: SupabaseClient,
   categoryCode: string,
+  productName?: string,
 ): Promise<SupplierCategoryMeta> {
   const adapter = await getSharedCoupangAdapter(serviceClient);
   if (!adapter) return { notices: [], attributes: [] };
@@ -76,5 +82,17 @@ export async function getSupplierCategoryMeta(
     };
   }).filter((a) => a.name);
 
-  return { notices, attributes };
+  // 상품명 기반 필수속성 자동채움 — 원시 메타(attrRaw)로 서버 buildAttributes 와 동일 규칙 적용
+  let suggestedAttributes: Record<string, string> = {};
+  let uncertainAttributes: string[] = [];
+  if (productName && productName.trim()) {
+    const { values, uncertainEnum } = computeRequiredAttrAutofillDetailed(
+      { name: productName.trim() },
+      attrRaw as unknown as AutofillAttrMeta[],
+    );
+    suggestedAttributes = values;
+    uncertainAttributes = uncertainEnum;
+  }
+
+  return { notices, attributes, suggestedAttributes, uncertainAttributes };
 }

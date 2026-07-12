@@ -14,6 +14,7 @@ export const maxDuration = 30;
 const EDITABLE = [
   'company_name', 'brand_name', 'business_number',
   'contact_email', 'contact_phone', 'logo_url', 'logo_public_consent',
+  'default_shipping_profile',
 ] as const;
 
 export async function GET() {
