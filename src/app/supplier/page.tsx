@@ -9,6 +9,7 @@ import type { Supplier, SupplierUploadGate } from '@/lib/megaload/supplier/types
 export default function SupplierHomePage() {
   const [supplier, setSupplier] = useState<Supplier | null>(null);
   const [gate, setGate] = useState<SupplierUploadGate | null>(null);
+  const [productCount, setProductCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +50,12 @@ export default function SupplierHomePage() {
           mall_url: data.supplier.mall_url || '',
           applicant_note: data.supplier.applicant_note || '',
         });
+        // 등록한 상품 수 — 진행 단계 표시용
+        try {
+          const pr = await fetch('/api/supplier/products');
+          const pd = await pr.json();
+          setProductCount(Array.isArray(pd.products) ? pd.products.length : 0);
+        } catch { /* 무시 */ }
       }
     } catch { setError('불러오기 실패'); }
     finally { setLoading(false); }
@@ -123,7 +130,7 @@ export default function SupplierHomePage() {
       )}
       {supplier && supplier.status === 'approved' && (
         <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-          <b>가입이 승인되었습니다.</b> 카드 등록 후 상품을 등록하면 셀러망이 판매를 시작합니다.
+          <b>가입이 승인되었습니다.</b> 먼저 <b>상품을 등록</b>하세요. 등록을 마친 뒤 <b>자동결제 카드</b>를 등록하면 셀러망이 판매를 시작합니다.
         </div>
       )}
 
@@ -174,13 +181,13 @@ export default function SupplierHomePage() {
       <BrandLogoMarquee />
 
 
-      {/* 진행 단계 */}
+      {/* 진행 단계 — 계정 → 상품 등록 → 카드 등록 */}
       <div className="flex items-center gap-2 mb-8 text-sm">
-        <Step done={!!supplier} label="① 계정" />
+        <Step done={supplier?.status === 'approved'} label="① 계정" />
         <div className="flex-1 h-px bg-gray-200" />
-        <Step done={hasCard} label="② 카드 등록" />
+        <Step done={productCount > 0} label="② 상품 등록" />
         <div className="flex-1 h-px bg-gray-200" />
-        <Step done={!!canUpload} label="③ 상품 등록" />
+        <Step done={hasCard} label="③ 카드 등록" />
       </div>
 
       {/* ① 계정 정보 */}
@@ -206,33 +213,50 @@ export default function SupplierHomePage() {
         </button>
       </section>
 
-      {/* ② 카드 게이트 */}
+      {/* ② 상품 등록 (카드 불필요) */}
       <section className="border rounded-xl p-5 bg-white mb-6">
-        <h2 className="font-semibold mb-1 flex items-center gap-2"><CreditCard className="w-4 h-4" /> 자동결제 카드</h2>
-        <p className="text-sm text-gray-500 mb-4">판매가 발생한 만큼의 수수료가 매월 이 카드로 자동결제됩니다. <b>카드를 등록해야 상품을 올릴 수 있어요.</b></p>
-        {!supplier ? (
-          <p className="text-sm text-amber-600">먼저 위에서 계정을 만들어주세요.</p>
-        ) : hasCard ? (
-          <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 rounded-lg px-4 py-3">
-            <ShieldCheck className="w-4 h-4" /> {supplier.card_company} {supplier.card_number} 등록됨 — 자동결제 활성화
+        <h2 className="font-semibold mb-1 flex items-center gap-2"><PackagePlus className="w-4 h-4" /> 상품 등록</h2>
+        <p className="text-sm text-gray-500 mb-4">판매할 상품을 먼저 등록하세요. <b>카드 없이</b> 등록·검수 신청까지 할 수 있어요.</p>
+        {canUpload ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <a href="/supplier/products/new"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-[#E31837] text-white hover:opacity-90">
+              <PackagePlus className="w-4 h-4" /> 새 상품 등록하기
+            </a>
+            {productCount > 0 && (
+              <span className="text-sm text-gray-500">등록한 상품 <b className="text-gray-800">{productCount}개</b></span>
+            )}
           </div>
         ) : (
-          <SupplierCardRegistration />
+          <div className="flex items-center gap-2 text-sm text-gray-500 bg-gray-50 rounded-lg px-4 py-3">
+            <Lock className="w-4 h-4" /> {gate?.reason || '먼저 계정을 만들어주세요.'}
+          </div>
         )}
       </section>
 
-      {/* ③ 상품 등록 게이트 */}
+      {/* ③ 자동결제 카드 (최종 단계) */}
       <section className="border rounded-xl p-5 bg-white">
-        <h2 className="font-semibold mb-1 flex items-center gap-2"><PackagePlus className="w-4 h-4" /> 상품 등록</h2>
-        {canUpload ? (
-          <a href="/supplier/products/new"
-            className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-[#E31837] text-white hover:opacity-90">
-            <PackagePlus className="w-4 h-4" /> 새 상품 등록하기
-          </a>
-        ) : (
-          <div className="flex items-center gap-2 text-sm text-gray-500 bg-gray-50 rounded-lg px-4 py-3">
-            <Lock className="w-4 h-4" /> {gate?.reason || '먼저 계정과 카드를 등록해주세요.'}
+        <h2 className="font-semibold mb-1 flex items-center gap-2"><CreditCard className="w-4 h-4" /> 자동결제 카드</h2>
+        <p className="text-sm text-gray-500 mb-4">상품 등록을 마쳤다면 마지막으로 카드를 등록하세요. 판매가 발생한 만큼의 수수료가 매월 이 카드로 자동결제됩니다. <b>카드를 등록해야 셀러망이 판매를 시작합니다.</b></p>
+        {!supplier ? (
+          <p className="text-sm text-amber-600">먼저 위에서 계정을 만들어주세요.</p>
+        ) : hasCard ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 rounded-lg px-4 py-3">
+              <ShieldCheck className="w-4 h-4" /> {supplier.card_company} {supplier.card_number} 등록됨 — 자동결제 활성화
+            </div>
+            <a href="/supplier/dashboard"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-[#E31837] text-white hover:opacity-90">
+              <TrendingUp className="w-4 h-4" /> 판매·정산 대시보드로 가기
+            </a>
           </div>
+        ) : (
+          <>
+            {productCount === 0 && (
+              <p className="text-xs text-amber-600 mb-3">아직 등록한 상품이 없습니다. 상품을 먼저 등록한 뒤 카드를 등록하는 것을 권장합니다.</p>
+            )}
+            <SupplierCardRegistration />
+          </>
         )}
       </section>
     </div>
