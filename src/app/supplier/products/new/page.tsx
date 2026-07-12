@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Plus, Trash2, RefreshCw, Save, Send, PackagePlus } from 'lucide-react';
+import { Loader2, Plus, Trash2, RefreshCw, Save, Send, PackagePlus, Smartphone, X, Eye } from 'lucide-react';
 import type { SupplierCategoryMeta } from '@/lib/megaload/supplier/category-meta';
+import ImageGallery from '@/components/supplier/ImageGallery';
+import SupplierPhonePreview from '@/components/supplier/SupplierPhonePreview';
 
 interface OptionRow {
   option_name: string; supply_price: string; stock: string;
@@ -16,11 +18,12 @@ export default function SupplierProductNewPage() {
   const [f, setF] = useState({
     category_code: '', category_path: '', seller_product_name: '', display_product_name: '',
     brand: '', manufacturer: '', origin: '', search_tags: '',
-    thumbnail_url: '', image_urls: '', detail_html: '',
+    detail_html: '',
     min_price: '', max_price: '',
     courier: '', delivery_charge_type: 'FREE', delivery_charge: '', return_charge: '',
     return_address: '', return_zip: '', as_tel: '', as_guide: '',
   });
+  const [images, setImages] = useState<string[]>([]);
   const [options, setOptions] = useState<OptionRow[]>([emptyOption()]);
   const [meta, setMeta] = useState<SupplierCategoryMeta | null>(null);
   const [noticeVals, setNoticeVals] = useState<Record<string, string>>({});
@@ -28,6 +31,7 @@ export default function SupplierProductNewPage() {
   const [metaLoading, setMetaLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+  const [mobilePreview, setMobilePreview] = useState(false);
 
   const set = (k: keyof typeof f, v: string) => setF((p) => ({ ...p, [k]: v }));
 
@@ -40,7 +44,7 @@ export default function SupplierProductNewPage() {
       if (!res.ok && !data.notices) throw new Error(data.error || '메타 조회 실패');
       setMeta({ notices: data.notices || [], attributes: data.attributes || [] });
       if ((data.notices?.length ?? 0) === 0 && (data.attributes?.length ?? 0) === 0) {
-        setMsg({ type: 'error', text: '이 카테고리의 고시/속성 메타가 없습니다(연결된 쿠팡 셀러 없음일 수 있음). 직접 입력해도 됩니다.' });
+        setMsg({ type: 'error', text: '이 카테고리의 고시/속성 메타가 없습니다. 직접 입력해도 됩니다.' });
       }
     } catch (e) { setMsg({ type: 'error', text: e instanceof Error ? e.message : '메타 조회 실패' }); }
     finally { setMetaLoading(false); }
@@ -54,8 +58,8 @@ export default function SupplierProductNewPage() {
         seller_product_name: f.seller_product_name, display_product_name: f.display_product_name,
         brand: f.brand, manufacturer: f.manufacturer, origin: f.origin,
         search_tags: f.search_tags.split(',').map((s) => s.trim()).filter(Boolean),
-        thumbnail_url: f.thumbnail_url,
-        image_urls: f.image_urls.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
+        thumbnail_url: images[0] || '',
+        image_urls: images.slice(1),
         detail_html: f.detail_html,
         notices: noticeVals, attributes: attrVals,
         min_price: Number(f.min_price) || 0, max_price: Number(f.max_price) || 0,
@@ -82,124 +86,177 @@ export default function SupplierProductNewPage() {
     finally { setSaving(false); }
   };
 
+  const previewData = useMemo(() => ({
+    name: f.seller_product_name,
+    brand: f.brand,
+    images,
+    minPrice: Number(f.min_price) || 0,
+    maxPrice: Number(f.max_price) || 0,
+    origin: f.origin,
+    categoryPath: f.category_path,
+    options: options.filter((o) => o.option_name.trim()).map((o) => ({ name: '', value: o.option_name })),
+    detailHtml: f.detail_html,
+    freeShipping: f.delivery_charge_type === 'FREE',
+  }), [f, images, options]);
+
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold flex items-center gap-2 mb-6"><PackagePlus className="w-6 h-6 text-[#E31837]" /> 상품 등록</h1>
+    <div className="relative min-h-screen overflow-hidden">
+      <div aria-hidden className="absolute inset-0 -z-10" style={{ background: 'linear-gradient(160deg,#F7F8FC 0%,#F4F1FB 45%,#EDF7F3 100%)' }} />
 
-      {/* 기본 */}
-      <Section title="기본 정보">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2 flex gap-2 items-end">
-            <F label="쿠팡 카테고리 코드 *" v={f.category_code} on={(v) => set('category_code', v)} />
-            <button onClick={loadMeta} disabled={metaLoading}
-              className="shrink-0 h-[38px] px-3 rounded-lg bg-blue-600 text-white text-sm flex items-center gap-1 disabled:opacity-50">
-              {metaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} 고시/속성 불러오기
-            </button>
-          </div>
-          <F label="카테고리 경로" v={f.category_path} on={(v) => set('category_path', v)} />
-          <F label="원산지" v={f.origin} on={(v) => set('origin', v)} />
-          <F label="상품명 *" v={f.seller_product_name} on={(v) => set('seller_product_name', v)} span />
-          <F label="브랜드" v={f.brand} on={(v) => set('brand', v)} />
-          <F label="제조사" v={f.manufacturer} on={(v) => set('manufacturer', v)} />
-          <F label="검색태그 (쉼표 구분)" v={f.search_tags} on={(v) => set('search_tags', v)} span />
+      <div className="relative z-10 max-w-6xl mx-auto px-4 py-8">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-extrabold flex items-center gap-2 text-gray-900">
+            <span className="grid place-items-center w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 text-white shadow-lg shadow-emerald-500/30"><PackagePlus className="w-5 h-5" /></span>
+            상품 등록
+          </h1>
+          <button onClick={() => setMobilePreview(true)}
+            className="lg:hidden inline-flex items-center gap-1.5 text-sm px-3 py-2 rounded-xl bg-white/70 backdrop-blur border border-white/70 text-gray-700">
+            <Smartphone className="w-4 h-4 text-emerald-600" /> 미리보기
+          </button>
         </div>
-      </Section>
 
-      {/* 이미지/상세 */}
-      <Section title="이미지 · 상세페이지">
-        <div className="grid grid-cols-1 gap-3">
-          <F label="대표 썸네일 URL *" v={f.thumbnail_url} on={(v) => set('thumbnail_url', v)} />
-          <label className="text-sm"><span className="block text-gray-500 mb-1">추가 이미지 URL (줄바꿈/쉼표 구분)</span>
-            <textarea value={f.image_urls} onChange={(e) => set('image_urls', e.target.value)} rows={2} className="w-full border rounded-lg px-3 py-2 text-sm" /></label>
-          <label className="text-sm"><span className="block text-gray-500 mb-1">상세페이지 HTML</span>
-            <textarea value={f.detail_html} onChange={(e) => set('detail_html', e.target.value)} rows={4} className="w-full border rounded-lg px-3 py-2 text-sm" /></label>
-        </div>
-      </Section>
-
-      {/* 동적 고시 */}
-      {meta && meta.notices.length > 0 && (
-        <Section title="상품정보고시 (카테고리 필수)">
-          {meta.notices.map((g) => (
-            <div key={g.noticeCategoryName} className="mb-3">
-              <p className="text-xs font-medium text-gray-400 mb-1">{g.noticeCategoryName}</p>
-              <div className="grid grid-cols-2 gap-2">
-                {g.fields.map((fd) => (
-                  <F key={fd.name} label={fd.name + (fd.required ? ' *' : '')} v={noticeVals[fd.name] || ''}
-                    on={(v) => setNoticeVals((p) => ({ ...p, [fd.name]: v }))} />
-                ))}
+        <div className="grid lg:grid-cols-[1fr_360px] gap-6 items-start">
+          {/* ─── 좌: 입력 폼 ─── */}
+          <div className="space-y-5 min-w-0">
+            {/* 기본 정보 */}
+            <Card title="기본 정보" desc="쿠팡 카테고리 코드를 넣고 '고시/속성 불러오기'를 누르면 필수 항목이 자동으로 뜹니다.">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2 flex gap-2 items-end">
+                  <F label="쿠팡 카테고리 코드 *" v={f.category_code} on={(v) => set('category_code', v)} ph="예: 56137" />
+                  <button onClick={loadMeta} disabled={metaLoading}
+                    className="shrink-0 h-[42px] px-3.5 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white text-sm font-medium flex items-center gap-1.5 shadow-lg shadow-emerald-500/25 disabled:opacity-50">
+                    {metaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} 고시/속성 불러오기
+                  </button>
+                </div>
+                <F label="카테고리 경로" v={f.category_path} on={(v) => set('category_path', v)} ph="예: 식품>농산물>감자" />
+                <F label="원산지" v={f.origin} on={(v) => set('origin', v)} ph="예: 국내산(강원도)" />
+                <F label="상품명 *" v={f.seller_product_name} on={(v) => set('seller_product_name', v)} span ph="예: 국내산 햇 감자 5kg 특품 박스" hint="구체적일수록 잘 팔려요 (원산지·용량·등급 포함)" />
+                <F label="브랜드" v={f.brand} on={(v) => set('brand', v)} ph="예: 메가로드팜" />
+                <F label="제조사" v={f.manufacturer} on={(v) => set('manufacturer', v)} ph="예: 메가로드팜" />
+                <F label="검색태그 (쉼표 구분)" v={f.search_tags} on={(v) => set('search_tags', v)} span ph="감자, 국내산, 5kg, 요리용, 알감자" />
               </div>
-            </div>
-          ))}
-        </Section>
-      )}
+            </Card>
 
-      {/* 동적 속성 */}
-      {meta && meta.attributes.length > 0 && (
-        <Section title="필수 속성 (카테고리)">
-          <div className="grid grid-cols-2 gap-2">
-            {meta.attributes.map((a) => (
-              <F key={a.name} label={a.name + (a.required ? ' *' : '') + (a.unit ? ` (${a.unit})` : '')}
-                v={attrVals[a.name] || ''} on={(v) => setAttrVals((p) => ({ ...p, [a.name]: v }))} />
-            ))}
-          </div>
-        </Section>
-      )}
+            {/* 이미지 */}
+            <Card title="상품 이미지" desc="끌어다 놓기 · 클릭 · Ctrl+V 붙여넣기 · URL 모두 가능. 첫 장이 대표 썸네일입니다.">
+              <ImageGallery urls={images} onChange={setImages} />
+            </Card>
 
-      {/* 옵션 + 공급가 + 구매처링크 */}
-      <Section title="옵션 · 공급가 · 재고 · 구매처">
-        {options.map((o, i) => (
-          <div key={i} className="border rounded-lg p-3 mb-2">
-            <div className="grid grid-cols-3 gap-2">
-              <OF label="옵션명" v={o.option_name} on={(v) => upd(setOptions, i, 'option_name', v)} />
-              <OF label="공급가 *" v={o.supply_price} on={(v) => upd(setOptions, i, 'supply_price', v)} />
-              <OF label="재고(공유풀)" v={o.stock} on={(v) => upd(setOptions, i, 'stock', v)} />
-              <OF label="SKU" v={o.sku} on={(v) => upd(setOptions, i, 'sku', v)} />
-              <OF label="바코드" v={o.barcode} on={(v) => upd(setOptions, i, 'barcode', v)} />
-              <OF label="구매처 링크" v={o.purchase_url} on={(v) => upd(setOptions, i, 'purchase_url', v)} />
-            </div>
-            {options.length > 1 && (
-              <button onClick={() => setOptions((p) => p.filter((_, k) => k !== i))} className="mt-2 text-xs text-red-500 flex items-center gap-1"><Trash2 className="w-3 h-3" /> 삭제</button>
+            {/* 상세페이지 */}
+            <Card title="상세페이지" desc="상품 설명 HTML. 이미지 태그·텍스트를 넣으면 오른쪽 폰 하단에 그대로 보입니다.">
+              <textarea value={f.detail_html} onChange={(e) => set('detail_html', e.target.value)} rows={5}
+                placeholder={'예: <img src="https://.../detail1.jpg"><p>신선한 국내산 감자를 산지에서 바로 보내드립니다.</p>'}
+                className="w-full bg-white/80 border border-gray-200/80 rounded-xl px-3.5 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400" />
+            </Card>
+
+            {/* 동적 고시 */}
+            {meta && meta.notices.length > 0 && (
+              <Card title="상품정보고시 (카테고리 필수)">
+                {meta.notices.map((g) => (
+                  <div key={g.noticeCategoryName} className="mb-3">
+                    <p className="text-xs font-medium text-gray-400 mb-1.5">{g.noticeCategoryName}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {g.fields.map((fd) => (
+                        <F key={fd.name} label={fd.name + (fd.required ? ' *' : '')} v={noticeVals[fd.name] || ''}
+                          on={(v) => setNoticeVals((p) => ({ ...p, [fd.name]: v }))} />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </Card>
             )}
+
+            {/* 동적 속성 */}
+            {meta && meta.attributes.length > 0 && (
+              <Card title="필수 속성 (카테고리)">
+                <div className="grid grid-cols-2 gap-2">
+                  {meta.attributes.map((a) => (
+                    <F key={a.name} label={a.name + (a.required ? ' *' : '') + (a.unit ? ` (${a.unit})` : '')}
+                      v={attrVals[a.name] || ''} on={(v) => setAttrVals((p) => ({ ...p, [a.name]: v }))} />
+                  ))}
+                </div>
+              </Card>
+            )}
+
+            {/* 옵션 */}
+            <Card title="옵션 · 공급가 · 재고 · 구매처" desc="공급가는 셀러 매입가, 재고는 전 셀러 공유풀입니다.">
+              {options.map((o, i) => (
+                <div key={i} className="rounded-xl border border-gray-200/80 bg-white/60 p-3 mb-2">
+                  <div className="grid grid-cols-3 gap-2">
+                    <OF label="옵션명" v={o.option_name} on={(v) => upd(setOptions, i, 'option_name', v)} ph="5kg" />
+                    <OF label="공급가 *" v={o.supply_price} on={(v) => upd(setOptions, i, 'supply_price', v)} ph="8000" />
+                    <OF label="재고(공유풀)" v={o.stock} on={(v) => upd(setOptions, i, 'stock', v)} ph="100" />
+                    <OF label="SKU" v={o.sku} on={(v) => upd(setOptions, i, 'sku', v)} />
+                    <OF label="바코드" v={o.barcode} on={(v) => upd(setOptions, i, 'barcode', v)} />
+                    <OF label="구매처 링크" v={o.purchase_url} on={(v) => upd(setOptions, i, 'purchase_url', v)} />
+                  </div>
+                  {options.length > 1 && (
+                    <button onClick={() => setOptions((p) => p.filter((_, k) => k !== i))} className="mt-2 text-xs text-rose-500 flex items-center gap-1"><Trash2 className="w-3 h-3" /> 삭제</button>
+                  )}
+                </div>
+              ))}
+              <button onClick={() => setOptions((p) => [...p, emptyOption()])} className="text-sm text-emerald-600 font-medium flex items-center gap-1"><Plus className="w-4 h-4" /> 옵션 추가</button>
+            </Card>
+
+            {/* 판매가 범위 */}
+            <Card title="판매가 범위" desc="셀러는 이 범위 안에서만 판매가를 정할 수 있어요.">
+              <div className="grid grid-cols-2 gap-3">
+                <F label="최소 판매가 *" v={f.min_price} on={(v) => set('min_price', v)} ph="9900" />
+                <F label="최대 판매가 *" v={f.max_price} on={(v) => set('max_price', v)} ph="14900" />
+              </div>
+            </Card>
+
+            {/* 배송/반품/AS */}
+            <Card title="배송 · 반품 · A/S" desc="드롭십(공급사 발송) 기준입니다.">
+              <div className="grid grid-cols-2 gap-3">
+                <F label="택배사 코드" v={f.courier} on={(v) => set('courier', v)} ph="예: CJGLS" />
+                <label className="text-sm"><span className="block text-gray-500 mb-1.5 text-[13px]">배송비 유형</span>
+                  <select value={f.delivery_charge_type} onChange={(e) => set('delivery_charge_type', e.target.value)}
+                    className="w-full bg-white/80 border border-gray-200/80 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/40">
+                    <option value="FREE">무료</option><option value="NOT_FREE">유료</option><option value="CONDITIONAL_FREE">조건부무료</option>
+                  </select></label>
+                <F label="배송비" v={f.delivery_charge} on={(v) => set('delivery_charge', v)} ph="3000" />
+                <F label="반품 배송비" v={f.return_charge} on={(v) => set('return_charge', v)} ph="3000" />
+                <F label="반품지 주소" v={f.return_address} on={(v) => set('return_address', v)} span ph="예: 강원도 ..." />
+                <F label="반품지 우편번호" v={f.return_zip} on={(v) => set('return_zip', v)} ph="예: 24000" />
+                <F label="A/S 전화" v={f.as_tel} on={(v) => set('as_tel', v)} ph="예: 010-0000-0000" />
+                <F label="A/S 안내" v={f.as_guide} on={(v) => set('as_guide', v)} span ph="예: 평일 09~18시" />
+              </div>
+            </Card>
+
+            {msg && <p className={`text-sm ${msg.type === 'error' ? 'text-rose-600' : 'text-emerald-600'}`}>{msg.text}</p>}
+
+            <div className="flex gap-2 sticky bottom-4 bg-white/70 backdrop-blur-xl p-2 rounded-2xl border border-white/70 shadow-lg">
+              <button onClick={() => submit(false)} disabled={saving} className="flex-1 px-4 py-2.5 text-sm border border-gray-200 rounded-xl bg-white/70 flex items-center justify-center gap-1.5 disabled:opacity-50">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} 임시저장
+              </button>
+              <button onClick={() => submit(true)} disabled={saving} className="flex-[1.4] px-4 py-2.5 text-sm font-bold text-white bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-1.5 disabled:opacity-50">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} 검수 요청
+              </button>
+            </div>
           </div>
-        ))}
-        <button onClick={() => setOptions((p) => [...p, emptyOption()])} className="text-sm text-blue-600 flex items-center gap-1"><Plus className="w-4 h-4" /> 옵션 추가</button>
-      </Section>
 
-      {/* 판매가 범위 */}
-      <Section title="판매가 범위 (셀러는 이 안에서만 판매가 설정)">
-        <div className="grid grid-cols-2 gap-3">
-          <F label="최소 판매가 *" v={f.min_price} on={(v) => set('min_price', v)} />
-          <F label="최대 판매가 *" v={f.max_price} on={(v) => set('max_price', v)} />
+          {/* ─── 우: 실시간 폰 미리보기 (lg+) ─── */}
+          <div className="hidden lg:block sticky top-6">
+            <div className="flex items-center gap-1.5 justify-center mb-3 text-xs font-medium text-gray-500">
+              <Eye className="w-3.5 h-3.5 text-emerald-500" /> 고객에게 이렇게 보여요 (실시간)
+            </div>
+            <SupplierPhonePreview data={previewData} />
+          </div>
         </div>
-      </Section>
-
-      {/* 배송/반품/AS (드롭십=공급사 발송) */}
-      <Section title="배송 · 반품 · A/S (드롭십, 공급사 발송)">
-        <div className="grid grid-cols-2 gap-3">
-          <F label="택배사 코드" v={f.courier} on={(v) => set('courier', v)} />
-          <label className="text-sm"><span className="block text-gray-500 mb-1">배송비 유형</span>
-            <select value={f.delivery_charge_type} onChange={(e) => set('delivery_charge_type', e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white">
-              <option value="FREE">무료</option><option value="NOT_FREE">유료</option><option value="CONDITIONAL_FREE">조건부무료</option>
-            </select></label>
-          <F label="배송비" v={f.delivery_charge} on={(v) => set('delivery_charge', v)} />
-          <F label="반품 배송비" v={f.return_charge} on={(v) => set('return_charge', v)} />
-          <F label="반품지 주소" v={f.return_address} on={(v) => set('return_address', v)} span />
-          <F label="반품지 우편번호" v={f.return_zip} on={(v) => set('return_zip', v)} />
-          <F label="A/S 전화" v={f.as_tel} on={(v) => set('as_tel', v)} />
-          <F label="A/S 안내" v={f.as_guide} on={(v) => set('as_guide', v)} span />
-        </div>
-      </Section>
-
-      {msg && <p className={`text-sm mb-3 ${msg.type === 'error' ? 'text-red-600' : 'text-emerald-600'}`}>{msg.text}</p>}
-
-      <div className="flex gap-2 sticky bottom-4 bg-white/80 backdrop-blur p-2 rounded-xl border">
-        <button onClick={() => submit(false)} disabled={saving} className="flex-1 px-4 py-2.5 text-sm border rounded-lg flex items-center justify-center gap-1.5 disabled:opacity-50">
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} 임시저장
-        </button>
-        <button onClick={() => submit(true)} disabled={saving} className="flex-1 px-4 py-2.5 text-sm font-bold text-white bg-[#E31837] rounded-lg flex items-center justify-center gap-1.5 disabled:opacity-50">
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} 검수 요청
-        </button>
       </div>
+
+      {/* 모바일 미리보기 오버레이 */}
+      {mobilePreview && (
+        <div className="lg:hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setMobilePreview(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-end mb-2">
+              <button onClick={() => setMobilePreview(false)} className="w-8 h-8 rounded-full bg-white grid place-items-center text-gray-500 shadow"><X className="w-4 h-4" /></button>
+            </div>
+            <SupplierPhonePreview data={previewData} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -208,27 +265,35 @@ function upd(setter: React.Dispatch<React.SetStateAction<OptionRow[]>>, i: numbe
   setter((p) => p.map((o, k2) => (k2 === i ? { ...o, [k]: v } : o)));
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Card({ title, desc, children }: { title: string; desc?: string; children: React.ReactNode }) {
   return (
-    <section className="border rounded-xl p-5 bg-white mb-4">
-      <h2 className="font-semibold text-gray-700 mb-3">{title}</h2>
+    <section className="relative rounded-[1.5rem] border border-white/70 bg-white/70 backdrop-blur-xl p-5 shadow-[0_12px_40px_-18px_rgba(80,80,160,0.28)]">
+      <div aria-hidden className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-white to-transparent" />
+      <h2 className="font-bold text-gray-900">{title}</h2>
+      {desc && <p className="text-xs text-gray-500 mt-0.5 mb-3">{desc}</p>}
+      {!desc && <div className="mb-3" />}
       {children}
     </section>
   );
 }
-function F({ label, v, on, span }: { label: string; v: string; on: (v: string) => void; span?: boolean }) {
+
+function F({ label, v, on, span, ph, hint }: { label: string; v: string; on: (v: string) => void; span?: boolean; ph?: string; hint?: string }) {
   return (
     <label className={`text-sm ${span ? 'col-span-2' : ''}`}>
-      <span className="block text-gray-500 mb-1">{label}</span>
-      <input value={v} onChange={(e) => on(e.target.value)} className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#E31837]/30" />
+      <span className="block text-gray-500 mb-1.5 text-[13px]">{label}</span>
+      <input value={v} onChange={(e) => on(e.target.value)} placeholder={ph}
+        className="w-full bg-white/80 border border-gray-200/80 rounded-xl px-3.5 py-2.5 text-gray-900 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400 transition" />
+      {hint && <span className="block text-[11px] text-emerald-600/80 mt-1">{hint}</span>}
     </label>
   );
 }
-function OF({ label, v, on }: { label: string; v: string; on: (v: string) => void }) {
+
+function OF({ label, v, on, ph }: { label: string; v: string; on: (v: string) => void; ph?: string }) {
   return (
     <label className="text-xs">
       <span className="block text-gray-400 mb-1">{label}</span>
-      <input value={v} onChange={(e) => on(e.target.value)} className="w-full border rounded-lg px-2 py-1.5 text-sm" />
+      <input value={v} onChange={(e) => on(e.target.value)} placeholder={ph}
+        className="w-full bg-white/80 border border-gray-200/80 rounded-lg px-2.5 py-1.5 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-400/40" />
     </label>
   );
 }
