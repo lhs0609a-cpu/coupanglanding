@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/format';
 import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, REVENUE_SOURCES } from '@/lib/utils/constants';
@@ -9,7 +10,7 @@ import MonthPicker from '@/components/ui/MonthPicker';
 import StatCard from '@/components/ui/StatCard';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import { TrendingUp, TrendingDown, Wallet, AlertCircle, CheckCircle2, UserPlus, XCircle, Search, Clock, Banknote, Calendar, GraduationCap, Receipt, Building2, AlertTriangle, Check } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, AlertCircle, CheckCircle2, UserPlus, XCircle, Search, Clock, Banknote, Calendar, GraduationCap, Receipt, Building2, AlertTriangle, Check, Store } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { calculateDeposit, getReportCosts } from '@/lib/calculations/deposit';
 import { calculateTrainerBonus } from '@/lib/calculations/trainer';
@@ -34,7 +35,7 @@ export default function AdminDashboardPage() {
   const [submittedReports, setSubmittedReports] = useState<ReportWithUser[]>([]);
   const [reviewedReports, setReviewedReports] = useState<ReportWithUser[]>([]);
   const [depositedReports, setDepositedReports] = useState<ReportWithUser[]>([]);
-  const [pendingUsers, setPendingUsers] = useState<{ id: string; full_name: string; email: string; created_at: string }[]>([]);
+  const [pendingUsers, setPendingUsers] = useState<{ id: string; full_name: string; email: string; created_at: string; role?: string | null }[]>([]);
   const [allPtUsers, setAllPtUsers] = useState<(PtUser & { profile: { full_name: string } })[]>([]);
   const [allReportsForMonth, setAllReportsForMonth] = useState<MonthlyReport[]>([]);
   const [trainerStats, setTrainerStats] = useState({ total: 0, approved: 0, totalBonus: 0 });
@@ -66,7 +67,7 @@ export default function AdminDashboardPage() {
         .eq('payment_status', 'deposited'),
       supabase
         .from('profiles')
-        .select('id, full_name, email, created_at')
+        .select('id, full_name, email, created_at, role')
         .eq('is_active', false)
         .order('created_at', { ascending: false }),
       supabase
@@ -149,6 +150,13 @@ export default function AdminDashboardPage() {
   const handleApproveUser = async (userId: string) => {
     const user = pendingUsers.find((u) => u.id === userId);
     const userEmail = user?.email || '';
+
+    // 공급사는 여기서 승인 금지 — role 이 pt_user 로 덮여 계정이 오염된다.
+    // 서류 검토가 필요하므로 전용 페이지(/admin/suppliers)에서 처리.
+    if (user?.role === 'supplier') {
+      alert('공급사는 [공급사 가입 승인] 페이지에서 서류 확인 후 승인해주세요.');
+      return;
+    }
 
     // 프로필 활성화
     const { error: profileError } = await supabase
@@ -614,39 +622,59 @@ export default function AdminDashboardPage() {
               <p className="text-gray-400 text-sm">대기 중인 가입 요청이 없습니다.</p>
             ) : (
               <div className="space-y-3">
-                {pendingUsers.map((user) => (
+                {pendingUsers.map((user) => {
+                  const isSupplier = user.role === 'supplier';
+                  return (
                   <div
                     key={user.id}
                     className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
                   >
                     <div>
-                      <p className="font-medium text-gray-900">
+                      <p className="font-medium text-gray-900 flex items-center gap-1.5">
                         {user.full_name || '이름 없음'}
+                        {isSupplier ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-emerald-100 text-emerald-700">
+                            <Store className="w-3 h-3" />공급사
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded text-[11px] font-medium bg-blue-100 text-blue-700">파트너/PT</span>
+                        )}
                       </p>
                       <p className="text-sm text-gray-500">
                         {user.email} · {new Date(user.created_at).toLocaleDateString('ko-KR')}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleApproveUser(user.id)}
-                        className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition"
-                        title="승인"
+                    {isSupplier ? (
+                      // 공급사는 서류 검토가 필요 → 전용 승인 페이지로. 여기서 승인하면 role 이 pt_user 로 오염됨.
+                      <Link
+                        href="/admin/suppliers"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition whitespace-nowrap"
                       >
-                        <CheckCircle2 className="w-5 h-5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRejectUser(user.id)}
-                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
-                        title="거절"
-                      >
-                        <XCircle className="w-5 h-5" />
-                      </button>
-                    </div>
+                        서류 확인·승인 →
+                      </Link>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleApproveUser(user.id)}
+                          className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition"
+                          title="승인"
+                        >
+                          <CheckCircle2 className="w-5 h-5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRejectUser(user.id)}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
+                          title="거절"
+                        >
+                          <XCircle className="w-5 h-5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </Card>
