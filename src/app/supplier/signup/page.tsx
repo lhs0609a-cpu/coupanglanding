@@ -4,10 +4,14 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Store, Loader2, CheckCircle2, Upload, X } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
+
+const BUCKET = 'supplier-docs';
 
 export default function SupplierSignupPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState('');
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
 
@@ -29,18 +33,54 @@ export default function SupplierSignupPage() {
     if (mfrDocs.length === 0) { setError('제조/공장·상표 등 증빙서류를 1개 이상 첨부해주세요.'); return; }
     setLoading(true);
     try {
-      const fd = new FormData();
-      Object.entries(f).forEach(([k, v]) => fd.append(k, v));
-      fd.append('business_license', license);
-      mfrDocs.forEach((d) => fd.append('manufacturer_docs', d));
-      const res = await fetch('/api/supplier/signup', { method: 'POST', body: fd });
+      // 파일을 field 순서대로 정렬 (index 로 응답과 매칭)
+      const orderedFiles: { field: 'license' | 'mfr'; file: File }[] = [
+        { field: 'license', file: license },
+        ...mfrDocs.map((d) => ({ field: 'mfr' as const, file: d })),
+      ];
+
+      // 1) 서명 업로드 URL 발급 (본문 작음 → 크기 제한 무관)
+      setProgress('업로드 준비 중...');
+      const urlRes = await fetch('/api/supplier/signup/upload-url', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: orderedFiles.map((o) => ({ field: o.field, name: o.file.name, size: o.file.size })) }),
+      });
+      const urlData = await urlRes.json();
+      if (!urlRes.ok) { setError(urlData.error || '업로드 준비에 실패했습니다.'); return; }
+      const uploads: { field: string; name: string; path: string; token: string }[] = urlData.uploads || [];
+      if (uploads.length !== orderedFiles.length) { setError('업로드 준비 응답이 올바르지 않습니다. 다시 시도해주세요.'); return; }
+
+      // 2) 브라우저 → Supabase 스토리지 직접 업로드
+      const supabase = createClient();
+      for (let i = 0; i < orderedFiles.length; i++) {
+        setProgress(`서류 업로드 중 (${i + 1}/${orderedFiles.length})`);
+        const u = uploads[i];
+        const { error: upErr } = await supabase.storage.from(BUCKET).uploadToSignedUrl(u.path, u.token, orderedFiles[i].file);
+        if (upErr) { setError(`파일 업로드 실패: ${orderedFiles[i].file.name}`); return; }
+      }
+
+      const licensePath = uploads[0].path;                     // orderedFiles[0] == license
+      const manufacturerDocPaths = uploads.slice(1).map((u) => u.path);
+
+      // 3) 가입 신청 (경로만 전송 — 파일 바이트는 서버 본문을 안 거침)
+      setProgress('가입 신청 처리 중...');
+      const res = await fetch('/api/supplier/signup', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...f,
+          uploadToken: urlData.uploadToken,
+          business_license_path: licensePath,
+          manufacturer_doc_paths: manufacturerDocPaths,
+        }),
+      });
       const data = await res.json();
       if (!res.ok) { setError(data.error || '가입 신청에 실패했습니다.'); return; }
       setDone(true);
-    } catch {
-      setError('서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+    } catch (err) {
+      setError(err instanceof Error ? `오류: ${err.message}` : '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
     } finally {
       setLoading(false);
+      setProgress('');
     }
   };
 
@@ -131,7 +171,7 @@ export default function SupplierSignupPage() {
 
           <button type="submit" disabled={loading}
             className="w-full py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition disabled:opacity-50 flex items-center justify-center gap-2">
-            {loading ? <><Loader2 className="w-5 h-5 animate-spin" />신청 처리 중...</> : <><Upload className="w-5 h-5" />가입 신청하기</>}
+            {loading ? <><Loader2 className="w-5 h-5 animate-spin" />{progress || '신청 처리 중...'}</> : <><Upload className="w-5 h-5" />가입 신청하기</>}
           </button>
           <p className="text-center text-sm text-gray-500">
             이미 공급사 계정이 있으신가요? <Link href="/auth/login" className="text-emerald-600 font-semibold hover:underline">로그인</Link>
