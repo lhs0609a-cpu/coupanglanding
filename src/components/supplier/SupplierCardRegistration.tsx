@@ -74,7 +74,7 @@ export default function SupplierCardRegistration() {
         type="button"
         onClick={handleRegister}
         disabled={loading}
-        className="flex items-center justify-center gap-2 w-full px-6 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+        className="flex items-center justify-center gap-2 w-full px-6 py-3 bg-gradient-to-br from-emerald-500 to-teal-500 text-white rounded-xl font-semibold shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40 hover:-translate-y-0.5 transition disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:translate-y-0"
       >
         {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <CreditCard className="w-5 h-5" />}
         {loading ? '카드 등록 중...' : '자동결제 카드 등록하기'}
