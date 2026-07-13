@@ -7,10 +7,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { TossPaymentsAPI, generateCustomerKey, generateOrderId } from '@/lib/payments/toss-client';
 import { decryptPassword } from '@/lib/utils/encryption';
+import { notifySupplierSettlement } from '@/lib/utils/notifications';
 
 interface SupplierRow {
   id: string; commission_rate: number; commission_base: 'retail' | 'supply';
   billing_key: string | null; billing_status: string;
+  owner_profile_id?: string | null;
 }
 
 /** 한 공급사의 특정 월 정산 원장 생성 + 결제 시도. */
@@ -50,8 +52,15 @@ export async function settleSupplierMonth(
     payment_status: net <= 0 ? 'skipped' : 'awaiting_payment',
   }, { onConflict: 'supplier_id,year_month' }).select('id, payment_status').single();
 
+  const notify = (status: 'paid' | 'no_card' | 'failed') => {
+    if (supplier.owner_profile_id) {
+      return notifySupplierSettlement(sc, supplier.owner_profile_id, yearMonth, net, status).catch(() => {});
+    }
+  };
+
   if (net <= 0) return { status: 'skipped', net: 0 };
   if (!supplier.billing_key || supplier.billing_status !== 'active') {
+    await notify('no_card');
     return { status: 'no_card', net, message: '카드 미등록 — 청구 보류' };
   }
 
@@ -66,9 +75,11 @@ export async function settleSupplierMonth(
     await sc.from('supplier_settlements')
       .update({ payment_status: 'paid', toss_payment_key: result.paymentKey, paid_at: result.approvedAt || new Date().toISOString() })
       .eq('id', settlement!.id);
+    await notify('paid');
     return { status: 'paid', net };
   } catch (e) {
     await sc.from('supplier_settlements').update({ payment_status: 'failed' }).eq('id', settlement!.id);
+    await notify('failed');
     return { status: 'failed', net, message: e instanceof Error ? e.message : '결제 실패' };
   }
 }

@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Search, Flame, TrendingUp, Sparkles, X, Store, RefreshCw, Check } from 'lucide-react';
+import { Loader2, Search, Flame, TrendingUp, Sparkles, X, Store, RefreshCw, Check, Megaphone } from 'lucide-react';
 import BrandLogoMarquee from '@/components/supplier/BrandLogoMarquee';
 
 interface CatProduct {
   id: string; seller_product_name: string; brand: string | null; category_path: string | null;
   thumbnail_url: string | null; min_price: number; max_price: number;
   min_supply_price: number; total_stock: number; sold_count: number;
+  supplier_notice: string | null;
   supplier: { brand_name: string | null; company_name: string | null; logo_url: string | null } | null;
 }
 
@@ -37,7 +38,7 @@ export default function SupplierCatalogPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
-      <h1 className="text-2xl font-bold flex items-center gap-2 mb-1"><Store className="w-6 h-6 text-[#E31837]" /> 상품 카탈로그</h1>
+      <h1 className="text-2xl font-bold flex items-center gap-2 mb-1"><Store className="w-6 h-6 text-[#E31837]" /> 공급사 제휴상품</h1>
       <p className="text-gray-500 text-sm mb-5">공급사가 등록한 상품을 골라 <b>딸깍</b> 한 번으로 내 쿠팡 계정에 올리세요. 상품명은 나만 다르게 자동 생성됩니다.</p>
 
       <BrandLogoMarquee />
@@ -76,6 +77,12 @@ export default function SupplierCatalogPage() {
                     <span className="truncate">{p.supplier?.brand_name || p.supplier?.company_name || '공급사'}</span>
                   </div>
                   <p className="text-sm font-medium text-gray-900 line-clamp-2 min-h-[2.5rem]">{p.seller_product_name}</p>
+                  {p.supplier_notice && (
+                    <div className="mt-1 flex items-start gap-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-1">
+                      <Megaphone className="w-3 h-3 mt-0.5 shrink-0" />
+                      <span className="line-clamp-2">{p.supplier_notice}</span>
+                    </div>
+                  )}
                   <div className="mt-1.5 text-xs text-gray-500">
                     공급가 ₩{p.min_supply_price.toLocaleString()} · <span className="text-emerald-600 font-medium">마진 +{marginPct}%</span>
                   </div>
@@ -145,6 +152,13 @@ function ListModal({ product, onClose }: { product: CatProduct; onClose: () => v
         </div>
 
         <p className="text-sm text-gray-700 mb-3 line-clamp-2">{product.seller_product_name}</p>
+
+        {product.supplier_notice && (
+          <div className="flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-2 mb-3">
+            <Megaphone className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <span><b className="font-semibold">공급사 공지</b> · {product.supplier_notice}</span>
+          </div>
+        )}
 
         <label className="text-sm block mb-3">
           <span className="block text-gray-500 mb-1">

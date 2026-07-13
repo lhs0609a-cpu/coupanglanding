@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   const serviceClient = await createServiceClient();
   let query = serviceClient
     .from('supplier_products')
-    .select('id, seller_product_name, brand, category_path, thumbnail_url, min_price, max_price, ' +
+    .select('id, seller_product_name, brand, category_path, thumbnail_url, min_price, max_price, supplier_notice, supplier_notice_at, ' +
             'supplier:suppliers(brand_name, company_name, logo_url), options:supplier_product_options(supply_price, stock)')
     .eq('status', 'approved')
     .order('created_at', { ascending: false })
@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
   type Row = {
     id: string; seller_product_name: string; brand: string | null; category_path: string | null;
     thumbnail_url: string | null; min_price: number; max_price: number;
+    supplier_notice: string | null; supplier_notice_at: string | null;
     supplier: unknown; options: { supply_price: number; stock: number }[] | null;
   };
   const rows = (data ?? []) as unknown as Row[];

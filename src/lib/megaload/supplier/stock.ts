@@ -9,12 +9,15 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getAuthenticatedAdapter } from '../adapters/factory';
 import type { CoupangAdapter } from '../adapters/coupang.adapter';
 
+/** 소진(buffer) 위로 이만큼 남았을 때 사전경고 발송 임계 여유분. */
+const LOW_STOCK_MARGIN = 10;
+
 export async function decrementStock(
   sc: SupabaseClient,
   catalogProductId: string,
   optionId: string | null,
   qty: number,
-): Promise<{ soldOut: boolean; totalStock: number }> {
+): Promise<{ soldOut: boolean; lowStock: boolean; totalStock: number }> {
   if (optionId) {
     const { data: opt } = await sc
       .from('supplier_product_options').select('stock').eq('id', optionId).maybeSingle();
@@ -35,9 +38,14 @@ export async function decrementStock(
     await sc.from('supplier_listings')
       .update({ status: 'suspended' })
       .eq('catalog_product_id', catalogProductId).eq('status', 'active');
-    return { soldOut: true, totalStock };
+    return { soldOut: true, lowStock: false, totalStock };
   }
-  return { soldOut: false, totalStock };
+
+  // 이번 판매로 '임박' 구간(buffer < 재고 <= buffer+margin)에 처음 진입했는지 판정
+  const warnAt = maxBuffer + LOW_STOCK_MARGIN;
+  const beforeStock = totalStock + qty;   // 방금 qty 만큼 차감됨
+  const lowStock = totalStock <= warnAt && beforeStock > warnAt;
+  return { soldOut: false, lowStock, totalStock };
 }
 
 /** 품절 상품의 각 셀러 리스팅을 채널에서도 실제 판매중지(vendorItemId 기준, best-effort). */

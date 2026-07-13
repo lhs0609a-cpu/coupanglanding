@@ -11,6 +11,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CoupangAdapter } from '../adapters/coupang.adapter';
 import { decrementStock } from './stock';
+import { notifySupplierProductSold, notifySupplierStockDepleted, notifySupplierStockLow } from '@/lib/utils/notifications';
 
 const CONFIRM_DAYS = 7;   // 배송완료(≈주문+배송) 후 반품불가 기준 7일
 
@@ -18,6 +19,7 @@ interface ListingRef {
   id: string; catalog_product_id: string; supplier_id: string;
   retail_price: number; vendor_item_id: string | null; channel_product_id: string | null;
   min_supply_price: number; option_id: string | null;
+  supplier_profile_id: string | null; product_name: string;
 }
 
 /** 한 셀러의 최근 주문을 귀속 처리. */
@@ -32,14 +34,19 @@ export async function attributeSellerOrders(
   const { data: listings } = await sc
     .from('supplier_listings')
     .select('id, catalog_product_id, retail_price, vendor_item_id, channel_product_id, ' +
-            'product:supplier_products(supplier_id, options:supplier_product_options(id, supply_price))')
+            'product:supplier_products(supplier_id, seller_product_name, ' +
+            'supplier:suppliers(owner_profile_id), options:supplier_product_options(id, supply_price))')
     .eq('seller_megaload_user_id', sellerId)
     .eq('channel', 'coupang');
 
   const byVendorItem = new Map<string, ListingRef>();
   const bySellerProduct = new Map<string, ListingRef>();
   for (const raw of (listings || []) as unknown as Record<string, unknown>[]) {
-    const product = raw.product as { supplier_id?: string; options?: { id: string; supply_price: number }[] } | null;
+    const product = raw.product as {
+      supplier_id?: string; seller_product_name?: string;
+      supplier?: { owner_profile_id?: string } | null;
+      options?: { id: string; supply_price: number }[];
+    } | null;
     const opts = product?.options || [];
     const ref: ListingRef = {
       id: String(raw.id), catalog_product_id: String(raw.catalog_product_id),
@@ -49,6 +56,8 @@ export async function attributeSellerOrders(
       channel_product_id: raw.channel_product_id ? String(raw.channel_product_id) : null,
       min_supply_price: opts.length ? Math.min(...opts.map((o) => o.supply_price)) : 0,
       option_id: opts.length ? opts[0].id : null,
+      supplier_profile_id: product?.supplier?.owner_profile_id || null,
+      product_name: product?.seller_product_name || '상품',
     };
     if (ref.vendor_item_id) byVendorItem.set(ref.vendor_item_id, ref);
     if (ref.channel_product_id) bySellerProduct.set(ref.channel_product_id, ref);
@@ -95,7 +104,18 @@ export async function attributeSellerOrders(
       if (!error && data && data.length > 0) {
         inserted++;
         // 신규 판매 → 재고 차감 + 품절 전파
-        await decrementStock(sc, ref.catalog_product_id, ref.option_id, qty).catch(() => {});
+        const dec = await decrementStock(sc, ref.catalog_product_id, ref.option_id, qty).catch(() => null);
+        // 공급사 알림: 판매 발생 + (재고 소진 시) 자동 판매중지 (실패해도 귀속엔 영향 없음)
+        if (ref.supplier_profile_id) {
+          await notifySupplierProductSold(
+            sc, ref.supplier_profile_id, ref.product_name, qty, ref.retail_price * qty,
+          ).catch(() => {});
+          if (dec?.soldOut) {
+            await notifySupplierStockDepleted(sc, ref.supplier_profile_id, ref.product_name).catch(() => {});
+          } else if (dec?.lowStock) {
+            await notifySupplierStockLow(sc, ref.supplier_profile_id, ref.product_name, dec.totalStock).catch(() => {});
+          }
+        }
       }
     }
   }
