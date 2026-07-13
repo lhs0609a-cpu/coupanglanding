@@ -26,6 +26,8 @@ export default function BulkRegisterPanel() {
   // preflight 완료 → 사용자가 썸네일/가격/원본링크/노출상품명 확인 → 확정 → register
   const [finalReviewOpen, setFinalReviewOpen] = useState(false);
   const [excludedUids, setExcludedUids] = useState<Set<string>>(new Set());
+  // ─── 이미 등록된 상품(내 쿠팡 계정) — 업로드 전 "제외/그냥등록" 선택용 ───
+  const [registeredCodes, setRegisteredCodes] = useState<Set<string>>(new Set());
   // ─── 업로드 전 책임 확인 게이트 (지재권/옵션명/책임동의) — 수동·자동 등록 공통 ───
   const [preUploadOpen, setPreUploadOpen] = useState(false);
   const pendingRegisterRef = useRef<null | (() => void)>(null);
@@ -194,6 +196,25 @@ export default function BulkRegisterPanel() {
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actions.products.length]);
+
+  // 스캔된 상품 중 이미 내 쿠팡 계정에 등록된 productCode 조회(1회)
+  useEffect(() => {
+    const codes = actions.products.map((p) => p.productCode).filter(Boolean);
+    if (codes.length === 0) { setRegisteredCodes(new Set()); return; }
+    let cancelled = false;
+    fetch('/api/megaload/products/bulk-register/registered-codes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productCodes: codes }),
+    }).then((r) => r.json()).then((d) => {
+      if (!cancelled && Array.isArray(d.registered)) setRegisteredCodes(new Set(d.registered));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actions.products.length]);
+
+  // "이미 등록됨" 상품을 선택 해제(제외)
+  const excludeRegistered = useCallback(() => {
+    actions.setProducts((prev) => prev.map((p) => (registeredCodes.has(p.productCode) ? { ...p, selected: false } : p)));
+  }, [registeredCodes, actions]);
 
   // Cleanup on unmount
   useEffect(() => cleanup, [cleanup]);
@@ -381,6 +402,8 @@ export default function BulkRegisterPanel() {
       {step === 2 && (
         <BulkStep2Review
           products={actions.products}
+          registeredCodes={registeredCodes}
+          onExcludeRegistered={excludeRegistered}
           autoMatchingProgress={actions.autoMatchingProgress}
           autoMatchError={actions.autoMatchError}
           autoMatchStats={actions.autoMatchStats}

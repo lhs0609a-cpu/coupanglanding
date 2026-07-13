@@ -22,6 +22,10 @@ import { resolveAgriWeight } from './option-candidates';
 
 interface BulkStep2ReviewProps {
   products: EditableProduct[];
+  /** 내 쿠팡 계정에 이미 등록된 productCode 집합 */
+  registeredCodes?: Set<string>;
+  /** 이미 등록된 상품 선택 해제(제외) */
+  onExcludeRegistered?: () => void;
   autoMatchingProgress: { done: number; total: number } | null;
   autoMatchError?: string;
   autoMatchStats?: { matched: number; failed: number; total: number } | null;
@@ -209,7 +213,7 @@ const PipelineProgress = memo(function PipelineProgress({
 
 // P1-1: React.memo 적용
 export default memo(function BulkStep2Review({
-  products, autoMatchingProgress, autoMatchError, autoMatchStats, categoryFailures, onRetryAutoCategory, validating, validationPhase,
+  products, registeredCodes, onExcludeRegistered, autoMatchingProgress, autoMatchError, autoMatchStats, categoryFailures, onRetryAutoCategory, validating, validationPhase,
   imagePreuploadProgress, imagePreuploadCache, dryRunResults,
   imageFilterProgress, titleGenProgress, contentGenProgress,
   deliveryChargeType, deliveryCharge, freeShipOverAmount,
@@ -233,6 +237,7 @@ export default memo(function BulkStep2Review({
   stockCheckPhase, stockCheckProgress, stockCheckResults, stockCheckStats, onStockCheck, onExcludeSoldOut,
 }: BulkStep2ReviewProps) {
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
+  const [dupDismissed, setDupDismissed] = useState(false);
   const [llmModalOpen, setLlmModalOpen] = useState(false);
   const [showFailures, setShowFailures] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -498,6 +503,11 @@ export default memo(function BulkStep2Review({
 
   const skippedCount = products.filter(p => !p.selected).length;
 
+  // 이미 등록된 상품이 선택돼 있는 개수 — 업로드 전 "제외/그냥등록" 선택 배너용
+  const dupSelectedCount = registeredCodes && registeredCodes.size > 0
+    ? products.filter(p => p.selected && registeredCodes.has(p.productCode)).length
+    : 0;
+
   const soldOutCount = stockCheckResults
     ? Object.values(stockCheckResults).filter(r => r.status === 'sold_out' || r.status === 'removed').length
     : 0;
@@ -534,6 +544,30 @@ export default memo(function BulkStep2Review({
 
   return (
     <div className="space-y-4">
+      {/* 이미 등록된 상품 선택됨 — 제외/그냥등록 선택 */}
+      {dupSelectedCount > 0 && !dupDismissed && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-3">
+          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+          <span className="text-sm text-amber-800 flex-1">
+            내 쿠팡 계정에 <b>이미 등록한 상품 {dupSelectedCount}개</b>가 선택돼 있어요. 그냥 등록하면 중복은 자동으로 건너뜁니다.
+          </span>
+          {onExcludeRegistered && (
+            <button
+              onClick={() => { onExcludeRegistered(); setDupDismissed(true); }}
+              className="px-3 py-1 text-xs font-medium bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition shrink-0"
+            >
+              {dupSelectedCount}개 제외하고 등록
+            </button>
+          )}
+          <button
+            onClick={() => setDupDismissed(true)}
+            className="px-3 py-1 text-xs font-medium bg-white border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-100 transition shrink-0"
+          >
+            그냥 등록
+          </button>
+        </div>
+      )}
+
       {/* Auto-matching progress */}
       {autoMatchingProgress && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-3">
