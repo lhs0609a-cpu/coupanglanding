@@ -71,7 +71,7 @@ export default function CategorySearchField({
 
   return (
     <div className="relative col-span-2" ref={boxRef}>
-      <span className="block text-gray-500 mb-1.5 text-[13px]">카테고리 (검색) *</span>
+      <span className="block mb-1.5 text-[13px] text-gray-800 font-medium">카테고리 (검색) <span className="text-[#E31837] font-bold">*</span></span>
       <div className="flex items-center gap-1.5 rounded-xl border border-gray-200/80 bg-white/80 px-3 focus-within:ring-2 focus-within:ring-emerald-400/40 focus-within:border-emerald-400 transition">
         <Search className="w-4 h-4 text-gray-400 shrink-0" />
         <input

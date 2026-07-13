@@ -189,13 +189,16 @@ export default function SupplierProductNewPage() {
         <div className="grid lg:grid-cols-[1fr_360px] gap-6 items-start">
           {/* ─── 좌: 입력 폼 ─── */}
           <div className="space-y-5 min-w-0">
+            <p className="text-xs text-gray-500 -mb-1">
+              <span className="text-[#E31837] font-bold">*</span> 표시는 <b className="text-gray-700">쿠팡 등록 필수값</b>이에요. 비우면 검수 요청이 막힙니다.
+            </p>
             {/* 기본 정보 */}
             <Card title="기본 정보" desc="상품명만 입력하고 '상품명으로 자동'을 누르면 카테고리·필수속성이 자동으로 채워집니다. 코드를 몰라도 됩니다.">
               <div className="grid grid-cols-2 gap-3">
-                <F label="상품명 *" v={f.seller_product_name} on={(v) => set('seller_product_name', v)} span ph="예: 국내산 햇 감자 5kg 특품 박스" hint="구체적일수록 잘 팔려요 (원산지·용량·등급 포함)" />
+                <F label="상품명" req v={f.seller_product_name} on={(v) => set('seller_product_name', v)} span ph="예: 국내산 햇 감자 5kg 특품 박스" hint="구체적일수록 잘 팔려요 (원산지·용량·등급 포함)" />
                 <div className="col-span-2 space-y-2">
                   <div className="flex gap-2 items-end">
-                    <F label="쿠팡 카테고리 코드 *" v={f.category_code} on={(v) => set('category_code', v)} ph="예: 56137" />
+                    <F label="쿠팡 카테고리 코드" req v={f.category_code} on={(v) => set('category_code', v)} ph="예: 56137" />
                     <button onClick={autoCategory} disabled={catLoading}
                       className="shrink-0 h-[42px] px-3.5 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white text-sm font-semibold flex items-center gap-1.5 shadow-lg shadow-emerald-500/25 disabled:opacity-50">
                       {catLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />} 상품명으로 자동
@@ -228,8 +231,9 @@ export default function SupplierProductNewPage() {
             </Card>
 
             {/* 이미지 */}
-            <Card title="상품 이미지" desc="끌어다 놓기 · 클릭 · Ctrl+V 붙여넣기 · URL 모두 가능. 첫 장이 대표 썸네일입니다.">
+            <Card title="상품 이미지" req desc="끌어다 놓기 · 클릭 · Ctrl+V 붙여넣기 · URL 모두 가능. 첫 장이 대표 썸네일입니다 (대표 1장 필수).">
               <ImageGallery urls={images} onChange={setImages} />
+              {images.length === 0 && <p className="text-xs text-[#E31837] mt-2">대표 이미지 최소 1장은 필수입니다.</p>}
             </Card>
 
             {/* 상세페이지 */}
@@ -245,7 +249,7 @@ export default function SupplierProductNewPage() {
                     <p className="text-xs font-medium text-gray-400 mb-1.5">{g.noticeCategoryName}</p>
                     <div className="grid grid-cols-2 gap-2">
                       {g.fields.map((fd) => (
-                        <F key={fd.name} label={fd.name + (fd.required ? ' *' : '')} v={noticeVals[fd.name] || ''}
+                        <F key={fd.name} label={fd.name} req={fd.required} v={noticeVals[fd.name] || ''}
                           on={(v) => setNoticeVals((p) => ({ ...p, [fd.name]: v }))} />
                       ))}
                     </div>
@@ -261,7 +265,7 @@ export default function SupplierProductNewPage() {
                   {meta.attributes.map((a) => {
                     const uncertain = uncertainAttrs.includes(a.name);
                     return (
-                      <F key={a.name} label={a.name + (a.required ? ' *' : '') + (a.unit ? ` (${a.unit})` : '')}
+                      <F key={a.name} label={a.name + (a.unit ? ` (${a.unit})` : '')} req={a.required}
                         v={attrVals[a.name] || ''} on={(v) => setAttrVals((p) => ({ ...p, [a.name]: v }))}
                         warn={uncertain} hint={uncertain ? '자동입력됨 · 확인 필요' : undefined} />
                     );
@@ -276,7 +280,7 @@ export default function SupplierProductNewPage() {
                 <div key={i} className="rounded-xl border border-gray-200/80 bg-white/60 p-3 mb-2">
                   <div className="grid grid-cols-3 gap-2">
                     <OF label="옵션명" v={o.option_name} on={(v) => upd(setOptions, i, 'option_name', v)} ph="5kg" />
-                    <OF label="공급가 *" v={o.supply_price} on={(v) => upd(setOptions, i, 'supply_price', v)} ph="8000" />
+                    <OF label="공급가" req v={o.supply_price} on={(v) => upd(setOptions, i, 'supply_price', v)} ph="8000" />
                     <OF label="재고(공유풀)" v={o.stock} on={(v) => upd(setOptions, i, 'stock', v)} ph="100" />
                     <OF label="SKU" v={o.sku} on={(v) => upd(setOptions, i, 'sku', v)} />
                     <OF label="바코드" v={o.barcode} on={(v) => upd(setOptions, i, 'barcode', v)} />
@@ -293,8 +297,8 @@ export default function SupplierProductNewPage() {
             {/* 판매가 범위 */}
             <Card title="판매가 범위" desc="셀러는 이 범위 안에서만 판매가를 정할 수 있어요.">
               <div className="grid grid-cols-2 gap-3">
-                <F label="최소 판매가 *" v={f.min_price} on={(v) => set('min_price', v)} ph="9900" />
-                <F label="최대 판매가 *" v={f.max_price} on={(v) => set('max_price', v)} ph="14900" />
+                <F label="최소 판매가" req v={f.min_price} on={(v) => set('min_price', v)} ph="9900" />
+                <F label="최대 판매가" req v={f.max_price} on={(v) => set('max_price', v)} ph="14900" />
               </div>
             </Card>
 
@@ -361,11 +365,11 @@ function upd(setter: React.Dispatch<React.SetStateAction<OptionRow[]>>, i: numbe
   setter((p) => p.map((o, k2) => (k2 === i ? { ...o, [k]: v } : o)));
 }
 
-function Card({ title, desc, children }: { title: string; desc?: string; children: React.ReactNode }) {
+function Card({ title, desc, children, req }: { title: string; desc?: string; children: React.ReactNode; req?: boolean }) {
   return (
     <section className="relative rounded-[1.5rem] border border-white/70 bg-white/70 backdrop-blur-xl p-5 shadow-[0_12px_40px_-18px_rgba(80,80,160,0.28)]">
       <div aria-hidden className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-white to-transparent" />
-      <h2 className="font-bold text-gray-900">{title}</h2>
+      <h2 className="font-bold text-gray-900">{title}{req && <span className="text-[#E31837] font-bold"> *</span>}</h2>
       {desc && <p className="text-xs text-gray-500 mt-0.5 mb-3">{desc}</p>}
       {!desc && <div className="mb-3" />}
       {children}
@@ -373,23 +377,34 @@ function Card({ title, desc, children }: { title: string; desc?: string; childre
   );
 }
 
-function F({ label, v, on, span, ph, hint, warn }: { label: string; v: string; on: (v: string) => void; span?: boolean; ph?: string; hint?: string; warn?: boolean }) {
+function F({ label, v, on, span, ph, hint, warn, req }: { label: string; v: string; on: (v: string) => void; span?: boolean; ph?: string; hint?: string; warn?: boolean; req?: boolean }) {
+  const emptyReq = req && !v.trim();
+  const border = warn
+    ? 'border-amber-300 focus:ring-amber-400/40 focus:border-amber-400'
+    : emptyReq
+      ? 'border-[#E31837]/50 focus:ring-[#E31837]/25 focus:border-[#E31837]'
+      : 'border-gray-200/80 focus:ring-emerald-400/40 focus:border-emerald-400';
   return (
     <label className={`text-sm ${span ? 'col-span-2' : ''}`}>
-      <span className="block text-gray-500 mb-1.5 text-[13px]">{label}</span>
+      <span className={`block mb-1.5 text-[13px] ${req ? 'text-gray-800 font-medium' : 'text-gray-500'}`}>
+        {label}{req && <span className="text-[#E31837] font-bold"> *</span>}
+      </span>
       <input value={v} onChange={(e) => on(e.target.value)} placeholder={ph}
-        className={`w-full bg-white/80 border rounded-xl px-3.5 py-2.5 text-gray-900 placeholder:text-gray-300 focus:outline-none focus:ring-2 transition ${warn ? 'border-amber-300 focus:ring-amber-400/40 focus:border-amber-400' : 'border-gray-200/80 focus:ring-emerald-400/40 focus:border-emerald-400'}`} />
+        className={`w-full bg-white/80 border rounded-xl px-3.5 py-2.5 text-gray-900 placeholder:text-gray-300 focus:outline-none focus:ring-2 transition ${border}`} />
       {hint && <span className={`block text-[11px] mt-1 ${warn ? 'text-amber-600' : 'text-emerald-600/80'}`}>{hint}</span>}
     </label>
   );
 }
 
-function OF({ label, v, on, ph }: { label: string; v: string; on: (v: string) => void; ph?: string }) {
+function OF({ label, v, on, ph, req }: { label: string; v: string; on: (v: string) => void; ph?: string; req?: boolean }) {
+  const emptyReq = req && !v.trim();
   return (
     <label className="text-xs">
-      <span className="block text-gray-400 mb-1">{label}</span>
+      <span className={`block mb-1 ${req ? 'text-gray-700 font-medium' : 'text-gray-400'}`}>
+        {label}{req && <span className="text-[#E31837] font-bold"> *</span>}
+      </span>
       <input value={v} onChange={(e) => on(e.target.value)} placeholder={ph}
-        className="w-full bg-white/80 border border-gray-200/80 rounded-lg px-2.5 py-1.5 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-400/40" />
+        className={`w-full bg-white/80 border rounded-lg px-2.5 py-1.5 text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 ${emptyReq ? 'border-[#E31837]/50 focus:ring-[#E31837]/25' : 'border-gray-200/80 focus:ring-emerald-400/40'}`} />
     </label>
   );
 }
