@@ -107,6 +107,46 @@ function loadDetails(): Record<string, CategoryDetailRaw> {
   return _detailsData;
 }
 
+/**
+ * 카테고리 검색(자동완성용) — 키워드로 leaf 이름/경로를 검색해 상위 매치를 반환.
+ * 랭킹: leaf 정확일치 > leaf 접두 > leaf 부분 > 경로 부분. 경로 짧을수록 가점.
+ */
+export function searchCategories(
+  query: string,
+  limit = 30,
+): { code: string; path: string; name: string }[] {
+  const q = (query || '').trim().toLowerCase();
+  if (q.length < 1) return [];
+  const details = loadDetails();
+  const scored: { code: string; path: string; name: string; score: number }[] = [];
+  for (const entry of loadIndex()) {
+    const code = entry[0];
+    const leafName = entry[2] || '';
+    const path = details[code]?.p || leafName;
+    const leaf = leafName.toLowerCase();
+    const pathLower = path.toLowerCase();
+    let score = -1;
+    if (leaf === q) score = 100;
+    else if (leaf.startsWith(q)) score = 80;
+    else if (leaf.includes(q)) score = 60;
+    else if (pathLower.includes(q)) score = 30;
+    if (score < 0) continue;
+    score -= Math.min(15, path.split('>').length); // 얕은 카테고리 소폭 가점
+    scored.push({ code, path, name: leafName, score });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  // 동일 경로 중복 제거
+  const seen = new Set<string>();
+  const out: { code: string; path: string; name: string }[] = [];
+  for (const s of scored) {
+    if (seen.has(s.path)) continue;
+    seen.add(s.path);
+    out.push({ code: s.code, path: s.path, name: s.name });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 /** leaf 이름(소문자) → 해당 leaf 가 등장하는 IndexEntry 들. lazy build. */
 function loadExactLeafMap(): Map<string, IndexEntry[]> {
   if (_exactLeafMap) return _exactLeafMap;

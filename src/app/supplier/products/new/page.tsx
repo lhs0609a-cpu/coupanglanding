@@ -6,6 +6,8 @@ import { Loader2, Plus, Trash2, RefreshCw, Save, Send, PackagePlus, Smartphone, 
 import type { SupplierCategoryMeta } from '@/lib/megaload/supplier/category-meta';
 import ImageGallery from '@/components/supplier/ImageGallery';
 import SupplierPhonePreview from '@/components/supplier/SupplierPhonePreview';
+import CategorySearchField from '@/components/supplier/CategorySearchField';
+import DetailEditor from '@/components/supplier/DetailEditor';
 
 interface OptionRow {
   option_name: string; supply_price: string; stock: string;
@@ -209,7 +211,15 @@ export default function SupplierProductNewPage() {
                     </p>
                   )}
                 </div>
-                <F label="카테고리 경로" v={f.category_path} on={(v) => set('category_path', v)} ph="예: 식품>농산물>감자" />
+                <CategorySearchField
+                  path={f.category_path}
+                  code={f.category_code}
+                  onSelect={(code, path) => {
+                    setF((p) => ({ ...p, category_code: code, category_path: path }));
+                    setCatConfidence(null);
+                    loadMeta(code);
+                  }}
+                />
                 <F label="원산지" v={f.origin} on={(v) => set('origin', v)} ph="예: 국내산(강원도)" />
                 <F label="브랜드" v={f.brand} on={(v) => set('brand', v)} ph="예: 메가로드팜" />
                 <F label="제조사" v={f.manufacturer} on={(v) => set('manufacturer', v)} ph="예: 메가로드팜" />
@@ -223,10 +233,8 @@ export default function SupplierProductNewPage() {
             </Card>
 
             {/* 상세페이지 */}
-            <Card title="상세페이지" desc="상품 설명 HTML. 이미지 태그·텍스트를 넣으면 오른쪽 폰 하단에 그대로 보입니다.">
-              <textarea value={f.detail_html} onChange={(e) => set('detail_html', e.target.value)} rows={5}
-                placeholder={'예: <img src="https://.../detail1.jpg"><p>신선한 국내산 감자를 산지에서 바로 보내드립니다.</p>'}
-                className="w-full bg-white/80 border border-gray-200/80 rounded-xl px-3.5 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:border-emerald-400" />
+            <Card title="상세페이지" desc="글은 그냥 쓰고, 상세 이미지는 통째로 끌어다 놓거나 Ctrl+V. 워드에서 복사해 붙여넣어도 됩니다.">
+              <DetailEditor html={f.detail_html} onChange={(h) => set('detail_html', h)} />
             </Card>
 
             {/* 동적 고시 */}
