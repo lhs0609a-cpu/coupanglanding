@@ -40,6 +40,8 @@ let tray = null;
 let store, comfy, runner, pair, ads, ollama;
 let installDir, comfyPort;
 let trayContribs = [];
+let installing = false;        // 엔진 설치 진행 중(자동·수동 중복 방지)
+let autoInstallDone = false;   // 이번 세션 자동설치 1회만 시도(실패 시 수동 버튼/앱 재시작으로 재시도)
 const stats = { processed: 0, ok: 0, fail: 0, current: null };
 
 const single = app.requestSingleInstanceLock();
@@ -72,16 +74,54 @@ async function startWorker() {
 }
 async function stopWorker() { await runner.stop(); updateTray(); }
 async function installEngine() {
-  await bootstrap.install({
-    installDir,
-    urls: {
-      comfyArchiveUrl: store.get('comfyArchiveUrl', bootstrap.DEFAULTS.comfyArchiveUrl),
-      modelUrl: store.get('modelUrl', bootstrap.DEFAULTS.modelUrl),
-    },
-    onProgress: (p) => send('thumbnail-gpu:install-progress', p),
-  });
+  if (installing) return;            // 자동/수동 중복 설치 방지
+  installing = true;
+  try {
+    await bootstrap.install({
+      installDir,
+      urls: {
+        comfyArchiveUrl: store.get('comfyArchiveUrl', bootstrap.DEFAULTS.comfyArchiveUrl),
+        modelUrl: store.get('modelUrl', bootstrap.DEFAULTS.modelUrl),
+      },
+      onProgress: (p) => send('thumbnail-gpu:install-progress', p),
+    });
+  } finally {
+    installing = false;
+  }
   autoStartIfReady();
 }
+
+/**
+ * 로그인(페어링) 직후 엔진을 백그라운드로 "한 번에" 자동 설치한다.
+ *   - 도우미를 깔면 AI 썸네일(ComfyUI·SDXL·누끼)·텍스트(ollama)까지 따로 안 누르고 자동 준비.
+ *   - NVIDIA GPU 없으면 SDXL(6.5GB)은 못 돌리므로 자동 다운로드 생략(낭비 방지) → 텍스트 엔진만.
+ *   - 세션당 1회만 시도. 실패 시 AI 썸네일 탭 "엔진 설치/확인"으로 수동 재시도 가능.
+ */
+async function autoInstallIfNeeded() {
+  if (autoInstallDone || installing || !runner.loggedIn) return;
+  if (await bootstrap.isInstalled(installDir)) return;
+  autoInstallDone = true;
+  try {
+    const gpu = await bootstrap.checkGpu();
+    if (!gpu.ok) {
+      send('thumbnail-gpu:comfy-log',
+        '[자동설치] NVIDIA GPU 미탐지 — AI 썸네일(ComfyUI/SDXL ~6.5GB)은 GPU가 필요해 자동설치를 생략합니다. ' +
+        '텍스트 엔진(ollama)만 준비합니다. GPU 장착 후 AI 썸네일 탭 "엔진 설치/확인"으로 받으세요.');
+      await bootstrap.ensureOllama({
+        installDir,
+        onProgress: (p) => send('allinone:log', `[ollama] ${p.detail || p.phase}${p.pct != null ? ' ' + p.pct + '%' : ''}`),
+      });
+      return;
+    }
+    send('thumbnail-gpu:comfy-log',
+      '[자동설치] 최초 1회 엔진 자동 설치 시작 — ComfyUI·SDXL·누끼 노드·ollama 를 한 번에 받습니다(수 GB, 백그라운드). ' +
+      '완료되면 AI 썸네일이 자동 시작됩니다.');
+    await installEngine(); // bootstrap.install(전체) → autoStartIfReady
+  } catch (e) {
+    send('thumbnail-gpu:comfy-log', '[자동설치] 실패 — AI 썸네일 탭 "엔진 설치/확인"으로 재시도하세요: ' + (e.message || e));
+  }
+}
+
 async function autoStartIfReady() {
   // 광고 자동화 옵트인 자동시작 — 로그인돼 있고 "자동 실행"을 켠 경우에만.
   // (썸네일 엔진 설치 여부와 무관하므로 아래 엔진 가드보다 먼저 시도)
@@ -93,7 +133,8 @@ async function autoStartIfReady() {
 
   try {
     if (runner.running || !runner.loggedIn) return;
-    if (!(await bootstrap.isInstalled(installDir))) return;
+    // 아직 엔진 미설치면 조용히 넘어가지 말고 백그라운드 자동설치를 킥(1회). 설치 끝나면 여기 다시 들어와 시작.
+    if (!(await bootstrap.isInstalled(installDir))) { void autoInstallIfNeeded(); return; }
     await startWorker();
     send('thumbnail-gpu:auto-started', true);
   } catch (e) {
