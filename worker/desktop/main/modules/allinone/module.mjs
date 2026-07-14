@@ -50,7 +50,12 @@ export default {
 
       child = spawn(process.execPath, args, {
         cwd: runtimeDir,
-        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+        env: {
+          ...process.env,
+          ELECTRON_RUN_AS_NODE: '1',
+          // CLIP(이미지인식) 모델 캐시 — BiRefNet 등과 같은 userData/hf-cache 공유(재다운로드 방지)
+          MEGALOAD_HF_CACHE: join(ctx.paths.userData, 'hf-cache'),
+        },
       });
 
       const handle = (buf) => {
@@ -58,7 +63,8 @@ export default {
           if (!line.trim()) continue;
           ctx.send('allinone:log', line);
           let m;
-          if ((m = line.match(/\[텍스트\s+(\d+)\/(\d+)\]/))) ctx.send('allinone:progress', { phase: 'text', done: +m[1], total: +m[2] });
+          if ((m = line.match(/\[인식\s+(\d+)\/(\d+)\]/))) ctx.send('allinone:progress', { phase: 'recognize', done: +m[1], total: +m[2] });
+          else if ((m = line.match(/\[텍스트\s+(\d+)\/(\d+)\]/))) ctx.send('allinone:progress', { phase: 'text', done: +m[1], total: +m[2] });
           else if ((m = line.match(/\[이미지\s+(\d+)\/(\d+)\]/))) ctx.send('allinone:progress', { phase: 'image', done: +m[1], total: +m[2] });
         }
       };

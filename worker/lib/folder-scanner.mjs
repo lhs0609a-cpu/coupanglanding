@@ -35,6 +35,16 @@ function collectImages(dir) {
   }
 }
 
+/** 상세이미지 폴더 후보 (웹 local-product-reader 와 동기화) — 존재하는 첫 폴더 채택 */
+const DETAIL_DIRS = ['detail_images', 'details', 'detail', 'detail-images', 'detailImages', '상세이미지', '상세 이미지', '상세', 'description_images'];
+function collectDetailImages(productPath) {
+  for (const name of DETAIL_DIRS) {
+    const imgs = collectImages(path.join(productPath, name));
+    if (imgs.length) return imgs;
+  }
+  return [];
+}
+
 /** product_summary.txt 에서 원본 상품 URL 추출 (웹 정규식과 동일) */
 function readSourceUrl(productPath) {
   const p = path.join(productPath, 'product_summary.txt');
@@ -103,8 +113,9 @@ export function scanFolder(rootDir) {
       features: deriveFeatures(pj),
       sourceUrl: readSourceUrl(productPath),
       sourcePrice: Number.isFinite(Number(pj.price)) ? Number(pj.price) : null,
-      mainImage: mainImages[0] || null,
-      mainImages,
+      mainImage: mainImages[0] || null,     // 기본값(이미지인식 전) — run-folder 인식 단계가 최적컷으로 교체
+      mainImages,                            // 대표 후보 전체(CLIP 선택 대상)
+      detailImages: collectDetailImages(productPath), // 상세페이지 후보(CLIP 큐레이션 대상)
       categoryPath: sourceCat.categoryPath || '', // LLM 카테고리 힌트(소싱 원본 분류)
       folderPath: productPath,
       productJson: pj,

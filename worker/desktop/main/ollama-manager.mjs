@@ -14,9 +14,10 @@ const HOST = '127.0.0.1:11434';
 const BASE = `http://${HOST}`;
 
 export class OllamaManager {
-  constructor(installDir, { model = 'exaone3.5:7.8b', onLog = () => {} } = {}) {
+  constructor(installDir, { model = 'exaone3.5:7.8b', embedModel = 'bge-m3', onLog = () => {} } = {}) {
     this.installDir = installDir;
     this.model = model;
+    this.embedModel = embedModel; // 카테고리 임베딩 매칭용 (없으면 카테고리 정확도 저하)
     this.onLog = onLog;
     this.proc = null;
   }
@@ -50,28 +51,37 @@ export class OllamaManager {
     } else {
       this.onLog('[ollama] 이미 실행 중');
     }
-    await this.ensureModel();
+    await this.ensureModel(this.model, '~5GB');
+    // 카테고리 임베딩 모델도 보장 — 없으면 임베딩 매처가 404 → 토큰매칭 저하(오분류).
+    if (this.embedModel) {
+      try {
+        await this.ensureModel(this.embedModel, '~1.2GB');
+      } catch (e) {
+        // 임베딩 모델은 실패해도 치명적 아님(토큰매칭 폴백) — 경고만.
+        this.onLog(`⚠️ 임베딩 모델(${this.embedModel}) 준비 실패 — 카테고리 정확도 저하 가능: ${e.message}`);
+      }
+    }
     return BASE;
   }
 
-  async hasModel() {
+  async hasModel(model = this.model) {
     try {
       const r = await fetch(`${BASE}/api/tags`);
       const d = await r.json();
       const names = (d.models || []).map((m) => m.name);
-      const family = this.model.split(':')[0];
-      return names.some((n) => n === this.model || n.startsWith(family + ':'));
+      const family = model.split(':')[0];
+      return names.some((n) => n === model || n.startsWith(family + ':'));
     } catch { return false; }
   }
 
   /** 모델이 없으면 /api/pull 스트리밍으로 받음(5% 단위 진행률 로그). */
-  async ensureModel() {
-    if (await this.hasModel()) { this.onLog(`[ollama] 모델 확인: ${this.model}`); return; }
-    this.onLog(`[ollama] 모델 다운로드 시작: ${this.model} (~5GB, 최초 1회)`);
+  async ensureModel(model = this.model, sizeHint = '') {
+    if (await this.hasModel(model)) { this.onLog(`[ollama] 모델 확인: ${model}`); return; }
+    this.onLog(`[ollama] 모델 다운로드 시작: ${model}${sizeHint ? ` (${sizeHint}, 최초 1회)` : ''}`);
     const res = await fetch(`${BASE}/api/pull`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: this.model, stream: true }),
+      body: JSON.stringify({ name: model, stream: true }),
     });
     if (!res.ok || !res.body) throw new Error(`모델 pull 실패 HTTP ${res.status}`);
     const reader = res.body.getReader();
@@ -90,14 +100,14 @@ export class OllamaManager {
         if (o.error) throw new Error(`모델 pull 오류: ${o.error}`);
         if (o.total && o.completed != null) {
           const pct = Math.floor((o.completed / o.total) * 100);
-          if (pct !== lastPct && pct % 5 === 0) { this.onLog(`[ollama] 모델 ${pct}%`); lastPct = pct; }
+          if (pct !== lastPct && pct % 5 === 0) { this.onLog(`[ollama] ${model} ${pct}%`); lastPct = pct; }
         } else if (o.status) {
           this.onLog(`[ollama] ${o.status}`);
         }
       }
     }
-    if (!(await this.hasModel())) throw new Error('모델 pull 후에도 모델이 확인되지 않습니다.');
-    this.onLog(`✅ ollama 모델 준비: ${this.model}`);
+    if (!(await this.hasModel(model))) throw new Error(`모델 pull 후에도 모델이 확인되지 않습니다: ${model}`);
+    this.onLog(`✅ ollama 모델 준비: ${model}`);
   }
 
   async stop() {

@@ -65,7 +65,7 @@ const ok = (name, pass, detail = '') => results.push({ name, pass, detail });
 // ── 3) runtime 필수 파일 ──
 {
   const need = ['supabase-rest.mjs', 'pull-loop.mjs', 'llm-pull-loop.mjs', 'comfyui-client.mjs',
-    'ai-prompts.mjs', 'local-llm.mjs', 'category-embed-matcher.mjs'];
+    'ai-prompts.mjs', 'local-llm.mjs', 'category-embed-matcher.mjs', 'output-quality.mjs', 'image-selector.mjs'];
   const missing = need.filter((f) => !existsSync(join(appDir, 'runtime', f)));
   ok('runtime 필수 파일', missing.length === 0, missing.length ? `누락: ${missing.join(', ')}` : '');
 }

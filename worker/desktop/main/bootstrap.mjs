@@ -25,6 +25,9 @@ export const DEFAULTS = {
   // run-folder.mjs 기본 모델과 일치시켜 모델 불일치(미보유) 방지.
   ollamaZipUrl: 'https://github.com/ollama/ollama/releases/latest/download/ollama-windows-amd64.zip',
   ollamaModel: 'exaone3.5:7.8b',
+  // 카테고리 의미매칭 임베딩 모델. cat-embeddings.meta.json 이 이 모델로 빌드됨 —
+  // 미설치면 임베딩 매처가 404 → 토큰매칭으로 조용히 저하(카테고리 오분류). 반드시 함께 pull.
+  ollamaEmbedModel: 'bge-m3',
 };
 
 const exists = (p) => stat(p).then(() => true, () => false);

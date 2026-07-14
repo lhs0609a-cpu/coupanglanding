@@ -35,10 +35,11 @@ import { generateBatch } from './lib/ai-batch.mjs';
 import { resolveMarginLevel, presetBrackets } from './lib/margin-mini.mjs';
 import { makeThumbnailProcessor } from './lib/thumbnail-batch.mjs';
 import { buildReviewHtml } from './lib/review-html.mjs';
+import { selectBestMainImage, curateDetailImages } from './lib/image-selector.mjs';
 
 function parseArgs(argv) {
   const a = { _: [] };
-  const flags = new Set(['no-thumb', 'thumb-force']);
+  const flags = new Set(['no-thumb', 'thumb-force', 'no-image-ai']);
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i];
     if (!t.startsWith('--')) { a._.push(t); continue; }
@@ -78,6 +79,32 @@ async function main() {
   if (cli.limit) products = products.slice(0, Number(cli.limit));
   if (products.length === 0) { console.error('❌ product_* 폴더를 찾지 못했습니다.'); process.exit(1); }
   console.log(`[${ts()}] 상품 ${products.length}개 발견`);
+
+  // ── Phase 0) 이미지 인식 (CLIP·CPU) — 대표컷 자동추천 + 상세이미지 큐레이션 ─────────
+  //   CPU에서 도는 CLIP이라 ollama(GPU)와 VRAM 경합 없음 → 텍스트 생성 전에 먼저 처리.
+  //   transformers.js 미탑재(standalone CLI 등)면 selectBestMainImage 가 조용히 첫컷 폴백.
+  if (!cli['no-image-ai']) {
+    console.log(`[${ts()}] [이미지인식] 대표컷 선택 + 상세이미지 큐레이션 시작`);
+    const onLog = (m) => console.log(`[${ts()}] ${m}`);
+    let clipOff = false;
+    for (let i = 0; i < products.length; i++) {
+      const p = products[i];
+      if (clipOff) { p.mainImageRanked = null; p.detailImagesKept = p.detailImages || []; continue; }
+      const main = await selectBestMainImage(p.mainImages || (p.mainImage ? [p.mainImage] : []), { onLog });
+      if (main.method === 'fallback-first') { clipOff = true; console.log(`[${ts()}] [이미지인식] CLIP 미탑재 — 첫컷 폴백(${main.error})`); }
+      if (main.path) p.mainImage = main.path;             // 최적 대표컷으로 교체
+      p.mainImageRanked = main.ranked;
+      const det = await curateDetailImages(p.detailImages || [], { onLog });
+      p.detailImagesKept = det.kept.map((k) => k.path);
+      p.detailDropped = det.dropped.length;
+      const pickIco = main.method === 'clip' ? '🎯' : '·';
+      const detNote = (p.detailImages || []).length ? ` · 상세 ${p.detailImagesKept.length}/${p.detailImages.length}컷(광고 ${det.dropped.length} 제외)` : '';
+      console.log(`[${ts()}][인식 ${i + 1}/${products.length}] ${pickIco} 대표=${path.basename(p.mainImage || '-')}${main.method === 'clip' && main.ranked[0]?.score != null ? ` (점수 ${main.ranked[0].score})` : ''}${detNote}`);
+    }
+  } else {
+    console.log(`[${ts()}] [이미지인식] 생략(--no-image-ai) — 첫컷/원본 상세 유지`);
+    for (const p of products) { p.detailImagesKept = p.detailImages || []; p.mainImageRanked = null; }
+  }
 
   // ── Phase A) 전체 텍스트 생성 (ollama 가 GPU 점유) ───────────────────────
   //   ⚠️ 16GB GPU 를 ollama·ComfyUI 가 동시에 쓰면 VRAM 경합으로 둘 다 느려진다.

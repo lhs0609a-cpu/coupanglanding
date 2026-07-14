@@ -18,8 +18,13 @@ export function toDisplaySrc(p) {
 
 /** @param {Object[]} records @param {Object} summary @returns {string} HTML */
 export function buildReviewHtml(records, summary) {
-  // 표시용 mainImage 를 file:/// 로 정규화한 사본
-  const view = records.map((r) => ({ ...r, mainImage: toDisplaySrc(r.mainImage) }));
+  // 표시용 로컬 경로(mainImage·상세컷)를 file:/// 로 정규화한 사본
+  const view = records.map((r) => ({
+    ...r,
+    mainImage: toDisplaySrc(r.mainImage),
+    detailImages: (r.detailImages || []).map(toDisplaySrc),
+    mainScore: r.mainImageRanked && r.mainImageRanked[0] ? r.mainImageRanked[0].score : null,
+  }));
   const data = JSON.stringify(view).replace(/</g, '\\u003c');
   const s = summary || { total: records.length, ok: 0, needsReview: 0, avgMs: 0, candidateSource: '-' };
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8">
@@ -41,7 +46,12 @@ export function buildReviewHtml(records, summary) {
  a.link{font-size:12px;color:#0a7;word-break:break-all}
  .detail{display:none;white-space:pre-wrap;font-size:13px;line-height:1.6;background:#fafafa;border:1px solid #eee;border-radius:6px;padding:10px;margin-top:6px;max-height:340px;overflow:auto}
  .flag{font-size:11px;background:#f5a623;color:#fff;border-radius:4px;padding:1px 6px}
+ .reason{font-size:11px;color:#c0392b;margin-top:3px;line-height:1.4}
  .imgflag{font-size:10px;color:#0a7}.imgwarn{font-size:10px;color:#c60}
+ .pick{font-size:10px;color:#346aff;font-weight:600}
+ .dstrip{display:flex;gap:4px;overflow-x:auto;padding:2px 0}
+ .dimg{width:52px;height:52px;object-fit:cover;border-radius:5px;background:#eee;flex:0 0 52px;border:1px solid #eee}
+ .dlabel{font-size:11px;color:#888;margin-top:2px}
  label.appr{font-size:13px;display:flex;gap:6px;align-items:center}
 </style></head><body>
 <header>
@@ -61,6 +71,10 @@ R.forEach((r,i)=>{
   const opts = (r.options||[]).map(o=>'<span class=opt>'+esc(o.name)+': '+esc(o.value)+(o.unit?esc(o.unit):'')+'</span>').join('');
   const kw = (r.keywords||[]).map(esc).join(', ');
   const imgTag = r.thumbProcessed===true?'<div class=imgflag>✓ AI 가공 대표</div>':(r.thumbProcessed===false?'<div class=imgwarn>· 원본 사진(가공 폴백)</div>':'');
+  const pickTag = (r.mainScore!=null)?'<div class=pick>🎯 대표 자동선택 (적합도 '+r.mainScore+')</div>':'';
+  const dstrip = (r.detailImages&&r.detailImages.length)
+    ? '<div class=dlabel>상세페이지 이미지 '+r.detailImages.length+'컷 (광고/비상품 자동 제외)</div><div class=dstrip>'+r.detailImages.map(s=>'<img class=dimg src="'+esc(s)+'">').join('')+'</div>'
+    : '';
   const el = document.createElement('div');
   el.className='card'+(r.needsReview?' review':'');
   el.innerHTML =
@@ -69,11 +83,13 @@ R.forEach((r,i)=>{
      '<div style="flex:1;min-width:0">'+
        (r.needsReview?'<span class=flag>검수필요</span> ':'')+
        '<div class=name>'+esc(r.displayName)+'</div>'+
-       '<div class=cat>'+esc(r.categoryPath)+(r.categoryCode?' ['+esc(r.categoryCode)+']':'')+'</div>'+
+       '<div class=cat>'+esc(r.categoryPath)+(r.categoryCode?' ['+esc(r.categoryCode)+']':'<span style="color:#c0392b"> [코드없음]</span>')+'</div>'+
+       ((r.qualityIssues&&r.qualityIssues.length)?'<div class=reason>⚠ '+r.qualityIssues.map(esc).join(' · ')+'</div>':'')+
        '<div><span class=price>'+won(r.sellingPrice)+'</span> '+(r.sourcePrice?'<span class=src>'+won(r.sourcePrice)+'</span>':'')+'</div>'+
-       imgTag+
+       imgTag+pickTag+
      '</div>'+
    '</div>'+
+   dstrip+
    '<div>'+opts+'</div>'+
    '<div class=kw>키워드: '+esc(kw)+'</div>'+
    (r.sourceUrl?'<a class=link href="'+esc(r.sourceUrl)+'" target=_blank>원본: '+esc(r.sourceUrl)+'</a>':'')+

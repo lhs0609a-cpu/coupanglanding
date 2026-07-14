@@ -108,7 +108,11 @@ function setupServices() {
   installDir = join(userData, 'engine');
   comfyPort = store.get('comfyPort', 8188);
   comfy = new ComfyManager(installDir, { port: comfyPort, onLog: (m) => send('thumbnail-gpu:comfy-log', m) });
-  ollama = new OllamaManager(installDir, { model: store.get('ollamaModel', bootstrap.DEFAULTS.ollamaModel), onLog: (m) => send('allinone:log', m) });
+  ollama = new OllamaManager(installDir, {
+    model: store.get('ollamaModel', bootstrap.DEFAULTS.ollamaModel),
+    embedModel: store.get('ollamaEmbedModel', bootstrap.DEFAULTS.ollamaEmbedModel),
+    onLog: (m) => send('allinone:log', m),
+  });
   runner = new WorkerRunner(userData, { onEvent: onWorkerEvent });
   ads = new AdRunner({ getSession: () => runner.session, onEvent: (e) => send('ads:event', e) });
 }

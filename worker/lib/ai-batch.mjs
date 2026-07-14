@@ -11,11 +11,22 @@ import { topCandidates } from './category-candidates-mini.mjs';
 import { topCandidatesEmbed, isBuilt as embedBuilt } from './category-embed-matcher.mjs';
 import { calculateSellingPrice } from './margin-mini.mjs';
 
+/**
+ * 카테고리 후보 — 임베딩(bge-m3) 우선, 실패/미설치 시 토큰 매칭 폴백.
+ * @returns {Promise<{cands:Array, source:'embedding'|'token'|'token(embed-unavailable)'}>}
+ */
 async function candidatesFor(name, k) {
   if (embedBuilt()) {
-    try { const c = await topCandidatesEmbed(name, k); if (c.length) return c; } catch { /* fallback */ }
+    try {
+      const c = await topCandidatesEmbed(name, k);
+      if (c.length) return { cands: c, source: 'embedding' };
+      return { cands: topCandidates(name, k), source: 'token' };
+    } catch {
+      // 인덱스는 빌드됐지만 임베딩 모델(bge-m3) 미설치/오류 → 토큰 폴백(정확도 저하)
+      return { cands: topCandidates(name, k), source: 'token(embed-unavailable)' };
+    }
   }
-  return topCandidates(name, k);
+  return { cands: topCandidates(name, k), source: 'token' };
 }
 
 /**
@@ -31,11 +42,13 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
   if (!model) throw new Error('[ai-batch] model 필요');
   const records = [];
   let ok = 0, review = 0, totalMs = 0;
+  const sourceCounts = {};
   const t0 = Date.now();
   for (let i = 0; i < products.length; i++) {
     const p = products[i];
     const seed = `${sellerId}:${p.id || p.originalName}`;
-    const cands = await candidatesFor(p.originalName, 8);
+    const { cands, source } = await candidatesFor(p.originalName, 8);
+    sourceCounts[source] = (sourceCounts[source] || 0) + 1;
     const r = await generateAllFields(p, { model, personaSeed: seed, categoryCandidates: cands, maxDetailTokens });
     const sellingPrice = marginBrackets ? calculateSellingPrice(p.sourcePrice, marginBrackets) : calculateSellingPrice(p.sourcePrice);
     const rec = {
@@ -46,6 +59,8 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
       sourcePrice: p.sourcePrice ?? null,
       sellingPrice,                       // 마진 계산 판매가
       mainImage: p.mainImage ?? (Array.isArray(p.mainImages) ? p.mainImages[0] : null),
+      mainImageRanked: p.mainImageRanked ?? null,                 // CLIP 대표컷 랭킹(검수 표시용)
+      detailImages: Array.isArray(p.detailImagesKept) ? p.detailImagesKept : (p.detailImages || []), // 큐레이션된 상세컷
       // AI 생성 필드
       displayName: r.displayName,
       keywords: r.keywords,
@@ -55,6 +70,9 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
       detail: r.detail,
       persona: r.persona,
       needsReview: r.needsReview,
+      qualityIssues: r.qualityIssues || [],
+      displaySalvaged: !!r.displaySalvaged,
+      categoryWeak: !!r.categoryWeak,
       compliance: r.compliance,
       ms: r.timings.totalMs,
     };
@@ -70,7 +88,13 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
       total: products.length, ok, needsReview: review,
       avgMs: products.length ? Math.round(totalMs / products.length) : 0,
       wallMs: Date.now() - t0,
-      candidateSource: embedBuilt() ? 'embedding' : 'token',
+      // 파일 존재가 아니라 "실제로 어떤 후보 소스를 썼는지" 집계로 보고
+      candidateSource: (() => {
+        const keys = Object.keys(sourceCounts);
+        if (keys.length === 1) return keys[0];
+        return keys.map((k) => `${k}:${sourceCounts[k]}`).join(', ');
+      })(),
+      candidateSourceCounts: sourceCounts,
     },
   };
 }

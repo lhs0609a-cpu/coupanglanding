@@ -8,6 +8,17 @@
 import { generate, parseJsonLoose } from './local-llm.mjs';
 import { pickPersona, buildTitlePrompt, buildCategoryPrompt, buildDetailPrompt, buildOptionsPrompt } from './ai-prompts.mjs';
 import { checkMini } from './compliance-mini.mjs';
+import { checkDisplayName, checkDetail, sanitizeOptions, salvageDisplayName, hasForeignCJK } from './output-quality.mjs';
+
+/** 파싱 실패/빈 키워드 대비 — 원본명·특징에서 검색 키워드 폴백 도출 */
+function deriveKeywords(product) {
+  const toks = String(product.originalName || '')
+    .split(/[\s,/·]+/)
+    .map((t) => t.replace(/[^가-힣a-zA-Z0-9]/g, '').trim())
+    .filter((t) => t.length >= 2 && !hasForeignCJK(t));
+  const feats = (product.features || []).filter((f) => typeof f === 'string' && !hasForeignCJK(f));
+  return [...new Set([...feats, ...toks])].slice(0, 5);
+}
 
 const AVOID = (violations) =>
   violations.length ? `\n\n[재작성] 다음 표현은 법적 위반이라 절대 쓰지 말 것: ${violations.join(', ')}. 같은 의미도 우회 금지.` : '';
@@ -61,10 +72,21 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   const ctx = product.categoryPath || '';
   const t0 = Date.now();
 
-  // 1) 노출상품명/제목
+  // 1) 노출상품명/제목 — 파싱 실패 시 원문을 그대로 저장하지 않고 복구(원문 누출 방지)
   const tp = buildTitlePrompt(product, persona);
   const titleRaw = await genText({ model, ...tp, ctx });
   const titleJson = parseJsonLoose(titleRaw.text) || {};
+  let displayName = typeof titleJson.displayName === 'string' ? titleJson.displayName.trim() : '';
+  let displaySalvaged = false;
+  if (!displayName || !checkDisplayName(displayName).ok) {
+    displayName = salvageDisplayName(titleJson.displayName || titleRaw.text, product.originalName);
+    displaySalvaged = true;
+  }
+  const dnCheck = checkDisplayName(displayName);
+  let keywords = Array.isArray(titleJson.keywords)
+    ? titleJson.keywords.filter((k) => typeof k === 'string' && k.trim() && !hasForeignCJK(k)).map((k) => k.trim())
+    : [];
+  if (keywords.length === 0) keywords = deriveKeywords(product);
 
   // 2) 카테고리 — 후보 path 로 프롬프트, 결과는 실제 후보 코드로 강제 매핑
   const candObjs = (categoryCandidates || []).map((c) => (typeof c === 'string' ? { code: null, path: c } : c));
@@ -73,33 +95,48 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   const catJson = parseJsonLoose(catRaw.text) || {};
   const snapped = snapToCandidate(catJson.categoryPath || catRaw.text, candObjs);
 
-  // 3) 옵션
+  // 3) 옵션 — 외국어 필드/중복명 제거(쿠팡 옵션 정합성)
   const op = buildOptionsPrompt(product);
   const optRaw = await genText({ model, ...op, ctx });
   const optJson = parseJsonLoose(optRaw.text) || {};
-  const options = Array.isArray(optJson.options) ? optJson.options.filter((o) => o && o.name && o.value) : [];
+  const optSan = sanitizeOptions(optJson.options);
+  const options = optSan.options;
 
   // 4) 상세페이지
   const dp = buildDetailPrompt(product, persona, { maxTokens: maxDetailTokens });
   const detailRaw = await genText({ model, ...dp, ctx });
+  const detailCheck = checkDetail(detailRaw.text, { minLen: 200 });
 
   const totalMs = Date.now() - t0;
   const fields = { title: titleRaw, category: catRaw, detail: detailRaw };
-  const allOk = Object.values(fields).every((f) => f.ok);
-  const totalTokens = Object.values(fields).reduce((s, f) => s + (f.evalCount || 0), 0);
+  const complianceOk = Object.values(fields).every((f) => f.ok);
+
+  // 품질 사유 집계 — compliance(법적 금지어) + 품질(외국어·누출·약매칭)
+  const qualityIssues = [
+    ...dnCheck.issues,
+    ...(displaySalvaged ? ['노출명 원문복구'] : []),
+    ...detailCheck.issues,
+    ...optSan.issues,
+    ...(!snapped.code ? ['카테고리 코드없음'] : []),
+    ...(snapped.weak ? ['카테고리 약매칭(폴백)'] : []),
+  ];
+  const needsReview = !complianceOk || qualityIssues.length > 0;
 
   return {
     persona: persona.key,
-    displayName: titleJson.displayName || titleRaw.text,
-    keywords: titleJson.keywords || [],
+    displayName,
+    displaySalvaged,
+    keywords,
     categoryCode: snapped.code,
     categoryPath: snapped.path,
     categoryLlmRaw: catJson.categoryPath || catRaw.text,
     categorySnapped: snapped.snapped,
+    categoryWeak: !!snapped.weak,
     categoryConfidence: catJson.confidence ?? null,
     detail: detailRaw.text,
     options,
-    compliance: { ok: allOk, byField: {
+    qualityIssues,
+    compliance: { ok: complianceOk, byField: {
       title: titleRaw.violations, category: catRaw.violations, detail: detailRaw.violations,
     } },
     timings: {
@@ -107,6 +144,6 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
       titleMs: titleRaw.ms, categoryMs: catRaw.ms, detailMs: detailRaw.ms,
       tokPerSec: { title: titleRaw.tokPerSec, category: catRaw.tokPerSec, detail: detailRaw.tokPerSec },
     },
-    needsReview: !allOk,
+    needsReview,
   };
 }
