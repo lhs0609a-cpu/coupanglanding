@@ -89,13 +89,15 @@ async function main() {
     let clipOff = false;
     for (let i = 0; i < products.length; i++) {
       const p = products[i];
-      if (clipOff) { p.mainImageRanked = null; p.detailImagesKept = p.detailImages || []; continue; }
+      if (clipOff) { p.mainImageRanked = null; p.detailImagesKept = p.detailImages || []; p.detailDroppedNames = []; continue; }
       const main = await selectBestMainImage(p.mainImages || (p.mainImage ? [p.mainImage] : []), { onLog });
       if (main.method === 'fallback-first') { clipOff = true; console.log(`[${ts()}] [이미지인식] CLIP 미탑재 — 첫컷 폴백(${main.error})`); }
       if (main.path) p.mainImage = main.path;             // 최적 대표컷으로 교체
       p.mainImageRanked = main.ranked;
       const det = await curateDetailImages(p.detailImages || [], { onLog });
       p.detailImagesKept = det.kept.map((k) => k.path);
+      // CLIP 이 광고/배송/리뷰컷으로 판단해 버린 파일명 — 웹 등록이 스캔한 상세이미지에서 정확히 이것만 제외한다.
+      p.detailDroppedNames = det.dropped.map((d) => path.basename(d.path));
       p.detailDropped = det.dropped.length;
       const pickIco = main.method === 'clip' ? '🎯' : '·';
       const detNote = (p.detailImages || []).length ? ` · 상세 ${p.detailImagesKept.length}/${p.detailImages.length}컷(광고 ${det.dropped.length} 제외)` : '';
@@ -103,7 +105,7 @@ async function main() {
     }
   } else {
     console.log(`[${ts()}] [이미지인식] 생략(--no-image-ai) — 첫컷/원본 상세 유지`);
-    for (const p of products) { p.detailImagesKept = p.detailImages || []; p.mainImageRanked = null; }
+    for (const p of products) { p.detailImagesKept = p.detailImages || []; p.mainImageRanked = null; p.detailDroppedNames = []; }
   }
 
   // ── Phase A) 전체 텍스트 생성 (ollama 가 GPU 점유) ───────────────────────

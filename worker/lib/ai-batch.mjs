@@ -59,8 +59,9 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
       sourcePrice: p.sourcePrice ?? null,
       sellingPrice,                       // 마진 계산 판매가
       mainImage: p.mainImage ?? (Array.isArray(p.mainImages) ? p.mainImages[0] : null),
-      mainImageRanked: p.mainImageRanked ?? null,                 // CLIP 대표컷 랭킹(검수 표시용)
-      detailImages: Array.isArray(p.detailImagesKept) ? p.detailImagesKept : (p.detailImages || []), // 큐레이션된 상세컷
+      mainImageRanked: p.mainImageRanked ?? null,                 // CLIP 대표컷 랭킹(웹 재정렬·검수 표시용)
+      detailImages: Array.isArray(p.detailImagesKept) ? p.detailImagesKept : (p.detailImages || []), // 큐레이션된 상세컷(kept)
+      detailDroppedNames: Array.isArray(p.detailDroppedNames) ? p.detailDroppedNames : [], // CLIP 이 버린 상세컷 파일명(웹이 정확히 제외)
       // AI 생성 필드
       displayName: r.displayName,
       keywords: r.keywords,

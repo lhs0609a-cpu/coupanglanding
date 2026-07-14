@@ -37,6 +37,12 @@ interface GenRecord {
   sourcePrice: number | null;
   sellingPrice: number | null;
   mainImage: string | null;
+  /** CLIP 대표컷 랭킹(점수 내림차순) — 웹이 대표후보를 이 순서로 재정렬(ComfyUI 미가동이어도 AI 선택 유지) */
+  mainImageRanked?: { path: string; score: number | null }[] | null;
+  /** CLIP 이 유지한 상세컷 절대경로(참고용) */
+  detailImages?: string[];
+  /** CLIP 이 광고/배송/리뷰컷으로 버린 상세 파일명 — 웹이 스캔한 상세이미지에서 정확히 이것만 제외 */
+  detailDroppedNames?: string[];
   displayName: string;
   keywords: string[];
   categoryCode: string | null;
@@ -71,8 +77,12 @@ interface Row {
   gen: GenRecord | null;
   /** 사용자가 카드에서 수정한 등록값(초기값 = gen 복제) */
   edit: RowEdit;
-  /** 대표이미지: 워커 가공본(main_images_regen) 우선, 없으면 원본 main_images */
+  /** 대표이미지: 워커 가공본(main_images_regen) 우선, 없으면 CLIP 랭킹순으로 재정렬한 원본 main_images */
   mainImages: ScannedImageFile[];
+  /** 상세이미지: CLIP 이 버린 광고/배송/리뷰컷을 제외한 상세컷(등록 업로드 대상) */
+  detailImages: ScannedImageFile[];
+  /** 대표컷이 CLIP(AI) 판단으로 선택/재정렬됐는지(뱃지 표시용) */
+  mainAiPicked: boolean;
   usingRegen: boolean;
   approved: boolean;
   status: RowStatus;
@@ -152,6 +162,57 @@ function presetPrice(g: GenRecord | null, level: MarginPresetLevel | null): numb
   if (level == null) return g.sellingPrice;
   if (!g.sourcePrice || g.sourcePrice <= 0) return g.sellingPrice;
   return calculateSellingPrice(g.sourcePrice, applyMarginPreset(level));
+}
+
+/** 절대경로/파일명 → 파일명(basename). 워커는 절대경로, 웹 스캐너는 파일명만 가지므로 이걸로 매칭. */
+function basename(p: string): string {
+  return (p || '').split(/[\\/]/).pop() || p || '';
+}
+
+/**
+ * 대표후보를 CLIP(AI) 랭킹 순으로 재정렬 — 최적컷이 첫 장(=쿠팡 대표)이 되게 한다.
+ * ComfyUI 가공본(regen)이 없을 때만 의미. 랭킹 없으면(구 jsonl·CLIP 미탑재) 원본 순서 유지.
+ * @returns {images, picked} picked=AI 판단으로 순서가 정해졌는지
+ */
+function reorderMainByClip(
+  scanned: ScannedImageFile[],
+  gen: GenRecord | null,
+): { images: ScannedImageFile[]; picked: boolean } {
+  if (!gen || scanned.length < 2) return { images: scanned, picked: false };
+  const rank = new Map<string, number>();
+  if (Array.isArray(gen.mainImageRanked) && gen.mainImageRanked.length > 0) {
+    // 점수 유효(=실제 CLIP 분류)한 항목이 있어야 AI 선택으로 인정. 전부 null 이면 폴백(원본순).
+    const scored = gen.mainImageRanked.some((r) => r.score != null);
+    if (!scored) return { images: scanned, picked: false };
+    gen.mainImageRanked.forEach((r, i) => rank.set(basename(r.path), i));
+  } else if (gen.mainImage) {
+    rank.set(basename(gen.mainImage), -1); // 단일 최적컷만 아는 경우 — 그 컷을 맨 앞으로
+  } else {
+    return { images: scanned, picked: false };
+  }
+  const idxOf = (n: string) => (rank.has(n) ? (rank.get(n) as number) : Number.MAX_SAFE_INTEGER);
+  const ordered = scanned
+    .map((img, i) => ({ img, i }))
+    .sort((a, b) => {
+      const ra = idxOf(a.img.name), rb = idxOf(b.img.name);
+      return ra !== rb ? ra - rb : a.i - b.i; // 안정 정렬(동순위는 원본 순서)
+    })
+    .map((x) => x.img);
+  const changed = ordered.some((img, i) => img !== scanned[i]);
+  return { images: ordered, picked: changed };
+}
+
+/**
+ * 상세이미지에서 CLIP 이 버린 광고/배송/리뷰컷만 정확히 제외.
+ * 워커가 준 detailDroppedNames(버린 파일명)만 뺀다 — 워커가 못 본 이미지(리뷰/대표오버플로 폴백)는 보존.
+ * 전부 걸러지면(파일명 불일치 등) 원본 유지(안전 우선).
+ */
+function applyDetailCuration(scanned: ScannedImageFile[], gen: GenRecord | null): ScannedImageFile[] {
+  if (!gen) return scanned;
+  const dropped = new Set((gen.detailDroppedNames || []).map(basename));
+  if (dropped.size === 0) return scanned;
+  const filtered = scanned.filter((img) => !dropped.has(img.name));
+  return filtered.length > 0 ? filtered : scanned;
 }
 
 /** product_<코드> 폴더의 main_images_regen 을 ScannedImageFile[] 로 읽기(페이지 로컬 — 공용 스캐너 무수정) */
@@ -303,9 +364,16 @@ export default function AllInOneRegisterPanel() {
       for (const sp of products) {
         const gen = genMap.get(sp.productCode) || null;
         const regen = await readRegenImages(sp.dirHandle);
-        const mainImages = regen.length > 0 ? regen : (sp.mainImages || []);
+        const usingRegen = regen.length > 0;
+        // 대표: 가공본(regen)이 있으면 그게 이미 CLIP 최적컷의 가공 결과. 없으면 원본을 CLIP 랭킹순 재정렬.
+        const reordered = usingRegen
+          ? { images: regen, picked: true }
+          : reorderMainByClip(sp.mainImages || [], gen);
+        const mainImages = reordered.images;
+        // 상세: CLIP 이 광고/배송/리뷰컷으로 버린 파일명만 제외(핸들 유지 → 등록 업로드 가능).
+        const detailImages = applyDetailCuration(sp.detailImages || [], gen);
         // 썸네일 표시용 objectURL 보장 — 공용 스캐너는 main_images 를 lazy(objectUrl 미생성)로 읽으므로
-        // 가공본(regen)이 없는 상품은 첫 장 URL 을 즉시 만들어야 카드 썸네일이 보인다.
+        // 가공본(regen)이 없는 상품은 (재정렬 후) 첫 장 URL 을 즉시 만들어야 카드 썸네일이 보인다.
         if (mainImages[0] && !mainImages[0].objectUrl) {
           await ensureObjectUrl(mainImages[0]);
         }
@@ -318,7 +386,9 @@ export default function AllInOneRegisterPanel() {
           gen,
           edit,
           mainImages,
-          usingRegen: regen.length > 0,
+          detailImages,
+          mainAiPicked: reordered.picked,
+          usingRegen,
           approved: isEligible(edit) && !gen?.needsReview,
           status: 'idle',
         });
@@ -452,9 +522,9 @@ export default function AllInOneRegisterPanel() {
             .map((o) => `${o.name} ${o.value}${o.unit || ''}`.trim())
             .filter(Boolean);
           const wm = sellerBrandRef.current;
-          // 이미지 업로드: 대표(가공본 우선) + 상세/리뷰/정보
+          // 이미지 업로드: 대표(가공본 우선·CLIP 랭킹 첫장) + 상세(CLIP 큐레이션) + 리뷰/정보
           const mainUrls = (await uploadScannedImages(r.mainImages, 10, wm)).filter(Boolean);
-          const detailUrls = (await uploadScannedImages(r.scanned.detailImages || [], 10, wm)).filter(Boolean);
+          const detailUrls = (await uploadScannedImages(r.detailImages, 10, wm)).filter(Boolean);
           const reviewUrls = (await uploadScannedImages(r.scanned.reviewImages || [], 10, wm)).filter(Boolean);
           const infoUrls = (await uploadScannedImages(r.scanned.infoImages || [], 10, wm)).filter(Boolean);
 
@@ -645,6 +715,10 @@ export default function AllInOneRegisterPanel() {
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-center gap-1 flex-wrap">
                     {r.usingRegen && <span className="text-[10px] text-emerald-600 font-medium">AI 가공 대표</span>}
+                    {!r.usingRegen && r.mainAiPicked && <span className="text-[10px] text-emerald-600 font-medium">AI 선택 대표</span>}
+                    {(g?.detailDroppedNames?.length ?? 0) > 0 && (
+                      <span className="text-[10px] text-gray-400">상세 광고 {g!.detailDroppedNames!.length}컷 제외</span>
+                    )}
                     {g?.needsReview && <span className="text-[10px] bg-amber-400 text-white rounded px-1">검수필요</span>}
                     {!g && <span className="text-[10px] bg-gray-400 text-white rounded px-1">워커결과 없음</span>}
                     {r.status === 'success' && <span className="text-[10px] bg-green-500 text-white rounded px-1">등록완료</span>}
