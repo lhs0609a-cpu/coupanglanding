@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 
 /**
  * 메가로드 도우미(데스크탑 앱) 연결 표시등 — 항상 표시.
- * 앱이 로그인 상태면 30초마다 하트비트를 보내고, 웹은 90초 내 하트비트로 online 판정.
+ * 연결 방식 2가지 모두 하트비트로 online 판정(서버 worker-status, megaload_worker_heartbeats):
+ *   - 세션(로그인/페어링): 셸이 30초마다  · 토큰(인증코드): 품절 모니터가 매 틱(≤2분) 서버 호출 시
  *   🟢 연결됨 / 🔴 미연결 / ⚪ 확인 중
  */
 export default function DesktopStatusIndicator() {

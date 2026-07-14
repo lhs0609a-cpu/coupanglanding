@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
+import { touchTokenWorkerHeartbeat } from '@/lib/megaload/desktop-heartbeat';
 
 export const maxDuration = 60;
 
@@ -57,11 +58,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'max 100 results per request' }, { status: 400 });
   }
 
-  // heartbeat 갱신
+  // heartbeat 갱신 — (1) 대시보드 "마지막 접속"용 컬럼 (2) 좌측 상단 배지가 읽는 워커 하트비트 테이블
   await serviceClient
     .from('megaload_users')
     .update({ desktop_app_last_heartbeat: new Date().toISOString() })
     .eq('id', shUserId);
+  await touchTokenWorkerHeartbeat(serviceClient, shUserId);
 
   let updated = 0;
   let skipped = 0;

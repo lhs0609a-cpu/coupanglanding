@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
+import { touchTokenWorkerHeartbeat } from '@/lib/megaload/desktop-heartbeat';
 import crypto from 'node:crypto';
 
 export const maxDuration = 30;
@@ -141,12 +142,15 @@ export async function GET(request: NextRequest) {
   }
 
   // 영구 토큰 — 별도 만료 검사 없음. (도난 시 사용자가 web 에서 명시적 폐기.)
-  // heartbeat 만 갱신 — 대시보드 "마지막 접속" 표시용.
+  // heartbeat 갱신 — (1) 대시보드 "마지막 접속"용 컬럼 (2) 좌측 상단 배지가 읽는 워커 하트비트 테이블.
+  //   verifyToken 은 모니터링 매 틱 호출되므로(대상 0개·결과 0건이어도), 토큰 연결의 가장 확실한 생존신호.
   const nowIso = new Date().toISOString();
+  const shUserId = (shUser as { id: string }).id;
   await serviceClient
     .from('megaload_users')
     .update({ desktop_app_last_heartbeat: nowIso })
-    .eq('id', (shUser as { id: string }).id);
+    .eq('id', shUserId);
+  await touchTokenWorkerHeartbeat(serviceClient, shUserId);
 
   return NextResponse.json({
     valid: true,
