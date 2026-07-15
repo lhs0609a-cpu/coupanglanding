@@ -33,10 +33,13 @@ function mascotLine(pct: number): string {
 
 /** 단계 내용에 맞춰 "이런 화면이 나와요" 목업을 자동 생성 (실제 스크린샷은 추후 드롭인) */
 function StepMockup({ step, color }: { step: ChannelGuideStep; color: string }) {
+  const [imgError, setImgError] = useState(false);
   let domain: string | null = null;
   try { domain = step.url ? new URL(step.url).hostname : null; } catch { domain = null; }
   const hasKeys = (step.inputFields?.length ?? 0) > 0;
   const isPermission = /권한|체크|✅/.test(step.detailedInstructions.join(' ') + step.title);
+  // 실제 화면 이미지가 있고 로드 성공하면 표시, 실패(핫링크 차단 등)하면 목업으로 폴백
+  const showRealImage = !!step.imageUrl && !imgError;
 
   return (
     <div className="rounded-xl border-2 border-gray-200 overflow-hidden bg-white shadow-sm select-none">
@@ -51,6 +54,21 @@ function StepMockup({ step, color }: { step: ChannelGuideStep; color: string }) 
           </span>
         )}
       </div>
+      {showRealImage ? (
+        <figure className="m-0">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={step.imageUrl}
+            alt={step.title}
+            loading="lazy"
+            onError={() => setImgError(true)}
+            className="w-full max-h-[340px] object-contain bg-gray-50"
+          />
+          <figcaption className="text-[10px] text-gray-400 text-center py-1 px-2">
+            실제 화면 예시 · 출처: 윈셀링 가이드 (마켓 UI 버전에 따라 다를 수 있어요)
+          </figcaption>
+        </figure>
+      ) : (
       <div className="p-4 min-h-[96px] flex flex-col items-center justify-center gap-2">
         {hasKeys ? (
           // 키를 얻는 단계 → 가짜 키 필드
@@ -82,6 +100,7 @@ function StepMockup({ step, color }: { step: ChannelGuideStep; color: string }) 
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
