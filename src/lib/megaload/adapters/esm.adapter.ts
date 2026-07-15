@@ -14,7 +14,7 @@
 import { BaseAdapter } from './base.adapter';
 import type { Channel } from '../types';
 import type {
-  CanonicalProduct, ChannelCapabilities, ChannelMappingContext, ChannelMappingResult,
+  CanonicalProduct, ChannelCapabilities, ChannelMappingContext, ChannelMappingResult, MissingField,
 } from '../services/canonical-product';
 import { pickImages, composeDetail, cleanName } from './mapping-helpers';
 import crypto from 'crypto';
@@ -44,43 +44,76 @@ export class EsmAdapter extends BaseAdapter {
     this.siteType = channel === 'gmarket' ? 2 : 1;
   }
 
+  /** 등록 페이로드 price/stock 키 — 등록은 대문자(Gmkt/Iac). 한 인스턴스=한 마켓만 채움. */
+  private marketKey(): 'Gmkt' | 'Iac' {
+    return this.channel === 'gmarket' ? 'Gmkt' : 'Iac';
+  }
+
+  /** sell-status(가격/재고/판매상태) 키 — ESM 문서상 소문자(gmkt/iac). 등록 키와 대소문자 다름(ESM 비일관성). */
+  private sellStatusKey(): 'gmkt' | 'iac' {
+    return this.channel === 'gmarket' ? 'gmkt' : 'iac';
+  }
+
   /**
    * Canonical → ESM goods 등록 페이로드 (POST /item/v1/goods).
-   * siteType(1=옥션,2=G마켓)로 마켓 구분. 한 어댑터 인스턴스 = 한 마켓.
-   * ⚠️ ESM goods 스키마는 방대 → 실연동 시 etapi.gmarket.com 가이드로 필드 검증 필요.
+   *
+   * 실제 스키마는 중첩(itemBasicInfo / itemAddtionalInfo)이며 price/stock 은 마켓별 키
+   * (Gmkt/Iac)로 구분한다. 한 어댑터 인스턴스 = 한 마켓 → 해당 마켓 키만 채운다.
+   *
+   * ⚠️ 'itemAddtionalInfo' 는 ESM API 원문 오탈자(Addtional) 그대로다 — 오타 아님.
+   * ⚠️ 고시정보(officialNotice)/추가이미지/AS 필드는 실계정 첫 등록 응답으로 최종 검증 필요.
    */
   mapFromCanonical(product: CanonicalProduct, ctx: ChannelMappingContext): ChannelMappingResult {
     const t = ctx.shippingTemplate;
-    if (!t?.outboundPlaceCode) {
-      return { ok: false, status: 'needs_input', missing: [{ field: 'ship_template', reason: 'ESM 발송정보(출고지) 필요' }] };
-    }
     const { representative, extras } = pickImages(product, ctx);
-    const totalStock = product.options.reduce((s, o) => s + (o.stock ?? 0), 0) || 999;
+
+    // 필수값 누락은 채널 호출 없이 needs_input 으로 모아서 보류(예외큐 노출)
+    const missing: MissingField[] = [];
+    if (!t?.outboundPlaceCode) missing.push({ field: 'ship_template', reason: 'ESM 발송정보(출고지 placeNo) 필요' });
+    if (!ctx.channelCategoryId) missing.push({ field: 'category', reason: 'ESM leaf 카테고리(catCode) 매핑 필요' });
+    if (!representative) missing.push({ field: 'image', reason: 'ESM 대표이미지(basicImgURL, 최소 600x600) 필요' });
+    if (missing.length > 0) return { ok: false, status: 'needs_input', missing };
+
+    const mk = this.marketKey();
+    const totalStock = Math.max(1, product.options.reduce((s, o) => s + (o.stock ?? 0), 0) || 999); // ESM 재고 >=1 필수
+
+    // 추가이미지: image-modify 스키마(AdditionalImage1..14) 준용 — 실연동 검증 대상
+    const additional: Record<string, string> = {};
+    extras.slice(0, 14).forEach((url, i) => { additional[`AdditionalImage${i + 1}`] = url; });
 
     const payload: Record<string, unknown> = {
-      siteType: this.siteType,                 // 1=옥션, 2=G마켓
-      goodsName: cleanName(product, 100),
-      categoryCode: ctx.channelCategoryId,
-      sellPrice: ctx.sellingPrice,
-      goodsAmt: totalStock,                    // 재고수량
-      goodsDescription: composeDetail(product, ctx),
-      imageUrl: representative,
-      addImageUrls: extras.slice(0, 9),
-      brandName: product.brand || undefined,
-      // 배송/반품/AS (템플릿)
-      deliveryType: t.deliveryChargeType === 'FREE' ? 'FREE' : 'CHARGE',
-      deliveryFee: t.deliveryCharge ?? 0,
-      returnFee: t.returnCharge ?? 0,
-      exchangeFee: t.exchangeCharge ?? 0,
-      shippingPlaceCode: t.outboundPlaceCode,
-      returnPlaceCode: t.returnCenterCode,
-      asInfo: t.afterServiceGuide || '판매자 문의',
-      asTelephone: t.afterServiceTel || '',
-      sellerManageCode: product.options[0]?.sku || undefined,
+      itemBasicInfo: {
+        goodsName: { kor: cleanName(product, 100) },
+        category: {
+          site: { catCode: ctx.channelCategoryId, siteType: this.siteType }, // 1=옥션, 2=G마켓
+        },
+      },
+      // ⚠️ 원문 오탈자 'itemAddtionalInfo' 그대로 (ESM API 실제 필드명)
+      itemAddtionalInfo: {
+        price: { [mk]: ctx.sellingPrice },   // 10원~10억원
+        stock: { [mk]: totalStock },
+        shipping: {
+          type: 1,                            // 1=택배
+          policy: { placeNo: Number(t!.outboundPlaceCode) || undefined },
+          ...(t!.returnCenterCode ? { returnPlaceNo: Number(t!.returnCenterCode) || undefined } : {}),
+          deliveryFee: t!.deliveryChargeType === 'FREE' ? 0 : (t!.deliveryCharge ?? 0),
+          returnFee: t!.returnCharge ?? 0,
+          exchangeFee: t!.exchangeCharge ?? 0,
+        },
+        images: { basicImgURL: representative, ...additional },
+        descriptions: { kor: { html: composeDetail(product, ctx) } },
+        isVatFree: false,
+        recommendedOpts: { type: 0 },         // 0=단일옵션 (다옵션 P5)
+        ...(product.brand ? { brand: { name: product.brand } } : {}),
+        ...(t!.afterServiceTel || t!.afterServiceGuide
+          ? { afterService: { telephone: t!.afterServiceTel || '', guide: t!.afterServiceGuide || '판매자 문의' } }
+          : {}),
+        sellerManageCode: product.options[0]?.sku || ctx.sellerManagementCode || undefined,
+      },
     };
 
-    const warnings: string[] = ['ESM goods 페이로드 필드명은 실연동 시 가이드로 검증 필요'];
-    if (product.options.length > 1) warnings.push(`다옵션 ${product.options.length}개 — ESM 단일 등록(옵션 P5)`);
+    const warnings: string[] = ['ESM /item/v1/goods 페이로드는 실계정 첫 등록 응답으로 최종 검증 필요(고시정보/추가이미지/AS 필드명)'];
+    if (product.options.length > 1) warnings.push(`다옵션 ${product.options.length}개 — 현재 단일 등록(옵션 P5)`);
 
     return { ok: true, payload, warnings };
   }
@@ -170,10 +203,30 @@ export class EsmAdapter extends BaseAdapter {
   }
 
   async createProduct(product: Record<string, unknown>) {
-    const data = await this.esmApi<{ data: { goodsNo: string } }>(
-      'POST', '/item/v1/goods', product,
-    );
-    return { channelProductId: data.data?.goodsNo || '', success: true };
+    // ESM 은 HTTP 200 안에 resultCode 로 실패를 담아 보낸다(apiCall 은 200이면 통과) → 여기서 명시 검증.
+    const res = await this.esmApi<{
+      goodsNo?: number | string;
+      resultCode?: number;
+      message?: string | null;
+      siteDetail?: {
+        gmkt?: { SiteGoodsNo?: string; SiteGoodsComment?: string };
+        iac?: { SiteGoodsNo?: string; SiteGoodsComment?: string };
+      };
+    }>('POST', '/item/v1/goods', product);
+
+    if (res.resultCode !== undefined && res.resultCode !== 0) {
+      throw new Error(`ESM 등록 실패(resultCode=${res.resultCode}): ${res.message || '사유 미상'}`);
+    }
+    // 마스터 등록은 성공해도 사이트별(G마켓/옥션) 등록이 개별 실패할 수 있음 → SiteGoodsNo 없으면 실패로 표면화
+    const site = this.channel === 'gmarket' ? res.siteDetail?.gmkt : res.siteDetail?.iac;
+    if (site && !site.SiteGoodsNo) {
+      throw new Error(`ESM ${this.channel} 사이트 등록 실패: ${site.SiteGoodsComment || '사유 미상'}`);
+    }
+    const channelProductId = String(res.goodsNo ?? site?.SiteGoodsNo ?? '');
+    if (!channelProductId) {
+      throw new Error('ESM 등록 응답에 상품번호(goodsNo)가 없습니다');
+    }
+    return { channelProductId, success: true };
   }
 
   async updateProduct(channelProductId: string, product: Record<string, unknown>) {
@@ -187,30 +240,34 @@ export class EsmAdapter extends BaseAdapter {
   }
 
   async updatePrice(channelProductId: string, price: number) {
-    // sell-status API로 가격/재고/상태 수정
+    // PUT /item/v1/goods/{goodsNo}/sell-status — 마켓별 키(소문자)로 가격만 갱신
+    const k = this.sellStatusKey();
     await this.esmApi('PUT', `/item/v1/goods/${channelProductId}/sell-status`, {
-      goodsPrice: price,
+      itemBasicInfo: { price: { [k]: price } },
     });
     return { success: true };
   }
 
   async updateStock(channelProductId: string, stock: number) {
+    const k = this.sellStatusKey();
     await this.esmApi('PUT', `/item/v1/goods/${channelProductId}/sell-status`, {
-      stockQty: stock,
+      itemBasicInfo: { stock: { [k]: stock } },
     });
     return { success: true };
   }
 
   async suspendProduct(channelProductId: string) {
+    const k = this.sellStatusKey();
     await this.esmApi('PUT', `/item/v1/goods/${channelProductId}/sell-status`, {
-      sellStatus: 'STOP',
+      isSell: { [k]: false },
     });
     return { success: true };
   }
 
   async resumeProduct(channelProductId: string) {
+    const k = this.sellStatusKey();
     await this.esmApi('PUT', `/item/v1/goods/${channelProductId}/sell-status`, {
-      sellStatus: 'SALE',
+      isSell: { [k]: true },
     });
     return { success: true };
   }
