@@ -84,8 +84,10 @@ export class EsmAdapter extends BaseAdapter {
     const payload: Record<string, unknown> = {
       itemBasicInfo: {
         goodsName: { kor: cleanName(product, 100) },
+        // category.site 는 사이트별 엔트리 배열(N:N) — 한 인스턴스=한 마켓이라 엔트리 1개.
+        // ctx.channelCategoryId 는 해당 사이트(siteType)의 leaf catCode 여야 함(9자리).
         category: {
-          site: { catCode: ctx.channelCategoryId, siteType: this.siteType }, // 1=옥션, 2=G마켓
+          site: [{ siteType: this.siteType, catCode: ctx.channelCategoryId }], // 1=옥션, 2=G마켓
         },
       },
       // ⚠️ 원문 오탈자 'itemAddtionalInfo' 그대로 (ESM API 실제 필드명)
