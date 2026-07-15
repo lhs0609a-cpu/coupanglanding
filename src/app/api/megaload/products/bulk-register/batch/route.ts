@@ -10,6 +10,7 @@ import type { StoryBatchInput } from '@/lib/megaload/services/ai.service';
 import { logSystemError, logSystemWarn } from '@/lib/utils/system-log';
 // generateProductStoriesBatch 는 generateAiContent=true 일 때만 dynamic import — Gemini SDK 로드 비용 cold start 절감.
 import { buildProductPayload } from '@/lib/megaload/services/preflight-builder';
+import { normalizeCertifications, groundCertifications } from '@/lib/megaload/services/cert-normalizer';
 import { enqueueAutoReplication } from '@/lib/megaload/services/replication-enqueue';
 import { checkBrandProtection } from '@/lib/megaload/services/brand-checker';
 import { fetchEnrolledCoupangBrands, resolveCoupangBrandId, type CoupangBrand, type ResolvedBrand } from '@/lib/utils/coupang-api-client';
@@ -177,7 +178,8 @@ interface BatchProduct {
   // 추가 필드 (선택)
   originalPrice?: number;         // 정가 (할인가 표시용)
   barcode?: string;               // 바코드
-  certifications?: CertificationInfo[];  // KC인증 등
+  certifications?: CertificationInfo[];  // KC인증 등 (이미 쿠팡 포맷)
+  sourceCertifications?: unknown[];      // 소싱 추출 원본 인증({name,cert_number,…}) — 서버가 메타 grounding
   optionVariants?: OptionVariant[];      // 멀티옵션
   taxType?: 'TAX' | 'FREE' | 'ZERO';
   adultOnly?: 'EVERYONE' | 'ADULT_ONLY';
@@ -701,6 +703,24 @@ export async function POST(req: NextRequest) {
             resolvedBrandName = res.brandName;
           }
         }
+      }
+
+      // 5.8 인증(KC 등) grounding — 카테고리 메타가 "요구하는 인증 타입"에 소싱 인증번호를 붙인다.
+      //   타입을 지어내지 않는다(잘못된 타입은 등록 거부). 인증데이터 있는 상품만 메타 조회(호출 절약).
+      try {
+        const normalizedCerts = normalizeCertifications(product.sourceCertifications ?? product.certifications);
+        if (normalizedCerts.length > 0) {
+          const { items: requiredCerts } = await coupangAdapter.getCategoryCertifications(product.categoryCode);
+          const { certs, missing } = groundCertifications(normalizedCerts, requiredCerts);
+          if (certs.length > 0) {
+            product.certifications = certs;
+            console.log(`[batch] 인증 grounding: ${certs.map((c) => `${c.certificationType}=${c.certificationCode}`).join(', ')}`);
+          } else if (missing) {
+            console.warn(`[batch] 카테고리(${product.categoryCode}) 인증 요구되나 소싱 인증번호 매칭 실패 — NOT_REQUIRED 유지(검수 필요)`);
+          }
+        }
+      } catch (e) {
+        console.warn('[batch] 인증 grounding 실패(무시, NOT_REQUIRED 유지):', e instanceof Error ? e.message : e);
       }
 
       // 6~9. 공유 빌더로 페이로드 빌드 (옵션 추출, 고시정보, 아이템위너 방지 포함)

@@ -62,6 +62,7 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
       mainImageRanked: p.mainImageRanked ?? null,                 // CLIP 대표컷 랭킹(웹 재정렬·검수 표시용)
       detailImages: Array.isArray(p.detailImagesKept) ? p.detailImagesKept : (p.detailImages || []), // 큐레이션된 상세컷(kept)
       detailDroppedNames: Array.isArray(p.detailDroppedNames) ? p.detailDroppedNames : [], // CLIP 이 버린 상세컷 파일명(웹이 정확히 제외)
+      sourceCertifications: Array.isArray(p.certifications) ? p.certifications : [], // KC 등 원본 인증 — 웹이 서버 grounding 으로 등록에 반영
       // AI 생성 필드
       displayName: r.displayName,
       keywords: r.keywords,

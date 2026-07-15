@@ -116,6 +116,7 @@ export function scanFolder(rootDir) {
       mainImage: mainImages[0] || null,     // 기본값(이미지인식 전) — run-folder 인식 단계가 최적컷으로 교체
       mainImages,                            // 대표 후보 전체(CLIP 선택 대상)
       detailImages: collectDetailImages(productPath), // 상세페이지 후보(CLIP 큐레이션 대상)
+      certifications: Array.isArray(pj.certifications) ? pj.certifications : [], // KC 등 원본 인증({name,cert_number,…}) — 서버가 메타 grounding
       categoryPath: sourceCat.categoryPath || '', // LLM 카테고리 힌트(소싱 원본 분류)
       folderPath: productPath,
       productJson: pj,

@@ -699,6 +699,49 @@ export class CoupangAdapter extends BaseAdapter {
     return { items: [] };
   }
 
+  /** 카테고리가 요구하는 인증(KC 등) 조회 — grounding 소스.
+   *  category-related-metas 응답의 certifications 배열을 파싱한다.
+   *  전기용품 등은 여기서 required=true 인 certificationType 을 돌려주며,
+   *  등록 시 그 타입에 우리 인증번호를 붙여 보낸다(타입을 지어내지 않음). */
+  async getCategoryCertifications(categoryCode: string): Promise<{
+    items: { certificationType: string; name: string; required: boolean }[];
+  }> {
+    const endpoints = [
+      `/v2/providers/seller_api/apis/api/v1/marketplace/meta/category-related-metas/display-category-codes/${categoryCode}`,
+      `/v2/providers/openapi/apis/api/v4/vendors/${this.vendorId}/categorization/meta/display-category-codes/${categoryCode}`,
+    ];
+    for (const path of endpoints) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const raw = await this.coupangApi<any>('GET', path);
+        const data = raw?.data || raw;
+        // 응답 키 자동 감지 (certifications / certificationList / requiredCertifications)
+        const list = data?.certifications || data?.certificationList || data?.requiredCertifications;
+        if (Array.isArray(list)) {
+          const items = list
+            .map((c: Record<string, unknown>) => {
+              const certificationType = String(c.certificationType || c.type || c.code || '').trim();
+              const requiredRaw = c.required ?? c.mandatory ?? c.necessary;
+              const required = requiredRaw === true
+                || (typeof requiredRaw === 'string' && /mandatory|required|필수|true|y/i.test(requiredRaw));
+              return {
+                certificationType,
+                name: String(c.name || c.certificationName || c.certificationTypeName || '').trim(),
+                required,
+              };
+            })
+            .filter((c: { certificationType: string }) => c.certificationType && c.certificationType !== 'NOT_REQUIRED');
+          console.log(`[getCategoryCertifications] ${categoryCode}: ${items.length}개 (required=${items.filter((i: {required:boolean}) => i.required).length})`);
+          return { items };
+        }
+      } catch (e) {
+        console.log(`[getCategoryCertifications] ${path.split('/').slice(-2).join('/')}: 에러=${e instanceof Error ? e.message.slice(0, 80) : 'unknown'}`);
+        continue;
+      }
+    }
+    return { items: [] };
+  }
+
   /** 카테고리 자동 매칭 (상품명 기반) — Predict API */
   async autoCategorize(productName: string): Promise<{
     predictedCategoryId: string;

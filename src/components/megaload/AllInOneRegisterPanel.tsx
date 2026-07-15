@@ -43,6 +43,8 @@ interface GenRecord {
   detailImages?: string[];
   /** CLIP 이 광고/배송/리뷰컷으로 버린 상세 파일명 — 웹이 스캔한 상세이미지에서 정확히 이것만 제외 */
   detailDroppedNames?: string[];
+  /** KC 등 원본 인증({name,cert_number,…}) — 서버(배치)가 카테고리 메타로 grounding 후 등록에 반영 */
+  sourceCertifications?: unknown[];
   displayName: string;
   keywords: string[];
   categoryCode: string | null;
@@ -543,6 +545,10 @@ export default function AllInOneRegisterPanel() {
             sourcePrice: g.sourcePrice ?? (typeof pj.price === 'number' ? pj.price : 0),
             categoryCode: catCode,
             categoryPath: e.categoryPath || '',
+            // KC 등 원본 인증 — 서버가 카테고리 메타로 grounding 해 등록 payload 에 반영(전기제품 등록가능)
+            sourceCertifications: (Array.isArray(g.sourceCertifications) && g.sourceCertifications.length)
+              ? g.sourceCertifications
+              : (Array.isArray(pj.certifications) ? (pj.certifications as unknown[]) : undefined),
             tags: [...new Set([...baseTags, ...optionTags])].slice(0, 20),
             description: e.detail || '',
             mainImages: [], detailImages: [], reviewImages: [], infoImages: [],

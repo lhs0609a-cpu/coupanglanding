@@ -35,7 +35,11 @@ export interface LocalProductJson {
   description?: string;
   barcode?: string;
   originalPrice?: number;     // 정가 (할인가 표시용)
-  certifications?: { certificationType: string; certificationCode?: string }[];
+  // 두 포맷 허용: 소싱 추출({name,cert_number,verify_url}) | 쿠팡({certificationType,certificationCode})
+  certifications?: {
+    certificationType?: string; certificationCode?: string; certificationOrganization?: string;
+    name?: string; cert_number?: string; verify_url?: string;
+  }[];
   options?: { optionName: string; salePrice: number; stock?: number; barcode?: string; sku?: string }[];
   /** 소싱 원본 카테고리 (네이버 등) */
   sourceCategory?: {
