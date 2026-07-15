@@ -742,6 +742,12 @@ export class CoupangAdapter extends BaseAdapter {
     return { items: [] };
   }
 
+  /** 카테고리 메타 원문(category-related-metas) 그대로 반환 — 디버그/인증 shape 확인용 */
+  async getRawCategoryMeta(categoryCode: string): Promise<unknown> {
+    const path = `/v2/providers/seller_api/apis/api/v1/marketplace/meta/category-related-metas/display-category-codes/${categoryCode}`;
+    return this.coupangApi<unknown>('GET', path);
+  }
+
   /** 카테고리 자동 매칭 (상품명 기반) — Predict API */
   async autoCategorize(productName: string): Promise<{
     predictedCategoryId: string;
