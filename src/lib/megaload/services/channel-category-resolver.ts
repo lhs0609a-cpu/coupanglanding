@@ -20,6 +20,8 @@ import type { Channel } from '../types';
 import type { CanonicalProduct } from './canonical-product';
 import { verifyCategoryFromCandidates } from './ai.service';
 import detailsJson from '../data/coupang-cat-details.json';
+import coupangToNaverMap from '../data/coupang-to-naver-map.json';
+import coupangToAuctionMap from '../data/coupang-to-auction-map.json';
 
 /** 이 값 미만 신뢰도는 채택하지 않고 보류(needs_input) → 오분류 리스팅 차단 */
 const CONFIDENCE_FLOOR = 0.5;
@@ -57,7 +59,11 @@ function leafName(path: string | null): string {
  */
 type CrosswalkFile = { map?: Record<string, { c: string; n?: number; nm?: string }> };
 const PRECOMPUTED: Partial<Record<Channel, CrosswalkFile>> = {
-  // 아직 없음 — 옥션 XML / ESM_BU_CAT_MATCHING.xlsx / 네이버맵 반전 등으로 채널별 순차 생성 예정
+  // naver: naver-to-coupang-map 반전(scripts/build-coupang-naver-map.cjs). 2,737 쿠팡코드 커버, 나머지는 grounded 폴백.
+  naver: coupangToNaverMap as unknown as CrosswalkFile,
+  // auction: 옥션 무인증 XML 이름/경로 유사도(scripts/build-coupang-auction-map.cjs). 도메인 가드로 고정밀 1,437, 나머지 grounded.
+  auction: coupangToAuctionMap as unknown as CrosswalkFile,
+  // gmarket: ESM_BU_CAT_MATCHING.xlsx(sd↔gmkt) 필요 / 11번가·롯데온: 크레덴셜 후 트리 크롤 — 순차 추가
 };
 
 function lookupPrecomputed(channel: Channel, coupangCode: string | null | undefined): ChannelCategoryResolution | null {
