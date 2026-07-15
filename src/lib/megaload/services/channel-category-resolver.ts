@@ -22,6 +22,7 @@ import { verifyCategoryFromCandidates } from './ai.service';
 import detailsJson from '../data/coupang-cat-details.json';
 import coupangToNaverMap from '../data/coupang-to-naver-map.json';
 import coupangToAuctionMap from '../data/coupang-to-auction-map.json';
+import coupangToGmarketHint from '../data/coupang-to-gmarket-hint.json';
 
 /** 이 값 미만 신뢰도는 채택하지 않고 보류(needs_input) → 오분류 리스팅 차단 */
 const CONFIDENCE_FLOOR = 0.5;
@@ -81,6 +82,21 @@ function lookupPrecomputed(channel: Channel, coupangCode: string | null | undefi
 }
 
 /**
+ * 검색 힌트 레지스트리 — 코드가 아닌 "채널 leaf 이름"만 오프라인 확보된 채널용.
+ * 지마켓: ESM XLSX 에 코드가 없어(ESM API 만 코드 발급) 이름 힌트만 오프라인 생성.
+ * grounded 단계에서 이 이름으로 채널 API 를 조회 → 크레덴셜 있으면 정확한 코드 확정.
+ */
+type HintFile = { map?: Record<string, { q: string; path?: string; n?: number }> };
+const SEARCH_HINT: Partial<Record<Channel, HintFile>> = {
+  gmarket: coupangToGmarketHint as unknown as HintFile,
+};
+
+function hintQuery(channel: Channel, coupangCode: string | null | undefined): string | null {
+  if (!coupangCode) return null;
+  return SEARCH_HINT[channel]?.map?.[coupangCode]?.q ?? null;
+}
+
+/**
  * 쿠팡 카테고리(+상품명)를 대상 채널의 실제 leaf 카테고리로 해소.
  * 반환 null = 확신 있는 매핑 실패 → 호출측(러너)이 needs_input 으로 보류해야 함.
  *
@@ -98,11 +114,13 @@ export async function resolveChannelCategory(opts: {
   const pre = lookupPrecomputed(channel, canonical.sourceCategoryCode);
   if (pre) return pre;
 
-  // 2) grounded: 쿠팡 leaf 이름을 질의어로 채널 실제 후보를 가져와 그 안에서 선택
+  // 2) grounded: 채널 실제 후보를 가져와 그 안에서만 선택.
+  //    질의어 우선순위: 오프라인 힌트(채널 leaf 이름) → 쿠팡 leaf → 상품명 첫 토큰.
   const cpPath = coupangPath(canonical.sourceCategoryCode);
   const leaf = leafName(cpPath);
   const firstToken = (canonical.name || '').trim().split(/\s+/).find((w) => w.length >= 2) || '';
-  const queries = [leaf, firstToken].filter(Boolean);
+  const hint = hintQuery(channel, canonical.sourceCategoryCode);
+  const queries = [...new Set([hint, leaf, firstToken].filter((q): q is string => !!q))];
 
   let candidates: { code: string; path: string }[] = [];
   for (const q of queries) {
