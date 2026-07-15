@@ -27,7 +27,7 @@
  *
  * 출력: <out>.generated.jsonl (레코드별 1줄) + <out>.review.html
  */
-import { writeFileSync, appendFileSync } from 'node:fs';
+import { writeFileSync, appendFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { isUp, unload } from './lib/local-llm.mjs';
 import { scanFolder } from './lib/folder-scanner.mjs';
@@ -36,6 +36,7 @@ import { resolveMarginLevel, presetBrackets } from './lib/margin-mini.mjs';
 import { makeThumbnailProcessor } from './lib/thumbnail-batch.mjs';
 import { buildReviewHtml } from './lib/review-html.mjs';
 import { selectBestMainImage, curateDetailImages } from './lib/image-selector.mjs';
+import { localCutoutToWhite, cutoutDepsFailed } from './lib/local-cutout.mjs';
 
 function parseArgs(argv) {
   const a = { _: [] };
@@ -147,8 +148,39 @@ async function main() {
         console.log(`[${ts()}][이미지 ${i + 1}/${products.length}] ${ico} ${path.basename(rec.mainImage)}${res.reason ? ' (' + res.reason + ')' : ''}`);
       }
     } else {
-      thumbEnabled = false; // 오프라인 → 원본 사진 그대로
-      for (const rec of records) rec.thumbProcessed = false;
+      // ComfyUI 미가동(GPU 없음 등) → BiRefNet CPU 누끼 폴백. 어떤 PC 에서도 배경제거·흰배경 자동.
+      console.log(`[${ts()}] ComfyUI 미가동 → BiRefNet CPU 누끼 폴백 시도(GPU 불필요, 배경제거·흰배경 1:1)`);
+      const onLog = (m) => console.log(`[${ts()}] ${m}`);
+      let cpuOff = false;
+      for (let i = 0; i < products.length; i++) {
+        const p = products[i], rec = records[i];
+        if (!p.mainImage) { rec.thumbProcessed = null; continue; }
+        if (cpuOff) { rec.thumbProcessed = false; continue; }
+        const dest = path.join(p.folderPath || path.dirname(path.dirname(p.mainImage)), 'main_images_regen',
+          path.basename(p.mainImage).replace(/\.(jpg|jpeg|webp|png)$/i, '.png'));
+        try {
+          if (!cli['thumb-force'] && existsSync(dest)) {
+            rec.mainImage = dest; rec.thumbProcessed = true; thumbsProcessed++;
+            console.log(`[${ts()}][이미지 ${i + 1}/${products.length}] 🖼️ ${path.basename(dest)} (resume)`);
+            continue;
+          }
+          const buf = await localCutoutToWhite(readFileSync(p.mainImage), { onLog });
+          mkdirSync(path.dirname(dest), { recursive: true });
+          writeFileSync(dest, buf);
+          rec.mainImage = dest; rec.thumbProcessed = true; thumbsProcessed++;
+          console.log(`[${ts()}][이미지 ${i + 1}/${products.length}] 🖼️ ${path.basename(dest)} (CPU 누끼)`);
+        } catch (e) {
+          rec.thumbProcessed = false;
+          if (cutoutDepsFailed()) {
+            cpuOff = true; // sharp/transformers 미탑재(standalone CLI 등) → 이후 전부 원본 유지
+            console.log(`[${ts()}] BiRefNet 미탑재 — 원본 사진 유지(${e.message})`);
+          } else {
+            console.log(`[${ts()}][이미지 ${i + 1}/${products.length}] · 누끼 실패 → 원본(${e.message})`);
+          }
+        }
+      }
+      thumbEnabled = thumbsProcessed > 0; // 하나라도 CPU 누끼 성공 시 가공됨 표시
+      if (!thumbEnabled) for (const rec of records) rec.thumbProcessed = false;
     }
   } else {
     console.log(`[${ts()}] [2/3] 대표이미지 가공 생략(--no-thumb)`);
