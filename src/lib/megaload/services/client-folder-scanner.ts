@@ -75,21 +75,7 @@ export type ScanProgressCallback = (progress: ScanProgress) => void;
 
 /** 이 규모 이상이면 dHash 군집 이탈치 감지 스킵 (메인스레드 부담 회피) */
 const DHASH_SKIP_THRESHOLD = 30;
-
-/**
- * 배치 단위 폴더명 캐시 — 처음 발견한 성공 폴더명을 슬롯별로 기억해
- * 후속 상품에서는 6~9개 후보 시도 대신 1~2회로 단축.
- * scanDirectoryHandle 진입 시 reset, 한 배치 내에서만 유효.
- */
-type FolderSlot = 'review' | 'detail' | 'info';
-const folderNameCache: Record<FolderSlot, string | null> = {
-  review: null, detail: null, info: null,
-};
-function resetFolderNameCache() {
-  folderNameCache.review = null;
-  folderNameCache.detail = null;
-  folderNameCache.info = null;
-}
+// (폴더명 캐시 제거 — 상품 폴더 1회 열거 + 인메모리 조회로 대체하여 실패 probe 자체를 없앰)
 
 export async function pickAndScanFolder(onProgress?: ScanProgressCallback): Promise<{
   dirName: string;
@@ -123,9 +109,6 @@ export async function scanDirectoryHandle(
 }> {
   onProgress?.({ current: 0, total: 0, phase: 'listing' });
 
-  // 새 배치 시작 — 폴더명 캐시 리셋
-  resetFolderNameCache();
-
   // Phase 1: product_* 디렉토리 핸들 수집 (순차 — 빠름)
   const productDirs: { name: string; handle: FileSystemDirectoryHandle }[] = [];
   for await (const [name, handle] of dirHandle as unknown as AsyncIterable<[string, FileSystemHandle]>) {
@@ -143,10 +126,10 @@ export async function scanDirectoryHandle(
   onProgress?.({ current: 0, total: productDirs.length, phase: 'scanning' });
 
   // Phase 2: 워커 풀.
-  //   main_images 가 lazy(objectURL 생성 안 함) 로 바뀐 뒤 워커당 FS 부하가
-  //   대폭 줄었음 — getDirectoryHandle 4~5회 + getFile 2회(json/summary) 정도.
-  //   10 워커 × ~7 동시 FS = 70 — Chromium FS 큐(보통 100+) 안쪽.
-  const SCAN_CONCURRENCY = 10;
+  //   상품당 FS 왕복이 "폴더 1회 열거 + product.json 1회 + 존재하는 서브폴더 열거"로 줄어(실패 probe 제거),
+  //   워커당 동시 FS ≈ 5. 느린 네트워크 드라이브(구글드라이브)는 지연 은폐가 관건이라 동시성을 높인다.
+  //   16 워커 × ~5 = 80 — Chromium FS 큐(보통 100+) 안쪽.
+  const SCAN_CONCURRENCY = 16;
   const products: ScannedProduct[] = new Array(productDirs.length);
   let nextProductIdx = 0;
   let doneCount = 0;
@@ -213,86 +196,56 @@ async function scanSingleProduct(
 ): Promise<ScannedProduct> {
   const productCode = name.replace('product_', '');
 
-  const collectFirstMatch = async (
-    slot: FolderSlot,
-    names: string[],
-    eagerObjectUrls: boolean,
-    applyAdFilter: boolean,
-  ): Promise<ScannedImageFile[]> => {
-    // 1) 캐시된 이름 먼저 단독 시도 — hit 률이 높으므로 불필요한 병렬 work 회피.
-    const cached = folderNameCache[slot];
-    if (cached) {
-      const imgs = await collectImagesFromSubdir(productDirHandle, cached, IMAGE_PATTERN, eagerObjectUrls, applyAdFilter);
-      if (imgs.length > 0) return imgs;
+  // ── 상품 폴더 엔트리를 1회만 열거 → 인메모리 인덱스 ──────────────────────────
+  //   느린 드라이브(네트워크/구글드라이브)에서 서브폴더 후보명을 getDirectoryHandle 로
+  //   하나씩 probe(대부분 실패 throw — 상품당 20+회)하던 비용을 제거. 서버 스캐너와 동일 전략.
+  const fileHandles = new Map<string, FileSystemFileHandle>();
+  const dirHandles = new Map<string, FileSystemDirectoryHandle>();
+  try {
+    for await (const [entryName, handle] of productDirHandle as unknown as AsyncIterable<[string, FileSystemHandle]>) {
+      if (handle.kind === 'file') fileHandles.set(entryName.toLowerCase(), handle as FileSystemFileHandle);
+      else dirHandles.set(entryName.toLowerCase(), handle as FileSystemDirectoryHandle);
     }
-    // 2) cache miss — 나머지 후보를 모두 병렬 probe.
-    //    각 probe 는 getDirectoryHandle 1회(없으면 throw → []) 로 매우 가벼움.
-    //    names 우선순위는 결과 선택 시 유지.
-    const fallback = cached ? names.filter((n) => n !== cached) : names;
-    if (fallback.length === 0) return [];
-    const results = await Promise.all(
-      fallback.map((n) => collectImagesFromSubdir(productDirHandle, n, IMAGE_PATTERN, eagerObjectUrls, applyAdFilter)),
-    );
-    for (let i = 0; i < fallback.length; i++) {
-      if (results[i].length > 0) {
-        folderNameCache[slot] = fallback[i];
-        return results[i];
-      }
-    }
-    return [];
-  };
+  } catch { /* 접근 불가/빈 폴더 → 빈 결과로 폴백 */ }
 
-  // 한 상품 안의 모든 독립 I/O 를 동시에 시작.
-  //   product.json, product_summary.txt, main_images, review_images, detail_images, product_info
-  //   서로 의존 없음 → wall time = max(slot) 으로 단축 (이전: sum(slot)).
-  // info 는 eager → lazy 전환: 사용자가 즉시 표시할 필요 거의 없음 (등록 시점에만 사용),
-  //   eager 유지하면 한 상품당 추가 N getFile + createObjectURL 비용.
-  const [productJson, sourceUrl, rawMainImages, reviewImagesInit, detailImagesInit, infoImages] = await Promise.all([
+  /** 후보명 중 실제 존재하는 첫 서브디렉토리 핸들 (FS 호출 없음 — 맵 조회) */
+  const pickDir = (cands: string[]): FileSystemDirectoryHandle | null => {
+    for (const c of cands) { const h = dirHandles.get(c.toLowerCase()); if (h) return h; }
+    return null;
+  };
+  const mainDir = dirHandles.get('main_images');
+  const reviewDir = pickDir(['review_images', 'reviews', 'review', '리뷰이미지', '리뷰 이미지', '리뷰', 'customer_reviews']);
+  const detailDir = pickDir(['detail_images', 'details', 'detail', 'detail-images', 'detailimages', '상세이미지', '상세 이미지', '상세', 'description_images']);
+  const infoDir = pickDir(['product_info', 'info', 'product-info', 'productinfo', '상품정보', '정보', 'info_images']);
+  const jsonHandle = fileHandles.get('product.json');
+
+  // 존재하는 것만 동시 로드 (이미지 objectURL 은 lazy — 썸네일은 useThumbnailCache 가 재생성).
+  const [productJson, rawMainImages, reviewImagesInit, detailImagesInit, infoImages] = await Promise.all([
     (async () => {
-      try {
-        const jsonHandle = await productDirHandle.getFileHandle('product.json');
-        const file = await jsonHandle.getFile();
-        const text = await file.text();
-        return JSON.parse(text) as ScannedProduct['productJson'];
-      } catch {
-        return {} as ScannedProduct['productJson'];
-      }
+      if (!jsonHandle) return {} as ScannedProduct['productJson'];
+      try { return JSON.parse(await (await jsonHandle.getFile()).text()) as ScannedProduct['productJson']; }
+      catch { return {} as ScannedProduct['productJson']; }
     })(),
-    (async () => {
-      try {
-        const summaryHandle = await productDirHandle.getFileHandle('product_summary.txt');
-        const summaryFile = await summaryHandle.getFile();
-        const summaryText = await summaryFile.text();
-        const urlMatch = summaryText.match(/URL:\s*(https?:\/\/\S+)/i);
-        return urlMatch ? urlMatch[1] : undefined;
-      } catch {
-        return undefined;
-      }
-    })(),
-    // main_images 도 lazy objectURL — 썸네일은 useThumbnailCache 가 매번 handle.getFile() 로 재생성하고,
-    // 디테일 패널도 objectUrl 없으면 fallback 으로 handle 직접 로드 (BulkProductDetailPanel:188-201).
-    // 대량 배치(>30)는 dHash 도 스킵되므로 eager objectURL 은 쓰이는 곳이 없음 → 통째로 제거하여
-    // 상품당 15장 × getFile + createObjectURL 콜을 lazy 로 미룸.
-    collectImagesFromSubdir(productDirHandle, 'main_images', MAIN_IMAGE_PATTERN, false, true),
-    collectFirstMatch(
-      'review',
-      ['review_images', 'reviews', 'review', '리뷰이미지', '리뷰 이미지', '리뷰', 'customer_reviews'],
-      false, false,
-    ),
-    collectFirstMatch(
-      'detail',
-      ['detail_images', 'details', 'detail', 'detail-images', 'detailImages', '상세이미지', '상세 이미지', '상세', 'description_images'],
-      false, false,
-    ),
-    collectFirstMatch(
-      'info',
-      ['product_info', 'info', 'product-info', 'productInfo', '상품정보', '정보', 'info_images'],
-      false, false, // lazy — 즉시 표시 필요 없음, 등록 시점에 ensureObjectUrl
-    ),
+    mainDir ? collectImagesFromDirHandle(mainDir, MAIN_IMAGE_PATTERN, false, true) : Promise.resolve([] as ScannedImageFile[]),
+    reviewDir ? collectImagesFromDirHandle(reviewDir, IMAGE_PATTERN, false, false) : Promise.resolve([] as ScannedImageFile[]),
+    detailDir ? collectImagesFromDirHandle(detailDir, IMAGE_PATTERN, false, false) : Promise.resolve([] as ScannedImageFile[]),
+    infoDir ? collectImagesFromDirHandle(infoDir, IMAGE_PATTERN, false, false) : Promise.resolve([] as ScannedImageFile[]),
   ]);
 
-  // dHash 는 rawMainImages 가 준비된 후에만 가능 — Promise.all 이후 처리.
-  // 대량 배치에서는 dHash(메인스레드 O(N²)) 스킵 — 파일명 기반 광고 필터로 대체.
+  // sourceUrl: product.json 의 url 우선(추출 포맷에 포함) → 없을 때만 product_summary.txt 읽기(파일 I/O 절약).
+  let sourceUrl: string | undefined = typeof (productJson as { url?: unknown })?.url === 'string'
+    ? (productJson as { url?: string }).url : undefined;
+  if (!sourceUrl) {
+    const summaryHandle = fileHandles.get('product_summary.txt');
+    if (summaryHandle) {
+      try {
+        const m = (await (await summaryHandle.getFile()).text()).match(/URL:\s*(https?:\/\/\S+)/i);
+        sourceUrl = m ? m[1] : undefined;
+      } catch { /* 없음 */ }
+    }
+  }
+
+  // dHash 는 rawMainImages 준비 후. 대량 배치(>30)는 스킵(메인스레드 O(N²)) — 파일명 광고 필터로 대체.
   const mainImages = options.skipDhash ? rawMainImages : await filterMainImageOutliers(rawMainImages, name);
 
   let reviewImages = reviewImagesInit;
@@ -350,7 +303,23 @@ async function collectImagesFromSubdir(
 ): Promise<ScannedImageFile[]> {
   try {
     const subHandle = await parentHandle.getDirectoryHandle(subdirName);
+    return await collectImagesFromDirHandle(subHandle, pattern, eagerObjectUrls, applyAdFilter);
+  } catch {
+    return [];
+  }
+}
 
+/**
+ * 이미 확보한 디렉토리 핸들에서 직접 이미지 수집 (getDirectoryHandle probe 없음).
+ * 스캔 고속화: 상품 폴더 1회 열거로 얻은 서브폴더 핸들을 그대로 넘겨 실패 probe 를 제거.
+ */
+async function collectImagesFromDirHandle(
+  subHandle: FileSystemDirectoryHandle,
+  pattern: RegExp,
+  eagerObjectUrls = true,
+  applyAdFilter = true,
+): Promise<ScannedImageFile[]> {
+  try {
     // 비상품 파일명 패턴 (광고/배지/아이콘/네이버 UI — 서버 collectImages와 동일)
     const AD_PATTERN = /(?:^|[_\-.])(npay|naverpay|naver_|naver\-|smartstore|kakaopay|tosspay|payco|banner|badge|icon|logo|watermark|stamp|popup|event_banner|coupon|ad_|promotion|btn_|button_|shopping_|store_|delivery_info|return_info|guide_|notice_ban|footer|header)/i;
 
