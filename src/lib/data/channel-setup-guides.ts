@@ -38,7 +38,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
     estimatedTime: '약 5분',
     prerequisites: [
       '쿠팡 Wing 판매자 계정 (wing.coupang.com)',
-      '사업자등록 + 판매자 승인 완료 상태',
+      '사업자 인증 완료 (미인증 일반회원은 API Key 발급 불가)',
     ],
     steps: [
       {
@@ -46,9 +46,8 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         title: '쿠팡 Wing 로그인',
         description: '쿠팡 판매자 센터에 로그인합니다.',
         detailedInstructions: [
-          'wing.coupang.com에 접속하세요.',
-          '판매자 아이디와 비밀번호로 로그인합니다.',
-          '처음 가입이면 사업자 승인까지 1~2영업일 소요됩니다.',
+          'wing.coupang.com에 접속해 로그인하세요.',
+          '⚠️ API Key는 "사업자 인증"을 마친 판매자만 발급됩니다 (일반회원 불가).',
         ],
         url: 'https://wing.coupang.com',
         tip: '로그인 후 판매자 대시보드가 보이면 정상입니다.',
@@ -58,11 +57,10 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         title: '판매자 코드(Vendor ID) 확인',
         description: '내 판매자 고유 코드를 확인합니다.',
         detailedInstructions: [
-          '우측 상단 판매자 이름 → "판매자정보"를 클릭하세요.',
-          '"업체코드" 항목의 값이 Vendor ID입니다.',
-          '이 값을 복사해두세요.',
+          '우측 상단 판매자 이름 → "판매자정보"(또는 "추가판매정보")를 클릭하세요.',
+          '"업체코드(VendorID)" 항목의 값을 복사해두세요.',
         ],
-        tip: '업체코드는 보통 "A" + 숫자 형태입니다 (예: A00123456).',
+        tip: '업체코드는 "A" 또는 "C" + 숫자 형태입니다 (예: A00012345).',
         inputFields: ['Vendor ID (업체코드)'],
       },
       {
@@ -70,12 +68,12 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         title: 'Open API 키 발급',
         description: 'Access Key와 Secret Key를 발급받습니다.',
         detailedInstructions: [
-          '"판매자정보" → "API Key 관리(Open API)" 메뉴로 이동하세요.',
-          '"키 생성 / 발급" 버튼을 클릭합니다.',
-          'Access Key와 Secret Key가 생성됩니다.',
-          '두 키를 모두 복사해두세요.',
+          '"판매자정보"(또는 "추가판매정보") 화면의 "API Key 발급 받기" 버튼을 클릭하세요.',
+          '용도로 "OPEN API"를 선택하고 확인합니다 (웹솔루션 연동 키가 아님).',
+          '약관에 동의하고 "약관 동의 및 Key 발급받기"를 클릭합니다.',
+          '업체코드 · Access Key · Secret Key가 함께 표시됩니다.',
         ],
-        warning: 'Secret Key는 발급 시 한 번만 표시됩니다. 분실하면 재발급해야 합니다.',
+        warning: 'Secret Key는 발급 시 한 번만 표시됩니다. 즉시 복사하세요. 분실 시 기존 키를 삭제 후 재발급하며, 키는 유효기간(약 180일)이 있어 만료 전 재발급이 필요합니다.',
         inputFields: ['Access Key', 'Secret Key'],
       },
       {
@@ -111,7 +109,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           'sell.smartstore.naver.com → "판매자 가입하기"를 클릭하세요.',
           '유형 선택: 개인 / 사업자 / 해외 (개인은 사업자등록 없이 가능).',
           '대표자 휴대폰 인증 + 정산 계좌 등록. 통신판매업은 "미신고"로 두고 나중에 신고 가능.',
-          '심사는 영업일 1~3일. 스토어 승인 후 API 발급이 가능합니다.',
+          '심사는 통상 1~3영업일(식품·화장품 등은 카테고리 별도 심사). 스토어 승인 후 API 발급 가능.',
         ],
         url: 'https://sell.smartstore.naver.com',
         tip: '이미 스토어가 있으면 이 단계는 건너뛰세요.',
@@ -133,10 +131,10 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         title: '내스토어 애플리케이션 등록',
         description: '내 스토어용 앱을 만듭니다.',
         detailedInstructions: [
-          '메뉴 "애플리케이션" → "내스토어 애플리케이션" → "애플리케이션 등록".',
-          '애플리케이션 이름 입력(스토어명 권장).',
+          '"애플리케이션 등록" → "등록하기"로 새 앱을 만듭니다.',
+          '애플리케이션 이름 입력(스토어명 권장). 등록 후 관리·인증은 "내 스토어 애플리케이션"에서 합니다.',
         ],
-        tip: '솔루션 개발사가 아니라 내 스토어용이므로 "내스토어 애플리케이션"을 선택하세요.',
+        tip: '솔루션 개발사가 아니라 내 스토어용이므로 "내 스토어 애플리케이션" 경로를 사용하세요.',
       },
       {
         stepNumber: 4,
@@ -172,7 +170,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         ],
       },
     ],
-    finalNote: '네이버 토큰은 3시간마다 만료되지만 메가로드가 자동 재발급합니다. 서버 시각 기반 서명이라 별도 만료일 관리는 필요 없습니다.',
+    finalNote: '네이버 토큰은 주기적으로 만료되지만(응답 expires_in 기준) 메가로드가 자동 재발급합니다. 서버 시각 기반 bcrypt 서명이라 별도 만료일 관리는 필요 없습니다.',
   },
 
   // ── 11번가 ──
@@ -239,7 +237,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         ],
       },
     ],
-    finalNote: '11번가는 XML 기반이며 상품 등록은 일 500건 제한이 있습니다. IP가 바뀌면 화이트리스트를 갱신하세요.',
+    finalNote: '11번가는 XML 기반이며 상품 등록에 일일 한도가 있을 수 있습니다(최신 기준은 공식 문서 확인). IP가 바뀌면 화이트리스트를 갱신하세요.',
   },
 
   // ── G마켓 (ESM) ──
@@ -257,11 +255,11 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         title: 'ESM+ 가입 + 마스터ID 생성',
         description: 'G마켓/옥션 통합 셀러 계정을 만듭니다.',
         detailedInstructions: [
-          'signup.esmplus.com/signup/seller 에서 판매회원 가입 (사업자 인증 + 대표자 휴대폰 인증).',
-          '서류 제출 후 영업일 3일 내 승인.',
+          'signup.esmplus.com 에서 판매회원 가입 (사업자 인증 + 대표자 휴대폰 인증).',
+          '서류 제출 후 통상 1~3영업일 내 승인.',
           'ESM+ 로그인 → "마스터ID"를 신규 발급합니다 (API 연동에 필수).',
         ],
-        url: 'https://signup.esmplus.com/signup/seller',
+        url: 'https://signup.esmplus.com/',
         tip: 'ESM+는 G마켓과 옥션을 하나로 묶는 통합 시스템입니다. 마스터ID가 상위 계정이에요.',
       },
       {
@@ -279,12 +277,12 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         title: 'API 키 이메일 신청 (★특이)',
         description: 'ESM은 셀프 발급 메뉴가 없어 이메일로 신청합니다.',
         detailedInstructions: [
-          'etapihelp@gmail.com (또는 et_api@ebay.co.kr) 로 신청 메일을 보내세요.',
+          'et_api@ebay.co.kr 로 키 발급 신청 메일을 보내세요 (일반 문의는 etapihelp@gmail.com).',
           '메일에 포함: ① ESM 마스터ID  ② 사용 API 목록(상품·주문·클레임)  ③ 호출 IP(메가로드 서버 IP)  ④ 서비스 URL  ⑤ 최근 3개월 매출  ⑥ 개발 기간.',
           '이베이코리아 검토 후 Access Key + Secret Key를 회신해줍니다.',
         ],
         url: 'https://etapi.gmarket.com/',
-        warning: 'ESM은 화면에서 바로 발급하는 메뉴가 없습니다. 오직 이메일 신청으로만 키가 발급됩니다.',
+        warning: '개발자가 직접 Secret Key를 발급받는 메뉴는 없습니다(이메일 신청만 가능). ESM+의 "ESM API 관리/셀링툴 관리"는 이미 등록된 솔루션 연동용이라 별개입니다.',
         tip: '회신에 며칠 걸릴 수 있어요. 신청 메일 보낸 뒤 네이버·11번가 등 다른 채널을 먼저 연동하세요.',
       },
       {
@@ -326,9 +324,9 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         description: 'G마켓/옥션 통합 셀러 계정을 확인합니다.',
         detailedInstructions: [
           '이미 G마켓용으로 ESM+ 마스터ID를 만들었다면 그대로 사용합니다.',
-          '없다면 signup.esmplus.com/signup/seller 에서 가입 후 마스터ID를 발급하세요.',
+          '없다면 signup.esmplus.com 에서 가입 후 마스터ID를 발급하세요.',
         ],
-        url: 'https://signup.esmplus.com/signup/seller',
+        url: 'https://signup.esmplus.com/',
         tip: '옥션과 G마켓은 같은 ESM+ 마스터ID 아래에서 관리됩니다.',
       },
       {
@@ -346,12 +344,12 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         title: 'API 키 이메일 신청 (★특이)',
         description: 'ESM은 셀프 발급 메뉴가 없어 이메일로 신청합니다.',
         detailedInstructions: [
-          'etapihelp@gmail.com (또는 et_api@ebay.co.kr) 로 신청 메일을 보내세요.',
+          'et_api@ebay.co.kr 로 키 발급 신청 메일을 보내세요 (일반 문의는 etapihelp@gmail.com).',
           '메일에 포함: 마스터ID · 사용 API 목록 · 호출 IP(메가로드 서버 IP) · 서비스 URL · 최근 3개월 매출 · 개발 기간.',
           'G마켓과 함께 신청하면 하나의 Secret Key로 옥션(A)·G마켓(G)을 모두 씁니다.',
         ],
         url: 'https://etapi.gmarket.com/',
-        warning: '화면 셀프 발급 메뉴는 없습니다. 이메일 신청만 가능합니다.',
+        warning: '개발자용 셀프 발급 메뉴는 없습니다(이메일 신청만). ESM+의 "셀링툴 관리" 메뉴는 ISV 연동용이라 별개입니다.',
         tip: 'G마켓을 이미 신청했다면 같은 Secret Key를 옥션 셀러ID와 함께 쓰면 됩니다.',
       },
       {
@@ -407,6 +405,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           '스토어센터 → "판매자정보" → "OpenAPI관리" → "정보설정" 탭으로 이동하세요.',
         ],
         url: 'https://store.lotteon.com',
+        tip: 'store.lotteon.com이 판매자 스토어센터입니다. partner.b2b.lotteon.com은 별도 B2B 포털이니 혼동하지 마세요.',
       },
       {
         stepNumber: 3,
@@ -423,7 +422,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         title: '인증키 발급 + 거래처번호 확인',
         description: 'API 키와 거래처번호를 확보합니다.',
         detailedInstructions: [
-          '"2단계. 인증키 정보"에서 "키발급"을 클릭해 API 인증키를 생성·복사하세요 (1회만 노출).',
+          '"2단계. 인증키 정보"에서 "키발급"을 클릭해 API 인증키를 생성하고 즉시 복사·보관하세요.',
           '거래처번호는 "판매자정보" → "기본정보관리"에서 확인 (상호명 옆 괄호 코드, 예: LO10011111).',
         ],
         warning: '인증키는 발급 시 한 번만 표시됩니다. 인증키와 거래처번호가 서로 맞지 않으면 작업이 실패합니다.',
