@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import AllInOneRegisterPanel from '@/components/megaload/AllInOneRegisterPanel';
 import WorkerInstallNotice from '@/components/megaload/WorkerInstallNotice';
+import ComfyStatusBadge from '@/components/megaload/ComfyStatusBadge';
 
 export default function AllInOneRegisterPage() {
   return (
@@ -19,7 +20,11 @@ export default function AllInOneRegisterPage() {
           상품관리로 돌아가기
         </Link>
       </div>
-      <WorkerInstallNotice context="allinone" />
+      <div className="space-y-2">
+        <WorkerInstallNotice context="allinone" />
+        {/* 누끼 엔진(ComfyUI) 라이브니스 — 도우미 연결 배너와 함께 상단 노출 */}
+        <ComfyStatusBadge />
+      </div>
       <AllInOneRegisterPanel />
     </div>
   );
