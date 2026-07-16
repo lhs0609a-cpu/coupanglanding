@@ -17,28 +17,37 @@ import { getStore } from './store';
 // v0.1.10: v0.1.9 의 3~5초 페이싱은 ~44% 429 발생. 5~8초 로 완화 + 429 백오프 추가.
 // v0.1.11: 토큰 만료 시 조용히 멈추던 버그 수정 — isLoggedIn 해제 + 알림 + cron 정지(재로그인 시 재개).
 // v0.1.14: 429 완화 — 페이싱 8~12초 + AIMD 적응형 지연 + 조회 헤더/지속쿠키 위장(naver-fetcher).
-// v0.1.15: 429 추가 완화 — base 8→12초로 분당 ~4.5건(안전선 안쪽) + 세션 워밍업(NNB 쿠키 갱신).
-//          + 서버 선택 로직에서 429 증폭 루프 차단(오류/미확인 15분 백오프, monitors/route.ts).
-const CRON_TICK_MS = 2 * 60 * 1000; // 2분마다 모니터 목록 fetch (배치 종료 후 idle gap 단축)
-// v0.1.15: base 8→12초, jitter 4→3초(실제 12~15초). 분당 ~4.5건. AIMD 적응형은 유지.
-const ITEM_INTERVAL_MS = 12000; // base 12초
-const ITEM_JITTER_MS = 3000;    // + 0~3초 jitter → 실제 12~15초
-const BATCH_FLUSH_SIZE = 10; // 10개 모이면 즉시 전송
-const BATCH_FLUSH_INTERVAL_MS = 60000; // 1분마다 강제 flush
+// v0.1.15: base 8→12초 + 세션 워밍업 + 서버 15분 백오프.
+// ─────────────────────────────────────────────────────────────────────────
+// v0.1.16 무차단 재설계 P2 — "429 절대 무해" 목표.
+//   ① 보수적 페이싱: 30~75초 full-jitter(평균 ~1.1건/분) — 관측상 6건/분에 차단되므로 3~6배 안전마진.
+//      서버 티어 스케줄러(P1)가 due 인 것만 내려주므로 이 저속으로도 전량 완주.
+//   ② 서킷브레이커(핵심): 429/503 1회라도 뜨면 회로 OPEN → 30분+ 완전 중단(IP 회복). 재개는
+//      쿨다운 후 첫 조회(half-open 탐침)가 성공할 때. 연속 트립 시 쿨다운 ×1.5(상한 2h).
+//      → 어떤 429 도 누적/증폭 불가. AIMD+연속카운트 방식을 이 서킷브레이커로 대체.
+const CRON_TICK_MS = 2 * 60 * 1000; // 2분마다 모니터 목록 fetch (서킷 OPEN 이면 skip)
+const ITEM_BASE_MS = 30_000;        // 기본 30초 간격
+const ITEM_FULLJITTER_MS = 45_000;  // + 0~45초 full-jitter → 실제 30~75초(고정 주기 패턴 회피)
+const BATCH_FLUSH_SIZE = 10;        // 10개 모이면 즉시 전송
+const BATCH_FLUSH_INTERVAL_MS = 60_000; // 1분마다 강제 flush
 
-// 429/transient 연속 감지 시 cool-down
-// 3회 연속 transient → 60초 휴식 (IP throttling 회복 시간 확보)
-const TRANSIENT_BACKOFF_THRESHOLD = 3;
-const TRANSIENT_BACKOFF_MS = 60_000;
-// Retry-After 헤더 존중 상한 — 네이버가 비정상적으로 큰 값을 줘도 최대 5분까지만 쉰다(무한 정지 방지).
-const RETRY_AFTER_MAX_MS = 5 * 60 * 1000;
+// ── 서킷브레이커 상태(모듈 전역 — tick 간 유지) ──
+const CIRCUIT_COOLDOWN_BASE_MS = 30 * 60 * 1000;  // 첫 트립 쿨다운 30분
+const CIRCUIT_COOLDOWN_MAX_MS = 2 * 60 * 60 * 1000; // 쿨다운 상한 2시간
+const CIRCUIT_BACKOFF_FACTOR = 1.5;                 // 쿨다운 중 재트립 시 ×1.5
+const RETRY_AFTER_MAX_MS = 2 * 60 * 60 * 1000;      // 네이버 Retry-After 존중 상한
+let circuitOpenUntil = 0;                            // 이 시각까지 조회 완전 중단
+let circuitCooldownMs = CIRCUIT_COOLDOWN_BASE_MS;   // 다음 트립 시 적용할 쿨다운(연속 트립마다 증가)
 
-// AIMD 적응형 지연 — 429(transient) 뜨면 곱셈 증가, 성공하면 덧셈 감소.
-// 네이버 스로틀링에 실시간 적응해 429 를 최소화(고정 페이싱보다 효과적).
-const ADAPTIVE_MAX_MS = 30_000;   // 지연 상한 30초
-const ADAPTIVE_INC_FACTOR = 1.5;  // 429 시 ×1.5
-const ADAPTIVE_DEC_MS = 1_000;    // 성공 시 −1초 (base 까지)
-let adaptiveDelayMs = ITEM_INTERVAL_MS; // 모듈 전역 — tick 간 스로틀링 상태 유지
+/** 429/503 감지 → 회로 OPEN. Retry-After 가 있으면 그와 현재 쿨다운 중 큰 쪽. 다음 쿨다운은 ×1.5. */
+function tripCircuit(retryAfterMs?: number): void {
+  const retryAfter = retryAfterMs != null ? Math.min(RETRY_AFTER_MAX_MS, retryAfterMs) : 0;
+  const cooldown = Math.min(CIRCUIT_COOLDOWN_MAX_MS, Math.max(circuitCooldownMs, retryAfter));
+  circuitOpenUntil = Date.now() + cooldown;
+  console.warn(`[monitor-cron] 🔴 429/503 감지 → 서킷 OPEN, ${Math.round(cooldown / 60000)}분 완전 중단(IP 회복 대기)${retryAfter ? `, Retry-After ${Math.round(retryAfter / 1000)}s` : ''}`);
+  // 다음 트립은 더 길게(연속 차단이면 IP 가 깊이 flagged 된 것)
+  circuitCooldownMs = Math.min(CIRCUIT_COOLDOWN_MAX_MS, Math.round(circuitCooldownMs * CIRCUIT_BACKOFF_FACTOR));
+}
 
 let cronTimer: NodeJS.Timeout | null = null;
 let flushTimer: NodeJS.Timeout | null = null;
@@ -65,6 +74,8 @@ export function startMonitorCron(): void {
   flushTimer = setInterval(() => void flushPending(), BATCH_FLUSH_INTERVAL_MS);
   // 워치독 — cron 시작 시점에만 동작 (stop 후엔 비활성)
   watchdogTimer = setInterval(() => {
+    // 서킷 OPEN(의도된 IP 냉각) 중이면 무활동이 정상 — relaunch 하면 쿨다운을 깨 429 재발.
+    if (Date.now() < circuitOpenUntil) return;
     const idleMs = Date.now() - lastSuccessAt;
     if (idleMs > WATCHDOG_IDLE_THRESHOLD_MS) {
       console.warn(`[monitor-cron] 워치독 — ${Math.floor(idleMs / 60000)}분 무활동 → self relaunch 요청`);
@@ -102,6 +113,11 @@ async function tick(): Promise<void> {
     console.log('[monitor-cron] 이전 tick 진행 중 — 스킵');
     return;
   }
+  // 서킷 OPEN(429 냉각 중)이면 조회 완전 skip — 쿨다운 끝나면 자동 재개
+  if (Date.now() < circuitOpenUntil) {
+    console.log(`[monitor-cron] 🔴 서킷 OPEN — ${Math.ceil((circuitOpenUntil - Date.now()) / 60000)}분 쿨다운 중, 조회 skip`);
+    return;
+  }
   isProcessing = true;
   try {
     // 토큰 검증
@@ -133,40 +149,23 @@ async function tick(): Promise<void> {
     // 배치 시작 전 세션 워밍업 — NNB 쿠키 갱신으로 "재방문 브라우저" 위장(429↓). 실패해도 무시.
     await warmUpSession();
 
-    let consecutiveTransient = 0;
     for (const m of monitors) {
-      const { cls: lastStatus, retryAfterMs } = await processMonitor(m);
-      // 네이버가 Retry-After 를 명시하면 그 값을 존중(상한 5분). AIMD/고정 백오프보다 정확.
-      const retryAfter = retryAfterMs != null ? Math.min(RETRY_AFTER_MAX_MS, retryAfterMs) : undefined;
+      const { cls: lastStatus, retryAfterMs, rateLimited } = await processMonitor(m);
 
-      // AIMD 적응형 지연 갱신 + 429 연속 감지 cool-down
-      if (lastStatus === 'transient') {
-        // 429 → 곱셈 증가 (네이버가 지금 느리라고 신호)
-        adaptiveDelayMs = Math.min(ADAPTIVE_MAX_MS, Math.round(adaptiveDelayMs * ADAPTIVE_INC_FACTOR));
-        consecutiveTransient++;
-        if (consecutiveTransient >= TRANSIENT_BACKOFF_THRESHOLD) {
-          // Retry-After 가 있으면 그 값과 고정 휴식 중 더 큰 쪽으로 쉰다.
-          const restMs = Math.max(TRANSIENT_BACKOFF_MS, retryAfter ?? 0);
-          console.warn(`[monitor-cron] transient ${consecutiveTransient}회 연속 — ${Math.round(restMs / 1000)}초 휴식 (지연 ${adaptiveDelayMs}ms${retryAfter ? `, Retry-After ${Math.round(retryAfter / 1000)}s` : ''})`);
-          await flushPending(); // 휴식 전 결과 비우기
-          await sleep(restMs);
-          consecutiveTransient = 0;
-        }
-      } else {
-        consecutiveTransient = 0;
-        // 성공(정상 응답) → 덧셈 감소로 base 까지 서서히 회복
-        if (lastStatus === null) {
-          adaptiveDelayMs = Math.max(ITEM_INTERVAL_MS, adaptiveDelayMs - ADAPTIVE_DEC_MS);
-        }
+      // 실제 429/503 감지 → 서킷 OPEN 후 이 배치 즉시 중단. 어떤 429 도 누적/증폭 불가.
+      // (단순 타임아웃은 rateLimited=false → 정지 안 하고 다음 상품으로 — 완주 우선.)
+      if (rateLimited) {
+        tripCircuit(retryAfterMs);
+        await flushPending(); // 중단 전 수집분 전송
+        break;
       }
+      // 정상 응답 → 회로 건강. 쿨다운을 base 로 리셋(다음 트립은 다시 30분부터).
+      if (lastStatus === null) circuitCooldownMs = CIRCUIT_COOLDOWN_BASE_MS;
 
       // 결과 batch flush 트리거
       if (pendingResults.length >= BATCH_FLUSH_SIZE) await flushPending();
-      // 다음 아이템 전 대기 — Retry-After 가 있으면 그만큼(상한 내), 없으면 적응형 지연 + jitter.
-      const waitMs = retryAfter != null
-        ? Math.max(adaptiveDelayMs, retryAfter) + Math.random() * ITEM_JITTER_MS
-        : adaptiveDelayMs + Math.random() * ITEM_JITTER_MS;
-      await sleep(waitMs);
+      // 다음 아이템 전 대기 — 30~75초 full-jitter (보수적 페이싱)
+      await sleep(ITEM_BASE_MS + Math.random() * ITEM_FULLJITTER_MS);
     }
 
     await flushPending();
@@ -177,8 +176,8 @@ async function tick(): Promise<void> {
   }
 }
 
-/** 단건 처리. 반환: errorClass(backoff 판정용) + Retry-After(있으면). */
-type ProcessOutcome = { cls: 'transient' | 'naver' | 'infra' | null; retryAfterMs?: number };
+/** 단건 처리. 반환: errorClass + Retry-After + rateLimited(429/503 인지 — 서킷 트립 판정용). */
+type ProcessOutcome = { cls: 'transient' | 'naver' | 'infra' | null; retryAfterMs?: number; rateLimited?: boolean };
 async function processMonitor(m: MonitorTask): Promise<ProcessOutcome> {
   const store = getStore();
   try {
@@ -201,7 +200,9 @@ async function processMonitor(m: MonitorTask): Promise<ProcessOutcome> {
     if (result.status === 'error') {
       const errs = (store.get('totalErrors') as number | undefined) || 0;
       store.set('totalErrors', errs + 1);
-      return { cls: result.errorClass || 'naver', retryAfterMs: result.retryAfterMs };
+      // 실제 속도제한(429/503)만 서킷 트립 대상 — 단순 타임아웃/네트워크 blip 은 제외(30분 정지 오작동 방지).
+      const rateLimited = /HTTP 429|HTTP 503|속도제한/.test(result.matchedPattern || '');
+      return { cls: result.errorClass || 'naver', retryAfterMs: result.retryAfterMs, rateLimited };
     }
     return { cls: null };
   } catch (err) {
