@@ -10,18 +10,19 @@
 
 import { Notification } from 'electron';
 import { fetchMonitors, postResults, verifyToken, type ResultPayload, type MonitorTask } from './api-client';
-import { fetchNaverProduct } from './naver-fetcher';
+import { fetchNaverProduct, warmUpSession } from './naver-fetcher';
 import { getStore } from './store';
 
 // 페이싱 — 가정 IP 기준 네이버 스마트스토어 안전선 안쪽
 // v0.1.10: v0.1.9 의 3~5초 페이싱은 ~44% 429 발생. 5~8초 로 완화 + 429 백오프 추가.
 // v0.1.11: 토큰 만료 시 조용히 멈추던 버그 수정 — isLoggedIn 해제 + 알림 + cron 정지(재로그인 시 재개).
 // v0.1.14: 429 완화 — 페이싱 8~12초 + AIMD 적응형 지연 + 조회 헤더/지속쿠키 위장(naver-fetcher).
-// 분당 ~9건. 2519개 한 바퀴 약 4.5시간 (전 사이클 3시간 → 약간 늘어남, 대신 성공률 ↑).
+// v0.1.15: 429 추가 완화 — base 8→12초로 분당 ~4.5건(안전선 안쪽) + 세션 워밍업(NNB 쿠키 갱신).
+//          + 서버 선택 로직에서 429 증폭 루프 차단(오류/미확인 15분 백오프, monitors/route.ts).
 const CRON_TICK_MS = 2 * 60 * 1000; // 2분마다 모니터 목록 fetch (배치 종료 후 idle gap 단축)
-// v0.1.14: 429 완화 — base 5→8초, jitter 3→4초(실제 8~12초) + AIMD 적응형.
-const ITEM_INTERVAL_MS = 8000; // base 8초
-const ITEM_JITTER_MS = 4000;   // + 0~4초 jitter → 실제 8~12초
+// v0.1.15: base 8→12초, jitter 4→3초(실제 12~15초). 분당 ~4.5건. AIMD 적응형은 유지.
+const ITEM_INTERVAL_MS = 12000; // base 12초
+const ITEM_JITTER_MS = 3000;    // + 0~3초 jitter → 실제 12~15초
 const BATCH_FLUSH_SIZE = 10; // 10개 모이면 즉시 전송
 const BATCH_FLUSH_INTERVAL_MS = 60000; // 1분마다 강제 flush
 
@@ -29,6 +30,8 @@ const BATCH_FLUSH_INTERVAL_MS = 60000; // 1분마다 강제 flush
 // 3회 연속 transient → 60초 휴식 (IP throttling 회복 시간 확보)
 const TRANSIENT_BACKOFF_THRESHOLD = 3;
 const TRANSIENT_BACKOFF_MS = 60_000;
+// Retry-After 헤더 존중 상한 — 네이버가 비정상적으로 큰 값을 줘도 최대 5분까지만 쉰다(무한 정지 방지).
+const RETRY_AFTER_MAX_MS = 5 * 60 * 1000;
 
 // AIMD 적응형 지연 — 429(transient) 뜨면 곱셈 증가, 성공하면 덧셈 감소.
 // 네이버 스로틀링에 실시간 적응해 429 를 최소화(고정 페이싱보다 효과적).
@@ -127,9 +130,14 @@ async function tick(): Promise<void> {
     }
     console.log(`[monitor-cron] ${monitors.length}개 모니터 처리 시작`);
 
+    // 배치 시작 전 세션 워밍업 — NNB 쿠키 갱신으로 "재방문 브라우저" 위장(429↓). 실패해도 무시.
+    await warmUpSession();
+
     let consecutiveTransient = 0;
     for (const m of monitors) {
-      const lastStatus = await processMonitor(m);
+      const { cls: lastStatus, retryAfterMs } = await processMonitor(m);
+      // 네이버가 Retry-After 를 명시하면 그 값을 존중(상한 5분). AIMD/고정 백오프보다 정확.
+      const retryAfter = retryAfterMs != null ? Math.min(RETRY_AFTER_MAX_MS, retryAfterMs) : undefined;
 
       // AIMD 적응형 지연 갱신 + 429 연속 감지 cool-down
       if (lastStatus === 'transient') {
@@ -137,9 +145,11 @@ async function tick(): Promise<void> {
         adaptiveDelayMs = Math.min(ADAPTIVE_MAX_MS, Math.round(adaptiveDelayMs * ADAPTIVE_INC_FACTOR));
         consecutiveTransient++;
         if (consecutiveTransient >= TRANSIENT_BACKOFF_THRESHOLD) {
-          console.warn(`[monitor-cron] transient ${consecutiveTransient}회 연속 — ${TRANSIENT_BACKOFF_MS / 1000}초 휴식 (지연 ${adaptiveDelayMs}ms)`);
+          // Retry-After 가 있으면 그 값과 고정 휴식 중 더 큰 쪽으로 쉰다.
+          const restMs = Math.max(TRANSIENT_BACKOFF_MS, retryAfter ?? 0);
+          console.warn(`[monitor-cron] transient ${consecutiveTransient}회 연속 — ${Math.round(restMs / 1000)}초 휴식 (지연 ${adaptiveDelayMs}ms${retryAfter ? `, Retry-After ${Math.round(retryAfter / 1000)}s` : ''})`);
           await flushPending(); // 휴식 전 결과 비우기
-          await sleep(TRANSIENT_BACKOFF_MS);
+          await sleep(restMs);
           consecutiveTransient = 0;
         }
       } else {
@@ -152,7 +162,11 @@ async function tick(): Promise<void> {
 
       // 결과 batch flush 트리거
       if (pendingResults.length >= BATCH_FLUSH_SIZE) await flushPending();
-      await sleep(adaptiveDelayMs + Math.random() * ITEM_JITTER_MS);
+      // 다음 아이템 전 대기 — Retry-After 가 있으면 그만큼(상한 내), 없으면 적응형 지연 + jitter.
+      const waitMs = retryAfter != null
+        ? Math.max(adaptiveDelayMs, retryAfter) + Math.random() * ITEM_JITTER_MS
+        : adaptiveDelayMs + Math.random() * ITEM_JITTER_MS;
+      await sleep(waitMs);
     }
 
     await flushPending();
@@ -163,8 +177,9 @@ async function tick(): Promise<void> {
   }
 }
 
-/** 단건 처리. 반환값: 결과의 errorClass (backoff 판정용) — 'transient' | 'naver' | 'infra' | null */
-async function processMonitor(m: MonitorTask): Promise<'transient' | 'naver' | 'infra' | null> {
+/** 단건 처리. 반환: errorClass(backoff 판정용) + Retry-After(있으면). */
+type ProcessOutcome = { cls: 'transient' | 'naver' | 'infra' | null; retryAfterMs?: number };
+async function processMonitor(m: MonitorTask): Promise<ProcessOutcome> {
   const store = getStore();
   try {
     const result = await fetchNaverProduct(m.source_url);
@@ -186,9 +201,9 @@ async function processMonitor(m: MonitorTask): Promise<'transient' | 'naver' | '
     if (result.status === 'error') {
       const errs = (store.get('totalErrors') as number | undefined) || 0;
       store.set('totalErrors', errs + 1);
-      return result.errorClass || 'naver';
+      return { cls: result.errorClass || 'naver', retryAfterMs: result.retryAfterMs };
     }
-    return null;
+    return { cls: null };
   } catch (err) {
     console.warn(`[monitor-cron] processMonitor 실패 (${m.id}):`, err);
     pendingResults.push({
@@ -198,7 +213,7 @@ async function processMonitor(m: MonitorTask): Promise<'transient' | 'naver' | '
       errorClass: 'naver',
       fetchedAt: new Date().toISOString(),
     });
-    return 'naver';
+    return { cls: 'naver' };
   }
 }
 
