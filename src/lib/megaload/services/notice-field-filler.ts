@@ -4,6 +4,8 @@
 // ============================================================
 
 import type { LocalProductJson } from './local-product-reader';
+import { normalizeCertifications } from './cert-normalizer';
+import { isValidBrand } from './brand-validator';
 
 export interface NoticeFieldMeta {
   name: string;
@@ -472,16 +474,41 @@ function sanitizeProductNameForNotice(name: string): string {
   // 카테고리 묶음 SEO 패턴 제거 (특정 단어 조합)
   s = s.replace(/사과\/배\s*과일세트/g, '');
   s = s.replace(/과일\s*세트(\s*과일\s*세트)+/g, '과일세트');
+  // 프로모션 괄호 문구 제거 — "[무이자 12개월 본사직영]", "[특가]", "(사은품)" 등.
+  //   고시 품명·모델명엔 모델번호가 남아야 하는데, 이런 접두 문구가 50자 컷을 잡아먹어
+  //   실제 모델명(예: ZPC2033)이 잘려나갔다.
+  s = s.replace(
+    /[[(【（][^\])】）]*(?:무이자|본사직영|정품|특가|사은품|할인|최저가|무료배송|당일발송|당일출고|쿠폰|이벤트|증정|한정|균일가|세일|sale|무료)[^\])】）]*[\])】）]/gi,
+    ' ',
+  );
   // 강조 마커 제거
   s = s.replace(/[★☆◆◇■□●○▶▷※♥♡♠♣]/g, ' ');
   // 가격 토큰 제거
   s = s.replace(/\d+\s*원(?!료|두|산|어)/g, ' ');
-  // 같은 단어 2+회 연속 반복 → 1회 (예: "사과 사과 사과" → "사과")
-  s = s.replace(/(\b\S+\b)(\s+\1){1,}/g, '$1');
+  // 같은 단어 2+회 연속 반복 → 1회 (예: "안마용품 안마용품 안마용품" → "안마용품")
+  //   \b 는 ASCII 기준이라 한글 사이에서 동작하지 않아 반복 제거가 먹지 않았다 → \b 제거.
+  s = s.replace(/(\S+)(\s+\1)+/g, '$1');
   // 다중 공백 정규화
   s = s.replace(/\s+/g, ' ').trim();
   // 50자 컷
   return s.slice(0, 50);
+}
+
+/**
+ * 고시정보 "KC 인증정보"/인증·허가 필드용 표기.
+ * 원본 인증(KC 등) 번호가 있으면 실제 표기를 만들고, 없으면 null(→ 호출부가 "해당사항 없음" 폴백).
+ * ⚠️ 이 값은 등록 payload 의 certifications 배열(구조화 인증)과 별개인 "고시 텍스트" 필드다.
+ *    인증이 있는데 "해당사항 없음"으로 두면 API 배열과 모순 + 전기제품 등 표시의무 위반 소지 → 번호를 명시한다.
+ */
+function kcNoticeDisclosure(certifications: unknown): string | null {
+  const normed = normalizeCertifications(certifications);
+  if (normed.length === 0) return null;
+  const parts = normed.map((c) => {
+    // rawName 예: "[전기용품]안전인증_국가인증 - 한국기계전기전자시험연구원장" → " - " 앞의 인증 명칭만
+    const label = c.rawName ? c.rawName.split(' - ')[0].trim() : 'KC 인증';
+    return `${label} ${c.code}`.trim();
+  });
+  return parts.join('; ').slice(0, 100);
 }
 
 /**
@@ -510,8 +537,11 @@ function resolveFieldValue(
   }
 
   const normalized = fieldName.toLowerCase().replace(/\s/g, '');
-  const productName = (product.name || product.title || '').slice(0, 50);
-  const brand = product.brand || '';
+  // ⚠️ 50자 컷은 정제(sanitizeProductNameForNotice) 이후에 해야 마케팅 접두문구가 모델명을 밀어내지 않는다.
+  //    (예전엔 여기서 먼저 잘라 "[무이자 12개월 본사직영] …" 때문에 모델명 ZPC2033 이 잘려나갔음)
+  const productName = product.name || product.title || '';
+  // 크롤러가 UI 링크 텍스트("본문으로 바로가기")를 brand 로 잘못 수집한 경우 제조자/브랜드 필드 오염 차단.
+  const brand = isValidBrand(product.brand) ? String(product.brand).trim() : '';
 
   // ⚠️ 건기식(건강기능식품) 카테고리 감지 — 필수 표시사항이 많아 별도 처리.
   //    노출고시 카테고리명에 "건강기능식품"이 들어가면 건기식으로 판단.
@@ -618,7 +648,8 @@ function resolveFieldValue(
     return '상세페이지 참조';
   }
   if (normalized.includes('인증') || normalized.includes('허가')) {
-    return '해당사항 없음';
+    // 원본 인증(KC 등) 번호가 있으면 "해당사항 없음" 대신 실제 인증 표기(전기제품 등 고시 표시의무 충족)
+    return kcNoticeDisclosure(product.certifications) || '해당사항 없음';
   }
   // 크기/중량/용량: 추출된 값이 있으면 우선 사용
   if (normalized.includes('용량') || normalized.includes('내용량')) {

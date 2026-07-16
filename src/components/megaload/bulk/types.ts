@@ -36,6 +36,8 @@ export interface PreviewProduct {
   hasProductJson: boolean;
   /** 네이버 소싱 카테고리 ID (product.json에서 읽음) */
   naverCategoryId?: string;
+  /** 원본 인증({name,cert_number,…}) — product.json에서 읽음. 서버가 카테고리 메타로 grounding 후 등록에 반영 */
+  certifications?: unknown[];
 }
 
 export interface EditableProduct extends PreviewProduct {
