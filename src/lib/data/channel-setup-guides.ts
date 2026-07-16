@@ -63,7 +63,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           '"업체코드(VendorID)" 항목의 값을 복사해두세요.',
         ],
         tip: '업체코드는 "A" 또는 "C" + 숫자 형태입니다 (예: A00012345).',
-        imageUrl: 'https://winselling.co.kr/img/guide/seller/setting/cpg_setting_02.png',
+        imageUrl: '/onboarding/coupang/api-vendor.png',
         inputFields: ['Vendor ID (업체코드)'],
       },
       {
@@ -77,7 +77,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           '업체코드 · Access Key · Secret Key가 함께 표시됩니다.',
         ],
         warning: 'Secret Key는 발급 시 한 번만 표시됩니다. 즉시 복사하세요. 분실 시 기존 키를 삭제 후 재발급하며, 키는 유효기간(약 180일)이 있어 만료 전 재발급이 필요합니다.',
-        imageUrl: 'https://winselling.co.kr/img/guide/seller/setting/cpg_setting_08.png',
+        imageUrl: '/onboarding/coupang/api-key.png',
         inputFields: ['Access Key', 'Secret Key'],
       },
       {
@@ -208,7 +208,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           '이용약관 동의 → "서비스등록" → 담당업무 "개발", 사용용도 "주문 통합관리" 등 입력 후 등록.',
         ],
         url: 'https://openapi.11st.co.kr/openapi/OpenApiFrontMain.tmall',
-        imageUrl: 'https://winselling.co.kr/img/guide/seller/setting/st11_selleroffcie_02.png',
+        imageUrl: '/onboarding/elevenst/api-register.png',
       },
       {
         stepNumber: 3,
@@ -220,7 +220,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           '개발/PC/상용 IP 필드가 나뉘어 있으면 안내된 IP를 모두 넣고 저장하세요.',
         ],
         warning: 'IP를 등록하지 않으면 모든 API 호출이 거부됩니다. 가장 흔한 실패 원인이에요. IP는 메가로드가 안내하는 값을 넣으세요.',
-        imageUrl: 'https://winselling.co.kr/img/guide/seller/setting/st11_selleroffcie_03.png',
+        imageUrl: '/onboarding/elevenst/api-ip.png',
       },
       {
         stepNumber: 4,
@@ -231,7 +231,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           '"11ST OPEN API KEY"를 "복사하기"로 복사합니다.',
         ],
         tip: '이 키 하나로 상품/주문 API를 모두 사용합니다 (API별 개별신청 불필요).',
-        imageUrl: 'https://winselling.co.kr/img/guide/seller/setting/st11_selleroffcie_05.png',
+        imageUrl: '/onboarding/elevenst/api-key.png',
         inputFields: ['API Key (openapikey)'],
       },
       {
@@ -277,7 +277,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           'ESM+ → "계정(ID)관리" → "판매자 계정(ID) 관리"로 이동하세요.',
           'ESM 마스터ID와 G마켓 판매자 ID를 확인해 복사해두세요.',
         ],
-        imageUrl: 'https://winselling.co.kr/img/guide/seller/api_setting/esm/esm_api_setting04.jpg',
+        imageUrl: '/onboarding/gmarket/api-id.jpg',
         inputFields: ['ESM+ 마스터ID', 'G마켓 셀러ID'],
       },
       {
@@ -345,7 +345,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           'ESM+ → "계정(ID)관리" → "판매자 계정(ID) 관리"로 이동하세요.',
           'ESM 마스터ID와 옥션 판매자 ID를 확인해 복사해두세요.',
         ],
-        imageUrl: 'https://winselling.co.kr/img/guide/seller/api_setting/esm/esm_api_setting04.jpg',
+        imageUrl: '/onboarding/gmarket/api-id.jpg',
         inputFields: ['ESM+ 마스터ID', '옥션 셀러ID'],
       },
       {
@@ -415,7 +415,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         ],
         url: 'https://store.lotteon.com',
         tip: 'store.lotteon.com이 판매자 스토어센터입니다. partner.b2b.lotteon.com은 별도 B2B 포털이니 혼동하지 마세요.',
-        imageUrl: 'https://winselling.co.kr/img/guide/seller/setting/lott_setting_03.png',
+        imageUrl: '/onboarding/lotteon/api-menu.png',
       },
       {
         stepNumber: 3,
@@ -436,7 +436,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           '거래처번호는 "판매자정보" → "기본정보관리"에서 확인 (상호명 옆 괄호 코드, 예: LO10011111).',
         ],
         warning: '인증키는 발급 시 한 번만 표시됩니다. 인증키와 거래처번호가 서로 맞지 않으면 작업이 실패합니다.',
-        imageUrl: 'https://winselling.co.kr/img/guide/seller/setting/lott_setting_05.png',
+        imageUrl: '/onboarding/lotteon/api-key.png',
         inputFields: ['판매자 ID', 'API Key', '거래처번호'],
       },
       {

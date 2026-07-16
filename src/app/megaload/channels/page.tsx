@@ -13,6 +13,7 @@ export default function ChannelsPage() {
   const [loading, setLoading] = useState(true);
   const [testingChannel, setTestingChannel] = useState<string | null>(null);
   const [guideChannel, setGuideChannel] = useState<Channel | null>(null);
+  const [guidePhase, setGuidePhase] = useState<'onboarding' | 'connect'>('onboarding');
 
   const fetchCredentials = useCallback(async () => {
     setLoading(true);
@@ -113,7 +114,7 @@ export default function ChannelsPage() {
                       연결 확인
                     </button>
                     <button
-                      onClick={() => setGuideChannel(ch)}
+                      onClick={() => { setGuidePhase('connect'); setGuideChannel(ch); }}
                       title="키 다시 입력"
                       className="px-3 py-2 text-xs font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
                     >
@@ -122,11 +123,11 @@ export default function ChannelsPage() {
                   </>
                 ) : (
                   <button
-                    onClick={() => setGuideChannel(ch)}
+                    onClick={() => { setGuidePhase('onboarding'); setGuideChannel(ch); }}
                     className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700 transition"
                   >
                     <LinkIcon className="w-3.5 h-3.5" />
-                    연동하기
+                    입점·연동하기
                   </button>
                 )}
               </div>
@@ -140,6 +141,7 @@ export default function ChannelsPage() {
         <ChannelConnectWizard
           channel={guideChannel}
           isOpen={!!guideChannel}
+          startPhase={guidePhase}
           onClose={() => setGuideChannel(null)}
           onConnected={fetchCredentials}
         />
