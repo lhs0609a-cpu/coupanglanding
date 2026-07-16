@@ -45,36 +45,24 @@ export async function GET(request: NextRequest) {
   const requestedInterval = parseInt(url.searchParams.get('minIntervalSec') || '1800');
   const minIntervalSec = Math.min(requestedInterval, 3600);
 
-  // 우선순위 fetch:
-  //   1. 한 번도 체크 안 된 것 (last_checked_at IS NULL) — 즉시
-  //   2. minIntervalSec 이상 지난 것 (안정 상품 라운드로빈)
-  //   3. 미확인/오류 상태 — retryBackoff(15분) 지난 것만 (안정 상품보다 빠르되 매 사이클은 아님)
+  // ── 무차단 재설계 P1: next_check_at 기반 due-only 스케줄러 ──
+  //   "due 인 것만" 배포한다: next_check_at IS NULL(신규·최초확인) 또는 next_check_at <= now.
+  //   다음 조회 시각은 results 라우트가 상태 티어별로 미래에 배정한다(판매중 12h·품절 6h·오류 1.5~6h 등).
+  //   → 안정 상품은 자연히 드물게 조회되어 총 요청량이 rate 예산 안에 들어오고, IP가 식을 틈이 생긴다.
   //
-  // ⚠️ 429 증폭 루프 차단(2026-07 수정):
-  //   기존엔 source_status ∈ (오류,error) 또는 consecutive_errors≥1 인 상품을 last_checked_at 무시하고
-  //   매 tick(2분) 즉시 재조회했다. 그런데 429(transient)는 상품이 아니라 IP/속도 문제 → 즉시 재조회해도
-  //   또 429 → source_status='error' 고착 → 다음 tick 또 즉시 재조회 → IP가 식을 틈 없이 계속 hot →
-  //   429 무한 증폭. (대시보드 "오류 161" + 판매중 상품이 429로 오류 표시되던 근본 원인.)
-  //   → 오류/미확인도 retryBackoff(15분) 백오프 후에만 재조회하게 해 IP 회복 시간을 확보한다.
-  //   최초 확인(last_checked_at IS NULL)은 여전히 즉시 처리되므로 신규 등록 반영 지연은 없다.
-  const cutoff = new Date(Date.now() - minIntervalSec * 1000).toISOString();
-  const RETRY_BACKOFF_SEC = 900; // 15분 — 미확인/오류 재조회 최소 간격(429 IP 회복 시간)
-  const retryCutoff = new Date(Date.now() - RETRY_BACKOFF_SEC * 1000).toISOString();
+  // ⚠️ 이 방식이 429 증폭 루프를 뿌리째 제거한다:
+  //   기존엔 source_status∈(오류,error)/consecutive_errors≥1 를 last_checked_at 무시하고 매 tick 즉시
+  //   재조회 → 429 상품이 계속 hot → 증폭. 이제 오류도 next_check_at(미래)까지는 절대 재조회 안 함.
+  //   (과거 15분 백오프 패치를 대체·강화한다.) minIntervalSec 은 nextPollSec 계산에만 사용.
+  const nowIso = new Date().toISOString();
   const { data, error } = await serviceClient
     .from('sh_stock_monitors')
     .select('id, coupang_product_id, source_url, source_status, registered_option_name, last_checked_at, consecutive_errors')
     .eq('megaload_user_id', shUserId)
     .eq('is_active', true)
     .not('source_url', 'is', null)
-    .or(
-      [
-        'last_checked_at.is.null',
-        `last_checked_at.lt.${cutoff}`,
-        `and(last_checked_at.lt.${retryCutoff},source_status.in.(미확인,확인불가,오류,unknown,error))`,
-        `and(last_checked_at.lt.${retryCutoff},consecutive_errors.gte.1)`,
-      ].join(','),
-    )
-    .order('last_checked_at', { ascending: true, nullsFirst: true })
+    .or(`next_check_at.is.null,next_check_at.lte.${nowIso}`)
+    .order('next_check_at', { ascending: true, nullsFirst: true })
     .limit(limit);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

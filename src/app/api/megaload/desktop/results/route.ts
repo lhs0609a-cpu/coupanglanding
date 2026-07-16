@@ -29,6 +29,29 @@ interface ResultPayload {
   fetchedAt: string;
 }
 
+/**
+ * 상태 티어별 다음 조회 시각 — 무차단 재설계 P1.
+ *   안정 상품은 드물게, 변동/오류는 적당히 → 총 요청량을 rate 예산 안으로 눌러 IP 과열 방지.
+ *   ±25% full-jitter 로 "정확히 N시간마다" 패턴을 깨 봇 탐지를 완화한다(리서치: 결정론적 주기도 탐지됨).
+ */
+function computeNextCheckAt(status: string, errorClass: string | undefined, priceFollowEnabled: boolean): string {
+  let minutes: number;
+  switch (status) {
+    case 'in_stock': minutes = priceFollowEnabled ? 180 : 720; break; // 가격추종 3h / 일반 12h
+    case 'sold_out': minutes = 360; break;                            // 재입고 감시 6h
+    case 'removed':  minutes = 1440; break;                           // 내려간 상품 24h
+    case 'unknown':  minutes = 120; break;                            // 구조 확인 2h
+    case 'error':
+      // transient(429/timeout)/infra = IP/속도 문제 → 1.5h 뒤 재시도(하드 아님).
+      // 하드(naver 403/파싱실패 등) = 상품측 문제 가능 → 6h 로 더 뒤로 밀어 재하머링 방지.
+      minutes = (errorClass === 'transient' || errorClass === 'infra') ? 90 : 360;
+      break;
+    default: minutes = 360;
+  }
+  const jittered = minutes * (0.75 + Math.random() * 0.5); // ±25% full-jitter
+  return new Date(Date.now() + jittered * 60_000).toISOString();
+}
+
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
   const url = new URL(request.url);
@@ -74,7 +97,7 @@ export async function POST(request: NextRequest) {
       // 사용자 모니터인지 검증 (다른 사용자 모니터 update 차단)
       const { data: mon } = await serviceClient
         .from('sh_stock_monitors')
-        .select('id, source_status, source_price_last, consecutive_errors')
+        .select('id, source_status, source_price_last, consecutive_errors, price_follow_rule')
         .eq('id', r.monitorId)
         .eq('megaload_user_id', shUserId)
         .single();
@@ -84,7 +107,8 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const m = mon as { id: string; source_status: string; source_price_last: number | null; consecutive_errors: number };
+      const m = mon as { id: string; source_status: string; source_price_last: number | null; consecutive_errors: number; price_follow_rule: { enabled?: boolean } | null };
+      const priceFollowEnabled = m.price_follow_rule?.enabled === true;
       const now = new Date().toISOString();
       const updates: Record<string, unknown> = {
         last_checked_at: now,
@@ -107,6 +131,9 @@ export async function POST(request: NextRequest) {
           updates.option_statuses = r.options;
         }
       }
+
+      // 무차단 재설계 P1: 상태 티어별 다음 조회 시각 배정 (스케줄러가 이걸로 due 판정)
+      updates.next_check_at = computeNextCheckAt(r.status, r.errorClass, priceFollowEnabled);
 
       await serviceClient.from('sh_stock_monitors').update(updates).eq('id', r.monitorId);
 
