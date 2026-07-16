@@ -14,7 +14,9 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getReportCosts } from '@/lib/calculations/deposit';
-import { calculateTrainerBonus } from '@/lib/calculations/trainer';
+import {
+  calculateTrainerBonus, applyBonusCaps, isBonusExpired, bonusUntilYearMonth,
+} from '@/lib/calculations/trainer';
 import { notifyTrainerBonusEarned } from '@/lib/utils/notifications';
 import { logSettlementError } from './settlement-errors';
 
@@ -98,17 +100,22 @@ export async function completeSettlement(
     }
   }
 
-  // 5. 트레이너 보너스 생성 (trainer_earnings.monthly_report_id UNIQUE 로 중복 방지)
+  // 5. 트레이너(추천인) 보너스 생성 (trainer_earnings.monthly_report_id UNIQUE 로 중복 방지)
+  //    기준은 순이익 × bonus_percentage(기본 5%). 여기에 정책 가드 2개를 적용한다:
+  //      ① 지급 기간 — 첫 지급 달부터 12개월(bonus_until_year_month)까지만
+  //      ② 월 상한 — 피추천인당 / 추천인당 월 총액 상한
   const { data: traineeLink } = await serviceClient
     .from('trainer_trainees')
-    .select('trainer_id, trainer:trainers(*, pt_user:pt_users(profile_id))')
+    .select('trainer_id, bonus_first_year_month, bonus_until_year_month, trainer:trainers(*, pt_user:pt_users(profile_id))')
     .eq('trainee_pt_user_id', report.pt_user_id)
     .eq('is_active', true)
     .maybeSingle();
 
   if (traineeLink) {
-    const trainer = (traineeLink as unknown as {
+    const link = traineeLink as unknown as {
       trainer_id: string;
+      bonus_first_year_month: string | null;
+      bonus_until_year_month: string | null;
       trainer: {
         id: string;
         status: string;
@@ -116,17 +123,21 @@ export async function completeSettlement(
         total_earnings: number;
         pt_user: { profile_id: string };
       };
-    }).trainer;
+    };
+    const trainer = link.trainer;
 
-    if (trainer && trainer.status === 'approved') {
+    // ① 지급 기간 만료면 채널 호출 없이 조용히 skip (첫 지급 전이면 만료 아님)
+    const expired = isBonusExpired(report.year_month, link.bonus_until_year_month);
+
+    if (trainer && trainer.status === 'approved' && !expired) {
       const reportCosts = getReportCosts(report);
-      const { netProfit: trainerNetProfit, bonusAmount } = calculateTrainerBonus(
+      const { netProfit: trainerNetProfit, bonusAmount: rawBonus } = calculateTrainerBonus(
         report.reported_revenue,
         reportCosts,
         trainer.bonus_percentage,
       );
 
-      if (bonusAmount > 0) {
+      if (rawBonus > 0) {
         const { data: existingEarning } = await serviceClient
           .from('trainer_earnings')
           .select('id')
@@ -134,40 +145,70 @@ export async function completeSettlement(
           .maybeSingle();
 
         if (!existingEarning) {
-          const { error: earningErr } = await serviceClient.from('trainer_earnings').insert({
-            trainer_id: trainer.id,
-            trainee_pt_user_id: report.pt_user_id,
-            monthly_report_id: report.id,
-            year_month: report.year_month,
-            trainee_net_profit: trainerNetProfit,
-            bonus_percentage: trainer.bonus_percentage,
-            bonus_amount: bonusAmount,
-            payment_status: 'pending',
-          });
+          // ② 월 상한 — 같은 추천인의 같은 달 적립분(환수분 제외) 합계를 구해 남은 한도만 지급.
+          //    동시 정산 시 미세 초과 가능성은 있으나(읽고-쓰기), 상한 목적상 허용 오차로 둔다.
+          const { data: monthRows } = await serviceClient
+            .from('trainer_earnings')
+            .select('bonus_amount')
+            .eq('trainer_id', trainer.id)
+            .eq('year_month', report.year_month)
+            .is('clawed_back_at', null);
+          const monthToDate = (monthRows || []).reduce(
+            (sum, r) => sum + Number((r as { bonus_amount: number }).bonus_amount || 0),
+            0,
+          );
+          const { amount: bonusAmount, capReason } = applyBonusCaps(rawBonus, monthToDate);
 
-          if (!earningErr) {
-            // total_earnings 는 atomic increment 로 race-free 보장
-            await serviceClient.rpc('trainer_increment_total_earnings', {
-              p_trainer_id: trainer.id,
-              p_delta: bonusAmount,
+          if (bonusAmount > 0) {
+            const { error: earningErr } = await serviceClient.from('trainer_earnings').insert({
+              trainer_id: trainer.id,
+              trainee_pt_user_id: report.pt_user_id,
+              monthly_report_id: report.id,
+              year_month: report.year_month,
+              trainee_net_profit: trainerNetProfit,
+              bonus_percentage: trainer.bonus_percentage,
+              bonus_amount: bonusAmount,
+              uncapped_amount: rawBonus,
+              cap_reason: capReason,
+              payment_status: 'pending',
             });
 
-            if (trainer.pt_user?.profile_id) {
-              await notifyTrainerBonusEarned(
-                serviceClient,
-                trainer.pt_user.profile_id,
-                userName,
-                report.year_month,
-                bonusAmount,
-              );
+            if (!earningErr) {
+              // 첫 지급이면 12개월 창을 여기서 확정(앵커 = 이번 정산 월)
+              if (!link.bonus_first_year_month) {
+                await serviceClient
+                  .from('trainer_trainees')
+                  .update({
+                    bonus_first_year_month: report.year_month,
+                    bonus_until_year_month: bonusUntilYearMonth(report.year_month),
+                  })
+                  .eq('trainee_pt_user_id', report.pt_user_id)
+                  .is('bonus_first_year_month', null);
+              }
+
+              // total_earnings 는 atomic increment 로 race-free 보장
+              await serviceClient.rpc('trainer_increment_total_earnings', {
+                p_trainer_id: trainer.id,
+                p_delta: bonusAmount,
+              });
+
+              if (trainer.pt_user?.profile_id) {
+                await notifyTrainerBonusEarned(
+                  serviceClient,
+                  trainer.pt_user.profile_id,
+                  userName,
+                  report.year_month,
+                  bonusAmount,
+                );
+              }
+            } else if (earningErr.code !== '23505') {
+              await logSettlementError(serviceClient, {
+                stage: 'trainer_earnings_insert',
+                monthlyReportId: report.id,
+                ptUserId: report.pt_user_id,
+                error: earningErr,
+              });
             }
-          } else if (earningErr.code !== '23505') {
-            await logSettlementError(serviceClient, {
-              stage: 'trainer_earnings_insert',
-              monthlyReportId: report.id,
-              ptUserId: report.pt_user_id,
-              error: earningErr,
-            });
           }
         }
       }

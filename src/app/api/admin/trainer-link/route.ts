@@ -3,7 +3,9 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { logActivity } from '@/lib/utils/activity-log';
 import { notifyTrainerNewTrainee, notifyTrainerBonusEarned } from '@/lib/utils/notifications';
 import { getReportCosts } from '@/lib/calculations/deposit';
-import { calculateTrainerBonus } from '@/lib/calculations/trainer';
+import {
+  calculateTrainerBonus, applyBonusCaps, isBonusExpired, bonusUntilYearMonth,
+} from '@/lib/calculations/trainer';
 import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
@@ -117,6 +119,13 @@ export async function POST(request: NextRequest) {
         .order('year_month', { ascending: true });
 
       if (confirmedReports && confirmedReports.length > 0) {
+        // 소급 지급도 정산 경로와 동일한 정책을 따른다:
+        //   ① 12개월 창 — 첫 소급 지급 달을 앵커로, 그 이후 12개월까지만
+        //   ② 월 상한 — 피추천인당/추천인당
+        // (reports 는 year_month 오름차순이라 창을 벗어나면 이후도 전부 벗어남 → break)
+        let firstYm: string | null = null;
+        let untilYm: string | null = null;
+
         for (const report of confirmedReports) {
           // 이미 trainer_earnings 존재하는 건 제외
           const { data: existingEarning } = await serviceClient
@@ -135,6 +144,27 @@ export async function POST(request: NextRequest) {
           );
 
           if (bonusAmount > 0) {
+            // 앵커 확정(첫 실지급 달) → 이후 만료 판정
+            const reportYm = report.year_month as string;
+            if (!firstYm) {
+              firstYm = reportYm;
+              untilYm = bonusUntilYearMonth(reportYm);
+            }
+            if (isBonusExpired(reportYm, untilYm)) break;
+
+            const { data: monthRows } = await serviceClient
+              .from('trainer_earnings')
+              .select('bonus_amount')
+              .eq('trainer_id', trainer_id)
+              .eq('year_month', report.year_month)
+              .is('clawed_back_at', null);
+            const monthToDate = (monthRows || []).reduce(
+              (sum, r) => sum + Number((r as { bonus_amount: number }).bonus_amount || 0),
+              0,
+            );
+            const { amount: capped, capReason } = applyBonusCaps(bonusAmount, monthToDate);
+            if (capped <= 0) continue;
+
             await serviceClient.from('trainer_earnings').insert({
               trainer_id,
               trainee_pt_user_id,
@@ -142,13 +172,24 @@ export async function POST(request: NextRequest) {
               year_month: report.year_month,
               trainee_net_profit: netProfit,
               bonus_percentage: trainer.bonus_percentage,
-              bonus_amount: bonusAmount,
+              bonus_amount: capped,
+              uncapped_amount: bonusAmount,
+              cap_reason: capReason,
               payment_status: 'pending',
             });
 
             retroactiveCount++;
-            retroactiveTotal += bonusAmount;
+            retroactiveTotal += capped;
           }
+        }
+
+        // 12개월 창 앵커 저장 — 이후 정산 경로가 같은 창을 이어서 판정
+        if (firstYm) {
+          await serviceClient
+            .from('trainer_trainees')
+            .update({ bonus_first_year_month: firstYm, bonus_until_year_month: untilYm })
+            .eq('trainee_pt_user_id', trainee_pt_user_id)
+            .is('bonus_first_year_month', null);
         }
 
         // trainers.total_earnings 누적 업데이트

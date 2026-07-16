@@ -145,6 +145,7 @@ export default function TrainerPage() {
         .from('trainer_earnings')
         .select('*, trainee_pt_user:pt_users(*, profile:profiles(*))')
         .eq('trainer_id', trainerData.id)
+        .is('clawed_back_at', null) // 환수된 커미션은 내 정산 목록에서 제외
         .order('year_month', { ascending: false }),
       supabase
         .from('trainer_messages')

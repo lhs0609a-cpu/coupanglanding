@@ -338,6 +338,7 @@ export default function AdminTrainersPage() {
         .from('trainer_earnings')
         .select('*, trainee_pt_user:pt_users(*, profile:profiles(*))')
         .eq('trainer_id', trainer.id)
+        .is('clawed_back_at', null) // 환수된 커미션은 집계/표시에서 제외
         .order('year_month', { ascending: false }),
       supabase
         .from('trainer_messages')
@@ -442,6 +443,7 @@ export default function AdminTrainersPage() {
         .from('trainer_earnings')
         .select('trainer_id')
         .eq('payment_status', 'requested')
+        .is('clawed_back_at', null) // 환수된 건은 지급요청 카운트에서 제외
         .in('trainer_id', trainerIds);
 
       const countMap = new Map<string, number>();

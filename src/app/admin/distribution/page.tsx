@@ -73,7 +73,8 @@ export default function AdminDistributionPage() {
         .in('payment_status', ['submitted', 'reviewed']),
       supabase.from('trainer_earnings')
         .select('*, trainer:trainers(*, pt_user:pt_users(*, profile:profiles(*))), trainee_pt_user:pt_users(*, profile:profiles(*))')
-        .eq('year_month', yearMonth),
+        .eq('year_month', yearMonth)
+        .is('clawed_back_at', null), // 환수된 커미션은 분배 집계에서 제외
     ]);
 
     const expenseData = (expRes.data as ExpenseEntry[]) || [];

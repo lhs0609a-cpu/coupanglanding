@@ -19,6 +19,74 @@ export function calculateTrainerBonus(
   return { netProfit, bonusAmount };
 }
 
+// ─── 추천 커미션 정책 상수 ───────────────────────────────
+// 지급 기준은 순이익 × bonus_percentage(기본 5%)로 유지하고,
+// "언제까지 / 얼마까지"만 아래 정책으로 제한한다.
+
+/** 추천 커미션 지급 기간(개월). 첫 보너스가 나간 달부터 이 개월 수까지만 지급. */
+export const TRAINER_BONUS_MONTHS = 12;
+/** 피추천인 1명당 월 커미션 상한(원) — 대형 셀러 1명이 마진을 통째로 가져가는 것 방지 */
+export const TRAINER_BONUS_MONTHLY_CAP_PER_TRAINEE = 500_000;
+/** 추천인 1명당 월 커미션 총 상한(원) */
+export const TRAINER_BONUS_MONTHLY_CAP_PER_TRAINER = 3_000_000;
+
+/**
+ * 'YYYY-MM' 에 개월 수를 더한 'YYYY-MM'.
+ * Date 객체의 말일(31일→2월) 롤오버 문제를 피하려고 순수 정수 연산으로 계산.
+ */
+export function addMonths(yearMonth: string, months: number): string {
+  const [y, m] = yearMonth.split('-').map(Number);
+  if (!y || !m || m < 1 || m > 12) return yearMonth;
+  const total = y * 12 + (m - 1) + months;
+  const ny = Math.floor(total / 12);
+  const nm = (total % 12) + 1;
+  return `${ny}-${String(nm).padStart(2, '0')}`;
+}
+
+/** 첫 지급 월 기준 마지막 지급 가능 월(포함). 12개월이면 first+11. */
+export function bonusUntilYearMonth(firstYearMonth: string): string {
+  return addMonths(firstYearMonth, TRAINER_BONUS_MONTHS - 1);
+}
+
+/**
+ * 지급 기간 만료 여부.
+ * untilYearMonth 가 없으면(=아직 첫 지급 전) 만료 아님.
+ * 'YYYY-MM' 은 제로패딩이라 문자열 비교로 대소 판정이 정확하다.
+ */
+export function isBonusExpired(reportYearMonth: string, untilYearMonth: string | null | undefined): boolean {
+  if (!untilYearMonth) return false;
+  return reportYearMonth > untilYearMonth;
+}
+
+export type BonusCapReason = 'trainee_monthly' | 'trainer_monthly' | null;
+
+/**
+ * 월 상한 적용.
+ *  - 피추천인당 상한: 이 건 자체를 상한선까지 깎음
+ *  - 추천인당 월 총 상한: 같은 달에 이미 적립된 합계를 빼고 남은 한도까지만
+ * 두 상한 중 더 작은 값이 적용되며, 어떤 상한에 걸렸는지 사유를 함께 돌려준다.
+ */
+export function applyBonusCaps(
+  rawAmount: number,
+  trainerMonthToDateAmount: number,
+): { amount: number; capReason: BonusCapReason } {
+  let amount = rawAmount;
+  let capReason: BonusCapReason = null;
+
+  if (amount > TRAINER_BONUS_MONTHLY_CAP_PER_TRAINEE) {
+    amount = TRAINER_BONUS_MONTHLY_CAP_PER_TRAINEE;
+    capReason = 'trainee_monthly';
+  }
+
+  const remaining = Math.max(0, TRAINER_BONUS_MONTHLY_CAP_PER_TRAINER - Math.max(0, trainerMonthToDateAmount));
+  if (amount > remaining) {
+    amount = remaining;
+    capReason = 'trainer_monthly';
+  }
+
+  return { amount: Math.floor(amount), capReason };
+}
+
 /**
  * 추천 코드 생성: TR-XXXXXX (대문자 영숫자 6자리)
  */
