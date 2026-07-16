@@ -8,7 +8,8 @@ import type {
   CategoryItem, CategoryMatchResult, PreviewProduct, BatchResult,
   CategoryMetadata, PreventionConfig, FailureDiagnostic,
 } from './types';
-import type { PreflightProductResult, CanaryResult } from '@/lib/megaload/types';
+import type { PreflightProductResult, CanaryResult, Channel } from '@/lib/megaload/types';
+import { isChannelSupported } from '@/lib/megaload/types';
 import { DEFAULT_PREVENTION_CONFIG, DISABLED_PREVENTION_CONFIG } from '@/lib/megaload/services/item-winner-prevention';
 import { isCommodityCategory } from '@/lib/megaload/services/stock-image-service';
 import { computeRequiredAttrAutofillDetailed } from '@/lib/megaload/services/required-attr-autofill';
@@ -85,6 +86,34 @@ export function useBulkRegisterActions() {
   }, [supabase]);
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
+
+  // ─── 전파 대상 채널 (대량등록 시 "어디에 함께 올릴지" 선택) ───
+  const [connectedChannels, setConnectedChannels] = useState<Channel[]>([]);
+  const [fanoutChannels, setFanoutChannels] = useState<Channel[]>([]);
+  // 이번 등록에서 실제로 성공한 sh_products.id — Step3 실시간 전파 결과 패널이 폴링 대상.
+  const [registeredProductIds, setRegisteredProductIds] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/megaload/channels/credentials');
+        if (!res.ok) return;
+        const data = await res.json();
+        const connected = ((data.credentials || []) as Array<{ channel: string; is_connected?: boolean }>)
+          .filter((c) => c.is_connected && c.channel !== 'coupang' && isChannelSupported(c.channel as Channel))
+          .map((c) => c.channel as Channel);
+        if (cancelled) return;
+        setConnectedChannels(connected);
+        setFanoutChannels(connected); // 기본값: 연결된 채널 전부 선택(원하면 해제)
+      } catch { /* 채널 조회 실패 — 전파 선택 UI만 비활성, 등록은 정상 */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  const toggleFanoutChannel = useCallback((ch: Channel) => {
+    setFanoutChannels((prev) => prev.includes(ch) ? prev.filter((c) => c !== ch) : [...prev, ch]);
+  }, []);
+  const fanoutChannelsRef = useRef<Channel[]>([]);
+  fanoutChannelsRef.current = fanoutChannels;
 
   // Step 1 state
   const [folderPaths, setFolderPaths] = useState<string[]>([]);
@@ -1970,6 +1999,8 @@ export function useBulkRegisterActions() {
           brand: resolvedBrand,
           tags: sp.productJson.tags || [],
           description: sp.productJson.description || '',
+          // 원본 인증(KC 등) 보존 — 등록 시 sourceCertifications 로 전달돼 서버가 카테고리 grounding(올인원과 동일)
+          certifications: Array.isArray(sp.productJson.certifications) ? sp.productJson.certifications : undefined,
           sourcePrice,
           sellingPrice: sourcePrice,
           mainImageCount: sp.mainImages.length,
@@ -2062,6 +2093,8 @@ export function useBulkRegisterActions() {
         brand: resolvedBrand,
         tags: sp.productJson.tags || [],
         description: sp.productJson.description || '',
+        // 원본 인증(KC 등) 보존 — 등록 시 sourceCertifications 로 전달돼 서버가 카테고리 grounding(올인원과 동일)
+        certifications: Array.isArray(sp.productJson.certifications) ? sp.productJson.certifications : undefined,
         sourcePrice,
         sellingPrice: sourcePrice,
         mainImageCount: sp.mainImages.length,
@@ -3596,6 +3629,7 @@ export function useBulkRegisterActions() {
     }
 
     setStep(3); setRegistering(true); setIsPaused(false); isPausedRef.current = false; setAccountBlocked(null); setStartTime(Date.now());
+    setRegisteredProductIds([]); // 이번 등록 성공분 초기화(실시간 전파 결과 폴링 대상)
 
     // preupload 완료까지 최대 30초 대기 (state는 ref로 읽어야 stale 방지)
     if (imagePreuploadProgress.phase !== 'complete' && imagePreuploadProgress.phase !== 'idle') {
@@ -3686,6 +3720,8 @@ export function useBulkRegisterActions() {
             uid: p.uid, productCode: p.productCode, folderPath: p.folderPath, name: p.editedName, sourceName: p.name, sourceUrl: p.sourceUrl,
             brand: p.editedBrand, sellingPrice: p.editedSellingPrice, sourcePrice: p.sourcePrice,
             categoryCode: p.editedCategoryCode, categoryPath: p.editedCategoryName, tags: p.tags, description: p.description,
+            // 원본 인증(KC 등) → 서버가 카테고리 메타로 grounding 후 등록 payload 에 반영(올인원과 동일 경로)
+            sourceCertifications: Array.isArray(p.certifications) && p.certifications.length ? p.certifications : undefined,
             mainImages: p.mainImages,
             detailImages: filterImagesByOrder(p.detailImages || [], p.editedDetailImageOrder),
             reviewImages: filterImagesByOrder(p.reviewImages || [], p.editedReviewImageOrder),
@@ -3870,6 +3906,8 @@ export function useBulkRegisterActions() {
               preventionConfig: preventionConfig.enabled ? preventionConfig : undefined,
               products: batchProducts,
               thirdPartyImageUrls: thirdPartyImageCdnUrls.length > 0 ? thirdPartyImageCdnUrls : undefined,
+              // 사용자가 고른 전파 대상 채널(빈 배열이면 이번 등록은 전파 안 함).
+              targetChannels: fanoutChannelsRef.current,
             }),
           });
           const batchData = await batchRes.json().catch(() => ({}));
@@ -3877,6 +3915,14 @@ export function useBulkRegisterActions() {
             const batchResults = batchData.results as BatchResult[];
             totalSuccess += batchData.successCount || 0;
             totalError += batchData.errorCount || 0;
+            // 성공한 상품의 sh_products.id 수집 → Step3 실시간 전파 결과 폴링 대상
+            const okIds = batchResults
+              .filter((br) => br.success)
+              .map((br) => (br as { productId?: string }).productId)
+              .filter((x): x is string => !!x);
+            if (okIds.length > 0) {
+              setRegisteredProductIds((prev) => [...new Set([...prev, ...okIds])]);
+            }
             setProducts((prev) => prev.map((p) => {
               const r = batchResults.find((br) => br.uid === p.uid);
               if (!r) return p;
@@ -4130,6 +4176,8 @@ export function useBulkRegisterActions() {
     // Canary
     canaryPhase, canaryResult, canaryTargetUid,
     registering, isPaused, batchProgress, startTime, accountBlocked,
+    // 전파 대상 채널 선택 + 실시간 결과
+    connectedChannels, fanoutChannels, toggleFanoutChannel, registeredProductIds,
     // Computed
     selectedCount, totalSourcePrice, totalSellingPrice,
     validationReadyCount, validationErrorCount, validationWarningCount, registerableCount,

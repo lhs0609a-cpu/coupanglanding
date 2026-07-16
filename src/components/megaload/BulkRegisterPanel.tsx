@@ -442,6 +442,9 @@ export default function BulkRegisterPanel() {
           onSelectCategory={actions.selectCategory}
           onDeepValidation={actions.handleDeepValidation}
           onRegister={() => openPreUpload(() => actions.handleRegister())}
+          fanoutConnectedChannels={actions.connectedChannels}
+          fanoutChannels={actions.fanoutChannels}
+          onToggleFanoutChannel={actions.toggleFanoutChannel}
           onBack={handleBack}
           thumbnailCache={thumbnailCache}
           onLoadThumbnail={handleLoadThumbnail}
@@ -501,6 +504,8 @@ export default function BulkRegisterPanel() {
           startTime={actions.startTime}
           imagePreuploadCacheSize={Object.keys(actions.imagePreuploadCache).length}
           accountBlocked={actions.accountBlocked}
+          registeredProductIds={actions.registeredProductIds}
+          fanoutChannels={actions.fanoutChannels}
           onTogglePause={actions.togglePause}
           onReset={actions.handleReset}
           onRetryFailed={() => { actions.retryFailed(); actions.handleRegister(); }}

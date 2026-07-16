@@ -6,8 +6,9 @@ import {
   Search, Zap, Filter, Upload, Eye, BarChart3, CircleDot, Package, ClipboardCopy, ChevronDown, ChevronUp, Ban,
   ShieldCheck, FlaskConical, Lock, Image as ImageIcon, FileText, Type, PackageX, Sparkles, Cpu,
 } from 'lucide-react';
-import type { PreflightProductResult, CanaryResult } from '@/lib/megaload/types';
+import type { PreflightProductResult, CanaryResult, Channel } from '@/lib/megaload/types';
 import BulkProductTable from './BulkProductTable';
+import ChannelFanoutSelector from './ChannelFanoutSelector';
 import BulkProductDetailPanel, { type PayloadPreviewState } from './BulkProductDetailPanel';
 import CategoryCascadingPicker from './CategoryCascadingPicker';
 import WorkerInstallNotice from '@/components/megaload/WorkerInstallNotice';
@@ -70,6 +71,10 @@ interface BulkStep2ReviewProps {
   onSelectCategory: (cat: CategoryItem) => void;
   onDeepValidation: () => void;
   onRegister: () => void;
+  /** 전파 대상 채널 선택 (연결된 채널 / 선택된 채널 / 토글) */
+  fanoutConnectedChannels?: Channel[];
+  fanoutChannels?: Channel[];
+  onToggleFanoutChannel?: (ch: Channel) => void;
   onBack: () => void;
   // Thumbnail
   thumbnailCache: Record<string, string | null>;
@@ -223,6 +228,7 @@ export default memo(function BulkStep2Review({
   onSetProducts, onToggle, onToggleAll, onUpdate, onCategoryClick,
   onSetCategorySearchTarget, onSetCategoryKeyword, onSearchCategory, onSelectCategory,
   onDeepValidation, onRegister, onBack,
+  fanoutConnectedChannels = [], fanoutChannels = [], onToggleFanoutChannel,
   thumbnailCache, onLoadThumbnail,
   onReorderImages, onRemoveImage, onToggleAutoExclude, onPrewarmProduct, onPrewarmCancel, onSwapStockImage, onTogglePromoteReview, getDetailImageUrls,
   onBulkRegenerateThumbnails, thumbnailRegen,
@@ -1170,6 +1176,15 @@ export default memo(function BulkStep2Review({
         onPrewarmProduct={onPrewarmProduct}
         onPrewarmCancel={onPrewarmCancel}
       />
+
+      {/* 함께 올릴 채널 선택 — 등록 시 고른 채널로 즉시 전파 */}
+      {onToggleFanoutChannel && (
+        <ChannelFanoutSelector
+          connectedChannels={fanoutConnectedChannels}
+          selected={fanoutChannels}
+          onToggle={onToggleFanoutChannel}
+        />
+      )}
 
       {/* Bottom navigation */}
       <div className="flex items-center justify-between">

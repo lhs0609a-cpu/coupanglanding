@@ -11,7 +11,8 @@ import { logSystemError, logSystemWarn } from '@/lib/utils/system-log';
 // generateProductStoriesBatch 는 generateAiContent=true 일 때만 dynamic import — Gemini SDK 로드 비용 cold start 절감.
 import { buildProductPayload } from '@/lib/megaload/services/preflight-builder';
 import { normalizeCertifications, groundCertifications } from '@/lib/megaload/services/cert-normalizer';
-import { enqueueAutoReplication } from '@/lib/megaload/services/replication-enqueue';
+import { enqueueAutoReplication, enqueueSelectedReplication } from '@/lib/megaload/services/replication-enqueue';
+import type { Channel } from '@/lib/megaload/types';
 import { checkBrandProtection } from '@/lib/megaload/services/brand-checker';
 import { fetchEnrolledCoupangBrands, resolveCoupangBrandId, type CoupangBrand, type ResolvedBrand } from '@/lib/utils/coupang-api-client';
 import { classifyError } from '@/lib/megaload/services/error-classifier';
@@ -218,6 +219,8 @@ interface BatchRegisterBody {
   preventionConfig?: PreventionConfig;
   products: BatchProduct[];
   thirdPartyImageUrls?: string[];
+  /** 대량등록 시 사용자가 고른 전파 대상 채널. 있으면 자동전파(auto flag) 대신 이 목록으로 즉시 전파. */
+  targetChannels?: Channel[];
 }
 
 interface ProductResult {
@@ -1113,7 +1116,13 @@ export async function POST(req: NextRequest) {
     try {
       const newIds = results.filter((r) => r.success && r.productId).map((r) => r.productId as string);
       if (newIds.length > 0) {
-        await enqueueAutoReplication(serviceClient, shUserId, newIds);
+        // targetChannels 필드가 오면(신 클라이언트) 그 선택이 곧 전파 대상(빈 배열=전파 안 함).
+        // 필드가 없으면(구 클라이언트) 기존 자동전파(설정 기반) 유지 — 하위호환.
+        if (Array.isArray(body.targetChannels)) {
+          await enqueueSelectedReplication(serviceClient, shUserId, newIds, body.targetChannels);
+        } else {
+          await enqueueAutoReplication(serviceClient, shUserId, newIds);
+        }
       }
     } catch (e) {
       console.warn('[batch] inline 자동전파 enqueue 실패(무시, reconcile 보정):', e instanceof Error ? e.message : e);

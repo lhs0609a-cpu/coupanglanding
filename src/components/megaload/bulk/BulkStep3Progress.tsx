@@ -7,8 +7,10 @@ import {
   FolderOpen, Image, DollarSign, Wifi, ShieldAlert, Tag, FileText, Layers, AlertTriangle, Ban,
 } from 'lucide-react';
 import type { EditableProduct, ErrorCategory, DetailedError } from './types';
+import type { Channel } from '@/lib/megaload/types';
 import { categorizeErrors } from '@/lib/megaload/services/error-classifier';
 import ReplicationModal from '@/components/megaload/ReplicationModal';
+import ReplicationLivePanel from './ReplicationLivePanel';
 
 interface BulkStep3ProgressProps {
   products: EditableProduct[];
@@ -19,6 +21,10 @@ interface BulkStep3ProgressProps {
   imagePreuploadCacheSize: number;
   /** 쿠팡 셀러 계정 차단 감지 시 사유 메시지 (null=미감지) */
   accountBlocked?: string | null;
+  /** 이번 등록 성공분 sh_products.id — 실시간 전파 결과 폴링 대상 */
+  registeredProductIds?: string[];
+  /** 사용자가 고른 전파 대상 채널 */
+  fanoutChannels?: Channel[];
   onTogglePause: () => void;
   onReset: () => void;
   onRetryFailed?: () => void;
@@ -66,7 +72,7 @@ function getCategoryBadge(category: ErrorCategory) {
 
 export default function BulkStep3Progress({
   products, registering, isPaused, batchProgress, startTime, imagePreuploadCacheSize,
-  accountBlocked, onTogglePause, onReset, onRetryFailed, onBackToStep2, onJumpToErrorGroup,
+  accountBlocked, registeredProductIds = [], fanoutChannels = [], onTogglePause, onReset, onRetryFailed, onBackToStep2, onJumpToErrorGroup,
 }: BulkStep3ProgressProps) {
   const [expandedErrorUids, setExpandedErrorUids] = useState<Set<string>>(new Set());
   const [expandedRawUids, setExpandedRawUids] = useState<Set<string>>(new Set());
@@ -484,8 +490,13 @@ export default function BulkStep3Progress({
         </div>
       </div>
 
-      {/* 타 채널 자동 복제 패널 */}
-      {!registering && successCount > 0 && (
+      {/* 선택 채널 실시간 전파 결과 (대량등록 시 채널을 고른 경우) */}
+      {registeredProductIds.length > 0 && fanoutChannels.length > 0 && (
+        <ReplicationLivePanel productIds={registeredProductIds} targetChannels={fanoutChannels} />
+      )}
+
+      {/* 타 채널 자동 복제 패널 — 등록 시 채널을 안 골랐거나 추가로 더 복제할 때 */}
+      {!registering && successCount > 0 && fanoutChannels.length === 0 && (
         <div className="bg-white rounded-xl border-2 border-[#E31837]/20 p-5">
           <div className="flex items-start gap-4">
             <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center">
