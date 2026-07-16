@@ -5,11 +5,13 @@ import Modal from '@/components/ui/Modal';
 import { CHANNEL_LABELS, CHANNEL_BG_COLORS } from '@/lib/megaload/constants';
 import { CHANNEL_SETUP_GUIDES } from '@/lib/data/channel-setup-guides';
 import { CHANNEL_CREDENTIAL_FIELDS } from '@/lib/data/channel-credential-fields';
+import { CHANNEL_ONBOARDING_GUIDES } from '@/lib/data/channel-onboarding-guides';
+import ChannelOnboardingGuide from './ChannelOnboardingGuide';
 import type { Channel } from '@/lib/megaload/types';
 import type { ChannelGuideStep } from '@/lib/data/channel-setup-guides';
 import {
   ExternalLink, Lightbulb, AlertTriangle, Check, ChevronLeft, ChevronRight,
-  Star, Trophy, Loader2, KeyRound, PartyPopper, Eye, EyeOff,
+  Star, Trophy, Loader2, KeyRound, PartyPopper, Eye, EyeOff, Store, Link2,
 } from 'lucide-react';
 
 interface Props {
@@ -17,6 +19,8 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onConnected?: () => void;
+  /** 진입 시 기본 탭. 이미 판매자면 'connect'로 열 수 있음. 기본은 'onboarding'. */
+  startPhase?: 'onboarding' | 'connect';
 }
 
 const XP_PER_STEP = 10;
@@ -33,10 +37,14 @@ function mascotLine(pct: number): string {
 
 /** 단계 내용에 맞춰 "이런 화면이 나와요" 목업을 자동 생성 (실제 스크린샷은 추후 드롭인) */
 function StepMockup({ step, color }: { step: ChannelGuideStep; color: string }) {
+  const [imgError, setImgError] = useState(false);
+  const [zoom, setZoom] = useState(false);
   let domain: string | null = null;
   try { domain = step.url ? new URL(step.url).hostname : null; } catch { domain = null; }
   const hasKeys = (step.inputFields?.length ?? 0) > 0;
   const isPermission = /권한|체크|✅/.test(step.detailedInstructions.join(' ') + step.title);
+  // 실제 화면 이미지가 있고 로드 성공하면 표시, 실패(핫링크 차단 등)하면 목업으로 폴백
+  const showRealImage = !!step.imageUrl && !imgError;
 
   return (
     <div className="rounded-xl border-2 border-gray-200 overflow-hidden bg-white shadow-sm select-none">
@@ -51,6 +59,32 @@ function StepMockup({ step, color }: { step: ChannelGuideStep; color: string }) 
           </span>
         )}
       </div>
+      {showRealImage ? (
+        <figure className="m-0 relative group">
+          <button type="button" onClick={() => setZoom(true)} className="block w-full cursor-zoom-in" title="크게 보기">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={step.imageUrl}
+              alt={step.title}
+              loading="lazy"
+              onError={() => setImgError(true)}
+              className="w-full max-h-[520px] object-contain bg-gray-50"
+            />
+            <span className="absolute top-2 right-2 flex items-center gap-1 bg-black/55 text-white text-[11px] px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 transition">
+              🔍 크게 보기
+            </span>
+          </button>
+          <figcaption className="text-[10px] text-gray-400 text-center py-1 px-2 border-t border-gray-100">
+            실제 화면 예시 · 출처: 윈셀링 가이드 (마켓 UI 버전에 따라 다를 수 있어요)
+          </figcaption>
+          {zoom && (
+            <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4" onClick={() => setZoom(false)}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={step.imageUrl} alt={step.title} className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl" />
+            </div>
+          )}
+        </figure>
+      ) : (
       <div className="p-4 min-h-[96px] flex flex-col items-center justify-center gap-2">
         {hasKeys ? (
           // 키를 얻는 단계 → 가짜 키 필드
@@ -82,25 +116,31 @@ function StepMockup({ step, color }: { step: ChannelGuideStep; color: string }) 
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
 
-export default function ChannelConnectWizard({ channel, isOpen, onClose, onConnected }: Props) {
+export default function ChannelConnectWizard({ channel, isOpen, onClose, onConnected, startPhase = 'onboarding' }: Props) {
   const guide = CHANNEL_SETUP_GUIDES[channel];
   const fields = CHANNEL_CREDENTIAL_FIELDS[channel];
   const color = CHANNEL_BG_COLORS[channel];
+  const onboarding = CHANNEL_ONBOARDING_GUIDES[channel];
   const guideSteps = guide.steps;
   const keyStepIndex = guideSteps.length;          // 키 입력 단계 인덱스
   const totalSteps = guideSteps.length + (fields ? 1 : 0);
   const storeKey = `chwiz:${channel}`;
 
+  const [phase, setPhase] = useState<'onboarding' | 'connect'>(startPhase);
   const [step, setStep] = useState(0);
   const [done, setDone] = useState<Set<number>>(new Set());
   const [creds, setCreds] = useState<Record<string, string>>({});
   const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // 모달 열릴 때 기본 탭 초기화
+  useEffect(() => { if (isOpen) setPhase(startPhase); }, [isOpen, startPhase]);
 
   // 이어하기 (localStorage)
   useEffect(() => {
@@ -171,7 +211,30 @@ export default function ChannelConnectWizard({ channel, isOpen, onClose, onConne
   const onKeyStep = fields && step === keyStepIndex;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`${CHANNEL_LABELS[channel]} 연동하기`} maxWidth="max-w-xl">
+    <Modal isOpen={isOpen} onClose={onClose} title={`${CHANNEL_LABELS[channel]} 시작하기`} maxWidth="max-w-4xl">
+      {/* ── 상단 탭: ① 입점 방법 → ② 연동하기 ── */}
+      <div className="flex gap-1 mb-5 p-1 bg-gray-100 rounded-xl">
+        {([
+          { key: 'onboarding' as const, icon: <Store className="w-4 h-4" />, label: '① 입점 방법' },
+          { key: 'connect' as const, icon: <Link2 className="w-4 h-4" />, label: '② 연동하기' },
+        ]).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setPhase(t.key)}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-bold transition-colors"
+            style={phase === t.key
+              ? { backgroundColor: '#fff', color, boxShadow: '0 1px 2px rgba(0,0,0,0.06)' }
+              : { color: '#9ca3af' }}
+          >
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+
+      {phase === 'onboarding' ? (
+        <ChannelOnboardingGuide channel={channel} onGoConnect={() => setPhase('connect')} />
+      ) : (
+      <>
       {/* ── 상단: 진행률 + XP + 마스코트 ── */}
       <div className="mb-5">
         <div className="flex items-center justify-between mb-2">
@@ -348,6 +411,8 @@ export default function ChannelConnectWizard({ channel, isOpen, onClose, onConne
           <p className="text-[11px] text-gray-400 text-center mb-4">{guide.finalNote}</p>
           <button onClick={onClose} className="w-full px-4 py-2.5 text-sm text-gray-600 border rounded-lg hover:bg-gray-50">닫기</button>
         </div>
+      )}
+      </>
       )}
     </Modal>
   );

@@ -52,6 +52,18 @@ export const CHANNEL_BG_COLORS: Record<Channel, string> = {
   kakao: '#FEE500',
 };
 
+/** 실제 브랜드 로고(자체 호스팅, public/channel-logos/). 로드 실패 시 이니셜 박스로 폴백. */
+export const CHANNEL_LOGOS: Record<Channel, string> = {
+  coupang: '/channel-logos/coupang.png',
+  naver: '/channel-logos/naver.png',
+  elevenst: '/channel-logos/elevenst.png',
+  gmarket: '/channel-logos/gmarket.png',
+  auction: '/channel-logos/auction.png',
+  lotteon: '/channel-logos/lotteon.png',
+  toss: '/channel-logos/toss.png',
+  kakao: '/channel-logos/kakao.svg',
+};
+
 export const CHANNEL_ICONS: Record<Channel, string> = {
   coupang: '🛒',
   naver: '🟢',
