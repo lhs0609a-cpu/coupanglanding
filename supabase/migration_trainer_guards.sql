@@ -1,8 +1,8 @@
 -- ============================================
--- 추천(트레이너) 커미션 가드 — 12개월 한정 · 월 상한 · 환수(클로백)
+-- 추천(트레이너) 커미션 가드 — 12개월 한정 · 환수(클로백)
 --
--- 지급 기준은 변경 없음: 순이익 × bonus_percentage(기본 5%).
--- 여기서 추가하는 건 "언제까지 / 얼마까지 / 되돌릴 수 있는가" 3가지.
+-- 지급 기준은 변경 없음: 순이익 × bonus_percentage(기본 5%). 월 상한은 두지 않는다.
+-- 여기서 추가하는 건 "언제까지 / 되돌릴 수 있는가" 2가지.
 -- ============================================
 
 -- 1. trainer_trainees — 지급 기간 12개월 한정
@@ -12,9 +12,7 @@
 ALTER TABLE trainer_trainees ADD COLUMN IF NOT EXISTS bonus_first_year_month VARCHAR(7);
 ALTER TABLE trainer_trainees ADD COLUMN IF NOT EXISTS bonus_until_year_month VARCHAR(7);
 
--- 2. trainer_earnings — 상한 적용 내역 + 환수 추적
-ALTER TABLE trainer_earnings ADD COLUMN IF NOT EXISTS uncapped_amount NUMERIC(12,0);
-ALTER TABLE trainer_earnings ADD COLUMN IF NOT EXISTS cap_reason VARCHAR(30);
+-- 2. trainer_earnings — 환수 추적
 ALTER TABLE trainer_earnings ADD COLUMN IF NOT EXISTS clawed_back_at TIMESTAMPTZ;
 ALTER TABLE trainer_earnings ADD COLUMN IF NOT EXISTS clawback_reason VARCHAR(200);
 
@@ -34,9 +32,7 @@ FROM (
 WHERE tt.trainee_pt_user_id = sub.trainee_pt_user_id
   AND tt.bonus_first_year_month IS NULL;
 
--- 4. 인덱스 — 추천인×월 합계(월 상한 계산)와 환수 필터가 자주 조회됨
-CREATE INDEX IF NOT EXISTS idx_trainer_earnings_trainer_month
-  ON trainer_earnings(trainer_id, year_month);
+-- 4. 인덱스 — 환수 필터가 집계 쿼리마다 붙는다
 CREATE INDEX IF NOT EXISTS idx_trainer_earnings_clawed_back
   ON trainer_earnings(clawed_back_at);
 CREATE INDEX IF NOT EXISTS idx_trainer_trainees_trainee

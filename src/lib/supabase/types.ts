@@ -415,10 +415,6 @@ export interface TrainerEarning {
   bonus_amount: number;
   payment_status: TrainerEarningStatus;
   created_at: string;
-  /** 상한 적용 전 원래 산출액(순이익×%) — 상한에 걸린 경우 추적용 */
-  uncapped_amount?: number | null;
-  /** 어떤 상한에 걸렸는지: trainee_monthly | trainer_monthly | null */
-  cap_reason?: string | null;
   /** 환수 시각. null 이 아니면 이 적립은 무효(집계/지급 대상 제외) */
   clawed_back_at?: string | null;
   clawback_reason?: string | null;

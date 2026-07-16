@@ -14,9 +14,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getReportCosts } from '@/lib/calculations/deposit';
-import {
-  calculateTrainerBonus, applyBonusCaps, isBonusExpired, bonusUntilYearMonth,
-} from '@/lib/calculations/trainer';
+import { calculateTrainerBonus, isBonusExpired, bonusUntilYearMonth } from '@/lib/calculations/trainer';
 import { notifyTrainerBonusEarned } from '@/lib/utils/notifications';
 import { logSettlementError } from './settlement-errors';
 
@@ -101,9 +99,9 @@ export async function completeSettlement(
   }
 
   // 5. 트레이너(추천인) 보너스 생성 (trainer_earnings.monthly_report_id UNIQUE 로 중복 방지)
-  //    기준은 순이익 × bonus_percentage(기본 5%). 여기에 정책 가드 2개를 적용한다:
+  //    기준은 순이익 × bonus_percentage(기본 5%). 여기에 정책 가드를 적용한다:
   //      ① 지급 기간 — 첫 지급 달부터 12개월(bonus_until_year_month)까지만
-  //      ② 월 상한 — 피추천인당 / 추천인당 월 총액 상한
+  //    (월 상한 없음 — 피추천인이 번 만큼 그대로 지급)
   const { data: traineeLink } = await serviceClient
     .from('trainer_trainees')
     .select('trainer_id, bonus_first_year_month, bonus_until_year_month, trainer:trainers(*, pt_user:pt_users(profile_id))')
@@ -131,13 +129,13 @@ export async function completeSettlement(
 
     if (trainer && trainer.status === 'approved' && !expired) {
       const reportCosts = getReportCosts(report);
-      const { netProfit: trainerNetProfit, bonusAmount: rawBonus } = calculateTrainerBonus(
+      const { netProfit: trainerNetProfit, bonusAmount } = calculateTrainerBonus(
         report.reported_revenue,
         reportCosts,
         trainer.bonus_percentage,
       );
 
-      if (rawBonus > 0) {
+      if (bonusAmount > 0) {
         const { data: existingEarning } = await serviceClient
           .from('trainer_earnings')
           .select('id')
@@ -145,21 +143,6 @@ export async function completeSettlement(
           .maybeSingle();
 
         if (!existingEarning) {
-          // ② 월 상한 — 같은 추천인의 같은 달 적립분(환수분 제외) 합계를 구해 남은 한도만 지급.
-          //    동시 정산 시 미세 초과 가능성은 있으나(읽고-쓰기), 상한 목적상 허용 오차로 둔다.
-          const { data: monthRows } = await serviceClient
-            .from('trainer_earnings')
-            .select('bonus_amount')
-            .eq('trainer_id', trainer.id)
-            .eq('year_month', report.year_month)
-            .is('clawed_back_at', null);
-          const monthToDate = (monthRows || []).reduce(
-            (sum, r) => sum + Number((r as { bonus_amount: number }).bonus_amount || 0),
-            0,
-          );
-          const { amount: bonusAmount, capReason } = applyBonusCaps(rawBonus, monthToDate);
-
-          if (bonusAmount > 0) {
             const { error: earningErr } = await serviceClient.from('trainer_earnings').insert({
               trainer_id: trainer.id,
               trainee_pt_user_id: report.pt_user_id,
@@ -168,8 +151,6 @@ export async function completeSettlement(
               trainee_net_profit: trainerNetProfit,
               bonus_percentage: trainer.bonus_percentage,
               bonus_amount: bonusAmount,
-              uncapped_amount: rawBonus,
-              cap_reason: capReason,
               payment_status: 'pending',
             });
 
@@ -209,7 +190,6 @@ export async function completeSettlement(
                 error: earningErr,
               });
             }
-          }
         }
       }
     }
