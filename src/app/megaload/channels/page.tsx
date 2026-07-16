@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { CHANNELS, CHANNEL_LABELS, CHANNEL_BG_COLORS, CHANNEL_COMMISSION_RATES } from '@/lib/megaload/constants';
+import { CHANNELS, CHANNEL_LABELS, CHANNEL_COMMISSION_RATES } from '@/lib/megaload/constants';
 import type { Channel, ChannelCredential } from '@/lib/megaload/types';
-import { Link as LinkIcon, Check, X, RefreshCw, Key, AlertTriangle, Loader2 } from 'lucide-react';
+import { Link as LinkIcon, RefreshCw, Key, AlertTriangle, Loader2 } from 'lucide-react';
 import ChannelConnectWizard from '@/components/megaload/ChannelConnectWizard';
+import ChannelLogo from '@/components/megaload/ChannelLogo';
 
 export default function ChannelsPage() {
   const supabase = useMemo(() => createClient(), []);
@@ -62,12 +63,7 @@ export default function ChannelsPage() {
             <div key={ch} className="bg-white rounded-xl border border-gray-200 p-5">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm"
-                    style={{ backgroundColor: CHANNEL_BG_COLORS[ch] }}
-                  >
-                    {CHANNEL_LABELS[ch].charAt(0)}
-                  </div>
+                  <ChannelLogo channel={ch} size={40} />
                   <div>
                     <h3 className="font-medium text-gray-900">{CHANNEL_LABELS[ch]}</h3>
                     <p className="text-xs text-gray-500">수수료 {CHANNEL_COMMISSION_RATES[ch]}%</p>
