@@ -154,7 +154,7 @@ function setupServices() {
     embedModel: store.get('ollamaEmbedModel', bootstrap.DEFAULTS.ollamaEmbedModel),
     onLog: (m) => send('allinone:log', m),
   });
-  runner = new WorkerRunner(userData, { onEvent: onWorkerEvent });
+  runner = new WorkerRunner(userData, { onEvent: onWorkerEvent, appVersion: app.getVersion() });
   ads = new AdRunner({ getSession: () => runner.session, onEvent: (e) => send('ads:event', e) });
 }
 

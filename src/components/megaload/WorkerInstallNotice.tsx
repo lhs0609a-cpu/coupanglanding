@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Cpu, Download, CheckCircle2, Loader2 } from 'lucide-react';
-import { WORKER_SETTINGS_URL, WORKER_APP_VERSION } from '@/lib/megaload/worker-download';
+import { Cpu, Download, CheckCircle2, Loader2, ArrowUpCircle } from 'lucide-react';
+import { WORKER_SETTINGS_URL } from '@/lib/megaload/worker-download';
+import { useLatestVersions, isOutdated } from '@/lib/megaload/use-latest-versions';
 
 interface WorkerStatus {
   online: boolean;
-  workers: { worker_id: string; hostname: string | null; last_seen: string }[];
+  workers: { worker_id: string; hostname: string | null; last_seen: string; app_version?: string | null }[];
 }
 
 const COPY = {
@@ -36,6 +37,9 @@ export default function WorkerInstallNotice({
 }) {
   const [status, setStatus] = useState<WorkerStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  // 최신 버전은 실제 발행된 릴리스에서 온다 — 앱의 자동업데이트와 같은 출처.
+  const { versions } = useLatestVersions();
+  const latest = versions.desktop.version;
 
   useEffect(() => {
     let alive = true;
@@ -65,12 +69,24 @@ export default function WorkerInstallNotice({
 
   if (status?.online) {
     const names = status.workers.map((w) => w.hostname || w.worker_id).join(', ');
+    // 연결된 도우미 중 하나라도 최신보다 낮으면 안내. 버전을 안 보내는 구버전(NULL)은
+    // 판단 근거가 없으므로 조용히 넘어간다(틀린 경고를 띄우지 않는다).
+    const stale = status.workers.find((w) => isOutdated(w.app_version, latest));
     return (
       <div className={className}>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
           <CheckCircle2 className="w-3.5 h-3.5" />
-          메가로드 도우미 연결됨{names ? ` · ${names}` : ''} · 최신 v{WORKER_APP_VERSION}
+          메가로드 도우미 연결됨{names ? ` · ${names}` : ''} · 최신 v{latest}
         </span>
+        {stale && (
+          <Link
+            href={WORKER_SETTINGS_URL}
+            className="ml-1.5 inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition"
+          >
+            <ArrowUpCircle className="w-3.5 h-3.5" />
+            v{stale.app_version} 사용 중 · 업데이트 필요
+          </Link>
+        )}
       </div>
     );
   }
@@ -84,7 +100,7 @@ export default function WorkerInstallNotice({
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold text-gray-900">{copy.title}
-            <span className="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium bg-indigo-100 text-indigo-700 rounded-full align-middle">최신 v{WORKER_APP_VERSION}</span>
+            <span className="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium bg-indigo-100 text-indigo-700 rounded-full align-middle">최신 v{latest}</span>
           </div>
           <p className="text-xs text-gray-600 mt-1 leading-relaxed">{copy.desc}</p>
           <div className="flex flex-wrap items-center gap-2 mt-3">

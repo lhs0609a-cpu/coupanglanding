@@ -3,10 +3,8 @@
 import { useState } from 'react';
 import { Download, Key, RefreshCw, Copy, CheckCircle2, AlertCircle, Monitor, Zap, Activity, Settings2, ShieldAlert } from 'lucide-react';
 import Link from 'next/link';
-import { MONITOR_APP_VERSION, MONITOR_DOWNLOAD_URLS, WORKER_SETTINGS_URL } from '@/lib/megaload/worker-download';
-
-// 다운로드 URL·버전은 worker-download.ts 단일 출처에서 가져온다(설정 다운로드 허브와 동일 값 보장).
-const APP_VERSION = MONITOR_APP_VERSION;
+import { WORKER_SETTINGS_URL } from '@/lib/megaload/worker-download';
+import { useLatestVersions } from '@/lib/megaload/use-latest-versions';
 
 interface StatusInfo {
   isAlive: boolean;
@@ -20,6 +18,10 @@ interface StatusInfo {
 }
 
 export default function DesktopAppPage() {
+  // 버전·다운로드 URL 의 출처는 실제 발행된 릴리스(설정 다운로드 허브와 자동으로 같은 값).
+  const { versions } = useLatestVersions();
+  const monitor = versions.monitor;
+  const APP_VERSION = monitor.version;
   const [token, setToken] = useState<string | null>(null);
   const [issuing, setIssuing] = useState(false);
   const [revoking, setRevoking] = useState(false);
@@ -227,8 +229,13 @@ export default function DesktopAppPage() {
               await navigator.clipboard.writeText(data.token);
               setCopied(true);
               // 3. installer 다운로드 (Win 기본, Mac은 별도)
+              // ⚠️ mac 은 Intel(x64) dmg 가 없는 릴리스가 있다 → 있는 것만 고르고,
+              //    둘 다 없으면 받으러 보내지 않는다(예전엔 x64 를 고정으로 가리켜 404 였다).
               const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
-              const downloadUrl = isMac ? MONITOR_DOWNLOAD_URLS.macIntel : MONITOR_DOWNLOAD_URLS.win;
+              const downloadUrl = isMac
+                ? (monitor.urls.macIntel ?? monitor.urls.macArm)
+                : monitor.urls.win;
+              if (!downloadUrl) throw new Error('이 OS 용 설치 파일이 아직 발행되지 않았습니다.');
               window.location.href = downloadUrl;
               alert(
                 '✅ 인증코드가 복사되었습니다.\n\n다운로드된 설치 파일을 더블클릭하면:\n' +
@@ -260,31 +267,23 @@ export default function DesktopAppPage() {
           프로그램 다운로드
         </h2>
         <p className="text-sm text-gray-600 mb-4">사용 중인 OS에 맞는 설치 파일을 받아주세요. <span className="text-emerald-700 font-medium">현재 최신 v{APP_VERSION}</span></p>
+        {/* 릴리스에 실제로 있는 자산만 노출 — 없는 플랫폼 버튼은 감춘다(404 방지). */}
         <div className="grid grid-cols-3 gap-3">
-          <a
-            href={MONITOR_DOWNLOAD_URLS.win}
-            className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
-            target="_blank" rel="noopener"
-          >
-            <span className="flex items-center gap-2"><Download className="w-4 h-4" /> Windows (.exe)</span>
-            <span className="text-xs text-gray-400">v{APP_VERSION}</span>
-          </a>
-          <a
-            href={MONITOR_DOWNLOAD_URLS.macIntel}
-            className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
-            target="_blank" rel="noopener"
-          >
-            <span className="flex items-center gap-2"><Download className="w-4 h-4" /> macOS Intel (.dmg)</span>
-            <span className="text-xs text-gray-400">v{APP_VERSION}</span>
-          </a>
-          <a
-            href={MONITOR_DOWNLOAD_URLS.macArm}
-            className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
-            target="_blank" rel="noopener"
-          >
-            <span className="flex items-center gap-2"><Download className="w-4 h-4" /> macOS M1/M2 (.dmg)</span>
-            <span className="text-xs text-gray-400">v{APP_VERSION}</span>
-          </a>
+          {([
+            { url: monitor.urls.win, label: 'Windows (.exe)' },
+            { url: monitor.urls.macIntel, label: 'macOS Intel (.dmg)' },
+            { url: monitor.urls.macArm, label: 'macOS M1/M2 (.dmg)' },
+          ] as const).filter((o) => !!o.url).map((o) => (
+            <a
+              key={o.label}
+              href={o.url}
+              className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
+              target="_blank" rel="noopener"
+            >
+              <span className="flex items-center gap-2"><Download className="w-4 h-4" /> {o.label}</span>
+              <span className="text-xs text-gray-500">v{APP_VERSION}</span>
+            </a>
+          ))}
         </div>
         <p className="text-xs text-gray-400 mt-3">
           ⓘ 새 버전이 나오면 앱이 자동으로 알림 + 다운로드합니다 (실행 중일 때).

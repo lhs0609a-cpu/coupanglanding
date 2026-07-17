@@ -19,14 +19,29 @@ permissions:
 
 jobs:
   build:
+    # ⚠️ 아키텍처별로 **네이티브 러너**에서 하나씩 빌드한다.
+    #    예전엔 macos-latest 하나에서 --mac(x64+arm64)을 다 만들었는데, macos-latest 가
+    #    arm64 러너로 바뀌면서 x64 DMG 가 hdiutil detach 실패로 못 만들어졌다.
+    #    (arm64 는 성공 → 릴리스에 arm64 만 올라감 → 웹의 mac Intel 링크가 404.
+    #     v0.1.15·v0.1.16 이 그렇게 조용히 반쪽으로 나갔다.)
     strategy:
       matrix:
-        os: [windows-latest, macos-latest]
+        include:
+          - os: windows-latest
+            platform: win
+            arch: x64
+          - os: macos-13        # Intel 러너 — x64 DMG 는 여기서만 정상 생성된다
+            platform: mac
+            arch: x64
+          - os: macos-latest    # Apple Silicon 러너
+            platform: mac
+            arch: arm64
       fail-fast: false
 
     runs-on: ${{ matrix.os }}
-    # macOS hdiutil 플레이키 — Win 성공만으로도 release 진행되도록 mac은 non-blocking
-    continue-on-error: ${{ matrix.os == 'macos-latest' }}
+    # mac 은 non-blocking — Windows(주 플랫폼) 릴리스가 mac 플레이키에 막히지 않게.
+    # 대신 release 잡의 검증 스텝이 빠진 자산을 잡아 워크플로를 빨갛게 만든다(조용한 반쪽 릴리스 방지).
+    continue-on-error: ${{ matrix.platform == 'mac' }}
 
     steps:
       - name: Checkout
@@ -47,39 +62,53 @@ jobs:
 
       # Windows 빌드
       - name: Build Windows
-        if: matrix.os == 'windows-latest'
+        if: matrix.platform == 'win'
         working-directory: apps/desktop-monitor
-        run: npx electron-builder --win
+        run: npx electron-builder --win --${{ matrix.arch }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # macOS 빌드 (서명 없음 — 사용자 직접 허용 필요, hdiutil 플레이키 → 3회 재시도)
-      - name: Build macOS
-        if: matrix.os == 'macos-latest'
+      # macOS 빌드 (서명 없음 — 사용자 직접 허용 필요, hdiutil 플레이키 → 2회 재시도)
+      # 러너의 네이티브 아키텍처 하나만 만든다 → 크로스아치 DMG 생성이 없어 hdiutil 실패가 사라진다.
+      - name: Build macOS (${{ matrix.arch }})
+        if: matrix.platform == 'mac'
         working-directory: apps/desktop-monitor
         run: |
-          for i in 1 2 3; do
-            echo "macOS build attempt $i"
-            # 이전 빌드 잔여 mount 정리 (hdiutil 충돌 방지)
+          for i in 1 2; do
+            echo "macOS ${{ matrix.arch }} build attempt $i"
+            # 이전 시도의 잔여 mount 정리 (hdiutil 충돌 방지)
             hdiutil detach "/Volumes/Megaload Monitor ${{ github.ref_name }}" 2>/dev/null || true
-            hdiutil detach "/Volumes/Megaload Monitor 0.1.1" 2>/dev/null || true
-            if npx electron-builder --mac; then
-              echo "macOS build succeeded on attempt $i"
+            if npx electron-builder --mac --${{ matrix.arch }}; then
+              echo "macOS ${{ matrix.arch }} build succeeded on attempt $i"
               exit 0
             fi
-            sleep 5
+            sleep 10
           done
-          echo "macOS build failed after 3 attempts"
+          echo "::error::macOS ${{ matrix.arch }} build failed after 2 attempts"
           exit 1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
+      # 이 러너가 만들기로 한 설치파일이 실제로 나왔는지 확인 — 빈손 성공 방지.
+      - name: Verify build output
+        if: always()
+        working-directory: apps/desktop-monitor
+        shell: bash
+        run: |
+          ls -la release/ 2>/dev/null || { echo "::error::release/ 없음"; exit 1; }
+          if [ "${{ matrix.platform }}" = "win" ]; then
+            ls release/*.exe >/dev/null 2>&1 || { echo "::error::Windows .exe 미생성"; exit 1; }
+          else
+            ls release/*-${{ matrix.arch }}.dmg >/dev/null 2>&1 \
+              || { echo "::error::macOS ${{ matrix.arch }} .dmg 미생성"; exit 1; }
+          fi
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-monitor-${{ matrix.os }}
+          name: desktop-monitor-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
             apps/desktop-monitor/release/*.exe
             apps/desktop-monitor/release/*.dmg
@@ -127,3 +156,28 @@ jobs:
             artifacts/**/*.blockmap
           draft: false
           prerelease: false
+
+      # ⭐ 조용한 반쪽 릴리스 방지 게이트.
+      # mac 잡은 continue-on-error 라 실패해도 릴리스는 나간다(Windows 사용자 우선).
+      # 그래도 워크플로는 **빨갛게** 만들어, 자산이 빠진 채 나간 걸 반드시 알아채게 한다.
+      # (v0.1.15·v0.1.16 은 이 게이트가 없어서 x64 dmg 없이 초록불로 나갔다.)
+      # 웹은 실재하는 자산만 링크하므로 사용자가 404 를 보진 않지만, mac Intel 은 조용히 사라진다.
+      - name: Verify released assets
+        shell: bash
+        run: |
+          VER="${GITHUB_REF_NAME#desktop-v}"
+          MISSING=""
+          for f in "Megaload-Monitor-Setup-${VER}.exe" \
+                   "Megaload-Monitor-${VER}-x64.dmg" \
+                   "Megaload-Monitor-${VER}-arm64.dmg"; do
+            if find artifacts -name "$f" | grep -q .; then
+              echo "✅ $f"
+            else
+              echo "::error::누락된 설치파일: $f"
+              MISSING="$MISSING $f"
+            fi
+          done
+          if [ -n "$MISSING" ]; then
+            echo "::error::릴리스 ${GITHUB_REF_NAME} 에 자산이 빠졌습니다:$MISSING"
+            exit 1
+          fi

@@ -19,9 +19,11 @@ const DEFAULT_NEGATIVE =
 const fsp = await import('node:fs/promises');
 
 export class WorkerRunner {
-  constructor(userDataDir, { onEvent = () => {} } = {}) {
+  constructor(userDataDir, { onEvent = () => {}, appVersion = null } = {}) {
     this.userDataDir = userDataDir;
     this.onEvent = onEvent;
+    // 하트비트에 실어 보낼 앱 버전 — 웹이 "구버전 쓰는 중"을 실제로 감지하는 근거.
+    this.appVersion = appVersion;
     this.session = null;
     this.abort = null;
     this.loopPromise = null;
@@ -71,6 +73,7 @@ export class WorkerRunner {
         session: this.session,
         workerId,
         hostname: host,
+        appVersion: this.appVersion,
         pollMs: 700,   // 활성 시 0.7초로 빠르게 집음(루프 내부에서 장기 유휴 시 자동 백오프)
         signal: this.llmAbort.signal,
         onEvent: (e) => this.onEvent({ scope: 'llm', ...e }),
@@ -152,6 +155,7 @@ export class WorkerRunner {
       pollMs: pollSec * 1000,
       workerId,
       hostname: host,
+      appVersion: this.appVersion,
       signal: this.abort.signal,
       onEvent: this.onEvent,
       // 기본: 누끼+흰배경 1:1. job.mode==='regenerate' 면 prefill+SDXL img2img+재누끼.

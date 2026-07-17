@@ -118,7 +118,7 @@ async function runCategory(input) {
  * @param {string} [o.model]   선호 모델(없으면 자동 선택)
  */
 export async function runLlmPullLoop({
-  session, workerId, hostname, pollMs = 700, signal, onEvent = () => {}, model: preferModel,
+  session, workerId, hostname, appVersion, pollMs = 700, signal, onEvent = () => {}, model: preferModel,
 }) {
   const stopped = () => signal?.aborted;
   let model = null;
@@ -138,7 +138,7 @@ export async function runLlmPullLoop({
   const beat = async () => {
     if (Date.now() - lastBeat < 30_000) return;
     lastBeat = Date.now();
-    try { await rpc(session, 'worker_heartbeat', { p_worker_id: workerId, p_hostname: hostname || workerId }); }
+    try { await rpc(session, 'worker_heartbeat', { p_worker_id: workerId, p_hostname: hostname || workerId, p_app_version: appVersion ?? null }); }
     catch { /* ignore */ }
   };
 

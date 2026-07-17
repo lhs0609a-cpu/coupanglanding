@@ -30,12 +30,15 @@ export async function GET() {
     const since = new Date(Date.now() - ONLINE_WINDOW_SEC * 1000).toISOString();
     const { data: rows } = await serviceClient
       .from('megaload_worker_heartbeats')
-      .select('worker_id, hostname, last_seen')
+      // app_version: 구버전 도우미는 NULL 로 온다(마이그레이션 전 하트비트도 NULL).
+      .select('worker_id, hostname, last_seen, app_version')
       .eq('megaload_user_id', shUserId)
       .gte('last_seen', since)
       .order('last_seen', { ascending: false });
 
-    const workers = (rows ?? []) as { worker_id: string; hostname: string | null; last_seen: string }[];
+    const workers = (rows ?? []) as {
+      worker_id: string; hostname: string | null; last_seen: string; app_version: string | null;
+    }[];
     return NextResponse.json({ online: workers.length > 0, workers });
   } catch (err) {
     return NextResponse.json(

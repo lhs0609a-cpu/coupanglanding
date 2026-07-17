@@ -8,13 +8,8 @@ import {
   Wand2, Save, RotateCcw, Monitor, Apple, KeyRound,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import {
-  WORKER_DOWNLOAD_URL, WORKER_APP_VERSION,
-  MONITOR_DOWNLOAD_URLS, MONITOR_APP_VERSION, MONITOR_AUTH_URL,
-} from '@/lib/megaload/worker-download';
-
-// 고정 태그(gpu-worker-update) 자산 → env 미설정이어도 동작. 배포 시 env 로 덮어쓰기 가능.
-const DOWNLOAD_URL = WORKER_DOWNLOAD_URL;
+import { MONITOR_AUTH_URL } from '@/lib/megaload/worker-download';
+import { useLatestVersions } from '@/lib/megaload/use-latest-versions';
 
 // 워커 내장 기본 프롬프트와 동일 — 비워두면 워커가 이 기본값을 사용한다(placeholder로만 표시).
 const BUILTIN_POSITIVE =
@@ -125,6 +120,9 @@ export default function LocalGpuWorkerSettings() {
   const [status, setStatus] = useState<WorkerStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [spec, setSpec] = useState<SpecCheck | null>(null);
+  // 다운로드 URL·버전의 출처는 실제 발행된 릴리스(손수 관리 상수 아님).
+  const { versions } = useLatestVersions();
+  const { desktop, monitor } = versions;
 
   // 계정 기본 프롬프트 (비우면 워커 내장 기본값 사용). enqueue 시 서버가 자동 첨부.
   const [promptPos, setPromptPos] = useState('');
@@ -301,24 +299,17 @@ export default function LocalGpuWorkerSettings() {
             <span className="text-sm font-semibold text-gray-900">메가로드 도우미</span>
             <span className="text-[10px] text-gray-500">등록·대표썸네일·올인원·로컬 GPU</span>
           </div>
-          {DOWNLOAD_URL ? (
-            <a
-              href={DOWNLOAD_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#E31837] text-white rounded-lg font-semibold text-sm hover:bg-[#c5142f] transition"
-            >
-              <Download className="w-4 h-4" />
-              메가로드 도우미 다운로드 (Windows)
-              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-white/20 rounded-full">v{WORKER_APP_VERSION}</span>
-              <ExternalLink className="w-3 h-3 opacity-70" />
-            </a>
-          ) : (
-            <div className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-400 rounded-lg font-semibold text-sm cursor-not-allowed">
-              <MonitorDown className="w-4 h-4" />
-              다운로드 준비 중 (관리자 등록 대기)
-            </div>
-          )}
+          <a
+            href={desktop.downloadUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#E31837] text-white rounded-lg font-semibold text-sm hover:bg-[#c5142f] transition"
+          >
+            <Download className="w-4 h-4" />
+            메가로드 도우미 다운로드 (Windows)
+            <span className="px-1.5 py-0.5 text-[10px] font-medium bg-white/20 rounded-full">v{desktop.version}</span>
+            <ExternalLink className="w-3 h-3 opacity-70" />
+          </a>
         </div>
 
         {/* ② 상품 모니터링 도우미 (품절·가격 모니터 — 별도 앱) */}
@@ -326,34 +317,41 @@ export default function LocalGpuWorkerSettings() {
           <div className="flex items-center gap-1.5 mb-1">
             <Monitor className="w-4 h-4 text-emerald-600" />
             <span className="text-sm font-semibold text-gray-900">상품 모니터링 도우미</span>
-            <span className="text-[10px] text-gray-500">품절·가격 자동 확인 · v{MONITOR_APP_VERSION}</span>
+            <span className="text-[10px] text-gray-500">품절·가격 자동 확인 · v{monitor.version}</span>
           </div>
+          {/* 링크는 릴리스에 **실제로 있는 자산**만 — 없는 플랫폼 버튼은 아예 감춘다(404 방지). */}
           <div className="flex flex-wrap items-center gap-2">
-            <a
-              href={MONITOR_DOWNLOAD_URLS.win}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg font-semibold text-sm hover:bg-emerald-700 transition"
-            >
-              <Download className="w-4 h-4" /> Windows (.exe)
-              <ExternalLink className="w-3 h-3 opacity-70" />
-            </a>
-            <a
-              href={MONITOR_DOWNLOAD_URLS.macIntel}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition"
-            >
-              <Apple className="w-4 h-4" /> macOS Intel
-            </a>
-            <a
-              href={MONITOR_DOWNLOAD_URLS.macArm}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition"
-            >
-              <Apple className="w-4 h-4" /> macOS M1/M2
-            </a>
+            {monitor.urls.win && (
+              <a
+                href={monitor.urls.win}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg font-semibold text-sm hover:bg-emerald-700 transition"
+              >
+                <Download className="w-4 h-4" /> Windows (.exe)
+                <ExternalLink className="w-3 h-3 opacity-70" />
+              </a>
+            )}
+            {monitor.urls.macIntel && (
+              <a
+                href={monitor.urls.macIntel}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition"
+              >
+                <Apple className="w-4 h-4" /> macOS Intel
+              </a>
+            )}
+            {monitor.urls.macArm && (
+              <a
+                href={monitor.urls.macArm}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition"
+              >
+                <Apple className="w-4 h-4" /> macOS M1/M2
+              </a>
+            )}
           </div>
           <Link
             href={MONITOR_AUTH_URL}

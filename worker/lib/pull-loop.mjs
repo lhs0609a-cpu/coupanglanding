@@ -33,7 +33,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  */
 export async function runPullLoop({
   session, comfyUrl, workflow, defaultPositive, defaultNegative,
-  timeoutMs, pollMs, workerId, hostname, maxJobs = Infinity, once = false, signal, onEvent = () => {},
+  timeoutMs, pollMs, workerId, hostname, appVersion, maxJobs = Infinity, once = false, signal, onEvent = () => {},
   processImage,
 }) {
   const stopped = () => signal?.aborted;
@@ -45,7 +45,9 @@ export async function runPullLoop({
   const beat = async () => {
     if (Date.now() - lastBeat < 30_000) return;
     lastBeat = Date.now();
-    try { await rpc(session, 'worker_heartbeat', { p_worker_id: workerId, p_hostname: hostname || workerId }); }
+    // p_app_version 은 서버가 "이 사용자가 구버전을 쓰는 중"을 실제로 감지하는 근거.
+    // 서버 함수가 아직 3인자로 안 올라갔어도 DEFAULT 라 2인자 호출과 호환된다.
+    try { await rpc(session, 'worker_heartbeat', { p_worker_id: workerId, p_hostname: hostname || workerId, p_app_version: appVersion ?? null }); }
     catch { /* ignore */ }
   };
   await beat();
