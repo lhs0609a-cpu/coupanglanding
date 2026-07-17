@@ -10,8 +10,13 @@ export const maxDuration = 30;
 export const dynamic = 'force-dynamic';
 
 /**
- * POST /api/admin/pt-users/[ptUserId]/share-percentage
+ * POST /api/admin/pt-users/[id]/share-percentage
  * body: { share_percentage: number }  (0~100)
+ *
+ * ⚠️ 슬러그는 반드시 형제 라우트(reset-password)와 같은 `[id]` 여야 한다.
+ *    같은 경로 깊이에 `[id]` 와 `[ptUserId]` 가 섞이면 Next.js 가 라우트 트리 전체를
+ *    못 읽고 죽는다("You cannot use different slug names for the same dynamic path").
+ *    URL 은 슬러그 이름과 무관하므로 호출부는 그대로다.
  *
  * 관리자가 수수료율(순수익 비율)을 변경. 두 가지를 한 번에 처리:
  *   1) pt_users.share_percentage 저장
@@ -26,10 +31,11 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(
   request: NextRequest,
-  context: { params: Promise<{ ptUserId: string }> },
+  context: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { ptUserId } = await context.params;
+    // 슬러그는 [id] 지만 의미는 PT생 id — 아래 로직 이름은 그대로 둔다.
+    const { id: ptUserId } = await context.params;
     const body = await request.json().catch(() => ({}));
     const val = Number((body as { share_percentage?: unknown }).share_percentage);
     if (!Number.isFinite(val) || val < 0 || val > 100) {
