@@ -28,6 +28,12 @@ export const DEFAULTS = {
   // 카테고리 의미매칭 임베딩 모델. cat-embeddings.meta.json 이 이 모델로 빌드됨 —
   // 미설치면 임베딩 매처가 404 → 토큰매칭으로 조용히 저하(카테고리 오분류). 반드시 함께 pull.
   ollamaEmbedModel: 'bge-m3',
+  // VC++ 2015-2022 재배포 패키지(x64). onnxruntime-node(@huggingface/transformers)가 이걸 요구한다 —
+  // 없거나 낡으면 onnxruntime_binding.node 가 "DLL initialization routine failed" 로 로드 실패하고,
+  // 그 결과 누끼(BiRefNet CPU)·CLIP 대표컷이 에러 없이 조용히 꺼진다(원본 사진만 남아 눈치채기 어려움).
+  vcRedistUrl: 'https://aka.ms/vs/17/release/vc_redist.x64.exe',
+  // onnxruntime 1.21 기준 안전선. 14.29(VS2019) 에서 실패 확인됨.
+  vcRedistMinMinor: 40,
 };
 
 const exists = (p) => stat(p).then(() => true, () => false);
@@ -84,6 +90,69 @@ export async function ensureOllama({ installDir, url = DEFAULTS.ollamaZipUrl, on
   onProgress({ phase: 'ollama', pct: 100, detail: 'ollama 준비 완료' });
   return exe;
 }
+/**
+ * 설치된 VC++ 2015-2022 재배포 패키지(x64) 버전 조회.
+ * @returns {Promise<{major:number, minor:number, raw:string}|null>} 미설치면 null
+ */
+export function checkVCRedist() {
+  return new Promise((resolve) => {
+    const p = spawn('reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\x64', '/v', 'Version'],
+      { windowsHide: true });
+    let out = '';
+    p.stdout?.on('data', (d) => (out += d));
+    p.on('error', () => resolve(null));
+    p.on('close', () => {
+      // 예: "    Version    REG_SZ    v14.51.36247.00"
+      const m = out.match(/v?(\d+)\.(\d+)\.[\d.]+/);
+      resolve(m ? { major: Number(m[1]), minor: Number(m[2]), raw: m[0] } : null);
+    });
+  });
+}
+
+/**
+ * VC++ 재배포 패키지 보장 — idempotent. 없거나 minor 가 기준 미만이면 다운로드 후 설치.
+ * ⚠️ 설치 관리자가 관리자 권한을 요구하므로 UAC 프롬프트가 뜬다(사용자 승인 필요).
+ * ⚠️ 실패해도 throw 하지 않는다 — 누끼만 못 쓰고 텍스트 생성은 정상 동작하므로 설치를 막지 않는다.
+ * @returns {Promise<boolean>} 최종적으로 요건을 만족하면 true
+ */
+export async function ensureVCRedist({ installDir, url = DEFAULTS.vcRedistUrl, minMinor = DEFAULTS.vcRedistMinMinor, onProgress = () => {} } = {}) {
+  try {
+    const cur = await checkVCRedist();
+    if (cur && (cur.major > 14 || (cur.major === 14 && cur.minor >= minMinor))) {
+      onProgress({ phase: 'vcredist', pct: 100, detail: `VC++ 재배포 패키지 확인됨 (${cur.raw})` });
+      return true;
+    }
+    const why = cur ? `설치본 ${cur.raw} 이 낡음(14.${minMinor} 이상 필요)` : '미설치';
+    onProgress({ phase: 'vcredist-download', pct: 0, detail: `VC++ 재배포 패키지 ${why} — 다운로드(~25MB)` });
+    await mkdir(installDir, { recursive: true });
+    const exe = join(installDir, 'vc_redist.x64.exe');
+    await downloadFile(url, exe, (pct) => onProgress({ phase: 'vcredist-download', pct }));
+
+    onProgress({ phase: 'vcredist-install', pct: 0, detail: 'VC++ 재배포 패키지 설치 — 관리자 권한 창(UAC)이 뜨면 승인하세요' });
+    // vc_redist.x64.exe 는 매니페스트로 스스로 승격을 요청한다 → 별도 elevate 불필요.
+    const code = await new Promise((resolve) => {
+      const p = spawn(exe, ['/install', '/quiet', '/norestart'], { windowsHide: true });
+      p.on('error', () => resolve(-1));
+      p.on('close', (c) => resolve(c));
+    });
+    await rm(exe, { force: true });
+
+    // 0=성공, 3010=성공(재부팅 필요), 1638=더 최신 버전이 이미 설치됨
+    if (code === 0 || code === 3010 || code === 1638) {
+      onProgress({ phase: 'vcredist', pct: 100, detail: code === 3010 ? 'VC++ 설치 완료(재부팅 후 적용)' : 'VC++ 재배포 패키지 준비 완료' });
+      return true;
+    }
+    // 1602 = 사용자가 UAC 취소
+    onProgress({ phase: 'vcredist', pct: 100, detail: code === 1602
+      ? 'VC++ 설치 취소됨 — 누끼·AI 대표컷이 비활성화됩니다(텍스트 생성은 정상)'
+      : `VC++ 설치 실패(코드 ${code}) — 누끼·AI 대표컷 비활성화` });
+    return false;
+  } catch (e) {
+    onProgress({ phase: 'vcredist', pct: 100, detail: `VC++ 준비 생략(${String(e.message).slice(0, 60)}) — 누끼 비활성화 가능` });
+    return false;
+  }
+}
+
 function embeddedPython(installDir) {
   return join(comfyRoot(installDir), 'python_embeded', 'python.exe');
 }
