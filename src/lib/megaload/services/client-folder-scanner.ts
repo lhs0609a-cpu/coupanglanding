@@ -194,7 +194,9 @@ async function scanSingleProduct(
   productDirHandle: FileSystemDirectoryHandle,
   options: { skipDhash?: boolean } = {},
 ): Promise<ScannedProduct> {
-  const productCode = name.replace('product_', '');
+  // 앵커 필수 — 워커(worker/lib/folder-scanner.mjs)는 /^product_/ 로 자른다.
+  // 앵커가 없으면 폴더명 중간의 product_ 까지 지워져 sourceId 와 키가 어긋난다(올인원 "키 불일치").
+  const productCode = name.replace(/^product_/, '');
 
   // ── 상품 폴더 엔트리를 1회만 열거 → 인메모리 인덱스 ──────────────────────────
   //   느린 드라이브(네트워크/구글드라이브)에서 서브폴더 후보명을 getDirectoryHandle 로
