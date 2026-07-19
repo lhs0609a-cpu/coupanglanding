@@ -23,6 +23,11 @@ import {
 import {
   MARGIN_PRESETS, applyMarginPreset, calculateSellingPrice, type MarginPresetLevel,
 } from '@/lib/megaload/services/margin-pricing';
+import {
+  diagnoseLocalHelper, discoverLocalEndpoint, fetchLocalManifest,
+  fetchLocalList, classifyLocalImages, productDirOf, localFileUrl, fetchLocalFile,
+  type HelperDiag, type LocalEndpoint,
+} from '@/lib/megaload/allinone-local';
 import { focusNextField } from './focusNextField';
 import PreUploadConfirmModal from './PreUploadConfirmModal';
 
@@ -79,8 +84,12 @@ interface Row {
   gen: GenRecord | null;
   /** 사용자가 카드에서 수정한 등록값(초기값 = gen 복제) */
   edit: RowEdit;
-  /** 대표이미지: 워커 가공본(main_images_regen) 우선, 없으면 CLIP 랭킹순으로 재정렬한 원본 main_images */
+  /** 대표이미지 후보 — [누끼 가공본…, CLIP 랭킹순 원본…]. 첫 장이 아니라 selectedMainIdx 가 대표다. */
   mainImages: ScannedImageFile[];
+  /** mainImages 앞쪽 몇 장이 누끼 가공본인지(뱃지 판정용). 0 이면 가공본 없음. */
+  regenCount: number;
+  /** 사용자가 고른 대표컷의 mainImages 인덱스. 기본 0(=AI 추천). */
+  selectedMainIdx: number;
   /** 상세이미지: CLIP 이 버린 광고/배송/리뷰컷을 제외한 상세컷(등록 업로드 대상) */
   detailImages: ScannedImageFile[];
   /** 대표컷이 CLIP(AI) 판단으로 선택/재정렬됐는지(뱃지 표시용) */
@@ -253,6 +262,10 @@ interface GenScan {
   sampleSourceIds: string[];
   /** 파일을 찾은 위치(루트명 또는 하위폴더명) */
   foundIn?: string;
+  /** 진단용 — 어느 위치를 어떤 순서로 뒤졌고 각각 성공했는지 */
+  attempts: { where: string; ok: boolean }[];
+  /** JSON 파싱에 실패한 줄 수(워커가 쓰다 만 파일 탐지) */
+  badLines: number;
 }
 
 /** _allinone.generated.jsonl 을 productCode→레코드 맵으로. 루트에 없으면 한 단계 하위까지 탐색.
@@ -261,7 +274,9 @@ async function readGenerated(root: FileSystemDirectoryHandle): Promise<GenScan> 
   const map = new Map<string, GenRecord>();
   let fileFound = false;
   let recordCount = 0;
+  let badLines = 0;
   let foundIn: string | undefined;
+  const attempts: { where: string; ok: boolean }[] = [];
 
   const tryRead = async (dir: FileSystemDirectoryHandle, label: string): Promise<boolean> => {
     try {
@@ -276,10 +291,11 @@ async function readGenerated(root: FileSystemDirectoryHandle): Promise<GenScan> 
           const r = JSON.parse(s) as GenRecord;
           recordCount++;
           if (r.sourceId != null) map.set(String(r.sourceId), r);
-        } catch { /* skip bad line */ }
+        } catch { badLines++; }
       }
+      attempts.push({ where: label, ok: true });
       return true;
-    } catch { return false; }
+    } catch { attempts.push({ where: label, ok: false }); return false; }
   };
 
   // 1) 루트에서 시도. 2) 못 찾으면 product_* 가 아닌 하위 폴더에서 시도(상위 폴더를 선택한 경우 대비).
@@ -292,7 +308,148 @@ async function readGenerated(root: FileSystemDirectoryHandle): Promise<GenScan> 
     } catch { /* ignore */ }
   }
 
-  return { map, fileFound, recordCount, sampleSourceIds: [...map.keys()].slice(0, 3), foundIn };
+  return { map, fileFound, recordCount, badLines, attempts, sampleSourceIds: [...map.keys()].slice(0, 3), foundIn };
+}
+
+/** 스캔 1회의 진단 스냅샷 — "왜 카드가 비었나"를 단계별로 보여주기 위한 전부. */
+interface ScanDiag {
+  rootName: string;
+  productFolders: number;
+  sampleCodes: string[];
+  jsonl: GenScan;
+  matched: number;
+  helperUsed: number;
+  regenFolders: number;
+  /** 필드별 채움 건수 — 어떤 항목이 비어 있는지 한눈에 */
+  fill: { label: string; filled: number }[];
+}
+
+/** 진단 한 줄 — 통과/실패를 아이콘으로 구분해 "어디서 끊겼는지"를 눈으로 따라가게 한다. */
+function DiagLine({ ok, label, value }: { ok: boolean | null; label: string; value: string }) {
+  const icon = ok === null ? '·' : ok ? '✔' : '✕';
+  const tone = ok === null ? 'text-gray-400' : ok ? 'text-emerald-600' : 'text-red-600';
+  return (
+    <div className="flex items-start gap-2 py-0.5">
+      <span className={`${tone} font-bold w-3 flex-none text-center`}>{icon}</span>
+      <span className="text-gray-500 w-28 flex-none">{label}</span>
+      <span className="text-gray-800 break-all min-w-0">{value}</span>
+    </div>
+  );
+}
+
+/**
+ * 스캔 진단 패널.
+ * 카드가 비는 원인은 항상 이 순서 중 한 곳이다:
+ *   폴더 인식 → jsonl 파일 존재 → 레코드 파싱 → sourceId↔폴더코드 매칭 → 필드별 생성값.
+ * 각 단계를 실측값과 함께 보여줘 사용자가 추측 없이 다음 조치를 고를 수 있게 한다.
+ */
+function DiagPanel({ diag, helper, open, onToggle }: {
+  diag: ScanDiag; helper: HelperDiag | null; open: boolean; onToggle: () => void;
+}) {
+  const j = diag.jsonl;
+  const total = diag.productFolders;
+  const allMatched = diag.matched === total && total > 0;
+  const cmd = `node worker/run-folder.mjs "<${diag.rootName} 폴더의 절대경로>"`;
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl text-xs">
+      <button type="button" onClick={onToggle}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left">
+        <span className={`w-2 h-2 rounded-full flex-none ${allMatched ? 'bg-emerald-500' : 'bg-red-500'}`} />
+        <span className="font-semibold text-gray-900">진단</span>
+        <span className="text-gray-500">
+          상품 {total}개 · 워커결과 {diag.matched}개
+          {allMatched ? '' : ` · ${total - diag.matched}개 비어 있음`}
+        </span>
+        <span className="flex-1" />
+        <span className="text-gray-400">{open ? '접기 ▲' : '펼치기 ▼'}</span>
+      </button>
+
+      {open && (
+        <div className="border-t border-gray-100 px-3 py-3 space-y-4">
+          {/* 1) 파이프라인 단계 */}
+          <div>
+            <p className="font-semibold text-gray-700 mb-1">생성결과 경로</p>
+            <DiagLine ok={total > 0} label="폴더 인식"
+              value={`"${diag.rootName}" 안에서 product_* 폴더 ${total}개${diag.sampleCodes.length ? ` (코드 예: ${diag.sampleCodes.join(', ')})` : ''}`} />
+            <DiagLine ok={j.fileFound} label="jsonl 파일"
+              value={j.fileFound
+                ? `_allinone.generated.jsonl 찾음 (위치: ${j.foundIn || '루트'})`
+                : `_allinone.generated.jsonl 없음 — 뒤진 위치: ${j.attempts.map((a) => a.where).join(', ') || '루트'}`} />
+            <DiagLine ok={j.fileFound ? j.recordCount > 0 : null} label="레코드 파싱"
+              value={j.fileFound
+                ? `${j.recordCount}건 파싱${j.badLines > 0 ? ` · 깨진 줄 ${j.badLines}건(워커가 쓰다 중단됨)` : ''}`
+                : '파일이 없어 건너뜀'} />
+            <DiagLine ok={j.recordCount > 0 ? diag.matched > 0 : null} label="키 매칭"
+              value={j.recordCount === 0
+                ? '레코드가 없어 건너뜀'
+                : `${diag.matched}/${total} 매칭 · 워커 sourceId 예: [${j.sampleSourceIds.join(', ') || '없음'}] ↔ 폴더코드 예: [${diag.sampleCodes.join(', ')}]`} />
+            <DiagLine ok={helper?.ok ?? false} label="도우미 직독"
+              value={helper
+                ? `${helper.message}${helper.folder ? ` · 폴더: ${helper.folder}` : ''}${diag.helperUsed > 0 ? ` · 이번 스캔에서 ${diag.helperUsed}건 보충` : ''}`
+                : '확인 중…'} />
+          </div>
+
+          {/* 2) 필드별 채움 현황 — "카테고리가 안 보인다"를 수치로 확인 */}
+          <div>
+            <p className="font-semibold text-gray-700 mb-1">항목별 채움 현황</p>
+            <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-4">
+              {diag.fill.map((f) => {
+                const full = f.filled === total && total > 0;
+                return (
+                  <div key={f.label} className="flex items-center gap-2">
+                    <span className={`${full ? 'text-emerald-600' : f.filled === 0 ? 'text-red-600' : 'text-amber-600'} font-bold w-3 text-center`}>
+                      {full ? '✔' : f.filled === 0 ? '✕' : '!'}
+                    </span>
+                    <span className="text-gray-500 flex-1 min-w-0 truncate">{f.label}</span>
+                    <span className="text-gray-900 font-medium tabular-nums">{f.filled}/{total}</span>
+                  </div>
+                );
+              })}
+            </div>
+            {diag.matched === 0 && (
+              <p className="text-gray-500 mt-1.5">
+                워커결과가 0건이므로 노출상품명·카테고리·판매가·옵션·상세글이 전부 빈 것은 정상입니다.
+                대표이미지는 폴더의 원본 사진이라 워커 없이도 보입니다.
+              </p>
+            )}
+          </div>
+
+          {/* 3) 다음 조치 */}
+          <div>
+            <p className="font-semibold text-gray-700 mb-1">다음 조치</p>
+            {allMatched ? (
+              <p className="text-emerald-700">모든 상품에 워커결과가 매칭됐습니다. 카드에서 바로 검수하세요.</p>
+            ) : !j.fileFound && helper?.ok && helper.folder ? (
+              <p className="text-gray-700 break-all">
+                도우미가 결과를 들고 있습니다. <b>이 폴더를 선택</b>하세요 — {helper.folder}
+              </p>
+            ) : !j.fileFound ? (
+              <div className="space-y-1">
+                <p className="text-gray-700">이 폴더에서 워커를 실행한 적이 없습니다. 프로젝트 루트 터미널에서:</p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 min-w-0 bg-gray-900 text-gray-100 rounded px-2 py-1 break-all">{cmd}</code>
+                  <button type="button" onClick={() => navigator.clipboard?.writeText(cmd)}
+                    className="flex-none border border-gray-300 rounded px-2 py-1 text-gray-600 hover:bg-gray-50">복사</button>
+                </div>
+                <p className="text-gray-500">
+                  가격·카테고리·옵션·상세글 = ollama 로컬 LLM, 대표사진 누끼·흰배경 = ComfyUI 가 떠 있어야 합니다.
+                  누끼 없이 텍스트만 빠르게 만들려면 명령 끝에 <code>--no-thumb</code> 를 붙이세요.
+                </p>
+              </div>
+            ) : j.recordCount === 0 ? (
+              <p className="text-gray-700">파일은 있으나 레코드가 0건입니다 — 워커가 중간에 끊겼습니다. 위 명령으로 다시 실행하세요.</p>
+            ) : (
+              <p className="text-gray-700">
+                레코드는 {j.recordCount}건인데 폴더코드와 키가 어긋납니다. 위 &quot;키 매칭&quot; 줄의 두 샘플을 비교해
+                워커를 <b>바로 이 폴더</b>에서 다시 실행했는지 확인하세요.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function AllInOneRegisterPanel() {
@@ -305,6 +462,37 @@ export default function AllInOneRegisterPanel() {
   const [openDetail, setOpenDetail] = useState<Record<string, boolean>>({});
   // 마진 프리셋: null = 워커 생성값 그대로. 선택 시 원가×프리셋으로 판매가 재계산.
   const [marginLevel, setMarginLevel] = useState<MarginPresetLevel | null>(null);
+
+  // ── 도우미 직독 ────────────────────────────────────────────────────
+  // 도우미(pair-server)가 마지막으로 생성을 끝낸 폴더의 결과를 localhost 에서 미리 받아둔다.
+  // 이미지·product.json 스캔은 그대로 브라우저가 한다(핸들이 있어야 등록 업로드가 되므로).
+  // 여기서 얻는 건 생성결과뿐 — 선택한 폴더에 _allinone.generated.jsonl 이 없어도 카드가 채워지고,
+  // 어느 폴더를 골라야 하는지도 알려줄 수 있어 "키 불일치" 오진단이 사라진다.
+  // 도우미가 꺼져 있거나 구버전이면 조용히 null → 기존 폴더 직접 읽기로 폴백.
+  const [helperFolder, setHelperFolder] = useState<string | null>(null);
+  const helperGenRef = useRef<Map<string, GenRecord> | null>(null);
+  // 진단용 — 도우미 연결이 어느 단계에서 끊겼는지 보관(카드가 빌 때 화면에 그대로 노출).
+  const [helperDiag, setHelperDiag] = useState<HelperDiag | null>(null);
+  const [diag, setDiag] = useState<ScanDiag | null>(null);
+  const [diagOpen, setDiagOpen] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const d = await diagnoseLocalHelper();
+      if (cancelled) return;
+      setHelperDiag(d);
+      if (!d.ok || !d.raw) return;
+      const map = new Map<string, GenRecord>();
+      for (const rec of d.raw as GenRecord[]) {
+        if (rec?.sourceId != null) map.set(String(rec.sourceId), rec);
+      }
+      if (map.size === 0) return;
+      helperGenRef.current = map;
+      setHelperFolder(d.folder ?? null);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // 물류 정보
   const [outbounds, setOutbounds] = useState<OutboundPlace[]>([]);
@@ -362,16 +550,27 @@ export default function AllInOneRegisterPanel() {
       const { products } = await scanDirectoryHandle(root, (p) =>
         setScanMsg(`스캔 ${p.current}/${p.total} ${p.currentName || ''}`));
 
+      // 폴더에서 읽은 결과가 우선. 없는 상품만 도우미가 들고 있는 결과로 메운다
+      // (폴더에 jsonl 이 아예 없거나, 워커를 다른 경로에서 돌려 키가 어긋난 경우를 함께 구제).
+      const helperMap = helperGenRef.current;
+      let helperUsed = 0;
+
       const built: Row[] = [];
       for (const sp of products) {
-        const gen = genMap.get(sp.productCode) || null;
+        let gen = genMap.get(sp.productCode) || null;
+        if (!gen && helperMap) {
+          gen = helperMap.get(sp.productCode) || null;
+          if (gen) helperUsed++;
+        }
         const regen = await readRegenImages(sp.dirHandle);
         const usingRegen = regen.length > 0;
-        // 대표: 가공본(regen)이 있으면 그게 이미 CLIP 최적컷의 가공 결과. 없으면 원본을 CLIP 랭킹순 재정렬.
-        const reordered = usingRegen
-          ? { images: regen, picked: true }
-          : reorderMainByClip(sp.mainImages || [], gen);
-        const mainImages = reordered.images;
+        const clip = reorderMainByClip(sp.mainImages || [], gen);
+        // 대표 후보 = 누끼 가공본(있으면 앞) + CLIP 랭킹순 원본.
+        // ⭐ 예전엔 가공본이 있으면 원본을 통째로 버렸다. 그래서 누끼 결과가 마음에 안 들어도
+        //    되돌릴 방법이 없었다(ComfyUI 는 후보를 1장만 만들고 재시도 경로도 없다).
+        //    이제 둘 다 남겨 카드에서 고르게 한다 — 기본값은 그대로 AI 추천(index 0).
+        const mainImages = usingRegen ? [...regen, ...clip.images] : clip.images;
+        const reordered = { picked: usingRegen || clip.picked };
         // 상세: CLIP 이 광고/배송/리뷰컷으로 버린 파일명만 제외(핸들 유지 → 등록 업로드 가능).
         const detailImages = applyDetailCuration(sp.detailImages || [], gen);
         // 썸네일 표시용 objectURL 보장 — 공용 스캐너는 main_images 를 lazy(objectUrl 미생성)로 읽으므로
@@ -388,6 +587,8 @@ export default function AllInOneRegisterPanel() {
           gen,
           edit,
           mainImages,
+          regenCount: regen.length,
+          selectedMainIdx: 0,
           detailImages,
           mainAiPicked: reordered.picked,
           usingRegen,
@@ -398,10 +599,42 @@ export default function AllInOneRegisterPanel() {
       built.sort((a, b) => a.productCode.localeCompare(b.productCode, undefined, { numeric: true }));
       setRows(built);
       const withGen = built.filter((r) => r.gen).length;
-      setScanMsg(`상품 ${built.length}개 · 워커결과 매칭 ${withGen}개 · 대표가공 ${built.filter((r) => r.usingRegen).length}개`);
+
+      // 진단 스냅샷 — 항상 기록한다(일부만 비는 경우도 검수 대상이므로).
+      const count = (pred: (r: Row) => boolean) => built.filter(pred).length;
+      setDiag({
+        rootName: root.name,
+        productFolders: built.length,
+        sampleCodes: built.slice(0, 3).map((r) => r.productCode),
+        jsonl: gscan,
+        matched: withGen,
+        helperUsed,
+        regenFolders: count((r) => r.usingRegen),
+        fill: [
+          { label: '노출상품명', filled: count((r) => !!r.edit.displayName) },
+          { label: '카테고리 코드', filled: count((r) => !!r.edit.categoryCode) },
+          { label: '카테고리 경로', filled: count((r) => !!r.edit.categoryPath) },
+          { label: '판매가', filled: count((r) => r.edit.sellingPrice != null) },
+          { label: '필수옵션', filled: count((r) => r.edit.options.length > 0) },
+          { label: '상세페이지 글', filled: count((r) => !!r.edit.detail) },
+          { label: '대표이미지', filled: count((r) => r.mainImages.length > 0) },
+          { label: '대표 누끼가공', filled: count((r) => r.usingRegen) },
+        ],
+      });
+      setDiagOpen(withGen < built.length);
+      setScanMsg(
+        `상품 ${built.length}개 · 워커결과 매칭 ${withGen}개 · 대표가공 ${built.filter((r) => r.usingRegen).length}개`
+        + (helperUsed > 0 ? ` · 도우미에서 ${helperUsed}개 수신` : ''),
+      );
       if (withGen === 0) {
         const sampleCodes = built.slice(0, 3).map((r) => r.productCode);
-        if (!gscan.fileFound) {
+        if (!gscan.fileFound && helperFolder) {
+          // 도우미는 결과를 들고 있는데 이 폴더와는 상품코드가 안 맞음 → 폴더를 잘못 고른 것.
+          // 경로를 알고 있으니 "워커를 돌려라"가 아니라 "그 폴더를 골라라"가 맞는 안내다.
+          setError(
+            `이 폴더에는 워커 결과가 없습니다. 도우미가 마지막으로 생성을 끝낸 폴더는 다음 경로입니다 — 이 폴더를 선택하세요:  ${helperFolder}`,
+          );
+        } else if (!gscan.fileFound) {
           // 파일 자체가 없음 — 가장 흔한 원인. product_* 는 찾았으므로 폴더는 맞고, 워커만 안 돌린 상태.
           setError(
             `product_* 폴더 ${built.length}개는 찾았지만 같은 폴더에 _allinone.generated.jsonl 이 없습니다. ` +
@@ -426,7 +659,110 @@ export default function AllInOneRegisterPanel() {
     } finally {
       setScanning(false);
     }
+  }, [helperFolder]);
+
+  // ── 도우미에서 바로 불러오기 (폴더 선택 0회) ─────────────────────────
+  // 도우미가 이미 폴더 경로를 알고, 결과·이미지가 그 PC 에 있으므로 웹이 localhost 로 직접 읽는다.
+  // 이미지도 shim(handle.getFile→fetchLocalFile)으로 감싸 기존 등록 업로드 경로를 그대로 재사용한다.
+  // → Storage 선업로드 없음(승인분만 등록 때 올라감), 폴더 재선택 없음.
+  const handleLoadFromHelper = useCallback(async () => {
+    setError('');
+    setScanning(true);
+    setScanMsg('도우미 연결 확인 중…');
+    try {
+      const ep = await discoverLocalEndpoint();
+      if (!ep) { const d = await diagnoseLocalHelper(); setError(d.message); return; }
+      const mf = await fetchLocalManifest(ep);
+      if (!mf) { const d = await diagnoseLocalHelper(); setError(d.message); return; }
+
+      // 로컬 이미지 1장을 ScannedImageFile 로 위장 — 표시는 localhost URL, 업로드는 getFile()이 로컬을 fetch.
+      const mkImg = (rel: string): ScannedImageFile => ({
+        name: rel.split('/').pop() || 'image.png',
+        objectUrl: localFileUrl(ep as LocalEndpoint, rel),
+        handle: {
+          getFile: async () => {
+            const f = await fetchLocalFile(ep as LocalEndpoint, rel);
+            if (!f) throw new Error('로컬 이미지 읽기 실패: ' + rel);
+            return f;
+          },
+        } as unknown as FileSystemFileHandle,
+      });
+
+      const recs = mf.records as GenRecord[];
+      const built: Row[] = [];
+      for (let i = 0; i < recs.length; i++) {
+        const gen = recs[i];
+        setScanMsg(`도우미 결과 불러오는 중 ${i + 1}/${recs.length}…`);
+        const code = gen?.sourceId != null ? String(gen.sourceId) : `item_${i + 1}`;
+        // 상품 폴더는 레코드의 절대 이미지 경로에서 역산(대표 우선, 없으면 상세 첫 장).
+        const prodDir =
+          productDirOf(mf.folder, gen?.mainImage) ??
+          productDirOf(mf.folder, Array.isArray(gen?.detailImages) ? gen!.detailImages[0] : null);
+        const cls = prodDir
+          ? classifyLocalImages(await fetchLocalList(ep, prodDir), prodDir)
+          : { main: [], regenCount: 0, detail: [], review: [], info: [] };
+
+        const mainImages = cls.main.map(mkImg);
+        const detailImages = cls.detail.map(mkImg);
+        const reviewImages = cls.review.map(mkImg);
+        const infoImages = cls.info.map(mkImg);
+
+        // scanned 는 등록 경로가 reviewImages/infoImages/productJson/sourceUrl 만 참조 →
+        // 폴더 핸들 없이 그 필드만 채운 얕은 대체물(ScannedProduct 로 캐스팅).
+        const scanned = {
+          productCode: code,
+          folderName: prodDir || code,
+          sourceUrl: gen?.sourceUrl ?? undefined,
+          productJson: { name: gen?.originalName, tags: gen?.keywords },
+          mainImages, detailImages, infoImages, reviewImages,
+        } as unknown as ScannedProduct;
+
+        const edit = initEdit(gen);
+        built.push({
+          uid: code || crypto.randomUUID(),
+          productCode: code,
+          folderPath: prodDir || code,
+          scanned,
+          gen,
+          edit,
+          mainImages,
+          regenCount: cls.regenCount,
+          selectedMainIdx: 0,
+          detailImages,
+          mainAiPicked: cls.regenCount > 0,
+          usingRegen: cls.regenCount > 0,
+          approved: isEligible(edit) && !gen?.needsReview,
+          status: 'idle',
+        });
+      }
+      built.sort((a, b) => a.productCode.localeCompare(b.productCode, undefined, { numeric: true }));
+      setRows(built);
+      const withImg = built.filter((r) => r.mainImages.length > 0).length;
+      setScanMsg(`도우미에서 ${built.length}개 불러옴 · 대표이미지 ${withImg}개 · 대표가공 ${built.filter((r) => r.usingRegen).length}개`);
+      if (built.length === 0) setError('도우미가 생성한 상품이 없습니다. 올인원 생성을 먼저 완료하세요.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '도우미 불러오기 실패');
+    } finally {
+      setScanning(false);
+    }
   }, []);
+
+  // ── 대표컷 선택 ──────────────────────────────────────────────────
+  // 스캐너는 첫 장만 objectUrl 을 즉시 만든다(대량 폴더에서 전부 만들면 메모리·시간 낭비).
+  // 그래서 후보 목록을 펼치는 순간에만 그 카드의 나머지 후보 URL 을 만든다.
+  const [openMain, setOpenMain] = useState<Record<string, boolean>>({});
+  const toggleMainPicker = async (uid: string, candidates: ScannedImageFile[]) => {
+    const opening = !openMain[uid];
+    if (opening) {
+      await Promise.all(candidates.map((img) => (img.objectUrl ? null : ensureObjectUrl(img))));
+    }
+    setOpenMain((p) => ({ ...p, [uid]: opening }));
+    setRows((prev) => [...prev]); // 위에서 채운 objectUrl 을 화면에 반영
+  };
+  const selectMain = async (uid: string, idx: number, img: ScannedImageFile) => {
+    if (!img.objectUrl) await ensureObjectUrl(img);
+    setRows((prev) => prev.map((r) => (r.uid === uid ? { ...r, selectedMainIdx: idx } : r)));
+  };
 
   const toggleApprove = (uid: string) =>
     setRows((prev) => prev.map((r) => (r.uid === uid ? { ...r, approved: !r.approved } : r)));
@@ -525,7 +861,17 @@ export default function AllInOneRegisterPanel() {
             .filter(Boolean);
           const wm = sellerBrandRef.current;
           // 이미지 업로드: 대표(가공본 우선·CLIP 랭킹 첫장) + 상세(CLIP 큐레이션) + 리뷰/정보
-          const mainUrls = (await uploadScannedImages(r.mainImages, 10, wm)).filter(Boolean);
+          // 사용자가 고른 컷이 첫 장(=쿠팡 대표)이 되게 재정렬.
+          //   · 누끼를 골랐으면 그 1장만 올린다(가공본이 대표일 때의 기존 동작 유지).
+          //   · 원본을 골랐으면 고른 컷 + 나머지 원본을 CLIP 순서로(원본이 대표일 때의 기존 동작 유지).
+          //   어느 쪽이든 '고르지 않은 누끼'는 올리지 않는다 — 후보였을 뿐이다.
+          const chosen = r.mainImages[r.selectedMainIdx];
+          const mainOrdered = !chosen
+            ? []
+            : r.selectedMainIdx < r.regenCount
+              ? [chosen]
+              : [chosen, ...r.mainImages.filter((_, i) => i >= r.regenCount && i !== r.selectedMainIdx)];
+          const mainUrls = (await uploadScannedImages(mainOrdered, 10, wm)).filter(Boolean);
           const detailUrls = (await uploadScannedImages(r.detailImages, 10, wm)).filter(Boolean);
           const reviewUrls = (await uploadScannedImages(r.scanned.reviewImages || [], 10, wm)).filter(Boolean);
           const infoUrls = (await uploadScannedImages(r.scanned.infoImages || [], 10, wm)).filter(Boolean);
@@ -650,8 +996,18 @@ export default function AllInOneRegisterPanel() {
 
       {/* 컨트롤 바 */}
       <div className="flex flex-wrap items-center gap-3">
+        {/* 도우미가 결과를 들고 있으면 이게 주 버튼 — 폴더 선택 없이 바로 카드가 채워진다. */}
+        {helperDiag?.ok && (
+          <button onClick={handleLoadFromHelper} disabled={scanning || registering}
+            className="bg-[#E31837] text-white text-sm font-semibold rounded-lg px-4 py-2 disabled:opacity-50">
+            {scanning ? '불러오는 중…' : `도우미에서 바로 불러오기 (${helperDiag.records ?? 0})`}
+          </button>
+        )}
+        {/* 폴더 직접 선택 — 도우미가 없거나(수동), 다른 폴더를 검수할 때의 폴백. */}
         <button onClick={handlePick} disabled={scanning || registering}
-          className="bg-[#E31837] text-white text-sm font-semibold rounded-lg px-4 py-2 disabled:opacity-50">
+          className={`text-sm font-semibold rounded-lg px-4 py-2 disabled:opacity-50 ${
+            helperDiag?.ok ? 'border border-gray-300 text-gray-700' : 'bg-[#E31837] text-white'
+          }`}>
           {scanning ? '스캔 중…' : '소싱 폴더 선택'}
         </button>
         {rows.length > 0 && (
@@ -668,7 +1024,18 @@ export default function AllInOneRegisterPanel() {
         )}
       </div>
       {scanMsg && <p className="text-xs text-gray-500">{scanMsg}</p>}
+      {/* 도우미가 결과를 들고 있으면 어느 폴더를 골라야 하는지 미리 알려준다(폴더 오선택 예방). */}
+      {helperFolder && rows.length === 0 && (
+        <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 break-all">
+          도우미가 생성해 둔 결과가 있습니다(<b>{helperFolder}</b>). 위 <b>&ldquo;도우미에서 바로 불러오기&rdquo;</b>를 누르면 폴더 선택 없이 카드가 채워집니다.
+        </p>
+      )}
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+
+      {/* 진단 — 카테고리·상세글·옵션·노출명·대표이미지가 왜 비었는지 단계별 근거 */}
+      {diag && (
+        <DiagPanel diag={diag} helper={helperDiag} open={diagOpen} onToggle={() => setDiagOpen((v) => !v)} />
+      )}
 
       {/* 업로드 전 책임 확인 게이트 — 지재권/옵션명/책임동의 */}
       <PreUploadConfirmModal
@@ -707,7 +1074,8 @@ export default function AllInOneRegisterPanel() {
         {rows.map((r) => {
           const g = r.gen;
           const e = r.edit;
-          const thumb = r.mainImages[0]?.objectUrl;
+          const thumb = r.mainImages[r.selectedMainIdx]?.objectUrl;
+          const regenSelected = r.selectedMainIdx < r.regenCount;
           const editable = !!g && r.status !== 'success' && !registering;
           const priceLow = e.sellingPrice != null && e.sellingPrice < 100;
           const statusColor = r.status === 'success' ? 'border-green-400' : r.status === 'error' ? 'border-red-400'
@@ -720,13 +1088,19 @@ export default function AllInOneRegisterPanel() {
                   : <div className="w-20 h-20 rounded-lg bg-gray-100 flex-none" />}
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-center gap-1 flex-wrap">
-                    {r.usingRegen && <span className="text-[10px] text-emerald-600 font-medium">AI 가공 대표</span>}
-                    {!r.usingRegen && r.mainAiPicked && <span className="text-[10px] text-emerald-600 font-medium">AI 선택 대표</span>}
+                    {r.selectedMainIdx !== 0
+                      ? <span className="text-[10px] bg-blue-500 text-white rounded px-1">직접 선택</span>
+                      : regenSelected
+                        ? <span className="text-[10px] text-emerald-600 font-medium">AI 누끼 대표</span>
+                        : r.mainAiPicked && <span className="text-[10px] text-emerald-600 font-medium">AI 선택 대표</span>}
                     {(g?.detailDroppedNames?.length ?? 0) > 0 && (
                       <span className="text-[10px] text-gray-400">상세 광고 {g!.detailDroppedNames!.length}컷 제외</span>
                     )}
                     {g?.needsReview && <span className="text-[10px] bg-amber-400 text-white rounded px-1">검수필요</span>}
-                    {!g && <span className="text-[10px] bg-gray-400 text-white rounded px-1">워커결과 없음</span>}
+                    {!g && (
+                      <span title={`폴더코드 "${r.productCode}" 에 해당하는 워커 생성결과를 찾지 못했습니다. 위 진단 패널을 확인하세요.`}
+                        className="text-[10px] bg-gray-400 text-white rounded px-1 cursor-help">워커결과 없음</span>
+                    )}
                     {r.status === 'success' && <span className="text-[10px] bg-green-500 text-white rounded px-1">등록완료</span>}
                     {r.status === 'error' && <span className="text-[10px] bg-red-500 text-white rounded px-1">실패</span>}
                   </div>
@@ -758,6 +1132,35 @@ export default function AllInOneRegisterPanel() {
                   </div>
                 </div>
               </div>
+              {/* 대표컷 후보 — 누끼 가공본과 원본 중 직접 고른다. 기본값은 AI 추천(0번).
+                  워커는 누끼를 1장만 만들지만, 원본 후보가 함께 남아 있어 되돌릴 수 있다. */}
+              {r.mainImages.length > 1 && (
+                <div>
+                  <button type="button" disabled={!editable}
+                    onClick={() => toggleMainPicker(r.uid, r.mainImages)}
+                    className="text-xs text-gray-600 border border-gray-200 rounded px-2 py-1 disabled:opacity-40">
+                    대표컷 변경 ({r.selectedMainIdx + 1}/{r.mainImages.length}) {openMain[r.uid] ? '▴' : '▾'}
+                  </button>
+                  {openMain[r.uid] && (
+                    <div className="mt-1 flex gap-1.5 overflow-x-auto pb-1">
+                      {r.mainImages.map((img, i) => (
+                        <button key={`${img.name}-${i}`} type="button" disabled={!editable}
+                          onClick={() => selectMain(r.uid, i, img)}
+                          title={i < r.regenCount ? `누끼 가공본 · ${img.name}` : img.name}
+                          className={`relative flex-none w-14 h-14 rounded-md overflow-hidden border-2 ${i === r.selectedMainIdx ? 'border-[#E31837]' : 'border-transparent hover:border-gray-300'}`}>
+                          {img.objectUrl
+                            ? <img src={img.objectUrl} alt="" className="w-full h-full object-cover bg-gray-100" />
+                            : <div className="w-full h-full bg-gray-100" />}
+                          {i < r.regenCount && (
+                            <span className="absolute bottom-0 inset-x-0 bg-emerald-600/85 text-white text-[9px] leading-tight text-center">누끼</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* 옵션 — 서술형(편집 가능). 등록 시 태그/스펙으로 반영(가격·재고 판매변형 아님) */}
               {g && (
                 <div className="space-y-1">

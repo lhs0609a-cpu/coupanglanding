@@ -28,17 +28,34 @@ export async function GET() {
     }
 
     const since = new Date(Date.now() - ONLINE_WINDOW_SEC * 1000).toISOString();
-    const { data: rows } = await serviceClient
+
+    // ⚠️ 배포 순서 안전장치 — app_version·local_endpoint 컬럼은 마이그레이션으로 추가된다.
+    //    이 브랜치가 자동배포라 웹이 마이그레이션보다 먼저 나갈 수 있는데, 없는 컬럼을 select 하면
+    //    PostgREST 가 에러 → worker-status 전체가 죽어 "연결됨" 배지가 모두 꺼진다.
+    //    그래서 확장 컬럼을 먼저 시도하고, 실패하면 기존 컬럼만으로 폴백한다(연결표시는 항상 살아있게).
+    type Row = {
+      worker_id: string; hostname: string | null; last_seen: string;
+      app_version?: string | null;
+      local_endpoint?: { port: number; nonce: string } | null;
+    };
+    const query = (cols: string) => serviceClient
       .from('megaload_worker_heartbeats')
-      // app_version: 구버전 도우미는 NULL 로 온다(마이그레이션 전 하트비트도 NULL).
-      .select('worker_id, hostname, last_seen, app_version')
+      .select(cols)
       .eq('megaload_user_id', shUserId)
       .gte('last_seen', since)
       .order('last_seen', { ascending: false });
 
-    const workers = (rows ?? []) as {
-      worker_id: string; hostname: string | null; last_seen: string; app_version: string | null;
-    }[];
+    let rows: Row[];
+    const res = await query('worker_id, hostname, last_seen, app_version, local_endpoint');
+    if (res.error) {
+      // 컬럼 미존재(마이그레이션 전) 등 → 최소 컬럼으로 재시도(연결표시는 항상 살아있게).
+      const fb = await query('worker_id, hostname, last_seen');
+      rows = (fb.data ?? []) as unknown as Row[];
+    } else {
+      rows = (res.data ?? []) as unknown as Row[];
+    }
+
+    const workers = rows;
     return NextResponse.json({ online: workers.length > 0, workers });
   } catch (err) {
     return NextResponse.json(

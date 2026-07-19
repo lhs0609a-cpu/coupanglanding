@@ -99,6 +99,18 @@ async function installEngine() {
  */
 async function autoInstallIfNeeded() {
   if (autoInstallDone || installing || !runner.loggedIn) return;
+
+  // VC++ 재배포 패키지 — GPU 유무·ComfyUI 설치 여부와 무관하게 항상 보장한다.
+  //   누끼(BiRefNet CPU)와 CLIP 대표컷은 onnxruntime 을 쓰는데, 이게 낡으면 DLL 로드가
+  //   조용히 실패해 원본 사진만 남는다(에러도 안 남). isInstalled() 조기반환보다 먼저 둔 이유.
+  //   레지스트리 조회뿐이라 이미 충족되면 사실상 비용 0.
+  try {
+    await bootstrap.ensureVCRedist({
+      installDir,
+      onProgress: (p) => send('allinone:log', `[VC++] ${p.detail || p.phase}${p.pct != null && p.pct < 100 ? ' ' + p.pct + '%' : ''}`),
+    });
+  } catch { /* ensureVCRedist 는 throw 하지 않지만 방어 */ }
+
   if (await bootstrap.isInstalled(installDir)) return;
   autoInstallDone = true;
   try {
@@ -154,7 +166,12 @@ function setupServices() {
     embedModel: store.get('ollamaEmbedModel', bootstrap.DEFAULTS.ollamaEmbedModel),
     onLog: (m) => send('allinone:log', m),
   });
-  runner = new WorkerRunner(userData, { onEvent: onWorkerEvent, appVersion: app.getVersion() });
+  runner = new WorkerRunner(userData, {
+    onEvent: onWorkerEvent,
+    appVersion: app.getVersion(),
+    // pair 서버는 이 시점 뒤에 뜨므로 지연 평가 — 매 하트비트마다 현재 포트를 읽는다.
+    getLocalEndpoint: () => (pair ? { port: pair.port, nonce: pair.nonce } : null),
+  });
   ads = new AdRunner({ getSession: () => runner.session, onEvent: (e) => send('ads:event', e) });
 }
 
@@ -281,16 +298,26 @@ app.whenReady().then(async () => {
 
   // 로그인(세션) 상태면 30초마다 하트비트 → 웹 연결 표시등이 "연결됨"으로 표시(썸네일 워커 미가동이어도).
   const SHELL_WORKER_ID = `${hostname()}-app`;
+  // ⭐ 셸 하트비트는 워커 루프와 무관하게 항상 돈다 → 웹이 도우미를 발견하는 가장 확실한 지점.
+  //    그래서 앱 버전(구버전 안내용)과 로컬 서버 주소(올인원 결과 직독용)를 여기서도 보낸다.
+  //    p_* 는 서버 함수에서 DEFAULT 라, 마이그레이션 전이어도 이 호출은 그대로 동작한다.
   const sendHeartbeat = () => {
     if (!runner?.session) return;
-    rpc(runner.session, 'worker_heartbeat', { p_worker_id: SHELL_WORKER_ID, p_hostname: hostname() }).catch(() => {});
+    rpc(runner.session, 'worker_heartbeat', {
+      p_worker_id: SHELL_WORKER_ID,
+      p_hostname: hostname(),
+      p_app_version: app.getVersion(),
+      p_local_endpoint: pair ? { port: pair.port, nonce: pair.nonce } : null,
+    }).catch(() => {});
   };
 
   // 저장된 세션 자동 복구
   await runner.tryRestoreSession(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  // 로컬 페어링 서버 (웹이 세션 토큰 전달)
+  // 로컬 서버 — ① 웹이 세션 토큰 전달(페어링) ② 웹 올인원 화면이 생성결과·이미지 직독
   pair = await startPairServer({
+    // 올인원 생성을 끝낸 폴더 → 웹이 폴더를 다시 고르지 않아도 결과를 읽어간다.
+    getAllinoneFolder: () => store.get('lastAllinoneFolder', null),
     onPair: async (tokens) => {
       await runner.pair(SUPABASE_URL, SUPABASE_ANON_KEY, tokens);
       send('shell:pair-done', true);

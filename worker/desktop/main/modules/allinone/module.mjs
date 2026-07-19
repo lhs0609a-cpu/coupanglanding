@@ -70,7 +70,13 @@ export default {
       };
       child.stdout.on('data', handle);
       child.stderr.on('data', handle);
-      child.on('exit', (code) => { child = null; ctx.send('allinone:done', { code }); });
+      child.on('exit', (code) => {
+        child = null;
+        // 생성 성공한 폴더를 기억 — 웹 올인원 화면이 폴더를 다시 고르지 않고
+        // localhost(pair-server /allinone/*)로 이 폴더의 결과를 바로 읽어간다.
+        if (code === 0) { try { ctx.store?.set('lastAllinoneFolder', folder); } catch { /* skip */ } }
+        ctx.send('allinone:done', { code });
+      });
       child.on('error', (e) => { child = null; ctx.send('allinone:log', '실행 오류: ' + e.message); ctx.send('allinone:done', { code: -1 }); });
       return true;
     },
