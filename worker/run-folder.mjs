@@ -27,7 +27,7 @@
  *
  * 출력: <out>.generated.jsonl (레코드별 1줄) + <out>.review.html
  */
-import { writeFileSync, appendFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
+import { writeFileSync, appendFileSync, readFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import { isUp, unload } from './lib/local-llm.mjs';
 import { scanFolder } from './lib/folder-scanner.mjs';
@@ -114,7 +114,9 @@ async function main() {
   //   그래서 텍스트를 "전부" 먼저 끝내고(2-A), ollama 모델을 내린 뒤(2-B)
   //   대표이미지를 "전부" 가공한다(2-C). 단계마다 GPU 를 독점 → thrashing 회피.
   const outJsonl = outPrefix + '.generated.jsonl';
-  writeFileSync(outJsonl, '');
+  // ⚠️ 여기서 기존 파일을 비우지 않는다. 예전엔 시작 시 truncate 했는데,
+  //    중간에 죽으면 0바이트 파일만 남아 웹이 "레코드 0건" 으로 보였다.
+  //    → Phase C 에서 .tmp 로 쓰고 rename 하는 원자적 교체로 바꿨다(부분 결과 노출 없음).
   const records = [];
   console.log(`[${ts()}] [1/3] 텍스트 생성 시작 (모델 ${model})`);
   if (marginBrackets) console.log(`[${ts()}] 마진 프리셋 적용: ${marginLevel}`);
@@ -189,9 +191,12 @@ async function main() {
 
   // ── Phase C) 레코드 저장 + 검수화면 ──────────────────────────────────────
   console.log(`[${ts()}] [3/3] 레코드 저장 + 검수화면 생성`);
-  writeFileSync(outJsonl, records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  // 원자적 교체: .tmp 에 완전히 쓴 뒤 rename. 중간에 죽어도 이전 결과가 살아남는다.
+  writeFileSync(outJsonl + '.tmp', records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  renameSync(outJsonl + '.tmp', outJsonl);
   const outHtml = outPrefix + '.review.html';
-  writeFileSync(outHtml, buildReviewHtml(records, summary), 'utf8');
+  writeFileSync(outHtml + '.tmp', buildReviewHtml(records, summary), 'utf8');
+  renameSync(outHtml + '.tmp', outHtml);
 
   console.log(`\n=== 요약 ===`);
   console.log(`총 ${summary.total} · 통과 ${summary.ok} · 검수필요 ${summary.needsReview}` + (thumbEnabled ? ` · 대표가공 ${thumbsProcessed}/${summary.total}` : ' · 대표가공 생략'));

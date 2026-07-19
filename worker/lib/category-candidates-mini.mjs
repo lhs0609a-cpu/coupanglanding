@@ -14,7 +14,14 @@ const here = dirname(fileURLToPath(import.meta.url));
 let INDEX = null;
 function load() {
   if (INDEX) return INDEX;
-  const raw = readFileSync(join(here, 'data', 'coupang-cat-index.json'), 'utf8');
+  const p = join(here, 'data', 'coupang-cat-index.json');
+  let raw;
+  try {
+    raw = readFileSync(p, 'utf8');
+  } catch (e) {
+    // runtime/ 동기화에서 data/ 가 빠지면 여기서 raw ENOENT 로 죽어 원인 파악이 어려웠다.
+    throw new Error(`카테고리 인덱스를 찾을 수 없습니다: ${p} — worker/lib/data/ 가 복사됐는지 확인 (desktop 은 'node sync-runtime.mjs') [${e.code || e.message}]`);
+  }
   INDEX = JSON.parse(raw); // [code, path, leaf, depth]
   return INDEX;
 }
