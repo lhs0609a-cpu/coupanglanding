@@ -11,6 +11,7 @@ import {
 import {
   getPreviousMonth,
   isEligibleForMonth,
+  getFirstEligibleMonth,
   getSettlementStatus,
 } from '@/lib/utils/settlement';
 import { buildCostBreakdown } from '@/lib/calculations/deposit';
@@ -1325,15 +1326,30 @@ export default function AdminSalesOverviewPage() {
 
   /** 요약 통계 (당월 기준) */
   const summary = useMemo(() => {
-    const eligible = rows.filter(r => isEligibleForMonth(r.user.created_at, currentMonth));
+    // 당월 매출 집계용 대상자 판정.
+    //   isEligibleForMonth 는 "리포트 제출 대상 월"을 뜻해서 진행중인 당월을 구조적으로 제외한다(ym < 현재월).
+    //   여기 카드는 "API 잠정 포함" 당월 매출을 보여주는 자리라 그 상한을 빼고 판정해야 한다.
+    //   (공용 isEligibleForMonth 는 정산 게이트에서 그대로 필요하므로 건드리지 않는다.)
+    const eligible = rows.filter(r => currentMonth >= getFirstEligibleMonth(r.user.created_at));
     const totalRev = eligible.reduce((s, r) => s + r.currentRevenue, 0);
     const totalDep = eligible.reduce((s, r) => s + r.currentDeposit, 0);
-    const completed = eligible.filter(r => r.currentStatus === 'completed').length;
-    const submitted = eligible.filter(r => r.currentStatus === 'submitted').length;
-    const overdue = eligible.filter(r => r.currentStatus === 'overdue').length;
-    const pending = eligible.filter(r => r.currentStatus === 'pending').length;
-    const completionRate = eligible.length > 0
-      ? Math.round(((completed + submitted) / eligible.length) * 100)
+
+    // 제출 완료율은 진행중인 당월엔 의미가 없다(아직 아무도 제출할 수 없음) → 직전 마감월 기준.
+    const closedRows = rows.filter(r => isEligibleForMonth(r.user.created_at, lastClosedMonth));
+    const closedStatuses = closedRows.map(r => {
+      const cell = r.monthly.get(lastClosedMonth);
+      return getSettlementStatus(
+        r.user.created_at,
+        cell?.source === 'report' ? cell.status : null,
+        lastClosedMonth,
+      );
+    });
+    const completed = closedStatuses.filter(s => s === 'completed').length;
+    const submitted = closedStatuses.filter(s => s === 'submitted').length;
+    const overdue = closedStatuses.filter(s => s === 'overdue').length;
+    const pending = closedStatuses.filter(s => s === 'pending').length;
+    const completionRate = closedStatuses.length > 0
+      ? Math.round(((completed + submitted) / closedStatuses.length) * 100)
       : 0;
 
     // 직전 마감월 청구 수수료 (PT생이 우리에게 결제할 금액, VAT 포함)
@@ -2690,14 +2706,14 @@ export default function AdminSalesOverviewPage() {
           icon={<Banknote className="w-5 h-5" />}
         />
         <StatCard
-          title="제출 완료율"
+          title={`제출 완료율 (${formatYearMonth(lastClosedMonth)})`}
           value={`${summary.completionRate}%`}
           subtitle={`완료 ${summary.completed} · 처리중 ${summary.submitted}`}
           icon={<CheckCircle2 className="w-5 h-5" />}
           trend={summary.completionRate >= 80 ? 'up' : summary.completionRate >= 50 ? 'neutral' : 'down'}
         />
         <StatCard
-          title="지연/미제출"
+          title={`지연/미제출 (${formatYearMonth(lastClosedMonth)})`}
           value={`${summary.overdue + summary.pending}명`}
           subtitle={`지연 ${summary.overdue} · 미제출 ${summary.pending}`}
           icon={<UsersIcon className="w-5 h-5" />}
