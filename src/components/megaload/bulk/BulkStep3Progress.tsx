@@ -21,6 +21,9 @@ interface BulkStep3ProgressProps {
   imagePreuploadCacheSize: number;
   /** 쿠팡 셀러 계정 차단 감지 시 사유 메시지 (null=미감지) */
   accountBlocked?: string | null;
+  /** 인증(KC) 매칭 실패 요약 — 등록은 됐지만 인증번호가 안 들어간 건 */
+  certWarningNotice?: string;
+  onDismissCertWarning?: () => void;
   /** 이번 등록 성공분 sh_products.id — 실시간 전파 결과 폴링 대상 */
   registeredProductIds?: string[];
   /** 사용자가 고른 전파 대상 채널 */
@@ -72,7 +75,8 @@ function getCategoryBadge(category: ErrorCategory) {
 
 export default function BulkStep3Progress({
   products, registering, isPaused, batchProgress, startTime, imagePreuploadCacheSize,
-  accountBlocked, registeredProductIds = [], fanoutChannels = [], onTogglePause, onReset, onRetryFailed, onBackToStep2, onJumpToErrorGroup,
+  accountBlocked, certWarningNotice, onDismissCertWarning,
+  registeredProductIds = [], fanoutChannels = [], onTogglePause, onReset, onRetryFailed, onBackToStep2, onJumpToErrorGroup,
 }: BulkStep3ProgressProps) {
   const [expandedErrorUids, setExpandedErrorUids] = useState<Set<string>>(new Set());
   const [expandedRawUids, setExpandedRawUids] = useState<Set<string>>(new Set());
@@ -199,6 +203,27 @@ export default function BulkStep3Progress({
 
   return (
     <div className="space-y-6">
+      {/* 인증(KC) 미반영 배너 — 등록은 성공해도 인증번호가 빠졌으면 알려야 한다.
+          전기용품 등을 인증정보 없이 판매하면 판매정지 사유가 될 수 있다. */}
+      {certWarningNotice && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="text-sm font-bold text-amber-900">일부 상품이 인증정보 없이 등록됐습니다</h3>
+              <p className="text-xs text-amber-800 mt-1.5 whitespace-pre-wrap">{certWarningNotice}</p>
+              <p className="text-xs text-amber-800 mt-2">
+                쿠팡 윙 → 상품관리 → 상품수정에서 인증정보를 직접 입력해 보완할 수 있습니다.
+              </p>
+            </div>
+            {onDismissCertWarning && (
+              <button type="button" onClick={onDismissCertWarning}
+                className="text-xs text-amber-700 underline shrink-0">닫기</button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 셀러 계정 차단 배너 — 쿠팡이 신규 등록 막은 경우 */}
       {accountBlocked && (
         <div className="bg-red-50 border-2 border-red-300 rounded-xl p-5">

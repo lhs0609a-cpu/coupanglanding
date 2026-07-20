@@ -96,6 +96,9 @@ export interface EditableProduct extends PreviewProduct {
   editedAttributeValues?: Record<string, string>;
   /** 자동기입했지만 "추정(불확실)"한 속성명 — ENUM을 상품명 매칭 없이 첫값으로 찍은 것. UI가 "확인 필요(클릭선택)"로 노출. 사용자가 확인하면 제거. */
   autoFilledUncertain?: string[];
+  /** 인증(KC) 등록 미리보기 — 소싱 인증번호가 어느 쿠팡 인증 항목으로 들어가는지.
+   *  등록 payload 와 동일한 grounding 을 서버(/products/cert-preview)에서 계산한 결과. */
+  certPreview?: import('@/app/api/megaload/products/cert-preview/route').CertPreviewResult;
   // 상세페이지 콘텐츠 오버라이드
   editedDescription?: string;
   editedStoryParagraphs?: string[];

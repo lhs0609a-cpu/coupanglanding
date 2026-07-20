@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronRight, FileText, Hash, Tag, Truck,
   Settings2, Loader2, AlertTriangle, Package, Image as ImageIcon,
   DollarSign, Layers, CheckCircle2, Settings, Shuffle, Eye,
-  Copy, Pencil, Check, X as XIcon,
+  Copy, Pencil, Check, X as XIcon, ShieldCheck,
 } from 'lucide-react';
 import BulkImageGrid from './BulkImageGrid';
 import StockImageSwapModal from './StockImageSwapModal';
@@ -962,6 +962,53 @@ export default function CoupangFieldsSection({
           </div>
           <p className="text-[10px] text-red-500/80 mt-1.5">채우면 자동으로 사라지고 아래 해당 섹션·상단 상태에 반영됩니다.</p>
         </div>
+      )}
+
+      {/* 인증(KC) — 소싱한 인증번호가 등록에 반영되는지 등록 전에 보여준다.
+          전기용품·어린이제품 등을 인증정보 없이 올리면 쿠팡 판매정지 사유가 될 수 있다. */}
+      {product.certPreview && product.certPreview.status !== 'none' && (
+        product.certPreview.status === 'ok' ? (
+          <div className="rounded-lg border border-emerald-300 bg-emerald-50/60 p-2.5 mb-3">
+            <div className="flex items-center gap-1.5 mb-1">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="text-xs font-semibold text-emerald-700">인증정보 등록 ({product.certPreview.matched.length}건)</span>
+            </div>
+            {product.certPreview.matched.map((m) => (
+              <div key={m.certificationType} className="text-[10px] text-emerald-800 border-l-2 border-l-emerald-400 pl-2">
+                {m.certificationName} · <span className="font-mono">{m.certificationCode}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className={`rounded-lg border-2 p-3 mb-3 ${product.certPreview.status === 'failed' ? 'border-red-300 bg-red-50/60' : 'border-amber-300 bg-amber-50/60'}`}>
+            <div className="flex items-center gap-1.5 mb-2">
+              <AlertTriangle className={`w-3.5 h-3.5 ${product.certPreview.status === 'failed' ? 'text-red-500' : 'text-amber-500'}`} />
+              <span className={`text-xs font-semibold ${product.certPreview.status === 'failed' ? 'text-red-700' : 'text-amber-700'}`}>
+                {product.certPreview.status === 'failed' ? '인증정보 미반영 — 인증번호 없이 등록됨' : '인증정보 일부 미반영'}
+              </span>
+            </div>
+            {product.certPreview.matched.length > 0 && (
+              <div className="space-y-1 mb-1.5">
+                {product.certPreview.matched.map((m) => (
+                  <div key={m.certificationType} className="text-[10px] text-emerald-700 border-l-2 border-l-emerald-400 pl-2">
+                    반영됨 · {m.certificationName} · <span className="font-mono">{m.certificationCode}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {product.certPreview.unmatched.map((u) => (
+              <div key={u} className="text-[10px] text-red-600 border-l-2 border-l-red-400 pl-2 break-all">
+                빠짐 · {u}
+              </div>
+            ))}
+            {product.certPreview.message && (
+              <p className="text-[10px] text-gray-600 mt-1.5">{product.certPreview.message}</p>
+            )}
+            <p className="text-[10px] text-red-500/80 mt-1.5">
+              카테고리를 바꾸면 다시 계산됩니다. 그래도 안 붙으면 등록 후 쿠팡 윙에서 인증번호를 직접 입력해주세요.
+            </p>
+          </div>
+        )
       )}
 
       {/* 확인 필요 — 자동으로 채웠지만 상품명에서 확실히 못 찾은 "추정값"(주로 ENUM 첫값). 클릭 한 번으로 확정/변경. */}

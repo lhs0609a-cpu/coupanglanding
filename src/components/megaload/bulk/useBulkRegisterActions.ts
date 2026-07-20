@@ -9,6 +9,7 @@ import type {
   CategoryMetadata, PreventionConfig, FailureDiagnostic,
 } from './types';
 import type { PreflightProductResult, CanaryResult, Channel } from '@/lib/megaload/types';
+import type { CertPreviewResult } from '@/app/api/megaload/products/cert-preview/route';
 import { isChannelSupported } from '@/lib/megaload/types';
 import { DEFAULT_PREVENTION_CONFIG, DISABLED_PREVENTION_CONFIG } from '@/lib/megaload/services/item-winner-prevention';
 import { isCommodityCategory } from '@/lib/megaload/services/stock-image-service';
@@ -154,6 +155,9 @@ export function useBulkRegisterActions() {
   const [autoCategoryRetryCount, setAutoCategoryRetryCount] = useState(0);
   const [categoryFailures, setCategoryFailures] = useState<FailureDiagnostic[]>([]);
   const AUTO_CATEGORY_MAX_RETRIES = 3;
+  const [certPreviewLoading, setCertPreviewLoading] = useState(false);
+  /** 등록 후 서버가 알려준 인증 미반영 요약 (certWarnings) */
+  const [certWarningNotice, setCertWarningNotice] = useState('');
 
   // Auto-fill pipeline progress
   const [titleGenProgress, setTitleGenProgress] = useState<{ done: number; total: number } | null>(null);
@@ -254,6 +258,51 @@ export function useBulkRegisterActions() {
         : p));
     }
   }, [products, categoryMetaCache]);
+
+  // ── 인증(KC) 미리보기 ────────────────────────────────────────────
+  // 소싱 인증번호가 등록 payload 의 어느 쿠팡 인증 항목으로 들어가는지 검수 단계에서 계산.
+  // 서버가 등록과 **같은** groundCertifications 를 쓰므로 미리보기와 실제 결과가 갈리지 않는다.
+  const runCertPreview = useCallback(async () => {
+    const input = products
+      .filter((p) => p.editedCategoryCode && Array.isArray(p.certifications) && p.certifications.length > 0)
+      .map((p) => ({
+        uid: p.uid,
+        categoryCode: p.editedCategoryCode!,
+        sourceCertifications: p.certifications,
+      }));
+    if (input.length === 0) return;
+    setCertPreviewLoading(true);
+    try {
+      const res = await fetch('/api/megaload/products/cert-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products: input }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!res.ok) return;
+      const data = await res.json() as { results?: CertPreviewResult[] };
+      const byUid = new Map((data.results || []).map((r) => [r.uid, r]));
+      if (byUid.size === 0) return;
+      setProducts((prev) => prev.map((p) => (byUid.has(p.uid) ? { ...p, certPreview: byUid.get(p.uid) } : p)));
+    } catch {
+      // 미리보기 실패는 등록을 막지 않는다 — 블록만 안 뜬다.
+    } finally {
+      setCertPreviewLoading(false);
+    }
+  }, [products]);
+
+  // 카테고리가 바뀌면 매칭 결과도 바뀐다 → 카테고리 코드 조합이 달라질 때만 재계산.
+  const certPreviewKey = products
+    .filter((p) => Array.isArray(p.certifications) && p.certifications.length > 0)
+    .map((p) => `${p.uid}:${p.editedCategoryCode || ''}`)
+    .join('|');
+  useEffect(() => {
+    if (step !== 2 || !certPreviewKey) return;
+    const t = setTimeout(() => void runCertPreview(), 600);
+    return () => clearTimeout(t);
+    // certPreviewKey 가 실제 의존성 — runCertPreview 는 products 마다 새로 생겨 넣으면 루프
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, certPreviewKey]);
 
   const [validationPhase, setValidationPhase] = useState<'idle' | 'local' | 'deep' | 'dryrun' | 'preupload' | 'complete'>('idle');
 
@@ -3906,6 +3955,16 @@ export function useBulkRegisterActions() {
               if (!r) return p;
               return { ...p, status: r.success ? 'success' : 'error', channelProductId: r.channelProductId, errorMessage: r.error, detailedError: r.detailedError, duration: r.duration };
             }));
+            // 인증 매칭 실패 — 등록은 성공해도 인증번호 없이 올라간 것이므로 반드시 알린다.
+            const cw = batchData.certWarnings as { productCode: string; detail: string; allFailed: boolean }[] | undefined;
+            if (cw?.length) {
+              const failed = cw.filter((w) => w.allFailed).length;
+              setCertWarningNotice(
+                `인증정보 미반영 ${cw.length}건`
+                + (failed > 0 ? ` — ${failed}건은 인증번호 없이 등록됐습니다. 쿠팡 윙에서 직접 입력해주세요.` : '')
+                + ` (상품코드: ${cw.slice(0, 5).map((w) => w.productCode).join(', ')}${cw.length > 5 ? ` 외 ${cw.length - 5}건` : ''})`,
+              );
+            }
             // 셀러 계정 차단 감지 — 쿠팡이 계정 자체를 막은 경우 모든 후속 배치도 동일 실패.
             // 첫 발견 시 즉시 중단 + 사용자에게 셀러센터 안내.
             const blockSignals = ['쿠팡 기준에 맞지 않아', '신규 상품을 등록할 수 없', '판매이용 약관'];
@@ -4137,6 +4196,8 @@ export function useBulkRegisterActions() {
     useStockImages, setUseStockImages,
     noticeOverrides, setNoticeOverrides,
     categoryMetaCache,
+    certPreviewLoading, runCertPreview,
+    certWarningNotice, setCertWarningNotice,
     preventionConfig, setPreventionEnabled, setSellerBrand, setAutoBarcodeGeneration,
     loadingShipping, shippingError,
     scanning, scanError, browsingFolder, browseProgress, thirdPartyImages, savedThirdPartyUrls,

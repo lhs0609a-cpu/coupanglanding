@@ -504,6 +504,8 @@ export default function BulkRegisterPanel() {
           startTime={actions.startTime}
           imagePreuploadCacheSize={Object.keys(actions.imagePreuploadCache).length}
           accountBlocked={actions.accountBlocked}
+          certWarningNotice={actions.certWarningNotice}
+          onDismissCertWarning={() => actions.setCertWarningNotice('')}
           registeredProductIds={actions.registeredProductIds}
           fanoutChannels={actions.fanoutChannels}
           onTogglePause={actions.togglePause}

@@ -30,6 +30,8 @@ import {
 } from '@/lib/megaload/allinone-local';
 import { focusNextField } from './focusNextField';
 import PreUploadConfirmModal from './PreUploadConfirmModal';
+import { CertStatusBlock } from './CertStatusBlock';
+import type { CertPreviewResult } from '@/app/api/megaload/products/cert-preview/route';
 
 const BATCH_SIZE = 10;
 const IMG_RE = /\.(png|jpg|jpeg|webp)$/i;
@@ -465,6 +467,11 @@ export default function AllInOneRegisterPanel() {
   const [openDetail, setOpenDetail] = useState<Record<string, boolean>>({});
   // 마진 프리셋: null = 워커 생성값 그대로. 선택 시 원가×프리셋으로 판매가 재계산.
   const [marginLevel, setMarginLevel] = useState<MarginPresetLevel | null>(null);
+  // 인증(KC) 등록 미리보기 — 등록을 눌러야 아는 게 아니라 검수 단계에서 보여준다.
+  const [certPreviews, setCertPreviews] = useState<Map<string, CertPreviewResult>>(new Map());
+  const [certLoading, setCertLoading] = useState(false);
+  /** 등록 후 서버가 알려준 인증 미반영 요약 */
+  const [certNotice, setCertNotice] = useState('');
 
   // ── 도우미 직독 ────────────────────────────────────────────────────
   // 도우미(pair-server)가 마지막으로 생성을 끝낸 폴더의 결과를 localhost 에서 미리 받아둔다.
@@ -531,6 +538,51 @@ export default function AllInOneRegisterPanel() {
   }, []);
 
   const approvedCount = rows.filter((r) => r.approved && r.status !== 'success').length;
+
+  // ── 인증(KC) 미리보기 ────────────────────────────────────────────
+  // 등록 payload 와 같은 grounding 함수를 서버에서 돌려, "이 인증번호가 어느
+  // 쿠팡 인증 항목으로 들어가는지"를 검수 단계에서 미리 보여준다.
+  // 등록 뒤에는 NOT_REQUIRED 로 조용히 올라간 걸 눈으로 찾기 어렵다.
+  const certInput = rows
+    .filter((r) => r.status !== 'success' && r.edit.categoryCode)
+    .map((r) => {
+      const pj = (r.scanned.productJson || {}) as { certifications?: unknown };
+      const certs = (Array.isArray(r.gen?.sourceCertifications) && r.gen!.sourceCertifications!.length)
+        ? r.gen!.sourceCertifications!
+        : (Array.isArray(pj.certifications) ? pj.certifications : []);
+      return { uid: r.uid, categoryCode: r.edit.categoryCode, sourceCertifications: certs };
+    });
+  // 카테고리·인증이 바뀔 때만 재조회 (카드 편집마다 때리지 않도록)
+  const certKey = certInput.map((c) => `${c.uid}:${c.categoryCode}:${c.sourceCertifications.length}`).join('|');
+
+  const loadCertPreviews = useCallback(async (input: typeof certInput) => {
+    if (input.length === 0) { setCertPreviews(new Map()); return; }
+    setCertLoading(true);
+    try {
+      const res = await fetch('/api/megaload/products/cert-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products: input }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      const data = await res.json() as { results?: CertPreviewResult[] };
+      setCertPreviews(new Map((data.results || []).map((r) => [r.uid, r])));
+    } catch {
+      // 미리보기 실패는 등록을 막지 않는다 — 블록만 안 뜬다.
+      setCertPreviews(new Map());
+    } finally {
+      setCertLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!certKey) { setCertPreviews(new Map()); return; }
+    const t = setTimeout(() => void loadCertPreviews(certInput), 400);
+    return () => clearTimeout(t);
+    // certKey 가 실제 의존성 — certInput 은 매 렌더 새 배열이라 넣으면 무한루프
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [certKey, loadCertPreviews]);
 
   // ── 폴더 선택 + 스캔 ──────────────────────────────────────────────
   const handlePick = useCallback(async () => {
@@ -956,6 +1008,16 @@ export default function AllInOneRegisterPanel() {
               if (!res) return r;
               return { ...r, status: res.success ? 'success' : 'error', channelProductId: res.channelProductId, message: res.error };
             }));
+            // 서버가 인증 매칭 실패를 알려주면(등록은 성공해도) 눈에 보이게 남긴다.
+            const cw = batchData.certWarnings as { productCode: string; detail: string; allFailed: boolean }[] | undefined;
+            if (cw?.length) {
+              const failed = cw.filter((w) => w.allFailed).length;
+              setCertNotice(
+                `인증정보 미반영 ${cw.length}건${failed > 0 ? ` (${failed}건은 인증번호 없이 등록됨 — 쿠팡 윙에서 직접 입력 필요)` : ''}: `
+                + cw.slice(0, 5).map((w) => w.productCode).join(', ')
+                + (cw.length > 5 ? ` 외 ${cw.length - 5}건` : ''),
+              );
+            }
           } else {
             totalError += batch.length;
             const msg = batchData.error || `배치 실패 (HTTP ${batchRes.status})`;
@@ -1046,6 +1108,25 @@ export default function AllInOneRegisterPanel() {
         </p>
       )}
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+
+      {certNotice && (
+        <p className="text-sm text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2">
+          {certNotice}
+          <button type="button" onClick={() => setCertNotice('')} className="ml-2 text-xs underline">닫기</button>
+        </p>
+      )}
+
+      {/* 인증(KC) 등록 상태 — 등록 전에 보여준다. 전기용품 등을 인증정보 없이 올리면 판매정지 사유. */}
+      {rows.length > 0 && (
+        <CertStatusBlock
+          previews={certPreviews}
+          products={rows
+            .filter((r) => r.status !== 'success')
+            .map((r) => ({ uid: r.uid, name: r.edit.displayName || r.gen?.originalName || r.productCode }))}
+          loading={certLoading}
+          onRetry={() => void loadCertPreviews(certInput)}
+        />
+      )}
 
       {/* 진단 — 카테고리·상세글·옵션·노출명·대표이미지가 왜 비었는지 단계별 근거 */}
       {diag && (
