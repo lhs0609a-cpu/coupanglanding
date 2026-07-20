@@ -36,18 +36,45 @@ jobs:
         working-directory: worker/desktop
         run: npm run dist
 
+      # ⚠️ action-gh-release 는 같은 이름 자산을 "지우고 다시 올린다". 업로드 도중 GitHub 서버
+      #    일시장애(No server available)가 나면 latest.yml 이 지워진 채 안 올라가 → 자동업데이트
+      #    피드가 통째로 깨진다(전 사용자 업데이트 불가). 실제로 v0.2.43 발행 때 발생.
+      #    → 3회 재시도로 일시장애를 넘긴다.
       - name: Publish to fixed update feed (megaload-desktop-update)
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: megaload-desktop-update
-          name: 메가로드 도우미 — 자동업데이트 피드
-          body: |
-            메가로드 도우미 (통합 데스크탑 앱)
-            모듈: 📦 상품 모니터링 · ⚙️ 올인원 생성 · 🖼️ 썸네일 GPU · 📢 광고 자동화
-            최신 빌드의 MegaloadDesktop-Setup-<버전>.exe / latest.yml / .blockmap 이 발행됩니다.
-          files: |
-            worker/desktop/dist/MegaloadDesktop-Setup-*.exe
-            worker/desktop/dist/latest.yml
-            worker/desktop/dist/*.blockmap
-          draft: false
-          prerelease: false
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 순수 bash 3회 재시도 — 외부 액션 의존 없이 일시장애를 넘긴다.
+          # latest.yml 을 "마지막에" 올린다: exe 가 먼저 자리잡은 뒤 피드 포인터가 갱신되게.
+          up() {
+            gh release upload megaload-desktop-update "$@" --clobber \
+              --repo lhs0609a-cpu/coupanglanding
+          }
+          n=0
+          until [ $n -ge 3 ]; do
+            if up worker/desktop/dist/MegaloadDesktop-Setup-*.exe \
+                  worker/desktop/dist/*.blockmap \
+               && up worker/desktop/dist/latest.yml; then
+              echo "✅ 발행 완료"; exit 0
+            fi
+            n=$((n+1)); echo "발행 실패(시도 $n/3) — 30초 후 재시도"; sleep 30
+          done
+          echo "::error::3회 재시도 후에도 발행 실패"; exit 1
+
+      # 발행 후 latest.yml 이 실제로 피드에 있는지 검증 — 없으면 워크플로를 실패시켜
+      # "조용히 깨진 피드"를 즉시 드러낸다(전엔 build success 로 초록불이었다).
+      - name: Verify latest.yml is present in feed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for i in 1 2 3; do
+            names=$(gh release view megaload-desktop-update --repo lhs0609a-cpu/coupanglanding --json assets -q '.assets[].name')
+            if echo "$names" | grep -qx 'latest.yml'; then
+              echo "✅ latest.yml 존재 — 자동업데이트 피드 정상"
+              exit 0
+            fi
+            echo "latest.yml 미확인 (시도 $i) — 재확인"; sleep 10
+          done
+          echo "::error::발행 후에도 latest.yml 이 피드에 없습니다 — 자동업데이트 깨짐"
+          exit 1
