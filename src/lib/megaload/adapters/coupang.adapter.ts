@@ -699,12 +699,15 @@ export class CoupangAdapter extends BaseAdapter {
     return { items: [] };
   }
 
-  /** 카테고리가 요구하는 인증(KC 등) 조회 — grounding 소스.
+  /** 카테고리가 제공하는 인증(KC 등) 조회 — grounding 소스.
    *  category-related-metas 응답의 certifications 배열을 파싱한다.
-   *  전기용품 등은 여기서 required=true 인 certificationType 을 돌려주며,
-   *  등록 시 그 타입에 우리 인증번호를 붙여 보낸다(타입을 지어내지 않음). */
+   *
+   *  ⚠️ 실측(2026-07-20, 카테고리 63454): 쿠팡은 인증 타입을 MANDATORY 로 선언하지 않는다.
+   *     27종 전부 required 가 OPTIONAL|RECOMMEND 였다. 따라서 required 로 거르면 항상 0개가 되고
+   *     인증번호가 통째로 누락된다 → 호출부는 required 가 아니라 *이름 매칭* 으로 타입을 고른다.
+   *     dataType('CODE'=인증번호를 받는 타입 / 'NONE'=번호 없음)이 그 판단에 필수라 함께 반환한다. */
   async getCategoryCertifications(categoryCode: string): Promise<{
-    items: { certificationType: string; name: string; required: boolean }[];
+    items: { certificationType: string; name: string; required: boolean; dataType: string }[];
   }> {
     const endpoints = [
       `/v2/providers/seller_api/apis/api/v1/marketplace/meta/category-related-metas/display-category-codes/${categoryCode}`,
@@ -728,10 +731,11 @@ export class CoupangAdapter extends BaseAdapter {
                 certificationType,
                 name: String(c.name || c.certificationName || c.certificationTypeName || '').trim(),
                 required,
+                dataType: String(c.dataType || '').trim().toUpperCase(),
               };
             })
             .filter((c: { certificationType: string }) => c.certificationType && c.certificationType !== 'NOT_REQUIRED');
-          console.log(`[getCategoryCertifications] ${categoryCode}: ${items.length}개 (required=${items.filter((i: {required:boolean}) => i.required).length})`);
+          console.log(`[getCategoryCertifications] ${categoryCode}: ${items.length}개 (code타입=${items.filter((i: {dataType:string}) => i.dataType === 'CODE').length})`);
           return { items };
         }
       } catch (e) {

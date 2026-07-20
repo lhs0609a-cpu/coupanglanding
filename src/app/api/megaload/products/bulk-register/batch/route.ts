@@ -476,6 +476,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 인증 매칭 실패 수집 — 등록은 막지 않되 응답에 실어 검수에서 보이게 한다.
+    // (NOT_REQUIRED 로 조용히 등록되면 나중에 눈으로 찾기 어렵다)
+    const certWarnings: { productCode: string; detail: string; allFailed: boolean }[] = [];
+
     // ---- 단일 상품 등록 헬퍼 ----
     async function registerSingleProduct(product: BatchProduct, batchIndex?: number): Promise<ProductResult> {
       const productStart = Date.now();
@@ -713,17 +717,24 @@ export async function POST(req: NextRequest) {
       try {
         const normalizedCerts = normalizeCertifications(product.sourceCertifications ?? product.certifications);
         if (normalizedCerts.length > 0) {
-          const { items: requiredCerts } = await coupangAdapter.getCategoryCertifications(product.categoryCode);
-          const { certs, missing } = groundCertifications(normalizedCerts, requiredCerts);
+          const { items: offeredCerts } = await coupangAdapter.getCategoryCertifications(product.categoryCode);
+          const { certs, missing, unmatched } = groundCertifications(normalizedCerts, offeredCerts);
           if (certs.length > 0) {
             product.certifications = certs;
             console.log(`[batch] 인증 grounding: ${certs.map((c) => `${c.certificationType}=${c.certificationCode}`).join(', ')}`);
-          } else if (missing) {
-            console.warn(`[batch] 카테고리(${product.categoryCode}) 인증 요구되나 소싱 인증번호 매칭 실패 — NOT_REQUIRED 유지(검수 필요)`);
+          }
+          // 소싱 인증번호가 있는데 못 붙인 게 있으면 조용히 넘기지 않는다 —
+          // NOT_REQUIRED 로 등록되면 나중에 눈으로 찾기 어렵다.
+          if (unmatched.length > 0) {
+            const detail = `카테고리(${product.categoryCode}) 인증 매칭 실패 ${unmatched.length}건: ${unmatched.join(' / ')}`;
+            console.warn(`[batch] ${detail}${missing ? ' — 전부 실패, NOT_REQUIRED 로 등록됨' : ''}`);
+            certWarnings.push({ productCode: product.productCode, detail, allFailed: missing });
           }
         }
       } catch (e) {
-        console.warn('[batch] 인증 grounding 실패(무시, NOT_REQUIRED 유지):', e instanceof Error ? e.message : e);
+        const detail = `인증 grounding 오류: ${e instanceof Error ? e.message : String(e)}`;
+        console.warn(`[batch] ${detail} (NOT_REQUIRED 유지)`);
+        certWarnings.push({ productCode: product.productCode, detail, allFailed: true });
       }
 
       // 6~9. 공유 빌더로 페이로드 빌드 (옵션 추출, 고시정보, 아이템위너 방지 포함)
@@ -1133,6 +1144,7 @@ export async function POST(req: NextRequest) {
       results,
       successCount,
       errorCount,
+      ...(certWarnings.length > 0 ? { certWarnings } : {}),
     });
   } catch (err) {
     void logSystemError({ source: 'megaload/bulk-register/batch', error: err }).catch(() => {});
