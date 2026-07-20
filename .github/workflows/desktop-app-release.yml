@@ -65,6 +65,7 @@ jobs:
       # 발행 후 latest.yml 이 실제로 피드에 있는지 검증 — 없으면 워크플로를 실패시켜
       # "조용히 깨진 피드"를 즉시 드러낸다(전엔 build success 로 초록불이었다).
       - name: Verify latest.yml is present in feed
+        shell: bash   # ⚠️ 없으면 windows-latest 기본 pwsh 로 돌아 bash 문법이 터진다(v0.2.44 오탐 원인).
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
