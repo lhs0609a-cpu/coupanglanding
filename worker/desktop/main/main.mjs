@@ -318,6 +318,8 @@ app.whenReady().then(async () => {
   pair = await startPairServer({
     // 올인원 생성을 끝낸 폴더 → 웹이 폴더를 다시 고르지 않아도 결과를 읽어간다.
     getAllinoneFolder: () => store.get('lastAllinoneFolder', null),
+    // 웹 사이드바 '최신으로 업데이트' 버튼 → 앱 내부 자동업데이트 확인/적용을 킥.
+    onCheckUpdate: () => checkForUpdatesNow(() => win),
     onPair: async (tokens) => {
       await runner.pair(SUPABASE_URL, SUPABASE_ANON_KEY, tokens);
       send('shell:pair-done', true);

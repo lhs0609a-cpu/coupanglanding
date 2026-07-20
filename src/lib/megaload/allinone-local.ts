@@ -150,6 +150,23 @@ export async function fetchLocalFile(ep: LocalEndpoint, relPath: string): Promis
   }
 }
 
+/**
+ * 도우미에 "지금 업데이트 확인/적용" 명령 — electron-updater checkForUpdatesNow 를 킥한다.
+ * 성공(true) = 명령이 앱에 전달됨(다운로드→다음 실행 시 적용, 또는 즉시). 실패 시 false.
+ * ⚠️ /update 엔드포인트가 없는 구버전 도우미(≤0.2.42)는 false → 웹이 다운로드 폴백을 안내.
+ */
+export async function triggerLocalUpdate(ep: LocalEndpoint): Promise<boolean> {
+  try {
+    const res = await fetch(`${base(ep)}/update?nonce=${encodeURIComponent(ep.nonce)}`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(10_000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** 폴더 하위 이미지 파일 목록(생성 폴더 기준 상대경로). 실패 시 빈 배열. */
 export async function fetchLocalList(ep: LocalEndpoint, dirRel: string): Promise<string[]> {
   try {

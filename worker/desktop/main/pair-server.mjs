@@ -48,6 +48,8 @@ export async function startPairServer({
   allowedOriginRe = ALLOWED_ORIGIN_RE,
   // 마지막으로 올인원 생성을 끝낸 폴더의 절대경로를 돌려주는 함수(없으면 null).
   getAllinoneFolder = () => null,
+  // 웹 '최신으로 업데이트' 버튼 → electron-updater 즉시 확인/적용 킥(없으면 미지원).
+  onCheckUpdate = null,
 } = {}) {
   const nonce = randomUUID();
   const state = { paired: false, nonce, port: 0 };
@@ -70,6 +72,21 @@ export async function startPairServer({
     if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, paired: state.paired }));
+    }
+
+    // 웹 '최신으로 업데이트' — electron-updater 즉시 확인/적용 킥. nonce 로 보호.
+    if (req.method === 'POST' && req.url?.startsWith('/update')) {
+      if (!corsOk) { res.writeHead(403, cors); return res.end('forbidden origin'); }
+      const u = new URL(req.url, 'http://127.0.0.1');
+      if (u.searchParams.get('nonce') !== state.nonce) {
+        res.writeHead(401, cors); return res.end('nonce mismatch');
+      }
+      if (typeof onCheckUpdate !== 'function') {
+        res.writeHead(501, cors); return res.end('update not supported');
+      }
+      try { onCheckUpdate(); } catch { /* 킥 실패해도 200 — 앱 로그로 진단 */ }
+      res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true }));
     }
 
     // ── 올인원 결과 직독 ───────────────────────────────────────────────────
