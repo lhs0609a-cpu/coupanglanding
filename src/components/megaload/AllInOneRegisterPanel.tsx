@@ -349,7 +349,6 @@ function DiagPanel({ diag, helper, open, onToggle }: {
   const j = diag.jsonl;
   const total = diag.productFolders;
   const allMatched = diag.matched === total && total > 0;
-  const cmd = `node worker/run-folder.mjs "<${diag.rootName} 폴더의 절대경로>"`;
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl text-xs">
@@ -425,24 +424,28 @@ function DiagPanel({ diag, helper, open, onToggle }: {
                 도우미가 결과를 들고 있습니다. <b>이 폴더를 선택</b>하세요 — {helper.folder}
               </p>
             ) : !j.fileFound ? (
-              <div className="space-y-1">
-                <p className="text-gray-700">이 폴더에서 워커를 실행한 적이 없습니다. 프로젝트 루트 터미널에서:</p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 min-w-0 bg-gray-900 text-gray-100 rounded px-2 py-1 break-all">{cmd}</code>
-                  <button type="button" onClick={() => navigator.clipboard?.writeText(cmd)}
-                    className="flex-none border border-gray-300 rounded px-2 py-1 text-gray-600 hover:bg-gray-50">복사</button>
-                </div>
-                <p className="text-gray-500">
-                  가격·카테고리·옵션·상세글 = ollama 로컬 LLM, 대표사진 누끼·흰배경 = ComfyUI 가 떠 있어야 합니다.
-                  누끼 없이 텍스트만 빠르게 만들려면 명령 끝에 <code>--no-thumb</code> 를 붙이세요.
+              <div className="space-y-1.5">
+                <p className="text-gray-700">
+                  이 폴더는 아직 <b>올인원 생성</b>을 돌리지 않았습니다. 웹은 도우미가 만든 결과를 읽어올 뿐이라,
+                  먼저 도우미 앱에서 생성해야 카드가 채워집니다.
+                </p>
+                <ol className="list-decimal list-inside text-gray-600 space-y-0.5">
+                  <li>데스크탑 <b>메가로드 도우미</b> 앱 열기</li>
+                  <li>왼쪽 <b>⚙️ 올인원 생성</b> 클릭</li>
+                  <li>이 폴더(<b>{diag.rootName}</b>)를 선택하고 실행</li>
+                  <li>완료되면 여기서 <b>도우미에서 바로 불러오기</b>(또는 이 폴더 재선택)</li>
+                </ol>
+                <p className="text-gray-400 text-[11px]">
+                  생성엔 ollama(텍스트)·ComfyUI(누끼)가 쓰이며 도우미가 자동으로 준비합니다.
+                  누끼 없이 텍스트만 빠르게 하려면 생성 시 <code>--no-thumb</code> 옵션.
                 </p>
               </div>
             ) : j.recordCount === 0 ? (
-              <p className="text-gray-700">파일은 있으나 레코드가 0건입니다 — 워커가 중간에 끊겼습니다. 위 명령으로 다시 실행하세요.</p>
+              <p className="text-gray-700">파일은 있으나 레코드가 0건입니다 — 생성이 중간에 끊겼습니다. 도우미 <b>올인원 생성</b>으로 이 폴더를 다시 처리하세요.</p>
             ) : (
               <p className="text-gray-700">
                 레코드는 {j.recordCount}건인데 폴더코드와 키가 어긋납니다. 위 &quot;키 매칭&quot; 줄의 두 샘플을 비교해
-                워커를 <b>바로 이 폴더</b>에서 다시 실행했는지 확인하세요.
+                도우미 <b>올인원 생성</b>을 <b>바로 이 폴더</b>에서 돌렸는지 확인하세요.
               </p>
             )}
           </div>
@@ -635,15 +638,14 @@ export default function AllInOneRegisterPanel() {
             `이 폴더에는 워커 결과가 없습니다. 도우미가 마지막으로 생성을 끝낸 폴더는 다음 경로입니다 — 이 폴더를 선택하세요:  ${helperFolder}`,
           );
         } else if (!gscan.fileFound) {
-          // 파일 자체가 없음 — 가장 흔한 원인. product_* 는 찾았으므로 폴더는 맞고, 워커만 안 돌린 상태.
+          // 파일 자체가 없음 — 가장 흔한 원인. product_* 는 찾았으므로 폴더는 맞고, 올인원 생성만 안 돌린 상태.
           setError(
-            `product_* 폴더 ${built.length}개는 찾았지만 같은 폴더에 _allinone.generated.jsonl 이 없습니다. ` +
-            `이 폴더에서 워커를 아직 실행하지 않았습니다. 프로젝트 루트 터미널에서 실행하세요:  node worker/run-folder.mjs "<선택한 폴더 절대경로>"  ` +
-            `(가격·카테고리·옵션·상세 = ollama 로컬 LLM, 대표사진 누끼·흰배경 = ComfyUI 가 떠 있어야 합니다. ` +
-            `누끼 없이 텍스트만 빠르게 만들려면 명령 끝에 --no-thumb 를 붙이세요.)`,
+            `product_* 폴더 ${built.length}개는 찾았지만 이 폴더는 아직 올인원 생성을 돌리지 않았습니다(카드에 채울 결과가 없습니다). ` +
+            `데스크탑 메가로드 도우미 앱 → ⚙️ 올인원 생성 → 이 폴더를 선택·실행한 뒤, 여기서 "도우미에서 바로 불러오기"(또는 폴더 재선택)를 누르세요. ` +
+            `자세한 절차는 아래 진단 패널의 "다음 조치"를 참고하세요.`,
           );
         } else if (gscan.recordCount === 0) {
-          setError('_allinone.generated.jsonl 파일은 있으나 레코드가 0건입니다. 워커가 중간에 중단됐을 수 있으니 다시 실행하세요.');
+          setError('_allinone.generated.jsonl 파일은 있으나 레코드가 0건입니다. 생성이 중간에 끊겼으니 도우미 올인원 생성으로 이 폴더를 다시 처리하세요.');
         } else {
           // 파일·레코드는 있는데 폴더코드와 키가 안 맞음 — 다른 폴더에서 생성된 파일일 가능성.
           setError(
@@ -1204,7 +1206,9 @@ export default function AllInOneRegisterPanel() {
 
       {rows.length === 0 && !scanning && (
         <div className="text-center text-sm text-gray-400 py-16 border-2 border-dashed border-gray-200 rounded-xl">
-          소싱 폴더를 선택하세요. 워커(node worker/run-folder.mjs &quot;&lt;폴더&gt;&quot;)가 생성한 결과를 자동으로 불러옵니다.
+          {helperDiag?.ok
+            ? '위 “도우미에서 바로 불러오기”를 누르면 폴더 선택 없이 카드가 채워집니다.'
+            : '먼저 데스크탑 메가로드 도우미 → ⚙️ 올인원 생성으로 폴더를 처리하세요. 그다음 여기서 “도우미에서 바로 불러오기”(또는 소싱 폴더 선택)로 불러옵니다.'}
         </div>
       )}
     </div>
