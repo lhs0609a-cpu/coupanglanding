@@ -749,6 +749,19 @@ export default function AllInOneRegisterPanel() {
     }
   }, []);
 
+  // ── 자동 로드 ──────────────────────────────────────────────────────
+  // 도우미가 올인원 생성을 끝내면 앱이 이 화면을 자동으로 연다. 그때 결과가 이미 있으니
+  // 버튼 클릭 없이 저절로 채운다 → "앱에서 폴더 1번 → 나머지 자동"의 마지막 조각.
+  // 단 한 번만(autoLoadedRef), 그리고 사용자가 이미 뭔가 불러온 뒤면(rows>0) 건드리지 않는다.
+  const autoLoadedRef = useRef(false);
+  useEffect(() => {
+    if (autoLoadedRef.current) return;
+    if (helperDiag?.ok && rows.length === 0 && !scanning) {
+      autoLoadedRef.current = true;
+      void handleLoadFromHelper();
+    }
+  }, [helperDiag, rows.length, scanning, handleLoadFromHelper]);
+
   // ── 대표컷 선택 ──────────────────────────────────────────────────
   // 스캐너는 첫 장만 objectUrl 을 즉시 만든다(대량 폴더에서 전부 만들면 메모리·시간 낭비).
   // 그래서 후보 목록을 펼치는 순간에만 그 카드의 나머지 후보 URL 을 만든다.

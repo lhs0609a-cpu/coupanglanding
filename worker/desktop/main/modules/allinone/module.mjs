@@ -72,9 +72,17 @@ export default {
       child.stderr.on('data', handle);
       child.on('exit', (code) => {
         child = null;
-        // 생성 성공한 폴더를 기억 — 웹 올인원 화면이 폴더를 다시 고르지 않고
-        // localhost(pair-server /allinone/*)로 이 폴더의 결과를 바로 읽어간다.
-        if (code === 0) { try { ctx.store?.set('lastAllinoneFolder', folder); } catch { /* skip */ } }
+        if (code === 0) {
+          // 생성 성공한 폴더를 기억 — 웹 올인원 화면이 폴더를 다시 고르지 않고
+          // localhost(pair-server /allinone/*)로 이 폴더의 결과를 바로 읽어간다.
+          try { ctx.store?.set('lastAllinoneFolder', folder); } catch { /* skip */ }
+          // ⭐ 완료 시 웹 검수화면을 자동으로 연다 — 사용자가 앱↔웹을 오가지 않게.
+          //   웹은 마운트되며 도우미 로컬서버에서 이 결과를 자동 로드한다(버튼 클릭 불필요).
+          try {
+            const origin = ctx.services?.webOrigin || 'https://www.megaload.co.kr';
+            ctx.shell?.openExternal(`${origin}/megaload/products/allinone`);
+          } catch { /* 브라우저 열기 실패는 치명적 아님 — 결과는 이미 저장됨 */ }
+        }
         ctx.send('allinone:done', { code });
       });
       child.on('error', (e) => { child = null; ctx.send('allinone:log', '실행 오류: ' + e.message); ctx.send('allinone:done', { code: -1 }); });
