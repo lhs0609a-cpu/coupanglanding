@@ -17,8 +17,9 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { stat, readFile, readdir } from 'node:fs/promises';
-import { join, resolve, relative, isAbsolute, extname } from 'node:path';
+import { stat, readFile, readdir, mkdir, writeFile, rm } from 'node:fs/promises';
+import { join, resolve, relative, isAbsolute, extname, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const ALLOWED_ORIGIN_RE = /^https?:\/\/(?:localhost(:\d+)?|127\.0\.0\.1(:\d+)?|.*\.megaload\.co\.kr|.*\.vercel\.app)$/i;
 
@@ -50,9 +51,29 @@ export async function startPairServer({
   getAllinoneFolder = () => null,
   // 웹 '최신으로 업데이트' 버튼 → electron-updater 즉시 확인/적용 킥(없으면 미지원).
   onCheckUpdate = null,
+  // 웹 업로드 생성 → 임시폴더를 올인원 생성. onGenerate(folder,{noThumb,onDone}). 없으면 미지원.
+  onGenerate = null,
 } = {}) {
   const nonce = randomUUID();
   const state = { paired: false, nonce, port: 0 };
+
+  // 웹 업로드 생성 세션. sessionId → { dir, state, code, error }.
+  //   uploading → (generate) → generating → done|error. 완료 폴더는 lastAllinoneFolder 로 승격돼
+  //   기존 /allinone/manifest·file·list 가 그대로 읽는다(읽기 경로 재사용).
+  const uploadBase = join(tmpdir(), 'megaload-allinone');
+  const sessions = new Map();
+  const MAX_UPLOAD_BYTES = 60 * 1024 * 1024; // 파일 1장 상한(대용량 원본 방어)
+
+  const readBody = (req, cap) => new Promise((resolve, reject) => {
+    const chunks = []; let total = 0;
+    req.on('data', (c) => {
+      total += c.length;
+      if (total > cap) { reject(new Error('payload too large')); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
 
   const server = createServer(async (req, res) => {
     const origin = req.headers.origin || '';
@@ -87,6 +108,83 @@ export async function startPairServer({
       try { onCheckUpdate(); } catch { /* 킥 실패해도 200 — 앱 로그로 진단 */ }
       res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ ok: true }));
+    }
+
+    // ── 웹 업로드 생성 ─────────────────────────────────────────────────────
+    // 웹이 폴더 경로를 못 받으므로(브라우저 보안), 폴더 "내용"을 올려 도우미가 생성한다.
+    //   ① /allinone/upload   상품 파일들을 임시폴더에 받음(파일 1개당 1요청)
+    //   ② /allinone/generate 그 임시폴더로 run-folder 생성 시작
+    //   ③ /allinone/gen-status 진행/완료 폴링 → done 이면 웹이 기존 직독으로 결과 로드
+    if (req.url?.startsWith('/allinone/upload')
+        || req.url?.startsWith('/allinone/generate')
+        || req.url?.startsWith('/allinone/gen-status')) {
+      if (!corsOk) { res.writeHead(403, cors); return res.end('forbidden origin'); }
+      const u = new URL(req.url, 'http://127.0.0.1');
+      if (u.searchParams.get('nonce') !== state.nonce) {
+        res.writeHead(401, cors); return res.end('nonce mismatch');
+      }
+      const sid = u.searchParams.get('session') || '';
+      if (!/^[a-f0-9-]{8,64}$/i.test(sid)) { res.writeHead(400, cors); return res.end('bad session'); }
+      const sessDir = join(uploadBase, sid);
+
+      // 파일 1장 업로드 — body = 원본 바이트, p = 세션 기준 상대경로.
+      if (req.method === 'POST' && u.pathname === '/allinone/upload') {
+        const abs = jail(sessDir, u.searchParams.get('p') || '');
+        if (!abs) { res.writeHead(400, cors); return res.end('bad path'); }
+        try {
+          const body = await readBody(req, MAX_UPLOAD_BYTES);
+          await mkdir(dirname(abs), { recursive: true });
+          await writeFile(abs, body);
+          if (!sessions.has(sid)) sessions.set(sid, { dir: sessDir, state: 'uploading' });
+          res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ ok: true }));
+        } catch (e) {
+          res.writeHead(413, cors); return res.end(String(e.message || e));
+        }
+      }
+
+      // 업로드 끝 → 생성 시작.
+      if (req.method === 'POST' && u.pathname === '/allinone/generate') {
+        if (typeof onGenerate !== 'function') { res.writeHead(501, cors); return res.end('generate not supported'); }
+        const sess = sessions.get(sid);
+        if (!sess) { res.writeHead(404, cors); return res.end('no uploaded session'); }
+        if (sess.state === 'generating') { res.writeHead(409, cors); return res.end('already generating'); }
+        const noThumb = u.searchParams.get('noThumb') === '1';
+        sess.state = 'generating';
+        try {
+          await onGenerate(sessDir, {
+            noThumb,
+            onDone: (code) => {
+              sess.state = code === 0 ? 'done' : 'error';
+              sess.code = code;
+              // 완료된 세션들 정리(용량 회수) — 성공한 것만 lastAllinoneFolder 로 살아있고,
+              // 나머지 옛 세션 폴더는 지운다(단 방금 것은 남긴다).
+              for (const [id, s] of sessions) {
+                if (id !== sid && (s.state === 'done' || s.state === 'error')) {
+                  rm(s.dir, { recursive: true, force: true }).catch(() => {});
+                  sessions.delete(id);
+                }
+              }
+            },
+          });
+          res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ ok: true }));
+        } catch (e) {
+          sess.state = 'error'; sess.error = String(e.message || e);
+          res.writeHead(500, cors); return res.end(sess.error);
+        }
+      }
+
+      // 진행/완료 폴링.
+      if (req.method === 'GET' && u.pathname === '/allinone/gen-status') {
+        const sess = sessions.get(sid);
+        res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify(sess
+          ? { state: sess.state, code: sess.code ?? null, error: sess.error ?? null }
+          : { state: 'unknown' }));
+      }
+
+      res.writeHead(404, cors); return res.end('not found');
     }
 
     // ── 올인원 결과 직독 ───────────────────────────────────────────────────

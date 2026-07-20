@@ -26,6 +26,7 @@ import {
 import {
   diagnoseLocalHelper, discoverLocalEndpoint, fetchLocalManifest,
   fetchLocalList, classifyLocalImages, productDirOf, localFileUrl, fetchLocalFile,
+  collectFolderFiles, uploadFolderFiles, startLocalGenerate, pollGenStatus,
   type HelperDiag, type LocalEndpoint,
 } from '@/lib/megaload/allinone-local';
 import { focusNextField } from './focusNextField';
@@ -801,11 +802,70 @@ export default function AllInOneRegisterPanel() {
     }
   }, []);
 
+  // 자동 로드(도우미 완료 시)와 업로드 생성이 공유하는 "한 번만" 가드.
+  const autoLoadedRef = useRef(false);
+
+  // ── 웹에서 폴더 올려 생성 (앱 안 열고 웹에서 전부) ──────────────────────
+  // 브라우저는 폴더 경로를 안 주므로, 폴더 "내용"을 도우미로 업로드해 도우미가 생성한다.
+  //   폴더 선택 → 업로드 → 도우미 생성(진행률 폴링) → 완료 시 결과 자동 로드.
+  const handleUploadAndGenerate = useCallback(async () => {
+    setError('');
+    if (!('showDirectoryPicker' in window)) {
+      setError('이 브라우저는 폴더 선택을 지원하지 않습니다. Chrome 또는 Edge를 사용하세요.');
+      return;
+    }
+    const ep = await discoverLocalEndpoint();
+    if (!ep) {
+      const d = await diagnoseLocalHelper();
+      setError(`도우미에 연결돼 있어야 업로드 생성이 됩니다. ${d.message}`);
+      return;
+    }
+    let root: FileSystemDirectoryHandle;
+    try {
+      root = await (window as unknown as { showDirectoryPicker: (o?: object) => Promise<FileSystemDirectoryHandle> })
+        .showDirectoryPicker({ mode: 'read' });
+    } catch {
+      return; // 사용자가 취소
+    }
+
+    setScanning(true);
+    try {
+      setScanMsg('폴더 파일 목록 읽는 중…');
+      const files = await collectFolderFiles(root, (n) => setScanMsg(`파일 ${n}개 확인…`));
+      if (files.length === 0) { setError('폴더에 파일이 없습니다.'); return; }
+
+      const session = crypto.randomUUID();
+      setScanMsg(`도우미로 업로드 중 0/${files.length}…`);
+      const { fail } = await uploadFolderFiles(ep, session, files,
+        (done, total) => setScanMsg(`도우미로 업로드 중 ${done}/${total}…`));
+      if (fail > 0) setScanMsg(`업로드 ${fail}개 실패(계속 진행) · 생성 시작…`);
+
+      const started = await startLocalGenerate(ep, session, false);
+      if (!started) { setError('도우미가 생성을 시작하지 못했습니다. 도우미가 최신 버전인지 확인하세요.'); return; }
+
+      // 진행 폴링 — 완료까지(생성은 ollama·ComfyUI 시간이라 수 분 걸릴 수 있음).
+      setScanMsg('도우미가 생성 중… (노출명·카테고리·가격·상세·누끼)');
+      for (let i = 0; i < 3600; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const st = await pollGenStatus(ep, session);
+        if (st.state === 'done') break;
+        if (st.state === 'error') { setError(`생성 실패: ${st.error || '도우미 로그를 확인하세요.'}`); return; }
+      }
+
+      // 완료 → 도우미가 lastAllinoneFolder 를 이 세션으로 승격했으니 기존 직독으로 로드.
+      autoLoadedRef.current = true;
+      await handleLoadFromHelper();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '업로드 생성 실패');
+    } finally {
+      setScanning(false);
+    }
+  }, [handleLoadFromHelper]);
+
   // ── 자동 로드 ──────────────────────────────────────────────────────
   // 도우미가 올인원 생성을 끝내면 앱이 이 화면을 자동으로 연다. 그때 결과가 이미 있으니
   // 버튼 클릭 없이 저절로 채운다 → "앱에서 폴더 1번 → 나머지 자동"의 마지막 조각.
   // 단 한 번만(autoLoadedRef), 그리고 사용자가 이미 뭔가 불러온 뒤면(rows>0) 건드리지 않는다.
-  const autoLoadedRef = useRef(false);
   useEffect(() => {
     if (autoLoadedRef.current) return;
     if (helperDiag?.ok && rows.length === 0 && !scanning) {
@@ -1073,19 +1133,22 @@ export default function AllInOneRegisterPanel() {
 
       {/* 컨트롤 바 */}
       <div className="flex flex-wrap items-center gap-3">
-        {/* 도우미가 결과를 들고 있으면 이게 주 버튼 — 폴더 선택 없이 바로 카드가 채워진다. */}
+        {/* ⭐ 주 버튼 — 폴더 고르면 도우미로 올려 자동 생성까지. 웹에서 전부(앱 안 열어도 됨). */}
+        <button onClick={handleUploadAndGenerate} disabled={scanning || registering}
+          className="bg-[#E31837] text-white text-sm font-semibold rounded-lg px-4 py-2 disabled:opacity-50">
+          {scanning ? '처리 중…' : '소싱 폴더 선택 → 자동 생성'}
+        </button>
+        {/* 이미 도우미가 생성해 둔 결과가 있으면 바로 불러오기(생성 없이). */}
         {helperDiag?.ok && (
           <button onClick={handleLoadFromHelper} disabled={scanning || registering}
-            className="bg-[#E31837] text-white text-sm font-semibold rounded-lg px-4 py-2 disabled:opacity-50">
-            {scanning ? '불러오는 중…' : `도우미에서 바로 불러오기 (${helperDiag.records ?? 0})`}
+            className="text-sm font-semibold rounded-lg px-4 py-2 border border-gray-300 text-gray-700 disabled:opacity-50">
+            {scanning ? '불러오는 중…' : `이전 생성결과 불러오기 (${helperDiag.records ?? 0})`}
           </button>
         )}
-        {/* 폴더 직접 선택 — 도우미가 없거나(수동), 다른 폴더를 검수할 때의 폴백. */}
+        {/* 이미 폴더에 결과가 있을 때 그것만 읽기(생성 안 함) — 고급/폴백. */}
         <button onClick={handlePick} disabled={scanning || registering}
-          className={`text-sm font-semibold rounded-lg px-4 py-2 disabled:opacity-50 ${
-            helperDiag?.ok ? 'border border-gray-300 text-gray-700' : 'bg-[#E31837] text-white'
-          }`}>
-          {scanning ? '스캔 중…' : '소싱 폴더 선택'}
+          className="text-xs font-medium rounded-lg px-3 py-2 text-gray-500 hover:text-gray-700 disabled:opacity-50">
+          {scanning ? '' : '폴더에서 결과만 읽기'}
         </button>
         {rows.length > 0 && (
           <>

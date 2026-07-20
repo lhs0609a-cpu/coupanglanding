@@ -16,6 +16,7 @@ import { OllamaManager } from './ollama-manager.mjs';
 import { WorkerRunner } from './worker-runner.mjs';
 import { AdRunner } from './ad-runner.mjs';
 import { startPairServer } from './pair-server.mjs';
+import { startGeneration } from './allinone-runner.mjs';
 import * as bootstrap from './bootstrap.mjs';
 import { setupAutoUpdate, checkForUpdatesNow } from './auto-update.mjs';
 import { loadModules } from './shell/registry.mjs';
@@ -320,6 +321,13 @@ app.whenReady().then(async () => {
     getAllinoneFolder: () => store.get('lastAllinoneFolder', null),
     // 웹 사이드바 '최신으로 업데이트' 버튼 → 앱 내부 자동업데이트 확인/적용을 킥.
     onCheckUpdate: () => checkForUpdatesNow(() => win),
+    // 웹 업로드 생성 — 웹이 소싱폴더를 업로드한 임시폴더로 올인원 생성 실행.
+    //   웹이 이미 검수화면에 있으므로 브라우저 자동열기는 안 한다(gen-status 폴링으로 자동 로드).
+    onGenerate: (folder, { noThumb, onDone } = {}) => startGeneration({
+      services: { ollama, comfy, webOrigin: WEB_ORIGIN },
+      paths: { appRoot, userData: app.getPath('userData') },
+      store, send, folder, noThumb, onDone,
+    }),
     onPair: async (tokens) => {
       await runner.pair(SUPABASE_URL, SUPABASE_ANON_KEY, tokens);
       send('shell:pair-done', true);

@@ -167,6 +167,102 @@ export async function triggerLocalUpdate(ep: LocalEndpoint): Promise<boolean> {
   }
 }
 
+// ── 웹 업로드 생성 ──────────────────────────────────────────────────────────
+// 웹이 폴더 경로를 못 받으므로(브라우저 보안), 폴더 "내용"을 도우미로 올려 생성시킨다.
+//   폴더 선택 → 파일 트리 업로드 → 도우미가 임시폴더에서 run-folder 생성 → 완료 시 결과 로드.
+
+/** 업로드 대상 파일 1개. path 는 세션(폴더) 기준 상대경로(슬래시 구분). */
+export interface UploadFile {
+  path: string;
+  file: File;
+}
+
+export type GenPhase = 'uploading' | 'generating' | 'done' | 'error' | 'unknown';
+
+/** FileSystemDirectoryHandle 을 재귀 순회해 업로드할 파일 목록으로 편다(이미지+product.json 등). */
+export async function collectFolderFiles(
+  root: FileSystemDirectoryHandle,
+  onProgress?: (n: number) => void,
+): Promise<UploadFile[]> {
+  const out: UploadFile[] = [];
+  const walk = async (dir: FileSystemDirectoryHandle, prefix: string) => {
+    // @ts-expect-error - values() 는 표준이지만 lib.dom 타입에 아직 얇다
+    for await (const entry of dir.values()) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.kind === 'file') {
+        const f = await (entry as FileSystemFileHandle).getFile();
+        out.push({ path: rel, file: f });
+        onProgress?.(out.length);
+      } else {
+        await walk(entry as FileSystemDirectoryHandle, rel);
+      }
+    }
+  };
+  await walk(root, '');
+  return out;
+}
+
+/** 파일 1장 업로드. 세션 기준 상대경로로 도우미 임시폴더에 기록된다. */
+async function uploadOne(ep: LocalEndpoint, session: string, f: UploadFile): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${base(ep)}/allinone/upload?nonce=${encodeURIComponent(ep.nonce)}&session=${session}&p=${encodeURIComponent(f.path)}`,
+      { method: 'POST', body: f.file, signal: AbortSignal.timeout(120_000) },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** 파일 목록을 동시 4개씩 업로드. 진행 콜백으로 완료 수를 알린다. */
+export async function uploadFolderFiles(
+  ep: LocalEndpoint,
+  session: string,
+  files: UploadFile[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ ok: number; fail: number }> {
+  let done = 0, ok = 0, fail = 0, next = 0;
+  const worker = async () => {
+    while (next < files.length) {
+      const f = files[next++];
+      const good = await uploadOne(ep, session, f);
+      good ? ok++ : fail++;
+      done++;
+      onProgress?.(done, files.length);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, files.length) }, worker));
+  return { ok, fail };
+}
+
+/** 업로드 끝난 세션으로 생성 시작. */
+export async function startLocalGenerate(ep: LocalEndpoint, session: string, noThumb: boolean): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${base(ep)}/allinone/generate?nonce=${encodeURIComponent(ep.nonce)}&session=${session}&noThumb=${noThumb ? 1 : 0}`,
+      { method: 'POST', signal: AbortSignal.timeout(30_000) },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** 생성 진행 상태 폴링. */
+export async function pollGenStatus(ep: LocalEndpoint, session: string): Promise<{ state: GenPhase; error?: string | null }> {
+  try {
+    const res = await fetch(
+      `${base(ep)}/allinone/gen-status?nonce=${encodeURIComponent(ep.nonce)}&session=${session}`,
+      { signal: AbortSignal.timeout(10_000) },
+    );
+    if (!res.ok) return { state: 'unknown' };
+    return (await res.json()) as { state: GenPhase; error?: string | null };
+  } catch {
+    return { state: 'unknown' };
+  }
+}
+
 /** 폴더 하위 이미지 파일 목록(생성 폴더 기준 상대경로). 실패 시 빈 배열. */
 export async function fetchLocalList(ep: LocalEndpoint, dirRel: string): Promise<string[]> {
   try {
