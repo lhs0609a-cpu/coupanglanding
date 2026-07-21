@@ -53,6 +53,25 @@ function parseArgs(argv) {
 
 function ts() { return new Date().toTimeString().slice(0, 8); }
 
+/**
+ * ComfyUI 의 VRAM 을 회수한다(POST /free). 두 곳에서 쓴다:
+ *   ① 텍스트 단계 시작 전 — 이전 실행이 남긴 SDXL 을 내려 ollama 가 VRAM 을 온전히 쓰게.
+ *   ② 전체 종료 시 — 유휴 상태로 VRAM 을 물고 있지 않게(다른 작업/프로그램에 양보).
+ * ComfyUI 가 안 떠 있으면 조용히 실패(무해). 두 엔진이 동시에 VRAM 을 물지 않게 하는 핵심.
+ */
+async function freeComfyVram(comfyUrl) {
+  const url = (comfyUrl || 'http://127.0.0.1:8188').replace(/\/$/, '');
+  try {
+    await fetch(`${url}/free`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unload_models: true, free_memory: true }),
+      signal: AbortSignal.timeout(8000),
+    });
+    return true;
+  } catch { return false; }
+}
+
 async function main() {
   const cli = parseArgs(process.argv.slice(2));
   const folder = cli._[0];
@@ -118,6 +137,9 @@ async function main() {
   //    중간에 죽으면 0바이트 파일만 남아 웹이 "레코드 0건" 으로 보였다.
   //    → Phase C 에서 .tmp 로 쓰고 rename 하는 원자적 교체로 바꿨다(부분 결과 노출 없음).
   const records = [];
+  // 텍스트 단계 전, ComfyUI 가 물고 있던 VRAM 을 회수해 ollama 에 양보(두 엔진 동시 점유 제거).
+  const freedBefore = await freeComfyVram(cli.comfy);
+  if (freedBefore) console.log(`[${ts()}] [1/3] 텍스트 전 ComfyUI VRAM 회수 완료 → ollama 에 양보`);
   console.log(`[${ts()}] [1/3] 텍스트 생성 시작 (모델 ${model})`);
   if (marginBrackets) console.log(`[${ts()}] 마진 프리셋 적용: ${marginLevel}`);
   const { summary } = await generateBatch(products, {
@@ -203,6 +225,11 @@ async function main() {
   console.log(`상품당 평균(텍스트) ${(summary.avgMs / 1000).toFixed(1)}s · 텍스트단계 ${(summary.wallMs / 1000 / 60).toFixed(1)}분 · 후보=${summary.candidateSource}`);
   console.log(`레코드: ${outJsonl}`);
   console.log(`검수화면: ${outHtml}  ← 브라우저로 열어 검수/승인`);
+
+  // 종료 시 엔진 VRAM 해제 — 유휴 점유 제거(다음 작업/다른 프로그램에 양보).
+  await unload(model);            // ollama 모델 언로드
+  await freeComfyVram(cli.comfy); // ComfyUI(SDXL) 언로드
+  console.log(`[${ts()}] 엔진 VRAM 해제 완료(ollama·ComfyUI) — 유휴 점유 제거`);
 }
 
 main().catch((e) => { console.error('원큐 오류:', e.message); process.exit(1); });

@@ -50,13 +50,27 @@ export async function generate({ model, prompt, system, options = {}, format, ke
   };
   if (format) body.format = format;
   const t0 = Date.now();
-  const r = await fetch(`${OLLAMA}/api/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error(`[local-llm] HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  const j = await r.json();
+  // 연결 실패(fetch failed/ECONNREFUSED 등)는 ollama 가 모델 로딩 중 일시적으로 응답을 못하거나
+  // 메모리압박으로 잠깐 재시작할 때 난다 → 짧게 재시도하면 그대로 이어진다(HTTP 4xx/5xx 는 재시도 안 함).
+  let j;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const r = await fetch(`${OLLAMA}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error(`[local-llm] HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      j = await r.json();
+      break;
+    } catch (e) {
+      const msg = String(e?.message || e);
+      const networkish = !/HTTP \d{3}/.test(msg) &&
+        (/fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|network|timeout|EPIPE/i.test(msg) || e?.cause);
+      if (!networkish || attempt >= 3) throw e;
+      await new Promise((res) => setTimeout(res, 2000 * (attempt + 1))); // 2s,4s,6s
+    }
+  }
   const ms = Date.now() - t0;
   const evalCount = j.eval_count || 0;
   const evalNs = j.eval_duration || 0; // nanoseconds

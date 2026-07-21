@@ -6,6 +6,7 @@
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { checkGpu } from './bootstrap.mjs';
+import { listModels } from '../runtime/local-llm.mjs';
 
 let child = null;
 
@@ -25,13 +26,17 @@ export async function pickGenProfile() {
   const strong = gpu.ok && freeMb >= 5000;
   // 남은 VRAM 이 극히 적으면(다른 프로그램이 GPU 점유) 작은 모델조차 스필한다 → 사용자에게 알린다.
   const scarce = gpu.ok && freeMb < 1500;
-  return {
-    gpu,
-    strong,
-    scarce,
-    model: strong ? 'exaone3.5:7.8b' : 'exaone3.5:2.4b',
-    detailTokens: strong ? 600 : 400,
-  };
+
+  // ⭐ 설치된 모델 중에서 고른다 — 없는 모델을 pull 하다 실패/지연(→ fetch failed)하는 걸 피한다.
+  //   티어별 선호순으로, 이미 깔린 첫 모델을 쓴다. 하나도 없으면 대표값(그때만 pull).
+  let installed = [];
+  try { installed = await listModels(); } catch { /* ollama 아직 미기동 → 기본값 */ }
+  const STRONG_PREFS = ['exaone3.5:7.8b', 'qwen2.5:7b-instruct', 'qwen2.5:7b'];
+  const SMALL_PREFS = ['qwen2.5:3b-instruct', 'exaone3.5:2.4b', 'qwen2.5:3b', 'exaone3.5:7.8b'];
+  const prefs = strong ? STRONG_PREFS : SMALL_PREFS;
+  const model = prefs.find((n) => installed.some((m) => m === n)) || prefs[0];
+
+  return { gpu, strong, scarce, model, detailTokens: strong ? 600 : 400, installedCount: installed.length };
 }
 
 export function isGenerating() { return !!child; }
