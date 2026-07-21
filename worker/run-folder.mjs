@@ -40,7 +40,7 @@ import { localCutoutToWhite, cutoutDepsFailed } from './lib/local-cutout.mjs';
 
 function parseArgs(argv) {
   const a = { _: [] };
-  const flags = new Set(['no-thumb', 'thumb-force', 'no-image-ai']);
+  const flags = new Set(['no-thumb', 'thumb-force', 'no-image-ai', 'wait-comfy']);
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i];
     if (!t.startsWith('--')) { a._.push(t); continue; }
@@ -70,6 +70,24 @@ async function freeComfyVram(comfyUrl) {
     });
     return true;
   } catch { return false; }
+}
+
+/**
+ * ComfyUI 가 응답할 때까지 기다린다(누끼 단계 직전). 앱이 텍스트 동안 내려둔 ComfyUI 를
+ * [2/3] 마커에서 다시 올리므로, 여기서 기동 완료를 기다렸다가 GPU 누끼를 한다.
+ * 타임아웃이면 false → 호출부가 CPU 누끼로 폴백.
+ */
+async function waitForComfy(comfyUrl, timeoutMs = 90000) {
+  const url = (comfyUrl || 'http://127.0.0.1:8188').replace(/\/$/, '');
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const r = await fetch(`${url}/system_stats`, { signal: AbortSignal.timeout(4000) });
+      if (r.ok) return true;
+    } catch { /* 아직 기동 중 */ }
+    await new Promise((res) => setTimeout(res, 2000));
+  }
+  return false;
 }
 
 async function main() {
@@ -155,9 +173,15 @@ async function main() {
   let thumbsProcessed = 0;
   let thumbEnabled = !cli['no-thumb'];
   if (thumbEnabled) {
-    // ollama 모델 언로드 → VRAM 을 ComfyUI 에 양보
+    // ollama 모델 언로드 → VRAM 을 ComfyUI 에 양보. (앱은 이 마커를 보고 내려뒀던 ComfyUI 를 올린다)
     console.log(`[${ts()}] [2/3] ollama 모델 언로드(VRAM 회수) → ComfyUI 준비`);
     await unload(model);
+    // 앱이 텍스트 동안 ComfyUI 를 내려둔 경우(--wait-comfy) 지금 기동 완료를 기다린다.
+    if (cli['wait-comfy']) {
+      console.log(`[${ts()}] [2/3] ComfyUI 기동 대기 중…(텍스트 동안 내려둔 누끼 엔진 재기동)`);
+      const up = await waitForComfy(cli.comfy, 90000);
+      console.log(`[${ts()}] [2/3] ComfyUI ${up ? '준비됨 → GPU 누끼' : '대기 초과 → CPU 누끼 폴백'}`);
+    }
     const thumb = await makeThumbnailProcessor({ comfyUrl: cli.comfy, workflowPath: cli.workflow });
     console.log(`[${ts()}] 대표이미지: ${thumb.ready ? '✅ ' + thumb.info : '⚠️ ' + thumb.info}`);
     if (thumb.ready) {

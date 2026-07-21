@@ -78,7 +78,18 @@ export async function startGeneration({
     send('allinone:done', { code: -1 });
     return false;
   }
-  if (!noThumb) {
+  // ── ComfyUI(누끼) VRAM 스왑 — 텍스트 단계 동안 ComfyUI 를 내려 VRAM 을 ollama 에 몰아준다 ──
+  //   ComfyUI 프로세스는 cudaMallocAsync 로 큰 VRAM 풀을 물고 있어 /free 로는 안 돌아온다(실측).
+  //   그래서 텍스트 동안 아예 프로세스를 내리고, 누끼 단계 직전(run-folder 가 [2/3] 마커를 찍을 때)
+  //   다시 올린다. run-folder 는 --wait-comfy 로 누끼 전에 ComfyUI 기동을 기다린다.
+  //   GPU 없거나 noThumb 이면 스왑 불필요(기존대로).
+  const useComfySwap = !noThumb && profile.gpu.ok && !!services?.comfy;
+  if (useComfySwap) {
+    try {
+      send('allinone:log', '🔀 텍스트 단계: ComfyUI 를 잠시 내려 VRAM 을 확보합니다(누끼 단계에서 자동 재기동).');
+      await services.comfy.stop();
+    } catch { /* 안 떠 있으면 무시 */ }
+  } else if (!noThumb) {
     try {
       send('allinone:log', '엔진 준비 중 — ComfyUI(대표사진 누끼)…');
       await services?.comfy?.start();
@@ -92,6 +103,7 @@ export async function startGeneration({
   const script = join(runtimeDir, 'run-folder.mjs');
   const args = [script, folder, '--model', profile.model, '--detail-tokens', String(profile.detailTokens)];
   if (noThumb) args.push('--no-thumb');
+  if (useComfySwap) args.push('--wait-comfy'); // 누끼 전에 ComfyUI 기동을 기다리게
 
   child = spawn(process.execPath, args, {
     cwd: runtimeDir,
@@ -107,6 +119,7 @@ export async function startGeneration({
   const recent = [];       // 최근 라인(마지막 수단)
   const errLines = [];     // 에러/오류로 보이는 라인(우선 노출)
   const pushBuf = (arr, line, cap) => { arr.push(line); if (arr.length > cap) arr.shift(); };
+  let comfyRestarting = false; // 누끼 마커에 ComfyUI 재기동 1회만
 
   // 진행 이벤트를 앱 렌더러(send)와 호출자(onProgress: 웹 폴링용 pair-server)로 동시에 흘린다.
   const emitProgress = (p) => { send('allinone:progress', p); try { onProgress?.(p); } catch { /* skip */ } };
@@ -116,6 +129,14 @@ export async function startGeneration({
       send('allinone:log', line);
       pushBuf(recent, line, 40);
       if (/오류|error|exception|traceback|실패|OOM|out of memory|HTTP\s?[45]\d\d|❌/i.test(line)) pushBuf(errLines, line, 8);
+      // 누끼 단계 진입 마커([2/3] ollama 언로드) → 내려뒀던 ComfyUI 를 지금 올린다.
+      //   run-folder 는 --wait-comfy 로 ComfyUI 가 준비될 때까지 기다렸다가 GPU 누끼를 한다.
+      if (useComfySwap && !comfyRestarting && /\[2\/3\].*ollama\s*모델\s*언로드/.test(line)) {
+        comfyRestarting = true;
+        send('allinone:log', '🔀 누끼 단계: ComfyUI 를 다시 올립니다…');
+        services.comfy.start().catch((e) =>
+          send('allinone:log', '⚠️ ComfyUI 재기동 실패(누끼는 CPU 폴백): ' + (e.message || e)));
+      }
       let m;
       if ((m = line.match(/\[인식\s+(\d+)\/(\d+)\]/))) emitProgress({ phase: 'recognize', done: +m[1], total: +m[2] });
       else if ((m = line.match(/\[텍스트\s+(\d+)\/(\d+)\]/))) emitProgress({ phase: 'text', done: +m[1], total: +m[2] });
