@@ -312,8 +312,26 @@ app.whenReady().then(async () => {
     }).catch(() => {});
   };
 
-  // 저장된 세션 자동 복구
-  await runner.tryRestoreSession(SUPABASE_URL, SUPABASE_ANON_KEY);
+  // 저장된 세션 자동 복구 — 부팅 직후 네트워크가 아직 안 올라와도 자가치유하도록 재시도.
+  //   한 번 실패에 포기하면(과거 동작) "재부팅하면 매번 미연결"이 된다. 일시 오류면
+  //   10→20→…→60초 백오프로 계속 재시도하고, 복구할 세션 자체가 없을(false) 때만 멈춘다.
+  const restoreSessionWithRetry = async () => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const ok = await runner.tryRestoreSession(SUPABASE_URL, SUPABASE_ANON_KEY);
+        if (ok) { sendHeartbeat(); autoStartIfReady(); }
+        return; // 성공 or "복구할 세션 없음(재페어링 필요)" → 재시도 중단
+      } catch (e) {
+        const wait = Math.min(60_000, 10_000 * (attempt + 1));
+        send('thumbnail-gpu:comfy-log',
+          `[세션] 자동 복구 일시 실패 — ${Math.round(wait / 1000)}초 뒤 재시도합니다: ${e?.message || e}`);
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    }
+  };
+  // 백그라운드로 돌린다(await 금지) — 오프라인이어도 아래 페어링 서버가 떠서
+  // 사용자가 수동 재연결은 언제든 할 수 있어야 하기 때문.
+  void restoreSessionWithRetry();
 
   // 로컬 서버 — ① 웹이 세션 토큰 전달(페어링) ② 웹 올인원 화면이 생성결과·이미지 직독
   pair = await startPairServer({

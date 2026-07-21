@@ -52,15 +52,19 @@ export class WorkerRunner {
     this.startLlmLoop();
   }
 
-  /** 저장된 세션(.session.json)으로 자동 로그인 시도 — 성공 시 true */
+  /**
+   * 저장된 세션(.session.json)으로 자동 로그인 시도.
+   *   true  = 복구됨 / false = 복구할 세션 없음(재페어링 필요)
+   *   throw = 일시 오류(네트워크 미준비 등) → 호출부가 백오프 재시도.
+   * (과거엔 여기서 모든 오류를 삼켜 false 로 뭉갰다 → 부팅 직후 네트워크 미준비 한 번에
+   *  영구 미연결이 됐다. 이제 일시 오류는 위로 올려 자가치유한다.)
+   */
   async tryRestoreSession(supabaseUrl, anonKey) {
     if (!supabaseUrl || !anonKey) return false;
-    try {
-      const s = new Session(supabaseUrl, anonKey, join(this.userDataDir, '.session.json'));
-      const ok = await s.tryRestore();
-      if (ok) { this.session = s; this.startLlmLoop(); return true; }
-      return false;
-    } catch { return false; }
+    const s = new Session(supabaseUrl, anonKey, join(this.userDataDir, '.session.json'));
+    const ok = await s.tryRestore(); // 일시 오류는 throw 로 전파됨
+    if (ok) { this.session = s; this.startLlmLoop(); return true; }
+    return false;
   }
 
   /** 로그인되면 상시 도는 LLM 재생성 폴링 루프 (노출상품명/상세글/옵션/카테고리). */
