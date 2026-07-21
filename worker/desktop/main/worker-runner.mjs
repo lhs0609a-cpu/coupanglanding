@@ -18,6 +18,16 @@ const DEFAULT_NEGATIVE =
 
 const fsp = await import('node:fs/promises');
 
+/** JWT payload 디코드(검증 없음 — 표시용 식별정보만). 실패 시 null. */
+function decodeJwt(token) {
+  try {
+    const part = String(token).split('.')[1];
+    if (!part) return null;
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+  } catch { return null; }
+}
+
 export class WorkerRunner {
   constructor(userDataDir, { onEvent = () => {}, appVersion = null, getLocalEndpoint = null } = {}) {
     this.userDataDir = userDataDir;
@@ -36,6 +46,30 @@ export class WorkerRunner {
 
   get running() { return !!this.abort; }
   get loggedIn() { return !!this.session; }
+
+  /** 현재 연결된 계정 식별정보(이메일/역할/userId). 세션 없으면 null. */
+  get account() {
+    const tok = this.session?.accessToken;
+    if (!tok) return null;
+    const p = decodeJwt(tok);
+    if (!p) return null;
+    return {
+      email: p.email || p.user_metadata?.email || null,
+      userId: p.sub || null,
+      role: p.user_metadata?.role || p.role || null,
+    };
+  }
+
+  /**
+   * 로그아웃 — 저장 세션(.session.json)을 지우고 모든 루프를 멈춘다.
+   * 이후 다른 계정으로 다시 "메가로드 연결"(페어링)하면 그 계정으로 붙는다.
+   */
+  async logout() {
+    try { await this.stopLlmLoop(); } catch { /* ignore */ }
+    if (this.abort) { try { this.abort.abort(); } catch { /* ignore */ } this.abort = null; }
+    this.session = null;
+    try { await fsp.rm(join(this.userDataDir, '.session.json'), { force: true }); } catch { /* ignore */ }
+  }
 
   async login(supabaseUrl, anonKey, email, password) {
     const s = new Session(supabaseUrl, anonKey, join(this.userDataDir, '.session.json'));

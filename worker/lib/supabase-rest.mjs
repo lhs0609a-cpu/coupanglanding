@@ -142,6 +142,9 @@ export class Session {
       throw e;                                    // 일시 오류 → 상위 재시도
     }
   }
+  /** 현재 access_token(JWT). 계정 식별(이메일 등)을 디코드할 때 쓴다. 없으면 null. */
+  get accessToken() { return this.s?.access_token || null; }
+
   async _persist() {
     if (this.filePath && this.s) {
       try { await writeFile(this.filePath, JSON.stringify(this.s, null, 2)); } catch { /* ignore */ }

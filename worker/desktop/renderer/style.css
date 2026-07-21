@@ -14,6 +14,7 @@ body { font-family: 'Noto Sans KR', 'Malgun Gothic', -apple-system, system-ui, s
 .ver-btn:disabled { opacity: .5; cursor: default; }
 .conn { font-size: 12px; padding: 6px 8px; border-radius: 6px; background: #2b3140; }
 .conn.on { color: #34d399; } .conn.off { color: #9ca3af; }
+.account { font-size: 11px; color: #cbd5e1; padding: 4px 8px; word-break: break-all; }
 .btn-pair { background: var(--red); color: #fff; border: 0; border-radius: 6px; padding: 8px; font-size: 13px; font-weight: 700; cursor: pointer; }
 .btn-pair:hover { background: #c5142f; }
 .tabs { list-style: none; margin-top: 8px; display: flex; flex-direction: column; gap: 2px; flex: 1; }

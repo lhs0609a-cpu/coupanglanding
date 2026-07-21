@@ -16,6 +16,8 @@ const $panel = document.getElementById('panel');
 const $conn = document.getElementById('conn');
 const $ver = document.getElementById('ver');
 const $pair = document.getElementById('btn-pair');
+const $account = document.getElementById('account');
+const $logout = document.getElementById('btn-logout');
 
 const loaded = {};      // id -> { root, mod }
 let activeId = null;
@@ -58,10 +60,21 @@ async function selectTab(id) {
 async function refreshConn() {
   try {
     const s = await api.invoke('shell:state');
-    const ok = s.loggedIn || s.paired;
+    // 연결의 진짜 근거는 로그인(세션) 여부. paired 는 이번 세션에 페어 POST 가 왔었는지라
+    // 로그아웃 후 stale 일 수 있어 loggedIn 을 우선한다.
+    const ok = s.loggedIn;
     $conn.textContent = ok ? '✅ 메가로드 연결됨' : '⚪ 미연결';
     $conn.className = 'conn ' + (ok ? 'on' : 'off');
     $pair.style.display = ok ? 'none' : 'block';
+    $pair.textContent = '메가로드 연결';
+    // 어느 계정으로 연결됐는지 표시(이메일). 로그아웃 버튼은 연결됐을 때만.
+    if ($account) {
+      const email = ok && s.account ? s.account.email : null;
+      if (email) { $account.textContent = `👤 ${email}`; $account.style.display = 'block'; }
+      else if (ok) { $account.textContent = '👤 연결된 계정'; $account.style.display = 'block'; }
+      else { $account.style.display = 'none'; }
+    }
+    if ($logout) $logout.style.display = ok ? 'block' : 'none';
     if ($ver && s.appVersion) $ver.textContent = `v${s.appVersion}`;
   } catch { /* skip */ }
 }
@@ -69,6 +82,15 @@ async function refreshConn() {
 $pair.onclick = async () => {
   $pair.textContent = '브라우저 여는 중…';
   try { await api.invoke('shell:pair-open'); } catch (e) { $pair.textContent = '연결 실패: ' + e.message; }
+};
+
+if ($logout) $logout.onclick = async () => {
+  const who = $account?.textContent?.replace(/^👤\s*/, '') || '현재 계정';
+  if (!confirm(`${who} 에서 로그아웃할까요?\n\n로그아웃 후 "메가로드 연결"을 눌러 다른 계정으로 연결할 수 있습니다.`)) return;
+  $logout.disabled = true; const t = $logout.textContent; $logout.textContent = '로그아웃 중…';
+  try { await api.invoke('shell:logout'); } catch (e) { alert('로그아웃 실패: ' + e.message); }
+  $logout.disabled = false; $logout.textContent = t;
+  await refreshConn();
 };
 document.getElementById('btn-data').onclick = () => api.invoke('shell:open-data');
 const $log = document.getElementById('btn-log');

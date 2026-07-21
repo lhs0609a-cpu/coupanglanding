@@ -236,10 +236,18 @@ function registerShellIpc(manifest) {
   ipcMain.handle('shell:state', async () => ({
     loggedIn: runner.loggedIn,
     paired: !!pair && pair.isPaired(),
+    account: runner.account, // { email, userId, role } | null — 어느 계정으로 연결됐는지
     webOrigin: WEB_ORIGIN,
     appTitle: APP_TITLE,
     appVersion: app.getVersion(),
   }));
+  // 로그아웃 — 저장 세션을 지우고 루프·하트비트를 멈춘다(하트비트는 session null 이면 자동 중단).
+  //   이후 "메가로드 연결"로 다른 계정 페어링 가능. 웹 표시등도 곧 미연결로 바뀐다.
+  ipcMain.handle('shell:logout', async () => {
+    await runner.logout();
+    pair?.resetPaired?.();
+    return true;
+  });
   ipcMain.handle('shell:pair-open', () => {
     if (!pair) throw new Error('페어링 서버 준비 안 됨');
     shell.openExternal(`${WEB_ORIGIN}/worker/activate?port=${pair.port}&nonce=${encodeURIComponent(pair.nonce)}`);
@@ -275,7 +283,7 @@ app.whenReady().then(async () => {
   const { manifest, trayContribs: contribs } = await loadModules(ctx);
   trayContribs = contribs;
   // 셸 채널을 manifest 에 합쳐 preload allowlist 에 포함
-  manifest.invokable.push('shell:state', 'shell:pair-open', 'shell:open-data', 'shell:asset', 'shell:selftest', 'shell:check-update', 'shell:open-update-log');
+  manifest.invokable.push('shell:state', 'shell:pair-open', 'shell:logout', 'shell:open-data', 'shell:asset', 'shell:selftest', 'shell:check-update', 'shell:open-update-log');
   manifest.events.push('shell:pair-done');
   registerShellIpc(manifest);
 

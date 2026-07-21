@@ -326,6 +326,7 @@ export async function startPairServer({
     port: state.port,
     nonce: state.nonce,
     isPaired: () => state.paired,
+    resetPaired: () => { state.paired = false; }, // 로그아웃 시 페어 표시도 내림
     close: () => new Promise((r) => server.close(() => r())),
   };
 }
