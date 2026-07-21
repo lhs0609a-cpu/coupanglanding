@@ -11,16 +11,24 @@ let child = null;
 
 /**
  * 하드웨어에 맞춰 "어떤 PC 에서도 빠르게" 생성 설정을 고른다.
- *   - 강한 GPU(VRAM 6GB+): 큰 모델(7.8B) + 상세 600토큰 — 품질 유지하며 병렬로 빠르게.
- *   - 그 외(CPU·저VRAM GPU): 작은 모델(2.4B) + 상세 400토큰 — CPU 에서도 몇 배 빠르게.
+ *   ⭐ 판단 기준은 총 VRAM 이 아니라 **"지금 남은(free) VRAM"** 이다.
+ *      16GB GPU 라도 다른 앱(브라우저·다른 AI 도구 등)이 VRAM 을 점유 중이면 7.8B(≈5GB)를
+ *      GPU 에 못 올려 CPU 로 스필 → 10배 넘게 느려진다(실측: 남은 0.8GB일 때 3tok/s).
+ *      그래서 지금 올릴 수 있는 크기에 맞춰 모델을 고른다.
+ *   - free ≥ 5GB : 7.8B + 상세 600 (품질 유지 + 병렬로 빠르게)
+ *   - 그 외      : 2.4B + 상세 400 (작아서 빠듯한 VRAM 에도 최대한 GPU 에 올라감)
  * (짧은 필드 3종 병렬화는 ai-generator 에서 하드웨어와 무관하게 항상 적용됨.)
  */
 export async function pickGenProfile() {
-  const gpu = await checkGpu().catch(() => ({ ok: false, name: null, vramMb: 0 }));
-  const strong = gpu.ok && (gpu.vramMb ?? 0) >= 6000;
+  const gpu = await checkGpu().catch(() => ({ ok: false, name: null, vramMb: 0, vramFreeMb: 0 }));
+  const freeMb = gpu.vramFreeMb ?? 0;
+  const strong = gpu.ok && freeMb >= 5000;
+  // 남은 VRAM 이 극히 적으면(다른 프로그램이 GPU 점유) 작은 모델조차 스필한다 → 사용자에게 알린다.
+  const scarce = gpu.ok && freeMb < 1500;
   return {
     gpu,
     strong,
+    scarce,
     model: strong ? 'exaone3.5:7.8b' : 'exaone3.5:2.4b',
     detailTokens: strong ? 600 : 400,
   };
@@ -42,9 +50,17 @@ export async function startGeneration({
   // ── 하드웨어 자동 적응 — "어떤 PC 에서도 빠르게" ──────────────────────────
   //   GPU 감지해 모델/상세토큰을 자동 선택하고, ollama 가 그 모델을 갖도록(없으면 pull) 맞춘다.
   const profile = await pickGenProfile();
+  const gb = (mb) => (Math.round(((mb || 0) / 1024) * 10) / 10);
   send('allinone:log',
-    `[속도] 하드웨어: ${profile.gpu.ok ? `${profile.gpu.name} · VRAM ${Math.round((profile.gpu.vramMb || 0) / 1024)}GB` : 'GPU 없음(CPU)'} `
+    `[속도] 하드웨어: ${profile.gpu.ok
+      ? `${profile.gpu.name} · VRAM 남음 ${gb(profile.gpu.vramFreeMb)}/${gb(profile.gpu.vramMb)}GB`
+      : 'GPU 없음(CPU)'} `
     + `→ 모델 ${profile.model} · 상세 ${profile.detailTokens}토큰 (짧은필드 병렬)`);
+  if (profile.scarce) {
+    send('allinone:log',
+      `⚠️ 남은 VRAM 이 ${gb(profile.gpu.vramFreeMb)}GB 뿐입니다 — 다른 프로그램이 그래픽카드를 점유 중입니다. `
+      + `AI 생성이 CPU 로 밀려 매우 느려집니다. 브라우저·다른 AI 도구 등 무거운 프로그램을 닫으면 몇 배 빨라집니다.`);
+  }
   if (services?.ollama) services.ollama.model = profile.model; // ensureModel 이 이 모델을 pull/확인
 
   // 엔진 자동 기동 — ollama 는 없으면 자동 설치·기동·모델 다운로드까지.

@@ -38,22 +38,22 @@ export const DEFAULTS = {
 
 const exists = (p) => stat(p).then(() => true, () => false);
 
-/** NVIDIA 드라이버/ GPU 점검 (nvidia-smi) */
+/** NVIDIA 드라이버/ GPU 점검 (nvidia-smi). vramMb=총량, vramFreeMb="지금 남은" VRAM. */
 export function checkGpu() {
   return new Promise((resolve) => {
-    const p = spawn('nvidia-smi', ['--query-gpu=name,memory.total', '--format=csv,noheader'], { shell: true });
+    const p = spawn('nvidia-smi', ['--query-gpu=name,memory.total,memory.free', '--format=csv,noheader'], { shell: true });
     let out = '';
     p.stdout?.on('data', (d) => (out += d));
-    p.on('error', () => resolve({ ok: false, name: null, vramMb: 0 }));
+    p.on('error', () => resolve({ ok: false, name: null, vramMb: 0, vramFreeMb: 0 }));
     p.on('close', (code) => {
       if (code === 0 && out.trim()) {
-        // 예: "NVIDIA GeForce RTX 4060 Ti, 16384 MiB"
+        // 예: "NVIDIA GeForce RTX 4060 Ti, 16380 MiB, 844 MiB"
         const first = out.trim().split('\n')[0].trim();
-        const m = first.match(/,\s*([\d.]+)\s*MiB/i);
-        const vramMb = m ? Math.round(parseFloat(m[1])) : 0;
-        const name = first.replace(/,\s*[\d.]+\s*MiB.*$/i, '').trim();
-        resolve({ ok: true, name, vramMb });
-      } else resolve({ ok: false, name: null, vramMb: 0 });
+        const parts = first.split(',');
+        const name = (parts[0] || '').trim();
+        const num = (s) => { const m = String(s || '').match(/([\d.]+)\s*MiB/i); return m ? Math.round(parseFloat(m[1])) : 0; };
+        resolve({ ok: true, name, vramMb: num(parts[1]), vramFreeMb: num(parts[2]) });
+      } else resolve({ ok: false, name: null, vramMb: 0, vramFreeMb: 0 });
     });
   });
 }
