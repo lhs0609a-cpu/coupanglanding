@@ -179,6 +179,17 @@ export interface UploadFile {
 
 export type GenPhase = 'uploading' | 'generating' | 'done' | 'error' | 'unknown';
 
+/** 생성 진행 단계(러너 stdout 파싱) — 순서: recognize → text → image */
+export type GenStep = 'recognize' | 'text' | 'image';
+export interface GenProgress { phase: GenStep; done: number; total: number }
+export interface GenStatus {
+  state: GenPhase;
+  error?: string | null;
+  progress?: GenProgress | null;
+  startedAt?: number | null;
+  updatedAt?: number | null;
+}
+
 /** FileSystemDirectoryHandle 을 재귀 순회해 업로드할 파일 목록으로 편다(이미지+product.json 등). */
 export async function collectFolderFiles(
   root: FileSystemDirectoryHandle,
@@ -250,14 +261,14 @@ export async function startLocalGenerate(ep: LocalEndpoint, session: string, noT
 }
 
 /** 생성 진행 상태 폴링. */
-export async function pollGenStatus(ep: LocalEndpoint, session: string): Promise<{ state: GenPhase; error?: string | null }> {
+export async function pollGenStatus(ep: LocalEndpoint, session: string): Promise<GenStatus> {
   try {
     const res = await fetch(
       `${base(ep)}/allinone/gen-status?nonce=${encodeURIComponent(ep.nonce)}&session=${session}`,
       { signal: AbortSignal.timeout(10_000) },
     );
     if (!res.ok) return { state: 'unknown' };
-    return (await res.json()) as { state: GenPhase; error?: string | null };
+    return (await res.json()) as GenStatus;
   } catch {
     return { state: 'unknown' };
   }

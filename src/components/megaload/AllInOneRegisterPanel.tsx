@@ -27,7 +27,7 @@ import {
   diagnoseLocalHelper, discoverLocalEndpoint, fetchLocalManifest,
   fetchLocalList, classifyLocalImages, productDirOf, localFileUrl, fetchLocalFile,
   collectFolderFiles, uploadFolderFiles, startLocalGenerate, pollGenStatus,
-  type HelperDiag, type LocalEndpoint,
+  type HelperDiag, type LocalEndpoint, type GenProgress, type GenStep,
 } from '@/lib/megaload/allinone-local';
 import { focusNextField } from './focusNextField';
 import PreUploadConfirmModal from './PreUploadConfirmModal';
@@ -108,6 +108,31 @@ interface OutboundPlace { outboundShippingPlaceCode: number; placeName: string; 
 interface ReturnCenter { returnCenterCode: number; shippingPlaceName: string; returnAddress?: string }
 
 const won = (n: number | null | undefined) => (n == null ? '-' : Number(n).toLocaleString() + '원');
+
+/** ms → "m분 s초" / "s초" (진행 경과·ETA 표시용). */
+function fmtDur(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}초`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return r ? `${m}분 ${r}초` : `${m}분`;
+}
+
+/** 생성 단계(러너 마커) → 사람이 읽는 라벨/순번. 순서: 인식 → 텍스트 → 누끼. */
+const GEN_STEP_META: Record<GenStep, { idx: number; label: string }> = {
+  recognize: { idx: 1, label: '상품 인식 (대표컷 선정)' },
+  text: { idx: 2, label: '상세·노출명 생성' },
+  image: { idx: 3, label: '대표사진 누끼 가공' },
+};
+
+/** 웹 폴링이 그리는 실시간 생성 진행 스냅샷. */
+interface GenView {
+  progress: GenProgress | null;   // { phase, done, total } — 없으면 엔진 준비 중
+  startedAt: number;              // epoch ms
+  updatedAt: number;              // 마지막 진행 갱신(정체 감지)
+  etaMs: number | null;           // etaAt 기준 남은 예상(ms)
+  etaAt: number;                  // etaMs 를 계산한 시각(카운트다운 기준)
+}
 
 /** gen → 초기 편집값 복제(불변 baseline 보존). gen 없으면 빈 값. */
 function initEdit(g: GenRecord | null): RowEdit {
@@ -465,6 +490,12 @@ export default function AllInOneRegisterPanel() {
   const [error, setError] = useState('');
   const [registering, setRegistering] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
+  // 웹 업로드 생성의 실시간 진행(단계·건수·경과·ETA). null 이면 생성 중 아님.
+  const [gen, setGen] = useState<GenView | null>(null);
+  // 경과/ETA 를 폴링(2초) 사이에도 부드럽게 카운트다운시키는 1초 티커.
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
+  // 현재 단계의 평균 처리속도 기준점(단계 바뀌면 리셋) — ETA 계산용.
+  const etaBaseRef = useRef<{ phase: GenStep; at: number; done: number } | null>(null);
   const [openDetail, setOpenDetail] = useState<Record<string, boolean>>({});
   // 마진 프리셋: null = 워커 생성값 그대로. 선택 시 원가×프리셋으로 판매가 재계산.
   const [marginLevel, setMarginLevel] = useState<MarginPresetLevel | null>(null);
@@ -486,6 +517,14 @@ export default function AllInOneRegisterPanel() {
   const [helperDiag, setHelperDiag] = useState<HelperDiag | null>(null);
   const [diag, setDiag] = useState<ScanDiag | null>(null);
   const [diagOpen, setDiagOpen] = useState(true);
+
+  // 생성 중일 때만 1초 티커를 돌려 경과/ETA 표시를 매초 갱신(폴링은 2초라 사이를 메움).
+  const genActive = gen !== null;
+  useEffect(() => {
+    if (!genActive) return;
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [genActive]);
 
   useEffect(() => {
     let cancelled = false;
@@ -844,12 +883,44 @@ export default function AllInOneRegisterPanel() {
       if (!started) { setError('도우미가 생성을 시작하지 못했습니다. 도우미가 최신 버전인지 확인하세요.'); return; }
 
       // 진행 폴링 — 완료까지(생성은 ollama·ComfyUI 시간이라 수 분 걸릴 수 있음).
-      setScanMsg('도우미가 생성 중… (노출명·카테고리·가격·상세·누끼)');
+      // 진행 상태(단계·건수·경과·ETA)를 gen 으로 흘려 화면에 실시간 표시한다.
+      setScanMsg('');
+      const startTs = Date.now();
+      etaBaseRef.current = null;
+      setNowTick(startTs);
+      setGen({ progress: null, startedAt: startTs, updatedAt: startTs, etaMs: null, etaAt: startTs });
       for (let i = 0; i < 3600; i++) {
         await new Promise((r) => setTimeout(r, 2000));
         const st = await pollGenStatus(ep, session);
-        if (st.state === 'done') break;
-        if (st.state === 'error') { setError(`생성 실패: ${st.error || '도우미 로그를 확인하세요.'}`); return; }
+        if (st.state === 'done') { setGen(null); break; }
+        if (st.state === 'error') {
+          setGen(null);
+          setError(`생성 실패: ${st.error || '도우미 로그를 확인하세요.'}`);
+          return;
+        }
+        // 'generating' / 'unknown'(일시 네트워크 요동) 은 마지막 진행을 유지하며 계속 폴링.
+        const now = Date.now();
+        const startedAt = typeof st.startedAt === 'number' ? st.startedAt : startTs;
+        const p = st.progress ?? null;
+        // 현재 단계의 평균속도로 ETA 추정. 단계가 바뀌면 기준점 리셋.
+        let etaMs: number | null = null;
+        if (p && p.total > 0) {
+          const base = etaBaseRef.current;
+          if (!base || base.phase !== p.phase) {
+            etaBaseRef.current = { phase: p.phase, at: now, done: p.done };
+          } else if (p.done > base.done) {
+            const perItem = (now - base.at) / (p.done - base.done); // ms/건
+            etaMs = perItem * (p.total - p.done);
+          }
+        }
+        setGen((prev) => ({
+          progress: p,
+          startedAt,
+          updatedAt: typeof st.updatedAt === 'number' ? st.updatedAt : (prev?.updatedAt ?? now),
+          // 이번에 새로 계산했으면 갱신, 아니면(=단계 내 정지) 직전 ETA 를 이어서 카운트다운.
+          etaMs: etaMs != null ? etaMs : (prev?.etaMs ?? null),
+          etaAt: etaMs != null ? now : (prev?.etaAt ?? now),
+        }));
       }
 
       // 완료 → 도우미가 lastAllinoneFolder 를 이 세션으로 승격했으니 기존 직독으로 로드.
@@ -858,6 +929,7 @@ export default function AllInOneRegisterPanel() {
     } catch (e) {
       setError(e instanceof Error ? e.message : '업로드 생성 실패');
     } finally {
+      setGen(null);
       setScanning(false);
     }
   }, [handleLoadFromHelper]);
@@ -1164,6 +1236,58 @@ export default function AllInOneRegisterPanel() {
         )}
       </div>
       {scanMsg && <p className="text-xs text-gray-500">{scanMsg}</p>}
+
+      {/* ── 실시간 생성 진행 패널 ──────────────────────────────────────────
+          "처리 중…"만 뜨고 언제 끝날지 몰라 무한정 기다리던 문제 해결.
+          단계(인식→생성→누끼)·건수·진행률·경과·남은시간을 매초 갱신한다. */}
+      {gen && (() => {
+        const p = gen.progress;
+        const step = p ? GEN_STEP_META[p.phase] : null;
+        const pct = p && p.total > 0 ? Math.min(100, Math.round((p.done / p.total) * 100)) : null;
+        const elapsedMs = Math.max(0, nowTick - gen.startedAt);
+        const remainMs = gen.etaMs != null ? Math.max(0, gen.etaMs - (nowTick - gen.etaAt)) : null;
+        // 4분 넘게 진행 갱신이 없으면(엔진 로딩은 예외적으로 길 수 있음) 정체 가능성 안내.
+        const stalled = p != null && nowTick - gen.updatedAt > 240_000;
+        return (
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 px-4 py-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse flex-none" />
+              <span className="text-sm font-semibold text-indigo-900">
+                {step ? `${step.idx}/3단계 · ${step.label}` : '엔진 준비 중 (모델 로딩)'}
+              </span>
+              <span className="flex-1" />
+              {pct != null && <span className="text-sm font-bold text-indigo-700 tabular-nums">{pct}%</span>}
+            </div>
+
+            {/* 진행 바 — 단계 내 건수 기준. 준비 중(마커 전)엔 불확정 애니메이션. */}
+            <div className="h-2 w-full rounded-full bg-indigo-100 overflow-hidden">
+              {pct != null
+                ? <div className="h-full bg-indigo-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                : <div className="h-full w-1/3 bg-indigo-400/70 rounded-full animate-pulse" />}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-indigo-800">
+              {p && <span>진행 <b className="tabular-nums">{p.done}/{p.total}</b>건</span>}
+              <span>경과 <b className="tabular-nums">{fmtDur(elapsedMs)}</b></span>
+              {remainMs != null
+                ? <span>남은 예상 <b className="tabular-nums">약 {fmtDur(remainMs)}</b></span>
+                : <span className="text-indigo-500">남은 시간 계산 중…</span>}
+            </div>
+
+            {!p && (
+              <p className="text-[11px] text-indigo-500 leading-snug">
+                ollama(텍스트)·ComfyUI(누끼)·CLIP 모델을 올리는 중입니다. 최초 1회는 다운로드까지 있어 수 분 걸릴 수 있어요 — 정상 진행 중입니다.
+              </p>
+            )}
+            {stalled && (
+              <p className="text-[11px] text-amber-700 leading-snug">
+                4분 넘게 진행 갱신이 없습니다. 한 건이 오래 걸릴 수도 있지만, 계속 멈춰 있으면 도우미 앱의 <b>올인원 생성 로그</b>를 확인하세요.
+              </p>
+            )}
+          </div>
+        );
+      })()}
+
       {/* 도우미가 결과를 들고 있으면 어느 폴더를 골라야 하는지 미리 알려준다(폴더 오선택 예방). */}
       {helperFolder && rows.length === 0 && (
         <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 break-all">

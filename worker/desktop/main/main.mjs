@@ -341,10 +341,10 @@ app.whenReady().then(async () => {
     onCheckUpdate: () => checkForUpdatesNow(() => win),
     // 웹 업로드 생성 — 웹이 소싱폴더를 업로드한 임시폴더로 올인원 생성 실행.
     //   웹이 이미 검수화면에 있으므로 브라우저 자동열기는 안 한다(gen-status 폴링으로 자동 로드).
-    onGenerate: (folder, { noThumb, onDone } = {}) => startGeneration({
+    onGenerate: (folder, { noThumb, onDone, onProgress } = {}) => startGeneration({
       services: { ollama, comfy, webOrigin: WEB_ORIGIN },
       paths: { appRoot, userData: app.getPath('userData') },
-      store, send, folder, noThumb, onDone,
+      store, send, folder, noThumb, onDone, onProgress,
     }),
     onPair: async (tokens) => {
       await runner.pair(SUPABASE_URL, SUPABASE_ANON_KEY, tokens);

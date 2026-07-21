@@ -151,9 +151,15 @@ export async function startPairServer({
         if (sess.state === 'generating') { res.writeHead(409, cors); return res.end('already generating'); }
         const noThumb = u.searchParams.get('noThumb') === '1';
         sess.state = 'generating';
+        sess.startedAt = Date.now();
+        sess.updatedAt = Date.now();
+        sess.progress = null; // { phase:'recognize'|'text'|'image', done, total }
         try {
           await onGenerate(sessDir, {
             noThumb,
+            // 러너가 stdout 에서 파싱한 단계별 진행(인식/텍스트/이미지 n/total)을 세션에 적재 →
+            // gen-status 로 웹이 실시간 진행률·ETA 를 그린다.
+            onProgress: (p) => { sess.progress = p; sess.updatedAt = Date.now(); },
             onDone: (code) => {
               sess.state = code === 0 ? 'done' : 'error';
               sess.code = code;
@@ -180,7 +186,14 @@ export async function startPairServer({
         const sess = sessions.get(sid);
         res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
         return res.end(JSON.stringify(sess
-          ? { state: sess.state, code: sess.code ?? null, error: sess.error ?? null }
+          ? {
+              state: sess.state,
+              code: sess.code ?? null,
+              error: sess.error ?? null,
+              progress: sess.progress ?? null,   // { phase, done, total }
+              startedAt: sess.startedAt ?? null,  // epoch ms — 웹이 경과/ETA 계산
+              updatedAt: sess.updatedAt ?? null,  // 마지막 진행 갱신(정체 감지용)
+            }
           : { state: 'unknown' }));
       }
 

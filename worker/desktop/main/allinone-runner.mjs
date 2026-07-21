@@ -16,7 +16,7 @@ export function isGenerating() { return !!child; }
  * @returns {Promise<boolean>} 시작됐으면 true(완료는 onDone 으로 통지)
  */
 export async function startGeneration({
-  services, paths, store, send, folder, noThumb = false, onDone,
+  services, paths, store, send, folder, noThumb = false, onDone, onProgress,
 }) {
   if (!folder) throw new Error('폴더가 지정되지 않았습니다.');
   if (child) throw new Error('이미 생성이 진행 중입니다.');
@@ -55,14 +55,16 @@ export async function startGeneration({
     },
   });
 
+  // 진행 이벤트를 앱 렌더러(send)와 호출자(onProgress: 웹 폴링용 pair-server)로 동시에 흘린다.
+  const emitProgress = (p) => { send('allinone:progress', p); try { onProgress?.(p); } catch { /* skip */ } };
   const handle = (buf) => {
     for (const line of buf.toString('utf-8').split(/\r?\n/)) {
       if (!line.trim()) continue;
       send('allinone:log', line);
       let m;
-      if ((m = line.match(/\[인식\s+(\d+)\/(\d+)\]/))) send('allinone:progress', { phase: 'recognize', done: +m[1], total: +m[2] });
-      else if ((m = line.match(/\[텍스트\s+(\d+)\/(\d+)\]/))) send('allinone:progress', { phase: 'text', done: +m[1], total: +m[2] });
-      else if ((m = line.match(/\[이미지\s+(\d+)\/(\d+)\]/))) send('allinone:progress', { phase: 'image', done: +m[1], total: +m[2] });
+      if ((m = line.match(/\[인식\s+(\d+)\/(\d+)\]/))) emitProgress({ phase: 'recognize', done: +m[1], total: +m[2] });
+      else if ((m = line.match(/\[텍스트\s+(\d+)\/(\d+)\]/))) emitProgress({ phase: 'text', done: +m[1], total: +m[2] });
+      else if ((m = line.match(/\[이미지\s+(\d+)\/(\d+)\]/))) emitProgress({ phase: 'image', done: +m[1], total: +m[2] });
     }
   };
   child.stdout.on('data', handle);
