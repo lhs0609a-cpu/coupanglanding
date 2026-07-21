@@ -33,7 +33,14 @@ export class OllamaManager {
         installDir: this.installDir,
         onProgress: (p) => this.onLog(`[ollama] ${p.detail || p.phase}${p.pct != null ? ' ' + p.pct + '%' : ''}`),
       });
-      const env = { ...process.env, OLLAMA_HOST: HOST, OLLAMA_MODELS: join(ollamaDir(this.installDir), 'models') };
+      const env = {
+        ...process.env,
+        OLLAMA_HOST: HOST,
+        OLLAMA_MODELS: join(ollamaDir(this.installDir), 'models'),
+        // 짧은 필드 3종을 동시 생성해도 ollama 가 배치로 처리하도록(순차보다 총시간↓).
+        //   기본값(1)이면 동시요청이 큐잉돼 병렬 이득이 없다. 사용자가 이미 지정했으면 존중.
+        OLLAMA_NUM_PARALLEL: process.env.OLLAMA_NUM_PARALLEL || '3',
+      };
       this.onLog('[ollama] serve 시작');
       this.proc = spawn(exe, ['serve'], { env, windowsHide: true });
       this.proc.stdout?.on('data', (d) => this.onLog('[ollama] ' + String(d).trimEnd()));

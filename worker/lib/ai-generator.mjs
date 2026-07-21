@@ -72,9 +72,20 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   const ctx = product.categoryPath || '';
   const t0 = Date.now();
 
-  // 1) 노출상품명/제목 — 파싱 실패 시 원문을 그대로 저장하지 않고 복구(원문 누출 방지)
+  // 1~3) 제목·카테고리·옵션은 서로 독립 → 병렬 생성.
+  //   단일 GPU 라도 ollama 가 동시요청을 배치(OLLAMA_NUM_PARALLEL)로 처리해 순차보다 총시간이 준다.
+  //   CPU 환경에서도 안전(정확도·검증 로직은 아래에서 각 결과에 그대로 적용).
+  const candObjs = (categoryCandidates || []).map((c) => (typeof c === 'string' ? { code: null, path: c } : c));
   const tp = buildTitlePrompt(product, persona);
-  const titleRaw = await genText({ model, ...tp, ctx });
+  const cp = buildCategoryPrompt(product, candObjs.map((c) => c.path));
+  const op = buildOptionsPrompt(product);
+  const [titleRaw, catRaw, optRaw] = await Promise.all([
+    genText({ model, ...tp, ctx }),
+    genText({ model, ...cp, ctx }),
+    genText({ model, ...op, ctx }),
+  ]);
+
+  // 1) 노출상품명/제목 — 파싱 실패 시 원문을 그대로 저장하지 않고 복구(원문 누출 방지)
   const titleJson = parseJsonLoose(titleRaw.text) || {};
   let displayName = typeof titleJson.displayName === 'string' ? titleJson.displayName.trim() : '';
   let displaySalvaged = false;
@@ -88,21 +99,16 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
     : [];
   if (keywords.length === 0) keywords = deriveKeywords(product);
 
-  // 2) 카테고리 — 후보 path 로 프롬프트, 결과는 실제 후보 코드로 강제 매핑
-  const candObjs = (categoryCandidates || []).map((c) => (typeof c === 'string' ? { code: null, path: c } : c));
-  const cp = buildCategoryPrompt(product, candObjs.map((c) => c.path));
-  const catRaw = await genText({ model, ...cp, ctx });
+  // 2) 카테고리 — LLM 결과를 실제 후보 코드로 강제 매핑
   const catJson = parseJsonLoose(catRaw.text) || {};
   const snapped = snapToCandidate(catJson.categoryPath || catRaw.text, candObjs);
 
   // 3) 옵션 — 외국어 필드/중복명 제거(쿠팡 옵션 정합성)
-  const op = buildOptionsPrompt(product);
-  const optRaw = await genText({ model, ...op, ctx });
   const optJson = parseJsonLoose(optRaw.text) || {};
   const optSan = sanitizeOptions(optJson.options);
   const options = optSan.options;
 
-  // 4) 상세페이지
+  // 4) 상세페이지 — 가장 큰 단계라 별도로(위 3종이 끝난 뒤) 생성
   const dp = buildDetailPrompt(product, persona, { maxTokens: maxDetailTokens });
   const detailRaw = await genText({ model, ...dp, ctx });
   const detailCheck = checkDetail(detailRaw.text, { minLen: 200 });

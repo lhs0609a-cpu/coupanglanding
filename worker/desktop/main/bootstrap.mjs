@@ -44,10 +44,16 @@ export function checkGpu() {
     const p = spawn('nvidia-smi', ['--query-gpu=name,memory.total', '--format=csv,noheader'], { shell: true });
     let out = '';
     p.stdout?.on('data', (d) => (out += d));
-    p.on('error', () => resolve({ ok: false, name: null }));
+    p.on('error', () => resolve({ ok: false, name: null, vramMb: 0 }));
     p.on('close', (code) => {
-      if (code === 0 && out.trim()) resolve({ ok: true, name: out.trim().split('\n')[0].trim() });
-      else resolve({ ok: false, name: null });
+      if (code === 0 && out.trim()) {
+        // 예: "NVIDIA GeForce RTX 4060 Ti, 16384 MiB"
+        const first = out.trim().split('\n')[0].trim();
+        const m = first.match(/,\s*([\d.]+)\s*MiB/i);
+        const vramMb = m ? Math.round(parseFloat(m[1])) : 0;
+        const name = first.replace(/,\s*[\d.]+\s*MiB.*$/i, '').trim();
+        resolve({ ok: true, name, vramMb });
+      } else resolve({ ok: false, name: null, vramMb: 0 });
     });
   });
 }

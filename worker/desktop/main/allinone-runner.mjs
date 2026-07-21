@@ -5,8 +5,26 @@
 // ⚠️ ollama(텍스트)·ComfyUI(누끼)가 떠 있어야 함(services 로 자동 기동).
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
+import { checkGpu } from './bootstrap.mjs';
 
 let child = null;
+
+/**
+ * 하드웨어에 맞춰 "어떤 PC 에서도 빠르게" 생성 설정을 고른다.
+ *   - 강한 GPU(VRAM 6GB+): 큰 모델(7.8B) + 상세 600토큰 — 품질 유지하며 병렬로 빠르게.
+ *   - 그 외(CPU·저VRAM GPU): 작은 모델(2.4B) + 상세 400토큰 — CPU 에서도 몇 배 빠르게.
+ * (짧은 필드 3종 병렬화는 ai-generator 에서 하드웨어와 무관하게 항상 적용됨.)
+ */
+export async function pickGenProfile() {
+  const gpu = await checkGpu().catch(() => ({ ok: false, name: null, vramMb: 0 }));
+  const strong = gpu.ok && (gpu.vramMb ?? 0) >= 6000;
+  return {
+    gpu,
+    strong,
+    model: strong ? 'exaone3.5:7.8b' : 'exaone3.5:2.4b',
+    detailTokens: strong ? 600 : 400,
+  };
+}
 
 export function isGenerating() { return !!child; }
 
@@ -20,6 +38,14 @@ export async function startGeneration({
 }) {
   if (!folder) throw new Error('폴더가 지정되지 않았습니다.');
   if (child) throw new Error('이미 생성이 진행 중입니다.');
+
+  // ── 하드웨어 자동 적응 — "어떤 PC 에서도 빠르게" ──────────────────────────
+  //   GPU 감지해 모델/상세토큰을 자동 선택하고, ollama 가 그 모델을 갖도록(없으면 pull) 맞춘다.
+  const profile = await pickGenProfile();
+  send('allinone:log',
+    `[속도] 하드웨어: ${profile.gpu.ok ? `${profile.gpu.name} · VRAM ${Math.round((profile.gpu.vramMb || 0) / 1024)}GB` : 'GPU 없음(CPU)'} `
+    + `→ 모델 ${profile.model} · 상세 ${profile.detailTokens}토큰 (짧은필드 병렬)`);
+  if (services?.ollama) services.ollama.model = profile.model; // ensureModel 이 이 모델을 pull/확인
 
   // 엔진 자동 기동 — ollama 는 없으면 자동 설치·기동·모델 다운로드까지.
   try {
@@ -43,7 +69,7 @@ export async function startGeneration({
 
   const runtimeDir = join(paths.appRoot, 'runtime');
   const script = join(runtimeDir, 'run-folder.mjs');
-  const args = [script, folder];
+  const args = [script, folder, '--model', profile.model, '--detail-tokens', String(profile.detailTokens)];
   if (noThumb) args.push('--no-thumb');
 
   child = spawn(process.execPath, args, {
