@@ -160,9 +160,10 @@ export async function startPairServer({
             // 러너가 stdout 에서 파싱한 단계별 진행(인식/텍스트/이미지 n/total)을 세션에 적재 →
             // gen-status 로 웹이 실시간 진행률·ETA 를 그린다.
             onProgress: (p) => { sess.progress = p; sess.updatedAt = Date.now(); },
-            onDone: (code) => {
+            onDone: (code, reason) => {
               sess.state = code === 0 ? 'done' : 'error';
               sess.code = code;
+              if (code !== 0 && reason) sess.error = reason; // 웹이 실패 사유를 그대로 표시
               // 완료된 세션들 정리(용량 회수) — 성공한 것만 lastAllinoneFolder 로 살아있고,
               // 나머지 옛 세션 폴더는 지운다(단 방금 것은 남긴다).
               for (const [id, s] of sessions) {

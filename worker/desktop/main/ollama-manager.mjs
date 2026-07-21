@@ -37,9 +37,11 @@ export class OllamaManager {
         ...process.env,
         OLLAMA_HOST: HOST,
         OLLAMA_MODELS: join(ollamaDir(this.installDir), 'models'),
-        // 짧은 필드 3종을 동시 생성해도 ollama 가 배치로 처리하도록(순차보다 총시간↓).
-        //   기본값(1)이면 동시요청이 큐잉돼 병렬 이득이 없다. 사용자가 이미 지정했으면 존중.
-        OLLAMA_NUM_PARALLEL: process.env.OLLAMA_NUM_PARALLEL || '3',
+        // ⚠️ OLLAMA_NUM_PARALLEL 을 강제하지 않는다(과거 =3 강제가 문제였음).
+        //   ComfyUI(누끼)가 VRAM 을 점유한 상태에서 7.8B 를 3배 컨텍스트로 올리면 16GB 를 넘겨
+        //   OOM → 텍스트 단계 진입 시 프로세스가 죽었다. 미설정이면 ollama 가 "남은 VRAM"을 보고
+        //   1~4 를 자동 선택한다(여유 있으면 병렬로 빠르게, 빠듯하면 1 로 안전). 짧은필드 3종
+        //   Promise.all 은 num_parallel=1 이어도 큐잉될 뿐이라 안전하다. 사용자가 명시했으면 존중(...process.env).
       };
       this.onLog('[ollama] serve 시작');
       this.proc = spawn(exe, ['serve'], { env, windowsHide: true });

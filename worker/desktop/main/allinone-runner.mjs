@@ -81,32 +81,51 @@ export async function startGeneration({
     },
   });
 
+  // 실패 사유를 잃지 않도록 최근 로그·에러 라인을 버퍼링해 둔다.
+  //   예전엔 onDone(code) 만 넘겨 pair-server 가 sess.error 를 못 채웠고 → 웹엔 "로그 확인하세요"만.
+  const recent = [];       // 최근 라인(마지막 수단)
+  const errLines = [];     // 에러/오류로 보이는 라인(우선 노출)
+  const pushBuf = (arr, line, cap) => { arr.push(line); if (arr.length > cap) arr.shift(); };
+
   // 진행 이벤트를 앱 렌더러(send)와 호출자(onProgress: 웹 폴링용 pair-server)로 동시에 흘린다.
   const emitProgress = (p) => { send('allinone:progress', p); try { onProgress?.(p); } catch { /* skip */ } };
   const handle = (buf) => {
     for (const line of buf.toString('utf-8').split(/\r?\n/)) {
       if (!line.trim()) continue;
       send('allinone:log', line);
+      pushBuf(recent, line, 40);
+      if (/오류|error|exception|traceback|실패|OOM|out of memory|HTTP\s?[45]\d\d|❌/i.test(line)) pushBuf(errLines, line, 8);
       let m;
       if ((m = line.match(/\[인식\s+(\d+)\/(\d+)\]/))) emitProgress({ phase: 'recognize', done: +m[1], total: +m[2] });
       else if ((m = line.match(/\[텍스트\s+(\d+)\/(\d+)\]/))) emitProgress({ phase: 'text', done: +m[1], total: +m[2] });
       else if ((m = line.match(/\[이미지\s+(\d+)\/(\d+)\]/))) emitProgress({ phase: 'image', done: +m[1], total: +m[2] });
     }
   };
+  // 실패 사유 요약 — 에러 라인 우선, 없으면 최근 몇 줄, 그것도 없으면 종료코드/시그널.
+  const buildReason = (code, signal) => {
+    if (errLines.length) return errLines.slice(-3).join(' / ');
+    if (signal) return `프로세스가 강제 종료됨(${signal}) — 메모리 부족(VRAM/RAM)일 수 있습니다.`;
+    if (recent.length) return recent.slice(-3).join(' / ');
+    return `생성 프로세스가 종료됨(code=${code})`;
+  };
+
   child.stdout.on('data', handle);
   child.stderr.on('data', handle);
-  child.on('exit', (code) => {
+  child.on('exit', (code, signal) => {
     child = null;
     // 성공 폴더를 기억 — 웹 /allinone/manifest·file·list 가 이 폴더를 읽는다.
     if (code === 0) { try { store?.set('lastAllinoneFolder', folder); } catch { /* skip */ } }
-    onDone?.(code);
-    send('allinone:done', { code });
+    const reason = code === 0 ? null : buildReason(code, signal);
+    if (reason) send('allinone:log', `❌ 생성 실패: ${reason}`);
+    onDone?.(code, reason);
+    send('allinone:done', { code, reason });
   });
   child.on('error', (e) => {
     child = null;
-    send('allinone:log', '실행 오류: ' + e.message);
-    onDone?.(-1);
-    send('allinone:done', { code: -1 });
+    const reason = '실행 오류: ' + e.message;
+    send('allinone:log', reason);
+    onDone?.(-1, reason);
+    send('allinone:done', { code: -1, reason });
   });
   return true;
 }
