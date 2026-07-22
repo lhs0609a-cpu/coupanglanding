@@ -177,12 +177,13 @@ export async function measureImage(input) {
   const meta = await sharp(buf).metadata();
   const W0 = meta.width || 0, H0 = meta.height || 0;
 
+  // ⭐ .rotate() = EXIF 방향(회전·미러) 적용 후 측정 — 뒤집힌 사진을 정방향 기준으로 평가.
   // median(3) 로 노이즈만 죽이고 엣지는 보존한 뒤 라플라시안 — 위 laplacianVar 주석 참조
-  const g = await sharp(buf).greyscale().resize(WORK, WORK, { fit: 'inside' }).median(3)
+  const g = await sharp(buf).rotate().greyscale().resize(WORK, WORK, { fit: 'inside' }).median(3)
     .raw().toBuffer({ resolveWithObject: true });
   const sharpness = laplacianVar(g.data, g.info.width, g.info.height);
 
-  const c = await sharp(buf).toColourspace('srgb').removeAlpha()
+  const c = await sharp(buf).rotate().toColourspace('srgb').removeAlpha()
     .resize(WORK, WORK, { fit: 'inside' }).raw().toBuffer({ resolveWithObject: true });
   const { width: W, height: H, channels: C } = c.info;
   const { on, bgLum, cornerSpread, cornerTexture, borderDeviation, bgConfidence } = maskFromCornerBg(c.data, W, H, C);

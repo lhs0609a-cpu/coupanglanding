@@ -22,6 +22,20 @@ import * as comfy from './comfyui-client.mjs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const exists = (p) => access(p).then(() => true, () => false);
 
+// EXIF 방향(회전·미러)을 픽셀에 굽는다 — ComfyUI(PIL)는 EXIF 방향을 기본 적용하지 않아,
+//   세로/회전/거울상 사진이 뒤집힌 채 누끼돼 글자가 반전/회전된다. sharp 로 미리 정규화한다.
+//   sharp 미탑재/실패 시 원본 버퍼 그대로(현행 동작, 무손상).
+let _sharpOrientP = null;
+async function orientBuffer(buf) {
+  try {
+    if (!_sharpOrientP) _sharpOrientP = import('sharp').then((m) => m.default);
+    const sharp = await _sharpOrientP;
+    return await sharp(buf).rotate().toBuffer();
+  } catch {
+    return buf;
+  }
+}
+
 /** 미설치 노드별 설치 힌트(누끼 노드 등 자주 막히는 것 안내). */
 function why(missing) {
   if (missing.includes('InspyrenetRembg')) {
@@ -98,7 +112,7 @@ export async function makeThumbnailProcessor(o = {}) {
       return { path: dest, processed: true, reason: 'resume' };
     }
     try {
-      const buf = await readFile(srcPath);
+      const buf = await orientBuffer(await readFile(srcPath)); // EXIF 방향 굽기(뒤집힘·거울상 방지)
       const inputName = `coupang_in_${Date.now()}_${basename(srcPath)}`.replace(/[^\w.\-]/g, '_');
       const out = await comfy.generateThumbnail(comfyUrl, {
         imageBuffer: buf, inputName, workflow,

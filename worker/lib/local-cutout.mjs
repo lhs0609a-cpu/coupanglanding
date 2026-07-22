@@ -106,6 +106,8 @@ export async function localCutoutToWhite(inputBuffer, o = {}) {
   //    transformers 내부 fromBlob(번들 sharp)이 일부 Windows/색공간에서
   //    "colourspace: parameter space not set" 로 죽는 문제를 우회한다.
   const { data, info } = await sharp(inputBuffer)
+    .rotate() // ⭐ EXIF Orientation(회전·미러) 적용 — 세로/회전/거울상 사진이 뒤집혀 글자가
+              //    반전/회전된 채 누끼되는 것 방지. 반드시 raw 디코드 전에.
     .toColourspace('srgb').removeAlpha().raw().toBuffer({ resolveWithObject: true });
   const image = new RawImage(new Uint8ClampedArray(data), info.width, info.height, info.channels);
 
