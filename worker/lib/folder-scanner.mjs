@@ -106,9 +106,17 @@ export function scanFolder(rootDir) {
     const mainImages = collectImages(path.join(productPath, 'main_images'));
     const sourceCat = pj.sourceCategory || {};
 
+    // ⚠️ 원본 상품명 = name/title 중 "긴(정보 많은) 쪽". 네이버는 name 에 짧은 이름,
+    //    title 에 풀타이틀("...500ML (리필)...")을 저장하는 경우가 있어, 예전처럼 name 을
+    //    먼저 쓰면 용량/수량 스펙을 잃어 옵션추출·노출명에서 누락됐다(실측: 아로마티카 500ML).
+    const rawName = [pj.name, pj.title]
+      .map((v) => (v == null ? '' : String(v).trim()))
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length)[0] || name;
+
     out.push({
       id: productCode,
-      originalName: String(pj.name || pj.title || name).trim(),
+      originalName: rawName,
       brand: pj.brand ? String(pj.brand).trim() : '',
       features: deriveFeatures(pj),
       sourceUrl: readSourceUrl(productPath),

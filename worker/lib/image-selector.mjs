@@ -133,9 +133,14 @@ export async function selectBestMainImage(imagePaths, o = {}) {
       try { const met = await measureImage(p); l1 = scoreImage(met).score; }
       catch (e) { if (metricsDepsFailed()) l1Off = true; }
     }
-    // 결합: 기준점 = L1(있으면) 아니면 CLIP good(있으면) 아니면 0.5(중립).
+    // 결합: L1(누끼가 못 고치는 화질) × CLIP 의미계수(factor) × 정면가점(frontBoost).
+    //   ⭐ 정면성(good)을 순위에 직접 반영한다. 예전엔 두 컷이 다 "정면"으로 판정되면
+    //      그 다음은 화질(L1)로만 갈려서, 살짝 비스듬한 컷이 더 선명하면 정면컷을 이겼다.
+    //      누끼는 "선택된 원본"에 적용되므로(누끼가 각도를 못 바꿈) 선택이 가장 정면인 컷을
+    //      골라야 한다. good 이 높을수록(=더 정면·단독) 최대 +50% 가점.
     const base = l1 != null ? l1 : (good != null ? good : 0.5);
-    const score = +(base * factor).toFixed(4);
+    const frontBoost = good != null ? (0.5 + 0.5 * good) : 1;
+    const score = +(base * factor * frontBoost).toFixed(4);
     ranked.push({ path: p, score, good, l1: l1 != null ? +l1.toFixed(4) : null, topLabel, isLogo });
   }
   ranked.sort((a, b) => b.score - a.score);
