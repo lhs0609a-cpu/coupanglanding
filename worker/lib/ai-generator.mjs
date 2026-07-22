@@ -6,9 +6,10 @@
  * 이미지(대표이미지)는 별도(ComfyUI) 단계 — 여기선 텍스트만.
  */
 import { generate, parseJsonLoose } from './local-llm.mjs';
-import { pickPersona, buildTitlePrompt, buildCategoryPrompt, buildDetailPrompt, buildOptionsPrompt } from './ai-prompts.mjs';
+import { pickPersona, buildTitlePrompt, buildCategoryPrompt, buildOptionsPrompt } from './ai-prompts.mjs';
+import { generatePerfectDetail } from './detail-content-gen.mjs';
 import { checkMini } from './compliance-mini.mjs';
-import { checkDisplayName, checkDetail, sanitizeOptions, salvageDisplayName, stripNameFiller, hasForeignCJK } from './output-quality.mjs';
+import { checkDisplayName, sanitizeOptions, salvageDisplayName, stripNameFiller, hasForeignCJK } from './output-quality.mjs';
 
 /** 파싱 실패/빈 키워드 대비 — 원본명·특징에서 검색 키워드 폴백 도출 */
 function deriveKeywords(product) {
@@ -145,10 +146,30 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   const optSan = sanitizeOptions(optJson.options);
   const options = optSan.options;
 
-  // 4) 상세페이지 — 가장 큰 단계라 별도로(위 3종이 끝난 뒤) 생성
-  const dp = buildDetailPrompt(product, persona, { maxTokens: maxDetailTokens });
-  const detailRaw = await genText({ model, ...dp, ctx });
-  const detailCheck = checkDetail(detailRaw.text, { minLen: 200 });
+  // 4) 상세페이지 — robust 생성기(생성→검증→통과까지 재생성)로 품질 보장.
+  //    검증 항목: 공백제외 600자+ 길이 / leaf SEO 노출 / 후킹·불릿·문단 구조 / 문장반복 없음 /
+  //    금지어 / 카테고리 어휘 정합. 통과 못하면 "직전 문제"를 교정지시로 주입해 최대 3회 재생성.
+  //    ⚠️ 예전엔 buildDetailPrompt 1회+minLen 200 검사만 → CPU 400토큰이면 짧게/중간에 잘려도
+  //       통과했다(길이·후킹 미보장). 이제 길이 미달/잘림/반복을 잡아 재생성한다.
+  //    카테고리는 원본이 아니라 매핑된 쿠팡 카테고리(snapped) 기준으로 정합성 검증.
+  const dt0 = Date.now();
+  const detailGen = await generatePerfectDetail({
+    model,
+    originalName: product.originalName,
+    categoryPath: snapped.path || product.categoryPath || '',
+    features: product.features || [],
+    seoKeywords: keywords,
+    seed: personaSeed || product.originalName,
+    maxTokens: Math.max(maxDetailTokens || 0, 800), // 목표 600~1200자 도달 위해 토큰 하한 확보
+    maxAttempts: 3,
+  });
+  const detailChk = checkMini(detailGen.text, ctx); // 법적 금지어 최종 확인(compliance byField 리포트)
+  const detailRaw = {
+    text: detailGen.text, ms: Date.now() - dt0, tokPerSec: null,
+    ok: detailChk.ok, violations: detailChk.violations, retried: detailGen.attempts > 1,
+  };
+  // generatePerfectDetail 이 이미 길이·구조·반복·SEO 를 검증/재생성 → 통과 못한 경우만 사유 표기.
+  const detailCheck = { ok: detailGen.ok, issues: detailGen.ok ? [] : detailGen.issues.slice(0, 3) };
 
   const totalMs = Date.now() - t0;
   const fields = { title: titleRaw, category: catRaw, detail: detailRaw };
