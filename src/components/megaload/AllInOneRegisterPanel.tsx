@@ -1077,6 +1077,36 @@ export default function AllInOneRegisterPanel() {
     setRows((prev) => prev.map((r) => (r.uid === uid
       ? { ...r, edit: { ...r.edit, options: r.edit.options.filter((_, i) => i !== idx) } } : r)));
 
+  // ── 상세 이미지 넣고/빼기 ────────────────────────────────────────
+  // 이상한 컷(멤버십 배너 등)을 사용자가 직접 제거하고, 빠진 컷(리뷰/정보/큐레이션 제외분)을
+  // 다시 추가할 수 있게 한다. 등록엔 r.detailImages 만 첨부되므로 이 배열만 편집한다.
+  const [openDetailPool, setOpenDetailPool] = useState<Record<string, boolean>>({});
+  const removeDetailImage = (uid: string, name: string) =>
+    setRows((prev) => prev.map((r) => (r.uid === uid
+      ? { ...r, detailImages: r.detailImages.filter((img) => img.name !== name) } : r)));
+  const addDetailImage = async (uid: string, img: ScannedImageFile) => {
+    if (!img.objectUrl) await ensureObjectUrl(img);
+    setRows((prev) => prev.map((r) => (r.uid === uid && !r.detailImages.some((d) => d.name === img.name)
+      ? { ...r, detailImages: [...r.detailImages, img] } : r)));
+  };
+  /** 추가 가능한 이미지 = 스캔한 상세/리뷰/정보 이미지 중 현재 상세에 없는 것(중복 파일명 제외). */
+  const addableDetailImages = (r: Row): ScannedImageFile[] => {
+    const have = new Set(r.detailImages.map((d) => d.name));
+    const pool = [
+      ...(r.scanned.detailImages || []),
+      ...(r.scanned.reviewImages || []),
+      ...(r.scanned.infoImages || []),
+    ];
+    const seen = new Set<string>();
+    return pool.filter((img) => img && !have.has(img.name) && !seen.has(img.name) && seen.add(img.name));
+  };
+  const toggleDetailPool = async (uid: string, pool: ScannedImageFile[]) => {
+    const opening = !openDetailPool[uid];
+    if (opening) await Promise.all(pool.map((img) => (img.objectUrl ? null : ensureObjectUrl(img))));
+    setOpenDetailPool((p) => ({ ...p, [uid]: opening }));
+    setRows((prev) => [...prev]);
+  };
+
   // 마진 프리셋 일괄 적용 — 각 행 edit.sellingPrice 에 원가×프리셋 결과를 기록(개별 수정은 그 뒤 덮어쓰기 가능).
   // level=null('워커 기본')은 워커 생성가로 되돌림.
   const applyPreset = (level: MarginPresetLevel | null) => {
@@ -1519,6 +1549,12 @@ export default function AllInOneRegisterPanel() {
                     onCommit={(v) => patchEdit(r.uid, { displayName: v })}
                     placeholder={r.scanned.productJson?.name || r.productCode}
                     className="w-full text-sm font-semibold text-gray-900 leading-snug border border-transparent hover:border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-transparent" />
+                  {/* 원본 상품명(소싱 원문) — 노출명과 비교용. 노출명과 다를 때만 표시. */}
+                  {g?.originalName && g.originalName !== e.displayName && (
+                    <p className="px-1 text-[11px] text-gray-400 leading-snug break-all">
+                      <span className="text-gray-400">원본명:</span> {g.originalName}
+                    </p>
+                  )}
                   {/* 카테고리 경로 + 코드 — 직접 수정 */}
                   <div className="flex items-center gap-1">
                     <DraftField value={e.categoryPath} disabled={!editable}
@@ -1617,24 +1653,57 @@ export default function AllInOneRegisterPanel() {
                     상세페이지 편집 {openDetail[r.uid] ? '▴' : '▾'}
                     <span className="ml-1 text-gray-400">이미지 {r.detailImages.length}장</span>
                   </button>
-                  {openDetail[r.uid] && (
+                  {openDetail[r.uid] && (() => {
+                    const addable = addableDetailImages(r);
+                    return (
                     <>
-                      {/* 상세페이지에 실제로 첨부될 이미지 — "이미지가 안 들어간다"를 눈으로 확인 */}
+                      {/* 상세페이지에 첨부될 이미지 — 이상한 컷은 × 로 빼고, 빠진 컷은 + 로 추가 */}
+                      <div className="mt-1 flex items-center justify-between">
+                        <span className="text-[11px] text-gray-500">상세 이미지 {r.detailImages.length}장 (등록에 첨부)</span>
+                        {addable.length > 0 && (
+                          <button type="button" disabled={!editable} onClick={() => void toggleDetailPool(r.uid, addable)}
+                            className="text-[11px] text-blue-600 disabled:opacity-40">
+                            {openDetailPool[r.uid] ? '이미지 추가 닫기' : `+ 이미지 추가 (${addable.length})`}
+                          </button>
+                        )}
+                      </div>
                       {r.detailImages.length > 0 ? (
                         <div className="mt-1 flex gap-1 overflow-x-auto pb-1">
-                          {r.detailImages.map((img, i) => (
-                            <img key={i} src={img.objectUrl} alt="" loading="lazy"
-                              className="h-16 w-16 flex-none object-cover rounded border border-gray-200 bg-white" />
+                          {r.detailImages.map((img) => (
+                            <div key={img.name} className="relative flex-none">
+                              <img src={img.objectUrl} alt="" loading="lazy"
+                                className="h-16 w-16 object-cover rounded border border-gray-200 bg-white" />
+                              {editable && (
+                                <button type="button" onClick={() => removeDetailImage(r.uid, img.name)}
+                                  title="상세에서 제외"
+                                  className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 text-[10px] leading-none flex items-center justify-center">×</button>
+                              )}
+                            </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="mt-1 text-[11px] text-amber-600">상세 이미지 없음 — 소싱 폴더에 상세이미지가 없거나 전부 광고컷으로 제외됐습니다.</p>
+                        <p className="mt-1 text-[11px] text-amber-600">상세 이미지 없음 — 아래 &quot;+ 이미지 추가&quot;로 넣거나, 소싱 폴더에 상세이미지가 없는 경우입니다.</p>
+                      )}
+                      {/* 추가 가능한 이미지 풀 (리뷰/정보/큐레이션 제외분) — + 로 상세에 포함 */}
+                      {openDetailPool[r.uid] && addable.length > 0 && (
+                        <div className="mt-1 flex gap-1 overflow-x-auto pb-1 bg-gray-50 rounded p-1">
+                          {addable.map((img) => (
+                            <button type="button" key={img.name} disabled={!editable}
+                              onClick={() => void addDetailImage(r.uid, img)} title="상세에 추가"
+                              className="relative flex-none group disabled:opacity-40">
+                              <img src={img.objectUrl} alt="" loading="lazy"
+                                className="h-16 w-16 object-cover rounded border border-gray-200 bg-white opacity-70 group-hover:opacity-100" />
+                              <span className="absolute -top-1 -right-1 bg-blue-500 text-white rounded-full w-4 h-4 text-[10px] leading-none flex items-center justify-center">+</span>
+                            </button>
+                          ))}
+                        </div>
                       )}
                       <textarea value={e.detail} disabled={!editable}
                         onChange={(ev) => patchEdit(r.uid, { detail: ev.target.value })}
                         className="mt-1 w-full text-[12px] whitespace-pre-wrap leading-relaxed bg-gray-50 border border-gray-200 focus:border-blue-300 rounded p-2 h-72 overflow-auto focus:outline-none disabled:bg-gray-100" />
                     </>
-                  )}
+                    );
+                  })()}
                 </div>
               )}
               {r.message && <p className="text-[11px] text-red-600">{r.message}</p>}

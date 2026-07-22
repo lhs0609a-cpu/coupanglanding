@@ -430,10 +430,22 @@ function buildBlogStyleSection(
   return parts.join('\n');
 }
 
+/**
+ * 순수 텍스트를 escape 하고 마크다운 볼드(**x**)를 <strong> 로 변환한다.
+ *   LLM 상세글이 후킹 문장을 `**...**` 로 감싸는데, 예전엔 esc 만 해서 상세페이지에
+ *   리터럴 별표(**이런 적 있으시죠?**)가 그대로 노출됐다. 짝 안 맞는 ** 도 제거한다.
+ */
+function escInline(text: string): string {
+  let s = esc(text);
+  s = s.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>'); // **볼드** → <strong>
+  s = s.replace(/\*\*/g, '');                                   // 남은 짝 없는 마커 제거
+  return s;
+}
+
 /** 단일 문단 — 다른 섹션(FAQ 등)에서 호출 */
 function buildParagraphBlock(text: string, style: LayoutStyle): string {
   const isHtml = /<[a-z][\s\S]*>/i.test(text);
-  const content = isHtml ? text : `<p style="margin:0;">${esc(text)}</p>`;
+  const content = isHtml ? text : `<p style="margin:0;">${escInline(text)}</p>`;
   return `<div style="padding:${style.padding};line-height:2.2;font-size:21px;color:#222;word-break:keep-all;">\n${content}\n</div>`;
 }
 
@@ -449,7 +461,7 @@ function buildParagraphGroupBlock(texts: string[], style: LayoutStyle): string {
     const margin = isLast ? '0' : '0 0 14px 0';
     return isHtml
       ? `<div style="margin:${margin};">${text}</div>`
-      : `<p style="margin:${margin};">${esc(text)}</p>`;
+      : `<p style="margin:${margin};">${escInline(text)}</p>`;
   }).join('\n');
   return `<div style="padding:${style.padding};line-height:2.2;font-size:21px;color:#222;word-break:keep-all;">\n${ps}\n</div>`;
 }
