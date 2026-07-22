@@ -32,6 +32,7 @@ import {
 import { focusNextField } from './focusNextField';
 import PreUploadConfirmModal from './PreUploadConfirmModal';
 import { CertStatusBlock } from './CertStatusBlock';
+import CategoryCascadingPicker from './bulk/CategoryCascadingPicker';
 import type { CertPreviewResult } from '@/app/api/megaload/products/cert-preview/route';
 import type { OptionPreviewResult } from '@/app/api/megaload/products/option-preview/route';
 
@@ -1081,6 +1082,8 @@ export default function AllInOneRegisterPanel() {
   // 이상한 컷(멤버십 배너 등)을 사용자가 직접 제거하고, 빠진 컷(리뷰/정보/큐레이션 제외분)을
   // 다시 추가할 수 있게 한다. 등록엔 r.detailImages 만 첨부되므로 이 배열만 편집한다.
   const [openDetailPool, setOpenDetailPool] = useState<Record<string, boolean>>({});
+  // 카테고리 트리 선택 모달을 연 행(uid). null 이면 닫힘.
+  const [catPickerUid, setCatPickerUid] = useState<string | null>(null);
   const removeDetailImage = (uid: string, name: string) =>
     setRows((prev) => prev.map((r) => (r.uid === uid
       ? { ...r, detailImages: r.detailImages.filter((img) => img.name !== name) } : r)));
@@ -1105,6 +1108,33 @@ export default function AllInOneRegisterPanel() {
     if (opening) await Promise.all(pool.map((img) => (img.objectUrl ? null : ensureObjectUrl(img))));
     setOpenDetailPool((p) => ({ ...p, [uid]: opening }));
     setRows((prev) => [...prev]);
+  };
+
+  // ── 대표컷 후보(서브이미지) 넣고/빼기 ────────────────────────────
+  // 대표 외 후보는 등록 시 서브(상품)이미지로 올라간다. 이상한 컷을 × 로 빼고, 뺀 컷을 + 로 되살린다.
+  // mainImages = [누끼(regen)…, 원본…] 구조라 인덱스/regenCount/선택인덱스를 함께 보정한다.
+  const removeMainImage = (uid: string, name: string) =>
+    setRows((prev) => prev.map((r) => {
+      if (r.uid !== uid) return r;
+      const idx = r.mainImages.findIndex((m) => m.name === name);
+      if (idx < 0 || r.mainImages.length <= 1) return r; // 최소 1장 유지
+      const mainImages = r.mainImages.filter((_, i) => i !== idx);
+      const regenCount = idx < r.regenCount ? r.regenCount - 1 : r.regenCount;
+      let selectedMainIdx = r.selectedMainIdx;
+      if (idx === selectedMainIdx) selectedMainIdx = 0;      // 대표를 지우면 첫 장으로
+      else if (idx < selectedMainIdx) selectedMainIdx -= 1;
+      selectedMainIdx = Math.max(0, Math.min(selectedMainIdx, mainImages.length - 1));
+      return { ...r, mainImages, regenCount, selectedMainIdx };
+    }));
+  const addMainImage = async (uid: string, img: ScannedImageFile) => {
+    if (!img.objectUrl) await ensureObjectUrl(img);
+    setRows((prev) => prev.map((r) => (r.uid === uid && !r.mainImages.some((m) => m.name === img.name)
+      ? { ...r, mainImages: [...r.mainImages, img] } : r)));
+  };
+  /** 되살릴 수 있는 대표 후보 = 스캔한 main_images 중 현재 후보에 없는 것. */
+  const addableMainImages = (r: Row): ScannedImageFile[] => {
+    const have = new Set(r.mainImages.map((m) => m.name));
+    return (r.scanned.mainImages || []).filter((img) => img && !have.has(img.name));
   };
 
   // 마진 프리셋 일괄 적용 — 각 행 edit.sellingPrice 에 원가×프리셋 결과를 기록(개별 수정은 그 뒤 덮어쓰기 가능).
@@ -1479,6 +1509,18 @@ export default function AllInOneRegisterPanel() {
         onCancel={() => setPreUploadOpen(false)}
       />
 
+      {/* 카테고리 트리 선택 — 대량등록과 동일 picker. 선택 시 해당 행의 코드·경로를 갱신. */}
+      <CategoryCascadingPicker
+        isOpen={catPickerUid !== null}
+        onClose={() => setCatPickerUid(null)}
+        currentCode={rows.find((r) => r.uid === catPickerUid)?.edit.categoryCode || undefined}
+        title={`카테고리 선택 — ${rows.find((r) => r.uid === catPickerUid)?.edit.displayName || ''}`}
+        onSelect={(code, fullPath) => {
+          if (catPickerUid) patchEdit(catPickerUid, { categoryCode: code, categoryPath: fullPath });
+          setCatPickerUid(null);
+        }}
+      />
+
       {/* 마진 프리셋 — 원가×마진으로 전 카드 판매가 일괄 기록(개별 수정은 그 뒤 카드에서 덮어쓰기). '워커 기본'은 생성값 복원 */}
       {rows.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-3 py-2">
@@ -1555,7 +1597,7 @@ export default function AllInOneRegisterPanel() {
                       <span className="text-gray-400">원본명:</span> {g.originalName}
                     </p>
                   )}
-                  {/* 카테고리 경로 + 코드 — 직접 수정 */}
+                  {/* 카테고리 경로 + 코드 — 직접 수정 or 트리 선택 */}
                   <div className="flex items-center gap-1">
                     <DraftField value={e.categoryPath} disabled={!editable}
                       onCommit={(v) => patchEdit(r.uid, { categoryPath: v })} placeholder="카테고리 경로"
@@ -1564,6 +1606,9 @@ export default function AllInOneRegisterPanel() {
                       sanitize={(v) => v.replace(/[^0-9]/g, '')}
                       onCommit={(v) => patchEdit(r.uid, { categoryCode: v })} placeholder="코드"
                       className="w-20 text-xs text-gray-700 border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
+                    {/* 트리에서 카테고리 직접 선택 (대량등록과 동일 picker) */}
+                    <button type="button" disabled={!editable} onClick={() => setCatPickerUid(r.uid)}
+                      title="카테고리 트리에서 선택" className="text-xs text-gray-500 hover:text-blue-600 border border-gray-200 rounded px-1.5 py-0.5 disabled:opacity-40">📂</button>
                   </div>
                   {/* 판매가 — 직접 수정 */}
                   <div className="flex items-center gap-1">
@@ -1587,27 +1632,57 @@ export default function AllInOneRegisterPanel() {
                     className="text-xs text-gray-600 border border-gray-200 rounded px-2 py-1 disabled:opacity-40">
                     대표컷 변경 ({r.selectedMainIdx + 1}/{r.mainImages.length}) {openMain[r.uid] ? '▴' : '▾'}
                   </button>
-                  {openMain[r.uid] && (
-                    <div className="mt-1 flex gap-1.5 overflow-x-auto pb-1">
-                      {r.mainImages.map((img, i) => (
-                        <button key={`${img.name}-${i}`} type="button" disabled={!editable}
-                          onClick={() => selectMain(r.uid, i, img)}
-                          title={i < r.regenCount ? `누끼 가공본 · ${img.name}` : img.name}
-                          className={`relative flex-none w-14 h-14 rounded-md overflow-hidden border-2 ${i === r.selectedMainIdx ? 'border-[#E31837]' : 'border-transparent hover:border-gray-300'}`}>
-                          {img.objectUrl
-                            ? <img src={img.objectUrl} alt="" className="w-full h-full object-cover bg-gray-100" />
-                            : <div className="w-full h-full bg-gray-100" />}
-                          {i < r.regenCount && (
-                            <span className="absolute bottom-0 inset-x-0 bg-emerald-600/85 text-white text-[9px] leading-tight text-center">누끼</span>
-                          )}
-                          {/* 지금 선택된 컷 = 실제로 쿠팡에 올라갈 대표. 첫 장(누끼)과 헷갈리지 않게 명시. */}
-                          {i === r.selectedMainIdx && (
-                            <span className="absolute top-0 left-0 bg-[#E31837] text-white text-[9px] leading-none px-1 py-0.5 rounded-br">★대표</span>
-                          )}
+                  {openMain[r.uid] && (() => {
+                    const addableMain = addableMainImages(r);
+                    return (
+                    <>
+                      <div className="mt-1 flex gap-1.5 overflow-x-auto pb-1">
+                        {r.mainImages.map((img, i) => (
+                          <div key={`${img.name}-${i}`} role="button" tabIndex={editable ? 0 : -1}
+                            onClick={() => editable && selectMain(r.uid, i, img)}
+                            title={i < r.regenCount ? `누끼 가공본 · ${img.name}` : img.name}
+                            className={`relative flex-none w-14 h-14 rounded-md overflow-hidden border-2 ${editable ? 'cursor-pointer' : ''} ${i === r.selectedMainIdx ? 'border-[#E31837]' : 'border-transparent hover:border-gray-300'}`}>
+                            {img.objectUrl
+                              ? <img src={img.objectUrl} alt="" className="w-full h-full object-cover bg-gray-100" />
+                              : <div className="w-full h-full bg-gray-100" />}
+                            {i < r.regenCount && (
+                              <span className="absolute bottom-0 inset-x-0 bg-emerald-600/85 text-white text-[9px] leading-tight text-center">누끼</span>
+                            )}
+                            {i === r.selectedMainIdx && (
+                              <span className="absolute top-0 left-0 bg-[#E31837] text-white text-[9px] leading-none px-1 py-0.5 rounded-br">★대표</span>
+                            )}
+                            {/* 이 후보를 서브이미지에서 제외(대표 외 후보는 서브이미지로 등록됨) */}
+                            {editable && r.mainImages.length > 1 && (
+                              <button type="button" title="서브이미지에서 제외"
+                                onClick={(ev) => { ev.stopPropagation(); removeMainImage(r.uid, img.name); }}
+                                className="absolute top-0 right-0 bg-red-500 text-white rounded-bl w-4 h-4 text-[10px] leading-none flex items-center justify-center">×</button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      {/* 뺀 대표 후보 되살리기 */}
+                      {addableMain.length > 0 && (
+                        <button type="button" disabled={!editable} onClick={() => void toggleDetailPool(`main:${r.uid}`, addableMain)}
+                          className="text-[11px] text-blue-600 disabled:opacity-40">
+                          {openDetailPool[`main:${r.uid}`] ? '되살리기 닫기' : `+ 뺀 이미지 되살리기 (${addableMain.length})`}
                         </button>
-                      ))}
-                    </div>
-                  )}
+                      )}
+                      {openDetailPool[`main:${r.uid}`] && addableMain.length > 0 && (
+                        <div className="mt-1 flex gap-1 overflow-x-auto pb-1 bg-gray-50 rounded p-1">
+                          {addableMain.map((img) => (
+                            <button type="button" key={img.name} disabled={!editable}
+                              onClick={() => void addMainImage(r.uid, img)} title="후보로 되살리기"
+                              className="relative flex-none group disabled:opacity-40">
+                              <img src={img.objectUrl} alt="" loading="lazy"
+                                className="h-14 w-14 object-cover rounded border border-gray-200 bg-white opacity-70 group-hover:opacity-100" />
+                              <span className="absolute -top-1 -right-1 bg-blue-500 text-white rounded-full w-4 h-4 text-[10px] leading-none flex items-center justify-center">+</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                    );
+                  })()}
                 </div>
               )}
 
