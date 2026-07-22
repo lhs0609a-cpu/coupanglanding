@@ -8,7 +8,7 @@
 import { generate, parseJsonLoose } from './local-llm.mjs';
 import { pickPersona, buildTitlePrompt, buildCategoryPrompt, buildDetailPrompt, buildOptionsPrompt } from './ai-prompts.mjs';
 import { checkMini } from './compliance-mini.mjs';
-import { checkDisplayName, checkDetail, sanitizeOptions, salvageDisplayName, hasForeignCJK } from './output-quality.mjs';
+import { checkDisplayName, checkDetail, sanitizeOptions, salvageDisplayName, stripNameFiller, hasForeignCJK } from './output-quality.mjs';
 
 /** 파싱 실패/빈 키워드 대비 — 원본명·특징에서 검색 키워드 폴백 도출 */
 function deriveKeywords(product) {
@@ -22,6 +22,34 @@ function deriveKeywords(product) {
 
 const AVOID = (violations) =>
   violations.length ? `\n\n[재작성] 다음 표현은 법적 위반이라 절대 쓰지 말 것: ${violations.join(', ')}. 같은 의미도 우회 금지.` : '';
+
+/** 문자열 → 결정론 해시(FNV-1a). 같은 시드 = 같은 값(재현성). */
+function seedHash(s) {
+  let h = 2166136261;
+  for (const ch of String(s || 'default')) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+  return Math.abs(h);
+}
+
+/**
+ * 셀러별 노출명 유니크화 — 코어(브랜드·제품명·스펙)는 그대로 두고, 셀러 시드로 keywords 중
+ *   노출명에 아직 없는 검색어 1개를 결정론적으로 골라 꼬리에 붙인다.
+ *   여러 셀러가 같은 상품을 올려도 노출명이 겹치지 않게(아이템위너 회피) + SEO 키워드 보강.
+ *   50자 초과하면 붙이지 않는다(쿠팡 노출명 길이 가드).
+ * @param {string} displayName  코어 노출명
+ * @param {string[]} keywords   SEO 키워드
+ * @param {string} seed         셀러 식별 시드(=personaSeed: `${sellerId}:${상품}`)
+ */
+function diversifyBySeller(displayName, keywords, seed) {
+  const name = String(displayName || '').trim();
+  const pool = (keywords || [])
+    .filter((k) => typeof k === 'string' && k.trim())
+    .map((k) => k.trim())
+    .filter((k) => !name.includes(k) && k.length >= 2 && k.length <= 12);
+  if (pool.length === 0) return name;
+  const pick = pool[seedHash(seed) % pool.length];
+  const out = `${name} ${pick}`.trim();
+  return out.length <= 50 ? out : name;
+}
 
 const catTokens = (s) => (String(s || '').toLowerCase().match(/[가-힣a-z0-9]+/g) || []).filter((t) => t.length >= 2);
 
@@ -88,6 +116,9 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   // 1) 노출상품명/제목 — 파싱 실패 시 원문을 그대로 저장하지 않고 복구(원문 누출 방지)
   const titleJson = parseJsonLoose(titleRaw.text) || {};
   let displayName = typeof titleJson.displayName === 'string' ? titleJson.displayName.trim() : '';
+  // 홍보/주관 형용사(합리적·프리미엄 등)를 먼저 제거 — 이것만이 문제면 살균으로 통과시켜
+  // 원본명 폴백까지 가지 않게 한다(폴백은 원본의 스팸키워드를 그대로 끌고 올 수 있음).
+  if (displayName) displayName = stripNameFiller(displayName);
   let displaySalvaged = false;
   if (!displayName || !checkDisplayName(displayName).ok) {
     displayName = salvageDisplayName(titleJson.displayName || titleRaw.text, product.originalName);
@@ -98,6 +129,12 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
     ? titleJson.keywords.filter((k) => typeof k === 'string' && k.trim() && !hasForeignCJK(k)).map((k) => k.trim())
     : [];
   if (keywords.length === 0) keywords = deriveKeywords(product);
+  // 셀러별 노출명 유니크화 — 브랜드+제품명+스펙 코어는 유지하고, 셀러 시드로 SEO 키워드 하나를
+  //   결정론적으로 꼬리에 붙인다. 같은 상품이라도 셀러마다 노출명이 겹치지 않게(아이템위너 회피)
+  //   + 검색 키워드 보강. (같은 셀러·상품은 항상 같은 결과 = 재현성 유지)
+  if (!displaySalvaged || checkDisplayName(displayName).ok) {
+    displayName = diversifyBySeller(displayName, keywords, personaSeed || product.originalName);
+  }
 
   // 2) 카테고리 — LLM 결과를 실제 후보 코드로 강제 매핑
   const catJson = parseJsonLoose(catRaw.text) || {};

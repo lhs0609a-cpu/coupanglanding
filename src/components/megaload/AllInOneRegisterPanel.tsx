@@ -33,6 +33,7 @@ import { focusNextField } from './focusNextField';
 import PreUploadConfirmModal from './PreUploadConfirmModal';
 import { CertStatusBlock } from './CertStatusBlock';
 import type { CertPreviewResult } from '@/app/api/megaload/products/cert-preview/route';
+import type { OptionPreviewResult } from '@/app/api/megaload/products/option-preview/route';
 
 const BATCH_SIZE = 10;
 const IMG_RE = /\.(png|jpg|jpeg|webp)$/i;
@@ -62,6 +63,8 @@ interface GenRecord {
   persona?: string;
   needsReview?: boolean;
   thumbProcessed?: boolean | null;
+  /** 대표컷 후보가 전부 로고/저품질이라 확인이 필요할 때의 사유(run-folder 가 표기) */
+  mainImageWarning?: string;
 }
 
 type RowStatus = 'idle' | 'registering' | 'success' | 'error';
@@ -108,6 +111,28 @@ interface OutboundPlace { outboundShippingPlaceCode: number; placeName: string; 
 interface ReturnCenter { returnCenterCode: number; shippingPlaceName: string; returnAddress?: string }
 
 const won = (n: number | null | undefined) => (n == null ? '-' : Number(n).toLocaleString() + '원');
+
+/** 옵션 표시문자열(값+단위) — 오버라이드 전송/비교용. */
+function optDisplay(o: { value: string; unit?: string }): string {
+  return `${o.value ?? ''}${o.unit || ''}`.trim();
+}
+
+/**
+ * 상품명에서 못 뽑아 억지 기본값이 들어간 필수옵션 중, 사용자가 아직 안 고친 게 있으면 true.
+ * (프리뷰 placeholder 값 그대로면 미해결 → 등록 차단 + 카드에 "직접 입력" 표시)
+ */
+function unresolvedOptionInput(
+  edit: RowEdit,
+  prev?: { buyOptions: { name: string; value: string; unit?: string }[]; needsInput?: string[] },
+): string[] {
+  if (!prev?.needsInput?.length) return [];
+  const cur = new Map(edit.options.map((o) => [o.name, optDisplay(o)]));
+  const placeholder = new Map(prev.buyOptions.map((o) => [o.name, optDisplay(o)]));
+  return prev.needsInput.filter((nm) => {
+    const c = cur.get(nm);
+    return !c || c === placeholder.get(nm); // 비었거나 placeholder 그대로 = 미입력
+  });
+}
 
 /** ms → "m분 s초" / "s초" (진행 경과·ETA 표시용). */
 function fmtDur(ms: number): string {
@@ -504,6 +529,11 @@ export default function AllInOneRegisterPanel() {
   const [certLoading, setCertLoading] = useState(false);
   /** 등록 후 서버가 알려준 인증 미반영 요약 */
   const [certNotice, setCertNotice] = useState('');
+  // 구매옵션 미리보기 — 등록 경로(preflight-builder)와 같은 추출기로 "실제 등록될 옵션"을
+  // 카드에 미리 채운다. LLM 이 지어낸 "무알콜=무알콜" 대신 카테고리 스키마 기반 진짜 옵션.
+  const [optionPreviews, setOptionPreviews] = useState<Map<string, OptionPreviewResult>>(new Map());
+  // (uid:categoryCode) 단위로 1회만 자동 채움 — 이후 사용자 수동 수정을 덮어쓰지 않게.
+  const optionFilledRef = useRef<Set<string>>(new Set());
 
   // ── 도우미 직독 ────────────────────────────────────────────────────
   // 도우미(pair-server)가 마지막으로 생성을 끝낸 폴더의 결과를 localhost 에서 미리 받아둔다.
@@ -623,6 +653,62 @@ export default function AllInOneRegisterPanel() {
     // certKey 가 실제 의존성 — certInput 은 매 렌더 새 배열이라 넣으면 무한루프
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [certKey, loadCertPreviews]);
+
+  // ── 구매옵션 미리보기 ────────────────────────────────────────────
+  // 카테고리가 정해진 상품에 대해 "실제 등록될 옵션"을 서버에서 계산해 카드에 채운다.
+  // 원본(소싱) 상품명이 스펙이 가장 풍부하므로 그것을 1차 소스로 넘긴다.
+  const optionInput = rows
+    .filter((r) => r.status !== 'success' && r.edit.categoryCode)
+    .map((r) => ({
+      uid: r.uid,
+      categoryCode: r.edit.categoryCode,
+      productName: r.gen?.originalName || r.edit.displayName,
+      displayName: r.edit.displayName,
+      tags: r.gen?.keywords,
+      categoryPath: r.edit.categoryPath,
+    }));
+  // 카테고리·원본명이 바뀔 때만 재조회 (카드 편집마다 때리지 않도록)
+  const optionKey = optionInput.map((c) => `${c.uid}:${c.categoryCode}`).join('|');
+
+  const loadOptionPreviews = useCallback(async (input: typeof optionInput) => {
+    if (input.length === 0) { setOptionPreviews(new Map()); return; }
+    try {
+      const res = await fetch('/api/megaload/products/option-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products: input }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      const data = await res.json() as { results?: OptionPreviewResult[] };
+      const map = new Map((data.results || []).map((r) => [r.uid, r]));
+      setOptionPreviews(map);
+      // 실제 등록될 옵션으로 카드의 옵션칸을 채운다 — (uid:categoryCode)당 1회만.
+      setRows((prev) => prev.map((r) => {
+        const res2 = map.get(r.uid);
+        if (!res2 || !res2.buyOptions || res2.buyOptions.length === 0) return r;
+        const key = `${r.uid}:${r.edit.categoryCode}`;
+        if (optionFilledRef.current.has(key)) return r; // 이미 채움 → 사용자 수정 보존
+        optionFilledRef.current.add(key);
+        const options = res2.buyOptions.map((o) => ({ name: o.name, value: o.value, unit: o.unit }));
+        // 상품명에서 못 뽑아 억지 기본값이 들어간 필수옵션이 있으면 자동승인을 풀어
+        // 사용자가 직접 입력하도록 강제(억지값 등록 방지).
+        const needsInput = (res2.needsInput?.length ?? 0) > 0;
+        return { ...r, edit: { ...r.edit, options }, approved: needsInput ? false : r.approved };
+      }));
+    } catch {
+      // 미리보기 실패는 등록을 막지 않는다 — 서버가 등록 때 다시 추출한다.
+      setOptionPreviews(new Map());
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!optionKey) { setOptionPreviews(new Map()); return; }
+    const t = setTimeout(() => void loadOptionPreviews(optionInput), 500);
+    return () => clearTimeout(t);
+    // optionKey 가 실제 의존성 — optionInput 은 매 렌더 새 배열
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [optionKey, loadOptionPreviews]);
 
   // ── 폴더 선택 + 스캔 ──────────────────────────────────────────────
   const handlePick = useCallback(async () => {
@@ -962,6 +1048,13 @@ export default function AllInOneRegisterPanel() {
     if (!img.objectUrl) await ensureObjectUrl(img);
     setRows((prev) => prev.map((r) => (r.uid === uid ? { ...r, selectedMainIdx: idx } : r)));
   };
+  // 상세 편집 토글 — 펼칠 때 상세이미지 썸네일 URL 을 보장(스캐너가 lazy 로 읽으므로).
+  const toggleDetail = async (uid: string, detailImages: ScannedImageFile[]) => {
+    const opening = !openDetail[uid];
+    if (opening) await Promise.all(detailImages.map((img) => (img.objectUrl ? null : ensureObjectUrl(img))));
+    setOpenDetail((p) => ({ ...p, [uid]: opening }));
+    setRows((prev) => [...prev]); // 채운 objectUrl 반영
+  };
 
   const toggleApprove = (uid: string) =>
     setRows((prev) => prev.map((r) => (r.uid === uid ? { ...r, approved: !r.approved } : r)));
@@ -1008,9 +1101,22 @@ export default function AllInOneRegisterPanel() {
     if (!contactNumber.trim()) { setError('고객센터 연락처를 입력해주세요.'); return; }
     const missingImg = targets.filter((r) => r.mainImages.length === 0);
     if (missingImg.length > 0) { setError(`대표이미지가 없는 상품 ${missingImg.length}개가 있습니다. 워커에서 대표이미지 가공 후 다시 시도하세요.`); return; }
+    // 상품명에 스펙이 없어 억지 기본값이 들어간 필수옵션 — 직접 입력 전엔 등록 차단(1ml 같은 거짓값 방지).
+    const needOpt = targets
+      .map((r) => ({ r, miss: unresolvedOptionInput(r.edit, optionPreviews.get(r.uid)) }))
+      .filter((x) => x.miss.length > 0);
+    if (needOpt.length > 0) {
+      setError(
+        `옵션을 직접 입력해야 하는 상품 ${needOpt.length}개가 있습니다(상품명에 용량·수량 등이 없어 값을 못 뽑음). `
+        + `해당 카드의 빨간 옵션칸에 실제 값을 입력하세요: `
+        + needOpt.slice(0, 5).map((x) => `${x.r.edit.displayName || x.r.productCode}(${x.miss.join(',')})`).join(' · ')
+        + (needOpt.length > 5 ? ` 외 ${needOpt.length - 5}개` : ''),
+      );
+      return;
+    }
     setPreUploadCount(targets.length);
     setPreUploadOpen(true);
-  }, [rows, selectedOutbound, selectedReturn, contactNumber]);
+  }, [rows, selectedOutbound, selectedReturn, contactNumber, optionPreviews]);
 
   // ── 등록 ─────────────────────────────────────────────────────────
   const handleRegister = useCallback(async () => {
@@ -1058,6 +1164,19 @@ export default function AllInOneRegisterPanel() {
           const optionTags = e.options
             .map((o) => `${o.name} ${o.value}${o.unit || ''}`.trim())
             .filter(Boolean);
+          // 사용자가 확정/수정한 옵션값을 실제 등록에 반영(옵션명→값). 서버(preflight)가 추출값 대신 이걸 쓴다.
+          //   자동추출과 같은 값은 굳이 안 보내고(서버가 단위까지 정확), 사용자가 바꾼/직접입력한 것만 override.
+          const optPrev = optionPreviews.get(r.uid);
+          const prevByName = new Map((optPrev?.buyOptions || []).map((o) => [o.name, optDisplay(o)]));
+          const needsSet = new Set(optPrev?.needsInput || []);
+          const buyOptionValuesOverride: Record<string, string> = {};
+          for (const o of e.options) {
+            const cur = optDisplay(o);
+            if (!cur || !o.name) continue;
+            if (needsSet.has(o.name) || (prevByName.has(o.name) && prevByName.get(o.name) !== cur)) {
+              buyOptionValuesOverride[o.name] = cur;
+            }
+          }
           const wm = sellerBrandRef.current;
           // 이미지 업로드: 대표(가공본 우선·CLIP 랭킹 첫장) + 상세(CLIP 큐레이션) + 리뷰/정보
           // 사용자가 고른 컷이 첫 장(=쿠팡 대표)이 되게 재정렬.
@@ -1101,6 +1220,8 @@ export default function AllInOneRegisterPanel() {
             // 사용자 수정값을 그대로 사용(서버 재생성 방지)
             aiDisplayName: dispName || undefined,
             descriptionOverride: e.detail || undefined,
+            // 사용자가 확정/직접입력한 옵션값 → 서버가 추출값 대신 사용(빈 객체면 전송 안 함)
+            buyOptionValuesOverride: Object.keys(buyOptionValuesOverride).length ? buyOptionValuesOverride : undefined,
             preUploadedUrls: {
               mainImageUrls: mainUrls,
               detailImageUrls: detailUrls,
@@ -1366,9 +1487,15 @@ export default function AllInOneRegisterPanel() {
           return (
             <div key={r.uid} data-field-scope className={`bg-white border ${statusColor} rounded-xl p-3 flex flex-col gap-2`}>
               <div className="flex gap-3">
-                {thumb
-                  ? <img src={thumb} alt="" className="w-20 h-20 object-cover rounded-lg bg-gray-100 flex-none" />
-                  : <div className="w-20 h-20 rounded-lg bg-gray-100 flex-none" />}
+                <div className="relative flex-none">
+                  {thumb
+                    ? <img src={thumb} alt="" className="w-20 h-20 object-cover rounded-lg bg-gray-100" />
+                    : <div className="w-20 h-20 rounded-lg bg-gray-100" />}
+                  {g?.mainImageWarning && (
+                    <span title={g.mainImageWarning}
+                      className="absolute -top-1 -left-1 text-[10px] bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center cursor-help">!</span>
+                  )}
+                </div>
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-center gap-1 flex-wrap">
                     {r.selectedMainIdx !== 0
@@ -1437,6 +1564,10 @@ export default function AllInOneRegisterPanel() {
                           {i < r.regenCount && (
                             <span className="absolute bottom-0 inset-x-0 bg-emerald-600/85 text-white text-[9px] leading-tight text-center">누끼</span>
                           )}
+                          {/* 지금 선택된 컷 = 실제로 쿠팡에 올라갈 대표. 첫 장(누끼)과 헷갈리지 않게 명시. */}
+                          {i === r.selectedMainIdx && (
+                            <span className="absolute top-0 left-0 bg-[#E31837] text-white text-[9px] leading-none px-1 py-0.5 rounded-br">★대표</span>
+                          )}
                         </button>
                       ))}
                     </div>
@@ -1444,33 +1575,65 @@ export default function AllInOneRegisterPanel() {
                 </div>
               )}
 
-              {/* 옵션 — 서술형(편집 가능). 등록 시 태그/스펙으로 반영(가격·재고 판매변형 아님) */}
-              {g && (
+              {/* 옵션 — 카테고리 스키마 기반 실제 등록 옵션(미리보기로 자동 채움). 편집 가능. */}
+              {g && (() => {
+                const op = optionPreviews.get(r.uid);
+                const autoFilled = !!op && op.buyOptions.length > 0;
+                const missNames = new Set(unresolvedOptionInput(e, op)); // 직접 입력 필요(미해결)
+                return (
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-gray-500">옵션 (스펙)</span>
+                    <span className="text-[11px] text-gray-500">
+                      옵션 (스펙)
+                      {autoFilled && <span className="ml-1 text-[10px] text-emerald-600 font-medium">쿠팡 자동옵션</span>}
+                    </span>
                     <button type="button" disabled={!editable} onClick={() => addOption(r.uid)} className="text-[11px] text-blue-600 disabled:opacity-40">+ 옵션 추가</button>
                   </div>
-                  {e.options.map((o, i) => (
+                  {op?.ambiguous && (
+                    <p className="text-[10px] text-amber-600">택1 상품 — 값 확인 필요{op.optionCandidates?.length ? `: ${op.optionCandidates.map((c) => `${c.name}(${c.candidates.join('/')})`).join(', ')}` : ''}</p>
+                  )}
+                  {missNames.size > 0 && (
+                    <p className="text-[10px] text-red-600">⚠️ 상품명에 {[...missNames].join('·')} 정보가 없습니다 — 실제 값을 직접 입력하세요(입력 전 등록 불가).</p>
+                  )}
+                  {e.options.map((o, i) => {
+                    const miss = missNames.has(o.name);
+                    const vCls = miss ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-blue-300 disabled:bg-gray-50';
+                    return (
                     <div key={i} className="flex items-center gap-1">
                       <DraftField value={o.name} disabled={!editable} onCommit={(v) => patchOption(r.uid, i, { name: v })} placeholder="항목" className="w-20 text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
-                      <DraftField value={o.value} disabled={!editable} onCommit={(v) => patchOption(r.uid, i, { value: v })} placeholder="값" className="flex-1 min-w-0 text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
+                      <DraftField value={o.value} disabled={!editable} onCommit={(v) => patchOption(r.uid, i, { value: v })} placeholder={miss ? '직접 입력' : '값'} className={`flex-1 min-w-0 text-[11px] border rounded px-1 py-0.5 focus:outline-none ${vCls}`} />
                       <DraftField value={o.unit || ''} disabled={!editable} onCommit={(v) => patchOption(r.uid, i, { unit: v })} placeholder="단위" className="w-12 text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
                       <button type="button" disabled={!editable} onClick={() => removeOption(r.uid, i)} className="text-gray-400 hover:text-red-500 text-sm px-1 leading-none disabled:opacity-40">×</button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
-              )}
+                );
+              })()}
               {g?.sourceUrl && <a href={g.sourceUrl} target="_blank" rel="noreferrer" className="text-[11px] text-emerald-600 break-all">원본: {g.sourceUrl}</a>}
               {g && (
                 <div>
-                  <button onClick={() => setOpenDetail((p) => ({ ...p, [r.uid]: !p[r.uid] }))} className="text-xs text-gray-600 border border-gray-200 rounded px-2 py-1">
+                  <button onClick={() => void toggleDetail(r.uid, r.detailImages)} className="text-xs text-gray-600 border border-gray-200 rounded px-2 py-1">
                     상세페이지 편집 {openDetail[r.uid] ? '▴' : '▾'}
+                    <span className="ml-1 text-gray-400">이미지 {r.detailImages.length}장</span>
                   </button>
                   {openDetail[r.uid] && (
-                    <textarea value={e.detail} disabled={!editable}
-                      onChange={(ev) => patchEdit(r.uid, { detail: ev.target.value })}
-                      className="mt-1 w-full text-[12px] whitespace-pre-wrap leading-relaxed bg-gray-50 border border-gray-200 focus:border-blue-300 rounded p-2 h-72 overflow-auto focus:outline-none disabled:bg-gray-100" />
+                    <>
+                      {/* 상세페이지에 실제로 첨부될 이미지 — "이미지가 안 들어간다"를 눈으로 확인 */}
+                      {r.detailImages.length > 0 ? (
+                        <div className="mt-1 flex gap-1 overflow-x-auto pb-1">
+                          {r.detailImages.map((img, i) => (
+                            <img key={i} src={img.objectUrl} alt="" loading="lazy"
+                              className="h-16 w-16 flex-none object-cover rounded border border-gray-200 bg-white" />
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-1 text-[11px] text-amber-600">상세 이미지 없음 — 소싱 폴더에 상세이미지가 없거나 전부 광고컷으로 제외됐습니다.</p>
+                      )}
+                      <textarea value={e.detail} disabled={!editable}
+                        onChange={(ev) => patchEdit(r.uid, { detail: ev.target.value })}
+                        className="mt-1 w-full text-[12px] whitespace-pre-wrap leading-relaxed bg-gray-50 border border-gray-200 focus:border-blue-300 rounded p-2 h-72 overflow-auto focus:outline-none disabled:bg-gray-100" />
+                    </>
                   )}
                 </div>
               )}

@@ -132,6 +132,9 @@ async function main() {
       if (main.method === 'fallback-first') { clipOff = true; console.log(`[${ts()}] [이미지인식] CLIP 미탑재 — 첫컷 폴백(${main.error})`); }
       if (main.path) p.mainImage = main.path;             // 최적 대표컷으로 교체
       p.mainImageRanked = main.ranked;
+      // 전 후보가 로고/플레이스홀더/저품질이면 confident=false → 아래에서 needsReview 로 표기.
+      p.mainConfident = main.confident !== false;
+      p.mainReason = main.reason || null;
       const det = await curateDetailImages(p.detailImages || [], { onLog });
       p.detailImagesKept = det.kept.map((k) => k.path);
       // CLIP 이 광고/배송/리뷰컷으로 판단해 버린 파일명 — 웹 등록이 스캔한 상세이미지에서 정확히 이것만 제외한다.
@@ -143,7 +146,7 @@ async function main() {
     }
   } else {
     console.log(`[${ts()}] [이미지인식] 생략(--no-image-ai) — 첫컷/원본 상세 유지`);
-    for (const p of products) { p.detailImagesKept = p.detailImages || []; p.mainImageRanked = null; p.detailDroppedNames = []; }
+    for (const p of products) { p.detailImagesKept = p.detailImages || []; p.mainImageRanked = null; p.detailDroppedNames = []; p.mainConfident = true; p.mainReason = null; }
   }
 
   // ── Phase A) 전체 텍스트 생성 (ollama 가 GPU 점유) ───────────────────────
@@ -168,6 +171,19 @@ async function main() {
       console.log(`[${ts()}][텍스트 ${i + 1}/${total}] ${flag} ${rec.displayName}  | ${rec.categoryPath} [${rec.categoryCode || '-'}] | ${(rec.ms / 1000).toFixed(1)}s`);
     },
   });
+
+  // ── 대표컷 신뢰도 병합 — 전 후보가 로고/저품질이면 검수 대상으로 승격 ──────────
+  //   이래야 웹 검수화면이 자동승인을 풀고 카드에 "대표컷 확인" 경고를 띄운다(N 로고 방지).
+  let mainFlagged = 0;
+  for (let i = 0; i < products.length; i++) {
+    const p = products[i], rec = records[i];
+    if (!rec || p.mainConfident !== false) continue;
+    rec.needsReview = true;
+    rec.mainImageWarning = p.mainReason || '대표컷 확인 필요';
+    if (Array.isArray(rec.qualityIssues)) rec.qualityIssues.push(`대표이미지: ${rec.mainImageWarning}`);
+    mainFlagged++;
+  }
+  if (mainFlagged) console.log(`[${ts()}] ⚠️ 대표컷 검수 필요 ${mainFlagged}건 (로고/저품질 후보만 존재)`);
 
   // ── Phase B) 대표이미지 가공 (ComfyUI 가 GPU 점유) ──────────────────────
   let thumbsProcessed = 0;

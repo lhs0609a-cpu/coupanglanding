@@ -19,6 +19,9 @@ const RE_STRUCT_LEAK = /[{}]|<\/?[a-z_][a-z0-9_]*>|"(displayName|keywords|option
 const RE_EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}️]/u;
 // 쿠팡 SEO 금지 표현(광고/판촉·과장/효능·참조마커) — 노출상품명/상세 공통
 const RE_SEO_BANNED = /무료\s*배송|특가|할인|세일|사은품|이벤트|증정|쿠폰|적립|사은|최고|최상|최강|1위|no\.?\s*1|완치|100\s*%|효과\s*만점|의학적|상세\s*페이지\s*참조|상페\s*참조|상세\s*참조|최저가/i;
+// 노출상품명 검색노이즈 — 법적 금지는 아니나 구매자가 검색창에 안 치는 주관·홍보 형용사.
+//   LLM 이 "…합리적 세트", "…프리미엄" 처럼 지어붙이면 검색 매칭이 흐려진다.
+const RE_SEO_FILLER = /합리적|프리미엄|고급스?러|인기(?:상품|템)?|베스트\s*셀러|강력\s*추천|강추|알뜰|필수템|득템|대박|완벽한?|갑성비|초특가|핫딜|가성비\s*(?:갑|템|최고)/;
 // 쿠팡 검색 오류 유발 특수문자
 const RE_SEO_SPECIAL = /[★☆●◆■※♥♡【】《》①②③④⑤⑥▶◀→]/;
 
@@ -61,8 +64,17 @@ export function checkDisplayName(name) {
   if (hasEmoji(s)) issues.push('노출명 이모지 혼입');
   if (s && koreanRatio(s) < 0.4) issues.push('노출명 한글 비율 미달');
   if (RE_SEO_BANNED.test(s)) issues.push('노출명 금지/과장 표현(쿠팡SEO)');
+  if (RE_SEO_FILLER.test(s)) issues.push('노출명 홍보/주관 형용사(SEO 노이즈)');
   if (RE_SEO_SPECIAL.test(s)) issues.push('노출명 특수문자(검색오류)');
   return { ok: issues.length === 0, issues };
+}
+
+/** 노출상품명에서 홍보/주관 형용사 토큰을 제거하고 공백을 정리한다(살균 시 사용). */
+export function stripNameFiller(name) {
+  return String(name || '')
+    .replace(new RegExp(RE_SEO_FILLER.source, 'gi'), ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 }
 
 /**
@@ -99,6 +111,11 @@ export function sanitizeOptions(options) {
     const name = String(o.name).trim();
     const value = String(o.value).trim();
     if (hasForeignCJK(name) || hasForeignCJK(value)) { dropped++; issues.push(`옵션 외국어 제거: ${name}=${value}`); continue; }
+    // 이름과 값이 같은 옵션("무알콜"="무알콜")은 옵션 축이 없는 무의미 값 → 제거.
+    //   실제 쿠팡 옵션은 서버(preflight-builder)가 카테고리 스키마로 재추출하므로 손실 없음.
+    if (name.replace(/\s/g, '').toLowerCase() === value.replace(/\s/g, '').toLowerCase()) {
+      dropped++; issues.push(`옵션 이름=값 무의미 제거: ${name}`); continue;
+    }
     const key = name.toLowerCase();
     if (seen.has(key)) { dropped++; issues.push(`옵션 중복명 제거: ${name}`); continue; }
     seen.add(key);
@@ -125,6 +142,7 @@ export function salvageDisplayName(raw, fallback = '') {
   // 첫 줄, 따옴표/중괄호/이모지 제거
   s = s.split(/\r?\n/).map((l) => l.trim()).find((l) => l && !/^[{[]/.test(l)) || s;
   s = s.replace(/["""'{}\[\]]/g, '').replace(RE_EMOJI, '').trim();
+  s = stripNameFiller(s); // 홍보/주관 형용사 제거(SEO 노이즈)
   // 한자/외국어가 섞였거나 너무 길면(원문 누출) 폴백
   if (!s || s.length < 6 || s.length > 60 || hasForeignCJK(s) || koreanRatio(s) < 0.4) {
     return String(fallback || s).slice(0, 60).trim();

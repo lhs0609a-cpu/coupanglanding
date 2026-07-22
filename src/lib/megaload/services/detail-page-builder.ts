@@ -126,6 +126,17 @@ export function buildRichDetailPageHtml(params: DetailPageParams, templateVarian
   }
 }
 
+/**
+ * 블로그 교차용 본문 이미지 선택 — 리뷰이미지 우선, 없으면 상세이미지로 폴백.
+ *   올인원처럼 소싱 폴더에 리뷰컷이 없고 상세컷만 있을 때, 상세컷이라도 글과 교차시켜
+ *   "상세페이지에 이미지가 하나도 안 들어가는" 문제를 막는다(리뷰컷 있으면 기존과 동일).
+ */
+function pickBodyImages(reviewImageUrls?: string[], detailImageUrls?: string[]): string[] {
+  const valid = (arr?: string[]) => (arr ?? []).filter((u) => typeof u === 'string' && u.trim().length > 0);
+  const review = valid(reviewImageUrls);
+  return review.length > 0 ? review : valid(detailImageUrls);
+}
+
 // ─── 레이아웃 A (기본: 히어로 → 이미지-글 교차 → FAQ → 리뷰 → 마무리) ──
 
 function buildLayoutA(params: DetailPageParams): string {
@@ -140,7 +151,7 @@ function buildLayoutA(params: DetailPageParams): string {
   // 본문: 스토리문단 + 리뷰이미지를 글-이미지-글-이미지 교차 (detailImageUrls는 사용하지 않음)
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
   // 빈 슬롯/null URL 제거 — 후기 4·5번이 빈 칸으로 노출되는 문제 차단
-  const bodyImages = (reviewImageUrls ?? []).filter(u => typeof u === 'string' && u.trim().length > 0);
+  const bodyImages = pickBodyImages(reviewImageUrls, params.detailImageUrls);
   if (bodyImages.length > 0 || paragraphs.length > 0) {
     sections.push(buildBlogStyleSection(bodyImages, paragraphs, productName, style, theme));
   }
@@ -179,7 +190,7 @@ function buildLayoutB(params: DetailPageParams): string {
   // 본문: 리뷰이미지 + 문단 균등 인터리브 (이미지당 3~5문단)
   // 이전 "이미지 전체 dump → 텍스트 전체 dump" 패턴 폐기 — 텍스트가 끝에 몰리는 버그 차단
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
-  const bodyImages = (reviewImageUrls ?? []).filter(u => typeof u === 'string' && u.trim().length > 0);
+  const bodyImages = pickBodyImages(reviewImageUrls, params.detailImageUrls);
   if (bodyImages.length > 0 || paragraphs.length > 0) {
     sections.push(buildBlogStyleSection(bodyImages, paragraphs, productName, style, theme));
   }
@@ -217,7 +228,7 @@ function buildLayoutC(params: DetailPageParams): string {
 
   // 본문: 1번 이미지 히어로 → 나머지 이미지+문단 인터리브 → 마지막에 2열 그리드(차별화)
   // 이전 "히어로 → 모든 텍스트 → 그리드" 패턴 폐기 — 텍스트가 한 덩어리로 쌓이는 버그 차단
-  const bodyImages = (reviewImageUrls ?? []).filter(u => typeof u === 'string' && u.trim().length > 0);
+  const bodyImages = pickBodyImages(reviewImageUrls, params.detailImageUrls);
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
 
   if (bodyImages.length > 0) {
@@ -285,7 +296,7 @@ function buildLayoutD(params: DetailPageParams): string {
   // 본문: 리뷰이미지 + 스토리문단 글-이미지 교차 (detailImageUrls 미사용)
   // 빈 슬롯/null URL 제거 — 후기 4·5번이 빈 칸으로 노출되는 문제 차단
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
-  const bodyImages = (reviewImageUrls ?? []).filter(u => typeof u === 'string' && u.trim().length > 0);
+  const bodyImages = pickBodyImages(reviewImageUrls, params.detailImageUrls);
   if (bodyImages.length > 0 || paragraphs.length > 0) {
     sections.push(buildBlogStyleSection(bodyImages, paragraphs, productName, style, theme));
   }

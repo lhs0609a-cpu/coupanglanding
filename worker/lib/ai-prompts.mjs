@@ -29,26 +29,52 @@ function hashSeed(s) {
 }
 export function pickPersona(seed) { return PERSONAS[hashSeed(seed) % PERSONAS.length]; }
 
-/** 노출상품명/제목 — JSON {displayName, sellerKeywords} */
+/** 노출상품명/제목 — JSON {displayName, keywords} */
 export function buildTitlePrompt(p, persona) {
-  const system = `당신은 쿠팡 상품명 카피라이터다. ${persona.style}. ${FORBIDDEN_RULE}
-출력은 JSON만: {"displayName": "...", "keywords": ["..."]}. displayName 은 한국어 30~50자, 핵심 키워드 포함, 검색 친화적. 과장/특수문자 금지.`;
+  // 쿠팡 상위노출 상품명 = 구매자가 검색창에 실제로 치는 명사·스펙의 나열.
+  //   구조: [브랜드] [제품명] [핵심스펙(용량·수량·규격)] [속성키워드]
+  //   ⚠️ 노출명은 카피가 아니다 — 페르소나 톤/형용사를 넣으면 검색 매칭이 깨진다.
+  const system = `당신은 쿠팡 검색 상위노출(SEO) 상품명 생성기다. 광고 카피가 아니라, 구매자가 검색창에 실제로 입력하는 "명사 + 스펙" 조합을 만든다.
+${FORBIDDEN_RULE}
+
+[상품명 구조] 아래 순서로 띄어쓰기로만 나열한다(문장 아님):
+  브랜드(있으면) → 제품 핵심명 → 핵심스펙(용량/수량/규격/맛/종류) → 검색 속성 키워드 1~2개
+[규칙]
+- 길이: 공백 포함 20~40자 권장(최대 50자). 짧고 검색어 위주로.
+- 원본 상품명에 있는 실제 스펙(용량 750ml, 수량 24개 등)은 반드시 보존한다(지어내지 말 것).
+- 절대 넣지 말 것(검색 노이즈·과장): 합리적/최고/프리미엄/인기/추천/특가/득템/강추/알뜰/필수템 같은 주관·홍보 형용사, "세트/선물세트"(원본에 실제로 세트 구성일 때만), 느낌표·이모지·특수기호, 같은 단어 반복.
+- 조사/서술어(입니다·좋은·완벽한 등) 금지 — 명사구로만.
+
+출력은 JSON만: {"displayName": "...", "keywords": ["...5개..."]}. keywords 는 상품명에 다 못 넣은 검색어(동의어·용도·대상) 5개.`;
   const prompt = `원본 상품명: ${p.originalName}
 카테고리: ${p.categoryPath || '미상'}
 브랜드: ${p.brand || '없음'}
-핵심 특징: ${(p.features || []).join(', ') || '미상'}
-페르소나 강조점: ${persona.focus}
-→ 위 상품의 새 노출상품명(displayName)과 검색 키워드 5개를 JSON으로.`;
-  return { system, prompt, format: 'json', options: { temperature: 0.8, num_predict: 200 } };
+핵심 특징(스펙): ${(p.features || []).join(', ') || '미상'}
+
+[좋은 예]
+- 원본 "리무스 모스카토 무알콜 스파클링 와인 750ml 달콤한" → {"displayName":"리무스 모스카토 무알콜 스파클링 와인 750ml","keywords":["논알콜와인","모스카토","달달한와인","선물용와인","파티와인"]}
+- 원본 "곰곰 국내산 깐마늘 1kg 아삭한 요리용" → {"displayName":"곰곰 국내산 깐마늘 1kg 다진마늘 요리용","keywords":["깐마늘","국산마늘","다진마늘","김장마늘","마늘1kg"]}
+→ 위 상품의 노출상품명(displayName)과 검색 키워드 5개를 JSON으로. 형용사·홍보문구 없이 브랜드+제품명+스펙+속성어로만.`;
+  return { system, prompt, format: 'json', options: { temperature: 0.4, num_predict: 200 } };
 }
 
 /** 카테고리 — 후보가 있으면 그 중 선택, 없으면 경로 추론. JSON {categoryPath, confidence} */
 export function buildCategoryPrompt(p, candidates = []) {
   const hasCand = candidates.length > 0;
-  const system = `당신은 쿠팡 카테고리 분류기다. 출력은 JSON만: {"categoryPath": "대>중>소>세부", "confidence": 0~1}.`;
+  // 소싱 원본 카테고리(네이버 등)는 이미 사람이 분류한 near-ground-truth → 앵커로 준다.
+  const srcCat = String(p.categoryPath || '').trim();
+  const system = `당신은 쿠팡 카테고리 분류기다. 상품명 글자만 보지 말고 "원본 카테고리·브랜드·특징"으로 상품이 실제로 무엇인지 이해한 뒤 고른다.
+⚠️ 핵심 규칙: **소싱 원본 카테고리와 의미가 일치하는 후보**를 고른다. 원본이 '맥주/음료'면 절대 '도서/가구/완구'를 고르지 않는다(상품명에 우연히 든 브랜드어 '클라우드'·'허브'·'와인' 등에 속지 말 것 — 그건 책·가구가 아니다).
+출력은 JSON만: {"categoryPath": "대>중>소>세부", "confidence": 0~1}.`;
+  const ctxLines = [
+    `상품명: ${p.originalName}`,
+    srcCat ? `원본 카테고리(소싱처 분류 — 이것과 의미가 맞는 후보를 최우선): ${srcCat}` : '',
+    p.brand ? `브랜드: ${p.brand}` : '',
+    `특징: ${(p.features || []).join(', ') || '미상'}`,
+  ].filter(Boolean).join('\n');
   const prompt = hasCand
-    ? `상품명: ${p.originalName}\n후보 카테고리(아래 문자열 중 하나를 글자 그대로 복사):\n${candidates.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n→ 가장 적합한 1개의 categoryPath 를 후보 문자열 그대로(변형·한자추가 금지) JSON으로.`
-    : `상품명: ${p.originalName}\n특징: ${(p.features || []).join(', ')}\n→ 쿠팡식 카테고리 경로(대>중>소>세부)를 추론해 JSON으로. 한자 금지, 순한국어.`;
+    ? `${ctxLines}\n\n후보 카테고리(아래 문자열 중 하나를 글자 그대로 복사):\n${candidates.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n→ 원본 카테고리와 의미가 가장 일치하는 1개의 categoryPath 를 후보 문자열 그대로(변형·한자추가 금지) JSON으로. 확신이 낮으면 confidence 를 낮게.`
+    : `${ctxLines}\n→ 쿠팡식 카테고리 경로(대>중>소>세부)를 추론해 JSON으로. 한자 금지, 순한국어.`;
   return { system, prompt, format: 'json', options: { temperature: 0.2, num_predict: 120 } };
 }
 

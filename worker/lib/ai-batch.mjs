@@ -12,21 +12,45 @@ import { topCandidatesEmbed, isBuilt as embedBuilt } from './category-embed-matc
 import { calculateSellingPrice } from './margin-mini.mjs';
 
 /**
+ * 카테고리 매칭 쿼리 — 상품명만이 아니라 "상품 전체"를 읽는다.
+ *   ⭐ 가장 강한 신호는 **소싱 원본 카테고리**(네이버 등이 이미 분류한 경로)다.
+ *      "하이네켄 논알콜릭 330ml 24병" 이름만으론 토큰이 안 맞아 가구로 빠지지만,
+ *      원본 카테고리 "식품>음료>맥주>무알콜맥주" 의 leaf('무알콜맥주'→'맥주' 토큰)를
+ *      쿼리에 넣으면 쿠팡 '비알콜 맥주' 가 최상위 후보로 올라온다(실측 확인).
+ *   leaf 를 2회 넣어 가중하고, 경로·이름·브랜드·특징을 함께 섞는다.
+ */
+function catMatchQuery(p) {
+  const src = String(p.categoryPath || '').trim();
+  const parts = src.split(/[>/｜|›»]/).map((s) => s.trim()).filter(Boolean);
+  const srcLeaf = parts[parts.length - 1] || '';
+  return [
+    srcLeaf, srcLeaf,                 // 원본 leaf 2회(가장 강한 신호 가중)
+    parts.join(' '),                  // 원본 경로 전체
+    p.originalName || '',
+    p.brand || '',
+    ...(Array.isArray(p.features) ? p.features : []),
+  ].filter(Boolean).join(' ');
+}
+
+/**
  * 카테고리 후보 — 임베딩(bge-m3) 우선, 실패/미설치 시 토큰 매칭 폴백.
+ *   상품 전체(원본 카테고리 포함)를 매칭 쿼리로 쓴다(catMatchQuery).
+ * @param {Object} p  상품 { originalName, categoryPath(원본), brand, features }
  * @returns {Promise<{cands:Array, source:'embedding'|'token'|'token(embed-unavailable)'}>}
  */
-async function candidatesFor(name, k) {
+async function candidatesFor(p, k) {
+  const q = catMatchQuery(p);
   if (embedBuilt()) {
     try {
-      const c = await topCandidatesEmbed(name, k);
+      const c = await topCandidatesEmbed(q, k);
       if (c.length) return { cands: c, source: 'embedding' };
-      return { cands: topCandidates(name, k), source: 'token' };
+      return { cands: topCandidates(q, k), source: 'token' };
     } catch {
       // 인덱스는 빌드됐지만 임베딩 모델(bge-m3) 미설치/오류 → 토큰 폴백(정확도 저하)
-      return { cands: topCandidates(name, k), source: 'token(embed-unavailable)' };
+      return { cands: topCandidates(q, k), source: 'token(embed-unavailable)' };
     }
   }
-  return { cands: topCandidates(name, k), source: 'token' };
+  return { cands: topCandidates(q, k), source: 'token' };
 }
 
 /**
@@ -47,7 +71,7 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
   for (let i = 0; i < products.length; i++) {
     const p = products[i];
     const seed = `${sellerId}:${p.id || p.originalName}`;
-    const { cands, source } = await candidatesFor(p.originalName, 8);
+    const { cands, source } = await candidatesFor(p, 8);
     sourceCounts[source] = (sourceCounts[source] || 0) + 1;
     const r = await generateAllFields(p, { model, personaSeed: seed, categoryCandidates: cands, maxDetailTokens });
     const sellingPrice = marginBrackets ? calculateSellingPrice(p.sourcePrice, marginBrackets) : calculateSellingPrice(p.sourcePrice);

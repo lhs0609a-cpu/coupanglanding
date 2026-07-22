@@ -196,6 +196,8 @@ interface BatchProduct {
   shippingDaysOverride?: number;
   noticeValuesOverride?: Record<string, string>;
   attributeValuesOverride?: Record<string, string>;
+  /** 사용자가 검수 화면에서 확정/수정한 구매옵션 값(옵션명→값). preflight 가 추출값 대신 이걸 쓴다. */
+  buyOptionValuesOverride?: Record<string, string>;
   // 상세페이지 콘텐츠 오버라이드
   descriptionOverride?: string;
   storyParagraphsOverride?: string[];

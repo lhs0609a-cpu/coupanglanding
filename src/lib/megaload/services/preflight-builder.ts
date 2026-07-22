@@ -108,6 +108,19 @@ export interface BuildPayloadResult {
 }
 
 /**
+ * LLM 상세글(description)을 상세페이지 본문 문단 배열로 쪼갠다.
+ *   빈 줄 기준 문단 분리 → 문단이 1개뿐이면 단일 줄바꿈으로도 분리(불릿/짧은 문단 대응).
+ *   상세 HTML 렌더러(detail-page-builder)가 이 배열을 글-이미지 교차로 렌더한다.
+ */
+function splitDescriptionToParagraphs(text?: string): string[] {
+  const t = String(text || '').trim();
+  if (!t) return [];
+  let parts = t.split(/\n\s*\n+/).map((s) => s.trim()).filter(Boolean);
+  if (parts.length <= 1) parts = t.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+  return parts;
+}
+
+/**
  * 쿠팡 상품 등록 API 페이로드를 빌드한다.
  * batch/route.ts와 preflight/route.ts에서 동일하게 사용.
  */
@@ -133,10 +146,14 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
 
   const effectiveDescription = product.descriptionOverride ?? product.description;
 
-  // 사용자가 편집한 스토리/리뷰가 있으면 우선 사용
+  // 사용자가 편집한 스토리/리뷰가 있으면 우선 사용.
+  //   ⚠️ 올인원은 storyParagraphsOverride 를 안 보내고 상세글을 descriptionOverride 로 준다.
+  //      그런데 상세 HTML 은 description 을 안 쓰고 aiStoryParagraphs 만 렌더 → 예전엔 올인원
+  //      LLM 상세글이 페이지에 통째로 누락되고 이미지만 나왔다(실측 확인). 그래서 명시 story 도
+  //      서버 AI story 도 없으면 description(=LLM 상세글)을 문단으로 쪼개 본문으로 쓴다.
   const finalStoryParagraphs = (product.storyParagraphsOverride && product.storyParagraphsOverride.length > 0)
     ? product.storyParagraphsOverride
-    : aiStoryParagraphs;
+    : (aiStoryParagraphs.length > 0 ? aiStoryParagraphs : splitDescriptionToParagraphs(effectiveDescription));
 
   const finalReviewTexts = (product.reviewTextsOverride && product.reviewTextsOverride.length > 0)
     ? product.reviewTextsOverride
