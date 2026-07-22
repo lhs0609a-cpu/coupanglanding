@@ -35,6 +35,7 @@ import { CertStatusBlock } from './CertStatusBlock';
 import CategoryCascadingPicker from './bulk/CategoryCascadingPicker';
 import type { CertPreviewResult } from '@/app/api/megaload/products/cert-preview/route';
 import type { OptionPreviewResult } from '@/app/api/megaload/products/option-preview/route';
+import type { AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
 
 const BATCH_SIZE = 10;
 const IMG_RE = /\.(png|jpg|jpeg|webp)$/i;
@@ -81,6 +82,8 @@ interface RowEdit {
   categoryPath: string;
   detail: string;
   options: OptionField[];
+  /** 사용자가 트리/드롭다운에서 직접 고른 쿠팡 속성값(속성명→값). 비운 속성은 서버가 자동채움. */
+  attributeValues: Record<string, string>;
 }
 
 interface Row {
@@ -169,6 +172,7 @@ function initEdit(g: GenRecord | null): RowEdit {
     categoryPath: g?.categoryPath || '',
     detail: g?.detail || '',
     options: (g?.options || []).map((o) => ({ name: o.name, value: o.value, unit: o.unit })),
+    attributeValues: {},
   };
 }
 
@@ -711,6 +715,33 @@ export default function AllInOneRegisterPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [optionKey, loadOptionPreviews]);
 
+  // ── 카테고리 속성 메타 로드 ──────────────────────────────────────
+  // 옵션값을 트리/드롭다운으로 수동 선택할 수 있게, 카테고리별 쿠팡 속성(허용값 포함)을 받아둔다.
+  // 코드당 1회만(캐시). 카드에서 "속성 선택"을 펼칠 때 필요.
+  const catCodesKey = [...new Set(rows.filter((r) => r.status !== 'success' && r.edit.categoryCode).map((r) => r.edit.categoryCode))].sort().join(',');
+  useEffect(() => {
+    const codes = catCodesKey ? catCodesKey.split(',').filter(Boolean) : [];
+    const need = codes.filter((c) => attrMetaByCode[c] === undefined && !attrLoadingRef.current.has(c));
+    if (need.length === 0) return;
+    need.forEach((c) => attrLoadingRef.current.add(c));
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch('/api/megaload/products/category-meta', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ categoryCodes: need }), signal: AbortSignal.timeout(60_000),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        const data = await res.json() as { attributes?: Record<string, AttributeMeta[]> };
+        setAttrMetaByCode((prev) => ({ ...prev, ...(data.attributes || {}) }));
+      } catch {
+        // 실패해도 등록은 막지 않는다(서버가 등록 때 속성 자동채움). 재시도 가능하게 로딩표시만 해제.
+        need.forEach((c) => attrLoadingRef.current.delete(c));
+      }
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catCodesKey]);
+
   // ── 폴더 선택 + 스캔 ──────────────────────────────────────────────
   const handlePick = useCallback(async () => {
     setError('');
@@ -1084,6 +1115,13 @@ export default function AllInOneRegisterPanel() {
   const [openDetailPool, setOpenDetailPool] = useState<Record<string, boolean>>({});
   // 카테고리 트리 선택 모달을 연 행(uid). null 이면 닫힘.
   const [catPickerUid, setCatPickerUid] = useState<string | null>(null);
+  // 카테고리코드 → 쿠팡 속성 메타(드롭다운 허용값). 옵션값을 트리/드롭다운으로 수동 선택하는 데 사용.
+  const [attrMetaByCode, setAttrMetaByCode] = useState<Record<string, AttributeMeta[]>>({});
+  const attrLoadingRef = useRef<Set<string>>(new Set());
+  const [openAttr, setOpenAttr] = useState<Record<string, boolean>>({});
+  const setAttrValue = (uid: string, name: string, value: string) =>
+    setRows((prev) => prev.map((r) => (r.uid === uid
+      ? { ...r, edit: { ...r.edit, attributeValues: { ...r.edit.attributeValues, [name]: value } } } : r)));
   const removeDetailImage = (uid: string, name: string) =>
     setRows((prev) => prev.map((r) => (r.uid === uid
       ? { ...r, detailImages: r.detailImages.filter((img) => img.name !== name) } : r)));
@@ -1282,6 +1320,11 @@ export default function AllInOneRegisterPanel() {
             descriptionOverride: e.detail || undefined,
             // 사용자가 확정/직접입력한 옵션값 → 서버가 추출값 대신 사용(빈 객체면 전송 안 함)
             buyOptionValuesOverride: Object.keys(buyOptionValuesOverride).length ? buyOptionValuesOverride : undefined,
+            // 사용자가 트리/드롭다운에서 고른 쿠팡 속성값(빈 값 제외) — 서버가 자동채움값 대신 사용.
+            attributeValuesOverride: (() => {
+              const av = Object.fromEntries(Object.entries(e.attributeValues).filter(([, v]) => v && v.trim()));
+              return Object.keys(av).length ? av : undefined;
+            })(),
             preUploadedUrls: {
               mainImageUrls: mainUrls,
               detailImageUrls: detailUrls,
@@ -1719,6 +1762,49 @@ export default function AllInOneRegisterPanel() {
                     );
                   })}
                 </div>
+                );
+              })()}
+              {/* 옵션값 수동 선택 — 대량등록처럼 카테고리 속성을 트리 펼쳐 드롭다운/입력으로 확정.
+                  비워두면 서버가 자동추출/자동채움하고, 여기서 고른 값만 그걸 덮어쓴다(attributeValuesOverride). */}
+              {g && e.categoryCode && (() => {
+                const meta = attrMetaByCode[e.categoryCode];
+                const attrs = (meta || []).filter((a) => a.attributeTypeName);
+                if (attrs.length === 0) return null;
+                return (
+                  <div>
+                    <button type="button" onClick={() => setOpenAttr((p) => ({ ...p, [r.uid]: !p[r.uid] }))}
+                      className="text-xs text-gray-600 border border-gray-200 rounded px-2 py-1">
+                      옵션값 수동 선택 (속성 {attrs.length}) {openAttr[r.uid] ? '▴' : '▾'}
+                    </button>
+                    {openAttr[r.uid] && (
+                      <div className="mt-1 grid gap-1.5 sm:grid-cols-2 bg-gray-50 rounded p-2">
+                        {attrs.map((a) => {
+                          const allowed = a.attributeValues?.map((v) => v.attributeValueName).filter(Boolean) || [];
+                          const val = e.attributeValues[a.attributeTypeName] ?? '';
+                          const label = `${a.attributeTypeName}${a.basicUnit ? ` (${a.basicUnit})` : ''}${a.required ? ' *' : ''}`;
+                          return (
+                            <label key={a.attributeTypeName} className="flex flex-col gap-0.5">
+                              <span className={`text-[10px] ${a.required ? 'text-red-500' : 'text-gray-500'}`}>{label}</span>
+                              {allowed.length > 0 ? (
+                                <select value={val} disabled={!editable}
+                                  onChange={(ev) => setAttrValue(r.uid, a.attributeTypeName, ev.target.value)}
+                                  className="text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-100">
+                                  <option value="">자동</option>
+                                  {allowed.map((v) => <option key={v} value={v}>{v}</option>)}
+                                </select>
+                              ) : (
+                                <DraftField value={val} disabled={!editable}
+                                  onCommit={(v) => setAttrValue(r.uid, a.attributeTypeName, v)}
+                                  placeholder={a.basicUnit ? `숫자 (${a.basicUnit})` : '자동'}
+                                  className="text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
+                              )}
+                            </label>
+                          );
+                        })}
+                        <p className="sm:col-span-2 text-[10px] text-gray-400">빈 칸(자동)은 서버가 상품명에서 자동 추출·채움합니다. 여기서 고른 값만 우선 적용됩니다.</p>
+                      </div>
+                    )}
+                  </div>
                 );
               })()}
               {g?.sourceUrl && <a href={g.sourceUrl} target="_blank" rel="noreferrer" className="text-[11px] text-emerald-600 break-all">원본: {g.sourceUrl}</a>}
