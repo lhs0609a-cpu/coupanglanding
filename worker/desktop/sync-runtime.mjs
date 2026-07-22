@@ -50,21 +50,29 @@ try {
 //   v0.2.40 이 data/ 와 local-cutout.mjs 없이 배포돼 올인원이 ENOENT 로 즉사했다.
 //   여기서 실패시키면 `npm run dist` 가 멈추므로 같은 사고가 재발하지 않는다.
 {
-  const missing = [];
+  const missing = new Set();
 
-  // 1) run-folder.mjs 가 import 하는 로컬 모듈이 전부 runtime/ 에 있는가
-  const rfOut = await readFile(join(runtime, 'run-folder.mjs'), 'utf-8').catch(() => '');
-  for (const m of rfOut.matchAll(/from '\.\/([\w.-]+\.mjs)'/g)) {
-    if (!(await stat(join(runtime, m[1])).catch(() => null))) missing.push(m[1]);
+  // 1) 모든 runtime/*.mjs 의 로컬 import(`from './X.mjs'`) 가 전부 runtime/ 에 존재하는가.
+  //    ⚠️ 예전엔 run-folder.mjs 의 직접 import 만 검사 → 다른 모듈이 import 하는 파일이
+  //       git 미추적(untracked)이라 CI 체크아웃에 없으면, sync 가 복사 못 해도 검증을 통과해
+  //       "Cannot find module ...runtime/X.mjs" 로 앱에서 즉사했다(image-metrics.mjs 사고).
+  //       이제 transitive import 전부를 검사해 누락되면 빌드를 멈춘다.
+  for (const f of await readdir(runtime)) {
+    if (!f.endsWith('.mjs')) continue;
+    const src = await readFile(join(runtime, f), 'utf-8').catch(() => '');
+    for (const m of src.matchAll(/from '\.\/([\w.-]+\.mjs)'/g)) {
+      if (!(await stat(join(runtime, m[1])).catch(() => null))) missing.add(`${m[1]} (imported by ${f})`);
+    }
   }
 
   // 2) 카테고리 인덱스 — 없으면 generateBatch 가 통째로 throw
   for (const f of ['data/coupang-cat-index.json']) {
-    if (!(await stat(join(runtime, f)).catch(() => null))) missing.push(f);
+    if (!(await stat(join(runtime, f)).catch(() => null))) missing.add(f);
   }
 
-  if (missing.length) {
-    console.error(`[sync-runtime] ❌ runtime/ 불완전 — 누락: ${missing.join(', ')}`);
+  if (missing.size) {
+    console.error(`[sync-runtime] ❌ runtime/ 불완전 — 누락: ${[...missing].join(', ')}`);
+    console.error(`[sync-runtime]    (lib/ 에 파일이 있어도 git 미추적이면 CI 체크아웃엔 없다 — git add 확인)`);
     process.exit(1);
   }
 }
