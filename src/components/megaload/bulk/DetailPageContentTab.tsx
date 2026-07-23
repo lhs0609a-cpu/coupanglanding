@@ -989,18 +989,28 @@ export default function DetailPageContentTab({
                 const editableParagraphs = storyParagraphs.length > 0
                   ? storyParagraphs.filter(p => p.trim())
                   : (description ? [description] : []);
-                // 미리보기에서 보여주는 이미지 = 사용자가 선택한(editedReviewImageOrder) 리뷰이미지.
-                // EditableDetailPreview 가 받는 imageUrls 의 index 와 1:1 매칭되도록 만든다.
-                const editableImageUrls = (() => {
-                  const reviewImageUrls = (preUploadedUrls?.reviewImageUrls?.filter(Boolean) ?? []).length > 0
-                    ? preUploadedUrls!.reviewImageUrls!.filter(Boolean)
-                    : resolvedReviewUrls.length > 0
-                      ? resolvedReviewUrls
-                      : (product.scannedReviewImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []).length > 0
-                        ? product.scannedReviewImages!.map(img => img.objectUrl).filter((u): u is string => !!u)
-                        : [];
-                  return filterByOrder(reviewImageUrls, product.editedReviewImageOrder);
-                })();
+                // 미리보기 본문 이미지 = 리뷰이미지 우선, 없으면 상세이미지 폴백.
+                //   실제 등록(detail-page-builder pickBodyImages)과 동일한 규칙 — 네이버 소싱분처럼
+                //   리뷰컷이 없고 상세컷만 있는 상품도 "글+이미지 교차"가 보이도록 한다.
+                //   (예전엔 리뷰이미지만 넣어, 리뷰컷 없는 상품은 미리보기에 이미지가 하나도 안 나왔음.)
+                const reviewSourceUrls = (preUploadedUrls?.reviewImageUrls?.filter(Boolean) ?? []).length > 0
+                  ? preUploadedUrls!.reviewImageUrls!.filter(Boolean)
+                  : resolvedReviewUrls.length > 0
+                    ? resolvedReviewUrls
+                    : (product.scannedReviewImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []);
+                const detailSourceUrls = (preUploadedUrls?.detailImageUrls?.filter(Boolean) ?? []).length > 0
+                  ? preUploadedUrls!.detailImageUrls!.filter(Boolean)
+                  : resolvedDetailUrls.length > 0
+                    ? resolvedDetailUrls
+                    : (product.scannedDetailImages?.map(img => img.objectUrl).filter((u): u is string => !!u) ?? []);
+                const reviewFiltered = filterByOrder(reviewSourceUrls, product.editedReviewImageOrder);
+                const detailFiltered = filterByOrder(detailSourceUrls, product.editedDetailImageOrder);
+                // 리뷰이미지가 있으면 리뷰 사용, 없으면 상세이미지 폴백.
+                const usingReview = reviewFiltered.length > 0;
+                const editableImageUrls = usingReview ? reviewFiltered : detailFiltered;
+                const imageOrderField = usingReview ? 'editedReviewImageOrder' : 'editedDetailImageOrder';
+                const imageOrderCurrent = usingReview ? product.editedReviewImageOrder : product.editedDetailImageOrder;
+                const imageSourceCount = usingReview ? reviewSourceUrls.length : detailSourceUrls.length;
 
                 return (
                   <>
@@ -1015,16 +1025,14 @@ export default function DetailPageContentTab({
                         onUpdate(product.uid, 'editedStoryParagraphs', cleaned);
                       }}
                       onImageDelete={(renderedIdx) => {
-                        // renderedIdx 는 editableImageUrls 상의 index. 이를 source 이미지 index 로 역매핑.
-                        const totalSourceCount = (resolvedReviewUrls.length > 0
-                          ? resolvedReviewUrls.length
-                          : product.scannedReviewImages?.length ?? product.reviewImages?.length ?? 0);
-                        const currentOrder = product.editedReviewImageOrder
-                          ?? Array.from({ length: totalSourceCount }, (_, i) => i);
+                        // renderedIdx 는 editableImageUrls 상의 index. 사용 중인 소스(리뷰 or 상세)의
+                        // order 배열로 역매핑해 해당 이미지만 제외한다.
+                        const currentOrder = imageOrderCurrent
+                          ?? Array.from({ length: imageSourceCount }, (_, i) => i);
                         const sourceIdxToRemove = currentOrder[renderedIdx];
                         if (sourceIdxToRemove === undefined) return;
                         const newOrder = currentOrder.filter(i => i !== sourceIdxToRemove);
-                        onUpdate(product.uid, 'editedReviewImageOrder', newOrder);
+                        onUpdate(product.uid, imageOrderField, newOrder);
                       }}
                     />
                     <p className="text-[10px] text-gray-400 mt-2 text-center">

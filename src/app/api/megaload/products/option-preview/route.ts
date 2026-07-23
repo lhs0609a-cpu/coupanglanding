@@ -30,16 +30,30 @@ export interface OptionPreviewResult {
 }
 
 /**
+ * 순수 "수량/개수(총 판매 개수)" 옵션인지 — 원본명에 개수 표기가 없으면 1개로 봐도 안전한 항목.
+ *   사용자 규칙: "갯수가 원본명에 없으면 1개인 거야" → 이런 옵션은 등록차단(needsInput)에서 제외.
+ *   ⚠️ '개당 중량/개당 용량'(농산물·식품에서 쿠팡윙이 실제 값을 요구) 은 제외 대상이 아니다 —
+ *      이름에 '수량/개수'가 없으므로 아래 정규식에 걸리지 않아 그대로 차단 유지된다.
+ */
+function isCountLikeOption(name: string): boolean {
+  return /수량|개수|갯수|입수/.test(name) && !/중량|용량|무게|부피/.test(name);
+}
+
+/**
  * 추출기 경고에서 "억지 기본값/추출실패" 필수옵션명을 뽑아낸다.
  * 예: `'개당 용량' → 기본값 "1ml" 사용`, `필수 옵션 '개당 중량' 값을 추출할 수 없습니다`,
  *     `택1 필수 옵션 '개당 용량/개당 중량' 중 하나도 추출할 수 없습니다`.
+ * 단, 순수 수량/개수 옵션은 기본값 1개로 등록해도 되므로 차단 목록에서 뺀다.
  */
 function placeholderOptionNames(warnings: string[]): string[] {
   const names = new Set<string>();
   for (const w of warnings) {
     if (!/기본값|추출할 수 없/.test(w)) continue;
     for (const m of w.matchAll(/'([^']+)'/g)) {
-      for (const nm of m[1].split('/')) { const t = nm.trim(); if (t) names.add(t); }
+      for (const nm of m[1].split('/')) {
+        const t = nm.trim();
+        if (t && !isCountLikeOption(t)) names.add(t);
+      }
     }
   }
   return [...names];

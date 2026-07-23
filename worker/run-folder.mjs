@@ -37,6 +37,38 @@ import { makeThumbnailProcessor } from './lib/thumbnail-batch.mjs';
 import { buildReviewHtml } from './lib/review-html.mjs';
 import { selectBestMainImage, curateDetailImages } from './lib/image-selector.mjs';
 import { localCutoutToWhite, cutoutDepsFailed } from './lib/local-cutout.mjs';
+import { measureImage, scoreImage, metricsDepsFailed } from './lib/image-metrics.mjs';
+
+/**
+ * 누끼 가공본 품질 게이트 — 가공본이 원본보다 나쁘면 대표로 쓰지 않는다.
+ * ---------------------------------------------------------------------------
+ * ⚠️ 예전엔 누끼 결과물이 "무조건" 대표였다(웹도 [...regen, ...원본] 으로 0번 고정).
+ *    그래서 누끼가 거꾸로/잘림/빈컷으로 나와도 그대로 대표가 됐다(실측: 발아현미 역상,
+ *    혼합곡 잘림, 표지 안보임). 대표 후보 원본은 CLIP+L1 로 점수를 받는데 정작 최종
+ *    대표가 되는 가공본만 아무 검증이 없었다.
+ * → 가공본도 같은 L1 척도로 재서, 빈컷이거나 원본보다 뚜렷이 나쁘면 반려한다.
+ * @returns {Promise<{rejected:boolean, reason?:string}>}
+ */
+async function gateCutout(cutoutPath, originalPath) {
+  if (metricsDepsFailed()) return { rejected: false }; // sharp 미탑재 → 판단 불가(기존 동작 유지)
+  try {
+    const cm = await measureImage(cutoutPath);
+    // ① 빈컷/플레이스홀더 — 누끼가 피사체를 통째로 날린 경우(흰 캔버스만 남음).
+    if (cm.bgConfidence >= 0.6 && cm.subjectRatio <= 0.05) {
+      return { rejected: true, reason: '누끼 결과가 빈 이미지(피사체 소실)' };
+    }
+    const cs = scoreImage(cm).score;
+    // ② 원본 대비 뚜렷한 열화(잘림/왜곡 등) — 20% 이상 나빠지면 원본을 쓴다.
+    const om = await measureImage(originalPath);
+    const os = scoreImage(om).score;
+    if (os > 0 && cs < os * 0.8) {
+      return { rejected: true, reason: `누끼 품질 저하(가공 ${cs} < 원본 ${os})` };
+    }
+    return { rejected: false };
+  } catch {
+    return { rejected: false }; // 측정 실패는 기존 동작 유지(안전 우선)
+  }
+}
 
 function parseArgs(argv) {
   const a = { _: [] };
@@ -128,19 +160,29 @@ async function main() {
     for (let i = 0; i < products.length; i++) {
       const p = products[i];
       if (clipOff) { p.mainImageRanked = null; p.detailImagesKept = p.detailImages || []; p.detailDroppedNames = []; continue; }
-      const main = await selectBestMainImage(p.mainImages || (p.mainImage ? [p.mainImage] : []), { onLog });
+      const mainPool = p.mainImages || (p.mainImage ? [p.mainImage] : []);
+      // ⭐ 대표 후보를 폴더 경계 너머로 확장 — main_images/detail_images 는 소싱처가 나눈 것일 뿐,
+      //    상세 폴더에 더 좋은 정면 단독컷이 들어있는 경우가 많다(실측: 상품이 안 보이는 대표컷).
+      //    자격 심사는 image-selector 가 한다(CLIP 가용 + 정면 단독컷 확정일 때만 승격).
+      const main = await selectBestMainImage(mainPool, { onLog, extraCandidates: p.detailImages || [] });
       if (main.method === 'fallback-first') { clipOff = true; console.log(`[${ts()}] [이미지인식] CLIP 미탑재 — 첫컷 폴백(${main.error})`); }
+      const promotedFromDetail = !!main.path && !mainPool.includes(main.path);
       if (main.path) p.mainImage = main.path;             // 최적 대표컷으로 교체
       p.mainImageRanked = main.ranked;
       // 전 후보가 로고/플레이스홀더/저품질이면 confident=false → 아래에서 needsReview 로 표기.
       p.mainConfident = main.confident !== false;
       p.mainReason = main.reason || null;
-      const det = await curateDetailImages(p.detailImages || [], { onLog });
+      if (promotedFromDetail) console.log(`[${ts()}] [이미지인식] 상세컷을 대표로 승격: ${path.basename(main.path)}`);
+      // 대표로 승격된 상세컷은 상세 목록에서 제외(같은 사진이 대표+상세에 중복 노출 방지).
+      const detailPool = (p.detailImages || []).filter((d) => d !== p.mainImage);
+      const det = await curateDetailImages(detailPool, { onLog });
       p.detailImagesKept = det.kept.map((k) => k.path);
       // CLIP 이 광고/배송/리뷰컷으로 판단해 버린 파일명 — 웹 등록이 스캔한 상세이미지에서 정확히 이것만 제외한다.
       p.detailDroppedNames = det.dropped.map((d) => path.basename(d.path));
+      // 대표로 승격된 상세컷은 웹 상세목록에서도 빼준다(대표 + 상세 중복 노출 방지).
+      if (promotedFromDetail) p.detailDroppedNames.push(path.basename(p.mainImage));
       p.detailDropped = det.dropped.length;
-      const pickIco = main.method === 'clip' ? '🎯' : '·';
+      const pickIco = String(main.method || '').startsWith('clip') ? '🎯' : '·';
       const detNote = (p.detailImages || []).length ? ` · 상세 ${p.detailImagesKept.length}/${p.detailImages.length}컷(광고 ${det.dropped.length} 제외)` : '';
       console.log(`[${ts()}][인식 ${i + 1}/${products.length}] ${pickIco} 대표=${path.basename(p.mainImage || '-')}${main.method === 'clip' && main.ranked[0]?.score != null ? ` (점수 ${main.ranked[0].score})` : ''}${detNote}`);
     }
@@ -205,6 +247,18 @@ async function main() {
         const p = products[i], rec = records[i];
         if (!p.mainImage) { rec.thumbProcessed = null; continue; }
         const res = await thumb.process(p.mainImage, p.folderPath, { force: !!cli['thumb-force'] });
+        // 가공본 품질 게이트 — 원본보다 나쁘면 대표로 쓰지 않는다(웹도 이 신호로 기본선택 이동).
+        let gate = { rejected: false };
+        if (res.path && res.path !== p.mainImage) gate = await gateCutout(res.path, p.mainImage);
+        if (gate.rejected) {
+          rec.mainImage = p.mainImage;          // 원본을 대표로
+          rec.thumbRejected = true;
+          rec.thumbRejectReason = gate.reason;
+          rec.thumbProcessed = res.processed;   // 가공본 자체는 존재(후보로는 남는다)
+          if (res.processed) thumbsProcessed++;
+          console.log(`[${ts()}][이미지 ${i + 1}/${products.length}] ⚠️ 누끼 반려 → 원본 대표 (${gate.reason})`);
+          continue;
+        }
         rec.mainImage = res.path || rec.mainImage;
         rec.thumbProcessed = res.processed;
         if (res.processed) thumbsProcessed++;
@@ -223,16 +277,27 @@ async function main() {
         const dest = path.join(p.folderPath || path.dirname(path.dirname(p.mainImage)), 'main_images_regen',
           path.basename(p.mainImage).replace(/\.(jpg|jpeg|webp|png)$/i, '.png'));
         try {
+          const useCutout = async (label) => {
+            const gate = await gateCutout(dest, p.mainImage);
+            rec.thumbProcessed = true; thumbsProcessed++;
+            if (gate.rejected) {
+              rec.mainImage = p.mainImage;      // 원본을 대표로(가공본은 후보로 남음)
+              rec.thumbRejected = true;
+              rec.thumbRejectReason = gate.reason;
+              console.log(`[${ts()}][이미지 ${i + 1}/${products.length}] ⚠️ 누끼 반려 → 원본 대표 (${gate.reason})`);
+            } else {
+              rec.mainImage = dest;
+              console.log(`[${ts()}][이미지 ${i + 1}/${products.length}] 🖼️ ${path.basename(dest)} (${label})`);
+            }
+          };
           if (!cli['thumb-force'] && existsSync(dest)) {
-            rec.mainImage = dest; rec.thumbProcessed = true; thumbsProcessed++;
-            console.log(`[${ts()}][이미지 ${i + 1}/${products.length}] 🖼️ ${path.basename(dest)} (resume)`);
+            await useCutout('resume');
             continue;
           }
           const buf = await localCutoutToWhite(readFileSync(p.mainImage), { onLog });
           mkdirSync(path.dirname(dest), { recursive: true });
           writeFileSync(dest, buf);
-          rec.mainImage = dest; rec.thumbProcessed = true; thumbsProcessed++;
-          console.log(`[${ts()}][이미지 ${i + 1}/${products.length}] 🖼️ ${path.basename(dest)} (CPU 누끼)`);
+          await useCutout('CPU 누끼');
         } catch (e) {
           rec.thumbProcessed = false;
           if (cutoutDepsFailed()) {

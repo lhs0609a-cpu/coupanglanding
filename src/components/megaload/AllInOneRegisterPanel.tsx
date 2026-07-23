@@ -33,6 +33,7 @@ import { focusNextField } from './focusNextField';
 import PreUploadConfirmModal from './PreUploadConfirmModal';
 import { CertStatusBlock } from './CertStatusBlock';
 import CategoryCascadingPicker from './bulk/CategoryCascadingPicker';
+import { buildRichDetailPageHtml } from '@/lib/megaload/services/detail-page-builder';
 import type { CertPreviewResult } from '@/app/api/megaload/products/cert-preview/route';
 import type { OptionPreviewResult } from '@/app/api/megaload/products/option-preview/route';
 import type { AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
@@ -65,6 +66,9 @@ interface GenRecord {
   persona?: string;
   needsReview?: boolean;
   thumbProcessed?: boolean | null;
+  /** 누끼 가공본이 원본보다 나빠 대표에서 반려됨(run-folder gateCutout) — 기본 대표를 원본으로 */
+  thumbRejected?: boolean;
+  thumbRejectReason?: string;
   /** 대표컷 후보가 전부 로고/저품질이라 확인이 필요할 때의 사유(run-folder 가 표기) */
   mainImageWarning?: string;
 }
@@ -782,14 +786,25 @@ export default function AllInOneRegisterPanel() {
         // ⭐ 예전엔 가공본이 있으면 원본을 통째로 버렸다. 그래서 누끼 결과가 마음에 안 들어도
         //    되돌릴 방법이 없었다(ComfyUI 는 후보를 1장만 만들고 재시도 경로도 없다).
         //    이제 둘 다 남겨 카드에서 고르게 한다 — 기본값은 그대로 AI 추천(index 0).
-        const mainImages = usingRegen ? [...regen, ...clip.images] : clip.images;
-        const reordered = { picked: usingRegen || clip.picked };
+        // 워커가 상세/리뷰컷을 대표로 승격했으면(폴더 경계 너머 심사) 그 원본도 대표 후보에 넣는다.
+        //   웹 스캔은 폴더명으로만 풀을 나누므로, 승격된 컷은 sp.mainImages 에 없다.
+        //   regen 바로 뒤에 두어 "누끼 반려 시 기본값(regen.length)"이 곧 이 원본이 되게 한다.
+        const promotedName = gen?.mainImage ? basename(gen.mainImage) : '';
+        const promotedExtra = promotedName && !(sp.mainImages || []).some((m) => m.name === promotedName)
+          ? (sp.detailImages || []).filter((d) => d.name === promotedName)
+          : [];
+        const mainImages = usingRegen
+          ? [...regen, ...promotedExtra, ...clip.images]
+          : [...promotedExtra, ...clip.images];
+        const reordered = { picked: usingRegen || clip.picked || promotedExtra.length > 0 };
         // 상세: CLIP 이 광고/배송/리뷰컷으로 버린 파일명만 제외(핸들 유지 → 등록 업로드 가능).
         const detailImages = applyDetailCuration(sp.detailImages || [], gen);
         // 썸네일 표시용 objectURL 보장 — 공용 스캐너는 main_images 를 lazy(objectUrl 미생성)로 읽으므로
         // 가공본(regen)이 없는 상품은 (재정렬 후) 첫 장 URL 을 즉시 만들어야 카드 썸네일이 보인다.
-        if (mainImages[0] && !mainImages[0].objectUrl) {
-          await ensureObjectUrl(mainImages[0]);
+        // 기본 대표로 쓸 인덱스(누끼 반려 시 첫 원본) — 그 컷의 썸네일 URL 을 보장해야 카드가 보인다.
+        const initialMainIdx = usingRegen && gen?.thumbRejected ? regen.length : 0;
+        if (mainImages[initialMainIdx] && !mainImages[initialMainIdx].objectUrl) {
+          await ensureObjectUrl(mainImages[initialMainIdx]);
         }
         const edit = initEdit(gen);
         built.push({
@@ -801,7 +816,9 @@ export default function AllInOneRegisterPanel() {
           edit,
           mainImages,
           regenCount: regen.length,
-          selectedMainIdx: 0,
+          // 기본 대표 = 0번(누끼 가공본). 단 워커가 가공본을 반려했으면(거꾸로/잘림/빈컷 등)
+          // 첫 원본(=regen 다음 인덱스)을 기본으로 — 가공본은 후보로 남아 되돌릴 수 있다.
+          selectedMainIdx: initialMainIdx,
           detailImages,
           mainAiPicked: reordered.picked,
           usingRegen,
@@ -1052,17 +1069,12 @@ export default function AllInOneRegisterPanel() {
     }
   }, [handleLoadFromHelper]);
 
-  // ── 자동 로드 ──────────────────────────────────────────────────────
-  // 도우미가 올인원 생성을 끝내면 앱이 이 화면을 자동으로 연다. 그때 결과가 이미 있으니
-  // 버튼 클릭 없이 저절로 채운다 → "앱에서 폴더 1번 → 나머지 자동"의 마지막 조각.
-  // 단 한 번만(autoLoadedRef), 그리고 사용자가 이미 뭔가 불러온 뒤면(rows>0) 건드리지 않는다.
-  useEffect(() => {
-    if (autoLoadedRef.current) return;
-    if (helperDiag?.ok && rows.length === 0 && !scanning) {
-      autoLoadedRef.current = true;
-      void handleLoadFromHelper();
-    }
-  }, [helperDiag, rows.length, scanning, handleLoadFromHelper]);
+  // ── 이전 결과 자동 로드 안 함(사용자 요청) ──────────────────────────
+  // 예전엔 도우미에 결과가 있으면 화면 열자마자 저절로 카드를 채웠다. 그러나 "전에 작업했던
+  // 게 계속 떠서 거슬린다"는 피드백 → 이제 이전 생성결과는 사용자가 직접 "이전 생성결과
+  // 불러오기" 버튼을 눌러야만 뜬다. (이 웹에서 방금 업로드-생성한 경우는 handleUploadGenerate
+  // 가 완료 시 handleLoadFromHelper 를 명시 호출하므로 그 흐름은 그대로 자동 표시된다.)
+  //   autoLoadedRef 는 그 생성-후-1회 로드 가드로만 남는다.
 
   // ── 대표컷 선택 ──────────────────────────────────────────────────
   // 스캐너는 첫 장만 objectUrl 을 즉시 만든다(대량 폴더에서 전부 만들면 메모리·시간 낭비).
@@ -1613,11 +1625,15 @@ export default function AllInOneRegisterPanel() {
                 </div>
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-center gap-1 flex-wrap">
-                    {r.selectedMainIdx !== 0
-                      ? <span className="text-[10px] bg-blue-500 text-white rounded px-1">직접 선택</span>
-                      : regenSelected
-                        ? <span className="text-[10px] text-emerald-600 font-medium">AI 누끼 대표</span>
-                        : r.mainAiPicked && <span className="text-[10px] text-emerald-600 font-medium">AI 선택 대표</span>}
+                    {/* 누끼 반려(워커 품질게이트) → 기본이 첫 원본. "직접 선택"으로 잘못 보이지 않게 별도 표기. */}
+                    {g?.thumbRejected && r.selectedMainIdx === r.regenCount
+                      ? <span title={g.thumbRejectReason || '누끼 결과가 원본보다 나빠 원본을 대표로 사용'}
+                          className="text-[10px] bg-amber-500 text-white rounded px-1 cursor-help">누끼 반려 · 원본 대표</span>
+                      : r.selectedMainIdx !== 0
+                        ? <span className="text-[10px] bg-blue-500 text-white rounded px-1">직접 선택</span>
+                        : regenSelected
+                          ? <span className="text-[10px] text-emerald-600 font-medium">AI 누끼 대표</span>
+                          : r.mainAiPicked && <span className="text-[10px] text-emerald-600 font-medium">AI 선택 대표</span>}
                     {(g?.detailDroppedNames?.length ?? 0) > 0 && (
                       <span className="text-[10px] text-gray-400">상세 광고 {g!.detailDroppedNames!.length}컷 제외</span>
                     )}
@@ -1862,6 +1878,35 @@ export default function AllInOneRegisterPanel() {
                       <textarea value={e.detail} disabled={!editable}
                         onChange={(ev) => patchEdit(r.uid, { detail: ev.target.value })}
                         className="mt-1 w-full text-[12px] whitespace-pre-wrap leading-relaxed bg-gray-50 border border-gray-200 focus:border-blue-300 rounded p-2 h-72 overflow-auto focus:outline-none disabled:bg-gray-100" />
+                      {/* 실제 상세페이지 미리보기 — 글(**볼드** 렌더)과 이미지가 함께 교차되어
+                          쿠팡에 등록될 모습 그대로. 위 textarea 는 원문 편집용, 아래는 렌더 결과. */}
+                      {(() => {
+                        const paras = (e.detail || '').split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+                        const imgs = r.detailImages.map((img) => img.objectUrl).filter((u): u is string => !!u);
+                        if (paras.length === 0 && imgs.length === 0) return null;
+                        const html = buildRichDetailPageHtml({
+                          productName: e.displayName || r.scanned.productJson?.name || r.productCode,
+                          brand: '',
+                          aiStoryParagraphs: paras,
+                          reviewImageUrls: [],
+                          detailImageUrls: imgs,
+                          categoryPath: e.categoryPath,
+                        }, 'A');
+                        return (
+                          <div className="mt-2">
+                            <p className="text-[11px] text-gray-500 mb-1">미리보기 (등록될 상세페이지 — 글·이미지 함께)</p>
+                            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden" style={{ maxHeight: 420, overflowY: 'auto' }}>
+                              <iframe
+                                srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:0;}</style></head><body>${html}</body></html>`}
+                                title="상세페이지 미리보기"
+                                className="w-full border-0"
+                                style={{ height: 420 }}
+                                sandbox="allow-same-origin"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </>
                     );
                   })()}

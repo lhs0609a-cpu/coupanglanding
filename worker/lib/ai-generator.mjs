@@ -35,7 +35,7 @@ function seedHash(s) {
  * 셀러별 노출명 유니크화 — 코어(브랜드·제품명·스펙)는 그대로 두고, 셀러 시드로 keywords 중
  *   노출명에 아직 없는 검색어 1개를 결정론적으로 골라 꼬리에 붙인다.
  *   여러 셀러가 같은 상품을 올려도 노출명이 겹치지 않게(아이템위너 회피) + SEO 키워드 보강.
- *   50자 초과하면 붙이지 않는다(쿠팡 노출명 길이 가드).
+ *   85자 초과하면 붙이지 않는다(쿠팡 노출명 길이 가드, 최대 100자).
  * @param {string} displayName  코어 노출명
  * @param {string[]} keywords   SEO 키워드
  * @param {string} seed         셀러 식별 시드(=personaSeed: `${sellerId}:${상품}`)
@@ -49,7 +49,7 @@ function diversifyBySeller(displayName, keywords, seed) {
   if (pool.length === 0) return name;
   const pick = pool[seedHash(seed) % pool.length];
   const out = `${name} ${pick}`.trim();
-  return out.length <= 50 ? out : name;
+  return out.length <= 85 ? out : name;
 }
 
 const catTokens = (s) => (String(s || '').toLowerCase().match(/[가-힣a-z0-9]+/g) || []).filter((t) => t.length >= 2);

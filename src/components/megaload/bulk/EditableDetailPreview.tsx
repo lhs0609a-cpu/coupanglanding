@@ -20,8 +20,31 @@
  *   - 이미지 추가/교체는 사이드 패널의 기존 ImageSelectorGroup 사용.
  */
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, Fragment, type ReactNode } from 'react';
 import { Trash2, Plus, Pencil, Sparkles } from 'lucide-react';
+
+/**
+ * 마크다운 볼드(**x**)를 <strong> 로 렌더한다. 짝 안 맞는 ** 는 제거.
+ *   LLM 상세글이 후킹 문장을 `**...**` 로 감싸는데, 예전엔 이 인라인 미리보기가
+ *   평문으로 그려서 리터럴 별표(**이런 적 있으시죠?**)가 그대로 노출됐다.
+ *   (실제 등록 HTML(detail-page-builder escInline)과 동일하게 굵게 보이도록.)
+ */
+function renderInlineBold(text: string): ReactNode {
+  if (!text.includes('**')) return text;
+  const parts: ReactNode[] = [];
+  const re = /\*\*([^*\n]+?)\*\*/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(<Fragment key={key++}>{text.slice(last, m.index)}</Fragment>);
+    parts.push(<strong key={key++}>{m[1]}</strong>);
+    last = m.index + m[0].length;
+  }
+  // 남은 꼬리(짝 없는 ** 는 제거)
+  if (last < text.length) parts.push(<Fragment key={key++}>{text.slice(last).replace(/\*\*/g, '')}</Fragment>);
+  return parts;
+}
 
 interface EditableDetailPreviewProps {
   /** 본문 문단 (편집 가능) */
@@ -257,7 +280,7 @@ function ParagraphView({
       onClick={onEdit}
       title="클릭해서 편집"
     >
-      {text || <span className="text-gray-400">(빈 문단 — 클릭해서 작성)</span>}
+      {text ? renderInlineBold(text) : <span className="text-gray-400">(빈 문단 — 클릭해서 작성)</span>}
       {hover && (
         <>
           {/* 좌상단 "클릭해서 편집" 힌트 */}

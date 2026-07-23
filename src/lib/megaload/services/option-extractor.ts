@@ -1117,6 +1117,12 @@ function getRequiredFallback(optionName: string, productName: string, unit?: str
     return '홀빈';
   }
 
+  // 수량/개수(총 판매 개수) — 원본명에 개수 표기가 없으면 1개로 본다(사용자 규칙).
+  //   ('총 수량'·'개당 수량'은 위에서 이미 처리됨. '개당 중량/용량'은 이름에 수량/개수가 없어 여기 안 걸림.)
+  if (/수량|개수|갯수|입수/.test(n) && !/중량|용량|무게|부피/.test(n)) {
+    return String(extractCount(productName, {})); // 패턴 없으면 기본 1
+  }
+
   // ── 매칭되지 않은 옵션: unit 여부에 따라 결정 ──
   // 단위형 → "1" (숫자 필수), 텍스트형 → "상세페이지 참조" (누락 방지)
   return unit ? '1' : '상세페이지 참조';
