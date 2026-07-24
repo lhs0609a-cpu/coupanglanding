@@ -74,6 +74,23 @@ const MAIN_LABELS = [
 // top 라벨이 이 집합이면 "대표컷 부적합" — MAIN_GOOD(정면·단독·완전)이 아니면 감점, 로고는 하드 반려.
 const MAIN_BAD_TOP = new Set(MAIN_LABELS.slice(1));
 
+// ── 리뷰컷 전용 라벨 ──────────────────────────────────────────────────────
+//   리뷰컷은 "구매자가 찍은 실사용 사진"이라 상세컷과 성격이 다르다(배경 지저분함, 손·식탁 등).
+//   그래서 DETAIL_LABELS 를 그대로 쓰면 안 된다 — 거기엔 'review screenshot' 이 드롭 사유로
+//   들어 있어 리뷰컷이 통째로 걸러진다. 여기서 걸러야 할 건 따로 있다:
+//     ① 사람 얼굴/인물 사진(초상권·부적합)  ② 채팅/별점/텍스트 캡처  ③ 영수증·송장(개인정보)
+//     ④ 상품과 무관한 사진
+const REVIEW_KEEP = 'a customer photo showing the product itself';
+const REVIEW_FACE = 'a portrait or close-up photo of a person or a face';
+const REVIEW_LABELS = [
+  REVIEW_KEEP,
+  REVIEW_FACE,
+  'a screenshot of a chat, message, rating stars, or text on screen',
+  'a photo of a receipt, invoice, shipping label, or document',
+  'a photo unrelated to any product, such as scenery, pets, or random objects',
+  'an advertisement or promotion banner',
+];
+
 const DETAIL_KEEP = 'a product photo or product detail shot';
 const DETAIL_LABELS = [
   DETAIL_KEEP,
@@ -188,6 +205,52 @@ export async function selectBestMainImage(imagePaths, o = {}) {
   //   후보가 하나도 안 남은 경우(전부 자격미달)는 확신 없음 → 검수 대상.
   const confident = !!best && !reason;
   return { path: best ? best.path : null, ranked, method, confident, reason };
+}
+
+/**
+ * 리뷰이미지 큐레이션 — 상세페이지 본문에 끼워질 리뷰컷에서 **사람 얼굴·캡처·영수증·무관 사진**을 걷어낸다.
+ * ---------------------------------------------------------------------------
+ * ⚠️ 리뷰컷은 pickBodyImages 의 1순위라 상세페이지에 가장 크게 노출되는데, 예전엔 워커가
+ *    리뷰 폴더를 읽지도 않아 **무검사로** 실렸다(사람 얼굴, 카톡 캡처, 영수증까지 그대로).
+ * 판정은 CLIP 제로샷. 얼굴은 확률이 조금만 높아도(≥0.25) 버린다 — 초상권 리스크가 크고,
+ *   상품 사진이 아쉬우면 상세컷으로 폴백되므로 보수적으로 걸러도 손해가 없다.
+ * CLIP 미탑재 시엔 판단 불가 → 안전 우선으로 **전부 제외**하지 않고 blank 만 걸러 보존한다
+ *   (기존 동작과 동일하게 두어 이미지가 통째로 사라지는 사고를 막는다).
+ * @returns {Promise<{kept:Array<{path,score}>, dropped:Array<{path,reason,score}>, method:string}>}
+ */
+export async function curateReviewImages(imagePaths, o = {}) {
+  const paths = (imagePaths || []).filter(Boolean);
+  const max = o.max ?? 12;
+  const minKeep = o.minKeep ?? 0.3;
+  const faceMax = o.faceMax ?? 0.25;
+  if (paths.length === 0) return { kept: [], dropped: [], method: 'none' };
+
+  let pipe = null;
+  try { pipe = await ensureClip(o); } catch { pipe = null; }
+  if (!pipe) {
+    o.onLog?.('[리뷰컷] CLIP 미탑재 — 사람/캡처 판별 불가, 원본 유지');
+    return { kept: paths.map((p) => ({ path: p, score: null })), dropped: [], method: 'fallback-all' };
+  }
+
+  const kept = [], dropped = [];
+  for (const p of paths) {
+    try {
+      const m = await classify(pipe, p, REVIEW_LABELS);
+      const face = m[REVIEW_FACE] || 0;
+      const keep = m[REVIEW_KEEP] || 0;
+      const top = Object.entries(m).sort((a, b) => b[1] - a[1])[0];
+      if (face >= faceMax || top[0] === REVIEW_FACE) {
+        dropped.push({ path: p, reason: '사람 얼굴/인물', score: +face.toFixed(4) });
+      } else if (top[0] === REVIEW_KEEP && keep >= minKeep) {
+        kept.push({ path: p, score: +keep.toFixed(4) });
+      } else {
+        dropped.push({ path: p, reason: top[0], score: +keep.toFixed(4) });
+      }
+    } catch {
+      kept.push({ path: p, score: null }); // 분류 실패는 보존(안전 우선)
+    }
+  }
+  return { kept: kept.slice(0, max), dropped, method: 'clip' };
 }
 
 /**

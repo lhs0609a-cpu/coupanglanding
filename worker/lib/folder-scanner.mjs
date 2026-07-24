@@ -45,6 +45,22 @@ function collectDetailImages(productPath) {
   return [];
 }
 
+/**
+ * 리뷰이미지 폴더 (웹 allinone-local.REVIEW_DIRS 와 동기화).
+ *   ⚠️ 리뷰컷은 상세페이지 본문에서 **글 사이에 끼워지는 1순위 이미지**다
+ *      (detail-page-builder.pickBodyImages). 그런데 예전엔 워커가 이 폴더를 아예 읽지 않아
+ *      **아무 검사도 없이** 상세페이지에 실렸다 — 사람 얼굴·채팅 캡처·영수증까지.
+ *      이제 읽어서 CLIP 큐레이션(curateReviewImages)에 태운다.
+ */
+const REVIEW_DIRS = ['review_images', 'reviews', 'review', '리뷰이미지', '리뷰 이미지', '리뷰', 'customer_reviews'];
+function collectReviewImages(productPath) {
+  for (const name of REVIEW_DIRS) {
+    const imgs = collectImages(path.join(productPath, name));
+    if (imgs.length) return imgs;
+  }
+  return [];
+}
+
 /** product_summary.txt 에서 원본 상품 URL 추출 (웹 정규식과 동일) */
 function readSourceUrl(productPath) {
   const p = path.join(productPath, 'product_summary.txt');
@@ -124,6 +140,7 @@ export function scanFolder(rootDir) {
       mainImage: mainImages[0] || null,     // 기본값(이미지인식 전) — run-folder 인식 단계가 최적컷으로 교체
       mainImages,                            // 대표 후보 전체(CLIP 선택 대상)
       detailImages: collectDetailImages(productPath), // 상세페이지 후보(CLIP 큐레이션 대상)
+      reviewImages: collectReviewImages(productPath), // 리뷰컷(본문 교차 1순위 — CLIP 큐레이션 대상)
       certifications: Array.isArray(pj.certifications) ? pj.certifications : [], // KC 등 원본 인증({name,cert_number,…}) — 서버가 메타 grounding
       categoryPath: sourceCat.categoryPath || '', // LLM 카테고리 힌트(소싱 원본 분류)
       folderPath: productPath,

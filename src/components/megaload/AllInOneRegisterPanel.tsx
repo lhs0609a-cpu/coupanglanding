@@ -55,6 +55,13 @@ interface GenRecord {
   detailImages?: string[];
   /** CLIP 이 광고/배송/리뷰컷으로 버린 상세 파일명 — 웹이 스캔한 상세이미지에서 정확히 이것만 제외 */
   detailDroppedNames?: string[];
+  /** CLIP 이 유지한 리뷰컷 절대경로(참고용) */
+  reviewImages?: string[];
+  /**
+   * CLIP 이 버린 리뷰 파일명 — 사람 얼굴/인물, 채팅·별점 캡처, 영수증·송장, 상품 무관 사진.
+   * 리뷰컷은 상세페이지 본문에 크게 실리므로(pickBodyImages 1순위) 여기서 반드시 제외한다.
+   */
+  reviewDroppedNames?: string[];
   /** KC 등 원본 인증({name,cert_number,…}) — 서버(배치)가 카테고리 메타로 grounding 후 등록에 반영 */
   sourceCertifications?: unknown[];
   displayName: string;
@@ -306,6 +313,18 @@ function applyDetailCuration(scanned: ScannedImageFile[], gen: GenRecord | null)
   if (dropped.size === 0) return scanned;
   const filtered = scanned.filter((img) => !dropped.has(img.name));
   return filtered.length > 0 ? filtered : scanned;
+}
+
+/**
+ * 리뷰컷에서 워커(CLIP)가 걸러낸 컷을 제외.
+ * ⚠️ 상세컷과 달리 **전부 걸러져도 되살리지 않는다** — 제외 사유가 사람 얼굴·영수증 같은
+ *    "실으면 안 되는 것"이라, 이미지 0장이 되는 편이 낫다(상세컷으로 자동 폴백된다).
+ */
+function applyReviewCuration(scanned: ScannedImageFile[], gen: GenRecord | null): ScannedImageFile[] {
+  if (!gen) return scanned;
+  const dropped = new Set((gen.reviewDroppedNames || []).map(basename));
+  if (dropped.size === 0) return scanned;
+  return scanned.filter((img) => !dropped.has(img.name));
 }
 
 /** product_<코드> 폴더의 main_images_regen 을 ScannedImageFile[] 로 읽기(페이지 로컬 — 공용 스캐너 무수정) */
@@ -855,7 +874,7 @@ export default function AllInOneRegisterPanel() {
           // 첫 원본(=regen 다음 인덱스)을 기본으로 — 가공본은 후보로 남아 되돌릴 수 있다.
           selectedMainIdx: initialMainIdx,
           detailImages,
-          reviewImages: sp.reviewImages || [],
+          reviewImages: applyReviewCuration(sp.reviewImages || [], gen),
           mainAiPicked: reordered.picked,
           usingRegen,
           approved: isEligible(edit) && !gen?.needsReview,
@@ -973,7 +992,7 @@ export default function AllInOneRegisterPanel() {
         //    그대로 써서, 워커가 "광고/빈 배너"로 버린 컷(예: 텍스트만 있는 흰 배너)이
         //    상세 이미지로 붙었다(실측). 워커가 버린 파일명만 정확히 뺀다.
         const detailImages = applyDetailCuration(cls.detail.map(mkImg), gen);
-        const reviewImages = cls.review.map(mkImg);
+        const reviewImages = applyReviewCuration(cls.review.map(mkImg), gen);
         const infoImages = cls.info.map(mkImg);
 
         // scanned 는 등록 경로가 reviewImages/infoImages/productJson/sourceUrl 만 참조 →

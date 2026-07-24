@@ -39,7 +39,7 @@ import { generateBatch } from './lib/ai-batch.mjs';
 import { resolveMarginLevel, presetBrackets } from './lib/margin-mini.mjs';
 import { makeThumbnailProcessor } from './lib/thumbnail-batch.mjs';
 import { buildReviewHtml } from './lib/review-html.mjs';
-import { selectBestMainImage, curateDetailImages } from './lib/image-selector.mjs';
+import { selectBestMainImage, curateDetailImages, curateReviewImages } from './lib/image-selector.mjs';
 import { localCutoutToWhite, cutoutDepsFailed } from './lib/local-cutout.mjs';
 import { measureImage, scoreImage, metricsDepsFailed, looksCutout } from './lib/image-metrics.mjs';
 
@@ -82,7 +82,7 @@ async function gateCutout(cutoutPath, originalPath) {
  * → 같은 폴더 재생성(모델 바꿔서 다시, 중간에 죽어서 다시)은 인식 단계가 사실상 0초.
  */
 function imagesSignature(p) {
-  const files = [...(p.mainImages || []), ...(p.detailImages || [])];
+  const files = [...(p.mainImages || []), ...(p.detailImages || []), ...(p.reviewImages || [])];
   const h = createHash('sha1');
   for (const f of files.sort()) {
     let s = '';
@@ -201,12 +201,14 @@ async function main() {
         p.mainImageRanked = hit.mainImageRanked || null;
         p.detailImagesKept = hit.detailImagesKept || p.detailImages || [];
         p.detailDroppedNames = hit.detailDroppedNames || [];
+        p.reviewImagesKept = hit.reviewImagesKept || p.reviewImages || [];
+        p.reviewDroppedNames = hit.reviewDroppedNames || [];
         p.mainConfident = hit.mainConfident !== false;
         p.mainReason = hit.mainReason || null;
         recogHits++;
         continue;
       }
-      if (clipOff) { p.mainImageRanked = null; p.detailImagesKept = p.detailImages || []; p.detailDroppedNames = []; continue; }
+      if (clipOff) { p.mainImageRanked = null; p.detailImagesKept = p.detailImages || []; p.detailDroppedNames = []; p.reviewImagesKept = p.reviewImages || []; p.reviewDroppedNames = []; continue; }
       const mainPool = p.mainImages || (p.mainImage ? [p.mainImage] : []);
       // ⭐ 대표 후보를 폴더 경계 너머로 확장 — main_images/detail_images 는 소싱처가 나눈 것일 뿐,
       //    상세 폴더에 더 좋은 정면 단독컷이 들어있는 경우가 많다(실측: 상품이 안 보이는 대표컷).
@@ -229,10 +231,20 @@ async function main() {
       // 대표로 승격된 상세컷은 웹 상세목록에서도 빼준다(대표 + 상세 중복 노출 방지).
       if (promotedFromDetail) p.detailDroppedNames.push(path.basename(p.mainImage));
       p.detailDropped = det.dropped.length;
+      // 리뷰컷 — 상세페이지 본문 1순위 이미지. 사람 얼굴·채팅캡처·영수증·무관사진을 걸러낸다.
+      const rev = await curateReviewImages(p.reviewImages || [], { onLog });
+      p.reviewImagesKept = rev.kept.map((k) => k.path);
+      p.reviewDroppedNames = rev.dropped.map((d) => path.basename(d.path));
+      if (rev.dropped.length) {
+        const faces = rev.dropped.filter((d) => d.reason === '사람 얼굴/인물').length;
+        console.log(`[${ts()}] [리뷰컷] ${p.id}: ${rev.kept.length}/${(p.reviewImages || []).length}장 사용`
+          + ` (제외 ${rev.dropped.length}${faces ? `, 사람 ${faces}` : ''})`);
+      }
       // 인식 결과 캐시 — 다음 실행에서 사진이 그대로면 CLIP 을 건너뛴다.
       recogCache[p.id || p.folderPath] = {
         sig, mainImage: p.mainImage, mainImageRanked: p.mainImageRanked,
         detailImagesKept: p.detailImagesKept, detailDroppedNames: p.detailDroppedNames,
+        reviewImagesKept: p.reviewImagesKept, reviewDroppedNames: p.reviewDroppedNames,
         mainConfident: p.mainConfident, mainReason: p.mainReason,
       };
       if (i % 5 === 4) saveRecogCache(recogCacheFile, recogCache); // 중간에 죽어도 앞부분은 보존
@@ -261,7 +273,7 @@ async function main() {
     if (!overlap) await recogPromise;
   } else {
     console.log(`[${ts()}] [이미지인식] 생략(--no-image-ai) — 첫컷/원본 상세 유지`);
-    for (const p of products) { p.detailImagesKept = p.detailImages || []; p.mainImageRanked = null; p.detailDroppedNames = []; p.mainConfident = true; p.mainReason = null; }
+    for (const p of products) { p.detailImagesKept = p.detailImages || []; p.mainImageRanked = null; p.detailDroppedNames = []; p.reviewImagesKept = p.reviewImages || []; p.reviewDroppedNames = []; p.mainConfident = true; p.mainReason = null; }
   }
 
   // ── Phase A) 전체 텍스트 생성 (ollama 가 GPU 점유) ───────────────────────
@@ -303,6 +315,8 @@ async function main() {
     rec.mainImageRanked = p.mainImageRanked ?? null;
     rec.detailImages = Array.isArray(p.detailImagesKept) ? p.detailImagesKept : (p.detailImages || []);
     rec.detailDroppedNames = Array.isArray(p.detailDroppedNames) ? p.detailDroppedNames : [];
+    rec.reviewImages = Array.isArray(p.reviewImagesKept) ? p.reviewImagesKept : (p.reviewImages || []);
+    rec.reviewDroppedNames = Array.isArray(p.reviewDroppedNames) ? p.reviewDroppedNames : [];
   }
 
   // ── 대표컷 신뢰도 병합 — 전 후보가 로고/저품질이면 검수 대상으로 승격 ──────────

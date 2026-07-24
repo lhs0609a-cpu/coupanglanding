@@ -63,15 +63,38 @@ async function candidatesFor(p, k) {
         if (decisive) push(tok[0]);
         for (const c of emb) push(c);
         for (const c of tok) push(c);
-        return { cands: merged.slice(0, k), source: 'embedding+token', decisive };
+        return { cands: preferSourceDomain(merged.slice(0, k), p), source: 'embedding+token', decisive };
       }
-      return { cands: tok, source: 'token', decisive };
+      return { cands: preferSourceDomain(tok, p), source: 'token', decisive };
     } catch {
       // 인덱스는 빌드됐지만 임베딩 모델(bge-m3) 미설치/오류 → 토큰 폴백
-      return { cands: tok, source: 'token(embed-unavailable)', decisive };
+      return { cands: preferSourceDomain(tok, p), source: 'token(embed-unavailable)', decisive };
     }
   }
-  return { cands: tok, source: 'token', decisive };
+  return { cands: preferSourceDomain(tok, p), source: 'token', decisive };
+}
+
+/**
+ * 소싱 원본 대분류와 같은 대분류의 후보를 앞으로 세운다.
+ * ---------------------------------------------------------------------------
+ * 실측: "차량용 무선충전 거치대"(원본 대분류=자동차용품)에서 매처는 자동차용품 카테고리를
+ *   1위로 올렸는데, LLM 이 목록 아래쪽의 **이어폰 액세서리 거치대**(가전)를 골랐다.
+ *   대분류는 사람이 이미 정해 준 near-ground-truth 이므로, 같은 대분류를 먼저 보여준다.
+ * 매핑 테이블을 박지 않는다 — 원본 대분류 글자와 후보 경로 앞부분의 겹침으로 판정한다
+ *   ('자동차용품'↔'자동차용품', '패션의류'↔'패션의류잡화', '디지털/가전'↔'가전 디지털').
+ */
+function preferSourceDomain(cands, p) {
+  const srcTop = String(p.categoryPath || '').split(/[>/｜|›»]/)[0] || '';
+  const srcWords = (srcTop.toLowerCase().match(/[가-힣a-z0-9]+/g) || []).filter((w) => w.length >= 2);
+  if (srcWords.length === 0) return cands;
+  const agrees = (c) => {
+    const head = (String(c.path || '').toLowerCase().match(/[가-힣a-z0-9]+/g) || []).slice(0, 2);
+    return head.some((h) => srcWords.some((w) => h.includes(w) || w.includes(h)));
+  };
+  const hit = cands.filter(agrees);
+  // 전부 일치하거나 하나도 일치하지 않으면 원래 순서 유지(정보 없음).
+  if (hit.length === 0 || hit.length === cands.length) return cands;
+  return [...hit, ...cands.filter((c) => !agrees(c))];
 }
 
 /**
@@ -112,7 +135,10 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
   const genOne = async (i) => {
     const p = products[i];
     const seed = `${sellerId}:${p.id || p.originalName}`;
-    const { cands, source, decisive } = await candidatesFor(p, 8);
+    // 후보 15개 — LLM 이 의미로 고르는 단계라 리콜을 넉넉히 준다(프롬프트 비용은 미미).
+    //   토큰 매칭 1위가 늘 정답은 아니지만(흔한 단어에 끌린 후보가 위로 올 수 있다),
+    //   정답은 상위권에 들어오므로 LLM 이 원본 카테고리 앵커와 함께 고른다.
+    const { cands, source, decisive } = await candidatesFor(p, 15);
     sourceCounts[source] = (sourceCounts[source] || 0) + 1;
     const r = await generateAllFields(p, {
       model, personaSeed: seed, categoryCandidates: cands, maxDetailTokens, categoryDecisive: decisive,

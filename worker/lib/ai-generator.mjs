@@ -129,7 +129,11 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
     genText({ model, ...tp, ctx }),
     skipCatLlm
       ? Promise.resolve({ ...emptyGen, text: JSON.stringify({ categoryPath: candObjs[0].path, confidence: 1 }) })
-      : genText({ model, ...buildCategoryPrompt(product, candObjs.map((c) => c.path)), ctx }),
+      // ⚠️ 후보를 **카테고리 이름(leaf) 먼저** 보여준다. 인덱스 path 는 토큰 뭉치라
+      //    "가전 디지털 음향기기 이어폰 스피커 유선이어폰 헤드폰 액세서리 거치대" 처럼
+      //    정작 이게 무슨 카테고리인지(=거치대) 파묻힌다. 실측으로 LLM 이 차량용 거치대를
+      //    이어폰 액세서리 거치대로 골랐다 → 이름을 앞세우면 오선택이 준다.
+      : genText({ model, ...buildCategoryPrompt(product, candObjs.map((c) => (c.leaf ? `${c.leaf} — ${c.path}` : c.path))), ctx }),
     genText({ model, ...op, ctx }),
   ]);
 
