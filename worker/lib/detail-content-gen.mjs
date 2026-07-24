@@ -74,11 +74,20 @@ export function cleanDetailOutput(raw) {
   let t = String(raw || '').replace(/```[a-z]*\n?/gi, '').replace(/```/g, '').trim();
   // 선두에 모델이 붙이는 머리말 제거 ("물론입니다", "아래는 ...입니다:" 등)
   t = t.replace(/^\s*(물론입니다|네[,.]?|알겠습니다|아래는[^\n]*[:：]|다음은[^\n]*[:：])\s*\n+/i, '');
-  // 라벨 라인 통째 제거
+  // ⚠️ 마크다운 헤더(###)를 **먼저** 벗긴다 — 나중에 벗기면 "### 마무리" 가 라벨 필터를
+  //    빠져나간 뒤 "마무리" 로 남는다(실측).
+  t = t.replace(/^\s*#{1,6}\s*/gm, '');
+  // ⚠️ 프롬프트의 "뼈대 단계 이름"을 모델이 그대로 소제목으로 출력하는 일이 잦다
+  //    ("후킹 한 문장:", "문제 증폭:", "망설임 해소:", "추천 대상:", "마무리:").
+  //    글의 설계도가 본문에 새는 것이므로 라인 통째/앞머리 라벨을 모두 걷어낸다.
+  const SCAFFOLD = '헤드라인|불릿|추천\\s*대상|핵심\\s*장점|핵심\\s*특징\\s*\\d?|상세페이지\\s*본문|후킹(\\s*한\\s*문장)?|문제\\s*증폭|해결(\\s*:.*)?|망설임(\\s*해소)?|마무리|도입부|결론|본문|감각\\s*묘사|구매\\s*권유|cta';
   t = t.split('\n')
-    .filter((line) => !/^\s*(\[?헤드라인\]?|\[?불릿\]?|\[?추천\s*대상\]?|핵심\s*특징\s*\d|상세페이지\s*본문)\s*[:：]?\s*$/.test(line))
+    .filter((line) => !new RegExp(`^\\s*\\[?(${SCAFFOLD})\\]?\\s*[:：]?\\s*$`, 'i').test(line))
+    .map((line) => line.replace(new RegExp(`^(\\s*(?:[-*•]\\s*)?)\\[?(?:${SCAFFOLD})\\]?\\s*[:：]\\s*`, 'i'), '$1'))
     .join('\n');
-  t = t.replace(/^\s*#{1,6}\s*/gm, '');        // 마크다운 헤더(###) 제거 — 텍스트는 유지
+  // 말미에 붙는 부록(구분선 + "SEO 키워드:" 목록 등) 잘라내기 — 본문이 아니다.
+  t = t.replace(/\n\s*-{3,}\s*\n[\s\S]*$/i, '\n');
+  t = t.replace(/\n\s*(seo[^\n]*|키워드[^\n]*)[:：][\s\S]*$/i, '\n');
   t = t.replace(/\*\*\s*-\s*/g, '- ');          // "**- " 깨진 불릿 마커 정리
   // ⭐ 마크다운 볼드/밑줄/별표 전면 제거 — 상세글에 '**' 리터럴이 그대로 보인다는 실사용 지적.
   //    렌더러(detail-page-builder)가 <strong> 으로 바꿔주긴 하지만, 편집 화면·미리보기·
@@ -91,6 +100,7 @@ export function cleanDetailOutput(raw) {
   // [ \t]만 허용 → 줄바꿈은 넘지 않으므로 이미 분리된/연속된 불릿은 건드리지 않는다.
   t = t.replace(/([^\n\t ])[ \t]*-[ \t]+(\*\*)/g, '$1\n\n- $2');
   t = softenSuperlatives(t);
+  t = fixAdjCopula(t);                          // "달콤함이 우수입니다" 류 비문 교정
   return t.replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -168,7 +178,11 @@ export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = []
   //   상위 4개 중 2개 이상이 본문에 자연스럽게 들어가야 검색 유입이 붙는다.
   const kws = (seoKeywords || []).filter((k) => typeof k === 'string' && k.trim().length >= 2).slice(0, 4);
   if (kws.length >= 2) {
-    const inText = kws.filter((k) => t.includes(k.trim()));
+    // ⚠️ 띄어쓰기를 무시하고 대조한다 — 키워드는 붙여쓰기('과일선물')인데 본문은 자연스럽게
+    //    띄어 쓴다('과일 선물'). 예전엔 exact 매칭이라 멀쩡히 들어간 키워드를 못 찾고
+    //    "SEO 미달"로 검수필요를 찍었다(실측). 쿠팡 검색도 공백을 무시한다.
+    const flat = t.replace(/\s/g, '');
+    const inText = kws.filter((k) => flat.includes(k.trim().replace(/\s/g, '')));
     if (inText.length < 2) {
       issues.push(`SEO: 검색 키워드(${kws.join(', ')}) 중 최소 2개를 본문에 자연스럽게 녹여라(현재 ${inText.length}개).`);
     }
@@ -191,6 +205,28 @@ export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = []
   const paras = t.split(/\n{2,}/).filter((s) => s.trim().length >= 10).length;
   if (bullets < 2 && paras < 3) issues.push('구조가 부족하다. 헤드라인 + 핵심 장점 불릿 3~5개 + 마무리로 구성하라.');
 
+  // ── 후기 글다움 4종(soft) ──────────────────────────────────────────────
+  //   ⚠️ soft = "재생성은 시키되, 끝까지 못 고쳐도 검수필요로는 안 찍는다".
+  //      문체는 취향의 영역이라 hard 로 걸면 전 상품이 검수필요로 도배되고, 매번 3회
+  //      재생성해서 느려진다. 재생성 지시로는 쓰되 최종 판정은 내용 결함(hard)으로만 한다.
+  const soft = [];
+  const cliches = AD_CLICHES.filter((c) => t.includes(c));
+  if (cliches.length >= 2) {
+    soft.push(`광고 상투구(${cliches.slice(0, 3).join(', ')})를 빼고, 실제 겪은 장면과 구체적인 이득으로 바꿔라.`);
+  }
+  if (labelBulletCount(t) >= 3) {
+    soft.push('불릿을 "라벨: 설명" 형태(카탈로그체)로 쓰지 마라. 각 불릿을 "그래서 생활이 어떻게 편해졌는지" 완결된 문장으로 다시 써라.');
+  }
+  const sensoryHits = new Set(SENSORY.filter((w) => t.includes(w)));
+  if (sensoryHits.size < 2) {
+    soft.push('써본 사람의 글이 아니다. 택배를 열었을 때/처음 써봤을 때의 장면과 감각(소리·식감·촉감·향·무게 등)을 최소 두 가지 구체적으로 넣어라.');
+  }
+  // 후킹 — 첫머리가 고민/질문/장면이어야 한다(칭찬으로 시작하면 후기가 아니라 광고).
+  const firstBlock = `${t.split(/\n{2,}/)[0] || ''} ${t.split(/\n{2,}/)[1] || ''}`;
+  if (!/\?|적 있|하시죠|해보셨|아니신가요|난감|고민|버린 적|망설|실패|아쉬웠|귀찮|불편/.test(firstBlock)) {
+    soft.push('첫머리가 후킹이 아니다. 구매자가 실제로 겪는 실패·불편·불안을 콕 집는 문장으로 시작하라(칭찬·소개로 시작 금지).');
+  }
+
   if (/(^|\n)\s*(\[?헤드라인|\[?불릿|\[?추천\s*대상|핵심\s*특징\s*\d|상세페이지\s*본문|\(\d\))/.test(t)) {
     issues.push('지시문/라벨/번호가 출력에 남았다. 완성된 카피만 써라.');
   }
@@ -204,7 +240,39 @@ export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = []
   // 카테고리 불일치 활동어 누출(세차/빨래/면/조립 등) — 인접 카테고리 어휘 끌어옴 차단
   for (const msg of detectCategoryLeak(t, categoryPath, leaf)) issues.push(msg);
 
-  return { ok: issues.length === 0, issues };
+  return { ok: issues.length === 0, issues, soft };
+}
+
+// ── "후기 글다움" 검사 ────────────────────────────────────────────────────
+//   광고 카탈로그와 블로그 후기를 가르는 건 세 가지다: ① 상투구를 안 쓴다
+//   ② 라벨식("- 다양한 활용법: …")이 아니라 문장으로 말한다 ③ 감각·장면이 있다.
+//   프롬프트로 부탁만 해서는 모델이 금방 광고체로 돌아가므로 여기서 되돌려보낸다.
+
+/** 광고 관용구 — 2개 이상이면 재생성(1개는 허용, 완벽주의로 무한 재생성 방지). */
+const AD_CLICHES = [
+  '풍성한 식탁', '행복을 더하', '완벽한 선택', '소중한 선택', '탁월한 선택', '손색이 없',
+  '활력을 불어넣', '후회하지 않으실', '후회 없으실', '정성스러운 선물', '만족도를 높여',
+  '그 이상의 가치', '지금 바로 만나보', '일상에 활력', '삶의 질을 높여', '새로운 경험을 선사',
+];
+
+/** 감각·장면 어휘 — 최소 2종류가 있어야 "써본 사람의 글"로 읽힌다(전 카테고리 공통). */
+const SENSORY = [
+  '아삭', '사각', '바삭', '쫀득', '촉촉', '부드럽', '진하', '고소', '새콤', '달큰', '시원',
+  '향이', '냄새', '묵직', '가볍', '매끈', '폭신', '따뜻', '차갑', '소리', '손에 잡', '들어보니',
+  '열어보니', '열자마자', '한 입', '처음 켜', '만져보', '눌러보', '써보니', '먹어보니', '박스',
+];
+
+/** 라벨식 불릿("- 무엇무엇: 설명") 개수 — 후기가 아니라 카탈로그 신호. */
+function labelBulletCount(t) {
+  return (t.match(/^\s*[-*•]\s*[^:\n]{2,18}\s*:/gm) || []).length;
+}
+
+/** 형용사 어간 + '입니다' 비문 자동 교정("달콤함이 우수입니다" → "우수합니다"). */
+function fixAdjCopula(t) {
+  return String(t || '')
+    .replace(/(우수|뛰어난|훌륭|탁월|충분|간편|편리|풍부|깔끔|신선|저렴|넉넉|든든|튼튼)입니다/g,
+      (m, w) => `${w === '뛰어난' ? '뛰어납' : `${w}합`}니다`)
+    .replace(/(뛰어난)합니다/g, '뛰어납니다');
 }
 
 /** 단락 → 블록 시퀀스(쿠팡 렌더러용). */
@@ -246,18 +314,25 @@ export async function generatePerfectDetail({
     const temperature = Math.max(0.45, (options.temperature ?? 0.75) - (attempt - 1) * 0.12);
     const { text: raw, ms } = await generate({ model, system, prompt, options: { ...options, temperature } });
     const text = cleanDetailOutput(raw);
-    const { ok, issues } = validateDetail(text, { leaf: realLeaf, categoryPath, seoKeywords });
-    onAttempt({ attempt, ok, issues, ms, chars: text.length });
+    const { ok, issues, soft } = validateDetail(text, { leaf: realLeaf, categoryPath, seoKeywords });
+    onAttempt({ attempt, ok, issues, soft, ms, chars: text.length });
 
-    if (ok) {
+    // 내용 결함(hard)도 없고 문체(soft)도 깨끗하면 즉시 채택.
+    if (ok && soft.length === 0) {
       const paras = text.split(/\n{2,}/).map((s) => s.trim()).filter((s) => s.length >= 8);
-      return { text, paragraphs: paras, blocks: paragraphsToBlocks(paras), attempts: attempt, ok: true, issues: [] };
+      return { text, paragraphs: paras, blocks: paragraphsToBlocks(paras), attempts: attempt, ok: true, issues: [], soft: [] };
     }
-    if (!best || issues.length < best.issues.length) best = { text, issues };
-    fixNote = issues.join(' ');
+    // 더 나은 후보 선정: hard 결함이 우선, 같으면 soft 가 적은 쪽.
+    const rank = (h, s) => h.length * 10 + s.length;
+    if (!best || rank(issues, soft) < rank(best.issues, best.soft)) best = { text, issues, soft };
+    fixNote = [...issues, ...soft].join(' ');
   }
 
-  // 통과 못 함 — 가장 결함 적은 결과 반환(호출자가 ok=false 로 판단)
+  // 통과 못 함 — 가장 결함 적은 결과 반환.
+  //   ok 는 **hard 결함 기준**이다: 문체(soft)만 남았으면 통과로 본다(검수 도배 방지).
   const paras = best.text.split(/\n{2,}/).map((s) => s.trim()).filter((s) => s.length >= 8);
-  return { text: best.text, paragraphs: paras, blocks: paragraphsToBlocks(paras), attempts: maxAttempts, ok: false, issues: best.issues };
+  return {
+    text: best.text, paragraphs: paras, blocks: paragraphsToBlocks(paras),
+    attempts: maxAttempts, ok: best.issues.length === 0, issues: best.issues, soft: best.soft,
+  };
 }
