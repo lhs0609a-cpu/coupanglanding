@@ -17,6 +17,7 @@ const $conn = document.getElementById('conn');
 const $ver = document.getElementById('ver');
 const $pair = document.getElementById('btn-pair');
 const $account = document.getElementById('account');
+const $connErr = document.getElementById('conn-error');
 const $logout = document.getElementById('btn-logout');
 
 const loaded = {};      // id -> { root, mod }
@@ -75,6 +76,13 @@ async function refreshConn() {
       else { $account.style.display = 'none'; }
     }
     if ($logout) $logout.style.display = ok ? 'block' : 'none';
+    // 세션이 서버에서 끊긴 경우(만료·폐기) 이유를 그대로 보여준다.
+    // 예전엔 하트비트가 조용히 죽어도 "연결됨"이 유지돼, 웹에선 올인원 폴더 선택이
+    // 막혔는데 앱만 보면 멀쩡해 보였다 — 그 무음 구간을 없애는 표시다.
+    if ($connErr) {
+      if (!ok && s.sessionError) { $connErr.textContent = `⚠ ${s.sessionError}`; $connErr.style.display = 'block'; }
+      else $connErr.style.display = 'none';
+    }
     if ($ver && s.appVersion) $ver.textContent = `v${s.appVersion}`;
   } catch { /* skip */ }
 }

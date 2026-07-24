@@ -32,6 +32,37 @@ interface WorkerRow {
   local_endpoint?: LocalEndpoint | null;
 }
 
+/**
+ * 토큰(64자 인증코드)으로만 도는 워커 id. 서버 desktop-heartbeat.ts 의 TOKEN_WORKER_ID 와 같은 값
+ * (두 값이 갈라지면 아래 판정이 조용히 틀리므로, 바꿀 땐 반드시 함께 바꿀 것).
+ */
+export const TOKEN_ONLY_WORKER_ID = 'desktop-monitor';
+
+/**
+ * 도우미 연결 등급 — "연결됨/미연결" 2단계가 거짓말을 했기 때문에 3단계로 나눈다.
+ * ---------------------------------------------------------------------------
+ * 배경(실측): 앱의 로그인 세션이 만료되면 세션 하트비트(<host>-app)만 멈추는데,
+ *   품절 모니터는 만료 없는 토큰 인증이라 계속 살아 'desktop-monitor' 행을 갱신한다.
+ *   그런데 배지는 `workers.length > 0` 만 봐서 10시간 내내 🟢 "도우미 연결됨" 이었다
+ *   — 정작 올인원·썸네일·재생성은 전부 죽어 있는데도.
+ *
+ * 그렇다고 🔴 로 내리면 실제로 돌고 있는 모니터링까지 "끊김"이라 또 다른 거짓말이 된다.
+ * 그래서 중간 등급을 둔다:
+ *   'online'       — 세션 워커가 살아 있음(전 기능 정상)
+ *   'monitor-only' — 모니터링만 살아 있음(세션 만료 → 올인원·썸네일·재생성 불가)
+ *   'offline'      — 아무 하트비트도 없음
+ */
+export type HelperLink = 'online' | 'monitor-only' | 'offline';
+
+export function classifyHelperLink(
+  workers: { worker_id: string }[] | null | undefined,
+): HelperLink {
+  if (!workers || workers.length === 0) return 'offline';
+  // 세션 워커는 '<host>-app' / '-llm' / '-<uuid8>' 로 이름이 제각각이라, 토큰 워커가
+  // 아닌 것을 세션 워커로 본다(새 워커가 생겨도 자동으로 맞는 방향).
+  return workers.some((w) => w.worker_id !== TOKEN_ONLY_WORKER_ID) ? 'online' : 'monitor-only';
+}
+
 export interface AllinoneManifest {
   /** 도우미가 생성을 끝낸 폴더의 절대경로(표시용). */
   folder: string;
@@ -112,9 +143,20 @@ export async function diagnoseLocalHelper(): Promise<HelperDiag> {
 
   const ep = workers.map((w) => w.local_endpoint).find((x) => x && typeof x.port === 'number' && typeof x.nonce === 'string');
   if (!ep) {
+    // ⚠️ 예전엔 여기서 무조건 "구버전이니 업데이트하세요"라고 했는데 그건 오진이었다.
+    //    실제로 가장 흔한 원인은 앱의 로그인 세션 만료다 — 로컬 서버 주소는 세션 하트비트로
+    //    전달되는데, 세션이 죽으면 앱은 켜져 있고 "연결됨"으로 보이는데도 주소만 안 온다
+    //    (모니터링은 별도 토큰 인증이라 멀쩡히 돌아가서 더 헷갈린다).
+    //    그래서 접속 중인 워커 이름을 그대로 보여주고, 재연결을 먼저 안내한다.
+    const ids = workers.map((w) => w.worker_id).join(', ');
+    // 배지(DesktopStatusIndicator·WorkerInstallNotice)와 같은 판정을 쓴다 — 갈라지면
+    // "배지는 초록인데 여기선 실패" 같은 모순이 다시 생긴다.
+    const monitorOnly = classifyHelperLink(workers) === 'monitor-only';
     return {
       stage: 'endpoint', ok: false, workerCount: workers.length,
-      message: `도우미 ${workers.length}대가 접속 중이지만 로컬 서버 주소를 알리지 않습니다. 구버전일 수 있으니 도우미를 최신으로 업데이트하세요.`,
+      message: monitorOnly
+        ? `도우미가 모니터링만 연결돼 있습니다(${ids}). 앱 로그인 세션이 만료됐거나 통합 도우미가 연결되지 않은 상태입니다 — 도우미 앱에서 "로그아웃 · 다른 계정 연결" → "메가로드 연결"로 다시 연결하면 바로 됩니다.`
+        : `도우미 ${workers.length}대(${ids})가 접속 중이지만 로컬 서버 주소를 알리지 않습니다. 앱에서 메가로드 재연결을 해보고, 그래도 안 되면 도우미를 최신으로 업데이트하세요.`,
     };
   }
 

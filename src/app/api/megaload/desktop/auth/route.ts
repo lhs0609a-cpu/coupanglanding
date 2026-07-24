@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
-import { touchTokenWorkerHeartbeat } from '@/lib/megaload/desktop-heartbeat';
+import { touchTokenWorkerHeartbeat, localEndpointFromQuery } from '@/lib/megaload/desktop-heartbeat';
 import crypto from 'node:crypto';
 
 export const maxDuration = 30;
@@ -150,7 +150,9 @@ export async function GET(request: NextRequest) {
     .from('megaload_users')
     .update({ desktop_app_last_heartbeat: nowIso })
     .eq('id', shUserId);
-  await touchTokenWorkerHeartbeat(serviceClient, shUserId);
+  //   ?lport=&lnonce= 로 앱의 로컬 서버 주소도 함께 받는다 — 세션(OAuth) 하트비트가 만료로
+  //   죽어도 웹 올인원이 앱을 찾아 폴더 결과를 직독할 수 있게 하는 이중화 경로.
+  await touchTokenWorkerHeartbeat(serviceClient, shUserId, null, localEndpointFromQuery(url));
 
   return NextResponse.json({
     valid: true,

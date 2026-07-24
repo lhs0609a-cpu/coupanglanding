@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useLatestVersions, isOutdated } from '@/lib/megaload/use-latest-versions';
-import { triggerLocalUpdate, type LocalEndpoint } from '@/lib/megaload/allinone-local';
+import { triggerLocalUpdate, classifyHelperLink, type LocalEndpoint } from '@/lib/megaload/allinone-local';
 import { WORKER_SETTINGS_URL } from '@/lib/megaload/worker-download';
 
 /**
@@ -46,7 +46,11 @@ export default function DesktopStatusIndicator() {
     return () => { alive = false; clearInterval(id); };
   }, []);
 
-  const online = workers === null ? null : workers.length > 0;
+  // ⚠️ 예전엔 `workers.length > 0` 이 곧 "연결됨"이었다 — 그게 거짓 초록의 원인이었다.
+  //    세션이 만료되면 품절 모니터('desktop-monitor', 토큰 인증이라 만료 없음)만 남는데도
+  //    🟢 연결됨으로 보여, 정작 올인원·썸네일·재생성이 죽은 걸 아무도 몰랐다(실측 10시간).
+  const link = workers === null ? null : classifyHelperLink(workers);
+  const online = link === null ? null : link === 'online';
   // 버전을 보낸 워커 중 가장 낮은 버전을 기준으로 판정(하나라도 구버전이면 업데이트 안내).
   const versioned = (workers ?? []).filter((w) => w.app_version);
   const installed = versioned.length
@@ -75,8 +79,15 @@ export default function DesktopStatusIndicator() {
     }
   }, [ep, versions.desktop.downloadUrl]);
 
-  const dot = online === null ? 'bg-gray-300' : online ? 'bg-emerald-500' : 'bg-red-400';
-  const label = online === null ? '도우미 확인 중…' : online ? '도우미 연결됨' : '도우미 미연결';
+  // 모니터링만 살아있는 상태(monitor-only)는 초록도 빨강도 정직하지 않다 — 노랑으로 구분한다.
+  const dot = link === null ? 'bg-gray-300'
+    : link === 'online' ? 'bg-emerald-500'
+    : link === 'monitor-only' ? 'bg-amber-500'
+    : 'bg-red-400';
+  const label = link === null ? '도우미 확인 중…'
+    : link === 'online' ? '도우미 연결됨'
+    : link === 'monitor-only' ? '모니터링만 연결됨'
+    : '도우미 미연결';
 
   // 배포 버전 (next.config 에서 빌드 시 주입) — 최신 푸시 반영 확인용
   const sha = process.env.NEXT_PUBLIC_BUILD_SHA || 'local';
@@ -94,7 +105,12 @@ export default function DesktopStatusIndicator() {
     <div className="space-y-1">
       <div
         className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200"
-        title={online ? '메가로드 도우미가 켜져 있고 로그인된 상태입니다.' : '메가로드 도우미가 꺼져 있거나 로그인 안 됨. 앱을 켜고 메가로드 연결을 하세요.'}
+        title={
+          link === 'online' ? '메가로드 도우미가 켜져 있고 로그인된 상태입니다.'
+            : link === 'monitor-only'
+              ? '품절 모니터링만 연결돼 있습니다. 올인원 생성·썸네일·재생성은 동작하지 않습니다(앱 로그인 세션 만료 또는 통합 도우미 미연결).'
+              : '메가로드 도우미가 꺼져 있거나 로그인 안 됨. 앱을 켜고 메가로드 연결을 하세요.'
+        }
       >
         <span className={`w-2 h-2 rounded-full ${dot} ${online ? 'animate-pulse' : ''}`} />
         <span className="text-[11px] font-medium text-gray-600">{label}</span>
@@ -121,8 +137,20 @@ export default function DesktopStatusIndicator() {
         </div>
       )}
 
-      {/* 미연결이면 설치 안내(설정 다운로드 허브) */}
-      {online === false && (
+      {/* 모니터링만 붙은 상태 — 무엇이 안 되는지와 복구 방법을 그 자리에서 알려준다.
+          (설치 안내를 띄우면 오답이다. 앱은 이미 깔려서 돌고 있고, 필요한 건 재연결뿐) */}
+      {link === 'monitor-only' && (
+        <div className="px-3">
+          <p className="text-[10px] leading-snug text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
+            올인원 생성·썸네일·재생성이 멈춘 상태입니다.
+            <br />
+            도우미 앱에서 <b>로그아웃 · 다른 계정 연결</b> → <b>메가로드 연결</b>을 눌러 다시 연결하세요.
+          </p>
+        </div>
+      )}
+
+      {/* 완전 미연결이면 설치 안내(설정 다운로드 허브) */}
+      {link === 'offline' && (
         <div className="px-3">
           <Link href={WORKER_SETTINGS_URL} className="text-[10px] font-medium text-indigo-600 hover:text-indigo-800">
             도우미 받기 · 설치 방법 →

@@ -10,6 +10,7 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { MONITOR_AUTH_URL } from '@/lib/megaload/worker-download';
 import { useLatestVersions } from '@/lib/megaload/use-latest-versions';
+import { classifyHelperLink } from '@/lib/megaload/allinone-local';
 
 // 워커 내장 기본 프롬프트와 동일 — 비워두면 워커가 이 기본값을 사용한다(placeholder로만 표시).
 const BUILTIN_POSITIVE =
@@ -201,26 +202,48 @@ export default function LocalGpuWorkerSettings() {
         </div>
       </div>
 
-      {/* 실시간 상태 */}
-      <div className={`rounded-lg border p-4 ${status?.online ? 'bg-emerald-50 border-emerald-200' : 'bg-gray-50 border-gray-200'}`}>
-        <div className="flex items-center gap-2">
-          {loading ? <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
-            : status?.online ? <Wifi className="w-5 h-5 text-emerald-600" />
-            : <WifiOff className="w-5 h-5 text-gray-400" />}
-          <span className={`font-semibold text-sm ${status?.online ? 'text-emerald-700' : 'text-gray-600'}`}>
-            {loading ? '확인 중...' : status?.online ? '워커 연결됨' : '워커 꺼짐'}
-          </span>
-        </div>
-        {status?.online ? (
-          <p className="text-xs text-emerald-700 mt-1.5">
-            {status.workers.map(w => w.hostname || w.worker_id).join(', ')} — 지금 바로 재생성 버튼을 쓸 수 있어요.
-          </p>
-        ) : (
-          <p className="text-xs text-gray-500 mt-1.5">
-            아래에서 워커 앱을 설치·실행하면 여기가 &quot;연결됨&quot;으로 바뀝니다.
-          </p>
-        )}
-      </div>
+      {/* 실시간 상태 — status.online 이 아니라 등급으로 판정한다.
+          `.online` 은 하트비트 행 유무라, 품절 모니터만 살아있어도 "연결됨"이 되어
+          정작 재생성 잡을 집어갈 세션 워커가 없는 걸 감춘다(실측 사고). */}
+      {(() => {
+        const link = loading ? null : classifyHelperLink(status?.workers);
+        const box = link === 'online' ? 'bg-emerald-50 border-emerald-200'
+          : link === 'monitor-only' ? 'bg-amber-50 border-amber-300'
+          : 'bg-gray-50 border-gray-200';
+        const text = link === 'online' ? 'text-emerald-700'
+          : link === 'monitor-only' ? 'text-amber-800'
+          : 'text-gray-600';
+        return (
+          <div className={`rounded-lg border p-4 ${box}`}>
+            <div className="flex items-center gap-2">
+              {loading ? <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                : link === 'online' ? <Wifi className="w-5 h-5 text-emerald-600" />
+                : link === 'monitor-only' ? <WifiOff className="w-5 h-5 text-amber-600" />
+                : <WifiOff className="w-5 h-5 text-gray-400" />}
+              <span className={`font-semibold text-sm ${text}`}>
+                {loading ? '확인 중...'
+                  : link === 'online' ? '워커 연결됨'
+                  : link === 'monitor-only' ? '모니터링만 연결됨 — 재생성 불가'
+                  : '워커 꺼짐'}
+              </span>
+            </div>
+            {link === 'online' ? (
+              <p className="text-xs text-emerald-700 mt-1.5">
+                {status!.workers.map(w => w.hostname || w.worker_id).join(', ')} — 지금 바로 재생성 버튼을 쓸 수 있어요.
+              </p>
+            ) : link === 'monitor-only' ? (
+              <p className="text-xs text-amber-800 mt-1.5">
+                품절 모니터링 신호는 오지만 재생성 작업을 집어갈 워커가 없습니다. 도우미 앱에서
+                <b> 로그아웃 · 다른 계정 연결</b> → <b>메가로드 연결</b>로 다시 연결하세요.
+              </p>
+            ) : (
+              <p className="text-xs text-gray-500 mt-1.5">
+                아래에서 워커 앱을 설치·실행하면 여기가 &quot;연결됨&quot;으로 바뀝니다.
+              </p>
+            )}
+          </div>
+        );
+      })()}
 
       {/* 요건 */}
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">

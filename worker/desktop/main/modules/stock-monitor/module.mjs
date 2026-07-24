@@ -16,6 +16,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tokenOf = (ctx) => (ctx.store.get('monitorToken') || '').trim();
 const apiUrl = (ctx, path) => (ctx.store.get('apiBase') || ctx.services.webOrigin) + path;
 
+/**
+ * 이 PC 의 로컬 서버 주소를 쿼리로 덧붙인다(&lport=&lnonce=).
+ * ---------------------------------------------------------------------------
+ * 왜 품절 모니터가 이걸 나르나: 웹 올인원이 앱의 로컬 서버를 찾는 유일한 통로가
+ * 세션(OAuth) 하트비트였는데, 그 세션은 만료·폐기되면 조용히 멈춘다
+ * (실측: 세션 사망 1분 뒤 하트비트 정지 → 10시간 동안 웹에서 소싱 폴더 선택 불가).
+ * 이 모듈의 토큰 인증은 만료가 없어 그 상황에서도 계속 서버에 닿는다 → 같은 주소를
+ * 여기에도 실어 보내면 세션이 죽어도 웹이 앱을 찾는다.
+ */
+function withLocalEndpoint(ctx, url) {
+  const p = ctx.services?.pair?.();
+  if (!p?.port || !p?.nonce) return url;
+  return `${url}&lport=${p.port}&lnonce=${encodeURIComponent(p.nonce)}`;
+}
+
 // ── 인증코드 자동 발급 ───────────────────────────────────────────────
 // 도우미는 이미 로그인 세션(runner.session)을 갖고 있으므로, 그 access token 으로
 // 서버에서 64자 인증코드를 자동 발급받는다 → 사용자가 코드를 복사·붙여넣을 필요 없음.
@@ -76,14 +91,14 @@ async function verifyToken(ctx) {
   const t = tokenOf(ctx);
   if (!t) return { valid: false, error: '토큰 없음' };
   try {
-    const res = await fetch(apiUrl(ctx, `/api/megaload/desktop/auth?token=${encodeURIComponent(t)}`), { headers: { Authorization: `Bearer ${t}` } });
+    const res = await fetch(withLocalEndpoint(ctx, apiUrl(ctx, `/api/megaload/desktop/auth?token=${encodeURIComponent(t)}`)), { headers: { Authorization: `Bearer ${t}` } });
     if (!res.ok) return { valid: false, error: `HTTP ${res.status}` };
     return await res.json();
   } catch (e) { return { valid: false, error: e.message }; }
 }
 async function fetchMonitors(ctx, limit = 50) {
   const t = tokenOf(ctx); if (!t) return [];
-  const res = await fetch(apiUrl(ctx, `/api/megaload/desktop/monitors?limit=${limit}&minIntervalSec=21600&token=${encodeURIComponent(t)}`), { headers: { Authorization: `Bearer ${t}` } });
+  const res = await fetch(withLocalEndpoint(ctx, apiUrl(ctx, `/api/megaload/desktop/monitors?limit=${limit}&minIntervalSec=21600&token=${encodeURIComponent(t)}`)), { headers: { Authorization: `Bearer ${t}` } });
   if (!res.ok) return [];
   const d = await res.json();
   return d.monitors || [];

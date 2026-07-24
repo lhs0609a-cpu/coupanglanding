@@ -565,13 +565,22 @@ export default function AllInOneRegisterPanel() {
     return () => clearInterval(id);
   }, [genActive]);
 
+  // 도우미 연결 진단 — 마운트 시 1회 + 실패 중에는 20초마다 재확인.
+  //   재확인이 필요한 이유: 사용자가 앱에서 재연결해도 예전엔 이 페이지를 새로고침해야
+  //   상태가 바뀌었다. 안내를 보고 고친 즉시 사라지지 않으면 고친 게 맞는지 알 수 없다.
+  //   연결이 정상이면 폴링을 멈춘다(불필요한 호출 0).
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const run = async () => {
       const d = await diagnoseLocalHelper();
       if (cancelled) return;
       setHelperDiag(d);
-      if (!d.ok || !d.raw) return;
+      if (!d.ok) {
+        timer = setTimeout(run, 20_000); // 아직 안 되는 중 → 계속 지켜본다
+        return;
+      }
+      if (!d.raw) return;
       const map = new Map<string, GenRecord>();
       for (const rec of d.raw as GenRecord[]) {
         if (rec?.sourceId != null) map.set(String(rec.sourceId), rec);
@@ -579,8 +588,9 @@ export default function AllInOneRegisterPanel() {
       if (map.size === 0) return;
       helperGenRef.current = map;
       setHelperFolder(d.folder ?? null);
-    })();
-    return () => { cancelled = true; };
+    };
+    void run();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, []);
 
   // 물류 정보
@@ -1438,6 +1448,19 @@ export default function AllInOneRegisterPanel() {
         </div>
         {shippingErr && <p className="sm:col-span-3 text-xs text-red-600">{shippingErr}</p>}
       </div>
+
+      {/* ⚠️ 도우미에 닿지 못하는 상태를 버튼 누르기 전에 알린다.
+          예전엔 진단이 마운트 때 이미 실패를 알고 있으면서도, 그 결과가 아래 접이식 "진단"
+          패널 안에만 있었다 — 그 패널은 폴더를 한 번 스캔해야 렌더되므로 화면이 비어 있으면
+          아무것도 안 보였고, 사용자는 버튼을 눌러 실패해야만 이유를 알 수 있었다.
+          단, manifest 단계 실패(=도우미는 정상, 아직 생성 이력이 없음)는 정상 상태이므로 제외한다. */}
+      {helperDiag && !helperDiag.ok && helperDiag.stage !== 'manifest' && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <p className="text-sm font-semibold text-amber-900">도우미에 연결되지 않아 폴더 선택·생성을 할 수 없습니다</p>
+          <p className="mt-1 text-xs leading-relaxed text-amber-800">{helperDiag.message}</p>
+          <p className="mt-1.5 text-[11px] text-amber-700">고치면 자동으로 사라집니다(20초마다 재확인 중).</p>
+        </div>
+      )}
 
       {/* 컨트롤 바 */}
       <div className="flex flex-wrap items-center gap-3">

@@ -37,6 +37,9 @@ export class WorkerRunner {
     // 하트비트에 실어 보낼 로컬 서버 {port,nonce} — 웹 올인원이 결과·이미지를 직독하는 통로.
     this.getLocalEndpoint = getLocalEndpoint;
     this.session = null;
+    // 세션이 왜 끊겼는지(사용자에게 보여줄 문장). 정상 연결이면 null.
+    // 무음 실패를 없애기 위한 것 — 이게 없으면 "앱은 연결됨, 웹은 미연결"이 계속된다.
+    this.sessionError = null;
     this.abort = null;
     this.loopPromise = null;
     // LLM 재생성 루프(텍스트) — 썸네일 루프와 독립. 로그인되면 상시 폴링(가벼움).
@@ -68,8 +71,23 @@ export class WorkerRunner {
     try { await this.stopLlmLoop(); } catch { /* ignore */ }
     if (this.abort) { try { this.abort.abort(); } catch { /* ignore */ } this.abort = null; }
     this.session = null;
+    this.sessionError = null; // 사용자가 스스로 끊은 것 — 오류가 아니다
     try { await fsp.rm(join(this.userDataDir, '.session.json'), { force: true }); } catch { /* ignore */ }
   }
+
+  /**
+   * 세션이 서버에서 더는 통하지 않을 때(리프레시 토큰 폐기 등) 호출.
+   * 로그아웃과 동작은 같지만 이유를 남겨 UI 가 "재연결 필요"를 띄울 수 있게 한다.
+   * 쓸모없는 토큰을 붙잡고 "연결됨"이라 우기는 것보다 미연결로 정직하게 내려가는 편이
+   * 사용자가 2클릭으로 복구할 수 있어 낫다.
+   */
+  async invalidateSession(reason) {
+    await this.logout();
+    this.sessionError = reason || '메가로드 연결이 끊겼습니다. 다시 연결해 주세요.';
+  }
+
+  /** 하트비트가 다시 성공했을 때 — 남아 있던 경고를 지운다. */
+  clearSessionError() { this.sessionError = null; }
 
   async login(supabaseUrl, anonKey, email, password) {
     const s = new Session(supabaseUrl, anonKey, join(this.userDataDir, '.session.json'));

@@ -17,6 +17,8 @@
       </div>
       <div id="conn" class="conn off">연결 확인 중…</div>
       <div id="account" class="account" style="display:none"></div>
+      <!-- 연결이 끊긴 이유(세션 만료 등) — 무음 실패를 없애기 위해 사이드바에 그대로 노출 -->
+      <div id="conn-error" class="conn-error" style="display:none"></div>
       <button id="btn-pair" class="btn-pair">메가로드 연결</button>
       <button id="btn-logout" class="btn-ghost danger" style="display:none">로그아웃 · 다른 계정 연결</button>
       <ul id="tabs" class="tabs"></ul>

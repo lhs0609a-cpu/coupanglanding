@@ -18,12 +18,37 @@ import type { SupabaseClient } from '@supabase/supabase-js';
  */
 const TOKEN_WORKER_ID = 'desktop-monitor';
 
+/** 앱의 로컬 서버(pair-server) 주소 — 웹 올인원이 생성결과·이미지를 직독하는 통로. */
+export interface LocalEndpointInput {
+  port?: unknown;
+  nonce?: unknown;
+}
+
+/**
+ * 앱이 알려온 {port,nonce} 를 검증한다. 형태가 틀리면 null(=기존 값 유지).
+ * 포트는 사용자 PC의 loopback 포트라 범위만 본다.
+ */
+export function parseLocalEndpoint(input: LocalEndpointInput | null | undefined) {
+  const port = typeof input?.port === 'string' ? Number(input.port) : input?.port;
+  const nonce = input?.nonce;
+  if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) return null;
+  if (typeof nonce !== 'string' || nonce.length < 8 || nonce.length > 128) return null;
+  return { port, nonce };
+}
+
 export async function touchTokenWorkerHeartbeat(
   serviceClient: SupabaseClient,
   megaloadUserId: string,
   hostname: string | null = null,
+  /**
+   * 로컬 서버 주소. 세션(OAuth) 하트비트가 이미 싣고 있지만, 그 세션이 만료·폐기되면
+   * 조용히 멈춰서 웹이 주소를 영영 못 찾는다(실측: 세션 사망 후 10시간 동안 올인원 폴더 선택 불가).
+   * 토큰 인증은 만료가 없어 그 상황에서도 살아있으므로, 같은 주소를 이쪽으로도 받아 둔다.
+   */
+  localEndpoint: LocalEndpointInput | null = null,
 ): Promise<void> {
   try {
+    const ep = parseLocalEndpoint(localEndpoint);
     await serviceClient
       .from('megaload_worker_heartbeats')
       .upsert(
@@ -32,10 +57,19 @@ export async function touchTokenWorkerHeartbeat(
           worker_id: TOKEN_WORKER_ID,
           hostname,
           last_seen: new Date().toISOString(),
+          // 못 받았으면 컬럼을 건드리지 않는다 — 이전에 알던 주소를 NULL 로 지우지 않기 위함.
+          ...(ep ? { local_endpoint: ep } : {}),
         },
         { onConflict: 'megaload_user_id,worker_id' },
       );
   } catch {
     /* best-effort — 하트비트 실패가 모니터링/결과 전송을 막지 않도록 무음 처리 */
   }
+}
+
+/** 쿼리스트링(?port=&nonce=)에서 로컬 서버 주소를 뽑는다. 없으면 null. */
+export function localEndpointFromQuery(url: URL): LocalEndpointInput | null {
+  const port = url.searchParams.get('lport');
+  const nonce = url.searchParams.get('lnonce');
+  return port && nonce ? { port, nonce } : null;
 }

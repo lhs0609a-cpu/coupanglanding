@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { X, Loader2, RotateCcw, Check, AlertCircle, Cpu, Scissors, Sparkles, MonitorSmartphone } from 'lucide-react';
 import { uploadSingleImage, compressImage } from '@/lib/megaload/services/client-folder-scanner';
+import { classifyHelperLink } from '@/lib/megaload/allinone-local';
 
 interface LocalGpuRegenerateModalProps {
   isOpen: boolean;
@@ -101,14 +102,23 @@ export default function LocalGpuRegenerateModal({
 
     // 3) 워커 연결 확인 — 꺼져 있어도 잡은 큐에 남는다 (안내만 다르게)
     let offline = false;
+    let monitorOnly = false;
     try {
       const ws = await fetch('/api/megaload/products/thumbnail-jobs/worker-status');
-      offline = ws.ok ? !(await ws.json()).online : true;
+      // ⚠️ `.online` 은 하트비트 행이 하나라도 있으면 참이라, 품절 모니터만 살아있어도 참이 된다.
+      //    썸네일 잡을 집어가는 건 세션 워커라, 그 상태에선 5분 폴링이 통째로 헛돌고
+      //    "생성하는 중입니다"만 뜨다 조용히 끝난다. 세션 워커 유무로 판정한다.
+      const link = ws.ok ? classifyHelperLink((await ws.json()).workers) : 'offline';
+      offline = link !== 'online';
+      monitorOnly = link === 'monitor-only';
     } catch { offline = true; }
     setWorkerOffline(offline);
-    setStatusMsg(offline
-      ? '메가로드 도우미가 감지되지 않습니다 — 도우미를 켜면 자동으로 처리됩니다.'
-      : 'AI가 이미지를 생성하는 중입니다... (보통 10~40초)');
+    setStatusMsg(
+      monitorOnly
+        ? '도우미가 품절 모니터링만 연결돼 있어 썸네일 생성이 처리되지 않습니다 — 도우미 앱에서 메가로드 재연결이 필요합니다(요청은 큐에 남습니다).'
+        : offline
+          ? '메가로드 도우미가 감지되지 않습니다 — 도우미를 켜면 자동으로 처리됩니다.'
+          : 'AI가 이미지를 생성하는 중입니다... (보통 10~40초)');
 
     // 4) 폴링 (최대 5분)
     const deadline = Date.now() + 5 * 60 * 1000;

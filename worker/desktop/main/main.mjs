@@ -9,7 +9,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
-import { rpc } from '../runtime/supabase-rest.mjs';
+import { rpc, isPermanentAuthError } from '../runtime/supabase-rest.mjs';
 import { Store } from './store.mjs';
 import { ComfyManager } from './comfy-manager.mjs';
 import { OllamaManager } from './ollama-manager.mjs';
@@ -237,6 +237,7 @@ function registerShellIpc(manifest) {
     loggedIn: runner.loggedIn,
     paired: !!pair && pair.isPaired(),
     account: runner.account, // { email, userId, role } | null — 어느 계정으로 연결됐는지
+    sessionError: runner.sessionError, // 끊긴 이유(있으면 렌더러가 빨간 안내로 표시)
     webOrigin: WEB_ORIGIN,
     appTitle: APP_TITLE,
     appVersion: app.getVersion(),
@@ -310,6 +311,14 @@ app.whenReady().then(async () => {
   // ⭐ 셸 하트비트는 워커 루프와 무관하게 항상 돈다 → 웹이 도우미를 발견하는 가장 확실한 지점.
   //    그래서 앱 버전(구버전 안내용)과 로컬 서버 주소(올인원 결과 직독용)를 여기서도 보낸다.
   //    p_* 는 서버 함수에서 DEFAULT 라, 마이그레이션 전이어도 이 호출은 그대로 동작한다.
+  //
+  // ⚠️ 실패를 삼키지 않는다 — 과거엔 .catch(()=>{}) 로 무음이었다. 그 결과:
+  //    세션(리프레시 토큰)이 죽으면 하트비트만 조용히 멈추는데, loggedIn 은 "세션 객체가 있냐"라
+  //    앱은 계속 "✅ 메가로드 연결됨"을 보여줬다. 사용자에겐 앱이 멀쩡해 보이는데
+  //    웹에선 로컬 서버 주소(port/nonce)가 갱신 안 돼 올인원 폴더 선택이 막힌다
+  //    (실측: 세션 만료 1분 뒤 하트비트 정지 → 10시간 동안 아무도 모름).
+  //    → 인증이 영구히 깨졌으면 세션을 버리고 UI 를 "미연결"로 되돌려 재연결을 유도한다.
+  let hbFailStreak = 0;
   const sendHeartbeat = () => {
     if (!runner?.session) return;
     rpc(runner.session, 'worker_heartbeat', {
@@ -317,7 +326,24 @@ app.whenReady().then(async () => {
       p_hostname: hostname(),
       p_app_version: app.getVersion(),
       p_local_endpoint: pair ? { port: pair.port, nonce: pair.nonce } : null,
-    }).catch(() => {});
+    }).then(() => {
+      if (hbFailStreak) { hbFailStreak = 0; runner.clearSessionError(); }
+    }).catch((e) => {
+      hbFailStreak++;
+      // 영구(리프레시 토큰 폐기) → 즉시 확정. 일시 오류라도 10회(=5분) 연속이면 사실상 죽은 것.
+      const dead = isPermanentAuthError(e) || hbFailStreak >= 10;
+      const why = isPermanentAuthError(e)
+        ? '메가로드 로그인 세션이 만료됐습니다.'
+        : `메가로드 서버에 ${hbFailStreak}회 연속 연결 실패했습니다.`;
+      send('thumbnail-gpu:comfy-log', `[연결] 하트비트 실패(${hbFailStreak}회): ${e?.message || e}`);
+      if (!dead) return;
+      void runner.invalidateSession(`${why} 사이드바의 "메가로드 연결"을 눌러 다시 연결해 주세요.`).then(() => {
+        hbFailStreak = 0;
+        try {
+          new Notification({ title: APP_TITLE, body: `${why} 앱을 열어 다시 연결해 주세요 — 그때까지 올인원·썸네일·재생성이 동작하지 않습니다.` }).show();
+        } catch { /* 알림 미지원 무시 */ }
+      });
+    });
   };
 
   // 저장된 세션 자동 복구 — 부팅 직후 네트워크가 아직 안 올라와도 자가치유하도록 재시도.
