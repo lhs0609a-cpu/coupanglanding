@@ -22,12 +22,16 @@
  *   --no-thumb         대표이미지 가공 건너뜀(텍스트만)
  *   --thumb-force      가공본이 있어도 다시 생성(기본: resume)
  *   --detail-tokens N  상세 최대 토큰 (기본 800)
+ *   --concurrency N    동시에 생성할 상품 수 (기본 1. 남은 VRAM 넉넉하면 2~3 이 크게 빠름)
+ *   --no-overlap       이미지인식을 텍스트와 동시에 돌리지 않고 예전처럼 먼저 끝냄(디버그)
+ *   --no-recog-cache   이미지인식 캐시 무시(사진 그대로여도 다시 분석)
  *   --limit N          앞 N개만 (테스트)
  *   --out <경로>       결과 prefix (기본 <폴더>/_allinone)
  *
  * 출력: <out>.generated.jsonl (레코드별 1줄) + <out>.review.html
  */
-import { writeFileSync, appendFileSync, readFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
+import { writeFileSync, appendFileSync, readFileSync, mkdirSync, existsSync, renameSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { isUp, unload } from './lib/local-llm.mjs';
 import { scanFolder } from './lib/folder-scanner.mjs';
@@ -37,7 +41,7 @@ import { makeThumbnailProcessor } from './lib/thumbnail-batch.mjs';
 import { buildReviewHtml } from './lib/review-html.mjs';
 import { selectBestMainImage, curateDetailImages } from './lib/image-selector.mjs';
 import { localCutoutToWhite, cutoutDepsFailed } from './lib/local-cutout.mjs';
-import { measureImage, scoreImage, metricsDepsFailed } from './lib/image-metrics.mjs';
+import { measureImage, scoreImage, metricsDepsFailed, looksCutout } from './lib/image-metrics.mjs';
 
 /**
  * 누끼 가공본 품질 게이트 — 가공본이 원본보다 나쁘면 대표로 쓰지 않는다.
@@ -70,9 +74,33 @@ async function gateCutout(cutoutPath, originalPath) {
   }
 }
 
+/**
+ * 이미지 인식 결과 캐시 — 같은 사진이면 CLIP/L1 을 다시 돌리지 않는다.
+ * ---------------------------------------------------------------------------
+ * 인식(CPU CLIP)은 상품당 사진 수에 비례해 수 초씩 든다(대표 후보 17장이면 체감된다).
+ * 사진이 안 바뀌었으면 결과도 같으므로, 파일 목록+크기+수정시각 서명으로 캐시한다.
+ * → 같은 폴더 재생성(모델 바꿔서 다시, 중간에 죽어서 다시)은 인식 단계가 사실상 0초.
+ */
+function imagesSignature(p) {
+  const files = [...(p.mainImages || []), ...(p.detailImages || [])];
+  const h = createHash('sha1');
+  for (const f of files.sort()) {
+    let s = '';
+    try { const st = statSync(f); s = `${st.size}:${Math.round(st.mtimeMs)}`; } catch { s = 'x'; }
+    h.update(`${path.basename(f)}|${s}\n`);
+  }
+  return h.digest('hex').slice(0, 16);
+}
+function loadRecogCache(file) {
+  try { return JSON.parse(readFileSync(file, 'utf8')); } catch { return {}; }
+}
+function saveRecogCache(file, cache) {
+  try { writeFileSync(file, JSON.stringify(cache)); } catch { /* 캐시는 실패해도 무해 */ }
+}
+
 function parseArgs(argv) {
   const a = { _: [] };
-  const flags = new Set(['no-thumb', 'thumb-force', 'no-image-ai', 'wait-comfy']);
+  const flags = new Set(['no-thumb', 'thumb-force', 'no-image-ai', 'wait-comfy', 'no-overlap', 'no-recog-cache']);
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i];
     if (!t.startsWith('--')) { a._.push(t); continue; }
@@ -151,14 +179,33 @@ async function main() {
   console.log(`[${ts()}] 상품 ${products.length}개 발견`);
 
   // ── Phase 0) 이미지 인식 (CLIP·CPU) — 대표컷 자동추천 + 상세이미지 큐레이션 ─────────
-  //   CPU에서 도는 CLIP이라 ollama(GPU)와 VRAM 경합 없음 → 텍스트 생성 전에 먼저 처리.
-  //   transformers.js 미탑재(standalone CLI 등)면 selectBestMainImage 가 조용히 첫컷 폴백.
-  if (!cli['no-image-ai']) {
-    console.log(`[${ts()}] [이미지인식] 대표컷 선택 + 상세이미지 큐레이션 시작`);
+  //   ⚡ CLIP 은 CPU, LLM 은 GPU 라 서로 자원을 안 뺏는다 → 예전처럼 순차로 기다릴 이유가 없다.
+  //      인식을 백그라운드로 돌리면서 텍스트 생성을 동시에 시작한다(= 인식 시간이 통째로 숨는다).
+  //      텍스트 생성은 사진과 무관하고, 사진 관련 필드는 두 단계가 다 끝난 뒤 레코드에 채운다.
+  const overlap = !cli['no-image-ai'] && !cli['no-overlap'];
+  const recogCacheFile = outPrefix + '.recog.json';
+  const recogCache = cli['no-recog-cache'] ? {} : loadRecogCache(recogCacheFile);
+  let recogHits = 0;
+
+  const runRecognition = async () => {
+    console.log(`[${ts()}] [이미지인식] 대표컷 선택 + 상세이미지 큐레이션 시작${overlap ? ' (텍스트 생성과 동시 진행)' : ''}`);
     const onLog = (m) => console.log(`[${ts()}] ${m}`);
     let clipOff = false;
     for (let i = 0; i < products.length; i++) {
       const p = products[i];
+      // ① 캐시 적중 — 사진이 그대로면 지난 인식 결과를 그대로 쓴다(CLIP 0회).
+      const sig = imagesSignature(p);
+      const hit = recogCache[p.id || p.folderPath];
+      if (hit && hit.sig === sig && hit.mainImage && existsSync(hit.mainImage)) {
+        p.mainImage = hit.mainImage;
+        p.mainImageRanked = hit.mainImageRanked || null;
+        p.detailImagesKept = hit.detailImagesKept || p.detailImages || [];
+        p.detailDroppedNames = hit.detailDroppedNames || [];
+        p.mainConfident = hit.mainConfident !== false;
+        p.mainReason = hit.mainReason || null;
+        recogHits++;
+        continue;
+      }
       if (clipOff) { p.mainImageRanked = null; p.detailImagesKept = p.detailImages || []; p.detailDroppedNames = []; continue; }
       const mainPool = p.mainImages || (p.mainImage ? [p.mainImage] : []);
       // ⭐ 대표 후보를 폴더 경계 너머로 확장 — main_images/detail_images 는 소싱처가 나눈 것일 뿐,
@@ -182,10 +229,36 @@ async function main() {
       // 대표로 승격된 상세컷은 웹 상세목록에서도 빼준다(대표 + 상세 중복 노출 방지).
       if (promotedFromDetail) p.detailDroppedNames.push(path.basename(p.mainImage));
       p.detailDropped = det.dropped.length;
+      // 인식 결과 캐시 — 다음 실행에서 사진이 그대로면 CLIP 을 건너뛴다.
+      recogCache[p.id || p.folderPath] = {
+        sig, mainImage: p.mainImage, mainImageRanked: p.mainImageRanked,
+        detailImagesKept: p.detailImagesKept, detailDroppedNames: p.detailDroppedNames,
+        mainConfident: p.mainConfident, mainReason: p.mainReason,
+      };
+      if (i % 5 === 4) saveRecogCache(recogCacheFile, recogCache); // 중간에 죽어도 앞부분은 보존
       const pickIco = String(main.method || '').startsWith('clip') ? '🎯' : '·';
       const detNote = (p.detailImages || []).length ? ` · 상세 ${p.detailImagesKept.length}/${p.detailImages.length}컷(광고 ${det.dropped.length} 제외)` : '';
-      console.log(`[${ts()}][인식 ${i + 1}/${products.length}] ${pickIco} 대표=${path.basename(p.mainImage || '-')}${main.method === 'clip' && main.ranked[0]?.score != null ? ` (점수 ${main.ranked[0].score})` : ''}${detNote}`);
+      // ⚠️ 텍스트와 동시 진행 중이면 `[인식 n/n]` 진행 마커를 쓰지 않는다 — 웹 진행패널이
+      //    인식↔텍스트 사이를 왔다갔다 하며 단계 표시가 튄다. 로그로만 남긴다.
+      const tag = overlap ? `인식 ${i + 1}/${products.length}` : `[인식 ${i + 1}/${products.length}]`;
+      console.log(`[${ts()}]${overlap ? ' ' : ''}${tag} ${pickIco} 대표=${path.basename(p.mainImage || '-')}${main.method === 'clip' && main.ranked[0]?.score != null ? ` (점수 ${main.ranked[0].score})` : ''}${detNote}`);
     }
+    saveRecogCache(recogCacheFile, recogCache);
+    if (recogHits) console.log(`[${ts()}] [이미지인식] 캐시 재사용 ${recogHits}/${products.length}건 — 사진이 그대로라 다시 분석하지 않음`);
+  };
+
+  // 인식 실행 계획: 동시(overlap) / 순차 / 생략
+  let recogPromise = Promise.resolve();
+  if (!cli['no-image-ai']) {
+    recogPromise = runRecognition().catch((e) => {
+      // 인식이 죽어도 생성은 계속 — 사진은 원본/첫컷으로 폴백.
+      console.log(`[${ts()}] ⚠️ 이미지인식 실패(원본 사진 유지): ${e.message}`);
+      for (const p of products) {
+        if (!p.detailImagesKept) p.detailImagesKept = p.detailImages || [];
+        if (p.mainConfident === undefined) { p.mainConfident = true; p.mainReason = null; p.mainImageRanked = null; p.detailDroppedNames = []; }
+      }
+    });
+    if (!overlap) await recogPromise;
   } else {
     console.log(`[${ts()}] [이미지인식] 생략(--no-image-ai) — 첫컷/원본 상세 유지`);
     for (const p of products) { p.detailImagesKept = p.detailImages || []; p.mainImageRanked = null; p.detailDroppedNames = []; p.mainConfident = true; p.mainReason = null; }
@@ -203,16 +276,34 @@ async function main() {
   // 텍스트 단계 전, ComfyUI 가 물고 있던 VRAM 을 회수해 ollama 에 양보(두 엔진 동시 점유 제거).
   const freedBefore = await freeComfyVram(cli.comfy);
   if (freedBefore) console.log(`[${ts()}] [1/3] 텍스트 전 ComfyUI VRAM 회수 완료 → ollama 에 양보`);
-  console.log(`[${ts()}] [1/3] 텍스트 생성 시작 (모델 ${model})`);
+  const genConcurrency = Math.max(1, Number(cli.concurrency) || 1);
+  console.log(`[${ts()}] [1/3] 텍스트 생성 시작 (모델 ${model}${genConcurrency > 1 ? ` · 동시 ${genConcurrency}개` : ''})`);
   if (marginBrackets) console.log(`[${ts()}] 마진 프리셋 적용: ${marginLevel}`);
-  const { summary } = await generateBatch(products, {
-    model, sellerId: seller, maxDetailTokens, marginBrackets,
-    onItem: (i, total, rec) => {
-      records.push(rec);
+  const { records: genRecords, summary } = await generateBatch(products, {
+    model, sellerId: seller, maxDetailTokens, marginBrackets, concurrency: genConcurrency,
+    onItem: (i, total, rec, doneCount) => {
       const flag = rec.needsReview ? '⚠️검수' : '✅';
-      console.log(`[${ts()}][텍스트 ${i + 1}/${total}] ${flag} ${rec.displayName}  | ${rec.categoryPath} [${rec.categoryCode || '-'}] | ${(rec.ms / 1000).toFixed(1)}s`);
+      // 진행 숫자는 "완료 개수" — 병렬이면 인덱스 순으로 안 끝나므로 i 를 쓰면 진행바가 뒤로 튄다.
+      console.log(`[${ts()}][텍스트 ${doneCount ?? i + 1}/${total}] ${flag} ${rec.displayName}  | ${rec.categoryPath} [${rec.categoryCode || '-'}] | ${(rec.ms / 1000).toFixed(1)}s`);
     },
   });
+  records.push(...genRecords);
+
+  // ── 이미지 인식(백그라운드) 합류 ─────────────────────────────────────────
+  //   텍스트와 동시에 돌렸으므로 여기서 끝나기를 기다린다(대개 이미 끝나 있다).
+  //   ⚠️ 레코드의 사진 필드는 인식 전 값이 담겼을 수 있으니 지금 확정값으로 덮는다.
+  if (overlap) {
+    console.log(`[${ts()}] [1/3] 이미지인식 합류 대기…`);
+    await recogPromise;
+  }
+  for (let i = 0; i < products.length; i++) {
+    const p = products[i], rec = records[i];
+    if (!rec) continue;
+    if (p.mainImage) rec.mainImage = p.mainImage;
+    rec.mainImageRanked = p.mainImageRanked ?? null;
+    rec.detailImages = Array.isArray(p.detailImagesKept) ? p.detailImagesKept : (p.detailImages || []);
+    rec.detailDroppedNames = Array.isArray(p.detailDroppedNames) ? p.detailDroppedNames : [];
+  }
 
   // ── 대표컷 신뢰도 병합 — 전 후보가 로고/저품질이면 검수 대상으로 승격 ──────────
   //   이래야 웹 검수화면이 자동승인을 풀고 카드에 "대표컷 확인" 경고를 띄운다(N 로고 방지).
@@ -230,6 +321,37 @@ async function main() {
   // ── Phase B) 대표이미지 가공 (ComfyUI 가 GPU 점유) ──────────────────────
   let thumbsProcessed = 0;
   let thumbEnabled = !cli['no-thumb'];
+
+  // ⭐ "이미 누끼된 컷은 다시 누끼하지 않는다" ────────────────────────────────
+  //   소싱 폴더 main_images 에는 소싱처가 배경을 이미 지워 둔 컷(converted_01.png 등)이
+  //   들어 있는 경우가 많다. 그걸 또 누끼하면 파이프라인에서 가장 느린 단계를 통째로
+  //   낭비하고(상품당 수~수십 초), 멀쩡한 사진을 다시 잘라 품질만 떨어진다.
+  //   → 대표컷이 이미 흰배경 단독컷이면 그대로 쓴다. 전부 그렇다면 ComfyUI 는 아예 안 띄운다.
+  const needCutout = [];
+  let alreadyCut = 0;
+  let imgDone = 0;          // 진행표시용 — 실제로 가공한 건수(건너뛴 건 세지 않는다)
+  if (thumbEnabled) {
+    for (let i = 0; i < products.length; i++) {
+      const p = products[i], rec = records[i];
+      if (!p.mainImage) { if (rec) rec.thumbProcessed = null; continue; }
+      let cut = false;
+      try { cut = looksCutout(await measureImage(p.mainImage), p.mainImage); }
+      catch { cut = metricsDepsFailed() ? looksCutout(null, p.mainImage) : false; }
+      if (cut) {
+        alreadyCut++;
+        if (rec) { rec.mainImage = p.mainImage; rec.thumbProcessed = false; rec.thumbSkipped = '이미 누끼된 대표컷'; }
+      } else {
+        needCutout.push(i);
+      }
+    }
+    if (alreadyCut) console.log(`[${ts()}] 대표이미지: ${alreadyCut}건은 이미 누끼된 컷 → 재가공 생략(그대로 사용)`);
+    if (needCutout.length === 0) {
+      thumbEnabled = false;
+      console.log(`[${ts()}] [2/3] 누끼가 필요한 대표컷 없음 — 이미지 가공 단계 전체 생략(ComfyUI 기동 안 함)`);
+      await unload(model); // VRAM 은 그래도 반납
+    }
+  }
+
   if (thumbEnabled) {
     // ollama 모델 언로드 → VRAM 을 ComfyUI 에 양보. (앱은 이 마커를 보고 내려뒀던 ComfyUI 를 올린다)
     console.log(`[${ts()}] [2/3] ollama 모델 언로드(VRAM 회수) → ComfyUI 준비`);
@@ -243,7 +365,7 @@ async function main() {
     const thumb = await makeThumbnailProcessor({ comfyUrl: cli.comfy, workflowPath: cli.workflow });
     console.log(`[${ts()}] 대표이미지: ${thumb.ready ? '✅ ' + thumb.info : '⚠️ ' + thumb.info}`);
     if (thumb.ready) {
-      for (let i = 0; i < products.length; i++) {
+      for (const i of needCutout) {
         const p = products[i], rec = records[i];
         if (!p.mainImage) { rec.thumbProcessed = null; continue; }
         const res = await thumb.process(p.mainImage, p.folderPath, { force: !!cli['thumb-force'] });
@@ -256,21 +378,21 @@ async function main() {
           rec.thumbRejectReason = gate.reason;
           rec.thumbProcessed = res.processed;   // 가공본 자체는 존재(후보로는 남는다)
           if (res.processed) thumbsProcessed++;
-          console.log(`[${ts()}][이미지 ${i + 1}/${products.length}] ⚠️ 누끼 반려 → 원본 대표 (${gate.reason})`);
+          console.log(`[${ts()}][이미지 ${++imgDone}/${needCutout.length}] ⚠️ 누끼 반려 → 원본 대표 (${gate.reason})`);
           continue;
         }
         rec.mainImage = res.path || rec.mainImage;
         rec.thumbProcessed = res.processed;
         if (res.processed) thumbsProcessed++;
         const ico = res.processed ? '🖼️' : '·';
-        console.log(`[${ts()}][이미지 ${i + 1}/${products.length}] ${ico} ${path.basename(rec.mainImage)}${res.reason ? ' (' + res.reason + ')' : ''}`);
+        console.log(`[${ts()}][이미지 ${++imgDone}/${needCutout.length}] ${ico} ${path.basename(rec.mainImage)}${res.reason ? ' (' + res.reason + ')' : ''}`);
       }
     } else {
       // ComfyUI 미가동(GPU 없음 등) → BiRefNet CPU 누끼 폴백. 어떤 PC 에서도 배경제거·흰배경 자동.
       console.log(`[${ts()}] ComfyUI 미가동 → BiRefNet CPU 누끼 폴백 시도(GPU 불필요, 배경제거·흰배경 1:1)`);
       const onLog = (m) => console.log(`[${ts()}] ${m}`);
       let cpuOff = false;
-      for (let i = 0; i < products.length; i++) {
+      for (const i of needCutout) {
         const p = products[i], rec = records[i];
         if (!p.mainImage) { rec.thumbProcessed = null; continue; }
         if (cpuOff) { rec.thumbProcessed = false; continue; }
@@ -284,10 +406,10 @@ async function main() {
               rec.mainImage = p.mainImage;      // 원본을 대표로(가공본은 후보로 남음)
               rec.thumbRejected = true;
               rec.thumbRejectReason = gate.reason;
-              console.log(`[${ts()}][이미지 ${i + 1}/${products.length}] ⚠️ 누끼 반려 → 원본 대표 (${gate.reason})`);
+              console.log(`[${ts()}][이미지 ${++imgDone}/${needCutout.length}] ⚠️ 누끼 반려 → 원본 대표 (${gate.reason})`);
             } else {
               rec.mainImage = dest;
-              console.log(`[${ts()}][이미지 ${i + 1}/${products.length}] 🖼️ ${path.basename(dest)} (${label})`);
+              console.log(`[${ts()}][이미지 ${++imgDone}/${needCutout.length}] 🖼️ ${path.basename(dest)} (${label})`);
             }
           };
           if (!cli['thumb-force'] && existsSync(dest)) {
@@ -304,14 +426,14 @@ async function main() {
             cpuOff = true; // sharp/transformers 미탑재(standalone CLI 등) → 이후 전부 원본 유지
             console.log(`[${ts()}] BiRefNet 미탑재 — 원본 사진 유지(${e.message})`);
           } else {
-            console.log(`[${ts()}][이미지 ${i + 1}/${products.length}] · 누끼 실패 → 원본(${e.message})`);
+            console.log(`[${ts()}][이미지 ${++imgDone}/${needCutout.length}] · 누끼 실패 → 원본(${e.message})`);
           }
         }
       }
       thumbEnabled = thumbsProcessed > 0; // 하나라도 CPU 누끼 성공 시 가공됨 표시
       if (!thumbEnabled) for (const rec of records) rec.thumbProcessed = false;
     }
-  } else {
+  } else if (cli['no-thumb']) {
     console.log(`[${ts()}] [2/3] 대표이미지 가공 생략(--no-thumb)`);
   }
   summary.thumbsProcessed = thumbEnabled ? thumbsProcessed : null;
@@ -327,7 +449,7 @@ async function main() {
 
   console.log(`\n=== 요약 ===`);
   console.log(`총 ${summary.total} · 통과 ${summary.ok} · 검수필요 ${summary.needsReview}` + (thumbEnabled ? ` · 대표가공 ${thumbsProcessed}/${summary.total}` : ' · 대표가공 생략'));
-  console.log(`상품당 평균(텍스트) ${(summary.avgMs / 1000).toFixed(1)}s · 텍스트단계 ${(summary.wallMs / 1000 / 60).toFixed(1)}분 · 후보=${summary.candidateSource}`);
+  console.log(`상품당 평균(텍스트) ${(summary.avgMs / 1000).toFixed(1)}s · 텍스트단계 ${(summary.wallMs / 1000 / 60).toFixed(1)}분 · 동시 ${summary.concurrency}개 · 후보=${summary.candidateSource}`);
   console.log(`레코드: ${outJsonl}`);
   console.log(`검수화면: ${outHtml}  ← 브라우저로 열어 검수/승인`);
 

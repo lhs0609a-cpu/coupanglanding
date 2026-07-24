@@ -268,7 +268,11 @@ async function uploadOne(ep: LocalEndpoint, session: string, f: UploadFile): Pro
   }
 }
 
-/** 파일 목록을 동시 4개씩 업로드. 진행 콜백으로 완료 수를 알린다. */
+/**
+ * 파일 목록을 동시 8개씩 업로드. 진행 콜백으로 완료 수를 알린다.
+ *   상대는 같은 PC 의 로컬 서버(127.0.0.1)라 대역폭이 아니라 **요청당 왕복 오버헤드**가 병목이다
+ *   (사진 수백~수천 장 × 프리플라이트+핸드셰이크). 동시수를 4→8 로 올리면 업로드 대기가 체감상 반으로 준다.
+ */
 export async function uploadFolderFiles(
   ep: LocalEndpoint,
   session: string,
@@ -285,7 +289,7 @@ export async function uploadFolderFiles(
       onProgress?.(done, files.length);
     }
   };
-  await Promise.all(Array.from({ length: Math.min(4, files.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(8, files.length) }, worker));
   return { ok, fail };
 }
 

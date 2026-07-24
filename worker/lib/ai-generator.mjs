@@ -54,9 +54,22 @@ function diversifyBySeller(displayName, keywords, seed) {
 
 const catTokens = (s) => (String(s || '').toLowerCase().match(/[가-힣a-z0-9]+/g) || []).filter((t) => t.length >= 2);
 
+/**
+ * 카테고리 후보의 leaf(말단 이름) — 상세글이 "무엇에 대한 글인지" 기준이 된다.
+ *   ⚠️ 워커 인덱스의 path 는 '>' 가 아니라 공백으로 이어진 토큰 문자열이다. 예전엔
+ *      `categoryPath.split('>').pop()` 로 leaf 를 뽑아서 **경로 전체가 leaf 가 됐고**,
+ *      상세글 본문에 "식품 신선식품 과일류 과일 중에서도…" 같은 비문이 그대로 실렸다(실측).
+ */
+function leafOf(cand) {
+  if (!cand) return '';
+  if (cand.leaf) return String(cand.leaf).trim();
+  const parts = String(cand.path || '').split(/[>\s]+/).filter(Boolean);
+  return parts[parts.length - 1] || '';
+}
+
 /** LLM이 출력한 카테고리 문자열을 실제 후보 중 가장 가까운 것으로 강제 매핑(코드 보장). */
 function snapToCandidate(llmPath, candidates) {
-  if (!candidates || candidates.length === 0) return { code: null, path: llmPath, snapped: false };
+  if (!candidates || candidates.length === 0) return { code: null, path: llmPath, leaf: '', snapped: false };
   const qt = new Set(catTokens(llmPath));
   let best = null, bestScore = -1;
   for (const c of candidates) {
@@ -69,8 +82,8 @@ function snapToCandidate(llmPath, candidates) {
     if (score > bestScore) { bestScore = score; best = c; }
   }
   // 겹치는 토큰이 전혀 없으면 후보 1순위로 폴백
-  if (bestScore <= 0) return { code: candidates[0].code, path: candidates[0].path, snapped: true, weak: true };
-  return { code: best.code, path: best.path, snapped: true };
+  if (bestScore <= 0) return { code: candidates[0].code, path: candidates[0].path, leaf: leafOf(candidates[0]), snapped: true, weak: true };
+  return { code: best.code, path: best.path, leaf: leafOf(best), snapped: true };
 }
 
 /** 텍스트 1필드 생성 + 금지어 검사 + 1회 재생성 */
@@ -95,7 +108,7 @@ async function genText({ model, system, prompt, options, format, ctx }) {
  * @param {number} [o.maxDetailTokens=900]
  * @returns {Promise<Object>} 생성 결과 + 타이밍
  */
-export async function generateAllFields(product, { model, personaSeed, categoryCandidates = [], maxDetailTokens = 900 } = {}) {
+export async function generateAllFields(product, { model, personaSeed, categoryCandidates = [], maxDetailTokens = 900, categoryDecisive = false } = {}) {
   if (!model) throw new Error('[ai-generator] model 필요');
   const persona = pickPersona(personaSeed || product.originalName);
   const ctx = product.categoryPath || '';
@@ -106,11 +119,17 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   //   CPU 환경에서도 안전(정확도·검증 로직은 아래에서 각 결과에 그대로 적용).
   const candObjs = (categoryCandidates || []).map((c) => (typeof c === 'string' ? { code: null, path: c } : c));
   const tp = buildTitlePrompt(product, persona);
-  const cp = buildCategoryPrompt(product, candObjs.map((c) => c.path));
   const op = buildOptionsPrompt(product);
+  // ⚡ 카테고리 후보가 "압도적 1위" 면 LLM 을 아예 부르지 않는다(호출 4회 → 3회).
+  //    후보 매칭이 이미 확정적인데(예: '나주배' → 배 단 하나) 다시 물어보는 건 시간낭비이자
+  //    오답 유입 경로다. 확정적이지 않을 때만 LLM 이 의미로 고른다.
+  const skipCatLlm = categoryDecisive && candObjs.length > 0;
+  const emptyGen = { text: '', ms: 0, tokPerSec: null, ok: true, violations: [], retried: false };
   const [titleRaw, catRaw, optRaw] = await Promise.all([
     genText({ model, ...tp, ctx }),
-    genText({ model, ...cp, ctx }),
+    skipCatLlm
+      ? Promise.resolve({ ...emptyGen, text: JSON.stringify({ categoryPath: candObjs[0].path, confidence: 1 }) })
+      : genText({ model, ...buildCategoryPrompt(product, candObjs.map((c) => c.path)), ctx }),
     genText({ model, ...op, ctx }),
   ]);
 
@@ -157,6 +176,8 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
     model,
     originalName: product.originalName,
     categoryPath: snapped.path || product.categoryPath || '',
+    // leaf 를 명시 전달 — 안 주면 generatePerfectDetail 이 '>' 로 잘라 경로 전체를 leaf 로 쓴다.
+    leaf: snapped.leaf || (product.categoryPath || '').split('>').pop() || '',
     features: product.features || [],
     seoKeywords: keywords,
     seed: personaSeed || product.originalName,

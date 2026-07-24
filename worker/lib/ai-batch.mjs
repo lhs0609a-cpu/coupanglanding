@@ -40,17 +40,53 @@ function catMatchQuery(p) {
  */
 async function candidatesFor(p, k) {
   const q = catMatchQuery(p);
+  const tok = topCandidates(q, k);
+  const decisive = decisiveToken(tok);          // 토큰 매처가 "이건 딱 이거다" 라고 말하는가
+
   if (embedBuilt()) {
     try {
-      const c = await topCandidatesEmbed(q, k);
-      if (c.length) return { cands: c, source: 'embedding' };
-      return { cands: topCandidates(q, k), source: 'token' };
+      const emb = await topCandidatesEmbed(q, k);
+      if (emb.length) {
+        // ⭐ 임베딩 ∪ 토큰 — 둘은 서로 다른 실수를 한다. 임베딩은 의미는 잘 잡지만
+        //    "나주배"처럼 품목명이 합성어 꼬리에 숨으면 '과일선물세트' 같은 인접 카테고리를
+        //    1위로 올린다. 토큰 매처가 확정적으로 지목한 후보(배)는 반드시 후보에 넣고,
+        //    확정적이면 1순위로 세운다(그 경우 LLM 호출도 생략된다).
+        const merged = [];
+        const seen = new Set();
+        // 같은 코드가 양쪽에 있으면 토큰 매처 버전을 쓴다 — 임베딩 메타의 path 에는 leaf 가
+        // 빠져 있어(1글자 카테고리) LLM 도 검수화면도 무슨 카테고리인지 알 수 없다.
+        const byCode = new Map(tok.map((c) => [c.code, c]));
+        const push = (c) => {
+          const best = byCode.get(c?.code) || c;
+          if (best && !seen.has(best.code)) { seen.add(best.code); merged.push(best); }
+        };
+        if (decisive) push(tok[0]);
+        for (const c of emb) push(c);
+        for (const c of tok) push(c);
+        return { cands: merged.slice(0, k), source: 'embedding+token', decisive };
+      }
+      return { cands: tok, source: 'token', decisive };
     } catch {
-      // 인덱스는 빌드됐지만 임베딩 모델(bge-m3) 미설치/오류 → 토큰 폴백(정확도 저하)
-      return { cands: topCandidates(q, k), source: 'token(embed-unavailable)' };
+      // 인덱스는 빌드됐지만 임베딩 모델(bge-m3) 미설치/오류 → 토큰 폴백
+      return { cands: tok, source: 'token(embed-unavailable)', decisive };
     }
   }
-  return { cands: topCandidates(q, k), source: 'token' };
+  return { cands: tok, source: 'token', decisive };
+}
+
+/**
+ * "LLM 에게 물어볼 필요조차 없는" 압도적 1위인가 — 토큰 매처 점수 기준.
+ * ---------------------------------------------------------------------------
+ * 후보가 1개뿐이거나(예: '나주배' → 배 하나), 1위가 2위를 크게 앞서면 LLM 호출을 통째로
+ * 생략한다(상품당 LLM 4회 → 3회). 정확도는 오히려 올라간다 — 압도적 1위를 두고 LLM 이
+ * 다른 후보를 고르는 건 대부분 오답이었다. (임베딩 점수는 코사인이라 척도가 달라 미적용)
+ */
+function decisiveToken(cands) {
+  if (!cands || cands.length === 0) return false;
+  if (cands.length === 1) return true;
+  const [a, b] = cands;
+  if (typeof a.score !== 'number' || typeof b.score !== 'number') return false;
+  return a.score >= 4 && a.score >= b.score * 1.8;
 }
 
 /**
@@ -59,21 +95,28 @@ async function candidatesFor(p, k) {
  * @param {string} o.model
  * @param {string} [o.sellerId]            아이템위너 회피용 셀러 시드
  * @param {number} [o.maxDetailTokens=800]
- * @param {(i:number, total:number, rec:Object)=>void} [o.onItem]
+ * @param {number} [o.concurrency=1]       동시에 생성할 상품 수(남은 VRAM 에 맞춰 호출부가 결정)
+ * @param {(i:number, total:number, rec:Object, done:number)=>void} [o.onItem]
  * @returns {Promise<{records:Object[], summary:Object}>}
  */
-export async function generateBatch(products, { model, sellerId = '', maxDetailTokens = 800, onItem, marginBrackets } = {}) {
+export async function generateBatch(products, { model, sellerId = '', maxDetailTokens = 800, onItem, marginBrackets, concurrency = 1 } = {}) {
   if (!model) throw new Error('[ai-batch] model 필요');
-  const records = [];
-  let ok = 0, review = 0, totalMs = 0;
+  const records = new Array(products.length);
+  let ok = 0, review = 0, totalMs = 0, done = 0;
   const sourceCounts = {};
   const t0 = Date.now();
-  for (let i = 0; i < products.length; i++) {
+
+  // ⚡ 상품 단위 동시 실행 — 단일 GPU 라도 ollama 가 여러 요청을 하나의 배치로 디코딩해
+  //    처리량이 크게 오른다(순차 1개는 GPU 를 다 못 쓴다). 동시수는 호출부가 남은 VRAM 을
+  //    보고 정한다(부족하면 1 = 예전과 동일 동작). 결과는 인덱스로 넣어 순서를 보존한다.
+  const genOne = async (i) => {
     const p = products[i];
     const seed = `${sellerId}:${p.id || p.originalName}`;
-    const { cands, source } = await candidatesFor(p, 8);
+    const { cands, source, decisive } = await candidatesFor(p, 8);
     sourceCounts[source] = (sourceCounts[source] || 0) + 1;
-    const r = await generateAllFields(p, { model, personaSeed: seed, categoryCandidates: cands, maxDetailTokens });
+    const r = await generateAllFields(p, {
+      model, personaSeed: seed, categoryCandidates: cands, maxDetailTokens, categoryDecisive: decisive,
+    });
     const sellingPrice = marginBrackets ? calculateSellingPrice(p.sourcePrice, marginBrackets) : calculateSellingPrice(p.sourcePrice);
     const rec = {
       sourceId: p.id ?? null,
@@ -102,12 +145,20 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
       compliance: r.compliance,
       ms: r.timings.totalMs,
     };
-    records.push(rec);
+    records[i] = rec;
     totalMs += rec.ms;
     if (rec.needsReview) review++; else ok++;
     // onItem 이 비동기(예: ComfyUI 대표이미지 가공)일 수 있으므로 await — GPU 직렬 보장.
-    await onItem?.(i, products.length, rec);
-  }
+    //   ⚠️ 병렬이면 완료 순서가 인덱스 순이 아니다 → 진행표시는 "완료 개수(done)"로 준다
+    //      (i 로 주면 웹 진행바가 뒤로 튄다).
+    await onItem?.(i, products.length, rec, ++done);
+  };
+
+  const lanes = Math.max(1, Math.min(Number(concurrency) || 1, products.length));
+  let cursor = 0;
+  const lane = async () => { while (cursor < products.length) await genOne(cursor++); };
+  await Promise.all(Array.from({ length: lanes }, lane));
+
   return {
     records,
     summary: {
@@ -121,6 +172,7 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
         return keys.map((k) => `${k}:${sourceCounts[k]}`).join(', ');
       })(),
       candidateSourceCounts: sourceCounts,
+      concurrency: lanes,
     },
   };
 }

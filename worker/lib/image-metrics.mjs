@@ -304,6 +304,22 @@ export function scoreImage(m, weights = DEFAULT_WEIGHTS) {
 }
 
 /**
+ * "이미 누끼된(흰배경 단독) 컷인가" — 소싱 폴더의 main_images 에는 소싱처가 이미 배경을
+ * 지워 둔 컷(converted_01.png 같은)이 들어 있는 경우가 많다. 그걸 또 누끼하면
+ *   ① 시간이 몇 배로 들고(가장 느린 단계) ② 이미 깨끗한 사진을 다시 잘라 품질만 떨어진다.
+ * → 대표컷이 이미 누끼면 가공을 통째로 건너뛴다(run-folder), 선택 단계에선 가점(image-selector).
+ * @param {Object} m  measureImage 결과
+ * @param {string} [filePath] 파일명 힌트(converted_/cutout/누끼 …)
+ */
+export function looksCutout(m, filePath = '') {
+  const nameHint = /(^|[_\-/\\])(converted|cutout|nuki|누끼|white[_-]?bg|bg[_-]?removed)/i.test(String(filePath));
+  if (!m) return nameHint;
+  // 흰(밝은) 균일 배경 + 배경 판정 신뢰 + 피사체가 실재 = 누끼 결과물의 특징
+  const whiteBg = m.bgLum >= 235 && m.bgConfidence >= 0.55 && m.subjectRatio >= 0.05 && m.subjectRatio <= 0.95;
+  return whiteBg || (nameHint && m.bgConfidence >= 0.3);
+}
+
+/**
  * 대표컷 후보 랭킹 — image-selector.selectBestMainImage 와 동일한 반환 형태라
  * run-folder 에 그대로 갈아끼울 수 있다(측정 후 결정).
  * @param {string[]} imagePaths

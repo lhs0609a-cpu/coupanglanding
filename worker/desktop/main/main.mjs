@@ -7,7 +7,7 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell, dialog, Notification } from 'electron';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { rpc, isPermanentAuthError } from '../runtime/supabase-rest.mjs';
 import { Store } from './store.mjs';
@@ -162,9 +162,14 @@ function setupServices() {
   installDir = join(userData, 'engine');
   comfyPort = store.get('comfyPort', 8188);
   comfy = new ComfyManager(installDir, { port: comfyPort, onLog: (m) => send('thumbnail-gpu:comfy-log', m) });
+  // ⚠️ 임베딩 모델(bge-m3, ~1.2GB)은 **카테고리 임베딩 인덱스가 실제로 동봉돼 있을 때만** 받는다.
+  //    인덱스(cat-embeddings.*)는 용량 때문에 git 에서 제외돼 배포본에 들어가지 않는다
+  //    → 지금까지 1.2GB 를 받아 놓고 한 번도 쓰지 못했다(첫 실행이 그만큼 느려짐).
+  //    인덱스를 넣어 배포하면 이 조건이 자동으로 켜진다.
+  const hasEmbedIndex = existsSync(join(appRoot, 'runtime', 'data', 'cat-embeddings.meta.json'));
   ollama = new OllamaManager(installDir, {
     model: store.get('ollamaModel', bootstrap.DEFAULTS.ollamaModel),
-    embedModel: store.get('ollamaEmbedModel', bootstrap.DEFAULTS.ollamaEmbedModel),
+    embedModel: hasEmbedIndex ? store.get('ollamaEmbedModel', bootstrap.DEFAULTS.ollamaEmbedModel) : null,
     onLog: (m) => send('allinone:log', m),
   });
   runner = new WorkerRunner(userData, {
@@ -369,6 +374,9 @@ app.whenReady().then(async () => {
 
   // 로컬 서버 — ① 웹이 세션 토큰 전달(페어링) ② 웹 올인원 화면이 생성결과·이미지 직독
   pair = await startPairServer({
+    // 업로드·생성물을 userData 하위(영속)에 둔다 — tmpdir 은 재시작·정리에 사라져
+    // 방금 만든 결과까지 날아갔다(실측: 앱 재시작 후 lastAllinoneFolder manifest 404).
+    dataDir: app.getPath('userData'),
     // 올인원 생성을 끝낸 폴더 → 웹이 폴더를 다시 고르지 않아도 결과를 읽어간다.
     getAllinoneFolder: () => store.get('lastAllinoneFolder', null),
     // 웹 사이드바 '최신으로 업데이트' 버튼 → 앱 내부 자동업데이트 확인/적용을 킥.

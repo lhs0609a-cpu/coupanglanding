@@ -49,13 +49,20 @@ function leafInText(leaf, text) {
   return text.includes(leaf);
 }
 
-/** leaf 노출 횟수 — SEO 검사용(1글자는 독립 토큰 기준). */
+/** leaf 노출 횟수 — SEO 검사용. */
 function countLeaf(leaf, text) {
   if (!leaf) return 0;
   if (leaf.length === 1 && /[가-힣]/.test(leaf)) {
+    // ⚠️ 1글자 leaf(배·굴·감·무…)를 "독립 토큰"으로만 세면 사실상 0 이 나온다 —
+    //    한국어는 '나주배', '생굴', '단감' 처럼 합성어로 쓰고 조사가 붙기 때문이다.
+    //    그래서 매번 SEO 미달로 판정돼 쓸데없이 3회 재생성하고 검수필요로 찍혔다(실측).
+    //    합성어 안에 들어간 것도 노출로 인정한다(느슨한 하한 1회).
     const esc = leaf.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const m = text.match(new RegExp(`(^|[^가-힣A-Za-z0-9])${esc}([^가-힣A-Za-z0-9]|$)`, 'g'));
-    return m ? m.length : 0;
+    const strict = text.match(new RegExp(`(^|[^가-힣A-Za-z0-9])${esc}([^가-힣A-Za-z0-9]|$)`, 'g'));
+    if (strict && strict.length) return strict.length;
+    let c = 0, i = 0;
+    while ((i = text.indexOf(leaf, i)) >= 0) { c++; i += 1; }
+    return c;
   }
   let c = 0, i = 0;
   while ((i = text.indexOf(leaf, i)) >= 0) { c++; i += leaf.length; }
@@ -73,6 +80,13 @@ export function cleanDetailOutput(raw) {
     .join('\n');
   t = t.replace(/^\s*#{1,6}\s*/gm, '');        // 마크다운 헤더(###) 제거 — 텍스트는 유지
   t = t.replace(/\*\*\s*-\s*/g, '- ');          // "**- " 깨진 불릿 마커 정리
+  // ⭐ 마크다운 볼드/밑줄/별표 전면 제거 — 상세글에 '**' 리터럴이 그대로 보인다는 실사용 지적.
+  //    렌더러(detail-page-builder)가 <strong> 으로 바꿔주긴 하지만, 편집 화면·미리보기·
+  //    다른 채널(네이버 등)에서는 별표가 날것으로 노출된다 → 애초에 만들지 않는다.
+  t = t.replace(/\*\*([^\n]*?)\*\*/g, '$1');    // **볼드** → 알맹이만
+  t = t.replace(/__([^\n]*?)__/g, '$1');        // __밑줄__ → 알맹이만
+  t = t.replace(/^\s*\*\s+/gm, '- ');           // '* 불릿' → '- 불릿'
+  t = t.replace(/\*/g, '');                     // 짝 안 맞는 잔여 별표까지 제거(리터럴 노출 0 보장)
   // 문장 종결 직후 같은 줄에 붙은 불릿("…했어요.- **☀️")을 새 단락의 불릿 줄로 분리.
   // [ \t]만 허용 → 줄바꿈은 넘지 않으므로 이미 분리된/연속된 불릿은 건드리지 않는다.
   t = t.replace(/([^\n\t ])[ \t]*-[ \t]+(\*\*)/g, '$1\n\n- $2');
@@ -92,7 +106,10 @@ const BOOK_EXEMPT = new Set(['치료', '항암', '완치', '면역력 증진', '
 const ACTIVITY_LEAK_GUARDS = [
   { word: '세차/왁스/광택', re: /세차|셀프\s*세차|왁스로|광택나는|외관개선|발수코팅/, home: /세차|왁스|광택|코팅제|디테일링|익스테리어|카샴푸/ },
   { word: '빨래/세탁', re: /빨래|세탁할|세탁세제|섬유유연제|표백제/, home: /세탁|세제|빨래|섬유유연|표백|얼룩/ },
-  { word: '면/끓이기/식사', re: /면의\s*식감|면발|여러\s*번\s*끓여|국물이|끓여\s*드시|요리에\s*활용|식사로\s*즐/, home: /면|국수|라면|즉석|찌개|탕|국\b|밀키트|만두|떡국/ },
+  // ⚠️ '요리에 활용·식사로 즐' 은 식품 전반에서 지극히 자연스러운 표현이라 오탐이었다
+  //    (실측: 배 상세글이 "요리에 활용" 때문에 매번 재생성 + 검수필요로 찍힘).
+  //    진짜 누출 신호(면발·국물)만 남기고, home 도 식품 카테고리 전반으로 넓힌다.
+  { word: '면/끓이기', re: /면의\s*식감|면발|여러\s*번\s*끓여|국물이\s|끓여\s*드시/, home: /면|국수|라면|즉석|찌개|탕|국\b|밀키트|만두|떡국|식품|과일|채소|수산|정육|축산|잡곡|건어물|반찬|간식|음료|가공/ },
   { word: '조립', re: /조립\s*(정밀도|편의|이\s*간편)/, home: /가구|선반|책상|침대|옷장|수납|조립|완구|diy|렉|행거|프레임|거치/ },
 ];
 /** @returns {string[]} 누출 이슈(교정지시) */
@@ -111,7 +128,7 @@ function detectCategoryLeak(text, categoryPath = '', leaf = '') {
  * 생성 결과 검증 — 통과 못 한 이유(한국어)를 배열로 반환.
  * @returns {{ok:boolean, issues:string[]}}
  */
-export function validateDetail(text, { leaf, categoryPath = '' } = {}) {
+export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = [] } = {}) {
   const issues = [];
   const t = String(text || '');
   const book = isBookCategory(categoryPath);
@@ -147,9 +164,27 @@ export function validateDetail(text, { leaf, categoryPath = '' } = {}) {
     if (t.includes(b)) { issues.push(`금지 표현 "${b.trim()}"를 빼라(의학적 단정·허위 인증·근거없는 절대표현 금지).`); break; }
   }
 
+  // SEO 키워드 실제 반영 — 예전엔 leaf 1개만 봤다(키워드는 프롬프트에 넣기만 하고 검사 안 함).
+  //   상위 4개 중 2개 이상이 본문에 자연스럽게 들어가야 검색 유입이 붙는다.
+  const kws = (seoKeywords || []).filter((k) => typeof k === 'string' && k.trim().length >= 2).slice(0, 4);
+  if (kws.length >= 2) {
+    const inText = kws.filter((k) => t.includes(k.trim()));
+    if (inText.length < 2) {
+      issues.push(`SEO: 검색 키워드(${kws.join(', ')}) 중 최소 2개를 본문에 자연스럽게 녹여라(현재 ${inText.length}개).`);
+    }
+  }
+
   const compact = t.replace(/\s/g, '').length;
-  if (compact < 480) issues.push('SEO: 본문이 너무 짧다. 공백 제외 600자 이상으로 후기톤·불릿 포함해 더 풍부하게 작성하라.');
+  // 목표는 600~1200자. 예전 하한(480)은 목표보다 낮아 "짧은 글"이 그냥 통과했다 → 550 으로 올림
+  //   (600 정확히 걸면 경계에서 재생성이 잦아 느려진다 — 목표 근처까지만 강제).
+  if (compact < 550) issues.push('SEO: 본문이 너무 짧다. 공백 제외 600자 이상으로 후기톤·불릿 포함해 더 풍부하게 작성하라.');
   if (compact > 1700) issues.push('본문이 너무 길다. 1200자 내외로 핵심만.');
+  if (/\*\*|__/.test(t)) issues.push('마크다운 강조기호(**, __)를 쓰지 마라. 기호 없이 문장으로 강조하라.');
+  // 카테고리 경로 문자열이 본문에 그대로 박히는 비문 차단("식품 신선식품 과일류 과일 중에서도…")
+  const catStr = String(categoryPath || '').trim();
+  if (catStr.length >= 8 && t.includes(catStr)) {
+    issues.push(`카테고리 분류 문자열("${catStr}")을 본문에 그대로 쓰지 마라. 상품 이름("${leaf}")으로만 표현하라.`);
+  }
 
   const lines = t.split('\n').map((s) => s.trim()).filter(Boolean);
   const bullets = lines.filter((l) => /^[-*•]\s*\S/.test(l)).length;
@@ -211,7 +246,7 @@ export async function generatePerfectDetail({
     const temperature = Math.max(0.45, (options.temperature ?? 0.75) - (attempt - 1) * 0.12);
     const { text: raw, ms } = await generate({ model, system, prompt, options: { ...options, temperature } });
     const text = cleanDetailOutput(raw);
-    const { ok, issues } = validateDetail(text, { leaf: realLeaf, categoryPath });
+    const { ok, issues } = validateDetail(text, { leaf: realLeaf, categoryPath, seoKeywords });
     onAttempt({ attempt, ok, issues, ms, chars: text.length });
 
     if (ok) {

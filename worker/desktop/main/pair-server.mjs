@@ -53,6 +53,10 @@ export async function startPairServer({
   onCheckUpdate = null,
   // 웹 업로드 생성 → 임시폴더를 올인원 생성. onGenerate(folder,{noThumb,onDone}). 없으면 미지원.
   onGenerate = null,
+  // 업로드·생성물을 둘 곳. tmpdir 은 재시작·디스크정리에 통째로 사라져(실측 ENOENT) 방금 만든
+  // 결과까지 날아갔다 → 앱이 재시작하면 lastAllinoneFolder 가 죽은 경로를 가리켜 manifest 404,
+  // 웹 카드의 이미지·옵션이 전부 끊긴다. userData 하위(영속)로 받아 재시작에도 살아남게 한다.
+  dataDir = null,
 } = {}) {
   const nonce = randomUUID();
   const state = { paired: false, nonce, port: 0 };
@@ -60,7 +64,8 @@ export async function startPairServer({
   // 웹 업로드 생성 세션. sessionId → { dir, state, code, error }.
   //   uploading → (generate) → generating → done|error. 완료 폴더는 lastAllinoneFolder 로 승격돼
   //   기존 /allinone/manifest·file·list 가 그대로 읽는다(읽기 경로 재사용).
-  const uploadBase = join(tmpdir(), 'megaload-allinone');
+  // 영속 위치 우선(dataDir), 없으면 예전처럼 tmpdir 폴백(하위호환).
+  const uploadBase = join(dataDir || tmpdir(), 'megaload-allinone');
   const sessions = new Map();
   const MAX_UPLOAD_BYTES = 60 * 1024 * 1024; // 파일 1장 상한(대용량 원본 방어)
 
@@ -82,7 +87,9 @@ export async function startPairServer({
       'Access-Control-Allow-Origin': corsOk ? (origin || '*') : 'null',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
-      'Access-Control-Max-Age': '600',
+      // 프리플라이트 캐시를 넉넉히 — 업로드는 파일 1개당 POST 1회라 사진 수천 장이면
+      // 프리플라이트 왕복만으로도 체감 지연이 된다(같은 PC 라도 요청 오버헤드는 남는다).
+      'Access-Control-Max-Age': '86400',
       // Chrome Private Network Access — HTTPS 페이지가 사설망(127.0.0.1)을 부를 때
       // 프리플라이트에 이 헤더가 없으면 차단된다. /pair 가 이미 이 경로로 동작 중.
       'Access-Control-Allow-Private-Network': 'true',
@@ -322,6 +329,25 @@ export async function startPairServer({
     server.listen(0, '127.0.0.1', () => resolve());
   });
   state.port = server.address().port;
+
+  // 오래된 업로드 세션 청소 — 영속 위치(userData)로 옮겼으니 방치하면 무한 누적된다.
+  //   앱 재시작 후엔 sessions Map 이 비어 onDone 정리가 안 도므로 시작 시 1회 쓸어준다.
+  //   보존: 마지막 생성 폴더(lastAllinoneFolder, 웹이 아직 읽을 수 있음)와 최근 3일치.
+  //   실패는 무시(청소 실패가 서버 기동을 막지 않게).
+  void (async () => {
+    try {
+      const keep = getAllinoneFolder();
+      const keepName = keep ? relative(uploadBase, keep).split(/[/\\]/)[0] : null;
+      const cutoff = Date.now() - 3 * 24 * 60 * 60 * 1000;
+      const entries = await readdir(uploadBase, { withFileTypes: true }).catch(() => []);
+      for (const ent of entries) {
+        if (!ent.isDirectory() || ent.name === keepName) continue;
+        const dir = join(uploadBase, ent.name);
+        const st = await stat(dir).catch(() => null);
+        if (st && st.mtimeMs < cutoff) await rm(dir, { recursive: true, force: true }).catch(() => {});
+      }
+    } catch { /* 청소는 best-effort */ }
+  })();
 
   return {
     port: state.port,

@@ -106,6 +106,13 @@ interface Row {
   selectedMainIdx: number;
   /** 상세이미지: CLIP 이 버린 광고/배송/리뷰컷을 제외한 상세컷(등록 업로드 대상) */
   detailImages: ScannedImageFile[];
+  /**
+   * 리뷰이미지(review_images/) — 상세페이지 "글↔이미지 교차"의 **1순위 본문 이미지**다
+   * (detail-page-builder.pickBodyImages: 리뷰컷이 있으면 상세컷 대신 리뷰컷을 쓴다).
+   * 예전엔 카드가 이걸 보여주지도, 미리보기에 넣지도 않아서 "리뷰 폴더를 안 쓰는 것처럼"
+   * 보였다(실제로는 등록 시 사용됨). 이제 행 상태로 들고 미리보기·편집에 그대로 반영한다.
+   */
+  reviewImages: ScannedImageFile[];
   /** 대표컷이 CLIP(AI) 판단으로 선택/재정렬됐는지(뱃지 표시용) */
   mainAiPicked: boolean;
   usingRegen: boolean;
@@ -168,13 +175,26 @@ interface GenView {
 }
 
 /** gen → 초기 편집값 복제(불변 baseline 보존). gen 없으면 빈 값. */
+/**
+ * 상세글에서 마크다운 강조기호를 걷어낸다.
+ *   워커는 이제 '**' 를 만들지 않지만, 이전 버전으로 생성해 둔 결과에는 그대로 남아 있다.
+ *   편집창·다른 채널에서 별표가 날것으로 보이므로 불러오는 시점에 정리한다(렌더 결과는 동일).
+ */
+function stripEmphasisMarks(s: string): string {
+  return String(s || '')
+    .replace(/\*\*([^\n]*?)\*\*/g, '$1')
+    .replace(/__([^\n]*?)__/g, '$1')
+    .replace(/^\s*\*\s+/gm, '- ')
+    .replace(/\*/g, '');
+}
+
 function initEdit(g: GenRecord | null): RowEdit {
   return {
     displayName: g?.displayName || '',
     sellingPrice: g?.sellingPrice ?? null,
     categoryCode: g?.categoryCode || '',
     categoryPath: g?.categoryPath || '',
-    detail: g?.detail || '',
+    detail: stripEmphasisMarks(g?.detail || ''),
     options: (g?.options || []).map((o) => ({ name: o.name, value: o.value, unit: o.unit })),
     attributeValues: {},
   };
@@ -519,6 +539,11 @@ function DiagPanel({ diag, helper, open, onToggle }: {
 
 export default function AllInOneRegisterPanel() {
   const [rows, setRows] = useState<Row[]>([]);
+  // 대표컷 후보 펼침 상태 — 새 생성 시작 시 함께 초기화하므로 rows 와 같이 위에 선언한다.
+  const [openMain, setOpenMain] = useState<Record<string, boolean>>({});
+  // 로컬 이미지가 깨졌는지 — 도우미가 업데이트·재시작하면 로컬서버 포트가 바뀌어 카드에 박힌
+  //   http://127.0.0.1:<옛포트>/... URL 이 전부 죽는다. 하나라도 로드 실패하면 감지해 배너로 안내.
+  const [imagesStale, setImagesStale] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanMsg, setScanMsg] = useState('');
   const [error, setError] = useState('');
@@ -830,6 +855,7 @@ export default function AllInOneRegisterPanel() {
           // 첫 원본(=regen 다음 인덱스)을 기본으로 — 가공본은 후보로 남아 되돌릴 수 있다.
           selectedMainIdx: initialMainIdx,
           detailImages,
+          reviewImages: sp.reviewImages || [],
           mainAiPicked: reordered.picked,
           usingRegen,
           approved: isEligible(edit) && !gen?.needsReview,
@@ -907,6 +933,7 @@ export default function AllInOneRegisterPanel() {
   const handleLoadFromHelper = useCallback(async () => {
     setError('');
     setScanning(true);
+    setImagesStale(false); // 새로 불러오면 현재 포트로 URL 이 재생성되므로 경고 해제
     setScanMsg('도우미 연결 확인 중…');
     try {
       const ep = await discoverLocalEndpoint();
@@ -942,7 +969,10 @@ export default function AllInOneRegisterPanel() {
           : { main: [], regenCount: 0, detail: [], review: [], info: [] };
 
         const mainImages = cls.main.map(mkImg);
-        const detailImages = cls.detail.map(mkImg);
+        // ⚠️ 로컬 직독도 폴더 스캔과 똑같이 CLIP 큐레이션을 적용한다 — 예전엔 폴더 목록을
+        //    그대로 써서, 워커가 "광고/빈 배너"로 버린 컷(예: 텍스트만 있는 흰 배너)이
+        //    상세 이미지로 붙었다(실측). 워커가 버린 파일명만 정확히 뺀다.
+        const detailImages = applyDetailCuration(cls.detail.map(mkImg), gen);
         const reviewImages = cls.review.map(mkImg);
         const infoImages = cls.info.map(mkImg);
 
@@ -968,6 +998,7 @@ export default function AllInOneRegisterPanel() {
           regenCount: cls.regenCount,
           selectedMainIdx: 0,
           detailImages,
+          reviewImages,
           mainAiPicked: cls.regenCount > 0,
           usingRegen: cls.regenCount > 0,
           approved: isEligible(edit) && !gen?.needsReview,
@@ -1013,6 +1044,14 @@ export default function AllInOneRegisterPanel() {
     }
 
     setScanning(true);
+    // 새 폴더로 생성을 시작하면 이전 결과 카드를 즉시 비운다.
+    //   예전엔 생성이 다 끝난 뒤 handleLoadFromHelper 가 setRows(built) 로 덮을 때까지
+    //   이전 작업 카드가 화면에 그대로 떠 있었다("새로 작업하는데 기존 화면이 안 사라진다").
+    //   또한 이전 카드의 이미지 URL 은 죽은 세션 포트를 가리켜(앱 재시작 시) 깨진 채로 남는다.
+    setRows([]);
+    setOpenMain({});
+    setImagesStale(false);
+    setError('');
     try {
       setScanMsg('폴더 파일 목록 읽는 중…');
       const files = await collectFolderFiles(root, (n) => setScanMsg(`파일 ${n}개 확인…`));
@@ -1089,7 +1128,6 @@ export default function AllInOneRegisterPanel() {
   // ── 대표컷 선택 ──────────────────────────────────────────────────
   // 스캐너는 첫 장만 objectUrl 을 즉시 만든다(대량 폴더에서 전부 만들면 메모리·시간 낭비).
   // 그래서 후보 목록을 펼치는 순간에만 그 카드의 나머지 후보 URL 을 만든다.
-  const [openMain, setOpenMain] = useState<Record<string, boolean>>({});
   const toggleMainPicker = async (uid: string, candidates: ScannedImageFile[]) => {
     const opening = !openMain[uid];
     if (opening) {
@@ -1102,10 +1140,11 @@ export default function AllInOneRegisterPanel() {
     if (!img.objectUrl) await ensureObjectUrl(img);
     setRows((prev) => prev.map((r) => (r.uid === uid ? { ...r, selectedMainIdx: idx } : r)));
   };
-  // 상세 편집 토글 — 펼칠 때 상세이미지 썸네일 URL 을 보장(스캐너가 lazy 로 읽으므로).
-  const toggleDetail = async (uid: string, detailImages: ScannedImageFile[]) => {
+  // 상세 편집 토글 — 펼칠 때 상세·리뷰 이미지 썸네일 URL 을 보장(스캐너가 lazy 로 읽으므로).
+  //   리뷰컷도 채워야 미리보기가 "실제 등록될 모습"(리뷰컷 우선 교차)과 같아진다.
+  const toggleDetail = async (uid: string, detailImages: ScannedImageFile[], reviewImages: ScannedImageFile[] = []) => {
     const opening = !openDetail[uid];
-    if (opening) await Promise.all(detailImages.map((img) => (img.objectUrl ? null : ensureObjectUrl(img))));
+    if (opening) await Promise.all([...detailImages, ...reviewImages].map((img) => (img.objectUrl ? null : ensureObjectUrl(img))));
     setOpenDetail((p) => ({ ...p, [uid]: opening }));
     setRows((prev) => [...prev]); // 채운 objectUrl 반영
   };
@@ -1147,6 +1186,10 @@ export default function AllInOneRegisterPanel() {
   const removeDetailImage = (uid: string, name: string) =>
     setRows((prev) => prev.map((r) => (r.uid === uid
       ? { ...r, detailImages: r.detailImages.filter((img) => img.name !== name) } : r)));
+  /** 리뷰이미지 제외 — 본문 교차(1순위)에서 빼고 싶을 때. */
+  const removeReviewImage = (uid: string, name: string) =>
+    setRows((prev) => prev.map((r) => (r.uid === uid
+      ? { ...r, reviewImages: r.reviewImages.filter((img) => img.name !== name) } : r)));
   const addDetailImage = async (uid: string, img: ScannedImageFile) => {
     if (!img.objectUrl) await ensureObjectUrl(img);
     setRows((prev) => prev.map((r) => (r.uid === uid && !r.detailImages.some((d) => d.name === img.name)
@@ -1311,7 +1354,8 @@ export default function AllInOneRegisterPanel() {
               : [chosen, ...r.mainImages.filter((_, i) => i >= r.regenCount && i !== r.selectedMainIdx)];
           const mainUrls = (await uploadScannedImages(mainOrdered, 10, wm)).filter(Boolean);
           const detailUrls = (await uploadScannedImages(r.detailImages, 10, wm)).filter(Boolean);
-          const reviewUrls = (await uploadScannedImages(r.scanned.reviewImages || [], 10, wm)).filter(Boolean);
+          // 카드에서 뺀 리뷰컷은 올리지 않는다(r.reviewImages = 편집 반영본).
+          const reviewUrls = (await uploadScannedImages(r.reviewImages || [], 10, wm)).filter(Boolean);
           const infoUrls = (await uploadScannedImages(r.scanned.infoImages || [], 10, wm)).filter(Boolean);
 
           const pj = r.scanned.productJson || {};
@@ -1459,6 +1503,23 @@ export default function AllInOneRegisterPanel() {
           <p className="text-sm font-semibold text-amber-900">도우미에 연결되지 않아 폴더 선택·생성을 할 수 없습니다</p>
           <p className="mt-1 text-xs leading-relaxed text-amber-800">{helperDiag.message}</p>
           <p className="mt-1.5 text-[11px] text-amber-700">고치면 자동으로 사라집니다(20초마다 재확인 중).</p>
+        </div>
+      )}
+
+      {/* 이미지가 죽은 포트를 가리켜 깨진 상태 — 도우미 재시작 후 흔하다. 복구법을 바로 안내. */}
+      {imagesStale && rows.length > 0 && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <p className="text-sm font-semibold text-amber-900">이미지가 깨져 보입니다 — 도우미가 업데이트·재시작된 상태입니다</p>
+          <p className="mt-1 text-xs leading-relaxed text-amber-800">
+            재시작하면 로컬 서버 주소가 바뀌어, 지금 카드에 걸린 이미지 링크가 끊깁니다.
+            아래 <b>이전 생성결과 불러오기</b>를 다시 누르면 현재 주소로 새로 읽어와 복구됩니다.
+          </p>
+          {helperDiag?.ok && (
+            <button onClick={handleLoadFromHelper} disabled={scanning || registering}
+              className="mt-2 text-xs font-semibold rounded-lg px-3 py-1.5 bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">
+              {scanning ? '불러오는 중…' : '지금 다시 불러오기'}
+            </button>
+          )}
         </div>
       )}
 
@@ -1639,7 +1700,8 @@ export default function AllInOneRegisterPanel() {
               <div className="flex gap-3">
                 <div className="relative flex-none">
                   {thumb
-                    ? <img src={thumb} alt="" className="w-20 h-20 object-cover rounded-lg bg-gray-100" />
+                    ? <img src={thumb} alt="" onError={() => setImagesStale(true)}
+                        className="w-20 h-20 object-cover rounded-lg bg-gray-100" />
                     : <div className="w-20 h-20 rounded-lg bg-gray-100" />}
                   {g?.mainImageWarning && (
                     <span title={g.mainImageWarning}
@@ -1849,9 +1911,12 @@ export default function AllInOneRegisterPanel() {
               {g?.sourceUrl && <a href={g.sourceUrl} target="_blank" rel="noreferrer" className="text-[11px] text-emerald-600 break-all">원본: {g.sourceUrl}</a>}
               {g && (
                 <div>
-                  <button onClick={() => void toggleDetail(r.uid, r.detailImages)} className="text-xs text-gray-600 border border-gray-200 rounded px-2 py-1">
+                  <button onClick={() => void toggleDetail(r.uid, r.detailImages, r.reviewImages)} className="text-xs text-gray-600 border border-gray-200 rounded px-2 py-1">
                     상세페이지 편집 {openDetail[r.uid] ? '▴' : '▾'}
-                    <span className="ml-1 text-gray-400">이미지 {r.detailImages.length}장</span>
+                    <span className="ml-1 text-gray-400">
+                      이미지 {r.detailImages.length + r.reviewImages.length}장
+                      {r.reviewImages.length > 0 && <span className="text-emerald-600"> (리뷰 {r.reviewImages.length})</span>}
+                    </span>
                   </button>
                   {openDetail[r.uid] && (() => {
                     const addable = addableDetailImages(r);
@@ -1898,38 +1963,72 @@ export default function AllInOneRegisterPanel() {
                           ))}
                         </div>
                       )}
-                      <textarea value={e.detail} disabled={!editable}
-                        onChange={(ev) => patchEdit(r.uid, { detail: ev.target.value })}
-                        className="mt-1 w-full text-[12px] whitespace-pre-wrap leading-relaxed bg-gray-50 border border-gray-200 focus:border-blue-300 rounded p-2 h-72 overflow-auto focus:outline-none disabled:bg-gray-100" />
-                      {/* 실제 상세페이지 미리보기 — 글(**볼드** 렌더)과 이미지가 함께 교차되어
-                          쿠팡에 등록될 모습 그대로. 위 textarea 는 원문 편집용, 아래는 렌더 결과. */}
+                      {/* 리뷰이미지 — 본문 교차의 1순위 이미지(있으면 상세컷 대신 이게 글 사이에 들어간다) */}
+                      {r.reviewImages.length > 0 && (
+                        <>
+                          <p className="mt-2 text-[11px] text-emerald-700">
+                            리뷰 이미지 {r.reviewImages.length}장 — 상세페이지 본문에서 <b>글 사이에 끼워지는 이미지</b>입니다(리뷰컷 우선).
+                          </p>
+                          <div className="mt-1 flex gap-1 overflow-x-auto pb-1">
+                            {r.reviewImages.map((img) => (
+                              <div key={img.name} className="relative flex-none">
+                                <img src={img.objectUrl} alt="" loading="lazy"
+                                  className="h-16 w-16 object-cover rounded border border-emerald-200 bg-white" />
+                                {editable && (
+                                  <button type="button" onClick={() => removeReviewImage(r.uid, img.name)}
+                                    title="본문에서 제외"
+                                    className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 text-[10px] leading-none flex items-center justify-center">×</button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {/* ⭐ 글·이미지 함께 보기 — 실제 등록될 상세페이지 그대로(리뷰컷 교차 포함).
+                          예전엔 원문 textarea 가 위에 크게 있어 '**' 만 보이고 이미지는 따로 놀았다.
+                          이제 미리보기를 먼저 보여주고, 원문 편집은 아래에서 펼쳐 쓴다. */}
                       {(() => {
                         const paras = (e.detail || '').split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
-                        const imgs = r.detailImages.map((img) => img.objectUrl).filter((u): u is string => !!u);
-                        if (paras.length === 0 && imgs.length === 0) return null;
+                        const detailUrls = r.detailImages.map((img) => img.objectUrl).filter((u): u is string => !!u);
+                        const reviewUrls = r.reviewImages.map((img) => img.objectUrl).filter((u): u is string => !!u);
+                        if (paras.length === 0 && detailUrls.length === 0 && reviewUrls.length === 0) return null;
                         const html = buildRichDetailPageHtml({
                           productName: e.displayName || r.scanned.productJson?.name || r.productCode,
                           brand: '',
                           aiStoryParagraphs: paras,
-                          reviewImageUrls: [],
-                          detailImageUrls: imgs,
+                          // 등록 경로와 동일하게 전달 — 리뷰컷이 있으면 그게 본문 교차 이미지가 된다.
+                          reviewImageUrls: reviewUrls,
+                          detailImageUrls: detailUrls,
                           categoryPath: e.categoryPath,
                         }, 'A');
                         return (
                           <div className="mt-2">
-                            <p className="text-[11px] text-gray-500 mb-1">미리보기 (등록될 상세페이지 — 글·이미지 함께)</p>
-                            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden" style={{ maxHeight: 420, overflowY: 'auto' }}>
+                            <p className="text-[11px] text-gray-600 mb-1 font-medium">
+                              미리보기 — 등록될 상세페이지(글 + 이미지 교차)
+                              <span className="ml-1 font-normal text-gray-400">
+                                본문 이미지 {(reviewUrls.length > 0 ? reviewUrls.length : detailUrls.length)}장
+                                {reviewUrls.length > 0 ? ' (리뷰컷)' : detailUrls.length > 0 ? ' (상세컷)' : ''}
+                              </span>
+                            </p>
+                            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden" style={{ maxHeight: 520, overflowY: 'auto' }}>
                               <iframe
                                 srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:0;}</style></head><body>${html}</body></html>`}
                                 title="상세페이지 미리보기"
                                 className="w-full border-0"
-                                style={{ height: 420 }}
+                                style={{ height: 520 }}
                                 sandbox="allow-same-origin"
                               />
                             </div>
                           </div>
                         );
                       })()}
+                      {/* 원문(글) 편집 — 미리보기 아래로. 저장하면 위 미리보기가 즉시 갱신된다. */}
+                      <details className="mt-2 group">
+                        <summary className="text-[11px] text-gray-500 cursor-pointer select-none">✎ 글 원문 편집</summary>
+                        <textarea value={e.detail} disabled={!editable}
+                          onChange={(ev) => patchEdit(r.uid, { detail: ev.target.value })}
+                          className="mt-1 w-full text-[12px] whitespace-pre-wrap leading-relaxed bg-gray-50 border border-gray-200 focus:border-blue-300 rounded p-2 h-60 overflow-auto focus:outline-none disabled:bg-gray-100" />
+                      </details>
                     </>
                     );
                   })()}

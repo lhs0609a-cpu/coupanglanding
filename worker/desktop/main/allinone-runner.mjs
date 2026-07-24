@@ -36,7 +36,14 @@ export async function pickGenProfile() {
   const prefs = strong ? STRONG_PREFS : SMALL_PREFS;
   const model = prefs.find((n) => installed.some((m) => m === n)) || prefs[0];
 
-  return { gpu, strong, scarce, model, detailTokens: strong ? 600 : 400, installedCount: installed.length };
+  // ⚡ 동시 생성 개수 — 단일 GPU 라도 ollama 는 여러 요청을 한 배치로 디코딩한다.
+  //    상품 1개씩 순차로 돌리면 GPU 가 놀아서(디코딩은 메모리 대역폭 병목) 처리량이 크게 손해다.
+  //    다만 동시 요청마다 KV 캐시가 따로 필요하니 **모델을 올리고 남는 VRAM** 만큼만 늘린다.
+  //      free ≥ 11GB → 3개 / ≥ 8GB → 2개 / 그 외 → 1개(예전과 동일 = 안전)
+  //    ollama 쪽 OLLAMA_NUM_PARALLEL 도 같은 값으로 맞춰야 실제로 동시에 돈다(아니면 큐잉).
+  const concurrency = freeMb >= 11000 ? 3 : freeMb >= 8000 ? 2 : 1;
+
+  return { gpu, strong, scarce, model, detailTokens: strong ? 600 : 400, concurrency, installedCount: installed.length };
 }
 
 export function isGenerating() { return !!child; }
@@ -60,7 +67,7 @@ export async function startGeneration({
     `[속도] 하드웨어: ${profile.gpu.ok
       ? `${profile.gpu.name} · VRAM 남음 ${gb(profile.gpu.vramFreeMb)}/${gb(profile.gpu.vramMb)}GB`
       : 'GPU 없음(CPU)'} `
-    + `→ 모델 ${profile.model} · 상세 ${profile.detailTokens}토큰 (짧은필드 병렬)`);
+    + `→ 모델 ${profile.model} · 상세 ${profile.detailTokens}토큰 · 상품 동시 ${profile.concurrency}개 (짧은필드 병렬)`);
   if (profile.scarce) {
     send('allinone:log',
       `⚠️ 남은 VRAM 이 ${gb(profile.gpu.vramFreeMb)}GB 뿐입니다 — 다른 프로그램이 그래픽카드를 점유 중입니다. `
@@ -101,7 +108,12 @@ export async function startGeneration({
 
   const runtimeDir = join(paths.appRoot, 'runtime');
   const script = join(runtimeDir, 'run-folder.mjs');
-  const args = [script, folder, '--model', profile.model, '--detail-tokens', String(profile.detailTokens)];
+  const args = [
+    script, folder,
+    '--model', profile.model,
+    '--detail-tokens', String(profile.detailTokens),
+    '--concurrency', String(profile.concurrency),
+  ];
   if (noThumb) args.push('--no-thumb');
   if (useComfySwap) args.push('--wait-comfy'); // 누끼 전에 ComfyUI 기동을 기다리게
 

@@ -12,7 +12,7 @@
  *    → 인식이 없어도 파이프라인은 그대로 동작(오늘과 동일), 있으면 품질 향상.
  */
 
-import { measureImage, scoreImage, metricsDepsFailed } from './image-metrics.mjs';
+import { measureImage, scoreImage, metricsDepsFailed, looksCutout } from './image-metrics.mjs';
 
 const MODEL = 'Xenova/clip-vit-base-patch32';
 
@@ -146,11 +146,13 @@ export async function selectBestMainImage(imagePaths, o = {}) {
     //   CLIP 분류 실패(good=null)면 판단 불가 → 자격 없음(원래 대표풀만 쓰던 동작 유지).
     if (isExtra.has(p) && !(good != null && !isBadTop && good >= 0.35)) continue;
     // L1 결정론 품질(sharp) — 미탑재면 1회만 감지 후 이후 스킵.
-    let l1 = null, blank = false;
+    let l1 = null, blank = false, cutout = false;
     if (!l1Off) {
       try {
         const met = await measureImage(p);
         l1 = scoreImage(met).score;
+        // 이미 누끼된 흰배경 단독컷 = 쿠팡 대표컷 규격 그 자체 → 선택 가점(재가공도 생략된다).
+        cutout = looksCutout(met, p);
         // 거의 균일한 단색(=빈/플레이스홀더 배너: "VA" 흰박스, 워터마크 등):
         //   전경이 극소(subjectRatio≤0.05)인데 배경 신뢰 높음 → 상품 사진이 아니다.
         //   로고와 동일하게 대표 부적합 처리(누끼해도 빈 흰바탕만 나온다).
@@ -166,8 +168,10 @@ export async function selectBestMainImage(imagePaths, o = {}) {
     //      골라야 한다. good 이 높을수록(=더 정면·단독) 최대 +50% 가점.
     const base = l1 != null ? l1 : (good != null ? good : 0.5);
     const frontBoost = good != null ? (0.5 + 0.5 * good) : 1;
-    const score = +(base * factor * frontBoost).toFixed(4);
-    ranked.push({ path: p, score, good, l1: l1 != null ? +l1.toFixed(4) : null, topLabel, isLogo });
+    // 이미 누끼된 컷 가점 — 로고/플레이스홀더(factor 0.05)엔 주지 않는다(흰바탕이라 오인 방지).
+    const cutBoost = cutout && !isLogo && !blank ? 1.3 : 1;
+    const score = +(base * factor * frontBoost * cutBoost).toFixed(4);
+    ranked.push({ path: p, score, good, l1: l1 != null ? +l1.toFixed(4) : null, topLabel, isLogo, cutout });
   }
   ranked.sort((a, b) => b.score - a.score);
 
