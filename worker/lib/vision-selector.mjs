@@ -133,8 +133,11 @@ export async function judgeImages(paths, { model, onLog, purpose = 'main' } = {}
     + `- "review_ss": 채팅·별점·후기·영수증·주문내역 캡처(스크린샷)\n`
     + `- "person": 사람 얼굴/인물이 주인공\n`
     + `- "other": 상품과 무관\n\n`
-    + `그리고 대표 대표이미지로 가장 적합한 칸 하나(bestMain)를 골라라. 기준: 상품 하나가 `
-    + `정면으로 또렷하게, 배경이 깔끔하게 보이는 "product". texture/logo_text/delivery/review_ss/person 은 절대 대표가 될 수 없다.\n\n`
+    + `그리고 대표이미지로 가장 적합한 칸 하나(bestMain)를 골라라. 기준(우선순위): `
+    + `① 상품이 프레임 안에 "온전히" 다 들어온 것(잘리거나 일부만 보이는 컷은 대표 부적합) `
+    + `② 상품 하나만 정면으로 또렷하게 `
+    + `③ 배경이 흰색/단색으로 깔끔한 것(지식재산권 안전). `
+    + `texture/logo_text/delivery/review_ss/person 은 절대 대표가 될 수 없다. 상품이 잘린 컷보다 온전한 컷을 항상 우선한다.\n\n`
     + `출력은 JSON만: {"cells":[{"i":1,"type":"product","product":true},...(1~${n} 전부)],"bestMain":<번호>}`;
 
   let text;
@@ -237,13 +240,21 @@ export async function visionCurateProduct({ mainPool = [], detailPool = [], revi
     person: '사람 얼굴/인물', texture: '성분/질감 접사(상품 아님)', lifestyle: '연출컷', other: '상품 무관',
   }[t] || t);
 
+  // 대표를 못 찾았으면(전 후보가 로고/텍스처/짤림) 리뷰이미지의 상품컷을 대표로 승격.
+  //   지재권상 흰누끼가 이상적이지만, 마땅한 상품 정면컷이 아예 없으면 구매자 실사진이라도 쓴다.
+  let promotedFromReview = null;
+  if (!bestMainPath && review.length > 0) {
+    const rp = review.find((p) => reviewType.get(p) === 'product') || review.find((p) => reviewType.get(p) === 'lifestyle');
+    if (rp) { bestMainPath = rp; promotedFromReview = rp; }
+  }
+
   // 대표: product 만. bestMain 이 원래 대표풀이 아니면(상세컷) 승격 표시.
   let promotedFromDetail = null;
   if (bestMainPath && !main.includes(bestMainPath) && detail.includes(bestMainPath)) {
     promotedFromDetail = bestMainPath;
   }
   const mainConfident = !!bestMainPath;
-  const mainReason = mainConfident ? null : '정면 단독 상품컷을 찾지 못함(전 후보가 로고/글자/텍스처/배너)';
+  const mainReason = mainConfident ? null : '정면 단독 상품컷을 찾지 못함(전 후보가 로고/글자/텍스처/배너) — 리뷰컷도 없음';
 
   // 대표 후보 제외 목록 = 대표풀 중 product 가 아닌 것(로고/글자/배너/캡처/인물/무관).
   //   texture/lifestyle 은 "상품일 수도" 있어 후보로는 남기되 기본대표로는 안 뽑는다.
@@ -274,6 +285,7 @@ export async function visionCurateProduct({ mainPool = [], detailPool = [], revi
   // 리뷰: product/lifestyle/texture 유지, 사람/캡처/배너/무관 제외.
   const reviewKept = [], reviewDropped = [];
   for (const p of review) {
+    if (p === promotedFromReview) continue; // 대표로 승격됨 → 본문 중복 제외
     const t = reviewType.get(p) || 'product'; // 리뷰 판정 실패분은 보존(안전 우선)
     if (REVIEW_OK.has(t)) reviewKept.push(p);
     else reviewDropped.push({ path: p, reason: reasonKo(t) });

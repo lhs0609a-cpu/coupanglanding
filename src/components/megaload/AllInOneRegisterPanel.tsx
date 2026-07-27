@@ -867,6 +867,11 @@ export default function AllInOneRegisterPanel() {
         const mainImages = usingRegen
           ? [...regen, ...promotedExtra, ...clip.images]
           : [...promotedExtra, ...clip.images];
+        // 대표컷 후보에 리뷰이미지도 넣는다 — 상품 정면컷이 마땅치 않을 때(성분/로고/짤림뿐)
+        //   구매자 실사진을 대표로 고를 수 있게(사용자 요청). 뒤에 붙이므로 기본 대표는 그대로.
+        const reviewCurated = applyReviewCuration(sp.reviewImages || [], gen);
+        const reviewForMain = reviewCurated.filter((rv) => !mainImages.some((m) => m.name === rv.name));
+        const mainCandidates = [...mainImages, ...reviewForMain];
         const reordered = { picked: usingRegen || clip.picked || promotedExtra.length > 0 };
         // 상세: CLIP 이 광고/배송/리뷰컷으로 버린 파일명만 제외(핸들 유지 → 등록 업로드 가능).
         const detailImages = applyDetailCuration(sp.detailImages || [], gen);
@@ -885,13 +890,13 @@ export default function AllInOneRegisterPanel() {
           scanned: sp,
           gen,
           edit,
-          mainImages,
+          mainImages: mainCandidates,
           regenCount: regen.length,
           // 기본 대표 = 0번(누끼 가공본). 단 워커가 가공본을 반려했으면(거꾸로/잘림/빈컷 등)
           // 첫 원본(=regen 다음 인덱스)을 기본으로 — 가공본은 후보로 남아 되돌릴 수 있다.
           selectedMainIdx: initialMainIdx,
           detailImages,
-          reviewImages: applyReviewCuration(sp.reviewImages || [], gen),
+          reviewImages: reviewCurated,
           mainAiPicked: reordered.picked,
           usingRegen,
           approved: isEligible(edit) && !gen?.needsReview,
@@ -1383,11 +1388,14 @@ export default function AllInOneRegisterPanel() {
           //   · 원본을 골랐으면 고른 컷 + 나머지 원본을 CLIP 순서로(원본이 대표일 때의 기존 동작 유지).
           //   어느 쪽이든 '고르지 않은 누끼'는 올리지 않는다 — 후보였을 뿐이다.
           const chosen = r.mainImages[r.selectedMainIdx];
+          // 리뷰이미지를 대표로 고른 경우: 그 1장만 대표로(리뷰컷을 상품 갤러리에 섞지 않는다).
+          const reviewNames = new Set((r.reviewImages || []).map((x) => x.name));
+          const chosenIsReview = chosen ? reviewNames.has(chosen.name) : false;
           const mainOrdered = !chosen
             ? []
-            : r.selectedMainIdx < r.regenCount
+            : (r.selectedMainIdx < r.regenCount || chosenIsReview)
               ? [chosen]
-              : [chosen, ...r.mainImages.filter((_, i) => i >= r.regenCount && i !== r.selectedMainIdx)];
+              : [chosen, ...r.mainImages.filter((m, i) => i >= r.regenCount && i !== r.selectedMainIdx && !reviewNames.has(m.name))];
           const mainUrls = (await uploadScannedImages(mainOrdered, 10, wm)).filter(Boolean);
           // 상세이미지는 등록에 첨부하지 않는다(사용자 요청) — 상세페이지 본문은 리뷰이미지로만 구성.
           //   소싱처 상세컷은 로고·배송배너 등 잡컷이 섞여 제외. 상품 이미지 갤러리는 대표이미지만 사용.
@@ -1829,6 +1837,9 @@ export default function AllInOneRegisterPanel() {
                               : <div className="w-full h-full bg-gray-100" />}
                             {i < r.regenCount && (
                               <span className="absolute bottom-0 inset-x-0 bg-emerald-600/85 text-white text-[9px] leading-tight text-center">누끼</span>
+                            )}
+                            {i >= r.regenCount && r.reviewImages.some((rv) => rv.name === img.name) && (
+                              <span className="absolute bottom-0 inset-x-0 bg-sky-600/85 text-white text-[9px] leading-tight text-center">리뷰</span>
                             )}
                             {i === r.selectedMainIdx && (
                               <span className="absolute top-0 left-0 bg-[#E31837] text-white text-[9px] leading-none px-1 py-0.5 rounded-br">★대표</span>
