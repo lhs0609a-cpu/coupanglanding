@@ -1020,7 +1020,16 @@ export default function AllInOneRegisterPanel() {
         // 대표 후보: 비전이 로고/글자/배너로 본 컷 제외 + 리뷰이미지를 후보로 추가(직접 대표 선택 가능).
         const mainCurated = applyMainCuration(cls.main.map(mkImg), gen);
         const reviewForMain = reviewImages.filter((rv) => !mainCurated.some((m) => m.name === rv.name));
-        const mainImages = [...mainCurated, ...reviewForMain];
+        let mainImages = [...mainCurated, ...reviewForMain];
+        // ⭐ 비전이 고른 대표(gen.mainImage)를 기본값으로 존중 — 그 컷을 맨 앞으로.
+        //   예전엔 목록 첫 장을 무조건 대표로 써서, main 이 비고 전부 리뷰컷이면 첫 리뷰(성분/잎컷)가
+        //   대표가 됐다(실측: 알로에 잎). 비전이 리뷰에서 상품컷을 승격했어도 반영이 안 됐다.
+        //   단 누끼(regen)가 있으면 이미 index0 이 비전 픽의 누끼본이므로 건드리지 않는다(뱃지·순서 보존).
+        const pickName = gen?.mainImage ? basename(gen.mainImage) : '';
+        if (pickName && cls.regenCount === 0) {
+          const pi = mainImages.findIndex((m) => m.name === pickName);
+          if (pi > 0) mainImages = [mainImages[pi], ...mainImages.filter((_, i) => i !== pi)];
+        }
 
         // scanned 는 등록 경로가 reviewImages/infoImages/productJson/sourceUrl 만 참조 →
         // 폴더 핸들 없이 그 필드만 채운 얕은 대체물(ScannedProduct 로 캐스팅).
