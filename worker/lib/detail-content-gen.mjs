@@ -7,7 +7,26 @@
  */
 
 import { generate } from './local-llm.mjs';
-import { buildDetailPrompt, pickPersona } from './ai-prompts.mjs';
+import { buildDetailPrompt, pickPersona, categoryKind } from './ai-prompts.mjs';
+
+// 카테고리에 맞지 않는 감각 표현 = 환각(실측: 발아현미에 "과즙 같은 촉촉함", "베어 물면 아삭").
+//   먹는 상품이 아닌데 맛·식감·과즙을, 과일이 아닌데 과즙·베어 물기를 쓰면 하드 재생성.
+const EATING_WORDS = ['과즙', '베어 물', '베어물', '아삭', '사각거', '새콤', '달큰', '먹어보', '한 입', '한입', '씹어', '베어 무'];
+const FRUIT_LIQUID = ['과즙', '베어 물', '베어물', '베어 무', '사각거'];
+/** @returns {string[]} 감각 불일치 이슈(하드) */
+function detectSensoryMismatch(text, kind) {
+  const t = String(text || '');
+  const out = [];
+  const eating = new Set(['fruit', 'food', 'pet']); // 먹는 상품 계열
+  if (!eating.has(kind)) {
+    const hit = EATING_WORDS.filter((w) => t.includes(w));
+    if (hit.length) out.push(`먹는 상품이 아닌데 맛·식감 표현(${[...new Set(hit)].slice(0, 3).join(', ')})이 들어갔다. 이 상품 종류에 맞는 감각(촉감·무게·향·사용감 등)으로 바꿔라.`);
+  } else if (kind !== 'fruit') {
+    const hit = FRUIT_LIQUID.filter((w) => t.includes(w));
+    if (hit.length) out.push(`과일이 아닌데 생과일 표현(${[...new Set(hit)].slice(0, 2).join(', ')})이 들어갔다. 씹는 식감·냄새·풍미 등 이 상품에 맞게 바꿔라.`);
+  }
+  return out;
+}
 
 const BLOCK_TYPE_ORDER = [
   'hook', 'problem', 'agitation', 'solution', 'benefits_grid',
@@ -239,6 +258,9 @@ export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = []
 
   // 카테고리 불일치 활동어 누출(세차/빨래/면/조립 등) — 인접 카테고리 어휘 끌어옴 차단
   for (const msg of detectCategoryLeak(t, categoryPath, leaf)) issues.push(msg);
+
+  // 카테고리 불일치 감각어(먹는 것 아닌데 과즙·아삭, 과일 아닌데 과즙) = 환각 → 하드 재생성
+  for (const msg of detectSensoryMismatch(t, categoryKind(categoryPath, leaf))) issues.push(msg);
 
   return { ok: issues.length === 0, issues, soft };
 }

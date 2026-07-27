@@ -395,6 +395,9 @@ export function buildCoupangProductPayload(
     emphasis: b.emphasis ? cleanText(b.emphasis) : b.emphasis,
   }));
   const safeStoryHtml = aiStoryHtml ? cleanText(aiStoryHtml) : aiStoryHtml;
+  // 원본(DOM) 상품설명 — 소싱처가 준 원문을 맨 끝에 보존해 노출(기존엔 누락됐다). compliance 필터 통과.
+  const rawOriginDesc = product.productJson.description;
+  const safeOriginDescription = rawOriginDesc ? cleanText(String(rawOriginDesc)) : undefined;
 
   if (hasRichContent) {
     detailHtml = sanitizeHtml(buildRichDetailPageHtml({
@@ -418,6 +421,7 @@ export function buildCoupangProductPayload(
         name: f.noticeCategoryDetailName,
         value: f.content,
       })),
+      originDescription: safeOriginDescription,
     }, detailLayoutVariant));
   } else {
     detailHtml = buildSimpleDetailHtml(detailImageUrls, productName);

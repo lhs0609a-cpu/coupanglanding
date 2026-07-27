@@ -79,6 +79,108 @@ export async function generate({ model, prompt, system, options = {}, format, ke
 }
 
 /**
+ * 비전 생성 — 이미지를 "직접 보고" 판단하는 VLM 호출(ollama /api/generate + images).
+ * ---------------------------------------------------------------------------
+ * CLIP 제로샷 라벨/파일명 규칙 같은 휴리스틱이 아니라, 모델이 실제 픽셀을 보고 답한다.
+ * @param {Object} o
+ * @param {string} o.model            비전 모델(qwen2.5vl:7b 등)
+ * @param {string} o.prompt
+ * @param {string[]} o.images         base64(JPEG/PNG) 문자열 배열 — data: 접두사 없이 순수 base64
+ * @param {string} [o.system]
+ * @param {Object} [o.options]
+ * @param {string} [o.format]         'json' 이면 JSON 강제
+ * @returns {Promise<{text:string, ms:number}>}
+ */
+export async function generateVision({ model, prompt, images = [], system, options = {}, format, keep_alive } = {}) {
+  if (!model) throw new Error('[local-llm] vision model 필요');
+  const body = {
+    model,
+    prompt,
+    system,
+    images,                                // ollama: base64 배열(순수 base64)
+    stream: false,
+    keep_alive: keep_alive ?? '30m',
+    // 비전은 결정적 판정이 중요 → temperature 낮게. num_ctx 는 이미지 토큰 여유.
+    options: { temperature: 0.1, top_p: 0.9, num_ctx: 8192, num_gpu: 99, ...options },
+  };
+  if (format) body.format = format;
+  const t0 = Date.now();
+  let j;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const r = await fetch(`${OLLAMA}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error(`[local-llm] vision HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      j = await r.json();
+      break;
+    } catch (e) {
+      const msg = String(e?.message || e);
+      const networkish = !/HTTP \d{3}/.test(msg) &&
+        (/fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|network|timeout|EPIPE/i.test(msg) || e?.cause);
+      if (!networkish || attempt >= 3) throw e;
+      await new Promise((res) => setTimeout(res, 2000 * (attempt + 1)));
+    }
+  }
+  return { text: (j.response || '').trim(), ms: Date.now() - t0 };
+}
+
+/** 모델이 설치돼 있는지(태그 정확/접두 일치 모두 허용 — 'qwen2.5vl:7b' ↔ 'qwen2.5vl:7b-...' ). */
+export async function hasModel(model) {
+  if (!model) return false;
+  const names = await listModels();
+  const base = model.split(':')[0];
+  return names.some((n) => n === model || n.startsWith(model) || n.split(':')[0] === base);
+}
+
+/**
+ * 모델이 없으면 ollama 로 pull(스트리밍 진행 로그). 이미 있으면 즉시 true.
+ * 실패해도 throw 하지 않고 false 반환(호출부가 폴백하도록).
+ * @returns {Promise<boolean>} 최종 사용 가능 여부
+ */
+export async function ensureModel(model, { onLog } = {}) {
+  if (!model) return false;
+  try {
+    if (await hasModel(model)) return true;
+    onLog?.(`[비전] ${model} 미설치 — 자동 다운로드 시작(최초 1회, 수 GB)…`);
+    const r = await fetch(`${OLLAMA}/api/pull`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, stream: true }),
+    });
+    if (!r.ok || !r.body) { onLog?.(`[비전] pull 실패(HTTP ${r.status})`); return false; }
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '', lastPct = -1;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n'); buf = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const s = JSON.parse(line);
+          if (s.total && s.completed) {
+            const pct = Math.floor((s.completed / s.total) * 100);
+            if (pct >= lastPct + 10) { lastPct = pct; onLog?.(`[비전] 다운로드 ${pct}%`); }
+          }
+          if (s.error) { onLog?.(`[비전] pull 오류: ${s.error}`); return false; }
+        } catch { /* 부분 라인 무시 */ }
+      }
+    }
+    const ok = await hasModel(model);
+    onLog?.(ok ? `[비전] ${model} 준비 완료` : `[비전] ${model} 다운로드 확인 실패`);
+    return ok;
+  } catch (e) {
+    onLog?.(`[비전] 모델 준비 실패(${String(e?.message || e).slice(0, 120)}) — 휴리스틱 폴백`);
+    return false;
+  }
+}
+
+/**
  * 모델을 GPU/메모리에서 언로드 (keep_alive:0). VRAM 을 ComfyUI 등에 양보할 때 사용.
  * 실패해도 throw 하지 않음(베스트에포트).
  */

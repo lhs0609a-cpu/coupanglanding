@@ -33,13 +33,14 @@
 import { writeFileSync, appendFileSync, readFileSync, mkdirSync, existsSync, renameSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { isUp, unload } from './lib/local-llm.mjs';
+import { isUp, unload, ensureModel } from './lib/local-llm.mjs';
 import { scanFolder } from './lib/folder-scanner.mjs';
 import { generateBatch } from './lib/ai-batch.mjs';
 import { resolveMarginLevel, presetBrackets } from './lib/margin-mini.mjs';
 import { makeThumbnailProcessor } from './lib/thumbnail-batch.mjs';
 import { buildReviewHtml } from './lib/review-html.mjs';
 import { selectBestMainImage, curateDetailImages, curateReviewImages } from './lib/image-selector.mjs';
+import { visionCurateProduct } from './lib/vision-selector.mjs';
 import { localCutoutToWhite, cutoutDepsFailed } from './lib/local-cutout.mjs';
 import { measureImage, scoreImage, metricsDepsFailed, looksCutout } from './lib/image-metrics.mjs';
 
@@ -182,7 +183,23 @@ async function main() {
   //   ⚡ CLIP 은 CPU, LLM 은 GPU 라 서로 자원을 안 뺏는다 → 예전처럼 순차로 기다릴 이유가 없다.
   //      인식을 백그라운드로 돌리면서 텍스트 생성을 동시에 시작한다(= 인식 시간이 통째로 숨는다).
   //      텍스트 생성은 사진과 무관하고, 사진 관련 필드는 두 단계가 다 끝난 뒤 레코드에 채운다.
-  const overlap = !cli['no-image-ai'] && !cli['no-overlap'];
+  // ── 비전 모델 준비 — 이미지를 "직접 보고" 고른다(휴리스틱 아님) ─────────────
+  //   qwen2.5vl 등. 미설치면 자동 pull. 실패/생략 시 CLIP·L1 휴리스틱으로 폴백.
+  //   ⚠️ VLM 은 GPU 를 쓰므로 텍스트(ollama)와 동시(overlap) 실행 불가 → 인식을
+  //      텍스트보다 먼저 끝내고, 끝나면 VLM 을 언로드해 텍스트에 VRAM 을 넘긴다.
+  const visionModel = cli['vision-model'] || process.env.MEGALOAD_VISION_MODEL || 'qwen2.5vl:7b';
+  let visionReady = false;
+  if (!cli['no-image-ai'] && !cli['no-vision']) {
+    visionReady = await ensureModel(visionModel, { onLog: (m) => console.log(`[${ts()}] ${m}`) });
+    if (visionReady) {
+      console.log(`[${ts()}] [이미지인식] 비전 모델 사용: ${visionModel} (이미지를 직접 보고 대표/상세/리뷰 큐레이션)`);
+      // VLM 은 GPU 를 쓴다 — 이전 실행이 남긴 ComfyUI(SDXL) VRAM 을 먼저 회수해 OOM 을 막는다.
+      if (await freeComfyVram(cli.comfy)) console.log(`[${ts()}] [이미지인식] ComfyUI VRAM 회수 → 비전에 양보`);
+    } else {
+      console.log(`[${ts()}] [이미지인식] 비전 모델 미탑재 → CLIP·L1 휴리스틱 폴백`);
+    }
+  }
+  const overlap = !cli['no-image-ai'] && !cli['no-overlap'] && !visionReady;
   const recogCacheFile = outPrefix + '.recog.json';
   const recogCache = cli['no-recog-cache'] ? {} : loadRecogCache(recogCacheFile);
   let recogHits = 0;
@@ -201,6 +218,7 @@ async function main() {
         p.mainImageRanked = hit.mainImageRanked || null;
         p.detailImagesKept = hit.detailImagesKept || p.detailImages || [];
         p.detailDroppedNames = hit.detailDroppedNames || [];
+        p.mainDroppedNames = hit.mainDroppedNames || [];
         p.reviewImagesKept = hit.reviewImagesKept || p.reviewImages || [];
         p.reviewDroppedNames = hit.reviewDroppedNames || [];
         p.mainConfident = hit.mainConfident !== false;
@@ -208,7 +226,48 @@ async function main() {
         recogHits++;
         continue;
       }
-      if (clipOff) { p.mainImageRanked = null; p.detailImagesKept = p.detailImages || []; p.detailDroppedNames = []; p.reviewImagesKept = p.reviewImages || []; p.reviewDroppedNames = []; continue; }
+      if (clipOff) { p.mainImageRanked = null; p.detailImagesKept = p.detailImages || []; p.detailDroppedNames = []; p.mainDroppedNames = []; p.reviewImagesKept = p.reviewImages || []; p.reviewDroppedNames = []; continue; }
+
+      // ── 비전(VLM) 경로 — 이미지를 직접 보고 대표/상세/리뷰를 한 번에 큐레이션 ──
+      if (visionReady) {
+        const vc = await visionCurateProduct({
+          mainPool: p.mainImages || (p.mainImage ? [p.mainImage] : []),
+          detailPool: p.detailImages || [],
+          reviewPool: p.reviewImages || [],
+          model: visionModel, onLog,
+        });
+        if (vc) {
+          if (vc.mainImage) p.mainImage = vc.mainImage;
+          p.mainImageRanked = vc.mainRanked;
+          p.mainConfident = vc.mainConfident;
+          p.mainReason = vc.mainReason;
+          p.detailImagesKept = vc.detailKept;
+          p.detailDroppedNames = vc.detailDropped.map((d) => path.basename(d.path));
+          p.mainDroppedNames = (vc.mainDroppedNamesPaths || []).map((pp) => path.basename(pp));
+          if (vc.promotedFromDetail) {
+            const b = path.basename(vc.promotedFromDetail);
+            console.log(`[${ts()}] [비전] 상세컷을 대표로 승격: ${b}`);
+            if (!p.detailDroppedNames.includes(b)) p.detailDroppedNames.push(b);
+          }
+          p.reviewImagesKept = vc.reviewKept;
+          p.reviewDroppedNames = vc.reviewDropped.map((d) => path.basename(d.path));
+          recogCache[p.id || p.folderPath] = {
+            sig, mainImage: p.mainImage, mainImageRanked: p.mainImageRanked,
+            detailImagesKept: p.detailImagesKept, detailDroppedNames: p.detailDroppedNames,
+            mainDroppedNames: p.mainDroppedNames,
+            reviewImagesKept: p.reviewImagesKept, reviewDroppedNames: p.reviewDroppedNames,
+            mainConfident: p.mainConfident, mainReason: p.mainReason,
+          };
+          if (i % 5 === 4) saveRecogCache(recogCacheFile, recogCache);
+          const detN = (p.detailImages || []).length ? ` · 상세 ${p.detailImagesKept.length}/${p.detailImages.length}컷` : '';
+          const mdN = p.mainDroppedNames.length ? ` · 대표후보 로고/배너 ${p.mainDroppedNames.length} 제외` : '';
+          // 비전은 overlap 불가(GPU) → 항상 대괄호 마커로 진행률 패널을 구동한다.
+          console.log(`[${ts()}] [인식 ${i + 1}/${products.length}] 👁️ 대표=${path.basename(p.mainImage || '-')}${detN}${mdN}`);
+          continue;
+        }
+        console.log(`[${ts()}] [비전] ${p.id} 판정 실패 → 이 상품만 CLIP 폴백`);
+      }
+
       const mainPool = p.mainImages || (p.mainImage ? [p.mainImage] : []);
       // ⭐ 대표 후보를 폴더 경계 너머로 확장 — main_images/detail_images 는 소싱처가 나눈 것일 뿐,
       //    상세 폴더에 더 좋은 정면 단독컷이 들어있는 경우가 많다(실측: 상품이 안 보이는 대표컷).
@@ -228,6 +287,7 @@ async function main() {
       p.detailImagesKept = det.kept.map((k) => k.path);
       // CLIP 이 광고/배송/리뷰컷으로 판단해 버린 파일명 — 웹 등록이 스캔한 상세이미지에서 정확히 이것만 제외한다.
       p.detailDroppedNames = det.dropped.map((d) => path.basename(d.path));
+      p.mainDroppedNames = []; // CLIP 은 대표후보를 제외하지 않고 점수로 뒤로 미룰 뿐(비전 경로만 명시 제외)
       // 대표로 승격된 상세컷은 웹 상세목록에서도 빼준다(대표 + 상세 중복 노출 방지).
       if (promotedFromDetail) p.detailDroppedNames.push(path.basename(p.mainImage));
       p.detailDropped = det.dropped.length;
@@ -244,6 +304,7 @@ async function main() {
       recogCache[p.id || p.folderPath] = {
         sig, mainImage: p.mainImage, mainImageRanked: p.mainImageRanked,
         detailImagesKept: p.detailImagesKept, detailDroppedNames: p.detailDroppedNames,
+        mainDroppedNames: p.mainDroppedNames || [],
         reviewImagesKept: p.reviewImagesKept, reviewDroppedNames: p.reviewDroppedNames,
         mainConfident: p.mainConfident, mainReason: p.mainReason,
       };
@@ -267,13 +328,16 @@ async function main() {
       console.log(`[${ts()}] ⚠️ 이미지인식 실패(원본 사진 유지): ${e.message}`);
       for (const p of products) {
         if (!p.detailImagesKept) p.detailImagesKept = p.detailImages || [];
+        if (!p.mainDroppedNames) p.mainDroppedNames = [];
         if (p.mainConfident === undefined) { p.mainConfident = true; p.mainReason = null; p.mainImageRanked = null; p.detailDroppedNames = []; }
       }
     });
     if (!overlap) await recogPromise;
+    // 비전 경로였다면(overlap 불가) 인식이 끝났으니 VLM 을 내려 텍스트(ollama)에 VRAM 을 넘긴다.
+    if (visionReady) { await unload(visionModel); console.log(`[${ts()}] [이미지인식] 비전 모델 언로드 → 텍스트에 VRAM 양보`); }
   } else {
     console.log(`[${ts()}] [이미지인식] 생략(--no-image-ai) — 첫컷/원본 상세 유지`);
-    for (const p of products) { p.detailImagesKept = p.detailImages || []; p.mainImageRanked = null; p.detailDroppedNames = []; p.reviewImagesKept = p.reviewImages || []; p.reviewDroppedNames = []; p.mainConfident = true; p.mainReason = null; }
+    for (const p of products) { p.detailImagesKept = p.detailImages || []; p.mainImageRanked = null; p.detailDroppedNames = []; p.mainDroppedNames = []; p.reviewImagesKept = p.reviewImages || []; p.reviewDroppedNames = []; p.mainConfident = true; p.mainReason = null; }
   }
 
   // ── Phase A) 전체 텍스트 생성 (ollama 가 GPU 점유) ───────────────────────
@@ -315,6 +379,7 @@ async function main() {
     rec.mainImageRanked = p.mainImageRanked ?? null;
     rec.detailImages = Array.isArray(p.detailImagesKept) ? p.detailImagesKept : (p.detailImages || []);
     rec.detailDroppedNames = Array.isArray(p.detailDroppedNames) ? p.detailDroppedNames : [];
+    rec.mainDroppedNames = Array.isArray(p.mainDroppedNames) ? p.mainDroppedNames : [];
     rec.reviewImages = Array.isArray(p.reviewImagesKept) ? p.reviewImagesKept : (p.reviewImages || []);
     rec.reviewDroppedNames = Array.isArray(p.reviewDroppedNames) ? p.reviewDroppedNames : [];
   }

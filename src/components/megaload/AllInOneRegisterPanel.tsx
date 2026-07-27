@@ -55,6 +55,8 @@ interface GenRecord {
   detailImages?: string[];
   /** CLIP 이 광고/배송/리뷰컷으로 버린 상세 파일명 — 웹이 스캔한 상세이미지에서 정확히 이것만 제외 */
   detailDroppedNames?: string[];
+  /** 비전(VLM)이 로고/글자/배송배너/캡처/인물로 판정한 대표 후보 파일명 — 대표컷 후보 목록에서 제외 */
+  mainDroppedNames?: string[];
   /** CLIP 이 유지한 리뷰컷 절대경로(참고용) */
   reviewImages?: string[];
   /**
@@ -312,6 +314,20 @@ function applyDetailCuration(scanned: ScannedImageFile[], gen: GenRecord | null)
   const dropped = new Set((gen.detailDroppedNames || []).map(basename));
   if (dropped.size === 0) return scanned;
   const filtered = scanned.filter((img) => !dropped.has(img.name));
+  return filtered.length > 0 ? filtered : scanned;
+}
+
+/**
+ * 대표컷 후보에서 비전(VLM)이 "상품 아님"으로 본 것(로고/글자/배송배너/캡처/인물)을 제외.
+ * 선택된 대표(gen.mainImage)는 어떤 경우에도 남긴다(자기 자신이 후보에서 사라지는 사고 방지).
+ * 전부 제외되면 원본 유지(안전 우선).
+ */
+function applyMainCuration(scanned: ScannedImageFile[], gen: GenRecord | null): ScannedImageFile[] {
+  if (!gen) return scanned;
+  const dropped = new Set((gen.mainDroppedNames || []).map(basename));
+  if (dropped.size === 0) return scanned;
+  const keep = basename(gen.mainImage || '');
+  const filtered = scanned.filter((img) => !dropped.has(img.name) || img.name === keep);
   return filtered.length > 0 ? filtered : scanned;
 }
 
@@ -835,7 +851,8 @@ export default function AllInOneRegisterPanel() {
         }
         const regen = await readRegenImages(sp.dirHandle);
         const usingRegen = regen.length > 0;
-        const clip = reorderMainByClip(sp.mainImages || [], gen);
+        // 비전이 로고/글자/배너로 판정한 대표후보를 먼저 걸러낸 뒤 재정렬한다.
+        const clip = reorderMainByClip(applyMainCuration(sp.mainImages || [], gen), gen);
         // 대표 후보 = 누끼 가공본(있으면 앞) + CLIP 랭킹순 원본.
         // ⭐ 예전엔 가공본이 있으면 원본을 통째로 버렸다. 그래서 누끼 결과가 마음에 안 들어도
         //    되돌릴 방법이 없었다(ComfyUI 는 후보를 1장만 만들고 재시도 경로도 없다).
@@ -2019,6 +2036,8 @@ export default function AllInOneRegisterPanel() {
                           reviewImageUrls: reviewUrls,
                           detailImageUrls: detailUrls,
                           categoryPath: e.categoryPath,
+                          // 원본(DOM) 상품설명을 맨 끝에 함께 보여준다(등록 때도 동일하게 첨부됨).
+                          originDescription: (r.scanned.productJson?.description as string | undefined) || undefined,
                         }, 'A');
                         return (
                           <div className="mt-2">

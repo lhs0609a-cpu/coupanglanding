@@ -44,6 +44,9 @@ export interface DetailPageParams {
   detailImageTypes?: string[];
   // 상품고지정보 텍스트 테이블 (이미지 없을 때 폴백)
   noticeFields?: { name: string; value: string }[];
+  // 원본(DOM 크롤링) 상품설명 — 상세페이지 맨 끝(고시 앞)에 "상품 상세정보"로 노출.
+  //   소싱처가 제공한 원문을 버리지 않고 보존한다(기존엔 LLM 생성글만 실려 누락됐다).
+  originDescription?: string;
 }
 
 // ─── 레이아웃별 CSS 변형값 ──────────────────────────────────
@@ -112,6 +115,16 @@ function getTheme(categoryPath?: string): ThemeColor {
  * D: 이미지-글 교차(헤더없음) → FAQ → 텍스트리뷰 → 키워드마무리 → 정보
  */
 export function buildRichDetailPageHtml(params: DetailPageParams, templateVariant?: string): string {
+  const html = renderLayoutHtml(params, templateVariant);
+  // 원본(DOM) 상품설명을 맨 끝(래퍼 닫기 직전)에 끼워 넣는다 — 고시/위탁보다 앞, 본문 뒤.
+  const desc = (params.originDescription || '').trim();
+  if (!desc) return html;
+  const section = buildOriginDescriptionSection(desc);
+  const idx = html.lastIndexOf('</div>');
+  return idx >= 0 ? html.slice(0, idx) + section + '\n' + html.slice(idx) : `${html}\n${section}`;
+}
+
+function renderLayoutHtml(params: DetailPageParams, templateVariant?: string): string {
   // V2: contentBlocks가 있으면 설득형 렌더러 사용
   if (params.contentBlocks && params.contentBlocks.length > 0) {
     return buildPersuasionPageHtml(params, params.contentBlocks, templateVariant);
@@ -124,6 +137,38 @@ export function buildRichDetailPageHtml(params: DetailPageParams, templateVarian
     case 'D': return buildLayoutD(params);
     default:  return buildLayoutA(params);
   }
+}
+
+/**
+ * 원본 상품설명 섹션 — 소싱처 DOM 에서 가져온 원문 텍스트를 "상품 상세정보"로 렌더.
+ *   HTML 태그가 섞여 있으면 태그를 벗겨 텍스트만 안전하게 보여준다(스크립트/이미지 주입 방지).
+ *   과도한 길이는 컷(상세페이지 비대화 방지).
+ */
+function buildOriginDescriptionSection(raw: string): string {
+  // 태그 제거(텍스트만) + 엔티티 정리 + 공백 정규화
+  let text = raw
+    .replace(/<br\s*\/?>(?=)/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  if (!text) return '';
+  if (text.length > 4000) text = text.slice(0, 4000) + '…';
+
+  const paras = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+  const body = paras
+    .map(p => `<p style="margin:0 0 12px;font-size:15px;color:#333;line-height:1.9;word-break:keep-all;white-space:pre-wrap;">${esc(p)}</p>`)
+    .join('\n');
+
+  return `<div style="padding:28px 20px 8px;">
+<div style="text-align:center;margin-bottom:16px;">
+<div style="font-size:16px;font-weight:bold;color:#555;letter-spacing:1px;">상품 상세정보</div>
+</div>
+${body}
+</div>`;
 }
 
 /**
