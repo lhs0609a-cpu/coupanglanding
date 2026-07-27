@@ -140,18 +140,38 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   // 1) 노출상품명/제목 — 파싱 실패 시 원문을 그대로 저장하지 않고 복구(원문 누출 방지)
   const titleJson = parseJsonLoose(titleRaw.text) || {};
   let displayName = typeof titleJson.displayName === 'string' ? titleJson.displayName.trim() : '';
-  // 홍보/주관 형용사(합리적·프리미엄 등)를 먼저 제거 — 이것만이 문제면 살균으로 통과시켜
-  // 원본명 폴백까지 가지 않게 한다(폴백은 원본의 스팸키워드를 그대로 끌고 올 수 있음).
+  // 홍보/주관 형용사·서술어·중복토큰을 먼저 정리(stripNameFiller 가 dedup 까지 수행) — 이것만이
+  // 문제면 살균으로 통과시켜 원본명 폴백까지 가지 않게 한다(폴백은 원본 문장을 그대로 끌고 옴).
   if (displayName) displayName = stripNameFiller(displayName);
+  let keywords = Array.isArray(titleJson.keywords)
+    ? titleJson.keywords.filter((k) => typeof k === 'string' && k.trim() && !hasForeignCJK(k)).map((k) => k.trim())
+    : [];
+
+  // ⚠️ 문장체("…재배한 기능성 쌀 입니다")·단어도배·품질미달이면 1회 재생성(엄격 지시).
+  //    예전엔 곧장 salvage→원본명 폴백이라, 원본이 설명 문장이면 문장이 그대로 노출명이 됐다.
+  if (!displayName || !checkDisplayName(displayName).ok) {
+    const bad = displayName ? checkDisplayName(displayName).issues : ['빈 값'];
+    const fixNote = `직전 결과 문제: ${bad.join(', ')}. 반드시 명사구로만(서술어·부사·조사·문장 금지), `
+      + `같은 단어 반복 금지, 50자 이상 길게, 검색되는 제품명+스펙+속성어를 나열.`;
+    try {
+      const reRaw = await genText({ model, ...buildTitlePrompt(product, persona, { fixNote }), ctx });
+      const reJson = parseJsonLoose(reRaw.text) || {};
+      const reName = typeof reJson.displayName === 'string' ? stripNameFiller(reJson.displayName.trim()) : '';
+      if (reName && checkDisplayName(reName).ok) {
+        displayName = reName;
+        const reKw = Array.isArray(reJson.keywords)
+          ? reJson.keywords.filter((k) => typeof k === 'string' && k.trim() && !hasForeignCJK(k)).map((k) => k.trim()) : [];
+        if (reKw.length) keywords = reKw;
+      }
+    } catch { /* 재생성 실패는 무시하고 아래 살균/폴백 */ }
+  }
+
   let displaySalvaged = false;
   if (!displayName || !checkDisplayName(displayName).ok) {
     displayName = salvageDisplayName(titleJson.displayName || titleRaw.text, product.originalName);
     displaySalvaged = true;
   }
   const dnCheck = checkDisplayName(displayName);
-  let keywords = Array.isArray(titleJson.keywords)
-    ? titleJson.keywords.filter((k) => typeof k === 'string' && k.trim() && !hasForeignCJK(k)).map((k) => k.trim())
-    : [];
   if (keywords.length === 0) keywords = deriveKeywords(product);
   // 셀러별 노출명 유니크화 — 브랜드+제품명+스펙 코어는 유지하고, 셀러 시드로 SEO 키워드 하나를
   //   결정론적으로 꼬리에 붙인다. 같은 상품이라도 셀러마다 노출명이 겹치지 않게(아이템위너 회피)

@@ -9,21 +9,27 @@
 import { generate } from './local-llm.mjs';
 import { buildDetailPrompt, pickPersona, categoryKind } from './ai-prompts.mjs';
 
-// 카테고리에 맞지 않는 감각 표현 = 환각(실측: 발아현미에 "과즙 같은 촉촉함", "베어 물면 아삭").
-//   먹는 상품이 아닌데 맛·식감·과즙을, 과일이 아닌데 과즙·베어 물기를 쓰면 하드 재생성.
+// 카테고리에 맞지 않는 감각 표현 = 환각(실측: 발아현미에 "과즙 같은 촉촉함"·"베어 물면 아삭",
+//   혼합곡에 "고급 포도"·"꽉 찬 과육"·"한 방울"·"향긋한 캡슐"). 먹는 상품 아닌데 맛·식감을,
+//   과일/즙류가 아닌데 과일명·과즙·과육·방울·캡슐을 쓰면 하드 재생성.
 const EATING_WORDS = ['과즙', '베어 물', '베어물', '아삭', '사각거', '새콤', '달큰', '먹어보', '한 입', '한입', '씹어', '베어 무'];
-const FRUIT_LIQUID = ['과즙', '베어 물', '베어물', '베어 무', '사각거'];
+// 생과일/액체 특유 표현 + 대표 과일명 — 마른 곡물·건조식품 등에 나오면 환각.
+const FRUIT_WORDS = ['과즙', '과육', '베어 물', '베어물', '베어 무', '사각거', '한 방울', '방울로', '방울이', '캡슐', '즙이 흘', '포도', '사과', '딸기', '수박', '참외', '복숭아', '자두', '체리', '블루베리', '망고', '오렌지', '자몽'];
+// 즙·주스·잼·청 등 액체/과일가공 카테고리면 과일 표현이 정상 → 예외.
+function isJuiceLike(categoryPath, leaf) {
+  return /음료|주스|과즙|즙\b|청\b|잼|시럽|스무디|에이드|과일가공|생과일|과일\b/.test(`${leaf} ${categoryPath}`);
+}
 /** @returns {string[]} 감각 불일치 이슈(하드) */
-function detectSensoryMismatch(text, kind) {
+function detectSensoryMismatch(text, kind, categoryPath = '', leaf = '') {
   const t = String(text || '');
   const out = [];
   const eating = new Set(['fruit', 'food', 'pet']); // 먹는 상품 계열
   if (!eating.has(kind)) {
     const hit = EATING_WORDS.filter((w) => t.includes(w));
     if (hit.length) out.push(`먹는 상품이 아닌데 맛·식감 표현(${[...new Set(hit)].slice(0, 3).join(', ')})이 들어갔다. 이 상품 종류에 맞는 감각(촉감·무게·향·사용감 등)으로 바꿔라.`);
-  } else if (kind !== 'fruit') {
-    const hit = FRUIT_LIQUID.filter((w) => t.includes(w));
-    if (hit.length) out.push(`과일이 아닌데 생과일 표현(${[...new Set(hit)].slice(0, 2).join(', ')})이 들어갔다. 씹는 식감·냄새·풍미 등 이 상품에 맞게 바꿔라.`);
+  } else if (kind !== 'fruit' && !isJuiceLike(categoryPath, leaf)) {
+    const hit = FRUIT_WORDS.filter((w) => t.includes(w));
+    if (hit.length) out.push(`이 상품은 과일·즙류가 아닌데 생과일 표현(${[...new Set(hit)].slice(0, 3).join(', ')})이 들어갔다. 실제 이 상품의 냄새·씹는 식감·풍미로 바꿔라(없는 과일·과즙을 지어내지 말 것).`);
   }
   return out;
 }
@@ -245,6 +251,13 @@ export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = []
   if (!/\?|적 있|하시죠|해보셨|아니신가요|난감|고민|버린 적|망설|실패|아쉬웠|귀찮|불편/.test(firstBlock)) {
     soft.push('첫머리가 후킹이 아니다. 구매자가 실제로 겪는 실패·불편·불안을 콕 집는 문장으로 시작하라(칭찬·소개로 시작 금지).');
   }
+  // 문어체(~했다/~이다/~된다) 과다 = 엄마 후기가 아니라 설명문. 친근한 해요체로 유도(soft).
+  const daEnds = (t.match(/(?:았|었|였|한|인|된|이|하)다[.!]/g) || []).length
+    + (t.match(/[가-힣]다[.!](?=\s|$|\n)/g) || []).length;
+  const yoEnds = (t.match(/(?:요|어요|아요|에요|예요|더라구요|더라고요|네요|같아요|좋아요)[.!~]?(?=\s|$|\n)/g) || []).length;
+  if (daEnds >= 4 && yoEnds < 2) {
+    soft.push('문어체(~했다/~이다) 위주다. 실제 엄마가 쓰듯 친근한 해요체(~했어요/~더라구요/~좋아요/~같아요)로 바꿔라.');
+  }
 
   if (/(^|\n)\s*(\[?헤드라인|\[?불릿|\[?추천\s*대상|핵심\s*특징\s*\d|상세페이지\s*본문|\(\d\))/.test(t)) {
     issues.push('지시문/라벨/번호가 출력에 남았다. 완성된 카피만 써라.');
@@ -259,8 +272,8 @@ export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = []
   // 카테고리 불일치 활동어 누출(세차/빨래/면/조립 등) — 인접 카테고리 어휘 끌어옴 차단
   for (const msg of detectCategoryLeak(t, categoryPath, leaf)) issues.push(msg);
 
-  // 카테고리 불일치 감각어(먹는 것 아닌데 과즙·아삭, 과일 아닌데 과즙) = 환각 → 하드 재생성
-  for (const msg of detectSensoryMismatch(t, categoryKind(categoryPath, leaf))) issues.push(msg);
+  // 카테고리 불일치 감각어(먹는 것 아닌데 과즙·아삭, 곡물인데 포도·과육·캡슐) = 환각 → 하드 재생성
+  for (const msg of detectSensoryMismatch(t, categoryKind(categoryPath, leaf), categoryPath, leaf)) issues.push(msg);
 
   return { ok: issues.length === 0, issues, soft };
 }

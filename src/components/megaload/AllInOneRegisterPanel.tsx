@@ -1389,7 +1389,9 @@ export default function AllInOneRegisterPanel() {
               ? [chosen]
               : [chosen, ...r.mainImages.filter((_, i) => i >= r.regenCount && i !== r.selectedMainIdx)];
           const mainUrls = (await uploadScannedImages(mainOrdered, 10, wm)).filter(Boolean);
-          const detailUrls = (await uploadScannedImages(r.detailImages, 10, wm)).filter(Boolean);
+          // 상세이미지는 등록에 첨부하지 않는다(사용자 요청) — 상세페이지 본문은 리뷰이미지로만 구성.
+          //   소싱처 상세컷은 로고·배송배너 등 잡컷이 섞여 제외. 상품 이미지 갤러리는 대표이미지만 사용.
+          const detailUrls: string[] = [];
           // 카드에서 뺀 리뷰컷은 올리지 않는다(r.reviewImages = 편집 반영본).
           const reviewUrls = (await uploadScannedImages(r.reviewImages || [], 10, wm)).filter(Boolean);
           const infoUrls = (await uploadScannedImages(r.scanned.infoImages || [], 10, wm)).filter(Boolean);
@@ -1947,59 +1949,18 @@ export default function AllInOneRegisterPanel() {
               {g?.sourceUrl && <a href={g.sourceUrl} target="_blank" rel="noreferrer" className="text-[11px] text-emerald-600 break-all">원본: {g.sourceUrl}</a>}
               {g && (
                 <div>
-                  <button onClick={() => void toggleDetail(r.uid, r.detailImages, r.reviewImages)} className="text-xs text-gray-600 border border-gray-200 rounded px-2 py-1">
+                  <button onClick={() => void toggleDetail(r.uid, [], r.reviewImages)} className="text-xs text-gray-600 border border-gray-200 rounded px-2 py-1">
                     상세페이지 편집 {openDetail[r.uid] ? '▴' : '▾'}
                     <span className="ml-1 text-gray-400">
-                      이미지 {r.detailImages.length + r.reviewImages.length}장
-                      {r.reviewImages.length > 0 && <span className="text-emerald-600"> (리뷰 {r.reviewImages.length})</span>}
+                      리뷰 이미지 {r.reviewImages.length}장
                     </span>
                   </button>
                   {openDetail[r.uid] && (() => {
-                    const addable = addableDetailImages(r);
                     return (
                     <>
-                      {/* 상세페이지에 첨부될 이미지 — 이상한 컷은 × 로 빼고, 빠진 컷은 + 로 추가 */}
-                      <div className="mt-1 flex items-center justify-between">
-                        <span className="text-[11px] text-gray-500">상세 이미지 {r.detailImages.length}장 (등록에 첨부)</span>
-                        {addable.length > 0 && (
-                          <button type="button" disabled={!editable} onClick={() => void toggleDetailPool(r.uid, addable)}
-                            className="text-[11px] text-blue-600 disabled:opacity-40">
-                            {openDetailPool[r.uid] ? '이미지 추가 닫기' : `+ 이미지 추가 (${addable.length})`}
-                          </button>
-                        )}
-                      </div>
-                      {r.detailImages.length > 0 ? (
-                        <div className="mt-1 flex gap-1 overflow-x-auto pb-1">
-                          {r.detailImages.map((img) => (
-                            <div key={img.name} className="relative flex-none">
-                              <img src={img.objectUrl} alt="" loading="lazy"
-                                className="h-16 w-16 object-cover rounded border border-gray-200 bg-white" />
-                              {editable && (
-                                <button type="button" onClick={() => removeDetailImage(r.uid, img.name)}
-                                  title="상세에서 제외"
-                                  className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 text-[10px] leading-none flex items-center justify-center">×</button>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="mt-1 text-[11px] text-amber-600">상세 이미지 없음 — 아래 &quot;+ 이미지 추가&quot;로 넣거나, 소싱 폴더에 상세이미지가 없는 경우입니다.</p>
-                      )}
-                      {/* 추가 가능한 이미지 풀 (리뷰/정보/큐레이션 제외분) — + 로 상세에 포함 */}
-                      {openDetailPool[r.uid] && addable.length > 0 && (
-                        <div className="mt-1 flex gap-1 overflow-x-auto pb-1 bg-gray-50 rounded p-1">
-                          {addable.map((img) => (
-                            <button type="button" key={img.name} disabled={!editable}
-                              onClick={() => void addDetailImage(r.uid, img)} title="상세에 추가"
-                              className="relative flex-none group disabled:opacity-40">
-                              <img src={img.objectUrl} alt="" loading="lazy"
-                                className="h-16 w-16 object-cover rounded border border-gray-200 bg-white opacity-70 group-hover:opacity-100" />
-                              <span className="absolute -top-1 -right-1 bg-blue-500 text-white rounded-full w-4 h-4 text-[10px] leading-none flex items-center justify-center">+</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      {/* 리뷰이미지 — 본문 교차의 1순위 이미지(있으면 상세컷 대신 이게 글 사이에 들어간다) */}
+                      {/* 상세이미지는 사용하지 않는다(사용자 요청) — 상세페이지 본문은 리뷰이미지로만
+                          구성하고, 소싱처 상세컷(로고·배송배너 등 잡컷 섞임)은 등록에도 첨부하지 않는다. */}
+                      {/* 리뷰이미지 — 본문 교차 이미지(글 사이에 끼워진다) */}
                       {r.reviewImages.length > 0 && (
                         <>
                           <p className="mt-2 text-[11px] text-emerald-700">
@@ -2025,7 +1986,8 @@ export default function AllInOneRegisterPanel() {
                           이제 미리보기를 먼저 보여주고, 원문 편집은 아래에서 펼쳐 쓴다. */}
                       {(() => {
                         const paras = (e.detail || '').split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
-                        const detailUrls = r.detailImages.map((img) => img.objectUrl).filter((u): u is string => !!u);
+                        // 상세이미지는 본문에 쓰지 않는다(리뷰이미지만 교차). 등록 경로와 동일.
+                        const detailUrls: string[] = [];
                         const reviewUrls = r.reviewImages.map((img) => img.objectUrl).filter((u): u is string => !!u);
                         if (paras.length === 0 && detailUrls.length === 0 && reviewUrls.length === 0) return null;
                         const html = buildRichDetailPageHtml({

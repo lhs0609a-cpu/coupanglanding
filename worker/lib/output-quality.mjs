@@ -24,6 +24,10 @@ const RE_SEO_BANNED = /무료\s*배송|특가|할인|세일|사은품|이벤트|
 const RE_SEO_FILLER = /합리적|프리미엄|고급스?러|인기(?:상품|템)?|베스트\s*셀러|강력\s*추천|강추|알뜰|필수템|득템|대박|완벽한?|갑성비|초특가|핫딜|가성비\s*(?:갑|템|최고)/;
 // 쿠팡 검색 오류 유발 특수문자
 const RE_SEO_SPECIAL = /[★☆●◆■※♥♡【】《》①②③④⑤⑥▶◀→]/;
+// 노출상품명은 "명사구"여야 한다 — 서술어·부사·조사로 이어진 "문장"이면 SEO 매칭이 깨진다.
+//   실측: "에서 정성스럽게 재배한 기능성 쌀 입니다 안심하고 드셔도 됩니다" 처럼 원본 설명
+//   문장이 노출명으로 그대로 들어가는 사고. 아래 표지가 있으면 문장으로 보고 재생성시킨다.
+const RE_TITLE_SENTENCE = /입니다|습니다|됩니다|합니다|해요|이에요|예요|드셔도|드세요|하세요|주세요|었어요|았어요|스럽게|정성스|재배한|만들어|안심하고|믿을\s*수|드립니다|해드/;
 
 /** 문자열에서 한자/중국어/일본어(외국어 문자) 포함 여부 */
 export function hasForeignCJK(text) {
@@ -66,15 +70,53 @@ export function checkDisplayName(name) {
   if (RE_SEO_BANNED.test(s)) issues.push('노출명 금지/과장 표현(쿠팡SEO)');
   if (RE_SEO_FILLER.test(s)) issues.push('노출명 홍보/주관 형용사(SEO 노이즈)');
   if (RE_SEO_SPECIAL.test(s)) issues.push('노출명 특수문자(검색오류)');
+  // 문장(서술어·부사) — 명사구여야 하는데 원본 설명 문장이 통째로 들어온 경우
+  if (RE_TITLE_SENTENCE.test(s)) issues.push('노출명이 문장체(서술어/부사) — 명사구로');
+  // 같은 단어 3회 이상 반복(도배) — SEO 스팸이자 가독성 저하
+  if (hasExcessiveRepeat(s)) issues.push('노출명 단어 반복 도배');
   return { ok: issues.length === 0, issues };
 }
 
-/** 노출상품명에서 홍보/주관 형용사 토큰을 제거하고 공백을 정리한다(살균 시 사용). */
+/** 같은 토큰이 3회 이상 반복되면 도배로 본다(재생성/정리 트리거). */
+function hasExcessiveRepeat(name) {
+  const counts = new Map();
+  for (const t of String(name || '').split(/\s+/).filter(Boolean)) {
+    const k = t.replace(/[^가-힣a-z0-9]/gi, '').toLowerCase();
+    if (k.length < 2) continue;
+    counts.set(k, (counts.get(k) || 0) + 1);
+    if (counts.get(k) >= 3) return true;
+  }
+  return false;
+}
+
+/**
+ * 노출상품명의 중복 토큰 제거 — 같은 검색어를 여러 번 넣어도 쿠팡 SEO 에 도움이 안 되고
+ * 도배로 감점된다. 앞선 것을 유지하고 뒤 중복은 뺀다(순서 보존).
+ *   실측: "…혼합곡 기타곡류 혼합곡 기타곡류 기타곡류 요리용 … 요리용잡곡".
+ */
+export function dedupNameTokens(name) {
+  const seen = new Set();
+  const out = [];
+  for (const t of String(name || '').split(/\s+/).filter(Boolean)) {
+    const key = t.replace(/[^가-힣a-z0-9]/gi, '').toLowerCase();
+    if (!key) { out.push(t); continue; }
+    if (seen.has(key)) continue;    // 정확히 같은 토큰 반복 제거
+    seen.add(key);
+    out.push(t);
+  }
+  return out.join(' ').replace(/\s{2,}/g, ' ').trim();
+}
+
+/** 노출상품명에서 홍보/주관 형용사·부사·서술어 꼬리를 제거하고 공백·중복을 정리한다(살균 시 사용). */
 export function stripNameFiller(name) {
-  return String(name || '')
+  let s = String(name || '')
     .replace(new RegExp(RE_SEO_FILLER.source, 'gi'), ' ')
+    // 문장 꼬리(서술어)·부사 토큰 제거 — 명사구만 남긴다
+    .replace(/\S*(입니다|습니다|됩니다|합니다|해요|이에요|예요|드셔도|드세요|하세요|주세요|드립니다)\S*/g, ' ')
+    .replace(/(정성스럽게|정성껏|안심하고|맛있게|간편하게|스럽게)/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
+  return dedupNameTokens(s);
 }
 
 /**
