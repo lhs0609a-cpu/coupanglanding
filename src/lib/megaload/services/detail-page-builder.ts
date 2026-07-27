@@ -47,6 +47,9 @@ export interface DetailPageParams {
   // 원본(DOM 크롤링) 상품설명 — 상세페이지 맨 끝(고시 앞)에 "상품 상세정보"로 노출.
   //   소싱처가 제공한 원문을 버리지 않고 보존한다(기존엔 LLM 생성글만 실려 누락됐다).
   originDescription?: string;
+  // 원본 상세 설명 이미지 — 맨 끝 "상품 상세정보" 섹션에 세로로 노출(본문 교차와 별개).
+  //   본문(글↔이미지 교차)은 리뷰컷만 쓰고, 소싱처 상세 설명컷은 여기 하단에 모아 보여준다.
+  descriptionImageUrls?: string[];
 }
 
 // ─── 레이아웃별 CSS 변형값 ──────────────────────────────────
@@ -116,10 +119,12 @@ function getTheme(categoryPath?: string): ThemeColor {
  */
 export function buildRichDetailPageHtml(params: DetailPageParams, templateVariant?: string): string {
   const html = renderLayoutHtml(params, templateVariant);
-  // 원본(DOM) 상품설명을 맨 끝(래퍼 닫기 직전)에 끼워 넣는다 — 고시/위탁보다 앞, 본문 뒤.
+  // 원본(DOM) 상품설명(텍스트 + 상세 설명 이미지)을 맨 끝(래퍼 닫기 직전)에 끼워 넣는다
+  //   — 본문(리뷰컷 교차) 뒤, 고시/위탁 앞.
   const desc = (params.originDescription || '').trim();
-  if (!desc) return html;
-  const section = buildOriginDescriptionSection(desc);
+  const descImgs = (params.descriptionImageUrls || []).filter((u) => typeof u === 'string' && u.trim().length > 0);
+  if (!desc && descImgs.length === 0) return html;
+  const section = buildProductInfoSection(desc, descImgs, params.productName);
   const idx = html.lastIndexOf('</div>');
   return idx >= 0 ? html.slice(0, idx) + section + '\n' + html.slice(idx) : `${html}\n${section}`;
 }
@@ -140,13 +145,19 @@ function renderLayoutHtml(params: DetailPageParams, templateVariant?: string): s
 }
 
 /**
- * 원본 상품설명 섹션 — 소싱처 DOM 에서 가져온 원문 텍스트를 "상품 상세정보"로 렌더.
- *   HTML 태그가 섞여 있으면 태그를 벗겨 텍스트만 안전하게 보여준다(스크립트/이미지 주입 방지).
- *   과도한 길이는 컷(상세페이지 비대화 방지).
+ * 원본 상품설명 섹션 — 소싱처 DOM 에서 가져온 원문 텍스트 + 상세 설명 이미지를 "상품 상세정보"로 렌더.
+ *   텍스트: HTML 태그를 벗겨 안전하게 표시(스크립트/이미지 주입 방지), 과도한 길이는 컷.
+ *   이미지: 세로로 쌓아 노출(원본 상세 설명컷). 둘 중 있는 것만 렌더.
  */
-function buildOriginDescriptionSection(raw: string): string {
-  // 태그 제거(텍스트만) + 엔티티 정리 + 공백 정규화
-  let text = raw
+function buildProductInfoSection(raw: string, imageUrls: string[], productName: string): string {
+  const parts: string[] = [];
+  parts.push('<div style="padding:28px 20px 8px;">');
+  parts.push('<div style="text-align:center;margin-bottom:16px;">');
+  parts.push('<div style="font-size:16px;font-weight:bold;color:#555;letter-spacing:1px;">상품 상세정보</div>');
+  parts.push('</div>');
+
+  // 텍스트(원문) — 태그 제거 후 문단 렌더
+  let text = String(raw || '')
     .replace(/<br\s*\/?>(?=)/gi, '\n')
     .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
     .replace(/<[^>]+>/g, '')
@@ -155,20 +166,18 @@ function buildOriginDescriptionSection(raw: string): string {
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-  if (!text) return '';
   if (text.length > 4000) text = text.slice(0, 4000) + '…';
-
-  const paras = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
-  const body = paras
-    .map(p => `<p style="margin:0 0 12px;font-size:15px;color:#333;line-height:1.9;word-break:keep-all;white-space:pre-wrap;">${esc(p)}</p>`)
-    .join('\n');
-
-  return `<div style="padding:28px 20px 8px;">
-<div style="text-align:center;margin-bottom:16px;">
-<div style="font-size:16px;font-weight:bold;color:#555;letter-spacing:1px;">상품 상세정보</div>
-</div>
-${body}
-</div>`;
+  if (text) {
+    for (const p of text.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean)) {
+      parts.push(`<p style="margin:0 0 12px;font-size:15px;color:#333;line-height:1.9;word-break:keep-all;white-space:pre-wrap;">${esc(p)}</p>`);
+    }
+  }
+  // 이미지(원본 상세 설명컷) — 세로 스택
+  for (const url of imageUrls) {
+    parts.push(`<img src="${esc(url)}" alt="${esc(shortenForAlt(productName))} 상세정보" style="width:100%;display:block;margin:0 0 4px;" />`);
+  }
+  parts.push('</div>');
+  return parts.join('\n');
 }
 
 /**

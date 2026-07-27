@@ -75,6 +75,8 @@ export interface BuildPayloadParams {
   detailImageUrls: string[];
   reviewImageUrls: string[];
   infoImageUrls: string[];
+  descriptionImageUrls?: string[];   // 원본 상세 설명 이미지 — 맨 끝 "상품 상세정보"
+  originDescription?: string;         // 원본(DOM) 상품설명 텍스트 — 맨 끝 "상품 상세정보"
   // AI story는 batch에서만 사용 — preflight에서는 빈 값 전달 가능
   aiStoryHtml?: string;
   aiStoryParagraphs?: string[];
@@ -129,6 +131,7 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     product, vendorId, deliveryInfo, returnInfo, stock,
     noticeOverrides, preventionConfig, shUserId,
     mainImageUrls, detailImageUrls, reviewImageUrls, infoImageUrls,
+    descriptionImageUrls, originDescription,
     aiStoryHtml = '', aiStoryParagraphs = [], aiReviewTexts = [],
     contentBlocks,
     detailImageTypes,
@@ -318,6 +321,8 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     attributeValues: product.attributeValuesOverride,
     reviewImageUrls,
     infoImageUrls,
+    descriptionImageUrls,
+    originDescription,
     aiStoryHtml: sanitizeOriginClaims(
       isFruit ? sanitizeFruitClaims(aiStoryHtml, fruitInfo) : aiStoryHtml,
       originEvidence,

@@ -111,6 +111,8 @@ export interface BuildCoupangPayloadParams {
   aiReviewTexts?: string[];
   consignmentImageUrls?: string[];
   thirdPartyImageUrls?: string[];   // 제3자 이미지 URLs (랜덤 선정된 2장)
+  originDescription?: string;        // 원본(DOM) 상품설명 텍스트 — 맨 끝 "상품 상세정보"
+  descriptionImageUrls?: string[];   // 원본 상세 설명 이미지 — 맨 끝 "상품 상세정보"
   // 구매옵션 (option-extractor 추출값 — item-level 반영용)
   extractedBuyOptions?: ExtractedBuyOption[];
   // 총 수량 (option-extractor의 totalUnitCount — perCount × count)
@@ -280,6 +282,8 @@ export function buildCoupangProductPayload(
     sellerBrand,
     brandId,
     brandNameOverride,
+    originDescription,
+    descriptionImageUrls,
   } = params;
 
   // ---- 1. 상품명 정리 ----
@@ -395,9 +399,9 @@ export function buildCoupangProductPayload(
     emphasis: b.emphasis ? cleanText(b.emphasis) : b.emphasis,
   }));
   const safeStoryHtml = aiStoryHtml ? cleanText(aiStoryHtml) : aiStoryHtml;
-  // 원본(DOM) 상품설명 — 소싱처가 준 원문을 맨 끝에 보존해 노출(기존엔 누락됐다). compliance 필터 통과.
-  const rawOriginDesc = product.productJson.description;
-  const safeOriginDescription = rawOriginDesc ? cleanText(String(rawOriginDesc)) : undefined;
+  // 원본(DOM) 상품설명 — 명시 파라미터(originDescription)로 받는다. ⚠️ product.productJson.description
+  //   은 상류(preflight)에서 LLM 스토리로 덮여 있어 여기 쓰면 본문이 중복된다. compliance 필터 통과.
+  const safeOriginDescription = originDescription ? cleanText(String(originDescription)) : undefined;
 
   if (hasRichContent) {
     detailHtml = sanitizeHtml(buildRichDetailPageHtml({
@@ -422,6 +426,7 @@ export function buildCoupangProductPayload(
         value: f.content,
       })),
       originDescription: safeOriginDescription,
+      descriptionImageUrls,
     }, detailLayoutVariant));
   } else {
     detailHtml = buildSimpleDetailHtml(detailImageUrls, productName);

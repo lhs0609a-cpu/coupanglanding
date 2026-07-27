@@ -150,6 +150,9 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
       // 소스 통과 필드(검수화면 표시용)
       sourceUrl: p.sourceUrl ?? null,
       sourcePrice: p.sourcePrice ?? null,
+      // 원본(DOM) 상품설명 텍스트 — 웹이 맨 끝 "상품 상세정보"에 노출(있을 때만). 길이 컷.
+      sourceDescription: (p.productJson && typeof p.productJson.description === 'string' && p.productJson.description.trim())
+        ? p.productJson.description.slice(0, 6000) : null,
       sellingPrice,                       // 마진 계산 판매가
       mainImage: p.mainImage ?? (Array.isArray(p.mainImages) ? p.mainImages[0] : null),
       mainImageRanked: p.mainImageRanked ?? null,                 // CLIP 대표컷 랭킹(웹 재정렬·검수 표시용)

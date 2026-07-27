@@ -57,6 +57,8 @@ interface GenRecord {
   detailDroppedNames?: string[];
   /** 비전(VLM)이 로고/글자/배송배너/캡처/인물로 판정한 대표 후보 파일명 — 대표컷 후보 목록에서 제외 */
   mainDroppedNames?: string[];
+  /** 원본(DOM) 상품설명 텍스트 — 상세페이지 맨 끝 "상품 상세정보"에 노출 */
+  sourceDescription?: string | null;
   /** CLIP 이 유지한 리뷰컷 절대경로(참고용) */
   reviewImages?: string[];
   /**
@@ -1009,13 +1011,16 @@ export default function AllInOneRegisterPanel() {
           ? classifyLocalImages(await fetchLocalList(ep, prodDir), prodDir)
           : { main: [], regenCount: 0, detail: [], review: [], info: [] };
 
-        const mainImages = cls.main.map(mkImg);
         // ⚠️ 로컬 직독도 폴더 스캔과 똑같이 CLIP 큐레이션을 적용한다 — 예전엔 폴더 목록을
         //    그대로 써서, 워커가 "광고/빈 배너"로 버린 컷(예: 텍스트만 있는 흰 배너)이
         //    상세 이미지로 붙었다(실측). 워커가 버린 파일명만 정확히 뺀다.
         const detailImages = applyDetailCuration(cls.detail.map(mkImg), gen);
         const reviewImages = applyReviewCuration(cls.review.map(mkImg), gen);
         const infoImages = cls.info.map(mkImg);
+        // 대표 후보: 비전이 로고/글자/배너로 본 컷 제외 + 리뷰이미지를 후보로 추가(직접 대표 선택 가능).
+        const mainCurated = applyMainCuration(cls.main.map(mkImg), gen);
+        const reviewForMain = reviewImages.filter((rv) => !mainCurated.some((m) => m.name === rv.name));
+        const mainImages = [...mainCurated, ...reviewForMain];
 
         // scanned 는 등록 경로가 reviewImages/infoImages/productJson/sourceUrl 만 참조 →
         // 폴더 핸들 없이 그 필드만 채운 얕은 대체물(ScannedProduct 로 캐스팅).
@@ -1023,7 +1028,7 @@ export default function AllInOneRegisterPanel() {
           productCode: code,
           folderName: prodDir || code,
           sourceUrl: gen?.sourceUrl ?? undefined,
-          productJson: { name: gen?.originalName, tags: gen?.keywords },
+          productJson: { name: gen?.originalName, tags: gen?.keywords, description: gen?.sourceDescription || undefined },
           mainImages, detailImages, infoImages, reviewImages,
         } as unknown as ScannedProduct;
 
@@ -1397,9 +1402,10 @@ export default function AllInOneRegisterPanel() {
               ? [chosen]
               : [chosen, ...r.mainImages.filter((m, i) => i >= r.regenCount && i !== r.selectedMainIdx && !reviewNames.has(m.name))];
           const mainUrls = (await uploadScannedImages(mainOrdered, 10, wm)).filter(Boolean);
-          // 상세이미지는 등록에 첨부하지 않는다(사용자 요청) — 상세페이지 본문은 리뷰이미지로만 구성.
-          //   소싱처 상세컷은 로고·배송배너 등 잡컷이 섞여 제외. 상품 이미지 갤러리는 대표이미지만 사용.
+          // 본문 교차 이미지는 리뷰컷만(detailUrls 비움). 상세 설명 이미지는 맨 끝 "상품 상세정보"
+          //   섹션으로만 노출한다(descriptionUrls) — 본문에 섞지 않고, 잡컷은 비전이 이미 걸러둠.
           const detailUrls: string[] = [];
+          const descriptionUrls = (await uploadScannedImages(r.detailImages, 12, wm)).filter(Boolean);
           // 카드에서 뺀 리뷰컷은 올리지 않는다(r.reviewImages = 편집 반영본).
           const reviewUrls = (await uploadScannedImages(r.reviewImages || [], 10, wm)).filter(Boolean);
           const infoUrls = (await uploadScannedImages(r.scanned.infoImages || [], 10, wm)).filter(Boolean);
@@ -1437,11 +1443,14 @@ export default function AllInOneRegisterPanel() {
               const av = Object.fromEntries(Object.entries(e.attributeValues).filter(([, v]) => v && v.trim()));
               return Object.keys(av).length ? av : undefined;
             })(),
+            // 원본(DOM) 상품설명 텍스트 — 맨 끝 "상품 상세정보" 섹션에 노출(있을 때만).
+            sourceDescription: (typeof pj.description === 'string' && pj.description.trim()) ? pj.description : undefined,
             preUploadedUrls: {
               mainImageUrls: mainUrls,
               detailImageUrls: detailUrls,
               reviewImageUrls: reviewUrls,
               infoImageUrls: infoUrls,
+              descriptionImageUrls: descriptionUrls,
             },
           });
         }
@@ -1997,20 +2006,22 @@ export default function AllInOneRegisterPanel() {
                           이제 미리보기를 먼저 보여주고, 원문 편집은 아래에서 펼쳐 쓴다. */}
                       {(() => {
                         const paras = (e.detail || '').split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
-                        // 상세이미지는 본문에 쓰지 않는다(리뷰이미지만 교차). 등록 경로와 동일.
-                        const detailUrls: string[] = [];
+                        // 본문 교차는 리뷰이미지만. 상세 설명 이미지는 맨 끝 "상품 상세정보"로.
                         const reviewUrls = r.reviewImages.map((img) => img.objectUrl).filter((u): u is string => !!u);
-                        if (paras.length === 0 && detailUrls.length === 0 && reviewUrls.length === 0) return null;
+                        const descImgUrls = r.detailImages.map((img) => img.objectUrl).filter((u): u is string => !!u);
+                        const originDesc = (r.scanned.productJson?.description as string | undefined) || undefined;
+                        if (paras.length === 0 && reviewUrls.length === 0 && descImgUrls.length === 0 && !originDesc) return null;
                         const html = buildRichDetailPageHtml({
                           productName: e.displayName || r.scanned.productJson?.name || r.productCode,
                           brand: '',
                           aiStoryParagraphs: paras,
-                          // 등록 경로와 동일하게 전달 — 리뷰컷이 있으면 그게 본문 교차 이미지가 된다.
+                          // 본문 교차 = 리뷰컷만. 상세이미지는 본문에 넣지 않는다.
                           reviewImageUrls: reviewUrls,
-                          detailImageUrls: detailUrls,
+                          detailImageUrls: [],
                           categoryPath: e.categoryPath,
-                          // 원본(DOM) 상품설명을 맨 끝에 함께 보여준다(등록 때도 동일하게 첨부됨).
-                          originDescription: (r.scanned.productJson?.description as string | undefined) || undefined,
+                          // 원본(DOM) 상품설명 — 텍스트 + 상세 설명 이미지를 맨 끝에 함께 노출(등록도 동일).
+                          originDescription: originDesc,
+                          descriptionImageUrls: descImgUrls,
                         }, 'A');
                         return (
                           <div className="mt-2">

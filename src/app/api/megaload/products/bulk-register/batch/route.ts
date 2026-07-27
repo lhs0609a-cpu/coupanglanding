@@ -173,7 +173,9 @@ interface BatchProduct {
     detailImageUrls: string[];
     reviewImageUrls: string[];
     infoImageUrls: string[];
+    descriptionImageUrls?: string[];  // 원본 상세 설명 이미지 — 맨 끝 "상품 상세정보" 섹션용
   };
+  sourceDescription?: string;         // 원본(DOM) 상품설명 텍스트 — 맨 끝 "상품 상세정보" 섹션용
   aiDisplayName?: string;
   aiSellerName?: string;
   // 추가 필드 (선택)
@@ -561,12 +563,15 @@ export async function POST(req: NextRequest) {
       let detailImageUrls: string[];
       let reviewImageUrls: string[];
       let infoImageUrls: string[];
+      // 원본 상세 설명 이미지 — 본문 교차와 별개로 맨 끝 "상품 상세정보" 섹션에 노출(AllInOne 만 채움).
+      let descriptionImageUrls: string[] = [];
 
       if (product.preUploadedUrls) {
         mainImageUrls = product.preUploadedUrls.mainImageUrls.filter(Boolean);
         detailImageUrls = product.preUploadedUrls.detailImageUrls.filter(Boolean);
         reviewImageUrls = includeReviewImages ? product.preUploadedUrls.reviewImageUrls.filter(Boolean) : [];
         infoImageUrls = product.preUploadedUrls.infoImageUrls.filter(Boolean);
+        descriptionImageUrls = (product.preUploadedUrls.descriptionImageUrls || []).filter(Boolean);
 
         // 세션 복원 후 핸들 유실 시 preUploadedUrls에 detail/review가 빈 배열이지만
         // product.detailImages/reviewImages에 로컬 경로가 남아있을 수 있음 → 서버 업로드 폴백
@@ -753,6 +758,8 @@ export async function POST(req: NextRequest) {
         detailImageUrls,
         reviewImageUrls,
         infoImageUrls,
+        descriptionImageUrls,
+        originDescription: product.sourceDescription,
         aiStoryHtml,
         aiStoryParagraphs,
         aiReviewTexts,
