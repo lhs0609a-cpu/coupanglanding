@@ -81,7 +81,13 @@ async function gateCutout(cutoutPath, originalPath) {
  * 인식(CPU CLIP)은 상품당 사진 수에 비례해 수 초씩 든다(대표 후보 17장이면 체감된다).
  * 사진이 안 바뀌었으면 결과도 같으므로, 파일 목록+크기+수정시각 서명으로 캐시한다.
  * → 같은 폴더 재생성(모델 바꿔서 다시, 중간에 죽어서 다시)은 인식 단계가 사실상 0초.
+ *
+ * ⚠️ 캐시 버전(RECOG_CACHE_VERSION) — 인식 "방식"이 바뀌면 옛 캐시를 무효화해야 한다.
+ *    실측: 옛 CLIP 으로 생성한 폴더를 비전(v0.2.63+) 으로 재생성하면 이미지가 그대로라
+ *    캐시가 적중 → 비전을 건너뛰고 옛 CLIP 오선택(성분 텍스처 대표)을 그대로 재사용했다.
+ *    버전이 다르면 캐시 미스로 처리해 비전이 다시 돌게 한다.
  */
+const RECOG_CACHE_VERSION = 2; // 1=CLIP/L1, 2=비전(VLM)
 function imagesSignature(p) {
   const files = [...(p.mainImages || []), ...(p.detailImages || []), ...(p.reviewImages || [])];
   const h = createHash('sha1');
@@ -213,7 +219,8 @@ async function main() {
       // ① 캐시 적중 — 사진이 그대로면 지난 인식 결과를 그대로 쓴다(CLIP 0회).
       const sig = imagesSignature(p);
       const hit = recogCache[p.id || p.folderPath];
-      if (hit && hit.sig === sig && hit.mainImage && existsSync(hit.mainImage)) {
+      // 캐시 버전 불일치(옛 CLIP 결과)면 미적중 처리 → 비전이 다시 판정한다.
+      if (hit && hit.v === RECOG_CACHE_VERSION && hit.sig === sig && hit.mainImage && existsSync(hit.mainImage)) {
         p.mainImage = hit.mainImage;
         p.mainImageRanked = hit.mainImageRanked || null;
         p.detailImagesKept = hit.detailImagesKept || p.detailImages || [];
@@ -252,7 +259,7 @@ async function main() {
           p.reviewImagesKept = vc.reviewKept;
           p.reviewDroppedNames = vc.reviewDropped.map((d) => path.basename(d.path));
           recogCache[p.id || p.folderPath] = {
-            sig, mainImage: p.mainImage, mainImageRanked: p.mainImageRanked,
+            sig, v: RECOG_CACHE_VERSION, mainImage: p.mainImage, mainImageRanked: p.mainImageRanked,
             detailImagesKept: p.detailImagesKept, detailDroppedNames: p.detailDroppedNames,
             mainDroppedNames: p.mainDroppedNames,
             reviewImagesKept: p.reviewImagesKept, reviewDroppedNames: p.reviewDroppedNames,
@@ -302,7 +309,7 @@ async function main() {
       }
       // 인식 결과 캐시 — 다음 실행에서 사진이 그대로면 CLIP 을 건너뛴다.
       recogCache[p.id || p.folderPath] = {
-        sig, mainImage: p.mainImage, mainImageRanked: p.mainImageRanked,
+        sig, v: RECOG_CACHE_VERSION, mainImage: p.mainImage, mainImageRanked: p.mainImageRanked,
         detailImagesKept: p.detailImagesKept, detailDroppedNames: p.detailDroppedNames,
         mainDroppedNames: p.mainDroppedNames || [],
         reviewImagesKept: p.reviewImagesKept, reviewDroppedNames: p.reviewDroppedNames,
