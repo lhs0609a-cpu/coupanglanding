@@ -164,17 +164,42 @@ const KIND_GUIDE = {
   },
 };
 
+/**
+ * 쿠팡 카테고리 leaf 라벨 → 본문에서 쓸 "상품 이름"으로 정규화.
+ * ---------------------------------------------------------------------------
+ * ⚠️ 쿠팡 인덱스 leaf 의 18%(16,259개 중 2,982개)가 '혼합곡/기타곡류',
+ *    '락커/캐비닛/사물함' 처럼 **슬래시로 여러 이름을 이어붙인 분류 라벨**이다.
+ *    이걸 그대로 "상품 이름"으로 주고 SEO 검증까지 "본문에 2회 이상"으로 강제하면
+ *    자연스러운 한국어 문장에 넣는 것이 구조적으로 불가능하다 → 매 시도 검증 실패 →
+ *    교정지시("이 문자열을 2회 넣어라")가 다음 프롬프트에 주입되고, 모델이 굴복해서
+ *    "후기처럼 혼합곡/기타곡류" 같은 **라벨 제목줄**을 본문 맨 앞에 박았다(실측).
+ * → 본문 지칭어는 대표 토큰 하나(display)만 쓰고, SEO 검증은 variants 중 아무거나 인정한다.
+ * @returns {{display:string, variants:string[], isMulti:boolean}}
+ */
+export function leafForms(leaf) {
+  const raw = String(leaf || '').trim();
+  if (!raw) return { display: '', variants: [], isMulti: false };
+  const parts = raw.split(/[/·,]/).map((s) => s.trim()).filter(Boolean);
+  if (parts.length <= 1) return { display: raw, variants: [raw], isMulti: false };
+  // '기타OO' 는 분류용 접두사일 뿐 상품 이름이 아니다 → 알맹이만("기타곡류"→"곡류").
+  const cleaned = parts.map((s) => s.replace(/^기타\s*/, '').trim()).filter((s) => s.length >= 2);
+  const display = cleaned[0] || parts.find((s) => s.length >= 2) || parts[0];
+  return { display, variants: [...new Set([...parts, ...cleaned, display])], isMulti: true };
+}
+
 /** 상세페이지(스토리) — 섹션형 한국어 카피. 일반 텍스트(마크다운 허용).
  *  p: { originalName, categoryPath, features[], leaf?, seoKeywords?[] }
  *  fixNote: 재시도 시 직전 출력의 문제를 교정 지시로 주입(검증 실패 피드백). */
 export function buildDetailPrompt(p, persona, { maxTokens = 1100, fixNote = '' } = {}) {
-  const leaf = (p.leaf || (p.categoryPath || '').split('>').pop() || p.originalName || '').trim();
+  const rawLeaf = (p.leaf || (p.categoryPath || '').split('>').pop() || p.originalName || '').trim();
+  // 본문에서 부를 이름은 항상 단일 명사 — 슬래시 라벨을 그대로 부르게 두면 안 된다(leafForms 주석).
+  const { display: leaf, isMulti } = leafForms(rawLeaf);
   const seo = (p.seoKeywords || []).filter(Boolean).slice(0, 8);
-  const kind = categoryKind(p.categoryPath, leaf);
+  const kind = categoryKind(p.categoryPath, rawLeaf); // 종류 판별은 라벨 원문이 정보가 더 많다
   const guide = KIND_GUIDE[kind] || KIND_GUIDE.generic;
   const system = `당신은 쿠팡 1페이지 상위노출과 구매전환을 동시에 잡는 한국어 상세페이지 카피라이터다. ${persona.style}.
 
-[작성 대상] 오직 "${leaf}" 상품 하나만 다룬다(분류: ${p.categoryPath || leaf} — ⚠️ 이 분류 문자열 자체를 본문에 쓰지 말 것. "식품 신선식품 과일류" 같은 카테고리 경로를 문장에 넣으면 비문이 된다. 본문에서는 "${leaf}" 라는 상품 이름만 쓴다). 다른 종류의 상품이나 다른 카테고리의 기능·부품·효능(예: 시계인데 매트리스·수면, 마우스인데 공기청정·난방)을 절대 언급하지 않는다. 모든 문장이 "${leaf}"에 정확히 들어맞아야 한다.
+[작성 대상] 오직 "${leaf}" 상품 하나만 다룬다(분류: ${p.categoryPath || leaf} — ⚠️ 이 분류 문자열 자체를 본문에 쓰지 말 것. "식품 신선식품 과일류" 같은 카테고리 경로를 문장에 넣으면 비문이 된다. 본문에서는 "${leaf}" 라는 상품 이름만 쓴다). 다른 종류의 상품이나 다른 카테고리의 기능·부품·효능(예: 시계인데 매트리스·수면, 마우스인데 공기청정·난방)을 절대 언급하지 않는다. 모든 문장이 "${leaf}"에 정확히 들어맞아야 한다.${isMulti ? `\n⚠️ "${rawLeaf}" 처럼 슬래시(/)로 여러 이름이 붙은 분류 라벨은 사람이 쓰는 말이 아니다 — 본문에 절대 그대로 쓰지 말고, 언제나 "${leaf}" 라는 이름으로만 불러라.` : ''}
 
 [이 상품만의 특징 — 매우 중요] 카테고리 일반론("그냥 바디로션이라 촉촉해요")에 머물지 마라. 상품명 "${p.originalName}"과 특징에 담긴 **이 상품만의 차별점**(핵심 성분·인증·함량/농도·용량·색상·향·기능 키워드 등, 예: "알로에 96%", "세라마이드", "에코서트 인증", "무알콜", "500ml 대용량")을 찾아, 본문에서 구체적으로 이름을 불러 이야기한다. 같은 카테고리의 다른 제품과 무엇이 다른지가 드러나야 한다. (단, 상품명·특징에 근거 없는 성분·효능·인증을 지어내지는 말 것.)
 

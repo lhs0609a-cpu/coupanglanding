@@ -7,7 +7,7 @@
  */
 
 import { generate } from './local-llm.mjs';
-import { buildDetailPrompt, pickPersona, categoryKind } from './ai-prompts.mjs';
+import { buildDetailPrompt, pickPersona, categoryKind, leafForms } from './ai-prompts.mjs';
 
 // 카테고리에 맞지 않는 감각 표현 = 환각(실측: 발아현미에 "과즙 같은 촉촉함"·"베어 물면 아삭",
 //   혼합곡에 "고급 포도"·"꽉 찬 과육"·"한 방울"·"향긋한 캡슐"). 먹는 상품 아닌데 맛·식감을,
@@ -94,6 +94,14 @@ function countLeaf(leaf, text) {
   return c;
 }
 
+// 프롬프트(지시문) 고유 어휘 — 본문에 나오면 모델이 제 할 일을 되뇐 것이다.
+//   짧은 "제목줄"을 통째로 버리는 용도(cleanDetailOutput). 본문 문장은 어미 검사로 살린다.
+const PROMPT_ECHO_LINE = /후기\s*처럼|후기\s*글\s*처럼|블로그\s*후기|상세\s*페이지\s*(?:카피|본문|글|문구)|카피\s*라이터|작성\s*대상|문체\s*참고|감각\s*묘사|검색\s*키워드|상위\s*노출/i;
+// 문장 한가운데 박혀도 명백히 지시문인 것 — 재생성 트리거(validateDetail).
+//   ⚠️ '상세페이지 카피'는 여기서 뺀다 — "상세페이지 카피만 보고 샀다가…" 처럼 구매자가
+//      실제로 쓸 수 있는 문장이라 오탐이 된다. 제목줄 형태는 위 라인 필터가 이미 걷어낸다.
+const PROMPT_ECHO_HARD = /카피\s*라이터|작성\s*대상|문체\s*참고|블로그\s*후기\s*글\s*처럼/i;
+
 /** LLM 원문 정리 — 코드펜스/선두 지시라인 제거, 공백 정규화. */
 export function cleanDetailOutput(raw) {
   let t = String(raw || '').replace(/```[a-z]*\n?/gi, '').replace(/```/g, '').trim();
@@ -105,7 +113,8 @@ export function cleanDetailOutput(raw) {
   // ⚠️ 프롬프트의 "뼈대 단계 이름"을 모델이 그대로 소제목으로 출력하는 일이 잦다
   //    ("후킹 한 문장:", "문제 증폭:", "망설임 해소:", "추천 대상:", "마무리:").
   //    글의 설계도가 본문에 새는 것이므로 라인 통째/앞머리 라벨을 모두 걷어낸다.
-  const SCAFFOLD = '헤드라인|불릿|추천\\s*대상|핵심\\s*장점|핵심\\s*특징\\s*\\d?|상세페이지\\s*본문|후킹(\\s*한\\s*문장)?|문제\\s*증폭|해결(\\s*:.*)?|망설임(\\s*해소)?|마무리|도입부|결론|본문|감각\\s*묘사|구매\\s*권유|cta';
+  //    ('상세페이지 본문' 만 막았더니 모델이 '상세페이지 카피'로 새어나왔다 → 뒷말을 넓힌다.)
+  const SCAFFOLD = '헤드라인|불릿|추천\\s*대상|핵심\\s*장점|핵심\\s*특징\\s*\\d?|상세\\s*페이지(\\s*(본문|카피|글|문구))?|카피\\s*라이터|후킹(\\s*한\\s*문장)?|문제\\s*증폭|해결(\\s*:.*)?|망설임(\\s*해소)?|마무리|도입부|결론|본문|감각\\s*묘사|구매\\s*권유|cta';
   t = t.split('\n')
     .filter((line) => !new RegExp(`^\\s*\\[?(${SCAFFOLD})\\]?\\s*[:：]?\\s*$`, 'i').test(line))
     .map((line) => line.replace(new RegExp(`^(\\s*(?:[-*•]\\s*)?)\\[?(?:${SCAFFOLD})\\]?\\s*[:：]\\s*`, 'i'), '$1'))
@@ -113,6 +122,17 @@ export function cleanDetailOutput(raw) {
   // 말미에 붙는 부록(구분선 + "SEO 키워드:" 목록 등) 잘라내기 — 본문이 아니다.
   t = t.replace(/\n\s*-{3,}\s*\n[\s\S]*$/i, '\n');
   t = t.replace(/\n\s*(seo[^\n]*|키워드[^\n]*)[:：][\s\S]*$/i, '\n');
+  // ⚠️ 프롬프트 문구가 "제목줄"로 새는 사고 — 실측: 본문 맨 앞에 "후기처럼 혼합곡/기타곡류",
+  //    "상세페이지 카피" 두 줄이 그대로 실렸다(시스템 프롬프트의 "…상세페이지 카피라이터다",
+  //    "진짜 후기처럼:", "블로그 후기 글처럼" 이 합쳐진 것). 위 SCAFFOLD 는 "라벨 한 단어" 줄만
+  //    잡아서 뒤에 카테고리명이 붙은 이런 줄은 통과했다. → "짧고 완결 서술어가 없는 줄 +
+  //    프롬프트 어휘" 조합을 통째로 버린다(본문 문장은 어미로 끝나므로 건드리지 않는다).
+  t = t.split('\n').filter((line) => {
+    const s = line.trim();
+    if (!s || s.length > 40) return true;                 // 긴 줄 = 본문 문장
+    if (/(요|다|죠|까|네|답|함)[.!?~…]*$/.test(s)) return true; // 어미로 끝나면 본문
+    return !PROMPT_ECHO_LINE.test(s);
+  }).join('\n');
   t = t.replace(/\*\*\s*-\s*/g, '- ');          // "**- " 깨진 불릿 마커 정리
   // ⭐ 마크다운 볼드/밑줄/별표 전면 제거 — 상세글에 '**' 리터럴이 그대로 보인다는 실사용 지적.
   //    렌더러(detail-page-builder)가 <strong> 으로 바꿔주긴 하지만, 편집 화면·미리보기·
@@ -188,10 +208,19 @@ export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = []
   }
 
   // leaf 노출 횟수 — SEO. 외국도서(영어 leaf)는 한국어 소개라 강제 안 함. 다글자 2회+, 1글자 1회+.
-  if (leaf && !foreignBook) {
-    const cnt = countLeaf(leaf, t);
-    const need = leaf.length >= 2 ? 2 : 1;
-    if (cnt < need) issues.push(`SEO: 상품 키워드 "${leaf}"가 본문에 ${need}회 이상 자연스럽게 나와야 한다(현재 ${cnt}회).`);
+  //   ⚠️ leaf 가 '혼합곡/기타곡류' 같은 **슬래시 분류 라벨**이면 그 문자열 자체는 자연스러운
+  //      문장에 넣을 수 없다. 예전엔 라벨 원문만 세서 영원히 미달 → 매번 3회 재생성하고,
+  //      교정지시("이 문자열을 2회 넣어라")에 모델이 굴복해 본문 맨 앞에 라벨 제목줄을
+  //      박는 사고로 이어졌다(실측: "후기처럼 혼합곡/기타곡류"). → 구성 토큰 중 아무거나 인정.
+  const lf = leafForms(leaf);
+  if (lf.display && !foreignBook) {
+    const cnt = Math.max(0, ...lf.variants.map((v) => countLeaf(v, t)));
+    const need = lf.display.length >= 2 ? 2 : 1;
+    if (cnt < need) issues.push(`SEO: 상품 키워드 "${lf.display}"가 본문에 ${need}회 이상 자연스럽게 나와야 한다(현재 ${cnt}회).`);
+  }
+  // 슬래시 분류 라벨이 본문에 그대로 박히면 비문 — 카테고리 경로 검사(아래)와 같은 사상.
+  if (lf.isMulti && t.includes(String(leaf).trim())) {
+    issues.push(`분류 라벨("${String(leaf).trim()}")을 본문에 그대로 쓰지 마라. 사람이 부르는 이름("${lf.display}")으로만 표현하라.`);
   }
 
   for (const b of HARD_BANNED) {
@@ -259,8 +288,12 @@ export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = []
     soft.push('문어체(~했다/~이다) 위주다. 실제 엄마가 쓰듯 친근한 해요체(~했어요/~더라구요/~좋아요/~같아요)로 바꿔라.');
   }
 
-  if (/(^|\n)\s*(\[?헤드라인|\[?불릿|\[?추천\s*대상|핵심\s*특징\s*\d|상세페이지\s*본문|\(\d\))/.test(t)) {
+  if (/(^|\n)\s*(\[?헤드라인|\[?불릿|\[?추천\s*대상|핵심\s*특징\s*\d|상세\s*페이지\s*(본문|카피|글|문구)|\(\d\))/.test(t)) {
     issues.push('지시문/라벨/번호가 출력에 남았다. 완성된 카피만 써라.');
+  }
+  // 문장 한가운데 박힌 지시문 어휘("…상세페이지 카피라이터", "작성 대상") — 정리 필터가 못 걷어낸 잔여.
+  if (PROMPT_ECHO_HARD.test(t)) {
+    issues.push('지시문 어휘(상세페이지 카피/카피라이터/작성 대상 등)가 본문에 남았다. 글쓰기 지시를 되뇌지 말고 구매자에게 하는 후기 본문만 써라.');
   }
   if (/\{[^}\n]{1,20}\}/.test(t)) issues.push('치환 안 된 변수({...})가 남았다.');
 

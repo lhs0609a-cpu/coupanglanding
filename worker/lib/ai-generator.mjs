@@ -55,6 +55,20 @@ function diversifyBySeller(displayName, keywords, seed) {
 const catTokens = (s) => (String(s || '').toLowerCase().match(/[가-힣a-z0-9]+/g) || []).filter((t) => t.length >= 2);
 
 /**
+ * 원본 상품명에 "이 상품만의 정보"가 남아있는지 — 카테고리 어휘뿐이면 생성물을 믿을 수 없다.
+ *   실측: 원본명이 "혼합곡/기타곡류 혼합곡 혼합곡/기타곡류 기타곡물"(= 분류어 반복)이라
+ *   노출명도 "혼합곡 기타곡류 대용량 요리용 선물용"(품종·중량·구성 0), 상세글은 쓸 재료가
+ *   없어 프롬프트 문구를 되뇌었다. 소싱 단계에서 상품명이 깨진 신호이므로 검수를 강제한다.
+ *   ⚠️ 보수적으로 판정한다(고유 토큰 1개 이하일 때만) — 검수필요 도배를 만들지 않기 위해.
+ */
+export function originalNameIsBare(originalName, categoryPath, leaf) {
+  const own = new Set(catTokens(originalName));
+  if (own.size === 0) return true;                       // 이름 자체가 없음
+  for (const t of [...catTokens(categoryPath), ...catTokens(leaf)]) own.delete(t);
+  return own.size <= 1;
+}
+
+/**
  * 카테고리 후보의 leaf(말단 이름) — 상세글이 "무엇에 대한 글인지" 기준이 된다.
  *   ⚠️ 워커 인덱스의 path 는 '>' 가 아니라 공백으로 이어진 토큰 문자열이다. 예전엔
  *      `categoryPath.split('>').pop()` 로 leaf 를 뽑아서 **경로 전체가 leaf 가 됐고**,
@@ -220,10 +234,15 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   const fields = { title: titleRaw, category: catRaw, detail: detailRaw };
   const complianceOk = Object.values(fields).every((f) => f.ok);
 
+  // 원본 상품명이 카테고리 어휘뿐 = 소싱 단계에서 상품명이 깨진 것. 노출명·상세글·옵션이
+  //   전부 분류어 조합으로 나오므로 자동 결과를 그대로 등록하면 안 된다 → 검수 강제.
+  const bareOriginal = originalNameIsBare(product.originalName, snapped.path || product.categoryPath, snapped.leaf);
+
   // 품질 사유 집계 — compliance(법적 금지어) + 품질(외국어·누출·약매칭)
   const qualityIssues = [
     ...dnCheck.issues,
     ...(displaySalvaged ? ['노출명 원문복구'] : []),
+    ...(bareOriginal ? ['원본 상품명에 상품 정보 없음(분류어뿐) — 상품명·옵션 직접 확인'] : []),
     ...detailCheck.issues,
     ...optSan.issues,
     ...(!snapped.code ? ['카테고리 코드없음'] : []),
