@@ -2037,8 +2037,8 @@ export default function AllInOneRegisterPanel() {
                             <p className="text-[11px] text-gray-600 mb-1 font-medium">
                               미리보기 — 등록될 상세페이지(글 + 이미지 교차)
                               <span className="ml-1 font-normal text-gray-400">
-                                본문 이미지 {(reviewUrls.length > 0 ? reviewUrls.length : detailUrls.length)}장
-                                {reviewUrls.length > 0 ? ' (리뷰컷)' : detailUrls.length > 0 ? ' (상세컷)' : ''}
+                                본문 이미지 {reviewUrls.length}장{reviewUrls.length > 0 ? ' (리뷰컷)' : ''}
+                                {descImgUrls.length > 0 ? ` · 상품 상세정보 ${descImgUrls.length}장` : ''}
                               </span>
                             </p>
                             <div className="bg-white rounded-lg border border-gray-200 overflow-hidden" style={{ maxHeight: 520, overflowY: 'auto' }}>
