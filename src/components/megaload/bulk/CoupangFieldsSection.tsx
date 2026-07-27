@@ -975,7 +975,9 @@ export default function CoupangFieldsSection({
             </div>
             {product.certPreview.matched.map((m) => (
               <div key={m.certificationType} className="text-[10px] text-emerald-800 border-l-2 border-l-emerald-400 pl-2">
-                {m.certificationName} · <span className="font-mono">{m.certificationCode}</span>
+                {m.certificationName} · {m.checkboxOnly
+                  ? <span className="text-emerald-700">체크 표시 (쿠팡에 인증번호 입력칸이 없는 항목)</span>
+                  : <span className="font-mono">{m.certificationCode}</span>}
               </div>
             ))}
           </div>
@@ -984,14 +986,16 @@ export default function CoupangFieldsSection({
             <div className="flex items-center gap-1.5 mb-2">
               <AlertTriangle className={`w-3.5 h-3.5 ${product.certPreview.status === 'failed' ? 'text-red-500' : 'text-amber-500'}`} />
               <span className={`text-xs font-semibold ${product.certPreview.status === 'failed' ? 'text-red-700' : 'text-amber-700'}`}>
-                {product.certPreview.status === 'failed' ? '인증정보 미반영 — 인증번호 없이 등록됨' : '인증정보 일부 미반영'}
+                {product.certPreview.status === 'failed' ? '인증정보 미반영 — 인증대상아님으로 등록됨' : '인증정보 일부 미반영'}
               </span>
             </div>
             {product.certPreview.matched.length > 0 && (
               <div className="space-y-1 mb-1.5">
                 {product.certPreview.matched.map((m) => (
                   <div key={m.certificationType} className="text-[10px] text-emerald-700 border-l-2 border-l-emerald-400 pl-2">
-                    반영됨 · {m.certificationName} · <span className="font-mono">{m.certificationCode}</span>
+                    반영됨 · {m.certificationName} · {m.checkboxOnly
+                      ? '체크 표시 (인증번호 입력칸 없는 항목)'
+                      : <span className="font-mono">{m.certificationCode}</span>}
                   </div>
                 ))}
               </div>

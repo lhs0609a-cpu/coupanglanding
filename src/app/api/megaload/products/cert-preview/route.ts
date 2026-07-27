@@ -28,7 +28,13 @@ export interface CertPreviewResult {
   uid: string;
   status: CertPreviewStatus;
   /** 등록 payload 에 실제로 들어갈 항목 */
-  matched: { certificationType: string; certificationName: string; certificationCode: string }[];
+  matched: {
+    certificationType: string;
+    certificationName: string;
+    certificationCode: string;
+    /** true = 쿠팡에 인증번호 입력칸이 없는 항목. 체크만 되며 번호는 원래 안 들어간다(정상). */
+    checkboxOnly: boolean;
+  }[];
   /** 매칭 실패해 빠지는 원본 라벨 */
   unmatched: string[];
   message?: string;
@@ -80,22 +86,24 @@ export async function POST(req: NextRequest) {
         };
       }
 
-      const { certs, unmatched } = groundCertifications(normalized, offered);
-      const nameByType = new Map(offered.map((o) => [o.certificationType, o.name || o.certificationType]));
-      const matched = certs.map((c) => ({
-        certificationType: c.certificationType,
-        certificationName: nameByType.get(c.certificationType) || c.certificationType,
-        certificationCode: c.certificationCode || '',
+      const { certs, unmatched, grounded } = groundCertifications(normalized, offered);
+      const matched = grounded.map((g) => ({
+        certificationType: g.certificationType,
+        certificationName: g.offeredName || g.certificationType,
+        certificationCode: g.code,
+        checkboxOnly: g.checkboxOnly,
       }));
 
       let status: CertPreviewStatus = 'ok';
       let message: string | undefined;
       if (certs.length === 0) {
         status = 'failed';
-        message = '소싱 인증번호를 이 카테고리의 인증 항목에 연결하지 못했습니다. 이대로 등록하면 인증정보 없이(인증대상아님) 올라갑니다.';
+        message = '소싱 인증을 이 카테고리의 인증 항목에 연결하지 못했습니다. 이대로 등록하면 인증정보 없이(인증대상아님) 올라갑니다.';
       } else if (unmatched.length > 0) {
         status = 'partial';
-        message = `${unmatched.length}건은 연결하지 못해 등록에서 빠집니다.`;
+        // 쿠팡 인증 항목은 전 카테고리 공통 27종뿐이라, 여기 없는 인증(HACCP 등)은
+        // 애초에 넣을 칸이 없다 — 사용자가 할 수 있는 조치가 없다는 걸 명시한다.
+        message = `${unmatched.length}건은 쿠팡에 대응하는 인증 항목이 없어 등록에서 빠집니다.`;
       }
       return { uid: p.uid, status, matched, unmatched, message };
     });

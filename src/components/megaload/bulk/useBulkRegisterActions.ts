@@ -3961,7 +3961,7 @@ export function useBulkRegisterActions() {
               const failed = cw.filter((w) => w.allFailed).length;
               setCertWarningNotice(
                 `인증정보 미반영 ${cw.length}건`
-                + (failed > 0 ? ` — ${failed}건은 인증번호 없이 등록됐습니다. 쿠팡 윙에서 직접 입력해주세요.` : '')
+                + (failed > 0 ? ` — ${failed}건은 "인증대상아님"으로 등록됐습니다. 전기용품·어린이제품 계열이면 쿠팡 윙에서 보완해주세요.` : '')
                 + ` (상품코드: ${cw.slice(0, 5).map((w) => w.productCode).join(', ')}${cw.length > 5 ? ` 외 ${cw.length - 5}건` : ''})`,
               );
             }

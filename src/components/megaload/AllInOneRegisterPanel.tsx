@@ -1499,7 +1499,7 @@ export default function AllInOneRegisterPanel() {
             if (cw?.length) {
               const failed = cw.filter((w) => w.allFailed).length;
               setCertNotice(
-                `인증정보 미반영 ${cw.length}건${failed > 0 ? ` (${failed}건은 인증번호 없이 등록됨 — 쿠팡 윙에서 직접 입력 필요)` : ''}: `
+                `인증정보 미반영 ${cw.length}건${failed > 0 ? ` (${failed}건은 "인증대상아님"으로 등록 — 전기용품·어린이제품 계열이면 윙에서 보완)` : ''}: `
                 + cw.slice(0, 5).map((w) => w.productCode).join(', ')
                 + (cw.length > 5 ? ` 외 ${cw.length - 5}건` : ''),
               );

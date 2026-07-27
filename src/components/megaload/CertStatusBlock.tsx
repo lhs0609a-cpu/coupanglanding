@@ -60,8 +60,8 @@ export function CertStatusBlock({ previews, products, loading, onRetry }: Props)
           </h4>
           <p className="mt-1 text-xs text-amber-800">
             {failedCount > 0
-              ? `${failedCount}건은 소싱한 인증번호가 등록에 반영되지 않습니다. 이대로 올리면 "인증대상아님"으로 등록됩니다.`
-              : '일부 인증번호가 등록에서 빠집니다.'}
+              ? `${failedCount}건은 소싱한 인증이 등록에 반영되지 않습니다. 이대로 올리면 "인증대상아님"으로 등록됩니다.`
+              : '일부 인증이 쿠팡에 대응 항목이 없어 등록에서 빠집니다.'}
           </p>
         </div>
         {onRetry && (
@@ -81,7 +81,9 @@ export function CertStatusBlock({ previews, products, loading, onRetry }: Props)
             <div className="truncate text-xs font-semibold text-gray-900">{product.name}</div>
             {preview.matched.length > 0 && (
               <div className="mt-1 text-xs text-emerald-700">
-                반영됨: {preview.matched.map((m) => `${m.certificationName} (${m.certificationCode})`).join(', ')}
+                반영됨: {preview.matched
+                  .map((m) => `${m.certificationName} (${m.checkboxOnly ? '체크 표시' : m.certificationCode})`)
+                  .join(', ')}
               </div>
             )}
             {preview.unmatched.length > 0 && (
@@ -98,7 +100,8 @@ export function CertStatusBlock({ previews, products, loading, onRetry }: Props)
 
       <p className="mt-2 text-[11px] text-amber-800">
         전기용품·어린이제품 등 인증 대상 상품을 인증정보 없이 등록하면 쿠팡 판매 정지 사유가 될 수 있습니다.
-        인증번호는 쿠팡 윙에서 직접 입력해 보완할 수 있습니다.
+        쿠팡 인증 항목은 전 카테고리 공통 27종이라, 여기 없는 인증(HACCP 등)은 윙에서도 넣을 칸이 없습니다.
+        &quot;빠짐&quot;에 뜬 항목이 전기용품·어린이제품 계열이면 윙에서 직접 보완해주세요.
       </p>
     </div>
   );
