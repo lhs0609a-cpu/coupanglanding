@@ -4,6 +4,7 @@ import Link from 'next/link';
 import AllInOneRegisterPanel from '@/components/megaload/AllInOneRegisterPanel';
 import WorkerInstallNotice from '@/components/megaload/WorkerInstallNotice';
 import ComfyStatusBadge from '@/components/megaload/ComfyStatusBadge';
+import VisionStatusBadge from '@/components/megaload/VisionStatusBadge';
 
 export default function AllInOneRegisterPage() {
   return (
@@ -22,8 +23,11 @@ export default function AllInOneRegisterPage() {
       </div>
       <div className="space-y-2">
         <WorkerInstallNotice context="allinone" />
-        {/* 누끼 엔진(ComfyUI) 라이브니스 — 도우미 연결 배너와 함께 상단 노출 */}
-        <ComfyStatusBadge />
+        {/* 엔진 라이브니스 신호등 — 누끼(ComfyUI)·비전(qwen2.5vl)이 실제 가동/준비됐는지 표시 */}
+        <div className="flex flex-wrap items-center gap-2">
+          <ComfyStatusBadge />
+          <VisionStatusBadge />
+        </div>
       </div>
       <AllInOneRegisterPanel />
     </div>

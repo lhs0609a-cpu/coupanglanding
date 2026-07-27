@@ -215,6 +215,26 @@ export async function startPairServer({
       if (u.searchParams.get('nonce') !== state.nonce) {
         res.writeHead(401, cors); return res.end('nonce mismatch');
       }
+
+      // 비전 모델(qwen2.5vl) 준비 상태 — 폴더 불필요. ollama 에 모델이 있으면 재생성 시 비전이
+      //   이미지를 직접 보고 대표/상세를 선별한다(없으면 CLIP 휴리스틱 폴백). 웹 신호등이 이걸 읽는다.
+      if (u.pathname === '/allinone/vision-status') {
+        const model = process.env.MEGALOAD_VISION_MODEL || 'qwen2.5vl:7b';
+        let ollamaUp = false, hasVision = false;
+        try {
+          const r = await fetch('http://127.0.0.1:11434/api/tags', { signal: AbortSignal.timeout(3000) });
+          if (r.ok) {
+            ollamaUp = true;
+            const j = await r.json();
+            const names = (j.models || []).map((m) => m.name);
+            const b = model.split(':')[0];
+            hasVision = names.some((n) => n === model || String(n).startsWith(model) || String(n).split(':')[0] === b);
+          }
+        } catch { /* ollama 미기동 */ }
+        res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ ready: ollamaUp && hasVision, ollamaUp, hasVision, model }));
+      }
+
       const folder = getAllinoneFolder();
       if (!folder) {
         res.writeHead(404, { ...cors, 'Content-Type': 'application/json' });

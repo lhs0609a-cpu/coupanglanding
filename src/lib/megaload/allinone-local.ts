@@ -179,6 +179,18 @@ export function localFileUrl(ep: LocalEndpoint, relPath: string): string {
   return `${base(ep)}/allinone/file?nonce=${encodeURIComponent(ep.nonce)}&p=${encodeURIComponent(relPath)}`;
 }
 
+/** 비전 모델(qwen2.5vl) 준비 상태 — 도우미를 거쳐 로컬 ollama 를 확인(브라우저는 직접 못 읽음). */
+export interface VisionStatus { ready: boolean; ollamaUp: boolean; hasVision: boolean; model: string }
+export async function fetchVisionStatus(ep: LocalEndpoint): Promise<VisionStatus | null> {
+  try {
+    const r = await fetch(`${base(ep)}/allinone/vision-status?nonce=${encodeURIComponent(ep.nonce)}`, {
+      cache: 'no-store', signal: AbortSignal.timeout(5000),
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch { return null; }
+}
+
 /** 등록 시 업로드용 — 로컬 이미지를 File 로 읽어온다. 실패 시 null(그 장만 건너뜀). */
 export async function fetchLocalFile(ep: LocalEndpoint, relPath: string): Promise<File | null> {
   try {
