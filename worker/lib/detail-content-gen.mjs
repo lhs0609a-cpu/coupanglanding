@@ -180,10 +180,71 @@ function detectCategoryLeak(text, categoryPath = '', leaf = '') {
 }
 
 /**
+ * 결정론적 교정 — 재생성 없이 고칠 수 있는 결함을 직접 고친다.
+ * ---------------------------------------------------------------------------
+ * 왜: 재생성 루프는 결함을 못 줄인다(실측 8상품 3회차 hard 합계 10 → 11 → 10 = 난수 재추첨).
+ *     "검색 키워드 2개를 넣어라" 하나 때문에 900자 본문을 통째로 다시 쓰는 건 낭비다.
+ *     전수 재검증(56건)에서 자기 검증기 통과율이 0% 였다 = 매 상품이 매번 전 회차를 소진했다.
+ * → 기계적으로 고칠 수 있는 것은 여기서 고치고, LLM 은 "정말 다시 써야 하는 것"에만 쓴다.
+ *
+ * 여기서 고치는 것(실측 상위 결함):
+ *   ① 분류 라벨("혼합곡/기타곡류")이 본문에 그대로 박힘 (29%) → 사람 이름("혼합곡")으로 치환
+ *   ② 카테고리 경로 문자열이 그대로 박힘                    → 상품 이름으로 치환
+ *   ③ 마크다운 강조기호(**, __)                            → 제거
+ *   ④ SEO 검색 키워드 미달                                 → 마무리 문장 한 줄로 자연스럽게 보강
+ * 못 고치는 것(재생성이 답): 길이 미달, 한자/일본어 혼입, 지시문 잔존, 감각 환각.
+ *
+ * @returns {{text:string, fixed:string[]}} 교정된 본문 + 적용한 항목
+ */
+export function repairDetail(text, { leaf, categoryPath = '', seoKeywords = [] } = {}) {
+  let t = String(text || '');
+  const fixed = [];
+  const lf = leafForms(leaf);
+
+  // ① 슬래시 분류 라벨 → 사람이 부르는 이름
+  const rawLeaf = String(leaf || '').trim();
+  if (lf.isMulti && rawLeaf && lf.display && t.includes(rawLeaf)) {
+    t = t.split(rawLeaf).join(lf.display);
+    fixed.push('분류 라벨 치환');
+  }
+  // ② 카테고리 경로 문자열 → 상품 이름
+  const catStr = String(categoryPath || '').trim();
+  if (catStr.length >= 8 && t.includes(catStr)) {
+    t = t.split(catStr).join(lf.display || rawLeaf);
+    fixed.push('카테고리 경로 치환');
+  }
+  // ③ 마크다운 강조기호 제거(문장은 그대로 두고 기호만)
+  if (/\*\*|__/.test(t)) {
+    t = t.replace(/\*\*(.*?)\*\*/g, '$1').replace(/__(.*?)__/g, '$1').replace(/\*\*|__/g, '');
+    fixed.push('강조기호 제거');
+  }
+  // ④ SEO 검색 키워드 보강 — 부족한 키워드를 마무리 한 줄로 자연스럽게 넣는다.
+  //    본문을 다시 쓰지 않고 문장 하나를 더한다(검증 기준은 "2개 이상 등장").
+  const kws = (seoKeywords || []).filter((k) => typeof k === 'string' && k.trim().length >= 2).slice(0, 4);
+  if (kws.length >= 2) {
+    const flat = t.replace(/\s/g, '');
+    const missing = kws.filter((k) => !flat.includes(k.trim().replace(/\s/g, '')));
+    const have = kws.length - missing.length;
+    if (have < 2) {
+      const need = missing.slice(0, 2 - have);
+      if (need.length) {
+        t = `${t.replace(/\s+$/, '')}\n\n${need.join(', ')} 찾으시는 분들께도 잘 맞을 거예요.`;
+        fixed.push(`검색 키워드 보강(${need.join(', ')})`);
+      }
+    }
+  }
+  return { text: t, fixed };
+}
+
+/**
  * 생성 결과 검증 — 통과 못 한 이유(한국어)를 배열로 반환.
+ * @param {string} text
+ * @param {{leaf?:string, categoryPath?:string, seoKeywords?:string[], allowLatin?:string[]}} o
+ *   allowLatin: 상품 자신의 브랜드/모델 영문명(원본 상품명에서 추출). 이걸 "영어 누출"로
+ *   잡으면 영원히 못 고치는 결함이 된다(실측: bebeone 기저귀커버 4/56, 자기 브랜드명).
  * @returns {{ok:boolean, issues:string[]}}
  */
-export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = [] } = {}) {
+export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = [], allowLatin = [] } = {}) {
   const issues = [];
   const t = String(text || '');
   const book = isBookCategory(categoryPath);
@@ -195,7 +256,10 @@ export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = []
   // 영어 누출 금지(표준 단위/약어 제외). 외국도서는 영어가 정상이라 면제.
   if (!foreignBook) {
     // (a) 단독 영어 단어 4글자+ — "trench코트" 같은 누출
-    const latinWords = (t.match(/[A-Za-z]{2,}/g) || []).filter((w) => w.length >= 4 && !ALLOWED_LATIN.has(w.toLowerCase()));
+    // 상품 자신의 영문 브랜드/모델명은 누출이 아니다 — 원본 상품명에 있는 단어는 면제한다.
+    const own = new Set((allowLatin || []).map((w) => String(w).toLowerCase()));
+    const latinWords = (t.match(/[A-Za-z]{2,}/g) || [])
+      .filter((w) => w.length >= 4 && !ALLOWED_LATIN.has(w.toLowerCase()) && !own.has(w.toLowerCase()));
     if (latinWords.length) issues.push(`영어 단어(${[...new Set(latinWords)].slice(0, 3).join(', ')})를 한국어로 바꿔라.`);
     // (b) 영어 단어 3개 이상 연속 = 영어 문장
     else {
@@ -368,11 +432,16 @@ function paragraphsToBlocks(paras) {
  */
 export async function generatePerfectDetail({
   model, originalName, categoryPath, leaf, features = [], seoKeywords = [],
-  seed, maxTokens = 1300, maxAttempts = 4, onAttempt = () => {},
+  // ⭐ 기본 2회 — 재생성은 결함을 못 줄인다(실측). 결정론적 교정으로 못 고치는 것
+  //    (길이 미달·한자 혼입·지시문 잔존·감각 환각)에만 1회 더 기회를 준다.
+  seed, maxTokens = 1300, maxAttempts = 2, onAttempt = () => {},
 }) {
   const realLeaf = (leaf || (categoryPath || '').split('>').pop() || originalName || '').trim();
   const persona = pickPersona(seed || originalName || categoryPath || 'seed');
   const p = { originalName, categoryPath, features, leaf: realLeaf, seoKeywords };
+  // 상품 자신의 영문 브랜드/모델명 — "영어 누출"로 잡히면 재생성해도 영원히 안 고쳐진다.
+  const allowLatin = (String(originalName || '').match(/[A-Za-z]{2,}/g) || []);
+  const vctx = { leaf: realLeaf, categoryPath, seoKeywords, allowLatin };
 
   let best = null;
   let fixNote = '';
@@ -381,14 +450,18 @@ export async function generatePerfectDetail({
     // 재시도일수록 temperature 살짝 낮춰 안정화
     const temperature = Math.max(0.45, (options.temperature ?? 0.75) - (attempt - 1) * 0.12);
     const { text: raw, ms } = await generate({ model, system, prompt, options: { ...options, temperature } });
-    const text = cleanDetailOutput(raw);
-    const { ok, issues, soft } = validateDetail(text, { leaf: realLeaf, categoryPath, seoKeywords });
-    onAttempt({ attempt, ok, issues, soft, ms, chars: text.length });
+    // 생성 → **결정론적 교정** → 검증. 기계로 고칠 수 있는 결함에 LLM 을 쓰지 않는다.
+    const { text, fixed } = repairDetail(cleanDetailOutput(raw), vctx);
+    const { ok, issues, soft } = validateDetail(text, vctx);
+    onAttempt({ attempt, ok, issues, soft, ms, chars: text.length, fixed });
 
-    // 내용 결함(hard)도 없고 문체(soft)도 깨끗하면 즉시 채택.
-    if (ok && soft.length === 0) {
+    // ⭐ 채택 기준은 **hard 결함 0**. 문체(soft)로는 재생성하지 않는다.
+    //    실측 근거: soft "첫머리가 후킹이 아니다"가 70%(39/56)에서 발화해 사실상 전량
+    //    재생성을 유발했는데, 회차를 거듭해도 결함이 줄지 않았다(hard 합계 10 → 11 → 10).
+    //    재생성은 교정이 아니라 난수 재추첨이었다. soft 는 검수 화면 경고로만 쓴다.
+    if (ok) {
       const paras = text.split(/\n{2,}/).map((s) => s.trim()).filter((s) => s.length >= 8);
-      return { text, paragraphs: paras, blocks: paragraphsToBlocks(paras), attempts: attempt, ok: true, issues: [], soft: [] };
+      return { text, paragraphs: paras, blocks: paragraphsToBlocks(paras), attempts: attempt, ok: true, issues: [], soft };
     }
     // 더 나은 후보 선정: hard 결함이 우선, 같으면 soft 가 적은 쪽.
     const rank = (h, s) => h.length * 10 + s.length;

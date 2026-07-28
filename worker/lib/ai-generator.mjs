@@ -220,7 +220,7 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
     seoKeywords: keywords,
     seed: personaSeed || product.originalName,
     maxTokens: Math.max(maxDetailTokens || 0, 800), // 목표 600~1200자 도달 위해 토큰 하한 확보
-    maxAttempts: 3,
+    maxAttempts: 2,   // 재생성은 결함을 못 줄인다(실측) — 교정으로 못 고치는 것만 1회 더
   });
   const detailChk = checkMini(detailGen.text, ctx); // 법적 금지어 최종 확인(compliance byField 리포트)
   const detailRaw = {
