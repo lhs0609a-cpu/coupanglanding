@@ -41,6 +41,7 @@ import { makeThumbnailProcessor } from './lib/thumbnail-batch.mjs';
 import { buildReviewHtml } from './lib/review-html.mjs';
 import { selectBestMainImage, curateDetailImages, curateReviewImages } from './lib/image-selector.mjs';
 import { visionCurateProduct } from './lib/vision-selector.mjs';
+import { categoryKind } from './lib/ai-prompts.mjs';
 import { localCutoutToWhite, cutoutDepsFailed } from './lib/local-cutout.mjs';
 import { measureImage, scoreImage, metricsDepsFailed, looksCutout } from './lib/image-metrics.mjs';
 
@@ -237,11 +238,14 @@ async function main() {
 
       // ── 비전(VLM) 경로 — 이미지를 직접 보고 대표/상세/리뷰를 한 번에 큐레이션 ──
       if (visionReady) {
+        // 소싱 원본 분류 + 상품명으로 품목 종류를 본다(쿠팡 카테고리는 아직 안 정해졌다 —
+        //   카테고리 확정은 Phase A 텍스트 단계다). 과일·음식이면 누끼 없이 실물컷을 쓴다.
+        const vKind = categoryKind(p.categoryPath || '', p.originalName || '');
         const vc = await visionCurateProduct({
           mainPool: p.mainImages || (p.mainImage ? [p.mainImage] : []),
           detailPool: p.detailImages || [],
           reviewPool: p.reviewImages || [],
-          model: visionModel, onLog,
+          model: visionModel, onLog, kind: vKind,
         });
         if (vc) {
           if (vc.mainImage) p.mainImage = vc.mainImage;
@@ -415,11 +419,21 @@ async function main() {
   //   → 대표컷이 이미 흰배경 단독컷이면 그대로 쓴다. 전부 그렇다면 ComfyUI 는 아예 안 띄운다.
   const needCutout = [];
   let alreadyCut = 0;
+  let freshSkipped = 0;   // 과일·음식이라 누끼를 건너뛴 건수
   let imgDone = 0;          // 진행표시용 — 실제로 가공한 건수(건너뛴 건 세지 않는다)
   if (thumbEnabled) {
     for (let i = 0; i < products.length; i++) {
       const p = products[i], rec = records[i];
       if (!p.mainImage) { if (rec) rec.thumbProcessed = null; continue; }
+      // ⭐ 과일·음식은 누끼를 뜨지 않는다 — 배경을 지우면 과일이 공중에 뜬 것처럼 어색해진다(실측).
+      //    카테고리는 Phase A 에서 확정됐으므로 생성된 레코드의 분류를 쓰고,
+      //    없으면 소싱 원본 분류로 판단한다.
+      const kind = categoryKind(rec?.categoryPath || p.categoryPath || '', p.originalName || '');
+      if (kind === 'fruit' || kind === 'food') {
+        if (rec) { rec.mainImage = p.mainImage; rec.thumbProcessed = false; rec.thumbSkipped = '과일·음식은 누끼 없이 원본 사용'; }
+        freshSkipped++;
+        continue;
+      }
       let cut = false;
       try { cut = looksCutout(await measureImage(p.mainImage), p.mainImage); }
       catch { cut = metricsDepsFailed() ? looksCutout(null, p.mainImage) : false; }
@@ -431,6 +445,7 @@ async function main() {
       }
     }
     if (alreadyCut) console.log(`[${ts()}] 대표이미지: ${alreadyCut}건은 이미 누끼된 컷 → 재가공 생략(그대로 사용)`);
+    if (freshSkipped) console.log(`[${ts()}] 대표이미지: ${freshSkipped}건은 과일·음식 → 누끼 생략(원본 실물컷 사용)`);
     if (needCutout.length === 0) {
       thumbEnabled = false;
       console.log(`[${ts()}] [2/3] 누끼가 필요한 대표컷 없음 — 이미지 가공 단계 전체 생략(ComfyUI 기동 안 함)`);
