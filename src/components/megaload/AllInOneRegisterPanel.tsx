@@ -552,7 +552,7 @@ function DiagPanel({ diag, helper, open, onToggle }: {
                   <li>데스크탑 <b>메가로드 도우미</b> 앱 열기</li>
                   <li>왼쪽 <b>⚙️ 올인원 생성</b> 클릭</li>
                   <li>이 폴더(<b>{diag.rootName}</b>)를 선택하고 실행</li>
-                  <li>완료되면 여기서 <b>도우미에서 바로 불러오기</b>(또는 이 폴더 재선택)</li>
+                  <li>완료되면 여기서 <b>도우미 결과 불러오기</b>(또는 이 폴더 재선택)</li>
                 </ol>
                 <p className="text-gray-400 text-[11px]">
                   생성엔 ollama(텍스트)·ComfyUI(누끼)가 쓰이며 도우미가 자동으로 준비합니다.
@@ -616,6 +616,11 @@ export default function AllInOneRegisterPanel() {
   const helperGenRef = useRef<Map<string, GenRecord> | null>(null);
   // 진단용 — 도우미 연결이 어느 단계에서 끊겼는지 보관(카드가 빌 때 화면에 그대로 노출).
   const [helperDiag, setHelperDiag] = useState<HelperDiag | null>(null);
+  // ⭐ 마지막으로 성공한 진단을 붙잡아 둔다 — 진단이 한 번 실패했다고 "이전 생성결과 불러오기"
+  //   버튼을 지워버리면 화면이 초기화된 것처럼 보인다(실사용 문의: "자꾸 초기화된다").
+  //   생성이 새로 시작되면 결과 파일이 아직 없어 manifest 가 잠깐 실패하는데, 그때 버튼이
+  //   사라져서 방금까지 있던 결과를 부를 방법이 없어졌다. 성공 이력이 있으면 계속 보여준다.
+  const [lastGoodDiag, setLastGoodDiag] = useState<HelperDiag | null>(null);
   const [diag, setDiag] = useState<ScanDiag | null>(null);
   const [diagOpen, setDiagOpen] = useState(true);
 
@@ -638,6 +643,7 @@ export default function AllInOneRegisterPanel() {
       const d = await diagnoseLocalHelper();
       if (cancelled) return;
       setHelperDiag(d);
+      if (d.ok) setLastGoodDiag(d);
       if (!d.ok) {
         timer = setTimeout(run, 20_000); // 아직 안 되는 중 → 계속 지켜본다
         return;
@@ -947,7 +953,7 @@ export default function AllInOneRegisterPanel() {
           // 파일 자체가 없음 — 가장 흔한 원인. product_* 는 찾았으므로 폴더는 맞고, 올인원 생성만 안 돌린 상태.
           setError(
             `product_* 폴더 ${built.length}개는 찾았지만 이 폴더는 아직 올인원 생성을 돌리지 않았습니다(카드에 채울 결과가 없습니다). ` +
-            `데스크탑 메가로드 도우미 앱 → ⚙️ 올인원 생성 → 이 폴더를 선택·실행한 뒤, 여기서 "도우미에서 바로 불러오기"(또는 폴더 재선택)를 누르세요. ` +
+            `데스크탑 메가로드 도우미 앱 → ⚙️ 올인원 생성 → 이 폴더를 선택·실행한 뒤, 여기서 "도우미 결과 불러오기"(또는 폴더 재선택)를 누르세요. ` +
             `자세한 절차는 아래 진단 패널의 "다음 조치"를 참고하세요.`,
           );
         } else if (gscan.recordCount === 0) {
@@ -969,7 +975,7 @@ export default function AllInOneRegisterPanel() {
     }
   }, [helperFolder]);
 
-  // ── 도우미에서 바로 불러오기 (폴더 선택 0회) ─────────────────────────
+  // ── 도우미 결과 불러오기 (폴더 선택 0회) ─────────────────────────
   // 도우미가 이미 폴더 경로를 알고, 결과·이미지가 그 PC 에 있으므로 웹이 localhost 로 직접 읽는다.
   // 이미지도 shim(handle.getFile→fetchLocalFile)으로 감싸 기존 등록 업로드 경로를 그대로 재사용한다.
   // → Storage 선업로드 없음(승인분만 등록 때 올라감), 폴더 재선택 없음.
@@ -1595,12 +1601,18 @@ export default function AllInOneRegisterPanel() {
           {scanning ? '처리 중…' : '소싱 폴더 선택 → 자동 생성'}
         </button>
         {/* 이미 도우미가 생성해 둔 결과가 있으면 바로 불러오기(생성 없이). */}
-        {helperDiag?.ok && (
-          <button onClick={handleLoadFromHelper} disabled={scanning || registering}
-            className="text-sm font-semibold rounded-lg px-4 py-2 border border-gray-300 text-gray-700 disabled:opacity-50">
-            {scanning ? '불러오는 중…' : `이전 생성결과 불러오기 (${helperDiag.records ?? 0})`}
-          </button>
-        )}
+        {(helperDiag?.ok || lastGoodDiag?.ok) && (() => {
+          // 현재 진단이 잠깐 실패해도(생성 시작 직후 등) 마지막 성공 정보로 버튼을 유지한다.
+          const src = helperDiag?.ok ? helperDiag : lastGoodDiag!;
+          const stale = !helperDiag?.ok;
+          return (
+            <button onClick={handleLoadFromHelper} disabled={scanning || registering}
+              title={stale ? '도우미 재확인 중 — 직전에 확인된 결과입니다.' : undefined}
+              className="text-sm font-semibold rounded-lg px-4 py-2 border border-gray-300 text-gray-700 disabled:opacity-50">
+              {scanning ? '불러오는 중…' : `도우미 결과 불러오기 (${src.records ?? 0})${stale ? ' · 재확인 중' : ''}`}
+            </button>
+          );
+        })()}
         {/* 이미 폴더에 결과가 있을 때 그것만 읽기(생성 안 함) — 고급/폴백. */}
         <button onClick={handlePick} disabled={scanning || registering}
           className="text-xs font-medium rounded-lg px-3 py-2 text-gray-500 hover:text-gray-700 disabled:opacity-50">
@@ -1675,7 +1687,7 @@ export default function AllInOneRegisterPanel() {
       {/* 도우미가 결과를 들고 있으면 어느 폴더를 골라야 하는지 미리 알려준다(폴더 오선택 예방). */}
       {helperFolder && rows.length === 0 && (
         <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 break-all">
-          도우미가 생성해 둔 결과가 있습니다(<b>{helperFolder}</b>). 위 <b>&ldquo;도우미에서 바로 불러오기&rdquo;</b>를 누르면 폴더 선택 없이 카드가 채워집니다.
+          도우미가 생성해 둔 결과가 있습니다(<b>{helperFolder}</b>). 위 <b>&ldquo;도우미 결과 불러오기&rdquo;</b>를 누르면 폴더 선택 없이 카드가 채워집니다.
         </p>
       )}
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
@@ -2079,8 +2091,8 @@ export default function AllInOneRegisterPanel() {
       {rows.length === 0 && !scanning && (
         <div className="text-center text-sm text-gray-400 py-16 border-2 border-dashed border-gray-200 rounded-xl">
           {helperDiag?.ok
-            ? '위 “도우미에서 바로 불러오기”를 누르면 폴더 선택 없이 카드가 채워집니다.'
-            : '먼저 데스크탑 메가로드 도우미 → ⚙️ 올인원 생성으로 폴더를 처리하세요. 그다음 여기서 “도우미에서 바로 불러오기”(또는 소싱 폴더 선택)로 불러옵니다.'}
+            ? '위 “도우미 결과 불러오기”를 누르면 폴더 선택 없이 카드가 채워집니다.'
+            : '먼저 데스크탑 메가로드 도우미 → ⚙️ 올인원 생성으로 폴더를 처리하세요. 그다음 여기서 “도우미 결과 불러오기”(또는 소싱 폴더 선택)로 불러옵니다.'}
         </div>
       )}
     </div>

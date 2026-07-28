@@ -4,6 +4,7 @@
 //   ② pair-server /allinone/generate — 웹이 업로드한 임시폴더를 생성(웹 주도).
 // ⚠️ ollama(텍스트)·ComfyUI(누끼)가 떠 있어야 함(services 로 자동 기동).
 import { spawn } from 'node:child_process';
+import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkGpu } from './bootstrap.mjs';
 import { listModels } from '../runtime/local-llm.mjs';
@@ -48,6 +49,45 @@ export async function pickGenProfile() {
 
 export function isGenerating() { return !!child; }
 
+// ── 예상 소요시간 ────────────────────────────────────────────────────────────
+//   실측 기준(RTX 4060 Ti):
+//     · GPU 적재 정상 : 상품당 약 60초 (인식 22초 + 텍스트/이미지)
+//     · VRAM 부족     : 상품당 약 6분  (실측 인식만 2분14초/7분39초/4분38초 — 비전 7B 가
+//                                      GPU 에 못 올라가 CPU 로 돈다)
+//   여유 VRAM 이 비전 모델(약 5.7GB)을 못 담으면 "느린 모드"로 본다.
+const SEC_PER_PRODUCT_GPU = 60;
+const SEC_PER_PRODUCT_CPU = 360;
+const VISION_VRAM_MB = 5700;
+
+/** 폴더의 product_* 개수 — 예상 시간 계산용(스캔 실패해도 생성은 진행). */
+function countProducts(folder) {
+  try {
+    return readdirSync(folder, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && /^product_/i.test(d.name)).length;
+  } catch { return 0; }
+}
+
+/** 사람이 읽는 소요시간 */
+function humanMin(sec) {
+  const m = Math.round(sec / 60);
+  if (m < 1) return '1분 미만';
+  if (m < 60) return `약 ${m}분`;
+  return `약 ${Math.floor(m / 60)}시간 ${m % 60}분`;
+}
+
+/**
+ * 생성 전 예상 소요시간 산정. degraded=true 면 VRAM 부족으로 CPU 처리가 되는 상태.
+ * @returns {{products:number, degraded:boolean, etaSec:number, etaText:string, freeMb:number}}
+ */
+export function estimateGeneration(folder, profile) {
+  const products = countProducts(folder);
+  const freeMb = profile?.gpu?.vramFreeMb ?? 0;
+  const degraded = !profile?.gpu?.ok || freeMb < VISION_VRAM_MB;
+  const per = degraded ? SEC_PER_PRODUCT_CPU : SEC_PER_PRODUCT_GPU;
+  const etaSec = Math.max(1, products) * per;
+  return { products, degraded, etaSec, etaText: humanMin(etaSec), freeMb };
+}
+
 /**
  * 폴더 하나를 올인원 생성한다. 성공 시 lastAllinoneFolder 를 갱신해
  * 웹 /allinone/* 직독이 이 폴더의 결과를 읽게 한다.
@@ -55,6 +95,9 @@ export function isGenerating() { return !!child; }
  */
 export async function startGeneration({
   services, paths, store, send, folder, noThumb = false, onDone, onProgress,
+  // VRAM 부족으로 매우 느려질 때 사용자에게 물어보는 훅(앱 UI 전용).
+  //   미지정(웹 경로)이면 묻지 않고 경고만 남기고 진행한다.
+  confirmSlow,
 }) {
   if (!folder) throw new Error('폴더가 지정되지 않았습니다.');
   if (child) throw new Error('이미 생성이 진행 중입니다.');
@@ -68,10 +111,34 @@ export async function startGeneration({
       ? `${profile.gpu.name} · VRAM 남음 ${gb(profile.gpu.vramFreeMb)}/${gb(profile.gpu.vramMb)}GB`
       : 'GPU 없음(CPU)'} `
     + `→ 모델 ${profile.model} · 상세 ${profile.detailTokens}토큰 · 상품 동시 ${profile.concurrency}개 (짧은필드 병렬)`);
-  if (profile.scarce) {
+  // ── 예상 소요시간 안내 ─────────────────────────────────────────────────────
+  //   "얼마나 걸릴지"를 안 알려주면 느린 실행이 고장으로 보인다(실측 문의: VRAM 0.6GB 상태에서
+  //   인식 1건에 2~8분 걸리자 "생성이 안 된다"고 판단). 시작 전에 숫자로 말한다.
+  const est = estimateGeneration(folder, profile);
+  const fast = humanMin(Math.max(1, est.products) * SEC_PER_PRODUCT_GPU);
+  send('allinone:log',
+    `[예상] 상품 ${est.products}개 · ${est.etaText} 소요 예상`
+    + (est.degraded ? ` (VRAM 부족으로 CPU 처리 — 정상이면 ${fast})` : ''));
+  if (est.degraded) {
     send('allinone:log',
-      `⚠️ 남은 VRAM 이 ${gb(profile.gpu.vramFreeMb)}GB 뿐입니다 — 다른 프로그램이 그래픽카드를 점유 중입니다. `
-      + `AI 생성이 CPU 로 밀려 매우 느려집니다. 브라우저·다른 AI 도구 등 무거운 프로그램을 닫으면 몇 배 빨라집니다.`);
+      `⚠️ 지금 쓸 수 있는 VRAM 이 ${gb(est.freeMb)}GB 뿐이라 AI 모델이 그래픽카드에 못 올라갑니다. `
+      + `다른 AI 프로그램(ComfyUI·음악/영상 생성 등)이나 무거운 앱을 닫고 다시 시작하면 `
+      + `${est.etaText} → ${fast} 로 줄어듭니다.`);
+    // 앱에서 시작한 경우엔 물어본다 — 웹 경로(confirmSlow 없음)는 경고만 남기고 진행.
+    if (typeof confirmSlow === 'function') {
+      let go = true;
+      try {
+        go = await confirmSlow({
+          products: est.products, etaText: est.etaText, fastText: fast, freeGb: gb(est.freeMb),
+        });
+      } catch { go = true; }   // 확인창 자체가 실패하면 막지 않는다
+      if (!go) {
+        send('allinone:log', '생성을 시작하지 않았습니다 — 무거운 프로그램을 닫고 다시 눌러주세요.');
+        onDone?.(0, null);
+        send('allinone:done', { code: 0, canceled: true });
+        return false;
+      }
+    }
   }
   if (services?.ollama) services.ollama.model = profile.model; // ensureModel 이 이 모델을 pull/확인
 
