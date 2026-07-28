@@ -129,69 +129,6 @@ export async function buildContactSheet(paths, { max = 24, cell = CELL, maxCols 
 
 const VALID_TYPES = new Set(['product', 'texture', 'lifestyle', 'logo_text', 'delivery', 'review_ss', 'person', 'other']);
 
-// ── 2단계: 대표 후보만 큰 해상도로 다시 보고 "잘렸는지" 판정 ─────────────────
-//   1단계 격자는 후보를 최대 24칸(셀 300px)에 몰아넣어 전체를 훑는다. 유형 분류
-//   (상품/로고/배너/캡처)는 그 해상도로 충분하지만, "이 병이 위아래로 잘렸는가"는
-//   셀이 작아 답이 안 나오는 질문이다 — 실측으로 뚜껑도 바닥도 없는 확대 접사가
-//   대표로 뽑혔다(아로마티카 알로에젤 converted_04).
-//   sharp 의 기하 측정으로도 못 잡는다: 흰배경 누끼라 피사체가 프레임 변에 닿지 않고,
-//   반투명 흰 병이라 테두리 배경색 마스크가 몸통을 배경으로 오인한다(피사체 40%로 측정,
-//   실제 85%). → 결정론적 방법이 원리적으로 막히는 지점이라 VLM 에게 크게 보여주고 다시 묻는다.
-const FULLFRAME_CELL = 560;   // 2×2 격자 = 약 1.1k 정사각 — 잘림이 눈에 보이는 크기
-const FULLFRAME_MAX = 4;      // 후보 상위 4장만(콜 1회 추가로 끝내기 위해)
-
-const FULLFRAME_SYSTEM =
-  'You are a Korean e-commerce main-image auditor. You judge ONLY whether the product is fully '
-  + 'visible inside each numbered cell, or whether it is cut off by the frame edge. '
-  + 'Answer ONLY with JSON.';
-
-/**
- * 대표 후보들을 큰 셀로 다시 보고 "상품이 온전히 들어왔는가"만 판정.
- * @param {string[]} paths  후보(상위 몇 장)
- * @returns {Promise<Map<string, {full:boolean, cut:string}> | null>} 실패 시 null(호출부는 1단계 결과 유지)
- */
-export async function judgeFullFrame(paths, { model, onLog } = {}) {
-  const src = (paths || []).filter(Boolean).slice(0, FULLFRAME_MAX);
-  if (!model || src.length < 2) return null;   // 후보가 1장뿐이면 비교 의미 없음
-  let sheet;
-  try { sheet = await buildContactSheet(src, { max: FULLFRAME_MAX, cell: FULLFRAME_CELL, maxCols: 2 }); }
-  catch { return null; }
-  if (!sheet) return null;
-  const n = sheet.usedPaths.length;
-
-  const prompt =
-    `한 상품의 대표이미지 후보 ${n}장을 번호(빨간 배지 1~${n}) 격자로 합친 것이다.\n`
-    + `각 칸에 대해 **상품 전체가 프레임 안에 다 들어왔는지**만 판정하라.\n\n`
-    + `- full=false (잘림): 상품의 일부가 사진 경계에서 끊겨 있다. 예) 병의 뚜껑이나 바닥이 안 보이는 확대 접사, `
-    + `포장의 위/아래가 잘린 컷, 상품의 한쪽 면만 크게 찍혀 윤곽이 닫히지 않는 컷.\n`
-    + `- full=true (온전): 상품의 위·아래·좌·우 윤곽이 모두 사진 안에서 닫혀 있고 보통 여백이 있다.\n\n`
-    + `⚠️ 배경이 흰색이어도 상품 자체가 잘려 있으면 full=false 다. 확대되어 크게 보이는 것과 온전한 것은 다르다.\n`
-    + `cut 에는 잘린 방향을 적어라(위/아래/좌/우, 여러 개면 쉼표. 온전하면 빈 문자열).\n\n`
-    + `출력은 JSON만: {"cells":[{"i":1,"full":true,"cut":""},...(1~${n} 전부)]}`;
-
-  let text;
-  try {
-    const res = await generateVision({
-      model, system: FULLFRAME_SYSTEM, prompt, images: [sheet.b64], format: 'json',
-      options: { num_predict: 300 },
-    });
-    text = res.text;
-  } catch (e) {
-    onLog?.(`[비전] 잘림 재확인 호출 실패(${String(e?.message || e).slice(0, 80)}) — 1단계 결과 유지`);
-    return null;
-  }
-  const j = parseJsonLoose(text);
-  if (!j || !Array.isArray(j.cells)) { onLog?.('[비전] 잘림 재확인 파싱 실패 — 1단계 결과 유지'); return null; }
-
-  const out = new Map();
-  for (const c of j.cells) {
-    const i = Number(c.i);
-    if (!Number.isInteger(i) || i < 1 || i > n) continue;
-    out.set(sheet.usedPaths[i - 1], { full: c.full !== false, cut: String(c.cut || '').trim() });
-  }
-  return out.size ? out : null;
-}
-
 const JUDGE_SYSTEM =
   'You are a Korean e-commerce product-image auditor. You look at a numbered grid of candidate '
   + 'images for ONE product listing and classify each cell by what it actually shows. '
@@ -282,6 +219,7 @@ const MAIN_OK = new Set(['product']);
 const DETAIL_OK = new Set(['product', 'texture', 'lifestyle']);
 const REVIEW_OK = new Set(['product', 'lifestyle', 'texture']);
 
+
 /**
  * 상품 1개의 대표/상세/리뷰 이미지를 VLM 이 "직접 보고" 큐레이션.
  * ---------------------------------------------------------------------------
@@ -308,10 +246,33 @@ export async function visionCurateProduct({ mainPool = [], detailPool = [], revi
   const detail = uniq(detailPool).filter((p) => !main.includes(p));
   const review = uniq(reviewPool);
 
+  // ── 후보 정리: 원본/누끼본 중복 제거 + 상세컷 몫 확보 ──────────────────────
+  //   소싱 폴더 main_images 에는 원본(1.jpg…)과 소싱처가 누끼한 사본(converted_01.jpg…)이
+  //   **둘 다** 들어온다(실측 56/56 = 100%). 같은 사진이 두 칸을 먹으니 격자 24칸이
+  //   대표 후보만으로 차 버려서, 38%(21/56) 의 상품은 상세컷이 한 장도 심사되지 못했다
+  //   (알로에젤: 원본 14 + 누끼 10 = 24칸 전부 소진 → 상세 0장 판정).
+  //
+  //   선호 계열을 먼저 채우고 남는 칸만 나머지 계열에 준다(짝을 못 찾는 컷도 유실 없음).
+  //     · 과일·음식 : 누끼가 어색하므로 **원본** 우선
+  //     · 그 외     : 쿠팡 대표컷 규격에 맞는 **누끼본** 우선
+  const isCutFile = (p) => /(^|[\\/])converted[_-]?\d*/i.test(String(p));
+  const cutFiles = main.filter(isCutFile);
+  const rawFiles = main.filter((p) => !isCutFile(p));
+  const preferred = isFresh ? rawFiles : cutFiles;
+  const others = isFresh ? cutFiles : rawFiles;
+  // 상세컷이 있으면 대표 후보가 격자를 다 먹지 않도록 몫을 나눈다(없으면 전부 대표에).
+  const MAX_CELLS = 24;
+  const mainBudget = detail.length ? 14 : MAX_CELLS;
+  const mainForJudge = (preferred.length ? [...preferred, ...others] : main).slice(0, mainBudget);
+  if (main.length > mainForJudge.length) {
+    onLog?.(`[비전] 대표 후보 ${main.length}장 → ${mainForJudge.length}장으로 정리`
+      + `(${isFresh ? '원본' : '누끼본'} 우선, 상세컷 심사 칸 확보)`);
+  }
+
   // 격자 1: 대표 후보 + 상세컷 함께(대표는 상세컷으로도 승격 가능하므로 한 판에 심사).
   //   ⚠️ 격자 상한(24)을 넘는 컷은 "미판정"이 된다 → 아래 상세 루프에서 미판정=보존으로
   //      처리해 유실을 막는다(judgeImages 가 실제로 격자에 넣은 컷만 typeOf 에 담긴다).
-  const combined = [...main, ...detail].slice(0, 24);
+  const combined = [...mainForJudge, ...detail].slice(0, MAX_CELLS);
   if (combined.length === 0 && review.length === 0) return null;
 
   const typeOf = new Map();      // path → type
@@ -356,6 +317,8 @@ export async function visionCurateProduct({ mainPool = [], detailPool = [], revi
     ...combined.filter((p) => typeOf.get(p) === 'product'),
     ...reviewMainCandidates,
   ];
+  let shortlist = [];
+  let geoInfo = null;
   if (productCands.length > 1) {
     const geo = await measureCandidates(productCands, { onLog });
     if (geo) {
@@ -368,21 +331,28 @@ export async function visionCurateProduct({ mainPool = [], detailPool = [], revi
         const cutoutAdj = isFresh ? (g.cutout ? 0.6 : 1.15) : (g.cutout ? 1.3 : 1);
         return g.score * cutoutAdj;
       };
-      const sorted = [...pool].sort((a, b) => rank(b) - rank(a));
-      const keptVlmPick = bestMainPath && pool.includes(bestMainPath);
-      // VLM 선택이 잘림으로 탈락했거나, 과일인데 누끼컷을 골랐으면 교체한다.
-      const vlmPickBad = bestMainPath && (!keptVlmPick || (isFresh && geo.get(bestMainPath)?.cutout));
-      if (vlmPickBad && sorted[0]) {
-        const why = !keptVlmPick ? '상품이 프레임 밖으로 잘림' : '과일·음식은 누끼컷이 어색함';
-        onLog?.(`[비전] 대표 교체(${why}): ${basename(bestMainPath)} → ${basename(sorted[0])}`);
-        bestMainPath = sorted[0];
-      } else if (!bestMainPath && sorted[0]) {
-        bestMainPath = sorted[0];
-      }
-      if (bestMainPath && reviewMainCandidates.includes(bestMainPath) && !promotedFromReview) {
-        promotedFromReview = bestMainPath;
+      shortlist = [...pool].sort((a, b) => rank(b) - rank(a));
+      geoInfo = geo;
+    }
+  }
+  if (!shortlist.length) shortlist = productCands;
+
+  // 1단계 기하 심사 결과 반영 — VLM 선택이 잘림으로 탈락했거나 과일인데 누끼컷이면 교체.
+  if (geoInfo && bestMainPath && shortlist.length) {
+    const g = geoInfo.get(bestMainPath);
+    const droppedByGeo = g?.cropped && shortlist.some((p) => !geoInfo.get(p)?.cropped);
+    const awkwardCutout = isFresh && g?.cutout && shortlist.some((p) => !geoInfo.get(p)?.cutout);
+    if (droppedByGeo || awkwardCutout) {
+      const alt = shortlist.find((p) => (droppedByGeo ? !geoInfo.get(p)?.cropped : !geoInfo.get(p)?.cutout));
+      if (alt && alt !== bestMainPath) {
+        onLog?.(`[비전] 대표 교체(${droppedByGeo ? '프레임 밖으로 잘림' : '과일·음식은 누끼컷이 어색함'}): ${basename(bestMainPath)} → ${basename(alt)}`);
+        bestMainPath = alt;
       }
     }
+  }
+  if (!bestMainPath && shortlist.length) bestMainPath = shortlist[0];
+  if (bestMainPath && reviewMainCandidates.includes(bestMainPath) && !promotedFromReview) {
+    promotedFromReview = bestMainPath;
   }
 
   // 대표: product 만. bestMain 이 원래 대표풀이 아니면(상세컷) 승격 표시.
