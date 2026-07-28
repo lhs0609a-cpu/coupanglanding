@@ -128,6 +128,32 @@ export function matchCertificationType(rawName: string | undefined): string | nu
   return null;
 }
 
+// 쿠팡이 "인증번호 입력칸"을 제공하는 인증 계열(dataType='CODE' 10종)의 어휘.
+//   전기용품/어린이제품/생활용품 안전인증·안전확인, 방송통신기자재 적합인증·적합등록,
+//   생활화학제품·살생물제, KCs 안전인증·자율안전확인 — 이게 전부다(16k 전수 실측).
+//
+// 용도: 매칭 실패한 라벨이 "쿠팡에 칸이 있는데 우리가 못 붙인 것"인지
+//      "쿠팡에 애초에 칸이 없는 것"인지 가른다. 후자(HACCP·할랄·ISO·GAP 등)는
+//      사용자가 취할 수 있는 조치가 없으므로 경고로 띄우지 않는다.
+//
+// ⚠️ '공급자적합성확인'은 '적합'을 포함하지만 번호칸이 없는(NONE) 항목이라 제외해야 한다
+//    → '적합인증|적합등록|적합성 평가'로만 좁힌다.
+const CODE_SLOT_VOCAB = /안전인증|안전확인|자율안전|적합인증|적합등록|적합성\s*평가|생활화학|살생물|KCs/i;
+
+/**
+ * 매칭 실패한 라벨이 "조치 가능한 누락"인지 판정.
+ *
+ * true  → 쿠팡에 번호칸이 있는 계열로 보이는데 못 붙였다 = 룰 갭 의심 → 검수 경고 대상
+ * false → 쿠팡에 대응 항목 자체가 없다(HACCP·할랄·ISO 등) = 조치 불가 → 경고 억제
+ */
+export function looksLikeCodeCertification(rawName: string | undefined): boolean {
+  if (!rawName) return false;
+  const label = rawName.split(' - ')[0];
+  // 공급자적합성확인은 번호칸이 없는 항목 — '적합'에 걸려 오탐하지 않게 먼저 배제
+  if (/공급자적합성/.test(label)) return false;
+  return CODE_SLOT_VOCAB.test(label);
+}
+
 /** 한 건의 인증이 어떻게 처리됐는지 (검수 UI 표시용) */
 export interface GroundedCertification {
   certificationType: string;
@@ -160,8 +186,10 @@ export interface GroundedCertification {
  *                ③ 확신이 없으면 그 인증은 버린다(틀린 칸에 번호를 넣지 않는다).
  *
  * @returns certs: 전송할 배열
- *          missing: 소싱 인증이 있는데 단 하나도 연결 못함 → NOT_REQUIRED 로 등록됨(진짜 문제)
- *          unmatched: 어느 쿠팡 항목에도 연결 못한 원본 라벨
+ *          missing: 조치 가능한 누락이 있는데 하나도 연결 못함 → 진짜 경고 대상
+ *          unmatched: 어느 쿠팡 항목에도 연결 못한 원본 라벨(전체 — 로그·정보 표시용)
+ *          actionable: unmatched 중 사용자가 조치할 수 있는 것만(= 검수 경고 대상)
+ *          unsupported: unmatched 중 쿠팡에 대응 항목이 없는 것(= 조치 불가, 경고 억제)
  *          grounded: 연결된 건의 상세(체크박스형 여부 포함) — 검수 UI 가 문구를 가른다
  */
 export function groundCertifications(
@@ -171,6 +199,8 @@ export function groundCertifications(
   certs: CertificationInfo[];
   missing: boolean;
   unmatched: string[];
+  actionable: string[];
+  unsupported: string[];
   grounded: GroundedCertification[];
 } {
   const offered = (required || []).filter(
@@ -218,7 +248,13 @@ export function groundCertifications(
     });
   }
 
-  // 소싱 인증이 있는데 단 하나도 연결 못했다 → 검수 신호(등록은 NOT_REQUIRED 로 진행)
-  const missing = normalized.length > 0 && certs.length === 0;
-  return { certs, missing, unmatched, grounded };
+  // 빠진 건을 "조치 가능 / 조치 불가"로 가른다.
+  //   쿠팡에 칸이 없는 인증(HACCP·할랄 등)은 사용자가 할 수 있는 게 없다 →
+  //   경고로 띄우면 매번 뜨는데 아무도 못 고치는 노이즈가 된다. 정보로만 남긴다.
+  const actionable = unmatched.filter((n) => looksLikeCodeCertification(n));
+  const unsupported = unmatched.filter((n) => !looksLikeCodeCertification(n));
+
+  // 조치 가능한 누락이 있는데 아무것도 못 붙였다 → 진짜 경고(등록은 NOT_REQUIRED 로 진행)
+  const missing = actionable.length > 0 && certs.length === 0;
+  return { certs, missing, unmatched, actionable, unsupported, grounded };
 }

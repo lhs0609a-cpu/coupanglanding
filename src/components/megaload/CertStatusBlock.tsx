@@ -40,11 +40,18 @@ export function CertStatusBlock({ previews, products, loading, onRetry }: Props)
 
   // 문제가 없으면 접힌 한 줄 요약만 (검수 화면을 어지럽히지 않는다)
   if (problems.length === 0) {
+    // 쿠팡에 칸이 없어 빠진 인증은 조치 불가라 경고가 아니다 — 사실만 회색으로 덧붙인다.
+    const unsupportedCount = rows.reduce((n, r) => n + (r.preview.unsupported?.length || 0), 0);
     return (
       <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
         <span className="font-semibold">인증정보 확인 완료</span>
-        {okCount > 0 && <span className="ml-2">인증번호 등록 {okCount}건</span>}
+        {okCount > 0 && <span className="ml-2">인증 반영 {okCount}건</span>}
         {noneCount > 0 && <span className="ml-2 text-emerald-700">인증 대상 아님 {noneCount}건</span>}
+        {unsupportedCount > 0 && (
+          <span className="ml-2 text-gray-500">
+            · 쿠팡에 항목 없는 인증 {unsupportedCount}건(등록 불가 — 조치 불필요)
+          </span>
+        )}
       </div>
     );
   }
@@ -61,7 +68,7 @@ export function CertStatusBlock({ previews, products, loading, onRetry }: Props)
           <p className="mt-1 text-xs text-amber-800">
             {failedCount > 0
               ? `${failedCount}건은 소싱한 인증이 등록에 반영되지 않습니다. 이대로 올리면 "인증대상아님"으로 등록됩니다.`
-              : '일부 인증이 쿠팡에 대응 항목이 없어 등록에서 빠집니다.'}
+              : '일부 인증이 등록에서 빠집니다.'}
           </p>
         </div>
         {onRetry && (
@@ -100,8 +107,8 @@ export function CertStatusBlock({ previews, products, loading, onRetry }: Props)
 
       <p className="mt-2 text-[11px] text-amber-800">
         전기용품·어린이제품 등 인증 대상 상품을 인증정보 없이 등록하면 쿠팡 판매 정지 사유가 될 수 있습니다.
-        쿠팡 인증 항목은 전 카테고리 공통 27종이라, 여기 없는 인증(HACCP 등)은 윙에서도 넣을 칸이 없습니다.
-        &quot;빠짐&quot;에 뜬 항목이 전기용품·어린이제품 계열이면 윙에서 직접 보완해주세요.
+        여기 뜬 항목은 쿠팡에 인증번호 입력칸이 있는 인증이므로, 윙에서 직접 보완할 수 있습니다.
+        (쿠팡에 아예 칸이 없는 인증은 조치할 수 없어 이 목록에 넣지 않습니다.)
       </p>
     </div>
   );

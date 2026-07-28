@@ -12,7 +12,7 @@
 //   ③ 소싱 라벨로만 타입을 고른다(상품명/카테고리 추론 금지).
 // ============================================================
 
-import { normalizeCertifications, groundCertifications } from '../src/lib/megaload/services/cert-normalizer';
+import { normalizeCertifications, groundCertifications, looksLikeCodeCertification } from '../src/lib/megaload/services/cert-normalizer';
 
 const OFFERED = [
   ['NOT_REQUIRED', '인증대상아님', 'NONE'],
@@ -94,11 +94,41 @@ check(
 const empty = groundCertifications(normalizeCertifications([]), OFFERED);
 check(empty.certs.length === 0 && !empty.missing, `인증 없음 → certs=0, missing=false (NOT_REQUIRED 폴백 유지)`);
 
-// 회귀: 대응 없는 인증만 있으면 missing=true (진짜 경고를 띄워야 하는 경우)
+// ── 경고 억제: 사용자가 조치할 수 없는 누락은 경고로 올리지 않는다 ──
+//   쿠팡에 칸이 없는 인증(HACCP·할랄)만 있으면 윙에서도 넣을 데가 없다 → 경고 X
 const onlyUnsupported = groundCertifications(normalizeCertifications([
   { name: '[식품]HACCP_국가인증 - 식약처', cert_number: 'H-3' },
+  { name: '할랄인증 - JAKIM', cert_number: 'HAL-1' },
 ]), OFFERED);
-check(onlyUnsupported.missing && onlyUnsupported.certs.length === 0, `대응없는 인증만 → missing=true`);
+check(
+  !onlyUnsupported.missing && onlyUnsupported.actionable.length === 0 && onlyUnsupported.unsupported.length === 2,
+  `쿠팡 미제공 인증만 → 경고 없음 (missing=${onlyUnsupported.missing}, actionable=${onlyUnsupported.actionable.length}, unsupported=${onlyUnsupported.unsupported.length})`,
+);
+
+// 반대로 쿠팡에 번호칸이 있는 계열인데 못 붙였으면 = 룰 갭 → 반드시 경고
+const ruleGap = groundCertifications(normalizeCertifications([
+  { name: '안전인증대상제품 안전인증 - 미상기관', cert_number: 'XX-1' },
+]), OFFERED);
+check(
+  ruleGap.actionable.length === 1 && ruleGap.missing,
+  `번호칸 있는 계열 누락(룰 갭) → 경고 유지 (actionable=${ruleGap.actionable.length}, missing=${ruleGap.missing})`,
+);
+
+// 공급자적합성확인은 '적합'을 포함하지만 번호칸이 없다 → 조치 가능으로 오분류되면 안 된다
+//   (정상 경로에선 체크박스로 붙지만, 오탐 방지 자체를 잠근다)
+check(
+  !looksLikeCodeCertification('[전기용품]공급자적합성확인_국가인증 - 자체'),
+  `'공급자적합성확인'을 번호칸 계열로 오판하지 않음`,
+);
+
+// 체크박스형만 붙은 경우 = 완전 정상 → 경고 0
+const checkboxOnlyCase = groundCertifications(normalizeCertifications([
+  { name: '[친환경]유기농산물_국가인증 - ECOCERT', cert_number: 'KR-ORG-001' },
+]), OFFERED);
+check(
+  !checkboxOnlyCase.missing && checkboxOnlyCase.actionable.length === 0 && checkboxOnlyCase.certs.length === 1,
+  `체크박스형만 → 경고 0, payload 1건 (오일 사례가 조용히 통과)`,
+);
 
 console.log(`\n== ${pass} pass / ${fail} fail ==`);
 process.exit(fail > 0 ? 1 : 0);

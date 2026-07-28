@@ -725,16 +725,20 @@ export async function POST(req: NextRequest) {
         const normalizedCerts = normalizeCertifications(product.sourceCertifications ?? product.certifications);
         if (normalizedCerts.length > 0) {
           const { items: offeredCerts } = await coupangAdapter.getCategoryCertifications(product.categoryCode);
-          const { certs, missing, unmatched, grounded } = groundCertifications(normalizedCerts, offeredCerts);
+          const { certs, missing, actionable, unsupported, grounded } = groundCertifications(normalizedCerts, offeredCerts);
           if (certs.length > 0) {
             product.certifications = certs;
             // 체크박스형(번호칸 없음)은 번호가 아니라 '체크'로 들어간 것이므로 로그도 구분한다.
             console.log(`[batch] 인증 grounding: ${grounded.map((g) => (g.checkboxOnly ? `${g.certificationType}=체크(번호칸없음)` : `${g.certificationType}=${g.code}`)).join(', ')}`);
           }
-          // 어느 쿠팡 인증 항목에도 연결 못한 건은 조용히 넘기지 않는다 —
-          // 전부 실패면 NOT_REQUIRED 로 등록되고 나중에 눈으로 찾기 어렵다.
-          if (unmatched.length > 0) {
-            const detail = `카테고리(${product.categoryCode}) 인증 매칭 실패 ${unmatched.length}건: ${unmatched.join(' / ')}`;
+          // 쿠팡에 대응 항목이 없는 인증(HACCP·할랄 등)은 사용자가 조치할 수 없다 →
+          // 사용자 경고로 올리지 않고 로그로만 남긴다(매번 뜨는 못 고치는 경고 방지).
+          if (unsupported.length > 0) {
+            console.log(`[batch] 쿠팡 미제공 인증 ${unsupported.length}건 (조치 불가, 경고 아님): ${unsupported.join(' / ')}`);
+          }
+          // 조치 가능한 누락만 경고 — 전부 실패면 NOT_REQUIRED 로 등록되고 나중에 찾기 어렵다.
+          if (actionable.length > 0) {
+            const detail = `카테고리(${product.categoryCode}) 인증 매칭 실패 ${actionable.length}건: ${actionable.join(' / ')}`;
             console.warn(`[batch] ${detail}${missing ? ' — 전부 실패, NOT_REQUIRED 로 등록됨' : ''}`);
             certWarnings.push({ productCode: product.productCode, detail, allFailed: missing });
           }

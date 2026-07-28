@@ -35,8 +35,10 @@ export interface CertPreviewResult {
     /** true = 쿠팡에 인증번호 입력칸이 없는 항목. 체크만 되며 번호는 원래 안 들어간다(정상). */
     checkboxOnly: boolean;
   }[];
-  /** 매칭 실패해 빠지는 원본 라벨 */
+  /** 빠지는 것 중 **조치 가능한** 원본 라벨(= 경고 대상) */
   unmatched: string[];
+  /** 쿠팡에 대응 인증 항목 자체가 없어 빠지는 라벨(HACCP·할랄 등). 조치 불가 → 경고 아님 */
+  unsupported: string[];
   message?: string;
 }
 
@@ -76,17 +78,17 @@ export async function POST(req: NextRequest) {
     const results: CertPreviewResult[] = products.map((p) => {
       const normalized = normalizeCertifications(p.sourceCertifications);
       if (normalized.length === 0) {
-        return { uid: p.uid, status: 'none', matched: [], unmatched: [] };
+        return { uid: p.uid, status: 'none', matched: [], unmatched: [], unsupported: [] };
       }
       const offered = metaByCode.get(p.categoryCode);
       if (!offered) {
         return {
-          uid: p.uid, status: 'error', matched: [], unmatched: normalized.map((n) => n.rawName || n.code),
+          uid: p.uid, status: 'error', matched: [], unmatched: normalized.map((n) => n.rawName || n.code), unsupported: [],
           message: '쿠팡 카테고리 인증 정보를 불러오지 못했습니다. 등록 시 다시 시도합니다.',
         };
       }
 
-      const { certs, unmatched, grounded } = groundCertifications(normalized, offered);
+      const { certs, actionable, unsupported, grounded } = groundCertifications(normalized, offered);
       const matched = grounded.map((g) => ({
         certificationType: g.certificationType,
         certificationName: g.offeredName || g.certificationType,
@@ -94,18 +96,21 @@ export async function POST(req: NextRequest) {
         checkboxOnly: g.checkboxOnly,
       }));
 
+      // 경고는 "사용자가 조치할 수 있는 누락"에만 띄운다.
+      //   쿠팡에 칸이 없는 인증(HACCP·할랄 등)은 윙에서도 넣을 데가 없다 →
+      //   경고로 올리면 아무도 못 고치는 노이즈가 되므로 unsupported 로만 알린다.
       let status: CertPreviewStatus = 'ok';
       let message: string | undefined;
-      if (certs.length === 0) {
-        status = 'failed';
-        message = '소싱 인증을 이 카테고리의 인증 항목에 연결하지 못했습니다. 이대로 등록하면 인증정보 없이(인증대상아님) 올라갑니다.';
-      } else if (unmatched.length > 0) {
-        status = 'partial';
-        // 쿠팡 인증 항목은 전 카테고리 공통 27종뿐이라, 여기 없는 인증(HACCP 등)은
-        // 애초에 넣을 칸이 없다 — 사용자가 할 수 있는 조치가 없다는 걸 명시한다.
-        message = `${unmatched.length}건은 쿠팡에 대응하는 인증 항목이 없어 등록에서 빠집니다.`;
+      if (actionable.length > 0) {
+        if (certs.length === 0) {
+          status = 'failed';
+          message = '소싱 인증을 이 카테고리의 인증 항목에 연결하지 못했습니다. 이대로 등록하면 인증정보 없이(인증대상아님) 올라갑니다.';
+        } else {
+          status = 'partial';
+          message = `${actionable.length}건이 등록에서 빠집니다.`;
+        }
       }
-      return { uid: p.uid, status, matched, unmatched, message };
+      return { uid: p.uid, status, matched, unmatched: actionable, unsupported, message };
     });
 
     return NextResponse.json({ results });
