@@ -29,7 +29,8 @@ export default {
           if (code !== 0) return;
           try {
             const origin = ctx.services?.webOrigin || 'https://www.megaload.co.kr';
-            ctx.shell?.openExternal(`${origin}/megaload/products/allinone`);
+            // 크롬으로 연다(기본 브라우저엔 로그인 세션이 없어 검수화면 대신 로그인이 뜬다).
+            ctx.openUrl(`${origin}/megaload/products/allinone`);
           } catch { /* 브라우저 열기 실패는 치명적 아님 — 결과는 이미 저장됨 */ }
         },
       });

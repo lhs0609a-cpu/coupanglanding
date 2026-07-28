@@ -20,6 +20,7 @@ import { startGeneration } from './allinone-runner.mjs';
 import * as bootstrap from './bootstrap.mjs';
 import { setupAutoUpdate, checkForUpdatesNow } from './auto-update.mjs';
 import { loadModules } from './shell/registry.mjs';
+import { openUrl } from './open-url.mjs';
 
 // ⚠️ 자동업데이트 피드 fetch 시 "net::ERR_FAILED / Network service crashed" 회피.
 //    일부 Windows/보안SW 환경에서 Electron 네트워크 서비스 샌드박스가 죽어 electron-updater 가 실패함.
@@ -184,6 +185,9 @@ function setupServices() {
 function buildContext() {
   return {
     app, ipcMain, shell, dialog,
+    // 모듈은 shell.openExternal 대신 이걸 쓴다 — 크롬(로그인 세션 있는 브라우저)으로 연다.
+    //  실패 시 내부에서 기본 브라우저로 폴백하므로 호출부는 신경 쓸 게 없다.
+    openUrl: (url) => openUrl(url, shell, (m) => log('shell', m)),
     paths: { userData: app.getPath('userData'), appRoot },
     store, send, log,
     services: {
@@ -256,7 +260,9 @@ function registerShellIpc(manifest) {
   });
   ipcMain.handle('shell:pair-open', () => {
     if (!pair) throw new Error('페어링 서버 준비 안 됨');
-    shell.openExternal(`${WEB_ORIGIN}/worker/activate?port=${pair.port}&nonce=${encodeURIComponent(pair.nonce)}`);
+    // 크롬으로 연다 — 기본 브라우저(Edge 등)엔 메가로드 로그인 세션이 없어
+    // 페어링 화면에서 다시 로그인해야 하는 일이 생긴다.
+    void openUrl(`${WEB_ORIGIN}/worker/activate?port=${pair.port}&nonce=${encodeURIComponent(pair.nonce)}`, shell);
     return true;
   });
   ipcMain.handle('shell:open-data', () => shell.openPath(app.getPath('userData')));

@@ -240,7 +240,7 @@ export default {
     'stock-monitor:start': (ctx) => { start(ctx); return true; },
     // 명시적 정지 — 자동 재개 플래그도 끔(다음 시작 때 자동 재개 안 함).
     'stock-monitor:stop': (ctx) => { stop(ctx); try { ctx.store.set('monitorEnabled', false); } catch {} return true; },
-    'stock-monitor:open-web': (ctx) => { ctx.shell.openExternal(ctx.services.webOrigin + '/megaload/desktop-app'); return true; },
+    'stock-monitor:open-web': (ctx) => { ctx.openUrl(ctx.services.webOrigin + '/megaload/desktop-app'); return true; },
   },
   // 앱 종료 시엔 plain stop만(플래그 보존) → 다음 실행에서 자동 재개.
   onQuit: (ctx) => stop(ctx),
