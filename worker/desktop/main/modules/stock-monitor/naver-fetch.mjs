@@ -129,6 +129,15 @@ async function fetchPageViaBrowser(url) {
 // 헛수고하지 말고 GT(구글 IP) 경로를 먼저 탄다. 가끔 BrowserWindow 를 재탐색해 회복 시 복귀.
 let _browser429Streak = 0;
 
+/**
+ * 페이지 본문 가져오기(외부 공개) — 올인원 "원본 상품명 가져오기"가 같은 경로를 쓴다.
+ * 네이버 안티봇은 Node fetch 를 즉시 429 로 막으므로(실측: 직접 429 / GT 403),
+ * 내장 크롬 → GT → undici 순서의 이 파이프라인을 반드시 재사용해야 한다.
+ */
+export async function fetchNaverPage(url) {
+  return fetchPage(url);
+}
+
 async function fetchPage(url) {
   const gt = toGoogleTranslateUrl(url);
   const preferGT = gt && _browser429Streak >= 3;

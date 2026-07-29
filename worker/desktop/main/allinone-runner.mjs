@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { checkGpu } from './bootstrap.mjs';
 import { listModels } from '../runtime/local-llm.mjs';
 import { maskInternalNames } from './mask-internal.mjs';
+import { resolveSourceTitles } from './source-title.mjs';
 
 let child = null;
 
@@ -142,6 +143,24 @@ export async function startGeneration({
     }
   }
   if (services?.ollama) services.ollama.model = profile.model; // ensureModel 이 이 모델을 pull/확인
+
+  // ── 원본 상품명을 소싱 링크에서 직접 가져온다 ─────────────────────────────
+  //   소싱 폴더의 product.json.name 이 분류 라벨 반복·설명 문장인 경우가 많아(실측 8건 중 5건),
+  //   노출명·옵션추출·카테고리가 통째로 오염된다. 판매 페이지의 실제 제목을 받아 파일로 남기면
+  //   run-folder 의 스캐너가 그걸 1순위 원본명으로 쓴다.
+  //   ⚠️ 반드시 여기(Electron 메인)에서 해야 한다 — 안티봇 때문에 순수 Node 프로세스는 못 뚫는다.
+  //   실패해도 생성은 그대로 진행한다(기존 이름 폴백).
+  try {
+    const t = await resolveSourceTitles(folder, (m) => send('allinone:log', m));
+    if (t.filled || t.cached || t.failed) {
+      send('allinone:log',
+        `[원본명] 링크에서 ${t.filled}건 확보`
+        + (t.cached ? ` · 캐시 ${t.cached}건` : '')
+        + (t.failed ? ` · 실패 ${t.failed}건(기존 상품명 사용)` : ''));
+    }
+  } catch (e) {
+    send('allinone:log', `[원본명] 조회 생략(${String(e?.message || e).slice(0, 80)}) — 기존 상품명으로 진행합니다.`);
+  }
 
   // 엔진 자동 기동 — ollama 는 없으면 자동 설치·기동·모델 다운로드까지.
   try {

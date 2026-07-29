@@ -1435,10 +1435,11 @@ export default function AllInOneRegisterPanel() {
               ? [chosen]
               : [chosen, ...r.mainImages.filter((m, i) => i >= r.regenCount && i !== r.selectedMainIdx && !reviewNames.has(m.name))];
           const mainUrls = (await uploadScannedImages(mainOrdered, 10, wm)).filter(Boolean);
-          // 본문 교차 이미지는 리뷰컷만(detailUrls 비움). 상세 설명 이미지는 맨 끝 "상품 상세정보"
-          //   섹션으로만 노출한다(descriptionUrls) — 본문에 섞지 않고, 잡컷은 비전이 이미 걸러둠.
+          // 본문 교차 이미지는 리뷰컷만(detailUrls 비움).
+          // ⚠️ 소싱처 상세컷("상품 상세정보" 섹션)은 **쓰지 않는다**(사용자 확정) — 멤버십·적립 배너가
+          //    섞여 들어오는 데다, 상품 정보는 아래 product_info(상품정보제공고시)로 충분하다.
+          //    업로드 자체를 안 하므로 스토리지·전송 비용과 등록 시간도 함께 줄어든다.
           const detailUrls: string[] = [];
-          const descriptionUrls = (await uploadScannedImages(r.detailImages, 12, wm)).filter(Boolean);
           // 카드에서 뺀 리뷰컷은 올리지 않는다(r.reviewImages = 편집 반영본).
           const reviewUrls = (await uploadScannedImages(r.reviewImages || [], 10, wm)).filter(Boolean);
           const infoUrls = (await uploadScannedImages(r.scanned.infoImages || [], 10, wm)).filter(Boolean);
@@ -1476,14 +1477,12 @@ export default function AllInOneRegisterPanel() {
               const av = Object.fromEntries(Object.entries(e.attributeValues).filter(([, v]) => v && v.trim()));
               return Object.keys(av).length ? av : undefined;
             })(),
-            // 원본(DOM) 상품설명 텍스트 — 맨 끝 "상품 상세정보" 섹션에 노출(있을 때만).
-            sourceDescription: (typeof pj.description === 'string' && pj.description.trim()) ? pj.description : undefined,
+            // "상품 상세정보"(원본 설명 텍스트·상세컷) 섹션은 쓰지 않는다 — sourceDescription 도 보내지 않는다.
             preUploadedUrls: {
               mainImageUrls: mainUrls,
               detailImageUrls: detailUrls,
               reviewImageUrls: reviewUrls,
               infoImageUrls: infoUrls,
-              descriptionImageUrls: descriptionUrls,
             },
           });
         }
@@ -2045,15 +2044,13 @@ export default function AllInOneRegisterPanel() {
                           이제 미리보기를 먼저 보여주고, 원문 편집은 아래에서 펼쳐 쓴다. */}
                       {(() => {
                         const paras = (e.detail || '').split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
-                        // 본문 교차는 리뷰이미지만. 상세 설명 이미지는 맨 끝 "상품 상세정보"로.
+                        // 본문 교차는 리뷰이미지만.
                         const reviewUrls = r.reviewImages.map((img) => img.objectUrl).filter((u): u is string => !!u);
-                        const descImgUrls = r.detailImages.map((img) => img.objectUrl).filter((u): u is string => !!u);
-                        const originDesc = (r.scanned.productJson?.description as string | undefined) || undefined;
                         // 상품정보(product_info) — 등록 때 실제로 첨부되는 "상품정보제공고시" 이미지.
-                        //   대량등록 상세페이지와 마찬가지로 **페이지 맨 마지막**이 이 상품정보다.
-                        //   예전엔 미리보기가 이걸 빼고 그려서, 끝이 상세컷(=광고 배너)으로 보였다.
+                        //   페이지 맨 마지막이 이 상품정보다(대량등록과 동일).
+                        // ⚠️ 소싱처 상세컷("상품 상세정보")은 쓰지 않는다 — 배너가 섞여 들어와 사용자가 제외 확정.
                         const infoUrls = (r.scanned.infoImages || []).map((img) => img.objectUrl).filter((u): u is string => !!u);
-                        if (paras.length === 0 && reviewUrls.length === 0 && descImgUrls.length === 0 && infoUrls.length === 0 && !originDesc) return null;
+                        if (paras.length === 0 && reviewUrls.length === 0 && infoUrls.length === 0) return null;
                         const html = buildRichDetailPageHtml({
                           productName: e.displayName || r.scanned.productJson?.name || r.productCode,
                           brand: '',
@@ -2062,9 +2059,6 @@ export default function AllInOneRegisterPanel() {
                           reviewImageUrls: reviewUrls,
                           detailImageUrls: [],
                           categoryPath: e.categoryPath,
-                          // 원본(DOM) 상품설명 — 텍스트 + 상세 설명 이미지를 고시 앞에 함께 노출(등록도 동일).
-                          originDescription: originDesc,
-                          descriptionImageUrls: descImgUrls,
                           // 상품정보제공고시 — 등록 payload 와 동일하게 맨 마지막에.
                           infoImageUrls: infoUrls,
                         }, 'A');
@@ -2074,7 +2068,6 @@ export default function AllInOneRegisterPanel() {
                               미리보기 — 등록될 상세페이지(글 + 이미지 교차)
                               <span className="ml-1 font-normal text-gray-400">
                                 본문 이미지 {reviewUrls.length}장{reviewUrls.length > 0 ? ' (리뷰컷)' : ''}
-                                {descImgUrls.length > 0 ? ` · 상품 상세정보 ${descImgUrls.length}장` : ''}
                                 {infoUrls.length > 0 ? ` · 상품정보 ${infoUrls.length}장` : ''}
                               </span>
                             </p>
