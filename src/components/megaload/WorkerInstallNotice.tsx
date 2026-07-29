@@ -116,7 +116,17 @@ export default function WorkerInstallNotice({
   if (link === 'online') {
     // ⚠️ 예전엔 연결된 도우미의 hostname/worker_id 를 나열했다("… · 공용, 공용, 공용").
     //    같은 이름이 반복돼 정보 가치가 없고, 내부 구성(몇 대·무슨 이름)이 그대로 드러난다.
-    //    → 연결 여부와 최신 버전만 남긴다. 어느 PC 가 붙었는지는 설정 화면에서 본다.
+    //    → 어느 PC 가 붙었는지는 설정 화면에서 본다.
+    //
+    // ⚠️ 여기에 "최신 v{latest}"(릴리스 조회값)를 적었더니 사이드바의 "v{설치버전} 최신"과
+    //    숫자가 어긋나 보였다(실측: 사이드바 v0.2.75 최신 / 이 배지 최신 v0.2.74).
+    //    릴리스 조회는 10분 캐시라 방금 올린 버전이 잠시 안 보이는 게 정상인데, 두 배지가
+    //    같은 낱말("최신")로 다른 값을 말하니 고장처럼 읽힌다.
+    //    → 이 배지는 **지금 붙어 있는 도우미의 버전**을 말한다(캐시와 무관한 사실).
+    const runningVersion = status!.workers
+      .map((w) => w.app_version)
+      .filter((v): v is string => !!v)
+      .sort((a, b) => (isOutdated(a, b) ? 1 : -1))[0] ?? null;
     // 연결된 도우미 중 하나라도 최신보다 낮으면 안내. 버전을 안 보내는 구버전(NULL)은
     // 판단 근거가 없으므로 조용히 넘어간다(틀린 경고를 띄우지 않는다).
     const stale = status!.workers.find((w) => isOutdated(w.app_version, latest));
@@ -124,7 +134,7 @@ export default function WorkerInstallNotice({
       <div className={className}>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
           <CheckCircle2 className="w-3.5 h-3.5" />
-          메가로드 도우미 연결됨 · 최신 v{latest}
+          메가로드 도우미 연결됨{runningVersion ? ` · v${runningVersion}` : ''}
         </span>
         {stale && (
           <Link
