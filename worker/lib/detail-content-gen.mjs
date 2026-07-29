@@ -53,6 +53,18 @@ const HARD_BANNED = [
   'FDA', '식약처 인증', '효과만점', '완벽 보장', '평생 ', '디톡스', '만병',
 ];
 
+// 계정 리스크 어휘(2026-07-29 셀러 제보) — 광고법 위반 누적 → 계정 정지.
+//   상세글은 "지우면 비문"이 되므로 삭제가 아니라 **재생성**으로 없앤다.
+//   ⚠️ HARD_BANNED 는 단순 includes 라 여기에 넣으면 "중국산"·"고로쇠수액" 까지 걸려 재생성이 헛돈다.
+//      앞에 한글이 붙지 않은 단독 표기만 잡도록 정규식으로 분리한다(웹 compliance-filter 와 동일 규칙).
+const HARD_BANNED_RE = [
+  [/(?<![가-힣])유기농/, '유기농'],
+  [/(?<![가-힣])국산/, '국산'],
+  [/(?<![가-힣])국내산/, '국내산'],
+  [/(?<![가-힣])포도당/, '포도당'],
+  [/(?<![가-힣])수액/, '수액'],
+];
+
 // 광고체 최상급 — 재시도 대신 자동 순화(쿠팡 표시광고 안전 + 카피 에너지 유지).
 function softenSuperlatives(text) {
   return String(text || '')
@@ -290,6 +302,15 @@ export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = []
   for (const b of HARD_BANNED) {
     if (book && BOOK_EXEMPT.has(b.trim())) continue; // 책 주제어 면제
     if (t.includes(b)) { issues.push(`금지 표현 "${b.trim()}"를 빼라(의학적 단정·허위 인증·근거없는 절대표현 금지).`); break; }
+  }
+  // 계정 리스크 어휘 — 도서(제목·주제어)는 면제, 그 외에는 재생성으로 없앤다.
+  if (!book) {
+    for (const [re, label] of HARD_BANNED_RE) {
+      if (re.test(t)) {
+        issues.push(`"${label}"을(를) 본문에서 빼라(광고법 위반 누적 대상). 원산지·성분 주장 없이 제품 특징으로만 표현하라.`);
+        break;
+      }
+    }
   }
 
   // SEO 키워드 실제 반영 — 예전엔 leaf 1개만 봤다(키워드는 프롬프트에 넣기만 하고 검사 안 함).

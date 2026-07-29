@@ -46,16 +46,25 @@ const HEALTH_LAW_CATEGORIES = new Set(['건기식법', '화장품법', '식품�
 const FASHION_ALLOWED = ['베스트']; // 의류 카테고리에서 vest = 조끼 의미
 const FASHION_TOP_CATEGORIES = new Set(['패션의류잡화', '패션잡화', '명품']);
 
+/**
+ * 카테고리 경로의 대분류(첫 마디)를 뽑는다.
+ * ⚠️ 구분자가 '>' 가 아닐 수 있다 — 올인원(워커) 은 "식품 신선식품 잡곡류…" 처럼 **공백**으로 넘긴다.
+ *    예전엔 '>' 로만 잘라서, 올인원 상품은 도서·패션 예외가 통째로 안 먹었다.
+ */
+function topCategoryOf(categoryContext?: string): string {
+  if (!categoryContext) return '';
+  const first = categoryContext.split('>')[0]?.trim() || '';
+  // '>' 가 없으면 공백 구분으로 보고 첫 토큰을 쓴다(단, "도서/음반/DVD" 처럼 슬래시 포함 명칭은 통째로).
+  if (categoryContext.includes('>')) return first;
+  return first.split(/\s+/)[0] || '';
+}
+
 function isNonHealthCategory(categoryContext?: string): boolean {
-  if (!categoryContext) return false;
-  const top = categoryContext.split('>')[0]?.trim() || '';
-  return NON_HEALTH_TOP_CATEGORIES.has(top);
+  return NON_HEALTH_TOP_CATEGORIES.has(topCategoryOf(categoryContext));
 }
 
 function isFashionCategory(categoryContext?: string): boolean {
-  if (!categoryContext) return false;
-  const top = categoryContext.split('>')[0]?.trim() || '';
-  return FASHION_TOP_CATEGORIES.has(top);
+  return FASHION_TOP_CATEGORIES.has(topCategoryOf(categoryContext));
 }
 
 // 금지어 → 안전한 대체어 (단순 삭제 대신 문맥 유지)
@@ -127,7 +136,9 @@ export function checkCompliance(
     // 도서/완구/문구 등 비-건강 대분류는 건강·의약 관련 법규 비적용
     //   예: "도서>건강 취미>고혈압"의 "고혈압" — 책 토픽일 뿐 약효 표시 아님
     //   예: "도서>예술>예술치료"의 "치료" — 학문 분야명일 뿐 효능 표시 아님
-    if (isNonHealth && HEALTH_LAW_CATEGORIES.has(cat.name)) {
+    //   '계정리스크'(유기농·국산·수액 등)도 같다 — 도서 제목 "유기농 텃밭 가꾸기"는 광고 주장이 아니라
+    //   작품명이라, 지우면 상품명 자체가 깨진다.
+    if (isNonHealth && (HEALTH_LAW_CATEGORIES.has(cat.name) || cat.name === '계정리스크')) {
       continue;
     }
     for (const term of cat.terms) {

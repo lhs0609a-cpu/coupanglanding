@@ -303,7 +303,9 @@ export function buildCoupangProductPayload(
     console.warn(`[payload-builder] ⚠️ 노출명 자동생성 실패 → 원본명 폴백 "${fallbackBase.slice(0, 40)}" (productCode: ${product.productCode})`);
     effectiveDisplayName = fallbackBase;
   }
-  const productName = cleanProductName(effectiveDisplayName);
+  // ⚠️ categoryPath 를 넘긴다 — 안 넘기면 상세글에만 적용되던 카테고리 예외(도서 제목의 "치료·유기농",
+  //    생활용품의 "살균", 패션의 "베스트(조끼)")가 상품명에서만 빠져 제목이 깨진다.
+  const productName = cleanProductName(effectiveDisplayName, categoryPath);
 
   // 셀러별 고유 코드: preventionSeed(shUserId:productCode) 해시 → 4자리 hex
   // 같은 셀러+같은 상품 = 항상 같은 코드, 다른 셀러+같은 상품 = 다른 코드
@@ -315,7 +317,7 @@ export function buildCoupangProductPayload(
     : product.productCode;
 
   const resolvedSellerName = sellerProductName
-    ? cleanProductName(sellerProductName.replace(product.productCode, uniqueProductCode))
+    ? cleanProductName(sellerProductName.replace(product.productCode, uniqueProductCode), categoryPath)
     : productName;
 
   // brand: 셀러 자체 브랜드 우선 → 없으면 안전 폴백 '자체'.

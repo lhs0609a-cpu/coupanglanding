@@ -207,6 +207,30 @@ const COUPANG_POLICY: ForbiddenCategory = {
   ],
 };
 
+// ---- 계정 리스크 어휘 (누적 시 계정 정지) ----
+// 셀러 현장 제보(2026-07-29): 아래 단어들이 광고법 위반으로 누적 집계되어 계정 정지 사례가 있음.
+// → 상품명·상세페이지 양쪽에서 **무조건 제거**한다(근거 유무와 무관 — origin-claim-guard 의
+//    "근거 있으면 유지" 정책보다 강한 규칙이다).
+//
+// ⚠️ 오탐 방지 설계: 전부 `(?<![가-힣])` 로 **앞에 한글이 붙지 않은 단독 표기**만 잡는다.
+//    · 국산   → "중국산·미국산·외국산·일본산" 은 보존(원산지 사실 표기)
+//    · 수액   → "고로쇠수액·자작나무수액·단풍수액" 같은 실제 상품명은 보존
+//    카테고리명(leaf)과 겹치면 compliance-filter 의 categorySafeWords 가 한 번 더 보호한다.
+const ACCOUNT_RISK_TERMS: ForbiddenCategory = {
+  name: '계정리스크',
+  law: '표시·광고 위반 누적(계정 정지 위험)',
+  terms: [
+    // 친환경농어업법 — 인증 없이 "유기농" 표시 불가
+    { pattern: /(?<![가-힣])유기농/g, label: '유기농', severity: 'error', category: '계정리스크' },
+    // 원산지 표시 — 상품명·본문 주장 금지(원산지는 고시정보·속성으로만 등록)
+    { pattern: /(?<![가-힣])국산/g, label: '국산', severity: 'error', category: '계정리스크' },
+    { pattern: /(?<![가-힣])국내산/g, label: '국내산', severity: 'error', category: '계정리스크' },
+    // 의약품 오인 표현
+    { pattern: /(?<![가-힣])포도당/g, label: '포도당', severity: 'error', category: '계정리스크' },
+    { pattern: /(?<![가-힣])수액/g, label: '수액', severity: 'error', category: '계정리스크' },
+  ],
+};
+
 // ---- 전체 카테고리 모음 ----
 export const FORBIDDEN_CATEGORIES: ForbiddenCategory[] = [
   HEALTH_FOOD_LAW,
@@ -215,6 +239,7 @@ export const FORBIDDEN_CATEGORIES: ForbiddenCategory[] = [
   PHARMA_LAW,
   AD_LAW,
   COUPANG_POLICY,
+  ACCOUNT_RISK_TERMS,
 ];
 
 /**

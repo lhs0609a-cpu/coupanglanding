@@ -43,6 +43,11 @@ const ERROR_TERMS = [
   [/(국내|업계|세계)\s*(최고|1위|유일|최초)(?!의?\s*(브랜드명|상표))/g, '최상급 단정'],
   [/(완벽|완전)\s*(보장|해결)/g, '완벽 보장'],
   [/즉시\s*효과/g, '즉시 효과'], [/영구\s*(제거|효과)/g, '영구 효과'],
+  // 계정 리스크 어휘 — 셀러 현장 제보(2026-07-29). 광고법 위반으로 누적 집계되어 계정 정지 사례.
+  //   앞에 한글이 붙지 않은 단독 표기만 잡는다: "중국산·미국산"(원산지 사실), "고로쇠수액"(상품명)은 보존.
+  //   웹의 풀 compliance-filter(계정리스크 카테고리)와 동일 규칙 — 여기서 걸리면 재생성한다.
+  [/(?<![가-힣])유기농/g, '유기농'], [/(?<![가-힣])국산/g, '국산'], [/(?<![가-힣])국내산/g, '국내산'],
+  [/(?<![가-힣])포도당/g, '포도당'], [/(?<![가-힣])수액/g, '수액'],
 ];
 
 /**
@@ -54,12 +59,16 @@ const ERROR_TERMS = [
 export function checkMini(text, categoryContext = '') {
   if (!text) return { ok: true, violations: [] };
   const household = isHousehold(categoryContext);
+  // 도서·음반은 제목/주제어라 광고 주장이 아니다 — 계정리스크 어휘를 면제(웹 필터와 동일).
+  const isBook = /도서|음반|DVD/.test(String(categoryContext));
+  const ACCOUNT_RISK_LABELS = new Set(['유기농', '국산', '국내산', '포도당', '수액']);
   const found = new Set();
   for (const [re, label] of ERROR_TERMS) {
     re.lastIndex = 0;
     if (re.test(text)) {
       // 생활용품 세제 맥락에서 '살균/항균'류는 허용 — 해당 라벨만 예외 (현재 목록엔 없음, 확장 대비)
       if (household && /살균|항균|소독/.test(label)) continue;
+      if (isBook && ACCOUNT_RISK_LABELS.has(label)) continue;
       found.add(label);
     }
   }
