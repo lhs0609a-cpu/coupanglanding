@@ -108,6 +108,14 @@ function getTheme(categoryPath?: string): ThemeColor {
 }
 
 /**
+ * 원본 상품설명("상품 상세정보") 삽입 위치 표식.
+ *   각 레이아웃이 꼬리(상품정보제공고시·위탁·제3자) 직전에 심어 둔다. 원본 설명은 여기에 들어가고,
+ *   페이지의 **맨 마지막은 언제나 상품정보제공고시**가 된다(대량등록 상세페이지와 같은 순서).
+ *   예전엔 래퍼 닫기 직전(=고시 뒤)에 붙여, 고시 다음에 원본 사진이 더 나오는 순서였다.
+ */
+const TAIL_ANCHOR = '<!--MEGALOAD_ORIGIN_DESC-->';
+
+/**
  * SEO 최적화 상세페이지 HTML을 생성한다.
  *
  * @param templateVariant - 레이아웃 변형 (A/B/C/D), 아이템위너 방지용
@@ -119,12 +127,13 @@ function getTheme(categoryPath?: string): ThemeColor {
  */
 export function buildRichDetailPageHtml(params: DetailPageParams, templateVariant?: string): string {
   const html = renderLayoutHtml(params, templateVariant);
-  // 원본(DOM) 상품설명(텍스트 + 상세 설명 이미지)을 맨 끝(래퍼 닫기 직전)에 끼워 넣는다
-  //   — 본문(리뷰컷 교차) 뒤, 고시/위탁 앞.
+  // 원본(DOM) 상품설명(텍스트 + 상세 설명 이미지)을 본문(리뷰컷 교차) 뒤, **고시/위탁 앞**에 끼운다.
+  //   → 상세페이지의 맨 마지막은 상품정보제공고시(상품정보 이미지/표)로 끝난다.
   const desc = (params.originDescription || '').trim();
   const descImgs = (params.descriptionImageUrls || []).filter((u) => typeof u === 'string' && u.trim().length > 0);
-  if (!desc && descImgs.length === 0) return html;
+  if (!desc && descImgs.length === 0) return html.replace(TAIL_ANCHOR, '');
   const section = buildProductInfoSection(desc, descImgs, params.productName);
+  if (html.includes(TAIL_ANCHOR)) return html.replace(TAIL_ANCHOR, section);
   const idx = html.lastIndexOf('</div>');
   return idx >= 0 ? html.slice(0, idx) + section + '\n' + html.slice(idx) : `${html}\n${section}`;
 }
@@ -220,6 +229,7 @@ function buildLayoutA(params: DetailPageParams): string {
     sections.push(buildClosingSection(closingText, productName, theme));
   }
 
+  sections.push(TAIL_ANCHOR);
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
@@ -259,6 +269,7 @@ function buildLayoutB(params: DetailPageParams): string {
     sections.push(buildClosingSection(closingText, productName, theme));
   }
 
+  sections.push(TAIL_ANCHOR);
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
@@ -322,6 +333,7 @@ function buildLayoutC(params: DetailPageParams): string {
     sections.push(buildClosingSection(closingText, productName, theme));
   }
 
+  sections.push(TAIL_ANCHOR);
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
@@ -379,6 +391,7 @@ function buildLayoutD(params: DetailPageParams): string {
     sections.push(buildClosingSection(closingText, productName, theme));
   }
 
+  sections.push(TAIL_ANCHOR);
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
@@ -905,6 +918,7 @@ export function buildPersuasionPageHtml(
   }
 
   // 상품정보제공고시 / 위탁판매 정보 / 제3자 이미지
+  sections.push(TAIL_ANCHOR);
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));

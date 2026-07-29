@@ -34,6 +34,7 @@ import PreUploadConfirmModal from './PreUploadConfirmModal';
 import { CertStatusBlock } from './CertStatusBlock';
 import CategoryCascadingPicker from './bulk/CategoryCascadingPicker';
 import { buildRichDetailPageHtml } from '@/lib/megaload/services/detail-page-builder';
+import { checkCompliance } from '@/lib/megaload/services/compliance-filter';
 import type { CertPreviewResult } from '@/app/api/megaload/products/cert-preview/route';
 import type { OptionPreviewResult } from '@/app/api/megaload/products/option-preview/route';
 import type { AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
@@ -199,13 +200,25 @@ function stripEmphasisMarks(s: string): string {
     .replace(/\*/g, '');
 }
 
+/**
+ * 광고법 위반 누적 대상 어휘(유기농·국산·국내산·포도당·수액 등)를 불러오는 시점에 정리한다.
+ *   서버(coupang-product-builder)가 등록 직전에 어차피 지우므로, 카드에만 남아 있으면
+ *   "검수 화면에서 본 문구 ≠ 실제 등록 문구" 가 된다. 같은 필터를 여기서도 한 번 돌려 일치시킨다.
+ *   (워커 릴리스 전까지는 이 정리가 사용자 눈에 보이는 유일한 방어선이기도 하다.)
+ */
+function scrubForbidden(text: string, categoryPath?: string): string {
+  if (!text) return text;
+  return checkCompliance(text, { removeErrors: true, categoryContext: categoryPath }).cleanedText;
+}
+
 function initEdit(g: GenRecord | null): RowEdit {
+  const catPath = g?.categoryPath || '';
   return {
-    displayName: g?.displayName || '',
+    displayName: scrubForbidden(g?.displayName || '', catPath),
     sellingPrice: g?.sellingPrice ?? null,
     categoryCode: g?.categoryCode || '',
-    categoryPath: g?.categoryPath || '',
-    detail: stripEmphasisMarks(g?.detail || ''),
+    categoryPath: catPath,
+    detail: scrubForbidden(stripEmphasisMarks(g?.detail || ''), catPath),
     options: (g?.options || []).map((o) => ({ name: o.name, value: o.value, unit: o.unit })),
     attributeValues: {},
   };
@@ -307,16 +320,21 @@ function reorderMainByClip(
 }
 
 /**
- * 상세이미지에서 CLIP 이 버린 광고/배송/리뷰컷만 정확히 제외.
+ * 상세이미지에서 CLIP·비전이 버린 광고/배송/리뷰컷만 정확히 제외.
  * 워커가 준 detailDroppedNames(버린 파일명)만 뺀다 — 워커가 못 본 이미지(리뷰/대표오버플로 폴백)는 보존.
- * 전부 걸러지면(파일명 불일치 등) 원본 유지(안전 우선).
+ *
+ * ⚠️ 예전엔 "전부 걸러지면 원본 유지(안전 우선)" 폴백이 있었다. 그런데 소싱 폴더의 상세컷이
+ *    N멤버십·적립 배너 **한 장뿐**인 상품이 흔하다(실측 8건 중 5건: detail_images = 1000x120
+ *    "친구 초대하고 5,000P" 배너 1장). 워커는 그 1장을 정확히 광고로 버렸는데 이 폴백이
+ *    되살려, 상세페이지 맨 끝 "상품 상세정보"에 네이버 멤버십 광고가 실렸다(등록에도 첨부됨).
+ *    파일명이 하나도 안 맞는 경우(큐레이션 무효)는 filtered === scanned 라 자동 보존되므로,
+ *    폴백 없이 걸러진 결과를 그대로 쓴다 — "전부 광고"면 0장이 정답이다.
  */
 function applyDetailCuration(scanned: ScannedImageFile[], gen: GenRecord | null): ScannedImageFile[] {
   if (!gen) return scanned;
   const dropped = new Set((gen.detailDroppedNames || []).map(basename));
   if (dropped.size === 0) return scanned;
-  const filtered = scanned.filter((img) => !dropped.has(img.name));
-  return filtered.length > 0 ? filtered : scanned;
+  return scanned.filter((img) => !dropped.has(img.name));
 }
 
 /**
@@ -1990,7 +2008,7 @@ export default function AllInOneRegisterPanel() {
               {g?.sourceUrl && <a href={g.sourceUrl} target="_blank" rel="noreferrer" className="text-[11px] text-emerald-600 break-all">원본: {g.sourceUrl}</a>}
               {g && (
                 <div>
-                  <button onClick={() => void toggleDetail(r.uid, [], r.reviewImages)} className="text-xs text-gray-600 border border-gray-200 rounded px-2 py-1">
+                  <button onClick={() => void toggleDetail(r.uid, r.scanned.infoImages || [], r.reviewImages)} className="text-xs text-gray-600 border border-gray-200 rounded px-2 py-1">
                     상세페이지 편집 {openDetail[r.uid] ? '▴' : '▾'}
                     <span className="ml-1 text-gray-400">
                       리뷰 이미지 {r.reviewImages.length}장
@@ -2031,7 +2049,11 @@ export default function AllInOneRegisterPanel() {
                         const reviewUrls = r.reviewImages.map((img) => img.objectUrl).filter((u): u is string => !!u);
                         const descImgUrls = r.detailImages.map((img) => img.objectUrl).filter((u): u is string => !!u);
                         const originDesc = (r.scanned.productJson?.description as string | undefined) || undefined;
-                        if (paras.length === 0 && reviewUrls.length === 0 && descImgUrls.length === 0 && !originDesc) return null;
+                        // 상품정보(product_info) — 등록 때 실제로 첨부되는 "상품정보제공고시" 이미지.
+                        //   대량등록 상세페이지와 마찬가지로 **페이지 맨 마지막**이 이 상품정보다.
+                        //   예전엔 미리보기가 이걸 빼고 그려서, 끝이 상세컷(=광고 배너)으로 보였다.
+                        const infoUrls = (r.scanned.infoImages || []).map((img) => img.objectUrl).filter((u): u is string => !!u);
+                        if (paras.length === 0 && reviewUrls.length === 0 && descImgUrls.length === 0 && infoUrls.length === 0 && !originDesc) return null;
                         const html = buildRichDetailPageHtml({
                           productName: e.displayName || r.scanned.productJson?.name || r.productCode,
                           brand: '',
@@ -2040,9 +2062,11 @@ export default function AllInOneRegisterPanel() {
                           reviewImageUrls: reviewUrls,
                           detailImageUrls: [],
                           categoryPath: e.categoryPath,
-                          // 원본(DOM) 상품설명 — 텍스트 + 상세 설명 이미지를 맨 끝에 함께 노출(등록도 동일).
+                          // 원본(DOM) 상품설명 — 텍스트 + 상세 설명 이미지를 고시 앞에 함께 노출(등록도 동일).
                           originDescription: originDesc,
                           descriptionImageUrls: descImgUrls,
+                          // 상품정보제공고시 — 등록 payload 와 동일하게 맨 마지막에.
+                          infoImageUrls: infoUrls,
                         }, 'A');
                         return (
                           <div className="mt-2">
@@ -2051,6 +2075,7 @@ export default function AllInOneRegisterPanel() {
                               <span className="ml-1 font-normal text-gray-400">
                                 본문 이미지 {reviewUrls.length}장{reviewUrls.length > 0 ? ' (리뷰컷)' : ''}
                                 {descImgUrls.length > 0 ? ` · 상품 상세정보 ${descImgUrls.length}장` : ''}
+                                {infoUrls.length > 0 ? ` · 상품정보 ${infoUrls.length}장` : ''}
                               </span>
                             </p>
                             <div className="bg-white rounded-lg border border-gray-200 overflow-hidden" style={{ maxHeight: 520, overflowY: 'auto' }}>
