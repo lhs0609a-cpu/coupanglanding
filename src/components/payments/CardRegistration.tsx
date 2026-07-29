@@ -76,7 +76,7 @@ export default function CardRegistration(_props: CardRegistrationProps) {
       const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
       setError(
         isTimeout
-          ? '서버 응답 지연 (15초) — Vercel/Supabase 상태를 확인해주세요.'
+          ? '서버 응답 지연 (15초) — 잠시 후 다시 시도해주세요.'
           : err instanceof Error ? err.message : '카드 등록에 실패했습니다.'
       );
     } finally {

@@ -21,6 +21,7 @@ import * as bootstrap from './bootstrap.mjs';
 import { setupAutoUpdate, checkForUpdatesNow } from './auto-update.mjs';
 import { loadModules } from './shell/registry.mjs';
 import { openUrl } from './open-url.mjs';
+import { maskPayload, maskInternalNames } from './mask-internal.mjs';
 
 // ⚠️ 자동업데이트 피드 fetch 시 "net::ERR_FAILED / Network service crashed" 회피.
 //    일부 Windows/보안SW 환경에서 Electron 네트워크 서비스 샌드박스가 죽어 electron-updater 가 실패함.
@@ -49,7 +50,9 @@ const stats = { processed: 0, ok: 0, fail: 0, current: null };
 const single = app.requestSingleInstanceLock();
 if (!single) app.quit();
 
-function send(channel, payload) { win?.webContents.send(channel, payload); }
+// ⚠️ 화면에 나가는 모든 문자열은 여기 한 곳을 지난다 — 내부 엔진·모델 이름을 기능 이름으로
+//    치환해 내보낸다(영업비밀). 워커 stdout 을 그대로 흘리는 올인원 로그까지 여기서 걸린다.
+function send(channel, payload) { win?.webContents.send(channel, maskPayload(payload)); }
 function log(scope, message) { send('thumbnail-gpu:comfy-log', `[${scope}] ${message}`); }
 
 // ── 썸네일 워커 헬퍼 (모듈이 ctx.services 로 호출) ──
@@ -119,16 +122,16 @@ async function autoInstallIfNeeded() {
     const gpu = await bootstrap.checkGpu();
     if (!gpu.ok) {
       send('thumbnail-gpu:comfy-log',
-        '[자동설치] NVIDIA GPU 미탐지 — AI 썸네일(ComfyUI/SDXL ~6.5GB)은 GPU가 필요해 자동설치를 생략합니다. ' +
-        '텍스트 엔진(ollama)만 준비합니다. GPU 장착 후 AI 썸네일 탭 "엔진 설치/확인"으로 받으세요.');
+        '[자동설치] NVIDIA GPU 미탐지 — AI 썸네일(이미지 생성 ~6.5GB)은 GPU가 필요해 자동설치를 생략합니다. ' +
+        '텍스트 엔진만 준비합니다. GPU 장착 후 AI 썸네일 탭 "엔진 설치/확인"으로 받으세요.');
       await bootstrap.ensureOllama({
         installDir,
-        onProgress: (p) => send('allinone:log', `[ollama] ${p.detail || p.phase}${p.pct != null ? ' ' + p.pct + '%' : ''}`),
+        onProgress: (p) => send('allinone:log', `[텍스트 엔진] ${p.detail || p.phase}${p.pct != null ? ' ' + p.pct + '%' : ''}`),
       });
       return;
     }
     send('thumbnail-gpu:comfy-log',
-      '[자동설치] 최초 1회 엔진 자동 설치 시작 — ComfyUI·SDXL·누끼 노드·ollama 를 한 번에 받습니다(수 GB, 백그라운드). ' +
+      '[자동설치] 최초 1회 엔진 자동 설치 시작 — 이미지 생성·누끼·텍스트 엔진을 한 번에 받습니다(수 GB, 백그라운드). ' +
       '완료되면 AI 썸네일이 자동 시작됩니다.');
     await installEngine(); // bootstrap.install(전체) → autoStartIfReady
   } catch (e) {

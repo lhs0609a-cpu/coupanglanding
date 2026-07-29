@@ -573,7 +573,7 @@ function DiagPanel({ diag, helper, open, onToggle }: {
                   <li>완료되면 여기서 <b>도우미 결과 불러오기</b>(또는 이 폴더 재선택)</li>
                 </ol>
                 <p className="text-gray-400 text-[11px]">
-                  생성엔 ollama(텍스트)·ComfyUI(누끼)가 쓰이며 도우미가 자동으로 준비합니다.
+                  생성에 필요한 엔진은 도우미가 자동으로 준비합니다.
                   누끼 없이 텍스트만 빠르게 하려면 생성 시 <code>--no-thumb</code> 옵션.
                 </p>
               </div>
@@ -1690,7 +1690,7 @@ export default function AllInOneRegisterPanel() {
 
             {!p && (
               <p className="text-[11px] text-indigo-500 leading-snug">
-                ollama(텍스트)·ComfyUI(누끼)·CLIP 모델을 올리는 중입니다. 최초 1회는 다운로드까지 있어 수 분 걸릴 수 있어요 — 정상 진행 중입니다.
+                생성 엔진(텍스트·누끼·이미지 인식)을 올리는 중입니다. 최초 1회는 다운로드까지 있어 수 분 걸릴 수 있어요 — 정상 진행 중입니다.
               </p>
             )}
             {stalled && (

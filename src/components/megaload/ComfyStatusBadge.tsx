@@ -1,7 +1,10 @@
 'use client';
 
 /**
- * 누끼 엔진(ComfyUI) 라이브니스 뱃지 — 올인원 화면 전용
+ * 누끼 엔진 라이브니스 뱃지 — 올인원 화면 전용
+ *
+ * ⚠️ 화면에 보이는 문구에는 **엔진·모델 이름을 절대 쓰지 않는다**(영업비밀). 어떤 스택을 쓰는지는
+ *    이 주석처럼 코드 안에만 남긴다. 표시는 기능 이름("누끼 엔진")으로만.
  * ---------------------------------------------------------------------------
  * 올인원 대표이미지 가공(누끼·흰배경)은 로컬 ComfyUI(SDXL)가 켜져 있을 때 최상 품질로
  * 처리된다. 지금까지 웹에는 ollama 기반 "도우미 연결됨" 배너만 있고 누끼 엔진 상태는
@@ -78,11 +81,11 @@ export default function ComfyStatusBadge({ className = '' }: { className?: strin
   if (state === 'up') {
     return (
       <span
-        title="ComfyUI(SDXL) 가동 중 — 대표사진을 고품질 누끼·흰배경 스튜디오컷으로 가공합니다."
+        title="누끼 엔진 가동 중 — 대표사진을 고품질 누끼·흰배경 스튜디오컷으로 가공합니다."
         className={`inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ${className}`}
       >
         <Sparkles className="w-3.5 h-3.5" />
-        누끼 엔진(ComfyUI) 가동 중
+        누끼 엔진 가동 중
       </span>
     );
   }
@@ -90,11 +93,11 @@ export default function ComfyStatusBadge({ className = '' }: { className?: strin
   // down — 경고 아님(정보성). CPU 폴백으로 등록은 정상 진행됨을 명시.
   return (
     <span
-      title="ComfyUI 미가동 — 올인원 생성 시 도우미가 자동 기동합니다(온디맨드). 꺼져 있어도 CPU 누끼(BiRefNet)로 배경제거·흰배경은 처리됩니다."
+      title="누끼 엔진 대기 — 올인원 생성 시 도우미가 자동 기동합니다(온디맨드). 대기 중이어도 배경제거·흰배경은 정상 처리됩니다."
       className={`inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-500 ${className}`}
     >
       <Cpu className="w-3.5 h-3.5" />
-      누끼 엔진(ComfyUI) 대기 · CPU 누끼로 폴백
+      누끼 엔진 대기 · 기본 모드로 처리
     </span>
   );
 }

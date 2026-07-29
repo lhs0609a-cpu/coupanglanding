@@ -8,6 +8,7 @@ import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkGpu } from './bootstrap.mjs';
 import { listModels } from '../runtime/local-llm.mjs';
+import { maskInternalNames } from './mask-internal.mjs';
 
 let child = null;
 
@@ -223,10 +224,12 @@ export async function startGeneration({
     }
   };
   // 실패 사유 요약 — 에러 라인 우선, 없으면 최근 몇 줄, 그것도 없으면 종료코드/시그널.
+  // ⚠️ 이 문구는 pair-server 를 거쳐 **웹 화면**에 그대로 뜬다 — 워커 로그 원문이라
+  //    엔진·모델 이름이 섞여 있다. 내보내기 전에 기능 이름으로 치환한다(영업비밀).
   const buildReason = (code, signal) => {
-    if (errLines.length) return errLines.slice(-3).join(' / ');
+    if (errLines.length) return maskInternalNames(errLines.slice(-3).join(' / '));
     if (signal) return `프로세스가 강제 종료됨(${signal}) — 메모리 부족(VRAM/RAM)일 수 있습니다.`;
-    if (recent.length) return recent.slice(-3).join(' / ');
+    if (recent.length) return maskInternalNames(recent.slice(-3).join(' / '));
     return `생성 프로세스가 종료됨(code=${code})`;
   };
 

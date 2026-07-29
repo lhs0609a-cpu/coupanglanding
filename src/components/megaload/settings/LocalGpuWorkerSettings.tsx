@@ -93,7 +93,7 @@ function runSpecCheck(): SpecCheck {
 
   const rows: CheckRow[] = [
     { label: 'OS', value: os.name, grade: os.grade, hint: os.grade === 'recommended' ? '워커 앱 설치 가능' : '워커 앱은 Windows 전용' },
-    { label: 'GPU', value: gpu.name, grade: gpu.grade, hint: `추정 VRAM ${gpu.estVram} · SDXL은 8GB 이상 권장` },
+    { label: 'GPU', value: gpu.name, grade: gpu.grade, hint: `추정 VRAM ${gpu.estVram} · 이미지 생성은 8GB 이상 권장` },
     { label: 'RAM', value: ramGB ? `약 ${ramGB}GB 이상` : '확인 불가', grade: ramGrade, hint: '16GB 이상 권장 (8GB도 동작은 함)' },
     { label: 'CPU', value: cores ? `${cores} 스레드` : '확인 불가', grade: cpuGrade, hint: 'GPU 처리라 CPU 영향 적음' },
   ];
@@ -111,7 +111,7 @@ function runSpecCheck(): SpecCheck {
 
 const STEPS = [
   { t: '설치 파일 다운로드', d: '위 버튼으로 설치기(.exe)를 받아 더블클릭하면 자동 설치됩니다.' },
-  { t: '엔진 설치 (처음 1회)', d: '앱에서 "엔진 설치"를 누르면 ComfyUI와 AI 모델(약 6.5GB)을 자동으로 받습니다. 한 번만 받으면 됩니다.' },
+  { t: '엔진 설치 (처음 1회)', d: '앱에서 "엔진 설치"를 누르면 AI 엔진(약 6.5GB)을 자동으로 받습니다. 한 번만 받으면 됩니다.' },
   { t: '로그인', d: '메가로드 계정(이메일/비밀번호)으로 앱에 로그인합니다.' },
   { t: '워커 시작', d: '"워커 시작"을 누르면 아래 상태가 "연결됨"으로 바뀝니다. 창을 닫아도 트레이에 상주합니다.' },
   { t: '대량등록에서 사용', d: '상품 검수 화면에서 상품을 고르고 "AI 대표 썸네일 재생성"을 누르면 자동 처리됩니다.' },

@@ -114,7 +114,9 @@ export default function WorkerInstallNotice({
   }
 
   if (link === 'online') {
-    const names = status!.workers.map((w) => w.hostname || w.worker_id).join(', ');
+    // ⚠️ 예전엔 연결된 도우미의 hostname/worker_id 를 나열했다("… · 공용, 공용, 공용").
+    //    같은 이름이 반복돼 정보 가치가 없고, 내부 구성(몇 대·무슨 이름)이 그대로 드러난다.
+    //    → 연결 여부와 최신 버전만 남긴다. 어느 PC 가 붙었는지는 설정 화면에서 본다.
     // 연결된 도우미 중 하나라도 최신보다 낮으면 안내. 버전을 안 보내는 구버전(NULL)은
     // 판단 근거가 없으므로 조용히 넘어간다(틀린 경고를 띄우지 않는다).
     const stale = status!.workers.find((w) => isOutdated(w.app_version, latest));
@@ -122,7 +124,7 @@ export default function WorkerInstallNotice({
       <div className={className}>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
           <CheckCircle2 className="w-3.5 h-3.5" />
-          메가로드 도우미 연결됨{names ? ` · ${names}` : ''} · 최신 v{latest}
+          메가로드 도우미 연결됨 · 최신 v{latest}
         </span>
         {stale && (
           <Link

@@ -23,7 +23,7 @@ export default function AllInOneRegisterPage() {
       </div>
       <div className="space-y-2">
         <WorkerInstallNotice context="allinone" />
-        {/* 엔진 라이브니스 신호등 — 누끼(ComfyUI)·비전(qwen2.5vl)이 실제 가동/준비됐는지 표시 */}
+        {/* 엔진 라이브니스 신호등 — 누끼·이미지 인식이 실제 가동/준비됐는지 표시(엔진명 비노출) */}
         <div className="flex flex-wrap items-center gap-2">
           <ComfyStatusBadge />
           <VisionStatusBadge />

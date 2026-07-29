@@ -5,13 +5,13 @@
 
 <section class="card">
   <h2>1. 엔진 설치 <span id="tg-install-status" class="muted"></span></h2>
-  <p class="muted small">로그인하면 ComfyUI·SDXL 모델(약 6.5GB)·누끼 노드·텍스트(ollama) 엔진을 <b>한 번에 자동 설치</b>합니다(최초 1회, 백그라운드). 아래 버튼은 재확인·수동 재시도용입니다.</p>
+  <p class="muted small">로그인하면 이미지 생성 엔진(약 6.5GB)·누끼 엔진·텍스트 엔진을 <b>한 번에 자동 설치</b>합니다(최초 1회, 백그라운드). 아래 버튼은 재확인·수동 재시도용입니다.</p>
   <button id="tg-btn-gpu" class="btn-ghost">GPU 점검</button>
   <span id="tg-gpu-result" class="muted"></span>
   <div id="tg-install-progress" class="hidden">
-    <div class="prog"><label>ComfyUI 다운로드</label><div class="bar"><i id="tg-p-comfy-download"></i></div></div>
+    <div class="prog"><label>엔진 다운로드</label><div class="bar"><i id="tg-p-comfy-download"></i></div></div>
     <div class="prog"><label>압축 해제</label><div class="bar"><i id="tg-p-comfy-extract"></i></div></div>
-    <div class="prog"><label>SDXL 모델 (~6.5GB)</label><div class="bar"><i id="tg-p-model-download"></i></div></div>
+    <div class="prog"><label>AI 모델 (~6.5GB)</label><div class="bar"><i id="tg-p-model-download"></i></div></div>
     <p id="tg-install-detail" class="muted small"></p>
   </div>
   <button id="tg-btn-install" class="btn">엔진 설치 / 확인(수동)</button>
