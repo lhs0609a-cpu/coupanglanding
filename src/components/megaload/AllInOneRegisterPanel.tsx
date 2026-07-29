@@ -338,16 +338,37 @@ function applyDetailCuration(scanned: ScannedImageFile[], gen: GenRecord | null)
 }
 
 /**
+ * 비전이 고른 대표컷이 **리뷰 폴더의 사진**인지 판정.
+ *
+ * ⚠️ 워커는 파일명(basename)만 넘기는데, 소싱 폴더는 `main_images/8.jpg` 와 `review_images/8.jpg`
+ *    처럼 폴더만 다르고 이름이 같은 파일이 흔하다. 그래서 "이름이 같으니 같은 사진"으로 취급하면
+ *    엉뚱한 폴더의 사진이 대표가 된다. 어느 폴더에서 골랐는지는 **경로**로만 알 수 있다.
+ *    (실측 256545708: 비전은 review_images/8.jpg(잡곡 실사)를 골랐는데, 화면엔 비전이 버린
+ *     main_images/8.jpg — 거의 백지 이미지 — 가 대표로 떴다.)
+ */
+export function pickedFromReview(gen: { mainImage?: string | null } | null): boolean {
+  const p = String(gen?.mainImage || '').replace(/\\/g, '/').toLowerCase();
+  return /\/(review_images|reviews|review|customer_reviews|리뷰[^/]*)\//.test(p);
+}
+
+/**
  * 대표컷 후보에서 비전(VLM)이 "상품 아님"으로 본 것(로고/글자/배송배너/캡처/인물)을 제외.
  * 선택된 대표(gen.mainImage)는 어떤 경우에도 남긴다(자기 자신이 후보에서 사라지는 사고 방지).
  * 전부 제외되면 원본 유지(안전 우선).
+ *
+ * @param keepPicked 선택된 대표를 이름으로 되살릴지 — **대표가 이 목록(main_images)에서 나온 경우만 true**.
+ *                   리뷰컷을 대표로 골랐는데 여기서 되살리면, 이름만 같은 다른 사진이 부활한다(위 주석 참조).
  */
-function applyMainCuration(scanned: ScannedImageFile[], gen: GenRecord | null): ScannedImageFile[] {
+export function applyMainCuration(
+  scanned: ScannedImageFile[],
+  gen: GenRecord | null,
+  keepPicked = true,
+): ScannedImageFile[] {
   if (!gen) return scanned;
   const dropped = new Set((gen.mainDroppedNames || []).map(basename));
   if (dropped.size === 0) return scanned;
-  const keep = basename(gen.mainImage || '');
-  const filtered = scanned.filter((img) => !dropped.has(img.name) || img.name === keep);
+  const keep = keepPicked ? basename(gen.mainImage || '') : '';
+  const filtered = scanned.filter((img) => !dropped.has(img.name) || (!!keep && img.name === keep));
   return filtered.length > 0 ? filtered : scanned;
 }
 
@@ -878,7 +899,9 @@ export default function AllInOneRegisterPanel() {
         const regen = await readRegenImages(sp.dirHandle);
         const usingRegen = regen.length > 0;
         // 비전이 로고/글자/배너로 판정한 대표후보를 먼저 걸러낸 뒤 재정렬한다.
-        const clip = reorderMainByClip(applyMainCuration(sp.mainImages || [], gen), gen);
+        //   ⚠️ 대표를 리뷰 폴더에서 골랐으면 main_images 의 동명 파일을 되살리지 않는다(pickedFromReview 주석).
+        const fromReview = pickedFromReview(gen);
+        const clip = reorderMainByClip(applyMainCuration(sp.mainImages || [], gen, !fromReview), gen);
         // 대표 후보 = 누끼 가공본(있으면 앞) + CLIP 랭킹순 원본.
         // ⭐ 예전엔 가공본이 있으면 원본을 통째로 버렸다. 그래서 누끼 결과가 마음에 안 들어도
         //    되돌릴 방법이 없었다(ComfyUI 는 후보를 1장만 만들고 재시도 경로도 없다).
@@ -887,7 +910,8 @@ export default function AllInOneRegisterPanel() {
         //   웹 스캔은 폴더명으로만 풀을 나누므로, 승격된 컷은 sp.mainImages 에 없다.
         //   regen 바로 뒤에 두어 "누끼 반려 시 기본값(regen.length)"이 곧 이 원본이 되게 한다.
         const promotedName = gen?.mainImage ? basename(gen.mainImage) : '';
-        const promotedExtra = promotedName && !(sp.mainImages || []).some((m) => m.name === promotedName)
+        //   리뷰 폴더에서 고른 경우는 아래 reviewForMain 이 담당한다(여기서 상세컷을 끌어오면 안 된다).
+        const promotedExtra = promotedName && !fromReview && !(sp.mainImages || []).some((m) => m.name === promotedName)
           ? (sp.detailImages || []).filter((d) => d.name === promotedName)
           : [];
         const mainImages = usingRegen
@@ -896,8 +920,14 @@ export default function AllInOneRegisterPanel() {
         // 대표컷 후보에 리뷰이미지도 넣는다 — 상품 정면컷이 마땅치 않을 때(성분/로고/짤림뿐)
         //   구매자 실사진을 대표로 고를 수 있게(사용자 요청). 뒤에 붙이므로 기본 대표는 그대로.
         const reviewCurated = applyReviewCuration(sp.reviewImages || [], gen);
-        const reviewForMain = reviewCurated.filter((rv) => !mainImages.some((m) => m.name === rv.name));
-        const mainCandidates = [...mainImages, ...reviewForMain];
+        //   비전이 고른 리뷰컷은 동명 파일이 main 에 있어도 반드시 후보에 남긴다(그게 대표다).
+        const reviewForMain = reviewCurated.filter((rv) =>
+          (fromReview && rv.name === promotedName) ? true : !mainImages.some((m) => m.name === rv.name));
+        // 리뷰컷을 대표로 골랐으면 그 컷을 맨 앞으로 — 안 그러면 main 첫 장이 대표가 된다.
+        const pickedReview = fromReview ? reviewForMain.find((rv) => rv.name === promotedName) : undefined;
+        const mainCandidates = pickedReview && !usingRegen
+          ? [pickedReview, ...mainImages, ...reviewForMain.filter((rv) => rv !== pickedReview)]
+          : [...mainImages, ...reviewForMain];
         const reordered = { picked: usingRegen || clip.picked || promotedExtra.length > 0 };
         // 상세: CLIP 이 광고/배송/리뷰컷으로 버린 파일명만 제외(핸들 유지 → 등록 업로드 가능).
         const detailImages = applyDetailCuration(sp.detailImages || [], gen);
@@ -1042,8 +1072,14 @@ export default function AllInOneRegisterPanel() {
         const reviewImages = applyReviewCuration(cls.review.map(mkImg), gen);
         const infoImages = cls.info.map(mkImg);
         // 대표 후보: 비전이 로고/글자/배너로 본 컷 제외 + 리뷰이미지를 후보로 추가(직접 대표 선택 가능).
-        const mainCurated = applyMainCuration(cls.main.map(mkImg), gen);
-        const reviewForMain = reviewImages.filter((rv) => !mainCurated.some((m) => m.name === rv.name));
+        //   ⚠️ 대표를 리뷰 폴더에서 골랐으면 main_images 쪽 동명 파일을 되살리면 안 된다(pickedFromReview 주석).
+        const fromReview = pickedFromReview(gen);
+        const mainCurated = applyMainCuration(cls.main.map(mkImg), gen, !fromReview);
+        const reviewForMain = reviewImages.filter((rv) =>
+          // 리뷰 후보 중복 제거도 이름만 보면 안 된다 — 비전이 고른 리뷰컷이 통째로 사라진다.
+          (fromReview && rv.name === basename(gen?.mainImage || ''))
+            ? true
+            : !mainCurated.some((m) => m.name === rv.name));
         let mainImages = [...mainCurated, ...reviewForMain];
         // ⭐ 비전이 고른 대표(gen.mainImage)를 기본값으로 존중 — 그 컷을 맨 앞으로.
         //   예전엔 목록 첫 장을 무조건 대표로 써서, main 이 비고 전부 리뷰컷이면 첫 리뷰(성분/잎컷)가
@@ -1051,7 +1087,11 @@ export default function AllInOneRegisterPanel() {
         //   단 누끼(regen)가 있으면 이미 index0 이 비전 픽의 누끼본이므로 건드리지 않는다(뱃지·순서 보존).
         const pickName = gen?.mainImage ? basename(gen.mainImage) : '';
         if (pickName && cls.regenCount === 0) {
-          const pi = mainImages.findIndex((m) => m.name === pickName);
+          // 리뷰컷을 골랐으면 리뷰 구간(mainCurated 뒤쪽)에서 찾는다 — 앞쪽 main 구간의 동명 파일을
+          // 집으면 비전이 버린 사진(예: 백지)이 대표가 된다.
+          const pi = fromReview
+            ? mainImages.findIndex((m, i) => i >= mainCurated.length && m.name === pickName)
+            : mainImages.findIndex((m, i) => i < mainCurated.length && m.name === pickName);
           if (pi > 0) mainImages = [mainImages[pi], ...mainImages.filter((_, i) => i !== pi)];
         }
 

@@ -23,7 +23,9 @@ import { fetchNaverPage } from './modules/stock-monitor/naver-fetch.mjs';
 export const TITLES_FILE = '_source-titles.json';
 
 /** 요청 간 간격 — 안티봇 자극 최소화(연속 요청이 429 를 부른다). */
-const PACE_MS = 2500;
+const PACE_MS = 4000;
+/** 429 를 맞았을 때 한 번만 쉬고 재시도하는 간격. */
+const RETRY_MS = 8000;
 /** 429/실패가 이만큼 연속되면 중단하고 나머지는 기존 이름으로 진행(생성 자체는 막지 않는다). */
 const FAIL_STREAK_STOP = 3;
 
@@ -48,6 +50,15 @@ function readJson(p, fallback) {
  *   ③ og:title 메타
  *   ④ <title> 에서 스토어명 꼬리 제거
  */
+/**
+ * 제목처럼 보이지만 상품명이 아닌 값 — 이게 저장되면 상품명이 통째로 오염된다.
+ *   네이버가 안티봇으로 막을 때 `<title>[에러] 에러페이지 - 시스템오류</title>` 를 준다(실측).
+ *   HTTP 상태로 대부분 걸러지지만, 200 으로 내려오는 경우까지 방어한다.
+ */
+function looksLikeErrorTitle(s) {
+  return /^\[?에러|시스템\s*오류|에러\s*페이지|접근이?\s*(제한|차단)|잠시\s*후\s*다시|not\s*found|error|forbidden|429|503/i.test(s);
+}
+
 export function extractTitle(html) {
   if (!html) return null;
   const clean = (s) => String(s || '')
@@ -55,29 +66,34 @@ export function extractTitle(html) {
     .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
     .replace(/\s+/g, ' ').trim();
 
-  // ① 권위값
+  const ok = (v) => (v && v.length >= 2 && !looksLikeErrorTitle(v) ? v : null);
+
+  // ① 권위값 — 도우미는 페이지 HTML 대신 window.__PRELOADED_STATE__ 를 직렬화해 넘긴다(실측 68KB).
+  //    그래서 이 전략이 실제 운영 경로에서 거의 항상 적중한다(아래 ②~④는 상태가 없을 때의 보험).
   const st = html.match(/"product"\s*:\s*\{[\s\S]{0,4000}?"name"\s*:\s*"((?:[^"\\]|\\.)*)"/);
   if (st) {
     try {
-      const v = clean(JSON.parse(`"${st[1]}"`));
-      if (v.length >= 2) return v;
+      const v = ok(clean(JSON.parse(`"${st[1]}"`)));
+      if (v) return v;
     } catch { /* 다음 전략 */ }
   }
 
   // ② _copyable > h3 (클래스 해시는 매칭에 쓰지 않는다 — 수시로 바뀐다)
   const cp = html.match(/_copyable[^>]*>\s*(?:<[^h][^>]*>\s*)*<h3[^>]*>([^<]{2,300})<\/h3>/);
-  if (cp) { const v = clean(cp[1]); if (v) return v; }
+  if (cp) { const v = ok(clean(cp[1])); if (v) return v; }
 
   // ③ og:title
+  //    ⚠️ 실측(아로마티카): og:title 은 "에코서트 인증 알로에 베라 96% …" 로 **판매 제목이 아니다**
+  //       (소싱 크롤러가 이걸 긁어서 원본명이 오염됐다). 그래서 ①② 다음의 보험으로만 쓴다.
   const og = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']{2,300})["']/i)
     || html.match(/<meta[^>]+content=["']([^"']{2,300})["'][^>]+property=["']og:title["']/i);
-  if (og) { const v = clean(og[1]); if (v) return v; }
+  if (og) { const v = ok(clean(og[1])); if (v) return v; }
 
   // ④ <title> — "상품명 : 스토어명" / "상품명 - 네이버쇼핑" 꼬리 제거
   const t = html.match(/<title[^>]*>([^<]{2,300})<\/title>/i);
   if (t) {
     const v = clean(t[1]).replace(/\s*[:\-|]\s*(네이버\s*(스마트스토어|쇼핑|브랜드스토어)|smartstore|naver).*$/i, '').trim();
-    if (v.length >= 2) return v;
+    if (ok(v)) return v;
   }
   return null;
 }
@@ -117,9 +133,26 @@ export async function resolveSourceTitles(folder, onLog = () => {}) {
     onLog(`[원본명] ${i + 1}/${dirs.length} 조회 중…`);
     let title = null;
     try {
-      const { status, body } = await fetchNaverPage(url);
-      if (status >= 200 && status < 400 && body) title = extractTitle(body);
-      else onLog(`[원본명] ${code}: HTTP ${status}`);
+      let { status, body } = await fetchNaverPage(url);
+      // 429(속도제한)는 일시적이다 — 조금 쉬고 한 번만 다시 본다.
+      if (status === 429) {
+        onLog(`[원본명] ${code}: HTTP 429 — ${Math.round(RETRY_MS / 1000)}초 후 1회 재시도`);
+        await sleep(RETRY_MS);
+        ({ status, body } = await fetchNaverPage(url));
+      }
+      if (status >= 200 && status < 400 && body) {
+        title = extractTitle(body);
+        // ⚠️ 여기서 아무 로그도 안 남기면 "0건 확보"의 원인이 응답 실패인지 파싱 실패인지 알 수 없다.
+        //    (실제로 그래서 한 번 헛돌았다.) 본문 특징을 같이 남겨 다음 실행에서 바로 판별되게 한다.
+        if (!title) {
+          onLog(`[원본명] ${code}: 제목 추출 실패 — 본문 ${Math.round(body.length / 1024)}KB`
+            + ` · 상태JSON ${/__PRELOADED_STATE__|"productStatusType"/.test(body) ? '있음' : '없음'}`
+            + ` · copyable ${body.includes('_copyable') ? '있음' : '없음'}`
+            + ` · og:title ${/property=["']og:title["']/.test(body) ? '있음' : '없음'}`);
+        }
+      } else {
+        onLog(`[원본명] ${code}: HTTP ${status}${status === 429 ? ' (재시도도 실패)' : ''}`);
+      }
     } catch (e) {
       onLog(`[원본명] ${code}: 조회 실패(${String(e?.message || e).slice(0, 80)})`);
     }
