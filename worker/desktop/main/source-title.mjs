@@ -26,6 +26,12 @@ export const TITLES_FILE = '_source-titles.json';
 const PACE_MS = 4000;
 /** 429 를 맞았을 때 한 번만 쉬고 재시도하는 간격. */
 const RETRY_MS = 8000;
+/**
+ * 전체 시간 상한 — 이 시간을 넘기면 남은 상품은 기존 이름으로 진행한다.
+ *   상품이 많을수록(100개면 요청만 400초) 생성 시작이 한없이 밀린다. 제목은 "있으면 좋은 것"이지
+ *   생성을 막을 이유가 아니다. 못 받은 건 다음 실행에서 캐시를 채우며 조금씩 메운다.
+ */
+const BUDGET_MS = 120_000;
 /** 429/실패가 이만큼 연속되면 중단하고 나머지는 기존 이름으로 진행(생성 자체는 막지 않는다). */
 const FAIL_STREAK_STOP = 3;
 
@@ -118,6 +124,7 @@ export async function resolveSourceTitles(folder, onLog = () => {}) {
   const cache = readJson(cachePath, {});
   let streak = 0;
   let stopped = false;
+  const startedAt = Date.now();
 
   for (let i = 0; i < dirs.length; i++) {
     const name = dirs[i];
@@ -129,6 +136,12 @@ export async function resolveSourceTitles(folder, onLog = () => {}) {
     const url = (typeof pj.url === 'string' && pj.url) || readSummaryUrl(dir);
     if (!url) { out.skipped++; continue; }
     if (stopped) { out.skipped++; continue; }
+    if (Date.now() - startedAt > BUDGET_MS) {
+      stopped = true;
+      out.skipped++;
+      onLog(`[원본명] ${Math.round(BUDGET_MS / 1000)}초 상한 도달 — 남은 ${dirs.length - i}건은 기존 상품명으로 진행합니다.`);
+      continue;
+    }
 
     onLog(`[원본명] ${i + 1}/${dirs.length} 조회 중…`);
     let title = null;

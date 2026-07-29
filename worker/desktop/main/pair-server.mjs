@@ -161,8 +161,14 @@ export async function startPairServer({
         sess.startedAt = Date.now();
         sess.updatedAt = Date.now();
         sess.progress = null; // { phase:'recognize'|'text'|'image', done, total }
+        // ⚠️ onGenerate 를 **기다리지 않고** 즉시 200 을 준다.
+        //   예전엔 await 했는데, 이 함수는 생성이 "시작될 때까지"(엔진 기동·원본명 조회 등)
+        //   수 분이 걸릴 수 있다. 웹의 시작 요청 타임아웃은 30초라, 준비가 길어지면 웹만
+        //   "도우미가 생성을 시작하지 못했습니다"로 실패 표시하고 도우미는 계속 도는
+        //   엇갈림이 생겼다(실측: 원본명 조회를 넣은 v0.2.73 이후 재현).
+        //   진행·완료·실패는 전부 gen-status 폴링으로 전달되므로 여기서 기다릴 이유가 없다.
         try {
-          await onGenerate(sessDir, {
+          const started = onGenerate(sessDir, {
             noThumb,
             // 러너가 stdout 에서 파싱한 단계별 진행(인식/텍스트/이미지 n/total)을 세션에 적재 →
             // gen-status 로 웹이 실시간 진행률·ETA 를 그린다.
@@ -181,8 +187,14 @@ export async function startPairServer({
               }
             },
           });
+          // 시작 자체가 실패하면(폴더 없음·이미 진행 중 등) 세션에 에러로 남긴다 → 웹이 폴링으로 본다.
+          Promise.resolve(started).catch((e) => {
+            sess.state = 'error';
+            sess.error = String(e?.message || e);
+            sess.updatedAt = Date.now();
+          });
           res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ ok: true }));
+          return res.end(JSON.stringify({ ok: true, accepted: true }));
         } catch (e) {
           sess.state = 'error'; sess.error = String(e.message || e);
           res.writeHead(500, cors); return res.end(sess.error);
