@@ -2106,8 +2106,10 @@ export default function AllInOneRegisterPanel() {
                           <div className="mt-2">
                             <p className="text-[11px] text-gray-600 mb-1 font-medium">
                               미리보기 — 등록될 상세페이지(글 + 이미지 교차)
+                              {/* 문단 수를 같이 보여준다 — 교차 배치는 min(문단, 이미지) 슬롯으로 정해지므로
+                                  "왜 이렇게 나뉘었나"가 이 두 숫자로 바로 설명된다. */}
                               <span className="ml-1 font-normal text-gray-400">
-                                본문 이미지 {reviewUrls.length}장{reviewUrls.length > 0 ? ' (리뷰컷)' : ''}
+                                글 {paras.length}문단 · 본문 이미지 {reviewUrls.length}장{reviewUrls.length > 0 ? ' (리뷰컷)' : ''}
                                 {infoUrls.length > 0 ? ` · 상품정보 ${infoUrls.length}장` : ''}
                               </span>
                             </p>
