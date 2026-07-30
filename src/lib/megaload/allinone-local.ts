@@ -73,22 +73,65 @@ export interface AllinoneManifest {
 
 const base = (ep: LocalEndpoint) => `http://127.0.0.1:${ep.port}`;
 
-/** 하트비트에서 도우미의 로컬 서버 주소를 찾는다. 없으면 null(구버전이거나 미접속). */
-export async function discoverLocalEndpoint(): Promise<LocalEndpoint | null> {
+/**
+ * 후보 엔드포인트가 **지금 이 PC** 의 도우미인지 확인한다.
+ *   nonce 를 검사하는 가장 가벼운 경로(/allinone/gen-status — 세션 없으면 200 {state:'unknown'})를 찌른다.
+ *   401 = 다른 PC 의 nonce, 연결거부 = 그 포트에 도우미 없음.
+ */
+async function verifyEndpoint(ep: LocalEndpoint): Promise<boolean> {
+  try {
+    const r = await fetch(`${base(ep)}/allinone/gen-status?nonce=${encodeURIComponent(ep.nonce)}`, {
+      cache: 'no-store', signal: AbortSignal.timeout(2500),
+    });
+    return r.ok;
+  } catch { return false; }
+}
+
+/** 탐색 결과 — 실패 사유를 남긴다(뱃지가 "구버전"으로 뭉뚱그려 오표시하던 문제). */
+export type EndpointLookup =
+  | { ep: LocalEndpoint; reason: 'ok' }
+  /** 하트비트 자체가 없음(도우미 미실행/미연결) */
+  | { ep: null; reason: 'no-helper' }
+  /** 하트비트에 엔드포인트는 있으나 이 PC 에서 아무것도 응답하지 않음 = 다른 PC 의 도우미 */
+  | { ep: null; reason: 'other-pc' };
+
+let cached: { at: number; value: EndpointLookup } | null = null;
+const CACHE_MS = 15_000;
+
+/**
+ * 하트비트에서 도우미의 로컬 서버 주소를 찾고, **이 PC 의 것인지 검증**한다.
+ *
+ * ⚠️ 예전엔 목록의 첫 local_endpoint 를 그대로 썼다("모두 같은 PC" 라고 가정).
+ *    worker-status 는 그 계정의 **모든 PC** 하트비트를 돌려주므로, 도우미를 2대에서 켜면
+ *    B 컴퓨터의 브라우저가 A 컴퓨터의 {port, nonce} 를 집어 자기 127.0.0.1 에 물어보게 된다
+ *    → pair-server 가 401(nonce mismatch) → 웹은 "도우미 업데이트 필요" 로 오표시했다(실측).
+ *    이제 후보를 순서대로 찔러 실제 응답하는 것만 채택한다. 결과는 15초 캐시(폴러 여럿).
+ */
+export async function discoverLocalEndpointEx(): Promise<EndpointLookup> {
+  if (cached && Date.now() - cached.at < CACHE_MS) return cached.value;
+  const finish = (value: EndpointLookup) => { cached = { at: Date.now(), value }; return value; };
   try {
     const res = await fetch('/api/megaload/products/thumbnail-jobs/worker-status');
-    if (!res.ok) return null;
+    if (!res.ok) return finish({ ep: null, reason: 'no-helper' });
     const json = (await res.json()) as { online: boolean; workers: WorkerRow[] };
-    // 여러 워커가 붙어 있을 수 있다(셸·썸네일·LLM). local_endpoint 를 보내는 첫 놈이면 된다
-    // — 모두 같은 PC 의 같은 pair-server 를 가리킨다.
+    const candidates: LocalEndpoint[] = [];
     for (const w of json.workers ?? []) {
       const ep = w.local_endpoint;
-      if (ep && typeof ep.port === 'number' && typeof ep.nonce === 'string') return ep;
+      if (ep && typeof ep.port === 'number' && typeof ep.nonce === 'string') candidates.push(ep);
     }
-    return null;
+    if (candidates.length === 0) return finish({ ep: null, reason: 'no-helper' });
+    for (const ep of candidates) {
+      if (await verifyEndpoint(ep)) return finish({ ep, reason: 'ok' });
+    }
+    return finish({ ep: null, reason: 'other-pc' });
   } catch {
-    return null;
+    return finish({ ep: null, reason: 'no-helper' });
   }
+}
+
+/** 기존 호출부 호환 — 검증에 성공한 "이 PC" 엔드포인트만 돌려준다. */
+export async function discoverLocalEndpoint(): Promise<LocalEndpoint | null> {
+  return (await discoverLocalEndpointEx()).ep;
 }
 
 /**

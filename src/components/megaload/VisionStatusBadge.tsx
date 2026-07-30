@@ -22,9 +22,9 @@
  */
 import { useEffect, useState } from 'react';
 import { Eye, Loader2, Cpu, EyeOff } from 'lucide-react';
-import { discoverLocalEndpoint, fetchVisionStatus } from '@/lib/megaload/allinone-local';
+import { discoverLocalEndpointEx, fetchVisionStatus } from '@/lib/megaload/allinone-local';
 
-type State = 'checking' | 'ready' | 'no-model' | 'no-engine' | 'no-helper' | 'old-helper';
+type State = 'checking' | 'ready' | 'no-model' | 'no-engine' | 'no-helper' | 'old-helper' | 'other-pc';
 const POLL_MS = 20_000;
 
 export default function VisionStatusBadge({ className = '' }: { className?: string }) {
@@ -33,9 +33,11 @@ export default function VisionStatusBadge({ className = '' }: { className?: stri
   useEffect(() => {
     let alive = true;
     const tick = async () => {
-      const ep = await discoverLocalEndpoint();
+      const found = await discoverLocalEndpointEx();
       if (!alive) return;
-      if (!ep) { setState('no-helper'); return; }
+      const ep = found.ep;
+      // 다른 PC 의 도우미만 붙어 있는 경우를 "구버전"으로 오표시하지 않는다.
+      if (!ep) { setState(found.reason === 'other-pc' ? 'other-pc' : 'no-helper'); return; }
       const vs = await fetchVisionStatus(ep);
       if (!alive) return;
       // 도우미는 연결됐는데 응답이 없다 = 이 엔드포인트가 없는 구버전 도우미(업데이트 필요).
@@ -76,6 +78,18 @@ export default function VisionStatusBadge({ className = '' }: { className?: stri
       >
         <EyeOff className="w-3.5 h-3.5" />
         이미지 인식 미설치 · 생성 시 자동 설치
+      </span>
+    );
+  }
+
+  if (state === 'other-pc') {
+    return (
+      <span
+        title="다른 컴퓨터의 도우미만 연결돼 있습니다 — 지금 이 PC 에서는 도우미가 실행되지 않았거나 로그인 계정이 다릅니다. 이 PC 에서 메가로드 도우미를 실행/로그인하면 인식 상태가 표시됩니다."
+        className={`inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-500 ${className}`}
+      >
+        <Cpu className="w-3.5 h-3.5" />
+        이미지 인식 · 이 PC 도우미 미연결
       </span>
     );
   }

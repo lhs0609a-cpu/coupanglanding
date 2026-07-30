@@ -139,6 +139,32 @@ async function autoInstallIfNeeded() {
   }
 }
 
+/**
+ * 로컬 모델 보장 — 텍스트·임베딩(ollama.start 내부) + 이미지 인식(여기서 추가).
+ *   · 설치본/자동업데이트본 양쪽 모두 로그인 직후 1회 실행된다.
+ *   · 이미지 인식 모델(~6GB)은 NVIDIA GPU 가 있을 때만 받는다 — CPU 로는 상품당 수 분이라
+ *     실사용이 불가능하고, 그 경우 생성은 CLIP 휴리스틱으로 폴백하므로 받아도 낭비다.
+ *   · 실패해도 생성은 막지 않는다(첫 생성 때 run-folder 가 다시 시도한다).
+ */
+let modelsEnsured = false;
+async function ensureLocalModels() {
+  if (modelsEnsured) return;
+  modelsEnsured = true;
+  try {
+    await ollama.start();   // ollama 미설치면 설치·기동까지 + 텍스트(·임베딩) 모델 보장
+    const visionModel = store.get('ollamaVisionModel', bootstrap.DEFAULTS.ollamaVisionModel);
+    if (!visionModel) return;
+    const gpu = await bootstrap.checkGpu();
+    if (!gpu.ok) {
+      send('allinone:log', '[이미지 인식] NVIDIA GPU 미탐지 — 인식 모델(~6GB) 다운로드를 생략합니다(CPU 로는 속도가 실사용 불가). 생성은 기본 방식으로 진행됩니다.');
+      return;
+    }
+    await ollama.ensureModel(visionModel, '~6GB');
+  } catch (e) {
+    send('allinone:log', `[모델 준비] 실패 — 첫 생성 때 다시 시도합니다: ${e?.message || e}`);
+  }
+}
+
 async function autoStartIfReady() {
   // 광고 자동화 옵트인 자동시작 — 로그인돼 있고 "자동 실행"을 켠 경우에만.
   // (썸네일 엔진 설치 여부와 무관하므로 아래 엔진 가드보다 먼저 시도)
@@ -147,6 +173,12 @@ async function autoStartIfReady() {
       ads.autoStart?.().catch(() => {});
     }
   } catch { /* 광고 자동시작 실패는 썸네일 자동시작을 막지 않음 */ }
+
+  // ★ 로컬 모델(텍스트·임베딩·이미지 인식)은 **엔진 설치 여부와 무관하게** 보장한다.
+  //   autoInstallIfNeeded() 는 "엔진 미설치" 일 때만 호출되므로(아래 180행), 이미 엔진이 깔린
+  //   PC — 즉 **자동업데이트로 새 버전이 올라온 기존 사용자** — 는 그 경로를 영영 안 탄다.
+  //   그래서 새로 추가된 이미지 인식 모델을 못 받는다. 로그인돼 있으면 여기서 1회 맞춘다.
+  if (runner.loggedIn) void ensureLocalModels();
 
   try {
     if (runner.running || !runner.loggedIn) return;

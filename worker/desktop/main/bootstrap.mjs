@@ -28,6 +28,11 @@ export const DEFAULTS = {
   // 카테고리 의미매칭 임베딩 모델. cat-embeddings.meta.json 이 이 모델로 빌드됨 —
   // 미설치면 임베딩 매처가 404 → 토큰매칭으로 조용히 저하(카테고리 오분류). 반드시 함께 pull.
   ollamaEmbedModel: 'bge-m3',
+  // 이미지 인식(대표/상세컷 선별) 모델 ~6GB. 예전엔 설치 목록에 없어서 **첫 올인원 생성 때**
+  // run-folder 가 그제서야 pull 했고, 설치만 하고 생성을 안 돌린 PC 는 계속 미설치였다
+  // (웹 뱃지가 그 상태를 "도우미 업데이트 필요" 로 오표시하기도 했다). 이제 설치·자동업데이트
+  // 단계에서 함께 받는다. GPU 없는 PC 는 CPU 로 사실상 못 돌리므로 받지 않는다(용량 낭비 방지).
+  ollamaVisionModel: 'qwen2.5vl:7b',
   // VC++ 2015-2022 재배포 패키지(x64). onnxruntime-node(@huggingface/transformers)가 이걸 요구한다 —
   // 없거나 낡으면 onnxruntime_binding.node 가 "DLL initialization routine failed" 로 로드 실패하고,
   // 그 결과 누끼(BiRefNet CPU)·CLIP 대표컷이 에러 없이 조용히 꺼진다(원본 사진만 남아 눈치채기 어려움).
