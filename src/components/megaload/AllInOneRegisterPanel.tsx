@@ -1469,10 +1469,10 @@ export default function AllInOneRegisterPanel() {
           //    그 결과 거의 모든 상품이 이미지 1장으로 등록됐다(실측). 화면은 "대표 외 후보는
           //    서브이미지로 등록됩니다" 라고 안내하고 있어 표시와 실제가 어긋나 있었다.
           //
-          // 지금: 지재권 안전 순으로 서브를 자동으로 채운다.
-          //    ① 누끼 가공본  — 우리가 만든 산출물이라 가장 안전
-          //    ② 리뷰 실사    — 구매자 촬영. 업체 상업컷보다 위험이 낮다
-          //    ③ 업체 원본    — 위 둘로 3장을 못 채울 때만 보충(빈 갤러리보다는 낫다)
+          // 지금: **서브 9장을 리뷰 실사로 채운다**(사용자 확정 2026-07-31).
+          //    ① 리뷰 실사    — 구매자 촬영. 업체 상업컷 대비 지재권 위험이 가장 낮다
+          //    ② 누끼 가공본  — 리뷰컷이 9장에 못 미칠 때 보충(우리 산출물이라 안전)
+          //    ③ 업체 원본    — 위 둘로도 못 채울 때만 마지막 보충(빈 슬롯보다는 낫다)
           //    사용자가 ×로 뺀 컷은 r.mainImages/r.reviewImages 에서 이미 빠져 있다.
           const GALLERY_MAX = 10;
           const chosen = r.mainImages[r.selectedMainIdx];
@@ -1493,11 +1493,8 @@ export default function AllInOneRegisterPanel() {
             }
             return out;
           };
-          // 안전한 것(누끼·리뷰)으로 먼저 채우고, 3장에 못 미칠 때만 업체 원본으로 보충한다.
-          const safeSubs = pickUnique([cutoutCuts, reviewCuts], GALLERY_MAX - 1);
-          const subs = safeSubs.length >= 3
-            ? safeSubs
-            : pickUnique([cutoutCuts, reviewCuts, vendorCuts], GALLERY_MAX - 1);
+          // 리뷰 실사로 9장을 채우고, 모자랄 때만 누끼 → 업체 원본 순으로 보충한다.
+          const subs = pickUnique([reviewCuts, cutoutCuts, vendorCuts], GALLERY_MAX - 1);
           const mainOrdered = chosen ? [chosen, ...subs] : [];
           const mainUrls = (await uploadScannedImages(mainOrdered, GALLERY_MAX, wm)).filter(Boolean);
           // 본문 교차 이미지는 리뷰컷만(detailUrls 비움).
