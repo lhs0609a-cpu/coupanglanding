@@ -38,6 +38,10 @@ jobs:
       - name: Verify helper discovery contract
         run: node scripts/verify-helper-discovery.mjs
 
+      # 대표컷 지재권 정책(공산품=누끼 / 과일=리뷰 실사 / 업체 스튜디오컷=후순위) 회귀 방지.
+      - name: Verify main-image IP policy
+        run: node scripts/verify-main-image-policy.mjs
+
       - name: Build (sync-runtime + electron-builder, win/nsis)
         working-directory: worker/desktop
         run: npm run dist

@@ -320,6 +320,44 @@ export function looksCutout(m, filePath = '') {
 }
 
 /**
+ * "업체가 각 잡고 찍은 스튜디오컷" 판별 — 지재권 위험이 가장 큰 부류.
+ * ---------------------------------------------------------------------------
+ * 왜 필요한가: 소싱처 대표/상세 이미지의 상당수는 **판매자가 촬영·보정한 상업용 사진**이다.
+ *   이걸 그대로 우리 대표컷으로 올리면 분쟁 소지가 가장 크다. 반면 구매자 리뷰 실사나
+ *   우리가 직접 만든 누끼본은 위험이 낮다. 그래서 대표 선정에서 이 부류를 뒤로 민다.
+ *
+ * 무엇으로 가르나(추가 모델 없이 sharp 지표만):
+ *   · 규격 프레이밍   — 정사각(1:1)에 가깝고 해상도가 크다. 상업 촬영물의 납품 규격.
+ *   · 균일한 스튜디오 조명 — 모서리 밝기 편차(cornerSpread)·질감(cornerTexture)이 거의 없다.
+ *   · 깨끗한 배경     — bgConfidence 가 높고 배경이 밝다.
+ * 구매자 실사는 생활 배경·임의 비율·불균일 조명이라 위 조건을 동시에 만족하기 어렵다.
+ *
+ * ⚠️ 우리가 만든 누끼본도 "흰 배경 + 정사각"이라 조건이 겹친다. 그건 지재권 위험이 없으므로
+ *    호출부에서 looksCutout() 으로 먼저 걸러 이 판정을 적용하지 않는다.
+ *
+ * @returns {{studio:boolean, confidence:number, why:string[]}}
+ */
+export function looksStudioShot(m) {
+  if (!m) return { studio: false, confidence: 0, why: [] };
+  const why = [];
+  let score = 0;
+  // ① 규격 프레이밍 — 1:1 근접 + 큰 해상도
+  const squarish = m.aspect >= 0.95 && m.aspect <= 1.05;
+  if (squarish) { score += 0.35; why.push('정사각 규격'); }
+  if (m.minSide >= 800) { score += 0.15; why.push('고해상도'); }
+  // ② 스튜디오 조명 — 모서리 밝기 편차·질감이 거의 없다
+  if (m.cornerSpread <= 12 && m.cornerTexture <= 8) { score += 0.3; why.push('균일 조명'); }
+  // ③ 깨끗한 밝은 배경
+  if (m.bgConfidence >= 0.6 && m.bgLum >= 200) { score += 0.3; why.push('깨끗한 배경'); }
+  // ④ 피사체가 중앙에 온전히 — 프레임에 안 닿음(연출 구도)
+  if (m.mainEdgeSides === 0 && m.subjectRatio >= 0.1) { score += 0.1; why.push('중앙 배치'); }
+  const confidence = Math.min(1, +score.toFixed(2));
+  // 조명·배경 둘 다 만족해야 스튜디오로 본다(하나만으론 밝은 곳에서 찍은 실사와 구분 안 됨).
+  const studio = confidence >= 0.75 && m.bgConfidence >= 0.6 && m.cornerSpread <= 12;
+  return { studio, confidence, why };
+}
+
+/**
  * 대표컷 후보 랭킹 — image-selector.selectBestMainImage 와 동일한 반환 형태라
  * run-folder 에 그대로 갈아끼울 수 있다(측정 후 결정).
  * @param {string[]} imagePaths

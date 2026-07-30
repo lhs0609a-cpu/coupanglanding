@@ -23,7 +23,7 @@
  */
 
 import { generateVision, parseJsonLoose } from './local-llm.mjs';
-import { measureImage, scoreImage, looksCutout, metricsDepsFailed } from './image-metrics.mjs';
+import { measureImage, scoreImage, looksCutout, looksStudioShot, metricsDepsFailed } from './image-metrics.mjs';
 import { basename } from 'node:path';
 
 // ── 대표컷 기하 심사 (VLM 이 못 보는 것) ─────────────────────────────────────
@@ -38,12 +38,19 @@ async function measureCandidates(paths, { onLog } = {}) {
     try {
       const met = await measureImage(p);
       const { score } = scoreImage(met);
+      const cutout = looksCutout(met, p);
+      // 업체 각잡은 스튜디오컷 판별(지재권 위험). 우리가 만든 누끼본은 흰배경·정사각이라
+      //   조건이 겹치므로 여기서 제외한다 — 누끼는 우리 산출물이라 위험이 없다.
+      const st = cutout ? { studio: false, confidence: 0 } : looksStudioShot(met);
       out.set(p, {
         score,
         // mainEdgeSides = 피사체가 닿은 프레임 변의 수. 2개 이상이면 잘렸다고 본다
         // (1면 접촉은 바닥에 놓인 정상 구도에서도 나온다).
+        // ⚠️ 이 값으로 후보를 **탈락시키지는 않는다**(게이트 제거, 위 랭킹 주석 참조).
         cropped: met.mainEdgeSides >= 2 && met.bgConfidence > 0.25,
-        cutout: looksCutout(met, p),
+        cutout,
+        studio: st.studio,
+        studioConfidence: st.confidence,
       });
     } catch {
       if (metricsDepsFailed()) { onLog?.('[비전] sharp 미탑재 — 기하 심사 생략(VLM 판정 그대로 사용)'); return null; }
@@ -296,23 +303,30 @@ export async function visionCurateProduct({ mainPool = [], detailPool = [], revi
     person: '사람 얼굴/인물', texture: '성분/질감 접사(상품 아님)', lifestyle: '연출컷', other: '상품 무관',
   }[t] || t);
 
-  // 대표를 못 찾았으면(전 후보가 로고/텍스처/짤림) 리뷰이미지의 상품컷을 대표로 승격.
-  //   지재권상 흰누끼가 이상적이지만, 마땅한 상품 정면컷이 아예 없으면 구매자 실사진이라도 쓴다.
-  //   ⭐ 과일·음식은 "없을 때만"이 아니라 **항상** 리뷰 실사를 후보로 본다(누끼 결과가 어색하므로).
+  // ── 대표컷 지재권 정책 ────────────────────────────────────────────────────
+  // 사용자 확정 규칙(2026-07-30):
+  //   · 업체가 각 잡고 찍은 사진 = 지재권 위험 → 대표로 쓰지 않는다(최후수단)
+  //   · 과일·신선식품            = 구매자 리뷰 실사를 쓴다(누끼가 어색함)
+  //   · 일반 공산품              = 우리가 만든 누끼(흰 배경)를 쓴다
+  //
+  // 그래서 **리뷰 실사를 항상 대표 후보로 본다**(예전엔 과일·식품일 때만, 그 외에는
+  //   "대표 후보가 하나도 없을 때"의 최후수단이었다 → 공산품은 누끼가 반려되면 업체
+  //   스튜디오컷이 그대로 대표가 됐다).
   let promotedFromReview = null;
-  const reviewMainCandidates = isFresh
-    ? review.filter((p) => reviewType.get(p) === 'product' || reviewType.get(p) === 'lifestyle')
-    : [];
-  if (!bestMainPath && review.length > 0) {
-    const rp = review.find((p) => reviewType.get(p) === 'product') || review.find((p) => reviewType.get(p) === 'lifestyle');
+  const reviewMainCandidates = review.filter(
+    (p) => reviewType.get(p) === 'product' || reviewType.get(p) === 'lifestyle',
+  );
+  if (!bestMainPath && reviewMainCandidates.length > 0) {
+    const rp = review.find((p) => reviewType.get(p) === 'product') || reviewMainCandidates[0];
     if (rp) { bestMainPath = rp; promotedFromReview = rp; }
   }
 
-  // ── 기하 심사: 잘린 컷을 대표에서 밀어낸다 ────────────────────────────────
-  //   VLM 이 product 로 본 컷 전부를 후보로 놓고 sharp 로 잰다.
-  //   ① 잘리지 않은 후보가 하나라도 있으면 잘린 후보는 대표에서 제외한다.
-  //   ② 남은 후보 중 VLM 의 선택(bestMainPath)이 살아 있으면 그대로 존중(의미 판단은 VLM 우선).
-  //   ③ 아니면 기하 점수 1위로 교체.
+  // ── 후보 랭킹 ─────────────────────────────────────────────────────────────
+  //   VLM 이 product 로 본 컷 + 리뷰 실사를 한 줄에 놓고 sharp 지표로 정렬한다.
+  //
+  //   ⚠️ 기하 "잘림" 게이트는 제거했다. 잘림 판별은 실측에서 전 방법이 실패했고(기하 전 임계값,
+  //      VLM 격자·비교·점수, VLM 단독 12전 12 "cut"), 게이트가 오히려 **온전한 컷을 밀어내고
+  //      잘린 컷을 남겼다**(일리윤 실측). 점수에는 여전히 반영되므로 랭킹으로만 다룬다.
   const productCands = [
     ...combined.filter((p) => typeOf.get(p) === 'product'),
     ...reviewMainCandidates,
@@ -322,30 +336,44 @@ export async function visionCurateProduct({ mainPool = [], detailPool = [], revi
   if (productCands.length > 1) {
     const geo = await measureCandidates(productCands, { onLog });
     if (geo) {
-      const uncropped = productCands.filter((p) => !geo.get(p)?.cropped);
-      const pool = uncropped.length ? uncropped : productCands;
-      // 과일·음식: 누끼된 컷은 뒤로 민다(어색함). 그 외에는 누끼된 컷이 쿠팡 규격이라 유리.
+      const isReview = (p) => reviewMainCandidates.includes(p);
+      // 가중치 = 지재권 안전도 × 품종 적합도.
+      //   공산품: 누끼(1.30) > 리뷰 실사(1.05) > 일반 원본(1.00) > 업체 스튜디오컷(0.35)
+      //   과일·식품: 리뷰 실사(1.25) > 일반 원본(1.00) > 누끼(0.60) > 업체 스튜디오컷(0.35)
       const rank = (p) => {
         const g = geo.get(p);
         if (!g) return 0;
-        const cutoutAdj = isFresh ? (g.cutout ? 0.6 : 1.15) : (g.cutout ? 1.3 : 1);
-        return g.score * cutoutAdj;
+        let adj = isFresh ? (g.cutout ? 0.6 : 1.0) : (g.cutout ? 1.3 : 1.0);
+        if (isReview(p)) adj *= isFresh ? 1.25 : 1.05;   // 구매자 실사 = 지재권 위험 낮음
+        // 업체 스튜디오컷은 강하게 뒤로. 누끼본·리뷰컷은 대상이 아니다.
+        if (g.studio && !g.cutout && !isReview(p)) adj *= 0.35;
+        return g.score * adj;
       };
-      shortlist = [...pool].sort((a, b) => rank(b) - rank(a));
+      shortlist = [...productCands].sort((a, b) => rank(b) - rank(a));
       geoInfo = geo;
+      const studioN = productCands.filter((p) => geo.get(p)?.studio && !geo.get(p)?.cutout && !isReview(p)).length;
+      if (studioN > 0) onLog?.(`[비전] 업체 촬영 추정컷 ${studioN}장 — 지재권 위험으로 대표 후순위`);
     }
   }
   if (!shortlist.length) shortlist = productCands;
 
-  // 1단계 기하 심사 결과 반영 — VLM 선택이 잘림으로 탈락했거나 과일인데 누끼컷이면 교체.
+  // VLM 이 고른 컷이 정책에 어긋나면(업체 스튜디오컷 / 과일인데 누끼) 랭킹 1위로 교체.
+  //   의미 판단은 VLM 이 낫지만, 지재권·품종 규칙은 사람이 정한 정책이라 이쪽이 우선한다.
   if (geoInfo && bestMainPath && shortlist.length) {
     const g = geoInfo.get(bestMainPath);
-    const droppedByGeo = g?.cropped && shortlist.some((p) => !geoInfo.get(p)?.cropped);
-    const awkwardCutout = isFresh && g?.cutout && shortlist.some((p) => !geoInfo.get(p)?.cutout);
-    if (droppedByGeo || awkwardCutout) {
-      const alt = shortlist.find((p) => (droppedByGeo ? !geoInfo.get(p)?.cropped : !geoInfo.get(p)?.cutout));
+    const isReview = reviewMainCandidates.includes(bestMainPath);
+    const ipRisk = g?.studio && !g.cutout && !isReview;
+    const awkwardCutout = isFresh && g?.cutout;
+    if (ipRisk || awkwardCutout) {
+      const alt = shortlist.find((p) => {
+        const gg = geoInfo.get(p);
+        if (!gg) return false;
+        if (ipRisk && gg.studio && !gg.cutout && !reviewMainCandidates.includes(p)) return false;
+        if (awkwardCutout && gg.cutout) return false;
+        return true;
+      });
       if (alt && alt !== bestMainPath) {
-        onLog?.(`[비전] 대표 교체(${droppedByGeo ? '프레임 밖으로 잘림' : '과일·음식은 누끼컷이 어색함'}): ${basename(bestMainPath)} → ${basename(alt)}`);
+        onLog?.(`[비전] 대표 교체(${ipRisk ? '업체 촬영 추정 — 지재권 회피' : '과일·음식은 누끼컷이 어색함'}): ${basename(bestMainPath)} → ${basename(alt)}`);
         bestMainPath = alt;
       }
     }

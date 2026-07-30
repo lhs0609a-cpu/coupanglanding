@@ -53,6 +53,24 @@ try {
     check('Origin 없는 요청엔 nonce 미제공', j2.nonce === undefined);
   }
 
+  // ②-2 실제 서비스 오리진 전부가 허용돼야 한다.
+  //   ⚠️ 이 항목이 없어서 사고가 났다: 오리진 정규식이 `.*\.megaload\.co\.kr` 라 www 없는
+  //      apex(`megaload.co.kr`)를 거부했고, www 없이 접속한 PC 에서만 전부 막혔다.
+  //      두 주소 모두 살아있는 별칭이므로 둘 다 통과해야 한다.
+  for (const o of [
+    'https://megaload.co.kr',          // apex — 과거 거부되던 주소
+    'https://www.megaload.co.kr',
+    'https://coupanglanding.vercel.app',
+    'http://localhost:3000',
+  ]) {
+    const r = await get('/health', o);
+    const j = await r.json();
+    check(`허용 오리진: ${o}`, typeof j.nonce === 'string',
+      j.nonce ? '' : 'nonce 미제공 = CORS 거부 → 이 주소로 접속한 PC 는 전부 막힌다');
+    const v = await get(`/allinone/vision-status?nonce=${encodeURIComponent(srv.nonce)}`, o);
+    check(`  └ /allinone/* 도 허용: ${o}`, v.status !== 403, `HTTP ${v.status}`);
+  }
+
   // ③ 포트 대역이 웹 상수와 일치
   {
     const web = readFileSync(WEB_SRC, 'utf8');

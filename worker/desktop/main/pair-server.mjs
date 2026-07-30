@@ -21,7 +21,18 @@ import { stat, readFile, readdir, mkdir, writeFile, rm } from 'node:fs/promises'
 import { join, resolve, relative, isAbsolute, extname, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 
-const ALLOWED_ORIGIN_RE = /^https?:\/\/(?:localhost(:\d+)?|127\.0\.0\.1(:\d+)?|.*\.megaload\.co\.kr|.*\.vercel\.app)$/i;
+/**
+ * 웹에서 오는 요청 중 허용할 오리진.
+ * ⚠️ `(?:[\w-]+\.)*` 로 **정점 도메인(apex)까지** 포함한다.
+ *    예전엔 `.*\.megaload\.co\.kr` 이라 앞에 점이 필수였다 → `www.megaload.co.kr` 은 통과하지만
+ *    **`megaload.co.kr`(www 없음)은 거부**됐다. 둘 다 살아있는 별칭이라, www 없이 접속한 PC 에서만
+ *    CORS 가 필요한 호출이 전부 막혔다(실측 2026-07-30):
+ *      · /health → nonce 미제공 → 로컬 스캔 실패
+ *      · /allinone/* → 403 → "이 PC 도우미 미연결" + 업로드 생성 차단
+ *    반면 CORS 가 필요 없는 검사(서버 하트비트 배지, no-cors 누끼 프로브)는 전부 초록이라
+ *    "연결은 됐는데 진행이 안 되는" 모습으로 보였다.
+ */
+const ALLOWED_ORIGIN_RE = /^https?:\/\/(?:localhost(:\d+)?|127\.0\.0\.1(:\d+)?|(?:[\w-]+\.)*megaload\.co\.kr|(?:[\w-]+\.)*vercel\.app)$/i;
 
 const MIME = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
