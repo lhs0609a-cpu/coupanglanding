@@ -418,6 +418,8 @@ app.whenReady().then(async () => {
     // 업로드·생성물을 userData 하위(영속)에 둔다 — tmpdir 은 재시작·정리에 사라져
     // 방금 만든 결과까지 날아갔다(실측: 앱 재시작 후 lastAllinoneFolder manifest 404).
     dataDir: app.getPath('userData'),
+    // /health 가 신원과 함께 알려준다 — 웹이 "이 PC 도우미"를 DB 없이 확정하는 데 쓴다.
+    appVersion: app.getVersion(),
     // 올인원 생성을 끝낸 폴더 → 웹이 폴더를 다시 고르지 않아도 결과를 읽어간다.
     getAllinoneFolder: () => store.get('lastAllinoneFolder', null),
     // 웹 사이드바 '최신으로 업데이트' 버튼 → 앱 내부 자동업데이트 확인/적용을 킥.

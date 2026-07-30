@@ -44,6 +44,12 @@ function jail(root, p) {
   return abs;
 }
 
+/**
+ * 발견용 고정 포트 대역 — 웹이 서버(DB)를 거치지 않고 127.0.0.1 에서 직접 도우미를 찾는다.
+ * ⚠️ 이 값을 바꾸면 웹의 DISCOVERY_PORTS(src/lib/megaload/allinone-local.ts)도 같이 바꿔야 한다.
+ */
+export const DISCOVERY_PORTS = [47690, 47691, 47692, 47693, 47694, 47695, 47696, 47697, 47698, 47699];
+
 export async function startPairServer({
   onPair,
   allowedOriginRe = ALLOWED_ORIGIN_RE,
@@ -57,6 +63,8 @@ export async function startPairServer({
   // 결과까지 날아갔다 → 앱이 재시작하면 lastAllinoneFolder 가 죽은 경로를 가리켜 manifest 404,
   // 웹 카드의 이미지·옵션이 전부 끊긴다. userData 하위(영속)로 받아 재시작에도 살아남게 한다.
   dataDir = null,
+  // /health 가 돌려줄 앱 버전(웹이 구버전 판별에 쓴다). 없으면 null.
+  appVersion = null,
 } = {}) {
   const nonce = randomUUID();
   const state = { paired: false, nonce, port: 0 };
@@ -97,9 +105,23 @@ export async function startPairServer({
 
     if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
 
-    if (req.method === 'GET' && req.url === '/health') {
+    // ── 발견(discovery) 창구 ────────────────────────────────────────────────
+    // 웹이 "지금 이 PC 의 도우미"를 확정하는 유일한 경로.
+    //   · 파라미터 없음 · 모든 버전에 존재 — 발견용 프로브가 지켜야 할 두 조건.
+    //   · app/version 으로 다른 로컬 서비스와 구분하고, nonce 를 **직접** 돌려준다.
+    //     예전엔 nonce 를 서버 하트비트(DB)로만 받을 수 있어, 2대를 켜면 다른 PC 의 nonce 로
+    //     접속해 401 이 났다. 여기서 주면 그 추측 자체가 사라진다.
+    //   · 보안: 아래 cors 는 우리 도메인(allowedOriginRe)에만 열려 있다. 그 오리진은 어차피
+    //     하트비트로 nonce 를 받을 수 있었으므로 노출 범위는 그대로다.
+    if (req.method === 'GET' && (req.url === '/health' || req.url?.startsWith('/health?'))) {
+      // nonce 는 **우리 도메인에서 온 요청에만** 준다(Origin 헤더가 실제로 일치할 때).
+      //   Origin 없는 요청(curl 등 로컬 프로세스)에는 신원만 알려주고 열쇠는 주지 않는다.
+      const trusted = !!origin && allowedOriginRe.test(origin);
       res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, paired: state.paired }));
+      return res.end(JSON.stringify({
+        ok: true, app: 'megaload-desktop', version: appVersion || null, paired: state.paired,
+        ...(trusted ? { port: state.port, nonce: state.nonce } : {}),
+      }));
     }
 
     // 웹 '최신으로 업데이트' — electron-updater 즉시 확인/적용 킥. nonce 로 보호.
@@ -356,10 +378,26 @@ export async function startPairServer({
     res.writeHead(404, cors); res.end('not found');
   });
 
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => resolve());
+  // ── 고정 포트 대역 바인딩 ────────────────────────────────────────────────
+  // 예전엔 listen(0) 으로 **랜덤 포트**를 잡고, 웹은 그 포트를 서버 하트비트(DB)로만 알 수 있었다.
+  //   → ①앱이 재시작하면 포트가 바뀌어 DB 값이 낡고 ②도우미를 2대에서 켜면 웹이 어느 PC 것인지
+  //     구분할 수 없었다(목록에 PC 표시가 없음). 그래서 "다른 PC 도우미로 접속 → 401" 사고가 났다.
+  // 이제 고정 대역을 순서대로 시도한다. 웹은 DB 를 거치지 않고 127.0.0.1 의 이 대역만 훑으면
+  //   **지금 이 PC** 의 도우미를 확정적으로 찾는다(로컬에 있는 건 로컬에서 찾는다).
+  //   전부 사용 중이면 예전처럼 랜덤 포트로 폴백한다(기동 실패보다 낫다 — 하트비트 경로가 받쳐준다).
+  const listenOn = (p) => new Promise((resolve, reject) => {
+    const onErr = (e) => { server.removeListener('listening', onOk); reject(e); };
+    const onOk = () => { server.removeListener('error', onErr); resolve(); };
+    server.once('error', onErr);
+    server.once('listening', onOk);
+    server.listen(p, '127.0.0.1');
   });
+  let bound = false;
+  for (const p of DISCOVERY_PORTS) {
+    try { await listenOn(p); bound = true; break; }
+    catch { /* 사용 중 → 다음 포트 */ }
+  }
+  if (!bound) await listenOn(0);
   state.port = server.address().port;
 
   // 오래된 업로드 세션 청소 — 영속 위치(userData)로 옮겼으니 방치하면 무한 누적된다.

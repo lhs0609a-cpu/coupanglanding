@@ -75,16 +75,32 @@ const base = (ep: LocalEndpoint) => `http://127.0.0.1:${ep.port}`;
 
 /**
  * 후보 엔드포인트가 **지금 이 PC** 의 도우미인지 확인한다.
- *   nonce 를 검사하는 가장 가벼운 경로(/allinone/gen-status — 세션 없으면 200 {state:'unknown'})를 찌른다.
- *   401 = 다른 PC 의 nonce, 연결거부 = 그 포트에 도우미 없음.
+ *
+ * ⚠️ 발견(discovery)용 프로브는 아래 두 조건을 **반드시** 만족하는 경로만 써야 한다.
+ *    ① 파라미터가 없을 것  ② 모든 도우미 버전에 존재할 것
+ *    이걸 어겨서 사고가 났다(실측 2026-07-30): `/allinone/gen-status` 로 찔렀는데
+ *    그 경로는 `session` 파라미터를 강제한다 —
+ *      `if (!/^[a-f0-9-]{8,64}$/i.test(sid)) return 400 'bad session'`
+ *    → 정상 도우미인데도 400 → 전 후보 실패 → "이 PC 도우미 미연결" 오표시 + 업로드 생성 차단.
+ *
+ * 그래서 2단계로 나눈다:
+ *   ① /health           — 파라미터 없음·전 버전 존재. 이 PC 그 포트에 도우미가 떠 있나.
+ *   ② /allinone/vision-status — nonce 만 검사(추가 파라미터 없음). 401/403 이면 다른 PC 의 nonce.
+ *      이 경로가 없는 구버전(404/501)은 ①만으로 인정한다 — 구버전 사용자 회귀 방지.
  */
 async function verifyEndpoint(ep: LocalEndpoint): Promise<boolean> {
   try {
-    const r = await fetch(`${base(ep)}/allinone/gen-status?nonce=${encodeURIComponent(ep.nonce)}`, {
-      cache: 'no-store', signal: AbortSignal.timeout(2500),
+    const health = await fetch(`${base(ep)}/health`, { cache: 'no-store', signal: AbortSignal.timeout(2500) });
+    if (!health.ok) return false;
+  } catch { return false; }   // 연결거부/타임아웃 = 그 포트에 도우미 없음
+  try {
+    const r = await fetch(`${base(ep)}/allinone/vision-status?nonce=${encodeURIComponent(ep.nonce)}`, {
+      cache: 'no-store', signal: AbortSignal.timeout(5000),
     });
-    return r.ok;
-  } catch { return false; }
+    return r.status !== 401 && r.status !== 403;   // 200=확정, 404/501=구버전 → ①로 인정
+  } catch {
+    return true;   // 일시적 실패는 ① 통과로 인정(발견을 막지 않는다)
+  }
 }
 
 /** 탐색 결과 — 실패 사유를 남긴다(뱃지가 "구버전"으로 뭉뚱그려 오표시하던 문제). */
@@ -99,17 +115,52 @@ let cached: { at: number; value: EndpointLookup } | null = null;
 const CACHE_MS = 15_000;
 
 /**
- * 하트비트에서 도우미의 로컬 서버 주소를 찾고, **이 PC 의 것인지 검증**한다.
+ * 도우미 발견용 고정 포트 대역 — 도우미(pair-server)가 이 순서로 바인딩한다.
+ * ⚠️ worker/desktop/main/pair-server.mjs 의 DISCOVERY_PORTS 와 반드시 같아야 한다.
+ */
+export const DISCOVERY_PORTS = [47690, 47691, 47692, 47693, 47694, 47695, 47696, 47697, 47698, 47699];
+
+/**
+ * 로컬 직접 스캔 — 127.0.0.1 의 고정 대역에서 도우미를 찾고 **접속 열쇠를 직접 받는다**.
+ *   응답한 놈이 곧 "지금 이 PC 의 도우미"다. 서버(DB)를 거치지 않으므로
+ *   ①포트가 바뀌든 ②도우미를 몇 대에서 켜든 헷갈릴 여지가 없다.
+ *   구버전 도우미는 nonce 를 안 주므로 여기서 걸리지 않고 아래 하트비트 폴백이 받는다.
+ */
+async function scanLocalPorts(): Promise<LocalEndpoint | null> {
+  const probe = async (port: number): Promise<LocalEndpoint | null> => {
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/health`, {
+        cache: 'no-store', signal: AbortSignal.timeout(1200),
+      });
+      if (!r.ok) return null;
+      const j = (await r.json()) as { app?: string; nonce?: string; port?: number };
+      if (j.app !== 'megaload-desktop' || typeof j.nonce !== 'string') return null;
+      return { port: typeof j.port === 'number' ? j.port : port, nonce: j.nonce };
+    } catch { return null; }
+  };
+  // 전 포트를 동시에 찔러 대역 스캔 지연을 없앤다(연결거부는 즉시 반환).
+  const results = await Promise.all(DISCOVERY_PORTS.map(probe));
+  return results.find((r): r is LocalEndpoint => r !== null) ?? null;
+}
+
+/**
+ * "지금 이 PC 의 도우미"를 찾는다.
+ *   ① 로컬 고정 대역 직접 스캔(권장 경로 — 추측 없음)
+ *   ② 실패 시 서버 하트비트 폴백(구버전 도우미 호환) + 이 PC 것인지 검증
  *
- * ⚠️ 예전엔 목록의 첫 local_endpoint 를 그대로 썼다("모두 같은 PC" 라고 가정).
- *    worker-status 는 그 계정의 **모든 PC** 하트비트를 돌려주므로, 도우미를 2대에서 켜면
- *    B 컴퓨터의 브라우저가 A 컴퓨터의 {port, nonce} 를 집어 자기 127.0.0.1 에 물어보게 된다
- *    → pair-server 가 401(nonce mismatch) → 웹은 "도우미 업데이트 필요" 로 오표시했다(실측).
- *    이제 후보를 순서대로 찔러 실제 응답하는 것만 채택한다. 결과는 15초 캐시(폴러 여럿).
+ * ⚠️ 왜 ①이 필요한가: worker-status 는 그 계정의 **모든 PC** 하트비트를 돌려주는데 어느 PC 인지
+ *    표시가 없다. 예전엔 목록의 첫 local_endpoint 를 그냥 썼고("모두 같은 PC" 라는 잘못된 전제),
+ *    도우미를 2대에서 켜면 B 컴퓨터가 A 의 {port, nonce} 로 자기 127.0.0.1 에 접속해 401 이 났다.
+ *    게다가 포트가 랜덤이라 앱이 재시작하면 DB 값이 낡는다. ①은 그 두 가지를 동시에 없앤다.
+ *    결과는 15초 캐시(폴러가 여럿).
  */
 export async function discoverLocalEndpointEx(): Promise<EndpointLookup> {
   if (cached && Date.now() - cached.at < CACHE_MS) return cached.value;
   const finish = (value: EndpointLookup) => { cached = { at: Date.now(), value }; return value; };
+
+  const local = await scanLocalPorts();
+  if (local) return finish({ ep: local, reason: 'ok' });
+
   try {
     const res = await fetch('/api/megaload/products/thumbnail-jobs/worker-status');
     if (!res.ok) return finish({ ep: null, reason: 'no-helper' });

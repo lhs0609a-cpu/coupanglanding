@@ -32,6 +32,12 @@ jobs:
         working-directory: worker/desktop
         run: npm install
 
+      # 웹↔도우미 "발견 규약" 검증 — 여기서 막히면 릴리스가 안 나간다.
+      #   과거 사고: 웹이 파라미터를 강제하는 경로(gen-status)로 도우미를 찾다가 400 →
+      #   정상 도우미가 "미연결" 로 오판되고 업로드 생성이 막혔다(배포 후에야 발견).
+      - name: Verify helper discovery contract
+        run: node scripts/verify-helper-discovery.mjs
+
       - name: Build (sync-runtime + electron-builder, win/nsis)
         working-directory: worker/desktop
         run: npm run dist
