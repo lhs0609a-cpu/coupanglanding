@@ -466,32 +466,51 @@ function buildBlogStyleSection(
     return parts.join('\n');
   }
 
-  // 문단/이미지 균등 인터리브 — "1 이미지 + 1 텍스트 묶음" = 1 슬롯 단위.
+  // 문단/이미지 균등 인터리브 — 슬롯 = "문단 묶음 + 이미지 묶음" 1쌍.
   //
-  // 핵심 원칙:
-  //   1) SEO를 위해 문단을 truncate 안 함 — 모든 문단 보존
-  //   2) 슬롯별 chunk를 dynamic하게 조정 — Math.ceil(남은문단/남은이미지)
-  //   3) 슬롯 내 여러 문단을 **하나의 div block**으로 묶음 — 3 문단도
-  //      "3 wall"이 아니라 "1 묶음(내부 3 단락)"으로 시각화 → 페이지 전체가
-  //      "이미지-텍스트-이미지-텍스트" 리듬으로 보이도록 함.
+  // ⚠️ 예전 방식(슬롯 수 = 이미지 장수, 슬롯당 ceil(남은문단/남은슬롯) 문단)의 결함:
+  //    이미지가 문단보다 많으면 문단이 먼저 동나고 **남은 이미지가 끝에 통째로 붙었다**.
+  //    실측(2026-07-30, 올인원 8상품): 문단 5·리뷰컷 12 → T I T I T I T I T I + IIIIIIII
+  //    (뒤 8장 연속). 사용자 표현으로 "글 따로 이미지 따로". 첫 슬롯이 ceil 로 가장 두꺼워
+  //    첫 이미지가 화면 한 장 아래로 밀리는 문제도 함께 있었다.
   //
-  // 30P/11I 시뮬: chunk = 3-3-3-3-3-3-3-3-2-2-2 = 정확히 30 분배. 잔여 0.
+  // 지금 방식:
+  //   1) 슬롯 수 = min(문단, 이미지) — 어느 쪽도 남지 않는다(양쪽 전량 소비, truncate 없음).
+  //   2) 문단·이미지를 각각 슬롯에 균등 분배하고, **나머지는 뒤쪽 슬롯에** 얹는다
+  //      → 첫 슬롯이 가장 가벼워 첫 이미지가 위로 올라온다.
+  //   3) 슬롯 내 여러 문단은 하나의 div block 으로 묶어 "글벽"이 아니라 한 덩어리로 보이게 한다.
+  //
+  // 5P/12I  → T II · T II · T II · T III · T III   (끝에 몰리는 구간 없음)
+  // 8P/7I   → T I ×6 · TT I
+  const slots = Math.min(cleanParagraphs.length, cleanImages.length);
+  // total 개를 slots 칸에 나눌 때 j 번째 칸의 몫 — 나머지는 뒤쪽 칸부터 얹는다.
+  const share = (total: number, j: number) =>
+    Math.floor(total / slots) + (j >= slots - (total % slots) ? 1 : 0);
+
   let pIdx = 0;
-  for (let i = 0; i < cleanImages.length; i++) {
-    const remaining = cleanParagraphs.length - pIdx;
-    const slotsLeft = cleanImages.length - i;
-    const take = Math.min(Math.ceil(remaining / slotsLeft), remaining);
-    if (take > 0) {
-      parts.push(buildParagraphGroupBlock(cleanParagraphs.slice(pIdx, pIdx + take), style));
-      pIdx += take;
+  let iIdx = 0;
+  for (let j = 0; j < slots; j++) {
+    const takeP = share(cleanParagraphs.length, j);
+    if (takeP > 0) {
+      parts.push(buildParagraphGroupBlock(cleanParagraphs.slice(pIdx, pIdx + takeP), style));
+      pIdx += takeP;
     }
-    parts.push(
-      `<div style="margin:12px 0;"><img src="${esc(cleanImages[i])}" alt="${esc(shortenForAlt(productName))} ${i + 1}" style="width:100%;display:block;" /></div>`
-    );
+    const takeI = share(cleanImages.length, j);
+    for (let k = 0; k < takeI; k++) {
+      const url = cleanImages[iIdx++];
+      parts.push(
+        `<div style="margin:12px 0;"><img src="${esc(url)}" alt="${esc(shortenForAlt(productName))} ${iIdx}" style="width:100%;display:block;" /></div>`
+      );
+    }
   }
-  // 위 dynamic 분배로 잔여 0이 보장되지만, 안전망으로 마지막 슬롯에 남는 경우 합쳐서 한 묶음으로.
+  // 안전망 — 분배가 정확해 잔여 0 이지만, 방어적으로 남으면 마지막에 붙인다.
   if (pIdx < cleanParagraphs.length) {
     parts.push(buildParagraphGroupBlock(cleanParagraphs.slice(pIdx), style));
+  }
+  for (; iIdx < cleanImages.length; iIdx++) {
+    parts.push(
+      `<div style="margin:12px 0;"><img src="${esc(cleanImages[iIdx])}" alt="${esc(shortenForAlt(productName))} ${iIdx + 1}" style="width:100%;display:block;" /></div>`
+    );
   }
 
   return parts.join('\n');
