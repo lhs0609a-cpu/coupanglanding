@@ -1913,7 +1913,9 @@ export default function AllInOneRegisterPanel() {
                     const addableMain = addableMainImages(r);
                     return (
                     <>
-                      <div className="mt-1 flex gap-1.5 overflow-x-auto pb-1">
+                      {/* 후보 전량 노출 — 예전엔 overflow-x-auto 한 줄이라 25장 중 6장만 보이고
+                          나머지는 가로 스크롤 뒤에 숨었다(대표를 고르려면 후보가 다 보여야 한다). */}
+                      <div className="mt-1 flex flex-wrap gap-1.5 pb-1">
                         {r.mainImages.map((img, i) => (
                           <div key={`${img.name}-${i}`} role="button" tabIndex={editable ? 0 : -1}
                             onClick={() => editable && selectMain(r.uid, i, img)}
@@ -1948,7 +1950,7 @@ export default function AllInOneRegisterPanel() {
                         </button>
                       )}
                       {openDetailPool[`main:${r.uid}`] && addableMain.length > 0 && (
-                        <div className="mt-1 flex gap-1 overflow-x-auto pb-1 bg-gray-50 rounded p-1">
+                        <div className="mt-1 flex flex-wrap gap-1 pb-1 bg-gray-50 rounded p-1">
                           {addableMain.map((img) => (
                             <button type="button" key={img.name} disabled={!editable}
                               onClick={() => void addMainImage(r.uid, img)} title="후보로 되살리기"
