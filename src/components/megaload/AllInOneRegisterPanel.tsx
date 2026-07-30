@@ -1460,21 +1460,46 @@ export default function AllInOneRegisterPanel() {
             }
           }
           const wm = sellerBrandRef.current;
-          // 이미지 업로드: 대표(가공본 우선·CLIP 랭킹 첫장) + 상세(CLIP 큐레이션) + 리뷰/정보
-          // 사용자가 고른 컷이 첫 장(=쿠팡 대표)이 되게 재정렬.
-          //   · 누끼를 골랐으면 그 1장만 올린다(가공본이 대표일 때의 기존 동작 유지).
-          //   · 원본을 골랐으면 고른 컷 + 나머지 원본을 CLIP 순서로(원본이 대표일 때의 기존 동작 유지).
-          //   어느 쪽이든 '고르지 않은 누끼'는 올리지 않는다 — 후보였을 뿐이다.
+          // ── 상품 갤러리(대표 1 + 서브 최대 9) 구성 ──────────────────────────────
+          // 쿠팡은 이미지 배열을 10장까지 받는다(0번=REPRESENTATION, 나머지=DETAIL).
+          // 서브이미지는 상품 노출·전환에 쓰이므로 채울수록 유리하다.
+          //
+          // ⚠️ 예전 동작: 대표로 **누끼 가공본이나 리뷰컷을 고르면 그 1장만** 올렸다.
+          //    대표컷 지재권 정책이 들어가면서 공산품=누끼, 과일=리뷰컷이 기본 대표가 됐고,
+          //    그 결과 거의 모든 상품이 이미지 1장으로 등록됐다(실측). 화면은 "대표 외 후보는
+          //    서브이미지로 등록됩니다" 라고 안내하고 있어 표시와 실제가 어긋나 있었다.
+          //
+          // 지금: 지재권 안전 순으로 서브를 자동으로 채운다.
+          //    ① 누끼 가공본  — 우리가 만든 산출물이라 가장 안전
+          //    ② 리뷰 실사    — 구매자 촬영. 업체 상업컷보다 위험이 낮다
+          //    ③ 업체 원본    — 위 둘로 3장을 못 채울 때만 보충(빈 갤러리보다는 낫다)
+          //    사용자가 ×로 뺀 컷은 r.mainImages/r.reviewImages 에서 이미 빠져 있다.
+          const GALLERY_MAX = 10;
           const chosen = r.mainImages[r.selectedMainIdx];
-          // 리뷰이미지를 대표로 고른 경우: 그 1장만 대표로(리뷰컷을 상품 갤러리에 섞지 않는다).
           const reviewNames = new Set((r.reviewImages || []).map((x) => x.name));
-          const chosenIsReview = chosen ? reviewNames.has(chosen.name) : false;
-          const mainOrdered = !chosen
-            ? []
-            : (r.selectedMainIdx < r.regenCount || chosenIsReview)
-              ? [chosen]
-              : [chosen, ...r.mainImages.filter((m, i) => i >= r.regenCount && i !== r.selectedMainIdx && !reviewNames.has(m.name))];
-          const mainUrls = (await uploadScannedImages(mainOrdered, 10, wm)).filter(Boolean);
+          const cutoutCuts = r.mainImages.slice(0, r.regenCount);
+          const vendorCuts = r.mainImages.slice(r.regenCount).filter((m) => !reviewNames.has(m.name));
+          const reviewCuts = r.reviewImages || [];
+          const pickUnique = (pools: ScannedImageFile[][], limit: number) => {
+            const seen = new Set<string>(chosen ? [chosen.name] : []);
+            const out: ScannedImageFile[] = [];
+            for (const pool of pools) {
+              for (const img of pool) {
+                if (out.length >= limit) return out;
+                if (!img?.name || seen.has(img.name)) continue;
+                seen.add(img.name);
+                out.push(img);
+              }
+            }
+            return out;
+          };
+          // 안전한 것(누끼·리뷰)으로 먼저 채우고, 3장에 못 미칠 때만 업체 원본으로 보충한다.
+          const safeSubs = pickUnique([cutoutCuts, reviewCuts], GALLERY_MAX - 1);
+          const subs = safeSubs.length >= 3
+            ? safeSubs
+            : pickUnique([cutoutCuts, reviewCuts, vendorCuts], GALLERY_MAX - 1);
+          const mainOrdered = chosen ? [chosen, ...subs] : [];
+          const mainUrls = (await uploadScannedImages(mainOrdered, GALLERY_MAX, wm)).filter(Boolean);
           // 본문 교차 이미지는 리뷰컷만(detailUrls 비움).
           // ⚠️ 소싱처 상세컷("상품 상세정보" 섹션)은 **쓰지 않는다**(사용자 확정) — 멤버십·적립 배너가
           //    섞여 들어오는 데다, 상품 정보는 아래 product_info(상품정보제공고시)로 충분하다.

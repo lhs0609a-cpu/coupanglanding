@@ -47,9 +47,26 @@ function diversifyBySeller(displayName, keywords, seed) {
     .map((k) => k.trim())
     .filter((k) => !name.includes(k) && k.length >= 2 && k.length <= 12);
   if (pool.length === 0) return name;
-  const pick = pool[seedHash(seed) % pool.length];
-  const out = `${name} ${pick}`.trim();
-  return out.length <= 85 ? out : name;
+
+  // 목표 길이까지 키워드를 **여러 개** 붙인다.
+  // ⚠️ 예전엔 딱 1개만 붙였다. 프롬프트는 50~70자를 요구하는데 모델이 자주 30자 안팎으로
+  //    끊었고(실측 8상품 25~41자, 평균 31자), 검증기의 길이 하한이 6자라 재생성도 안 걸려
+  //    짧은 노출명이 그대로 등록됐다 — 쿠팡 검색 매칭 표면이 그만큼 좁아진다.
+  //    재생성 없이 결정론적으로 채우는 쪽이 싸고 안정적이다(키워드는 이미 생성돼 있다).
+  const TARGET = 55;   // 이 길이를 넘을 때까지 채운다
+  const MAX = 85;      // 쿠팡 한도(100) 아래 안전선 — 기존 캡 유지
+  const start = seedHash(seed) % pool.length;   // 판매자별 다양화(아이템위너 회피) 유지
+  let out = name;
+  const used = new Set();
+  for (let i = 0; i < pool.length && out.length < TARGET; i++) {
+    const k = pool[(start + i) % pool.length];
+    if (used.has(k) || out.includes(k)) continue;
+    const next = `${out} ${k}`.trim();
+    if (next.length > MAX) continue;
+    used.add(k);
+    out = next;
+  }
+  return out;
 }
 
 const catTokens = (s) => (String(s || '').toLowerCase().match(/[가-힣a-z0-9]+/g) || []).filter((t) => t.length >= 2);
