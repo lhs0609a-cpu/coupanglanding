@@ -40,6 +40,46 @@ function seedHash(s) {
  * @param {string[]} keywords   SEO 키워드
  * @param {string} seed         셀러 식별 시드(=personaSeed: `${sellerId}:${상품}`)
  */
+const catTokens = (s) => (String(s || '').toLowerCase().match(/[가-힣a-z0-9]+/g) || []).filter((t) => t.length >= 2);
+
+/** 노출명에 붙일 속성어 개수 — 쿠팡 가이드 "메인 키워드 + 속성어 3~5개"의 상한. */
+const ATTR_COUNT = 5;
+
+/**
+ * 노출상품명 조립 — `core + 속성어 5개`.
+ * ---------------------------------------------------------------------------
+ * ⚠️ 예전엔 LLM 이 완성된 displayName 을 통째로 줬다. 그러면 속성어가 몇 개인지 셀 수 없어
+ *    "5개 고정"을 지킬 수 없고, 모델이 2개만 붙이거나 8개를 나열해도 그대로 나갔다.
+ *    → core(제품명+스펙)와 attrs(속성어 후보 8개)를 나눠 받아 **여기서 정확히 5개를 붙인다.**
+ *
+ * 어느 5개를 고르냐는 셀러 시드로 회전시킨다 — 같은 상품을 파는 셀러끼리 노출명이 완전히
+ * 같으면 아이템위너로 묶이므로, 순서를 시드로 돌려 조합을 다르게 만든다(SEO 가 아니라 회피용).
+ * 구버전 응답(displayName 만 있는 경우)도 그대로 받아들인다.
+ */
+function composeDisplayName(json, seed) {
+  const core = typeof json?.core === 'string' ? json.core.trim() : '';
+  const attrs = Array.isArray(json?.attrs)
+    ? json.attrs.filter((a) => typeof a === 'string' && a.trim() && !hasForeignCJK(a)).map((a) => a.trim())
+    : [];
+  if (!core) return typeof json?.displayName === 'string' ? json.displayName.trim() : '';
+  if (attrs.length === 0) return core;
+
+  const start = seedHash(seed) % attrs.length;
+  const picked = [];
+  const seen = new Set(catTokens(core));
+  for (let i = 0; i < attrs.length && picked.length < ATTR_COUNT; i++) {
+    const a = attrs[(start + i) % attrs.length];
+    const key = a.replace(/\s+/g, '').toLowerCase();
+    if (seen.has(key) || core.includes(a) || picked.includes(a)) continue;   // core 와 중복 금지
+    seen.add(key);
+    picked.push(a);
+  }
+  return `${core} ${picked.join(' ')}`.trim();
+}
+
+/** 테스트 전용 export — 조립 규칙(속성어 5개 고정)을 하니스가 직접 검증한다. */
+export const composeDisplayNameForTest = composeDisplayName;
+
 function diversifyBySeller(displayName, keywords, seed) {
   const name = String(displayName || '').trim();
   const pool = (keywords || [])
@@ -48,28 +88,19 @@ function diversifyBySeller(displayName, keywords, seed) {
     .filter((k) => !name.includes(k) && k.length >= 2 && k.length <= 12);
   if (pool.length === 0) return name;
 
-  // 목표 길이까지 키워드를 **여러 개** 붙인다.
-  // ⚠️ 예전엔 딱 1개만 붙였다. 프롬프트는 50~70자를 요구하는데 모델이 자주 30자 안팎으로
-  //    끊었고(실측 8상품 25~41자, 평균 31자), 검증기의 길이 하한이 6자라 재생성도 안 걸려
-  //    짧은 노출명이 그대로 등록됐다 — 쿠팡 검색 매칭 표면이 그만큼 좁아진다.
-  //    재생성 없이 결정론적으로 채우는 쪽이 싸고 안정적이다(키워드는 이미 생성돼 있다).
-  const TARGET = 55;   // 이 길이를 넘을 때까지 채운다
-  const MAX = 85;      // 쿠팡 한도(100) 아래 안전선 — 기존 캡 유지
-  const start = seedHash(seed) % pool.length;   // 판매자별 다양화(아이템위너 회피) 유지
-  let out = name;
-  const used = new Set();
-  for (let i = 0; i < pool.length && out.length < TARGET; i++) {
-    const k = pool[(start + i) % pool.length];
-    if (used.has(k) || out.includes(k)) continue;
-    const next = `${out} ${k}`.trim();
-    if (next.length > MAX) continue;
-    used.add(k);
-    out = next;
-  }
-  return out;
+  // ⚠️ 길이를 채우지 않는다. 한때 55자까지 키워드를 이어붙였는데, 쿠팡 가이드는 반대다 —
+  //    상품명은 "메인 키워드 + 속성어 3~5개"로 간결하게 쓰고, 남는 검색어는 **검색어 태그
+  //    (searchTags, 최대 20개)** 로 보낸다. 키워드 5개 이상 나열은 스터핑으로 역효과이고,
+  //    상품명 길이가 랭킹을 올린다는 근거도 없다. 넘치는 키워드는 이제 태그로 등록된다.
+  //    (쿠팡 검색 = 카테고리·상품명·구매옵션·검색어 네 필드 조합)
+  //
+  //    여기서 1개만 붙이는 이유는 SEO 가 아니라 **아이템위너 회피**다 — 같은 상품을 파는
+  //    셀러끼리 노출명이 완전히 같으면 하나로 묶인다. 시드로 셀러마다 다른 1개를 고른다.
+  const MAX = 85;   // 쿠팡 한도(100) 아래 안전선
+  const pick = pool[seedHash(seed) % pool.length];
+  const out = `${name} ${pick}`.trim();
+  return out.length <= MAX ? out : name;
 }
-
-const catTokens = (s) => (String(s || '').toLowerCase().match(/[가-힣a-z0-9]+/g) || []).filter((t) => t.length >= 2);
 
 /**
  * 원본 상품명에 "이 상품만의 정보"가 남아있는지 — 카테고리 어휘뿐이면 생성물을 믿을 수 없다.
@@ -170,7 +201,7 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
 
   // 1) 노출상품명/제목 — 파싱 실패 시 원문을 그대로 저장하지 않고 복구(원문 누출 방지)
   const titleJson = parseJsonLoose(titleRaw.text) || {};
-  let displayName = typeof titleJson.displayName === 'string' ? titleJson.displayName.trim() : '';
+  let displayName = composeDisplayName(titleJson, personaSeed || product.originalName);
   // 홍보/주관 형용사·서술어·중복토큰을 먼저 정리(stripNameFiller 가 dedup 까지 수행) — 이것만이
   // 문제면 살균으로 통과시켜 원본명 폴백까지 가지 않게 한다(폴백은 원본 문장을 그대로 끌고 옴).
   if (displayName) displayName = stripNameFiller(displayName);
@@ -187,7 +218,7 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
     try {
       const reRaw = await genText({ model, ...buildTitlePrompt(product, persona, { fixNote }), ctx });
       const reJson = parseJsonLoose(reRaw.text) || {};
-      const reName = typeof reJson.displayName === 'string' ? stripNameFiller(reJson.displayName.trim()) : '';
+      const reName = stripNameFiller(composeDisplayName(reJson, personaSeed || product.originalName));
       if (reName && checkDisplayName(reName).ok) {
         displayName = reName;
         const reKw = Array.isArray(reJson.keywords)
@@ -204,10 +235,20 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   }
   const dnCheck = checkDisplayName(displayName);
   if (keywords.length === 0) keywords = deriveKeywords(product);
+  // 상품명에 못 붙은 attrs(8개 중 5개만 사용)도 검색어 태그 후보로 넘긴다 — 버리지 않는다.
+  if (Array.isArray(titleJson.attrs)) {
+    for (const a of titleJson.attrs) {
+      const t = typeof a === 'string' ? a.trim() : '';
+      if (t && !displayName.includes(t) && !keywords.includes(t)) keywords.push(t);
+    }
+  }
   // 셀러별 노출명 유니크화 — 브랜드+제품명+스펙 코어는 유지하고, 셀러 시드로 SEO 키워드 하나를
   //   결정론적으로 꼬리에 붙인다. 같은 상품이라도 셀러마다 노출명이 겹치지 않게(아이템위너 회피)
   //   + 검색 키워드 보강. (같은 셀러·상품은 항상 같은 결과 = 재현성 유지)
-  if (!displaySalvaged || checkDisplayName(displayName).ok) {
+  // ⚠️ core+attrs 스키마로 만든 이름은 이미 속성어 5개 고정 + 시드 회전이 끝났다 — 더 붙이면
+  //    5개 고정이 깨지고 스터핑이 된다. 구버전 응답(displayName 통짜)일 때만 1개 붙여 유니크화.
+  const usedNewSchema = typeof titleJson.core === 'string' && titleJson.core.trim().length > 0;
+  if (!usedNewSchema && (!displaySalvaged || checkDisplayName(displayName).ok)) {
     displayName = diversifyBySeller(displayName, keywords, personaSeed || product.originalName);
   }
 

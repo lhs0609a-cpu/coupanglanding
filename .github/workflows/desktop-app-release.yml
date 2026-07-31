@@ -46,6 +46,10 @@ jobs:
       - name: Verify source-name repair
         run: node scripts/verify-source-name-repair.mjs
 
+      # 노출상품명 "core + 속성어 5개 고정" — 쿠팡 가이드(스터핑 금지) 회귀 방지.
+      - name: Verify display-name attrs
+        run: node scripts/verify-display-name-attrs.mjs
+
       - name: Build (sync-runtime + electron-builder, win/nsis)
         working-directory: worker/desktop
         run: npm run dist
