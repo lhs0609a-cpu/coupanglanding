@@ -19,6 +19,7 @@ import { stringToSeed } from './seeded-random';
 import { generateEAN13 } from './barcode-generator';
 import { checkCompliance, containsForbiddenTerm } from './compliance-filter';
 import { isProtectedCoupangBrand } from './brand-checker';
+import { buildSearchTags } from './search-tags';
 import type { ContentBlock } from './fragment-composer';
 
 // ---- 입력 타입 ----
@@ -717,6 +718,25 @@ export function buildCoupangProductPayload(
     console.error(`[payload-builder] 🚨 건기식 unitCount=1 경고! 단위가격=${unitPrice.toLocaleString()}원 (판매가=${sellingPrice.toLocaleString()}원) → 노출제한 위험 | "${rawName}"`);
   }
 
+  // ---- 7-b. 검색어(searchTags) ----
+  // 쿠팡 검색은 카테고리·상품명·구매옵션·검색어(태그) 네 필드의 단어를 조합해 결과를 만든다.
+  // 앞의 셋은 자동으로 태그가 되지만, searchTags 는 "상품명에 못 넣은 검색어"를 추가로
+  // 인식시키는 유일한 수단이다(최대 20개). ⚠️ 지금까지 이 필드를 아예 안 보내고 있었다.
+  const searchTags = buildSearchTags({
+    productName,
+    categoryPath,
+    brand: resolvedBrand,
+    sourceName: rawName,
+    candidates: [
+      ...(seoKeywords || []),                                        // 생성기 키워드
+      ...(tags || []),                                               // 소싱 태그
+      ...(extractedBuyOptions || []).map((o) => String(o.value || '')), // 옵션값(색상·용량 등)
+    ],
+  });
+  if (searchTags.length > 0) {
+    console.log(`[payload-builder] 검색어 태그 ${searchTags.length}개: ${searchTags.join(', ')}`);
+  }
+
   // ---- 8. itemName에 구매옵션 반영 ----
   let baseItemName = productName;
   if (extractedBuyOptions && extractedBuyOptions.length > 0) {
@@ -789,6 +809,7 @@ export function buildCoupangProductPayload(
         overseasPurchased,
         pccNeeded: String(pccNeeded),  // 스펙: 문자열 "true"/"false"
         externalVendorSku: variant.sku || `${uniqueProductCode}_${idx + 1}`,
+        searchTags,
         barcode: variantBarcode,
         emptyBarcode: !variantBarcode,
         ...((!variantBarcode) ? { emptyBarcodeReason: '상품확인불가_바코드없음사유' } : {}),
@@ -819,6 +840,7 @@ export function buildCoupangProductPayload(
       overseasPurchased,
       pccNeeded: String(pccNeeded),  // 쿠팡: 문자열 "true"/"false"
       externalVendorSku: uniqueProductCode,
+      searchTags,
       barcode: resolvedBarcode,
       emptyBarcode: !hasBarcode,
       ...((!hasBarcode) ? { emptyBarcodeReason: '상품확인불가_바코드없음사유' } : {}),
