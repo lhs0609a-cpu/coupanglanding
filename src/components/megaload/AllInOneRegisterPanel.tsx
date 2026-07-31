@@ -35,6 +35,7 @@ import { CertStatusBlock } from './CertStatusBlock';
 import CategoryCascadingPicker from './bulk/CategoryCascadingPicker';
 import { buildRichDetailPageHtml } from '@/lib/megaload/services/detail-page-builder';
 import { checkCompliance } from '@/lib/megaload/services/compliance-filter';
+import { buildSearchTags } from '@/lib/megaload/services/search-tags';
 import type { CertPreviewResult } from '@/app/api/megaload/products/cert-preview/route';
 import type { OptionPreviewResult } from '@/app/api/megaload/products/option-preview/route';
 import type { AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
@@ -2064,6 +2065,37 @@ export default function AllInOneRegisterPanel() {
                         })}
                         <p className="sm:col-span-2 text-[10px] text-gray-400">빈 칸(자동)은 서버가 상품명에서 자동 추출·채움합니다. 여기서 고른 값만 우선 적용됩니다.</p>
                       </div>
+                    )}
+                  </div>
+                );
+              })()}
+              {/* 검색어 태그 — 쿠팡 검색은 카테고리·상품명·구매옵션·검색어 네 필드를 조합한다.
+                  등록될 값을 그대로(같은 빌더로) 보여준다. 상품명에 안 들어간 키워드가 여기로 간다. */}
+              {g && (() => {
+                const tags = buildSearchTags({
+                  productName: e.displayName || g.displayName || '',
+                  categoryPath: e.categoryPath || '',
+                  brand: '',
+                  sourceName: g.originalName || '',
+                  candidates: [...(g.keywords || []), ...e.options.map((o) => o.value || '')],
+                });
+                return (
+                  <div>
+                    <p className="text-[11px] text-gray-600">
+                      검색어 태그 <span className="font-semibold">{tags.length}</span>
+                      <span className="text-gray-400">/20</span>
+                      <span className="ml-1 font-normal text-gray-400">— 상품명에 없는 말만 등록됩니다(중복·타사 브랜드 제외)</span>
+                    </p>
+                    {tags.length > 0 ? (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {tags.map((t) => (
+                          <span key={t} className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 rounded px-1.5 py-0.5">{t}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-[10px] text-amber-600">
+                        태그 후보가 없습니다 — 생성 키워드가 상품명과 겹쳤거나 필터에 걸렸습니다.
+                      </p>
                     )}
                   </div>
                 );

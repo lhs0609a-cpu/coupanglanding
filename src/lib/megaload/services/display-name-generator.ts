@@ -1540,6 +1540,20 @@ export function syncDisplayNameWithOptions(
 
   if (parts.length === 0) return stripped || displayName;
 
+  // ⚠️ 위 stripRegex 는 **꼬리**의 스펙만 지운다. 그런데 노출명은 보통 스펙을 이름 중간에
+  //    갖고 있다("깐마늘 1kg 다진마늘 요리용 …", "세라마이드 수딩젤 175ml 바디보습 …").
+  //    그대로 꼬리에 canonical 을 붙이면 스펙이 두 번 나온다(실측):
+  //      "깐마늘 1kg 다진마늘 … 대용량 1kg, 2개"
+  //      "세라마이드 수딩젤 175ml 바디보습 성인용 175ml, 1개"
+  //    → 붙이기 전에 같은 스펙이 앞쪽에 있으면 지운다. 쿠팡 관례대로 스펙은 맨 뒤 한 번만.
+  for (const spec of parts) {
+    const esc = spec.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*');
+    // 숫자·단위가 통째로 일치할 때만 — "1kg" 이 "21kg"·"1kgX2" 를 건드리지 않게 경계를 둔다.
+    const re = new RegExp(`(?<![\\d.])${esc}(?![\\dA-Za-z가-힣])`, 'gi');
+    stripped = stripped.replace(re, ' ');
+  }
+  stripped = stripped.replace(/\s*,\s*/g, ', ').replace(/\s{2,}/g, ' ').replace(/[\s,]+$/, '').trim();
+
   const canonicalSpec = parts.join(', ');
   const result = stripped ? `${stripped} ${canonicalSpec}` : canonicalSpec;
 
