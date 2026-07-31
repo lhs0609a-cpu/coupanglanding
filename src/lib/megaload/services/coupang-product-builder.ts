@@ -729,7 +729,7 @@ export function buildCoupangProductPayload(
     sourceName: rawName,
     candidates: [
       ...(seoKeywords || []),                                        // 생성기 키워드
-      ...(tags || []),                                               // 소싱 태그
+      ...(product.productJson.tags || []),                           // 소싱 태그
       ...(extractedBuyOptions || []).map((o) => String(o.value || '')), // 옵션값(색상·용량 등)
     ],
   });
