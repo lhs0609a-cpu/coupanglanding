@@ -62,6 +62,42 @@ function collectReviewImages(productPath) {
 }
 
 /** product_summary.txt 에서 원본 상품 URL 추출 (웹 정규식과 동일) */
+/**
+ * 소싱 상품명 꼬리의 "분류 라벨 반복"을 1회로 접는다 — 요청 0회로 실제 제목을 복원한다.
+ * ---------------------------------------------------------------------------
+ * 소싱 크롤러가 상품명 뒤에 breadcrumb/분류 텍스트를 **여러 번 이어붙여** 저장했다(실측 8/8):
+ *   "일리윤 세라마이드 아토 수딩 젤 175ml 바디로션 바디로션 바디로션"
+ *   "국산 발아현미 20곡 2kg 혼합곡/기타곡류 혼합곡/기타곡류 혼합곡/기타곡류"
+ *   " 혼합곡/기타곡류 혼합곡/기타곡류 혼합곡/기타곡류"   ← 제목 자체가 없는 경우
+ * 원본명은 노출명·옵션추출·카테고리 매칭의 1차 입력이라 이 오염이 전부로 번진다.
+ *
+ * 왜 링크 재조회 대신 이걸 하나: 네이버가 상품 상세 페이지를 막고 있다(실측 2026-07-31 —
+ *   Node fetch·구글번역·**진짜 크롬(headless, 쿠키 워밍업 포함)** 전부 동일한 24KB
+ *   "[에러] 에러페이지 - 시스템오류". shopping.naver.com 은 정상 로드되므로 상세 페이지만
+ *   차단된 상태다). 즉 네트워크로는 못 가져온다. 반면 위 패턴은 **이미 있는 데이터**로
+ *   복원 가능하다 — 추가 요청 0회, 차단 위험 0.
+ *
+ * ⚠️ 반복을 통째로 지우지 않고 **1회만 남긴다**. 지우면 "bebeone 기저귀커버 기저귀커버
+ *    기저귀커버" 가 "bebeone"(브랜드만)이 되어 상품 정체성을 잃는다.
+ */
+export function stripRepeatedTail(raw) {
+  const toks = String(raw || '').trim().split(/\s+/).filter(Boolean);
+  if (toks.length < 2) return toks.join(' ');
+  // 꼬리에서 길이 1~4 토큰짜리 블록이 2회 이상 연속 반복되면 1회로 접는다.
+  for (let len = 1; len <= 4; len++) {
+    if (toks.length < len * 2) continue;
+    const block = toks.slice(-len).join(' ');
+    let reps = 1;
+    let i = toks.length - len;
+    while (i - len >= 0 && toks.slice(i - len, i).join(' ') === block) { reps++; i -= len; }
+    if (reps >= 2) {
+      const head = toks.slice(0, i).join(' ').trim();
+      return (head ? `${head} ${block}` : block).trim();
+    }
+  }
+  return toks.join(' ');
+}
+
 function readSourceUrl(productPath) {
   const p = path.join(productPath, 'product_summary.txt');
   if (!existsSync(p)) return null;
@@ -140,10 +176,10 @@ export function scanFolder(rootDir) {
     //    먼저 쓰면 용량/수량 스펙을 잃어 옵션추출·노출명에서 누락됐다(실측: 아로마티카 500ML).
     //    ⭐ 링크에서 받아 온 실제 판매 제목이 있으면 그게 최우선이다(위 sourceTitles 주석 참조).
     const fetchedTitle = typeof sourceTitles[productCode] === 'string' ? sourceTitles[productCode].trim() : '';
-    const rawName = fetchedTitle || [pj.name, pj.title]
+    const rawName = stripRepeatedTail(fetchedTitle || [pj.name, pj.title]
       .map((v) => (v == null ? '' : String(v).trim()))
       .filter(Boolean)
-      .sort((a, b) => b.length - a.length)[0] || name;
+      .sort((a, b) => b.length - a.length)[0] || name);
 
     out.push({
       id: productCode,

@@ -42,6 +42,10 @@ jobs:
       - name: Verify main-image IP policy
         run: node scripts/verify-main-image-policy.mjs
 
+      # 소싱 상품명 꼬리 분류라벨 반복 접기 — 노출명·옵션·카테고리의 1차 입력이라 회귀가 치명적.
+      - name: Verify source-name repair
+        run: node scripts/verify-source-name-repair.mjs
+
       - name: Build (sync-runtime + electron-builder, win/nsis)
         working-directory: worker/desktop
         run: npm run dist
