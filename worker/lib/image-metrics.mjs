@@ -20,7 +20,7 @@
  *    (조용히 틀리지 않게). 신뢰도가 낮으면 scoreImage 가 마스크 기반 항목의
  *    가중치를 자동으로 낮추고 해상도·선명도로 판단한다.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 
 /** 측정용 고정 축소 크기 — 후보 간 점수가 비교 가능하려면 같은 스케일이어야 한다 */
 const WORK = 384;
@@ -165,12 +165,43 @@ function edgeTouchRatio(on, W, H) {
   return total ? touch / total : 0;
 }
 
+// ── 측정 캐시 — 같은 파일을 여러 번 재는 낭비를 없앤다 ──────────────────────
+//   ⚡ 한 상품에서 같은 경로가 최소 3번 측정된다: 비전 후보 랭킹(measureCandidates) →
+//      누끼 필요판정(looksCutout) → 누끼 게이트(gateCutout 의 원본 비교). 한 장당
+//      sharp 디코드가 3회(메타 + 그레이 + 컬러)라 장당 수십~수백 ms 가 그대로 곱해진다.
+//   키는 경로+크기+수정시각이라 파일이 바뀌면 자동 무효화된다(누끼로 새로 쓴 파일은 미스).
+//   버퍼 입력은 캐시하지 않는다(동일성 판단 근거가 없다).
+const _measCache = new Map();
+const MEAS_CACHE_MAX = 512;
+
+function measCacheKey(p) {
+  try { const st = statSync(p); return `${p}|${st.size}|${Math.round(st.mtimeMs)}`; }
+  catch { return null; }
+}
+
 /**
  * 사진 1장 측정 → 원시 지표(점수 아님).
  * @param {string|Buffer} input 파일경로 또는 버퍼
  * @returns {Promise<Object>} { minSide, aspect, sharpness, subjectRatio, edgeTouch, compCount, soloShare, bgStd, bgLum, bgConfidence }
  */
 export async function measureImage(input) {
+  if (typeof input === 'string') {
+    const key = measCacheKey(input);
+    if (key) {
+      const hit = _measCache.get(key);
+      if (hit) return hit;
+      const p = measureRaw(input);
+      _measCache.set(key, p);
+      // 측정 실패(손상 파일 등)는 캐시에 남기지 않는다 — 다음 호출이 원래대로 예외를 받게.
+      p.catch(() => { _measCache.delete(key); });
+      if (_measCache.size > MEAS_CACHE_MAX) _measCache.delete(_measCache.keys().next().value);
+      return p;
+    }
+  }
+  return measureRaw(input);
+}
+
+async function measureRaw(input) {
   const sharp = await ensureSharp();
   const buf = typeof input === 'string' ? readFileSync(input) : input;
 

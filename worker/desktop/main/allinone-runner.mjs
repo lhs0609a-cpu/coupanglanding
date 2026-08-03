@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkGpu } from './bootstrap.mjs';
+import { serverParallelHint } from './ollama-manager.mjs';
 import { listModels } from '../runtime/local-llm.mjs';
 import { maskInternalNames } from './mask-internal.mjs';
 import { resolveSourceTitles } from './source-title.mjs';
@@ -43,10 +44,18 @@ export async function pickGenProfile() {
   //    상품 1개씩 순차로 돌리면 GPU 가 놀아서(디코딩은 메모리 대역폭 병목) 처리량이 크게 손해다.
   //    다만 동시 요청마다 KV 캐시가 따로 필요하니 **모델을 올리고 남는 VRAM** 만큼만 늘린다.
   //      free ≥ 11GB → 3개 / ≥ 8GB → 2개 / 그 외 → 1개(예전과 동일 = 안전)
-  //    ollama 쪽 OLLAMA_NUM_PARALLEL 도 같은 값으로 맞춰야 실제로 동시에 돈다(아니면 큐잉).
+  //    ⚠️ ollama 쪽 OLLAMA_NUM_PARALLEL 이 같이 올라가야 실제로 동시에 돈다 — 아니면 줄서기라
+  //       빨라지지 않을 뿐 아니라 **오히려 느려진다**(실측: 슬롯 1개에 6개 던지면 0.89배).
+  //       그래서 최종값은 startGeneration 이 서버 슬롯 수로 한 번 더 깎는다.
   const concurrency = freeMb >= 11000 ? 3 : freeMb >= 8000 ? 2 : 1;
+  // 인식(비전)은 이미지 컨텍스트(num_ctx 8192)라 슬롯당 KV 가 텍스트보다 훨씬 크다 →
+  //   여유가 확실할 때만 2개. 1이면 예전과 동일한 순차 인식이다.
+  const recogConcurrency = freeMb >= 11000 ? 2 : 1;
 
-  return { gpu, strong, scarce, model, detailTokens: strong ? 600 : 400, concurrency, installedCount: installed.length };
+  return {
+    gpu, strong, scarce, model, detailTokens: strong ? 600 : 400,
+    concurrency, recogConcurrency, installedCount: installed.length,
+  };
 }
 
 export function isGenerating() { return !!child; }
@@ -112,7 +121,8 @@ export async function startGeneration({
     `[속도] 하드웨어: ${profile.gpu.ok
       ? `${profile.gpu.name} · VRAM 남음 ${gb(profile.gpu.vramFreeMb)}/${gb(profile.gpu.vramMb)}GB`
       : 'GPU 없음(CPU)'} `
-    + `→ 모델 ${profile.model} · 상세 ${profile.detailTokens}토큰 · 상품 동시 ${profile.concurrency}개 (짧은필드 병렬)`);
+    // 동시 처리 수는 엔진 슬롯을 확인한 뒤 확정되므로 여기서 말하지 않는다(아래 [속도] 줄에서 확정값).
+    + `→ 모델 ${profile.model} · 상세 ${profile.detailTokens}토큰`);
   // ── 예상 소요시간 안내 ─────────────────────────────────────────────────────
   //   "얼마나 걸릴지"를 안 알려주면 느린 실행이 고장으로 보인다(실측 문의: VRAM 0.6GB 상태에서
   //   인식 1건에 2~8분 걸리자 "생성이 안 된다"고 판단). 시작 전에 숫자로 말한다.
@@ -144,34 +154,51 @@ export async function startGeneration({
   }
   if (services?.ollama) services.ollama.model = profile.model; // ensureModel 이 이 모델을 pull/확인
 
-  // ── 원본 상품명을 소싱 링크에서 직접 가져온다 ─────────────────────────────
-  //   소싱 폴더의 product.json.name 이 분류 라벨 반복·설명 문장인 경우가 많아(실측 8건 중 5건),
-  //   노출명·옵션추출·카테고리가 통째로 오염된다. 판매 페이지의 실제 제목을 받아 파일로 남기면
-  //   run-folder 의 스캐너가 그걸 1순위 원본명으로 쓴다.
+  // ── 원본 상품명 조회와 엔진 기동을 **동시에** 진행 ────────────────────────
+  //   원본명 조회는 네트워크(안티봇 회피용 4초 페이싱, 최대 120초)이고 엔진 기동은 디스크/GPU 라
+  //   서로 자원을 안 뺏는다. 예전엔 순차라 "링크 조회가 끝날 때까지" 엔진이 놀고 있었다.
+  //   둘 다 끝난 뒤에 run-folder 를 띄우므로 스캐너가 읽는 _source-titles.json 은 그대로 보장된다.
+  //
+  //   원본 상품명이 필요한 이유: 소싱 폴더의 product.json.name 이 분류 라벨 반복·설명 문장인
+  //   경우가 많아(실측 8건 중 5건) 노출명·옵션추출·카테고리가 통째로 오염된다.
   //   ⚠️ 반드시 여기(Electron 메인)에서 해야 한다 — 안티봇 때문에 순수 Node 프로세스는 못 뚫는다.
   //   실패해도 생성은 그대로 진행한다(기존 이름 폴백).
-  try {
-    const t = await resolveSourceTitles(folder, (m) => send('allinone:log', m));
-    if (t.filled || t.cached || t.failed) {
-      send('allinone:log',
-        `[원본명] 링크에서 ${t.filled}건 확보`
-        + (t.cached ? ` · 캐시 ${t.cached}건` : '')
-        + (t.failed ? ` · 실패 ${t.failed}건(기존 상품명 사용)` : ''));
+  const titlesTask = (async () => {
+    try {
+      const t = await resolveSourceTitles(folder, (m) => send('allinone:log', m));
+      if (t.filled || t.cached || t.failed) {
+        send('allinone:log',
+          `[원본명] 링크에서 ${t.filled}건 확보`
+          + (t.cached ? ` · 캐시 ${t.cached}건` : '')
+          + (t.failed ? ` · 실패 ${t.failed}건(기존 상품명 사용)` : ''));
+      }
+    } catch (e) {
+      send('allinone:log', `[원본명] 조회 생략(${String(e?.message || e).slice(0, 80)}) — 기존 상품명으로 진행합니다.`);
     }
-  } catch (e) {
-    send('allinone:log', `[원본명] 조회 생략(${String(e?.message || e).slice(0, 80)}) — 기존 상품명으로 진행합니다.`);
-  }
+  })();
 
   // 엔진 자동 기동 — ollama 는 없으면 자동 설치·기동·모델 다운로드까지.
-  try {
-    send('allinone:log', '엔진 준비 중 — ollama(텍스트 생성)…');
-    await services?.ollama?.start();
-  } catch (e) {
-    send('allinone:log', '❌ ollama 준비 실패: ' + (e.message || e));
+  send('allinone:log', '엔진 준비 중 — ollama(텍스트 생성)…');
+  const ollamaTask = Promise.resolve(services?.ollama?.start());
+  // ⚠️ 엔진이 실패해도 원본명 조회는 끝까지 기다린다 — 안 그러면 그 작업이 배경에 남아
+  //    다음 실행과 겹친다(같은 폴더에 동시 쓰기). 실패 판정은 그 뒤에 한다.
+  const [ollamaRes] = await Promise.allSettled([ollamaTask, titlesTask]);
+  if (ollamaRes.status === 'rejected') {
+    const e = ollamaRes.reason;
+    send('allinone:log', '❌ ollama 준비 실패: ' + (e?.message || e));
     onDone?.(-1);
     send('allinone:done', { code: -1 });
     return false;
   }
+
+  // ── 서버가 실제로 소화하는 동시 요청 수에 맞춰 깎는다 ─────────────────────
+  //   슬롯이 1개인데 3~6개를 던지면 줄서기라 이득이 없고 오히려 느려진다(실측 0.89배).
+  //   도우미가 띄운 ollama 는 위에서 남은 VRAM 만큼 슬롯을 열어 뒀다.
+  const slots = serverParallelHint(services?.ollama);
+  const genConcurrency = Math.max(1, Math.min(profile.concurrency, slots));
+  const recogConcurrency = Math.max(1, Math.min(profile.recogConcurrency, slots));
+  send('allinone:log',
+    `[속도] 동시 처리 — 텍스트 상품 ${genConcurrency}개 · 이미지인식 ${recogConcurrency}개 (엔진 슬롯 ${slots}개)`);
   // ── ComfyUI(누끼) VRAM 스왑 — 텍스트 단계 동안 ComfyUI 를 내려 VRAM 을 ollama 에 몰아준다 ──
   //   ComfyUI 프로세스는 cudaMallocAsync 로 큰 VRAM 풀을 물고 있어 /free 로는 안 돌아온다(실측).
   //   그래서 텍스트 동안 아예 프로세스를 내리고, 누끼 단계 직전(run-folder 가 [2/3] 마커를 찍을 때)
@@ -199,7 +226,8 @@ export async function startGeneration({
     script, folder,
     '--model', profile.model,
     '--detail-tokens', String(profile.detailTokens),
-    '--concurrency', String(profile.concurrency),
+    '--concurrency', String(genConcurrency),
+    '--recog-concurrency', String(recogConcurrency),
   ];
   if (noThumb) args.push('--no-thumb');
   if (useComfySwap) args.push('--wait-comfy'); // 누끼 전에 ComfyUI 기동을 기다리게

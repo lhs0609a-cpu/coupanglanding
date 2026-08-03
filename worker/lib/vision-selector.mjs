@@ -34,28 +34,32 @@ import { basename } from 'node:path';
 //   sharp 미탑재면 null 을 돌려주고 호출부는 기존 VLM 선택을 그대로 쓴다(회귀 0).
 async function measureCandidates(paths, { onLog } = {}) {
   const out = new Map();
-  for (const p of paths) {
-    try {
-      const met = await measureImage(p);
-      const { score } = scoreImage(met);
-      const cutout = looksCutout(met, p);
-      // 업체 각잡은 스튜디오컷 판별(지재권 위험). 우리가 만든 누끼본은 흰배경·정사각이라
-      //   조건이 겹치므로 여기서 제외한다 — 누끼는 우리 산출물이라 위험이 없다.
-      const st = cutout ? { studio: false, confidence: 0 } : looksStudioShot(met);
-      out.set(p, {
-        score,
-        // mainEdgeSides = 피사체가 닿은 프레임 변의 수. 2개 이상이면 잘렸다고 본다
-        // (1면 접촉은 바닥에 놓인 정상 구도에서도 나온다).
-        // ⚠️ 이 값으로 후보를 **탈락시키지는 않는다**(게이트 제거, 위 랭킹 주석 참조).
-        cropped: met.mainEdgeSides >= 2 && met.bgConfidence > 0.25,
-        cutout,
-        studio: st.studio,
-        studioConfidence: st.confidence,
-      });
-    } catch {
-      if (metricsDepsFailed()) { onLog?.('[비전] sharp 미탑재 — 기하 심사 생략(VLM 판정 그대로 사용)'); return null; }
-    }
+  // ⚡ 측정은 순수 CPU(sharp) 라 서로 기다릴 이유가 없다 — 후보 20여 장이면 순차는 체감된다.
+  //    결과는 경로별로 Map 에 넣으므로 완료 순서와 무관하다(판정 결과 동일).
+  const measured = await Promise.all(paths.map(async (p) => {
+    try { return { p, met: await measureImage(p) }; }
+    catch { return { p, met: null }; }
+  }));
+  let depsFailed = false;
+  for (const { p, met } of measured) {
+    if (!met) { if (metricsDepsFailed()) depsFailed = true; continue; }
+    const { score } = scoreImage(met);
+    const cutout = looksCutout(met, p);
+    // 업체 각잡은 스튜디오컷 판별(지재권 위험). 우리가 만든 누끼본은 흰배경·정사각이라
+    //   조건이 겹치므로 여기서 제외한다 — 누끼는 우리 산출물이라 위험이 없다.
+    const st = cutout ? { studio: false, confidence: 0 } : looksStudioShot(met);
+    out.set(p, {
+      score,
+      // mainEdgeSides = 피사체가 닿은 프레임 변의 수. 2개 이상이면 잘렸다고 본다
+      // (1면 접촉은 바닥에 놓인 정상 구도에서도 나온다).
+      // ⚠️ 이 값으로 후보를 **탈락시키지는 않는다**(게이트 제거, 위 랭킹 주석 참조).
+      cropped: met.mainEdgeSides >= 2 && met.bgConfidence > 0.25,
+      cutout,
+      studio: st.studio,
+      studioConfidence: st.confidence,
+    });
   }
+  if (depsFailed) { onLog?.('[비전] sharp 미탑재 — 기하 심사 생략(VLM 판정 그대로 사용)'); return null; }
   return out.size ? out : null;
 }
 
@@ -84,14 +88,24 @@ async function cellBuffer(sharp, imgPath, cell = CELL) {
   }
 }
 
+// 번호 배지는 상품이 바뀌어도 "번호+셀크기"가 같으면 픽셀이 완전히 같다 → 한 번만 렌더한다.
+//   상품마다 24장씩 SVG→PNG 를 다시 굽던 낭비 제거(결과 이미지는 바이트 단위로 동일).
+const _badgeCache = new Map();
+
 /** 셀 좌상단 번호 배지 SVG 버퍼(1부터). */
 function numberBadge(sharp, n, cell = CELL) {
+  const key = `${n}|${cell}`;
+  const hit = _badgeCache.get(key);
+  if (hit) return hit;
   const svg =
     `<svg width="${cell}" height="${cell}" xmlns="http://www.w3.org/2000/svg">`
     + `<rect x="5" y="5" rx="7" ry="7" width="${n >= 10 ? 62 : 46}" height="40" fill="${RED}"/>`
     + `<text x="${(n >= 10 ? 62 : 46) / 2 + 5}" y="34" font-size="30" font-family="Arial,sans-serif" `
     + `font-weight="bold" fill="#ffffff" text-anchor="middle">${n}</text></svg>`;
-  return sharp(Buffer.from(svg)).png().toBuffer();
+  const p = sharp(Buffer.from(svg)).png().toBuffer();
+  _badgeCache.set(key, p);
+  p.catch(() => _badgeCache.delete(key)); // 렌더 실패는 캐시에 남기지 않는다
+  return p;
 }
 
 /**
@@ -105,11 +119,11 @@ export async function buildContactSheet(paths, { max = 24, cell = CELL, maxCols 
   if (src.length === 0) return null;
 
   // 셀 버퍼 생성(렌더 실패는 스킵)
+  //   ⚡ 리사이즈는 서로 독립이라 동시에 굽는다. 순서는 src 순으로 유지하므로 격자 배치와
+  //      번호(=배열 인덱스+1)는 예전과 완전히 동일하다.
+  const bufs = await Promise.all(src.map((p) => cellBuffer(sharp, p, cell)));
   const cells = [];
-  for (const p of src) {
-    const buf = await cellBuffer(sharp, p, cell);
-    if (buf) cells.push({ path: p, buf });
-  }
+  for (let i = 0; i < src.length; i++) if (bufs[i]) cells.push({ path: src[i], buf: bufs[i] });
   if (cells.length === 0) return null;
 
   const cols = Math.min(maxCols, Math.ceil(Math.sqrt(cells.length)));
@@ -117,13 +131,14 @@ export async function buildContactSheet(paths, { max = 24, cell = CELL, maxCols 
   const W = cols * cell + GAP * (cols + 1);
   const H = rows * cell + GAP * (rows + 1);
 
+  const badges = await Promise.all(cells.map((_, i) => numberBadge(sharp, i + 1, cell)));
   const composites = [];
   for (let i = 0; i < cells.length; i++) {
     const r = Math.floor(i / cols), c = i % cols;
     const left = GAP + c * (cell + GAP);
     const top = GAP + r * (cell + GAP);
     composites.push({ input: cells[i].buf, left, top });
-    composites.push({ input: await numberBadge(sharp, i + 1, cell), left, top });
+    composites.push({ input: badges[i], left, top });
   }
 
   const sheet = await sharp({ create: { width: W, height: H, channels: 3, background: { r: 255, g: 255, b: 255 } } })
@@ -157,7 +172,16 @@ export async function judgeImages(paths, { model, onLog, purpose = 'main' } = {}
   if (!sheet) return null;
   const n = sheet.usedPaths.length;
 
-  const prompt =
+  // ── 1차: 압축 출력(코드 배열) ────────────────────────────────────────────
+  //   ⚡ 실측(24칸): 현행 객체 배열은 출력 313토큰·decode 6.33초인데, 판정 내용은
+  //      칸당 유형 하나가 전부다. 코드 배열로 받으면 56토큰·1.15초 (-82%).
+  //      비전 단계 시간의 2/3 가 "같은 판정을 길게 받아쓰는" 데 쓰이고 있었다.
+  //   판정 기준(프롬프트 본문)은 한 글자도 바꾸지 않는다 — 포장만 줄인다.
+  //   칸 수가 안 맞게 오면 아래에서 **현행 스키마로 한 번 더 물어본다**(무손실 폴백).
+  const byIdx = new Map();
+  let declaredBest = NaN;
+
+  const judgeBody =
     `이 이미지는 한 상품의 후보 사진 ${n}장을 번호(빨간 배지 1~${n})가 붙은 격자로 합친 것이다.\n`
     + `각 번호 칸이 실제로 무엇을 보여주는지 보고 아래 유형 중 하나로 분류하라:\n`
     + `- "product": 상품 자체가 또렷이 보이는 사진(용기/병/포장/음식/기기 등 물건의 형태가 보임)\n`
@@ -172,27 +196,67 @@ export async function judgeImages(paths, { model, onLog, purpose = 'main' } = {}
     + `① 상품이 프레임 안에 "온전히" 다 들어온 것(잘리거나 일부만 보이는 컷은 대표 부적합) `
     + `② 상품 하나만 정면으로 또렷하게 `
     + `③ 배경이 흰색/단색으로 깔끔한 것(지식재산권 안전). `
-    + `texture/logo_text/delivery/review_ss/person 은 절대 대표가 될 수 없다. 상품이 잘린 컷보다 온전한 컷을 항상 우선한다.\n\n`
-    + `출력은 JSON만: {"cells":[{"i":1,"type":"product","product":true},...(1~${n} 전부)],"bestMain":<번호>}`;
+    + `texture/logo_text/delivery/review_ss/person 은 절대 대표가 될 수 없다. 상품이 잘린 컷보다 온전한 컷을 항상 우선한다.\n\n`;
 
-  let text;
-  try {
-    const res = await generateVision({ model, system: JUDGE_SYSTEM, prompt, images: [sheet.b64], format: 'json', options: { num_predict: 700 } });
-    text = res.text;
-  } catch (e) {
-    onLog?.(`[비전] 판정 호출 실패(${String(e?.message || e).slice(0, 100)})`);
-    return null;
+  // 유형 → 한 글자 코드(출력 전용). 의미는 위 정의 그대로다.
+  const CODE_TO_TYPE = {
+    p: 'product', x: 'texture', l: 'lifestyle', g: 'logo_text',
+    d: 'delivery', s: 'review_ss', h: 'person', o: 'other',
+  };
+
+  const ask = async (prompt, numPredict) => {
+    try {
+      const res = await generateVision({
+        model, system: JUDGE_SYSTEM, prompt, images: [sheet.b64],
+        format: 'json', options: { num_predict: numPredict },
+      });
+      return parseJsonLoose(res.text);
+    } catch (e) {
+      onLog?.(`[비전] 판정 호출 실패(${String(e?.message || e).slice(0, 100)})`);
+      return undefined; // undefined = 호출 자체 실패(폴백해도 소용없음)
+    }
+  };
+
+  const compact = await ask(
+    judgeBody
+    + `유형 코드: P=product X=texture L=lifestyle G=logo_text D=delivery S=review_ss H=person O=other\n`
+    + `출력은 JSON만. t 는 1번 칸부터 ${n}번 칸까지 **순서대로** 유형 코드 ${n}개:\n`
+    + `{"t":["P","G",...],"bestMain":<번호>}`,
+    Math.max(120, n * 8 + 60),
+  );
+  if (compact === undefined) return null;
+
+  const codes = Array.isArray(compact?.t) ? compact.t : null;
+  if (codes && codes.length >= n) {
+    for (let i = 0; i < n; i++) {
+      const c = String(codes[i] ?? '').trim().toLowerCase();
+      // 코드 한 글자가 원칙이지만 모델이 유형 이름을 그대로 쓸 때도 받아준다.
+      const type = CODE_TO_TYPE[c] || (VALID_TYPES.has(c) ? c : null);
+      if (!type) { byIdx.clear(); break; }   // 하나라도 못 읽으면 압축 판정 전체를 버린다
+      byIdx.set(i + 1, { type, product: type === 'product' });
+    }
+    if (byIdx.size === n) declaredBest = Number(compact.bestMain ?? compact.best);
   }
-  const j = parseJsonLoose(text);
-  if (!j || !Array.isArray(j.cells)) { onLog?.('[비전] 판정 JSON 파싱 실패 — 폴백'); return null; }
 
-  const byIdx = new Map();
-  for (const c of j.cells) {
-    const i = Number(c.i);
-    if (!Number.isInteger(i) || i < 1 || i > n) continue;
-    let type = String(c.type || '').trim().toLowerCase();
-    if (!VALID_TYPES.has(type)) type = c.product ? 'product' : 'other';
-    byIdx.set(i, { type, product: !!c.product });
+  // ── 2차(폴백): 압축 판정이 불완전하면 현행 스키마로 다시 묻는다 ──────────
+  //   여기까지 오면 예전과 완전히 같은 프롬프트·같은 파싱이라 결과도 예전과 같다.
+  if (byIdx.size !== n) {
+    if (codes) onLog?.(`[비전] 압축 판정 불완전(${codes.length}/${n}칸) — 표준 형식으로 재확인`);
+    const j = await ask(
+      judgeBody + `출력은 JSON만: {"cells":[{"i":1,"type":"product","product":true},...(1~${n} 전부)],"bestMain":<번호>}`,
+      700,
+    );
+    if (j === undefined) return null;
+    if (!j || !Array.isArray(j.cells)) { onLog?.('[비전] 판정 JSON 파싱 실패 — 폴백'); return null; }
+    byIdx.clear();
+    for (const c of j.cells) {
+      const i = Number(c.i);
+      if (!Number.isInteger(i) || i < 1 || i > n) continue;
+      let type = String(c.type || '').trim().toLowerCase();
+      if (!VALID_TYPES.has(type)) type = c.product ? 'product' : 'other';
+      byIdx.set(i, { type, product: !!c.product });
+    }
+    declaredBest = Number(j.bestMain);
   }
 
   const cells = sheet.usedPaths.map((path, k) => {
@@ -207,7 +271,7 @@ export async function judgeImages(paths, { model, onLog, purpose = 'main' } = {}
 
   // bestMain: VLM 지정 우선(단 product 여야 함), 아니면 productScore 최고.
   let bestMain = -1;
-  const declared = Number(j.bestMain);
+  const declared = declaredBest;
   if (Number.isInteger(declared) && declared >= 1 && declared <= n) {
     const cand = cells[declared - 1];
     if (cand && cand.type === 'product') bestMain = declared - 1;
@@ -282,10 +346,17 @@ export async function visionCurateProduct({ mainPool = [], detailPool = [], revi
   const combined = [...mainForJudge, ...detail].slice(0, MAX_CELLS);
   if (combined.length === 0 && review.length === 0) return null;
 
+  // ⚡ 두 격자는 서로를 참조하지 않는다(대표/상세 판정과 리뷰컷 판정은 독립) → 동시에 묻는다.
+  //    같은 격자·같은 프롬프트라 판정 결과는 순차일 때와 동일하고, 대기시간만 겹쳐진다.
+  //    (ollama 가 동시요청을 안 받는 환경이면 그냥 큐잉될 뿐 — 예전과 같은 속도, 손해 없음)
+  const [judged, rjudged] = await Promise.all([
+    combined.length > 0 ? judgeImages(combined, { model, onLog, purpose: 'main' }) : Promise.resolve(null),
+    review.length > 0 ? judgeImages(review, { model, onLog, purpose: 'review' }) : Promise.resolve(null),
+  ]);
+
   const typeOf = new Map();      // path → type
   let bestMainPath = null;
   if (combined.length > 0) {
-    const judged = await judgeImages(combined, { model, onLog, purpose: 'main' });
     if (!judged) return null;    // 대표 판정 실패 → 전체 폴백(반쪽 큐레이션 방지)
     for (const c of judged.cells) typeOf.set(c.path, c.type);
     if (judged.bestMain >= 0 && judged.cells[judged.bestMain]) bestMainPath = judged.cells[judged.bestMain].path;
@@ -293,10 +364,7 @@ export async function visionCurateProduct({ mainPool = [], detailPool = [], revi
 
   // 격자 2: 리뷰컷(있을 때만).
   const reviewType = new Map();
-  if (review.length > 0) {
-    const rjudged = await judgeImages(review, { model, onLog, purpose: 'review' });
-    if (rjudged) for (const c of rjudged.cells) reviewType.set(c.path, c.type);
-  }
+  if (rjudged) for (const c of rjudged.cells) reviewType.set(c.path, c.type);
 
   const reasonKo = (t) => ({
     logo_text: '로고/글자 배너', delivery: '배송/안내 배너', review_ss: '후기/영수증 캡처',

@@ -23,6 +23,7 @@
  *   --thumb-force      가공본이 있어도 다시 생성(기본: resume)
  *   --detail-tokens N  상세 최대 토큰 (기본 800)
  *   --concurrency N    동시에 생성할 상품 수 (기본 1. 남은 VRAM 넉넉하면 2~3 이 크게 빠름)
+ *   --recog-concurrency N  동시에 인식할 상품 수 (기본 1. 비전은 GPU 라 VRAM 넉넉할 때만)
  *   --no-overlap       이미지인식을 텍스트와 동시에 돌리지 않고 예전처럼 먼저 끝냄(디버그)
  *   --no-recog-cache   이미지인식 캐시 무시(사진 그대로여도 다시 분석)
  *   --limit N          앞 N개만 (테스트)
@@ -211,11 +212,18 @@ async function main() {
   const recogCache = cli['no-recog-cache'] ? {} : loadRecogCache(recogCacheFile);
   let recogHits = 0;
 
+  // 인식 동시 처리 수 — 1 이면 예전과 완전히 동일한 순차 동작.
+  //   비전(VLM)은 GPU 를 쓰므로 호출부(도우미)가 남은 VRAM 을 보고 정한다(--recog-concurrency).
+  const recogConcurrency = Math.max(1, Number(cli['recog-concurrency']) || 1);
   const runRecognition = async () => {
-    console.log(`[${ts()}] [이미지인식] 대표컷 선택 + 상세이미지 큐레이션 시작${overlap ? ' (텍스트 생성과 동시 진행)' : ''}`);
+    console.log(`[${ts()}] [이미지인식] 대표컷 선택 + 상세이미지 큐레이션 시작${overlap ? ' (텍스트 생성과 동시 진행)' : ''}`
+      + (recogConcurrency > 1 ? ` · 동시 ${recogConcurrency}개` : ''));
     const onLog = (m) => console.log(`[${ts()}] ${m}`);
     let clipOff = false;
-    for (let i = 0; i < products.length; i++) {
+    // ⚠️ 진행 번호는 인덱스가 아니라 **완료 개수**다 — 동시 처리에선 인덱스 순으로 끝나지 않아
+    //    i 를 쓰면 웹 진행바가 뒤로 튄다(ai-batch 와 같은 이유).
+    let recogDone = 0;
+    const recogOne = async (i) => {
       const p = products[i];
       // ① 캐시 적중 — 사진이 그대로면 지난 인식 결과를 그대로 쓴다(CLIP 0회).
       const sig = imagesSignature(p);
@@ -232,9 +240,10 @@ async function main() {
         p.mainConfident = hit.mainConfident !== false;
         p.mainReason = hit.mainReason || null;
         recogHits++;
-        continue;
+        recogDone++;
+        return;
       }
-      if (clipOff) { p.mainImageRanked = null; p.detailImagesKept = p.detailImages || []; p.detailDroppedNames = []; p.mainDroppedNames = []; p.reviewImagesKept = p.reviewImages || []; p.reviewDroppedNames = []; continue; }
+      if (clipOff) { p.mainImageRanked = null; p.detailImagesKept = p.detailImages || []; p.detailDroppedNames = []; p.mainDroppedNames = []; p.reviewImagesKept = p.reviewImages || []; p.reviewDroppedNames = []; recogDone++; return; }
 
       // ── 비전(VLM) 경로 — 이미지를 직접 보고 대표/상세/리뷰를 한 번에 큐레이션 ──
       if (visionReady) {
@@ -269,12 +278,12 @@ async function main() {
             reviewImagesKept: p.reviewImagesKept, reviewDroppedNames: p.reviewDroppedNames,
             mainConfident: p.mainConfident, mainReason: p.mainReason,
           };
-          if (i % 5 === 4) saveRecogCache(recogCacheFile, recogCache);
+          if (++recogDone % 5 === 0) saveRecogCache(recogCacheFile, recogCache);
           const detN = (p.detailImages || []).length ? ` · 상세 ${p.detailImagesKept.length}/${p.detailImages.length}컷` : '';
           const mdN = p.mainDroppedNames.length ? ` · 대표후보 로고/배너 ${p.mainDroppedNames.length} 제외` : '';
           // 비전은 overlap 불가(GPU) → 항상 대괄호 마커로 진행률 패널을 구동한다.
-          console.log(`[${ts()}] [인식 ${i + 1}/${products.length}] 👁️ 대표=${path.basename(p.mainImage || '-')}${detN}${mdN}`);
-          continue;
+          console.log(`[${ts()}] [인식 ${recogDone}/${products.length}] 👁️ 대표=${path.basename(p.mainImage || '-')}${detN}${mdN}`);
+          return;
         }
         console.log(`[${ts()}] [비전] ${p.id} 판정 실패 → 이 상품만 CLIP 폴백`);
       }
@@ -319,14 +328,23 @@ async function main() {
         reviewImagesKept: p.reviewImagesKept, reviewDroppedNames: p.reviewDroppedNames,
         mainConfident: p.mainConfident, mainReason: p.mainReason,
       };
-      if (i % 5 === 4) saveRecogCache(recogCacheFile, recogCache); // 중간에 죽어도 앞부분은 보존
+      if (++recogDone % 5 === 0) saveRecogCache(recogCacheFile, recogCache); // 중간에 죽어도 앞부분은 보존
       const pickIco = String(main.method || '').startsWith('clip') ? '🎯' : '·';
       const detNote = (p.detailImages || []).length ? ` · 상세 ${p.detailImagesKept.length}/${p.detailImages.length}컷(광고 ${det.dropped.length} 제외)` : '';
       // ⚠️ 텍스트와 동시 진행 중이면 `[인식 n/n]` 진행 마커를 쓰지 않는다 — 웹 진행패널이
       //    인식↔텍스트 사이를 왔다갔다 하며 단계 표시가 튄다. 로그로만 남긴다.
-      const tag = overlap ? `인식 ${i + 1}/${products.length}` : `[인식 ${i + 1}/${products.length}]`;
+      const tag = overlap ? `인식 ${recogDone}/${products.length}` : `[인식 ${recogDone}/${products.length}]`;
       console.log(`[${ts()}]${overlap ? ' ' : ''}${tag} ${pickIco} 대표=${path.basename(p.mainImage || '-')}${main.method === 'clip' && main.ranked[0]?.score != null ? ` (점수 ${main.ranked[0].score})` : ''}${detNote}`);
-    }
+    };
+
+    // 레인 방식 동시 실행 — recogConcurrency=1 이면 예전 순차 루프와 동일하다.
+    //   ⚠️ 상품끼리는 서로를 참조하지 않는다(각자 자기 p 만 채운다) → 결과는 동시성과 무관하게 같다.
+    //      실패는 상품 단위로 삼키지 않는다(기존과 동일하게 runRecognition 호출부가 통째로 폴백).
+    const rLanes = Math.max(1, Math.min(recogConcurrency, products.length));
+    let rCursor = 0;
+    const rLane = async () => { while (rCursor < products.length) await recogOne(rCursor++); };
+    await Promise.all(Array.from({ length: rLanes }, rLane));
+
     saveRecogCache(recogCacheFile, recogCache);
     if (recogHits) console.log(`[${ts()}] [이미지인식] 캐시 재사용 ${recogHits}/${products.length}건 — 사진이 그대로라 다시 분석하지 않음`);
   };
