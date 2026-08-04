@@ -54,7 +54,8 @@ export async function POST(request: Request) {
     }
 
     // 대상 PT 사용자 조회 (signed 필터 여부에 따라 분기, 스키마 추론 안정성 위해 별도 쿼리)
-    type PtRow = { id: string; profile_id: string; share_percentage: number | null };
+    // created_at 은 ensureBillableReports 의 등록월 유예 계산에 필요하다.
+    type PtRow = { id: string; profile_id: string; created_at: string; share_percentage: number | null };
     let ptUsers: PtRow[] | null = null;
     if (requireSignedContract) {
       const { data, error } = await serviceClient
@@ -67,6 +68,7 @@ export async function POST(request: Request) {
       ptUsers = (data || []).map((d) => ({
         id: d.id,
         profile_id: d.profile_id,
+        created_at: d.created_at,
         share_percentage: d.share_percentage,
       }));
     } else {
