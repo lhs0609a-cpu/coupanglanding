@@ -54,6 +54,7 @@ interface PaymentOverviewUser {
     total_amount: number;
     created_at: string;
   } | null;
+  /** ⚠ 월 무관 "최근 성공 결제". 특정 청구월 판정에 쓰지 말 것 — success_tx_by_report 사용. */
   last_success_tx: {
     id: string;
     total_amount: number;
@@ -61,6 +62,14 @@ interface PaymentOverviewUser {
     toss_payment_key: string | null;
     approved_at: string | null;
   } | null;
+  /** monthly_report_id → 그 청구월의 성공 결제 */
+  success_tx_by_report?: Record<string, {
+    id: string;
+    total_amount: number;
+    receipt_url: string | null;
+    toss_payment_key: string | null;
+    approved_at: string | null;
+  }>;
 }
 
 interface PaymentOverviewSummary {
@@ -123,6 +132,8 @@ interface MonthCell {
   feeStatus?: 'not_applicable' | 'awaiting_review' | 'awaiting_payment' | 'paid' | 'overdue' | 'suspended' | null;
   /** 결제 완료 시각 */
   feePaidAt?: string | null;
+  /** 이 월의 monthly_report id — 월별 실결제 tx 매칭용 (source==='report' 일 때만) */
+  reportId?: string | null;
 }
 
 interface UserRow {
@@ -920,7 +931,7 @@ export default function AdminSalesOverviewPage() {
   }, [fetchData, snapshots, users, triggerAutoSync]);
 
   const months = useMemo(() => getRecentMonths(monthRange), [monthRange]);
-  const currentMonth = months[0]; // 당월 (진행중, 4월)
+  const currentMonth = months[0]; // 당월 (진행중)
   // 직전 마감월 — 청구 수수료 기준 (PT생이 보고해야 할 가장 최근 월)
   const lastClosedMonth = months[1] || months[0];
 
@@ -967,6 +978,7 @@ export default function AdminSalesOverviewPage() {
             source: 'report',
             feeStatus: report.fee_payment_status ?? null,
             feePaidAt: report.fee_paid_at ?? null,
+            reportId: report.id,
           });
         } else if (snap && (Math.max(Number(snap.total_sales) || 0, Number((snap as { total_sales_orders?: number }).total_sales_orders) || 0) > 0 || !snap.sync_error)) {
           // API 스냅샷: settlement(정산) vs orders(주문) 중 큰 값 사용 — 신규 셀러 정산 지연 대응
@@ -1147,7 +1159,6 @@ export default function AdminSalesOverviewPage() {
 
       // paymentByUser 에서 영수증 정보 (있으면) 가져오기
       const pay = paymentByUser.get(row.user.id);
-      const successTx = pay?.last_success_tx ?? null;
 
       for (const ym of months) {
         if (ym === currentMonth) continue;
@@ -1165,6 +1176,10 @@ export default function AdminSalesOverviewPage() {
         else totalPotentialActive += m.fee;
 
         if (ym === lastClosedMonth) {
+          // 실결제액/영수증은 반드시 "이 달 리포트에 대한" 성공 결제에서만 가져온다.
+          //   과거엔 last_success_tx(월 무관 최근 성공 결제)를 썼는데,
+          //   그 탓에 다른 달(백로그 일괄청구 등) 금액이 이 달 실결제액으로 표시됐다.
+          const successTx = (m.reportId && pay?.success_tx_by_report?.[m.reportId]) || null;
           const detail: Detail = {
             ptUserId: row.user.id,
             name: row.user.profile?.full_name || row.user.profile?.email || row.user.id.slice(0, 8),
@@ -2125,8 +2140,11 @@ export default function AdminSalesOverviewPage() {
                   {apiPotentialFees.activeDetails.map((d, i) => {
                     const acting = actingUserId === d.ptUserId;
                     const pay = paymentByUser.get(d.ptUserId);
-                    const successTx = pay?.last_success_tx ?? null;
-                    const isPaid = !!successTx;
+                    // 이 그리드(activeDetails)는 정의상 "이 달 미결제"만 들어온다.
+                    //   과거엔 여기서 last_success_tx(월 무관)로 isPaid 를 다시 계산해서,
+                    //   지난 달 결제 이력만 있어도 이 달을 ✅결제완료로 칠하는 거짓 표시가 났다.
+                    const successTx = d.isPaid ? (d.paidAmount ? { total_amount: d.paidAmount, receipt_url: d.receiptUrl } : null) : null;
+                    const isPaid = d.isPaid;
                     const isFailed = pay?.latest_tx?.status === 'failed' && !isPaid;
 
                     let cardStyle = 'bg-white border-amber-300';
@@ -2172,7 +2190,7 @@ export default function AdminSalesOverviewPage() {
                         {/* 금액 정보 */}
                         <div className="text-[11px] space-y-0.5 mb-2">
                           <div className="flex justify-between">
-                            <span className="text-gray-500">4월 매출</span>
+                            <span className="text-gray-500">{formatYearMonth(lastClosedMonth)} 매출</span>
                             <span className="text-gray-900 font-medium">{formatKRW(d.revenue)}</span>
                           </div>
                           <div className="flex justify-between">
@@ -2294,7 +2312,7 @@ export default function AdminSalesOverviewPage() {
                         </div>
                         <div className="text-[11px] space-y-0.5 mb-2 opacity-70">
                           <div className="flex justify-between">
-                            <span className="text-slate-500">4월 매출</span>
+                            <span className="text-slate-500">{formatYearMonth(lastClosedMonth)} 매출</span>
                             <span className="text-slate-700 line-through">{formatKRW(d.revenue)}</span>
                           </div>
                           <div className="flex justify-between">
@@ -2386,7 +2404,7 @@ export default function AdminSalesOverviewPage() {
                         <th className="px-2 py-1 text-left">사용자</th>
                         <th className="px-2 py-1 text-center">계약</th>
                         <th className="px-2 py-1 text-center">카드</th>
-                        <th className="px-2 py-1 text-right">4월매출(API)</th>
+                        <th className="px-2 py-1 text-right">{readinessData.lastClosedMonth} 매출(API)</th>
                         <th className="px-2 py-1 text-center">보고서</th>
                         <th className="px-2 py-1 text-center">결제가능</th>
                         <th className="px-2 py-1 text-left">막힌 단계</th>
