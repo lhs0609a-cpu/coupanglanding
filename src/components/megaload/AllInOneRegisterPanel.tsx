@@ -1354,10 +1354,16 @@ export default function AllInOneRegisterPanel() {
     setRows((prev) => prev.map((r) => (r.uid === uid && !r.mainImages.some((m) => m.name === img.name)
       ? { ...r, mainImages: [...r.mainImages, img] } : r)));
   };
-  /** 되살릴 수 있는 대표 후보 = 스캔한 main_images 중 현재 후보에 없는 것. */
+  /**
+   * 되살릴 수 있는 대표/서브 후보 = 스캔한 main_images + review_images 중 현재 후보에 없는 것.
+   * ⚠️ 예전엔 main_images 만 돌려줬다. 후보 목록엔 리뷰컷도 섞여 있는데(mainCandidates),
+   *    그걸 ×로 빼면 되살릴 방법이 없었다. 서브이미지 출처가 이 목록 하나뿐이라 더 그렇다.
+   */
   const addableMainImages = (r: Row): ScannedImageFile[] => {
     const have = new Set(r.mainImages.map((m) => m.name));
-    return (r.scanned.mainImages || []).filter((img) => img && !have.has(img.name));
+    const seen = new Set<string>();
+    return [...(r.scanned.mainImages || []), ...(r.scanned.reviewImages || [])]
+      .filter((img) => img && !have.has(img.name) && !seen.has(img.name) && seen.add(img.name));
   };
 
   // 마진 프리셋 일괄 적용 — 각 행 edit.sellingPrice 에 원가×프리셋 결과를 기록(개별 수정은 그 뒤 덮어쓰기 가능).
@@ -1474,28 +1480,35 @@ export default function AllInOneRegisterPanel() {
           //    ① 리뷰 실사    — 구매자 촬영. 업체 상업컷 대비 지재권 위험이 가장 낮다
           //    ② 누끼 가공본  — 리뷰컷이 9장에 못 미칠 때 보충(우리 산출물이라 안전)
           //    ③ 업체 원본    — 위 둘로도 못 채울 때만 마지막 보충(빈 슬롯보다는 낫다)
-          //    사용자가 ×로 뺀 컷은 r.mainImages/r.reviewImages 에서 이미 빠져 있다.
+          //
+          // ⚠️ 서브 9장을 **r.reviewImages(리뷰 풀) 에서 직접** 끌어오던 게 버그였다(실측 2026-08-05).
+          //    리뷰 풀은 "상세 본문 교차용" 이라 카드 대표컷 후보와 다른 목록이다. 사용자가 후보에서
+          //    ×(=툴팁 "서브이미지에서 제외")로 리뷰컷을 다 빼도 리뷰 풀은 그대로였고, 결국 대표1+후보1만
+          //    남긴 상품이 쿠팡엔 추가이미지 6장으로 올라갔다.
+          //    → 갤러리는 **카드에 보이는 r.mainImages 가 유일한 출처**다.
+          //      대표 외에 남긴 후보는 전부 서브로 올라가고, 뺀 건 안 올라간다. 순서도 카드 순서 그대로.
+          //    ①②③ 우선순위는 이제 **후보가 10장을 넘어 잘라내야 할 때만** 쓴다(뭘 살릴지의 기준).
+          //    쿠팡 10장 한도라 그 이상은 물리적으로 못 올린다 — 카드 버튼의 "서브 N장"이 실제 장수다.
           const GALLERY_MAX = 10;
           const chosen = r.mainImages[r.selectedMainIdx];
           const reviewNames = new Set((r.reviewImages || []).map((x) => x.name));
-          const cutoutCuts = r.mainImages.slice(0, r.regenCount);
-          const vendorCuts = r.mainImages.slice(r.regenCount).filter((m) => !reviewNames.has(m.name));
-          const reviewCuts = r.reviewImages || [];
-          const pickUnique = (pools: ScannedImageFile[][], limit: number) => {
-            const seen = new Set<string>(chosen ? [chosen.name] : []);
-            const out: ScannedImageFile[] = [];
-            for (const pool of pools) {
-              for (const img of pool) {
-                if (out.length >= limit) return out;
-                if (!img?.name || seen.has(img.name)) continue;
-                seen.add(img.name);
-                out.push(img);
-              }
-            }
-            return out;
-          };
-          // 리뷰 실사로 9장을 채우고, 모자랄 때만 누끼 → 업체 원본 순으로 보충한다.
-          const subs = pickUnique([reviewCuts, cutoutCuts, vendorCuts], GALLERY_MAX - 1);
+          const seenSub = new Set<string>(chosen?.name ? [chosen.name] : []);
+          const rest = r.mainImages
+            .map((img, i) => ({ img, i }))
+            .filter(({ img, i }) => {
+              if (i === r.selectedMainIdx) return false;
+              if (!img?.name || seenSub.has(img.name)) return false;  // 파일명 중복 제거
+              seenSub.add(img.name);
+              return true;
+            });
+          // 살릴 9장 고르기: 리뷰 실사(0) → 누끼(1) → 업체 원본(2). 9장 이하면 전부 살아남는다.
+          const subRank = ({ img, i }: { img: ScannedImageFile; i: number }) =>
+            (reviewNames.has(img.name) ? 0 : i < r.regenCount ? 1 : 2);
+          const keepIdx = new Set(
+            [...rest].sort((a, b) => subRank(a) - subRank(b) || a.i - b.i)
+              .slice(0, GALLERY_MAX - 1).map(({ i }) => i),
+          );
+          const subs = rest.filter(({ i }) => keepIdx.has(i)).map(({ img }) => img);
           const mainOrdered = chosen ? [chosen, ...subs] : [];
           const mainUrls = (await uploadScannedImages(mainOrdered, GALLERY_MAX, wm)).filter(Boolean);
           // 본문 교차 이미지는 리뷰컷만(detailUrls 비움).
@@ -1930,7 +1943,8 @@ export default function AllInOneRegisterPanel() {
                   <button type="button" disabled={!editable}
                     onClick={() => toggleMainPicker(r.uid, r.mainImages)}
                     className="text-xs text-gray-600 border border-gray-200 rounded px-2 py-1 disabled:opacity-40">
-                    대표컷 변경 ({r.selectedMainIdx + 1}/{r.mainImages.length}) {openMain[r.uid] ? '▴' : '▾'}
+                    {/* 서브 장수를 같이 보여준다 — 등록 결과(대표1+서브N)가 카드와 어긋나면 바로 보이게. */}
+                    대표컷 변경 ({r.selectedMainIdx + 1}/{r.mainImages.length}) · 서브 {Math.min(r.mainImages.length - 1, 9)}장 {openMain[r.uid] ? '▴' : '▾'}
                   </button>
                   {openMain[r.uid] && (() => {
                     const addableMain = addableMainImages(r);
