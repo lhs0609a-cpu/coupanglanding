@@ -117,6 +117,34 @@ type SortDir = 'asc' | 'desc';
 type MonthRange = 3 | 6 | 12;
 type StatusFilter = 'all' | 'pending' | 'submitted' | 'completed' | 'overdue';
 
+/** 광고비 제출 1건 (카드의 광고비 차감 표시용) */
+interface AdCostSubmissionRow {
+  pt_user_id: string;
+  year_month: string;
+  amount: number;
+  status: 'pending' | 'approved' | 'rejected' | 'missed' | 'locked';
+  attempt_no: number;
+}
+
+/**
+ * 광고비 인정 상한 = 광고 차감 전 순이익 × 10% (= 매출 × 32% × 10% = 매출의 3.2%).
+ * lib/payments/ad-cost.ts 의 netProfitBeforeAd + AD_COST_NETPROFIT_RATIO 와 동일 기준.
+ */
+function adCostCapOf(revenue: number): number {
+  if (!(revenue > 0)) return 0;
+  const nonAd = Math.round(revenue * 0.40) + Math.round(revenue * 0.10)
+    + Math.round(revenue * 0.03) + Math.round(revenue * 0.05) + Math.round(revenue * 0.10);
+  return Math.round(Math.max(0, revenue - nonAd) * 0.10);
+}
+
+const AD_STATUS_LABEL: Record<string, string> = {
+  pending: '검토중',
+  approved: '승인',
+  rejected: '반려',
+  missed: '미제출(마감)',
+  locked: '재제출 불가',
+};
+
 interface MonthCell {
   revenue: number;
   deposit: number;
@@ -134,6 +162,8 @@ interface MonthCell {
   feePaidAt?: string | null;
   /** 이 월의 monthly_report id — 월별 실결제 tx 매칭용 (source==='report' 일 때만) */
   reportId?: string | null;
+  /** 청구액에 실제로 반영된 광고비 차감액 (리포트가 있을 때만 의미 있음) */
+  adCost?: number;
 }
 
 interface UserRow {
@@ -164,6 +194,7 @@ export default function AdminSalesOverviewPage() {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<PtUserWithProfile[]>([]);
   const [reports, setReports] = useState<MonthlyReport[]>([]);
+  const [adCosts, setAdCosts] = useState<AdCostSubmissionRow[]>([]);
   const [snapshots, setSnapshots] = useState<ApiRevenueSnapshot[]>([]);
   const [monthRange, setMonthRange] = useState<MonthRange>(6);
   const [search, setSearch] = useState('');
@@ -472,9 +503,14 @@ export default function AdminSalesOverviewPage() {
 
       if (fetchedUsers.length > 0) {
         const userIds = fetchedUsers.map(u => u.id);
-        const [reportsRes, snapshotsRes] = await Promise.all([
+        const [reportsRes, snapshotsRes, adCostRes] = await Promise.all([
           supabase.from('monthly_reports').select('*').in('pt_user_id', userIds),
           supabase.from('api_revenue_snapshots').select('*').in('pt_user_id', userIds),
+          // 광고비 제출 — 카드에 "차감 인정액 / 미제출 / 검토중"을 표시하기 위함
+          supabase
+            .from('ad_cost_submissions')
+            .select('pt_user_id, year_month, amount, status, attempt_no')
+            .in('pt_user_id', userIds),
         ]);
         if (reportsRes.error) {
           console.error('[sales-overview] monthly_reports 조회 실패:', reportsRes.error);
@@ -484,11 +520,16 @@ export default function AdminSalesOverviewPage() {
           console.error('[sales-overview] api_revenue_snapshots 조회 실패:', snapshotsRes.error);
           setFetchError((prev) => prev || `매출 스냅샷 조회 실패: ${snapshotsRes.error.message}`);
         }
+        if (adCostRes.error) {
+          console.error('[sales-overview] ad_cost_submissions 조회 실패:', adCostRes.error);
+        }
         setReports((reportsRes.data as MonthlyReport[]) || []);
         setSnapshots((snapshotsRes.data as ApiRevenueSnapshot[]) || []);
+        setAdCosts((adCostRes.data as AdCostSubmissionRow[]) || []);
       } else {
         setReports([]);
         setSnapshots([]);
+        setAdCosts([]);
       }
       setLastRefreshAt(new Date());
     } catch (err) {
@@ -979,6 +1020,7 @@ export default function AdminSalesOverviewPage() {
             feeStatus: report.fee_payment_status ?? null,
             feePaidAt: report.fee_paid_at ?? null,
             reportId: report.id,
+            adCost: Number(report.cost_advertising) || 0,
           });
         } else if (snap && (Math.max(Number(snap.total_sales) || 0, Number((snap as { total_sales_orders?: number }).total_sales_orders) || 0) > 0 || !snap.sync_error)) {
           // API 스냅샷: settlement(정산) vs orders(주문) 중 큰 값 사용 — 신규 셀러 정산 지연 대응
@@ -1139,8 +1181,26 @@ export default function AdminSalesOverviewPage() {
       paidAmount: number;
       receiptUrl: string | null;
       paidAt: string | null;
+      /** 청구액에 반영된 광고비 차감액 (리포트 없으면 0 = 광고비 0 가정 추정치) */
+      adCost: number;
+      /** 광고비 인정 상한 (광고 차감 전 순이익의 10%) */
+      adCap: number;
+      /** 광고비 제출 상태 — 없으면 null */
+      adStatus: string | null;
+      /** PT생이 제출한 원래 금액 (상한 초과 여부 확인용) */
+      adClaimed: number;
     };
     const todayStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    // (pt_user_id|year_month) → 최신 광고비 제출 (attempt_no 큰 것)
+    const adCostByUserMonth = new Map<string, AdCostSubmissionRow>();
+    for (const s of adCosts) {
+      const key = `${s.pt_user_id}|${s.year_month}`;
+      const prev = adCostByUserMonth.get(key);
+      if (!prev || (Number(s.attempt_no) || 0) > (Number(prev.attempt_no) || 0)) {
+        adCostByUserMonth.set(key, s);
+      }
+    }
 
     let totalPotentialActive = 0;
     let totalPotentialExcluded = 0;
@@ -1180,7 +1240,12 @@ export default function AdminSalesOverviewPage() {
           //   과거엔 last_success_tx(월 무관 최근 성공 결제)를 썼는데,
           //   그 탓에 다른 달(백로그 일괄청구 등) 금액이 이 달 실결제액으로 표시됐다.
           const successTx = (m.reportId && pay?.success_tx_by_report?.[m.reportId]) || null;
+          const sub = adCostByUserMonth.get(`${row.user.id}|${ym}`) ?? null;
           const detail: Detail = {
+            adCost: m.adCost ?? 0,
+            adCap: adCostCapOf(m.revenue),
+            adStatus: sub?.status ?? null,
+            adClaimed: Number(sub?.amount) || 0,
             ptUserId: row.user.id,
             name: row.user.profile?.full_name || row.user.profile?.email || row.user.id.slice(0, 8),
             email: row.user.profile?.email || '',
@@ -1226,7 +1291,7 @@ export default function AdminSalesOverviewPage() {
       paidDetails,
       lastClosedDetails: activeDetails, // 호환성
     };
-  }, [rows, months, currentMonth, lastClosedMonth, paymentByUser]);
+  }, [rows, months, currentMonth, lastClosedMonth, paymentByUser, adCosts]);
 
   /** 누적 수금 현황 — "지금까지 받은 돈 / 못 받은 돈" 한눈에 */
   const cashflow = useMemo(() => {
@@ -2099,6 +2164,11 @@ export default function AdminSalesOverviewPage() {
                       </div>
                       <div className="text-[11px] space-y-0.5 mb-2">
                         <div className="flex justify-between">
+                          <span className="text-gray-500">{formatYearMonth(lastClosedMonth)} 매출</span>
+                          <span className="text-gray-900 font-medium">{formatKRW(d.revenue)}</span>
+                        </div>
+                        <AdCostLine d={d} />
+                        <div className="flex justify-between">
                           <span className="text-gray-500">실결제액</span>
                           <span className="font-bold text-green-700">{formatKRW(d.paidAmount)}</span>
                         </div>
@@ -2193,6 +2263,7 @@ export default function AdminSalesOverviewPage() {
                             <span className="text-gray-500">{formatYearMonth(lastClosedMonth)} 매출</span>
                             <span className="text-gray-900 font-medium">{formatKRW(d.revenue)}</span>
                           </div>
+                          <AdCostLine d={d} />
                           <div className="flex justify-between">
                             <span className="text-gray-500">예상 청구액</span>
                             <span className="font-bold text-amber-700">{formatKRW(d.fee)}</span>
@@ -2315,6 +2386,7 @@ export default function AdminSalesOverviewPage() {
                             <span className="text-slate-500">{formatYearMonth(lastClosedMonth)} 매출</span>
                             <span className="text-slate-700 line-through">{formatKRW(d.revenue)}</span>
                           </div>
+                          <AdCostLine d={d} />
                           <div className="flex justify-between">
                             <span className="text-slate-500">청구 안 함</span>
                             <span className="text-slate-700 line-through">{formatKRW(d.fee)}</span>
@@ -3823,6 +3895,53 @@ function DiagDist({ title, dist }: { title: string; dist: Record<string, number>
 }
 
 /* ─── 수수료 결제 배지 — 셀 안에서 한눈에 ─── */
+/**
+ * 카드의 광고비 차감 한 줄.
+ * "얼마가 빠졌는지"뿐 아니라 "왜 안 빠졌는지"(미제출·검토중·반려)와 인정 상한까지 보여준다.
+ * 청구액이 예상보다 큰/작은 이유를 카드에서 바로 알 수 있게 하는 게 목적.
+ */
+function AdCostLine({ d }: {
+  d: { adCost: number; adCap: number; adStatus: string | null; adClaimed: number };
+}) {
+  const { adCost, adCap, adStatus, adClaimed } = d;
+  const overCap = adCap > 0 && adClaimed > adCap;
+
+  if (adCost > 0) {
+    return (
+      <div className="flex justify-between">
+        <span className="text-gray-500">광고비 차감</span>
+        <span className="text-right">
+          <span className="text-blue-700 font-medium">−{formatKRW(adCost)}</span>
+          {overCap && (
+            <span className="block text-[10px] text-red-600">
+              제출 {formatKRW(adClaimed)} · 상한 {formatKRW(adCap)} 초과분 미인정
+            </span>
+          )}
+        </span>
+      </div>
+    );
+  }
+
+  const reason = adStatus === 'pending'
+    ? `검토중 ${formatKRW(adClaimed)} — 승인 전이라 미반영`
+    : adStatus === 'rejected' ? '반려 — 차감 없음'
+    : adStatus === 'missed' ? '미제출(마감) — 차감 없음'
+    : adStatus === 'locked' ? '재제출 불가 — 차감 없음'
+    : '제출 없음 — 차감 0';
+
+  return (
+    <div className="flex justify-between">
+      <span className="text-gray-500">광고비 차감</span>
+      <span className="text-right">
+        <span className={adStatus === 'pending' ? 'text-amber-700' : 'text-gray-500'}>{reason}</span>
+        {adCap > 0 && (
+          <span className="block text-[10px] text-gray-400">인정 상한 {formatKRW(adCap)}</span>
+        )}
+      </span>
+    </div>
+  );
+}
+
 function FeeStatusBadge({
   feeStatus,
   feePaidAt,
