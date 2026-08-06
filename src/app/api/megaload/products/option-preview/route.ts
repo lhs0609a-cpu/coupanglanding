@@ -49,6 +49,10 @@ function placeholderOptionNames(warnings: string[]): string[] {
   const names = new Set<string>();
   for (const w of warnings) {
     if (!/기본값|추출할 수 없/.test(w)) continue;
+    // 택1(choose1) 그룹 경고 — `택1 필수 옵션 '개당 용량/개당 중량' 중 하나도 …` 는 건너뛴다.
+    //   ① 택1은 이름 그대로 "하나만" 채우면 되는데 '/' 로 쪼개 둘 다 차단하면 해소 불가.
+    //   ② 실제 값이 들어간 옵션은 바로 뒤 `'개당 용량' → 기본값 "1ml" 사용` 경고가 이미 잡는다.
+    if (/^택1 필수 옵션/.test(w)) continue;
     for (const m of w.matchAll(/'([^']+)'/g)) {
       for (const nm of m[1].split('/')) {
         const t = nm.trim();

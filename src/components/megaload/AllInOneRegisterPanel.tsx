@@ -818,6 +818,16 @@ export default function AllInOneRegisterPanel() {
         if (optionFilledRef.current.has(key)) return r; // 이미 채움 → 사용자 수정 보존
         optionFilledRef.current.add(key);
         const options = res2.buyOptions.map((o) => ({ name: o.name, value: o.value, unit: o.unit }));
+        // ⚠️ needsInput 에 있는데 buyOptions 엔 행이 없는 옵션이 생긴다(추출 완전실패·택1 그룹 등).
+        //    카드는 e.options 만 그리므로 그런 이름은 **입력칸이 아예 안 나오고**,
+        //    unresolvedOptionInput 은 "값 없음"으로 보고 영원히 등록을 막았다(실측 2026-08-06).
+        //    → 빈 행을 만들어 사용자가 채울 빨간칸을 반드시 준다.
+        const have = new Set(options.map((o) => o.name));
+        for (const nm of res2.needsInput || []) {
+          if (!nm || have.has(nm)) continue;
+          have.add(nm);
+          options.push({ name: nm, value: '', unit: undefined });
+        }
         // 상품명에서 못 뽑아 억지 기본값이 들어간 필수옵션이 있으면 자동승인을 풀어
         // 사용자가 직접 입력하도록 강제(억지값 등록 방지).
         const needsInput = (res2.needsInput?.length ?? 0) > 0;
@@ -2033,7 +2043,9 @@ export default function AllInOneRegisterPanel() {
                       <DraftField value={o.name} disabled={!editable} onCommit={(v) => patchOption(r.uid, i, { name: v })} placeholder="항목" className="w-20 text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
                       <DraftField value={o.value} disabled={!editable} onCommit={(v) => patchOption(r.uid, i, { value: v })} placeholder={miss ? '직접 입력' : '값'} className={`flex-1 min-w-0 text-[11px] border rounded px-1 py-0.5 focus:outline-none ${vCls}`} />
                       <DraftField value={o.unit || ''} disabled={!editable} onCommit={(v) => patchOption(r.uid, i, { unit: v })} placeholder="단위" className="w-12 text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
-                      <button type="button" disabled={!editable} onClick={() => removeOption(r.uid, i)} className="text-gray-400 hover:text-red-500 text-sm px-1 leading-none disabled:opacity-40">×</button>
+                      {/* 직접 입력 대상 행은 지우면 입력칸이 사라져 등록차단을 풀 방법이 없어진다 → 삭제 금지 */}
+                      <button type="button" disabled={!editable || miss} title={miss ? '필수 옵션 — 값을 입력해야 등록됩니다' : '옵션 삭제'}
+                        onClick={() => removeOption(r.uid, i)} className="text-gray-400 hover:text-red-500 text-sm px-1 leading-none disabled:opacity-40">×</button>
                     </div>
                     );
                   })}

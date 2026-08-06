@@ -186,6 +186,15 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
         opt.unit = undefined;
       }
     }
+    // ⚠️ 추출 결과에 **행이 없는** 옵션에 사용자가 값을 직접 입력한 경우(추출 완전실패·택1 그룹 등)
+    //    위 루프는 그 값을 그냥 버렸다 — 검수 화면에서 채워도 쿠팡엔 안 올라감(실측 2026-08-06).
+    //    이름은 카테고리 buyOption 스키마에서 온 것이므로 그대로 추가한다.
+    //    (payload-builder 가 attributeMeta 와 매칭해 단위까지 정규화한다.)
+    const knownNames = new Set(extracted.buyOptions.map((o) => o.name));
+    for (const [name, picked] of Object.entries(product.buyOptionValuesOverride)) {
+      if (!name || !picked || knownNames.has(name)) continue;
+      extracted.buyOptions.push({ name, value: picked });
+    }
   }
 
   // 노출상품명(title) 꼬리 spec 처리.
