@@ -1284,6 +1284,117 @@ export default function AllInOneRegisterPanel() {
   const setAll = (v: boolean) =>
     setRows((prev) => prev.map((r) => (r.status === 'success' ? r : { ...r, approved: v && isEligible(r.edit) })));
 
+  // ── 상세글 재생성(도우미 로컬 GPU) ────────────────────────────────
+  // 카테고리를 손으로 바꿔도 상세글은 워커가 처음 쓴 그대로 남는다 — 본문은 생성 시점 카테고리의
+  // 어휘(subtype-vocab)로 쓰여 있으므로, 카테고리만 고치면 "맥주 글 + 가구 카테고리" 같은 상태가 된다.
+  // 여기서 재생성 잡을 넣어 **바뀐 카테고리 기준으로 본문을 다시 쓰게** 한다.
+  //   웹(enqueue) → megaload_llm_jobs → 도우미 llm-pull-loop(runContent → generatePerfectDetail)
+  //   → result(jsonb) → 웹이 폴링해 카드에 반영.
+  // 서버 LLM 을 쓰지 않으므로 호출 비용은 0 이고, 도우미가 꺼져 있으면 켤 때까지 pending 으로 대기한다.
+  type RegenState = { batchId: string; status: 'pending' | 'done' | 'error'; message?: string };
+  const [regen, setRegen] = useState<Record<string, RegenState>>({});
+
+  const requestDetailRegen = async (uids: string[]) => {
+    const targets = rows.filter((r) => uids.includes(r.uid) && r.gen && r.status !== 'success');
+    if (targets.length === 0) return;
+    const jobs = targets.map((r) => {
+      const g = r.gen!;
+      const pj = (r.scanned.productJson || {}) as { features?: unknown };
+      const catPath = r.edit.categoryPath || g.categoryPath || '';
+      return {
+        label: `${r.uid}:content`,
+        taskType: 'content' as const,
+        // 필드명은 도우미 llm-pull-loop.runContent 가 읽는 것 그대로여야 한다(바꾸면 조용히 빈 글).
+        input: {
+          displayName: r.edit.displayName || g.displayName || g.originalName,
+          originalName: g.originalName,
+          categoryPath: catPath,
+          // leaf 를 명시하지 않으면 도우미가 경로 전체를 leaf 로 써서 어휘가 다시 어긋난다
+          // (ai-generator 도 같은 이유로 leaf 를 따로 넘긴다).
+          leaf: catPath.split('>').pop()?.trim() || '',
+          features: Array.isArray(pj.features) ? pj.features : [],
+          seoKeywords: g.keywords || [],
+          seed: g.originalName,
+        },
+      };
+    });
+    const mark = (s: RegenState) =>
+      setRegen((p) => { const n = { ...p }; for (const t of targets) n[t.uid] = s; return n; });
+    mark({ batchId: '', status: 'pending' });
+    try {
+      const res = await fetch('/api/megaload/products/llm-jobs/enqueue', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobs }), signal: AbortSignal.timeout(30_000),
+      });
+      const data = await res.json() as { batchId?: string; error?: string };
+      if (!res.ok || !data.batchId) throw new Error(data.error || `HTTP ${res.status}`);
+      mark({ batchId: data.batchId, status: 'pending' });
+    } catch (err) {
+      mark({ batchId: '', status: 'error', message: err instanceof Error ? err.message : '재생성 요청 실패' });
+    }
+  };
+
+  // 진행 중인 배치만 폴링 — 전부 done/error 가 되면 키가 비어 자동으로 멈춘다.
+  const pendingBatchKey = [...new Set(
+    Object.values(regen).filter((s) => s.status === 'pending' && s.batchId).map((s) => s.batchId),
+  )].sort().join(',');
+  useEffect(() => {
+    if (!pendingBatchKey) return;
+    const batchIds = pendingBatchKey.split(',');
+    let stopped = false;
+    const tick = async () => {
+      for (const batchId of batchIds) {
+        if (stopped) return;
+        try {
+          const res = await fetch(`/api/megaload/products/llm-jobs?batchId=${encodeURIComponent(batchId)}`, { cache: 'no-store' });
+          if (!res.ok) continue;
+          const data = await res.json() as {
+            jobs?: { label: string; status: string; result: unknown; error_message: string | null }[];
+          };
+          for (const j of data.jobs || []) {
+            const uid = j.label.replace(/:content$/, '');
+            if (j.status === 'done') {
+              // 도우미는 paragraphs 만 돌려준다(text 는 안 실림) → 생성기와 같은 규칙으로 이어붙인다.
+              const paragraphs = (j.result as { paragraphs?: string[] } | null)?.paragraphs || [];
+              const text = paragraphs.filter(Boolean).join('\n\n');
+              if (text) {
+                setRows((prev) => prev.map((r) => (r.uid === uid
+                  // 카드와 같은 필터를 통과시키되, 기준은 **바뀐** 카테고리다(옛 기준으로 걸러지지 않게).
+                  ? { ...r, edit: { ...r.edit, detail: scrubForbidden(stripEmphasisMarks(text), r.edit.categoryPath) } }
+                  : r)));
+              }
+              setRegen((p) => (p[uid]
+                ? { ...p, [uid]: { ...p[uid], status: text ? 'done' : 'error', message: text ? undefined : '빈 결과' } }
+                : p));
+            } else if (j.status === 'error' || j.status === 'canceled') {
+              setRegen((p) => (p[uid]
+                ? { ...p, [uid]: { ...p[uid], status: 'error', message: j.error_message || '재생성 실패' } }
+                : p));
+            }
+          }
+        } catch { /* 일시 실패 — 다음 tick 에 재시도 */ }
+      }
+    };
+    // 3초 폴링은 "지금 도우미가 돌고 있을 때" 기준이다. 도우미가 꺼져 있으면 잡이 영원히
+    // pending 이라 이 페이지를 켜 둔 내내 3초마다 DB 를 때리게 된다 → 2분 뒤부터 15초로 늦춘다.
+    let ticks = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const loop = async () => {
+      await tick();
+      if (stopped) return;
+      timer = setTimeout(loop, ++ticks < 40 ? 3000 : 15_000);
+    };
+    void loop();
+    return () => { stopped = true; if (timer) clearTimeout(timer); };
+  }, [pendingBatchKey]);
+
+  /** 워커가 정한 카테고리와 사용자가 지금 지정한 카테고리가 다른 행 — 상세글이 옛 어휘로 남아 있다. */
+  const catChangedUids = rows
+    .filter((r) => r.gen && r.status !== 'success' && (r.edit.categoryPath || '') !== (r.gen.categoryPath || ''))
+    .map((r) => r.uid);
+  /** 재생성 대기 중인 카드가 하나라도 있으면 일괄 버튼을 잠근다(중복 큐잉 방지). */
+  const regenBusy = Object.values(regen).some((s) => s.status === 'pending');
+
   // ── 인라인 편집 ──────────────────────────────────────────────────
   const patchEdit = (uid: string, patch: Partial<RowEdit>) =>
     setRows((prev) => prev.map((r) => (r.uid === uid ? { ...r, edit: { ...r.edit, ...patch } } : r)));
@@ -1726,6 +1837,15 @@ export default function AllInOneRegisterPanel() {
             <button onClick={() => setAll(true)} disabled={registering} className="text-sm border border-gray-300 rounded-lg px-3 py-2">전체 승인</button>
             <button onClick={() => setAll(false)} disabled={registering} className="text-sm border border-gray-300 rounded-lg px-3 py-2">전체 해제</button>
             <span className="text-sm text-gray-500">승인 <b className="text-gray-900">{approvedCount}</b> / {rows.length}건</span>
+            {/* 카테고리를 바꾼 카드가 있으면 상세글이 옛 카테고리 어휘로 남아 있다 — 한 번에 다시 쓰기. */}
+            {catChangedUids.length > 0 && (
+              <button type="button" disabled={registering || regenBusy}
+                onClick={() => void requestDetailRegen(catChangedUids)}
+                title="카테고리를 바꾼 카드의 상세글을 도우미(내 PC GPU)가 새 카테고리 기준으로 다시 씁니다"
+                className="text-sm border border-amber-300 bg-amber-50 text-amber-800 rounded-lg px-3 py-2 disabled:opacity-50">
+                🔄 카테고리 바뀐 {catChangedUids.length}건 상세글 재생성
+              </button>
+            )}
             <span className="flex-1" />
             <button onClick={requestRegister} disabled={registering || approvedCount === 0}
               className="bg-gray-900 text-white text-sm font-semibold rounded-lg px-5 py-2 disabled:opacity-50">
@@ -1872,6 +1992,18 @@ export default function AllInOneRegisterPanel() {
           const regenSelected = r.selectedMainIdx < r.regenCount;
           const editable = !!g && r.status !== 'success' && !registering;
           const priceLow = e.sellingPrice != null && e.sellingPrice < 100;
+          // 상세글 재생성 — 카테고리를 바꿔도 본문은 안 따라오므로 사용자가 눌러 다시 쓰게 한다.
+          const rg = regen[r.uid];
+          const regenning = rg?.status === 'pending';
+          const catChanged = !!g && (e.categoryPath || '') !== (g.categoryPath || '');
+          const regenBtn = (
+            <button type="button" disabled={!editable || regenning}
+              onClick={() => void requestDetailRegen([r.uid])}
+              title="도우미(내 PC GPU)가 지금 카테고리 기준으로 상세글을 다시 씁니다. 도우미가 꺼져 있으면 켤 때까지 대기합니다."
+              className="flex-none text-[10px] border border-amber-300 text-amber-800 hover:bg-amber-100 rounded px-1.5 py-0.5 disabled:opacity-50">
+              {regenning ? '재생성 중…' : '🔄 상세글 재생성'}
+            </button>
+          );
           const statusColor = r.status === 'success' ? 'border-green-400' : r.status === 'error' ? 'border-red-400'
             : g?.needsReview ? 'border-amber-300' : 'border-gray-200';
           return (
@@ -1933,6 +2065,25 @@ export default function AllInOneRegisterPanel() {
                     <button type="button" disabled={!editable} onClick={() => setCatPickerUid(r.uid)}
                       title="카테고리 트리에서 선택" className="text-xs text-gray-500 hover:text-blue-600 border border-gray-200 rounded px-1.5 py-0.5 disabled:opacity-40">📂</button>
                   </div>
+                  {/* 카테고리를 워커 판단과 다르게 바꿨을 때 — 상세글은 옛 카테고리 어휘 그대로다.
+                      바꾼 순간 자동으로 다시 쓰지 않는 이유: 재생성은 로컬 GPU 를 상품당 수십 초 잡아먹고,
+                      사용자가 손본 본문을 말없이 덮어쓰면 안 되기 때문. 눌러서 확정하게 한다. */}
+                  {catChanged && (
+                    <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded px-1.5 py-1">
+                      <p className="flex-1 min-w-0 text-[10px] text-amber-800 leading-snug">
+                        카테고리를 바꿨습니다 — <b>상세글은 예전 카테고리로 쓰인 그대로</b>입니다.
+                      </p>
+                      {regenBtn}
+                    </div>
+                  )}
+                  {rg?.status === 'error' && (
+                    <p className="text-[10px] text-red-600 leading-snug">재생성 실패: {rg.message}</p>
+                  )}
+                  {regenning && (
+                    <p className="text-[10px] text-amber-700 leading-snug">
+                      도우미가 상세글을 다시 쓰는 중입니다(내 PC GPU · 보통 20~60초). 도우미가 꺼져 있으면 켤 때까지 대기합니다.
+                    </p>
+                  )}
                   {/* 판매가 — 직접 수정 */}
                   <div className="flex items-center gap-1">
                     <span className="text-[#E0245E] font-bold text-sm">₩</span>
@@ -2208,7 +2359,13 @@ export default function AllInOneRegisterPanel() {
                         );
                       })()}
                       {/* 원문(글) 편집 — 미리보기 아래로. 저장하면 위 미리보기가 즉시 갱신된다. */}
-                      <details className="mt-2 group">
+                      <div className="mt-2 flex items-center gap-2">
+                        {regenBtn}
+                        <span className="text-[10px] text-gray-400 leading-snug">
+                          마음에 안 들면 다시 씁니다 — 지금 카테고리·노출명 기준(내 PC GPU, 비용 0)
+                        </span>
+                      </div>
+                      <details className="mt-1 group">
                         <summary className="text-[11px] text-gray-500 cursor-pointer select-none">✎ 글 원문 편집</summary>
                         <textarea value={e.detail} disabled={!editable}
                           onChange={(ev) => patchEdit(r.uid, { detail: ev.target.value })}
