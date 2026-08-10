@@ -16,6 +16,7 @@ import type { Channel } from '../types';
 import type { OptionStockStatus } from './option-name-matcher';
 import { normalizeOptionName, detectOptionChanges } from './option-name-matcher';
 import { propagateStockToOtherChannels } from './multichannel-stock-sync';
+import { scheduleUpdateFields } from '../stock-monitor-schedule';
 import type { PriceFollowRule, PendingPriceChange } from '@/lib/supabase/types';
 
 type StockStatus = 'in_stock' | 'sold_out' | 'removed' | 'unknown' | 'error';
@@ -94,6 +95,19 @@ interface CheckResult {
    *  - 'naver': 네이버 응답 문제 (HTTP 403/404/500, 페이지 파싱 실패 등). consecutive_errors 증가
    */
   errorClass?: 'infra' | 'transient' | 'naver';
+  /**
+   * 어느 경로로 응답을 얻었나. 페이싱 정책을 경로별로 다르게 주기 위해 필요하다.
+   *
+   * 2026-08-10 실측(최근 24h 조회분, URL 도메인 구성 동일):
+   *   - GT 프록시(구글 IP가 네이버를 대신 fetch): 974건 중 실패 16건 = **2%**
+   *   - 도우미 net.request(가정 IP 직결):        7,734건 중 실패 5,893건 = **76%**
+   * 38배 차이. 즉 429 는 속도 문제도 IP 문제도 아니고 **전송 경로(클라이언트 판별)** 문제였다.
+   * 실제로 별도 앱은 30~75초/건이라는 매우 느린 페이싱에서도 76% 실패한다 — 더 늦춰도 안 풀린다.
+   *
+   * → GT 로 성공한 건에는 네이버 429 회피용 대기(5~9초)를 걸 이유가 없다. 그 대기는 오직
+   *   네이버에 직접 붙었을 때만 의미가 있다.
+   */
+  via?: 'gt' | 'direct' | 'mobile';
 }
 
 const NAVER_PROXY_URL = process.env.COUPANG_PROXY_URL || '';
@@ -161,7 +175,7 @@ async function checkUrl(url: string, retryCount = 0): Promise<CheckResult> {
         const resultGt = await checkUrlSingle(gtUrl, 0);
         if (resultGt.status !== 'error') {
           if (attempt > 0) console.log(`[stock-monitor] GT 1차 성공 (attempt ${attempt + 1}): ${url.slice(0, 60)}`);
-          return resultGt;
+          return { ...resultGt, via: 'gt' };
         }
         if (!/region|translation\s*service/i.test(resultGt.matchedPattern || '')) break;
       }
@@ -170,7 +184,7 @@ async function checkUrl(url: string, retryCount = 0): Promise<CheckResult> {
 
   // 2차: 원본 URL (GT 실패 시 폴백 — 비네이버 URL은 항상 여기로)
   const result1 = await checkUrlSingle(url, retryCount);
-  if (result1.status !== 'error') return result1;
+  if (result1.status !== 'error') return { ...result1, via: 'direct' };
 
   // 1차가 429/403 차단인 경우만 추가 폴백 시도 (404/500 등은 진짜 에러로 간주)
   const isBlocked = /429|403|차단|속도제한/.test(result1.matchedPattern || '');
@@ -182,12 +196,12 @@ async function checkUrl(url: string, retryCount = 0): Promise<CheckResult> {
     const result2 = await checkUrlSingle(mobileUrl, 0);
     if (result2.status !== 'error') {
       console.log(`[stock-monitor] 모바일 폴백 성공: ${url.slice(0, 60)}`);
-      return result2;
+      return { ...result2, via: 'mobile' };
     }
   }
 
   // 모두 실패 — 1차 결과 반환 (transient 으로 분류되어 consecutive_errors 누적 X)
-  return result1;
+  return { ...result1, via: 'direct' };
 }
 
 async function checkUrlSingle(url: string, retryCount = 0, forceDirect = false): Promise<CheckResult> {
@@ -664,6 +678,8 @@ export interface MonitorRecord {
   option_statuses: OptionStockStatus[];
   consecutive_errors: number;
   consecutive_unknowns: number;
+  /** 조회 스케줄 전용 실패 카운터 — stock-monitor-schedule.ts 참고. */
+  check_backoff_level?: number | null;
   registered_option_name: string | null;
   // 가격 추종
   price_follow_rule: PriceFollowRule | null;
@@ -680,6 +696,8 @@ export interface ProcessResult {
   changed: boolean;
   action?: string;
   error?: string;
+  /** 원본을 어느 경로로 읽었나 — 배치 페이싱 판단에 쓴다. */
+  via?: 'gt' | 'direct' | 'mobile';
 }
 
 /**
@@ -687,13 +705,28 @@ export interface ProcessResult {
  */
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+export interface BatchOptions {
+  /**
+   * 이 시각(Date.now() 기준 ms)을 넘기면 남은 모니터를 건너뛰고 정상 반환한다.
+   *
+   * ⚠️ 없으면 Vercel maxDuration 에서 프로세스째 죽는다. 실측(2026-08-10): limit 60 × 건당 11초
+   *   = 660초가 필요한데 maxDuration 은 300초라, 크론이 매 회 22건쯤에서 강제 종료됐다.
+   *   그 결과 설계 용량 2,880건/일 대비 실제 969건/일(34%)만 처리됐고, 뒤에 있던
+   *   Phase 3(에러 재시도)은 단 한 번도 실행되지 못했다.
+   */
+  deadlineAt?: number;
+}
+
 export async function processMonitorBatch(
   monitors: MonitorRecord[],
   supabase: SupabaseClient,
+  options: BatchOptions = {},
 ): Promise<ProcessResult[]> {
   const results: ProcessResult[] = [];
+  const { deadlineAt } = options;
+  const outOfTime = () => deadlineAt != null && Date.now() >= deadlineAt;
 
-  // 사용자별 그룹화
+  // 사용자별 그룹화 — 쿠팡 어댑터를 유저당 1회만 인증하려면 묶어서 처리해야 한다.
   const byUser = new Map<string, MonitorRecord[]>();
   for (const m of monitors) {
     const list = byUser.get(m.megaload_user_id) || [];
@@ -701,7 +734,18 @@ export async function processMonitorBatch(
     byUser.set(m.megaload_user_id, list);
   }
 
-  for (const [userId, userMonitors] of byUser) {
+  // ⚠️ 유저를 묶어서 순차 처리하므로, 시간이 모자라 배치가 잘리면 **뒤쪽 유저는 통째로 0건**이 된다.
+  //   선택은 공정하게(라운드로빈) 해놓고 처리에서 불공정해지면 의미가 없다 — 항상 같은 유저가
+  //   손해를 본다. 매 실행마다 시작 유저를 회전시켜 잘림의 손해가 고루 돌아가게 한다.
+  const userEntries = [...byUser.entries()];
+  if (userEntries.length > 1) {
+    const offset = Math.floor(Math.random() * userEntries.length);
+    userEntries.push(...userEntries.splice(0, offset));
+  }
+
+  for (const [userId, userMonitors] of userEntries) {
+    if (outOfTime()) break;
+
     // auth user_id 조회 (알림용)
     let authUserId: string | null = null;
     try {
@@ -727,40 +771,228 @@ export async function processMonitorBatch(
     // 멀티채널 재고 전파용 어댑터 캐시 (이 유저 배치 내 채널별 1회만 인증)
     const channelAdapterCache = new Map<Channel, BaseAdapter>();
 
-    // 1개씩 순차 처리 + jitter 딜레이 (네이버 429 방지)
-    // ⚠️ 2026-05-14: 1.5초 고정 → 5~9초 랜덤 jitter 로 변경. burst 패턴 (1.5초 정확 간격)
-    //    이 봇으로 인식되어 NRT IP 차단 발생. 사람 패턴(랜덤 간격) 으로 위장 + 절대 시간 ↑.
-    // 429 발생 시 backoff하지만 배치 중단하지 않음 — 일부가 막혀도 나머지는 진행
+    // ── 페이싱: 경로별로 다르게 ──
+    // 예전엔 전 건에 5~9초 대기를 걸었다. 그 대기는 "네이버에 직접 붙으면 429" 라는 전제에서 나왔는데,
+    // 실측(2026-08-10)상 이 경로는 1차로 GT 프록시(구글이 대신 fetch)를 타고 그게 98% 성공한다.
+    // 구글 IP 로 나가는 요청에 네이버 429 회피용 대기를 거는 건 순수 낭비였다 —
+    // run 236초 중 약 160초가 이 sleep 이었고, 그래서 22건밖에 못 돌았다.
+    //   → GT 로 성공한 건: 0.3~0.8초 (구글 쪽 예의 차원의 최소 간격)
+    //   → 네이버에 직접 붙은 건: 기존 5~9초 유지 (여기서만 429 가 실재한다)
     const BASE_DELAY_MS = 5000;
-    const JITTER_MS = 4000; // 5~9초 랜덤
-    let consecutive429 = 0;
-    for (let i = 0; i < userMonitors.length; i++) {
-      if (i > 0) await sleep(BASE_DELAY_MS + Math.random() * JITTER_MS);
+    const JITTER_MS = 4000;   // 직접 접속 시 5~9초
+    const GT_DELAY_MS = 300;
+    const GT_JITTER_MS = 500; // GT 경유 시 0.3~0.8초
 
-      // 429 연속 2회 — 60초 휴식 후 계속 (이전 30초 → IP cool-down 강화)
-      if (consecutive429 >= 2) {
-        console.log(`[stock-monitor] 429 backoff at ${i}/${userMonitors.length} — 60s 휴식 후 계속`);
-        await sleep(60000);
-        consecutive429 = 0;
+    // 동시 처리 — GT 응답 대기(왕복 2~4초)가 지배적이라 직렬로 두면 대부분의 시간을 놀고 있다.
+    // wall-clock 은 그대로라 Vercel 비용은 동일하고, 같은 시간에 처리량만 늘어난다.
+    // 네이버가 아니라 구글로 나가는 요청이므로 소폭 동시성은 429 위험을 만들지 않는다.
+    const CONCURRENCY = Math.max(1, Number(process.env.STOCK_MONITOR_CONCURRENCY || 4));
+
+    let cursor = 0;
+    let stopped = false;
+    let consecutive429 = 0;
+
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        if (stopped) return;
+        const i = cursor++;
+        if (i >= userMonitors.length) return;
+
+        // 남은 시간이 한 건 처리분보다 적으면 접는다. 중간에 프로세스가 죽으면 진행 중이던
+        // 건의 결과가 통째로 유실되므로, 미리 멈추는 게 낫다.
+        if (deadlineAt != null && Date.now() + 12_000 > deadlineAt) {
+          if (!stopped) console.log(`[stock-monitor] soft deadline — ${i}/${userMonitors.length} 지점에서 정상 종료`);
+          stopped = true;
+          return;
+        }
+
+        // 429 가 연달아 나면(=직접 접속 폴백이 막히는 중) 전 워커가 함께 쉰다.
+        if (consecutive429 >= 2) {
+          console.log(`[stock-monitor] 429 backoff at ${i}/${userMonitors.length} — 60s 휴식 후 계속`);
+          consecutive429 = 0;
+          await sleep(60000);
+        }
+
+        try {
+          const result = await processSingleMonitor(userMonitors[i], adapter!, supabase, authUserId, channelAdapterCache);
+          results.push(result);
+
+          if (result.error?.includes('429')) {
+            consecutive429++;
+            await sleep(15000);
+          } else {
+            consecutive429 = 0;
+            await sleep(result.via === 'gt'
+              ? GT_DELAY_MS + Math.random() * GT_JITTER_MS
+              : BASE_DELAY_MS + Math.random() * JITTER_MS);
+          }
+        } catch (err) {
+          results.push({
+            monitorId: userMonitors[i].id,
+            checked: false,
+            changed: false,
+            error: err instanceof Error ? err.message : '처리 실패',
+          });
+        }
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, userMonitors.length) }, () => worker()),
+    );
+  }
+
+  return results;
+}
+
+export interface ReconcileRecord {
+  id: string;
+  megaload_user_id: string;
+  product_id: string;
+  coupang_product_id: string;
+  source_status: StockStatus;
+  coupang_status: 'active' | 'suspended';
+  last_checked_at: string | null;
+  registered_option_name: string | null;
+}
+
+export interface ReconcileResult {
+  monitorId: string;
+  action: 'suspended' | 'resumed' | 'promoted_for_recheck' | 'skipped' | 'failed';
+  reason?: string;
+}
+
+/**
+ * 원본 판정이 이만큼 신선할 때만 쿠팡 판매를 "재개"한다.
+ * 중지는 신선도와 무관하게 즉시 — 보수적인 쪽(안 파는 쪽)이라 틀려도 오버셀이 안 난다.
+ */
+const RESUME_FRESHNESS_HOURS = 6;
+
+/**
+ * 정합성 reconcile — 네이버 조회 없이 쿠팡 판매 on/off 만 맞춘다.
+ *
+ * ⚠️ 이게 왜 따로 필요한가:
+ *   쿠팡 토글은 processMonitorBatch(=네이버 조회 배치) 안에만 있었다. 그래서 도우미가 품절을
+ *   1분 만에 감지해도 실제 판매중지는 "60건/30분" 조회 큐를 기다려야 했고, 그 큐는 18,605건이
+ *   밀려 있다. 실측(2026-08-10): 재입고됐는데 쿠팡 중지 상태인 상품 1,361건이 마지막 확인
+ *   중앙값 6.7일째 방치 — 순수 매출 손실. 조회와 토글을 분리하면 토글은 쿠팡 API 만 쓰므로
+ *   건당 1초 미만이고, 네이버 rate 예산을 전혀 쓰지 않는다.
+ *
+ * 재개 정책(사용자 확정): "전량 재조회 후 재개".
+ *   - 신선한 판정(6시간 이내)만 즉시 재개한다.
+ *   - 오래된 판정은 재개하지 않고 next_check_at 을 당겨 재조회 큐 앞으로 보낸다(promote).
+ *     6.7일 전 "판매중" 기록만 믿고 되살리면 그 사이 다시 품절된 상품을 파는 사고가 난다.
+ */
+export async function reconcileCoupangState(
+  monitors: ReconcileRecord[],
+  supabase: SupabaseClient,
+): Promise<ReconcileResult[]> {
+  const results: ReconcileResult[] = [];
+  if (SALE_TOGGLE_KILLSWITCH) {
+    return monitors.map(m => ({ monitorId: m.id, action: 'skipped' as const, reason: 'killswitch' }));
+  }
+
+  const byUser = new Map<string, ReconcileRecord[]>();
+  for (const m of monitors) {
+    const list = byUser.get(m.megaload_user_id) || [];
+    list.push(m);
+    byUser.set(m.megaload_user_id, list);
+  }
+
+  const freshCutoff = Date.now() - RESUME_FRESHNESS_HOURS * 60 * 60 * 1000;
+
+  for (const [userId, userMonitors] of byUser) {
+    let adapter: CoupangAdapter | null = null;
+    try {
+      adapter = (await getAuthenticatedAdapter(supabase, userId, 'coupang')) as CoupangAdapter;
+    } catch {
+      for (const m of userMonitors) {
+        results.push({ monitorId: m.id, action: 'skipped', reason: 'API 키 없음' });
+      }
+      continue;
+    }
+
+    for (const m of userMonitors) {
+      const wantSuspend = (m.source_status === 'sold_out' || m.source_status === 'removed')
+        && m.coupang_status === 'active';
+      const wantResume = m.source_status === 'in_stock' && m.coupang_status === 'suspended';
+      if (!wantSuspend && !wantResume) {
+        results.push({ monitorId: m.id, action: 'skipped', reason: '불일치 아님' });
+        continue;
       }
 
-      try {
-        const result = await processSingleMonitor(userMonitors[i], adapter!, supabase, authUserId, channelAdapterCache);
-        results.push(result);
+      // 재개인데 판정이 오래됐으면 — 되살리지 않고 재조회 큐 앞으로 보낸다.
+      const checkedAt = m.last_checked_at ? Date.parse(m.last_checked_at) : 0;
+      if (wantResume && !(checkedAt >= freshCutoff)) {
+        await supabase.from('sh_stock_monitors')
+          .update({ next_check_at: new Date().toISOString() })
+          .eq('id', m.id);
+        results.push({ monitorId: m.id, action: 'promoted_for_recheck', reason: '판정 오래됨 — 재조회 후 재개' });
+        continue;
+      }
 
-        if (result.error?.includes('429')) {
-          consecutive429++;
-          await sleep(15000); // 5초 → 15초 (IP throttling 회복 시간 ↑)
-        } else {
-          consecutive429 = 0;
+      const cstate = await fetchCoupangState(m, adapter);
+      if (!cstate) {
+        results.push({ monitorId: m.id, action: 'failed', reason: '쿠팡 조회 실패' });
+        continue;
+      }
+      if (cstate.lifecycle !== 'live' || cstate.vendorItemIds.length === 0) {
+        results.push({ monitorId: m.id, action: 'skipped', reason: `lifecycle=${cstate.lifecycle}` });
+        continue;
+      }
+
+      // 쿠팡 실측이 이미 목표 상태면 라벨만 교정하고 API 호출을 아낀다.
+      //  (coupang_status 가 stale 이라 "불일치"로 잡혀온 경우 — 실측 1,361건 중 상당수로 추정)
+      const targetActive = wantResume;
+      if (cstate.coupangSelling === targetActive) {
+        await supabase.from('sh_stock_monitors')
+          .update({ coupang_status: targetActive ? 'active' : 'suspended', updated_at: new Date().toISOString() })
+          .eq('id', m.id);
+        results.push({ monitorId: m.id, action: 'skipped', reason: '라벨만 stale — 교정' });
+        continue;
+      }
+
+      const now = new Date().toISOString();
+      try {
+        if (SALE_TOGGLE_DRY_RUN) {
+          results.push({ monitorId: m.id, action: 'skipped', reason: 'dryrun' });
+          continue;
         }
-      } catch (err) {
-        results.push({
-          monitorId: userMonitors[i].id,
-          checked: false,
-          changed: false,
-          error: err instanceof Error ? err.message : '처리 실패',
+        if (wantSuspend) await adapter.suspendProduct(m.coupang_product_id, cstate.vendorItemIds);
+        else await adapter.resumeProduct(m.coupang_product_id, cstate.vendorItemIds);
+
+        await supabase.from('sh_stock_monitors')
+          .update({ coupang_status: targetActive ? 'active' : 'suspended', last_action_at: now, updated_at: now })
+          .eq('id', m.id);
+        await supabase.from('sh_product_channels')
+          .update({ status: targetActive ? 'active' : 'suspended' })
+          .eq('product_id', m.product_id)
+          .eq('channel', 'coupang');
+        await supabase.from('sh_stock_monitor_logs').insert({
+          monitor_id: m.id,
+          megaload_user_id: m.megaload_user_id,
+          event_type: targetActive ? 'source_restocked' : 'source_sold_out',
+          source_status_before: m.source_status,
+          source_status_after: m.source_status,
+          coupang_status_before: m.coupang_status,
+          coupang_status_after: targetActive ? 'active' : 'suspended',
+          action_taken: targetActive ? 'coupang_resumed' : 'coupang_suspended',
+          action_success: true,
+          option_name: m.registered_option_name,
+          notes: '정합성 reconcile(조회 없이 토글)',
         });
+
+        results.push({ monitorId: m.id, action: targetActive ? 'resumed' : 'suspended' });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'toggle failed';
+        if (isAlreadyInTargetState(msg)) {
+          await supabase.from('sh_stock_monitors')
+            .update({ coupang_status: targetActive ? 'active' : 'suspended', updated_at: now })
+            .eq('id', m.id);
+          results.push({ monitorId: m.id, action: targetActive ? 'resumed' : 'suspended', reason: '이미 목표 상태' });
+        } else {
+          results.push({ monitorId: m.id, action: 'failed', reason: msg.slice(0, 200) });
+        }
       }
     }
   }
@@ -817,6 +1049,9 @@ async function processSingleMonitor(
       last_checked_at: now,
       consecutive_errors: newErrors,
       updated_at: now,
+      // 도우미 경로와 같은 스케줄 정책을 적용 — 예전엔 서버 크론이 next_check_at 을 아예
+      // 안 써서, 서버가 조회한 상품은 계속 "즉시 due" 로 남아 큐 맨 앞을 점유했다.
+      ...scheduleUpdateFields('error', false, monitor.check_backoff_level),
     }).eq('id', monitor.id);
 
     await supabase.from('sh_stock_monitor_logs').insert({
@@ -828,7 +1063,7 @@ async function processSingleMonitor(
       error_message: `${check.errorClass || 'naver'}: ${check.matchedPattern || 'check failed'}`,
     });
 
-    return { monitorId: monitor.id, checked: true, changed: false, error: check.matchedPattern };
+    return { monitorId: monitor.id, checked: true, changed: false, error: check.matchedPattern, via: check.via };
   }
 
   // 2. 구조 변경 감지 (unknown 연속 3회 → 알림)
@@ -840,6 +1075,7 @@ async function processSingleMonitor(
       consecutive_unknowns: newUnknowns,
       consecutive_errors: 0,
       updated_at: now,
+      ...scheduleUpdateFields('unknown', false, monitor.check_backoff_level),
     }).eq('id', monitor.id);
 
     // 3회 연속 unknown → 구조 변경 의심 알림 (1번만)
@@ -862,7 +1098,7 @@ async function processSingleMonitor(
       });
     }
 
-    return { monitorId: monitor.id, checked: true, changed: false };
+    return { monitorId: monitor.id, checked: true, changed: false, via: check.via };
   }
 
   // 3. 옵션별 품절 판정 — 등록한 옵션 기준
@@ -1025,6 +1261,8 @@ async function processSingleMonitor(
     consecutive_errors: 0,
     consecutive_unknowns: 0, // 정상 응답이면 리셋
     updated_at: now,
+    // 정상 판독 → 백오프 0 리셋 + 상태 티어대로 다음 조회 시각 배정(도우미 경로와 동일 정책)
+    ...scheduleUpdateFields(effectiveStatus, monitor.price_follow_rule?.enabled === true, monitor.check_backoff_level),
     ...(statusChanged && { last_changed_at: now }),
     ...(actionTaken && { last_action_at: now }),
     // 소스 가격 항상 저장 (가격추종 룰 유무와 무관)
@@ -1145,6 +1383,7 @@ async function processSingleMonitor(
     checked: true,
     changed: statusChanged || optionChanges.length > 0 || (priceAction?.action === 'applied' || priceAction?.action === 'pending'),
     action: actionTaken || (priceAction && priceAction.action !== 'none' ? `price_${priceAction.action}` : undefined),
+    via: check.via,
   };
 }
 

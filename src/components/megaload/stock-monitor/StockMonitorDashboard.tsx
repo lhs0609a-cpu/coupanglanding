@@ -34,6 +34,11 @@ interface Stats {
   inactive: number;
   unchecked: number;
   needsSourceUrl: number;
+  // 커버리지 — "결과가 무엇인가"가 아니라 "확인이 실제로 되고 있는가"
+  activeWithUrl: number;
+  checked24h: number;
+  stale3d: number;
+  lastCheckedAt: string | null;
 }
 
 type FilterTab = 'all' | 'in_stock' | 'sold_out' | 'error' | 'no_source_url';
@@ -308,6 +313,45 @@ export default function StockMonitorDashboard() {
         tokenIssued={!!desktopStatus?.tokenIssued}
         heartbeatAgeMin={desktopStatus?.heartbeatAgeMin ?? -1}
       />
+
+      {/* 커버리지 배너 — 품절 감지가 실제로 돌고 있는지.
+          기존 카드들은 "마지막에 본 결과"만 보여줘서, 확인이 며칠째 멈춰도 화면은 멀쩡해 보였다. */}
+      {stats && stats.activeWithUrl > 0 && (() => {
+        const pct = Math.round((stats.checked24h / stats.activeWithUrl) * 100);
+        const level = pct >= 80 ? 'ok' : pct >= 40 ? 'warn' : 'bad';
+        const tone = level === 'ok'
+          ? 'border-green-200 bg-green-50 text-green-800'
+          : level === 'warn'
+            ? 'border-amber-300 bg-amber-50 text-amber-900'
+            : 'border-red-300 bg-red-50 text-red-900';
+        return (
+          <div className={`rounded-xl border p-4 ${tone}`}>
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <div className="text-sm font-bold">
+                  최근 24시간 확인 {stats.checked24h.toLocaleString()} / {stats.activeWithUrl.toLocaleString()}개 ({pct}%)
+                </div>
+                <div className="text-xs mt-1 opacity-90">
+                  {level === 'ok'
+                    ? '품절 동기화가 정상 주기로 돌고 있습니다.'
+                    : '확인이 밀려 있습니다. 도우미(내 PC)가 켜져 있어야 원본을 제때 확인할 수 있습니다 — 서버만으로는 전체를 감당하지 못합니다.'}
+                </div>
+                {stats.stale3d > 0 && (
+                  <div className="text-xs mt-1 font-semibold">
+                    3일 넘게 확인 안 된 상품 {stats.stale3d.toLocaleString()}개 — 이 상품들은 품절을 놓치고 있을 수 있습니다.
+                  </div>
+                )}
+              </div>
+              <div className="text-right text-xs shrink-0">
+                <div className="opacity-70">마지막 확인</div>
+                <div className="font-semibold" title={fmtFull(stats.lastCheckedAt)}>
+                  {timeAgo(stats.lastCheckedAt)}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 요약 카드 (읽기 전용) */}
       {stats && (

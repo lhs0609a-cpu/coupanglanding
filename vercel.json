@@ -25,6 +25,14 @@
       "schedule": "*/30 * * * *"
     },
     {
+      "path": "/api/cron/megaload-stock-reconcile",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/megaload-stock-price-backfill",
+      "schedule": "35 * * * *"
+    },
+    {
       "path": "/api/cron/auto-billing",
       "schedule": "0 18 * * *"
     },

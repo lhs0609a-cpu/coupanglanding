@@ -36,6 +36,25 @@ export const buildDesktopDownloadUrl = (version: string) =>
 export const MONITOR_TAG_PREFIX = 'desktop-v';
 export const MONITOR_APP_VERSION_FALLBACK = '0.1.16';
 
+/**
+ * ⛔ 상품 모니터링 도우미(별도 앱) 폐기 — 2026-08-10.
+ *
+ * 실측으로 이 앱의 조회 방식이 구조적으로 막혀 있음이 확인됐다:
+ *   - 이 앱: Electron net.request 로 네이버 직결(GT 폴백 없음) → 최근 24h 실패율 **76%**
+ *   - 서버 크론: Google Translate 프록시 경유 → 같은 기간 실패율 **2%** (URL 구성 동일)
+ * 페이싱 문제가 아니다 — 이 앱은 이미 30~75초/건이라는 아주 느린 속도인데도 76% 실패한다.
+ * 네이버가 IP 를 플래그하면 진짜 크롬으로 렌더해도 막힌다(개발기 실측: 12/12 차단 페이지).
+ * 그리고 사용자 PC 는 한국 IP 라 GT 를 쓸 수도 없다("This translation service isn't
+ * available in your region" 403). 즉 **가정 IP 로는 뚫을 방법이 없다.**
+ *
+ * → 품절 확인은 서버(미국 리전 → GT 통과)가 전담한다. 이 앱은 더 이상 배포하지 않는다.
+ *   이미 설치된 사용자는 서버 품질 게이트(desktop/monitors)가 자동으로 일감을 끊으므로
+ *   방치해도 피해는 없고, 통합 도우미로 옮기면 된다.
+ */
+export const MONITOR_RETIRED = true;
+export const MONITOR_RETIRED_NOTICE =
+  '상품 모니터링 도우미는 종료되었습니다. 품절·가격 확인은 이제 서버가 자동으로 처리하므로 PC를 켜두지 않아도 됩니다.';
+
 export const buildMonitorReleaseBase = (version: string) =>
   `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/download/${MONITOR_TAG_PREFIX}${version}`;
 
@@ -46,6 +65,9 @@ export const buildMonitorReleaseBase = (version: string) =>
  *    릴리스 자산 목록에 있는 파일만 링크한다(없으면 그 버튼은 감춘다).
  */
 export function buildMonitorUrls(version: string, assetNames: string[]) {
+  // 폐기됨 — 신규 설치를 막기 위해 다운로드 URL 을 아예 내주지 않는다.
+  // UI 들은 이미 `urls.win && ...` 식으로 가드하고 있어 버튼이 자동으로 사라진다.
+  if (MONITOR_RETIRED) return { win: undefined, macIntel: undefined, macArm: undefined };
   const base = buildMonitorReleaseBase(version);
   const has = (name: string) => assetNames.includes(name);
   const pick = (name: string) => (has(name) ? `${base}/${name}` : undefined);
@@ -86,21 +108,13 @@ export interface LatestVersionsResponse {
 
 /** 릴리스 조회가 완전히 실패했을 때의 최종 응답. */
 export function fallbackVersions(): LatestVersionsResponse {
-  const v = MONITOR_APP_VERSION_FALLBACK;
-  const base = buildMonitorReleaseBase(v);
   return {
     desktop: {
       version: WORKER_APP_VERSION_FALLBACK,
       downloadUrl: buildDesktopDownloadUrl(WORKER_APP_VERSION_FALLBACK),
     },
-    monitor: {
-      version: v,
-      // 폴백에서도 x64 는 넣지 않는다 — 0.1.15+ 에는 존재하지 않는 자산이다.
-      urls: {
-        win: `${base}/Megaload-Monitor-Setup-${v}.exe`,
-        macArm: `${base}/Megaload-Monitor-${v}-arm64.dmg`,
-      },
-    },
+    // 폐기된 앱이라 폴백에서도 URL 을 만들지 않는다(신규 설치 차단).
+    monitor: { version: MONITOR_APP_VERSION_FALLBACK, urls: {} },
     resolved: false,
   };
 }

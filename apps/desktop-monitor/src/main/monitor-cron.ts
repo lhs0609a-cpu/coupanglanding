@@ -64,7 +64,38 @@ const WATCHDOG_IDLE_THRESHOLD_MS = 60 * 60 * 1000; // 1시간 무활동 = freeze
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+/**
+ * ⛔ 이 앱은 폐기됐다 (2026-08-10). 모니터링을 시작하지 않는다.
+ *
+ * 이유 — 실측:
+ *   이 앱은 Electron net.request 로 네이버에 직결하고 Google Translate 폴백이 없다.
+ *   최근 24h 조회분 실패율 **76%**(7,734건 중 5,893건). 같은 기간 서버 크론(GT 프록시 경유)은
+ *   **2%**(974건 중 16건)였고 URL 도메인 구성은 양쪽 동일이라 상품 탓이 아니다.
+ *   페이싱 문제도 아니다 — 이 앱은 이미 30~75초/건인데도 저 실패율이다.
+ *   그리고 사용자 PC 는 한국 IP 라 GT 를 쓸 수도 없다(구글이 지역 차단, 403).
+ *   즉 가정 IP 로는 뚫을 방법이 없어서, 품절 확인을 서버(미국 리전)로 일원화했다.
+ *
+ * 계속 돌면 오히려 해롭다: 실패를 계속 보고해 그 상품의 재조회 간격이 24h·72h·7d 로 밀리고,
+ * 정상 동작하는 서버 크론까지 그 상품을 못 보게 된다(서버도 due 인 것만 고른다).
+ * (서버에도 품질 게이트가 있어 실패율 높은 도우미에는 일감을 주지 않지만, 앱 쪽에서도 멈춘다.)
+ */
+const RETIRED = true;
+
+function notifyRetired(): void {
+  try {
+    new Notification({
+      title: '상품 모니터링 도우미 — 서비스 종료',
+      body: '품절·가격 확인은 이제 서버가 자동으로 처리합니다. 이 프로그램은 삭제하셔도 됩니다.',
+    }).show();
+  } catch { /* Notification 미지원 환경 무시 */ }
+}
+
 export function startMonitorCron(): void {
+  if (RETIRED) {
+    console.log('[monitor-cron] 서비스 종료됨 — 모니터링을 시작하지 않습니다(품절 확인은 서버가 처리).');
+    notifyRetired();
+    return;
+  }
   if (cronTimer) return;
   console.log('[monitor-cron] 시작');
   lastSuccessAt = Date.now();

@@ -1,19 +1,38 @@
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { processMonitorBatch, type MonitorRecord } from '@/lib/megaload/services/stock-monitor-engine';
-import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
-import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
-import { recordCoupangApiFailure, clearCoupangApiBlock } from '@/lib/utils/coupang-circuit-breaker';
 import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 300; // 5분 타임아웃
 
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-
 /**
  * GET /api/cron/megaload-stock-monitor
- * 30분마다 실행 — 품절 모니터링 배치 처리 + 가격 자동 백필
- * (이전 15분마다 × 30개 → 30분마다 × 60개로 변경 — 동일 throughput, 함수 호출 절반)
+ * 서버 크론 품절 조회 — 도우미(가정 IP)가 없는 사용자를 위한 폴백 경로.
+ *
+ * ⚠️ 2026-08-10 실측으로 드러난 것들:
+ *   - 하루 50회 실행(스케줄 정상)인데 run 당 22건 / 236초에서 강제 종료.
+ *     limit 60 × 건당 약 11초 = 660초가 필요한데 maxDuration 은 300초라 매번 잘렸다.
+ *     결과: 설계 용량 2,880건/일 대비 실제 969건/일(34%).
+ *   - 앞단 Phase 1(가격 백필)이 약 60초를 먼저 먹어 Phase 2 예산을 갉아먹었고,
+ *     뒤에 있던 Phase 3(에러 재시도)은 단 한 번도 실행된 적이 없다.
+ *
+ * 수정:
+ *   - Phase 1 → /api/cron/megaload-stock-price-backfill 로 분리 (쿠팡 API 전용, 예산 분리)
+ *   - Phase 3 → 지수 백오프(stock-monitor-schedule.ts)가 대체. 별도 재시도 단계 불필요.
+ *   - processMonitorBatch 에 soft deadline 을 넘겨, 잘리는 대신 스스로 멈추게 한다
+ *     (중간에 프로세스가 죽으면 진행 중이던 건의 결과가 통째로 유실된다)
+ *   - 경로별 페이싱 + 동시성 4 → 같은 wall-clock 안에 22건 → 약 250건
+ *
+ * ⚠️ "서버는 datacenter IP라 네이버에 차단된다" 는 전제는 실측으로 뒤집혔다(2026-08-10).
+ *   최근 24h 조회분 기준 이 경로 실패율 2%(974건 중 16건), 반면 가정 IP 로 도는 도우미
+ *   별도 앱은 76%(7,734건 중 5,893건). URL 도메인 구성은 양쪽 동일이라 교란요인이 아니다.
+ *   이유는 IP 가 아니라 전송 경로다 — 이쪽은 Google Translate 프록시(구글 IP가 네이버를 대신
+ *   fetch)를 1차로 타고, 네이버는 구글에 429 를 주지 않는다. 도우미 별도 앱은 Electron
+ *   net.request 로 직결해 안티봇에 걸린다(그래서 30~75초/건으로 늦춰도 안 풀린다).
+ *   → 품절 확인의 주 경로는 도우미가 아니라 이 크론이다. 도우미는 추가 용량일 뿐이다.
+ *
+ * 주기는 30분 유지 = Vercel 비용 동결. 처리량은 sleep 제거로 얻었지 호출 횟수로 얻지 않았다.
+ * 더 필요하면 주기를 15분으로 줄이면 되지만 그때는 함수 실행시간이 2배가 된다.
  */
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
@@ -22,181 +41,39 @@ export async function GET(request: Request) {
   }
 
   const supabase = await createServiceClient();
+  const startedAt = Date.now();
+  // 300s 한도에서 40s 여유 — 응답 직렬화·로그 기록 시간을 남긴다.
+  const deadlineAt = startedAt + 260_000;
 
-  // ── Phase 1: 가격 미조회 모니터 자동 백필 (our_price_last IS NULL) ──
-  let priceBackfilled = 0;
-  try {
-    // 가격 미조회 모니터를 사용자별로 그룹
-    const { data: needPrice } = await supabase
-      .from('sh_stock_monitors')
-      .select('id, megaload_user_id, coupang_product_id, coupang_status')
-      .is('our_price_last', null)
-      .not('coupang_product_id', 'eq', '')
-      .eq('is_active', true)
-      .order('created_at', { ascending: true })
-      .limit(30); // 크론 1회당 30개씩
+  // ── 용량 상한(= 본사가 감당할 수준). 둘 다 env 로 조절 가능. ──
+  //
+  // ⚠️ 비용 감각 주의: Vercel 은 **실행 시간**으로 과금하므로, 한 번 실행에서 22건을 하든
+  //   250건을 하든 260초를 쓰면 비용이 같다. 즉 적게 처리하는 건 돈을 아끼는 게 아니라
+  //   이미 지불한 시간을 놀리는 것이다(예전이 정확히 그 상태였다 — 236초 중 160초가 sleep).
+  //   실제 제약은 비용이 아니라 네이버/구글의 관용도다.
+  const RUN_LIMIT = Math.max(1, Number(process.env.STOCK_MONITOR_RUN_LIMIT || 200));
+  // 한 번 실행에서 유저 1명이 가져갈 수 있는 최대치(공정성 상한). 48회/일 × 이 값이 1인당 상한.
+  const PER_USER_RUN = Math.max(1, Number(process.env.STOCK_MONITOR_PER_USER_RUN || 12));
 
-    if (needPrice && needPrice.length > 0) {
-      // ── circuit breaker — 차단된 셀러의 megaload_user_id 미리 식별 ──
-      // megaload_users.profile_id → pt_users.profile_id 매핑으로 차단 여부 확인.
-      const monitorMegaloadUserIds = Array.from(new Set(
-        (needPrice as Array<{ megaload_user_id: string }>).map(m => m.megaload_user_id),
-      ));
-      const { data: shUsers } = await supabase
-        .from('megaload_users')
-        .select('id, profile_id')
-        .in('id', monitorMegaloadUserIds);
-      const profileIds = (shUsers || []).map(u => (u as Record<string, unknown>).profile_id as string).filter(Boolean);
-      const { data: blockedPt } = await supabase
-        .from('pt_users')
-        .select('id, profile_id')
-        .in('profile_id', profileIds)
-        .gt('coupang_api_blocked_until', new Date().toISOString());
-      const blockedProfileIds = new Set(
-        (blockedPt || []).map(r => (r as Record<string, unknown>).profile_id as string),
-      );
-      const profileToPtId = new Map<string, string>();
-      for (const r of (blockedPt || []) as Array<Record<string, unknown>>) {
-        profileToPtId.set(r.profile_id as string, r.id as string);
-      }
-      // megaload_user_id → 차단여부, megaload_user_id → ptUserId 매핑
-      const blockedMegaloadUserIds = new Set<string>();
-      const megaloadToPtId = new Map<string, string>();
-      // 차단 여부와 무관하게 모든 (megaload_user_id, profile_id) 매핑 만들기
-      for (const u of (shUsers || []) as Array<Record<string, unknown>>) {
-        const pid = u.profile_id as string;
-        const mid = u.id as string;
-        if (blockedProfileIds.has(pid)) blockedMegaloadUserIds.add(mid);
-        // 차단된 셀러 매핑은 위에서 했으니, 미차단 셀러도 ptUserId 매핑 필요. 별도 쿼리.
-      }
-      if (blockedMegaloadUserIds.size > 0) {
-        console.log(`[stock-monitor-cron] Phase 1: ${blockedMegaloadUserIds.size}명 차단 셀러 skip`);
-      }
-
-      // 미차단 셀러 → ptUserId 매핑 (실패 기록 시 사용)
-      const unblockedProfileIds = profileIds.filter(p => !blockedProfileIds.has(p));
-      if (unblockedProfileIds.length > 0) {
-        const { data: activePt } = await supabase
-          .from('pt_users')
-          .select('id, profile_id')
-          .in('profile_id', unblockedProfileIds);
-        for (const r of (activePt || []) as Array<Record<string, unknown>>) {
-          profileToPtId.set(r.profile_id as string, r.id as string);
-        }
-      }
-      for (const u of (shUsers || []) as Array<Record<string, unknown>>) {
-        const pid = u.profile_id as string;
-        const mid = u.id as string;
-        const ptId = profileToPtId.get(pid);
-        if (ptId) megaloadToPtId.set(mid, ptId);
-      }
-
-      // 사용자별 어댑터 캐시
-      const adapterCache = new Map<string, CoupangAdapter>();
-      const now = new Date().toISOString();
-
-      for (const m of needPrice as { id: string; megaload_user_id: string; coupang_product_id: string; coupang_status: string }[]) {
-        // circuit breaker — 차단된 셀러는 cron skip (비용 폭증 차단)
-        if (blockedMegaloadUserIds.has(m.megaload_user_id)) continue;
-
-        try {
-          let adapter = adapterCache.get(m.megaload_user_id);
-          if (!adapter) {
-            adapter = await getAuthenticatedAdapter(supabase, m.megaload_user_id, 'coupang') as CoupangAdapter;
-            adapterCache.set(m.megaload_user_id, adapter);
-          }
-
-          const detail = await adapter.getProductDetail(m.coupang_product_id);
-          if (detail) {
-            const price = detail.items?.[0]?.salePrice ?? null;
-            const updates: Record<string, unknown> = { updated_at: now, last_checked_at: now };
-            if (price != null && price > 0) updates.our_price_last = price;
-            // ⚠️ coupang_status(판매 on/off)는 승인상태로 덮어쓰지 않는다 — 승인완료/심사중 등은
-            //    판매중/중지와 무관. 상품삭제만 비활성화 처리하고, 토글은 Phase 2 엔진이 담당.
-            const sName = String(detail.statusName || '');
-            const sEnum = String(detail.status || '').toUpperCase();
-            if (sEnum === 'DELETED' || sName.includes('삭제')) {
-              updates.is_active = false;
-            }
-            await supabase.from('sh_stock_monitors').update(updates).eq('id', m.id);
-            priceBackfilled++;
-          }
-          // 성공 — circuit breaker 해제 (이전 차단 상태에서 복구)
-          const ptId = megaloadToPtId.get(m.megaload_user_id);
-          if (ptId) await clearCoupangApiBlock(supabase, ptId);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : '';
-          if (msg.includes('429')) {
-            console.log('[stock-monitor-cron] 429 rate limit during price backfill, stopping');
-            break;
-          }
-          // IP/auth 영구 오류는 vendor 차단 등록 → 다음 cron부터 skip
-          const ptId = megaloadToPtId.get(m.megaload_user_id);
-          if (ptId) {
-            await recordCoupangApiFailure(supabase, ptId, msg);
-            // 같은 셀러의 남은 모니터는 즉시 skip
-            blockedMegaloadUserIds.add(m.megaload_user_id);
-          }
-        }
-        await sleep(1000); // 1초 딜레이 (429 방지)
-      }
-    }
-  } catch (err) {
-    console.error('[stock-monitor-cron] Price backfill error:', err);
-    void logSystemError({ source: 'cron/megaload-stock-monitor', error: err }).catch(() => {});
-  }
-
-  // ── soft deadline 도입 — 300s 에 걸리지 않고 240s 에서 graceful exit ──
-  // Phase 1 끝났으면 일부 시간은 소진. 240s 가 지나면 Phase 2/3 skip하고 정상 응답.
-  const startedAt = (globalThis as { __cronStartedAt?: number }).__cronStartedAt ?? Date.now();
-  (globalThis as { __cronStartedAt?: number }).__cronStartedAt = startedAt;
-  const SOFT_DEADLINE_MS = 240_000;
-  const isPastDeadline = () => Date.now() - startedAt > SOFT_DEADLINE_MS;
-
-  // ── Phase 2: 정기 품절 모니터링 ──
-  // 2026-05-15 정책: 모니터 1상품당 하루 1회 체크.
-  //   - CHECK_INTERVAL_MIN = 1200 (20h) — 24h 안에 한 번씩 갱신 (4h 버퍼)
-  //   - cron 30분마다 × 60개 = 2880/day capacity (이전: 15분마다 × 30개 — 동일 throughput)
-  //     → 함수 호출 횟수 절반 (월 2880회 → 1440회), GB-sec/egress 동일
-  //   - 미확인/오류는 인터벌 무시하고 즉시 우선 처리 (or 절 참고)
-  // 비용: Vercel function compute ~84 GB-h/month, bandwidth ~26GB/month → Hobby plan 내 OK
-  // GT는 무료, Google IP 경유라 네이버 throttling 무관.
-  const CHECK_INTERVAL_MIN = 1200;
-  const PHASE2_LIMIT = 60;
-  const cutoff = new Date(Date.now() - CHECK_INTERVAL_MIN * 60 * 1000).toISOString();
-  const { data: monitors, error: queryErr } = await supabase
-    .from('sh_stock_monitors')
-    .select('id, megaload_user_id, product_id, coupang_product_id, source_url, source_status, coupang_status, option_statuses, consecutive_errors, consecutive_unknowns, registered_option_name, price_follow_rule, source_price_last, our_price_last, price_last_updated_at, price_last_applied_at, pending_price_change')
-    .eq('is_active', true)
-    .lt('consecutive_errors', 10)
-    .not('source_url', 'is', null)
-    .neq('source_url', '')
-    // 처리 대상: 한 번도 안 본 것 + 20h 지난 것 + 미확인/오류 상태
-    //   + 정합성 불일치(reconcile): 재입고됐는데 쿠팡 중지 / 품절인데 쿠팡 판매중
-    //     → 인터벌과 무관하게 우선 처리해 backlog(과거 오기록 12k건)를 빠르게 회복.
-    //       limit(60) + last_checked_at 오름차순이라 가장 오래된 것부터 순환 처리(레이트 안전).
-    .or(
-      [
-        'last_checked_at.is.null',
-        `last_checked_at.lt.${cutoff}`,
-        'source_status.in.(미확인,확인불가,오류,unknown,error)',
-        'and(source_status.eq.in_stock,coupang_status.eq.suspended)',
-        'and(source_status.eq.sold_out,coupang_status.eq.active)',
-        // ⚠️ removed(원본 삭제)인데 쿠팡 판매중 — 누락돼 있던 오버셀 케이스(165건). sold_out 과 대칭으로 추가.
-        'and(source_status.eq.removed,coupang_status.eq.active)',
-      ].join(','),
-    )
-    .order('last_checked_at', { ascending: true, nullsFirst: true })
-    .limit(PHASE2_LIMIT);
+  // ── 공정 배분 스케줄러 (pick_due_stock_monitors) ──
+  //   due 인 것 중에서 **유저별 라운드로빈**으로 뽑는다: 전 유저의 1순위 → 전 유저의 2순위 → …
+  //   단순 "전역 오래된 순"이면 모니터를 많이 가진 유저가 큐를 독식한다(최대 3,631개 vs 1개).
+  //   유저가 늘어도 RUN_LIMIT 은 그대로라 1인당 몫만 자연히 줄어든다 = 비용이 유저 수에
+  //   비례해 늘지 않는다. 상품이 적은 유저는 일찍 소진되고 남은 용량은 큰 유저로 흘러간다.
+  // 이 함수는 마이그레이션으로 추가돼 생성된 DB 타입에 없다 → 행 타입을 직접 지정한다.
+  const rpc = await supabase
+    .rpc('pick_due_stock_monitors', { p_limit_per_user: PER_USER_RUN, p_total: RUN_LIMIT });
+  const queryErr = rpc.error;
+  const monitors = (rpc.data ?? []) as unknown as Record<string, unknown>[];
 
   if (queryErr) {
     console.error('[stock-monitor-cron] Query error:', queryErr);
     void logSystemError({ source: 'cron/megaload-stock-monitor', error: queryErr }).catch(() => {});
-    return NextResponse.json({ error: queryErr.message, priceBackfilled }, { status: 500 });
+    return NextResponse.json({ error: queryErr.message }, { status: 500 });
   }
 
   if (!monitors || monitors.length === 0) {
-    return NextResponse.json({ message: '체크 대상 없음', checked: 0, priceBackfilled });
+    return NextResponse.json({ message: '체크 대상 없음', checked: 0 });
   }
 
   const typedMonitors: MonitorRecord[] = monitors.map(m => ({
@@ -210,6 +87,7 @@ export async function GET(request: Request) {
     option_statuses: (m.option_statuses as MonitorRecord['option_statuses']) || [],
     consecutive_errors: (m.consecutive_errors as number) || 0,
     consecutive_unknowns: (m.consecutive_unknowns as number) || 0,
+    check_backoff_level: (m.check_backoff_level as number | null) ?? 0,
     registered_option_name: (m.registered_option_name as string) || null,
     price_follow_rule: (m.price_follow_rule as MonitorRecord['price_follow_rule']) || null,
     source_price_last: (m.source_price_last as number | null) ?? null,
@@ -219,74 +97,21 @@ export async function GET(request: Request) {
     pending_price_change: (m.pending_price_change as MonitorRecord['pending_price_change']) || null,
   }));
 
-  const results = await processMonitorBatch(typedMonitors, supabase);
-
-  // ── Phase 3: 에러 모니터 자동 재시도 (2시간 경과, 최대 10개) ──
-  // soft deadline 도달 시 skip — Phase 2 만 처리하고 graceful exit
-  let errorRetried = 0;
-  if (isPastDeadline()) {
-    console.log('[stock-monitor-cron] soft deadline 도달 — Phase 3 skip');
-    (globalThis as { __cronStartedAt?: number }).__cronStartedAt = undefined;
-  } else try {
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-    const { data: errorMonitors } = await supabase
-      .from('sh_stock_monitors')
-      .select('id, megaload_user_id, product_id, coupang_product_id, source_url, source_status, coupang_status, option_statuses, consecutive_errors, consecutive_unknowns, registered_option_name, price_follow_rule, source_price_last, our_price_last, price_last_updated_at, price_last_applied_at, pending_price_change')
-      .eq('is_active', true)
-      .gte('consecutive_errors', 1)
-      .lt('consecutive_errors', 10)
-      .not('source_url', 'eq', '')
-      .or(`last_checked_at.is.null,last_checked_at.lt.${twoHoursAgo}`)
-      .order('last_checked_at', { ascending: true, nullsFirst: true })
-      .limit(10);
-
-    if (errorMonitors && errorMonitors.length > 0) {
-      const typedErrorMonitors: MonitorRecord[] = errorMonitors.map(m => ({
-        id: m.id as string,
-        megaload_user_id: m.megaload_user_id as string,
-        product_id: m.product_id as string,
-        coupang_product_id: m.coupang_product_id as string,
-        source_url: m.source_url as string,
-        source_status: (m.source_status as MonitorRecord['source_status']) || 'unknown',
-        coupang_status: (m.coupang_status as MonitorRecord['coupang_status']) || 'active',
-        option_statuses: (m.option_statuses as MonitorRecord['option_statuses']) || [],
-        consecutive_errors: (m.consecutive_errors as number) || 0,
-        consecutive_unknowns: (m.consecutive_unknowns as number) || 0,
-        registered_option_name: (m.registered_option_name as string) || null,
-        price_follow_rule: (m.price_follow_rule as MonitorRecord['price_follow_rule']) || null,
-        source_price_last: (m.source_price_last as number | null) ?? null,
-        our_price_last: (m.our_price_last as number | null) ?? null,
-        price_last_updated_at: (m.price_last_updated_at as string | null) ?? null,
-        price_last_applied_at: (m.price_last_applied_at as string | null) ?? null,
-        pending_price_change: (m.pending_price_change as MonitorRecord['pending_price_change']) || null,
-      }));
-
-      const errorResults = await processMonitorBatch(typedErrorMonitors, supabase);
-      errorRetried = errorResults.filter(r => r.checked).length;
-      console.log(`[stock-monitor-cron] Phase 3: ${errorRetried}/${errorMonitors.length} 에러 모니터 재시도`);
-    }
-  } catch (err) {
-    console.error('[stock-monitor-cron] Phase 3 error retry failed:', err);
-    void logSystemError({ source: 'cron/megaload-stock-monitor', error: err }).catch(() => {});
-  }
+  const results = await processMonitorBatch(typedMonitors, supabase, { deadlineAt });
 
   const rateLimited = results.filter(r => r.error?.includes('429')).length;
-
   const stats = {
     total: results.length,
+    fetched: typedMonitors.length,
     checked: results.filter(r => r.checked).length,
     changed: results.filter(r => r.changed).length,
     errors: results.filter(r => r.error).length,
     rateLimited,
     actions: results.filter(r => r.action).map(r => r.action),
-    priceBackfilled,
+    elapsedMs: Date.now() - startedAt,
   };
 
-  console.log(`[stock-monitor-cron] 완료: ${stats.checked}/${stats.total} 체크, ${stats.changed} 변경, ${stats.errors} 에러 (429: ${rateLimited}), ${priceBackfilled} 가격백필, ${errorRetried} 에러재시도`);
+  console.log(`[stock-monitor-cron] 완료: ${stats.checked}/${stats.fetched} 체크, ${stats.changed} 변경, ${stats.errors} 에러 (429: ${rateLimited}), ${stats.elapsedMs}ms`);
 
-  return NextResponse.json({
-    message: '품절 모니터링 완료',
-    ...stats,
-    errorRetried,
-  });
+  return NextResponse.json({ message: '품절 모니터링 완료', ...stats });
 }

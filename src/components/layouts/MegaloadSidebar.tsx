@@ -28,7 +28,8 @@ const navItems = [
   { href: '/megaload/catalog', label: '카탈로그', icon: 'BookOpen' as const },
   { href: '/megaload/supplier-catalog', label: '공급사 제휴상품', icon: 'Handshake' as const },
   { href: '/megaload/stock-monitor', label: '품절동기화', icon: 'RefreshCw' as const },
-  { href: '/megaload/desktop-app', label: '모니터링 도우미', icon: 'Monitor' as const },
+  // 별도 모니터링 앱은 폐기(품절 확인은 서버 전담). 기존 사용자 정리·연결 진단용으로만 남긴다.
+  { href: '/megaload/desktop-app', label: '모니터링 도우미 (종료)', icon: 'Monitor' as const },
   { href: '/megaload/inventory', label: '재고관리', icon: 'Warehouse' as const },
   { href: '/megaload/cs', label: '문의관리', icon: 'MessageSquare' as const, badgeKey: 'pendingInquiries' as const },
   { href: '/megaload/settlement', label: '정산', icon: 'Receipt' as const },

@@ -248,12 +248,27 @@ function parseNaverMainPrice(html) {
   return undefined;
 }
 
-/** @returns {Promise<{status,matchedPattern?,errorClass?,options?,mainPrice?}>} */
+/**
+ * 배치 시작 전 세션 워밍업 — www.naver.com 을 한 번 열어 NNB 쿠키를 갱신한다.
+ * "방금 네이버를 쓰던 브라우저"로 보이게 해 스마트스토어 첫 요청의 429 확률을 낮춘다.
+ * smartstore rate 예산을 쓰지 않으므로 부작용이 없고, 실패해도 무시한다.
+ */
+export async function warmUpSession() {
+  try {
+    await loadInWindow('https://www.naver.com/');
+  } catch { /* 워밍업 실패는 무시 — 본 조회에 영향 없음 */ }
+}
+
+/** @returns {Promise<{status,matchedPattern?,errorClass?,rateLimited?,options?,mainPrice?}>} */
 export async function fetchNaverProduct(url) {
   try {
     const { status, body } = await fetchPage(url);
     if (status === 404 || status === 410) return { status: 'removed', matchedPattern: `HTTP ${status}` };
-    if (status === 429) return { status: 'error', matchedPattern: 'HTTP 429 (속도제한)', errorClass: 'transient' };
+    // rateLimited 는 "IP 단위 속도제한" 신호 — 호출자(서킷브레이커)가 배치를 통째로 멈추는 근거다.
+    // 단순 타임아웃(transient)과 구분해야 한다: 타임아웃은 상품 하나 문제라 계속 진행해야 하고,
+    // 429 는 IP 문제라 계속 조회하면 차단만 깊어진다.
+    if (status === 429) return { status: 'error', matchedPattern: 'HTTP 429 (속도제한)', errorClass: 'transient', rateLimited: true };
+    if (status === 503) return { status: 'error', matchedPattern: 'HTTP 503', errorClass: 'transient', rateLimited: true };
     if (status === 403) return { status: 'error', matchedPattern: 'HTTP 403 (접근 차단)', errorClass: 'naver' };
     if (status < 200 || status >= 400) return { status: 'error', matchedPattern: `HTTP ${status}`, errorClass: 'naver' };
 

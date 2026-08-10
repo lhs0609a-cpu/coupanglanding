@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   Cpu, Download, CheckCircle2, AlertCircle, Loader2, Wifi, WifiOff,
   MonitorDown, Sparkles, ExternalLink, Gauge, XCircle, MinusCircle,
-  Wand2, Save, RotateCcw, Monitor, Apple, KeyRound,
+  Wand2, Save, RotateCcw, Monitor, KeyRound,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { MONITOR_AUTH_URL } from '@/lib/megaload/worker-download';
@@ -123,7 +123,8 @@ export default function LocalGpuWorkerSettings() {
   const [spec, setSpec] = useState<SpecCheck | null>(null);
   // 다운로드 URL·버전의 출처는 실제 발행된 릴리스(손수 관리 상수 아님).
   const { versions } = useLatestVersions();
-  const { desktop, monitor } = versions;
+  // monitor(별도 모니터링 앱)는 폐기 — 다운로드 카드가 안내문으로 바뀌어 버전/URL 을 쓰지 않는다.
+  const { desktop } = versions;
 
   // 계정 기본 프롬프트 (비우면 워커 내장 기본값 사용). enqueue 시 서버가 자동 첨부.
   const [promptPos, setPromptPos] = useState('');
@@ -335,53 +336,27 @@ export default function LocalGpuWorkerSettings() {
           </a>
         </div>
 
-        {/* ② 상품 모니터링 도우미 (품절·가격 모니터 — 별도 앱) */}
-        <div className="rounded-lg border border-gray-200 bg-white p-3">
+        {/* ② 상품 모니터링 도우미 — 폐기됨. 서버가 전담하므로 설치할 것이 없다. */}
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
           <div className="flex items-center gap-1.5 mb-1">
-            <Monitor className="w-4 h-4 text-emerald-600" />
-            <span className="text-sm font-semibold text-gray-900">상품 모니터링 도우미</span>
-            <span className="text-[10px] text-gray-500">품절·가격 자동 확인 · v{monitor.version}</span>
+            <Monitor className="w-4 h-4 text-gray-400" />
+            <span className="text-sm font-semibold text-gray-600">상품 모니터링 도우미</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 font-semibold">종료됨</span>
           </div>
-          {/* 링크는 릴리스에 **실제로 있는 자산**만 — 없는 플랫폼 버튼은 아예 감춘다(404 방지). */}
-          <div className="flex flex-wrap items-center gap-2">
-            {monitor.urls.win && (
-              <a
-                href={monitor.urls.win}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg font-semibold text-sm hover:bg-emerald-700 transition"
-              >
-                <Download className="w-4 h-4" /> Windows (.exe)
-                <ExternalLink className="w-3 h-3 opacity-70" />
-              </a>
-            )}
-            {monitor.urls.macIntel && (
-              <a
-                href={monitor.urls.macIntel}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition"
-              >
-                <Apple className="w-4 h-4" /> macOS Intel
-              </a>
-            )}
-            {monitor.urls.macArm && (
-              <a
-                href={monitor.urls.macArm}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition"
-              >
-                <Apple className="w-4 h-4" /> macOS M1/M2
-              </a>
-            )}
-          </div>
+          <p className="text-xs text-gray-600 leading-relaxed">
+            품절·가격 확인은 이제 <strong className="text-gray-800">서버가 자동으로</strong> 처리합니다.
+            PC를 켜두지 않아도 되고, 따로 설치할 프로그램도 없습니다.
+          </p>
+          <p className="text-[11px] text-gray-500 mt-1.5 leading-relaxed">
+            기존에 이 앱을 쓰셨다면 삭제하셔도 됩니다. 실측 결과 사용자 PC에서 네이버 원본을 확인하는
+            방식은 차단률이 높아(실패율 76%) 서버 방식(2%)으로 일원화했습니다.
+          </p>
           <Link
             href={MONITOR_AUTH_URL}
-            className="inline-flex items-center gap-1.5 mt-2 text-xs font-medium text-emerald-700 hover:text-emerald-900"
+            className="inline-flex items-center gap-1.5 mt-2 text-xs font-medium text-gray-600 hover:text-gray-900"
           >
             <KeyRound className="w-3.5 h-3.5" />
-            인증코드 발급 · 연결 진단 →
+            연결 상태 확인 →
           </Link>
         </div>
       </div>

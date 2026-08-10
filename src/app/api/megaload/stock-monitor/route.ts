@@ -125,14 +125,42 @@ export async function GET(request: NextRequest) {
       unchecked: 0,
       needsSourceUrl: 0,
       pendingApprovalCount: 0,
+      // ── 커버리지 — "이 모니터들이 실제로 확인되고 있는가" ──
+      //   기존 통계는 전부 "마지막에 본 결과가 무엇인가"만 보여줘서, 확인 자체가 며칠째
+      //   멈춰 있어도 화면상으로는 멀쩡해 보였다. 실측(2026-08-10) 결과 28명 중 21명이
+      //   도우미 없이 서버 크론에 얹혀 2~3일에 한 번 확인되는 상태였는데 아무도 몰랐다.
+      activeWithUrl: 0,
+      /** 최근 24시간 안에 원본이 확인된 모니터 수. */
+      checked24h: 0,
+      /** 3일 넘게 확인되지 않은 모니터 수 — 품절을 놓치고 있을 가능성이 큰 구간. */
+      stale3d: 0,
+      /** 가장 최근 확인 시각(ISO) — "동기화가 살아있나"의 단일 지표. */
+      lastCheckedAt: null as string | null,
     };
 
+    const now = Date.now();
     for (const m of allMonitors) {
       const rec = m;
       if (rec.pending_price_change) stats.pendingApprovalCount++;
       if (!rec.is_active) { stats.inactive++; continue; }
       const hasSourceUrl = typeof rec.source_url === 'string' && (rec.source_url as string).length > 0;
       if (!hasSourceUrl) stats.needsSourceUrl++;
+
+      if (hasSourceUrl) {
+        stats.activeWithUrl++;
+        const checkedAt = rec.last_checked_at ? Date.parse(rec.last_checked_at as string) : null;
+        if (checkedAt != null && !Number.isNaN(checkedAt)) {
+          const ageMs = now - checkedAt;
+          if (ageMs < 24 * 3600_000) stats.checked24h++;
+          if (ageMs > 3 * 24 * 3600_000) stats.stale3d++;
+          if (stats.lastCheckedAt == null || checkedAt > Date.parse(stats.lastCheckedAt)) {
+            stats.lastCheckedAt = new Date(checkedAt).toISOString();
+          }
+        } else {
+          stats.stale3d++; // 한 번도 확인 안 됨
+        }
+      }
+
       if (!rec.last_checked_at) { stats.unchecked++; continue; }
       switch (rec.source_status) {
         case 'in_stock': stats.inStock++; break;

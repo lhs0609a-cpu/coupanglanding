@@ -1,12 +1,36 @@
 // 상품 모니터링 모듈 — 등록 상품의 네이버 원본 품절/가격을 가정 IP로 확인해 서버에 전송.
 //   apps/desktop-monitor(별도 앱)의 핵심 로직 포팅. 64자 토큰(웹 발급)으로 인증.
 //   서버 크론은 datacenter IP라 네이버 차단됨 → 이 모듈(가정 IP)이 실제 fetcher.
-import { fetchNaverProduct } from './naver-fetch.mjs';
+import { fetchNaverProduct, warmUpSession } from './naver-fetch.mjs';
 
-const CRON_TICK_MS = 2 * 60 * 1000;      // 2분마다 목록 fetch
-const ITEM_INTERVAL_MS = 5000;           // 상품당 5~8초 (가정 IP라 안전마진)
+// ── 페이싱 ──
+// 2026-08-10 실측으로 이 모듈이 별도 "메가로드 모니터링" 앱(v0.1.16)과 정책이 갈려 있던 게 드러났다.
+// 이 모듈은 5~8초/건이었고 별도 앱은 30~75초/건 + 서킷브레이커였다. 관측상 네이버는 약 6건/분에서
+// 차단하므로 5초 간격(=12건/분)은 차단선 위다. 통합 도우미로 일원화하기로 한 이상 검증된 쪽
+// (별도 앱 v0.1.16 무차단 재설계)의 정책을 그대로 가져온다.
+//
+// 저속이어도 완주한다 — 서버 티어 스케줄러가 "due 인 것만" 내려주기 때문이다.
+const CRON_TICK_MS = 2 * 60 * 1000;      // 2분마다 목록 fetch (서킷 OPEN 이면 skip)
+const ITEM_BASE_MS = 30_000;             // 기본 30초 간격
+const ITEM_FULLJITTER_MS = 45_000;       // + 0~45초 → 실제 30~75초(고정 주기 패턴 회피)
 const BATCH_FLUSH_SIZE = 10;
 const BATCH_FLUSH_INTERVAL_MS = 60000;
+
+// ── 서킷브레이커 ──
+// 429/503 은 상품이 아니라 IP 단위 신호다. 한 건이라도 뜨면 배치를 통째로 멈추고 IP 를 식힌다.
+// 예전의 "연속 실패마다 +15초" 백오프는 429 를 맞으면서도 계속 조회해 차단을 깊게 만들었다.
+const CIRCUIT_COOLDOWN_BASE_MS = 30 * 60 * 1000;    // 첫 트립 30분
+const CIRCUIT_COOLDOWN_MAX_MS = 2 * 60 * 60 * 1000; // 상한 2시간
+const CIRCUIT_BACKOFF_FACTOR = 1.5;                 // 연속 트립마다 ×1.5
+let circuitOpenUntil = 0;
+let circuitCooldownMs = CIRCUIT_COOLDOWN_BASE_MS;
+
+function tripCircuit(ctx) {
+  const cooldown = Math.min(CIRCUIT_COOLDOWN_MAX_MS, circuitCooldownMs);
+  circuitOpenUntil = Date.now() + cooldown;
+  circuitCooldownMs = Math.min(CIRCUIT_COOLDOWN_MAX_MS, Math.round(circuitCooldownMs * CIRCUIT_BACKOFF_FACTOR));
+  ctx.send('stock-monitor:log', `🔴 네이버 속도제한 감지 — ${Math.round(cooldown / 60000)}분 중단하고 IP를 식힙니다(자동 재개)`);
+}
 
 let cronTimer = null, flushTimer = null, running = false, ticking = false;
 let pending = [];
@@ -101,6 +125,8 @@ async function fetchMonitors(ctx, limit = 50) {
   const res = await fetch(withLocalEndpoint(ctx, apiUrl(ctx, `/api/megaload/desktop/monitors?limit=${limit}&minIntervalSec=21600&token=${encodeURIComponent(t)}`)), { headers: { Authorization: `Bearer ${t}` } });
   if (!res.ok) return [];
   const d = await res.json();
+  // 서버 품질 게이트에 걸리면 조용히 0건이 아니라 이유를 보여준다 — "왜 아무것도 안 하지?" 를 막는다.
+  if (d.paused && d.reason) ctx.send('stock-monitor:log', `⏸ ${d.reason}`);
   return d.monitors || [];
 }
 async function postResults(ctx, results) {
@@ -132,6 +158,8 @@ async function processOne(ctx, m) {
 async function tick(ctx) {
   // 틱 겹침 방지 — 이전 틱(상품 많으면 수 분 소요)이 끝나기 전 새 틱이 겹쳐 돌면 요청이 폭주해 네이버 429 차단을 자초한다.
   if (ticking) return;
+  // 서킷 OPEN(429 냉각 중)이면 조회 자체를 건너뛴다 — 쿨다운이 끝나면 자동 재개.
+  if (Date.now() < circuitOpenUntil) return;
   ticking = true;
   try {
     // 토큰이 없으면 로그인 세션으로 자동 발급 시도 — 실패 시 조용히 다음 틱 재시도.
@@ -165,20 +193,27 @@ async function tick(ctx) {
     const monitors = await fetchMonitors(ctx, 50);
     if (!monitors.length) { ctx.send('stock-monitor:log', '확인할 대상 없음 (대기)'); return; }
     ctx.send('stock-monitor:log', `${monitors.length}개 확인 시작…`);
-    let backoffStreak = 0;
+
+    // 배치 전 세션 워밍업 — NNB 쿠키 갱신으로 "재방문 브라우저" 위장(429↓). 실패해도 무시.
+    await warmUpSession();
+
     for (const m of monitors) {
       if (!running) break;
       let r;
       try { r = await processOne(ctx, m); } catch (e) { ctx.send('stock-monitor:log', '처리 오류: ' + e.message); }
       if (pending.length >= BATCH_FLUSH_SIZE) await flush(ctx);
-      // 429/일시오류(transient) 연속 시 점진 백오프 — 네이버 레이트리밋에서 회복(최대 +60초).
-      if (r && r.errorClass === 'transient') {
-        backoffStreak = Math.min(backoffStreak + 1, 4);
-        if (backoffStreak === 1) ctx.send('stock-monitor:log', '⏳ 네이버 속도제한 감지 — 간격을 늘립니다');
-      } else {
-        backoffStreak = 0;
+
+      // 실제 429/503 → 서킷 OPEN 후 배치 즉시 중단. 어떤 429 도 누적/증폭 불가.
+      // (단순 타임아웃은 rateLimited=false → 멈추지 않고 다음 상품으로 — 완주 우선.)
+      if (r && r.rateLimited) {
+        tripCircuit(ctx);
+        await flush(ctx); // 중단 전 수집분 전송
+        return;
       }
-      await sleep(ITEM_INTERVAL_MS + Math.random() * 3000 + backoffStreak * 15000);
+      // 정상 응답 → 회로 건강. 다음 트립은 다시 30분부터.
+      if (r && r.status !== 'error') circuitCooldownMs = CIRCUIT_COOLDOWN_BASE_MS;
+
+      await sleep(ITEM_BASE_MS + Math.random() * ITEM_FULLJITTER_MS);
     }
     await flush(ctx);
   } finally {
