@@ -87,7 +87,12 @@ export async function GET(request: NextRequest) {
   }
   const recentTotal = await countIn(q => q);
   if (recentTotal >= 20) {
-    const recentError = await countIn(q => q.eq('source_status', 'error'));
+    // ⚠️ 'error' 만 세면 안 된다 — 네이버 소프트블록은 **HTTP 200** 으로 온다.
+    //   차단 시 돌아오는 "현재 서비스 접속이 불가합니다" 페이지는 정상 응답이라 파싱만 실패하고
+    //   'unknown' 으로 저장된다. 즉 차단의 상당 부분이 error 가 아니라 unknown 으로 기록된다.
+    //   실측(배포 직후): 한 유저는 error 만 보면 48% 라 게이트를 통과했지만 unknown 까지 세면 76%,
+    //   다른 유저는 error 20% vs 실제 95% 였다. 정확히 잡아야 할 실패 모드를 놓치고 있었다.
+    const recentError = await countIn(q => q.in('source_status', ['error', 'unknown']));
     const failRate = recentError / recentTotal;
     if (failRate >= 0.5) {
       console.warn(`[desktop/monitors] 품질 게이트: user=${shUserId} 최근6h 실패율 ${Math.round(failRate * 100)}% (${recentError}/${recentTotal}) — 일감 배포 중단, 서버 크론이 대신 처리`);
