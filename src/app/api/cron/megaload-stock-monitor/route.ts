@@ -52,8 +52,12 @@ export async function GET(request: Request) {
   //   이미 지불한 시간을 놀리는 것이다(예전이 정확히 그 상태였다 — 236초 중 160초가 sleep).
   //   실제 제약은 비용이 아니라 네이버/구글의 관용도다.
   const RUN_LIMIT = Math.max(1, Number(process.env.STOCK_MONITOR_RUN_LIMIT || 200));
-  // 한 번 실행에서 유저 1명이 가져갈 수 있는 최대치(공정성 상한). 48회/일 × 이 값이 1인당 상한.
+  // 한 번 실행에서 유저 1명이 가져갈 수 있는 최대치(공정성 상한).
   const PER_USER_RUN = Math.max(1, Number(process.env.STOCK_MONITOR_PER_USER_RUN || 12));
+  // 유저 1명의 롤링 24시간 할당량. 0 이면 무제한.
+  //   경로 무관 집계라, 자기 도우미가 잘 도는 유저는 자연히 서버 예산을 덜 쓴다
+  //   (실측: 도우미가 정상인 유저는 자체적으로 하루 1만 건 넘게 확인한다).
+  const DAILY_QUOTA = Math.max(0, Number(process.env.STOCK_MONITOR_DAILY_QUOTA || 300));
 
   // ── 공정 배분 스케줄러 (pick_due_stock_monitors) ──
   //   due 인 것 중에서 **유저별 라운드로빈**으로 뽑는다: 전 유저의 1순위 → 전 유저의 2순위 → …
@@ -62,7 +66,11 @@ export async function GET(request: Request) {
   //   비례해 늘지 않는다. 상품이 적은 유저는 일찍 소진되고 남은 용량은 큰 유저로 흘러간다.
   // 이 함수는 마이그레이션으로 추가돼 생성된 DB 타입에 없다 → 행 타입을 직접 지정한다.
   const rpc = await supabase
-    .rpc('pick_due_stock_monitors', { p_limit_per_user: PER_USER_RUN, p_total: RUN_LIMIT });
+    .rpc('pick_due_stock_monitors', {
+      p_limit_per_user: PER_USER_RUN,
+      p_total: RUN_LIMIT,
+      p_daily_quota: DAILY_QUOTA,
+    });
   const queryErr = rpc.error;
   const monitors = (rpc.data ?? []) as unknown as Record<string, unknown>[];
 
