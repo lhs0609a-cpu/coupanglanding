@@ -65,12 +65,26 @@ export async function GET(request: Request) {
   //   유저가 늘어도 RUN_LIMIT 은 그대로라 1인당 몫만 자연히 줄어든다 = 비용이 유저 수에
   //   비례해 늘지 않는다. 상품이 적은 유저는 일찍 소진되고 남은 용량은 큰 유저로 흘러간다.
   // 이 함수는 마이그레이션으로 추가돼 생성된 DB 타입에 없다 → 행 타입을 직접 지정한다.
-  const rpc = await supabase
-    .rpc('pick_due_stock_monitors', {
+  //
+  // ⚠️ 배포 순서 의존성을 없앤다: 할당량(p_daily_quota)은 나중 마이그레이션에서 추가된
+  //   3인자 버전에만 있다. 코드가 DB보다 먼저 배포되면 3인자 호출이 PGRST202(함수 없음)로
+  //   실패해 크론이 통째로 죽는다 — "마이그레이션 먼저"라는 암묵적 순서는 언젠가 반드시
+  //   깨진다(롤백·재배포·다른 환경). 그래서 실패하면 2인자로 자동 폴백한다.
+  //   마이그레이션이 적용되는 순간 별도 조치 없이 할당량이 켜진다.
+  let rpc = await supabase.rpc('pick_due_stock_monitors', {
+    p_limit_per_user: PER_USER_RUN,
+    p_total: RUN_LIMIT,
+    p_daily_quota: DAILY_QUOTA,
+  });
+  let quotaApplied = true;
+  if (rpc.error && rpc.error.code === 'PGRST202') {
+    console.warn('[stock-monitor-cron] 할당량 마이그레이션 미적용 — 2인자 폴백으로 계속 진행');
+    quotaApplied = false;
+    rpc = await supabase.rpc('pick_due_stock_monitors', {
       p_limit_per_user: PER_USER_RUN,
       p_total: RUN_LIMIT,
-      p_daily_quota: DAILY_QUOTA,
     });
+  }
   const queryErr = rpc.error;
   const monitors = (rpc.data ?? []) as unknown as Record<string, unknown>[];
 
@@ -117,9 +131,11 @@ export async function GET(request: Request) {
     rateLimited,
     actions: results.filter(r => r.action).map(r => r.action),
     elapsedMs: Date.now() - startedAt,
+    // 할당량이 실제로 적용됐는지 응답·로그에 남긴다 — 폴백이 조용히 지속되는 걸 막는다.
+    quotaApplied,
   };
 
-  console.log(`[stock-monitor-cron] 완료: ${stats.checked}/${stats.fetched} 체크, ${stats.changed} 변경, ${stats.errors} 에러 (429: ${rateLimited}), ${stats.elapsedMs}ms`);
+  console.log(`[stock-monitor-cron] 완료: ${stats.checked}/${stats.fetched} 체크, ${stats.changed} 변경, ${stats.errors} 에러 (429: ${rateLimited}), ${stats.elapsedMs}ms, 할당량=${quotaApplied ? DAILY_QUOTA : '미적용(폴백)'}`);
 
   return NextResponse.json({ message: '품절 모니터링 완료', ...stats });
 }
