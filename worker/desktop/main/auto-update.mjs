@@ -135,6 +135,10 @@ async function downloadAndInstall(ver, file, sha, win) {
  */
 export function setupAutoUpdate(opts) {
   if (!app.isPackaged) { ulog('dev 모드 — 업데이트 체크 비활성'); return; }
+  // 이 업데이터는 Windows 전용이다 — latest.yml 의 NSIS Setup.exe 를 받아 powershell 로 실행한다.
+  // 맥 빌드는 서명·공증이 없어 자동업데이트를 붙일 수도 없으므로(Gatekeeper 가 막는다)
+  // 아예 체크하지 않는다. 새 버전은 웹 다운로드 페이지에서 dmg 를 다시 받는 방식.
+  if (process.platform !== 'win32') { ulog(`${process.platform} — 자동업데이트 미지원(수동 재설치)`); return; }
   if (initialized) return;
   initialized = true;
   // 보류 설치본이 있으면 앱 종료 시 자동 설치 실행(트리/잡 밖에서 도는 shell.openPath 사용 — install-now 와 동일 방식).

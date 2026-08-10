@@ -8,7 +8,7 @@ import {
   Wand2, Save, RotateCcw, Monitor, KeyRound,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { MONITOR_AUTH_URL } from '@/lib/megaload/worker-download';
+import { MONITOR_AUTH_URL, buildDesktopMacUrls, MAC_GATEKEEPER_GUIDE } from '@/lib/megaload/worker-download';
 import { useLatestVersions } from '@/lib/megaload/use-latest-versions';
 import { classifyHelperLink } from '@/lib/megaload/allinone-local';
 
@@ -334,6 +334,36 @@ export default function LocalGpuWorkerSettings() {
             <span className="px-1.5 py-0.5 text-[10px] font-medium bg-white/20 rounded-full">v{desktop.version}</span>
             <ExternalLink className="w-3 h-3 opacity-70" />
           </a>
+
+          {/* macOS — 서명 없이 배포하므로 최초 1회 Gatekeeper 통과 안내가 반드시 붙어야 한다. */}
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <div className="text-xs font-semibold text-gray-700 mb-1.5">macOS</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <a
+                href={buildDesktopMacUrls(desktop.version).arm}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition"
+              >
+                <Download className="w-4 h-4" /> Apple Silicon (M1~)
+              </a>
+              <a
+                href={buildDesktopMacUrls(desktop.version).intel}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition"
+              >
+                <Download className="w-4 h-4" /> Intel Mac
+              </a>
+            </div>
+            <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mt-2 leading-relaxed">
+              {MAC_GATEKEEPER_GUIDE}
+            </p>
+            <p className="text-[11px] text-gray-500 mt-1.5 leading-relaxed">
+              맥에서는 <strong>로그인·연결·광고 자동화</strong>만 동작합니다. 이미지 생성과 로컬 텍스트 엔진은
+              NVIDIA GPU가 필요해 Windows 전용입니다. <strong>품절·가격 확인은 서버가 처리하므로 맥에서도 정상 동작</strong>합니다.
+            </p>
+          </div>
         </div>
 
         {/* ② 상품 모니터링 도우미 — 폐기됨. 서버가 전담하므로 설치할 것이 없다. */}

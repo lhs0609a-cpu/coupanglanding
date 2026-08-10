@@ -97,3 +97,55 @@ jobs:
           done
           echo "::error::발행 후에도 latest.yml 이 피드에 없습니다 — 자동업데이트 깨짐"
           exit 1
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # macOS 빌드 — 별도 job. Windows job 과 독립이라 맥 빌드가 깨져도 Windows 릴리스는 나간다.
+  #
+  # ⚠️ 서명·공증 없음(Apple Developer 미등록). 사용자는 최초 1회 시스템 설정에서
+  #    "확인 없이 열기"를 눌러야 한다. 웹 다운로드 화면에 안내가 있다.
+  # ⚠️ latest.yml 은 절대 건드리지 않는다 — 그건 Windows 자동업데이트 피드다.
+  #    맥은 자동업데이트가 없으므로(auto-update.mjs 가 win32 에서만 동작) dmg 만 올린다.
+  build-mac:
+    runs-on: macos-latest
+    # 맥 빌드 실패가 Windows 릴리스를 막지 않게 한다.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: worker/desktop
+        run: npm install
+
+      - name: Build (sync-runtime + electron-builder, mac/dmg)
+        working-directory: worker/desktop
+        env:
+          # 키체인에서 서명 인증서를 찾지 않게 한다(없으면 빌드가 실패한다).
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run dist -- --mac
+
+      - name: Verify dmg built
+        shell: bash
+        run: |
+          ls -la worker/desktop/dist/*.dmg || { echo "::error::dmg 산출물이 없습니다"; exit 1; }
+
+      - name: Publish dmg to fixed feed
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          n=0
+          until [ $n -ge 3 ]; do
+            if gh release upload megaload-desktop-update \
+                 worker/desktop/dist/*.dmg --clobber \
+                 --repo lhs0609a-cpu/coupanglanding; then
+              echo "✅ dmg 발행 완료"; exit 0
+            fi
+            n=$((n+1)); echo "발행 실패(시도 $n/3) — 30초 후 재시도"; sleep 30
+          done
+          echo "::error::3회 재시도 후에도 dmg 발행 실패"; exit 1

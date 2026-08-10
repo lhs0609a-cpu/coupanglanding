@@ -28,6 +28,27 @@ export const WORKER_APP_VERSION_FALLBACK = '0.2.40';
 export const buildDesktopDownloadUrl = (version: string) =>
   `${DESKTOP_RELEASE_BASE}/MegaloadDesktop-Setup-${version}.exe`;
 
+/**
+ * macOS 설치파일(dmg) — Apple Silicon / Intel 별도.
+ *
+ * ⚠️ 서명·공증이 없다(Apple Developer 계정 미등록). 사용자는 최초 1회
+ *   시스템 설정 → 개인정보 보호 및 보안 → "확인 없이 열기" 를 눌러야 한다.
+ *   (macOS Sequoia 부터 우클릭→열기 우회가 제거돼 이 경로만 유효하다.)
+ *
+ * ⚠️ 기능 범위: 로그인·연결·광고 자동화만 동작한다. 이미지 생성(ComfyUI+SDXL, CUDA)과
+ *   로컬 텍스트 엔진(ollama, Windows 바이너리)은 Windows 전용이라 맥에서는 비활성이다.
+ *   품절·가격 확인은 서버가 전담하므로 맥에서도 설치 없이 정상 동작한다.
+ */
+export const buildDesktopMacUrls = (version: string) => ({
+  arm: `${DESKTOP_RELEASE_BASE}/MegaloadDesktop-${version}-arm64.dmg`,
+  intel: `${DESKTOP_RELEASE_BASE}/MegaloadDesktop-${version}-x64.dmg`,
+});
+
+/** 맥 설치 시 Gatekeeper 통과 안내 — UI 여러 곳에서 같은 문구를 쓰도록 단일 출처. */
+export const MAC_GATEKEEPER_GUIDE =
+  '맥에서 처음 실행하면 "확인되지 않은 개발자" 경고가 뜹니다. [완료]를 누른 뒤 '
+  + '시스템 설정 → 개인정보 보호 및 보안 → 맨 아래 "확인 없이 열기"를 누르면 됩니다(최초 1회).';
+
 // ─────────────────────────────────────────────────────────────────────────
 // 상품 모니터링 도우미(desktop-monitor) — 별도 exe·별도 버전·버전별 태그.
 //   release workflow(desktop-monitor-release.yml) 태그 규칙: `desktop-v*.*.*`

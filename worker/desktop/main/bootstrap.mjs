@@ -43,8 +43,25 @@ export const DEFAULTS = {
 
 const exists = (p) => stat(p).then(() => true, () => false);
 
+/**
+ * 로컬 GPU 엔진 스택이 이 OS 에서 설치 가능한가.
+ *
+ * 이 부트스트랩이 받는 것들은 전부 Windows 전용 산출물이다:
+ *   ComfyUI_windows_portable_nvidia.7z · ollama-windows-amd64.zip · vc_redist.x64.exe
+ * 게다가 GPU 점검은 nvidia-smi 에 의존하는데 요즘 맥에는 NVIDIA GPU 가 없다.
+ *
+ * 맥 빌드에서 이 가드가 없으면 앱이 Windows 용 zip 을 수백 MB 받아놓고 실행에 실패한다
+ * (바깥 try/catch 덕에 죽지는 않지만 사용자 대역폭·시간만 버린다).
+ * → 애초에 시도하지 않고 조용히 건너뛴다.
+ */
+export function localEngineSupported() {
+  return process.platform === 'win32';
+}
+
 /** NVIDIA 드라이버/ GPU 점검 (nvidia-smi). vramMb=총량, vramFreeMb="지금 남은" VRAM. */
 export function checkGpu() {
+  // Windows 외에서는 nvidia-smi 를 찾을 이유가 없다(맥·리눅스 빌드에서 불필요한 spawn 방지).
+  if (!localEngineSupported()) return Promise.resolve({ ok: false, name: null, vramMb: 0, vramFreeMb: 0 });
   return new Promise((resolve) => {
     const p = spawn('nvidia-smi', ['--query-gpu=name,memory.total,memory.free', '--format=csv,noheader'], { shell: true });
     let out = '';
@@ -88,6 +105,10 @@ export function ollamaExePath(installDir) {
  * (모델은 서버 기동 후 OllamaManager.ensureModel 에서 받는다.) 실패 시 throw.
  */
 export async function ensureOllama({ installDir, url = DEFAULTS.ollamaZipUrl, onProgress = () => {} } = {}) {
+  if (!localEngineSupported()) {
+    onProgress({ phase: 'ollama', pct: 100, detail: '이 운영체제에서는 로컬 텍스트 엔진을 지원하지 않습니다(Windows 전용)' });
+    return null;
+  }
   const exe = ollamaExePath(installDir);
   if (await exists(exe)) { onProgress({ phase: 'ollama', pct: 100, detail: 'ollama 이미 설치됨' }); return exe; }
   const dir = ollamaDir(installDir);
@@ -127,6 +148,8 @@ export function checkVCRedist() {
  * @returns {Promise<boolean>} 최종적으로 요건을 만족하면 true
  */
 export async function ensureVCRedist({ installDir, url = DEFAULTS.vcRedistUrl, minMinor = DEFAULTS.vcRedistMinMinor, onProgress = () => {} } = {}) {
+  // VC++ 재배포 패키지는 Windows 개념이다 — 다른 OS 에서는 레지스트리 조회부터 무의미.
+  if (!localEngineSupported()) return true;
   try {
     const cur = await checkVCRedist();
     if (cur && (cur.major > 14 || (cur.major === 14 && cur.minor >= minMinor))) {
@@ -272,6 +295,10 @@ function extract7z(archive, destDir, onProgress) {
  * @param {(p:{phase:string,pct:number,detail?:string})=>void} o.onProgress
  */
 export async function install({ installDir, urls = {}, onProgress = () => {} }) {
+  if (!localEngineSupported()) {
+    // 사용자가 "엔진 설치/확인"을 눌렀을 때도 조용히 실패하지 않고 이유를 알린다.
+    throw new Error('이미지 생성 엔진(ComfyUI·SDXL)은 Windows + NVIDIA GPU 에서만 지원됩니다.');
+  }
   const u = { ...DEFAULTS, ...urls };
   await mkdir(installDir, { recursive: true });
 
