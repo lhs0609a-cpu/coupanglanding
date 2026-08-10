@@ -70,9 +70,24 @@ export async function GET(request: NextRequest) {
   // 즉 고장난 경로가 멀쩡한 경로를 굶긴다.
   //
   // → 최근 실패율이 압도적인 도우미에게는 일감을 주지 않는다. 그러면 그 유저 상품은 자연히
-  //   서버 크론이 가져가 98% 로 처리하고, 성공 즉시 백오프가 0 으로 리셋된다.
-  //   롤링 윈도(최근 6시간)라 도우미가 회복되면(앱 교체·IP 회복) 자동으로 다시 일감을 받는다.
-  const sinceIso = new Date(Date.now() - 6 * 3600_000).toISOString();
+  //   서버 크론이 가져가 처리하고, 성공 즉시 백오프가 0 으로 리셋된다.
+  //   롤링 윈도라 도우미가 회복되면(앱 교체·IP 회복) 자동으로 다시 일감을 받는다.
+  //
+  // 전면 차단 스위치 — 가정 IP 로는 뚫을 방법이 없다는 게 전수 실측으로 확인되면 이걸 켠다.
+  // (GT 는 한국 지역차단 403, 진짜 크롬 렌더도 소프트블록, 내부 JSON API 6종 전부 429)
+  if (process.env.DESKTOP_STOCK_MONITOR_DISABLED === '1') {
+    return NextResponse.json({
+      monitors: [], count: 0, nextPollSec: 3600, paused: true,
+      reason: '품절 확인은 서버가 전담합니다. 이 PC에서는 확인하지 않습니다.',
+    });
+  }
+
+  // 윈도 6h → 2h, 문턱 50% → 40%.
+  //   실측(게이트 1차 배포 직후): 모니터 3,630개인 유저가 최근 19분 실패율 64% 인데도
+  //   6시간 창에서는 옛 성공 기록에 희석돼 45% 로 잡혀 게이트를 통과했다. 창이 길수록
+  //   그 사이 계속 실패를 보고해 백오프를 밀어올리므로, 반응이 늦으면 늦은 만큼 손해다.
+  //   서버 경로가 0~38% 인 반면 도우미는 64~100% 라 40% 문턱은 둘을 안전하게 가른다.
+  const sinceIso = new Date(Date.now() - 2 * 3600_000).toISOString();
   const countIn = async (extra: (q: ReturnType<typeof buildBase>) => ReturnType<typeof buildBase>) => {
     const { count } = await extra(buildBase());
     return count || 0;
@@ -86,7 +101,7 @@ export async function GET(request: NextRequest) {
       .gte('last_checked_at', sinceIso);
   }
   const recentTotal = await countIn(q => q);
-  if (recentTotal >= 20) {
+  if (recentTotal >= 15) {
     // ⚠️ 'error' 만 세면 안 된다 — 네이버 소프트블록은 **HTTP 200** 으로 온다.
     //   차단 시 돌아오는 "현재 서비스 접속이 불가합니다" 페이지는 정상 응답이라 파싱만 실패하고
     //   'unknown' 으로 저장된다. 즉 차단의 상당 부분이 error 가 아니라 unknown 으로 기록된다.
@@ -94,7 +109,7 @@ export async function GET(request: NextRequest) {
     //   다른 유저는 error 20% vs 실제 95% 였다. 정확히 잡아야 할 실패 모드를 놓치고 있었다.
     const recentError = await countIn(q => q.in('source_status', ['error', 'unknown']));
     const failRate = recentError / recentTotal;
-    if (failRate >= 0.5) {
+    if (failRate >= 0.4) {
       console.warn(`[desktop/monitors] 품질 게이트: user=${shUserId} 최근6h 실패율 ${Math.round(failRate * 100)}% (${recentError}/${recentTotal}) — 일감 배포 중단, 서버 크론이 대신 처리`);
       return NextResponse.json({
         monitors: [],
