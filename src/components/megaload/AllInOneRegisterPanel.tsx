@@ -31,6 +31,11 @@ import {
 } from '@/lib/megaload/allinone-local';
 import { focusNextField } from './focusNextField';
 import PreUploadConfirmModal from './PreUploadConfirmModal';
+import SkipReviewRiskModal, { type SkipReviewPlan, type SkipReviewOptions } from './SkipReviewRiskModal';
+import { reportClientError } from '@/lib/utils/client-error-reporter';
+import {
+  auditProduct, type AuditInput, type AuditResult, type RegenTask,
+} from '@/lib/megaload/services/allinone-final-audit';
 import { CertStatusBlock } from './CertStatusBlock';
 import CategoryCascadingPicker from './bulk/CategoryCascadingPicker';
 import { buildRichDetailPageHtml } from '@/lib/megaload/services/detail-page-builder';
@@ -42,6 +47,27 @@ import type { AttributeMeta } from '@/lib/megaload/services/coupang-product-buil
 
 const BATCH_SIZE = 10;
 const IMG_RE = /\.(png|jpg|jpeg|webp)$/i;
+
+/** AI 최종점검: 스캔 → 재생성 1회 → 재스캔. 2 라운드 고정(무한 재생성 방지). */
+const MAX_AUDIT_ROUND = 2;
+/** 도우미가 꺼져 있으면 잡이 영원히 pending 이라 등록이 멈춘다 — 여기서 끊고 제외/경고로 넘긴다. */
+const REGEN_TIMEOUT_MS = 15 * 60_000;
+
+/** 점검 진행 스냅샷(화면 패널용). */
+interface AuditProgressView {
+  phase: 'scan' | 'regen';
+  round: number; maxRound: number;
+  total: number; fixed: number; warned: number;
+  regenDone: number; regenTotal: number;
+  message: string;
+}
+/** 점검 결과 요약 — 등록 후에도 화면에 남겨 무엇이 고쳐지고 무엇이 빠졌는지 보여준다. */
+interface AuditReport {
+  total: number; registered: number;
+  fixed: number; warned: number; regenerated: number;
+  excluded: { name: string; reasons: string[] }[];
+  warnings: { name: string; messages: string[] }[];
+}
 
 /** 워커 _allinone.generated.jsonl 한 줄 레코드 */
 interface GenRecord {
@@ -1528,10 +1554,331 @@ export default function AllInOneRegisterPanel() {
     setPreUploadOpen(true);
   }, [rows, selectedOutbound, selectedReturn, contactNumber, optionPreviews]);
 
-  // ── 등록 ─────────────────────────────────────────────────────────
-  const handleRegister = useCallback(async () => {
+  // ── 검수 없이 등록(사용자가 위험을 감수하는 경로) ────────────────
+  // 카드별 승인·필수옵션 직접입력·"검수필요" 표시를 전부 무시하고 전량 등록한다.
+  // 단, 쿠팡 API 가 거절하는 하드 조건(카테고리코드·판매가·대표이미지·물류정보)은 예외 없이 유지한다 —
+  // 이건 "리스크"가 아니라 그냥 실패라, 건너뛰면 사용자에게 돌아가는 건 400 에러뿐이다.
+  const [skipOpen, setSkipOpen] = useState(false);
+  const [skipPlan, setSkipPlan] = useState<SkipReviewPlan>({
+    count: 0, excluded: 0, needsReview: 0, unresolvedOptions: 0, certRisk: 0,
+  });
+  // 모달 확인 시 등록할 대상 — 상태 갱신을 기다리지 않도록 계산 시점 그대로 붙잡아 둔다.
+  const skipTargetsRef = useRef<Row[]>([]);
+  // handleRegister 는 아래에서 정의되므로 ref 로 참조(선언 순서 의존 제거).
+  const handleRegisterRef = useRef<((t?: Row[]) => void | Promise<void>) | null>(null);
+
+  const requestSkipReview = useCallback(() => {
     setError('');
-    const targets = rows.filter((r) => r.approved && r.gen && r.status !== 'success');
+    if (!selectedOutbound) { setError('출고지를 선택해주세요. (쿠팡 Wing에 등록 필요)'); return; }
+    if (!selectedReturn) { setError('반품지를 선택해주세요. (쿠팡 Wing에 등록 필요)'); return; }
+    if (!contactNumber.trim()) { setError('고객센터 연락처를 입력해주세요.'); return; }
+
+    const candidates = rows.filter((r) => r.gen && r.status !== 'success');
+    if (candidates.length === 0) { setError('등록할 상품이 없습니다.'); return; }
+    // 하드 조건 통과분만 대상. 나머지는 검수를 포기해도 쿠팡이 받지 않는다.
+    const targets = candidates.filter((r) => isEligible(r.edit) && r.mainImages.length > 0);
+    if (targets.length === 0) {
+      setError('카테고리코드·판매가(100원 이상)·대표이미지가 갖춰진 상품이 없습니다. 이 항목들은 검수를 건너뛰어도 쿠팡이 거절합니다.');
+      return;
+    }
+
+    skipTargetsRef.current = targets;
+    setSkipPlan({
+      count: targets.length,
+      excluded: candidates.length - targets.length,
+      needsReview: targets.filter((r) => r.gen?.needsReview).length,
+      unresolvedOptions: targets.filter((r) => unresolvedOptionInput(r.edit, optionPreviews.get(r.uid)).length > 0).length,
+      certRisk: targets.filter((r) => {
+        const c = certPreviews.get(r.uid);
+        return !!c && (c.status === 'failed' || c.unmatched.length > 0);
+      }).length,
+    });
+    setSkipOpen(true);
+  }, [rows, selectedOutbound, selectedReturn, contactNumber, optionPreviews, certPreviews]);
+
+  // ── 등록 직전 AI 최종점검 ────────────────────────────────────────
+  // 사람 검수를 포기한 자리를 기계가 메운다. 2단계:
+  //   Stage A(규칙, 즉시)  — allinone-final-audit.auditProduct 로 전 필드 스캔 + 자동수정.
+  //   Stage B(로컬 GPU)    — A 가 "다시 써야 함"으로 표시한 필드만 megaload_llm_jobs 로 재생성.
+  // 그 뒤 **한 번 더 스캔**해 실제로 고쳐졌는지 확인한다(사용자 요구: "한번 더 자동으로 수정하고 올리게").
+  // 도우미가 꺼져 있으면 Stage B 를 건너뛴다 — 잡이 영원히 pending 이라 등록이 멈추기 때문.
+  const [auditProgress, setAuditProgress] = useState<AuditProgressView | null>(null);
+  const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
+
+  /** Row → 점검기 입력. 점검기는 순수 함수라 Row 를 모른다. */
+  const toAuditInput = useCallback((r: Row): AuditInput => ({
+    uid: r.uid,
+    displayName: r.edit.displayName,
+    categoryCode: r.edit.categoryCode,
+    categoryPath: r.edit.categoryPath,
+    detail: r.edit.detail,
+    options: r.edit.options,
+    sellingPrice: r.edit.sellingPrice,
+    sourcePrice: r.gen?.sourcePrice ?? null,
+    originalName: r.gen?.originalName || '',
+    genCategoryPath: r.gen?.categoryPath || '',
+    unresolvedOptions: unresolvedOptionInput(r.edit, optionPreviews.get(r.uid)),
+    mainImageCount: r.mainImages.length,
+    mainPickedFromReview: pickedFromReview(r.gen),
+    mainImageWarning: r.gen?.mainImageWarning,
+    detailImageCount: r.detailImages.length,
+    reviewImageCount: r.reviewImages.length,
+  }), [optionPreviews]);
+
+  /** 재생성 잡을 넣고 끝날 때까지 폴링. label = `${uid}:${task}` → result. */
+  const runRegenBatch = useCallback(async (
+    jobs: { label: string; taskType: RegenTask; input: Record<string, unknown> }[],
+    onTick: (done: number, total: number) => void,
+  ): Promise<Map<string, unknown>> => {
+    const out = new Map<string, unknown>();
+    if (jobs.length === 0) return out;
+    const res = await fetch('/api/megaload/products/llm-jobs/enqueue', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobs }), signal: AbortSignal.timeout(30_000),
+    });
+    const data = await res.json() as { batchId?: string; error?: string };
+    if (!res.ok || !data.batchId) throw new Error(data.error || `재생성 요청 실패 (HTTP ${res.status})`);
+
+    const pending = new Set(jobs.map((j) => j.label));
+    const deadline = Date.now() + REGEN_TIMEOUT_MS;
+    while (pending.size > 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 3000));
+      try {
+        const pr = await fetch(`/api/megaload/products/llm-jobs?batchId=${encodeURIComponent(data.batchId)}`, { cache: 'no-store' });
+        if (!pr.ok) continue;
+        const pd = await pr.json() as { jobs?: { label: string; status: string; result: unknown }[] };
+        for (const j of pd.jobs || []) {
+          if (!pending.has(j.label)) continue;
+          if (j.status === 'done') { out.set(j.label, j.result); pending.delete(j.label); }
+          else if (j.status === 'error' || j.status === 'canceled') { pending.delete(j.label); }
+        }
+        onTick(jobs.length - pending.size, jobs.length);
+      } catch { /* 일시 실패 — 다음 tick 에 재시도 */ }
+    }
+    return out;
+  }, []);
+
+  /**
+   * 점검 본체. targets 를 스캔·수정하고 **등록해도 되는 목록**을 돌려준다.
+   * 화면 카드에도 같은 수정을 반영해, 등록된 내용과 사용자가 나중에 보는 카드가 어긋나지 않게 한다.
+   */
+  const runFinalAudit = useCallback(async (
+    targets: Row[], excludeUnfixed: boolean,
+  ): Promise<{ targets: Row[]; report: AuditReport }> => {
+    // 등록 대상만 담은 작업 사본 — 라운드마다 여기에 수정을 누적한다.
+    let work = targets.map((r) => ({ ...r, edit: { ...r.edit, options: r.edit.options.map((o) => ({ ...o })) } }));
+    const helperOk = !!helperDiag?.ok;
+    const warnMap = new Map<string, Set<string>>();
+    let fixedTotal = 0, regeneratedTotal = 0;
+    let lastResults: AuditResult[] = [];
+
+    const nameOf = (r: Row) => r.edit.displayName || r.gen?.originalName || r.productCode;
+
+    for (let round = 1; round <= MAX_AUDIT_ROUND; round++) {
+      setAuditProgress({
+        phase: 'scan', round, maxRound: MAX_AUDIT_ROUND, total: work.length,
+        fixed: fixedTotal, warned: warnMap.size, regenDone: 0, regenTotal: 0,
+        message: `전 필드 스캔 중… (${round}차)`,
+      });
+      // 브라우저가 진행 패널을 그릴 틈을 준다(동기 스캔이 길면 화면이 얼어 보인다).
+      await new Promise((r) => setTimeout(r, 0));
+
+      const results = work.map((r) => auditProduct(toAuditInput(r)));
+      lastResults = results;
+      const byUid = new Map(results.map((r) => [r.uid, r]));
+
+      // 자동수정 반영 — 작업 사본과 화면 카드 양쪽에.
+      const applyPatch = (r: Row): Row => {
+        const p = byUid.get(r.uid)?.patch;
+        if (!p || Object.keys(p).length === 0) return r;
+        return { ...r, edit: { ...r.edit, ...p } };
+      };
+      work = work.map(applyPatch);
+      setRows((prev) => prev.map((r) => (byUid.has(r.uid) ? applyPatch(r) : r)));
+
+      for (const res of results) {
+        fixedTotal += res.findings.filter((f) => f.severity === 'fix').length;
+        const warns = res.findings.filter((f) => f.severity === 'warn').map((f) => f.message);
+        if (warns.length) {
+          const set = warnMap.get(res.uid) || new Set<string>();
+          warns.forEach((w) => set.add(w));
+          warnMap.set(res.uid, set);
+        }
+      }
+
+      const needing = results.filter((r) => r.regens.length > 0);
+      if (needing.length === 0) break;
+      if (!helperOk || round === MAX_AUDIT_ROUND) break; // 더 손쓸 수 없음 → 아래에서 제외/경고 처리
+
+      // ── Stage B: 문제 필드만 로컬 GPU 재생성 ──
+      const rowByUid = new Map(work.map((r) => [r.uid, r]));
+      const jobs: { label: string; taskType: RegenTask; input: Record<string, unknown> }[] = [];
+      for (const res of needing) {
+        const r = rowByUid.get(res.uid);
+        if (!r) continue;
+        const g = r.gen;
+        const pj = (r.scanned.productJson || {}) as { features?: unknown };
+        const features = Array.isArray(pj.features) ? pj.features : [];
+        const catPath = r.edit.categoryPath || g?.categoryPath || '';
+        for (const task of res.regens) {
+          // 필드명은 도우미 llm-pull-loop 가 읽는 것 그대로여야 한다(바꾸면 조용히 빈 결과).
+          const input: Record<string, unknown> =
+            task === 'content'
+              ? {
+                displayName: r.edit.displayName || g?.displayName || g?.originalName,
+                originalName: g?.originalName, categoryPath: catPath,
+                leaf: catPath.split('>').pop()?.trim() || '',
+                features, seoKeywords: g?.keywords || [], seed: g?.originalName,
+              }
+              : task === 'display_name'
+                ? { originalName: g?.originalName, features, categoryPath: catPath, seed: g?.originalName }
+                : task === 'options'
+                  ? { originalName: g?.originalName, features }
+                  : { originalName: g?.originalName };
+          jobs.push({ label: `${r.uid}:${task}`, taskType: task, input });
+        }
+      }
+      if (jobs.length === 0) break;
+
+      setAuditProgress({
+        phase: 'regen', round, maxRound: MAX_AUDIT_ROUND, total: work.length,
+        fixed: fixedTotal, warned: warnMap.size, regenDone: 0, regenTotal: jobs.length,
+        message: `내 PC GPU로 ${needing.length}개 상품 · ${jobs.length}개 항목 재생성 중…`,
+      });
+
+      let regenResults = new Map<string, unknown>();
+      try {
+        regenResults = await runRegenBatch(jobs, (done, total) => {
+          setAuditProgress((p) => (p ? { ...p, regenDone: done, regenTotal: total } : p));
+        });
+      } catch (err) {
+        // 재생성 자체가 실패해도 점검은 계속 — 아래 라운드에서 제외/경고로 처리된다.
+        setAuditProgress((p) => (p ? { ...p, message: err instanceof Error ? err.message : '재생성 실패' } : p));
+      }
+
+      // 재생성 결과를 작업 사본과 화면 카드에 반영.
+      const patches = new Map<string, Partial<RowEdit>>();
+      for (const [label, result] of regenResults) {
+        const cut = label.lastIndexOf(':');
+        const uid = label.slice(0, cut);
+        const task = label.slice(cut + 1) as RegenTask;
+        const cur = patches.get(uid) || {};
+        if (task === 'content') {
+          const paragraphs = (result as { paragraphs?: string[] } | null)?.paragraphs || [];
+          const text = paragraphs.filter(Boolean).join('\n\n');
+          if (text) cur.detail = text;
+        } else if (task === 'display_name') {
+          const name = (result as { displayName?: string } | null)?.displayName || '';
+          if (name) cur.displayName = name;
+        } else if (task === 'options') {
+          const opts = (result as { options?: OptionField[] } | null)?.options || [];
+          if (opts.length) cur.options = opts.map((o) => ({ name: o.name, value: o.value, unit: o.unit }));
+        } else if (task === 'category') {
+          const c = result as { categoryCode?: string; categoryPath?: string } | null;
+          if (c?.categoryCode) { cur.categoryCode = String(c.categoryCode); cur.categoryPath = c.categoryPath || ''; }
+        }
+        if (Object.keys(cur).length) { patches.set(uid, cur); regeneratedTotal += 1; }
+      }
+      const applyRegen = (r: Row): Row => {
+        const p = patches.get(r.uid);
+        return p ? { ...r, edit: { ...r.edit, ...p } } : r;
+      };
+      work = work.map(applyRegen);
+      setRows((prev) => prev.map((r) => (patches.has(r.uid) ? applyRegen(r) : r)));
+    }
+
+    // ── 최종 판정 ──
+    const resByUid = new Map(lastResults.map((r) => [r.uid, r]));
+    const excluded: { name: string; reasons: string[] }[] = [];
+    const kept: Row[] = [];
+    for (const r of work) {
+      const res = resByUid.get(r.uid);
+      const unfixed = res
+        ? res.findings.filter((f) => f.severity === 'blocker').map((f) => f.message)
+        : [];
+      const hardBlocked = !!res?.blocked;
+      if (hardBlocked || (unfixed.length > 0 && excludeUnfixed)) {
+        excluded.push({ name: nameOf(r), reasons: unfixed.length ? unfixed : ['등록 최소 조건 미달'] });
+        continue;
+      }
+      if (unfixed.length > 0) {
+        const set = warnMap.get(r.uid) || new Set<string>();
+        unfixed.forEach((m) => set.add(`[미해결] ${m}`));
+        warnMap.set(r.uid, set);
+      }
+      kept.push(r);
+    }
+
+    const nameByUid = new Map(work.map((r) => [r.uid, nameOf(r)]));
+    const report: AuditReport = {
+      total: work.length,
+      registered: kept.length,
+      fixed: fixedTotal,
+      warned: warnMap.size,
+      regenerated: regeneratedTotal,
+      excluded,
+      warnings: [...warnMap.entries()]
+        .filter(([uid]) => kept.some((k) => k.uid === uid))
+        .map(([uid, set]) => ({ name: nameByUid.get(uid) || uid, messages: [...set] })),
+    };
+    setAuditProgress(null);
+    return { targets: kept, report };
+  }, [helperDiag, toAuditInput, runRegenBatch]);
+
+  /** 위험 동의 후 실행 — 감사 로그 → (선택) AI 최종점검 → 등록. */
+  const confirmSkipReview = useCallback(async (opts: SkipReviewOptions) => {
+    const initial = skipTargetsRef.current;
+    setSkipOpen(false);
+    setAuditReport(null);
+    if (initial.length === 0) return;
+    const uids = new Set(initial.map((r) => r.uid));
+    // 화면의 승인 체크도 켜 둔다 — 실제 등록 대상과 카드 표시가 어긋나지 않게.
+    setRows((prev) => prev.map((r) => (uids.has(r.uid) ? { ...r, approved: true } : r)));
+    // 감사 기록: 누가·언제·몇 건을·어떤 경고를 안고 올렸는지. dedup 에 먹히지 않도록 메시지에 시각을 넣는다.
+    void reportClientError({
+      source: 'megaload/allinone/skip-review',
+      level: 'warn',
+      category: 'megaload',
+      message: `검수 생략 등록 동의 ${initial.length}건 @${new Date().toISOString()}`,
+      context: {
+        count: initial.length,
+        audit: opts.audit,
+        excludeUnfixed: opts.excludeUnfixed,
+        needsReview: skipPlan.needsReview,
+        unresolvedOptions: skipPlan.unresolvedOptions,
+        certRisk: skipPlan.certRisk,
+        productCodes: initial.slice(0, 50).map((r) => r.productCode),
+      },
+    });
+
+    let targets = initial;
+    if (opts.audit) {
+      try {
+        const { targets: kept, report } = await runFinalAudit(initial, opts.excludeUnfixed);
+        targets = kept;
+        setAuditReport(report);
+      } catch (err) {
+        setAuditProgress(null);
+        setError(`AI 최종점검 실패 — 등록을 중단했습니다: ${err instanceof Error ? err.message : '알 수 없는 오류'}`);
+        return;
+      }
+      if (targets.length === 0) {
+        setError('AI 최종점검 결과 등록 가능한 상품이 없습니다. 아래 점검 리포트의 제외 사유를 확인하세요.');
+        return;
+      }
+    }
+    void handleRegisterRef.current?.(targets);
+  }, [skipPlan, runFinalAudit]);
+
+  // ── 등록 ─────────────────────────────────────────────────────────
+  /**
+   * @param overrideTargets 명시 대상. 지정하면 approved 플래그 대신 이 목록을 그대로 등록한다.
+   *   ("검수 없이 등록" 경로 전용 — setRows 로 승인 플래그를 켜도 이 콜백의 rows 클로저는
+   *    아직 옛 값이라, 상태 갱신을 기다리지 않고 대상을 직접 넘긴다.)
+   */
+  const handleRegister = useCallback(async (overrideTargets?: Row[]) => {
+    setError('');
+    const targets = overrideTargets ?? rows.filter((r) => r.approved && r.gen && r.status !== 'success');
     if (targets.length === 0) { setError('승인된 상품이 없습니다.'); return; }
     if (!selectedOutbound) { setError('출고지를 선택해주세요. (쿠팡 Wing에 등록 필요)'); return; }
     if (!selectedReturn) { setError('반품지를 선택해주세요. (쿠팡 Wing에 등록 필요)'); return; }
@@ -1749,6 +2096,9 @@ export default function AllInOneRegisterPanel() {
     }
   }, [rows, selectedOutbound, selectedReturn, contactNumber]);
 
+  // "검수 없이 등록" 경로가 선언 순서와 무관하게 최신 handleRegister 를 호출하도록 연결.
+  useEffect(() => { handleRegisterRef.current = handleRegister; }, [handleRegister]);
+
   return (
     <div className="space-y-5">
       {/* 물류 정보 */}
@@ -1799,7 +2149,7 @@ export default function AllInOneRegisterPanel() {
             아래 <b>이전 생성결과 불러오기</b>를 다시 누르면 현재 주소로 새로 읽어와 복구됩니다.
           </p>
           {helperDiag?.ok && (
-            <button onClick={handleLoadFromHelper} disabled={scanning || registering}
+            <button onClick={handleLoadFromHelper} disabled={scanning || registering || !!auditProgress}
               className="mt-2 text-xs font-semibold rounded-lg px-3 py-1.5 bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">
               {scanning ? '불러오는 중…' : '지금 다시 불러오기'}
             </button>
@@ -1810,7 +2160,7 @@ export default function AllInOneRegisterPanel() {
       {/* 컨트롤 바 */}
       <div className="flex flex-wrap items-center gap-3">
         {/* ⭐ 주 버튼 — 폴더 고르면 도우미로 올려 자동 생성까지. 웹에서 전부(앱 안 열어도 됨). */}
-        <button onClick={handleUploadAndGenerate} disabled={scanning || registering}
+        <button onClick={handleUploadAndGenerate} disabled={scanning || registering || !!auditProgress}
           className="bg-[#E31837] text-white text-sm font-semibold rounded-lg px-4 py-2 disabled:opacity-50">
           {scanning ? '처리 중…' : '소싱 폴더 선택 → 자동 생성'}
         </button>
@@ -1820,7 +2170,7 @@ export default function AllInOneRegisterPanel() {
           const src = helperDiag?.ok ? helperDiag : lastGoodDiag!;
           const stale = !helperDiag?.ok;
           return (
-            <button onClick={handleLoadFromHelper} disabled={scanning || registering}
+            <button onClick={handleLoadFromHelper} disabled={scanning || registering || !!auditProgress}
               title={stale ? '도우미 재확인 중 — 직전에 확인된 결과입니다.' : undefined}
               className="text-sm font-semibold rounded-lg px-4 py-2 border border-gray-300 text-gray-700 disabled:opacity-50">
               {scanning ? '불러오는 중…' : `도우미 결과 불러오기 (${src.records ?? 0})${stale ? ' · 재확인 중' : ''}`}
@@ -1828,7 +2178,7 @@ export default function AllInOneRegisterPanel() {
           );
         })()}
         {/* 이미 폴더에 결과가 있을 때 그것만 읽기(생성 안 함) — 고급/폴백. */}
-        <button onClick={handlePick} disabled={scanning || registering}
+        <button onClick={handlePick} disabled={scanning || registering || !!auditProgress}
           className="text-xs font-medium rounded-lg px-3 py-2 text-gray-500 hover:text-gray-700 disabled:opacity-50">
           {scanning ? '' : '폴더에서 결과만 읽기'}
         </button>
@@ -1847,7 +2197,14 @@ export default function AllInOneRegisterPanel() {
               </button>
             )}
             <span className="flex-1" />
-            <button onClick={requestRegister} disabled={registering || approvedCount === 0}
+            {/* 위험 감수 경로 — 주 버튼과 헷갈리지 않게 외곽선(빨강)으로만 강조한다. */}
+            <button onClick={requestSkipReview} disabled={registering || !!auditProgress}
+              title="카드별 검수·승인을 건너뛰고 전량 등록합니다. 지재권·옵션·인증 위험을 직접 감수하는 경로입니다(등록 직전 AI 최종점검 선택 가능)."
+              className="border border-[#E31837] text-[#E31837] text-sm font-semibold rounded-lg px-4 py-2 hover:bg-red-50 disabled:opacity-50">
+              ⚠️ 검수 없이 전체 등록
+            </button>
+            {/* 점검이 도는 동안(최대 15분) 다른 등록이 겹쳐 시작되지 않게 함께 잠근다. */}
+            <button onClick={requestRegister} disabled={registering || !!auditProgress || approvedCount === 0}
               className="bg-gray-900 text-white text-sm font-semibold rounded-lg px-5 py-2 disabled:opacity-50">
               {registering ? `등록 중… ${progress.done}/${progress.total}` : `승인분 등록 (${approvedCount})`}
             </button>
@@ -1915,6 +2272,95 @@ export default function AllInOneRegisterPanel() {
       )}
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
 
+      {/* ── AI 최종점검 진행 ────────────────────────────────────────── */}
+      {auditProgress && (() => {
+        const a = auditProgress;
+        const pct = a.phase === 'regen' && a.regenTotal > 0
+          ? Math.round((a.regenDone / a.regenTotal) * 100)
+          : null;
+        return (
+          <div className="rounded-xl border border-emerald-300 bg-emerald-50/70 px-4 py-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse flex-none" />
+              <span className="text-sm font-semibold text-emerald-900">
+                🤖 등록 직전 AI 최종점검 · {a.round}/{a.maxRound}차 · {a.phase === 'scan' ? '스캔' : '재생성'}
+              </span>
+              <span className="flex-1" />
+              {pct != null && <span className="text-sm font-bold text-emerald-700 tabular-nums">{pct}%</span>}
+            </div>
+            <div className="h-2 w-full rounded-full bg-emerald-100 overflow-hidden">
+              {pct != null
+                ? <div className="h-full bg-emerald-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                : <div className="h-full w-1/3 bg-emerald-400/70 rounded-full animate-pulse" />}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-emerald-900">
+              <span>대상 <b className="tabular-nums">{a.total}</b>건</span>
+              <span>자동수정 <b className="tabular-nums">{a.fixed}</b>건</span>
+              <span>경고 <b className="tabular-nums">{a.warned}</b>건</span>
+              {a.regenTotal > 0 && <span>재생성 <b className="tabular-nums">{a.regenDone}/{a.regenTotal}</b></span>}
+            </div>
+            <p className="text-[11px] text-emerald-700 leading-snug">{a.message}</p>
+            {a.phase === 'regen' && (
+              <p className="text-[11px] text-emerald-600 leading-snug">
+                재생성은 내 PC GPU에서 돌아 서버 비용이 들지 않습니다. 도우미 앱이 켜져 있어야 진행됩니다
+                (최대 15분 대기 후 중단하고 남은 항목은 제외/경고 처리).
+              </p>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── AI 최종점검 리포트 ──────────────────────────────────────── */}
+      {auditReport && (
+        <div className="rounded-xl border border-gray-300 bg-white px-4 py-3 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-gray-900">🤖 AI 최종점검 리포트</span>
+            <span className="flex-1" />
+            <button type="button" onClick={() => setAuditReport(null)} className="text-xs text-gray-400 underline">닫기</button>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-700">
+            <span>점검 <b className="text-gray-900 tabular-nums">{auditReport.total}</b>건</span>
+            <span>자동수정 <b className="text-emerald-700 tabular-nums">{auditReport.fixed}</b>건</span>
+            <span>재생성 <b className="text-indigo-700 tabular-nums">{auditReport.regenerated}</b>건</span>
+            <span>경고 <b className="text-amber-700 tabular-nums">{auditReport.warned}</b>건</span>
+            <span>제외 <b className="text-[#E31837] tabular-nums">{auditReport.excluded.length}</b>건</span>
+            <span>등록 진행 <b className="text-gray-900 tabular-nums">{auditReport.registered}</b>건</span>
+          </div>
+
+          {auditReport.excluded.length > 0 && (
+            <div className="rounded-lg border border-[#E31837]/40 bg-red-50/60 p-3">
+              <p className="text-xs font-semibold text-[#E31837] mb-1.5">등록에서 제외 — 점검으로도 고치지 못했습니다</p>
+              <ul className="space-y-1">
+                {auditReport.excluded.slice(0, 20).map((x, i) => (
+                  <li key={i} className="text-[11px] text-gray-800 leading-snug">
+                    <b className="break-all">{x.name}</b> — {x.reasons.join(' / ')}
+                  </li>
+                ))}
+              </ul>
+              {auditReport.excluded.length > 20 && (
+                <p className="text-[11px] text-gray-500 mt-1">외 {auditReport.excluded.length - 20}건</p>
+              )}
+            </div>
+          )}
+
+          {auditReport.warnings.length > 0 && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50/60 p-3">
+              <p className="text-xs font-semibold text-amber-900 mb-1.5">경고 — 등록은 진행되지만 확인이 필요합니다</p>
+              <ul className="space-y-1">
+                {auditReport.warnings.slice(0, 20).map((x, i) => (
+                  <li key={i} className="text-[11px] text-gray-800 leading-snug">
+                    <b className="break-all">{x.name}</b> — {x.messages.join(' / ')}
+                  </li>
+                ))}
+              </ul>
+              {auditReport.warnings.length > 20 && (
+                <p className="text-[11px] text-gray-500 mt-1">외 {auditReport.warnings.length - 20}건</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {certNotice && (
         <p className="text-sm text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2">
           {certNotice}
@@ -1943,8 +2389,17 @@ export default function AllInOneRegisterPanel() {
       <PreUploadConfirmModal
         open={preUploadOpen}
         count={preUploadCount}
-        onConfirm={() => { setPreUploadOpen(false); handleRegister(); }}
+        onConfirm={() => { setPreUploadOpen(false); void handleRegister(); }}
         onCancel={() => setPreUploadOpen(false)}
+      />
+
+      {/* 검수 생략 등록 — 위험 5종 개별 체크 + 확인 문구 타이핑을 통과해야 열린다 */}
+      <SkipReviewRiskModal
+        open={skipOpen}
+        plan={skipPlan}
+        helperOnline={!!helperDiag?.ok}
+        onConfirm={(o) => { void confirmSkipReview(o); }}
+        onCancel={() => setSkipOpen(false)}
       />
 
       {/* 카테고리 트리 선택 — 대량등록과 동일 picker. 선택 시 해당 행의 코드·경로를 갱신. */}
