@@ -8,7 +8,7 @@ import {
   Wand2, Save, RotateCcw, Monitor, KeyRound,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { MONITOR_AUTH_URL, buildDesktopMacUrls, MAC_GATEKEEPER_GUIDE } from '@/lib/megaload/worker-download';
+import { MONITOR_AUTH_URL, MAC_GATEKEEPER_GUIDE, MAC_CAPABILITY_NOTE } from '@/lib/megaload/worker-download';
 import { useLatestVersions } from '@/lib/megaload/use-latest-versions';
 import { classifyHelperLink } from '@/lib/megaload/allinone-local';
 
@@ -335,33 +335,44 @@ export default function LocalGpuWorkerSettings() {
             <ExternalLink className="w-3 h-3 opacity-70" />
           </a>
 
-          {/* macOS — 서명 없이 배포하므로 최초 1회 Gatekeeper 통과 안내가 반드시 붙어야 한다. */}
+          {/* macOS — 서명 없이 배포하므로 최초 1회 Gatekeeper 통과 안내가 반드시 붙어야 한다.
+              ⚠️ 링크는 서버가 릴리스 자산을 확인해 준 것만 그린다. 예전엔 버전으로 URL 을
+                 조립해 걸어서, 맥 빌드가 없던 기간 내내 404 를 내려보내고 있었다. */}
           <div className="mt-3 pt-3 border-t border-gray-100">
             <div className="text-xs font-semibold text-gray-700 mb-1.5">macOS</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <a
-                href={buildDesktopMacUrls(desktop.version).arm}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition"
-              >
-                <Download className="w-4 h-4" /> Apple Silicon (M1~)
-              </a>
-              <a
-                href={buildDesktopMacUrls(desktop.version).intel}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition"
-              >
-                <Download className="w-4 h-4" /> Intel Mac
-              </a>
-            </div>
+            {(desktop.macUrls?.arm || desktop.macUrls?.intel) ? (
+              <div className="flex flex-wrap items-center gap-2">
+                {desktop.macUrls.arm && (
+                  <a
+                    href={desktop.macUrls.arm}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition"
+                  >
+                    <Download className="w-4 h-4" /> Apple Silicon (M1~)
+                  </a>
+                )}
+                {desktop.macUrls.intel && (
+                  <a
+                    href={desktop.macUrls.intel}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition"
+                  >
+                    <Download className="w-4 h-4" /> Intel Mac
+                  </a>
+                )}
+              </div>
+            ) : (
+              <p className="text-[11px] text-gray-500 leading-relaxed">
+                이 버전의 macOS 설치파일이 아직 발행되지 않았습니다. 발행되면 여기에 자동으로 나타납니다.
+              </p>
+            )}
             <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mt-2 leading-relaxed">
               {MAC_GATEKEEPER_GUIDE}
             </p>
             <p className="text-[11px] text-gray-500 mt-1.5 leading-relaxed">
-              맥에서는 <strong>로그인·연결·광고 자동화</strong>만 동작합니다. 이미지 생성과 로컬 텍스트 엔진은
-              NVIDIA GPU가 필요해 Windows 전용입니다. <strong>품절·가격 확인은 서버가 처리하므로 맥에서도 정상 동작</strong>합니다.
+              {MAC_CAPABILITY_NOTE} 맥은 자동 업데이트가 없어(코드서명 미보유) 새 버전은 이 페이지에서 다시 받으세요.
             </p>
           </div>
         </div>

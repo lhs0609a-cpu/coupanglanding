@@ -4,7 +4,7 @@
  */
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
-import { comfyRoot, ensureRembgNode } from './bootstrap.mjs';
+import { comfyRoot, comfyAppDir, embeddedPython, ensureRembgNode, IS_WIN } from './bootstrap.mjs';
 import { checkHealth } from '../runtime/comfyui-client.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -32,11 +32,14 @@ export class ComfyManager {
       await ensureRembgNode({ installDir: this.installDir, onProgress: (p) => this.onLog(`[누끼노드] ${p.detail || p.phase}${p.pct != null ? ' ' + p.pct + '%' : ''}`) });
     } catch (e) { this.onLog(`[누끼노드] 보장 실패(무시): ${e.message}`); }
 
-    const root = comfyRoot(this.installDir);
-    const python = join(root, 'python_embeded', 'python.exe');
-    const args = ['-s', join('ComfyUI', 'main.py'), '--port', String(this.port), '--disable-auto-launch'];
+    // 윈도 포터블은 루트에서 ComfyUI/main.py 를 부르고, 맥 소스 배치는 본체 폴더가 곧 cwd 다.
+    // ComfyUI 는 맥에서 별도 플래그 없이 Metal(MPS)을 자동 인식한다.
+    const python = embeddedPython(this.installDir);
+    const cwd = IS_WIN ? comfyRoot(this.installDir) : comfyAppDir(this.installDir);
+    const args = ['-s', IS_WIN ? join('ComfyUI', 'main.py') : 'main.py',
+      '--port', String(this.port), '--disable-auto-launch'];
     this.onLog(`ComfyUI 시작: ${python} ${args.join(' ')}`);
-    this.proc = spawn(python, args, { cwd: root, windowsHide: true });
+    this.proc = spawn(python, args, { cwd, windowsHide: true });
     this.proc.stdout?.on('data', (d) => this.onLog(String(d).trimEnd()));
     this.proc.stderr?.on('data', (d) => this.onLog(String(d).trimEnd()));
     this.proc.on('exit', (code) => { this.onLog(`ComfyUI 종료 (code=${code})`); this.proc = null; });

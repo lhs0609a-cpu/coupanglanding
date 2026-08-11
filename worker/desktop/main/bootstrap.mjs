@@ -1,14 +1,34 @@
 /**
- * 첫 실행 설치기: NVIDIA 점검 → ComfyUI 포터블 다운로드/7z 해제 → SDXL 모델 다운로드.
+ * 첫 실행 설치기 — Windows / macOS 양쪽 지원.
+ *
+ *   Windows : NVIDIA 점검 → ComfyUI 포터블(임베디드 파이썬 동봉) 7z 해제 → 모델 다운로드
+ *   macOS   : Metal 점검 → 독립 파이썬 + ComfyUI 소스 + torch(MPS) 구성 → 모델 다운로드
+ *
+ * 맥에는 ComfyUI 포터블 배포판이 없다(윈도 전용 임베디드 파이썬을 동봉한 것이라서).
+ * 그래서 맥에서는 python-build-standalone 으로 격리 파이썬을 깔고 소스를 직접 세운다.
+ * 시스템 파이썬을 쓰지 않는 이유: macOS 기본 python3 는 Xcode CLT 설치를 요구하고,
+ * homebrew 파이썬은 사용자마다 유무·버전이 제각각이라 설치 성공률이 들쭉날쭉하다.
+ *
  * 모든 단계는 onProgress({ phase, pct, detail }) 로 진행률을 보고한다.
  */
 import { createWriteStream } from 'node:fs';
-import { mkdir, stat, readdir, rm } from 'node:fs/promises';
+import { mkdir, stat, readdir, rm, rename, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
+import { totalmem, freemem, cpus } from 'node:os';
 import { path7za } from '7zip-bin';
+
+// ── 플랫폼 ──────────────────────────────────────────────────────────────────
+export const IS_WIN = process.platform === 'win32';
+export const IS_MAC = process.platform === 'darwin';
+/**
+ * Apple Silicon 여부 — Metal(MPS) 가속이 되는 유일한 맥이다.
+ * Intel 맥은 torch 가 CPU 로만 돌아 SDXL 한 장에 수 분이 걸린다(사실상 사용 불가).
+ * 그래서 이미지 엔진은 Apple Silicon 에서만 설치한다 — 8GB 를 받아놓고 못 쓰는 게 더 나쁘다.
+ */
+export const IS_APPLE_SILICON = IS_MAC && process.arch === 'arm64';
 
 // 환경마다 릴리스 자산명이 바뀔 수 있어 settings 로 override 가능 (main 에서 주입).
 export const DEFAULTS = {
@@ -39,7 +59,26 @@ export const DEFAULTS = {
   vcRedistUrl: 'https://aka.ms/vs/17/release/vc_redist.x64.exe',
   // onnxruntime 1.21 기준 안전선. 14.29(VS2019) 에서 실패 확인됨.
   vcRedistMinMinor: 40,
+
+  // ── macOS 전용 ────────────────────────────────────────────────────────────
+  // ollama 맥 배포본은 유니버설 바이너리(arm64+x64 한 파일) 하나뿐이다 → 아키텍처 분기 불필요.
+  ollamaDarwinUrl: 'https://github.com/ollama/ollama/releases/latest/download/ollama-darwin.tgz',
+  // 맥용 ComfyUI 포터블이 없으므로 소스 아카이브를 받아 직접 세운다.
+  comfySourceUrl: 'https://github.com/comfyanonymous/ComfyUI/archive/refs/heads/master.zip',
+  // python-build-standalone — 자산명에 "버전+빌드날짜"가 박혀 있어 latest/download 가 통하지 않는다.
+  //   반드시 고정 태그로 핀한다(재현 가능 + 자산명 변경으로 인한 404 방지).
+  pythonDarwinTag: '20260807',
+  pythonDarwinVersion: '3.11.15',
 };
+
+/** macOS 독립 파이썬 tarball URL — 아키텍처(arm64/x64)에 따라 자산명이 다르다. */
+export function pythonDarwinUrl(u = DEFAULTS) {
+  const arch = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
+  const name = `cpython-${u.pythonDarwinVersion}+${u.pythonDarwinTag}-${arch}-apple-darwin-install_only.tar.gz`;
+  // 파일명의 '+' 는 경로 세그먼트에서는 리터럴이지만, 프록시·CDN 이 쿼리 규칙으로 오해해
+  // 공백으로 바꾸는 사례가 있어 명시적으로 인코딩한다.
+  return `https://github.com/astral-sh/python-build-standalone/releases/download/${u.pythonDarwinTag}/${name.replace('+', '%2B')}`;
+}
 
 const exists = (p) => stat(p).then(() => true, () => false);
 
@@ -55,13 +94,42 @@ const exists = (p) => stat(p).then(() => true, () => false);
  * → 애초에 시도하지 않고 조용히 건너뛴다.
  */
 export function localEngineSupported() {
-  return process.platform === 'win32';
+  return IS_WIN || IS_MAC;
+}
+
+/**
+ * 이미지 생성(ComfyUI + SDXL + 누끼) 을 이 기기에서 쓸 수 있는가.
+ * 텍스트/비전(ollama)과 달리 GPU 가속이 없으면 실사용이 불가능하다:
+ *   Windows  — NVIDIA(CUDA)
+ *   macOS    — Apple Silicon(Metal/MPS). Intel 맥은 CPU 뿐이라 제외.
+ */
+export function imageEngineSupported() {
+  return IS_WIN || IS_APPLE_SILICON;
+}
+
+/**
+ * Apple Silicon GPU 점검.
+ * 통합 메모리라 VRAM 이 따로 없다 — GPU 가 시스템 RAM 을 그대로 쓴다.
+ * 호출부(pickNumParallel 등)가 vramFreeMb 로 동시 슬롯을 정하므로 RAM 을 그 자리에 넣는다.
+ * ⚠️ macOS 의 freemem() 은 페이지 캐시를 뺀 값이라 실제 가용량보다 작게 나온다 →
+ *    슬롯 수가 보수적으로(적게) 잡힌다. 과다 할당으로 OOM 나는 것보다 안전한 방향이다.
+ */
+function checkGpuMac() {
+  if (!IS_APPLE_SILICON) return { ok: false, name: null, vramMb: 0, vramFreeMb: 0 };
+  const mb = (b) => Math.round(b / (1024 * 1024));
+  return {
+    ok: true,
+    name: `${cpus()[0]?.model || 'Apple Silicon'} (Metal)`,
+    vramMb: mb(totalmem()),
+    vramFreeMb: mb(freemem()),
+  };
 }
 
 /** NVIDIA 드라이버/ GPU 점검 (nvidia-smi). vramMb=총량, vramFreeMb="지금 남은" VRAM. */
 export function checkGpu() {
-  // Windows 외에서는 nvidia-smi 를 찾을 이유가 없다(맥·리눅스 빌드에서 불필요한 spawn 방지).
-  if (!localEngineSupported()) return Promise.resolve({ ok: false, name: null, vramMb: 0, vramFreeMb: 0 });
+  if (IS_MAC) return Promise.resolve(checkGpuMac());
+  // Windows·맥 외에서는 nvidia-smi 를 찾을 이유가 없다(불필요한 spawn 방지).
+  if (!IS_WIN) return Promise.resolve({ ok: false, name: null, vramMb: 0, vramFreeMb: 0 });
   return new Promise((resolve) => {
     const p = spawn('nvidia-smi', ['--query-gpu=name,memory.total,memory.free', '--format=csv,noheader'], { shell: true });
     let out = '';
@@ -80,45 +148,68 @@ export function checkGpu() {
   });
 }
 
-/** 포터블 ComfyUI 루트(run_*.bat 가 있는 폴더) 추정 */
+/**
+ * ComfyUI 실행 루트.
+ *   Windows — 포터블 압축을 풀면 생기는 ComfyUI_windows_portable (run_*.bat 가 있는 곳)
+ *   macOS   — 소스를 그대로 둔 ComfyUI
+ */
 export function comfyRoot(installDir) {
-  return join(installDir, 'ComfyUI_windows_portable');
+  return join(installDir, IS_WIN ? 'ComfyUI_windows_portable' : 'ComfyUI');
+}
+/**
+ * main.py·models·custom_nodes 가 있는 ComfyUI 본체 폴더.
+ * 윈도 포터블은 루트 안에 ComfyUI/ 가 한 겹 더 있고, 맥 소스 배치는 루트가 곧 본체다.
+ * (이 한 겹 차이 때문에 모델 경로가 어긋나면 SDXL 을 받아놓고도 체크포인트가 안 보인다.)
+ */
+export function comfyAppDir(installDir) {
+  return IS_WIN ? join(comfyRoot(installDir), 'ComfyUI') : comfyRoot(installDir);
 }
 export function checkpointsDir(installDir) {
-  return join(comfyRoot(installDir), 'ComfyUI', 'models', 'checkpoints');
+  return join(comfyAppDir(installDir), 'models', 'checkpoints');
 }
 export function lorasDir(installDir) {
-  return join(comfyRoot(installDir), 'ComfyUI', 'models', 'loras');
+  return join(comfyAppDir(installDir), 'models', 'loras');
 }
 export function customNodesDir(installDir) {
-  return join(comfyRoot(installDir), 'ComfyUI', 'custom_nodes');
+  return join(comfyAppDir(installDir), 'custom_nodes');
 }
 export function ollamaDir(installDir) {
   return join(installDir, 'ollama');
 }
 export function ollamaExePath(installDir) {
-  return join(ollamaDir(installDir), 'ollama.exe');
+  return join(ollamaDir(installDir), IS_WIN ? 'ollama.exe' : 'ollama');
+}
+/** ComfyUI·pip 를 돌릴 파이썬 실행파일. */
+export function embeddedPython(installDir) {
+  return IS_WIN
+    ? join(comfyRoot(installDir), 'python_embeded', 'python.exe')
+    : join(installDir, 'python', 'bin', 'python3');
 }
 
 /**
  * 포터블 ollama 바이너리 보장 — idempotent. ollama.exe 가 없으면 zip 다운로드·해제.
  * (모델은 서버 기동 후 OllamaManager.ensureModel 에서 받는다.) 실패 시 throw.
  */
-export async function ensureOllama({ installDir, url = DEFAULTS.ollamaZipUrl, onProgress = () => {} } = {}) {
+export async function ensureOllama({ installDir, url, onProgress = () => {} } = {}) {
   if (!localEngineSupported()) {
-    onProgress({ phase: 'ollama', pct: 100, detail: '이 운영체제에서는 로컬 텍스트 엔진을 지원하지 않습니다(Windows 전용)' });
+    onProgress({ phase: 'ollama', pct: 100, detail: '이 운영체제에서는 로컬 텍스트 엔진을 지원하지 않습니다' });
     return null;
   }
+  // 맥은 유니버설 tgz, 윈도는 zip — 호출부가 url 을 안 주면 플랫폼 기본값을 쓴다.
+  const src = url || (IS_WIN ? DEFAULTS.ollamaZipUrl : DEFAULTS.ollamaDarwinUrl);
   const exe = ollamaExePath(installDir);
   if (await exists(exe)) { onProgress({ phase: 'ollama', pct: 100, detail: 'ollama 이미 설치됨' }); return exe; }
   const dir = ollamaDir(installDir);
   await mkdir(dir, { recursive: true });
-  const zip = join(installDir, 'ollama_portable.zip');
+  const archive = join(installDir, IS_WIN ? 'ollama_portable.zip' : 'ollama_portable.tgz');
   onProgress({ phase: 'ollama-download', pct: 0, detail: 'ollama 다운로드(~수백MB)' });
-  await downloadFile(url, zip, (pct) => onProgress({ phase: 'ollama-download', pct }));
+  await downloadFile(src, archive, (pct) => onProgress({ phase: 'ollama-download', pct }));
   onProgress({ phase: 'ollama-extract', pct: 0, detail: 'ollama 설치' });
-  await extract7z(zip, dir, (pct) => onProgress({ phase: 'ollama-extract', pct }));
-  await rm(zip, { force: true });
+  if (IS_WIN) await extract7z(archive, dir, (pct) => onProgress({ phase: 'ollama-extract', pct }));
+  else await extractTarGz(archive, dir);
+  await rm(archive, { force: true });
+  // tar 는 권한을 보존하지만, 압축본에 실행비트가 빠져 있으면 spawn 이 EACCES 로 죽는다.
+  if (!IS_WIN) await chmod(exe, 0o755).catch(() => {});
   onProgress({ phase: 'ollama', pct: 100, detail: 'ollama 준비 완료' });
   return exe;
 }
@@ -149,7 +240,7 @@ export function checkVCRedist() {
  */
 export async function ensureVCRedist({ installDir, url = DEFAULTS.vcRedistUrl, minMinor = DEFAULTS.vcRedistMinMinor, onProgress = () => {} } = {}) {
   // VC++ 재배포 패키지는 Windows 개념이다 — 다른 OS 에서는 레지스트리 조회부터 무의미.
-  if (!localEngineSupported()) return true;
+  if (!IS_WIN) return true;
   try {
     const cur = await checkVCRedist();
     if (cur && (cur.major > 14 || (cur.major === 14 && cur.minor >= minMinor))) {
@@ -187,18 +278,24 @@ export async function ensureVCRedist({ installDir, url = DEFAULTS.vcRedistUrl, m
   }
 }
 
-function embeddedPython(installDir) {
-  return join(comfyRoot(installDir), 'python_embeded', 'python.exe');
-}
-
-/** 임베디드 파이썬으로 명령 실행 (pip 등). 실패 시 reject. */
-function runPython(py, args, cwd) {
+/**
+ * 파이썬으로 명령 실행 (pip 등). 실패 시 reject.
+ * @param {(line:string)=>void} [onLine] 진행 표시용 — torch 설치는 수 GB·수 분이라
+ *        아무 출력도 없으면 앱이 멈춘 것처럼 보인다. pip 의 상태줄을 그대로 흘려보낸다.
+ */
+function runPython(py, args, cwd, onLine) {
   return new Promise((resolve, reject) => {
     const p = spawn(py, args, { cwd, windowsHide: true });
     let err = '';
-    p.stderr?.on('data', (d) => (err += d));
+    const feed = (d) => {
+      const s = String(d);
+      if (onLine) for (const l of s.split(/\r?\n/)) { const t = l.trim(); if (t) onLine(t); }
+      return s;
+    };
+    p.stdout?.on('data', feed);
+    p.stderr?.on('data', (d) => { err += feed(d); });
     p.on('error', reject);
-    p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`pip 실패(${code}): ${err.slice(0, 200)}`))));
+    p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`pip 실패(${code}): ${err.slice(-300)}`))));
   });
 }
 
@@ -242,11 +339,13 @@ export async function ensureRembgNode({ installDir, url = DEFAULTS.rembgNodeUrl,
   }
 }
 
-/** 설치 완료 여부 — 실행 bat + 체크포인트 1개 이상 */
+/** 설치 완료 여부 — 실행 진입점(윈도: bat / 맥: main.py+파이썬) + 체크포인트 1개 이상 */
 export async function isInstalled(installDir) {
   const root = comfyRoot(installDir);
-  const hasBat = (await exists(join(root, 'run_nvidia_gpu.bat'))) || (await exists(join(root, 'run_cpu.bat')));
-  if (!hasBat) return false;
+  const hasRunner = IS_WIN
+    ? (await exists(join(root, 'run_nvidia_gpu.bat'))) || (await exists(join(root, 'run_cpu.bat')))
+    : (await exists(join(comfyAppDir(installDir), 'main.py'))) && (await exists(embeddedPython(installDir)));
+  if (!hasRunner) return false;
   try {
     const files = await readdir(checkpointsDir(installDir));
     return files.some((f) => f.endsWith('.safetensors') || f.endsWith('.ckpt'));
@@ -288,22 +387,84 @@ function extract7z(archive, destDir, onProgress) {
 }
 
 /**
+ * tar.gz/tgz 해제 — macOS 기본 tar 사용.
+ * 7za 로도 되지만 gzip→tar 2패스라 중간 tar 파일이 디스크에 남고(수 GB) 느리다.
+ * tar 는 실행 권한도 그대로 보존한다(ollama 바이너리에 중요).
+ */
+function extractTarGz(archive, destDir) {
+  return new Promise((resolve, reject) => {
+    const p = spawn('tar', ['-xzf', archive, '-C', destDir]);
+    let err = '';
+    p.stderr?.on('data', (d) => (err += d));
+    p.on('error', reject);
+    p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`tar 해제 실패(${code}): ${err.slice(0, 300)}`))));
+  });
+}
+
+/**
  * 전체 설치 흐름.
  * @param {object} o
  * @param {string} o.installDir   userData 하위 설치 경로
  * @param {object} o.urls         { comfyArchiveUrl, modelUrl, modelFileName }
  * @param {(p:{phase:string,pct:number,detail?:string})=>void} o.onProgress
  */
+/**
+ * macOS 이미지 엔진 구성 — 독립 파이썬 + ComfyUI 소스 + torch(MPS).
+ * 윈도 포터블 한 방에 끝나는 것과 달리 세 단계라, 각 단계가 idempotent 해야 한다
+ * (수 GB 다운로드 중 끊기는 일이 흔해서 재실행으로 이어붙일 수 있어야 한다).
+ */
+async function installMacImageEngine({ installDir, u, onProgress }) {
+  const py = embeddedPython(installDir);
+
+  // 1-a) 격리 파이썬
+  if (!(await exists(py))) {
+    const tgz = join(installDir, 'python_standalone.tar.gz');
+    onProgress({ phase: 'comfy-download', pct: 0, detail: `독립 파이썬 ${u.pythonDarwinVersion} 다운로드 (~30MB)` });
+    await downloadFile(pythonDarwinUrl(u), tgz, (pct) => onProgress({ phase: 'comfy-download', pct }));
+    onProgress({ phase: 'comfy-extract', pct: 0, detail: '파이썬 설치' });
+    await extractTarGz(tgz, installDir);   // → installDir/python/bin/python3
+    await rm(tgz, { force: true });
+    await chmod(py, 0o755).catch(() => {});
+  }
+
+  // 1-b) ComfyUI 소스
+  const app = comfyAppDir(installDir);
+  if (!(await exists(join(app, 'main.py')))) {
+    const zip = join(installDir, 'comfyui_src.zip');
+    onProgress({ phase: 'comfy-download', pct: 0, detail: 'ComfyUI 소스 다운로드' });
+    await downloadFile(u.comfySourceUrl, zip, (pct) => onProgress({ phase: 'comfy-download', pct }));
+    onProgress({ phase: 'comfy-extract', pct: 0, detail: 'ComfyUI 압축 해제' });
+    await extract7z(zip, installDir, (pct) => onProgress({ phase: 'comfy-extract', pct }));
+    await rm(zip, { force: true });
+    // GitHub 소스 zip 은 ComfyUI-master/ 처럼 브랜치명이 붙은 폴더로 풀린다 → 고정 이름으로 정규화.
+    const found = (await readdir(installDir).catch(() => [])).find((d) => /^ComfyUI-/i.test(d));
+    if (found) await rename(join(installDir, found), app);
+  }
+  if (!(await exists(join(app, 'main.py')))) throw new Error('ComfyUI 소스 배치 실패 (main.py 없음)');
+
+  // 1-c) torch(MPS) + ComfyUI 의존성. 수 GB·수 분이라 pip 출력을 그대로 흘려보낸다.
+  const log = (detail) => onProgress({ phase: 'comfy-deps', pct: 50, detail });
+  onProgress({ phase: 'comfy-deps', pct: 0, detail: 'PyTorch(Metal) 설치 — 수 GB, 수 분 소요' });
+  await runPython(py, ['-m', 'pip', 'install', '--upgrade', 'pip'], installDir, log);
+  await runPython(py, ['-m', 'pip', 'install', 'torch', 'torchvision'], installDir, log);
+  await runPython(py, ['-m', 'pip', 'install', '-r', join(app, 'requirements.txt')], installDir, log);
+  onProgress({ phase: 'comfy-deps', pct: 100, detail: 'ComfyUI 의존성 준비 완료' });
+}
+
 export async function install({ installDir, urls = {}, onProgress = () => {} }) {
-  if (!localEngineSupported()) {
+  if (!imageEngineSupported()) {
     // 사용자가 "엔진 설치/확인"을 눌렀을 때도 조용히 실패하지 않고 이유를 알린다.
-    throw new Error('이미지 생성 엔진(ComfyUI·SDXL)은 Windows + NVIDIA GPU 에서만 지원됩니다.');
+    throw new Error(IS_MAC
+      ? '이미지 생성 엔진(ComfyUI·SDXL)은 Apple Silicon(M1 이상) 맥에서만 지원됩니다. Intel 맥은 GPU 가속이 없어 한 장에 수 분이 걸립니다 — 텍스트·이미지인식 생성은 그대로 사용할 수 있습니다.'
+      : '이미지 생성 엔진(ComfyUI·SDXL)은 Windows + NVIDIA GPU 또는 Apple Silicon 맥에서 지원됩니다.');
   }
   const u = { ...DEFAULTS, ...urls };
   await mkdir(installDir, { recursive: true });
 
-  // 1) ComfyUI 포터블
-  if (!(await exists(join(comfyRoot(installDir), 'run_nvidia_gpu.bat')))) {
+  // 1) ComfyUI — 윈도는 포터블 한 방, 맥은 파이썬+소스+torch 3단계.
+  if (IS_MAC) {
+    await installMacImageEngine({ installDir, u, onProgress });
+  } else if (!(await exists(join(comfyRoot(installDir), 'run_nvidia_gpu.bat')))) {
     const archive = join(installDir, 'comfyui_portable.7z');
     onProgress({ phase: 'comfy-download', pct: 0, detail: 'ComfyUI 포터블 다운로드 시작' });
     await downloadFile(u.comfyArchiveUrl, archive, (pct) => onProgress({ phase: 'comfy-download', pct }));
@@ -347,7 +508,8 @@ export async function install({ installDir, urls = {}, onProgress = () => {} }) 
   await ensureRembgNode({ installDir, url: u.rembgNodeUrl, onProgress });
 
   // 5) ollama 바이너리(텍스트 LLM) — 모델은 첫 올인원 실행 시 받음. 실패해도 설치는 완료 처리.
-  try { await ensureOllama({ installDir, url: u.ollamaZipUrl, onProgress }); }
+  // url 을 넘기지 않으면 ensureOllama 가 플랫폼(윈도 zip / 맥 tgz)에 맞는 기본값을 고른다.
+  try { await ensureOllama({ installDir, url: IS_WIN ? u.ollamaZipUrl : u.ollamaDarwinUrl, onProgress }); }
   catch (e) { onProgress({ phase: 'ollama', pct: 100, detail: `ollama 생략(${String(e.message).slice(0, 60)})` }); }
 
   onProgress({ phase: 'done', pct: 100 });

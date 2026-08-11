@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 import {
   DESKTOP_LATEST_YML_URL,
+  DESKTOP_RELEASE_TAG,
   GITHUB_OWNER,
   GITHUB_REPO,
   MONITOR_TAG_PREFIX,
   buildDesktopDownloadUrl,
   buildMonitorUrls,
+  pickDesktopMacUrls,
   fallbackVersions,
   type LatestVersionsResponse,
 } from '@/lib/megaload/worker-download';
@@ -50,7 +52,28 @@ async function fetchDesktop() {
     downloadUrl: path
       ? `${DESKTOP_LATEST_YML_URL.replace(/\/latest\.yml$/, '')}/${path}`
       : buildDesktopDownloadUrl(version),
+    // ⚠️ latest.yml 은 **Windows 자동업데이트 피드**라 dmg 정보가 없다.
+    //    맥 링크는 릴리스 자산 목록을 따로 봐야 실재 여부를 알 수 있다(없으면 404).
+    macUrls: pickDesktopMacUrls(version, await fetchDesktopAssetNames()),
   };
+}
+
+/**
+ * 도우미 고정 태그 릴리스의 자산 파일명 목록.
+ * 실패하면 빈 배열 — 맥 버튼이 잠시 감춰질 뿐, Windows 다운로드는 영향 없다.
+ */
+async function fetchDesktopAssetNames(): Promise<string[]> {
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/tags/${DESKTOP_RELEASE_TAG}`,
+      { next: { revalidate: TTL_SEC }, headers: ghHeaders() },
+    );
+    if (!res.ok) return [];
+    const rel = (await res.json()) as { assets?: { name: string }[] };
+    return (rel.assets || []).map((a) => a.name);
+  } catch {
+    return [];
+  }
 }
 
 /**

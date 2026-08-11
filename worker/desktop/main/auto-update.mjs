@@ -38,6 +38,52 @@ function cmpVer(a, b) {
   return 0;
 }
 
+/** 맥 사용자가 새 dmg 를 받으러 갈 곳(다운로드 단일 허브). */
+const MAC_DOWNLOAD_PAGE = 'https://www.megaload.co.kr/megaload/settings?tab=localgpu';
+
+/**
+ * macOS 업데이트 안내 — **자동 설치는 구조적으로 불가능**하다.
+ * Squirrel.Mac(electron-updater)은 서명된 앱만 교체할 수 있는데 이 앱은 코드서명이 없다
+ * (Apple Developer 계정 미등록). 서명 없이 교체를 시도하면 Gatekeeper 가 막고,
+ * 최악의 경우 설치본이 깨져 앱이 아예 안 열린다.
+ *
+ * 그래서 맥에서는 "새 버전이 나왔다"는 사실만 알리고 다운로드 페이지를 열어 준다.
+ * 알리지도 않던 예전 동작은 맥 사용자가 구버전에 영영 묶인다는 뜻이었다.
+ */
+async function macCheckAndNotify(getWindow, manual = false) {
+  const win = () => getWindow?.() ?? null;
+  const say = async (box) => { const w = win(); return w ? dialog.showMessageBox(w, box) : dialog.showMessageBox(box); };
+  let ver;
+  try {
+    const res = await fetch(`${FEED}/latest.yml`, { redirect: 'follow', cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    ver = ((await res.text()).match(/^version:\s*(.+)$/m) || [])[1]?.trim();
+  } catch (e) {
+    ulog(`[mac] feed 실패: ${e.message}`);
+    if (manual) await say({ type: 'warning', title: '업데이트 확인', message: '업데이트 정보를 가져오지 못했습니다.', detail: e.message });
+    return;
+  }
+  const cur = app.getVersion();
+  ulog(`[mac]${manual ? ' [수동]' : ''} 현재 v${cur}, 최신 v${ver}`);
+  if (!ver || cmpVer(ver, cur) <= 0) {
+    if (manual) await say({ type: 'info', title: '업데이트 확인', message: `이미 최신 버전입니다. (v${cur})` });
+    return;
+  }
+  if (!manual && declinedVersion === ver) return;   // 이번 버전은 이미 "나중에" 를 눌렀다
+  const r = await say({
+    type: 'info',
+    title: '새 버전이 있습니다',
+    message: `메가로드 도우미 v${ver} 가 나왔습니다. (현재 v${cur})`,
+    detail: 'macOS 는 자동 업데이트를 지원하지 않아 새 설치파일(dmg)을 직접 받아야 합니다.\n'
+      + '[다운로드 페이지 열기] 를 누르면 받는 곳으로 이동합니다.',
+    buttons: ['다운로드 페이지 열기', '나중에'],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  if (r.response === 0) { try { await shell.openExternal(MAC_DOWNLOAD_PAGE); } catch { /* noop */ } }
+  else declinedVersion = ver;
+}
+
 async function checkAndPrompt(getWindow, manual = false) {
   if (busy) return;
   const win = () => getWindow?.() ?? null;
@@ -135,11 +181,17 @@ async function downloadAndInstall(ver, file, sha, win) {
  */
 export function setupAutoUpdate(opts) {
   if (!app.isPackaged) { ulog('dev 모드 — 업데이트 체크 비활성'); return; }
-  // 이 업데이터는 Windows 전용이다 — latest.yml 의 NSIS Setup.exe 를 받아 powershell 로 실행한다.
-  // 맥 빌드는 서명·공증이 없어 자동업데이트를 붙일 수도 없으므로(Gatekeeper 가 막는다)
-  // 아예 체크하지 않는다. 새 버전은 웹 다운로드 페이지에서 dmg 를 다시 받는 방식.
-  if (process.platform !== 'win32') { ulog(`${process.platform} — 자동업데이트 미지원(수동 재설치)`); return; }
   if (initialized) return;
+  // 자동 설치는 Windows 전용이다 — latest.yml 의 NSIS Setup.exe 를 받아 powershell 로 실행한다.
+  // 맥은 서명이 없어 앱 교체가 불가능하므로(위 macCheckAndNotify 주석) 알림만 띄운다.
+  if (process.platform === 'darwin') {
+    initialized = true;
+    const mc = () => macCheckAndNotify(opts.getWindow).catch((e) => ulog(`[mac] 체크 예외: ${e.message}`));
+    setTimeout(mc, 12_000);
+    setInterval(mc, 6 * 60 * 60 * 1000);
+    return;
+  }
+  if (process.platform !== 'win32') { ulog(`${process.platform} — 자동업데이트 미지원(수동 재설치)`); return; }
   initialized = true;
   // 보류 설치본이 있으면 앱 종료 시 자동 설치 실행(트리/잡 밖에서 도는 shell.openPath 사용 — install-now 와 동일 방식).
   app.on('before-quit', () => {
@@ -154,5 +206,6 @@ export function setupAutoUpdate(opts) {
 
 /** 수동 "업데이트 확인" — 최신이면 안내, 새 버전이면 다이얼로그. (앱의 버튼에서 호출) */
 export function checkForUpdatesNow(getWindow) {
-  return checkAndPrompt(getWindow, true).catch((e) => ulog(`수동체크 예외: ${e.message}`));
+  const fn = process.platform === 'darwin' ? macCheckAndNotify : checkAndPrompt;
+  return fn(getWindow, true).catch((e) => ulog(`수동체크 예외: ${e.message}`));
 }

@@ -105,10 +105,23 @@ jobs:
   #    "확인 없이 열기"를 눌러야 한다. 웹 다운로드 화면에 안내가 있다.
   # ⚠️ latest.yml 은 절대 건드리지 않는다 — 그건 Windows 자동업데이트 피드다.
   #    맥은 자동업데이트가 없으므로(auto-update.mjs 가 win32 에서만 동작) dmg 만 올린다.
+  # ⚠️ 아키텍처별로 러너를 나눈다. 예전엔 한 러너(arm64)에서 --arm64 --x64 를 함께 빌드했는데
+  #    Intel 산출물이 크로스아치로 깨졌다. electron-builder 의 네이티브 리빌드가 실행 호스트
+  #    아키텍처를 따라가기 때문이다 → arm64=macos-14, x64=macos-13(Intel) 로 분리한다.
+  #
+  # ⚠️ continue-on-error 를 쓰지 않는다. build-mac 은 build(Windows)와 의존관계가 없어
+  #    실패해도 Windows 릴리스를 막지 못한다. 예전에 이 옵션이 붙어 있어서 맥 빌드가
+  #    한 번도 성공한 적 없다는 사실이 릴리스 화면에서 초록불로 가려져 있었다(dmg 0개).
   build-mac:
-    runs-on: macos-latest
-    # 맥 빌드 실패가 Windows 릴리스를 막지 않게 한다.
-    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14   # Apple Silicon
+            arch: arm64
+          - runner: macos-13   # Intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -127,12 +140,13 @@ jobs:
         env:
           # 키체인에서 서명 인증서를 찾지 않게 한다(없으면 빌드가 실패한다).
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npm run dist -- --mac
+        run: npm run dist -- --mac --${{ matrix.arch }}
 
       - name: Verify dmg built
         shell: bash
         run: |
-          ls -la worker/desktop/dist/*.dmg || { echo "::error::dmg 산출물이 없습니다"; exit 1; }
+          ls -la worker/desktop/dist/*${{ matrix.arch }}*.dmg \
+            || { echo "::error::${{ matrix.arch }} dmg 산출물이 없습니다"; exit 1; }
 
       - name: Publish dmg to fixed feed
         shell: bash

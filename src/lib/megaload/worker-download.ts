@@ -28,21 +28,38 @@ export const WORKER_APP_VERSION_FALLBACK = '0.2.40';
 export const buildDesktopDownloadUrl = (version: string) =>
   `${DESKTOP_RELEASE_BASE}/MegaloadDesktop-Setup-${version}.exe`;
 
+/** electron-builder.yml 의 mac artifactName 규칙과 1:1. */
+export const desktopMacAssetName = (version: string, arch: 'arm64' | 'x64') =>
+  `MegaloadDesktop-${version}-${arch}.dmg`;
+
 /**
  * macOS 설치파일(dmg) — Apple Silicon / Intel 별도.
+ *
+ * ⚠️ **실재하는 자산만** 링크한다. 예전에 모니터 앱에서 x64 dmg 빌드가 깨졌는데도
+ *   웹이 URL 을 조립해 링크를 걸어 사용자가 404 를 받은 사고가 있었다. 도우미 dmg 도
+ *   맥 빌드가 한 번도 성공한 적 없던 기간이 있어 같은 함정을 그대로 안고 있었다
+ *   → 릴리스 자산 목록에 있는 파일만 내주고, 없으면 UI 가 버튼을 감춘다.
  *
  * ⚠️ 서명·공증이 없다(Apple Developer 계정 미등록). 사용자는 최초 1회
  *   시스템 설정 → 개인정보 보호 및 보안 → "확인 없이 열기" 를 눌러야 한다.
  *   (macOS Sequoia 부터 우클릭→열기 우회가 제거돼 이 경로만 유효하다.)
- *
- * ⚠️ 기능 범위: 로그인·연결·광고 자동화만 동작한다. 이미지 생성(ComfyUI+SDXL, CUDA)과
- *   로컬 텍스트 엔진(ollama, Windows 바이너리)은 Windows 전용이라 맥에서는 비활성이다.
- *   품절·가격 확인은 서버가 전담하므로 맥에서도 설치 없이 정상 동작한다.
  */
-export const buildDesktopMacUrls = (version: string) => ({
-  arm: `${DESKTOP_RELEASE_BASE}/MegaloadDesktop-${version}-arm64.dmg`,
-  intel: `${DESKTOP_RELEASE_BASE}/MegaloadDesktop-${version}-x64.dmg`,
-});
+export function pickDesktopMacUrls(version: string, assetNames: string[]): DesktopMacUrls {
+  const pick = (arch: 'arm64' | 'x64') => {
+    const name = desktopMacAssetName(version, arch);
+    return assetNames.includes(name) ? `${DESKTOP_RELEASE_BASE}/${name}` : undefined;
+  };
+  return { arm: pick('arm64'), intel: pick('x64') };
+}
+
+/**
+ * 맥에서의 기능 범위 안내 — UI 단일 출처.
+ * Apple Silicon 은 Metal(MPS)로 ComfyUI·SDXL 까지 돌지만, Intel 맥은 GPU 가속이 없어
+ * 이미지 생성만 빠진다(텍스트·이미지인식은 정상).
+ */
+export const MAC_CAPABILITY_NOTE =
+  'Apple Silicon(M1 이상) 맥은 상품명·상세글·옵션·카테고리 생성과 이미지 인식, 누끼·이미지 생성까지 '
+  + '윈도우와 동일하게 동작합니다. Intel 맥은 GPU 가속이 없어 누끼·이미지 생성만 제외되고 나머지는 그대로 씁니다.';
 
 /** 맥 설치 시 Gatekeeper 통과 안내 — UI 여러 곳에서 같은 문구를 쓰도록 단일 출처. */
 export const MAC_GATEKEEPER_GUIDE =
@@ -109,9 +126,14 @@ export const MONITOR_AUTH_URL = '/megaload/desktop-app';
 // ─────────────────────────────────────────────────────────────────────────
 // /api/megaload/worker/latest-version 응답 계약.
 
+/** 실제 발행된 dmg 만. 없는 아키텍처는 undefined → UI 가 버튼을 감춘다. */
+export interface DesktopMacUrls { arm?: string; intel?: string }
+
 export interface DesktopReleaseInfo {
   version: string;
+  /** Windows 설치파일(.exe) */
   downloadUrl: string;
+  macUrls: DesktopMacUrls;
 }
 
 export interface MonitorReleaseInfo {
@@ -133,6 +155,8 @@ export function fallbackVersions(): LatestVersionsResponse {
     desktop: {
       version: WORKER_APP_VERSION_FALLBACK,
       downloadUrl: buildDesktopDownloadUrl(WORKER_APP_VERSION_FALLBACK),
+      // 자산 목록을 못 읽은 상황이므로 dmg 가 실재하는지 알 수 없다 → 링크하지 않는다(404 방지).
+      macUrls: {},
     },
     // 폐기된 앱이라 폴백에서도 URL 을 만들지 않는다(신규 설치 차단).
     monitor: { version: MONITOR_APP_VERSION_FALLBACK, urls: {} },
