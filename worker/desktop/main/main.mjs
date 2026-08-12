@@ -142,9 +142,15 @@ async function autoInstallIfNeeded() {
 /**
  * 로컬 모델 보장 — 텍스트·임베딩(ollama.start 내부) + 이미지 인식(여기서 추가).
  *   · 설치본/자동업데이트본 양쪽 모두 로그인 직후 1회 실행된다.
- *   · 이미지 인식 모델(~6GB)은 NVIDIA GPU 가 있을 때만 받는다 — CPU 로는 상품당 수 분이라
- *     실사용이 불가능하고, 그 경우 생성은 CLIP 휴리스틱으로 폴백하므로 받아도 낭비다.
  *   · 실패해도 생성은 막지 않는다(첫 생성 때 run-folder 가 다시 시도한다).
+ *
+ * ⚠️ 이미지 인식 모델은 **GPU 유무와 무관하게 항상 받는다**(사용자 결정 2026-08-12).
+ *    예전엔 nvidia-smi 로 GPU 를 못 찾으면 건너뛰었는데, 그 판정이 자주 틀렸다 —
+ *    NVIDIA 카드가 있어도 nvidia-smi 가 PATH 에 없으면 "GPU 없음"으로 오판했고,
+ *    그 PC 는 웹 배지가 영영 "미설치 · 생성 시 자동 설치" 인 채로 남았다
+ *    (생성을 아무리 돌려도 같은 가드에 다시 걸리므로 그 안내 자체가 거짓이었다).
+ *    이제 판정은 **속도 경고를 띄울지**에만 쓰고, 다운로드는 막지 않는다.
+ *    받지 않으려면 설정에서 ollamaVisionModel 을 비우면 된다.
  */
 let modelsEnsured = false;
 async function ensureLocalModels() {
@@ -153,11 +159,13 @@ async function ensureLocalModels() {
   try {
     await ollama.start();   // ollama 미설치면 설치·기동까지 + 텍스트(·임베딩) 모델 보장
     const visionModel = store.get('ollamaVisionModel', bootstrap.DEFAULTS.ollamaVisionModel);
-    if (!visionModel) return;
+    if (!visionModel) return;   // 사용자가 명시적으로 비운 경우만 생략
     const gpu = await bootstrap.checkGpu();
     if (!gpu.ok) {
-      send('allinone:log', '[이미지 인식] NVIDIA GPU 미탐지 — 인식 모델(~6GB) 다운로드를 생략합니다(CPU 로는 속도가 실사용 불가). 생성은 기본 방식으로 진행됩니다.');
-      return;
+      send('allinone:log', '[이미지 인식] GPU 가속을 찾지 못했습니다 — 모델(~6GB)은 그대로 설치하지만, '
+        + '생성 시 상품당 수십 초~수 분이 걸릴 수 있습니다. (NVIDIA 그래픽카드가 있는데 이 메시지가 보이면 드라이버를 확인하세요)');
+    } else {
+      send('allinone:log', `[이미지 인식] ${gpu.name} 감지 — 인식 모델을 준비합니다.`);
     }
     await ollama.ensureModel(visionModel, '~6GB');
   } catch (e) {

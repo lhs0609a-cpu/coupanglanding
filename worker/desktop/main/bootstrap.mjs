@@ -141,27 +141,59 @@ function checkGpuMac() {
   };
 }
 
-/** NVIDIA 드라이버/ GPU 점검 (nvidia-smi). vramMb=총량, vramFreeMb="지금 남은" VRAM. */
-export function checkGpu() {
-  if (IS_MAC) return Promise.resolve(checkGpuMac());
-  // Windows·맥 외에서는 nvidia-smi 를 찾을 이유가 없다(불필요한 spawn 방지).
-  if (!IS_WIN) return Promise.resolve({ ok: false, name: null, vramMb: 0, vramFreeMb: 0 });
+const NO_GPU = { ok: false, name: null, vramMb: 0, vramFreeMb: 0 };
+
+/**
+ * nvidia-smi 후보 경로.
+ *
+ * ⚠️ PATH 에만 의존하면 **NVIDIA 카드가 멀쩡히 있는 PC 를 "GPU 없음"으로 오판**한다.
+ *    드라이버 버전·설치 방식에 따라 nvidia-smi 가 PATH 에 안 잡히는 경우가 흔하다
+ *    (구버전은 NVSMI 폴더에만, DCH 드라이버는 System32 에 둔다).
+ *    오판의 대가가 크다 — 이미지 인식 모델을 건너뛰고, 텍스트 모델도 작은 것으로 강등되며,
+ *    동시 슬롯도 1 로 떨어진다. 즉 좋은 PC 가 조용히 저사양으로 돈다.
+ */
+function nvidiaSmiCandidates() {
+  const pf = process.env['ProgramFiles'] || 'C:\\Program Files';
+  const pf64 = process.env['ProgramW6432'] || pf;
+  const sysRoot = process.env['SystemRoot'] || 'C:\\Windows';
+  return [
+    'nvidia-smi',                                                   // PATH 우선
+    join(sysRoot, 'System32', 'nvidia-smi.exe'),                    // DCH 드라이버
+    join(pf, 'NVIDIA Corporation', 'NVSMI', 'nvidia-smi.exe'),      // 구버전
+    join(pf64, 'NVIDIA Corporation', 'NVSMI', 'nvidia-smi.exe'),
+  ];
+}
+
+/** nvidia-smi 1회 실행 — 성공하면 GPU 정보, 실패하면 null(다음 후보로). */
+function runNvidiaSmi(exe) {
   return new Promise((resolve) => {
-    const p = spawn('nvidia-smi', ['--query-gpu=name,memory.total,memory.free', '--format=csv,noheader'], { shell: true });
+    // shell:true 는 PATH 해석용. 절대경로 후보에는 불필요하고 공백 경로에서 오히려 문제가 된다.
+    const p = spawn(exe, ['--query-gpu=name,memory.total,memory.free', '--format=csv,noheader'],
+      { shell: exe === 'nvidia-smi', windowsHide: true });
     let out = '';
     p.stdout?.on('data', (d) => (out += d));
-    p.on('error', () => resolve({ ok: false, name: null, vramMb: 0, vramFreeMb: 0 }));
+    p.on('error', () => resolve(null));
     p.on('close', (code) => {
-      if (code === 0 && out.trim()) {
-        // 예: "NVIDIA GeForce RTX 4060 Ti, 16380 MiB, 844 MiB"
-        const first = out.trim().split('\n')[0].trim();
-        const parts = first.split(',');
-        const name = (parts[0] || '').trim();
-        const num = (s) => { const m = String(s || '').match(/([\d.]+)\s*MiB/i); return m ? Math.round(parseFloat(m[1])) : 0; };
-        resolve({ ok: true, name, vramMb: num(parts[1]), vramFreeMb: num(parts[2]) });
-      } else resolve({ ok: false, name: null, vramMb: 0, vramFreeMb: 0 });
+      if (code !== 0 || !out.trim()) return resolve(null);
+      // 예: "NVIDIA GeForce RTX 4060 Ti, 16380 MiB, 844 MiB"
+      const parts = out.trim().split('\n')[0].trim().split(',');
+      const num = (s) => { const m = String(s || '').match(/([\d.]+)\s*MiB/i); return m ? Math.round(parseFloat(m[1])) : 0; };
+      resolve({ ok: true, name: (parts[0] || '').trim(), vramMb: num(parts[1]), vramFreeMb: num(parts[2]) });
     });
   });
+}
+
+/** NVIDIA 드라이버/ GPU 점검. vramMb=총량, vramFreeMb="지금 남은" VRAM. */
+export async function checkGpu() {
+  if (IS_MAC) return checkGpuMac();
+  // Windows·맥 외에서는 nvidia-smi 를 찾을 이유가 없다(불필요한 spawn 방지).
+  if (!IS_WIN) return NO_GPU;
+  for (const exe of nvidiaSmiCandidates()) {
+    if (exe !== 'nvidia-smi' && !(await exists(exe))) continue;
+    const r = await runNvidiaSmi(exe);
+    if (r) return r;
+  }
+  return NO_GPU;
 }
 
 /**
