@@ -179,8 +179,126 @@ function SkipReviewRiskDialog({ plan, helperOnline, preArm = false, onConfirm, o
 
   const allChecked = items.every((it) => checked[it.key]);
   const phraseOk = phrase.replace(/\s/g, '') === CONFIRM_PHRASE;
-  // 사전 무장은 아직 상품이 0건인 시점이라 건수 조건을 걸 수 없다(걸면 영원히 못 켠다).
-  const ready = allChecked && agreed && phraseOk && (preArm || plan.count > 0);
+  // 사전 무장(무인 켜기)은 **동의 한 번**으로 끝낸다.
+  //   항목별 체크 6개 + 확인문구 타이핑은 "한 번 크게 저지르는" 즉시등록용 안전장치라,
+  //   반복해서 켜고 끄는 설정 화면에 그대로 두면 매번 30초씩 잡아먹는 고문이 된다(사용자 피드백).
+  //   위험 설명 자체는 없애지 않고 접어서 그대로 둔다 — 읽을 사람은 읽고, 동의는 한 줄로.
+  const ready = preArm ? agreed : (allChecked && agreed && phraseOk && plan.count > 0);
+
+  // 두 모드가 공유하는 기계 점검 설정.
+  const auditSection = (
+    <section className="rounded-lg border border-emerald-300 bg-emerald-50/60 p-4 space-y-3">
+      <label className="flex items-start gap-2.5 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={audit}
+          onChange={(e) => setAudit(e.target.checked)}
+          className="mt-0.5 w-4 h-4 accent-emerald-600 shrink-0"
+        />
+        <span className="text-sm text-gray-900 leading-snug">
+          🤖 <b>등록 직전 AI 최종점검</b> 실행 <span className="text-emerald-700">(권장)</span>
+        </span>
+      </label>
+      <p className="text-xs text-gray-600 leading-relaxed pl-7">
+        올리기 직전에 상품명 · 카테고리 · 상세글 · 옵션 · 가격 · 이미지를 전부 다시 훑습니다.
+        금지어·마크다운 기호·가격 오류처럼 규칙으로 고칠 수 있는 건 <b>그 자리에서 자동 수정</b>하고,
+        상세글·옵션·카테고리처럼 다시 써야 하는 건 <b>내 PC GPU로 한 번 더 재생성</b>한 뒤 재검사합니다.
+        {helperOnline
+          ? ' 도우미가 연결돼 있어 재생성까지 가능합니다(서버 비용 0).'
+          : ' ⚠️ 지금은 도우미가 꺼져 있어 규칙 점검만 되고, 재생성이 필요한 항목은 고칠 수 없습니다.'}
+      </p>
+      {audit && (
+        <div className="pl-7 space-y-1.5">
+          <p className="text-xs font-medium text-gray-700">점검으로도 못 고친 상품은?</p>
+          <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-800">
+            <input type="radio" checked={excludeUnfixed} onChange={() => setExcludeUnfixed(true)}
+              className="w-3.5 h-3.5 accent-emerald-600" />
+            등록에서 <b>제외</b>하고 사유를 알려주기 <span className="text-emerald-700">(권장)</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-800">
+            <input type="radio" checked={!excludeUnfixed} onChange={() => setExcludeUnfixed(false)}
+              className="w-3.5 h-3.5 accent-[#E31837]" />
+            경고만 남기고 <b>그대로 등록</b>
+          </label>
+        </div>
+      )}
+      {!audit && (
+        <p className="text-xs text-[#E31837] leading-relaxed pl-7">
+          점검을 끄면 생성 결과가 <b>아무 확인 없이</b> 그대로 올라갑니다.
+        </p>
+      )}
+    </section>
+  );
+
+  // ── 무인 켜기: 차분한 설정 화면 ────────────────────────────────────────
+  if (preArm) {
+    return (
+      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/50">
+        <div className="w-full max-w-lg bg-white rounded-xl shadow-2xl max-h-[92vh] flex flex-col border border-gray-300">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-200">
+            <h2 className="text-base font-bold text-gray-900">🤖 무인 자동등록 켜기</h2>
+            <button onClick={onCancel} className="p-1 text-gray-400 hover:text-gray-700 rounded" aria-label="닫기">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="px-5 py-4 overflow-y-auto space-y-4">
+            <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3">
+              <p className="text-sm text-gray-800 leading-relaxed">
+                <b>소싱 폴더 선택 → 자동 생성</b>이 끝나면 검수 화면을 거치지 않고 그대로 쿠팡에 등록합니다.
+                시작 직전 <b>10초</b> 동안 멈출 수 있고, 그 뒤로는 자동으로 진행됩니다.
+              </p>
+            </div>
+
+            {auditSection}
+
+            {/* 위험 설명은 없애지 않는다 — 접어 둘 뿐. */}
+            <details className="rounded-lg border border-gray-200 group">
+              <summary className="cursor-pointer select-none px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 rounded-lg">
+                사람이 확인하지 않게 되는 것 {items.length}가지 — 펼쳐보기
+              </summary>
+              <div className="px-4 pb-3 space-y-3 border-t border-gray-100 pt-3">
+                {items.map((it) => (
+                  <div key={it.key}>
+                    <h3 className="text-xs font-semibold text-gray-900">{it.title}</h3>
+                    <p className="mt-0.5 text-[11px] text-gray-600 leading-relaxed">{it.body}</p>
+                  </div>
+                ))}
+              </div>
+            </details>
+
+            {/* 동의는 한 번만 — 대신 무엇에 동의하는지는 한 문장에 다 담는다. */}
+            <label className="flex items-start gap-2.5 cursor-pointer select-none rounded-lg border border-[#E31837]/40 bg-red-50/50 p-3.5">
+              <input
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+                className="mt-0.5 w-4 h-4 accent-[#E31837] shrink-0"
+              />
+              <span className="text-sm text-gray-900 leading-snug">
+                지재권·옵션·인증·표시광고를 <b>사람이 확인하지 않은 채</b>, 내가 자리에 없는 동안
+                자동으로 등록되는 데 동의합니다. 그로 인한 <b>책임은 판매자 본인</b>에게 있습니다.
+              </span>
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between gap-2 px-5 py-3.5 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+            <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900">
+              취소
+            </button>
+            <button
+              onClick={() => onConfirm({ audit, excludeUnfixed })}
+              disabled={!ready}
+              className="px-5 py-2 text-sm font-semibold text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-30 disabled:cursor-not-allowed"
+              title={ready ? '' : '동의 체크가 필요합니다.'}
+            >
+              무인 자동등록 켜기{audit ? ' (AI점검 포함)' : ''}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60">
@@ -189,9 +307,7 @@ function SkipReviewRiskDialog({ plan, helperOnline, preArm = false, onConfirm, o
         <div className="flex items-center justify-between px-5 py-4 border-b bg-[#E31837]">
           <div className="flex items-center gap-2">
             <ShieldAlert className="w-5 h-5 text-white" />
-            <h2 className="text-base font-bold text-white">
-              {preArm ? '무인 자동등록 켜기 — 위험 확인' : '검수 없이 바로 등록 — 위험 확인'}
-            </h2>
+            <h2 className="text-base font-bold text-white">검수 없이 바로 등록 — 위험 확인</h2>
           </div>
           <button onClick={onCancel} className="p-1 text-white/80 hover:text-white rounded" aria-label="닫기">
             <X className="w-5 h-5" />
@@ -201,20 +317,11 @@ function SkipReviewRiskDialog({ plan, helperOnline, preArm = false, onConfirm, o
         <div className="px-5 py-4 overflow-y-auto space-y-4">
           {/* 무엇을 하는지 한 문장 */}
           <div className="rounded-lg bg-red-50 border border-[#E31837]/40 px-4 py-3">
-            {preArm ? (
-              <p className="text-sm text-gray-900 leading-relaxed">
-                지금부터 <b>소싱 폴더 선택 → 자동 생성</b>으로 만들어지는 상품을, 생성이 끝나는 즉시
-                <b className="text-[#E31837]"> 화면 확인 없이 그대로 쿠팡에 등록</b>합니다.
-                카드별 검수·승인은 물론, 평소 등록을 막던 경고도 <b>전부 무시</b>합니다.
-                시작 직전 <b>10초</b> 동안만 중단할 기회가 있고, 그 뒤로는 자동으로 진행됩니다.
-              </p>
-            ) : (
-              <p className="text-sm text-gray-900 leading-relaxed">
-                카드별 검수·승인을 <b>모두 건너뛰고</b> 상품{' '}
-                <b className="text-[#E31837]">{plan.count.toLocaleString()}개</b>를 쿠팡에 바로 등록합니다.
-                평소 등록을 막던 경고도 이번만 <b>무시</b>합니다.
-              </p>
-            )}
+            <p className="text-sm text-gray-900 leading-relaxed">
+              카드별 검수·승인을 <b>모두 건너뛰고</b> 상품{' '}
+              <b className="text-[#E31837]">{plan.count.toLocaleString()}개</b>를 쿠팡에 바로 등록합니다.
+              평소 등록을 막던 경고도 이번만 <b>무시</b>합니다.
+            </p>
             {plan.excluded > 0 && (
               <p className="mt-2 text-xs text-gray-600 leading-relaxed">
                 <Ban className="inline w-3.5 h-3.5 -mt-0.5 mr-0.5 text-gray-500" />
@@ -240,47 +347,7 @@ function SkipReviewRiskDialog({ plan, helperOnline, preArm = false, onConfirm, o
           </div>
 
           {/* 사람 검수를 포기하는 대신 태울 기계 점검 */}
-          <section className="rounded-lg border-2 border-emerald-300 bg-emerald-50/60 p-4 space-y-3">
-            <label className="flex items-start gap-2.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={audit}
-                onChange={(e) => setAudit(e.target.checked)}
-                className="mt-0.5 w-4 h-4 accent-emerald-600 shrink-0"
-              />
-              <span className="text-sm text-gray-900 leading-snug">
-                🤖 <b>등록 직전 AI 최종점검</b> 실행 <span className="text-emerald-700">(권장)</span>
-              </span>
-            </label>
-            <p className="text-xs text-gray-600 leading-relaxed pl-7">
-              올리기 직전에 상품명 · 카테고리 · 상세글 · 옵션 · 가격 · 이미지를 전부 다시 훑습니다.
-              금지어·마크다운 기호·가격 오류처럼 규칙으로 고칠 수 있는 건 <b>그 자리에서 자동 수정</b>하고,
-              상세글·옵션·카테고리처럼 다시 써야 하는 건 <b>내 PC GPU로 한 번 더 재생성</b>한 뒤 재검사합니다.
-              {helperOnline
-                ? ' 도우미가 연결돼 있어 재생성까지 가능합니다(서버 비용 0).'
-                : ' ⚠️ 지금은 도우미가 꺼져 있어 규칙 점검만 되고, 재생성이 필요한 항목은 고칠 수 없습니다.'}
-            </p>
-            {audit && (
-              <div className="pl-7 space-y-1.5">
-                <p className="text-xs font-medium text-gray-700">점검으로도 못 고친 상품은?</p>
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-800">
-                  <input type="radio" checked={excludeUnfixed} onChange={() => setExcludeUnfixed(true)}
-                    className="w-3.5 h-3.5 accent-emerald-600" />
-                  등록에서 <b>제외</b>하고 사유를 알려주기 <span className="text-emerald-700">(권장)</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-800">
-                  <input type="radio" checked={!excludeUnfixed} onChange={() => setExcludeUnfixed(false)}
-                    className="w-3.5 h-3.5 accent-[#E31837]" />
-                  경고만 남기고 <b>그대로 등록</b>
-                </label>
-              </div>
-            )}
-            {!audit && (
-              <p className="text-xs text-[#E31837] leading-relaxed pl-7">
-                점검을 끄면 생성 결과가 <b>아무 확인 없이</b> 그대로 올라갑니다.
-              </p>
-            )}
-          </section>
+          {auditSection}
 
           {/* 위험 5종 */}
           {items.map((it) => (
@@ -337,7 +404,7 @@ function SkipReviewRiskDialog({ plan, helperOnline, preArm = false, onConfirm, o
             onClick={onCancel}
             className="px-4 py-2 text-sm font-semibold text-white bg-gray-900 rounded-lg hover:bg-gray-800"
           >
-            {preArm ? '취소 (검수하고 등록)' : '취소하고 검수하기 (권장)'}
+            취소하고 검수하기 (권장)
           </button>
           <button
             onClick={() => onConfirm({ audit, excludeUnfixed })}
@@ -345,9 +412,7 @@ function SkipReviewRiskDialog({ plan, helperOnline, preArm = false, onConfirm, o
             className="px-5 py-2 text-sm font-semibold text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-30 disabled:cursor-not-allowed"
             title={ready ? '' : '위험 항목 전체 체크 + 책임 동의 + 확인 문구 입력이 필요합니다.'}
           >
-            {preArm
-              ? `위험을 감수하고 무인 자동등록 켜기${audit ? ' (AI점검 포함)' : ''}`
-              : `위험을 감수하고 ${plan.count.toLocaleString()}개 ${audit ? 'AI점검 후 등록' : '등록'}`}
+            위험을 감수하고 {plan.count.toLocaleString()}개 {audit ? 'AI점검 후 등록' : '등록'}
           </button>
         </div>
       </div>
