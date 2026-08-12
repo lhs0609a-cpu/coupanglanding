@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { MONITOR_AUTH_URL, MAC_GATEKEEPER_GUIDE, MAC_CAPABILITY_NOTE } from '@/lib/megaload/worker-download';
+import { detectUserPlatform, readGpuRenderer, type UserPlatform } from '@/lib/megaload/detect-platform';
 import { useLatestVersions } from '@/lib/megaload/use-latest-versions';
 import { classifyHelperLink } from '@/lib/megaload/allinone-local';
 
@@ -33,17 +34,6 @@ const GRADE_STYLE: Record<Grade, { bg: string; border: string; text: string; ico
   low:         { bg: 'bg-amber-50',   border: 'border-amber-200',   text: 'text-amber-700',   icon: MinusCircle,  label: '미달 가능' },
   unsupported: { bg: 'bg-rose-50',    border: 'border-rose-200',    text: 'text-rose-700',    icon: XCircle,      label: '미지원' },
 };
-
-function readGpuRenderer(): string {
-  try {
-    const canvas = document.createElement('canvas');
-    const gl = (canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl')) as WebGLRenderingContext | null;
-    if (!gl) return '';
-    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-    if (!dbg) return '';
-    return (gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) as string) || '';
-  } catch { return ''; }
-}
 
 function gradeGpu(renderer: string): { grade: Grade; name: string; estVram: string } {
   if (!renderer) return { grade: 'unsupported', name: '확인 불가 (브라우저 차단)', estVram: '-' };
@@ -73,30 +63,6 @@ function gradeGpu(renderer: string): { grade: Grade; name: string; estVram: stri
   // 애플실리콘은 통합 메모리를 GPU 가 그대로 쓴다 — Metal(MPS)로 누끼·이미지 생성까지 동작.
   if (/APPLE|METAL|M\d/.test(r)) return { grade: 'ok', name: 'Apple Silicon (Metal)', estVram: '통합 메모리' };
   return { grade: 'unsupported', name: cleanName.slice(0, 50) || '알 수 없음', estVram: '-' };
-}
-
-/** 이 브라우저가 돌고 있는 컴퓨터 — 어떤 설치파일을 받아야 하는지 안내하는 데 쓴다. */
-export type UserPlatform = { os: 'windows' | 'mac' | 'other'; macArch: 'arm' | 'intel' | 'unknown' };
-
-/**
- * 사용자 플랫폼 판별.
- *
- * ⚠️ 맥의 칩(애플실리콘/인텔)은 **User-Agent 로 알 수 없다** — 애플실리콘 맥도 호환성을 위해
- *    UA 에 "Intel Mac OS X" 를 그대로 보낸다. 실제 칩이 드러나는 곳은 WebGL 렌더러 문자열뿐이다
- *    (애플실리콘: "Apple M1"/"Apple GPU", 인텔맥: "Intel Iris…"/"AMD Radeon Pro…").
- *    브라우저가 렌더러를 가리면 unknown → 화면에서 둘 다 보여주고 확인법을 안내한다.
- */
-export function detectUserPlatform(): UserPlatform {
-  if (typeof navigator === 'undefined') return { os: 'other', macArch: 'unknown' };
-  const ua = navigator.userAgent;
-  if (/Windows NT/i.test(ua)) return { os: 'windows', macArch: 'unknown' };
-  if (/Mac OS X|Macintosh/i.test(ua)) {
-    const r = readGpuRenderer().toUpperCase();
-    if (/APPLE/.test(r)) return { os: 'mac', macArch: 'arm' };
-    if (/INTEL|AMD|RADEON/.test(r)) return { os: 'mac', macArch: 'intel' };
-    return { os: 'mac', macArch: 'unknown' };
-  }
-  return { os: 'other', macArch: 'unknown' };
 }
 
 function detectOs(): { grade: Grade; name: string } {

@@ -6,6 +6,7 @@ import { Cpu, Download, CheckCircle2, Loader2, ArrowUpCircle, AlertTriangle } fr
 import { WORKER_SETTINGS_URL } from '@/lib/megaload/worker-download';
 import { useLatestVersions, isOutdated } from '@/lib/megaload/use-latest-versions';
 import { classifyHelperLink } from '@/lib/megaload/allinone-local';
+import { detectUserPlatform, hasAutoUpdate, type UserPlatform } from '@/lib/megaload/detect-platform';
 
 interface WorkerStatus {
   online: boolean;
@@ -41,6 +42,10 @@ export default function WorkerInstallNotice({
   // 최신 버전은 실제 발행된 릴리스에서 온다 — 앱의 자동업데이트와 같은 출처.
   const { versions } = useLatestVersions();
   const latest = versions.desktop.version;
+  // 맥은 자동 업데이트가 없어(코드서명 미보유) 안내 문구·링크가 달라야 한다.
+  //   SSR 에는 navigator 가 없으므로 마운트 후 채운다.
+  const [platform, setPlatform] = useState<UserPlatform | null>(null);
+  useEffect(() => { setPlatform(detectUserPlatform()); }, []);
 
   useEffect(() => {
     let alive = true;
@@ -136,13 +141,53 @@ export default function WorkerInstallNotice({
           <CheckCircle2 className="w-3.5 h-3.5" />
           메가로드 도우미 연결됨{runningVersion ? ` · v${runningVersion}` : ''}
         </span>
-        {stale && (
+        {stale && (() => {
+          // ⚠️ 맥은 앱이 스스로 갱신하지 못한다 — "업데이트 필요"만 띄우면 사용자는
+          //    가만히 기다린다(윈도우처럼 알아서 되는 줄 안다). 그래서 맥에서는
+          //    ① 자동 업데이트가 없다는 사실과 ② 받을 dmg 를 직접 가리킨다.
+          //    dmg 링크는 릴리스에 **실재하는 자산일 때만** 내려온다(없으면 설정 페이지로).
+          const mac = platform?.os === 'mac';
+          const dmg = mac
+            ? (platform?.macArch === 'intel' ? versions.desktop.macUrls?.intel : versions.desktop.macUrls?.arm)
+            : undefined;
+          const href = dmg || WORKER_SETTINGS_URL;
+          const label = mac
+            ? `v${stale.app_version} 사용 중 · 최신 v${latest} 직접 받기`
+            : `v${stale.app_version} 사용 중 · 업데이트 필요`;
+          const title = mac
+            ? 'macOS 는 자동 업데이트를 지원하지 않습니다(코드서명 미보유). 새 dmg 를 받아 덮어 설치하세요.'
+            : '앱이 자동으로 업데이트합니다. 지금 바로 받으려면 클릭하세요.';
+          return dmg ? (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={title}
+              className="ml-1.5 inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition"
+            >
+              <ArrowUpCircle className="w-3.5 h-3.5" />
+              {label}
+            </a>
+          ) : (
+            <Link
+              href={href}
+              title={title}
+              className="ml-1.5 inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition"
+            >
+              <ArrowUpCircle className="w-3.5 h-3.5" />
+              {label}
+            </Link>
+          );
+        })()}
+        {/* 맥이면 최신이어도 "자동 업데이트가 없다"는 사실을 한 번은 알려준다 —
+            모르면 구버전에 묶여 있어도 눈치채지 못한다. */}
+        {!stale && platform && !hasAutoUpdate(platform) && (
           <Link
             href={WORKER_SETTINGS_URL}
-            className="ml-1.5 inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition"
+            title="macOS 는 자동 업데이트를 지원하지 않습니다. 새 버전은 이 페이지에서 직접 받으세요."
+            className="ml-1.5 inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100 transition"
           >
-            <ArrowUpCircle className="w-3.5 h-3.5" />
-            v{stale.app_version} 사용 중 · 업데이트 필요
+            맥 · 수동 업데이트
           </Link>
         )}
       </div>
