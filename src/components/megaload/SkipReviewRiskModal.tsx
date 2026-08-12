@@ -41,7 +41,7 @@ interface RiskItem {
   label: React.ReactNode;
 }
 
-function riskItems(plan: SkipReviewPlan): RiskItem[] {
+function riskItems(plan: SkipReviewPlan, preArm: boolean): RiskItem[] {
   return [
     {
       key: 'ip',
@@ -106,10 +106,27 @@ function riskItems(plan: SkipReviewPlan): RiskItem[] {
         <>
           등록은 자동으로 취소되지 않습니다. 잘못 올라간 상품은 <b>쿠팡 윙에서 한 건씩 직접 삭제</b>해야 하며,
           그 사이 노출·주문이 발생하면 배송·환불 책임이 그대로 발생합니다.
+          {preArm && <> 무인 등록은 <b>내가 화면을 보지 않는 동안</b> 이 일이 벌어진다는 뜻입니다.</>}
         </>
       ),
-      label: <><b>{plan.count.toLocaleString()}개를 되돌리기 어렵다</b>는 점을 이해합니다.</>,
+      label: preArm
+        ? <>이번 세션에 <b>생성되는 전량을 되돌리기 어렵다</b>는 점을 이해합니다.</>
+        : <><b>{plan.count.toLocaleString()}개를 되돌리기 어렵다</b>는 점을 이해합니다.</>,
     },
+    // 무인 실행은 "검수를 건너뛴다"와 별개의 위험이다 — 내가 화면 앞에 없는 동안,
+    // 내가 몇 건인지도 모르는 채로 등록이 일어난다. 그래서 동의도 따로 받는다.
+    ...(preArm ? [{
+      key: 'unattended',
+      title: '⑥ 무인 실행 — 내가 보지 않는 동안 등록됩니다',
+      body: (
+        <>
+          생성이 끝나면 <b>확인 화면 없이</b> 등록이 시작됩니다. 몇 건이 올라가는지, 어떤 경고가 있었는지
+          <b> 등록이 끝난 뒤에야</b> 알 수 있습니다. 멈출 수 있는 시간은 시작 직전 <b>10초</b>뿐이며,
+          그때 자리에 없으면 그대로 진행됩니다. 소싱 폴더를 잘못 골라도 마찬가지입니다.
+        </>
+      ),
+      label: <>내가 <b>자리에 없는 동안 자동으로 등록</b>되는 것에 동의합니다.</>,
+    }] : []),
   ];
 }
 
@@ -126,6 +143,11 @@ interface Props {
   plan: SkipReviewPlan;
   /** 도우미(로컬 GPU) 연결 여부 — 꺼져 있으면 규칙 점검만 되고 재생성은 못 한다 */
   helperOnline: boolean;
+  /**
+   * 사전 무장(무인 자동등록) 모드. 아직 상품이 하나도 없는 시점(폴더 선택 전)에 미리 동의를 받아,
+   * 생성이 끝나면 화면을 보지 않고 그대로 등록되게 한다. 건수를 알 수 없으므로 문구·게이트가 달라진다.
+   */
+  preArm?: boolean;
   onConfirm: (opts: SkipReviewOptions) => void;
   onCancel: () => void;
 }
@@ -139,7 +161,7 @@ export default function SkipReviewRiskModal(props: Props) {
   return <SkipReviewRiskDialog {...props} />;
 }
 
-function SkipReviewRiskDialog({ plan, helperOnline, onConfirm, onCancel }: Props) {
+function SkipReviewRiskDialog({ plan, helperOnline, preArm = false, onConfirm, onCancel }: Props) {
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [phrase, setPhrase] = useState('');
   const [agreed, setAgreed] = useState(false);
@@ -147,7 +169,7 @@ function SkipReviewRiskDialog({ plan, helperOnline, onConfirm, onCancel }: Props
   const [audit, setAudit] = useState(true);
   const [excludeUnfixed, setExcludeUnfixed] = useState(true);
 
-  const items = riskItems(plan);
+  const items = riskItems(plan, preArm);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
@@ -157,7 +179,8 @@ function SkipReviewRiskDialog({ plan, helperOnline, onConfirm, onCancel }: Props
 
   const allChecked = items.every((it) => checked[it.key]);
   const phraseOk = phrase.replace(/\s/g, '') === CONFIRM_PHRASE;
-  const ready = allChecked && agreed && phraseOk && plan.count > 0;
+  // 사전 무장은 아직 상품이 0건인 시점이라 건수 조건을 걸 수 없다(걸면 영원히 못 켠다).
+  const ready = allChecked && agreed && phraseOk && (preArm || plan.count > 0);
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60">
@@ -166,7 +189,9 @@ function SkipReviewRiskDialog({ plan, helperOnline, onConfirm, onCancel }: Props
         <div className="flex items-center justify-between px-5 py-4 border-b bg-[#E31837]">
           <div className="flex items-center gap-2">
             <ShieldAlert className="w-5 h-5 text-white" />
-            <h2 className="text-base font-bold text-white">검수 없이 바로 등록 — 위험 확인</h2>
+            <h2 className="text-base font-bold text-white">
+              {preArm ? '무인 자동등록 켜기 — 위험 확인' : '검수 없이 바로 등록 — 위험 확인'}
+            </h2>
           </div>
           <button onClick={onCancel} className="p-1 text-white/80 hover:text-white rounded" aria-label="닫기">
             <X className="w-5 h-5" />
@@ -176,11 +201,20 @@ function SkipReviewRiskDialog({ plan, helperOnline, onConfirm, onCancel }: Props
         <div className="px-5 py-4 overflow-y-auto space-y-4">
           {/* 무엇을 하는지 한 문장 */}
           <div className="rounded-lg bg-red-50 border border-[#E31837]/40 px-4 py-3">
-            <p className="text-sm text-gray-900 leading-relaxed">
-              카드별 검수·승인을 <b>모두 건너뛰고</b> 상품{' '}
-              <b className="text-[#E31837]">{plan.count.toLocaleString()}개</b>를 쿠팡에 바로 등록합니다.
-              평소 등록을 막던 경고도 이번만 <b>무시</b>합니다.
-            </p>
+            {preArm ? (
+              <p className="text-sm text-gray-900 leading-relaxed">
+                지금부터 <b>소싱 폴더 선택 → 자동 생성</b>으로 만들어지는 상품을, 생성이 끝나는 즉시
+                <b className="text-[#E31837]"> 화면 확인 없이 그대로 쿠팡에 등록</b>합니다.
+                카드별 검수·승인은 물론, 평소 등록을 막던 경고도 <b>전부 무시</b>합니다.
+                시작 직전 <b>10초</b> 동안만 중단할 기회가 있고, 그 뒤로는 자동으로 진행됩니다.
+              </p>
+            ) : (
+              <p className="text-sm text-gray-900 leading-relaxed">
+                카드별 검수·승인을 <b>모두 건너뛰고</b> 상품{' '}
+                <b className="text-[#E31837]">{plan.count.toLocaleString()}개</b>를 쿠팡에 바로 등록합니다.
+                평소 등록을 막던 경고도 이번만 <b>무시</b>합니다.
+              </p>
+            )}
             {plan.excluded > 0 && (
               <p className="mt-2 text-xs text-gray-600 leading-relaxed">
                 <Ban className="inline w-3.5 h-3.5 -mt-0.5 mr-0.5 text-gray-500" />
@@ -303,7 +337,7 @@ function SkipReviewRiskDialog({ plan, helperOnline, onConfirm, onCancel }: Props
             onClick={onCancel}
             className="px-4 py-2 text-sm font-semibold text-white bg-gray-900 rounded-lg hover:bg-gray-800"
           >
-            취소하고 검수하기 (권장)
+            {preArm ? '취소 (검수하고 등록)' : '취소하고 검수하기 (권장)'}
           </button>
           <button
             onClick={() => onConfirm({ audit, excludeUnfixed })}
@@ -311,7 +345,9 @@ function SkipReviewRiskDialog({ plan, helperOnline, onConfirm, onCancel }: Props
             className="px-5 py-2 text-sm font-semibold text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-30 disabled:cursor-not-allowed"
             title={ready ? '' : '위험 항목 전체 체크 + 책임 동의 + 확인 문구 입력이 필요합니다.'}
           >
-            위험을 감수하고 {plan.count.toLocaleString()}개 {audit ? 'AI점검 후 등록' : '등록'}
+            {preArm
+              ? `위험을 감수하고 무인 자동등록 켜기${audit ? ' (AI점검 포함)' : ''}`
+              : `위험을 감수하고 ${plan.count.toLocaleString()}개 ${audit ? 'AI점검 후 등록' : '등록'}`}
           </button>
         </div>
       </div>
