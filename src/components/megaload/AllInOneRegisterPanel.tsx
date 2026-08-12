@@ -53,6 +53,33 @@ const MAX_AUDIT_ROUND = 2;
 /** 도우미가 꺼져 있으면 잡이 영원히 pending 이라 등록이 멈춘다 — 여기서 끊고 제외/경고로 넘긴다. */
 const REGEN_TIMEOUT_MS = 15 * 60_000;
 
+/**
+ * 무인 자동등록 설정 — 폴더를 고르기 전에 미리 켜 두는 "검수 생략 예약".
+ *
+ * ⚠️ 이 상태는 **위험모달을 통과한 동의(consentAt)** 없이는 절대 on 이 될 수 없다.
+ *    저장소에서 복원하거나, 다른 코드가 setAutoPilot({on:true}) 하는 식으로 우회하면
+ *    사용자가 동의한 적 없는 무인 등록이 돌아간다 → armAutoPilot() 한 경로로만 켠다.
+ */
+interface AutoPilotState {
+  on: boolean;
+  /** 등록 직전 AI 최종점검 실행 여부 */
+  audit: boolean;
+  /** 점검으로도 못 고친 상품을 등록에서 뺄지(false = 경고만 하고 그대로 등록) */
+  excludeUnfixed: boolean;
+  /** 위험모달 확인 시각(ms). 0 이면 동의 없음 = 절대 실행 금지. */
+  consentAt: number;
+}
+const AUTOPILOT_OFF: AutoPilotState = { on: false, audit: true, excludeUnfixed: true, consentAt: 0 };
+/** 자동 등록 직전 취소 유예(초). 무인이라도 눈앞에 있으면 멈출 수 있어야 한다. */
+const AUTOPILOT_DELAY_SEC = 10;
+/**
+ * 동의 유효시간. 아침에 켜 둔 탭이 밤까지 열려 있다가 폴더 하나 골랐다고 전량 등록되면 안 된다.
+ * 만료되면 자동으로 꺼지고, 다시 켜려면 동의를 새로 받는다.
+ */
+const AUTOPILOT_CONSENT_TTL_MS = 6 * 60 * 60_000;
+const autoPilotArmed = (ap: AutoPilotState, now = Date.now()) =>
+  ap.on && ap.consentAt > 0 && now - ap.consentAt < AUTOPILOT_CONSENT_TTL_MS;
+
 /** 점검 진행 스냅샷(화면 패널용). */
 interface AuditProgressView {
   phase: 'scan' | 'regen';
@@ -60,6 +87,10 @@ interface AuditProgressView {
   total: number; fixed: number; warned: number;
   regenDone: number; regenTotal: number;
   message: string;
+  /** 점검 시작 시각(epoch ms) — 경과·남은시간 표시용. 라운드가 바뀌어도 유지한다. */
+  startedAt: number;
+  /** 재생성 단계 시작 시각 — ETA 는 이 단계 안에서만 의미가 있다(스캔은 즉시 끝난다). */
+  regenStartedAt: number;
 }
 /** 점검 결과 요약 — 등록 후에도 화면에 남겨 무엇이 고쳐지고 무엇이 빠졌는지 보여준다. */
 interface AuditReport {
@@ -651,7 +682,16 @@ export default function AllInOneRegisterPanel() {
   const [scanMsg, setScanMsg] = useState('');
   const [error, setError] = useState('');
   const [registering, setRegistering] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
+  // ⚠️ AI 최종점검 상태는 여기(상단)에 둔다 — 아래 1초 티커 effect 가 이 값을 의존성으로 읽는데,
+  //    선언이 그보다 뒤면 렌더 중 TDZ 로 죽는다(hook 은 선언 순서대로 실행된다).
+  const [auditProgress, setAuditProgress] = useState<AuditProgressView | null>(null);
+  const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
+  // 등록 진행 — done=등록 끝난 수, prepared=현재 배치에서 이미지 업로드까지 끝난 수.
+  //   배치가 10개 단위라 done 만 보면 눈금이 10개마다 한 번씩 뛴다(50개면 5번). 이미지 업로드가
+  //   시간의 대부분이라, 그 사이 진행을 prepared 로 채워야 막대가 실제로 움직인다.
+  const [progress, setProgress] = useState<{ done: number; total: number; prepared: number; startedAt: number }>(
+    { done: 0, total: 0, prepared: 0, startedAt: 0 },
+  );
   // 웹 업로드 생성의 실시간 진행(단계·건수·경과·ETA). null 이면 생성 중 아님.
   const [gen, setGen] = useState<GenView | null>(null);
   // 경과/ETA 를 폴링(2초) 사이에도 부드럽게 카운트다운시키는 1초 티커.
@@ -690,13 +730,15 @@ export default function AllInOneRegisterPanel() {
   const [diag, setDiag] = useState<ScanDiag | null>(null);
   const [diagOpen, setDiagOpen] = useState(true);
 
-  // 생성 중일 때만 1초 티커를 돌려 경과/ETA 표시를 매초 갱신(폴링은 2초라 사이를 메움).
+  // 진행 표시용 1초 티커 — 경과/ETA 를 매초 갱신(생성 폴링은 2초라 그 사이를 메운다).
+  //   생성뿐 아니라 **AI 최종점검·등록 중에도** 돌려야 그쪽 경과·남은시간이 멈추지 않는다.
   const genActive = gen !== null;
+  const tickerOn = genActive || registering || auditProgress !== null;
   useEffect(() => {
-    if (!genActive) return;
+    if (!tickerOn) return;
     const id = setInterval(() => setNowTick(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [genActive]);
+  }, [tickerOn]);
 
   // 도우미 연결 진단 — 마운트 시 1회 + 실패 중에는 20초마다 재확인.
   //   재확인이 필요한 이유: 사용자가 앱에서 재연결해도 예전엔 이 페이지를 새로고침해야
@@ -1060,20 +1102,44 @@ export default function AllInOneRegisterPanel() {
     }
   }, [helperFolder]);
 
+  // ── 무인 자동등록(오토파일럿) ────────────────────────────────────
+  // "화면도 안 보고 바로 등록"을 위해, 검수 생략 동의를 **폴더를 고르기 전에** 미리 받아 둔다.
+  // 켜 두면 생성이 끝나는 즉시(10초 취소 유예 후) 검수 없이 그대로 등록이 시작된다.
+  //
+  // ⚠️ 동의 없이는 절대 켜지지 않는다 — 그래서 **어디에도 저장하지 않는다**.
+  //    sessionStorage/localStorage 에 넣으면 새로고침·복원만으로 "동의한 적 없는 ON" 이 생기고,
+  //    그 상태에서 폴더를 한 번 고르면 전량이 무검수로 올라간다. 새로고침하면 꺼지는 게 맞다.
+  const [autoPilot, setAutoPilot] = useState<AutoPilotState>(AUTOPILOT_OFF);
+  // 생성 완료 콜백(선언 순서상 위쪽)이 최신 설정을 읽도록 ref 로도 들고 있는다.
+  const autoPilotRef = useRef(autoPilot);
+  /**
+   * 무인 자동등록 on/off 의 **유일한** 통로.
+   * on=true 는 위험모달 확인(consentAt) 을 동반할 때만 허용한다 — 호출부 실수로 동의 없는
+   * 무인 실행이 생기지 않도록 여기서 한 번 더 막는다.
+   */
+  const applyAutoPilot = useCallback((next: AutoPilotState) => {
+    const safe: AutoPilotState = autoPilotArmed(next) ? next : AUTOPILOT_OFF;
+    autoPilotRef.current = safe;
+    setAutoPilot(safe);
+  }, []);
+  /** 등록 시작까지 남은 초. null 이면 대기 중 아님. */
+  const [autoCountdown, setAutoCountdown] = useState<number | null>(null);
+
   // ── 도우미 결과 불러오기 (폴더 선택 0회) ─────────────────────────
   // 도우미가 이미 폴더 경로를 알고, 결과·이미지가 그 PC 에 있으므로 웹이 localhost 로 직접 읽는다.
   // 이미지도 shim(handle.getFile→fetchLocalFile)으로 감싸 기존 등록 업로드 경로를 그대로 재사용한다.
   // → Storage 선업로드 없음(승인분만 등록 때 올라감), 폴더 재선택 없음.
-  const handleLoadFromHelper = useCallback(async () => {
+  // 반환값은 방금 만든 카드 목록 — 무인 자동등록이 "몇 건 실렸는지"를 상태 갱신을 기다리지 않고 알아야 한다.
+  const handleLoadFromHelper = useCallback(async (): Promise<Row[]> => {
     setError('');
     setScanning(true);
     setImagesStale(false); // 새로 불러오면 현재 포트로 URL 이 재생성되므로 경고 해제
     setScanMsg('도우미 연결 확인 중…');
     try {
       const ep = await discoverLocalEndpoint();
-      if (!ep) { const d = await diagnoseLocalHelper(); setError(d.message); return; }
+      if (!ep) { const d = await diagnoseLocalHelper(); setError(d.message); return []; }
       const mf = await fetchLocalManifest(ep);
-      if (!mf) { const d = await diagnoseLocalHelper(); setError(d.message); return; }
+      if (!mf) { const d = await diagnoseLocalHelper(); setError(d.message); return []; }
 
       // 로컬 이미지 1장을 ScannedImageFile 로 위장 — 표시는 localhost URL, 업로드는 getFile()이 로컬을 fetch.
       const mkImg = (rel: string): ScannedImageFile => ({
@@ -1166,8 +1232,10 @@ export default function AllInOneRegisterPanel() {
       const withImg = built.filter((r) => r.mainImages.length > 0).length;
       setScanMsg(`도우미에서 ${built.length}개 불러옴 · 대표이미지 ${withImg}개 · 대표가공 ${built.filter((r) => r.usingRegen).length}개`);
       if (built.length === 0) setError('도우미가 생성한 상품이 없습니다. 올인원 생성을 먼저 완료하세요.');
+      return built;
     } catch (e) {
       setError(e instanceof Error ? e.message : '도우미 불러오기 실패');
+      return [];
     } finally {
       setScanning(false);
     }
@@ -1208,6 +1276,7 @@ export default function AllInOneRegisterPanel() {
     setOpenMain({});
     setImagesStale(false);
     setError('');
+    setAutoCountdown(null); // 직전 결과에 걸려 있던 자동등록 예약은 새 생성과 함께 무효
     try {
       setScanMsg('폴더 파일 목록 읽는 중…');
       const files = await collectFolderFiles(root, (n) => setScanMsg(`파일 ${n}개 확인…`));
@@ -1265,7 +1334,11 @@ export default function AllInOneRegisterPanel() {
 
       // 완료 → 도우미가 lastAllinoneFolder 를 이 세션으로 승격했으니 기존 직독으로 로드.
       autoLoadedRef.current = true;
-      await handleLoadFromHelper();
+      const built = await handleLoadFromHelper();
+      // 무인 자동등록이 켜져 있으면 여기서 바로 등록 카운트다운을 건다(사람 개입 0회).
+      //   실행 자체는 카운트다운 effect 가 맡는다 — 이 함수의 finally 가 scanning 을 내린 뒤에
+      //   시작해야 등록 버튼/가드와 상태가 어긋나지 않는다.
+      if (autoPilotArmed(autoPilotRef.current) && built.length > 0) setAutoCountdown(AUTOPILOT_DELAY_SEC);
     } catch (e) {
       setError(e instanceof Error ? e.message : '업로드 생성 실패');
     } finally {
@@ -1559,6 +1632,8 @@ export default function AllInOneRegisterPanel() {
   // 단, 쿠팡 API 가 거절하는 하드 조건(카테고리코드·판매가·대표이미지·물류정보)은 예외 없이 유지한다 —
   // 이건 "리스크"가 아니라 그냥 실패라, 건너뛰면 사용자에게 돌아가는 건 400 에러뿐이다.
   const [skipOpen, setSkipOpen] = useState(false);
+  // 'run' = 지금 있는 카드를 바로 등록 / 'arm' = 앞으로 생성될 것을 무인 등록하도록 예약.
+  const [skipMode, setSkipMode] = useState<'run' | 'arm'>('run');
   const [skipPlan, setSkipPlan] = useState<SkipReviewPlan>({
     count: 0, excluded: 0, needsReview: 0, unresolvedOptions: 0, certRisk: 0,
   });
@@ -1567,34 +1642,57 @@ export default function AllInOneRegisterPanel() {
   // handleRegister 는 아래에서 정의되므로 ref 로 참조(선언 순서 의존 제거).
   const handleRegisterRef = useRef<((t?: Row[]) => void | Promise<void>) | null>(null);
 
-  const requestSkipReview = useCallback(() => {
-    setError('');
-    if (!selectedOutbound) { setError('출고지를 선택해주세요. (쿠팡 Wing에 등록 필요)'); return; }
-    if (!selectedReturn) { setError('반품지를 선택해주세요. (쿠팡 Wing에 등록 필요)'); return; }
-    if (!contactNumber.trim()) { setError('고객센터 연락처를 입력해주세요.'); return; }
+  /**
+   * 검수 생략 등록의 대상·요약을 계산한다(수동 버튼과 무인 자동등록이 공유).
+   * 물류정보처럼 쿠팡이 무조건 요구하는 값이 비어 있으면 계산 자체를 실패로 돌린다 —
+   * 무인 경로에서 이걸 통과시키면 등록 API 가 전건 400 을 뱉는다.
+   */
+  const buildSkipPlan = useCallback((list: Row[]):
+    { targets: Row[]; plan: SkipReviewPlan } | { error: string } => {
+    if (!selectedOutbound) return { error: '출고지를 선택해주세요. (쿠팡 Wing에 등록 필요)' };
+    if (!selectedReturn) return { error: '반품지를 선택해주세요. (쿠팡 Wing에 등록 필요)' };
+    if (!contactNumber.trim()) return { error: '고객센터 연락처를 입력해주세요.' };
 
-    const candidates = rows.filter((r) => r.gen && r.status !== 'success');
-    if (candidates.length === 0) { setError('등록할 상품이 없습니다.'); return; }
+    const candidates = list.filter((r) => r.gen && r.status !== 'success');
+    if (candidates.length === 0) return { error: '등록할 상품이 없습니다.' };
     // 하드 조건 통과분만 대상. 나머지는 검수를 포기해도 쿠팡이 받지 않는다.
     const targets = candidates.filter((r) => isEligible(r.edit) && r.mainImages.length > 0);
     if (targets.length === 0) {
-      setError('카테고리코드·판매가(100원 이상)·대표이미지가 갖춰진 상품이 없습니다. 이 항목들은 검수를 건너뛰어도 쿠팡이 거절합니다.');
-      return;
+      return { error: '카테고리코드·판매가(100원 이상)·대표이미지가 갖춰진 상품이 없습니다. 이 항목들은 검수를 건너뛰어도 쿠팡이 거절합니다.' };
     }
+    return {
+      targets,
+      plan: {
+        count: targets.length,
+        excluded: candidates.length - targets.length,
+        needsReview: targets.filter((r) => r.gen?.needsReview).length,
+        unresolvedOptions: targets.filter((r) => unresolvedOptionInput(r.edit, optionPreviews.get(r.uid)).length > 0).length,
+        certRisk: targets.filter((r) => {
+          const c = certPreviews.get(r.uid);
+          return !!c && (c.status === 'failed' || c.unmatched.length > 0);
+        }).length,
+      },
+    };
+  }, [selectedOutbound, selectedReturn, contactNumber, optionPreviews, certPreviews]);
 
-    skipTargetsRef.current = targets;
-    setSkipPlan({
-      count: targets.length,
-      excluded: candidates.length - targets.length,
-      needsReview: targets.filter((r) => r.gen?.needsReview).length,
-      unresolvedOptions: targets.filter((r) => unresolvedOptionInput(r.edit, optionPreviews.get(r.uid)).length > 0).length,
-      certRisk: targets.filter((r) => {
-        const c = certPreviews.get(r.uid);
-        return !!c && (c.status === 'failed' || c.unmatched.length > 0);
-      }).length,
-    });
+  const requestSkipReview = useCallback(() => {
+    setError('');
+    const built = buildSkipPlan(rows);
+    if ('error' in built) { setError(built.error); return; }
+    skipTargetsRef.current = built.targets;
+    setSkipPlan(built.plan);
+    setSkipMode('run');
     setSkipOpen(true);
-  }, [rows, selectedOutbound, selectedReturn, contactNumber, optionPreviews, certPreviews]);
+  }, [rows, buildSkipPlan]);
+
+  /** 무인 자동등록 켜기 — 상품이 0건인 시점에 위험 동의부터 받는다(모달 preArm 모드). */
+  const requestArmAutoPilot = useCallback(() => {
+    setError('');
+    skipTargetsRef.current = [];
+    setSkipPlan({ count: 0, excluded: 0, needsReview: 0, unresolvedOptions: 0, certRisk: 0 });
+    setSkipMode('arm');
+    setSkipOpen(true);
+  }, []);
 
   // ── 등록 직전 AI 최종점검 ────────────────────────────────────────
   // 사람 검수를 포기한 자리를 기계가 메운다. 2단계:
@@ -1602,9 +1700,6 @@ export default function AllInOneRegisterPanel() {
   //   Stage B(로컬 GPU)    — A 가 "다시 써야 함"으로 표시한 필드만 megaload_llm_jobs 로 재생성.
   // 그 뒤 **한 번 더 스캔**해 실제로 고쳐졌는지 확인한다(사용자 요구: "한번 더 자동으로 수정하고 올리게").
   // 도우미가 꺼져 있으면 Stage B 를 건너뛴다 — 잡이 영원히 pending 이라 등록이 멈추기 때문.
-  const [auditProgress, setAuditProgress] = useState<AuditProgressView | null>(null);
-  const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
-
   /** Row → 점검기 입력. 점검기는 순수 함수라 Row 를 모른다. */
   const toAuditInput = useCallback((r: Row): AuditInput => ({
     uid: r.uid,
@@ -1673,12 +1768,15 @@ export default function AllInOneRegisterPanel() {
     let lastResults: AuditResult[] = [];
 
     const nameOf = (r: Row) => r.edit.displayName || r.gen?.originalName || r.productCode;
+    const auditStartedAt = Date.now();
+    setNowTick(auditStartedAt);
 
     for (let round = 1; round <= MAX_AUDIT_ROUND; round++) {
       setAuditProgress({
         phase: 'scan', round, maxRound: MAX_AUDIT_ROUND, total: work.length,
         fixed: fixedTotal, warned: warnMap.size, regenDone: 0, regenTotal: 0,
         message: `전 필드 스캔 중… (${round}차)`,
+        startedAt: auditStartedAt, regenStartedAt: 0,
       });
       // 브라우저가 진행 패널을 그릴 틈을 준다(동기 스캔이 길면 화면이 얼어 보인다).
       await new Promise((r) => setTimeout(r, 0));
@@ -1744,6 +1842,7 @@ export default function AllInOneRegisterPanel() {
         phase: 'regen', round, maxRound: MAX_AUDIT_ROUND, total: work.length,
         fixed: fixedTotal, warned: warnMap.size, regenDone: 0, regenTotal: jobs.length,
         message: `내 PC GPU로 ${needing.length}개 상품 · ${jobs.length}개 항목 재생성 중…`,
+        startedAt: auditStartedAt, regenStartedAt: Date.now(),
       });
 
       let regenResults = new Map<string, unknown>();
@@ -1825,10 +1924,14 @@ export default function AllInOneRegisterPanel() {
     return { targets: kept, report };
   }, [helperDiag, toAuditInput, runRegenBatch]);
 
-  /** 위험 동의 후 실행 — 감사 로그 → (선택) AI 최종점검 → 등록. */
-  const confirmSkipReview = useCallback(async (opts: SkipReviewOptions) => {
-    const initial = skipTargetsRef.current;
-    setSkipOpen(false);
+  /**
+   * 검수 생략 등록 본체 — 감사 로그 → (선택) AI 최종점검 → 등록.
+   * 수동 동의(모달)와 무인 자동등록이 같은 경로를 쓴다. 무인이라고 감사기록·점검을 빼면
+   * "누가 언제 뭘 무검수로 올렸는지"가 사라진다.
+   */
+  const runSkipReviewRegister = useCallback(async (
+    initial: Row[], opts: SkipReviewOptions, plan: SkipReviewPlan, via: 'manual' | 'autopilot',
+  ) => {
     setAuditReport(null);
     if (initial.length === 0) return;
     const uids = new Set(initial.map((r) => r.uid));
@@ -1839,14 +1942,15 @@ export default function AllInOneRegisterPanel() {
       source: 'megaload/allinone/skip-review',
       level: 'warn',
       category: 'megaload',
-      message: `검수 생략 등록 동의 ${initial.length}건 @${new Date().toISOString()}`,
+      message: `검수 생략 등록 ${via === 'autopilot' ? '무인 실행' : '동의'} ${initial.length}건 @${new Date().toISOString()}`,
       context: {
+        via,
         count: initial.length,
         audit: opts.audit,
         excludeUnfixed: opts.excludeUnfixed,
-        needsReview: skipPlan.needsReview,
-        unresolvedOptions: skipPlan.unresolvedOptions,
-        certRisk: skipPlan.certRisk,
+        needsReview: plan.needsReview,
+        unresolvedOptions: plan.unresolvedOptions,
+        certRisk: plan.certRisk,
         productCodes: initial.slice(0, 50).map((r) => r.productCode),
       },
     });
@@ -1868,7 +1972,66 @@ export default function AllInOneRegisterPanel() {
       }
     }
     void handleRegisterRef.current?.(targets);
-  }, [skipPlan, runFinalAudit]);
+  }, [runFinalAudit]);
+
+  /** 모달(수동 경로) 확인 — 'arm' 이면 등록 대신 무인 자동등록을 켠다. */
+  const confirmSkipReview = useCallback((opts: SkipReviewOptions) => {
+    setSkipOpen(false);
+    if (skipMode === 'arm') {
+      // 이 지점이 "동의"다 — 위험 6종 개별 체크 + 책임 동의 + 확인문구 타이핑을 모두 통과해야 도달한다.
+      const consentAt = Date.now();
+      applyAutoPilot({ on: true, audit: opts.audit, excludeUnfixed: opts.excludeUnfixed, consentAt });
+      // 무장 자체도 기록해 둔다 — 실제 등록은 나중에 사람 없이 일어나므로, 동의 시점이 따로 남아야 한다.
+      void reportClientError({
+        source: 'megaload/allinone/skip-review',
+        level: 'warn',
+        category: 'megaload',
+        message: `무인 자동등록 동의 @${new Date(consentAt).toISOString()}`,
+        context: {
+          via: 'autopilot-arm', audit: opts.audit, excludeUnfixed: opts.excludeUnfixed,
+          consentAt, expiresAt: consentAt + AUTOPILOT_CONSENT_TTL_MS,
+        },
+      });
+      return;
+    }
+    void runSkipReviewRegister(skipTargetsRef.current, opts, skipPlan, 'manual');
+  }, [skipMode, skipPlan, runSkipReviewRegister, applyAutoPilot]);
+
+  // ── 무인 자동등록 실행 ───────────────────────────────────────────
+  const fireAutoPilot = useCallback(() => {
+    const ap = autoPilotRef.current;
+    // 동의가 없거나 만료됐으면 실행하지 않는다(마지막 방어선). 만료면 조용히 꺼지지 않게 알린다.
+    if (!autoPilotArmed(ap)) {
+      applyAutoPilot(AUTOPILOT_OFF);
+      if (ap.on) setError('무인 자동등록 동의가 만료돼(6시간) 자동 등록을 취소했습니다. 다시 켜려면 동의를 새로 받습니다.');
+      return;
+    }
+    setError('');
+    const built = buildSkipPlan(rows);
+    if ('error' in built) {
+      setError(`무인 자동등록을 시작하지 못했습니다 — ${built.error}`);
+      return;
+    }
+    void runSkipReviewRegister(
+      built.targets, { audit: ap.audit, excludeUnfixed: ap.excludeUnfixed }, built.plan, 'autopilot',
+    );
+  }, [rows, buildSkipPlan, runSkipReviewRegister, applyAutoPilot]);
+
+  // 카운트다운 타이머는 rows 갱신마다 재시작되면 안 된다(그러면 영원히 0 에 못 닿는다) →
+  // 실행 함수는 ref 로만 참조하고, effect 는 남은 초에만 의존한다.
+  const fireAutoPilotRef = useRef(fireAutoPilot);
+  useEffect(() => { fireAutoPilotRef.current = fireAutoPilot; }, [fireAutoPilot]);
+
+  // 취소 유예 카운트다운. 0 이 되는 순간 등록을 시작한다.
+  //   setState 를 effect 본문에서 직접 부르지 않도록(연쇄 렌더) 타이머 콜백 안에서만 갱신한다.
+  useEffect(() => {
+    if (autoCountdown == null) return;
+    const t = setTimeout(() => {
+      setAutoCountdown((n) => (n != null && n > 1 ? n - 1 : null));
+      if (autoCountdown <= 1) fireAutoPilotRef.current();
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [autoCountdown]);
 
   // ── 등록 ─────────────────────────────────────────────────────────
   /**
@@ -1887,7 +2050,9 @@ export default function AllInOneRegisterPanel() {
     if (missingImg.length > 0) { setError(`대표이미지가 없는 상품 ${missingImg.length}개가 있습니다. 워커에서 대표이미지 가공 후 다시 시도하세요.`); return; }
 
     setRegistering(true);
-    setProgress({ done: 0, total: targets.length });
+    const startedAt = Date.now();
+    setNowTick(startedAt);
+    setProgress({ done: 0, total: targets.length, prepared: 0, startedAt });
     try {
       // 1) init-job — 카테고리 메타 일괄 로드 (사용자가 수정한 카테고리코드 기준)
       const uniqueCats = [...new Set(targets.map((r) => r.edit.categoryCode).filter(Boolean).map(String))];
@@ -1906,6 +2071,7 @@ export default function AllInOneRegisterPanel() {
         const batch = targets.slice(b, b + BATCH_SIZE);
         const batchUids = new Set(batch.map((r) => r.uid));
         setRows((prev) => prev.map((r) => (batchUids.has(r.uid) ? { ...r, status: 'registering' as RowStatus } : r)));
+        setProgress((p) => ({ ...p, prepared: 0 }));   // 새 배치 시작 — 준비 눈금 리셋
 
         const products: Record<string, unknown>[] = [];
         for (const r of batch) {
@@ -2029,6 +2195,9 @@ export default function AllInOneRegisterPanel() {
               infoImageUrls: infoUrls,
             },
           });
+          // 이미지 업로드가 등록 시간의 대부분이다 — 상품 한 건이 준비될 때마다 눈금을 올려
+          // 배치(10개)가 끝날 때까지 막대가 멈춰 보이지 않게 한다.
+          setProgress((p) => ({ ...p, prepared: p.prepared + 1 }));
         }
 
         try {
@@ -2082,7 +2251,7 @@ export default function AllInOneRegisterPanel() {
           setRows((prev) => prev.map((r) => (batchUids.has(r.uid) ? { ...r, status: 'error', message: msg } : r)));
         }
         doneCount += batch.length;
-        setProgress({ done: doneCount, total: targets.length });
+        setProgress((p) => ({ ...p, done: doneCount, prepared: 0 }));
       }
 
       await fetch('/api/megaload/products/bulk-register/complete-job', {
@@ -2127,6 +2296,69 @@ export default function AllInOneRegisterPanel() {
         {shippingErr && <p className="sm:col-span-3 text-xs text-red-600">{shippingErr}</p>}
       </div>
 
+      {/* ── 무인 자동등록(오토파일럿) — 폴더를 고르기 전에 미리 켜는 자리 ──────────
+          "화면도 안 보고 바로 등록"을 하려면 동의가 생성 **전에** 있어야 한다.
+          생성이 끝나면 카운트다운만 뜨고, 사람이 아무것도 누르지 않아도 등록까지 간다. */}
+      {autoPilot.on ? (
+        <div className="rounded-xl border-2 border-[#E31837] bg-red-50/70 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <span className="text-sm font-bold text-[#E31837]">🤖 무인 자동등록 켜짐</span>
+            <span className="text-xs text-gray-700">
+              생성이 끝나면 <b>검수 없이 전량 등록</b> · AI 최종점검{' '}
+              <b>{autoPilot.audit ? 'ON' : 'OFF'}</b>
+              {autoPilot.audit && <> · 못 고친 상품 <b>{autoPilot.excludeUnfixed ? '제외' : '그대로 등록'}</b></>}
+            </span>
+            <span className="flex-1" />
+            <button type="button" onClick={requestArmAutoPilot}
+              className="text-xs font-medium rounded-lg px-3 py-1.5 border border-[#E31837]/50 text-[#E31837] hover:bg-red-100">
+              설정 다시하기
+            </button>
+            <button type="button"
+              onClick={() => { setAutoCountdown(null); applyAutoPilot(AUTOPILOT_OFF); }}
+              className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-gray-900 text-white hover:bg-gray-800">
+              끄기
+            </button>
+          </div>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-gray-600">
+            {new Date(autoPilot.consentAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} 동의 ·
+            {' '}<b>{new Date(autoPilot.consentAt + AUTOPILOT_CONSENT_TTL_MS).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}까지 유효</b>.
+            새로고침하거나 이 탭을 닫으면 해제되고, 다시 켜려면 동의를 새로 받습니다.
+            등록 시작 전 <b>{AUTOPILOT_DELAY_SEC}초</b> 동안만 멈출 수 있습니다.
+            {(!selectedOutbound || !selectedReturn || !contactNumber.trim()) && (
+              <b className="text-[#E31837]"> ⚠️ 출고지·반품지·연락처가 비어 있어 지금 상태로는 자동등록이 멈춥니다 — 먼저 채워주세요.</b>
+            )}
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <span className="text-sm font-semibold text-gray-900">🤖 무인 자동등록</span>
+          <span className="text-xs text-gray-500 leading-relaxed">
+            켜 두면 <b>소싱 폴더 선택 → 자동 생성</b>이 끝나는 즉시 검수 화면을 거치지 않고 그대로 쿠팡에 등록합니다
+            (등록 직전 AI 최종점검 포함). 켜려면 <b>위험 동의 절차</b>를 거쳐야 합니다.
+          </span>
+          <span className="flex-1" />
+          <button type="button" onClick={requestArmAutoPilot} disabled={registering || !!auditProgress}
+            className="text-xs font-semibold rounded-lg px-3 py-1.5 border border-[#E31837] text-[#E31837] hover:bg-red-50 disabled:opacity-50">
+            켜기 (동의 필요)
+          </button>
+        </div>
+      )}
+
+      {/* 자동 등록 직전 취소 유예 — 무인이라도 눈앞에 있으면 멈출 수 있어야 한다. */}
+      {autoCountdown != null && (
+        <div className="rounded-xl border-2 border-[#E31837] bg-white px-4 py-3 flex flex-wrap items-center gap-3">
+          <span className="w-2.5 h-2.5 rounded-full bg-[#E31837] animate-pulse flex-none" />
+          <span className="text-sm font-bold text-[#E31837]">
+            무인 자동등록 — {autoCountdown}초 후 {rows.length}건을 검수 없이 등록합니다
+          </span>
+          <span className="flex-1" />
+          <button type="button" onClick={() => setAutoCountdown(null)}
+            className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-gray-900 text-white hover:bg-gray-800">
+            지금 멈추기
+          </button>
+        </div>
+      )}
+
       {/* ⚠️ 도우미에 닿지 못하는 상태를 버튼 누르기 전에 알린다.
           예전엔 진단이 마운트 때 이미 실패를 알고 있으면서도, 그 결과가 아래 접이식 "진단"
           패널 안에만 있었다 — 그 패널은 폴더를 한 번 스캔해야 렌더되므로 화면이 비어 있으면
@@ -2162,7 +2394,7 @@ export default function AllInOneRegisterPanel() {
         {/* ⭐ 주 버튼 — 폴더 고르면 도우미로 올려 자동 생성까지. 웹에서 전부(앱 안 열어도 됨). */}
         <button onClick={handleUploadAndGenerate} disabled={scanning || registering || !!auditProgress}
           className="bg-[#E31837] text-white text-sm font-semibold rounded-lg px-4 py-2 disabled:opacity-50">
-          {scanning ? '처리 중…' : '소싱 폴더 선택 → 자동 생성'}
+          {scanning ? '처리 중…' : (autoPilot.on ? '소싱 폴더 선택 → 자동 생성 → 자동 등록' : '소싱 폴더 선택 → 자동 생성')}
         </button>
         {/* 이미 도우미가 생성해 둔 결과가 있으면 바로 불러오기(생성 없이). */}
         {(helperDiag?.ok || lastGoodDiag?.ok) && (() => {
@@ -2272,6 +2504,45 @@ export default function AllInOneRegisterPanel() {
       )}
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
 
+      {/* ── 등록 진행 ────────────────────────────────────────────────
+          예전엔 버튼에 "등록 중… 3/50" 텍스트뿐이라 얼마나 걸릴지 알 수 없었다.
+          진행률·경과·남은시간을 생성 패널과 같은 형식으로 보여준다. */}
+      {registering && progress.total > 0 && (() => {
+        // prepared 는 현재 배치에서 이미지 업로드까지 끝난 수 — done 이 10개마다 뛰는 사이를 메운다.
+        const eff = Math.min(progress.total, progress.done + progress.prepared);
+        const pct = Math.min(100, Math.round((eff / progress.total) * 100));
+        const elapsedMs = Math.max(0, nowTick - progress.startedAt);
+        // ETA 는 **등록 완료분(done)** 기준으로만 낸다. prepared 는 아직 서버 응답 전이라
+        // 그걸로 나누면 남은 시간이 실제보다 짧게 나와 계속 뒤로 밀린다.
+        const remainMs = progress.done > 0
+          ? (elapsedMs / progress.done) * (progress.total - progress.done)
+          : null;
+        return (
+          <div className="rounded-xl border border-gray-300 bg-white px-4 py-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-gray-900 animate-pulse flex-none" />
+              <span className="text-sm font-semibold text-gray-900">쿠팡에 등록 중</span>
+              <span className="flex-1" />
+              <span className="text-sm font-bold text-gray-900 tabular-nums">{pct}%</span>
+            </div>
+            <div className="h-2 w-full rounded-full bg-gray-200 overflow-hidden">
+              <div className="h-full bg-gray-900 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-700">
+              <span>등록 완료 <b className="tabular-nums">{progress.done}/{progress.total}</b>건</span>
+              {progress.prepared > 0 && <span className="text-gray-500">이미지 업로드 중 <b className="tabular-nums">{progress.prepared}</b>건</span>}
+              <span>경과 <b className="tabular-nums">{fmtDur(elapsedMs)}</b></span>
+              {remainMs != null
+                ? <span>남은 예상 <b className="tabular-nums">약 {fmtDur(remainMs)}</b></span>
+                : <span className="text-gray-400">남은 시간 계산 중… (첫 묶음 완료 후)</span>}
+            </div>
+            <p className="text-[11px] text-gray-400 leading-snug">
+              {BATCH_SIZE}개씩 묶어 올립니다. 시간의 대부분은 이미지 업로드이며, 창을 닫으면 중단됩니다.
+            </p>
+          </div>
+        );
+      })()}
+
       {/* ── AI 최종점검 진행 ────────────────────────────────────────── */}
       {auditProgress && (() => {
         const a = auditProgress;
@@ -2298,6 +2569,14 @@ export default function AllInOneRegisterPanel() {
               <span>자동수정 <b className="tabular-nums">{a.fixed}</b>건</span>
               <span>경고 <b className="tabular-nums">{a.warned}</b>건</span>
               {a.regenTotal > 0 && <span>재생성 <b className="tabular-nums">{a.regenDone}/{a.regenTotal}</b></span>}
+              <span>경과 <b className="tabular-nums">{fmtDur(Math.max(0, nowTick - a.startedAt))}</b></span>
+              {(() => {
+                // 남은시간은 재생성 단계에서만 낸다 — 규칙 스캔은 순식간이라 예측할 것이 없다.
+                if (a.phase !== 'regen' || a.regenDone <= 0 || a.regenStartedAt <= 0) return null;
+                const spent = Math.max(0, nowTick - a.regenStartedAt);
+                const remain = (spent / a.regenDone) * (a.regenTotal - a.regenDone);
+                return <span>남은 예상 <b className="tabular-nums">약 {fmtDur(remain)}</b></span>;
+              })()}
             </div>
             <p className="text-[11px] text-emerald-700 leading-snug">{a.message}</p>
             {a.phase === 'regen' && (
@@ -2398,7 +2677,8 @@ export default function AllInOneRegisterPanel() {
         open={skipOpen}
         plan={skipPlan}
         helperOnline={!!helperDiag?.ok}
-        onConfirm={(o) => { void confirmSkipReview(o); }}
+        preArm={skipMode === 'arm'}
+        onConfirm={confirmSkipReview}
         onCancel={() => setSkipOpen(false)}
       />
 
