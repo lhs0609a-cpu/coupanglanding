@@ -70,15 +70,46 @@ function gradeGpu(renderer: string): { grade: Grade; name: string; estVram: stri
   if (/NVIDIA|GEFORCE/.test(r)) return { grade: 'low', name: cleanName.slice(0, 50) || 'NVIDIA (구형)', estVram: '확인 필요' };
   if (/RADEON|AMD/.test(r))    return { grade: 'unsupported', name: cleanName.slice(0, 50) || 'AMD Radeon', estVram: '-' };
   if (/INTEL/.test(r))         return { grade: 'unsupported', name: cleanName.slice(0, 50) || 'Intel 내장', estVram: '-' };
-  if (/APPLE|METAL|M\d/.test(r)) return { grade: 'unsupported', name: 'Apple Silicon', estVram: '-' };
+  // 애플실리콘은 통합 메모리를 GPU 가 그대로 쓴다 — Metal(MPS)로 누끼·이미지 생성까지 동작.
+  if (/APPLE|METAL|M\d/.test(r)) return { grade: 'ok', name: 'Apple Silicon (Metal)', estVram: '통합 메모리' };
   return { grade: 'unsupported', name: cleanName.slice(0, 50) || '알 수 없음', estVram: '-' };
 }
 
+/** 이 브라우저가 돌고 있는 컴퓨터 — 어떤 설치파일을 받아야 하는지 안내하는 데 쓴다. */
+export type UserPlatform = { os: 'windows' | 'mac' | 'other'; macArch: 'arm' | 'intel' | 'unknown' };
+
+/**
+ * 사용자 플랫폼 판별.
+ *
+ * ⚠️ 맥의 칩(애플실리콘/인텔)은 **User-Agent 로 알 수 없다** — 애플실리콘 맥도 호환성을 위해
+ *    UA 에 "Intel Mac OS X" 를 그대로 보낸다. 실제 칩이 드러나는 곳은 WebGL 렌더러 문자열뿐이다
+ *    (애플실리콘: "Apple M1"/"Apple GPU", 인텔맥: "Intel Iris…"/"AMD Radeon Pro…").
+ *    브라우저가 렌더러를 가리면 unknown → 화면에서 둘 다 보여주고 확인법을 안내한다.
+ */
+export function detectUserPlatform(): UserPlatform {
+  if (typeof navigator === 'undefined') return { os: 'other', macArch: 'unknown' };
+  const ua = navigator.userAgent;
+  if (/Windows NT/i.test(ua)) return { os: 'windows', macArch: 'unknown' };
+  if (/Mac OS X|Macintosh/i.test(ua)) {
+    const r = readGpuRenderer().toUpperCase();
+    if (/APPLE/.test(r)) return { os: 'mac', macArch: 'arm' };
+    if (/INTEL|AMD|RADEON/.test(r)) return { os: 'mac', macArch: 'intel' };
+    return { os: 'mac', macArch: 'unknown' };
+  }
+  return { os: 'other', macArch: 'unknown' };
+}
+
 function detectOs(): { grade: Grade; name: string } {
-  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-  if (/Windows NT/i.test(ua)) return { grade: 'recommended', name: 'Windows' };
-  if (/Mac OS X/i.test(ua))   return { grade: 'unsupported', name: 'macOS (워커 미지원)' };
-  if (/Linux/i.test(ua))      return { grade: 'unsupported', name: 'Linux (워커 미지원)' };
+  const p = detectUserPlatform();
+  if (p.os === 'windows') return { grade: 'recommended', name: 'Windows' };
+  if (p.os === 'mac') {
+    // 애플실리콘은 Metal(MPS)로 누끼·이미지 생성까지 돌아간다. 인텔맥은 GPU 가속이 없어
+    // 이미지 생성만 빠지고 텍스트·이미지인식은 정상이다.
+    if (p.macArch === 'arm') return { grade: 'recommended', name: 'macOS (Apple Silicon)' };
+    if (p.macArch === 'intel') return { grade: 'low', name: 'macOS (Intel — 이미지 생성 제외)' };
+    return { grade: 'ok', name: 'macOS' };
+  }
+  if (/Linux/i.test(navigator.userAgent)) return { grade: 'unsupported', name: 'Linux (도우미 미지원)' };
   return { grade: 'unsupported', name: '알 수 없음' };
 }
 
@@ -92,7 +123,8 @@ function runSpecCheck(): SpecCheck {
   const cpuGrade: Grade = cores === null ? 'ok' : cores >= 8 ? 'recommended' : cores >= 4 ? 'ok' : 'low';
 
   const rows: CheckRow[] = [
-    { label: 'OS', value: os.name, grade: os.grade, hint: os.grade === 'recommended' ? '워커 앱 설치 가능' : '워커 앱은 Windows 전용' },
+    { label: 'OS', value: os.name, grade: os.grade,
+      hint: os.grade === 'unsupported' ? '도우미는 Windows·macOS 만 지원합니다' : '도우미 설치 가능' },
     { label: 'GPU', value: gpu.name, grade: gpu.grade, hint: `추정 VRAM ${gpu.estVram} · 이미지 생성은 8GB 이상 권장` },
     { label: 'RAM', value: ramGB ? `약 ${ramGB}GB 이상` : '확인 불가', grade: ramGrade, hint: '16GB 이상 권장 (8GB도 동작은 함)' },
     { label: 'CPU', value: cores ? `${cores} 스레드` : '확인 불가', grade: cpuGrade, hint: 'GPU 처리라 CPU 영향 적음' },
@@ -121,6 +153,9 @@ export default function LocalGpuWorkerSettings() {
   const [status, setStatus] = useState<WorkerStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [spec, setSpec] = useState<SpecCheck | null>(null);
+  // 어떤 설치파일을 받아야 하는지 안내용. SSR 에는 navigator 가 없으므로 마운트 후 채운다.
+  const [platform, setPlatform] = useState<UserPlatform | null>(null);
+  useEffect(() => { setPlatform(detectUserPlatform()); }, []);
   // 다운로드 URL·버전의 출처는 실제 발행된 릴리스(손수 관리 상수 아님).
   const { versions } = useLatestVersions();
   // monitor(별도 모니터링 앱)는 폐기 — 다운로드 카드가 안내문으로 바뀌어 버전/URL 을 쓰지 않는다.
@@ -323,15 +358,64 @@ export default function LocalGpuWorkerSettings() {
             <span className="text-sm font-semibold text-gray-900">메가로드 도우미</span>
             <span className="text-[10px] text-gray-500">등록·대표썸네일·올인원·로컬 GPU</span>
           </div>
+
+          {/* ⭐ "무엇을 받아야 하나" — 버튼만 나열하면 사용자가 스스로 판단해야 한다.
+              브라우저로 OS·칩을 알아내 맞는 파일을 집어 준다(못 알아내면 확인법을 안내). */}
+          {platform && (
+            <div className="mb-2.5 rounded-lg bg-white border border-indigo-200 px-3 py-2">
+              {platform.os === 'windows' && (
+                <p className="text-xs text-gray-800 leading-relaxed">
+                  이 컴퓨터는 <b>Windows</b> 입니다 → 아래 <b className="text-[#E31837]">빨간 버튼</b>을 받으세요.
+                  (macOS 버튼은 맥북용이라 무시하시면 됩니다.)
+                </p>
+              )}
+              {platform.os === 'mac' && platform.macArch === 'arm' && (
+                <p className="text-xs text-gray-800 leading-relaxed">
+                  이 컴퓨터는 <b>맥 (Apple Silicon)</b> 입니다 → 아래 macOS 의{' '}
+                  <b className="text-indigo-700">Apple Silicon (M1~)</b> 을 받으세요. 윈도우 버튼은 무시하세요.
+                </p>
+              )}
+              {platform.os === 'mac' && platform.macArch === 'intel' && (
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  이 컴퓨터는 <b>맥 (Intel)</b> 입니다 — <b>도우미를 지원하지 않습니다.</b>{' '}
+                  Intel 맥에는 GPU 가속(Metal)이 없어 이미지 생성이 사실상 불가능합니다.
+                  윈도우 PC나 Apple Silicon 맥에서 설치하세요. (품절·가격 확인 등 서버 기능은 설치 없이 그대로 동작합니다.)
+                </p>
+              )}
+              {platform.os === 'mac' && platform.macArch === 'unknown' && (
+                <p className="text-xs text-gray-800 leading-relaxed">
+                  이 컴퓨터는 <b>맥</b> 입니다. 칩을 자동으로 알아내지 못했습니다 —
+                  왼쪽 위  → <b>이 Mac에 관하여</b> 에서 확인하세요.
+                  <br />· <b>칩: Apple M1/M2/M3/M4</b> → 아래 <b>Apple Silicon</b> 받기
+                  <br />· <b>프로세서: Intel Core …</b> → 미지원 (윈도우 PC 사용)
+                </p>
+              )}
+              {platform.os === 'other' && (
+                <p className="text-xs text-gray-800 leading-relaxed">
+                  도우미는 <b>Windows</b> 와 <b>macOS</b> 에서만 동작합니다.
+                </p>
+              )}
+            </div>
+          )}
+
           <a
             href={desktop.downloadUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#E31837] text-white rounded-lg font-semibold text-sm hover:bg-[#c5142f] transition"
+            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm transition ${
+              platform && platform.os !== 'windows'
+                ? 'bg-white border border-gray-300 text-gray-600 hover:bg-gray-50'
+                : 'bg-[#E31837] text-white hover:bg-[#c5142f]'
+            }`}
           >
             <Download className="w-4 h-4" />
             메가로드 도우미 다운로드 (Windows)
-            <span className="px-1.5 py-0.5 text-[10px] font-medium bg-white/20 rounded-full">v{desktop.version}</span>
+            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded-full ${
+              platform && platform.os !== 'windows' ? 'bg-gray-100 text-gray-600' : 'bg-white/20'
+            }`}>v{desktop.version}</span>
+            {platform?.os === 'windows' && (
+              <span className="px-1.5 py-0.5 text-[10px] font-bold bg-white text-[#E31837] rounded-full">내 PC</span>
+            )}
             <ExternalLink className="w-3 h-3 opacity-70" />
           </a>
 
@@ -342,26 +426,38 @@ export default function LocalGpuWorkerSettings() {
             <div className="text-xs font-semibold text-gray-700 mb-1.5">macOS</div>
             {(desktop.macUrls?.arm || desktop.macUrls?.intel) ? (
               <div className="flex flex-wrap items-center gap-2">
-                {desktop.macUrls.arm && (
-                  <a
-                    href={desktop.macUrls.arm}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition"
-                  >
-                    <Download className="w-4 h-4" /> Apple Silicon (M1~)
-                  </a>
-                )}
-                {desktop.macUrls.intel && (
-                  <a
-                    href={desktop.macUrls.intel}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition"
-                  >
-                    <Download className="w-4 h-4" /> Intel Mac
-                  </a>
-                )}
+                {desktop.macUrls.arm && (() => {
+                  const mine = platform?.os === 'mac' && platform.macArch === 'arm';
+                  return (
+                    <a
+                      href={desktop.macUrls.arm}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg font-medium text-sm transition ${
+                        mine ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                          : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+                    >
+                      <Download className="w-4 h-4" /> Apple Silicon (M1~)
+                      {mine && <span className="px-1.5 py-0.5 text-[10px] font-bold bg-white text-indigo-700 rounded-full">내 맥</span>}
+                    </a>
+                  );
+                })()}
+                {desktop.macUrls.intel && (() => {
+                  const mine = platform?.os === 'mac' && platform.macArch === 'intel';
+                  return (
+                    <a
+                      href={desktop.macUrls.intel}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg font-medium text-sm transition ${
+                        mine ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                          : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+                    >
+                      <Download className="w-4 h-4" /> Intel Mac
+                      {mine && <span className="px-1.5 py-0.5 text-[10px] font-bold bg-white text-indigo-700 rounded-full">내 맥</span>}
+                    </a>
+                  );
+                })()}
               </div>
             ) : (
               <p className="text-[11px] text-gray-500 leading-relaxed">

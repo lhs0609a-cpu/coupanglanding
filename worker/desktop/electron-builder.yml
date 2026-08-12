@@ -42,12 +42,17 @@ win:
 #   bootstrap 이 플랫폼을 보고 스스로 빠지므로 앱이 죽지는 않는다.
 #
 # identity: null 이 없으면 electron-builder 가 키체인에서 서명 인증서를 찾다가 CI 에서 실패한다.
+# ⚠️ arch 를 여기에 나열하지 않는다. 나열하면 CLI 의 --arm64/--x64 가 그 목록을 덮어쓰지
+#    못해서, arm64 러너가 Intel 용까지 만들려다 hdiutil 이 깨진 dmg 를 뱉는다
+#    (실측 v0.2.82: "Detected arm64 process, HFS+ is unavailable" → 손상된 x64 dmg 발행).
+#    비워두면 빌드를 실행한 호스트/CLI 플래그가 아키텍처를 결정한다.
+#
+# ⚠️ Intel(x64) 은 빌드하지 않는다. GitHub 이 Intel 러너(macos-13)를 걷어내는 중이라
+#    진짜 Intel 바이너리를 만들 수단이 없고, 크로스빌드는 위처럼 깨진다.
+#    Intel 맥은 어차피 MPS 가 없어 누끼·이미지 생성이 불가능하다(애플도 2023년 판매 종료).
 mac:
   target:
-    - target: dmg
-      arch:
-        - arm64   # Apple Silicon (M1~)
-        - x64     # Intel Mac
+    - dmg
   icon: build/icon.png
   category: public.app-category.business
   artifactName: MegaloadDesktop-${version}-${arch}.${ext}

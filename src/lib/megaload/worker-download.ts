@@ -59,7 +59,8 @@ export function pickDesktopMacUrls(version: string, assetNames: string[]): Deskt
  */
 export const MAC_CAPABILITY_NOTE =
   'Apple Silicon(M1 이상) 맥은 상품명·상세글·옵션·카테고리 생성과 이미지 인식, 누끼·이미지 생성까지 '
-  + '윈도우와 동일하게 동작합니다. Intel 맥은 GPU 가속이 없어 누끼·이미지 생성만 제외되고 나머지는 그대로 씁니다.';
+  + '윈도우와 동일하게 동작합니다(자동 업데이트만 수동). '
+  + 'Intel 맥은 GPU 가속(Metal)이 없어 지원하지 않습니다 — 윈도우 PC를 쓰시거나 서버 기능만 이용하세요.';
 
 /** 맥 설치 시 Gatekeeper 통과 안내 — UI 여러 곳에서 같은 문구를 쓰도록 단일 출처. */
 export const MAC_GATEKEEPER_GUIDE =

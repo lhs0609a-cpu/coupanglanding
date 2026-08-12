@@ -105,23 +105,20 @@ jobs:
   #    "확인 없이 열기"를 눌러야 한다. 웹 다운로드 화면에 안내가 있다.
   # ⚠️ latest.yml 은 절대 건드리지 않는다 — 그건 Windows 자동업데이트 피드다.
   #    맥은 자동업데이트가 없으므로(auto-update.mjs 가 win32 에서만 동작) dmg 만 올린다.
-  # ⚠️ 아키텍처별로 러너를 나눈다. 예전엔 한 러너(arm64)에서 --arm64 --x64 를 함께 빌드했는데
-  #    Intel 산출물이 크로스아치로 깨졌다. electron-builder 의 네이티브 리빌드가 실행 호스트
-  #    아키텍처를 따라가기 때문이다 → arm64=macos-14, x64=macos-13(Intel) 로 분리한다.
+  # ⚠️ Apple Silicon(arm64) dmg 만 만든다.
+  #    ① GitHub 이 Intel 러너(macos-13)를 걷어내는 중이다 — v0.2.82 에서 Intel job 이
+  #       배정되지 않고 큐에 무한정 멈춰 있었다.
+  #    ② arm64 러너에서 x64 를 크로스빌드하면 hdiutil 이 실패해 **깨진 dmg 가 발행된다**
+  #       (v0.2.82 실측. 그 손상된 파일이 릴리스에 올라가 사용자에게 노출됐다).
+  #    ③ Intel 맥은 MPS 가 없어 어차피 누끼·이미지 생성을 못 쓴다.
+  #    아키텍처는 electron-builder.yml 에 나열하지 않고 여기 CLI 플래그로만 정한다
+  #    (설정에 나열하면 CLI 가 덮어쓰지 못해 x64 가 딸려 나온다).
   #
   # ⚠️ continue-on-error 를 쓰지 않는다. build-mac 은 build(Windows)와 의존관계가 없어
   #    실패해도 Windows 릴리스를 막지 못한다. 예전에 이 옵션이 붙어 있어서 맥 빌드가
   #    한 번도 성공한 적 없다는 사실이 릴리스 화면에서 초록불로 가려져 있었다(dmg 0개).
   build-mac:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-14   # Apple Silicon
-            arch: arm64
-          - runner: macos-13   # Intel
-            arch: x64
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-14
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -140,13 +137,19 @@ jobs:
         env:
           # 키체인에서 서명 인증서를 찾지 않게 한다(없으면 빌드가 실패한다).
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npm run dist -- --mac --${{ matrix.arch }}
+        run: npm run dist -- --mac --arm64
 
-      - name: Verify dmg built
+      # arm64 만 나와야 한다. x64 가 섞여 있으면 크로스빌드가 되살아난 것이므로
+      # (깨진 dmg 발행 사고 재발) 여기서 끊는다 — 발행 단계로 넘기지 않는다.
+      - name: Verify dmg built (arm64 only)
         shell: bash
         run: |
-          ls -la worker/desktop/dist/*${{ matrix.arch }}*.dmg \
-            || { echo "::error::${{ matrix.arch }} dmg 산출물이 없습니다"; exit 1; }
+          ls -la worker/desktop/dist/*arm64*.dmg \
+            || { echo "::error::arm64 dmg 산출물이 없습니다"; exit 1; }
+          if ls worker/desktop/dist/*x64*.dmg >/dev/null 2>&1; then
+            echo "::error::x64 dmg 가 생성됐습니다 — 크로스빌드는 hdiutil 이 깨뜨립니다. electron-builder.yml 의 mac.target 에 arch 가 다시 들어갔는지 확인하세요."
+            exit 1
+          fi
 
       - name: Publish dmg to fixed feed
         shell: bash
@@ -156,7 +159,7 @@ jobs:
           n=0
           until [ $n -ge 3 ]; do
             if gh release upload megaload-desktop-update \
-                 worker/desktop/dist/*.dmg --clobber \
+                 worker/desktop/dist/*arm64*.dmg --clobber \
                  --repo lhs0609a-cpu/coupanglanding; then
               echo "✅ dmg 발행 완료"; exit 0
             fi
