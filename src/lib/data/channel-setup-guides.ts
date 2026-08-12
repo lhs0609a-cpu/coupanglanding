@@ -453,6 +453,108 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
   },
 
   // ── 토스쇼핑 (스텁 — 공식 셀러 API 미공개) ──
+  // ── 테무 (Temu Open Platform / 한국 로컬셀러 L2L) ──
+  //
+  // 다른 채널과 결정적으로 다른 점: 키가 "셀러 포털에서 즉시 발급"이 아니라
+  // 별도 개발자 포털(partner.temu.com)에서 앱을 만들고 테무 심사를 통과해야 나온다.
+  // 그래서 절차가 셀러센터 ↔ 개발자 포털 두 사이트를 오간다.
+  temu: {
+    channel: 'temu',
+    title: '테무 Open API 연동 가이드 (자체개발 앱)',
+    estimatedTime: '입력 약 10분 + 테무 심사 대기 (앱 승인 SLA 미공개)',
+    prerequisites: [
+      '테무 한국 로컬 셀러(L2L) 입점 승인 — 사업자 필수',
+      '셀러센터 주(main) 계정 — 서브 계정으로는 앱을 만들 수 없음',
+      '한국 A/S 담당자(Korea A/S REP) 사전 등록 — 미비 시 판매 제한',
+    ],
+    steps: [
+      {
+        stepNumber: 1,
+        title: '테무 한국 셀러 입점',
+        description: '한국 로컬 셀러(L2L)로 입점합니다.',
+        detailedInstructions: [
+          'kr.seller.temu.com 에서 로컬 셀러로 가입 신청하세요. 등록비는 무료입니다.',
+          '사업자 정보와 서류를 제출하면 영업일 1일 내 심사됩니다.',
+          '한국은 로컬투로컬(L2L) 모델만 열려 있습니다 — 국내 재고를 국내로 직배송하는 방식입니다.',
+        ],
+        url: 'https://kr.seller.temu.com/login.html',
+        tip: '중국 크로스보더(agentseller.temu.com, seller.kuajingmaihuo.com)와 다른 사이트입니다. 한국 셀러는 kr.seller.temu.com 이 맞습니다.',
+      },
+      {
+        stepNumber: 2,
+        title: '개발자 포털(Partner Platform) 가입',
+        description: 'API 앱을 만들 개발자 계정을 만듭니다.',
+        detailedInstructions: [
+          'partner.temu.com 에서 이메일로 파트너 계정을 생성하세요.',
+          '파트너 유형에서 반드시 "Self-developed applications seller"(자체개발 앱 셀러)를 선택하세요.',
+          '한국은 GLOBAL 관할입니다 — partner-us / partner-eu 가 아니라 partner.temu.com 입니다.',
+        ],
+        url: 'https://partner.temu.com/',
+        warning: '파트너 유형은 나중에 변경할 수 없습니다. 잘못 고르면 계정을 새로 만들어야 합니다. 또한 ISV(제3자 앱) 계정과 자체개발 앱 계정은 겸용할 수 없습니다.',
+      },
+      {
+        stepNumber: 3,
+        title: '셀러센터 계정 연동',
+        description: '개발자 계정에 내 매장을 연결합니다.',
+        detailedInstructions: [
+          '파트너 플랫폼에서 셀러센터 계정을 연동하세요.',
+          '반드시 주(main) 계정이어야 합니다. 서브 계정은 연동되지 않습니다.',
+          '한 셀러센터 계정은 파트너 계정 하나에만 연결되고, 매장당 자체개발 앱은 1개만 만들 수 있습니다.',
+        ],
+        warning: '"A self-developed app has already been applied for the shops." 가 뜨면 해당 매장에 이미 앱이 있다는 뜻입니다.',
+      },
+      {
+        stepNumber: 4,
+        title: '앱 생성 + 컴플라이언스 심사',
+        description: '앱 정보를 적고 설문을 제출한 뒤 승인을 기다립니다.',
+        detailedInstructions: [
+          '앱 이름, Shop ID, 신청 사유, API 연동으로 구현할 기능(예: 상품 등록 및 주문 관리)을 기입하세요.',
+          '컴플라이언스 설문(Compliance questionnaire)과 보안 설문(Security questionnaire)을 작성해 제출합니다.',
+          '심사 중에는 내용을 수정할 수 없습니다. 승인/반려 결과를 기다리세요.',
+        ],
+        tip: '쿠팡처럼 로그인 즉시 키가 나오는 방식이 아닙니다. 심사가 반드시 붙습니다.',
+      },
+      {
+        stepNumber: 5,
+        title: 'App Key / App Secret 확인',
+        description: '승인되면 앱 상세에서 키를 확인합니다.',
+        detailedInstructions: [
+          '승인 후 파트너 플랫폼의 앱 상세 화면에서 App Key 와 App Secret 을 확인하세요.',
+          '서버 IP 화이트리스트에 메가로드 호출 서버 IP 를 등록하세요(최대 20개).',
+        ],
+        inputFields: ['App Key', 'App Secret'],
+        warning: '중국 클라우드 사업자의 IP 는 등록할 수 없습니다. 고정 IP 가 없는 서버에서 호출하면 게이트웨이가 요청을 거부합니다.',
+      },
+      {
+        stepNumber: 6,
+        title: 'Access Token 발급',
+        description: '셀러센터에서 앱을 승인하고 토큰을 복사합니다.',
+        detailedInstructions: [
+          '셀러센터(kr.seller.temu.com) → "앱 및 서비스" → "앱스토어" 로 이동하세요.',
+          '내 앱을 찾아 "승인" 을 누르고, 하단 체크박스에 동의한 뒤 제출하세요.',
+          '화면에 표시되는 Access Token 을 복사하세요.',
+        ],
+        inputFields: ['Access Token'],
+        warning: 'Access Token 은 만료 기한이 있습니다. 토큰 재발급 API 가 공식 문서에 없어, 만료되면 이 화면에서 다시 발급받아 교체해야 할 수 있습니다.',
+      },
+      {
+        stepNumber: 7,
+        title: '메가로드에 입력 후 연결 테스트',
+        description: '키 3개를 입력하고 연결을 확인합니다.',
+        detailedInstructions: [
+          'App Key, App Secret, Access Token 을 아래 입력란에 넣고 "연결 테스트" 를 누르세요.',
+          '성공하면 연결된 매장명과 권한 개수, 토큰 만료일이 함께 표시됩니다.',
+        ],
+        inputFields: ['App Key', 'App Secret', 'Access Token'],
+        tip: '"서명 불일치" 가 뜨면 App Secret 을, "토큰 무효" 가 뜨면 Access Token 을 다시 확인하세요.',
+      },
+    ],
+    finalNote:
+      '연결이 되면 1단계 완료입니다. 상품 등록과 주문 연동은 이어지는 단계에서 추가됩니다. ' +
+      '참고로 테무는 상품을 올려도 즉시 판매되지 않고, 테무의 가격 평가와 승인을 통과해야 판매가 시작됩니다.',
+  },
+
+  // ── 토스쇼핑 (스텁 — 공식 셀러 API 미공개) ──
   toss: {
     channel: 'toss',
     title: '토스쇼핑 — 준비 중',

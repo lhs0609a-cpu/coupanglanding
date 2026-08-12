@@ -6,7 +6,7 @@ import type { Channel, OrderStatus, Plan } from './types';
 
 // --- 채널 ---
 
-export const CHANNELS: Channel[] = ['coupang', 'naver', 'elevenst', 'gmarket', 'auction', 'lotteon', 'toss', 'kakao'];
+export const CHANNELS: Channel[] = ['coupang', 'naver', 'elevenst', 'gmarket', 'auction', 'lotteon', 'temu', 'toss', 'kakao'];
 
 export const CHANNEL_LABELS: Record<Channel, string> = {
   coupang: '쿠팡',
@@ -15,6 +15,7 @@ export const CHANNEL_LABELS: Record<Channel, string> = {
   gmarket: 'G마켓',
   auction: '옥션',
   lotteon: '롯데온',
+  temu: '테무',
   toss: '토스쇼핑',
   kakao: '카카오쇼핑',
 };
@@ -26,6 +27,7 @@ export const CHANNEL_SHORT_LABELS: Record<Channel, string> = {
   gmarket: 'G마켓',
   auction: '옥션',
   lotteon: '롯데온',
+  temu: '테무',
   toss: '토스',
   kakao: '카카오',
 };
@@ -37,6 +39,7 @@ export const CHANNEL_COLORS: Record<Channel, string> = {
   gmarket: 'bg-emerald-100 text-emerald-700',
   auction: 'bg-blue-100 text-blue-700',
   lotteon: 'bg-pink-100 text-pink-700',
+  temu: 'bg-orange-100 text-orange-800',
   toss: 'bg-blue-50 text-blue-500',
   kakao: 'bg-yellow-100 text-yellow-800',
 };
@@ -48,6 +51,7 @@ export const CHANNEL_BG_COLORS: Record<Channel, string> = {
   gmarket: '#00A862',
   auction: '#FF6F00',
   lotteon: '#E5006D',
+  temu: '#FB7701',
   toss: '#3182F6',
   kakao: '#FEE500',
 };
@@ -60,6 +64,7 @@ export const CHANNEL_LOGOS: Record<Channel, string> = {
   gmarket: '/channel-logos/gmarket.png',
   auction: '/channel-logos/auction.png',
   lotteon: '/channel-logos/lotteon.png',
+  temu: '/channel-logos/temu.png',
   toss: '/channel-logos/toss.png',
   kakao: '/channel-logos/kakao.svg',
 };
@@ -71,6 +76,7 @@ export const CHANNEL_ICONS: Record<Channel, string> = {
   gmarket: '🟩',
   auction: '🔵',
   lotteon: '🩷',
+  temu: '🟠',
   toss: '💙',
   kakao: '💛',
 };
@@ -158,19 +164,27 @@ export const CHANNEL_ORDER_STATUS_MAP: Record<Channel, Record<string, OrderStatu
     CANCEL_COMPLETE: 'cancelled',
     RETURN_COMPLETE: 'returned',
   },
+  // 테무 주문상태 원문 코드는 셀러 로그인 뒤 문서(doc_type=2)라 미확보 —
+  // 카나리 주문 1건의 raw_data 를 보고 채울 것. 비어 있으면 전부 payment_done 으로 폴백된다.
+  temu: {},
   toss: {},   // 준비 중 — 공식 API 공개 시 매핑 추가
   kakao: {},  // 준비 중 — 공식 API 공개 시 매핑 추가
 };
 
 // --- 택배사 코드 매핑 ---
 
+/**
+ * 테무(temu)는 문자 코드가 아니라 숫자 carrierId 를 쓴다(공식 예제: carrierId "699272611").
+ * 한국 택배사별 carrierId 는 문서가 로그인월이라 미확보 — 배송 연동 단계에서
+ * 테무 택배사 목록 API 로 조회해 채울 것. 빈 값이면 송장 전송이 실패한다.
+ */
 export const COURIER_CHANNEL_CODES: Record<string, Record<Channel, string>> = {
-  CJ대한통운: { coupang: 'CJGLS', naver: 'CJGLS', elevenst: '04', gmarket: 'CJ', auction: 'CJ', lotteon: 'CJ', toss: '', kakao: '' },
-  한진택배: { coupang: 'HANJIN', naver: 'HANJIN', elevenst: '05', gmarket: 'HANJIN', auction: 'HANJIN', lotteon: 'HANJIN', toss: '', kakao: '' },
-  롯데택배: { coupang: 'LOTTE', naver: 'LOTTE', elevenst: '08', gmarket: 'LOTTE', auction: 'LOTTE', lotteon: 'LOTTE', toss: '', kakao: '' },
-  우체국택배: { coupang: 'EPOST', naver: 'EPOST', elevenst: '01', gmarket: 'EPOST', auction: 'EPOST', lotteon: 'EPOST', toss: '', kakao: '' },
-  로젠택배: { coupang: 'LOGEN', naver: 'LOGEN', elevenst: '06', gmarket: 'LOGEN', auction: 'LOGEN', lotteon: 'LOGEN', toss: '', kakao: '' },
-  경동택배: { coupang: 'KDEXP', naver: 'KDEXP', elevenst: '23', gmarket: 'KDEXP', auction: 'KDEXP', lotteon: 'KDEXP', toss: '', kakao: '' },
+  CJ대한통운: { coupang: 'CJGLS', naver: 'CJGLS', elevenst: '04', gmarket: 'CJ', auction: 'CJ', lotteon: 'CJ', temu: '', toss: '', kakao: '' },
+  한진택배: { coupang: 'HANJIN', naver: 'HANJIN', elevenst: '05', gmarket: 'HANJIN', auction: 'HANJIN', lotteon: 'HANJIN', temu: '', toss: '', kakao: '' },
+  롯데택배: { coupang: 'LOTTE', naver: 'LOTTE', elevenst: '08', gmarket: 'LOTTE', auction: 'LOTTE', lotteon: 'LOTTE', temu: '', toss: '', kakao: '' },
+  우체국택배: { coupang: 'EPOST', naver: 'EPOST', elevenst: '01', gmarket: 'EPOST', auction: 'EPOST', lotteon: 'EPOST', temu: '', toss: '', kakao: '' },
+  로젠택배: { coupang: 'LOGEN', naver: 'LOGEN', elevenst: '06', gmarket: 'LOGEN', auction: 'LOGEN', lotteon: 'LOGEN', temu: '', toss: '', kakao: '' },
+  경동택배: { coupang: 'KDEXP', naver: 'KDEXP', elevenst: '23', gmarket: 'KDEXP', auction: 'KDEXP', lotteon: 'KDEXP', temu: '', toss: '', kakao: '' },
 };
 
 // --- 채널별 Rate Limit ---
@@ -182,6 +196,8 @@ export const CHANNEL_RATE_LIMITS: Record<Channel, { windowMs: number; maxCalls: 
   gmarket: { windowMs: 60000, maxCalls: 30 },
   auction: { windowMs: 60000, maxCalls: 30 },
   lotteon: { windowMs: 60000, maxCalls: 60 },
+  // 공식 문서 확인값: app_key 당 20 QPS(초당). ISV 앱이면 전 셀러가 이 한도를 공유한다.
+  temu: { windowMs: 1000, maxCalls: 20 },
   toss: { windowMs: 60000, maxCalls: 0 },
   kakao: { windowMs: 60000, maxCalls: 0 },
 };
@@ -195,6 +211,7 @@ export const CHANNEL_BATCH_SIZES: Record<Channel, number> = {
   gmarket: 30,
   auction: 30,
   lotteon: 50,
+  temu: 50,   // 미검증 — 조회 pageSize 상한이 100 인 것만 확인됨
   toss: 0,
   kakao: 0,
 };
@@ -208,6 +225,9 @@ export const CHANNEL_COMMISSION_RATES: Record<Channel, number> = {
   gmarket: 12,
   auction: 12,
   lotteon: 10,
+  // 테무 수수료율은 공개 출처끼리 정면 충돌(2~5% / 5~15% / 0% 프로모션) — 계약서 확인 전까지 0.
+  // 0 으로 두면 마진 계산이 수수료를 과소평가하니, 실계약 확인 즉시 채울 것.
+  temu: 0,
   toss: 0,
   kakao: 0,
 };

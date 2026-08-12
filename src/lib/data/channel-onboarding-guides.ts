@@ -953,6 +953,94 @@ const lotteon: OnboardingGuide = {
 };
 
 // ────────────────────────────────────────────────────────────
+// 테무 (한국 로컬셀러 L2L — 2025-05 전면 개방)
+//
+// 캡처 없음 → 전 스텝 목업 폴백. 실제 가입 화면을 캡처하면
+// public/onboarding/temu/step-N.png 에 넣고 attachImages 를 추가하면 된다.
+// ────────────────────────────────────────────────────────────
+const temu: OnboardingGuide = {
+  channel: 'temu',
+  headline: '테무는 국내 재고를 국내로 직배송하는 "로컬투로컬(L2L)" 셀러만 받아요.',
+  eligibility: '국내 사업자 (한국 내 재고 보유·국내 직배송)',
+  estimatedTime: '가입 약 20분 + 심사 영업일 1일',
+  cost: '입점·등록비 무료',
+  documents: [
+    '사업자등록증',
+    '통신판매업 신고증',
+    '정산 계좌 사본',
+    '대표자 신분증',
+  ],
+  settlementSummary:
+    '수수료율과 정산주기는 공개 자료마다 값이 달라(2~5% / 5~15% / 프로모션 0%) 확정할 수 없습니다. 계약 조건을 직접 확인하세요.',
+  available: true,
+  finalNote:
+    '입점이 끝나면 연동 탭에서 Open API 앱을 만들어 키를 발급받습니다. ' +
+    '테무는 상품을 올려도 자체 가격 평가와 승인을 통과해야 판매가 시작된다는 점을 미리 감안하세요.',
+  steps: [
+    {
+      stepNumber: 1,
+      title: '한국 셀러센터 접속',
+      description: '한국 로컬 셀러 전용 사이트로 들어갑니다.',
+      detailedInstructions: [
+        'kr.seller.temu.com 에 접속해 회원가입을 시작하세요.',
+        '이메일 또는 휴대폰으로 계정을 만들고 인증합니다.',
+      ],
+      url: 'https://kr.seller.temu.com/login.html',
+      warning: 'agentseller.temu.com 이나 seller.kuajingmaihuo.com 은 중국 크로스보더 셀러용입니다. 한국 셀러가 여기로 가입하면 국내 배송 판매를 할 수 없습니다.',
+    },
+    {
+      stepNumber: 2,
+      title: '사업자 정보 입력',
+      description: '판매자 유형과 사업자 정보를 등록합니다.',
+      detailedInstructions: [
+        '사업자 유형(개인사업자/법인)을 고르고 사업자등록번호를 입력하세요.',
+        '상호, 대표자명, 사업장 주소, 연락처를 사업자등록증과 동일하게 기입합니다.',
+      ],
+      tip: '사업자등록증과 한 글자라도 다르면 심사에서 반려됩니다.',
+    },
+    {
+      stepNumber: 3,
+      title: '서류 업로드 · 정산 계좌 등록',
+      description: '심사 서류와 대금을 받을 계좌를 등록합니다.',
+      detailedInstructions: [
+        '사업자등록증, 통신판매업 신고증, 통장 사본, 대표자 신분증을 업로드하세요.',
+        '정산 계좌는 사업자 명의여야 합니다.',
+      ],
+      warning: '정산 통화가 원화가 아닐 수 있다는 자료가 있습니다. 계좌 등록 시 통화 표기를 확인하세요.',
+    },
+    {
+      stepNumber: 4,
+      title: '심사 대기 (영업일 1일)',
+      description: '테무가 제출 서류를 검토합니다.',
+      detailedInstructions: [
+        '심사는 보통 영업일 1일 내에 끝납니다.',
+        '승인되면 셀러센터에 로그인해 스토어 설정을 진행할 수 있습니다.',
+      ],
+    },
+    {
+      stepNumber: 5,
+      title: '한국 A/S 담당자 등록',
+      description: '한국 전용 필수 항목을 채웁니다.',
+      detailedInstructions: [
+        '셀러센터에서 한국 A/S 담당자(Korea A/S REP)를 사전 등록하세요.',
+        '배송비 템플릿과 출고 소요일도 함께 설정합니다 — 상품 등록 시 필수 값입니다.',
+      ],
+      warning: 'A/S 담당자가 등록되지 않으면 판매가 제한됩니다. 상품을 올리기 전에 먼저 처리하세요.',
+    },
+    {
+      stepNumber: 6,
+      title: '연동 탭으로 이동',
+      description: '입점이 끝나면 API 키 발급으로 넘어갑니다.',
+      detailedInstructions: [
+        '이 화면의 "연동" 탭에서 Open API 앱 생성과 키 발급 절차를 안내합니다.',
+        '개발자 포털은 셀러센터와 다른 사이트(partner.temu.com)입니다.',
+      ],
+      url: 'https://partner.temu.com/',
+    },
+  ],
+};
+
+// ────────────────────────────────────────────────────────────
 // 토스쇼핑 / 카카오쇼핑 (셀프 입점 준비 중)
 // ────────────────────────────────────────────────────────────
 const toss: OnboardingGuide = {
@@ -1036,6 +1124,7 @@ export const CHANNEL_ONBOARDING_GUIDES: Record<Channel, OnboardingGuide> = {
   gmarket,
   auction,
   lotteon,
+  temu,
   toss,
   kakao,
 };

@@ -44,4 +44,13 @@ export const CHANNEL_CREDENTIAL_FIELDS: Partial<Record<Channel, CredentialField[
     { key: 'apiKey', label: 'API Key', placeholder: '스토어센터 OpenAPI 관리에서 발급', secret: true },
     { key: 'accountNo', label: '거래처번호', placeholder: '거래처 번호' },
   ],
+  // 테무 — 자체개발 앱(SDA) 기준. partner.temu.com 에서 앱 승인 후 appKey/appSecret 이 나오고,
+  // access_token 은 셀러센터(kr.seller.temu.com) > 앱 및 서비스 > 앱스토어에서 앱 승인 시 발급된다.
+  // 우리가 ISV 앱을 게시하는 방식으로 바꾸면 appKey/appSecret 은 서버 환경변수로 옮기고
+  // 여기엔 accessToken 한 줄만 남는다(샵플링 등 국내 OMS 가 쓰는 방식).
+  temu: [
+    { key: 'appKey', label: 'App Key', placeholder: 'partner.temu.com 앱 승인 후 발급' },
+    { key: 'appSecret', label: 'App Secret', placeholder: '앱 상세에서 확인', secret: true },
+    { key: 'accessToken', label: 'Access Token', placeholder: '셀러센터 > 앱 및 서비스 > 앱스토어에서 복사', secret: true },
+  ],
 };
