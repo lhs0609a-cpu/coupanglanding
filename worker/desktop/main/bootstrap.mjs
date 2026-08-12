@@ -108,20 +108,36 @@ export function imageEngineSupported() {
 }
 
 /**
+ * Apple Silicon 이 GPU 로 실제로 쓸 수 있는 통합 메모리 비율(보수적).
+ * macOS 는 기본적으로 총 메모리의 2/3~3/4 까지 GPU 에 내주지만, OS·앱 몫을 빼고
+ * SDXL 과 LLM 이 번갈아 올라가는 상황을 감안해 0.6 으로 잡는다.
+ *   8GB  → 4.8GB  (작은 모델 — 7.8B 를 올리면 스왑)
+ *   16GB → 9.6GB  (7.8B + 슬롯 2)
+ *   24GB → 14.4GB (7.8B + 슬롯 3)
+ */
+const MAC_UNIFIED_USABLE = 0.6;
+
+/**
  * Apple Silicon GPU 점검.
  * 통합 메모리라 VRAM 이 따로 없다 — GPU 가 시스템 RAM 을 그대로 쓴다.
- * 호출부(pickNumParallel 등)가 vramFreeMb 로 동시 슬롯을 정하므로 RAM 을 그 자리에 넣는다.
- * ⚠️ macOS 의 freemem() 은 페이지 캐시를 뺀 값이라 실제 가용량보다 작게 나온다 →
- *    슬롯 수가 보수적으로(적게) 잡힌다. 과다 할당으로 OOM 나는 것보다 안전한 방향이다.
+ *
+ * ⚠️ **freemem() 을 그대로 쓰면 안 된다.** macOS 는 남는 RAM 을 전부 페이지 캐시로 잡아
+ *    freemem() 이 16GB 기기에서도 1~3GB 로 보고된다(캐시는 필요할 때 즉시 회수된다).
+ *    그런데 호출부는 이 값으로 모델 크기와 동시 슬롯을 정한다:
+ *      pickGenProfile  — vramFreeMb >= 5000 이라야 7.8B, < 1500 이면 '부족' 취급
+ *      pickNumParallel — >= 8000 이라야 슬롯 2 이상
+ *    즉 freemem() 을 믿으면 **성능 좋은 맥이 전부 저사양으로 강등**된다(모델·동시성 동시 하락).
+ *    → 통합 메모리의 실사용 가능분을 기준으로 삼고, 실제 free 가 그보다 크면 그걸 쓴다.
  */
 function checkGpuMac() {
   if (!IS_APPLE_SILICON) return { ok: false, name: null, vramMb: 0, vramFreeMb: 0 };
   const mb = (b) => Math.round(b / (1024 * 1024));
+  const total = mb(totalmem());
   return {
     ok: true,
     name: `${cpus()[0]?.model || 'Apple Silicon'} (Metal)`,
-    vramMb: mb(totalmem()),
-    vramFreeMb: mb(freemem()),
+    vramMb: total,
+    vramFreeMb: Math.max(mb(freemem()), Math.floor(total * MAC_UNIFIED_USABLE)),
   };
 }
 
@@ -371,8 +387,22 @@ async function downloadFile(url, dest, onProgress) {
   await pipeline(stream, createWriteStream(dest));
 }
 
+/**
+ * 동봉 7za 에 실행 권한 보장(맥·리눅스 전용, 1회).
+ * npm 패키지에는 0755 로 들어 있지만, 압축·복사·서명 과정에서 실행비트가 떨어지면
+ * spawn 이 EACCES 로 죽고 "압축 해제 실패"라는 원인 불명 에러만 남는다.
+ * chmod 는 이미 실행 가능해도 무해하므로 그냥 한 번 걸어 둔다.
+ */
+let _7zaChmodDone = false;
+async function ensure7zaExecutable() {
+  if (IS_WIN || _7zaChmodDone) return;
+  _7zaChmodDone = true;
+  await chmod(path7za, 0o755).catch(() => {});
+}
+
 /** 7z 압축해제 (7zip-bin 동봉 바이너리) — stdout 의 NN% 파싱 */
-function extract7z(archive, destDir, onProgress) {
+async function extract7z(archive, destDir, onProgress) {
+  await ensure7zaExecutable();
   return new Promise((resolve, reject) => {
     const p = spawn(path7za, ['x', archive, `-o${destDir}`, '-y', '-bsp1'], { windowsHide: true });
     let err = '';

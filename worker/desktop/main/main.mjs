@@ -335,7 +335,10 @@ app.whenReady().then(async () => {
   registerShellIpc(manifest);
 
   // OS 시작 시 자동 실행 등록 (다운로드 후 일일이 안 켜도 부팅마다 백그라운드 상주).
-  try { app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] }); } catch { /* 비지원 환경 무시 */ }
+  // ⚠️ args 는 Windows 전용 옵션이다 — 맥에서는 무시되므로 창이 그대로 뜬다.
+  //    맥의 대응 옵션은 openAsHidden 이고, 부팅 실행 여부는 wasOpenedAtLogin(맥 전용)으로 안다.
+  try { app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true, args: ['--hidden'] }); }
+  catch { /* 비지원 환경 무시 */ }
   const openedAtLogin = app.getLoginItemSettings().wasOpenedAtLogin || process.argv.includes('--hidden');
   createWindow(openedAtLogin); // 부팅 자동실행이면 창 숨김(트레이만), 직접 실행이면 창 표시
   tray = new Tray(trayIcon());

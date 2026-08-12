@@ -38,8 +38,13 @@ export class ComfyManager {
     const cwd = IS_WIN ? comfyRoot(this.installDir) : comfyAppDir(this.installDir);
     const args = ['-s', IS_WIN ? join('ComfyUI', 'main.py') : 'main.py',
       '--port', String(this.port), '--disable-auto-launch'];
+    // ⚠️ 맥(MPS)에서는 PyTorch 가 아직 구현하지 않은 연산이 있다. 커스텀 노드(누끼 등)가
+    //    그런 연산을 만나면 "The operator 'aten::…' is not currently implemented for the MPS
+    //    device" 로 **생성 전체가 죽는다**. 이 환경변수가 있으면 해당 연산만 CPU 로 흘려
+    //    (조금 느려질 뿐) 파이프라인이 계속된다. 맥에서 ComfyUI 를 쓰려면 사실상 필수.
+    const env = IS_WIN ? process.env : { ...process.env, PYTORCH_ENABLE_MPS_FALLBACK: '1' };
     this.onLog(`ComfyUI 시작: ${python} ${args.join(' ')}`);
-    this.proc = spawn(python, args, { cwd, windowsHide: true });
+    this.proc = spawn(python, args, { cwd, env, windowsHide: true });
     this.proc.stdout?.on('data', (d) => this.onLog(String(d).trimEnd()));
     this.proc.stderr?.on('data', (d) => this.onLog(String(d).trimEnd()));
     this.proc.on('exit', (code) => { this.onLog(`ComfyUI 종료 (code=${code})`); this.proc = null; });
