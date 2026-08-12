@@ -27,13 +27,23 @@ const BASE = `http://${HOST}`;
  *   ② 슬롯 1개는 KV 캐시 몫이 필요하다 — 실측 5361MB(7.8B·num_ctx 4096·3슬롯)로
  *      단일 대비 +0.5GB 수준이라, 여유를 넉넉히 잡고도 안전하다.
  *   ③ 사용자가 직접 지정했으면 그 값을 존중한다(...process.env 가 뒤에 오지 않도록 주의).
- * @returns {Promise<number>} 슬롯 수(1~4)
+ *
+ * ⭐ 슬롯 상한을 3 → 6 으로 올린다(위 실측을 그대로 쓴다).
+ *    같은 측정에서 6 슬롯이 2.43배로 3 슬롯(2.02배)보다 **+20%** 빨랐는데, 코드는 3 에서
+ *    멈춰 있어 그 구간을 버리고 있었다. 메모리 비용은 작다 — 실측 5361MB 가 "7.8B 모델 +
+ *    3 슬롯 KV" 합계이고 단일 대비 +0.5GB 였으므로, 슬롯당 KV 는 0.2GB 미만이다.
+ *    6 슬롯이라도 모델 포함 6GB 안쪽이라 11GB 여유면 5GB 를 남긴다.
+ *
+ *    ⚠️ 기존 구간은 절대 낮추지 않는다(순수 증가). 어떤 PC 도 예전보다 적은 슬롯을 받지
+ *       않으므로, 이 변경으로 느려지는 경우는 구조적으로 없다.
+ * @returns {Promise<number>} 슬롯 수(1~6)
  */
 export async function pickNumParallel() {
   const gpu = await checkGpu().catch(() => ({ ok: false, vramFreeMb: 0 }));
   if (!gpu.ok) return 1;                       // CPU 추론은 병렬이 이득이 없다(코어 경합)
   const free = gpu.vramFreeMb || 0;
-  if (free >= 11000) return 3;
+  if (free >= 11000) return 6;                 // 예전 3 → 실측상 +20%
+  if (free >= 9000) return 4;
   if (free >= 8000) return 2;
   return 1;                                     // 빠듯하면 예전과 동일(안전)
 }

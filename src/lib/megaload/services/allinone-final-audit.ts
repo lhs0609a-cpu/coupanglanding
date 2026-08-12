@@ -109,6 +109,34 @@ function hasSlashLabelLeak(detail: string, categoryPath: string): boolean {
 /** 생성기가 지시문·메타 문장을 그대로 뱉은 흔적. */
 const META_LEAK_RE = /(상세\s*페이지\s*(카피|문구|초안)|다음은[^\n]{0,20}(입니다|드립니다)\s*[:：]|아래와\s*같습니다\s*[:：]|^\s*(제목|본문|출력)\s*[:：])/m;
 
+/**
+ * 상품명에서 **같은 낱말이 반복**되는 것을 접는다("나주배 배 5kg 배" → "나주배 5kg").
+ * 소싱 원본명이 분류 라벨을 꼬리에 반복해 붙이는 경우가 많아 그대로 새면 노출명이 지저분해진다.
+ * ⚠️ 재생성 없이 그 자리에서 고칠 수 있으므로 **시간 비용이 0** 이다.
+ *    숫자·단위 토큰(5kg, 2개)은 건드리지 않는다 — 스펙이라 중복처럼 보여도 의미가 다르다.
+ */
+function dedupeNameTokens(name: string): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const tok of String(name || '').split(/\s+/)) {
+    if (!tok) continue;
+    const key = tok.toLowerCase();
+    // 숫자를 포함한 토큰(스펙)과 2글자 미만은 중복 판정에서 제외
+    if (/\d/.test(tok) || tok.length < 2) { out.push(tok); continue; }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tok);
+  }
+  return out.join(' ');
+}
+
+/** 문자열에서 의미 토큰(2글자 이상, 기호 제외)만 뽑는다. */
+function meaningTokens(s: string): string[] {
+  return String(s || '')
+    .split(/[^0-9A-Za-z가-힣]+/)
+    .filter((t) => t.length >= 2);
+}
+
 /** "옵션1", "옵션 2", "1", "-" 처럼 무엇을 고르는지 알 수 없는 **옵션명**. */
 function isMeaninglessOptionName(s: string): boolean {
   const t = String(s || '').trim();
@@ -151,22 +179,49 @@ export function auditProduct(input: AuditInput): AuditResult {
       add({ field: 'displayName', severity: 'fix', code: 'name_markdown', message: '상품명의 마크다운 기호(**)를 제거했습니다.' });
     }
     const comp = checkCompliance(name, { removeErrors: true, categoryContext: input.categoryPath });
-    if (comp.cleanedText !== name) {
-      const words = comp.violations.slice(0, 3).map((v) => v.label).filter(Boolean).join(', ');
+    // ⚠️ "텍스트가 달라졌다"를 곧 "금지어를 지웠다"로 보면 안 된다 — 필터는 공백 정리 같은
+    //    무해한 정규화도 한다. 그걸 위반으로 보고하면 위반 목록이 비어 있는데 경고만 뜬다
+    //    (실측: 정상 문구에서 거짓 경고). 정리는 조용히 반영하고, **실제 위반이 있을 때만** 알린다.
+    const nameWords = comp.violations.map((v) => v.label).filter(Boolean);
+    if (nameWords.length > 0) {
       add({
         field: 'displayName', severity: 'fix', code: 'name_forbidden',
-        message: `상품명에서 계정 리스크 어휘를 제거했습니다${words ? ` (${words})` : ''}.`,
+        message: `상품명에서 계정 리스크 어휘를 제거했습니다 (${nameWords.slice(0, 3).join(', ')}).`,
       });
-      name = tidyInline(comp.cleanedText);
     }
+    name = tidyInline(comp.cleanedText);
     if (name.length > NAME_MAX) {
       name = name.slice(0, NAME_MAX).trim();
       add({ field: 'displayName', severity: 'fix', code: 'name_too_long', message: `상품명이 ${NAME_MAX}자를 넘어 잘랐습니다.` });
+    }
+    // 낱말 반복 접기 — 자리에서 고치므로 재생성 없이(=시간 0) 노출명 품질이 올라간다.
+    const deduped = dedupeNameTokens(name);
+    if (deduped !== name) {
+      add({ field: 'displayName', severity: 'fix', code: 'name_dup_token', message: '상품명에서 반복된 낱말을 정리했습니다.' });
+      name = deduped;
     }
     if (!name) {
       add({ field: 'displayName', severity: 'blocker', code: 'name_empty', message: '상품명이 비어 있습니다. 다시 생성합니다.', regen: 'display_name' });
     } else if (name === tidyInline(input.originalName)) {
       add({ field: 'displayName', severity: 'warn', code: 'name_is_source', message: '상품명이 소싱 원본명 그대로입니다(SEO 미적용).' });
+    }
+    // 카테고리 leaf 의 핵심어가 상품명에 하나도 없으면 검색 노출에서 불리하다.
+    // ⚠️ 경고만 한다 — 재생성을 걸면 느려지는데, leaf 어휘가 상품명에 없는 게
+    //    반드시 오류는 아니다(브랜드명 위주 상품 등). 판단은 사람에게 남긴다.
+    if (name && input.categoryPath) {
+      const leaf = input.categoryPath.split('>').pop()?.trim() || '';
+      // ⚠️ 슬래시 나열 leaf("혼합곡/기타곡류")는 **분류 라벨 목록**이라 상품명에 그대로 들어갈
+      //    이유가 없다. 여기에 경고를 걸면 leaf 의 18%(실측)에서 무의미한 경고가 쏟아진다.
+      //    포함 관계도 본다 — "생수" leaf 에 "프리미엄생수500ml" 같은 붙은 표기를 잡기 위해.
+      const generic = /^(기타|일반|기타류|모음|세트|용품|제품|상품)$/;
+      const leafToks = leaf.includes('/') ? [] : meaningTokens(leaf).filter((t) => !generic.test(t));
+      const flat = name.replace(/\s/g, '');
+      if (leafToks.length > 0 && !leafToks.some((t) => flat.includes(t))) {
+        add({
+          field: 'displayName', severity: 'warn', code: 'name_no_leaf_token',
+          message: `상품명에 카테고리(${leaf}) 관련 어휘가 없습니다 — 검색 노출에 불리할 수 있습니다.`,
+        });
+      }
     }
     if (name !== before) patch.displayName = name;
   }
@@ -197,14 +252,15 @@ export function auditProduct(input: AuditInput): AuditResult {
       add({ field: 'detail', severity: 'fix', code: 'detail_markdown', message: '상세글의 마크다운 기호(**)를 제거했습니다.' });
     }
     const comp = checkCompliance(detail, { removeErrors: true, categoryContext: input.categoryPath });
-    if (comp.cleanedText !== detail) {
-      const words = comp.violations.slice(0, 3).map((v) => v.label).filter(Boolean).join(', ');
+    // 위 상품명과 같은 이유 — 실제 위반이 있을 때만 보고하고, 정규화는 조용히 반영한다.
+    const detailWords = comp.violations.map((v) => v.label).filter(Boolean);
+    if (detailWords.length > 0) {
       add({
         field: 'detail', severity: 'fix', code: 'detail_forbidden',
-        message: `상세글에서 표시광고 위반 어휘를 제거했습니다${words ? ` (${words})` : ''}.`,
+        message: `상세글에서 표시광고 위반 어휘를 제거했습니다 (${detailWords.slice(0, 3).join(', ')}).`,
       });
-      detail = comp.cleanedText;
     }
+    detail = comp.cleanedText;
     const plain = detail.replace(/\s/g, '');
     if (plain.length === 0) {
       add({ field: 'detail', severity: 'blocker', code: 'detail_empty', message: '상세글이 비어 있습니다. 다시 씁니다.', regen: 'content' });
@@ -216,6 +272,44 @@ export function auditProduct(input: AuditInput): AuditResult {
     }
     if (META_LEAK_RE.test(detail)) {
       add({ field: 'detail', severity: 'blocker', code: 'detail_meta_leak', message: '생성 지시문이 본문에 섞였습니다. 다시 씁니다.', regen: 'content' });
+    }
+    // 같은 문장이 그대로 반복되는 경우("문단 내 절 반복"으로 과거 실측된 생성 결함).
+    // ⚠️ 재생성 대신 **중복 문장을 지워** 그 자리에서 고친다 — 시간 비용 0.
+    //    지운 뒤 본문이 너무 짧아지면 위 길이 규칙이 다음 라운드에서 잡는다.
+    if (plain.length > 0) {
+      const sentences = detail.split(/(?<=[.!?。])\s+|\n+/);
+      const seenSent = new Set<string>();
+      const kept: string[] = [];
+      let dropped = 0;
+      for (const s of sentences) {
+        const key = s.replace(/\s/g, '');
+        if (key.length >= 12 && seenSent.has(key)) { dropped += 1; continue; }
+        if (key.length >= 12) seenSent.add(key);
+        kept.push(s);
+      }
+      if (dropped > 0) {
+        add({ field: 'detail', severity: 'fix', code: 'detail_dup_sentence', message: `상세글에서 똑같이 반복된 문장 ${dropped}개를 정리했습니다.` });
+        detail = kept.join('\n');
+      }
+    }
+    // 본문이 상품 이야기를 하는지 — 상품명 핵심어가 한 번도 안 나오면 엉뚱한 글일 수 있다.
+    // 경고만 한다(재생성은 느려지고, 동의어로 쓴 글까지 잡아버린다).
+    if (plain.length >= DETAIL_MIN && input.displayName) {
+      // ⚠️ "상품/제품" 같은 흔한 낱말이나 스펙 토큰(500ml)까지 넣으면 거의 항상 걸려서
+      //    경고가 소음이 된다. **가장 긴 토큰 2개**(= 그 상품을 특정하는 말)만 본다.
+      //    그 둘이 본문에 하나도 없으면 내용이 다른 상품 이야기일 가능성이 실제로 높다.
+      const generic = /^(상품|제품|세트|모음|정품|공식|무료|배송)$/;
+      const distinctive = meaningTokens(input.displayName)
+        .filter((t) => !/\d/.test(t) && !generic.test(t))
+        .sort((a, b) => b.length - a.length)
+        .slice(0, 2);
+      const flatDetail = detail.replace(/\s/g, '');
+      if (distinctive.length > 0 && !distinctive.some((t) => flatDetail.includes(t))) {
+        add({
+          field: 'detail', severity: 'warn', code: 'detail_no_product_token',
+          message: `상세글에 "${distinctive.join('", "')}" 가 한 번도 등장하지 않습니다 — 내용이 상품과 맞는지 확인하세요.`,
+        });
+      }
     }
     if (detail !== before) patch.detail = detail;
   }

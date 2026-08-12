@@ -7,12 +7,27 @@
  */
 import { auditProduct, summarizeAudits, type AuditInput } from '../src/lib/megaload/services/allinone-final-audit';
 
+// 실제 정상 상품에 가깝게 — 상품명에 leaf(생수)가 들어가고 본문도 그 상품을 이야기한다.
+// (예전 픽스처는 둘 다 없어서, 새 경고 규칙의 오탐을 잡아낼 수 없었다.)
 const base: AuditInput = {
   uid: 'u1',
-  displayName: '테스트 상품 500ml 2개입',
+  displayName: '프리미엄 생수 500ml 2개입',
   categoryCode: '63454',
   categoryPath: '식품>음료>생수',
-  detail: '깨끗한 물맛을 그대로 담았습니다. '.repeat(20),
+  // ⚠️ 같은 문장을 반복하면 안 된다 — 중복문장 정리 규칙이(정상적으로) 걸린다.
+  //    실제 상세글처럼 서로 다른 문장으로 길이를 채운다.
+  detail: [
+    '깨끗한 생수를 매일 편하게 마실 수 있도록 준비했습니다.',
+    '물맛이 부드러워 아이부터 어른까지 부담 없이 즐길 수 있습니다.',
+    '500ml 용량이라 가방에 넣고 다니기 좋습니다.',
+    '2개입 구성이라 집과 사무실에 나눠 두기 편합니다.',
+    '뚜껑을 단단히 잠글 수 있어 새는 걱정을 덜었습니다.',
+    '냉장 보관하면 시원한 상태로 오래 즐길 수 있습니다.',
+    '운동 후 수분 보충이 필요할 때 곁에 두기 좋습니다.',
+    '가벼운 무게라 한 손으로도 쉽게 들 수 있습니다.',
+    '투명한 병이라 남은 양을 한눈에 확인할 수 있습니다.',
+    '주문하신 상품은 꼼꼼히 포장해 안전하게 보내드립니다.',
+  ].join('\n'),
   options: [{ name: '용량', value: '500', unit: 'ml' }],
   sellingPrice: 12900,
   sourcePrice: 5000,
@@ -38,13 +53,17 @@ interface Case {
 
 const cases: Case[] = [
   {
-    // ⭐ 가장 중요한 케이스 — 정상 상품이 재생성 큐에 들어가면 GPU 를 통째로 낭비한다.
-    name: '정상 상품 — 지적도 재생성도 없음',
+    // ⭐ 가장 중요한 케이스 — 정상 상품에는 **아무 지적도 없어야** 한다.
+    //   · 재생성이 걸리면 GPU 를 통째로 낭비한다.
+    //   · 경고가 뜨면 리포트가 소음이 돼 진짜 문제를 못 본다(경고 피로).
+    //   그래서 findings 가 하나라도 있으면 실패시킨다.
+    name: '정상 상품 — 지적·경고·재생성 전부 없음',
     input: {},
     expectCodes: [],
-    forbidCodes: ['name_forbidden', 'detail_too_short', 'opt_meaningless', 'opt_unresolved'],
     expectBlocked: false,
-    check: (r) => (r.regens.length === 0 ? null : `정상 상품인데 재생성 요구: ${r.regens.join(',')}`),
+    check: (r) => (r.findings.length === 0
+      ? null
+      : `정상 상품인데 지적 발생: ${r.findings.map((f) => `${f.code}(${f.severity})`).join(', ')}`),
   },
   {
     // 값·단위 분리 저장이 이 시스템의 정상 형태다(숫자 값을 의심하면 전량 오판).
