@@ -91,7 +91,13 @@ export async function generate({ model, prompt, system, options = {}, format, ke
  * @param {string} [o.format]         'json' 이면 JSON 강제
  * @returns {Promise<{text:string, ms:number}>}
  */
-export async function generateVision({ model, prompt, images = [], system, options = {}, format, keep_alive } = {}) {
+/**
+ * @param {number} [timeoutMs] 한 번의 비전 호출 상한. 초과하면 AbortError 로 끊는다.
+ *   GPU 없는 PC 에서 7B VLM 은 호출당 수 분이 걸린다 — 상한이 없으면 생성이 하염없이 멈춘 것처럼
+ *   보인다(느린 건 실패가 아니라서 폴백도 안 걸린다). 호출부가 이 값을 넘겨 상품 단위로
+ *   빠르게 CLIP 휴리스틱 폴백시킬 수 있게 한다. 미지정이면 무제한(기존 동작).
+ */
+export async function generateVision({ model, prompt, images = [], system, options = {}, format, keep_alive, timeoutMs } = {}) {
   if (!model) throw new Error('[local-llm] vision model 필요');
   const body = {
     model,
@@ -112,11 +118,16 @@ export async function generateVision({ model, prompt, images = [], system, optio
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
       });
       if (!r.ok) throw new Error(`[local-llm] vision HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
       j = await r.json();
       break;
     } catch (e) {
+      // ⚠️ 상한 초과(Abort)는 **재시도하지 않는다**. 여기서 재시도하면 느린 PC 가 상한을
+      //    3배로 다시 기다리게 돼(2·4·6초 백오프까지) 상한을 둔 의미가 사라진다.
+      //    메시지에 'timeout' 이 들어가 아래 networkish 에 걸리므로 먼저 걸러낸다.
+      if (e?.name === 'TimeoutError' || e?.name === 'AbortError') throw e;
       const msg = String(e?.message || e);
       const networkish = !/HTTP \d{3}/.test(msg) &&
         (/fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|network|timeout|EPIPE/i.test(msg) || e?.cause);

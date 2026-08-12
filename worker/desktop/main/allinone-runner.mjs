@@ -229,6 +229,9 @@ export async function startGeneration({
     '--concurrency', String(genConcurrency),
     '--recog-concurrency', String(recogConcurrency),
   ];
+  // 비전 판정 1회 상한 — GPU 있으면 상품당 수 초라 3분은 사실상 안 걸리는 안전망이고,
+  // 없으면 90초에서 끊어 그 상품만 휴리스틱으로 넘긴다(생성이 통째로 멈추는 것 방지).
+  args.push('--vision-timeout', String(profile.gpu.ok ? 180_000 : 90_000));
   if (noThumb) args.push('--no-thumb');
   if (useComfySwap) args.push('--wait-comfy'); // 누끼 전에 ComfyUI 기동을 기다리게
 

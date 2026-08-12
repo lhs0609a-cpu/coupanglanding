@@ -196,6 +196,13 @@ async function main() {
   //   ⚠️ VLM 은 GPU 를 쓰므로 텍스트(ollama)와 동시(overlap) 실행 불가 → 인식을
   //      텍스트보다 먼저 끝내고, 끝나면 VLM 을 언로드해 텍스트에 VRAM 을 넘긴다.
   const visionModel = cli['vision-model'] || process.env.MEGALOAD_VISION_MODEL || 'qwen2.5vl:7b';
+  /**
+   * 비전 판정 1회 상한(ms). 초과하면 그 상품만 CLIP·L1 휴리스틱으로 폴백한다.
+   *   GPU 있는 PC 는 상품당 수 초라 넉넉히 줘도 걸릴 일이 없고,
+   *   GPU 없는 PC 는 7B VLM 이 호출당 수 분이라 상한이 없으면 생성이 멈춘 것처럼 보인다.
+   *   호출부(allinone-runner)가 하드웨어를 보고 값을 넘긴다. 미지정이면 무제한(기존 동작).
+   */
+  const visionTimeoutMs = Number(cli['vision-timeout']) || 0;
   let visionReady = false;
   if (!cli['no-image-ai'] && !cli['no-vision']) {
     visionReady = await ensureModel(visionModel, { onLog: (m) => console.log(`[${ts()}] ${m}`) });
@@ -254,7 +261,7 @@ async function main() {
           mainPool: p.mainImages || (p.mainImage ? [p.mainImage] : []),
           detailPool: p.detailImages || [],
           reviewPool: p.reviewImages || [],
-          model: visionModel, onLog, kind: vKind,
+          model: visionModel, onLog, kind: vKind, timeoutMs: visionTimeoutMs,
         });
         if (vc) {
           if (vc.mainImage) p.mainImage = vc.mainImage;

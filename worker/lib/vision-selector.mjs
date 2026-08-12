@@ -164,7 +164,7 @@ const JUDGE_SYSTEM =
  * @returns {Promise<{cells:Array<{i:number,path:string,type:string,productScore:number}>, bestMain:number, method:string}|null>}
  *   실패(VLM 미탑재/렌더 실패/파싱 실패) 시 null → 호출부가 폴백.
  */
-export async function judgeImages(paths, { model, onLog, purpose = 'main' } = {}) {
+export async function judgeImages(paths, { model, onLog, purpose = 'main', timeoutMs } = {}) {
   if (!model) return null;
   let sheet;
   try { sheet = await buildContactSheet(paths); }
@@ -208,11 +208,16 @@ export async function judgeImages(paths, { model, onLog, purpose = 'main' } = {}
     try {
       const res = await generateVision({
         model, system: JUDGE_SYSTEM, prompt, images: [sheet.b64],
-        format: 'json', options: { num_predict: numPredict },
+        format: 'json', options: { num_predict: numPredict }, timeoutMs,
       });
       return parseJsonLoose(res.text);
     } catch (e) {
-      onLog?.(`[비전] 판정 호출 실패(${String(e?.message || e).slice(0, 100)})`);
+      // 상한 초과는 "이 PC 가 느린 것"이라 실패와 구분해 알린다 — 사용자가 원인을 알아야
+      // GPU 없는 PC 라는 걸 인지하고 기대치를 조정할 수 있다.
+      const timedOut = e?.name === 'TimeoutError' || e?.name === 'AbortError';
+      onLog?.(timedOut
+        ? `[비전] 판정이 ${Math.round((timeoutMs || 0) / 1000)}초를 넘어 중단 — 이 상품은 기본 방식으로 처리합니다(GPU 가속이 없으면 정상).`
+        : `[비전] 판정 호출 실패(${String(e?.message || e).slice(0, 100)})`);
       return undefined; // undefined = 호출 자체 실패(폴백해도 소용없음)
     }
   };
@@ -306,7 +311,7 @@ const REVIEW_OK = new Set(['product', 'lifestyle', 'texture']);
  *   promotedFromDetail: string|null,
  * }>}
  */
-export async function visionCurateProduct({ mainPool = [], detailPool = [], reviewPool = [], model, onLog, kind = 'generic' } = {}) {
+export async function visionCurateProduct({ mainPool = [], detailPool = [], reviewPool = [], model, onLog, kind = 'generic', timeoutMs } = {}) {
   // 과일·음식은 누끼(배경제거)를 하면 오히려 어색하다 — 배가 공중에 뜬 것처럼 보인다(실측).
   //   그래서 ① 이미 누끼된 컷을 대표로 우대하지 않고(오히려 후순위),
   //          ② 리뷰컷(구매자 실사)도 대표 후보로 올린다. 실물이 잘 보이는 게 낫다.
@@ -350,8 +355,8 @@ export async function visionCurateProduct({ mainPool = [], detailPool = [], revi
   //    같은 격자·같은 프롬프트라 판정 결과는 순차일 때와 동일하고, 대기시간만 겹쳐진다.
   //    (ollama 가 동시요청을 안 받는 환경이면 그냥 큐잉될 뿐 — 예전과 같은 속도, 손해 없음)
   const [judged, rjudged] = await Promise.all([
-    combined.length > 0 ? judgeImages(combined, { model, onLog, purpose: 'main' }) : Promise.resolve(null),
-    review.length > 0 ? judgeImages(review, { model, onLog, purpose: 'review' }) : Promise.resolve(null),
+    combined.length > 0 ? judgeImages(combined, { model, onLog, purpose: 'main', timeoutMs }) : Promise.resolve(null),
+    review.length > 0 ? judgeImages(review, { model, onLog, purpose: 'review', timeoutMs }) : Promise.resolve(null),
   ]);
 
   const typeOf = new Map();      // path → type
