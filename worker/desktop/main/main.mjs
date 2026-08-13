@@ -12,6 +12,8 @@ import { hostname, tmpdir } from 'node:os';
 import { rpc, isPermanentAuthError } from '../runtime/supabase-rest.mjs';
 import { Store } from './store.mjs';
 import naverGate from './naver-gate.mjs';
+// 수집 코어 — 앱 탭(modules/naver-ingest/module.mjs)과 웹(pair-server)이 같은 인스턴스를 쓴다.
+import * as naverIngest from './modules/naver-ingest/service.mjs';
 import { ComfyManager } from './comfy-manager.mjs';
 import { OllamaManager } from './ollama-manager.mjs';
 import { WorkerRunner } from './worker-runner.mjs';
@@ -439,6 +441,9 @@ app.whenReady().then(async () => {
     getAllinoneFolder: () => store.get('lastAllinoneFolder', null),
     // 웹 사이드바 '최신으로 업데이트' 버튼 → 앱 내부 자동업데이트 확인/적용을 킥.
     onCheckUpdate: () => checkForUpdatesNow(() => win),
+    // 웹 '네이버 소싱' 화면이 이 통로로 수집을 조종한다. 수집 코어(창 풀)는 service 가 단독
+    // 소유하므로, 앱 탭과 웹 어느 쪽에서 조작해도 수집기는 한 벌만 돈다.
+    naverIngest,
     // 웹 업로드 생성 — 웹이 소싱폴더를 업로드한 임시폴더로 올인원 생성 실행.
     //   웹이 이미 검수화면에 있으므로 브라우저 자동열기는 안 한다(gen-status 폴링으로 자동 로드).
     onGenerate: (folder, { noThumb, onDone, onProgress } = {}) => startGeneration({

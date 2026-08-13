@@ -76,6 +76,9 @@ export async function startPairServer({
   dataDir = null,
   // /health 가 돌려줄 앱 버전(웹이 구버전 판별에 쓴다). 없으면 null.
   appVersion = null,
+  // 네이버 소싱 수집 서비스(관리자 전용). 웹 대시보드가 이 통로로 도우미를 조종한다.
+  //   { getStatus, getLogs, setWindows, start, stop, testOne, showWindow } | null
+  naverIngest = null,
 } = {}) {
   const nonce = randomUUID();
   const state = { paired: false, nonce, port: 0 };
@@ -148,6 +151,67 @@ export async function startPairServer({
       try { onCheckUpdate(); } catch { /* 킥 실패해도 200 — 앱 로그로 진단 */ }
       res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ ok: true }));
+    }
+
+    // ── 네이버 소싱 수집 (관리자 전용) ──────────────────────────────────────
+    // 수집은 이 PC 의 내장 크롬으로만 가능하다(서버는 datacenter IP 라 네이버에 차단됨).
+    // 그래서 웹 화면은 "조종석"이고 실행 주체는 여기다. 창 풀은 service.mjs 가 단독
+    // 소유하므로, 앱 탭에서 조작하든 웹에서 조작하든 수집기는 한 벌만 돈다.
+    //
+    // 관리자 판정은 도우미에 로그인된 계정의 role 로 한다(service 안에서 검증) — 웹 화면을
+    // 숨기는 건 표시용일 뿐이다.
+    if (req.url?.startsWith('/naver-ingest/')) {
+      if (!corsOk) { res.writeHead(403, cors); return res.end('forbidden origin'); }
+      const u = new URL(req.url, 'http://127.0.0.1');
+      if (u.searchParams.get('nonce') !== state.nonce) {
+        res.writeHead(401, cors); return res.end('nonce mismatch');
+      }
+      if (!naverIngest) { res.writeHead(501, cors); return res.end('naver-ingest not supported'); }
+
+      const json = (code, obj) => {
+        res.writeHead(code, { ...cors, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(obj));
+      };
+      const readJson = async () => {
+        try { return JSON.parse((await readBody(req, 1_000_000)).toString('utf8') || '{}'); }
+        catch { return {}; }
+      };
+
+      try {
+        // 상태 + 최근 로그. 웹은 이것만 폴링하면 창 상태·진행·결과를 전부 본다.
+        if (req.method === 'GET' && u.pathname === '/naver-ingest/status') {
+          const since = Number(u.searchParams.get('since')) || 0;
+          return json(200, { ...naverIngest.getStatus(), logs: naverIngest.getLogs(since) });
+        }
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/windows') {
+          const { count } = await readJson();
+          return json(200, { ok: true, count: naverIngest.setWindows(count) });
+        }
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/start') {
+          return json(200, await naverIngest.start());
+        }
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/stop') {
+          await naverIngest.stop();
+          return json(200, { ok: true });
+        }
+        // ⚠️ 기다리지 않고 즉시 200 을 준다 — 캡차를 사람이 푸는 경우 몇 분이 걸려서
+        //   웹 fetch 가 먼저 끊긴다. 결과는 로그로 흘러가고 웹은 status 폴링으로 본다.
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/test') {
+          const { url } = await readJson();
+          if (!url) return json(400, { ok: false, error: '상품 URL 이 필요합니다.' });
+          // 관리자 검증은 동기적으로 먼저 터지게 한다(권한 오류를 웹이 즉시 보도록).
+          if (!naverIngest.getStatus().isAdmin) return json(403, { ok: false, error: '관리자 계정만 사용할 수 있습니다.' });
+          naverIngest.testOne(url).catch(() => { /* 결과는 로그로 */ });
+          return json(200, { ok: true, started: true });
+        }
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/show') {
+          const { index } = await readJson();
+          return json(200, { ok: naverIngest.showWindow(Number(index) || 0) });
+        }
+      } catch (e) {
+        return json(400, { ok: false, error: String(e?.message || e) });
+      }
+      res.writeHead(404, cors); return res.end('not found');
     }
 
     // ── 웹 업로드 생성 ─────────────────────────────────────────────────────

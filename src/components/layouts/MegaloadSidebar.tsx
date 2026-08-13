@@ -38,6 +38,8 @@ const navItems = [
   { href: '/megaload/ads', label: '광고 자동화', icon: 'Megaphone' as const },
   { href: '/megaload/automation', label: '자동화', icon: 'Zap' as const },
   { href: '/megaload/sourcing', label: '해외소싱', icon: 'Globe' as const },
+  // 관리자 전용 — 네이버 카테고리 수집(도우미가 실행). 실제 접근 차단은 서버 레이아웃이 한다.
+  { href: '/megaload/naver-sourcing', label: '네이버 소싱', icon: 'Search' as const, adminOnly: true },
   { href: '/megaload/channels', label: '채널관리 (연동)', icon: 'Link' as const },
   { href: '/megaload/channels/automation', label: '멀티채널 자동전파', icon: 'Zap' as const },
   { href: '/megaload/products/channel-status', label: '채널 등록현황', icon: 'Grid3x3' as const },
@@ -67,9 +69,11 @@ interface MegaloadSidebarProps {
   onClose: () => void;
   badges?: MegaloadBadgeData;
   gateLevel?: SettlementGateLevel;
+  /** 관리자 전용 메뉴(adminOnly) 노출 판정용. 숨김은 표시용이고 실제 차단은 서버가 한다. */
+  userRole?: string;
 }
 
-export default function MegaloadSidebar({ isOpen, onClose, badges, gateLevel }: MegaloadSidebarProps) {
+export default function MegaloadSidebar({ isOpen, onClose, badges, gateLevel, userRole }: MegaloadSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [quickSearch, setQuickSearch] = useState('');
@@ -276,7 +280,7 @@ export default function MegaloadSidebar({ isOpen, onClose, badges, gateLevel }: 
           </div>
 
         <nav className="p-3 space-y-1">
-          {navItems.map((item) => {
+          {navItems.filter((item) => !('adminOnly' in item && item.adminOnly) || userRole === 'admin').map((item) => {
             // 쿼리스트링이 붙은 항목(?tab=...)도 경로만 떼어 비교한다.
             const hrefPath = item.href.split('?')[0];
             const isActive = pathname === hrefPath || pathname.startsWith(hrefPath + '/');

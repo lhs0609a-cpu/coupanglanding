@@ -8,6 +8,7 @@
 | 단계 | 상태 |
 |---|---|
 | **P0** 예산 게이트 + 창 풀 + 클릭 네비게이션 + 차단/캡차 판정 | **코드 완료 · 실측 미검증** |
+| **P0-웹** 관리자 조종석 `/megaload/naver-sourcing` | **코드 완료** |
 | P1~P6 | 미착수 |
 
 P0 산출물
@@ -19,9 +20,35 @@ main/modules/naver-ingest/window-pool.mjs 동시 창 풀 (개수 설정 · 3초 
 main/modules/naver-ingest/runner.mjs     상품 1건 시퀀스 (재시도 6회 · 캡차 수동 대기 · 차단 쿨다운)
 main/modules/naver-ingest/module.mjs     모듈 등록 · 관리자 게이트 · IPC
 renderer/modules/naver-ingest/panel.*    창 개수 슬라이더 · 창별 상태 · 1건 테스트
+main/modules/naver-ingest/service.mjs    수집 코어 단일 소유자 (앱 탭 + 웹이 공유)
+main/pair-server.mjs                     ← /naver-ingest/* 엔드포인트 추가
 main/modules/stock-monitor/naver-fetch.mjs  ← 게이트 통과하도록 개조(우선순위 monitor)
-main/main.mjs                            ← setupServices 에서 게이트 init
+main/main.mjs                            ← 게이트 init + pair-server 에 service 주입
+
+[웹] src/app/megaload/naver-sourcing/{layout,page}.tsx   관리자 조종석 (서버 role 게이트)
+     src/lib/megaload/naver-ingest-local.ts              로컬 도우미 조종 클라이언트
+     src/components/layouts/MegaloadSidebar.tsx          ← 관리자 전용 메뉴 (adminOnly)
+     src/components/layouts/MegaloadLayout.tsx           ← userRole 전달
 ```
+
+### 웹 조종석은 왜 "조종"만 하나
+
+네이버가 datacenter IP 를 차단하므로 서버는 수집을 할 수 없다. 실제로 페이지를 여는 주체는
+관리자 PC 의 도우미다. 그래서 웹은 **localhost pair-server 직결**로 도우미를 조종한다
+(올인원이 이미 쓰는 통로, 서버 왕복이 없어 창 상태·캡차 알림이 즉시 뜬다).
+
+수집 코어(창 풀)는 `service.mjs` 가 **단독 소유**한다. 앱 탭과 웹이 각자 풀을 만들면 같은 PC 에서
+수집기가 두 벌 돌아 네이버 예산을 두 배로 태우기 때문이다.
+
+3중 권한 게이트:
+| 지점 | 검증 |
+|---|---|
+| 사이드바 메뉴 | `userRole === 'admin'` (숨김 — 표시용) |
+| 페이지 진입 | 서버 `layout.tsx` 가 `profiles.role` 확인 후 redirect (**실제 경계**) |
+| 수집 실행 | 도우미 `service.requireAdmin()` — 도우미에 로그인된 계정 기준 |
+
+⚠️ 웹 로그인 계정과 **도우미 로그인 계정은 별개**다. 웹이 관리자여도 도우미가 다른 계정이면
+수집이 거부되며, 화면이 그 사실과 현재 도우미 계정을 그대로 보여준다.
 
 ⚠️ **아직 검증 안 된 것**: 클릭 네비게이션이 실제로 네이버 안티봇을 통과하는지. 이건 앱을 띄워
 "1건 테스트" 를 눌러봐야 안다. P0 의 합격 기준이 바로 그것이다.
