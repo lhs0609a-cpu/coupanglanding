@@ -37,6 +37,10 @@ export default {
     'naver-ingest:stop': () => svc.stop(),
     'naver-ingest:test-one': (_ctx, { url } = {}) => svc.testOne(url),
     'naver-ingest:show-window': (_ctx, { index } = {}) => svc.showWindow(index),
+    'naver-ingest:categories': (_ctx, { parent, force } = {}) => svc.categories(parent, force),
+    'naver-ingest:collect': (_ctx, payload = {}) => svc.startCollect(payload),
+    'naver-ingest:collect-stop': () => svc.stopCollect(),
+    'naver-ingest:collection': () => svc.getCollection(),
   },
 
   onQuit: () => svc.shutdown(),

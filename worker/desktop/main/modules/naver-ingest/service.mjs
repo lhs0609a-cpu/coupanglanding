@@ -13,6 +13,8 @@
 import naverGate from '../../naver-gate.mjs';
 import { WindowPool, WINDOW_MIN, WINDOW_MAX, WINDOW_DEFAULT } from './window-pool.mjs';
 import { runOne } from './runner.mjs';
+import { initCategories, listChildren, clearCategoryCache, ROOT_CATEGORIES } from './categories.mjs';
+import { collectCategory } from './collect-list.mjs';
 
 let pool = null;
 let deps = {
@@ -38,6 +40,7 @@ function pushStatus() {
 export function initService({ store, send, userDataDir, getAccount }) {
   deps = { store, send: send || (() => {}), getAccount: getAccount || (() => null) };
   naverGate.init(userDataDir);
+  initCategories(store);
   const st = naverGate.state();
   if (st.cooling) {
     pushLog(`이전 실행에서 걸린 네이버 쿨다운이 ${Math.ceil(st.cooldownMsLeft / 1000)}초 남아 있습니다 — 그만큼 쉬고 시작합니다`);
@@ -67,6 +70,16 @@ export function getStatus() {
     isAdmin: isAdmin(),
     account: deps.getAccount(),
     limits: { min: WINDOW_MIN, max: WINDOW_MAX, default: WINDOW_DEFAULT },
+  };
+  // 수집 진행 요약 — 결과 배열(수백 건)은 빼고 카운트만 실어 폴링을 가볍게 유지한다.
+  base.collect = {
+    catId: collection.catId,
+    catName: collection.catName,
+    running: collection.running,
+    stopped: collection.stopped,
+    count: collection.items.length,
+    progress: collection.progress,
+    at: collection.at,
   };
   if (pool) return { ...base, ...pool.status() };
   return {
@@ -130,6 +143,75 @@ export async function testOne(url) {
     pushLog(`❌ 실패(${secs}초) — ${r?.error || '알 수 없음'}`);
   }
   return r;
+}
+
+// ── 카테고리 선택 수집 ────────────────────────────────────────────────
+// "전부 긁기"는 불가능하다(네이버 1000개 한계 + 상세추출 병목). 관리자가 카테고리를 골라
+// 그것만 수집한다. 수집 결과는 메모리에 들고 있다가 웹이 가져간다.
+
+/** 마지막 수집 결과 — { catId, catName, items, stopped, at, running, progress } */
+let collection = { catId: null, catName: '', items: [], stopped: null, at: 0, running: false, progress: null };
+let collectAbort = null;
+
+export async function categories(parentId, force = false) {
+  requireAdmin();
+  if (!parentId) return { parentId: null, trail: [], children: ROOT_CATEGORIES, cached: true };
+  const p = ensurePool();
+  if (!p.running) await p.start();
+  return listChildren(p, parentId, { force, onLog: pushLog });
+}
+
+export function clearCategories() {
+  requireAdmin();
+  clearCategoryCache();
+  pushLog('카테고리 캐시를 비웠습니다 — 다음 조회 때 네이버에서 다시 읽습니다.');
+  return true;
+}
+
+/**
+ * 카테고리 1개 수집 시작. 오래 걸리므로 **기다리지 않고** 시작만 하고 돌아간다
+ * (웹은 status 폴링으로 진행을 본다).
+ */
+export async function startCollect({ catId, catName = '', target = 300 }) {
+  requireAdmin();
+  if (!catId) throw new Error('카테고리를 선택하세요.');
+  if (collection.running) throw new Error('이미 수집이 진행 중입니다.');
+
+  const p = ensurePool();
+  if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
+
+  collectAbort = new AbortController();
+  collection = { catId, catName, items: [], stopped: null, at: Date.now(), running: true, progress: { collected: 0, scrolls: 0 } };
+  pushLog(`수집 시작 — ${catName || catId} (목표 ${target}개)`);
+
+  collectCategory(p, catId, {
+    target,
+    onLog: pushLog,
+    onProgress: (pr) => { collection.progress = pr; },
+    signal: collectAbort.signal,
+  }).then(({ items, stopped }) => {
+    collection = { ...collection, items, stopped, running: false, at: Date.now() };
+    pushLog(`✅ 수집 완료 — ${items.length}개 (${stopped})`);
+    pushStatus();
+  }).catch((e) => {
+    collection = { ...collection, running: false, stopped: `실패: ${e?.message || e}` };
+    pushLog(`❌ 수집 실패 — ${e?.message || e}`);
+    pushStatus();
+  });
+
+  return { ok: true, started: true };
+}
+
+export function stopCollect() {
+  collectAbort?.abort();
+  collection.running = false;
+  pushLog('수집을 중단했습니다.');
+  return true;
+}
+
+/** 수집 결과 — 큰 배열이라 status 와 분리해서 필요할 때만 가져간다. */
+export function getCollection() {
+  return collection;
 }
 
 export function showWindow(index) {

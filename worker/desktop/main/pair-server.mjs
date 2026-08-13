@@ -208,6 +208,29 @@ export async function startPairServer({
           const { index } = await readJson();
           return json(200, { ok: naverIngest.showWindow(Number(index) || 0) });
         }
+
+        // ── 카테고리 선택 수집 ──────────────────────────────────────────
+        // 대분류는 상수라 즉답, 하위는 캐시에 없으면 그 카테고리 페이지를 한 번 열어 발견한다.
+        if (req.method === 'GET' && u.pathname === '/naver-ingest/categories') {
+          const parent = u.searchParams.get('parent') || null;
+          const force = u.searchParams.get('force') === '1';
+          return json(200, await naverIngest.categories(parent, force));
+        }
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/categories/clear') {
+          return json(200, { ok: naverIngest.clearCategories() });
+        }
+        // 수집은 수 분이 걸리므로 시작만 하고 즉시 200. 진행은 status, 결과는 /collection.
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/collect') {
+          const body = await readJson();
+          return json(200, await naverIngest.startCollect(body));
+        }
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/collect/stop') {
+          return json(200, { ok: naverIngest.stopCollect() });
+        }
+        // 결과 배열은 수백 건이라 status 와 분리 — 웹이 필요할 때만 가져간다.
+        if (req.method === 'GET' && u.pathname === '/naver-ingest/collection') {
+          return json(200, naverIngest.getCollection());
+        }
       } catch (e) {
         return json(400, { ok: false, error: String(e?.message || e) });
       }

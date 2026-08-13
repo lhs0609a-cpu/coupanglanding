@@ -265,3 +265,116 @@ export const install418WatcherJs = `
 
 export const read418Js = `(() => (window.__mgl418 ? window.__mgl418.count : 0))()`;
 export const reset418Js = `(() => { if (window.__mgl418) window.__mgl418.count = 0; return true; })()`;
+
+/**
+ * 현재 카테고리 페이지에서 **하위 카테고리 링크**와 현재 위치(브레드크럼)를 뽑는다.
+ * 네이버는 전체 카테고리 트리를 주는 API 가 없어서, 한 단계씩 들어가며 발견해야 한다.
+ *
+ * 앵커는 href 의 `/ns/category/{숫자}` 하나뿐이다 — 난독화 클래스에 의존하지 않는다.
+ * 현재 카테고리(aria-current)는 경로 표시에 쓰고 목록에서는 제외한다.
+ */
+export const categoryLinksJs = `
+(() => {
+  const out = new Map();
+  const trail = [];
+  let currentId = null;
+
+  for (const a of document.querySelectorAll('a[href*="/ns/category/"]')) {
+    const m = (a.getAttribute('href') || '').match(/\\/ns\\/category\\/(\\d+)/);
+    if (!m) continue;
+    const id = m[1];
+    // 링크 텍스트가 곧 카테고리명. 안쪽 span 이 있으면 그게 더 정확하다.
+    const span = a.querySelector('span');
+    const name = ((span && span.textContent) || a.textContent || '').replace(/\\s+/g, ' ').trim();
+    if (!name || name.length > 30) continue;
+
+    // 사이드바는 [상위 … 현재] 순서로 쌓인다 — aria-current 를 만나기 전까지가 경로다.
+    if (a.getAttribute('aria-current') === 'true') { currentId = id; trail.push({ id, name }); continue; }
+    if (currentId === null) trail.push({ id, name });
+
+    if (!out.has(id)) out.set(id, { id, name });
+  }
+
+  // 현재 카테고리 자신은 후보에서 뺀다.
+  if (currentId) out.delete(currentId);
+
+  return {
+    currentId,
+    // 경로는 현재를 만나기 전까지 쌓인 것 + 현재. 못 찾으면 빈 배열(웹이 알아서 표시).
+    trail: currentId ? trail : [],
+    children: [...out.values()],
+  };
+})()
+`;
+
+/**
+ * 목록 페이지의 **상품 카드**를 긁는다 — 상세 페이지를 열지 않고도 리스팅이 되도록.
+ * 상세 추출은 상품당 30~90초라 병목이지만, 카드 정보(제목·가격·썸네일)는 목록 한 장에서
+ * 수십 개가 한꺼번에 나온다. 그래서 "먼저 넓게 리스팅 → 고른 것만 깊게" 가 가능해진다.
+ *
+ * 링크에서 위로 올라가며 카드 컨테이너를 찾고, 그 안에서 텍스트·가격·이미지를 뽑는다.
+ * (카드 마크업의 클래스는 수시로 바뀌므로 구조만 본다)
+ */
+export const collectCardsJs = `
+(() => {
+  const items = [];
+  const seen = new Set();
+  const PRODUCT_RE = /naver\\.com\\/([^/]+)\\/products\\/(\\d+)/;
+
+  for (const a of document.querySelectorAll('a[href*="/products/"]')) {
+    const href = (a.href || '').split('?')[0];
+    const m = href.match(PRODUCT_RE);
+    if (!m) continue;
+    const storeId = m[1], productNo = m[2];
+    // 스토어 자리에 오면 안 되는 값 — 목록에서 딸려오는 노이즈
+    if (['search', 'products', 'category', 'best', 'new', 'sale', 'event'].includes(storeId)) continue;
+    if (seen.has(productNo)) continue;
+    seen.add(productNo);
+
+    // 카드 컨테이너 찾기 — 이미지를 품은 가장 가까운 조상(최대 6단계).
+    let card = a, img = a.querySelector('img');
+    for (let i = 0; i < 6 && card.parentElement; i++) {
+      if (img) break;
+      card = card.parentElement;
+      img = card.querySelector('img');
+    }
+
+    const text = (card.innerText || '').replace(/\\s+/g, ' ').trim();
+    // 가격: "12,900원" 형태 중 가장 앞의 1000 이상 값(할인가가 먼저 온다)
+    let price = 0;
+    for (const pm of text.matchAll(/([\\d,]{3,})\\s*원/g)) {
+      const v = parseInt(pm[1].replace(/,/g, ''), 10);
+      if (v >= 100) { price = v; break; }
+    }
+    // 제목: 링크 자체 텍스트 우선(카드 전체 텍스트엔 가격·배지가 섞인다)
+    let title = (a.innerText || '').replace(/\\s+/g, ' ').trim();
+    if (!title || title.length < 4) {
+      title = text.split(/\\s원|\\d{1,3}(?:,\\d{3})+원/)[0].slice(0, 120).trim();
+    }
+    if (title.length > 120) title = title.slice(0, 120);
+
+    let thumb = img ? (img.src || img.getAttribute('data-src') || '') : '';
+    if (thumb && !/pstatic\\.net/.test(thumb)) thumb = '';
+
+    // 리뷰수 — 있으면 인기도 판단에 쓴다.
+    const rm = text.match(/리뷰\\s*([\\d,]+)/);
+    const reviewCount = rm ? parseInt(rm[1].replace(/,/g, ''), 10) : 0;
+
+    items.push({ productNo, storeId, url: href, title, price, thumb, reviewCount });
+  }
+  return items;
+})()
+`;
+
+/** 목록 무한스크롤 1회 — 부분 스크롤(20% 확률)을 섞어 기계적 패턴을 흐린다. */
+export const scrollStepJs = `
+(async () => {
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  if (Math.random() < 0.2) {
+    window.scrollTo(0, document.body.scrollHeight * (0.7 + Math.random() * 0.3));
+    await wait(300 + Math.random() * 300);
+  }
+  window.scrollTo(0, document.body.scrollHeight);
+  return document.body.scrollHeight;
+})()
+`;

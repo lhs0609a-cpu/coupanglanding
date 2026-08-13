@@ -41,6 +41,41 @@ export interface GateState {
 
 export interface IngestLog { at: number; message: string }
 
+export interface NaverCategory { id: string; name: string }
+
+export interface CategoryPage {
+  parentId: string | null;
+  /** 현재 위치까지의 경로(사이드바에서 읽은 것). 비어 있을 수 있다. */
+  trail: NaverCategory[];
+  children: NaverCategory[];
+  cached: boolean;
+}
+
+/** 목록 페이지에서 긁은 상품 카드 — 상세를 열지 않고도 리스팅이 되는 최소 단위. */
+export interface ProductCard {
+  productNo: string;
+  storeId: string;
+  url: string;
+  title: string;
+  price: number;
+  thumb: string;
+  reviewCount: number;
+}
+
+export interface CollectState {
+  catId: string | null;
+  catName: string;
+  running: boolean;
+  stopped: string | null;
+  count: number;
+  progress: { collected: number; scrolls: number; gained?: number } | null;
+  at: number;
+}
+
+export interface Collection extends Omit<CollectState, 'count'> {
+  items: ProductCard[];
+}
+
 export interface IngestStatus {
   isAdmin: boolean;
   account: { email: string | null; userId: string | null; role: string | null } | null;
@@ -54,6 +89,7 @@ export interface IngestStatus {
   waiting: number;
   windows: WindowInfo[];
   gate: GateState;
+  collect?: CollectState;
   logs?: IngestLog[];
 }
 
@@ -148,4 +184,48 @@ export async function testOne(ep: LocalEndpoint, url: string): Promise<void> {
 /** 캡차가 뜬 창을 화면에 띄운다(사람이 직접 풀도록). */
 export async function showWindow(ep: LocalEndpoint, index: number): Promise<void> {
   await post(ep, 'show', { index });
+}
+
+/**
+ * 하위 카테고리 목록.
+ *   parentId 없음 → 대분류(상수, 네트워크 사용 안 함)
+ *   있음 → 캐시에 없으면 도우미가 그 카테고리 페이지를 한 번 열어 발견한다(수 초 소요)
+ */
+export async function fetchCategories(
+  ep: LocalEndpoint,
+  parentId?: string | null,
+  force = false,
+): Promise<CategoryPage> {
+  const extra = `${parentId ? `&parent=${encodeURIComponent(parentId)}` : ''}${force ? '&force=1' : ''}`;
+  const res = await fetch(qs(ep, 'categories', extra));
+  const text = await res.text();
+  if (!res.ok) {
+    let msg = text;
+    try { msg = (JSON.parse(text) as { error?: string }).error || text; } catch { /* 원문 사용 */ }
+    throw new Error(msg || `HTTP ${res.status}`);
+  }
+  return JSON.parse(text) as CategoryPage;
+}
+
+/** 수집 시작 — 몇 분 걸리므로 시작만 하고 즉시 돌아온다. 진행은 status, 결과는 fetchCollection. */
+export async function startCollect(
+  ep: LocalEndpoint,
+  args: { catId: string; catName?: string; target?: number },
+): Promise<void> {
+  await post(ep, 'collect', args);
+}
+
+export async function stopCollect(ep: LocalEndpoint): Promise<void> {
+  await post(ep, 'collect/stop');
+}
+
+/** 수집 결과(수백 건). status 폴링과 분리돼 있어 필요할 때만 부른다. */
+export async function fetchCollection(ep: LocalEndpoint): Promise<Collection | null> {
+  try {
+    const res = await fetch(qs(ep, 'collection'));
+    if (!res.ok) return null;
+    return (await res.json()) as Collection;
+  } catch {
+    return null;
+  }
 }

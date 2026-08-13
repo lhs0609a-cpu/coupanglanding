@@ -11,10 +11,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Search, Play, Square, MonitorDown, AlertTriangle, RefreshCw, Loader2, ExternalLink,
+  ChevronRight, Home, Download, X,
 } from 'lucide-react';
 import {
   findHelper, fetchStatus, setWindows, startPool, stopPool, testOne, showWindow,
+  fetchCategories, startCollect, stopCollect, fetchCollection,
   type LocalEndpoint, type IngestStatus, type IngestLog, type WindowInfo,
+  type NaverCategory, type ProductCard,
 } from '@/lib/megaload/naver-ingest-local';
 import { triggerLocalUpdate } from '@/lib/megaload/allinone-local';
 
@@ -43,6 +46,18 @@ export default function NaverSourcingPage() {
 
   const sinceRef = useRef(0);
   const logBoxRef = useRef<HTMLPreElement>(null);
+
+  // ── 카테고리 브라우저 ──
+  // 네이버는 전체 트리를 주는 API 가 없어 한 단계씩 들어가며 발견한다. 이미 본 단계는
+  // 도우미가 캐시하므로 되돌아갈 때는 네이버 요청이 없다.
+  const [path, setPath] = useState<NaverCategory[]>([]);       // 현재까지 내려온 경로
+  const [children, setChildren] = useState<NaverCategory[]>([]);
+  const [catLoading, setCatLoading] = useState(false);
+  const [target, setTarget] = useState(300);
+  const [cards, setCards] = useState<ProductCard[]>([]);
+  const [cardQuery, setCardQuery] = useState('');
+
+  const here = path.length ? path[path.length - 1] : null;
 
   // ── 도우미 발견 ──
   // /health 는 모든 버전에 있으므로 "찾았다"가 곧 "지원한다"는 아니다. 지원 여부는 아래
@@ -89,6 +104,37 @@ export default function NaverSourcingPage() {
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(null); }
   };
+
+  // ── 카테고리 이동 ──
+  const openCategory = useCallback(async (cat: NaverCategory | null, trail: NaverCategory[]) => {
+    if (!ep) return;
+    setCatLoading(true); setErr(null);
+    try {
+      const page = await fetchCategories(ep, cat?.id ?? null);
+      setPath(trail);
+      setChildren(page.children);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCatLoading(false);
+    }
+  }, [ep]);
+
+  // 도우미가 붙으면 대분류부터 보여준다(대분류는 상수라 네이버 요청 0).
+  useEffect(() => {
+    if (ep && link === 'online' && !children.length && !path.length) openCategory(null, []);
+  }, [ep, link, children.length, path.length, openCategory]);
+
+  // 수집이 끝나면 결과를 가져온다.
+  // ★ status 객체 자체를 의존성에 넣으면 2초 폴링마다 새 객체라 매번 결과를 다시 받는다.
+  //   변할 때만 반응하도록 원시값(진행 여부·개수)만 본다.
+  const collect = status?.collect;
+  const collectRunning = collect?.running ?? false;
+  const collectCount = collect?.count ?? 0;
+  useEffect(() => {
+    if (!ep || collectRunning || !collectCount) return;
+    fetchCollection(ep).then((c) => { if (c?.items) setCards(c.items); });
+  }, [ep, collectRunning, collectCount]);
 
   // ── 도우미 미연결 ──
   if (link !== 'online') {
@@ -214,7 +260,170 @@ export default function NaverSourcingPage() {
         )}
       </section>
 
-      {/* 2. 상태 */}
+      {/* 2. 카테고리 선택 → 수집 */}
+      <section className="rounded-xl border border-gray-200 bg-white p-5 mb-4">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="font-bold text-gray-900">카테고리 선택</h2>
+          {catLoading && <span className="text-xs text-gray-500 inline-flex items-center gap-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /> 네이버에서 하위 분류를 읽는 중…</span>}
+        </div>
+        <p className="text-sm text-gray-500 leading-relaxed mb-4">
+          네이버는 전체 카테고리 목록을 주는 API가 없어 <b className="text-gray-700">한 단계씩 들어가며 발견</b>합니다.
+          한 번 본 단계는 저장돼서 되돌아갈 때는 네이버에 다시 묻지 않습니다.
+          소분류까지 내려갈수록 더 많이 모을 수 있습니다 — 네이버가 한 카테고리당 약 1,000개에서 막기 때문입니다.
+        </p>
+
+        {/* 경로 */}
+        <div className="flex items-center gap-1 flex-wrap text-sm mb-3">
+          <button
+            onClick={() => openCategory(null, [])}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-gray-600 hover:bg-gray-100"
+          >
+            <Home className="w-3.5 h-3.5" /> 전체
+          </button>
+          {path.map((c, i) => (
+            <span key={c.id} className="inline-flex items-center gap-1">
+              <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
+              <button
+                onClick={() => openCategory(c, path.slice(0, i + 1))}
+                className={`px-2 py-1 rounded-md ${i === path.length - 1 ? 'font-bold text-gray-900' : 'text-gray-600 hover:bg-gray-100'}`}
+              >
+                {c.name}
+              </button>
+            </span>
+          ))}
+        </div>
+
+        {/* 하위 분류 */}
+        {children.length > 0 ? (
+          <div className="flex flex-wrap gap-2 mb-4">
+            {children.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => openCategory(c, [...path, c])}
+                disabled={catLoading}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-700 hover:border-[#E31837] hover:text-[#E31837] disabled:opacity-40"
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 mb-4">
+            {catLoading ? '' : here ? '하위 분류가 없습니다 — 여기서 바로 수집할 수 있습니다.' : '카테고리를 불러오는 중…'}
+          </p>
+        )}
+
+        {/* 수집 실행 */}
+        <div className="rounded-lg bg-gray-50 border border-gray-100 p-4">
+          {here ? (
+            <>
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-sm text-gray-700">
+                  선택: <b className="text-gray-900">{path.map((c) => c.name).join(' > ')}</b>
+                </span>
+                <span className="text-sm text-gray-500">목표</span>
+                <select
+                  value={target}
+                  onChange={(e) => setTarget(Number(e.target.value))}
+                  className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm"
+                >
+                  {[100, 300, 500, 1000].map((n) => <option key={n} value={n}>{n}개</option>)}
+                </select>
+                <button
+                  onClick={() => ep && run('collect', () => startCollect(ep, { catId: here.id, catName: path.map((c) => c.name).join(' > '), target }))}
+                  disabled={!!busy || collect?.running}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium disabled:opacity-40 hover:bg-[#c41230]"
+                >
+                  {collect?.running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                  이 카테고리 수집
+                </button>
+                {collect?.running && (
+                  <button
+                    onClick={() => ep && run('collect-stop', () => stopCollect(ep))}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-white"
+                  >
+                    <X className="w-4 h-4" /> 중단
+                  </button>
+                )}
+              </div>
+              {collect && (collect.running || collect.count > 0) && (
+                <p className="text-sm text-gray-600 mt-3">
+                  {collect.catName || collect.catId} —{' '}
+                  {collect.running
+                    ? `수집 중… ${collect.progress?.collected ?? 0}개 (스크롤 ${collect.progress?.scrolls ?? 0}회)`
+                    : `${collect.count}개 수집됨${collect.stopped ? ` · ${collect.stopped}` : ''}`}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-gray-500">대분류를 눌러 원하는 카테고리까지 내려가세요.</p>
+          )}
+        </div>
+      </section>
+
+      {/* 3. 수집 결과 */}
+      {cards.length > 0 && (
+        <section className="rounded-xl border border-gray-200 bg-white p-5 mb-4">
+          <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+            <h2 className="font-bold text-gray-900">수집 결과 <span className="text-gray-400 font-normal">{cards.length.toLocaleString()}개</span></h2>
+            <input
+              value={cardQuery}
+              onChange={(e) => setCardQuery(e.target.value)}
+              placeholder="상품명 검색"
+              className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm w-56"
+            />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 border-b border-gray-100">
+                  <th className="py-2 w-14"></th>
+                  <th className="py-2">상품명</th>
+                  <th className="py-2 w-28 text-right">가격</th>
+                  <th className="py-2 w-20 text-right">리뷰</th>
+                  <th className="py-2 w-16"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {cards
+                  .filter((c) => !cardQuery || c.title.includes(cardQuery))
+                  .slice(0, 200)
+                  .map((c) => (
+                    <tr key={c.productNo} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="py-2">
+                        {c.thumb
+                          // 네이버 CDN 이미지 — next/image 최적화를 태우면 서버 트래픽만 늘어 그대로 쓴다.
+                          // eslint-disable-next-line @next/next/no-img-element
+                          ? <img src={c.thumb} alt="" className="w-10 h-10 rounded object-cover bg-gray-100" />
+                          : <div className="w-10 h-10 rounded bg-gray-100" />}
+                      </td>
+                      <td className="py-2 pr-3 text-gray-800">{c.title || '(제목 없음)'}</td>
+                      <td className="py-2 text-right text-gray-900 font-medium">
+                        {c.price ? `${c.price.toLocaleString()}원` : '-'}
+                      </td>
+                      <td className="py-2 text-right text-gray-500">{c.reviewCount ? c.reviewCount.toLocaleString() : '-'}</td>
+                      <td className="py-2 text-right">
+                        <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-[#E31837]">
+                          <ExternalLink className="w-4 h-4 inline" />
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          {cards.length > 200 && (
+            <p className="text-xs text-gray-400 mt-3">표에는 200개까지만 표시합니다(검색으로 좁힐 수 있습니다). 수집된 전체는 {cards.length.toLocaleString()}개입니다.</p>
+          )}
+          <p className="text-xs text-gray-500 mt-3 leading-relaxed">
+            여기까지는 <b>목록에서 긁은 정보</b>입니다(제목·가격·썸네일·리뷰수). 옵션·상세·고시정보처럼
+            등록에 필요한 나머지는 상품 페이지를 하나씩 열어야 하고 1건당 30~90초가 걸립니다 —
+            그래서 <b>고른 것만 깊게</b> 가져오는 단계를 다음에 붙입니다.
+          </p>
+        </section>
+      )}
+
+      {/* 4. 상태 */}
       <section className="rounded-xl border border-gray-200 bg-white p-5 mb-4">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-bold text-gray-900">상태</h2>
@@ -254,7 +463,7 @@ export default function NaverSourcingPage() {
         </div>
       </section>
 
-      {/* 3. 연결 확인 */}
+      {/* 5. 연결 확인 */}
       <section className="rounded-xl border border-gray-200 bg-white p-5">
         <h2 className="font-bold text-gray-900 mb-1">연결 확인</h2>
         <p className="text-sm text-gray-500 leading-relaxed mb-4">
