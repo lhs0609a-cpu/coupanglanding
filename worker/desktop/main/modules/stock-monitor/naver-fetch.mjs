@@ -4,6 +4,12 @@
 //    진짜 브라우저 핑거프린트+쿠키+JS 로 통과시킨다. 2차(폴백) = undici 직접 fetch(electron 미가용/실패 시).
 //    둘 다 사용자 PC(=가정 IP)에서 나가므로 "가정 IP" 이점 유지. (Electron net 모듈은 ERR_FAILED 라 미사용.)
 // __PRELOADED_STATE__ 권위 파서 포함.
+//
+// ★ 전역 예산 게이트(naver-gate)를 통과한다 — 이 프로세스에서 네이버로 나가는 요청은 품절 감시와
+//   소싱 수집 두 갈래인데, 같은 PC·같은 가정 IP 를 쓰므로 합쳐서 페이싱하지 않으면 수집이
+//   품절 감시를 굶겨 죽인다. 우선순위는 'monitor'(여기)가 'ingest'(수집)보다 높다.
+//   429 를 만나면 게이트에 알려 **양쪽 모두** 멈춘다(한쪽만 쉬면 IP 밴만 깊어진다).
+import naverGate from '../../naver-gate.mjs';
 
 const REMOVED_PATTERNS = [/상품을\s*찾을\s*수\s*없|판매가\s*종료|deleted|removed|<title>404/i];
 const SOLDOUT_PATTERNS = [/일시\s*품절|품절\s*상태|sold[\s-]?out|재고\s*없|재고가\s*없/i];
@@ -139,6 +145,9 @@ export async function fetchNaverPage(url) {
 }
 
 async function fetchPage(url) {
+  // 전역 슬롯 확보 — 수집기가 돌고 있어도 품절 감시가 먼저 통과한다. 쿨다운 중이면 여기서 대기.
+  await naverGate.acquire('monitor');
+
   const gt = toGoogleTranslateUrl(url);
   const preferGT = gt && _browser429Streak >= 3;
 
@@ -155,8 +164,11 @@ async function fetchPage(url) {
     const r = await fetchPageViaBrowser(url);
     if (r.status === 429) {
       _browser429Streak++;
+      // IP 단위 신호다 — 게이트에 알려 소싱 수집까지 함께 멈춘다.
+      naverGate.triggerCooldown(true);
     } else if (r.status) {
       _browser429Streak = 0;
+      naverGate.recordSuccess();   // 정상 응답 → 적응형 속도가 한 단계씩 회복된다
       return r;
     }
   } catch { /* electron 미가용/로드 실패 → 폴백 */ }

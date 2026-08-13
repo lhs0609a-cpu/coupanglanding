@@ -11,6 +11,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { rpc, isPermanentAuthError } from '../runtime/supabase-rest.mjs';
 import { Store } from './store.mjs';
+import naverGate from './naver-gate.mjs';
 import { ComfyManager } from './comfy-manager.mjs';
 import { OllamaManager } from './ollama-manager.mjs';
 import { WorkerRunner } from './worker-runner.mjs';
@@ -203,6 +204,9 @@ async function autoStartIfReady() {
 function setupServices() {
   const userData = app.getPath('userData');
   store = new Store(userData);
+  // 네이버 예산 게이트 — 품절 감시(stock-monitor)와 소싱 수집(naver-ingest)이 공유한다.
+  //   쿨다운을 디스크에 남겨, 밴 중에 앱을 재시작해도 그대로 쉬게 한다(재시작 회피 = 밴 악화).
+  naverGate.init(userData);
   installDir = join(userData, 'engine');
   comfyPort = store.get('comfyPort', 8188);
   comfy = new ComfyManager(installDir, { port: comfyPort, onLog: (m) => send('thumbnail-gpu:comfy-log', m) });
