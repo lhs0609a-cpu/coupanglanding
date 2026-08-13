@@ -120,9 +120,12 @@ function decisiveToken(cands) {
  * @param {number} [o.maxDetailTokens=800]
  * @param {number} [o.concurrency=1]       동시에 생성할 상품 수(남은 VRAM 에 맞춰 호출부가 결정)
  * @param {(i:number, total:number, rec:Object, done:number)=>void} [o.onItem]
+ * @param {(i:number, total:number, error:string, done:number)=>void} [o.onItemError]
+ *   상품 1건 실패 통지. 실패해도 배치는 계속되고, 그 자리는 records[i]=undefined 로 남는다.
  * @returns {Promise<{records:Object[], summary:Object}>}
+ *   records 에는 **구멍(undefined)이 있을 수 있다** — 쓰는 쪽에서 반드시 걸러라.
  */
-export async function generateBatch(products, { model, sellerId = '', maxDetailTokens = 800, onItem, marginBrackets, concurrency = 1 } = {}) {
+export async function generateBatch(products, { model, sellerId = '', maxDetailTokens = 800, onItem, onItemError, marginBrackets, concurrency = 1 } = {}) {
   if (!model) throw new Error('[ai-batch] model 필요');
   const records = new Array(products.length);
   let ok = 0, review = 0, totalMs = 0, done = 0;
@@ -185,13 +188,45 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
 
   const lanes = Math.max(1, Math.min(Number(concurrency) || 1, products.length));
   let cursor = 0;
-  const lane = async () => { while (cursor < products.length) await genOne(cursor++); };
+  // ── 상품 단위 실패 격리 ──────────────────────────────────────────────────
+  //   ⚠️ 예전엔 genOne 이 그대로 throw 했다 → lane 의 while 로 전파 → Promise.all reject →
+  //      generateBatch throw → run-folder 가 .generated.jsonl 을 **쓰기 전에** 죽었다.
+  //      (파일 쓰기는 맨 끝 Phase C 의 원자적 rename 이다.)
+  //      그래서 한 상품만 터져도 **성공한 나머지까지 전부 소실**됐다.
+  //      실측 사고: 모델이 메모리 부족으로 못 떠서 100개 중 결과 0개.
+  //   이제 실패한 상품만 비우고(records[i] = undefined) 나머지는 살린다.
+  const failures = [];
+  let consecutiveFails = 0;
+  let abortReason = null;
+  //   연속 실패는 "이 PC 에서 모델이 안 뜬다"는 신호다. 100번 반복해봐야 100번 실패하고
+  //   시간만 버리므로 일찍 접고, 그때까지 성공한 결과는 그대로 반환한다(throw 하지 않는다).
+  const ABORT_AFTER_CONSECUTIVE = 3;
+  const lane = async () => {
+    while (cursor < products.length) {
+      if (abortReason) return;
+      const i = cursor++;
+      try {
+        await genOne(i);
+        consecutiveFails = 0;
+      } catch (e) {
+        const msg = String(e?.message || e);
+        failures.push({ index: i, id: products[i]?.id ?? null, error: msg.slice(0, 300) });
+        consecutiveFails++;
+        // 진행 표시는 계속 흘러야 한다(웹 진행바가 멈춘 것처럼 보이지 않게).
+        try { await onItemError?.(i, products.length, msg, ++done); } catch { /* 로깅 실패는 무해 */ }
+        if (consecutiveFails >= ABORT_AFTER_CONSECUTIVE) {
+          abortReason = `연속 ${consecutiveFails}건 실패 — 남은 ${products.length - done}개를 건너뜁니다: ${msg.slice(0, 200)}`;
+        }
+      }
+    }
+  };
   await Promise.all(Array.from({ length: lanes }, lane));
 
   return {
     records,
     summary: {
       total: products.length, ok, needsReview: review,
+      failed: failures.length, failures: failures.slice(0, 20), abortReason,
       avgMs: products.length ? Math.round(totalMs / products.length) : 0,
       wallMs: Date.now() - t0,
       // 파일 존재가 아니라 "실제로 어떤 후보 소스를 썼는지" 집계로 보고

@@ -6,9 +6,15 @@
 import { spawn } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkGpu } from './bootstrap.mjs';
+import { checkGpu, checkSystemRam } from './bootstrap.mjs';
+
+// 모델이 CPU 로 내려갈 때(VRAM 부족) 필요한 시스템 RAM 여유(MB) — **경고 기준일 뿐 모델을
+//   낮추는 데는 쓰지 않는다**(freemem 은 출렁여서 좋은 PC 를 강등시킬 수 있다. pickGenProfile 주석).
+//   3B q4 ≈ 1.9GB + 컨텍스트. 이보다 여유가 없으면 모델 적재 자체가 실패할 수 있다
+//   (실측 사고: CPU_REPACK 3.1GiB 할당 실패 → llama-server 사망 → 생성 0건).
+const RAM_FOR_SMALL_MB = 3000;
 import { serverParallelHint } from './ollama-manager.mjs';
-import { listModels } from '../runtime/local-llm.mjs';
+import { listModels, explainLlmError } from '../runtime/local-llm.mjs';
 import { maskInternalNames } from './mask-internal.mjs';
 import { resolveSourceTitles } from './source-title.mjs';
 
@@ -34,7 +40,21 @@ let child = null;
 export async function pickGenProfile() {
   const gpu = await checkGpu().catch(() => ({ ok: false, name: null, vramMb: 0, vramFreeMb: 0 }));
   const freeMb = gpu.vramFreeMb ?? 0;
+  // ── 시스템 RAM 게이트 ────────────────────────────────────────────────────
+  //   VRAM 에 다 못 올라간 레이어는 RAM 으로 내려간다(CPU 오프로드). RAM 도 없으면
+  //   llama-server 가 통째로 죽어 **생성이 0건**이 된다(실측 사고: CPU_REPACK 3.1GiB 실패).
+  //   7.8B(q4 ≈ 4.4GB)를 쓰려면 스필을 감당할 RAM 여유가 있어야 한다.
+  const ram = checkSystemRam();
+  //   ⚠️ **RAM 으로 모델을 낮추지는 않는다.** freemem() 은 값이 심하게 출렁인다 —
+  //      같은 32GB PC 에서 작업 중 1.1GB, 유휴 5.0GB 로 실측됐다(윈도우 Available MBytes 와는 일치).
+  //      이걸 모델 선택 기준으로 쓰면 멀쩡한 PC 가 순간 수치 때문에 저사양으로 강등된다
+  //      (맥에서 freemem() 을 믿었다가 겪은 사고와 같은 함정 — checkGpuMac 주석 참조).
+  //   ⭐ 대신 **CPU 로 내려갈 수밖에 없는 상황에서만** RAM 을 본다:
+  //      VRAM 에 통째로 올라가면(strong) 스필이 없어 RAM 은 사실상 무관하다.
+  //      VRAM 이 모자라 오프로드가 일어날 때만 RAM 부족이 곧 사망이다(CPU_REPACK 실패).
   const strong = gpu.ok && freeMb >= 5000;
+  const willUseCpu = !gpu.ok || freeMb < 5000;
+  const ramTight = ram.reliable && willUseCpu && ram.freeMb < RAM_FOR_SMALL_MB;
   // 남은 VRAM 이 극히 적으면(다른 프로그램이 GPU 점유) 작은 모델조차 스필한다 → 사용자에게 알린다.
   const scarce = gpu.ok && freeMb < 1500;
 
@@ -43,7 +63,11 @@ export async function pickGenProfile() {
   let installed = [];
   try { installed = await listModels(); } catch { /* ollama 아직 미기동 → 기본값 */ }
   const STRONG_PREFS = ['exaone3.5:7.8b', 'qwen2.5:7b-instruct', 'qwen2.5:7b'];
-  const SMALL_PREFS = ['qwen2.5:3b-instruct', 'exaone3.5:2.4b', 'qwen2.5:3b', 'exaone3.5:7.8b'];
+  // ⚠️ 예전엔 SMALL_PREFS 끝에 'exaone3.5:7.8b' 가 있었다 — **저사양 티어가 7.8B 를 고르는 버그**.
+  //    OllamaManager 기본 모델이 exaone3.5:7.8b 라 어느 PC든 그건 이미 깔려 있고, 작은 모델은
+  //    안 깔려 있다. 그래서 "약한 PC" 판정을 받고도 installed 검색이 7.8B 에 걸려 큰 모델이
+  //    선택됐다(→ VRAM 초과 → RAM 스필 → CPU_REPACK 실패로 전멸). 작은 티어는 끝까지 작게 간다.
+  const SMALL_PREFS = ['qwen2.5:3b-instruct', 'exaone3.5:2.4b', 'qwen2.5:3b'];
   const prefs = strong ? STRONG_PREFS : SMALL_PREFS;
   const model = prefs.find((n) => installed.some((m) => m === n)) || prefs[0];
 
@@ -65,7 +89,7 @@ export async function pickGenProfile() {
   const recogConcurrency = freeMb >= 11000 ? 2 : 1;
 
   return {
-    gpu, strong, scarce, model,
+    gpu, strong, scarce, model, ram, ramTight,
     concurrency, recogConcurrency, installedCount: installed.length,
   };
 }
@@ -136,7 +160,20 @@ export async function startGeneration({
     // 동시 처리 수는 엔진 슬롯을 확인한 뒤 확정되므로 여기서 말하지 않는다(아래 [속도] 줄에서 확정값).
     // 상세 토큰은 하드웨어와 무관한 고정 하한이라 말하지 않는다(예전엔 "상세 400토큰"이라 찍었는데
     //   실제로는 800 으로 올라가고 있어서 사용자에게 거짓을 말하고 있었다).
+    // RAM 도 함께 찍는다 — 모델이 못 뜨는 사고의 실제 원인이 VRAM 이 아니라 RAM 이었다.
+    + ` · RAM 남음 ${gb(profile.ram.freeMb)}/${gb(profile.ram.totalMb)}GB`
     + `→ 모델 ${profile.model}`);
+  // ── RAM 프리플라이트 ──────────────────────────────────────────────────────
+  //   VRAM 이 모자라면 모델 레이어가 RAM 으로 내려간다. RAM 도 없으면 llama-server 가
+  //   통째로 죽어 생성이 0건이 된다(실측: CPU_REPACK 3.1GiB 할당 실패로 100개 전멸).
+  //   막지는 않는다(측정값이 늘 정확하진 않다) — 대신 원인과 해결법을 미리 말한다.
+  if (profile.ramTight) {
+    send('allinone:log',
+      `⚠️ 지금 쓸 수 있는 시스템 RAM 이 ${gb(profile.ram.freeMb)}GB 뿐입니다. `
+      + `AI 모델을 메모리에 올리지 못해 생성이 통째로 실패할 수 있습니다. `
+      + `크롬(탭 많으면 수 GB)이나 다른 AI·영상 프로그램을 닫고 다시 시작하세요. `
+      + `가상 메모리(페이지파일)가 꺼져 있어도 같은 증상이 납니다.`);
+  }
   // ── 예상 소요시간 안내 ─────────────────────────────────────────────────────
   //   "얼마나 걸릴지"를 안 알려주면 느린 실행이 고장으로 보인다(실측 문의: VRAM 0.6GB 상태에서
   //   인식 1건에 2~8분 걸리자 "생성이 안 된다"고 판단). 시작 전에 숫자로 말한다.
@@ -296,7 +333,8 @@ export async function startGeneration({
   // ⚠️ 이 문구는 pair-server 를 거쳐 **웹 화면**에 그대로 뜬다 — 워커 로그 원문이라
   //    엔진·모델 이름이 섞여 있다. 내보내기 전에 기능 이름으로 치환한다(영업비밀).
   const buildReason = (code, signal) => {
-    if (errLines.length) return maskInternalNames(errLines.slice(-3).join(' / '));
+    // 원문(llama-server 스택)만 보내면 사용자가 원인을 알 수 없다 → 해석을 앞에 붙여 보낸다.
+    if (errLines.length) return maskInternalNames(explainLlmError(errLines.slice(-3).join(' / ')));
     if (signal) return `프로세스가 강제 종료됨(${signal}) — 메모리 부족(VRAM/RAM)일 수 있습니다.`;
     if (recent.length) return maskInternalNames(recent.slice(-3).join(' / '));
     return `생성 프로세스가 종료됨(code=${code})`;

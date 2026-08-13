@@ -9,6 +9,34 @@
 
 const OLLAMA = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
 
+/**
+ * llama-server 원문 오류를 사람이 읽고 **행동할 수 있는 문장**으로 바꾼다.
+ * ---------------------------------------------------------------------------
+ * 실측 사고에서 사용자가 본 화면(그대로 노출됐다):
+ *   HTTP 500: {"error":"llama-server process has terminated: exit status 1:
+ *   ggml_backend_cpu_buffer_type_alloc_buffer: failed to allocate buffer of size
+ *   3359637504\nalloc_tensor_range: failed to allocate CPU_REPACK
+ * → 원인은 "시스템 RAM 부족"인데 이 문장으로는 아무도 알 수 없다. 해석을 앞에 붙인다.
+ *   (원문은 뒤에 남긴다 — 진단에 필요하다.)
+ * @param {string} raw
+ * @returns {string}
+ */
+export function explainLlmError(raw) {
+  const s = String(raw || '');
+  // CPU 버퍼 할당 실패 = 시스템 RAM 부족(VRAM 아님). projector CPU offload 실패도 같은 뿌리.
+  if (/cpu_buffer_type_alloc_buffer|alloc_tensor_range|CPU_REPACK|projector CPU offload/i.test(s)) {
+    return '메모리(RAM) 부족으로 AI 모델을 올리지 못했습니다. 크롬(탭이 많으면 수 GB)이나 다른 AI·영상 프로그램을 닫고 다시 시도하세요'
+      + '(가상 메모리/페이지파일이 꺼져 있어도 같은 증상이 납니다). 원문: ' + s.slice(0, 200);
+  }
+  if (/cudaMalloc|CUDA (error )?out of memory|out of memory/i.test(s)) {
+    return '그래픽카드 메모리(VRAM) 부족으로 모델을 올리지 못했습니다. 다른 AI·영상 프로그램을 닫고 다시 시도하세요. 원문: ' + s.slice(0, 200);
+  }
+  if (/llama-server (process has terminated|startup failed)/i.test(s)) {
+    return 'AI 엔진(llama-server)이 시작하지 못했습니다. 메모리 부족이 가장 흔한 원인이니 다른 프로그램을 닫고 다시 시도하세요. 원문: ' + s.slice(0, 200);
+  }
+  return s;
+}
+
 /** ollama 데몬이 떠 있는지 */
 export async function isUp() {
   try {

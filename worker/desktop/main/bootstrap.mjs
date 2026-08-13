@@ -197,6 +197,28 @@ export async function checkGpu() {
 }
 
 /**
+ * 시스템 RAM 점검 — **VRAM 과 완전히 다른 자원이고, 지금까지 아무도 안 보고 있었다.**
+ * ---------------------------------------------------------------------------
+ * 실제 사고(윈도우 사용자, 상품 100개 전멸):
+ *   ggml_backend_cpu_buffer_type_alloc_buffer: failed to allocate buffer of size 3359637504
+ *   alloc_tensor_range: failed to allocate CPU_REPACK
+ * → `cpu_buffer` = GPU 가 아니라 **시스템 RAM** 이다. VRAM 에 다 못 올라간 레이어를 RAM 으로
+ *   내리려다(오프로드) 3.1GiB 를 못 잡아 llama-server 가 죽었다. 비전의
+ *   "startup failed after projector CPU offload retry" 도 같은 원인이다.
+ *   그런데 pickGenProfile·pickNumParallel 은 vramFreeMb 만 보고 모델과 슬롯을 정했다 →
+ *   "VRAM 은 남는데 RAM 이 모자란 PC" 가 정확히 사각지대였다.
+ *
+ * @returns {{totalMb:number, freeMb:number, reliable:boolean}}
+ *   reliable=false 는 이 값으로 모델을 낮추면 안 된다는 뜻이다(맥은 남는 RAM 을 전부 페이지
+ *   캐시로 잡아 freemem() 이 실제 여유보다 훨씬 작게 나온다 — checkGpuMac 주석 참조).
+ *   애플실리콘은 통합 메모리라 vramFreeMb 가 이미 RAM 기준이므로 두 번 깎으면 안 된다.
+ */
+export function checkSystemRam() {
+  const mb = (b) => Math.round(b / (1024 * 1024));
+  return { totalMb: mb(totalmem()), freeMb: mb(freemem()), reliable: !IS_MAC };
+}
+
+/**
  * ComfyUI 실행 루트.
  *   Windows — 포터블 압축을 풀면 생기는 ComfyUI_windows_portable (run_*.bat 가 있는 곳)
  *   macOS   — 소스를 그대로 둔 ComfyUI

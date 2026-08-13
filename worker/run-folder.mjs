@@ -38,7 +38,7 @@
 import { writeFileSync, appendFileSync, readFileSync, mkdirSync, existsSync, renameSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { isUp, unload, ensureModel } from './lib/local-llm.mjs';
+import { isUp, unload, ensureModel, explainLlmError } from './lib/local-llm.mjs';
 import { scanFolder } from './lib/folder-scanner.mjs';
 import { generateBatch } from './lib/ai-batch.mjs';
 import { resolveMarginLevel, presetBrackets } from './lib/margin-mini.mjs';
@@ -441,7 +441,15 @@ async function main() {
       // 진행 숫자는 "완료 개수" — 병렬이면 인덱스 순으로 안 끝나므로 i 를 쓰면 진행바가 뒤로 튄다.
       console.log(`[${ts()}][텍스트 ${doneCount ?? i + 1}/${total}] ${flag} ${rec.displayName}  | ${rec.categoryPath} [${rec.categoryCode || '-'}] | ${(rec.ms / 1000).toFixed(1)}s`);
     },
+    // 실패해도 진행 마커는 계속 찍는다 — 안 그러면 웹 진행바가 멈춘 것처럼 보인다.
+    onItemError: (i, total, err, doneCount) => {
+      console.log(`[${ts()}][텍스트 ${doneCount ?? i + 1}/${total}] ❌ 실패(${products[i]?.id || i + 1}) — ${explainLlmError(err)}`);
+    },
   });
+  if (summary.failed) {
+    console.log(`[${ts()}] ⚠️ 텍스트 생성 실패 ${summary.failed}/${products.length}건 — 성공분은 그대로 저장합니다.`);
+    if (summary.abortReason) console.log(`[${ts()}] ⏹ ${summary.abortReason}`);
+  }
   records.push(...genRecords);
 
   // ── 이미지 인식(백그라운드) 합류 ─────────────────────────────────────────
@@ -610,10 +618,13 @@ async function main() {
   // ── Phase C) 레코드 저장 + 검수화면 ──────────────────────────────────────
   console.log(`[${ts()}] [3/3] 레코드 저장 + 검수화면 생성`);
   // 원자적 교체: .tmp 에 완전히 쓴 뒤 rename. 중간에 죽어도 이전 결과가 살아남는다.
-  writeFileSync(outJsonl + '.tmp', records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  // ⚠️ records 에는 실패 상품 자리에 구멍(undefined)이 있을 수 있다(ai-batch 실패 격리).
+  //    거르지 않으면 JSON.stringify(undefined)=undefined 라 빈 줄이 섞여 웹 파서가 깨진다.
+  const written = records.filter(Boolean);
+  writeFileSync(outJsonl + '.tmp', written.map((r) => JSON.stringify(r)).join('\n') + '\n');
   renameSync(outJsonl + '.tmp', outJsonl);
   const outHtml = outPrefix + '.review.html';
-  writeFileSync(outHtml + '.tmp', buildReviewHtml(records, summary), 'utf8');
+  writeFileSync(outHtml + '.tmp', buildReviewHtml(written, summary), 'utf8');
   renameSync(outHtml + '.tmp', outHtml);
 
   console.log(`\n=== 요약 ===`);
