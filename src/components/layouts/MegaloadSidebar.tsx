@@ -15,7 +15,7 @@ import type { SettlementGateLevel } from '@/lib/utils/settlement';
 
 const iconMap = {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
-  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug, BookOpen, MonitorDown, Megaphone, AlertTriangle, Grid3x3, Handshake,
+  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug, BookOpen, MonitorDown, Megaphone, AlertTriangle, Grid3x3, Handshake, Search,
 } as const;
 
 const navItems = [
