@@ -20,9 +20,16 @@ let child = null;
  *      16GB GPU 라도 다른 앱(브라우저·다른 AI 도구 등)이 VRAM 을 점유 중이면 7.8B(≈5GB)를
  *      GPU 에 못 올려 CPU 로 스필 → 10배 넘게 느려진다(실측: 남은 0.8GB일 때 3tok/s).
  *      그래서 지금 올릴 수 있는 크기에 맞춰 모델을 고른다.
- *   - free ≥ 5GB : 7.8B + 상세 600 (품질 유지 + 병렬로 빠르게)
- *   - 그 외      : 2.4B + 상세 400 (작아서 빠듯한 VRAM 에도 최대한 GPU 에 올라감)
+ *   - free ≥ 5GB : 7.8B (품질 유지 + 병렬로 빠르게)
+ *   - 그 외      : 2.4B (작아서 빠듯한 VRAM 에도 최대한 GPU 에 올라감)
  * (짧은 필드 3종 병렬화는 ai-generator 에서 하드웨어와 무관하게 항상 적용됨.)
+ *
+ * ⚠️ 예전엔 여기서 상세 토큰도 낮췄다(강 600 / 약 400). **효과가 없을 뿐 아니라 해로웠다** —
+ *    num_predict 는 "목표"가 아니라 **상한**이라 낮춰도 생성이 빨라지지 않고 글이 잘릴 뿐이고,
+ *    잘린 글은 길이 검증(공백제외 550자)에 걸려 재생성 1회를 더 부른다.
+ *    실측(qwen2.5:3b-instruct, 4상품): 상한 400 → 재생성 4/4 강제 · 통과 0/4 · 평균 436자
+ *                                     상한 800 → 재생성 3/4 · 통과 2/4 · 평균 616자 (평균 시간도 더 짧음)
+ *    그래서 상세 토큰은 하드웨어로 조절하지 않는다(ai-generator 가 품질 하한 800 을 강제).
  */
 export async function pickGenProfile() {
   const gpu = await checkGpu().catch(() => ({ ok: false, name: null, vramMb: 0, vramFreeMb: 0 }));
@@ -58,7 +65,7 @@ export async function pickGenProfile() {
   const recogConcurrency = freeMb >= 11000 ? 2 : 1;
 
   return {
-    gpu, strong, scarce, model, detailTokens: strong ? 600 : 400,
+    gpu, strong, scarce, model,
     concurrency, recogConcurrency, installedCount: installed.length,
   };
 }
@@ -127,7 +134,9 @@ export async function startGeneration({
       ? `${profile.gpu.name} · VRAM 남음 ${gb(profile.gpu.vramFreeMb)}/${gb(profile.gpu.vramMb)}GB`
       : 'GPU 없음(CPU)'} `
     // 동시 처리 수는 엔진 슬롯을 확인한 뒤 확정되므로 여기서 말하지 않는다(아래 [속도] 줄에서 확정값).
-    + `→ 모델 ${profile.model} · 상세 ${profile.detailTokens}토큰`);
+    // 상세 토큰은 하드웨어와 무관한 고정 하한이라 말하지 않는다(예전엔 "상세 400토큰"이라 찍었는데
+    //   실제로는 800 으로 올라가고 있어서 사용자에게 거짓을 말하고 있었다).
+    + `→ 모델 ${profile.model}`);
   // ── 예상 소요시간 안내 ─────────────────────────────────────────────────────
   //   "얼마나 걸릴지"를 안 알려주면 느린 실행이 고장으로 보인다(실측 문의: VRAM 0.6GB 상태에서
   //   인식 1건에 2~8분 걸리자 "생성이 안 된다"고 판단). 시작 전에 숫자로 말한다.
@@ -227,16 +236,21 @@ export async function startGeneration({
 
   const runtimeDir = join(paths.appRoot, 'runtime');
   const script = join(runtimeDir, 'run-folder.mjs');
+  // --detail-tokens 는 넘기지 않는다 — run-folder 기본값(800)이 곧 품질 하한이고,
+  //   그보다 낮추면 잘려서 재생성만 늘었다(위 pickGenProfile 주석의 실측).
   const args = [
     script, folder,
     '--model', profile.model,
-    '--detail-tokens', String(profile.detailTokens),
     '--concurrency', String(genConcurrency),
     '--recog-concurrency', String(recogConcurrency),
   ];
   // 비전 판정 1회 상한 — GPU 있으면 상품당 수 초라 3분은 사실상 안 걸리는 안전망이고,
   // 없으면 90초에서 끊어 그 상품만 휴리스틱으로 넘긴다(생성이 통째로 멈추는 것 방지).
   args.push('--vision-timeout', String(profile.gpu.ok ? 180_000 : 90_000));
+  // GPU 가 아예 없으면 비전 모델(5.6GB)을 새로 받지 않는다 — 받아도 상한 초과로 못 쓰는 일이 잦다.
+  //   실측(num_gpu=0 재현): 최소 조건 1콜 88.0초(같은 PC GPU 15.0초)인데 상품당 2콜을 동시에 던진다.
+  //   이미 설치된 PC 는 그대로 쓰고, 상한 초과가 반복되면 run-folder 가 알아서 접는다(회로차단).
+  if (!profile.gpu.ok) args.push('--no-vision-pull');
   if (noThumb) args.push('--no-thumb');
   if (useComfySwap) args.push('--wait-comfy'); // 누끼 전에 ComfyUI 기동을 기다리게
 

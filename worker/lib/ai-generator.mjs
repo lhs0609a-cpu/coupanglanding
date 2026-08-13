@@ -277,7 +277,12 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
     features: product.features || [],
     seoKeywords: keywords,
     seed: personaSeed || product.originalName,
-    maxTokens: Math.max(maxDetailTokens || 0, 800), // 목표 600~1200자 도달 위해 토큰 하한 확보
+    // ⭐ 토큰 하한 800 — 저사양 PC 라고 여기를 낮추면 안 된다(반드시 손해).
+    //   num_predict 는 상한이라 낮춰도 생성이 빨라지지 않고 글만 잘리고, 잘린 글은 길이 검증
+    //   (공백제외 550자)에 걸려 재생성을 부른다. 실측(qwen2.5:3b-instruct, 4상품):
+    //     상한 400 → 평균 436자 · 재생성 4/4 · 통과 0/4 (평균 시간도 800 보다 길었다)
+    //     상한 800 → 평균 616자 · 재생성 3/4 · 통과 2/4
+    maxTokens: Math.max(maxDetailTokens || 0, 800),
     maxAttempts: 2,   // 재생성은 결함을 못 줄인다(실측) — 교정으로 못 고치는 것만 1회 더
   });
   const detailChk = checkMini(detailGen.text, ctx); // 법적 금지어 최종 확인(compliance byField 리포트)

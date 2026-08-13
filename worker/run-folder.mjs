@@ -21,9 +21,13 @@
  *   --workflow <경로>  API-format 워크플로 JSON
  *   --no-thumb         대표이미지 가공 건너뜀(텍스트만)
  *   --thumb-force      가공본이 있어도 다시 생성(기본: resume)
- *   --detail-tokens N  상세 최대 토큰 (기본 800)
+ *   --detail-tokens N  상세 최대 토큰 (기본 800 = 품질 하한. 800 미만은 무시된다 —
+ *                      상한을 낮춰도 빨라지지 않고 글만 잘려 재생성을 부른다. ai-generator 주석의 실측)
  *   --concurrency N    동시에 생성할 상품 수 (기본 1. 남은 VRAM 넉넉하면 2~3 이 크게 빠름)
  *   --recog-concurrency N  동시에 인식할 상품 수 (기본 1. 비전은 GPU 라 VRAM 넉넉할 때만)
+ *   --no-vision        비전(VLM) 판정을 아예 안 씀 (CLIP·L1 휴리스틱만)
+ *   --no-vision-pull   비전 모델이 없어도 자동 다운로드(수 GB)하지 않음. 이미 있으면 사용
+ *                      (도우미가 GPU 없는 PC 에서 자동으로 붙인다)
  *   --no-overlap       이미지인식을 텍스트와 동시에 돌리지 않고 예전처럼 먼저 끝냄(디버그)
  *   --no-recog-cache   이미지인식 캐시 무시(사진 그대로여도 다시 분석)
  *   --limit N          앞 N개만 (테스트)
@@ -109,7 +113,12 @@ function saveRecogCache(file, cache) {
 
 function parseArgs(argv) {
   const a = { _: [] };
-  const flags = new Set(['no-thumb', 'thumb-force', 'no-image-ai', 'wait-comfy', 'no-overlap', 'no-recog-cache']);
+  // ⚠️ 여기 없는 `--x` 는 **다음 인자를 값으로 삼킨다**(a[k] = argv[++i]).
+  //    no-vision 은 코드가 읽고 있는데 등록이 빠져 있었다 — 쓰는 순간 뒤 플래그가 사라진다.
+  const flags = new Set([
+    'no-thumb', 'thumb-force', 'no-image-ai', 'wait-comfy', 'no-overlap', 'no-recog-cache',
+    'no-vision', 'no-vision-pull',
+  ]);
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i];
     if (!t.startsWith('--')) { a._.push(t); continue; }
@@ -203,9 +212,26 @@ async function main() {
    *   호출부(allinone-runner)가 하드웨어를 보고 값을 넘긴다. 미지정이면 무제한(기존 동작).
    */
   const visionTimeoutMs = Number(cli['vision-timeout']) || 0;
+  /**
+   * 비전 판정이 상한 초과한 **상품 수**가 이 값에 도달하면 남은 상품은 비전을 건너뛴다.
+   *   상한 초과는 사진이 아니라 **PC 성능**의 문제라(격자 1장·출력 토큰 고정) 한 번 걸리면
+   *   계속 걸린다. 그런데 지금은 상품마다 같은 시간을 다시 태우고 매번 CLIP 으로 폴백했다.
+   *   실측(qwen2.5vl:7b, num_gpu=0 = 무GPU 재현): 최소 조건(짧은 프롬프트·64토큰·작은 이미지)
+   *   1콜에 88.0초(같은 PC GPU 15.0초). 실제로는 상품당 2콜(대표+리뷰)을 동시에 던지므로
+   *   무GPU PC 는 90초 상한을 넘기기 쉽다 → 상품 2개까지만 시도하고 접는다(최대 낭비 ~3분).
+   *   품질은 그대로다: 상한 초과 시의 결과가 원래 CLIP 폴백이라 결과물이 달라지지 않는다.
+   */
+  const VISION_GIVEUP_PRODUCTS = 2;
+  let visionTimeoutProducts = 0;
+  let visionOff = false;
   let visionReady = false;
   if (!cli['no-image-ai'] && !cli['no-vision']) {
-    visionReady = await ensureModel(visionModel, { onLog: (m) => console.log(`[${ts()}] ${m}`) });
+    visionReady = await ensureModel(visionModel, {
+      onLog: (m) => console.log(`[${ts()}] ${m}`),
+      // GPU 없는 PC 엔 5.6GB 를 받아두고도 상한 초과로 못 쓰는 일이 잦다 → 받지 않는다.
+      //   이미 설치돼 있으면 그대로 쓴다(설치된 PC 의 품질은 손대지 않는다).
+      noPull: !!cli['no-vision-pull'],
+    });
     if (visionReady) {
       console.log(`[${ts()}] [이미지인식] 비전 모델 사용: ${visionModel} (이미지를 직접 보고 대표/상세/리뷰 큐레이션)`);
       // VLM 은 GPU 를 쓴다 — 이전 실행이 남긴 ComfyUI(SDXL) VRAM 을 먼저 회수해 OOM 을 막는다.
@@ -253,7 +279,9 @@ async function main() {
       if (clipOff) { p.mainImageRanked = null; p.detailImagesKept = p.detailImages || []; p.detailDroppedNames = []; p.mainDroppedNames = []; p.reviewImagesKept = p.reviewImages || []; p.reviewDroppedNames = []; recogDone++; return; }
 
       // ── 비전(VLM) 경로 — 이미지를 직접 보고 대표/상세/리뷰를 한 번에 큐레이션 ──
-      if (visionReady) {
+      //   visionOff = 이 PC 에선 상한 초과가 반복돼 접은 상태(아래 회로차단).
+      if (visionReady && !visionOff) {
+        let timedOutHere = false;
         // 소싱 원본 분류 + 상품명으로 품목 종류를 본다(쿠팡 카테고리는 아직 안 정해졌다 —
         //   카테고리 확정은 Phase A 텍스트 단계다). 과일·음식이면 누끼 없이 실물컷을 쓴다.
         const vKind = categoryKind(p.categoryPath || '', p.originalName || '');
@@ -262,6 +290,7 @@ async function main() {
           detailPool: p.detailImages || [],
           reviewPool: p.reviewImages || [],
           model: visionModel, onLog, kind: vKind, timeoutMs: visionTimeoutMs,
+          onTimeout: () => { timedOutHere = true; },
         });
         if (vc) {
           if (vc.mainImage) p.mainImage = vc.mainImage;
@@ -293,6 +322,14 @@ async function main() {
           return;
         }
         console.log(`[${ts()}] [비전] ${p.id} 판정 실패 → 이 상품만 CLIP 폴백`);
+        // ── 회로차단 — 상한 초과가 반복되면 남은 상품은 아예 시도하지 않는다 ──
+        //   상품마다 상한(무GPU 90초)을 다시 태우는 것이 저사양 PC 최대 낭비였다.
+        //   결과물은 어차피 CLIP 폴백이라 품질은 그대로고, 기다림만 사라진다.
+        if (timedOutHere && ++visionTimeoutProducts >= VISION_GIVEUP_PRODUCTS && !visionOff) {
+          visionOff = true;
+          console.log(`[${ts()}] [비전] 상한 초과가 ${visionTimeoutProducts}개 상품에서 반복 — 이 PC 에선 비전 판정을 접고`
+            + ` 남은 상품은 바로 기본 방식(CLIP)으로 처리합니다. (상품당 ${Math.round(visionTimeoutMs / 1000)}초 대기 제거)`);
+        }
       }
 
       const mainPool = p.mainImages || (p.mainImage ? [p.mainImage] : []);

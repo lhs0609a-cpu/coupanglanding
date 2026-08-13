@@ -149,12 +149,19 @@ export async function hasModel(model) {
 /**
  * 모델이 없으면 ollama 로 pull(스트리밍 진행 로그). 이미 있으면 즉시 true.
  * 실패해도 throw 하지 않고 false 반환(호출부가 폴백하도록).
+ * @param {{onLog?:Function, noPull?:boolean}} [o]
+ *   noPull=true 면 **다운로드하지 않는다**(이미 있으면 그대로 씀). GPU 없는 PC 에
+ *   비전 모델 5.6GB 를 받게 해놓고 정작 판정은 상한 초과로 못 쓰는 낭비를 막는다.
  * @returns {Promise<boolean>} 최종 사용 가능 여부
  */
-export async function ensureModel(model, { onLog } = {}) {
+export async function ensureModel(model, { onLog, noPull = false } = {}) {
   if (!model) return false;
   try {
     if (await hasModel(model)) return true;
+    if (noPull) {
+      onLog?.(`[비전] ${model} 미설치 — 이 PC 는 GPU 가속이 없어 자동 다운로드(수 GB)를 생략합니다. 기본 방식(CLIP)으로 처리합니다.`);
+      return false;
+    }
     onLog?.(`[비전] ${model} 미설치 — 자동 다운로드 시작(최초 1회, 수 GB)…`);
     const r = await fetch(`${OLLAMA}/api/pull`, {
       method: 'POST',
