@@ -1,14 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import Link from 'next/link';
 import {
   Cpu, Download, CheckCircle2, AlertCircle, Loader2, Wifi, WifiOff,
   MonitorDown, Sparkles, ExternalLink, Gauge, XCircle, MinusCircle,
-  Wand2, Save, RotateCcw, Monitor, KeyRound,
+  Wand2, Save, RotateCcw,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { MONITOR_AUTH_URL, MAC_GATEKEEPER_GUIDE, MAC_CAPABILITY_NOTE } from '@/lib/megaload/worker-download';
+import { MAC_GATEKEEPER_GUIDE, MAC_CAPABILITY_NOTE } from '@/lib/megaload/worker-download';
 import { detectUserPlatform, readGpuRenderer, type UserPlatform } from '@/lib/megaload/detect-platform';
 import { useLatestVersions } from '@/lib/megaload/use-latest-versions';
 import { classifyHelperLink } from '@/lib/megaload/allinone-local';
@@ -194,12 +193,12 @@ export default function LocalGpuWorkerSettings() {
     <div className="space-y-5 max-w-2xl">
       {/* 헤더 */}
       <div className="flex items-start gap-3">
-        <div className="p-2 bg-indigo-50 rounded-lg"><Cpu className="w-5 h-5 text-indigo-600" /></div>
+        <div className="p-2 bg-indigo-50 rounded-lg"><MonitorDown className="w-5 h-5 text-indigo-600" /></div>
         <div>
-          <h3 className="text-base font-semibold text-gray-900">AI 썸네일 재생성</h3>
+          <h3 className="text-base font-semibold text-gray-900">메가로드 도우미 다운로드</h3>
           <p className="text-sm text-gray-500 mt-0.5">
-            네이버 누끼 이미지를 쿠팡용 깔끔한 흰 배경 썸네일로
-            <b className="text-gray-700"> AI</b>가 자동 재생성합니다.
+            내 PC에 도우미를 설치하면 등록·올인원·<b className="text-gray-700">AI 대표 썸네일 재생성</b>을
+            로컬 GPU로 무제한 처리합니다.
           </p>
         </div>
       </div>
@@ -317,7 +316,7 @@ export default function LocalGpuWorkerSettings() {
           <span className="text-[10px] text-gray-500">— 도우미 설치파일은 여기 한곳에서 받습니다</span>
         </div>
 
-        {/* ① 메가로드 도우미 (등록·썸네일·올인원·GPU) */}
+        {/* 메가로드 도우미 (등록·썸네일·올인원·GPU) — 받을 것은 이것 하나뿐이다. */}
         <div className="rounded-lg border border-gray-200 bg-white p-3">
           <div className="flex items-center gap-1.5 mb-1">
             <Cpu className="w-4 h-4 text-indigo-600" />
@@ -438,30 +437,7 @@ export default function LocalGpuWorkerSettings() {
             </p>
           </div>
         </div>
-
-        {/* ② 상품 모니터링 도우미 — 폐기됨. 서버가 전담하므로 설치할 것이 없다. */}
-        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-          <div className="flex items-center gap-1.5 mb-1">
-            <Monitor className="w-4 h-4 text-gray-400" />
-            <span className="text-sm font-semibold text-gray-600">상품 모니터링 도우미</span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 font-semibold">종료됨</span>
-          </div>
-          <p className="text-xs text-gray-600 leading-relaxed">
-            품절·가격 확인은 이제 <strong className="text-gray-800">서버가 자동으로</strong> 처리합니다.
-            PC를 켜두지 않아도 되고, 따로 설치할 프로그램도 없습니다.
-          </p>
-          <p className="text-[11px] text-gray-500 mt-1.5 leading-relaxed">
-            기존에 이 앱을 쓰셨다면 삭제하셔도 됩니다. 실측 결과 사용자 PC에서 네이버 원본을 확인하는
-            방식은 차단률이 높아(실패율 76%) 서버 방식(2%)으로 일원화했습니다.
-          </p>
-          <Link
-            href={MONITOR_AUTH_URL}
-            className="inline-flex items-center gap-1.5 mt-2 text-xs font-medium text-gray-600 hover:text-gray-900"
-          >
-            <KeyRound className="w-3.5 h-3.5" />
-            연결 상태 확인 →
-          </Link>
-        </div>
+        {/* 별도 "상품 모니터링 도우미"는 폐기(품절·가격 확인은 서버 전담) — 받을 것이 없어 카드도 뺐다. */}
       </div>
 
       {/* 생성 프롬프트 (계정 기본값) */}

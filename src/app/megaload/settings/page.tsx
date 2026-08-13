@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Settings, Save, Loader2, User, Gift, Tag, FileText, Bell, Sparkles, Cpu } from 'lucide-react';
+import { Settings, Save, Loader2, User, Gift, Tag, FileText, Bell, Sparkles, MonitorDown } from 'lucide-react';
 import GeminiKeySettings from '@/components/megaload/settings/GeminiKeySettings';
 import LocalGpuWorkerSettings from '@/components/megaload/settings/LocalGpuWorkerSettings';
 
@@ -12,21 +12,28 @@ type SettingsTab = 'account' | 'ai' | 'localgpu' | 'gifts' | 'sku' | 'names' | '
 const TABS: { key: SettingsTab; label: string; icon: typeof Settings }[] = [
   { key: 'account', label: '계정 설정', icon: User },
   { key: 'ai', label: 'AI 이미지', icon: Sparkles },
-  { key: 'localgpu', label: 'AI 썸네일', icon: Cpu },
+  // 탭 키(localgpu)는 기존 ?tab=localgpu 링크가 살아있어야 하므로 그대로 둔다.
+  { key: 'localgpu', label: '메가로드 도우미 다운로드', icon: MonitorDown },
   { key: 'gifts', label: '사은품 규칙', icon: Gift },
   { key: 'sku', label: 'SKU 매핑', icon: Tag },
   { key: 'names', label: '상품명 관리', icon: FileText },
   { key: 'notifications', label: '알림 설정', icon: Bell },
 ];
 
+const VALID_TABS: SettingsTab[] = ['account', 'ai', 'localgpu', 'gifts', 'sku', 'names', 'notifications'];
+
 export default function SettingsPage() {
   const supabase = useMemo(() => createClient(), []);
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const initialTab = (searchParams.get('tab') as SettingsTab) || 'account';
-  const validTabs: SettingsTab[] = ['account', 'ai', 'localgpu', 'gifts', 'sku', 'names', 'notifications'];
-  const [activeTab, setActiveTab] = useState<SettingsTab>(
-    validTabs.includes(initialTab) ? initialTab : 'account',
-  );
+  // 활성 탭은 state 가 아니라 URL 에서 파생한다 — 그래야 사이드바의
+  // "메가로드 도우미 다운로드"(?tab=localgpu)가 이미 설정 화면에 있어도 먹힌다.
+  const tabParam = searchParams.get('tab');
+  const activeTab: SettingsTab = VALID_TABS.includes(tabParam as SettingsTab)
+    ? (tabParam as SettingsTab)
+    : 'account';
+  const setActiveTab = (tab: SettingsTab) =>
+    router.replace(`/megaload/settings?tab=${tab}`, { scroll: false });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [businessName, setBusinessName] = useState('');
@@ -96,13 +103,13 @@ export default function SettingsPage() {
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm font-medium rounded-lg transition ${
+                className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm font-medium rounded-lg transition text-left leading-tight ${
                   activeTab === tab.key
                     ? 'bg-[#E31837] text-white'
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                <Icon className="w-4 h-4" />
+                <Icon className="w-4 h-4 shrink-0" />
                 {tab.label}
               </button>
             );

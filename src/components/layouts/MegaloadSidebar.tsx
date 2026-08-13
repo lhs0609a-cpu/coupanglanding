@@ -8,14 +8,14 @@ import {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
   Receipt, BarChart3, Zap, Globe, Link as LinkIcon, Settings, X,
   Upload, User, ArrowRight, Search, ExternalLink, Loader2, Lock, RotateCcw, RefreshCw, Bug,
-  BookOpen, Monitor, Megaphone, AlertTriangle, Grid3x3, Handshake,
+  BookOpen, MonitorDown, Megaphone, AlertTriangle, Grid3x3, Handshake,
 } from 'lucide-react';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
 import type { SettlementGateLevel } from '@/lib/utils/settlement';
 
 const iconMap = {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
-  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug, BookOpen, Monitor, Megaphone, AlertTriangle, Grid3x3, Handshake,
+  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug, BookOpen, MonitorDown, Megaphone, AlertTriangle, Grid3x3, Handshake,
 } as const;
 
 const navItems = [
@@ -28,8 +28,9 @@ const navItems = [
   { href: '/megaload/catalog', label: '카탈로그', icon: 'BookOpen' as const },
   { href: '/megaload/supplier-catalog', label: '공급사 제휴상품', icon: 'Handshake' as const },
   { href: '/megaload/stock-monitor', label: '품절동기화', icon: 'RefreshCw' as const },
-  // 별도 모니터링 앱은 폐기(품절 확인은 서버 전담). 기존 사용자 정리·연결 진단용으로만 남긴다.
-  { href: '/megaload/desktop-app', label: '모니터링 도우미 (종료)', icon: 'Monitor' as const },
+  // 별도 모니터링 앱은 폐기(품절 확인은 서버 전담) — 메뉴에서 뺐다.
+  // 설치파일은 설정의 다운로드 센터 한곳에서만 받는다.
+  { href: '/megaload/settings?tab=localgpu', label: '메가로드 도우미 다운로드', icon: 'MonitorDown' as const },
   { href: '/megaload/inventory', label: '재고관리', icon: 'Warehouse' as const },
   { href: '/megaload/cs', label: '문의관리', icon: 'MessageSquare' as const, badgeKey: 'pendingInquiries' as const },
   { href: '/megaload/settlement', label: '정산', icon: 'Receipt' as const },
@@ -276,11 +277,13 @@ export default function MegaloadSidebar({ isOpen, onClose, badges, gateLevel }: 
 
         <nav className="p-3 space-y-1">
           {navItems.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+            // 쿼리스트링이 붙은 항목(?tab=...)도 경로만 떼어 비교한다.
+            const hrefPath = item.href.split('?')[0];
+            const isActive = pathname === hrefPath || pathname.startsWith(hrefPath + '/');
             const Icon = iconMap[item.icon];
             const badgeCount = item.badgeKey && badges ? badges[item.badgeKey] : 0;
             const isLocked = gateLevel === 'restricted' &&
-              !GATE_ALLOWED_PATHS.some((p) => item.href === p || item.href.startsWith(p + '/'));
+              !GATE_ALLOWED_PATHS.some((p) => hrefPath === p || hrefPath.startsWith(p + '/'));
 
             if (isLocked) {
               return (
