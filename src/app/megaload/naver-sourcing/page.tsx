@@ -21,8 +21,24 @@ import {
 } from '@/lib/megaload/naver-ingest-local';
 import { triggerLocalUpdate } from '@/lib/megaload/allinone-local';
 
-/** 네이버 소싱(/naver-ingest 엔드포인트)이 들어간 최소 도우미 버전. */
-const MIN_HELPER_VERSION = '0.2.89';
+/**
+ * 이 화면이 요구하는 최소 도우미 버전.
+ * ⚠️ 기능을 추가할 때마다 **여기를 올려야 한다**. 안 올리면 구버전 도우미에서 그 엔드포인트만
+ *   404 가 나고, 화면은 원문("not found")을 그대로 뱉어 사용자가 원인을 알 수 없다(실측).
+ *   0.2.89 = /naver-ingest 기본 · 0.2.91 = 카테고리 탐색·목록 수집
+ */
+const MIN_HELPER_VERSION = '0.2.91';
+
+/** "0.2.9" vs "0.2.10" 을 문자열 비교하면 틀린다 — 숫자 단위로 비교한다. */
+function isOlder(version: string, min: string): boolean {
+  const a = version.split('.').map((n) => parseInt(n, 10) || 0);
+  const b = min.split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const d = (a[i] ?? 0) - (b[i] ?? 0);
+    if (d !== 0) return d < 0;
+  }
+  return false;
+}
 
 const ROLE_LABEL: Record<string, string> = { list: '목록 수집', detail: '상세 추출' };
 const STATUS_LABEL: Record<string, string> = {
@@ -136,8 +152,13 @@ export default function NaverSourcingPage() {
     fetchCollection(ep).then((c) => { if (c?.items) setCards(c.items); });
   }, [ep, collectRunning, collectCount]);
 
-  // ── 도우미 미연결 ──
-  if (link !== 'online') {
+  // ── 도우미 미연결 / 구버전 ──
+  // 버전이 낮으면 status 는 되는데 카테고리 같은 새 엔드포인트만 404 가 난다.
+  // 눌러보고 나서 실패를 알려주는 대신, **들어오자마자** 업데이트를 안내한다.
+  const outdated = !!helperVersion && isOlder(helperVersion, MIN_HELPER_VERSION);
+  const bannerMode: Link = outdated ? 'unsupported' : link;
+  if (link !== 'online' || outdated) {
+    const link = bannerMode;   // 아래 분기는 이 값으로 판단한다
     return (
       <div className="p-6 max-w-3xl">
         <Header />

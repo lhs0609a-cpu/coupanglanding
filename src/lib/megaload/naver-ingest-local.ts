@@ -200,6 +200,9 @@ export async function fetchCategories(
   const res = await fetch(qs(ep, 'categories', extra));
   const text = await res.text();
   if (!res.ok) {
+    // 구버전 도우미엔 이 라우트가 없어 pair-server 가 평문 'not found' 를 준다.
+    // 그대로 노출하면 원인을 알 수 없으므로 필요한 조치로 바꿔서 알린다.
+    if (res.status === 404) throw new Error('도우미 업데이트가 필요합니다 (카테고리 기능은 v0.2.91 이상)');
     let msg = text;
     try { msg = (JSON.parse(text) as { error?: string }).error || text; } catch { /* 원문 사용 */ }
     throw new Error(msg || `HTTP ${res.status}`);
