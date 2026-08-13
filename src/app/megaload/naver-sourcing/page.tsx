@@ -16,6 +16,10 @@ import {
   findHelper, fetchStatus, setWindows, startPool, stopPool, testOne, showWindow,
   type LocalEndpoint, type IngestStatus, type IngestLog, type WindowInfo,
 } from '@/lib/megaload/naver-ingest-local';
+import { triggerLocalUpdate } from '@/lib/megaload/allinone-local';
+
+/** 네이버 소싱(/naver-ingest 엔드포인트)이 들어간 최소 도우미 버전. */
+const MIN_HELPER_VERSION = '0.2.89';
 
 const ROLE_LABEL: Record<string, string> = { list: '목록 수집', detail: '상세 추출' };
 const STATUS_LABEL: Record<string, string> = {
@@ -27,6 +31,7 @@ type Link = 'checking' | 'online' | 'offline' | 'unsupported';
 
 export default function NaverSourcingPage() {
   const [ep, setEp] = useState<LocalEndpoint | null>(null);
+  const [helperVersion, setHelperVersion] = useState<string | null>(null);
   const [link, setLink] = useState<Link>('checking');
   const [status, setStatus] = useState<IngestStatus | null>(null);
   const [logs, setLogs] = useState<IngestLog[]>([]);
@@ -40,16 +45,17 @@ export default function NaverSourcingPage() {
   const logBoxRef = useRef<HTMLPreElement>(null);
 
   // ── 도우미 발견 ──
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const found = await findHelper();
-      if (cancelled) return;
-      setEp(found);
-      setLink(found ? 'online' : 'offline');
-    })();
-    return () => { cancelled = true; };
+  // /health 는 모든 버전에 있으므로 "찾았다"가 곧 "지원한다"는 아니다. 지원 여부는 아래
+  // status 폴링이 404/501 로 판정한다. 여기선 버전만 확보해 안내 문구에 쓴다.
+  const locate = useCallback(async () => {
+    setLink('checking');
+    const found = await findHelper();
+    setEp(found?.ep ?? null);
+    setHelperVersion(found?.version ?? null);
+    setLink(found ? 'online' : 'offline');
   }, []);
+
+  useEffect(() => { locate(); }, [locate]);
 
   // ── 상태 폴링 ──
   const poll = useCallback(async () => {
@@ -97,28 +103,43 @@ export default function NaverSourcingPage() {
             <div className="min-w-0">
               <p className="font-bold text-amber-900">
                 {link === 'checking' ? '도우미를 찾는 중…'
-                  : link === 'unsupported' ? '도우미 업데이트가 필요합니다'
+                  : link === 'unsupported'
+                    ? `도우미 업데이트가 필요합니다 — 설치본 v${helperVersion || '?'}, 필요 v${MIN_HELPER_VERSION} 이상`
                     : '이 PC에서 도우미를 찾지 못했습니다'}
               </p>
               <p className="text-sm text-amber-800 mt-1 leading-relaxed">
                 {link === 'unsupported'
-                  ? '설치된 도우미가 네이버 소싱을 지원하지 않는 버전입니다. 도우미 사이드바의 "업데이트 확인"을 누르고 앱을 재시작해 주세요.'
-                  : '네이버는 서버(데이터센터 IP)의 접근을 차단하기 때문에, 수집은 이 PC에 설치된 도우미의 브라우저로만 할 수 있습니다. 도우미를 실행한 뒤 이 페이지를 새로고침해 주세요.'}
+                  ? '도우미는 정상적으로 찾았지만, 설치된 버전에 네이버 소싱 기능이 아직 없습니다. 아래 "지금 업데이트"를 누르면 도우미가 바로 최신 버전을 받습니다(설치 후 자동 재시작). 앱에서 직접 하려면 도우미 사이드바의 "업데이트 확인"을 누르세요.'
+                  : '네이버는 서버(데이터센터 IP)의 접근을 차단하기 때문에, 수집은 이 PC에 설치된 도우미의 브라우저로만 할 수 있습니다. 도우미를 실행한 뒤 아래 "다시 찾기"를 눌러 주세요.'}
               </p>
               <div className="flex gap-2 mt-4">
                 <button
-                  onClick={() => { setLink('checking'); findHelper().then((f) => { setEp(f); setLink(f ? 'online' : 'offline'); }); }}
+                  onClick={locate}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white border border-amber-300 text-amber-900 text-sm font-medium hover:bg-amber-100"
                 >
                   <RefreshCw className="w-4 h-4" /> 다시 찾기
                 </button>
-                <a
-                  href="/megaload/settings?tab=localgpu"
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230]"
-                >
-                  <MonitorDown className="w-4 h-4" /> 도우미 다운로드
-                </a>
+                {link === 'unsupported' && ep ? (
+                  <button
+                    onClick={async () => {
+                      setErr(null);
+                      const ok = await triggerLocalUpdate(ep);
+                      if (!ok) setErr('업데이트를 시작하지 못했습니다. 도우미 앱에서 "업데이트 확인"을 눌러 주세요.');
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230]"
+                  >
+                    <RefreshCw className="w-4 h-4" /> 지금 업데이트
+                  </button>
+                ) : (
+                  <a
+                    href="/megaload/settings?tab=localgpu"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230]"
+                  >
+                    <MonitorDown className="w-4 h-4" /> 도우미 다운로드
+                  </a>
+                )}
               </div>
+              {err && <p className="text-sm text-red-700 mt-3">{err}</p>}
             </div>
           </div>
         </div>

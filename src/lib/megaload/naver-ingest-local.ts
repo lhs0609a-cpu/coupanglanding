@@ -76,14 +76,38 @@ async function post(ep: LocalEndpoint, path: string, body?: unknown) {
   return data;
 }
 
-/** 도우미 찾기 — 앱이 안 떠 있으면 null. */
-export async function findHelper(): Promise<LocalEndpoint | null> {
-  return discoverLocalEndpoint();
+/** 이 PC 의 도우미 — 접속 정보와 **설치된 버전**. 버전은 구버전 안내에 그대로 쓴다. */
+export interface HelperInfo {
+  ep: LocalEndpoint;
+  version: string | null;
+}
+
+/**
+ * 도우미 찾기 — 앱이 안 떠 있으면 null.
+ * 발견은 /health 로 하는데 그 엔드포인트는 **모든 버전에 있다**. 즉 "찾았다"와 "네이버 소싱을
+ * 지원한다"는 별개이므로, 여기서 버전을 함께 읽어 두고 화면이 정확히 구분해 안내하게 한다.
+ */
+export async function findHelper(): Promise<HelperInfo | null> {
+  const ep = await discoverLocalEndpoint();
+  if (!ep) return null;
+  let version: string | null = null;
+  try {
+    const r = await fetch(`http://127.0.0.1:${ep.port}/health`, {
+      cache: 'no-store', signal: AbortSignal.timeout(2000),
+    });
+    if (r.ok) version = ((await r.json()) as { version?: string }).version ?? null;
+  } catch { /* 버전은 안내 문구용일 뿐 — 못 읽어도 동작에 지장 없다 */ }
+  return { ep, version };
 }
 
 /**
  * 상태 + 최근 로그. since 이후의 로그만 받아 누적한다(폴링 중복 방지).
- * 도우미가 구버전이면 501 이 오므로 'unsupported' 로 구분해 안내한다.
+ *
+ * ★ 404 와 501 을 모두 'unsupported' 로 본다.
+ *   도우미는 찾았는데 그 버전에 /naver-ingest 라우트가 없으면 pair-server 의 마지막 핸들러가
+ *   **404** 를 준다(501 은 라우트는 있으나 기능이 주입되지 않은 경우). 예전엔 404 를 null 로
+ *   흘려 화면이 "도우미를 찾지 못했습니다" 라고 했는데, 실제로는 찾았고 구버전이었을 뿐이라
+ *   사용자를 엉뚱한 곳(재설치)으로 보냈다. 두 경우 모두 필요한 조치는 **업데이트**다.
  */
 export async function fetchStatus(
   ep: LocalEndpoint,
@@ -91,7 +115,7 @@ export async function fetchStatus(
 ): Promise<IngestStatus | 'unsupported' | null> {
   try {
     const res = await fetch(qs(ep, 'status', `&since=${since}`));
-    if (res.status === 501) return 'unsupported';
+    if (res.status === 404 || res.status === 501) return 'unsupported';
     if (!res.ok) return null;
     return (await res.json()) as IngestStatus;
   } catch {
