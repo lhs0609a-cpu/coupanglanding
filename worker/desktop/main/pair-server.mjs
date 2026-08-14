@@ -232,6 +232,11 @@ export async function startPairServer({
         if (req.method === 'GET' && u.pathname === '/naver-ingest/categories/export') {
           return json(200, naverIngest.exportCategories());
         }
+        // 페이지 진단 — 수집이 0건일 때 실제 DOM 구조를 파일로 남긴다(페이지 1장).
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/probe') {
+          const { catId } = await readJson();
+          return json(200, await naverIngest.probePage(catId));
+        }
         // 수집은 수 분이 걸리므로 시작만 하고 즉시 200. 진행은 status, 결과는 /collection.
         if (req.method === 'POST' && u.pathname === '/naver-ingest/collect') {
           const body = await readJson();

@@ -11,11 +11,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, Play, Square, MonitorDown, AlertTriangle, RefreshCw, Loader2, ExternalLink,
-  ChevronRight, ChevronDown, Download, X,
+  ChevronRight, ChevronDown, Download, X, Stethoscope,
 } from 'lucide-react';
 import {
   findHelper, fetchStatus, setWindows, startPool, stopPool, testOne, showWindow,
-  fetchCategories, startPrewarm, stopPrewarm, startCollect, stopCollect, fetchCollection,
+  fetchCategories, startPrewarm, stopPrewarm, startCollect, stopCollect, fetchCollection, probePage,
   type LocalEndpoint, type IngestStatus, type IngestLog, type WindowInfo,
   type NaverCategory, type ProductCard,
 } from '@/lib/megaload/naver-ingest-local';
@@ -30,8 +30,9 @@ import { triggerLocalUpdate } from '@/lib/megaload/allinone-local';
  *   0.2.93 = 카테고리 트리 미리 읽기(prewarm) — 클릭할 때 읽지 않는다
  *   0.2.94 = 카테고리 스냅샷 동봉(대분류·중분류는 설치 직후부터 요청 0으로 즉시)
  *   0.2.95 = 늦게 그려지는 하위 분류 사이드바 대기 + 전체 일괄 수집(앱 재시작해도 이어함)
+ *   0.2.96 = 페이지 진단(수집 0건일 때 실제 DOM 구조를 파일로)
  */
-const MIN_HELPER_VERSION = '0.2.95';
+const MIN_HELPER_VERSION = '0.2.96';
 
 /** "0.2.9" vs "0.2.10" 을 문자열 비교하면 틀린다 — 숫자 단위로 비교한다. */
 function isOlder(version: string, min: string): boolean {
@@ -587,6 +588,16 @@ export default function NaverSourcingPage() {
                     <X className="w-4 h-4" /> 중단
                   </button>
                 )}
+                {/* 0건이거나 이상한 게 잡힐 때 — 추측 대신 실제 페이지 구조를 떠 온다(페이지 1장). */}
+                <button
+                  onClick={() => ep && run('probe', () => probePage(ep, here.id))}
+                  disabled={!!busy || collect?.running}
+                  title="이 카테고리 페이지가 실제로 어떻게 생겼는지 파일로 남깁니다"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 disabled:opacity-40 hover:bg-white"
+                >
+                  {busy === 'probe' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Stethoscope className="w-4 h-4" />}
+                  페이지 진단
+                </button>
               </div>
               {collect && (collect.running || collect.count > 0) && (
                 <p className="text-sm text-gray-600 mt-3">

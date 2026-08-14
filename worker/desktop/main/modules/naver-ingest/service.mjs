@@ -10,9 +10,13 @@
  * 관리자 판정도 여기서 한다 — 도우미에 로그인된 계정의 role 이 기준이다.
  * (웹 화면을 숨기는 건 표시용일 뿐, 실제 차단은 이 게이트와 서버 API 가 한다)
  */
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import naverGate from '../../naver-gate.mjs';
 import { WindowPool, WINDOW_MIN, WINDOW_MAX, WINDOW_DEFAULT } from './window-pool.mjs';
 import { runOne } from './runner.mjs';
+import { probePageJs, collectCardsJs, scrollStepJs } from './inject.mjs';
+import { categoryUrl } from './categories.mjs';
 import {
   initCategories, listChildren, clearCategoryCache, knownMap, prewarmTree, prewarmInfo, exportTree,
   ROOT_CATEGORIES,
@@ -24,6 +28,7 @@ let deps = {
   store: null,
   send: () => {},
   getAccount: () => null,
+  userDataDir: null,
 };
 
 /** 웹이 폴링으로 가져갈 최근 로그. 앱 탭은 이벤트로 즉시 받지만 웹은 폴링이라 버퍼가 필요하다. */
@@ -41,7 +46,7 @@ function pushStatus() {
 }
 
 export function initService({ store, send, userDataDir, getAccount }) {
-  deps = { store, send: send || (() => {}), getAccount: getAccount || (() => null) };
+  deps = { store, send: send || (() => {}), getAccount: getAccount || (() => null), userDataDir };
   naverGate.init(userDataDir);
   initCategories(store);
   const st = naverGate.state();
@@ -222,6 +227,68 @@ export async function startPrewarm({ depth = 3 } = {}) {
 
   pushStatus();
   return { ok: true, started: true };
+}
+
+/**
+ * 페이지 진단 — 수집이 0건일 때 **추측하지 않으려고** 실제 페이지 구조를 떠서 파일로 남긴다.
+ *
+ * 목록이 안 그려진 건지, 링크 모양이 바뀐 건지, 이 페이지가 애초에 상품 목록이 아닌 건지,
+ * 차단인 건지는 로그로는 전부 똑같이 "0건" 이다. 한 장만 열어(예산 1) 링크 모양 분포와
+ * 본문 앞부분을 통째로 저장한다 — 그 파일 하나면 원인이 갈린다.
+ */
+export async function probePage(catId) {
+  requireAdmin();
+  if (!catId) throw new Error('카테고리를 먼저 고르세요.');
+
+  const p = ensurePool();
+  if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
+
+  pushLog(`페이지 진단 시작 — 카테고리 ${catId}`);
+  await naverGate.acquire('ingest');
+
+  const report = await p.withWindow('list', async (sw) => {
+    const nav = await sw.gotoViaClick(categoryUrl(catId), { timeoutMs: 20000 });
+    const det = await sw.detect().catch(() => null);
+
+    const first = await sw.evaluate(probePageJs).catch((e) => ({ error: String(e?.message || e) }));
+    await sw.evaluate(scrollStepJs).catch(() => {});
+    await new Promise((r) => setTimeout(r, 3000));
+    const afterScroll = await sw.evaluate(probePageJs).catch((e) => ({ error: String(e?.message || e) }));
+
+    // 수집기가 실제로 뭘 뱉는지도 같이 본다 — 여긴 평소 .catch(()=>[]) 로 삼켜지는 자리다.
+    let cards = null, cardsError = null;
+    try { cards = await sw.evaluate(collectCardsJs); }
+    catch (e) { cardsError = String(e?.message || e); }
+
+    return {
+      at: new Date().toISOString(),
+      catId,
+      nav,
+      detect: det,
+      cardCount: Array.isArray(cards) ? cards.length : null,
+      cardsError,
+      cardSamples: Array.isArray(cards) ? cards.slice(0, 5) : null,
+      first,
+      afterScroll,
+    };
+  });
+
+  naverGate.recordSuccess();
+
+  let path = null;
+  try {
+    path = join(deps.userDataDir || '.', 'naver-probe.json');
+    writeFileSync(path, JSON.stringify(report, null, 2));
+    pushLog(`진단 파일 저장 — ${path}`);
+  } catch (e) {
+    pushLog(`진단 파일 저장 실패(결과는 응답에 있습니다) — ${e?.message || e}`);
+  }
+
+  const c = report?.afterScroll?.counts;
+  if (c) {
+    pushLog(`진단 요약 — 링크 ${c.anchors}개 · /products/ ${c.hrefProductsPlural}개 · /product/ ${c.hrefProductSingular}개 · 이미지 ${c.imgs}개 · 카드 ${report.cardCount}개`);
+  }
+  return { ok: true, path, report };
 }
 
 /** 발견한 트리 통째로 — 제품에 동봉할 스냅샷(category-tree.json)을 만들 때 쓴다. */

@@ -363,6 +363,55 @@ export const collectCardsJs = `
 })()
 `;
 
+/**
+ * 페이지 구조 진단 — "왜 안 긁혔나"를 추측하지 않으려고 실제 DOM 을 요약해 온다.
+ *
+ * 수집이 0건일 때 원인은 여러 가지다(목록이 아직 안 그려짐 / 링크 모양이 바뀜 / 이 페이지가
+ * 애초에 상품 목록이 아님 / 차단). 이 넷은 **화면을 보면 바로 갈리는데** 로그만 보면 전부 똑같이
+ * "0건" 이다. 그래서 링크 모양 분포·상품 링크 표본·본문 앞부분을 통째로 떠서 파일로 남긴다.
+ */
+export const probePageJs = `
+(() => {
+  const shapeOf = (u) => {
+    try { const x = new URL(u); return x.host + x.pathname.replace(/\\d+/g, 'N'); } catch { return '(bad)'; }
+  };
+  const anchors = [...document.querySelectorAll('a[href]')];
+  const tally = {};
+  for (const a of anchors) { const s = shapeOf(a.href); tally[s] = (tally[s] || 0) + 1; }
+  const shapes = Object.entries(tally).sort((x, y) => y[1] - x[1]).slice(0, 25).map(([shape, n]) => ({ shape, n }));
+
+  const productish = anchors
+    .filter((a) => /product/i.test(a.href))
+    .slice(0, 12)
+    .map((a) => ({
+      href: (a.href || '').split('?')[0].slice(0, 160),
+      text: (a.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 60),
+    }));
+
+  const imgs = [...document.querySelectorAll('img')];
+  const body = (document.body && document.body.innerText) || '';
+
+  return {
+    url: location.href,
+    title: document.title,
+    counts: {
+      anchors: anchors.length,
+      hrefProductsPlural: anchors.filter((a) => (a.href || '').includes('/products/')).length,
+      hrefProductSingular: anchors.filter((a) => /\\/product\\//.test(a.href || '')).length,
+      hrefNvMid: anchors.filter((a) => /nvmid=/i.test(a.href || '')).length,
+      roleLinks: document.querySelectorAll('[role="link"]').length,
+      imgs: imgs.length,
+      imgsPstatic: imgs.filter((i) => /pstatic\\.net/.test(i.src || '')).length,
+      wonInText: (body.match(/원/g) || []).length,
+      scrollHeight: document.body ? document.body.scrollHeight : 0,
+    },
+    shapes,
+    productish,
+    text: body.replace(/\\s+/g, ' ').slice(0, 1200),
+  };
+})()
+`;
+
 /** 목록 무한스크롤 1회 — 부분 스크롤(20% 확률)을 섞어 기계적 패턴을 흐린다. */
 export const scrollStepJs = `
 (async () => {

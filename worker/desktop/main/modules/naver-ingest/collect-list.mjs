@@ -59,10 +59,24 @@ export async function collectCategory(pool, catId, opts = {}) {
     await sw.evaluate(install418WatcherJs).catch(() => {});
     await sw.evaluate(reset418Js).catch(() => {});
 
+    // 카드 추출이 실패하면 예전엔 조용히 빈 배열이 됐다 — "페이지에 없다" 와 구분이 안 돼
+    // 원인을 찾을 수 없었다. 실패는 한 번만이라도 반드시 말한다.
+    let evalErrShown = false;
+    const grabCards = async () => {
+      try { return (await sw.evaluate(collectCardsJs)) || []; }
+      catch (e) {
+        if (!evalErrShown) { evalErrShown = true; onLog(`⚠️ 카드 추출 실패 — ${e?.message || e}`); }
+        return [];
+      }
+    };
+
     // 스크롤 전 1차 수집 — 첫 화면에 이미 수십 개가 있다.
-    const first = await sw.evaluate(collectCardsJs).catch(() => []);
-    for (const it of first || []) items.set(it.productNo, it);
+    const first = await grabCards();
+    for (const it of first) items.set(it.productNo, it);
     onProgress({ collected: items.size, scrolls: 0 });
+    if (!items.size) {
+      onLog('첫 화면에서 상품 카드를 찾지 못했습니다 — 목록 페이지가 아니거나 링크 모양이 바뀌었을 수 있습니다. "페이지 진단" 을 눌러 실제 구조를 확인하세요.');
+    }
 
     const maxScrolls = Math.max(100, Math.ceil(target / 30) + 20);
     let noNew = 0;
@@ -80,8 +94,8 @@ export async function collectCategory(pool, catId, opts = {}) {
       await sw.evaluate(scrollStepJs).catch(() => {});
       await sleep(rand(2000, 4000));
 
-      const cards = await sw.evaluate(collectCardsJs).catch(() => []);
-      for (const it of cards || []) items.set(it.productNo, it);
+      const cards = await grabCards();
+      for (const it of cards) items.set(it.productNo, it);
 
       const gained = items.size - before;
       onProgress({ collected: items.size, scrolls: i, gained });

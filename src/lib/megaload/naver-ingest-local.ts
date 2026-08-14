@@ -265,6 +265,14 @@ export async function stopCollect(ep: LocalEndpoint): Promise<void> {
   await post(ep, 'collect/stop');
 }
 
+/**
+ * 페이지 진단 — 수집이 0건일 때 실제 페이지 구조를 떠서 도우미 폴더에 파일로 남긴다.
+ * (링크 모양 분포·상품 링크 표본·본문 앞부분. 페이지 1장만 연다)
+ */
+export async function probePage(ep: LocalEndpoint, catId: string): Promise<{ path?: string }> {
+  return (await post(ep, 'probe', { catId })) as { path?: string };
+}
+
 /** 수집 결과(수백 건). status 폴링과 분리돼 있어 필요할 때만 부른다. */
 export async function fetchCollection(ep: LocalEndpoint): Promise<Collection | null> {
   try {

@@ -41,6 +41,7 @@ export default {
     'naver-ingest:categories-prewarm': (_ctx, { depth } = {}) => svc.startPrewarm({ depth }),
     'naver-ingest:categories-prewarm-stop': () => svc.stopPrewarm(),
     'naver-ingest:categories-export': () => svc.exportCategories(),
+    'naver-ingest:probe': (_ctx, { catId } = {}) => svc.probePage(catId),
     'naver-ingest:collect': (_ctx, payload = {}) => svc.startCollect(payload),
     'naver-ingest:collect-stop': () => svc.stopCollect(),
     'naver-ingest:collection': () => svc.getCollection(),
