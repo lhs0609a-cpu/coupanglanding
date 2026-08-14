@@ -69,14 +69,17 @@ let store = null;
 export function initCategories(storeRef) {
   store = storeRef;
   const v = store?.get('naverIngestCatVersion', 0) || 0;
-  cache = v === CACHE_VERSION ? (store?.get('naverIngestCatCache', {}) || {}) : {};
-  if (v !== CACHE_VERSION) saveCache();
+  const ok = v === CACHE_VERSION;
+  cache = ok ? (store?.get('naverIngestCatCache', {}) || {}) : {};
+  done = ok ? (store?.get('naverIngestCatPrewarm', null) || { at: 0, depth: 0, nodes: 0 }) : { at: 0, depth: 0, nodes: 0 };
+  if (!ok) saveCache();
 }
 
 function saveCache() {
   try {
     store?.set('naverIngestCatCache', cache);
     store?.set('naverIngestCatVersion', CACHE_VERSION);
+    store?.set('naverIngestCatPrewarm', done);
   } catch { /* 캐시 저장 실패는 치명적 아님 */ }
 }
 
@@ -119,7 +122,7 @@ function splitMenu(links) {
  *
  * ★ 페이지를 여는 경우에만 게이트 슬롯을 쓴다(캐시 히트는 예산 0).
  */
-export async function listChildren(pool, parentId, { force = false, onLog = () => {} } = {}) {
+export async function listChildren(pool, parentId, { force = false, onLog = () => {}, signal } = {}) {
   if (!parentId) return { parentId: null, trail: [], children: ROOT_CATEGORIES, map: knownMap(), cached: true };
 
   if (!force && cache[parentId]) {
@@ -128,7 +131,8 @@ export async function listChildren(pool, parentId, { force = false, onLog = () =
 
   const before = knownIds();
 
-  await naverGate.acquire('ingest');
+  // 미리 읽기 중 "정지"를 누르면 쿨다운을 기다리던 것까지 즉시 풀린다.
+  await naverGate.acquire('ingest', { signal });
   const result = await pool.withWindow('list', async (sw) => {
     onLog(`카테고리 탐색 — ${parentId}`);
     const nav = await sw.gotoViaClick(categoryUrl(parentId), { timeoutMs: 20000 });
@@ -185,6 +189,101 @@ export async function listChildren(pool, parentId, { force = false, onLog = () =
 /** 캐시 비우기(네이버가 카테고리를 개편했을 때). */
 export function clearCategoryCache() {
   cache = {};
+  done = { at: 0, depth: 0, nodes: 0 };
   saveCache();
   return true;
+}
+
+// ── 전체 트리 미리 읽기 ───────────────────────────────────────────────────
+// 관리자가 카테고리를 고를 때마다 몇 초씩 기다리는 건 잘못된 설계다. 트리는 하루에도
+// 안 바뀌는 정적인 것이므로 **미리 다 읽어 두고** 클릭은 즉답이어야 한다.
+//
+// 비용은 정직하게 적어 둔다: 게이트가 요청 간 3~7초를 강제하므로(품절 모니터와 예산 공유)
+// 중분류 약 400개를 열어 소분류까지 확보하는 데 **20~40분**이 걸린다. 세분류까지 가면
+// 수천 페이지라 몇 시간이다. 그래서 기본 깊이는 3(소분류)이다.
+
+/** 미리 읽기 완료 스탬프 — 웹이 "이미 다 읽었는지"를 판단하는 근거. */
+let done = { at: 0, depth: 0, nodes: 0 };
+
+export function prewarmInfo() {
+  const ids = new Set(ROOT_IDS);
+  for (const e of Object.values(cache)) for (const c of e.children || []) ids.add(c.id);
+  return { ...done, nodes: ids.size };
+}
+
+/** 동시 실행 도우미 — 창 개수만큼만 병렬로 돌린다(게이트가 총량을 따로 막는다). */
+async function runPooled(items, concurrency, worker) {
+  let i = 0;
+  const runners = Array.from({ length: Math.max(1, concurrency) }, async () => {
+    while (i < items.length) {
+      const item = items[i++];
+      await worker(item);
+    }
+  });
+  await Promise.all(runners);
+}
+
+/**
+ * 트리 전체를 미리 읽어 캐시에 채운다.
+ *   maxDepth 3 = 대>중>소 (중분류 페이지를 전부 연다)
+ *   maxDepth 4 = 세분류까지 (수천 페이지 — 몇 시간)
+ * 이미 캐시에 있는 가지는 건너뛰므로 중단 후 다시 시작하면 이어서 한다.
+ */
+export async function prewarmTree(pool, { maxDepth = 3, onLog = () => {}, onProgress = () => {}, signal } = {}) {
+  let level = ROOT_CATEGORIES.slice();
+  let read = 0, failed = 0;
+  const visited = new Set();
+
+  for (let depth = 1; depth < maxDepth; depth++) {
+    const todo = level.filter((c) => !visited.has(c.id));
+    todo.forEach((c) => visited.add(c.id));
+    const next = [];
+    const queued = new Set();
+    let leftInLevel = todo.length;
+    // 다음 단계를 실제로 열게 되는가 — 안 열 거면 "남은 개수"에 세면 안 된다.
+    // (마지막 단계에서 발견되는 소분류 수천 개를 남은 일감으로 세면 예상 시간이 몇 시간으로 뻥튀기된다)
+    const deeper = depth + 1 < maxDepth;
+
+    // 대분류는 순차로 — 첫 페이지 한 장이 25개 대분류의 중분류를 전부 채우므로,
+    // 병렬로 쏘면 이미 확보될 내용을 위해 페이지를 4장 더 여는 낭비가 된다.
+    const conc = depth === 1 ? 1 : Math.max(1, Math.min(pool?.effectiveCount || pool?.configured || 2, 4));
+
+    await runPooled(todo, conc, async (node) => {
+      if (signal?.aborted) return;
+      leftInLevel--;
+      onProgress({ read, failed, level: depth + 1, pending: leftInLevel + (deeper ? next.length : 0), current: node.name });
+
+      let kids = cache[node.id]?.children;
+      if (!kids) {
+        // 차단이면 게이트가 쿨다운을 걸어 두므로, 다음 acquire 가 알아서 그만큼 기다린다.
+        for (let attempt = 1; attempt <= 3 && !kids; attempt++) {
+          if (signal?.aborted) return;
+          try {
+            kids = (await listChildren(pool, node.id, { onLog, signal })).children;
+            read++;
+          } catch (e) {
+            const msg = String(e?.message || e);
+            if (msg === 'aborted' || signal?.aborted) return;
+            if (/캡차/.test(msg)) throw e;       // 사람이 풀어야 한다 — 여기서 멈추는 게 맞다
+            if (attempt === 3) { failed++; onLog(`건너뜀 — ${node.name}: ${msg}`); }
+          }
+        }
+      }
+      // 같은 하위 분류가 여러 부모에 걸려 있을 수 있다 — 두 번 열지 않는다.
+      for (const k of kids || []) {
+        if (visited.has(k.id) || queued.has(k.id)) continue;
+        queued.add(k.id);
+        next.push(k);
+      }
+      onProgress({ read, failed, level: depth + 1, pending: leftInLevel + (deeper ? next.length : 0), current: node.name });
+    });
+
+    if (signal?.aborted) return { read, failed, stopped: '사용자가 중단했습니다.' };
+    if (!next.length) break;
+    level = next;
+  }
+
+  done = { at: Date.now(), depth: maxDepth, nodes: Object.keys(cache).length };
+  saveCache();
+  return { read, failed, stopped: null };
 }

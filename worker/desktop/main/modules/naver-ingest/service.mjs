@@ -13,7 +13,9 @@
 import naverGate from '../../naver-gate.mjs';
 import { WindowPool, WINDOW_MIN, WINDOW_MAX, WINDOW_DEFAULT } from './window-pool.mjs';
 import { runOne } from './runner.mjs';
-import { initCategories, listChildren, clearCategoryCache, knownMap, ROOT_CATEGORIES } from './categories.mjs';
+import {
+  initCategories, listChildren, clearCategoryCache, knownMap, prewarmTree, prewarmInfo, ROOT_CATEGORIES,
+} from './categories.mjs';
 import { collectCategory } from './collect-list.mjs';
 
 let pool = null;
@@ -81,6 +83,9 @@ export function getStatus() {
     progress: collection.progress,
     at: collection.at,
   };
+  // 카테고리 미리 읽기 — 웹이 "이미 다 읽었는지 / 지금 읽는 중인지"를 이걸로 판단한다.
+  const info = prewarmInfo();
+  base.prewarm = { ...prewarm, completedAt: info.at, completedDepth: info.depth, nodes: info.nodes };
   if (pool) return { ...base, ...pool.status() };
   return {
     ...base,
@@ -165,8 +170,57 @@ export async function categories(parentId, force = false) {
 
 export function clearCategories() {
   requireAdmin();
+  if (prewarm.running) throw new Error('미리 읽기가 도는 중입니다 — 먼저 중단하세요.');
   clearCategoryCache();
   pushLog('카테고리 캐시를 비웠습니다 — 다음 조회 때 네이버에서 다시 읽습니다.');
+  return true;
+}
+
+// ── 카테고리 미리 읽기 ────────────────────────────────────────────────
+// 고를 때마다 몇 초씩 기다리게 하지 않으려면 트리는 미리 다 읽혀 있어야 한다.
+// 오래 걸리므로(소분류까지 20~40분) 시작만 하고 즉시 돌아가며, 진행은 status 로 본다.
+
+let prewarm = {
+  running: false, read: 0, failed: 0, level: 0, pending: 0, current: '', stopped: null, at: 0, depth: 3,
+};
+let prewarmAbort = null;
+
+export async function startPrewarm({ depth = 3 } = {}) {
+  requireAdmin();
+  if (prewarm.running) return { ok: true, already: true };
+
+  const p = ensurePool();
+  if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
+
+  prewarmAbort = new AbortController();
+  prewarm = { running: true, read: 0, failed: 0, level: 1, pending: 0, current: '', stopped: null, at: Date.now(), depth };
+  pushLog(`카테고리 미리 읽기 시작 — ${depth >= 4 ? '세분류' : '소분류'}까지. 요청 간격(3~7초) 때문에 시간이 걸립니다.`);
+
+  prewarmTree(p, {
+    maxDepth: depth,
+    onLog: pushLog,
+    signal: prewarmAbort.signal,
+    onProgress: (pr) => { prewarm = { ...prewarm, ...pr }; },
+  }).then((r) => {
+    prewarm = { ...prewarm, running: false, stopped: r.stopped, read: r.read, failed: r.failed };
+    pushLog(r.stopped
+      ? `카테고리 미리 읽기 중단 — ${r.stopped} (읽은 페이지 ${r.read}장)`
+      : `✅ 카테고리 미리 읽기 완료 — 페이지 ${r.read}장, 건너뜀 ${r.failed}건`);
+    pushStatus();
+  }).catch((e) => {
+    prewarm = { ...prewarm, running: false, stopped: `실패: ${e?.message || e}` };
+    pushLog(`❌ 카테고리 미리 읽기 실패 — ${e?.message || e}`);
+    pushStatus();
+  });
+
+  pushStatus();
+  return { ok: true, started: true };
+}
+
+export function stopPrewarm() {
+  requireAdmin();
+  prewarmAbort?.abort();
+  pushLog('카테고리 미리 읽기를 중단합니다 — 지금까지 읽은 것은 저장돼 있습니다.');
   return true;
 }
 

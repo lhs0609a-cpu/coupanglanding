@@ -219,6 +219,15 @@ export async function startPairServer({
         if (req.method === 'POST' && u.pathname === '/naver-ingest/categories/clear') {
           return json(200, { ok: naverIngest.clearCategories() });
         }
+        // 트리 전체 미리 읽기 — 20~40분 걸리므로 시작만 하고 즉시 200. 진행은 status.prewarm.
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/categories/prewarm') {
+          const { depth } = await readJson();
+          if (!naverIngest.getStatus().isAdmin) return json(403, { ok: false, error: '관리자 계정만 사용할 수 있습니다.' });
+          return json(200, await naverIngest.startPrewarm({ depth: Number(depth) || 3 }));
+        }
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/categories/prewarm/stop') {
+          return json(200, { ok: naverIngest.stopPrewarm() });
+        }
         // 수집은 수 분이 걸리므로 시작만 하고 즉시 200. 진행은 status, 결과는 /collection.
         if (req.method === 'POST' && u.pathname === '/naver-ingest/collect') {
           const body = await readJson();

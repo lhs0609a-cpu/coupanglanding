@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import {
   findHelper, fetchStatus, setWindows, startPool, stopPool, testOne, showWindow,
-  fetchCategories, startCollect, stopCollect, fetchCollection,
+  fetchCategories, startPrewarm, stopPrewarm, startCollect, stopCollect, fetchCollection,
   type LocalEndpoint, type IngestStatus, type IngestLog, type WindowInfo,
   type NaverCategory, type ProductCard,
 } from '@/lib/megaload/naver-ingest-local';
@@ -27,8 +27,9 @@ import { triggerLocalUpdate } from '@/lib/megaload/allinone-local';
  *   404 가 나고, 화면은 원문("not found")을 그대로 뱉어 사용자가 원인을 알 수 없다(실측).
  *   0.2.89 = /naver-ingest 기본 · 0.2.91 = 카테고리 탐색·목록 수집
  *   0.2.92 = 카테고리 트리(하위 분류만 정확히 골라냄 + 발견한 트리 전체 반환)
+ *   0.2.93 = 카테고리 트리 미리 읽기(prewarm) — 클릭할 때 읽지 않는다
  */
-const MIN_HELPER_VERSION = '0.2.92';
+const MIN_HELPER_VERSION = '0.2.93';
 
 /** "0.2.9" vs "0.2.10" 을 문자열 비교하면 틀린다 — 숫자 단위로 비교한다. */
 function isOlder(version: string, min: string): boolean {
@@ -130,14 +131,15 @@ export default function NaverSourcingPage() {
   // 응답의 map 에는 도우미가 지금까지 발견한 가지가 전부 들어 있어 그대로 트리에 합친다.
   const loadChildren = useCallback(async (id: string | null, force = false) => {
     if (!ep) return;
-    setLoadingId(id ?? ''); setErr(null);
+    // 대분류(id=null)는 상수라 네트워크가 없다 — 스피너를 띄우지 않는다.
+    if (id) { setLoadingId(id); setErr(null); }
     try {
       const page = await fetchCategories(ep, id, force);
       setTree((prev) => ({ ...prev, ...(page.map ?? {}), [id ?? '']: page.children }));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoadingId(null);
+      if (id) setLoadingId(null);
     }
   }, [ep]);
 
@@ -147,6 +149,30 @@ export default function NaverSourcingPage() {
   useEffect(() => {
     if (ep && link === 'online' && !hasRoots) loadChildren(null);
   }, [ep, link, hasRoots, loadChildren]);
+
+  // ── 미리 읽기 ──
+  // 고를 때마다 몇 초씩 기다리는 건 잘못된 설계다. 트리는 정적이므로 처음 들어온 순간
+  // 도우미가 통째로 읽기 시작하고, 화면은 채워지는 걸 보여 준다.
+  const prewarm = status?.prewarm;
+  const prewarming = prewarm?.running ?? false;
+  const autoStarted = useRef(false);
+
+  useEffect(() => {
+    if (!ep || link !== 'online' || !status?.isAdmin) return;
+    if (!prewarm || prewarm.running || prewarm.completedAt || autoStarted.current) return;
+    autoStarted.current = true;
+    startPrewarm(ep, 3).catch(() => { /* 실패는 로그로 흘러간다 */ });
+  }, [ep, link, status?.isAdmin, prewarm]);
+
+  // 읽는 동안 트리가 자라는 걸 보여 준다(도우미 로컬 조회라 네이버 요청 0).
+  useEffect(() => {
+    if (!ep || !prewarming) return;
+    const t = setInterval(() => { loadChildren(null); }, 8000);
+    return () => clearInterval(t);
+  }, [ep, prewarming, loadChildren]);
+
+  // 끝나는 순간 한 번 더 — 마지막에 채워진 가지까지 화면에 반영한다.
+  useEffect(() => { if (ep && !prewarming) loadChildren(null); }, [ep, prewarming, loadChildren]);
 
   const toggleNode = useCallback((c: NaverCategory) => {
     setExpanded((prev) => {
@@ -370,10 +396,68 @@ export default function NaverSourcingPage() {
         </div>
         <p className="text-sm text-gray-500 leading-relaxed mb-3">
           <b className="text-gray-700">▸ 를 눌러 펼치고, 이름을 눌러 고릅니다.</b> 네이버는 전체 카테고리 목록을 주는 API가
-          없어 처음 펼칠 때만 해당 분류 페이지를 한 번 엽니다(대분류는 한 번만 열면 나머지 대분류의 중분류까지
-          함께 채워집니다). 한 번 읽은 가지는 저장돼서 다시 묻지 않습니다.
+          없어서, 도우미가 <b className="text-gray-700">미리 전부 읽어 저장</b>해 둡니다 — 그래서 펼치기는 기다림 없이 됩니다.
           소분류까지 내려갈수록 더 많이 모을 수 있습니다 — 네이버가 한 카테고리당 약 1,000개에서 막기 때문입니다.
         </p>
+
+        {/* 미리 읽기 진행 */}
+        {prewarm && (prewarm.running ? (
+          <div className="mb-3 rounded-lg border border-[#E31837]/20 bg-[#E31837]/5 px-4 py-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-sm text-gray-800 inline-flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-[#E31837]" />
+                카테고리를 미리 읽는 중 — 읽은 페이지 <b>{prewarm.read.toLocaleString()}</b>장 · 남은{' '}
+                <b>{prewarm.pending.toLocaleString()}</b>개
+                {prewarm.current ? <span className="text-gray-500">· {prewarm.current}</span> : null}
+              </p>
+              <button
+                onClick={() => ep && stopPrewarm(ep).catch(() => {})}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <X className="w-4 h-4" /> 정지
+              </button>
+            </div>
+            <div className="h-1.5 rounded-full bg-white/70 overflow-hidden my-2">
+              <div
+                className="h-full bg-[#E31837] transition-all"
+                style={{ width: `${Math.round((prewarm.read / Math.max(1, prewarm.read + prewarm.pending)) * 100)}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              네이버 차단을 피하려고 요청 간 3~7초를 지킵니다(품절 모니터와 예산을 나눠 씁니다) —
+              남은 시간 약 <b>{Math.max(1, Math.round((prewarm.pending * 5.5) / 60))}분</b>.
+              이 화면을 닫아도 도우미가 계속 읽고, 지금까지 읽은 가지는 이미 저장돼 있습니다.
+            </p>
+          </div>
+        ) : prewarm.completedAt ? (
+          <p className="text-xs text-gray-500 mb-3">
+            카테고리 <b className="text-gray-700">{prewarm.nodes.toLocaleString()}개</b>를 미리 읽어 뒀습니다 — 펼치기는 즉시 됩니다.
+            {prewarm.failed > 0 ? ` (읽지 못한 ${prewarm.failed}건은 펼칠 때 다시 시도합니다)` : ''}
+            <button
+              onClick={() => {
+                // 세분류는 페이지 수천 장이라 몇 시간짜리다 — 누른 사람이 그걸 알고 눌러야 한다.
+                if (!ep || !window.confirm('세분류까지 읽으면 페이지 수천 장이라 몇 시간 걸리고, 그동안 네이버 요청 예산을 품절 모니터와 나눠 씁니다. 시작할까요?')) return;
+                startPrewarm(ep, 4).catch(() => {});
+              }}
+              className="ml-2 text-gray-500 underline hover:text-gray-800"
+            >
+              세분류까지 더 읽기
+            </button>
+          </p>
+        ) : (
+          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-sm text-amber-900">
+              아직 카테고리를 미리 읽지 않았습니다{prewarm.stopped ? ` — ${prewarm.stopped}` : ''}.
+              한 번 읽어 두면 그다음부터는 기다림 없이 펼쳐집니다(소분류까지 20~40분).
+            </p>
+            <button
+              onClick={() => ep && startPrewarm(ep, 3).catch(() => {})}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230]"
+            >
+              <Download className="w-4 h-4" /> 미리 읽기 시작
+            </button>
+          </div>
+        ))}
 
         <input
           value={catQuery}

@@ -82,6 +82,30 @@ export interface Collection extends Omit<CollectState, 'count'> {
   items: ProductCard[];
 }
 
+/**
+ * 카테고리 미리 읽기 진행 상태.
+ * 트리는 하루에도 안 바뀌는 정적인 것이라 **미리 다 읽어 두고** 클릭은 즉답이어야 한다.
+ * 게이트가 요청 간 3~7초를 강제하므로(품절 모니터와 예산 공유) 소분류까지 20~40분 걸린다.
+ */
+export interface PrewarmState {
+  running: boolean;
+  /** 실제로 연 페이지 수 */
+  read: number;
+  failed: number;
+  /** 지금 읽고 있는 깊이(2=중분류, 3=소분류) */
+  level: number;
+  /** 남은 대상 수(발견하면서 늘어난다) */
+  pending: number;
+  current: string;
+  stopped: string | null;
+  depth: number;
+  /** 완주한 시각 — 0 이면 아직 전체를 읽은 적이 없다. */
+  completedAt: number;
+  completedDepth: number;
+  /** 캐시에 들어 있는 카테고리 수 */
+  nodes: number;
+}
+
 export interface IngestStatus {
   isAdmin: boolean;
   account: { email: string | null; userId: string | null; role: string | null } | null;
@@ -96,6 +120,7 @@ export interface IngestStatus {
   windows: WindowInfo[];
   gate: GateState;
   collect?: CollectState;
+  prewarm?: PrewarmState;
   logs?: IngestLog[];
 }
 
@@ -214,6 +239,18 @@ export async function fetchCategories(
     throw new Error(msg || `HTTP ${res.status}`);
   }
   return JSON.parse(text) as CategoryPage;
+}
+
+/**
+ * 트리 전체 미리 읽기 시작 — 20~40분 걸리므로 시작만 하고 즉시 돌아온다(진행은 status.prewarm).
+ * 이미 읽은 가지는 건너뛰므로 중단 후 다시 부르면 이어서 한다.
+ */
+export async function startPrewarm(ep: LocalEndpoint, depth = 3): Promise<void> {
+  await post(ep, 'categories/prewarm', { depth });
+}
+
+export async function stopPrewarm(ep: LocalEndpoint): Promise<void> {
+  await post(ep, 'categories/prewarm/stop');
 }
 
 /** 수집 시작 — 몇 분 걸리므로 시작만 하고 즉시 돌아온다. 진행은 status, 결과는 fetchCollection. */
