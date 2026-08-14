@@ -40,6 +40,7 @@ export default {
     'naver-ingest:categories': (_ctx, { parent, force } = {}) => svc.categories(parent, force),
     'naver-ingest:categories-prewarm': (_ctx, { depth } = {}) => svc.startPrewarm({ depth }),
     'naver-ingest:categories-prewarm-stop': () => svc.stopPrewarm(),
+    'naver-ingest:categories-export': () => svc.exportCategories(),
     'naver-ingest:collect': (_ctx, payload = {}) => svc.startCollect(payload),
     'naver-ingest:collect-stop': () => svc.stopCollect(),
     'naver-ingest:collection': () => svc.getCollection(),

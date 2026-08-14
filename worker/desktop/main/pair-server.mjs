@@ -228,6 +228,10 @@ export async function startPairServer({
         if (req.method === 'POST' && u.pathname === '/naver-ingest/categories/prewarm/stop') {
           return json(200, { ok: naverIngest.stopPrewarm() });
         }
+        // 발견한 트리 통째로 — 제품에 동봉할 스냅샷(category-tree.json)을 만들 때 쓴다.
+        if (req.method === 'GET' && u.pathname === '/naver-ingest/categories/export') {
+          return json(200, naverIngest.exportCategories());
+        }
         // 수집은 수 분이 걸리므로 시작만 하고 즉시 200. 진행은 status, 결과는 /collection.
         if (req.method === 'POST' && u.pathname === '/naver-ingest/collect') {
           const body = await readJson();

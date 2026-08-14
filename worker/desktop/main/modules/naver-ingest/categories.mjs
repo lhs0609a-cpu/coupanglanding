@@ -14,8 +14,27 @@
  *     · 그 아래 단계 → **처음 보는 id 만** 하위 분류다. 메뉴·형제·조상은 이미 캐시에 있으므로
  *       "알고 있는 id"를 빼면 남는 게 곧 자식이다.
  */
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { categoryLinksJs } from './inject.mjs';
 import naverGate from '../../naver-gate.mjs';
+
+/**
+ * 앱에 **동봉된 카테고리 스냅샷**(category-tree.json).
+ *
+ * 왜 파일로 들고 다니나: 카테고리 트리는 하루에도 안 바뀌는데, 그걸 설치본마다 처음 한 번씩
+ * 네이버를 20~40분 두드려 다시 알아내는 건 낭비다(그 시간 동안 사용자는 기다린다).
+ * 이미 알아낸 건 제품에 넣어 배포하면 **첫 실행부터 요청 0으로 즉시** 뜬다.
+ * 파일은 도우미의 /naver-ingest/categories/export 결과를 그대로 커밋해 갱신한다.
+ */
+const BUNDLED = (() => {
+  try {
+    const p = join(dirname(fileURLToPath(import.meta.url)), 'category-tree.json');
+    const j = JSON.parse(readFileSync(p, 'utf8'));
+    return j?.map && Object.keys(j.map).length ? j : null;
+  } catch { return null; }   // 스냅샷이 없어도 동작한다 — 그때는 직접 읽을 뿐이다
+})();
 
 /**
  * 대분류 시드 — 이것만 상수로 두고 나머지는 런타임에 발견한다.
@@ -65,13 +84,38 @@ const CACHE_VERSION = 2;
 /** 발견 결과 캐시: { [catId]: { children:[{id,name}], at } } */
 let cache = {};
 let store = null;
+let useBundle = true;
 
-export function initCategories(storeRef) {
+/** 동봉 스냅샷만 깔린 바닥 상태 — 초기화와 "캐시 비우기"가 같은 출발선을 쓰게 한다. */
+function baseCache(useBundled) {
+  const base = {};
+  if (useBundled && BUNDLED) {
+    for (const [id, kids] of Object.entries(BUNDLED.map)) {
+      if (kids?.length) base[id] = { children: kids, at: BUNDLED.at || 0, bundled: true };
+    }
+  }
+  return base;
+}
+
+/** bundled=false 는 테스트에서 동봉 스냅샷 없이 발견 로직만 보려는 경우다. */
+export function initCategories(storeRef, { bundled = true } = {}) {
   store = storeRef;
+  useBundle = bundled;
   const v = store?.get('naverIngestCatVersion', 0) || 0;
   const ok = v === CACHE_VERSION;
-  cache = ok ? (store?.get('naverIngestCatCache', {}) || {}) : {};
-  done = ok ? (store?.get('naverIngestCatPrewarm', null) || { at: 0, depth: 0, nodes: 0 }) : { at: 0, depth: 0, nodes: 0 };
+
+  // 동봉 스냅샷을 바닥에 깔고 그 위에 이 PC 가 직접 읽은 것을 덮는다 —
+  // 직접 읽은 쪽이 항상 더 최신이고, 스냅샷은 "아직 안 읽은 가지"를 메우는 용도다.
+  cache = baseCache(bundled);
+  if (ok) for (const [id, entry] of Object.entries(store?.get('naverIngestCatCache', {}) || {})) cache[id] = entry;
+
+  const saved = ok ? store?.get('naverIngestCatPrewarm', null) : null;
+  done = saved || { at: 0, depth: 0, nodes: 0 };
+  // 스냅샷이 이미 소분류(3단계)까지 담고 있으면 "다 읽은 것"으로 친다 — 다시 20~40분 돌 이유가 없다.
+  // 중분류(2단계)까지만 담긴 스냅샷은 완료가 아니다: 첫 두 단계를 공짜로 얻되, 소분류는 여전히 읽어야 한다.
+  if (bundled && BUNDLED && (BUNDLED.depth || 0) >= 3 && (BUNDLED.depth || 0) > (done.depth || 0)) {
+    done = { at: BUNDLED.at || Date.now(), depth: BUNDLED.depth, nodes: 0 };
+  }
   if (!ok) saveCache();
 }
 
@@ -186,9 +230,13 @@ export async function listChildren(pool, parentId, { force = false, onLog = () =
   return { parentId, trail: [], children, map: knownMap(), cached: false };
 }
 
-/** 캐시 비우기(네이버가 카테고리를 개편했을 때). */
+/**
+ * 캐시 비우기(네이버가 카테고리를 개편했을 때).
+ * 완전히 빈 상태가 아니라 **동봉 스냅샷 상태**로 되돌린다 — 제품이 들고 있는 트리까지
+ * 버리면 다음 조회가 다시 처음부터 네이버를 두드리게 된다.
+ */
 export function clearCategoryCache() {
-  cache = {};
+  cache = baseCache(useBundle);
   done = { at: 0, depth: 0, nodes: 0 };
   saveCache();
   return true;
@@ -204,6 +252,22 @@ export function clearCategoryCache() {
 
 /** 미리 읽기 완료 스탬프 — 웹이 "이미 다 읽었는지"를 판단하는 근거. */
 let done = { at: 0, depth: 0, nodes: 0 };
+
+/**
+ * 지금까지 발견한 트리를 그대로 뽑는다 — 이 결과를 category-tree.json 으로 커밋하면
+ * 다음 릴리스부터는 모든 설치본이 요청 0으로 이 트리를 갖고 시작한다.
+ */
+export function exportTree() {
+  const map = {};
+  let categories = 0;
+  for (const [id, entry] of Object.entries(cache)) {
+    const kids = entry.children || [];
+    if (!kids.length) continue;
+    map[id] = kids.map((c) => ({ id: String(c.id), name: String(c.name) }));
+    categories += kids.length;
+  }
+  return { at: Date.now(), depth: done.depth || 0, parents: Object.keys(map).length, categories, map };
+}
 
 export function prewarmInfo() {
   const ids = new Set(ROOT_IDS);

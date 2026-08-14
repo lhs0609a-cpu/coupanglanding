@@ -14,7 +14,8 @@ import naverGate from '../../naver-gate.mjs';
 import { WindowPool, WINDOW_MIN, WINDOW_MAX, WINDOW_DEFAULT } from './window-pool.mjs';
 import { runOne } from './runner.mjs';
 import {
-  initCategories, listChildren, clearCategoryCache, knownMap, prewarmTree, prewarmInfo, ROOT_CATEGORIES,
+  initCategories, listChildren, clearCategoryCache, knownMap, prewarmTree, prewarmInfo, exportTree,
+  ROOT_CATEGORIES,
 } from './categories.mjs';
 import { collectCategory } from './collect-list.mjs';
 
@@ -215,6 +216,12 @@ export async function startPrewarm({ depth = 3 } = {}) {
 
   pushStatus();
   return { ok: true, started: true };
+}
+
+/** 발견한 트리 통째로 — 제품에 동봉할 스냅샷(category-tree.json)을 만들 때 쓴다. */
+export function exportCategories() {
+  requireAdmin();
+  return exportTree();
 }
 
 export function stopPrewarm() {

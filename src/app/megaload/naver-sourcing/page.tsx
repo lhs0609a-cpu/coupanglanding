@@ -28,8 +28,9 @@ import { triggerLocalUpdate } from '@/lib/megaload/allinone-local';
  *   0.2.89 = /naver-ingest 기본 · 0.2.91 = 카테고리 탐색·목록 수집
  *   0.2.92 = 카테고리 트리(하위 분류만 정확히 골라냄 + 발견한 트리 전체 반환)
  *   0.2.93 = 카테고리 트리 미리 읽기(prewarm) — 클릭할 때 읽지 않는다
+ *   0.2.94 = 카테고리 스냅샷 동봉(대분류·중분류는 설치 직후부터 요청 0으로 즉시)
  */
-const MIN_HELPER_VERSION = '0.2.93';
+const MIN_HELPER_VERSION = '0.2.94';
 
 /** "0.2.9" vs "0.2.10" 을 문자열 비교하면 틀린다 — 숫자 단위로 비교한다. */
 function isOlder(version: string, min: string): boolean {
@@ -40,6 +41,27 @@ function isOlder(version: string, min: string): boolean {
     if (d !== 0) return d < 0;
   }
   return false;
+}
+
+/**
+ * 카테고리 트리 표시용 사본(브라우저).
+ * 원본은 도우미가 디스크에 들고 있지만, 화면을 다시 열 때마다 "불러오는 중"을 보여 주지 않으려면
+ * 첫 렌더에 이미 트리가 있어야 한다. 그래서 받은 트리를 그대로 남겨 두고 다음에 즉시 그린다.
+ */
+const TREE_CACHE_KEY = 'megaload.naverCategoryTree.v1';
+
+function readTreeCache(): Record<string, NaverCategory[]> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(TREE_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, NaverCategory[]>) : {};
+  } catch { return {}; }
+}
+
+function writeTreeCache(tree: Record<string, NaverCategory[]>) {
+  try { window.localStorage.setItem(TREE_CACHE_KEY, JSON.stringify(tree)); }
+  catch { /* 용량 초과 등 — 표시용 사본이라 실패해도 동작에 지장 없다 */ }
 }
 
 const ROLE_LABEL: Record<string, string> = { list: '목록 수집', detail: '상세 추출' };
@@ -69,6 +91,8 @@ export default function NaverSourcingPage() {
   // 네이버는 전체 트리를 주는 API 가 없어 한 단계씩 들어가며 발견한다. 다만 대분류를 한 번만
   // 열면 도우미가 25개 대분류의 중분류를 통째로 복원해 주므로(map), 그 뒤로는 클릭만으로 펼쳐진다.
   // 이미 본 단계는 도우미가 캐시하므로 되돌아갈 때는 네이버 요청이 없다.
+  // 화면을 다시 열 때 도우미 응답을 기다리며 빈 트리를 보여 주지 않으려고 브라우저에도 남긴다
+  // (도우미 캐시가 원본이고 이건 표시용 사본이다 — 응답이 오면 그걸로 덮는다).
   const [tree, setTree] = useState<Record<string, NaverCategory[]>>({});  // 부모id → 자식들 ('' = 대분류)
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -144,6 +168,16 @@ export default function NaverSourcingPage() {
   }, [ep]);
 
   const hasRoots = !!tree[''];
+
+  // 지난번에 본 트리를 먼저 깔아 첫 화면부터 채워진 상태로 시작한다(서버 렌더와 어긋나지
+  // 않도록 렌더가 아니라 마운트 뒤에 읽는다). 도우미 응답이 오면 그걸로 덮인다.
+  useEffect(() => {
+    const cached = readTreeCache();
+    if (Object.keys(cached).length) setTree((prev) => ({ ...cached, ...prev }));
+  }, []);
+
+  // 받은 트리는 그대로 남겨 둔다 — 다음에 이 화면을 열면 기다림 없이 바로 그려진다.
+  useEffect(() => { if (hasRoots) writeTreeCache(tree); }, [tree, hasRoots]);
 
   // 도우미가 붙으면 대분류부터 보여준다(대분류는 상수라 네이버 요청 0).
   useEffect(() => {
@@ -395,8 +429,8 @@ export default function NaverSourcingPage() {
           </div>
         </div>
         <p className="text-sm text-gray-500 leading-relaxed mb-3">
-          <b className="text-gray-700">▸ 를 눌러 펼치고, 이름을 눌러 고릅니다.</b> 네이버는 전체 카테고리 목록을 주는 API가
-          없어서, 도우미가 <b className="text-gray-700">미리 전부 읽어 저장</b>해 둡니다 — 그래서 펼치기는 기다림 없이 됩니다.
+          <b className="text-gray-700">▸ 를 눌러 펼치고, 이름을 눌러 고릅니다.</b> 대분류·중분류는 <b className="text-gray-700">앱에 들어 있어
+          기다림 없이</b> 뜨고, 그 아래는 도우미가 미리 읽어 저장해 둡니다(한 번 읽으면 계속 즉시).
           소분류까지 내려갈수록 더 많이 모을 수 있습니다 — 네이버가 한 카테고리당 약 1,000개에서 막기 때문입니다.
         </p>
 
@@ -447,14 +481,14 @@ export default function NaverSourcingPage() {
         ) : (
           <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
             <p className="text-sm text-amber-900">
-              아직 카테고리를 미리 읽지 않았습니다{prewarm.stopped ? ` — ${prewarm.stopped}` : ''}.
-              한 번 읽어 두면 그다음부터는 기다림 없이 펼쳐집니다(소분류까지 20~40분).
+              소분류는 아직 미리 읽지 않았습니다{prewarm.stopped ? ` — ${prewarm.stopped}` : ''}.
+              한 번 읽어 두면 그다음부터는 기다림 없이 펼쳐집니다(20~40분, 도중에 멈춰도 읽은 데까지 남습니다).
             </p>
             <button
               onClick={() => ep && startPrewarm(ep, 3).catch(() => {})}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230]"
             >
-              <Download className="w-4 h-4" /> 미리 읽기 시작
+              <Download className="w-4 h-4" /> 소분류까지 미리 읽기
             </button>
           </div>
         ))}
