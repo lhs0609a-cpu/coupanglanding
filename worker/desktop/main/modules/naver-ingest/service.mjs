@@ -13,7 +13,7 @@
 import naverGate from '../../naver-gate.mjs';
 import { WindowPool, WINDOW_MIN, WINDOW_MAX, WINDOW_DEFAULT } from './window-pool.mjs';
 import { runOne } from './runner.mjs';
-import { initCategories, listChildren, clearCategoryCache, ROOT_CATEGORIES } from './categories.mjs';
+import { initCategories, listChildren, clearCategoryCache, knownMap, ROOT_CATEGORIES } from './categories.mjs';
 import { collectCategory } from './collect-list.mjs';
 
 let pool = null;
@@ -155,7 +155,9 @@ let collectAbort = null;
 
 export async function categories(parentId, force = false) {
   requireAdmin();
-  if (!parentId) return { parentId: null, trail: [], children: ROOT_CATEGORIES, cached: true };
+  // 대분류는 상수라 네트워크·창이 필요 없다. 지금까지 발견한 트리(map)를 같이 줘서
+  // 웹이 이미 아는 가지는 클릭 없이 바로 펼쳐 보여줄 수 있게 한다.
+  if (!parentId) return { parentId: null, trail: [], children: ROOT_CATEGORIES, map: knownMap(), cached: true };
   const p = ensurePool();
   if (!p.running) await p.start();
   return listChildren(p, parentId, { force, onLog: pushLog });

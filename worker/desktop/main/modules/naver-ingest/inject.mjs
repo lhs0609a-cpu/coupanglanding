@@ -267,16 +267,21 @@ export const read418Js = `(() => (window.__mgl418 ? window.__mgl418.count : 0))(
 export const reset418Js = `(() => { if (window.__mgl418) window.__mgl418.count = 0; return true; })()`;
 
 /**
- * 현재 카테고리 페이지에서 **하위 카테고리 링크**와 현재 위치(브레드크럼)를 뽑는다.
- * 네이버는 전체 카테고리 트리를 주는 API 가 없어서, 한 단계씩 들어가며 발견해야 한다.
+ * 카테고리 페이지에 있는 **모든 카테고리 링크를 문서 순서 그대로** 뽑는다.
+ *
+ * ⚠️ 여기서 "하위 분류만 골라내는" 판단을 하지 않는 이유:
+ *   네이버 페이지에는 어느 화면이든 **전체 메뉴(대분류 25개 + 각 중분류)** 가 통째로 깔려 있다.
+ *   그래서 링크를 그냥 모으면 어느 카테고리에 들어가든 200개가 넘는 같은 목록이 나온다(실측 —
+ *   "신발"에 들어갔는데 여성의류·가전·반려동물이 전부 나왔다). DOM 구조로 부모-자식을 추측하는
+ *   방법은 난독화 마크업 때문에 깨지기 쉬우므로, 판단은 **대분류 id 를 아는 Node 쪽**(categories.mjs)
+ *   에서 문서 순서를 잘라 한다. 여기는 재료만 정확히 넘긴다.
  *
  * 앵커는 href 의 `/ns/category/{숫자}` 하나뿐이다 — 난독화 클래스에 의존하지 않는다.
- * 현재 카테고리(aria-current)는 경로 표시에 쓰고 목록에서는 제외한다.
  */
 export const categoryLinksJs = `
 (() => {
-  const out = new Map();
-  const trail = [];
+  const links = [];
+  const seen = new Set();
   let currentId = null;
 
   for (const a of document.querySelectorAll('a[href*="/ns/category/"]')) {
@@ -288,22 +293,14 @@ export const categoryLinksJs = `
     const name = ((span && span.textContent) || a.textContent || '').replace(/\\s+/g, ' ').trim();
     if (!name || name.length > 30) continue;
 
-    // 사이드바는 [상위 … 현재] 순서로 쌓인다 — aria-current 를 만나기 전까지가 경로다.
-    if (a.getAttribute('aria-current') === 'true') { currentId = id; trail.push({ id, name }); continue; }
-    if (currentId === null) trail.push({ id, name });
-
-    if (!out.has(id)) out.set(id, { id, name });
+    if (a.getAttribute('aria-current') === 'true' && !currentId) currentId = id;
+    // 같은 카테고리가 메뉴와 사이드바에 두 번 나온다 — 문서 순서상 첫 번째만 남긴다.
+    if (seen.has(id)) continue;
+    seen.add(id);
+    links.push({ id, name });
   }
 
-  // 현재 카테고리 자신은 후보에서 뺀다.
-  if (currentId) out.delete(currentId);
-
-  return {
-    currentId,
-    // 경로는 현재를 만나기 전까지 쌓인 것 + 현재. 못 찾으면 빈 배열(웹이 알아서 표시).
-    trail: currentId ? trail : [],
-    children: [...out.values()],
-  };
+  return { currentId, links };
 })()
 `;
 

@@ -45,9 +45,15 @@ export interface NaverCategory { id: string; name: string }
 
 export interface CategoryPage {
   parentId: string | null;
-  /** 현재 위치까지의 경로(사이드바에서 읽은 것). 비어 있을 수 있다. */
+  /** @deprecated 경로는 웹이 클릭 경로로 안다 — 도우미는 항상 빈 배열을 준다. */
   trail: NaverCategory[];
   children: NaverCategory[];
+  /**
+   * 도우미가 **지금까지 발견한 트리 전체** { 부모id → 자식들 }.
+   * 대분류 한 곳만 열어도 네이버 메뉴에서 25개 대분류의 중분류가 통째로 복원되므로,
+   * 화면은 이걸 받아 클릭 없이 가지를 펼쳐 보여줄 수 있다(v0.2.92+).
+   */
+  map?: Record<string, NaverCategory[]>;
   cached: boolean;
 }
 

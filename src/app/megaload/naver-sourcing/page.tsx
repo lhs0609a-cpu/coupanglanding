@@ -8,10 +8,10 @@
  * 그래서 "도우미 미연결" 상태에서는 아무것도 할 수 없고, 그 사실을 첫 화면에 명확히 띄운다.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, Play, Square, MonitorDown, AlertTriangle, RefreshCw, Loader2, ExternalLink,
-  ChevronRight, Home, Download, X,
+  ChevronRight, ChevronDown, Download, X,
 } from 'lucide-react';
 import {
   findHelper, fetchStatus, setWindows, startPool, stopPool, testOne, showWindow,
@@ -26,8 +26,9 @@ import { triggerLocalUpdate } from '@/lib/megaload/allinone-local';
  * ⚠️ 기능을 추가할 때마다 **여기를 올려야 한다**. 안 올리면 구버전 도우미에서 그 엔드포인트만
  *   404 가 나고, 화면은 원문("not found")을 그대로 뱉어 사용자가 원인을 알 수 없다(실측).
  *   0.2.89 = /naver-ingest 기본 · 0.2.91 = 카테고리 탐색·목록 수집
+ *   0.2.92 = 카테고리 트리(하위 분류만 정확히 골라냄 + 발견한 트리 전체 반환)
  */
-const MIN_HELPER_VERSION = '0.2.91';
+const MIN_HELPER_VERSION = '0.2.92';
 
 /** "0.2.9" vs "0.2.10" 을 문자열 비교하면 틀린다 — 숫자 단위로 비교한다. */
 function isOlder(version: string, min: string): boolean {
@@ -63,17 +64,20 @@ export default function NaverSourcingPage() {
   const sinceRef = useRef(0);
   const logBoxRef = useRef<HTMLPreElement>(null);
 
-  // ── 카테고리 브라우저 ──
-  // 네이버는 전체 트리를 주는 API 가 없어 한 단계씩 들어가며 발견한다. 이미 본 단계는
-  // 도우미가 캐시하므로 되돌아갈 때는 네이버 요청이 없다.
-  const [path, setPath] = useState<NaverCategory[]>([]);       // 현재까지 내려온 경로
-  const [children, setChildren] = useState<NaverCategory[]>([]);
-  const [catLoading, setCatLoading] = useState(false);
+  // ── 카테고리 트리 ──
+  // 네이버는 전체 트리를 주는 API 가 없어 한 단계씩 들어가며 발견한다. 다만 대분류를 한 번만
+  // 열면 도우미가 25개 대분류의 중분류를 통째로 복원해 주므로(map), 그 뒤로는 클릭만으로 펼쳐진다.
+  // 이미 본 단계는 도우미가 캐시하므로 되돌아갈 때는 네이버 요청이 없다.
+  const [tree, setTree] = useState<Record<string, NaverCategory[]>>({});  // 부모id → 자식들 ('' = 대분류)
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [picked, setPicked] = useState<NaverCategory[]>([]);   // 선택한 카테고리의 경로
+  const [catQuery, setCatQuery] = useState('');
   const [target, setTarget] = useState(300);
   const [cards, setCards] = useState<ProductCard[]>([]);
   const [cardQuery, setCardQuery] = useState('');
 
-  const here = path.length ? path[path.length - 1] : null;
+  const here = picked.length ? picked[picked.length - 1] : null;
 
   // ── 도우미 발견 ──
   // /health 는 모든 버전에 있으므로 "찾았다"가 곧 "지원한다"는 아니다. 지원 여부는 아래
@@ -121,25 +125,88 @@ export default function NaverSourcingPage() {
     finally { setBusy(null); }
   };
 
-  // ── 카테고리 이동 ──
-  const openCategory = useCallback(async (cat: NaverCategory | null, trail: NaverCategory[]) => {
+  // ── 카테고리 트리 ──
+  // 한 노드를 펼칠 때만 그 노드의 자식을 읽는다(캐시에 있으면 네이버 요청 0).
+  // 응답의 map 에는 도우미가 지금까지 발견한 가지가 전부 들어 있어 그대로 트리에 합친다.
+  const loadChildren = useCallback(async (id: string | null, force = false) => {
     if (!ep) return;
-    setCatLoading(true); setErr(null);
+    setLoadingId(id ?? ''); setErr(null);
     try {
-      const page = await fetchCategories(ep, cat?.id ?? null);
-      setPath(trail);
-      setChildren(page.children);
+      const page = await fetchCategories(ep, id, force);
+      setTree((prev) => ({ ...prev, ...(page.map ?? {}), [id ?? '']: page.children }));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
-      setCatLoading(false);
+      setLoadingId(null);
     }
   }, [ep]);
 
+  const hasRoots = !!tree[''];
+
   // 도우미가 붙으면 대분류부터 보여준다(대분류는 상수라 네이버 요청 0).
   useEffect(() => {
-    if (ep && link === 'online' && !children.length && !path.length) openCategory(null, []);
-  }, [ep, link, children.length, path.length, openCategory]);
+    if (ep && link === 'online' && !hasRoots) loadChildren(null);
+  }, [ep, link, hasRoots, loadChildren]);
+
+  const toggleNode = useCallback((c: NaverCategory) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(c.id)) next.delete(c.id); else next.add(c.id);
+      return next;
+    });
+    if (!tree[c.id]) loadChildren(c.id);
+  }, [tree, loadChildren]);
+
+  // 이름을 누르면 "선택"이면서 동시에 펼친다 — 고르는 동작과 더 내려가는 동작이 같기 때문이다.
+  const pick = useCallback((trail: NaverCategory[]) => {
+    setPicked(trail);
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      for (const c of trail) next.add(c.id);
+      return next;
+    });
+    const leaf = trail[trail.length - 1];
+    if (leaf && !tree[leaf.id]) loadChildren(leaf.id);
+  }, [tree, loadChildren]);
+
+  // ── 이름으로 찾기 ──
+  // 트리가 깊어지면 눈으로 훑는 게 더 느리다. 이미 발견한 가지 안에서만 찾는다(네이버 요청 0).
+  const index = useMemo(() => {
+    const parent: Record<string, string> = {};
+    const name: Record<string, string> = {};
+    for (const [pid, kids] of Object.entries(tree)) {
+      for (const k of kids) { parent[k.id] = pid; name[k.id] = k.name; }
+    }
+    return { parent, name };
+  }, [tree]);
+
+  const pathOf = useCallback((id: string): NaverCategory[] => {
+    const out: NaverCategory[] = [];
+    const guard = new Set<string>();
+    let cur: string | undefined = id;
+    while (cur && index.name[cur] && !guard.has(cur)) {
+      guard.add(cur);
+      out.unshift({ id: cur, name: index.name[cur] });
+      cur = index.parent[cur] || undefined;
+    }
+    return out;
+  }, [index]);
+
+  const matches = useMemo(() => {
+    const q = catQuery.trim();
+    if (!q) return [];
+    const seen = new Set<string>();
+    const out: NaverCategory[][] = [];
+    for (const kids of Object.values(tree)) {
+      for (const k of kids) {
+        if (seen.has(k.id) || !k.name.includes(q)) continue;
+        seen.add(k.id);
+        out.push(pathOf(k.id));
+        if (out.length >= 50) return out;
+      }
+    }
+    return out;
+  }, [catQuery, tree, pathOf]);
 
   // 수집이 끝나면 결과를 가져온다.
   // ★ status 객체 자체를 의존성에 넣으면 2초 폴링마다 새 객체라 매번 결과를 다시 받는다.
@@ -283,56 +350,76 @@ export default function NaverSourcingPage() {
 
       {/* 2. 카테고리 선택 → 수집 */}
       <section className="rounded-xl border border-gray-200 bg-white p-5 mb-4">
-        <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center justify-between mb-1 gap-3">
           <h2 className="font-bold text-gray-900">카테고리 선택</h2>
-          {catLoading && <span className="text-xs text-gray-500 inline-flex items-center gap-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /> 네이버에서 하위 분류를 읽는 중…</span>}
+          <div className="flex items-center gap-3">
+            {loadingId !== null && (
+              <span className="text-xs text-gray-500 inline-flex items-center gap-1">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> 네이버에서 하위 분류를 읽는 중…
+              </span>
+            )}
+            <button
+              onClick={() => loadChildren(here?.id ?? null, true)}
+              disabled={loadingId !== null}
+              title="이 목록을 네이버에서 다시 읽습니다"
+              className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 disabled:opacity-40"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> 다시 읽기
+            </button>
+          </div>
         </div>
-        <p className="text-sm text-gray-500 leading-relaxed mb-4">
-          네이버는 전체 카테고리 목록을 주는 API가 없어 <b className="text-gray-700">한 단계씩 들어가며 발견</b>합니다.
-          한 번 본 단계는 저장돼서 되돌아갈 때는 네이버에 다시 묻지 않습니다.
+        <p className="text-sm text-gray-500 leading-relaxed mb-3">
+          <b className="text-gray-700">▸ 를 눌러 펼치고, 이름을 눌러 고릅니다.</b> 네이버는 전체 카테고리 목록을 주는 API가
+          없어 처음 펼칠 때만 해당 분류 페이지를 한 번 엽니다(대분류는 한 번만 열면 나머지 대분류의 중분류까지
+          함께 채워집니다). 한 번 읽은 가지는 저장돼서 다시 묻지 않습니다.
           소분류까지 내려갈수록 더 많이 모을 수 있습니다 — 네이버가 한 카테고리당 약 1,000개에서 막기 때문입니다.
         </p>
 
-        {/* 경로 */}
-        <div className="flex items-center gap-1 flex-wrap text-sm mb-3">
-          <button
-            onClick={() => openCategory(null, [])}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-gray-600 hover:bg-gray-100"
-          >
-            <Home className="w-3.5 h-3.5" /> 전체
-          </button>
-          {path.map((c, i) => (
-            <span key={c.id} className="inline-flex items-center gap-1">
-              <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
-              <button
-                onClick={() => openCategory(c, path.slice(0, i + 1))}
-                className={`px-2 py-1 rounded-md ${i === path.length - 1 ? 'font-bold text-gray-900' : 'text-gray-600 hover:bg-gray-100'}`}
-              >
-                {c.name}
-              </button>
-            </span>
-          ))}
-        </div>
+        <input
+          value={catQuery}
+          onChange={(e) => setCatQuery(e.target.value)}
+          placeholder="이름으로 찾기 (이미 펼쳐 본 분류 안에서)"
+          className="w-full mb-3 px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#E31837]/20"
+        />
 
-        {/* 하위 분류 */}
-        {children.length > 0 ? (
-          <div className="flex flex-wrap gap-2 mb-4">
-            {children.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => openCategory(c, [...path, c])}
-                disabled={catLoading}
-                className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-700 hover:border-[#E31837] hover:text-[#E31837] disabled:opacity-40"
-              >
-                {c.name}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-gray-400 mb-4">
-            {catLoading ? '' : here ? '하위 분류가 없습니다 — 여기서 바로 수집할 수 있습니다.' : '카테고리를 불러오는 중…'}
-          </p>
-        )}
+        <div className="rounded-lg border border-gray-100 max-h-[26rem] overflow-auto p-2 mb-4">
+          {catQuery.trim() ? (
+            matches.length ? (
+              <ul>
+                {matches.map((trail) => (
+                  <li key={trail[trail.length - 1].id}>
+                    <button
+                      onClick={() => { pick(trail); setCatQuery(''); }}
+                      className="w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-50 text-sm"
+                    >
+                      <span className="text-gray-900 font-medium">{trail[trail.length - 1].name}</span>
+                      {trail.length > 1 && (
+                        <span className="text-gray-400 ml-2 text-xs">{trail.slice(0, -1).map((c) => c.name).join(' > ')}</span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-gray-400 px-2 py-3">
+                펼쳐 본 분류 중에는 없습니다 — 트리에서 한 단계 더 펼치면 찾기 대상에 들어옵니다.
+              </p>
+            )
+          ) : tree[''] ? (
+            <CategoryTree
+              nodes={tree['']}
+              trail={[]}
+              tree={tree}
+              expanded={expanded}
+              loadingId={loadingId}
+              pickedId={here?.id ?? null}
+              onToggle={toggleNode}
+              onPick={pick}
+            />
+          ) : (
+            <p className="text-sm text-gray-400 px-2 py-3">카테고리를 불러오는 중…</p>
+          )}
+        </div>
 
         {/* 수집 실행 */}
         <div className="rounded-lg bg-gray-50 border border-gray-100 p-4">
@@ -340,7 +427,7 @@ export default function NaverSourcingPage() {
             <>
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-sm text-gray-700">
-                  선택: <b className="text-gray-900">{path.map((c) => c.name).join(' > ')}</b>
+                  선택: <b className="text-gray-900">{picked.map((c) => c.name).join(' > ')}</b>
                 </span>
                 <span className="text-sm text-gray-500">목표</span>
                 <select
@@ -351,7 +438,7 @@ export default function NaverSourcingPage() {
                   {[100, 300, 500, 1000].map((n) => <option key={n} value={n}>{n}개</option>)}
                 </select>
                 <button
-                  onClick={() => ep && run('collect', () => startCollect(ep, { catId: here.id, catName: path.map((c) => c.name).join(' > '), target }))}
+                  onClick={() => ep && run('collect', () => startCollect(ep, { catId: here.id, catName: picked.map((c) => c.name).join(' > '), target }))}
                   disabled={!!busy || collect?.running}
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium disabled:opacity-40 hover:bg-[#c41230]"
                 >
@@ -377,7 +464,7 @@ export default function NaverSourcingPage() {
               )}
             </>
           ) : (
-            <p className="text-sm text-gray-500">대분류를 눌러 원하는 카테고리까지 내려가세요.</p>
+            <p className="text-sm text-gray-500">위 트리에서 수집할 카테고리를 고르세요.</p>
           )}
         </div>
       </section>
@@ -532,6 +619,72 @@ function Header() {
         서버는 네이버에 차단되기 때문입니다.
       </p>
     </div>
+  );
+}
+
+/**
+ * 카테고리 트리 한 단계.
+ *
+ * 예전엔 현재 단계의 하위 분류만 칩으로 쏟아 냈는데, 어디까지 내려왔는지·형제가 뭐였는지가
+ * 화면에서 사라져 훑기가 어려웠다. 여기서는 펼친 가지를 그대로 남긴다.
+ * 자식을 아직 모르는 노드(tree[id] === undefined)는 ▸ 를 눌렀을 때 그때 읽는다.
+ */
+function CategoryTree({
+  nodes, trail, tree, expanded, loadingId, pickedId, onToggle, onPick,
+}: {
+  nodes: NaverCategory[];
+  trail: NaverCategory[];
+  tree: Record<string, NaverCategory[]>;
+  expanded: Set<string>;
+  loadingId: string | null;
+  pickedId: string | null;
+  onToggle: (c: NaverCategory) => void;
+  onPick: (trail: NaverCategory[]) => void;
+}) {
+  return (
+    <ul className={trail.length ? 'ml-3 pl-2 border-l border-gray-100' : ''}>
+      {nodes.map((c) => {
+        const kids = tree[c.id];
+        const open = expanded.has(c.id);
+        const leaf = kids?.length === 0;          // 읽어 봤더니 하위가 없었던 노드
+        const on = pickedId === c.id;
+        return (
+          <li key={c.id}>
+            <div className={`flex items-center rounded-md ${on ? 'bg-[#E31837]/5' : 'hover:bg-gray-50'}`}>
+              <button
+                onClick={() => onToggle(c)}
+                disabled={leaf}
+                aria-label={open ? '접기' : '펼치기'}
+                className="w-6 h-6 shrink-0 grid place-items-center text-gray-400 hover:text-gray-700 disabled:opacity-0"
+              >
+                {loadingId === c.id
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              </button>
+              <button
+                onClick={() => onPick([...trail, c])}
+                className={`flex-1 min-w-0 text-left py-1 pr-2 text-sm truncate ${on ? 'font-bold text-[#E31837]' : 'text-gray-700'}`}
+              >
+                {c.name}
+              </button>
+              {kids?.length ? <span className="shrink-0 pr-2 text-[11px] text-gray-400">{kids.length}</span> : null}
+            </div>
+            {open && kids?.length ? (
+              <CategoryTree
+                nodes={kids}
+                trail={[...trail, c]}
+                tree={tree}
+                expanded={expanded}
+                loadingId={loadingId}
+                pickedId={pickedId}
+                onToggle={onToggle}
+                onPick={onPick}
+              />
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
