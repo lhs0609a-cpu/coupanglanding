@@ -29,8 +29,9 @@ import { triggerLocalUpdate } from '@/lib/megaload/allinone-local';
  *   0.2.92 = 카테고리 트리(하위 분류만 정확히 골라냄 + 발견한 트리 전체 반환)
  *   0.2.93 = 카테고리 트리 미리 읽기(prewarm) — 클릭할 때 읽지 않는다
  *   0.2.94 = 카테고리 스냅샷 동봉(대분류·중분류는 설치 직후부터 요청 0으로 즉시)
+ *   0.2.95 = 늦게 그려지는 하위 분류 사이드바 대기 + 전체 일괄 수집(앱 재시작해도 이어함)
  */
-const MIN_HELPER_VERSION = '0.2.94';
+const MIN_HELPER_VERSION = '0.2.95';
 
 /** "0.2.9" vs "0.2.10" 을 문자열 비교하면 틀린다 — 숫자 단위로 비교한다. */
 function isOlder(version: string, min: string): boolean {
@@ -440,8 +441,8 @@ export default function NaverSourcingPage() {
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <p className="text-sm text-gray-800 inline-flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin text-[#E31837]" />
-                카테고리를 미리 읽는 중 — 읽은 페이지 <b>{prewarm.read.toLocaleString()}</b>장 · 남은{' '}
-                <b>{prewarm.pending.toLocaleString()}</b>개
+                {prewarm.depth >= 6 ? '전체 카테고리를 수집하는 중' : '카테고리를 미리 읽는 중'} — 읽은 페이지{' '}
+                <b>{prewarm.read.toLocaleString()}</b>장 · 남은 <b>{prewarm.pending.toLocaleString()}</b>개
                 {prewarm.current ? <span className="text-gray-500">· {prewarm.current}</span> : null}
               </p>
               <button
@@ -459,37 +460,52 @@ export default function NaverSourcingPage() {
             </div>
             <p className="text-xs text-gray-500 leading-relaxed">
               네이버 차단을 피하려고 요청 간 3~7초를 지킵니다(품절 모니터와 예산을 나눠 씁니다) —
-              남은 시간 약 <b>{Math.max(1, Math.round((prewarm.pending * 5.5) / 60))}분</b>.
-              이 화면을 닫아도 도우미가 계속 읽고, 지금까지 읽은 가지는 이미 저장돼 있습니다.
+              남은 시간 약 <b>{Math.max(1, Math.round((prewarm.pending * 5.5) / 60))}분</b>
+              {prewarm.depth >= 6 ? ' (내려가면서 더 늘어납니다)' : ''}.
+              이 화면을 닫아도, <b>앱을 껐다 켜도</b> 이어서 읽습니다. 지금까지 읽은 가지는 이미 저장돼 있습니다.
             </p>
           </div>
-        ) : prewarm.completedAt ? (
-          <p className="text-xs text-gray-500 mb-3">
-            카테고리 <b className="text-gray-700">{prewarm.nodes.toLocaleString()}개</b>를 미리 읽어 뒀습니다 — 펼치기는 즉시 됩니다.
-            {prewarm.failed > 0 ? ` (읽지 못한 ${prewarm.failed}건은 펼칠 때 다시 시도합니다)` : ''}
-            <button
-              onClick={() => {
-                // 세분류는 페이지 수천 장이라 몇 시간짜리다 — 누른 사람이 그걸 알고 눌러야 한다.
-                if (!ep || !window.confirm('세분류까지 읽으면 페이지 수천 장이라 몇 시간 걸리고, 그동안 네이버 요청 예산을 품절 모니터와 나눠 씁니다. 시작할까요?')) return;
-                startPrewarm(ep, 4).catch(() => {});
-              }}
-              className="ml-2 text-gray-500 underline hover:text-gray-800"
-            >
-              세분류까지 더 읽기
-            </button>
-          </p>
         ) : (
-          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
-            <p className="text-sm text-amber-900">
-              소분류는 아직 미리 읽지 않았습니다{prewarm.stopped ? ` — ${prewarm.stopped}` : ''}.
-              한 번 읽어 두면 그다음부터는 기다림 없이 펼쳐집니다(20~40분, 도중에 멈춰도 읽은 데까지 남습니다).
-            </p>
-            <button
-              onClick={() => ep && startPrewarm(ep, 3).catch(() => {})}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230]"
-            >
-              <Download className="w-4 h-4" /> 소분류까지 미리 읽기
-            </button>
+          <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <p className="text-sm text-gray-800">
+                {prewarm.completedAt ? (
+                  <>
+                    카테고리 <b>{prewarm.nodes.toLocaleString()}개</b>를 읽어 뒀습니다 — 펼치기는 즉시 됩니다.
+                    {prewarm.failed > 0 ? ` (읽지 못한 ${prewarm.failed}건은 펼칠 때 다시 시도합니다)` : ''}
+                  </>
+                ) : (
+                  <>
+                    대분류·중분류는 앱에 들어 있어 바로 뜹니다. <b>그 아래 전부</b>를 한 번에 읽어 두면 다시는 기다리지 않습니다.
+                    {prewarm.stopped ? ` (지난 실행: ${prewarm.stopped})` : ''}
+                  </>
+                )}
+              </p>
+              <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                요청 간 3~7초를 지켜야 해서 소분류까지 20~40분, 끝까지는 몇 시간입니다.
+                한 번 눌러 두면 <b>앱을 껐다 켜도 알아서 이어서</b> 하고, 언제든 멈출 수 있습니다.
+              </p>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <button
+                onClick={() => {
+                  // 끝까지 = 페이지 수천 장, 몇 시간짜리다 — 누른 사람이 그걸 알고 눌러야 한다.
+                  if (!ep || !window.confirm('말단 분류까지 전부 수집합니다. 페이지 수천 장이라 몇 시간 걸리고, 그동안 네이버 요청 예산을 품절 모니터와 나눠 씁니다.\n\n앱을 껐다 켜도 이어서 하고, 언제든 정지할 수 있습니다. 시작할까요?')) return;
+                  startPrewarm(ep, 8).catch(() => {});
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230]"
+              >
+                <Download className="w-4 h-4" /> 전체 카테고리 한 번에 수집
+              </button>
+              {!prewarm.completedAt && (
+                <button
+                  onClick={() => ep && startPrewarm(ep, 3).catch(() => {})}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-700 hover:bg-gray-100"
+                >
+                  소분류까지만
+                </button>
+              )}
+            </div>
           </div>
         ))}
 

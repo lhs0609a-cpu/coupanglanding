@@ -49,6 +49,7 @@ export function initService({ store, send, userDataDir, getAccount }) {
     pushLog(`이전 실행에서 걸린 네이버 쿨다운이 ${Math.ceil(st.cooldownMsLeft / 1000)}초 남아 있습니다 — 그만큼 쉬고 시작합니다`);
   }
   naverGate.onChange(() => { if (pool) pushStatus(); });
+  scheduleResume();
 }
 
 export function isAdmin() {
@@ -193,9 +194,12 @@ export async function startPrewarm({ depth = 3 } = {}) {
   const p = ensurePool();
   if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
 
+  // "하다 만 상태"를 남기지 않으려고 의도를 디스크에 적어 둔다 — 앱을 껐다 켜도 알아서 이어서 한다.
+  deps.store?.set('naverIngestCatPrewarmWant', { depth, at: Date.now() });
+
   prewarmAbort = new AbortController();
   prewarm = { running: true, read: 0, failed: 0, level: 1, pending: 0, current: '', stopped: null, at: Date.now(), depth };
-  pushLog(`카테고리 미리 읽기 시작 — ${depth >= 4 ? '세분류' : '소분류'}까지. 요청 간격(3~7초) 때문에 시간이 걸립니다.`);
+  pushLog(`카테고리 미리 읽기 시작 — ${depth >= 6 ? '끝까지(전체)' : depth >= 4 ? '세분류까지' : '소분류까지'}. 요청 간격(3~7초) 때문에 시간이 걸립니다.`);
 
   prewarmTree(p, {
     maxDepth: depth,
@@ -204,6 +208,8 @@ export async function startPrewarm({ depth = 3 } = {}) {
     onProgress: (pr) => { prewarm = { ...prewarm, ...pr }; },
   }).then((r) => {
     prewarm = { ...prewarm, running: false, stopped: r.stopped, read: r.read, failed: r.failed };
+    // 끝까지 갔을 때만 의도를 지운다 — 중단이면 다음 실행에서 이어서 해야 하기 때문이다.
+    if (!r.stopped) deps.store?.set('naverIngestCatPrewarmWant', null);
     pushLog(r.stopped
       ? `카테고리 미리 읽기 중단 — ${r.stopped} (읽은 페이지 ${r.read}장)`
       : `✅ 카테고리 미리 읽기 완료 — 페이지 ${r.read}장, 건너뜀 ${r.failed}건`);
@@ -227,8 +233,30 @@ export function exportCategories() {
 export function stopPrewarm() {
   requireAdmin();
   prewarmAbort?.abort();
+  // 사람이 멈춘 것이므로 자동 이어하기도 끈다(다시 시작은 버튼으로).
+  deps.store?.set('naverIngestCatPrewarmWant', null);
   pushLog('카테고리 미리 읽기를 중단합니다 — 지금까지 읽은 것은 저장돼 있습니다.');
   return true;
+}
+
+/**
+ * 하다 만 미리 읽기를 앱 재시작 뒤에 스스로 이어서 한다.
+ * "한 번 눌러 두면 알아서 끝난다" 가 되려면 앱 종료가 진행을 없던 일로 만들면 안 된다.
+ * 관리자 계정이 붙기 전에는 시작할 수 없으므로, 붙을 때까지 조용히 기다렸다 시작한다.
+ */
+function scheduleResume() {
+  const want = deps.store?.get('naverIngestCatPrewarmWant', null);
+  if (!want?.depth) return;
+  let tries = 0;
+  const timer = setInterval(() => {
+    if (++tries > 20) return clearInterval(timer);          // 10분 안에 로그인 안 되면 포기
+    if (prewarm.running) return clearInterval(timer);
+    if (!isAdmin()) return;
+    clearInterval(timer);
+    pushLog('지난번에 하다 만 카테고리 미리 읽기를 이어서 합니다.');
+    startPrewarm({ depth: want.depth }).catch((e) => pushLog(`이어하기 실패 — ${e?.message || e}`));
+  }, 30_000);
+  timer.unref?.();
 }
 
 /**

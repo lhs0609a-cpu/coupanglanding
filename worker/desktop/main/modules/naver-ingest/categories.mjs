@@ -79,7 +79,8 @@ const MAX_CHILDREN = 80;
  * 캐시 스키마 버전. v1 은 전체 메뉴가 통째로 섞여 들어간 쓰레기라 그대로 두면 영원히 보인다 —
  * 버전이 다르면 조용히 버린다.
  */
-const CACHE_VERSION = 2;
+// v3: 사이드바를 기다리지 않고 읽어 "자식 0개(말단)" 로 잘못 저장된 항목들을 버린다.
+const CACHE_VERSION = 3;
 
 /** 발견 결과 캐시: { [catId]: { children:[{id,name}], at } } */
 let cache = {};
@@ -189,12 +190,17 @@ export async function listChildren(pool, parentId, { force = false, onLog = () =
       throw new Error(`네이버가 차단했습니다 — ${Math.round(ms / 1000)}초 뒤 다시 시도하세요.`);
     }
 
-    // 사이드바는 늦게 그려진다. 링크가 잡힐 때까지 몇 번 다시 읽는다.
+    // ⚠️ "링크가 하나라도 잡히면 됐다" 로 기다리면 **항상 첫 시도에 끝난다** — 전역 메뉴는
+    //   페이지가 뜨자마자 있기 때문이다. 정작 필요한 하위 분류 사이드바는 그보다 늦게 그려져서,
+    //   기다림 없이 읽고 "자식 0개(=말단)" 로 저장해 버렸다(실측: 중분류 2건 모두 0개로 캐시됨).
+    //   그래서 **처음 보는 id 가 나타날 때까지** 기다린다. 그게 사이드바가 그려진 시점이다.
     let found = { links: [], currentId: null };
-    for (let i = 0; i < 4; i++) {
-      found = await sw.evaluate(categoryLinksJs);
-      if (found?.links?.length) break;
-      await new Promise((r) => setTimeout(r, 800));
+    for (let i = 0; i < 8; i++) {
+      const seen = await sw.evaluate(categoryLinksJs);
+      if (seen?.links?.length) found = seen;
+      const fresh = (found.links || []).filter((l) => l.id !== parentId && !before.has(l.id));
+      if (fresh.length) break;
+      await new Promise((r) => setTimeout(r, 700));
     }
     naverGate.recordSuccess();
     return found;
@@ -291,6 +297,7 @@ async function runPooled(items, concurrency, worker) {
  * 트리 전체를 미리 읽어 캐시에 채운다.
  *   maxDepth 3 = 대>중>소 (중분류 페이지를 전부 연다)
  *   maxDepth 4 = 세분류까지 (수천 페이지 — 몇 시간)
+ *   maxDepth 8 = 사실상 "끝까지" — 더 내려갈 곳이 없으면 알아서 멈춘다
  * 이미 캐시에 있는 가지는 건너뛰므로 중단 후 다시 시작하면 이어서 한다.
  */
 export async function prewarmTree(pool, { maxDepth = 3, onLog = () => {}, onProgress = () => {}, signal } = {}) {
