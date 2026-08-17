@@ -12,7 +12,8 @@
  */
 import naverGate from '../../naver-gate.mjs';
 import { collectCardsJs, scrollStepJs, install418WatcherJs, read418Js, reset418Js } from './inject.mjs';
-import { categoryUrl } from './categories.mjs';
+import { categoryUrl, listUrl } from './categories.mjs';
+import { loginState } from './browser.mjs';
 
 const sleep = (ms) => new Promise((r) => { const t = setTimeout(r, ms); if (t?.unref) t.unref(); });
 const rand = (min, max) => min + Math.random() * (max - min);
@@ -38,16 +39,40 @@ export async function collectCategory(pool, catId, opts = {}) {
   const items = new Map();   // productNo → card
   let stopped = 'done';
 
+  // 로그인 없이 목록 페이지에 가면 100% 로그인 화면으로 튄다 — 창을 여는 것 자체가 낭비다.
+  const login = await loginState();
+  if (!login.loggedIn) {
+    onLog('네이버 로그인이 필요합니다 — 목록 페이지(search.shopping.naver.com)는 로그인 없이 열리지 않습니다. "네이버 로그인" 을 눌러 도우미 창에서 한 번 로그인하세요.');
+    return { items: [], stopped: '네이버 로그인 필요' };
+  }
+
   await naverGate.acquire('ingest', { signal });
 
   await pool.withWindow('list', async (sw) => {
     sw.status = 'working';
     sw.detail = `카테고리 ${catId}`;
 
-    const nav = await sw.gotoViaClick(categoryUrl(catId), { timeoutMs: 20000 });
+    // 메뉴 페이지 → 그 안의 진짜 목록 링크 클릭. 목록 주소로 곧장 가는 것보다 경로가 자연스럽고,
+    // 메뉴에 링크가 없으면(개편 등) 그때만 목록 주소로 직접 클릭 이동한다.
+    let nav = await sw.gotoViaClick(categoryUrl(catId), { timeoutMs: 20000 });
     if (!nav.ok) { stopped = `페이지 열기 실패 (${nav.error || 'unknown'})`; return; }
 
+    const viaMenu = await sw.gotoViaPageLink(`search.shopping.naver.com/ns/category/${catId}`, { timeoutMs: 20000 });
+    if (viaMenu.notFound) {
+      onLog('메뉴에서 목록 링크를 못 찾아 목록 주소로 바로 갑니다.');
+      nav = await sw.gotoViaClick(listUrl(catId), { timeoutMs: 20000 });
+    } else {
+      nav = viaMenu;
+    }
+    if (!nav.ok) { stopped = `목록 페이지 열기 실패 (${nav.error || 'unknown'})`; return; }
+
     const det = await sw.detect();
+    if (det.loginRequired) {
+      stopped = '네이버 로그인 필요';
+      onLog('로그인 화면으로 넘어갔습니다 — 세션이 만료됐습니다. "네이버 로그인" 을 다시 눌러주세요.');
+      sw.show();
+      return;
+    }
     if (det.captcha) { stopped = '캡차 — 도우미 창에서 풀어주세요'; sw.show(); return; }
     if (det.blocked) {
       const ms = naverGate.triggerCooldown(det.is429);

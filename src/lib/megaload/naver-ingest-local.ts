@@ -121,6 +121,11 @@ export interface IngestStatus {
   gate: GateState;
   collect?: CollectState;
   prewarm?: PrewarmState;
+  /**
+   * 네이버 로그인 상태 — 상품 목록 페이지(search.shopping.naver.com)는 로그인 없이 열리지 않는다.
+   * 로그인 전에는 무엇을 눌러도 0건이므로 화면 맨 앞에서 이걸 먼저 보여준다.
+   */
+  naverLogin?: { loggedIn: boolean; checkedAt: number; waiting: boolean };
   logs?: IngestLog[];
 }
 
@@ -215,6 +220,20 @@ export async function testOne(ep: LocalEndpoint, url: string): Promise<void> {
 /** 캡차가 뜬 창을 화면에 띄운다(사람이 직접 풀도록). */
 export async function showWindow(ep: LocalEndpoint, index: number): Promise<void> {
   await post(ep, 'show', { index });
+}
+
+/**
+ * 네이버 로그인 창 띄우기 — 도우미가 창을 띄우고 **사람이 직접** 로그인한다.
+ * 계정 정보는 이 화면에도, 서버에도 오지 않는다(창 안에서 네이버로 바로 간다).
+ * 완료 여부는 status.naverLogin.loggedIn 폴링으로 본다.
+ */
+export async function naverLogin(ep: LocalEndpoint): Promise<void> {
+  await post(ep, 'login', {});
+}
+
+/** 로그인 세션 삭제 — 다른 네이버 계정으로 바꿀 때. */
+export async function naverLogout(ep: LocalEndpoint): Promise<void> {
+  await post(ep, 'logout', {});
 }
 
 /**

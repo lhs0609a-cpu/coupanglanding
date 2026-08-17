@@ -208,6 +208,14 @@ export async function startPairServer({
           const { index } = await readJson();
           return json(200, { ok: naverIngest.showWindow(Number(index) || 0) });
         }
+        // 네이버 로그인 — 목록 페이지의 전제 조건. 창을 띄우고 사람이 직접 로그인한다.
+        // (계정 정보는 우리 쪽으로 오지 않는다 — 창 안에서 네이버로 바로 간다)
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/login') {
+          return json(200, await naverIngest.openNaverLogin());
+        }
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/logout') {
+          return json(200, await naverIngest.naverLogout());
+        }
 
         // ── 카테고리 선택 수집 ──────────────────────────────────────────
         // 대분류는 상수라 즉답, 하위는 캐시에 없으면 그 카테고리 페이지를 한 번 열어 발견한다.

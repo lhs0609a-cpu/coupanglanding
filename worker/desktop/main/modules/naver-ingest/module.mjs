@@ -42,6 +42,8 @@ export default {
     'naver-ingest:categories-prewarm-stop': () => svc.stopPrewarm(),
     'naver-ingest:categories-export': () => svc.exportCategories(),
     'naver-ingest:probe': (_ctx, { catId } = {}) => svc.probePage(catId),
+    'naver-ingest:login': () => svc.openNaverLogin(),
+    'naver-ingest:logout': () => svc.naverLogout(),
     'naver-ingest:collect': (_ctx, payload = {}) => svc.startCollect(payload),
     'naver-ingest:collect-stop': () => svc.stopCollect(),
     'naver-ingest:collection': () => svc.getCollection(),

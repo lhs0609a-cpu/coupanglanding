@@ -16,7 +16,8 @@ import naverGate from '../../naver-gate.mjs';
 import { WindowPool, WINDOW_MIN, WINDOW_MAX, WINDOW_DEFAULT } from './window-pool.mjs';
 import { runOne } from './runner.mjs';
 import { probePageJs, collectCardsJs, scrollStepJs } from './inject.mjs';
-import { categoryUrl } from './categories.mjs';
+import { loginState, clearLogin, setMediaAllowed } from './browser.mjs';
+import { categoryUrl, listUrl } from './categories.mjs';
 import {
   initCategories, listChildren, clearCategoryCache, knownMap, prewarmTree, prewarmInfo, exportTree,
   ROOT_CATEGORIES,
@@ -74,11 +75,31 @@ function ensurePool() {
   return pool;
 }
 
+/**
+ * 네이버 로그인 상태 — 목록 페이지의 전제 조건이라 화면 맨 앞에 보여야 한다.
+ * status 는 1초 폴링이므로 쿠키를 매번 읽지 않고 캐시를 쓰고, 오래됐으면 **기다리지 않고**
+ * 뒤에서 갱신한다(폴링이 쿠키 I/O 때문에 느려지면 안 된다).
+ */
+let loginCache = { loggedIn: false, at: 0 };
+let loginTask = null;
+
+function refreshLoginSoon() {
+  if (Date.now() - loginCache.at < 10_000) return;
+  loginCache = { ...loginCache, at: Date.now() };
+  loginState().then((st) => {
+    const changed = st.loggedIn !== loginCache.loggedIn;
+    loginCache = { loggedIn: !!st.loggedIn, at: Date.now() };
+    if (changed) pushStatus();
+  }).catch(() => {});
+}
+
 export function getStatus() {
+  refreshLoginSoon();
   const base = {
     isAdmin: isAdmin(),
     account: deps.getAccount(),
     limits: { min: WINDOW_MIN, max: WINDOW_MAX, default: WINDOW_DEFAULT },
+    naverLogin: { loggedIn: loginCache.loggedIn, checkedAt: loginCache.at, waiting: !!loginTask },
   };
   // 수집 진행 요약 — 결과 배열(수백 건)은 빼고 카운트만 실어 폴링을 가볍게 유지한다.
   base.collect = {
@@ -246,8 +267,14 @@ export async function probePage(catId) {
   pushLog(`페이지 진단 시작 — 카테고리 ${catId}`);
   await naverGate.acquire('ingest');
 
+  const login = await loginState();
   const report = await p.withWindow('list', async (sw) => {
-    const nav = await sw.gotoViaClick(categoryUrl(catId), { timeoutMs: 20000 });
+    // 메뉴 페이지는 상품이 없다 — 진단도 수집과 **같은 경로**(메뉴 → 목록)를 타야 의미가 있다.
+    await sw.gotoViaClick(categoryUrl(catId), { timeoutMs: 20000 });
+    const viaMenu = await sw.gotoViaPageLink(`search.shopping.naver.com/ns/category/${catId}`, { timeoutMs: 20000 });
+    const nav = viaMenu.notFound
+      ? await sw.gotoViaClick(listUrl(catId), { timeoutMs: 20000 })
+      : viaMenu;
     const det = await sw.detect().catch(() => null);
 
     const first = await sw.evaluate(probePageJs).catch((e) => ({ error: String(e?.message || e) }));
@@ -263,6 +290,7 @@ export async function probePage(catId) {
     return {
       at: new Date().toISOString(),
       catId,
+      naverLogin: login,
       nav,
       detect: det,
       cardCount: Array.isArray(cards) ? cards.length : null,
@@ -284,6 +312,9 @@ export async function probePage(catId) {
     pushLog(`진단 파일 저장 실패(결과는 응답에 있습니다) — ${e?.message || e}`);
   }
 
+  if (report?.detect?.loginRequired || !login.loggedIn) {
+    pushLog('진단 결과 — 네이버 로그인이 없어 목록 페이지가 로그인 화면으로 넘어갑니다. "네이버 로그인" 을 먼저 하세요.');
+  }
   const c = report?.afterScroll?.counts;
   if (c) {
     pushLog(`진단 요약 — 링크 ${c.anchors}개 · /products/ ${c.hrefProductsPlural}개 · /product/ ${c.hrefProductSingular}개 · 이미지 ${c.imgs}개 · 카드 ${report.cardCount}개`);
@@ -370,6 +401,68 @@ export function stopCollect() {
 /** 수집 결과 — 큰 배열이라 status 와 분리해서 필요할 때만 가져간다. */
 export function getCollection() {
   return collection;
+}
+
+/**
+ * 네이버 로그인 창 — **사람이 직접 로그인한다**. 우리는 계정 정보를 받지도, 저장하지도 않는다.
+ *
+ * 왜 필요한가: 상품 목록(search.shopping.naver.com)은 로그인 세션이 없으면 nid 로그인 화면으로
+ * 리다이렉트된다(실측). 확장프로그램 방식이 됐던 이유가 "이미 로그인된 크롬 안에서 돌아서" 였다.
+ * 여기서 한 번 로그인해 두면 쿠키가 수집 전용 파티션(persist:naveringest)에 남아 이후는 무인이다.
+ *
+ * 로그인 화면은 사람이 봐야 하므로 이미지 차단을 잠시 푼다(보안문자가 안 보이면 진행 불가).
+ */
+export async function openNaverLogin() {
+  requireAdmin();
+  if (loginTask) return { ok: true, already: true };
+
+  const p = ensurePool();
+  if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
+
+  setMediaAllowed(true);
+  pushLog('네이버 로그인 창을 엽니다 — 창에서 직접 로그인하세요. 한 번만 하면 이후 수집은 무인으로 진행됩니다.');
+
+  loginTask = p.withWindow('list', async (sw) => {
+    sw.status = 'login';
+    sw.detail = '네이버 로그인 대기';
+    await sw.gotoViaClick('https://nid.naver.com/nidlogin.login', { skipReady: true, timeoutMs: 20000 });
+    sw.show();
+    pushStatus();
+
+    // 최대 15분 대기. 창을 열어 둔 채 무한정 잡고 있으면 수집 창이 영영 안 돌아온다.
+    for (let i = 0; i < 180; i++) {
+      await new Promise((r) => { const t = setTimeout(r, 5000); t.unref?.(); });
+      const st = await loginState();
+      if (st.loggedIn) {
+        loginCache = { loggedIn: true, at: Date.now() };
+        pushLog('✅ 네이버 로그인 완료 — 이제 목록 수집이 됩니다.');
+        sw.hide();
+        sw.status = 'idle';
+        sw.detail = '';
+        return { ok: true, loggedIn: true };
+      }
+    }
+    pushLog('로그인 대기를 종료합니다(15분) — 필요하면 다시 눌러주세요.');
+    sw.hide();
+    sw.status = 'idle';
+    return { ok: false, loggedIn: false };
+  }).finally(() => {
+    setMediaAllowed(false);
+    loginTask = null;
+    pushStatus();
+  });
+
+  return { ok: true, started: true };
+}
+
+/** 로그인 세션 삭제 — 다른 네이버 계정으로 바꿀 때. */
+export async function naverLogout() {
+  requireAdmin();
+  await clearLogin();
+  loginCache = { loggedIn: false, at: Date.now() };
+  pushLog('네이버 로그인 세션을 지웠습니다.');
+  pushStatus();
+  return { ok: true };
 }
 
 export function showWindow(index) {

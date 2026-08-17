@@ -10,7 +10,9 @@
  *   ④ 창은 이미지/미디어/폰트를 로드하지 않는다. 우리는 이미지 **URL 만** 뽑고 실제 다운로드는
  *      별도 HTTP 로 하므로 손해가 없다. 창 3개를 띄워도 메모리가 감당된다.
  */
-import { navigateViaClickJs, spaReadyJs, detectJs, humanizeJs } from './inject.mjs';
+import {
+  navigateViaClickJs, spaReadyJs, detectJs, humanizeJs, hasPageLinkJs, clickPageLinkJs,
+} from './inject.mjs';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
@@ -24,6 +26,13 @@ const sleep = (ms) => new Promise((r) => { const t = setTimeout(r, ms); if (t?.u
 const rand = (min, max) => min + Math.random() * (max - min);
 
 let _blockerInstalled = false;
+/**
+ * 이미지 차단을 잠시 푸는 스위치.
+ * 수집 중에는 이미지를 안 받는 게 이득이지만, **사람이 직접 봐야 하는 화면**(로그인·캡차)에서는
+ * 로고·보안문자 이미지가 안 보이면 아예 진행이 불가능하다. 그때만 잠깐 연다.
+ */
+let _mediaAllowed = false;
+export function setMediaAllowed(on) { _mediaAllowed = !!on; }
 
 /** 파티션에 리소스 차단을 1회 설치. ★ 전용 파티션에만 걸어야 앱 UI 아이콘이 안 깨진다. */
 async function installBlocker() {
@@ -32,10 +41,40 @@ async function installBlocker() {
   try {
     session.fromPartition(SCRAPE_PARTITION).webRequest.onBeforeRequest(
       { urls: ['*://*/*'] },
-      (details, cb) => cb({ cancel: ['image', 'media', 'font'].includes(details.resourceType) }),
+      (details, cb) => cb({
+        cancel: !_mediaAllowed && ['image', 'media', 'font'].includes(details.resourceType),
+      }),
     );
     _blockerInstalled = true;
   } catch { /* best-effort — 차단 실패해도 수집 자체는 된다(느려질 뿐) */ }
+}
+
+/**
+ * 네이버 로그인 여부 — **쿠키로 판정한다**.
+ * 화면(로그아웃 버튼 유무)으로 보면 페이지 종류마다 마크업이 달라 오판하고, 판정하려고 페이지를
+ * 한 장 여는 것 자체가 네이버 예산이다. 쿠키는 요청 0회에 확실하다.
+ */
+export async function loginState() {
+  try {
+    const { session } = await import('electron');
+    const cookies = await session.fromPartition(SCRAPE_PARTITION).cookies.get({ domain: '.naver.com' });
+    const has = (name) => cookies.some((c) => c.name === name && c.value);
+    return { loggedIn: has('NID_AUT') && has('NID_SES') };
+  } catch (e) {
+    return { loggedIn: false, error: String(e?.message || e) };
+  }
+}
+
+/** 로그아웃(쿠키 삭제) — 계정을 바꿀 때. */
+export async function clearLogin() {
+  const { session } = await import('electron');
+  const ses = session.fromPartition(SCRAPE_PARTITION);
+  const cookies = await ses.cookies.get({ domain: '.naver.com' });
+  for (const c of cookies) {
+    const url = `https://${c.domain.replace(/^\./, '')}${c.path}`;
+    await ses.cookies.remove(url, c.name).catch(() => {});
+  }
+  return true;
 }
 
 export class ScrapeWindow {
@@ -179,6 +218,25 @@ export class ScrapeWindow {
     if (!skipReady && r.ok) await this.waitSpaReady(url.includes('/main/products/'));
     this.status = 'idle';
     return r;
+  }
+
+  /**
+   * 지금 열린 페이지 안의 **진짜 링크**를 눌러 이동한다.
+   * 링크가 없으면 이동을 시도하지 않고 즉시 알린다 — 없는 링크를 기다리다 20초를 버리지 않도록
+   * 존재 확인을 먼저 하고, 그 다음에 네비게이션 감시를 건다(순서가 바뀌면 클릭을 놓친다).
+   */
+  async gotoViaPageLink(hrefIncludes, { timeoutMs = 20000, skipReady = false } = {}) {
+    const has = await this.evaluate(hasPageLinkJs(hrefIncludes)).catch(() => ({ found: false }));
+    if (!has?.found) return { ok: false, notFound: true, error: 'link-not-found' };
+
+    this.status = 'navigating';
+    this.detail = has.href || hrefIncludes;
+    const nav = this._waitForNavigation(timeoutMs);
+    this.evaluate(clickPageLinkJs(hrefIncludes), true).catch(() => { /* 컨텍스트 파괴는 정상 */ });
+    const r = await nav;
+    if (!skipReady && r.ok) await this.waitSpaReady();
+    this.status = 'idle';
+    return { ...r, href: has.href };
   }
 
   async _awaitMainRedirect() {

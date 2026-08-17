@@ -61,6 +61,58 @@ export const navigateViaClickJs = (url) => `
 `;
 
 /**
+ * 페이지에 **이미 있는 진짜 링크**를 눌러 이동한다.
+ *
+ * 우리가 만든 가짜 <a> 클릭(navigateViaClickJs)은 진입점이 없을 때의 차선책이다. 페이지 안에
+ * 목적지 링크가 실제로 있으면 그걸 누르는 편이 항상 낫다 — referrer·SPA 라우팅·추적 파라미터가
+ * 사람이 누른 것과 완전히 같아진다. 목록 페이지처럼 "메뉴 → 목록" 경로가 정해져 있는 곳에서 쓴다.
+ */
+export const hasPageLinkJs = (sub) => `
+(() => {
+  const sub = ${JSON.stringify(sub)};
+  const a = [...document.querySelectorAll('a[href]')].find(x => (x.href || '').includes(sub));
+  return a ? { found: true, href: a.href } : { found: false };
+})()
+`;
+
+export const clickPageLinkJs = (sub) => `
+(async () => {
+  const sub = ${JSON.stringify(sub)};
+  const link = [...document.querySelectorAll('a[href]')].find(x => (x.href || '').includes(sub));
+  if (!link) return { found: false };
+
+  link.scrollIntoView({ block: 'center' });
+  await new Promise(r => setTimeout(r, 200 + Math.random() * 300));
+
+  const rect = link.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const base = {
+    bubbles: true, cancelable: true, view: window,
+    clientX: cx, clientY: cy,
+    screenX: window.screenX + cx, screenY: window.screenY + cy,
+    button: 0, buttons: 1,
+  };
+  const wait = (min, max) => new Promise(r => setTimeout(r, min + Math.random() * (max - min)));
+
+  link.dispatchEvent(new PointerEvent('pointerover', { ...base, pointerId: 1 }));
+  link.dispatchEvent(new MouseEvent('mouseover', base));
+  await wait(40, 120);
+  link.dispatchEvent(new PointerEvent('pointermove', { ...base, pointerId: 1 }));
+  link.dispatchEvent(new MouseEvent('mousemove', base));
+  await wait(60, 160);
+  link.dispatchEvent(new PointerEvent('pointerdown', { ...base, pointerId: 1 }));
+  link.dispatchEvent(new MouseEvent('mousedown', base));
+  await wait(50, 120);
+  link.dispatchEvent(new PointerEvent('pointerup', { ...base, pointerId: 1, buttons: 0 }));
+  link.dispatchEvent(new MouseEvent('mouseup', { ...base, buttons: 0 }));
+  await wait(5, 20);
+  link.click();   // SPA 라우터는 합성 click 보다 네이티브 click 을 확실히 받는다
+  return { found: true, href: link.href };
+})()
+`;
+
+/**
  * SPA 렌더링 완료 판정.
  * 네이버 상품 페이지는 SPA 라 did-finish-load(=status complete)가 데이터 표시를 보장하지 않는다.
  * 이 판정을 건너뛰면 상품명이 통째로 'Unknown' 인 결과가 저장된다.
@@ -91,9 +143,14 @@ export const spaReadyJs = `
 export const detectJs = `
 (() => {
   const url = location.href;
+  const host = location.host;
   const text = (document.body && document.body.innerText || '');
   const html = (document.body && document.body.innerHTML || '');
   const title = document.title || '';
+
+  // 로그인 요구 — 목록 페이지(search.shopping.naver.com)는 로그인 세션이 없으면 여기로 튄다(실측).
+  // ★ 차단도 캡차도 아니다. 셋을 섞으면 "쿨다운" 으로 오진해서 아무리 기다려도 안 풀린다.
+  const loginRequired = host === 'nid.naver.com' || /\\/nidlogin/.test(location.pathname);
 
   const CAPTCHA_URLS = ['/captcha', 'captcha.naver.com', '/antibot', 'nid.naver.com/nidlogin',
     '/verification', 'auth.naver.com', '/bot-check', '/security-check'];
@@ -109,17 +166,23 @@ export const detectJs = `
   const SAFE_PAGES = ['shopping.naver.com', 'search.shopping.naver.com', 'news.naver.com',
     'naver.com/ns/home', 'naver.com/ns/category'];
 
+  // ★ 판정에는 주소 전체(url)가 아니라 host+path 만 쓴다.
+  //   로그인 페이지 주소가 ?url=https://search.shopping.naver.com/... 처럼 **원래 가려던 주소를
+  //   쿼리에 달고** 오기 때문에, url.includes 로 보면 로그인 화면을 "안전한 쇼핑 페이지"로
+  //   오판한다(실측 — 그래서 로그인 리다이렉트가 그냥 '차단' 으로 찍혔다).
+  const where = host + location.pathname;
+
   function isCaptcha() {
     // ① 오탐 방지 — 목록/검색 같은 안전 페이지는 '확실한 증거'가 있을 때만 캡차로 본다.
     //    (여기가 없으면 정상 카테고리 페이지를 캡차로 오인해 수집이 영영 멈춘다)
-    if (SAFE_PAGES.some(s => url.includes(s))) {
+    if (SAFE_PAGES.some(s => where.includes(s))) {
       if (document.querySelector('input#rcpt_answer, input[name="captcha"]')) return true;
       if (text.includes('[?]') && text.includes('빈 칸을 채워주세요')) return true;
       if (text.length < 1000 && ['접속이 일시적으로 제한', '쇼핑 서비스 접속이', '보안 확인을 완료해 주세요']
           .some(s => text.includes(s))) return true;
       return false;
     }
-    if (CAPTCHA_URLS.some(p => url.includes(p))) return true;
+    if (CAPTCHA_URLS.some(p => where.includes(p))) return true;
     if (CAPTCHA_TEXTS.some(p => text.includes(p))) return true;
     if (CAPTCHA_DOM.some(sel => { try { return !!document.querySelector(sel); } catch (e) { return false; } })) return true;
     // ⑤ 스마트스토어 전용 보안 페이지 — 본문이 거의 없고 확인/인증/보안 문구만 있는 형태
@@ -128,9 +191,10 @@ export const detectJs = `
     return false;
   }
 
-  const captcha = isCaptcha();
+  const captcha = loginRequired ? false : isCaptcha();
 
   function isBlocked() {
+    if (loginRequired) return false;                 // 로그인 요구는 차단이 아니다(기다려도 안 풀린다)
     if (captcha) return false;                       // 캡차는 차단이 아니다
     if (text.length < 100) return true;              // 빈 페이지
     if (html.length < 500) return true;
@@ -149,7 +213,7 @@ export const detectJs = `
   }
 
   return {
-    url, captcha,
+    url, captcha, loginRequired,
     blocked: isBlocked(),
     // 429 는 일반 차단보다 훨씬 길게 식혀야 해서 따로 센다.
     is429: title.includes('에러') && text.includes('서비스 접속이 불가'),

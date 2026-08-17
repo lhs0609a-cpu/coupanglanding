@@ -11,11 +11,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, Play, Square, MonitorDown, AlertTriangle, RefreshCw, Loader2, ExternalLink,
-  ChevronRight, ChevronDown, Download, X, Stethoscope,
+  ChevronRight, ChevronDown, Download, X, Stethoscope, LogIn,
 } from 'lucide-react';
 import {
   findHelper, fetchStatus, setWindows, startPool, stopPool, testOne, showWindow,
   fetchCategories, startPrewarm, stopPrewarm, startCollect, stopCollect, fetchCollection, probePage,
+  naverLogin, naverLogout,
   type LocalEndpoint, type IngestStatus, type IngestLog, type WindowInfo,
   type NaverCategory, type ProductCard,
 } from '@/lib/megaload/naver-ingest-local';
@@ -31,8 +32,9 @@ import { triggerLocalUpdate } from '@/lib/megaload/allinone-local';
  *   0.2.94 = 카테고리 스냅샷 동봉(대분류·중분류는 설치 직후부터 요청 0으로 즉시)
  *   0.2.95 = 늦게 그려지는 하위 분류 사이드바 대기 + 전체 일괄 수집(앱 재시작해도 이어함)
  *   0.2.96 = 페이지 진단(수집 0건일 때 실제 DOM 구조를 파일로)
+ *   0.2.97 = 목록 페이지 경로 교정(search.shopping) + 네이버 로그인 창
  */
-const MIN_HELPER_VERSION = '0.2.96';
+const MIN_HELPER_VERSION = '0.2.97';
 
 /** "0.2.9" vs "0.2.10" 을 문자열 비교하면 틀린다 — 숫자 단위로 비교한다. */
 function isOlder(version: string, min: string): boolean {
@@ -365,6 +367,7 @@ export default function NaverSourcingPage() {
   const configured = draft ?? status?.configured ?? 3;
   const gate = status?.gate;
   const cooling = (gate?.cooldownMsLeft ?? 0) > 0;
+  const loggedIntoNaver = !!status?.naverLogin?.loggedIn;
 
   return (
     <div className="p-6 max-w-5xl">
@@ -374,6 +377,50 @@ export default function NaverSourcingPage() {
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {err}
         </div>
+      )}
+
+      {/* 0. 네이버 로그인 — 나머지 전부의 전제 조건이라 맨 위에 둔다.
+           로그인 없이는 목록 페이지가 로그인 화면으로 튕겨서 무엇을 눌러도 0건이다(실측). */}
+      {status?.naverLogin && (
+        loggedIntoNaver ? (
+          <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-sm text-emerald-900 inline-flex items-center gap-2">
+              <LogIn className="w-4 h-4" /> 네이버에 로그인돼 있습니다 — 목록 수집이 가능합니다.
+            </p>
+            <button
+              onClick={() => ep && run('naver-logout', () => naverLogout(ep))}
+              className="px-3 py-1.5 rounded-lg border border-emerald-300 bg-white text-sm text-emerald-800 hover:bg-emerald-50"
+            >
+              로그아웃(계정 바꾸기)
+            </button>
+          </div>
+        ) : (
+          <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-5">
+            <p className="font-bold text-amber-900 inline-flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" /> 네이버 로그인이 필요합니다
+            </p>
+            <p className="text-sm text-amber-900 mt-1.5 leading-relaxed">
+              상품 목록 페이지(<code className="text-xs">search.shopping.naver.com</code>)는 <b>로그인 없이 열리지 않습니다</b> —
+              로그인 화면으로 넘어가기 때문에 수집이 항상 0건이 됩니다. 아래 버튼을 누르면 도우미가 창을 띄우고,
+              <b> 사장님이 그 창에서 직접 로그인</b>합니다(아이디·비밀번호는 이 화면에도 서버에도 오지 않습니다).
+              한 번 해 두면 이후 수집은 무인으로 진행됩니다.
+              <br />
+              <span className="text-amber-800">
+                ※ 이 계정으로 자동 수집이 돌아갑니다. 판매용 본계정 대신 <b>부계정</b>을 권합니다.
+              </span>
+            </p>
+            <button
+              onClick={() => ep && run('naver-login', () => naverLogin(ep))}
+              disabled={busy === 'naver-login' || status.naverLogin.waiting}
+              className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230] disabled:opacity-50"
+            >
+              {busy === 'naver-login' || status.naverLogin.waiting
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <LogIn className="w-4 h-4" />}
+              {status.naverLogin.waiting ? '창에서 로그인해 주세요…' : '네이버 로그인'}
+            </button>
+          </div>
+        )
       )}
 
       {/* 1. 동시 창 */}
@@ -574,7 +621,8 @@ export default function NaverSourcingPage() {
                 </select>
                 <button
                   onClick={() => ep && run('collect', () => startCollect(ep, { catId: here.id, catName: picked.map((c) => c.name).join(' > '), target }))}
-                  disabled={!!busy || collect?.running}
+                  disabled={!!busy || collect?.running || !loggedIntoNaver}
+                  title={loggedIntoNaver ? undefined : '네이버 로그인이 먼저 필요합니다'}
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium disabled:opacity-40 hover:bg-[#c41230]"
                 >
                   {collect?.running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}

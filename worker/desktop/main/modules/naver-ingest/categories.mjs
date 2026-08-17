@@ -68,7 +68,19 @@ export const ROOT_CATEGORIES = [
   { id: '10000129', name: 'E쿠폰/티켓/생활편의' },
 ];
 
+/**
+ * 카테고리 **메뉴** 페이지 — 하위 분류 링크가 여기 있다. 상품은 없다.
+ * (실측 2026-08-17: 본문 2,976자 · scrollHeight 106 · 상품 링크 1개(배너). 링크 480개 중 403개가
+ *  전부 카테고리 메뉴다. 여기서 스크롤해봐야 영원히 0건이다.)
+ */
 export const categoryUrl = (id) => `https://shopping.naver.com/ns/category/${id}`;
+
+/**
+ * 카테고리 **상품 목록** 페이지 — 실제 상품 카드는 이 호스트에만 있다.
+ * ⚠️ 로그인 세션이 없으면 nid.naver.com 로그인 화면으로 리다이렉트된다(실측 — 페이지 안의 진짜
+ *   링크를 눌러도 동일). 그래서 수집 전에 로그인 여부를 반드시 먼저 본다.
+ */
+export const listUrl = (id) => `https://search.shopping.naver.com/ns/category/${id}`;
 
 const ROOT_IDS = new Set(ROOT_CATEGORIES.map((c) => c.id));
 
