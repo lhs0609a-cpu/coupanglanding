@@ -15,7 +15,7 @@ import naverGate from '../../naver-gate.mjs';
 //   사람이 소싱 화면에서 네이버 로그인을 한 번 해 두면 품절 감시도 그 세션으로 조회한다.
 import { NAVER_PARTITION, installBlocker, loginState } from '../../naver-session.mjs';
 
-const REMOVED_PATTERNS = [/상품을\s*찾을\s*수\s*없|판매가\s*종료|deleted|removed|<title>404/i];
+const REMOVED_PATTERNS = [/상품을\s*찾을\s*수\s*없|상품이\s*존재하지\s*않|판매가\s*종료|deleted|removed|<title>404/i];
 const SOLDOUT_PATTERNS = [/일시\s*품절|품절\s*상태|sold[\s-]?out|재고\s*없|재고가\s*없/i];
 const IN_STOCK_PATTERNS = [/구매하기|장바구니|orderQty|stockQuantity"\s*:\s*[1-9]/i];
 
@@ -80,11 +80,18 @@ function loadInWindow(url) {
           // ★ window.__PRELOADED_STATE__ 객체를 직접 직렬화해 추출 — 렌더된 outerHTML 은 너무 커서
           //   2.5MB 캡에 benefitsView(가격)가 잘려나가 가격을 못 읽던 문제 해결(상태는 앞쪽이라 살아남음).
           //   state 가 없으면(드묾) outerHTML 로 폴백.
-          const body = await wc.executeJavaScript(
-            '(function(){try{var s=window.__PRELOADED_STATE__;return s?JSON.stringify(s):document.documentElement.outerHTML}catch(e){return document.documentElement.outerHTML}})()',
+          // ★ 제목도 같이 가져온다. state JSON 만 받으면 "상품이 존재하지 않습니다" 같은
+          //   **삭제 신호가 통째로 안 보인다**(실측: 삭제된 상품이 품절로 기록됐다).
+          //   제목은 수십 바이트라 비용이 없고, 판정의 마지막 안전망이 된다.
+          const raw = await wc.executeJavaScript(
+            '(function(){var t="";try{t=document.title||""}catch(e){}'
+            + 'try{var s=window.__PRELOADED_STATE__;return JSON.stringify({t:t,b:s?JSON.stringify(s):document.documentElement.outerHTML})}'
+            + 'catch(e){return JSON.stringify({t:t,b:document.documentElement.outerHTML})}})()',
             true,
           );
-          finish(null, status || 200, body);
+          let body = raw, pageTitle = '';
+          try { const env = JSON.parse(raw); body = env.b || ''; pageTitle = env.t || ''; } catch (e) { /* 구형 응답은 그대로 */ }
+          finish(null, status || 200, body, pageTitle);
         } catch (e) { finish('extract: ' + (e?.message || e)); }
       };
       function cleanup() {
@@ -93,9 +100,9 @@ function loadInWindow(url) {
         wc.removeListener('did-fail-load', onFail);
         wc.removeListener('did-finish-load', onFinish);
       }
-      function finish(err, st, html) {
+      function finish(err, st, html, pageTitle) {
         if (settled) return; settled = true; cleanup();
-        resolve({ status: st || 0, body: html ? html.slice(0, MAX_BODY) : '', error: err || null });
+        resolve({ status: st || 0, body: html ? html.slice(0, MAX_BODY) : '', title: pageTitle || '', error: err || null });
       }
       wc.on('did-navigate', onNavigate);
       wc.on('did-fail-load', onFail);
@@ -125,7 +132,7 @@ async function fetchPageViaBrowser(url) {
   _chain = run.then(() => {}, () => {});
   const r = await run;
   if (r.error && !r.body) throw new Error(r.error);
-  return { status: r.status, body: r.body };
+  return { status: r.status, body: r.body, title: r.title || '' };
 }
 
 // 가정 IP가 네이버에 지속적으로 429를 맞으면(이 PC IP가 차단됨) BrowserWindow 로 매번 11초씩
@@ -235,7 +242,64 @@ function parseNaverOptions(html) {
   } catch { return null; }
 }
 
-// __PRELOADED_STATE__ 권위 상태 (난독화 CSS/텍스트 비의존)
+/**
+ * __PRELOADED_STATE__ 에서 **본 상품 노드만** 꺼낸다.
+ * ---------------------------------------------------------------------------
+ * ★ 왜 정규식을 버렸나(실측 2026-08-18): body 는 JSON.stringify(__PRELOADED_STATE__) 인데,
+ *   그 안에는 추천·연관·카테고리·보관함 상품이 **함께** 들어 있다. 본 상품(product)은 최상위
+ *   키 110개 중 80번째라 한참 뒤다. 전체 문자열에서 첫 "productStatusType" 을 집으면 남의
+ *   상품 상태를 읽고, "salePrice" 첫 매치는 남의 가격이다.
+ *   실제로 삭제된 상품(yoomifriends/1239)이 "품절 3,650원"으로 기록돼 있었다 — 상태도 가격도
+ *   다른 상품 것이었다.
+ */
+function pickProductNode(body) {
+  if (!body || body[0] !== '{') return null;      // outerHTML 폴백이면 state 가 아니다
+  let state;
+  try { state = JSON.parse(body); } catch { return null; }
+  const p = state && state.product;
+  if (!p || typeof p !== 'object') return null;
+  // 구조 변형 대비 — 예전 스토어 페이지는 product.A 아래에 실제 상품이 있었다.
+  if (p.A && typeof p.A === 'object' && (p.A.productNo || p.A.productStatusType)) return p.A;
+  return p;
+}
+
+/** 본 상품 노드 기준 권위 상태. 노드를 못 찾으면 undefined 를 돌려 폴백에 맡긴다. */
+function stateFromNode(prod) {
+  if (!prod) return undefined;
+  // 삭제/미존재 — 노드는 있는데 권위 필드가 통째로 비어 있다(실측: "상품이 존재하지 않습니다").
+  if (!prod.productStatusType && !prod.channelProductDisplayStatusType
+      && !prod.productNo && !prod.salePrice) return 'removed';
+  const disp = prod.channelProductDisplayStatusType;
+  if (disp && disp !== 'ON') return 'removed';
+  const st = prod.productStatusType;
+  if (!st) return undefined;
+  if (st === 'SALE') return 'in_stock';
+  if (st === 'OUTOFSTOCK' || st === 'EXHAUSTION') return 'sold_out';
+  return 'removed';
+}
+
+function priceFromNode(prod) {
+  if (!prod) return undefined;
+  for (const f of ['dispDiscountedSalePrice', 'discountedSalePrice', 'salePrice', 'dispSalePrice', 'price']) {
+    const v = parseInt(prod[f], 10);
+    if (v > 0) return v;
+  }
+  return undefined;
+}
+
+function optionsFromNode(prod) {
+  const combos = prod && (prod.optionCombinations
+    || (prod.optionCombinationGroupNames && prod.optionCombinations)
+    || (prod.productOption && prod.productOption.optionCombinations));
+  if (!Array.isArray(combos) || !combos.length) return null;
+  return combos.map((c) => ({
+    name: [c.optionName1, c.optionName2].filter(Boolean).join(' / '),
+    soldOut: (c.stockQuantity !== undefined && c.stockQuantity <= 0) || c.usable === false,
+    price: c.price ?? c.priceRelative ?? undefined,
+  }));
+}
+
+// 옛 정규식 경로 — **본 상품 노드의 JSON 에만** 돌린다(전체 state 에 돌리면 남의 상품이 섞인다).
 function parseNaverState(html) {
   const disp = html.match(/"channelProductDisplayStatusType"\s*:\s*"([A-Z_]+)"/)?.[1];
   if (disp && disp !== 'ON') return 'removed';
@@ -271,7 +335,11 @@ export async function warmUpSession() {
 /** @returns {Promise<{status,matchedPattern?,errorClass?,rateLimited?,options?,mainPrice?}>} */
 export async function fetchNaverProduct(url) {
   try {
-    const { status, body } = await fetchPage(url);
+    const { status, body, title } = await fetchPage(url);
+    // 삭제/미존재는 제목 한 줄이 가장 확실하다 — state 안에는 이 문구가 없다.
+    if (title && /상품이\s*존재하지\s*않|상품을\s*찾을\s*수\s*없|페이지를\s*찾을\s*수\s*없/.test(title)) {
+      return { status: 'removed', matchedPattern: `제목: ${title.slice(0, 40)}` };
+    }
     if (status === 404 || status === 410) return { status: 'removed', matchedPattern: `HTTP ${status}` };
     // rateLimited 는 "IP 단위 속도제한" 신호 — 호출자(서킷브레이커)가 배치를 통째로 멈추는 근거다.
     // 단순 타임아웃(transient)과 구분해야 한다: 타임아웃은 상품 하나 문제라 계속 진행해야 하고,
@@ -287,20 +355,44 @@ export async function fetchNaverProduct(url) {
       return { status: 'error', matchedPattern: 'GT region block', errorClass: 'transient' };
     }
 
-    for (const p of REMOVED_PATTERNS) if (p.test(body)) return { status: 'removed', matchedPattern: p.source };
+    // ★ 이 패턴들도 **렌더된 HTML 에만** 쓴다. state JSON 에 돌리면 "deleted"/"removed" 가
+    //   키 이름(예: "deleted":false)에 걸려 멀쩡한 상품이 삭제로 찍힌다. 삭제 판정의 1순위는
+    //   아래 본 상품 노드다(권위 필드가 통째로 비어 있으면 삭제).
+    if (!body || body[0] !== '{') {
+      for (const p of REMOVED_PATTERNS) if (p.test(body)) return { status: 'removed', matchedPattern: p.source };
+    }
 
-    let options, mainPrice, state;
+    let options, mainPrice, state, source = null;
     if (/smartstore\.naver|shop\.naver/i.test(url)) {
-      options = parseNaverOptions(body) || undefined;
-      mainPrice = parseNaverMainPrice(body);
-      state = parseNaverState(body);
+      // ① 본 상품 노드에서 직접 — 여기서 답이 나오면 다른 상품이 섞일 여지가 없다.
+      const prod = pickProductNode(body);
+      if (prod) {
+        state = stateFromNode(prod);
+        mainPrice = priceFromNode(prod);
+        options = optionsFromNode(prod) || undefined;
+        source = 'product 노드';
+      }
+      // ② 노드를 못 찾았을 때만 옛 경로. 단 **노드 JSON 범위로 좁혀서** 돌린다.
+      if (!state) {
+        const scoped = prod ? JSON.stringify(prod) : body;
+        options = options || parseNaverOptions(scoped) || undefined;
+        mainPrice = mainPrice ?? parseNaverMainPrice(scoped);
+        state = parseNaverState(scoped);
+        if (state) source = 'PRELOADED_STATE';
+      }
     }
     if (state) {
       if (state === 'in_stock' && options && options.length > 0 && options.every((o) => o.soldOut)) {
-        return { status: 'sold_out', matchedPattern: 'PRELOADED_STATE+옵션전체품절', options, mainPrice };
+        return { status: 'sold_out', matchedPattern: source + '+옵션전체품절', options, mainPrice };
       }
-      return { status: state, matchedPattern: 'PRELOADED_STATE', options, mainPrice };
+      return { status: state, matchedPattern: source, options, mainPrice };
     }
+
+    // ★ 텍스트 패턴은 **렌더된 HTML 에만** 쓴다. body 가 state JSON 일 때 돌리면
+    //   /sold[\s-]?out/i 가 다른 상품 목록의 JSON 키 `soldOut` 에 그대로 걸린다.
+    //   실측: 삭제된 상품이 이 경로로 "품절"이 됐다(가격은 남의 상품 것이었다).
+    const isStateJson = !!body && body[0] === '{';
+    if (isStateJson) return { status: 'unknown', matchedPattern: '권위 데이터 없음', options, mainPrice };
 
     let soldOut = null;
     for (const p of SOLDOUT_PATTERNS) if (p.test(body)) { soldOut = p.source; break; }

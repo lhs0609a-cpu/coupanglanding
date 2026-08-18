@@ -76,6 +76,48 @@ export async function loginState() {
   }
 }
 
+/**
+ * 로그인 쿠키를 **디스크에 남게** 만든다 — 로그인 성공 직후 1회.
+ * ---------------------------------------------------------------------------
+ * 왜 필요한가(실측 2026-08-18): "로그인 상태 유지"를 켜도, 캡차 화면을 거치면 페이지가 다시
+ * 그려지면서 체크가 풀린다. 그러면 네이버는 NID_AUT/NID_SES 를 **세션 쿠키**로 주고, 앱을
+ * 껐다 켜는 순간 로그아웃이다. 실제로 앱을 재시작할 때마다 캡차를 다시 풀어야 했다.
+ *
+ * 하는 일은 하나뿐이다: **이미 발급받은 쿠키를 값 그대로 다시 심되 만료시각을 붙인다.**
+ * 값을 만들지도, 바꾸지도 않는다 — 브라우저가 그 쿠키를 메모리에만 둘지 디스크에도 둘지의
+ * 문제라서, 세션의 실제 유효기간은 여전히 네이버 서버가 정한다(만료되면 자동 로그인이 돈다).
+ */
+export async function persistLoginCookies({ days = 14 } = {}) {
+  const PERSIST = /^(NID_AUT|NID_SES|NID_JKL|nid_inf)$/;
+  try {
+    const { session } = await import('electron');
+    const ses = session.fromPartition(NAVER_PARTITION);
+    const cookies = await ses.cookies.get({ domain: '.naver.com' });
+    const expirationDate = Math.floor(Date.now() / 1000) + days * 86400;
+    let n = 0;
+    for (const c of cookies) {
+      if (!c.session || !PERSIST.test(c.name)) continue;   // 이미 영속이면 건드리지 않는다
+      try {
+        await ses.cookies.set({
+          url: `https://${c.domain.replace(/^\./, '')}${c.path || '/'}`,
+          name: c.name,
+          value: c.value,
+          domain: c.domain,
+          path: c.path,
+          secure: c.secure,
+          httpOnly: c.httpOnly,
+          sameSite: c.sameSite,
+          expirationDate,
+        });
+        n += 1;
+      } catch { /* 한 개 실패해도 나머지는 살린다 */ }
+    }
+    return n;
+  } catch {
+    return 0;
+  }
+}
+
 /** 로그아웃(쿠키 삭제) — 계정을 바꿀 때. 품절 감시도 같은 세션이므로 함께 로그아웃된다. */
 export async function clearLogin() {
   const { session } = await import('electron');

@@ -851,6 +851,42 @@ export const probeProductJs = `
   const all = [...document.querySelectorAll('img')];
   const pstatic = all.filter((i) => /pstatic\\.net|phinf/.test((i.getAttribute('src') || '') + (i.getAttribute('data-src') || '')));
 
+  // ── ④ 품절 판정이 남의 상품을 읽는가 ────────────────────────────────────
+  // 품절 감시는 JSON.stringify(__PRELOADED_STATE__) 전체에서 **첫 번째** productStatusType 을
+  // 정규식으로 집는다. 그런데 이 state 에는 추천·연관·카테고리 상품 묶음이 함께 들어 있고,
+  // 실측상 본 상품(product)은 최상위 키 순서에서 한참 뒤다. 첫 매치가 정말 본 상품인지
+  // **문자열 위치로** 확인한다 — 추측 대신 증거로 가른다.
+  let stateAudit = null;
+  try {
+    const raw = JSON.stringify(window.__PRELOADED_STATE__ || {});
+    const hits = [];
+    const re = /"productStatusType"\s*:\s*"([A-Z_]+)"/g;
+    let m;
+    while ((m = re.exec(raw)) && hits.length < 10) hits.push({ at: m.index, value: m[1], ctx: raw.slice(Math.max(0, m.index - 90), m.index + 40) });
+    const priceHits = [];
+    const pre = /"salePrice"\s*:\s*"?(\d{2,10})/g;
+    while ((m = pre.exec(raw)) && priceHits.length < 6) priceHits.push({ at: m.index, value: m[1] });
+    const prod = window.__PRELOADED_STATE__ && window.__PRELOADED_STATE__.product;
+    stateAudit = {
+      rawLen: raw.length,
+      topKeys: Object.keys(window.__PRELOADED_STATE__ || {}),
+      productKeyIndex: Object.keys(window.__PRELOADED_STATE__ || {}).indexOf('product'),
+      productNodeAt: raw.indexOf('"product":'),
+      statusHits: hits,
+      priceHits,
+      // 본 상품 노드가 실제로 들고 있는 값 — 고칠 때 여기를 직접 읽으면 된다.
+      product: prod ? {
+        keys: Object.keys(prod).slice(0, 60),
+        A: prod.A ? Object.keys(prod.A).slice(0, 60) : null,
+        productStatusType: prod.productStatusType || (prod.A && prod.A.productStatusType) || null,
+        channelProductDisplayStatusType: prod.channelProductDisplayStatusType || (prod.A && prod.A.channelProductDisplayStatusType) || null,
+        salePrice: prod.salePrice || (prod.A && prod.A.salePrice) || null,
+        optionCombinationsLen: (prod.optionCombinations || (prod.A && prod.A.optionCombinations) || []).length,
+        optionSample: cut(JSON.stringify((prod.optionCombinations || (prod.A && prod.A.optionCombinations) || [])[0]), 400),
+      } : null,
+    };
+  } catch (e) { stateAudit = { error: String(e && e.message) }; }
+
   // runOne 은 data.name 으로 "페이지가 덜 로드됐는지"를 판정하고 없으면 재시도한다.
   // 진단이라고 이 계약을 어기면 멀쩡한 페이지를 3번 다시 여는 낭비가 된다.
   const og = document.querySelector('meta[property="og:title"]');
@@ -858,6 +894,7 @@ export const probeProductJs = `
 
   return {
     name,
+    stateAudit,
     url: location.href.slice(0, 200),
     title: cut(document.title, 120),
     textLen: ((document.body && document.body.innerText) || '').length,

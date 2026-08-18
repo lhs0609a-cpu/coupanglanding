@@ -19,6 +19,7 @@ import {
   probePageJs, probeProductJs, collectCardsJs, scrollStepJs, keepLoginJs, naverAutoLoginJs, loginPageStateJs,
 } from './inject.mjs';
 import { loginState, clearLogin, setMediaAllowed } from './browser.mjs';
+import { persistLoginCookies } from '../../naver-session.mjs';
 import {
   initCredentials, saveCredentials, clearCredentials, credentialInfo, hasCredentials,
   loadCredentials, encryptionAvailable,
@@ -108,9 +109,17 @@ let loginTask = null;
 function refreshLoginSoon() {
   if (Date.now() - loginCache.at < 10_000) return;
   loginCache = { ...loginCache, at: Date.now() };
-  loginState().then((st) => {
+  loginState().then(async (st) => {
     const changed = st.loggedIn !== loginCache.loggedIn;
     loginCache = { loggedIn: !!st.loggedIn, persistent: !!st.persistent, at: Date.now() };
+    // ★ 로그인 순간 한 번만 도장을 찍으면 안 된다(실측 2026-08-18): 네이버는 브라우징 도중
+    //   NID_SES 를 **세션 쿠키로 계속 재발급**한다. 로그인 직후엔 영속이었는데 한 시간 감시가
+    //   돌고 나면 NID_SES 만 사라져 있었고, 그래서 재시작하자 또 캡차였다.
+    //   쿠키 조작은 네트워크 요청이 0회라 자주 해도 공짜다 — 상태 폴링에 얹어 계속 유지한다.
+    if (st.loggedIn && !st.persistent) {
+      const kept = await persistLoginCookies().catch(() => 0);
+      if (kept) loginCache = { ...loginCache, persistent: true };
+    }
     if (changed) pushStatus();
   }).catch(() => {});
 }
@@ -672,8 +681,10 @@ export async function autoLoginNow({ byHuman = false } = {}) {
         const st = await loginState();
         if (st.loggedIn) {
           loginCache = { loggedIn: true, persistent: !!st.persistent, at: Date.now() };
-          pushLog(st.persistent
-            ? '✅ 네이버 자동 로그인 성공 — 로그인 상태 유지까지 켜져 있어 앱을 껐다 켜도 유지됩니다.'
+          // 세션 쿠키로 왔으면 만료시각을 붙여 디스크에 남긴다 — 재시작마다 캡차를 다시 푸는 일을 없앤다.
+          const kept = st.persistent ? 0 : await persistLoginCookies();
+          pushLog(st.persistent || kept
+            ? '✅ 네이버 자동 로그인 성공 — 이 PC 에 로그인이 남아 도우미를 껐다 켜도 유지됩니다.'
             : '✅ 네이버 자동 로그인 성공 — 다만 세션 쿠키라 앱을 끄면 풀립니다(다음 실행 때 다시 자동 로그인합니다).');
           sw.hide();
           sw.status = 'idle';
@@ -710,8 +721,13 @@ export async function autoLoginNow({ byHuman = false } = {}) {
           const st = await loginState();
           if (st.loggedIn) {
             loginCache = { loggedIn: true, persistent: !!st.persistent, at: Date.now() };
+            // ★ 캡차를 사람이 푼 경우가 특히 중요하다 — 그 화면을 거치면 "로그인 상태 유지"
+            //   체크가 풀려 세션 쿠키로 발급된다. 그대로 두면 재시작마다 또 캡차다.
+            const kept = st.persistent ? 0 : await persistLoginCookies();
             humanBlockedAt = 0;                     // 통과했으니 조용히-기다리기 해제
-            pushLog('✅ 네이버 로그인 완료 — 이어서 진행합니다.');
+            pushLog(st.persistent || kept
+              ? '✅ 네이버 로그인 완료 — 이 PC 에 로그인이 남아 도우미를 껐다 켜도 유지됩니다.'
+              : '✅ 네이버 로그인 완료 — 이어서 진행합니다.');
             sw.hide();
             sw.status = 'idle';
             return finish({ ok: true, viaHuman: true });
