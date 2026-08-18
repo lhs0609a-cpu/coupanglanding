@@ -777,7 +777,7 @@ export const probePageJs = `
  * 통째로 가져오면 IPC 가 막힌다).
  */
 export const probeProductJs = `
-(() => {
+(async () => {
   const cut = (s, n) => String(s == null ? '' : s).replace(/\\s+/g, ' ').trim().slice(0, n);
   const keysOf = (o, d) => {
     if (!o || typeof o !== 'object') return typeof o;
@@ -859,19 +859,39 @@ export const probeProductJs = `
   let stateAudit = null;
   try {
     const raw = JSON.stringify(window.__PRELOADED_STATE__ || {});
-    const hits = [];
-    const re = /"productStatusType"\s*:\s*"([A-Z_]+)"/g;
-    let m;
-    while ((m = re.exec(raw)) && hits.length < 10) hits.push({ at: m.index, value: m[1], ctx: raw.slice(Math.max(0, m.index - 90), m.index + 40) });
-    const priceHits = [];
-    const pre = /"salePrice"\s*:\s*"?(\d{2,10})/g;
-    while ((m = pre.exec(raw)) && priceHits.length < 6) priceHits.push({ at: m.index, value: m[1] });
-    const prod = window.__PRELOADED_STATE__ && window.__PRELOADED_STATE__.product;
+    // (진단용 정규식 스캔은 제거했다 — 템플릿 리터럴에서 백슬래시가 먹혀 조용히 틀린 답을 준다.
+    //  실측은 이미 끝났다: 상태·가격은 아래 신원 기반 노드에서 직접 읽는다.)
+    const hits = [], priceHits = [];
+
+    // 이 URL 이 가리키는 상품번호 — 정규식을 쓰지 않는다(템플릿 리터럴에서 백슬래시가 먹혀
+    // 조용히 틀린 답을 준 전례가 있다). 경로 마지막 조각이 6자리 이상 숫자면 그것이다.
+    const _segs = location.pathname.split('/').filter(Boolean);
+    const _last = _segs[_segs.length - 1] || '';
+    const wantNo = (_last.length >= 6 && String(Number(_last)) === _last) ? _last : null;
+
+    // 권위 필드(productStatusType)를 든 노드를 전부 모은다 — 자리를 믿지 않고 신원으로 고르려고.
+    const cands = [];
+    const stack = [[window.__PRELOADED_STATE__, 0]];
+    while (stack.length && cands.length < 40) {
+      const [node, depth] = stack.pop();
+      if (!node || typeof node !== 'object' || depth > 6) continue;
+      if (Array.isArray(node)) { for (const v of node.slice(0, 60)) stack.push([v, depth + 1]); continue; }
+      if (typeof node.productStatusType === 'string' && node.productStatusType) cands.push(node);
+      for (const k of Object.keys(node)) { const v = node[k]; if (v && typeof v === 'object') stack.push([v, depth + 1]); }
+    }
+    const same = (v) => v != null && String(v) === String(wantNo);
+
+    const prod = cands.find((n) => same(n.productNo) || same(n.id) || same(n.channelProductNo) || same(n.originProductNo))
+      || (cands.length === 1 ? cands[0] : null)
+      || (window.__PRELOADED_STATE__ && window.__PRELOADED_STATE__.product);
     stateAudit = {
       rawLen: raw.length,
       topKeys: Object.keys(window.__PRELOADED_STATE__ || {}),
       productKeyIndex: Object.keys(window.__PRELOADED_STATE__ || {}).indexOf('product'),
       productNodeAt: raw.indexOf('"product":'),
+      wantNo,
+      candidateCount: cands.length,
+      candidateIds: cands.slice(0, 6).map((n) => String(n.productNo || n.id || n.channelProductNo || '?')),
       statusHits: hits,
       priceHits,
       // 본 상품 노드가 실제로 들고 있는 값 — 고칠 때 여기를 직접 읽으면 된다.
@@ -901,6 +921,116 @@ export const probeProductJs = `
     };
   } catch (e) { stateAudit = { error: String(e && e.message) }; }
 
+  // ── ⑤ 옵션·상세는 나중에 온다 — 어디서 오는지 찾는다 ────────────────────
+  // 실측: 로드 직후 state 의 상품 노드에는 optionUsable=true 인데 optionCombinations 가 0이고
+  // content·productImages·고시정보가 전부 null 이다. 즉 화면이 뜬 뒤 **별도 요청**으로 채운다.
+  // 그 요청의 주소를 알면 상세 추출기가 DOM 을 긁을 필요 없이 정확한 JSON 을 받을 수 있다.
+  let network = null;
+  try {
+    const res = performance.getEntriesByType('resource') || [];
+    const EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.css', '.woff', '.woff2', '.svg', '.ico'];
+    const KEY = ['/api/', 'graphql', '.json', 'detail', 'option', 'product'];
+    const interesting = res
+      .map((e) => String(e.name || ''))
+      .filter((u) => { const base = u.split('?')[0].toLowerCase(); return !EXT.some((x) => base.endsWith(x)); })
+      .filter((u) => { const low = u.toLowerCase(); return KEY.some((k) => low.indexOf(k) >= 0); });
+    network = {
+      total: res.length,
+      apiCount: interesting.length,
+      // 같은 주소가 반복되므로 중복을 접고 앞부분만 본다.
+      urls: [...new Set(interesting)].slice(0, 30).map((u) => u.slice(0, 190)),
+    };
+  } catch (e) { network = { error: String(e && e.message) }; }
+
+  // 하이드레이션이 늦을 뿐일 수도 있다 — 잠깐 기다렸다 다시 본다.
+  await new Promise((r) => setTimeout(r, 4000));
+  let afterWait = null;
+  try {
+    const cands2 = [];
+    const stack2 = [[window.__PRELOADED_STATE__, 0]];
+    while (stack2.length && cands2.length < 40) {
+      const [node, depth] = stack2.pop();
+      if (!node || typeof node !== 'object' || depth > 6) continue;
+      if (Array.isArray(node)) { for (const v of node.slice(0, 60)) stack2.push([v, depth + 1]); continue; }
+      if (typeof node.productStatusType === 'string' && node.productStatusType) cands2.push(node);
+      for (const k of Object.keys(node)) { const v = node[k]; if (v && typeof v === 'object') stack2.push([v, depth + 1]); }
+    }
+    const best = cands2[0] || {};
+    afterWait = {
+      candidates: cands2.length,
+      optionCombinations: (best.optionCombinations || []).length,
+      contentLen: typeof best.content === 'string' ? best.content.length : null,
+      productImages: Array.isArray(best.productImages) ? best.productImages.length : null,
+      // 화면에 실제로 그려진 옵션 UI — API 를 못 찾으면 여기서라도 읽어야 한다.
+      selects: [...document.querySelectorAll('select')].length,
+      optionTexts: [...document.querySelectorAll('[class*="option" i]')].slice(0, 6)
+        .map((el) => cut(el.innerText, 80)).filter(Boolean),
+      detailImgs: [...document.querySelectorAll('img')].filter((im) => /pstatic|phinf/.test((im.getAttribute('src') || '') + (im.getAttribute('data-src') || ''))).length,
+    };
+  } catch (e) { afterWait = { error: String(e && e.message) }; }
+
+
+  // ── ⑥ 상품 API 를 직접 불러 본다 ────────────────────────────────────────
+  // 옵션·상세·고시정보는 화면이 뜬 뒤 JSON API 로 온다(위 network 목록에서 확인). 페이지
+  // 안에서 같은 주소를 부르면 쿠키·referer 가 그대로라 정상 응답이 온다. 상세 추출기를
+  // DOM 파싱으로 짜기 전에, 이 경로가 진짜 되는지부터 확인한다.
+  let api = null;
+  try {
+    const urls = (network && network.urls) || [];
+    const marker = '/n/v2/channels/';
+    let channelId = null;
+    for (const u of urls) {
+      const i = u.indexOf(marker);
+      if (i < 0) continue;
+      channelId = u.slice(i + marker.length).split('/')[0].split('?')[0];
+      if (channelId) break;
+    }
+    // 원상품번호 — 상세·고시정보는 이 번호를 쓴다(채널상품번호와 다르다).
+    let originNo = null;   // 응답에서 확정한다
+    for (const u of urls) {
+      const k = u.indexOf('/contents/');
+      if (k > 0) { originNo = u.slice(k + 10).split('/')[0]; break; }
+    }
+    // wantNo 는 앞 블록(try) 안에 갇혀 있어 여기서 다시 구한다.
+    const _s2 = location.pathname.split('/').filter(Boolean);
+    const _l2 = _s2[_s2.length - 1] || '';
+    const wantNo = (_l2.length >= 6 && String(Number(_l2)) === _l2) ? _l2 : null;
+    const base = location.origin;
+    const get = async (path) => {
+      const res = await fetch(base + path, { credentials: 'include', headers: { accept: 'application/json' } });
+      const txt = await res.text();
+      let json = null;
+      try { json = JSON.parse(txt); } catch (e) { /* HTML 응답일 수 있다 */ }
+      return { status: res.status, len: txt.length, json, head: cut(txt, 200) };
+    };
+
+    api = { channelId, originNo, wantNo, calls: {} };
+    if (channelId && wantNo) {
+      const main = await get('/n/v2/channels/' + channelId + '/products/' + wantNo + '?withWindow=false');
+      const mj = main.json || {};
+      api.calls.product = {
+        status: main.status, len: main.len,
+        topKeys: mj && typeof mj === 'object' ? Object.keys(mj).slice(0, 40) : null,
+        optionCombinations: (mj.optionCombinations || (mj.productOption && mj.productOption.optionCombinations) || []).length,
+        optionKeys: mj && typeof mj === 'object' ? Object.keys(mj).filter((k) => k.toLowerCase().indexOf('option') >= 0) : null,
+        sample: cut(JSON.stringify(mj.optionCombinations || (mj.productOption || {}).optionCombinations || []).slice(0, 400), 400),
+        head: main.json ? null : main.head,
+      };
+      // ★ 원상품번호는 URL 에서 긁지 말고 **응답에서 받는다**(URL 파싱은 /n/v1/contents/reviews/…
+      //   같은 다른 주소에 걸려 "reviews" 를 집었다 — 실측). 상세·고시정보가 이 번호를 쓴다.
+      originNo = mj.originProductNo || mj.productNo || mj.id || originNo;
+      api.originNo = originNo;
+      if (originNo) {
+        const cont = await get('/n/v2/channels/' + channelId + '/products/' + wantNo + '/contents/' + originNo + '/PC?isResponsive=true');
+        api.calls.contents = { status: cont.status, len: cont.len,
+          topKeys: cont.json && typeof cont.json === 'object' ? Object.keys(cont.json).slice(0, 25) : null,
+          head: cut(cont.head, 200) };
+        const notice = await get('/n/v2/channels/' + channelId + '/products/' + originNo + '/provided-notice');
+        api.calls.providedNotice = { status: notice.status, len: notice.len, head: cut(notice.head, 250) };
+      }
+    }
+  } catch (e) { api = { error: String(e && e.message) }; }
+
   // runOne 은 data.name 으로 "페이지가 덜 로드됐는지"를 판정하고 없으면 재시도한다.
   // 진단이라고 이 계약을 어기면 멀쩡한 페이지를 3번 다시 여는 낭비가 된다.
   const og = document.querySelector('meta[property="og:title"]');
@@ -909,6 +1039,9 @@ export const probeProductJs = `
   return {
     name,
     stateAudit,
+    api,
+    network,
+    afterWait,
     url: location.href.slice(0, 200),
     title: cut(document.title, 120),
     textLen: ((document.body && document.body.innerText) || '').length,
