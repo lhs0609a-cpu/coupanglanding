@@ -144,7 +144,16 @@ export async function collectCategory(pool, catId, opts = {}) {
       if (gained === 0) {
         noNew++;
         const limit = saw418 ? NO_NEW_STOP_AFTER_418 : NO_NEW_STOP;
-        if (noNew >= limit) { stopped = '더 나올 것이 없음'; return; }
+        if (noNew >= limit) {
+          // ★ "더 나올 것이 없음"은 사실이지만 오해를 부른다. 실측(2026-08-18): 카테고리
+          //   페이지 자체가 약 60개짜리 큐레이션 화면이라, 스크롤이 정상 동작해도(scrollY
+          //   0→7566) 상품은 61→57로 오히려 줄어든다. 목표에 한참 못 미친 채 끝났으면
+          //   "이 페이지의 한계"라고 말해 줘야 사람이 원인을 엉뚱한 데서 찾지 않는다.
+          stopped = items.size < target * 0.8
+            ? `이 페이지에 있는 상품을 다 모았습니다(${items.size}개) — 카테고리 화면은 목록 전체가 아니라 약 60개짜리 큐레이션입니다`
+            : '더 나올 것이 없음';
+          return;
+        }
       } else {
         noNew = 0;
       }

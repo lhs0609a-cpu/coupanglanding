@@ -66,6 +66,10 @@ export interface ProductCard {
   price: number;
   thumb: string;
   reviewCount: number;
+  /** 네이버 내부 상품 id — 채널 간 대조에 쓸 수 있어 같이 받아 둔다(없으면 빈 문자열). */
+  nvMid?: string;
+  /** 네이버 카테고리 id — 목록 카드가 알려 주는 값이라 추측할 필요가 없다. */
+  catId?: string;
 }
 
 export interface CollectState {

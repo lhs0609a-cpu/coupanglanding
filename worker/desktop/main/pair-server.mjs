@@ -230,7 +230,7 @@ export async function startPairServer({
           return json(200, await naverIngest.credentialStatus());
         }
         if (req.method === 'POST' && u.pathname === '/naver-ingest/login/auto') {
-          return json(200, await naverIngest.autoLoginNow());
+          return json(200, await naverIngest.autoLoginNow({ byHuman: true }));
         }
 
         // ── 카테고리 선택 수집 ──────────────────────────────────────────
@@ -260,6 +260,11 @@ export async function startPairServer({
         if (req.method === 'POST' && u.pathname === '/naver-ingest/probe') {
           const { catId } = await readJson();
           return json(200, await naverIngest.probePage(catId));
+        }
+        // 상품 페이지 진단 — 상세 추출기를 짜기 전에 옵션·이미지 구조를 한 장으로 확인한다.
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/probe-product') {
+          const { url } = await readJson();
+          return json(200, await naverIngest.probeProduct(url));
         }
         // 수집은 수 분이 걸리므로 시작만 하고 즉시 200. 진행은 status, 결과는 /collection.
         if (req.method === 'POST' && u.pathname === '/naver-ingest/collect') {

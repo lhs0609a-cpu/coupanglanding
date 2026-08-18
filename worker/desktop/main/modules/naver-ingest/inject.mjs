@@ -181,11 +181,33 @@ export const naverAutoLoginJs = (id, pw) => `
   const keep = document.querySelector('input[name="nvlong"], input#keep, input[type="checkbox"][id*="keep" i]');
   if (keep && !keep.checked) { keep.click(); if (!keep.checked) keep.checked = true; }
 
-  const btn = document.querySelector('[id="log.login"], button[type="submit"].btn_login, .btn_login, button[type="submit"]');
-  if (!btn) return { ok: false, reason: 'submit-not-found' };
+  // 로그인 버튼 — 실측(2026-08-18)으로 네이버가 바꿔 놓은 것을 반영한다.
+  //   지금: #loginBtn_row(가로 레이아웃, 보임) / #loginBtn_column(세로, 숨김), class=btn_done
+  //   옛것: [id="log.login"], .btn_login  ← 더는 없다
+  // ★ 'button[type=submit]' 로 폴백하면 안 된다 — 이 페이지의 submit 버튼은 **언어 선택**
+  //   (.btn_language)이라 엉뚱한 걸 누른다. 반드시 보이는 로그인 버튼만 고른다.
+  // ★ '패스키 로그인'(#passkeyBtn_*)도 같은 btn_done 클래스라 id 로 먼저 거른다.
+  const visible = (e) => !!(e && (e.offsetWidth || e.offsetHeight));
+  const btn =
+    [...document.querySelectorAll('[id^="loginBtn"]')].find(visible)
+    || [...document.querySelectorAll('[id="log.login"], .btn_login')].find(visible)
+    || [...document.querySelectorAll('button.btn_done')].find((e) => visible(e) && /^로그인$/.test((e.innerText || '').trim()))
+    || null;
+
   await wait(150, 400);
-  btn.click();
-  return { ok: true, keep: !!(keep && keep.checked) };
+  if (btn) {
+    btn.click();
+    return { ok: true, keep: !!(keep && keep.checked), via: btn.id || 'text' };
+  }
+  // 버튼을 못 찾아도 포기하지 않는다 — 사람이 비번칸에서 엔터를 치는 것과 같은 경로.
+  // (그래도 실패하면 화면을 띄워 사람에게 넘긴다 — 여기서 추측 재시도는 하지 않는다.)
+  const form = pwEl.form || document.querySelector('form');
+  if (form) {
+    pwEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+    if (typeof form.requestSubmit === 'function') form.requestSubmit(); else form.submit();
+    return { ok: true, keep: !!(keep && keep.checked), via: 'form-submit' };
+  }
+  return { ok: false, reason: 'submit-not-found' };
 })()
 `;
 
@@ -476,60 +498,150 @@ export const categoryLinksJs = `
 
 /**
  * 목록 페이지의 **상품 카드**를 긁는다 — 상세 페이지를 열지 않고도 리스팅이 되도록.
- * 상세 추출은 상품당 30~90초라 병목이지만, 카드 정보(제목·가격·썸네일)는 목록 한 장에서
- * 수십 개가 한꺼번에 나온다. 그래서 "먼저 넓게 리스팅 → 고른 것만 깊게" 가 가능해진다.
+ * 상세 추출은 상품당 30~90초라 병목이지만, 카드 정보는 목록 한 장에서 수십 개가 한꺼번에
+ * 나온다. 그래서 "먼저 넓게 리스팅 → 고른 것만 깊게" 가 가능해진다.
  *
- * 링크에서 위로 올라가며 카드 컨테이너를 찾고, 그 안에서 텍스트·가격·이미지를 뽑는다.
- * (카드 마크업의 클래스는 수시로 바뀌므로 구조만 본다)
+ * ★ 1순위 출처는 화면 텍스트가 아니라 **앵커에 박힌 data-shp-contents-dtl** 이다(실측
+ *   2026-08-18). 네이버가 자기 클릭로그용으로 상품명·가격·카테고리·nvMid 를 JSON 으로
+ *   심어 둔다. 화면에서 긁으면 난독화 클래스와 배지 텍스트에 휘둘리지만 이건 안 흔들린다.
+ *     data-shp-contents-dtl = [{key:'prod_nm',value:'특품 대추방울토마토 …'},{key:'price',…}]
+ *     data-shp-contents-id  = nvMid
+ *
+ * ★ 앵커 텍스트를 제목으로 쓰면 안 된다 — 카드 링크의 innerText 는 접근성 라벨
+ *   "새 창에서 열림" 뿐이다(실측: 수집 54건의 제목이 전부 이 문자열이었다).
+ *
+ * ★ 썸네일은 **data-src** 를 먼저 본다. 화면 밖 카드의 img.src 는 1×1 투명 data: URI
+ *   placeholder 라, src 를 먼저 집으면 진짜 주소를 영영 못 본다(실측: 68장 중 67장이 placeholder).
  */
 export const collectCardsJs = `
 (() => {
-  const items = [];
-  const seen = new Set();
-  const PRODUCT_RE = /naver\\.com\\/([^/]+)\\/products\\/(\\d+)/;
+  const out = new Map();
+  const clean = (s) => String(s == null ? '' : s).replace(/\\s+/g, ' ').trim();
+  // 제목 자리에 올 수 없는 접근성/배지 문구.
+  const NOISE = /^(새 창에서 열림|광고|찜하기|장바구니|장바구니 담기|무료배송|오늘출발|톡톡)$/;
 
-  for (const a of document.querySelectorAll('a[href*="/products/"]')) {
-    const href = (a.href || '').split('?')[0];
-    const m = href.match(PRODUCT_RE);
-    if (!m) continue;
-    const storeId = m[1], productNo = m[2];
-    // 스토어 자리에 오면 안 되는 값 — 목록에서 딸려오는 노이즈
-    if (['search', 'products', 'category', 'best', 'new', 'sale', 'event'].includes(storeId)) continue;
-    if (seen.has(productNo)) continue;
-    seen.add(productNo);
+  /** 상품 URL 판별 — 목록에는 스마트스토어·브랜드·마켓·윈도가 섞여 나온다. */
+  const parseProduct = (href) => {
+    let u; try { u = new URL(href); } catch (e) { return null; }
+    if (!/(^|\\.)naver\\.com$/.test(u.hostname)) return null;
+    const p = u.pathname;
+    let m;
+    if ((m = p.match(/^\\/market\\/([\\w-]+)\\/products\\/(\\d+)/))) return { storeId: m[1], productNo: m[2] };
+    if ((m = p.match(/^\\/window-products\\/([\\w-]+)\\/(\\d+)/))) return { storeId: m[1], productNo: m[2] };
+    if ((m = p.match(/^\\/([\\w-]+)\\/products\\/(\\d+)/))) return { storeId: m[1], productNo: m[2] };
+    return null;
+  };
 
-    // 카드 컨테이너 찾기 — 이미지를 품은 가장 가까운 조상(최대 6단계).
-    let card = a, img = a.querySelector('img');
-    for (let i = 0; i < 6 && card.parentElement; i++) {
-      if (img) break;
-      card = card.parentElement;
-      img = card.querySelector('img');
+  const shpDetail = (a) => {
+    try {
+      const raw = a.getAttribute('data-shp-contents-dtl');
+      if (!raw) return null;
+      const o = {};
+      for (const kv of JSON.parse(raw)) if (kv && kv.key) o[kv.key] = kv.value;
+      return o;
+    } catch (e) { return null; }
+  };
+
+  /** 카드 컨테이너 — 가격과 이미지를 함께 품은 가장 가까운 조상. */
+  const cardOf = (a) => {
+    let el = a;
+    for (let i = 0; i < 8 && el.parentElement; i++) {
+      if (/원/.test(el.innerText || '') && el.querySelector('img')) break;
+      el = el.parentElement;
     }
+    return el;
+  };
 
-    const text = (card.innerText || '').replace(/\\s+/g, ' ').trim();
-    // 가격: "12,900원" 형태 중 가장 앞의 1000 이상 값(할인가가 먼저 온다)
-    let price = 0;
-    for (const pm of text.matchAll(/([\\d,]{3,})\\s*원/g)) {
-      const v = parseInt(pm[1].replace(/,/g, ''), 10);
-      if (v >= 100) { price = v; break; }
+  const thumbOf = (card) => {
+    for (const im of card.querySelectorAll('img')) {
+      const cands = [
+        im.getAttribute('data-src'),
+        im.dataset ? (im.dataset.original || im.dataset.lazySrc) : null,
+        im.getAttribute('src'),
+        im.currentSrc,
+        (im.getAttribute('srcset') || '').split(',')[0].trim().split(' ')[0],
+      ];
+      for (const c of cands) {
+        if (!c || /^data:/.test(c)) continue;      // 1×1 placeholder 는 주소가 아니다
+        if (/pstatic\\.net|phinf/.test(c)) return c;
+      }
     }
-    // 제목: 링크 자체 텍스트 우선(카드 전체 텍스트엔 가격·배지가 섞인다)
-    let title = (a.innerText || '').replace(/\\s+/g, ' ').trim();
-    if (!title || title.length < 4) {
-      title = text.split(/\\s원|\\d{1,3}(?:,\\d{3})+원/)[0].slice(0, 120).trim();
+    return '';
+  };
+
+  /**
+   * 트래킹 JSON 이 없는 카드용 폴백 — 접근성 라벨 → alt → 카드 안 텍스트 조각.
+   * ★ 폴백으로 뽑은 문자열에는 홍보 문구가 붙어 온다(실측: 컬리·GS더프레시 카드에서
+   *   "…복숭아 1.2kg(딱복) 할인 전 판매가 24,900원 20% 할인"). 상품명이 아닌 부분은
+   *   **가장 앞의 홍보 표시에서 잘라낸다** — 뒤를 살리려다 이름까지 오염시키지 않는다.
+   */
+  const PROMO = /할인\\s*전\\s*판매가|정상\\s*가격|정상가|쿠폰\\s*할인|즉시\\s*할인|무료\\s*배송|리뷰\\s*[\\d,]+|\\d+%\\s*할인/;
+  const trimPromo = (t) => clean(String(t == null ? '' : t).split(PROMO)[0]);
+
+  const titleOf = (card, a) => {
+    for (const id of (a.getAttribute('aria-labelledby') || '').split(/\\s+/)) {
+      if (!id) continue;
+      const el = document.getElementById(id);
+      const t = trimPromo(el && el.innerText);
+      if (t.length > 3 && !NOISE.test(t)) return t;
     }
-    if (title.length > 120) title = title.slice(0, 120);
+    for (const im of card.querySelectorAll('img[alt]')) {
+      const t = trimPromo(im.getAttribute('alt'));
+      if (t.length > 3 && !NOISE.test(t)) return t;
+    }
+    let best = '';
+    for (const el of card.querySelectorAll('strong, h1, h2, h3, h4, span, div, p')) {
+      if (el.children.length) continue;                 // 잎 노드만 — 안 그러면 카드 전체가 잡힌다
+      const t = trimPromo(el.innerText);
+      if (t.length < 5 || t.length > 120) continue;
+      if (NOISE.test(t) || /^[\\d,]+\\s*원?$/.test(t) || /^리뷰/.test(t)) continue;
+      if (t.length > best.length) best = t;
+    }
+    return best;
+  };
 
-    let thumb = img ? (img.src || img.getAttribute('data-src') || '') : '';
-    if (thumb && !/pstatic\\.net/.test(thumb)) thumb = '';
+  for (const a of document.querySelectorAll('a[href]')) {
+    const info = parseProduct(a.href || '');
+    if (!info) continue;
+    if (['search', 'products', 'category', 'best', 'new', 'sale', 'event', 'ns'].includes(info.storeId)) continue;
 
-    // 리뷰수 — 있으면 인기도 판단에 쓴다.
+    const d = shpDetail(a);
+    const card = cardOf(a);
+    const text = clean(card.innerText);
+
+    let price = parseInt(String((d && d.price) || '').replace(/[^0-9]/g, ''), 10) || 0;
+    if (!price) {
+      const pm = text.match(/([\\d,]{3,})\\s*원/);
+      if (pm) price = parseInt(pm[1].replace(/,/g, ''), 10) || 0;
+    }
     const rm = text.match(/리뷰\\s*([\\d,]+)/);
-    const reviewCount = rm ? parseInt(rm[1].replace(/,/g, ''), 10) : 0;
 
-    items.push({ productNo, storeId, url: href, title, price, thumb, reviewCount });
+    const item = {
+      productNo: info.productNo,
+      storeId: info.storeId,
+      url: (a.href || '').split('?')[0],
+      title: clean((d && d.prod_nm) || '').slice(0, 160) || titleOf(card, a),
+      price,
+      thumb: thumbOf(card),
+      reviewCount: rm ? parseInt(rm[1].replace(/,/g, ''), 10) : 0,
+      nvMid: a.getAttribute('data-shp-contents-id') || '',
+      catId: (d && d.cat_id) || '',
+    };
+
+    // 같은 상품이 여러 앵커(썸네일용·제목용)로 나온다. 예전엔 첫 앵커만 쓰고 나머지를 버려서
+    // 제목이 통째로 날아갔다 — 이제 **필드별로 채워진 쪽**을 남긴다.
+    const prev = out.get(info.productNo);
+    out.set(info.productNo, !prev ? item : {
+      ...prev,
+      title: (prev.title || '').length >= (item.title || '').length ? prev.title : item.title,
+      price: prev.price || item.price,
+      thumb: prev.thumb || item.thumb,
+      reviewCount: prev.reviewCount || item.reviewCount,
+      nvMid: prev.nvMid || item.nvMid,
+      catId: prev.catId || item.catId,
+    });
   }
-  return items;
+  return [...out.values()];
 })()
 `;
 
@@ -649,6 +761,122 @@ export const probePageJs = `
     shapes,
     productish,
     text: body.replace(/\\s+/g, ' ').slice(0, 1200),
+  };
+})()
+`;
+
+/**
+ * 상품 페이지 진단 — 옵션·상세이미지·리뷰이미지가 **실제로 어디에 있는지** 찍어 온다.
+ * ---------------------------------------------------------------------------
+ * 목록에서 배운 교훈을 그대로 적용한다: 화면 텍스트를 긁기 전에 **페이지가 이미 들고 있는
+ * 구조화 데이터**부터 찾는다. 목록 카드는 data-shp-contents-dtl 에 상품명·가격이 통째로
+ * 들어 있었고, 그걸 몰라서 54건의 제목이 전부 "새 창에서 열림" 이었다.
+ *
+ * 스마트스토어는 보통 window.__PRELOADED_STATE__ 에 옵션 조합까지 든 JSON 을 실어 준다.
+ * 있으면 DOM 파싱이 통째로 필요 없어진다 — 그래서 **키 이름만** 먼저 떠 온다(본문은 수 MB라
+ * 통째로 가져오면 IPC 가 막힌다).
+ */
+export const probeProductJs = `
+(() => {
+  const cut = (s, n) => String(s == null ? '' : s).replace(/\\s+/g, ' ').trim().slice(0, n);
+  const keysOf = (o, d) => {
+    if (!o || typeof o !== 'object') return typeof o;
+    const ks = Object.keys(o).slice(0, 40);
+    if (!d) return ks;
+    const out = {};
+    for (const k of ks) {
+      const v = o[k];
+      out[k] = Array.isArray(v) ? ('array[' + v.length + ']')
+        : (v && typeof v === 'object') ? Object.keys(v).slice(0, 25)
+        : typeof v;
+    }
+    return out;
+  };
+
+  // ── ① 페이지가 들고 있는 구조화 데이터 ──────────────────────────────────
+  const states = {};
+  for (const name of ['__PRELOADED_STATE__', '__NEXT_DATA__', '__NUXT__', '__APOLLO_STATE__']) {
+    try {
+      if (window[name]) states[name] = { top: keysOf(window[name], true), size: JSON.stringify(window[name]).length };
+    } catch (e) { states[name] = { error: String(e && e.message) }; }
+  }
+  // 옵션이 들어 있을 법한 자리를 이름으로 훑는다(경로를 모르니 넓게).
+  const optionHits = [];
+  const walk = (o, path, depth) => {
+    if (!o || typeof o !== 'object' || depth > 5 || optionHits.length > 12) return;
+    for (const k of Object.keys(o)) {
+      if (/option|Option/.test(k)) {
+        const v = o[k];
+        optionHits.push({
+          path: path + '.' + k,
+          kind: Array.isArray(v) ? 'array[' + v.length + ']' : typeof v,
+          sample: Array.isArray(v) && v[0] ? cut(JSON.stringify(v[0]), 300) : cut(JSON.stringify(v), 200),
+        });
+      }
+      const v = o[k];
+      if (v && typeof v === 'object') walk(v, path + '.' + k, depth + 1);
+    }
+  };
+  try { if (window.__PRELOADED_STATE__) walk(window.__PRELOADED_STATE__, 'PRELOADED', 0); } catch (e) { /* ignore */ }
+
+  // JSON-LD
+  const ld = [];
+  for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
+    try {
+      const d = JSON.parse(s.textContent);
+      for (const x of (Array.isArray(d) ? d : [d])) if (x && x['@type']) ld.push({ type: x['@type'], keys: Object.keys(x).slice(0, 20) });
+    } catch (e) { /* ignore */ }
+  }
+
+  // ── ② 옵션 UI ───────────────────────────────────────────────────────────
+  const optionUi = {
+    selects: [...document.querySelectorAll('select')].slice(0, 6).map((s) => ({
+      name: s.name || s.id || '', count: s.options.length,
+      sample: [...s.options].slice(0, 4).map((o) => cut(o.textContent, 40)),
+    })),
+    comboButtons: [...document.querySelectorAll('[role="combobox"], [role="listbox"], button')]
+      .filter((b) => /옵션|선택|option/i.test((b.innerText || '') + (b.getAttribute('aria-label') || '')))
+      .slice(0, 8)
+      .map((b) => ({ tag: b.tagName, text: cut(b.innerText || b.getAttribute('aria-label'), 40) })),
+  };
+
+  // ── ③ 이미지 — 어디에 몇 장이 어떤 방식으로 있나 ────────────────────────
+  const imgInfo = (im) => ({
+    src: cut(im.getAttribute('src'), 110),
+    dataSrc: cut(im.getAttribute('data-src'), 110),
+    alt: cut(im.getAttribute('alt'), 60),
+    cls: cut(im.className, 50),
+    w: im.naturalWidth || im.width || 0,
+  });
+  const all = [...document.querySelectorAll('img')];
+  const pstatic = all.filter((i) => /pstatic\\.net|phinf/.test((i.getAttribute('src') || '') + (i.getAttribute('data-src') || '')));
+
+  // runOne 은 data.name 으로 "페이지가 덜 로드됐는지"를 판정하고 없으면 재시도한다.
+  // 진단이라고 이 계약을 어기면 멀쩡한 페이지를 3번 다시 여는 낭비가 된다.
+  const og = document.querySelector('meta[property="og:title"]');
+  const name = cut((og && og.content) || document.title, 160);
+
+  return {
+    name,
+    url: location.href.slice(0, 200),
+    title: cut(document.title, 120),
+    textLen: ((document.body && document.body.innerText) || '').length,
+    states,
+    optionHits,
+    ld,
+    optionUi,
+    images: {
+      total: all.length,
+      pstatic: pstatic.length,
+      lazyOnly: all.filter((i) => !i.getAttribute('src') || /^data:/.test(i.getAttribute('src') || '')).length,
+      samples: pstatic.slice(0, 8).map(imgInfo),
+    },
+    // 리뷰 영역 — 별도 탭/지연로딩이면 여기 수가 0 이고, 그 사실이 곧 설계 정보다.
+    review: {
+      sectionText: cut((document.querySelector('#REVIEW, [id*="review" i], [class*="review" i]') || {}).innerText, 200),
+      countHint: cut(((document.body && document.body.innerText) || '').match(/리뷰\\s*[\\d,]+/) || [''], 30),
+    },
+    textHead: cut((document.body && document.body.innerText) || '', 600),
   };
 })()
 `;

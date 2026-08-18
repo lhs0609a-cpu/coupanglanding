@@ -16,7 +16,7 @@ import naverGate from '../../naver-gate.mjs';
 import { WindowPool, WINDOW_MIN, WINDOW_MAX, WINDOW_DEFAULT } from './window-pool.mjs';
 import { runOne } from './runner.mjs';
 import {
-  probePageJs, collectCardsJs, scrollStepJs, keepLoginJs, naverAutoLoginJs, loginPageStateJs,
+  probePageJs, probeProductJs, collectCardsJs, scrollStepJs, keepLoginJs, naverAutoLoginJs, loginPageStateJs,
 } from './inject.mjs';
 import { loginState, clearLogin, setMediaAllowed } from './browser.mjs';
 import {
@@ -50,6 +50,21 @@ function pushLog(message) {
 
 function pushStatus() {
   try { deps.send('naver-ingest:status', getStatus()); } catch { /* ignore */ }
+}
+
+/**
+ * 사람이 직접 해야만 넘어가는 순간(보안문자·2단계 인증)에 OS 알림을 띄운다.
+ * 패널 로그만으로는 부족하다 — 품절 감시는 뒤에서 도는 기능이라 화면을 안 보고 있고,
+ * 여기서 막히면 감시가 조용히 멈춘 채 며칠이 간다(과거 실측된 실패 방식이다).
+ */
+async function notifyHuman(body) {
+  try {
+    const { Notification } = await import('electron');
+    if (!Notification.isSupported()) return;
+    const n = new Notification({ title: '메가로드 도우미', body, urgency: 'critical' });
+    n.on('click', () => { try { pool?.slots?.find((s) => s.sw?.status === 'login')?.sw?.show(); } catch { /* ignore */ } });
+    n.show();
+  } catch { /* 알림 실패는 흐름을 막지 않는다 */ }
 }
 
 export function initService({ store, send, userDataDir, getAccount }) {
@@ -282,7 +297,9 @@ export async function probePage(catId) {
   if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
 
   pushLog(`페이지 진단 시작 — 카테고리 ${catId}`);
-  await ensureNaverLogin();
+  // 진단은 한 장짜리라 로그인 복구를 기다려도 되지만, 캡차가 뜨면 10분을 매달리게 된다.
+  // 이미 막힌 상태면 기다리지 않고 그대로 진단한다(로그인 화면이 찍히는 것도 정보다).
+  await ensureNaverLogin().catch(() => null);
   await naverGate.acquire('ingest');
 
   const login = await loginState();
@@ -343,6 +360,31 @@ export async function probePage(catId) {
   return { ok: true, path, report };
 }
 
+/**
+ * 상품 페이지 진단 — 옵션·상세이미지·리뷰이미지를 어디서 뽑아야 하는지 실측한다.
+ * 상세 추출기를 짜기 전에 **한 장만 열어** 구조를 확인하는 용도다(예산 1).
+ */
+export async function probeProduct(url) {
+  requireAdmin();
+  if (!url) throw new Error('상품 URL 을 입력하세요.');
+  const p = ensurePool();
+  if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
+  await ensureNaverLogin().catch(() => null);
+
+  pushLog(`상품 페이지 진단 — ${url}`);
+  const r = await runOne(p, url, { onLog: pushLog, extract: probeProductJs });
+
+  let path = null;
+  try {
+    path = join(deps.userDataDir || '.', 'naver-product-probe.json');
+    writeFileSync(path, JSON.stringify(r, null, 2));
+    pushLog(`상품 진단 파일 저장 — ${path}`);
+  } catch (e) {
+    pushLog(`상품 진단 저장 실패(결과는 응답에 있습니다) — ${e?.message || e}`);
+  }
+  return { ok: !!r?.ok, path, report: r };
+}
+
 /** 발견한 트리 통째로 — 제품에 동봉할 스냅샷(category-tree.json)을 만들 때 쓴다. */
 export function exportCategories() {
   requireAdmin();
@@ -390,9 +432,9 @@ export async function startCollect({ catId, catName = '', target = 300 }) {
   const p = ensurePool();
   if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
 
-  // 로그인이 끊겨 있으면 여기서 알아서 되살린다 — 사람이 버튼을 누르러 오지 않아도 되게.
-  await ensureNaverLogin();
-
+  // ★ 여기서 로그인을 기다리지 않는다. 캡차가 뜨면 사람이 풀 때까지 최대 10분인데, 그동안
+  //   이 요청이 응답을 안 돌려줘서 웹 화면은 "눌렀는데 아무 일도 안 일어난다"가 된다(실측).
+  //   로그인 복구는 아래 collectCategory 의 onNeedLogin 이 **창을 잡기 전에** 처리한다.
   collectAbort = new AbortController();
   collection = { catId, catName, items: [], stopped: null, at: Date.now(), running: true, progress: { collected: 0, scrolls: 0 } };
   pushLog(`수집 시작 — ${catName || catId} (목표 ${target}개)`);
@@ -524,6 +566,16 @@ export async function openNaverLogin() {
 
 let autoLoginTask = { running: false, at: 0, result: null };
 
+/**
+ * 사람이 풀어야 하는 벽(캡차·2단계)에 막힌 시각.
+ * ★ 왜 필요한가(실측 2026-08-18): 캡차 대기가 10분 만에 끝나자마자 자동으로 다시 로그인을
+ *   시도해 또 캡차를 받았다. 사람이 자리에 없으면 이게 계속 반복된다 — 이미 429 를 26번
+ *   맞은 IP 로 로그인 폼을 두드리는 짓이라 상황을 악화시키고 계정도 위험해진다.
+ *   막힌 뒤에는 **자동 재시도를 멈추고** 사람이 버튼을 누를 때까지 기다린다.
+ */
+let humanBlockedAt = 0;
+const HUMAN_BLOCK_QUIET_MS = 30 * 60 * 1000;
+
 /** 자동 로그인이 가능한 상태인지 — 웹 화면이 버튼을 켤지 말지 판단하는 값. */
 export async function credentialStatus() {
   // 게이트 없음 — 네이버 로그인은 **모든 셀러**가 각자 해야 한다(품절 감시의 전제).
@@ -556,10 +608,18 @@ export async function ensureNaverLogin() {
   if (st.loggedIn) return { ok: true, already: true };
   if (!hasCredentials()) return { ok: false, reason: 'no-credential' };
   if (autoLoginTask.running) return { ok: false, reason: 'running' };
+  // 방금 캡차/2단계에 막혔으면 자동으로는 다시 시도하지 않는다 — 사람이 없는데 반복해 봐야
+  // 네이버에 로그인 시도만 쌓인다. 사람이 "지금 자동 로그인"을 누르면 그때 다시 간다.
+  if (Date.now() - humanBlockedAt < HUMAN_BLOCK_QUIET_MS) {
+    pushLog('네이버가 사람 확인(보안문자/2단계)을 요구한 상태라 자동 재시도를 멈춥니다 — 화면의 "지금 자동 로그인"을 눌러 창에서 한 번 통과시켜 주세요.');
+    return { ok: false, reason: 'human-required' };
+  }
   return autoLoginNow();
 }
 
-export async function autoLoginNow() {
+/** 사람이 직접 누른 경우 — 위 조용히-기다리기를 해제하고 간다. */
+export async function autoLoginNow({ byHuman = false } = {}) {
+  if (byHuman) humanBlockedAt = 0;
   if (autoLoginTask.running) return { ok: false, reason: 'running' };
   const creds = await loadCredentials();
   if (!creds) return { ok: false, reason: 'no-credential' };
@@ -633,15 +693,24 @@ export async function autoLoginNow() {
 
       // ② 캡차 / 2단계 인증 — 사람에게 넘기고 기다린다(최대 10분).
       if (ps?.captcha || ps?.needHuman) {
+        // 사람이 없으면 자동 재시도를 멈춘다 — 통과하면 아래에서 바로 해제한다.
+        humanBlockedAt = Date.now();
         sw.show();
-        pushLog(ps.captcha
+        const msg = ps.captcha
           ? '🔐 네이버가 보안문자를 요구합니다 — 도우미 창에서 직접 풀어주세요. 풀면 자동으로 이어집니다.'
-          : '🔐 네이버가 기기 등록/2단계 인증을 요구합니다 — 도우미 창에서 진행해 주세요. 끝나면 자동으로 이어집니다.');
+          : '🔐 네이버가 기기 등록/2단계 인증을 요구합니다 — 도우미 창에서 진행해 주세요. 끝나면 자동으로 이어집니다.';
+        pushLog(msg);
+        // 창만 띄우면 다른 작업 중인 사람은 못 본다. 품절 감시는 대개 뒤에서 도는 기능이라
+        // 여기서 막히면 "왜 안 되지"만 남는다 → OS 알림으로 확실히 부른다.
+        notifyHuman(ps.captcha
+          ? '네이버 보안문자를 풀어주세요'
+          : '네이버 추가 인증이 필요합니다');
         for (let i = 0; i < 120; i++) {
           await sleep(5000);
           const st = await loginState();
           if (st.loggedIn) {
             loginCache = { loggedIn: true, persistent: !!st.persistent, at: Date.now() };
+            humanBlockedAt = 0;                     // 통과했으니 조용히-기다리기 해제
             pushLog('✅ 네이버 로그인 완료 — 이어서 진행합니다.');
             sw.hide();
             sw.status = 'idle';
