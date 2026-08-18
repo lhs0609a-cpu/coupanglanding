@@ -252,23 +252,67 @@ function parseNaverOptions(html) {
  *   실제로 삭제된 상품(yoomifriends/1239)이 "품절 3,650원"으로 기록돼 있었다 — 상태도 가격도
  *   다른 상품 것이었다.
  */
-function pickProductNode(body) {
+function collectProductNodes(root) {
+  // 권위 필드(productStatusType)를 들고 있는 객체를 전부 모은다. 깊이·개수를 묶어 폭주를 막는다.
+  const found = [];
+  const stack = [[root, 0]];
+  while (stack.length && found.length < 40) {
+    const [node, depth] = stack.pop();
+    if (!node || typeof node !== 'object' || depth > 6) continue;
+    if (Array.isArray(node)) {
+      for (const v of node.slice(0, 60)) stack.push([v, depth + 1]);
+      continue;
+    }
+    if (typeof node.productStatusType === 'string' && node.productStatusType) found.push(node);
+    for (const k of Object.keys(node)) {
+      const v = node[k];
+      if (v && typeof v === 'object') stack.push([v, depth + 1]);
+    }
+  }
+  return found;
+}
+
+/**
+ * 이 URL 이 가리키는 **바로 그 상품 노드**를 찾는다.
+ * ---------------------------------------------------------------------------
+ * ★ 경로를 하드코딩하지 않는 이유(실측 2026-08-18): state.product 는 키만 있고 값이 전부 null 인
+ *   껍데기였다(복숭아 상품, 최상위 키 121개). 진짜 값은 다른 자리에 있었다. 경로를 박아 두면
+ *   네이버가 자리를 옮길 때마다 **살아 있는 상품이 통째로 "삭제"로 뒤집힌다.**
+ * ★ 그래서 자리 대신 **신원**으로 찾는다: URL 의 상품번호와 일치하는 노드. 번호로 못 고르면
+ *   후보가 하나일 때만 쓰고, 여럿이면 포기한다(모르면 모른다고 하는 편이 안전하다).
+ */
+function pickProductNode(body, wantNo) {
   if (!body || body[0] !== '{') return null;      // outerHTML 폴백이면 state 가 아니다
   let state;
   try { state = JSON.parse(body); } catch { return null; }
-  const p = state && state.product;
-  if (!p || typeof p !== 'object') return null;
-  // 구조 변형 대비 — 예전 스토어 페이지는 product.A 아래에 실제 상품이 있었다.
-  if (p.A && typeof p.A === 'object' && (p.A.productNo || p.A.productStatusType)) return p.A;
-  return p;
+  if (!state || typeof state !== 'object') return null;
+
+  const nodes = collectProductNodes(state);
+  if (!nodes.length) {
+    // 권위 필드가 아무 데도 없다 — 삭제 페이지이거나 아직 안 실렸다. 판정은 호출부에 맡긴다.
+    return null;
+  }
+  if (wantNo) {
+    const same = (v) => v != null && String(v) === String(wantNo);
+    const hit = nodes.find((n) => same(n.productNo) || same(n.id) || same(n.channelProductNo)
+      || same(n.originProductNo) || same(n.channelProductId));
+    if (hit) return hit;
+  }
+  return nodes.length === 1 ? nodes[0] : null;    // 애매하면 쓰지 않는다
+}
+
+/** URL 에서 상품번호 — 신원 대조의 기준. */
+function productNoOf(url) {
+  const m = String(url || '').match(/\/products\/(\d+)/) || String(url || '').match(/\/(\d{6,})(?:[/?#]|$)/);
+  return m ? m[1] : null;
 }
 
 /** 본 상품 노드 기준 권위 상태. 노드를 못 찾으면 undefined 를 돌려 폴백에 맡긴다. */
 function stateFromNode(prod) {
   if (!prod) return undefined;
-  // 삭제/미존재 — 노드는 있는데 권위 필드가 통째로 비어 있다(실측: "상품이 존재하지 않습니다").
-  if (!prod.productStatusType && !prod.channelProductDisplayStatusType
-      && !prod.productNo && !prod.salePrice) return 'removed';
+  // ★ 값이 비어 있다고 **삭제로 단정하지 않는다**. 페이지가 덜 실렸을 뿐일 수 있고, 그때 삭제로
+  //   찍으면 살아 있는 상품이 통째로 뒤집힌다. 삭제는 페이지 제목으로만 확정한다(위 fetchNaverProduct).
+  if (!prod.productStatusType && !prod.channelProductDisplayStatusType) return undefined;
   const disp = prod.channelProductDisplayStatusType;
   if (disp && disp !== 'ON') return 'removed';
   const st = prod.productStatusType;
@@ -365,7 +409,7 @@ export async function fetchNaverProduct(url) {
     let options, mainPrice, state, source = null;
     if (/smartstore\.naver|shop\.naver/i.test(url)) {
       // ① 본 상품 노드에서 직접 — 여기서 답이 나오면 다른 상품이 섞일 여지가 없다.
-      const prod = pickProductNode(body);
+      const prod = pickProductNode(body, productNoOf(url));
       if (prod) {
         state = stateFromNode(prod);
         mainPrice = priceFromNode(prod);

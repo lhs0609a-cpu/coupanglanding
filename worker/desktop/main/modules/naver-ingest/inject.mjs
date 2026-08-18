@@ -883,6 +883,20 @@ export const probeProductJs = `
         salePrice: prod.salePrice || (prod.A && prod.A.salePrice) || null,
         optionCombinationsLen: (prod.optionCombinations || (prod.A && prod.A.optionCombinations) || []).length,
         optionSample: cut(JSON.stringify((prod.optionCombinations || (prod.A && prod.A.optionCombinations) || [])[0]), 400),
+        // 옵션이 어느 이름으로 들어 있는지 모르니 **본 상품 노드 안의 option* 키를 전부** 훑는다.
+        optionKeys: Object.keys(prod).filter((k) => /option/i.test(k)).map((k) => ({
+          key: k,
+          kind: Array.isArray(prod[k]) ? 'array[' + prod[k].length + ']' : typeof prod[k],
+          sample: cut(JSON.stringify(Array.isArray(prod[k]) ? prod[k][0] : prod[k]), 300),
+        })),
+        // 상세 본문·이미지가 어디 있는지도 같이 본다(상세 추출기가 읽어야 할 자리).
+        contentLen: typeof prod.content === 'string' ? prod.content.length : null,
+        contentHead: cut(typeof prod.content === 'string' ? prod.content : '', 300),
+        productImages: Array.isArray(prod.productImages) ? prod.productImages.length : null,
+        productImageSample: cut(JSON.stringify((prod.productImages || [])[0]), 250),
+        channelProductImages: Array.isArray(prod.channelProductImages) ? prod.channelProductImages.length : null,
+        detailAttrs: Array.isArray(prod.channelProductAttributes) ? prod.channelProductAttributes.length : null,
+        originArea: cut(JSON.stringify(prod.originAreaInfo), 200),
       } : null,
     };
   } catch (e) { stateAudit = { error: String(e && e.message) }; }
