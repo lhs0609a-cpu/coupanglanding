@@ -41,6 +41,28 @@ export interface GateState {
 
 export interface IngestLog { at: number; message: string }
 
+/**
+ * 상세 추출 진행 — 목록에서 고른 상품을 올인원이 먹는 폴더로 굽는 작업.
+ * 상품 1건에 페이지를 한 장 열어야 해서 건당 30~90초다(목록과 달리 여기가 병목이다).
+ */
+export interface DetailState {
+  running: boolean;
+  total: number;
+  done: number;
+  ok: number;
+  failed: number;
+  current: string;
+  rootDir: string;
+  stopped: string | null;
+  at: number;
+  results?: Array<{
+    ok: boolean; url: string; error?: string;
+    name?: string; price?: number; options?: number;
+    folder?: string; mainImages?: number; detailImages?: number; reviewImages?: number;
+    hasNotice?: boolean;
+  }>;
+}
+
 export interface NaverCategory { id: string; name: string }
 
 export interface CategoryPage {
@@ -143,6 +165,7 @@ export interface IngestStatus {
     credential?: { has: boolean; idMasked: string; savedAt: number };
     auto?: { running: boolean; at: number; result: { ok: boolean; reason?: string } | null };
   };
+  detail?: DetailState;
   logs?: IngestLog[];
 }
 
@@ -329,6 +352,32 @@ export async function stopCollect(ep: LocalEndpoint): Promise<void> {
  */
 export async function probePage(ep: LocalEndpoint, catId: string): Promise<{ path?: string }> {
   return (await post(ep, 'probe', { catId })) as { path?: string };
+}
+
+
+/**
+ * 상세 추출 시작 — 고른 상품들을 올인원 입력 폴더로 만든다.
+ * 오래 걸리므로 시작만 하고 즉시 돌아온다(진행은 status.detail 폴링).
+ */
+export async function startDetailExtract(
+  ep: LocalEndpoint, urls: string[], rootDir?: string,
+): Promise<{ ok: boolean; total?: number; rootDir?: string }> {
+  return (await post(ep, 'detail', { urls, rootDir })) as { ok: boolean; total?: number; rootDir?: string };
+}
+
+export async function stopDetailExtract(ep: LocalEndpoint): Promise<void> {
+  await post(ep, 'detail/stop', {});
+}
+
+/** 상세 추출 결과(건별). status 와 분리돼 있어 필요할 때만 부른다. */
+export async function fetchDetailState(ep: LocalEndpoint): Promise<DetailState | null> {
+  try {
+    const res = await fetch(qs(ep, 'detail'));
+    if (!res.ok) return null;
+    return (await res.json()) as DetailState;
+  } catch {
+    return null;
+  }
 }
 
 /** 수집 결과(수백 건). status 폴링과 분리돼 있어 필요할 때만 부른다. */
