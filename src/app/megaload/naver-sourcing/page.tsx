@@ -36,8 +36,9 @@ import { triggerLocalUpdate } from '@/lib/megaload/allinone-local';
  *   0.2.97 = 목록 페이지 경로 교정(search.shopping) + 네이버 로그인 창
  *   0.2.98 = 네이버 자동 로그인(계정을 OS 암호저장소에 보관, 세션 끊기면 스스로 복구)
  *   0.3.2  = 상세 추출(옵션·상세·고시정보·이미지 → 올인원 폴더) + 세션 자가복구
+ *   0.3.3  = 쿠키 즉시 디스크 기록(강제 종료로 로그인이 날아가지 않게)
  */
-const MIN_HELPER_VERSION = '0.3.2';
+const MIN_HELPER_VERSION = '0.3.3';
 
 /** "0.2.9" vs "0.2.10" 을 문자열 비교하면 틀린다 — 숫자 단위로 비교한다. */
 function isOlder(version: string, min: string): boolean {

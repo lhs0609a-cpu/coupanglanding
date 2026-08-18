@@ -897,5 +897,8 @@ export function showWindow(index) {
 }
 
 export function shutdown() {
+  // 끄기 직전에 쿠키를 디스크에 밀어 넣는다 — 안 그러면 다음 실행이 로그아웃 상태로 시작하고
+  // 그 로그인 시도가 곧 캡차다(오늘 이 경로로 여러 번 겪었다).
+  try { persistLoginCookies().catch(() => {}); } catch { /* ignore */ }
   try { pool?.stop(); } catch { /* ignore */ }
 }

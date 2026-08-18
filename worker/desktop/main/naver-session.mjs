@@ -118,6 +118,11 @@ export async function persistLoginCookies({ days = 14 } = {}) {
         n += 1;
       } catch { /* 한 개 실패해도 나머지는 살린다 */ }
     }
+    // ★ 디스크에 **지금** 쓰게 강제한다. Chromium 은 쿠키를 주기적으로만 flush 하는데,
+    //   앱이 강제 종료되면(개발 중 재시작·작업관리자 종료) 아직 안 쓴 쿠키가 통째로 날아간다.
+    //   실측: 방금 로그인한 세션이 재시작 후 NID_AUT 까지 없어져 자가복구가 재료 없이 실패했다.
+    //   flush 는 로컬 I/O 라 네트워크 비용이 0 이다 — 아낄 이유가 없다.
+    try { await ses.cookies.flushStore(); } catch { /* 구버전 electron 은 없을 수 있다 */ }
     return n;
   } catch {
     return 0;
