@@ -20,6 +20,7 @@ import {
 } from './inject.mjs';
 import { loginState, clearLogin, setMediaAllowed } from './browser.mjs';
 import { persistLoginCookies } from '../../naver-session.mjs';
+import { reviveSession, startKeepAlive, keepAliveState } from '../../naver-keepalive.mjs';
 import {
   initCredentials, saveCredentials, clearCredentials, credentialInfo, hasCredentials,
   loadCredentials, encryptionAvailable,
@@ -30,6 +31,7 @@ import {
   ROOT_CATEGORIES,
 } from './categories.mjs';
 import { collectCategory } from './collect-list.mjs';
+import { extractOne, ensureRoot } from './detail-extract.mjs';
 
 let pool = null;
 let deps = {
@@ -68,8 +70,16 @@ async function notifyHuman(body) {
   } catch { /* 알림 실패는 흐름을 막지 않는다 */ }
 }
 
-export function initService({ store, send, userDataDir, getAccount }) {
-  deps = { store, send: send || (() => {}), getAccount: getAccount || (() => null), userDataDir };
+/**
+ * runAllinone: 추출이 끝난 폴더를 올인원(대표컷 선정·상세페이지 생성)에 그대로 넘기는 훅.
+ * 여기서 startGeneration 을 직접 부르지 않는 이유는 그 함수가 ctx(services·paths·shell)를
+ * 요구하는데 이 서비스는 그걸 모르기 때문이다. 모듈이 ctx 를 쥐고 있으니 모듈이 주입한다.
+ */
+export function initService({ store, send, userDataDir, getAccount, runAllinone }) {
+  deps = {
+    store, send: send || (() => {}), getAccount: getAccount || (() => null), userDataDir,
+    runAllinone: runAllinone || null,
+  };
   naverGate.init(userDataDir);
   initCategories(store);
   initCredentials(store);
@@ -78,6 +88,9 @@ export function initService({ store, send, userDataDir, getAccount }) {
     pushLog(`이전 실행에서 걸린 네이버 쿨다운이 ${Math.ceil(st.cooldownMsLeft / 1000)}초 남아 있습니다 — 그만큼 쉬고 시작합니다`);
   }
   naverGate.onChange(() => { if (pool) pushStatus(); });
+  // 세션을 살려 두는 게 캡차를 막는 가장 확실한 방법이다 — 앱이 켜져 있는 동안 주기적으로
+  // 네이버를 한 번씩 방문해 NID_SES 를 갱신한다(요청 1회, 로그인 화면을 거치지 않는다).
+  startKeepAlive({ onLog: pushLog });
   scheduleResume();
 }
 
@@ -151,6 +164,11 @@ export function getStatus() {
     count: collection.items.length,
     progress: collection.progress,
     at: collection.at,
+  };
+  base.detail = {
+    running: detail.running, total: detail.total, done: detail.done,
+    ok: detail.ok, failed: detail.failed, current: detail.current,
+    rootDir: detail.rootDir, stopped: detail.stopped, at: detail.at,
   };
   // 카테고리 미리 읽기 — 웹이 "이미 다 읽었는지 / 지금 읽는 중인지"를 이걸로 판단한다.
   const info = prewarmInfo();
@@ -491,6 +509,94 @@ export function stopCollect() {
   return true;
 }
 
+
+// ── 상세 추출 ─────────────────────────────────────────────────────────
+// 목록은 "넓게", 상세는 "고른 것만 깊게" — 상품 1건에 페이지 1장을 열어야 하므로 여기가
+// 병목이다(게이트 슬롯 1개 + 페이싱). 그래서 시작만 하고 즉시 돌아가며 진행은 status 로 본다.
+// 결과는 올인원이 그대로 먹는 폴더다 — 이 다리가 놓이면 검수 후 등록까지 이어진다.
+
+let detail = { running: false, total: 0, done: 0, ok: 0, failed: 0, current: '', rootDir: '', at: 0, stopped: null, results: [] };
+let detailAbort = null;
+
+export function getDetailState() {
+  const { results, ...rest } = detail;
+  return { ...rest, results: results.slice(-50) };   // 폴링이 무거워지지 않게 뒤쪽만
+}
+
+export async function startDetailExtract({ urls = [], rootDir = '', autoGenerate = true } = {}) {
+  requireAdmin();
+  const list = [...new Set((urls || []).filter((u) => typeof u === 'string' && u.includes('naver.com')))];
+  if (!list.length) throw new Error('추출할 상품 URL 이 없습니다.');
+  if (detail.running) throw new Error('이미 상세 추출이 진행 중입니다.');
+
+  const root = ensureRoot(rootDir || join(deps.userDataDir || '.', 'naver-sourcing'));
+  const p = ensurePool();
+  if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
+
+  detailAbort = new AbortController();
+  detail = { running: true, total: list.length, done: 0, ok: 0, failed: 0, current: '', rootDir: root, at: Date.now(), stopped: null, results: [] };
+  pushLog(`상세 추출 시작 — ${list.length}건 · 저장 위치 ${root}`);
+  pushLog('상품 1건에 페이지를 한 장 열어야 해서 건당 30~90초가 걸립니다.');
+
+  (async () => {
+    for (const url of list) {
+      if (detailAbort.signal.aborted) { detail.stopped = '중단됨'; break; }
+      // 로그인이 끊겨 있으면 되살린다(창을 잡기 전에 — 안 그러면 창 1개 설정에서 교착).
+      await ensureNaverLogin().catch(() => null);
+      detail.current = url;
+      const r = await extractOne(p, url, root, { onLog: pushLog, signal: detailAbort.signal })
+        .catch((e) => ({ ok: false, url, error: String(e?.message || e) }));
+      detail.done += 1;
+      if (r.ok) {
+        detail.ok += 1;
+        pushLog(`✅ ${detail.done}/${detail.total} ${String(r.name || '').slice(0, 40)} — 옵션 ${r.options}개 · 대표 ${r.mainImages}장 · 상세 ${r.detailImages}장 · 리뷰 ${r.reviewImages}장${r.hasNotice ? ' · 고시정보 있음' : ''}`);
+      } else {
+        detail.failed += 1;
+        pushLog(`❌ ${detail.done}/${detail.total} 실패 — ${r.error}`);
+      }
+      detail.results.push(r);
+    }
+    detail.running = false;
+    detail.current = '';
+    detail.stopped = detail.stopped || '완료';
+    pushLog(`상세 추출 ${detail.stopped} — 성공 ${detail.ok} · 실패 ${detail.failed} · 폴더 ${detail.rootDir}`);
+    pushStatus();
+
+    // ── 올인원으로 바로 넘긴다 ────────────────────────────────────────────
+    // 여기까지가 "가져오기"이고, 대표컷 선정·상세페이지 생성은 올인원이 이미 할 줄 안다.
+    // 사람이 폴더를 찾아 다시 고르게 만들면 그 사이에서 대부분 멈춘다 — 그래서 자동으로 잇는다.
+    // 창을 먼저 접는 이유: 생성은 GPU·RAM 을 크게 쓰는데 수집 창 3개가 RAM 을 물고 있으면
+    // 모델이 못 올라가 생성이 통째로 실패한다(allinone-runner 의 RAM 프리플라이트 참고).
+    if (autoGenerate && detail.ok > 0 && !detailAbort.signal.aborted) {
+      if (!deps.runAllinone) {
+        pushLog('상세페이지 자동 생성을 건너뜁니다 — 이 실행 경로에는 올인원이 연결돼 있지 않습니다.');
+      } else {
+        try { await pool?.stop(); } catch { /* 창 정리 실패는 생성을 막지 않는다 */ }
+        pushLog(`상세페이지 자동 생성을 시작합니다 — 상품 ${detail.ok}개. 끝나면 검수 화면이 열립니다.`);
+        try {
+          await deps.runAllinone({ folder: detail.rootDir });
+        } catch (e) {
+          pushLog(`❌ 상세페이지 생성을 시작하지 못했습니다 — ${e?.message || e}. `
+            + `올인원 화면에서 폴더 "${detail.rootDir}" 를 직접 골라 실행하면 됩니다.`);
+        }
+      }
+    }
+  })().catch((e) => {
+    detail = { ...detail, running: false, stopped: `실패: ${e?.message || e}` };
+    pushLog(`❌ 상세 추출 실패 — ${e?.message || e}`);
+    pushStatus();
+  });
+
+  return { ok: true, started: true, total: list.length, rootDir: root };
+}
+
+export function stopDetailExtract() {
+  detailAbort?.abort();
+  detail.running = false;
+  pushLog('상세 추출을 중단했습니다.');
+  return { ok: true };
+}
+
 /** 수집 결과 — 큰 배열이라 status 와 분리해서 필요할 때만 가져간다. */
 export function getCollection() {
   return collection;
@@ -615,6 +721,27 @@ export function clearNaverCredential() {
 export async function ensureNaverLogin() {
   const st = await loginState();
   if (st.loggedIn) return { ok: true, already: true };
+
+  // ★ 로그인은 **마지막 수단**이다. 캡차는 로그인 시도에 붙기 때문이다(실측: 하루 4번).
+  //   ① 반쪽 세션(NID_AUT 는 있고 NID_SES 만 없음)이면 네이버 방문 1회로 되살아난다 —
+  //      로그인 화면을 아예 거치지 않으므로 캡차가 뜰 자리가 없다.
+  if (st.hasAuth) {
+    const rev = await reviveSession({ onLog: pushLog }).catch(() => null);
+    if (rev?.loggedIn) {
+      loginCache = { loggedIn: true, persistent: true, at: Date.now() };
+      pushStatus();
+      return { ok: true, revived: true };
+    }
+  }
+
+  //   ② 네이버가 지금 우리를 막고 있는 중이면(429 쿨다운) 그건 **세션 문제가 아니다**.
+  //      이때 로그인을 시도하면 이미 달아오른 IP 로 로그인 폼을 두드리는 꼴이라 캡차를 자초한다.
+  const gate = naverGate.state();
+  if (gate.cooling) {
+    pushLog(`네이버가 막고 있는 중이라(${Math.ceil(gate.cooldownMsLeft / 1000)}초) 로그인은 미룹니다 — 캡차를 자초하지 않기 위해서입니다.`);
+    return { ok: false, reason: 'cooling' };
+  }
+
   if (!hasCredentials()) return { ok: false, reason: 'no-credential' };
   if (autoLoginTask.running) return { ok: false, reason: 'running' };
   // 방금 캡차/2단계에 막혔으면 자동으로는 다시 시도하지 않는다 — 사람이 없는데 반복해 봐야

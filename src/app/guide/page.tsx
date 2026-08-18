@@ -1061,6 +1061,49 @@ function GlossarySection() {
 // ============================================================================
 // SECTION 10: CTA — Premium Dark
 // ============================================================================
+// ============================================================================
+// CHANNEL GUIDES — 채널별 입점/연동 상세 가이드로 가는 내부 링크
+// 검색엔진이 상세 문서를 발견하는 경로이자, 독자가 다음에 필요한 문서다.
+// ============================================================================
+const CHANNEL_GUIDE_LINKS = [
+  { slug: 'coupang', label: '쿠팡' },
+  { slug: 'naver', label: '네이버 스마트스토어' },
+  { slug: 'elevenst', label: '11번가' },
+  { slug: 'gmarket', label: 'G마켓' },
+  { slug: 'auction', label: '옥션' },
+  { slug: 'lotteon', label: '롯데온' },
+  { slug: 'temu', label: '테무' },
+] as const;
+
+function ChannelGuidesSection() {
+  return (
+    <AnimatedSection className="py-20 bg-white">
+      <div className="max-w-5xl mx-auto px-5">
+        <motion.div variants={fadeIn} initial="hidden" whileInView="visible" viewport={{ once: true }} className="text-center mb-10">
+          <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">
+            채널별 입점 방법 상세 가이드
+          </h2>
+          <p className="mt-3 text-gray-600">
+            판매자 회원가입부터 API 키 발급까지, 실제 화면과 함께 단계별로 정리했습니다.
+          </p>
+        </motion.div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {CHANNEL_GUIDE_LINKS.map((c) => (
+            <Link
+              key={c.slug}
+              href={`/guide/channel/${c.slug}`}
+              className="group flex items-center justify-between gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition"
+            >
+              <span className="text-sm font-medium text-gray-900">{c.label} 입점 방법</span>
+              <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 shrink-0" />
+            </Link>
+          ))}
+        </div>
+      </div>
+    </AnimatedSection>
+  );
+}
+
 function CTASection() {
   const stat1 = useCountUp(200, 2000);
   const stat2 = useCountUp(49, 2000);
@@ -1190,6 +1233,7 @@ export default function GuidePage() {
       <FAQSection />
       <WarningsSection />
       <GlossarySection />
+      <ChannelGuidesSection />
       <CTASection />
       <SharedFooter />
     </main>

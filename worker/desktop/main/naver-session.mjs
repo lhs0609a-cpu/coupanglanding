@@ -70,9 +70,15 @@ export async function loginState() {
     //   **세션 쿠키**라 디스크에 저장되지 않고 프로세스가 죽으면 사라진다(재시작 후 로그아웃 실측).
     //   네이버 로그인 화면의 "로그인 상태 유지"를 켜야 만료시각이 붙은 영속 쿠키가 된다.
     //   이 구분을 알려주지 않으면 사용자는 "로그인했는데 왜 또?"만 반복해서 겪는다.
-    return { loggedIn, persistent: !!aut?.expirationDate };
+    // ★ persistent 는 **둘 다** 영속일 때만 참이다. NID_AUT 만 만료시각이 붙어 있으면
+    //   화면엔 "유지됨"이라 뜨는데 실제로는 NID_SES 가 사라져 로그인이 깨진다(실측: 재시작
+    //   때마다 loggedIn=false·persistent=true 라는 모순된 상태가 나왔다).
+    const ses = pick('NID_SES');
+    // hasAuth = 장기 인증 쿠키가 남아 있다 → **로그인 없이 세션을 되살릴 수 있다**는 뜻이다.
+    //   (naver-keepalive.reviveSession 이 이 신호로 캡차 없는 복구를 판단한다)
+    return { loggedIn, hasAuth: !!aut, persistent: !!(aut?.expirationDate && ses?.expirationDate) };
   } catch (e) {
-    return { loggedIn: false, persistent: false, error: String(e?.message || e) };
+    return { loggedIn: false, hasAuth: false, persistent: false, error: String(e?.message || e) };
   }
 }
 

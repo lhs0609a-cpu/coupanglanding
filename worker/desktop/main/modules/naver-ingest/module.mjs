@@ -13,6 +13,7 @@
  *   API 가 role='admin' 을 검증하며, 관리자가 아니면 잡 자체를 못 받아 수집이 시작되지 않는다.
  */
 import * as svc from './service.mjs';
+import { startGeneration } from '../../allinone-runner.mjs';
 
 export default {
   id: 'naver-ingest',
@@ -27,6 +28,23 @@ export default {
       send: ctx.send,
       userDataDir: ctx.paths.userData,
       getAccount: () => ctx.services?.runner?.account || null,
+      // 상세 추출이 끝나면 그 폴더를 올인원에 그대로 넘긴다 — 사람이 폴더를 다시 고르지 않게.
+      //   confirmSlow 는 일부러 넘기지 않는다: 추출은 몇십 분짜리라 끝날 때쯤 사람이 화면 앞에
+      //   없다. 모달을 띄우면 아무도 안 눌러 생성이 영영 시작되지 않는다(경고만 로그로 남는다).
+      runAllinone: ({ folder }) => startGeneration({
+        services: ctx.services,
+        paths: ctx.paths,
+        store: ctx.store,
+        send: ctx.send,
+        folder,
+        onDone: (code) => {
+          if (code !== 0) return;
+          try {
+            const origin = ctx.services?.webOrigin || 'https://www.megaload.co.kr';
+            ctx.openUrl(`${origin}/megaload/products/allinone`);
+          } catch { /* 브라우저 열기 실패는 치명적 아님 — 결과는 이미 저장됨 */ }
+        },
+      }),
     });
   },
 
@@ -49,6 +67,9 @@ export default {
     'naver-ingest:credentials-save': (_ctx, { id, pw } = {}) => svc.saveNaverCredential({ id, pw }),
     'naver-ingest:credentials-clear': () => svc.clearNaverCredential(),
     'naver-ingest:login-auto': () => svc.autoLoginNow({ byHuman: true }),
+    'naver-ingest:detail': (_ctx, payload = {}) => svc.startDetailExtract(payload),
+    'naver-ingest:detail-stop': () => svc.stopDetailExtract(),
+    'naver-ingest:detail-state': () => svc.getDetailState(),
     'naver-ingest:collect': (_ctx, payload = {}) => svc.startCollect(payload),
     'naver-ingest:collect-stop': () => svc.stopCollect(),
     'naver-ingest:collection': () => svc.getCollection(),

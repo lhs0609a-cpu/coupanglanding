@@ -266,6 +266,18 @@ export async function startPairServer({
           const { url } = await readJson();
           return json(200, await naverIngest.probeProduct(url));
         }
+        // 상세 추출 — 고른 상품을 올인원이 먹는 폴더로 만들고, 끝나면 상세페이지 생성까지 잇는다.
+        //   오래 걸리므로 시작만 하고 200. autoGenerate 를 안 보내면 기본값(생성까지)이다.
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/detail') {
+          const { urls, rootDir, autoGenerate } = await readJson();
+          return json(200, await naverIngest.startDetailExtract({ urls, rootDir, autoGenerate }));
+        }
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/detail/stop') {
+          return json(200, naverIngest.stopDetailExtract());
+        }
+        if (req.method === 'GET' && u.pathname === '/naver-ingest/detail') {
+          return json(200, naverIngest.getDetailState());
+        }
         // 수집은 수 분이 걸리므로 시작만 하고 즉시 200. 진행은 status, 결과는 /collection.
         if (req.method === 'POST' && u.pathname === '/naver-ingest/collect') {
           const body = await readJson();
