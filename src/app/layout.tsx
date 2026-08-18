@@ -104,9 +104,13 @@ export const metadata: Metadata = {
   },
   verification: {
     // env may be a raw content string OR a pasted full meta tag — extract content value safely
-    google: extractVerificationContent(
-      process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
-    ),
+    // 폴백 값은 Search Console 소유권 확인 토큰 — HTML 에 그대로 노출되는 공개 값이라
+    // 비밀이 아니다. env 누락으로 소유권 확인이 조용히 풀리는 것을 막으려 네이버와 같은
+    // 방식으로 코드에 박아둔다(env 가 있으면 env 가 우선).
+    google:
+      extractVerificationContent(
+        process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
+      ) || "m6A0ePDxMBEU5ZbY1mx7_3NVkfP_zAANogVDUHUXoS8",
     other: {
       "naver-site-verification":
         extractVerificationContent(

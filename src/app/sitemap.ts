@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { CHANNEL_ONBOARDING_GUIDES } from "@/lib/data/channel-onboarding-guides";
+import { GUIDE_ARTICLES } from "@/lib/data/guide-articles";
 import type { Channel } from "@/lib/megaload/types";
 
 const SITE_URL = "https://megaload.co.kr";
@@ -10,6 +11,14 @@ const PUBLIC_CHANNELS = (Object.keys(CHANNEL_ONBOARDING_GUIDES) as Channel[])
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
+
+  const articles: MetadataRoute.Sitemap = GUIDE_ARTICLES.map((a) => ({
+    url: `${SITE_URL}/guide/${a.slug}`,
+    lastModified: new Date(a.updated),
+    changeFrequency: "monthly",
+    priority: 0.75,
+    alternates: { languages: { "ko-KR": `${SITE_URL}/guide/${a.slug}` } },
+  }));
 
   const channelGuides: MetadataRoute.Sitemap = PUBLIC_CHANNELS.map((c) => ({
     url: `${SITE_URL}/guide/channel/${c}`,
@@ -87,6 +96,14 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.7,
       alternates: { languages: { "ko-KR": `${SITE_URL}/supplier-program` } },
     },
+    {
+      url: `${SITE_URL}/guide/marketplace-comparison`,
+      lastModified: now,
+      changeFrequency: "monthly",
+      priority: 0.85,
+      alternates: { languages: { "ko-KR": `${SITE_URL}/guide/marketplace-comparison` } },
+    },
     ...channelGuides,
+    ...articles,
   ];
 }
