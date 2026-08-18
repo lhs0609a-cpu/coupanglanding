@@ -1,22 +1,27 @@
-# fly.toml app configuration file generated for coupang-api-proxy on 2026-03-09T13:49:58+09:00
+# fly.toml — 실제 배포 설정(fly config show)과 일치시킨 것.
 #
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+# 이전 파일은 auto_stop_machines='stop', vm 표기도 달라서 그대로 배포하면
+# 코드 외에 스케일링 동작까지 함께 바뀌었다. 배포본 기준으로 맞춘다.
 #
+# egress IP: 209.71.88.111 (전용, 배포·재시작에도 유지)
+#   11번가·ESM·롯데온·네이버 커머스API 의 호출 IP 화이트리스트에 등록할 값.
 
 app = 'coupang-api-proxy'
 primary_region = 'nrt'
 
 [build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  PORT = '8080'
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = 'stop'
+  auto_stop_machines = 'suspend'
   auto_start_machines = true
   min_machines_running = 1
 
 [[vm]]
+  size = 'shared-cpu-1x'
   memory = '256mb'
-  cpu_kind = 'shared'
-  cpus = 1
-  memory_mb = 256
