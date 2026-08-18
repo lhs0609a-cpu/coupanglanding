@@ -115,6 +115,8 @@ export default function NaverSourcingPage() {
   // 상세 추출 — 목록에서 고른 것만 깊게 가져온다(건당 30~90초라 전량은 비현실적이다).
   const [pickedProducts, setPickedProducts] = useState<Set<string>>(() => new Set());
   const [outDir, setOutDir] = useState('');
+  // 서버 저장 결과 — "긁긴 했는데 어디 갔지"를 없애려고 화면에 명시한다.
+  const [savedInfo, setSavedInfo] = useState<{ ok: boolean; count?: number; error?: string } | null>(null);
   // ── 대량 소싱용 목록 조작 ────────────────────────────────────────────
   // 수집은 1,000개까지 나온다. "한 화면에 최대한 많이 + 고르기 쉽게"가 이 화면의 일이다.
   //   보기   격자(기본) = 한 화면에 수십 개. 표 = 숫자 비교가 필요할 때.
@@ -313,7 +315,27 @@ export default function NaverSourcingPage() {
   const collectCount = collect?.count ?? 0;
   useEffect(() => {
     if (!ep || collectRunning || !collectCount) return;
-    fetchCollection(ep).then((c) => { if (c?.items) setCards(c.items); });
+    fetchCollection(ep).then(async (c) => {
+      if (!c?.items?.length) return;
+      setCards(c.items);
+      // ★ 받자마자 서버에 올린다. 예전엔 결과가 **도우미 메모리에만** 있어서 앱을 껐다 켜면
+      //   통째로 사라졌고, 도우미가 켜진 그 PC 에서만 보였다(관리자도 다른 자리에서 못 봄).
+      //   수집은 네이버 예산을 태우는 비싼 작업이라 휘발시키면 같은 걸 계속 다시 긁게 된다.
+      //   실패해도 화면은 그대로 둔다 — 저장이 안 됐다고 방금 긁은 목록까지 잃을 이유는 없다.
+      try {
+        const res = await fetch('/api/megaload/naver-sourcing/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: c.items, categoryPath: c.catName || '' }),
+        });
+        const j = await res.json().catch(() => ({}));
+        setSavedInfo(res.ok
+          ? { ok: true, count: j.saved ?? c.items.length }
+          : { ok: false, error: j.error || `HTTP ${res.status}` });
+      } catch (e) {
+        setSavedInfo({ ok: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    });
   }, [ep, collectRunning, collectCount]);
 
   // ── 도우미 미연결 / 구버전 ──

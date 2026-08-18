@@ -7,7 +7,7 @@ import DesktopStatusIndicator from '@/components/megaload/DesktopStatusIndicator
 import {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
   Receipt, BarChart3, Zap, Globe, Link as LinkIcon, Settings, X,
-  Upload, User, ArrowRight, Search, ExternalLink, Loader2, Lock, RotateCcw, RefreshCw, Bug,
+  Upload, User, ArrowRight, Search, PackageSearch, ExternalLink, Loader2, Lock, RotateCcw, RefreshCw, Bug,
   BookOpen, MonitorDown, Megaphone, AlertTriangle, Grid3x3, Handshake,
 } from 'lucide-react';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
@@ -15,7 +15,7 @@ import type { SettlementGateLevel } from '@/lib/utils/settlement';
 
 const iconMap = {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
-  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug, BookOpen, MonitorDown, Megaphone, AlertTriangle, Grid3x3, Handshake, Search,
+  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug, BookOpen, MonitorDown, Megaphone, AlertTriangle, Grid3x3, Handshake, Search, PackageSearch,
 } as const;
 
 const navItems = [
@@ -38,8 +38,11 @@ const navItems = [
   { href: '/megaload/ads', label: '광고 자동화', icon: 'Megaphone' as const },
   { href: '/megaload/automation', label: '자동화', icon: 'Zap' as const },
   { href: '/megaload/sourcing', label: '해외소싱', icon: 'Globe' as const },
+  // 수집물 조회는 **셀러도 본다** — 수집은 관리자 PC 도우미만 하지만, 결과는 서버에 남아
+  // 도우미 없이도 볼 수 있어야 한다(예전엔 도우미 메모리에만 있어 그 PC 에서만 보였다).
+  { href: '/megaload/sourcing/naver', label: '네이버 소싱 카탈로그', icon: 'PackageSearch' as const },
   // 관리자 전용 — 네이버 카테고리 수집(도우미가 실행). 실제 접근 차단은 서버 레이아웃이 한다.
-  { href: '/megaload/naver-sourcing', label: '네이버 소싱', icon: 'Search' as const, adminOnly: true },
+  { href: '/megaload/naver-sourcing', label: '네이버 소싱 (수집)', icon: 'Search' as const, adminOnly: true },
   { href: '/megaload/channels', label: '채널관리 (연동)', icon: 'Link' as const },
   { href: '/megaload/channels/automation', label: '멀티채널 자동전파', icon: 'Zap' as const },
   { href: '/megaload/products/channel-status', label: '채널 등록현황', icon: 'Grid3x3' as const },
