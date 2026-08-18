@@ -282,4 +282,24 @@ export async function extractOne(pool, url, rootDir, { onLog = () => {}, signal 
   if (!r?.ok) return { ok: false, url, error: r?.error || '알 수 없음' };
   const data = r.data || {};
   if (data.error) return { ok: false, url, error: data.error };
-  if (!(data.options || []).length && !(data.mainImages
+  if (!(data.options || []).length && !(data.mainImages || []).length) {
+    return { ok: false, url, error: '가져온 것이 없음(옵션·이미지 0)' };
+  }
+
+  const saved = await writeProductFolder(rootDir, data, { onLog });
+  return {
+    ok: true,
+    url,
+    name: data.title || data.name,
+    price: data.price,
+    options: (data.options || []).length,
+    ...saved,
+    hasNotice: !!data.notice,
+    detailTextLen: (data.detailText || '').length,
+  };
+}
+
+export function ensureRoot(dir) {
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  return dir;
+}
