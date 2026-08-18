@@ -17,6 +17,7 @@ import {
   findHelper, fetchStatus, setWindows, startPool, stopPool, testOne, showWindow,
   fetchCategories, startPrewarm, stopPrewarm, startCollect, stopCollect, fetchCollection, probePage,
   naverLogin, naverLogout, saveNaverCredential, clearNaverCredential, autoNaverLogin,
+  startDetailExtract, stopDetailExtract,
   type LocalEndpoint, type IngestStatus, type IngestLog, type WindowInfo,
   type NaverCategory, type ProductCard,
 } from '@/lib/megaload/naver-ingest-local';
@@ -34,8 +35,9 @@ import { triggerLocalUpdate } from '@/lib/megaload/allinone-local';
  *   0.2.96 = 페이지 진단(수집 0건일 때 실제 DOM 구조를 파일로)
  *   0.2.97 = 목록 페이지 경로 교정(search.shopping) + 네이버 로그인 창
  *   0.2.98 = 네이버 자동 로그인(계정을 OS 암호저장소에 보관, 세션 끊기면 스스로 복구)
+ *   0.3.2  = 상세 추출(옵션·상세·고시정보·이미지 → 올인원 폴더) + 세션 자가복구
  */
-const MIN_HELPER_VERSION = '0.2.98';
+const MIN_HELPER_VERSION = '0.3.2';
 
 /** "0.2.9" vs "0.2.10" 을 문자열 비교하면 틀린다 — 숫자 단위로 비교한다. */
 function isOlder(version: string, min: string): boolean {
@@ -109,8 +111,34 @@ export default function NaverSourcingPage() {
   // 네이버 자동 로그인 입력 — 저장 요청을 보낸 뒤 즉시 비운다(화면에도 남기지 않는다).
   const [naverId, setNaverId] = useState('');
   const [naverPw, setNaverPw] = useState('');
+  // 상세 추출 — 목록에서 고른 것만 깊게 가져온다(건당 30~90초라 전량은 비현실적이다).
+  const [pickedProducts, setPickedProducts] = useState<Set<string>>(() => new Set());
+  const [outDir, setOutDir] = useState('');
+  // ── 대량 소싱용 목록 조작 ────────────────────────────────────────────
+  // 수집은 1,000개까지 나온다. "한 화면에 최대한 많이 + 고르기 쉽게"가 이 화면의 일이다.
+  //   보기   격자(기본) = 한 화면에 수십 개. 표 = 숫자 비교가 필요할 때.
+  //   정렬   리뷰 많은 순이 소싱의 기본 판단축이라 기본값으로 둔다.
+  //   표시량 전량을 한 번에 그리면 썸네일 수백 장이 동시에 떠서 화면이 멎는다 → 점진 표시.
+  const [view, setView] = useState<'grid' | 'table'>('grid');
+  const [sortBy, setSortBy] = useState<'review' | 'priceAsc' | 'priceDesc' | 'none'>('review');
+  const [minReview, setMinReview] = useState(0);
+  const [limit, setLimit] = useState(300);
 
   const here = picked.length ? picked[picked.length - 1] : null;
+
+  /** 검색·필터·정렬을 통과한 전체(표시 개수 제한 전) — 일괄 선택은 이 기준으로 동작한다. */
+  const filteredCards = useMemo(() => {
+    const q = cardQuery.trim();
+    const out = cards.filter((c) => (!q || c.title.includes(q)) && (c.reviewCount || 0) >= minReview);
+    if (sortBy === 'review') out.sort((a, b) => (b.reviewCount || 0) - (a.reviewCount || 0));
+    else if (sortBy === 'priceAsc') out.sort((a, b) => (a.price || Infinity) - (b.price || Infinity));
+    else if (sortBy === 'priceDesc') out.sort((a, b) => (b.price || 0) - (a.price || 0));
+    return out;
+  }, [cards, cardQuery, minReview, sortBy]);
+
+  // 화면에 실제로 그리는 목록 — 전체선택 체크박스와 행이 같은 기준을 봐야 어긋나지 않는다.
+  const shownCards = useMemo(() => filteredCards.slice(0, limit), [filteredCards, limit]);
+  const detail = status?.detail;
 
   // ── 도우미 발견 ──
   // /health 는 모든 버전에 있으므로 "찾았다"가 곧 "지원한다"는 아니다. 지원 여부는 아래
@@ -763,18 +791,161 @@ export default function NaverSourcingPage() {
       {cards.length > 0 && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 mb-4">
           <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
-            <h2 className="font-bold text-gray-900">수집 결과 <span className="text-gray-400 font-normal">{cards.length.toLocaleString()}개</span></h2>
-            <input
-              value={cardQuery}
-              onChange={(e) => setCardQuery(e.target.value)}
-              placeholder="상품명 검색"
-              className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm w-56"
-            />
+            <h2 className="font-bold text-gray-900">
+              수집 결과{' '}
+              <span className="text-gray-400 font-normal">
+                {filteredCards.length.toLocaleString()}개
+                {filteredCards.length !== cards.length && ` / 전체 ${cards.length.toLocaleString()}`}
+              </span>
+            </h2>
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                value={cardQuery}
+                onChange={(e) => setCardQuery(e.target.value)}
+                placeholder="상품명 검색"
+                className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm w-48"
+              />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white"
+              >
+                <option value="review">리뷰 많은 순</option>
+                <option value="priceAsc">가격 낮은 순</option>
+                <option value="priceDesc">가격 높은 순</option>
+                <option value="none">수집 순서</option>
+              </select>
+              <select
+                value={minReview}
+                onChange={(e) => setMinReview(Number(e.target.value))}
+                className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white"
+                title="리뷰가 적은 상품은 잘 안 팔리는 상품일 확률이 높습니다"
+              >
+                <option value={0}>리뷰 전체</option>
+                <option value={10}>10개 이상</option>
+                <option value={100}>100개 이상</option>
+                <option value={1000}>1,000개 이상</option>
+              </select>
+              {/* 격자/표 — 격자는 한 화면에 수십 개가 들어와 훑기 좋고, 표는 숫자 비교에 좋다. */}
+              <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                {(['grid', 'table'] as const).map((v) => (
+                  <button
+                    key={v}
+                    onClick={() => setView(v)}
+                    className={`px-3 py-1.5 text-sm ${view === v ? 'bg-[#E31837] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                  >
+                    {v === 'grid' ? '격자' : '표'}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
+
+          {/* 일괄 선택 — 대량등록은 한 개씩 누르는 화면으로는 성립하지 않는다. */}
+          <div className="flex items-center gap-2 flex-wrap mb-3 text-sm">
+            <button
+              onClick={() => setPickedProducts(new Set(filteredCards.map((c) => c.productNo)))}
+              className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+            >
+              조건에 맞는 {filteredCards.length.toLocaleString()}개 전체 선택
+            </button>
+            {[20, 50, 100].map((n) => (
+              <button
+                key={n}
+                onClick={() => setPickedProducts(new Set(filteredCards.slice(0, n).map((c) => c.productNo)))}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                disabled={filteredCards.length < 1}
+              >
+                상위 {n}개
+              </button>
+            ))}
+            {!!pickedProducts.size && (
+              <button
+                onClick={() => setPickedProducts(new Set())}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
+              >
+                선택 해제
+              </button>
+            )}
+            <span className="text-gray-500 ml-auto">
+              선택 <b className="text-gray-900">{pickedProducts.size.toLocaleString()}</b>개
+              {pickedProducts.size > 0 && (
+                <span className="text-gray-400">
+                  {' '}· 예상 {Math.round((pickedProducts.size * 60) / 60)}분~{Math.round((pickedProducts.size * 90) / 60)}분
+                </span>
+              )}
+            </span>
+          </div>
+          {/* 격자 보기 — 카드를 눌러 선택한다. 체크박스만 누르게 하면 대량 선택이 고통스럽다. */}
+          {view === 'grid' && (
+            <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]">
+              {shownCards.map((c) => {
+                const on = pickedProducts.has(c.productNo);
+                return (
+                  <button
+                    key={c.productNo}
+                    type="button"
+                    onClick={() => setPickedProducts((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(c.productNo)) next.delete(c.productNo); else next.add(c.productNo);
+                      return next;
+                    })}
+                    className={`relative text-left rounded-lg border p-2 transition-colors ${
+                      on ? 'border-[#E31837] bg-[#E31837]/5' : 'border-gray-200 bg-white hover:border-gray-300'}`}
+                  >
+                    <span
+                      className={`absolute top-3 left-3 w-5 h-5 rounded border flex items-center justify-center text-xs font-bold ${
+                        on ? 'bg-[#E31837] border-[#E31837] text-white' : 'bg-white/90 border-gray-300 text-transparent'}`}
+                      aria-hidden
+                    >
+                      ✓
+                    </span>
+                    {c.thumb
+                      // 네이버 CDN 이미지 — next/image 최적화를 태우면 서버 트래픽만 늘어 그대로 쓴다.
+                      // eslint-disable-next-line @next/next/no-img-element
+                      ? <img src={c.thumb} alt="" loading="lazy" className="w-full aspect-square rounded object-cover bg-gray-100" />
+                      : <div className="w-full aspect-square rounded bg-gray-100" />}
+                    <p className="mt-1.5 text-xs text-gray-800 leading-snug line-clamp-2 h-8">{c.title || '(제목 없음)'}</p>
+                    <div className="mt-1 flex items-baseline justify-between gap-1">
+                      <span className="text-sm font-bold text-gray-900">{c.price ? `${c.price.toLocaleString()}원` : '-'}</span>
+                      <span className="text-[11px] text-gray-500">리뷰 {c.reviewCount ? c.reviewCount.toLocaleString() : 0}</span>
+                    </div>
+                    <a
+                      href={c.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute top-3 right-3 p-1 rounded bg-white/90 text-gray-400 hover:text-[#E31837]"
+                      aria-label="네이버에서 열기"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {view === 'table' && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-gray-500 border-b border-gray-100">
+                  <th className="py-2 w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="화면에 보이는 상품 전체 선택"
+                      checked={shownCards.length > 0 && shownCards.every((c) => pickedProducts.has(c.productNo))}
+                      onChange={(e) => {
+                        const on = e.target.checked;
+                        setPickedProducts((prev) => {
+                          const next = new Set(prev);
+                          for (const c of shownCards) { if (on) next.add(c.productNo); else next.delete(c.productNo); }
+                          return next;
+                        });
+                      }}
+                    />
+                  </th>
                   <th className="py-2 w-14"></th>
                   <th className="py-2">상품명</th>
                   <th className="py-2 w-28 text-right">가격</th>
@@ -783,11 +954,20 @@ export default function NaverSourcingPage() {
                 </tr>
               </thead>
               <tbody>
-                {cards
-                  .filter((c) => !cardQuery || c.title.includes(cardQuery))
-                  .slice(0, 200)
-                  .map((c) => (
+                {shownCards.map((c) => (
                     <tr key={c.productNo} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="py-2">
+                        <input
+                          type="checkbox"
+                          aria-label={`${c.title} 선택`}
+                          checked={pickedProducts.has(c.productNo)}
+                          onChange={(e) => setPickedProducts((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(c.productNo); else next.delete(c.productNo);
+                            return next;
+                          })}
+                        />
+                      </td>
                       <td className="py-2">
                         {c.thumb
                           // 네이버 CDN 이미지 — next/image 최적화를 태우면 서버 트래픽만 늘어 그대로 쓴다.
@@ -810,14 +990,117 @@ export default function NaverSourcingPage() {
               </tbody>
             </table>
           </div>
-          {cards.length > 200 && (
-            <p className="text-xs text-gray-400 mt-3">표에는 200개까지만 표시합니다(검색으로 좁힐 수 있습니다). 수집된 전체는 {cards.length.toLocaleString()}개입니다.</p>
           )}
-          <p className="text-xs text-gray-500 mt-3 leading-relaxed">
-            여기까지는 <b>목록에서 긁은 정보</b>입니다(제목·가격·썸네일·리뷰수). 옵션·상세·고시정보처럼
-            등록에 필요한 나머지는 상품 페이지를 하나씩 열어야 하고 1건당 30~90초가 걸립니다 —
-            그래서 <b>고른 것만 깊게</b> 가져오는 단계를 다음에 붙입니다.
-          </p>
+
+          {/* 더 보기 — 전량을 한 번에 그리면 썸네일 수백 장이 동시에 떠서 화면이 멎는다.
+              "안 보이는 것"과 "없는 것"을 구분해 말한다 — 선택은 화면 표시량과 무관하게
+              조건에 맞는 전체를 대상으로 할 수 있다(위의 일괄 선택 버튼). */}
+          {filteredCards.length > shownCards.length && (
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => setLimit((n) => n + 300)}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-700 hover:bg-gray-50"
+              >
+                300개 더 보기
+              </button>
+              <button
+                onClick={() => setLimit(filteredCards.length)}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-700 hover:bg-gray-50"
+              >
+                전체 {filteredCards.length.toLocaleString()}개 표시
+              </button>
+              <span className="text-xs text-gray-400">
+                지금 {shownCards.length.toLocaleString()}개 표시 중 — 선택 버튼은 안 보이는 것까지 포함합니다.
+              </span>
+            </div>
+          )}
+          {/* 상세 추출 — 여기가 올인원으로 넘어가는 지점이다.
+              목록은 넓게 훑고, 등록에 필요한 옵션·상세·고시정보는 고른 것만 깊게 가져온다. */}
+          {/* 목록이 길어지면 이 패널이 화면 밖으로 밀린다 — 고른 뒤 버튼을 찾아 한참 스크롤하게
+              된다. 선택이 있는 동안에는 아래에 붙여 둔다. */}
+          <div className={`mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 ${
+            pickedProducts.size ? 'sticky bottom-4 z-10 shadow-lg bg-white/95 backdrop-blur' : ''}`}
+          >
+            <p className="text-sm text-gray-700 leading-relaxed">
+              위 목록은 <b>목록에서 긁은 정보</b>입니다(제목·가격·썸네일·리뷰수). 등록에 필요한
+              <b> 옵션·상세페이지·고시정보·이미지</b>는 상품 페이지를 하나씩 열어야 나옵니다 —
+              <b> 1건당 30~90초</b>가 걸리므로 전량이 아니라 <b>고른 것만</b> 가져옵니다.
+              받아 온 결과는 올인원이 그대로 읽는 폴더로 저장돼, 이어서 대표컷 선정·상세페이지
+              생성까지 진행할 수 있습니다.
+            </p>
+            <div className="mt-3 flex items-end gap-2 flex-wrap">
+              <label className="text-xs text-gray-600">
+                저장 폴더 <span className="text-gray-400">(비우면 도우미 기본 폴더)</span>
+                <input
+                  value={outDir}
+                  onChange={(e) => setOutDir(e.target.value)}
+                  placeholder="예: D:\소싱\과일"
+                  className="block mt-1 px-3 py-2 rounded-lg border border-gray-200 text-sm w-72 bg-white"
+                />
+              </label>
+              <button
+                onClick={() => {
+                  if (!ep) return;
+                  const urls = cards.filter((c) => pickedProducts.has(c.productNo)).map((c) => c.url);
+                  run('detail', () => startDetailExtract(ep, urls, outDir.trim() || undefined));
+                }}
+                disabled={!ep || !pickedProducts.size || !!busy || detail?.running}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230] disabled:opacity-40"
+              >
+                {busy === 'detail' || detail?.running
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Download className="w-4 h-4" />}
+                선택한 {pickedProducts.size.toLocaleString()}개 상세 가져오기
+              </button>
+              {detail?.running && (
+                <button
+                  onClick={() => ep && run('detail-stop', () => stopDetailExtract(ep))}
+                  className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  중단
+                </button>
+              )}
+              {!!pickedProducts.size && (
+                <button
+                  onClick={() => setPickedProducts(new Set())}
+                  className="px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-500 hover:bg-gray-50"
+                >
+                  선택 해제
+                </button>
+              )}
+            </div>
+            {!!pickedProducts.size && !detail?.running && (
+              <p className="text-xs text-gray-500 mt-2">
+                예상 소요 <b>{Math.ceil((pickedProducts.size * 60) / 60)}분 내외</b>
+                (건당 30~90초 · 네이버가 막으면 더 걸립니다)
+              </p>
+            )}
+
+            {detail && (detail.running || detail.done > 0) && (
+              <div className="mt-3 rounded-lg border border-gray-200 bg-white p-3">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-800 font-medium">
+                    상세 추출 {detail.running ? '진행 중' : (detail.stopped || '완료')}
+                  </span>
+                  <span className="text-gray-500">
+                    {detail.done}/{detail.total} · 성공 {detail.ok} · 실패 {detail.failed}
+                  </span>
+                </div>
+                <div className="mt-2 h-1.5 rounded bg-gray-100 overflow-hidden">
+                  <div
+                    className="h-full bg-[#E31837] transition-all"
+                    style={{ width: `${detail.total ? Math.round((detail.done / detail.total) * 100) : 0}%` }}
+                  />
+                </div>
+                {detail.current && (
+                  <p className="text-xs text-gray-500 mt-2 truncate">지금: {detail.current}</p>
+                )}
+                {detail.rootDir && (
+                  <p className="text-xs text-gray-500 mt-1">저장 위치: <code className="text-[11px]">{detail.rootDir}</code></p>
+                )}
+              </div>
+            )}
+          </div>
         </section>
       )}
 
