@@ -2,6 +2,14 @@
 //   apps/desktop-monitor(별도 앱)의 핵심 로직 포팅. 64자 토큰(웹 발급)으로 인증.
 //   서버 크론은 datacenter IP라 네이버 차단됨 → 이 모듈(가정 IP)이 실제 fetcher.
 import { fetchNaverProduct, warmUpSession } from './naver-fetch.mjs';
+// 네이버 로그인 — 스마트스토어는 비로그인 조회를 429 로 막는다(실측: brand 3/3 성공, smartstore 0/5).
+// 세션은 소싱 수집과 공유하므로 어느 쪽에서 로그인하든 양쪽 다 적용된다.
+import { openLoginWindow, clearLogin, loginState, isLoginWindowOpen } from '../../naver-session.mjs';
+// 자동 로그인 — 계정을 한 번 저장해 두면 세션이 끊겨도 도우미가 알아서 다시 로그인한다.
+// 로그인 세션이 하나이므로 구현도 한 곳(naver-ingest/service)만 두고 여기서 빌려 쓴다.
+import {
+  ensureNaverLogin, credentialStatus, saveNaverCredential, clearNaverCredential,
+} from '../naver-ingest/service.mjs';
 
 // ── 페이싱 ──
 // 2026-08-10 실측으로 이 모듈이 별도 "메가로드 모니터링" 앱(v0.1.16)과 정책이 갈려 있던 게 드러났다.
@@ -22,15 +30,30 @@ const BATCH_FLUSH_INTERVAL_MS = 60000;
 const CIRCUIT_COOLDOWN_BASE_MS = 30 * 60 * 1000;    // 첫 트립 30분
 const CIRCUIT_COOLDOWN_MAX_MS = 2 * 60 * 60 * 1000; // 상한 2시간
 const CIRCUIT_BACKOFF_FACTOR = 1.5;                 // 연속 트립마다 ×1.5
-let circuitOpenUntil = 0;
-let circuitCooldownMs = CIRCUIT_COOLDOWN_BASE_MS;
-
-function tripCircuit(ctx) {
-  const cooldown = Math.min(CIRCUIT_COOLDOWN_MAX_MS, circuitCooldownMs);
-  circuitOpenUntil = Date.now() + cooldown;
-  circuitCooldownMs = Math.min(CIRCUIT_COOLDOWN_MAX_MS, Math.round(circuitCooldownMs * CIRCUIT_BACKOFF_FACTOR));
-  ctx.send('stock-monitor:log', `🔴 네이버 속도제한 감지 — ${Math.round(cooldown / 60000)}분 중단하고 IP를 식힙니다(자동 재개)`);
+// ★ 서킷은 **사이트별로 따로** 연다.
+//   429 를 IP 단위 신호로만 다뤄 왔는데, 실측(2026-08-18)은 도메인 단위임을 보여준다:
+//   같은 순간 같은 IP 로 brand.naver.com 3/3 통과 · smartstore.naver.com 0/5 429.
+//   하나로 묶으면 smartstore 한 건의 429 가 멀쩡한 brand 까지 30→45→68분 통째로 재운다
+//   (실측 로그에서 확인됨). 그 동안 아무것도 확인되지 않는다.
+function siteOf(url) {
+  if (/smartstore\.naver|shop\.naver/i.test(url || '')) return 'smartstore';
+  if (/brand\.naver/i.test(url || '')) return 'brand';
+  return 'other';
 }
+const SITES = ['smartstore', 'brand', 'other'];
+const circuit = Object.fromEntries(SITES.map((k) => [k, { openUntil: 0, cooldownMs: CIRCUIT_COOLDOWN_BASE_MS }]));
+const circuitOpen = (site) => Date.now() < circuit[site].openUntil;
+
+function tripCircuit(ctx, site) {
+  const c = circuit[site];
+  const cooldown = Math.min(CIRCUIT_COOLDOWN_MAX_MS, c.cooldownMs);
+  c.openUntil = Date.now() + cooldown;
+  c.cooldownMs = Math.min(CIRCUIT_COOLDOWN_MAX_MS, Math.round(c.cooldownMs * CIRCUIT_BACKOFF_FACTOR));
+  ctx.send('stock-monitor:log', `🔴 ${site} 속도제한 — ${Math.round(cooldown / 60000)}분 중단(다른 사이트는 계속 확인합니다)`);
+}
+
+// 같은 안내를 2분마다 반복해서 로그를 덮지 않도록.
+let lastLoginWarnAt = 0;
 
 let cronTimer = null, flushTimer = null, running = false, ticking = false;
 let pending = [];
@@ -158,8 +181,8 @@ async function processOne(ctx, m) {
 async function tick(ctx) {
   // 틱 겹침 방지 — 이전 틱(상품 많으면 수 분 소요)이 끝나기 전 새 틱이 겹쳐 돌면 요청이 폭주해 네이버 429 차단을 자초한다.
   if (ticking) return;
-  // 서킷 OPEN(429 냉각 중)이면 조회 자체를 건너뛴다 — 쿨다운이 끝나면 자동 재개.
-  if (Date.now() < circuitOpenUntil) return;
+  // 전 사이트가 냉각 중일 때만 틱 자체를 건너뛴다(예전엔 하나만 막혀도 전체가 멈췄다).
+  if (SITES.every(circuitOpen)) return;
   ticking = true;
   try {
     // 토큰이 없으면 로그인 세션으로 자동 발급 시도 — 실패 시 조용히 다음 틱 재시도.
@@ -192,26 +215,57 @@ async function tick(ctx) {
     }
     const monitors = await fetchMonitors(ctx, 50);
     if (!monitors.length) { ctx.send('stock-monitor:log', '확인할 대상 없음 (대기)'); return; }
-    ctx.send('stock-monitor:log', `${monitors.length}개 확인 시작…`);
+
+    // ★ 비로그인 스마트스토어는 **가보지 않는다**.
+    //   실측: 비로그인 smartstore 0/5 전부 429, 로그인하면 6/6 성공. 즉 안 될 걸 알면서 찔러
+    //   429 를 받아 오는 셈이고, 그 429 가 서킷을 열어 멀쩡한 brand 까지 세운다.
+    //   "되는 것까지 망치지 않는다"가 여기의 규칙이다.
+    let login = await loginState();
+    // 로그인이 끊겼는데 계정이 저장돼 있으면 조용히 다시 로그인한다 —
+    // 이게 "앱만 켜 두면 알아서 돈다"의 전부다. 계정이 없으면 아무 일도 하지 않는다.
+    if (!login.loggedIn && monitors.some((m) => siteOf(m.source_url) === 'smartstore')) {
+      const r = await ensureNaverLogin().catch(() => null);
+      if (r?.ok) login = await loginState();
+    }
+    const queue = [];
+    let skipLogin = 0, skipCircuit = 0;
+    for (const m of monitors) {
+      const site = siteOf(m.source_url);
+      if (circuitOpen(site)) { skipCircuit++; continue; }
+      if (site === 'smartstore' && !login.loggedIn) { skipLogin++; continue; }
+      queue.push({ m, site });
+    }
+    if (skipLogin && Date.now() - lastLoginWarnAt > 10 * 60 * 1000) {
+      lastLoginWarnAt = Date.now();
+      ctx.send('stock-monitor:log',
+        `⚠️ 네이버 로그인이 없어 스마트스토어 ${skipLogin}건을 건너뜁니다 — 위 "네이버 로그인"을 눌러 한 번 로그인하세요.`);
+    }
+    if (skipCircuit) ctx.send('stock-monitor:log', `⏸ 냉각 중이라 ${skipCircuit}건 보류(자동 재개)`);
+    if (!queue.length) return;
+    ctx.send('stock-monitor:log', `${queue.length}개 확인 시작…`);
 
     // 배치 전 세션 워밍업 — NNB 쿠키 갱신으로 "재방문 브라우저" 위장(429↓). 실패해도 무시.
     await warmUpSession();
 
-    for (const m of monitors) {
+    const tripped = new Set();
+    for (const { m, site } of queue) {
       if (!running) break;
+      if (tripped.has(site)) continue;   // 이번 배치에서 막힌 사이트만 건너뛴다
       let r;
       try { r = await processOne(ctx, m); } catch (e) { ctx.send('stock-monitor:log', '처리 오류: ' + e.message); }
       if (pending.length >= BATCH_FLUSH_SIZE) await flush(ctx);
 
-      // 실제 429/503 → 서킷 OPEN 후 배치 즉시 중단. 어떤 429 도 누적/증폭 불가.
+      // 429/503 → **그 사이트만** 서킷 OPEN. 나머지 사이트는 이 배치를 계속 완주한다.
       // (단순 타임아웃은 rateLimited=false → 멈추지 않고 다음 상품으로 — 완주 우선.)
       if (r && r.rateLimited) {
-        tripCircuit(ctx);
-        await flush(ctx); // 중단 전 수집분 전송
-        return;
+        tripCircuit(ctx, site);
+        tripped.add(site);
+        await flush(ctx);
+        if (SITES.every((x) => tripped.has(x) || circuitOpen(x))) break;
+        continue;
       }
-      // 정상 응답 → 회로 건강. 다음 트립은 다시 30분부터.
-      if (r && r.status !== 'error') circuitCooldownMs = CIRCUIT_COOLDOWN_BASE_MS;
+      // 정상 응답 → 그 사이트 회로 건강. 다음 트립은 다시 30분부터.
+      if (r && r.status !== 'error') circuit[site].cooldownMs = CIRCUIT_COOLDOWN_BASE_MS;
 
       await sleep(ITEM_BASE_MS + Math.random() * ITEM_FULLJITTER_MS);
     }
@@ -264,7 +318,12 @@ export default {
   },
   trayItems: (ctx) => (running ? [{ label: '모니터링 정지', click: () => { stop(ctx); try { ctx.store.set('monitorEnabled', false); } catch {} } }] : []),
   ipc: {
-    'stock-monitor:state': (ctx) => ({ hasToken: !!tokenOf(ctx), running, stats }),
+    'stock-monitor:state': async (ctx) => ({
+      hasToken: !!tokenOf(ctx), running, stats,
+      // 쿠키 판정이라 요청 0회 — 5초마다 물어도 네이버 예산을 쓰지 않는다.
+      naverLogin: { ...(await loginState()), waiting: isLoginWindowOpen() },
+      naverCredential: await credentialStatus().catch(() => ({ has: false, encryption: false })),
+    }),
     'stock-monitor:set-token': (ctx, { token } = {}) => {
       ctx.store.set('monitorToken', (token || '').trim());
       // 코드 저장 즉시 자동 시작(명시적 정지 상태가 아니면) → "저장" 후 "시작"을 또 누를 필요 없음.
@@ -276,6 +335,17 @@ export default {
     // 명시적 정지 — 자동 재개 플래그도 끔(다음 시작 때 자동 재개 안 함).
     'stock-monitor:stop': (ctx) => { stop(ctx); try { ctx.store.set('monitorEnabled', false); } catch {} return true; },
     'stock-monitor:open-web': (ctx) => { ctx.openUrl(ctx.services.webOrigin + '/megaload/desktop-app'); return true; },
+    // 네이버 로그인 — 창에서 사람이 직접. 계정 정보는 이 앱을 거치지 않고 네이버로 바로 간다.
+    'stock-monitor:naver-login': (ctx) => openLoginWindow({ onLog: (m) => ctx.send('stock-monitor:log', m) }),
+    // 계정 저장 — 비밀번호는 OS 암호저장소(Windows DPAPI / macOS 키체인)에만 들어가고
+    // 여기서 다시 읽어 나오는 경로가 없다. 암호화를 못 쓰는 PC 면 저장 자체를 거부한다.
+    'stock-monitor:naver-cred-save': (_ctx, { id, pw } = {}) => saveNaverCredential({ id, pw }),
+    'stock-monitor:naver-cred-clear': () => clearNaverCredential(),
+    'stock-monitor:naver-logout': async (ctx) => {
+      await clearLogin();
+      ctx.send('stock-monitor:log', '네이버 로그아웃 — 다른 계정으로 다시 로그인할 수 있습니다.');
+      return { ok: true };
+    },
   },
   // 앱 종료 시엔 plain stop만(플래그 보존) → 다음 실행에서 자동 재개.
   onQuit: (ctx) => stop(ctx),

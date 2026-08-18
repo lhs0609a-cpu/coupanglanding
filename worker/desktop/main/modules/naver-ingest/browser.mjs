@@ -16,66 +16,22 @@ import {
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
-/** 전 창이 공유하는 파티션 — 쿠키·세션이 하나로 유지된다. */
-export const SCRAPE_PARTITION = 'persist:naveringest';
+/**
+ * 파티션·로그인 세션은 **품절 감시와 공유한다** — 단일 출처는 main/naver-session.mjs.
+ * 위 원칙 ③("세션은 모든 창이 공유")이 모듈 경계를 넘어 확장된 것이다: 같은 PC·같은 사람인데
+ * 수집과 품절 감시가 쿠키를 따로 들면 네이버에겐 "쿠키 없는 신규 방문자 두 명"이라 손해만 본다.
+ * 여기서 한 번 로그인해 두면 품절 감시도 그 세션으로 조회한다.
+ */
+export {
+  NAVER_PARTITION as SCRAPE_PARTITION, setMediaAllowed, loginState, clearLogin,
+} from '../../naver-session.mjs';
+import { NAVER_PARTITION, installBlocker } from '../../naver-session.mjs';
 
 const HOME_URL = 'https://shopping.naver.com/ns/home';
 const NAVER_HOME = 'https://www.naver.com';
 
 const sleep = (ms) => new Promise((r) => { const t = setTimeout(r, ms); if (t?.unref) t.unref(); });
 const rand = (min, max) => min + Math.random() * (max - min);
-
-let _blockerInstalled = false;
-/**
- * 이미지 차단을 잠시 푸는 스위치.
- * 수집 중에는 이미지를 안 받는 게 이득이지만, **사람이 직접 봐야 하는 화면**(로그인·캡차)에서는
- * 로고·보안문자 이미지가 안 보이면 아예 진행이 불가능하다. 그때만 잠깐 연다.
- */
-let _mediaAllowed = false;
-export function setMediaAllowed(on) { _mediaAllowed = !!on; }
-
-/** 파티션에 리소스 차단을 1회 설치. ★ 전용 파티션에만 걸어야 앱 UI 아이콘이 안 깨진다. */
-async function installBlocker() {
-  if (_blockerInstalled) return;
-  const { session } = await import('electron');
-  try {
-    session.fromPartition(SCRAPE_PARTITION).webRequest.onBeforeRequest(
-      { urls: ['*://*/*'] },
-      (details, cb) => cb({
-        cancel: !_mediaAllowed && ['image', 'media', 'font'].includes(details.resourceType),
-      }),
-    );
-    _blockerInstalled = true;
-  } catch { /* best-effort — 차단 실패해도 수집 자체는 된다(느려질 뿐) */ }
-}
-
-/**
- * 네이버 로그인 여부 — **쿠키로 판정한다**.
- * 화면(로그아웃 버튼 유무)으로 보면 페이지 종류마다 마크업이 달라 오판하고, 판정하려고 페이지를
- * 한 장 여는 것 자체가 네이버 예산이다. 쿠키는 요청 0회에 확실하다.
- */
-export async function loginState() {
-  try {
-    const { session } = await import('electron');
-    const cookies = await session.fromPartition(SCRAPE_PARTITION).cookies.get({ domain: '.naver.com' });
-    const has = (name) => cookies.some((c) => c.name === name && c.value);
-    return { loggedIn: has('NID_AUT') && has('NID_SES') };
-  } catch (e) {
-    return { loggedIn: false, error: String(e?.message || e) };
-  }
-}
-
-/** 로그아웃(쿠키 삭제) — 계정을 바꿀 때. */
-export async function clearLogin() {
-  const { session } = await import('electron');
-  const ses = session.fromPartition(SCRAPE_PARTITION);
-  const cookies = await ses.cookies.get({ domain: '.naver.com' });
-  for (const c of cookies) {
-    const url = `https://${c.domain.replace(/^\./, '')}${c.path}`;
-    await ses.cookies.remove(url, c.name).catch(() => {});
-  }
-  return true;
-}
 
 export class ScrapeWindow {
   /** @param {number} index 창 번호(UI 표시용) */
@@ -99,7 +55,7 @@ export class ScrapeWindow {
         offscreen: false,
         backgroundThrottling: false,   // 숨긴 창도 타이머가 정상 동작해야 스크롤이 진행된다
         javascript: true,
-        partition: SCRAPE_PARTITION,
+        partition: NAVER_PARTITION,
       },
     });
     this.win.webContents.setAudioMuted(true);

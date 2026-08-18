@@ -113,6 +113,112 @@ export const clickPageLinkJs = (sub) => `
 `;
 
 /**
+ * 로그인 화면의 "로그인 상태 유지"를 대신 켜 준다.
+ * ---------------------------------------------------------------------------
+ * 왜 필요한가(실측): 이걸 끈 채로 로그인하면 네이버는 NID_AUT/NID_SES 를 **세션 쿠키**로
+ * 발급한다. 세션 쿠키는 디스크에 안 남으므로 앱을 껐다 켜는 순간 로그아웃이다. 실제로
+ * 파티션의 Cookies 파일에는 NNB(영구)만 있고 NID_AUT/NID_SES 가 아예 없었다.
+ * 사람이 매번 체크하는 걸 기억하게 만드는 대신, 로그인 화면을 띄울 때 우리가 켜 둔다.
+ * (체크박스만 건드린다 — 아이디·비밀번호에는 손대지 않는다)
+ */
+export const keepLoginJs = `
+(() => {
+  const box = document.querySelector('input[name="nvlong"], input#keep, input#keep_check, input[type="checkbox"][id*="keep" i]');
+  if (!box) return { found: false };
+  const was = !!box.checked;
+  if (!was) {
+    // 네이티브 click 이어야 리스너(라벨/스위치 UI)까지 같이 반응한다.
+    box.click();
+    if (!box.checked) {
+      box.checked = true;
+      box.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }
+  return { found: true, was, now: !!box.checked };
+})()
+`;
+
+/**
+ * 자동 로그인 — 로그인 화면의 입력칸을 사람처럼 채우고 제출한다.
+ * ---------------------------------------------------------------------------
+ * ★ 값을 통째로 꽂지 않고 한 글자씩 친다. 네이버 로그인 폼은 입력 이벤트가 없는 채로 값만
+ *   바뀌면 붙여넣기/자동입력으로 보고 캡차를 띄운다. 글자마다 keydown/input/keyup 을 쏘고
+ *   사람 타이핑 속도(35~110ms)의 흔들림을 준다.
+ * ★ "로그인 상태 유지"를 반드시 켠다 — 안 켜면 세션 쿠키로 발급돼 앱을 끄는 순간 풀린다.
+ * ★ 실패를 여기서 판정하지 않는다. 제출까지만 하고, 결과(성공/캡차/2단계/비밀번호 오류)는
+ *   loginPageStateJs 와 쿠키로 본다. 화면 문구로 성패를 추측하면 오판한다.
+ */
+export const naverAutoLoginJs = (id, pw) => `
+(async () => {
+  const ID = ${JSON.stringify(String(id))};
+  const PW = ${JSON.stringify(String(pw))};
+  const wait = (a, b) => new Promise(r => setTimeout(r, a + Math.random() * (b - a)));
+
+  const idEl = document.querySelector('input#id, input[name="id"]');
+  const pwEl = document.querySelector('input#pw, input[name="pw"]');
+  if (!idEl || !pwEl) return { ok: false, reason: 'form-not-found' };
+
+  const type = async (el, text) => {
+    el.focus();
+    el.click();
+    el.value = '';
+    for (const ch of text) {
+      el.value += ch;
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: ch, bubbles: true }));
+      el.dispatchEvent(new InputEvent('input', { bubbles: true, data: ch, inputType: 'insertText' }));
+      el.dispatchEvent(new KeyboardEvent('keyup', { key: ch, bubbles: true }));
+      await wait(35, 110);
+    }
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    el.blur();
+  };
+
+  await type(idEl, ID);
+  await wait(200, 500);
+  await type(pwEl, PW);
+  await wait(250, 600);
+
+  const keep = document.querySelector('input[name="nvlong"], input#keep, input[type="checkbox"][id*="keep" i]');
+  if (keep && !keep.checked) { keep.click(); if (!keep.checked) keep.checked = true; }
+
+  const btn = document.querySelector('[id="log.login"], button[type="submit"].btn_login, .btn_login, button[type="submit"]');
+  if (!btn) return { ok: false, reason: 'submit-not-found' };
+  await wait(150, 400);
+  btn.click();
+  return { ok: true, keep: !!(keep && keep.checked) };
+})()
+`;
+
+/**
+ * 로그인 화면의 현재 상태 — 자동 로그인이 어디서 막혔는지 가른다.
+ * 넷은 대응이 전부 다르다: 캡차/2단계는 **사람에게 넘겨야** 하고, 비밀번호 오류는
+ * **절대 재시도하면 안 된다**(반복 실패는 계정 잠금이다).
+ */
+export const loginPageStateJs = `
+(() => {
+  const text = (document.body && document.body.innerText) || '';
+  const path = location.pathname;
+  const url = location.href;
+  const errEl = document.querySelector('.error_message, #err_common, .error_msg, [class*="error_"]');
+  const error = ((errEl && errEl.innerText) || '').replace(/\\s+/g, ' ').trim();
+  return {
+    url: url.slice(0, 200),
+    host: location.host,
+    onLoginPage: location.host === 'nid.naver.com' && /nidlogin/.test(path),
+    captcha: !!document.querySelector('#captcha, .captcha, img[src*="captcha"], input#chptcha, [id*="captcha" i]'),
+    // 새 기기 등록 / 2단계 인증 — 사람이 휴대폰을 봐야 넘어간다.
+    needHuman: /deviceConfirm|need2|otp|push/i.test(url)
+      || text.includes('새로운 기기') || text.includes('기기 등록') || text.includes('일회용 번호')
+      || text.includes('2단계 인증') || text.includes('인증번호'),
+    // 자격증명 오류 — 재시도 금지 신호.
+    badCredential: /아이디\\s*또는\\s*비밀번호|비밀번호가\\s*일치하지|가입되지\\s*않은/.test(text),
+    error: error.slice(0, 200),
+    textHead: text.replace(/\\s+/g, ' ').slice(0, 300),
+  };
+})()
+`;
+
+/**
  * SPA 렌더링 완료 판정.
  * 네이버 상품 페이지는 SPA 라 did-finish-load(=status complete)가 데이터 표시를 보장하지 않는다.
  * 이 판정을 건너뛰면 상품명이 통째로 'Unknown' 인 결과가 저장된다.
@@ -454,6 +560,61 @@ export const probePageJs = `
 
   const imgs = [...document.querySelectorAll('img')];
   const body = (document.body && document.body.innerText) || '';
+  const cut = (s, n) => String(s == null ? '' : s).replace(/\\s+/g, ' ').trim().slice(0, n);
+
+  // ── 스크롤 실태 ────────────────────────────────────────────────────────
+  // "스크롤했는데 아무것도 안 늘었다"의 원인은 둘 중 하나다: 애초에 안 움직였거나(내부
+  // 컨테이너가 스크롤 주체), 움직였는데 더 불러올 게 없거나. scrollY 를 안 재면 영원히 안 갈린다.
+  const se = document.scrollingElement;
+  const scrollables = [];
+  for (const el of document.querySelectorAll('div, main, section, ul')) {
+    const cs = getComputedStyle(el);
+    if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 200) {
+      scrollables.push({
+        tag: el.tagName, cls: cut(el.className, 40), id: cut(el.id, 30),
+        sh: el.scrollHeight, ch: el.clientHeight, st: el.scrollTop,
+      });
+      if (scrollables.length >= 8) break;
+    }
+  }
+
+  // ── 상품 카드 1장의 실제 생김새 ────────────────────────────────────────
+  // 제목·썸네일을 어디서 뽑아야 하는지는 마크업을 봐야만 정해진다. 클래스명 추측은 수명이 없다.
+  const firstProductA = anchors.find((a) => /\\/products\\/\\d+|\\/window-products\\/[\\w-]+\\/\\d+/.test(a.href || ''));
+  let cardHtml = null, cardImgs = [], cardAnchors = [];
+  if (firstProductA) {
+    let card = firstProductA;
+    for (let i = 0; i < 8 && card.parentElement; i++) {
+      if ((card.innerText || '').includes('원') && card.querySelector('img')) break;
+      card = card.parentElement;
+    }
+    cardHtml = cut(card.outerHTML, 3000);
+    cardImgs = [...card.querySelectorAll('img')].slice(0, 4).map((im) => ({
+      src: cut(im.getAttribute('src'), 140),
+      currentSrc: cut(im.currentSrc, 140),
+      srcset: cut(im.getAttribute('srcset'), 140),
+      alt: cut(im.getAttribute('alt'), 100),
+      cls: cut(im.className, 40),
+      data: Object.fromEntries(Object.entries(im.dataset || {}).slice(0, 8).map(([k, v]) => [k, cut(v, 120)])),
+    }));
+    cardAnchors = [...card.querySelectorAll('a[href]')].slice(0, 6).map((a) => ({
+      href: cut((a.href || '').split('?')[0], 120),
+      text: cut(a.innerText, 90),
+      aria: cut(a.getAttribute('aria-label'), 90),
+    }));
+  }
+
+  // ── 더 불러오는 장치 ───────────────────────────────────────────────────
+  // 무한스크롤이 아니라 '더보기' 버튼이나 페이지네이션이면 스크롤은 영원히 헛돈다.
+  const MORE_RE = /더\\s*보기|더보기|다음\\s*페이지|다음|more|show more|전체\\s*보기/i;
+  const moreButtons = [...document.querySelectorAll('button, a, [role="button"]')]
+    .filter((el) => MORE_RE.test((el.innerText || '') + ' ' + (el.getAttribute('aria-label') || '')))
+    .slice(0, 10)
+    .map((el) => ({ tag: el.tagName, text: cut(el.innerText || el.getAttribute('aria-label'), 40), href: cut(el.getAttribute('href'), 100) }));
+  const pageAnchors = anchors
+    .filter((a) => /[?&](page|pagingIndex|pageIndex|start|offset)=/i.test(a.href || ''))
+    .slice(0, 10)
+    .map((a) => ({ href: cut(a.href, 140), text: cut(a.innerText, 20) }));
 
   return {
     url: location.href,
@@ -462,13 +623,29 @@ export const probePageJs = `
       anchors: anchors.length,
       hrefProductsPlural: anchors.filter((a) => (a.href || '').includes('/products/')).length,
       hrefProductSingular: anchors.filter((a) => /\\/product\\//.test(a.href || '')).length,
+      hrefWindowProducts: anchors.filter((a) => /\\/window-products\\//.test(a.href || '')).length,
       hrefNvMid: anchors.filter((a) => /nvmid=/i.test(a.href || '')).length,
       roleLinks: document.querySelectorAll('[role="link"]').length,
       imgs: imgs.length,
       imgsPstatic: imgs.filter((i) => /pstatic\\.net/.test(i.src || '')).length,
+      imgsDataUri: imgs.filter((i) => /^data:/.test(i.getAttribute('src') || '')).length,
+      imgsNoSrc: imgs.filter((i) => !i.getAttribute('src')).length,
       wonInText: (body.match(/원/g) || []).length,
       scrollHeight: document.body ? document.body.scrollHeight : 0,
     },
+    scroll: {
+      scrollY: window.scrollY,
+      innerHeight: window.innerHeight,
+      docTop: se ? se.scrollTop : null,
+      docHeight: se ? se.scrollHeight : null,
+      docClient: se ? se.clientHeight : null,
+      scrollables,
+    },
+    moreButtons,
+    pageAnchors,
+    cardHtml,
+    cardImgs,
+    cardAnchors,
     shapes,
     productish,
     text: body.replace(/\\s+/g, ' ').slice(0, 1200),

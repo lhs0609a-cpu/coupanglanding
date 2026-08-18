@@ -33,6 +33,8 @@ export async function collectCategory(pool, catId, opts = {}) {
     target = 300,
     onLog = () => {},
     onProgress = () => {},
+    /** 세션이 끊겼을 때 되살리는 콜백(자동 로그인). 없으면 사람이 눌러야 한다. */
+    onNeedLogin = null,
     signal,
   } = opts;
 
@@ -40,9 +42,13 @@ export async function collectCategory(pool, catId, opts = {}) {
   let stopped = 'done';
 
   // 로그인 없이 목록 페이지에 가면 100% 로그인 화면으로 튄다 — 창을 여는 것 자체가 낭비다.
-  const login = await loginState();
+  let login = await loginState();
+  if (!login.loggedIn && onNeedLogin) {
+    await onNeedLogin().catch(() => {});
+    login = await loginState();
+  }
   if (!login.loggedIn) {
-    onLog('네이버 로그인이 필요합니다 — 목록 페이지(search.shopping.naver.com)는 로그인 없이 열리지 않습니다. "네이버 로그인" 을 눌러 도우미 창에서 한 번 로그인하세요.');
+    onLog('네이버 로그인이 필요합니다 — 목록 페이지(search.shopping.naver.com)는 로그인 없이 열리지 않습니다. 계정을 저장해 두면 이 단계가 자동으로 처리됩니다.');
     return { items: [], stopped: '네이버 로그인 필요' };
   }
 
@@ -68,9 +74,10 @@ export async function collectCategory(pool, catId, opts = {}) {
 
     const det = await sw.detect();
     if (det.loginRequired) {
+      // ★ 여기서 자동 로그인을 부르면 안 된다 — 지금 이 창을 쥔 채로 또 창을 달라고 하는
+      //   꼴이라 창이 1개면 서로를 기다리며 멈춘다. 창을 놓고 나가서 바깥에서 되살린다.
       stopped = '네이버 로그인 필요';
-      onLog('로그인 화면으로 넘어갔습니다 — 세션이 만료됐습니다. "네이버 로그인" 을 다시 눌러주세요.');
-      sw.show();
+      onLog('수집 도중 네이버 세션이 만료됐습니다 — 로그인을 되살린 뒤 이어서 시도합니다.');
       return;
     }
     if (det.captcha) { stopped = '캡차 — 도우미 창에서 풀어주세요'; sw.show(); return; }

@@ -216,6 +216,22 @@ export async function startPairServer({
         if (req.method === 'POST' && u.pathname === '/naver-ingest/logout') {
           return json(200, await naverIngest.naverLogout());
         }
+        // 자동 로그인 — 계정을 이 PC 의 OS 암호저장소에 넣어 두면 세션이 끊겨도 알아서 복구한다.
+        // ★ 비밀번호는 이 요청(127.0.0.1)에서 도우미로 한 번 들어가고 끝이다. 응답·상태·로그
+        //   어디로도 다시 나오지 않는다(naver-credentials.mjs 규칙 ③).
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/credentials') {
+          const { id, pw } = await readJson();
+          return json(200, await naverIngest.saveNaverCredential({ id, pw }));
+        }
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/credentials/clear') {
+          return json(200, naverIngest.clearNaverCredential());
+        }
+        if (req.method === 'GET' && u.pathname === '/naver-ingest/credentials') {
+          return json(200, await naverIngest.credentialStatus());
+        }
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/login/auto') {
+          return json(200, await naverIngest.autoLoginNow());
+        }
 
         // ── 카테고리 선택 수집 ──────────────────────────────────────────
         // 대분류는 상수라 즉답, 하위는 캐시에 없으면 그 카테고리 페이지를 한 번 열어 발견한다.

@@ -10,6 +10,10 @@
 //   품절 감시를 굶겨 죽인다. 우선순위는 'monitor'(여기)가 'ingest'(수집)보다 높다.
 //   429 를 만나면 게이트에 알려 **양쪽 모두** 멈춘다(한쪽만 쉬면 IP 밴만 깊어진다).
 import naverGate from '../../naver-gate.mjs';
+// ★ 세션(쿠키·로그인)은 소싱 수집과 **공유한다** — main/naver-session.mjs 가 단일 출처.
+//   비로그인으로는 smartstore.naver.com 이 429 로 막힌다(실측: brand 3/3 성공, smartstore 0/5).
+//   사람이 소싱 화면에서 네이버 로그인을 한 번 해 두면 품절 감시도 그 세션으로 조회한다.
+import { NAVER_PARTITION, installBlocker, loginState } from '../../naver-session.mjs';
 
 const REMOVED_PATTERNS = [/상품을\s*찾을\s*수\s*없|판매가\s*종료|deleted|removed|<title>404/i];
 const SOLDOUT_PATTERNS = [/일시\s*품절|품절\s*상태|sold[\s-]?out|재고\s*없|재고가\s*없/i];
@@ -42,32 +46,25 @@ function toGoogleTranslateUrl(url) {
 // 안티봇을 통과한다. 창 1개를 재사용하고, 동시 로드 불가라 직렬화한다. electron 없으면(테스트) undici 폴백.
 let _win = null;
 let _chain = Promise.resolve();
-let _imgBlocked = false;
-
-const SCRAPE_PARTITION = 'persist:naverscrape';
 
 async function getWindow() {
-  const { BrowserWindow, session } = await import('electron');
+  const { BrowserWindow } = await import('electron');
   if (_win && !_win.isDestroyed()) return _win;
-  // 이미지/미디어/폰트 차단 → 페이지당 속도↑. ★ 전용 파티션 세션에만 적용(앱 UI 아이콘 차단 방지).
-  if (!_imgBlocked) {
-    try {
-      session.fromPartition(SCRAPE_PARTITION).webRequest.onBeforeRequest(
-        { urls: ['*://*/*'] },
-        (details, cb) => cb({ cancel: ['image', 'media', 'font'].includes(details.resourceType) }),
-      );
-      _imgBlocked = true;
-    } catch { /* best-effort */ }
-  }
+  // 이미지/미디어/폰트 차단 → 페이지당 속도↑. 차단 설치는 공유 모듈이 1회만 한다
+  // (onBeforeRequest 는 세션당 리스너가 하나라, 여기서 또 걸면 로그인 창의 보안문자까지 지운다).
+  await installBlocker();
   _win = new BrowserWindow({
     show: false,
     width: 1280,
     height: 900,
-    webPreferences: { offscreen: false, backgroundThrottling: false, javascript: true, partition: SCRAPE_PARTITION },
+    webPreferences: { offscreen: false, backgroundThrottling: false, javascript: true, partition: NAVER_PARTITION },
   });
   _win.webContents.setAudioMuted(true);
   return _win;
 }
+
+/** 지금 이 PC 가 네이버에 로그인돼 있는가 — 조회 실패 원인 진단·UI 안내용. 요청 0회(쿠키 판정). */
+export async function naverLoginState() { return loginState(); }
 
 function loadInWindow(url) {
   return new Promise((resolve) => {

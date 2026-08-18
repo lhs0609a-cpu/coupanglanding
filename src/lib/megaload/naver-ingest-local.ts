@@ -125,7 +125,20 @@ export interface IngestStatus {
    * 네이버 로그인 상태 — 상품 목록 페이지(search.shopping.naver.com)는 로그인 없이 열리지 않는다.
    * 로그인 전에는 무엇을 눌러도 0건이므로 화면 맨 앞에서 이걸 먼저 보여준다.
    */
-  naverLogin?: { loggedIn: boolean; checkedAt: number; waiting: boolean };
+  naverLogin?: {
+    loggedIn: boolean;
+    /**
+     * 영구 쿠키로 로그인됐는지. "로그인 상태 유지"를 끄면 네이버가 NID 쿠키를 **세션 쿠키**로
+     * 주고, 그러면 도우미를 껐다 켜는 순간 로그아웃된다(실측). 로그인 여부와 원인이 다르므로
+     * 따로 본다.
+     */
+    persistent?: boolean;
+    checkedAt: number;
+    waiting: boolean;
+    /** 저장된 계정 — 비밀번호는 절대 오지 않는다(가린 아이디만). */
+    credential?: { has: boolean; idMasked: string; savedAt: number };
+    auto?: { running: boolean; at: number; result: { ok: boolean; reason?: string } | null };
+  };
   logs?: IngestLog[];
 }
 
@@ -234,6 +247,28 @@ export async function naverLogin(ep: LocalEndpoint): Promise<void> {
 /** 로그인 세션 삭제 — 다른 네이버 계정으로 바꿀 때. */
 export async function naverLogout(ep: LocalEndpoint): Promise<void> {
   await post(ep, 'logout', {});
+}
+
+/**
+ * 자동 로그인용 계정 저장.
+ *
+ * ⭐ 비밀번호가 가는 곳은 **이 PC 의 도우미 하나뿐**이다(127.0.0.1). 우리 서버로는 나가지
+ *   않고, 도우미는 그것을 OS 암호저장소(Windows DPAPI / macOS 키체인)로 암호화해 보관한다.
+ *   읽어오는 경로는 만들지 않았다 — 상태에는 가린 아이디만 실린다.
+ */
+export async function saveNaverCredential(
+  ep: LocalEndpoint, id: string, pw: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  return (await post(ep, 'credentials', { id, pw })) as { ok: boolean; reason?: string };
+}
+
+export async function clearNaverCredential(ep: LocalEndpoint): Promise<void> {
+  await post(ep, 'credentials/clear', {});
+}
+
+/** 저장된 계정으로 지금 로그인 — 세션이 끊겼을 때 사람이 눌러 되살리는 용도. */
+export async function autoNaverLogin(ep: LocalEndpoint): Promise<{ ok: boolean; reason?: string }> {
+  return (await post(ep, 'login/auto', {})) as { ok: boolean; reason?: string };
 }
 
 /**

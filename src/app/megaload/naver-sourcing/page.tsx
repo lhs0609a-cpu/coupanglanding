@@ -16,7 +16,7 @@ import {
 import {
   findHelper, fetchStatus, setWindows, startPool, stopPool, testOne, showWindow,
   fetchCategories, startPrewarm, stopPrewarm, startCollect, stopCollect, fetchCollection, probePage,
-  naverLogin, naverLogout,
+  naverLogin, naverLogout, saveNaverCredential, clearNaverCredential, autoNaverLogin,
   type LocalEndpoint, type IngestStatus, type IngestLog, type WindowInfo,
   type NaverCategory, type ProductCard,
 } from '@/lib/megaload/naver-ingest-local';
@@ -33,8 +33,9 @@ import { triggerLocalUpdate } from '@/lib/megaload/allinone-local';
  *   0.2.95 = 늦게 그려지는 하위 분류 사이드바 대기 + 전체 일괄 수집(앱 재시작해도 이어함)
  *   0.2.96 = 페이지 진단(수집 0건일 때 실제 DOM 구조를 파일로)
  *   0.2.97 = 목록 페이지 경로 교정(search.shopping) + 네이버 로그인 창
+ *   0.2.98 = 네이버 자동 로그인(계정을 OS 암호저장소에 보관, 세션 끊기면 스스로 복구)
  */
-const MIN_HELPER_VERSION = '0.2.97';
+const MIN_HELPER_VERSION = '0.2.98';
 
 /** "0.2.9" vs "0.2.10" 을 문자열 비교하면 틀린다 — 숫자 단위로 비교한다. */
 function isOlder(version: string, min: string): boolean {
@@ -105,6 +106,9 @@ export default function NaverSourcingPage() {
   const [target, setTarget] = useState(300);
   const [cards, setCards] = useState<ProductCard[]>([]);
   const [cardQuery, setCardQuery] = useState('');
+  // 네이버 자동 로그인 입력 — 저장 요청을 보낸 뒤 즉시 비운다(화면에도 남기지 않는다).
+  const [naverId, setNaverId] = useState('');
+  const [naverPw, setNaverPw] = useState('');
 
   const here = picked.length ? picked[picked.length - 1] : null;
 
@@ -383,16 +387,40 @@ export default function NaverSourcingPage() {
            로그인 없이는 목록 페이지가 로그인 화면으로 튕겨서 무엇을 눌러도 0건이다(실측). */}
       {status?.naverLogin && (
         loggedIntoNaver ? (
-          <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
-            <p className="text-sm text-emerald-900 inline-flex items-center gap-2">
-              <LogIn className="w-4 h-4" /> 네이버에 로그인돼 있습니다 — 목록 수집이 가능합니다.
-            </p>
-            <button
-              onClick={() => ep && run('naver-logout', () => naverLogout(ep))}
-              className="px-3 py-1.5 rounded-lg border border-emerald-300 bg-white text-sm text-emerald-800 hover:bg-emerald-50"
-            >
-              로그아웃(계정 바꾸기)
-            </button>
+          <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-sm text-emerald-900 inline-flex items-center gap-2">
+                <LogIn className="w-4 h-4" />
+                네이버에 로그인돼 있습니다 — 목록 수집이 가능합니다.
+                {status.naverLogin.credential?.has && (
+                  <span className="text-emerald-700">· 자동 로그인 켜짐({status.naverLogin.credential.idMasked})</span>
+                )}
+              </p>
+              <div className="flex gap-2">
+                {status.naverLogin.credential?.has && (
+                  <button
+                    onClick={() => ep && run('cred-clear', () => clearNaverCredential(ep))}
+                    className="px-3 py-1.5 rounded-lg border border-emerald-300 bg-white text-sm text-emerald-800 hover:bg-emerald-50"
+                  >
+                    저장된 계정 지우기
+                  </button>
+                )}
+                <button
+                  onClick={() => ep && run('naver-logout', () => naverLogout(ep))}
+                  className="px-3 py-1.5 rounded-lg border border-emerald-300 bg-white text-sm text-emerald-800 hover:bg-emerald-50"
+                >
+                  로그아웃(계정 바꾸기)
+                </button>
+              </div>
+            </div>
+            {/* 세션 쿠키 경고 — 로그인은 됐는데 앱을 끄면 풀리는 상태. 원인을 여기서 말해야
+                "왜 자꾸 로그인이 풀리냐"가 반복되지 않는다. */}
+            {status.naverLogin.persistent === false && !status.naverLogin.credential?.has && (
+              <p className="text-xs text-emerald-800 mt-2 leading-relaxed">
+                ⚠️ 이 로그인은 <b>세션 쿠키</b>라 도우미를 껐다 켜면 풀립니다. 아래처럼 계정을 저장해 두면
+                끊겨도 도우미가 알아서 다시 로그인합니다.
+              </p>
+            )}
           </div>
         ) : (
           <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-5">
@@ -401,24 +429,93 @@ export default function NaverSourcingPage() {
             </p>
             <p className="text-sm text-amber-900 mt-1.5 leading-relaxed">
               상품 목록 페이지(<code className="text-xs">search.shopping.naver.com</code>)는 <b>로그인 없이 열리지 않습니다</b> —
-              로그인 화면으로 넘어가기 때문에 수집이 항상 0건이 됩니다. 아래 버튼을 누르면 도우미가 창을 띄우고,
-              <b> 사장님이 그 창에서 직접 로그인</b>합니다(아이디·비밀번호는 이 화면에도 서버에도 오지 않습니다).
-              한 번 해 두면 이후 수집은 무인으로 진행됩니다.
+              로그인 화면으로 넘어가기 때문에 수집이 항상 0건이 됩니다.
               <br />
               <span className="text-amber-800">
                 ※ 이 계정으로 자동 수집이 돌아갑니다. 판매용 본계정 대신 <b>부계정</b>을 권합니다.
               </span>
             </p>
-            <button
-              onClick={() => ep && run('naver-login', () => naverLogin(ep))}
-              disabled={busy === 'naver-login' || status.naverLogin.waiting}
-              className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230] disabled:opacity-50"
-            >
-              {busy === 'naver-login' || status.naverLogin.waiting
-                ? <Loader2 className="w-4 h-4 animate-spin" />
-                : <LogIn className="w-4 h-4" />}
-              {status.naverLogin.waiting ? '창에서 로그인해 주세요…' : '네이버 로그인'}
-            </button>
+
+            {/* 자동 로그인 — 계정을 이 PC 에 한 번 넣어 두면 세션이 끊겨도 스스로 복구한다.
+                비밀번호는 도우미(127.0.0.1)로만 가고 OS 암호저장소에 암호화돼 들어간다. */}
+            {status.naverLogin.credential?.has ? (
+              <div className="mt-3 flex items-center gap-2 flex-wrap">
+                <span className="text-sm text-amber-900">
+                  저장된 계정: <b>{status.naverLogin.credential.idMasked}</b>
+                </span>
+                <button
+                  onClick={() => ep && run('naver-auto', () => autoNaverLogin(ep))}
+                  disabled={busy === 'naver-auto' || status.naverLogin.auto?.running}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230] disabled:opacity-50"
+                >
+                  {busy === 'naver-auto' || status.naverLogin.auto?.running
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <LogIn className="w-4 h-4" />}
+                  지금 자동 로그인
+                </button>
+                <button
+                  onClick={() => ep && run('cred-clear', () => clearNaverCredential(ep))}
+                  className="px-3 py-2 rounded-lg border border-amber-300 bg-white text-sm text-amber-900 hover:bg-amber-100"
+                >
+                  저장된 계정 지우기
+                </button>
+              </div>
+            ) : (
+              <form
+                className="mt-3 flex items-end gap-2 flex-wrap"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!ep) return;
+                  const id = naverId;
+                  const pw = naverPw;
+                  setNaverPw('');           // 화면에 남기지 않는다
+                  run('cred-save', () => saveNaverCredential(ep, id, pw));
+                }}
+              >
+                <label className="text-xs text-amber-900">
+                  네이버 아이디
+                  <input
+                    value={naverId}
+                    onChange={(e) => setNaverId(e.target.value)}
+                    autoComplete="off"
+                    className="block mt-1 px-3 py-2 rounded-lg border border-amber-300 text-sm w-52 bg-white"
+                  />
+                </label>
+                <label className="text-xs text-amber-900">
+                  비밀번호
+                  <input
+                    type="password"
+                    value={naverPw}
+                    onChange={(e) => setNaverPw(e.target.value)}
+                    autoComplete="off"
+                    className="block mt-1 px-3 py-2 rounded-lg border border-amber-300 text-sm w-52 bg-white"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={!naverId || !naverPw || busy === 'cred-save' || status.naverLogin.auto?.running}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230] disabled:opacity-50"
+                >
+                  {busy === 'cred-save' || status.naverLogin.auto?.running
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <LogIn className="w-4 h-4" />}
+                  저장하고 자동 로그인
+                </button>
+                <button
+                  type="button"
+                  onClick={() => ep && run('naver-login', () => naverLogin(ep))}
+                  disabled={busy === 'naver-login' || status.naverLogin.waiting}
+                  className="px-3 py-2 rounded-lg border border-amber-300 bg-white text-sm text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                >
+                  {status.naverLogin.waiting ? '창에서 로그인해 주세요…' : '창에서 직접 로그인'}
+                </button>
+              </form>
+            )}
+            <p className="text-xs text-amber-800 mt-2 leading-relaxed">
+              비밀번호는 <b>이 PC 의 도우미에만</b> 저장됩니다 — 우리 서버로 나가지 않고, Windows 암호저장소(DPAPI)로
+              암호화돼 들어가며 다시 읽어가는 경로는 없습니다. 캡차나 2단계 인증이 뜨면 도우미 창을 띄워 사장님께 넘깁니다.
+              비밀번호가 틀리면 <b>재시도하지 않고</b> 저장을 지웁니다(계정 잠금 방지).
+            </p>
           </div>
         )
       )}

@@ -15,8 +15,14 @@ import { join } from 'node:path';
 import naverGate from '../../naver-gate.mjs';
 import { WindowPool, WINDOW_MIN, WINDOW_MAX, WINDOW_DEFAULT } from './window-pool.mjs';
 import { runOne } from './runner.mjs';
-import { probePageJs, collectCardsJs, scrollStepJs } from './inject.mjs';
+import {
+  probePageJs, collectCardsJs, scrollStepJs, keepLoginJs, naverAutoLoginJs, loginPageStateJs,
+} from './inject.mjs';
 import { loginState, clearLogin, setMediaAllowed } from './browser.mjs';
+import {
+  initCredentials, saveCredentials, clearCredentials, credentialInfo, hasCredentials,
+  loadCredentials, encryptionAvailable,
+} from '../../naver-credentials.mjs';
 import { categoryUrl, listUrl } from './categories.mjs';
 import {
   initCategories, listChildren, clearCategoryCache, knownMap, prewarmTree, prewarmInfo, exportTree,
@@ -50,6 +56,7 @@ export function initService({ store, send, userDataDir, getAccount }) {
   deps = { store, send: send || (() => {}), getAccount: getAccount || (() => null), userDataDir };
   naverGate.init(userDataDir);
   initCategories(store);
+  initCredentials(store);
   const st = naverGate.state();
   if (st.cooling) {
     pushLog(`이전 실행에서 걸린 네이버 쿨다운이 ${Math.ceil(st.cooldownMsLeft / 1000)}초 남아 있습니다 — 그만큼 쉬고 시작합니다`);
@@ -80,7 +87,7 @@ function ensurePool() {
  * status 는 1초 폴링이므로 쿠키를 매번 읽지 않고 캐시를 쓰고, 오래됐으면 **기다리지 않고**
  * 뒤에서 갱신한다(폴링이 쿠키 I/O 때문에 느려지면 안 된다).
  */
-let loginCache = { loggedIn: false, at: 0 };
+let loginCache = { loggedIn: false, persistent: false, at: 0 };
 let loginTask = null;
 
 function refreshLoginSoon() {
@@ -88,10 +95,12 @@ function refreshLoginSoon() {
   loginCache = { ...loginCache, at: Date.now() };
   loginState().then((st) => {
     const changed = st.loggedIn !== loginCache.loggedIn;
-    loginCache = { loggedIn: !!st.loggedIn, at: Date.now() };
+    loginCache = { loggedIn: !!st.loggedIn, persistent: !!st.persistent, at: Date.now() };
     if (changed) pushStatus();
   }).catch(() => {});
 }
+
+const sleep = (ms) => new Promise((r) => { const t = setTimeout(r, ms); t.unref?.(); });
 
 export function getStatus() {
   refreshLoginSoon();
@@ -99,7 +108,15 @@ export function getStatus() {
     isAdmin: isAdmin(),
     account: deps.getAccount(),
     limits: { min: WINDOW_MIN, max: WINDOW_MAX, default: WINDOW_DEFAULT },
-    naverLogin: { loggedIn: loginCache.loggedIn, checkedAt: loginCache.at, waiting: !!loginTask },
+    naverLogin: {
+      loggedIn: loginCache.loggedIn,
+      // 세션 쿠키면 앱을 끄는 순간 풀린다 — 로그인 여부와 따로 알려야 화면이 원인을 말할 수 있다.
+      persistent: loginCache.persistent,
+      checkedAt: loginCache.at,
+      waiting: !!loginTask,
+      credential: credentialInfo(),          // 비밀번호는 여기 안 실린다(가린 아이디만)
+      auto: { running: autoLoginTask.running, at: autoLoginTask.at, result: autoLoginTask.result },
+    },
   };
   // 수집 진행 요약 — 결과 배열(수백 건)은 빼고 카운트만 실어 폴링을 가볍게 유지한다.
   base.collect = {
@@ -265,6 +282,7 @@ export async function probePage(catId) {
   if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
 
   pushLog(`페이지 진단 시작 — 카테고리 ${catId}`);
+  await ensureNaverLogin();
   await naverGate.acquire('ingest');
 
   const login = await loginState();
@@ -278,8 +296,11 @@ export async function probePage(catId) {
     const det = await sw.detect().catch(() => null);
 
     const first = await sw.evaluate(probePageJs).catch((e) => ({ error: String(e?.message || e) }));
-    await sw.evaluate(scrollStepJs).catch(() => {});
-    await new Promise((r) => setTimeout(r, 3000));
+    // 1회로는 "안 움직인 것"과 "움직였는데 더 없는 것"이 안 갈린다 — 3회 굴려 본다.
+    for (let i = 0; i < 3; i++) {
+      await sw.evaluate(scrollStepJs).catch(() => {});
+      await new Promise((r) => setTimeout(r, 2500));
+    }
     const afterScroll = await sw.evaluate(probePageJs).catch((e) => ({ error: String(e?.message || e) }));
 
     // 수집기가 실제로 뭘 뱉는지도 같이 본다 — 여긴 평소 .catch(()=>[]) 로 삼켜지는 자리다.
@@ -369,16 +390,37 @@ export async function startCollect({ catId, catName = '', target = 300 }) {
   const p = ensurePool();
   if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
 
+  // 로그인이 끊겨 있으면 여기서 알아서 되살린다 — 사람이 버튼을 누르러 오지 않아도 되게.
+  await ensureNaverLogin();
+
   collectAbort = new AbortController();
   collection = { catId, catName, items: [], stopped: null, at: Date.now(), running: true, progress: { collected: 0, scrolls: 0 } };
   pushLog(`수집 시작 — ${catName || catId} (목표 ${target}개)`);
 
-  collectCategory(p, catId, {
-    target,
-    onLog: pushLog,
-    onProgress: (pr) => { collection.progress = pr; },
-    signal: collectAbort.signal,
-  }).then(({ items, stopped }) => {
+  /**
+   * 수집 도중 세션이 만료되면 창을 놓고 나온다(collect-list 는 그 자리에서 로그인을 못 한다 —
+   * 창을 쥔 채로 창을 또 달라고 하면 창 1개짜리 설정에서 멈춘다). 되살리는 건 여기, 창 밖이다.
+   */
+  const runWithRelogin = async () => {
+    const opts = {
+      target,
+      onLog: pushLog,
+      onProgress: (pr) => { collection.progress = pr; },
+      onNeedLogin: ensureNaverLogin,
+      signal: collectAbort.signal,
+    };
+    const first = await collectCategory(p, catId, opts);
+    if (first.stopped !== '네이버 로그인 필요' || collectAbort.signal.aborted) return first;
+    const re = await ensureNaverLogin();
+    if (!re?.ok) return first;
+    const second = await collectCategory(p, catId, opts);
+    // 만료 전에 모은 것도 결과다 — 버리지 않고 합친다.
+    const merged = new Map(first.items.map((x) => [x.productNo, x]));
+    for (const x of second.items) merged.set(x.productNo, x);
+    return { items: [...merged.values()], stopped: second.stopped };
+  };
+
+  runWithRelogin().then(({ items, stopped }) => {
     collection = { ...collection, items, stopped, running: false, at: Date.now() };
     pushLog(`✅ 수집 완료 — ${items.length}개 (${stopped})`);
     pushStatus();
@@ -413,7 +455,7 @@ export function getCollection() {
  * 로그인 화면은 사람이 봐야 하므로 이미지 차단을 잠시 푼다(보안문자가 안 보이면 진행 불가).
  */
 export async function openNaverLogin() {
-  requireAdmin();
+  // 게이트 없음 — 네이버 로그인은 **모든 셀러**가 각자 해야 한다(품절 감시의 전제).
   if (loginTask) return { ok: true, already: true };
 
   const p = ensurePool();
@@ -429,6 +471,19 @@ export async function openNaverLogin() {
     sw.show();
     pushStatus();
 
+    // "로그인 상태 유지"를 대신 켠다 — 이걸 놓치면 로그인은 되는데 앱을 끄는 순간 풀린다.
+    // 화면이 아직 안 그려졌을 수 있어 잠깐씩 세 번 시도한다.
+    for (let i = 0; i < 3; i++) {
+      const k = await sw.evaluate(keepLoginJs).catch(() => null);
+      if (k?.found) {
+        pushLog(k.now
+          ? '로그인 화면의 "로그인 상태 유지"를 켰습니다 — 이게 꺼져 있으면 앱을 껐다 켤 때마다 로그인이 풀립니다.'
+          : '⚠️ "로그인 상태 유지"를 켜지 못했습니다 — 로그인 창에서 직접 체크해 주세요(안 켜면 앱 재시작마다 로그인이 풀립니다).');
+        break;
+      }
+      await new Promise((r) => { const t = setTimeout(r, 1500); t.unref?.(); });
+    }
+
     // 최대 15분 대기. 창을 열어 둔 채 무한정 잡고 있으면 수집 창이 영영 안 돌아온다.
     for (let i = 0; i < 180; i++) {
       await new Promise((r) => { const t = setTimeout(r, 5000); t.unref?.(); });
@@ -436,6 +491,9 @@ export async function openNaverLogin() {
       if (st.loggedIn) {
         loginCache = { loggedIn: true, at: Date.now() };
         pushLog('✅ 네이버 로그인 완료 — 이제 목록 수집이 됩니다.');
+        if (!st.persistent) {
+          pushLog('⚠️ 이 로그인은 세션 쿠키라 앱을 껐다 켜면 풀립니다 — 로그인 창에서 "로그인 상태 유지"를 켜고 다시 로그인하면 유지됩니다.');
+        }
         sw.hide();
         sw.status = 'idle';
         sw.detail = '';
@@ -455,9 +513,164 @@ export async function openNaverLogin() {
   return { ok: true, started: true };
 }
 
+// ── 자동 로그인 ───────────────────────────────────────────────────────
+// 로그인은 이 파이프라인에서 **사람 손이 필요한 유일한 단계**였다. 세션이 끊길 때마다
+// 수집이 통째로 멈추므로, 계정을 한 번 넣어 두면 도우미가 알아서 다시 로그인한다.
+//
+// 넘지 않는 선 3가지 (지키지 않으면 계정이 위험해진다):
+//   ① 비밀번호 오류면 **재시도하지 않는다**. 반복 실패는 계정 잠금이다. 저장을 지우고 멈춘다.
+//   ② 캡차·2단계 인증은 뚫지 않는다. 창을 사람에게 띄우고 기다린다.
+//   ③ 비밀번호는 로그·상태·응답 어디에도 안 싣는다(naver-credentials.mjs 규칙 ②③).
+
+let autoLoginTask = { running: false, at: 0, result: null };
+
+/** 자동 로그인이 가능한 상태인지 — 웹 화면이 버튼을 켤지 말지 판단하는 값. */
+export async function credentialStatus() {
+  // 게이트 없음 — 네이버 로그인은 **모든 셀러**가 각자 해야 한다(품절 감시의 전제).
+  return { ...credentialInfo(), encryption: await encryptionAvailable() };
+}
+
+export async function saveNaverCredential({ id, pw }) {
+  // 게이트 없음 — 네이버 로그인은 **모든 셀러**가 각자 해야 한다(품절 감시의 전제).
+  const info = await saveCredentials(id, pw);
+  pushLog(`네이버 계정을 저장했습니다 (${info.idMasked}) — 이제 세션이 끊기면 도우미가 알아서 다시 로그인합니다.`);
+  pushStatus();
+  // 저장 즉시 한 번 시도한다 — "저장은 됐는데 되는지는 모른다"를 남기지 않는다.
+  return autoLoginNow();
+}
+
+export function clearNaverCredential() {
+  // 게이트 없음 — 네이버 로그인은 **모든 셀러**가 각자 해야 한다(품절 감시의 전제).
+  clearCredentials();
+  pushLog('저장된 네이버 계정을 지웠습니다 — 자동 로그인이 꺼집니다.');
+  pushStatus();
+  return { ok: true };
+}
+
+/**
+ * 수집·진단이 시작될 때 부른다. 로그인돼 있으면 아무 일도 하지 않고,
+ * 끊겼는데 계정이 저장돼 있으면 조용히 다시 로그인한다.
+ */
+export async function ensureNaverLogin() {
+  const st = await loginState();
+  if (st.loggedIn) return { ok: true, already: true };
+  if (!hasCredentials()) return { ok: false, reason: 'no-credential' };
+  if (autoLoginTask.running) return { ok: false, reason: 'running' };
+  return autoLoginNow();
+}
+
+export async function autoLoginNow() {
+  if (autoLoginTask.running) return { ok: false, reason: 'running' };
+  const creds = await loadCredentials();
+  if (!creds) return { ok: false, reason: 'no-credential' };
+
+  const p = ensurePool();
+  // 로그인만을 위해 창을 켰다면 끝난 뒤 도로 접는다 — 품절 감시만 쓰는 셀러에게
+  // 수집용 창 3개를 계속 띄워 두는 건 순수 낭비다(수집 중이면 건드리지 않는다).
+  const startedForLogin = !p.running;
+  if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
+
+  autoLoginTask = { running: true, at: Date.now(), result: null };
+  pushStatus();
+
+  const finish = (result) => {
+    autoLoginTask = { running: false, at: Date.now(), result };
+    pushStatus();
+    return result;
+  };
+
+  try {
+    return await p.withWindow('list', async (sw) => {
+      sw.status = 'login';
+      sw.detail = '자동 로그인';
+      // 캡차가 뜨면 사람이 봐야 하므로 이미지 차단을 잠시 푼다(로그인 화면 동안만).
+      setMediaAllowed(true);
+      pushLog('네이버 자동 로그인을 시도합니다…');
+
+      await naverGate.acquire('ingest');
+      const nav = await sw.gotoViaClick('https://nid.naver.com/nidlogin.login', { skipReady: true, timeoutMs: 20000 });
+      if (!nav.ok) {
+        pushLog(`자동 로그인 실패 — 로그인 화면을 열지 못했습니다(${nav.error || 'unknown'}).`);
+        return finish({ ok: false, reason: 'nav-failed' });
+      }
+      await sleep(1500);
+
+      const filled = await sw.evaluate(naverAutoLoginJs(creds.id, creds.pw))
+        .catch((e) => ({ ok: false, reason: String(e?.message || e) }));
+      // 여기서 자격증명의 수명은 끝난다 — 아래로 흘려보내지 않는다.
+      creds.pw = '';
+
+      if (!filled?.ok) {
+        pushLog(`자동 로그인 실패 — 로그인 화면을 다루지 못했습니다(${filled?.reason || 'unknown'}). 창에서 직접 로그인해 주세요.`);
+        sw.show();
+        return finish({ ok: false, reason: filled?.reason || 'fill-failed' });
+      }
+
+      // 제출 결과는 화면 문구가 아니라 **쿠키**로 본다(문구는 자주 바뀌고 오판한다).
+      for (let i = 0; i < 25; i++) {
+        await sleep(1000);
+        const st = await loginState();
+        if (st.loggedIn) {
+          loginCache = { loggedIn: true, persistent: !!st.persistent, at: Date.now() };
+          pushLog(st.persistent
+            ? '✅ 네이버 자동 로그인 성공 — 로그인 상태 유지까지 켜져 있어 앱을 껐다 켜도 유지됩니다.'
+            : '✅ 네이버 자동 로그인 성공 — 다만 세션 쿠키라 앱을 끄면 풀립니다(다음 실행 때 다시 자동 로그인합니다).');
+          sw.hide();
+          sw.status = 'idle';
+          sw.detail = '';
+          return finish({ ok: true, persistent: !!st.persistent });
+        }
+      }
+
+      const ps = await sw.evaluate(loginPageStateJs).catch(() => null);
+
+      // ① 자격증명 오류 — 절대 재시도하지 않는다.
+      if (ps?.badCredential) {
+        clearCredentials();
+        pushLog('❌ 저장된 네이버 아이디/비밀번호가 맞지 않습니다 — 저장을 지웠습니다. 반복 시도는 계정 잠금 위험이 있어 하지 않습니다. 계정을 다시 저장해 주세요.');
+        return finish({ ok: false, reason: 'bad-credential' });
+      }
+
+      // ② 캡차 / 2단계 인증 — 사람에게 넘기고 기다린다(최대 10분).
+      if (ps?.captcha || ps?.needHuman) {
+        sw.show();
+        pushLog(ps.captcha
+          ? '🔐 네이버가 보안문자를 요구합니다 — 도우미 창에서 직접 풀어주세요. 풀면 자동으로 이어집니다.'
+          : '🔐 네이버가 기기 등록/2단계 인증을 요구합니다 — 도우미 창에서 진행해 주세요. 끝나면 자동으로 이어집니다.');
+        for (let i = 0; i < 120; i++) {
+          await sleep(5000);
+          const st = await loginState();
+          if (st.loggedIn) {
+            loginCache = { loggedIn: true, persistent: !!st.persistent, at: Date.now() };
+            pushLog('✅ 네이버 로그인 완료 — 이어서 진행합니다.');
+            sw.hide();
+            sw.status = 'idle';
+            return finish({ ok: true, viaHuman: true });
+          }
+        }
+        pushLog('로그인 대기를 종료합니다(10분).');
+        sw.hide();
+        return finish({ ok: false, reason: 'human-timeout' });
+      }
+
+      // ③ 그 밖 — 화면을 띄워 사람이 무슨 일인지 보게 한다(추측해서 재시도하지 않는다).
+      pushLog(`자동 로그인이 끝나지 않았습니다${ps?.error ? ` — ${ps.error}` : ''}. 도우미 창을 띄웠습니다.`);
+      sw.show();
+      return finish({ ok: false, reason: 'unknown', error: ps?.error || '' });
+    });
+  } catch (e) {
+    pushLog(`❌ 자동 로그인 실패 — ${e?.message || e}`);
+    return finish({ ok: false, reason: String(e?.message || e) });
+  } finally {
+    setMediaAllowed(false);
+    if (autoLoginTask.running) finish({ ok: false, reason: 'aborted' });
+    if (startedForLogin && !collection.running) { try { await p.stop(); } catch { /* ignore */ } }
+  }
+}
+
 /** 로그인 세션 삭제 — 다른 네이버 계정으로 바꿀 때. */
 export async function naverLogout() {
-  requireAdmin();
+  // 게이트 없음 — 네이버 로그인은 **모든 셀러**가 각자 해야 한다(품절 감시의 전제).
   await clearLogin();
   loginCache = { loggedIn: false, at: Date.now() };
   pushLog('네이버 로그인 세션을 지웠습니다.');

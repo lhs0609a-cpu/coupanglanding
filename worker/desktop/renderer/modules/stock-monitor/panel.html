@@ -17,7 +17,36 @@
 </section>
 
 <section class="card">
-  <h2>2. 모니터링</h2>
+  <h2>2. 네이버 로그인 <span id="sm-naver" class="muted"></span></h2>
+  <p class="muted small">
+    스마트스토어 상품은 <b>네이버에 로그인된 상태</b>라야 품절 확인이 됩니다
+    (비로그인은 네이버가 429로 막습니다). 창이 열리면 <b>직접 로그인</b>하세요 —
+    아이디·비밀번호는 이 앱에 저장되지 않고 네이버로 바로 갑니다.
+  </p>
+  <div class="row wrap">
+    <button id="sm-naver-login" class="btn-ghost">네이버 로그인</button>
+    <button id="sm-naver-logout" class="btn-ghost">로그아웃(계정 변경)</button>
+  </div>
+
+  <h2 style="margin-top:14px;">자동 로그인 <span id="sm-cred" class="muted"></span></h2>
+  <p class="muted small">
+    계정을 한 번 저장해 두면 <b>앱을 켤 때마다 알아서 다시 로그인</b>합니다.
+    비밀번호는 <b>이 PC의 OS 암호저장소</b>(Windows 자격 증명)에만 저장되고 서버로 나가지 않습니다.
+    비밀번호가 틀리면 <b>재시도하지 않고 멈춥니다</b>(계정 잠금 방지). 보안문자·2단계 인증이 뜨면
+    창을 띄워 드리니 직접 풀어주세요.
+  </p>
+  <div class="row wrap">
+    <input id="sm-nid" placeholder="네이버 아이디" autocomplete="off"
+           style="flex:1;min-width:150px;padding:8px;border:1px solid var(--line);border-radius:7px;font-size:12px;" />
+    <input id="sm-npw" type="password" placeholder="비밀번호" autocomplete="off"
+           style="flex:1;min-width:150px;padding:8px;border:1px solid var(--line);border-radius:7px;font-size:12px;" />
+    <button id="sm-cred-save" class="btn-ghost">저장하고 로그인</button>
+    <button id="sm-cred-clear" class="btn-ghost">계정 삭제</button>
+  </div>
+</section>
+
+<section class="card">
+  <h2>3. 모니터링</h2>
   <div class="stats">
     <div><b id="sm-checked">0</b><span>확인됨</span></div>
     <div><b id="sm-last" class="ok">-</b><span>마지막</span></div>
