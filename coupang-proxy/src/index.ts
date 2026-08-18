@@ -31,7 +31,8 @@ function generateCoupangSignature(
 
 // ─── Health / IP check ──────────────────────────────────────
 
-app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
+app.get('/health', (c) =>
+  c.json({ status: 'ok', region: process.env.FLY_REGION || '', timestamp: new Date().toISOString() }));
 
 app.get('/check-ip', async (c) => {
   try {
@@ -93,6 +94,75 @@ app.post('/naver-check', async (c) => {
     const msg = (err as Error).name === 'AbortError' ? 'timeout' : String((err as Error).message || err);
     console.error(`[naver-check] error: ${msg}`);
     return c.json({ error: msg }, 502);
+  }
+});
+
+// ─── 채널 API 범용 포워더 (고정 IP 필요한 오픈마켓 공용) ────
+// 11번가·ESM·롯데온·네이버 커머스API 는 모두 "호출 서버 IP" 를 화이트리스트에 등록해야 한다.
+// Vercel 은 고정 IP 가 없으므로 이 Fly 앱을 단일 출구로 삼는다.
+//
+// ⚠️ 오픈 프록시가 되지 않도록 호스트 화이트리스트 필수. 새 채널 추가 시 여기만 늘린다.
+// ⚠️ 응답은 text 로 반환 — 11번가 셀러 API 는 XML 이 기본이라 JSON 파싱하면 깨진다.
+const FWD_ALLOWED_HOSTS = new Set([
+  'openapi.11st.co.kr',      // 11번가 셀러 오픈API
+  'apis.openapi.sk.com',     // SK Open API (11번가 카테고리)
+]);
+
+const FWD_TIMEOUT_MS = 30_000;
+const FWD_MAX_BODY = 2_000_000;
+
+app.post('/fwd', async (c) => {
+  const received = c.req.header('x-proxy-secret') || '';
+  if (!PROXY_SECRET || received !== PROXY_SECRET) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  let payload: { url?: string; method?: string; headers?: Record<string, string>; body?: string };
+  try {
+    payload = await c.req.json();
+  } catch {
+    return c.json({ error: 'JSON body required' }, 400);
+  }
+
+  const { url, method = 'GET', headers = {}, body } = payload;
+  if (!url || typeof url !== 'string') return c.json({ error: 'url field required' }, 400);
+
+  let host: string;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') return c.json({ error: 'https only' }, 400);
+    host = parsed.hostname;
+  } catch {
+    return c.json({ error: 'invalid url' }, 400);
+  }
+  if (!FWD_ALLOWED_HOSTS.has(host)) {
+    return c.json({ error: `host not allowed: ${host}` }, 403);
+  }
+
+  console.log(`[fwd] ${method} ${host}${new URL(url).pathname}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FWD_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method,
+      headers,
+      ...(body != null && method !== 'GET' && method !== 'HEAD' ? { body } : {}),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    const text = (await res.text()).slice(0, FWD_MAX_BODY);
+    console.log(`[fwd] -> ${res.status} (${text.length} bytes)`);
+    return c.json({
+      status: res.status,
+      contentType: res.headers.get('content-type') || '',
+      body: text,
+    });
+  } catch (err) {
+    clearTimeout(timeout);
+    const isTimeout = (err as Error).name === 'AbortError';
+    const msg = isTimeout ? `upstream timeout (${FWD_TIMEOUT_MS / 1000}s)` : String((err as Error).message || err);
+    console.error(`[fwd] error: ${msg}`);
+    return c.json({ error: msg, transient: isTimeout }, 502);
   }
 });
 

@@ -7,6 +7,7 @@ import { CHANNEL_SETUP_GUIDES } from '@/lib/data/channel-setup-guides';
 import { CHANNEL_CREDENTIAL_FIELDS } from '@/lib/data/channel-credential-fields';
 import { CHANNEL_ONBOARDING_GUIDES } from '@/lib/data/channel-onboarding-guides';
 import ChannelOnboardingGuide from './ChannelOnboardingGuide';
+import EgressIpBox from './EgressIpBox';
 import type { Channel } from '@/lib/megaload/types';
 import type { ChannelGuideStep } from '@/lib/data/channel-setup-guides';
 import {
@@ -75,7 +76,7 @@ function StepMockup({ step, color }: { step: ChannelGuideStep; color: string }) 
             </span>
           </button>
           <figcaption className="text-[10px] text-gray-400 text-center py-1 px-2 border-t border-gray-100">
-            실제 화면 예시 · 출처: 윈셀링 가이드 (마켓 UI 버전에 따라 다를 수 있어요)
+            실제 화면 예시{step.imageSource ? ` · 출처: ${step.imageSource}` : ''} (마켓 UI 버전에 따라 다를 수 있어요)
           </figcaption>
           {zoom && (
             <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4" onClick={() => setZoom(false)}>
@@ -292,6 +293,13 @@ export default function ChannelConnectWizard({ channel, isOpen, onClose, onConne
           </div>
 
           <StepMockup step={guideSteps[step]} color={color} />
+
+          {/* 셀러가 채널 화면에 붙여넣을 우리 호출 서버 IP — 11번가 IP 등록 단계 등 */}
+          {guideSteps[step].copyValueKey === 'egressIp' && (
+            <div className="mt-3">
+              <EgressIpBox />
+            </div>
+          )}
 
           <ul className="space-y-1.5 my-3">
             {guideSteps[step].detailedInstructions.map((inst, i) => (

@@ -11,6 +11,16 @@ export interface ChannelGuideStep {
   inputFields?: string[];
   /** 실제 화면 예시 이미지(외부). 로드 실패 시 마법사가 자동 목업으로 폴백. */
   imageUrl?: string;
+  /**
+   * 캡처 출처. 없으면 마법사가 출처 문구를 생략한다.
+   * (이전엔 "출처: 윈셀링 가이드"가 하드코딩돼, 출처가 다른 캡처에도 그 문구가 붙었다.)
+   */
+  imageSource?: string;
+  /**
+   * 셀러가 채널 화면에 그대로 붙여넣어야 하는 우리 쪽 값 — 마법사가 복사 버튼과 함께 렌더.
+   * 정적 데이터에 값을 박지 않고 키로 참조한다(IP 는 배포 환경에 따라 달라짐).
+   */
+  copyValueKey?: 'egressIp';
 }
 
 export interface ChannelSetupGuide {
@@ -172,6 +182,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           'Client ID와 Client Secret을 각 필드에 붙여넣으세요.',
           '"연결 테스트 & 저장"으로 연동을 확인합니다.',
         ],
+        tip: '연결 테스트가 실패하면 대부분 4단계 IP 등록이 빠진 경우예요.',
       },
     ],
     finalNote: '네이버 토큰은 주기적으로 만료되지만(응답 expires_in 기준) 메가로드가 자동 재발급합니다. 서버 시각 기반 bcrypt 서명이라 별도 만료일 관리는 필요 없습니다.',
@@ -198,6 +209,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         ],
         url: 'https://soffice.11st.co.kr',
         tip: '이미 셀러 계정이 있으면 이 단계는 건너뛰세요.',
+        imageUrl: '/onboarding/elevenst/step-1b-login.png',
       },
       {
         stepNumber: 2,
@@ -219,8 +231,10 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           '메가로드 호출 서버 IP를 입력합니다 (여러 개면 세미콜론 ; 로 구분).',
           '개발/PC/상용 IP 필드가 나뉘어 있으면 안내된 IP를 모두 넣고 저장하세요.',
         ],
-        warning: 'IP를 등록하지 않으면 모든 API 호출이 거부됩니다. 가장 흔한 실패 원인이에요. IP는 메가로드가 안내하는 값을 넣으세요.',
+        url: 'https://openapi.11st.co.kr/openapi/OpenApiFrontMain.tmall',
+        warning: 'IP를 등록하지 않으면 모든 API 호출이 거부됩니다. 가장 흔한 실패 원인이에요. 아래 값을 그대로 복사해 넣으세요.',
         imageUrl: '/onboarding/elevenst/api-ip.png',
+        copyValueKey: 'egressIp',
       },
       {
         stepNumber: 4,
@@ -242,6 +256,8 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           'API Key(openapikey) 필드에 붙여넣으세요. (SK Open API Key는 선택 — 비워도 됨)',
           '"연결 테스트 & 저장"으로 연동을 확인합니다.',
         ],
+        inputFields: ['API Key (openapikey)', 'SK Open API Key (선택)'],
+        tip: '연결 테스트가 실패하면 대부분 3단계 IP 등록이 빠진 경우예요.',
       },
     ],
     finalNote: '11번가는 XML 기반이며 상품 등록에 일일 한도가 있을 수 있습니다(최신 기준은 공식 문서 확인). IP가 바뀌면 화이트리스트를 갱신하세요.',

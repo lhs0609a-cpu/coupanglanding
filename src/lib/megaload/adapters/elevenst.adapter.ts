@@ -24,6 +24,7 @@ import type {
   CanonicalProduct, ChannelCapabilities, ChannelMappingContext, ChannelMappingResult,
 } from '../services/canonical-product';
 import { pickImages, composeDetail, cleanName } from './mapping-helpers';
+import { channelFetch, isChannelProxyConfigured, xmlTag } from './channel-proxy';
 
 // 11번가 셀러 API Base URL (판매자 로그인 후 확인 필요)
 const ELEVENST_SELLER_API_BASE = 'https://openapi.11st.co.kr/openapi';
@@ -104,23 +105,46 @@ export class ElevenstAdapter extends BaseAdapter {
 
     const headers: Record<string, string> = {
       openapikey: this.apiKey,
+      'Content-Type': isXml ? 'application/xml' : 'application/json',
+      Accept: isXml ? 'application/xml' : 'application/json',
     };
 
-    if (isXml) {
-      headers['Content-Type'] = 'application/xml';
-      headers['Accept'] = 'application/xml';
-    } else {
-      headers['Content-Type'] = 'application/json';
-      headers['Accept'] = 'application/json';
-    }
-
-    const fetchOptions: RequestInit = { method, headers };
-
+    let payload: string | undefined;
     if (body && !options?.apiCode) {
-      fetchOptions.body = isXml ? body as string : JSON.stringify(body);
+      payload = isXml ? (body as string) : JSON.stringify(body);
     }
 
-    return this.apiCall<T>(url, fetchOptions);
+    // 11번가는 호출 IP 화이트리스트 필수 → Fly 고정 IP 프록시 경유(미설정 시 직접 호출 폴백)
+    const res = await channelFetch(url, { method, headers, body: payload });
+
+    if (res.status < 200 || res.status >= 300) {
+      throw new Error(`11번가 API ${res.status}: ${res.body.slice(0, 500)}`);
+    }
+
+    // XML 이 기본인 엔드포인트가 많다 — contentType 으로 판별해 파싱 방식을 가른다.
+    const looksXml = isXml || /xml/i.test(res.contentType) || res.body.trimStart().startsWith('<');
+    if (looksXml) {
+      // 11번가 XML 오류는 HTTP 200 으로 내려오는 경우가 있어 본문에서 결과코드를 확인한다.
+      const resultCode = xmlTag(res.body, 'resultCode');
+      if (resultCode && resultCode !== '200' && resultCode !== '0') {
+        const msg = xmlTag(res.body, 'resultMessage') || xmlTag(res.body, 'message') || res.body.slice(0, 300);
+        throw new Error(`11번가 API 오류(${resultCode}): ${msg}`);
+      }
+      // 호출측이 태그를 직접 뽑아 쓸 수 있도록 원문을 함께 넘긴다.
+      return { __xml: res.body } as unknown as T;
+    }
+
+    try {
+      return JSON.parse(res.body) as T;
+    } catch {
+      throw new Error(`11번가 응답 파싱 실패: ${res.body.slice(0, 300)}`);
+    }
+  }
+
+  /** XML 응답 래퍼에서 태그 값 추출 (elevenstApi 가 { __xml } 을 반환한 경우) */
+  private fromXml(data: unknown, tag: string): string | null {
+    const raw = (data as { __xml?: string } | null)?.__xml;
+    return typeof raw === 'string' ? xmlTag(raw, tag) : null;
   }
 
   /**
@@ -128,13 +152,14 @@ export class ElevenstAdapter extends BaseAdapter {
    */
   private async skApi<T>(path: string): Promise<T> {
     const url = `${SK_OPENAPI_BASE}${path}`;
-    return this.apiCall<T>(url, {
+    const res = await channelFetch(url, {
       method: 'GET',
-      headers: {
-        appKey: this.skAppKey || this.apiKey,
-        Accept: 'application/json',
-      },
+      headers: { appKey: this.skAppKey || this.apiKey, Accept: 'application/json' },
     });
+    if (res.status < 200 || res.status >= 300) {
+      throw new Error(`SK Open API ${res.status}: ${res.body.slice(0, 300)}`);
+    }
+    return JSON.parse(res.body) as T;
   }
 
   async authenticate(credentials: Record<string, unknown>): Promise<boolean> {
@@ -150,7 +175,10 @@ export class ElevenstAdapter extends BaseAdapter {
       if (this.skAppKey) {
         await this.skApi('/category');
       }
-      return { success: true, message: '11번가 연결 성공' };
+      const note = isChannelProxyConfigured()
+        ? ''
+        : ' (경고: 고정 IP 프록시 미설정 — 프로덕션에서는 IP 화이트리스트에 막힙니다)';
+      return { success: true, message: `11번가 연결 성공${note}` };
     } catch (err) {
       return { success: false, message: `11번가 연결 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}` };
     }
@@ -169,8 +197,15 @@ export class ElevenstAdapter extends BaseAdapter {
 
   async createProduct(product: Record<string, unknown>) {
     // 상품 등록 (일 500건 제한, 최대 10,000건)
-    const data = await this.elevenstApi<{ productNo: string }>('POST', '/rest/sellerApi/product', product);
-    return { channelProductId: data.productNo, success: true };
+    const data = await this.elevenstApi<{ productNo?: string }>('POST', '/rest/sellerApi/product', product);
+    // JSON 이면 productNo, XML 이면 <prdNo>/<productNo> 에서 추출
+    const productNo = data?.productNo
+      || this.fromXml(data, 'prdNo')
+      || this.fromXml(data, 'productNo');
+    if (!productNo) {
+      throw new Error('11번가 등록 응답에 상품번호가 없습니다 — 응답 스펙 확인 필요');
+    }
+    return { channelProductId: productNo, success: true };
   }
 
   async updateProduct(channelProductId: string, product: Record<string, unknown>) {
