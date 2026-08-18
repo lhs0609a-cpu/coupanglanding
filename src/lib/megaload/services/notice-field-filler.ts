@@ -395,6 +395,8 @@ export function fillNoticeFields(
   overrides?: Record<string, string>,
   extractedHints?: ExtractedNoticeHints,
   categoryHint?: string,
+  /** 공급처가 직접 입력한 원본 고시정보(flattenSourceNotice 결과) — 추측보다 항상 정확하다. */
+  sourceNotice?: Record<string, string>,
 ): FilledNoticeCategory[] {
   // 쿠팡 API는 notices 필수 — 생략하면 내부 기본값이 oneOf 다중 매칭 에러 유발
   // 반드시 1개 카테고리만 전송해야 함 (oneOf 스키마)
@@ -416,7 +418,7 @@ export function fillNoticeFields(
       noticeCategoryName: selected.noticeCategoryName,
       noticeCategoryDetailName: selected.fields.map((field) => ({
         noticeCategoryDetailName: field.name,
-        content: resolveFieldValue(field.name, product, contactNumber, overrides, extractedHints, categoryHint, selected.noticeCategoryName),
+        content: resolveFieldValue(field.name, product, contactNumber, overrides, extractedHints, categoryHint, selected.noticeCategoryName, sourceNotice),
       })),
     }];
   }
@@ -514,6 +516,80 @@ function kcNoticeDisclosure(certifications: unknown): string | null {
 /**
  * 필드명 패턴으로 적절한 값을 매칭
  */
+/**
+ * 원본(공급처) 고시정보에서 쿠팡 고시 필드에 해당하는 값을 찾는다.
+ * ---------------------------------------------------------------------------
+ * 두 쇼핑몰이 같은 항목을 다른 이름으로 부른다 — 문자열이 같기를 기대하면 대부분 못 찾는다.
+ *   네이버 "품목 또는 명칭"            ↔ 쿠팡 "제품명" / "품명 및 모델명"
+ *   네이버 "포장단위별 용량(중량)…"     ↔ 쿠팡 "내용량" / "중량"
+ *   네이버 "보관방법 또는 취급방법"      ↔ 쿠팡 "보관방법"
+ * 그래서 **의미 그룹의 키워드**로 맞춘다. 양쪽에서 같은 그룹이 잡히면 그 값을 쓴다.
+ *
+ * 쓰지 않는 값(넣으면 오히려 해가 되는 것):
+ *   · 마스킹된 값('****') — 네이버가 전화번호를 가려서 준다
+ *   · '판매자문의'·'상세페이지 참조' 류 — 그 '판매자'는 공급처지 우리가 아니다
+ *   · '옵션참고' — 쿠팡 화면엔 그 옵션이 없어 소비자가 참고할 대상이 없다
+ */
+const SOURCE_NOTICE_GROUPS: { keys: string[]; coupang: string[] }[] = [
+  { keys: ['품목', '명칭', '제품명'], coupang: ['제품명', '품명', '명칭', '품목'] },
+  { keys: ['용량', '중량', '내용량'], coupang: ['내용량', '용량', '중량'] },
+  { keys: ['원산지'], coupang: ['원산지'] },
+  { keys: ['생산자', '제조사', '수입자'], coupang: ['생산자', '제조사', '수입자', '제조업자'] },
+  { keys: ['보관방법', '취급방법'], coupang: ['보관방법', '취급방법', '보관'] },
+  { keys: ['소비기한', '유통기한', '품질유지기한'], coupang: ['소비기한', '유통기한', '품질유지기한'] },
+  { keys: ['주의사항'], coupang: ['주의사항'] },
+  { keys: ['상품구성'], coupang: ['상품구성', '구성'] },
+  { keys: ['수량'], coupang: ['수량'] },
+  { keys: ['크기', '사이즈'], coupang: ['크기', '사이즈'] },
+  { keys: ['영양성분'], coupang: ['영양성분'] },
+  { keys: ['인증', '신고'], coupang: ['인증', '신고'] },
+];
+
+/** 그대로 옮기면 안 되는 값 — 우리 쪽에서는 사실이 아니거나 의미가 없다. */
+function isUsableSourceValue(v: string): boolean {
+  const s = (v || '').trim();
+  if (s.length < 2) return false;
+  if (/^\*+$/.test(s.replace(/[-\s]/g, ''))) return false;          // 마스킹된 전화번호 등
+  if (/판매자\s*문의|상세\s*페이지\s*(참조|참고)|옵션\s*참고|해당\s*없음|없음/.test(s)) return false;
+  return true;
+}
+
+export function matchSourceNotice(coupangFieldName: string, source: Record<string, string>): string {
+  const target = coupangFieldName.replace(/\s/g, '');
+  for (const g of SOURCE_NOTICE_GROUPS) {
+    if (!g.coupang.some((k) => target.includes(k))) continue;
+    for (const [srcName, srcValue] of Object.entries(source)) {
+      const s = srcName.replace(/\s/g, '');
+      if (!g.keys.some((k) => s.includes(k))) continue;
+      if (isUsableSourceValue(srcValue)) return srcValue.trim().slice(0, 200);
+    }
+  }
+  return '';
+}
+
+/**
+ * 공급처 고시정보(중첩 구조)를 { 항목명: 값 } 한 겹으로 편다.
+ * 네이버는 '포장단위별 용량(중량), 수량, 크기' 처럼 값이 다시 객체인 항목이 있다.
+ */
+export function flattenSourceNotice(providedNotice: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  const view = (providedNotice as { productInfoProvidedNoticeView?: Record<string, unknown> } | null)
+    ?.productInfoProvidedNoticeView;
+  if (!view) return out;
+  for (const section of Object.values(view)) {
+    if (!section || typeof section !== 'object') continue;
+    for (const [k, v] of Object.entries(section as Record<string, unknown>)) {
+      if (typeof v === 'string') { if (!out[k]) out[k] = v; continue; }
+      if (v && typeof v === 'object') {
+        for (const [k2, v2] of Object.entries(v as Record<string, unknown>)) {
+          if (typeof v2 === 'string' && !out[k2]) out[k2] = v2;
+        }
+      }
+    }
+  }
+  return out;
+}
+
 function resolveFieldValue(
   fieldName: string,
   product: LocalProductJson,
@@ -522,6 +598,7 @@ function resolveFieldValue(
   hints?: ExtractedNoticeHints,
   categoryHint?: string,
   noticeCategoryName?: string,
+  sourceNotice?: Record<string, string>,
 ): string {
   // 사용자가 수동으로 지정한 값 우선
   // 프론트엔드는 "카테고리명::필드명" 형식으로 키를 보내므로 양쪽 모두 매칭
@@ -535,6 +612,11 @@ function resolveFieldValue(
       }
     }
   }
+
+  // 원본 고시정보 — 공급처(네이버) 판매자가 **직접 입력한 사실**이라 우리가 상품명에서
+  // 패턴으로 뽑거나 AI 로 추측한 값보다 언제나 정확하다. 사용자 override 다음 순위로 쓴다.
+  const fromSource = sourceNotice ? matchSourceNotice(fieldName, sourceNotice) : '';
+  if (fromSource) return fromSource;
 
   const normalized = fieldName.toLowerCase().replace(/\s/g, '');
   // ⚠️ 50자 컷은 정제(sanitizeProductNameForNotice) 이후에 해야 마케팅 접두문구가 모델명을 밀어내지 않는다.

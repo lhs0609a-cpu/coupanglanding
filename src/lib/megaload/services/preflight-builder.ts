@@ -6,7 +6,7 @@
  */
 
 import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo, type AttributeMeta, type CertificationInfo, type OptionVariant } from './coupang-product-builder';
-import { fillNoticeFields, aiFillRemainingNotices, type NoticeCategoryMeta, type FilledNoticeCategory, type ExtractedNoticeHints } from './notice-field-filler';
+import { fillNoticeFields, aiFillRemainingNotices, flattenSourceNotice, type NoticeCategoryMeta, type FilledNoticeCategory, type ExtractedNoticeHints } from './notice-field-filler';
 import { extractOptionsEnhanced, type ExtractedOptions } from './option-extractor';
 import { syncDisplayNameWithOptions } from './display-name-generator';
 import { selectWithSeed } from './item-winner-prevention';
@@ -39,6 +39,12 @@ export interface BuildPayloadProduct {
   originalPrice?: number;
   barcode?: string;
   certifications?: CertificationInfo[];
+  /**
+   * 공급처가 직접 입력한 원본 상품정보제공고시(네이버 provided-notice 원형).
+   * 고시 필드를 상품명 패턴이나 AI 로 추측하기 전에 이 사실값을 먼저 쓴다.
+   * 없으면(직접 만든 폴더 등) 기존 경로 그대로 동작한다.
+   */
+  providedNotice?: unknown;
   optionVariants?: OptionVariant[];
   taxType?: 'TAX' | 'FREE' | 'ZERO';
   adultOnly?: 'EVERYONE' | 'ADULT_ONLY';
@@ -257,6 +263,11 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     if (fruitInfo.origin) noticeHints.origin = fruitInfo.origin;
   }
 
+  // 공급처 원본 고시정보 — 있으면 패턴/AI 추측보다 앞선다(사용자 override 다음 순위).
+  //   소싱이 네이버 provided-notice 를 그대로 담아 오므로 품목·용량·원산지·생산자·보관방법이
+  //   사실 그대로 채워진다. 없으면(직접 만든 폴더 등) 지금까지의 경로 그대로 동작한다.
+  const sourceNotice = flattenSourceNotice(product.providedNotice);
+
   // notices 자동채움 — 1차: 룰베이스 (notice-field-filler 의 패턴 매칭)
   const mergedNoticeOverrides = { ...(noticeOverrides || {}), ...(product.noticeValuesOverride || {}) };
   const ruleFilledNotices = fillNoticeFields(
@@ -266,6 +277,7 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     Object.keys(mergedNoticeOverrides).length > 0 ? mergedNoticeOverrides : undefined,
     noticeHints,
     product.categoryPath || product.name,
+    sourceNotice,
   );
   // 2차: 룰베이스가 "상세페이지 참조" 폴백한 필드만 GPT-4o-mini 로 보강.
   // OPENAI_API_KEY 없으면 silently skip → 룰베이스 결과 그대로 사용.

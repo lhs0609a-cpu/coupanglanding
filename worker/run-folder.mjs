@@ -469,6 +469,10 @@ async function main() {
     rec.mainDroppedNames = Array.isArray(p.mainDroppedNames) ? p.mainDroppedNames : [];
     rec.reviewImages = Array.isArray(p.reviewImagesKept) ? p.reviewImagesKept : (p.reviewImages || []);
     rec.reviewDroppedNames = Array.isArray(p.reviewDroppedNames) ? p.reviewDroppedNames : [];
+    // 공급처가 직접 입력한 원본 고시정보를 그대로 실어 보낸다 — 등록 단계에서 고시 필드를
+    // 상품명 패턴이나 AI 로 추측하기 전에 이 사실값을 먼저 쓴다(품목·용량·원산지·생산자 등).
+    // AI 생성물이 아니라 원본이므로 생성 성패와 무관하게 항상 통과시킨다.
+    if (p.productJson && p.productJson.providedNotice) rec.providedNotice = p.productJson.providedNotice;
   }
 
   // ── 대표컷 신뢰도 병합 — 전 후보가 로고/저품질이면 검수 대상으로 승격 ──────────

@@ -29,6 +29,8 @@ interface PreflightRequestProduct {
   detailImages: string[];
   reviewImages: string[];
   infoImages: string[];
+  /** 공급처 원본 고시정보 — 고시 필드를 추측하기 전에 쓰는 사실값. */
+  providedNotice?: unknown;
   noticeMeta?: NoticeCategoryMeta[];
   attributeMeta?: AttributeMeta[];
   aiDisplayName?: string;
@@ -196,6 +198,7 @@ export async function POST(req: NextRequest) {
             detailImages: product.detailImages,
             reviewImages: product.reviewImages,
             infoImages: product.infoImages,
+            providedNotice: product.providedNotice,
             noticeMeta: meta.noticeMeta as NoticeCategoryMeta[],
             attributeMeta: meta.attributeMeta as AttributeMeta[],
             aiDisplayName: product.aiDisplayName,
