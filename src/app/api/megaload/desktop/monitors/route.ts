@@ -35,6 +35,36 @@ export async function GET(request: NextRequest) {
   if (!shUser) return NextResponse.json({ error: 'token not found' }, { status: 401 });
   const shUserId = (shUser as { id: string }).id;
 
+  /**
+   * 관리자 도우미는 **방치된 남의 상품**을 대신 본다(폴백 일꾼).
+   * ---------------------------------------------------------------------------
+   * 감시는 셀러 각자의 PC 가 자기 것만 보는 구조다(각자 IP·각자 네이버 계정). 그래서
+   * 도우미를 안 켜거나 네이버 로그인을 안 한 셀러의 상품은 **아무도 안 본다** — 실제로
+   * 관리자 계정은 감시 0건이라 관리자 PC 는 이 기능에서 놀고 있었다.
+   *
+   * 다만 한 PC 가 1.8만 건을 다 볼 수는 없다(페이싱 30~75초/건 = 하루 최대 ~1,600건).
+   * 그래서 **오래 방치된 것만** 가져간다:
+   *   · 이미 도우미가 잘 돌고 있는 셀러의 상품을 뺏으면 그쪽이 굶는다(중복 조회는 낭비이자
+   *     네이버 예산 낭비다).
+   *   · 기준은 last_checked_at 이 24시간 넘게 오래된 것 — 정상 순환 중인 건 건드리지 않는다.
+   */
+  const NEGLECTED_HOURS = 24;
+  const isAdminHelper = await (async () => {
+    const { data } = await serviceClient
+      .from('megaload_users')
+      .select('profile_id')
+      .eq('id', shUserId)
+      .single();
+    const pid = (data as { profile_id?: string } | null)?.profile_id;
+    if (!pid) return false;
+    const { data: prof } = await serviceClient
+      .from('profiles')
+      .select('role')
+      .eq('id', pid)
+      .single();
+    return (prof as { role?: string } | null)?.role === 'admin';
+  })().catch(() => false);
+
   // 도우미가 살아있다는 신호 — 좌측 상단 "도우미 연결됨" 배지가 읽는 테이블에 기록(토큰 방식도 반영).
   //   ?lport=&lnonce= 로 로컬 서버 주소도 함께 받는다(세션 하트비트가 죽어도 웹이 앱을 찾도록).
   await touchTokenWorkerHeartbeat(serviceClient, shUserId, null, localEndpointFromQuery(url));
@@ -119,6 +149,48 @@ export async function GET(request: NextRequest) {
         reason: `최근 조회 실패율이 ${Math.round(failRate * 100)}% 라 이 PC의 조회를 잠시 멈춥니다. 서버가 대신 확인하며, 회복되면 자동 재개됩니다.`,
       });
     }
+  }
+
+  // ── 관리자 폴백: 아무도 안 보고 있는 상품을 대신 본다 ──────────────────
+  //   자기 감시가 0건이어도(관리자가 그렇다) 남의 방치분을 받아 일한다.
+  //   ⚠️ 자기 상품이 있는 관리자라면 자기 것을 먼저 처리하고, 남는 자리만 폴백으로 채운다.
+  if (isAdminHelper) {
+    const neglectedIso = new Date(Date.now() - NEGLECTED_HOURS * 3600_000).toISOString();
+    const { data: mine } = await serviceClient
+      .from('sh_stock_monitors')
+      .select(SELECT)
+      .eq('megaload_user_id', shUserId)
+      .eq('is_active', true)
+      .not('source_url', 'is', null)
+      .or(`next_check_at.is.null,next_check_at.lte.${nowIso}`)
+      .order('next_check_at', { ascending: true, nullsFirst: true })
+      .limit(limit);
+    const mineRows = mine || [];
+    const room = limit - mineRows.length;
+    let neglected: unknown[] = [];
+    if (room > 0) {
+      const { data: others } = await serviceClient
+        .from('sh_stock_monitors')
+        .select(SELECT)
+        .neq('megaload_user_id', shUserId)
+        .eq('is_active', true)
+        .not('source_url', 'is', null)
+        // 오래 방치된 것만 — 정상 순환 중인 셀러의 일감을 뺏지 않는다.
+        .or(`last_checked_at.is.null,last_checked_at.lte.${neglectedIso}`)
+        .or(`next_check_at.is.null,next_check_at.lte.${nowIso}`)
+        .order('last_checked_at', { ascending: true, nullsFirst: true })
+        .limit(room);
+      neglected = others || [];
+    }
+    const merged = [...mineRows, ...neglected].slice(0, limit);
+    return NextResponse.json({
+      monitors: merged,
+      count: merged.length,
+      adminFallback: { picked: neglected.length, neglectedHours: NEGLECTED_HOURS },
+      nextPollSec: merged.length === 0
+        ? Math.max(300, minIntervalSec / 4)
+        : Math.max(180, minIntervalSec / 4),
+    });
   }
 
   // ── 우선순위 A: 정합성 불일치 건 ──

@@ -51,6 +51,21 @@ export async function POST(request: NextRequest) {
   if (!shUser) return NextResponse.json({ error: 'token not found' }, { status: 401 });
   const shUserId = (shUser as { id: string }).id;
 
+  /**
+   * 관리자 도우미는 **남의 방치 상품**을 대신 확인하므로(monitors 라우트의 폴백 참고)
+   * 자기 것이 아닌 모니터의 결과도 저장할 수 있어야 한다. 관리자가 아니면 예전과 같이
+   * 자기 모니터만 갱신한다(남의 데이터를 건드릴 수 있으면 안 된다).
+   */
+  const isAdminHelper = await (async () => {
+    const { data } = await serviceClient
+      .from('megaload_users').select('profile_id').eq('id', shUserId).single();
+    const pid = (data as { profile_id?: string } | null)?.profile_id;
+    if (!pid) return false;
+    const { data: prof } = await serviceClient
+      .from('profiles').select('role').eq('id', pid).single();
+    return (prof as { role?: string } | null)?.role === 'admin';
+  })().catch(() => false);
+
   const body = await request.json().catch(() => ({}));
   const results = (body as { results?: ResultPayload[] }).results;
   if (!Array.isArray(results) || results.length === 0) {
@@ -75,19 +90,19 @@ export async function POST(request: NextRequest) {
   for (const r of results) {
     try {
       // 사용자 모니터인지 검증 (다른 사용자 모니터 update 차단)
-      const { data: mon } = await serviceClient
+      const monQuery = serviceClient
         .from('sh_stock_monitors')
-        .select('id, source_status, source_price_last, consecutive_errors, check_backoff_level, price_follow_rule')
-        .eq('id', r.monitorId)
-        .eq('megaload_user_id', shUserId)
-        .single();
+        .select('id, megaload_user_id, source_status, source_price_last, consecutive_errors, check_backoff_level, price_follow_rule')
+        .eq('id', r.monitorId);
+      // 관리자 폴백만 소유자 제한을 푼다 — 일반 도우미는 자기 것만.
+      const { data: mon } = await (isAdminHelper ? monQuery : monQuery.eq('megaload_user_id', shUserId)).single();
 
       if (!mon) {
         skipped++;
         continue;
       }
 
-      const m = mon as { id: string; source_status: string; source_price_last: number | null; consecutive_errors: number; check_backoff_level: number | null; price_follow_rule: { enabled?: boolean } | null };
+      const m = mon as { id: string; megaload_user_id: string; source_status: string; source_price_last: number | null; consecutive_errors: number; check_backoff_level: number | null; price_follow_rule: { enabled?: boolean } | null };
       const priceFollowEnabled = m.price_follow_rule?.enabled === true;
       const now = new Date().toISOString();
       const updates: Record<string, unknown> = {
@@ -126,7 +141,7 @@ export async function POST(request: NextRequest) {
           //   도우미가 보내주는 사유를 check_error 로그로 남겨 대시보드 이력에서 원인을 볼 수 있게 한다.
           await serviceClient.from('sh_stock_monitor_logs').insert({
             monitor_id: r.monitorId,
-            megaload_user_id: shUserId,
+            megaload_user_id: m.megaload_user_id || shUserId,
             event_type: 'check_error',
             source_status_before: m.source_status,
             source_status_after: 'error',
@@ -135,7 +150,7 @@ export async function POST(request: NextRequest) {
         } else {
           await serviceClient.from('sh_stock_monitor_logs').insert({
             monitor_id: r.monitorId,
-            megaload_user_id: shUserId,
+            megaload_user_id: m.megaload_user_id || shUserId,
             event_type: 'desktop_check',
             source_status_before: m.source_status,
             source_status_after: r.status,
