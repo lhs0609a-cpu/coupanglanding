@@ -291,6 +291,13 @@ export async function startGeneration({
   if (noThumb) args.push('--no-thumb');
   if (useComfySwap) args.push('--wait-comfy'); // 누끼 전에 ComfyUI 기동을 기다리게
 
+  // ── 모델 예열 ────────────────────────────────────────────────────────────
+  // 여기서 미리 올려 두지 않으면 첫 상품이 로딩(7.8B Q4 = 5GB)을 통째로 문다. 동시 레인이
+  // 여럿이면 그 레인들이 다 같이 로딩을 기다리다 한꺼번에 몰려 앞 몇 건만 몇 분씩 걸린다
+  // (실측 8/12: 앞 2건 248초·607초, 나머지 6건 9~30초 — 앞 2건이 전체 시간의 85%였다).
+  // 실패해도 그냥 예전 동작이라 기다리지 않고 진행한다.
+  try { await services?.ollama?.warmUp?.(profile.model); } catch { /* 예열 실패는 생성을 막지 않는다 */ }
+
   child = spawn(process.execPath, args, {
     cwd: runtimeDir,
     env: {

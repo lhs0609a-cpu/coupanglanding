@@ -86,8 +86,17 @@ export class OllamaManager {
       // 동시 처리 슬롯 — 남은 VRAM 기준(위 pickNumParallel 주석 참조).
       //   미설정이면 ollama 는 1 로 동작해 코드의 병렬화가 전부 무효가 된다(실측).
       //   사용자가 시스템에 직접 설정해 뒀으면 그 값을 그대로 존중한다.
+      // ★ 사용자가 지정한 값은 존중하되 **1 은 존중하지 않는다**(실측 2026-08-19).
+      //   이 PC 에 OLLAMA_NUM_PARALLEL=1 이 사용자 환경변수로 박혀 있었고, 그 탓에 도우미가
+      //   ollama 를 직접 띄워도 슬롯 1개로 띄웠다 — 코드의 병렬화가 전부 무효인 상태였다.
+      //   1 을 일부러 고른 사람은 사실상 없다(옛 설치·옛 안내 문구의 흔적이다). 반면 2 이상은
+      //   의도가 분명하므로 그대로 따른다. 배려하려던 규칙이 정반대로 작동하고 있었다.
       const userSet = Number(process.env.OLLAMA_NUM_PARALLEL);
-      const np = Number.isFinite(userSet) && userSet >= 1 ? userSet : await pickNumParallel();
+      const np = Number.isFinite(userSet) && userSet >= 2 ? userSet : await pickNumParallel();
+      if (Number.isFinite(userSet) && userSet === 1 && np > 1) {
+        this.onLog(`[속도] OLLAMA_NUM_PARALLEL=1 이 설정돼 있어 생성이 순차로 묶여 있었습니다 — `
+          + `VRAM 여유를 보고 ${np}개 동시로 올려 띄웁니다.`);
+      }
       this.numParallel = np;
       const env = {
         ...process.env,
@@ -115,14 +124,11 @@ export class OllamaManager {
       //   1 인데 VRAM 여유가 크면 "그냥 두면 2배 느린" 상태이므로 해결법을 함께 알린다.
       this.numParallel = serverParallelHint(null);
       this.onLog('[ollama] 이미 실행 중');
-      if (this.numParallel <= 1) {
-        const gpu = await checkGpu().catch(() => ({ ok: false, vramFreeMb: 0 }));
-        if (gpu.ok && (gpu.vramFreeMb || 0) >= 8000) {
-          this.onLog('[속도] 실행 중인 ollama 가 요청을 하나씩만 처리합니다(기본값). '
-            + '시스템 환경변수 OLLAMA_NUM_PARALLEL=3 을 설정하고 ollama 를 다시 시작하면 '
-            + '텍스트 생성이 약 2배 빨라집니다. (도우미가 직접 띄운 ollama 는 자동 적용됩니다)');
-        }
-      }
+      // ★ 예전엔 여기서 "환경변수를 직접 설정하세요"라고 안내만 했다. 그 안내를 읽고 실제로
+      //   설정하는 사람은 거의 없고(로그는 아무도 안 본다), 그동안 모든 생성이 2배 느리게
+      //   돌았다. 공식 ollama 설치본은 로그인 시 자동 실행되므로 이 상태가 오히려 표준이다.
+      //   → 안전 조건이 맞으면 우리가 인수한다(재시작). 안 되면 예전처럼 안내로 물러난다.
+      if (this.numParallel <= 1) await this._takeOverIdleOllama({ timeoutMs });
     }
     await this.ensureModel(this.model, '~5GB');
     // 카테고리 임베딩 모델도 보장 — 없으면 임베딩 매처가 404 → 토큰매칭 저하(오분류).
@@ -135,6 +141,91 @@ export class OllamaManager {
       }
     }
     return BASE;
+  }
+
+  /**
+   * 남이 띄운 ollama 가 요청을 하나씩만 처리할 때, **유휴 상태면** 우리가 인수한다.
+   * ---------------------------------------------------------------------------
+   * 왜 이렇게까지 하나: 슬롯 1개는 이 프로젝트의 실측으로 2.0~2.4배 손해다
+   *   (RTX 4060 Ti: 미설정 48 tok/s → =3 은 104 → =6 은 125). 공식 ollama 는 로그인 시
+   *   자동 실행되므로 대부분의 PC 가 이 상태이고, 안내 문구로는 아무것도 바뀌지 않았다.
+   *
+   * 남의 프로세스를 내리는 일이라 조건을 좁게 잡는다 — 하나라도 어긋나면 건드리지 않는다:
+   *   ① 지금 **아무 모델도 돌고 있지 않다**(/api/ps 가 비어 있다). 남이 쓰는 중이면 절대 금지.
+   *   ② GPU 가 있고 여유 VRAM 이 8GB 이상 — 우리가 인수해서 얻을 게 실제로 있을 때만.
+   *   ③ 재기동에 실패하면 곧바로 알린다. 이 경우 사용자는 ollama 를 잃으므로 침묵하면 안 된다.
+   */
+  async _takeOverIdleOllama({ timeoutMs = 120_000 } = {}) {
+    const gpu = await checkGpu().catch(() => ({ ok: false, vramFreeMb: 0 }));
+    const want = await pickNumParallel();
+    if (!gpu.ok || (gpu.vramFreeMb || 0) < 8000 || want <= 1) return false;
+
+    // ① 유휴 확인 — 남이 쓰는 중인 서버를 내리는 것은 어떤 속도 이득보다도 나쁘다.
+    let busy = true;
+    try {
+      const r = await fetch(`${BASE}/api/ps`);
+      const j = r.ok ? await r.json() : null;
+      busy = !j || !Array.isArray(j.models) || j.models.length > 0;
+    } catch { busy = true; }
+    if (busy) {
+      this.onLog('[속도] 실행 중인 ollama 가 순차 처리(1개)지만 지금 사용 중이라 그대로 둡니다 — '
+        + '생성이 평소보다 느릴 수 있습니다.');
+      return false;
+    }
+
+    this.onLog(`[속도] 실행 중인 ollama 가 요청을 하나씩만 처리합니다 — 유휴 상태라 `
+      + `동시 ${want}개로 다시 띄웁니다(텍스트 생성이 약 2배 빨라집니다).`);
+    try {
+      const { execFile } = await import('node:child_process');
+      const kill = (cmd, args) => new Promise((res) => execFile(cmd, args, () => res()));
+      if (process.platform === 'win32') await kill('taskkill', ['/IM', 'ollama.exe', '/F']);
+      else await kill('pkill', ['-f', 'ollama serve']);
+      // 포트가 풀릴 때까지 잠깐 — 곧바로 띄우면 EADDRINUSE 로 우리 것도 못 뜬다.
+      for (let i = 0; i < 20 && (await this.isUp()); i++) await sleep(500);
+    } catch { /* 종료 실패는 아래 재확인에서 걸린다 */ }
+
+    if (await this.isUp()) {
+      this.onLog('[속도] 기존 ollama 를 내리지 못했습니다 — 순차 처리로 계속합니다(느려도 동작은 합니다).');
+      return false;
+    }
+    try {
+      await this.start({ timeoutMs });     // 이제 우리가 띄운다 → 슬롯이 확정된다
+      return true;
+    } catch (e) {
+      this.onLog(`❌ ollama 재기동 실패 — ${e.message}. ollama 를 수동으로 다시 실행해 주세요.`);
+      throw e;
+    }
+  }
+
+  /**
+   * 모델을 미리 VRAM 에 올려 둔다(예열).
+   * ---------------------------------------------------------------------------
+   * 예열이 없으면 **첫 상품이 모델 로딩 비용을 통째로 뒤집어쓴다**. 7.8B Q4 는 5GB라
+   * 디스크에서 올리는 데 수십 초가 걸리고, 동시 레인이 여럿이면 그 레인들이 전부 로딩을
+   * 기다리다 한꺼번에 몰린다(실측 8/12: 앞 2건이 248초·607초, 나머지 6건은 9~30초).
+   * 사용자 눈에는 "생성이 멈췄다"로 보이는 구간이기도 하다.
+   *
+   * keep_alive 를 길게 잡는 이유: 기본값 5분이라 배치 중간에 잠깐 쉬면 모델이 내려가고
+   * 다음 상품이 또 로딩을 문다. 생성이 도는 동안은 붙잡아 둔다.
+   */
+  async warmUp(model = this.model, keepAlive = '30m') {
+    try {
+      const t0 = Date.now();
+      const r = await fetch(`${BASE}/api/generate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model, prompt: '안녕', stream: false, keep_alive: keepAlive, options: { num_predict: 1 } }),
+      });
+      if (!r.ok) return false;
+      await r.json().catch(() => null);
+      const secs = ((Date.now() - t0) / 1000).toFixed(1);
+      this.onLog(`[속도] 모델 예열 완료 (${secs}초) — 첫 상품이 로딩을 기다리지 않습니다.`);
+      return true;
+    } catch (e) {
+      // 예열 실패는 생성을 막지 않는다 — 예전처럼 첫 상품이 로딩을 물 뿐이다.
+      this.onLog(`[속도] 모델 예열 생략 — ${e.message}`);
+      return false;
+    }
   }
 
   async hasModel(model = this.model) {
