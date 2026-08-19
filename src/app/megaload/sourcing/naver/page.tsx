@@ -50,6 +50,8 @@ export default function NaverSourcingCatalogPage() {
   const [importing, setImporting] = useState(false);
   const [imp, setImp] = useState<ImportState | null>(null);
   const [impNote, setImpNote] = useState<string | null>(null);
+  // 상세를 요청해 둔 상품 — 준비되면 자동으로 이어서 등록한다.
+  const [pendingIds, setPendingIds] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -154,9 +156,14 @@ export default function NaverSourcingCatalogPage() {
           const qj = await qr.json();
           queued = qr.ok ? (qj.requested ?? 0) : 0;
         } catch { /* 요청 등록 실패는 치명적이지 않다 */ }
-        setImpNote(queued
-          ? `${queued}개는 아직 상세가 없어 지금 요청을 걸었습니다 — 준비되면(보통 몇 분) 다시 눌러 가져오세요.`
-          : `${j.skipped.length}개는 아직 상세가 없습니다 — 잠시 후 다시 시도해 주세요.`);
+        if (queued) {
+          // ★ "준비되면 다시 눌러 가져오세요" 는 나쁜 안내였다 — 사용자가 언제 될지 모르는 걸
+          //   감으로 재시도해야 했다. 실측상 처리는 보통 10~30초다. 기다렸다 **자동으로 이어간다**.
+          setImpNote(`${queued}개는 상세가 없어 지금 준비 중입니다 — 끝나면 자동으로 이어서 등록합니다.`);
+          setPendingIds(ids);
+        } else {
+          setImpNote(`${j.skipped.length}개는 아직 상세가 없습니다 — 잠시 후 다시 시도해 주세요.`);
+        }
       }
       if (!j.products?.length) {
         // 가져올 게 없어도 요청은 걸렸다 — 그 사실을 에러로 덮지 않는다.
@@ -172,6 +179,40 @@ export default function NaverSourcingCatalogPage() {
       setImporting(false);
     }
   };
+
+  /**
+   * 요청해 둔 상세가 준비됐는지 지켜본다.
+   * 실측(2026-08-20): 요청 → 도우미 처리 완료까지 14초였다. 사람에게 "몇 분 뒤 다시 누르라"고
+   * 시킬 일이 아니다 — 준비되는 대로 이어서 등록한다. 3분 안에 안 되면 손을 뗀다(무한 폴링 금지).
+   */
+  useEffect(() => {
+    if (!pendingIds.length) return;
+    let alive = true;
+    let tries = 0;
+    const t = setInterval(async () => {
+      if (++tries > 18) { clearInterval(t); setPendingIds([]); return; }   // 3분
+      try {
+        const res = await fetch('/api/megaload/naver-sourcing/products/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: pendingIds }),
+        });
+        const j = await res.json();
+        if (!alive || !res.ok || !j.products?.length) return;
+        clearInterval(t);
+        setPendingIds([]);
+        const helper = await findHelper();
+        if (!helper) { setImpNote('상세가 준비됐는데 도우미를 찾지 못했습니다 — 도우미를 실행한 뒤 다시 눌러 주세요.'); return; }
+        setImpNote(`상세가 준비돼 ${j.products.length}개를 이어서 등록합니다.`);
+        setImporting(true);
+        const r = await startImport(helper.ep, j.products, undefined, true);
+        setImp({ running: true, total: r.total ?? j.products.length, done: 0, ok: 0, failed: 0, current: '', rootDir: r.rootDir ?? '', stopped: null, at: Date.now() });
+        load();
+      } catch { /* 다음 주기에 다시 */ }
+    }, 10000);
+    return () => { alive = false; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingIds]);
 
   const pageSize = 60;
   const lastPage = Math.max(1, Math.ceil(total / pageSize));
