@@ -68,7 +68,10 @@ async function notifyLoginNeeded(ctx, skipped) {
     if (!Notification.isSupported()) return;
     const n = new Notification({
       title: '네이버 로그인이 필요합니다',
-      body: `스마트스토어 ${skipped}건의 품절을 확인하지 못하고 있습니다. 눌러서 로그인해 주세요.`,
+      // 알림에도 안심 문구를 한 줄 넣는다 — "왜 내 네이버 계정을?" 이 먼저 떠오르면
+      // 창을 열어 보지도 않는다. 판단은 알림을 보는 그 순간에 일어난다.
+      body: `스마트스토어 ${skipped}건의 품절을 확인하지 못하고 있습니다.\n`
+        + '눌러서 로그인해 주세요 — 계정 정보는 이 PC 밖으로 나가지 않습니다.',
     });
     n.on('click', () => {
       try { ctx.showWindow?.(); } catch { /* ignore */ }
