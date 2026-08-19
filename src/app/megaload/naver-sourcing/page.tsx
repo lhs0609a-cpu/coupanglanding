@@ -22,6 +22,7 @@ import {
   type NaverCategory, type ProductCard,
 } from '@/lib/megaload/naver-ingest-local';
 import { triggerLocalUpdate } from '@/lib/megaload/allinone-local';
+import SourcingPreviewModal from '@/components/megaload/SourcingPreviewModal';
 
 /**
  * 이 화면이 요구하는 최소 도우미 버전.
@@ -122,6 +123,11 @@ export default function NaverSourcingPage() {
   //   보기   격자(기본) = 한 화면에 수십 개. 표 = 숫자 비교가 필요할 때.
   //   정렬   리뷰 많은 순이 소싱의 기본 판단축이라 기본값으로 둔다.
   //   표시량 전량을 한 번에 그리면 썸네일 수백 장이 동시에 떠서 화면이 멎는다 → 점진 표시.
+  // 수집 → 상세 → 올인원을 버튼 한 번으로. 전량은 58개면 30~90분이라 개수를 고를 수 있게 둔다.
+  const [autoDetail, setAutoDetail] = useState(false);
+  const [autoDetailLimit, setAutoDetailLimit] = useState(10);
+  /** 미리보기 모달 — 카드를 누르면 이 상품의 상세를 띄운다. */
+  const [previewNo, setPreviewNo] = useState<string | null>(null);
   const [view, setView] = useState<'grid' | 'table'>('grid');
   const [sortBy, setSortBy] = useState<'review' | 'priceAsc' | 'priceDesc' | 'none'>('review');
   const [minReview, setMinReview] = useState(0);
@@ -767,8 +773,31 @@ export default function NaverSourcingPage() {
                 >
                   {[100, 300, 500, 1000].map((n) => <option key={n} value={n}>{n}개</option>)}
                 </select>
+                {/* 한 번에 — 수집만 하면 사람이 다시 골라 버튼을 또 눌러야 한다.
+                    켜 두면 수집 → 상세 → 올인원(상세페이지 생성)까지 버튼 한 번으로 이어진다. */}
+                <label className="flex items-center gap-1.5 text-sm text-gray-700">
+                  <input type="checkbox" checked={autoDetail} onChange={(e) => setAutoDetail(e.target.checked)} />
+                  상세까지 한 번에
+                </label>
+                {autoDetail && (
+                  <select
+                    value={autoDetailLimit}
+                    onChange={(e) => setAutoDetailLimit(Number(e.target.value))}
+                    className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm"
+                    title="상품 1건에 페이지를 한 장 열어야 해서 건당 30~90초가 걸립니다"
+                  >
+                    {[5, 10, 20, 50].map((n) => <option key={n} value={n}>리뷰 상위 {n}개</option>)}
+                    <option value={0}>수집된 전부</option>
+                  </select>
+                )}
                 <button
-                  onClick={() => ep && run('collect', () => startCollect(ep, { catId: here.id, catName: picked.map((c) => c.name).join(' > '), target }))}
+                  onClick={() => ep && run('collect', () => startCollect(ep, {
+                    catId: here.id,
+                    catName: picked.map((c) => c.name).join(' > '),
+                    target,
+                    autoDetail,
+                    autoDetailLimit: autoDetail ? autoDetailLimit : 0,
+                  }))}
                   disabled={!!busy || collect?.running || !loggedIntoNaver}
                   title={loggedIntoNaver ? undefined : '네이버 로그인이 먼저 필요합니다'}
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium disabled:opacity-40 hover:bg-[#c41230]"
@@ -908,18 +937,26 @@ export default function NaverSourcingPage() {
                   <button
                     key={c.productNo}
                     type="button"
-                    onClick={() => setPickedProducts((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(c.productNo)) next.delete(c.productNo); else next.add(c.productNo);
-                      return next;
-                    })}
+                    // 카드 = 미리보기(등록해도 되는 물건인지 본다), 왼쪽 체크 = 선택.
+                    onClick={() => setPreviewNo(c.productNo)}
                     className={`relative text-left rounded-lg border p-2 transition-colors ${
                       on ? 'border-[#E31837] bg-[#E31837]/5' : 'border-gray-200 bg-white hover:border-gray-300'}`}
                   >
                     <span
-                      className={`absolute top-3 left-3 w-5 h-5 rounded border flex items-center justify-center text-xs font-bold ${
-                        on ? 'bg-[#E31837] border-[#E31837] text-white' : 'bg-white/90 border-gray-300 text-transparent'}`}
-                      aria-hidden
+                      role="checkbox"
+                      aria-checked={on}
+                      aria-label={`${c.title} 선택`}
+                      tabIndex={0}
+                      onClick={(e) => {
+                        e.stopPropagation();          // 선택은 미리보기를 열지 않는다
+                        setPickedProducts((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(c.productNo)) next.delete(c.productNo); else next.add(c.productNo);
+                          return next;
+                        });
+                      }}
+                      className={`absolute top-3 left-3 w-6 h-6 rounded border flex items-center justify-center text-xs font-bold cursor-pointer ${
+                        on ? 'bg-[#E31837] border-[#E31837] text-white' : 'bg-white/90 border-gray-300 text-transparent hover:border-gray-500'}`}
                     >
                       ✓
                     </span>
@@ -1199,6 +1236,26 @@ export default function NaverSourcingPage() {
             : '로그가 여기에 표시됩니다.'}
         </pre>
       </section>
+
+      {/* 미리보기 — 목록에서 상품을 누르면 등록에 필요한 것(이미지·옵션·상세·고시정보)을 다 보여준다. */}
+      {previewNo && (() => {
+        const c = cards.find((x) => x.productNo === previewNo);
+        if (!c) return null;
+        return (
+          <SourcingPreviewModal
+            ep={ep}
+            url={c.url}
+            fallback={{ title: c.title, price: c.price, thumb: c.thumb, reviewCount: c.reviewCount }}
+            picked={pickedProducts.has(c.productNo)}
+            onPick={() => setPickedProducts((prev) => {
+              const next = new Set(prev);
+              next.add(c.productNo);
+              return next;
+            })}
+            onClose={() => setPreviewNo(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

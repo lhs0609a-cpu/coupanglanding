@@ -337,7 +337,13 @@ export async function stopPrewarm(ep: LocalEndpoint): Promise<void> {
 /** 수집 시작 — 몇 분 걸리므로 시작만 하고 즉시 돌아온다. 진행은 status, 결과는 fetchCollection. */
 export async function startCollect(
   ep: LocalEndpoint,
-  args: { catId: string; catName?: string; target?: number },
+  args: {
+    catId: string; catName?: string; target?: number;
+    /** 수집이 끝나면 상세 추출까지 이어서 실행(그다음은 올인원이 받는다). */
+    autoDetail?: boolean;
+    /** 상세까지 가져올 개수(리뷰 많은 순). 0 이면 수집된 전부. */
+    autoDetailLimit?: number;
+  },
 ): Promise<void> {
   await post(ep, 'collect', args);
 }
@@ -363,6 +369,28 @@ export async function startDetailExtract(
   ep: LocalEndpoint, urls: string[], rootDir?: string,
 ): Promise<{ ok: boolean; total?: number; rootDir?: string }> {
   return (await post(ep, 'detail', { urls, rootDir })) as { ok: boolean; total?: number; rootDir?: string };
+}
+
+/** 상품 1건의 상세 — 폴더를 만들지 않고 화면에 보여줄 값만 읽어 온다. */
+export interface ProductPreview {
+  title?: string;
+  price?: number;
+  brand?: string;
+  categoryPath?: string;
+  url?: string;
+  options?: { optionName: string; price: number; stock: number; soldOut: boolean }[];
+  detailText?: string;
+  mainImages?: string[];
+  detailImages?: string[];
+  reviewImages?: string[];
+  notice?: { productInfoProvidedNoticeView?: Record<string, Record<string, unknown>> } | null;
+}
+
+export async function previewProduct(
+  ep: LocalEndpoint,
+  url: string,
+): Promise<{ ok: boolean; error?: string; data?: ProductPreview }> {
+  return (await post(ep, 'preview', { url })) as { ok: boolean; error?: string; data?: ProductPreview };
 }
 
 export async function stopDetailExtract(ep: LocalEndpoint): Promise<void> {

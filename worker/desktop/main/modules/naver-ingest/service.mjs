@@ -31,7 +31,7 @@ import {
   ROOT_CATEGORIES,
 } from './categories.mjs';
 import { collectCategory } from './collect-list.mjs';
-import { extractOne, ensureRoot } from './detail-extract.mjs';
+import { extractOne, ensureRoot, extractDetailJs } from './detail-extract.mjs';
 
 let pool = null;
 let deps = {
@@ -451,7 +451,13 @@ function scheduleResume() {
  * 카테고리 1개 수집 시작. 오래 걸리므로 **기다리지 않고** 시작만 하고 돌아간다
  * (웹은 status 폴링으로 진행을 본다).
  */
-export async function startCollect({ catId, catName = '', target = 300 }) {
+/**
+ * @param autoDetail      수집이 끝나면 상세 추출까지 이어서 실행한다(그다음은 올인원이 받는다).
+ * @param autoDetailLimit 상세까지 가져올 개수. 0 이면 수집된 전부.
+ *                        전량은 상품 1건에 페이지 1장이라 58개면 30~90분이고 네이버 차단
+ *                        위험도 그만큼 커진다 — 그래서 개수를 고를 수 있게 둔다.
+ */
+export async function startCollect({ catId, catName = '', target = 300, autoDetail = false, autoDetailLimit = 0 }) {
   requireAdmin();
   if (!catId) throw new Error('카테고리를 선택하세요.');
   if (collection.running) throw new Error('이미 수집이 진행 중입니다.');
@@ -489,10 +495,26 @@ export async function startCollect({ catId, catName = '', target = 300 }) {
     return { items: [...merged.values()], stopped: second.stopped };
   };
 
-  runWithRelogin().then(({ items, stopped }) => {
+  runWithRelogin().then(async ({ items, stopped }) => {
     collection = { ...collection, items, stopped, running: false, at: Date.now() };
     pushLog(`✅ 수집 완료 — ${items.length}개 (${stopped})`);
     pushStatus();
+
+    // ── 상세까지 한 번에 ──────────────────────────────────────────────
+    // 목록만 모아 두면 사람이 다시 골라 버튼을 또 눌러야 한다. 켜 두면 여기서 바로 이어지고,
+    // 상세가 끝나면 올인원(대표컷·상세페이지 생성)까지 자동으로 간다 — 버튼 한 번에 검수까지.
+    // 리뷰 많은 순으로 자른다: 개수를 제한할 때 아무거나 남기면 고를 이유가 없어진다.
+    if (!autoDetail || collectAbort.signal.aborted || !items.length) return;
+    const ordered = [...items].sort((a, b) => (b.reviewCount || 0) - (a.reviewCount || 0));
+    const picked = autoDetailLimit > 0 ? ordered.slice(0, autoDetailLimit) : ordered;
+    const urls = picked.map((x) => x.url).filter(Boolean);
+    if (!urls.length) return;
+    pushLog(`이어서 상세 ${urls.length}개를 가져옵니다${autoDetailLimit > 0 ? ` (리뷰 많은 순 상위 ${autoDetailLimit}개)` : ''}.`);
+    try {
+      await startDetailExtract({ urls });
+    } catch (e) {
+      pushLog(`❌ 상세 추출을 시작하지 못했습니다 — ${e?.message || e}. 목록에서 골라 직접 실행할 수 있습니다.`);
+    }
   }).catch((e) => {
     collection = { ...collection, running: false, stopped: `실패: ${e?.message || e}` };
     pushLog(`❌ 수집 실패 — ${e?.message || e}`);
@@ -588,6 +610,29 @@ export async function startDetailExtract({ urls = [], rootDir = '', autoGenerate
   });
 
   return { ok: true, started: true, total: list.length, rootDir: root };
+}
+
+/**
+ * 미리보기 — 상품 1건의 상세를 **폴더를 만들지 않고** 읽어서 그대로 돌려준다.
+ * ---------------------------------------------------------------------------
+ * 목록에는 제목·가격·썸네일·리뷰수뿐이라 "이걸 등록해도 되나"를 판단할 수 없다.
+ * 그렇다고 판단하려고 상세 추출(폴더 생성 + 이미지 수십 장 다운로드)을 돌리면
+ * 안 쓸 상품에도 그 비용을 낸다. 보는 것과 가져오는 것을 분리한다.
+ *
+ * 추출기는 상세 추출과 **같은 것**을 쓴다 — 미리보기에서 본 것과 실제로 가져오는 것이
+ * 다르면 미리보기의 의미가 없다.
+ */
+export async function previewProduct(url) {
+  if (!url) throw new Error('상품 URL 이 필요합니다.');
+  const p = ensurePool();
+  if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
+  await ensureNaverLogin().catch(() => null);
+
+  const r = await runOne(p, url, { onLog: pushLog, extract: extractDetailJs });
+  if (!r?.ok) return { ok: false, error: r?.error || '알 수 없음' };
+  const d = r.data || {};
+  if (d.error) return { ok: false, error: d.error };
+  return { ok: true, data: d };
 }
 
 export function stopDetailExtract() {

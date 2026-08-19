@@ -272,6 +272,11 @@ export async function startPairServer({
           const { urls, rootDir, autoGenerate } = await readJson();
           return json(200, await naverIngest.startDetailExtract({ urls, rootDir, autoGenerate }));
         }
+        // 미리보기 — 폴더를 만들지 않고 상세만 읽어 온다(보는 것과 가져오는 것의 분리).
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/preview') {
+          const { url } = await readJson();
+          return json(200, await naverIngest.previewProduct(url));
+        }
         if (req.method === 'POST' && u.pathname === '/naver-ingest/detail/stop') {
           return json(200, naverIngest.stopDetailExtract());
         }
