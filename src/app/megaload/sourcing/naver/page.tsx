@@ -14,8 +14,8 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Search, Loader2, ExternalLink, PackageSearch, ChevronLeft, ChevronRight } from 'lucide-react';
-import { findHelper, fetchCollection } from '@/lib/megaload/naver-ingest-local';
+import { Search, Loader2, ExternalLink, PackageSearch, ChevronLeft, ChevronRight, Download, AlertTriangle } from 'lucide-react';
+import { findHelper, fetchCollection, startImport, fetchImportState, type ImportState } from '@/lib/megaload/naver-ingest-local';
 
 interface SourcedProduct {
   id: string;
@@ -45,6 +45,11 @@ export default function NaverSourcingCatalogPage() {
   const [onlyDetail, setOnlyDetail] = useState(false);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  // 올인원으로 가져오기 — 고른 것만 내 PC 로 내려받아 폴더를 만든다.
+  const [picked, setPicked] = useState<Set<string>>(() => new Set());
+  const [importing, setImporting] = useState(false);
+  const [imp, setImp] = useState<ImportState | null>(null);
+  const [impNote, setImpNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -97,6 +102,57 @@ export default function NaverSourcingCatalogPage() {
     // 첫 진입에 한 번만 — 폴링하면 셀러 브라우저가 매번 localhost 를 두드린다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** 가져오기 진행 폴링 — 도는 동안만. */
+  useEffect(() => {
+    if (!imp?.running && !importing) return;
+    let alive = true;
+    const t = setInterval(async () => {
+      const helper = await findHelper();
+      if (!helper || !alive) return;
+      const st = await fetchImportState(helper.ep);
+      if (!alive || !st) return;
+      setImp(st);
+      if (!st.running) { setImporting(false); clearInterval(t); }
+    }, 2000);
+    return () => { alive = false; clearInterval(t); };
+  }, [imp?.running, importing]);
+
+  /**
+   * 고른 상품을 내 PC 로 가져온다.
+   * 서버에서 받는 건 **URL 과 JSON 뿐**이다 — 이미지 바이트는 도우미가 CDN 에서 직접 받는다.
+   * 그래서 네이버 페이지를 열지 않고, 셀러는 로그인·캡차·429 를 겪지 않는다.
+   */
+  const runImport = async () => {
+    setErr(null);
+    setImpNote(null);
+    setImporting(true);
+    try {
+      const helper = await findHelper();
+      if (!helper) throw new Error('이 PC 에서 메가로드 도우미를 찾지 못했습니다 — 도우미를 실행해 주세요.');
+
+      const res = await fetch('/api/megaload/naver-sourcing/products/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [...picked] }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+
+      if (j.skipped?.length) {
+        setImpNote(`${j.skipped.length}개는 아직 상세를 안 받아서 제외했습니다 — 관리자가 상세를 확보하면 가져올 수 있습니다.`);
+      }
+      if (!j.products?.length) {
+        throw new Error('가져올 수 있는 상품이 없습니다. "상세 확보" 배지가 있는 상품만 가능합니다.');
+      }
+      const r = await startImport(helper.ep, j.products);
+      setImp({ running: true, total: r.total ?? j.products.length, done: 0, ok: 0, failed: 0, current: '', rootDir: r.rootDir ?? '', stopped: null, at: Date.now() });
+      setPicked(new Set());
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setImporting(false);
+    }
+  };
 
   const pageSize = 60;
   const lastPage = Math.max(1, Math.ceil(total / pageSize));
@@ -161,6 +217,62 @@ export default function NaverSourcingCatalogPage() {
         </span>
       </div>
 
+      {/* 카탈로그와 올인원을 잇는 지점.
+          서버에서 오는 건 URL·JSON 뿐이고, 이미지는 내 PC 도우미가 CDN 에서 직접 받는다. */}
+      <div className="rounded-xl border border-gray-200 bg-white p-4 mb-4 flex items-center gap-3 flex-wrap">
+        <button
+          onClick={() => setPicked((prev) => {
+            const all = products.length > 0 && products.every((x) => prev.has(x.id));
+            const next = new Set(prev);
+            for (const x of products) { if (all) next.delete(x.id); else next.add(x.id); }
+            return next;
+          })}
+          className="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-gray-50"
+        >
+          {products.length > 0 && products.every((x) => picked.has(x.id)) ? '이 페이지 선택 해제' : '이 페이지 전체 선택'}
+        </button>
+        <button
+          onClick={runImport}
+          disabled={!picked.size || importing || !!imp?.running}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230] disabled:opacity-40"
+        >
+          {importing || imp?.running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+          선택한 {picked.size.toLocaleString()}개 내 PC 로 가져오기
+        </button>
+        {!!picked.size && !importing && (
+          <button onClick={() => setPicked(new Set())} className="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-500 hover:bg-gray-50">
+            선택 해제
+          </button>
+        )}
+        <span className="text-xs text-gray-500">
+          도우미가 이미지를 받아 올인원 폴더를 만듭니다 — 네이버 로그인이 필요 없습니다.
+        </span>
+      </div>
+
+      {impNote && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 mb-4 inline-flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4" /> {impNote}
+        </div>
+      )}
+
+      {imp && (imp.running || imp.done > 0) && (
+        <div className="rounded-xl border border-gray-200 bg-white p-4 mb-4">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-medium text-gray-800">가져오기 {imp.running ? '진행 중' : (imp.stopped || '완료')}</span>
+            <span className="text-gray-500">{imp.done}/{imp.total} · 성공 {imp.ok} · 실패 {imp.failed}</span>
+          </div>
+          <div className="mt-2 h-1.5 rounded bg-gray-100 overflow-hidden">
+            <div className="h-full bg-[#E31837] transition-all" style={{ width: `${imp.total ? Math.round((imp.done / imp.total) * 100) : 0}%` }} />
+          </div>
+          {imp.current && <p className="text-xs text-gray-500 mt-2 truncate">지금: {imp.current}</p>}
+          {!imp.running && imp.ok > 0 && (
+            <p className="text-xs text-emerald-700 mt-2">
+              폴더가 준비됐습니다 — 올인원이 이어서 상세페이지를 만듭니다. 저장 위치: <code className="text-[11px]">{imp.rootDir}</code>
+            </p>
+          )}
+        </div>
+      )}
+
       {err && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 mb-4">
           {err}
@@ -182,8 +294,23 @@ export default function NaverSourcingCatalogPage() {
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
             {products.map((p) => (
-              <div key={p.id} className="rounded-xl border border-gray-200 bg-white overflow-hidden hover:shadow-sm transition">
-                <div className="aspect-square bg-gray-100">
+              <div
+                key={p.id}
+                className={`rounded-xl border bg-white overflow-hidden hover:shadow-sm transition ${picked.has(p.id) ? 'border-[#E31837] ring-1 ring-[#E31837]' : 'border-gray-200'}`}
+              >
+                <div className="relative aspect-square bg-gray-100">
+                  <label className="absolute top-2 left-2 z-10 bg-white/90 rounded p-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      aria-label={`${p.title} 선택`}
+                      checked={picked.has(p.id)}
+                      onChange={(e) => setPicked((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.add(p.id); else next.delete(p.id);
+                        return next;
+                      })}
+                    />
+                  </label>
                   {p.thumb
                     // 네이버 CDN — next/image 최적화를 태우면 우리 서버 트래픽만 는다.
                     // eslint-disable-next-line @next/next/no-img-element

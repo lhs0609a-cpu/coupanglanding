@@ -408,6 +408,37 @@ export async function fetchDetailState(ep: LocalEndpoint): Promise<DetailState |
   }
 }
 
+/** 카탈로그에서 고른 상품을 이 PC 로 가져오기(이미지만 CDN 에서 — 네이버 페이지 안 엶). */
+export interface ImportState {
+  running: boolean;
+  total: number;
+  done: number;
+  ok: number;
+  failed: number;
+  current: string;
+  rootDir: string;
+  stopped: string | null;
+  at: number;
+}
+
+export async function startImport(
+  ep: LocalEndpoint,
+  products: unknown[],
+  rootDir?: string,
+): Promise<{ ok: boolean; total?: number; rootDir?: string }> {
+  return (await post(ep, 'import', { products, rootDir })) as { ok: boolean; total?: number; rootDir?: string };
+}
+
+export async function fetchImportState(ep: LocalEndpoint): Promise<ImportState | null> {
+  try {
+    const res = await fetch(qs(ep, 'import'));
+    if (!res.ok) return null;
+    return (await res.json()) as ImportState;
+  } catch {
+    return null;
+  }
+}
+
 /** 수집 결과(수백 건). status 폴링과 분리돼 있어 필요할 때만 부른다. */
 export async function fetchCollection(ep: LocalEndpoint): Promise<Collection | null> {
   try {

@@ -31,7 +31,7 @@ import {
   ROOT_CATEGORIES,
 } from './categories.mjs';
 import { collectCategory } from './collect-list.mjs';
-import { extractOne, ensureRoot, extractDetailJs } from './detail-extract.mjs';
+import { extractOne, ensureRoot, extractDetailJs, writeProductFolder } from './detail-extract.mjs';
 
 let pool = null;
 let deps = {
@@ -688,6 +688,83 @@ export async function previewProduct(url) {
   if (d.error) return { ok: false, error: d.error };
   return { ok: true, data: d };
 }
+
+let importTask = { running: false, total: 0, done: 0, ok: 0, failed: 0, current: '', rootDir: '', stopped: null, at: 0 };
+
+/**
+ * 카탈로그에서 고른 상품을 **내 PC 로 가져온다** — 올인원 입력 폴더를 만든다.
+ * ---------------------------------------------------------------------------
+ * ★ 상세 추출과 결정적으로 다르다: **네이버 페이지를 열지 않는다.** 옵션·상세글·고시정보는
+ *   관리자가 이미 받아 서버에 넣어 뒀고, 여기서 하는 일은 그 JSON 을 폴더로 굽고 이미지를
+ *   CDN(pstatic)에서 받는 것뿐이다. CDN 은 로그인도 안티봇도 없다 —— 그래서 셀러는 네이버
+ *   로그인도, 캡차도, 429 도 겪지 않는다. 이 구분이 이 설계의 핵심이다.
+ * 그래서 건당 30~90초가 아니라 **몇 초**다.
+ */
+export async function importProducts({ products = [], rootDir = '', autoAllinone = true } = {}) {
+  const list = (products || []).filter((p) => p && (p.productNo || p.channelProductNo));
+  if (!list.length) throw new Error('가져올 상품이 없습니다.');
+  if (importTask.running) throw new Error('이미 가져오기가 진행 중입니다.');
+
+  const root = ensureRoot(rootDir || join(deps.userDataDir || '.', 'naver-sourcing'));
+  importTask = { running: true, total: list.length, done: 0, ok: 0, failed: 0, current: '', rootDir: root, stopped: null, at: Date.now() };
+  pushLog(`카탈로그에서 ${list.length}개를 가져옵니다 — 이미지만 받으므로 네이버 페이지는 열지 않습니다.`);
+  pushStatus();
+
+  (async () => {
+    for (const p of list) {
+      importTask.current = p.title || p.productNo;
+      try {
+        // writeProductFolder 가 기대하는 모양으로 맞춘다(상세 추출 결과와 동일한 계약).
+        const saved = await writeProductFolder(root, {
+          channelProductNo: String(p.productNo || p.channelProductNo),
+          originProductNo: p.originProductNo || '',
+          url: p.url || '',
+          title: p.title || '',
+          name: p.title || '',
+          price: p.price || 0,
+          brand: p.brand || '',
+          categoryPath: p.categoryPath || '',
+          categoryId: p.categoryId || '',
+          options: p.options || [],
+          detailText: p.detailText || '',
+          notice: p.notice || null,
+          mainImages: p.images?.main || [],
+          detailImages: p.images?.detail || [],
+          reviewImages: p.images?.review || [],
+        }, { onLog: pushLog });
+        importTask.ok += 1;
+        pushLog(`✅ ${importTask.done + 1}/${importTask.total} ${String(p.title || '').slice(0, 34)} — 대표 ${saved.mainImages}장 · 상세 ${saved.detailImages}장 · 리뷰 ${saved.reviewImages}장`);
+      } catch (e) {
+        importTask.failed += 1;
+        pushLog(`❌ ${importTask.done + 1}/${importTask.total} 실패 — ${e?.message || e}`);
+      }
+      importTask.done += 1;
+    }
+    importTask.running = false;
+    importTask.current = '';
+    importTask.stopped = '완료';
+    pushLog(`가져오기 완료 — 성공 ${importTask.ok} · 실패 ${importTask.failed} · ${importTask.rootDir}`);
+    pushStatus();
+
+    // 폴더가 준비됐으면 바로 올인원으로 넘긴다 — 사람이 폴더를 다시 고르지 않게.
+    if (autoAllinone && importTask.ok && typeof deps.runAllinone === 'function') {
+      try {
+        pushLog(`상세페이지 자동 생성을 시작합니다 — 상품 ${importTask.ok}개. 끝나면 검수 화면이 열립니다.`);
+        deps.runAllinone({ folder: importTask.rootDir });
+      } catch (e) {
+        pushLog(`올인원 자동 시작 실패 — ${e?.message || e}. 올인원 화면에서 폴더를 직접 고르면 됩니다.`);
+      }
+    }
+  })().catch((e) => {
+    importTask = { ...importTask, running: false, stopped: `실패: ${e?.message || e}` };
+    pushLog(`❌ 가져오기 실패 — ${e?.message || e}`);
+    pushStatus();
+  });
+
+  return { ok: true, started: true, total: list.length, rootDir: root };
+}
+
+export function getImportState() { return { ...importTask }; }
 
 export function stopDetailExtract() {
   detailAbort?.abort();

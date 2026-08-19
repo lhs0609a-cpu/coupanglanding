@@ -80,6 +80,8 @@ export default {
     'naver-ingest:detail': (_ctx, payload = {}) => svc.startDetailExtract(payload),
     'naver-ingest:detail-stop': () => svc.stopDetailExtract(),
     'naver-ingest:detail-state': () => svc.getDetailState(),
+    'naver-ingest:import': (_ctx, payload = {}) => svc.importProducts(payload),
+    'naver-ingest:import-state': () => svc.getImportState(),
     'naver-ingest:collect': (_ctx, payload = {}) => svc.startCollect(payload),
     'naver-ingest:collect-stop': () => svc.stopCollect(),
     'naver-ingest:collection': () => svc.getCollection(),

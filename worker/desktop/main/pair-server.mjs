@@ -277,6 +277,14 @@ export async function startPairServer({
           const { url } = await readJson();
           return json(200, await naverIngest.previewProduct(url));
         }
+        // 카탈로그에서 고른 상품을 이 PC 로 가져온다(이미지만 CDN 에서 — 네이버 페이지 안 엶).
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/import') {
+          const { products, rootDir, autoAllinone } = await readJson();
+          return json(200, await naverIngest.importProducts({ products, rootDir, autoAllinone }));
+        }
+        if (req.method === 'GET' && u.pathname === '/naver-ingest/import') {
+          return json(200, naverIngest.getImportState());
+        }
         if (req.method === 'POST' && u.pathname === '/naver-ingest/detail/stop') {
           return json(200, naverIngest.stopDetailExtract());
         }
