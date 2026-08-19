@@ -1,4 +1,5 @@
 import type { Channel } from '@/lib/megaload/types';
+import type { Hotspot } from '@/components/megaload/GuideImageWithHotspots';
 
 export interface ChannelGuideStep {
   stepNumber: number;
@@ -16,6 +17,11 @@ export interface ChannelGuideStep {
    * (이전엔 "출처: 윈셀링 가이드"가 하드코딩돼, 출처가 다른 캡처에도 그 문구가 붙었다.)
    */
   imageSource?: string;
+  /**
+   * 캡처 위에 얹을 번호 배지. 빨간 박스만으로는 "어느 것부터"를 알 수 없어
+   * 순서가 필요한 단계에 좌표(백분율)로 넣는다.
+   */
+  hotspots?: Hotspot[];
   /**
    * 셀러가 채널 화면에 그대로 붙여넣어야 하는 우리 쪽 값 — 마법사가 복사 버튼과 함께 렌더.
    * 정적 데이터에 값을 박지 않고 키로 참조한다(IP 는 배포 환경에 따라 달라짐).
@@ -210,6 +216,10 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         url: 'https://soffice.11st.co.kr',
         tip: '이미 셀러 계정이 있으면 이 단계는 건너뛰세요.',
         imageUrl: '/onboarding/elevenst/step-1b-login.png',
+        hotspots: [
+          { n: 1, x: 50, y: 34, label: '이미 셀러 계정이 있으면 아이디·비밀번호로 로그인하세요.' },
+          { n: 2, x: 50, y: 69, label: '아직 판매자가 아니라면 [판매자 가입하기]를 눌러 가입부터 하세요.' },
+        ],
       },
       {
         stepNumber: 2,
@@ -221,6 +231,9 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         ],
         url: 'https://openapi.11st.co.kr/openapi/OpenApiFrontMain.tmall',
         imageUrl: '/onboarding/elevenst/api-register.png',
+        hotspots: [
+          { n: 1, x: 47, y: 24, label: '상단 [서비스 등록·확인] 메뉴를 클릭하세요. 여기서 API 서비스를 등록합니다.' },
+        ],
       },
       {
         stepNumber: 3,
@@ -234,6 +247,10 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         url: 'https://openapi.11st.co.kr/openapi/OpenApiFrontMain.tmall',
         warning: 'IP를 등록하지 않으면 모든 API 호출이 거부됩니다. 가장 흔한 실패 원인이에요. 아래 값을 그대로 복사해 넣으세요.',
         imageUrl: '/onboarding/elevenst/api-ip.png',
+        hotspots: [
+          { n: 1, x: 72, y: 17, label: '상단 [서비스 등록·확인] 클릭' },
+          { n: 2, x: 19, y: 74, label: '좌측 [Seller API 정보 수정] 클릭 → 여기서 호출 IP를 입력합니다.' },
+        ],
         copyValueKey: 'egressIp',
       },
       {
@@ -246,6 +263,11 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         ],
         tip: '이 키 하나로 상품/주문 API를 모두 사용합니다 (API별 개별신청 불필요).',
         imageUrl: '/onboarding/elevenst/api-key.png',
+        hotspots: [
+          { n: 1, x: 46, y: 8, label: '[서비스 등록·확인] → 확인 화면으로 들어옵니다.' },
+          { n: 2, x: 80, y: 60, label: '"11ST OPEN API KEY" 아래 값이 발급된 키입니다. "승인 완료"로 표시돼야 사용할 수 있습니다.' },
+          { n: 3, x: 72, y: 87, label: '[복사하기]를 눌러 키를 복사한 뒤 메가로드에 붙여넣으세요.' },
+        ],
         inputFields: ['API Key (openapikey)'],
       },
       {

@@ -7,7 +7,7 @@ import { CHANNEL_SETUP_GUIDES } from '@/lib/data/channel-setup-guides';
 import type { Channel } from '@/lib/megaload/types';
 import { ExternalLink, Lightbulb, AlertTriangle, Clock, CheckCircle2, Tag } from 'lucide-react';
 import EgressIpBox from './EgressIpBox';
-import GuideStepImage from './GuideStepImage';
+import GuideImageWithHotspots from './GuideImageWithHotspots';
 
 interface ChannelSetupGuideProps {
   channel: Channel;
@@ -81,7 +81,15 @@ export default function ChannelSetupGuide({ channel, isOpen, onClose }: ChannelS
               <p className="text-xs text-gray-500 mt-0.5 mb-2">{step.description}</p>
 
               {/* 실제 화면 캡처 (있을 때만) */}
-              {step.imageUrl && <GuideStepImage src={step.imageUrl} alt={step.title} />}
+              {step.imageUrl && (
+                <GuideImageWithHotspots
+                  src={step.imageUrl}
+                  alt={step.title}
+                  hotspots={step.hotspots}
+                  source={step.imageSource}
+                  maxHeight={320}
+                />
+              )}
 
               {/* 세부 설명 */}
               <ul className="space-y-1 mb-2">

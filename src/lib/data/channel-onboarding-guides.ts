@@ -1,5 +1,6 @@
 import type { Channel } from '@/lib/megaload/types';
 import type { MockScreen } from '@/components/megaload/OnboardingMockup';
+import type { Hotspot } from '@/components/megaload/GuideImageWithHotspots';
 
 /**
  * 채널별 "입점(판매자 회원가입) 가이드" — API 연동보다 먼저 보여주는 단계.
@@ -34,6 +35,11 @@ export interface OnboardingStep {
   /** 실제 스크린샷 URL(외부/자체호스팅). 로드 실패 시 screen 목업으로 자동 폴백. */
   imageUrl?: string;
   imageSource?: string;
+  /**
+   * 캡처 위에 얹을 번호 배지. 빨간 박스만으로는 "어느 것부터"를 알 수 없어
+   * 순서가 필요한 단계에 좌표(백분율)로 넣는다.
+   */
+  hotspots?: Hotspot[];
 }
 
 export interface OnboardingGuide {
@@ -433,6 +439,11 @@ const elevenst: OnboardingGuide = {
     },
     {
       stepNumber: 2,
+      hotspots: [
+        { n: 1, x: 46, y: 40, label: '사업자등록증이 있으면 "사업자 판매회원"을 고르세요. (왼쪽 "구매회원"이 아닙니다)' },
+        { n: 2, x: 66, y: 40, label: '사업자등록이 없으면 "개인 셀러회원"입니다.' },
+        { n: 3, x: 86, y: 40, label: '해외 브랜드 상품을 팔면 "글로벌 셀러회원"을 고르세요.' },
+      ],
       title: '판매자 유형 선택 (개인/사업자/글로벌)',
       description: '본인 상황에 맞는 회원 유형을 고릅니다.',
       detailedInstructions: [
@@ -456,6 +467,11 @@ const elevenst: OnboardingGuide = {
     },
     {
       stepNumber: 3,
+      hotspots: [
+        { n: 1, x: 34, y: 15, label: '[전체동의]를 체크하세요.' },
+        { n: 2, x: 40, y: 87, label: '사업자등록번호를 3칸에 나눠 입력합니다.' },
+        { n: 3, x: 74, y: 87, label: '[사업자번호 인증]을 누르면 아래 상호명이 자동으로 채워집니다.' },
+      ],
       title: '약관 동의 + 사업자번호 인증',
       description: '판매자 약관에 동의하고 사업자등록번호로 인증합니다.',
       detailedInstructions: [
@@ -478,6 +494,11 @@ const elevenst: OnboardingGuide = {
     },
     {
       stepNumber: 4,
+      hotspots: [
+        { n: 1, x: 45, y: 25, label: '과세 유형을 고르세요. 법인/개인사업자/간이과세자/사회공헌단체 4가지입니다.' },
+        { n: 2, x: 49, y: 35, label: '아이디를 입력하고 [중복확인]까지 눌러야 넘어갑니다.' },
+        { n: 3, x: 58, y: 79, label: '휴대폰과 이메일을 모두 입력하되, 최소 1개는 [인증]까지 마쳐야 합니다.' },
+      ],
       title: '계정정보 · 기본정보 입력',
       description: '로그인 계정과 사업자 기본정보를 입력합니다.',
       detailedInstructions: [
@@ -524,6 +545,10 @@ const elevenst: OnboardingGuide = {
     },
     {
       stepNumber: 6,
+      hotspots: [
+        { n: 1, x: 50, y: 50, label: '지금은 "승인대기" 상태입니다. 아직 판매할 수 없습니다.' },
+        { n: 2, x: 15, y: 85, label: '[증빙서류 업로드 하기]를 눌러 다음 단계로 가세요. 90일 안에 올려야 합니다.' },
+      ],
       title: '가입 신청 완료',
       description: '정보 입력을 마치면 가입 신청 완료 화면이 뜹니다.',
       detailedInstructions: [
@@ -544,6 +569,10 @@ const elevenst: OnboardingGuide = {
     },
     {
       stepNumber: 7,
+      hotspots: [
+        { n: 1, x: 50, y: 25, label: '파일 4종을 각각 [찾아보기]로 첨부합니다. 4개 합쳐 10MB를 넘으면 안 됩니다.' },
+        { n: 2, x: 42, y: 92, label: '[등록]을 누르면 심사가 시작됩니다. 보통 영업일 2일 내 결과가 나옵니다.' },
+      ],
       title: '증빙서류 업로드 (90일 이내)',
       description: '셀러오피스에서 증빙서류를 온라인으로 업로드합니다.',
       url: 'https://soffice.11st.co.kr',
