@@ -25,6 +25,8 @@ async function refresh() {
     : '⚪ 계정 미저장 — 로그인이 풀리면 직접 다시 해야 합니다';
   $('sm-cred-save').disabled = !cd.encryption;
   $('sm-cred-clear').disabled = !cd.has;
+  // 맨 위 경고 — 로그인이 없을 때만. 창에서 로그인 중이면 감춘다(중복 안내가 더 헷갈린다).
+  $('sm-need-login').style.display = (!nv.loggedIn && !nv.waiting) ? '' : 'none';
   $('sm-checked').textContent = s.stats.checked;
   $('sm-last').textContent = s.stats.lastCheckAt ? `${Math.round((Date.now() - s.stats.lastCheckAt) / 1000)}초 전` : '-';
 }
@@ -57,6 +59,7 @@ $('sm-cred-save').onclick = async () => {
   }
   await refresh();
 };
+$('sm-need-login-btn').onclick = async () => { await api.invoke('stock-monitor:naver-login'); await refresh(); };
 $('sm-cred-clear').onclick = async () => {
   await api.invoke('stock-monitor:naver-cred-clear');
   logLine('저장된 네이버 계정을 지웠습니다.');

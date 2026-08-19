@@ -54,6 +54,29 @@ function tripCircuit(ctx, site) {
 
 // 같은 안내를 2분마다 반복해서 로그를 덮지 않도록.
 let lastLoginWarnAt = 0;
+let lastLoginNotifyAt = 0;
+
+/**
+ * 네이버 로그인이 없어 스마트스토어를 못 보고 있을 때 사람을 부른다.
+ * 알림 → 창 띄우기 → 상품 모니터링 탭 열기까지 한 번에 이어야 실제로 로그인까지 간다.
+ */
+async function notifyLoginNeeded(ctx, skipped) {
+  if (Date.now() - lastLoginNotifyAt < 6 * 60 * 60 * 1000) return;
+  lastLoginNotifyAt = Date.now();
+  try {
+    const { Notification } = await import('electron');
+    if (!Notification.isSupported()) return;
+    const n = new Notification({
+      title: '네이버 로그인이 필요합니다',
+      body: `스마트스토어 ${skipped}건의 품절을 확인하지 못하고 있습니다. 눌러서 로그인해 주세요.`,
+    });
+    n.on('click', () => {
+      try { ctx.showWindow?.(); } catch { /* ignore */ }
+      try { ctx.send('shell:focus-module', { id: 'stock-monitor' }); } catch { /* ignore */ }
+    });
+    n.show();
+  } catch { /* 알림 실패가 감시를 막지는 않는다 */ }
+}
 
 let cronTimer = null, flushTimer = null, running = false, ticking = false;
 let pending = [];
@@ -239,6 +262,11 @@ async function tick(ctx) {
       lastLoginWarnAt = Date.now();
       ctx.send('stock-monitor:log',
         `⚠️ 네이버 로그인이 없어 스마트스토어 ${skipLogin}건을 건너뜁니다 — 위 "네이버 로그인"을 눌러 한 번 로그인하세요.`);
+      // ★ 패널 로그만으로는 아무도 모른다. 품절 감시는 뒤에서 도는 기능이라 셀러는 이 화면을
+      //   열지 않고, 그래서 "로그인 안 해서 절반이 안 돌고 있다"를 몇 주씩 모른 채 지낸다.
+      //   OS 알림으로 부르고, 누르면 창을 띄워 이 탭까지 열어 준다(엉뚱한 탭이면 소용없다).
+      //   6시간에 한 번만 — 이건 알림이지 잔소리가 아니다.
+      notifyLoginNeeded(ctx, skipLogin);
     }
     if (skipCircuit) ctx.send('stock-monitor:log', `⏸ 냉각 중이라 ${skipCircuit}건 보류(자동 재개)`);
     if (!queue.length) return;

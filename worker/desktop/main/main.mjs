@@ -237,6 +237,16 @@ function buildContext() {
     // 모듈은 shell.openExternal 대신 이걸 쓴다 — 크롬(로그인 세션 있는 브라우저)으로 연다.
     //  실패 시 내부에서 기본 브라우저로 폴백하므로 호출부는 신경 쓸 게 없다.
     openUrl: (url) => openUrl(url, shell, (m) => log('shell', m)),
+    // 모듈이 사람을 불러야 할 때(로그인 필요·보안문자 등) 창을 앞으로 가져온다.
+    // 트레이에 내려가 있으면 알림만으로는 아무 일도 일어나지 않는다.
+    showWindow: () => {
+      try {
+        if (!win || win.isDestroyed()) return false;
+        if (win.isMinimized()) win.restore();
+        win.show(); win.focus();
+        return true;
+      } catch { return false; }
+    },
     paths: { userData: app.getPath('userData'), appRoot },
     store, send, log,
     services: {
@@ -345,7 +355,9 @@ app.whenReady().then(async () => {
   trayContribs = contribs;
   // 셸 채널을 manifest 에 합쳐 preload allowlist 에 포함
   manifest.invokable.push('shell:state', 'shell:pair-open', 'shell:logout', 'shell:open-data', 'shell:asset', 'shell:selftest', 'shell:check-update', 'shell:open-update-log');
-  manifest.events.push('shell:pair-done');
+  // shell:focus-module — 모듈이 "사람이 지금 이 화면을 봐야 한다"고 말할 수 있는 통로.
+  //   품절 감시처럼 뒤에서 도는 기능은 막혀도 아무도 모른 채 며칠이 간다(실측된 실패 방식).
+  manifest.events.push('shell:pair-done', 'shell:focus-module');
   registerShellIpc(manifest);
 
   // OS 시작 시 자동 실행 등록 (다운로드 후 일일이 안 켜도 부팅마다 백그라운드 상주).

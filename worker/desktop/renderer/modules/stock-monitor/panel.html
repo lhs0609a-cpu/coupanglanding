@@ -6,6 +6,18 @@
   </p>
 </header>
 
+<!-- 로그인이 없으면 스마트스토어(감시 대상의 대부분)가 통째로 안 돈다.
+     2번 섹션 안에만 적어 두면 이 화면을 안 여는 사람은 영영 모른다 — 맨 위에 띄운다. -->
+<div id="sm-need-login" style="display:none;margin-bottom:12px;padding:12px 14px;border-radius:10px;
+     background:#fff4f4;border:1px solid #ffd0d0;">
+  <b style="color:#c41230;">네이버 로그인이 필요합니다</b>
+  <p class="muted small" style="margin:4px 0 8px;">
+    <span id="sm-need-login-msg">스마트스토어 상품은 네이버에 로그인해야 품절 확인이 됩니다.</span>
+    한 번만 로그인하면 이후에는 알아서 유지됩니다.
+  </p>
+  <button id="sm-need-login-btn" class="btn">지금 네이버 로그인</button>
+</div>
+
 <section class="card">
   <h2>1. 연결 <span id="sm-conn" class="muted"></span></h2>
   <p class="muted small">웹 발급 인증코드(64자)를 붙여넣으세요. <a href="#" id="sm-web">발급 페이지 열기</a></p>

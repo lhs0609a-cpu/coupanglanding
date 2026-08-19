@@ -110,6 +110,8 @@ if ($upd) $upd.onclick = async () => {
   setTimeout(() => { $upd.disabled = false; $upd.textContent = t; }, 2500);
 };
 api.on('shell:pair-done', refreshConn);
+// 모듈이 사람을 부를 때 — 알림을 눌러 창이 떠도 엉뚱한 탭이면 아무 소용이 없다.
+api.on('shell:focus-module', (d) => { if (d && d.id) selectTab(d.id); });
 
 // 탭 생성 + 첫 탭 활성화
 manifest.modules.forEach((m) => $tabs.appendChild(makeTab(m)));
