@@ -425,8 +425,10 @@ export async function startImport(
   ep: LocalEndpoint,
   products: unknown[],
   rootDir?: string,
+  /** 폴더가 준비되면 올인원 생성까지 이어서 시작한다(카탈로그 버튼의 기본 동작). */
+  autoAllinone = true,
 ): Promise<{ ok: boolean; total?: number; rootDir?: string }> {
-  return (await post(ep, 'import', { products, rootDir })) as { ok: boolean; total?: number; rootDir?: string };
+  return (await post(ep, 'import', { products, rootDir, autoAllinone })) as { ok: boolean; total?: number; rootDir?: string };
 }
 
 export async function fetchImportState(ep: LocalEndpoint): Promise<ImportState | null> {

@@ -163,7 +163,8 @@ export default function NaverSourcingCatalogPage() {
         setImporting(false);
         return;
       }
-      const r = await startImport(helper.ep, j.products);
+      // 올인원 생성까지 이어가는 게 이 버튼의 목적이다 — 기본값에 기대지 않고 명시한다.
+      const r = await startImport(helper.ep, j.products, undefined, true);
       setImp({ running: true, total: r.total ?? j.products.length, done: 0, ok: 0, failed: 0, current: '', rootDir: r.rootDir ?? '', stopped: null, at: Date.now() });
       setPicked(new Set());
     } catch (e) {
@@ -255,7 +256,7 @@ export default function NaverSourcingCatalogPage() {
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230] disabled:opacity-40"
         >
           {importing || imp?.running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-          선택한 {picked.size.toLocaleString()}개 내 PC 로 가져오기
+          선택한 {picked.size.toLocaleString()}개 올인원으로 등록하기
         </button>
         {!!picked.size && !importing && (
           <button onClick={() => setPicked(new Set())} className="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-500 hover:bg-gray-50">
@@ -263,7 +264,8 @@ export default function NaverSourcingCatalogPage() {
           </button>
         )}
         <span className="text-xs text-gray-500">
-          도우미가 이미지를 받아 올인원 폴더를 만듭니다 — 네이버 로그인이 필요 없습니다.
+          이미지를 받아 상세페이지까지 자동으로 만듭니다. 끝나면 검수 화면이 열립니다 —
+          네이버 로그인은 필요 없습니다.
         </span>
       </div>
 
@@ -276,7 +278,7 @@ export default function NaverSourcingCatalogPage() {
       {imp && (imp.running || imp.done > 0) && (
         <div className="rounded-xl border border-gray-200 bg-white p-4 mb-4">
           <div className="flex items-center justify-between text-sm">
-            <span className="font-medium text-gray-800">가져오기 {imp.running ? '진행 중' : (imp.stopped || '완료')}</span>
+            <span className="font-medium text-gray-800">올인원 등록 {imp.running ? '준비 중' : (imp.stopped || '완료')}</span>
             <span className="text-gray-500">{imp.done}/{imp.total} · 성공 {imp.ok} · 실패 {imp.failed}</span>
           </div>
           <div className="mt-2 h-1.5 rounded bg-gray-100 overflow-hidden">
@@ -285,7 +287,8 @@ export default function NaverSourcingCatalogPage() {
           {imp.current && <p className="text-xs text-gray-500 mt-2 truncate">지금: {imp.current}</p>}
           {!imp.running && imp.ok > 0 && (
             <p className="text-xs text-emerald-700 mt-2">
-              폴더가 준비됐습니다 — 올인원이 이어서 상세페이지를 만듭니다. 저장 위치: <code className="text-[11px]">{imp.rootDir}</code>
+              상품 {imp.ok}개 준비 완료 — <b>올인원이 이어서 대표컷과 상세페이지를 만듭니다.</b>
+              끝나면 검수 화면이 열립니다. 저장 위치: <code className="text-[11px]">{imp.rootDir}</code>
             </p>
           )}
         </div>
