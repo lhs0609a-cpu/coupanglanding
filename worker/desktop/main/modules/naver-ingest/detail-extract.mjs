@@ -175,6 +175,28 @@ export const extractDetailJs = `
     }
   }
 
+  // ── ⑤ 리뷰 본문 — 상세글의 '결'을 만드는 재료 ────────────────────────────
+  // 지금까지는 "후기처럼 써라"라고만 하고 진짜 후기는 주지 않았다. 구매자가 실제로 쓰는
+  // 표현과 자주 나오는 칭찬·불만을 재료로 주면 흉내가 아니라 결이 살아난다.
+  // 실측(2026-08-19): 200 · { contents:[{ reviewScore, labels:['BEST','REPURCHASE'],
+  //   reviewContent, createDate }] }. 파라미터를 바꾸면 400 이 나므로 페이지가 부른 모양 그대로 쓴다.
+  // ★ 리뷰 문장을 그대로 상세글에 넣으면 안 된다(남의 글이다). 생성 쪽에서 '자주 나오는 포인트'
+  //   로만 쓰도록 짧게 잘라 넘긴다.
+  const reviewTexts = [];
+  if (originProductNo && merchantNo) {
+    const rt = await get(apiBase + '/v1/contents/reviews/product-summary/' + originProductNo
+      + '/reviews/STORE_PICK?checkoutMerchantNo=' + merchantNo
+      + '&searchSortType=REVIEW_RANKING&page=1&pageSize=20');
+    if (rt.ok && rt.json && Array.isArray(rt.json.contents)) {
+      for (const c of rt.json.contents) {
+        const t = cut(c && c.reviewContent, 220);
+        if (t.length < 15) continue;                 // "좋아요" 한 줄짜리는 재료가 안 된다
+        reviewTexts.push({ score: Number(c.reviewScore) || 0, best: (c.labels || []).indexOf('BEST') >= 0, text: t });
+        if (reviewTexts.length >= 15) break;
+      }
+    }
+  }
+
   // ── 상세 이미지: renderContent 를 DOMParser 로 파싱한다(정규식 금지) ──
   const detailImages = [];
   if (detailHtml) {
@@ -244,6 +266,7 @@ export const extractDetailJs = `
     mainImages: mainImages.slice(0, 20),
     // 30장이면 큐레이션에 충분하다 — 245장을 받으면 다운로드가 추출 시간을 지배한다.
     reviewImages: reviewImages.slice(0, 30),
+    reviewTexts,
     notice,
     url: location.href.split('?')[0],
   };
@@ -400,6 +423,9 @@ export async function writeProductFolder(rootDir, data, { onLog } = {}) {
     options: data.options || [],
     sourceCategory: { categoryPath: data.categoryPath || '', categoryId: data.categoryId || '' },
     description: data.detailText || '',
+    // 구매자 후기 원문 — 상세글의 '결'을 만드는 재료다. 그대로 옮겨 쓰는 게 아니라
+    // 자주 나오는 포인트를 뽑는 데 쓴다(source-facts.mjs 가 요약한다).
+    sourceReviews: data.reviewTexts || [],
     // 고시정보는 원본 그대로 남긴다 — 쿠팡 등록의 필수 항목(품목·중량·원산지)이 여기서 나온다.
     providedNotice: data.notice || null,
     certifications: [],

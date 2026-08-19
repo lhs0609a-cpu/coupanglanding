@@ -578,6 +578,7 @@ async function uploadDetail(result, data) {
     categoryId: data.categoryId,
     options: data.options,
     detailText: data.detailText,
+    reviewTexts: data.reviewTexts,
     notice: data.notice,
     images: {
       main: data.mainImages || [],

@@ -1031,6 +1031,48 @@ export const probeProductJs = `
     }
   } catch (e) { api = { error: String(e && e.message) }; }
 
+  // ── ⑦ 리뷰 본문 API 실측 ────────────────────────────────────────────────
+  // 상세글을 "후기처럼" 쓰라고만 하고 정작 진짜 후기는 주지 않는다. 구매자가 실제로 쓰는
+  // 표현과 자주 나오는 칭찬·불만 포인트를 재료로 주면 흉내가 아니라 결이 살아난다.
+  // 사진 API(gallery-attaches)는 이미 되므로, 본문 API 도 되는지 여기서 확인한다.
+  let reviewProbe = null;
+  try {
+    const _s3 = location.pathname.split('/').filter(Boolean);
+    const _l3 = _s3[_s3.length - 1] || '';
+    const cpNo = (_l3.length >= 6 && String(Number(_l3)) === _l3) ? _l3 : null;
+    let ch = null, base = '/n';
+    let merchant = null, originNo = null;
+    for (const e of (performance.getEntriesByType('resource') || [])) {
+      const u = String(e.name || '');
+      for (const m of ['/n/v2/channels/', '/i/v2/channels/']) {
+        const i = u.indexOf(m);
+        if (i >= 0 && !ch) { ch = u.slice(i + m.length).split('/')[0].split('?')[0]; base = m.slice(0, 2); }
+      }
+      const k = u.indexOf('checkoutMerchantNo=');
+      if (k >= 0 && !merchant) merchant = u.slice(k + 19).split('&')[0];
+      const r = u.indexOf('/contents/reviews/product-summary/');
+      if (r >= 0 && !originNo) originNo = u.slice(r + 34).split('/')[0].split('?')[0];
+    }
+    const get = async (path) => {
+      const res = await fetch(location.origin + path, { credentials: 'include', headers: { accept: 'application/json' } });
+      const txt = await res.text();
+      let json = null; try { json = JSON.parse(txt); } catch (e) { /* HTML 이면 그대로 본다 */ }
+      return { status: res.status, len: txt.length, json, head: cut(txt, 200) };
+    };
+    reviewProbe = { ch, base, merchant, originNo, cpNo, tries: {} };
+    if (ch && originNo && merchant) {
+      // 페이지가 실제로 부른 것과 같은 모양으로 — 파라미터를 바꾸면 400 이 난다(실측).
+      const a = await get(base + '/v1/contents/reviews/product-summary/' + originNo
+        + '/reviews/STORE_PICK?checkoutMerchantNo=' + merchant + '&searchSortType=REVIEW_RANKING&page=1&pageSize=20');
+      reviewProbe.tries.storePick = {
+        status: a.status, len: a.len,
+        keys: a.json && typeof a.json === 'object' ? Object.keys(a.json).slice(0, 12) : null,
+        sample: cut(JSON.stringify((a.json && (a.json.contents || a.json.reviews || [])) [0] || null), 500),
+        head: a.json ? null : a.head,
+      };
+    }
+  } catch (e) { reviewProbe = { error: String(e && e.message) }; }
+
   // runOne 은 data.name 으로 "페이지가 덜 로드됐는지"를 판정하고 없으면 재시도한다.
   // 진단이라고 이 계약을 어기면 멀쩡한 페이지를 3번 다시 여는 낭비가 된다.
   const og = document.querySelector('meta[property="og:title"]');
@@ -1039,6 +1081,7 @@ export const probeProductJs = `
   return {
     name,
     stateAudit,
+    reviewProbe,
     api,
     network,
     afterWait,

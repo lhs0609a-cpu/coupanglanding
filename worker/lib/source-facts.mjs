@@ -114,10 +114,48 @@ function factsFromNotice(notice, { max = 6 } = {}) {
  * @param {object} pj  product.json (description / providedNotice 를 들고 있다)
  * @returns {string[]} 짧은 사실 조각들. 없으면 빈 배열 — 그때는 예전과 똑같이 동작한다.
  */
+/**
+ * 구매자 후기에서 **자주 나오는 포인트**만 뽑는다.
+ * ★ 문장을 그대로 쓰지 않는다 — 남의 글이고, 그대로 옮기면 후기 도용이다. 여러 후기에
+ *   반복 등장하는 짧은 표현만 골라 "사람들이 이런 말을 자주 한다"는 힌트로 넘긴다.
+ */
+export function reviewPoints(reviews = [], { max = 5 } = {}) {
+  const list = (reviews || []).filter((r) => r && typeof r.text === 'string');
+  if (!list.length) return [];
+  // 좋은 후기 위주 — 낮은 별점은 상세글 재료로 쓰면 역효과다(불만은 판매자가 답할 영역).
+  const good = list.filter((r) => (r.score || 5) >= 4);
+  const sentences = [];
+  for (const r of (good.length ? good : list)) {
+    const flat = String(r.text).split(String.fromCharCode(10)).join(' ');
+    // 후기는 마침표를 잘 안 쓴다 — 한국어 종결어미 뒤에서도 끊는다.
+    //   "알이 굵고 신선해요 포장도 꼼꼼해요" → 두 문장으로. 안 그러면 통째로 길어져
+    //   길이 제한에 걸리고, 반복 표현을 영영 못 찾는다(실측: 추출 0건).
+    for (const s of flat.split(/[.!?~]|(?<=[요죠])\s+/)) {
+      const t = clean(s);
+      if (t.length >= 6 && t.length <= 30) sentences.push(t);
+    }
+  }
+  // 같은 말이 여러 후기에 나오면 그게 이 상품의 진짜 강점이다.
+  const freq = new Map();
+  for (const t of sentences) {
+    const key = t.replace(/[^가-힣0-9]/g, '').slice(0, 8);
+    if (key.length < 4) continue;
+    const cur = freq.get(key) || { n: 0, sample: t };
+    cur.n += 1;
+    freq.set(key, cur);
+  }
+  return [...freq.values()]
+    .filter((v) => v.n >= 2)
+    .sort((a, b) => b.n - a.n)
+    .slice(0, max)
+    .map((v) => `후기에 자주 나오는 말: "${v.sample}"`);
+}
+
 export function buildSourceFacts(pj = {}) {
   const facts = [
     ...factsFromNotice(pj.providedNotice),
     ...factsFromDescription(pj.description),
+    ...reviewPoints(pj.sourceReviews),
   ];
   // 중복 제거 + 총량 제한. 여기가 길어지면 입력 토큰이 늘어 생성이 느려진다.
   const seen = new Set();
