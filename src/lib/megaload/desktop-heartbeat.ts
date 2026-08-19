@@ -46,9 +46,16 @@ export async function touchTokenWorkerHeartbeat(
    * 토큰 인증은 만료가 없어 그 상황에서도 살아있으므로, 같은 주소를 이쪽으로도 받아 둔다.
    */
   localEndpoint: LocalEndpointInput | null = null,
+  /**
+   * 도우미 PC 의 네이버 로그인 상태(참/거짓만 — 계정 정보는 오지 않는다).
+   * 이게 없으면 서버는 누가 로그인했는지 알 수 없어서, 안내를 보낼 대상조차 고를 수 없다.
+   * 못 받았으면 컬럼을 건드리지 않는다 — 구버전 도우미가 기존 값을 지우면 안 된다.
+   */
+  naver: NaverStateInput | null = null,
 ): Promise<void> {
   try {
     const ep = parseLocalEndpoint(localEndpoint);
+    const nv = parseNaverState(naver);
     await serviceClient
       .from('megaload_worker_heartbeats')
       .upsert(
@@ -59,6 +66,12 @@ export async function touchTokenWorkerHeartbeat(
           last_seen: new Date().toISOString(),
           // 못 받았으면 컬럼을 건드리지 않는다 — 이전에 알던 주소를 NULL 로 지우지 않기 위함.
           ...(ep ? { local_endpoint: ep } : {}),
+          ...(nv ? {
+            naver_logged_in: nv.loggedIn,
+            naver_persistent: nv.persistent,
+            naver_credential: nv.credential,
+            naver_checked_at: new Date().toISOString(),
+          } : {}),
         },
         { onConflict: 'megaload_user_id,worker_id' },
       );
@@ -72,4 +85,46 @@ export function localEndpointFromQuery(url: URL): LocalEndpointInput | null {
   const port = url.searchParams.get('lport');
   const nonce = url.searchParams.get('lnonce');
   return port && nonce ? { port, nonce } : null;
+}
+
+/**
+ * 네이버 로그인 상태 — 참/거짓 세 개뿐이다.
+ * ★ 아이디도 비밀번호도 여기 없다. 서버는 "로그인됐는가"만 알면 되고, 그 이상은 알 이유가 없다.
+ */
+export interface NaverStateInput {
+  loggedIn?: unknown;
+  persistent?: unknown;
+  credential?: unknown;
+}
+
+const asBool = (v: unknown): boolean | null => {
+  if (v === true || v === '1' || v === 'true') return true;
+  if (v === false || v === '0' || v === 'false') return false;
+  return null;
+};
+
+/**
+ * 셋 중 하나라도 제대로 오면 그 값을 쓴다. 하나도 없으면 null → 컬럼을 건드리지 않는다.
+ * (구버전 도우미는 이 값을 안 보내므로, 그때 기존 값을 지워 버리면 화면이 거짓말을 한다)
+ */
+export function parseNaverState(input: NaverStateInput | null | undefined) {
+  if (!input) return null;
+  const loggedIn = asBool(input.loggedIn);
+  if (loggedIn === null) return null;              // 로그인 여부가 없으면 의미가 없다
+  return {
+    loggedIn,
+    persistent: asBool(input.persistent),
+    credential: asBool(input.credential),
+  };
+}
+
+/** 쿼리스트링(?nv=&nvp=&nvc=)에서 네이버 상태를 뽑는다. 없으면 null. */
+export function naverStateFromQuery(url: URL): NaverStateInput | null {
+  const nv = url.searchParams.get('nv');
+  if (nv === null) return null;
+  return {
+    loggedIn: nv,
+    persistent: url.searchParams.get('nvp'),
+    credential: url.searchParams.get('nvc'),
+  };
 }

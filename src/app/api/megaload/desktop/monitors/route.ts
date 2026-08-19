@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
-import { touchTokenWorkerHeartbeat, localEndpointFromQuery } from '@/lib/megaload/desktop-heartbeat';
+import { touchTokenWorkerHeartbeat, localEndpointFromQuery, naverStateFromQuery } from '@/lib/megaload/desktop-heartbeat';
 
 export const maxDuration = 30;
 
@@ -67,7 +67,11 @@ export async function GET(request: NextRequest) {
 
   // 도우미가 살아있다는 신호 — 좌측 상단 "도우미 연결됨" 배지가 읽는 테이블에 기록(토큰 방식도 반영).
   //   ?lport=&lnonce= 로 로컬 서버 주소도 함께 받는다(세션 하트비트가 죽어도 웹이 앱을 찾도록).
-  await touchTokenWorkerHeartbeat(serviceClient, shUserId, null, localEndpointFromQuery(url));
+  //   ?nv=&nvp=&nvc= 로 네이버 로그인 상태도 함께 받는다(참/거짓만 — 계정 정보는 오지 않는다).
+  //   이게 있어야 서버가 "누가 로그인 안 했는지"를 알고 안내 대상을 고를 수 있다.
+  await touchTokenWorkerHeartbeat(
+    serviceClient, shUserId, null, localEndpointFromQuery(url), naverStateFromQuery(url),
+  );
 
   const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200);
   // 데스크탑 IP는 깨끗하므로 짧은 간격 OK

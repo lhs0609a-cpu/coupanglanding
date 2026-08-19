@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
-import { touchTokenWorkerHeartbeat } from '@/lib/megaload/desktop-heartbeat';
+import { touchTokenWorkerHeartbeat, naverStateFromQuery } from '@/lib/megaload/desktop-heartbeat';
 import { scheduleUpdateFields } from '@/lib/megaload/stock-monitor-schedule';
 
 export const maxDuration = 60;
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     .from('megaload_users')
     .update({ desktop_app_last_heartbeat: new Date().toISOString() })
     .eq('id', shUserId);
-  await touchTokenWorkerHeartbeat(serviceClient, shUserId);
+  await touchTokenWorkerHeartbeat(serviceClient, shUserId, null, null, naverStateFromQuery(new URL(request.url)));
 
   let updated = 0;
   let skipped = 0;

@@ -104,6 +104,24 @@ function withLocalEndpoint(ctx, url) {
   return `${url}&lport=${p.port}&lnonce=${encodeURIComponent(p.nonce)}`;
 }
 
+/**
+ * 네이버 로그인 상태를 하트비트에 실어 보낸다 — **참/거짓 세 개뿐이다.**
+ * ---------------------------------------------------------------------------
+ * 아이디도 비밀번호도 보내지 않는다. 서버가 알아야 하는 것은 "이 PC 가 로그인돼 있는가"
+ * 하나이고, 그 이상은 알 이유가 없다(비밀번호는 이 PC 의 OS 암호저장소에만 있다).
+ *
+ * 왜 필요한가: 감시는 셀러 각자가 자기 계정으로 자기 상품만 보는 구조라, 로그인 안 한
+ * 셀러의 스마트스토어는 아무도 못 본다. 그런데 서버는 누가 로그인했는지 알 방법이 없어서
+ * "누구에게 안내할지"조차 고를 수 없었다(지금까지는 조회 성공 여부로 역추론했다).
+ *
+ * 쿠키 판정이라 네이버 요청이 0회다 — 매 틱 보내도 비용이 없다.
+ */
+function withNaverState(url, login, cred) {
+  if (!login) return url;
+  const b = (v) => (v ? '1' : '0');
+  return `${url}&nv=${b(login.loggedIn)}&nvp=${b(login.persistent)}&nvc=${b(cred?.has)}`;
+}
+
 // ── 인증코드 자동 발급 ───────────────────────────────────────────────
 // 도우미는 이미 로그인 세션(runner.session)을 갖고 있으므로, 그 access token 으로
 // 서버에서 64자 인증코드를 자동 발급받는다 → 사용자가 코드를 복사·붙여넣을 필요 없음.
@@ -171,7 +189,11 @@ async function verifyToken(ctx) {
 }
 async function fetchMonitors(ctx, limit = 50) {
   const t = tokenOf(ctx); if (!t) return [];
-  const res = await fetch(withLocalEndpoint(ctx, apiUrl(ctx, `/api/megaload/desktop/monitors?limit=${limit}&minIntervalSec=21600&token=${encodeURIComponent(t)}`)), { headers: { Authorization: `Bearer ${t}` } });
+  // 네이버 로그인 상태를 함께 실어 보낸다(참/거짓만) — 서버가 안내 대상을 고를 수 있게.
+  const nv = await loginState().catch(() => null);
+  const cred = await credentialStatus().catch(() => null);
+  const base = apiUrl(ctx, `/api/megaload/desktop/monitors?limit=${limit}&minIntervalSec=21600&token=${encodeURIComponent(t)}`);
+  const res = await fetch(withNaverState(withLocalEndpoint(ctx, base), nv, cred), { headers: { Authorization: `Bearer ${t}` } });
   if (!res.ok) return [];
   const d = await res.json();
   // 서버 품질 게이트에 걸리면 조용히 0건이 아니라 이유를 보여준다 — "왜 아무것도 안 하지?" 를 막는다.
