@@ -36,16 +36,31 @@ export const extractDetailJs = `
   //   기본 250개에서 넘치면 **오래된 항목부터 조용히 버린다**. 상품 페이지는 리소스가
   //   수백 개라 정작 필요한 /n/v2/channels/ 호출이 사라지고, 그러면 추출이 통째로 실패한다
   //   (되다 안 되다 하는 실패라 재현도 어렵다). 세 곳을 순서대로 본다.
-  const marker = '/n/v2/channels/';
+  // ★ 스토어 종류마다 API 접두사가 다르다(실측 2026-08-19):
+  //     브랜드스토어  brand.naver.com **/n/** v2/channels/{ch}/...
+  //     스마트스토어  smartstore.naver.com **/i/** v2/channels/{ch}/...
+  //   '/n/' 만 찾으면 스마트스토어에서 채널ID 를 못 잡고 엉뚱한 주소를 불러 HTML 이 온다
+  //   (증상: "상품 API 실패 Unexpected token '<'"). 둘 다 본다.
+  const MARKERS = ['/n/v2/channels/', '/i/v2/channels/'];
+  let marker = MARKERS[0];
+  let apiBase = '/n';
   let channelId = null;
 
   // ① 페이지가 부른 주소 — 가장 확실하지만 버퍼에서 밀려날 수 있다.
   for (const e of (performance.getEntriesByType('resource') || [])) {
     const u = String(e.name || '');
-    const i = u.indexOf(marker);
-    if (i < 0) continue;
-    channelId = u.slice(i + marker.length).split('/')[0].split('?')[0];
+    for (const m of MARKERS) {
+      const i = u.indexOf(m);
+      if (i < 0) continue;
+      const id = u.slice(i + m.length).split('/')[0].split('?')[0];
+      if (id) { channelId = id; marker = m; apiBase = m.slice(0, 2); break; }
+    }
     if (channelId) break;
+  }
+  // 주소를 못 봤으면 호스트로 접두사를 정한다(아래 ②③ 폴백이 쓸 값).
+  if (!channelId) {
+    apiBase = location.host.indexOf('smartstore') >= 0 ? '/i' : '/n';
+    marker = apiBase + '/v2/channels/';
   }
 
   // ② 페이지 상태에 박힌 channelUid — 실측상 채널ID 와 같은 값이다(버퍼와 무관).
@@ -94,7 +109,7 @@ export const extractDetailJs = `
   };
 
   // ① 상품 본체 — 이름·가격·브랜드·카테고리·옵션·대표이미지
-  const main = await get('/n/v2/channels/' + channelId + '/products/' + channelProductNo + '?withWindow=false');
+  const main = await get(apiBase + '/v2/channels/' + channelId + '/products/' + channelProductNo + '?withWindow=false');
   if (!main.ok) return { name: null, error: '상품 API 실패 ' + (main.status || main.error) };
   const P = main.json || {};
   const originProductNo = String(P.originProductNo || P.productNo || P.id || '');
@@ -102,7 +117,7 @@ export const extractDetailJs = `
   // ② 상세 본문 — textContent(글) + renderContent(HTML, 상세 이미지가 여기 있다)
   let detailText = '', detailHtml = '';
   if (originProductNo) {
-    const c = await get('/n/v2/channels/' + channelId + '/products/' + channelProductNo
+    const c = await get(apiBase + '/v2/channels/' + channelId + '/products/' + channelProductNo
       + '/contents/' + originProductNo + '/PC?isResponsive=true');
     if (c.ok && c.json) {
       detailText = String(c.json.textContent || '');
@@ -122,7 +137,7 @@ export const extractDetailJs = `
   // ③ 고시정보 — 쿠팡 등록에 필수인 항목(품목·중량·원산지 등)
   let notice = null;
   if (originProductNo) {
-    const n = await get('/n/v2/channels/' + channelId + '/products/' + originProductNo + '/provided-notice');
+    const n = await get(apiBase + '/v2/channels/' + channelId + '/products/' + originProductNo + '/provided-notice');
     if (n.ok && n.json) notice = n.json;
   }
 
@@ -148,7 +163,7 @@ export const extractDetailJs = `
     }
   }
   if (originProductNo && merchantNo) {
-    const rv = await get('/n/v1/contents/reviews/gallery-attaches/' + originProductNo
+    const rv = await get(apiBase + '/v1/contents/reviews/gallery-attaches/' + originProductNo
       + '?checkoutMerchantNo=' + merchantNo + '&searchSortType=REVIEW_RANKING&page=1&pageSize=100');
     if (rv.ok && rv.json && Array.isArray(rv.json.contents)) {
       for (const c of rv.json.contents) {
@@ -246,10 +261,19 @@ export const extractDetailJs = `
  * 줄이는 건 Electron 내장 nativeImage 로 한다 — sharp 같은 네이티브 의존성을 더하지 않는다
  * (이 레포는 Google Drive 경로라 sharp 가 부분 동기화돼 로컬 실행이 깨진 전례가 있다).
  */
+/** 줄이는 데 실패했는데 이보다 크면 저장하지 않는다 — 대개 애니메이션 GIF 배너다. */
+const HARD_SKIP_BYTES = 3_000_000;
+
 const IMAGE_PROFILE = {
-  main_: { maxSide: 1200, quality: 85 },
-  detail_: { maxSide: 1000, quality: 80 },
-  review_: { maxSide: 800, quality: 75 },
+  //  maxSide  = 긴 변 상한.  maxBytes = 이보다 크면 크기와 무관하게 다시 굽는다.
+  //  ★ maxBytes 가 왜 필요한가(실측 2026-08-19): 상세 이미지 26장에 88MB 였는데 줄지 않았다.
+  //    **애니메이션 GIF** 라 가로세로는 작고(=상한 미달) 프레임이 많아 용량만 컸다. 크기만
+  //    보면 "이미 작다"고 건너뛰어 11MB 짜리가 그대로 남는다. 우리가 아끼려는 건 용량이므로
+  //    용량으로도 판단해야 한다. 다시 구우면 첫 프레임 JPEG 가 되는데, 상세페이지 소재로는
+  //    움직이는 배너보다 정지컷이 오히려 낫다.
+  main_: { maxSide: 1200, quality: 85, maxBytes: 2_000_000 },
+  detail_: { maxSide: 1000, quality: 80, maxBytes: 1_200_000 },
+  review_: { maxSide: 800, quality: 75, maxBytes: 800_000 },
 };
 
 /** 한 변이 maxSide 를 넘으면 비율을 지켜 줄이고 JPEG 로 다시 굽는다. 실패하면 원본을 쓴다. */
@@ -262,11 +286,16 @@ async function shrink(buf, prefix) {
     if (img.isEmpty()) return { buf, ext: null };
     const { width, height } = img.getSize();
     const longest = Math.max(width, height);
-    // 이미 작으면 다시 굽지 않는다 — 재인코딩은 화질만 깎는다.
-    if (longest <= prof.maxSide) return { buf, ext: null };
-    const resized = width >= height
+    const tooBig = buf.length > prof.maxBytes;
+    // 크기도 작고 용량도 작으면 그냥 둔다 — 재인코딩은 화질만 깎는다.
+    if (longest <= prof.maxSide && !tooBig) return { buf, ext: null };
+    // ★ 세로로 긴 상세컷을 높이 기준으로 줄이면 가로가 뭉개져 글씨를 못 읽는다.
+    //   상세 이미지는 세로가 긴 게 정상이므로 **가로 기준**으로만 맞춘다.
+    const resized = width > prof.maxSide
       ? img.resize({ width: prof.maxSide, quality: 'good' })
-      : img.resize({ height: prof.maxSide, quality: 'good' });
+      : (longest > prof.maxSide && height > width
+        ? img   // 가로는 이미 작다 — 높이만 크면 그대로 두고 재인코딩만 한다
+        : img.resize({ width: Math.min(width, prof.maxSide), quality: 'good' }));
     const out = resized.toJPEG(prof.quality);
     // 줄였는데 오히려 커졌으면(작은 PNG 등) 원본이 낫다.
     return out.length < buf.length ? { buf: out, ext: 'jpg' } : { buf, ext: null };
@@ -290,6 +319,16 @@ async function saveImage(url, dir, index, prefix) {
   }
   if (forced) ext = forced;      // 다시 구웠으면 실제 형식과 확장자를 맞춘다
 
+  // ★ 줄이지도 못했는데 여전히 거대한 파일은 **버린다**(실측 2026-08-19).
+  //   원인: Electron nativeImage 는 GIF 를 디코드하지 못해 원본을 그대로 통과시킨다. 그래서
+  //   애니메이션 GIF 11장이 88MB 로 남았다. 상세페이지 소재로 쓰는 움직이는 배너는 대개
+  //   광고성이고, 그걸 살리자고 상품당 90MB 를 쓰는 건 맞바꿀 가치가 없다.
+  if (buf.length > HARD_SKIP_BYTES) {
+    const err = new Error(`용량 초과(${(buf.length / 1048576).toFixed(1)}MB) — 줄일 수 없는 형식`);
+    err.skipped = true;
+    throw err;
+  }
+
   const name = `${prefix}${String(index + 1).padStart(3, '0')}.${ext}`;
   writeFileSync(join(dir, name), buf);
   return { name, bytes: buf.length, savedBytes: raw.length - buf.length };
@@ -302,6 +341,7 @@ async function saveImages(urls, dir, prefix, onLog) {
   let ok = 0;
   let bytes = 0;
   let saved = 0;
+  let skipped = 0;
   // ★ 한 장씩 받으면 여기가 상세 추출의 숨은 병목이다(실측 2026-08-19).
   //   장당 339ms · 상품 1개가 대표+상세+리뷰 67장 → **23초를 다운로드에만** 쓰고 있었다.
   //   같은 6장을 동시에 받으니 0.42초(4.8배, 전부 성공) — 67장 환산 23초 → 5초.
@@ -319,14 +359,18 @@ async function saveImages(urls, dir, prefix, onLog) {
         bytes += r.bytes;
         saved += r.savedBytes;
       } catch (e) {
-        onLog?.(`이미지 ${i + 1} 건너뜀 — ${e?.message || e}`);
+        skipped += 1;
+        // 용량 초과는 개별 로그를 남기지 않는다 — 아래 요약에 몇 장인지 나온다.
+        if (!e?.skipped) onLog?.(`이미지 ${i + 1} 건너뜀 — ${e?.message || e}`);
       }
     }
   };
   await Promise.all(Array.from({ length: Math.min(LANES, urls.length) }, lane));
-  if (ok && saved > 0) {
+  if (ok || skipped) {
     const mb = (n) => (n / 1048576).toFixed(1);
-    onLog?.(`${prefix.replace('_', '')} ${ok}장 — ${mb(bytes)}MB (원본보다 ${mb(saved)}MB 절약)`);
+    onLog?.(`${prefix.replace('_', '')} ${ok}장 — ${mb(bytes)}MB`
+      + (saved > 0 ? ` (원본보다 ${mb(saved)}MB 절약)` : '')
+      + (skipped ? ` · 용량 초과 ${skipped}장 제외` : ''));
   }
   return ok;
 }
