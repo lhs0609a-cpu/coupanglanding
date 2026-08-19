@@ -35,6 +35,10 @@ const PUBLIC_API_PREFIXES: string[] = [
   '/api/megaload/desktop/auth',    // 데스크탑 앱 토큰 검증 (Bearer 자체)
   '/api/megaload/desktop/monitors', // 데스크탑 앱 모니터 목록 fetch (Bearer 자체)
   '/api/megaload/desktop/results',  // 데스크탑 앱 결과 전송 (Bearer 자체)
+  // 도우미가 상세 추출 결과를 올리는 경로 — 브라우저가 아니라 데스크탑 앱이 부르므로
+  // 쿠키가 없다. 라우트 안에서 Bearer 토큰을 getUser 로 검증하고 관리자까지 확인한다.
+  // (이게 빠져 있어 미들웨어가 라우트에 닿기도 전에 401 을 냈다 — 실측 2026-08-19)
+  '/api/megaload/naver-sourcing/products/detail',
   '/api/public/',                  // 공개 집계(익명 총매출 등) — 세션 불필요, 읽기전용 캐시
 ];
 
