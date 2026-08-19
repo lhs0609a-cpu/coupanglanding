@@ -282,6 +282,11 @@ export async function startPairServer({
           const { products, rootDir, autoAllinone } = await readJson();
           return json(200, await naverIngest.importProducts({ products, rootDir, autoAllinone }));
         }
+        // 상세 요청 큐 자동 처리 on/off — 셀러 요청을 관리자 도우미가 대신 뽑는다.
+        if (req.method === 'POST' && u.pathname === '/naver-ingest/queue') {
+          const { on, idle } = await readJson();
+          return json(200, naverIngest.setQueueWorker({ on, idle }));
+        }
         if (req.method === 'GET' && u.pathname === '/naver-ingest/import') {
           return json(200, naverIngest.getImportState());
         }

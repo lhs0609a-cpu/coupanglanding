@@ -28,7 +28,7 @@ interface SourcedProduct {
   review_count: number;
   naver_category_id: string | null;
   category_path: string | null;
-  detail_status: 'none' | 'done' | 'failed';
+  detail_status: 'none' | 'requested' | 'running' | 'done' | 'failed';
   folder_path: string | null;
   collected_at: string;
 }
@@ -139,11 +139,29 @@ export default function NaverSourcingCatalogPage() {
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
 
+      // ★ 상세가 없는 건 막다른 길이 아니다 — **자동으로 요청을 걸어 둔다.**
+      //   셀러 PC 가 직접 네이버를 열면 셀러마다 로그인·캡차·429 를 겪으므로, 요청만 남기고
+      //   실제 추출은 관리자 도우미가 대신한다. 셀러는 기다렸다 다시 누르면 된다.
       if (j.skipped?.length) {
-        setImpNote(`${j.skipped.length}개는 아직 상세를 안 받아서 제외했습니다 — 관리자가 상세를 확보하면 가져올 수 있습니다.`);
+        const ids = j.skipped.map((x: { id: string }) => x.id);
+        let queued = 0;
+        try {
+          const qr = await fetch('/api/megaload/naver-sourcing/products/queue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids }),
+          });
+          const qj = await qr.json();
+          queued = qr.ok ? (qj.requested ?? 0) : 0;
+        } catch { /* 요청 등록 실패는 치명적이지 않다 */ }
+        setImpNote(queued
+          ? `${queued}개는 아직 상세가 없어 지금 요청을 걸었습니다 — 준비되면(보통 몇 분) 다시 눌러 가져오세요.`
+          : `${j.skipped.length}개는 아직 상세가 없습니다 — 잠시 후 다시 시도해 주세요.`);
       }
       if (!j.products?.length) {
-        throw new Error('가져올 수 있는 상품이 없습니다. "상세 확보" 배지가 있는 상품만 가능합니다.');
+        // 가져올 게 없어도 요청은 걸렸다 — 그 사실을 에러로 덮지 않는다.
+        setImporting(false);
+        return;
       }
       const r = await startImport(helper.ep, j.products);
       setImp({ running: true, total: r.total ?? j.products.length, done: 0, ok: 0, failed: 0, current: '', rootDir: r.rootDir ?? '', stopped: null, at: Date.now() });
@@ -339,6 +357,11 @@ export default function NaverSourcingCatalogPage() {
                   {p.detail_status === 'done' && (
                     <span className="mt-1.5 inline-block text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
                       상세 확보
+                    </span>
+                  )}
+                  {(p.detail_status === 'requested' || p.detail_status === 'running') && (
+                    <span className="mt-1.5 inline-block text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                      상세 준비 중
                     </span>
                   )}
                 </div>

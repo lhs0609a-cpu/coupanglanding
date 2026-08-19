@@ -93,6 +93,13 @@ export function initService({ store, send, userDataDir, getAccount, getToken, we
   // 세션을 살려 두는 게 캡차를 막는 가장 확실한 방법이다 — 앱이 켜져 있는 동안 주기적으로
   // 네이버를 한 번씩 방문해 NID_SES 를 갱신한다(요청 1회, 로그인 화면을 거치지 않는다).
   startKeepAlive({ onLog: pushLog });
+  // 지난번에 켜 뒀으면 그대로 이어서 돈다 — 셀러 요청이 앱 재시작으로 방치되면 안 된다.
+  const qw = store?.get('naverIngestQueueWorker', null);
+  if (qw?.on) {
+    queueOpts = { idle: !!qw.idle };
+    queueTimer = setInterval(() => { queueTick().catch(() => {}); }, QUEUE_POLL_MS);
+    if (queueTimer.unref) queueTimer.unref();
+  }
   scheduleResume();
 }
 
@@ -167,6 +174,7 @@ export function getStatus() {
     progress: collection.progress,
     at: collection.at,
   };
+  base.queue = getQueueState();
   base.detail = {
     running: detail.running, total: detail.total, done: detail.done,
     ok: detail.ok, failed: detail.failed, current: detail.current,
@@ -765,6 +773,94 @@ export async function importProducts({ products = [], rootDir = '', autoAllinone
 }
 
 export function getImportState() { return { ...importTask }; }
+
+/**
+ * 상세 요청 큐 처리 — 셀러가 카탈로그에서 고른 상품의 상세를 **관리자 도우미가 대신** 뽑는다.
+ * ---------------------------------------------------------------------------
+ * 왜 도우미가 도나: 셀러 PC 가 직접 네이버를 열면 셀러마다 로그인·캡차·429 를 겪는다. 요청은
+ * 서버에 쌓이고, 네이버를 두드리는 IP 는 계속 관리자 하나뿐이어야 한다.
+ *
+ * 페이싱은 기존 게이트가 그대로 맡는다 — 이 루프가 별도 속도를 만들지 않는다. 한 번에 몇 건만
+ * 쥐는 이유도 같다: 많이 쥐면 앱이 꺼졌을 때 그만큼 'running' 으로 묶인 채 남는다(서버가 30분
+ * 뒤 회수하지만 그동안 셀러는 기다린다).
+ */
+let queueTimer = null;
+let queueBusy = false;
+let queueOpts = { idle: false };
+
+const QUEUE_POLL_MS = 60_000;
+
+async function claimJobs(limit = 3) {
+  const token = await deps.getToken?.();
+  const origin = deps.webOrigin;
+  if (!token || !origin) return [];
+  try {
+    const q = `?limit=${limit}${queueOpts.idle ? '&idle=1' : ''}`;
+    const res = await fetch(`${origin}/api/megaload/naver-sourcing/products/queue${q}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return [];
+    const j = await res.json();
+    return Array.isArray(j.jobs) ? j.jobs : [];
+  } catch { return []; }
+}
+
+async function queueTick() {
+  if (queueBusy || detail.running || collection.running) return;   // 사람이 시킨 일이 우선이다
+  queueBusy = true;
+  try {
+    const jobs = await claimJobs(3);
+    if (!jobs.length) return;
+
+    // 로그인이 끊겨 있으면 되살린다(창을 잡기 전에 — 안 그러면 창 1개 설정에서 교착).
+    await ensureNaverLogin().catch(() => null);
+
+    const p = ensurePool();
+    if (!p.running) await p.start();
+    const root = ensureRoot(join(deps.userDataDir || '.', 'naver-sourcing'));
+    pushLog(`셀러 요청 상세 ${jobs.length}건을 처리합니다.`);
+
+    for (const job of jobs) {
+      const r = await extractOne(p, job.url, root, { onLog: pushLog })
+        .catch((e) => ({ ok: false, url: job.url, error: String(e?.message || e) }));
+      // productNo 는 서버가 준 값을 쓴다 — 실패하면 data 가 없어 어디에 기록할지 모른다.
+      const up = await uploadDetail(r, { ...(r.data || {}), channelProductNo: job.product_no });
+      if (!up.ok && up.reason !== 'no-session') {
+        pushLog(`⚠️ 요청 상세 저장 실패(${up.reason}) — ${job.title || job.product_no}`);
+      }
+      delete r.data;
+      pushLog(r.ok
+        ? `✅ 요청 처리 — ${String(job.title || '').slice(0, 34)}`
+        : `❌ 요청 처리 실패 — ${String(job.title || '').slice(0, 34)}: ${r.error}`);
+    }
+  } catch (e) {
+    pushLog(`요청 큐 처리 오류 — ${e?.message || e}`);
+  } finally {
+    queueBusy = false;
+  }
+}
+
+/** 큐 자동 처리 시작/중지. idle=true 면 요청이 없을 때 미수집분까지 채운다. */
+export function setQueueWorker({ on = true, idle = false } = {}) {
+  requireAdmin();
+  queueOpts = { idle: !!idle };
+  deps.store?.set('naverIngestQueueWorker', { on: !!on, idle: !!idle });
+  if (queueTimer) { clearInterval(queueTimer); queueTimer = null; }
+  if (!on) { pushLog('상세 요청 자동 처리를 껐습니다.'); pushStatus(); return { on: false }; }
+  queueTimer = setInterval(() => { queueTick().catch(() => {}); }, QUEUE_POLL_MS);
+  if (queueTimer.unref) queueTimer.unref();
+  setTimeout(() => { queueTick().catch(() => {}); }, 5000).unref?.();
+  pushLog(idle
+    ? '상세 요청 자동 처리를 켰습니다 — 요청이 없을 때는 아직 안 받은 상품을 미리 채웁니다.'
+    : '상세 요청 자동 처리를 켰습니다 — 셀러가 요청한 상품만 처리합니다.');
+  pushStatus();
+  return { on: true, idle: !!idle };
+}
+
+export function getQueueState() {
+  const saved = deps.store?.get('naverIngestQueueWorker', { on: false, idle: false }) || { on: false, idle: false };
+  return { ...saved, running: !!queueTimer, busy: queueBusy };
+}
 
 export function stopDetailExtract() {
   detailAbort?.abort();
