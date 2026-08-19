@@ -5,6 +5,7 @@ import { CHANNEL_ONBOARDING_GUIDES } from '@/lib/data/channel-onboarding-guides'
 import { CHANNEL_SETUP_GUIDES } from '@/lib/data/channel-setup-guides';
 import { CHANNEL_LABELS } from '@/lib/megaload/constants';
 import type { Channel } from '@/lib/megaload/types';
+import EgressIpBox from '@/components/megaload/EgressIpBox';
 
 const SITE_URL = 'https://megaload.co.kr';
 
@@ -243,6 +244,11 @@ export default async function ChannelGuidePage({ params }: { params: Promise<{ c
               </ul>
               {s.tip && (
                 <p className="mt-2 text-sm text-blue-700 bg-blue-50 rounded-lg p-2.5">💡 {s.tip}</p>
+              )}
+              {'copyValueKey' in s && s.copyValueKey === 'egressIp' && (
+                <div className="mt-3">
+                  <EgressIpBox />
+                </div>
               )}
               {s.warning && (
                 <p className="mt-2 text-sm text-red-700 bg-red-50 rounded-lg p-2.5">⚠️ {s.warning}</p>
