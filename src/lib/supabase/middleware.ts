@@ -39,6 +39,10 @@ const PUBLIC_API_PREFIXES: string[] = [
   // 쿠키가 없다. 라우트 안에서 Bearer 토큰을 getUser 로 검증하고 관리자까지 확인한다.
   // (이게 빠져 있어 미들웨어가 라우트에 닿기도 전에 401 을 냈다 — 실측 2026-08-19)
   '/api/megaload/naver-sourcing/products/detail',
+  // 상세 요청 큐 — GET 은 도우미가 Bearer 로 작업을 claim 한다(쿠키 없음).
+  //   POST(셀러의 요청 등록)는 라우트 안에서 쿠키 세션을 직접 확인하므로 여기 있어도 안전하다.
+  //   ⚠️ 이걸 빠뜨리면 큐 워커가 작업을 하나도 못 가져온다 — /detail 에서 똑같이 당했다.
+  '/api/megaload/naver-sourcing/products/queue',
   '/api/public/',                  // 공개 집계(익명 총매출 등) — 세션 불필요, 읽기전용 캐시
 ];
 
