@@ -389,6 +389,8 @@ export async function extractOne(pool, url, rootDir, { onLog = () => {}, signal 
   return {
     ok: true,
     url,
+    // 원본 추출 결과 — 서버 업로드가 이걸 그대로 쓴다(요약만으론 옵션·고시정보를 못 올린다).
+    data,
     name: data.title || data.name,
     price: data.price,
     options: (data.options || []).length,

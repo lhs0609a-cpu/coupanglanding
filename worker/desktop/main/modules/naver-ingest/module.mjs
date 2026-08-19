@@ -28,6 +28,16 @@ export default {
       send: ctx.send,
       userDataDir: ctx.paths.userData,
       getAccount: () => ctx.services?.runner?.account || null,
+      // 상세 결과를 도우미가 **직접** 서버에 올리기 위한 것들. 브라우저 탭에 기대면
+      // 몇 시간짜리 추출이 끝날 때 아무도 화면을 안 보고 있어 저장이 통째로 유실된다.
+      // ★ accessToken 게터가 아니라 token() 을 쓴다. 게터는 **디코드용**이라 만료된 값을 그대로
+      //   주고(실측: 서버가 401), token() 은 만료됐으면 refresh 까지 해서 유효한 걸 준다.
+      getToken: async () => {
+        const s = ctx.services?.runner?.session;
+        if (!s) return null;
+        try { return await s.token(); } catch { return null; }
+      },
+      webOrigin: ctx.services?.webOrigin || null,
       // 상세 추출이 끝나면 그 폴더를 올인원에 그대로 넘긴다 — 사람이 폴더를 다시 고르지 않게.
       //   confirmSlow 는 일부러 넘기지 않는다: 추출은 몇십 분짜리라 끝날 때쯤 사람이 화면 앞에
       //   없다. 모달을 띄우면 아무도 안 눌러 생성이 영영 시작되지 않는다(경고만 로그로 남는다).

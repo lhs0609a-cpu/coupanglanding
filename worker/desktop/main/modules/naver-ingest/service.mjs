@@ -75,9 +75,11 @@ async function notifyHuman(body) {
  * 여기서 startGeneration 을 직접 부르지 않는 이유는 그 함수가 ctx(services·paths·shell)를
  * 요구하는데 이 서비스는 그걸 모르기 때문이다. 모듈이 ctx 를 쥐고 있으니 모듈이 주입한다.
  */
-export function initService({ store, send, userDataDir, getAccount, runAllinone }) {
+export function initService({ store, send, userDataDir, getAccount, getToken, webOrigin, runAllinone }) {
   deps = {
     store, send: send || (() => {}), getAccount: getAccount || (() => null), userDataDir,
+    // 상세 결과를 도우미가 **직접** 서버에 올리기 위한 것들(브라우저 탭에 기대지 않으려고).
+    getToken: getToken || (() => null), webOrigin: webOrigin || null,
     runAllinone: runAllinone || null,
   };
   naverGate.init(userDataDir);
@@ -545,6 +547,51 @@ export function getDetailState() {
   return { ...rest, results: results.slice(-50) };   // 폴링이 무거워지지 않게 뒤쪽만
 }
 
+
+/**
+ * 상세 결과를 서버에 올린다 — **도우미가 직접**.
+ * 브라우저 탭에 기대면 몇 시간짜리 추출이 끝날 때 아무도 화면을 안 보고 있어 저장이 통째로
+ * 유실된다(목록 수집에서 이미 겪었다). 이미지는 **URL 만** 보낸다 — 바이트는 서버에 두지 않는다.
+ * 상품 1건이 원본 107MB 인데, 셀러는 등록 직전 CDN 에서 직접 받으면 되고 그 경로엔 안티봇이 없다.
+ */
+async function uploadDetail(result, data) {
+  const token = await deps.getToken?.();   // 만료 시 refresh 까지 하므로 비동기다
+  const origin = deps.webOrigin;
+  if (!token || !origin) return { ok: false, reason: 'no-session' };
+  const payload = result.ok ? {
+    productNo: data.channelProductNo,
+    originProductNo: data.originProductNo,
+    ok: true,
+    url: data.url,
+    title: data.title || data.name,
+    price: data.price,
+    brand: data.brand,
+    categoryPath: data.categoryPath,
+    categoryId: data.categoryId,
+    options: data.options,
+    detailText: data.detailText,
+    notice: data.notice,
+    images: {
+      main: data.mainImages || [],
+      detail: data.detailImages || [],
+      review: data.reviewImages || [],
+    },
+    folderPath: result.folder,
+  } : { productNo: data.channelProductNo || '', ok: false, error: result.error };
+
+  try {
+    const res = await fetch(`${origin}/api/megaload/naver-sourcing/products/detail`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) return { ok: false, reason: `HTTP ${res.status}` };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: String(e?.message || e) };
+  }
+}
+
 export async function startDetailExtract({ urls = [], rootDir = '', autoGenerate = true } = {}) {
   requireAdmin();
   const list = [...new Set((urls || []).filter((u) => typeof u === 'string' && u.includes('naver.com')))];
@@ -576,6 +623,13 @@ export async function startDetailExtract({ urls = [], rootDir = '', autoGenerate
         detail.failed += 1;
         pushLog(`❌ ${detail.done}/${detail.total} 실패 — ${r.error}`);
       }
+      // 건마다 바로 올린다 — 마지막에 몰아서 올리면 중간에 앱이 꺼질 때 전부 잃는다.
+      const up = await uploadDetail(r, r.data || {});
+      if (!up.ok && up.reason !== 'no-session') {
+        pushLog(`⚠️ 서버 저장 실패(${up.reason}) — 폴더는 남아 있습니다: ${r.folder || ''}`);
+      }
+      // 폴더까지 만들고 나면 원본 data 는 메모리에 들고 있을 이유가 없다(수십 건이면 무겁다).
+      delete r.data;
       detail.results.push(r);
     }
     detail.running = false;
