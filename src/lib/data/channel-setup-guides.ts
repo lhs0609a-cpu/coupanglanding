@@ -468,6 +468,9 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         url: 'https://store.lotteon.com',
         tip: 'store.lotteon.com이 판매자 스토어센터입니다. partner.b2b.lotteon.com은 별도 B2B 포털이니 혼동하지 마세요.',
         imageUrl: '/onboarding/lotteon/api-menu.png',
+        hotspots: [
+        { n: 1, x: 40, y: 47, label: '좌측 메뉴에서 [OpenAPI관리]를 클릭하세요.' },
+        ],
       },
       {
         stepNumber: 3,
@@ -489,6 +492,12 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         ],
         warning: '인증키는 발급 시 한 번만 표시됩니다. 인증키와 거래처번호가 서로 맞지 않으면 작업이 실패합니다.',
         imageUrl: '/onboarding/lotteon/api-key.png',
+        hotspots: [
+        { n: 1, x: 6, y: 33, label: '[키발급]을 눌러 인증키를 만듭니다. (연동사 지정이 안 돼 있으면 승인이 안 납니다)' },
+        { n: 2, x: 45, y: 63, label: '[복사]로 인증키를 복사해 메가로드에 붙여넣으세요.' },
+        { n: 3, x: 64, y: 63, label: '유효기간을 확인하세요 — 만료되면 연동이 끊기므로 만료 전에 재발급이 필요합니다.' },
+        { n: 4, x: 79, y: 63, label: '상태가 "사용"이어야 정상입니다.' },
+        ],
         inputFields: ['판매자 ID', 'API Key', '거래처번호'],
       },
       {
