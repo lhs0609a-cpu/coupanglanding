@@ -452,14 +452,14 @@ function paragraphsToBlocks(paras) {
  * @returns {Promise<{text:string, paragraphs:string[], blocks:object[], attempts:number, ok:boolean, issues:string[]}>}
  */
 export async function generatePerfectDetail({
-  model, originalName, categoryPath, leaf, features = [], seoKeywords = [],
+  model, originalName, categoryPath, leaf, features = [], seoKeywords = [], sourceFacts = [],
   // ⭐ 기본 2회 — 재생성은 결함을 못 줄인다(실측). 결정론적 교정으로 못 고치는 것
   //    (길이 미달·한자 혼입·지시문 잔존·감각 환각)에만 1회 더 기회를 준다.
   seed, maxTokens = 1300, maxAttempts = 2, onAttempt = () => {},
 }) {
   const realLeaf = (leaf || (categoryPath || '').split('>').pop() || originalName || '').trim();
   const persona = pickPersona(seed || originalName || categoryPath || 'seed');
-  const p = { originalName, categoryPath, features, leaf: realLeaf, seoKeywords };
+  const p = { originalName, categoryPath, features, leaf: realLeaf, seoKeywords, sourceFacts };
   // 상품 자신의 영문 브랜드/모델명 — "영어 누출"로 잡히면 재생성해도 영원히 안 고쳐진다.
   const allowLatin = (String(originalName || '').match(/[A-Za-z]{2,}/g) || []);
   const vctx = { leaf: realLeaf, categoryPath, seoKeywords, allowLatin };

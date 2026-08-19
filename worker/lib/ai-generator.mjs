@@ -275,6 +275,8 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
     // leaf 를 명시 전달 — 안 주면 generatePerfectDetail 이 '>' 로 잘라 경로 전체를 leaf 로 쓴다.
     leaf: snapped.leaf || (product.categoryPath || '').split('>').pop() || '',
     features: product.features || [],
+    // 판매자가 밝힌 사실(원산지·중량·보관법 등) — 없으면 모델이 카테고리 일반론으로 흐른다.
+    sourceFacts: product.sourceFacts || [],
     seoKeywords: keywords,
     seed: personaSeed || product.originalName,
     // ⭐ 토큰 하한 800 — 저사양 PC 라고 여기를 낮추면 안 된다(반드시 손해).

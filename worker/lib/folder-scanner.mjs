@@ -14,6 +14,7 @@
  * Supabase/브라우저 의존성 없음 — 순수 node:fs.
  */
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+import { buildSourceFacts } from './source-facts.mjs';
 import path from 'node:path';
 
 const IMAGE_RE = /\.(jpg|jpeg|png|webp)$/i;
@@ -194,6 +195,9 @@ export function scanFolder(rootDir) {
       reviewImages: collectReviewImages(productPath), // 리뷰컷(본문 교차 1순위 — CLIP 큐레이션 대상)
       certifications: Array.isArray(pj.certifications) ? pj.certifications : [], // KC 등 원본 인증({name,cert_number,…}) — 서버가 메타 grounding
       categoryPath: sourceCat.categoryPath || '', // LLM 카테고리 힌트(소싱 원본 분류)
+      // 판매자가 밝힌 사실(원문·고시정보에서 추출) — 상세글이 카테고리 일반론으로 흐르지
+      // 않게 하는 유일한 재료다. 문장을 베끼지 않고 사실 조각만 뽑는다(source-facts.mjs).
+      sourceFacts: buildSourceFacts(pj),
       folderPath: productPath,
       productJson: pj,
     });
