@@ -180,7 +180,8 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           '✅ 상품 관리   ✅ 주문 관리(필수)   ✅ 클레임 관리   ✅ 정산 관리',
           '앱 상세에서 "인증" 버튼으로 앱을 활성화합니다 (IP가 비어있으면 인증 불가).',
         ],
-        warning: '"주문" 권한을 빠뜨리면 주문 연동이 막힙니다. IP 미등록 시 인증도 실패합니다. IP는 메가로드가 안내하는 값을 넣으세요.',
+        warning: '"주문" 권한을 빠뜨리면 주문 연동이 막힙니다. IP 미등록 시 앱 인증 자체가 실패합니다.',
+        copyValueKey: 'egressIp',
       },
       {
         stepNumber: 5,
@@ -328,8 +329,15 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         detailedInstructions: [
           'ESM+ → "계정(ID)관리" → "판매자 계정(ID) 관리"로 이동하세요.',
           'ESM 마스터ID와 G마켓 판매자 ID를 확인해 복사해두세요.',
+          '목록의 "ESM연동"이 완료인지 반드시 확인하세요 — 연동 안 된 ID는 API로 상품·주문·고객 정보가 조회되지 않습니다.',
         ],
         imageUrl: '/onboarding/gmarket/api-id.jpg',
+        hotspots: [
+        { n: 1, x: 11, y: 68, label: '사이트별로 줄이 나뉩니다 — A옥션 / G지마켓.' },
+        { n: 2, x: 25, y: 68, label: '여기 보이는 "판매자 ID"를 복사해 메가로드에 입력합니다.' },
+        { n: 3, x: 51, y: 68, label: 'ESM연동이 "완료"여야 합니다. 연동 안 된 ID로는 아무것도 조회되지 않습니다.' },
+        { n: 4, x: 60, y: 68, label: '계정(ID)상태가 "정상"인지 확인하세요.' },
+        ],
         inputFields: ['ESM+ 마스터ID', 'G마켓 셀러ID'],
       },
       {
@@ -344,6 +352,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         url: 'https://etapi.gmarket.com/',
         warning: '개발자가 직접 Secret Key를 발급받는 메뉴는 없습니다(이메일 신청만 가능). ESM+의 "ESM API 관리/셀링툴 관리"는 이미 등록된 솔루션 연동용이라 별개입니다.',
         tip: '회신에 며칠 걸릴 수 있어요. 신청 메일 보낸 뒤 네이버·11번가 등 다른 채널을 먼저 연동하세요.',
+        copyValueKey: 'egressIp',
       },
       {
         stepNumber: 4,
@@ -398,6 +407,12 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           'ESM 마스터ID와 옥션 판매자 ID를 확인해 복사해두세요.',
         ],
         imageUrl: '/onboarding/gmarket/api-id.jpg',
+        hotspots: [
+        { n: 1, x: 11, y: 68, label: '사이트별로 줄이 나뉩니다 — A옥션 / G지마켓.' },
+        { n: 2, x: 25, y: 68, label: '여기 보이는 "판매자 ID"를 복사해 메가로드에 입력합니다.' },
+        { n: 3, x: 51, y: 68, label: 'ESM연동이 "완료"여야 합니다. 연동 안 된 ID로는 아무것도 조회되지 않습니다.' },
+        { n: 4, x: 60, y: 68, label: '계정(ID)상태가 "정상"인지 확인하세요.' },
+        ],
         inputFields: ['ESM+ 마스터ID', '옥션 셀러ID'],
       },
       {
@@ -406,12 +421,13 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         description: 'ESM은 셀프 발급 메뉴가 없어 이메일로 신청합니다.',
         detailedInstructions: [
           'et_api@ebay.co.kr 로 키 발급 신청 메일을 보내세요 (일반 문의는 etapihelp@gmail.com).',
-          '메일에 포함: 마스터ID · 사용 API 목록 · 호출 IP(메가로드 서버 IP) · 서비스 URL · 최근 3개월 매출 · 개발 기간.',
+          '메일에 포함: 마스터ID · 사용 API 목록 · 호출 IP(아래 값) · 서비스 URL · 최근 3개월 매출 · 개발 기간.',
           'G마켓과 함께 신청하면 하나의 Secret Key로 옥션(A)·G마켓(G)을 모두 씁니다.',
         ],
         url: 'https://etapi.gmarket.com/',
         warning: '개발자용 셀프 발급 메뉴는 없습니다(이메일 신청만). ESM+의 "셀링툴 관리" 메뉴는 ISV 연동용이라 별개입니다.',
         tip: 'G마켓을 이미 신청했다면 같은 Secret Key를 옥션 셀러ID와 함께 쓰면 됩니다.',
+        copyValueKey: 'egressIp',
       },
       {
         stepNumber: 4,
@@ -480,7 +496,8 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           '"1단계. 서버 API 등록"에서 연동 방법을 "직접입력"으로 선택하세요.',
           '메가로드 호출 서버 IP를 입력하고 저장합니다 (여러 개면 세미콜론 ; 구분).',
         ],
-        warning: 'IP 미등록 시 호출이 거부됩니다. IP는 메가로드가 안내하는 값을 넣으세요.',
+        warning: 'IP 미등록 시 호출이 거부됩니다. "직접입력"으로 저장했는데도 승인이 나지 않으면, 롯데온이 연동사(셀러툴) 목록에 등록된 업체만 승인하는 경우이니 고객센터에 문의하세요.',
+        copyValueKey: 'egressIp',
       },
       {
         stepNumber: 4,
