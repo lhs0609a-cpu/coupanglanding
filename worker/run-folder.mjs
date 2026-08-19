@@ -169,6 +169,11 @@ async function waitForComfy(comfyUrl, timeoutMs = 90000) {
 }
 
 async function main() {
+  // ── 단계별 소요시간 ────────────────────────────────────────────────────
+  // 어디가 느린지 모르면 엉뚱한 데를 고치게 된다. 지금까지 요약에는 텍스트 단계만 있어서
+  // 이미지 인식·대표컷 가공이 얼마나 먹는지 아무도 몰랐다. 끝에 한 줄로 찍는다.
+  const phaseMs = { recog: 0, text: 0, thumb: 0, save: 0 };
+  const runT0 = Date.now();
   const cli = parseArgs(process.argv.slice(2));
   const folder = cli._[0];
   if (!folder) {
@@ -429,6 +434,7 @@ async function main() {
   //    → Phase C 에서 .tmp 로 쓰고 rename 하는 원자적 교체로 바꿨다(부분 결과 노출 없음).
   const records = [];
   // 텍스트 단계 전, ComfyUI 가 물고 있던 VRAM 을 회수해 ollama 에 양보(두 엔진 동시 점유 제거).
+  const textT0 = Date.now();
   const freedBefore = await freeComfyVram(cli.comfy);
   if (freedBefore) console.log(`[${ts()}] [1/3] 텍스트 전 ComfyUI VRAM 회수 완료 → ollama 에 양보`);
   const genConcurrency = Math.max(1, Number(cli.concurrency) || 1);
@@ -451,6 +457,8 @@ async function main() {
     if (summary.abortReason) console.log(`[${ts()}] ⏹ ${summary.abortReason}`);
   }
   records.push(...genRecords);
+
+  phaseMs.text = Date.now() - textT0;
 
   // ── 이미지 인식(백그라운드) 합류 ─────────────────────────────────────────
   //   텍스트와 동시에 돌렸으므로 여기서 끝나기를 기다린다(대개 이미 끝나 있다).
@@ -488,6 +496,7 @@ async function main() {
   }
   if (mainFlagged) console.log(`[${ts()}] ⚠️ 대표컷 검수 필요 ${mainFlagged}건 (로고/저품질 후보만 존재)`);
 
+  const thumbT0 = Date.now();
   // ── Phase B) 대표이미지 가공 (ComfyUI 가 GPU 점유) ──────────────────────
   let thumbsProcessed = 0;
   let thumbEnabled = !cli['no-thumb'];
@@ -619,6 +628,8 @@ async function main() {
   }
   summary.thumbsProcessed = thumbEnabled ? thumbsProcessed : null;
 
+  phaseMs.thumb = Date.now() - thumbT0;
+
   // ── Phase C) 레코드 저장 + 검수화면 ──────────────────────────────────────
   console.log(`[${ts()}] [3/3] 레코드 저장 + 검수화면 생성`);
   // 원자적 교체: .tmp 에 완전히 쓴 뒤 rename. 중간에 죽어도 이전 결과가 살아남는다.
@@ -634,6 +645,15 @@ async function main() {
   console.log(`\n=== 요약 ===`);
   console.log(`총 ${summary.total} · 통과 ${summary.ok} · 검수필요 ${summary.needsReview}` + (thumbEnabled ? ` · 대표가공 ${thumbsProcessed}/${summary.total}` : ' · 대표가공 생략'));
   console.log(`상품당 평균(텍스트) ${(summary.avgMs / 1000).toFixed(1)}s · 텍스트단계 ${(summary.wallMs / 1000 / 60).toFixed(1)}분 · 동시 ${summary.concurrency}개 · 후보=${summary.candidateSource}`);
+  {
+    const total = Date.now() - runT0;
+    const pct = (v) => (total ? Math.round((v * 100) / total) : 0);
+    const m = (v) => (v / 60000).toFixed(1);
+    // 인식은 텍스트와 겹쳐 돌 수 있어(overlap) 합이 100%를 넘을 수 있다 — 그래서 비율을 함께 찍는다.
+    console.log(`단계별: 전체 ${m(total)}분 | 텍스트 ${m(phaseMs.text)}분(${pct(phaseMs.text)}%)`
+      + ` · 대표가공 ${m(phaseMs.thumb)}분(${pct(phaseMs.thumb)}%)`
+      + ` · 나머지(인식합류·저장 등) ${m(Math.max(0, total - phaseMs.text - phaseMs.thumb))}분`);
+  }
   console.log(`레코드: ${outJsonl}`);
   console.log(`검수화면: ${outHtml}  ← 브라우저로 열어 검수/승인`);
 

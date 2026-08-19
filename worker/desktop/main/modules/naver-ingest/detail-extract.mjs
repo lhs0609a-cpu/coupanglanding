@@ -235,20 +235,64 @@ export const extractDetailJs = `
 })()
 `;
 
+/**
+ * 이미지 저장 정책 — **원본 그대로 두지 않는다.**
+ * ---------------------------------------------------------------------------
+ * 실측(2026-08-19, 복숭아 1건): 대표 9 + 상세 15 + 리뷰 30 = **107MB**. 리뷰컷만 83MB 였다.
+ * 상품 100개면 10GB 다. 그런데 이 사진들의 용도를 보면 그만한 해상도가 필요 없다:
+ *   · 리뷰컷  — CLIP 큐레이션 대상이자 본문에 작게 끼우는 컷. 800px 이면 충분하다.
+ *   · 상세컷  — 상세페이지 본문용. 1000px.
+ *   · 대표컷  — 쿠팡에 실제로 올라갈 수 있으니 넉넉히 1200px 로 남긴다(쿠팡 권장 1000px 이상).
+ * 줄이는 건 Electron 내장 nativeImage 로 한다 — sharp 같은 네이티브 의존성을 더하지 않는다
+ * (이 레포는 Google Drive 경로라 sharp 가 부분 동기화돼 로컬 실행이 깨진 전례가 있다).
+ */
+const IMAGE_PROFILE = {
+  main_: { maxSide: 1200, quality: 85 },
+  detail_: { maxSide: 1000, quality: 80 },
+  review_: { maxSide: 800, quality: 75 },
+};
+
+/** 한 변이 maxSide 를 넘으면 비율을 지켜 줄이고 JPEG 로 다시 굽는다. 실패하면 원본을 쓴다. */
+async function shrink(buf, prefix) {
+  const prof = IMAGE_PROFILE[prefix];
+  if (!prof) return { buf, ext: null };
+  try {
+    const { nativeImage } = await import('electron');
+    const img = nativeImage.createFromBuffer(buf);
+    if (img.isEmpty()) return { buf, ext: null };
+    const { width, height } = img.getSize();
+    const longest = Math.max(width, height);
+    // 이미 작으면 다시 굽지 않는다 — 재인코딩은 화질만 깎는다.
+    if (longest <= prof.maxSide) return { buf, ext: null };
+    const resized = width >= height
+      ? img.resize({ width: prof.maxSide, quality: 'good' })
+      : img.resize({ height: prof.maxSide, quality: 'good' });
+    const out = resized.toJPEG(prof.quality);
+    // 줄였는데 오히려 커졌으면(작은 PNG 등) 원본이 낫다.
+    return out.length < buf.length ? { buf: out, ext: 'jpg' } : { buf, ext: null };
+  } catch {
+    return { buf, ext: null };   // nativeImage 가 못 읽는 형식이면 원본 그대로
+  }
+}
+
 /** 이미지 1장 저장. CDN(pstatic)이라 로그인이 필요 없다 — 네이버 페이지 예산과 무관. */
 async function saveImage(url, dir, index, prefix) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const buf = Buffer.from(await res.arrayBuffer());
+  const raw = Buffer.from(await res.arrayBuffer());
+  const { buf, ext: forced } = await shrink(raw, prefix);
+
   // 확장자는 주소에서 추론하되 이상하면 jpg 로 둔다(올인원 스캐너가 보는 건 확장자뿐이다).
   const clean = url.split('?')[0].toLowerCase();
   let ext = 'jpg';
   for (const e of ['.jpg', '.jpeg', '.png', '.webp', '.gif']) {
     if (clean.endsWith(e)) { ext = e.slice(1); break; }
   }
+  if (forced) ext = forced;      // 다시 구웠으면 실제 형식과 확장자를 맞춘다
+
   const name = `${prefix}${String(index + 1).padStart(3, '0')}.${ext}`;
   writeFileSync(join(dir, name), buf);
-  return name;
+  return { name, bytes: buf.length, savedBytes: raw.length - buf.length };
 }
 
 /** 여러 장을 순서대로 — 동시에 쏟아부으면 CDN 이 막는다. 실패는 건너뛰고 계속한다. */
@@ -256,13 +300,33 @@ async function saveImages(urls, dir, prefix, onLog) {
   if (!urls.length) return 0;
   mkdirSync(dir, { recursive: true });
   let ok = 0;
-  for (let i = 0; i < urls.length; i++) {
-    try {
-      await saveImage(urls[i], dir, i, prefix);
-      ok += 1;
-    } catch (e) {
-      onLog?.(`이미지 ${i + 1} 건너뜀 — ${e?.message || e}`);
+  let bytes = 0;
+  let saved = 0;
+  // ★ 한 장씩 받으면 여기가 상세 추출의 숨은 병목이다(실측 2026-08-19).
+  //   장당 339ms · 상품 1개가 대표+상세+리뷰 67장 → **23초를 다운로드에만** 쓰고 있었다.
+  //   같은 6장을 동시에 받으니 0.42초(4.8배, 전부 성공) — 67장 환산 23초 → 5초.
+  //   다만 무제한 동시는 CDN 이 막을 수 있어 6개로 묶는다(위 실측이 6 동시였다).
+  //   실패는 그 장만 건너뛰고 계속한다 — 사진 한 장 때문에 상품을 통째로 버리지 않는다.
+  const LANES = 6;
+  let next = 0;
+  const lane = async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= urls.length) return;
+      try {
+        const r = await saveImage(urls[i], dir, i, prefix);
+        ok += 1;
+        bytes += r.bytes;
+        saved += r.savedBytes;
+      } catch (e) {
+        onLog?.(`이미지 ${i + 1} 건너뜀 — ${e?.message || e}`);
+      }
     }
+  };
+  await Promise.all(Array.from({ length: Math.min(LANES, urls.length) }, lane));
+  if (ok && saved > 0) {
+    const mb = (n) => (n / 1048576).toFixed(1);
+    onLog?.(`${prefix.replace('_', '')} ${ok}장 — ${mb(bytes)}MB (원본보다 ${mb(saved)}MB 절약)`);
   }
   return ok;
 }
