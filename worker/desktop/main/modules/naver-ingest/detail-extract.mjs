@@ -31,9 +31,15 @@ export const extractDetailJs = `
 (async () => {
   const cut = (s, n) => String(s == null ? '' : s).split('\\n').join(' ').trim().slice(0, n);
 
-  // ── 채널ID: 페이지가 실제로 부른 주소에서 얻는다(마크업에 없다) ──
+  // ── 채널ID ──
+  // ★ 출처가 하나면 안 된다. 처음엔 performance 리소스 목록에서만 주웠는데, 그 버퍼는
+  //   기본 250개에서 넘치면 **오래된 항목부터 조용히 버린다**. 상품 페이지는 리소스가
+  //   수백 개라 정작 필요한 /n/v2/channels/ 호출이 사라지고, 그러면 추출이 통째로 실패한다
+  //   (되다 안 되다 하는 실패라 재현도 어렵다). 세 곳을 순서대로 본다.
   const marker = '/n/v2/channels/';
   let channelId = null;
+
+  // ① 페이지가 부른 주소 — 가장 확실하지만 버퍼에서 밀려날 수 있다.
   for (const e of (performance.getEntriesByType('resource') || [])) {
     const u = String(e.name || '');
     const i = u.indexOf(marker);
@@ -42,12 +48,41 @@ export const extractDetailJs = `
     if (channelId) break;
   }
 
+  // ② 페이지 상태에 박힌 channelUid — 실측상 채널ID 와 같은 값이다(버퍼와 무관).
+  if (!channelId) {
+    try {
+      const st = window.__PRELOADED_STATE__;
+      if (st) {
+        const j = JSON.stringify(st);
+        const key = '"channelUid":"';
+        const k = j.indexOf(key);
+        if (k >= 0) channelId = j.slice(k + key.length).split('"')[0] || null;
+      }
+    } catch (e) { /* 상태가 없거나 순환참조면 다음 경로로 */ }
+  }
+
+  // ③ 마지막 수단 — 문서 안에 남은 주소 조각.
+  if (!channelId) {
+    const html = document.documentElement ? document.documentElement.innerHTML : '';
+    const k = html.indexOf(marker);
+    if (k >= 0) {
+      const tail = html.slice(k + marker.length, k + marker.length + 60);
+      channelId = tail.split('/')[0].split('?')[0].split('"')[0].split('\\\\')[0] || null;
+    }
+  }
+
   // ── 채널상품번호: 경로 마지막 조각(6자리 이상 숫자) ──
   const segs = location.pathname.split('/').filter(Boolean);
   const last = segs[segs.length - 1] || '';
   const channelProductNo = (last.length >= 6 && String(Number(last)) === last) ? last : null;
   if (!channelId || !channelProductNo) {
-    return { name: null, error: 'channelId/productNo 를 못 찾음', channelId, channelProductNo };
+    // 어느 쪽이 없는지 말한다 — "못 찾음"만으로는 다음에 또 같은 자리에서 막힌다.
+    return {
+      name: null,
+      error: '채널ID/상품번호 확인 실패 (channelId=' + (channelId || '없음')
+        + ', 상품번호=' + (channelProductNo || '없음') + ', 경로=' + location.pathname + ')',
+      channelId, channelProductNo,
+    };
   }
 
   const get = async (path) => {

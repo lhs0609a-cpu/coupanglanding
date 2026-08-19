@@ -122,6 +122,18 @@ export async function openProduct(sw, url, opts = {}) {
       continue;
     }
 
+    // ★ 추출기가 스스로 밝힌 실패 이유를 먼저 쓴다.
+    //   상세 추출기는 왜 못 가져왔는지 정확히 알고 돌려준다('상품 API 실패 404',
+    //   'channelId/productNo 를 못 찾음'). 그런데 아래 상품명 게이트가 그 값을 덮어
+    //   전부 "페이지가 덜 로드됨"으로 보고했다 — 원인이 다른 실패들이 같은 얼굴로 나와
+    //   진단이 불가능했다(실측: 상세 추출 1건 실패의 진짜 이유를 로그로 알 수 없었다).
+    if (data && data.error) {
+      lastError = String(data.error).slice(0, 200);
+      naverGate.recordFailure();
+      await sleep(2000);
+      continue;
+    }
+
     // 상품명이 비었으면 SPA 가 덜 그려진 것이다 — 이 게이트가 껍데기 저장을 막는다.
     if (!data?.name || data.name === 'NAVER' || data.name === 'Unknown') {
       lastError = `유효하지 않은 상품명(${data?.name || '없음'}) — 페이지가 덜 로드됨`;
