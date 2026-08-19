@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Search, Loader2, ExternalLink, PackageSearch, ChevronLeft, ChevronRight } from 'lucide-react';
+import { findHelper, fetchCollection } from '@/lib/megaload/naver-ingest-local';
 
 interface SourcedProduct {
   id: string;
@@ -66,6 +67,36 @@ export default function NaverSourcingCatalogPage() {
   }, [page, q, sort, onlyDetail]);
 
   useEffect(() => { load(); }, [load]);
+
+  /**
+   * 도우미에 아직 안 올라간 수집물이 있으면 여기서 올린다.
+   * ★ 왜 이 화면에도 두나: 저장은 원래 조종석(/megaload/naver-sourcing)이 수집을 마칠 때만
+   *   했다. 그런데 수집은 몇 분씩 걸려서 사람은 그동안 다른 화면으로 가 있기 마련이고,
+   *   실제로 이 카탈로그를 보고 있는 동안 수집이 끝나면 **아무 데도 저장되지 않았다**.
+   *   저장이 "어느 탭을 보고 있었는가"에 달려 있으면 안 된다.
+   * 도우미가 없거나(셀러) 올릴 게 없으면 조용히 아무 일도 하지 않는다.
+   */
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const helper = await findHelper();
+        if (!helper || !alive) return;
+        const c = await fetchCollection(helper.ep);
+        if (!alive || !c || c.running || !c.items?.length) return;
+        const res = await fetch('/api/megaload/naver-sourcing/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: c.items, categoryPath: c.catName || '' }),
+        });
+        // 관리자가 아니면 403 이 정상이다(셀러는 올릴 권한이 없다) — 조용히 넘어간다.
+        if (res.ok && alive) load();
+      } catch { /* 도우미 미설치·미실행은 정상 상황이다 */ }
+    })();
+    return () => { alive = false; };
+    // 첫 진입에 한 번만 — 폴링하면 셀러 브라우저가 매번 localhost 를 두드린다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const pageSize = 60;
   const lastPage = Math.max(1, Math.ceil(total / pageSize));
