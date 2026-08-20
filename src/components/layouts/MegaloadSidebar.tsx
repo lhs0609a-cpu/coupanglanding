@@ -8,18 +8,21 @@ import {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
   Receipt, BarChart3, Zap, Globe, Link as LinkIcon, Settings, X,
   Upload, User, ArrowRight, Search, PackageSearch, ExternalLink, Loader2, Lock, RotateCcw, RefreshCw, Bug,
-  BookOpen, MonitorDown, Megaphone, AlertTriangle, Grid3x3, Handshake,
+  BookOpen, MonitorDown, Megaphone, AlertTriangle, Grid3x3, Handshake, Bell,
 } from 'lucide-react';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
 import type { SettlementGateLevel } from '@/lib/utils/settlement';
 
 const iconMap = {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
-  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug, BookOpen, MonitorDown, Megaphone, AlertTriangle, Grid3x3, Handshake, Search, PackageSearch,
+  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug, BookOpen, MonitorDown, Megaphone, AlertTriangle, Grid3x3, Handshake, Search, PackageSearch, Bell,
 } as const;
 
 const navItems = [
   { href: '/megaload/dashboard', label: '대시보드', icon: 'LayoutDashboard' as const },
+  // 도우미가 업데이트되면 무엇이 좋아졌는지 여기 자동으로 올라온다(릴리스 워크플로가 등록).
+  //   자동 업데이트라 앱은 조용히 새 버전이 된다 — 알려 주지 않으면 좋아진 걸 아무도 모른다.
+  { href: '/megaload/notices', label: '공지사항', icon: 'Bell' as const },
   { href: '/megaload/orders', label: '주문관리', icon: 'ShoppingCart' as const, badgeKey: 'pendingOrders' as const },
   { href: '/megaload/returns', label: '반품수거', icon: 'RotateCcw' as const },
   { href: '/megaload/products', label: '상품관리', icon: 'Package' as const },

@@ -44,6 +44,9 @@ const PUBLIC_API_PREFIXES: string[] = [
   //   ⚠️ 이걸 빠뜨리면 큐 워커가 작업을 하나도 못 가져온다 — /detail 에서 똑같이 당했다.
   '/api/megaload/naver-sourcing/products/queue',
   '/api/public/',                  // 공개 집계(익명 총매출 등) — 세션 불필요, 읽기전용 캐시
+  // 릴리스 워크플로(GitHub Actions)가 업데이트 소식을 공지로 올리는 경로.
+  //   브라우저가 아니라 CI 가 부르므로 쿠키가 없다. 라우트에서 Bearer CRON_SECRET 을 검증한다.
+  '/api/megaload/release-notes',
 ];
 
 /**

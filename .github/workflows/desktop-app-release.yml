@@ -50,6 +50,14 @@ jobs:
       - name: Verify display-name attrs
         run: node scripts/verify-display-name-attrs.mjs
 
+      # 이 버전의 "업데이트 소식"이 사람 말로 쓰여 있는가 — 없으면 릴리스를 막는다.
+      #   자동 업데이트라 앱은 조용히 새 버전이 된다. 무엇이 좋아졌는지 알려 주지 않으면
+      #   좋아지지 않은 것과 같다. 기억에 맡기면 반드시 빠지므로 **빌드 전에** 여기서 막는다.
+      - name: Verify release notes exist for this version
+        if: startsWith(github.ref, 'refs/tags/megaload-desktop-v')
+        shell: bash
+        run: node scripts/extract-release-notes.mjs "${GITHUB_REF_NAME#megaload-desktop-v}" > /dev/null
+
       - name: Build (sync-runtime + electron-builder, win/nsis)
         working-directory: worker/desktop
         run: npm run dist
@@ -97,6 +105,34 @@ jobs:
           done
           echo "::error::발행 후에도 latest.yml 이 피드에 없습니다 — 자동업데이트 깨짐"
           exit 1
+
+      # 사용자에게 알린다 — 릴리스가 실제로 나간 뒤에만.
+      #   원문은 worker/desktop/RELEASE_NOTES.md(사람이 사용자 말로 써 둔 것)이고,
+      #   웹이 그걸 공지사항에 올려 /megaload/notices 에서 보이게 한다.
+      #   ⚠️ 실패해도 릴리스를 되돌리지 않는다(continue-on-error) — 앱은 이미 나갔고,
+      #      공지는 나중에 다시 올릴 수 있다. 다만 로그에는 남겨 놓쳤음을 알 수 있게 한다.
+      - name: Announce update to users (공지사항 자동 등록)
+        if: startsWith(github.ref, 'refs/tags/megaload-desktop-v')
+        continue-on-error: true
+        shell: bash
+        env:
+          RELEASE_NOTES_ENDPOINT: ${{ secrets.RELEASE_NOTES_ENDPOINT }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::warning::CRON_SECRET 시크릿이 없어 공지 등록을 건너뜁니다."
+            exit 0
+          fi
+          VERSION="${GITHUB_REF_NAME#megaload-desktop-v}"
+          NOTES=$(node scripts/extract-release-notes.mjs "$VERSION")
+          ENDPOINT="${RELEASE_NOTES_ENDPOINT:-https://www.megaload.co.kr/api/megaload/release-notes}"
+          BODY=$(VERSION="$VERSION" NOTES="$NOTES" node -e 'process.stdout.write(JSON.stringify({version:process.env.VERSION,notes:process.env.NOTES}))')
+          code=$(curl -sS -o /tmp/announce.out -w '%{http_code}' -X POST "$ENDPOINT" \
+            -H "Authorization: Bearer $CRON_SECRET" -H 'Content-Type: application/json' \
+            --data "$BODY")
+          echo "응답 $code: $(cat /tmp/announce.out)"
+          [ "$code" = "200" ] || { echo "::warning::공지 등록 실패($code) — 웹에서 수동 등록 필요"; exit 1; }
+          echo "✅ 공지사항 등록 완료 — 사용자가 /megaload/notices 에서 봅니다"
 
   # ─────────────────────────────────────────────────────────────────────────
   # macOS 빌드 — 별도 job. Windows job 과 독립이라 맥 빌드가 깨져도 Windows 릴리스는 나간다.
