@@ -647,7 +647,8 @@ export async function startDetailExtract({ urls = [], rootDir = '', autoGenerate
   if (!list.length) throw new Error('추출할 상품 URL 이 없습니다.');
   if (detail.running) throw new Error('이미 상세 추출이 진행 중입니다.');
 
-  const root = ensureRoot(rootDir || join(deps.userDataDir || '.', 'naver-sourcing'));
+  // 실행마다 제 폴더 — 이번에 뽑은 것만 생성·검수한다(누적 폴더 재생성 방지).
+  const root = ensureRoot(join(rootDir || join(deps.userDataDir || '.', 'naver-sourcing'), runFolderName()));
   const p = ensurePool();
   if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
 
@@ -731,6 +732,22 @@ export async function previewProduct(url) {
   const d = r.data || {};
   if (d.error) return { ok: false, error: d.error };
   return { ok: true, data: d };
+}
+
+/**
+ * 이번 실행만 담을 폴더 이름.
+ * ---------------------------------------------------------------------------
+ * ⭐ 왜 필요한가(실측 2026-08-21): 가져오기는 늘 같은 폴더에 쌓았고 생성은 **폴더 전체**를
+ *   훑는다. 그래서 상품 1개를 새로 가져와도 이미 다 만들어 둔 8개까지 다시 생성했다
+ *   (gen.products=1 인데 total=9). 50개·100개가 쌓이면 하나 추가할 때마다 100개를 재생성해
+ *   GPU 시간을 통째로 버리고, 검수 화면에도 예전(이미 등록한) 상품이 계속 같이 떴다.
+ *   → 실행마다 제 폴더를 판다. 생성도 검수도 "방금 고른 것"만 본다.
+ *   이전 결과가 사라지는 건 아니다 — 폴더는 그대로 남고 검수 화면의 '이전 생성결과 불러오기'로 연다.
+ */
+function runFolderName(at = Date.now()) {
+  const d = new Date(at);
+  const p = (n) => String(n).padStart(2, '0');
+  return `run-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
 let importTask = { running: false, total: 0, done: 0, ok: 0, failed: 0, current: '', rootDir: '', stopped: null, at: 0 };
@@ -829,7 +846,8 @@ export async function importProducts({ products = [], rootDir = '', autoAllinone
   if (!list.length) throw new Error('가져올 상품이 없습니다.');
   if (importTask.running) throw new Error('이미 가져오기가 진행 중입니다.');
 
-  const root = ensureRoot(rootDir || join(deps.userDataDir || '.', 'naver-sourcing'));
+  // 실행마다 제 폴더 — 이번에 고른 것만 생성·검수한다(누적 폴더 재생성 방지).
+  const root = ensureRoot(join(rootDir || join(deps.userDataDir || '.', 'naver-sourcing'), runFolderName()));
   importTask = { running: true, total: list.length, done: 0, ok: 0, failed: 0, current: '', rootDir: root, stopped: null, at: Date.now() };
   pushLog(`카탈로그에서 ${list.length}개를 가져옵니다 — 이미지만 받으므로 네이버 페이지는 열지 않습니다.`);
   pushStatus();
@@ -963,6 +981,19 @@ async function queueTick() {
   } finally {
     queueBusy = false;
   }
+}
+
+/**
+ * 큐를 **지금 당장** 한 번 돌린다 — 셀러가 방금 요청을 걸었을 때 웹이 부른다.
+ * ---------------------------------------------------------------------------
+ * 자동 처리는 60초 주기라, 요청하자마자 걸리면 아무 일도 안 하는 채로 최대 1분을 흘려보낸다.
+ * 상세 추출 자체가 1분 남짓인데 대기가 그만큼 더 붙으면 사람은 멈춘 걸로 본다.
+ * 관리자가 아니면 서버가 작업을 안 주므로(claimJobs 가 빈 배열) 여기서 따로 막지 않는다.
+ */
+export function kickQueue() {
+  if (queueBusy || detail.running || collection.running) return { ok: true, started: false, reason: 'busy' };
+  queueTick().catch(() => { /* 실패는 다음 주기가 다시 집는다 */ });
+  return { ok: true, started: true };
 }
 
 /** 큐 자동 처리 시작/중지. idle=true 면 요청이 없을 때 미수집분까지 채운다. */

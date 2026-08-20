@@ -92,6 +92,7 @@ export default {
     'naver-ingest:import': (_ctx, payload = {}) => svc.importProducts(payload),
     'naver-ingest:import-state': () => svc.getImportState(),
     'naver-ingest:queue': (_ctx, { on, idle } = {}) => svc.setQueueWorker({ on, idle }),
+    'naver-ingest:queue-tick': () => svc.kickQueue(),
     'naver-ingest:collect': (_ctx, payload = {}) => svc.startCollect(payload),
     'naver-ingest:collect-stop': () => svc.stopCollect(),
     'naver-ingest:collection': () => svc.getCollection(),

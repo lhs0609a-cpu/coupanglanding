@@ -460,6 +460,16 @@ export async function startImport(
  * @param handoff 검수 화면을 **웹이 직접 연다**고 도우미에 알린다. 이걸 안 보내면 생성이
  *   끝날 때 도우미가 브라우저를 따로 열어 같은 화면이 탭 두 개로 뜬다.
  */
+/**
+ * 상세 요청 큐를 **지금 한 번** 돌리게 도우미를 깨운다.
+ * 자동 처리는 60초 주기라, 요청하자마자 걸리면 아무 일 없이 최대 1분이 흐른다 —
+ * 상세 추출 자체가 1분 남짓인데 대기가 그만큼 더 붙으면 사람은 멈춘 걸로 본다.
+ * 도우미가 없거나 구버전이면 조용히 넘어간다(자동 주기가 어차피 집는다).
+ */
+export async function kickQueue(ep: LocalEndpoint): Promise<void> {
+  try { await post(ep, 'queue/tick', {}); } catch { /* 없으면 자동 주기에 맡긴다 */ }
+}
+
 export async function fetchImportState(
   ep: LocalEndpoint, { handoff = false }: { handoff?: boolean } = {},
 ): Promise<ImportState | null> {

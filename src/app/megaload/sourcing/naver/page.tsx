@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, Loader2, ExternalLink, PackageSearch, ChevronLeft, ChevronRight, Download, AlertTriangle } from 'lucide-react';
-import { findHelper, fetchCollection, startImport, fetchImportState, type ImportState, type GenState } from '@/lib/megaload/naver-ingest-local';
+import { findHelper, fetchCollection, startImport, fetchImportState, kickQueue, type ImportState, type GenState } from '@/lib/megaload/naver-ingest-local';
 import { isDetailExtractable, naverStoreType, STORE_TYPE_LABEL } from '@/lib/megaload/naver-store-type';
 import NaverCategoryTree, { type CategoryCount } from '@/components/megaload/NaverCategoryTree';
 import { UNCLASSIFIED, PATH_SEP, type CategoryNode } from '@/lib/megaload/naver-category-tree';
@@ -93,6 +93,9 @@ export default function NaverSourcingCatalogPage() {
   const navigatedRef = useRef(false);
   // 상세를 요청해 둔 상품 — 준비되면 자동으로 이어서 등록한다.
   const [pendingIds, setPendingIds] = useState<string[]>([]);
+  // 그 기다림에도 시계를 붙인다 — 실측 1~1분 반이 걸리는데 아무 표시가 없으면 멈춘 걸로 보인다.
+  const [waitStartedAt, setWaitStartedAt] = useState(0);
+  const [waitCount, setWaitCount] = useState(0);
   // ── 카테고리 트리 ──
   // 트리 자체는 서버 코드에 동봉된 스냅샷이라 도우미가 없어도 즉시 뜬다. 여기서 받는 건
   // "어느 가지에 몇 개가 쌓였나"까지 포함된 한 덩어리다(요청 1회).
@@ -232,13 +235,13 @@ export default function NaverSourcingCatalogPage() {
     return () => { alive = false; clearInterval(t); };
   }, [watching, router]);
 
-  /** 경과·남은시간을 매초 갱신 — 폴링은 2초라 그 사이가 비어 보인다. */
+  /** 경과·남은시간을 매초 갱신 — 폴링 사이가 비어 보이지 않게. 상세 대기 중에도 돈다. */
   useEffect(() => {
-    if (!watching) return;
+    if (!watching && !waitStartedAt) return;
     setNowTick(Date.now());
     const t = setInterval(() => setNowTick(Date.now()), 1000);
     return () => clearInterval(t);
-  }, [watching]);
+  }, [watching, waitStartedAt]);
 
   /**
    * 새로고침·재진입 복구 — 도우미가 아직 돌고 있으면 그 진행을 이어서 보여 준다.
@@ -312,9 +315,14 @@ export default function NaverSourcingCatalogPage() {
         } catch { /* 요청 등록 실패는 치명적이지 않다 */ }
         if (queued) {
           // ★ "준비되면 다시 눌러 가져오세요" 는 나쁜 안내였다 — 사용자가 언제 될지 모르는 걸
-          //   감으로 재시도해야 했다. 실측상 처리는 보통 10~30초다. 기다렸다 **자동으로 이어간다**.
-          setImpNote(`${queued}개는 상세가 없어 지금 준비 중입니다 — 끝나면 자동으로 이어서 등록합니다.${blockedNote ? ` ${blockedNote}` : ''}`);
+          //   감으로 재시도해야 했다. 기다렸다 **자동으로 이어간다**.
+          //   ⏱ 실측(2026-08-21, 9건): 요청→확보까지 12·52·56·61·76·81·81·93·93초 = 보통 1~1분 반.
+          setImpNote(blockedNote || null);
+          setWaitCount(queued);
+          setWaitStartedAt(Date.now());
           setPendingIds(ids);
+          // 큐 자동 처리는 60초 주기다 — 요청하자마자 걸리면 아무 일 없이 1분이 흐른다. 깨운다.
+          kickQueue(helper.ep);
         } else if (blockedNote) {
           // 고른 게 전부 미지원이면 기다릴 것도 없다 — "잠시 후 다시" 는 거짓 안내가 된다.
           setImpNote(blockedNote);
@@ -339,19 +347,23 @@ export default function NaverSourcingCatalogPage() {
 
   /**
    * 요청해 둔 상세가 준비됐는지 지켜본다.
-   * 실측(2026-08-20): 요청 → 도우미 처리 완료까지 14초였다. 사람에게 "몇 분 뒤 다시 누르라"고
-   * 시킬 일이 아니다 — 준비되는 대로 이어서 등록한다. 3분 안에 안 되면 손을 뗀다(무한 폴링 금지).
+   * ---------------------------------------------------------------------------
+   * 실측(2026-08-21, 최근 9건): 요청 → 확보까지 12·52·56·61·76·81·81·93·93초 —— **보통 1~1분 반**이다.
+   * 예전 값(14초)만 보고 3분에서 손을 뗐는데, 큐 자동 처리가 60초 주기라 운 나쁘면 대기 1분이
+   * 그냥 얹힌다. 게다가 앞에 밀린 요청이 있으면 순번을 기다린다 → 3분은 너무 빠듯했다.
+   * 8분까지 기다리고, 5초마다 확인해 준비되는 즉시 이어간다.
    */
   useEffect(() => {
     if (!pendingIds.length) return;
     let alive = true;
     let tries = 0;
     const t = setInterval(async () => {
-      // 3분. 조용히 손을 떼면 "기다렸는데 아무 일도 안 났다"가 된다 — 그만뒀다고 말한다.
-      if (++tries > 18) {
+      // 8분. 조용히 손을 떼면 "기다렸는데 아무 일도 안 났다"가 된다 — 그만뒀다고 말한다.
+      if (++tries > 96) {
         clearInterval(t);
         setPendingIds([]);
-        setImpNote('상세 준비가 3분을 넘겨 기다리기를 멈췄습니다 — 새로고침해 상태를 확인한 뒤 다시 시도해 주세요.');
+        setWaitStartedAt(0);
+        setImpNote('상세 준비가 8분을 넘겨 기다리기를 멈췄습니다 — 관리자 도우미가 켜져 있는지 확인한 뒤 다시 시도해 주세요.');
         load(); loadCategories();
         return;
       }
@@ -365,9 +377,10 @@ export default function NaverSourcingCatalogPage() {
         if (!alive || !res.ok || !j.products?.length) return;
         clearInterval(t);
         setPendingIds([]);
+        setWaitStartedAt(0);
         const helper = await findHelper();
         if (!helper) { setImpNote('상세가 준비됐는데 도우미를 찾지 못했습니다 — 도우미를 실행한 뒤 다시 눌러 주세요.'); return; }
-        setImpNote(`상세가 준비돼 ${j.products.length}개를 이어서 등록합니다.`);
+        setImpNote(null);
         setImporting(true);
         startedHereRef.current = true;   // 이어서 시작한 것도 이 화면의 작업이다
         navigatedRef.current = false;
@@ -377,7 +390,7 @@ export default function NaverSourcingCatalogPage() {
         setImp({ running: true, total: r.total ?? j.products.length, done: 0, ok: 0, failed: 0, current: '', rootDir: r.rootDir ?? '', stopped: null, at: Date.now(), gen: null });
         load(); loadCategories();   // 상세가 확보됐으니 '상세 확보' 개수가 바뀐다
       } catch { /* 다음 주기에 다시 */ }
-    }, 10000);
+    }, 5000);
     return () => { alive = false; clearInterval(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingIds]);
@@ -531,13 +544,15 @@ export default function NaverSourcingCatalogPage() {
         </button>
         <button
           onClick={runImport}
-          disabled={!picked.size || importing || !!imp?.running || genRunning}
+          disabled={!picked.size || importing || !!imp?.running || genRunning || !!pendingIds.length}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230] disabled:opacity-40"
         >
-          {importing || imp?.running || genRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-          {genRunning
-            ? '상세페이지 만드는 중…'
-            : `선택한 ${picked.size.toLocaleString()}개 올인원으로 등록하기`}
+          {importing || imp?.running || genRunning || pendingIds.length ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+          {pendingIds.length
+            ? '상세 준비 중…'
+            : genRunning
+              ? '상세페이지 만드는 중…'
+              : `선택한 ${picked.size.toLocaleString()}개 올인원으로 등록하기`}
         </button>
         {!!picked.size && !importing && (
           <button onClick={() => setPicked(new Set())} className="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-500 hover:bg-gray-50">
@@ -561,6 +576,43 @@ export default function NaverSourcingCatalogPage() {
           <AlertTriangle className="w-4 h-4" /> {impNote}
         </div>
       )}
+
+      {/* ── 0단계 · 상세 준비 대기 ───────────────────────────────────────────
+          고른 상품에 상세(옵션·상세글·고시정보)가 없으면 관리자 도우미가 네이버 상품 페이지를
+          직접 열어 뽑아야 한다. 실측 1~1분 반. 예전엔 이 구간에 노란 배너 한 줄뿐이라
+          "눌렀는데 아무 일도 안 난다"로 보였다 — 시계와 예상치를 붙인다. */}
+      {!!waitStartedAt && !!pendingIds.length && (() => {
+        const elapsed = Math.max(0, nowTick - waitStartedAt);
+        const typicalMs = 90_000;                       // 실측 중앙값 76초 + 여유
+        const pct = Math.min(95, Math.round((elapsed / typicalMs) * 100));   // 100%는 끝났을 때만
+        const late = elapsed > typicalMs * 2;
+        return (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 mb-4">
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-amber-700 flex-none" />
+              <span className="text-sm font-semibold text-amber-900">
+                0단계 · 상세 준비 중 ({waitCount}개)
+              </span>
+              <span className="flex-1" />
+              <span className="text-sm font-bold text-amber-800 tabular-nums">{pct}%</span>
+            </div>
+            <div className="mt-2 h-2 w-full rounded-full bg-amber-100 overflow-hidden">
+              <div className="h-full bg-amber-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-amber-900">
+              <span>경과 <b className="tabular-nums">{fmtDur(elapsed)}</b></span>
+              <span>보통 <b>1~1분 반</b></span>
+              <span className="text-amber-700">준비되는 즉시 가져오기·생성으로 이어집니다</span>
+            </div>
+            <p className="text-[11px] text-amber-700 leading-snug mt-2">
+              고르신 상품은 <b>상세를 아직 안 받아 둔 것</b>이라, 관리자 도우미가 네이버 상품
+              페이지를 열어 옵션·상세글·고시정보·사진을 먼저 가져옵니다.
+              <b> 상세 확보</b> 배지가 붙은 상품을 고르면 이 대기가 없습니다.
+              {late && ' 앞에 밀린 요청이 있으면 순번을 기다립니다 — 8분까지 기다린 뒤 멈춥니다.'}
+            </p>
+          </div>
+        );
+      })()}
 
       {/* ── 진행 패널 ────────────────────────────────────────────────────────
           한 번 누르면 검수까지 간다. 그 사이 두 단계(① 가져오기 ② 상세페이지 생성)를
