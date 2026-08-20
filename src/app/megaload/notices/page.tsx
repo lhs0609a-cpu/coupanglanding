@@ -81,7 +81,7 @@ export default function MegaloadNoticesPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/megaload/notices');
+      const res = await fetch('/api/notices');
       const data = await res.json();
       if (!res.ok) setError(data.error || '공지사항을 불러오지 못했습니다.');
       else setNotices(data.notices || []);
