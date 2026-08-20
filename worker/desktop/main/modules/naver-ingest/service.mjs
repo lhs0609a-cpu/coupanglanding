@@ -32,6 +32,15 @@ import {
 } from './categories.mjs';
 import { collectCategory } from './collect-list.mjs';
 import { extractOne, ensureRoot, extractDetailJs, writeProductFolder } from './detail-extract.mjs';
+import { isDetailExtractable } from './store-type.mjs';
+
+/**
+ * 상품이 아닌 배너 카드의 제목 — 웹 서버(api/.../products/route.ts)와 같은 목록이다.
+ * 부분일치로 거르면 '전단행사 특가 사과 5kg' 같은 진짜 상품까지 날아간다 → **전체 일치만**.
+ */
+const BANNER_TITLES = new Set([
+  '전단행사', '전단', '기획전', '이벤트', '행사', '특가', '특가전', '알뜰쇼핑', '오늘의특가',
+]);
 
 let pool = null;
 let deps = {
@@ -505,9 +514,26 @@ export async function startCollect({ catId, catName = '', target = 300, autoDeta
     return { items: [...merged.values()], stopped: second.stopped };
   };
 
-  runWithRelogin().then(async ({ items, stopped }) => {
+  runWithRelogin().then(async ({ items: raw, stopped }) => {
+    // ── 담기 전에 거른다(실측 2026-08-20) ──────────────────────────────
+    // 목록에는 상품이 아닌 배너 카드('전단행사' 같은 제목만 있는 줄)와, 상세를 뽑을 수 없는
+    // 스토어(네이버 마켓·쇼핑윈도)가 섞여 온다. 그대로 두면 카탈로그에 **고를 수 없는 줄**이
+    // 쌓이고, 셀러는 고른 뒤에야 안 된다는 걸 알게 된다. 여기서 빼고 몇 개를 뺐는지 말한다.
+    const isBanner = (x) => {
+      const t = String(x.title || '').trim();
+      return !t || t.length < 2 || BANNER_TITLES.has(t) || !/\/products\/\d+/.test(String(x.url || ''));
+    };
+    const banners = raw.filter(isBanner);
+    const rest = raw.filter((x) => !isBanner(x));
+    const unsupported = rest.filter((x) => !isDetailExtractable(x.url));
+    const items = rest.filter((x) => isDetailExtractable(x.url));
+
     collection = { ...collection, items, stopped, running: false, at: Date.now() };
     pushLog(`✅ 수집 완료 — ${items.length}개 (${stopped})`);
+    if (banners.length || unsupported.length) {
+      pushLog(`제외 ${banners.length + unsupported.length}개 — 배너·상품 아님 ${banners.length}, `
+        + `상세 추출 미지원(마켓·윈도) ${unsupported.length}`);
+    }
     pushStatus();
 
     // ── 상세까지 한 번에 ──────────────────────────────────────────────

@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Search, Loader2, ExternalLink, PackageSearch, ChevronLeft, ChevronRight, Download, AlertTriangle } from 'lucide-react';
 import { findHelper, fetchCollection, startImport, fetchImportState, type ImportState } from '@/lib/megaload/naver-ingest-local';
+import { isDetailExtractable, naverStoreType, STORE_TYPE_LABEL } from '@/lib/megaload/naver-store-type';
 
 interface SourcedProduct {
   id: string;
@@ -34,6 +35,17 @@ interface SourcedProduct {
 }
 
 type Sort = 'recent' | 'price' | 'review';
+
+/**
+ * 고를 수 있는 상품인가.
+ * 상세를 못 뽑는 주소(네이버 마켓·쇼핑윈도)는 아무리 눌러도 준비되지 않는다 — 실측 2026-08-20:
+ * 마켓·윈도 0/3(2 실패 + 1 은 7분째 멈춘 채). 그런 걸 고르게 두면 셀러는 "요청을 걸었습니다"만
+ * 반복해서 보게 된다. 그래서 아예 못 고르게 하고 **이유를 카드에 적는다**.
+ * 이미 상세를 받아 둔 줄은 예외다 — 지원 범위가 넓어지기 전에 확보한 것도 등록은 돼야 한다.
+ */
+function isPickable(p: SourcedProduct): boolean {
+  return p.detail_status === 'done' || isDetailExtractable(p.url);
+}
 
 export default function NaverSourcingCatalogPage() {
   const [products, setProducts] = useState<SourcedProduct[]>([]);
@@ -145,7 +157,18 @@ export default function NaverSourcingCatalogPage() {
       //   셀러 PC 가 직접 네이버를 열면 셀러마다 로그인·캡차·429 를 겪으므로, 요청만 남기고
       //   실제 추출은 관리자 도우미가 대신한다. 셀러는 기다렸다 다시 누르면 된다.
       if (j.skipped?.length) {
-        const ids = j.skipped.map((x: { id: string }) => x.id);
+        // ★ 상세를 못 뽑는 주소는 큐에 넣지 않는다. 넣으면 도우미가 재시도 6회 × 캡차 대기까지
+        //   매달렸다가 실패하고, 30분 뒤 서버가 되살려 같은 실패를 무한 반복한다(실측 2026-08-20).
+        const byId = new Map(products.map((p) => [p.id, p]));
+        const skippedIds = j.skipped.map((x: { id: string }) => x.id) as string[];
+        const ids = skippedIds.filter((id) => {
+          const p = byId.get(id);
+          return !p || isDetailExtractable(p.url);   // 다른 페이지에서 고른 건 서버가 판정한다
+        });
+        const blocked = skippedIds.length - ids.length;
+        const blockedNote = blocked
+          ? `${blocked}개는 네이버 마켓·쇼핑윈도 상품이라 상세를 가져올 수 없어 제외했습니다.`
+          : '';
         let queued = 0;
         try {
           const qr = await fetch('/api/megaload/naver-sourcing/products/queue', {
@@ -159,8 +182,11 @@ export default function NaverSourcingCatalogPage() {
         if (queued) {
           // ★ "준비되면 다시 눌러 가져오세요" 는 나쁜 안내였다 — 사용자가 언제 될지 모르는 걸
           //   감으로 재시도해야 했다. 실측상 처리는 보통 10~30초다. 기다렸다 **자동으로 이어간다**.
-          setImpNote(`${queued}개는 상세가 없어 지금 준비 중입니다 — 끝나면 자동으로 이어서 등록합니다.`);
+          setImpNote(`${queued}개는 상세가 없어 지금 준비 중입니다 — 끝나면 자동으로 이어서 등록합니다.${blockedNote ? ` ${blockedNote}` : ''}`);
           setPendingIds(ids);
+        } else if (blockedNote) {
+          // 고른 게 전부 미지원이면 기다릴 것도 없다 — "잠시 후 다시" 는 거짓 안내가 된다.
+          setImpNote(blockedNote);
         } else {
           setImpNote(`${j.skipped.length}개는 아직 상세가 없습니다 — 잠시 후 다시 시도해 주세요.`);
         }
@@ -190,7 +216,14 @@ export default function NaverSourcingCatalogPage() {
     let alive = true;
     let tries = 0;
     const t = setInterval(async () => {
-      if (++tries > 18) { clearInterval(t); setPendingIds([]); return; }   // 3분
+      // 3분. 조용히 손을 떼면 "기다렸는데 아무 일도 안 났다"가 된다 — 그만뒀다고 말한다.
+      if (++tries > 18) {
+        clearInterval(t);
+        setPendingIds([]);
+        setImpNote('상세 준비가 3분을 넘겨 기다리기를 멈췄습니다 — 새로고침해 상태를 확인한 뒤 다시 시도해 주세요.');
+        load();
+        return;
+      }
       try {
         const res = await fetch('/api/megaload/naver-sourcing/products/export', {
           method: 'POST',
@@ -216,6 +249,9 @@ export default function NaverSourcingCatalogPage() {
 
   const pageSize = 60;
   const lastPage = Math.max(1, Math.ceil(total / pageSize));
+  // 이 페이지에서 실제로 등록까지 갈 수 있는 것 / 막힌 것 — 숫자를 먼저 보여 준다.
+  const pickableCount = products.filter(isPickable).length;
+  const blockedCount = products.length - pickableCount;
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -282,14 +318,19 @@ export default function NaverSourcingCatalogPage() {
       <div className="rounded-xl border border-gray-200 bg-white p-4 mb-4 flex items-center gap-3 flex-wrap">
         <button
           onClick={() => setPicked((prev) => {
-            const all = products.length > 0 && products.every((x) => prev.has(x.id));
+            // 상세를 못 뽑는 상품은 전체 선택에서도 빠진다 — 넣어 봐야 등록되지 않는다.
+            const targets = products.filter(isPickable);
+            const all = targets.length > 0 && targets.every((x) => prev.has(x.id));
             const next = new Set(prev);
-            for (const x of products) { if (all) next.delete(x.id); else next.add(x.id); }
+            for (const x of targets) { if (all) next.delete(x.id); else next.add(x.id); }
             return next;
           })}
-          className="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-gray-50"
+          disabled={!pickableCount}
+          className="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40"
         >
-          {products.length > 0 && products.every((x) => picked.has(x.id)) ? '이 페이지 선택 해제' : '이 페이지 전체 선택'}
+          {pickableCount > 0 && products.filter(isPickable).every((x) => picked.has(x.id))
+            ? '이 페이지 선택 해제'
+            : `이 페이지 전체 선택 (${pickableCount}개)`}
         </button>
         <button
           onClick={runImport}
@@ -308,6 +349,12 @@ export default function NaverSourcingCatalogPage() {
           이미지를 받아 상세페이지까지 자동으로 만듭니다. 끝나면 검수 화면이 열립니다 —
           네이버 로그인은 필요 없습니다.
         </span>
+        {blockedCount > 0 && (
+          <span className="w-full text-xs text-gray-600 border-t border-gray-100 pt-2 mt-1">
+            이 페이지의 <b>{blockedCount}개</b>는 네이버 마켓·쇼핑윈도 상품이라 아직 상세를 가져올 수
+            없어 선택에서 제외했습니다. (스마트스토어·브랜드스토어 상품만 등록됩니다)
+          </span>
+        )}
       </div>
 
       {impNote && (
@@ -355,17 +402,24 @@ export default function NaverSourcingCatalogPage() {
       ) : (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {products.map((p) => (
+            {products.map((p) => {
+              const pickable = isPickable(p);
+              const storeType = naverStoreType(p.url);
+              return (
               <div
                 key={p.id}
-                className={`rounded-xl border bg-white overflow-hidden hover:shadow-sm transition ${picked.has(p.id) ? 'border-[#E31837] ring-1 ring-[#E31837]' : 'border-gray-200'}`}
+                className={`rounded-xl border bg-white overflow-hidden hover:shadow-sm transition ${picked.has(p.id) ? 'border-[#E31837] ring-1 ring-[#E31837]' : 'border-gray-200'} ${pickable ? '' : 'opacity-70'}`}
               >
                 <div className="relative aspect-square bg-gray-100">
-                  <label className="absolute top-2 left-2 z-10 bg-white/90 rounded p-1 cursor-pointer">
+                  <label
+                    className={`absolute top-2 left-2 z-10 bg-white/90 rounded p-1 ${pickable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                    title={pickable ? undefined : `${STORE_TYPE_LABEL[storeType]} 상품은 아직 상세를 가져올 수 없습니다.`}
+                  >
                     <input
                       type="checkbox"
-                      aria-label={`${p.title} 선택`}
+                      aria-label={pickable ? `${p.title} 선택` : `${p.title} — 상세 추출 미지원이라 선택할 수 없습니다`}
                       checked={picked.has(p.id)}
+                      disabled={!pickable}
                       onChange={(e) => setPicked((prev) => {
                         const next = new Set(prev);
                         if (e.target.checked) next.add(p.id); else next.delete(p.id);
@@ -403,6 +457,21 @@ export default function NaverSourcingCatalogPage() {
                       상세 확보
                     </span>
                   )}
+                  {/* ★ 못 고르는 이유를 카드에 적는다. 예전엔 아무 표시가 없어서 "눌렀는데
+                      아무 일도 안 난다"로만 보였다(실측: 마켓·윈도 3건이 그렇게 방치됐다). */}
+                  {!pickable && (
+                    <span
+                      className="mt-1.5 inline-block text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 border border-gray-200"
+                      title={`${STORE_TYPE_LABEL[storeType]} 상품은 아직 상세를 가져올 수 없습니다.`}
+                    >
+                      {STORE_TYPE_LABEL[storeType]} · 상세 미지원
+                    </span>
+                  )}
+                  {pickable && p.detail_status === 'failed' && (
+                    <span className="mt-1.5 inline-block text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-700 border border-red-200">
+                      상세 실패 — 다시 시도
+                    </span>
+                  )}
                   {(p.detail_status === 'requested' || p.detail_status === 'running') && (
                     <span className="mt-1.5 inline-block text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
                       상세 준비 중
@@ -410,7 +479,8 @@ export default function NaverSourcingCatalogPage() {
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {lastPage > 1 && (

@@ -21,6 +21,7 @@
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { runOne } from './runner.mjs';
+import { isDetailExtractable, unsupportedReason } from './store-type.mjs';
 
 /**
  * 페이지 안에서 상품 API 3종을 부른다.
@@ -447,6 +448,15 @@ export async function writeProductFolder(rootDir, data, { onLog } = {}) {
 
 /** 상품 1건 — 페이지를 클릭 이동으로 열고 API 를 불러 폴더까지 만든다. */
 export async function extractOne(pool, url, rootDir, { onLog = () => {}, signal } = {}) {
+  // ★ 못 뽑는 주소는 **열어 보지도 않는다**(실측 2026-08-20).
+  //   추출기는 채널ID·API 접두사를 스마트스토어·브랜드스토어 기준으로만 찾는다. 마켓·윈도는
+  //   그 규칙에 없어 실패하는데, 예전엔 이 사실을 몰라 재시도 6회 × 캡차 대기까지 매달렸다
+  //   (마켓 상품 1건이 7분 넘게 창을 잡고 running 으로 남았다). 네이버 예산도 그만큼 태운다.
+  if (!isDetailExtractable(url)) {
+    const why = unsupportedReason(url);
+    onLog(`⏭ 건너뜀 — ${why}`);
+    return { ok: false, url, error: why, unsupported: true };
+  }
   const r = await runOne(pool, url, { onLog, extract: extractDetailJs, signal });
   if (!r?.ok) return { ok: false, url, error: r?.error || '알 수 없음' };
   const data = r.data || {};

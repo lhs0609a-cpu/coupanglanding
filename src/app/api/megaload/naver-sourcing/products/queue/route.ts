@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createSbClient } from '@supabase/supabase-js';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { isDetailExtractable } from '@/lib/megaload/naver-store-type';
 
 export const maxDuration = 30;
 export const dynamic = 'force-dynamic';
@@ -36,12 +37,25 @@ export async function POST(request: NextRequest) {
   // 이미 done 인 건 건드리지 않는다 — 요청이 확보된 상세를 되돌리면 안 된다.
   const { data: targets } = await service
     .from('sh_naver_sourcing_products')
-    .select('id, detail_status, detail_request_count')
+    .select('id, url, detail_status, detail_request_count')
     .in('id', ids)
     .in('detail_status', ['none', 'failed']);
 
-  const rows = targets ?? [];
-  if (!rows.length) return NextResponse.json({ ok: true, requested: 0 });
+  // ★ 상세를 못 뽑는 주소는 큐에 넣지 않는다(실측 2026-08-20).
+  //   넣으면 도우미가 재시도 6회 × 캡차 대기까지 매달렸다가 실패하고, 30분 뒤 stale 복구가
+  //   되살려 **같은 실패를 무한 반복**한다. 큐 한 자리를 영영 잡아먹는 셈이다.
+  //   대신 failed 로 확정해 큐에서 빼고, 화면은 카드에 '상세 미지원'을 띄운다.
+  const all = targets ?? [];
+  const rows = all.filter((r) => isDetailExtractable(r.url));
+  const blockedRows = all.filter((r) => !isDetailExtractable(r.url));
+  if (blockedRows.length) {
+    await service.from('sh_naver_sourcing_products')
+      .update({ detail_status: 'failed', detail_at: new Date().toISOString() })
+      .in('id', blockedRows.map((r) => r.id));
+  }
+  if (!rows.length) {
+    return NextResponse.json({ ok: true, requested: 0, blocked: blockedRows.length });
+  }
 
   // 여러 셀러가 같은 상품을 원하면 그게 곧 우선순위다 — 요청 수를 센다.
   const now = new Date().toISOString();
@@ -54,7 +68,7 @@ export async function POST(request: NextRequest) {
     }).eq('id', r.id);
   }
 
-  return NextResponse.json({ ok: true, requested: rows.length });
+  return NextResponse.json({ ok: true, requested: rows.length, blocked: blockedRows.length });
 }
 
 /**
@@ -97,12 +111,22 @@ export async function GET(request: NextRequest) {
     .from('sh_naver_sourcing_products')
     .select('id, product_no, url, title')
     .in('detail_status', statuses)
+    // 못 뽑는 주소가 앞자리를 차지하지 않게 넉넉히 뽑아서 거른다(아래에서 limit 까지만 넘긴다).
     .order('detail_request_count', { ascending: false })
     .order('detail_requested_at', { ascending: true, nullsFirst: false })
-    .limit(limit);
+    .limit(limit * 4);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  const jobs = rows ?? [];
+
+  // 옛 요청 중에도 마켓·윈도가 섞여 있다 — 도우미에게 넘기지 말고 여기서 failed 로 끝낸다.
+  const candidates = rows ?? [];
+  const dead = candidates.filter((r) => !isDetailExtractable(r.url));
+  if (dead.length) {
+    await service.from('sh_naver_sourcing_products')
+      .update({ detail_status: 'failed', detail_at: new Date().toISOString() })
+      .in('id', dead.map((r) => r.id));
+  }
+  const jobs = candidates.filter((r) => isDetailExtractable(r.url)).slice(0, limit);
   if (jobs.length) {
     await service.from('sh_naver_sourcing_products')
       .update({ detail_status: 'running', detail_at: new Date().toISOString() })

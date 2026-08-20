@@ -117,7 +117,10 @@ export default function NaverSourcingPage() {
   const [pickedProducts, setPickedProducts] = useState<Set<string>>(() => new Set());
   const [outDir, setOutDir] = useState('');
   // 서버 저장 결과 — "긁긴 했는데 어디 갔지"를 없애려고 화면에 명시한다.
-  const [savedInfo, setSavedInfo] = useState<{ ok: boolean; count?: number; error?: string } | null>(null);
+  const [savedInfo, setSavedInfo] = useState<{
+    ok: boolean; count?: number; error?: string;
+    skippedUnsupported?: number; skippedBanner?: number;
+  } | null>(null);
   // ── 대량 소싱용 목록 조작 ────────────────────────────────────────────
   // 수집은 1,000개까지 나온다. "한 화면에 최대한 많이 + 고르기 쉽게"가 이 화면의 일이다.
   //   보기   격자(기본) = 한 화면에 수십 개. 표 = 숫자 비교가 필요할 때.
@@ -336,7 +339,12 @@ export default function NaverSourcingPage() {
         });
         const j = await res.json().catch(() => ({}));
         setSavedInfo(res.ok
-          ? { ok: true, count: j.saved ?? c.items.length }
+          ? {
+              ok: true,
+              count: j.saved ?? c.items.length,
+              skippedUnsupported: j.skipped?.unsupported ?? 0,
+              skippedBanner: j.skipped?.banner ?? 0,
+            }
           : { ok: false, error: j.error || `HTTP ${res.status}` });
       } catch (e) {
         setSavedInfo({ ok: false, error: e instanceof Error ? e.message : String(e) });
@@ -842,6 +850,21 @@ export default function NaverSourcingPage() {
       {/* 3. 수집 결과 */}
       {cards.length > 0 && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 mb-4">
+          {/* 서버 저장 결과 — "긁긴 했는데 어디 갔지"와 "왜 개수가 줄었지"를 여기서 끝낸다.
+              카탈로그는 상세를 뽑을 수 있는 스마트스토어·브랜드스토어만 담는다(마켓·윈도 제외). */}
+          {savedInfo && (
+            <p className={`text-xs mb-3 ${savedInfo.ok ? 'text-gray-600' : 'text-red-700'}`}>
+              {savedInfo.ok ? (
+                <>
+                  카탈로그에 <b>{(savedInfo.count ?? 0).toLocaleString()}개</b> 저장됨
+                  {!!savedInfo.skippedUnsupported && ` · 마켓·윈도 ${savedInfo.skippedUnsupported}개 제외(상세 추출 미지원)`}
+                  {!!savedInfo.skippedBanner && ` · 배너·상품 아님 ${savedInfo.skippedBanner}개 제외`}
+                </>
+              ) : (
+                <>카탈로그 저장 실패 — {savedInfo.error}</>
+              )}
+            </p>
+          )}
           <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
             <h2 className="font-bold text-gray-900">
               수집 결과{' '}

@@ -64,6 +64,10 @@ export async function openProduct(sw, url, opts = {}) {
   const {
     extract = probeJs,
     captchaWaitMs = 180_000,
+    // ★ 전체 시간 상한. 없을 때 실측(2026-08-20): 지원하지 않는 마켓 상품 1건이 재시도 6회 ×
+    //   캡차 대기까지 겹쳐 **7분 넘게** 창과 큐 자리를 잡은 채 running 으로 남았다.
+    //   끝나지 않는 작업은 실패보다 나쁘다 — 아무도 그 사실을 모르기 때문이다.
+    timeoutMs = 240_000,
     onLog = () => {},
     onCaptcha,
     signal,
@@ -72,11 +76,20 @@ export async function openProduct(sw, url, opts = {}) {
   const parsed = parseProductUrl(url);
   if (!parsed.ok) return { ok: false, error: parsed.error, retryable: false };
 
+  const deadline = Date.now() + timeoutMs;
   let lastError = 'unknown';
   let sawBlock = false;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     if (signal?.aborted) return { ok: false, error: 'aborted', retryable: false };
+    if (Date.now() >= deadline) {
+      sw.status = 'idle';
+      return {
+        ok: false,
+        error: `시간 초과(${Math.round(timeoutMs / 1000)}초) — ${lastError}`,
+        retryable: true,
+      };
+    }
     await naverGate.waitCooldown(signal);
 
     // ── 이동 (클릭) ─────────────────────────────────────────
@@ -93,8 +106,10 @@ export async function openProduct(sw, url, opts = {}) {
     // ── 판정 (캡차 먼저!) ───────────────────────────────────
     const det = await sw.detect();
     if (det.captcha) {
-      const cleared = captchaWaitMs > 0
-        ? await waitForCaptchaCleared(sw, { waitMs: captchaWaitMs, onLog, onCaptcha })
+      // 캡차 대기도 전체 상한 안에서만 한다 — 남은 시간이 없으면 기다리지 않고 실패로 끝낸다.
+      const waitMs = Math.min(captchaWaitMs, Math.max(0, deadline - Date.now()));
+      const cleared = waitMs > 0
+        ? await waitForCaptchaCleared(sw, { waitMs, onLog, onCaptcha })
         : false;
       if (!cleared) {
         lastError = 'CAPTCHA';

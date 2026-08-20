@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { isDetailExtractable } from '@/lib/megaload/naver-store-type';
 
 export const maxDuration = 30;
 export const dynamic = 'force-dynamic';
@@ -7,6 +8,30 @@ export const dynamic = 'force-dynamic';
 const PAGE_SIZE = 60;
 /** 한 번에 올릴 수 있는 최대 건수 — 목록 수집은 카테고리당 60개 안팎이라 넉넉하다. */
 const MAX_UPSERT = 1000;
+
+/**
+ * 상세를 못 뽑는 스토어(네이버 마켓·쇼핑윈도)를 **카탈로그에 담지 않는다.**
+ * 담아 봐야 셀러가 고를 수 없고(카드에 '상세 미지원'), 큐도 못 타니 자리만 차지한다.
+ * 추출기가 그 유형을 지원하게 되면 이 상수를 true 로 되돌리면 된다 — 그때는 이미 수집된
+ * 것부터 다시 긁으면 되므로 되돌리기 비용이 낮다.
+ */
+const KEEP_UNSUPPORTED_STORES = false;
+
+/**
+ * 상품이 아닌 카드 — 목록에 섞여 들어오는 배너다(실측 2026-08-20: 제목이 그냥 '전단행사'인
+ * 줄이 3건 있었다). 제목 부분일치로 거르면 '전단행사 특가 사과 5kg' 같은 진짜 상품까지
+ * 날아가므로 **제목 전체가 이 말뿐인 경우만** 버린다.
+ */
+const BANNER_TITLES = new Set([
+  '전단행사', '전단', '기획전', '이벤트', '행사', '특가', '특가전', '알뜰쇼핑', '오늘의특가',
+]);
+
+function isBannerCard(title: string, url: string): boolean {
+  const t = (title || '').trim();
+  if (!t || t.length < 2) return true;                 // 제목이 없으면 상품으로 볼 수 없다
+  if (BANNER_TITLES.has(t)) return true;
+  return !/\/products\/\d+/.test(url);                 // 상품 상세 주소가 아니면 상품이 아니다
+}
 
 interface IncomingCard {
   productNo?: string;
@@ -91,8 +116,26 @@ export async function POST(request: NextRequest) {
   let body: { items?: IncomingCard[]; categoryPath?: string } = {};
   try { body = await request.json(); } catch { /* 아래에서 빈 배열로 걸린다 */ }
 
-  const items = (body.items ?? []).filter((c) => c && c.productNo && c.url);
-  if (!items.length) return NextResponse.json({ error: '저장할 상품이 없습니다.' }, { status: 400 });
+  const incoming = (body.items ?? []).filter((c) => c && c.productNo && c.url);
+
+  // ── 담기 전에 거른다 ──
+  // 예전엔 목록에 뜬 걸 전부 담았다. 그 결과 카탈로그에 **고를 수 없는 줄**(마켓·윈도)과
+  // **상품이 아닌 줄**(배너)이 섞였고, 셀러는 그걸 고른 뒤에야 안 된다는 걸 알았다.
+  const banner = incoming.filter((c) => isBannerCard(c.title || '', String(c.url)));
+  const notBanner = incoming.filter((c) => !isBannerCard(c.title || '', String(c.url)));
+  const unsupported = KEEP_UNSUPPORTED_STORES
+    ? []
+    : notBanner.filter((c) => !isDetailExtractable(String(c.url)));
+  const items = KEEP_UNSUPPORTED_STORES
+    ? notBanner
+    : notBanner.filter((c) => isDetailExtractable(String(c.url)));
+
+  if (!items.length) {
+    return NextResponse.json({
+      error: '저장할 상품이 없습니다.',
+      skipped: { banner: banner.length, unsupported: unsupported.length },
+    }, { status: 400 });
+  }
   if (items.length > MAX_UPSERT) {
     return NextResponse.json({ error: `한 번에 ${MAX_UPSERT}건까지만 저장합니다.` }, { status: 400 });
   }
@@ -123,5 +166,10 @@ export async function POST(request: NextRequest) {
     .select('id');
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, saved: data?.length ?? rows.length });
+  // 제외 건수를 함께 돌려준다 — 조종석이 "50개 긁었는데 42개만 저장" 을 설명할 수 있어야 한다.
+  return NextResponse.json({
+    ok: true,
+    saved: data?.length ?? rows.length,
+    skipped: { banner: banner.length, unsupported: unsupported.length },
+  });
 }
