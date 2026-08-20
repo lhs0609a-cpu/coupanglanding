@@ -81,6 +81,51 @@ export async function GET() {
       .eq('megaload_user_id', shUserId)
       .eq('is_active', true);
 
+    // 스마트스토어 감시 수 — 네이버 로그인이 없으면 도우미가 **건너뛰는** 대상이다.
+    //   (worker/desktop/.../stock-monitor/module.mjs: site==='smartstore' && !loggedIn → skip)
+    //   brand.naver 는 로그인 없이도 통과하므로 세지 않는다 — 세면 "못 보는 수"가 부풀려진다.
+    const { count: smartstoreMonitors } = await serviceClient
+      .from('sh_stock_monitors')
+      .select('*', { count: 'exact', head: true })
+      .eq('megaload_user_id', shUserId)
+      .eq('is_active', true)
+      .or('source_url.ilike.%smartstore.naver%,source_url.ilike.%shop.naver%');
+
+    // 도우미가 하트비트에 실어 보낸 네이버 로그인 상태(참/거짓만 — 계정 정보는 오지 않는다).
+    // ⚠️ 컬럼이 없는 DB(마이그레이션 이전)에서도 이 API 가 통째로 죽지 않도록 따로 조회한다.
+    //    못 읽으면 naver=null → 화면은 아무 말도 하지 않는다("모른다"는 "문제 있다"가 아니다).
+    let naver: {
+      loggedIn: boolean | null;
+      persistent: boolean | null;
+      credential: boolean | null;
+      checkedAt: string | null;
+    } | null = null;
+    try {
+      const { data: nvRows, error: nvErr } = await serviceClient
+        .from('megaload_worker_heartbeats')
+        .select('naver_logged_in, naver_persistent, naver_credential, naver_checked_at')
+        .eq('megaload_user_id', shUserId)
+        .order('last_seen', { ascending: false })
+        .limit(1);
+      const nv = !nvErr && nvRows && nvRows.length > 0
+        ? nvRows[0] as {
+            naver_logged_in: boolean | null;
+            naver_persistent: boolean | null;
+            naver_credential: boolean | null;
+            naver_checked_at: string | null;
+          }
+        : null;
+      // 한 번도 안 보낸 구버전 도우미면 naver_checked_at 이 비어 있다 → 모른다로 둔다.
+      if (nv && nv.naver_checked_at) {
+        naver = {
+          loggedIn: nv.naver_logged_in,
+          persistent: nv.naver_persistent,
+          credential: nv.naver_credential,
+          checkedAt: nv.naver_checked_at,
+        };
+      }
+    } catch { /* 컬럼 없음 등 — 모른다로 둔다 */ }
+
     // 처리 대기 모니터 수
     const { count: pendingMonitors } = await serviceClient
       .from('sh_stock_monitors')
@@ -109,6 +154,9 @@ export async function GET() {
       monitorsTotal: totalMonitors || 0,
       monitorsPending: pendingMonitors || 0,
       monitorsCheckedRecently: recentChecks || 0,
+      smartstoreMonitors: smartstoreMonitors || 0,
+      // null = 모른다(구버전 도우미거나 아직 안 보냄). 화면은 이때 침묵한다.
+      naver,
       diagnosis: !u.desktop_app_token
         ? '토큰이 발급되지 않았습니다. 인증코드 발급 버튼을 눌러주세요.'
         : !isAlive

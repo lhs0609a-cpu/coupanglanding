@@ -101,6 +101,14 @@ export default function StockMonitorDashboard() {
     heartbeatAgeMin: number;
     monitorsCheckedRecently: number;
     diagnosis: string;
+    smartstoreMonitors?: number;
+    // 도우미가 알려준 네이버 로그인 상태. null = 모른다(구버전 도우미) → 아무 말도 하지 않는다.
+    naver?: {
+      loggedIn: boolean | null;
+      persistent: boolean | null;
+      credential: boolean | null;
+      checkedAt: string | null;
+    } | null;
   }
   const [desktopStatus, setDesktopStatus] = useState<DesktopStatus | null>(null);
 
@@ -246,6 +254,18 @@ export default function StockMonitorDashboard() {
     && desktopStatus.tokenIssued
     && !desktopStatus.isAlive;
 
+  // 네이버 로그인 안내 — 도우미는 켜져 있는데 네이버 로그인이 없으면
+  // 스마트스토어 원본은 **아무도 못 본다**(도우미가 그 건들을 통째로 건너뛴다).
+  // 앱이 꺼져 있을 땐 위 배너가 이미 더 큰 문제를 말하고 있으므로 겹쳐 띄우지 않는다.
+  // naver == null(모른다: 구버전 도우미)이면 침묵 — 모르는 것을 문제라고 말하지 않는다.
+  const nv = desktopStatus?.naver ?? null;
+  const smartstoreCount = desktopStatus?.smartstoreMonitors ?? 0;
+  const showNaverLogin = !!desktopStatus && desktopStatus.isAlive
+    && !!nv && nv.loggedIn === false && smartstoreCount > 0;
+  // 로그인은 돼 있으나 세션 쿠키뿐 — 지금은 되지만 앱을 끄면 풀린다.
+  const showNaverFragile = !!desktopStatus && desktopStatus.isAlive
+    && !!nv && nv.loggedIn === true && nv.persistent === false && smartstoreCount > 0;
+
   return (
     <div className="space-y-6">
       {/* 메가로드 도우미가 꺼져 있을 때만 뜨는 경고 */}
@@ -274,6 +294,56 @@ export default function StockMonitorDashboard() {
                 메가로드 도우미 켜기 / 설치하기 <ExternalLink className="w-3 h-3" />
               </a>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 네이버 로그인이 없어 스마트스토어를 통째로 건너뛰고 있을 때 */}
+      {showNaverLogin && nv && (
+        <div className={`flex items-start gap-3 p-4 rounded-lg border ${
+          nv.credential ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
+        }`}>
+          <AlertTriangle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${
+            nv.credential ? 'text-amber-600' : 'text-red-600'
+          }`} />
+          <div className="flex-1">
+            <div className={`text-sm font-semibold ${nv.credential ? 'text-amber-900' : 'text-red-900'}`}>
+              네이버 로그인이 풀려 스마트스토어 {smartstoreCount.toLocaleString()}개를 확인하지 못하고 있습니다
+            </div>
+            <div className={`text-xs mt-1 ${nv.credential ? 'text-amber-800' : 'text-red-800'}`}>
+              스마트스토어 원본은 로그인 없이는 조회가 막힙니다(비로그인은 전부 실패). 그동안 이 상품들은
+              품절이 되어도 감지되지 않습니다.
+              {nv.credential
+                ? ' 저장해 두신 계정으로 도우미가 자동 복구를 시도합니다 — 몇 분 뒤에도 이 안내가 남아 있으면 도우미에서 직접 로그인해 주세요.'
+                : ' 메가로드 도우미 → 품절 감시 패널 → “네이버 로그인”을 눌러 로그인해 주세요.'}
+            </div>
+            <div className={`text-xs mt-1 ${nv.credential ? 'text-amber-700' : 'text-red-700'}`}>
+              로그인할 때 <span className="font-semibold">“로그인 상태 유지”</span>를 체크하면 앱을 껐다 켜도 유지됩니다.
+            </div>
+            <div className="mt-2">
+              <a
+                href="/megaload/desktop-app"
+                className={`inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-white border rounded transition ${
+                  nv.credential
+                    ? 'text-amber-900 border-amber-300 hover:bg-amber-100'
+                    : 'text-red-900 border-red-300 hover:bg-red-100'
+                }`}
+              >
+                메가로드 도우미 열기 <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 지금은 로그인돼 있지만 세션 쿠키뿐 — 앱을 끄면 풀린다 */}
+      {showNaverFragile && (
+        <div className="flex items-start gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <Clock className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-blue-900">
+            네이버에 로그인돼 있지만 <span className="font-semibold">앱을 끄면 풀리는 상태</span>입니다
+            (“로그인 상태 유지”가 꺼져 있습니다). 다음에 로그인하실 때 체크해 두시면
+            스마트스토어 {smartstoreCount.toLocaleString()}개 감시가 재부팅 후에도 이어집니다.
           </div>
         </div>
       )}
