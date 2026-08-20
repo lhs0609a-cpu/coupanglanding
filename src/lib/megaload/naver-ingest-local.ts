@@ -408,6 +408,28 @@ export async function fetchDetailState(ep: LocalEndpoint): Promise<DetailState |
   }
 }
 
+/**
+ * 상세페이지 생성(올인원) 진행 — **가져오기 다음 단계**.
+ * 폴더를 굽는 건 몇 초지만 여기가 몇 분~수십 분이라, 이게 안 보이면 화면은 "준비 완료"에서
+ * 멈춘 것처럼 보인다. 단계·건수는 러너 stdout 마커를 도우미가 그대로 옮겨 준 값이다.
+ */
+export interface GenState {
+  running: boolean;
+  folder: string;
+  /** 생성 대상 상품 수(가져오기 성공분). */
+  products: number;
+  /** null 이면 아직 엔진 준비 중(모델 로딩) — 진행 마커가 나오기 전이다. */
+  phase: 'recognize' | 'text' | 'image' | null;
+  done: number;
+  total: number;
+  startedAt: number;
+  updatedAt: number;
+  /** 레코드 저장 완료 = **검수 시작 가능**. 대표컷 누끼는 그 뒤에도 계속 돈다. */
+  reviewReady: boolean;
+  code: number | null;
+  error: string | null;
+}
+
 /** 카탈로그에서 고른 상품을 이 PC 로 가져오기(이미지만 CDN 에서 — 네이버 페이지 안 엶). */
 export interface ImportState {
   running: boolean;
@@ -419,6 +441,8 @@ export interface ImportState {
   rootDir: string;
   stopped: string | null;
   at: number;
+  /** 가져오기가 끝나면 이어서 도는 생성 단계. 구버전 도우미는 안 준다. */
+  gen?: GenState | null;
 }
 
 export async function startImport(
@@ -431,9 +455,16 @@ export async function startImport(
   return (await post(ep, 'import', { products, rootDir, autoAllinone })) as { ok: boolean; total?: number; rootDir?: string };
 }
 
-export async function fetchImportState(ep: LocalEndpoint): Promise<ImportState | null> {
+/**
+ * 가져오기 + 이어지는 생성 진행.
+ * @param handoff 검수 화면을 **웹이 직접 연다**고 도우미에 알린다. 이걸 안 보내면 생성이
+ *   끝날 때 도우미가 브라우저를 따로 열어 같은 화면이 탭 두 개로 뜬다.
+ */
+export async function fetchImportState(
+  ep: LocalEndpoint, { handoff = false }: { handoff?: boolean } = {},
+): Promise<ImportState | null> {
   try {
-    const res = await fetch(qs(ep, 'import'));
+    const res = await fetch(qs(ep, 'import', handoff ? '&handoff=1' : ''));
     if (!res.ok) return null;
     return (await res.json()) as ImportState;
   } catch {

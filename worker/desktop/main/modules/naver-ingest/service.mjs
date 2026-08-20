@@ -184,6 +184,8 @@ export function getStatus() {
     at: collection.at,
   };
   base.queue = getQueueState();
+  // 상세페이지 생성(올인원) 진행 — 앱 탭도 "지금 어디까지 왔나"를 같은 값으로 본다.
+  base.gen = { ...genTask };
   base.detail = {
     running: detail.running, total: detail.total, done: detail.done,
     ok: detail.ok, failed: detail.failed, current: detail.current,
@@ -271,7 +273,7 @@ export async function categories(parentId, force = false) {
   if (!parentId) return { parentId: null, trail: [], children: ROOT_CATEGORIES, map: knownMap(), cached: true };
   const p = ensurePool();
   if (!p.running) await p.start();
-  return listChildren(p, parentId, { force, onLog: pushLog });
+  return listChildren(p, parentId, { force, onLog: pushLog, ensureLogin: ensureNaverLogin });
 }
 
 export function clearCategories() {
@@ -298,6 +300,16 @@ export async function startPrewarm({ depth = 3 } = {}) {
   const p = ensurePool();
   if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
 
+  // ★ 소분류부터는 **목록 페이지**(로그인 전제)를 읽는다 — 로그인이 없으면 377개 카테고리가
+  //   전부 3번씩 실패하며 페이지만 1,000장 넘게 연다. 시작 전에 한 번 확인하고 끊는 게 맞다.
+  if (depth >= 3) {
+    const login = await ensureNaverLogin().catch(() => ({ ok: false }));
+    if (!login.ok) {
+      pushLog('네이버 로그인이 필요합니다 — 소분류는 목록 페이지에만 있고 그 페이지는 로그인 없이 열리지 않습니다.');
+      return { ok: false, error: '네이버 로그인이 필요합니다.' };
+    }
+  }
+
   // "하다 만 상태"를 남기지 않으려고 의도를 디스크에 적어 둔다 — 앱을 껐다 켜도 알아서 이어서 한다.
   deps.store?.set('naverIngestCatPrewarmWant', { depth, at: Date.now() });
 
@@ -308,6 +320,8 @@ export async function startPrewarm({ depth = 3 } = {}) {
   prewarmTree(p, {
     maxDepth: depth,
     onLog: pushLog,
+    // 소분류는 목록 페이지에만 있고 그 페이지는 로그인이 전제다 — 세션이 끊기면 되살리고 이어간다.
+    ensureLogin: ensureNaverLogin,
     signal: prewarmAbort.signal,
     onProgress: (pr) => { prewarm = { ...prewarm, ...pr }; },
   }).then((r) => {
@@ -684,12 +698,7 @@ export async function startDetailExtract({ urls = [], rootDir = '', autoGenerate
       } else {
         try { await pool?.stop(); } catch { /* 창 정리 실패는 생성을 막지 않는다 */ }
         pushLog(`상세페이지 자동 생성을 시작합니다 — 상품 ${detail.ok}개. 끝나면 검수 화면이 열립니다.`);
-        try {
-          await deps.runAllinone({ folder: detail.rootDir });
-        } catch (e) {
-          pushLog(`❌ 상세페이지 생성을 시작하지 못했습니다 — ${e?.message || e}. `
-            + `올인원 화면에서 폴더 "${detail.rootDir}" 를 직접 골라 실행하면 됩니다.`);
-        }
+        startAllinone(detail.rootDir, detail.ok);
       }
     }
   })().catch((e) => {
@@ -725,6 +734,86 @@ export async function previewProduct(url) {
 }
 
 let importTask = { running: false, total: 0, done: 0, ok: 0, failed: 0, current: '', rootDir: '', stopped: null, at: 0 };
+
+/**
+ * 상세페이지 생성(올인원) 진행 — **가져오기 다음 단계**.
+ * ---------------------------------------------------------------------------
+ * 예전엔 폴더를 다 굽고 나면 웹 화면이 "준비 완료"에서 멈춰 있었다. 실제로는 그때부터가
+ * 진짜 시간이 드는 구간(인식 → 글 생성 → 누끼)인데 화면에는 아무 신호가 없어서, 사람은
+ * 끝난 줄 알고 나가거나 고장으로 여겼다. 러너가 이미 stdout 으로 단계·건수를 뱉고 있으므로
+ * 그걸 여기 담아 두고 웹이 폴링해서 진행률·경과·남은시간을 그린다.
+ *
+ * reviewReady = 레코드 저장 완료(=검수 시작 가능). 대표컷 누끼는 그 뒤에도 계속 돈다 —
+ * 사람을 누끼까지 기다리게 할 이유가 없어서 이 순간 웹이 검수 화면으로 넘어간다.
+ */
+let genTask = {
+  running: false, folder: '', products: 0,
+  phase: null, done: 0, total: 0,
+  startedAt: 0, updatedAt: 0, reviewReady: false,
+  code: null, error: null,
+};
+/** 웹이 이 진행을 지켜본 마지막 시각 — 브라우저 창을 또 열지 말지 판단한다. */
+let genWatchedAt = 0;
+/**
+ * 검수 화면을 **웹이 직접 열었나**(이번 생성 한정).
+ * 웹은 검수 준비가 되는 순간 스스로 그 화면으로 넘어가고 폴링을 멈춘다. 그러면 genWatchedAt
+ * 은 그 시점에 멈춰 있는데, 남은 누끼가 몇 분씩 걸리면 "안 보고 있다"로 오판해 도우미가
+ * 브라우저를 또 열어 같은 화면이 탭 두 개로 뜬다. 그래서 시간이 아니라 **사실**로 판단한다.
+ */
+let genHandedOff = false;
+
+/**
+ * 폴더 하나를 올인원으로 넘기고 진행을 genTask 에 적재한다.
+ * 시작만 하고 즉시 돌아온다(생성은 수 분~수십 분).
+ */
+function startAllinone(folder, products) {
+  if (typeof deps.runAllinone !== 'function') {
+    pushLog('상세페이지 자동 생성을 건너뜁니다 — 이 실행 경로에는 올인원이 연결돼 있지 않습니다.');
+    return false;
+  }
+  const now = Date.now();
+  genHandedOff = false;          // 새 생성 — 검수 화면 인계 여부는 처음부터 다시 센다
+  genTask = {
+    running: true, folder, products: products || 0,
+    phase: null, done: 0, total: 0,
+    startedAt: now, updatedAt: now, reviewReady: false,
+    code: null, error: null,
+  };
+  pushStatus();
+  Promise.resolve()
+    .then(() => deps.runAllinone({
+      folder,
+      onProgress: (p) => {
+        genTask.phase = p?.phase || null;
+        genTask.done = Number(p?.done) || 0;
+        genTask.total = Number(p?.total) || 0;
+        genTask.updatedAt = Date.now();
+      },
+      onReviewReady: () => {
+        genTask.reviewReady = true;
+        genTask.updatedAt = Date.now();
+        pushStatus();
+      },
+      onDone: (code, reason) => {
+        genTask.running = false;
+        genTask.code = typeof code === 'number' ? code : null;
+        genTask.error = code === 0 ? null : (reason || '생성이 실패했습니다.');
+        genTask.updatedAt = Date.now();
+        pushStatus();
+      },
+      // 웹 화면이 지켜보고 있으면 그 화면이 스스로 검수로 넘어간다 — 창을 또 열면 탭이 둘이 된다.
+      shouldOpenReview: () => !genHandedOff && Date.now() - genWatchedAt > 60_000,
+    }))
+    .catch((e) => {
+      genTask.running = false;
+      genTask.error = String(e?.message || e);
+      genTask.updatedAt = Date.now();
+      pushLog(`❌ 상세페이지 생성을 시작하지 못했습니다 — ${genTask.error}. `
+        + `올인원 화면에서 폴더 "${folder}" 를 직접 골라 실행하면 됩니다.`);
+      pushStatus();
+    });
+  return true;
+}
 
 /**
  * 카탈로그에서 고른 상품을 **내 PC 로 가져온다** — 올인원 입력 폴더를 만든다.
@@ -782,13 +871,11 @@ export async function importProducts({ products = [], rootDir = '', autoAllinone
     pushStatus();
 
     // 폴더가 준비됐으면 바로 올인원으로 넘긴다 — 사람이 폴더를 다시 고르지 않게.
-    if (autoAllinone && importTask.ok && typeof deps.runAllinone === 'function') {
-      try {
-        pushLog(`상세페이지 자동 생성을 시작합니다 — 상품 ${importTask.ok}개. 끝나면 검수 화면이 열립니다.`);
-        deps.runAllinone({ folder: importTask.rootDir });
-      } catch (e) {
-        pushLog(`올인원 자동 시작 실패 — ${e?.message || e}. 올인원 화면에서 폴더를 직접 고르면 됩니다.`);
-      }
+    if (autoAllinone && importTask.ok) {
+      pushLog(`상세페이지 자동 생성을 시작합니다 — 상품 ${importTask.ok}개. 끝나면 검수 화면이 열립니다.`);
+      // ⚠️ importTask.running=false 와 genTask.running=true 사이에 await 를 두지 않는다.
+      //    웹 폴링이 그 틈에 들어오면 "둘 다 안 돌고 있다"로 보고 진행 표시를 접어 버린다.
+      startAllinone(importTask.rootDir, importTask.ok);
     }
   })().catch((e) => {
     importTask = { ...importTask, running: false, stopped: `실패: ${e?.message || e}` };
@@ -799,7 +886,18 @@ export async function importProducts({ products = [], rootDir = '', autoAllinone
   return { ok: true, started: true, total: list.length, rootDir: root };
 }
 
-export function getImportState() { return { ...importTask }; }
+/**
+ * 가져오기 + 그다음 단계(상세페이지 생성) 상태를 한 번에 준다.
+ * 폴링 요청이 하나여야 웹이 "가져오기 → 생성 → 검수"를 끊김 없이 한 줄로 그린다.
+ * @param {{web?: boolean, handoff?: boolean}} opts
+ *   web=true 면 웹이 지켜보는 중으로 기록하고, handoff=true 면 검수 화면을 웹이 직접 열었다고
+ *   기록한다(둘 다 도우미가 브라우저를 중복으로 열지 않게 하는 신호다).
+ */
+export function getImportState({ web = false, handoff = false } = {}) {
+  if (web) genWatchedAt = Date.now();
+  if (handoff) genHandedOff = true;
+  return { ...importTask, gen: { ...genTask } };
+}
 
 /**
  * 상세 요청 큐 처리 — 셀러가 카탈로그에서 고른 상품의 상세를 **관리자 도우미가 대신** 뽑는다.

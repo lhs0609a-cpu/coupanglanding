@@ -13,6 +13,16 @@
  *       (페이지 1장으로 25개 대분류의 중분류가 전부 확보된다 = 트리를 바로 펼쳐 보여줄 수 있다)
  *     · 그 아래 단계 → **처음 보는 id 만** 하위 분류다. 메뉴·형제·조상은 이미 캐시에 있으므로
  *       "알고 있는 id"를 빼면 남는 게 곧 자식이다.
+ *
+ * 🔴 소분류는 **메뉴 페이지에 없다** (2026-08-20 실측, 이게 depth 3 이 계속 0 이던 원인)
+ *   shopping.naver.com/ns/category/{중분류} 를 열고 8초를 더 기다려도 링크는 404개 —
+ *   전부 전역 메뉴(대분류 25 + 중분류 377)뿐이고 그 중분류의 자식은 한 개도 없다.
+ *   그래서 prewarm 을 depth 8 로 완주해도 중분류 376개가 전부 "자식 0개(말단)" 로 캐시됐다.
+ *   소분류는 **목록 페이지**(search.shopping.naver.com/ns/category/{id})의 카테고리 메뉴에만
+ *   있다(같은 실측: '상의' 목록 페이지 → 반팔티셔츠·민소매티셔츠·크롭티… 8개 + 조상/자기 링크).
+ *   → 중분류 이하는 수집과 **같은 경로**(메뉴 → 목록 링크 클릭)로 목록 페이지까지 가서 읽는다.
+ *   ⚠️ 목록 페이지는 **네이버 로그인 없이는 안 열린다**(로그인 화면으로 튄다). 그래서 이 단계는
+ *      로그인을 전제로 하고, 없으면 페이지를 여는 대신 그렇게 말하고 멈춘다.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -92,7 +102,9 @@ const MAX_CHILDREN = 80;
  * 버전이 다르면 조용히 버린다.
  */
 // v3: 사이드바를 기다리지 않고 읽어 "자식 0개(말단)" 로 잘못 저장된 항목들을 버린다.
-const CACHE_VERSION = 3;
+// v4: 소분류를 **메뉴 페이지**에서 찾다가 중분류 376개를 전부 "말단" 으로 적어 둔 캐시를 버린다.
+//     (버전을 안 올리면 그 빈 항목이 캐시 히트라 목록 페이지를 영원히 안 열어 본다)
+const CACHE_VERSION = 4;
 
 /** 발견 결과 캐시: { [catId]: { children:[{id,name}], at } } */
 let cache = {};
@@ -179,7 +191,7 @@ function splitMenu(links) {
  *
  * ★ 페이지를 여는 경우에만 게이트 슬롯을 쓴다(캐시 히트는 예산 0).
  */
-export async function listChildren(pool, parentId, { force = false, onLog = () => {}, signal } = {}) {
+export async function listChildren(pool, parentId, { force = false, onLog = () => {}, signal, ensureLogin = null } = {}) {
   if (!parentId) return { parentId: null, trail: [], children: ROOT_CATEGORIES, map: knownMap(), cached: true };
 
   if (!force && cache[parentId]) {
@@ -187,6 +199,10 @@ export async function listChildren(pool, parentId, { force = false, onLog = () =
   }
 
   const before = knownIds();
+  const isRoot = ROOT_IDS.has(parentId);
+
+  // 중분류 이하는 목록 페이지까지 가야 하고, 그 페이지는 로그인이 전제다 — 창을 열기 전에 챙긴다.
+  if (!isRoot && ensureLogin) await ensureLogin().catch(() => { /* 아래에서 loginRequired 로 잡힌다 */ });
 
   // 미리 읽기 중 "정지"를 누르면 쿨다운을 기다리던 것까지 즉시 풀린다.
   await naverGate.acquire('ingest', { signal });
@@ -202,10 +218,38 @@ export async function listChildren(pool, parentId, { force = false, onLog = () =
       throw new Error(`네이버가 차단했습니다 — ${Math.round(ms / 1000)}초 뒤 다시 시도하세요.`);
     }
 
-    // ⚠️ "링크가 하나라도 잡히면 됐다" 로 기다리면 **항상 첫 시도에 끝난다** — 전역 메뉴는
-    //   페이지가 뜨자마자 있기 때문이다. 정작 필요한 하위 분류 사이드바는 그보다 늦게 그려져서,
-    //   기다림 없이 읽고 "자식 0개(=말단)" 로 저장해 버렸다(실측: 중분류 2건 모두 0개로 캐시됨).
-    //   그래서 **처음 보는 id 가 나타날 때까지** 기다린다. 그게 사이드바가 그려진 시점이다.
+    // 대분류는 이 메뉴 페이지 한 장이면 끝난다(25개 대분류의 중분류가 전부 여기 있다).
+    if (isRoot) {
+      let menu = { links: [], currentId: null };
+      for (let i = 0; i < 8; i++) {
+        const seen = await sw.evaluate(categoryLinksJs);
+        if (seen?.links?.length) { menu = seen; break; }   // 메뉴는 뜨자마자 있다 — 기다릴 게 없다
+        await new Promise((r) => setTimeout(r, 700));
+      }
+      naverGate.recordSuccess();
+      return menu;
+    }
+
+    // 중분류 이하 — 소분류는 **목록 페이지**에만 있다. 수집과 같은 경로로 간다
+    // (메뉴 안의 진짜 링크를 눌러서 이동. 없으면 그때만 목록 주소로 직접 간다).
+    const viaMenu = await sw.gotoViaPageLink(`search.shopping.naver.com/ns/category/${parentId}`, { timeoutMs: 20000 });
+    const nav2 = viaMenu.notFound
+      ? await sw.gotoViaClick(listUrl(parentId), { timeoutMs: 20000 })
+      : viaMenu;
+    if (!nav2.ok) throw new Error(`목록 페이지를 열지 못했습니다 (${nav2.error || 'unknown'})`);
+
+    const det2 = await sw.detect();
+    if (det2.captcha) throw new Error('캡차가 떴습니다 — 도우미 창에서 풀어주세요.');
+    if (det2.loginRequired) throw new Error('네이버 로그인이 필요합니다 — 목록 페이지는 로그인 없이 열리지 않습니다.');
+    if (det2.blocked) {
+      const ms = naverGate.triggerCooldown(det2.is429);
+      throw new Error(`네이버가 차단했습니다 — ${Math.round(ms / 1000)}초 뒤 다시 시도하세요.`);
+    }
+
+    // ⚠️ "링크가 하나라도 잡히면 됐다" 로 기다리면 **항상 첫 시도에 끝난다** — 조상·자기
+    //   링크는 뜨자마자 있기 때문이다. 정작 필요한 카테고리 메뉴는 그보다 늦게 그려져서,
+    //   기다림 없이 읽으면 "자식 0개(=말단)" 로 저장된다.
+    //   그래서 **처음 보는 id 가 나타날 때까지** 기다린다. 그게 메뉴가 그려진 시점이다.
     let found = { links: [], currentId: null };
     for (let i = 0; i < 8; i++) {
       const seen = await sw.evaluate(categoryLinksJs);
@@ -267,6 +311,7 @@ export function clearCategoryCache() {
 // 비용은 정직하게 적어 둔다: 게이트가 요청 간 3~7초를 강제하므로(품절 모니터와 예산 공유)
 // 중분류 약 400개를 열어 소분류까지 확보하는 데 **20~40분**이 걸린다. 세분류까지 가면
 // 수천 페이지라 몇 시간이다. 그래서 기본 깊이는 3(소분류)이다.
+// 중분류부터는 한 카테고리당 페이지가 2장이다(메뉴 → 목록) — 소분류가 목록 쪽에만 있기 때문이다.
 
 /** 미리 읽기 완료 스탬프 — 웹이 "이미 다 읽었는지"를 판단하는 근거. */
 let done = { at: 0, depth: 0, nodes: 0 };
@@ -312,7 +357,7 @@ async function runPooled(items, concurrency, worker) {
  *   maxDepth 8 = 사실상 "끝까지" — 더 내려갈 곳이 없으면 알아서 멈춘다
  * 이미 캐시에 있는 가지는 건너뛰므로 중단 후 다시 시작하면 이어서 한다.
  */
-export async function prewarmTree(pool, { maxDepth = 3, onLog = () => {}, onProgress = () => {}, signal } = {}) {
+export async function prewarmTree(pool, { maxDepth = 3, onLog = () => {}, onProgress = () => {}, signal, ensureLogin = null } = {}) {
   let level = ROOT_CATEGORIES.slice();
   let read = 0, failed = 0;
   const visited = new Set();
@@ -342,7 +387,7 @@ export async function prewarmTree(pool, { maxDepth = 3, onLog = () => {}, onProg
         for (let attempt = 1; attempt <= 3 && !kids; attempt++) {
           if (signal?.aborted) return;
           try {
-            kids = (await listChildren(pool, node.id, { onLog, signal })).children;
+            kids = (await listChildren(pool, node.id, { onLog, signal, ensureLogin })).children;
             read++;
           } catch (e) {
             const msg = String(e?.message || e);

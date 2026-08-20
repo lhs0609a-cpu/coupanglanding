@@ -13,9 +13,10 @@
  *   · 이 화면 = 수집된 것을 **보는** 곳(로그인한 모두, 도우미 불필요)
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Search, Loader2, ExternalLink, PackageSearch, ChevronLeft, ChevronRight, Download, AlertTriangle } from 'lucide-react';
-import { findHelper, fetchCollection, startImport, fetchImportState, type ImportState } from '@/lib/megaload/naver-ingest-local';
+import { findHelper, fetchCollection, startImport, fetchImportState, type ImportState, type GenState } from '@/lib/megaload/naver-ingest-local';
 import { isDetailExtractable, naverStoreType, STORE_TYPE_LABEL } from '@/lib/megaload/naver-store-type';
 import NaverCategoryTree, { type CategoryCount } from '@/components/megaload/NaverCategoryTree';
 import { UNCLASSIFIED, PATH_SEP, type CategoryNode } from '@/lib/megaload/naver-category-tree';
@@ -49,7 +50,24 @@ function isPickable(p: SourcedProduct): boolean {
   return p.detail_status === 'done' || isDetailExtractable(p.url);
 }
 
+/** ms → "m분 s초" / "s초" (경과·남은시간 표시용). */
+function fmtDur(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}초`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return r ? `${m}분 ${r}초` : `${m}분`;
+}
+
+/** 생성 단계(러너 마커) → 사람이 읽는 라벨. 순서: 인식 → 글 생성 → 누끼. */
+const GEN_STEP_META: Record<NonNullable<GenState['phase']>, { idx: number; label: string }> = {
+  recognize: { idx: 1, label: '상품 사진 인식 (대표컷 선정)' },
+  text: { idx: 2, label: '상품명·상세페이지 생성' },
+  image: { idx: 3, label: '대표사진 누끼 가공' },
+};
+
 export default function NaverSourcingCatalogPage() {
+  const router = useRouter();
   const [products, setProducts] = useState<SourcedProduct[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -64,6 +82,15 @@ export default function NaverSourcingCatalogPage() {
   const [importing, setImporting] = useState(false);
   const [imp, setImp] = useState<ImportState | null>(null);
   const [impNote, setImpNote] = useState<string | null>(null);
+  // 경과·남은시간을 폴링(2초) 사이에도 매초 갱신하는 티커.
+  const [nowTick, setNowTick] = useState(0);
+  // 현재 단계의 평균 처리속도 기준점(단계가 바뀌면 리셋) — 남은시간 추정용.
+  const etaBaseRef = useRef<{ phase: string; at: number; done: number } | null>(null);
+  const [etaMs, setEtaMs] = useState<{ ms: number; at: number } | null>(null);
+  // 이 화면에서 시작한 작업인가 — 검수 화면으로 **자동 이동**은 그때만 한다.
+  //   (새로고침으로 남의 작업에 끼어든 경우까지 화면을 뺏으면 안 된다)
+  const startedHereRef = useRef(false);
+  const navigatedRef = useRef(false);
   // 상세를 요청해 둔 상품 — 준비되면 자동으로 이어서 등록한다.
   const [pendingIds, setPendingIds] = useState<string[]>([]);
   // ── 카테고리 트리 ──
@@ -153,9 +180,18 @@ export default function NaverSourcingCatalogPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** 가져오기 진행 폴링 — 도는 동안만. */
+  /**
+   * 진행 폴링 — **가져오기가 끝나도 멈추지 않는다.**
+   * ---------------------------------------------------------------------------
+   * 예전엔 가져오기(폴더 굽기)가 끝나는 순간 폴링을 껐다. 그런데 진짜 시간이 드는 구간은
+   * 그다음(사진 인식 → 상품명·상세 생성 → 누끼)이라, 화면은 몇 분~수십 분 동안 "준비 완료"
+   * 한 줄에서 멈춘 것처럼 보였다. 사람은 끝난 줄 알고 나가거나 고장으로 여겼다.
+   * 그래서 생성이 도는 동안까지 계속 보고, 검수 가능 시점에 스스로 넘어간다.
+   */
+  const genRunning = !!imp?.gen?.running;
+  const watching = importing || !!imp?.running || genRunning;
   useEffect(() => {
-    if (!imp?.running && !importing) return;
+    if (!watching) return;
     let alive = true;
     const t = setInterval(async () => {
       const helper = await findHelper();
@@ -163,10 +199,64 @@ export default function NaverSourcingCatalogPage() {
       const st = await fetchImportState(helper.ep);
       if (!alive || !st) return;
       setImp(st);
-      if (!st.running) { setImporting(false); clearInterval(t); }
+      if (!st.running) setImporting(false);
+
+      // 남은시간 — 지금 단계의 평균 처리속도로만 낸다(단계마다 건당 시간이 다르다).
+      const g = st.gen;
+      const now = Date.now();
+      if (g?.running && g.phase && g.total > 0) {
+        const base = etaBaseRef.current;
+        if (!base || base.phase !== g.phase) {
+          etaBaseRef.current = { phase: g.phase, at: now, done: g.done };
+          setEtaMs(null);                                   // 단계가 바뀌면 이전 추정은 무효
+        } else if (g.done > base.done) {
+          const perItem = (now - base.at) / (g.done - base.done);
+          setEtaMs({ ms: perItem * (g.total - g.done), at: now });
+        }
+      }
+
+      // 검수로 넘어갈 순간 — 둘 중 먼저 오는 쪽.
+      //   ① reviewReady: 레코드는 저장됐고 대표컷 누끼만 남았다(그건 등록 때 필요한 거라
+      //      사람을 기다리게 하지 않는다).
+      //   ② 생성 정상 종료: 누끼할 대표컷이 없으면(과일·음식은 누끼를 아예 건너뛴다)
+      //      ①의 신호가 나오지 않는다 — 그때는 종료가 곧 준비 완료다.
+      const ready = !!g && !g.error && (g.reviewReady || (!g.running && g.code === 0));
+      if (ready && startedHereRef.current && !navigatedRef.current) {
+        navigatedRef.current = true;
+        // 검수 화면은 이 화면이 연다고 도우미에 먼저 알린다 — 안 그러면 남은 누끼가 끝날 때
+        // 도우미가 브라우저를 또 열어 같은 화면이 탭 두 개가 된다.
+        await fetchImportState(helper.ep, { handoff: true }).catch(() => null);
+        router.push('/megaload/products/allinone?load=1');
+      }
     }, 2000);
     return () => { alive = false; clearInterval(t); };
-  }, [imp?.running, importing]);
+  }, [watching, router]);
+
+  /** 경과·남은시간을 매초 갱신 — 폴링은 2초라 그 사이가 비어 보인다. */
+  useEffect(() => {
+    if (!watching) return;
+    setNowTick(Date.now());
+    const t = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [watching]);
+
+  /**
+   * 새로고침·재진입 복구 — 도우미가 아직 돌고 있으면 그 진행을 이어서 보여 준다.
+   * 진행이 브라우저 탭의 수명에 묶여 있으면, 탭을 잘못 닫은 사람은 상황을 영영 못 본다.
+   */
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const helper = await findHelper();
+        if (!helper || !alive) return;
+        const st = await fetchImportState(helper.ep);
+        if (!alive || !st) return;
+        if (st.running || st.gen?.running) setImp(st);
+      } catch { /* 도우미 미실행은 정상 상황이다 */ }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   /**
    * 고른 상품을 내 PC 로 가져온다.
@@ -177,6 +267,11 @@ export default function NaverSourcingCatalogPage() {
     setErr(null);
     setImpNote(null);
     setImporting(true);
+    // 이 화면이 시작한 작업이니, 검수 준비가 되면 화면이 스스로 넘어가도 된다.
+    startedHereRef.current = true;
+    navigatedRef.current = false;
+    etaBaseRef.current = null;
+    setEtaMs(null);
     try {
       const helper = await findHelper();
       if (!helper) throw new Error('이 PC 에서 메가로드 도우미를 찾지 못했습니다 — 도우미를 실행해 주세요.');
@@ -234,7 +329,7 @@ export default function NaverSourcingCatalogPage() {
       }
       // 올인원 생성까지 이어가는 게 이 버튼의 목적이다 — 기본값에 기대지 않고 명시한다.
       const r = await startImport(helper.ep, j.products, undefined, true);
-      setImp({ running: true, total: r.total ?? j.products.length, done: 0, ok: 0, failed: 0, current: '', rootDir: r.rootDir ?? '', stopped: null, at: Date.now() });
+      setImp({ running: true, total: r.total ?? j.products.length, done: 0, ok: 0, failed: 0, current: '', rootDir: r.rootDir ?? '', stopped: null, at: Date.now(), gen: null });
       setPicked(new Set());
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -274,8 +369,12 @@ export default function NaverSourcingCatalogPage() {
         if (!helper) { setImpNote('상세가 준비됐는데 도우미를 찾지 못했습니다 — 도우미를 실행한 뒤 다시 눌러 주세요.'); return; }
         setImpNote(`상세가 준비돼 ${j.products.length}개를 이어서 등록합니다.`);
         setImporting(true);
+        startedHereRef.current = true;   // 이어서 시작한 것도 이 화면의 작업이다
+        navigatedRef.current = false;
+        etaBaseRef.current = null;
+        setEtaMs(null);
         const r = await startImport(helper.ep, j.products, undefined, true);
-        setImp({ running: true, total: r.total ?? j.products.length, done: 0, ok: 0, failed: 0, current: '', rootDir: r.rootDir ?? '', stopped: null, at: Date.now() });
+        setImp({ running: true, total: r.total ?? j.products.length, done: 0, ok: 0, failed: 0, current: '', rootDir: r.rootDir ?? '', stopped: null, at: Date.now(), gen: null });
         load(); loadCategories();   // 상세가 확보됐으니 '상세 확보' 개수가 바뀐다
       } catch { /* 다음 주기에 다시 */ }
     }, 10000);
@@ -432,11 +531,13 @@ export default function NaverSourcingCatalogPage() {
         </button>
         <button
           onClick={runImport}
-          disabled={!picked.size || importing || !!imp?.running}
+          disabled={!picked.size || importing || !!imp?.running || genRunning}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230] disabled:opacity-40"
         >
-          {importing || imp?.running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-          선택한 {picked.size.toLocaleString()}개 올인원으로 등록하기
+          {importing || imp?.running || genRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+          {genRunning
+            ? '상세페이지 만드는 중…'
+            : `선택한 ${picked.size.toLocaleString()}개 올인원으로 등록하기`}
         </button>
         {!!picked.size && !importing && (
           <button onClick={() => setPicked(new Set())} className="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-500 hover:bg-gray-50">
@@ -444,8 +545,8 @@ export default function NaverSourcingCatalogPage() {
           </button>
         )}
         <span className="text-xs text-gray-500">
-          이미지를 받아 상세페이지까지 자동으로 만듭니다. 끝나면 검수 화면이 열립니다 —
-          네이버 로그인은 필요 없습니다.
+          누르면 <b>가져오기 → 상세페이지 생성 → 검수</b>까지 저절로 이어집니다(진행률·남은시간이
+          아래에 뜹니다). 네이버 로그인은 필요 없습니다.
         </span>
         {blockedCount > 0 && (
           <span className="w-full text-xs text-gray-600 border-t border-gray-100 pt-2 mt-1">
@@ -461,24 +562,116 @@ export default function NaverSourcingCatalogPage() {
         </div>
       )}
 
-      {imp && (imp.running || imp.done > 0) && (
-        <div className="rounded-xl border border-gray-200 bg-white p-4 mb-4">
-          <div className="flex items-center justify-between text-sm">
-            <span className="font-medium text-gray-800">올인원 등록 {imp.running ? '준비 중' : (imp.stopped || '완료')}</span>
-            <span className="text-gray-500">{imp.done}/{imp.total} · 성공 {imp.ok} · 실패 {imp.failed}</span>
+      {/* ── 진행 패널 ────────────────────────────────────────────────────────
+          한 번 누르면 검수까지 간다. 그 사이 두 단계(① 가져오기 ② 상세페이지 생성)를
+          한 화면에 이어 붙여 "지금 어디쯤이고 얼마나 남았는지"를 계속 말한다. */}
+      {imp && (imp.running || imp.done > 0 || imp.gen?.running) && (() => {
+        const g = imp.gen ?? null;
+        // 누끼할 대표컷이 없으면(과일·음식) '검수준비완료' 신호 없이 그냥 끝난다 — 그때는 종료가 완료다.
+        const genOk = !!g && !g.running && g.code === 0 && !g.error;
+        const genReady = !!g && !g.error && (g.reviewReady || genOk);
+        const step = g?.phase ? GEN_STEP_META[g.phase] : null;
+        const genPct = genOk ? 100 : (g && g.total > 0 ? Math.min(100, Math.round((g.done / g.total) * 100)) : null);
+        const impPct = imp.total ? Math.round((imp.done / imp.total) * 100) : 0;
+        const elapsedMs = g?.startedAt ? Math.max(0, nowTick - g.startedAt) : 0;
+        const remainMs = etaMs ? Math.max(0, etaMs.ms - (nowTick - etaMs.at)) : null;
+        // 4분 넘게 진행 갱신이 없으면 안내한다(첫 모델 로딩은 원래 길 수 있다).
+        const stalled = !!g?.running && !!step && nowTick - g.updatedAt > 240_000;
+        return (
+          <div className="rounded-xl border border-gray-200 bg-white p-4 mb-4 space-y-3">
+            {/* ① 가져오기 — 사진·정보를 내 PC 로. 몇 초면 끝난다. */}
+            <div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-medium text-gray-800">
+                  1단계 · 상품 가져오기 {imp.running ? '진행 중' : (imp.stopped || '완료')}
+                </span>
+                <span className="text-gray-500">{imp.done}/{imp.total} · 성공 {imp.ok} · 실패 {imp.failed}</span>
+              </div>
+              <div className="mt-2 h-1.5 rounded bg-gray-100 overflow-hidden">
+                <div className="h-full bg-[#E31837] transition-all" style={{ width: `${impPct}%` }} />
+              </div>
+              {imp.running && imp.current && <p className="text-xs text-gray-500 mt-2 truncate">지금: {imp.current}</p>}
+            </div>
+
+            {/* ② 상세페이지 생성 — 여기가 진짜 오래 걸리는 구간이다. */}
+            {g && (g.running || g.startedAt > 0) && (
+              <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-3">
+                <div className="flex items-center gap-2">
+                  {g.running && <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse flex-none" />}
+                  <span className="text-sm font-semibold text-indigo-900">
+                    2단계 · {g.error
+                      ? '상세페이지 생성 실패'
+                      : !g.running
+                        ? '상세페이지 생성 완료'
+                        : step
+                          ? `${step.idx}/3 ${step.label}`
+                          : 'AI 엔진 준비 중 (모델 로딩)'}
+                  </span>
+                  <span className="flex-1" />
+                  {genPct != null && !g.error && (
+                    <span className="text-sm font-bold text-indigo-700 tabular-nums">{genPct}%</span>
+                  )}
+                </div>
+
+                <div className="mt-2 h-2 w-full rounded-full bg-indigo-100 overflow-hidden">
+                  {genPct != null
+                    ? <div className="h-full bg-indigo-500 rounded-full transition-all duration-500" style={{ width: `${genPct}%` }} />
+                    : <div className="h-full w-1/3 bg-indigo-400/70 rounded-full animate-pulse" />}
+                </div>
+
+                {!g.error && (
+                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-indigo-800">
+                    {step && g.running && <span>진행 <b className="tabular-nums">{g.done}/{g.total}</b>건</span>}
+                    <span>경과 <b className="tabular-nums">{fmtDur(elapsedMs)}</b></span>
+                    {g.running && (remainMs != null
+                      ? <span>남은 예상 <b className="tabular-nums">약 {fmtDur(remainMs)}</b></span>
+                      : <span className="text-indigo-500">남은 시간 계산 중…</span>)}
+                    <span className="text-indigo-500">상품 {g.products}개</span>
+                  </div>
+                )}
+
+                {!step && g.running && (
+                  <p className="text-[11px] text-indigo-500 leading-snug mt-2">
+                    상품명·상세글을 쓰는 AI 와 사진을 보는 AI 를 올리는 중입니다.
+                    최초 1회는 내려받기까지 있어 수 분 걸릴 수 있어요 — 정상 진행 중입니다.
+                  </p>
+                )}
+                {stalled && (
+                  <p className="text-[11px] text-amber-700 leading-snug mt-2">
+                    4분 넘게 진행이 멈춰 있습니다 — 메모리(RAM·VRAM)가 모자랄 수 있습니다.
+                    도우미 앱의 로그에서 원인을 볼 수 있습니다.
+                  </p>
+                )}
+                {g.error && (
+                  <p className="text-xs text-red-700 leading-snug mt-2">
+                    {g.error}
+                    <br />
+                    폴더는 <code className="text-[11px]">{g.folder || imp.rootDir}</code> 에 남아 있습니다 —
+                    올인원 화면에서 직접 골라 다시 실행할 수 있습니다.
+                  </p>
+                )}
+                {genReady && (
+                  <p className="text-xs text-emerald-700 mt-2">
+                    검수 준비 완료 — 검수 화면으로 이동합니다.
+                    {' '}
+                    <a href="/megaload/products/allinone?load=1" className="underline font-medium">
+                      바로 열기
+                    </a>
+                    {g.running && ' (대표사진 누끼는 뒤에서 계속 처리됩니다)'}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* 생성이 아예 안 붙은 경우(구버전 도우미 등)에도 어디에 저장됐는지는 말한다. */}
+            {!imp.running && imp.ok > 0 && !g?.startedAt && (
+              <p className="text-xs text-gray-500">
+                저장 위치: <code className="text-[11px]">{imp.rootDir}</code>
+              </p>
+            )}
           </div>
-          <div className="mt-2 h-1.5 rounded bg-gray-100 overflow-hidden">
-            <div className="h-full bg-[#E31837] transition-all" style={{ width: `${imp.total ? Math.round((imp.done / imp.total) * 100) : 0}%` }} />
-          </div>
-          {imp.current && <p className="text-xs text-gray-500 mt-2 truncate">지금: {imp.current}</p>}
-          {!imp.running && imp.ok > 0 && (
-            <p className="text-xs text-emerald-700 mt-2">
-              상품 {imp.ok}개 준비 완료 — <b>올인원이 이어서 대표컷과 상세페이지를 만듭니다.</b>
-              끝나면 검수 화면이 열립니다. 저장 위치: <code className="text-[11px]">{imp.rootDir}</code>
-            </p>
-          )}
-        </div>
-      )}
+        );
+      })()}
 
       {err && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 mb-4">

@@ -135,14 +135,28 @@ async function main() {
   const captured = [];       // { url, json }
   let saveIdx = 0;
 
+  // ⚠️ 반드시 타임아웃을 건다.
+  //   실측(2026-08-12): Network.enable 이 응답 없이 영원히 멈춰 스크립트 전체가 정지했다.
+  //   CDP 는 "있으면 좋은 것"이지 없으면 못 하는 게 아니다 — 실패하면 DOM 경로로 계속 간다.
+  const withTimeout = (p, ms, label) => Promise.race([
+    p,
+    new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} ${ms}ms 초과`)), ms)),
+  ]);
+
+  let cdpOk = false;
   try {
+    log('CDP attach 시도…');
     wc.debugger.attach('1.3');
-    await wc.debugger.sendCommand('Network.enable');
+    log('CDP attach 성공 · Network.enable 요청…');
+    await withTimeout(wc.debugger.sendCommand('Network.enable'), 10_000, 'Network.enable');
+    cdpOk = true;
+    log('CDP 준비 완료 — XHR 원문 캡처 가능');
   } catch (e) {
-    log('⚠️ CDP 연결 실패 — DOM 덤프만 진행합니다:', e?.message || e);
+    log('⚠️ CDP 실패 — XHR 캡처 없이 DOM 만으로 진행합니다:', e?.message || e);
+    try { wc.debugger.detach(); } catch { /* 이미 떨어졌을 수 있음 */ }
   }
 
-  wc.debugger.on('message', async (_evt, method, params) => {
+  if (cdpOk) wc.debugger.on('message', async (_evt, method, params) => {
     try {
       if (method === 'Network.responseReceived') {
         const { requestId, response, type } = params;
@@ -173,13 +187,17 @@ async function main() {
 
   // ── 1) 세션 시드 ──
   // 네이버에서 쓰는 것과 같은 패턴. 지역(KR)/통화 쿠키가 잡혀야 검색이 한국 결과로 나온다.
+  // loadURL 도 응답이 없으면 그대로 멈춘다 — 전부 타임아웃으로 감싼다.
+  // 로드가 실패해도 계속 간다: 이미 렌더된 게 있으면 그거라도 봐야 한다.
   log('세션 시드 중…', HOME_URL);
-  try { await wc.loadURL(HOME_URL, { userAgent: UA }); } catch (e) { log('홈 로드 실패:', e?.message || e); }
+  try { await withTimeout(wc.loadURL(HOME_URL, { userAgent: UA }), 30_000, '홈 로드'); log('홈 로드 완료'); }
+  catch (e) { log('홈 로드 실패(계속 진행):', e?.message || e); }
   await sleep(3000);
 
   // ── 2) 검색결과 로드 ──
   log('검색결과 로드 중…', SEARCH_URL);
-  try { await wc.loadURL(SEARCH_URL, { userAgent: UA }); } catch (e) { log('검색 로드 실패:', e?.message || e); }
+  try { await withTimeout(wc.loadURL(SEARCH_URL, { userAgent: UA }), 45_000, '검색 로드'); log('검색 로드 완료'); }
+  catch (e) { log('검색 로드 실패(계속 진행):', e?.message || e); }
 
   // ── 3) 상품이 그려질 때까지 폴링 ──
   // 정적 fetch 로는 0건이었으니, 여기서 0 이 아니게 되는 순간이 "JS 실행이 필요하다"의 증명이기도 하다.
@@ -243,7 +261,7 @@ async function main() {
   lines.push(`검색 URL    : ${SEARCH_URL}`);
   lines.push(`상품 링크   : ${stat.links}개  (정적 fetch 로는 0개였음)`);
   lines.push(`본문 길이   : ${stat.textLen}자`);
-  lines.push(`XHR JSON    : ${captured.length}건 캡처`);
+  lines.push(`XHR JSON    : ${captured.length}건 캡처${cdpOk ? '' : '  ⚠️ CDP 실패로 캡처 불가 — DOM 만 유효'}`);
   lines.push(`렌더 DOM    : ${rendered ? Math.round(rendered.length / 1024) + 'KB' : '실패'}`);
   lines.push('');
 

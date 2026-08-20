@@ -384,6 +384,14 @@ export async function startGeneration({
     child = null;
     // 성공 폴더를 기억 — 웹 /allinone/manifest·file·list 가 이 폴더를 읽는다.
     if (code === 0) { try { store?.set('lastAllinoneFolder', folder); } catch { /* skip */ } }
+    // ★ [검수준비완료] 마커는 **누끼할 대표컷이 있을 때만** 나온다 — 과일·음식 배치처럼
+    //   누끼를 통째로 건너뛰면 한 번도 안 나온다. 그때도 검수는 시작할 수 있어야 하므로
+    //   정상 종료를 준비완료로 본다. "성공하면 반드시 한 번은 발화"가 이 콜백의 계약이다.
+    if (code === 0 && !reviewReady) {
+      reviewReady = true;
+      send('allinone:review-ready', { folder });
+      try { onReviewReady?.(folder); } catch { /* 화면 열기 실패는 결과를 무효화하지 않는다 */ }
+    }
     const reason = code === 0 ? null : buildReason(code, signal);
     if (reason) send('allinone:log', `❌ 생성 실패: ${reason}`);
     onDone?.(code, reason);
