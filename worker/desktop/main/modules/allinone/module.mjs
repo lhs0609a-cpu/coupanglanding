@@ -4,12 +4,23 @@
 // ⚠️ 실제 생성 코어는 ../../allinone-runner.mjs (웹 업로드 생성과 공유).
 import { startGeneration, stopGeneration } from '../../allinone-runner.mjs';
 
+/** 검수 화면을 연 적이 있는가 — 같은 실행에서 두 번 열지 않기 위해. */
+let reviewOpened = false;
+function openReview(ctx) {
+  reviewOpened = true;
+  try {
+    const origin = ctx.services?.webOrigin || 'https://www.megaload.co.kr';
+    // 크롬으로 연다(기본 브라우저엔 로그인 세션이 없어 검수화면 대신 로그인이 뜬다).
+    ctx.openUrl(`${origin}/megaload/products/allinone`);
+  } catch { /* 브라우저 열기 실패는 치명적 아님 — 결과는 이미 저장됨 */ }
+}
+
 export default {
   id: 'allinone',
   label: '올인원 생성',
   icon: '⚙️',
   order: 1,
-  events: ['allinone:log', 'allinone:progress', 'allinone:done'],
+  events: ['allinone:log', 'allinone:progress', 'allinone:done', 'allinone:review-ready'],
   ipc: {
     'allinone:pick-folder': async (ctx) => {
       const r = await ctx.dialog.showOpenDialog({ properties: ['openDirectory'], title: '소싱 폴더 선택 (product_*/ 들을 담은 상위 폴더)' });
@@ -17,6 +28,7 @@ export default {
     },
     'allinone:run': async (ctx, { folder, noThumb } = {}) => {
       if (!folder) throw new Error('폴더를 먼저 선택하세요.');
+      reviewOpened = false;   // 새 실행 — 이번 실행의 검수 화면은 아직 안 열렸다
       return startGeneration({
         services: ctx.services,
         paths: ctx.paths,
@@ -41,14 +53,14 @@ export default {
           });
           return r.response === 0;
         },
-        // 앱에서 시작한 생성 — 완료되면 웹 검수화면을 자동으로 연다(앱↔웹 왕복 제거).
+        // 앱에서 시작한 생성 — 검수화면을 자동으로 연다(앱↔웹 왕복 제거).
+        //   ★ 여는 시점은 "레코드 저장 완료"다. 대표컷 누끼는 등록 때 필요한 작업이라 그 뒤에도
+        //     계속 돌지만, 사람은 그걸 기다릴 이유가 없다(100개 기준 3~8분 절약).
+        onReviewReady: () => openReview(ctx),
         onDone: (code) => {
-          if (code !== 0) return;
-          try {
-            const origin = ctx.services?.webOrigin || 'https://www.megaload.co.kr';
-            // 크롬으로 연다(기본 브라우저엔 로그인 세션이 없어 검수화면 대신 로그인이 뜬다).
-            ctx.openUrl(`${origin}/megaload/products/allinone`);
-          } catch { /* 브라우저 열기 실패는 치명적 아님 — 결과는 이미 저장됨 */ }
+          // 누끼를 미루지 않은 경로(--no-thumb 등)에선 여기서만 열린다. 이미 열었으면 다시 열지 않는다.
+          if (code !== 0 || reviewOpened) return;
+          openReview(ctx);
         },
       });
     },

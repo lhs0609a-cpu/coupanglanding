@@ -141,6 +141,13 @@ interface GenRecord {
   thumbRejectReason?: string;
   /** 대표컷 후보가 전부 로고/저품질이라 확인이 필요할 때의 사유(run-folder 가 표기) */
   mainImageWarning?: string;
+  /**
+   * 대표컷 누끼가 **아직 진행 중**이다(run-folder --defer-thumb).
+   * 누끼는 등록 때 필요한 작업이라 생성이 그걸 기다리지 않고 먼저 검수를 열어 준다.
+   * 이 값이 true 인 동안 이 상품의 mainImage 는 **원본**이며, 가공이 끝나면 도우미가
+   * 같은 파일을 덮어써 최종 대표컷으로 바뀐다 → 등록 전에 다시 불러와야 한다.
+   */
+  thumbPending?: boolean;
 }
 
 type RowStatus = 'idle' | 'registering' | 'success' | 'error';
@@ -1125,6 +1132,34 @@ export default function AllInOneRegisterPanel() {
   /** 등록 시작까지 남은 초. null 이면 대기 중 아님. */
   const [autoCountdown, setAutoCountdown] = useState<number | null>(null);
 
+  /**
+   * 대표컷 누끼가 아직 돌고 있는 상품 수(0 이면 없음).
+   * 생성은 누끼를 기다리지 않고 검수를 먼저 열어 준다 — 사람이 기다릴 일이 아니기 때문이다.
+   * 다만 **등록물에는 가공본이 들어가야 하므로**, 남아 있는 동안은 등록을 막고 다시 불러오게 한다.
+   */
+  const [thumbPendingCount, setThumbPendingCount] = useState(0);
+  /** 방금 누끼가 끝났다 — "다시 불러오기"를 눌러 최종 대표컷을 반영하라고 알린다. */
+  const [thumbJustDone, setThumbJustDone] = useState(false);
+
+  // 누끼가 끝났는지 지켜본다. 끝나면 사람이 알아서 "다시 불러오기"를 누를 수 있게 알린다.
+  //   ⚠️ 자동으로 다시 불러오지 않는다 — 검수 중 편집(승인·수정)을 말없이 날려 버리기 때문이다.
+  useEffect(() => {
+    if (thumbPendingCount <= 0) return;
+    let alive = true;
+    const t = setInterval(async () => {
+      try {
+        const ep = await discoverLocalEndpoint();
+        if (!ep || !alive) return;
+        const mf = await fetchLocalManifest(ep);
+        if (!mf || !alive) return;
+        const left = (mf.records as GenRecord[]).filter((r) => r?.thumbPending).length;
+        setThumbPendingCount(left);
+        if (left === 0) setThumbJustDone(true);
+      } catch { /* 도우미가 잠깐 안 잡히는 건 정상 — 다음 주기에 다시 */ }
+    }, 10_000);
+    return () => { alive = false; clearInterval(t); };
+  }, [thumbPendingCount]);
+
   // ── 도우미 결과 불러오기 (폴더 선택 0회) ─────────────────────────
   // 도우미가 이미 폴더 경로를 알고, 결과·이미지가 그 PC 에 있으므로 웹이 localhost 로 직접 읽는다.
   // 이미지도 shim(handle.getFile→fetchLocalFile)으로 감싸 기존 등록 업로드 경로를 그대로 재사용한다.
@@ -1155,6 +1190,9 @@ export default function AllInOneRegisterPanel() {
       });
 
       const recs = mf.records as GenRecord[];
+      // 누끼가 아직 도는 중인 상품 수 — 등록 게이트와 안내 배너가 이 값을 본다.
+      setThumbPendingCount(recs.filter((r) => r?.thumbPending).length);
+      setThumbJustDone(false);
       const built: Row[] = [];
       for (let i = 0; i < recs.length; i++) {
         const gen = recs[i];
@@ -1353,6 +1391,17 @@ export default function AllInOneRegisterPanel() {
   // 불러오기" 버튼을 눌러야만 뜬다. (이 웹에서 방금 업로드-생성한 경우는 handleUploadGenerate
   // 가 완료 시 handleLoadFromHelper 를 명시 호출하므로 그 흐름은 그대로 자동 표시된다.)
   //   autoLoadedRef 는 그 생성-후-1회 로드 가드로만 남는다.
+  //
+  // 예외는 **?load=1 로 들어온 경우** 하나다. 소싱 카탈로그(또는 도우미)가 생성을 마치고
+  // 이 화면으로 보낸 것이므로, 방금 만든 그 결과를 보러 온 게 확실하다. 이게 없던 동안에는
+  // "끝나면 검수 화면이 열립니다"라고 해 놓고 정작 **빈 화면**이 열려, 사람이 '이전 생성결과
+  // 불러오기'를 손으로 눌러야 자동 연결이 완성됐다.
+  useEffect(() => {
+    if (autoLoadedRef.current || typeof window === 'undefined') return;
+    if (new URLSearchParams(window.location.search).get('load') !== '1') return;
+    autoLoadedRef.current = true;
+    handleLoadFromHelper().catch(() => { /* 실패 사유는 handleLoadFromHelper 가 화면에 남긴다 */ });
+  }, [handleLoadFromHelper]);
 
   // ── 대표컷 선택 ──────────────────────────────────────────────────
   // 스캐너는 첫 장만 objectUrl 을 즉시 만든다(대량 폴더에서 전부 만들면 메모리·시간 낭비).
@@ -2048,6 +2097,16 @@ export default function AllInOneRegisterPanel() {
     if (!contactNumber.trim()) { setError('고객센터 연락처를 입력해주세요.'); return; }
     const missingImg = targets.filter((r) => r.mainImages.length === 0);
     if (missingImg.length > 0) { setError(`대표이미지가 없는 상품 ${missingImg.length}개가 있습니다. 워커에서 대표이미지 가공 후 다시 시도하세요.`); return; }
+    // 누끼가 아직 도는 중이면 등록하지 않는다 — 지금 올리면 **원본**이 대표로 올라간다.
+    //   검수는 먼저 하게 하되(그게 이 단계를 미뤄 둔 이유다), 등록물의 품질은 그대로 지킨다.
+    if (thumbPendingCount > 0) {
+      setError(`대표컷 가공이 아직 ${thumbPendingCount}건 진행 중입니다 — 끝나면 “도우미 결과 다시 불러오기”를 눌러 최종 대표컷을 반영한 뒤 등록해 주세요.`);
+      return;
+    }
+    if (thumbJustDone) {
+      setError('대표컷 가공이 끝났습니다 — “도우미 결과 다시 불러오기”로 최종 대표컷을 반영한 뒤 등록해 주세요.');
+      return;
+    }
 
     setRegistering(true);
     const startedAt = Date.now();
@@ -2263,7 +2322,7 @@ export default function AllInOneRegisterPanel() {
     } finally {
       setRegistering(false);
     }
-  }, [rows, selectedOutbound, selectedReturn, contactNumber]);
+  }, [rows, selectedOutbound, selectedReturn, contactNumber, thumbPendingCount, thumbJustDone]);
 
   // "검수 없이 등록" 경로가 선언 순서와 무관하게 최신 handleRegister 를 호출하도록 연결.
   useEffect(() => { handleRegisterRef.current = handleRegister; }, [handleRegister]);
@@ -2384,6 +2443,28 @@ export default function AllInOneRegisterPanel() {
             <button onClick={handleLoadFromHelper} disabled={scanning || registering || !!auditProgress}
               className="mt-2 text-xs font-semibold rounded-lg px-3 py-1.5 bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">
               {scanning ? '불러오는 중…' : '지금 다시 불러오기'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 대표컷 누끼는 검수와 나란히 돈다 — 사람을 기다리게 하지 않되, 등록 전에는 반드시 반영한다. */}
+      {(thumbPendingCount > 0 || thumbJustDone) && rows.length > 0 && (
+        <div className={`rounded-xl border px-4 py-3 ${thumbJustDone ? 'border-emerald-300 bg-emerald-50' : 'border-sky-300 bg-sky-50'}`}>
+          <p className={`text-sm font-semibold ${thumbJustDone ? 'text-emerald-900' : 'text-sky-900'}`}>
+            {thumbJustDone
+              ? '대표컷 가공이 끝났습니다 — 다시 불러오면 최종 대표컷이 반영됩니다'
+              : `대표컷 가공 ${thumbPendingCount}건이 뒤에서 진행 중입니다 — 지금 검수하세요`}
+          </p>
+          <p className={`mt-1 text-xs leading-relaxed ${thumbJustDone ? 'text-emerald-800' : 'text-sky-800'}`}>
+            {thumbJustDone
+              ? '검수 내용은 그대로 두고 싶으면 지금 불러오지 말고, 등록 직전에 눌러도 됩니다.'
+              : '누끼는 등록할 때 필요한 작업이라 생성이 그걸 기다리지 않고 검수를 먼저 열었습니다. 끝날 때까지 등록은 잠시 막힙니다(원본이 대표로 올라가는 것을 막기 위해서입니다).'}
+          </p>
+          {thumbJustDone && helperDiag?.ok && (
+            <button onClick={handleLoadFromHelper} disabled={scanning || registering || !!auditProgress}
+              className="mt-2 text-xs font-semibold rounded-lg px-3 py-1.5 bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
+              {scanning ? '불러오는 중…' : '도우미 결과 다시 불러오기'}
             </button>
           )}
         </div>

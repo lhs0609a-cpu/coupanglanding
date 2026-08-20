@@ -87,10 +87,17 @@ export async function pickGenProfile() {
   // 인식(비전)은 이미지 컨텍스트(num_ctx 8192)라 슬롯당 KV 가 텍스트보다 훨씬 크다 →
   //   여유가 확실할 때만 2개. 1이면 예전과 동일한 순차 인식이다.
   const recogConcurrency = freeMb >= 11000 ? 2 : 1;
+  /**
+   * 비전 판정을 텍스트 생성과 **동시에** 돌려도 되는가 = 두 모델이 함께 상주할 수 있는가.
+   *   텍스트 7.8B(≈4.8GB) + 비전 7B(≈5.7GB) + KV·여유 ≈ 13GB.
+   *   들어가면 인식 시간이 텍스트 뒤로 숨는다(실측 A/B: 함께 상주해도 장당 8.6초 → 5.0초로 오히려 빨랐다).
+   *   못 들어가면 서로 밀어내며 호출마다 재적재(15~34초)가 걸려 훨씬 느려지므로, 확실할 때만 켠다.
+   */
+  const visionOverlap = gpu.ok && strong && freeMb >= 13000;
 
   return {
     gpu, strong, scarce, model, ram, ramTight,
-    concurrency, recogConcurrency, installedCount: installed.length,
+    concurrency, recogConcurrency, visionOverlap, installedCount: installed.length,
   };
 }
 
@@ -145,6 +152,12 @@ export async function startGeneration({
   // VRAM 부족으로 매우 느려질 때 사용자에게 물어보는 훅(앱 UI 전용).
   //   미지정(웹 경로)이면 묻지 않고 경고만 남기고 진행한다.
   confirmSlow,
+  /**
+   * 검수를 시작할 수 있게 된 순간(레코드 저장 완료). 대표컷 누끼는 그 뒤에도 계속 돈다.
+   * 누끼는 등록 시점에만 필요한 작업이라 사람을 그때까지 기다리게 할 이유가 없다.
+   * 미지정이면 예전처럼 onDone(프로세스 종료) 때 한 번만 알린다.
+   */
+  onReviewReady,
 }) {
   if (!folder) throw new Error('폴더가 지정되지 않았습니다.');
   if (child) throw new Error('이미 생성이 진행 중입니다.');
@@ -289,6 +302,14 @@ export async function startGeneration({
   //   이미 설치된 PC 는 그대로 쓰고, 상한 초과가 반복되면 run-folder 가 알아서 접는다(회로차단).
   if (!profile.gpu.ok) args.push('--no-vision-pull');
   if (noThumb) args.push('--no-thumb');
+  // 누끼를 사람의 대기시간 밖으로 — 레코드를 먼저 저장해 검수를 시작하게 하고, 가공은 이어서 돈다.
+  //   결과물(이미지·레코드)은 동일하고 순서만 바뀐다. 100개 기준 3~8분을 대기에서 걷어낸다.
+  else args.push('--defer-thumb');
+  // 두 모델이 함께 상주할 VRAM 이 있으면 비전 판정을 텍스트와 동시에 — 인식 시간이 통째로 숨는다.
+  if (profile.visionOverlap) {
+    args.push('--vision-overlap');
+    send('allinone:log', '[속도] 이미지 인식을 텍스트 생성과 동시에 진행합니다(VRAM 여유 확인됨).');
+  }
   if (useComfySwap) args.push('--wait-comfy'); // 누끼 전에 ComfyUI 기동을 기다리게
 
   // ── 모델 예열 ────────────────────────────────────────────────────────────
@@ -313,6 +334,7 @@ export async function startGeneration({
   const errLines = [];     // 에러/오류로 보이는 라인(우선 노출)
   const pushBuf = (arr, line, cap) => { arr.push(line); if (arr.length > cap) arr.shift(); };
   let comfyRestarting = false; // 누끼 마커에 ComfyUI 재기동 1회만
+  let reviewReady = false;     // 검수 시작 가능 통지는 1회만
 
   // 진행 이벤트를 앱 렌더러(send)와 호출자(onProgress: 웹 폴링용 pair-server)로 동시에 흘린다.
   const emitProgress = (p) => { send('allinone:progress', p); try { onProgress?.(p); } catch { /* skip */ } };
@@ -329,6 +351,15 @@ export async function startGeneration({
         send('allinone:log', '🔀 누끼 단계: ComfyUI 를 다시 올립니다…');
         services.comfy.start().catch((e) =>
           send('allinone:log', '⚠️ ComfyUI 재기동 실패(누끼는 CPU 폴백): ' + (e.message || e)));
+      }
+      // 검수 시작 가능 시점 — 레코드가 저장된 순간이다(누끼는 뒤에서 계속 돈다).
+      //   ⚠️ 폴더 기억을 여기서 해야 웹 /allinone/manifest 가 지금 결과를 읽는다.
+      //      예전엔 프로세스 종료 때만 기억해서, 미리 열어 준 검수 화면이 빈 화면이었다.
+      if (!reviewReady && /\[검수준비완료\]/.test(line)) {
+        reviewReady = true;
+        try { store?.set('lastAllinoneFolder', folder); } catch { /* skip */ }
+        send('allinone:review-ready', { folder });
+        try { onReviewReady?.(folder); } catch { /* 화면 열기 실패는 생성을 막지 않는다 */ }
       }
       let m;
       if ((m = line.match(/\[인식\s+(\d+)\/(\d+)\]/))) emitProgress({ phase: 'recognize', done: +m[1], total: +m[2] });

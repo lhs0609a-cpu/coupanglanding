@@ -72,7 +72,17 @@ async function ensureSharp() {
 }
 export function visionSharpFailed() { return _sharpFailed; }
 
-const CELL = 300;         // 격자 셀 한 변(px) — 상품/텍스처/로고 구분에 충분
+/**
+ * 격자 셀 한 변(px) — 상품/텍스처/로고 구분에 충분한 크기.
+ *
+ * ⚡ 이 값이 곧 비전 호출 시간이다. 실측(2026-08-20, RTX 4060 Ti): 비전 호출 한 번에서
+ *    **추론은 0.2초, 나머지 ~9초는 이미지 인코딩**이었고 그 비용은 픽셀 수에 비례한다.
+ *    셀을 줄이면 그만큼 곧장 빨라진다(면적 비례: 300→224 면 픽셀 55%).
+ * ⚠️ 다만 작아질수록 로고·작은 글자(logo_text) 판별이 어려워질 수 있다 → 기본값은 그대로 두고,
+ *    A/B(고정 표본에서 대표컷 선택이 몇 건 바뀌는지)로 확인한 뒤 환경변수로 낮춘다.
+ *    MEGALOAD_VISION_CELL=224 처럼 지정한다(코드 수정·재배포 없이 실험 가능).
+ */
+const CELL = Math.max(96, Number(process.env.MEGALOAD_VISION_CELL) || 300);
 const GAP = 8;
 const RED = '#E31837';
 
@@ -340,8 +350,10 @@ export async function visionCurateProduct({ mainPool = [], detailPool = [], revi
   const preferred = isFresh ? rawFiles : cutFiles;
   const others = isFresh ? cutFiles : rawFiles;
   // 상세컷이 있으면 대표 후보가 격자를 다 먹지 않도록 몫을 나눈다(없으면 전부 대표에).
-  const MAX_CELLS = 24;
-  const mainBudget = detail.length ? 14 : MAX_CELLS;
+  // 격자 칸 수도 곧 시간이다(칸이 줄면 이미지가 작아진다). 기본 24는 유지하고,
+  //   A/B 로 확인한 뒤에만 낮춘다 — 상한을 넘는 컷은 "미판정"이 되기 때문이다(아래 보존 처리).
+  const MAX_CELLS = Math.max(4, Number(process.env.MEGALOAD_VISION_CELLS) || 24);
+  const mainBudget = detail.length ? Math.max(2, Math.round(MAX_CELLS * 0.58)) : MAX_CELLS;
   const mainForJudge = (preferred.length ? [...preferred, ...others] : main).slice(0, mainBudget);
   if (main.length > mainForJudge.length) {
     onLog?.(`[비전] 대표 후보 ${main.length}장 → ${mainForJudge.length}장으로 정리`

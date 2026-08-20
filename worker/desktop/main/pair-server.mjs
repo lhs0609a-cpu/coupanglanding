@@ -287,8 +287,15 @@ export async function startPairServer({
           const { on, idle } = await readJson();
           return json(200, naverIngest.setQueueWorker({ on, idle }));
         }
+        // 가져오기 + 이어지는 상세페이지 생성 진행을 한 번에 준다(웹 진행패널 폴링).
+        //   web:true 를 붙이는 이유 — 웹이 지켜보는 동안에는 생성이 끝나도 도우미가 브라우저를
+        //   따로 열지 않는다(웹이 스스로 검수 화면으로 넘어가므로 탭이 둘이 된다).
         if (req.method === 'GET' && u.pathname === '/naver-ingest/import') {
-          return json(200, naverIngest.getImportState());
+          return json(200, naverIngest.getImportState({
+            web: true,
+            // handoff=1 = "검수 화면은 웹이 연다" — 도우미는 창을 열지 않는다.
+            handoff: u.searchParams.get('handoff') === '1',
+          }));
         }
         if (req.method === 'POST' && u.pathname === '/naver-ingest/detail/stop') {
           return json(200, naverIngest.stopDetailExtract());
@@ -358,6 +365,7 @@ export async function startPairServer({
         sess.startedAt = Date.now();
         sess.updatedAt = Date.now();
         sess.progress = null; // { phase:'recognize'|'text'|'image', done, total }
+        sess.reviewReady = false;   // 이번 생성의 "검수 시작 가능" 신호는 아직
         // ⚠️ onGenerate 를 **기다리지 않고** 즉시 200 을 준다.
         //   예전엔 await 했는데, 이 함수는 생성이 "시작될 때까지"(엔진 기동·원본명 조회 등)
         //   수 분이 걸릴 수 있다. 웹의 시작 요청 타임아웃은 30초라, 준비가 길어지면 웹만
@@ -370,6 +378,9 @@ export async function startPairServer({
             // 러너가 stdout 에서 파싱한 단계별 진행(인식/텍스트/이미지 n/total)을 세션에 적재 →
             // gen-status 로 웹이 실시간 진행률·ETA 를 그린다.
             onProgress: (p) => { sess.progress = p; sess.updatedAt = Date.now(); },
+            // 검수를 시작해도 되는 순간 — 레코드가 저장됐다. 대표컷 누끼는 뒤에서 계속 돈다.
+            //   웹은 이 신호로 카드를 먼저 띄우고, 누끼가 끝나면 매니페스트를 다시 읽어 대표컷을 갱신한다.
+            onReviewReady: () => { sess.reviewReady = true; sess.updatedAt = Date.now(); },
             onDone: (code, reason) => {
               sess.state = code === 0 ? 'done' : 'error';
               sess.code = code;
@@ -408,6 +419,8 @@ export async function startPairServer({
               code: sess.code ?? null,
               error: sess.error ?? null,
               progress: sess.progress ?? null,   // { phase, done, total }
+              // true = 레코드 저장 완료(검수 시작 가능). 대표컷 누끼는 아직 돌고 있을 수 있다.
+              reviewReady: !!sess.reviewReady,
               startedAt: sess.startedAt ?? null,  // epoch ms — 웹이 경과/ETA 계산
               updatedAt: sess.updatedAt ?? null,  // 마지막 진행 갱신(정체 감지용)
             }

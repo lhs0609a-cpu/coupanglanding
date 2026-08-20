@@ -251,7 +251,24 @@ async function main() {
       console.log(`[${ts()}] [이미지인식] 비전 모델 미탑재 → CLIP·L1 휴리스틱 폴백`);
     }
   }
-  const overlap = !cli['no-image-ai'] && !cli['no-overlap'] && !visionReady;
+  /**
+   * 인식을 텍스트와 **동시에** 돌릴 것인가.
+   *
+   * CLIP 경로는 CPU 라 늘 동시에 돌렸다. 비전(VLM) 경로는 "GPU 라 동시 실행 불가"라고 보고
+   * 항상 순차로 돌렸는데, **실측은 그 전제와 달랐다**(2026-08-20, RTX 4060 Ti 16GB):
+   *     A) 비전만 상주        : 4장 34.2초 · 장당 8.6초
+   *     B) 텍스트도 함께 상주  : 4장 19.9초 · 장당 5.0초   ← 오히려 빨랐다
+   * 두 모델 합이 남은 VRAM 안에 들어가면 경합이 아니라 공존이 된다. 그러면 인식 시간이
+   * 텍스트 뒤로 통째로 숨는다(100개 기준 최대 10분).
+   *
+   * ⚠️ 들어가지 못하면 서로 밀어내며 매 호출 재적재가 걸려 **훨씬 느려진다**(실측 호출당 15~34초).
+   *    그래서 기본값은 예전 그대로(순차)이고, 남은 VRAM 을 확인한 호출부만 --vision-overlap 을 준다.
+   */
+  const overlap = !cli['no-image-ai'] && !cli['no-overlap']
+    && (!visionReady || !!cli['vision-overlap']);
+  if (visionReady && overlap) {
+    console.log(`[${ts()}] [이미지인식] VRAM 여유 확인됨 — 비전 판정을 텍스트 생성과 동시에 진행합니다(대기시간에서 제거).`);
+  }
   const recogCacheFile = outPrefix + '.recog.json';
   const recogCache = cli['no-recog-cache'] ? {} : loadRecogCache(recogCacheFile);
   let recogHits = 0;
@@ -328,8 +345,10 @@ async function main() {
           if (++recogDone % 5 === 0) saveRecogCache(recogCacheFile, recogCache);
           const detN = (p.detailImages || []).length ? ` · 상세 ${p.detailImagesKept.length}/${p.detailImages.length}컷` : '';
           const mdN = p.mainDroppedNames.length ? ` · 대표후보 로고/배너 ${p.mainDroppedNames.length} 제외` : '';
-          // 비전은 overlap 불가(GPU) → 항상 대괄호 마커로 진행률 패널을 구동한다.
-          console.log(`[${ts()}] [인식 ${recogDone}/${products.length}] 👁️ 대표=${path.basename(p.mainImage || '-')}${detN}${mdN}`);
+          // ⚠️ 동시 진행 중이면 대괄호 진행 마커를 쓰지 않는다 — 웹 진행패널이 인식↔텍스트를
+          //    오가며 단계 표시가 튄다(CLIP 경로와 같은 이유). 겹치지 않을 때만 마커로 쓴다.
+          const vTag = overlap ? `인식 ${recogDone}/${products.length}` : `[인식 ${recogDone}/${products.length}]`;
+          console.log(`[${ts()}]${overlap ? ' ' : ' '}${vTag} 👁️ 대표=${path.basename(p.mainImage || '-')}${detN}${mdN}`);
           return;
         }
         console.log(`[${ts()}] [비전] ${p.id} 판정 실패 → 이 상품만 CLIP 폴백`);
@@ -417,8 +436,10 @@ async function main() {
       }
     });
     if (!overlap) await recogPromise;
-    // 비전 경로였다면(overlap 불가) 인식이 끝났으니 VLM 을 내려 텍스트(ollama)에 VRAM 을 넘긴다.
-    if (visionReady) { await unload(visionModel); console.log(`[${ts()}] [이미지인식] 비전 모델 언로드 → 텍스트에 VRAM 양보`); }
+    // 비전 경로를 순차로 돌았다면 인식이 끝났으니 VLM 을 내려 텍스트(ollama)에 VRAM 을 넘긴다.
+    //   ⚠️ 동시 진행(overlap) 중에는 내리면 안 된다 — 아직 판정 중인 상품이 남아 있어
+    //      내리는 순간 그 호출들이 재적재(15~34초)를 물고 오히려 느려진다. 합류 뒤에 내린다.
+    if (visionReady && !overlap) { await unload(visionModel); console.log(`[${ts()}] [이미지인식] 비전 모델 언로드 → 텍스트에 VRAM 양보`); }
   } else {
     console.log(`[${ts()}] [이미지인식] 생략(--no-image-ai) — 첫컷/원본 상세 유지`);
     for (const p of products) { p.detailImagesKept = p.detailImages || []; p.mainImageRanked = null; p.detailDroppedNames = []; p.mainDroppedNames = []; p.reviewImagesKept = p.reviewImages || []; p.reviewDroppedNames = []; p.mainConfident = true; p.mainReason = null; }
@@ -466,6 +487,9 @@ async function main() {
   if (overlap) {
     console.log(`[${ts()}] [1/3] 이미지인식 합류 대기…`);
     await recogPromise;
+    // 동시 진행이었다면 이제야 VLM 을 내린다 — 판정이 다 끝났으므로 안전하고,
+    // 뒤따르는 누끼 단계(ComfyUI)에 VRAM 을 넘겨 준다.
+    if (visionReady) { await unload(visionModel); console.log(`[${ts()}] [이미지인식] 비전 모델 언로드 → 이후 단계에 VRAM 양보`); }
   }
   for (let i = 0; i < products.length; i++) {
     const p = products[i], rec = records[i];
@@ -495,6 +519,24 @@ async function main() {
     mainFlagged++;
   }
   if (mainFlagged) console.log(`[${ts()}] ⚠️ 대표컷 검수 필요 ${mainFlagged}건 (로고/저품질 후보만 존재)`);
+
+  /**
+   * 레코드·검수화면 저장. 원자적 교체(.tmp → rename)라 중간에 죽어도 이전 결과가 살아남는다.
+   * ⚠️ records 에는 실패 상품 자리에 구멍(undefined)이 있을 수 있다(ai-batch 실패 격리).
+   *    거르지 않으면 JSON.stringify(undefined)=undefined 라 빈 줄이 섞여 웹 파서가 깨진다.
+   *
+   * ★ 두 번 부른다(--defer-thumb): 누끼 **전에** 한 번(사람을 기다리게 하지 않으려고),
+   *   누끼가 끝나면 최종값으로 한 번 더. 같은 경로에 원자적으로 덮으므로 웹은 항상 온전한 파일을 본다.
+   */
+  const outHtmlPath = outPrefix + '.review.html';
+  const saveOutputs = () => {
+    const written = records.filter(Boolean);
+    writeFileSync(outJsonl + '.tmp', written.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    renameSync(outJsonl + '.tmp', outJsonl);
+    writeFileSync(outHtmlPath + '.tmp', buildReviewHtml(written, summary), 'utf8');
+    renameSync(outHtmlPath + '.tmp', outHtmlPath);
+    return outHtmlPath;
+  };
 
   const thumbT0 = Date.now();
   // ── Phase B) 대표이미지 가공 (ComfyUI 가 GPU 점유) ──────────────────────
@@ -540,6 +582,21 @@ async function main() {
       console.log(`[${ts()}] [2/3] 누끼가 필요한 대표컷 없음 — 이미지 가공 단계 전체 생략(ComfyUI 기동 안 함)`);
       await unload(model); // VRAM 은 그래도 반납
     }
+  }
+
+  // ── 누끼를 사람의 대기시간 밖으로 뺀다 (--defer-thumb) ────────────────────
+  //   누끼는 검수 화면에서 필요한 게 아니라 **쿠팡 등록 시점**에 필요하다. 그런데 지금까지는
+  //   생성이 끝나기 전에 전부 처리하느라 사람이 그만큼 더 기다렸다(실측 상품당 2~5초 = 100개면 3~8분).
+  //   → 여기서 레코드를 먼저 저장해 검수 화면을 열어 주고, 누끼는 그 뒤에 계속 돌려
+  //     끝나는 대로 같은 파일을 원자적으로 덮는다. 만드는 이미지도, 만드는 코드도 그대로다.
+  //   ⚠️ 아직 안 끝난 상품은 thumbPending=true 로 표시한다 — 웹이 "원본을 쓸지 기다릴지"를
+  //     스스로 판단할 수 있어야 한다(표시가 없으면 원본을 최종본으로 오해한다).
+  const deferThumb = !!cli['defer-thumb'] && thumbEnabled && needCutout.length > 0;
+  if (deferThumb) {
+    for (const i of needCutout) { if (records[i]) records[i].thumbPending = true; }
+    saveOutputs();
+    // 앱은 이 마커를 보고 검수 화면을 연다 — 프로세스 종료를 기다리지 않는다.
+    console.log(`[${ts()}] [검수준비완료] 레코드 저장 — 대표컷 누끼 ${needCutout.length}건은 이어서 처리합니다(검수 먼저 시작하세요).`);
   }
 
   if (thumbEnabled) {
@@ -626,21 +683,20 @@ async function main() {
   } else if (cli['no-thumb']) {
     console.log(`[${ts()}] [2/3] 대표이미지 가공 생략(--no-thumb)`);
   }
+  // 누끼를 미뤄 뒀다면 이제 끝났다 — 대기 표시를 걷어낸다(실패분도 걷는다: 원본이 최종본이다).
+  //   Phase C 의 저장이 이 값을 그대로 덮어쓴다.
+  if (deferThumb) {
+    for (const rec of records) { if (rec && rec.thumbPending) delete rec.thumbPending; }
+    console.log(`[${ts()}] [누끼완료] 대표컷 가공을 마쳐 레코드를 갱신합니다 — 검수 화면이 자동으로 최신 대표컷을 집습니다.`);
+  }
+
   summary.thumbsProcessed = thumbEnabled ? thumbsProcessed : null;
 
   phaseMs.thumb = Date.now() - thumbT0;
 
   // ── Phase C) 레코드 저장 + 검수화면 ──────────────────────────────────────
   console.log(`[${ts()}] [3/3] 레코드 저장 + 검수화면 생성`);
-  // 원자적 교체: .tmp 에 완전히 쓴 뒤 rename. 중간에 죽어도 이전 결과가 살아남는다.
-  // ⚠️ records 에는 실패 상품 자리에 구멍(undefined)이 있을 수 있다(ai-batch 실패 격리).
-  //    거르지 않으면 JSON.stringify(undefined)=undefined 라 빈 줄이 섞여 웹 파서가 깨진다.
-  const written = records.filter(Boolean);
-  writeFileSync(outJsonl + '.tmp', written.map((r) => JSON.stringify(r)).join('\n') + '\n');
-  renameSync(outJsonl + '.tmp', outJsonl);
-  const outHtml = outPrefix + '.review.html';
-  writeFileSync(outHtml + '.tmp', buildReviewHtml(written, summary), 'utf8');
-  renameSync(outHtml + '.tmp', outHtml);
+  const outHtml = saveOutputs();
 
   console.log(`\n=== 요약 ===`);
   console.log(`총 ${summary.total} · 통과 ${summary.ok} · 검수필요 ${summary.needsReview}` + (thumbEnabled ? ` · 대표가공 ${thumbsProcessed}/${summary.total}` : ' · 대표가공 생략'));

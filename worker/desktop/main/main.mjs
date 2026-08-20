@@ -458,10 +458,12 @@ app.whenReady().then(async () => {
     naverIngest,
     // 웹 업로드 생성 — 웹이 소싱폴더를 업로드한 임시폴더로 올인원 생성 실행.
     //   웹이 이미 검수화면에 있으므로 브라우저 자동열기는 안 한다(gen-status 폴링으로 자동 로드).
-    onGenerate: (folder, { noThumb, onDone, onProgress } = {}) => startGeneration({
+    onGenerate: (folder, { noThumb, onDone, onProgress, onReviewReady } = {}) => startGeneration({
       services: { ollama, comfy, webOrigin: WEB_ORIGIN },
       paths: { appRoot, userData: app.getPath('userData') },
       store, send, folder, noThumb, onDone, onProgress,
+      // 웹에서 시작한 생성도 "검수 시작 가능" 시점을 따로 알린다 — 누끼는 그 뒤에도 계속 돈다.
+      onReviewReady,
     }),
     onPair: async (tokens) => {
       await runner.pair(SUPABASE_URL, SUPABASE_ANON_KEY, tokens);
