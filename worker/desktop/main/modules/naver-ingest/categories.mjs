@@ -49,6 +49,12 @@ const BUNDLED = (() => {
 /**
  * 대분류 시드 — 이것만 상수로 두고 나머지는 런타임에 발견한다.
  * (naveritem 원본의 data/nav_category_map.json 에서 가져온 값)
+ *
+ * ⚠️ 여기서 빠진 대분류는 **사라지지 않고 남의 자식이 된다**. 메뉴를 대분류 경계로 자르기
+ *   때문에, 모르는 대분류는 앞 대분류의 중분류로 붙어 버린다(실측 2026-08-20: 렌탈관의
+ *   5개가 '공구' 밑으로, 여행의 5개가 'E쿠폰/티켓/생활편의' 밑으로 들어가 있었다).
+ *   네이버 메뉴 API(shopping.naver.com/api/modules/gnb/category/list)가 대분류 27개를
+ *   준다 — 목록이 어긋나 보이면 그걸로 대조한다.
  */
 export const ROOT_CATEGORIES = [
   { id: '10000107', name: '여성의류' },
@@ -75,7 +81,9 @@ export const ROOT_CATEGORIES = [
   { id: '10000124', name: '건강/의료용품' },
   { id: '10000128', name: '악기/문구' },
   { id: '10000126', name: '공구' },
+  { id: '10007178', name: '렌탈관' },
   { id: '10000129', name: 'E쿠폰/티켓/생활편의' },
+  { id: '10008203', name: '여행' },
 ];
 
 /**
@@ -96,6 +104,14 @@ const ROOT_IDS = new Set(ROOT_CATEGORIES.map((c) => c.id));
 
 /** 한 카테고리가 가질 수 있는 하위 개수 상한 — 이걸 넘으면 목록을 잘못 읽은 것으로 본다. */
 const MAX_CHILDREN = 80;
+
+/**
+ * 카테고리처럼 생겼지만 카테고리가 아닌 링크.
+ * 목록 페이지의 '더보기' 는 **남의 가지로 간다**(실측: 신선식품>김치 의 더보기 → 주방용품의
+ * '김치통', 가공식품>커피/차류 의 더보기 → '과자/떡/베이커리'). 이름이 화면 문구라서
+ * 걸러 내지 않으면 트리에 '더보기' 라는 카테고리가 생긴다.
+ */
+const NON_CATEGORY_NAMES = new Set(['더보기', '더 보기', '전체보기', '전체 보기', '모두보기']);
 
 /**
  * 캐시 스키마 버전. v1 은 전체 메뉴가 통째로 섞여 들어간 쓰레기라 그대로 두면 영원히 보인다 —
@@ -263,7 +279,7 @@ export async function listChildren(pool, parentId, { force = false, onLog = () =
   });
 
   if (!result) throw new Error('수집 창을 얻지 못했습니다.');
-  const links = (result.links || []).filter((l) => l && l.id && l.name);
+  const links = (result.links || []).filter((l) => l && l.id && l.name && !NON_CATEGORY_NAMES.has(l.name));
 
   let children;
   if (ROOT_IDS.has(parentId)) {

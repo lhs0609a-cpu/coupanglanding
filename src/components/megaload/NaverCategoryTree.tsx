@@ -6,12 +6,15 @@
  * 설계 판단 세 가지(NAVER_카탈로그_카테고리트리_설계도.md):
  *  · **0개 가지를 숨기지 않는다.** 흐리게 두되 목록에는 남긴다 — 숨기면 "여성의류는 왜 없지"가 된다.
  *  · **개수는 우측 정렬 + tabular-nums.** 숫자가 세로로 줄을 맞춰야 눈으로 훑을 수 있다.
- *  · **검색은 조상을 자동으로 편다.** 401개를 스크롤로 찾을 수는 없다.
+ *  · **검색은 조상을 자동으로 편다.** 수천 개를 스크롤로 찾을 수는 없다.
+ *
+ * 트리는 **깊이를 고정하지 않는다**(대>중>소, 더 깊어져도 그대로) — 한 층을 늘릴 때마다
+ * 렌더 코드를 한 벌씩 복사해야 한다면 그건 이미 틀린 구조다.
  */
 
 import { useMemo, useState } from 'react';
 import { ChevronRight, Search, Layers } from 'lucide-react';
-import { UNCLASSIFIED, type CategoryNode } from '@/lib/megaload/naver-category-tree';
+import { UNCLASSIFIED, PATH_SEP, type CategoryNode } from '@/lib/megaload/naver-category-tree';
 
 export interface CategoryCount { total: number; ready: number }
 
@@ -31,6 +34,21 @@ function Count({ c }: { c: CategoryCount | undefined }) {
   );
 }
 
+/**
+ * 검색 중에는 이름이 걸린 노드와 그 조상만 남긴다. 걸린 노드의 **하위는 통째로** 살린다
+ * ('과일'을 찾으면 그 아래 소분류까지 보여야 고를 수 있다).
+ * (컴포넌트 밖의 순수 함수다 — 안에 두면 렌더마다 새로 만들어져 useMemo 가 의미를 잃는다.)
+ */
+function filterTree(nodes: CategoryNode[], needle: string): CategoryNode[] {
+  return nodes
+    .map((n) => {
+      if (n.name.includes(needle)) return n;
+      const kids = filterTree(n.children, needle);
+      return kids.length ? { ...n, children: kids } : null;
+    })
+    .filter(Boolean) as CategoryNode[];
+}
+
 interface Props {
   tree: CategoryNode[];
   counts: Record<string, CategoryCount>;
@@ -47,21 +65,11 @@ export default function NaverCategoryTree({ tree, counts, all, selected, onSelec
 
   const q = query.trim();
 
-  /** 검색 중에는 이름이 걸린 노드와 그 부모만 남기고, 부모는 자동으로 펼친다. */
-  const visible = useMemo(() => {
-    if (!q) return tree;
-    return tree
-      .map((root) => {
-        const hitRoot = root.name.includes(q);
-        const kids = root.children.filter((c) => c.name.includes(q));
-        if (!hitRoot && !kids.length) return null;
-        return { ...root, children: hitRoot ? root.children : kids };
-      })
-      .filter(Boolean) as CategoryNode[];
-  }, [tree, q]);
+  const visible = useMemo(() => (q ? filterTree(tree, q) : tree), [tree, q]);
 
+  /** 선택된 경로의 조상은 저절로 펼쳐진다 — 소분류를 고르면 그 위 두 층이 열려 있어야 한다. */
   const isOpen = (node: CategoryNode) =>
-    !!q || open.has(node.id) || selected.startsWith(`${node.name} `) || selected === node.name;
+    !!q || open.has(node.id) || selected === node.path || selected.startsWith(`${node.path}${PATH_SEP}`);
 
   const rowClass = (path: string, count: CategoryCount | undefined) => {
     const on = selected === path;
@@ -71,6 +79,55 @@ export default function NaverCategoryTree({ tree, counts, all, selected, onSelec
       on ? 'bg-[#E31837]/8 text-gray-900 font-semibold shadow-[inset_3px_0_0_#E31837]'
          : empty ? 'text-gray-400 hover:bg-gray-50' : 'text-gray-700 hover:bg-gray-50',
     ].join(' ');
+  };
+
+  /**
+   * 한 노드 = [펼침 화살표] + [이름·개수]. 자식이 있으면 자기 자신을 다시 그린다.
+   * 화살표 자리는 말단에도 비워 둔다 — 안 그러면 이름 시작점이 형제끼리 어긋난다.
+   */
+  const renderNode = (node: CategoryNode): React.ReactNode => {
+    const c = counts[node.path];
+    const expanded = isOpen(node);
+    const hasKids = node.children.length > 0;
+    return (
+      <div key={node.id}>
+        <div className="flex items-stretch">
+          {hasKids ? (
+            <button
+              type="button"
+              aria-label={expanded ? `${node.name} 접기` : `${node.name} 펼치기`}
+              aria-expanded={expanded}
+              onClick={() => setOpen((prev) => {
+                const next = new Set(prev);
+                if (next.has(node.id)) next.delete(node.id); else next.add(node.id);
+                return next;
+              })}
+              className="px-1 text-gray-400 hover:text-gray-700"
+            >
+              <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+            </button>
+          ) : (
+            <span className="px-1 w-[22px]" aria-hidden />
+          )}
+          <button
+            type="button"
+            onClick={() => onSelect(node.path)}
+            className={rowClass(node.path, c)}
+            role="treeitem"
+            aria-selected={selected === node.path}
+          >
+            <span className="truncate">{node.name}</span>
+            <Count c={c} />
+          </button>
+        </div>
+
+        {hasKids && expanded && (
+          <div className="ml-4 border-l border-gray-100 pl-1" role="group">
+            {node.children.map((child) => renderNode(child))}
+          </div>
+        )}
+      </div>
+    );
   };
 
   const unclassified = counts[UNCLASSIFIED];
@@ -103,57 +160,7 @@ export default function NaverCategoryTree({ tree, counts, all, selected, onSelec
           <Count c={all} />
         </button>
 
-        {visible.map((root) => {
-          const rc = counts[root.path];
-          const expanded = isOpen(root);
-          return (
-            <div key={root.id}>
-              <div className="flex items-stretch">
-                <button
-                  type="button"
-                  aria-label={expanded ? `${root.name} 접기` : `${root.name} 펼치기`}
-                  aria-expanded={expanded}
-                  onClick={() => setOpen((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(root.id)) next.delete(root.id); else next.add(root.id);
-                    return next;
-                  })}
-                  className="px-1 text-gray-400 hover:text-gray-700"
-                >
-                  <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onSelect(root.path)}
-                  className={rowClass(root.path, rc)}
-                  role="treeitem"
-                  aria-selected={selected === root.path}
-                >
-                  <span className="truncate">{root.name}</span>
-                  <Count c={rc} />
-                </button>
-              </div>
-
-              {expanded && (
-                <div className="ml-4 border-l border-gray-100 pl-1" role="group">
-                  {root.children.map((child) => (
-                    <button
-                      key={child.id}
-                      type="button"
-                      onClick={() => onSelect(child.path)}
-                      className={rowClass(child.path, counts[child.path])}
-                      role="treeitem"
-                      aria-selected={selected === child.path}
-                    >
-                      <span className="truncate">{child.name}</span>
-                      <Count c={counts[child.path]} />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {visible.map((node) => renderNode(node))}
 
         {/* 트리에 못 붙은 수집물 — 있을 때만, 그러나 반드시 보인다. */}
         {!!unclassified?.total && !q && (

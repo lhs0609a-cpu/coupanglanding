@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import {
-  CATEGORY_TREE, TREE_META, UNCLASSIFIED, PATH_SEP, pathMatches, flattenTree,
+  CATEGORY_TREE, TREE_META, UNCLASSIFIED, PATH_SEP, flattenTree,
 } from '@/lib/megaload/naver-category-tree';
 
 export const maxDuration = 30;
@@ -47,25 +47,35 @@ export async function GET() {
     byPath.set(key, cur);
   }
 
-  const nodes = flattenTree();
+  // ★ 노드마다 경로 전체를 훑지 않는다 — 소분류까지 담으면 노드가 수천 개라
+  //   (노드 × 경로) 는 금세 수백만 번 비교가 된다. 대신 **경로에서 조상을 만들어 올린다**:
+  //   '신선식품 > 과일 > 사과' 는 자기 자신과 '신선식품 > 과일', '신선식품' 에 더해진다.
+  //   (pathMatches 의 정의 — 노드 경로가 상품 경로의 접두사 — 와 정확히 같은 규칙이다)
+  const nodePaths = new Set(flattenTree().map((n) => n.path));
   const counts: Record<string, { total: number; ready: number }> = {};
-  for (const n of nodes) {
-    let total = 0; let ready = 0;
-    for (const [path, c] of byPath) {
-      if (pathMatches(path, n.path)) { total += c.total; ready += c.ready; }
-    }
-    if (total) counts[n.path] = { total, ready };
-  }
+  const add = (key: string, c: { total: number; ready: number }) => {
+    const cur = counts[key] || { total: 0, ready: 0 };
+    cur.total += c.total; cur.ready += c.ready;
+    counts[key] = cur;
+  };
 
   // 트리 어느 가지에도 안 붙는 수집물 — 숨기지 않고 '미분류'로 모아 보여 준다.
   let orphanTotal = 0; let orphanReady = 0;
   const orphanPaths: string[] = [];
   for (const [path, c] of byPath) {
-    if (nodes.some((n) => pathMatches(path, n.path))) continue;
+    const parts = path.split(PATH_SEP);
+    let hit = false;
+    for (let i = 1; i <= parts.length; i++) {
+      const prefix = parts.slice(0, i).join(PATH_SEP);
+      if (!nodePaths.has(prefix)) continue;
+      hit = true;
+      add(prefix, c);
+    }
+    if (hit) continue;
     orphanTotal += c.total; orphanReady += c.ready;
     if (path !== UNCLASSIFIED) orphanPaths.push(path);
   }
-  if (orphanTotal) counts[UNCLASSIFIED] = { total: orphanTotal, ready: orphanReady };
+  if (orphanTotal) add(UNCLASSIFIED, { total: orphanTotal, ready: orphanReady });
 
   const all = { total: rows.length, ready: rows.filter((r) => r.detail_status === 'done').length };
 

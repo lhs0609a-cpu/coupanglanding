@@ -20,7 +20,8 @@ export interface CategoryNode {
   name: string;
   /** 루트부터의 이름 경로 — 상품의 category_path 와 같은 형식이다. */
   path: string;
-  depth: 1 | 2;
+  /** 1=대분류 2=중분류 3=소분류 … 스냅샷이 깊어지면 그대로 깊어진다. */
+  depth: number;
   children: CategoryNode[];
 }
 
@@ -30,21 +31,26 @@ export const PATH_SEP = ' > ';
 /** 트리에 붙지 않는 수집물이 모이는 가지. 숨기면 "내 상품이 사라졌다"가 된다. */
 export const UNCLASSIFIED = '미분류';
 
-interface RawNode { id: string; name: string; children?: { id: string; name: string }[] }
+interface RawNode { id: string; name: string; children?: RawNode[] }
 
-export const CATEGORY_TREE: CategoryNode[] = (raw.roots as RawNode[]).map((r) => ({
-  id: r.id,
-  name: r.name,
-  path: r.name,
-  depth: 1 as const,
-  children: (r.children || []).map((c) => ({
-    id: c.id,
-    name: c.name,
-    path: `${r.name}${PATH_SEP}${c.name}`,
-    depth: 2 as const,
-    children: [],
-  })),
-}));
+/**
+ * 스냅샷(중첩 배열) → 경로가 박힌 노드. **깊이를 고정하지 않는다** —
+ * 대>중 두 층만 있던 스냅샷이 대>중>소로 깊어져도 이 함수는 그대로다.
+ */
+function build(nodes: RawNode[], parentPath = '', depth = 1): CategoryNode[] {
+  return nodes.map((n) => {
+    const path = parentPath ? `${parentPath}${PATH_SEP}${n.name}` : n.name;
+    return {
+      id: n.id,
+      name: n.name,
+      path,
+      depth,
+      children: build(n.children || [], path, depth + 1),
+    };
+  });
+}
+
+export const CATEGORY_TREE: CategoryNode[] = build(raw.roots as RawNode[]);
 
 export const TREE_META = { at: raw.at as number, depth: raw.depth as number, source: raw.source as string };
 
