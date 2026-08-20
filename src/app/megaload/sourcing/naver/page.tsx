@@ -17,6 +17,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Search, Loader2, ExternalLink, PackageSearch, ChevronLeft, ChevronRight, Download, AlertTriangle } from 'lucide-react';
 import { findHelper, fetchCollection, startImport, fetchImportState, type ImportState } from '@/lib/megaload/naver-ingest-local';
 import { isDetailExtractable, naverStoreType, STORE_TYPE_LABEL } from '@/lib/megaload/naver-store-type';
+import NaverCategoryTree, { type CategoryCount } from '@/components/megaload/NaverCategoryTree';
+import { UNCLASSIFIED, PATH_SEP, type CategoryNode } from '@/lib/megaload/naver-category-tree';
 
 interface SourcedProduct {
   id: string;
@@ -64,6 +66,15 @@ export default function NaverSourcingCatalogPage() {
   const [impNote, setImpNote] = useState<string | null>(null);
   // 상세를 요청해 둔 상품 — 준비되면 자동으로 이어서 등록한다.
   const [pendingIds, setPendingIds] = useState<string[]>([]);
+  // ── 카테고리 트리 ──
+  // 트리 자체는 서버 코드에 동봉된 스냅샷이라 도우미가 없어도 즉시 뜬다. 여기서 받는 건
+  // "어느 가지에 몇 개가 쌓였나"까지 포함된 한 덩어리다(요청 1회).
+  const [tree, setTree] = useState<CategoryNode[]>([]);
+  const [counts, setCounts] = useState<Record<string, CategoryCount>>({});
+  const [allCount, setAllCount] = useState<CategoryCount>({ total: 0, ready: 0 });
+  const [catPath, setCatPath] = useState('');          // '' = 전체
+  const [catLoading, setCatLoading] = useState(true);
+  const [treeOpen, setTreeOpen] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -72,6 +83,7 @@ export default function NaverSourcingCatalogPage() {
       const p = new URLSearchParams({ page: String(page), sort });
       if (q) p.set('q', q);
       if (onlyDetail) p.set('detail', '1');
+      if (catPath) p.set('path', catPath);
       const res = await fetch(`/api/megaload/naver-sourcing/products?${p}`);
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
@@ -83,9 +95,33 @@ export default function NaverSourcingCatalogPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, q, sort, onlyDetail]);
+  }, [page, q, sort, onlyDetail, catPath]);
 
   useEffect(() => { load(); }, [load]);
+
+  /**
+   * 카테고리 트리 + 가지별 개수.
+   * 목록이 바뀌면(수집·상세 확보) 개수도 바뀌므로 목록을 다시 읽을 때 같이 새로 읽는다.
+   * 다만 페이지 넘김·정렬 같은 건 개수를 바꾸지 않으니 그런 걸로는 다시 부르지 않는다.
+   */
+  const loadCategories = useCallback(async () => {
+    setCatLoading(true);
+    try {
+      const res = await fetch('/api/megaload/naver-sourcing/categories');
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      setTree(j.tree ?? []);
+      setCounts(j.counts ?? {});
+      setAllCount(j.all ?? { total: 0, ready: 0 });
+    } catch {
+      // 트리를 못 받아도 목록은 봐야 한다 — 조용히 트리만 비운다.
+      setTree([]);
+    } finally {
+      setCatLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadCategories(); }, [loadCategories]);
 
   /**
    * 도우미에 아직 안 올라간 수집물이 있으면 여기서 올린다.
@@ -109,7 +145,7 @@ export default function NaverSourcingCatalogPage() {
           body: JSON.stringify({ items: c.items, categoryPath: c.catName || '' }),
         });
         // 관리자가 아니면 403 이 정상이다(셀러는 올릴 권한이 없다) — 조용히 넘어간다.
-        if (res.ok && alive) load();
+        if (res.ok && alive) { load(); loadCategories(); }   // 새로 담겼으니 가지별 개수도 다시 센다
       } catch { /* 도우미 미설치·미실행은 정상 상황이다 */ }
     })();
     return () => { alive = false; };
@@ -221,7 +257,7 @@ export default function NaverSourcingCatalogPage() {
         clearInterval(t);
         setPendingIds([]);
         setImpNote('상세 준비가 3분을 넘겨 기다리기를 멈췄습니다 — 새로고침해 상태를 확인한 뒤 다시 시도해 주세요.');
-        load();
+        load(); loadCategories();
         return;
       }
       try {
@@ -240,7 +276,7 @@ export default function NaverSourcingCatalogPage() {
         setImporting(true);
         const r = await startImport(helper.ep, j.products, undefined, true);
         setImp({ running: true, total: r.total ?? j.products.length, done: 0, ok: 0, failed: 0, current: '', rootDir: r.rootDir ?? '', stopped: null, at: Date.now() });
-        load();
+        load(); loadCategories();   // 상세가 확보됐으니 '상세 확보' 개수가 바뀐다
       } catch { /* 다음 주기에 다시 */ }
     }, 10000);
     return () => { alive = false; clearInterval(t); };
@@ -264,6 +300,68 @@ export default function NaverSourcingCatalogPage() {
           <b> 도우미 없이도</b> 여기서 확인할 수 있습니다.
         </p>
       </div>
+
+      {/* 좌: 카테고리 트리(고정) · 우: 목록. 트리를 접으면 격자가 넓어진다. */}
+      <div className={`grid gap-4 items-start ${treeOpen ? 'lg:grid-cols-[248px_minmax(0,1fr)]' : 'grid-cols-1'}`}>
+        {treeOpen && (
+          <NaverCategoryTree
+            tree={tree}
+            counts={counts}
+            all={allCount}
+            selected={catPath}
+            loading={catLoading}
+            onSelect={(p) => { setPage(1); setPicked(new Set()); setCatPath(p); }}
+          />
+        )}
+
+        <div className="min-w-0">
+          {/* 브레드크럼은 트리를 접어도 남는다 — 지금 어느 가지를 보고 있는지가 사라지면 안 된다. */}
+          <div className="flex items-center gap-2 mb-3 text-sm flex-wrap">
+            <button
+              onClick={() => setTreeOpen((v) => !v)}
+              className="px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50"
+            >
+              {treeOpen ? '카테고리 접기' : '카테고리 열기'}
+            </button>
+            <button
+              onClick={() => { setPage(1); setCatPath(''); }}
+              className={catPath ? 'text-gray-500 hover:text-[#E31837]' : 'text-gray-900 font-semibold'}
+            >
+              전체
+            </button>
+            {catPath && catPath !== UNCLASSIFIED && catPath.split(PATH_SEP).map((name, i, arr) => {
+              const upto = arr.slice(0, i + 1).join(PATH_SEP);
+              const last = i === arr.length - 1;
+              return (
+                <span key={upto} className="flex items-center gap-2">
+                  <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
+                  {last ? (
+                    <span className="text-gray-900 font-semibold">{name}</span>
+                  ) : (
+                    <button onClick={() => { setPage(1); setCatPath(upto); }} className="text-gray-500 hover:text-[#E31837]">
+                      {name}
+                    </button>
+                  )}
+                </span>
+              );
+            })}
+            {catPath === UNCLASSIFIED && (
+              <span className="flex items-center gap-2">
+                <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
+                <span className="text-gray-900 font-semibold">{UNCLASSIFIED}</span>
+                <span className="text-xs text-gray-500">수집 경로가 트리에 붙지 않는 상품</span>
+              </span>
+            )}
+            {(() => {
+              const c = catPath ? counts[catPath] : allCount;
+              return (
+                <span className="ml-auto text-xs text-gray-500">
+                  상품 <b className="text-gray-900 tabular-nums">{(c?.total ?? 0).toLocaleString()}</b>개
+                  {' · '}상세 확보 <b className="text-emerald-700 tabular-nums">{(c?.ready ?? 0).toLocaleString()}</b>개
+                </span>
+              );
+            })()}
+          </div>
 
       <div className="rounded-xl border border-gray-200 bg-white p-4 mb-4 flex items-end gap-2 flex-wrap">
         <form
@@ -504,6 +602,8 @@ export default function NaverSourcingCatalogPage() {
           )}
         </>
       )}
+        </div>
+      </div>
     </div>
   );
 }

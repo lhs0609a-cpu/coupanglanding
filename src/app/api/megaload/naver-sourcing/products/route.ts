@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { isDetailExtractable } from '@/lib/megaload/naver-store-type';
+import { UNCLASSIFIED, PATH_SEP, flattenTree, pathMatches } from '@/lib/megaload/naver-category-tree';
 
 export const maxDuration = 30;
 export const dynamic = 'force-dynamic';
@@ -59,6 +60,7 @@ export async function GET(request: NextRequest) {
   const page = Math.max(1, Number(searchParams.get('page') || '1'));
   const q = (searchParams.get('q') || '').trim();
   const category = (searchParams.get('category') || '').trim();
+  const path = (searchParams.get('path') || '').trim();     // 카테고리 트리에서 고른 이름 경로
   const onlyDetail = searchParams.get('detail') === '1';
   const sort = searchParams.get('sort') || 'recent';   // recent | price | review
 
@@ -76,6 +78,28 @@ export async function GET(request: NextRequest) {
 
   if (q) query = query.ilike('title', `%${q}%`);
   if (category) query = query.eq('naver_category_id', category);
+
+  // ── 카테고리 트리로 좁히기 ──
+  // 이름 경로로 찾는다(트리 id 1000xxxx ≠ 상품 카테고리 id 5000xxxx — 자세한 이유는
+  // naver-category-tree.ts). 상위를 고르면 하위도 나와야 하므로 '경로' 또는 '경로 > …' 이다.
+  // ★ 단순 like '경로%' 는 안 된다 — 실제로 '휴대폰/카메라 > 휴대폰' 이 '…휴대폰액세서리' 를
+  //   먹는 접두사 충돌이 트리에 3쌍 있다(실측). 구분자까지 포함해야 한다.
+  if (path === UNCLASSIFIED) {
+    // '미분류' = 트리 어느 가지에도 안 붙는 것 + 경로가 아예 없는 것.
+    // 알려진 401개 경로를 not-in 으로 넘기면 URL 이 8KB 를 넘는다 → 실제로 존재하는
+    // 고아 경로만 찾아서 in 으로 건다(보통 한두 개다).
+    const { data: paths } = await service
+      .from('sh_naver_sourcing_products').select('category_path').limit(20000);
+    const nodes = flattenTree();
+    const orphans = [...new Set((paths ?? [])
+      .map((r) => (r.category_path || '').trim())
+      .filter((p) => p && !nodes.some((n) => pathMatches(p, n.path))))].slice(0, 200);
+    query = orphans.length
+      ? query.or(`category_path.is.null,category_path.in.(${orphans.map((p) => `"${p}"`).join(',')})`)
+      : query.is('category_path', null);
+  } else if (path) {
+    query = query.or(`category_path.eq.${path},category_path.like.${path}${PATH_SEP}*`);
+  }
   if (onlyDetail) query = query.eq('detail_status', 'done');
 
   if (sort === 'price') query = query.order('price', { ascending: true });

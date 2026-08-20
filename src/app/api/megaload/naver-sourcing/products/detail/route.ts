@@ -92,7 +92,13 @@ export async function POST(request: NextRequest) {
   // 상세에서 확인된 값이 목록보다 정확하다 — 있으면 갱신한다(리뷰수는 목록이 5자리로 잘려 온다).
   if (body.title) patch.title = String(body.title).slice(0, 300);
   if (Number.isFinite(Number(body.price)) && Number(body.price) > 0) patch.price = Math.round(Number(body.price));
-  if (body.categoryPath) patch.category_path = body.categoryPath;
+  // ★ category_path 는 **덮어쓰지 않는다**(2026-08-20 수정).
+  //   두 값은 형식도 체계도 다르다:
+  //     수집 경로   '신선식품 > 과일'          ← 카탈로그 카테고리 트리의 축(이름 경로)
+  //     상세 경로   '식품>농산물>과일>토마토'  ← 네이버 표준 상품분류
+  //   상세를 받을 때마다 뒤엣것으로 덮어써서, **상세를 확보한 상품일수록 트리에서 사라졌다**
+  //   (실측: done 5건이 전부 '미분류'로 빠졌다 — 가장 쓸모 있는 것들이 안 보였다).
+  //   표준 분류는 detail.categoryPath / naver_category_id 에 그대로 남으므로 잃는 정보는 없다.
   if (body.categoryId) patch.naver_category_id = body.categoryId;
 
   // 목록 수집을 거치지 않고 상세부터 받은 경우도 있으므로, 없으면 새로 만든다.
