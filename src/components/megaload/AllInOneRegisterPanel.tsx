@@ -185,6 +185,14 @@ interface Row {
   regenCount: number;
   /** 사용자가 고른 대표컷의 mainImages 인덱스. 기본 0(=AI 추천). */
   selectedMainIdx: number;
+  /**
+   * 쿠팡에 올릴 갤러리 선택 — 파일명 배열. [0]=대표, [1..9]=추가이미지(최대 9장).
+   * null 이면 "자동"(대표 + 우선순위 상위 9장)으로, 예전 동작 그대로다. 사용자가 한 번이라도
+   * 고르면 그 순간 확정되어 여기에 남는다.
+   * ⚠️ 인덱스가 아니라 **파일명**으로 들고 있어야 후보를 ×로 빼거나 되살려 순서가 바뀌어도
+   *    선택이 어긋나지 않는다(mainImages 안에서 파일명은 이미 유일하게 정리돼 있다).
+   */
+  pickedMain: string[] | null;
   /** 상세이미지: CLIP 이 버린 광고/배송/리뷰컷을 제외한 상세컷(등록 업로드 대상) */
   detailImages: ScannedImageFile[];
   /**
@@ -197,6 +205,13 @@ interface Row {
   /** 대표컷이 CLIP(AI) 판단으로 선택/재정렬됐는지(뱃지 표시용) */
   mainAiPicked: boolean;
   usingRegen: boolean;
+  /**
+   * 지금 들고 있는 상세글이 **어느 분류로 쓰였나**. 초기값은 워커 판단(gen.categoryPath).
+   * 카테고리를 바꿨는지는 gen 과 대조해 판정했는데, gen 은 불변이라 **다시 써도 영원히 달랐다** —
+   * 재생성을 마친 카드가 계속 "예전 카테고리로 쓰인 그대로"라고 경고했다. 맞는 경고까지
+   * 안 믿게 만드는 종류의 거짓말이라, 판정 기준을 "상세글이 쓰인 분류"로 옮긴다.
+   */
+  detailCatPath: string;
   approved: boolean;
   status: RowStatus;
   message?: string;
@@ -415,6 +430,48 @@ function applyDetailCuration(scanned: ScannedImageFile[], gen: GenRecord | null)
  *    (실측 256545708: 비전은 review_images/8.jpg(잡곡 실사)를 골랐는데, 화면엔 비전이 버린
  *     main_images/8.jpg — 거의 백지 이미지 — 가 대표로 떴다.)
  */
+/** 쿠팡 상품 이미지 한도 — 0번=대표(REPRESENTATION) + 나머지 9장=추가(DETAIL). */
+export const GALLERY_MAX = 10;
+
+/**
+ * 사용자가 아직 아무것도 안 골랐을 때의 기본 갤러리 = 대표 + 추천 순위 상위 9장.
+ * 순위: 리뷰 실사(지재권 위험 최저) → 누끼 가공본(우리 산출물) → 업체 원본.
+ * ⚠️ 순위는 "10장을 넘을 때 뭘 살릴지"에만 쓰고, 살아남은 것의 **순서는 카드 순서 그대로**다.
+ */
+export function defaultPickedMain(r: Row): string[] {
+  const chosen = r.mainImages[r.selectedMainIdx];
+  const reviewNames = new Set((r.reviewImages || []).map((x) => x.name));
+  const seen = new Set<string>(chosen?.name ? [chosen.name] : []);
+  const rest = r.mainImages
+    .map((img, i) => ({ img, i }))
+    .filter(({ img, i }) => {
+      if (i === r.selectedMainIdx) return false;
+      if (!img?.name || seen.has(img.name)) return false;
+      seen.add(img.name);
+      return true;
+    });
+  const subRank = ({ img, i }: { img: ScannedImageFile; i: number }) =>
+    (reviewNames.has(img.name) ? 0 : i < r.regenCount ? 1 : 2);
+  const keepIdx = new Set(
+    [...rest].sort((a, b) => subRank(a) - subRank(b) || a.i - b.i)
+      .slice(0, GALLERY_MAX - 1).map(({ i }) => i),
+  );
+  return [
+    ...(chosen?.name ? [chosen.name] : []),
+    ...rest.filter(({ i }) => keepIdx.has(i)).map(({ img }) => img.name),
+  ];
+}
+
+/**
+ * 이 카드가 실제로 올릴 갤러리(파일명 순서대로). 선택이 없으면 기본값.
+ * 후보에서 빠진 파일명은 걸러 낸다 — 사라진 사진이 자리를 차지하면 안 된다.
+ */
+export function pickedMainNames(r: Row): string[] {
+  const have = new Set(r.mainImages.map((m) => m.name));
+  const cur = r.pickedMain ? r.pickedMain.filter((n) => have.has(n)) : defaultPickedMain(r);
+  return cur.slice(0, GALLERY_MAX);
+}
+
 export function pickedFromReview(gen: { mainImage?: string | null } | null): boolean {
   const p = String(gen?.mainImage || '').replace(/\\/g, '/').toLowerCase();
   return /\/(review_images|reviews|review|customer_reviews|리뷰[^/]*)\//.test(p);
@@ -1041,10 +1098,13 @@ export default function AllInOneRegisterPanel() {
           // 기본 대표 = 0번(누끼 가공본). 단 워커가 가공본을 반려했으면(거꾸로/잘림/빈컷 등)
           // 첫 원본(=regen 다음 인덱스)을 기본으로 — 가공본은 후보로 남아 되돌릴 수 있다.
           selectedMainIdx: initialMainIdx,
+          pickedMain: null,   // 자동(대표 + 추천 9장) — 사용자가 고르면 확정된다
           detailImages,
           reviewImages: reviewCurated,
           mainAiPicked: reordered.picked,
           usingRegen,
+          // 불러온 상세글은 워커가 정한 분류로 쓰인 것이다 — 여기가 기준선.
+          detailCatPath: gen?.categoryPath || edit.categoryPath || '',
           approved: isEligible(edit) && !gen?.needsReview,
           status: 'idle',
         });
@@ -1274,10 +1334,13 @@ export default function AllInOneRegisterPanel() {
           mainImages,
           regenCount: cls.regenCount,
           selectedMainIdx: 0,
+          pickedMain: null,
           detailImages,
           reviewImages,
           mainAiPicked: cls.regenCount > 0,
           usingRegen: cls.regenCount > 0,
+          // 불러온 상세글은 워커가 정한 분류로 쓰인 것이다 — 여기가 기준선.
+          detailCatPath: gen?.categoryPath || edit.categoryPath || '',
           approved: isEligible(edit) && !gen?.needsReview,
           status: 'idle',
         });
@@ -1553,7 +1616,13 @@ export default function AllInOneRegisterPanel() {
               if (text) {
                 setRows((prev) => prev.map((r) => (r.uid === uid
                   // 카드와 같은 필터를 통과시키되, 기준은 **바뀐** 카테고리다(옛 기준으로 걸러지지 않게).
-                  ? { ...r, edit: { ...r.edit, detail: scrubForbidden(stripEmphasisMarks(text), r.edit.categoryPath) } }
+                  //   그리고 "이 상세글은 이 분류로 쓰였다"를 기록한다 — 안 적으면 다시 쓰고도
+                  //   카드가 계속 "예전 카테고리 그대로"라고 경고한다.
+                  ? {
+                    ...r,
+                    detailCatPath: r.edit.categoryPath || r.detailCatPath,
+                    edit: { ...r.edit, detail: scrubForbidden(stripEmphasisMarks(text), r.edit.categoryPath) },
+                  }
                   : r)));
               }
               setRegen((p) => (p[uid]
@@ -1583,7 +1652,7 @@ export default function AllInOneRegisterPanel() {
 
   /** 워커가 정한 카테고리와 사용자가 지금 지정한 카테고리가 다른 행 — 상세글이 옛 어휘로 남아 있다. */
   const catChangedUids = rows
-    .filter((r) => r.gen && r.status !== 'success' && (r.edit.categoryPath || '') !== (r.gen.categoryPath || ''))
+    .filter((r) => r.gen && r.status !== 'success' && (r.edit.categoryPath || '') !== (r.detailCatPath || ''))
     .map((r) => r.uid);
   /** 재생성 대기 중인 카드가 하나라도 있으면 일괄 버튼을 잠근다(중복 큐잉 방지). */
   const regenBusy = Object.values(regen).some((s) => s.status === 'pending');
@@ -1862,6 +1931,12 @@ export default function AllInOneRegisterPanel() {
     let lastResults: AuditResult[] = [];
 
     const nameOf = (r: Row) => r.edit.displayName || r.gen?.originalName || r.productCode;
+    /**
+     * 카테고리가 바뀌어 상세글을 이미 강제로 다시 쓰게 한 상품 — **한 번만** 건다.
+     * gen 은 워커의 원래 판단이라 불변이다. 다시 써도 "바뀐 상태"는 영원히 남으므로,
+     * 매 라운드 거는 순간 같은 상품을 MAX_AUDIT_ROUND 만큼 반복 재생성한다.
+     */
+    const forcedByCategory = new Set<string>();
     const auditStartedAt = Date.now();
     setNowTick(auditStartedAt);
 
@@ -1895,6 +1970,26 @@ export default function AllInOneRegisterPanel() {
           const set = warnMap.get(res.uid) || new Set<string>();
           warns.forEach((w) => set.add(w));
           warnMap.set(res.uid, set);
+        }
+      }
+
+      /* ── 사람이 바꾼 카테고리는 규칙 스캔이 못 잡는다 ────────────────────
+         auditProduct 는 **지금 값만** 보고 판정하는 순수 함수다. "워커가 정한 분류와
+         달라졌다"는 건 원본 판단(gen)과 대조해야 아는 사실이라 스캔이 알 도리가 없다.
+
+         그런데 카테고리를 바꾸면 상세글은 **예전 분류 어휘로 쓰인 그대로** 남는다.
+         화면에는 "재생성" 버튼이 뜨지만 그건 사람이 카드를 볼 때 이야기고, 무인
+         자동등록은 카드를 안 본다 — 바꿔 놓은 채로 그대로 올라간다.
+         등록 직전 점검이 마지막 관문이니 여기서 한 번 다시 쓰게 한다. */
+      if (helperOk) {
+        const rowsNow = new Map(work.map((r) => [r.uid, r]));
+        for (const res of results) {
+          if (forcedByCategory.has(res.uid)) continue;
+          const r = rowsNow.get(res.uid);
+          if (!r?.gen) continue;
+          if ((r.edit.categoryPath || '') === (r.detailCatPath || '')) continue;
+          forcedByCategory.add(res.uid);
+          if (!res.regens.includes('content')) res.regens.push('content');
         }
       }
 
@@ -1974,7 +2069,15 @@ export default function AllInOneRegisterPanel() {
       }
       const applyRegen = (r: Row): Row => {
         const p = patches.get(r.uid);
-        return p ? { ...r, edit: { ...r.edit, ...p } } : r;
+        if (!p) return r;
+        const edit = { ...r.edit, ...p };
+        return {
+          ...r,
+          edit,
+          // 상세글을 다시 썼으면 "어느 분류로 쓰였나"도 같이 옮긴다 — 안 옮기면 점검이
+          // 고쳐 놓고도 카드가 계속 "예전 카테고리 그대로"라고 경고한다.
+          detailCatPath: p.detail ? (edit.categoryPath || r.detailCatPath) : r.detailCatPath,
+        };
       };
       work = work.map(applyRegen);
       setRows((prev) => prev.map((r) => (patches.has(r.uid) ? applyRegen(r) : r)));
@@ -2945,7 +3048,7 @@ export default function AllInOneRegisterPanel() {
           // 상세글 재생성 — 카테고리를 바꿔도 본문은 안 따라오므로 사용자가 눌러 다시 쓰게 한다.
           const rg = regen[r.uid];
           const regenning = rg?.status === 'pending';
-          const catChanged = !!g && (e.categoryPath || '') !== (g.categoryPath || '');
+          const catChanged = !!g && (e.categoryPath || '') !== (r.detailCatPath || '');
           const regenBtn = (
             <button type="button" disabled={!editable || regenning}
               onClick={() => void requestDetailRegen([r.uid])}
