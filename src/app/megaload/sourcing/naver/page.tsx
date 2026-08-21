@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, Loader2, ExternalLink, PackageSearch, ChevronLeft, ChevronRight, Download, AlertTriangle } from 'lucide-react';
-import { findHelper, fetchCollection, startImport, fetchImportState, kickQueue, type ImportState, type GenState } from '@/lib/megaload/naver-ingest-local';
+import { findHelper, fetchCollection, startImport, fetchImportState, fetchStatus, kickQueue, type ImportState, type GenState } from '@/lib/megaload/naver-ingest-local';
 import { isDetailExtractable, naverStoreType, STORE_TYPE_LABEL } from '@/lib/megaload/naver-store-type';
 import NaverCategoryTree, { type CategoryCount } from '@/components/megaload/NaverCategoryTree';
 import SkipReviewRiskModal, { type SkipReviewOptions } from '@/components/megaload/SkipReviewRiskModal';
@@ -60,6 +60,11 @@ function fmtDur(ms: number): string {
   const r = s % 60;
   return r ? `${m}분 ${r}초` : `${m}분`;
 }
+
+/** 상세 준비를 기다려 주는 한도. 넘으면 손을 떼고 **그만뒀다고 말한다**. */
+const WAIT_LIMIT_MS = 8 * 60_000;
+/** 처리 주체(관리자 도우미) 점검 주기 — 5초 폴링 중 3번에 한 번. */
+const BLOCK_CHECK_EVERY = 3;
 
 /** 생성 단계(러너 마커) → 사람이 읽는 라벨. 순서: 인식 → 글 생성 → 누끼. */
 const GEN_STEP_META: Record<NonNullable<GenState['phase']>, { idx: number; label: string }> = {
@@ -106,6 +111,38 @@ export default function NaverSourcingCatalogPage() {
   // 그 기다림에도 시계를 붙인다 — 실측 1~1분 반이 걸리는데 아무 표시가 없으면 멈춘 걸로 보인다.
   const [waitStartedAt, setWaitStartedAt] = useState(0);
   const [waitCount, setWaitCount] = useState(0);
+  /**
+   * **기다려도 소용없는 이유**(모르면 null). 상세는 로그인된 관리자 도우미만 가져간다 —
+   * 그 도우미가 없거나 로그아웃돼 있으면 요청은 큐에 그대로 앉아 있는다.
+   * 실측 2026-08-21: 도우미가 떠 있는데 계정이 로그아웃돼 `claimJobs` 가 매번 빈 손으로
+   * 돌아왔고, 요청 1건이 **32분째 requested 인 채** 방치됐다. 그동안 화면은 "곧 됩니다"만
+   * 적고 있었다 — 사람은 기다리면 되는 줄 알고 기다린다. 아는 것을 말해야 한다.
+   */
+  const [waitBlock, setWaitBlock] = useState<string | null>(null);
+  const waitBlockRef = useRef<string | null>(null);
+  const noteBlock = (why: string | null) => { waitBlockRef.current = why; setWaitBlock(why); };
+
+  /**
+   * 이 요청을 가져갈 도우미가 실제로 준비돼 있나 — 아는 만큼만, 단정하지 않고 말한다.
+   * 도우미가 이 PC 에 없는 건 셀러에겐 **정상**이다(관리자 PC 가 대신 뽑는다) → 그때는 조용히 있는다.
+   */
+  const checkQueueWorker = useCallback(async () => {
+    try {
+      const helper = await findHelper();
+      if (!helper) { noteBlock(null); return; }      // 남의 PC 가 처리할 수도 있다 — 단정 금지
+      const st = await fetchStatus(helper.ep);
+      if (!st || st === 'unsupported') { noteBlock(null); return; }
+      if (!st.account) {
+        noteBlock('이 PC 도우미에 메가로드 계정이 로그인돼 있지 않습니다 — 상세는 로그인된 관리자 도우미만 가져갑니다. 도우미 창에서 로그인해 주세요.');
+        return;
+      }
+      if (st.isAdmin && !st.naverLogin?.loggedIn) {
+        noteBlock('이 PC 도우미가 네이버에 로그인돼 있지 않습니다 — 자동 로그인이 안 되면 상세를 못 가져옵니다. 도우미에서 네이버 로그인을 확인해 주세요.');
+        return;
+      }
+      noteBlock(null);
+    } catch { noteBlock(null); }   // 못 물어봤을 뿐이다 — 모르면 겁주지 않는다
+  }, []);
   // ── 카테고리 트리 ──
   // 트리 자체는 서버 코드에 동봉된 스냅샷이라 도우미가 없어도 즉시 뜬다. 여기서 받는 건
   // "어느 가지에 몇 개가 쌓였나"까지 포함된 한 덩어리다(요청 1회).
@@ -348,6 +385,8 @@ export default function NaverSourcingCatalogPage() {
           setPendingIds(ids);
           // 큐 자동 처리는 60초 주기다 — 요청하자마자 걸리면 아무 일 없이 1분이 흐른다. 깨운다.
           kickQueue(helper.ep);
+          // 가져갈 사람이 없으면 8분을 기다릴 이유가 없다 — 걸자마자 확인해서 바로 말한다.
+          void checkQueueWorker();
         } else if (blockedNote) {
           // 고른 게 전부 미지원이면 기다릴 것도 없다 — "잠시 후 다시" 는 거짓 안내가 된다.
           setImpNote(blockedNote);
@@ -377,21 +416,32 @@ export default function NaverSourcingCatalogPage() {
    * 예전 값(14초)만 보고 3분에서 손을 뗐는데, 큐 자동 처리가 60초 주기라 운 나쁘면 대기 1분이
    * 그냥 얹힌다. 게다가 앞에 밀린 요청이 있으면 순번을 기다린다 → 3분은 너무 빠듯했다.
    * 8분까지 기다리고, 5초마다 확인해 준비되는 즉시 이어간다.
+   *
+   * ⚠️ 포기 판정은 **벽시계**로 한다(횟수로 세지 않는다). 브라우저는 안 보이는 탭의 타이머를
+   *    1분에 한 번으로 늦춘다 — 5초 × 96회로 세면 백그라운드에서는 8분이 아니라 한 시간이
+   *    넘는다. 실측 2026-08-21: 27분이 지나도 포기가 안 걸린 채 "곧 됩니다"만 떠 있었다.
    */
   useEffect(() => {
     if (!pendingIds.length) return;
     let alive = true;
-    let tries = 0;
+    // 시작 시각을 여기서 못박는다 — 타이머가 몇 번 돌았는지와 무관하게 실제 흐른 시간으로 잰다.
+    const deadline = Date.now() + WAIT_LIMIT_MS;
+    let checks = 0;
     const t = setInterval(async () => {
       // 8분. 조용히 손을 떼면 "기다렸는데 아무 일도 안 났다"가 된다 — 그만뒀다고 말한다.
-      if (++tries > 96) {
+      if (Date.now() > deadline) {
         clearInterval(t);
         setPendingIds([]);
         setWaitStartedAt(0);
-        setImpNote('상세 준비가 8분을 넘겨 기다리기를 멈췄습니다 — 관리자 도우미가 켜져 있는지 확인한 뒤 다시 시도해 주세요.');
+        setImpNote(waitBlockRef.current
+          ? `상세 준비가 8분을 넘겨 기다리기를 멈췄습니다 — ${waitBlockRef.current}`
+          : '상세 준비가 8분을 넘겨 기다리기를 멈췄습니다 — 관리자 도우미가 켜져 있는지 확인한 뒤 다시 시도해 주세요.');
+        setWaitBlock(null);
         load(); loadCategories();
         return;
       }
+      // 처리할 도우미가 준비돼 있나 — 15초에 한 번. 막혀 있으면 그 사실을 화면에 띄운다.
+      if (checks++ % BLOCK_CHECK_EVERY === 0) void checkQueueWorker();
       try {
         const res = await fetch('/api/megaload/naver-sourcing/products/export', {
           method: 'POST',
@@ -403,6 +453,7 @@ export default function NaverSourcingCatalogPage() {
         clearInterval(t);
         setPendingIds([]);
         setWaitStartedAt(0);
+        noteBlock(null);
         const helper = await findHelper();
         if (!helper) { setImpNote('상세가 준비됐는데 도우미를 찾지 못했습니다 — 도우미를 실행한 뒤 다시 눌러 주세요.'); return; }
         setImpNote(null);
@@ -634,16 +685,31 @@ export default function NaverSourcingCatalogPage() {
                 0단계 · 상세 준비 중 ({waitCount}개)
               </span>
               <span className="flex-1" />
-              <span className="text-sm font-bold text-amber-800 tabular-nums">{pct}%</span>
+              {/* 예상을 넘긴 뒤에도 95%를 띄우면 "거의 다 됐다"는 거짓말이 된다 —
+                  실측 2026-08-21: 아무도 안 가져간 채 27분째 95%였다. */}
+              <span className="text-sm font-bold text-amber-800 tabular-nums">
+                {late ? '예상 초과' : `${pct}%`}
+              </span>
             </div>
             <div className="mt-2 h-2 w-full rounded-full bg-amber-100 overflow-hidden">
-              <div className="h-full bg-amber-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${late ? 'bg-amber-400/70 animate-pulse' : 'bg-amber-500'}`}
+                style={{ width: `${pct}%` }}
+              />
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-amber-900">
               <span>경과 <b className="tabular-nums">{fmtDur(elapsed)}</b></span>
               <span>보통 <b>1~1분 반</b></span>
-              <span className="text-amber-700">준비되는 즉시 가져오기·생성으로 이어집니다</span>
+              {!waitBlock && <span className="text-amber-700">준비되는 즉시 가져오기·생성으로 이어집니다</span>}
             </div>
+
+            {/* 기다려도 소용없는 이유를 **알면** 말한다. 모르면 아무 말도 하지 않는다. */}
+            {waitBlock && (
+              <div className="mt-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 leading-snug">
+                <b className="inline-flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> 지금은 아무도 이 요청을 가져가지 못합니다</b>
+                <br />{waitBlock}
+              </div>
+            )}
             <p className="text-[11px] text-amber-700 leading-snug mt-2">
               고르신 상품은 <b>상세를 아직 안 받아 둔 것</b>이라, 관리자 도우미가 네이버 상품
               페이지를 열어 옵션·상세글·고시정보·사진을 먼저 가져옵니다.
