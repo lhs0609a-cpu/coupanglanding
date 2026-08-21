@@ -19,6 +19,8 @@ import { Search, Loader2, ExternalLink, PackageSearch, ChevronLeft, ChevronRight
 import { findHelper, fetchCollection, startImport, fetchImportState, kickQueue, type ImportState, type GenState } from '@/lib/megaload/naver-ingest-local';
 import { isDetailExtractable, naverStoreType, STORE_TYPE_LABEL } from '@/lib/megaload/naver-store-type';
 import NaverCategoryTree, { type CategoryCount } from '@/components/megaload/NaverCategoryTree';
+import SkipReviewRiskModal, { type SkipReviewOptions } from '@/components/megaload/SkipReviewRiskModal';
+import { armHandoff, peekHandoff, clearHandoff } from '@/lib/megaload/autopilot-handoff';
 import { UNCLASSIFIED, PATH_SEP, type CategoryNode } from '@/lib/megaload/naver-category-tree';
 
 interface SourcedProduct {
@@ -91,6 +93,14 @@ export default function NaverSourcingCatalogPage() {
   //   (새로고침으로 남의 작업에 끼어든 경우까지 화면을 뺏으면 안 된다)
   const startedHereRef = useRef(false);
   const navigatedRef = useRef(false);
+  /* ── 무인 자동등록 ────────────────────────────────────────────────────
+     "소싱에서 고르면 사람 손 없이 등록까지"인데, 정작 그 시작점인 이 화면에서는
+     켤 수가 없었다 — 무인 설정이 검수 화면의 상태로만 살아서, 이 화면이 검수 화면을
+     여는 순간(페이지가 새로 뜬다) 통째로 초기화됐다.
+     동의는 **검수 화면과 같은 위험 모달**로 받고, 그 사본만 인계장에 적어 넘긴다. */
+  const [autoOn, setAutoOn] = useState(false);
+  const [autoOpen, setAutoOpen] = useState(false);
+  const [helperOnline, setHelperOnline] = useState(false);
   // 상세를 요청해 둔 상품 — 준비되면 자동으로 이어서 등록한다.
   const [pendingIds, setPendingIds] = useState<string[]>([]);
   // 그 기다림에도 시계를 붙인다 — 실측 1~1분 반이 걸리는데 아무 표시가 없으면 멈춘 걸로 보인다.
@@ -250,9 +260,13 @@ export default function NaverSourcingCatalogPage() {
   useEffect(() => {
     let alive = true;
     (async () => {
+      // 인계장이 살아 있으면(같은 탭·30분 이내) 켜진 상태로 보여 준다 — 껐다 켠 줄 알고
+      // 두 번 동의하게 만들지 않는다.
+      if (peekHandoff()) setAutoOn(true);
       try {
         const helper = await findHelper();
         if (!helper || !alive) return;
+        setHelperOnline(true);        // 모달이 "재생성까지 되는지"를 이걸로 안내한다
         const st = await fetchImportState(helper.ep);
         if (!alive || !st) return;
         if (st.running || st.gen?.running) setImp(st);
@@ -260,6 +274,17 @@ export default function NaverSourcingCatalogPage() {
     })();
     return () => { alive = false; };
   }, []);
+
+  /** 무인 자동등록 켜기/끄기. 켤 때만 위험 동의를 받는다. */
+  const toggleAuto = () => {
+    if (autoOn) { clearHandoff(); setAutoOn(false); return; }
+    setAutoOpen(true);
+  };
+  const confirmAuto = (opts: SkipReviewOptions) => {
+    setAutoOpen(false);
+    armHandoff({ audit: opts.audit, excludeUnfixed: opts.excludeUnfixed });
+    setAutoOn(true);
+  };
 
   /**
    * 고른 상품을 내 PC 로 가져온다.
@@ -559,9 +584,24 @@ export default function NaverSourcingCatalogPage() {
             선택 해제
           </button>
         )}
+        {/* 무인 자동등록 — 검수 화면까지 가는 대신 **등록까지** 간다.
+            위험을 감수하는 경로라 주 버튼과 헷갈리지 않게 외곽선으로만 표시한다. */}
+        <button
+          onClick={toggleAuto}
+          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+            autoOn
+              ? 'border-[#E31837] bg-red-50 text-[#E31837]'
+              : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}
+          title={autoOn
+            ? '지금은 검수 화면을 거치지 않고 바로 등록합니다. 누르면 끕니다.'
+            : '검수 화면을 거치지 않고 바로 쿠팡에 등록합니다. 위험 동의가 필요합니다.'}
+        >
+          {autoOn ? '🤖 무인 자동등록 켜짐' : '무인 자동등록'}
+        </button>
         <span className="text-xs text-gray-500">
-          누르면 <b>가져오기 → 상세페이지 생성 → 검수</b>까지 저절로 이어집니다(진행률·남은시간이
-          아래에 뜹니다). 네이버 로그인은 필요 없습니다.
+          {autoOn
+            ? <>고르면 <b>가져오기 → 생성 → 등록</b>까지 사람 손 없이 갑니다 — <b className="text-[#E31837]">검수 화면을 거치지 않습니다.</b> 등록 직전 10초 동안은 취소할 수 있습니다.</>
+            : <>누르면 <b>가져오기 → 상세페이지 생성 → 검수</b>까지 저절로 이어집니다(진행률·남은시간이 아래에 뜹니다). 네이버 로그인은 필요 없습니다.</>}
         </span>
         {blockedCount > 0 && (
           <span className="w-full text-xs text-gray-600 border-t border-gray-100 pt-2 mt-1">
@@ -730,6 +770,17 @@ export default function NaverSourcingCatalogPage() {
           {err}
         </div>
       )}
+
+      {/* 무인 자동등록 동의 — 검수 화면이 쓰는 **그 모달 그대로**다.
+          통로를 새로 파면 한쪽이 느슨해진다. preArm = 아직 상품이 없는 시점의 사전 무장. */}
+      <SkipReviewRiskModal
+        open={autoOpen}
+        plan={{ count: 0, excluded: 0, needsReview: 0, unresolvedOptions: 0, certRisk: 0 }}
+        helperOnline={helperOnline}
+        preArm
+        onConfirm={confirmAuto}
+        onCancel={() => setAutoOpen(false)}
+      />
 
       {loading ? (
         <div className="py-20 text-center text-gray-400">

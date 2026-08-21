@@ -33,6 +33,7 @@ import { focusNextField } from './focusNextField';
 import PreUploadConfirmModal from './PreUploadConfirmModal';
 import SkipReviewRiskModal, { type SkipReviewPlan, type SkipReviewOptions } from './SkipReviewRiskModal';
 import { reportClientError } from '@/lib/utils/client-error-reporter';
+import { consumeHandoff } from '@/lib/megaload/autopilot-handoff';
 import {
   auditProduct, type AuditInput, type AuditResult, type RegenTask,
 } from '@/lib/megaload/services/allinone-final-audit';
@@ -77,6 +78,8 @@ const AUTOPILOT_DELAY_SEC = 10;
  * 만료되면 자동으로 꺼지고, 다시 켜려면 동의를 새로 받는다.
  */
 const AUTOPILOT_CONSENT_TTL_MS = 6 * 60 * 60_000;
+/** 무인일 때 대표컷 가공을 기다려 주는 한도. 넘으면 자동 등록을 포기하고 사람에게 넘긴다. */
+const AUTOPILOT_THUMB_WAIT_MS = 15 * 60_000;
 const autoPilotArmed = (ap: AutoPilotState, now = Date.now()) =>
   ap.on && ap.consentAt > 0 && now - ap.consentAt < AUTOPILOT_CONSENT_TTL_MS;
 
@@ -1131,6 +1134,13 @@ export default function AllInOneRegisterPanel() {
   }, []);
   /** 등록 시작까지 남은 초. null 이면 대기 중 아님. */
   const [autoCountdown, setAutoCountdown] = useState<number | null>(null);
+  /**
+   * 무인으로 넘어왔고 **아직 카운트다운을 걸지 못한** 상태의 마감시각(ms). null = 해당 없음.
+   * 왜 바로 안 거나: 검수 화면은 누끼가 끝나기 전에 열린다(사람을 기다리게 하지 않으려고).
+   * 그 상태로 등록하면 등록 게이트에 막혀 **무인이 조용히 실패**한다 — 사람이 켜 놓고 자리를
+   * 비웠는데 아무것도 안 올라가는 게 가장 나쁜 결과다. 누끼가 끝난 다음에 건다.
+   */
+  const [autoArmDeadline, setAutoArmDeadline] = useState<number | null>(null);
 
   /**
    * 대표컷 누끼가 아직 돌고 있는 상품 수(0 이면 없음).
@@ -1400,8 +1410,23 @@ export default function AllInOneRegisterPanel() {
     if (autoLoadedRef.current || typeof window === 'undefined') return;
     if (new URLSearchParams(window.location.search).get('load') !== '1') return;
     autoLoadedRef.current = true;
-    handleLoadFromHelper().catch(() => { /* 실패 사유는 handleLoadFromHelper 가 화면에 남긴다 */ });
-  }, [handleLoadFromHelper]);
+    // 카탈로그에서 무인 자동등록을 켜 두고 왔다면 여기서 이어받는다.
+    //   **동의는 여기서 만들지 않는다** — 카탈로그가 이 화면과 같은 위험 모달을 띄워
+    //   받아 둔 동의의 사본일 뿐이고, applyAutoPilot 이 유효기간을 다시 판정한다.
+    //   한 번 쓰면 지워지므로(consume) 다음 판까지 따라오지 않는다.
+    const handoff = consumeHandoff();
+    handleLoadFromHelper()
+      .then((built) => {
+        if (!handoff || built.length === 0) return;
+        applyAutoPilot({
+          on: true, audit: handoff.audit,
+          excludeUnfixed: handoff.excludeUnfixed, consentAt: handoff.consentAt,
+        });
+        // 누끼가 끝난 뒤에 카운트다운을 건다(아래 effect). 15분 안에 안 끝나면 포기하고 말한다.
+        setAutoArmDeadline(Date.now() + AUTOPILOT_THUMB_WAIT_MS);
+      })
+      .catch(() => { /* 실패 사유는 handleLoadFromHelper 가 화면에 남긴다 */ });
+  }, [handleLoadFromHelper, applyAutoPilot]);
 
   // ── 대표컷 선택 ──────────────────────────────────────────────────
   // 스캐너는 첫 장만 objectUrl 을 즉시 만든다(대량 폴더에서 전부 만들면 메모리·시간 낭비).
@@ -2071,6 +2096,35 @@ export default function AllInOneRegisterPanel() {
   const fireAutoPilotRef = useRef(fireAutoPilot);
   useEffect(() => { fireAutoPilotRef.current = fireAutoPilot; }, [fireAutoPilot]);
 
+  /**
+   * 무인 대기 → 카운트다운으로 넘기는 자리.
+   * 누끼가 다 끝나야 등록 게이트를 통과한다. 끝났으면 **우리가 다시 불러온다** —
+   * 사람 검수 경로에서 자동 재로드를 안 하는 이유는 편집 중인 내용을 날리기 때문인데,
+   * 무인에는 그 편집이 없다. 여기서 안 불러오면 게이트가 "다시 불러오세요"로 막고 끝난다.
+   */
+  useEffect(() => {
+    if (autoArmDeadline == null) return;
+    if (Date.now() > autoArmDeadline) {
+      setAutoArmDeadline(null);
+      applyAutoPilot(AUTOPILOT_OFF);
+      setError(`대표컷 가공이 ${Math.round(AUTOPILOT_THUMB_WAIT_MS / 60_000)}분을 넘겨 무인 자동등록을 멈췄습니다 — 직접 확인한 뒤 등록해 주세요.`);
+      return;
+    }
+    if (thumbPendingCount > 0) return;      // 아직 가공 중 — 위 감시 effect 가 지켜본다
+    let alive = true;
+    (async () => {
+      if (thumbJustDone) {
+        const built = await handleLoadFromHelper();
+        if (!alive) return;
+        if (built.length === 0) { setAutoArmDeadline(null); return; }
+      }
+      if (!alive) return;
+      setAutoArmDeadline(null);
+      setAutoCountdown(AUTOPILOT_DELAY_SEC);
+    })();
+    return () => { alive = false; };
+  }, [autoArmDeadline, thumbPendingCount, thumbJustDone, handleLoadFromHelper, applyAutoPilot]);
+
   // 취소 유예 카운트다운. 0 이 되는 순간 등록을 시작한다.
   //   setState 를 effect 본문에서 직접 부르지 않도록(연쇄 렌더) 타이머 콜백 안에서만 갱신한다.
   useEffect(() => {
@@ -2399,6 +2453,22 @@ export default function AllInOneRegisterPanel() {
           <button type="button" onClick={requestArmAutoPilot} disabled={registering || !!auditProgress}
             className="text-xs font-semibold rounded-lg px-3 py-1.5 border border-[#E31837] text-[#E31837] hover:bg-red-50 disabled:opacity-50">
             켜기 (동의 필요)
+          </button>
+        </div>
+      )}
+
+      {/* 무인인데 아직 못 거는 중 — 왜 기다리는지 말한다(아무 표시가 없으면 멈춘 걸로 보인다). */}
+      {autoArmDeadline != null && (
+        <div className="rounded-xl border-2 border-[#E31837] bg-white px-4 py-3 flex flex-wrap items-center gap-3">
+          <span className="w-2.5 h-2.5 rounded-full bg-[#E31837] animate-pulse flex-none" />
+          <span className="text-sm font-bold text-[#E31837]">
+            무인 자동등록 대기 — 대표컷 가공 {thumbPendingCount}건이 끝나면 바로 등록합니다
+          </span>
+          <span className="flex-1" />
+          <button type="button"
+            onClick={() => { setAutoArmDeadline(null); applyAutoPilot(AUTOPILOT_OFF); }}
+            className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-gray-900 text-white hover:bg-gray-800">
+            무인 끄기
           </button>
         </div>
       )}
