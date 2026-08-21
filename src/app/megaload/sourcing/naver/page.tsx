@@ -21,6 +21,7 @@ import { isDetailExtractable, naverStoreType, STORE_TYPE_LABEL } from '@/lib/meg
 import NaverCategoryTree, { type CategoryCount } from '@/components/megaload/NaverCategoryTree';
 import SkipReviewRiskModal, { type SkipReviewOptions } from '@/components/megaload/SkipReviewRiskModal';
 import { armHandoff, peekHandoff, clearHandoff } from '@/lib/megaload/autopilot-handoff';
+import { saveRunTiming } from '@/lib/megaload/run-timing';
 import { UNCLASSIFIED, PATH_SEP, type CategoryNode } from '@/lib/megaload/naver-category-tree';
 
 interface SourcedProduct {
@@ -98,6 +99,14 @@ export default function NaverSourcingCatalogPage() {
   //   (새로고침으로 남의 작업에 끼어든 경우까지 화면을 뺏으면 안 된다)
   const startedHereRef = useRef(false);
   const navigatedRef = useRef(false);
+  /**
+   * 이번 판의 시계. 끝나고 검수 화면에 도착하면 진행 표시가 통째로 사라져서
+   * "1개에 얼마나 걸리더라"를 매번 감으로 답하게 된다 — 100개를 돌릴지 판단할 근거가 없다.
+   * 단계 경계를 여기 적어 두고, 넘어갈 때 통째로 넘긴다.
+   */
+  const runMarks = useRef<{ startedAt: number; detailWaitMs: number; importStartedAt: number }>(
+    { startedAt: 0, detailWaitMs: 0, importStartedAt: 0 },
+  );
   /* ── 무인 자동등록 ────────────────────────────────────────────────────
      "소싱에서 고르면 사람 손 없이 등록까지"인데, 정작 그 시작점인 이 화면에서는
      켤 수가 없었다 — 무인 설정이 검수 화면의 상태로만 살아서, 이 화면이 검수 화면을
@@ -273,6 +282,17 @@ export default function NaverSourcingCatalogPage() {
       const ready = !!g && !g.error && (g.reviewReady || (!g.running && g.code === 0));
       if (ready && startedHereRef.current && !navigatedRef.current) {
         navigatedRef.current = true;
+        // 이번 판이 실제로 얼마나 걸렸는지 넘긴다 — 검수 화면이 총합·단계별·100개 환산을 적는다.
+        if (runMarks.current.startedAt) {
+          const m = runMarks.current;
+          saveRunTiming({
+            startedAt: m.startedAt,
+            count: g?.products || 0,
+            detailWaitMs: m.detailWaitMs,
+            importMs: m.importStartedAt && g?.startedAt ? Math.max(0, g.startedAt - m.importStartedAt) : 0,
+            genStartedAt: g?.startedAt || 0,
+          });
+        }
         // 검수 화면은 이 화면이 연다고 도우미에 먼저 알린다 — 안 그러면 남은 누끼가 끝날 때
         // 도우미가 브라우저를 또 열어 같은 화면이 탭 두 개가 된다.
         await fetchImportState(helper.ep, { handoff: true }).catch(() => null);
@@ -335,6 +355,7 @@ export default function NaverSourcingCatalogPage() {
     // 이 화면이 시작한 작업이니, 검수 준비가 되면 화면이 스스로 넘어가도 된다.
     startedHereRef.current = true;
     navigatedRef.current = false;
+    runMarks.current = { startedAt: Date.now(), detailWaitMs: 0, importStartedAt: 0 };  // 시계 시작
     etaBaseRef.current = null;
     setEtaMs(null);
     try {
@@ -400,6 +421,7 @@ export default function NaverSourcingCatalogPage() {
         return;
       }
       // 올인원 생성까지 이어가는 게 이 버튼의 목적이다 — 기본값에 기대지 않고 명시한다.
+      runMarks.current.importStartedAt = Date.now();   // 0단계 없이 바로 1단계
       const r = await startImport(helper.ep, j.products, undefined, true);
       setImp({ running: true, total: r.total ?? j.products.length, done: 0, ok: 0, failed: 0, current: '', rootDir: r.rootDir ?? '', stopped: null, at: Date.now(), gen: null });
       setPicked(new Set());
@@ -458,6 +480,11 @@ export default function NaverSourcingCatalogPage() {
         if (!helper) { setImpNote('상세가 준비됐는데 도우미를 찾지 못했습니다 — 도우미를 실행한 뒤 다시 눌러 주세요.'); return; }
         setImpNote(null);
         setImporting(true);
+        // 0단계(상세 준비)가 여기서 끝났다 — 그 길이를 확정하고 1단계 시계를 켠다.
+        if (runMarks.current.startedAt) {
+          runMarks.current.detailWaitMs = Date.now() - runMarks.current.startedAt;
+          runMarks.current.importStartedAt = Date.now();
+        }
         startedHereRef.current = true;   // 이어서 시작한 것도 이 화면의 작업이다
         navigatedRef.current = false;
         etaBaseRef.current = null;

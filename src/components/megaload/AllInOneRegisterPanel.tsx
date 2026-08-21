@@ -34,6 +34,7 @@ import PreUploadConfirmModal from './PreUploadConfirmModal';
 import SkipReviewRiskModal, { type SkipReviewPlan, type SkipReviewOptions } from './SkipReviewRiskModal';
 import { reportClientError } from '@/lib/utils/client-error-reporter';
 import { consumeHandoff } from '@/lib/megaload/autopilot-handoff';
+import { consumeRunTiming, type RunTiming } from '@/lib/megaload/run-timing';
 import {
   auditProduct, type AuditInput, type AuditResult, type RegenTask,
 } from '@/lib/megaload/services/allinone-final-audit';
@@ -1141,6 +1142,12 @@ export default function AllInOneRegisterPanel() {
    * 비웠는데 아무것도 안 올라가는 게 가장 나쁜 결과다. 누끼가 끝난 다음에 건다.
    */
   const [autoArmDeadline, setAutoArmDeadline] = useState<number | null>(null);
+  /**
+   * 이번 판이 실제로 얼마나 걸렸나. 진행 중에는 경과가 보이지만 검수 화면에 도착하는 순간
+   * 그 숫자가 통째로 사라져서, "1개에 얼마 걸리더라"를 매번 감으로 답하게 된다.
+   * 끝난 뒤에 총합이 남아야 100개를 돌릴지 말지를 판단할 수 있다.
+   */
+  const [runReport, setRunReport] = useState<{ timing: RunTiming; arrivedAt: number } | null>(null);
 
   /**
    * 대표컷 누끼가 아직 돌고 있는 상품 수(0 이면 없음).
@@ -1316,6 +1323,9 @@ export default function AllInOneRegisterPanel() {
     }
 
     setScanning(true);
+    // 폴더를 고른 이 순간부터 잰다 — 사람이 탐색기에서 헤맨 시간은 우리 몫이 아니다.
+    const runStart = Date.now();
+    setRunReport(null);
     // 새 폴더로 생성을 시작하면 이전 결과 카드를 즉시 비운다.
     //   예전엔 생성이 다 끝난 뒤 handleLoadFromHelper 가 setRows(built) 로 덮을 때까지
     //   이전 작업 카드가 화면에 그대로 떠 있었다("새로 작업하는데 기존 화면이 안 사라진다").
@@ -1383,6 +1393,13 @@ export default function AllInOneRegisterPanel() {
       // 완료 → 도우미가 lastAllinoneFolder 를 이 세션으로 승격했으니 기존 직독으로 로드.
       autoLoadedRef.current = true;
       const built = await handleLoadFromHelper();
+      // 이 경로에도 같은 시계를 남긴다 — "100개면 얼마 걸리나"는 여기서도 똑같이 필요하다.
+      if (built.length > 0) {
+        setRunReport({
+          timing: { startedAt: runStart, count: built.length, detailWaitMs: 0, importMs: 0, genStartedAt: startTs },
+          arrivedAt: Date.now(),
+        });
+      }
       // 무인 자동등록이 켜져 있으면 여기서 바로 등록 카운트다운을 건다(사람 개입 0회).
       //   실행 자체는 카운트다운 effect 가 맡는다 — 이 함수의 finally 가 scanning 을 내린 뒤에
       //   시작해야 등록 버튼/가드와 상태가 어긋나지 않는다.
@@ -1415,8 +1432,11 @@ export default function AllInOneRegisterPanel() {
     //   받아 둔 동의의 사본일 뿐이고, applyAutoPilot 이 유효기간을 다시 판정한다.
     //   한 번 쓰면 지워지므로(consume) 다음 판까지 따라오지 않는다.
     const handoff = consumeHandoff();
+    const timing = consumeRunTiming();
     handleLoadFromHelper()
       .then((built) => {
+        // 카드가 실제로 뜬 이 순간까지가 "누르고 나서 검수까지"다.
+        if (timing && built.length > 0) setRunReport({ timing, arrivedAt: Date.now() });
         if (!handoff || built.length === 0) return;
         applyAutoPilot({
           on: true, audit: handoff.audit,
@@ -2456,6 +2476,50 @@ export default function AllInOneRegisterPanel() {
           </button>
         </div>
       )}
+
+      {/* ── 이번 판 소요시간 ────────────────────────────────────────────────
+          끝나고 나면 진행 표시가 사라져 "1개에 얼마 걸리더라"를 감으로 답하게 된다.
+          총합만으로는 **어디가 느린지** 모르므로 단계별로 쪼개 적고, 100개 환산까지 준다 —
+          그게 "지금 100개를 돌려도 되나"에 답하는 유일한 숫자다. */}
+      {runReport && (() => {
+        const { timing: t, arrivedAt } = runReport;
+        const total = Math.max(0, arrivedAt - t.startedAt);
+        const genMs = t.genStartedAt ? Math.max(0, arrivedAt - t.genStartedAt) : 0;
+        const n = Math.max(1, t.count);
+        const per = Math.round(total / n);
+        // 100개 환산은 **단순 비례**다. 단계마다 늘어나는 방식이 달라 정확한 예측이 아니라
+        // 자릿수 감각을 주는 값이다 — 그래서 문구에 '단순 비례'라고 적는다.
+        const per100 = per * 100;
+        return (
+          <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 space-y-1.5">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="text-sm font-bold text-gray-900">
+                ⏱ 이번 작업 {t.count}개 — 총 {fmtDur(total)}
+              </span>
+              <span className="text-sm text-gray-700">
+                상품당 <b>{fmtDur(per)}</b>
+              </span>
+              <span className="text-sm text-gray-700">
+                100개면 <b>약 {fmtDur(per100)}</b>
+                <span className="text-gray-400 text-xs"> (단순 비례)</span>
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
+              {t.detailWaitMs > 0 && <span>상세 준비 <b className="tabular-nums">{fmtDur(t.detailWaitMs)}</b></span>}
+              {t.importMs > 0 && <span>→ 가져오기 <b className="tabular-nums">{fmtDur(t.importMs)}</b></span>}
+              {genMs > 0 && <span>→ 상세페이지 생성 <b className="tabular-nums">{fmtDur(genMs)}</b></span>}
+              <span className="flex-1" />
+              <button type="button" onClick={() => setRunReport(null)} className="text-gray-400 hover:text-gray-600">닫기</button>
+            </div>
+            {t.detailWaitMs > 0 && (
+              <p className="text-[11px] text-gray-500 leading-snug">
+                <b>상세 준비</b>는 아직 자료를 안 받아 둔 상품에만 붙습니다 —
+                목록에서 <b>상세 확보</b> 표시가 있는 상품만 고르면 이 시간이 통째로 빠집니다.
+              </p>
+            )}
+          </div>
+        );
+      })()}
 
       {/* 무인인데 아직 못 거는 중 — 왜 기다리는지 말한다(아무 표시가 없으면 멈춘 걸로 보인다). */}
       {autoArmDeadline != null && (
