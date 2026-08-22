@@ -14,8 +14,8 @@ async function refresh() {
   const nv = s.naverLogin || {};
   $('sm-naver').textContent = nv.waiting ? '창에서 로그인해 주세요…'
     : !nv.loggedIn ? '⚠️ 로그인 안 됨 — 스마트스토어 건너뜀'
-    : nv.persistent ? '✅ 로그인됨 (앱을 껐다 켜도 유지)'
-    : '✅ 로그인됨 — 앱을 껐다 켜면 풀립니다';
+    : nv.persistent ? '✅ 로그인됨 (앱을 껐다 켜도, 재부팅해도 유지)'
+    : '✅ 로그인됨 — 유지 처리 중…';
   $('sm-naver-login').disabled = !!nv.waiting || !!nv.loggedIn;
   $('sm-naver-logout').disabled = !nv.loggedIn;
   // 자동 로그인 — 계정이 저장돼 있으면 세션이 끊겨도 알아서 다시 로그인한다.

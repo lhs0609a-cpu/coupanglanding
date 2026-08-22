@@ -4,7 +4,9 @@
 import { fetchNaverProduct, warmUpSession } from './naver-fetch.mjs';
 // 네이버 로그인 — 스마트스토어는 비로그인 조회를 429 로 막는다(실측: brand 3/3 성공, smartstore 0/5).
 // 세션은 소싱 수집과 공유하므로 어느 쪽에서 로그인하든 양쪽 다 적용된다.
-import { openLoginWindow, clearLogin, loginState, isLoginWindowOpen } from '../../naver-session.mjs';
+import {
+  openLoginWindow, clearLogin, loginState, isLoginWindowOpen, persistLoginCookies,
+} from '../../naver-session.mjs';
 // 자동 로그인 — 계정을 한 번 저장해 두면 세션이 끊겨도 도우미가 알아서 다시 로그인한다.
 // 로그인 세션이 하나이므로 구현도 한 곳(naver-ingest/service)만 두고 여기서 빌려 쓴다.
 import {
@@ -176,6 +178,17 @@ async function ensureToken(ctx) {
     return true;
   }
   return false;
+}
+
+/**
+ * 로그인 상태를 읽되, 아직 세션 쿠키면 그 자리에서 영속으로 바꾼 뒤 돌려준다.
+ * 쿠키 조작은 네트워크 요청이 0회라 폴링에 얹어도 비용이 없다.
+ */
+async function ensurePersistentLogin() {
+  const st = await loginState();
+  if (!st.loggedIn || st.persistent) return st;
+  const kept = await persistLoginCookies().catch(() => 0);
+  return kept ? loginState() : st;
 }
 
 async function verifyToken(ctx) {
@@ -374,7 +387,9 @@ export default {
     'stock-monitor:state': async (ctx) => ({
       hasToken: !!tokenOf(ctx), running, stats,
       // 쿠키 판정이라 요청 0회 — 5초마다 물어도 네이버 예산을 쓰지 않는다.
-      naverLogin: { ...(await loginState()), waiting: isLoginWindowOpen() },
+      // ★ 물어보는 김에 아직 도장이 안 찍힌 쿠키는 여기서 찍는다(역시 요청 0회). 상시 감시가
+      //   따로 돌지만, 그 사이의 짧은 순간에 화면이 "껐다 켜면 풀립니다"라고 잘못 말하는 걸 막는다.
+      naverLogin: { ...(await ensurePersistentLogin()), waiting: isLoginWindowOpen() },
       naverCredential: await credentialStatus().catch(() => ({ has: false, encryption: false })),
     }),
     'stock-monitor:set-token': (ctx, { token } = {}) => {

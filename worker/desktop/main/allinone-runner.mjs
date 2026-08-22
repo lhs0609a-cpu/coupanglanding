@@ -122,6 +122,8 @@ function countProducts(folder) {
 }
 
 /** 사람이 읽는 소요시간 */
+const sleep = (ms) => new Promise((r) => { const t = setTimeout(r, ms); t.unref?.(); });
+
 function humanMin(sec) {
   const m = Math.round(sec / 60);
   if (m < 1) return '1분 미만';
@@ -179,13 +181,49 @@ export async function startGeneration({
   // ── RAM 프리플라이트 ──────────────────────────────────────────────────────
   //   VRAM 이 모자라면 모델 레이어가 RAM 으로 내려간다. RAM 도 없으면 llama-server 가
   //   통째로 죽어 생성이 0건이 된다(실측: CPU_REPACK 3.1GiB 할당 실패로 100개 전멸).
-  //   막지는 않는다(측정값이 늘 정확하진 않다) — 대신 원인과 해결법을 미리 말한다.
-  if (profile.ramTight) {
+  //
+  //   ★ 순서가 중요하다: **먼저 되찾고, 다시 재고, 그다음에 판단한다.**
+  //     예전엔 경고만 하고 그대로 진행했는데, 그 경고를 읽는 사람은 없고 몇 분 뒤 "생성이
+  //     실패했습니다" 한 줄만 남았다. 게다가 모자란 RAM 의 상당 부분은 **아무도 안 쓰는
+  //     상주 모델**이었다 — 사용자에게 프로그램을 닫으라고 하기 전에 우리 것부터 치운다.
+  let ramNow = profile.ram;
+  if (services?.ollama && !profile.gpu.ok) {
+    const freed = await services.ollama.unloadOthers(profile.model).catch(() => []);
+    if (freed.length) {
+      const mb = freed.reduce((s, f) => s + (f.mb || 0), 0);
+      send('allinone:log',
+        `[메모리] 쓰지 않는 AI 모델 ${freed.length}개(약 ${gb(mb)}GB)를 메모리에서 내립니다 — `
+        + `이 PC 는 GPU 가 없어 모델이 시스템 메모리를 씁니다.`);
+      // 내리기는 예약이고 프로세스가 실제로 내려가는 데도 시간이 걸린다(4GB짜리는 몇 초).
+      // 충분히 회수될 때까지만 기다린다 — 회수되면 곧바로 나간다.
+      for (let i = 0; i < 4; i++) {
+        await sleep(1500);
+        ramNow = checkSystemRam();
+        if (!ramNow.reliable || ramNow.freeMb >= RAM_FOR_SMALL_MB) break;
+      }
+    }
+  }
+  //   되찾은 뒤에도 모자라면 **시작하지 않는다**. 여기서 밀어붙여 봐야 몇 분 태우고 같은
+  //   자리에서 죽는다 — 그 몇 분과 "왜 실패했는지 모름"을 사용자에게 남기지 않는다.
+  ramNow = checkSystemRam();
+  const stillTight = ramNow.reliable && !profile.gpu.ok && ramNow.freeMb < RAM_FOR_SMALL_MB;
+  if (stillTight) {
+    const reason = `시스템 메모리가 부족해 시작하지 않았습니다 — 지금 쓸 수 있는 메모리가 `
+      + `${gb(ramNow.freeMb)}GB 뿐이고 AI 모델을 올리려면 최소 ${gb(RAM_FOR_SMALL_MB)}GB 가 필요합니다. `
+      + `이 PC 는 GPU 가 없어 모델이 시스템 메모리에서 돕니다 — 크롬(탭이 많으면 수 GB)이나 `
+      + `다른 AI·영상 프로그램을 닫고 다시 눌러주세요. `
+      + `가상 메모리(페이지파일)가 꺼져 있어도 같은 증상이 납니다.`;
+    send('allinone:log', '⛔ ' + reason);
+    onDone?.(-1, reason);
+    send('allinone:done', { code: -1, reason });
+    return false;
+  }
+  // 막을 정도는 아니지만 빠듯한 구간 — 판정은 **회수 뒤의 최신 값**으로 한다(profile.ram 은
+  // 회수 전 값이라 이미 해결된 문제를 계속 경고하게 된다).
+  if (ramNow.reliable && !profile.gpu.ok && ramNow.freeMb < RAM_FOR_SMALL_MB * 1.5) {
     send('allinone:log',
-      `⚠️ 지금 쓸 수 있는 시스템 RAM 이 ${gb(profile.ram.freeMb)}GB 뿐입니다. `
-      + `AI 모델을 메모리에 올리지 못해 생성이 통째로 실패할 수 있습니다. `
-      + `크롬(탭 많으면 수 GB)이나 다른 AI·영상 프로그램을 닫고 다시 시작하세요. `
-      + `가상 메모리(페이지파일)가 꺼져 있어도 같은 증상이 납니다.`);
+      `⚠️ 지금 쓸 수 있는 시스템 RAM 이 ${gb(ramNow.freeMb)}GB 로 빠듯합니다 — `
+      + `생성이 느리거나 중간에 실패할 수 있습니다. 여유가 되면 무거운 프로그램을 닫아주세요.`);
   }
   // ── 예상 소요시간 안내 ─────────────────────────────────────────────────────
   //   "얼마나 걸릴지"를 안 알려주면 느린 실행이 고장으로 보인다(실측 문의: VRAM 0.6GB 상태에서
@@ -249,9 +287,15 @@ export async function startGeneration({
   const [ollamaRes] = await Promise.allSettled([ollamaTask, titlesTask]);
   if (ollamaRes.status === 'rejected') {
     const e = ollamaRes.reason;
-    send('allinone:log', '❌ ollama 준비 실패: ' + (e?.message || e));
-    onDone?.(-1);
-    send('allinone:done', { code: -1 });
+    // ★ 사유를 **반드시** 실어 보낸다. 예전엔 onDone(-1) 만 불러서, 웹 화면에는 사유 없는
+    //   "생성이 실패했습니다." 한 줄만 떴고 진짜 원문은 이 앱의 로그 패널에만 남았다.
+    //   그 패널을 열어 두는 사람은 없다 — 실패를 진단할 수 없게 만드는 건 실패보다 나쁘다.
+    //   (자식 프로세스 실패 경로는 원래 사유를 넘기고 있었다. 여기만 빠져 있었다.)
+    const reason = maskInternalNames(
+      'AI 엔진을 준비하지 못했습니다 — ' + explainLlmError(String(e?.message || e)));
+    send('allinone:log', '❌ ' + reason);
+    onDone?.(-1, reason);
+    send('allinone:done', { code: -1, reason });
     return false;
   }
 
@@ -317,7 +361,13 @@ export async function startGeneration({
   // 여럿이면 그 레인들이 다 같이 로딩을 기다리다 한꺼번에 몰려 앞 몇 건만 몇 분씩 걸린다
   // (실측 8/12: 앞 2건 248초·607초, 나머지 6건 9~30초 — 앞 2건이 전체 시간의 85%였다).
   // 실패해도 그냥 예전 동작이라 기다리지 않고 진행한다.
-  try { await services?.ollama?.warmUp?.(profile.model); } catch { /* 예열 실패는 생성을 막지 않는다 */ }
+  // ★ 붙잡아 두는 시간을 하드웨어로 나눈다. GPU 가 있으면 모델은 VRAM 에 살고 시스템 RAM 을
+  //   건드리지 않으니 30분을 잡아도 손해가 없다. GPU 가 없으면 그 30분이 곧 **시스템 RAM 점유**다
+  //   — 실측: 예열만 하고 죽은 실행이 4.3GB 를 30분간 붙잡아 다음 실행을 굶겼다.
+  //   생성이 도는 동안은 요청마다 시계가 갱신되므로 짧게 잡아도 중간에 내려가지 않는다.
+  try {
+    await services?.ollama?.warmUp?.(profile.model, profile.gpu.ok ? '30m' : '5m');
+  } catch { /* 예열 실패는 생성을 막지 않는다 */ }
 
   child = spawn(process.execPath, args, {
     cwd: runtimeDir,

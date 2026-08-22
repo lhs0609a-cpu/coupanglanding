@@ -1061,9 +1061,9 @@ export async function openNaverLogin() {
     for (let i = 0; i < 3; i++) {
       const k = await sw.evaluate(keepLoginJs).catch(() => null);
       if (k?.found) {
-        pushLog(k.now
-          ? '로그인 화면의 "로그인 상태 유지"를 켰습니다 — 이게 꺼져 있으면 앱을 껐다 켤 때마다 로그인이 풀립니다.'
-          : '⚠️ "로그인 상태 유지"를 켜지 못했습니다 — 로그인 창에서 직접 체크해 주세요(안 켜면 앱 재시작마다 로그인이 풀립니다).');
+        // 체크를 못 켜도 로그인은 유지된다(도우미가 쿠키에 직접 만료시각을 붙인다) —
+        // 사람에게 겁을 주지 않는다. 켜면 네이버 쪽 세션도 길어지니 시도는 계속 한다.
+        if (k.now) pushLog('로그인 화면의 "로그인 상태 유지"를 켰습니다.');
         break;
       }
       await new Promise((r) => { const t = setTimeout(r, 1500); t.unref?.(); });
@@ -1074,11 +1074,13 @@ export async function openNaverLogin() {
       await new Promise((r) => { const t = setTimeout(r, 5000); t.unref?.(); });
       const st = await loginState();
       if (st.loggedIn) {
-        loginCache = { loggedIn: true, at: Date.now() };
-        pushLog('✅ 네이버 로그인 완료 — 이제 목록 수집이 됩니다.');
-        if (!st.persistent) {
-          pushLog('⚠️ 이 로그인은 세션 쿠키라 앱을 껐다 켜면 풀립니다 — 로그인 창에서 "로그인 상태 유지"를 켜고 다시 로그인하면 유지됩니다.');
-        }
+        // 세션 쿠키로 왔으면 여기서 만료시각을 붙인다 — 사람에게 "로그인 상태 유지를 켜라"고
+        // 떠넘기던 자리다. 그 체크는 캡차 화면을 지나면 저절로 풀려서 지킬 수가 없었다.
+        const kept = st.persistent ? 0 : await persistLoginCookies().catch(() => 0);
+        loginCache = { loggedIn: true, persistent: !!(st.persistent || kept), at: Date.now() };
+        pushLog(st.persistent || kept
+          ? '✅ 네이버 로그인 완료 — 이제 목록 수집이 됩니다. 앱을 껐다 켜도 유지됩니다.'
+          : '✅ 네이버 로그인 완료 — 이제 목록 수집이 됩니다.');
         sw.hide();
         sw.status = 'idle';
         sw.detail = '';

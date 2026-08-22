@@ -12,6 +12,8 @@ import { hostname, tmpdir } from 'node:os';
 import { rpc, isPermanentAuthError } from '../runtime/supabase-rest.mjs';
 import { Store } from './store.mjs';
 import naverGate from './naver-gate.mjs';
+// 네이버 로그인을 앱 재시작·재부팅 너머로 살려 두는 장치 — 어느 탭을 여는지와 무관하게 항상 돈다.
+import { installCookiePersistence, persistLoginCookies, flushCookies } from './naver-session.mjs';
 // 수집 코어 — 앱 탭(modules/naver-ingest/module.mjs)과 웹(pair-server)이 같은 인스턴스를 쓴다.
 import * as naverIngest from './modules/naver-ingest/service.mjs';
 import { ComfyManager } from './comfy-manager.mjs';
@@ -209,6 +211,9 @@ function setupServices() {
   // 네이버 예산 게이트 — 품절 감시(stock-monitor)와 소싱 수집(naver-ingest)이 공유한다.
   //   쿨다운을 디스크에 남겨, 밴 중에 앱을 재시작해도 그대로 쉬게 한다(재시작 회피 = 밴 악화).
   naverGate.init(userData);
+  // 네이버 로그인 쿠키 상시 유지 — 로그인은 사람이 손으로 하는 유일한 단계라 한 번으로 끝나야 한다.
+  //   특정 탭(소싱)의 상태 폴링에 얹어 두었더니 그 화면을 안 여는 사람에겐 영영 안 돌았다 → 셸에서 건다.
+  installCookiePersistence().catch(() => {});
   installDir = join(userData, 'engine');
   comfyPort = store.get('comfyPort', 8188);
   comfy = new ComfyManager(installDir, { port: comfyPort, onLog: (m) => send('thumbnail-gpu:comfy-log', m) });
@@ -486,6 +491,10 @@ app.on('before-quit', async (e) => {
   if (app.isQuitting) return;
   app.isQuitting = true;
   e.preventDefault();
+  // ★ 끄기 직전에 네이버 쿠키를 디스크에 확정한다. Chromium 은 쿠키를 주기적으로만 쓰기 때문에,
+  //   여기서 안 밀어 넣으면 마지막 몇 분치가 통째로 날아가 다음 실행에서 로그아웃으로 나타난다.
+  //   로컬 I/O 라 종료가 느려질 일도 없다.
+  try { await persistLoginCookies(); await flushCookies(); } catch { /* ignore */ }
   try { ads?.stop(); await runner?.stopLlmLoop(); await stopWorker(); await comfy.stop(); await ollama?.stop(); await pair?.close(); } catch { /* ignore */ }
   app.quit();
 });

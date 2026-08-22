@@ -208,6 +208,40 @@ export class OllamaManager {
    * keep_alive 를 길게 잡는 이유: 기본값 5분이라 배치 중간에 잠깐 쉬면 모델이 내려가고
    * 다음 상품이 또 로딩을 문다. 생성이 도는 동안은 붙잡아 둔다.
    */
+  /**
+   * 지금 메모리에 상주 중인 **다른 모델을 내린다** — 우리가 쓸 모델만 남긴다.
+   * ---------------------------------------------------------------------------
+   * 왜 필요한가(실측 2026-08-22): GPU 가 없는 PC 는 모델이 **시스템 RAM** 에 산다. 그런데 예열은
+   * 모델을 30분씩 붙잡아 두므로, 실행마다 고른 모델이 다르면 llama-server 가 겹쳐 쌓인다.
+   * 실제로 16GB PC 에서 7.8B(4.3GB)와 3B(1.9GB)가 동시에 상주해 여유 RAM 이 0.7GB 까지 떨어졌고,
+   * 그 상태에서 시작한 생성이 엔진 준비 단계에서 죽었다 — 아무도 안 쓰는 모델이 원인이었다.
+   *
+   * keep_alive:0 은 **예약**이다. 진행 중인 요청을 끊지 않고 그게 끝나면 내린다 —— 그래서
+   * 다른 기능이 마침 그 모델을 쓰고 있어도 그 작업을 깨뜨리지 않는다.
+   * @returns {Promise<Array<{name:string, mb:number}>>} 내리기를 건 모델들(로그용)
+   */
+  async unloadOthers(keep = this.model) {
+    const freed = [];
+    try {
+      const r = await fetch(`${BASE}/api/ps`);
+      if (!r.ok) return freed;
+      const j = await r.json();
+      for (const m of j.models || []) {
+        const name = m.name || m.model;
+        if (!name || name === keep) continue;
+        try {
+          await fetch(`${BASE}/api/generate`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ model: name, keep_alive: 0 }),
+          });
+          freed.push({ name, mb: Math.round((m.size || 0) / (1024 * 1024)) });
+        } catch { /* 한 개 실패해도 나머지는 내린다 */ }
+      }
+    } catch { /* 조회 실패면 아무것도 하지 않는다 — 되찾을 게 있는지조차 모른다 */ }
+    return freed;
+  }
+
   async warmUp(model = this.model, keepAlive = '30m') {
     try {
       const t0 = Date.now();
